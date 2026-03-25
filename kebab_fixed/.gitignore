@@ -1,0 +1,31 @@
+# Zależności
+node_modules/
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Build
+dist/
+build/
+
+# Środowisko (NIE commituj haseł!)
+.env
+.env.local
+backend/.env
+
+# Logi
+*.log
+npm-debug.log*
+
+# System
+.DS_Store
+*.pem
+
+# IDE
+.idea/
+.vscode/
+
+# Archiwa
+*.tar.gz
+*.zip

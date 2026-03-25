@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  html, body, #root { height: 100%; }
+  body { @apply font-sans text-sm text-ink bg-surface-2; }
+}
+
+@layer utilities {
+  /* Scrollbar — main content */
+  .scrollbar-thin::-webkit-scrollbar { width: 5px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { @apply bg-surface-5 rounded-full; }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover { @apply bg-surface-5; }
+
+  /* Scrollbar — sidebar (matches sidebar bg) */
+  .scrollbar-sidebar::-webkit-scrollbar { width: 3px; }
+  .scrollbar-sidebar::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-sidebar::-webkit-scrollbar-thumb { background: #C8D5E3; border-radius: 999px; }
+}
