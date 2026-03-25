@@ -162,20 +162,37 @@ export const suppliersApi = {
 }
 
 // ─── Sesje produkcyjne — PRAWDZIWY backend ────────────────────
-// Poprzednio: zaślepka zwracająca Promise.resolve([]) → przycisk "Rozpocznij dzień" nic nie robił
+// BUGFIX: Backend (Python) zwraca snake_case → mapujemy na camelCase
+function mapProductionSession(raw: any) {
+  return {
+    id:          raw.id,
+    sessionDate: raw.session_date  ?? raw.sessionDate  ?? '',
+    processType: raw.process_type  ?? raw.processType  ?? 'deboning',
+    status:      raw.status        ?? 'open',
+    startedAt:   raw.started_at    ?? raw.startedAt    ?? '',
+    endedAt:     raw.ended_at      ?? raw.endedAt,
+    approvedBy:  raw.approved_by   ?? raw.approvedBy,
+    approvedAt:  raw.approved_at   ?? raw.approvedAt,
+    notes:       raw.notes,
+    createdAt:   raw.created_at    ?? raw.createdAt    ?? '',
+  }
+}
+
 export const productionSessionsApi = {
   list:  (processType?: string) =>
-    get<any[]>(`/production-sessions${processType ? `?type=${processType}` : ''}`),
+    get<any[]>(`/production-sessions${processType ? `?type=${processType}` : ''}`)
+      .then(r => (Array.isArray(r) ? r : []).map(mapProductionSession)),
   active: (processType = 'deboning') =>
-    get<any>(`/production-sessions/active?type=${processType}`),
+    get<any>(`/production-sessions/active?type=${processType}`)
+      .then(r => r ? mapProductionSession(r) : null),
   byId:  (id: string) =>
-    get<any>(`/production-sessions/${id}`),
+    get<any>(`/production-sessions/${id}`).then(mapProductionSession),
   start: (dto: any) =>
-    post<any>('/production-sessions', dto),
+    post<any>('/production-sessions', dto).then(mapProductionSession),
   close: (id: string, dto: any) =>
-    patch<any>(`/production-sessions/${id}/close`, dto),
+    patch<any>(`/production-sessions/${id}/close`, dto).then(mapProductionSession),
   approve: (id: string, dto: any) =>
-    patch<any>(`/production-sessions/${id}/approve`, dto),
+    patch<any>(`/production-sessions/${id}/approve`, dto).then(mapProductionSession),
 }
 
 // ─── Rozbiór — wpisy i sesje ──────────────────────────────────
@@ -186,21 +203,45 @@ export const deboningApi = {
   update: (id: string, dto: any) => patch<DeboningSession>(`/deboning/${id}`, dto),
 }
 
+// BUGFIX: Backend zwraca snake_case dla wpisów rozbioru
+// Bez mappera: e.rawBatchId=undefined, e.kgTaken=undefined → NaN w kalkulacjach
+function mapDeboningEntry(raw: any) {
+  return {
+    id:          raw.id,
+    sessionId:   raw.session_id    ?? raw.sessionId    ?? '',
+    sessionDate: raw.session_date  ?? raw.sessionDate  ?? '',
+    rawBatchId:  raw.raw_batch_id  ?? raw.rawBatchId   ?? '',
+    rawBatchNo:  raw.raw_batch_no  ?? raw.rawBatchNo   ?? '',
+    workerId:    raw.worker_id     ?? raw.workerId     ?? '',
+    workerName:  raw.worker_name   ?? raw.workerName   ?? '',
+    kgTaken:     Number(raw.kg_taken     ?? raw.kgTaken     ?? 0),
+    kgMeat:      Number(raw.kg_meat      ?? raw.kgMeat      ?? 0),
+    kgBones:     Number(raw.kg_bones     ?? raw.kgBones     ?? 0),
+    kgBacks:     Number(raw.kg_backs     ?? raw.kgBacks     ?? 0),
+    kgRemainder: Number(raw.kg_remainder ?? raw.kgRemainder ?? 0),
+    yieldPct:    Number(raw.yield_pct    ?? raw.yieldPct    ?? 0),
+    sessionNo:   raw.session_no    ?? raw.sessionNo    ?? '',
+    tempInput:   raw.temp_input    != null ? Number(raw.temp_input  ?? raw.tempInput)  : undefined,
+    tempRoom:    raw.temp_room     != null ? Number(raw.temp_room   ?? raw.tempRoom)   : undefined,
+    notes:       raw.notes,
+    meatLotNo:   raw.meat_lot_no   ?? raw.meatLotNo,
+    createdAt:   raw.created_at    ?? raw.createdAt    ?? '',
+  }
+}
+
 export const deboningEntriesApi = {
-  // list — filtrowanie po session_id gdy podane
   list: (sessionId?: string) =>
-    get<any[]>(`/deboning/entries${sessionId ? `?session_id=${sessionId}` : ''}`)
-      .then(r => Array.isArray(r) ? r : (r as any).data ?? []),
-  // create — wysyła kgTaken (nie kgQuarter) i sessionId
-  create: (dto: any) => post<any>('/deboning/entries', dto),
-  // update — obsługuje kgBacks i kgBones
-  update: (id: string, dto: any) => patch<any>(`/deboning/entries/${id}`, dto),
+    get<any>(`/deboning/entries${sessionId ? `?session_id=${sessionId}` : ''}`)
+      .then(r => (Array.isArray(r) ? r : (r?.data ?? [])).map(mapDeboningEntry)),
+  create: (dto: any) =>
+    post<any>('/deboning/entries', dto).then(mapDeboningEntry),
+  update: (id: string, dto: any) =>
+    patch<any>(`/deboning/entries/${id}`, dto).then(mapDeboningEntry),
   traceability: (batchId: string) => get<any>(`/deboning/entries/trace/${batchId}`),
 }
 
 // ─── Magazyn surowca ──────────────────────────────────────────
-// BUGFIX #2: Backend zwraca snake_case (kg_available, lot_no itp.)
-// ale MeatStock typ oczekuje camelCase → mapujemy pola
+// BUGFIX: Backend zwraca snake_case + mapper nie zawierał pól kgReserved/kgInProcess/kgUsed/expiryStatus
 function mapMeatStock(raw: any): MeatStock {
   return {
     id:                 raw.id,
@@ -211,10 +252,17 @@ function mapMeatStock(raw: any): MeatStock {
     rawBatchNo:         raw.raw_batch_no        ?? raw.rawBatchNo,
     kgInitial:          Number(raw.kg_initial   ?? raw.kgInitial         ?? 0),
     kgAvailable:        Number(raw.kg_available ?? raw.kgAvailable       ?? 0),
+    kgReserved:         Number(raw.kg_reserved  ?? raw.kgReserved        ?? 0),
+    kgInProcess:        Number(raw.kg_in_process ?? raw.kgInProcess      ?? 0),
+    kgUsed:             Number(raw.kg_used      ?? raw.kgUsed            ?? 0),
     productionDate:     raw.production_date     ?? raw.productionDate    ?? '',
     expiryDate:         raw.expiry_date         ?? raw.expiryDate        ?? '',
+    expiryStatus:       raw.expiry_status       ?? raw.expiryStatus      ?? 'OK',
+    storageLocation:    raw.storage_location    ?? raw.storageLocation,
     status:             raw.status              ?? 'AVAILABLE',
     createdAt:          raw.created_at          ?? raw.createdAt         ?? '',
+    productType:        raw.product_type        ?? raw.productType,
+    machineAllocations: raw.machine_allocations ?? raw.machineAllocations,
   }
 }
 

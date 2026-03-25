@@ -166,10 +166,10 @@ export function DeboningTabletPage() {
 
     if (isFullyUsed) {
       // Cała ćwiartka rozebrana — automatycznie otwórz modal kości/grzbietów
-      const suggestion = {
-        kgBacks: Math.round((totalTaken + meat) * 0.12 * 100) / 100,
-        kgBones: Math.round((totalTaken + meat) * 0.08 * 100) / 100,
-      }
+      // BUGFIX: obliczenie z reszty (kgTaken - kgMeat), nie sumy (kgTaken + kgMeat)
+      // Używamy calcDeboning z utils.ts: remainder * BONES_RATIO(0.6) / BACKS_RATIO(0.4)
+      const totalMeat = batchTotalMeat + meat
+      const suggestion = calcDeboning(totalTaken, totalMeat)
       setInputBacks(suggestion.kgBacks.toFixed(2))
       setInputBones(suggestion.kgBones.toFixed(2))
       setFinishModal(true)
