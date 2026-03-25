@@ -11,16 +11,16 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="flex flex-col gap-1.5 w-full">
         {label && (
-          <label htmlFor={inputId} className={cn('font-bold uppercase tracking-wide text-ink-3', tablet ? 'text-sm' : 'text-[11px]')}>
+          <label htmlFor={inputId} className={cn('font-semibold text-ink-3', tablet ? 'text-sm' : 'text-xs uppercase tracking-wide')}>
             {label}
           </label>
         )}
         <input id={inputId} ref={ref}
           className={cn(
-            'w-full rounded-lg border bg-surface-2 text-ink font-medium',
-            'transition-colors placeholder:text-ink-4',
-            'focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-brand focus:bg-white',
-            'disabled:opacity-50',
+            'w-full rounded-md border bg-white text-ink font-normal',
+            'transition-colors placeholder:text-ink-5',
+            'focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand',
+            'disabled:opacity-50 disabled:bg-surface-3',
             large   && 'h-16 text-2xl font-bold text-center font-mono',
             tablet  && 'h-16 text-xl font-bold px-5',
             !large && !tablet && 'h-9 text-sm px-3',

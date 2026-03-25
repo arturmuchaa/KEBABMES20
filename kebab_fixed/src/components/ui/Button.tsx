@@ -9,16 +9,16 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const V = {
-  primary:   'bg-brand text-white hover:bg-brand-dark border border-brand-dark disabled:opacity-50',
-  secondary: 'bg-white text-ink border border-surface-5 hover:border-surface-4 hover:bg-surface-2 disabled:opacity-50',
-  ghost:     'bg-transparent text-ink-2 border border-transparent hover:bg-surface-2 disabled:opacity-50',
-  danger:    'bg-red-600 text-white hover:bg-red-700 border border-red-700 disabled:opacity-50',
+  primary:   'bg-brand text-white hover:bg-brand-dark border border-brand/20 shadow-btn disabled:opacity-50',
+  secondary: 'bg-white text-ink-2 border border-surface-4 hover:border-surface-5 hover:bg-surface-2 shadow-btn disabled:opacity-50',
+  ghost:     'bg-transparent text-ink-3 border border-transparent hover:bg-surface-3 hover:text-ink-2 disabled:opacity-50',
+  danger:    'bg-danger text-white hover:bg-red-700 border border-red-700/20 shadow-btn disabled:opacity-50',
 }
 
 const S = {
-  sm: 'h-7 px-2.5 text-[12px] gap-1.5',
-  md: 'h-8 px-3 text-[13px] gap-2',
-  lg: 'h-9 px-4 text-[13px] gap-2',
+  sm: 'h-8  px-3   text-xs  gap-1.5 rounded',
+  md: 'h-9  px-4   text-sm  gap-2   rounded-md',
+  lg: 'h-10 px-5   text-base gap-2  rounded-md',
 }
 
 export function Button({
@@ -28,7 +28,7 @@ export function Button({
   return (
     <button
       className={cn(
-        'inline-flex items-center justify-center font-medium transition-colors focus:outline-none',
+        'inline-flex items-center justify-center font-medium transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
         V[variant], S[size],
         fullWidth && 'w-full',
         className,
