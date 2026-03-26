@@ -312,7 +312,7 @@ function StepScreen({ order, kgActual, stepIdx, onConfirm, onBack, loading }: {
             <div key={s.stepNo} className="flex items-center gap-2 text-[11px] text-green-700 bg-green-50 px-3 py-1.5 rounded-lg">
               <CheckCircle size={12} />
               <span className="font-semibold">{s.ingredientName}</span>
-              <span className="ml-auto font-mono">{(s.qtyConfirmed ?? s.qtyRequired).toFixed(3)} {s.unit}</span>
+              <span className="ml-auto font-mono">{(s.qtyConfirmed ?? s.qtyRequired).toFixed(2)} {s.unit}</span>
             </div>
           ))}
         </div>
@@ -322,7 +322,7 @@ function StepScreen({ order, kgActual, stepIdx, onConfirm, onBack, loading }: {
         isOk?'border-success bg-green-50/30':isWarn?'border-warn bg-amber-50/30':isOver?'border-red-400 bg-red-50/30':'border-brand bg-blue-50/20')}>
         <div className="text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Dodaj składnik</div>
         <div className="text-3xl font-black text-ink mb-1">{step.ingredientName}</div>
-        <div className="text-5xl font-black text-brand tabular-nums mt-2">{qtyRequired.toFixed(3)}</div>
+        <div className="text-5xl font-black text-brand tabular-nums mt-2">{qtyRequired.toFixed(2)}</div>
         <div className="text-xl font-medium text-ink-3">{step.unit}</div>
         <div className="text-[11px] text-ink-4 mt-1">Tolerancja: ±50 g</div>
       </div>

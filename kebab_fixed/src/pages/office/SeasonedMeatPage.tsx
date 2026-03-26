@@ -19,136 +19,83 @@ function ExpiryBadge({ date }: { date: string }) {
   return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-green-50 text-green-700">{daysLeft}d</span>
 }
 
-// Panel pełnej traceability dla jednej partii
-function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void }) {
-  const { data, loading } = useApi(
-    () => (seasonedMeatApi as any).getFullTrace(batchId),
-    [batchId]
-  )
-
-  if (loading) return (
-    <Modal open title="Traceability" onClose={onClose} size="lg">
-      <div className="flex justify-center py-10"><Spinner size={24} /></div>
-    </Modal>
-  )
-  if (!data) return null
-
-  const { seasoned, meatLots, summary } = data
-
+// Panel śledzenia partii — używa danych już załadowanych z listy (bez dodatkowego API call)
+function SledzPanel({ batch, onClose }: { batch: SeasonedMeatBatch; onClose: () => void }) {
   return (
-    <Modal open title={`Traceability — ${seasoned.batchNo}`}
-      subtitle="Pełny łańcuch: Dostawca → Ćwiartka → Rozbiór → Masowanie → Mięso przyprawione"
+    <Modal open title={`Śledzenie — ${batch.batchNo}`}
+      subtitle="Łańcuch: Ćwiartka → Rozbiór → Masowanie → Mięso przyprawione"
       onClose={onClose} size="lg">
       <div className="space-y-4">
 
-        {/* Podsumowanie */}
+        {/* KPI */}
         <div className="grid grid-cols-3 gap-2">
           {[
-            { label:'Surowiec (ćwiartka)', val:`${fmtKg(summary.totalRawKg)} kg`, color:'text-ink' },
-            { label:'Mięso Z/S',           val:`${fmtKg(summary.totalMeatKg)} kg`, color:'text-blue-700' },
-            { label:'Produkt gotowy',       val:`${fmtKg(summary.totalOutputKg)} kg`, color:'text-green-700' },
+            { label: 'Wyprodukowano', val: `${fmtKg(batch.kgProduced)} kg`, color: 'text-green-700' },
+            { label: 'Dostępne',      val: `${fmtKg(batch.kgAvailable)} kg`, color: 'text-ink' },
+            { label: 'Ważność',       val: fmtDatePl(batch.expiryDate), color: 'text-ink' },
           ].map(k => (
             <div key={k.label} className="bg-surface-2 border border-surface-4 rounded-lg p-3 text-center">
               <div className="text-[10px] font-bold text-ink-4 uppercase mb-0.5">{k.label}</div>
-              <div className={`text-base font-black ${k.color}`}>{k.val}</div>
+              <div className={`text-sm font-black ${k.color}`}>{k.val}</div>
             </div>
           ))}
         </div>
 
-        {/* Łańcuch graficzny */}
-        <div className="bg-surface-2 border border-surface-4 p-3 text-[12px]">
-          <div className="font-bold text-ink-3 uppercase text-[10px] tracking-wide mb-2">Łańcuch partii</div>
-          <div className="flex items-center gap-1 flex-wrap">
-            {summary.rawBatchNos.map((n: string) => (
-              <span key={n} className="font-mono font-black text-blue-700 bg-blue-50 px-2 py-1 rounded">{n}</span>
+        {/* Łańcuch */}
+        <div className="bg-surface-2 border border-surface-4 rounded-lg p-3">
+          <div className="text-[10px] font-bold text-ink-4 uppercase mb-2">Łańcuch partii</div>
+          <div className="flex items-center gap-1.5 flex-wrap text-[12px]">
+            {batch.rawBatchNos.length > 0 ? batch.rawBatchNos.map(n => (
+              <span key={n} className="font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded">{n}</span>
+            )) : <span className="text-ink-4">—</span>}
+            <ChevronRight size={13} className="text-ink-4"/>
+            {batch.meatLots.map(l => (
+              <span key={l.meatLotId} className="font-mono font-bold text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded">{l.meatLotNo}</span>
             ))}
-            <ChevronRight size={14} className="text-ink-4" />
-            {seasoned.meatLots.map((l: any) => (
-              <span key={l.meatLotId} className="font-mono font-bold text-green-700 bg-green-50 px-2 py-1 rounded">{l.meatLotNo}</span>
-            ))}
-            <ChevronRight size={14} className="text-ink-4" />
-            <span className="font-mono font-black text-brand bg-blue-100 px-2 py-1 rounded">{seasoned.batchNo}</span>
+            <ChevronRight size={13} className="text-ink-4"/>
+            <span className="font-mono font-black text-brand bg-brand-light border border-brand-border px-2 py-1 rounded">{batch.batchNo}</span>
           </div>
         </div>
 
-        {/* Szczegóły per lot */}
-        <div>
-          <div className="font-bold text-[12px] text-ink mb-2">Szczegóły partii mięsa</div>
-          <div className="space-y-2">
-            {meatLots.map((t: any, i: number) => (
-              <div key={i} className="border border-surface-4 rounded-lg overflow-hidden">
-                {/* Nagłówek lotu */}
-                <div className="bg-surface-2 px-3 py-2 flex items-center gap-3">
-                  <span className="font-mono font-bold text-green-700">
-                    {t.meatStock?.lotNo ?? '—'}
-                  </span>
-                  <span className="text-[11px] text-ink-3">
-                    {fmtKg(seasoned.meatLots[i]?.kgPlanned ?? 0)} kg
-                  </span>
-                  <span className={`ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                    t.meatStock ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-                  }`}>
-                    {t.meatStock ? 'Znaleziono' : '⚠ Brak danych'}
-                  </span>
+        {/* Masowanie */}
+        <div className="border border-surface-4 rounded-lg divide-y divide-surface-4 text-[12px]">
+          {[
+            { label: 'Zlecenie masowania', val: batch.mixingOrderNo || '—', mono: true },
+            { label: 'Receptura',          val: batch.recipeName,           mono: false },
+            { label: 'Masownica',          val: batch.machineId ? `Masownica ${batch.machineId}` : '—', mono: false },
+            { label: 'Ukończono',          val: batch.completedAt ? fmtDatePl(batch.completedAt.slice(0,10)) : '—', mono: false },
+          ].map(r => (
+            <div key={r.label} className="grid grid-cols-[140px_1fr] gap-2 px-3 py-2.5">
+              <span className="text-ink-3 font-semibold">{r.label}</span>
+              <span className={r.mono ? 'font-mono font-bold text-brand' : 'font-semibold text-ink'}>{r.val}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Partie mięsa Z/S */}
+        {batch.meatLots.length > 0 && (
+          <div>
+            <div className="text-[10px] font-bold text-ink-4 uppercase mb-2">Partie mięsa (Z/S)</div>
+            <div className="border border-surface-4 rounded-lg divide-y divide-surface-4">
+              {batch.meatLots.map(l => (
+                <div key={l.meatLotId} className="flex items-center gap-3 px-3 py-2.5 text-[12px]">
+                  <span className="font-mono font-bold text-green-700">{l.meatLotNo || '—'}</span>
+                  {l.rawBatchNo && <span className="text-ink-3">← {l.rawBatchNo}</span>}
+                  <span className="ml-auto font-semibold text-ink">{fmtKg(l.kgPlanned)} kg</span>
+                  {l.expiryDate && <span className="text-[11px] text-ink-4">do: {fmtDatePl(l.expiryDate)}</span>}
                 </div>
-
-                {/* Łańcuch: MeatStock → DeboningEntry → RawBatch → Supplier */}
-                <div className="divide-y divide-surface-4">
-                  {/* Wpis rozbioru */}
-                  <div className="px-3 py-2 grid grid-cols-[120px_1fr] gap-2 text-[12px]">
-                    <span className="text-ink-3 font-semibold">Wpis rozbioru</span>
-                    {t.deboningEntry ? (
-                      <div>
-                        <span className="font-mono text-brand">{t.deboningEntry.sessionNo}</span>
-                        <span className="text-ink-3 ml-2">
-                          {fmtKg(t.deboningEntry.kgTaken)} kg ćwiartki → {fmtKg(t.deboningEntry.kgMeat)} kg mięsa
-                        </span>
-                        <span className="text-ink-4 ml-2">· {t.deboningEntry.workerName}</span>
-                      </div>
-                    ) : <span className="text-red-600">⚠ Brak wpisu rozbioru</span>}
-                  </div>
-
-                  {/* Ćwiartka */}
-                  <div className="px-3 py-2 grid grid-cols-[120px_1fr] gap-2 text-[12px]">
-                    <span className="text-ink-3 font-semibold">Ćwiartka</span>
-                    {t.rawBatch ? (
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono font-bold text-blue-700">{t.rawBatch.internalBatchNo}</span>
-                        <span className="text-ink-3">{fmtKg(t.rawBatch.kgReceived)} kg przyjęte</span>
-                        <span className="text-ink-4">ubój: {fmtDatePl(t.rawBatch.slaughterDate)}</span>
-                        <span className="text-ink-4">ważność: {fmtDatePl(t.rawBatch.expiryDate)}</span>
-                      </div>
-                    ) : <span className="text-red-600">⚠ Brak danych ćwiartki</span>}
-                  </div>
-
-                  {/* Dostawca */}
-                  <div className="px-3 py-2 grid grid-cols-[120px_1fr] gap-2 text-[12px]">
-                    <span className="text-ink-3 font-semibold">Dostawca</span>
-                    {t.supplier ? (
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-ink">{t.supplier.name}</span>
-                        {t.supplier.vetNumber && <span className="text-ink-4">wet.: {t.supplier.vetNumber}</span>}
-                        {t.rawBatch?.supplierBatchNo && (
-                          <span className="text-ink-4">nr partii dostawcy: {t.rawBatch.supplierBatchNo}</span>
-                        )}
-                      </div>
-                    ) : <span className="text-red-600">⚠ Brak danych dostawcy</span>}
-                  </div>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Info masowanie */}
-        <div className="border border-surface-4 rounded-lg p-3 text-[12px]">
-          <div className="font-bold text-ink-3 uppercase text-[10px] tracking-wide mb-2">Masowanie</div>
-          <div className="grid grid-cols-3 gap-2">
-            <div><span className="text-ink-3">Zlecenie: </span><span className="font-mono font-bold text-brand">{seasoned.mixingOrderNo}</span></div>
-            <div><span className="text-ink-3">Receptura: </span><span className="font-semibold">{seasoned.recipeName}</span></div>
-            <div><span className="text-ink-3">Masownica: </span><span className="font-semibold">{seasoned.machineId}</span></div>
+        {/* Data uboju */}
+        {batch.slaughterDates.length > 0 && (
+          <div className="text-[12px] text-ink-3">
+            <span className="font-semibold">Data uboju: </span>
+            {batch.slaughterDates.map(d => fmtDatePl(d)).join(', ')}
           </div>
-        </div>
+        )}
       </div>
     </Modal>
   )
@@ -157,7 +104,7 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
 export function SeasonedMeatPage() {
   const { data, loading }     = useApi(() => seasonedMeatApi.list())
   const { data: all }         = useApi(() => seasonedMeatApi.all())
-  const [traceId, setTraceId] = useState<string | null>(null)
+  const [traceBatch, setTraceBatch] = useState<SeasonedMeatBatch | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
 
   const batches = data ?? []
@@ -244,11 +191,11 @@ export function SeasonedMeatPage() {
                         <ExpiryBadge date={b.expiryDate} />
                       </div>
                       <button
-                        onClick={e => { e.stopPropagation(); setTraceId(b.id) }}
+                        onClick={e => { e.stopPropagation(); setTraceBatch(b) }}
                         className="flex items-center gap-1 text-[11px] font-medium text-brand border border-brand/30 px-2 py-1 rounded hover:bg-blue-50"
-                        title="Pełna traceability"
+                        title="Śledzenie partii"
                       >
-                        <Eye size={12} /> Trace
+                        <Eye size={12} /> Śledzenie
                       </button>
                       {isExp ? <ChevronUp size={14} className="text-ink-4" /> : <ChevronDown size={14} className="text-ink-4" />}
                     </div>
@@ -307,9 +254,9 @@ export function SeasonedMeatPage() {
                   </td>
                   <td className="px-3 py-2 text-ink-4">{fmtKg(b.kgProduced)} kg</td>
                   <td className="px-3 py-2">
-                    <button onClick={() => setTraceId(b.id)}
+                    <button onClick={() => setTraceBatch(b)}
                       className="text-[11px] text-ink-3 border border-surface-4 px-1.5 py-0.5 rounded hover:text-brand">
-                      <Eye size={11} className="inline mr-1" />Trace
+                      <Eye size={11} className="inline mr-1" />Śledzenie
                     </button>
                   </td>
                 </tr>
@@ -319,8 +266,7 @@ export function SeasonedMeatPage() {
         </div>
       )}
 
-      {/* Panel traceability */}
-      {traceId && <TracePanel batchId={traceId} onClose={() => setTraceId(null)} />}
+      {traceBatch && <SledzPanel batch={traceBatch} onClose={() => setTraceBatch(null)} />}
     </div>
   )
 }

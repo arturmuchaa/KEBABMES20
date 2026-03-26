@@ -26,7 +26,6 @@ const NAV: NavSection[] = [
     { to:'/office/magazyn/mieso-przyp',        label:'Mięso przyprawione',   icon:<Beef size={13}/> },
     { to:'/office/magazyn/opakowania',         label:'Opakowania/Tuleje',    icon:<Archive size={13}/> },
     { to:'/office/magazyn/gotowe',             label:'Wyrób gotowy',         icon:<ShoppingBag size={13}/> },
-    { to:'/office/magazyn/produkty-uboczne',   label:'Produkty uboczne',     icon:<Bone size={13}/> },
   ]},
   { heading:'Rozbiór', items:[
     { to:'/office/deboning',     label:'Raporty rozbioru', icon:<BarChart2 size={13}/> },
