@@ -68,14 +68,22 @@ npm install --legacy-peer-deps -q 2>/dev/null || npm install -q
 npm run build -q
 ok "Frontend przebudowany"
 
-# ── 6. Restart backendu ──────────────────────────────────────────
+# ── 6. Skopiuj dist do katalogu nginx (jeśli inny) ───────────────
+NGINX_ROOT=$(nginx -T 2>/dev/null | grep -E "^\s+root " | head -1 | awk '{print $2}' | tr -d ';')
+if [ -n "$NGINX_ROOT" ] && [ "$NGINX_ROOT" != "$INSTALL_DIR/dist" ]; then
+    echo "  Kopiuję dist: $INSTALL_DIR/dist → $NGINX_ROOT"
+    rm -rf "$NGINX_ROOT"
+    cp -r "$INSTALL_DIR/dist" "$NGINX_ROOT"
+    ok "Dist skopiowany do $NGINX_ROOT"
+fi
+
+# ── 7. Restart backendu ──────────────────────────────────────────
 echo "  Restartuję backend..."
-if systemctl is-active --quiet kebab-mes 2>/dev/null; then
-    systemctl restart kebab-mes
-    ok "Serwis kebab-mes zrestartowany"
-elif systemctl is-active --quiet kebabmes 2>/dev/null; then
-    systemctl restart kebabmes
-    ok "Serwis kebabmes zrestartowany"
+# Znajdź działający serwis kebab
+KEBAB_SVC=$(systemctl list-units --type=service --state=running 2>/dev/null | grep -i kebab | awk '{print $1}' | head -1)
+if [ -n "$KEBAB_SVC" ]; then
+    systemctl restart "$KEBAB_SVC"
+    ok "Serwis $KEBAB_SVC zrestartowany"
 else
     warn "Nie znalazłem serwisu systemd — zrestartuj ręcznie"
 fi
