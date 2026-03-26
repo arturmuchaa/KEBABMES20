@@ -33,7 +33,7 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Cache Rust build
+      - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: kebab-mes-desktop/src-tauri -> target
@@ -42,33 +42,41 @@ jobs:
         working-directory: kebab-mes-desktop
         run: npm ci
 
-      - name: Build Tauri (NSIS installer)
-        uses: tauri-apps/tauri-action@v0
+      - name: Build frontend
+        working-directory: kebab-mes-desktop
+        run: npm run build
+
+      - name: Build Tauri
+        working-directory: kebab-mes-desktop
+        run: npm run tauri build
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ""
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+
+      - name: Upload installer (artifact)
+        uses: actions/upload-artifact@v4
         with:
-          projectPath: kebab-mes-desktop
-          tagName: desktop-build-${{ github.run_number }}
-          releaseName: "Kebab MES Desktop — build #${{ github.run_number }}"
-          releaseBody: |
+          name: KebabMES-Windows-Installer
+          path: kebab-mes-desktop/src-tauri/target/release/bundle/nsis/*.exe
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop-build-${{ github.run_number }}
+          name: "Kebab MES Desktop — build #${{ github.run_number }}"
+          draft: true
+          prerelease: false
+          files: kebab-mes-desktop/src-tauri/target/release/bundle/nsis/*.exe
+          body: |
             ## Kebab MES — Aplikacja desktopowa (Windows)
 
             ### Jak zainstalować
             1. Pobierz plik **KebabMES_*_x64-setup.exe** poniżej
-            2. Uruchom instalator i kliknij Dalej → Dalej → Zakończ
+            2. Uruchom instalator → Dalej → Dalej → Zakończ
             3. Uruchom **Kebab MES** z pulpitu lub menu Start
             4. Przy pierwszym uruchomieniu wpisz adres VPS: `http://TWOJE_IP:8000`
 
             ---
             Commit: ${{ github.sha }}
-          releaseDraft: true
-          prerelease: false
-          includeUpdaterJson: false
-
-      - name: Upload installer as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: KebabMES-Windows-setup
-          path: kebab-mes-desktop/src-tauri/target/release/bundle/nsis/*.exe
-          retention-days: 30
-          if-no-files-found: error
