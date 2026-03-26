@@ -8,26 +8,19 @@ on:
       - 'kebab-mes-desktop/**'
       - '.github/workflows/build-desktop.yml'
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: 'Tag wersji (np. v1.0.1) — zostaw puste dla draft release'
-        required: false
-        default: ''
+
+permissions:
+  contents: write
 
 jobs:
   build-windows:
     name: Build Windows Installer (NSIS)
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: kebab-mes-desktop
 
     steps:
-      # ── Checkout ────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── Node.js ─────────────────────────────────────────────
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
@@ -35,7 +28,6 @@ jobs:
           cache: 'npm'
           cache-dependency-path: kebab-mes-desktop/package-lock.json
 
-      # ── Rust ────────────────────────────────────────────────
       - name: Setup Rust (stable)
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -46,38 +38,33 @@ jobs:
         with:
           workspaces: kebab-mes-desktop/src-tauri -> target
 
-      # ── Install JS deps ─────────────────────────────────────
       - name: Install npm dependencies
+        working-directory: kebab-mes-desktop
         run: npm ci
 
-      # ── Build Tauri app ─────────────────────────────────────
       - name: Build Tauri (NSIS installer)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: kebab-mes-desktop
-          tagName: ${{ github.event.inputs.release_tag || format('desktop-{0}', github.run_number) }}
-          releaseName: 'Kebab MES Desktop ${{ github.event.inputs.release_tag || format(''build #{0}'', github.run_number) }}'
+          tagName: desktop-build-${{ github.run_number }}
+          releaseName: "Kebab MES Desktop — build #${{ github.run_number }}"
           releaseBody: |
             ## Kebab MES — Aplikacja desktopowa (Windows)
 
-            ### Instalacja
-            1. Pobierz plik `KebabMES_*_x64-setup.exe`
-            2. Uruchom instalator — kliknij dalej, dalej, zakończ
+            ### Jak zainstalować
+            1. Pobierz plik **KebabMES_*_x64-setup.exe** poniżej
+            2. Uruchom instalator i kliknij Dalej → Dalej → Zakończ
             3. Uruchom **Kebab MES** z pulpitu lub menu Start
-            4. Przy pierwszym uruchomieniu wpisz adres serwera VPS (np. `http://1.2.3.4:8000`)
-
-            ### Zmiany w tej wersji
-            ${{ github.event.head_commit.message }}
+            4. Przy pierwszym uruchomieniu wpisz adres VPS: `http://TWOJE_IP:8000`
 
             ---
-            Commit: `${{ github.sha }}`
-          releaseDraft: ${{ github.event.inputs.release_tag == '' }}
+            Commit: ${{ github.sha }}
+          releaseDraft: true
           prerelease: false
           includeUpdaterJson: false
 
-      # ── Upload artifact (backup) ────────────────────────────
       - name: Upload installer as artifact
         uses: actions/upload-artifact@v4
         with:
