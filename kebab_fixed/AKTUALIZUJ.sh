@@ -69,24 +69,27 @@ npm run build -q
 ok "Frontend przebudowany"
 
 # ── 6. Skopiuj dist do /opt/kebab/dist (nginx root) ─────────────
-# INSTALL_DIR = /opt/kebab/kebab_fixed, nginx serwuje z /opt/kebab/dist
 PARENT_DIST="$(dirname "$INSTALL_DIR")/dist"
-if [ "$PARENT_DIST" != "$INSTALL_DIR/dist" ]; then
-    echo "  Kopiuję dist: $INSTALL_DIR/dist → $PARENT_DIST"
-    rm -rf "$PARENT_DIST"
-    cp -r "$INSTALL_DIR/dist" "$PARENT_DIST"
-    ok "Dist skopiowany do $PARENT_DIST"
-fi
+echo "  Kopiuję dist: $INSTALL_DIR/dist → $PARENT_DIST"
+rm -rf "$PARENT_DIST"
+cp -r "$INSTALL_DIR/dist" "$PARENT_DIST"
+ok "Dist skopiowany do $PARENT_DIST"
 
 # ── 7. Restart backendu ──────────────────────────────────────────
 echo "  Restartuję backend..."
-# Znajdź działający serwis kebab
-KEBAB_SVC=$(systemctl list-units --type=service --state=running 2>/dev/null | grep -i kebab | awk '{print $1}' | head -1)
+KEBAB_SVC=""
+for svc in kebab.service kebab-mes.service kebabmes.service; do
+    if systemctl is-active --quiet "$svc" 2>/dev/null; then
+        KEBAB_SVC="$svc"
+        break
+    fi
+done
 if [ -n "$KEBAB_SVC" ]; then
     systemctl restart "$KEBAB_SVC"
     ok "Serwis $KEBAB_SVC zrestartowany"
 else
-    warn "Nie znalazłem serwisu systemd — zrestartuj ręcznie"
+    warn "Nie znalazłem serwisu — próbuję kebab.service..."
+    systemctl restart kebab.service 2>/dev/null && ok "kebab.service zrestartowany" || warn "Restart nieudany — zrestartuj ręcznie"
 fi
 
 # Nginx przeładuj (nowe pliki dist)
