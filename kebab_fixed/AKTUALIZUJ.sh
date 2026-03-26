@@ -68,13 +68,14 @@ npm install --legacy-peer-deps -q 2>/dev/null || npm install -q
 npm run build -q
 ok "Frontend przebudowany"
 
-# ── 6. Skopiuj dist do katalogu nginx (jeśli inny) ───────────────
-NGINX_ROOT=$(nginx -T 2>/dev/null | grep -E "^\s+root " | head -1 | awk '{print $2}' | tr -d ';')
-if [ -n "$NGINX_ROOT" ] && [ "$NGINX_ROOT" != "$INSTALL_DIR/dist" ]; then
-    echo "  Kopiuję dist: $INSTALL_DIR/dist → $NGINX_ROOT"
-    rm -rf "$NGINX_ROOT"
-    cp -r "$INSTALL_DIR/dist" "$NGINX_ROOT"
-    ok "Dist skopiowany do $NGINX_ROOT"
+# ── 6. Skopiuj dist do /opt/kebab/dist (nginx root) ─────────────
+# INSTALL_DIR = /opt/kebab/kebab_fixed, nginx serwuje z /opt/kebab/dist
+PARENT_DIST="$(dirname "$INSTALL_DIR")/dist"
+if [ "$PARENT_DIST" != "$INSTALL_DIR/dist" ]; then
+    echo "  Kopiuję dist: $INSTALL_DIR/dist → $PARENT_DIST"
+    rm -rf "$PARENT_DIST"
+    cp -r "$INSTALL_DIR/dist" "$PARENT_DIST"
+    ok "Dist skopiowany do $PARENT_DIST"
 fi
 
 # ── 7. Restart backendu ──────────────────────────────────────────
