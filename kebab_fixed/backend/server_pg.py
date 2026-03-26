@@ -1465,7 +1465,15 @@ def build_mixing_order(o: dict) -> dict:
     meat_kg      = float(o.get('meat_kg') or 0)
     kg_done      = float(o.get('kg_done') or 0)
     kg_remaining = max(0.0, meat_kg - kg_done)
-    planned_out  = float(o.get('planned_output_kg') or 0)
+    # Oblicz planowane wyjście z receptury: mięso + suma składników (woda/przyprawy dodają wagę)
+    if recipe_id:
+        ing_rows = query_all(
+            "SELECT COALESCE(qty_per_100kg, 0) AS qty FROM recipe_ingredients WHERE recipe_id=%s",
+            (recipe_id,))
+        total_ing_pct = sum(float(r.get('qty', 0)) for r in ing_rows)
+        planned_out = round((100.0 + total_ing_pct) * meat_kg / 100, 2)
+    else:
+        planned_out = meat_kg
 
     return {
         'id':              o['id'],

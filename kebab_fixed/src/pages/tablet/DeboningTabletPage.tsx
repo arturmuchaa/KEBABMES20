@@ -104,9 +104,10 @@ export function DeboningTabletPage() {
   const taken    = parseFloat(kgTaken) || 0
   const meat     = parseFloat(kgMeat)  || 0
 
-  // BUGFIX: kgAvailable z bazy jest już odejmowane po każdym zapisie przez backend.
-  // Wyświetlamy aktualne kgAvailable — backend pilnuje nieprzekroczenia stanu.
-  const kgAvailableNow = Number(selBatch?.kgAvailable ?? 0)
+  // Zawsze czytaj kgAvailable ze świeżej listy partii (po refetch po każdym zapisie)
+  // — selBatch to snapshot z chwili kliknięcia, batches jest aktualizowane po refetch
+  const freshBatch     = selBatch ? batches.find(b => b.id === selBatch.id) ?? selBatch : null
+  const kgAvailableNow = Number(freshBatch?.kgAvailable ?? 0)
   const isOver   = taken > 0 && !!selBatch && taken > kgAvailableNow + 0.01
   const canSave  = !!selBatch && !!selWorker && taken > 0 && meat > 0 && meat <= taken && !isOver
   const yieldPct = taken > 0 && meat > 0 && meat <= taken ? (meat / taken) * 100 : 0

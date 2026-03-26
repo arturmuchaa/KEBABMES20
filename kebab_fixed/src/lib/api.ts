@@ -653,9 +653,47 @@ export const rawBatchHistoryApi = {
 }
 
 // ─── Wyroby gotowe ────────────────────────────────────────────
+function mapFinishedGoods(raw: any): FinishedGoodsItem {
+  const sub = (raw.sub_entries ?? []).map((s: any) => ({
+    id:               s.id,
+    qty:              Number(s.qty ?? 0),
+    totalKg:          Number(s.total_kg ?? 0),
+    seasonedBatchNos: s.seasoned_batch_nos ?? [],
+    workerNames:      s.worker_names ?? [],
+    addedAt:          s.added_at ?? '',
+  }))
+  return {
+    id:              raw.id,
+    batchNo:         raw.batch_no        ?? '',
+    planId:          raw.plan_id         ?? '',
+    planNo:          raw.plan_no         ?? '',
+    planLineId:      raw.plan_line_id    ?? '',
+    productTypeId:   raw.product_type_id ?? '',
+    productTypeName: raw.product_type_name ?? '',
+    recipeId:        raw.recipe_id       ?? '',
+    recipeName:      raw.recipe_name     ?? '',
+    packagingId:     raw.packaging_id    ?? undefined,
+    packagingName:   raw.packaging_name  ?? undefined,
+    clientOrderId:   raw.client_order_id ?? undefined,
+    clientOrderNo:   raw.client_order_no ?? undefined,
+    clientName:      raw.client_name     ?? undefined,
+    qty:             Number(raw.qty          ?? 0),
+    kgPerUnit:       Number(raw.kg_per_unit  ?? 0),
+    totalKg:         Number(raw.total_kg     ?? 0),
+    qtyAvailable:    Number(raw.qty_available ?? 0),
+    qtyShipped:      Number(raw.qty_shipped  ?? 0),
+    seasonedBatchNos: raw.seasoned_batch_nos ?? [],
+    rawBatchNos:     raw.raw_batch_nos   ?? [],
+    producedDate:    raw.produced_date   ?? '',
+    producedBy:      raw.produced_by     ?? [],
+    createdAt:       raw.created_at      ?? '',
+    subEntries:      sub,
+  } as any
+}
+
 export const finishedGoodsApi = {
-  list:   () => get<FinishedGoodsItem[]>('/finished-goods'),
-  create: (dto: any) => post<FinishedGoodsItem>('/finished-goods', dto),
+  list:   () => get<any[]>('/finished-goods').then(r => r.map(mapFinishedGoods)),
+  create: (dto: any) => post<any>('/finished-goods', dto).then(mapFinishedGoods),
   finishProductionDay: (planId: string, entries: any[]) =>
     post<any>('/finished-goods/finish-day', { plan_id: planId, entries }),
 }

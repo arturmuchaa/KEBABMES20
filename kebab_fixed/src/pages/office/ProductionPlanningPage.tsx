@@ -593,10 +593,11 @@ function PlanForm({ onSave, onClose }: {
   }
 
   function setLine(i: number, k: keyof PlanLineForm, v: any) {
+    setError('')  // kasuj błąd gdy użytkownik cokolwiek zmienia
     setLines(p=>p.map((l,j)=>j===i?{...l,[k]:v}:l))
   }
-  function addLine()          { setLines(p=>[...p,emptyLine()]) }
-  function removeLine(i: number) { setLines(p=>p.filter((_,j)=>j!==i)) }
+  function addLine()          { setError(''); setLines(p=>[...p,emptyLine()]) }
+  function removeLine(i: number) { setError(''); setLines(p=>p.filter((_,j)=>j!==i)) }
 
   function importLines(newLines: PlanLineForm[]) {
     setLines(p=>{
