@@ -610,12 +610,31 @@ function PlanForm({ onSave, onClose }: {
     const valid = lines.filter(l=>l.recipeId&&parseFloat(l.qty)>0&&parseFloat(l.kgPerUnit)>0)
     if (valid.length===0) { setError('Dodaj przynajmniej jedną pozycję z recepturą i kg'); return }
 
-    // Walidacja mięsa
-    for (const [id, used] of Object.entries(seasonedUsed)) {
-      const s = (seasonedRaw??[]).find((x:any)=>x.id===id)
-      if (s && used > s.kgAvailable+0.1) {
-        setError(`Za mało mięsa "${s.batchNo}" — potrzeba ${fmtKg(used)}, dostępne ${fmtKg(s.kgAvailable)}`)
-        return
+    // Walidacja mięsa — sprawdź czy zaznaczone partie pokrywają potrzeby każdej linii
+    {
+      // Symuluj alokację sekwencyjnie, odejmując z puli dostępnych
+      const pool: Record<string, number> = {}
+      ;(seasonedRaw??[]).forEach((s:any) => { pool[s.id] = s.kgAvailable })
+
+      for (const line of valid) {
+        const needed = parseFloat(line.qty) * parseFloat(line.kgPerUnit)
+        const ids = (line as any).seasonedBatchIds?.length > 0
+          ? (line as any).seasonedBatchIds
+          : ((line as any).seasonedBatchId ? [(line as any).seasonedBatchId] : [])
+        if (ids.length === 0) continue
+
+        let stillNeeded = needed
+        for (const id of ids) {
+          const avail = pool[id] ?? 0
+          const take  = Math.min(stillNeeded, avail)
+          pool[id]    = avail - take
+          stillNeeded -= take
+        }
+        if (stillNeeded > 0.1) {
+          const batchNos = ids.map((id: string) => (seasonedRaw??[]).find((x:any)=>x.id===id)?.batchNo ?? id).join(', ')
+          setError(`Za mało mięsa — partie "${batchNos}" mają razem ${fmtKg(needed - stillNeeded)} kg, potrzeba ${fmtKg(needed)} kg`)
+          return
+        }
       }
     }
 
