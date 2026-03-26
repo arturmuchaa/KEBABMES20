@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Server, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
-import { setApiUrl, setFacilityName, resetClient } from '@/store/config'
+import { setApiUrl, setFacilityName } from '@/store/config'
 import { resetClient as resetAxios } from '@/api/client'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'

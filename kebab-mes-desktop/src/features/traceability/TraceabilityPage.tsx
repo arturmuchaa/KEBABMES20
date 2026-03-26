@@ -56,7 +56,7 @@ export function TraceabilityPage() {
     isFetching,
   } = useQuery({
     queryKey: ['trace', batchId],
-    queryFn:  () => fetchTraceability(batchId!) as Promise<TraceResult>,
+    queryFn:  () => fetchTraceability(batchId!) as unknown as Promise<TraceResult>,
     enabled:  !!batchId,
     retry:    false,
   })

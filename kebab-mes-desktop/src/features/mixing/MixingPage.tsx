@@ -82,8 +82,12 @@ export function MixingPage() {
 
   const ingredientSteps = useMemo(() => {
     if (!selectedRecipe || totalSelectedKg === 0) return []
-    return selectedRecipe.ingredients.map(ing => ({
-      ...ing,
+    return selectedRecipe.ingredients.map((ing, i) => ({
+      stepNo: i + 1,
+      ingredientName: ing.ingredient_name,
+      unit: ing.unit,
+      is_unlimited: ing.is_unlimited,
+      ingredient_id: ing.ingredient_id,
       qtyRequired: Number(((ing.qty_per_100kg * totalSelectedKg) / 100).toFixed(3)),
     }))
   }, [selectedRecipe, totalSelectedKg])

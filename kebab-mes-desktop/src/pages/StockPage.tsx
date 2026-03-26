@@ -94,7 +94,7 @@ export function StockPage() {
                         </Td>
                         <Td>{b.supplier_name}</Td>
                         <Td>{fmtDate(b.slaughter_date)}</Td>
-                        <Td>{fmtDate(b.received_at)}</Td>
+                        <Td>{fmtDate(b.received_date)}</Td>
                         <Td right className="font-mono tabular-nums">{fmtKg(b.kg_received)}</Td>
                         <Td right className="font-mono tabular-nums font-semibold text-emerald-400">
                           {fmtKg(b.kg_available)}
@@ -136,10 +136,10 @@ export function StockPage() {
                       <Td>
                         <span className="font-mono text-xs text-slate-400">{m.id.slice(0, 8)}…</span>
                       </Td>
-                      <Td>{m.cut_type || '—'}</Td>
+                      <Td>{'—'}</Td>
                       <Td>
                         <span className="font-mono text-mes-accent-l text-xs">
-                          {m.source_batch_id?.slice(0, 10)}…
+                          {m.raw_batch_id?.slice(0, 10)}…
                         </span>
                       </Td>
                       <Td>{fmtDate(m.created_at)}</Td>
