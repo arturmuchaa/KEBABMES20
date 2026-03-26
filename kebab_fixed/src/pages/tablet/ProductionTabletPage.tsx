@@ -5,6 +5,7 @@
  * - Zakończenie dnia → magazyn wyrobów gotowych
  */
 import { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { productionPlansApi, usersApi, finishedGoodsApi } from '@/lib/apiClient'
 import { Spinner, EmptyState } from '@/components/ui/Card'
@@ -345,6 +346,7 @@ function PlanPicker({ plans, onSelect }: { plans:ProductionPlan[]; onSelect:(id:
 
 // ─── Główna ───────────────────────────────────────────────────
 export function ProductionTabletPage() {
+  const navigate = useNavigate()
   const { data:plans,   loading:plansLoading  } = useApi(()=>productionPlansApi.list())
   const { data:workers, loading:workersLoading } = useApi(()=>usersApi.list())
   const finishMut = useMutation(({planId, entries}:{planId:string;entries:any[]}) =>
@@ -419,10 +421,10 @@ export function ProductionTabletPage() {
         }
       })
     await finishMut.mutate({ planId: selectedPlan.id, entries })
-    showToast(`Zapisano ${entries.reduce((s,e)=>s+e.qty,0)} szt do magazynu wyrobów gotowych`)
     setProgress({})
     setSelectedPlanId(null)
     setShowFinish(false)
+    navigate('/finished-goods', { state: { justFinished: true, count: entries.reduce((s,e)=>s+e.qty,0) } })
   }
 
   if (plansLoading||workersLoading) return <div className="flex justify-center items-center h-full"><Spinner size={32}/></div>

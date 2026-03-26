@@ -810,15 +810,26 @@ def seasoned_trace(id: str):
 
 # ─── Wyroby gotowe ────────────────────────────────────────────
 class FinishDayEntry(BaseModel):
-    plan_line_id: str; qty: int; worker_names: List[str]
-    kg_per_unit: float; product_type_id: str = ""; product_type_name: str = ""
-    recipe_id: str; recipe_name: str = ""
-    packaging_id: str = ""; packaging_name: str = ""
-    client_order_id: str = ""; client_order_no: str = ""; client_name: str = ""
-    seasoned_batch_nos: List[str] = []
+    model_config = ConfigDict(populate_by_name=True)
+    plan_line_id:    str       = Field("",  alias="planLineId")
+    qty:             int       = 0
+    worker_names:    List[str] = Field(default=[], alias="workerNames")
+    kg_per_unit:     float     = Field(0.0, alias="kgPerUnit")
+    product_type_id: str       = Field("",  alias="productTypeId")
+    product_type_name: str     = Field("",  alias="productTypeName")
+    recipe_id:       str       = Field("",  alias="recipeId")
+    recipe_name:     str       = Field("",  alias="recipeName")
+    packaging_id:    str       = Field("",  alias="packagingId")
+    packaging_name:  str       = Field("",  alias="packagingName")
+    client_order_id: str       = Field("",  alias="clientOrderId")
+    client_order_no: str       = Field("",  alias="clientOrderNo")
+    client_name:     str       = Field("",  alias="clientName")
+    seasoned_batch_nos: List[str] = Field(default=[], alias="seasonedBatchNos")
 
 class FinishDayDto(BaseModel):
-    plan_id: str; entries: List[FinishDayEntry]
+    model_config = ConfigDict(populate_by_name=True)
+    plan_id: str = Field(..., alias="planId")
+    entries: List[FinishDayEntry]
 
 @app.get("/api/finished-goods")
 def list_finished():
@@ -1611,10 +1622,15 @@ def finish_mixing_session(id: str, body: dict):
 
     meat_kg   = float(order.get('meat_kg') or 0)
     kg_done   = float(order.get('kg_done') or 0) + kg_meat
-    total_out_pct = float(query_one(
-        "SELECT total_output_per_100kg FROM recipes WHERE id=%s",
-        (order.get('recipe_id'),)
-    ).get('total_output_per_100kg') or 100) if order.get('recipe_id') else 100
+    # Oblicz rzeczywistą wagę wyjściową: mięso + wszystkie składniki (woda, przyprawy zwiększają wagę)
+    if order.get('recipe_id'):
+        ing_rows = query_all(
+            "SELECT COALESCE(qty_per_100kg, 0) AS qty FROM recipe_ingredients WHERE recipe_id=%s",
+            (order.get('recipe_id'),))
+        total_ing_pct = sum(float(r.get('qty', 0)) for r in ing_rows)
+        total_out_pct = 100.0 + total_ing_pct  # np. mięso 100% + składniki 25% = 125% wyjście
+    else:
+        total_out_pct = 100.0
     kg_output = round(total_out_pct * kg_meat / 100, 2)
     new_status = 'done' if kg_done >= meat_kg - 0.1 else 'planned'
 

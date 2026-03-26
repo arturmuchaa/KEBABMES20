@@ -3,7 +3,8 @@
  * - Scalanie identycznych produktów (receptura+tuleja+klient+kg/szt)
  * - Podgląd: szczegóły per sesja produkcyjna (subEntries)
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
 import { finishedGoodsApi } from '@/lib/apiClient'
 import { Spinner, EmptyState, Modal } from '@/components/ui/Card'
@@ -13,6 +14,7 @@ import {
   ChevronUp,
   Eye,
   ShoppingBag,
+  CheckCircle,
 } from 'lucide-react'
 import type { FinishedGoodsItem } from '@/lib/mockApi'
 
@@ -97,9 +99,20 @@ function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () =
 }
 
 export function FinishedGoodsPage() {
+  const location = useLocation()
   const { data: items, loading } = useApi(() => finishedGoodsApi.list())
   const [detailItem,   setDetailItem]   = useState<FinishedGoodsItem | null>(null)
   const [groupByRecipe, setGroupByRecipe] = useState(false)
+  const [successBanner, setSuccessBanner] = useState<{ count: number } | null>(null)
+
+  useEffect(() => {
+    const state = location.state as { justFinished?: boolean; count?: number } | null
+    if (state?.justFinished) {
+      setSuccessBanner({ count: state.count ?? 0 })
+      const t = setTimeout(() => setSuccessBanner(null), 5000)
+      return () => clearTimeout(t)
+    }
+  }, [location.state])
 
   const list     = items ?? []
   const totalQty = list.reduce((s,i)=>s+i.qtyAvailable,0)
@@ -107,6 +120,12 @@ export function FinishedGoodsPage() {
 
   return (
     <div className="space-y-4 animate-fade-in">
+      {successBanner && (
+        <div className="flex items-center gap-3 bg-success-light border border-success-border text-success px-4 py-3 rounded-xl font-semibold text-sm">
+          <CheckCircle size={18}/>
+          Produkcja zakończona — zapisano <strong>{successBanner.count} szt</strong> do magazynu wyrobów gotowych.
+        </div>
+      )}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white border border-surface-4 p-3">
           <div className="text-[10px] font-semibold uppercase text-ink-4">Pozycje</div>
