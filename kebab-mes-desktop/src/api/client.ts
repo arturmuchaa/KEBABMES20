@@ -50,6 +50,9 @@ export async function apiDelete<T>(path: string): Promise<T> {
   return data
 }
 
+export const apiPut = <T>(path: string, body?: unknown): Promise<T> =>
+  getClient().put(path, body).then(r => r.data)
+
 /** Check backend connectivity — used by the connection status indicator. */
 export async function checkHealth(): Promise<boolean> {
   try {

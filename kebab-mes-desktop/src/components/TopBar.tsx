@@ -1,28 +1,55 @@
+import * as React from 'react'
 import { useLocation } from 'react-router-dom'
-import { Wifi, WifiOff, RefreshCw, AlertTriangle } from 'lucide-react'
+import { WifiOff, RefreshCw, Sun, Moon } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { checkHealth } from '@/api/client'
 import { cn } from '@/lib/utils'
+import { getTheme, setTheme, type Theme } from '@/store/theme'
 
 const ROUTE_LABELS: Record<string, string> = {
-  '/dashboard':    'Dashboard',
-  '/mixing':       'Masowanie / Produkcja',
-  '/traceability': 'Traceability',
-  '/stock':        'Stany magazynowe',
-  '/settings':     'Ustawienia',
+  '/dashboard':        'Dashboard',
+  '/mixing':           'Masowanie / Produkcja',
+  '/traceability':     'Traceability',
+  '/stock':            'Stany magazynowe',
+  '/settings':         'Ustawienia',
+  '/suppliers':        'Dostawcy',
+  '/clients':          'Kontrahenci',
+  '/orders':           'Zamówienia klientów',
+  '/invoices':         'Faktury zakupowe',
+  '/raw-batches':      'Przyjęcie ćwiartek',
+  '/spice-stock':      'Przyprawy i dodatki',
+  '/seasoned-meat':    'Mięso przyprawione',
+  '/packaging':        'Opakowania / Tuleje',
+  '/finished-goods':   'Wyrób gotowy',
+  '/byproducts':       'Produkty uboczne',
+  '/deboning':         'Raporty rozbioru',
+  '/haccp':            'Raport HACCP',
+  '/product-types':    'Rodzaje produktów',
+  '/recipes':          'Receptury',
+  '/production-plans': 'Plan produkcji',
+  '/workers':          'Pracownicy',
+  '/users':            'Użytkownicy',
 }
 
 export function TopBar() {
   const { pathname } = useLocation()
   const label = ROUTE_LABELS[pathname] ?? pathname.substring(1)
 
+  const [theme, setThemeState] = React.useState<Theme>(getTheme)
+
   const { data: online, isFetching } = useQuery({
     queryKey: ['health'],
     queryFn:  checkHealth,
-    refetchInterval: 10_000,    // check every 10s
+    refetchInterval: 10_000,
     staleTime: 8_000,
     retry: false,
   })
+
+  function toggleTheme() {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next)
+    setThemeState(next)
+  }
 
   return (
     <header className="h-12 flex items-center justify-between px-6 bg-mes-surface border-b border-mes-border shrink-0">
@@ -35,6 +62,15 @@ export function TopBar() {
       <div className="flex items-center gap-4">
         {/* Date / time */}
         <Clock />
+
+        {/* Theme toggle */}
+        <button
+          onClick={toggleTheme}
+          className="p-1.5 rounded-md text-slate-400 hover:text-slate-200 hover:bg-mes-elevated transition-colors"
+          title={theme === 'dark' ? 'Przełącz na jasny motyw' : 'Przełącz na ciemny motyw'}
+        >
+          {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+        </button>
 
         {/* Connection indicator */}
         <ConnectionPill online={online} fetching={isFetching} />
@@ -85,6 +121,3 @@ function ConnectionPill({ online, fetching }: { online?: boolean; fetching: bool
     </div>
   )
 }
-
-// ── React import needed for Clock component ───────────────────
-import * as React from 'react'

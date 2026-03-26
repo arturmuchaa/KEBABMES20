@@ -1,12 +1,30 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { isConfigured } from '@/store/config'
 import { AppLayout } from '@/layouts/AppLayout'
-import { SetupPage }      from '@/pages/SetupPage'
-import { DashboardPage }  from '@/pages/DashboardPage'
-import { StockPage }      from '@/pages/StockPage'
-import { SettingsPage }   from '@/pages/SettingsPage'
-import { MixingPage }     from '@/features/mixing/MixingPage'
-import { TraceabilityPage } from '@/features/traceability/TraceabilityPage'
+import { SetupPage }          from '@/pages/SetupPage'
+import { DashboardPage }      from '@/pages/DashboardPage'
+import { StockPage }          from '@/pages/StockPage'
+import { SettingsPage }       from '@/pages/SettingsPage'
+import { SuppliersPage }      from '@/pages/SuppliersPage'
+import { ClientsPage }        from '@/pages/ClientsPage'
+import { ClientOrdersPage }   from '@/pages/ClientOrdersPage'
+import { InvoicesPage }       from '@/pages/InvoicesPage'
+import { RawBatchesPage }     from '@/pages/RawBatchesPage'
+import { SpiceStockPage }     from '@/pages/SpiceStockPage'
+import { SeasonedMeatPage }   from '@/pages/SeasonedMeatPage'
+import { PackagingPage }      from '@/pages/PackagingPage'
+import { FinishedGoodsPage }  from '@/pages/FinishedGoodsPage'
+import { ByproductBatchesPage } from '@/pages/ByproductBatchesPage'
+import { DeboningPage }       from '@/pages/DeboningPage'
+import { HaccpPage }          from '@/pages/HaccpPage'
+import { ProductTypesPage }   from '@/pages/ProductTypesPage'
+import { RecipesPage }        from '@/pages/RecipesPage'
+import { MixingPlanPage }     from '@/pages/MixingPlanPage'
+import { ProductionPlanPage } from '@/pages/ProductionPlanPage'
+import { WorkersPage }        from '@/pages/WorkersPage'
+import { UsersPage }          from '@/pages/UsersPage'
+import { MixingPage }         from '@/features/mixing/MixingPage'
+import { TraceabilityPage }   from '@/features/traceability/TraceabilityPage'
 
 function RequireConfig({ children }: { children: React.ReactNode }) {
   if (!isConfigured()) return <Navigate to="/setup" replace />
@@ -16,42 +34,55 @@ function RequireConfig({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <Routes>
-      {/* First-run setup — no layout shell */}
       <Route path="/setup" element={<SetupPage />} />
 
-      {/* Main app — requires API configured */}
-      <Route
-        path="/"
-        element={
-          <RequireConfig>
-            <AppLayout />
-          </RequireConfig>
-        }
-      >
-        {/* Default redirect */}
+      <Route path="/" element={<RequireConfig><AppLayout /></RequireConfig>}>
         <Route index element={<Navigate to="/dashboard" replace />} />
 
-        {/* Dashboard */}
-        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="dashboard"       element={<DashboardPage />} />
+
+        {/* Kontrahenci */}
+        <Route path="suppliers"       element={<SuppliersPage />} />
+        <Route path="clients"         element={<ClientsPage />} />
+        <Route path="orders"          element={<ClientOrdersPage />} />
+
+        {/* Zakupy */}
+        <Route path="invoices"        element={<InvoicesPage />} />
+
+        {/* Magazyny */}
+        <Route path="raw-batches"     element={<RawBatchesPage />} />
+        <Route path="stock"           element={<StockPage />} />
+        <Route path="spice-stock"     element={<SpiceStockPage />} />
+        <Route path="seasoned-meat"   element={<SeasonedMeatPage />} />
+        <Route path="packaging"       element={<PackagingPage />} />
+        <Route path="finished-goods"  element={<FinishedGoodsPage />} />
+        <Route path="byproducts"      element={<ByproductBatchesPage />} />
+
+        {/* Rozbiór */}
+        <Route path="deboning"        element={<DeboningPage />} />
+        <Route path="haccp"           element={<HaccpPage />} />
 
         {/* Produkcja */}
-        <Route path="mixing"    element={<MixingPage />} />
+        <Route path="product-types"   element={<ProductTypesPage />} />
+        <Route path="recipes"         element={<RecipesPage />} />
+        <Route path="mixing"          element={<MixingPlanPage />} />
+        <Route path="mixing/new"      element={<MixingPage />} />
+        <Route path="production-plans" element={<ProductionPlanPage />} />
 
-        {/* Jakość / Traceability */}
-        <Route path="traceability"            element={<TraceabilityPage />} />
-        <Route path="traceability/:batchId"   element={<TraceabilityPage />} />
+        {/* Traceability */}
+        <Route path="traceability"           element={<TraceabilityPage />} />
+        <Route path="traceability/:batchId"  element={<TraceabilityPage />} />
 
-        {/* Magazyn */}
-        <Route path="stock" element={<StockPage />} />
+        {/* Administracja */}
+        <Route path="workers"         element={<WorkersPage />} />
+        <Route path="users"           element={<UsersPage />} />
 
         {/* Ustawienia */}
-        <Route path="settings" element={<SettingsPage />} />
+        <Route path="settings"        element={<SettingsPage />} />
 
-        {/* Catch-all */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
 
-      {/* Root catch-all */}
       <Route path="*" element={<Navigate to={isConfigured() ? '/dashboard' : '/setup'} replace />} />
     </Routes>
   )

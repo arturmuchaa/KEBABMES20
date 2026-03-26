@@ -1,62 +1,51 @@
 import { NavLink } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import {
-  LayoutDashboard, FlaskConical, GitBranch,
-  Package, Settings, ChevronRight,
+  LayoutDashboard, FlaskConical, GitBranch, ChevronRight,
+  Package, Settings, Truck, Building2, ShoppingCart, CreditCard,
+  Beef, Archive, ShoppingBag, Bone, Scissors, FileText,
+  Box, BookOpen, Layers, Factory, Users, UserCog,
 } from 'lucide-react'
 
-interface NavItem {
-  to: string
-  label: string
-  icon: React.ReactNode
-  badge?: string | number
-}
-
-interface NavSection {
-  heading?: string
-  items: NavItem[]
-}
+interface NavItem { to: string; label: string; icon: React.ReactNode; badge?: string | number }
+interface NavSection { heading?: string; items: NavItem[] }
 
 const NAV: NavSection[] = [
-  {
-    items: [
-      {
-        to: '/dashboard',
-        label: 'Dashboard',
-        icon: <LayoutDashboard size={15} />,
-      },
-    ],
-  },
-  {
-    heading: 'Produkcja',
-    items: [
-      {
-        to: '/mixing',
-        label: 'Masowanie',
-        icon: <FlaskConical size={15} />,
-      },
-    ],
-  },
-  {
-    heading: 'Jakość',
-    items: [
-      {
-        to: '/traceability',
-        label: 'Traceability',
-        icon: <GitBranch size={15} />,
-      },
-    ],
-  },
-  {
-    heading: 'Magazyn',
-    items: [
-      {
-        to: '/stock',
-        label: 'Stany magazynowe',
-        icon: <Package size={15} />,
-      },
-    ],
-  },
+  { items: [{ to: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={14} /> }] },
+  { heading: 'Kontrahenci', items: [
+    { to: '/suppliers', label: 'Dostawcy',     icon: <Truck size={13} /> },
+    { to: '/clients',   label: 'Kontrahenci',  icon: <Building2 size={13} /> },
+    { to: '/orders',    label: 'Zamówienia',   icon: <ShoppingCart size={13} /> },
+  ]},
+  { heading: 'Zakupy', items: [
+    { to: '/invoices',  label: 'Faktury zakupowe', icon: <CreditCard size={13} /> },
+  ]},
+  { heading: 'Magazyny', items: [
+    { to: '/raw-batches',    label: 'Przyjęcie ćwiartki',  icon: <Package size={13} /> },
+    { to: '/stock',          label: 'Surowiec',             icon: <Beef size={13} /> },
+    { to: '/spice-stock',    label: 'Przyprawy i dodatki',  icon: <FlaskConical size={13} /> },
+    { to: '/seasoned-meat',  label: 'Mięso przyprawione',   icon: <Beef size={13} /> },
+    { to: '/packaging',      label: 'Opakowania/Tuleje',    icon: <Archive size={13} /> },
+    { to: '/finished-goods', label: 'Wyrób gotowy',         icon: <ShoppingBag size={13} /> },
+    { to: '/byproducts',     label: 'Produkty uboczne',     icon: <Bone size={13} /> },
+  ]},
+  { heading: 'Rozbiór', items: [
+    { to: '/deboning',  label: 'Raporty rozbioru', icon: <Scissors size={13} /> },
+    { to: '/haccp',     label: 'Raport HACCP',     icon: <FileText size={13} /> },
+  ]},
+  { heading: 'Produkcja', items: [
+    { to: '/product-types',    label: 'Rodzaje produktów', icon: <Box size={13} /> },
+    { to: '/recipes',          label: 'Receptury',         icon: <BookOpen size={13} /> },
+    { to: '/mixing',           label: 'Plan. masowania',   icon: <Layers size={13} /> },
+    { to: '/production-plans', label: 'Plan. produkcji',   icon: <Factory size={13} /> },
+  ]},
+  { heading: 'Traceability', items: [
+    { to: '/traceability', label: 'Śledzenie partii', icon: <GitBranch size={13} /> },
+  ]},
+  { heading: 'Administracja', items: [
+    { to: '/workers', label: 'Pracownicy',  icon: <Users size={13} /> },
+    { to: '/users',   label: 'Użytkownicy', icon: <UserCog size={13} /> },
+  ]},
 ]
 
 export function Sidebar() {

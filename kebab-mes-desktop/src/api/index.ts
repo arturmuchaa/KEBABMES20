@@ -143,7 +143,7 @@ export interface DashboardStats {
 }
 
 // ─── Endpoint functions ───────────────────────────────────────
-import { apiGet, apiPost, apiPatch } from './client'
+import { apiGet, apiPost, apiPatch, apiPut } from './client'
 
 // Raw Batches
 export const fetchRawBatches = () =>
@@ -208,6 +208,107 @@ export const fetchTraceability = (batchId: string) =>
 
 export const fetchRecall = (batchId: string) =>
   apiGet<Record<string, unknown>>(`/api/traceability/${encodeURIComponent(batchId)}/recall`)
+
+// Suppliers
+export const fetchSuppliers = () =>
+  apiGet<any[]>('/api/suppliers')
+
+export const createSupplier = (body: any) =>
+  apiPost<any>('/api/suppliers', body)
+
+export const updateSupplier = (id: string, body: any) =>
+  apiPut<any>(`/api/suppliers/${id}`, body)
+
+// Clients
+export const fetchClients = () =>
+  apiGet<any[]>('/api/clients')
+
+export const createClient = (body: any) =>
+  apiPost<any>('/api/clients', body)
+
+// Client Orders
+export const fetchClientOrders = () =>
+  apiGet<any[]>('/api/client-orders')
+
+export const createClientOrder = (body: any) =>
+  apiPost<any>('/api/client-orders', body)
+
+export const updateClientOrderStatus = (id: string, status: string) =>
+  apiPatch<any>(`/api/client-orders/${id}/status`, { status })
+
+// Invoices
+export const fetchInvoices = () =>
+  apiGet<any[]>('/api/invoices')
+
+export const createInvoice = (body: any) =>
+  apiPost<any>('/api/invoices', body)
+
+// Raw Batches (full CRUD)
+export const fetchRawBatchesAll = () =>
+  apiGet<{ data: any[] }>('/api/raw-batches?active_only=false&limit=200').then(r => (r as any).data || r)
+
+export const createRawBatch = (body: any) =>
+  apiPost<any>('/api/raw-batches', body)
+
+// Spice stock (ingredients)
+export const fetchIngredientStock = () =>
+  apiGet<any[]>('/api/ingredients/stock')
+
+export const fetchIngredientReceipts = () =>
+  apiGet<any[]>('/api/ingredient-receipts')
+
+export const createIngredientReceipt = (body: any) =>
+  apiPost<any>('/api/ingredient-receipts', body)
+
+// Packaging
+export const fetchPackagingAll = () =>
+  apiGet<any[]>('/api/packaging/all')
+
+export const createPackaging = (body: any) =>
+  apiPost<any>('/api/packaging', body)
+
+export const usePackaging = (id: string, qty: number) =>
+  apiPatch<any>(`/api/packaging/${id}/use`, { qty })
+
+// Finished goods
+export const fetchFinishedGoods = () =>
+  apiGet<any[]>('/api/finished-goods')
+
+// Byproducts
+export const fetchByproducts = () =>
+  apiGet<any[]>('/api/byproducts')
+
+export const fetchByproductsSummary = () =>
+  apiGet<any[]>('/api/byproducts/summary')
+
+// Deboning
+export const fetchDeboningEntries = () =>
+  apiGet<any[]>('/api/deboning/entries')
+
+export const fetchDeboning = () =>
+  apiGet<any[]>('/api/deboning')
+
+// Product types
+export const fetchProductTypes = () =>
+  apiGet<any[]>('/api/product-types')
+
+export const createProductType = (body: any) =>
+  apiPost<any>('/api/product-types', body)
+
+// Production sessions (masowanie planning)
+export const fetchProductionSessions = () =>
+  apiGet<any[]>('/api/production-sessions')
+
+// Production plans
+export const fetchProductionPlans = () =>
+  apiGet<any[]>('/api/production-plans')
+
+export const createProductionPlan = (body: any) =>
+  apiPost<any>('/api/production-plans', body)
+
+// Workers (full)
+export const createWorker = (body: any) =>
+  apiPost<any>('/api/workers', body)
 
 // Dashboard — aggregated from multiple endpoints
 export async function fetchDashboard(): Promise<DashboardStats> {
