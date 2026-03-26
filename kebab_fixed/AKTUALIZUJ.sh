@@ -3,98 +3,64 @@
 #  KEBAB MES — Aktualizacja VPS
 #  Uruchom: bash AKTUALIZUJ.sh
 # ================================================================
-set -e
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BOLD='\033[1m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}  ✓ $1${NC}"; }
 warn() { echo -e "${YELLOW}  ⚠ $1${NC}"; }
-err()  { echo -e "${RED}  ✗ BŁĄD: $1${NC}"; exit 1; }
 
 BRANCH="claude/add-traceability-system-UxumS"
 REPO="https://github.com/arturmuchaa/KEBABMES20.git"
-
-# Katalog skryptu = katalog aplikacji
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$INSTALL_DIR/backend"
+NGINX_DIST="$(dirname "$INSTALL_DIR")/dist"
 
 echo ""
-echo -e "${BOLD}  Kebab MES — Aktualizacja systemu${NC}"
-echo -e "  Katalog: $INSTALL_DIR"
+echo -e "${BOLD}  Kebab MES — Aktualizacja${NC}"
+echo -e "  Źródło: $INSTALL_DIR"
+echo -e "  Nginx:  $NGINX_DIST"
 echo ""
 
 # ── 1. Zachowaj .env ──────────────────────────────────────────────
-ENV_BACKUP=""
-if [ -f "$BACKEND_DIR/.env" ]; then
-    ENV_BACKUP=$(cat "$BACKEND_DIR/.env")
-    ok "Zapisano backup backend/.env"
-fi
-ENV_LOCAL_BACKUP=""
-if [ -f "$INSTALL_DIR/.env.local" ]; then
-    ENV_LOCAL_BACKUP=$(cat "$INSTALL_DIR/.env.local")
-fi
+[ -f "$BACKEND_DIR/.env" ]    && cp "$BACKEND_DIR/.env"    /tmp/_kebab_env_bkp
+[ -f "$INSTALL_DIR/.env.local" ] && cp "$INSTALL_DIR/.env.local" /tmp/_kebab_envlocal_bkp
 
-# ── 2. Git: init jeśli potrzeba ──────────────────────────────────
-if [ ! -d "$INSTALL_DIR/.git" ]; then
-    warn "Katalog nie jest git repo — inicjalizuję..."
-    cd "$INSTALL_DIR"
-    git init -q
-    git remote add origin "$REPO"
-    ok "Git zainicjalizowany"
-else
-    cd "$INSTALL_DIR"
-    # Upewnij się że remote jest ustawiony
-    git remote set-url origin "$REPO" 2>/dev/null || git remote add origin "$REPO"
-fi
-
-# ── 3. Pobierz najnowszy kod ─────────────────────────────────────
-echo "  Pobieram aktualizacje z GitHub..."
+# ── 2. Git pull ───────────────────────────────────────────────────
+cd "$INSTALL_DIR"
+[ ! -d .git ] && git init -q && git remote add origin "$REPO" 2>/dev/null
+git remote set-url origin "$REPO" 2>/dev/null || true
+echo "  Pobieram kod z GitHub..."
 git fetch origin "$BRANCH" -q
 git reset --hard "origin/$BRANCH" -q
 ok "Kod zaktualizowany"
 
-# ── 4. Przywróć .env ─────────────────────────────────────────────
-if [ -n "$ENV_BACKUP" ]; then
-    echo "$ENV_BACKUP" > "$BACKEND_DIR/.env"
-    ok "Przywrócono backend/.env"
-fi
-if [ -n "$ENV_LOCAL_BACKUP" ]; then
-    echo "$ENV_LOCAL_BACKUP" > "$INSTALL_DIR/.env.local"
-fi
+# ── 3. Przywróć .env ──────────────────────────────────────────────
+[ -f /tmp/_kebab_env_bkp ]      && cp /tmp/_kebab_env_bkp      "$BACKEND_DIR/.env"
+[ -f /tmp/_kebab_envlocal_bkp ] && cp /tmp/_kebab_envlocal_bkp "$INSTALL_DIR/.env.local"
 
-# ── 5. Przebuduj frontend ─────────────────────────────────────────
-echo "  Przebudowuję frontend..."
+# ── 4. Build frontend ────────────────────────────────────────────
+echo "  Buduję frontend..."
 cd "$INSTALL_DIR"
 npm install --legacy-peer-deps -q 2>/dev/null || npm install -q
 npm run build -q
 ok "Frontend przebudowany"
 
-# ── 6. Skopiuj dist do /opt/kebab/dist (nginx root) ─────────────
-PARENT_DIST="$(dirname "$INSTALL_DIR")/dist"
-echo "  Kopiuję dist: $INSTALL_DIR/dist → $PARENT_DIST"
-rm -rf "$PARENT_DIST"
-cp -r "$INSTALL_DIR/dist" "$PARENT_DIST"
-ok "Dist skopiowany do $PARENT_DIST"
+# ── 5. Kopiuj dist → nginx ────────────────────────────────────────
+echo "  Kopiuję dist → $NGINX_DIST"
+rm -rf "$NGINX_DIST"
+cp -r "$INSTALL_DIR/dist" "$NGINX_DIST"
+ok "Dist skopiowany"
 
-# ── 7. Restart backendu ──────────────────────────────────────────
+# ── 6. Restart backendu ───────────────────────────────────────────
 echo "  Restartuję backend..."
-KEBAB_SVC=""
 for svc in kebab.service kebab-mes.service kebabmes.service; do
     if systemctl is-active --quiet "$svc" 2>/dev/null; then
-        KEBAB_SVC="$svc"
-        break
+        systemctl restart "$svc" && ok "Serwis $svc zrestartowany" && break
     fi
-done
-if [ -n "$KEBAB_SVC" ]; then
-    systemctl restart "$KEBAB_SVC"
-    ok "Serwis $KEBAB_SVC zrestartowany"
-else
-    warn "Nie znalazłem serwisu — próbuję kebab.service..."
-    systemctl restart kebab.service 2>/dev/null && ok "kebab.service zrestartowany" || warn "Restart nieudany — zrestartuj ręcznie"
-fi
+done || systemctl restart kebab.service 2>/dev/null && ok "kebab.service zrestartowany" || warn "Restart serwisu nieudany — uruchom ręcznie: systemctl restart kebab.service"
 
-# Nginx przeładuj (nowe pliki dist)
+# ── 7. Nginx reload ───────────────────────────────────────────────
 systemctl reload nginx 2>/dev/null && ok "Nginx przeładowany" || true
 
 echo ""
-echo -e "${GREEN}${BOLD}  ✓ Aktualizacja zakończona!${NC}"
+echo -e "${GREEN}${BOLD}  ✓ Gotowe! Odśwież przeglądarkę (tryb incognito).${NC}"
 echo ""
