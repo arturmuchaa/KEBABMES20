@@ -51,10 +51,6 @@
       "digestAlgorithm": "sha256",
       "certificateThumbprint": null,
       "timestampUrl": ""
-    },
-    "updater": {
-      "pubkey": "",
-      "endpoints": []
     }
   }
 }
