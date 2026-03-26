@@ -12,7 +12,6 @@
     "core:window:allow-start-dragging",
     "core:window:allow-set-fullscreen",
     "core:window:allow-is-maximized",
-    "shell:allow-open",
-    "process:default"
+    "shell:allow-open"
   ]
 }
