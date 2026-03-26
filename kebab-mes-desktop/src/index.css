@@ -46,6 +46,22 @@
   }
 }
 
+/* Light theme overrides */
+.light {
+  color-scheme: light;
+}
+.light body {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+.light .bg-mes-bg { background-color: #f8fafc !important; }
+.light .bg-mes-surface { background-color: #ffffff !important; }
+.light .bg-mes-elevated { background-color: #f1f5f9 !important; }
+.light .border-mes-border { border-color: #e2e8f0 !important; }
+.light .text-slate-200 { color: #1e293b !important; }
+.light .text-slate-400 { color: #64748b !important; }
+.light .text-slate-500 { color: #475569 !important; }
+
 @layer utilities {
   .animate-fade-in {
     animation: fadeIn 0.2s ease-out;
