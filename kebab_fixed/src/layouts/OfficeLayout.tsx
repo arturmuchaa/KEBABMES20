@@ -70,7 +70,7 @@ function QuickActionBar() {
 
   return (
     <div className="h-9 bg-slate-50 border-b border-slate-100 flex items-center px-4 gap-0.5 flex-shrink-0">
-      <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-5 pr-2 border-r border-surface-4 mr-1.5 select-none">
+      <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-900-5 pr-2 border-r border-slate-200 mr-1.5 select-none">
         Szybki dostęp
       </span>
 
@@ -81,15 +81,15 @@ function QuickActionBar() {
           title={action.shortcutHint}
           className={cn(
             'group inline-flex items-center gap-1.5 h-6 px-2.5 rounded text-[12px] font-medium',
-            'text-ink-3 hover:text-ink hover:bg-surface-3',
+            'text-slate-900-3 hover:text-slate-900 hover:bg-slate-50',
             'transition-colors duration-150',
           )}
         >
-          <span className="text-ink-4 group-hover:text-brand transition-colors">{action.icon}</span>
+          <span className="text-slate-900-4 group-hover:text-brand transition-colors">{action.icon}</span>
           <span>{action.label}</span>
           <kbd className={cn(
             'ml-0.5 hidden group-hover:inline-flex items-center',
-            'px-1 text-[9px] font-mono text-ink-4 bg-surface-3 border border-surface-4 rounded',
+            'px-1 text-[9px] font-mono text-slate-900-4 bg-slate-50 border border-slate-200 rounded',
           )}>
             {action.shortcutHint}
           </kbd>
@@ -131,7 +131,7 @@ export function OfficeLayout() {
   }, [])
 
   return (
-    <div className="flex h-full bg-surface-2 text-ink">
+    <div className="flex h-full bg-slate-50 text-slate-900">
       {/* Mobile overlay */}
       {mobileOpen && (
         <div

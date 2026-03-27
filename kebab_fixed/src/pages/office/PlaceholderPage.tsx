@@ -18,12 +18,12 @@ export function PlaceholderPage({ title, phase = 'Faza 2', icon = '🚧', descri
           <Construction size={12} />
           {phase} — W przygotowaniu
         </div>
-        <h2 className="text-lg font-bold text-ink mb-2">{title}</h2>
-        <p className="text-sm text-ink-3 mb-6 leading-relaxed">
+        <h2 className="text-lg font-bold text-slate-900 mb-2">{title}</h2>
+        <p className="text-sm text-slate-900-3 mb-6 leading-relaxed">
           {description ?? 'Ten moduł zostanie zaimplementowany w kolejnym etapie. Architektura systemu jest gotowa na rozszerzenie bez refaktoryzacji.'}
         </p>
-        <div className="bg-surface-2 rounded-lg p-3 text-xs text-ink-3 font-mono text-left space-y-1">
-          <div className="font-bold text-ink-2 mb-2">Zaplanowane endpointy API:</div>
+        <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-900-3 font-mono text-left space-y-1">
+          <div className="font-bold text-slate-900-2 mb-2">Zaplanowane endpointy API:</div>
           <div>✓ Schema Prisma gotowa</div>
           <div>✓ Moduł NestJS przygotowany</div>
           <div>○ Implementacja logiki biznesowej</div>

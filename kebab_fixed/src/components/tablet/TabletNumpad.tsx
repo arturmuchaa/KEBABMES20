@@ -26,12 +26,12 @@ export function TabletNumpad({ value, onChange, label, unit = 'kg', max }: Table
 
   return (
     <div className="flex flex-col items-center gap-4 w-full">
-      {label && <div className="text-sm font-bold text-ink-3 uppercase tracking-wide">{label}</div>}
+      {label && <div className="text-sm font-bold text-slate-900-3 uppercase tracking-wide">{label}</div>}
 
       {/* Display */}
-      <div className="w-full bg-surface-2 border-2 border-surface-4 rounded-xl flex items-center justify-center gap-2 py-4 min-h-[80px]">
-        <span className="text-4xl font-bold font-mono text-ink tracking-tight">{value}</span>
-        <span className="text-xl text-ink-3 font-semibold">{unit}</span>
+      <div className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl flex items-center justify-center gap-2 py-4 min-h-[80px]">
+        <span className="text-4xl font-bold font-mono text-slate-900 tracking-tight">{value}</span>
+        <span className="text-xl text-slate-900-3 font-semibold">{unit}</span>
       </div>
 
       {/* Keys */}
@@ -44,7 +44,7 @@ export function TabletNumpad({ value, onChange, label, unit = 'kg', max }: Table
               'h-14 rounded-xl font-bold text-lg transition-all active:scale-95 select-none',
               k === 'CLR'
                 ? 'bg-danger-light text-danger border border-danger-border'
-                : 'bg-white border border-surface-4 text-ink hover:bg-surface-2 shadow-sm',
+                : 'bg-white border border-slate-200 text-slate-900 hover:bg-slate-50 shadow-sm',
             )}
           >
             {k}
@@ -53,7 +53,7 @@ export function TabletNumpad({ value, onChange, label, unit = 'kg', max }: Table
         {/* Del button */}
         <button
           onClick={() => press('DEL')}
-          className="h-14 col-span-3 rounded-xl font-bold text-sm bg-surface-3 border border-surface-4 text-ink-3 flex items-center justify-center gap-2 transition-all active:scale-95"
+          className="h-14 col-span-3 rounded-xl font-bold text-sm bg-slate-50 border border-slate-200 text-slate-900-3 flex items-center justify-center gap-2 transition-all active:scale-95"
         >
           <Delete size={18} /> Usuń ostatni
         </button>

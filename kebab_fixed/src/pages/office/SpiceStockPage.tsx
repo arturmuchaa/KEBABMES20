@@ -9,7 +9,7 @@
 import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { ingredientsApi, ingredientReceiptsApi } from '@/lib/apiClient'
-import { Spinner, EmptyState, Modal, Toast } from '@/components/ui/Card'
+import { Spinner, EmptyState, Modal, Toast, PageHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { fmtKg, fmtDatePl, todayIso } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
@@ -28,7 +28,7 @@ interface ToastState { msg: string; type: 'success'|'error'; visible: boolean }
 const HIDDEN: ToastState = { msg: '', type: 'success', visible: false }
 
 function ExpiryCell({ date }: { date?: string }) {
-  if (!date) return <span className="text-ink-4 text-[11px]">—</span>
+  if (!date) return <span className="text-slate-900-4 text-[11px]">—</span>
   const { daysLeft } = getExpiryStatus(date)
   const cls = daysLeft < 0 ? 'text-red-400 bg-red-500/15'
     : daysLeft <= 30 ? 'text-amber-400 bg-amber-500/15'
@@ -121,7 +121,9 @@ export function SpiceStockPage() {
   if (loading) return <div className="flex justify-center py-16"><Spinner size={24} /></div>
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
+
+      <PageHeader title="Magazyn — Przyprawy i dodatki" subtitle="Stany magazynowe składników" />
 
       {/* Alerty */}
       {alerts.length > 0 && (
@@ -148,28 +150,28 @@ export function SpiceStockPage() {
 
       {/* KPI */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="bg-surface-3 border border-surface-4 p-3 rounded-lg">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 mb-0.5">Składniki</div>
-          <div className="text-xl font-bold text-ink">{displayIngredients.length}</div>
+        <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-900-4 mb-0.5">Składniki</div>
+          <div className="text-xl font-bold text-slate-900">{displayIngredients.length}</div>
         </div>
-        <div className="bg-surface-3 border border-surface-4 p-3 rounded-lg">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 mb-0.5">Dostępne</div>
+        <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-900-4 mb-0.5">Dostępne</div>
           <div className="text-xl font-bold text-green-700">
             {displayIngredients.filter(i => (stockMap.get(i.id)?.qtyAvailable ?? 0) > 0).length}
           </div>
         </div>
-        <div className="bg-surface-3 border border-surface-4 p-3 rounded-lg">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 mb-0.5">Alerty</div>
-          <div className={`text-xl font-bold ${alerts.length > 0 ? 'text-amber-600' : 'text-ink-4'}`}>{alerts.length}</div>
+        <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-900-4 mb-0.5">Alerty</div>
+          <div className={`text-xl font-bold ${alerts.length > 0 ? 'text-amber-600' : 'text-slate-900-4'}`}>{alerts.length}</div>
         </div>
       </div>
 
       {/* Tabela stanów */}
-      <div className="bg-surface border border-surface-4 rounded-xl">
-        <div className="px-4 py-2.5 border-b border-surface-4 flex items-center justify-between">
+      <div className="bg-white border border-slate-200 rounded-xl">
+        <div className="px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <FlaskConical size={13} className="text-ink-3" />
-            <span className="text-[13px] font-semibold text-ink">Stany magazynowe</span>
+            <FlaskConical size={13} className="text-slate-900-3" />
+            <span className="text-[13px] font-semibold text-slate-900">Stany magazynowe</span>
           </div>
           <div className="flex gap-2">
             <Button size="sm" variant="secondary" onClick={() => setIngModal(true)}>
@@ -191,9 +193,9 @@ export function SpiceStockPage() {
         ) : (
           <div>
             {/* Nagłówek */}
-            <div className="grid grid-cols-[1fr_100px_100px_110px_80px_40px] gap-2 px-4 py-2 bg-surface-2 border-b border-surface-4">
+            <div className="grid grid-cols-[1fr_100px_100px_110px_80px_40px] gap-2 px-4 py-2 bg-slate-50 border-b border-slate-200">
               {['Nazwa składnika','Stan','Jedn.','Ost. przyjęcie','Ważność',''].map(h => (
-                <div key={h} className="text-[10px] font-semibold uppercase tracking-wider text-ink-4">{h}</div>
+                <div key={h} className="text-[10px] font-semibold uppercase tracking-wider text-slate-900-4">{h}</div>
               ))}
             </div>
 
@@ -208,38 +210,38 @@ export function SpiceStockPage() {
                 return (
                   <div key={ing.id}>
                     <div
-                      className="grid grid-cols-[1fr_100px_100px_110px_80px_40px] gap-2 px-4 py-2.5 items-center hover:bg-surface-3/60 cursor-pointer text-[12px]"
+                      className="grid grid-cols-[1fr_100px_100px_110px_80px_40px] gap-2 px-4 py-2.5 items-center hover:bg-slate-50/60 cursor-pointer text-[12px]"
                       onClick={() => setExpanded(isExp ? null : ing.id)}
                     >
-                      <div className="font-semibold text-ink truncate">{ing.name}</div>
+                      <div className="font-semibold text-slate-900 truncate">{ing.name}</div>
                       <div className={`font-bold ${qty > 0 ? 'text-green-700' : 'text-red-600'}`}>
                         {qty.toFixed(3)}
                       </div>
-                      <div className="text-ink-3">{ing.unit}</div>
-                      <div className="text-ink-3 text-[11px]">{last ? fmtDatePl(last.receivedDate) : '—'}</div>
+                      <div className="text-slate-900-3">{ing.unit}</div>
+                      <div className="text-slate-900-3 text-[11px]">{last ? fmtDatePl(last.receivedDate) : '—'}</div>
                       <div>
                         {last?.notes?.includes('Ważność:') ? (
                           <ExpiryCell date={last.notes.replace('Ważność: ', '')} />
-                        ) : <span className="text-ink-4 text-[11px]">—</span>}
+                        ) : <span className="text-slate-900-4 text-[11px]">—</span>}
                       </div>
                       <div className="flex justify-end gap-1">
                         <button
                           onClick={e => { e.stopPropagation(); setSelIngId(ing.id); setReceiptModal(true) }}
-                          className="text-[10px] font-medium text-brand border border-brand/30 px-1.5 py-0.5 rounded hover:bg-blue-50"
+                          className="text-[10px] font-medium text-blue-600 border border-brand/30 px-1.5 py-0.5 rounded hover:bg-blue-50"
                         >
                           +WZ
                         </button>
-                        {isExp ? <ChevronUp size={14} className="text-ink-4" /> : <ChevronDown size={14} className="text-ink-4" />}
+                        {isExp ? <ChevronUp size={14} className="text-slate-900-4" /> : <ChevronDown size={14} className="text-slate-900-4" />}
                       </div>
                     </div>
 
                     {/* Historia przyjęć */}
                     {isExp && recs.length > 0 && (
-                      <div className="px-4 pb-3 bg-surface-3 border-t border-surface-4">
-                        <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 py-1.5">Historia przyjęć</div>
+                      <div className="px-4 pb-3 bg-slate-50 border-t border-slate-200">
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-900-4 py-1.5">Historia przyjęć</div>
                         <table className="w-full text-[11px]">
                           <thead>
-                            <tr className="text-[10px] text-ink-4">
+                            <tr className="text-[10px] text-slate-900-4">
                               <th className="text-left py-1">Data</th>
                               <th className="text-right py-1">Ilość</th>
                               <th className="text-right py-1">Cena/jedn.</th>
@@ -252,8 +254,8 @@ export function SpiceStockPage() {
                               <tr key={r.id}>
                                 <td className="py-1">{fmtDatePl(r.receivedDate)}</td>
                                 <td className="py-1 text-right font-bold">{r.qty} {r.unit}</td>
-                                <td className="py-1 text-right text-ink-3">{r.pricePerUnit > 0 ? `${r.pricePerUnit.toFixed(2)} zł` : '—'}</td>
-                                <td className="py-1 font-mono text-ink-3">{r.invoiceNo || '—'}</td>
+                                <td className="py-1 text-right text-slate-900-3">{r.pricePerUnit > 0 ? `${r.pricePerUnit.toFixed(2)} zł` : '—'}</td>
+                                <td className="py-1 font-mono text-slate-900-3">{r.invoiceNo || '—'}</td>
                                 <td className="py-1">
                                   {r.notes?.includes('Ważność:') ? (
                                     <ExpiryCell date={r.notes.replace('Ważność: ', '')} />
@@ -266,7 +268,7 @@ export function SpiceStockPage() {
                       </div>
                     )}
                     {isExp && recs.length === 0 && (
-                      <div className="px-4 pb-3 bg-surface-3 border-t border-surface-4 text-[12px] text-ink-3 py-2">
+                      <div className="px-4 pb-3 bg-slate-50 border-t border-slate-200 text-[12px] text-slate-900-3 py-2">
                         Brak przyjęć — dodaj przez WZ lub Faktury
                       </div>
                     )}
@@ -282,24 +284,24 @@ export function SpiceStockPage() {
       <Modal open={ingModal} onClose={() => setIngModal(false)} title="Nowy składnik" size="sm" preventClose>
         <div className="space-y-3">
           <div>
-            <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Nazwa *</label>
+            <label className="block text-[11px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Nazwa *</label>
             <input type="text" placeholder="np. Van Hess Hell, Chiken BKS"
               value={newName} onChange={e => setNewName(e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand" />
+              className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand" />
           </div>
           <div>
-            <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Kategoria</label>
+            <label className="block text-[11px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Kategoria</label>
             <select value={newCat} onChange={e => setNewCat(e.target.value as IngredientCategory)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand">
+              className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand">
               <option value="spice_mix">Mieszanka przyprawowa</option>
               <option value="functional">Dodatek funkcjonalny</option>
               <option value="other">Inne</option>
             </select>
           </div>
           <div>
-            <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Jednostka</label>
+            <label className="block text-[11px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Jednostka</label>
             <select value={newUnit} onChange={e => setNewUnit(e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand">
+              className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand">
               <option value="kg">kg</option>
               <option value="l">l</option>
               <option value="szt">szt</option>
@@ -316,45 +318,45 @@ export function SpiceStockPage() {
       <Modal open={receiptModal} onClose={() => setReceiptModal(false)} title="Przyjęcie WZ" subtitle="Ręczne przyjęcie bez faktury" size="sm" preventClose>
         <div className="space-y-3">
           <div>
-            <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Składnik *</label>
+            <label className="block text-[11px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Składnik *</label>
             <select value={selIngId} onChange={e => setSelIngId(e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand">
+              className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand">
               <option value="">Wybierz...</option>
               {displayIngredients.map(i => <option key={i.id} value={i.id}>{i.name} [{i.unit}]</option>)}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Ilość *</label>
+              <label className="block text-[11px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Ilość *</label>
               <input type="number" min="0" step="0.001" placeholder="0.000"
                 value={recQty} onChange={e => setRecQty(e.target.value)}
-                className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
             </div>
             <div>
-              <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Cena / jedn.</label>
+              <label className="block text-[11px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Cena / jedn.</label>
               <input type="number" min="0" step="0.01" placeholder="0.00"
                 value={recPrice} onChange={e => setRecPrice(e.target.value)}
-                className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
             </div>
           </div>
           <div>
-            <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data ważności (zalecana)</label>
+            <label className="block text-[11px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Data ważności (zalecana)</label>
             <input type="date" value={recExpiry} onChange={e => setRecExpiry(e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand" />
-            <p className="text-[10px] text-ink-4 mt-0.5">Zazwyczaj +12 miesięcy od daty produkcji</p>
+              className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand" />
+            <p className="text-[10px] text-slate-900-4 mt-0.5">Zazwyczaj +12 miesięcy od daty produkcji</p>
           </div>
           <div>
-            <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Nr WZ / FV</label>
+            <label className="block text-[11px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Nr WZ / FV</label>
             <input type="text" placeholder="np. WZ 001/2025"
               value={recInvoice} onChange={e => setRecInvoice(e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand" />
+              className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand" />
           </div>
           <div>
-            <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data przyjęcia</label>
+            <label className="block text-[11px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Data przyjęcia</label>
             <input type="date" value={recDate} onChange={e => setRecDate(e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand" />
+              className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand" />
           </div>
-          <div className="bg-surface-3 px-3 py-2 text-[11px] text-ink-3">
+          <div className="bg-slate-50 px-3 py-2 text-[11px] text-slate-900-3">
             💡 Faktura może zostać powiązana później w module Faktury i WZ
           </div>
           <div className="flex gap-2 pt-1">

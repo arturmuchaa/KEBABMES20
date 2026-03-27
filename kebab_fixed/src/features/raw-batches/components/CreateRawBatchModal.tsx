@@ -157,8 +157,8 @@ export function CreateRawBatchModal({
         {/* NAGŁÓWEK: Nr partii + Dostawca */}
         <div className="grid grid-cols-2 gap-4">
           {/* Numer partii */}
-          <div className="bg-brand-light border border-brand-border rounded-xl p-3">
-            <div className="text-[10px] font-bold text-brand uppercase tracking-wide mb-1">
+          <div className="bg-slate-900-light border border-brand-border rounded-xl p-3">
+            <div className="text-[10px] font-bold text-blue-600 uppercase tracking-wide mb-1">
               Nasza partia
             </div>
             {isEditingBatchNo ? (
@@ -168,23 +168,23 @@ export function CreateRawBatchModal({
                   value={customBatchNo}
                   onChange={e => setCustomBatchNo(e.target.value.toUpperCase())}
                   autoFocus
-                  className="flex-1 h-10 px-3 text-xl font-black font-mono text-brand rounded-lg border-2 border-brand bg-white focus:outline-none"
+                  className="flex-1 h-10 px-3 text-xl font-black font-mono text-blue-600 rounded-lg border-2 border-brand bg-white focus:outline-none"
                 />
                 <button
                   onClick={() => setIsEditingBatchNo(false)}
-                  className="h-10 w-10 rounded-lg bg-brand text-white flex items-center justify-center"
+                  className="h-10 w-10 rounded-lg bg-slate-900 text-white flex items-center justify-center"
                 >
                   <Check size={18} />
                 </button>
               </div>
             ) : (
               <div className="flex items-center justify-between">
-                <span className="text-2xl font-black font-mono text-brand">
+                <span className="text-2xl font-black font-mono text-blue-600">
                   {customBatchNo || suggestedBatchNo || '—'}
                 </span>
                 <button
                   onClick={() => setIsEditingBatchNo(true)}
-                  className="p-2 rounded-lg hover:bg-brand/10 text-brand"
+                  className="p-2 rounded-lg hover:bg-slate-900/10 text-blue-600"
                   title="Zmień numer"
                 >
                   <Edit2 size={14} />
@@ -195,13 +195,13 @@ export function CreateRawBatchModal({
 
           {/* Dostawca */}
           <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">
+            <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">
               Dostawca *
             </label>
             <select
               value={form.supplierId}
               onChange={e => onFieldChange('supplierId', e.target.value)}
-              className="w-full h-12 px-3 text-sm font-medium rounded-xl border-2 border-surface-4 bg-white focus:outline-none focus:border-brand"
+              className="w-full h-12 px-3 text-sm font-medium rounded-xl border-2 border-slate-200 bg-white focus:outline-none focus:border-brand"
             >
               <option value="">Wybierz dostawcę...</option>
               {supplierOptions.map(o => (
@@ -212,20 +212,20 @@ export function CreateRawBatchModal({
         </div>
 
         {/* POZYCJE Z HDI */}
-        <div className="border-2 border-surface-4 rounded-xl overflow-hidden">
-          <div className="bg-surface-2 px-4 py-2 flex items-center justify-between border-b border-surface-4">
+        <div className="border-2 border-slate-200 rounded-xl overflow-hidden">
+          <div className="bg-slate-50 px-4 py-2 flex items-center justify-between border-b border-slate-200">
             <div className="flex items-center gap-2">
-              <Link2 size={14} className="text-ink-3" />
-              <span className="text-xs font-bold text-ink-3 uppercase tracking-wide">
+              <Link2 size={14} className="text-slate-900-3" />
+              <span className="text-xs font-bold text-slate-900-3 uppercase tracking-wide">
                 Pozycje z HDI dostawcy
               </span>
-              <span className="text-xs text-ink-4">
+              <span className="text-xs text-slate-900-4">
                 ({batchItems.length} {batchItems.length === 1 ? 'pozycja' : 'pozycji'})
               </span>
             </div>
             <button
               onClick={addBatchItem}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-bold hover:bg-brand-dark transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-900-dark transition-colors"
             >
               <Plus size={12} />
               Dodaj pozycję
@@ -233,7 +233,7 @@ export function CreateRawBatchModal({
           </div>
 
           {/* Nagłówki tabeli */}
-          <div className="grid grid-cols-[1fr_100px_120px_120px_40px] gap-2 px-4 py-2 bg-surface-2 text-[10px] font-bold text-ink-3 uppercase tracking-wide border-b border-surface-4">
+          <div className="grid grid-cols-[1fr_100px_120px_120px_40px] gap-2 px-4 py-2 bg-slate-50 text-[10px] font-bold text-slate-900-3 uppercase tracking-wide border-b border-slate-200">
             <span>Nr partii dostawcy</span>
             <span className="text-right">Kg</span>
             <span>Data uboju</span>
@@ -250,7 +250,7 @@ export function CreateRawBatchModal({
                   placeholder="np. 111634"
                   value={item.supplierBatchNo}
                   onChange={e => updateBatchItem(index, 'supplierBatchNo', e.target.value)}
-                  className="h-9 px-3 text-sm font-mono font-semibold rounded-lg border border-surface-4 focus:outline-none focus:border-brand"
+                  className="h-9 px-3 text-sm font-mono font-semibold rounded-lg border border-slate-200 focus:outline-none focus:border-brand"
                 />
                 <input
                   type="number"
@@ -259,7 +259,7 @@ export function CreateRawBatchModal({
                   min="0"
                   value={item.kgReceived || ''}
                   onChange={e => updateBatchItem(index, 'kgReceived', parseFloat(e.target.value) || 0)}
-                  className="h-9 px-3 text-sm font-bold text-right rounded-lg border border-surface-4 focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  className="h-9 px-3 text-sm font-bold text-right rounded-lg border border-slate-200 focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
                 <input
                   type="date"
@@ -274,18 +274,18 @@ export function CreateRawBatchModal({
                       i === index ? { ...it, slaughterDate: slaughter, expiryDate: expiry } : it
                     ))
                   }}
-                  className="h-9 px-2 text-xs rounded-lg border border-surface-4 focus:outline-none focus:border-brand"
+                  className="h-9 px-2 text-xs rounded-lg border border-slate-200 focus:outline-none focus:border-brand"
                 />
                 <input
                   type="date"
                   value={item.expiryDate}
                   onChange={e => updateBatchItem(index, 'expiryDate', e.target.value)}
-                  className="h-9 px-2 text-xs rounded-lg border border-surface-4 focus:outline-none focus:border-brand"
+                  className="h-9 px-2 text-xs rounded-lg border border-slate-200 focus:outline-none focus:border-brand"
                 />
                 <button
                   onClick={() => removeBatchItem(index)}
                   disabled={batchItems.length <= 1}
-                  className="h-9 w-9 rounded-lg flex items-center justify-center text-ink-4 hover:text-danger hover:bg-danger-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="h-9 w-9 rounded-lg flex items-center justify-center text-slate-900-4 hover:text-danger hover:bg-danger-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <X size={14} />
                 </button>
@@ -296,22 +296,22 @@ export function CreateRawBatchModal({
 
         {/* PODSUMOWANIE */}
         <div className="grid grid-cols-4 gap-3">
-          <div className="bg-brand-light border border-brand-border rounded-xl p-3 text-center">
-            <Package size={16} className="text-brand mx-auto mb-1" />
-            <div className="text-2xl font-black text-brand">{fmtKg(totalKg, 1)}</div>
-            <div className="text-[9px] font-bold text-ink-3 uppercase">kg łącznie</div>
+          <div className="bg-slate-900-light border border-brand-border rounded-xl p-3 text-center">
+            <Package size={16} className="text-blue-600 mx-auto mb-1" />
+            <div className="text-2xl font-black text-blue-600">{fmtKg(totalKg, 1)}</div>
+            <div className="text-[9px] font-bold text-slate-900-3 uppercase">kg łącznie</div>
           </div>
           
-          <div className="bg-surface-2 border border-surface-4 rounded-xl p-3 text-center">
-            <div className="text-2xl font-black text-ink">{containers}</div>
-            <div className="text-[9px] font-bold text-ink-3 uppercase">pojemników</div>
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+            <div className="text-2xl font-black text-slate-900">{containers}</div>
+            <div className="text-[9px] font-bold text-slate-900-3 uppercase">pojemników</div>
             {remainderKg > 0 && (
               <div className="text-[9px] text-warn font-bold">+{fmtKg(remainderKg,1)} reszty</div>
             )}
           </div>
 
           <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">
+            <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">
               Cena / kg (zł)
             </label>
             <input
@@ -321,31 +321,31 @@ export function CreateRawBatchModal({
               min="0"
               value={form.pricePerKg || ''}
               onChange={e => onFieldChange('pricePerKg', parseFloat(e.target.value) || 0)}
-              className="w-full h-12 px-3 text-xl font-black rounded-xl border-2 border-surface-4 focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              className="w-full h-12 px-3 text-xl font-black rounded-xl border-2 border-slate-200 focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
           </div>
           
           <div className="bg-success-light border border-success-border rounded-xl p-3 text-center">
             <div className="text-xl font-black text-success">{fmtPln(calculatedValue)}</div>
-            <div className="text-[9px] font-bold text-ink-3 uppercase">wartość</div>
+            <div className="text-[9px] font-bold text-slate-900-3 uppercase">wartość</div>
           </div>
         </div>
 
         {/* DODATKOWE DANE */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">
+            <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">
               Data przyjęcia
             </label>
             <input
               type="date"
               value={form.receivedDate}
               onChange={e => onFieldChange('receivedDate', e.target.value)}
-              className="w-full h-10 px-3 text-sm rounded-lg border-2 border-surface-4 focus:outline-none focus:border-brand"
+              className="w-full h-10 px-3 text-sm rounded-lg border-2 border-slate-200 focus:outline-none focus:border-brand"
             />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">
+            <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">
               Nr faktury / WZ
             </label>
             <input
@@ -353,16 +353,16 @@ export function CreateRawBatchModal({
               placeholder="np. WZ 739/MDU/03/2026"
               value={form.invoiceNo ?? ''}
               onChange={e => onFieldChange('invoiceNo', e.target.value)}
-              className="w-full h-10 px-3 text-sm rounded-lg border-2 border-surface-4 focus:outline-none focus:border-brand"
+              className="w-full h-10 px-3 text-sm rounded-lg border-2 border-slate-200 focus:outline-none focus:border-brand"
             />
           </div>
         </div>
 
         {/* TRACEABILITY INFO */}
         {batchItems.filter(b => b.supplierBatchNo).length > 1 && (
-          <div className="bg-brand-light border border-brand-border rounded-xl px-4 py-3 text-sm">
-            <div className="font-bold text-brand mb-1">📦 Łączenie partii dostawcy</div>
-            <div className="text-brand/80">
+          <div className="bg-slate-900-light border border-brand-border rounded-xl px-4 py-3 text-sm">
+            <div className="font-bold text-blue-600 mb-1">📦 Łączenie partii dostawcy</div>
+            <div className="text-blue-600/80">
               Partia <strong>{customBatchNo || suggestedBatchNo}</strong> powstanie z połączenia{' '}
               <strong>{batchItems.filter(b => b.supplierBatchNo).length}</strong> pozycji HDI:{' '}
               {batchItems.filter(b => b.supplierBatchNo).map(b => b.supplierBatchNo).join(', ')}

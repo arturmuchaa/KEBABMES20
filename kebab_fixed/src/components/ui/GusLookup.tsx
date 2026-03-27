@@ -61,13 +61,13 @@ export function GusLookup({ onFound }: GusLookupProps) {
 
       <div className="flex gap-2 items-end">
         <div className="flex-1">
-          <label className="text-[11px] font-bold uppercase tracking-wide text-ink-3 block mb-1">NIP (10 cyfr)</label>
+          <label className="text-[11px] font-bold uppercase tracking-wide text-slate-900-3 block mb-1">NIP (10 cyfr)</label>
           <input
             type="text" inputMode="numeric" maxLength={13} placeholder="0000000000"
             value={nip}
             onChange={e => setNip(e.target.value.replace(/[^0-9]/g, ''))}
             onKeyDown={e => e.key === 'Enter' && fetchGus()}
-            className="w-full h-10 px-3 text-sm font-mono font-bold rounded-xl border-2 border-surface-4 bg-surface-2 focus:outline-none focus:border-brand focus:bg-white transition-colors"
+            className="w-full h-10 px-3 text-sm font-mono font-bold rounded-xl border-2 border-slate-200 bg-slate-50 focus:outline-none focus:border-brand focus:bg-white transition-colors"
           />
         </div>
         <button onClick={fetchGus} disabled={status === 'loading'}
@@ -86,14 +86,14 @@ export function GusLookup({ onFound }: GusLookupProps) {
             <span className="text-xs font-bold text-success">Dane pobrane z GUS</span>
           </div>
           <div className="grid grid-cols-[56px_1fr] gap-x-3 gap-y-0.5 text-xs">
-            <span className="text-ink-3 font-semibold">Nazwa</span>
-            <span className="font-bold text-ink">{result.nazwa}</span>
-            {result.regon && <><span className="text-ink-3 font-semibold">REGON</span><span className="font-mono text-ink">{result.regon}</span></>}
-            <span className="text-ink-3 font-semibold">NIP</span>
-            <span className="font-mono text-ink">{result.nip}</span>
+            <span className="text-slate-900-3 font-semibold">Nazwa</span>
+            <span className="font-bold text-slate-900">{result.nazwa}</span>
+            {result.regon && <><span className="text-slate-900-3 font-semibold">REGON</span><span className="font-mono text-slate-900">{result.regon}</span></>}
+            <span className="text-slate-900-3 font-semibold">NIP</span>
+            <span className="font-mono text-slate-900">{result.nip}</span>
             {result.miasto && <>
-              <span className="text-ink-3 font-semibold">Adres</span>
-              <span className="text-ink">
+              <span className="text-slate-900-3 font-semibold">Adres</span>
+              <span className="text-slate-900">
                 {[result.ulica, result.numer_budynku].filter(Boolean).join(' ')}
                 {result.miasto ? `, ${result.kod_pocztowy ?? ''} ${result.miasto}` : ''}
               </span>

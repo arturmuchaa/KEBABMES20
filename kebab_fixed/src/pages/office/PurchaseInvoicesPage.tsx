@@ -9,7 +9,7 @@ import { useApi } from '@/hooks/useApi'
 import { suppliersApi, rawBatchesApi, invoicesApi, ingredientsApi, packagingApi } from '@/lib/apiClient'
 import type { PurchaseInvoice, CreatePurchaseInvoiceDto, InvoiceCategory } from '@/lib/mockApi'
 import { INVOICE_CATEGORY_LABELS as CAT_LABELS } from '@/lib/mockApi'
-import { Spinner, EmptyState, Modal } from '@/components/ui/Card'
+import { Spinner, EmptyState, Modal , PageHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { fmtPln, fmtDatePl, fmtKg, todayIso } from '@/lib/utils'
 import { Plus, FileText, Pencil, Trash2, Receipt, Search, X, AlertTriangle, Package, FlaskConical, Zap, Tag, Archive } from 'lucide-react'
@@ -26,7 +26,7 @@ const CATEGORY_COLOR: Record<InvoiceCategory, string> = {
   PRZYPRAWY_I_DODATKI: 'bg-green-500/15 text-green-400',
   OPAKOWANIA_TULEJE:   'bg-purple-50 text-purple-700',
   MEDIA:               'bg-amber-500/15 text-amber-400',
-  INNE:                'bg-surface-3 text-ink-3',
+  INNE:                'bg-slate-50 text-slate-900-3',
 }
 
 const ALL_CATS: InvoiceCategory[] = ['SUROWIEC','PRZYPRAWY_I_DODATKI','OPAKOWANIA_TULEJE','MEDIA','INNE']
@@ -217,12 +217,12 @@ function InvoiceForm({ initial, onSave, onClose }: {
     <div className="space-y-4">
       {/* Kategoria */}
       <div>
-        <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Kategoria *</label>
+        <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Kategoria *</label>
         <div className="grid grid-cols-5 gap-1.5">
           {ALL_CATS.map(c => (
             <button key={c} onClick={() => handleCategoryChange(c)}
               className={`flex flex-col items-center gap-1 py-2 rounded-lg border-2 text-[10px] font-semibold transition-all ${
-                cat===c ? 'border-brand bg-brand-light text-brand' : 'border-surface-4 text-ink-3 hover:border-brand/40'
+                cat===c ? 'border-brand bg-slate-900-light text-blue-600' : 'border-slate-200 text-slate-900-3 hover:border-brand/40'
               }`}>
               {CATEGORY_ICON[c]}
               <span className="text-center leading-tight">{CAT_LABELS[c]}</span>
@@ -234,27 +234,27 @@ function InvoiceForm({ initial, onSave, onClose }: {
       {/* Podstawowe */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Nr faktury *</label>
+          <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Nr faktury *</label>
           <input value={form.invoiceNo} onChange={e=>set('invoiceNo',e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50" placeholder="FV/2026/001" />
+            className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50" placeholder="FV/2026/001" />
         </div>
         <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Dostawca *</label>
+          <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Dostawca *</label>
           <select value={form.supplierId} onChange={e=>set('supplierId',e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
+            className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50">
             <option value="">Wybierz...</option>
             {supplierOptions.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data faktury *</label>
+          <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Data faktury *</label>
           <input type="date" value={form.invoiceDate} onChange={e=>set('invoiceDate',e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50" />
+            className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50" />
         </div>
         <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Termin płatności</label>
+          <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Termin płatności</label>
           <input type="date" value={form.dueDate} onChange={e=>set('dueDate',e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50" />
+            className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50" />
         </div>
       </div>
 
@@ -266,14 +266,14 @@ function InvoiceForm({ initial, onSave, onClose }: {
           </div>
           <div className="max-h-44 overflow-y-auto border border-blue-200 bg-white divide-y divide-slate-100 rounded">
             {batchOptions.length===0
-              ? <div className="px-3 py-2 text-[11px] text-ink-3">Brak partii</div>
+              ? <div className="px-3 py-2 text-[11px] text-slate-900-3">Brak partii</div>
               : batchOptions.map(o=>{
                   const sel = form.rawBatchIds.includes(o.value)
                   return (
                     <label key={o.value} className={`flex items-center gap-2 px-3 py-2 cursor-pointer text-[12px] hover:bg-blue-50 ${sel?'bg-blue-50':''}`}>
                       <input type="checkbox" checked={sel} onChange={()=>handleBatchToggle(o.value)} className="w-4 h-4 accent-brand" />
-                      <span className={sel?'font-bold text-brand':o.status==='used'?'text-ink-3':'text-ink'}>{o.label}</span>
-                      {o.status==='used'&&<span className="ml-auto text-[10px] text-ink-4">zużyta</span>}
+                      <span className={sel?'font-bold text-blue-600':o.status==='used'?'text-slate-900-3':'text-slate-900'}>{o.label}</span>
+                      {o.status==='used'&&<span className="ml-auto text-[10px] text-slate-900-4">zużyta</span>}
                     </label>
                   )
                 })
@@ -286,10 +286,10 @@ function InvoiceForm({ initial, onSave, onClose }: {
             </div>
           )}
           <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Nazwa pozycji</label>
+            <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Nazwa pozycji</label>
             <input type="text" placeholder="ĆWIARTKA Z KURCZAKA KL. A SCHŁODZONA"
               value={form.lineName} onChange={e=>set('lineName',e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50" />
+              className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50" />
           </div>
         </div>
       )}
@@ -302,23 +302,23 @@ function InvoiceForm({ initial, onSave, onClose }: {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Składnik *</label>
+              <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Składnik *</label>
               <select value={form.ingredientId} onChange={e=>set('ingredientId',e.target.value)}
-                className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
+                className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50">
                 <option value="">Wybierz składnik...</option>
                 {ingredientOptions.map(o=><option key={o.value} value={o.value}>{o.label} [{o.unit}]</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data ważności *</label>
+              <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Data ważności *</label>
               <input type="date" value={form.expiryDate} onChange={e=>set('expiryDate',e.target.value)}
-                className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50" />
+                className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50" />
             </div>
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Nr partii dostawcy</label>
+            <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Nr partii dostawcy</label>
             <input type="text" placeholder="np. LOT 2026-001" value={form.batchNo} onChange={e=>set('batchNo',e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50" />
+              className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50" />
           </div>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={form.createWZ} onChange={e=>set('createWZ',e.target.checked)} className="w-4 h-4 accent-brand" />
@@ -339,9 +339,9 @@ function InvoiceForm({ initial, onSave, onClose }: {
             <Archive size={11} /> Powiązanie z magazynem opakowań / tulei
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Opakowanie / Tuleja</label>
+            <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Opakowanie / Tuleja</label>
             <select value={form.packagingId} onChange={e=>handlePackagingChange(e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
+              className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50">
               <option value="">— bez powiązania —</option>
               {packagingOptions.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
@@ -371,24 +371,24 @@ function InvoiceForm({ initial, onSave, onClose }: {
       )}
 
       {/* Waluta */}
-      <div className="flex items-center gap-3 p-2.5 bg-surface-2 border border-surface-4 rounded-lg">
-        <span className="text-[10px] font-bold text-ink-3 uppercase tracking-wide flex-shrink-0">Waluta:</span>
+      <div className="flex items-center gap-3 p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+        <span className="text-[10px] font-bold text-slate-900-3 uppercase tracking-wide flex-shrink-0">Waluta:</span>
         <div className="flex gap-2">
           {(['PLN','EUR'] as const).map(c=>(
             <button key={c} onClick={()=>{ set('currency',c); if(c==='EUR'&&!form.exchangeRate) fetchNbpRate() }}
-              className={`px-3 py-1 rounded text-[12px] font-bold border-2 transition-all ${form.currency===c?'border-brand bg-brand text-white':'border-surface-4 text-ink-3 hover:border-brand/40'}`}>
+              className={`px-3 py-1 rounded text-[12px] font-bold border-2 transition-all ${form.currency===c?'border-brand bg-slate-900 text-white':'border-slate-200 text-slate-900-3 hover:border-brand/40'}`}>
               {c}
             </button>
           ))}
         </div>
         {form.currency==='EUR' && (
           <div className="flex items-center gap-2 flex-1">
-            <span className="text-[10px] text-ink-3 flex-shrink-0">Kurs EUR/PLN:</span>
+            <span className="text-[10px] text-slate-900-3 flex-shrink-0">Kurs EUR/PLN:</span>
             <input type="number" min="0" step="0.0001" placeholder="np. 4.2731"
               value={form.exchangeRate} onChange={e=>set('exchangeRate',e.target.value)}
-              className="w-28 h-7 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50" />
+              className="w-28 h-7 px-2 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50" />
             <button onClick={fetchNbpRate} disabled={nbpLoading}
-              className="px-2 h-7 text-[11px] font-semibold border border-brand text-brand rounded hover:bg-blue-50 disabled:opacity-50 flex-shrink-0">
+              className="px-2 h-7 text-[11px] font-semibold border border-brand text-blue-600 rounded hover:bg-blue-50 disabled:opacity-50 flex-shrink-0">
               {nbpLoading ? '...' : '↻ NBP'}
             </button>
             {form.exchangeRate && <span className="text-[10px] text-green-700 font-semibold flex-shrink-0">kurs: {form.exchangeRate}</span>}
@@ -400,23 +400,23 @@ function InvoiceForm({ initial, onSave, onClose }: {
       {/* Ilość i cena */}
       <div className="grid grid-cols-3 gap-3">
         <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">
+          <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">
             Ilość ({cat==='SUROWIEC'||cat==='PRZYPRAWY_I_DODATKI'?'kg':'szt'}) *
           </label>
           <input type="number" min="0" step="0.01" value={form.qty} onChange={e=>set('qty',e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50" />
+            className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50" />
         </div>
         <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">
+          <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">
             Cena jedn. ({form.currency}) *
           </label>
           <input type="number" min="0" step="0.01" value={form.unitPrice} onChange={e=>set('unitPrice',e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50" />
+            className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50" />
         </div>
         <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">VAT %</label>
+          <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">VAT %</label>
           <select value={form.vatRate} onChange={e=>set('vatRate',e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
+            className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50">
             {['0','5','8','23'].map(v=><option key={v} value={v}>{v}%</option>)}
           </select>
         </div>
@@ -428,19 +428,19 @@ function InvoiceForm({ initial, onSave, onClose }: {
         const vatPln   = form.currency==='EUR' ? Math.round(vat * exchRate * 100)/100 : vat
         const grossPln = form.currency==='EUR' ? Math.round(gross * exchRate * 100)/100 : gross
         return (
-          <div className="bg-surface-2 border border-surface-4 p-3 space-y-2">
+          <div className="bg-slate-50 border border-slate-200 p-3 space-y-2">
             <div className="grid grid-cols-3 gap-2 text-center">
               {[
                 {label:'Netto',    val:form.currency==='EUR'?`${net.toFixed(2)} EUR`:fmtPln(netPln)},
                 {label:`VAT ${vatPct}%`, val:form.currency==='EUR'?`${vat.toFixed(2)} EUR`:fmtPln(vatPln)},
                 {label:'Brutto',   val:form.currency==='EUR'?`${gross.toFixed(2)} EUR`:fmtPln(grossPln)},
               ].map(r=>(
-                <div key={r.label}><div className="text-[10px] text-ink-3 uppercase">{r.label}</div><div className="font-bold">{r.val}</div></div>
+                <div key={r.label}><div className="text-[10px] text-slate-900-3 uppercase">{r.label}</div><div className="font-bold">{r.val}</div></div>
               ))}
             </div>
             {form.currency==='EUR' && form.exchangeRate && (
-              <div className="text-center text-[11px] text-ink-3 border-t border-surface-4 pt-2">
-                = <span className="font-bold text-ink">{fmtPln(grossPln)}</span> PLN (kurs {parseFloat(form.exchangeRate).toFixed(4)})
+              <div className="text-center text-[11px] text-slate-900-3 border-t border-slate-200 pt-2">
+                = <span className="font-bold text-slate-900">{fmtPln(grossPln)}</span> PLN (kurs {parseFloat(form.exchangeRate).toFixed(4)})
               </div>
             )}
           </div>
@@ -448,9 +448,9 @@ function InvoiceForm({ initial, onSave, onClose }: {
       })()}
 
       <div>
-        <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Uwagi</label>
+        <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Uwagi</label>
         <textarea rows={2} value={form.notes} onChange={e=>set('notes',e.target.value)}
-          className="w-full px-3 py-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3 resize-none" />
+          className="w-full px-3 py-2 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50 resize-none" />
       </div>
 
       {error && (
@@ -474,22 +474,22 @@ function InvoiceRow({ inv, onEdit, onDelete }: {
 }) {
   const cat = inv.category ?? 'SUROWIEC'
   return (
-    <tr className="hover:bg-surface-3/60">
+    <tr className="hover:bg-slate-50/60">
       <td className="px-3 py-2.5">
-        <div className="font-mono font-bold text-ink">{inv.invoiceNo}</div>
-        <div className="text-[10px] text-ink-3">{fmtDatePl(inv.invoiceDate)}</div>
+        <div className="font-mono font-bold text-slate-900">{inv.invoiceNo}</div>
+        <div className="text-[10px] text-slate-900-3">{fmtDatePl(inv.invoiceDate)}</div>
       </td>
       <td className="px-3 py-2.5 text-sm">{inv.supplierName}</td>
       <td className="px-3 py-2.5">
         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex items-center gap-1 w-fit ${CATEGORY_COLOR[cat]}`}>
           {CATEGORY_ICON[cat]} {CAT_LABELS[cat]}
         </span>
-        {inv.rawBatchNo && <div className="text-[10px] font-mono text-ink-3 mt-0.5">{inv.rawBatchNo}</div>}
+        {inv.rawBatchNo && <div className="text-[10px] font-mono text-slate-900-3 mt-0.5">{inv.rawBatchNo}</div>}
         {(inv as any).packagingName && <div className="text-[10px] text-purple-700 mt-0.5">{(inv as any).packagingName}</div>}
       </td>
       <td className="px-3 py-2.5 text-right">
         <div className="font-semibold">{inv.qty} {cat==='OPAKOWANIA_TULEJE'?'szt':'kg'}</div>
-        <div className="text-[10px] text-ink-3">{fmtPln(inv.unitPrice)}/kg</div>
+        <div className="text-[10px] text-slate-900-3">{fmtPln(inv.unitPrice)}/kg</div>
       </td>
       <td className="px-3 py-2.5 text-right">
         <div className="font-bold">{fmtPln((inv as any).totalGross ?? inv.grossTotal ?? 0)}</div>
@@ -501,8 +501,8 @@ function InvoiceRow({ inv, onEdit, onDelete }: {
       </td>
       <td className="px-3 py-2.5">
         <div className="flex gap-1">
-          <button onClick={()=>onEdit(inv)} className="p-1.5 rounded border border-surface-4 text-ink-3 hover:border-warn hover:text-warn"><Pencil size={13}/></button>
-          <button onClick={()=>onDelete(inv)} className="p-1.5 rounded border border-surface-4 text-ink-3 hover:border-danger hover:text-danger"><Trash2 size={13}/></button>
+          <button onClick={()=>onEdit(inv)} className="p-1.5 rounded border border-slate-200 text-slate-900-3 hover:border-warn hover:text-warn"><Pencil size={13}/></button>
+          <button onClick={()=>onDelete(inv)} className="p-1.5 rounded border border-slate-200 text-slate-900-3 hover:border-danger hover:text-danger"><Trash2 size={13}/></button>
         </div>
       </td>
     </tr>
@@ -541,44 +541,46 @@ export function PurchaseInvoicesPage() {
   }
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
+
+      <PageHeader title="Faktury zakupowe" subtitle="Dokumenty WZ i faktury" />
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-[16px] font-bold text-ink">Faktury zakupowe</h1>
-          <p className="text-[11px] text-ink-3 mt-0.5">Ewidencja faktur — surowiec, przyprawy, opakowania, media</p>
+          <h1 className="text-[16px] font-bold text-slate-900">Faktury zakupowe</h1>
+          <p className="text-[11px] text-slate-900-3 mt-0.5">Ewidencja faktur — surowiec, przyprawy, opakowania, media</p>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[180px]">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-4"/>
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-900-4"/>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Szukaj faktury..."
-            className="w-full h-9 pl-9 pr-8 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50"/>
-          {search&&<button onClick={()=>setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-4"><X size={14}/></button>}
+            className="w-full h-9 pl-9 pr-8 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50"/>
+          {search&&<button onClick={()=>setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-900-4"><X size={14}/></button>}
         </div>
         <select value={filterCat} onChange={e=>setFilterCat(e.target.value as any)}
-          className="h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
+          className="h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50">
           <option value="">Wszystkie</option>
           {ALL_CATS.map(c=><option key={c} value={c}>{CAT_LABELS[c]}</option>)}
         </select>
         <Button icon={<Plus size={14}/>} onClick={()=>{setEditInvoice(null);setModalOpen(true)}}>Dodaj fakturę</Button>
       </div>
 
-      <div className="bg-surface border border-surface-4 rounded-xl">
-        <div className="px-4 py-2.5 border-b border-surface-4 flex items-center justify-between">
+      <div className="bg-white border border-slate-200 rounded-xl">
+        <div className="px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Receipt size={13} className="text-ink-3"/>
-            <span className="text-[13px] font-semibold text-ink">{invoices.length} faktur</span>
+            <Receipt size={13} className="text-slate-900-3"/>
+            <span className="text-[13px] font-semibold text-slate-900">{invoices.length} faktur</span>
           </div>
-          {invoices.length>0&&<span className="text-[12px] font-bold text-ink">Razem: {fmtPln(totalGross)}</span>}
+          {invoices.length>0&&<span className="text-[12px] font-bold text-slate-900">Razem: {fmtPln(totalGross)}</span>}
         </div>
         {loading?<div className="flex justify-center py-10"><Spinner size={20}/></div>
         :invoices.length===0?<EmptyState icon={<FileText size={32}/>} title="Brak faktur" message="Dodaj pierwszą fakturę"/>
         :(
           <table className="w-full text-[12px]">
             <thead>
-              <tr className="border-b border-surface-4 bg-surface-2">
+              <tr className="border-b border-slate-200 bg-slate-50">
                 {['Nr faktury','Dostawca','Kategoria','Ilość','Brutto',''].map(h=>(
-                  <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-4">{h}</th>
+                  <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-900-4">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -596,7 +598,7 @@ export function PurchaseInvoicesPage() {
       )}
       {deleteTarget&&(
         <Modal open title="Usuń fakturę" onClose={()=>setDeleteTarget(null)}>
-          <p className="text-sm text-ink-3 mb-5">Usunąć fakturę <strong>{deleteTarget.invoiceNo}</strong>?</p>
+          <p className="text-sm text-slate-900-3 mb-5">Usunąć fakturę <strong>{deleteTarget.invoiceNo}</strong>?</p>
           <div className="flex gap-2">
             <Button variant="secondary" onClick={()=>setDeleteTarget(null)} className="flex-1">Anuluj</Button>
             <Button variant="danger" onClick={handleDelete} loading={mutLoading} className="flex-1">Usuń</Button>

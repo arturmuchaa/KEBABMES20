@@ -100,7 +100,7 @@ export function ViesLookup({ onFound }: Props) {
             setVatInput(prefix + rest)
             setResult(null); setError('')
           }}
-          className="h-10 px-2 text-sm font-bold border border-surface-4 focus:outline-none focus:border-brand bg-white rounded-lg w-28"
+          className="h-10 px-2 text-sm font-bold border border-slate-200 focus:outline-none focus:border-brand bg-white rounded-lg w-28"
         >
           <option value="">Kraj...</option>
           {Object.entries(EU_COUNTRIES).map(([code, name]) => (
@@ -115,7 +115,7 @@ export function ViesLookup({ onFound }: Props) {
             value={vatInput}
             onChange={e => { setVatInput(e.target.value.toUpperCase()); setResult(null); setError('') }}
             onKeyDown={e => e.key === 'Enter' && handleSearch()}
-            className="w-full h-10 pl-3 pr-10 text-sm font-mono border border-surface-4 focus:outline-none focus:border-brand bg-white rounded-lg"
+            className="w-full h-10 pl-3 pr-10 text-sm font-mono border border-slate-200 focus:outline-none focus:border-brand bg-white rounded-lg"
           />
         </div>
 
@@ -151,23 +151,23 @@ export function ViesLookup({ onFound }: Props) {
           </div>
           <div className="grid grid-cols-2 gap-2 text-[12px]">
             <div>
-              <div className="text-[10px] font-bold text-ink-4 uppercase">Numer VAT</div>
-              <div className="font-mono font-bold text-ink">{result.vatNumber}</div>
+              <div className="text-[10px] font-bold text-slate-900-4 uppercase">Numer VAT</div>
+              <div className="font-mono font-bold text-slate-900">{result.vatNumber}</div>
             </div>
             <div>
-              <div className="text-[10px] font-bold text-ink-4 uppercase">Kraj</div>
-              <div className="font-semibold text-ink">{EU_COUNTRIES[result.countryCode] || result.countryCode}</div>
+              <div className="text-[10px] font-bold text-slate-900-4 uppercase">Kraj</div>
+              <div className="font-semibold text-slate-900">{EU_COUNTRIES[result.countryCode] || result.countryCode}</div>
             </div>
             {result.traderName && (
               <div className="col-span-2">
-                <div className="text-[10px] font-bold text-ink-4 uppercase">Nazwa firmy</div>
-                <div className="font-semibold text-ink">{result.traderName}</div>
+                <div className="text-[10px] font-bold text-slate-900-4 uppercase">Nazwa firmy</div>
+                <div className="font-semibold text-slate-900">{result.traderName}</div>
               </div>
             )}
             {result.traderAddress && (
               <div className="col-span-2">
-                <div className="text-[10px] font-bold text-ink-4 uppercase">Adres</div>
-                <div className="text-ink-3">{result.traderAddress}</div>
+                <div className="text-[10px] font-bold text-slate-900-4 uppercase">Adres</div>
+                <div className="text-slate-900-3">{result.traderAddress}</div>
               </div>
             )}
           </div>

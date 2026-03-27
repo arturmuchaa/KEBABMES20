@@ -29,8 +29,8 @@ export function Table<T>({
               <th
                 key={c.key}
                 className={cn(
-                  'bg-surface-3 px-4 py-2.5 text-[10px] font-bold uppercase tracking-[.7px] text-ink-3',
-                  'border-b border-surface-4 whitespace-nowrap',
+                  'bg-slate-50 px-4 py-2.5 text-[10px] font-bold uppercase tracking-[.7px] text-slate-900-3',
+                  'border-b border-slate-200 whitespace-nowrap',
                   c.numeric ? 'text-right' : 'text-left',
                   c.className,
                 )}
@@ -49,17 +49,17 @@ export function Table<T>({
             </tr>
           ) : data.length === 0 ? (
             <tr>
-              <td colSpan={columns.length} className="py-14 text-center text-sm text-ink-4">{empty}</td>
+              <td colSpan={columns.length} className="py-14 text-center text-sm text-slate-900-4">{empty}</td>
             </tr>
           ) : (
             data.map((row, idx) => (
               <tr
                 key={keyFn(row)}
                 className={cn(
-                  'border-b border-surface-4 last:border-b-0 transition-colors duration-100',
-                  idx % 2 === 1 && 'bg-surface-2/60',         // subtle zebra
+                  'border-b border-slate-200 last:border-b-0 transition-colors duration-100',
+                  idx % 2 === 1 && 'bg-slate-50/60',         // subtle zebra
                   onRowClick && 'cursor-pointer hover:bg-slate-50',
-                  !onRowClick && 'hover:bg-surface-3/60',
+                  !onRowClick && 'hover:bg-slate-50/60',
                 )}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
                 tabIndex={onRowClick ? 0 : undefined}
@@ -69,7 +69,7 @@ export function Table<T>({
                   <td
                     key={c.key}
                     className={cn(
-                      'px-4 py-3 text-[13px] text-ink-2 align-middle',
+                      'px-4 py-3 text-[13px] text-slate-900-2 align-middle',
                       c.numeric && 'text-right font-mono tabular-nums',
                       c.className,
                     )}

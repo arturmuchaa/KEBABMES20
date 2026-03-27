@@ -32,18 +32,18 @@ export function TabletBatchCard({ batch, selected, onSelect }: TabletBatchCardPr
       )}
     >
       {/* Batch number */}
-      <div className={cn('text-2xl font-black font-mono mb-1', selected ? 'text-white' : 'text-ink')}>
+      <div className={cn('text-2xl font-black font-mono mb-1', selected ? 'text-white' : 'text-slate-900')}>
         {batch.internalBatchNo}
       </div>
 
       {/* Supplier */}
-      <div className={cn('text-sm font-medium mb-3 truncate', selected ? 'text-blue-100' : 'text-ink-3')}>
+      <div className={cn('text-sm font-medium mb-3 truncate', selected ? 'text-blue-100' : 'text-slate-900-3')}>
         {batch.supplierName ?? '—'}
       </div>
 
       {/* Stats row */}
       <div className="flex items-center justify-between gap-2">
-        <div className={cn('text-base font-bold', selected ? 'text-white' : 'text-ink')}>
+        <div className={cn('text-base font-bold', selected ? 'text-white' : 'text-slate-900')}>
           {fmtKg(batch.kgAvailable)} kg
         </div>
         <div className={cn('flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-full',

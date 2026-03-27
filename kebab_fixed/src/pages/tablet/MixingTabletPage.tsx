@@ -45,16 +45,16 @@ function CooldownTimer({ lock, onExpired, onHome }: {
       <div className="w-24 h-24 rounded-full bg-amber-100 flex items-center justify-center mb-5">
         <Timer size={48} className="text-amber-600" />
       </div>
-      <h2 className="text-2xl font-black text-ink mb-1">Masownica {lock.machineId}</h2>
-      <p className="text-base text-ink-3 mb-4">{lock.orderNo} — masowanie w trakcie</p>
+      <h2 className="text-2xl font-black text-slate-900 mb-1">Masownica {lock.machineId}</h2>
+      <p className="text-base text-slate-900-3 mb-4">{lock.orderNo} — masowanie w trakcie</p>
       <div className="text-7xl font-black tabular-nums text-amber-600 mb-4 font-mono">{mm}:{ss}</div>
-      <div className="w-full max-w-xs h-3 bg-surface-3 rounded-full overflow-hidden mb-6">
+      <div className="w-full max-w-xs h-3 bg-slate-50 rounded-full overflow-hidden mb-6">
         <div className="h-full bg-amber-400 rounded-full transition-all duration-1000"
           style={{ width: `${(remaining / 3000) * 100}%` }} />
       </div>
       <p className="text-[12px] text-amber-700 mb-6">Pozostałe maszyny są dostępne</p>
       <button onClick={onHome}
-        className="w-full max-w-xs h-12 flex items-center justify-center gap-2 bg-white border-2 border-surface-4 text-ink rounded-2xl font-semibold">
+        className="w-full max-w-xs h-12 flex items-center justify-center gap-2 bg-white border-2 border-slate-200 text-slate-900 rounded-2xl font-semibold">
         <Home size={16} /> Menu masowni
       </button>
     </div>
@@ -77,30 +77,30 @@ function MachineScreen({ order, locks, onConfirm, onBack, loading }: {
     return l ? Math.max(0, Math.ceil((new Date(l.unlocksAt).getTime() - Date.now()) / 60000)) : null
   }
   const PAL = [
-    { idle:'bg-blue-50 border-blue-300',  sel:'bg-brand border-brand text-white',   lock:'bg-red-50 border-red-300' },
+    { idle:'bg-blue-50 border-blue-300',  sel:'bg-slate-900 border-brand text-white',   lock:'bg-red-50 border-red-300' },
     { idle:'bg-green-50 border-green-300',sel:'bg-success border-success text-white',lock:'bg-red-50 border-red-300' },
     { idle:'bg-amber-50 border-amber-300',sel:'bg-warn border-warn text-white',      lock:'bg-red-50 border-red-300' },
   ]
 
   return (
     <div className="max-w-lg mx-auto px-5 py-5">
-      <button onClick={onBack} className="flex items-center gap-1.5 text-[13px] text-ink-3 hover:text-ink mb-4">
+      <button onClick={onBack} className="flex items-center gap-1.5 text-[13px] text-slate-900-3 hover:text-slate-900 mb-4">
         <ChevronLeft size={16} /> Wstecz
       </button>
 
-      <div className="font-mono text-sm text-brand font-bold">{order.orderNo}</div>
-      <h2 className="text-xl font-black text-ink mb-1">{order.recipeName}</h2>
+      <div className="font-mono text-sm text-blue-600 font-bold">{order.orderNo}</div>
+      <h2 className="text-xl font-black text-slate-900 mb-1">{order.recipeName}</h2>
 
       {/* Postęp zlecenia */}
-      <div className="bg-surface-2 border border-surface-4 rounded-xl p-3 mb-4">
-        <div className="text-[10px] font-bold text-ink-3 uppercase mb-2">Postęp zlecenia</div>
-        <div className="h-2.5 bg-surface-3 rounded-full overflow-hidden mb-1.5">
-          <div className="h-full bg-brand rounded-full"
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4">
+        <div className="text-[10px] font-bold text-slate-900-3 uppercase mb-2">Postęp zlecenia</div>
+        <div className="h-2.5 bg-slate-50 rounded-full overflow-hidden mb-1.5">
+          <div className="h-full bg-slate-900 rounded-full"
             style={{ width: `${Math.min(100, (kgDone / order.meatKg) * 100)}%` }} />
         </div>
         <div className="flex justify-between text-[12px]">
           <span className="text-green-700 font-semibold">Wykonano: {fmtKg(kgDone)} kg</span>
-          <span className="font-bold text-ink">Plan: {fmtKg(order.meatKg)} kg</span>
+          <span className="font-bold text-slate-900">Plan: {fmtKg(order.meatKg)} kg</span>
           <span className="text-amber-600 font-bold">Pozostało: {fmtKg(kgRemaining)} kg</span>
         </div>
       </div>
@@ -110,10 +110,10 @@ function MachineScreen({ order, locks, onConfirm, onBack, loading }: {
         <div className="text-[10px] font-bold text-blue-700 uppercase mb-1.5">Partie mięsa w zleceniu</div>
         {order.meatLots.map(lot => (
           <div key={lot.meatLotId} className="flex justify-between text-[12px] py-1 border-b border-blue-100 last:border-0">
-            <span className="font-mono font-bold text-ink">{lot.meatLotNo}</span>
-            <span className="text-ink-3 text-[11px]">{lot.rawBatchNo}</span>
+            <span className="font-mono font-bold text-slate-900">{lot.meatLotNo}</span>
+            <span className="text-slate-900-3 text-[11px]">{lot.rawBatchNo}</span>
             <span className="font-bold text-blue-700">{fmtKg(lot.kgPlanned)} kg</span>
-            <span className="text-[11px] text-ink-4">do: {fmtDatePl(lot.expiryDate)}</span>
+            <span className="text-[11px] text-slate-900-4">do: {fmtDatePl(lot.expiryDate)}</span>
           </div>
         ))}
       </div>
@@ -127,13 +127,13 @@ function MachineScreen({ order, locks, onConfirm, onBack, loading }: {
               <CheckCircle size={11} className="text-green-600" />
               <span>Masownica {s.machineId}</span>
               <span className="font-bold">{fmtKg(s.kgMeat)} kg</span>
-              <span className="text-ink-3">→ {s.batchNo}</span>
+              <span className="text-slate-900-3">→ {s.batchNo}</span>
             </div>
           ))}
         </div>
       )}
 
-      <div className="text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-3">Wybierz masownicę dla tej sesji</div>
+      <div className="text-[11px] font-bold text-slate-900-3 uppercase tracking-wide mb-3">Wybierz masownicę dla tej sesji</div>
       <div className="grid grid-cols-3 gap-3 mb-5">
         {([1,2,3] as MachineId[]).map((m, i) => {
           const pal = PAL[i]; const locked = isLocked(m); const isSel = sel === m; const mins = getLockMins(m)
@@ -142,8 +142,8 @@ function MachineScreen({ order, locks, onConfirm, onBack, loading }: {
               className={cn('flex flex-col items-center justify-center h-28 rounded-2xl border-2 transition-all select-none',
                 locked ? cn(pal.lock, 'cursor-not-allowed opacity-70') : isSel ? pal.sel : cn('bg-white', pal.idle, 'hover:shadow-md active:scale-95'))}>
               {locked && <Lock size={18} className="text-red-400 mb-1" />}
-              <div className={cn('text-3xl font-black', isSel ? 'text-white' : locked ? 'text-red-500' : 'text-ink')}>{m}</div>
-              <div className={cn('text-xs font-semibold mt-1', isSel ? 'text-white/80' : locked ? 'text-red-400' : 'text-ink-3')}>
+              <div className={cn('text-3xl font-black', isSel ? 'text-white' : locked ? 'text-red-500' : 'text-slate-900')}>{m}</div>
+              <div className={cn('text-xs font-semibold mt-1', isSel ? 'text-white/80' : locked ? 'text-red-400' : 'text-slate-900-3')}>
                 {locked ? `~${mins} min` : `Masownica ${m}`}
               </div>
             </button>
@@ -151,7 +151,7 @@ function MachineScreen({ order, locks, onConfirm, onBack, loading }: {
         })}
       </div>
       <button onClick={() => sel && onConfirm(sel)} disabled={!sel || loading}
-        className="w-full h-14 bg-brand text-white rounded-2xl text-base font-bold flex items-center justify-center gap-3 disabled:opacity-50 active:scale-[.98]">
+        className="w-full h-14 bg-slate-900 text-white rounded-2xl text-base font-bold flex items-center justify-center gap-3 disabled:opacity-50 active:scale-[.98]">
         {loading ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Play size={20} />}
         Dalej — wpisz ilość mięsa
       </button>
@@ -197,13 +197,13 @@ function MeatScreen({ order, onConfirm, onBack }: {
 
   return (
     <div className="max-w-md mx-auto px-5 py-5">
-      <button onClick={onBack} className="flex items-center gap-1.5 text-[13px] text-ink-3 hover:text-ink mb-4">
+      <button onClick={onBack} className="flex items-center gap-1.5 text-[13px] text-slate-900-3 hover:text-slate-900 mb-4">
         <ChevronLeft size={16} /> Wstecz
       </button>
 
-      <div className="font-mono text-sm text-brand font-bold">{order.orderNo} · Masownica {order.machineId}</div>
-      <h2 className="text-xl font-black text-ink mb-1">{order.recipeName}</h2>
-      <p className="text-sm text-ink-3 mb-4">Pozostało do wymieszania: <strong className="text-amber-600">{fmtKg(kgRemaining)} kg</strong></p>
+      <div className="font-mono text-sm text-blue-600 font-bold">{order.orderNo} · Masownica {order.machineId}</div>
+      <h2 className="text-xl font-black text-slate-900 mb-1">{order.recipeName}</h2>
+      <p className="text-sm text-slate-900-3 mb-4">Pozostało do wymieszania: <strong className="text-amber-600">{fmtKg(kgRemaining)} kg</strong></p>
 
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-1">
         <div className="text-[10px] font-bold text-blue-700 uppercase mb-2 flex items-center gap-1.5">
@@ -216,10 +216,10 @@ function MeatScreen({ order, onConfirm, onBack }: {
             const hasKg = kg > 0
             return (
               <div key={lot.meatLotId} className={cn('bg-white border-2 rounded-xl p-3 transition-all',
-                err ? 'border-red-400' : hasKg ? 'border-brand' : 'border-surface-4')}>
+                err ? 'border-red-400' : hasKg ? 'border-brand' : 'border-slate-200')}>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-mono font-bold text-brand">{lot.meatLotNo}</span>
-                  <span className="text-[11px] text-ink-3">{lot.rawBatchNo}</span>
+                  <span className="font-mono font-bold text-blue-600">{lot.meatLotNo}</span>
+                  <span className="text-[11px] text-slate-900-3">{lot.rawBatchNo}</span>
                   <span className="text-[11px] font-semibold text-blue-700">maks. {fmtKg(lot.kgPlanned)} kg</span>
                 </div>
                 <div className="flex items-baseline gap-2">
@@ -230,12 +230,12 @@ function MeatScreen({ order, onConfirm, onBack }: {
                     onFocus={e => e.target.select()}
                     onChange={e => setLotKgs(p => ({ ...p, [lot.meatLotId]: e.target.value }))}
                     className={cn('flex-1 text-[48px] font-black tabular-nums border-none bg-transparent outline-none leading-none',
-                      err ? 'text-red-600' : 'text-ink',
+                      err ? 'text-red-600' : 'text-slate-900',
                       '[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none')} />
-                  <span className="text-xl font-medium text-ink-3">kg</span>
+                  <span className="text-xl font-medium text-slate-900-3">kg</span>
                 </div>
                 {err && <div className="text-[11px] text-red-600 font-semibold mt-0.5"><AlertTriangle size={11} className="inline mr-1" />{err}</div>}
-                <div className="text-[11px] text-ink-4 mt-0.5">do: {fmtDatePl(lot.expiryDate)}</div>
+                <div className="text-[11px] text-slate-900-4 mt-0.5">do: {fmtDatePl(lot.expiryDate)}</div>
               </div>
             )
           })}
@@ -244,8 +244,8 @@ function MeatScreen({ order, onConfirm, onBack }: {
 
       {/* Suma */}
       <div className={cn('border-2 rounded-xl p-3 mb-4 mt-3 flex items-center justify-between',
-        isOverRemaining ? 'border-red-400 bg-red-50' : totalKg > 0 ? 'border-success bg-green-50' : 'border-surface-4')}>
-        <span className="text-[12px] font-bold text-ink-3">Łącznie do tej maszyny:</span>
+        isOverRemaining ? 'border-red-400 bg-red-50' : totalKg > 0 ? 'border-success bg-green-50' : 'border-slate-200')}>
+        <span className="text-[12px] font-bold text-slate-900-3">Łącznie do tej maszyny:</span>
         <span className={cn('text-2xl font-black tabular-nums', isOverRemaining ? 'text-red-600' : 'text-success')}>
           {fmtKg(totalKg)} kg
         </span>
@@ -257,7 +257,7 @@ function MeatScreen({ order, onConfirm, onBack }: {
       )}
 
       <button onClick={handleConfirm} disabled={!canConfirm}
-        className="w-full h-14 bg-brand text-white rounded-2xl text-base font-bold flex items-center justify-center gap-3 disabled:opacity-50 active:scale-[.98]">
+        className="w-full h-14 bg-slate-900 text-white rounded-2xl text-base font-bold flex items-center justify-center gap-3 disabled:opacity-50 active:scale-[.98]">
         <Beef size={20} /> Przelicz składniki ({fmtKg(totalKg)} kg)
       </button>
     </div>
@@ -288,16 +288,16 @@ function StepScreen({ order, kgActual, stepIdx, onConfirm, onBack, loading }: {
   return (
     <div className="max-w-md mx-auto px-5 py-5">
       <div className="flex items-center justify-between mb-3">
-        <button onClick={onBack} className="flex items-center gap-1.5 text-[13px] text-ink-3 hover:text-ink">
+        <button onClick={onBack} className="flex items-center gap-1.5 text-[13px] text-slate-900-3 hover:text-slate-900">
           <ChevronLeft size={16} /> Wstecz
         </button>
-        <span className="text-[12px] text-ink-3">
-          <span className="font-mono font-bold text-brand">{order.orderNo}</span>
+        <span className="text-[12px] text-slate-900-3">
+          <span className="font-mono font-bold text-blue-600">{order.orderNo}</span>
           {' '}· Masownica {order.machineId} · {stepIdx+1}/{total}
         </span>
       </div>
-      <div className="h-2 bg-surface-3 rounded-full overflow-hidden mb-4">
-        <div className="h-full bg-brand rounded-full" style={{ width: `${Math.round(stepIdx/total*100)}%` }} />
+      <div className="h-2 bg-slate-50 rounded-full overflow-hidden mb-4">
+        <div className="h-full bg-slate-900 rounded-full" style={{ width: `${Math.round(stepIdx/total*100)}%` }} />
       </div>
 
       {Math.abs(kgActual - order.meatKg) > 0.01 && (
@@ -320,23 +320,23 @@ function StepScreen({ order, kgActual, stepIdx, onConfirm, onBack, loading }: {
 
       <div className={cn('border-2 rounded-2xl p-5 mb-4 text-center',
         isOk?'border-success bg-green-50/30':isWarn?'border-warn bg-amber-50/30':isOver?'border-red-400 bg-red-50/30':'border-brand bg-blue-50/20')}>
-        <div className="text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Dodaj składnik</div>
-        <div className="text-3xl font-black text-ink mb-1">{step.ingredientName}</div>
-        <div className="text-5xl font-black text-brand tabular-nums mt-2">{qtyRequired.toFixed(2)}</div>
-        <div className="text-xl font-medium text-ink-3">{step.unit}</div>
-        <div className="text-[11px] text-ink-4 mt-1">Tolerancja: ±50 g</div>
+        <div className="text-[11px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Dodaj składnik</div>
+        <div className="text-3xl font-black text-slate-900 mb-1">{step.ingredientName}</div>
+        <div className="text-5xl font-black text-blue-600 tabular-nums mt-2">{qtyRequired.toFixed(2)}</div>
+        <div className="text-xl font-medium text-slate-900-3">{step.unit}</div>
+        <div className="text-[11px] text-slate-900-4 mt-1">Tolerancja: ±50 g</div>
       </div>
 
       <div className={cn('border-2 rounded-2xl px-5 py-4 mb-2',
-        isOk?'border-success':isWarn?'border-warn':isOver?'border-red-400':'border-surface-4')}>
-        <div className="text-[10px] font-bold uppercase tracking-wide text-ink-3 mb-1">Wpisz zważoną ilość</div>
+        isOk?'border-success':isWarn?'border-warn':isOver?'border-red-400':'border-slate-200')}>
+        <div className="text-[10px] font-bold uppercase tracking-wide text-slate-900-3 mb-1">Wpisz zważoną ilość</div>
         <div className="flex items-baseline gap-2">
           <input ref={inputRef} type="number" inputMode="decimal" min="0" step="0.001"
             value={qty} onFocus={e => e.target.select()} onChange={e => setQty(e.target.value)}
             className={cn('flex-1 border-none bg-transparent outline-none text-[52px] font-black tabular-nums leading-none',
-              isOk?'text-success':isWarn?'text-warn':isOver?'text-red-600':'text-ink',
+              isOk?'text-success':isWarn?'text-warn':isOver?'text-red-600':'text-slate-900',
               '[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none')} />
-          <span className="text-xl font-medium text-ink-3">{step.unit}</span>
+          <span className="text-xl font-medium text-slate-900-3">{step.unit}</span>
         </div>
         {qtyVal > 0 && (
           <div className={cn('text-[12px] font-bold mt-1 flex items-center gap-1', isOk?'text-success':isWarn?'text-warn':'text-red-600')}>
@@ -346,7 +346,7 @@ function StepScreen({ order, kgActual, stepIdx, onConfirm, onBack, loading }: {
         )}
       </div>
 
-      <div className="flex items-center gap-2 text-[11px] text-ink-4 mb-4 px-1">
+      <div className="flex items-center gap-2 text-[11px] text-slate-900-4 mb-4 px-1">
         <Scale size={12}/> Gotowe pod podłączenie wagi elektronicznej
       </div>
       <button onClick={() => isOk && onConfirm(step.stepNo, qtyVal)} disabled={!isOk || loading}
@@ -371,10 +371,10 @@ function DoneScreen({ order, kgActual, seasonedBatchNo, onNext, onHome }: {
       <div className={cn('w-20 h-20 rounded-full flex items-center justify-center mb-5', isFullyDone?'bg-success':'bg-amber-400')}>
         <CheckCircle size={44} className="text-white" strokeWidth={2.5} />
       </div>
-      <h2 className="text-3xl font-black text-ink mb-1">
+      <h2 className="text-3xl font-black text-slate-900 mb-1">
         {isFullyDone ? 'Zlecenie ukończone!' : 'Sesja zakończona!'}
       </h2>
-      <div className="font-mono font-bold text-brand mb-1">{order.orderNo} · Masownica {order.machineId}</div>
+      <div className="font-mono font-bold text-blue-600 mb-1">{order.orderNo} · Masownica {order.machineId}</div>
 
       {!isFullyDone && (
         <div className="w-full bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-3 text-left">
@@ -405,7 +405,7 @@ function DoneScreen({ order, kgActual, seasonedBatchNo, onNext, onHome }: {
         {order.meatLots.map(lot => (
           <div key={lot.meatLotId} className="flex justify-between text-[12px] py-0.5">
             <span className="font-mono font-bold">{lot.meatLotNo}</span>
-            <span className="text-ink-3">{lot.rawBatchNo}</span>
+            <span className="text-slate-900-3">{lot.rawBatchNo}</span>
             <span className="font-semibold text-blue-700">{fmtKg(lot.kgPlanned)} kg</span>
           </div>
         ))}
@@ -413,7 +413,7 @@ function DoneScreen({ order, kgActual, seasonedBatchNo, onNext, onHome }: {
 
       <div className="flex gap-3 w-full">
         <button onClick={onHome}
-          className="flex-1 h-12 bg-white border-2 border-surface-4 text-ink rounded-2xl font-semibold flex items-center justify-center gap-2">
+          className="flex-1 h-12 bg-white border-2 border-slate-200 text-slate-900 rounded-2xl font-semibold flex items-center justify-center gap-2">
           <Home size={16} /> Menu
         </button>
         {!isFullyDone && (
@@ -424,7 +424,7 @@ function DoneScreen({ order, kgActual, seasonedBatchNo, onNext, onHome }: {
         )}
         {isFullyDone && (
           <button onClick={onHome}
-            className="flex-1 h-12 bg-brand text-white rounded-2xl font-bold flex items-center justify-center gap-2">
+            className="flex-1 h-12 bg-slate-900 text-white rounded-2xl font-bold flex items-center justify-center gap-2">
             <RotateCcw size={16} /> Nowe zlecenie
           </button>
         )}
@@ -515,7 +515,7 @@ export function MixingTabletPage() {
   const currentLocks = locks ?? []
 
   return (
-    <div className="min-h-screen bg-surface-2">
+    <div className="min-h-screen bg-slate-50">
 
       {phase === 'done' && activeLock && (
         <CooldownTimer lock={activeLock} onExpired={handleHome} onHome={handleHome} />
@@ -567,13 +567,13 @@ export function MixingTabletPage() {
             ? <div className="flex justify-center py-16"><Spinner size={32} /></div>
             : (planned??[]).length === 0
               ? <div className="flex flex-col items-center justify-center min-h-[60vh] p-8 text-center">
-                  <ClipboardList size={48} className="text-ink-5 mb-4" />
-                  <h2 className="text-2xl font-black text-ink mb-2">Brak zleceń</h2>
-                  <p className="text-base text-ink-3">Biuro nie zaplanowało masowania.</p>
+                  <ClipboardList size={48} className="text-slate-900-5 mb-4" />
+                  <h2 className="text-2xl font-black text-slate-900 mb-2">Brak zleceń</h2>
+                  <p className="text-base text-slate-900-3">Biuro nie zaplanowało masowania.</p>
                 </div>
               : <div className="max-w-2xl mx-auto px-5 py-5">
-                  <h2 className="text-xl font-black text-ink mb-1">Wybierz zlecenie</h2>
-                  <p className="text-sm text-ink-3 mb-4">{(planned??[]).length} zleceń</p>
+                  <h2 className="text-xl font-black text-slate-900 mb-1">Wybierz zlecenie</h2>
+                  <p className="text-sm text-slate-900-3 mb-4">{(planned??[]).length} zleceń</p>
                   <div className="space-y-3">
                     {(planned??[]).map(o => {
                       const kgDone      = (o as any).kgDone ?? 0
@@ -582,32 +582,32 @@ export function MixingTabletPage() {
                       return (
                         <button key={o.id}
                           onClick={() => { setSelOrder(o); setLiveOrder(o); setPhase('machine') }}
-                          className="w-full text-left bg-white border-2 border-surface-4 rounded-2xl p-4 hover:border-brand hover:shadow-md active:scale-[.99] transition-all">
+                          className="w-full text-left bg-white border-2 border-slate-200 rounded-2xl p-4 hover:border-brand hover:shadow-md active:scale-[.99] transition-all">
                           <div className="flex items-start justify-between gap-3">
                             <div>
-                              <div className="font-mono font-bold text-brand">{o.orderNo}</div>
-                              <div className="text-lg font-black text-ink mt-0.5">{o.recipeName}</div>
-                              {o.productTypeName && <div className="text-sm text-ink-3">{o.productTypeName}</div>}
+                              <div className="font-mono font-bold text-blue-600">{o.orderNo}</div>
+                              <div className="text-lg font-black text-slate-900 mt-0.5">{o.recipeName}</div>
+                              {o.productTypeName && <div className="text-sm text-slate-900-3">{o.productTypeName}</div>}
                             </div>
                             <div className="text-right flex-shrink-0">
-                              <div className="text-2xl font-black text-ink">{fmtKg(kgRemaining, 0)}</div>
+                              <div className="text-2xl font-black text-slate-900">{fmtKg(kgRemaining, 0)}</div>
                               <div className="text-xs text-amber-600 font-semibold">kg pozostało</div>
-                              <div className="text-[10px] text-ink-3">z {fmtKg(o.meatKg, 0)} kg planu</div>
+                              <div className="text-[10px] text-slate-900-3">z {fmtKg(o.meatKg, 0)} kg planu</div>
                             </div>
                           </div>
                           {/* Pasek postępu */}
                           {kgDone > 0 && (
                             <div className="mt-2">
-                              <div className="h-2 bg-surface-3 rounded-full overflow-hidden">
+                              <div className="h-2 bg-slate-50 rounded-full overflow-hidden">
                                 <div className="h-full bg-green-500 rounded-full" style={{ width: `${Math.min(100,pct)}%` }} />
                               </div>
                               <div className="flex justify-between text-[10px] mt-0.5">
                                 <span className="text-green-700">Wykonano: {fmtKg(kgDone, 0)} kg</span>
-                                <span className="text-ink-3">{Math.round(pct)}%</span>
+                                <span className="text-slate-900-3">{Math.round(pct)}%</span>
                               </div>
                             </div>
                           )}
-                          <div className="mt-2 flex gap-3 text-sm text-ink-3">
+                          <div className="mt-2 flex gap-3 text-sm text-slate-900-3">
                             <span className="flex items-center gap-1"><Beef size={13}/>{o.meatLots.length} partie</span>
                             <span>{o.steps.length} składników</span>
                             <span className="text-green-700 font-semibold">→ {fmtKg(o.plannedOutputKg,0)} kg</span>

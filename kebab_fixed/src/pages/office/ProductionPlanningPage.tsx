@@ -8,7 +8,7 @@
 import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { productionPlansApi, clientOrdersApi, seasonedMeatApi, packagingApi, clientsApi } from '@/lib/apiClient'
-import { Spinner, EmptyState, Modal } from '@/components/ui/Card'
+import { Spinner, EmptyState, Modal , PageHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { fmtKg, fmtDatePl, todayIso } from '@/lib/utils'
 import {
@@ -54,7 +54,7 @@ const STATUS_LABELS: Record<ProductionPlan['status'], string> = {
   draft:'Szkic', active:'Aktywny', done:'Ukończony',
 }
 const STATUS_COLORS: Record<ProductionPlan['status'], string> = {
-  draft:'bg-surface-3 text-ink-3', active:'bg-amber-500/15 text-amber-400', done:'bg-green-500/15 text-green-400',
+  draft:'bg-slate-50 text-slate-900-3', active:'bg-amber-500/15 text-amber-400', done:'bg-green-500/15 text-green-400',
 }
 
 // ─── Import z zamówień ────────────────────────────────────────
@@ -103,38 +103,38 @@ function ImportOrderModal({ orders, onImport, onClose }: {
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Zamówienie</label>
+        <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Zamówienie</label>
         <select value={selectedOrder} onChange={e=>handleOrderChange(e.target.value)}
-          className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
+          className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50">
           {orders.map(o=><option key={o.id} value={o.id}>{o.orderNo} · {o.clientName} · {fmtKg(o.totalKg,0)} kg</option>)}
         </select>
       </div>
       {order && (
         <div>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold text-ink-3 uppercase">Pozycje</span>
-            <button onClick={toggleAll} className="text-[11px] font-semibold text-brand flex items-center gap-1">
+            <span className="text-[11px] font-bold text-slate-900-3 uppercase">Pozycje</span>
+            <button onClick={toggleAll} className="text-[11px] font-semibold text-blue-600 flex items-center gap-1">
               {selectedLines.size===order.lines.length?<><Square size={12}/>Odznacz</>:<><CheckSquare size={12}/>Zaznacz wszystkie</>}
             </button>
           </div>
-          <div className="border border-surface-4 rounded-lg divide-y max-h-56 overflow-y-auto">
+          <div className="border border-slate-200 rounded-lg divide-y max-h-56 overflow-y-auto">
             {order.lines.map(l=>{
               const isSel = selectedLines.has(l.id)
               return (
-                <label key={l.id} className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-surface-2 ${isSel?'bg-blue-50':''}`}>
+                <label key={l.id} className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50 ${isSel?'bg-blue-50':''}`}>
                   <input type="checkbox" checked={isSel}
                     onChange={()=>setSelectedLines(p=>{const n=new Set(p);n.has(l.id)?n.delete(l.id):n.add(l.id);return n})}
                     className="w-4 h-4 accent-brand flex-shrink-0"/>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[12px] font-bold text-ink">{l.qty} szt × {l.kgPerUnit} kg = <span className="text-blue-700">{fmtKg(l.qty*l.kgPerUnit,0)} kg</span></div>
-                    <div className="text-[11px] text-ink-3">{l.productTypeName} · {l.recipeName}{l.packagingName?` · ${l.packagingName}`:''}</div>
+                    <div className="text-[12px] font-bold text-slate-900">{l.qty} szt × {l.kgPerUnit} kg = <span className="text-blue-700">{fmtKg(l.qty*l.kgPerUnit,0)} kg</span></div>
+                    <div className="text-[11px] text-slate-900-3">{l.productTypeName} · {l.recipeName}{l.packagingName?` · ${l.packagingName}`:''}</div>
                   </div>
                 </label>
               )
             })}
           </div>
           {selectedLines.size>0 && (
-            <div className="text-[11px] text-brand font-semibold mt-1.5">
+            <div className="text-[11px] text-blue-600 font-semibold mt-1.5">
               {selectedLines.size} pozycji · {fmtKg(order.lines.filter(l=>selectedLines.has(l.id)).reduce((s,l)=>s+l.qty*l.kgPerUnit,0),0)} kg
             </div>
           )}
@@ -194,17 +194,17 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
               <div className="flex items-center gap-3 px-3 py-2.5">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[12px] font-bold text-ink truncate">{r.recipeName}</span>
+                    <span className="text-[12px] font-bold text-slate-900 truncate">{r.recipeName}</span>
                     {isFull && <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded font-semibold">Wszystko zaplanowane</span>}
                   </div>
                   {/* Pasek + liczniki w jednym wierszu */}
                   <div className="flex items-center gap-2">
-                    <div className="flex-1 h-1.5 bg-surface-3 rounded-full overflow-hidden">
+                    <div className="flex-1 h-1.5 bg-slate-50 rounded-full overflow-hidden">
                       <div className={`h-full rounded-full ${isFull?'bg-green-500':pct>80?'bg-amber-400':'bg-blue-500'}`}
                         style={{width:`${pct}%`}}/>
                     </div>
                     <div className="flex items-center gap-2 text-[10px] whitespace-nowrap flex-shrink-0">
-                      <span className="text-ink-3">Total: <strong>{fmtKg(r.totalKg,0)}</strong></span>
+                      <span className="text-slate-900-3">Total: <strong>{fmtKg(r.totalKg,0)}</strong></span>
                       <span className="text-amber-600">Zapl: <strong>{fmtKg(r.usedKg,0)}</strong></span>
                       <span className={isFull?'text-green-600':'text-blue-700'}>
                         Pozostało: <strong>{fmtKg(r.remainingKg,0)} kg</strong>
@@ -218,7 +218,7 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
                     ⚡ Auto
                   </button>
                   <button onClick={()=>setExpandedRecipe(isExpanded?null:r.recipeId)}
-                    className="p-1 text-ink-4 hover:text-ink">
+                    className="p-1 text-slate-900-4 hover:text-slate-900">
                     {isExpanded?<ChevronUp size={14}/>:<ChevronDown size={14}/>}
                   </button>
                 </div>
@@ -231,7 +231,7 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
                       const used = seasonedUsed[s.id]??0
                       return (
                         <div key={s.id} className={`flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded border ${s.kgAvailLive<0.1&&s.kgAvailable>0?'bg-red-50 border-red-200':'bg-white border-blue-100'}`}>
-                          <span className="font-mono font-bold text-brand text-[10px]">{s.batchNo}</span>
+                          <span className="font-mono font-bold text-blue-600 text-[10px]">{s.batchNo}</span>
                           <span className={`font-bold ml-2 ${s.kgAvailLive<0.1?'text-red-600':'text-green-700'}`}>
                             {fmtKg(s.kgAvailLive)} kg
                           </span>
@@ -329,45 +329,45 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
     .sort((a:any,b:any)=>a.expiryDate>b.expiryDate?1:-1)
 
   return (
-    <div className="border border-surface-4 rounded-xl bg-white overflow-hidden">
+    <div className="border border-slate-200 rounded-xl bg-white overflow-hidden">
       {/* Nagłówek pozycji */}
       <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold text-ink-3">Pozycja {idx+1}</span>
+          <span className="text-[11px] font-bold text-slate-900-3">Pozycja {idx+1}</span>
           {line.clientName && (
             <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-semibold">
               {line.clientName}{line.clientOrderNo?` · ${line.clientOrderNo}`:''}
             </span>
           )}
         </div>
-        {total>1 && <button onClick={onRemove} className="text-ink-4 hover:text-danger"><X size={14}/></button>}
+        {total>1 && <button onClick={onRemove} className="text-slate-900-4 hover:text-danger"><X size={14}/></button>}
       </div>
 
       <div className="p-3">
         {/* Rząd 1: Szt, kg/szt, Rodzaj, Receptura */}
         <div className="grid grid-cols-4 gap-2 mb-2">
           <div>
-            <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Szt *</label>
+            <label className="block text-[9px] font-bold text-slate-900-4 uppercase mb-1">Szt *</label>
             <input type="number" min="1" value={line.qty} onChange={e=>onChange('qty',e.target.value)}
-              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50"/>
+              className="w-full h-8 px-2 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50"/>
           </div>
           <div>
-            <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">kg/szt *</label>
+            <label className="block text-[9px] font-bold text-slate-900-4 uppercase mb-1">kg/szt *</label>
             <input type="number" min="0.1" step="0.1" value={line.kgPerUnit} onChange={e=>onChange('kgPerUnit',e.target.value)}
-              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50"/>
+              className="w-full h-8 px-2 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50"/>
           </div>
           <div>
-            <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Rodzaj</label>
+            <label className="block text-[9px] font-bold text-slate-900-4 uppercase mb-1">Rodzaj</label>
             <select value={line.productTypeId} onChange={e=>onChange('productTypeId',e.target.value)}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
+              className="w-full h-8 px-2 text-[11px] border border-slate-200 focus:outline-none focus:border-brand bg-slate-50">
               <option value="">Dowolny</option>
               {(productTypes??[]).map((pt:any)=><option key={pt.id} value={pt.id}>{pt.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Receptura *</label>
+            <label className="block text-[9px] font-bold text-slate-900-4 uppercase mb-1">Receptura *</label>
             <select value={line.recipeId} onChange={e=>{onChange('recipeId',e.target.value);onChange('seasonedBatchIds',[]);onChange('seasonedBatchId','')}}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
+              className="w-full h-8 px-2 text-[11px] border border-slate-200 focus:outline-none focus:border-brand bg-slate-50">
               <option value="">Wybierz...</option>
               {(recipes??[]).map((r:any)=><option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
@@ -377,9 +377,9 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
         {/* Rząd 2: Tuleja, Klient */}
         <div className="grid grid-cols-2 gap-2 mb-2">
           <div>
-            <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Tuleja / Opakowanie</label>
+            <label className="block text-[9px] font-bold text-slate-900-4 uppercase mb-1">Tuleja / Opakowanie</label>
             <select value={line.packagingId} onChange={e=>onChange('packagingId',e.target.value)}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
+              className="w-full h-8 px-2 text-[11px] border border-slate-200 focus:outline-none focus:border-brand bg-slate-50">
               <option value="">— brak —</option>
               {packaging.map((p:any)=>{
                 const isLow = qty>0&&p.kgAvailable<100&&qty>p.kgAvailable
@@ -388,13 +388,13 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
             </select>
           </div>
           <div>
-            <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Klient</label>
+            <label className="block text-[9px] font-bold text-slate-900-4 uppercase mb-1">Klient</label>
             <select value={line.clientId} onChange={e=>{
               const c = clients.find((x:any)=>x.id===e.target.value)
               onChange('clientId', e.target.value)
               onChange('clientName', c?.name??'')
             }}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
+              className="w-full h-8 px-2 text-[11px] border border-slate-200 focus:outline-none focus:border-brand bg-slate-50">
               <option value="">— brak —</option>
               {clients.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -402,12 +402,12 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
         </div>
 
         {/* Partie mięsa — rozwijany panel */}
-        <div className="border border-surface-4 rounded-lg overflow-hidden">
+        <div className="border border-slate-200 rounded-lg overflow-hidden">
           <button onClick={()=>setShowBatchPanel(p=>!p)}
             className={`w-full flex items-center justify-between px-3 py-2 text-[11px] font-semibold transition-colors ${
               selIds.length>0
                 ? isOk ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
-                : 'bg-surface-2 text-ink-3'
+                : 'bg-slate-50 text-slate-900-3'
             }`}>
             <span className="flex items-center gap-2">
               <span>Partie mięsa (receptura: {line.recipeId?(recipes??[]).find((r:any)=>r.id===line.recipeId)?.name??'—':'nie wybrano'})</span>
@@ -424,9 +424,9 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
           </button>
 
           {showBatchPanel && (
-            <div className="border-t border-surface-4">
+            <div className="border-t border-slate-200">
               {relevantBatches.length===0 ? (
-                <div className="px-3 py-2.5 text-[11px] text-ink-3">
+                <div className="px-3 py-2.5 text-[11px] text-slate-900-3">
                   {line.recipeId ? 'Brak mięsa tej receptury w magazynie' : 'Wybierz recepturę aby zobaczyć dostępne partie'}
                 </div>
               ) : (
@@ -438,25 +438,25 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
                     const isEmpty  = s.kgAvailLive<=0.01
                     return (
                       <label key={s.id}
-                        className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-surface-2 transition-colors ${isSel?'bg-blue-50':''} ${isEmpty&&!isSel?'opacity-40':''}`}>
+                        className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50 transition-colors ${isSel?'bg-blue-50':''} ${isEmpty&&!isSel?'opacity-40':''}`}>
                         <input type="checkbox" checked={isSel} onChange={()=>toggleBatch(s.id)}
                           disabled={isEmpty&&!isSel}
                           className="w-4 h-4 accent-brand flex-shrink-0"/>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-brand text-[12px]">{s.batchNo}</span>
-                            <span className="text-[10px] text-ink-3">{s.recipeName}</span>
+                            <span className="font-mono font-bold text-blue-600 text-[12px]">{s.batchNo}</span>
+                            <span className="text-[10px] text-slate-900-3">{s.recipeName}</span>
                           </div>
                           <div className="flex items-center gap-3 text-[11px] mt-0.5">
                             <span className={`font-bold ${isEmpty?'text-red-500':isSel?'text-blue-700':'text-green-700'}`}>
                               {fmtKg(s.kgAvailLive)} kg dostępne
                             </span>
                             {kgPerUnit>0&&!isEmpty&&(
-                              <span className={`font-semibold ${isLow?'text-amber-600':'text-ink-3'}`}>
+                              <span className={`font-semibold ${isLow?'text-amber-600':'text-slate-900-3'}`}>
                                 = max {maxSzt} szt{isLow?` (z ${qty} zamówionych)`:''}
                               </span>
                             )}
-                            <span className="text-ink-4 text-[10px]">do: {fmtDatePl(s.expiryDate)}</span>
+                            <span className="text-slate-900-4 text-[10px]">do: {fmtDatePl(s.expiryDate)}</span>
                           </div>
                         </div>
                         {isSel&&<span className="text-blue-600 font-bold text-[11px] flex-shrink-0">✓</span>}
@@ -662,13 +662,13 @@ function PlanForm({ onSave, onClose }: {
       {/* Data + import */}
       <div className="flex gap-3 items-end flex-wrap">
         <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data produkcji</label>
+          <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Data produkcji</label>
           <input type="date" value={planDate} onChange={e=>setPlanDate(e.target.value)}
-            className="h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50"/>
+            className="h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50"/>
         </div>
         {confirmed.length>0&&(
           <button onClick={()=>setImportModal(true)}
-            className="flex items-center gap-1.5 h-9 px-3 text-sm font-semibold text-brand border border-brand/40 rounded hover:bg-slate-50">
+            className="flex items-center gap-1.5 h-9 px-3 text-sm font-semibold text-blue-600 border border-brand/40 rounded hover:bg-slate-50">
             <Download size={14}/> Importuj z zamówienia ({confirmed.length})
           </button>
         )}
@@ -679,7 +679,7 @@ function PlanForm({ onSave, onClose }: {
 
       {/* Pozycje */}
       <div>
-        <div className="text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-2">Pozycje produkcyjne</div>
+        <div className="text-[11px] font-bold text-slate-900-3 uppercase tracking-wide mb-2">Pozycje produkcyjne</div>
         <div className="space-y-3">
           {lines.map((line,i)=>(
             <LineFormRow key={i} line={line} idx={i} total={lines.length}
@@ -692,15 +692,15 @@ function PlanForm({ onSave, onClose }: {
               onRemove={()=>removeLine(i)}/>
           ))}
         </div>
-        <button onClick={addLine} className="mt-2 flex items-center gap-1.5 text-[12px] font-semibold text-brand hover:text-brand/80">
+        <button onClick={addLine} className="mt-2 flex items-center gap-1.5 text-[12px] font-semibold text-blue-600 hover:text-blue-600/80">
           <Plus size={14}/> Dodaj pozycję
         </button>
       </div>
 
       {/* Suma */}
-      <div className="bg-surface-2 border border-surface-4 rounded-xl p-3 flex items-center justify-between">
-        <span className="text-[12px] font-bold text-ink-3">SUMA PLANU:</span>
-        <div className="text-xl font-black text-brand">{fmtKg(totalKg,0)} kg</div>
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between">
+        <span className="text-[12px] font-bold text-slate-900-3">SUMA PLANU:</span>
+        <div className="text-xl font-black text-blue-600">{fmtKg(totalKg,0)} kg</div>
       </div>
 
       {error&&<div className="text-[12px] text-danger bg-danger-light border border-danger-border px-3 py-2 flex items-center gap-2"><AlertTriangle size={13}/>{error}</div>}
@@ -711,9 +711,9 @@ function PlanForm({ onSave, onClose }: {
       </div>
 
       {importModal&&(
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/50 backdrop-blur-sm">
-          <div className="bg-surface border border-surface-4 rounded-2xl w-full max-w-lg p-5 shadow-xl">
-            <div className="text-[13px] font-bold text-ink mb-4">Import z zamówienia klienta</div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg p-5 shadow-xl">
+            <div className="text-[13px] font-bold text-slate-900 mb-4">Import z zamówienia klienta</div>
             <ImportOrderModal orders={confirmed} onImport={importLines} onClose={()=>setImportModal(false)}/>
           </div>
         </div>
@@ -736,16 +736,18 @@ export function ProductionPlanningPage() {
   const activePlans = (plans??[]).filter(p=>p.status!=='done')
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
+
+      <PageHeader title="ProductionPlanning" />
       <div className="flex gap-3">
         <div className="grid grid-cols-2 gap-3 flex-1">
           {[
             { label:'Planowane kg', val:`${fmtKg(activePlans.reduce((s,p)=>s+p.totalKg,0),0)} kg` },
             { label:'Planowane szt', val:`${activePlans.reduce((s,p)=>s+p.totalUnits,0)} szt` },
           ].map(k=>(
-            <div key={k.label} className="bg-surface-3 border border-surface-4 p-3 rounded-lg">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4">{k.label}</div>
-              <div className="text-xl font-bold text-ink">{k.val}</div>
+            <div key={k.label} className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-900-4">{k.label}</div>
+              <div className="text-xl font-bold text-slate-900">{k.val}</div>
             </div>
           ))}
         </div>
@@ -754,9 +756,9 @@ export function ProductionPlanningPage() {
         </div>
       </div>
 
-      <div className="bg-surface border border-surface-4 rounded-xl">
-        <div className="px-4 py-2.5 border-b border-surface-4">
-          <span className="text-[13px] font-semibold text-ink">{(plans??[]).length} planów</span>
+      <div className="bg-white border border-slate-200 rounded-xl">
+        <div className="px-4 py-2.5 border-b border-slate-200">
+          <span className="text-[13px] font-semibold text-slate-900">{(plans??[]).length} planów</span>
         </div>
         {loading?<div className="flex justify-center py-10"><Spinner size={20}/></div>
         :(plans??[]).length===0?<EmptyState icon={<Factory size={32}/>} title="Brak planów" message="Utwórz plan"/>
@@ -766,16 +768,16 @@ export function ProductionPlanningPage() {
               const isExp=expanded===plan.id
               return (
                 <div key={plan.id}>
-                  <div className="px-4 py-3 flex items-center gap-3 hover:bg-surface-3/60 cursor-pointer"
+                  <div className="px-4 py-3 flex items-center gap-3 hover:bg-slate-50/60 cursor-pointer"
                     onClick={()=>setExpanded(isExp?null:plan.id)}>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-brand">{plan.planNo}</span>
+                        <span className="font-mono font-bold text-blue-600">{plan.planNo}</span>
                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${STATUS_COLORS[plan.status]}`}>
                           {STATUS_LABELS[plan.status]}
                         </span>
                       </div>
-                      <div className="text-[11px] text-ink-3 mt-0.5">
+                      <div className="text-[11px] text-slate-900-3 mt-0.5">
                         {fmtDatePl(plan.planDate)} · {plan.lines.length} poz. · {fmtKg(plan.totalKg,0)} kg · {plan.totalUnits} szt
                       </div>
                     </div>
@@ -788,14 +790,14 @@ export function ProductionPlanningPage() {
                         <button onClick={e=>{e.stopPropagation();productionPlansApi.updateStatus(plan.id,'done').then(refetch)}}
                           className="text-[11px] text-green-700 border border-green-200 px-2 py-1 rounded hover:bg-green-50">Zakończ</button>
                       )}
-                      {isExp?<ChevronUp size={16} className="text-ink-4"/>:<ChevronDown size={16} className="text-ink-4"/>}
+                      {isExp?<ChevronUp size={16} className="text-slate-900-4"/>:<ChevronDown size={16} className="text-slate-900-4"/>}
                     </div>
                   </div>
                   {isExp&&(
-                    <div className="px-4 pb-3 bg-surface-2/50 border-t border-surface-4 overflow-x-auto">
+                    <div className="px-4 pb-3 bg-slate-50/50 border-t border-slate-200 overflow-x-auto">
                       <table className="w-full text-[11px] mt-2">
                         <thead>
-                          <tr className="text-ink-4 uppercase text-[9px] font-semibold tracking-wider">
+                          <tr className="text-slate-900-4 uppercase text-[9px] font-semibold tracking-wider">
                             {['Szt','kg/szt','Razem','Receptura','Tuleja','Partie mięsa','Klient'].map(h=>(
                               <th key={h} className="text-left pb-1 pr-3">{h}</th>
                             ))}
@@ -806,9 +808,9 @@ export function ProductionPlanningPage() {
                             <tr key={l.id}>
                               <td className="py-1.5 font-bold pr-3">{l.qty}</td>
                               <td className="py-1.5 pr-3">{l.kgPerUnit} kg</td>
-                              <td className="py-1.5 font-bold text-brand pr-3">{fmtKg(l.totalKg,0)} kg</td>
+                              <td className="py-1.5 font-bold text-blue-600 pr-3">{fmtKg(l.totalKg,0)} kg</td>
                               <td className="py-1.5 pr-3">{l.recipeName}</td>
-                              <td className="py-1.5 text-ink-3 pr-3">{l.packagingName||'—'}</td>
+                              <td className="py-1.5 text-slate-900-3 pr-3">{l.packagingName||'—'}</td>
                               <td className="py-1.5 pr-3">
                                 {(l as any).seasonedBatchNos?.length>0
                                   ? <div className="flex gap-1 flex-wrap">
@@ -821,7 +823,7 @@ export function ProductionPlanningPage() {
                                     : <span className="text-amber-600">Do przydzielenia</span>
                                 }
                               </td>
-                              <td className="py-1.5 text-ink-3 text-[10px]">{l.clientName||'—'}</td>
+                              <td className="py-1.5 text-slate-900-3 text-[10px]">{l.clientName||'—'}</td>
                             </tr>
                           ))}
                         </tbody>

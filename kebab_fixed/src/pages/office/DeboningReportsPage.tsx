@@ -4,7 +4,7 @@
  * PLUS stary deboningApi.list() który teraz zwraca OBA źródła
  */
 import { useState, useCallback } from 'react'
-import { Toast, Spinner, EmptyState } from '@/components/ui/Card'
+import { Toast, Spinner, EmptyState , PageHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { fmtKg, fmtPct, fmtDatePl } from '@/lib/utils'
 import { CheckCircle, Scissors, Clock, Lock, BarChart2 } from 'lucide-react'
@@ -44,13 +44,15 @@ export function DeboningReportsPage() {
   if (loading) return <div className="flex items-center justify-center py-24"><Spinner size={24} /></div>
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
+
+      <PageHeader title="Raporty rozbioru" subtitle="Historia sesji rozbioru" />
 
       {/* Status sesji */}
-      <div className="bg-surface border border-surface-4 rounded-xl p-4">
+      <div className="bg-white border border-slate-200 rounded-xl p-4">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-[13px] font-semibold text-ink mb-0.5">
+            <div className="text-[13px] font-semibold text-slate-900 mb-0.5">
               Sesja rozbioru — {timeWindow.productionDate}
             </div>
             <div className="flex items-center gap-2">
@@ -59,9 +61,9 @@ export function DeboningReportsPage() {
                   {STATUS_LABEL[session.status]}
                 </span>
               ) : (
-                <span className="text-[11px] text-ink-3">Brak aktywnej sesji — uruchom z tabletu rozbioru</span>
+                <span className="text-[11px] text-slate-900-3">Brak aktywnej sesji — uruchom z tabletu rozbioru</span>
               )}
-              <span className="text-[11px] text-ink-4">{timeWindow.currentTimeHHMM}</span>
+              <span className="text-[11px] text-slate-900-4">{timeWindow.currentTimeHHMM}</span>
             </div>
           </div>
           <div className="flex gap-2">
@@ -90,10 +92,10 @@ export function DeboningReportsPage() {
             { label: 'Wydajność', val: fmtPct(summary.avgYieldPct), unit: ''   },
             { label: 'Wpisów',    val: summary.entryCount,           unit: ''   },
           ].map(k => (
-            <div key={k.label} className="bg-surface-3 border border-surface-4 p-3 rounded-lg">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 mb-0.5">{k.label}</div>
-              <div className="text-xl font-bold text-ink">
-                {k.val}{k.unit && <span className="text-xs font-normal text-ink-3 ml-1">{k.unit}</span>}
+            <div key={k.label} className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-900-4 mb-0.5">{k.label}</div>
+              <div className="text-xl font-bold text-slate-900">
+                {k.val}{k.unit && <span className="text-xs font-normal text-slate-900-3 ml-1">{k.unit}</span>}
               </div>
             </div>
           ))}
@@ -101,16 +103,16 @@ export function DeboningReportsPage() {
       )}
 
       {/* Tabela wpisów LIVE */}
-      <div className="bg-surface border border-surface-4 rounded-xl">
-        <div className="px-4 py-2.5 border-b border-surface-4 flex items-center gap-2">
-          <Scissors size={13} className="text-ink-3" />
-          <span className="text-[13px] font-semibold text-ink">Wpisy rozbioru</span>
+      <div className="bg-white border border-slate-200 rounded-xl">
+        <div className="px-4 py-2.5 border-b border-slate-200 flex items-center gap-2">
+          <Scissors size={13} className="text-slate-900-3" />
+          <span className="text-[13px] font-semibold text-slate-900">Wpisy rozbioru</span>
           {session?.status === 'open' && (
             <span className="text-[10px] font-semibold text-green-600 ml-1 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block" /> LIVE
             </span>
           )}
-          <span className="ml-auto text-[11px] text-ink-4">{entries.length} wpisów</span>
+          <span className="ml-auto text-[11px] text-slate-900-4">{entries.length} wpisów</span>
         </div>
 
         {entriesLoading
@@ -121,23 +123,23 @@ export function DeboningReportsPage() {
             : (
               <table className="w-full text-[12px]">
                 <thead>
-                  <tr className="border-b border-surface-4 bg-surface-2">
+                  <tr className="border-b border-slate-200 bg-slate-50">
                     {['Nr sesji','Partia','Pracownik','Lot mięsa','Ćwiartka kg','Mięso kg','Kości kg','Grzbiety kg','Wydajność'].map(h => (
-                      <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-4">{h}</th>
+                      <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-900-4">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {entries.map(e => (
-                    <tr key={e.id} className="hover:bg-surface-3/60">
-                      <td className="px-3 py-2 font-mono text-brand">{e.sessionNo}</td>
+                    <tr key={e.id} className="hover:bg-slate-50/60">
+                      <td className="px-3 py-2 font-mono text-blue-600">{e.sessionNo}</td>
                       <td className="px-3 py-2 font-mono font-semibold">{e.rawBatchNo}</td>
-                      <td className="px-3 py-2 text-ink-2">{e.workerName}</td>
-                      <td className="px-3 py-2 font-mono text-[11px] text-ink-3">{e.meatLotNo ?? '—'}</td>
+                      <td className="px-3 py-2 text-slate-900-2">{e.workerName}</td>
+                      <td className="px-3 py-2 font-mono text-[11px] text-slate-900-3">{e.meatLotNo ?? '—'}</td>
                       <td className="px-3 py-2 text-right font-semibold">{fmtKg(e.kgTaken, 2)}</td>
                       <td className="px-3 py-2 text-right font-bold">{fmtKg(e.kgMeat, 2)}</td>
-                      <td className="px-3 py-2 text-right text-ink-3">{fmtKg(e.kgBones, 2)}</td>
-                      <td className="px-3 py-2 text-right text-ink-3">{fmtKg(e.kgBacks, 2)}</td>
+                      <td className="px-3 py-2 text-right text-slate-900-3">{fmtKg(e.kgBones, 2)}</td>
+                      <td className="px-3 py-2 text-right text-slate-900-3">{fmtKg(e.kgBacks, 2)}</td>
                       <td className="px-3 py-2 text-right font-bold">{fmtPct(e.yieldPct)}</td>
                     </tr>
                   ))}
@@ -149,9 +151,9 @@ export function DeboningReportsPage() {
 
       {/* Historia sesji dnia */}
       {todaySessions.length > 1 && (
-        <div className="bg-surface border border-surface-4 rounded-xl">
-          <div className="px-4 py-2.5 border-b border-surface-4">
-            <span className="text-[13px] font-semibold text-ink">Sesje dnia {timeWindow.productionDate}</span>
+        <div className="bg-white border border-slate-200 rounded-xl">
+          <div className="px-4 py-2.5 border-b border-slate-200">
+            <span className="text-[13px] font-semibold text-slate-900">Sesje dnia {timeWindow.productionDate}</span>
           </div>
           <div className="divide-y divide-slate-100">
             {todaySessions.map(s => (
@@ -159,9 +161,9 @@ export function DeboningReportsPage() {
                 <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_CLS[s.status]}`}>
                   {STATUS_LABEL[s.status]}
                 </span>
-                <span className="text-ink-3">Start: {s.startedAt.slice(11, 16)}</span>
-                {s.endedAt && <span className="text-ink-3">Koniec: {s.endedAt.slice(11, 16)}</span>}
-                {s.approvedBy && <span className="text-ink-4">Zatwierdził: {s.approvedBy}</span>}
+                <span className="text-slate-900-3">Start: {s.startedAt.slice(11, 16)}</span>
+                {s.endedAt && <span className="text-slate-900-3">Koniec: {s.endedAt.slice(11, 16)}</span>}
+                {s.approvedBy && <span className="text-slate-900-4">Zatwierdził: {s.approvedBy}</span>}
               </div>
             ))}
           </div>

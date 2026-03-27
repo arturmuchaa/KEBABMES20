@@ -5,7 +5,7 @@
 import { useState, useCallback } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { suppliersApi } from '@/lib/apiClient'
-import { Card, CardHeader, Toast, Modal, Spinner, EmptyState } from '@/components/ui/Card'
+import { Card, CardHeader, Toast, Modal, Spinner, EmptyState , PageHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Table, type Column } from '@/components/ui/Table'
@@ -19,23 +19,23 @@ function emptyForm(): CreateSupplierDto {
 }
 
 const COLUMNS: Column<Supplier>[] = [
-  { key:'code', header:'Kod', render: s => <span className="font-mono font-bold text-brand text-sm">{s.code}</span> },
+  { key:'code', header:'Kod', render: s => <span className="font-mono font-bold text-blue-600 text-sm">{s.code}</span> },
   { key:'name', header:'Nazwa firmy', render: s => (
     <div>
-      <div className="font-semibold text-ink">{s.name}</div>
-      {s.nip && <div className="text-sm text-ink-3 font-mono font-semibold">NIP: {s.nip}</div>}
+      <div className="font-semibold text-slate-900">{s.name}</div>
+      {s.nip && <div className="text-sm text-slate-900-3 font-mono font-semibold">NIP: {s.nip}</div>}
     </div>
   )},
-  { key:'vetNumber', header:'Nr wet.', render: s => <span className="text-sm text-ink-3 font-mono">{s.vetNumber || '—'}</span> },
+  { key:'vetNumber', header:'Nr wet.', render: s => <span className="text-sm text-slate-900-3 font-mono">{s.vetNumber || '—'}</span> },
   { key:'contact', header:'Kontakt', render: s => (
     <div className="text-sm">
-      {s.contactName && <div className="font-medium text-ink">{s.contactName}</div>}
-      {s.phone && <div className="flex items-center gap-1 text-ink-3 text-xs"><Phone size={10}/>{s.phone}</div>}
-      {s.email && <div className="flex items-center gap-1 text-ink-3 text-xs"><Mail size={10}/>{s.email}</div>}
+      {s.contactName && <div className="font-medium text-slate-900">{s.contactName}</div>}
+      {s.phone && <div className="flex items-center gap-1 text-slate-900-3 text-xs"><Phone size={10}/>{s.phone}</div>}
+      {s.email && <div className="flex items-center gap-1 text-slate-900-3 text-xs"><Mail size={10}/>{s.email}</div>}
     </div>
   )},
   { key:'status', header:'Status', render: s => (
-    <span className={`text-xs font-bold px-2 py-1 rounded-full ${s.active?'bg-success-light text-success border border-success-border':'bg-surface-3 text-ink-3 border border-surface-4'}`}>
+    <span className={`text-xs font-bold px-2 py-1 rounded-full ${s.active?'bg-success-light text-success border border-success-border':'bg-slate-50 text-slate-900-3 border border-slate-200'}`}>
       {s.active ? 'Aktywny' : 'Nieaktywny'}
     </span>
   )},
@@ -59,17 +59,17 @@ function CreateSupplierModal({ open, onClose, onSubmit, form, loading, error, on
         {/* Przełącznik kraj/zagranica */}
         <div className="flex gap-2">
           <button onClick={()=>setIsAbroad(false)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${!isAbroad?'bg-brand text-white border-brand':'bg-white text-ink-3 border-surface-4 hover:border-brand'}`}>
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${!isAbroad?'bg-slate-900 text-white border-brand':'bg-white text-slate-900-3 border-slate-200 hover:border-brand'}`}>
             <Flag size={14}/> Polska (GUS/NIP)
           </button>
           <button onClick={()=>setIsAbroad(true)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${isAbroad?'bg-blue-600 text-white border-blue-600':'bg-white text-ink-3 border-surface-4 hover:border-blue-400'}`}>
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${isAbroad?'bg-blue-600 text-white border-blue-600':'bg-white text-slate-900-3 border-slate-200 hover:border-blue-400'}`}>
             <Globe size={14}/> Zagranica (VIES/VAT-UE)
           </button>
         </div>
 
         {/* GUS lub VIES lookup */}
-        <div className="bg-surface-2 border border-surface-4 rounded-xl p-4">
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
           {isAbroad
             ? <ViesLookup onFound={onViesFound}/>
             : <GusLookup onFound={onGusFound}/>
@@ -77,45 +77,45 @@ function CreateSupplierModal({ open, onClose, onSubmit, form, loading, error, on
         </div>
 
         {/* Dane firmy */}
-        <div className="border-t border-surface-4 pt-5">
-          <div className="text-xs font-bold uppercase tracking-wide text-ink-3 mb-3">Dane firmy</div>
+        <div className="border-t border-slate-200 pt-5">
+          <div className="text-xs font-bold uppercase tracking-wide text-slate-900-3 mb-3">Dane firmy</div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-ink-3 uppercase tracking-wide mb-1.5">Kod dostawcy *</label>
+              <label className="block text-xs font-bold text-slate-900-3 uppercase tracking-wide mb-1.5">Kod dostawcy *</label>
               <input type="text" placeholder="np. DOW-001" value={form.code}
                 onChange={e=>onFieldChange('code', e.target.value.toUpperCase())}
                 style={{fontFamily:'Roboto, sans-serif'}}
-                className="w-full h-12 px-4 text-lg font-bold font-mono text-brand rounded-xl border-2 border-surface-4 bg-white focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10"/>
-              <p className="text-[10px] text-ink-4 mt-1">Automatycznie sugerowany</p>
+                className="w-full h-12 px-4 text-lg font-bold font-mono text-blue-600 rounded-xl border-2 border-slate-200 bg-white focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10"/>
+              <p className="text-[10px] text-slate-900-4 mt-1">Automatycznie sugerowany</p>
             </div>
             <div>
-              <label className="block text-xs font-bold text-ink-3 uppercase tracking-wide mb-1.5">
+              <label className="block text-xs font-bold text-slate-900-3 uppercase tracking-wide mb-1.5">
                 {isAbroad ? 'Numer VAT-UE' : 'NIP'}
               </label>
               <input type="text"
                 placeholder={isAbroad?'np. DE123456789':'0000000000'}
                 value={form.nip||''} onChange={e=>onFieldChange('nip', isAbroad?e.target.value.toUpperCase():e.target.value.replace(/\D/g,'').slice(0,10))}
                 style={{fontFamily:'Roboto, sans-serif'}}
-                className="w-full h-12 px-4 text-xl font-bold font-mono text-ink rounded-xl border-2 border-surface-4 bg-white focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10 tracking-wider"/>
-              <p className="text-[10px] text-ink-4 mt-1">{isAbroad?'Format: KK + numer (np. DE123456789)':'10 cyfr'}</p>
+                className="w-full h-12 px-4 text-xl font-bold font-mono text-slate-900 rounded-xl border-2 border-slate-200 bg-white focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10 tracking-wider"/>
+              <p className="text-[10px] text-slate-900-4 mt-1">{isAbroad?'Format: KK + numer (np. DE123456789)':'10 cyfr'}</p>
             </div>
             <Input label="Nazwa firmy *" placeholder="Pełna nazwa firmy" value={form.name}
               onChange={e=>onFieldChange('name',e.target.value)} className="col-span-2"
               style={{fontFamily:'Roboto, sans-serif'}}/>
             <div className="col-span-2">
-              <label className="block text-xs font-bold text-ink-3 uppercase tracking-wide mb-1.5">Numer weterynaryjny</label>
+              <label className="block text-xs font-bold text-slate-900-3 uppercase tracking-wide mb-1.5">Numer weterynaryjny</label>
               <input type="text" placeholder="PL00000000WE" value={form.vetNumber||''}
                 onChange={e=>onFieldChange('vetNumber',e.target.value.toUpperCase())}
                 style={{fontFamily:'Roboto, sans-serif'}}
-                className="w-full h-11 px-4 text-base font-mono text-ink rounded-xl border-2 border-surface-4 bg-white focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10"/>
-              <p className="text-[10px] text-ink-4 mt-1">Format: PL00000000WE</p>
+                className="w-full h-11 px-4 text-base font-mono text-slate-900 rounded-xl border-2 border-slate-200 bg-white focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10"/>
+              <p className="text-[10px] text-slate-900-4 mt-1">Format: PL00000000WE</p>
             </div>
           </div>
         </div>
 
         {/* Dane kontaktowe */}
-        <div className="border-t border-surface-4 pt-5">
-          <div className="text-xs font-bold uppercase tracking-wide text-ink-3 mb-3">Dane kontaktowe</div>
+        <div className="border-t border-slate-200 pt-5">
+          <div className="text-xs font-bold uppercase tracking-wide text-slate-900-3 mb-3">Dane kontaktowe</div>
           <div className="grid grid-cols-2 gap-4">
             <Input label="Osoba kontaktowa" placeholder="Imię i nazwisko" value={form.contactName||''} onChange={e=>onFieldChange('contactName',e.target.value)}/>
             <Input label="Telefon" placeholder="+48 000 000 000" value={form.phone||''} onChange={e=>onFieldChange('phone',e.target.value)}/>
@@ -186,20 +186,22 @@ export function SuppliersPage() {
   const suppliersList = suppliers??[]
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
+
+      <PageHeader title="Dostawcy" subtitle="Zarządzaj dostawcami surowca" />
       <Card noPad>
         <div className="px-5 pt-5">
           <CardHeader title="Dostawcy" subtitle={`${suppliersList.length} dostawców w systemie`}
             actions={<Button icon={<Plus size={15}/>} onClick={openModal}>Dodaj dostawcę</Button>}/>
         </div>
-        <div className="flex items-center gap-6 px-5 py-3 bg-surface-2 border-y border-surface-3">
+        <div className="flex items-center gap-6 px-5 py-3 bg-slate-50 border-y border-slate-100">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-brand-light flex items-center justify-center"><Truck size={14} className="text-brand"/></div>
-            <div><div className="text-lg font-black text-ink">{suppliersList.length}</div><div className="text-[10px] font-semibold text-ink-3 uppercase">Dostawców</div></div>
+            <div className="w-8 h-8 rounded-lg bg-slate-900-light flex items-center justify-center"><Truck size={14} className="text-blue-600"/></div>
+            <div><div className="text-lg font-black text-slate-900">{suppliersList.length}</div><div className="text-[10px] font-semibold text-slate-900-3 uppercase">Dostawców</div></div>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-success-light flex items-center justify-center"><Building2 size={14} className="text-success"/></div>
-            <div><div className="text-lg font-black text-ink">{suppliersList.filter(s=>s.active).length}</div><div className="text-[10px] font-semibold text-ink-3 uppercase">Aktywnych</div></div>
+            <div><div className="text-lg font-black text-slate-900">{suppliersList.filter(s=>s.active).length}</div><div className="text-[10px] font-semibold text-slate-900-3 uppercase">Aktywnych</div></div>
           </div>
         </div>
         {loading

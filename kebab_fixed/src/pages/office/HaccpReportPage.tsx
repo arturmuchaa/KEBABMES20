@@ -281,29 +281,29 @@ export function HaccpReportPage() {
       <style>{printStyles}</style>
 
       {/* Filtry */}
-      <div className="bg-surface border border-surface-4 rounded-xl p-4 no-print">
-        <div className="text-[13px] font-semibold text-ink mb-3">Filtry raportów</div>
+      <div className="bg-white border border-slate-200 rounded-xl p-4 no-print">
+        <div className="text-[13px] font-semibold text-slate-900 mb-3">Filtry raportów</div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data od</label>
+            <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Data od</label>
             <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand" />
+              className="w-full h-8 px-2 text-sm border border-slate-200 focus:outline-none focus:border-brand" />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data do</label>
+            <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Data do</label>
             <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand" />
+              className="w-full h-8 px-2 text-sm border border-slate-200 focus:outline-none focus:border-brand" />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Nr partii</label>
+            <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Nr partii</label>
             <input type="text" placeholder="np. R171" value={filterBatch}
               onChange={e => setFilterBatch(e.target.value)}
-              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand" />
+              className="w-full h-8 px-2 text-sm border border-slate-200 focus:outline-none focus:border-brand" />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Dostawca</label>
+            <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Dostawca</label>
             <select value={filterSupplier} onChange={e => setFilterSupplier(e.target.value)}
-              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand">
+              className="w-full h-8 px-2 text-sm border border-slate-200 focus:outline-none focus:border-brand">
               <option value="">Wszyscy</option>
               {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
@@ -312,18 +312,18 @@ export function HaccpReportPage() {
       </div>
 
       {/* Lista dni */}
-      <div className="bg-surface border border-surface-4 rounded-xl no-print">
-        <div className="px-4 py-2.5 border-b border-surface-4 flex items-center justify-between">
+      <div className="bg-white border border-slate-200 rounded-xl no-print">
+        <div className="px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-[13px] font-semibold text-ink">
+            <span className="text-[13px] font-semibold text-slate-900">
               {filteredDates.length} dni rozbioru
             </span>
             <button onClick={selectAll}
-              className="text-[11px] font-medium text-brand hover:underline flex items-center gap-1">
+              className="text-[11px] font-medium text-blue-600 hover:underline flex items-center gap-1">
               <CheckSquare size={12} /> Zaznacz wszystkie
             </button>
             <button onClick={deselectAll}
-              className="text-[11px] font-medium text-ink-3 hover:underline flex items-center gap-1">
+              className="text-[11px] font-medium text-slate-900-3 hover:underline flex items-center gap-1">
               <Square size={12} /> Odznacz
             </button>
           </div>
@@ -362,27 +362,27 @@ export function HaccpReportPage() {
 
               return (
                 <div key={date}
-                  className={`flex items-start gap-3 px-4 py-3 hover:bg-surface-3/60 cursor-pointer ${isSel ? 'bg-blue-50' : ''}`}
+                  className={`flex items-start gap-3 px-4 py-3 hover:bg-slate-50/60 cursor-pointer ${isSel ? 'bg-blue-50' : ''}`}
                   onClick={() => toggleDate(date)}
                 >
                   <div className="mt-0.5 flex-shrink-0">
                     {isSel
-                      ? <CheckSquare size={16} className="text-brand" />
-                      : <Square size={16} className="text-ink-4" />}
+                      ? <CheckSquare size={16} className="text-blue-600" />
+                      : <Square size={16} className="text-slate-900-4" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3">
-                      <span className="text-[13px] font-semibold text-ink">{fmtDatePl(date)}</span>
-                      <span className="text-[11px] text-ink-3">{daySessions.length} wpisów</span>
+                      <span className="text-[13px] font-semibold text-slate-900">{fmtDatePl(date)}</span>
+                      <span className="text-[11px] text-slate-900-3">{daySessions.length} wpisów</span>
                       <span className="text-[11px] font-semibold text-blue-700">{fmtKg(taken)} kg ćw. → {fmtKg(meat)} kg mięsa</span>
                     </div>
                     {/* Partie z traceability */}
                     <div className="flex flex-wrap gap-1.5 mt-1">
                       {batchList.map((b, i) => (
-                        <span key={i} className="text-[10px] bg-surface-3 px-2 py-0.5 rounded flex items-center gap-1">
-                          <span className="font-mono font-bold text-brand">{b.no}</span>
-                          {b.supplier !== '—' && <span className="text-ink-3">· {b.supplier}</span>}
-                          {b.slaughter && <span className="text-ink-4">· ubój: {fmtDatePl(b.slaughter)}</span>}
+                        <span key={i} className="text-[10px] bg-slate-50 px-2 py-0.5 rounded flex items-center gap-1">
+                          <span className="font-mono font-bold text-blue-600">{b.no}</span>
+                          {b.supplier !== '—' && <span className="text-slate-900-3">· {b.supplier}</span>}
+                          {b.slaughter && <span className="text-slate-900-4">· ubój: {fmtDatePl(b.slaughter)}</span>}
                         </span>
                       ))}
                     </div>
@@ -390,7 +390,7 @@ export function HaccpReportPage() {
                   <div className="flex gap-2 flex-shrink-0">
                     <button
                       onClick={e => { e.stopPropagation(); setPreviewDate(previewDate === date ? null : date) }}
-                      className="text-[11px] font-medium text-brand border border-brand/30 px-2 py-1 rounded hover:bg-blue-50"
+                      className="text-[11px] font-medium text-blue-600 border border-brand/30 px-2 py-1 rounded hover:bg-blue-50"
                     >
                       Podgląd
                     </button>
@@ -406,7 +406,7 @@ export function HaccpReportPage() {
       {previewDate && previewData && (
         <div id="haccp-report">
           <div className="no-print flex items-center justify-between mb-3">
-            <span className="text-[13px] font-semibold text-ink">Podgląd — {fmtDatePl(previewDate)}</span>
+            <span className="text-[13px] font-semibold text-slate-900">Podgląd — {fmtDatePl(previewDate)}</span>
             <div className="flex gap-2">
               <Button size="sm" variant="secondary" onClick={() => setPreviewDate(null)}>Zamknij</Button>
               <Button size="sm" icon={<Printer size={13} />} onClick={handlePrint}>Drukuj</Button>

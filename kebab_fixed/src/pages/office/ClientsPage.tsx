@@ -5,7 +5,7 @@
 import { useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { clientsApi } from '@/lib/apiClient'
-import { Card, CardHeader, Spinner, EmptyState, Modal } from '@/components/ui/Card'
+import { Card, CardHeader, Spinner, EmptyState, Modal, PageHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { GusLookup, type GusCompanyData } from '@/components/ui/GusLookup'
 import { ViesLookup, type ViesCompanyData } from '@/components/ui/ViesLookup'
@@ -62,11 +62,11 @@ function ClientForm({ initial, onSave, onClose }: {
       {!initial && (
         <div className="flex gap-2">
           <button onClick={()=>switchAbroad(false)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${!isAbroad?'bg-brand text-white border-brand':'bg-white text-ink-3 border-surface-4 hover:border-brand'}`}>
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${!isAbroad?'bg-slate-900 text-white border-brand':'bg-white text-slate-900-3 border-slate-200 hover:border-brand'}`}>
             <Flag size={14}/> Polska (GUS/NIP)
           </button>
           <button onClick={()=>switchAbroad(true)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${isAbroad?'bg-blue-600 text-white border-blue-600':'bg-white text-ink-3 border-surface-4 hover:border-blue-400'}`}>
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${isAbroad?'bg-blue-600 text-white border-blue-600':'bg-white text-slate-900-3 border-slate-200 hover:border-blue-400'}`}>
             <Globe size={14}/> Zagranica (VIES/VAT-UE)
           </button>
         </div>
@@ -74,15 +74,15 @@ function ClientForm({ initial, onSave, onClose }: {
 
       {/* Lookup */}
       {mode==='gus' && !initial && (
-        <div className="bg-surface-2 border border-surface-4 rounded-xl p-4">
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
           <GusLookup onFound={applyGus}/>
-          <button onClick={()=>setMode('manual')} className="mt-2 text-[11px] text-ink-3 hover:text-ink underline">→ Wpisz ręcznie</button>
+          <button onClick={()=>setMode('manual')} className="mt-2 text-[11px] text-slate-900-3 hover:text-slate-900 underline">→ Wpisz ręcznie</button>
         </div>
       )}
       {mode==='vies' && !initial && (
-        <div className="bg-surface-2 border border-surface-4 rounded-xl p-4">
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
           <ViesLookup onFound={applyVies}/>
-          <button onClick={()=>setMode('manual')} className="mt-2 text-[11px] text-ink-3 hover:text-ink underline">→ Wpisz ręcznie</button>
+          <button onClick={()=>setMode('manual')} className="mt-2 text-[11px] text-slate-900-3 hover:text-slate-900 underline">→ Wpisz ręcznie</button>
         </div>
       )}
 
@@ -101,15 +101,15 @@ function ClientForm({ initial, onSave, onClose }: {
               {k:'email',       label:'E-mail',            ph:'kontakt@firma.pl'},
             ].map(f=>(
               <div key={f.k}>
-                <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">{f.label}</label>
+                <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">{f.label}</label>
                 <input value={(form as any)[f.k]??''} onChange={e=>set(f.k as any, e.target.value)}
                   placeholder={f.ph} style={{fontFamily:'Roboto, sans-serif'}}
-                  className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3 rounded-lg"/>
+                  className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50 rounded-lg"/>
               </div>
             ))}
           </div>
           {!initial && (
-            <button onClick={()=>setMode(isAbroad?'vies':'gus')} className="text-[11px] text-brand hover:underline">
+            <button onClick={()=>setMode(isAbroad?'vies':'gus')} className="text-[11px] text-blue-600 hover:underline">
               ← Wróć do wyszukiwania {isAbroad?'VIES':'GUS'}
             </button>
           )}
@@ -144,19 +144,21 @@ export function ClientsPage() {
   }
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
+
+      <PageHeader title="Kontrahenci" subtitle="Zarządzaj klientami" />
       <div className="flex gap-3">
         <div className="relative flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-4"/>
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-900-4"/>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Szukaj kontrahenta..."
-            className="w-full h-9 pl-9 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50"/>
+            className="w-full h-9 pl-9 text-sm border border-slate-200 focus:outline-none focus:border-brand bg-slate-50"/>
         </div>
         <Button icon={<Plus size={14}/>} onClick={()=>{ setEdit(null); setModal(true) }}>Dodaj kontrahenta</Button>
       </div>
 
-      <div className="bg-surface border border-surface-4 rounded-xl">
-        <div className="px-4 py-2.5 border-b border-surface-4">
-          <span className="text-[13px] font-semibold text-ink">{clients.length} kontrahentów</span>
+      <div className="bg-white border border-slate-200 rounded-xl">
+        <div className="px-4 py-2.5 border-b border-slate-200">
+          <span className="text-[13px] font-semibold text-slate-900">{clients.length} kontrahentów</span>
         </div>
         {loading
           ? <div className="flex justify-center py-10"><Spinner size={20}/></div>
@@ -165,16 +167,16 @@ export function ClientsPage() {
             : (
               <div className="divide-y divide-slate-100">
                 {clients.map(c=>(
-                  <div key={c.id} className="px-4 py-3 flex items-center gap-3 hover:bg-surface-3/60">
-                    <div className="w-10 h-10 rounded-full bg-brand-light flex items-center justify-center flex-shrink-0">
-                      <span className="text-brand font-black text-sm">{c.name[0]}</span>
+                  <div key={c.id} className="px-4 py-3 flex items-center gap-3 hover:bg-slate-50/60">
+                    <div className="w-10 h-10 rounded-full bg-slate-900-light flex items-center justify-center flex-shrink-0">
+                      <span className="text-blue-600 font-black text-sm">{c.name[0]}</span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-ink">{c.name}</span>
-                        <span className="text-[10px] font-bold text-ink-4">{c.code}</span>
+                        <span className="font-semibold text-slate-900">{c.name}</span>
+                        <span className="text-[10px] font-bold text-slate-900-4">{c.code}</span>
                       </div>
-                      <div className="flex items-center gap-3 text-[11px] text-ink-3 mt-0.5">
+                      <div className="flex items-center gap-3 text-[11px] text-slate-900-3 mt-0.5">
                         {c.nip&&<span>NIP: {c.nip}</span>}
                         {c.city&&<span>{c.city}</span>}
                         {c.phone&&<span className="flex items-center gap-1"><Phone size={10}/>{c.phone}</span>}
@@ -182,7 +184,7 @@ export function ClientsPage() {
                       </div>
                     </div>
                     <button onClick={()=>{ setEdit(c); setModal(true) }}
-                      className="p-1.5 rounded border border-surface-4 text-ink-3 hover:border-brand hover:text-brand">
+                      className="p-1.5 rounded border border-slate-200 text-slate-900-3 hover:border-brand hover:text-blue-600">
                       <Pencil size={13}/>
                     </button>
                   </div>

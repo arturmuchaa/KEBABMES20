@@ -31,9 +31,9 @@ export function RawBatchesTable({ batches, loading }: RawBatchesTableProps) {
   return (
     <table className="w-full text-[12px]">
       <thead>
-        <tr className="border-b border-surface-4 bg-surface-2">
+        <tr className="border-b border-slate-200 bg-slate-50">
           {['Nr partii','Dostawca','Nr dostawcy','Ubój','Ważność','Kg przyjęto','Kg dostępne','Cena/kg','Status'].map(h => (
-            <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-4 whitespace-nowrap">
+            <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-900-4 whitespace-nowrap">
               {h}
             </th>
           ))}
@@ -44,17 +44,17 @@ export function RawBatchesTable({ batches, loading }: RawBatchesTableProps) {
           // computeDisplayStatus — zawsze z danych, nie z pola status
           const displayStatus = computeDisplayStatus(b.expiryDate, Number(b.kgAvailable))
           return (
-            <tr key={b.id} className="hover:bg-surface-2 transition-colors">
-              <td className="px-3 py-2 font-mono font-bold text-ink">{b.internalBatchNo}</td>
-              <td className="px-3 py-2 text-ink-2 max-w-[140px] truncate">{b.supplierName ?? '—'}</td>
-              <td className="px-3 py-2 font-mono text-ink-3 text-[11px]">{b.supplierBatchNo}</td>
-              <td className="px-3 py-2 text-ink-3 whitespace-nowrap">{fmtDatePl(b.slaughterDate)}</td>
+            <tr key={b.id} className="hover:bg-slate-50 transition-colors">
+              <td className="px-3 py-2 font-mono font-bold text-slate-900">{b.internalBatchNo}</td>
+              <td className="px-3 py-2 text-slate-900-2 max-w-[140px] truncate">{b.supplierName ?? '—'}</td>
+              <td className="px-3 py-2 font-mono text-slate-900-3 text-[11px]">{b.supplierBatchNo}</td>
+              <td className="px-3 py-2 text-slate-900-3 whitespace-nowrap">{fmtDatePl(b.slaughterDate)}</td>
               <td className="px-3 py-2">
                 <ExpiryBadge dateStr={b.expiryDate} />
               </td>
               <td className="px-3 py-2 text-right font-semibold">{fmtKg(b.kgReceived)} kg</td>
-              <td className="px-3 py-2 text-right font-bold text-ink">{fmtKg(b.kgAvailable)} kg</td>
-              <td className="px-3 py-2 text-right font-mono text-ink-3">{fmtPln(b.pricePerKg)}</td>
+              <td className="px-3 py-2 text-right font-bold text-slate-900">{fmtKg(b.kgAvailable)} kg</td>
+              <td className="px-3 py-2 text-right font-mono text-slate-900-3">{fmtPln(b.pricePerKg)}</td>
               <td className="px-3 py-2">
                 <StatusBadge status={displayStatus} />
               </td>

@@ -59,8 +59,8 @@ export default function App() {
       position="bottom-right"
       toastOptions={{
         classNames: {
-          toast: 'bg-surface border border-surface-4 text-ink shadow-card rounded-xl',
-          description: 'text-ink-3',
+          toast: 'bg-white border border-slate-200 text-slate-900 shadow-card rounded-xl',
+          description: 'text-slate-900-3',
           actionButton: 'bg-brand text-white',
           error: 'border-danger/30',
           success: 'border-success/30',

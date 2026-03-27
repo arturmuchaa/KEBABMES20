@@ -11,7 +11,7 @@
  *   5. Zlecenie widoczne na tablecie masownicy
  */
 import { useState, useMemo } from 'react'
-import { Spinner, EmptyState, Modal, Toast } from '@/components/ui/Card'
+import { Spinner, EmptyState, Modal, Toast , PageHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { useProductTypes } from '../hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
@@ -172,12 +172,14 @@ export function PlanningPage() {
   if (loading) return <div className="flex justify-center py-16"><Spinner size={24} /></div>
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
+
+      <PageHeader title="Planowanie masowania" subtitle="Zlecenia masowania" />
 
       {/* Nagłówek + nowe zlecenie */}
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-[11px] text-ink-3 mt-0.5">
+          <p className="text-[11px] text-slate-900-3 mt-0.5">
             Masowanie = półprodukt. Wynik masowania idzie do planowania produkcji.
           </p>
         </div>
@@ -187,10 +189,10 @@ export function PlanningPage() {
       </div>
 
       {/* Lista zleceń */}
-      <div className="bg-surface border border-surface-4 rounded-xl">
-        <div className="px-4 py-2.5 border-b border-surface-4 flex items-center justify-between">
-          <span className="text-[13px] font-semibold text-ink">Zlecenia masowania</span>
-          <span className="text-[11px] text-ink-4">{(orders ?? []).length} zleceń</span>
+      <div className="bg-white border border-slate-200 rounded-xl">
+        <div className="px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
+          <span className="text-[13px] font-semibold text-slate-900">Zlecenia masowania</span>
+          <span className="text-[11px] text-slate-900-4">{(orders ?? []).length} zleceń</span>
         </div>
 
         {(orders ?? []).length === 0 ? (
@@ -203,21 +205,21 @@ export function PlanningPage() {
         ) : (
           <table className="w-full text-[12px]">
             <thead>
-              <tr className="border-b border-surface-4 bg-surface-2">
+              <tr className="border-b border-slate-200 bg-slate-50">
                 {['Nr zlecenia','Receptura','Rodzaj produktu','Mięso kg','Półprodukt kg','Maszyna','Status',''].map(h => (
-                  <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-4">{h}</th>
+                  <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-900-4">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {(orders ?? []).map(o => (
-                <tr key={o.id} className="hover:bg-surface-3/60">
-                  <td className="px-3 py-2 font-mono font-bold text-brand">{o.orderNo}</td>
-                  <td className="px-3 py-2 text-ink">{o.recipeName}</td>
-                  <td className="px-3 py-2 text-ink-3">{o.productTypeName ?? '—'}</td>
+                <tr key={o.id} className="hover:bg-slate-50/60">
+                  <td className="px-3 py-2 font-mono font-bold text-blue-600">{o.orderNo}</td>
+                  <td className="px-3 py-2 text-slate-900">{o.recipeName}</td>
+                  <td className="px-3 py-2 text-slate-900-3">{o.productTypeName ?? '—'}</td>
                   <td className="px-3 py-2 font-semibold">{fmtKg(o.meatKg)} kg</td>
                   <td className="px-3 py-2 text-green-700 font-semibold">{fmtKg(o.plannedOutputKg)} kg</td>
-                  <td className="px-3 py-2 text-ink-3">{o.machineId ? `Masownica ${o.machineId}` : '—'}</td>
+                  <td className="px-3 py-2 text-slate-900-3">{o.machineId ? `Masownica ${o.machineId}` : '—'}</td>
                   <td className="px-3 py-2">
                     <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${STATUS_CLS[o.status]}`}>
                       {STATUS_LABELS[o.status]}
@@ -242,27 +244,27 @@ export function PlanningPage() {
         <div className="space-y-4">
 
           {/* Krok 1 */}
-          <div className="border border-surface-4 p-4">
+          <div className="border border-slate-200 p-4">
             <div className="flex items-center gap-2 mb-3">
               <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0 ${
-                step > 1 ? 'bg-green-600 text-white' : 'bg-brand text-white'}`}>
+                step > 1 ? 'bg-green-600 text-white' : 'bg-slate-900 text-white'}`}>
                 {step > 1 ? '✓' : '1'}
               </span>
               <span className="text-[13px] font-semibold">Rodzaj produktu i receptura</span>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Rodzaj produktu (opcjonalnie)</label>
+                <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Rodzaj produktu (opcjonalnie)</label>
                 <select value={selProductId} onChange={e => { setSelProductId(e.target.value); setSelRecipeId('') }}
-                  className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand">
+                  className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand">
                   <option value="">— dowolny —</option>
                   {productTypes.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Receptura *</label>
+                <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Receptura *</label>
                 <select value={selRecipeId} onChange={e => { setSelRecipeId(e.target.value); if (e.target.value) setStep(2) }}
-                  className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand">
+                  className="w-full h-9 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand">
                   <option value="">Wybierz recepturę...</option>
                   {filteredRecipes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
@@ -272,10 +274,10 @@ export function PlanningPage() {
 
           {/* Krok 2 — ilość */}
           {step >= 2 && (
-            <div className="border border-surface-4 p-4">
+            <div className="border border-slate-200 p-4">
               <div className="flex items-center gap-2 mb-3">
                 <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0 ${
-                  step > 2 ? 'bg-green-600 text-white' : 'bg-brand text-white'}`}>
+                  step > 2 ? 'bg-green-600 text-white' : 'bg-slate-900 text-white'}`}>
                   {step > 2 ? '✓' : '2'}
                 </span>
                 <span className="text-[13px] font-semibold">Ilość mięsa + wybór lotów</span>
@@ -283,11 +285,11 @@ export function PlanningPage() {
 
               <div className="flex items-end gap-4 mb-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Mięso (kg) *</label>
+                  <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Mięso (kg) *</label>
                   <input type="number" min="1" step="0.1" value={meatKg}
                     onChange={e => { setMeatKg(e.target.value); setSelLots([]) }}
-                    className="w-36 h-9 px-3 text-sm font-bold border border-surface-4 focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-                  <div className="text-[10px] text-ink-3 mt-0.5">dostępne: {fmtKg(totalMeatAvail)} kg</div>
+                    className="w-36 h-9 px-3 text-sm font-bold border border-slate-200 focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                  <div className="text-[10px] text-slate-900-3 mt-0.5">dostępne: {fmtKg(totalMeatAvail)} kg</div>
                 </div>
                 <Button size="sm" variant="secondary" onClick={() => { autoSelectLots(); setStep(3) }}>
                   Auto-wybór FEFO
@@ -295,17 +297,17 @@ export function PlanningPage() {
               </div>
 
               {/* Loty mięsa */}
-              <div className="border border-surface-4">
+              <div className="border border-slate-200">
                 <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-4">Dostępne partie mięsa (FEFO)</span>
-                  <span className="text-[10px] text-ink-4">Zaznacz → wpisz kg</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-900-4">Dostępne partie mięsa (FEFO)</span>
+                  <span className="text-[10px] text-slate-900-4">Zaznacz → wpisz kg</span>
                 </div>
                 <div className="max-h-48 overflow-y-auto divide-y divide-slate-100">
                   {meatLots.map(lot => {
                     const selIdx = selLots.findIndex(l => l.lotId === lot.id)
                     const isSel  = selIdx >= 0
                     return (
-                      <div key={lot.id} className={`flex items-center gap-3 px-3 py-2 text-[12px] ${isSel ? 'bg-blue-50' : 'hover:bg-surface-3/60'}`}>
+                      <div key={lot.id} className={`flex items-center gap-3 px-3 py-2 text-[12px] ${isSel ? 'bg-blue-50' : 'hover:bg-slate-50/60'}`}>
                         <input type="checkbox" checked={isSel}
                           onChange={e => {
                             if (e.target.checked) {
@@ -316,14 +318,14 @@ export function PlanningPage() {
                           }}
                           className="w-4 h-4 flex-shrink-0" />
                         <span className="font-mono font-bold w-28">{lot.lotNo}</span>
-                        <span className="text-ink-3 w-20">{lot.rawBatchNo}</span>
+                        <span className="text-slate-900-3 w-20">{lot.rawBatchNo}</span>
                         <div className="w-28">
                           <div className="font-semibold text-green-700">{fmtKg(lot.kgAvailable)} kg</div>
                           {Number((lot as any).kgReserved ?? 0) > 0 && (
                             <div className="text-[10px] text-amber-600">+{fmtKg((lot as any).kgReserved, 1)} zarezerwowane</div>
                           )}
                         </div>
-                        <span className="text-ink-4 text-[11px] w-24">ważne: {fmtDatePl(lot.expiryDate)}</span>
+                        <span className="text-slate-900-4 text-[11px] w-24">ważne: {fmtDatePl(lot.expiryDate)}</span>
                         {isSel && (
                           <input type="number" min="0.1" step="0.1"
                             max={Number(lot.kgAvailable)}
@@ -355,7 +357,7 @@ export function PlanningPage() {
                     Wybrano {selLots.length} partii · {fmtKg(selLots.reduce((s, l) => s + (parseFloat(l.kg) || 0), 0))} kg
                   </span>
                   {step < 3 && selLots.length > 0 && (
-                    <button onClick={() => setStep(3)} className="ml-2 text-brand font-semibold text-[11px] hover:underline flex items-center gap-1">
+                    <button onClick={() => setStep(3)} className="ml-2 text-blue-600 font-semibold text-[11px] hover:underline flex items-center gap-1">
                       Dalej <ChevronRight size={12} />
                     </button>
                   )}
@@ -366,31 +368,31 @@ export function PlanningPage() {
 
           {/* Krok 3 — podgląd + zatwierdź */}
           {step >= 3 && selRecipeId && requestedKg > 0 && (
-            <div className="border border-surface-4 p-4">
+            <div className="border border-slate-200 p-4">
               <div className="flex items-center gap-2 mb-3">
-                <span className="w-6 h-6 rounded-full bg-brand text-white flex items-center justify-center text-[11px] font-bold">3</span>
+                <span className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-[11px] font-bold">3</span>
                 <span className="text-[13px] font-semibold">Podgląd zlecenia</span>
               </div>
 
-              <div className="border border-surface-4 text-[12px] mb-3">
+              <div className="border border-slate-200 text-[12px] mb-3">
                 <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 grid grid-cols-[1fr_100px_60px] gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-4">Składnik</span>
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 text-right">Ilość</span>
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-4">Jedn.</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-900-4">Składnik</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-900-4 text-right">Ilość</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-900-4">Jedn.</span>
                 </div>
-                <div className="px-3 py-2 bg-blue-50/50 border-b border-surface-4 grid grid-cols-[1fr_100px_60px] gap-2">
+                <div className="px-3 py-2 bg-blue-50/50 border-b border-slate-200 grid grid-cols-[1fr_100px_60px] gap-2">
                   <span className="font-semibold text-blue-700">Mięso (baza)</span>
                   <span className="font-bold text-blue-700 text-right">{fmtKg(requestedKg, 2)}</span>
-                  <span className="text-ink-3">kg</span>
+                  <span className="text-slate-900-3">kg</span>
                 </div>
                 {calcSteps.map((s, i) => (
-                  <div key={i} className="px-3 py-2 border-b border-surface-4 last:border-0 grid grid-cols-[1fr_100px_60px] gap-2">
-                    <span className="font-medium text-ink">
+                  <div key={i} className="px-3 py-2 border-b border-slate-200 last:border-0 grid grid-cols-[1fr_100px_60px] gap-2">
+                    <span className="font-medium text-slate-900">
                       {s.ingredientName}
                       {s.isUnlimited && <span className="ml-1 text-[10px] text-blue-600">(woda)</span>}
                     </span>
                     <span className="font-bold text-right">{s.qty}</span>
-                    <span className="text-ink-3">{s.unit}</span>
+                    <span className="text-slate-900-3">{s.unit}</span>
                   </div>
                 ))}
                 <div className="px-3 py-2 bg-green-50 border-t-2 border-green-200 grid grid-cols-[1fr_100px_60px] gap-2 font-bold text-green-700">
@@ -401,10 +403,10 @@ export function PlanningPage() {
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Uwagi</label>
+                <label className="block text-[10px] font-bold text-slate-900-3 uppercase tracking-wide mb-1">Uwagi</label>
                 <input type="text" placeholder="Opcjonalne uwagi..."
                   value={notes} onChange={e => setNotes(e.target.value)}
-                  className="w-full h-8 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand" />
+                  className="w-full h-8 px-3 text-sm border border-slate-200 focus:outline-none focus:border-brand" />
               </div>
             </div>
           )}

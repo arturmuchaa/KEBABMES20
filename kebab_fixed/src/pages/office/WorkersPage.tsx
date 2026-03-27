@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { usersApi } from '@/lib/apiClient'
-import { Card, CardHeader, Modal, Toast } from '@/components/ui/Card'
+import { Card, CardHeader, Modal, Toast , PageHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
@@ -118,14 +118,14 @@ export function WorkersPage() {
       key: 'name', header: 'Pracownik',
       render: (u: UserType) => (
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-brand-light text-brand flex items-center justify-center text-xs font-bold flex-shrink-0">
+          <div className="w-9 h-9 rounded-full bg-slate-900-light text-blue-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
             {getInitials(u.name)}
           </div>
           <div>
-            <div className="font-semibold text-ink text-sm">{u.name}</div>
+            <div className="font-semibold text-slate-900 text-sm">{u.name}</div>
             {/* Login widoczny tylko dla ról systemowych */}
             {!u.role.startsWith('WORKER') && (
-              <div className="text-xs text-ink-3 font-mono">{u.login}</div>
+              <div className="text-xs text-slate-900-3 font-mono">{u.login}</div>
             )}
           </div>
         </div>
@@ -160,17 +160,19 @@ export function WorkersPage() {
   const isSystemRole = needsLogin(form.role)
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
+
+      <PageHeader title="Pracownicy" subtitle="Zarządzaj pracownikami" />
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
         <Card className="p-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-surface-3 flex items-center justify-center">
-              <Users size={20} className="text-ink-3" />
+            <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center">
+              <Users size={20} className="text-slate-900-3" />
             </div>
             <div>
-              <div className="text-2xl font-black text-ink">{allUsers.length}</div>
-              <div className="text-[10px] font-semibold text-ink-3 uppercase">Wszyscy</div>
+              <div className="text-2xl font-black text-slate-900">{allUsers.length}</div>
+              <div className="text-[10px] font-semibold text-slate-900-3 uppercase">Wszyscy</div>
             </div>
           </div>
         </Card>
@@ -181,18 +183,18 @@ export function WorkersPage() {
             </div>
             <div>
               <div className="text-2xl font-black text-success">{allUsers.filter(u => u.role === 'WORKER_DEBONING').length}</div>
-              <div className="text-[10px] font-semibold text-ink-3 uppercase">Rozbiór</div>
+              <div className="text-[10px] font-semibold text-slate-900-3 uppercase">Rozbiór</div>
             </div>
           </div>
         </Card>
         <Card className="p-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-brand-light flex items-center justify-center">
-              <Factory size={20} className="text-brand" />
+            <div className="w-10 h-10 rounded-xl bg-slate-900-light flex items-center justify-center">
+              <Factory size={20} className="text-blue-600" />
             </div>
             <div>
-              <div className="text-2xl font-black text-brand">{allUsers.filter(u => u.role === 'WORKER_PRODUCTION').length}</div>
-              <div className="text-[10px] font-semibold text-ink-3 uppercase">Produkcja</div>
+              <div className="text-2xl font-black text-blue-600">{allUsers.filter(u => u.role === 'WORKER_PRODUCTION').length}</div>
+              <div className="text-[10px] font-semibold text-slate-900-3 uppercase">Produkcja</div>
             </div>
           </div>
         </Card>
@@ -203,7 +205,7 @@ export function WorkersPage() {
             </div>
             <div>
               <div className="text-2xl font-black text-warn">{system.length}</div>
-              <div className="text-[10px] font-semibold text-ink-3 uppercase">Systemowi</div>
+              <div className="text-[10px] font-semibold text-slate-900-3 uppercase">Systemowi</div>
             </div>
           </div>
         </Card>
@@ -235,13 +237,13 @@ export function WorkersPage() {
 
           {/* Stanowisko */}
           <div>
-            <label className="block text-xs font-bold text-ink-3 uppercase tracking-wide mb-2">
+            <label className="block text-xs font-bold text-slate-900-3 uppercase tracking-wide mb-2">
               Stanowisko *
             </label>
 
             {/* Pracownicy hali */}
             <div className="mb-2">
-              <div className="text-[10px] font-bold text-ink-4 uppercase tracking-wider mb-1.5 px-1">
+              <div className="text-[10px] font-bold text-slate-900-4 uppercase tracking-wider mb-1.5 px-1">
                 Hala produkcyjna
               </div>
               <div className="space-y-1.5">
@@ -250,8 +252,8 @@ export function WorkersPage() {
                     key={opt.value}
                     className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
                       form.role === opt.value
-                        ? 'border-brand bg-brand-light'
-                        : 'border-surface-4 hover:border-surface-5'
+                        ? 'border-brand bg-slate-900-light'
+                        : 'border-slate-200 hover:border-slate-300'
                     }`}
                   >
                     <input type="radio" name="role" value={opt.value}
@@ -260,14 +262,14 @@ export function WorkersPage() {
                       className="sr-only"
                     />
                     <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                      form.role === opt.value ? 'bg-brand text-white' : 'bg-surface-3 text-ink-3'
+                      form.role === opt.value ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-900-3'
                     }`}>
                       {opt.icon}
                     </span>
-                    <span className={`font-semibold text-sm ${form.role === opt.value ? 'text-brand' : 'text-ink'}`}>
+                    <span className={`font-semibold text-sm ${form.role === opt.value ? 'text-blue-600' : 'text-slate-900'}`}>
                       {opt.label}
                     </span>
-                    {form.role === opt.value && <span className="ml-auto text-brand text-sm">✓</span>}
+                    {form.role === opt.value && <span className="ml-auto text-blue-600 text-sm">✓</span>}
                   </label>
                 ))}
               </div>
@@ -275,7 +277,7 @@ export function WorkersPage() {
 
             {/* Użytkownicy systemowi */}
             <div>
-              <div className="text-[10px] font-bold text-ink-4 uppercase tracking-wider mb-1.5 px-1">
+              <div className="text-[10px] font-bold text-slate-900-4 uppercase tracking-wider mb-1.5 px-1">
                 Dostęp do systemu
               </div>
               <div className="space-y-1.5">
@@ -284,8 +286,8 @@ export function WorkersPage() {
                     key={opt.value}
                     className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
                       form.role === opt.value
-                        ? 'border-brand bg-brand-light'
-                        : 'border-surface-4 hover:border-surface-5'
+                        ? 'border-brand bg-slate-900-light'
+                        : 'border-slate-200 hover:border-slate-300'
                     }`}
                   >
                     <input type="radio" name="role" value={opt.value}
@@ -294,17 +296,17 @@ export function WorkersPage() {
                       className="sr-only"
                     />
                     <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                      form.role === opt.value ? 'bg-brand text-white' : 'bg-surface-3 text-ink-3'
+                      form.role === opt.value ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-900-3'
                     }`}>
                       {opt.icon}
                     </span>
                     <div className="flex-1">
-                      <span className={`font-semibold text-sm ${form.role === opt.value ? 'text-brand' : 'text-ink'}`}>
+                      <span className={`font-semibold text-sm ${form.role === opt.value ? 'text-blue-600' : 'text-slate-900'}`}>
                         {opt.label}
                       </span>
-                      <div className="text-[10px] text-ink-4">Wymaga loginu do systemu</div>
+                      <div className="text-[10px] text-slate-900-4">Wymaga loginu do systemu</div>
                     </div>
-                    {form.role === opt.value && <span className="ml-auto text-brand text-sm">✓</span>}
+                    {form.role === opt.value && <span className="ml-auto text-blue-600 text-sm">✓</span>}
                   </label>
                 ))}
               </div>

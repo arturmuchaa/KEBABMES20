@@ -63,12 +63,14 @@ export function ByproductBatchesPage() {
     .reduce((s, r) => s + Number(r.weight || 0), 0)
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
+
+      <PageHeader title="ByproductBatches" />
       <div className="flex items-center justify-between">
-        <h1 className="text-[15px] font-semibold text-ink">Produkty uboczne — Kości / Grzbiety</h1>
+        <h1 className="text-[15px] font-semibold text-slate-900">Produkty uboczne — Kości / Grzbiety</h1>
         <button
           onClick={load}
-          className="text-ink-4 hover:text-ink p-1 rounded transition-colors"
+          className="text-slate-900-4 hover:text-slate-900 p-1 rounded transition-colors"
           title="Odśwież"
         >
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
@@ -77,17 +79,17 @@ export function ByproductBatchesPage() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-surface border border-surface-4 rounded-xl p-4 text-center shadow-card">
-          <div className="text-2xl font-bold text-ink">{rows.length}</div>
-          <div className="text-xs text-ink-4 mt-1">Łączna liczba partii</div>
+        <div className="bg-white border border-slate-200 rounded-xl p-4 text-center shadow-card">
+          <div className="text-2xl font-bold text-slate-900">{rows.length}</div>
+          <div className="text-xs text-slate-900-4 mt-1">Łączna liczba partii</div>
         </div>
-        <div className="bg-surface border border-surface-4 rounded-xl p-4 text-center shadow-card">
-          <div className="text-2xl font-bold text-ink">{fmtKg(totalBones)}</div>
-          <div className="text-xs text-ink-4 mt-1">Kości ogółem</div>
+        <div className="bg-white border border-slate-200 rounded-xl p-4 text-center shadow-card">
+          <div className="text-2xl font-bold text-slate-900">{fmtKg(totalBones)}</div>
+          <div className="text-xs text-slate-900-4 mt-1">Kości ogółem</div>
         </div>
-        <div className="bg-surface border border-surface-4 rounded-xl p-4 text-center shadow-card">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 text-center shadow-card">
           <div className="text-2xl font-bold text-amber-600">{fmtKg(totalBacks)}</div>
-          <div className="text-xs text-ink-4 mt-1">Grzbiety ogółem</div>
+          <div className="text-xs text-slate-900-4 mt-1">Grzbiety ogółem</div>
         </div>
       </div>
 
@@ -99,8 +101,8 @@ export function ByproductBatchesPage() {
             onClick={() => setFilter(t)}
             className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
               filter === t
-                ? 'bg-brand text-white shadow-sm'
-                : 'bg-surface border border-surface-4 text-ink-3 hover:bg-surface-3 hover:text-ink'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'bg-white border border-slate-200 text-slate-900-3 hover:bg-slate-50 hover:text-slate-900'
             }`}
           >
             {t === 'ALL' ? 'Wszystkie' : t === 'BONES' ? 'Kości' : 'Grzbiety'}
@@ -115,24 +117,24 @@ export function ByproductBatchesPage() {
       )}
 
       {loading && (
-        <div className="text-ink-4 text-sm py-8 text-center flex items-center justify-center gap-2">
+        <div className="text-slate-900-4 text-sm py-8 text-center flex items-center justify-center gap-2">
           <RefreshCw size={14} className="animate-spin" /> Ładowanie…
         </div>
       )}
 
       {!loading && rows.length === 0 && !error && (
-        <div className="text-ink-4 text-center py-12 text-sm">
+        <div className="text-slate-900-4 text-center py-12 text-sm">
           Brak wpisów produktów ubocznych.
           <br />
-          <span className="text-xs text-ink-5">Uzupełnij kg kości / grzbietów w tabletce rozbioru.</span>
+          <span className="text-xs text-slate-900-5">Uzupełnij kg kości / grzbietów w tabletce rozbioru.</span>
         </div>
       )}
 
       {!loading && rows.length > 0 && (
-        <div className="bg-surface border border-surface-4 rounded-xl overflow-hidden shadow-card">
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-card">
           <table className="w-full text-[12px]">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-ink-3">
+              <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-900-3">
                 <th className="text-left py-2.5 px-4">Typ</th>
                 <th className="text-right py-2.5 px-4">Masa</th>
                 <th className="text-left py-2.5 px-4">Partia surowca</th>
@@ -144,7 +146,7 @@ export function ByproductBatchesPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map((r: any, i) => (
-                <tr key={r.id || i} className={`transition-colors hover:bg-slate-50 ${i % 2 === 1 ? 'bg-surface-2/40' : ''}`}>
+                <tr key={r.id || i} className={`transition-colors hover:bg-slate-50 ${i % 2 === 1 ? 'bg-slate-50/40' : ''}`}>
                   <td className="py-2.5 px-4">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ring-1 ${
                       r.type === 'BONES'
@@ -154,12 +156,12 @@ export function ByproductBatchesPage() {
                       {r.type === 'BONES' ? 'Kości' : 'Grzbiety'}
                     </span>
                   </td>
-                  <td className="py-2.5 px-4 text-right font-mono text-ink">{fmtKg(r.weight)}</td>
-                  <td className="py-2.5 px-4 font-mono text-brand font-semibold">{r.raw_batch_no || '—'}</td>
-                  <td className="py-2.5 px-4 text-ink-2">{r.worker_name || '—'}</td>
-                  <td className="py-2.5 px-4 text-ink-3">{r.supplier_name || '—'}</td>
-                  <td className="py-2.5 px-4 text-ink-3">{fmtDate(r.slaughter_date)}</td>
-                  <td className="py-2.5 px-4 text-ink-3">{fmtDate(r.created_at)}</td>
+                  <td className="py-2.5 px-4 text-right font-mono text-slate-900">{fmtKg(r.weight)}</td>
+                  <td className="py-2.5 px-4 font-mono text-blue-600 font-semibold">{r.raw_batch_no || '—'}</td>
+                  <td className="py-2.5 px-4 text-slate-900-2">{r.worker_name || '—'}</td>
+                  <td className="py-2.5 px-4 text-slate-900-3">{r.supplier_name || '—'}</td>
+                  <td className="py-2.5 px-4 text-slate-900-3">{fmtDate(r.slaughter_date)}</td>
+                  <td className="py-2.5 px-4 text-slate-900-3">{fmtDate(r.created_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -170,11 +172,11 @@ export function ByproductBatchesPage() {
       {/* Summary by day */}
       {summary.length > 0 && (
         <div>
-          <h2 className="text-[13px] font-semibold text-ink mb-3">Podsumowanie per dzień</h2>
-          <div className="bg-surface border border-surface-4 rounded-xl overflow-hidden shadow-card">
+          <h2 className="text-[13px] font-semibold text-slate-900 mb-3">Podsumowanie per dzień</h2>
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-card">
             <table className="w-full text-[12px]">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-ink-3">
+                <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-900-3">
                   <th className="text-left py-2.5 px-4">Data</th>
                   <th className="text-left py-2.5 px-4">Typ</th>
                   <th className="text-right py-2.5 px-4">Liczba partii</th>
@@ -183,7 +185,7 @@ export function ByproductBatchesPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {summary.map((s: any, i) => (
-                  <tr key={i} className={`text-ink-2 ${i % 2 === 1 ? 'bg-surface-2/40' : ''}`}>
+                  <tr key={i} className={`text-slate-900-2 ${i % 2 === 1 ? 'bg-slate-50/40' : ''}`}>
                     <td className="py-2 px-4">{fmtDate(s.date)}</td>
                     <td className="py-2 px-4">
                       <span className={`text-xs px-1.5 py-0.5 rounded font-semibold ring-1 ${
