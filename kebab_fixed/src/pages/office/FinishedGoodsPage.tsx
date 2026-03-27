@@ -7,9 +7,15 @@ import { fmtKg, fmtDatePl } from '@/lib/utils'
 import { ShoppingBag, CheckCircle, ChevronUp, ChevronDown, Search, X } from 'lucide-react'
 import type { FinishedGoodsItem } from '@/lib/mockApi'
 
+// ─── Typ zgrupowany ───────────────────────────────────────────
+interface GroupedItem extends FinishedGoodsItem {
+  subEntries: any[]
+  latestDate: string
+}
+
 // ─── Modal szczegółów ─────────────────────────────────────────
-function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () => void }) {
-  const sub: any[] = (item as any).subEntries ?? []
+function DetailModal({ item, onClose }: { item: GroupedItem; onClose: () => void }) {
+  const sub: any[] = item.subEntries ?? []
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/40 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden" onClick={e=>e.stopPropagation()}>
@@ -28,9 +34,9 @@ function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () =
         {/* Podsumowanie */}
         <div className="grid grid-cols-3 divide-x divide-surface-4 border-b border-surface-4">
           {[
-            { label: 'Dostępne', val: `${item.qtyAvailable} szt` },
-            { label: 'Łącznie kg', val: fmtKg(item.qtyAvailable * item.kgPerUnit) },
-            { label: 'Klient', val: item.clientName || '—' },
+            { label: 'Dostępne',   val: `${item.qtyAvailable} szt` },
+            { label: 'kg/szt',     val: fmtKg(item.kgPerUnit) },
+            { label: 'Razem kg',   val: fmtKg(item.qtyAvailable * item.kgPerUnit) },
           ].map(c => (
             <div key={c.label} className="px-4 py-3 text-center">
               <div className="text-[10px] font-bold text-ink-4 uppercase">{c.label}</div>
@@ -53,7 +59,7 @@ function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () =
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-3">
                       <span className="text-base font-black text-ink">{s.qty} szt</span>
-                      <span className="text-[12px] font-semibold text-green-700">{fmtKg(s.totalKg)} kg</span>
+                      <span className="text-[12px] font-semibold text-green-700">{fmtKg(s.qty * item.kgPerUnit)} kg</span>
                     </div>
                     <div className="text-[11px] text-ink-3">
                       {s.addedAt ? fmtDatePl(s.addedAt.slice(0,10)) : '—'}
@@ -81,7 +87,7 @@ function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () =
 }
 
 // ─── Nagłówek z sortowaniem ───────────────────────────────────
-type SortKey = 'qtyAvailable' | 'totalKg' | 'clientName' | 'recipeName' | 'packagingName' | 'producedDate'
+type SortKey = 'qtyAvailable' | 'kgPerUnit' | 'totalKg' | 'clientName' | 'recipeName' | 'packagingName' | 'latestDate'
 type SortDir = 'asc' | 'desc'
 
 function SortHeader({ label, col, sort, onSort }: {
@@ -107,11 +113,11 @@ function SortHeader({ label, col, sort, onSort }: {
 export function FinishedGoodsPage() {
   const location = useLocation()
   const { data: items, loading } = useApi(() => finishedGoodsApi.list())
-  const [detailItem,    setDetailItem]    = useState<FinishedGoodsItem | null>(null)
+  const [detailItem,    setDetailItem]    = useState<GroupedItem | null>(null)
   const [successBanner, setSuccessBanner] = useState<{ count: number } | null>(null)
   const [searchClient,  setSearchClient]  = useState('')
   const [searchRecipe,  setSearchRecipe]  = useState('')
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'producedDate', dir: 'desc' })
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'latestDate', dir: 'desc' })
 
   useEffect(() => {
     const state = location.state as { justFinished?: boolean; count?: number } | null
@@ -128,10 +134,32 @@ export function FinishedGoodsPage() {
       : { key, dir: 'desc' })
   }
 
-  const list = items ?? []
+  // Grupowanie: ta sama receptura + tuleja + klient + kg/szt → sumuj qtyAvailable
+  const grouped = useMemo((): GroupedItem[] => {
+    const raw = items ?? []
+    const map = new Map<string, GroupedItem>()
+    for (const item of raw) {
+      const key = `${item.recipeName}|${item.packagingName ?? ''}|${item.clientName ?? ''}|${item.kgPerUnit}`
+      if (!map.has(key)) {
+        map.set(key, {
+          ...item,
+          subEntries: [...((item as any).subEntries ?? [])],
+          latestDate: item.producedDate,
+        })
+      } else {
+        const g = map.get(key)!
+        g.qtyAvailable += item.qtyAvailable
+        g.qty           += item.qty
+        g.totalKg       += item.totalKg
+        g.subEntries.push(...((item as any).subEntries ?? []))
+        if (item.producedDate > g.latestDate) g.latestDate = item.producedDate
+      }
+    }
+    return [...map.values()]
+  }, [items])
 
   const filtered = useMemo(() => {
-    let r = list
+    let r = grouped
     if (searchClient.trim()) {
       const q = searchClient.toLowerCase()
       r = r.filter(i => (i.clientName ?? '').toLowerCase().includes(q))
@@ -148,10 +176,10 @@ export function FinishedGoodsPage() {
         : String(av).localeCompare(String(bv), 'pl')
       return sort.dir === 'asc' ? cmp : -cmp
     })
-  }, [list, searchClient, searchRecipe, sort])
+  }, [grouped, searchClient, searchRecipe, sort])
 
-  const totalQty = list.reduce((s, i) => s + i.qtyAvailable, 0)
-  const totalKg  = list.reduce((s, i) => s + i.qtyAvailable * i.kgPerUnit, 0)
+  const totalQty = grouped.reduce((s, i) => s + i.qtyAvailable, 0)
+  const totalKg  = grouped.reduce((s, i) => s + i.qtyAvailable * i.kgPerUnit, 0)
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -165,7 +193,7 @@ export function FinishedGoodsPage() {
       {/* KPI */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: 'Pozycje',        val: list.length,      cls: 'text-ink' },
+          { label: 'Pozycje',        val: grouped.length,   cls: 'text-ink' },
           { label: 'Dostępne szt',   val: totalQty,         cls: 'text-ink' },
           { label: 'Łącznie kg',     val: fmtKg(totalKg),   cls: 'text-green-700' },
         ].map(c => (
@@ -202,13 +230,13 @@ export function FinishedGoodsPage() {
       <div className="bg-white border border-surface-4 shadow-card rounded-xl overflow-hidden">
         <div className="px-4 py-2.5 border-b border-surface-4">
           <span className="text-[13px] font-semibold text-ink">
-            {filtered.length} {filtered.length !== list.length ? `/ ${list.length} ` : ''}partii wyrobów gotowych
+            {filtered.length} {filtered.length !== grouped.length ? `/ ${grouped.length} ` : ''}pozycji wyrobów gotowych
           </span>
         </div>
 
         {loading ? (
           <div className="flex justify-center py-10"><Spinner size={20}/></div>
-        ) : list.length === 0 ? (
+        ) : grouped.length === 0 ? (
           <EmptyState icon={<ShoppingBag size={32}/>} title="Brak wyrobów"
             message="Wyroby pojawią się po zakończeniu dnia produkcji"/>
         ) : filtered.length === 0 ? (
@@ -218,16 +246,17 @@ export function FinishedGoodsPage() {
             <thead>
               <tr className="border-b border-surface-4 bg-surface-2">
                 <SortHeader label="Szt"      col="qtyAvailable"  sort={sort} onSort={toggleSort}/>
-                <SortHeader label="KG"       col="totalKg"       sort={sort} onSort={toggleSort}/>
+                <SortHeader label="kg/szt"   col="kgPerUnit"     sort={sort} onSort={toggleSort}/>
                 <SortHeader label="Klient"   col="clientName"    sort={sort} onSort={toggleSort}/>
                 <SortHeader label="Receptura" col="recipeName"   sort={sort} onSort={toggleSort}/>
                 <SortHeader label="Tuleja"   col="packagingName" sort={sort} onSort={toggleSort}/>
-                <SortHeader label="Data"     col="producedDate"  sort={sort} onSort={toggleSort}/>
+                <SortHeader label="Razem kg" col="totalKg"       sort={sort} onSort={toggleSort}/>
+                <SortHeader label="Data"     col="latestDate"    sort={sort} onSort={toggleSort}/>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-4">
               {filtered.map(item => (
-                <tr key={item.id}
+                <tr key={`${item.recipeName}|${item.packagingName}|${item.clientName}|${item.kgPerUnit}`}
                   onClick={() => setDetailItem(item)}
                   className="hover:bg-brand-light/30 cursor-pointer active:bg-brand-light/50 transition-colors">
                   <td className="px-3 py-3">
@@ -235,16 +264,19 @@ export function FinishedGoodsPage() {
                     <span className="text-[10px] text-ink-3 ml-1">szt</span>
                   </td>
                   <td className="px-3 py-3">
-                    <span className="font-bold text-green-700 tabular-nums">{fmtKg(item.qtyAvailable * item.kgPerUnit)}</span>
+                    <span className="font-bold text-ink tabular-nums">{fmtKg(item.kgPerUnit)}</span>
                     <span className="text-[10px] text-ink-3 ml-1">kg</span>
                   </td>
                   <td className="px-3 py-3 text-ink-3">{item.clientName || '—'}</td>
                   <td className="px-3 py-3">
                     <div className="font-semibold text-ink">{item.recipeName}</div>
-                    <div className="text-[10px] text-ink-4 font-mono">{item.batchNo}</div>
                   </td>
                   <td className="px-3 py-3 text-ink-3">{item.packagingName || '—'}</td>
-                  <td className="px-3 py-3 text-ink-3">{fmtDatePl(item.producedDate)}</td>
+                  <td className="px-3 py-3">
+                    <span className="font-bold text-green-700 tabular-nums">{fmtKg(item.qtyAvailable * item.kgPerUnit)}</span>
+                    <span className="text-[10px] text-ink-3 ml-1">kg</span>
+                  </td>
+                  <td className="px-3 py-3 text-ink-3">{fmtDatePl(item.latestDate)}</td>
                 </tr>
               ))}
             </tbody>

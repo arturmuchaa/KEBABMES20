@@ -786,12 +786,44 @@ def update_plan_status(id: str, body: dict):
     return {"ok": True}
 
 # ─── Mięso przyprawione ───────────────────────────────────────
-# BUGFIX #2: Usunięty duplikat endpointu GET /api/seasoned-meat
-# (poprzednio definicja istniała dwukrotnie: linia 442 i 734 — FastAPI
-# rejestrował TYLKO pierwszą, druga była martwym kodem).
+def _enrich_seasoned_lots(rows: list) -> list:
+    """Wzbogaca rekordy seasoned_meat o meatLots i rawBatchNos z mixing_order_lots."""
+    for row in rows:
+        mixing_no = row.get('mixing_order_no')
+        if mixing_no:
+            order = query_one("SELECT id FROM mixing_orders WHERE order_no=%s", (mixing_no,))
+            if order:
+                lots = query_all("""
+                    SELECT mol.*, ms.lot_no AS meat_lot_no, ms.expiry_date,
+                           ms.id AS meat_stock_id,
+                           rb.internal_batch_no AS raw_batch_no,
+                           ms.raw_batch_id
+                    FROM mixing_order_lots mol
+                    LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+                    LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
+                    WHERE mol.mixing_order_id = %s
+                """, (order['id'],))
+                row['meat_lots'] = [{
+                    'meatLotId':  l.get('meat_stock_id') or l.get('id') or '',
+                    'meatLotNo':  l.get('meat_lot_no') or '',
+                    'rawBatchId': l.get('raw_batch_id') or '',
+                    'rawBatchNo': l.get('raw_batch_no') or '',
+                    'kgPlanned':  float(l.get('kg_planned') or l.get('kg_allocated') or 0),
+                    'expiryDate': str(l['expiry_date']) if l.get('expiry_date') else '',
+                } for l in lots]
+                row['raw_batch_nos'] = list({l.get('raw_batch_no') for l in lots if l.get('raw_batch_no')})
+            else:
+                row['meat_lots'] = []
+                row['raw_batch_nos'] = []
+        else:
+            row['meat_lots'] = []
+            row['raw_batch_nos'] = []
+    return rows
+
 @app.get("/api/seasoned-meat/all")
 def list_all_seasoned():
-    return query_all("SELECT * FROM seasoned_meat ORDER BY created_at DESC")
+    rows = query_all("SELECT * FROM seasoned_meat ORDER BY created_at DESC")
+    return _enrich_seasoned_lots(rows)
 
 @app.get("/api/seasoned-meat")
 def list_seasoned():
@@ -800,7 +832,7 @@ def list_seasoned():
         WHERE kg_available > 0 AND status != 'depleted'
         ORDER BY expiry_date ASC, batch_no ASC
     """)
-    return {"data": rows}
+    return {"data": _enrich_seasoned_lots(rows)}
 
 @app.get("/api/seasoned-meat/{id}/trace")
 def seasoned_trace(id: str):
