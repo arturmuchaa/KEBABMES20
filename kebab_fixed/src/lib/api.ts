@@ -28,24 +28,41 @@ import type {
 } from './mockApi'
 
 // URL backendu:
-//   TRYB DEV (Tauri/przeglądarka w sieci LAN): ustaw VITE_API_URL=http://192.168.1.190:8000
-//   TRYB VPS (nginx proxy): zostaw VITE_API_URL="" — wtedy użyjemy ścieżki względnej /api
-const BASE = import.meta.env.VITE_API_URL
-  ? `${import.meta.env.VITE_API_URL}/api`
-  : '/api'
+//   TRYB Tauri (desktop):  automatycznie używa VITE_API_URL lub fallback do VPS
+//   TRYB VPS  (przeglądarka przez nginx): VITE_API_URL="" → ścieżka względna /api
+const _isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+const _envUrl  = import.meta.env.VITE_API_URL as string | undefined
+
+const BASE = _isTauri
+  ? `${_envUrl || 'http://204.168.166.34'}/api`   // desktop: zawsze absolutny URL do VPS
+  : _envUrl
+    ? `${_envUrl}/api`                              // web dev: z .env.local
+    : '/api'                                        // web VPS: nginx proxy
+
+console.info(`[API] tryb=${_isTauri ? 'Tauri' : 'Web'} base=${BASE}`)
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }))
-    const msg = err.detail || err.message || `HTTP ${res.status}`
-    throw new Error(Array.isArray(msg) ? msg.map((e: any) => e.msg || e).join(', ') : String(msg))
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      const msg = err.detail || err.message || `HTTP ${res.status}`
+      const errMsg = Array.isArray(msg) ? msg.map((e: any) => e.msg || e).join(', ') : String(msg)
+      console.error(`[API] ${method} ${path} → ${res.status}: ${errMsg}`)
+      throw new Error(errMsg)
+    }
+    return res.json()
+  } catch (e: any) {
+    if (e.name === 'TypeError' && e.message.includes('fetch')) {
+      console.error(`[API] Brak połączenia z backendem: ${BASE}${path}`, e.message)
+      throw new Error(`Brak połączenia z serwerem (${BASE})`)
+    }
+    throw e
   }
-  return res.json()
 }
 
 const get   = <T>(p: string)             => req<T>('GET',    p)
