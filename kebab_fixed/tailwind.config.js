@@ -47,12 +47,12 @@ export default {
           light:   '#fef2f2',  // red-50
           border:  '#fecaca',  // red-200
         },
-        // ── Sidebar: light slate ─────────────────────────────
+        // ── Sidebar: clean white + dark active (SS2 style) ──
         sidebar: {
-          bg:      '#f8fafc',  // slate-50
-          border:  '#e2e8f0',  // slate-200
-          active:  '#eff6ff',  // blue-50  active bg
-          text:    '#475569',  // slate-500
+          bg:      '#ffffff',  // white
+          border:  '#f1f5f9',  // slate-100 — very subtle
+          active:  '#0f172a',  // slate-900 — filled dark active
+          text:    '#64748b',  // slate-500
           heading: '#94a3b8',  // slate-400
         },
       },

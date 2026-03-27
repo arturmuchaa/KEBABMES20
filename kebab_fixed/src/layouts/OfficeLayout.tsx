@@ -69,7 +69,7 @@ function QuickActionBar() {
   }, [navigate])
 
   return (
-    <div className="h-9 bg-white border-b border-surface-4 flex items-center px-3 gap-0.5 flex-shrink-0">
+    <div className="h-9 bg-slate-50 border-b border-slate-100 flex items-center px-4 gap-0.5 flex-shrink-0">
       <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-5 pr-2 border-r border-surface-4 mr-1.5 select-none">
         Szybki dostęp
       </span>
@@ -158,36 +158,38 @@ export function OfficeLayout() {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
         {/* Topbar */}
-        <header className="h-11 bg-white border-b border-surface-4 flex items-center justify-between px-4 flex-shrink-0">
+        <header className="h-12 bg-white border-b border-slate-100 flex items-center justify-between px-5 flex-shrink-0">
           <div className="flex items-center gap-3">
             <button
-              className="md:hidden p-1.5 text-ink-3 hover:text-ink hover:bg-surface-3 rounded transition-colors"
+              className="md:hidden p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
               onClick={() => setMobileOpen(v => !v)}
             >
               {mobileOpen ? <X size={15} /> : <Menu size={15} />}
             </button>
-            <h1 className="text-[13px] font-semibold text-ink">{title}</h1>
+            <h1 className="text-[13px] font-semibold text-slate-900 tracking-tight">{title}</h1>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {/* Connection status */}
             <div className={cn(
-              'hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium',
-              online ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'
+              'hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border',
+              online
+                ? 'text-emerald-700 bg-emerald-50 border-emerald-100'
+                : 'text-red-600 bg-red-50 border-red-100'
             )}>
               {online
-                ? <><Wifi size={10} /><span>Online</span></>
-                : <><WifiOff size={10} /><span>Offline</span></>
+                ? <><Wifi size={9} /><span>Online</span></>
+                : <><WifiOff size={9} /><span>Offline</span></>
               }
             </div>
 
             {/* Date */}
-            <span className="text-[11px] text-ink-4 hidden md:block">
+            <span className="text-[11px] text-slate-400 hidden md:block font-medium">
               {new Date().toLocaleDateString('pl-PL', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
             </span>
 
             {/* User */}
-            <div className="w-7 h-7 rounded-lg bg-brand flex items-center justify-center text-[10px] font-bold text-white select-none">
+            <div className="w-7 h-7 rounded-full bg-slate-900 flex items-center justify-center text-[10px] font-bold text-white select-none">
               AM
             </div>
           </div>
