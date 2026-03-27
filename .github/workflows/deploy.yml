@@ -1,4 +1,4 @@
-name: Deploy to VPS
+name: Build
 
 on:
   push:
@@ -6,17 +6,30 @@ on:
       - claude/add-traceability-system-UxumS
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy na VPS
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            cd /opt/kebab/kebab_fixed
-            git fetch origin claude/add-traceability-system-UxumS
-            git reset --hard origin/claude/add-traceability-system-UxumS
-            bash AKTUALIZUJ.sh
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: kebab_fixed/package.json
+
+      - name: Install dependencies
+        working-directory: kebab_fixed
+        run: npm install --legacy-peer-deps
+
+      - name: Build frontend
+        working-directory: kebab_fixed
+        run: npm run build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: kebab_fixed/dist/
+          retention-days: 7
