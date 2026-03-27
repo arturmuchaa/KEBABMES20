@@ -33,15 +33,15 @@ permissions:
 
 # ─────────────────────────────────────────────────────────────
 #  Wymagane sekrety GitHub (Settings → Secrets → Actions):
-#    VPS_HOST           — IP serwera, np. 204.168.166.34
-#    VPS_USER           — użytkownik SSH, np. root
-#    VPS_SSH_KEY        — prywatny klucz SSH (-----BEGIN OPENSSH PRIVATE KEY-----)
-#    VPS_SSH_PORT       — opcjonalny port SSH (domyślnie 22)
+#    VPS_HOST     — IP serwera, np. 204.168.166.34
+#    VPS_USER     — użytkownik SSH, np. root
+#    VPS_SSH_KEY  — prywatny klucz SSH (-----BEGIN OPENSSH PRIVATE KEY-----)
+#    VPS_SSH_PORT — opcjonalny port SSH (domyślnie 22)
 # ─────────────────────────────────────────────────────────────
 
 jobs:
   deploy:
-    name: 🚀 Deploy Backend → VPS
+    name: Deploy Backend → VPS
     runs-on: ubuntu-latest
 
     env:
@@ -50,12 +50,28 @@ jobs:
       BRANCH: ${{ github.ref_name }}
 
     steps:
-      # ── 1. Checkout (potrzebny tylko dla artefaktów) ─────────
+      # ── 1. Sprawdź czy sekrety są skonfigurowane ─────────────
+      - name: Check SSH secrets
+        id: check_secrets
+        run: |
+          if [ -z "${{ secrets.VPS_HOST }}" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "⚠️  Sekret VPS_HOST nie jest ustawiony."
+            echo "   Idź do: GitHub → repo → Settings → Secrets → Actions"
+            echo "   i dodaj: VPS_HOST, VPS_USER, VPS_SSH_KEY"
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+            echo "✅ Sekrety SSH skonfigurowane"
+          fi
+
+      # ── 2. Checkout ──────────────────────────────────────────
       - name: Checkout
+        if: steps.check_secrets.outputs.configured == 'true'
         uses: actions/checkout@v4
 
-      # ── 2. Deploy przez SSH ──────────────────────────────────
+      # ── 3. Deploy przez SSH ──────────────────────────────────
       - name: Deploy to VPS via SSH
+        if: steps.check_secrets.outputs.configured == 'true'
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ secrets.VPS_HOST }}
@@ -81,13 +97,16 @@ jobs:
               echo "[→] Restart serwisu..."
               systemctl restart "$SERVICE"
               sleep 2
-              systemctl is-active --quiet "$SERVICE" && echo "[✓] Serwis działa" || (journalctl -u $SERVICE -n 20 && exit 1)
+              systemctl is-active --quiet "$SERVICE" \
+                && echo "[✓] Serwis działa" \
+                || (journalctl -u "$SERVICE" -n 20 --no-pager && exit 1)
               exit 0
             fi
 
             # ── Sprawdź czy katalog istnieje ─────────────
             if [ ! -d "$APP_DIR" ]; then
-              echo "[!] Katalog $APP_DIR nie istnieje. Uruchom najpierw install-vps.sh"
+              echo "[!] Katalog $APP_DIR nie istnieje."
+              echo "    Uruchom najpierw: bash scripts/install-vps.sh"
               exit 1
             fi
 
@@ -97,32 +116,32 @@ jobs:
             git fetch origin "$BRANCH"
             git checkout "$BRANCH"
             git reset --hard "origin/$BRANCH"
-            echo "[✓] Kod zaktualizowany: $(git log --oneline -1)"
+            echo "[✓] Kod: $(git log --oneline -1)"
 
             # ── Aktualizacja zależności Python ───────────
-            echo "[→] Sprawdzanie zależności Python..."
             REQS="$APP_DIR/kebab_fixed/backend/requirements_pg.txt"
             if [ -f "$REQS" ]; then
+              echo "[→] Aktualizacja zależności..."
               pip3 install -q -r "$REQS"
-              echo "[✓] Zależności zaktualizowane"
+              echo "[✓] Zależności OK"
             fi
 
-            # ── Migracje bazy danych (jeśli wybrano) ─────
+            # ── Migracje bazy danych ─────────────────────
             if [ "$RUN_MIGRATIONS" = "true" ]; then
-              echo "[→] Uruchamianie migracji bazy danych..."
+              echo "[→] Migracje bazy danych..."
               cd "$APP_DIR/kebab_fixed/backend"
               python3 init_db.py
               echo "[✓] Migracje zakończone"
+              cd "$APP_DIR"
             fi
 
             # ── Restart serwisu ──────────────────────────
-            echo "[→] Restarting serwisu $SERVICE..."
+            echo "[→] Restart serwisu $SERVICE..."
             systemctl restart "$SERVICE"
             sleep 3
 
-            # ── Weryfikacja ──────────────────────────────
             if systemctl is-active --quiet "$SERVICE"; then
-              echo "[✓] Serwis działa poprawnie"
+              echo "[✓] Serwis działa"
             else
               echo "[✗] BŁĄD: Serwis nie uruchomił się"
               journalctl -u "$SERVICE" -n 30 --no-pager
@@ -131,28 +150,56 @@ jobs:
 
             # ── Health check ─────────────────────────────
             sleep 2
-            HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/health || echo "000")
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+              http://localhost:8000/api/health 2>/dev/null || echo "000")
             if [ "$HTTP" = "200" ]; then
-              echo "[✓] Health check OK (HTTP $HTTP)"
+              echo "[✓] Health check OK"
             else
-              echo "[!] Health check zwrócił HTTP $HTTP — sprawdź logi"
+              echo "[!] Health check: HTTP $HTTP"
             fi
 
             echo ""
             echo "══════════════════════════════════════════"
             echo "  Deploy zakończony pomyślnie!"
-            echo "  Commit: $(git log --oneline -1)"
+            echo "  $(git log --oneline -1)"
             echo "══════════════════════════════════════════"
 
-      # ── 3. Powiadomienie o statusie ──────────────────────────
-      - name: Report deploy status
+      # ── 4. Informacja gdy brak sekretów ──────────────────────
+      - name: Skipped — secrets not configured
+        if: steps.check_secrets.outputs.configured != 'true'
+        run: |
+          echo ""
+          echo "══════════════════════════════════════════════════"
+          echo "  Deploy pominięty — brak sekretów SSH"
+          echo "══════════════════════════════════════════════════"
+          echo ""
+          echo "  Aby włączyć auto-deploy na VPS, ustaw sekrety:"
+          echo ""
+          echo "  1. Otwórz: repozytorium → Settings → Secrets → Actions"
+          echo "  2. Dodaj New repository secret:"
+          echo ""
+          echo "     VPS_HOST     = 204.168.166.34"
+          echo "     VPS_USER     = root"
+          echo "     VPS_SSH_KEY  = (zawartość ~/.ssh/id_rsa z VPS)"
+          echo ""
+          echo "  3. Wygeneruj klucz jeśli nie masz:"
+          echo "     ssh-keygen -t ed25519 -f kebabmes_deploy -N \"\""
+          echo "     ssh-copy-id -i kebabmes_deploy.pub root@204.168.166.34"
+          echo "     # skopiuj zawartość kebabmes_deploy do sekretu VPS_SSH_KEY"
+          echo ""
+          echo "  Po ustawieniu sekretów: re-run this workflow"
+          echo ""
+
+      # ── 5. Status końcowy ────────────────────────────────────
+      - name: Deploy status
         if: always()
         run: |
-          if [ "${{ job.status }}" = "success" ]; then
-            echo "✅ Deploy do VPS zakończony pomyślnie"
-            echo "   Branch: ${{ github.ref_name }}"
-            echo "   Commit: ${{ github.sha }}"
+          STATUS="${{ job.status }}"
+          CONFIGURED="${{ steps.check_secrets.outputs.configured }}"
+          if [ "$CONFIGURED" != "true" ]; then
+            echo "⏭️  Pominięto — skonfiguruj sekrety VPS_HOST / VPS_USER / VPS_SSH_KEY"
+          elif [ "$STATUS" = "success" ]; then
+            echo "✅ Deploy OK — ${{ github.ref_name }} @ ${{ github.sha }}"
           else
-            echo "❌ Deploy do VPS NIEUDANY"
-            echo "   Sprawdź logi powyżej"
+            echo "❌ Deploy NIEUDANY — sprawdź logi"
           fi
