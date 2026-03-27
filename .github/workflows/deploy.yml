@@ -1,5 +1,8 @@
-name: Build Windows Installer — kebab_fixed
+name: Build Windows Installer — Kebab MES
 
+# ─────────────────────────────────────────────────────────────
+#  Triggery
+# ─────────────────────────────────────────────────────────────
 on:
   push:
     branches:
@@ -10,14 +13,19 @@ on:
       - 'kebab_fixed/**'
       - '.github/workflows/deploy.yml'
 
+  # Ręczne uruchomienie z parametrami
   workflow_dispatch:
     inputs:
       api_url:
-        description: 'Backend API URL (e.g. http://1.2.3.4:8000)'
+        description: 'Backend API URL (np. http://204.168.166.34:8000)'
         required: false
-        default: 'http://204.168.166.34'
+        default: 'http://204.168.166.34:8000'
+      version_suffix:
+        description: 'Sufiks wersji (np. rc1, hotfix) — opcjonalny'
+        required: false
+        default: ''
       draft_release:
-        description: 'Create draft GitHub Release?'
+        description: 'Utwórz draft Release?'
         type: boolean
         required: false
         default: true
@@ -25,16 +33,20 @@ on:
 permissions:
   contents: write
 
+# ─────────────────────────────────────────────────────────────
+#  Job: Build Windows NSIS Installer
+# ─────────────────────────────────────────────────────────────
 jobs:
   build-windows:
-    name: Build Windows NSIS Installer
+    name: 🪟 Windows NSIS Installer
     runs-on: windows-latest
 
     env:
-      VITE_API_URL: ${{ github.event.inputs.api_url || 'http://204.168.166.34' }}
+      VITE_API_URL: ${{ github.event.inputs.api_url || 'http://204.168.166.34:8000' }}
+      APP_VERSION: '2.2.0'
 
     steps:
-      # ── 1. Source ────────────────────────────────────────────
+      # ── 1. Checkout ──────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -46,103 +58,119 @@ jobs:
           cache: 'npm'
           cache-dependency-path: kebab_fixed/package-lock.json
 
-      # ── 3. Rust ──────────────────────────────────────────────
-      - name: Setup Rust (stable, MSVC)
+      # ── 3. Rust (MSVC target) ────────────────────────────────
+      - name: Setup Rust stable (MSVC)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Cache Rust build
+      - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: kebab_fixed/src-tauri -> target
+          cache-on-failure: true
 
-      # ── 4. Frontend deps ─────────────────────────────────────
+      # ── 4. Frontend dependencies ─────────────────────────────
       - name: Install npm dependencies
         working-directory: kebab_fixed
         run: npm ci
 
-      # ── 5. App icons ─────────────────────────────────────────
-      - name: Generate app icons (Tauri)
+      # ── 5. Generate app icons ────────────────────────────────
+      - name: Generate Tauri app icons
         working-directory: kebab_fixed
         shell: pwsh
         run: |
           pip install Pillow --quiet
           New-Item -ItemType Directory -Force -Path "src-tauri/icons" | Out-Null
 
-          # Generate base 512x512 icon: dark blue bg + white ring
           python -c @"
           from PIL import Image, ImageDraw
           import os
 
           os.makedirs('src-tauri/icons', exist_ok=True)
-          img = Image.new('RGBA', (512, 512), (15, 23, 42, 255))   # slate-900
+          img = Image.new('RGBA', (512, 512), (255, 255, 255, 0))
           d = ImageDraw.Draw(img)
-          # outer white ring
-          d.ellipse([40, 40, 472, 472], fill=(255, 255, 255, 255))
-          # inner blue fill
-          d.ellipse([80, 80, 432, 432], fill=(59, 130, 246, 255))  # blue-500
-          # center white dot
-          d.ellipse([180, 180, 332, 332], fill=(255, 255, 255, 255))
+          # Outer blue circle
+          d.ellipse([4, 4, 508, 508], fill=(37, 99, 235, 255))   # blue-600
+          # White ring
+          d.ellipse([64, 64, 448, 448], fill=(255, 255, 255, 255))
+          # Inner blue circle
+          d.ellipse([96, 96, 416, 416], fill=(37, 99, 235, 255))
+          # Center white dot
+          d.ellipse([196, 196, 316, 316], fill=(255, 255, 255, 255))
           img.save('src-tauri/icons/icon.png')
-          print('Icon generated: src-tauri/icons/icon.png')
+          print('Icon generated')
           "@
 
-          Write-Host "Running: npx tauri icon"
           npx tauri icon "src-tauri/icons/icon.png"
           Write-Host "Icons generated:"
           Get-ChildItem src-tauri/icons/
 
-      # ── 6. Build Tauri installer ──────────────────────────────
-      - name: Build Tauri — Windows NSIS installer
+      # ── 6. Build Tauri (NSIS + MSI) ──────────────────────────
+      - name: Build Tauri Windows installer
         working-directory: kebab_fixed
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ""
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build
 
-      # ── 7. Collect artifacts ──────────────────────────────────
+      # ── 7. Locate built artifacts ────────────────────────────
+      - name: Find installer files
+        id: find_files
+        shell: pwsh
+        run: |
+          $nsis = Get-ChildItem -Path "kebab_fixed/src-tauri/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
+          $msi  = Get-ChildItem -Path "kebab_fixed/src-tauri/target/release/bundle/msi"  -Filter "*.msi" -ErrorAction SilentlyContinue
+          Write-Host "NSIS files: $($nsis.FullName)"
+          Write-Host "MSI files:  $($msi.FullName)"
+
+      # ── 8. Upload artifact ───────────────────────────────────
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: KebabMES-v2.2.0-build-${{ github.run_number }}
+          name: KebabMES-v${{ env.APP_VERSION }}-build-${{ github.run_number }}
           path: |
             kebab_fixed/src-tauri/target/release/bundle/nsis/*.exe
             kebab_fixed/src-tauri/target/release/bundle/msi/*.msi
           retention-days: 90
           if-no-files-found: error
 
-      # ── 8. GitHub Release (draft) ─────────────────────────────
+      # ── 9. GitHub Release (draft) ────────────────────────────
       - name: Create GitHub Release (draft)
         if: ${{ github.event_name == 'push' || github.event.inputs.draft_release == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.2.0-build-${{ github.run_number }}
-          name: "Kebab MES v2.2.0 — build #${{ github.run_number }}"
+          tag_name: v${{ env.APP_VERSION }}-build-${{ github.run_number }}${{ github.event.inputs.version_suffix && format('-{0}', github.event.inputs.version_suffix) || '' }}
+          name: "Kebab MES v${{ env.APP_VERSION }} — build #${{ github.run_number }}"
           draft: true
           prerelease: false
           files: |
             kebab_fixed/src-tauri/target/release/bundle/nsis/*.exe
             kebab_fixed/src-tauri/target/release/bundle/msi/*.msi
           body: |
-            ## Kebab MES v2.2.0 — Premium Dark UI
+            ## Kebab MES v${{ env.APP_VERSION }} — Light SaaS UI
 
             ### Co nowego w tym buildzie
-            - **Premium dark enterprise theme** (slate-950/900/800)
+            - **Premium light SaaS theme** — białe karty, szare tło (shadcn/ui / Linear / Stripe)
+            - **Pasek szybkiego dostępu** z klawiszami Alt+K/D/P/R/F
             - **Zwijany sidebar** (w-56 ↔ w-14) z ikonami i etykietami
-            - **Topbar** ze statusem połączenia online/offline
-            - **Loading skeletons** zamiast pustych ekranów
-            - **Ciemne badge** (tinted) i karty w stylu enterprise
-            - shadcn/ui + CVA + tailwind-merge + sonner
-            - Wszystkie 18 stron biurowych odświeżone
+            - **Skeleton loading** zamiast pustych ekranów
+            - **Tabele z zebrowaniem** + nawigacja klawiaturą (Tab/Enter)
+            - **KPI kardy** z ikonami i akcentem kolorystycznym
+            - shadcn/ui wzorce + CVA + tailwind-merge + sonner
 
             ### Jak zainstalować
-            1. Pobierz **KebabMES_\*\_x64-setup.exe** poniżej
-            2. Uruchom instalator (Dalej → Dalej → Zakończ)
+            1. Pobierz **KebabMES\_\*\_x64-setup.exe** poniżej
+            2. Uruchom instalator → Dalej → Dalej → Zakończ
             3. Uruchom **Kebab MES** z pulpitu lub menu Start
-            4. Wpisz adres backendu: `${{ env.VITE_API_URL }}`
+            4. Backend API: `${{ env.VITE_API_URL }}`
+
+            ### Wymagania
+            - Windows 10 / 11 (x64)
+            - Dostęp do backendu: `${{ env.VITE_API_URL }}`
 
             ---
             Branch: `${{ github.ref_name }}`
             Commit: `${{ github.sha }}`
             Build: #${{ github.run_number }}
+            Data: ${{ github.event.repository.updated_at }}

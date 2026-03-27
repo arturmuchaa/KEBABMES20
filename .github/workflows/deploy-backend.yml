@@ -1,0 +1,158 @@
+name: Deploy Backend → VPS
+
+# ─────────────────────────────────────────────────────────────
+#  Triggery — tylko zmiany w backendzie lub skryptach
+# ─────────────────────────────────────────────────────────────
+on:
+  push:
+    branches:
+      - claude/redesign-admin-ui-mOZG9
+      - main
+      - master
+    paths:
+      - 'kebab_fixed/backend/**'
+      - 'scripts/**'
+      - '.github/workflows/deploy-backend.yml'
+
+  # Ręczne uruchomienie
+  workflow_dispatch:
+    inputs:
+      run_migrations:
+        description: 'Uruchom migracje bazy danych?'
+        type: boolean
+        required: false
+        default: false
+      restart_only:
+        description: 'Tylko restart serwisu (bez pull)?'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+# ─────────────────────────────────────────────────────────────
+#  Wymagane sekrety GitHub (Settings → Secrets → Actions):
+#    VPS_HOST           — IP serwera, np. 204.168.166.34
+#    VPS_USER           — użytkownik SSH, np. root
+#    VPS_SSH_KEY        — prywatny klucz SSH (-----BEGIN OPENSSH PRIVATE KEY-----)
+#    VPS_SSH_PORT       — opcjonalny port SSH (domyślnie 22)
+# ─────────────────────────────────────────────────────────────
+
+jobs:
+  deploy:
+    name: 🚀 Deploy Backend → VPS
+    runs-on: ubuntu-latest
+
+    env:
+      APP_DIR: /opt/kebabmes
+      SERVICE: kebabmes
+      BRANCH: ${{ github.ref_name }}
+
+    steps:
+      # ── 1. Checkout (potrzebny tylko dla artefaktów) ─────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Deploy przez SSH ──────────────────────────────────
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key:      ${{ secrets.VPS_SSH_KEY }}
+          port:     ${{ secrets.VPS_SSH_PORT || 22 }}
+          timeout:  120s
+          script: |
+            set -e
+            BRANCH="${{ env.BRANCH }}"
+            APP_DIR="${{ env.APP_DIR }}"
+            SERVICE="${{ env.SERVICE }}"
+            RESTART_ONLY="${{ github.event.inputs.restart_only || 'false' }}"
+            RUN_MIGRATIONS="${{ github.event.inputs.run_migrations || 'false' }}"
+
+            echo "══════════════════════════════════════════"
+            echo "  Kebab MES — Deploy: $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "  Branch: $BRANCH"
+            echo "══════════════════════════════════════════"
+
+            # ── Tylko restart ────────────────────────────
+            if [ "$RESTART_ONLY" = "true" ]; then
+              echo "[→] Restart serwisu..."
+              systemctl restart "$SERVICE"
+              sleep 2
+              systemctl is-active --quiet "$SERVICE" && echo "[✓] Serwis działa" || (journalctl -u $SERVICE -n 20 && exit 1)
+              exit 0
+            fi
+
+            # ── Sprawdź czy katalog istnieje ─────────────
+            if [ ! -d "$APP_DIR" ]; then
+              echo "[!] Katalog $APP_DIR nie istnieje. Uruchom najpierw install-vps.sh"
+              exit 1
+            fi
+
+            # ── Pull najnowszego kodu ────────────────────
+            echo "[→] Pobieranie aktualizacji z GitHub..."
+            cd "$APP_DIR"
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+            echo "[✓] Kod zaktualizowany: $(git log --oneline -1)"
+
+            # ── Aktualizacja zależności Python ───────────
+            echo "[→] Sprawdzanie zależności Python..."
+            REQS="$APP_DIR/kebab_fixed/backend/requirements_pg.txt"
+            if [ -f "$REQS" ]; then
+              pip3 install -q -r "$REQS"
+              echo "[✓] Zależności zaktualizowane"
+            fi
+
+            # ── Migracje bazy danych (jeśli wybrano) ─────
+            if [ "$RUN_MIGRATIONS" = "true" ]; then
+              echo "[→] Uruchamianie migracji bazy danych..."
+              cd "$APP_DIR/kebab_fixed/backend"
+              python3 init_db.py
+              echo "[✓] Migracje zakończone"
+            fi
+
+            # ── Restart serwisu ──────────────────────────
+            echo "[→] Restarting serwisu $SERVICE..."
+            systemctl restart "$SERVICE"
+            sleep 3
+
+            # ── Weryfikacja ──────────────────────────────
+            if systemctl is-active --quiet "$SERVICE"; then
+              echo "[✓] Serwis działa poprawnie"
+            else
+              echo "[✗] BŁĄD: Serwis nie uruchomił się"
+              journalctl -u "$SERVICE" -n 30 --no-pager
+              exit 1
+            fi
+
+            # ── Health check ─────────────────────────────
+            sleep 2
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/health || echo "000")
+            if [ "$HTTP" = "200" ]; then
+              echo "[✓] Health check OK (HTTP $HTTP)"
+            else
+              echo "[!] Health check zwrócił HTTP $HTTP — sprawdź logi"
+            fi
+
+            echo ""
+            echo "══════════════════════════════════════════"
+            echo "  Deploy zakończony pomyślnie!"
+            echo "  Commit: $(git log --oneline -1)"
+            echo "══════════════════════════════════════════"
+
+      # ── 3. Powiadomienie o statusie ──────────────────────────
+      - name: Report deploy status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ Deploy do VPS zakończony pomyślnie"
+            echo "   Branch: ${{ github.ref_name }}"
+            echo "   Commit: ${{ github.sha }}"
+          else
+            echo "❌ Deploy do VPS NIEUDANY"
+            echo "   Sprawdź logi powyżej"
+          fi
