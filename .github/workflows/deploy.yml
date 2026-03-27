@@ -18,9 +18,9 @@ on:
   workflow_dispatch:
     inputs:
       api_url:
-        description: 'Backend API URL (np. http://204.168.166.34:8000)'
+        description: 'Backend API URL (np. http://204.168.166.34)'
         required: false
-        default: 'http://204.168.166.34:8000'
+        default: 'http://204.168.166.34'
       version_suffix:
         description: 'Sufiks wersji (np. rc1, hotfix) — opcjonalny'
         required: false
@@ -43,7 +43,7 @@ jobs:
     runs-on: windows-latest
 
     env:
-      VITE_API_URL: ${{ github.event.inputs.api_url || 'http://204.168.166.34:8000' }}
+      VITE_API_URL: ${{ github.event.inputs.api_url || 'http://204.168.166.34' }}
       APP_VERSION: '2.3.0'
 
     steps:

@@ -13,8 +13,8 @@ import type { SeasonedMeatBatch } from '@/lib/mockApi'
 
 function ExpiryBadge({ date }: { date: string }) {
   const { daysLeft } = getExpiryStatus(date)
-  if (daysLeft < 0)   return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-red-500 /15 text-red-400">Wygasło</span>
-  if (daysLeft === 0) return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-red-500 /15 text-red-400">Dziś!</span>
+  if (daysLeft < 0)   return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-red-500/15 text-red-400">Wygasło</span>
+  if (daysLeft === 0) return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-red-500/15 text-red-400">Dziś!</span>
   if (daysLeft <= 1)  return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">Jutro</span>
   return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-green-500/15 text-green-400">{daysLeft}d</span>
 }
