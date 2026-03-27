@@ -8,79 +8,80 @@ export default {
         mono: ['"JetBrains Mono"', '"IBM Plex Mono"', 'monospace'],
       },
       colors: {
-        // Text: light on dark bg
+        // ── Text hierarchy ──────────────────────────────────
         ink: {
-          DEFAULT: '#f8fafc',  // slate-50  — primary text
-          2:       '#e2e8f0',  // slate-200 — secondary text
-          3:       '#94a3b8',  // slate-400 — muted text
-          4:       '#64748b',  // slate-500 — placeholder
-          5:       '#475569',  // slate-600 — disabled
+          DEFAULT: '#0f172a',  // slate-900  — primary text
+          2:       '#1e293b',  // slate-800  — secondary text
+          3:       '#475569',  // slate-500  — muted
+          4:       '#94a3b8',  // slate-400  — placeholder
+          5:       '#cbd5e1',  // slate-300  — disabled
         },
-        // Surfaces: dark hierarchy
+        // ── Surfaces ────────────────────────────────────────
         surface: {
-          DEFAULT: '#1e293b',  // slate-800 — card / panel bg
-          2:       '#020617',  // slate-950 — page bg
-          3:       '#0f172a',  // slate-900 — subtle bg / table header
-          4:       '#334155',  // slate-700 — border
-          5:       '#475569',  // slate-600 — heavy border / hover
+          DEFAULT: '#ffffff',  // white      — card / panel
+          2:       '#f8fafc',  // slate-50   — page bg
+          3:       '#f1f5f9',  // slate-100  — table header / subtle bg
+          4:       '#e2e8f0',  // slate-200  — border
+          5:       '#cbd5e1',  // slate-300  — heavy border
         },
-        // Brand: blue-500
+        // ── Brand: blue ─────────────────────────────────────
         brand: {
-          DEFAULT: '#3b82f6',  // blue-500
-          dark:    '#2563eb',  // blue-600 hover
-          light:   '#172554',  // blue-950 subtle bg
-          border:  '#1d4ed8',  // blue-700 border
+          DEFAULT: '#2563eb',  // blue-600
+          dark:    '#1d4ed8',  // blue-700 hover
+          light:   '#eff6ff',  // blue-50  subtle bg
+          border:  '#bfdbfe',  // blue-200 border
         },
+        // ── Semantic ────────────────────────────────────────
         success: {
-          DEFAULT: '#22c55e',  // green-500
-          light:   '#052e16',  // green-950 subtle bg
-          border:  '#166534',  // green-800 border
+          DEFAULT: '#16a34a',  // green-600
+          light:   '#f0fdf4',  // green-50
+          border:  '#bbf7d0',  // green-200
         },
         warn: {
-          DEFAULT: '#f59e0b',  // amber-500
-          light:   '#1c1400',  // amber-950 subtle bg
-          border:  '#78350f',  // amber-800 border
+          DEFAULT: '#d97706',  // amber-600
+          light:   '#fffbeb',  // amber-50
+          border:  '#fde68a',  // amber-200
         },
         danger: {
-          DEFAULT: '#ef4444',  // red-500
-          light:   '#1c0a0a',  // red-950 subtle bg
-          border:  '#7f1d1d',  // red-900 border
+          DEFAULT: '#dc2626',  // red-600
+          light:   '#fef2f2',  // red-50
+          border:  '#fecaca',  // red-200
         },
-        // Sidebar: darker than page bg
+        // ── Sidebar: light slate ─────────────────────────────
         sidebar: {
-          bg:      '#0f172a',  // slate-900
-          border:  '#1e293b',  // slate-800
-          active:  '#1e293b',  // slate-800 active state
-          text:    '#cbd5e1',  // slate-300
-          heading: '#475569',  // slate-600
+          bg:      '#f8fafc',  // slate-50
+          border:  '#e2e8f0',  // slate-200
+          active:  '#eff6ff',  // blue-50  active bg
+          text:    '#475569',  // slate-500
+          heading: '#94a3b8',  // slate-400
         },
       },
       boxShadow: {
-        card:  '0 1px 3px rgba(0,0,0,.4), 0 0 0 1px rgba(255,255,255,.04)',
-        md:    '0 4px 16px rgba(0,0,0,.5)',
-        modal: '0 20px 60px rgba(0,0,0,.7)',
-        glow:  '0 0 0 3px rgba(59,130,246,.25)',
+        card:  '0 1px 3px rgba(0,0,0,.06), 0 0 0 1px rgba(0,0,0,.04)',
+        md:    '0 4px 12px rgba(0,0,0,.08)',
+        modal: '0 16px 48px rgba(0,0,0,.14)',
+        glow:  '0 0 0 3px rgba(37,99,235,.20)',
       },
       borderRadius: {
         DEFAULT: '6px',
-        sm:  '4px',
-        md:  '6px',
-        lg:  '8px',
-        xl:  '12px',
+        sm:    '4px',
+        md:    '6px',
+        lg:    '8px',
+        xl:    '12px',
         '2xl': '16px',
         '3xl': '20px',
       },
       animation: {
-        'fade-in':   'fadeIn .15s ease',
-        'slide-up':  'slideUp .18s ease',
+        'fade-in':   'fadeIn .12s ease',
+        'slide-up':  'slideUp .15s ease',
         'pulse-dot': 'pulseDot 2s infinite',
-        'skeleton':  'skeleton 1.5s ease-in-out infinite',
+        'skeleton':  'skeleton 1.6s ease-in-out infinite',
       },
       keyframes: {
-        fadeIn:   { from: { opacity: '0' }, to: { opacity: '1' } },
-        slideUp:  { from: { opacity: '0', transform: 'translateY(8px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+        fadeIn:   { from: { opacity: '0' },   to: { opacity: '1' } },
+        slideUp:  { from: { opacity: '0', transform: 'translateY(6px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
         pulseDot: { '0%,100%': { opacity: '1' }, '50%': { opacity: '.3' } },
-        skeleton: { '0%': { opacity: '.5' }, '50%': { opacity: '1' }, '100%': { opacity: '.5' } },
+        skeleton: { '0%,100%': { opacity: '.5' }, '50%': { opacity: '1' } },
       },
     },
   },

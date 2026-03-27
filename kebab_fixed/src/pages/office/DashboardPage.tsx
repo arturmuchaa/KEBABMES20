@@ -3,7 +3,7 @@ import { rawBatchesApi, deboningApi, meatStockApi } from '@/lib/apiClient'
 import { KpiCard, SkeletonCard, SkeletonTable, EmptyState } from '@/components/ui/Card'
 import { ExpiryBadge, StatusBadge, computeDisplayStatus } from '@/components/ui/Badge'
 import { fmtKg, fmtDatePl, fmtPct, getExpiryStatus, sortFefo, todayIso } from '@/lib/utils'
-import { AlertTriangle, Package } from 'lucide-react'
+import { AlertTriangle, Package, Beef, Scissors, TrendingUp } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 export function DashboardPage() {
@@ -29,23 +29,18 @@ export function DashboardPage() {
   if (loading) {
     return (
       <div className="space-y-4 animate-fade-in">
-        {/* KPI skeletons */}
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-          <SkeletonCard />
-          <SkeletonCard />
-          <SkeletonCard />
-          <SkeletonCard />
+          <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
         </div>
-        {/* Table skeletons */}
-        <div className="bg-surface border border-surface-4 rounded-xl overflow-hidden">
+        <div className="bg-white border border-surface-4 rounded-xl overflow-hidden">
           <div className="px-4 py-2.5 border-b border-surface-4">
-            <div className="h-4 w-40 bg-surface-4/60 rounded animate-skeleton" />
+            <div className="h-4 w-40 bg-surface-3 rounded animate-skeleton" />
           </div>
           <SkeletonTable rows={6} cols={5} />
         </div>
-        <div className="bg-surface border border-surface-4 rounded-xl overflow-hidden">
+        <div className="bg-white border border-surface-4 rounded-xl overflow-hidden">
           <div className="px-4 py-2.5 border-b border-surface-4">
-            <div className="h-4 w-32 bg-surface-4/60 rounded animate-skeleton" />
+            <div className="h-4 w-32 bg-surface-3 rounded animate-skeleton" />
           </div>
           <SkeletonTable rows={5} cols={6} />
         </div>
@@ -56,21 +51,23 @@ export function DashboardPage() {
   return (
     <div className="space-y-4 animate-fade-in">
 
-      {/* KPI — 4 columns */}
+      {/* KPI row */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <KpiCard
           label="Surowiec dostępny"
           value={fmtKg(totalKgAvail, 0)}
           unit="kg"
-          sub={`${activeBatches.length} partii`}
+          sub={`${activeBatches.length} partii aktywnych`}
           accent="blue"
+          icon={<Package size={16} />}
         />
         <KpiCard
           label="Magazyn mięsa"
           value={fmtKg(meatKg, 0)}
           unit="kg"
-          sub={`${allMeat.filter(m => m.status === 'AVAILABLE').length} lotów`}
+          sub={`${allMeat.filter(m => m.status === 'AVAILABLE').length} lotów dostępnych`}
           accent="green"
+          icon={<Beef size={16} />}
         />
         <KpiCard
           label="Rozbiory dziś"
@@ -78,8 +75,9 @@ export function DashboardPage() {
           unit="sesji"
           sub={todayDeb.length > 0
             ? `Śr. wydajność: ${fmtPct(todayDeb.reduce((s, d) => s + Number(d.yieldPct), 0) / todayDeb.length)}`
-            : 'Brak sesji'}
+            : 'Brak sesji dzisiaj'}
           accent="amber"
+          icon={<Scissors size={16} />}
         />
         <KpiCard
           label="Krytyczne FEFO"
@@ -87,29 +85,30 @@ export function DashboardPage() {
           unit="partii"
           sub="Wygasa ≤ 1 dzień"
           accent={critical.length > 0 ? 'red' : 'green'}
+          icon={<TrendingUp size={16} />}
         />
       </div>
 
       {/* Critical FEFO alert */}
       {critical.length > 0 && (
-        <div className="border border-red-500/30 bg-red-500/10 rounded-xl overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-red-500/20 flex items-center gap-2">
-            <AlertTriangle size={13} className="text-red-400 flex-shrink-0" />
-            <span className="text-[12px] font-semibold text-red-400">
+        <div className="border border-red-200 bg-red-50 rounded-xl overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-red-200 flex items-center gap-2">
+            <AlertTriangle size={13} className="text-red-600 flex-shrink-0" />
+            <span className="text-[12px] font-semibold text-red-700">
               Alerty FEFO — wymaga natychmiastowego działania
             </span>
           </div>
-          <div className="divide-y divide-red-500/10">
+          <div className="divide-y divide-red-100">
             {critical.map(b => {
               const { daysLeft } = getExpiryStatus(b.expiryDate)
               return (
                 <div key={b.id} className="px-4 py-2 flex items-center gap-3 text-[12px]">
-                  <span className="font-mono font-bold text-red-400 w-12">{b.internalBatchNo}</span>
-                  <span className="text-red-300/80 flex-1">
+                  <span className="font-mono font-bold text-red-700 w-12">{b.internalBatchNo}</span>
+                  <span className="text-red-600 flex-1">
                     {daysLeft < 0 ? 'Przeterminowana' : daysLeft === 0 ? 'Wygasa dziś' : 'Wygasa jutro'}
                     {' — '}{fmtDatePl(b.expiryDate)}
                   </span>
-                  <span className="font-semibold text-red-400">{fmtKg(b.kgAvailable)} kg</span>
+                  <span className="font-semibold text-red-700">{fmtKg(b.kgAvailable)} kg</span>
                 </div>
               )
             })}
@@ -117,23 +116,23 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Warning FEFO alert */}
+      {/* Warning FEFO */}
       {warnings.length > 0 && (
-        <div className="border border-amber-500/30 bg-amber-500/10 rounded-xl overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-amber-500/20 flex items-center gap-2">
-            <AlertTriangle size={13} className="text-amber-400 flex-shrink-0" />
-            <span className="text-[12px] font-semibold text-amber-400">
+        <div className="border border-amber-200 bg-amber-50 rounded-xl overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-amber-200 flex items-center gap-2">
+            <AlertTriangle size={13} className="text-amber-600 flex-shrink-0" />
+            <span className="text-[12px] font-semibold text-amber-700">
               Ostrzeżenia — wygasa w ciągu 3 dni
             </span>
           </div>
-          <div className="divide-y divide-amber-500/10">
+          <div className="divide-y divide-amber-100">
             {warnings.map(b => {
               const { daysLeft } = getExpiryStatus(b.expiryDate)
               return (
                 <div key={b.id} className="px-4 py-2 flex items-center gap-3 text-[12px]">
-                  <span className="font-mono font-bold text-amber-400 w-12">{b.internalBatchNo}</span>
-                  <span className="text-amber-300/80 flex-1">Za {daysLeft} dni — {fmtDatePl(b.expiryDate)}</span>
-                  <span className="font-semibold text-amber-400">{fmtKg(b.kgAvailable)} kg</span>
+                  <span className="font-mono font-bold text-amber-700 w-12">{b.internalBatchNo}</span>
+                  <span className="text-amber-600 flex-1">Za {daysLeft} dni — {fmtDatePl(b.expiryDate)}</span>
+                  <span className="font-semibold text-amber-700">{fmtKg(b.kgAvailable)} kg</span>
                 </div>
               )
             })}
@@ -142,45 +141,36 @@ export function DashboardPage() {
       )}
 
       {/* FEFO table */}
-      <div className="bg-surface border border-surface-4 rounded-xl overflow-hidden">
+      <div className="bg-white border border-surface-4 rounded-xl overflow-hidden shadow-card">
         <div className="px-4 py-2.5 border-b border-surface-4 flex items-center justify-between">
           <span className="text-[13px] font-semibold text-ink">Partie ćwiartki — FEFO</span>
           <Link to="/office/raw-batches" className="text-[12px] font-medium text-brand hover:text-brand-dark transition-colors">
             Zarządzaj →
           </Link>
         </div>
-
         {fefoSorted.length === 0 ? (
-          <EmptyState
-            icon={<Package size={32} />}
-            title="Brak partii"
-            message="Przyjmij pierwszą partię ćwiartki"
-          />
+          <EmptyState icon={<Package size={32} />} title="Brak partii" message="Przyjmij pierwszą partię ćwiartki" />
         ) : (
           <table className="w-full text-[12px]">
             <thead>
-              <tr className="border-b border-surface-4 bg-surface-3">
-                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-4">Partia</th>
-                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-4">Dostawca</th>
-                <th className="px-4 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-ink-4">Kg dostępne</th>
-                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-4">Ważność</th>
-                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-4">Status</th>
+              <tr className="bg-surface-3 border-b border-surface-4">
+                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-3">Partia</th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-3">Dostawca</th>
+                <th className="px-4 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-ink-3">Kg dostępne</th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-3">Ważność</th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-3">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-4">
-              {fefoSorted.map(b => {
+              {fefoSorted.map((b, idx) => {
                 const displayStatus = computeDisplayStatus(b.expiryDate, Number(b.kgAvailable))
                 return (
-                  <tr key={b.id} className="hover:bg-surface-3/60 transition-colors">
+                  <tr key={b.id} className={`transition-colors hover:bg-brand-light ${idx % 2 === 1 ? 'bg-surface-2/40' : ''}`}>
                     <td className="px-4 py-2.5 font-mono font-bold text-ink">{b.internalBatchNo}</td>
                     <td className="px-4 py-2.5 text-ink-2">{b.supplierName ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-right font-semibold text-ink">{fmtKg(b.kgAvailable)} kg</td>
-                    <td className="px-4 py-2.5">
-                      <ExpiryBadge dateStr={b.expiryDate} />
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <StatusBadge status={displayStatus} />
-                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono font-semibold text-ink">{fmtKg(b.kgAvailable)} kg</td>
+                    <td className="px-4 py-2.5"><ExpiryBadge dateStr={b.expiryDate} /></td>
+                    <td className="px-4 py-2.5"><StatusBadge status={displayStatus} /></td>
                   </tr>
                 )
               })}
@@ -189,8 +179,8 @@ export function DashboardPage() {
         )}
       </div>
 
-      {/* Recent deboning table */}
-      <div className="bg-surface border border-surface-4 rounded-xl overflow-hidden">
+      {/* Recent deboning */}
+      <div className="bg-white border border-surface-4 rounded-xl overflow-hidden shadow-card">
         <div className="px-4 py-2.5 border-b border-surface-4 flex items-center justify-between">
           <span className="text-[13px] font-semibold text-ink">Ostatnie rozbiory</span>
           <Link to="/office/deboning" className="text-[12px] font-medium text-brand hover:text-brand-dark transition-colors">
@@ -198,34 +188,31 @@ export function DashboardPage() {
           </Link>
         </div>
         {allDebonings.length === 0 ? (
-          <EmptyState
-            title="Brak sesji"
-            message="Wykonaj pierwszy rozbiór na tablecie"
-          />
+          <EmptyState title="Brak sesji" message="Wykonaj pierwszy rozbiór na tablecie" />
         ) : (
           <table className="w-full text-[12px]">
             <thead>
-              <tr className="border-b border-surface-4 bg-surface-3">
-                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-4">Nr sesji</th>
-                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-4">Partia</th>
-                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-4">Pracownik</th>
-                <th className="px-4 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-ink-4">Ćwiartka</th>
-                <th className="px-4 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-ink-4">Mięso</th>
-                <th className="px-4 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-ink-4">Wydajność</th>
+              <tr className="bg-surface-3 border-b border-surface-4">
+                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-3">Nr sesji</th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-3">Partia</th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-3">Pracownik</th>
+                <th className="px-4 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-ink-3">Ćwiartka</th>
+                <th className="px-4 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-ink-3">Mięso</th>
+                <th className="px-4 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-ink-3">Wydajność</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-4">
               {[...allDebonings]
                 .sort((a, b) => b.createdAt > a.createdAt ? 1 : -1)
                 .slice(0, 10)
-                .map(d => (
-                  <tr key={d.id} className="hover:bg-surface-3/60 transition-colors">
-                    <td className="px-4 py-2.5 font-mono text-brand">{d.sessionNo}</td>
+                .map((d, idx) => (
+                  <tr key={d.id} className={`transition-colors hover:bg-brand-light ${idx % 2 === 1 ? 'bg-surface-2/40' : ''}`}>
+                    <td className="px-4 py-2.5 font-mono text-brand font-semibold">{d.sessionNo}</td>
                     <td className="px-4 py-2.5 font-mono font-semibold text-ink">{d.rawBatchNo}</td>
                     <td className="px-4 py-2.5 text-ink-2">{d.workerName ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-right font-semibold text-ink">{fmtKg(Number(d.kgTaken), 1)} kg</td>
-                    <td className="px-4 py-2.5 text-right text-ink-2">{fmtKg(Number(d.kgMeat), 1)} kg</td>
-                    <td className="px-4 py-2.5 text-right font-semibold text-ink">{fmtPct(d.yieldPct)}</td>
+                    <td className="px-4 py-2.5 text-right font-mono font-semibold text-ink">{fmtKg(Number(d.kgTaken), 1)} kg</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-ink-2">{fmtKg(Number(d.kgMeat), 1)} kg</td>
+                    <td className="px-4 py-2.5 text-right font-mono font-semibold text-ink">{fmtPct(d.yieldPct)}</td>
                   </tr>
                 ))}
             </tbody>

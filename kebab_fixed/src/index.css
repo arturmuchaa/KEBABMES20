@@ -7,20 +7,32 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     box-sizing: border-box;
-    -webkit-tap-highlight-color: transparent;
   }
   html, body, #root { height: 100%; }
   body { @apply font-sans text-sm text-ink bg-surface-2; }
+
+  /* Crisp focus ring — visible, not ugly */
+  :focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Remove tap highlight on Tauri / touch */
+  * { -webkit-tap-highlight-color: transparent; }
 }
 
 @layer utilities {
-  /* Slim scrollbar for dark bg */
+  /* Slim scrollbar */
   .scrollbar-thin::-webkit-scrollbar { width: 5px; height: 5px; }
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
   .scrollbar-thin::-webkit-scrollbar-thumb { @apply bg-surface-5 rounded-full; }
-  .scrollbar-thin::-webkit-scrollbar-thumb:hover { @apply bg-surface-4; }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover { @apply bg-ink-5; }
+
+  /* Table numeric column — right align + mono */
+  .col-num { @apply text-right font-mono tabular-nums; }
 
   /* Tauri drag region */
   .drag-region { -webkit-app-region: drag; }
-  .no-drag { -webkit-app-region: no-drag; }
+  .no-drag     { -webkit-app-region: no-drag; }
 }

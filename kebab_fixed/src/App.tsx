@@ -55,16 +55,16 @@ export default function App() {
   return (
     <>
     <Toaster
-      theme="dark"
+      theme="light"
       position="bottom-right"
       toastOptions={{
         classNames: {
-          toast: 'bg-surface border border-surface-4 text-ink shadow-modal rounded-xl',
+          toast: 'bg-surface border border-surface-4 text-ink shadow-card rounded-xl',
           description: 'text-ink-3',
           actionButton: 'bg-brand text-white',
-          error: 'border-red-500/30 bg-red-500/10',
-          success: 'border-green-500/30 bg-green-500/10',
-          warning: 'border-amber-500/30 bg-amber-500/10',
+          error: 'border-danger/30',
+          success: 'border-success/30',
+          warning: 'border-warn/30',
         },
       }}
     />
