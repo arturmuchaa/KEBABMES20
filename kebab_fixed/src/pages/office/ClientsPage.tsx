@@ -149,7 +149,7 @@ export function ClientsPage() {
         <div className="relative flex-1">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-4"/>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Szukaj kontrahenta..."
-            className="w-full h-9 pl-9 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3"/>
+            className="w-full h-9 pl-9 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50"/>
         </div>
         <Button icon={<Plus size={14}/>} onClick={()=>{ setEdit(null); setModal(true) }}>Dodaj kontrahenta</Button>
       </div>
@@ -163,7 +163,7 @@ export function ClientsPage() {
           : clients.length===0
             ? <EmptyState icon={<Building2 size={32}/>} title="Brak kontrahentów" message="Dodaj pierwszego klienta"/>
             : (
-              <div className="divide-y divide-surface-4">
+              <div className="divide-y divide-slate-100">
                 {clients.map(c=>(
                   <div key={c.id} className="px-4 py-3 flex items-center gap-3 hover:bg-surface-3/60">
                     <div className="w-10 h-10 rounded-full bg-brand-light flex items-center justify-center flex-shrink-0">

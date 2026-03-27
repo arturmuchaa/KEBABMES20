@@ -58,7 +58,7 @@ export function Table<T>({
                 className={cn(
                   'border-b border-surface-4 last:border-b-0 transition-colors duration-100',
                   idx % 2 === 1 && 'bg-surface-2/60',         // subtle zebra
-                  onRowClick && 'cursor-pointer hover:bg-brand-light',
+                  onRowClick && 'cursor-pointer hover:bg-slate-50',
                   !onRowClick && 'hover:bg-surface-3/60',
                 )}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}

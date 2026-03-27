@@ -67,7 +67,7 @@ export function ProductTypesPage() {
           action={<Button size="sm" icon={<Plus size={13} />} onClick={openCreate}>Dodaj produkt</Button>}
         />
       ) : (
-        <div className="bg-surface border border-surface-4 rounded-xl divide-y divide-surface-4">
+        <div className="bg-surface border border-surface-4 rounded-xl divide-y divide-slate-100">
           {productTypes.map(p => (
             <div key={p.id}>
               <div className="flex items-center gap-3 px-4 py-3 hover:bg-surface-3/60 cursor-pointer"
@@ -100,7 +100,7 @@ export function ProductTypesPage() {
                         <th className="text-left py-1">Źródło</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-surface-4">
+                    <tbody className="divide-y divide-slate-100">
                       {p.components.map(c => (
                         <tr key={c.id}>
                           <td className="py-1.5 font-medium">{c.name}</td>

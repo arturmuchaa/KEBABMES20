@@ -132,7 +132,7 @@ export function ByproductBatchesPage() {
         <div className="bg-surface border border-surface-4 rounded-xl overflow-hidden shadow-card">
           <table className="w-full text-[12px]">
             <thead>
-              <tr className="bg-surface-3 border-b border-surface-4 text-[10px] font-bold uppercase tracking-wider text-ink-3">
+              <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-ink-3">
                 <th className="text-left py-2.5 px-4">Typ</th>
                 <th className="text-right py-2.5 px-4">Masa</th>
                 <th className="text-left py-2.5 px-4">Partia surowca</th>
@@ -142,9 +142,9 @@ export function ByproductBatchesPage() {
                 <th className="text-left py-2.5 px-4">Data wpisu</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-surface-4">
+            <tbody className="divide-y divide-slate-100">
               {rows.map((r: any, i) => (
-                <tr key={r.id || i} className={`transition-colors hover:bg-brand-light ${i % 2 === 1 ? 'bg-surface-2/40' : ''}`}>
+                <tr key={r.id || i} className={`transition-colors hover:bg-slate-50 ${i % 2 === 1 ? 'bg-surface-2/40' : ''}`}>
                   <td className="py-2.5 px-4">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ring-1 ${
                       r.type === 'BONES'
@@ -174,14 +174,14 @@ export function ByproductBatchesPage() {
           <div className="bg-surface border border-surface-4 rounded-xl overflow-hidden shadow-card">
             <table className="w-full text-[12px]">
               <thead>
-                <tr className="bg-surface-3 border-b border-surface-4 text-[10px] font-bold uppercase tracking-wider text-ink-3">
+                <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-ink-3">
                   <th className="text-left py-2.5 px-4">Data</th>
                   <th className="text-left py-2.5 px-4">Typ</th>
                   <th className="text-right py-2.5 px-4">Liczba partii</th>
                   <th className="text-right py-2.5 px-4">Masa łączna</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-surface-4">
+              <tbody className="divide-y divide-slate-100">
                 {summary.map((s: any, i) => (
                   <tr key={i} className={`text-ink-2 ${i % 2 === 1 ? 'bg-surface-2/40' : ''}`}>
                     <td className="py-2 px-4">{fmtDate(s.date)}</td>

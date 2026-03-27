@@ -8,8 +8,8 @@ export function Card({ children, className, noPad }: {
 }) {
   return (
     <div className={cn(
-      'bg-surface border border-surface-4 rounded-xl shadow-card',
-      !noPad && 'p-4', className
+      'bg-white border border-slate-200 rounded-xl shadow-card',
+      !noPad && 'p-5', className
     )}>
       {children}
     </div>
@@ -20,47 +20,80 @@ export function CardHeader({ title, subtitle, actions }: {
   title: string; subtitle?: string; actions?: React.ReactNode
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 mb-3 pb-3 border-b border-surface-4">
+    <div className="flex items-center justify-between gap-4 mb-4 pb-4 border-b border-slate-100">
       <div>
-        <h2 className="text-[13px] font-semibold text-ink">{title}</h2>
-        {subtitle && <p className="text-xs text-ink-3 mt-0.5">{subtitle}</p>}
+        <h2 className="text-[14px] font-semibold text-slate-900">{title}</h2>
+        {subtitle && <p className="text-[12px] text-slate-500 mt-0.5">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
     </div>
   )
 }
 
-// ── KPI card — premium light design ───────────────────────────
-const KPI_ACCENT: Record<string, { bar: string; icon: string; bg: string }> = {
-  blue:  { bar: 'bg-brand',   icon: 'text-brand',   bg: 'bg-brand-light' },
-  green: { bar: 'bg-success', icon: 'text-success',  bg: 'bg-success-light' },
-  amber: { bar: 'bg-warn',    icon: 'text-warn',     bg: 'bg-warn-light' },
-  red:   { bar: 'bg-danger',  icon: 'text-danger',   bg: 'bg-danger-light' },
+// ── Page Header ────────────────────────────────────────────────
+export function PageHeader({ title, subtitle, actions }: {
+  title: string; subtitle?: string; actions?: React.ReactNode
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 mb-6">
+      <div>
+        <h1 className="text-[20px] font-bold text-slate-900 leading-tight">{title}</h1>
+        {subtitle && <p className="text-[13px] text-slate-500 mt-0.5">{subtitle}</p>}
+      </div>
+      {actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
+    </div>
+  )
+}
+
+// ── Table wrapper — consistent clean table design ─────────────
+export function DataTable({ header, children, empty }: {
+  header: React.ReactNode
+  children: React.ReactNode
+  empty?: boolean
+}) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-card">
+      <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+        {header}
+      </div>
+      {empty ? children : (
+        <div className="overflow-x-auto">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── KPI card — SS2 clean design ────────────────────────────────
+const KPI_ICON_CLS: Record<string, string> = {
+  blue:  'bg-blue-50 text-blue-600',
+  green: 'bg-emerald-50 text-emerald-600',
+  amber: 'bg-amber-50 text-amber-600',
+  red:   'bg-red-50 text-red-600',
 }
 
 export function KpiCard({ label, value, unit, sub, accent = 'blue', icon, className }: {
   label: string; value: React.ReactNode; unit?: string; sub?: React.ReactNode
   accent?: string; icon?: React.ReactNode; className?: string
 }) {
-  const a = KPI_ACCENT[accent] ?? KPI_ACCENT.blue
+  const iconCls = KPI_ICON_CLS[accent] ?? KPI_ICON_CLS.blue
   return (
-    <div className={cn('bg-surface border border-surface-4 rounded-xl shadow-card p-4 relative overflow-hidden', className)}>
-      {/* colored left border accent */}
-      <div className={cn('absolute left-0 top-3 bottom-3 w-0.5 rounded-r-full', a.bar)} />
-      <div className="pl-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-4 mb-2">{label}</div>
-          {icon && (
-            <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0', a.bg)}>
-              <span className={a.icon}>{icon}</span>
-            </div>
-          )}
+    <div className={cn('bg-white border border-slate-200 rounded-xl shadow-card p-5', className)}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-3">{label}</p>
+          <div className="text-[28px] font-bold text-slate-900 leading-none tabular-nums">
+            {value}
+            {unit && <span className="text-[15px] font-medium text-slate-400 ml-2">{unit}</span>}
+          </div>
+          {sub && <div className="mt-2 text-[11px] text-slate-400">{sub}</div>}
         </div>
-        <div className="text-2xl font-bold text-ink leading-none tabular-nums">
-          {value}
-          {unit && <span className="text-sm font-medium text-ink-3 ml-1.5">{unit}</span>}
-        </div>
-        {sub && <div className="mt-1.5 text-[11px] text-ink-3">{sub}</div>}
+        {icon && (
+          <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0', iconCls)}>
+            {icon}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -69,13 +102,13 @@ export function KpiCard({ label, value, unit, sub, accent = 'blue', icon, classN
 // ── Progress Bar ───────────────────────────────────────────────
 export function ProgressBar({ value, className }: { value: number; className?: string }) {
   const pct = Math.min(100, Math.max(0, value))
-  const color = pct >= 80 ? 'bg-success' : pct >= 40 ? 'bg-brand' : 'bg-warn'
+  const color = pct >= 80 ? 'bg-emerald-500' : pct >= 40 ? 'bg-blue-500' : 'bg-amber-500'
   return (
     <div className={cn('flex items-center gap-2', className)}>
-      <div className="flex-1 h-1.5 bg-surface-4 rounded-full overflow-hidden">
+      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
         <div className={cn('h-full transition-all rounded-full', color)} style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-[10px] font-mono text-ink-4 w-7 text-right">{pct.toFixed(0)}%</span>
+      <span className="text-[10px] font-mono text-slate-400 w-7 text-right">{pct.toFixed(0)}%</span>
     </div>
   )
 }
@@ -96,28 +129,28 @@ export function Modal({ open, onClose, title, subtitle, children, size = 'md', p
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 animate-fade-in"
       onClick={e => { if (e.target === e.currentTarget && !preventClose) onClose() }}
     >
       <div className={cn(
-        'bg-surface border border-surface-4 shadow-modal rounded-xl w-full max-h-[90vh] overflow-y-auto animate-slide-up scrollbar-thin',
+        'bg-white border border-slate-200 shadow-modal rounded-xl w-full max-h-[90vh] overflow-y-auto animate-slide-up scrollbar-thin',
         W
       )}>
-        <div className="flex items-start justify-between px-5 pt-4 pb-3 border-b border-surface-4">
+        <div className="flex items-start justify-between px-5 pt-5 pb-4 border-b border-slate-100">
           <div>
-            <h3 className="text-[14px] font-semibold text-ink">{title}</h3>
-            {subtitle && <p className="text-xs text-ink-3 mt-0.5">{subtitle}</p>}
+            <h3 className="text-[15px] font-semibold text-slate-900">{title}</h3>
+            {subtitle && <p className="text-[12px] text-slate-500 mt-0.5">{subtitle}</p>}
           </div>
           {!preventClose && (
             <button
               onClick={onClose}
-              className="p-1.5 text-ink-4 hover:text-ink hover:bg-surface-3 rounded-lg transition-colors ml-4"
+              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors ml-4"
             >
               <X size={14} />
             </button>
           )}
         </div>
-        <div className="px-5 py-4 space-y-4">{children}</div>
+        <div className="px-5 py-5 space-y-4">{children}</div>
       </div>
     </div>
   )
@@ -128,9 +161,9 @@ export function Toast({ message, type = 'info', visible }: {
   message: string; type?: 'success' | 'error' | 'info'; visible: boolean
 }) {
   const style =
-    type === 'success' ? 'bg-success text-white' :
-    type === 'error'   ? 'bg-danger text-white'  :
-    'bg-ink text-white'
+    type === 'success' ? 'bg-emerald-600 text-white' :
+    type === 'error'   ? 'bg-red-600 text-white'  :
+    'bg-slate-900 text-white'
   return (
     <div className={cn(
       'fixed bottom-5 left-1/2 -translate-x-1/2 z-[100] px-4 py-2.5 text-[13px] font-medium',
@@ -147,22 +180,22 @@ export function Toast({ message, type = 'info', visible }: {
 export function Spinner({ size = 20 }: { size?: number }) {
   return (
     <div
-      className="animate-spin border-2 border-surface-4 border-t-brand rounded-full"
+      className="animate-spin border-2 border-slate-200 border-t-slate-900 rounded-full"
       style={{ width: size, height: size }}
     />
   )
 }
 
-// ── Skeleton ───────────────────────────────────────────────────
+// ── Skeleton ────────────────────────────────────────────────────
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('animate-skeleton rounded-lg bg-surface-3', className)} />
+  return <div className={cn('animate-skeleton rounded-lg bg-slate-100', className)} />
 }
 
 export function SkeletonCard() {
   return (
-    <div className="bg-surface border border-surface-4 rounded-xl p-4 space-y-3">
+    <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
       <Skeleton className="h-3 w-20" />
-      <Skeleton className="h-7 w-28" />
+      <Skeleton className="h-8 w-28" />
       <Skeleton className="h-3 w-16" />
     </div>
   )
@@ -170,9 +203,9 @@ export function SkeletonCard() {
 
 export function SkeletonTable({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
   return (
-    <div className="divide-y divide-surface-4">
+    <div className="divide-y divide-slate-100">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="px-4 py-3 flex gap-4">
+        <div key={i} className="px-5 py-3.5 flex gap-4">
           {Array.from({ length: cols }).map((_, j) => (
             <Skeleton key={j} className={cn('h-4', j === 0 ? 'w-20' : j === cols - 1 ? 'w-16 ml-auto' : 'flex-1')} />
           ))}
@@ -187,10 +220,10 @@ export function EmptyState({ icon, title, message, action }: {
   icon?: React.ReactNode; title: string; message?: string; action?: React.ReactNode
 }) {
   return (
-    <div className="flex flex-col items-center justify-center py-14 text-center">
-      {icon && <div className="text-ink-5 mb-3 opacity-50">{icon}</div>}
-      <h3 className="text-[13px] font-medium text-ink-3 mb-1">{title}</h3>
-      {message && <p className="text-xs text-ink-4 mb-4 max-w-xs">{message}</p>}
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      {icon && <div className="text-slate-300 mb-3">{icon}</div>}
+      <h3 className="text-[13px] font-semibold text-slate-500 mb-1">{title}</h3>
+      {message && <p className="text-[12px] text-slate-400 mb-4 max-w-xs">{message}</p>}
       {action}
     </div>
   )

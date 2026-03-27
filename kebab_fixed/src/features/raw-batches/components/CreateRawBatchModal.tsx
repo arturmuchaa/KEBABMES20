@@ -242,7 +242,7 @@ export function CreateRawBatchModal({
           </div>
 
           {/* Wiersze */}
-          <div className="divide-y divide-surface-4">
+          <div className="divide-y divide-slate-100">
             {batchItems.map((item, index) => (
               <div key={index} className="grid grid-cols-[1fr_100px_120px_120px_40px] gap-2 px-4 py-2 items-center">
                 <input

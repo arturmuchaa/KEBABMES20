@@ -127,7 +127,7 @@ export function DeboningReportsPage() {
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-surface-4">
+                <tbody className="divide-y divide-slate-100">
                   {entries.map(e => (
                     <tr key={e.id} className="hover:bg-surface-3/60">
                       <td className="px-3 py-2 font-mono text-brand">{e.sessionNo}</td>
@@ -153,7 +153,7 @@ export function DeboningReportsPage() {
           <div className="px-4 py-2.5 border-b border-surface-4">
             <span className="text-[13px] font-semibold text-ink">Sesje dnia {timeWindow.productionDate}</span>
           </div>
-          <div className="divide-y divide-surface-4">
+          <div className="divide-y divide-slate-100">
             {todaySessions.map(s => (
               <div key={s.id} className="px-4 py-2.5 flex items-center gap-4 text-[12px]">
                 <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_CLS[s.status]}`}>

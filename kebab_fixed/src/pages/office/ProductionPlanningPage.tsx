@@ -105,7 +105,7 @@ function ImportOrderModal({ orders, onImport, onClose }: {
       <div>
         <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Zamówienie</label>
         <select value={selectedOrder} onChange={e=>handleOrderChange(e.target.value)}
-          className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
+          className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
           {orders.map(o=><option key={o.id} value={o.id}>{o.orderNo} · {o.clientName} · {fmtKg(o.totalKg,0)} kg</option>)}
         </select>
       </div>
@@ -331,7 +331,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
   return (
     <div className="border border-surface-4 rounded-xl bg-white overflow-hidden">
       {/* Nagłówek pozycji */}
-      <div className="flex items-center justify-between px-3 py-2 bg-surface-3 border-b border-surface-4">
+      <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-bold text-ink-3">Pozycja {idx+1}</span>
           {line.clientName && (
@@ -349,17 +349,17 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
           <div>
             <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Szt *</label>
             <input type="number" min="1" value={line.qty} onChange={e=>onChange('qty',e.target.value)}
-              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3"/>
+              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50"/>
           </div>
           <div>
             <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">kg/szt *</label>
             <input type="number" min="0.1" step="0.1" value={line.kgPerUnit} onChange={e=>onChange('kgPerUnit',e.target.value)}
-              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3"/>
+              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50"/>
           </div>
           <div>
             <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Rodzaj</label>
             <select value={line.productTypeId} onChange={e=>onChange('productTypeId',e.target.value)}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
+              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
               <option value="">Dowolny</option>
               {(productTypes??[]).map((pt:any)=><option key={pt.id} value={pt.id}>{pt.name}</option>)}
             </select>
@@ -367,7 +367,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
           <div>
             <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Receptura *</label>
             <select value={line.recipeId} onChange={e=>{onChange('recipeId',e.target.value);onChange('seasonedBatchIds',[]);onChange('seasonedBatchId','')}}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
+              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
               <option value="">Wybierz...</option>
               {(recipes??[]).map((r:any)=><option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
@@ -379,7 +379,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
           <div>
             <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Tuleja / Opakowanie</label>
             <select value={line.packagingId} onChange={e=>onChange('packagingId',e.target.value)}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
+              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
               <option value="">— brak —</option>
               {packaging.map((p:any)=>{
                 const isLow = qty>0&&p.kgAvailable<100&&qty>p.kgAvailable
@@ -394,7 +394,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
               onChange('clientId', e.target.value)
               onChange('clientName', c?.name??'')
             }}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
+              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
               <option value="">— brak —</option>
               {clients.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -430,7 +430,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
                   {line.recipeId ? 'Brak mięsa tej receptury w magazynie' : 'Wybierz recepturę aby zobaczyć dostępne partie'}
                 </div>
               ) : (
-                <div className="divide-y divide-surface-4 max-h-48 overflow-y-auto">
+                <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
                   {relevantBatches.map((s:any)=>{
                     const isSel    = selIds.includes(s.id)
                     const maxSzt   = kgPerUnit>0 ? Math.floor(s.kgAvailLive/kgPerUnit) : 0
@@ -664,11 +664,11 @@ function PlanForm({ onSave, onClose }: {
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data produkcji</label>
           <input type="date" value={planDate} onChange={e=>setPlanDate(e.target.value)}
-            className="h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3"/>
+            className="h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50"/>
         </div>
         {confirmed.length>0&&(
           <button onClick={()=>setImportModal(true)}
-            className="flex items-center gap-1.5 h-9 px-3 text-sm font-semibold text-brand border border-brand/40 rounded hover:bg-brand-light">
+            className="flex items-center gap-1.5 h-9 px-3 text-sm font-semibold text-brand border border-brand/40 rounded hover:bg-slate-50">
             <Download size={14}/> Importuj z zamówienia ({confirmed.length})
           </button>
         )}
@@ -761,7 +761,7 @@ export function ProductionPlanningPage() {
         {loading?<div className="flex justify-center py-10"><Spinner size={20}/></div>
         :(plans??[]).length===0?<EmptyState icon={<Factory size={32}/>} title="Brak planów" message="Utwórz plan"/>
         :(
-          <div className="divide-y divide-surface-4">
+          <div className="divide-y divide-slate-100">
             {(plans??[]).map(plan=>{
               const isExp=expanded===plan.id
               return (
@@ -801,7 +801,7 @@ export function ProductionPlanningPage() {
                             ))}
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-surface-4">
+                        <tbody className="divide-y divide-slate-100">
                           {plan.lines.map(l=>(
                             <tr key={l.id}>
                               <td className="py-1.5 font-bold pr-3">{l.qty}</td>

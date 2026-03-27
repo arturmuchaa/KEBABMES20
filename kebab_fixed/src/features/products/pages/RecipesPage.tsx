@@ -67,7 +67,7 @@ export function RecipesPage() {
           action={<Button size="sm" icon={<Plus size={13} />} onClick={() => { form.reset(); setModalOpen(true) }}>Dodaj recepturę</Button>}
         />
       ) : (
-        <div className="bg-surface border border-surface-4 rounded-xl divide-y divide-surface-4">
+        <div className="bg-surface border border-surface-4 rounded-xl divide-y divide-slate-100">
           {recipes.map(r => (
             <div key={r.id}>
               {/* Wiersz */}
@@ -110,7 +110,7 @@ export function RecipesPage() {
                         <th className="text-right py-1 w-16">Jedn.</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-surface-4">
+                    <tbody className="divide-y divide-slate-100">
                       {r.ingredients.map(ri => (
                         <tr key={ri.id}>
                           <td className="py-1.5 font-medium text-ink">
@@ -215,7 +215,7 @@ export function RecipesPage() {
             </div>
 
             {/* Suma */}
-            <div className="mt-3 border border-surface-4 bg-surface-2 divide-y divide-surface-4 text-[12px]">
+            <div className="mt-3 border border-surface-4 bg-surface-2 divide-y divide-slate-100 text-[12px]">
               <div className="flex justify-between px-3 py-1.5 text-ink-3">
                 <span>Mięso (baza)</span><span className="font-bold">100 kg</span>
               </div>
@@ -258,7 +258,7 @@ export function RecipesPage() {
                 <th className="text-right py-2">Jedn.</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-surface-4">
+            <tbody className="divide-y divide-slate-100">
               {viewRecipe.ingredients.map(ri => (
                 <tr key={ri.id}>
                   <td className="py-2 font-medium">{ri.ingredientName}

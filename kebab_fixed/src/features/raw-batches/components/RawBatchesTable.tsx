@@ -39,7 +39,7 @@ export function RawBatchesTable({ batches, loading }: RawBatchesTableProps) {
           ))}
         </tr>
       </thead>
-      <tbody className="divide-y divide-surface-4">
+      <tbody className="divide-y divide-slate-100">
         {batches.map(b => {
           // computeDisplayStatus — zawsze z danych, nie z pola status
           const displayStatus = computeDisplayStatus(b.expiryDate, Number(b.kgAvailable))

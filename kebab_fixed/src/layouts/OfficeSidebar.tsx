@@ -248,7 +248,7 @@ export function OfficeSidebar({ collapsed = false, onToggleCollapse, onClose }: 
             href={item.to}
             title={collapsed ? item.label : undefined}
             className={cn(
-              'flex items-center rounded-lg text-[12px] font-medium text-slate-400 hover:text-brand hover:bg-brand-light transition-colors',
+              'flex items-center rounded-lg text-[12px] font-medium text-slate-400 hover:text-brand hover:bg-slate-50 transition-colors',
               collapsed ? 'justify-center h-9 w-9 mx-auto my-0.5' : 'gap-2.5 px-2.5 py-1.5',
             )}
           >

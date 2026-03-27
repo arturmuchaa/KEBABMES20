@@ -134,7 +134,7 @@ function FlowNode({ label, icon, items, emptyText }: {
         {open ? <ChevronDown size={12} className="text-ink-4" /> : <ChevronRight size={12} className="text-ink-4" />}
       </button>
       {open && (
-        <div className="divide-y divide-surface-4">
+        <div className="divide-y divide-slate-100">
           {items.map((item, i) => (
             <div key={item.id || i} className="px-3 py-2 text-xs font-mono text-ink-2 bg-white">
               {JSON.stringify(item, null, 0).substring(0, 160)}…
@@ -149,7 +149,7 @@ function FlowNode({ label, icon, items, emptyText }: {
 // ─── Table header helper ──────────────────────────────────────
 function Th({ children }: { children: React.ReactNode }) {
   return (
-    <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-ink-3 bg-surface-3 border-b border-surface-4">
+    <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-ink-3 bg-slate-50 border-b border-slate-200">
       {children}
     </th>
   )
@@ -459,7 +459,7 @@ export function TraceabilityPage() {
                   <thead><tr>{['Nr partii','Receptura / Produkt','Klient','Ilość','Kg','Dostępne','Data prod.'].map(h => <Th key={h}>{h}</Th>)}</tr></thead>
                   <tbody>
                     {finished.map((fg: any, i) => (
-                      <tr key={fg.id||i} className="border-t border-surface-4 hover:bg-brand-light transition-colors">
+                      <tr key={fg.id||i} className="border-t border-surface-4 hover:bg-slate-50 transition-colors">
                         <td className="px-3 py-2 font-mono text-green-700 text-xs">{fg.batch_no}</td>
                         <td className="px-3 py-2"><div className="font-medium text-ink text-[13px]">{fg.recipe_name}</div><div className="text-xs text-ink-3">{fg.product_type_name}</div></td>
                         <td className="px-3 py-2 text-ink-2">{fg.client_name || '—'}</td>

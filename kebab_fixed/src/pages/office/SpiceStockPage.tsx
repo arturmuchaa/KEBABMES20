@@ -197,7 +197,7 @@ export function SpiceStockPage() {
               ))}
             </div>
 
-            <div className="divide-y divide-surface-4">
+            <div className="divide-y divide-slate-100">
               {displayIngredients.map(ing => {
                 const s     = stockMap.get(ing.id)
                 const recs  = (receiptMap.get(ing.id) ?? []).sort((a, b) => b.receivedDate > a.receivedDate ? 1 : -1)
@@ -247,7 +247,7 @@ export function SpiceStockPage() {
                               <th className="text-left py-1">Ważność</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-surface-4">
+                          <tbody className="divide-y divide-slate-100">
                             {recs.slice(0, 10).map(r => (
                               <tr key={r.id}>
                                 <td className="py-1">{fmtDatePl(r.receivedDate)}</td>

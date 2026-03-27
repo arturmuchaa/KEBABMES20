@@ -58,7 +58,7 @@ function SledzPanel({ batch, onClose }: { batch: SeasonedMeatBatch; onClose: () 
         </div>
 
         {/* Masowanie */}
-        <div className="border border-surface-4 rounded-lg divide-y divide-surface-4 text-[12px]">
+        <div className="border border-surface-4 rounded-lg divide-y divide-slate-100 text-[12px]">
           {[
             { label: 'Zlecenie masowania', val: batch.mixingOrderNo || '—', mono: true },
             { label: 'Receptura',          val: batch.recipeName,           mono: false },
@@ -76,7 +76,7 @@ function SledzPanel({ batch, onClose }: { batch: SeasonedMeatBatch; onClose: () 
         {batch.meatLots.length > 0 && (
           <div>
             <div className="text-[10px] font-bold text-ink-4 uppercase mb-2">Partie mięsa (Z/S)</div>
-            <div className="border border-surface-4 rounded-lg divide-y divide-surface-4">
+            <div className="border border-surface-4 rounded-lg divide-y divide-slate-100">
               {batch.meatLots.map(l => (
                 <div key={l.meatLotId} className="flex items-center gap-3 px-3 py-2.5 text-[12px]">
                   <span className="font-mono font-bold text-green-700">{l.meatLotNo || '—'}</span>
@@ -154,7 +154,7 @@ export function SeasonedMeatPage() {
           <EmptyState icon={<Beef size={32} />} title="Brak mięsa przyprawionego"
             message="Zrealizuj zlecenia masowania" />
         ) : (
-          <div className="divide-y divide-surface-4">
+          <div className="divide-y divide-slate-100">
             {batches.map(b => {
               const isExp = expanded === b.id
               return (
@@ -244,7 +244,7 @@ export function SeasonedMeatPage() {
             <span className="text-[13px] font-semibold text-ink">Historia — wykorzystane partie</span>
           </div>
           <table className="w-full text-[12px]">
-            <tbody className="divide-y divide-surface-4">
+            <tbody className="divide-y divide-slate-100">
               {allBatches.filter(b => b.status === 'depleted').map(b => (
                 <tr key={b.id} className="opacity-60">
                   <td className="px-3 py-2 font-mono text-ink-3">{b.batchNo}</td>

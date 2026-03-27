@@ -24,7 +24,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           className={cn(
             'w-full rounded-lg border bg-white text-ink font-medium',
             'transition-colors placeholder:text-ink-4',
-            'focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-brand',
+            'focus:outline-none focus:ring-2 focus:ring-slate-900/20 focus:border-slate-900',
             'disabled:opacity-50 disabled:bg-surface-3',
             large  && 'h-16 text-2xl font-bold text-center font-mono',
             tablet && 'h-16 text-xl font-bold px-5',

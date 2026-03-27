@@ -43,12 +43,12 @@ function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) =>
         <div className="col-span-2">
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Nazwa *</label>
           <input value={form.name} onChange={e => set('name', e.target.value)}
-            placeholder="np. Tuleja metal 65cm" className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
+            placeholder="np. Tuleja metal 65cm" className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50" />
         </div>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Typ</label>
           <select value={form.type} onChange={e => set('type', e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
             {(['tuleja','opakowanie','inne'] as PackagingType[]).map(t => (
               <option key={t} value={t}>{TYPE_LABELS[t]}</option>
             ))}
@@ -57,7 +57,7 @@ function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) =>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Jednostka</label>
           <select value={form.unit} onChange={e => set('unit', e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
             {['szt','kg','rolka','karton'].map(u => <option key={u} value={u}>{u}</option>)}
           </select>
         </div>
@@ -65,12 +65,12 @@ function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) =>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Ilość *</label>
           <input type="number" min="0" step="1" value={form.qty || ''}
             onChange={e => set('qty', parseFloat(e.target.value) || 0)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50" />
         </div>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Dostawca</label>
           <select value={form.supplierId} onChange={e => set('supplierId', e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50">
             <option value="">— bez dostawcy —</option>
             {(suppliers ?? []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
@@ -78,7 +78,7 @@ function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) =>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data ważności</label>
           <input type="date" value={form.expiryDate} onChange={e => set('expiryDate', e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-slate-50" />
         </div>
       </div>
       {error && <div className="text-[12px] text-danger bg-danger-light border border-danger-border px-3 py-2">{error}</div>}
@@ -131,13 +131,13 @@ export function PackagingPage() {
         ) : (
           <table className="w-full text-[12px]">
             <thead>
-              <tr className="border-b border-surface-4 bg-surface-3">
+              <tr className="border-b border-surface-4 bg-slate-50">
                 {['Kod','Nazwa','Typ','Dostępne','Zużyte','Dostawca'].map(h => (
                   <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-4">{h}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-surface-4">
+            <tbody className="divide-y divide-slate-100">
               {filtered.map(item => (
                 <tr key={item.id} className="hover:bg-surface-3/60">
                   <td className="px-3 py-2.5 font-mono text-ink-3">{item.code}</td>

@@ -12,7 +12,7 @@ export function TabletWorkerChip({ user, selected, onSelect }: {
         'flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all active:scale-[.97]',
         selected
           ? 'border-brand bg-brand text-white shadow-md'
-          : 'border-surface-4 bg-white text-ink hover:border-brand/40 hover:bg-brand-light',
+          : 'border-surface-4 bg-white text-ink hover:border-brand/40 hover:bg-slate-50',
       )}
     >
       <div className={cn(

@@ -76,7 +76,7 @@ function TraceabilityModal({ type, item, session, batch, onClose }: Traceability
             </tr>
             {session && (
               <>
-                <tr className="border-b border-surface-4 bg-surface-3">
+                <tr className="border-b border-surface-4 bg-slate-50">
                   <td className="py-2 font-semibold text-ink-3" colSpan={2}>
                     <span className="text-[10px] uppercase tracking-wide">Sesja rozbioru</span>
                   </td>
@@ -97,7 +97,7 @@ function TraceabilityModal({ type, item, session, batch, onClose }: Traceability
             )}
             {item && (
               <>
-                <tr className="border-b border-surface-4 bg-surface-3">
+                <tr className="border-b border-surface-4 bg-slate-50">
                   <td className="py-2 font-semibold text-ink-3" colSpan={2}>
                     <span className="text-[10px] uppercase tracking-wide">Stan magazynowy</span>
                   </td>
@@ -196,13 +196,13 @@ export function RawStockPage() {
           ) : (
             <table className="w-full text-[12px]">
               <thead>
-                <tr className="border-b border-surface-4 bg-surface-3">
+                <tr className="border-b border-surface-4 bg-slate-50">
                   {['Nr partii mięsa / Partia','Dostępne','Daty','Status'].map(h => (
                     <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-4">{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-surface-4">
+              <tbody className="divide-y divide-slate-100">
                 {meatList.map(m => {
                   const batch = batches.find(b => b.id === m.rawBatchId || b.internalBatchNo === m.rawBatchNo)
                   return (
@@ -255,7 +255,7 @@ export function RawStockPage() {
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-surface-4">
+              <tbody className="divide-y divide-slate-100">
                 {backsItems.map((s, i) => {
                   const batch = batches.find(b => b.id === s.rawBatchId)
                   return (
@@ -282,7 +282,7 @@ export function RawStockPage() {
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-surface-4">
+              <tbody className="divide-y divide-slate-100">
                 {bonesItems.map((s, i) => {
                   const batch = batches.find(b => b.id === s.rawBatchId)
                   return (

@@ -99,7 +99,7 @@ function QuickActionBar() {
       <div className="ml-auto flex items-center gap-1">
         <button
           onClick={() => navigate('/office/raw-batches')}
-          className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded text-[12px] font-medium bg-brand text-white hover:bg-brand-dark transition-colors"
+          className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded text-[12px] font-medium bg-slate-900 text-white hover:bg-slate-800 transition-colors"
         >
           <Plus size={11} />
           Nowe przyjęcie
@@ -199,7 +199,7 @@ export function OfficeLayout() {
         <QuickActionBar />
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-5 scrollbar-thin">
+        <main className="flex-1 overflow-y-auto p-5 md:p-6 scrollbar-thin">
           <Outlet />
         </main>
       </div>

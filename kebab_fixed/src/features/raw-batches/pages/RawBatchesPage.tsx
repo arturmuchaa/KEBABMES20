@@ -111,7 +111,7 @@ export function RawBatchesPage() {
       >
         <div className="space-y-4">
           {/* Dane do potwierdzenia */}
-          <div className="border border-surface-4 divide-y divide-surface-4 text-[13px]">
+          <div className="border border-surface-4 divide-y divide-slate-100 text-[13px]">
             <div className="flex items-center justify-between px-3 py-2">
               <span className="text-ink-3">Sugerowany nr partii</span>
               <span className="font-mono font-bold text-brand">{suggestedBatchNo || '—'}</span>

@@ -210,13 +210,13 @@ export function FinishedGoodsPage() {
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-4"/>
           <input value={searchClient} onChange={e => setSearchClient(e.target.value)}
             placeholder="Szukaj klienta…"
-            className="w-full pl-7 pr-3 py-2 text-[12px] border border-surface-4 rounded-lg focus:outline-none focus:border-brand bg-surface-3"/>
+            className="w-full pl-7 pr-3 py-2 text-[12px] border border-surface-4 rounded-lg focus:outline-none focus:border-brand bg-slate-50"/>
         </div>
         <div className="relative flex-1">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-4"/>
           <input value={searchRecipe} onChange={e => setSearchRecipe(e.target.value)}
             placeholder="Szukaj receptury…"
-            className="w-full pl-7 pr-3 py-2 text-[12px] border border-surface-4 rounded-lg focus:outline-none focus:border-brand bg-surface-3"/>
+            className="w-full pl-7 pr-3 py-2 text-[12px] border border-surface-4 rounded-lg focus:outline-none focus:border-brand bg-slate-50"/>
         </div>
         {(searchClient || searchRecipe) && (
           <button onClick={() => { setSearchClient(''); setSearchRecipe('') }}
@@ -244,7 +244,7 @@ export function FinishedGoodsPage() {
         ) : (
           <table className="w-full text-[12px]">
             <thead>
-              <tr className="border-b border-surface-4 bg-surface-3">
+              <tr className="border-b border-surface-4 bg-slate-50">
                 <SortHeader label="Szt"      col="qtyAvailable"  sort={sort} onSort={toggleSort}/>
                 <SortHeader label="kg/szt"   col="kgPerUnit"     sort={sort} onSort={toggleSort}/>
                 <SortHeader label="Klient"   col="clientName"    sort={sort} onSort={toggleSort}/>
@@ -254,11 +254,11 @@ export function FinishedGoodsPage() {
                 <SortHeader label="Data"     col="latestDate"    sort={sort} onSort={toggleSort}/>
               </tr>
             </thead>
-            <tbody className="divide-y divide-surface-4">
+            <tbody className="divide-y divide-slate-100">
               {filtered.map(item => (
                 <tr key={`${item.recipeName}|${item.packagingName}|${item.clientName}|${item.kgPerUnit}`}
                   onClick={() => setDetailItem(item)}
-                  className="hover:bg-brand-light/30 cursor-pointer active:bg-brand-light/50 transition-colors">
+                  className="hover:bg-slate-50/30 cursor-pointer active:bg-brand-light/50 transition-colors">
                   <td className="px-3 py-3">
                     <span className="text-base font-black text-ink tabular-nums">{item.qtyAvailable}</span>
                     <span className="text-[10px] text-ink-3 ml-1">szt</span>

@@ -209,7 +209,7 @@ export function PlanningPage() {
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-surface-4">
+            <tbody className="divide-y divide-slate-100">
               {(orders ?? []).map(o => (
                 <tr key={o.id} className="hover:bg-surface-3/60">
                   <td className="px-3 py-2 font-mono font-bold text-brand">{o.orderNo}</td>
@@ -296,11 +296,11 @@ export function PlanningPage() {
 
               {/* Loty mięsa */}
               <div className="border border-surface-4">
-                <div className="px-3 py-1.5 bg-surface-3 border-b border-surface-4 flex items-center justify-between">
+                <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-4">Dostępne partie mięsa (FEFO)</span>
                   <span className="text-[10px] text-ink-4">Zaznacz → wpisz kg</span>
                 </div>
-                <div className="max-h-48 overflow-y-auto divide-y divide-surface-4">
+                <div className="max-h-48 overflow-y-auto divide-y divide-slate-100">
                   {meatLots.map(lot => {
                     const selIdx = selLots.findIndex(l => l.lotId === lot.id)
                     const isSel  = selIdx >= 0
@@ -373,7 +373,7 @@ export function PlanningPage() {
               </div>
 
               <div className="border border-surface-4 text-[12px] mb-3">
-                <div className="px-3 py-2 bg-surface-3 border-b border-surface-4 grid grid-cols-[1fr_100px_60px] gap-2">
+                <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 grid grid-cols-[1fr_100px_60px] gap-2">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-4">Składnik</span>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 text-right">Ilość</span>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-4">Jedn.</span>

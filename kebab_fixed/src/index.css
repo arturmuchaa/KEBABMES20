@@ -9,11 +9,11 @@
     box-sizing: border-box;
   }
   html, body, #root { height: 100%; }
-  body { @apply font-sans text-sm text-ink bg-surface-2; }
+  body { @apply font-sans text-sm text-slate-900 bg-slate-50; }
 
-  /* Crisp focus ring — visible, not ugly */
+  /* Crisp focus ring */
   :focus-visible {
-    outline: 2px solid #2563eb;
+    outline: 2px solid #0f172a;
     outline-offset: 2px;
     border-radius: 4px;
   }
@@ -26,8 +26,8 @@
   /* Slim scrollbar */
   .scrollbar-thin::-webkit-scrollbar { width: 5px; height: 5px; }
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-  .scrollbar-thin::-webkit-scrollbar-thumb { @apply bg-surface-5 rounded-full; }
-  .scrollbar-thin::-webkit-scrollbar-thumb:hover { @apply bg-ink-5; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { @apply bg-slate-300 rounded-full; }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover { @apply bg-slate-400; }
 
   /* Table numeric column — right align + mono */
   .col-num { @apply text-right font-mono tabular-nums; }

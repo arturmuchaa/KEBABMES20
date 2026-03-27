@@ -340,7 +340,7 @@ export function HaccpReportPage() {
           <EmptyState icon={<FileText size={32} />} title="Brak raportów"
             message="Brak danych rozbioru dla wybranych filtrów" />
         ) : (
-          <div className="divide-y divide-surface-4">
+          <div className="divide-y divide-slate-100">
             {filteredDates.map(([date, daySessions]) => {
               const taken    = daySessions.reduce((s, x) => s + Number(x.kgTaken), 0)
               const meat     = daySessions.reduce((s, x) => s + Number(x.kgMeat), 0)
