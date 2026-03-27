@@ -81,7 +81,7 @@ export function PlanningPage() {
   const plannedOutput = useMemo(() => {
     if (!selRecipe || requestedKg <= 0) return 0
     const ingredientsKg = (selRecipe.ingredients ?? [])
-      .filter(ri => ri.unit === 'kg' || ri.unit === 'l')
+      .filter(ri => ['kg', 'l'].includes((ri.unit ?? '').toLowerCase()))
       .reduce((s, ri) => s + (ri.qtyPer100kg * requestedKg / 100), 0)
     return Math.round((requestedKg + ingredientsKg) * 100) / 100
   }, [selRecipe, requestedKg])
@@ -411,11 +411,22 @@ export function PlanningPage() {
 
           <div className="flex gap-2 pt-1">
             <Button variant="secondary" fullWidth onClick={() => setModalOpen(false)}>Anuluj</Button>
-            <Button fullWidth loading={createMut.loading}
-              onClick={handleCreate}
-              disabled={!selRecipeId || requestedKg <= 0 || selLots.length === 0}>
-              Utwórz zlecenie masowania
-            </Button>
+            {step < 3 ? (
+              <Button fullWidth
+                onClick={() => {
+                  if (step === 1 && selRecipeId) setStep(2)
+                  else if (step === 2 && selLots.length > 0) setStep(3)
+                }}
+                disabled={(step === 1 && !selRecipeId) || (step === 2 && selLots.length === 0)}>
+                Dalej →
+              </Button>
+            ) : (
+              <Button fullWidth loading={createMut.loading}
+                onClick={handleCreate}
+                disabled={!selRecipeId || requestedKg <= 0 || selLots.length === 0}>
+                Utwórz zlecenie masowania
+              </Button>
+            )}
           </div>
         </div>
       </Modal>

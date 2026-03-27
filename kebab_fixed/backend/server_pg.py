@@ -1610,8 +1610,75 @@ def create_mixing_order(dto: MixingOrderCreate):
             WHERE id = %s
         """, (lot_dto.kgPlanned, lot_dto.meatLotId))
 
+    # Rezerwuj składniki (przyprawy) z ingredient_stock — FEFO
+    _reserve_ingredient_stock(dto.recipe_id, dto.meat_kg)
+
     order = query_one("SELECT * FROM mixing_orders WHERE id=%s", (oid,))
     return build_mixing_order(order)
+
+
+def _reserve_ingredient_stock(recipe_id: str, meat_kg: float):
+    """Rezerwuje składniki z ingredient_stock FEFO przy tworzeniu zlecenia masowania."""
+    ings = query_all("""
+        SELECT ri.ingredient_id, ri.qty_per_100kg, ri.ingredient_name, ri.unit,
+               COALESCE(i.is_unlimited, false) AS is_unlimited
+        FROM recipe_ingredients ri
+        JOIN ingredients i ON i.id = ri.ingredient_id
+        WHERE ri.recipe_id = %s
+    """, (recipe_id,))
+    for ing in ings:
+        if ing.get('is_unlimited'):
+            continue  # woda i podobne — bez limitu, nie rezerwujemy
+        qty_needed = round(float(ing.get('qty_per_100kg') or 0) * meat_kg / 100, 3)
+        if qty_needed <= 0:
+            continue
+        stocks = query_all("""
+            SELECT * FROM ingredient_stock
+            WHERE ingredient_id = %s AND qty_available > 0
+            ORDER BY expiry_date ASC NULLS LAST, created_at ASC
+        """, (ing['ingredient_id'],))
+        remaining = qty_needed
+        for stock in stocks:
+            if remaining <= 0:
+                break
+            take = min(float(stock.get('qty_available') or 0), remaining)
+            if take <= 0:
+                continue
+            execute("""
+                UPDATE ingredient_stock
+                SET qty_available = GREATEST(0, qty_available - %s)
+                WHERE id = %s
+            """, (take, stock['id']))
+            remaining -= take
+
+
+def _release_ingredient_stock(recipe_id: str, meat_kg: float):
+    """Przywraca składniki do ingredient_stock po anulowaniu zlecenia."""
+    ings = query_all("""
+        SELECT ri.ingredient_id, ri.qty_per_100kg,
+               COALESCE(i.is_unlimited, false) AS is_unlimited
+        FROM recipe_ingredients ri
+        JOIN ingredients i ON i.id = ri.ingredient_id
+        WHERE ri.recipe_id = %s
+    """, (recipe_id,))
+    for ing in ings:
+        if ing.get('is_unlimited'):
+            continue
+        qty_to_restore = round(float(ing.get('qty_per_100kg') or 0) * meat_kg / 100, 3)
+        if qty_to_restore <= 0:
+            continue
+        stock = query_one("""
+            SELECT id FROM ingredient_stock
+            WHERE ingredient_id = %s
+            ORDER BY expiry_date ASC NULLS LAST
+            LIMIT 1
+        """, (ing['ingredient_id'],))
+        if stock:
+            execute("""
+                UPDATE ingredient_stock
+                SET qty_available = qty_available + %s
+                WHERE id = %s
+            """, (qty_to_restore, stock['id']))
 
 @app.patch("/api/mixing-orders/{id}/start")
 def start_mixing_order(id: str, body: dict):
@@ -1754,6 +1821,8 @@ def auto_approve_mixing(id: str):
 
 @app.patch("/api/mixing-orders/{id}/cancel")
 def cancel_mixing_order(id: str):
+    order = query_one("SELECT * FROM mixing_orders WHERE id=%s", (id,))
+    if not order: raise HTTPException(404)
     # Zwolnij zarezerwowane kg mięsa
     lots = query_all("SELECT * FROM mixing_order_lots WHERE order_id=%s", (id,))
     for lot in lots:
@@ -1762,6 +1831,8 @@ def cancel_mixing_order(id: str):
             SET kg_available = kg_available + %s
             WHERE id = %s
         """, (float(lot.get('kg_planned') or 0), lot.get('meat_stock_id')))
+    # Zwolnij zarezerwowane składniki (przyprawy) z ingredient_stock
+    _release_ingredient_stock(order['recipe_id'], float(order.get('meat_kg') or 0))
     row = execute_returning(
         "UPDATE mixing_orders SET status='cancelled' WHERE id=%s RETURNING *", (id,))
     if not row: raise HTTPException(404)
