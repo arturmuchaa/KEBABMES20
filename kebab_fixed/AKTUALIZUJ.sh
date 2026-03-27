@@ -12,10 +12,12 @@ warn() { echo -e "${YELLOW}  ⚠ $1${NC}"; }
 BRANCH="claude/add-traceability-system-UxumS"
 REPO="https://github.com/arturmuchaa/KEBABMES20.git"
 
-# Katalog tego skryptu = /opt/kebab/kebab_fixed
+# Katalog gdzie leży ten skrypt = /opt/kebab/kebab_fixed
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Katalog systemu = /opt/kebab
 APP_DIR="$(dirname "$SCRIPT_DIR")"
+# Po git pull repo KEBABMES20 ma podkatalog kebab_fixed/ — tam jest właściwy kod
+SRC_DIR="$SCRIPT_DIR/kebab_fixed"
 
 echo ""
 echo -e "${BOLD}  Kebab MES — Aktualizacja${NC}"
@@ -32,15 +34,20 @@ git reset --hard "origin/$BRANCH" -q
 ok "Kod pobrany"
 
 # ── 2. Nadpisz pliki w /opt/kebab ────────────────────────────────
-echo "  Nadpisuję pliki źródłowe w $APP_DIR..."
+echo "  Nadpisuję pliki źródłowe w $APP_DIR (z $SRC_DIR)..."
+
+if [ ! -d "$SRC_DIR/src" ]; then
+    echo "BŁĄD: Nie znaleziono $SRC_DIR/src — sprawdź strukturę repo"
+    exit 1
+fi
 
 # src/ — kod frontendu
 rm -rf "$APP_DIR/src"
-cp -r "$SCRIPT_DIR/src" "$APP_DIR/src"
+cp -r "$SRC_DIR/src" "$APP_DIR/src"
 
 # Pliki konfiguracyjne
 for f in package.json vite.config.ts tailwind.config.js postcss.config.js tsconfig.json index.html; do
-    [ -f "$SCRIPT_DIR/$f" ] && cp "$SCRIPT_DIR/$f" "$APP_DIR/$f"
+    [ -f "$SRC_DIR/$f" ] && cp "$SRC_DIR/$f" "$APP_DIR/$f"
 done
 
 # backend/ — zachowaj .env
@@ -48,7 +55,7 @@ if [ -f "$APP_DIR/backend/.env" ]; then
     cp "$APP_DIR/backend/.env" /tmp/_kebab_env_bkp
 fi
 rm -rf "$APP_DIR/backend"
-cp -r "$SCRIPT_DIR/backend" "$APP_DIR/backend"
+cp -r "$SRC_DIR/backend" "$APP_DIR/backend"
 [ -f /tmp/_kebab_env_bkp ] && cp /tmp/_kebab_env_bkp "$APP_DIR/backend/.env"
 
 ok "Pliki nadpisane"
