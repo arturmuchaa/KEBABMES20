@@ -4,9 +4,11 @@
   "description": "KEBAB MES — System zarządzania produkcją kebaba",
   "type": "module",
   "scripts": {
-    "dev":     "vite",
-    "build":   "vite build",
-    "preview": "vite preview"
+    "dev":          "vite",
+    "build":        "vite build",
+    "preview":      "vite preview",
+    "tauri":        "tauri",
+    "tauri:build":  "tauri build"
   },
   "dependencies": {
     "react":            "^18.2.0",
@@ -17,6 +19,7 @@
     "lucide-react":     "^0.323.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli":    "^2",
     "@types/react":       "^18.2.55",
     "@types/react-dom":   "^18.2.19",
     "@vitejs/plugin-react": "^4.2.1",

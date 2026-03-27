@@ -1,4 +1,4 @@
-name: Build
+name: Build Windows Installer
 
 on:
   push:
@@ -6,8 +6,9 @@ on:
       - claude/add-traceability-system-UxumS
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-windows:
+    runs-on: windows-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,17 +20,44 @@ jobs:
           cache: 'npm'
           cache-dependency-path: kebab_fixed/package.json
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: kebab_fixed/src-tauri
+
       - name: Install dependencies
         working-directory: kebab_fixed
         run: npm install --legacy-peer-deps
 
-      - name: Build frontend
+      - name: Generate icons
         working-directory: kebab_fixed
-        run: npm run build
+        run: |
+          pip install Pillow
+          python -c "
+          from PIL import Image, ImageDraw
+          img = Image.new('RGBA', (512, 512), (26, 86, 219, 255))
+          d = ImageDraw.Draw(img)
+          d.ellipse([80, 80, 432, 432], fill=(255, 255, 255, 255))
+          d.ellipse([160, 160, 352, 352], fill=(26, 86, 219, 255))
+          img.save('src-tauri/icons/icon.png')
+          print('Icon generated')
+          "
+          npx tauri icon src-tauri/icons/icon.png
 
-      - name: Upload dist
+      - name: Build Tauri (Windows installer)
+        working-directory: kebab_fixed
+        env:
+          VITE_API_URL: http://204.168.166.34
+        run: npx tauri build
+
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: dist
-          path: kebab_fixed/dist/
-          retention-days: 7
+          name: KebabMES-Windows-Installer
+          path: |
+            kebab_fixed/src-tauri/target/release/bundle/nsis/*.exe
+            kebab_fixed/src-tauri/target/release/bundle/msi/*.msi
+          retention-days: 30
