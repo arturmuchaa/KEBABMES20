@@ -67,10 +67,10 @@ export function ProductTypesPage() {
           action={<Button size="sm" icon={<Plus size={13} />} onClick={openCreate}>Dodaj produkt</Button>}
         />
       ) : (
-        <div className="bg-white border border-surface-4 shadow-card divide-y divide-surface-4">
+        <div className="bg-surface border border-surface-4 rounded-xl divide-y divide-surface-4">
           {productTypes.map(p => (
             <div key={p.id}>
-              <div className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2 cursor-pointer"
+              <div className="flex items-center gap-3 px-4 py-3 hover:bg-surface-3/60 cursor-pointer"
                 onClick={() => setExpanded(expanded === p.id ? null : p.id)}>
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] font-semibold text-ink">{p.name}</div>

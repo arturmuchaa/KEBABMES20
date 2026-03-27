@@ -18,7 +18,7 @@ function DetailModal({ item, onClose }: { item: GroupedItem; onClose: () => void
   const sub: any[] = item.subEntries ?? []
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden" onClick={e=>e.stopPropagation()}>
+      <div className="bg-surface border border-surface-4 rounded-2xl w-full max-w-lg shadow-modal overflow-hidden" onClick={e=>e.stopPropagation()}>
         {/* Nagłówek */}
         <div className="px-5 py-4 border-b border-surface-4 flex items-start justify-between">
           <div>
@@ -197,7 +197,7 @@ export function FinishedGoodsPage() {
           { label: 'Dostępne szt',   val: totalQty,         cls: 'text-ink' },
           { label: 'Łącznie kg',     val: fmtKg(totalKg),   cls: 'text-green-700' },
         ].map(c => (
-          <div key={c.label} className="bg-white border border-surface-4 rounded-xl p-3 shadow-card">
+          <div key={c.label} className="bg-surface border border-surface-4 rounded-xl p-3 shadow-card">
             <div className="text-[10px] font-semibold uppercase text-ink-4">{c.label}</div>
             <div className={`text-xl font-bold ${c.cls}`}>{c.val}</div>
           </div>
@@ -210,13 +210,13 @@ export function FinishedGoodsPage() {
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-4"/>
           <input value={searchClient} onChange={e => setSearchClient(e.target.value)}
             placeholder="Szukaj klienta…"
-            className="w-full pl-7 pr-3 py-2 text-[12px] border border-surface-4 rounded-lg focus:outline-none focus:border-brand bg-white"/>
+            className="w-full pl-7 pr-3 py-2 text-[12px] border border-surface-4 rounded-lg focus:outline-none focus:border-brand bg-surface-3"/>
         </div>
         <div className="relative flex-1">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-4"/>
           <input value={searchRecipe} onChange={e => setSearchRecipe(e.target.value)}
             placeholder="Szukaj receptury…"
-            className="w-full pl-7 pr-3 py-2 text-[12px] border border-surface-4 rounded-lg focus:outline-none focus:border-brand bg-white"/>
+            className="w-full pl-7 pr-3 py-2 text-[12px] border border-surface-4 rounded-lg focus:outline-none focus:border-brand bg-surface-3"/>
         </div>
         {(searchClient || searchRecipe) && (
           <button onClick={() => { setSearchClient(''); setSearchRecipe('') }}
@@ -227,7 +227,7 @@ export function FinishedGoodsPage() {
       </div>
 
       {/* Tabela */}
-      <div className="bg-white border border-surface-4 shadow-card rounded-xl overflow-hidden">
+      <div className="bg-surface border border-surface-4 rounded-xl rounded-xl overflow-hidden">
         <div className="px-4 py-2.5 border-b border-surface-4">
           <span className="text-[13px] font-semibold text-ink">
             {filtered.length} {filtered.length !== grouped.length ? `/ ${grouped.length} ` : ''}pozycji wyrobów gotowych
@@ -244,7 +244,7 @@ export function FinishedGoodsPage() {
         ) : (
           <table className="w-full text-[12px]">
             <thead>
-              <tr className="border-b border-surface-4 bg-surface-2">
+              <tr className="border-b border-surface-4 bg-surface-3">
                 <SortHeader label="Szt"      col="qtyAvailable"  sort={sort} onSort={toggleSort}/>
                 <SortHeader label="kg/szt"   col="kgPerUnit"     sort={sort} onSort={toggleSort}/>
                 <SortHeader label="Klient"   col="clientName"    sort={sort} onSort={toggleSort}/>

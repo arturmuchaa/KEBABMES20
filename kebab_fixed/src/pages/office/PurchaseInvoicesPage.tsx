@@ -23,9 +23,9 @@ const CATEGORY_ICON: Record<InvoiceCategory, React.ReactNode> = {
 }
 const CATEGORY_COLOR: Record<InvoiceCategory, string> = {
   SUROWIEC:            'bg-blue-50 text-blue-700',
-  PRZYPRAWY_I_DODATKI: 'bg-green-50 text-green-700',
+  PRZYPRAWY_I_DODATKI: 'bg-green-500/15 text-green-400',
   OPAKOWANIA_TULEJE:   'bg-purple-50 text-purple-700',
-  MEDIA:               'bg-amber-50 text-amber-700',
+  MEDIA:               'bg-amber-500/15 text-amber-400',
   INNE:                'bg-surface-3 text-ink-3',
 }
 
@@ -236,12 +236,12 @@ function InvoiceForm({ initial, onSave, onClose }: {
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Nr faktury *</label>
           <input value={form.invoiceNo} onChange={e=>set('invoiceNo',e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" placeholder="FV/2026/001" />
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" placeholder="FV/2026/001" />
         </div>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Dostawca *</label>
           <select value={form.supplierId} onChange={e=>set('supplierId',e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
             <option value="">Wybierz...</option>
             {supplierOptions.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
@@ -249,12 +249,12 @@ function InvoiceForm({ initial, onSave, onClose }: {
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data faktury *</label>
           <input type="date" value={form.invoiceDate} onChange={e=>set('invoiceDate',e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
         </div>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Termin płatności</label>
           <input type="date" value={form.dueDate} onChange={e=>set('dueDate',e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
         </div>
       </div>
 
@@ -289,7 +289,7 @@ function InvoiceForm({ initial, onSave, onClose }: {
             <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Nazwa pozycji</label>
             <input type="text" placeholder="ĆWIARTKA Z KURCZAKA KL. A SCHŁODZONA"
               value={form.lineName} onChange={e=>set('lineName',e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
           </div>
         </div>
       )}
@@ -304,7 +304,7 @@ function InvoiceForm({ initial, onSave, onClose }: {
             <div>
               <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Składnik *</label>
               <select value={form.ingredientId} onChange={e=>set('ingredientId',e.target.value)}
-                className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
+                className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
                 <option value="">Wybierz składnik...</option>
                 {ingredientOptions.map(o=><option key={o.value} value={o.value}>{o.label} [{o.unit}]</option>)}
               </select>
@@ -312,13 +312,13 @@ function InvoiceForm({ initial, onSave, onClose }: {
             <div>
               <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data ważności *</label>
               <input type="date" value={form.expiryDate} onChange={e=>set('expiryDate',e.target.value)}
-                className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+                className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
             </div>
           </div>
           <div>
             <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Nr partii dostawcy</label>
             <input type="text" placeholder="np. LOT 2026-001" value={form.batchNo} onChange={e=>set('batchNo',e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
           </div>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={form.createWZ} onChange={e=>set('createWZ',e.target.checked)} className="w-4 h-4 accent-brand" />
@@ -341,7 +341,7 @@ function InvoiceForm({ initial, onSave, onClose }: {
           <div>
             <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Opakowanie / Tuleja</label>
             <select value={form.packagingId} onChange={e=>handlePackagingChange(e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
+              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
               <option value="">— bez powiązania —</option>
               {packagingOptions.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
@@ -363,7 +363,7 @@ function InvoiceForm({ initial, onSave, onClose }: {
 
       {/* MEDIA/INNE */}
       {(cat==='MEDIA'||cat==='INNE') && (
-        <div className="border border-amber-200 bg-amber-50/50 p-3">
+        <div className="border border-amber-500/30 bg-amber-500/10/50 p-3">
           <div className="text-[11px] text-amber-700 flex items-center gap-1.5">
             {CATEGORY_ICON[cat]} Zapis wyłącznie księgowy — bez zasilenia magazynu
           </div>
@@ -386,7 +386,7 @@ function InvoiceForm({ initial, onSave, onClose }: {
             <span className="text-[10px] text-ink-3 flex-shrink-0">Kurs EUR/PLN:</span>
             <input type="number" min="0" step="0.0001" placeholder="np. 4.2731"
               value={form.exchangeRate} onChange={e=>set('exchangeRate',e.target.value)}
-              className="w-28 h-7 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+              className="w-28 h-7 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
             <button onClick={fetchNbpRate} disabled={nbpLoading}
               className="px-2 h-7 text-[11px] font-semibold border border-brand text-brand rounded hover:bg-blue-50 disabled:opacity-50 flex-shrink-0">
               {nbpLoading ? '...' : '↻ NBP'}
@@ -404,19 +404,19 @@ function InvoiceForm({ initial, onSave, onClose }: {
             Ilość ({cat==='SUROWIEC'||cat==='PRZYPRAWY_I_DODATKI'?'kg':'szt'}) *
           </label>
           <input type="number" min="0" step="0.01" value={form.qty} onChange={e=>set('qty',e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
         </div>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">
             Cena jedn. ({form.currency}) *
           </label>
           <input type="number" min="0" step="0.01" value={form.unitPrice} onChange={e=>set('unitPrice',e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
         </div>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">VAT %</label>
           <select value={form.vatRate} onChange={e=>set('vatRate',e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
             {['0','5','8','23'].map(v=><option key={v} value={v}>{v}%</option>)}
           </select>
         </div>
@@ -450,7 +450,7 @@ function InvoiceForm({ initial, onSave, onClose }: {
       <div>
         <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Uwagi</label>
         <textarea rows={2} value={form.notes} onChange={e=>set('notes',e.target.value)}
-          className="w-full px-3 py-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white resize-none" />
+          className="w-full px-3 py-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3 resize-none" />
       </div>
 
       {error && (
@@ -474,7 +474,7 @@ function InvoiceRow({ inv, onEdit, onDelete }: {
 }) {
   const cat = inv.category ?? 'SUROWIEC'
   return (
-    <tr className="hover:bg-surface-2">
+    <tr className="hover:bg-surface-3/60">
       <td className="px-3 py-2.5">
         <div className="font-mono font-bold text-ink">{inv.invoiceNo}</div>
         <div className="text-[10px] text-ink-3">{fmtDatePl(inv.invoiceDate)}</div>
@@ -552,18 +552,18 @@ export function PurchaseInvoicesPage() {
         <div className="relative flex-1 min-w-[180px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-4"/>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Szukaj faktury..."
-            className="w-full h-9 pl-9 pr-8 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white"/>
+            className="w-full h-9 pl-9 pr-8 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3"/>
           {search&&<button onClick={()=>setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-4"><X size={14}/></button>}
         </div>
         <select value={filterCat} onChange={e=>setFilterCat(e.target.value as any)}
-          className="h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
+          className="h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
           <option value="">Wszystkie</option>
           {ALL_CATS.map(c=><option key={c} value={c}>{CAT_LABELS[c]}</option>)}
         </select>
         <Button icon={<Plus size={14}/>} onClick={()=>{setEditInvoice(null);setModalOpen(true)}}>Dodaj fakturę</Button>
       </div>
 
-      <div className="bg-white border border-surface-4 shadow-card">
+      <div className="bg-surface border border-surface-4 rounded-xl">
         <div className="px-4 py-2.5 border-b border-surface-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Receipt size={13} className="text-ink-3"/>

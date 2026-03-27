@@ -13,11 +13,11 @@ import type { MeatStock, DeboningSession, RawBatch } from '@/types'
 
 function ExpiryBadge({ date }: { date: string }) {
   const { daysLeft } = getExpiryStatus(date)
-  const base = 'text-[10px] font-bold px-1.5 py-0.5 rounded'
-  if (daysLeft < 0)   return <span className={cn(base, 'bg-red-50 text-red-700')}>Wygasło</span>
-  if (daysLeft === 0) return <span className={cn(base, 'bg-red-50 text-red-700')}>Dziś!</span>
-  if (daysLeft <= 2)  return <span className={cn(base, 'bg-amber-50 text-amber-700')}>{daysLeft}d</span>
-  return <span className={cn(base, 'bg-green-50 text-green-700')}>{daysLeft} dni</span>
+  const base = 'text-[10px] font-bold px-1.5 py-0.5 rounded ring-1'
+  if (daysLeft < 0)   return <span className={cn(base, 'bg-red-500/15 text-red-400 ring-red-500/25')}>Wygasło</span>
+  if (daysLeft === 0) return <span className={cn(base, 'bg-red-500/15 text-red-400 ring-red-500/25')}>Dziś!</span>
+  if (daysLeft <= 2)  return <span className={cn(base, 'bg-amber-500/15 text-amber-400 ring-amber-500/25')}>{daysLeft}d</span>
+  return <span className={cn(base, 'bg-green-500/15 text-green-400 ring-green-500/25')}>{daysLeft} dni</span>
 }
 
 interface TraceabilityModalProps {
@@ -76,7 +76,7 @@ function TraceabilityModal({ type, item, session, batch, onClose }: Traceability
             </tr>
             {session && (
               <>
-                <tr className="border-b border-surface-4 bg-surface-2">
+                <tr className="border-b border-surface-4 bg-surface-3">
                   <td className="py-2 font-semibold text-ink-3" colSpan={2}>
                     <span className="text-[10px] uppercase tracking-wide">Sesja rozbioru</span>
                   </td>
@@ -97,7 +97,7 @@ function TraceabilityModal({ type, item, session, batch, onClose }: Traceability
             )}
             {item && (
               <>
-                <tr className="border-b border-surface-4 bg-surface-2">
+                <tr className="border-b border-surface-4 bg-surface-3">
                   <td className="py-2 font-semibold text-ink-3" colSpan={2}>
                     <span className="text-[10px] uppercase tracking-wide">Stan magazynowy</span>
                   </td>
@@ -172,7 +172,7 @@ export function RawStockPage() {
           ].map(tab => (
             <button key={tab.key} onClick={() => setActiveTab(tab.key as any)}
               className={cn('p-4 rounded-xl border-2 text-center transition-all',
-                activeTab === tab.key ? 'border-brand bg-brand-light' : 'border-surface-4 bg-white hover:border-brand/30')}>
+                activeTab === tab.key ? 'border-brand bg-brand-light' : 'border-surface-4 bg-surface-3 hover:border-brand/30')}>
               <div className={cn('flex justify-center mb-1', activeTab === tab.key ? 'text-brand' : 'text-ink-3')}>{tab.icon}</div>
               <div className={cn('text-lg font-bold', activeTab === tab.key ? 'text-brand' : 'text-ink')}>{tab.val}</div>
               <div className={cn('text-[10px] font-semibold uppercase tracking-wide', activeTab === tab.key ? 'text-brand' : 'text-ink-3')}>{tab.label}</div>
@@ -181,7 +181,7 @@ export function RawStockPage() {
         </div>
       </Card>
 
-      <div className="bg-white border border-surface-4 shadow-card">
+      <div className="bg-surface border border-surface-4 rounded-xl overflow-hidden">
         <div className="px-4 py-2.5 border-b border-surface-4">
           <span className="text-[13px] font-semibold text-ink">
             {activeTab === 'meat' ? 'Mięso Z/S' : activeTab === 'backs' ? 'Grzbiety' : 'Kości'}
@@ -196,7 +196,7 @@ export function RawStockPage() {
           ) : (
             <table className="w-full text-[12px]">
               <thead>
-                <tr className="border-b border-surface-4 bg-surface-2">
+                <tr className="border-b border-surface-4 bg-surface-3">
                   {['Nr partii mięsa / Partia','Dostępne','Daty','Status'].map(h => (
                     <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-4">{h}</th>
                   ))}
@@ -206,7 +206,7 @@ export function RawStockPage() {
                 {meatList.map(m => {
                   const batch = batches.find(b => b.id === m.rawBatchId || b.internalBatchNo === m.rawBatchNo)
                   return (
-                    <tr key={m.id} className="hover:bg-surface-2">
+                    <tr key={m.id} className="hover:bg-surface-3/60">
                       <td className="px-3 py-2.5">
                         <div className="font-mono text-[11px] text-ink-3">{m.lotNo}</div>
                         <div className="font-mono font-bold text-brand">{batch?.internalBatchNo || m.rawBatchNo}</div>
@@ -259,7 +259,7 @@ export function RawStockPage() {
                 {backsItems.map((s, i) => {
                   const batch = batches.find(b => b.id === s.rawBatchId)
                   return (
-                    <tr key={i} className="hover:bg-surface-2">
+                    <tr key={i} className="hover:bg-surface-3/60">
                       <td className="px-3 py-2 font-mono font-bold text-brand">{batch?.internalBatchNo || s.rawBatchNo}</td>
                       <td className="px-3 py-2 text-ink-3">{batch?.supplierName || '—'}</td>
                       <td className="px-3 py-2 font-bold">{fmtKg(s.kgBacks, 2)} kg</td>
@@ -286,7 +286,7 @@ export function RawStockPage() {
                 {bonesItems.map((s, i) => {
                   const batch = batches.find(b => b.id === s.rawBatchId)
                   return (
-                    <tr key={i} className="hover:bg-surface-2">
+                    <tr key={i} className="hover:bg-surface-3/60">
                       <td className="px-3 py-2 font-mono font-bold text-brand">{batch?.internalBatchNo || s.rawBatchNo}</td>
                       <td className="px-3 py-2 text-ink-3">{batch?.supplierName || '—'}</td>
                       <td className="px-3 py-2 font-bold">{fmtKg(s.kgBones, 2)} kg</td>

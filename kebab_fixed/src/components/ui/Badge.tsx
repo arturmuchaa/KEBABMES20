@@ -3,15 +3,15 @@ import { getExpiryStatus, getExpiryUi, deriveRawBatchStatus } from '@/lib/utils'
 
 export type BadgeVariant = 'blue' | 'green' | 'amber' | 'red' | 'gray' | 'purple' | 'orange'
 
-// Płaski styl — bez border, małe, czytelne
+// Dark-bg badge variants — semi-transparent tinted fills
 const V: Record<BadgeVariant, string> = {
-  blue:   'bg-blue-100 text-blue-700',
-  green:  'bg-green-100 text-green-700',
-  amber:  'bg-amber-100 text-amber-700',
-  red:    'bg-red-100 text-red-700',
-  gray:   'bg-gray-100 text-gray-600',
-  purple: 'bg-purple-100 text-purple-700',
-  orange: 'bg-orange-100 text-orange-700',
+  blue:   'bg-blue-500/15 text-blue-400 ring-1 ring-blue-500/25',
+  green:  'bg-green-500/15 text-green-400 ring-1 ring-green-500/25',
+  amber:  'bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25',
+  red:    'bg-red-500/15 text-red-400 ring-1 ring-red-500/25',
+  gray:   'bg-surface-4 text-ink-3 ring-1 ring-surface-5',
+  purple: 'bg-purple-500/15 text-purple-400 ring-1 ring-purple-500/25',
+  orange: 'bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/25',
 }
 
 interface BadgeProps { variant?: BadgeVariant; children: React.ReactNode; dot?: boolean; className?: string }
@@ -22,7 +22,7 @@ export function Badge({ variant = 'gray', children, dot, className }: BadgeProps
       'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-semibold',
       V[variant], className
     )}>
-      {dot && <span className="w-1.5 h-1.5 rounded-full bg-current flex-shrink-0" />}
+      {dot && <span className="w-1.5 h-1.5 rounded-full bg-current flex-shrink-0 animate-pulse-dot" />}
       {children}
     </span>
   )
@@ -40,12 +40,7 @@ export function ExpiryBadge({ dateStr, compact }: { dateStr: string; compact?: b
   return <Badge variant={variant}>{text}</Badge>
 }
 
-// ─── StatusBadge — status partii (computeDisplayStatus) ──────
-//
-// Zawsze oblicza status z danych domenowych (expiryDate + kgAvailable).
-// Nie ufa polu batch.status z backendu — może być nieaktualny.
-// computeDisplayStatus = deriveRawBatchStatus — jedyne źródło prawdy.
-
+// ─── StatusBadge — status partii ─────────────────────────────
 const STATUS_META: Record<string, { label: string; variant: BadgeVariant }> = {
   active:     { label: 'OK',          variant: 'green' },
   low_expiry: { label: 'LOW',         variant: 'amber' },
@@ -64,8 +59,7 @@ export function StatusBadge({ status }: { status: string }) {
   return <Badge variant={s.variant}>{s.label}</Badge>
 }
 
-// computeDisplayStatus — wrapper dla spójności z resztą kodu
-// Używaj zamiast batch.status wszędzie w UI biura
+// computeDisplayStatus — spójność z resztą kodu
 export function computeDisplayStatus(expiryDate: string, kgAvailable: number): string {
   return deriveRawBatchStatus(expiryDate, kgAvailable)
 }

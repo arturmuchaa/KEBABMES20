@@ -30,9 +30,9 @@ const HIDDEN: ToastState = { msg: '', type: 'success', visible: false }
 function ExpiryCell({ date }: { date?: string }) {
   if (!date) return <span className="text-ink-4 text-[11px]">—</span>
   const { daysLeft } = getExpiryStatus(date)
-  const cls = daysLeft < 0 ? 'text-red-700 bg-red-50'
-    : daysLeft <= 30 ? 'text-amber-700 bg-amber-50'
-    : 'text-green-700 bg-green-50'
+  const cls = daysLeft < 0 ? 'text-red-400 bg-red-500/15'
+    : daysLeft <= 30 ? 'text-amber-400 bg-amber-500/15'
+    : 'text-green-400 bg-green-500/15'
   return (
     <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${cls}`}>
       {fmtDatePl(date)}
@@ -125,17 +125,17 @@ export function SpiceStockPage() {
 
       {/* Alerty */}
       {alerts.length > 0 && (
-        <div className="border border-amber-200 bg-amber-50">
+        <div className="border border-amber-500/30 bg-amber-500/10">
           <div className="px-3 py-2 border-b border-amber-200 flex items-center gap-2">
             <AlertTriangle size={13} className="text-amber-600" />
-            <span className="text-[12px] font-semibold text-amber-700">{alerts.length} alertów — niski stan lub bliska data ważności</span>
+            <span className="text-[12px] font-semibold text-amber-400">{alerts.length} alertów — niski stan lub bliska data ważności</span>
           </div>
           <div className="divide-y divide-amber-100">
             {alerts.map(ing => {
               const s = stockMap.get(ing.id)
               return (
                 <div key={ing.id} className="px-3 py-1.5 flex items-center gap-3 text-[12px]">
-                  <span className="font-semibold text-amber-700 w-40 truncate">{ing.name}</span>
+                  <span className="font-semibold text-amber-400 w-40 truncate">{ing.name}</span>
                   <span className="text-amber-600">
                     {(s?.qtyAvailable ?? 0) <= 0 ? 'Brak stanu!' : `${(s?.qtyAvailable ?? 0).toFixed(2)} ${ing.unit}`}
                   </span>
@@ -148,24 +148,24 @@ export function SpiceStockPage() {
 
       {/* KPI */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="bg-white border border-surface-4 p-3">
+        <div className="bg-surface-3 border border-surface-4 p-3 rounded-lg">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 mb-0.5">Składniki</div>
           <div className="text-xl font-bold text-ink">{displayIngredients.length}</div>
         </div>
-        <div className="bg-white border border-surface-4 p-3">
+        <div className="bg-surface-3 border border-surface-4 p-3 rounded-lg">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 mb-0.5">Dostępne</div>
           <div className="text-xl font-bold text-green-700">
             {displayIngredients.filter(i => (stockMap.get(i.id)?.qtyAvailable ?? 0) > 0).length}
           </div>
         </div>
-        <div className="bg-white border border-surface-4 p-3">
+        <div className="bg-surface-3 border border-surface-4 p-3 rounded-lg">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 mb-0.5">Alerty</div>
           <div className={`text-xl font-bold ${alerts.length > 0 ? 'text-amber-600' : 'text-ink-4'}`}>{alerts.length}</div>
         </div>
       </div>
 
       {/* Tabela stanów */}
-      <div className="bg-white border border-surface-4 shadow-card">
+      <div className="bg-surface border border-surface-4 rounded-xl">
         <div className="px-4 py-2.5 border-b border-surface-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <FlaskConical size={13} className="text-ink-3" />
@@ -208,7 +208,7 @@ export function SpiceStockPage() {
                 return (
                   <div key={ing.id}>
                     <div
-                      className="grid grid-cols-[1fr_100px_100px_110px_80px_40px] gap-2 px-4 py-2.5 items-center hover:bg-surface-2 cursor-pointer text-[12px]"
+                      className="grid grid-cols-[1fr_100px_100px_110px_80px_40px] gap-2 px-4 py-2.5 items-center hover:bg-surface-3/60 cursor-pointer text-[12px]"
                       onClick={() => setExpanded(isExp ? null : ing.id)}
                     >
                       <div className="font-semibold text-ink truncate">{ing.name}</div>
@@ -235,7 +235,7 @@ export function SpiceStockPage() {
 
                     {/* Historia przyjęć */}
                     {isExp && recs.length > 0 && (
-                      <div className="px-4 pb-3 bg-surface-2 border-t border-surface-4">
+                      <div className="px-4 pb-3 bg-surface-3 border-t border-surface-4">
                         <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 py-1.5">Historia przyjęć</div>
                         <table className="w-full text-[11px]">
                           <thead>
@@ -266,7 +266,7 @@ export function SpiceStockPage() {
                       </div>
                     )}
                     {isExp && recs.length === 0 && (
-                      <div className="px-4 pb-3 bg-surface-2 border-t border-surface-4 text-[12px] text-ink-3 py-2">
+                      <div className="px-4 pb-3 bg-surface-3 border-t border-surface-4 text-[12px] text-ink-3 py-2">
                         Brak przyjęć — dodaj przez WZ lub Faktury
                       </div>
                     )}
@@ -354,7 +354,7 @@ export function SpiceStockPage() {
             <input type="date" value={recDate} onChange={e => setRecDate(e.target.value)}
               className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand" />
           </div>
-          <div className="bg-surface-2 px-3 py-2 text-[11px] text-ink-3">
+          <div className="bg-surface-3 px-3 py-2 text-[11px] text-ink-3">
             💡 Faktura może zostać powiązana później w module Faktury i WZ
           </div>
           <div className="flex gap-2 pt-1">

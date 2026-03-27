@@ -162,8 +162,8 @@ export function PlanningPage() {
   }
   const STATUS_CLS: Record<string, string> = {
     planned:     'bg-blue-50 text-blue-700',
-    in_progress: 'bg-amber-50 text-amber-700',
-    done:        'bg-green-50 text-green-700',
+    in_progress: 'bg-amber-500/15 text-amber-400',
+    done:        'bg-green-500/15 text-green-400',
     cancelled:   'bg-gray-100 text-gray-500',
   }
 
@@ -187,7 +187,7 @@ export function PlanningPage() {
       </div>
 
       {/* Lista zleceń */}
-      <div className="bg-white border border-surface-4 shadow-card">
+      <div className="bg-surface border border-surface-4 rounded-xl">
         <div className="px-4 py-2.5 border-b border-surface-4 flex items-center justify-between">
           <span className="text-[13px] font-semibold text-ink">Zlecenia masowania</span>
           <span className="text-[11px] text-ink-4">{(orders ?? []).length} zleceń</span>
@@ -211,7 +211,7 @@ export function PlanningPage() {
             </thead>
             <tbody className="divide-y divide-surface-4">
               {(orders ?? []).map(o => (
-                <tr key={o.id} className="hover:bg-surface-2">
+                <tr key={o.id} className="hover:bg-surface-3/60">
                   <td className="px-3 py-2 font-mono font-bold text-brand">{o.orderNo}</td>
                   <td className="px-3 py-2 text-ink">{o.recipeName}</td>
                   <td className="px-3 py-2 text-ink-3">{o.productTypeName ?? '—'}</td>
@@ -296,7 +296,7 @@ export function PlanningPage() {
 
               {/* Loty mięsa */}
               <div className="border border-surface-4">
-                <div className="px-3 py-1.5 bg-surface-2 border-b border-surface-4 flex items-center justify-between">
+                <div className="px-3 py-1.5 bg-surface-3 border-b border-surface-4 flex items-center justify-between">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-4">Dostępne partie mięsa (FEFO)</span>
                   <span className="text-[10px] text-ink-4">Zaznacz → wpisz kg</span>
                 </div>
@@ -305,7 +305,7 @@ export function PlanningPage() {
                     const selIdx = selLots.findIndex(l => l.lotId === lot.id)
                     const isSel  = selIdx >= 0
                     return (
-                      <div key={lot.id} className={`flex items-center gap-3 px-3 py-2 text-[12px] ${isSel ? 'bg-blue-50' : 'hover:bg-surface-2'}`}>
+                      <div key={lot.id} className={`flex items-center gap-3 px-3 py-2 text-[12px] ${isSel ? 'bg-blue-50' : 'hover:bg-surface-3/60'}`}>
                         <input type="checkbox" checked={isSel}
                           onChange={e => {
                             if (e.target.checked) {
@@ -373,7 +373,7 @@ export function PlanningPage() {
               </div>
 
               <div className="border border-surface-4 text-[12px] mb-3">
-                <div className="px-3 py-2 bg-surface-2 border-b border-surface-4 grid grid-cols-[1fr_100px_60px] gap-2">
+                <div className="px-3 py-2 bg-surface-3 border-b border-surface-4 grid grid-cols-[1fr_100px_60px] gap-2">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-4">Składnik</span>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 text-right">Ilość</span>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-4">Jedn.</span>

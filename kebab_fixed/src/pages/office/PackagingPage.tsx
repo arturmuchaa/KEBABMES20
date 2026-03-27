@@ -43,12 +43,12 @@ function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) =>
         <div className="col-span-2">
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Nazwa *</label>
           <input value={form.name} onChange={e => set('name', e.target.value)}
-            placeholder="np. Tuleja metal 65cm" className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+            placeholder="np. Tuleja metal 65cm" className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
         </div>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Typ</label>
           <select value={form.type} onChange={e => set('type', e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
             {(['tuleja','opakowanie','inne'] as PackagingType[]).map(t => (
               <option key={t} value={t}>{TYPE_LABELS[t]}</option>
             ))}
@@ -57,7 +57,7 @@ function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) =>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Jednostka</label>
           <select value={form.unit} onChange={e => set('unit', e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
             {['szt','kg','rolka','karton'].map(u => <option key={u} value={u}>{u}</option>)}
           </select>
         </div>
@@ -65,12 +65,12 @@ function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) =>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Ilość *</label>
           <input type="number" min="0" step="1" value={form.qty || ''}
             onChange={e => set('qty', parseFloat(e.target.value) || 0)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
         </div>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Dostawca</label>
           <select value={form.supplierId} onChange={e => set('supplierId', e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
             <option value="">— bez dostawcy —</option>
             {(suppliers ?? []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
@@ -78,7 +78,7 @@ function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) =>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data ważności</label>
           <input type="date" value={form.expiryDate} onChange={e => set('expiryDate', e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
         </div>
       </div>
       {error && <div className="text-[12px] text-danger bg-danger-light border border-danger-border px-3 py-2">{error}</div>}
@@ -109,7 +109,7 @@ export function PackagingPage() {
         <div className="flex gap-1">
           {([['all','Wszystkie'],['tuleja','Tuleje'],['opakowanie','Opakowania']] as [string,string][]).map(([k,l]) => (
             <button key={k} onClick={() => setTab(k as any)}
-              className={`px-3 py-1.5 rounded text-[12px] font-semibold border transition-all ${tab===k?'bg-brand text-white border-brand':'bg-white text-ink-3 border-surface-4 hover:border-brand/40'}`}>
+              className={`px-3 py-1.5 rounded text-[12px] font-semibold border transition-all ${tab===k?'bg-brand text-white border-brand':'bg-surface-3 text-ink-3 border-surface-4 hover:border-brand/40'}`}>
               {l}
             </button>
           ))}
@@ -119,7 +119,7 @@ export function PackagingPage() {
         </div>
       </div>
 
-      <div className="bg-white border border-surface-4 shadow-card">
+      <div className="bg-surface border border-surface-4 rounded-xl">
         <div className="px-4 py-2.5 border-b border-surface-4 flex items-center justify-between">
           <span className="text-[13px] font-semibold text-ink">{filtered.length} pozycji</span>
           <span className="text-[12px] text-ink-3">Łącznie: {totalAvail.toFixed(0)} szt/kg dostępne</span>
@@ -131,7 +131,7 @@ export function PackagingPage() {
         ) : (
           <table className="w-full text-[12px]">
             <thead>
-              <tr className="border-b border-surface-4 bg-surface-2">
+              <tr className="border-b border-surface-4 bg-surface-3">
                 {['Kod','Nazwa','Typ','Dostępne','Zużyte','Dostawca'].map(h => (
                   <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-4">{h}</th>
                 ))}
@@ -139,7 +139,7 @@ export function PackagingPage() {
             </thead>
             <tbody className="divide-y divide-surface-4">
               {filtered.map(item => (
-                <tr key={item.id} className="hover:bg-surface-2">
+                <tr key={item.id} className="hover:bg-surface-3/60">
                   <td className="px-3 py-2.5 font-mono text-ink-3">{item.code}</td>
                   <td className="px-3 py-2.5 font-semibold text-ink">{item.name}</td>
                   <td className="px-3 py-2.5">
