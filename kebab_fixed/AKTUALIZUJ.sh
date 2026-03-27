@@ -14,10 +14,10 @@ REPO="https://github.com/arturmuchaa/KEBABMES20.git"
 
 # Katalog gdzie leży ten skrypt = /opt/kebab/kebab_fixed
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Katalog systemu = /opt/kebab
+# Katalog systemu = /opt/kebab (repo sklonowane tu bezpośrednio)
 APP_DIR="$(dirname "$SCRIPT_DIR")"
-# Po git pull repo KEBABMES20 ma podkatalog kebab_fixed/ — tam jest właściwy kod
-SRC_DIR="$SCRIPT_DIR/kebab_fixed"
+# Kod źródłowy jest w tym samym katalogu co skrypt
+SRC_DIR="$SCRIPT_DIR"
 
 echo ""
 echo -e "${BOLD}  Kebab MES — Aktualizacja${NC}"
