@@ -34,18 +34,23 @@ jobs:
 
       - name: Generate icons
         working-directory: kebab_fixed
+        shell: pwsh
         run: |
           pip install Pillow
-          python -c "
+          New-Item -ItemType Directory -Force -Path "src-tauri/icons" | Out-Null
+          python -c @"
           from PIL import Image, ImageDraw
+          import os
+          os.makedirs('src-tauri/icons', exist_ok=True)
           img = Image.new('RGBA', (512, 512), (26, 86, 219, 255))
           d = ImageDraw.Draw(img)
           d.ellipse([80, 80, 432, 432], fill=(255, 255, 255, 255))
           d.ellipse([160, 160, 352, 352], fill=(26, 86, 219, 255))
           img.save('src-tauri/icons/icon.png')
-          print('Icon generated')
-          "
-          npx tauri icon src-tauri/icons/icon.png
+          print('Icon saved to src-tauri/icons/icon.png')
+          "@
+          ls src-tauri/icons/
+          npx tauri icon "src-tauri/icons/icon.png"
 
       - name: Build Tauri (Windows installer)
         working-directory: kebab_fixed
