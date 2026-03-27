@@ -67,12 +67,12 @@ export function RecipesPage() {
           action={<Button size="sm" icon={<Plus size={13} />} onClick={() => { form.reset(); setModalOpen(true) }}>Dodaj recepturę</Button>}
         />
       ) : (
-        <div className="bg-white border border-surface-4 shadow-card divide-y divide-surface-4">
+        <div className="bg-surface border border-surface-4 rounded-xl divide-y divide-surface-4">
           {recipes.map(r => (
             <div key={r.id}>
               {/* Wiersz */}
               <div
-                className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2 cursor-pointer"
+                className="flex items-center gap-3 px-4 py-3 hover:bg-surface-3/60 cursor-pointer"
                 onClick={() => setExpanded(expanded === r.id ? null : r.id)}
               >
                 <div className="flex-1 min-w-0">
@@ -222,7 +222,7 @@ export function RecipesPage() {
               <div className="flex justify-between px-3 py-1.5 text-ink-3">
                 <span>Suma składników</span><span className="font-bold">{form.sumPer100kg} kg</span>
               </div>
-              <div className="flex justify-between px-3 py-1.5 font-bold text-green-700 bg-green-50">
+              <div className="flex justify-between px-3 py-1.5 font-bold text-green-400 bg-green-500/15">
                 <span>Półprodukt / 100 kg mięsa</span>
                 <span>{form.totalOutputPer100kg} kg</span>
               </div>

@@ -47,7 +47,7 @@ export function DeboningReportsPage() {
     <div className="space-y-4 animate-fade-in">
 
       {/* Status sesji */}
-      <div className="bg-white border border-surface-4 shadow-card p-4">
+      <div className="bg-surface border border-surface-4 rounded-xl p-4">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-[13px] font-semibold text-ink mb-0.5">
@@ -90,7 +90,7 @@ export function DeboningReportsPage() {
             { label: 'Wydajność', val: fmtPct(summary.avgYieldPct), unit: ''   },
             { label: 'Wpisów',    val: summary.entryCount,           unit: ''   },
           ].map(k => (
-            <div key={k.label} className="bg-white border border-surface-4 p-3">
+            <div key={k.label} className="bg-surface-3 border border-surface-4 p-3 rounded-lg">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 mb-0.5">{k.label}</div>
               <div className="text-xl font-bold text-ink">
                 {k.val}{k.unit && <span className="text-xs font-normal text-ink-3 ml-1">{k.unit}</span>}
@@ -101,7 +101,7 @@ export function DeboningReportsPage() {
       )}
 
       {/* Tabela wpisów LIVE */}
-      <div className="bg-white border border-surface-4 shadow-card">
+      <div className="bg-surface border border-surface-4 rounded-xl">
         <div className="px-4 py-2.5 border-b border-surface-4 flex items-center gap-2">
           <Scissors size={13} className="text-ink-3" />
           <span className="text-[13px] font-semibold text-ink">Wpisy rozbioru</span>
@@ -129,7 +129,7 @@ export function DeboningReportsPage() {
                 </thead>
                 <tbody className="divide-y divide-surface-4">
                   {entries.map(e => (
-                    <tr key={e.id} className="hover:bg-surface-2">
+                    <tr key={e.id} className="hover:bg-surface-3/60">
                       <td className="px-3 py-2 font-mono text-brand">{e.sessionNo}</td>
                       <td className="px-3 py-2 font-mono font-semibold">{e.rawBatchNo}</td>
                       <td className="px-3 py-2 text-ink-2">{e.workerName}</td>
@@ -149,7 +149,7 @@ export function DeboningReportsPage() {
 
       {/* Historia sesji dnia */}
       {todaySessions.length > 1 && (
-        <div className="bg-white border border-surface-4 shadow-card">
+        <div className="bg-surface border border-surface-4 rounded-xl">
           <div className="px-4 py-2.5 border-b border-surface-4">
             <span className="text-[13px] font-semibold text-ink">Sesje dnia {timeWindow.productionDate}</span>
           </div>

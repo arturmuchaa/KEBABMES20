@@ -32,7 +32,7 @@ DB_USER="kebabmes"
 DB_PASS="kebabmes$(date +%s | sha256sum | head -c 8)"
 APP_DIR="/opt/kebabmes"
 PORT=8000
-BRANCH="claude/add-traceability-system-UxumS"
+BRANCH="claude/redesign-admin-ui-mOZG9"
 REPO="https://github.com/arturmuchaa/KEBABMES20.git"
 
 echo "▶ Krok 1/8: Aktualizacja systemu..."

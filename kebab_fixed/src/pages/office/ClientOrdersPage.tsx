@@ -38,7 +38,7 @@ const STATUS_LABELS: Record<ClientOrder['status'], string> = {
 }
 const STATUS_COLORS: Record<ClientOrder['status'], string> = {
   draft:'bg-surface-3 text-ink-3', confirmed:'bg-blue-50 text-blue-700',
-  in_production:'bg-amber-50 text-amber-700', done:'bg-green-50 text-green-700', cancelled:'bg-red-50 text-red-700',
+  in_production:'bg-amber-500/15 text-amber-400', done:'bg-green-500/15 text-green-400', cancelled:'bg-red-500/15 text-red-400',
 }
 
 function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) => Promise<void>; onClose: () => void }) {
@@ -98,7 +98,7 @@ function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) =>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Klient *</label>
           <select value={clientId} onChange={e => setClientId(e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
             <option value="">Wybierz klienta...</option>
             {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
@@ -106,12 +106,12 @@ function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) =>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data zamówienia</label>
           <input type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
         </div>
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Termin dostawy</label>
           <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
         </div>
       </div>
 
@@ -139,17 +139,17 @@ function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) =>
                   <div>
                     <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Ilość (szt)</label>
                     <input type="number" min="1" step="1" value={line.qty} onChange={e => setLine(i,'qty',e.target.value)}
-                      placeholder="20" className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+                      placeholder="20" className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
                   </div>
                   <div>
                     <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">kg/szt</label>
                     <input type="number" min="0.1" step="0.1" value={line.kgPerUnit} onChange={e => setLine(i,'kgPerUnit',e.target.value)}
-                      placeholder="40" className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+                      placeholder="40" className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3" />
                   </div>
                   <div>
                     <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Rodzaj produktu</label>
                     <select value={line.productTypeId} onChange={e => { setLine(i,'productTypeId',e.target.value); setLine(i,'recipeId','') }}
-                      className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-white">
+                      className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
                       <option value="">Wybierz...</option>
                       {(productTypes??[]).map(pt => <option key={pt.id} value={pt.id}>{pt.name}</option>)}
                     </select>
@@ -157,7 +157,7 @@ function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) =>
                   <div>
                     <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Receptura</label>
                     <select value={line.recipeId} onChange={e => setLine(i,'recipeId',e.target.value)}
-                      className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-white">
+                      className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
                       <option value="">Wybierz...</option>
                       {filteredRecipes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                     </select>
@@ -165,7 +165,7 @@ function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) =>
                   <div>
                     <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Tuleja / opak.</label>
                     <select value={line.packagingId} onChange={e => setLine(i,'packagingId',e.target.value)}
-                      className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-white">
+                      className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
                       <option value="">— brak —</option>
                       {packaging.map(p => <option key={p.id} value={p.id}>{p.name} ({p.kgAvailable} {p.unit})</option>)}
                     </select>
@@ -197,7 +197,7 @@ function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) =>
       <div>
         <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Uwagi</label>
         <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)}
-          className="w-full px-3 py-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white resize-none" />
+          className="w-full px-3 py-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3 resize-none" />
       </div>
 
       {error && <div className="text-[12px] text-danger bg-danger-light border border-danger-border px-3 py-2">{error}</div>}
@@ -237,7 +237,7 @@ export function ClientOrdersPage() {
     <div className="space-y-4 animate-fade-in">
       <div className="flex gap-3">
         <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-          className="h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
+          className="h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
           <option value="">Wszystkie statusy</option>
           {(['draft','confirmed','in_production','done','cancelled'] as ClientOrder['status'][]).map(s => (
             <option key={s} value={s}>{STATUS_LABELS[s]}</option>
@@ -248,7 +248,7 @@ export function ClientOrdersPage() {
         </div>
       </div>
 
-      <div className="bg-white border border-surface-4 shadow-card">
+      <div className="bg-surface border border-surface-4 rounded-xl">
         <div className="px-4 py-2.5 border-b border-surface-4">
           <span className="text-[13px] font-semibold text-ink">{filtered.length} zamówień</span>
           <span className="text-[12px] text-ink-3 ml-2">
@@ -265,7 +265,7 @@ export function ClientOrdersPage() {
               const isExp = expanded === o.id
               return (
                 <div key={o.id}>
-                  <div className="px-4 py-3 flex items-center gap-3 hover:bg-surface-2 cursor-pointer"
+                  <div className="px-4 py-3 flex items-center gap-3 hover:bg-surface-3/60 cursor-pointer"
                     onClick={() => setExpanded(isExp ? null : o.id)}>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">

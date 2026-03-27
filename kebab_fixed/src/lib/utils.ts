@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from 'clsx'
+import { twMerge } from 'tailwind-merge'
 
-export const cn = (...i: ClassValue[]) => clsx(i)
+export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs))
 
 // ─── Formatowanie ─────────────────────────────────────────────
 export const fmtKg = (n: number | string, d = 2): string => {
@@ -56,12 +57,12 @@ export interface ExpiryUiMeta {
 export function getExpiryUi(level: ExpiryLevel, daysLeft: number): ExpiryUiMeta {
   switch (level) {
     case 'EXPIRED':  return { label: 'Wygasła',
-      textCls: 'text-red-700', bgCls: 'bg-red-50', borderCls: 'border-red-200' }
+      textCls: 'text-red-400', bgCls: 'bg-red-500/10', borderCls: 'border-red-500/30' }
     case 'CRITICAL': return { label: daysLeft === 0 ? 'Wygasa dziś' : 'Jutro',
-      textCls: 'text-red-700', bgCls: 'bg-red-50', borderCls: 'border-red-200' }
+      textCls: 'text-red-400', bgCls: 'bg-red-500/10', borderCls: 'border-red-500/30' }
     case 'WARNING':  return { label: `Za ${daysLeft} dni`,
-      textCls: 'text-amber-700', bgCls: 'bg-amber-50', borderCls: 'border-amber-200' }
+      textCls: 'text-amber-400', bgCls: 'bg-amber-500/10', borderCls: 'border-amber-500/30' }
     case 'OK':       return { label: `${daysLeft}d`,
-      textCls: 'text-green-700', bgCls: 'bg-green-50', borderCls: 'border-green-200' }
+      textCls: 'text-green-400', bgCls: 'bg-green-500/10', borderCls: 'border-green-500/30' }
   }
 }

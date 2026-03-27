@@ -82,7 +82,7 @@ export function RawBatchesPage() {
       </div>
 
       {/* Tabela */}
-      <div className="bg-white border border-surface-4 shadow-card">
+      <div className="bg-surface border border-surface-4 rounded-xl">
         <RawBatchesTable batches={batches} loading={loading} />
       </div>
 

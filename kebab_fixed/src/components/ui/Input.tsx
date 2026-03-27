@@ -11,20 +11,25 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="flex flex-col gap-1.5 w-full">
         {label && (
-          <label htmlFor={inputId} className={cn('font-bold uppercase tracking-wide text-ink-3', tablet ? 'text-sm' : 'text-[11px]')}>
+          <label htmlFor={inputId} className={cn(
+            'font-semibold uppercase tracking-wide text-ink-3',
+            tablet ? 'text-sm' : 'text-[11px]'
+          )}>
             {label}
           </label>
         )}
-        <input id={inputId} ref={ref}
+        <input
+          id={inputId}
+          ref={ref}
           className={cn(
-            'w-full rounded-lg border bg-surface-2 text-ink font-medium',
+            'w-full rounded-lg border bg-white text-ink font-medium',
             'transition-colors placeholder:text-ink-4',
-            'focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-brand focus:bg-white',
-            'disabled:opacity-50',
-            large   && 'h-16 text-2xl font-bold text-center font-mono',
-            tablet  && 'h-16 text-xl font-bold px-5',
+            'focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-brand',
+            'disabled:opacity-50 disabled:bg-surface-3',
+            large  && 'h-16 text-2xl font-bold text-center font-mono',
+            tablet && 'h-16 text-xl font-bold px-5',
             !large && !tablet && 'h-9 text-sm px-3',
-            error   ? 'border-danger' : 'border-surface-4',
+            error  ? 'border-danger focus:ring-danger/25' : 'border-surface-4',
             className,
           )}
           {...props}
@@ -48,13 +53,18 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
     return (
       <div className="flex flex-col gap-1.5 w-full">
         {label && (
-          <label htmlFor={inputId} className={cn('font-bold uppercase tracking-wide text-ink-3', tablet ? 'text-sm' : 'text-[11px]')}>
+          <label htmlFor={inputId} className={cn(
+            'font-semibold uppercase tracking-wide text-ink-3',
+            tablet ? 'text-sm' : 'text-[11px]'
+          )}>
             {label}
           </label>
         )}
-        <select id={inputId} ref={ref}
+        <select
+          id={inputId}
+          ref={ref}
           className={cn(
-            'w-full rounded-lg border bg-surface-2 text-ink font-medium appearance-none cursor-pointer',
+            'w-full rounded-lg border bg-white text-ink font-medium appearance-none cursor-pointer',
             'transition-colors focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-brand',
             tablet ? 'h-16 text-xl font-bold px-5' : 'h-9 text-sm px-3',
             error ? 'border-danger' : 'border-surface-4',
@@ -82,11 +92,18 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
     const inputId = id || label?.toLowerCase().replace(/\s+/g, '-')
     return (
       <div className="flex flex-col gap-1.5 w-full">
-        {label && <label htmlFor={inputId} className="text-[11px] font-bold uppercase tracking-wide text-ink-3">{label}</label>}
-        <textarea id={inputId} ref={ref} rows={3}
+        {label && (
+          <label htmlFor={inputId} className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">
+            {label}
+          </label>
+        )}
+        <textarea
+          id={inputId}
+          ref={ref}
+          rows={3}
           className={cn(
-            'w-full px-3 py-2.5 rounded-lg border bg-surface-2 text-sm text-ink font-medium resize-none',
-            'placeholder:text-ink-4 focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-brand',
+            'w-full px-3 py-2.5 rounded-lg border bg-white text-sm text-ink font-medium resize-none',
+            'placeholder:text-ink-4 focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-brand transition-colors',
             error ? 'border-danger' : 'border-surface-4',
             className,
           )}

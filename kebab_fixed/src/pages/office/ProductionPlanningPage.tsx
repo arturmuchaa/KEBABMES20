@@ -54,7 +54,7 @@ const STATUS_LABELS: Record<ProductionPlan['status'], string> = {
   draft:'Szkic', active:'Aktywny', done:'Ukończony',
 }
 const STATUS_COLORS: Record<ProductionPlan['status'], string> = {
-  draft:'bg-surface-3 text-ink-3', active:'bg-amber-50 text-amber-700', done:'bg-green-50 text-green-700',
+  draft:'bg-surface-3 text-ink-3', active:'bg-amber-500/15 text-amber-400', done:'bg-green-500/15 text-green-400',
 }
 
 // ─── Import z zamówień ────────────────────────────────────────
@@ -105,7 +105,7 @@ function ImportOrderModal({ orders, onImport, onClose }: {
       <div>
         <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Zamówienie</label>
         <select value={selectedOrder} onChange={e=>handleOrderChange(e.target.value)}
-          className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
+          className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
           {orders.map(o=><option key={o.id} value={o.id}>{o.orderNo} · {o.clientName} · {fmtKg(o.totalKg,0)} kg</option>)}
         </select>
       </div>
@@ -195,7 +195,7 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-[12px] font-bold text-ink truncate">{r.recipeName}</span>
-                    {isFull && <span className="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded font-semibold">Wszystko zaplanowane</span>}
+                    {isFull && <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded font-semibold">Wszystko zaplanowane</span>}
                   </div>
                   {/* Pasek + liczniki w jednym wierszu */}
                   <div className="flex items-center gap-2">
@@ -331,7 +331,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
   return (
     <div className="border border-surface-4 rounded-xl bg-white overflow-hidden">
       {/* Nagłówek pozycji */}
-      <div className="flex items-center justify-between px-3 py-2 bg-surface-2 border-b border-surface-4">
+      <div className="flex items-center justify-between px-3 py-2 bg-surface-3 border-b border-surface-4">
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-bold text-ink-3">Pozycja {idx+1}</span>
           {line.clientName && (
@@ -349,17 +349,17 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
           <div>
             <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Szt *</label>
             <input type="number" min="1" value={line.qty} onChange={e=>onChange('qty',e.target.value)}
-              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white"/>
+              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3"/>
           </div>
           <div>
             <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">kg/szt *</label>
             <input type="number" min="0.1" step="0.1" value={line.kgPerUnit} onChange={e=>onChange('kgPerUnit',e.target.value)}
-              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white"/>
+              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3"/>
           </div>
           <div>
             <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Rodzaj</label>
             <select value={line.productTypeId} onChange={e=>onChange('productTypeId',e.target.value)}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-white">
+              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
               <option value="">Dowolny</option>
               {(productTypes??[]).map((pt:any)=><option key={pt.id} value={pt.id}>{pt.name}</option>)}
             </select>
@@ -367,7 +367,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
           <div>
             <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Receptura *</label>
             <select value={line.recipeId} onChange={e=>{onChange('recipeId',e.target.value);onChange('seasonedBatchIds',[]);onChange('seasonedBatchId','')}}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-white">
+              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
               <option value="">Wybierz...</option>
               {(recipes??[]).map((r:any)=><option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
@@ -379,7 +379,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
           <div>
             <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Tuleja / Opakowanie</label>
             <select value={line.packagingId} onChange={e=>onChange('packagingId',e.target.value)}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-white">
+              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
               <option value="">— brak —</option>
               {packaging.map((p:any)=>{
                 const isLow = qty>0&&p.kgAvailable<100&&qty>p.kgAvailable
@@ -394,7 +394,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
               onChange('clientId', e.target.value)
               onChange('clientName', c?.name??'')
             }}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-white">
+              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-surface-3">
               <option value="">— brak —</option>
               {clients.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -406,7 +406,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
           <button onClick={()=>setShowBatchPanel(p=>!p)}
             className={`w-full flex items-center justify-between px-3 py-2 text-[11px] font-semibold transition-colors ${
               selIds.length>0
-                ? isOk ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                ? isOk ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
                 : 'bg-surface-2 text-ink-3'
             }`}>
             <span className="flex items-center gap-2">
@@ -467,7 +467,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
               )}
               {/* Status sumy */}
               {selIds.length>0&&qty>0&&kgPerUnit>0&&(
-                <div className={`px-3 py-2 border-t text-[11px] font-semibold flex items-center gap-1.5 ${isOk?'bg-green-50 text-green-700':'bg-red-50 text-red-600'}`}>
+                <div className={`px-3 py-2 border-t text-[11px] font-semibold flex items-center gap-1.5 ${isOk?'bg-green-500/15 text-green-400':'bg-red-50 text-red-600'}`}>
                   {isOk
                     ? <>✓ Wystarczy — {fmtKg(selKgAvail,0)} kg na {qty} szt × {kgPerUnit} kg</>
                     : <><AlertTriangle size={12}/>Brakuje {fmtKg(shortfall,0)} kg — zaznacz więcej partii</>
@@ -664,7 +664,7 @@ function PlanForm({ onSave, onClose }: {
         <div>
           <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data produkcji</label>
           <input type="date" value={planDate} onChange={e=>setPlanDate(e.target.value)}
-            className="h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white"/>
+            className="h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3"/>
         </div>
         {confirmed.length>0&&(
           <button onClick={()=>setImportModal(true)}
@@ -712,7 +712,7 @@ function PlanForm({ onSave, onClose }: {
 
       {importModal&&(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-lg p-5 shadow-xl">
+          <div className="bg-surface border border-surface-4 rounded-2xl w-full max-w-lg p-5 shadow-xl">
             <div className="text-[13px] font-bold text-ink mb-4">Import z zamówienia klienta</div>
             <ImportOrderModal orders={confirmed} onImport={importLines} onClose={()=>setImportModal(false)}/>
           </div>
@@ -743,7 +743,7 @@ export function ProductionPlanningPage() {
             { label:'Planowane kg', val:`${fmtKg(activePlans.reduce((s,p)=>s+p.totalKg,0),0)} kg` },
             { label:'Planowane szt', val:`${activePlans.reduce((s,p)=>s+p.totalUnits,0)} szt` },
           ].map(k=>(
-            <div key={k.label} className="bg-white border border-surface-4 p-3">
+            <div key={k.label} className="bg-surface-3 border border-surface-4 p-3 rounded-lg">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4">{k.label}</div>
               <div className="text-xl font-bold text-ink">{k.val}</div>
             </div>
@@ -754,7 +754,7 @@ export function ProductionPlanningPage() {
         </div>
       </div>
 
-      <div className="bg-white border border-surface-4 shadow-card">
+      <div className="bg-surface border border-surface-4 rounded-xl">
         <div className="px-4 py-2.5 border-b border-surface-4">
           <span className="text-[13px] font-semibold text-ink">{(plans??[]).length} planów</span>
         </div>
@@ -766,7 +766,7 @@ export function ProductionPlanningPage() {
               const isExp=expanded===plan.id
               return (
                 <div key={plan.id}>
-                  <div className="px-4 py-3 flex items-center gap-3 hover:bg-surface-2 cursor-pointer"
+                  <div className="px-4 py-3 flex items-center gap-3 hover:bg-surface-3/60 cursor-pointer"
                     onClick={()=>setExpanded(isExp?null:plan.id)}>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">

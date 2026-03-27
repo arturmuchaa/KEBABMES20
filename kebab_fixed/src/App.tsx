@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
+import { Toaster } from 'sonner'
 import { OfficeLayout }  from '@/layouts/OfficeLayout'
 import { TabletLayout }  from '@/layouts/TabletLayout'
 import { DashboardPage } from '@/pages/office/DashboardPage'
@@ -52,6 +53,21 @@ function useBlockRefresh() {
 export default function App() {
   useBlockRefresh()
   return (
+    <>
+    <Toaster
+      theme="light"
+      position="bottom-right"
+      toastOptions={{
+        classNames: {
+          toast: 'bg-surface border border-surface-4 text-ink shadow-card rounded-xl',
+          description: 'text-ink-3',
+          actionButton: 'bg-brand text-white',
+          error: 'border-danger/30',
+          success: 'border-success/30',
+          warning: 'border-warn/30',
+        },
+      }}
+    />
     <Routes>
       <Route path="/office" element={<OfficeLayout />}>
         <Route index element={<Navigate to="dashboard" replace />} />
@@ -85,5 +101,6 @@ export default function App() {
       </Route>
       <Route path="*" element={<Navigate to="/office/dashboard" replace />} />
     </Routes>
+    </>
   )
 }

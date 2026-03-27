@@ -3,15 +3,15 @@ import { getExpiryStatus, getExpiryUi, deriveRawBatchStatus } from '@/lib/utils'
 
 export type BadgeVariant = 'blue' | 'green' | 'amber' | 'red' | 'gray' | 'purple' | 'orange'
 
-// Płaski styl — bez border, małe, czytelne
+// Light-mode badge variants — colored fills with matching text
 const V: Record<BadgeVariant, string> = {
-  blue:   'bg-blue-100 text-blue-700',
-  green:  'bg-green-100 text-green-700',
-  amber:  'bg-amber-100 text-amber-700',
-  red:    'bg-red-100 text-red-700',
-  gray:   'bg-gray-100 text-gray-600',
-  purple: 'bg-purple-100 text-purple-700',
-  orange: 'bg-orange-100 text-orange-700',
+  blue:   'bg-blue-50   text-blue-700   ring-1 ring-blue-200',
+  green:  'bg-green-50  text-green-700  ring-1 ring-green-200',
+  amber:  'bg-amber-50  text-amber-700  ring-1 ring-amber-200',
+  red:    'bg-red-50    text-red-700    ring-1 ring-red-200',
+  gray:   'bg-slate-100 text-slate-600  ring-1 ring-slate-200',
+  purple: 'bg-purple-50 text-purple-700 ring-1 ring-purple-200',
+  orange: 'bg-orange-50 text-orange-700 ring-1 ring-orange-200',
 }
 
 interface BadgeProps { variant?: BadgeVariant; children: React.ReactNode; dot?: boolean; className?: string }
@@ -28,7 +28,7 @@ export function Badge({ variant = 'gray', children, dot, className }: BadgeProps
   )
 }
 
-// ─── ExpiryBadge — FEFO status daty ──────────────────────────
+// ─── ExpiryBadge — FEFO ───────────────────────────────────────
 export function ExpiryBadge({ dateStr, compact }: { dateStr: string; compact?: boolean }) {
   const { level, daysLeft } = getExpiryStatus(dateStr)
   const { label } = getExpiryUi(level, daysLeft)
@@ -36,27 +36,21 @@ export function ExpiryBadge({ dateStr, compact }: { dateStr: string; compact?: b
     level === 'EXPIRED' || level === 'CRITICAL' ? 'red'
     : level === 'WARNING' ? 'amber'
     : 'green'
-  const text = compact ? label : daysLeft < 0 ? 'Wygasła' : `${label}`
+  const text = compact ? label : daysLeft < 0 ? 'Wygasła' : label
   return <Badge variant={variant}>{text}</Badge>
 }
 
-// ─── StatusBadge — status partii (computeDisplayStatus) ──────
-//
-// Zawsze oblicza status z danych domenowych (expiryDate + kgAvailable).
-// Nie ufa polu batch.status z backendu — może być nieaktualny.
-// computeDisplayStatus = deriveRawBatchStatus — jedyne źródło prawdy.
-
+// ─── StatusBadge ──────────────────────────────────────────────
 const STATUS_META: Record<string, { label: string; variant: BadgeVariant }> = {
-  active:     { label: 'OK',          variant: 'green' },
-  low_expiry: { label: 'LOW',         variant: 'amber' },
-  expired:    { label: 'CRITICAL',    variant: 'red'   },
-  used:       { label: 'USED',        variant: 'gray'  },
-  cancelled:  { label: 'CANCELLED',   variant: 'gray'  },
-  // legacy
-  AVAILABLE:      { label: 'OK',        variant: 'green' },
-  PARTIALLY_USED: { label: 'LOW',       variant: 'amber' },
-  DEPLETED:       { label: 'USED',      variant: 'gray'  },
-  QUARANTINE:     { label: 'CRITICAL',  variant: 'red'   },
+  active:         { label: 'OK',          variant: 'green'  },
+  low_expiry:     { label: 'LOW',         variant: 'amber'  },
+  expired:        { label: 'CRITICAL',    variant: 'red'    },
+  used:           { label: 'USED',        variant: 'gray'   },
+  cancelled:      { label: 'CANCELLED',   variant: 'gray'   },
+  AVAILABLE:      { label: 'OK',          variant: 'green'  },
+  PARTIALLY_USED: { label: 'LOW',         variant: 'amber'  },
+  DEPLETED:       { label: 'USED',        variant: 'gray'   },
+  QUARANTINE:     { label: 'CRITICAL',    variant: 'red'    },
 }
 
 export function StatusBadge({ status }: { status: string }) {
@@ -64,8 +58,6 @@ export function StatusBadge({ status }: { status: string }) {
   return <Badge variant={s.variant}>{s.label}</Badge>
 }
 
-// computeDisplayStatus — wrapper dla spójności z resztą kodu
-// Używaj zamiast batch.status wszędzie w UI biura
 export function computeDisplayStatus(expiryDate: string, kgAvailable: number): string {
   return deriveRawBatchStatus(expiryDate, kgAvailable)
 }

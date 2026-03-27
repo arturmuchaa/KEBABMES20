@@ -13,10 +13,10 @@ import type { SeasonedMeatBatch } from '@/lib/mockApi'
 
 function ExpiryBadge({ date }: { date: string }) {
   const { daysLeft } = getExpiryStatus(date)
-  if (daysLeft < 0)   return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-red-50 text-red-700">Wygasło</span>
-  if (daysLeft === 0) return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-red-50 text-red-700">Dziś!</span>
-  if (daysLeft <= 1)  return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">Jutro</span>
-  return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-green-50 text-green-700">{daysLeft}d</span>
+  if (daysLeft < 0)   return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-red-500 /15 text-red-400">Wygasło</span>
+  if (daysLeft === 0) return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-red-500 /15 text-red-400">Dziś!</span>
+  if (daysLeft <= 1)  return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">Jutro</span>
+  return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-green-500/15 text-green-400">{daysLeft}d</span>
 }
 
 // Panel śledzenia partii — używa danych już załadowanych z listy (bez dodatkowego API call)
@@ -34,7 +34,7 @@ function SledzPanel({ batch, onClose }: { batch: SeasonedMeatBatch; onClose: () 
             { label: 'Dostępne',      val: `${fmtKg(batch.kgAvailable)} kg`, color: 'text-ink' },
             { label: 'Ważność',       val: fmtDatePl(batch.expiryDate), color: 'text-ink' },
           ].map(k => (
-            <div key={k.label} className="bg-surface-2 border border-surface-4 rounded-lg p-3 text-center">
+            <div key={k.label} className="bg-surface-3 border border-surface-4 rounded-lg p-3 text-center">
               <div className="text-[10px] font-bold text-ink-4 uppercase mb-0.5">{k.label}</div>
               <div className={`text-sm font-black ${k.color}`}>{k.val}</div>
             </div>
@@ -42,7 +42,7 @@ function SledzPanel({ batch, onClose }: { batch: SeasonedMeatBatch; onClose: () 
         </div>
 
         {/* Łańcuch */}
-        <div className="bg-surface-2 border border-surface-4 rounded-lg p-3">
+        <div className="bg-surface-3 border border-surface-4 rounded-lg p-3">
           <div className="text-[10px] font-bold text-ink-4 uppercase mb-2">Łańcuch partii</div>
           <div className="flex items-center gap-1.5 flex-wrap text-[12px]">
             {batch.rawBatchNos.length > 0 ? batch.rawBatchNos.map(n => (
@@ -50,7 +50,7 @@ function SledzPanel({ batch, onClose }: { batch: SeasonedMeatBatch; onClose: () 
             )) : <span className="text-ink-4">—</span>}
             <ChevronRight size={13} className="text-ink-4"/>
             {batch.meatLots.map(l => (
-              <span key={l.meatLotId} className="font-mono font-bold text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded">{l.meatLotNo}</span>
+              <span key={l.meatLotId} className="font-mono font-bold text-green-400 bg-green-500/15 border border-green-200 px-2 py-1 rounded">{l.meatLotNo}</span>
             ))}
             <ChevronRight size={13} className="text-ink-4"/>
             <span className="font-mono font-black text-brand bg-brand-light border border-brand-border px-2 py-1 rounded">{batch.batchNo}</span>
@@ -118,7 +118,7 @@ export function SeasonedMeatPage() {
     <div className="space-y-4 animate-fade-in">
 
       {critical.length > 0 && (
-        <div className="border border-red-200 bg-red-50 px-4 py-3">
+        <div className="border border-red-500/30 bg-red-500/10 px-4 py-3">
           <div className="flex items-center gap-2 text-[12px] font-semibold text-red-700 mb-1">
             <AlertTriangle size={13} /> {critical.length} partii wygasa dziś lub jutro
           </div>
@@ -136,7 +136,7 @@ export function SeasonedMeatPage() {
           { label:'Łącznie kg',      val: `${fmtKg(totalAvail)} kg`, color:'text-green-700' },
           { label:'Alerty',          val: critical.length, color: critical.length > 0 ? 'text-red-600' : 'text-ink-4' },
         ].map(k => (
-          <div key={k.label} className="bg-white border border-surface-4 p-3">
+          <div key={k.label} className="bg-surface-3 border border-surface-4 p-3 rounded-lg">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 mb-0.5">{k.label}</div>
             <div className={`text-xl font-bold ${k.color}`}>{k.val}</div>
           </div>
@@ -144,7 +144,7 @@ export function SeasonedMeatPage() {
       </div>
 
       {/* Tabela FEFO */}
-      <div className="bg-white border border-surface-4 shadow-card">
+      <div className="bg-surface border border-surface-4 rounded-xl">
         <div className="px-4 py-2.5 border-b border-surface-4 flex items-center gap-2">
           <Beef size={13} className="text-ink-3" />
           <span className="text-[13px] font-semibold text-ink">Dostępne partie (FEFO)</span>
@@ -161,7 +161,7 @@ export function SeasonedMeatPage() {
                 <div key={b.id}>
                   {/* Wiersz główny */}
                   <div
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2 cursor-pointer"
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-surface-3/60 cursor-pointer"
                     onClick={() => setExpanded(isExp ? null : b.id)}
                   >
                     <div className="flex-1 min-w-0">
@@ -179,7 +179,7 @@ export function SeasonedMeatPage() {
                         ))}
                         {b.rawBatchNos.length > 0 && <ChevronRight size={10} className="text-ink-5" />}
                         {b.meatLots.map(l => (
-                          <span key={l.meatLotId} className="text-[10px] font-mono bg-green-50 text-green-700 px-1.5 py-0.5 rounded">{l.meatLotNo}</span>
+                          <span key={l.meatLotId} className="text-[10px] font-mono bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded">{l.meatLotNo}</span>
                         ))}
                         {b.meatLots.length > 0 && <ChevronRight size={10} className="text-ink-5" />}
                         <span className="text-[10px] font-mono font-bold bg-blue-100 text-brand px-1.5 py-0.5 rounded">{b.batchNo}</span>
@@ -203,7 +203,7 @@ export function SeasonedMeatPage() {
 
                   {/* Rozwinięte szczegóły */}
                   {isExp && (
-                    <div className="px-4 pb-3 bg-surface-2 border-t border-surface-4">
+                    <div className="px-4 pb-3 bg-surface-3 border-t border-surface-4">
                       <div className="grid grid-cols-2 gap-3 mt-2 text-[12px]">
                         <div>
                           <div className="text-[10px] font-bold text-ink-4 uppercase mb-1">Masowanie</div>
@@ -239,7 +239,7 @@ export function SeasonedMeatPage() {
 
       {/* Historia */}
       {allBatches.filter(b => b.status === 'depleted').length > 0 && (
-        <div className="bg-white border border-surface-4 shadow-card">
+        <div className="bg-surface border border-surface-4 rounded-xl">
           <div className="px-4 py-2.5 border-b border-surface-4">
             <span className="text-[13px] font-semibold text-ink">Historia — wykorzystane partie</span>
           </div>

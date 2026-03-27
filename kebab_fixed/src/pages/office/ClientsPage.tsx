@@ -104,7 +104,7 @@ function ClientForm({ initial, onSave, onClose }: {
                 <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">{f.label}</label>
                 <input value={(form as any)[f.k]??''} onChange={e=>set(f.k as any, e.target.value)}
                   placeholder={f.ph} style={{fontFamily:'Roboto, sans-serif'}}
-                  className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white rounded-lg"/>
+                  className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3 rounded-lg"/>
               </div>
             ))}
           </div>
@@ -149,12 +149,12 @@ export function ClientsPage() {
         <div className="relative flex-1">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-4"/>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Szukaj kontrahenta..."
-            className="w-full h-9 pl-9 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white"/>
+            className="w-full h-9 pl-9 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-surface-3"/>
         </div>
         <Button icon={<Plus size={14}/>} onClick={()=>{ setEdit(null); setModal(true) }}>Dodaj kontrahenta</Button>
       </div>
 
-      <div className="bg-white border border-surface-4 shadow-card">
+      <div className="bg-surface border border-surface-4 rounded-xl">
         <div className="px-4 py-2.5 border-b border-surface-4">
           <span className="text-[13px] font-semibold text-ink">{clients.length} kontrahentów</span>
         </div>
@@ -165,7 +165,7 @@ export function ClientsPage() {
             : (
               <div className="divide-y divide-surface-4">
                 {clients.map(c=>(
-                  <div key={c.id} className="px-4 py-3 flex items-center gap-3 hover:bg-surface-2">
+                  <div key={c.id} className="px-4 py-3 flex items-center gap-3 hover:bg-surface-3/60">
                     <div className="w-10 h-10 rounded-full bg-brand-light flex items-center justify-center flex-shrink-0">
                       <span className="text-brand font-black text-sm">{c.name[0]}</span>
                     </div>

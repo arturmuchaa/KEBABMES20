@@ -1,0 +1,85 @@
+name: Deploy Backend → VPS
+
+# ─────────────────────────────────────────────────────────────
+#  Trigger — zmiany w kodzie frontendowym lub backendzie
+# ─────────────────────────────────────────────────────────────
+on:
+  push:
+    branches:
+      - claude/redesign-admin-ui-mOZG9
+      - main
+      - master
+    paths:
+      - 'kebab_fixed/src/**'
+      - 'kebab_fixed/backend/**'
+      - 'kebab_fixed/package.json'
+      - 'kebab_fixed/tailwind.config.js'
+      - 'kebab_fixed/AKTUALIZUJ.sh'
+      - '.github/workflows/deploy-backend.yml'
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# ─────────────────────────────────────────────────────────────
+#  Wymagane sekrety (Settings → Secrets → Actions):
+#    VPS_HOST      — np. 204.168.166.34
+#    VPS_USER      — np. root
+#    VPS_PASSWORD  — hasło SSH (bez klucza)
+# ─────────────────────────────────────────────────────────────
+
+jobs:
+  deploy:
+    name: Deploy → VPS /opt/kebab
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Sprawdź czy sekrety są ustawione ─────────────────────
+      - name: Check secrets
+        id: check
+        run: |
+          if [ -z "${{ secrets.VPS_HOST }}" ] || [ -z "${{ secrets.VPS_PASSWORD }}" ]; then
+            echo "ready=false" >> $GITHUB_OUTPUT
+            echo "⚠️  Brak sekretów VPS_HOST lub VPS_PASSWORD"
+            echo "   Settings → Secrets → Actions → New repository secret"
+          else
+            echo "ready=true" >> $GITHUB_OUTPUT
+            echo "✅ Sekrety skonfigurowane — startuje deploy"
+          fi
+
+      # ── Deploy przez SSH (hasło) ──────────────────────────────
+      - name: Deploy via SSH
+        if: steps.check.outputs.ready == 'true'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          port:     22
+          timeout:  300s
+          script: |
+            set -e
+            echo "══════════════════════════════════════════"
+            echo "  Kebab MES — Auto Deploy"
+            echo "  $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "══════════════════════════════════════════"
+
+            bash /opt/kebab/kebab_fixed/AKTUALIZUJ.sh
+
+            echo "══════════════════════════════════════════"
+            echo "  Deploy zakończony!"
+            echo "══════════════════════════════════════════"
+
+      # ── Brak sekretów — instrukcja ────────────────────────────
+      - name: Skipped — configure secrets
+        if: steps.check.outputs.ready != 'true'
+        run: |
+          echo ""
+          echo "  Deploy pominięty — skonfiguruj sekrety:"
+          echo ""
+          echo "  GitHub → repo → Settings → Secrets → Actions:"
+          echo "    VPS_HOST     = 204.168.166.34"
+          echo "    VPS_USER     = root"
+          echo "    VPS_PASSWORD = haslo_root_vps"
+          echo ""

@@ -4,34 +4,84 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
-        mono: ['"IBM Plex Mono"', 'monospace'],
+        sans: ['Inter', '"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', '"IBM Plex Mono"', 'monospace'],
       },
       colors: {
-        ink: { DEFAULT:'#111827', 2:'#374151', 3:'#6B7280', 4:'#9CA3AF', 5:'#D1D5DB' },
-        surface: { DEFAULT:'#FFFFFF', 2:'#F9FAFB', 3:'#F3F4F6', 4:'#E5E7EB', 5:'#D1D5DB' },
-        brand:   { DEFAULT:'#1D4ED8', dark:'#1E40AF', light:'#EFF6FF', border:'#BFDBFE' },
-        success: { DEFAULT:'#059669', light:'#ECFDF5', border:'#A7F3D0' },
-        warn:    { DEFAULT:'#D97706', light:'#FFFBEB', border:'#FDE68A' },
-        danger:  { DEFAULT:'#DC2626', light:'#FEF2F2', border:'#FECACA' },
-        // Sidebar jasny (nowy ERP look)
-        sidebar: { bg:'#1E293B', border:'#334155', active:'#2D3F55', text:'#CBD5E1', heading:'#64748B' },
+        // ── Text hierarchy ──────────────────────────────────
+        ink: {
+          DEFAULT: '#0f172a',  // slate-900  — primary text
+          2:       '#1e293b',  // slate-800  — secondary text
+          3:       '#475569',  // slate-500  — muted
+          4:       '#94a3b8',  // slate-400  — placeholder
+          5:       '#cbd5e1',  // slate-300  — disabled
+        },
+        // ── Surfaces ────────────────────────────────────────
+        surface: {
+          DEFAULT: '#ffffff',  // white      — card / panel
+          2:       '#f8fafc',  // slate-50   — page bg
+          3:       '#f1f5f9',  // slate-100  — table header / subtle bg
+          4:       '#e2e8f0',  // slate-200  — border
+          5:       '#cbd5e1',  // slate-300  — heavy border
+        },
+        // ── Brand: blue ─────────────────────────────────────
+        brand: {
+          DEFAULT: '#2563eb',  // blue-600
+          dark:    '#1d4ed8',  // blue-700 hover
+          light:   '#eff6ff',  // blue-50  subtle bg
+          border:  '#bfdbfe',  // blue-200 border
+        },
+        // ── Semantic ────────────────────────────────────────
+        success: {
+          DEFAULT: '#16a34a',  // green-600
+          light:   '#f0fdf4',  // green-50
+          border:  '#bbf7d0',  // green-200
+        },
+        warn: {
+          DEFAULT: '#d97706',  // amber-600
+          light:   '#fffbeb',  // amber-50
+          border:  '#fde68a',  // amber-200
+        },
+        danger: {
+          DEFAULT: '#dc2626',  // red-600
+          light:   '#fef2f2',  // red-50
+          border:  '#fecaca',  // red-200
+        },
+        // ── Sidebar: light slate ─────────────────────────────
+        sidebar: {
+          bg:      '#f8fafc',  // slate-50
+          border:  '#e2e8f0',  // slate-200
+          active:  '#eff6ff',  // blue-50  active bg
+          text:    '#475569',  // slate-500
+          heading: '#94a3b8',  // slate-400
+        },
       },
       boxShadow: {
-        card:  '0 1px 2px rgba(0,0,0,.05), 0 0 0 1px rgba(0,0,0,.06)',
+        card:  '0 1px 3px rgba(0,0,0,.06), 0 0 0 1px rgba(0,0,0,.04)',
         md:    '0 4px 12px rgba(0,0,0,.08)',
-        modal: '0 16px 48px rgba(0,0,0,.16)',
+        modal: '0 16px 48px rgba(0,0,0,.14)',
+        glow:  '0 0 0 3px rgba(37,99,235,.20)',
       },
-      borderRadius: { DEFAULT:'4px', lg:'6px', xl:'8px', '2xl':'12px', '3xl':'16px' },
+      borderRadius: {
+        DEFAULT: '6px',
+        sm:    '4px',
+        md:    '6px',
+        lg:    '8px',
+        xl:    '12px',
+        '2xl': '16px',
+        '3xl': '20px',
+      },
       animation: {
-        'fade-in': 'fadeIn .12s ease',
-        'slide-up': 'slideUp .15s ease',
+        'fade-in':   'fadeIn .12s ease',
+        'slide-up':  'slideUp .15s ease',
         'pulse-dot': 'pulseDot 2s infinite',
+        'skeleton':  'skeleton 1.6s ease-in-out infinite',
       },
       keyframes: {
-        fadeIn:   { from:{ opacity:'0' }, to:{ opacity:'1' } },
-        slideUp:  { from:{ opacity:'0', transform:'translateY(6px)' }, to:{ opacity:'1', transform:'translateY(0)' } },
-        pulseDot: { '0%,100%':{ opacity:'1' }, '50%':{ opacity:'.3' } },
+        fadeIn:   { from: { opacity: '0' },   to: { opacity: '1' } },
+        slideUp:  { from: { opacity: '0', transform: 'translateY(6px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+        pulseDot: { '0%,100%': { opacity: '1' }, '50%': { opacity: '.3' } },
+        skeleton: { '0%,100%': { opacity: '.5' }, '50%': { opacity: '1' } },
       },
     },
   },

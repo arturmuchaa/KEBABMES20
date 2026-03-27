@@ -281,7 +281,7 @@ export function HaccpReportPage() {
       <style>{printStyles}</style>
 
       {/* Filtry */}
-      <div className="bg-white border border-surface-4 shadow-card p-4 no-print">
+      <div className="bg-surface border border-surface-4 rounded-xl p-4 no-print">
         <div className="text-[13px] font-semibold text-ink mb-3">Filtry raportów</div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div>
@@ -312,7 +312,7 @@ export function HaccpReportPage() {
       </div>
 
       {/* Lista dni */}
-      <div className="bg-white border border-surface-4 shadow-card no-print">
+      <div className="bg-surface border border-surface-4 rounded-xl no-print">
         <div className="px-4 py-2.5 border-b border-surface-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-[13px] font-semibold text-ink">
@@ -362,7 +362,7 @@ export function HaccpReportPage() {
 
               return (
                 <div key={date}
-                  className={`flex items-start gap-3 px-4 py-3 hover:bg-surface-2 cursor-pointer ${isSel ? 'bg-blue-50' : ''}`}
+                  className={`flex items-start gap-3 px-4 py-3 hover:bg-surface-3/60 cursor-pointer ${isSel ? 'bg-blue-50' : ''}`}
                   onClick={() => toggleDate(date)}
                 >
                   <div className="mt-0.5 flex-shrink-0">
