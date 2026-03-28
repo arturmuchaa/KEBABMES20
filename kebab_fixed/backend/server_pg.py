@@ -1898,46 +1898,53 @@ def unlock_machine(machine_id: int):
     execute("DELETE FROM machine_locks WHERE machine_id=%s", (machine_id,))
     return {"ok": True}
 
-# ─── VIES API — wyszukiwanie zagranicznych płatników VAT-UE ──
-VIES_API_ID  = "MyDWn3QuH2rJ"
-VIES_API_KEY = "1cVi2cO97cKT"
-
+# ─── VIES API — oficjalne REST API Komisji Europejskiej (bezpłatne) ──
 @app.get("/api/vies/lookup")
 def vies_lookup(vat: str):
-    """Proxy do viesapi.eu — ukrywa klucz API przed frontendem"""
-    import urllib.request, hmac, hashlib, time, base64
-    vat = vat.strip().upper().replace(" ", "")
+    """
+    Weryfikacja VAT-UE przez oficjalne REST API KE.
+    URL: https://ec.europa.eu/taxation_customs/vies/rest-api/ms/{kraj}/vat/{numer}
+    Bezplatne, bez klucza API, zwraca JSON.
+    """
+    import urllib.request
+    import json as _json
+
+    vat = vat.strip().upper().replace(" ", "").replace("-", "")
     if len(vat) < 4:
-        raise HTTPException(400, "Za krótki numer VAT")
+        raise HTTPException(400, "Za krotki numer VAT")
+
+    country_code = vat[:2]
+    vat_number   = vat[2:]
+
+    if not country_code.isalpha() or len(vat_number) < 2:
+        raise HTTPException(400, "Nieprawidlowy format VAT-UE (np. DE123456789)")
 
     try:
-        # viesapi.eu REST endpoint
-        url = f"https://www.viesapi.eu/api/get/vies/data/{vat}"
-        ts  = str(int(time.time()))
-        # HMAC-SHA256 signature: id + ts
-        sig = hmac.new(VIES_API_KEY.encode(), (VIES_API_ID + ts).encode(), hashlib.sha256).hexdigest()
-
+        url = f"https://ec.europa.eu/taxation_customs/vies/rest-api/ms/{country_code}/vat/{vat_number}"
         req = urllib.request.Request(url)
-        req.add_header("Authorization", f"HMAC-SHA256 id={VIES_API_ID}, ts={ts}, sig={sig}")
         req.add_header("Accept", "application/json")
-        req.add_header("User-Agent", "KebabMES/1.0")
+        req.add_header("User-Agent", "KebabMES/2.3")
 
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            import json as _json
+        with urllib.request.urlopen(req, timeout=12) as resp:
             data = _json.loads(resp.read().decode())
 
         return {
-            "vatNumber":     data.get("vatNumber") or vat,
-            "countryCode":   data.get("countryCode") or vat[:2],
-            "traderName":    data.get("traderName") or "",
-            "traderAddress": data.get("traderAddress") or "",
+            "vatNumber":     country_code + (data.get("vatNumber") or vat_number),
+            "countryCode":   data.get("countryCode") or country_code,
+            "traderName":    data.get("name") or "",
+            "traderAddress": data.get("address") or "",
             "valid":         bool(data.get("valid")),
         }
+
     except urllib.error.HTTPError as e:
         body = e.read().decode()
-        raise HTTPException(502, f"VIES API błąd {e.code}: {body[:200]}")
+        if e.code == 404:
+            raise HTTPException(404, f"Kraj {country_code} nie jest obslugiwany przez VIES")
+        raise HTTPException(502, f"VIES EC API blad {e.code}: {body[:300]}")
+    except urllib.error.URLError as e:
+        raise HTTPException(502, f"Brak polaczenia z VIES EC: {str(e.reason)}")
     except Exception as e:
-        raise HTTPException(502, f"Błąd połączenia z VIES: {str(e)}")
+        raise HTTPException(502, f"Blad VIES: {str(e)}")
 
 # ─── Pomocnicze ───────────────────────────────────────────────
 @app.get("/api/batch-history")

@@ -98,7 +98,7 @@ export function OfficeSidebar({ collapsed = false, onToggleCollapse, onClose }: 
 
   return (
     <aside className={cn(
-      'h-full flex flex-col bg-white border-r border-slate-100',
+      'h-full flex flex-col bg-slate-50 border-r border-slate-200/60',
       'overflow-y-auto overflow-x-hidden scrollbar-thin transition-all duration-200',
       collapsed ? 'w-[60px]' : 'w-[228px]',
     )}>
@@ -106,7 +106,7 @@ export function OfficeSidebar({ collapsed = false, onToggleCollapse, onClose }: 
       {/* Logo */}
       <div className={cn(
         'h-[52px] flex items-center justify-between flex-shrink-0 px-4',
-        'border-b border-slate-100',
+        'border-b border-slate-200/60',
       )}>
         {!collapsed ? (
           <>
@@ -165,8 +165,8 @@ export function OfficeSidebar({ collapsed = false, onToggleCollapse, onClose }: 
             'flex items-center rounded-xl text-[12.5px] font-medium transition-all duration-150',
             collapsed ? 'justify-center h-9 w-9 mx-auto' : 'gap-2.5 px-2.5 py-2',
             isActive
-              ? 'bg-slate-900 text-white shadow-sm'
-              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900',
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-500 hover:bg-white hover:text-slate-900',
           )}
         >
           <LayoutDashboard size={14} className="flex-shrink-0" />
@@ -189,7 +189,7 @@ export function OfficeSidebar({ collapsed = false, onToggleCollapse, onClose }: 
                     'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg',
                     'text-[10px] font-bold uppercase tracking-widest transition-colors duration-150',
                     hasActive ? 'text-slate-600' : 'text-slate-300',
-                    'hover:bg-slate-50 hover:text-slate-600',
+                    'hover:bg-white hover:text-slate-600',
                   )}
                 >
                   <span>{section.heading}</span>
@@ -199,7 +199,7 @@ export function OfficeSidebar({ collapsed = false, onToggleCollapse, onClose }: 
                   />
                 </button>
               ) : (
-                <div className="my-1.5 mx-2 border-t border-slate-100" />
+                <div className="my-1.5 mx-2 border-t border-slate-200/60" />
               )}
 
               {(isOpen || collapsed) && (
@@ -215,8 +215,8 @@ export function OfficeSidebar({ collapsed = false, onToggleCollapse, onClose }: 
                             'flex items-center rounded-xl text-[12px] transition-all duration-150',
                             collapsed ? 'justify-center h-9 w-9 mx-auto' : 'gap-2.5 px-2.5 py-[7px]',
                             isActive
-                              ? 'bg-slate-900 text-white font-semibold shadow-sm'
-                              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900 font-medium',
+                              ? 'bg-blue-600 text-white font-semibold shadow-sm'
+                              : 'text-slate-500 hover:bg-white hover:text-slate-900 font-medium',
                           )}
                         >
                           <span className="flex-shrink-0">{item.icon}</span>
@@ -233,7 +233,7 @@ export function OfficeSidebar({ collapsed = false, onToggleCollapse, onClose }: 
       </nav>
 
       {/* Hala produkcyjna */}
-      <div className="px-3 py-3 border-t border-slate-100 flex-shrink-0">
+      <div className="px-3 py-3 border-t border-slate-200/60 flex-shrink-0">
         {!collapsed && (
           <div className="px-2.5 mb-2">
             <span className="text-[9px] font-bold uppercase tracking-widest text-slate-300">Hala produkcyjna</span>
