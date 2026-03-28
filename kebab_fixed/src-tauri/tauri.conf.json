@@ -19,8 +19,7 @@
         "resizable": true,
         "fullscreen": false,
         "maximized": true,
-        "center": true,
-        "decorations": true
+        "center": true
       }
     ],
     "security": {
@@ -37,12 +36,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "publisher": "Kebab MES",
-    "copyright": "© 2025 Kebab MES",
-    "category": "BusinessApp",
-    "shortDescription": "System zarządzania produkcją kebaba",
     "windows": {
-      "digestAlgorithm": "sha256",
       "nsis": {
         "languages": ["Polish"],
         "displayLanguageSelector": false,
