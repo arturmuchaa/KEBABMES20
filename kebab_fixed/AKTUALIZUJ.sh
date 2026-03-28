@@ -59,6 +59,15 @@ echo "  Buduję frontend..."
 npm run build 2>&1 || err "npm run build nie powiodło się — sprawdź logi wyżej"
 ok "Frontend przebudowany → $APP_DIR/dist"
 
+# ── 5b. Synchronizuj backend do starej lokalizacji serwisu ──────
+# Serwis systemd używa WorkingDirectory=/opt/kebab/backend
+OLD_BACKEND="/opt/kebab/backend"
+if [ -d "$OLD_BACKEND" ]; then
+    cp "$APP_DIR/backend/server_pg.py" "$OLD_BACKEND/server_pg.py" 2>/dev/null \
+      && ok "Backend zsynchronizowany → $OLD_BACKEND/server_pg.py" \
+      || warn "Nie można skopiować do $OLD_BACKEND (pomijam)"
+fi
+
 # ── 6. Restart backendu ──────────────────────────────────────────
 echo "  Restartuję backend..."
 for svc in kebab-mes.service kebab.service kebabmes.service; do
