@@ -1,10 +1,12 @@
 import { useApi } from '@/hooks/useApi'
 import { rawBatchesApi, deboningApi, meatStockApi } from '@/lib/apiClient'
-import { KpiCard, SkeletonCard, SkeletonTable, EmptyState, PageHeader } from '@/components/ui/Card'
+import { StatCard, StatCardSkeleton } from '@/components/ui/StatCard'
+import { SkeletonTable, EmptyState, PageHeader } from '@/components/ui/Card'
 import { ExpiryBadge, StatusBadge, computeDisplayStatus } from '@/components/ui/Badge'
 import { fmtKg, fmtDatePl, fmtPct, getExpiryStatus, sortFefo, todayIso } from '@/lib/utils'
-import { AlertTriangle, Package, Beef, Scissors, TrendingUp, ArrowRight } from 'lucide-react'
+import { AlertTriangle, Package, Beef, Scissors, TrendingUp, ArrowRight, Activity } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { cn } from '@/lib/utils'
 
 export function DashboardPage() {
   const batchRes    = useApi(() => rawBatchesApi.list())
@@ -26,15 +28,19 @@ export function DashboardPage() {
   const critical      = activeBatches.filter(b => getExpiryStatus(b.expiryDate).daysLeft <= 1)
   const warnings      = activeBatches.filter(b => { const d = getExpiryStatus(b.expiryDate).daysLeft; return d >= 2 && d <= 3 })
 
+  const avgYield = todayDeb.length > 0
+    ? todayDeb.reduce((s, d) => s + Number(d.yieldPct), 0) / todayDeb.length
+    : 0
+
   if (loading) {
     return (
-      <div className="space-y-6 animate-fade-in">
-        <div className="h-8 w-40 bg-slate-100 rounded-lg animate-skeleton" />
+      <div className="space-y-7 animate-fade-in">
+        <div className="h-8 w-48 bg-slate-100 rounded-xl animate-skeleton" />
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-          <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
+          <StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton />
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-slate-100"><div className="h-4 w-40 bg-slate-100 rounded animate-skeleton" /></div>
+        <div className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm">
+          <div className="px-6 py-4 border-b border-slate-100"><div className="h-4 w-40 bg-slate-100 rounded animate-skeleton" /></div>
           <SkeletonTable rows={6} cols={5} />
         </div>
       </div>
@@ -42,97 +48,110 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-7 animate-fade-in">
 
       <PageHeader
         title="Dashboard"
         subtitle={new Date().toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
       />
 
-      {/* KPI row */}
+      {/* ── Stat cards (bundui style) ── */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <KpiCard label="Surowiec dostępny" value={fmtKg(totalKgAvail, 0)} unit="kg"
-          sub={`${activeBatches.length} partii aktywnych`} accent="blue" icon={<Package size={18} />} />
-        <KpiCard label="Magazyn mięsa" value={fmtKg(meatKg, 0)} unit="kg"
-          sub={`${allMeat.filter(m => m.status === 'AVAILABLE').length} lotów dostępnych`} accent="green" icon={<Beef size={18} />} />
-        <KpiCard label="Rozbiory dziś" value={todayDeb.length} unit="sesji"
-          sub={todayDeb.length > 0 ? `Śr. wydajność: ${fmtPct(todayDeb.reduce((s, d) => s + Number(d.yieldPct), 0) / todayDeb.length)}` : 'Brak sesji dzisiaj'}
-          accent="amber" icon={<Scissors size={18} />} />
-        <KpiCard label="Krytyczne FEFO" value={critical.length} unit="partii"
-          sub="Wygasa ≤ 1 dzień" accent={critical.length > 0 ? 'red' : 'green'} icon={<TrendingUp size={18} />} />
+        <StatCard
+          label="Surowiec dostępny"
+          value={Math.round(totalKgAvail)}
+          unit="kg"
+          sub={`${activeBatches.length} partii aktywnych`}
+          accent="blue"
+          icon={<Package size={16} />}
+        />
+        <StatCard
+          label="Magazyn mięsa"
+          value={Math.round(meatKg)}
+          unit="kg"
+          sub={`${allMeat.filter(m => m.status === 'AVAILABLE').length} lotów dostępnych`}
+          accent="green"
+          icon={<Beef size={16} />}
+        />
+        <StatCard
+          label="Rozbiory dziś"
+          value={todayDeb.length}
+          unit="sesji"
+          sub={avgYield > 0 ? `Śr. wydajność ${fmtPct(avgYield)}` : 'Brak sesji dzisiaj'}
+          accent="amber"
+          icon={<Scissors size={16} />}
+        />
+        <StatCard
+          label="Krytyczne FEFO"
+          value={critical.length}
+          unit="partii"
+          sub="Wygasa ≤ 1 dzień"
+          accent={critical.length > 0 ? 'red' : 'green'}
+          icon={<TrendingUp size={16} />}
+        />
       </div>
 
-      {/* Alerts */}
+      {/* ── Alert banners ── */}
       {critical.length > 0 && (
-        <div className="border border-red-200 bg-red-50 rounded-xl overflow-hidden">
-          <div className="px-5 py-3 border-b border-red-100 flex items-center gap-2">
-            <AlertTriangle size={13} className="text-red-500 flex-shrink-0" />
-            <span className="text-[12px] font-semibold text-red-700">Alerty FEFO — wymaga natychmiastowego działania</span>
-          </div>
-          <div className="divide-y divide-red-100">
-            {critical.map(b => {
-              const { daysLeft } = getExpiryStatus(b.expiryDate)
-              return (
-                <div key={b.id} className="px-5 py-2.5 flex items-center gap-3 text-[12px]">
-                  <span className="font-mono font-bold text-red-700 w-12">{b.internalBatchNo}</span>
-                  <span className="text-red-600 flex-1">{daysLeft < 0 ? 'Przeterminowana' : daysLeft === 0 ? 'Wygasa dziś' : 'Wygasa jutro'} — {fmtDatePl(b.expiryDate)}</span>
-                  <span className="font-semibold text-red-700">{fmtKg(b.kgAvailable)} kg</span>
-                </div>
-              )
-            })}
-          </div>
-        </div>
+        <AlertBanner
+          variant="danger"
+          title="Alerty FEFO — wymaga natychmiastowego działania"
+          items={critical.map(b => {
+            const { daysLeft } = getExpiryStatus(b.expiryDate)
+            return {
+              key: b.id,
+              batch: b.internalBatchNo,
+              label: daysLeft < 0 ? 'Przeterminowana' : daysLeft === 0 ? 'Wygasa dziś' : 'Wygasa jutro',
+              date: fmtDatePl(b.expiryDate),
+              kg: fmtKg(b.kgAvailable),
+            }
+          })}
+        />
       )}
       {warnings.length > 0 && (
-        <div className="border border-amber-200 bg-amber-50 rounded-xl overflow-hidden">
-          <div className="px-5 py-3 border-b border-amber-100 flex items-center gap-2">
-            <AlertTriangle size={13} className="text-amber-500 flex-shrink-0" />
-            <span className="text-[12px] font-semibold text-amber-700">Ostrzeżenia — wygasa w ciągu 3 dni</span>
-          </div>
-          <div className="divide-y divide-amber-100">
-            {warnings.map(b => {
-              const { daysLeft } = getExpiryStatus(b.expiryDate)
-              return (
-                <div key={b.id} className="px-5 py-2.5 flex items-center gap-3 text-[12px]">
-                  <span className="font-mono font-bold text-amber-700 w-12">{b.internalBatchNo}</span>
-                  <span className="text-amber-600 flex-1">Za {daysLeft} dni — {fmtDatePl(b.expiryDate)}</span>
-                  <span className="font-semibold text-amber-700">{fmtKg(b.kgAvailable)} kg</span>
-                </div>
-              )
-            })}
-          </div>
-        </div>
+        <AlertBanner
+          variant="warn"
+          title="Ostrzeżenia — wygasa w ciągu 3 dni"
+          items={warnings.map(b => {
+            const { daysLeft } = getExpiryStatus(b.expiryDate)
+            return {
+              key: b.id,
+              batch: b.internalBatchNo,
+              label: `Za ${daysLeft} ${daysLeft === 1 ? 'dzień' : 'dni'}`,
+              date: fmtDatePl(b.expiryDate),
+              kg: fmtKg(b.kgAvailable),
+            }
+          })}
+        />
       )}
 
-      {/* FEFO table */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-card">
-        <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <span className="text-[14px] font-semibold text-slate-900">Partie ćwiartki</span>
-            <span className="ml-2 text-[11px] text-slate-400">kolejność FEFO</span>
-          </div>
-          <Link to="/office/raw-batches" className="inline-flex items-center gap-1 text-[12px] font-medium text-slate-500 hover:text-slate-900 transition-colors">
-            Zarządzaj <ArrowRight size={12} />
-          </Link>
-        </div>
-        {fefoSorted.length === 0
-          ? <EmptyState icon={<Package size={32} />} title="Brak partii" message="Przyjmij pierwszą partię ćwiartki" />
-          : (
+      {/* ── Two-column tables on large screens ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
+
+        {/* FEFO table — wider */}
+        <div className="xl:col-span-3">
+          <DashTable
+            title="Partie ćwiartki"
+            badge="FEFO"
+            link={{ to: '/office/raw-batches', label: 'Zarządzaj' }}
+            empty={fefoSorted.length === 0}
+            emptyContent={<EmptyState icon={<Package size={28} />} title="Brak partii" message="Przyjmij pierwszą partię ćwiartki" />}
+          >
             <table className="w-full text-[12px]">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">Partia</th>
-                  <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">Dostawca</th>
-                  <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">Dostępne</th>
-                  <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">Ważność</th>
-                  <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">Status</th>
+                <tr className="bg-slate-50/80 border-b border-slate-100">
+                  <Th>Partia</Th>
+                  <Th>Dostawca</Th>
+                  <Th right>Dostępne</Th>
+                  <Th>Ważność</Th>
+                  <Th>Status</Th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-50">
                 {fefoSorted.map(b => (
-                  <tr key={b.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-5 py-3 font-mono font-bold text-slate-900">{b.internalBatchNo}</td>
-                    <td className="px-5 py-3 text-slate-600">{b.supplierName ?? '—'}</td>
+                  <tr key={b.id} className="hover:bg-blue-50/40 transition-colors">
+                    <td className="px-5 py-3 font-mono font-bold text-slate-900 text-[11px]">{b.internalBatchNo}</td>
+                    <td className="px-5 py-3 text-slate-500">{b.supplierName ?? '—'}</td>
                     <td className="px-5 py-3 text-right font-mono font-semibold text-slate-900">{fmtKg(b.kgAvailable)} kg</td>
                     <td className="px-5 py-3"><ExpiryBadge dateStr={b.expiryDate} /></td>
                     <td className="px-5 py-3"><StatusBadge status={computeDisplayStatus(b.expiryDate, Number(b.kgAvailable))} /></td>
@@ -140,50 +159,157 @@ export function DashboardPage() {
                 ))}
               </tbody>
             </table>
-          )}
-      </div>
-
-      {/* Recent deboning */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-card">
-        <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <span className="text-[14px] font-semibold text-slate-900">Ostatnie rozbiory</span>
-            <span className="ml-2 text-[11px] text-slate-400">{allDebonings.length} sesji łącznie</span>
-          </div>
-          <Link to="/office/deboning" className="inline-flex items-center gap-1 text-[12px] font-medium text-slate-500 hover:text-slate-900 transition-colors">
-            Wszystkie <ArrowRight size={12} />
-          </Link>
+          </DashTable>
         </div>
-        {allDebonings.length === 0
-          ? <EmptyState title="Brak sesji" message="Wykonaj pierwszy rozbiór na tablecie" />
-          : (
+
+        {/* Deboning summary — narrower */}
+        <div className="xl:col-span-2">
+          <DashTable
+            title="Ostatnie rozbiory"
+            badge={`${allDebonings.length} sesji`}
+            link={{ to: '/office/deboning', label: 'Wszystkie' }}
+            empty={allDebonings.length === 0}
+            emptyContent={<EmptyState title="Brak sesji" message="Wykonaj pierwszy rozbiór na tablecie" />}
+          >
             <table className="w-full text-[12px]">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">Nr sesji</th>
-                  <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">Partia</th>
-                  <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">Pracownik</th>
-                  <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">Ćwiartka</th>
-                  <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">Mięso</th>
-                  <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">Wydajność</th>
+                <tr className="bg-slate-50/80 border-b border-slate-100">
+                  <Th>Sesja</Th>
+                  <Th>Pracownik</Th>
+                  <Th right>Mięso</Th>
+                  <Th right>Wydajność</Th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-50">
                 {[...allDebonings].sort((a, b) => b.createdAt > a.createdAt ? 1 : -1).slice(0, 10).map(d => (
-                  <tr key={d.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-5 py-3 font-mono font-semibold text-blue-600">{d.sessionNo}</td>
-                    <td className="px-5 py-3 font-mono font-semibold text-slate-900">{d.rawBatchNo}</td>
-                    <td className="px-5 py-3 text-slate-600">{d.workerName ?? '—'}</td>
-                    <td className="px-5 py-3 text-right font-mono font-semibold text-slate-900">{fmtKg(Number(d.kgTaken), 1)} kg</td>
-                    <td className="px-5 py-3 text-right font-mono text-slate-600">{fmtKg(Number(d.kgMeat), 1)} kg</td>
+                  <tr key={d.id} className="hover:bg-blue-50/40 transition-colors">
+                    <td className="px-5 py-3">
+                      <span className="font-mono font-semibold text-blue-600 text-[11px]">{d.sessionNo}</span>
+                      <div className="text-[10px] text-slate-400 font-mono">{d.rawBatchNo}</div>
+                    </td>
+                    <td className="px-5 py-3 text-slate-500 truncate max-w-[80px]">{d.workerName ?? '—'}</td>
+                    <td className="px-5 py-3 text-right font-mono text-slate-700">{fmtKg(Number(d.kgMeat), 1)}</td>
                     <td className="px-5 py-3 text-right font-mono font-semibold text-slate-900">{fmtPct(d.yieldPct)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          )}
-      </div>
+          </DashTable>
+        </div>
 
+      </div>
+    </div>
+  )
+}
+
+// ── Sub-components ─────────────────────────────────────────────
+
+function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
+  return (
+    <th className={cn(
+      'px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-400',
+      right ? 'text-right' : 'text-left',
+    )}>
+      {children}
+    </th>
+  )
+}
+
+interface DashTableProps {
+  title: string
+  badge?: string
+  link?: { to: string; label: string }
+  empty: boolean
+  emptyContent: React.ReactNode
+  children: React.ReactNode
+}
+
+function DashTable({ title, badge, link, empty, emptyContent, children }: DashTableProps) {
+  return (
+    <div className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm h-full">
+      {/* Header */}
+      <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Activity size={13} className="text-slate-400" />
+          <span className="text-[13px] font-semibold text-slate-900">{title}</span>
+          {badge && (
+            <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-100 rounded-md">
+              {badge}
+            </span>
+          )}
+        </div>
+        {link && (
+          <Link
+            to={link.to}
+            className="inline-flex items-center gap-1 text-[11.5px] font-medium text-blue-600 hover:text-blue-800 transition-colors"
+          >
+            {link.label} <ArrowRight size={11} />
+          </Link>
+        )}
+      </div>
+      {empty ? emptyContent : (
+        <div className="overflow-x-auto">{children}</div>
+      )}
+    </div>
+  )
+}
+
+interface AlertItem {
+  key: string | number
+  batch: string
+  label: string
+  date: string
+  kg: string
+}
+
+function AlertBanner({ variant, title, items }: {
+  variant: 'danger' | 'warn'
+  title: string
+  items: AlertItem[]
+}) {
+  const isDanger = variant === 'danger'
+  return (
+    <div className={cn(
+      'rounded-2xl overflow-hidden border',
+      isDanger ? 'border-red-200/80 bg-red-50/60' : 'border-amber-200/80 bg-amber-50/60',
+    )}>
+      <div className={cn(
+        'px-5 py-3.5 border-b flex items-center gap-2.5',
+        isDanger ? 'border-red-100 bg-red-50' : 'border-amber-100 bg-amber-50',
+      )}>
+        <AlertTriangle size={13} className={isDanger ? 'text-red-500' : 'text-amber-500'} />
+        <span className={cn(
+          'text-[12px] font-semibold',
+          isDanger ? 'text-red-800' : 'text-amber-800',
+        )}>{title}</span>
+        <span className={cn(
+          'ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold',
+          isDanger ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700',
+        )}>
+          {items.length}
+        </span>
+      </div>
+      <div className="divide-y divide-red-100/60">
+        {items.map(item => (
+          <div key={item.key} className="px-5 py-2.5 flex items-center gap-3 text-[12px]">
+            <span className={cn(
+              'font-mono font-bold text-[11px] w-14 flex-shrink-0',
+              isDanger ? 'text-red-800' : 'text-amber-800',
+            )}>
+              {item.batch}
+            </span>
+            <span className={cn('flex-1', isDanger ? 'text-red-700' : 'text-amber-700')}>
+              {item.label} — {item.date}
+            </span>
+            <span className={cn(
+              'font-mono font-semibold',
+              isDanger ? 'text-red-800' : 'text-amber-800',
+            )}>
+              {item.kg} kg
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

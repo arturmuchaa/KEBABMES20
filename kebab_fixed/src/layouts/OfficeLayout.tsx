@@ -34,17 +34,17 @@ interface QuickAction {
   label: string
   icon: React.ReactNode
   to: string
-  shortcutKey: string     // 'k', 'd', 'p', etc.
-  shortcutHint: string    // display string 'Alt+K'
+  shortcutKey: string
+  shortcutHint: string
   external?: boolean
 }
 
 const QUICK_ACTIONS: QuickAction[] = [
-  { label: 'Nowy kontrahent',    icon: <Building2 size={13} />, to: '/office/kontrahenci',          shortcutKey: 'k', shortcutHint: 'Alt+K' },
-  { label: 'Nowy dostawca',      icon: <Truck size={13} />,     to: '/office/dostawcy',              shortcutKey: 'd', shortcutHint: 'Alt+D' },
-  { label: 'Przyjęcie ćwiartki', icon: <Package size={13} />,   to: '/office/raw-batches',           shortcutKey: 'p', shortcutHint: 'Alt+P' },
-  { label: 'Nowy rozbiór',       icon: <Scissors size={13} />,  to: '/tablet/rozbior',               shortcutKey: 'r', shortcutHint: 'Alt+R', external: true },
-  { label: 'Produkcja',          icon: <Factory size={13} />,   to: '/office/planowanie-produkcji',  shortcutKey: 'f', shortcutHint: 'Alt+F' },
+  { label: 'Nowy kontrahent',    icon: <Building2 size={12} />, to: '/office/kontrahenci',          shortcutKey: 'k', shortcutHint: 'Alt+K' },
+  { label: 'Nowy dostawca',      icon: <Truck size={12} />,     to: '/office/dostawcy',              shortcutKey: 'd', shortcutHint: 'Alt+D' },
+  { label: 'Przyjęcie ćwiartki', icon: <Package size={12} />,   to: '/office/raw-batches',           shortcutKey: 'p', shortcutHint: 'Alt+P' },
+  { label: 'Nowy rozbiór',       icon: <Scissors size={12} />,  to: '/tablet/rozbior',               shortcutKey: 'r', shortcutHint: 'Alt+R', external: true },
+  { label: 'Produkcja',          icon: <Factory size={12} />,   to: '/office/planowanie-produkcji',  shortcutKey: 'f', shortcutHint: 'Alt+F' },
 ]
 
 // ── Quick action bar ───────────────────────────────────────────
@@ -69,8 +69,8 @@ function QuickActionBar() {
   }, [navigate])
 
   return (
-    <div className="h-9 bg-slate-50 border-b border-slate-100 flex items-center px-4 gap-0.5 flex-shrink-0">
-      <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-900-5 pr-2 border-r border-slate-200 mr-1.5 select-none">
+    <div className="h-9 bg-white border-b border-slate-100 flex items-center px-4 gap-0.5 flex-shrink-0">
+      <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-300 pr-3 border-r border-slate-100 mr-1.5 select-none whitespace-nowrap">
         Szybki dostęp
       </span>
 
@@ -80,28 +80,28 @@ function QuickActionBar() {
           onClick={() => action.external ? (window.location.href = action.to) : navigate(action.to)}
           title={action.shortcutHint}
           className={cn(
-            'group inline-flex items-center gap-1.5 h-6 px-2.5 rounded text-[12px] font-medium',
-            'text-slate-900-3 hover:text-slate-900 hover:bg-slate-50',
-            'transition-colors duration-150',
+            'group inline-flex items-center gap-1.5 h-6 px-2.5 rounded-lg text-[11.5px] font-medium',
+            'text-slate-500 hover:text-slate-900 hover:bg-slate-50',
+            'transition-all duration-150',
           )}
         >
-          <span className="text-slate-900-4 group-hover:text-brand transition-colors">{action.icon}</span>
+          <span className="text-slate-400 group-hover:text-blue-500 transition-colors">{action.icon}</span>
           <span>{action.label}</span>
           <kbd className={cn(
             'ml-0.5 hidden group-hover:inline-flex items-center',
-            'px-1 text-[9px] font-mono text-slate-900-4 bg-slate-50 border border-slate-200 rounded',
+            'px-1.5 text-[9px] font-mono text-slate-400 bg-slate-100 border border-slate-200 rounded-md',
           )}>
             {action.shortcutHint}
           </kbd>
         </button>
       ))}
 
-      <div className="ml-auto flex items-center gap-1">
+      <div className="ml-auto flex items-center gap-2">
         <button
           onClick={() => navigate('/office/raw-batches')}
-          className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded text-[12px] font-medium bg-slate-900 text-white hover:bg-slate-800 transition-colors"
+          className="inline-flex items-center gap-1.5 h-6 px-3 rounded-lg text-[11.5px] font-semibold bg-slate-900 text-white hover:bg-slate-700 transition-colors shadow-sm"
         >
-          <Plus size={11} />
+          <Plus size={10} />
           Nowe przyjęcie
         </button>
       </div>
@@ -131,11 +131,11 @@ export function OfficeLayout() {
   }, [])
 
   return (
-    <div className="flex h-full bg-slate-50 text-slate-900">
+    <div className="flex h-full bg-[#f8fafc] text-slate-900">
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/30 md:hidden"
+          className="fixed inset-0 z-30 bg-black/20 backdrop-blur-[2px] md:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -145,7 +145,7 @@ export function OfficeLayout() {
         'fixed md:relative z-40 h-full transition-all duration-200 flex-shrink-0',
         'md:translate-x-0',
         mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
-        sidebarCollapsed ? 'md:w-14' : 'md:w-56',
+        sidebarCollapsed ? 'md:w-[60px]' : 'md:w-[228px]',
       )}>
         <OfficeSidebar
           collapsed={sidebarCollapsed}
@@ -158,7 +158,7 @@ export function OfficeLayout() {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
         {/* Topbar */}
-        <header className="h-12 bg-white border-b border-slate-100 flex items-center justify-between px-5 flex-shrink-0">
+        <header className="h-[52px] bg-white border-b border-slate-100 flex items-center justify-between px-5 flex-shrink-0 shadow-[0_1px_0_0_rgba(0,0,0,.04)]">
           <div className="flex items-center gap-3">
             <button
               className="md:hidden p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
@@ -166,16 +166,18 @@ export function OfficeLayout() {
             >
               {mobileOpen ? <X size={15} /> : <Menu size={15} />}
             </button>
-            <h1 className="text-[13px] font-semibold text-slate-900 tracking-tight">{title}</h1>
+            <div>
+              <h1 className="text-[13.5px] font-semibold text-slate-900 leading-tight">{title}</h1>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             {/* Connection status */}
             <div className={cn(
-              'hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border',
+              'hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-semibold border',
               online
-                ? 'text-emerald-700 bg-emerald-50 border-emerald-100'
-                : 'text-red-600 bg-red-50 border-red-100'
+                ? 'text-emerald-700 bg-emerald-50 border-emerald-200/60'
+                : 'text-red-600 bg-red-50 border-red-200/60'
             )}>
               {online
                 ? <><Wifi size={9} /><span>Online</span></>
@@ -184,12 +186,15 @@ export function OfficeLayout() {
             </div>
 
             {/* Date */}
-            <span className="text-[11px] text-slate-400 hidden md:block font-medium">
+            <span className="text-[11px] text-slate-400 hidden md:block font-medium tabular-nums">
               {new Date().toLocaleDateString('pl-PL', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
             </span>
 
-            {/* User */}
-            <div className="w-7 h-7 rounded-full bg-slate-900 flex items-center justify-center text-[10px] font-bold text-white select-none">
+            {/* Separator */}
+            <div className="w-px h-4 bg-slate-200 hidden sm:block" />
+
+            {/* User avatar */}
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center text-[10px] font-bold text-white select-none shadow-sm cursor-default">
               AM
             </div>
           </div>
@@ -199,7 +204,7 @@ export function OfficeLayout() {
         <QuickActionBar />
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto p-5 md:p-6 scrollbar-thin">
+        <main className="flex-1 overflow-y-auto p-5 md:p-7 scrollbar-thin">
           <Outlet />
         </main>
       </div>

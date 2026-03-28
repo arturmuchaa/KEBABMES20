@@ -69,7 +69,6 @@ const TABLET_LINKS = [
   { to: '/tablet/produkcja', label: 'Produkcja', icon: <Monitor size={13} /> },
 ]
 
-// Sections open by default
 const DEFAULT_OPEN = new Set(['magazyny', 'produkcja'])
 
 interface OfficeSidebarProps {
@@ -101,25 +100,25 @@ export function OfficeSidebar({ collapsed = false, onToggleCollapse, onClose }: 
     <aside className={cn(
       'h-full flex flex-col bg-white border-r border-slate-100',
       'overflow-y-auto overflow-x-hidden scrollbar-thin transition-all duration-200',
-      collapsed ? 'w-14' : 'w-[220px]',
+      collapsed ? 'w-[60px]' : 'w-[228px]',
     )}>
 
-      {/* Logo row */}
+      {/* Logo */}
       <div className={cn(
-        'h-12 flex items-center justify-between flex-shrink-0 px-4',
+        'h-[52px] flex items-center justify-between flex-shrink-0 px-4',
         'border-b border-slate-100',
       )}>
         {!collapsed ? (
           <>
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-7 h-7 bg-slate-900 rounded-lg flex items-center justify-center flex-shrink-0">
+              <div className="w-7 h-7 bg-gradient-to-br from-slate-800 to-slate-950 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
                 <LayoutDashboard size={13} className="text-white" />
               </div>
               <div className="min-w-0">
-                <span className="text-[13px] font-bold text-slate-900 tracking-tight leading-none block">
-                  Kebab <span className="text-brand">MES</span>
+                <span className="text-[13.5px] font-bold text-slate-900 tracking-tight leading-none block">
+                  Kebab <span className="text-blue-600">MES</span>
                 </span>
-                <span className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">v2.3.0</span>
+                <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">v2.3.0</span>
               </div>
             </div>
             <div className="flex items-center gap-1">
@@ -132,41 +131,41 @@ export function OfficeSidebar({ collapsed = false, onToggleCollapse, onClose }: 
                 <button
                   onClick={onToggleCollapse}
                   title="Zwiń panel"
-                  className="hidden md:flex p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors"
+                  className="hidden md:flex p-1.5 text-slate-300 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
                 >
-                  <ChevronLeft size={14} />
+                  <ChevronLeft size={13} />
                 </button>
               )}
             </div>
           </>
         ) : (
           <div className="w-full flex items-center justify-center gap-1">
-            <div className="w-7 h-7 bg-slate-900 rounded-lg flex items-center justify-center">
+            <div className="w-7 h-7 bg-gradient-to-br from-slate-800 to-slate-950 rounded-lg flex items-center justify-center shadow-sm">
               <LayoutDashboard size={13} className="text-white" />
             </div>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
                 title="Rozwiń panel"
-                className="hidden md:flex p-0.5 text-slate-400 hover:text-brand transition-colors"
+                className="hidden md:flex p-0.5 text-slate-400 hover:text-blue-600 transition-colors"
               >
-                <ChevronRight size={13} />
+                <ChevronRight size={12} />
               </button>
             )}
           </div>
         )}
       </div>
 
-      {/* Dashboard */}
+      {/* Dashboard link */}
       <div className="px-3 pt-3 pb-1">
         <NavLink
           to="/office/dashboard"
           title={collapsed ? 'Dashboard' : undefined}
           className={({ isActive }) => cn(
-            'flex items-center rounded-lg text-[12.5px] font-medium transition-all',
+            'flex items-center rounded-xl text-[12.5px] font-medium transition-all duration-150',
             collapsed ? 'justify-center h-9 w-9 mx-auto' : 'gap-2.5 px-2.5 py-2',
             isActive
-              ? 'bg-slate-900 text-white'
+              ? 'bg-slate-900 text-white shadow-sm'
               : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900',
           )}
         >
@@ -182,31 +181,29 @@ export function OfficeSidebar({ collapsed = false, onToggleCollapse, onClose }: 
           const hasActive = section.items.some(i => pathname.startsWith(i.to))
 
           return (
-            <div key={section.id} className="mt-1">
-              {/* Section heading — clickable toggle */}
+            <div key={section.id} className="mt-1.5">
               {!collapsed ? (
                 <button
                   onClick={() => toggleSection(section.id)}
                   className={cn(
-                    'w-full flex items-center justify-between px-2.5 py-1.5 rounded-md',
-                    'text-[10px] font-bold uppercase tracking-widest transition-colors',
-                    hasActive ? 'text-slate-700' : 'text-slate-400',
-                    'hover:bg-slate-50 hover:text-slate-700',
+                    'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg',
+                    'text-[10px] font-bold uppercase tracking-widest transition-colors duration-150',
+                    hasActive ? 'text-slate-600' : 'text-slate-300',
+                    'hover:bg-slate-50 hover:text-slate-600',
                   )}
                 >
                   <span>{section.heading}</span>
                   <ChevronDown
-                    size={11}
-                    className={cn('transition-transform duration-200 text-slate-400', isOpen ? 'rotate-0' : '-rotate-90')}
+                    size={10}
+                    className={cn('transition-transform duration-200', isOpen ? 'rotate-0' : '-rotate-90')}
                   />
                 </button>
               ) : (
-                <div className="my-2 mx-2 border-t border-slate-100" />
+                <div className="my-1.5 mx-2 border-t border-slate-100" />
               )}
 
-              {/* Section items */}
               {(isOpen || collapsed) && (
-                <ul className="space-y-0.5 mt-0.5">
+                <ul className="space-y-px mt-0.5">
                   {section.items.map(item => {
                     const isActive = pathname === item.to || pathname.startsWith(item.to + '/')
                     return (
@@ -215,10 +212,10 @@ export function OfficeSidebar({ collapsed = false, onToggleCollapse, onClose }: 
                           to={item.to}
                           title={collapsed ? item.label : undefined}
                           className={cn(
-                            'flex items-center rounded-lg text-[12px] transition-all',
-                            collapsed ? 'justify-center h-9 w-9 mx-auto' : 'gap-2.5 px-2.5 py-1.5',
+                            'flex items-center rounded-xl text-[12px] transition-all duration-150',
+                            collapsed ? 'justify-center h-9 w-9 mx-auto' : 'gap-2.5 px-2.5 py-[7px]',
                             isActive
-                              ? 'bg-slate-900 text-white font-semibold'
+                              ? 'bg-slate-900 text-white font-semibold shadow-sm'
                               : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900 font-medium',
                           )}
                         >
@@ -235,27 +232,30 @@ export function OfficeSidebar({ collapsed = false, onToggleCollapse, onClose }: 
         })}
       </nav>
 
-      {/* Tablet / Hala links */}
+      {/* Hala produkcyjna */}
       <div className="px-3 py-3 border-t border-slate-100 flex-shrink-0">
         {!collapsed && (
-          <div className="px-2.5 mb-1.5">
-            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Hala produkcyjna</span>
+          <div className="px-2.5 mb-2">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-300">Hala produkcyjna</span>
           </div>
         )}
-        {TABLET_LINKS.map(item => (
-          <a
-            key={item.to}
-            href={item.to}
-            title={collapsed ? item.label : undefined}
-            className={cn(
-              'flex items-center rounded-lg text-[12px] font-medium text-slate-400 hover:text-brand hover:bg-slate-50 transition-colors',
-              collapsed ? 'justify-center h-9 w-9 mx-auto my-0.5' : 'gap-2.5 px-2.5 py-1.5',
-            )}
-          >
-            <span className="flex-shrink-0">{item.icon}</span>
-            {!collapsed && <span className="truncate">{item.label}</span>}
-          </a>
-        ))}
+        <ul className="space-y-px">
+          {TABLET_LINKS.map(item => (
+            <li key={item.to}>
+              <a
+                href={item.to}
+                title={collapsed ? item.label : undefined}
+                className={cn(
+                  'flex items-center rounded-xl text-[12px] font-medium text-slate-400 hover:text-blue-600 hover:bg-blue-50/60 transition-all duration-150',
+                  collapsed ? 'justify-center h-9 w-9 mx-auto' : 'gap-2.5 px-2.5 py-[7px]',
+                )}
+              >
+                <span className="flex-shrink-0">{item.icon}</span>
+                {!collapsed && <span className="truncate">{item.label}</span>}
+              </a>
+            </li>
+          ))}
+        </ul>
       </div>
     </aside>
   )
