@@ -1,56 +1,65 @@
 #!/bin/bash
 # ================================================================
 #  KEBAB MES — Aktualizacja VPS
-#  Nginx serwuje z: /opt/kebab/kebab_fixed/dist
 #  Uruchom: bash /opt/kebab/kebab_fixed/AKTUALIZUJ.sh
 # ================================================================
 
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; RED='\033[0;31m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}  ✓ $1${NC}"; }
 warn() { echo -e "${YELLOW}  ⚠ $1${NC}"; }
+err()  { echo -e "${RED}  ✗ BŁĄD: $1${NC}"; exit 1; }
 
 BRANCH="claude/redesign-dashboard-ui-gNVuD"
 REPO="https://github.com/arturmuchaa/KEBABMES20.git"
+TMP_DIR="/tmp/_kebab_update"
 
-# Katalog z kodem źródłowym = /opt/kebab/kebab_fixed
+# Katalog gdzie zbudujemy i gdzie nginx szuka dist/
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Korzeń repozytorium = /opt/kebab
-REPO_DIR="$(dirname "$APP_DIR")"
 
 echo ""
 echo -e "${BOLD}  Kebab MES — Aktualizacja${NC}"
-echo -e "  Katalog aplikacji: $APP_DIR"
+echo -e "  Katalog aplikacji: ${BOLD}$APP_DIR${NC}"
+echo -e "  Branch: ${BOLD}$BRANCH${NC}"
 echo ""
 
-# ── 1. Git pull ──────────────────────────────────────────────────
+# ── 1. Pobierz kod do /tmp ───────────────────────────────────────
 echo "  Pobieram kod z GitHub..."
-cd "$REPO_DIR"
-[ ! -d .git ] && git init -q && git remote add origin "$REPO" 2>/dev/null
-git remote set-url origin "$REPO" 2>/dev/null || true
-git fetch origin "$BRANCH" -q
-git reset --hard "origin/$BRANCH" -q
-ok "Kod pobrany (branch: $BRANCH)"
+rm -rf "$TMP_DIR"
+git clone --depth 1 --branch "$BRANCH" "$REPO" "$TMP_DIR" -q \
+  || err "Nie można pobrać repo. Sprawdź połączenie z internetem."
+ok "Kod pobrany"
 
-# ── 2. Zachowaj .env.local jeśli istnieje ────────────────────────
-if [ ! -f "$APP_DIR/.env.local" ]; then
-    echo "VITE_API_URL=" > "$APP_DIR/.env.local"
-fi
+# ── 2. Zachowaj .env.local i backend/.env ────────────────────────
+[ -f "$APP_DIR/.env.local" ]     && cp "$APP_DIR/.env.local"     /tmp/_kebab_env_local
+[ -f "$APP_DIR/backend/.env" ]   && cp "$APP_DIR/backend/.env"   /tmp/_kebab_env_backend
 
-# Zachowaj backend/.env
-if [ -f "$APP_DIR/backend/.env" ]; then
-    cp "$APP_DIR/backend/.env" /tmp/_kebab_env_bkp
-    ok "Backup .env zachowany"
-fi
-[ -f /tmp/_kebab_env_bkp ] && cp /tmp/_kebab_env_bkp "$APP_DIR/backend/.env"
+# ── 3. Skopiuj nowy kod do APP_DIR ──────────────────────────────
+echo "  Aktualizuję pliki w $APP_DIR..."
+rsync -a --delete \
+  --exclude='.env.local' \
+  --exclude='backend/.env' \
+  --exclude='node_modules/' \
+  --exclude='dist/' \
+  --exclude='.venv/' \
+  "$TMP_DIR/kebab_fixed/" "$APP_DIR/"
+ok "Pliki zaktualizowane"
 
-# ── 3. Build frontendu w /opt/kebab/kebab_fixed ──────────────────
-echo "  Buduję frontend w $APP_DIR..."
+# ── 4. Przywróć .env ─────────────────────────────────────────────
+[ -f /tmp/_kebab_env_local ]   && cp /tmp/_kebab_env_local   "$APP_DIR/.env.local"
+[ -f /tmp/_kebab_env_backend ] && cp /tmp/_kebab_env_backend "$APP_DIR/backend/.env"
+[ ! -f "$APP_DIR/.env.local" ] && echo "VITE_API_URL=" > "$APP_DIR/.env.local"
+
+# ── 5. Build frontendu ───────────────────────────────────────────
+echo "  Instaluję zależności npm..."
 cd "$APP_DIR"
-npm install --legacy-peer-deps -q 2>/dev/null || npm install -q
-npm run build
-ok "Frontend przebudowany (dist: $APP_DIR/dist)"
+npm install --legacy-peer-deps -q 2>&1 | tail -3
+ok "npm install gotowy"
 
-# ── 4. Restart backendu ──────────────────────────────────────────
+echo "  Buduję frontend..."
+npm run build 2>&1 || err "npm run build nie powiodło się — sprawdź logi wyżej"
+ok "Frontend przebudowany → $APP_DIR/dist"
+
+# ── 6. Restart backendu ──────────────────────────────────────────
 echo "  Restartuję backend..."
 for svc in kebab-mes.service kebab.service kebabmes.service; do
     if systemctl is-active --quiet "$svc" 2>/dev/null; then
@@ -58,9 +67,12 @@ for svc in kebab-mes.service kebab.service kebabmes.service; do
     fi
 done
 
-# ── 5. Nginx reload ──────────────────────────────────────────────
-systemctl reload nginx 2>/dev/null && ok "Nginx przeładowany" || true
+# ── 7. Nginx reload ──────────────────────────────────────────────
+nginx -t 2>/dev/null && systemctl reload nginx && ok "Nginx przeładowany" || warn "Nginx reload pominięty"
+
+# ── Cleanup ──────────────────────────────────────────────────────
+rm -rf "$TMP_DIR" /tmp/_kebab_env_local /tmp/_kebab_env_backend
 
 echo ""
-echo -e "${GREEN}${BOLD}  ✓ Gotowe! Odśwież przeglądarkę (tryb incognito).${NC}"
+echo -e "${GREEN}${BOLD}  ✓ Gotowe! Odśwież przeglądarkę (Ctrl+Shift+R lub tryb incognito).${NC}"
 echo ""
