@@ -6,6 +6,7 @@ name: Build Windows Installer — Kebab MES
 on:
   push:
     branches:
+      - claude/redesign-dashboard-ui-gNVuD
       - claude/add-traceability-system-UxumS
       - claude/redesign-admin-ui-mOZG9
       - main
