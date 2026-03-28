@@ -1919,8 +1919,9 @@ def vies_lookup(vat: str):
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = _js.loads(resp.read().decode())
-        name = data.get("traderName") or ""
-        addr = data.get("traderAddress") or ""
+        # EC VIES REST zwraca pola: name, address, isValid
+        name = data.get("name") or data.get("traderName") or ""
+        addr = data.get("address") or data.get("traderAddress") or ""
         return {
             "vatNumber":     cc + vn,
             "countryCode":   cc,
