@@ -59,14 +59,113 @@ echo "  Buduję frontend..."
 npm run build 2>&1 || err "npm run build nie powiodło się — sprawdź logi wyżej"
 ok "Frontend przebudowany → $APP_DIR/dist"
 
-# ── 5b. Synchronizuj backend do starej lokalizacji serwisu ──────
+# ── 5b. Patch VIES + synchronizuj backend do lokalizacji serwisu ─
 # Serwis systemd używa WorkingDirectory=/opt/kebab/backend
 OLD_BACKEND="/opt/kebab/backend"
-if [ -d "$OLD_BACKEND" ]; then
-    cp "$APP_DIR/backend/server_pg.py" "$OLD_BACKEND/server_pg.py" 2>/dev/null \
-      && ok "Backend zsynchronizowany → $OLD_BACKEND/server_pg.py" \
-      || warn "Nie można skopiować do $OLD_BACKEND (pomijam)"
-fi
+
+echo "  Aktualizuję endpoint VIES w backendzie..."
+python3 << 'VIES_PATCH'
+import re, sys
+
+VIES_CODE = '''
+# ─── VIES API — EC SOAP (primary) + viesapi.eu (fallback) ──────
+VIESAPI_ID  = "MyDWn3QuH2rJ"
+VIESAPI_KEY = "1cVi2cO97cKT"
+
+def _vies_soap(cc, vn):
+    import urllib.request, re as r2
+    soap = (
+        "<?xml version=\\"1.0\\" encoding=\\"UTF-8\\"?>"
+        "<soapenv:Envelope xmlns:soapenv=\\"http://schemas.xmlsoap.org/soap/envelope/\\">"
+        "<soapenv:Body>"
+        "<checkVat xmlns=\\"urn:ec.europa.eu:taxud:vies:services:checkVat:types\\">"
+        f"<countryCode>{cc}</countryCode><vatNumber>{vn}</vatNumber>"
+        "</checkVat></soapenv:Body></soapenv:Envelope>"
+    )
+    req = urllib.request.Request(
+        "https://ec.europa.eu/taxation_customs/vies/services/checkVatService",
+        data=soap.encode(), method="POST"
+    )
+    req.add_header("Content-Type", "text/xml; charset=UTF-8")
+    req.add_header("SOAPAction", "")
+    req.add_header("User-Agent", "KebabMES/2.3")
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        xml = resp.read().decode()
+    def t(n):
+        m = r2.search(rf"<(?:ns2:)?{n}>(.*?)</(?:ns2:)?{n}>", xml, r2.DOTALL)
+        return m.group(1).strip() if m else ""
+    name = t("traderName"); addr = t("traderAddress")
+    return {"vatNumber": cc+vn, "countryCode": cc,
+            "traderName": "" if name=="---" else name,
+            "traderAddress": "" if addr=="---" else addr,
+            "valid": t("valid")=="true"}
+
+def _vies_viesapi(cc, vn):
+    import urllib.request, hmac as h, hashlib, base64, time, os as o2, re as r2
+    vat = cc+vn; path = f"/api/get/vies/euvat/{vat}"
+    ts = int(time.time()); nonce = o2.urandom(4).hex()
+    msg = f"{ts}\\n{nonce}\\nGET\\n{path}\\nviesapi.eu\\n443\\n\\n"
+    mac = base64.b64encode(h.new(VIESAPI_KEY.encode(), msg.encode(), hashlib.sha256).digest()).decode()
+    auth = f\'MAC id="{VIESAPI_ID}", ts="{ts}", nonce="{nonce}", mac="{mac}"\'
+    req = urllib.request.Request(f"https://viesapi.eu{path}", method="GET")
+    req.add_header("Authorization", auth)
+    req.add_header("Accept", "text/xml")
+    req.add_header("User-Agent", "KebabMES/2.3")
+    with urllib.request.urlopen(req, timeout=12) as resp:
+        xml = resp.read().decode()
+    def xt(n):
+        m = r2.search(rf"<{n}>(.*?)</{n}>", xml, r2.DOTALL)
+        return m.group(1).strip() if m else ""
+    name = xt("traderName"); addr = xt("traderAddress")
+    rc = xt("countryCode") or cc; rv = xt("vatNumber") or vn
+    return {"vatNumber": rc+rv, "countryCode": rc,
+            "traderName": "" if name=="---" else name,
+            "traderAddress": "" if addr=="---" else addr,
+            "valid": xt("valid").lower()=="true"}
+
+@app.get("/api/vies/lookup")
+def vies_lookup(vat: str):
+    vat = vat.strip().upper().replace(" ","").replace("-","")
+    if len(vat) < 4: raise HTTPException(400, "Za krotki numer VAT")
+    cc = vat[:2]; vn = vat[2:]
+    if not cc.isalpha() or len(vn)<2: raise HTTPException(400, "Nieprawidlowy VAT-UE np. DE123456789")
+    last = ""
+    try:
+        return _vies_soap(cc, vn)
+    except Exception as e:
+        last = str(e)
+    try:
+        return _vies_viesapi(cc, vn)
+    except Exception as e:
+        last = str(e)
+    raise HTTPException(502, f"Blad VIES: {last[:200]}")
+'''
+
+for path in [
+    "/opt/kebab/kebab_fixed/backend/server_pg.py",
+    "/opt/kebab/backend/server_pg.py",
+]:
+    try:
+        with open(path) as f:
+            src = f.read()
+        # Usuń stary blok VIES
+        cleaned = re.sub(
+            r'\n# ─+[^\n]*VIES[^\n]*\n.*?(?=\n# ─|\n# ==|\Z)',
+            '',
+            src,
+            flags=re.DOTALL
+        )
+        # Dołącz nowy blok
+        out = cleaned.rstrip() + '\n' + VIES_CODE
+        with open(path, 'w') as f:
+            f.write(out)
+        print(f"  OK: {path}")
+    except FileNotFoundError:
+        print(f"  POMINIĘTO (brak pliku): {path}")
+    except Exception as e:
+        print(f"  BŁĄD {path}: {e}", file=sys.stderr)
+VIES_PATCH
+ok "Endpoint VIES zaktualizowany"
 
 # ── 6. Restart backendu ──────────────────────────────────────────
 echo "  Restartuję backend..."
