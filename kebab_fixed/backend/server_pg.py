@@ -1943,28 +1943,39 @@ def vies_lookup(vat: str):
     try:
         req = urllib.request.Request(url, method="GET")
         req.add_header("Authorization", auth_header)
-        req.add_header("Accept", "application/json")
+        req.add_header("Accept", "text/xml")
         req.add_header("User-Agent", "KebabMES/2.3")
 
         with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+            xml = resp.read().decode("utf-8")
 
-        # viesapi.eu zwraca {uid, countryCode, vatNumber, valid, traderName, traderAddress, ...}
-        if isinstance(data, dict) and "error" in data:
-            err = data["error"]
-            raise HTTPException(502, f"VIES API blad {err.get('code')}: {err.get('description')}")
+        import re as _re
+        def xtag(name):
+            m = _re.search(rf'<{name}>(.*?)</{name}>', xml, _re.DOTALL)
+            return m.group(1).strip() if m else ""
 
-        trader_name = data.get("traderName") or ""
-        trader_addr = data.get("traderAddress") or ""
+        # Sprawdz czy to blad
+        err_code = xtag("code")
+        err_desc = xtag("description")
+        if err_code and err_desc:
+            raise HTTPException(502, f"VIES API blad {err_code}: {err_desc}")
+
+        # Parsuj dane VIES z XML: <result><vies>...</vies></result>
+        valid_str   = xtag("valid")
+        trader_name = xtag("traderName")
+        trader_addr = xtag("traderAddress")
+        resp_vat    = xtag("vatNumber") or vat_number
+        resp_cc     = xtag("countryCode") or country_code
+
         if trader_name == "---": trader_name = ""
         if trader_addr == "---": trader_addr = ""
 
         return {
-            "vatNumber":     data.get("vatNumber", vat),
-            "countryCode":   data.get("countryCode", country_code),
+            "vatNumber":     resp_cc + resp_vat,
+            "countryCode":   resp_cc,
             "traderName":    trader_name,
             "traderAddress": trader_addr,
-            "valid":         bool(data.get("valid", False)),
+            "valid":         valid_str.lower() == "true",
         }
 
     except urllib.error.HTTPError as e:
