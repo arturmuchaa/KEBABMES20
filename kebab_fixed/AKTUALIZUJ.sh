@@ -169,9 +169,12 @@ ok "Endpoint VIES zaktualizowany"
 
 # ── 6. Restart backendu ──────────────────────────────────────────
 echo "  Restartuję backend..."
+# Wymuś kill -9 bo serwis może ignorować zwykły restart
+OLD_PID=$(ss -tlnp 2>/dev/null | grep ':8000' | grep -oP 'pid=\K[0-9]+' | head -1)
+[ -n "$OLD_PID" ] && kill -9 "$OLD_PID" 2>/dev/null && sleep 1
 for svc in kebab-mes.service kebab.service kebabmes.service; do
-    if systemctl is-active --quiet "$svc" 2>/dev/null; then
-        systemctl restart "$svc" && ok "Serwis $svc zrestartowany" && break
+    if systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+        systemctl start "$svc" && ok "Serwis $svc uruchomiony" && break
     fi
 done
 
