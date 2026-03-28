@@ -19,7 +19,7 @@ on:
         required: false
         default: 'http://204.168.166.34'
       version_suffix:
-        description: 'Sufiks wersji (np. rc1, hotfix) — opcjonalny'
+        description: 'Sufiks wersji (np. rc1, hotfix)'
         required: false
         default: ''
 
@@ -36,17 +36,14 @@ jobs:
       APP_VERSION: '2.3.0'
 
     steps:
-      # ── 1. Checkout ──────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. Node.js 20 ────────────────────────────────────────
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # ── 3. Rust stable ───────────────────────────────────────
       - name: Setup Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -58,47 +55,17 @@ jobs:
           workspaces: kebab_fixed/src-tauri -> target
           cache-on-failure: true
 
-      # ── 4. npm install (legacy-peer-deps dla motion) ──────────
       - name: Install npm dependencies
         working-directory: kebab_fixed
         run: npm install --legacy-peer-deps
 
-      # ── 5. Generuj ikonę aplikacji ───────────────────────────
       - name: Generate app icon
         working-directory: kebab_fixed
-        shell: pwsh
         run: |
           pip install Pillow --quiet --disable-pip-version-check
-
-          # Zapisz skrypt do pliku (unika problemów z wcięciami w heredoc)
-          $py = @'
-from PIL import Image, ImageDraw
-import os
-os.makedirs("src-tauri/icons", exist_ok=True)
-size = 512
-img = Image.new("RGBA", (size, size), (255, 255, 255, 0))
-d = ImageDraw.Draw(img)
-# Tło — niebieski okrąg
-d.ellipse([4, 4, 508, 508], fill=(37, 99, 235, 255))
-# Biały pierścień
-d.ellipse([64, 64, 448, 448], fill=(255, 255, 255, 255))
-# Wewnętrzny niebieski
-d.ellipse([96, 96, 416, 416], fill=(37, 99, 235, 255))
-# Biały środek
-d.ellipse([196, 196, 316, 316], fill=(255, 255, 255, 255))
-img.save("src-tauri/icons/icon.png")
-print("Ikona wygenerowana: src-tauri/icons/icon.png")
-'@
-          $py | Out-File -FilePath "gen_icon.py" -Encoding utf8
           python gen_icon.py
+          npx @tauri-apps/cli@^2 icon src-tauri/icons/icon.png
 
-          # Generuj wszystkie formaty (32x32, 128x128, .ico, .icns itp.)
-          npx @tauri-apps/cli@^2 icon "src-tauri/icons/icon.png"
-
-          Write-Host "Wygenerowane ikony:"
-          Get-ChildItem src-tauri/icons/
-
-      # ── 6. Build Tauri (tylko NSIS — najbardziej stabilny) ────
       - name: Build Tauri NSIS installer
         working-directory: kebab_fixed
         env:
@@ -106,8 +73,7 @@ print("Ikona wygenerowana: src-tauri/icons/icon.png")
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: npx @tauri-apps/cli@^2 build --bundles nsis
 
-      # ── 7. Upload artifact ───────────────────────────────────
-      - name: Upload installer
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: KebabMES-v${{ env.APP_VERSION }}-build${{ github.run_number }}
@@ -115,27 +81,25 @@ print("Ikona wygenerowana: src-tauri/icons/icon.png")
           retention-days: 90
           if-no-files-found: error
 
-      # ── 8. GitHub Release (draft) ────────────────────────────
-      - name: Create GitHub Release
+      - name: Create GitHub Release (draft)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.APP_VERSION }}-b${{ github.run_number }}${{ github.event.inputs.version_suffix && format('-{0}', github.event.inputs.version_suffix) || '' }}
           name: "Kebab MES v${{ env.APP_VERSION }} — build #${{ github.run_number }}"
           draft: true
-          prerelease: false
           files: kebab_fixed/src-tauri/target/release/bundle/nsis/*.exe
           body: |
             ## Kebab MES v${{ env.APP_VERSION }}
 
             ### Jak zainstalować
             1. Pobierz `KebabMES_*_x64-setup.exe` poniżej
-            2. Uruchom instalator → Dalej → Dalej → Zakończ
+            2. Uruchom instalator — Dalej — Zakończ
             3. Skrót na pulpicie: **Kebab MES**
             4. Backend API: `${{ env.VITE_API_URL }}`
 
             ### Wymagania
             - Windows 10 / 11 (x64)
-            - Dostęp do serwera: `${{ env.VITE_API_URL }}`
+            - Sieć do serwera: `${{ env.VITE_API_URL }}`
 
             ---
-            Branch: `${{ github.ref_name }}` | Build: #${{ github.run_number }} | Commit: `${{ github.sha }}`
+            Branch: `${{ github.ref_name }}` | Build: #${{ github.run_number }}
