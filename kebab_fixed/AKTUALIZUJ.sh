@@ -9,7 +9,7 @@ GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}  ✓ $1${NC}"; }
 warn() { echo -e "${YELLOW}  ⚠ $1${NC}"; }
 
-BRANCH="claude/add-traceability-system-UxumS"
+BRANCH="claude/redesign-dashboard-ui-gNVuD"
 REPO="https://github.com/arturmuchaa/KEBABMES20.git"
 
 # Katalog gdzie leży ten skrypt = /opt/kebab/kebab_fixed
