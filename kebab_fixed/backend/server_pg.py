@@ -1919,7 +1919,6 @@ def vies_lookup(vat: str):
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = _js.loads(resp.read().decode())
-        # EC VIES REST zwraca pola: name, address, isValid
         name = data.get("name") or data.get("traderName") or ""
         addr = data.get("address") or data.get("traderAddress") or ""
         return {
@@ -1934,6 +1933,45 @@ def vies_lookup(vat: str):
         raise HTTPException(502, f"VIES blad {e.code}: {body[:200]}")
     except Exception as e:
         raise HTTPException(502, f"Blad VIES: {e}")
+
+# ─── NIP Lookup — Biała Lista MF (Polska, bez auth) ────────────
+@app.get("/api/nip/lookup")
+def nip_lookup(nip: str):
+    """Wyszukiwanie polskich firm po NIP przez Białą Listę MF."""
+    import urllib.request, json as _js
+    from datetime import date
+
+    nip = nip.strip().replace("-", "").replace(" ", "")
+    if not nip.isdigit() or len(nip) != 10:
+        raise HTTPException(400, "NIP musi miec 10 cyfr")
+
+    today = date.today().isoformat()
+    url = f"https://wl-api.mf.gov.pl/api/search/nip/{nip}?date={today}"
+    req = urllib.request.Request(url, method="GET")
+    req.add_header("Accept", "application/json")
+    req.add_header("User-Agent", "KebabMES/2.3")
+
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = _js.loads(resp.read().decode())
+
+        subject = (data.get("result") or {}).get("subject") or {}
+        name    = subject.get("name") or ""
+        # Adres: workingAddress lub residenceAddress
+        addr    = subject.get("workingAddress") or subject.get("residenceAddress") or ""
+
+        return {
+            "nip":     nip,
+            "name":    name,
+            "address": addr,
+            "valid":   bool(name),
+        }
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {"nip": nip, "name": "", "address": "", "valid": False}
+        raise HTTPException(502, f"Blad MF API {e.code}")
+    except Exception as e:
+        raise HTTPException(502, f"Blad NIP lookup: {e}")
 
 # ─── Pomocnicze ───────────────────────────────────────────────
 @app.get("/api/batch-history")
