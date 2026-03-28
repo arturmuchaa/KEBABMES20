@@ -74,8 +74,18 @@ function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) =>
 
   async function handleSave() {
     if (!clientId) { setError('Wybierz klienta'); return }
-    const validLines = lines.filter(l => l.productTypeId && l.recipeId && parseFloat(l.qty)>0 && parseFloat(l.kgPerUnit)>0)
-    if (validLines.length === 0) { setError('Dodaj przynajmniej jedną pozycję'); return }
+    const validLines = lines.filter(l => l.productTypeId && parseFloat(l.qty)>0 && parseFloat(l.kgPerUnit)>0)
+    if (validLines.length === 0) {
+      const missing = lines.map((l, i) => {
+        const errs = []
+        if (!l.productTypeId)         errs.push('rodzaj produktu')
+        if (!(parseFloat(l.qty)>0))   errs.push('ilość')
+        if (!(parseFloat(l.kgPerUnit)>0)) errs.push('kg/szt')
+        return errs.length ? `Pozycja ${i+1}: brak ${errs.join(', ')}` : null
+      }).filter(Boolean)
+      setError(missing.length ? missing.join(' · ') : 'Dodaj przynajmniej jedną pozycję')
+      return
+    }
     setSaving(true)
     try {
       await onSave({
