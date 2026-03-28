@@ -1898,16 +1898,23 @@ def unlock_machine(machine_id: int):
     execute("DELETE FROM machine_locks WHERE machine_id=%s", (machine_id,))
     return {"ok": True}
 
-# ─── VIES API — oficjalny SOAP serwis Komisji Europejskiej ────
+# ─── VIES API — viesapi.eu (HMAC-SHA256 MAC auth) ─────────────
+VIESAPI_ID  = os.environ.get("VIESAPI_ID",  "MyDWn3QuH2rJ")
+VIESAPI_KEY = os.environ.get("VIESAPI_KEY", "1cVi2cO97cKT")
+VIESAPI_BASE = "https://viesapi.eu"
+
 @app.get("/api/vies/lookup")
 def vies_lookup(vat: str):
     """
-    Weryfikacja VAT-UE przez oficjalny SOAP endpoint EC VIES.
-    URL: https://ec.europa.eu/taxation_customs/vies/services/checkVatService
-    Bezplatne, bez klucza, niezawodne od lat.
+    Weryfikacja VAT-UE przez viesapi.eu REST API z auth MAC (HMAC-SHA256).
+    Endpoint: GET https://viesapi.eu/api/get/vies/euvat/{euvat}
     """
     import urllib.request
-    import re
+    import hmac as _hmac
+    import hashlib
+    import base64
+    import time
+    import os as _os
 
     vat = vat.strip().upper().replace(" ", "").replace("-", "")
     if len(vat) < 4:
@@ -1919,58 +1926,54 @@ def vies_lookup(vat: str):
     if not country_code.isalpha() or len(vat_number) < 2:
         raise HTTPException(400, "Nieprawidlowy format VAT-UE (np. DE123456789)")
 
-    soap = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">'
-        '<soapenv:Body>'
-        '<checkVat xmlns="urn:ec.europa.eu:taxud:vies:services:checkVat:types">'
-        f'<countryCode>{country_code}</countryCode>'
-        f'<vatNumber>{vat_number}</vatNumber>'
-        '</checkVat>'
-        '</soapenv:Body>'
-        '</soapenv:Envelope>'
-    )
+    path = f"/api/get/vies/euvat/{vat}"
+    url  = f"{VIESAPI_BASE}{path}"
+
+    ts    = int(time.time())
+    nonce = _os.urandom(4).hex()
+
+    # Canonical string: ts\nnonce\nGET\npath\nhostname\nport\n\n
+    msg = f"{ts}\n{nonce}\nGET\n{path}\nviesapi.eu\n443\n\n"
+    mac = base64.b64encode(
+        _hmac.new(VIESAPI_KEY.encode(), msg.encode(), hashlib.sha256).digest()
+    ).decode()
+
+    auth_header = f'MAC id="{VIESAPI_ID}", ts="{ts}", nonce="{nonce}", mac="{mac}"'
 
     try:
-        req = urllib.request.Request(
-            "https://ec.europa.eu/taxation_customs/vies/services/checkVatService",
-            data=soap.encode("utf-8"),
-            method="POST",
-        )
-        req.add_header("Content-Type", "text/xml; charset=UTF-8")
-        req.add_header("SOAPAction", "")
+        req = urllib.request.Request(url, method="GET")
+        req.add_header("Authorization", auth_header)
+        req.add_header("Accept", "application/json")
         req.add_header("User-Agent", "KebabMES/2.3")
 
         with urllib.request.urlopen(req, timeout=15) as resp:
-            xml = resp.read().decode("utf-8")
+            data = json.loads(resp.read().decode("utf-8"))
 
-        def tag(name):
-            m = re.search(rf'<(?:ns2:)?{name}>(.*?)</(?:ns2:)?{name}>', xml, re.DOTALL)
-            return m.group(1).strip() if m else ""
+        # viesapi.eu zwraca {uid, countryCode, vatNumber, valid, traderName, traderAddress, ...}
+        if isinstance(data, dict) and "error" in data:
+            err = data["error"]
+            raise HTTPException(502, f"VIES API blad {err.get('code')}: {err.get('description')}")
 
-        valid       = tag("valid") == "true"
-        trader_name = tag("traderName")
-        trader_addr = tag("traderAddress")
-
-        # VIES zwraca "---" gdy dane nie sa publiczne
-        if trader_name == "---":
-            trader_name = ""
-        if trader_addr == "---":
-            trader_addr = ""
+        trader_name = data.get("traderName") or ""
+        trader_addr = data.get("traderAddress") or ""
+        if trader_name == "---": trader_name = ""
+        if trader_addr == "---": trader_addr = ""
 
         return {
-            "vatNumber":     country_code + vat_number,
-            "countryCode":   country_code,
+            "vatNumber":     data.get("vatNumber", vat),
+            "countryCode":   data.get("countryCode", country_code),
             "traderName":    trader_name,
             "traderAddress": trader_addr,
-            "valid":         valid,
+            "valid":         bool(data.get("valid", False)),
         }
 
     except urllib.error.HTTPError as e:
         body = e.read().decode()
-        raise HTTPException(502, f"VIES SOAP blad HTTP {e.code}: {body[:200]}")
+        raise HTTPException(502, f"VIES HTTP {e.code}: {body[:300]}")
     except urllib.error.URLError as e:
         raise HTTPException(502, f"Brak polaczenia z VIES: {str(e.reason)}")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(502, f"Blad VIES: {str(e)}")
 
