@@ -40,12 +40,7 @@
       "nsis": {
         "languages": ["Polish"],
         "displayLanguageSelector": false,
-        "installMode": "perMachine",
-        "oneClick": false,
-        "allowToChangeInstallationDirectory": true,
-        "createDesktopShortcut": true,
-        "createStartMenuShortcut": true,
-        "shortcutName": "Kebab MES"
+        "installMode": "perMachine"
       }
     }
   }
