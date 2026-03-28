@@ -36,7 +36,7 @@ jobs:
 
     env:
       VITE_API_URL: ${{ github.event.inputs.api_url || 'http://204.168.166.34' }}
-      APP_VERSION: '2.3.0'
+      APP_VERSION: '2.3.1'
 
     steps:
       - name: Checkout
