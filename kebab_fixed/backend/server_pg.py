@@ -1391,15 +1391,26 @@ def recall(batch_id: str):
 
 # ─── Wyroby gotowe ────────────────────────────────────────────
 class FinishDayEntry(BaseModel):
-    plan_line_id: str; qty: int; worker_names: List[str]
-    kg_per_unit: float; product_type_id: str = ""; product_type_name: str = ""
-    recipe_id: str; recipe_name: str = ""
-    packaging_id: str = ""; packaging_name: str = ""
-    client_order_id: str = ""; client_order_no: str = ""; client_name: str = ""
-    seasoned_batch_nos: List[str] = []
+    model_config = {"populate_by_name": True}
+    plan_line_id:      str       = Field("",  alias="planLineId")
+    qty:               int       = 0
+    worker_names:      List[str] = Field([], alias="workerNames")
+    kg_per_unit:       float     = Field(0,   alias="kgPerUnit")
+    product_type_id:   str       = Field("",  alias="productTypeId")
+    product_type_name: str       = Field("",  alias="productTypeName")
+    recipe_id:         str       = Field("",  alias="recipeId")
+    recipe_name:       str       = Field("",  alias="recipeName")
+    packaging_id:      str       = Field("",  alias="packagingId")
+    packaging_name:    str       = Field("",  alias="packagingName")
+    client_order_id:   str       = Field("",  alias="clientOrderId")
+    client_order_no:   str       = Field("",  alias="clientOrderNo")
+    client_name:       str       = Field("",  alias="clientName")
+    seasoned_batch_nos: List[str] = Field([], alias="seasonedBatchNos")
 
 class FinishDayDto(BaseModel):
-    plan_id: str; entries: List[FinishDayEntry]
+    model_config = {"populate_by_name": True}
+    plan_id:  str               = Field("", alias="planId")
+    entries:  List[FinishDayEntry] = []
 
 @app.get("/api/finished-goods")
 def list_finished():
