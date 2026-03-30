@@ -926,6 +926,57 @@ def _resolve_lineage(seasoned_batch_nos: list) -> dict:
         "supplier_ids":       supplier_ids,
     }
 
+# ─── Write-time lineage: seasoned_meat ←→ mixing_order ────────
+def _populate_seasoned_meat_lineage(batch_no: str, order_id: str) -> None:
+    """
+    Wywoływana ZAWSZE po utworzeniu/aktualizacji seasoned_meat.
+    1. Pobiera source_deboning_ids z meat_stock przez mixing_order_lots.
+    2. Zapisuje je na seasoned_meat.source_deboning_ids.
+    3. Dodaje batch_no do mixing_orders.source_seasoned_batch_ids.
+    Nie ma try/except — błąd tutaj oznacza zerwanie łańcucha i MUSI być widoczny.
+    """
+    lots = query_all("""
+        SELECT mol.meat_stock_id, ms.deboning_session_id, ms.raw_batch_id
+        FROM   mixing_order_lots mol
+        LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+        WHERE  mol.order_id = %s
+    """, (order_id,))
+
+    if not lots:
+        logger.warning(
+            f"_populate_seasoned_meat_lineage: brak lotów dla order_id={order_id} "
+            f"(batch_no={batch_no}) — lineage będzie niepełna"
+        )
+
+    deboning_ids = list({lt['deboning_session_id'] for lt in lots if lt.get('deboning_session_id')})
+
+    if deboning_ids:
+        execute("""
+            UPDATE seasoned_meat
+            SET source_deboning_ids = (
+                SELECT ARRAY(SELECT DISTINCT unnest(
+                    COALESCE(source_deboning_ids, '{}') || %s::text[]
+                ))
+            )
+            WHERE batch_no = %s
+        """, (deboning_ids, batch_no))
+    else:
+        logger.warning(
+            f"_populate_seasoned_meat_lineage: brak deboning_ids dla batch_no={batch_no} "
+            f"— meat_stock.deboning_session_id może być NULL"
+        )
+
+    # Aktualizuj forward-reference na zleceniu masowania
+    execute("""
+        UPDATE mixing_orders
+        SET source_seasoned_batch_ids = (
+            SELECT ARRAY(SELECT DISTINCT unnest(
+                COALESCE(source_seasoned_batch_ids, '{}') || ARRAY[%s]
+            ))
+        )
+        WHERE id = %s
+    """, (batch_no, order_id))
+
 # ─── Traceability Engine ──────────────────────────────────────
 @app.get("/api/traceability")
 def traceability(batch_id: str, direction: str = "backward"):
@@ -1098,6 +1149,84 @@ def _trace_forward(batch_id: str) -> dict:
                         result["finishedGoods"].append(fg)
 
     return result
+
+# ─── Debug: weryfikacja pełnego łańcucha dla wyrobu gotowego ──
+@app.get("/api/debug/trace/{finished_good_id}")
+def debug_trace(finished_good_id: str):
+    """
+    Zwraca pełny łańcuch traceability dla wyrobu gotowego.
+    Używaj do weryfikacji kompletności danych — nie do produkcji.
+    Odpowiedź: {finished, deboning, seasoned, mixing, missing_links}
+    """
+    fg = query_one(
+        "SELECT * FROM finished_goods WHERE id=%s OR batch_no=%s",
+        (finished_good_id, finished_good_id))
+    if not fg:
+        raise HTTPException(404, "Wyrób gotowy nie znaleziony")
+
+    # Rozbiór — ze stored lineage
+    deboning: list = []
+    for did in (fg.get('source_deboning_ids') or []):
+        de = query_one("SELECT * FROM deboning_entries WHERE id=%s", (did,))
+        if de:
+            deboning.append(_map_deboning_entry(de))
+
+    # Partie zamarynowane — ze stored lineage
+    seasoned: list = []
+    for sid in (fg.get('source_seasoned_ids') or []):
+        sm = query_one("SELECT * FROM seasoned_meat WHERE id=%s", (sid,))
+        if sm:
+            seasoned.append(sm)
+    # Fallback: przez seasoned_batch_nos jeśli stored IDs brakuje
+    if not seasoned and fg.get('seasoned_batch_nos'):
+        for bno in (fg['seasoned_batch_nos'] or []):
+            sm = query_one("SELECT * FROM seasoned_meat WHERE batch_no=%s", (bno,))
+            if sm and sm['id'] not in {s['id'] for s in seasoned}:
+                seasoned.append(sm)
+
+    # Zlecenia masowania — ze stored lineage
+    mixing: list = []
+    for mid in (fg.get('source_mixing_ids') or []):
+        mo = query_one("SELECT * FROM mixing_orders WHERE id=%s", (mid,))
+        if mo:
+            mixing.append(build_mixing_order(mo))
+
+    # Partie surowca — przez deboning → raw_batches
+    raw_batches: list = []
+    seen_rb: set = set()
+    for de in deboning:
+        rb_id = de.get('rawBatchId') or de.get('raw_batch_id')
+        if rb_id and rb_id not in seen_rb:
+            seen_rb.add(rb_id)
+            rb = query_one("SELECT * FROM raw_batches WHERE id=%s", (rb_id,))
+            if rb:
+                raw_batches.append(rb)
+
+    missing_links = {
+        "has_seasoned_batch_nos":    bool(fg.get('seasoned_batch_nos')),
+        "has_source_seasoned_ids":   bool(fg.get('source_seasoned_ids')),
+        "has_source_mixing_ids":     bool(fg.get('source_mixing_ids')),
+        "has_source_deboning_ids":   bool(fg.get('source_deboning_ids')),
+        "deboning_resolved":         bool(deboning),
+        "seasoned_resolved":         bool(seasoned),
+        "mixing_resolved":           bool(mixing),
+        "raw_batches_resolved":      bool(raw_batches),
+    }
+    chain_complete = all([
+        missing_links["has_seasoned_batch_nos"],
+        missing_links["seasoned_resolved"],
+        missing_links["deboning_resolved"],
+    ])
+
+    return {
+        "finished":      fg,
+        "deboning":      deboning,
+        "seasoned":      seasoned,
+        "mixing":        mixing,
+        "raw_batches":   raw_batches,
+        "chain_complete": chain_complete,
+        "missing_links": missing_links,
+    }
 
 # ─── Recall (Wycofanie partii) ────────────────────────────────
 @app.get("/api/recall/{batch_id}")
@@ -1314,6 +1443,13 @@ def finish_day(dto: FinishDayDto):
     for entry in dto.entries:
         if entry.qty <= 0: continue
         total_kg = round(entry.qty * entry.kg_per_unit, 3)
+
+        # Walidacja lineage: wyrób gotowy musi być powiązany z partiami zamarynowanymi
+        if not entry.seasoned_batch_nos:
+            logger.warning(
+                f"finish_day: entry plan_line_id={entry.plan_line_id} nie ma seasoned_batch_nos "
+                f"— lineage będzie niepełna dla wyrobu gotowego"
+            )
 
         # ── Pełny lineage zapisywany w momencie tworzenia rekordu ──
         lin = _resolve_lineage(entry.seasoned_batch_nos or [])
@@ -1963,6 +2099,10 @@ def create_mixing_order(dto: MixingOrderCreate):
     if not dto.recipe_id: raise HTTPException(400, "recipe_id wymagane")
     recipe = query_one("SELECT * FROM recipes WHERE id=%s", (dto.recipe_id,))
     if not recipe: raise HTTPException(404, "Receptura nie znaleziona")
+    # Walidacja lineage: zlecenie masowania musi mieć loty mięsa (rozbiór → masowanie)
+    if not dto.meat_lots:
+        raise HTTPException(400, "Zlecenie masowania wymaga co najmniej jednej partii mięsa (meat_lots). "
+                                 "Wybierz partie z rozbioru przed utworzeniem zlecenia.")
 
     # Pobierz rodzaj produktu jeśli podany
     product_type = None
@@ -2097,37 +2237,8 @@ def finish_mixing_session(id: str, body: dict):
           order.get('order_no',''), kg_output, kg_output,
           machine_id, expiry, now_iso()))
 
-    # Traceability: zbierz source_deboning_ids dla seasoned_meat
-    try:
-        lots_for_tr = query_all("SELECT meat_stock_id FROM mixing_order_lots WHERE order_id=%s", (id,))
-        deboning_ids = []
-        for lt in lots_for_tr:
-            ms = query_one("SELECT deboning_session_id FROM meat_stock WHERE id=%s", (lt.get('meat_stock_id'),))
-            if ms and ms.get('deboning_session_id'):
-                deboning_ids.append(ms['deboning_session_id'])
-        deboning_ids = list(set(deboning_ids))
-        if deboning_ids:
-            execute("""
-                UPDATE seasoned_meat
-                SET source_deboning_ids = (
-                    SELECT ARRAY(SELECT DISTINCT unnest(
-                        COALESCE(source_deboning_ids, '{}') || %s::text[]
-                    ))
-                )
-                WHERE batch_no = %s
-            """, (deboning_ids, batch_no))
-        # Rejestruj produced batch_no w mixing_order.source_seasoned_batch_ids
-        execute("""
-            UPDATE mixing_orders
-            SET source_seasoned_batch_ids = (
-                SELECT ARRAY(SELECT DISTINCT unnest(
-                    COALESCE(source_seasoned_batch_ids, '{}') || ARRAY[%s]
-                ))
-            )
-            WHERE id = %s
-        """, (batch_no, id))
-    except Exception as _te:
-        logger.warning(f"Traceability update error (non-critical): {_te}")
+    # Lineage — wymagana, nie opcjonalna
+    _populate_seasoned_meat_lineage(batch_no, id)
 
     # BUG 3 FIX: Zaktualizuj kg_planned w lotach — odejmij ile faktycznie zużyto w tej sesji
     # Dzięki temu następna sesja widzi poprawne dostępne kg per lot
@@ -2213,6 +2324,8 @@ def seasoned_from_order(order_id: str, body: dict):
           order.get('recipe_id',''), order.get('recipe_name',''),
           order.get('order_no',''), kg, kg,
           order.get('machine_id'), expiry, now_iso()))
+    # Lineage — wymagana, nie opcjonalna
+    _populate_seasoned_meat_lineage(batch_no, order_id)
     row = query_one("SELECT * FROM seasoned_meat WHERE batch_no=%s", (batch_no,))
     return {'id': row['id'], 'batchNo': row['batch_no'], 'kgProduced': kg}
 
