@@ -213,6 +213,9 @@ CREATE TABLE IF NOT EXISTS finished_goods (
     produced_date DATE, produced_by TEXT[] DEFAULT '{}',
     seasoned_batch_nos TEXT[] DEFAULT '{}',
     source_production_id TEXT,
+    source_mixing_ids TEXT[] DEFAULT '{}',
+    source_seasoned_ids TEXT[] DEFAULT '{}',
+    source_deboning_ids TEXT[] DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS finished_goods_sessions (
@@ -404,6 +407,12 @@ if __name__ == "__main__":
                 ("finished_goods", "source_production_id", "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_production_id TEXT"),
                 ("production_plan_lines", "seasoned_batch_nos", "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS seasoned_batch_nos TEXT[] DEFAULT '{}'"),
                 ("production_plan_lines", "batch_allocation", "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS batch_allocation JSONB DEFAULT '{}'"),
+                # Traceability v3 — pełny lineage w finished_goods i production_sessions
+                ("production_sessions", "source_seasoned_ids", "ALTER TABLE production_sessions ADD COLUMN IF NOT EXISTS source_seasoned_ids TEXT[] DEFAULT '{}'"),
+                ("production_sessions", "source_deboning_ids", "ALTER TABLE production_sessions ADD COLUMN IF NOT EXISTS source_deboning_ids TEXT[] DEFAULT '{}'"),
+                ("finished_goods", "source_mixing_ids",   "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_mixing_ids TEXT[] DEFAULT '{}'"),
+                ("finished_goods", "source_seasoned_ids", "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_seasoned_ids TEXT[] DEFAULT '{}'"),
+                ("finished_goods", "source_deboning_ids", "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_deboning_ids TEXT[] DEFAULT '{}'"),
             ]
             for table, col, sql in migrations:
                 cur.execute(sql)

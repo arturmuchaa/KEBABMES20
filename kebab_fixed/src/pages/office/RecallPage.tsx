@@ -3,22 +3,28 @@
  * Kompletny widok recall z sekcjami po polsku
  */
 import { useState } from 'react'
-import { Search, AlertTriangle, Package, Beef, FlaskConical, Factory, ShoppingBag, Users, ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
+import {
+  Search, AlertTriangle, Package, FlaskConical, ShoppingBag,
+  Users, ChevronDown, ChevronRight, Loader2, Clock, FileText, Layers
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { recallApi } from '@/lib/api'
 
 interface RecallResult {
-  batchId:      string
-  rawBatches:   any[]
-  deboning:     any[]
-  seasoned:     any[]
-  mixingOrders: any[]
-  production:   any[]
-  finished:     any[]
-  clients:      any[]
-  totalKg:      number
-  totalUnits:   number
-  suppliers:    any[]
+  batchId:          string
+  raw_batches:      any[]
+  deboning:         any[]
+  deboning_summary: { totalKgMeat: number; totalKgBones: number; totalKgBacks: number; entryCount: number }
+  seasoned:         any[]
+  mixing_orders:    any[]
+  production:       any[]
+  finished:         any[]
+  clients:          any[]
+  suppliers:        any[]
+  total_kg:         number
+  total_units:      number
+  timeline:         { stage: string; batchNo: string; date: string; details: string }[]
+  documents:        { type: string; number: string; date: string; value: number }[]
 }
 
 // ─── Sekcja składana ──────────────────────────────────────────
@@ -169,11 +175,18 @@ export function RecallPage() {
               <span className="font-black text-red-800 text-sm uppercase tracking-wide">Podsumowanie wycofania</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <KpiCard label="Łączna masa wycofana (kg)" value={result.totalKg.toFixed(1)} color="bg-white border-red-200"/>
-              <KpiCard label="Łączna liczba sztuk" value={result.totalUnits} color="bg-white border-red-200"/>
-              <KpiCard label="Partie surowca" value={result.rawBatches.length} color="bg-white border-surface-4"/>
+              <KpiCard label="Łączna masa wycofana (kg)" value={Number(result.total_kg).toFixed(1)} color="bg-white border-red-200"/>
+              <KpiCard label="Łączna liczba sztuk" value={result.total_units} color="bg-white border-red-200"/>
+              <KpiCard label="Partie surowca" value={result.raw_batches.length} color="bg-white border-surface-4"/>
               <KpiCard label="Produkty gotowe" value={result.finished.length} color="bg-white border-surface-4"/>
             </div>
+            {result.deboning_summary && result.deboning_summary.entryCount > 0 && (
+              <div className="mt-3 grid grid-cols-3 gap-3">
+                <KpiCard label="Mięso z rozbioru (kg)" value={Number(result.deboning_summary.totalKgMeat).toFixed(1)} color="bg-amber-50 border-amber-200"/>
+                <KpiCard label="Kości (kg)" value={Number(result.deboning_summary.totalKgBones).toFixed(1)} color="bg-amber-50 border-amber-200"/>
+                <KpiCard label="Grzbiety (kg)" value={Number(result.deboning_summary.totalKgBacks).toFixed(1)} color="bg-amber-50 border-amber-200"/>
+              </div>
+            )}
             {result.clients.length > 0 && (
               <div className="mt-3 pt-3 border-t border-red-200">
                 <div className="text-xs font-bold text-red-700 uppercase mb-2">Dotknięci klienci:</div>
@@ -191,13 +204,13 @@ export function RecallPage() {
           {/* 2. Partie surowca */}
           <Section
             title="Partie surowca"
-            count={result.rawBatches.length}
+            count={result.raw_batches.length}
             icon={<Package size={14} className="text-amber-700"/>}
             color="bg-amber-100"
             defaultOpen
           >
             <DataTable
-              rows={result.rawBatches}
+              rows={result.raw_batches}
               columns={[
                 { key: 'internal_batch_no', label: 'Nr partii' },
                 { key: 'supplier_name',     label: 'Dostawca' },
@@ -212,7 +225,7 @@ export function RecallPage() {
             />
           </Section>
 
-          {/* 3. Produkcja (masowanie + rozbiór) */}
+          {/* 3. Partie zamarynowane */}
           <Section
             title="Partie zamarynowane"
             count={result.seasoned.length}
@@ -235,7 +248,29 @@ export function RecallPage() {
             />
           </Section>
 
-          {/* 4. Produkty gotowe */}
+          {/* 4. Zlecenia mieszania */}
+          {result.mixing_orders.length > 0 && (
+            <Section
+              title="Partie mięsa (zlecenia)"
+              count={result.mixing_orders.length}
+              icon={<Layers size={14} className="text-teal-700"/>}
+              color="bg-teal-100"
+              defaultOpen={false}
+            >
+              <DataTable
+                rows={result.mixing_orders}
+                columns={[
+                  { key: 'order_no',    label: 'Nr zlecenia' },
+                  { key: 'recipe_name', label: 'Receptura' },
+                  { key: 'kg_total',    label: 'Kg łącznie', render: v => v ? `${Number(v).toFixed(1)} kg` : '—' },
+                  { key: 'status',      label: 'Status' },
+                  { key: 'created_at',  label: 'Data', render: v => v ? String(v).slice(0, 10) : '—' },
+                ]}
+              />
+            </Section>
+          )}
+
+          {/* 5. Produkty gotowe */}
           <Section
             title="Produkty gotowe"
             count={result.finished.length}
@@ -246,18 +281,18 @@ export function RecallPage() {
             <DataTable
               rows={result.finished}
               columns={[
-                { key: 'batch_no',          label: 'Nr partii' },
-                { key: 'recipe_name',        label: 'Receptura' },
-                { key: 'qty',                label: 'Sztuki' },
-                { key: 'total_kg',           label: 'Masa', render: v => v ? `${Number(v).toFixed(1)} kg` : '—' },
-                { key: 'client_name',        label: 'Klient' },
-                { key: 'client_order_no',    label: 'Nr zamówienia' },
-                { key: 'produced_date',      label: 'Data prod.' },
+                { key: 'batch_no',       label: 'Nr partii' },
+                { key: 'recipe_name',    label: 'Receptura' },
+                { key: 'qty',            label: 'Sztuki' },
+                { key: 'total_kg',       label: 'Masa', render: v => v ? `${Number(v).toFixed(1)} kg` : '—' },
+                { key: 'client_name',    label: 'Klient' },
+                { key: 'client_order_no', label: 'Nr zamówienia' },
+                { key: 'produced_date',  label: 'Data prod.' },
               ]}
             />
           </Section>
 
-          {/* 5. Klienci */}
+          {/* 6. Klienci */}
           <Section
             title="Klienci"
             count={result.clients.length}
@@ -288,6 +323,57 @@ export function RecallPage() {
               </div>
             )}
           </Section>
+
+          {/* 7. Oś czasu */}
+          {result.timeline.length > 0 && (
+            <Section
+              title="Oś czasu zdarzeń"
+              count={result.timeline.length}
+              icon={<Clock size={14} className="text-slate-700"/>}
+              color="bg-slate-100"
+              defaultOpen={false}
+            >
+              <div className="space-y-2">
+                {result.timeline.map((ev, i) => (
+                  <div key={i} className="flex gap-3 text-xs">
+                    <div className="text-ink-3 font-mono whitespace-nowrap pt-0.5 min-w-[80px]">
+                      {ev.date ? String(ev.date).slice(0, 10) : '—'}
+                    </div>
+                    <div className="flex-1">
+                      <span className="font-bold text-ink">{ev.stage}</span>
+                      {ev.batchNo && (
+                        <span className="ml-2 bg-surface-3 text-ink-3 font-mono text-[10px] px-1.5 py-0.5 rounded">
+                          {ev.batchNo}
+                        </span>
+                      )}
+                      <div className="text-ink-3 mt-0.5">{ev.details}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {/* 8. Dokumenty */}
+          {result.documents.length > 0 && (
+            <Section
+              title="Dokumenty powiązane"
+              count={result.documents.length}
+              icon={<FileText size={14} className="text-gray-700"/>}
+              color="bg-gray-100"
+              defaultOpen={false}
+            >
+              <DataTable
+                rows={result.documents}
+                columns={[
+                  { key: 'type',   label: 'Typ dokumentu' },
+                  { key: 'number', label: 'Numer' },
+                  { key: 'date',   label: 'Data', render: v => v ? String(v).slice(0, 10) : '—' },
+                  { key: 'value',  label: 'Wartość', render: v => v ? `${Number(v).toFixed(2)}` : '—' },
+                ]}
+              />
+            </Section>
+          )}
         </div>
       )}
 
