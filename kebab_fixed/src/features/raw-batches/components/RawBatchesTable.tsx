@@ -1,10 +1,13 @@
 /**
- * RawBatchesTable — kompaktowa tabela ERP
- * Czysto prezentacyjny komponent. Zero logiki — tylko render.
+ * RawBatchesTable — shadcn/ui Table
  */
 import { ExpiryBadge, StatusBadge, computeDisplayStatus } from '@/components/ui/Badge'
 import { fmtKg, fmtDatePl, fmtPln } from '@/lib/utils'
-import { Spinner, EmptyState } from '@/components/ui/Card'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
+import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
 import type { RawBatch } from '@/types'
 import { Package } from 'lucide-react'
 
@@ -13,55 +16,98 @@ interface RawBatchesTableProps {
   loading: boolean
 }
 
-export function RawBatchesTable({ batches, loading }: RawBatchesTableProps) {
-  if (loading) return (
-    <div className="flex items-center justify-center py-12">
-      <Spinner size={24} />
-    </div>
-  )
+const HEADERS = [
+  'Nr partii', 'Dostawca', 'Nr dostawcy', 'Ubój', 'Ważność',
+  'Kg przyjęto', 'Kg dostępne', 'Cena/kg', 'Status',
+]
 
-  if (batches.length === 0) return (
-    <EmptyState
-      icon={<Package size={32} />}
-      title="Brak partii"
-      message="Przyjmij pierwszą partię ćwiartki klikając przycisk powyżej"
-    />
-  )
+export function RawBatchesTable({ batches, loading }: RawBatchesTableProps) {
+  if (loading) {
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            {HEADERS.map(h => (
+              <TableHead key={h} className="text-xs uppercase tracking-wide whitespace-nowrap">
+                {h}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {[0, 1, 2, 3].map(i => (
+            <TableRow key={i} className="hover:bg-transparent">
+              {HEADERS.map(h => (
+                <TableCell key={h}><Skeleton className="h-4 w-full" /></TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    )
+  }
+
+  if (batches.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-2">
+        <div className="text-muted-foreground opacity-20 mb-1"><Package size={40} /></div>
+        <CardTitle className="text-sm font-medium text-muted-foreground">Brak partii</CardTitle>
+        <CardDescription className="text-xs text-center max-w-xs">
+          Przyjmij pierwszą partię ćwiartki klikając przycisk powyżej
+        </CardDescription>
+      </div>
+    )
+  }
 
   return (
-    <table className="w-full text-[12px]">
-      <thead>
-        <tr className="border-b border-surface-4 bg-surface-2">
-          {['Nr partii','Dostawca','Nr dostawcy','Ubój','Ważność','Kg przyjęto','Kg dostępne','Cena/kg','Status'].map(h => (
-            <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-4 whitespace-nowrap">
+    <Table>
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          {HEADERS.map(h => (
+            <TableHead key={h} className="text-xs uppercase tracking-wide whitespace-nowrap">
               {h}
-            </th>
+            </TableHead>
           ))}
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-surface-4">
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {batches.map(b => {
-          // computeDisplayStatus — zawsze z danych, nie z pola status
           const displayStatus = computeDisplayStatus(b.expiryDate, Number(b.kgAvailable))
           return (
-            <tr key={b.id} className="hover:bg-surface-2 transition-colors">
-              <td className="px-3 py-2 font-mono font-bold text-ink">{b.internalBatchNo}</td>
-              <td className="px-3 py-2 text-ink-2 max-w-[140px] truncate">{b.supplierName ?? '—'}</td>
-              <td className="px-3 py-2 font-mono text-ink-3 text-[11px]">{b.supplierBatchNo}</td>
-              <td className="px-3 py-2 text-ink-3 whitespace-nowrap">{fmtDatePl(b.slaughterDate)}</td>
-              <td className="px-3 py-2">
-                <ExpiryBadge dateStr={b.expiryDate} />
-              </td>
-              <td className="px-3 py-2 text-right font-semibold">{fmtKg(b.kgReceived)} kg</td>
-              <td className="px-3 py-2 text-right font-bold text-ink">{fmtKg(b.kgAvailable)} kg</td>
-              <td className="px-3 py-2 text-right font-mono text-ink-3">{fmtPln(b.pricePerKg)}</td>
-              <td className="px-3 py-2">
-                <StatusBadge status={displayStatus} />
-              </td>
-            </tr>
+            <TableRow key={b.id}>
+              <TableCell>
+                <code className="font-mono font-bold text-foreground text-xs bg-muted px-1.5 py-0.5 rounded">
+                  {b.internalBatchNo}
+                </code>
+              </TableCell>
+              <TableCell>
+                <CardDescription className="max-w-[140px] truncate">{b.supplierName ?? '—'}</CardDescription>
+              </TableCell>
+              <TableCell>
+                <code className="font-mono text-xs text-muted-foreground">{b.supplierBatchNo}</code>
+              </TableCell>
+              <TableCell>
+                <CardDescription className="whitespace-nowrap">{fmtDatePl(b.slaughterDate)}</CardDescription>
+              </TableCell>
+              <TableCell><ExpiryBadge dateStr={b.expiryDate} /></TableCell>
+              <TableCell className="text-right">
+                <CardDescription className="font-semibold tabular-nums text-foreground">
+                  {fmtKg(b.kgReceived)} kg
+                </CardDescription>
+              </TableCell>
+              <TableCell className="text-right">
+                <span className="font-bold text-foreground tabular-nums text-sm">
+                  {fmtKg(b.kgAvailable)} kg
+                </span>
+              </TableCell>
+              <TableCell className="text-right">
+                <code className="font-mono text-xs text-muted-foreground">{fmtPln(b.pricePerKg)}</code>
+              </TableCell>
+              <TableCell><StatusBadge status={displayStatus} /></TableCell>
+            </TableRow>
           )
         })}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   )
 }

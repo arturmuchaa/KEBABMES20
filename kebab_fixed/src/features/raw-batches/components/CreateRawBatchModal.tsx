@@ -1,81 +1,65 @@
 /**
- * CreateRawBatchModal
- *
- * Formularz przyjęcia ćwiartki z możliwością łączenia wielu partii dostawcy:
- * - Dodawanie pozycji z HDI (nr partii, kg, data uboju, data ważności)
- * - Łączenie wielu pozycji w jedną naszą partię
- * - Pełna traceability - śledzenie z jakiej partii dostawcy pochodzi mięso
+ * CreateRawBatchModal — shadcn/ui Dialog
+ * Formularz przyjęcia ćwiartki z obsługą wielu pozycji HDI
  */
 import { useState, useEffect, useMemo } from 'react'
-import { Modal } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
 import { fmtPln, fmtKg } from '@/lib/utils'
-import { Plus, Package, Edit2, Check, Trash2, X, Link2 } from 'lucide-react'
+import { Plus, Package, Edit2, Check, X, Link2 } from 'lucide-react'
 import type { CreateRawBatchDto, SupplierBatchItem } from '@/features/raw-batches/types'
 
-const KG_PER_CONTAINER = 15 // kg na pojemnik
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
+import { Badge } from '@/components/ui/badge'
+import {
+  Card, CardContent, CardDescription, CardTitle,
+} from '@/components/ui/card'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 
-interface SupplierOption {
-  value: string
-  label: string
-}
+const KG_PER_CONTAINER = 15
+
+interface SupplierOption { value: string; label: string }
 
 interface CreateRawBatchModalProps {
-  open:            boolean
-  onClose:         () => void
-  onSubmit:        () => void
-  form:            CreateRawBatchDto
-  suggestedBatchNo: string
-  suggestedNote:    string
-  expiryPreview?:   { level: string; label: string; colorCls: string } | null
-  totalValue:      number
-  supplierOptions: SupplierOption[]
-  loading:         boolean
-  error:           string | null
-  onFieldChange:   <K extends keyof CreateRawBatchDto>(key: K, value: CreateRawBatchDto[K]) => void
+  open:              boolean
+  onClose:           () => void
+  onSubmit:          () => void
+  form:              CreateRawBatchDto
+  suggestedBatchNo:  string
+  suggestedNote:     string
+  expiryPreview?:    { level: string; label: string; colorCls: string } | null
+  totalValue:        number
+  supplierOptions:   SupplierOption[]
+  loading:           boolean
+  error:             string | null
+  onFieldChange:     <K extends keyof CreateRawBatchDto>(key: K, value: CreateRawBatchDto[K]) => void
 }
 
-// Pusty wiersz pozycji HDI
 function emptyBatchItem(): SupplierBatchItem {
   const today = new Date().toISOString().slice(0, 10)
   const expiry = new Date()
   expiry.setDate(expiry.getDate() + 7)
-  return {
-    supplierBatchNo: '',
-    kgReceived: 0,
-    slaughterDate: today,
-    expiryDate: expiry.toISOString().slice(0, 10),
-  }
+  return { supplierBatchNo: '', kgReceived: 0, slaughterDate: today, expiryDate: expiry.toISOString().slice(0, 10) }
 }
 
 export function CreateRawBatchModal({
-  open,
-  onClose,
-  onSubmit,
-  form,
-  suggestedBatchNo,
-  suggestedNote,
-  expiryPreview,
-  totalValue,
-  supplierOptions,
-  loading,
-  error,
-  onFieldChange,
+  open, onClose, onSubmit, form, suggestedBatchNo, expiryPreview,
+  supplierOptions, loading, error, onFieldChange,
 }: CreateRawBatchModalProps) {
   const [customBatchNo, setCustomBatchNo] = useState('')
   const [isEditingBatchNo, setIsEditingBatchNo] = useState(false)
-  
-  // Lista pozycji z HDI dostawcy
   const [batchItems, setBatchItems] = useState<SupplierBatchItem[]>([emptyBatchItem()])
 
-  // Sync suggested batch number
   useEffect(() => {
-    if (suggestedBatchNo && !customBatchNo) {
-      setCustomBatchNo(suggestedBatchNo)
-    }
+    if (suggestedBatchNo && !customBatchNo) setCustomBatchNo(suggestedBatchNo)
   }, [suggestedBatchNo])
 
-  // Reset when modal opens
   useEffect(() => {
     if (open) {
       setCustomBatchNo(suggestedBatchNo || '')
@@ -84,317 +68,290 @@ export function CreateRawBatchModal({
     }
   }, [open, suggestedBatchNo])
 
-  // Oblicz sumy
-  const totalKg = useMemo(() => 
-    batchItems.reduce((sum, item) => sum + (item.kgReceived || 0), 0)
-  , [batchItems])
-
-  const containers = useMemo(() => Math.floor(totalKg / KG_PER_CONTAINER), [totalKg])
-  const remainderKg = useMemo(() => totalKg % KG_PER_CONTAINER, [totalKg])
-  const calculatedValue = useMemo(() => totalKg * (form.pricePerKg || 0), [totalKg, form.pricePerKg])
-
-  // Najwcześniejsza data ważności (FEFO)
-  const earliestExpiry = useMemo(() => {
-    const dates = batchItems.filter(b => b.expiryDate).map(b => b.expiryDate)
-    return dates.length > 0 ? dates.sort()[0] : ''
+  const totalKg       = useMemo(() => batchItems.reduce((s, i) => s + (i.kgReceived || 0), 0), [batchItems])
+  const containers    = useMemo(() => Math.floor(totalKg / KG_PER_CONTAINER), [totalKg])
+  const remainderKg   = useMemo(() => totalKg % KG_PER_CONTAINER, [totalKg])
+  const calcValue     = useMemo(() => totalKg * (form.pricePerKg || 0), [totalKg, form.pricePerKg])
+  const earliestExpiry   = useMemo(() => {
+    const ds = batchItems.filter(b => b.expiryDate).map(b => b.expiryDate)
+    return ds.length > 0 ? ds.sort()[0] : ''
   }, [batchItems])
-
-  // Najwcześniejsza data uboju
   const earliestSlaughter = useMemo(() => {
-    const dates = batchItems.filter(b => b.slaughterDate).map(b => b.slaughterDate)
-    return dates.length > 0 ? dates.sort()[0] : ''
+    const ds = batchItems.filter(b => b.slaughterDate).map(b => b.slaughterDate)
+    return ds.length > 0 ? ds.sort()[0] : ''
   }, [batchItems])
 
-  // Aktualizuj form gdy zmieniają się pozycje
   useEffect(() => {
     onFieldChange('kgReceived', totalKg)
     onFieldChange('supplierBatches', batchItems.filter(b => b.supplierBatchNo && b.kgReceived > 0))
-    
-    // Ustaw główny numer partii dostawcy
-    const validItems = batchItems.filter(b => b.supplierBatchNo)
-    if (validItems.length === 1) {
-      onFieldChange('supplierBatchNo', validItems[0].supplierBatchNo)
-    } else if (validItems.length > 1) {
-      onFieldChange('supplierBatchNo', validItems.map(b => b.supplierBatchNo).join(', '))
-    }
-    
-    // Ustaw daty — każda zmiana pozycji propaguje aktualną wartość
-    // earliestExpiry — najwcześniejsza data ważności (FEFO)
+    const valid = batchItems.filter(b => b.supplierBatchNo)
+    if (valid.length === 1) onFieldChange('supplierBatchNo', valid[0].supplierBatchNo)
+    else if (valid.length > 1) onFieldChange('supplierBatchNo', valid.map(b => b.supplierBatchNo).join(', '))
     if (earliestExpiry) onFieldChange('expiryDate', earliestExpiry)
-    // earliestSlaughter — najwcześniejsza data uboju (zawsze propaguj, nie blokuj)
     if (earliestSlaughter) onFieldChange('slaughterDate', earliestSlaughter)
   }, [batchItems, totalKg]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Dodaj nową pozycję
-  const addBatchItem = () => {
-    setBatchItems([...batchItems, emptyBatchItem()])
-  }
-
-  // Usuń pozycję
-  const removeBatchItem = (index: number) => {
-    if (batchItems.length > 1) {
-      setBatchItems(batchItems.filter((_, i) => i !== index))
-    }
-  }
-
-  // Aktualizuj pozycję
-  const updateBatchItem = (index: number, field: keyof SupplierBatchItem, value: string | number) => {
-    setBatchItems(batchItems.map((item, i) => 
-      i === index ? { ...item, [field]: value } : item
-    ))
-  }
+  const addItem    = () => setBatchItems(p => [...p, emptyBatchItem()])
+  const removeItem = (i: number) => { if (batchItems.length > 1) setBatchItems(p => p.filter((_, j) => j !== i)) }
+  const updateItem = (i: number, field: keyof SupplierBatchItem, val: string | number) =>
+    setBatchItems(p => p.map((it, j) => j === i ? { ...it, [field]: val } : it))
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Przyjęcie ćwiartki"
-      subtitle="Rejestracja partii surowca z dokumentu HDI"
-      size="xl"
-      preventClose
-    >
-      <div className="space-y-4">
-        {/* NAGŁÓWEK: Nr partii + Dostawca */}
-        <div className="grid grid-cols-2 gap-4">
-          {/* Numer partii */}
-          <div className="bg-brand-light border border-brand-border rounded-xl p-3">
-            <div className="text-[10px] font-bold text-brand uppercase tracking-wide mb-1">
-              Nasza partia
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Przyjęcie ćwiartki</DialogTitle>
+          <DialogDescription>Rejestracja partii surowca z dokumentu HDI</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-5">
+
+          {/* Numer partii + Dostawca */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* Numer partii */}
+            <Card className="border-primary/20 bg-primary/5">
+              <CardContent className="p-3">
+                <Label className="text-[10px] font-bold text-primary uppercase tracking-wide mb-1 block">
+                  Nasza partia
+                </Label>
+                {isEditingBatchNo ? (
+                  <div className="flex items-center gap-2 mt-1">
+                    <Input
+                      value={customBatchNo}
+                      onChange={e => setCustomBatchNo(e.target.value.toUpperCase())}
+                      autoFocus
+                      className="font-mono font-black text-xl text-primary h-11"
+                    />
+                    <Button size="icon" onClick={() => setIsEditingBatchNo(false)} className="h-11 w-11">
+                      <Check size={16} />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between mt-1">
+                    <CardTitle className="text-2xl font-black font-mono text-primary">
+                      {customBatchNo || suggestedBatchNo || '—'}
+                    </CardTitle>
+                    <Button variant="ghost" size="icon" onClick={() => setIsEditingBatchNo(true)}
+                      className="h-8 w-8 text-primary hover:bg-primary/10">
+                      <Edit2 size={13} />
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Dostawca */}
+            <div className="space-y-1.5">
+              <Label>Dostawca *</Label>
+              <Select value={form.supplierId} onValueChange={v => onFieldChange('supplierId', v)}>
+                <SelectTrigger className="h-11">
+                  <SelectValue placeholder="Wybierz dostawcę..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {supplierOptions.map(o => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            {isEditingBatchNo ? (
+          </div>
+
+          <Separator />
+
+          {/* Pozycje HDI */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={customBatchNo}
-                  onChange={e => setCustomBatchNo(e.target.value.toUpperCase())}
-                  autoFocus
-                  className="flex-1 h-10 px-3 text-xl font-black font-mono text-brand rounded-lg border-2 border-brand bg-white focus:outline-none"
-                />
-                <button
-                  onClick={() => setIsEditingBatchNo(false)}
-                  className="h-10 w-10 rounded-lg bg-brand text-white flex items-center justify-center"
-                >
-                  <Check size={18} />
-                </button>
+                <Link2 size={14} className="text-muted-foreground" />
+                <Label className="text-sm font-semibold">Pozycje z HDI dostawcy</Label>
+                <Badge variant="secondary">{batchItems.length}</Badge>
               </div>
-            ) : (
-              <div className="flex items-center justify-between">
-                <span className="text-2xl font-black font-mono text-brand">
-                  {customBatchNo || suggestedBatchNo || '—'}
-                </span>
-                <button
-                  onClick={() => setIsEditingBatchNo(true)}
-                  className="p-2 rounded-lg hover:bg-brand/10 text-brand"
-                  title="Zmień numer"
-                >
-                  <Edit2 size={14} />
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Dostawca */}
-          <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">
-              Dostawca *
-            </label>
-            <select
-              value={form.supplierId}
-              onChange={e => onFieldChange('supplierId', e.target.value)}
-              className="w-full h-12 px-3 text-sm font-medium rounded-xl border-2 border-surface-4 bg-white focus:outline-none focus:border-brand"
-            >
-              <option value="">Wybierz dostawcę...</option>
-              {supplierOptions.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* POZYCJE Z HDI */}
-        <div className="border-2 border-surface-4 rounded-xl overflow-hidden">
-          <div className="bg-surface-2 px-4 py-2 flex items-center justify-between border-b border-surface-4">
-            <div className="flex items-center gap-2">
-              <Link2 size={14} className="text-ink-3" />
-              <span className="text-xs font-bold text-ink-3 uppercase tracking-wide">
-                Pozycje z HDI dostawcy
-              </span>
-              <span className="text-xs text-ink-4">
-                ({batchItems.length} {batchItems.length === 1 ? 'pozycja' : 'pozycji'})
-              </span>
+              <Button variant="outline" size="sm" onClick={addItem}>
+                <Plus size={13} className="mr-1.5" /> Dodaj pozycję
+              </Button>
             </div>
-            <button
-              onClick={addBatchItem}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-bold hover:bg-brand-dark transition-colors"
-            >
-              <Plus size={12} />
-              Dodaj pozycję
-            </button>
+
+            <Card>
+              <CardContent className="p-0">
+                {/* Nagłówki */}
+                <div className="grid grid-cols-[1fr_100px_130px_130px_40px] gap-2 px-4 py-2 border-b bg-muted/30">
+                  {['Nr partii dostawcy', 'Kg', 'Data uboju', 'Data ważności', ''].map((h, i) => (
+                    <CardDescription key={i} className={`text-[10px] font-bold uppercase tracking-wide ${i === 1 ? 'text-right' : ''}`}>
+                      {h}
+                    </CardDescription>
+                  ))}
+                </div>
+                {/* Wiersze */}
+                <div className="divide-y">
+                  {batchItems.map((item, idx) => (
+                    <div key={idx} className="grid grid-cols-[1fr_100px_130px_130px_40px] gap-2 px-4 py-2 items-center">
+                      <Input
+                        placeholder="np. 111634"
+                        value={item.supplierBatchNo}
+                        onChange={e => updateItem(idx, 'supplierBatchNo', e.target.value)}
+                        className="h-9 font-mono font-semibold text-sm"
+                      />
+                      <Input
+                        type="number"
+                        placeholder="0"
+                        step="0.01"
+                        min="0"
+                        value={item.kgReceived || ''}
+                        onChange={e => updateItem(idx, 'kgReceived', parseFloat(e.target.value) || 0)}
+                        className="h-9 text-right font-bold [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <Input
+                        type="date"
+                        value={item.slaughterDate}
+                        onChange={e => {
+                          const slaughter = e.target.value
+                          const exp = slaughter
+                            ? (() => { const d = new Date(slaughter); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10) })()
+                            : item.expiryDate
+                          setBatchItems(p => p.map((it, i) =>
+                            i === idx ? { ...it, slaughterDate: slaughter, expiryDate: exp } : it
+                          ))
+                        }}
+                        className="h-9 text-xs"
+                      />
+                      <Input
+                        type="date"
+                        value={item.expiryDate}
+                        onChange={e => updateItem(idx, 'expiryDate', e.target.value)}
+                        className="h-9 text-xs"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeItem(idx)}
+                        disabled={batchItems.length <= 1}
+                        className="h-9 w-9 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                      >
+                        <X size={13} />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
-          {/* Nagłówki tabeli */}
-          <div className="grid grid-cols-[1fr_100px_120px_120px_40px] gap-2 px-4 py-2 bg-surface-2 text-[10px] font-bold text-ink-3 uppercase tracking-wide border-b border-surface-4">
-            <span>Nr partii dostawcy</span>
-            <span className="text-right">Kg</span>
-            <span>Data uboju</span>
-            <span>Data ważności</span>
-            <span></span>
+          <Separator />
+
+          {/* Podsumowanie */}
+          <div className="grid grid-cols-4 gap-3">
+            <Card className="border-primary/20 bg-primary/5">
+              <CardContent className="p-3 text-center">
+                <Package size={15} className="text-primary mx-auto mb-1" />
+                <CardTitle className="text-2xl font-black text-primary tabular-nums">
+                  {fmtKg(totalKg, 1)}
+                </CardTitle>
+                <CardDescription className="text-[10px] uppercase font-bold">kg łącznie</CardDescription>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-3 text-center">
+                <CardTitle className="text-2xl font-black tabular-nums">{containers}</CardTitle>
+                <CardDescription className="text-[10px] uppercase font-bold">pojemników</CardDescription>
+                {remainderKg > 0 && (
+                  <CardDescription className="text-[10px] text-amber-600 font-bold">
+                    +{fmtKg(remainderKg, 1)} reszty
+                  </CardDescription>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="space-y-1.5">
+              <Label>Cena / kg (zł)</Label>
+              <Input
+                type="number"
+                placeholder="0.00"
+                step="0.01"
+                min="0"
+                value={form.pricePerKg || ''}
+                onChange={e => onFieldChange('pricePerKg', parseFloat(e.target.value) || 0)}
+                className="h-11 text-lg font-black [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+            </div>
+
+            <Card className="border-green-200 bg-green-50">
+              <CardContent className="p-3 text-center">
+                <CardTitle className="text-lg font-black text-green-700 tabular-nums">
+                  {fmtPln(calcValue)}
+                </CardTitle>
+                <CardDescription className="text-[10px] uppercase font-bold text-green-600">wartość</CardDescription>
+              </CardContent>
+            </Card>
           </div>
 
-          {/* Wiersze */}
-          <div className="divide-y divide-surface-4">
-            {batchItems.map((item, index) => (
-              <div key={index} className="grid grid-cols-[1fr_100px_120px_120px_40px] gap-2 px-4 py-2 items-center">
-                <input
-                  type="text"
-                  placeholder="np. 111634"
-                  value={item.supplierBatchNo}
-                  onChange={e => updateBatchItem(index, 'supplierBatchNo', e.target.value)}
-                  className="h-9 px-3 text-sm font-mono font-semibold rounded-lg border border-surface-4 focus:outline-none focus:border-brand"
-                />
-                <input
-                  type="number"
-                  placeholder="0"
-                  step="0.01"
-                  min="0"
-                  value={item.kgReceived || ''}
-                  onChange={e => updateBatchItem(index, 'kgReceived', parseFloat(e.target.value) || 0)}
-                  className="h-9 px-3 text-sm font-bold text-right rounded-lg border border-surface-4 focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                />
-                <input
-                  type="date"
-                  value={item.slaughterDate}
-                  onChange={e => {
-                    const slaughter = e.target.value
-                    const expiry = slaughter
-                      ? (() => { const d = new Date(slaughter); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10) })()
-                      : item.expiryDate
-                    // Jeden setState — obie daty razem, bez race condition
-                    setBatchItems(prev => prev.map((it, i) =>
-                      i === index ? { ...it, slaughterDate: slaughter, expiryDate: expiry } : it
-                    ))
-                  }}
-                  className="h-9 px-2 text-xs rounded-lg border border-surface-4 focus:outline-none focus:border-brand"
-                />
-                <input
-                  type="date"
-                  value={item.expiryDate}
-                  onChange={e => updateBatchItem(index, 'expiryDate', e.target.value)}
-                  className="h-9 px-2 text-xs rounded-lg border border-surface-4 focus:outline-none focus:border-brand"
-                />
-                <button
-                  onClick={() => removeBatchItem(index)}
-                  disabled={batchItems.length <= 1}
-                  className="h-9 w-9 rounded-lg flex items-center justify-center text-ink-4 hover:text-danger hover:bg-danger-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* PODSUMOWANIE */}
-        <div className="grid grid-cols-4 gap-3">
-          <div className="bg-brand-light border border-brand-border rounded-xl p-3 text-center">
-            <Package size={16} className="text-brand mx-auto mb-1" />
-            <div className="text-2xl font-black text-brand">{fmtKg(totalKg, 1)}</div>
-            <div className="text-[9px] font-bold text-ink-3 uppercase">kg łącznie</div>
-          </div>
-          
-          <div className="bg-surface-2 border border-surface-4 rounded-xl p-3 text-center">
-            <div className="text-2xl font-black text-ink">{containers}</div>
-            <div className="text-[9px] font-bold text-ink-3 uppercase">pojemników</div>
-            {remainderKg > 0 && (
-              <div className="text-[9px] text-warn font-bold">+{fmtKg(remainderKg,1)} reszty</div>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">
-              Cena / kg (zł)
-            </label>
-            <input
-              type="number"
-              placeholder="0.00"
-              step="0.01"
-              min="0"
-              value={form.pricePerKg || ''}
-              onChange={e => onFieldChange('pricePerKg', parseFloat(e.target.value) || 0)}
-              className="w-full h-12 px-3 text-xl font-black rounded-xl border-2 border-surface-4 focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-            />
-          </div>
-          
-          <div className="bg-success-light border border-success-border rounded-xl p-3 text-center">
-            <div className="text-xl font-black text-success">{fmtPln(calculatedValue)}</div>
-            <div className="text-[9px] font-bold text-ink-3 uppercase">wartość</div>
-          </div>
-        </div>
-
-        {/* DODATKOWE DANE */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">
-              Data przyjęcia
-            </label>
-            <input
-              type="date"
-              value={form.receivedDate}
-              onChange={e => onFieldChange('receivedDate', e.target.value)}
-              className="w-full h-10 px-3 text-sm rounded-lg border-2 border-surface-4 focus:outline-none focus:border-brand"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">
-              Nr faktury / WZ
-            </label>
-            <input
-              type="text"
-              placeholder="np. WZ 739/MDU/03/2026"
-              value={form.invoiceNo ?? ''}
-              onChange={e => onFieldChange('invoiceNo', e.target.value)}
-              className="w-full h-10 px-3 text-sm rounded-lg border-2 border-surface-4 focus:outline-none focus:border-brand"
-            />
-          </div>
-        </div>
-
-        {/* TRACEABILITY INFO */}
-        {batchItems.filter(b => b.supplierBatchNo).length > 1 && (
-          <div className="bg-brand-light border border-brand-border rounded-xl px-4 py-3 text-sm">
-            <div className="font-bold text-brand mb-1">📦 Łączenie partii dostawcy</div>
-            <div className="text-brand/80">
-              Partia <strong>{customBatchNo || suggestedBatchNo}</strong> powstanie z połączenia{' '}
-              <strong>{batchItems.filter(b => b.supplierBatchNo).length}</strong> pozycji HDI:{' '}
-              {batchItems.filter(b => b.supplierBatchNo).map(b => b.supplierBatchNo).join(', ')}
+          {/* Dodatkowe dane */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Data przyjęcia</Label>
+              <Input
+                type="date"
+                value={form.receivedDate}
+                onChange={e => onFieldChange('receivedDate', e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Nr faktury / WZ</Label>
+              <Input
+                type="text"
+                placeholder="np. WZ 739/MDU/03/2026"
+                value={form.invoiceNo ?? ''}
+                onChange={e => onFieldChange('invoiceNo', e.target.value)}
+              />
             </div>
           </div>
-        )}
 
-        {/* Error */}
-        {error && (
-          <div className="text-sm text-danger bg-danger-light border border-danger-border rounded-xl px-4 py-2 font-medium">
-            {error}
-          </div>
-        )}
+          {/* Traceability info */}
+          {batchItems.filter(b => b.supplierBatchNo).length > 1 && (
+            <Card className="border-primary/20 bg-primary/5">
+              <CardContent className="px-4 py-3">
+                <CardTitle className="text-sm text-primary mb-1">Łączenie partii dostawcy</CardTitle>
+                <CardDescription className="text-sm">
+                  Partia{' '}
+                  <strong className="text-primary font-mono">{customBatchNo || suggestedBatchNo}</strong>
+                  {' '}powstanie z połączenia{' '}
+                  <strong>{batchItems.filter(b => b.supplierBatchNo).length}</strong> pozycji HDI:{' '}
+                  <span className="font-mono">
+                    {batchItems.filter(b => b.supplierBatchNo).map(b => b.supplierBatchNo).join(', ')}
+                  </span>
+                </CardDescription>
+              </CardContent>
+            </Card>
+          )}
 
-        {/* Buttons */}
-        <div className="flex gap-3 pt-2">
-          <Button variant="ghost" fullWidth onClick={onClose} className="h-12">
+          {/* Error */}
+          {error && (
+            <Card className="border-destructive/50 bg-destructive/5">
+              <CardContent className="px-4 py-2">
+                <CardDescription className="text-destructive font-medium">{error}</CardDescription>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={loading}>
             Anuluj
           </Button>
           <Button
-            variant="primary"
-            fullWidth
-            loading={loading}
             onClick={onSubmit}
-            icon={<Plus size={16} />}
-            className="h-12"
             disabled={!form.supplierId || totalKg <= 0}
+            className="gap-2"
           >
+            {loading ? (
+              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <Plus size={15} />
+            )}
             Przyjmij partię ({fmtKg(totalKg, 0)} kg)
           </Button>
-        </div>
-      </div>
-    </Modal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
