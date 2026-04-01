@@ -3,100 +3,177 @@ import { rawBatchesApi, deboningApi, meatStockApi } from '@/lib/apiClient'
 import { ExpiryBadge, StatusBadge, computeDisplayStatus } from '@/components/ui/Badge'
 import { fmtKg, fmtDatePl, fmtPct, getExpiryStatus, sortFefo, todayIso } from '@/lib/utils'
 import { Link } from 'react-router-dom'
+
+// ── shadcn/ui components ────────────────────────────────────────
 import {
-  Card, CardContent, CardHeader, CardTitle, CardDescription,
+  Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter,
 } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { Button } from '@/components/ui/button'
-import { ShadcnBadge } from '@/components/ui/badge'
 import {
-  AlertTriangle, Package, Beef, Scissors, TrendingUp,
-  TrendingDown, ArrowRight, Activity, BarChart3, Clock, Zap,
+  Tooltip, TooltipContent, TooltipTrigger,
+} from '@/components/ui/tooltip'
+
+// ── icons ───────────────────────────────────────────────────────
+import {
+  AlertTriangle, Package, Beef, Scissors, TrendingUp, TrendingDown,
+  ArrowRight, Activity, BarChart3, Clock, Zap, Info,
 } from 'lucide-react'
+
+// ── recharts ────────────────────────────────────────────────────
 import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip,
-  BarChart, Bar, Cell,
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
+  CartesianGrid, Tooltip as ChartTooltip, BarChart, Bar, Cell,
 } from 'recharts'
 
-// ── Skeleton loading cards ──────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// Loading skeleton — 4 KPI cards
+// ─────────────────────────────────────────────────────────────────
 function KpiSkeleton() {
   return (
-    <Card className="p-6">
-      <Skeleton className="h-4 w-24 mb-3" />
-      <Skeleton className="h-8 w-32 mb-2" />
-      <Skeleton className="h-3 w-20" />
+    <Card>
+      <CardContent className="p-6">
+        <Skeleton className="h-4 w-28 mb-4" />
+        <Skeleton className="h-8 w-36 mb-3" />
+        <Skeleton className="h-3 w-24" />
+      </CardContent>
     </Card>
   )
 }
 
-// ── KPI Card ───────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// KPI Card — w pełni shadcn Card + CardContent + CardTitle + CardDescription
+// ─────────────────────────────────────────────────────────────────
+type Accent = 'blue' | 'green' | 'amber' | 'red'
+
+const ACCENT: Record<Accent, { icon: string; value: string; badge: 'info' | 'success' | 'warning' | 'danger' }> = {
+  blue:  { icon: 'bg-blue-50 text-blue-600',   value: 'text-foreground', badge: 'info'    },
+  green: { icon: 'bg-green-50 text-green-600',  value: 'text-foreground', badge: 'success' },
+  amber: { icon: 'bg-amber-50 text-amber-600',  value: 'text-foreground', badge: 'warning' },
+  red:   { icon: 'bg-red-50 text-red-600',      value: 'text-red-600',    badge: 'danger'  },
+}
+
 interface KpiProps {
   label: string
   value: React.ReactNode
   unit?: string
   sub?: string
+  tooltip?: string
   icon: React.ReactNode
   trend?: 'up' | 'down' | 'neutral'
   trendLabel?: string
-  accent: 'blue' | 'green' | 'amber' | 'red'
+  accent: Accent
 }
 
-const ACCENT_STYLES = {
-  blue:  { icon: 'bg-blue-50 text-blue-600',   ring: 'ring-blue-100',  value: 'text-gray-900' },
-  green: { icon: 'bg-green-50 text-green-600',  ring: 'ring-green-100', value: 'text-gray-900' },
-  amber: { icon: 'bg-amber-50 text-amber-600',  ring: 'ring-amber-100', value: 'text-gray-900' },
-  red:   { icon: 'bg-red-50 text-red-600',      ring: 'ring-red-100',   value: 'text-red-700'  },
-}
+function KpiCard({ label, value, unit, sub, tooltip, icon, trend, trendLabel, accent }: KpiProps) {
+  const s = ACCENT[accent]
 
-function KpiCard({ label, value, unit, sub, icon, trend, trendLabel, accent }: KpiProps) {
-  const s = ACCENT_STYLES[accent]
   return (
-    <Card className="p-6 hover:shadow-card-hover transition-shadow">
-      <div className="flex items-start justify-between">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-500 mb-1">{label}</p>
-          <div className="flex items-baseline gap-1.5">
-            <span className={`text-2xl font-bold tabular-nums ${s.value}`}>{value}</span>
-            {unit && <span className="text-sm font-medium text-gray-400">{unit}</span>}
-          </div>
-          {(sub || trend) && (
-            <div className="flex items-center gap-1.5 mt-2">
-              {trend === 'up' && <TrendingUp size={12} className="text-green-500" />}
-              {trend === 'down' && <TrendingDown size={12} className="text-red-500" />}
-              {trendLabel && <span className="text-xs text-gray-400">{trendLabel}</span>}
-              {sub && !trendLabel && <span className="text-xs text-gray-400">{sub}</span>}
+    <Card className="hover:shadow-card-hover transition-all duration-200">
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between gap-4">
+          {/* Left: text */}
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="flex items-center gap-1.5">
+              <CardDescription className="text-xs font-semibold uppercase tracking-wide">
+                {label}
+              </CardDescription>
+              {tooltip && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button className="text-muted-foreground hover:text-foreground transition-colors">
+                      <Info size={11} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[200px] text-xs">
+                    {tooltip}
+                  </TooltipContent>
+                </Tooltip>
+              )}
             </div>
-          )}
+
+            <div className="flex items-baseline gap-1.5">
+              <CardTitle className={`text-2xl font-bold tabular-nums ${s.value}`}>
+                {value}
+              </CardTitle>
+              {unit && (
+                <CardDescription className="text-sm font-medium">{unit}</CardDescription>
+              )}
+            </div>
+
+            {(trendLabel || sub) && (
+              <div className="flex items-center gap-1 pt-0.5">
+                {trend === 'up'   && <TrendingUp  size={12} className="text-green-500 flex-shrink-0" />}
+                {trend === 'down' && <TrendingDown size={12} className="text-red-500 flex-shrink-0"  />}
+                <CardDescription className="text-xs">
+                  {trendLabel ?? sub}
+                </CardDescription>
+              </div>
+            )}
+          </div>
+
+          {/* Right: icon circle */}
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${s.icon}`}>
+            {icon}
+          </div>
         </div>
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ml-4 ${s.icon}`}>
-          {icon}
-        </div>
-      </div>
+      </CardContent>
     </Card>
   )
 }
 
-// ── Custom chart tooltip ────────────────────────────────────────
-function CustomTooltip({ active, payload, label }: any) {
+// ─────────────────────────────────────────────────────────────────
+// Custom recharts tooltip — must be a plain div (recharts requirement)
+// ─────────────────────────────────────────────────────────────────
+function ChartTooltipContent({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-md px-3 py-2 text-xs">
-      <p className="font-semibold text-gray-700 mb-1">{label}</p>
+    <Card className="shadow-modal p-3 min-w-[130px]">
+      <CardDescription className="font-semibold text-foreground mb-1.5">{label}</CardDescription>
       {payload.map((p: any) => (
-        <p key={p.name} className="text-gray-500">
-          <span className="font-medium" style={{ color: p.color }}>{p.name}:</span>{' '}
-          {typeof p.value === 'number' ? p.value.toFixed(1) : p.value}
-          {p.name === 'Wydajność' ? '%' : ' kg'}
-        </p>
+        <div key={p.name} className="flex items-center gap-2 text-xs">
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.color }} />
+          <CardDescription className="text-foreground font-medium">{p.name}:</CardDescription>
+          <CardDescription>
+            {typeof p.value === 'number' ? p.value.toFixed(1) : p.value}
+            {p.name === 'Wydajność' ? '%' : ' kg'}
+          </CardDescription>
+        </div>
       ))}
+    </Card>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Empty state — shadcn Card
+// ─────────────────────────────────────────────────────────────────
+function EmptyCard({ icon, title, description, action }: {
+  icon: React.ReactNode
+  title: string
+  description?: string
+  action?: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 gap-2">
+      <div className="text-muted-foreground opacity-20 mb-1">{icon}</div>
+      <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+      {description && (
+        <CardDescription className="text-xs text-center max-w-xs">{description}</CardDescription>
+      )}
+      {action && <div className="mt-3">{action}</div>}
     </div>
   )
 }
 
+// ─────────────────────────────────────────────────────────────────
+// DashboardPage
+// ─────────────────────────────────────────────────────────────────
 export function DashboardPage() {
   const batchRes    = useApi(() => rawBatchesApi.list())
   const deboningRes = useApi(() => deboningApi.list())
@@ -122,7 +199,7 @@ export function DashboardPage() {
     return d >= 2 && d <= 3
   })
 
-  // Chart data: last 14 days of deboning
+  // Chart data: last 14 days aggregated by day
   const chartData = (() => {
     const byDay = new Map<string, { kg: number; meat: number; count: number }>()
     allDebonings.forEach(d => {
@@ -146,22 +223,35 @@ export function DashboardPage() {
       }))
   })()
 
-  // ── Loading skeleton ─────────────────────────────────────────
+  const avgYield = todayDeb.length > 0
+    ? todayDeb.reduce((s, d) => s + Number(d.yieldPct), 0) / todayDeb.length
+    : 0
+
+  // ── Loading state ──────────────────────────────────────────────
   if (loading) {
     return (
       <div className="space-y-6 animate-fade-in">
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-          {[0,1,2,3].map(i => <KpiSkeleton key={i} />)}
+          {[0, 1, 2, 3].map(i => <KpiSkeleton key={i} />)}
         </div>
+        <Separator />
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <Card className="lg:col-span-2">
-            <CardHeader><Skeleton className="h-5 w-40" /></CardHeader>
-            <CardContent><Skeleton className="h-48 w-full" /></CardContent>
+            <CardHeader>
+              <Skeleton className="h-5 w-48" />
+              <Skeleton className="h-4 w-32" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-52 w-full rounded-xl" />
+            </CardContent>
           </Card>
           <Card>
-            <CardHeader><Skeleton className="h-5 w-32" /></CardHeader>
+            <CardHeader>
+              <Skeleton className="h-5 w-36" />
+              <Skeleton className="h-4 w-24" />
+            </CardHeader>
             <CardContent className="space-y-3">
-              {[0,1,2,3,4].map(i => <Skeleton key={i} className="h-10 w-full" />)}
+              {[0, 1, 2, 3, 4].map(i => <Skeleton key={i} className="h-9 w-full rounded-lg" />)}
             </CardContent>
           </Card>
         </div>
@@ -172,22 +262,24 @@ export function DashboardPage() {
   return (
     <div className="space-y-6 animate-fade-in">
 
-      {/* ── KPI row ─────────────────────────────────────────── */}
+      {/* ── KPI row ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard
           label="Surowiec dostępny"
           value={fmtKg(totalKgAvail, 0)}
           unit="kg"
-          sub={`${activeBatches.length} aktywnych partii`}
+          trendLabel={`${activeBatches.length} aktywnych partii`}
+          tooltip="Łączna ilość kg surowca we wszystkich aktywnych partiach (FEFO)"
           icon={<Beef size={18} />}
           accent="blue"
-          trend={totalKgAvail > 0 ? 'neutral' : 'down'}
+          trend="neutral"
         />
         <KpiCard
           label="Magazyn mięsa"
           value={fmtKg(meatKg, 0)}
           unit="kg"
-          sub={`${allMeat.filter(m => m.status === 'AVAILABLE').length} lotów`}
+          trendLabel={`${allMeat.filter(m => m.status === 'AVAILABLE').length} lotów dostępnych`}
+          tooltip="Mięso po rozbiorze gotowe do masowania"
           icon={<Package size={18} />}
           accent="green"
         />
@@ -195,116 +287,149 @@ export function DashboardPage() {
           label="Rozbiory dziś"
           value={todayDeb.length}
           unit="sesji"
-          sub={todayDeb.length > 0
-            ? `Śr. wydajność: ${fmtPct(todayDeb.reduce((s,d) => s + Number(d.yieldPct), 0) / todayDeb.length)}`
-            : 'Brak sesji'}
+          trendLabel={todayDeb.length > 0 ? `Śr. wydajność: ${fmtPct(avgYield)}` : 'Brak sesji dziś'}
+          tooltip="Liczba sesji rozbioru zarejestrowanych dzisiaj"
           icon={<Scissors size={18} />}
           accent="amber"
           trend={todayDeb.length > 0 ? 'up' : 'neutral'}
-          trendLabel={todayDeb.length > 0 ? 'aktywne dziś' : undefined}
         />
         <KpiCard
           label="Alerty FEFO"
           value={critical.length + warnings.length}
           unit="partii"
-          sub={critical.length > 0 ? `${critical.length} krytycznych` : 'Brak krytycznych'}
+          trendLabel={critical.length > 0 ? `${critical.length} krytycznych` : 'Brak krytycznych'}
+          tooltip="Partie wygasające ≤3 dni (krytyczne ≤1 dzień)"
           icon={<AlertTriangle size={18} />}
           accent={critical.length > 0 ? 'red' : 'green'}
           trend={critical.length > 0 ? 'down' : 'up'}
-          trendLabel={critical.length > 0 ? 'wymaga działania' : 'wszystko OK'}
         />
       </div>
 
-      {/* ── FEFO Alerts ─────────────────────────────────────── */}
+      <Separator />
+
+      {/* ── FEFO Alert cards ─────────────────────────────────────── */}
       {(critical.length > 0 || warnings.length > 0) && (
         <div className="space-y-3">
+
+          {/* Critical */}
           {critical.length > 0 && (
-            <div className="rounded-2xl border border-red-200 bg-red-50 overflow-hidden">
-              <div className="px-4 py-3 border-b border-red-200 flex items-center gap-2">
-                <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                  <AlertTriangle size={12} className="text-red-600" />
+            <Card className="border-red-200 bg-red-50 overflow-hidden">
+              <CardHeader className="py-3 px-4 border-b border-red-200 flex-row items-center space-y-0 gap-2">
+                <div className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle size={13} className="text-red-600" />
                 </div>
-                <span className="text-sm font-semibold text-red-800">
+                <CardTitle className="text-sm font-semibold text-red-800 flex-1">
                   Krytyczne FEFO — wymaga natychmiastowego działania
-                </span>
-                <ShadcnBadge variant="danger" className="ml-auto">{critical.length} partii</ShadcnBadge>
-              </div>
-              <div className="divide-y divide-red-100">
-                {critical.map(b => {
-                  const { daysLeft } = getExpiryStatus(b.expiryDate)
-                  return (
-                    <div key={b.id} className="px-4 py-2.5 flex items-center gap-4 text-sm">
-                      <code className="font-mono font-bold text-red-700 text-xs bg-red-100 px-1.5 py-0.5 rounded">
-                        {b.internalBatchNo}
-                      </code>
-                      <span className="text-red-700 flex-1">
-                        {daysLeft < 0 ? 'Przeterminowana' : daysLeft === 0 ? 'Wygasa dziś' : 'Wygasa jutro'}
-                        {' — '}{fmtDatePl(b.expiryDate)}
-                      </span>
-                      <span className="font-semibold text-red-800 tabular-nums">{fmtKg(b.kgAvailable)} kg</span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
+                </CardTitle>
+                <Badge variant="danger">{critical.length} {critical.length === 1 ? 'partia' : 'partii'}</Badge>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableBody>
+                    {critical.map(b => {
+                      const { daysLeft } = getExpiryStatus(b.expiryDate)
+                      return (
+                        <TableRow key={b.id} className="hover:bg-red-100/50">
+                          <TableCell>
+                            <code className="font-mono font-bold text-red-700 text-xs bg-red-100 px-1.5 py-0.5 rounded">
+                              {b.internalBatchNo}
+                            </code>
+                          </TableCell>
+                          <TableCell>
+                            <CardDescription className="text-red-700">
+                              {daysLeft < 0 ? 'Przeterminowana' : daysLeft === 0 ? 'Wygasa dziś' : 'Wygasa jutro'}
+                              {' — '}{fmtDatePl(b.expiryDate)}
+                            </CardDescription>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <CardTitle className="text-sm font-semibold text-red-800 tabular-nums">
+                              {fmtKg(b.kgAvailable)} kg
+                            </CardTitle>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
           )}
 
+          {/* Warnings */}
           {warnings.length > 0 && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 overflow-hidden">
-              <div className="px-4 py-3 border-b border-amber-200 flex items-center gap-2">
-                <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                  <Clock size={12} className="text-amber-600" />
+            <Card className="border-amber-200 bg-amber-50 overflow-hidden">
+              <CardHeader className="py-3 px-4 border-b border-amber-200 flex-row items-center space-y-0 gap-2">
+                <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                  <Clock size={13} className="text-amber-600" />
                 </div>
-                <span className="text-sm font-semibold text-amber-800">
+                <CardTitle className="text-sm font-semibold text-amber-800 flex-1">
                   Ostrzeżenia FEFO — wygasa w ciągu 2–3 dni
-                </span>
-                <ShadcnBadge variant="warning" className="ml-auto">{warnings.length} partii</ShadcnBadge>
-              </div>
-              <div className="divide-y divide-amber-100">
-                {warnings.map(b => {
-                  const { daysLeft } = getExpiryStatus(b.expiryDate)
-                  return (
-                    <div key={b.id} className="px-4 py-2.5 flex items-center gap-4 text-sm">
-                      <code className="font-mono font-bold text-amber-700 text-xs bg-amber-100 px-1.5 py-0.5 rounded">
-                        {b.internalBatchNo}
-                      </code>
-                      <span className="text-amber-700 flex-1">Za {daysLeft} dni — {fmtDatePl(b.expiryDate)}</span>
-                      <span className="font-semibold text-amber-800 tabular-nums">{fmtKg(b.kgAvailable)} kg</span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
+                </CardTitle>
+                <Badge variant="warning">{warnings.length} {warnings.length === 1 ? 'partia' : 'partii'}</Badge>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableBody>
+                    {warnings.map(b => {
+                      const { daysLeft } = getExpiryStatus(b.expiryDate)
+                      return (
+                        <TableRow key={b.id} className="hover:bg-amber-100/50">
+                          <TableCell>
+                            <code className="font-mono font-bold text-amber-700 text-xs bg-amber-100 px-1.5 py-0.5 rounded">
+                              {b.internalBatchNo}
+                            </code>
+                          </TableCell>
+                          <TableCell>
+                            <CardDescription className="text-amber-700">
+                              Za {daysLeft} {daysLeft === 1 ? 'dzień' : 'dni'} — {fmtDatePl(b.expiryDate)}
+                            </CardDescription>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <CardTitle className="text-sm font-semibold text-amber-800 tabular-nums">
+                              {fmtKg(b.kgAvailable)} kg
+                            </CardTitle>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
           )}
         </div>
       )}
 
-      {/* ── Main grid: Chart + Quick stats ─────────────────── */}
+      {/* ── Charts row ───────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* Production chart */}
+        {/* Area chart — production over 14 days */}
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-start justify-between gap-4">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <Activity size={16} className="text-blue-500" />
+                  <Activity size={15} className="text-blue-500" />
                   Produkcja — ostatnie 14 dni
                 </CardTitle>
-                <CardDescription className="mt-0.5">Rozbiór ćwiartki i uzysk mięsa (kg)</CardDescription>
+                <CardDescription className="mt-0.5">
+                  Rozbiór ćwiartki i uzysk mięsa (kg)
+                </CardDescription>
               </div>
-              <ShadcnBadge variant="info" className="text-xs">
-                <Zap size={10} className="mr-1" /> Live
-              </ShadcnBadge>
+              <Badge variant="info" className="flex-shrink-0">
+                <Zap size={10} className="mr-1" />
+                Live
+              </Badge>
             </div>
           </CardHeader>
-          <CardContent>
+          <Separator />
+          <CardContent className="pt-4">
             {chartData.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-                <BarChart3 size={32} className="mb-2 opacity-30" />
-                <p className="text-sm font-medium">Brak danych produkcyjnych</p>
-                <p className="text-xs text-gray-400 mt-1">Dane pojawią się po pierwszym rozbiorze</p>
-              </div>
+              <EmptyCard
+                icon={<BarChart3 size={40} />}
+                title="Brak danych produkcyjnych"
+                description="Wykres pojawi się po zarejestrowaniu pierwszego rozbioru"
+              />
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
@@ -321,46 +446,43 @@ export function DashboardPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
                   <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} width={40} />
-                  <ChartTooltip content={<CustomTooltip />} />
-                  <Area
-                    type="monotone" dataKey="Ćwiartka" stroke="#3B82F6" strokeWidth={2}
-                    fill="url(#gradBlue)" dot={false} activeDot={{ r: 4, fill: '#3B82F6' }}
-                  />
-                  <Area
-                    type="monotone" dataKey="Mięso" stroke="#10B981" strokeWidth={2}
-                    fill="url(#gradGreen)" dot={false} activeDot={{ r: 4, fill: '#10B981' }}
-                  />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Area type="monotone" dataKey="Ćwiartka" stroke="#3B82F6" strokeWidth={2}
+                    fill="url(#gradBlue)" dot={false} activeDot={{ r: 4, fill: '#3B82F6', strokeWidth: 0 }} />
+                  <Area type="monotone" dataKey="Mięso" stroke="#10B981" strokeWidth={2}
+                    fill="url(#gradGreen)" dot={false} activeDot={{ r: 4, fill: '#10B981', strokeWidth: 0 }} />
                 </AreaChart>
               </ResponsiveContainer>
             )}
           </CardContent>
         </Card>
 
-        {/* Quick stats / yield chart */}
+        {/* Bar chart — yield per day */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Wydajność rozbioru</CardTitle>
-            <CardDescription>Ostatnie sesje (%)</CardDescription>
+            <CardTitle>Wydajność rozbioru</CardTitle>
+            <CardDescription>Ostatnie 7 dni (%)</CardDescription>
           </CardHeader>
-          <CardContent>
+          <Separator />
+          <CardContent className="pt-4">
             {chartData.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-                <BarChart3 size={28} className="mb-2 opacity-30" />
-                <p className="text-sm">Brak danych</p>
-              </div>
+              <EmptyCard
+                icon={<BarChart3 size={32} />}
+                title="Brak danych"
+              />
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={chartData.slice(-7)} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
                   <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
                   <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} width={30} />
-                  <ChartTooltip content={<CustomTooltip />} />
-                  <Bar dataKey="Wydajność" radius={[4, 4, 0, 0]} maxBarSize={32}>
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="Wydajność" radius={[4, 4, 0, 0]} maxBarSize={36}>
                     {chartData.slice(-7).map((entry, i) => (
-                      <Cell
-                        key={i}
-                        fill={entry['Wydajność'] >= 70 ? '#10B981' : entry['Wydajność'] >= 60 ? '#F59E0B' : '#EF4444'}
-                      />
+                      <Cell key={i} fill={
+                        entry['Wydajność'] >= 70 ? '#10B981' :
+                        entry['Wydajność'] >= 60 ? '#F59E0B' : '#EF4444'
+                      } />
                     ))}
                   </Bar>
                 </BarChart>
@@ -370,50 +492,53 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      {/* ── Tables ──────────────────────────────────────────── */}
+      {/* ── Tables — FEFO / Rozbiory ──────────────────────────────── */}
       <Tabs defaultValue="fefo">
-        <TabsList className="mb-4">
-          <TabsTrigger value="fefo" className="flex items-center gap-1.5">
+        <TabsList>
+          <TabsTrigger value="fefo" className="gap-1.5">
             <Package size={13} />
             Partie FEFO
-            {(critical.length > 0 || warnings.length > 0) && (
-              <span className="ml-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+            {(critical.length + warnings.length) > 0 && (
+              <Badge variant="danger" className="ml-1 px-1.5 py-0 text-[10px] h-4 leading-none">
                 {critical.length + warnings.length}
-              </span>
+              </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="deboning" className="flex items-center gap-1.5">
+          <TabsTrigger value="deboning" className="gap-1.5">
             <Scissors size={13} />
             Ostatnie rozbiory
           </TabsTrigger>
         </TabsList>
 
         {/* FEFO table */}
-        <TabsContent value="fefo">
+        <TabsContent value="fefo" className="mt-4">
           <Card>
-            <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
+            <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
               <div>
-                <CardTitle className="text-base">Partie ćwiartki — FEFO</CardTitle>
+                <CardTitle>Partie ćwiartki — FEFO</CardTitle>
                 <CardDescription className="mt-0.5">
-                  Sortowanie wg daty ważności ({fefoSorted.length} partii)
+                  Sortowanie wg daty ważności · {fefoSorted.length} partii
                 </CardDescription>
               </div>
               <Button variant="outline" size="sm" asChild>
-                <Link to="/office/raw-batches" className="flex items-center gap-1.5">
+                <Link to="/office/raw-batches" className="gap-1.5">
                   Zarządzaj <ArrowRight size={13} />
                 </Link>
               </Button>
             </CardHeader>
+            <Separator />
             <CardContent className="p-0">
               {fefoSorted.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-                  <Package size={36} className="mb-3 opacity-20" />
-                  <p className="text-sm font-medium text-gray-500">Brak partii</p>
-                  <p className="text-xs text-gray-400 mt-1">Przyjmij pierwszą partię ćwiartki</p>
-                  <Button variant="outline" size="sm" className="mt-4" asChild>
-                    <Link to="/office/raw-batches">Dodaj partię</Link>
-                  </Button>
-                </div>
+                <EmptyCard
+                  icon={<Package size={40} />}
+                  title="Brak partii"
+                  description="Przyjmij pierwszą partię ćwiartki aby rozpocząć produkcję"
+                  action={
+                    <Button variant="outline" size="sm" asChild>
+                      <Link to="/office/raw-batches">Dodaj partię</Link>
+                    </Button>
+                  }
+                />
               ) : (
                 <Table>
                   <TableHeader>
@@ -431,13 +556,22 @@ export function DashboardPage() {
                       return (
                         <TableRow key={b.id}>
                           <TableCell>
-                            <code className="font-mono font-bold text-gray-900 text-xs bg-gray-100 px-1.5 py-0.5 rounded">
-                              {b.internalBatchNo}
-                            </code>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <code className="font-mono font-bold text-foreground text-xs bg-muted px-1.5 py-0.5 rounded cursor-default">
+                                  {b.internalBatchNo}
+                                </code>
+                              </TooltipTrigger>
+                              <TooltipContent side="right" className="text-xs">
+                                ID: {b.id}
+                              </TooltipContent>
+                            </Tooltip>
                           </TableCell>
-                          <TableCell className="text-gray-600 text-sm">{b.supplierName ?? '—'}</TableCell>
-                          <TableCell className="text-right font-semibold tabular-nums">
-                            {fmtKg(b.kgAvailable)} kg
+                          <TableCell>
+                            <CardDescription>{b.supplierName ?? '—'}</CardDescription>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <CardTitle className="text-sm font-semibold tabular-nums">{fmtKg(b.kgAvailable)} kg</CardTitle>
                           </TableCell>
                           <TableCell><ExpiryBadge dateStr={b.expiryDate} /></TableCell>
                           <TableCell><StatusBadge status={displayStatus} /></TableCell>
@@ -448,30 +582,40 @@ export function DashboardPage() {
                 </Table>
               )}
             </CardContent>
+            {fefoSorted.length > 0 && (
+              <CardFooter className="border-t pt-3 justify-end">
+                <Button variant="ghost" size="sm" asChild>
+                  <Link to="/office/raw-batches" className="gap-1.5 text-muted-foreground">
+                    Pokaż wszystkie partie <ArrowRight size={12} />
+                  </Link>
+                </Button>
+              </CardFooter>
+            )}
           </Card>
         </TabsContent>
 
-        {/* Deboning table */}
-        <TabsContent value="deboning">
+        {/* Deboning log table */}
+        <TabsContent value="deboning" className="mt-4">
           <Card>
-            <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
+            <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
               <div>
-                <CardTitle className="text-base">Ostatnie rozbiory</CardTitle>
-                <CardDescription className="mt-0.5">10 ostatnich wpisów</CardDescription>
+                <CardTitle>Ostatnie rozbiory</CardTitle>
+                <CardDescription className="mt-0.5">10 ostatnich wpisów rozbioru</CardDescription>
               </div>
               <Button variant="outline" size="sm" asChild>
-                <Link to="/office/deboning" className="flex items-center gap-1.5">
+                <Link to="/office/deboning" className="gap-1.5">
                   Wszystkie <ArrowRight size={13} />
                 </Link>
               </Button>
             </CardHeader>
+            <Separator />
             <CardContent className="p-0">
               {allDebonings.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-                  <Scissors size={36} className="mb-3 opacity-20" />
-                  <p className="text-sm font-medium text-gray-500">Brak sesji rozbioru</p>
-                  <p className="text-xs text-gray-400 mt-1">Wykonaj pierwszy rozbiór na tablecie</p>
-                </div>
+                <EmptyCard
+                  icon={<Scissors size={40} />}
+                  title="Brak sesji rozbioru"
+                  description="Wykonaj pierwszy rozbiór z poziomu tabletu hali produkcyjnej"
+                />
               ) : (
                 <Table>
                   <TableHeader>
@@ -489,32 +633,39 @@ export function DashboardPage() {
                       .sort((a, b) => b.createdAt > a.createdAt ? 1 : -1)
                       .slice(0, 10)
                       .map(d => {
-                        const yield_ = Number(d.yieldPct)
+                        const yld = Number(d.yieldPct)
+                        const yldVariant =
+                          yld >= 70 ? 'success' :
+                          yld >= 60 ? 'warning' : 'danger'
                         return (
                           <TableRow key={d.id}>
                             <TableCell>
-                              <code className="font-mono text-blue-600 text-xs font-semibold">{d.sessionNo}</code>
+                              <code className="font-mono text-primary text-xs font-semibold">
+                                {d.sessionNo}
+                              </code>
                             </TableCell>
                             <TableCell>
-                              <code className="font-mono font-bold text-gray-900 text-xs bg-gray-100 px-1.5 py-0.5 rounded">
+                              <code className="font-mono font-bold text-foreground text-xs bg-muted px-1.5 py-0.5 rounded">
                                 {d.rawBatchNo}
                               </code>
                             </TableCell>
-                            <TableCell className="text-gray-600">{d.workerName ?? '—'}</TableCell>
-                            <TableCell className="text-right font-semibold tabular-nums">
-                              {fmtKg(Number(d.kgTaken), 1)} kg
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums text-gray-600">
-                              {fmtKg(Number(d.kgMeat), 1)} kg
+                            <TableCell>
+                              <CardDescription>{d.workerName ?? '—'}</CardDescription>
                             </TableCell>
                             <TableCell className="text-right">
-                              <span className={
-                                yield_ >= 70 ? 'text-green-600 font-bold' :
-                                yield_ >= 60 ? 'text-amber-600 font-semibold' :
-                                'text-red-600 font-semibold'
-                              }>
-                                {fmtPct(yield_)}
-                              </span>
+                              <CardTitle className="text-sm font-semibold tabular-nums">
+                                {fmtKg(Number(d.kgTaken), 1)} kg
+                              </CardTitle>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <CardDescription className="tabular-nums">
+                                {fmtKg(Number(d.kgMeat), 1)} kg
+                              </CardDescription>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Badge variant={yldVariant as any} className="tabular-nums">
+                                {fmtPct(yld)}
+                              </Badge>
                             </TableCell>
                           </TableRow>
                         )
@@ -523,6 +674,15 @@ export function DashboardPage() {
                 </Table>
               )}
             </CardContent>
+            {allDebonings.length > 0 && (
+              <CardFooter className="border-t pt-3 justify-end">
+                <Button variant="ghost" size="sm" asChild>
+                  <Link to="/office/deboning" className="gap-1.5 text-muted-foreground">
+                    Pokaż wszystkie rozbiory <ArrowRight size={12} />
+                  </Link>
+                </Button>
+              </CardFooter>
+            )}
           </Card>
         </TabsContent>
       </Tabs>
