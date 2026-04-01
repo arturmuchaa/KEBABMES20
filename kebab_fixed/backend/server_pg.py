@@ -416,11 +416,13 @@ def list_recipes():
 
 @app.post("/api/recipes")
 def create_recipe(dto: RecipeCreate):
+    # Uzysk = 100 kg mięsa + suma składników (woda, przyprawy, dodatki funkcyjne dodają masę)
+    auto_output = round(100.0 + sum(float(ing.qty_per_100kg) for ing in dto.ingredients), 3)
     row = execute_returning("""
         INSERT INTO recipes (id, name, product_type_id, product_type_name, total_output_per_100kg, active, notes, created_at)
         VALUES (%s,%s,%s,%s,%s,true,%s,%s) RETURNING *
     """, (cuid(), dto.name, dto.product_type_id or None, dto.product_type_name,
-          dto.total_output_per_100kg, dto.notes or None, now_iso()))
+          auto_output, dto.notes or None, now_iso()))
     for ing in dto.ingredients:
         ing_name, ing_unit = _enrich_ingredient(ing)
         execute("""
@@ -437,11 +439,13 @@ def create_recipe(dto: RecipeCreate):
 
 @app.put("/api/recipes/{id}")
 def update_recipe(id: str, dto: RecipeCreate):
+    # Uzysk przeliczany automatycznie przy każdej edycji receptury
+    auto_output = round(100.0 + sum(float(ing.qty_per_100kg) for ing in dto.ingredients), 3)
     execute("""
         UPDATE recipes SET name=%s, product_type_id=%s, product_type_name=%s,
         total_output_per_100kg=%s, notes=%s, updated_at=%s WHERE id=%s
     """, (dto.name, dto.product_type_id or None, dto.product_type_name,
-          dto.total_output_per_100kg, dto.notes or None, now_iso(), id))
+          auto_output, dto.notes or None, now_iso(), id))
     execute("DELETE FROM recipe_ingredients WHERE recipe_id=%s", (id,))
     for ing in dto.ingredients:
         ing_name, ing_unit = _enrich_ingredient(ing)
@@ -1149,6 +1153,105 @@ def _trace_forward(batch_id: str) -> dict:
                         result["finishedGoods"].append(fg)
 
     return result
+
+# ─── Admin: naprawa lineage dla istniejących rekordów ─────────
+@app.post("/api/admin/repair-lineage")
+def repair_lineage():
+    """
+    Backfill source_deboning_ids na seasoned_meat oraz source_* na finished_goods
+    dla rekordów stworzonych przed wdrożeniem traceability v3.
+    Bezpieczne — nie nadpisuje istniejących danych, tylko uzupełnia puste.
+    """
+    fixed_seasoned = 0
+    fixed_finished = 0
+    errors = []
+
+    # ── 1. Napraw seasoned_meat ───────────────────────────────
+    batches = query_all(
+        "SELECT * FROM seasoned_meat WHERE source_deboning_ids = '{}' OR source_deboning_ids IS NULL")
+    for sm in batches:
+        try:
+            mo = query_one("SELECT * FROM mixing_orders WHERE order_no=%s",
+                           (sm.get('mixing_order_no'),))
+            if not mo:
+                continue
+            lots = query_all("""
+                SELECT mol.meat_stock_id, ms.deboning_session_id, ms.raw_batch_id
+                FROM mixing_order_lots mol
+                LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+                WHERE mol.order_id = %s
+            """, (mo['id'],))
+            deboning_ids = list({lt['deboning_session_id']
+                                 for lt in lots if lt.get('deboning_session_id')})
+            if deboning_ids:
+                execute("""
+                    UPDATE seasoned_meat
+                    SET source_deboning_ids = %s::text[]
+                    WHERE id = %s AND (source_deboning_ids = '{}' OR source_deboning_ids IS NULL)
+                """, (deboning_ids, sm['id']))
+                fixed_seasoned += 1
+            # Też zaktualizuj forward-ref na mixing_order
+            execute("""
+                UPDATE mixing_orders
+                SET source_seasoned_batch_ids = (
+                    SELECT ARRAY(SELECT DISTINCT unnest(
+                        COALESCE(source_seasoned_batch_ids,'{}') || ARRAY[%s]
+                    ))
+                )
+                WHERE id = %s
+            """, (sm['batch_no'], mo['id']))
+        except Exception as e:
+            errors.append(f"seasoned_meat {sm.get('batch_no')}: {e}")
+
+    # ── 2. Napraw finished_goods ──────────────────────────────
+    fgs = query_all("""
+        SELECT * FROM finished_goods
+        WHERE (source_mixing_ids = '{}' OR source_mixing_ids IS NULL)
+          AND seasoned_batch_nos IS NOT NULL
+          AND array_length(seasoned_batch_nos, 1) > 0
+    """)
+    for fg in fgs:
+        try:
+            lin = _resolve_lineage(fg.get('seasoned_batch_nos') or [])
+            if not lin['mixing_order_ids'] and not lin['deboning_entry_ids']:
+                continue
+            execute("""
+                UPDATE finished_goods
+                SET source_mixing_ids   = %s::text[],
+                    source_seasoned_ids = %s::text[],
+                    source_deboning_ids = %s::text[]
+                WHERE id = %s
+            """, (lin['mixing_order_ids'], lin['seasoned_meat_ids'],
+                  lin['deboning_entry_ids'], fg['id']))
+            fixed_finished += 1
+        except Exception as e:
+            errors.append(f"finished_goods {fg.get('batch_no')}: {e}")
+
+    return {
+        "fixed_seasoned_meat": fixed_seasoned,
+        "fixed_finished_goods": fixed_finished,
+        "errors": errors,
+        "total_seasoned_checked": len(batches),
+        "total_finished_checked": len(fgs),
+    }
+
+# ─── Admin: przelicz total_output_per_100kg dla wszystkich receptur ───
+@app.post("/api/admin/recalculate-recipe-yields")
+def recalculate_recipe_yields():
+    """
+    Przelicza total_output_per_100kg dla wszystkich receptur na podstawie składników.
+    Uruchom raz po wdrożeniu auto-yield.
+    """
+    recipes = query_all("SELECT * FROM recipes")
+    updated = 0
+    for r in recipes:
+        ings = query_all("SELECT qty_per_100kg FROM recipe_ingredients WHERE recipe_id=%s", (r['id'],))
+        auto_output = round(100.0 + sum(float(i.get('qty_per_100kg') or 0) for i in ings), 3)
+        if abs(auto_output - float(r.get('total_output_per_100kg') or 100)) > 0.01:
+            execute("UPDATE recipes SET total_output_per_100kg=%s WHERE id=%s",
+                    (auto_output, r['id']))
+            updated += 1
+    return {"updated_recipes": updated, "total": len(recipes)}
 
 # ─── Debug: weryfikacja pełnego łańcucha dla wyrobu gotowego ──
 @app.get("/api/debug/trace/{finished_good_id}")
