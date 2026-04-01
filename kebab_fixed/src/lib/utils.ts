@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from 'clsx'
+import { twMerge } from 'tailwind-merge'
 
-export const cn = (...i: ClassValue[]) => clsx(i)
+export const cn = (...i: ClassValue[]) => twMerge(clsx(i))
 
 // ─── Formatowanie ─────────────────────────────────────────────
 export const fmtKg = (n: number | string, d = 2): string => {
