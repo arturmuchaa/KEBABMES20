@@ -28,6 +28,8 @@
   }
 
   * { -webkit-font-smoothing: antialiased; box-sizing: border-box; }
+  body { font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11'; letter-spacing: -0.01em; }
+  h1, h2, h3 { letter-spacing: -0.025em; }
   html, body, #root { height: 100%; }
   body { @apply font-sans text-sm text-ink bg-surface-2; }
 }

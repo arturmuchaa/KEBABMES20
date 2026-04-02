@@ -130,7 +130,7 @@ function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) =>
                     </Button>
                   )}
                 </div>
-                <div className="grid grid-cols-6 gap-2">
+                <div className="grid gap-2" style={{gridTemplateColumns: '80px 80px 1fr 1fr 1fr 90px'}}>
                   <div className="space-y-1">
                     <Label className="text-[9px]">Ilość (szt)</Label>
                     <Input type="number" min="1" step="1" value={line.qty} onChange={e => setLine(i, 'qty', e.target.value)} placeholder="20" className="h-8 text-sm" />
@@ -168,10 +168,8 @@ function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) =>
                     </Select>
                   </div>
                   <div className="flex flex-col justify-end">
-                    <Card className="bg-blue-50 border-blue-200">
-                      <CardContent className="h-8 px-2 flex items-center">
-                        <CardTitle className="text-xs font-bold text-blue-700 tabular-nums">= {fmtKg(totalKg, 0)} kg</CardTitle>
-                      </CardContent>
+                    <Card className="bg-blue-50 border-blue-200 h-8 flex items-center px-3">
+                      <span className="text-xs font-bold text-blue-700 tabular-nums whitespace-nowrap">= {fmtKg(totalKg, 0)} kg</span>
                     </Card>
                   </div>
                 </div>

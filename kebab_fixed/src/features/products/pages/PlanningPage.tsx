@@ -240,7 +240,7 @@ export function PlanningPage() {
       </Card>
 
       <Dialog open={modalOpen} onOpenChange={open => { if (!open) setModalOpen(false) }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Nowe zlecenie masowania</DialogTitle>
           </DialogHeader>
@@ -313,7 +313,7 @@ export function PlanningPage() {
                       const selIdx = selLots.findIndex(l => l.lotId === lot.id)
                       const isSel  = selIdx >= 0
                       return (
-                        <div key={lot.id} className={`flex items-center gap-3 px-3 py-2 text-[12px] transition-colors ${isSel ? 'bg-blue-50' : 'hover:bg-muted/50'}`}>
+                        <div key={lot.id} className={`flex items-center gap-2 px-3 py-2 text-[12px] transition-colors ${isSel ? 'bg-blue-50' : 'hover:bg-muted/50'}`}>
                           <input type="checkbox" checked={isSel}
                             onChange={e => {
                               if (e.target.checked) {
@@ -323,15 +323,10 @@ export function PlanningPage() {
                               }
                             }}
                             className="w-4 h-4 flex-shrink-0 accent-primary"/>
-                          <span className="font-mono font-bold w-28">{lot.lotNo}</span>
-                          <span className="text-muted-foreground w-20">{lot.rawBatchNo}</span>
-                          <div className="w-28">
-                            <div className="font-semibold text-green-700">{fmtKg(lot.kgAvailable)} kg</div>
-                            {Number((lot as any).kgReserved ?? 0) > 0 && (
-                              <div className="text-[10px] text-amber-600">+{fmtKg((lot as any).kgReserved, 1)} zarezerwowane</div>
-                            )}
-                          </div>
-                          <span className="text-muted-foreground text-[11px] w-24">ważne: {fmtDatePl(lot.expiryDate)}</span>
+                          <span className="font-mono font-bold flex-shrink-0 w-24">{lot.lotNo}</span>
+                          <span className="text-muted-foreground flex-shrink-0 w-16 truncate">{lot.rawBatchNo}</span>
+                          <span className="font-semibold text-green-700 flex-shrink-0 w-20 tabular-nums">{fmtKg(lot.kgAvailable)} kg</span>
+                          <span className="text-muted-foreground text-[11px] flex-1">do: {fmtDatePl(lot.expiryDate)}</span>
                           {isSel && (
                             <Input type="number" min="0.1" step="0.1"
                               max={Number(lot.kgAvailable)}
@@ -342,7 +337,7 @@ export function PlanningPage() {
                                 setSelLots(p => p.map((l, i) => i === selIdx ? { ...l, kg: String(clamped) } : l))
                               }}
                               className={cn(
-                                'w-20 h-7 text-sm font-bold text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
+                                'w-20 h-7 text-sm font-bold text-right flex-shrink-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
                                 parseFloat(selLots[selIdx].kg) > Number(lot.kgAvailable)
                                   ? 'border-destructive text-destructive'
                                   : 'border-blue-300'
@@ -361,11 +356,6 @@ export function PlanningPage() {
                     <span className="text-green-700 font-semibold">
                       Wybrano {selLots.length} partii · {fmtKg(selLots.reduce((s, l) => s + (parseFloat(l.kg) || 0), 0))} kg
                     </span>
-                    {step < 3 && (
-                      <Button variant="ghost" size="sm" onClick={() => setStep(3)} className="ml-2 h-7 text-[11px] gap-1 px-2">
-                        Dalej <ChevronRight size={12}/>
-                      </Button>
-                    )}
                   </div>
                 )}
               </div>
@@ -417,11 +407,19 @@ export function PlanningPage() {
 
             <div className="flex gap-2 pt-1">
               <Button variant="outline" className="flex-1" onClick={() => setModalOpen(false)}>Anuluj</Button>
-              <Button className="flex-1" disabled={createMut.loading || !selRecipeId || requestedKg <= 0 || selLots.length === 0}
-                onClick={handleCreate}>
-                {createMut.loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"/>}
-                Utwórz zlecenie masowania
-              </Button>
+              {step < 3 ? (
+                <Button className="flex-1"
+                  disabled={step === 1 ? !selRecipeId : selLots.length === 0}
+                  onClick={() => { if (step === 1 && selRecipeId) setStep(2); else if (step === 2 && selLots.length > 0) setStep(3) }}>
+                  Dalej <ChevronRight size={14} className="ml-1"/>
+                </Button>
+              ) : (
+                <Button className="flex-1" disabled={createMut.loading || !selRecipeId || requestedKg <= 0 || selLots.length === 0}
+                  onClick={handleCreate}>
+                  {createMut.loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"/>}
+                  Utwórz zlecenie masowania
+                </Button>
+              )}
             </div>
           </div>
         </DialogContent>
