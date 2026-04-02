@@ -450,10 +450,28 @@ function mapClientOrder(raw: any): ClientOrder {
   } as ClientOrder
 }
 
+// camelCase → snake_case dla backendu Python
+function toSnakeOrderDto(dto: CreateClientOrderDto) {
+  return {
+    client_id:     dto.clientId,
+    order_date:    dto.orderDate,
+    delivery_date: dto.deliveryDate,
+    notes:         dto.notes,
+    lines: dto.lines.map(l => ({
+      qty:             l.qty,
+      kg_per_unit:     l.kgPerUnit,
+      product_type_id: l.productTypeId,
+      recipe_id:       l.recipeId,
+      packaging_id:    l.packagingId,
+      notes:           l.notes,
+    })),
+  }
+}
+
 export const clientOrdersApi = {
   list:         (status?: string) => get<any[]>(`/client-orders${status ? `?status=${status}` : ''}`).then(r => r.map(mapClientOrder)),
   byId:         (id: string) => get<any>(`/client-orders/${id}`).then(mapClientOrder),
-  create:       (dto: CreateClientOrderDto) => post<any>('/client-orders', dto).then(mapClientOrder),
+  create:       (dto: CreateClientOrderDto) => post<any>('/client-orders', toSnakeOrderDto(dto)).then(mapClientOrder),
   updateStatus: (id: string, status: string) => patch<any>(`/client-orders/${id}/status`, { status }).then(mapClientOrder),
   delete:       (id: string) => del<void>(`/client-orders/${id}`),
 }
@@ -647,7 +665,16 @@ export const mixingOrdersApi = {
   byId:              (id: string) =>
     get<any>(`/mixing-orders/${id}`).then(mapMixingOrder),
   create:            (dto: CreateMixingOrderDto) =>
-    post<any>('/mixing-orders', dto).then(mapMixingOrder),
+    post<any>('/mixing-orders', {
+      product_type_id: dto.productTypeId,
+      recipe_id:       dto.recipeId,
+      meat_kg:         dto.meatKg,
+      notes:           dto.notes,
+      meat_lots:       dto.meatLots.map(l => ({
+        meat_lot_id: l.meatLotId,
+        kg_planned:  l.kgPlanned,
+      })),
+    }).then(mapMixingOrder),
   start:             (id: string, dto: any) =>
     patch<any>(`/mixing-orders/${id}/start`, dto).then(mapMixingOrder),
   allocateToMachine: (id: string, m: MachineId, kg: number) =>

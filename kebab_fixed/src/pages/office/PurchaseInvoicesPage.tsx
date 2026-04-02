@@ -122,11 +122,20 @@ function InvoiceForm({ initial, onSave, onClose }: {
   }
 
   const supplierOptions   = (suppData ?? []).map(s => ({ value: s.id, label: s.name }))
-  const batchOptions      = (batchData?.data ?? []).map((b: any) => ({
-    value: b.id,
-    label: `${b.internalBatchNo} · ${fmtKg(b.kgReceived,0)} kg · ${fmtDatePl(b.receivedDate)}`,
-    kg: b.kgReceived, price: b.pricePerKg ?? 0, supplierId: b.supplierId, status: b.status,
-  }))
+  // Filtruj wyfakturowane partie — pokaż tylko bez faktury LUB te już wybrane w edytowanej fakturze
+  const existingBatchIds = initial
+    ? ((initial as any).rawBatchIds ?? (initial.rawBatchId ? [(initial as any).rawBatchId] : []))
+    : []
+  const batchOptions = (batchData?.data ?? [])
+    .filter((b: any) => {
+      const alreadyInvoiced = !!(b.invoice_no ?? b.invoiceNo)
+      return !alreadyInvoiced || existingBatchIds.includes(b.id)
+    })
+    .map((b: any) => ({
+      value: b.id,
+      label: `${b.internalBatchNo} · ${fmtKg(b.kgReceived,0)} kg · ${fmtDatePl(b.receivedDate)}`,
+      kg: b.kgReceived, price: b.pricePerKg ?? 0, supplierId: b.supplierId, status: b.status,
+    }))
   const ingredientOptions = (ingData ?? []).map((i: any) => ({ value: i.id, label: i.name, unit: i.unit }))
   const packagingOptions  = (pkgData ?? []).map((p: any) => ({
     value: p.id, label: `${p.name} (${p.kgAvailable} ${p.unit} na stanie)`, supplierId: p.supplierId,

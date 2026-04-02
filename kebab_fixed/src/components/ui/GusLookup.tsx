@@ -19,6 +19,11 @@ export interface GusCompanyData {
 interface GusLookupProps { onFound: (d: GusCompanyData) => void }
 
 const GUS_KEY = 'bQnofjptVjNp8m2jL90lkSofEsluEoCJVORSAb5rzVTQ8ZrJodsECPrcQuUsEeTg'
+const BASE_API = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/api`
+  : (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+      ? 'http://204.168.166.34/api'
+      : '/api')
 
 type GusStatus = 'idle' | 'loading' | 'found' | 'error'
 
@@ -33,13 +38,24 @@ export function GusLookup({ onFound }: GusLookupProps) {
     if (clean.length !== 10) { setStatus('error'); setMsg('NIP musi mieć dokładnie 10 cyfr'); return }
     setStatus('loading'); setResult(null); setMsg('')
     try {
-      const res = await fetch(
-        `https://dataport.pl/api/v1/company/${clean}?format=full`,
-        { headers: { 'X-API-Key': GUS_KEY, Accept: 'application/json' } }
-      )
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      if (!data.nazwa) { setStatus('error'); setMsg(data.message ?? 'Nie znaleziono firmy w GUS'); return }
+      // Próba 1: przez backend proxy (brak CORS)
+      let data: any = null
+      try {
+        const proxyRes = await fetch(`${BASE_API}/gus/${clean}`)
+        if (proxyRes.ok) data = await proxyRes.json()
+      } catch {}
+
+      // Próba 2: bezpośrednio do dataport.pl
+      if (!data) {
+        const res = await fetch(
+          `https://dataport.pl/api/v1/company/${clean}?format=full`,
+          { headers: { 'X-API-Key': GUS_KEY, Accept: 'application/json' } }
+        )
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        data = await res.json()
+      }
+
+      if (!data?.nazwa) { setStatus('error'); setMsg(data?.message ?? 'Nie znaleziono firmy w GUS'); return }
       const company: GusCompanyData = {
         nip: clean, regon: data.regon, nazwa: data.nazwa ?? '',
         ulica: data.ulica, numer_budynku: data.numer_budynku,
@@ -48,7 +64,7 @@ export function GusLookup({ onFound }: GusLookupProps) {
       setResult(company); setStatus('found'); onFound(company)
     } catch (e) {
       setStatus('error')
-      setMsg(e instanceof Error ? `Błąd połączenia: ${e.message}` : 'Błąd połączenia z GUS')
+      setMsg('Błąd połączenia z GUS. Wpisz dane ręcznie klikając „— Wpisz ręcznie" poniżej.')
     }
   }
 
