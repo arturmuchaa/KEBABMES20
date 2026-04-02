@@ -660,8 +660,49 @@ export const rawBatchHistoryApi = {
 }
 
 // ─── Wyroby gotowe ────────────────────────────────────────────
+// BUGFIX: Backend zwraca snake_case, frontend oczekuje camelCase
+function mapFinishedGoodsSession(raw: any) {
+  return {
+    qty:             Number(raw.qty             ?? 0),
+    kgPerUnit:       Number(raw.kg_per_unit     ?? raw.kgPerUnit     ?? 0),
+    totalKg:         Number(raw.total_kg        ?? raw.totalKg       ?? 0),
+    seasonedBatchNos: raw.seasoned_batch_nos    ?? raw.seasonedBatchNos ?? [],
+    workerNames:     raw.worker_names           ?? raw.workerNames    ?? [],
+    addedAt:         raw.added_at               ?? raw.addedAt        ?? '',
+  }
+}
+
+function mapFinishedGoodsItem(raw: any): FinishedGoodsItem {
+  return {
+    id:              raw.id,
+    batchNo:         raw.batch_no           ?? raw.batchNo           ?? '',
+    planNo:          raw.plan_no            ?? raw.planNo            ?? '',
+    productTypeId:   raw.product_type_id    ?? raw.productTypeId     ?? '',
+    productTypeName: raw.product_type_name  ?? raw.productTypeName   ?? '',
+    recipeId:        raw.recipe_id          ?? raw.recipeId          ?? '',
+    recipeName:      raw.recipe_name        ?? raw.recipeName        ?? '',
+    packagingId:     raw.packaging_id       ?? raw.packagingId,
+    packagingName:   raw.packaging_name     ?? raw.packagingName,
+    clientName:      raw.client_name        ?? raw.clientName,
+    clientOrderNo:   raw.client_order_no    ?? raw.clientOrderNo,
+    qty:             Number(raw.qty         ?? 0),
+    kgPerUnit:       Number(raw.kg_per_unit ?? raw.kgPerUnit         ?? 0),
+    totalKg:         Number(raw.total_kg    ?? raw.totalKg           ?? 0),
+    qtyAvailable:    Number(raw.qty_available ?? raw.qtyAvailable    ?? 0),
+    qtyShipped:      Number(raw.qty_shipped   ?? raw.qtyShipped      ?? 0),
+    producedDate:    raw.produced_date      ?? raw.producedDate      ?? '',
+    producedBy:      raw.produced_by        ?? raw.producedBy        ?? [],
+    seasonedBatchNos: raw.seasoned_batch_nos ?? raw.seasonedBatchNos ?? [],
+    createdAt:       raw.created_at         ?? raw.createdAt         ?? '',
+    subEntries:      (raw.sub_entries ?? raw.subEntries ?? []).map(mapFinishedGoodsSession),
+  } as any
+}
+
 export const finishedGoodsApi = {
-  list:   () => get<FinishedGoodsItem[]>('/finished-goods'),
+  list: async () => {
+    const items = await get<any[]>('/finished-goods')
+    return items.map(mapFinishedGoodsItem)
+  },
   create: (dto: any) => post<FinishedGoodsItem>('/finished-goods', dto),
   finishProductionDay: (planId: string, entries: any[]) =>
     post<any>('/finished-goods/finish-day', { plan_id: planId, entries }),
