@@ -1,6 +1,6 @@
 import { useApi } from '@/hooks/useApi'
 import { rawBatchesApi, deboningApi, meatStockApi } from '@/lib/apiClient'
-import { ExpiryBadge, StatusBadge, computeDisplayStatus } from '@/components/ui/Badge'
+import { ExpiryBadge, StatusBadge, computeDisplayStatus } from '@/components/ui/badge'
 import { fmtKg, fmtDatePl, fmtPct, getExpiryStatus, sortFefo, todayIso } from '@/lib/utils'
 import { Link } from 'react-router-dom'
 

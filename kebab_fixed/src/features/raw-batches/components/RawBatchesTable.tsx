@@ -1,7 +1,7 @@
 /**
  * RawBatchesTable — shadcn/ui Table
  */
-import { ExpiryBadge, StatusBadge, computeDisplayStatus } from '@/components/ui/Badge'
+import { ExpiryBadge, StatusBadge, computeDisplayStatus } from '@/components/ui/badge'
 import { fmtKg, fmtDatePl, fmtPln } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
