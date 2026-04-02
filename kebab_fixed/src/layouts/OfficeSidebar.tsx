@@ -57,21 +57,21 @@ export function OfficeSidebar({ onClose }: { onClose?: () => void }) {
   const { pathname } = useLocation()
 
   return (
-    <aside className="w-56 h-full flex flex-col bg-[#0F172A] border-r border-[#1E293B] overflow-y-auto scrollbar-thin">
+    <aside className="w-56 h-full flex flex-col bg-white border-r border-gray-200 overflow-y-auto scrollbar-thin">
 
       {/* Logo / Brand */}
-      <div className="h-14 px-4 flex items-center justify-between border-b border-[#1E293B] flex-shrink-0">
+      <div className="h-14 px-4 flex items-center justify-between border-b border-gray-200 flex-shrink-0">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+          <div className="w-7 h-7 rounded-lg bg-black flex items-center justify-center flex-shrink-0">
             <LayoutDashboard size={14} className="text-white" />
           </div>
           <div>
-            <div className="text-[13px] font-bold text-white leading-none">Kebab</div>
-            <div className="text-[10px] font-medium text-blue-400 leading-none mt-0.5">MES v2.3</div>
+            <div className="text-[13px] font-bold text-gray-900 leading-none">Kebab</div>
+            <div className="text-[10px] font-medium text-gray-400 leading-none mt-0.5">MES v2.3</div>
           </div>
         </div>
         {onClose && (
-          <button onClick={onClose} className="md:hidden p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-[#1E293B] transition-colors">
+          <button onClick={onClose} className="md:hidden p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
             <X size={15} />
           </button>
         )}
@@ -84,8 +84,8 @@ export function OfficeSidebar({ onClose }: { onClose?: () => void }) {
           className={({ isActive }) => cn(
             'flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all',
             isActive
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-300 hover:bg-[#1E293B] hover:text-white'
+              ? 'bg-black text-white'
+              : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
           )}
         >
           <LayoutDashboard size={14} className="flex-shrink-0" />
@@ -98,7 +98,7 @@ export function OfficeSidebar({ onClose }: { onClose?: () => void }) {
         {NAV.map(section => (
           <div key={section.heading} className="mt-5 first:mt-3">
             <div className="px-3 mb-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
                 {section.heading}
               </span>
             </div>
@@ -110,20 +110,17 @@ export function OfficeSidebar({ onClose }: { onClose?: () => void }) {
                     className={({ isActive }) => cn(
                       'group flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all',
                       isActive
-                        ? 'bg-[#1E3A5F] text-blue-300'
-                        : 'text-slate-400 hover:bg-[#1E293B] hover:text-slate-200'
+                        ? 'bg-black text-white'
+                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                     )}
                   >
                     <span className={cn(
                       'flex-shrink-0 transition-colors',
-                      pathname === item.to ? 'text-blue-400' : 'text-slate-500 group-hover:text-slate-300'
+                      pathname === item.to ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'
                     )}>
                       {item.icon}
                     </span>
                     <span className="flex-1 truncate">{item.label}</span>
-                    {pathname === item.to && (
-                      <ChevronRight size={11} className="text-blue-400 flex-shrink-0" />
-                    )}
                   </NavLink>
                 </li>
               ))}
@@ -133,18 +130,18 @@ export function OfficeSidebar({ onClose }: { onClose?: () => void }) {
       </nav>
 
       {/* Tablet links */}
-      <div className="px-3 py-3 border-t border-[#1E293B] flex-shrink-0">
+      <div className="px-3 py-3 border-t border-gray-200 flex-shrink-0">
         <div className="px-3 mb-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Hala produkcyjna</span>
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Hala produkcyjna</span>
         </div>
         <div className="space-y-0.5">
           {TABLET_LINKS.map(item => (
             <a
               key={item.to}
               href={item.to}
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-medium text-slate-500 hover:bg-[#1E293B] hover:text-slate-300 transition-all"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-all"
             >
-              <span className="text-slate-600">{item.icon}</span>
+              <span className="text-gray-400">{item.icon}</span>
               {item.label}
             </a>
           ))}
