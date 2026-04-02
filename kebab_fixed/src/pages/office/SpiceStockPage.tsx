@@ -1,43 +1,43 @@
 /**
  * SpiceStockPage — Magazyn Przypraw i Dodatków
- *
- * NIE tworzy nowego magazynu — używa istniejącego ingredientsApi + ingredientReceiptsApi.
- * Dane zasilane przez:
- *   1. Faktury kategorii PRZYPRAWY_I_DODATKI (PurchaseInvoicesPage)
- *   2. Ręczne przyjęcie WZ bezpośrednio tutaj
  */
 import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { ingredientsApi, ingredientReceiptsApi } from '@/lib/apiClient'
-import { Spinner, EmptyState, Modal, Toast } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
 import { fmtKg, fmtDatePl, todayIso } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
 import { FlaskConical, AlertTriangle, Plus, ChevronDown, ChevronUp } from 'lucide-react'
 import type { IngredientCategory } from '@/features/ingredients/types'
 import { useIngredients } from '@/features/ingredients/hooks'
+import { toast } from 'sonner'
 
-const CAT_LABELS: Record<string, string> = {
-  spice_mix: 'Mieszanka',
-  functional: 'Dod. funkcjonalny',
-  water: 'Woda',
-  other: 'Inne',
-}
-
-interface ToastState { msg: string; type: 'success'|'error'; visible: boolean }
-const HIDDEN: ToastState = { msg: '', type: 'success', visible: false }
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Separator } from '@/components/ui/separator'
+import {
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
+} from '@/components/ui/card'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
 
 function ExpiryCell({ date }: { date?: string }) {
-  if (!date) return <span className="text-ink-4 text-[11px]">—</span>
+  if (!date) return <CardDescription className="text-xs">—</CardDescription>
   const { daysLeft } = getExpiryStatus(date)
-  const cls = daysLeft < 0 ? 'text-red-700 bg-red-50'
-    : daysLeft <= 30 ? 'text-amber-700 bg-amber-50'
-    : 'text-green-700 bg-green-50'
+  const variant = daysLeft < 0 ? 'danger' : daysLeft <= 30 ? 'warning' : 'success'
   return (
-    <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${cls}`}>
-      {fmtDatePl(date)}
-      {daysLeft < 0 ? ' !' : daysLeft <= 30 ? ` (${daysLeft}d)` : ''}
-    </span>
+    <Badge variant={variant} className="text-xs">
+      {fmtDatePl(date)}{daysLeft < 0 ? ' !' : daysLeft <= 30 ? ` (${daysLeft}d)` : ''}
+    </Badge>
   )
 }
 
@@ -45,16 +45,15 @@ export function SpiceStockPage() {
   const { ingredients, stock, loading, createIngredient, addReceipt, createLoading, receiptLoading } = useIngredients()
   const { data: receipts, refetch: refetchReceipts } = useApi(() => ingredientReceiptsApi.list())
 
-  const [expanded,         setExpanded]         = useState<string | null>(null)
-  const [ingModal,         setIngModal]          = useState(false)
-  const [receiptModal,     setReceiptModal]      = useState(false)
-  const [selIngId,         setSelIngId]          = useState('')
-  const [toast,            setToast]             = useState<ToastState>(HIDDEN)
+  const [expanded,     setExpanded]     = useState<string | null>(null)
+  const [ingModal,     setIngModal]     = useState(false)
+  const [receiptModal, setReceiptModal] = useState(false)
+  const [selIngId,     setSelIngId]     = useState('')
 
   // Nowy składnik
-  const [newName,     setNewName]     = useState('')
-  const [newCat,      setNewCat]      = useState<IngredientCategory>('spice_mix')
-  const [newUnit,     setNewUnit]     = useState('kg')
+  const [newName, setNewName] = useState('')
+  const [newCat,  setNewCat]  = useState<IngredientCategory>('spice_mix')
+  const [newUnit, setNewUnit] = useState('kg')
 
   // Przyjęcie WZ
   const [recQty,     setRecQty]     = useState('')
@@ -62,19 +61,11 @@ export function SpiceStockPage() {
   const [recInvoice, setRecInvoice] = useState('')
   const [recDate,    setRecDate]    = useState(todayIso())
   const [recExpiry,  setRecExpiry]  = useState('')
-  const [recBatchNo, setRecBatchNo] = useState('')
 
-  const showToast = (msg: string, type: 'success'|'error' = 'success') => {
-    setToast({ msg, type, visible: true })
-    setTimeout(() => setToast(HIDDEN), 3000)
-  }
-
-  // Tylko składniki nieograniczone nie są wodą — pomiń wodę w widoku magazynowym
   const displayIngredients = ingredients.filter(i => !i.isUnlimited)
 
-  // Stan magazynowy + ostatnie przyjęcia
-  const stockMap    = useMemo(() => new Map(stock.map(s => [s.ingredientId, s])), [stock])
-  const receiptMap  = useMemo(() => {
+  const stockMap = useMemo(() => new Map(stock.map(s => [s.ingredientId, s])), [stock])
+  const receiptMap = useMemo(() => {
     const m = new Map<string, typeof receipts>()
     ;(receipts ?? []).forEach(r => {
       const arr = m.get(r.ingredientId) ?? []
@@ -83,22 +74,18 @@ export function SpiceStockPage() {
     return m
   }, [receipts])
 
-  // Alerty — kończy się stan lub bliska data ważności
-  const alerts = useMemo(() => {
-    return displayIngredients.filter(ing => {
-      const s = stockMap.get(ing.id)
-      if (!s) return false
-      if (s.qtyAvailable <= 0) return true
-      // Sprawdź czy którekolwiek przyjęcie wygasa w ciągu 30 dni
-      const recs = receiptMap.get(ing.id) ?? []
-      return recs.some(r => r.expiryDate && getExpiryStatus(r.expiryDate).daysLeft <= 30)
-    })
-  }, [displayIngredients, stockMap, receiptMap])
+  const alerts = useMemo(() => displayIngredients.filter(ing => {
+    const s = stockMap.get(ing.id)
+    if (!s) return false
+    if (s.qtyAvailable <= 0) return true
+    const recs = receiptMap.get(ing.id) ?? []
+    return recs.some(r => r.expiryDate && getExpiryStatus(r.expiryDate).daysLeft <= 30)
+  }), [displayIngredients, stockMap, receiptMap])
 
   async function handleCreateIng() {
     const err = await createIngredient({ name: newName, category: newCat, unit: newUnit, isUnlimited: false })
-    if (err) { showToast(err, 'error'); return }
-    showToast(`"${newName}" dodany do magazynu`)
+    if (err) { toast.error(err); return }
+    toast.success(`"${newName}" dodany do magazynu`)
     setIngModal(false); setNewName(''); setNewCat('spice_mix'); setNewUnit('kg')
   }
 
@@ -111,263 +98,322 @@ export function SpiceStockPage() {
       receivedDate: recDate,
       notes:        recExpiry ? `Ważność: ${recExpiry}` : undefined,
     })
-    if (err) { showToast(err, 'error'); return }
+    if (err) { toast.error(err); return }
     refetchReceipts()
-    showToast('Przyjęcie WZ zapisane')
+    toast.success('Przyjęcie WZ zapisane')
     setReceiptModal(false)
-    setRecQty(''); setRecPrice(''); setRecInvoice(''); setRecExpiry(''); setRecBatchNo('')
+    setRecQty(''); setRecPrice(''); setRecInvoice(''); setRecExpiry('')
   }
 
-  if (loading) return <div className="flex justify-center py-16"><Spinner size={24} /></div>
+  if (loading) {
+    return (
+      <div className="space-y-5 animate-fade-in">
+        <div className="grid grid-cols-3 gap-4">
+          {[0,1,2].map(i => <Card key={i}><CardContent className="p-4"><Skeleton className="h-12 w-full" /></CardContent></Card>)}
+        </div>
+        <Card><CardContent className="p-4 space-y-3">{[0,1,2,3].map(i => <Skeleton key={i} className="h-10 w-full" />)}</CardContent></Card>
+      </div>
+    )
+  }
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
 
-      {/* Alerty */}
+      {/* Alerts */}
       {alerts.length > 0 && (
-        <div className="border border-amber-200 bg-amber-50">
-          <div className="px-3 py-2 border-b border-amber-200 flex items-center gap-2">
-            <AlertTriangle size={13} className="text-amber-600" />
-            <span className="text-[12px] font-semibold text-amber-700">{alerts.length} alertów — niski stan lub bliska data ważności</span>
-          </div>
-          <div className="divide-y divide-amber-100">
-            {alerts.map(ing => {
-              const s = stockMap.get(ing.id)
-              return (
-                <div key={ing.id} className="px-3 py-1.5 flex items-center gap-3 text-[12px]">
-                  <span className="font-semibold text-amber-700 w-40 truncate">{ing.name}</span>
-                  <span className="text-amber-600">
-                    {(s?.qtyAvailable ?? 0) <= 0 ? 'Brak stanu!' : `${(s?.qtyAvailable ?? 0).toFixed(2)} ${ing.unit}`}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        </div>
+        <Card className="border-amber-200 bg-amber-50">
+          <CardHeader className="pb-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={14} className="text-amber-600" />
+              <CardTitle className="text-sm text-amber-700">
+                {alerts.length} alertów — niski stan lub bliska data ważności
+              </CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="space-y-1">
+              {alerts.map(ing => {
+                const s = stockMap.get(ing.id)
+                return (
+                  <div key={ing.id} className="flex items-center gap-3 text-sm">
+                    <CardTitle className="text-sm text-amber-700 w-40 truncate">{ing.name}</CardTitle>
+                    <CardDescription className="text-amber-600">
+                      {(s?.qtyAvailable ?? 0) <= 0 ? 'Brak stanu!' : `${(s?.qtyAvailable ?? 0).toFixed(2)} ${ing.unit}`}
+                    </CardDescription>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* KPI */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-white border border-surface-4 p-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 mb-0.5">Składniki</div>
-          <div className="text-xl font-bold text-ink">{displayIngredients.length}</div>
-        </div>
-        <div className="bg-white border border-surface-4 p-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 mb-0.5">Dostępne</div>
-          <div className="text-xl font-bold text-green-700">
-            {displayIngredients.filter(i => (stockMap.get(i.id)?.qtyAvailable ?? 0) > 0).length}
-          </div>
-        </div>
-        <div className="bg-white border border-surface-4 p-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 mb-0.5">Alerty</div>
-          <div className={`text-xl font-bold ${alerts.length > 0 ? 'text-amber-600' : 'text-ink-4'}`}>{alerts.length}</div>
-        </div>
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: 'Składniki',  val: displayIngredients.length,                                                    accent: 'bg-muted' },
+          { label: 'Dostępne',   val: displayIngredients.filter(i => (stockMap.get(i.id)?.qtyAvailable ?? 0) > 0).length, accent: 'bg-green-50' },
+          { label: 'Alerty',     val: alerts.length,                                                                accent: alerts.length > 0 ? 'bg-amber-50' : 'bg-muted' },
+        ].map(k => (
+          <Card key={k.label}>
+            <CardContent className="p-4">
+              <CardDescription className="text-xs font-semibold uppercase tracking-wide mb-1">{k.label}</CardDescription>
+              <CardTitle className="text-2xl font-black tabular-nums">{k.val}</CardTitle>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Tabela stanów */}
-      <div className="bg-white border border-surface-4 shadow-card">
-        <div className="px-4 py-2.5 border-b border-surface-4 flex items-center justify-between">
+      {/* Stock table */}
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
           <div className="flex items-center gap-2">
-            <FlaskConical size={13} className="text-ink-3" />
-            <span className="text-[13px] font-semibold text-ink">Stany magazynowe</span>
+            <FlaskConical size={14} className="text-muted-foreground" />
+            <CardTitle className="text-base">Stany magazynowe</CardTitle>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" variant="secondary" onClick={() => setIngModal(true)}>
-              Nowy składnik
-            </Button>
-            <Button size="sm" icon={<Plus size={13} />} onClick={() => { setSelIngId(''); setReceiptModal(true) }}>
-              Przyjęcie WZ
+            <Button variant="outline" size="sm" onClick={() => setIngModal(true)}>Nowy składnik</Button>
+            <Button size="sm" onClick={() => { setSelIngId(''); setReceiptModal(true) }}>
+              <Plus size={13} className="mr-1.5" /> Przyjęcie WZ
             </Button>
           </div>
-        </div>
-
-        {displayIngredients.length === 0 ? (
-          <EmptyState
-            icon={<FlaskConical size={32} />}
-            title="Brak składników w magazynie"
-            message='Dodaj składniki ręcznie lub przez Faktury (kategoria "Przyprawy i dodatki")'
-            action={<Button size="sm" icon={<Plus size={13} />} onClick={() => setIngModal(true)}>Dodaj składnik</Button>}
-          />
-        ) : (
-          <div>
-            {/* Nagłówek */}
-            <div className="grid grid-cols-[1fr_100px_100px_110px_80px_40px] gap-2 px-4 py-2 bg-surface-2 border-b border-surface-4">
-              {['Nazwa składnika','Stan','Jedn.','Ost. przyjęcie','Ważność',''].map(h => (
-                <div key={h} className="text-[10px] font-semibold uppercase tracking-wider text-ink-4">{h}</div>
-              ))}
+        </CardHeader>
+        <Separator />
+        <CardContent className="p-0">
+          {displayIngredients.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-2">
+              <FlaskConical size={36} className="text-muted-foreground opacity-20" />
+              <CardTitle className="text-sm font-medium text-muted-foreground">Brak składników w magazynie</CardTitle>
+              <CardDescription className="text-center max-w-xs">
+                Dodaj składniki ręcznie lub przez Faktury (kategoria "Przyprawy i dodatki")
+              </CardDescription>
             </div>
+          ) : (
+            <div className="divide-y">
+              {/* Header */}
+              <div className="grid grid-cols-[1fr_100px_100px_110px_80px_40px] gap-2 px-4 py-2 bg-muted/40">
+                {['Nazwa składnika','Stan','Jedn.','Ost. przyjęcie','Ważność',''].map(h => (
+                  <CardDescription key={h} className="text-[10px] font-bold uppercase tracking-wide">{h}</CardDescription>
+                ))}
+              </div>
 
-            <div className="divide-y divide-surface-4">
               {displayIngredients.map(ing => {
-                const s     = stockMap.get(ing.id)
-                const recs  = (receiptMap.get(ing.id) ?? []).sort((a, b) => b.receivedDate > a.receivedDate ? 1 : -1)
-                const last  = recs[0]
+                const s    = stockMap.get(ing.id)
+                const recs = (receiptMap.get(ing.id) ?? []).sort((a, b) => b.receivedDate > a.receivedDate ? 1 : -1)
+                const last = recs[0]
                 const isExp = expanded === ing.id
                 const qty   = s?.qtyAvailable ?? 0
 
                 return (
                   <div key={ing.id}>
                     <div
-                      className="grid grid-cols-[1fr_100px_100px_110px_80px_40px] gap-2 px-4 py-2.5 items-center hover:bg-surface-2 cursor-pointer text-[12px]"
+                      className="grid grid-cols-[1fr_100px_100px_110px_80px_40px] gap-2 px-4 py-2.5 items-center hover:bg-muted/20 cursor-pointer transition-colors"
                       onClick={() => setExpanded(isExp ? null : ing.id)}
                     >
-                      <div className="font-semibold text-ink truncate">{ing.name}</div>
-                      <div className={`font-bold ${qty > 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      <CardTitle className="text-sm font-semibold truncate">{ing.name}</CardTitle>
+                      <CardTitle className={`text-sm tabular-nums ${qty > 0 ? 'text-green-700' : 'text-destructive'}`}>
                         {qty.toFixed(3)}
-                      </div>
-                      <div className="text-ink-3">{ing.unit}</div>
-                      <div className="text-ink-3 text-[11px]">{last ? fmtDatePl(last.receivedDate) : '—'}</div>
+                      </CardTitle>
+                      <CardDescription>{ing.unit}</CardDescription>
+                      <CardDescription className="text-xs">{last ? fmtDatePl(last.receivedDate) : '—'}</CardDescription>
                       <div>
-                        {last?.notes?.includes('Ważność:') ? (
-                          <ExpiryCell date={last.notes.replace('Ważność: ', '')} />
-                        ) : <span className="text-ink-4 text-[11px]">—</span>}
+                        {last?.notes?.includes('Ważność:')
+                          ? <ExpiryCell date={last.notes.replace('Ważność: ', '')} />
+                          : <CardDescription className="text-xs">—</CardDescription>
+                        }
                       </div>
-                      <div className="flex justify-end gap-1">
-                        <button
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-1.5 text-[10px] font-medium text-primary"
                           onClick={e => { e.stopPropagation(); setSelIngId(ing.id); setReceiptModal(true) }}
-                          className="text-[10px] font-medium text-brand border border-brand/30 px-1.5 py-0.5 rounded hover:bg-blue-50"
                         >
                           +WZ
-                        </button>
-                        {isExp ? <ChevronUp size={14} className="text-ink-4" /> : <ChevronDown size={14} className="text-ink-4" />}
+                        </Button>
+                        {isExp
+                          ? <ChevronUp size={14} className="text-muted-foreground" />
+                          : <ChevronDown size={14} className="text-muted-foreground" />
+                        }
                       </div>
                     </div>
 
-                    {/* Historia przyjęć */}
-                    {isExp && recs.length > 0 && (
-                      <div className="px-4 pb-3 bg-surface-2 border-t border-surface-4">
-                        <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 py-1.5">Historia przyjęć</div>
-                        <table className="w-full text-[11px]">
-                          <thead>
-                            <tr className="text-[10px] text-ink-4">
-                              <th className="text-left py-1">Data</th>
-                              <th className="text-right py-1">Ilość</th>
-                              <th className="text-right py-1">Cena/jedn.</th>
-                              <th className="text-left py-1">FV / WZ</th>
-                              <th className="text-left py-1">Ważność</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-surface-4">
-                            {recs.slice(0, 10).map(r => (
-                              <tr key={r.id}>
-                                <td className="py-1">{fmtDatePl(r.receivedDate)}</td>
-                                <td className="py-1 text-right font-bold">{r.qty} {r.unit}</td>
-                                <td className="py-1 text-right text-ink-3">{r.pricePerUnit > 0 ? `${r.pricePerUnit.toFixed(2)} zł` : '—'}</td>
-                                <td className="py-1 font-mono text-ink-3">{r.invoiceNo || '—'}</td>
-                                <td className="py-1">
-                                  {r.notes?.includes('Ważność:') ? (
-                                    <ExpiryCell date={r.notes.replace('Ważność: ', '')} />
-                                  ) : '—'}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                    {isExp && recs.length === 0 && (
-                      <div className="px-4 pb-3 bg-surface-2 border-t border-surface-4 text-[12px] text-ink-3 py-2">
-                        Brak przyjęć — dodaj przez WZ lub Faktury
+                    {/* History */}
+                    {isExp && (
+                      <div className="px-4 pb-3 bg-muted/20 border-t">
+                        <CardDescription className="text-[10px] font-bold uppercase tracking-wide py-2">Historia przyjęć</CardDescription>
+                        {recs.length === 0 ? (
+                          <CardDescription className="text-sm">Brak przyjęć — dodaj przez WZ lub Faktury</CardDescription>
+                        ) : (
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="hover:bg-transparent">
+                                {['Data','Ilość','Cena/jedn.','FV / WZ','Ważność'].map(h => (
+                                  <TableHead key={h} className="text-[10px] uppercase tracking-wide">{h}</TableHead>
+                                ))}
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {recs.slice(0, 10).map(r => (
+                                <TableRow key={r.id}>
+                                  <TableCell className="text-xs">{fmtDatePl(r.receivedDate)}</TableCell>
+                                  <TableCell className="text-xs font-bold">{r.qty} {r.unit}</TableCell>
+                                  <TableCell>
+                                    <CardDescription className="text-xs">
+                                      {r.pricePerUnit > 0 ? `${r.pricePerUnit.toFixed(2)} zł` : '—'}
+                                    </CardDescription>
+                                  </TableCell>
+                                  <TableCell>
+                                    <code className="font-mono text-xs text-muted-foreground">{r.invoiceNo || '—'}</code>
+                                  </TableCell>
+                                  <TableCell>
+                                    {r.notes?.includes('Ważność:')
+                                      ? <ExpiryCell date={r.notes.replace('Ważność: ', '')} />
+                                      : <CardDescription className="text-xs">—</CardDescription>
+                                    }
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        )}
                       </div>
                     )}
                   </div>
                 )
               })}
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Modal: nowy składnik */}
-      <Modal open={ingModal} onClose={() => setIngModal(false)} title="Nowy składnik" size="sm" preventClose>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Nazwa *</label>
-            <input type="text" placeholder="np. Van Hess Hell, Chiken BKS"
-              value={newName} onChange={e => setNewName(e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand" />
+      <Dialog open={ingModal} onOpenChange={v => { if (!v) setIngModal(false) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Nowy składnik</DialogTitle>
+            <DialogDescription>Dodaj składnik do magazynu przypraw</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Nazwa *</Label>
+              <Input
+                placeholder="np. Van Hess Hell, Chiken BKS"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Kategoria</Label>
+              <Select value={newCat} onValueChange={v => setNewCat(v as IngredientCategory)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="spice_mix">Mieszanka przyprawowa</SelectItem>
+                  <SelectItem value="functional">Dodatek funkcjonalny</SelectItem>
+                  <SelectItem value="other">Inne</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Jednostka</Label>
+              <Select value={newUnit} onValueChange={setNewUnit}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="kg">kg</SelectItem>
+                  <SelectItem value="l">l</SelectItem>
+                  <SelectItem value="szt">szt</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div>
-            <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Kategoria</label>
-            <select value={newCat} onChange={e => setNewCat(e.target.value as IngredientCategory)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand">
-              <option value="spice_mix">Mieszanka przyprawowa</option>
-              <option value="functional">Dodatek funkcjonalny</option>
-              <option value="other">Inne</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Jednostka</label>
-            <select value={newUnit} onChange={e => setNewUnit(e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand">
-              <option value="kg">kg</option>
-              <option value="l">l</option>
-              <option value="szt">szt</option>
-            </select>
-          </div>
-          <div className="flex gap-2 pt-1">
-            <Button variant="secondary" fullWidth onClick={() => setIngModal(false)}>Anuluj</Button>
-            <Button fullWidth loading={createLoading} onClick={handleCreateIng} disabled={!newName.trim()}>Dodaj</Button>
-          </div>
-        </div>
-      </Modal>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setIngModal(false)} disabled={createLoading}>Anuluj</Button>
+            <Button onClick={handleCreateIng} disabled={createLoading || !newName.trim()} className="gap-2">
+              {createLoading
+                ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : <Plus size={14} />
+              }
+              Dodaj
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal: przyjęcie WZ */}
-      <Modal open={receiptModal} onClose={() => setReceiptModal(false)} title="Przyjęcie WZ" subtitle="Ręczne przyjęcie bez faktury" size="sm" preventClose>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Składnik *</label>
-            <select value={selIngId} onChange={e => setSelIngId(e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand">
-              <option value="">Wybierz...</option>
-              {displayIngredients.map(i => <option key={i.id} value={i.id}>{i.name} [{i.unit}]</option>)}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Ilość *</label>
-              <input type="number" min="0" step="0.001" placeholder="0.000"
-                value={recQty} onChange={e => setRecQty(e.target.value)}
-                className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+      <Dialog open={receiptModal} onOpenChange={v => { if (!v) setReceiptModal(false) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Przyjęcie WZ</DialogTitle>
+            <DialogDescription>Ręczne przyjęcie bez faktury</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Składnik *</Label>
+              <Select value={selIngId || '__none'} onValueChange={v => setSelIngId(v === '__none' ? '' : v)}>
+                <SelectTrigger><SelectValue placeholder="Wybierz..." /></SelectTrigger>
+                <SelectContent>
+                  {displayIngredients.map(i => (
+                    <SelectItem key={i.id} value={i.id}>{i.name} [{i.unit}]</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div>
-              <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Cena / jedn.</label>
-              <input type="number" min="0" step="0.01" placeholder="0.00"
-                value={recPrice} onChange={e => setRecPrice(e.target.value)}
-                className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Ilość *</Label>
+                <Input
+                  type="number" min="0" step="0.001" placeholder="0.000"
+                  value={recQty} onChange={e => setRecQty(e.target.value)}
+                  className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Cena / jedn.</Label>
+                <Input
+                  type="number" min="0" step="0.01" placeholder="0.00"
+                  value={recPrice} onChange={e => setRecPrice(e.target.value)}
+                  className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+              </div>
             </div>
+            <div className="space-y-1.5">
+              <Label>Data ważności (zalecana)</Label>
+              <Input type="date" value={recExpiry} onChange={e => setRecExpiry(e.target.value)} />
+              <CardDescription className="text-[10px]">Zazwyczaj +12 miesięcy od daty produkcji</CardDescription>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Nr WZ / FV</Label>
+              <Input placeholder="np. WZ 001/2025" value={recInvoice} onChange={e => setRecInvoice(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Data przyjęcia</Label>
+              <Input type="date" value={recDate} onChange={e => setRecDate(e.target.value)} />
+            </div>
+            <Card className="bg-muted/40 border-transparent">
+              <CardContent className="px-3 py-2">
+                <CardDescription className="text-xs">
+                  💡 Faktura może zostać powiązana później w module Faktury i WZ
+                </CardDescription>
+              </CardContent>
+            </Card>
           </div>
-          <div>
-            <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data ważności (zalecana)</label>
-            <input type="date" value={recExpiry} onChange={e => setRecExpiry(e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand" />
-            <p className="text-[10px] text-ink-4 mt-0.5">Zazwyczaj +12 miesięcy od daty produkcji</p>
-          </div>
-          <div>
-            <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Nr WZ / FV</label>
-            <input type="text" placeholder="np. WZ 001/2025"
-              value={recInvoice} onChange={e => setRecInvoice(e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand" />
-          </div>
-          <div>
-            <label className="block text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data przyjęcia</label>
-            <input type="date" value={recDate} onChange={e => setRecDate(e.target.value)}
-              className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand" />
-          </div>
-          <div className="bg-surface-2 px-3 py-2 text-[11px] text-ink-3">
-            💡 Faktura może zostać powiązana później w module Faktury i WZ
-          </div>
-          <div className="flex gap-2 pt-1">
-            <Button variant="secondary" fullWidth onClick={() => setReceiptModal(false)}>Anuluj</Button>
-            <Button fullWidth loading={receiptLoading} onClick={handleReceipt}
-              disabled={!selIngId || !recQty || parseFloat(recQty) <= 0}>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setReceiptModal(false)} disabled={receiptLoading}>Anuluj</Button>
+            <Button
+              onClick={handleReceipt}
+              disabled={receiptLoading || !selIngId || !recQty || parseFloat(recQty) <= 0}
+              className="gap-2"
+            >
+              {receiptLoading
+                ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : <Plus size={14} />
+              }
               Zatwierdź przyjęcie
             </Button>
-          </div>
-        </div>
-      </Modal>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <Toast message={toast.msg} type={toast.type} visible={toast.visible} />
     </div>
   )
 }

@@ -1,219 +1,331 @@
 /**
  * SuppliersPage — zarządzanie dostawcami
- * Roboto font, opcja zagraniczna z VIES lookup
  */
 import { useState, useCallback } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { suppliersApi } from '@/lib/apiClient'
-import { Card, CardHeader, Toast, Modal, Spinner, EmptyState } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
-import { Table, type Column } from '@/components/ui/Table'
 import { GusLookup, type GusCompanyData } from '@/components/ui/GusLookup'
 import { ViesLookup, type ViesCompanyData } from '@/components/ui/ViesLookup'
 import { Plus, Truck, Phone, Mail, Building2, Globe, Flag } from 'lucide-react'
 import type { Supplier, CreateSupplierDto } from '@/types'
+import { toast } from 'sonner'
+
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Separator } from '@/components/ui/separator'
+import {
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
+} from '@/components/ui/card'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
 
 function emptyForm(): CreateSupplierDto {
-  return { code:'', name:'', nip:'', vetNumber:'', contactName:'', phone:'', email:'' }
+  return { code: '', name: '', nip: '', vetNumber: '', contactName: '', phone: '', email: '' }
 }
 
-const COLUMNS: Column<Supplier>[] = [
-  { key:'code', header:'Kod', render: s => <span className="font-mono font-bold text-brand text-sm">{s.code}</span> },
-  { key:'name', header:'Nazwa firmy', render: s => (
-    <div>
-      <div className="font-semibold text-ink">{s.name}</div>
-      {s.nip && <div className="text-sm text-ink-3 font-mono font-semibold">NIP: {s.nip}</div>}
-    </div>
-  )},
-  { key:'vetNumber', header:'Nr wet.', render: s => <span className="text-sm text-ink-3 font-mono">{s.vetNumber || '—'}</span> },
-  { key:'contact', header:'Kontakt', render: s => (
-    <div className="text-sm">
-      {s.contactName && <div className="font-medium text-ink">{s.contactName}</div>}
-      {s.phone && <div className="flex items-center gap-1 text-ink-3 text-xs"><Phone size={10}/>{s.phone}</div>}
-      {s.email && <div className="flex items-center gap-1 text-ink-3 text-xs"><Mail size={10}/>{s.email}</div>}
-    </div>
-  )},
-  { key:'status', header:'Status', render: s => (
-    <span className={`text-xs font-bold px-2 py-1 rounded-full ${s.active?'bg-success-light text-success border border-success-border':'bg-surface-3 text-ink-3 border border-surface-4'}`}>
-      {s.active ? 'Aktywny' : 'Nieaktywny'}
-    </span>
-  )},
-]
-
 interface CreateSupplierModalProps {
-  open:boolean; onClose:()=>void; onSubmit:()=>void
-  form:CreateSupplierDto; loading:boolean; error:string|null
-  onFieldChange:<K extends keyof CreateSupplierDto>(key:K, value:CreateSupplierDto[K])=>void
-  onGusFound:(data:GusCompanyData)=>void
-  onViesFound:(data:ViesCompanyData)=>void
+  open: boolean; onClose: () => void; onSubmit: () => void
+  form: CreateSupplierDto; loading: boolean; error: string | null
+  onFieldChange: <K extends keyof CreateSupplierDto>(key: K, value: CreateSupplierDto[K]) => void
+  onGusFound: (data: GusCompanyData) => void
+  onViesFound: (data: ViesCompanyData) => void
 }
 
 function CreateSupplierModal({ open, onClose, onSubmit, form, loading, error, onFieldChange, onGusFound, onViesFound }: CreateSupplierModalProps) {
   const [isAbroad, setIsAbroad] = useState(false)
 
   return (
-    <Modal open={open} onClose={onClose} title="Nowy dostawca" subtitle="Dodaj nowego dostawcę do systemu" size="lg" preventClose>
-      <div className="space-y-5" style={{fontFamily:'Roboto, sans-serif'}}>
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Nowy dostawca</DialogTitle>
+          <DialogDescription>Dodaj nowego dostawcę do systemu</DialogDescription>
+        </DialogHeader>
 
-        {/* Przełącznik kraj/zagranica */}
-        <div className="flex gap-2">
-          <button onClick={()=>setIsAbroad(false)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${!isAbroad?'bg-brand text-white border-brand':'bg-white text-ink-3 border-surface-4 hover:border-brand'}`}>
-            <Flag size={14}/> Polska (GUS/NIP)
-          </button>
-          <button onClick={()=>setIsAbroad(true)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${isAbroad?'bg-blue-600 text-white border-blue-600':'bg-white text-ink-3 border-surface-4 hover:border-blue-400'}`}>
-            <Globe size={14}/> Zagranica (VIES/VAT-UE)
-          </button>
-        </div>
+        <div className="space-y-5">
+          {/* Kraj / zagranica */}
+          <div className="flex gap-2">
+            <Button
+              variant={!isAbroad ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setIsAbroad(false)}
+              className="gap-2"
+            >
+              <Flag size={14} /> Polska (GUS/NIP)
+            </Button>
+            <Button
+              variant={isAbroad ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setIsAbroad(true)}
+              className="gap-2"
+            >
+              <Globe size={14} /> Zagranica (VIES/VAT-UE)
+            </Button>
+          </div>
 
-        {/* GUS lub VIES lookup */}
-        <div className="bg-surface-2 border border-surface-4 rounded-xl p-4">
-          {isAbroad
-            ? <ViesLookup onFound={onViesFound}/>
-            : <GusLookup onFound={onGusFound}/>
-          }
-        </div>
+          {/* Lookup */}
+          <Card className="bg-muted/40 border-transparent">
+            <CardContent className="p-4">
+              {isAbroad
+                ? <ViesLookup onFound={onViesFound} />
+                : <GusLookup  onFound={onGusFound} />
+              }
+            </CardContent>
+          </Card>
 
-        {/* Dane firmy */}
-        <div className="border-t border-surface-4 pt-5">
-          <div className="text-xs font-bold uppercase tracking-wide text-ink-3 mb-3">Dane firmy</div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-ink-3 uppercase tracking-wide mb-1.5">Kod dostawcy *</label>
-              <input type="text" placeholder="np. DOW-001" value={form.code}
-                onChange={e=>onFieldChange('code', e.target.value.toUpperCase())}
-                style={{fontFamily:'Roboto, sans-serif'}}
-                className="w-full h-12 px-4 text-lg font-bold font-mono text-brand rounded-xl border-2 border-surface-4 bg-white focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10"/>
-              <p className="text-[10px] text-ink-4 mt-1">Automatycznie sugerowany</p>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-ink-3 uppercase tracking-wide mb-1.5">
-                {isAbroad ? 'Numer VAT-UE' : 'NIP'}
-              </label>
-              <input type="text"
-                placeholder={isAbroad?'np. DE123456789':'0000000000'}
-                value={form.nip||''} onChange={e=>onFieldChange('nip', isAbroad?e.target.value.toUpperCase():e.target.value.replace(/\D/g,'').slice(0,10))}
-                style={{fontFamily:'Roboto, sans-serif'}}
-                className="w-full h-12 px-4 text-xl font-bold font-mono text-ink rounded-xl border-2 border-surface-4 bg-white focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10 tracking-wider"/>
-              <p className="text-[10px] text-ink-4 mt-1">{isAbroad?'Format: KK + numer (np. DE123456789)':'10 cyfr'}</p>
-            </div>
-            <Input label="Nazwa firmy *" placeholder="Pełna nazwa firmy" value={form.name}
-              onChange={e=>onFieldChange('name',e.target.value)} className="col-span-2"
-              style={{fontFamily:'Roboto, sans-serif'}}/>
-            <div className="col-span-2">
-              <label className="block text-xs font-bold text-ink-3 uppercase tracking-wide mb-1.5">Numer weterynaryjny</label>
-              <input type="text" placeholder="PL00000000WE" value={form.vetNumber||''}
-                onChange={e=>onFieldChange('vetNumber',e.target.value.toUpperCase())}
-                style={{fontFamily:'Roboto, sans-serif'}}
-                className="w-full h-11 px-4 text-base font-mono text-ink rounded-xl border-2 border-surface-4 bg-white focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10"/>
-              <p className="text-[10px] text-ink-4 mt-1">Format: PL00000000WE</p>
+          <Separator />
+
+          {/* Dane firmy */}
+          <div className="space-y-3">
+            <Label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Dane firmy</Label>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Kod dostawcy *</Label>
+                <Input
+                  placeholder="np. DOW-001"
+                  value={form.code}
+                  onChange={e => onFieldChange('code', e.target.value.toUpperCase())}
+                  className="font-mono font-bold text-primary"
+                />
+                <CardDescription className="text-[10px]">Automatycznie sugerowany</CardDescription>
+              </div>
+              <div className="space-y-1.5">
+                <Label>{isAbroad ? 'Numer VAT-UE' : 'NIP'}</Label>
+                <Input
+                  placeholder={isAbroad ? 'np. DE123456789' : '0000000000'}
+                  value={form.nip || ''}
+                  onChange={e => onFieldChange('nip', isAbroad
+                    ? e.target.value.toUpperCase()
+                    : e.target.value.replace(/\D/g, '').slice(0, 10)
+                  )}
+                  className="font-mono font-bold tracking-wider"
+                />
+                <CardDescription className="text-[10px]">
+                  {isAbroad ? 'Format: KK + numer (np. DE123456789)' : '10 cyfr'}
+                </CardDescription>
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label>Nazwa firmy *</Label>
+                <Input
+                  placeholder="Pełna nazwa firmy"
+                  value={form.name}
+                  onChange={e => onFieldChange('name', e.target.value)}
+                />
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label>Numer weterynaryjny</Label>
+                <Input
+                  placeholder="PL00000000WE"
+                  value={form.vetNumber || ''}
+                  onChange={e => onFieldChange('vetNumber', e.target.value.toUpperCase())}
+                  className="font-mono"
+                />
+                <CardDescription className="text-[10px]">Format: PL00000000WE</CardDescription>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Dane kontaktowe */}
-        <div className="border-t border-surface-4 pt-5">
-          <div className="text-xs font-bold uppercase tracking-wide text-ink-3 mb-3">Dane kontaktowe</div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Osoba kontaktowa" placeholder="Imię i nazwisko" value={form.contactName||''} onChange={e=>onFieldChange('contactName',e.target.value)}/>
-            <Input label="Telefon" placeholder="+48 000 000 000" value={form.phone||''} onChange={e=>onFieldChange('phone',e.target.value)}/>
-            <Input label="Email" type="email" placeholder="kontakt@firma.pl" value={form.email||''} onChange={e=>onFieldChange('email',e.target.value)} className="col-span-2"/>
+          <Separator />
+
+          {/* Dane kontaktowe */}
+          <div className="space-y-3">
+            <Label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Dane kontaktowe</Label>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Osoba kontaktowa</Label>
+                <Input placeholder="Imię i nazwisko" value={form.contactName || ''} onChange={e => onFieldChange('contactName', e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Telefon</Label>
+                <Input placeholder="+48 000 000 000" value={form.phone || ''} onChange={e => onFieldChange('phone', e.target.value)} />
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label>Email</Label>
+                <Input type="email" placeholder="kontakt@firma.pl" value={form.email || ''} onChange={e => onFieldChange('email', e.target.value)} />
+              </div>
+            </div>
           </div>
+
+          {error && (
+            <Card className="border-destructive/50 bg-destructive/5">
+              <CardContent className="px-3 py-2">
+                <CardDescription className="text-destructive font-medium">{error}</CardDescription>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
-        {error && <div className="text-sm text-danger bg-danger-light border border-danger-border rounded-lg px-4 py-2.5">{error}</div>}
-
-        <div className="flex gap-3 pt-2">
-          <Button variant="ghost" fullWidth onClick={onClose}>Anuluj</Button>
-          <Button variant="primary" fullWidth loading={loading} onClick={onSubmit} icon={<Plus size={15}/>}>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={loading}>Anuluj</Button>
+          <Button onClick={onSubmit} disabled={loading} className="gap-2">
+            {loading
+              ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              : <Plus size={14} />
+            }
             Dodaj dostawcę
           </Button>
-        </div>
-      </div>
-    </Modal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 export function SuppliersPage() {
-  const { data: suppliers, loading, error, refetch } = useApi(()=>suppliersApi.list())
-  const mutation = useMutation((dto:CreateSupplierDto)=>suppliersApi.create(dto))
+  const { data: suppliers, loading, refetch } = useApi(() => suppliersApi.list())
+  const mutation = useMutation((dto: CreateSupplierDto) => suppliersApi.create(dto))
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState<CreateSupplierDto>(emptyForm())
-  const [toast, setToast] = useState({msg:'', type:'success' as 'success'|'error', visible:false})
 
-  const showToast = useCallback((msg:string, type:'success'|'error'='success')=>{
-    setToast({msg,type,visible:true})
-    setTimeout(()=>setToast(t=>({...t,visible:false})),3000)
-  },[])
-
-  const openModal = useCallback(async()=>{
+  const openModal = useCallback(async () => {
     const newForm = emptyForm()
     try { newForm.code = await suppliersApi.nextCode() }
-    catch { newForm.code = `DOW-${String((suppliers?.length||0)+1).padStart(3,'0')}` }
-    setForm(newForm); mutation.clearError(); setModalOpen(true)
-  },[suppliers,mutation])
+    catch { newForm.code = `DOW-${String((suppliers?.length || 0) + 1).padStart(3, '0')}` }
+    setForm(newForm); mutation.clearError?.(); setModalOpen(true)
+  }, [suppliers, mutation])
 
-  const closeModal = useCallback(()=>{ setModalOpen(false); mutation.clearError() },[mutation])
+  const closeModal = useCallback(() => { setModalOpen(false); mutation.clearError?.() }, [mutation])
 
-  const updateField = useCallback(<K extends keyof CreateSupplierDto>(key:K, value:CreateSupplierDto[K])=>{
-    setForm(prev=>({...prev,[key]:value}))
-  },[])
+  const updateField = useCallback(<K extends keyof CreateSupplierDto>(key: K, value: CreateSupplierDto[K]) => {
+    setForm(prev => ({ ...prev, [key]: value }))
+  }, [])
 
-  const handleGusFound = useCallback((d:GusCompanyData)=>{
-    setForm(prev=>({...prev, nip:d.nip, name:d.nazwa}))
-  },[])
+  const handleGusFound = useCallback((d: GusCompanyData) => {
+    setForm(prev => ({ ...prev, nip: d.nip, name: d.nazwa }))
+  }, [])
 
-  const handleViesFound = useCallback((d:ViesCompanyData)=>{
-    setForm(prev=>({
-      ...prev,
-      nip: d.vatNumber,
-      name: d.traderName || prev.name,
-    }))
-  },[])
+  const handleViesFound = useCallback((d: ViesCompanyData) => {
+    setForm(prev => ({ ...prev, nip: d.vatNumber, name: d.traderName || prev.name }))
+  }, [])
 
-  const handleSubmit = useCallback(async()=>{
-    if (!form.code.trim()) { showToast('Podaj kod dostawcy','error'); return }
-    if (!form.name.trim()) { showToast('Podaj nazwę firmy','error'); return }
+  const handleSubmit = useCallback(async () => {
+    if (!form.code.trim()) { toast.error('Podaj kod dostawcy'); return }
+    if (!form.name.trim()) { toast.error('Podaj nazwę firmy'); return }
     try {
       const created = await mutation.mutate(form)
       setModalOpen(false); refetch()
-      showToast(`Dostawca ${created.name} został dodany`)
-    } catch(e) { showToast(e instanceof Error?e.message:'Błąd zapisu','error') }
-  },[form,mutation,refetch,showToast])
+      toast.success(`Dostawca ${created.name} został dodany`)
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Błąd zapisu') }
+  }, [form, mutation, refetch])
 
-  const suppliersList = suppliers??[]
+  const suppliersList = suppliers ?? []
 
   return (
-    <div className="space-y-4 animate-fade-in">
-      <Card noPad>
-        <div className="px-5 pt-5">
-          <CardHeader title="Dostawcy" subtitle={`${suppliersList.length} dostawców w systemie`}
-            actions={<Button icon={<Plus size={15}/>} onClick={openModal}>Dodaj dostawcę</Button>}/>
-        </div>
-        <div className="flex items-center gap-6 px-5 py-3 bg-surface-2 border-y border-surface-3">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-brand-light flex items-center justify-center"><Truck size={14} className="text-brand"/></div>
-            <div><div className="text-lg font-black text-ink">{suppliersList.length}</div><div className="text-[10px] font-semibold text-ink-3 uppercase">Dostawców</div></div>
+    <div className="space-y-5 animate-fade-in">
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {[
+          { label: 'Dostawców',  value: suppliersList.length,                           icon: <Truck size={18} className="text-primary" />,        accent: 'bg-primary/5' },
+          { label: 'Aktywnych',  value: suppliersList.filter(s => s.active).length,     icon: <Building2 size={18} className="text-green-600" />,  accent: 'bg-green-50' },
+        ].map(s => (
+          <Card key={s.label}>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${s.accent}`}>
+                  {s.icon}
+                </div>
+                <div>
+                  <CardTitle className="text-2xl font-black tabular-nums">{s.value}</CardTitle>
+                  <CardDescription className="text-[10px] font-semibold uppercase">{s.label}</CardDescription>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Main table */}
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+          <div>
+            <CardTitle>Dostawcy</CardTitle>
+            <CardDescription className="mt-0.5">{suppliersList.length} dostawców w systemie</CardDescription>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-success-light flex items-center justify-center"><Building2 size={14} className="text-success"/></div>
-            <div><div className="text-lg font-black text-ink">{suppliersList.filter(s=>s.active).length}</div><div className="text-[10px] font-semibold text-ink-3 uppercase">Aktywnych</div></div>
-          </div>
-        </div>
-        {loading
-          ? <div className="flex items-center justify-center py-16"><Spinner size={32}/></div>
-          : suppliersList.length===0
-            ? <EmptyState icon={<Truck size={40}/>} title="Brak dostawców" message="Dodaj pierwszego dostawcę"/>
-            : <Table columns={COLUMNS} data={suppliersList} loading={loading} keyFn={s=>s.id}/>
-        }
+          <Button onClick={openModal}>
+            <Plus size={14} className="mr-1.5" /> Dodaj dostawcę
+          </Button>
+        </CardHeader>
+        <Separator />
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-4 space-y-3">
+              {[0,1,2,3].map(i => <Skeleton key={i} className="h-12 w-full" />)}
+            </div>
+          ) : suppliersList.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-2">
+              <Truck size={36} className="text-muted-foreground opacity-20" />
+              <CardTitle className="text-sm font-medium text-muted-foreground">Brak dostawców</CardTitle>
+              <CardDescription>Dodaj pierwszego dostawcę klikając przycisk powyżej</CardDescription>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  {['Kod','Nazwa firmy','Nr wet.','Kontakt','Status'].map(h => (
+                    <TableHead key={h} className="text-xs uppercase tracking-wide">{h}</TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {suppliersList.map(s => (
+                  <TableRow key={s.id}>
+                    <TableCell>
+                      <code className="font-mono font-bold text-primary text-sm">{s.code}</code>
+                    </TableCell>
+                    <TableCell>
+                      <CardTitle className="text-sm font-semibold">{s.name}</CardTitle>
+                      {s.nip && (
+                        <code className="text-xs text-muted-foreground font-mono font-semibold">NIP: {s.nip}</code>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <code className="font-mono text-xs text-muted-foreground">{s.vetNumber || '—'}</code>
+                    </TableCell>
+                    <TableCell>
+                      {s.contactName && <CardTitle className="text-sm font-medium">{s.contactName}</CardTitle>}
+                      {s.phone && (
+                        <CardDescription className="flex items-center gap-1 text-xs">
+                          <Phone size={10} />{s.phone}
+                        </CardDescription>
+                      )}
+                      {s.email && (
+                        <CardDescription className="flex items-center gap-1 text-xs">
+                          <Mail size={10} />{s.email}
+                        </CardDescription>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={s.active ? 'success' : 'secondary'}>
+                        <span className={`w-1.5 h-1.5 rounded-full mr-1.5 inline-block ${s.active ? 'bg-green-500' : 'bg-gray-400'}`} />
+                        {s.active ? 'Aktywny' : 'Nieaktywny'}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
       </Card>
 
-      <CreateSupplierModal open={modalOpen} onClose={closeModal} onSubmit={handleSubmit}
-        form={form} loading={mutation.loading} error={mutation.error}
-        onFieldChange={updateField} onGusFound={handleGusFound} onViesFound={handleViesFound}/>
-      <Toast message={toast.msg} type={toast.type} visible={toast.visible}/>
+      <CreateSupplierModal
+        open={modalOpen}
+        onClose={closeModal}
+        onSubmit={handleSubmit}
+        form={form}
+        loading={mutation.loading}
+        error={mutation.error}
+        onFieldChange={updateField}
+        onGusFound={handleGusFound}
+        onViesFound={handleViesFound}
+      />
     </div>
   )
 }

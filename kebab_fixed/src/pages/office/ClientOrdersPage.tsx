@@ -1,44 +1,44 @@
 /**
  * ClientOrdersPage — Zamówienia od kontrahentów
- * Pozycje: ilość szt × kg/szt × rodzaj produktu × receptura × tuleja × klient
  */
 import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, clientsApi, packagingApi } from '@/lib/apiClient'
-import { Spinner, EmptyState, Modal } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
 import { fmtKg, fmtDatePl, todayIso } from '@/lib/utils'
-import {
-  Check,
-  ChevronDown,
-  ChevronUp,
-  Pencil,
-  Plus,
-  ShoppingCart,
-  Trash2,
-  X,
-} from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, Plus, ShoppingCart, Trash2, X } from 'lucide-react'
 import { useProductTypes } from '@/features/products/hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
-import type { ClientOrder, CreateClientOrderDto, CreateOrderLineDto } from '@/lib/mockApi'
+import type { ClientOrder, CreateClientOrderDto } from '@/lib/mockApi'
+
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Separator } from '@/components/ui/separator'
+import {
+  Card, CardContent, CardDescription, CardTitle,
+} from '@/components/ui/card'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
 
 interface LineForm {
-  qty:           string
-  kgPerUnit:     string
-  productTypeId: string
-  recipeId:      string
-  packagingId:   string
-  notes:         string
+  qty: string; kgPerUnit: string; productTypeId: string; recipeId: string; packagingId: string; notes: string
 }
-
-const emptyLine = (): LineForm => ({ qty:'', kgPerUnit:'', productTypeId:'', recipeId:'', packagingId:'', notes:'' })
+const emptyLine = (): LineForm => ({ qty: '', kgPerUnit: '', productTypeId: '', recipeId: '', packagingId: '', notes: '' })
 
 const STATUS_LABELS: Record<ClientOrder['status'], string> = {
-  draft:'Szkic', confirmed:'Potwierdzone', in_production:'W produkcji', done:'Zrealizowane', cancelled:'Anulowane',
+  draft: 'Szkic', confirmed: 'Potwierdzone', in_production: 'W produkcji', done: 'Zrealizowane', cancelled: 'Anulowane',
 }
-const STATUS_COLORS: Record<ClientOrder['status'], string> = {
-  draft:'bg-surface-3 text-ink-3', confirmed:'bg-blue-50 text-blue-700',
-  in_production:'bg-amber-50 text-amber-700', done:'bg-green-50 text-green-700', cancelled:'bg-red-50 text-red-700',
+const STATUS_VARIANT: Record<ClientOrder['status'], 'secondary' | 'info' | 'warning' | 'success' | 'danger'> = {
+  draft: 'secondary', confirmed: 'info', in_production: 'warning', done: 'success', cancelled: 'danger',
 }
 
 function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) => Promise<void>; onClose: () => void }) {
@@ -47,34 +47,29 @@ function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) =>
   const { productTypes }     = useProductTypes()
   const { recipes }          = useRecipes()
 
-  const [clientId,    setClientId]    = useState('')
-  const [orderDate,   setOrderDate]   = useState(todayIso())
-  const [deliveryDate,setDeliveryDate]= useState('')
-  const [notes,       setNotes]       = useState('')
-  const [lines,       setLines]       = useState<LineForm[]>([emptyLine()])
-  const [saving,      setSaving]      = useState(false)
-  const [error,       setError]       = useState('')
+  const [clientId,     setClientId]     = useState('')
+  const [orderDate,    setOrderDate]    = useState(todayIso())
+  const [deliveryDate, setDeliveryDate] = useState('')
+  const [notes,        setNotes]        = useState('')
+  const [lines,        setLines]        = useState<LineForm[]>([emptyLine()])
+  const [saving,       setSaving]       = useState(false)
+  const [error,        setError]        = useState('')
 
-  const clients    = clientList ?? []
-  const packaging  = pkgList   ?? []
+  const clients   = clientList ?? []
+  const packaging = pkgList    ?? []
 
   function setLine(i: number, k: keyof LineForm, v: string) {
-    setLines(p => p.map((l,j) => j===i ? { ...l, [k]: v } : l))
+    setLines(p => p.map((l, j) => j === i ? { ...l, [k]: v } : l))
   }
 
-  function addLine() { setLines(p => [...p, emptyLine()]) }
-  function removeLine(i: number) { setLines(p => p.filter((_,j) => j!==i)) }
-
-  // Sumy
-  const totals = useMemo(() => {
-    const totalUnits = lines.reduce((s,l) => s+(parseFloat(l.qty)||0), 0)
-    const totalKg    = lines.reduce((s,l) => s+(parseFloat(l.qty)||0)*(parseFloat(l.kgPerUnit)||0), 0)
-    return { totalUnits, totalKg }
-  }, [lines])
+  const totals = useMemo(() => ({
+    totalUnits: lines.reduce((s, l) => s + (parseFloat(l.qty) || 0), 0),
+    totalKg:    lines.reduce((s, l) => s + (parseFloat(l.qty) || 0) * (parseFloat(l.kgPerUnit) || 0), 0),
+  }), [lines])
 
   async function handleSave() {
     if (!clientId) { setError('Wybierz klienta'); return }
-    const validLines = lines.filter(l => l.productTypeId && l.recipeId && parseFloat(l.qty)>0 && parseFloat(l.kgPerUnit)>0)
+    const validLines = lines.filter(l => l.productTypeId && l.recipeId && parseFloat(l.qty) > 0 && parseFloat(l.kgPerUnit) > 0)
     if (validLines.length === 0) { setError('Dodaj przynajmniej jedną pozycję'); return }
     setSaving(true)
     try {
@@ -87,261 +82,309 @@ function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) =>
         })),
       })
       onClose()
-    } catch(e) { setError(e instanceof Error ? e.message : 'Błąd') }
+    } catch (e) { setError(e instanceof Error ? e.message : 'Błąd') }
     finally { setSaving(false) }
   }
 
   return (
-    <div className="space-y-4 max-h-[80vh] overflow-y-auto pr-1">
+    <div className="space-y-5 max-h-[75vh] overflow-y-auto pr-1">
       {/* Nagłówek zamówienia */}
       <div className="grid grid-cols-3 gap-3">
-        <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Klient *</label>
-          <select value={clientId} onChange={e => setClientId(e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
-            <option value="">Wybierz klienta...</option>
-            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+        <div className="space-y-1.5">
+          <Label>Klient *</Label>
+          <Select value={clientId} onValueChange={setClientId}>
+            <SelectTrigger><SelectValue placeholder="Wybierz klienta..." /></SelectTrigger>
+            <SelectContent>
+              {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
-        <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data zamówienia</label>
-          <input type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+        <div className="space-y-1.5">
+          <Label>Data zamówienia</Label>
+          <Input type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)} />
         </div>
-        <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Termin dostawy</label>
-          <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+        <div className="space-y-1.5">
+          <Label>Termin dostawy</Label>
+          <Input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} />
         </div>
       </div>
 
+      <Separator />
+
       {/* Pozycje */}
-      <div>
-        <div className="text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-2">Pozycje zamówienia</div>
-        <div className="space-y-3">
-          {lines.map((line, i) => {
-            const totalKg = (parseFloat(line.qty)||0) * (parseFloat(line.kgPerUnit)||0)
-            // Pokazuj receptury: pasujące do wybranego rodzaju LUB bez przypisanego rodzaju
-            const filteredRecipes = recipes.filter(r =>
-              !line.productTypeId || !r.productTypeId || r.productTypeId === line.productTypeId
-            )
-            return (
-              <div key={i} className="border border-surface-4 rounded-xl p-3 bg-surface-2/30">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] font-bold text-ink-3">Pozycja {i+1}</span>
+      <div className="space-y-3">
+        <Label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Pozycje zamówienia</Label>
+        {lines.map((line, i) => {
+          const totalKg = (parseFloat(line.qty) || 0) * (parseFloat(line.kgPerUnit) || 0)
+          const filteredRecipes = recipes.filter(r =>
+            !line.productTypeId || !r.productTypeId || r.productTypeId === line.productTypeId
+          )
+          return (
+            <Card key={i} className="border-muted">
+              <CardContent className="p-3">
+                <div className="flex items-center justify-between mb-3">
+                  <CardDescription className="text-xs font-bold uppercase">Pozycja {i + 1}</CardDescription>
                   {lines.length > 1 && (
-                    <button onClick={() => removeLine(i)} className="text-ink-4 hover:text-danger">
-                      <X size={14} />
-                    </button>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => setLines(p => p.filter((_, j) => j !== i))}>
+                      <X size={12} />
+                    </Button>
                   )}
                 </div>
                 <div className="grid grid-cols-6 gap-2">
-                  <div>
-                    <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Ilość (szt)</label>
-                    <input type="number" min="1" step="1" value={line.qty} onChange={e => setLine(i,'qty',e.target.value)}
-                      placeholder="20" className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+                  <div className="space-y-1">
+                    <Label className="text-[9px]">Ilość (szt)</Label>
+                    <Input type="number" min="1" step="1" value={line.qty} onChange={e => setLine(i, 'qty', e.target.value)} placeholder="20" className="h-8 text-sm" />
                   </div>
-                  <div>
-                    <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">kg/szt</label>
-                    <input type="number" min="0.1" step="0.1" value={line.kgPerUnit} onChange={e => setLine(i,'kgPerUnit',e.target.value)}
-                      placeholder="40" className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+                  <div className="space-y-1">
+                    <Label className="text-[9px]">kg/szt</Label>
+                    <Input type="number" min="0.1" step="0.1" value={line.kgPerUnit} onChange={e => setLine(i, 'kgPerUnit', e.target.value)} placeholder="40" className="h-8 text-sm" />
                   </div>
-                  <div>
-                    <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Rodzaj produktu</label>
-                    <select value={line.productTypeId} onChange={e => { setLine(i,'productTypeId',e.target.value); setLine(i,'recipeId','') }}
-                      className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-white">
-                      <option value="">Wybierz...</option>
-                      {(productTypes??[]).map(pt => <option key={pt.id} value={pt.id}>{pt.name}</option>)}
-                    </select>
+                  <div className="space-y-1">
+                    <Label className="text-[9px]">Rodzaj produktu</Label>
+                    <Select value={line.productTypeId} onValueChange={v => { setLine(i, 'productTypeId', v); setLine(i, 'recipeId', '') }}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Wybierz..." /></SelectTrigger>
+                      <SelectContent>
+                        {(productTypes ?? []).map(pt => <SelectItem key={pt.id} value={pt.id}>{pt.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div>
-                    <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Receptura</label>
-                    <select value={line.recipeId} onChange={e => setLine(i,'recipeId',e.target.value)}
-                      className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-white">
-                      <option value="">Wybierz...</option>
-                      {filteredRecipes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                    </select>
+                  <div className="space-y-1">
+                    <Label className="text-[9px]">Receptura</Label>
+                    <Select value={line.recipeId} onValueChange={v => setLine(i, 'recipeId', v)}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Wybierz..." /></SelectTrigger>
+                      <SelectContent>
+                        {filteredRecipes.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div>
-                    <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Tuleja / opak.</label>
-                    <select value={line.packagingId} onChange={e => setLine(i,'packagingId',e.target.value)}
-                      className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-white">
-                      <option value="">— brak —</option>
-                      {packaging.map(p => <option key={p.id} value={p.id}>{p.name} ({p.kgAvailable} {p.unit})</option>)}
-                    </select>
+                  <div className="space-y-1">
+                    <Label className="text-[9px]">Tuleja / opak.</Label>
+                    <Select value={line.packagingId || '__none'} onValueChange={v => setLine(i, 'packagingId', v === '__none' ? '' : v)}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="— brak —" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">— brak —</SelectItem>
+                        {packaging.map(p => <SelectItem key={p.id} value={p.id}>{p.name} ({p.kgAvailable} {p.unit})</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="flex flex-col justify-end">
-                    <div className="h-8 flex items-center px-2 bg-blue-50 border border-blue-200 rounded text-[12px] font-bold text-blue-700">
-                      = {fmtKg(totalKg, 0)} kg
-                    </div>
+                    <Card className="bg-blue-50 border-blue-200">
+                      <CardContent className="h-8 px-2 flex items-center">
+                        <CardTitle className="text-xs font-bold text-blue-700 tabular-nums">= {fmtKg(totalKg, 0)} kg</CardTitle>
+                      </CardContent>
+                    </Card>
                   </div>
                 </div>
-              </div>
-            )
-          })}
-        </div>
-        <button onClick={addLine} className="mt-2 flex items-center gap-1.5 text-[12px] font-semibold text-brand hover:text-brand/80">
-          <Plus size={14} /> Dodaj pozycję
-        </button>
+              </CardContent>
+            </Card>
+          )
+        })}
+        <Button variant="ghost" size="sm" onClick={() => setLines(p => [...p, emptyLine()])} className="gap-1.5 text-primary">
+          <Plus size={13} /> Dodaj pozycję
+        </Button>
       </div>
 
       {/* Suma */}
-      <div className="bg-surface-2 border border-surface-4 rounded-xl p-3 flex items-center justify-between">
-        <span className="text-[12px] font-bold text-ink-3">SUMA ZAMÓWIENIA:</span>
-        <div className="text-right">
-          <div className="text-xl font-black text-brand">{fmtKg(totals.totalKg, 0)} kg</div>
-          <div className="text-[11px] text-ink-3">{totals.totalUnits} szt</div>
-        </div>
+      <Card className="bg-muted/40 border-transparent">
+        <CardContent className="px-4 py-3 flex items-center justify-between">
+          <CardDescription className="text-xs font-bold uppercase">Suma zamówienia:</CardDescription>
+          <div className="text-right">
+            <CardTitle className="text-xl font-black text-primary tabular-nums">{fmtKg(totals.totalKg, 0)} kg</CardTitle>
+            <CardDescription className="text-xs">{totals.totalUnits} szt</CardDescription>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="space-y-1.5">
+        <Label>Uwagi</Label>
+        <textarea
+          rows={2}
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+        />
       </div>
 
-      <div>
-        <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Uwagi</label>
-        <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)}
-          className="w-full px-3 py-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white resize-none" />
-      </div>
+      {error && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="px-3 py-2">
+            <CardDescription className="text-destructive font-medium">{error}</CardDescription>
+          </CardContent>
+        </Card>
+      )}
 
-      {error && <div className="text-[12px] text-danger bg-danger-light border border-danger-border px-3 py-2">{error}</div>}
-
-      <div className="flex gap-2">
-        <Button variant="secondary" onClick={onClose} className="flex-1">Anuluj</Button>
-        <Button onClick={handleSave} loading={saving} className="flex-1">Zapisz zamówienie</Button>
-      </div>
+      <DialogFooter className="gap-2">
+        <Button variant="outline" onClick={onClose} disabled={saving}>Anuluj</Button>
+        <Button onClick={handleSave} disabled={saving} className="gap-2">
+          {saving
+            ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            : <Plus size={14} />
+          }
+          Zapisz zamówienie
+        </Button>
+      </DialogFooter>
     </div>
   )
 }
 
 export function ClientOrdersPage() {
   const { data: orders, loading, refetch } = useApi(() => clientOrdersApi.list())
-  const [modal,    setModal]    = useState(false)
-  const [expanded, setExpanded] = useState<string | null>(null)
+  const [modal,        setModal]        = useState(false)
+  const [expanded,     setExpanded]     = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState('')
 
   const filtered = (orders ?? []).filter(o => !filterStatus || o.status === filterStatus)
 
-  async function handleCreate(dto: CreateClientOrderDto) {
-    await clientOrdersApi.create(dto)
-    refetch()
-  }
-
-  async function handleStatus(id: string, status: ClientOrder['status']) {
-    await clientOrdersApi.updateStatus(id, status)
-    refetch()
-  }
-
-  async function handleDelete(id: string) {
-    await clientOrdersApi.delete(id)
-    refetch()
-  }
+  async function handleCreate(dto: CreateClientOrderDto) { await clientOrdersApi.create(dto); refetch() }
+  async function handleStatus(id: string, status: ClientOrder['status']) { await clientOrdersApi.updateStatus(id, status); refetch() }
+  async function handleDelete(id: string) { await clientOrdersApi.delete(id); refetch() }
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
+
+      {/* Filter + action */}
       <div className="flex gap-3">
-        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-          className="h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
-          <option value="">Wszystkie statusy</option>
-          {(['draft','confirmed','in_production','done','cancelled'] as ClientOrder['status'][]).map(s => (
-            <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-          ))}
-        </select>
+        <Select value={filterStatus || '__all'} onValueChange={v => setFilterStatus(v === '__all' ? '' : v)}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Wszystkie statusy" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all">Wszystkie statusy</SelectItem>
+            {(['draft','confirmed','in_production','done','cancelled'] as ClientOrder['status'][]).map(s => (
+              <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <div className="ml-auto">
-          <Button icon={<Plus size={14} />} onClick={() => setModal(true)}>Nowe zamówienie</Button>
+          <Button onClick={() => setModal(true)}>
+            <Plus size={14} className="mr-1.5" /> Nowe zamówienie
+          </Button>
         </div>
       </div>
 
-      <div className="bg-white border border-surface-4 shadow-card">
-        <div className="px-4 py-2.5 border-b border-surface-4">
-          <span className="text-[13px] font-semibold text-ink">{filtered.length} zamówień</span>
-          <span className="text-[12px] text-ink-3 ml-2">
-            · łącznie {fmtKg(filtered.reduce((s,o)=>s+o.totalKg,0),0)} kg
-          </span>
+      {/* Orders list */}
+      <Card>
+        <div className="flex items-center gap-2 px-5 py-3 border-b">
+          <CardTitle className="text-sm font-semibold">{filtered.length} zamówień</CardTitle>
+          <CardDescription className="text-xs">
+            · łącznie {fmtKg(filtered.reduce((s, o) => s + o.totalKg, 0), 0)} kg
+          </CardDescription>
         </div>
-        {loading ? (
-          <div className="flex justify-center py-10"><Spinner size={20} /></div>
-        ) : filtered.length === 0 ? (
-          <EmptyState icon={<ShoppingCart size={32} />} title="Brak zamówień" message="Dodaj zamówienie od klienta" />
-        ) : (
-          <div className="divide-y divide-surface-4">
-            {filtered.map(o => {
-              const isExp = expanded === o.id
-              return (
-                <div key={o.id}>
-                  <div className="px-4 py-3 flex items-center gap-3 hover:bg-surface-2 cursor-pointer"
-                    onClick={() => setExpanded(isExp ? null : o.id)}>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-brand">{o.orderNo}</span>
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${STATUS_COLORS[o.status]}`}>
-                          {STATUS_LABELS[o.status]}
-                        </span>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-4 space-y-3">
+              {[0,1,2].map(i => <Skeleton key={i} className="h-16 w-full" />)}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-2">
+              <ShoppingCart size={36} className="text-muted-foreground opacity-20" />
+              <CardTitle className="text-sm font-medium text-muted-foreground">Brak zamówień</CardTitle>
+              <CardDescription>Dodaj zamówienie od klienta</CardDescription>
+            </div>
+          ) : (
+            <div className="divide-y">
+              {filtered.map(o => {
+                const isExp = expanded === o.id
+                return (
+                  <div key={o.id}>
+                    {/* Row */}
+                    <div
+                      className="px-4 py-3 flex items-center gap-3 hover:bg-muted/30 cursor-pointer transition-colors"
+                      onClick={() => setExpanded(isExp ? null : o.id)}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <code className="font-mono font-bold text-primary text-sm">{o.orderNo}</code>
+                          <Badge variant={STATUS_VARIANT[o.status]}>{STATUS_LABELS[o.status]}</Badge>
+                        </div>
+                        <CardTitle className="text-sm font-semibold">{o.clientName}</CardTitle>
+                        <CardDescription className="text-xs mt-0.5">
+                          {fmtDatePl(o.orderDate)} · {o.lines.length} poz. · {fmtKg(o.totalKg, 0)} kg · {o.totalUnits} szt
+                          {o.deliveryDate && ` · dostawa: ${fmtDatePl(o.deliveryDate)}`}
+                        </CardDescription>
                       </div>
-                      <div className="text-[12px] text-ink font-semibold mt-0.5">{o.clientName}</div>
-                      <div className="text-[11px] text-ink-3">
-                        {fmtDatePl(o.orderDate)} · {o.lines.length} poz. · {fmtKg(o.totalKg,0)} kg · {o.totalUnits} szt
-                        {o.deliveryDate && ` · dostawa: ${fmtDatePl(o.deliveryDate)}`}
+                      <div className="flex items-center gap-1">
+                        {o.status === 'draft' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs text-green-700 border-green-200 hover:bg-green-50 gap-1"
+                            onClick={e => { e.stopPropagation(); handleStatus(o.id, 'confirmed') }}
+                          >
+                            <Check size={11} /> Potwierdź
+                          </Button>
+                        )}
+                        {o.status === 'draft' && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={e => { e.stopPropagation(); handleDelete(o.id) }}
+                          >
+                            <Trash2 size={12} />
+                          </Button>
+                        )}
+                        {isExp ? <ChevronUp size={16} className="text-muted-foreground" /> : <ChevronDown size={16} className="text-muted-foreground" />}
                       </div>
                     </div>
-                    <div className="flex gap-1">
-                      {o.status === 'draft' && (
-                        <button onClick={e => { e.stopPropagation(); handleStatus(o.id,'confirmed') }}
-                          className="text-[11px] font-semibold text-green-700 border border-green-200 px-2 py-1 rounded hover:bg-green-50">
-                          <Check size={12} className="inline mr-1" />Potwierdź
-                        </button>
-                      )}
-                      {o.status === 'draft' && (
-                        <button onClick={e => { e.stopPropagation(); handleDelete(o.id) }}
-                          className="p-1.5 rounded border border-surface-4 text-ink-4 hover:border-danger hover:text-danger">
-                          <Trash2 size={13} />
-                        </button>
-                      )}
-                      {isExp ? <ChevronUp size={16} className="text-ink-4" /> : <ChevronDown size={16} className="text-ink-4" />}
-                    </div>
+
+                    {/* Expanded lines */}
+                    {isExp && (
+                      <div className="px-4 pb-4 bg-muted/20 border-t">
+                        <Table className="mt-3">
+                          <TableHeader>
+                            <TableRow className="hover:bg-transparent">
+                              {['Szt','kg/szt','Razem kg','Rodzaj','Receptura','Tuleja'].map(h => (
+                                <TableHead key={h} className="text-[9px] uppercase tracking-wide">{h}</TableHead>
+                              ))}
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {o.lines.map(l => (
+                              <TableRow key={l.id}>
+                                <TableCell className="font-bold text-xs">{l.qty}</TableCell>
+                                <TableCell className="text-xs">{l.kgPerUnit} kg</TableCell>
+                                <TableCell>
+                                  <CardTitle className="text-xs text-primary tabular-nums">{fmtKg(l.totalKg, 0)} kg</CardTitle>
+                                </TableCell>
+                                <TableCell className="text-xs">{l.productTypeName}</TableCell>
+                                <TableCell className="text-xs">{l.recipeName}</TableCell>
+                                <TableCell>
+                                  <CardDescription className="text-xs">{l.packagingName || '—'}</CardDescription>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                            <TableRow className="font-bold">
+                              <TableCell className="text-xs">{o.totalUnits} szt</TableCell>
+                              <TableCell />
+                              <TableCell>
+                                <CardTitle className="text-xs text-primary">{fmtKg(o.totalKg, 0)} kg</CardTitle>
+                              </TableCell>
+                              <TableCell colSpan={3} />
+                            </TableRow>
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
                   </div>
-                  {isExp && (
-                    <div className="px-4 pb-3 bg-surface-2/50 border-t border-surface-4">
-                      <table className="w-full text-[11px] mt-2">
-                        <thead>
-                          <tr className="text-ink-4 uppercase text-[9px] font-semibold tracking-wider">
-                            <th className="text-left pb-1">Szt</th>
-                            <th className="text-left pb-1">kg/szt</th>
-                            <th className="text-left pb-1">Razem kg</th>
-                            <th className="text-left pb-1">Rodzaj</th>
-                            <th className="text-left pb-1">Receptura</th>
-                            <th className="text-left pb-1">Tuleja</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-surface-4">
-                          {o.lines.map(l => (
-                            <tr key={l.id}>
-                              <td className="py-1.5 font-bold">{l.qty}</td>
-                              <td className="py-1.5">{l.kgPerUnit} kg</td>
-                              <td className="py-1.5 font-bold text-brand">{fmtKg(l.totalKg,0)} kg</td>
-                              <td className="py-1.5">{l.productTypeName}</td>
-                              <td className="py-1.5">{l.recipeName}</td>
-                              <td className="py-1.5 text-ink-3">{l.packagingName || '—'}</td>
-                            </tr>
-                          ))}
-                          <tr className="font-bold border-t border-surface-4">
-                            <td className="py-1.5">{o.totalUnits} szt</td>
-                            <td></td>
-                            <td className="text-brand">{fmtKg(o.totalKg,0)} kg</td>
-                            <td colSpan={3}></td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+                )
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      {modal && (
-        <Modal open title="Nowe zamówienie od klienta" onClose={() => setModal(false)} size="xl">
+      {/* New order modal */}
+      <Dialog open={modal} onOpenChange={v => { if (!v) setModal(false) }}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Nowe zamówienie od klienta</DialogTitle>
+            <DialogDescription>Utwórz zamówienie z pozycjami produktów</DialogDescription>
+          </DialogHeader>
           <OrderForm onSave={handleCreate} onClose={() => setModal(false)} />
-        </Modal>
-      )}
+        </DialogContent>
+      </Dialog>
+
     </div>
   )
 }

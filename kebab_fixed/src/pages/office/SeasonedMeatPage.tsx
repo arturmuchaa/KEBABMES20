@@ -5,321 +5,356 @@
 import { useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { seasonedMeatApi } from '@/lib/apiClient'
-import { Spinner, EmptyState, Modal } from '@/components/ui/Card'
 import { fmtKg, fmtDatePl } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
 import { Beef, AlertTriangle, ChevronRight, Eye, ChevronDown, ChevronUp } from 'lucide-react'
 import type { SeasonedMeatBatch } from '@/lib/mockApi'
 
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Separator } from '@/components/ui/separator'
+import {
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
+} from '@/components/ui/card'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from '@/components/ui/dialog'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
+
 function ExpiryBadge({ date }: { date: string }) {
   const { daysLeft } = getExpiryStatus(date)
-  if (daysLeft < 0)   return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-red-50 text-red-700">Wygasło</span>
-  if (daysLeft === 0) return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-red-50 text-red-700">Dziś!</span>
-  if (daysLeft <= 1)  return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">Jutro</span>
-  return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-green-50 text-green-700">{daysLeft}d</span>
+  if (daysLeft < 0)   return <Badge variant="danger">Wygasło</Badge>
+  if (daysLeft === 0) return <Badge variant="danger">Dziś!</Badge>
+  if (daysLeft <= 1)  return <Badge variant="warning">Jutro</Badge>
+  return <Badge variant="success">{daysLeft}d</Badge>
 }
 
-// Panel pełnej traceability dla jednej partii
 function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void }) {
   const { data, loading } = useApi(
     () => (seasonedMeatApi as any).getFullTrace(batchId),
     [batchId]
   )
 
-  if (loading) return (
-    <Modal open title="Traceability" onClose={onClose} size="lg">
-      <div className="flex justify-center py-10"><Spinner size={24} /></div>
-    </Modal>
-  )
-  if (!data) return null
-
-  const { seasoned, meatLots, summary } = data
-
   return (
-    <Modal open title={`Traceability — ${seasoned.batchNo}`}
-      subtitle="Pełny łańcuch: Dostawca → Ćwiartka → Rozbiór → Masowanie → Mięso przyprawione"
-      onClose={onClose} size="lg">
-      <div className="space-y-4">
+    <Dialog open onOpenChange={v => { if (!v) onClose() }}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>
+            {data ? `Traceability — ${data.seasoned.batchNo}` : 'Traceability'}
+          </DialogTitle>
+          <DialogDescription>
+            Pełny łańcuch: Dostawca → Ćwiartka → Rozbiór → Masowanie → Mięso przyprawione
+          </DialogDescription>
+        </DialogHeader>
 
-        {/* Podsumowanie */}
-        <div className="grid grid-cols-3 gap-2">
-          {[
-            { label:'Surowiec (ćwiartka)', val:`${fmtKg(summary.totalRawKg)} kg`, color:'text-ink' },
-            { label:'Mięso Z/S',           val:`${fmtKg(summary.totalMeatKg)} kg`, color:'text-blue-700' },
-            { label:'Produkt gotowy',       val:`${fmtKg(summary.totalOutputKg)} kg`, color:'text-green-700' },
-          ].map(k => (
-            <div key={k.label} className="bg-surface-2 border border-surface-4 rounded-lg p-3 text-center">
-              <div className="text-[10px] font-bold text-ink-4 uppercase mb-0.5">{k.label}</div>
-              <div className={`text-base font-black ${k.color}`}>{k.val}</div>
+        {loading ? (
+          <div className="space-y-3 py-4">
+            {[0,1,2].map(i => <Skeleton key={i} className="h-12 w-full" />)}
+          </div>
+        ) : !data ? null : (
+          <div className="space-y-4">
+            {/* Podsumowanie */}
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'Surowiec (ćwiartka)', val: `${fmtKg(data.summary.totalRawKg)} kg`,    accent: '' },
+                { label: 'Mięso Z/S',           val: `${fmtKg(data.summary.totalMeatKg)} kg`,   accent: 'text-blue-700' },
+                { label: 'Produkt gotowy',       val: `${fmtKg(data.summary.totalOutputKg)} kg`, accent: 'text-green-700' },
+              ].map(k => (
+                <Card key={k.label} className="bg-muted/40 border-transparent text-center">
+                  <CardContent className="p-3">
+                    <CardDescription className="text-[10px] font-bold uppercase mb-0.5">{k.label}</CardDescription>
+                    <CardTitle className={`text-base ${k.accent}`}>{k.val}</CardTitle>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          ))}
-        </div>
 
-        {/* Łańcuch graficzny */}
-        <div className="bg-surface-2 border border-surface-4 p-3 text-[12px]">
-          <div className="font-bold text-ink-3 uppercase text-[10px] tracking-wide mb-2">Łańcuch partii</div>
-          <div className="flex items-center gap-1 flex-wrap">
-            {summary.rawBatchNos.map((n: string) => (
-              <span key={n} className="font-mono font-black text-blue-700 bg-blue-50 px-2 py-1 rounded">{n}</span>
-            ))}
-            <ChevronRight size={14} className="text-ink-4" />
-            {seasoned.meatLots.map((l: any) => (
-              <span key={l.meatLotId} className="font-mono font-bold text-green-700 bg-green-50 px-2 py-1 rounded">{l.meatLotNo}</span>
-            ))}
-            <ChevronRight size={14} className="text-ink-4" />
-            <span className="font-mono font-black text-brand bg-blue-100 px-2 py-1 rounded">{seasoned.batchNo}</span>
-          </div>
-        </div>
-
-        {/* Szczegóły per lot */}
-        <div>
-          <div className="font-bold text-[12px] text-ink mb-2">Szczegóły partii mięsa</div>
-          <div className="space-y-2">
-            {meatLots.map((t: any, i: number) => (
-              <div key={i} className="border border-surface-4 rounded-lg overflow-hidden">
-                {/* Nagłówek lotu */}
-                <div className="bg-surface-2 px-3 py-2 flex items-center gap-3">
-                  <span className="font-mono font-bold text-green-700">
-                    {t.meatStock?.lotNo ?? '—'}
-                  </span>
-                  <span className="text-[11px] text-ink-3">
-                    {fmtKg(seasoned.meatLots[i]?.kgPlanned ?? 0)} kg
-                  </span>
-                  <span className={`ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                    t.meatStock ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-                  }`}>
-                    {t.meatStock ? 'Znaleziono' : '⚠ Brak danych'}
-                  </span>
+            {/* Łańcuch */}
+            <Card className="bg-muted/40 border-transparent">
+              <CardContent className="p-3">
+                <CardDescription className="text-[10px] font-bold uppercase tracking-wide mb-2">Łańcuch partii</CardDescription>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {data.summary.rawBatchNos.map((n: string) => (
+                    <code key={n} className="font-mono font-black text-blue-700 bg-blue-50 px-2 py-1 rounded text-xs">{n}</code>
+                  ))}
+                  <ChevronRight size={12} className="text-muted-foreground" />
+                  {data.seasoned.meatLots.map((l: any) => (
+                    <code key={l.meatLotId} className="font-mono font-bold text-green-700 bg-green-50 px-2 py-1 rounded text-xs">{l.meatLotNo}</code>
+                  ))}
+                  <ChevronRight size={12} className="text-muted-foreground" />
+                  <code className="font-mono font-black text-primary bg-primary/10 px-2 py-1 rounded text-xs">{data.seasoned.batchNo}</code>
                 </div>
+              </CardContent>
+            </Card>
 
-                {/* Łańcuch: MeatStock → DeboningEntry → RawBatch → Supplier */}
-                <div className="divide-y divide-surface-4">
-                  {/* Wpis rozbioru */}
-                  <div className="px-3 py-2 grid grid-cols-[120px_1fr] gap-2 text-[12px]">
-                    <span className="text-ink-3 font-semibold">Wpis rozbioru</span>
-                    {t.deboningEntry ? (
-                      <div>
-                        <span className="font-mono text-brand">{t.deboningEntry.sessionNo}</span>
-                        <span className="text-ink-3 ml-2">
-                          {fmtKg(t.deboningEntry.kgTaken)} kg ćwiartki → {fmtKg(t.deboningEntry.kgMeat)} kg mięsa
-                        </span>
-                        <span className="text-ink-4 ml-2">· {t.deboningEntry.workerName}</span>
-                      </div>
-                    ) : <span className="text-red-600">⚠ Brak wpisu rozbioru</span>}
-                  </div>
+            <Separator />
 
-                  {/* Ćwiartka */}
-                  <div className="px-3 py-2 grid grid-cols-[120px_1fr] gap-2 text-[12px]">
-                    <span className="text-ink-3 font-semibold">Ćwiartka</span>
-                    {t.rawBatch ? (
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono font-bold text-blue-700">{t.rawBatch.internalBatchNo}</span>
-                        <span className="text-ink-3">{fmtKg(t.rawBatch.kgReceived)} kg przyjęte</span>
-                        <span className="text-ink-4">ubój: {fmtDatePl(t.rawBatch.slaughterDate)}</span>
-                        <span className="text-ink-4">ważność: {fmtDatePl(t.rawBatch.expiryDate)}</span>
-                      </div>
-                    ) : <span className="text-red-600">⚠ Brak danych ćwiartki</span>}
+            {/* Szczegóły */}
+            <div className="space-y-3">
+              <CardTitle className="text-sm">Szczegóły partii mięsa</CardTitle>
+              {data.meatLots.map((t: any, i: number) => (
+                <Card key={i}>
+                  <div className="flex items-center justify-between px-3 py-2 bg-muted/40 border-b">
+                    <code className="font-mono font-bold text-green-700 text-sm">{t.meatStock?.lotNo ?? '—'}</code>
+                    <div className="flex items-center gap-2">
+                      <CardDescription className="text-xs">{fmtKg(data.seasoned.meatLots[i]?.kgPlanned ?? 0)} kg</CardDescription>
+                      <Badge variant={t.meatStock ? 'success' : 'danger'}>
+                        {t.meatStock ? 'Znaleziono' : '⚠ Brak danych'}
+                      </Badge>
+                    </div>
                   </div>
+                  <CardContent className="p-0 divide-y">
+                    <div className="grid grid-cols-[120px_1fr] gap-2 px-3 py-2.5">
+                      <CardDescription className="text-xs font-semibold">Wpis rozbioru</CardDescription>
+                      {t.deboningEntry ? (
+                        <div className="text-xs">
+                          <code className="font-mono text-primary">{t.deboningEntry.sessionNo}</code>
+                          <CardDescription className="text-xs ml-2 inline">
+                            {fmtKg(t.deboningEntry.kgTaken)} kg ćwiartki → {fmtKg(t.deboningEntry.kgMeat)} kg mięsa
+                          </CardDescription>
+                          <CardDescription className="text-xs ml-2 inline">· {t.deboningEntry.workerName}</CardDescription>
+                        </div>
+                      ) : <CardDescription className="text-xs text-destructive">⚠ Brak wpisu rozbioru</CardDescription>}
+                    </div>
+                    <div className="grid grid-cols-[120px_1fr] gap-2 px-3 py-2.5">
+                      <CardDescription className="text-xs font-semibold">Ćwiartka</CardDescription>
+                      {t.rawBatch ? (
+                        <div className="flex items-center gap-3 text-xs flex-wrap">
+                          <code className="font-mono font-bold text-blue-700">{t.rawBatch.internalBatchNo}</code>
+                          <CardDescription className="text-xs">{fmtKg(t.rawBatch.kgReceived)} kg przyjęte</CardDescription>
+                          <CardDescription className="text-xs">ubój: {fmtDatePl(t.rawBatch.slaughterDate)}</CardDescription>
+                          <CardDescription className="text-xs">ważność: {fmtDatePl(t.rawBatch.expiryDate)}</CardDescription>
+                        </div>
+                      ) : <CardDescription className="text-xs text-destructive">⚠ Brak danych ćwiartki</CardDescription>}
+                    </div>
+                    <div className="grid grid-cols-[120px_1fr] gap-2 px-3 py-2.5">
+                      <CardDescription className="text-xs font-semibold">Dostawca</CardDescription>
+                      {t.supplier ? (
+                        <div className="flex items-center gap-3 text-xs flex-wrap">
+                          <CardTitle className="text-xs">{t.supplier.name}</CardTitle>
+                          {t.supplier.vetNumber && <CardDescription className="text-xs">wet.: {t.supplier.vetNumber}</CardDescription>}
+                          {t.rawBatch?.supplierBatchNo && <CardDescription className="text-xs">nr: {t.rawBatch.supplierBatchNo}</CardDescription>}
+                        </div>
+                      ) : <CardDescription className="text-xs text-destructive">⚠ Brak danych dostawcy</CardDescription>}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
 
-                  {/* Dostawca */}
-                  <div className="px-3 py-2 grid grid-cols-[120px_1fr] gap-2 text-[12px]">
-                    <span className="text-ink-3 font-semibold">Dostawca</span>
-                    {t.supplier ? (
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-ink">{t.supplier.name}</span>
-                        {t.supplier.vetNumber && <span className="text-ink-4">wet.: {t.supplier.vetNumber}</span>}
-                        {t.rawBatch?.supplierBatchNo && (
-                          <span className="text-ink-4">nr partii dostawcy: {t.rawBatch.supplierBatchNo}</span>
-                        )}
-                      </div>
-                    ) : <span className="text-red-600">⚠ Brak danych dostawcy</span>}
-                  </div>
+            {/* Masowanie */}
+            <Card className="bg-muted/40 border-transparent">
+              <CardContent className="p-3">
+                <CardDescription className="text-[10px] font-bold uppercase tracking-wide mb-2">Masowanie</CardDescription>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div><CardDescription className="text-xs">Zlecenie: </CardDescription><code className="font-mono font-bold text-primary">{data.seasoned.mixingOrderNo}</code></div>
+                  <div><CardDescription className="text-xs">Receptura: </CardDescription><CardTitle className="text-xs inline">{data.seasoned.recipeName}</CardTitle></div>
+                  <div><CardDescription className="text-xs">Masownica: </CardDescription><CardTitle className="text-xs inline">{data.seasoned.machineId}</CardTitle></div>
                 </div>
-              </div>
-            ))}
+              </CardContent>
+            </Card>
           </div>
-        </div>
-
-        {/* Info masowanie */}
-        <div className="border border-surface-4 rounded-lg p-3 text-[12px]">
-          <div className="font-bold text-ink-3 uppercase text-[10px] tracking-wide mb-2">Masowanie</div>
-          <div className="grid grid-cols-3 gap-2">
-            <div><span className="text-ink-3">Zlecenie: </span><span className="font-mono font-bold text-brand">{seasoned.mixingOrderNo}</span></div>
-            <div><span className="text-ink-3">Receptura: </span><span className="font-semibold">{seasoned.recipeName}</span></div>
-            <div><span className="text-ink-3">Masownica: </span><span className="font-semibold">{seasoned.machineId}</span></div>
-          </div>
-        </div>
-      </div>
-    </Modal>
+        )}
+      </DialogContent>
+    </Dialog>
   )
 }
 
 export function SeasonedMeatPage() {
-  const { data, loading }     = useApi(() => seasonedMeatApi.list())
-  const { data: all }         = useApi(() => seasonedMeatApi.all())
-  const [traceId, setTraceId] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState<string | null>(null)
+  const { data,      loading }  = useApi(() => seasonedMeatApi.list())
+  const { data: all }           = useApi(() => seasonedMeatApi.all())
+  const [traceId,   setTraceId] = useState<string | null>(null)
+  const [expanded,  setExpanded] = useState<string | null>(null)
 
-  const batches = data ?? []
-  const allBatches = all ?? []
+  const batches    = data ?? []
+  const allBatches = all  ?? []
   const totalAvail = batches.reduce((s, b) => s + b.kgAvailable, 0)
   const critical   = batches.filter(b => getExpiryStatus(b.expiryDate).daysLeft <= 1)
 
-  if (loading) return <div className="flex justify-center py-16"><Spinner size={24} /></div>
+  if (loading) {
+    return (
+      <div className="space-y-5 animate-fade-in">
+        <div className="grid grid-cols-3 gap-4">
+          {[0,1,2].map(i => <Card key={i}><CardContent className="p-4"><Skeleton className="h-10 w-full" /></CardContent></Card>)}
+        </div>
+        <Card><CardContent className="p-4 space-y-3">{[0,1,2].map(i => <Skeleton key={i} className="h-12 w-full" />)}</CardContent></Card>
+      </div>
+    )
+  }
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
 
+      {/* Alerty krytyczne */}
       {critical.length > 0 && (
-        <div className="border border-red-200 bg-red-50 px-4 py-3">
-          <div className="flex items-center gap-2 text-[12px] font-semibold text-red-700 mb-1">
-            <AlertTriangle size={13} /> {critical.length} partii wygasa dziś lub jutro
-          </div>
-          {critical.map(b => (
-            <div key={b.id} className="text-[12px] text-red-600">
-              {b.batchNo} · {b.recipeName} · {fmtKg(b.kgAvailable)} kg · do: {fmtDatePl(b.expiryDate)}
+        <Card className="border-red-200 bg-red-50">
+          <CardHeader className="pb-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={14} className="text-red-600" />
+              <CardTitle className="text-sm text-red-700">{critical.length} partii wygasa dziś lub jutro</CardTitle>
             </div>
-          ))}
-        </div>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-1">
+            {critical.map(b => (
+              <CardDescription key={b.id} className="text-xs text-red-600">
+                {b.batchNo} · {b.recipeName} · {fmtKg(b.kgAvailable)} kg · do: {fmtDatePl(b.expiryDate)}
+              </CardDescription>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
-      <div className="grid grid-cols-3 gap-3">
+      {/* KPI */}
+      <div className="grid grid-cols-3 gap-4">
         {[
-          { label:'Partie dostępne', val: batches.length, color:'text-ink' },
-          { label:'Łącznie kg',      val: `${fmtKg(totalAvail)} kg`, color:'text-green-700' },
-          { label:'Alerty',          val: critical.length, color: critical.length > 0 ? 'text-red-600' : 'text-ink-4' },
+          { label: 'Partie dostępne', val: batches.length,          accent: '' },
+          { label: 'Łącznie kg',      val: `${fmtKg(totalAvail)} kg`, accent: 'text-green-700' },
+          { label: 'Alerty',          val: critical.length,         accent: critical.length > 0 ? 'text-destructive' : 'text-muted-foreground' },
         ].map(k => (
-          <div key={k.label} className="bg-white border border-surface-4 p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4 mb-0.5">{k.label}</div>
-            <div className={`text-xl font-bold ${k.color}`}>{k.val}</div>
-          </div>
+          <Card key={k.label}>
+            <CardContent className="p-4">
+              <CardDescription className="text-xs font-semibold uppercase tracking-wide mb-1">{k.label}</CardDescription>
+              <CardTitle className={`text-2xl font-black tabular-nums ${k.accent}`}>{k.val}</CardTitle>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
-      {/* Tabela FEFO */}
-      <div className="bg-white border border-surface-4 shadow-card">
-        <div className="px-4 py-2.5 border-b border-surface-4 flex items-center gap-2">
-          <Beef size={13} className="text-ink-3" />
-          <span className="text-[13px] font-semibold text-ink">Dostępne partie (FEFO)</span>
-        </div>
-
-        {batches.length === 0 ? (
-          <EmptyState icon={<Beef size={32} />} title="Brak mięsa przyprawionego"
-            message="Zrealizuj zlecenia masowania" />
-        ) : (
-          <div className="divide-y divide-surface-4">
-            {batches.map(b => {
-              const isExp = expanded === b.id
-              return (
-                <div key={b.id}>
-                  {/* Wiersz główny */}
-                  <div
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2 cursor-pointer"
-                    onClick={() => setExpanded(isExp ? null : b.id)}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-brand">{b.batchNo}</span>
-                        <span className="text-[11px] text-ink-3">{b.recipeName}</span>
-                        {b.productTypeName && (
-                          <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{b.productTypeName}</span>
-                        )}
-                      </div>
-                      {/* Mini traceability */}
-                      <div className="flex items-center gap-1 mt-1 flex-wrap">
-                        {b.rawBatchNos.map(n => (
-                          <span key={n} className="text-[10px] font-mono bg-surface-3 text-ink-3 px-1.5 py-0.5 rounded">{n}</span>
-                        ))}
-                        {b.rawBatchNos.length > 0 && <ChevronRight size={10} className="text-ink-5" />}
-                        {b.meatLots.map(l => (
-                          <span key={l.meatLotId} className="text-[10px] font-mono bg-green-50 text-green-700 px-1.5 py-0.5 rounded">{l.meatLotNo}</span>
-                        ))}
-                        {b.meatLots.length > 0 && <ChevronRight size={10} className="text-ink-5" />}
-                        <span className="text-[10px] font-mono font-bold bg-blue-100 text-brand px-1.5 py-0.5 rounded">{b.batchNo}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <div className="text-right">
-                        <div className="font-bold text-green-700">{fmtKg(b.kgAvailable)} kg</div>
-                        <ExpiryBadge date={b.expiryDate} />
-                      </div>
-                      <button
-                        onClick={e => { e.stopPropagation(); setTraceId(b.id) }}
-                        className="flex items-center gap-1 text-[11px] font-medium text-brand border border-brand/30 px-2 py-1 rounded hover:bg-blue-50"
-                        title="Pełna traceability"
-                      >
-                        <Eye size={12} /> Trace
-                      </button>
-                      {isExp ? <ChevronUp size={14} className="text-ink-4" /> : <ChevronDown size={14} className="text-ink-4" />}
-                    </div>
-                  </div>
-
-                  {/* Rozwinięte szczegóły */}
-                  {isExp && (
-                    <div className="px-4 pb-3 bg-surface-2 border-t border-surface-4">
-                      <div className="grid grid-cols-2 gap-3 mt-2 text-[12px]">
-                        <div>
-                          <div className="text-[10px] font-bold text-ink-4 uppercase mb-1">Masowanie</div>
-                          <div>Zlecenie: <span className="font-mono font-bold text-brand">{b.mixingOrderNo}</span></div>
-                          <div>Masownica: {b.machineId}</div>
-                          <div>Wyprodukowano: {fmtKg(b.kgProduced)} kg</div>
-                          <div>Ukończono: {fmtDatePl(b.completedAt.slice(0,10))}</div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] font-bold text-ink-4 uppercase mb-1">Ćwiartki (surowiec)</div>
-                          {(b.rawBatchNos?.length > 0
-                            ? b.rawBatchNos
-                            : [...new Set(b.meatLots.map((l: any) => l.rawBatchNo).filter(Boolean))]
-                          ).map((n: string) => (
-                            <div key={n} className="font-mono font-bold text-blue-700">{n}</div>
-                          ))}
-                          {b.rawBatchNos?.length === 0 && b.meatLots.every((l: any) => !l.rawBatchNo) && <div className="text-ink-4">—</div>}
-                          {b.slaughterDates.length > 0 && (
-                            <div className="text-ink-3 mt-1">
-                              Data uboju: {b.slaughterDates.map(d => fmtDatePl(d)).join(', ')}
-                            </div>
+      {/* FEFO table */}
+      <Card>
+        <CardHeader className="pb-3 flex-row items-center gap-2 space-y-0">
+          <Beef size={14} className="text-muted-foreground" />
+          <CardTitle className="text-base">Dostępne partie (FEFO)</CardTitle>
+        </CardHeader>
+        <Separator />
+        <CardContent className="p-0">
+          {batches.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-2">
+              <Beef size={36} className="text-muted-foreground opacity-20" />
+              <CardTitle className="text-sm font-medium text-muted-foreground">Brak mięsa przyprawionego</CardTitle>
+              <CardDescription>Zrealizuj zlecenia masowania</CardDescription>
+            </div>
+          ) : (
+            <div className="divide-y">
+              {batches.map(b => {
+                const isExp = expanded === b.id
+                return (
+                  <div key={b.id}>
+                    <div
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 cursor-pointer transition-colors"
+                      onClick={() => setExpanded(isExp ? null : b.id)}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <code className="font-mono font-bold text-primary text-sm">{b.batchNo}</code>
+                          <CardDescription className="text-sm">{b.recipeName}</CardDescription>
+                          {b.productTypeName && (
+                            <Badge variant="info" className="text-[10px]">{b.productTypeName}</Badge>
                           )}
                         </div>
+                        {/* Mini traceability */}
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {b.rawBatchNos.map(n => (
+                            <code key={n} className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{n}</code>
+                          ))}
+                          {b.rawBatchNos.length > 0 && <ChevronRight size={10} className="text-muted-foreground" />}
+                          {b.meatLots.map(l => (
+                            <code key={l.meatLotId} className="text-[10px] font-mono bg-green-50 text-green-700 px-1.5 py-0.5 rounded">{l.meatLotNo}</code>
+                          ))}
+                          {b.meatLots.length > 0 && <ChevronRight size={10} className="text-muted-foreground" />}
+                          <code className="text-[10px] font-mono font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded">{b.batchNo}</code>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <div className="text-right">
+                          <CardTitle className="text-sm text-green-600 tabular-nums">{fmtKg(b.kgAvailable)} kg</CardTitle>
+                          <ExpiryBadge date={b.expiryDate} />
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1"
+                          onClick={e => { e.stopPropagation(); setTraceId(b.id) }}
+                        >
+                          <Eye size={11} /> Trace
+                        </Button>
+                        {isExp
+                          ? <ChevronUp size={14} className="text-muted-foreground" />
+                          : <ChevronDown size={14} className="text-muted-foreground" />
+                        }
                       </div>
                     </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+
+                    {/* Expanded */}
+                    {isExp && (
+                      <div className="px-4 pb-4 bg-muted/20 border-t">
+                        <div className="grid grid-cols-2 gap-4 mt-3 text-xs">
+                          <div className="space-y-1">
+                            <CardDescription className="text-[10px] font-bold uppercase tracking-wide mb-1">Masowanie</CardDescription>
+                            <div>Zlecenie: <code className="font-mono font-bold text-primary">{b.mixingOrderNo}</code></div>
+                            <div>Masownica: <span className="font-medium">{b.machineId}</span></div>
+                            <div>Wyprodukowano: <span className="font-medium">{fmtKg(b.kgProduced)} kg</span></div>
+                            <div>Ukończono: <span className="font-medium">{fmtDatePl(b.completedAt.slice(0, 10))}</span></div>
+                          </div>
+                          <div className="space-y-1">
+                            <CardDescription className="text-[10px] font-bold uppercase tracking-wide mb-1">Ćwiartki (surowiec)</CardDescription>
+                            {(b.rawBatchNos?.length > 0
+                              ? b.rawBatchNos
+                              : [...new Set(b.meatLots.map((l: any) => l.rawBatchNo).filter(Boolean))]
+                            ).map((n: string) => (
+                              <code key={n} className="block font-mono font-bold text-blue-700">{n}</code>
+                            ))}
+                            {b.slaughterDates.length > 0 && (
+                              <CardDescription className="text-[10px] mt-1">
+                                Data uboju: {b.slaughterDates.map(d => fmtDatePl(d)).join(', ')}
+                              </CardDescription>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Historia */}
       {allBatches.filter(b => b.status === 'depleted').length > 0 && (
-        <div className="bg-white border border-surface-4 shadow-card">
-          <div className="px-4 py-2.5 border-b border-surface-4">
-            <span className="text-[13px] font-semibold text-ink">Historia — wykorzystane partie</span>
-          </div>
-          <table className="w-full text-[12px]">
-            <tbody className="divide-y divide-surface-4">
-              {allBatches.filter(b => b.status === 'depleted').map(b => (
-                <tr key={b.id} className="opacity-60">
-                  <td className="px-3 py-2 font-mono text-ink-3">{b.batchNo}</td>
-                  <td className="px-3 py-2">{b.recipeName}</td>
-                  <td className="px-3 py-2 font-mono text-[11px] text-ink-4">
-                    {b.rawBatchNos.join(', ') || '—'}
-                  </td>
-                  <td className="px-3 py-2 text-ink-4">{fmtKg(b.kgProduced)} kg</td>
-                  <td className="px-3 py-2">
-                    <button onClick={() => setTraceId(b.id)}
-                      className="text-[11px] text-ink-3 border border-surface-4 px-1.5 py-0.5 rounded hover:text-brand">
-                      <Eye size={11} className="inline mr-1" />Trace
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Historia — wykorzystane partie</CardTitle>
+          </CardHeader>
+          <Separator />
+          <CardContent className="p-0">
+            <Table>
+              <TableBody>
+                {allBatches.filter(b => b.status === 'depleted').map(b => (
+                  <TableRow key={b.id} className="opacity-60">
+                    <TableCell><code className="font-mono text-muted-foreground text-xs">{b.batchNo}</code></TableCell>
+                    <TableCell><CardDescription>{b.recipeName}</CardDescription></TableCell>
+                    <TableCell>
+                      <code className="font-mono text-xs text-muted-foreground">{b.rawBatchNos.join(', ') || '—'}</code>
+                    </TableCell>
+                    <TableCell><CardDescription className="tabular-nums">{fmtKg(b.kgProduced)} kg</CardDescription></TableCell>
+                    <TableCell>
+                      <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setTraceId(b.id)}>
+                        <Eye size={11} /> Trace
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Panel traceability */}
       {traceId && <TracePanel batchId={traceId} onClose={() => setTraceId(null)} />}
     </div>
   )

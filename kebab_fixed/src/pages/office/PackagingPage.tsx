@@ -5,15 +5,31 @@
 import { useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { packagingApi, suppliersApi } from '@/lib/apiClient'
-import { Spinner, EmptyState, Modal } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
 import { fmtDatePl } from '@/lib/utils'
-import {
-  Archive,
-  Package,
-  Plus,
-} from 'lucide-react'
+import { Archive, Package, Plus } from 'lucide-react'
 import type { CreatePackagingDto, PackagingType } from '@/lib/mockApi'
+
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Separator } from '@/components/ui/separator'
+import {
+  Card, CardContent, CardDescription, CardTitle,
+} from '@/components/ui/card'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
+import {
+  Tabs, TabsList, TabsTrigger, TabsContent,
+} from '@/components/ui/tabs'
 
 const TYPE_LABELS: Record<PackagingType, string> = {
   tuleja: 'Tuleja', opakowanie: 'Opakowanie', inne: 'Inne',
@@ -40,52 +56,82 @@ function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) =>
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2">
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Nazwa *</label>
-          <input value={form.name} onChange={e => set('name', e.target.value)}
-            placeholder="np. Tuleja metal 65cm" className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+        <div className="col-span-2 space-y-1.5">
+          <Label>Nazwa *</Label>
+          <Input
+            value={form.name}
+            onChange={e => set('name', e.target.value)}
+            placeholder="np. Tuleja metal 65cm"
+          />
         </div>
-        <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Typ</label>
-          <select value={form.type} onChange={e => set('type', e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
-            {(['tuleja','opakowanie','inne'] as PackagingType[]).map(t => (
-              <option key={t} value={t}>{TYPE_LABELS[t]}</option>
-            ))}
-          </select>
+        <div className="space-y-1.5">
+          <Label>Typ</Label>
+          <Select value={form.type} onValueChange={v => set('type', v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {(['tuleja','opakowanie','inne'] as PackagingType[]).map(t => (
+                <SelectItem key={t} value={t}>{TYPE_LABELS[t]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Jednostka</label>
-          <select value={form.unit} onChange={e => set('unit', e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
-            {['szt','kg','rolka','karton'].map(u => <option key={u} value={u}>{u}</option>)}
-          </select>
+        <div className="space-y-1.5">
+          <Label>Jednostka</Label>
+          <Select value={form.unit} onValueChange={v => set('unit', v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {['szt','kg','rolka','karton'].map(u => (
+                <SelectItem key={u} value={u}>{u}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Ilość *</label>
-          <input type="number" min="0" step="1" value={form.qty || ''}
+        <div className="space-y-1.5">
+          <Label>Ilość *</Label>
+          <Input
+            type="number" min="0" step="1"
+            value={form.qty || ''}
             onChange={e => set('qty', parseFloat(e.target.value) || 0)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+          />
         </div>
-        <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Dostawca</label>
-          <select value={form.supplierId} onChange={e => set('supplierId', e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
-            <option value="">— bez dostawcy —</option>
-            {(suppliers ?? []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+        <div className="space-y-1.5">
+          <Label>Dostawca</Label>
+          <Select value={form.supplierId || '__none'} onValueChange={v => set('supplierId', v === '__none' ? '' : v)}>
+            <SelectTrigger><SelectValue placeholder="— bez dostawcy —" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none">— bez dostawcy —</SelectItem>
+              {(suppliers ?? []).map(s => (
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data ważności</label>
-          <input type="date" value={form.expiryDate} onChange={e => set('expiryDate', e.target.value)}
-            className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white" />
+        <div className="col-span-2 space-y-1.5">
+          <Label>Data ważności</Label>
+          <Input
+            type="date"
+            value={form.expiryDate}
+            onChange={e => set('expiryDate', e.target.value)}
+          />
         </div>
       </div>
-      {error && <div className="text-[12px] text-danger bg-danger-light border border-danger-border px-3 py-2">{error}</div>}
-      <div className="flex gap-2">
-        <Button variant="secondary" onClick={onClose} className="flex-1">Anuluj</Button>
-        <Button onClick={handleSave} loading={saving} className="flex-1">Przyjmij na magazyn</Button>
-      </div>
+      {error && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="px-3 py-2">
+            <CardDescription className="text-destructive font-medium">{error}</CardDescription>
+          </CardContent>
+        </Card>
+      )}
+      <DialogFooter className="gap-2">
+        <Button variant="outline" onClick={onClose} disabled={saving}>Anuluj</Button>
+        <Button onClick={handleSave} disabled={saving} className="gap-2">
+          {saving
+            ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            : <Package size={14} />
+          }
+          Przyjmij na magazyn
+        </Button>
+      </DialogFooter>
     </div>
   )
 }
@@ -93,10 +139,10 @@ function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) =>
 export function PackagingPage() {
   const { data: items, loading, refetch } = useApi(() => packagingApi.all())
   const [modal, setModal] = useState(false)
-  const [tab, setTab] = useState<'all'|'tuleja'|'opakowanie'>('all')
+  const [tab,   setTab]   = useState<'all'|'tuleja'|'opakowanie'>('all')
 
-  const filtered = (items ?? []).filter(i => tab === 'all' || i.type === tab)
-  const totalAvail = filtered.reduce((s, i) => s + i.kgAvailable, 0)
+  const filtered    = (items ?? []).filter(i => tab === 'all' || i.type === tab)
+  const totalAvail  = filtered.reduce((s, i) => s + i.kgAvailable, 0)
 
   async function handleReceive(dto: CreatePackagingDto) {
     await packagingApi.receive(dto)
@@ -104,68 +150,90 @@ export function PackagingPage() {
   }
 
   return (
-    <div className="space-y-4 animate-fade-in">
-      <div className="flex gap-3 items-center">
-        <div className="flex gap-1">
-          {([['all','Wszystkie'],['tuleja','Tuleje'],['opakowanie','Opakowania']] as [string,string][]).map(([k,l]) => (
-            <button key={k} onClick={() => setTab(k as any)}
-              className={`px-3 py-1.5 rounded text-[12px] font-semibold border transition-all ${tab===k?'bg-brand text-white border-brand':'bg-white text-ink-3 border-surface-4 hover:border-brand/40'}`}>
-              {l}
-            </button>
-          ))}
-        </div>
-        <div className="ml-auto">
-          <Button icon={<Plus size={14} />} onClick={() => setModal(true)}>Przyjmij</Button>
-        </div>
+    <div className="space-y-5 animate-fade-in">
+
+      {/* Tabs + action */}
+      <div className="flex items-center justify-between gap-4">
+        <Tabs value={tab} onValueChange={v => setTab(v as typeof tab)}>
+          <TabsList>
+            <TabsTrigger value="all">Wszystkie</TabsTrigger>
+            <TabsTrigger value="tuleja">Tuleje</TabsTrigger>
+            <TabsTrigger value="opakowanie">Opakowania</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <Button onClick={() => setModal(true)}>
+          <Plus size={14} className="mr-1.5" /> Przyjmij
+        </Button>
       </div>
 
-      <div className="bg-white border border-surface-4 shadow-card">
-        <div className="px-4 py-2.5 border-b border-surface-4 flex items-center justify-between">
-          <span className="text-[13px] font-semibold text-ink">{filtered.length} pozycji</span>
-          <span className="text-[12px] text-ink-3">Łącznie: {totalAvail.toFixed(0)} szt/kg dostępne</span>
+      {/* Table card */}
+      <Card>
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <CardTitle className="text-sm font-semibold">{filtered.length} pozycji</CardTitle>
+          <CardDescription className="text-xs">Łącznie: {totalAvail.toFixed(0)} szt/kg dostępne</CardDescription>
         </div>
-        {loading ? (
-          <div className="flex justify-center py-10"><Spinner size={20} /></div>
-        ) : filtered.length === 0 ? (
-          <EmptyState icon={<Archive size={32} />} title="Brak opakowań" message="Przyjmij opakowania przez przycisk Przyjmij" />
-        ) : (
-          <table className="w-full text-[12px]">
-            <thead>
-              <tr className="border-b border-surface-4 bg-surface-2">
-                {['Kod','Nazwa','Typ','Dostępne','Zużyte','Dostawca'].map(h => (
-                  <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-4">{h}</th>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-4 space-y-3">
+              {[0,1,2].map(i => <Skeleton key={i} className="h-10 w-full" />)}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-2">
+              <Archive size={36} className="text-muted-foreground opacity-20" />
+              <CardTitle className="text-sm font-medium text-muted-foreground">Brak opakowań</CardTitle>
+              <CardDescription>Przyjmij opakowania przez przycisk Przyjmij</CardDescription>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  {['Kod','Nazwa','Typ','Dostępne','Zużyte','Dostawca'].map(h => (
+                    <TableHead key={h} className="text-xs uppercase tracking-wide">{h}</TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map(item => (
+                  <TableRow key={item.id}>
+                    <TableCell>
+                      <code className="font-mono text-xs text-muted-foreground">{item.code}</code>
+                    </TableCell>
+                    <TableCell>
+                      <CardTitle className="text-sm font-semibold">{item.name}</CardTitle>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className="text-[10px]">{TYPE_LABELS[item.type]}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <span className={`font-bold text-sm tabular-nums ${item.kgAvailable > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
+                        {item.kgAvailable} {item.unit}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <CardDescription className="tabular-nums">{item.kgUsed} {item.unit}</CardDescription>
+                    </TableCell>
+                    <TableCell>
+                      <CardDescription>{item.supplierName || '—'}</CardDescription>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-surface-4">
-              {filtered.map(item => (
-                <tr key={item.id} className="hover:bg-surface-2">
-                  <td className="px-3 py-2.5 font-mono text-ink-3">{item.code}</td>
-                  <td className="px-3 py-2.5 font-semibold text-ink">{item.name}</td>
-                  <td className="px-3 py-2.5">
-                    <span className="text-[10px] bg-surface-3 text-ink-3 px-1.5 py-0.5 rounded font-semibold">
-                      {TYPE_LABELS[item.type]}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span className={`font-bold ${item.kgAvailable > 0 ? 'text-success' : 'text-ink-4'}`}>
-                      {item.kgAvailable} {item.unit}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5 text-ink-3">{item.kgUsed} {item.unit}</td>
-                  <td className="px-3 py-2.5 text-ink-3">{item.supplierName || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
-      {modal && (
-        <Modal open title="Przyjmij opakowania / tuleje" onClose={() => setModal(false)} size="md">
+      {/* Receive modal */}
+      <Dialog open={modal} onOpenChange={v => { if (!v) setModal(false) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Przyjmij opakowania / tuleje</DialogTitle>
+            <DialogDescription>Zarejestruj przyjęcie opakowań lub tulei na magazyn</DialogDescription>
+          </DialogHeader>
           <ReceiveForm onSave={handleReceive} onClose={() => setModal(false)} />
-        </Modal>
-      )}
+        </DialogContent>
+      </Dialog>
+
     </div>
   )
 }

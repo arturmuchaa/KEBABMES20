@@ -1,191 +1,212 @@
 /**
  * FinishedGoodsPage — Magazyn wyrobów gotowych
- * - Scalanie identycznych produktów (receptura+tuleja+klient+kg/szt)
- * - Podgląd: szczegóły per sesja produkcyjna (subEntries)
  */
 import { useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { finishedGoodsApi } from '@/lib/apiClient'
-import { Spinner, EmptyState, Modal } from '@/components/ui/Card'
 import { fmtKg, fmtDatePl } from '@/lib/utils'
-import {
-  ChevronDown,
-  ChevronUp,
-  Eye,
-  ShoppingBag,
-} from 'lucide-react'
+import { Eye, ShoppingBag, ChevronDown, ChevronUp } from 'lucide-react'
 import type { FinishedGoodsItem } from '@/lib/mockApi'
+
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Separator } from '@/components/ui/separator'
+import {
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
+} from '@/components/ui/card'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from '@/components/ui/dialog'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
 
 function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () => void }) {
   const subEntries: any[] = (item as any).subEntries ?? []
   return (
-    <Modal open title={`Szczegóły — ${item.batchNo}`} onClose={onClose} size="lg">
-      <div className="space-y-4">
-        {/* Nagłówek */}
-        <div className="grid grid-cols-2 gap-3 text-[12px]">
-          {[
-            { label:'Produkt',   val: item.productTypeName },
-            { label:'Receptura', val: item.recipeName },
-            { label:'Tuleja',    val: item.packagingName ?? '—' },
-            { label:'Klient',    val: item.clientName ?? '—' },
-            { label:'Łącznie',   val: `${item.qty} szt · ${fmtKg(item.totalKg)} kg` },
-            { label:'Data',      val: fmtDatePl(item.producedDate) },
-          ].map(r => (
-            <div key={r.label}>
-              <div className="text-[10px] font-bold text-ink-4 uppercase">{r.label}</div>
-              <div className="font-semibold text-ink">{r.val}</div>
-            </div>
-          ))}
-        </div>
+    <Dialog open onOpenChange={v => { if (!v) onClose() }}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Szczegóły — {item.batchNo}</DialogTitle>
+          <DialogDescription>Pełne dane partii wyrobu gotowego</DialogDescription>
+        </DialogHeader>
 
-        {/* Partie mięsa */}
-        {item.seasonedBatchNos.length > 0 && (
-          <div>
-            <div className="text-[10px] font-bold text-ink-4 uppercase mb-1.5">Partie mięsa (traceability)</div>
-            <div className="flex gap-1.5 flex-wrap">
-              {item.seasonedBatchNos.map(n => (
-                <span key={n} className="font-mono text-[11px] bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded font-bold">
-                  {n}
-                </span>
-              ))}
-            </div>
+        <div className="space-y-4">
+          {/* Podsumowanie */}
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: 'Produkt',   val: item.productTypeName },
+              { label: 'Receptura', val: item.recipeName },
+              { label: 'Tuleja',    val: item.packagingName ?? '—' },
+              { label: 'Klient',    val: item.clientName ?? '—' },
+              { label: 'Łącznie',   val: `${item.qty} szt · ${fmtKg(item.totalKg)} kg` },
+              { label: 'Data',      val: fmtDatePl(item.producedDate) },
+            ].map(r => (
+              <div key={r.label}>
+                <CardDescription className="text-[10px] font-bold uppercase mb-0.5">{r.label}</CardDescription>
+                <CardTitle className="text-sm font-semibold">{r.val}</CardTitle>
+              </div>
+            ))}
           </div>
-        )}
 
-        {/* Szczegóły per sesja */}
-        {subEntries.length > 0 && (
-          <div>
-            <div className="text-[10px] font-bold text-ink-4 uppercase mb-1.5">
-              Wyprodukowano w {subEntries.length} sesji
+          {/* Partie mięsa */}
+          {item.seasonedBatchNos.length > 0 && (
+            <div className="space-y-1.5">
+              <CardDescription className="text-[10px] font-bold uppercase">Partie mięsa (traceability)</CardDescription>
+              <div className="flex gap-1.5 flex-wrap">
+                {item.seasonedBatchNos.map(n => (
+                  <code key={n} className="font-mono text-xs bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded font-bold">
+                    {n}
+                  </code>
+                ))}
+              </div>
             </div>
-            <div className="border border-surface-4 rounded-lg divide-y divide-surface-4">
-              {subEntries.map((s: any, i: number) => (
-                <div key={i} className="px-3 py-2.5 text-[12px]">
-                  <div className="flex items-center justify-between">
+          )}
+
+          {/* Per session */}
+          {subEntries.length > 0 && (
+            <div className="space-y-2">
+              <CardDescription className="text-[10px] font-bold uppercase">
+                Wyprodukowano w {subEntries.length} sesji
+              </CardDescription>
+              <div className="divide-y border rounded-xl overflow-hidden">
+                {subEntries.map((s: any, i: number) => (
+                  <div key={i} className="px-3 py-2.5 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <span className="font-bold text-ink">{s.qty} szt</span>
-                      <span className="text-ink-3">{fmtKg(s.totalKg)} kg</span>
-                      {(s.seasonedBatchNos??[]).length > 0 && (
+                      <CardTitle className="text-sm font-bold">{s.qty} szt</CardTitle>
+                      <CardDescription className="text-xs">{fmtKg(s.totalKg)} kg</CardDescription>
+                      {(s.seasonedBatchNos ?? []).length > 0 && (
                         <div className="flex gap-1">
-                          {(s.seasonedBatchNos??[]).map((n:string) => (
-                            <span key={n} className="font-mono text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{n}</span>
+                          {(s.seasonedBatchNos ?? []).map((n: string) => (
+                            <code key={n} className="font-mono text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{n}</code>
                           ))}
                         </div>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-[11px] text-ink-3">
-                      {(s.workerNames??[]).join(', ')}
-                      <span className="text-ink-4">{s.addedAt?.slice(11,16)??''}</span>
+                    <div className="flex items-center gap-2">
+                      <CardDescription className="text-xs">{(s.workerNames ?? []).join(', ')}</CardDescription>
+                      <CardDescription className="text-xs">{s.addedAt?.slice(11, 16) ?? ''}</CardDescription>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Pracownicy */}
-        {item.producedBy.length > 0 && (
-          <div>
-            <div className="text-[10px] font-bold text-ink-4 uppercase mb-1">Pracownicy</div>
-            <div className="text-[12px] text-ink">{item.producedBy.join(', ')}</div>
-          </div>
-        )}
-      </div>
-    </Modal>
+          {/* Workers */}
+          {item.producedBy.length > 0 && (
+            <div className="space-y-1">
+              <CardDescription className="text-[10px] font-bold uppercase">Pracownicy</CardDescription>
+              <CardTitle className="text-sm font-medium">{item.producedBy.join(', ')}</CardTitle>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 export function FinishedGoodsPage() {
   const { data: items, loading } = useApi(() => finishedGoodsApi.list())
-  const [detailItem,   setDetailItem]   = useState<FinishedGoodsItem | null>(null)
-  const [groupByRecipe, setGroupByRecipe] = useState(false)
+  const [detailItem, setDetailItem] = useState<FinishedGoodsItem | null>(null)
 
   const list     = items ?? []
-  const totalQty = list.reduce((s,i)=>s+i.qtyAvailable,0)
-  const totalKg  = list.reduce((s,i)=>s+i.qtyAvailable*i.kgPerUnit,0)
+  const totalQty = list.reduce((s, i) => s + i.qtyAvailable, 0)
+  const totalKg  = list.reduce((s, i) => s + i.qtyAvailable * i.kgPerUnit, 0)
 
   return (
-    <div className="space-y-4 animate-fade-in">
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-white border border-surface-4 p-3">
-          <div className="text-[10px] font-semibold uppercase text-ink-4">Pozycje</div>
-          <div className="text-xl font-bold text-ink">{list.length}</div>
-        </div>
-        <div className="bg-white border border-surface-4 p-3">
-          <div className="text-[10px] font-semibold uppercase text-ink-4">Dostępne szt</div>
-          <div className="text-xl font-bold text-ink">{totalQty}</div>
-        </div>
-        <div className="bg-white border border-surface-4 p-3">
-          <div className="text-[10px] font-semibold uppercase text-ink-4">Łącznie kg</div>
-          <div className="text-xl font-bold text-green-700">{fmtKg(totalKg)}</div>
-        </div>
+    <div className="space-y-5 animate-fade-in">
+
+      {/* KPI */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: 'Pozycje',      val: list.length,       accent: '' },
+          { label: 'Dostępne szt', val: totalQty,          accent: '' },
+          { label: 'Łącznie kg',   val: fmtKg(totalKg),   accent: 'text-green-700' },
+        ].map(k => (
+          <Card key={k.label}>
+            <CardContent className="p-4">
+              <CardDescription className="text-xs font-semibold uppercase tracking-wide mb-1">{k.label}</CardDescription>
+              <CardTitle className={`text-2xl font-black tabular-nums ${k.accent}`}>{k.val}</CardTitle>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      <div className="bg-white border border-surface-4 shadow-card">
-        <div className="px-4 py-2.5 border-b border-surface-4 flex items-center justify-between">
-          <span className="text-[13px] font-semibold text-ink">{list.length} partii wyrobów gotowych</span>
+      {/* Table */}
+      <Card>
+        <div className="px-5 py-3 border-b">
+          <CardTitle className="text-sm font-semibold">{list.length} partii wyrobów gotowych</CardTitle>
         </div>
-        {loading ? (
-          <div className="flex justify-center py-10"><Spinner size={20}/></div>
-        ) : list.length === 0 ? (
-          <EmptyState icon={<ShoppingBag size={32}/>} title="Brak wyrobów"
-            message="Wyroby pojawią się po zakończeniu dnia produkcji"/>
-        ) : (
-          <table className="w-full text-[12px]">
-            <thead>
-              <tr className="border-b border-surface-4 bg-surface-2">
-                {['Nr partii','Produkt · Receptura','Klient','Szt','kg/szt','Łącznie','Data','Partie mięsa',''].map(h=>(
-                  <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-4">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-surface-4">
-              {list.map(item => {
-                const subCount = ((item as any).subEntries ?? []).length
-                return (
-                  <tr key={item.id} className="hover:bg-surface-2">
-                    <td className="px-3 py-2.5">
-                      <div className="font-mono font-bold text-brand">{item.batchNo}</div>
-                      <div className="text-[10px] text-ink-4">{item.planNo}</div>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <div className="font-semibold text-ink">{item.productTypeName}</div>
-                      <div className="text-[11px] text-ink-3">{item.recipeName}</div>
-                      {item.packagingName && <div className="text-[10px] text-ink-4">{item.packagingName}</div>}
-                    </td>
-                    <td className="px-3 py-2.5 text-ink-3">{item.clientName||'—'}</td>
-                    <td className="px-3 py-2.5">
-                      <div className="font-bold text-ink">{item.qtyAvailable} szt</div>
-                      {subCount > 1 && (
-                        <div className="text-[10px] text-ink-4">{subCount} sesji</div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-ink-3">{item.kgPerUnit} kg</td>
-                    <td className="px-3 py-2.5 font-bold text-green-700">{fmtKg(item.qtyAvailable*item.kgPerUnit)}</td>
-                    <td className="px-3 py-2.5 text-ink-3">{fmtDatePl(item.producedDate)}</td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex gap-0.5 flex-wrap">
-                        {[...new Set(item.seasonedBatchNos)].map(n=>(
-                          <span key={n} className="text-[10px] font-mono bg-green-50 text-green-700 px-1 py-0.5 rounded font-bold">{n}</span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <button onClick={()=>setDetailItem(item)}
-                        className="p-1.5 rounded border border-surface-4 text-ink-3 hover:border-brand hover:text-brand">
-                        <Eye size={13}/>
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-4 space-y-3">
+              {[0,1,2,3].map(i => <Skeleton key={i} className="h-12 w-full" />)}
+            </div>
+          ) : list.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-2">
+              <ShoppingBag size={36} className="text-muted-foreground opacity-20" />
+              <CardTitle className="text-sm font-medium text-muted-foreground">Brak wyrobów</CardTitle>
+              <CardDescription>Wyroby pojawią się po zakończeniu dnia produkcji</CardDescription>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  {['Nr partii','Produkt · Receptura','Klient','Szt','kg/szt','Łącznie','Data','Partie mięsa',''].map(h => (
+                    <TableHead key={h} className="text-xs uppercase tracking-wide whitespace-nowrap">{h}</TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {list.map(item => {
+                  const subCount = ((item as any).subEntries ?? []).length
+                  return (
+                    <TableRow key={item.id}>
+                      <TableCell>
+                        <code className="font-mono font-bold text-primary text-sm">{item.batchNo}</code>
+                        <CardDescription className="text-[10px]">{item.planNo}</CardDescription>
+                      </TableCell>
+                      <TableCell>
+                        <CardTitle className="text-sm font-semibold">{item.productTypeName}</CardTitle>
+                        <CardDescription className="text-xs">{item.recipeName}</CardDescription>
+                        {item.packagingName && <CardDescription className="text-[10px]">{item.packagingName}</CardDescription>}
+                      </TableCell>
+                      <TableCell><CardDescription>{item.clientName || '—'}</CardDescription></TableCell>
+                      <TableCell>
+                        <CardTitle className="text-sm font-bold tabular-nums">{item.qtyAvailable} szt</CardTitle>
+                        {subCount > 1 && <CardDescription className="text-[10px]">{subCount} sesji</CardDescription>}
+                      </TableCell>
+                      <TableCell><CardDescription className="tabular-nums">{item.kgPerUnit} kg</CardDescription></TableCell>
+                      <TableCell>
+                        <CardTitle className="text-sm font-bold text-green-700 tabular-nums">
+                          {fmtKg(item.qtyAvailable * item.kgPerUnit)}
+                        </CardTitle>
+                      </TableCell>
+                      <TableCell><CardDescription className="text-xs">{fmtDatePl(item.producedDate)}</CardDescription></TableCell>
+                      <TableCell>
+                        <div className="flex gap-0.5 flex-wrap">
+                          {[...new Set(item.seasonedBatchNos)].map(n => (
+                            <code key={n} className="text-[10px] font-mono bg-green-50 text-green-700 px-1 py-0.5 rounded font-bold">{n}</code>
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setDetailItem(item)}>
+                          <Eye size={13} />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
-      {detailItem && <DetailModal item={detailItem} onClose={()=>setDetailItem(null)}/>}
+      {detailItem && <DetailModal item={detailItem} onClose={() => setDetailItem(null)} />}
     </div>
   )
 }
