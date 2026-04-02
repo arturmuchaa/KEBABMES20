@@ -14,7 +14,7 @@ import { useApi, useMutation } from '@/hooks/useApi'
 import { mixingOrdersApi, seasonedMeatApi, machineLockApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import type { MixingOrder, MachineId, MachineLock } from '@/lib/mockApi'
-import { Spinner } from '@/components/ui/Card'
+import { Spinner } from '@/components/ui/widgets'
 import {
   Play, CheckCircle, RotateCcw, AlertTriangle,
   Scale, ClipboardList, Lock, Timer, Beef, ChevronLeft, Home, Info,

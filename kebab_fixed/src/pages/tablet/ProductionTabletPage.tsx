@@ -7,7 +7,7 @@
 import { useState, useMemo } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { productionPlansApi, usersApi, finishedGoodsApi } from '@/lib/apiClient'
-import { Spinner, EmptyState } from '@/components/ui/Card'
+import { Spinner, EmptyState } from '@/components/ui/widgets'
 import { fmtKg, cn } from '@/lib/utils'
 import { ChevronRight, Plus, Minus, Pencil, CheckCircle, Factory, RefreshCw, LogOut, AlertTriangle, Info, Layers } from 'lucide-react'
 import type { ProductionPlan, ProductionPlanLine } from '@/lib/mockApi'

@@ -9,7 +9,7 @@
 import { useState, useRef } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { rawBatchesApi, usersApi } from '@/lib/apiClient'
-import { Toast, Spinner } from '@/components/ui/Card'
+import { Toast, Spinner } from '@/components/ui/widgets'
 import { fmtKg, fmtPct, fmtDatePl, cn, calcDeboning } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
 import {
