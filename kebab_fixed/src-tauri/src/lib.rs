@@ -30,8 +30,6 @@ async fn check_for_updates(app: tauri::AppHandle) -> tauri_plugin_updater::Resul
                 "Dostępna nowa wersja: {version}\n\n{body}\n\nCzy zainstalować teraz?"
             ))
             .title("Aktualizacja Kebab MES")
-            .ok_button_label("Zainstaluj")
-            .cancel_button_label("Później")
             .blocking_show();
 
         if yes {
