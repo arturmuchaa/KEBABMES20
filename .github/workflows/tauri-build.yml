@@ -6,12 +6,15 @@ on:
       version:
         description: 'Wersja (np. 2.4.1)'
         required: false
-        default: '2.4.0'
+        default: ''
   push:
     branches:
       - claude/kebab-mes-dashboard-BLmao
     tags:
       - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
   build-windows:
@@ -21,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
@@ -57,25 +62,71 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
-      - name: Get version from Cargo.toml
-        id: version
+      - name: Get version and artifact paths
+        id: meta
         shell: bash
         run: |
           VERSION=$(grep '^version' kebab_fixed/src-tauri/Cargo.toml | head -1 | sed 's/version = "//' | sed 's/"//')
+          EXE=$(ls kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe | head -1)
+          SIG=$(ls kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.sig 2>/dev/null | head -1)
+          EXE_NAME=$(basename "$EXE")
+          SIGNATURE=""
+          if [ -n "$SIG" ]; then
+            SIGNATURE=$(cat "$SIG")
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "exe_path=$EXE" >> $GITHUB_OUTPUT
+          echo "exe_name=$EXE_NAME" >> $GITHUB_OUTPUT
+          echo "signature=$SIGNATURE" >> $GITHUB_OUTPUT
 
-      - name: Upload installer (.exe)
+      - name: Create GitHub Release and upload installer
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.meta.outputs.version }}
+          name: Kebab MES v${{ steps.meta.outputs.version }}
+          body: |
+            ## Kebab MES v${{ steps.meta.outputs.version }}
+
+            Instalator dla systemu Windows.
+
+            **Instalacja:** Pobierz i uruchom plik `.exe`
+            **Aktualizacja:** Aplikacja sprawdza aktualizacje automatycznie przy starcie
+          files: ${{ steps.meta.outputs.exe_path }}
+          make_latest: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update latest.json for auto-updater
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          EXE_NAME="${{ steps.meta.outputs.exe_name }}"
+          SIGNATURE="${{ steps.meta.outputs.signature }}"
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          URL="https://github.com/arturmuchaa/kebabmes20/releases/download/v${VERSION}/${EXE_NAME}"
+
+          cat > latest.json << EOF
+          {
+            "version": "${VERSION}",
+            "notes": "Nowa wersja Kebab MES ${VERSION}",
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "${SIGNATURE}",
+                "url": "${URL}"
+              }
+            }
+          }
+          EOF
+
+          git config user.email "github-actions@github.com"
+          git config user.name "GitHub Actions"
+          git add latest.json
+          git diff --staged --quiet || git commit -m "chore: update latest.json to v${VERSION} [skip ci]"
+          git push origin HEAD:main || git push origin HEAD:claude/kebab-mes-dashboard-BLmao
+
+      - name: Upload installer artifact (backup)
         uses: actions/upload-artifact@v4
         with:
-          name: KebabMES-${{ steps.version.outputs.version }}-Windows-Setup
-          path: kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Upload signature (.sig)
-        uses: actions/upload-artifact@v4
-        with:
-          name: KebabMES-${{ steps.version.outputs.version }}-signature
-          path: kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.sig
-          if-no-files-found: warn
+          name: KebabMES-${{ steps.meta.outputs.version }}-Windows-Setup
+          path: ${{ steps.meta.outputs.exe_path }}
           retention-days: 90
