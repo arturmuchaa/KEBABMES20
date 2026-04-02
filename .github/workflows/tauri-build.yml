@@ -38,7 +38,7 @@ jobs:
           workspaces: './kebab_fixed/src-tauri -> target'
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm install
         working-directory: kebab_fixed
 
       - name: Install Tauri CLI
