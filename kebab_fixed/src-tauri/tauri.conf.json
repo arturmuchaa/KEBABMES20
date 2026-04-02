@@ -28,7 +28,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE_WITH_YOUR_PUBLIC_KEY",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMxN0FFRDVGMzZCNkM4MzcKUldRM3lMWTJYKzE2TVlWNno5MTBIb1Boc1pabGdBY0w0SUhOemU2K1M2YlRXMXJ6Z1ArZ2lOdEQK",
       "endpoints": [
         "https://raw.githubusercontent.com/arturmuchaa/kebabmes20/main/latest.json"
       ],

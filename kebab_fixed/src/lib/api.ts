@@ -417,11 +417,44 @@ export const packagingApi = {
 }
 
 // ─── Zamówienia klientów ──────────────────────────────────────
+function mapOrderLine(raw: any) {
+  return {
+    id:              raw.id              ?? '',
+    qty:             Number(raw.qty      ?? 0),
+    kgPerUnit:       Number(raw.kg_per_unit   ?? raw.kgPerUnit   ?? 0),
+    totalKg:         Number(raw.total_kg      ?? raw.totalKg     ?? 0),
+    productTypeId:   raw.product_type_id  ?? raw.productTypeId  ?? '',
+    productTypeName: raw.product_type_name ?? raw.productTypeName ?? '',
+    recipeId:        raw.recipe_id        ?? raw.recipeId        ?? '',
+    recipeName:      raw.recipe_name      ?? raw.recipeName      ?? '',
+    packagingId:     raw.packaging_id     ?? raw.packagingId,
+    packagingName:   raw.packaging_name   ?? raw.packagingName,
+    notes:           raw.notes,
+  }
+}
+
+function mapClientOrder(raw: any): ClientOrder {
+  return {
+    id:           raw.id           ?? '',
+    orderNo:      raw.order_no     ?? raw.orderNo     ?? '',
+    clientId:     raw.client_id    ?? raw.clientId    ?? '',
+    clientName:   raw.client_name  ?? raw.clientName  ?? '',
+    orderDate:    raw.order_date   ?? raw.orderDate   ?? '',
+    deliveryDate: raw.delivery_date ?? raw.deliveryDate,
+    lines:        (raw.lines ?? []).map(mapOrderLine),
+    totalKg:      Number(raw.total_kg    ?? raw.totalKg    ?? 0),
+    totalUnits:   Number(raw.total_units ?? raw.totalUnits ?? 0),
+    status:       raw.status       ?? 'draft',
+    notes:        raw.notes,
+    createdAt:    raw.created_at   ?? raw.createdAt   ?? '',
+  } as ClientOrder
+}
+
 export const clientOrdersApi = {
-  list:         (status?: string) => get<ClientOrder[]>(`/client-orders${status ? `?status=${status}` : ''}`),
-  byId:         (id: string) => get<ClientOrder>(`/client-orders/${id}`),
-  create:       (dto: CreateClientOrderDto) => post<ClientOrder>('/client-orders', dto),
-  updateStatus: (id: string, status: string) => patch<ClientOrder>(`/client-orders/${id}/status`, { status }),
+  list:         (status?: string) => get<any[]>(`/client-orders${status ? `?status=${status}` : ''}`).then(r => r.map(mapClientOrder)),
+  byId:         (id: string) => get<any>(`/client-orders/${id}`).then(mapClientOrder),
+  create:       (dto: CreateClientOrderDto) => post<any>('/client-orders', dto).then(mapClientOrder),
+  updateStatus: (id: string, status: string) => patch<any>(`/client-orders/${id}/status`, { status }).then(mapClientOrder),
   delete:       (id: string) => del<void>(`/client-orders/${id}`),
 }
 
