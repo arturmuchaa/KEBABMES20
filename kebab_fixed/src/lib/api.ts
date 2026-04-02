@@ -61,6 +61,20 @@ const put   = <T>(p: string, b: unknown) => req<T>('PUT',    p, b)
 const patch = <T>(p: string, b: unknown) => req<T>('PATCH',  p, b)
 const del   = <T>(p: string)             => req<T>('DELETE', p)
 
+// ─── camelCase → snake_case dla wszystkich DTO wysyłanych do backendu ─────────
+// Backend Python oczekuje snake_case. Bez konwersji pola są ignorowane → "Field required".
+function toSnake(obj: any): any {
+  if (obj === null || obj === undefined) return obj
+  if (Array.isArray(obj)) return obj.map(toSnake)
+  if (typeof obj !== 'object') return obj
+  return Object.fromEntries(
+    Object.entries(obj).map(([k, v]) => [
+      k.replace(/([A-Z])/g, '_$1').toLowerCase(),
+      toSnake(v),
+    ])
+  )
+}
+
 // ─── BUGFIX: Mapowanie snake_case → camelCase dla RawBatch ─────────────────
 // Backend Python zwraca pola w snake_case (internal_batch_no, kg_received...).
 // Frontend TypeScript oczekuje camelCase (internalBatchNo, kgReceived...).
@@ -137,10 +151,10 @@ export const rawBatchesApi = {
     Promise.resolve(false),
 
   create: (dto: CreateRawBatchDto) =>
-    post<any>('/raw-batches', dto).then(mapRawBatch),
+    post<any>('/raw-batches', toSnake(dto)).then(mapRawBatch),
 
   edit: (id: string, dto: Partial<CreateRawBatchDto>) =>
-    put<any>(`/raw-batches/${id}`, dto).then(mapRawBatch),
+    put<any>(`/raw-batches/${id}`, toSnake(dto)).then(mapRawBatch),
 
   cancel: (id: string) =>
     patch<any>(`/raw-batches/${id}/cancel`, {}).then(mapRawBatch),
@@ -164,8 +178,8 @@ function mapSupplier(raw: any): Supplier {
 export const suppliersApi = {
   list:     () => get<any[]>('/suppliers').then(r => (Array.isArray(r) ? r : []).map(mapSupplier)),
   nextCode: async () => '',
-  create:   (dto: CreateSupplierDto) => post<any>('/suppliers', dto).then(mapSupplier),
-  update:   (id: string, dto: Partial<CreateSupplierDto>) => put<any>(`/suppliers/${id}`, dto).then(mapSupplier),
+  create:   (dto: CreateSupplierDto) => post<any>('/suppliers', toSnake(dto)).then(mapSupplier),
+  update:   (id: string, dto: Partial<CreateSupplierDto>) => put<any>(`/suppliers/${id}`, toSnake(dto)).then(mapSupplier),
 }
 
 // ─── Sesje produkcyjne — PRAWDZIWY backend ────────────────────
@@ -178,19 +192,19 @@ export const productionSessionsApi = {
   byId:  (id: string) =>
     get<any>(`/production-sessions/${id}`),
   start: (dto: any) =>
-    post<any>('/production-sessions', dto),
+    post<any>('/production-sessions', toSnake(dto)),
   close: (id: string, dto: any) =>
-    patch<any>(`/production-sessions/${id}/close`, dto),
+    patch<any>(`/production-sessions/${id}/close`, toSnake(dto)),
   approve: (id: string, dto: any) =>
-    patch<any>(`/production-sessions/${id}/approve`, dto),
+    patch<any>(`/production-sessions/${id}/approve`, toSnake(dto)),
 }
 
 // ─── Rozbiór — wpisy i sesje ──────────────────────────────────
 export const deboningApi = {
   list:   () => get<{ data: DeboningSession[] }>('/deboning'),
   byId:   (id: string) => get<DeboningSession>(`/deboning/${id}`),
-  create: (dto: any) => post<DeboningSession>('/deboning', dto),
-  update: (id: string, dto: any) => patch<DeboningSession>(`/deboning/${id}`, dto),
+  create: (dto: any) => post<DeboningSession>('/deboning', toSnake(dto)),
+  update: (id: string, dto: any) => patch<DeboningSession>(`/deboning/${id}`, toSnake(dto)),
 }
 
 export const deboningEntriesApi = {
@@ -199,9 +213,9 @@ export const deboningEntriesApi = {
     get<any[]>(`/deboning/entries${sessionId ? `?session_id=${sessionId}` : ''}`)
       .then(r => Array.isArray(r) ? r : (r as any).data ?? []),
   // create — wysyła kgTaken (nie kgQuarter) i sessionId
-  create: (dto: any) => post<any>('/deboning/entries', dto),
+  create: (dto: any) => post<any>('/deboning/entries', toSnake(dto)),
   // update — obsługuje kgBacks i kgBones
-  update: (id: string, dto: any) => patch<any>(`/deboning/entries/${id}`, dto),
+  update: (id: string, dto: any) => patch<any>(`/deboning/entries/${id}`, toSnake(dto)),
   traceability: (batchId: string) => get<any>(`/deboning/entries/trace/${batchId}`),
 }
 
@@ -237,8 +251,8 @@ export const meatStockApi = {
 // ─── Kontrahenci ──────────────────────────────────────────────
 export const clientsApi = {
   list:       () => get<Client[]>('/clients'),
-  create:     (dto: CreateClientDto) => post<Client>('/clients', dto),
-  update:     (id: string, dto: Partial<CreateClientDto>) => put<Client>(`/clients/${id}`, dto),
+  create:     (dto: CreateClientDto) => post<Client>('/clients', toSnake(dto)),
+  update:     (id: string, dto: Partial<CreateClientDto>) => put<Client>(`/clients/${id}`, toSnake(dto)),
   deactivate: (id: string) => patch<void>(`/clients/${id}/deactivate`, {}),
 }
 
@@ -296,13 +310,13 @@ export const ingredientsApi = {
   list:       () => get<any[]>('/ingredients').then(r => (Array.isArray(r) ? r : []).map(mapIngredient)),
   byId:       (id: string) => get<any>(`/ingredients/${id}`).then(mapIngredient),
   stock:      () => get<any[]>('/ingredients/stock').then(r => (Array.isArray(r) ? r : []).map(mapIngredientStock)),
-  create:     (dto: CreateIngredientDto) => post<any>('/ingredients', dto).then(mapIngredient),
+  create:     (dto: CreateIngredientDto) => post<any>('/ingredients', toSnake(dto)).then(mapIngredient),
   deactivate: (id: string) => patch<void>(`/ingredients/${id}/deactivate`, {}),
 }
 
 export const ingredientReceiptsApi = {
   list:   () => get<any[]>('/ingredient-receipts').then(r => (Array.isArray(r) ? r : []).map(mapIngredientReceipt)),
-  create: (dto: CreateIngredientReceiptDto) => post<any>('/ingredient-receipts', dto).then(mapIngredientReceipt),
+  create: (dto: CreateIngredientReceiptDto) => post<any>('/ingredient-receipts', toSnake(dto)).then(mapIngredientReceipt),
 }
 
 // ─── Receptury ────────────────────────────────────────────────
@@ -336,8 +350,8 @@ function mapRecipe(raw: any): Recipe {
 export const recipesApi = {
   list:       () => get<any[]>('/recipes').then(r => (Array.isArray(r) ? r : []).map(mapRecipe)),
   byId:       (id: string) => get<any>(`/recipes/${id}`).then(mapRecipe),
-  create:     (dto: CreateRecipeDto) => post<any>('/recipes', dto).then(mapRecipe),
-  update:     (id: string, dto: UpdateRecipeDto) => put<any>(`/recipes/${id}`, dto).then(mapRecipe),
+  create:     (dto: CreateRecipeDto) => post<any>('/recipes', toSnake(dto)).then(mapRecipe),
+  update:     (id: string, dto: UpdateRecipeDto) => put<any>(`/recipes/${id}`, toSnake(dto)).then(mapRecipe),
   deactivate: (id: string) => patch<void>(`/recipes/${id}/deactivate`, {}),
   calculate:  (id: string, kg: number) => get<any>(`/recipes/${id}/calculate?kg=${kg}`),
 }
@@ -364,8 +378,8 @@ function mapProductType(raw: any): ProductType {
 export const productTypesApi = {
   list:       () => get<any[]>('/product-types').then(r => (Array.isArray(r) ? r : []).map(mapProductType)),
   byId:       (id: string) => get<any>(`/product-types/${id}`).then(mapProductType),
-  create:     (dto: CreateProductTypeDto) => post<any>('/product-types', dto).then(mapProductType),
-  update:     (id: string, dto: Partial<CreateProductTypeDto>) => put<any>(`/product-types/${id}`, dto).then(mapProductType),
+  create:     (dto: CreateProductTypeDto) => post<any>('/product-types', toSnake(dto)).then(mapProductType),
+  update:     (id: string, dto: Partial<CreateProductTypeDto>) => put<any>(`/product-types/${id}`, toSnake(dto)).then(mapProductType),
   deactivate: (id: string) => patch<void>(`/product-types/${id}/deactivate`, {}),
 }
 
@@ -403,8 +417,8 @@ export const invoicesApi = {
   list:   (cat?: InvoiceCategory) =>
     get<any[]>(`/invoices${cat ? `?category=${cat}` : ''}`).then(r => (Array.isArray(r) ? r : []).map(mapInvoice)),
   byId:   (id: string) => get<any>(`/invoices/${id}`).then(mapInvoice),
-  create: (dto: CreatePurchaseInvoiceDto) => post<any>('/invoices', dto).then(mapInvoice),
-  update: (id: string, dto: Partial<CreatePurchaseInvoiceDto>) => patch<any>(`/invoices/${id}`, dto).then(mapInvoice),
+  create: (dto: CreatePurchaseInvoiceDto) => post<any>('/invoices', toSnake(dto)).then(mapInvoice),
+  update: (id: string, dto: Partial<CreatePurchaseInvoiceDto>) => patch<any>(`/invoices/${id}`, toSnake(dto)).then(mapInvoice),
   delete: (id: string) => del<void>(`/invoices/${id}`),
 }
 
@@ -412,7 +426,7 @@ export const invoicesApi = {
 export const packagingApi = {
   list:    () => get<PackagingItem[]>('/packaging'),
   all:     () => get<PackagingItem[]>('/packaging/all'),
-  receive: (dto: CreatePackagingDto) => post<PackagingItem>('/packaging', dto),
+  receive: (dto: CreatePackagingDto) => post<PackagingItem>('/packaging', toSnake(dto)),
   use:     (id: string, qty: number) => patch<void>(`/packaging/${id}/use`, { qty }),
 }
 
@@ -528,7 +542,7 @@ function mapPlan(raw: any): any {
 export const productionPlansApi = {
   list:         () => get<any[]>('/production-plans').then(r => r.map(mapPlan)),
   byId:         (id: string) => get<any>(`/production-plans/${id}`).then(mapPlan),
-  create:       (dto: CreateProductionPlanDto) => post<any>('/production-plans', dto).then(mapPlan),
+  create:       (dto: CreateProductionPlanDto) => post<any>('/production-plans', toSnake(dto)).then(mapPlan),
   updateStatus: (id: string, status: string) => patch<void>(`/production-plans/${id}/status`, { status }),
 }
 
@@ -676,16 +690,16 @@ export const mixingOrdersApi = {
       })),
     }).then(mapMixingOrder),
   start:             (id: string, dto: any) =>
-    patch<any>(`/mixing-orders/${id}/start`, dto).then(mapMixingOrder),
+    patch<any>(`/mixing-orders/${id}/start`, toSnake(dto)).then(mapMixingOrder),
   allocateToMachine: (id: string, m: MachineId, kg: number) =>
     patch<any>(`/mixing-orders/${id}/allocate`, { machine_id: m, kg }).then(mapMixingOrder),
   confirmStep:   (id: string, dto: any) =>
-    patch<any>(`/mixing-orders/${id}/confirm-step`, dto).then(mapMixingOrder),
+    patch<any>(`/mixing-orders/${id}/confirm-step`, toSnake(dto)).then(mapMixingOrder),
   finishSession: (id: string, kg: number, batchNo: string, lotAllocations?: any[]) =>
     patch<any>(`/mixing-orders/${id}/finish-session`, {
       kg_actual: kg,
       batch_no: batchNo || '',
-      lotAllocations: lotAllocations ?? [],
+      lot_allocations: lotAllocations ?? [],
     }).then(mapMixingOrder),
   autoApprove: (id: string) =>
     patch<any>(`/mixing-orders/${id}/auto-approve`, {}).then(mapMixingOrder),
@@ -770,9 +784,9 @@ export const finishedGoodsApi = {
     const items = await get<any[]>('/finished-goods')
     return items.map(mapFinishedGoodsItem)
   },
-  create: (dto: any) => post<FinishedGoodsItem>('/finished-goods', dto),
+  create: (dto: any) => post<FinishedGoodsItem>('/finished-goods', toSnake(dto)),
   finishProductionDay: (planId: string, entries: any[]) =>
-    post<any>('/finished-goods/finish-day', { plan_id: planId, entries }),
+    post<any>('/finished-goods/finish-day', { plan_id: planId, entries: entries.map(toSnake) }),
 }
 
 // ─── Health ───────────────────────────────────────────────────
