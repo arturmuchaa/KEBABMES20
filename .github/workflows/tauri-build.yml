@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Wersja (np. 2.4.0)'
+        description: 'Wersja (np. 2.4.1)'
         required: false
         default: '2.4.0'
   push:
@@ -54,11 +54,28 @@ jobs:
         working-directory: kebab_fixed
         env:
           VITE_API_URL: ''
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Get version from Cargo.toml
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(grep '^version' kebab_fixed/src-tauri/Cargo.toml | head -1 | sed 's/version = "//' | sed 's/"//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Upload installer (.exe)
         uses: actions/upload-artifact@v4
         with:
-          name: KebabMES-${{ github.event.inputs.version || '2.4.0' }}-Windows-Setup
+          name: KebabMES-${{ steps.version.outputs.version }}-Windows-Setup
           path: kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
           if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload signature (.sig)
+        uses: actions/upload-artifact@v4
+        with:
+          name: KebabMES-${{ steps.version.outputs.version }}-signature
+          path: kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.sig
+          if-no-files-found: warn
           retention-days: 90

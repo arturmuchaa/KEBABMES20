@@ -1,0 +1,11 @@
+{
+  "version": "2.4.0",
+  "notes": "Pierwsza wersja z auto-aktualizacją",
+  "pub_date": "2026-04-02T00:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "",
+      "url": "https://github.com/arturmuchaa/kebabmes20/releases/download/v2.4.0/KebabMES_2.4.0_x64-setup.exe"
+    }
+  }
+}
