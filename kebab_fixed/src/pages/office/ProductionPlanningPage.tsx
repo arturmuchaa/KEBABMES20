@@ -8,15 +8,27 @@
 import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { productionPlansApi, clientOrdersApi, seasonedMeatApi, packagingApi, clientsApi } from '@/lib/apiClient'
-import { Spinner, EmptyState, Modal } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Card, CardContent } from '@/components/ui/card'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { fmtKg, fmtDatePl, todayIso } from '@/lib/utils'
 import {
   AlertTriangle,
   BarChart2,
   CheckSquare,
   ChevronDown,
-  ChevronRight,
   ChevronUp,
   Download,
   Factory,
@@ -53,8 +65,10 @@ const emptyLine = (): PlanLineForm => ({
 const STATUS_LABELS: Record<ProductionPlan['status'], string> = {
   draft:'Szkic', active:'Aktywny', done:'Ukończony',
 }
-const STATUS_COLORS: Record<ProductionPlan['status'], string> = {
-  draft:'bg-surface-3 text-ink-3', active:'bg-amber-50 text-amber-700', done:'bg-green-50 text-green-700',
+const STATUS_CLASS: Record<ProductionPlan['status'], string> = {
+  draft: '',
+  active: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-50',
+  done: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-50',
 }
 
 // ─── Import z zamówień ────────────────────────────────────────
@@ -103,45 +117,55 @@ function ImportOrderModal({ orders, onImport, onClose }: {
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Zamówienie</label>
-        <select value={selectedOrder} onChange={e=>handleOrderChange(e.target.value)}
-          className="w-full h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white">
-          {orders.map(o=><option key={o.id} value={o.id}>{o.orderNo} · {o.clientName} · {fmtKg(o.totalKg,0)} kg</option>)}
-        </select>
+        <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide mb-1 block">Zamówienie</Label>
+        <Select value={selectedOrder} onValueChange={handleOrderChange}>
+          <SelectTrigger className="h-9 text-sm">
+            <SelectValue/>
+          </SelectTrigger>
+          <SelectContent>
+            {orders.map(o=>(
+              <SelectItem key={o.id} value={o.id}>
+                {o.orderNo} · {o.clientName} · {fmtKg(o.totalKg,0)} kg
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       {order && (
         <div>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold text-ink-3 uppercase">Pozycje</span>
-            <button onClick={toggleAll} className="text-[11px] font-semibold text-brand flex items-center gap-1">
-              {selectedLines.size===order.lines.length?<><Square size={12}/>Odznacz</>:<><CheckSquare size={12}/>Zaznacz wszystkie</>}
-            </button>
+            <span className="text-[11px] font-bold text-muted-foreground uppercase">Pozycje</span>
+            <Button variant="ghost" size="sm" onClick={toggleAll} className="h-7 text-[11px] gap-1 px-2">
+              {selectedLines.size===order.lines.length
+                ? <><Square size={12}/>Odznacz</>
+                : <><CheckSquare size={12}/>Zaznacz wszystkie</>}
+            </Button>
           </div>
-          <div className="border border-surface-4 rounded-lg divide-y max-h-56 overflow-y-auto">
+          <div className="border rounded-lg divide-y max-h-56 overflow-y-auto">
             {order.lines.map(l=>{
               const isSel = selectedLines.has(l.id)
               return (
-                <label key={l.id} className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-surface-2 ${isSel?'bg-blue-50':''}`}>
+                <label key={l.id} className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors ${isSel?'bg-blue-50':''}`}>
                   <input type="checkbox" checked={isSel}
                     onChange={()=>setSelectedLines(p=>{const n=new Set(p);n.has(l.id)?n.delete(l.id):n.add(l.id);return n})}
-                    className="w-4 h-4 accent-brand flex-shrink-0"/>
+                    className="w-4 h-4 accent-primary flex-shrink-0"/>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[12px] font-bold text-ink">{l.qty} szt × {l.kgPerUnit} kg = <span className="text-blue-700">{fmtKg(l.qty*l.kgPerUnit,0)} kg</span></div>
-                    <div className="text-[11px] text-ink-3">{l.productTypeName} · {l.recipeName}{l.packagingName?` · ${l.packagingName}`:''}</div>
+                    <div className="text-[12px] font-bold">{l.qty} szt × {l.kgPerUnit} kg = <span className="text-blue-700">{fmtKg(l.qty*l.kgPerUnit,0)} kg</span></div>
+                    <div className="text-[11px] text-muted-foreground">{l.productTypeName} · {l.recipeName}{l.packagingName?` · ${l.packagingName}`:''}</div>
                   </div>
                 </label>
               )
             })}
           </div>
           {selectedLines.size>0 && (
-            <div className="text-[11px] text-brand font-semibold mt-1.5">
+            <div className="text-[11px] text-primary font-semibold mt-1.5">
               {selectedLines.size} pozycji · {fmtKg(order.lines.filter(l=>selectedLines.has(l.id)).reduce((s,l)=>s+l.qty*l.kgPerUnit,0),0)} kg
             </div>
           )}
         </div>
       )}
       <div className="flex gap-2">
-        <Button variant="secondary" onClick={onClose} className="flex-1">Anuluj</Button>
+        <Button variant="outline" onClick={onClose} className="flex-1">Anuluj</Button>
         <Button onClick={handleConfirm} disabled={selectedLines.size===0} className="flex-1">
           <Download size={14} className="mr-1"/> Importuj {selectedLines.size} poz.
         </Button>
@@ -194,17 +218,17 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
               <div className="flex items-center gap-3 px-3 py-2.5">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[12px] font-bold text-ink truncate">{r.recipeName}</span>
+                    <span className="text-[12px] font-bold truncate">{r.recipeName}</span>
                     {isFull && <span className="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded font-semibold">Wszystko zaplanowane</span>}
                   </div>
                   {/* Pasek + liczniki w jednym wierszu */}
                   <div className="flex items-center gap-2">
-                    <div className="flex-1 h-1.5 bg-surface-3 rounded-full overflow-hidden">
+                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
                       <div className={`h-full rounded-full ${isFull?'bg-green-500':pct>80?'bg-amber-400':'bg-blue-500'}`}
                         style={{width:`${pct}%`}}/>
                     </div>
                     <div className="flex items-center gap-2 text-[10px] whitespace-nowrap flex-shrink-0">
-                      <span className="text-ink-3">Total: <strong>{fmtKg(r.totalKg,0)}</strong></span>
+                      <span className="text-muted-foreground">Total: <strong>{fmtKg(r.totalKg,0)}</strong></span>
                       <span className="text-amber-600">Zapl: <strong>{fmtKg(r.usedKg,0)}</strong></span>
                       <span className={isFull?'text-green-600':'text-blue-700'}>
                         Pozostało: <strong>{fmtKg(r.remainingKg,0)} kg</strong>
@@ -213,14 +237,16 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <button onClick={()=>onAutoAssign(r.recipeId)}
-                    className="text-[11px] font-semibold text-blue-700 border border-blue-200 bg-blue-50 px-2 py-1 rounded hover:bg-blue-100 active:scale-95">
+                  <Button variant="outline" size="sm"
+                    onClick={()=>onAutoAssign(r.recipeId)}
+                    className="h-7 text-[11px] text-blue-700 border-blue-200 bg-blue-50 hover:bg-blue-100 px-2">
                     ⚡ Auto
-                  </button>
-                  <button onClick={()=>setExpandedRecipe(isExpanded?null:r.recipeId)}
-                    className="p-1 text-ink-4 hover:text-ink">
+                  </Button>
+                  <Button variant="ghost" size="icon"
+                    onClick={()=>setExpandedRecipe(isExpanded?null:r.recipeId)}
+                    className="h-7 w-7">
                     {isExpanded?<ChevronUp size={14}/>:<ChevronDown size={14}/>}
-                  </button>
+                  </Button>
                 </div>
               </div>
               {/* Szczegóły partii — rozwinięte */}
@@ -231,7 +257,7 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
                       const used = seasonedUsed[s.id]??0
                       return (
                         <div key={s.id} className={`flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded border ${s.kgAvailLive<0.1&&s.kgAvailable>0?'bg-red-50 border-red-200':'bg-white border-blue-100'}`}>
-                          <span className="font-mono font-bold text-brand text-[10px]">{s.batchNo}</span>
+                          <span className="font-mono font-bold text-primary text-[10px]">{s.batchNo}</span>
                           <span className={`font-bold ml-2 ${s.kgAvailLive<0.1?'text-red-600':'text-green-700'}`}>
                             {fmtKg(s.kgAvailLive)} kg
                           </span>
@@ -329,85 +355,100 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
     .sort((a:any,b:any)=>a.expiryDate>b.expiryDate?1:-1)
 
   return (
-    <div className="border border-surface-4 rounded-xl bg-white overflow-hidden">
+    <div className="border rounded-xl bg-background overflow-hidden">
       {/* Nagłówek pozycji */}
-      <div className="flex items-center justify-between px-3 py-2 bg-surface-2 border-b border-surface-4">
+      <div className="flex items-center justify-between px-3 py-2 bg-muted/50 border-b">
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold text-ink-3">Pozycja {idx+1}</span>
+          <span className="text-[11px] font-bold text-muted-foreground">Pozycja {idx+1}</span>
           {line.clientName && (
             <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-semibold">
               {line.clientName}{line.clientOrderNo?` · ${line.clientOrderNo}`:''}
             </span>
           )}
         </div>
-        {total>1 && <button onClick={onRemove} className="text-ink-4 hover:text-danger"><X size={14}/></button>}
+        {total>1 && (
+          <Button variant="ghost" size="icon" onClick={onRemove} className="h-6 w-6 text-muted-foreground hover:text-destructive">
+            <X size={14}/>
+          </Button>
+        )}
       </div>
 
       <div className="p-3">
         {/* Rząd 1: Szt, kg/szt, Rodzaj, Receptura */}
         <div className="grid grid-cols-4 gap-2 mb-2">
           <div>
-            <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Szt *</label>
-            <input type="number" min="1" value={line.qty} onChange={e=>onChange('qty',e.target.value)}
-              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white"/>
+            <Label className="text-[9px] font-bold text-muted-foreground uppercase mb-1 block">Szt *</Label>
+            <Input type="number" min="1" value={line.qty} onChange={e=>onChange('qty',e.target.value)} className="h-8 text-sm px-2"/>
           </div>
           <div>
-            <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">kg/szt *</label>
-            <input type="number" min="0.1" step="0.1" value={line.kgPerUnit} onChange={e=>onChange('kgPerUnit',e.target.value)}
-              className="w-full h-8 px-2 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white"/>
+            <Label className="text-[9px] font-bold text-muted-foreground uppercase mb-1 block">kg/szt *</Label>
+            <Input type="number" min="0.1" step="0.1" value={line.kgPerUnit} onChange={e=>onChange('kgPerUnit',e.target.value)} className="h-8 text-sm px-2"/>
           </div>
           <div>
-            <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Rodzaj</label>
-            <select value={line.productTypeId} onChange={e=>onChange('productTypeId',e.target.value)}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-white">
-              <option value="">Dowolny</option>
-              {(productTypes??[]).map((pt:any)=><option key={pt.id} value={pt.id}>{pt.name}</option>)}
-            </select>
+            <Label className="text-[9px] font-bold text-muted-foreground uppercase mb-1 block">Rodzaj</Label>
+            <Select value={line.productTypeId||'__none'} onValueChange={v=>onChange('productTypeId',v==='__none'?'':v)}>
+              <SelectTrigger className="h-8 text-[11px]"><SelectValue/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">Dowolny</SelectItem>
+                {(productTypes??[]).map((pt:any)=><SelectItem key={pt.id} value={pt.id}>{pt.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
           <div>
-            <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Receptura *</label>
-            <select value={line.recipeId} onChange={e=>{onChange('recipeId',e.target.value);onChange('seasonedBatchIds',[]);onChange('seasonedBatchId','')}}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-white">
-              <option value="">Wybierz...</option>
-              {(recipes??[]).map((r:any)=><option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
+            <Label className="text-[9px] font-bold text-muted-foreground uppercase mb-1 block">Receptura *</Label>
+            <Select value={line.recipeId||'__none'} onValueChange={v=>{const val=v==='__none'?'':v;onChange('recipeId',val);onChange('seasonedBatchIds',[]);onChange('seasonedBatchId','')}}>
+              <SelectTrigger className="h-8 text-[11px]"><SelectValue placeholder="Wybierz..."/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">Wybierz...</SelectItem>
+                {(recipes??[]).map((r:any)=><SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
         {/* Rząd 2: Tuleja, Klient */}
         <div className="grid grid-cols-2 gap-2 mb-2">
           <div>
-            <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Tuleja / Opakowanie</label>
-            <select value={line.packagingId} onChange={e=>onChange('packagingId',e.target.value)}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-white">
-              <option value="">— brak —</option>
-              {packaging.map((p:any)=>{
-                const isLow = qty>0&&p.kgAvailable<100&&qty>p.kgAvailable
-                return <option key={p.id} value={p.id}>{p.name}{p.kgAvailable<100?` (${p.kgAvailable} szt)`:''}{isLow?' ⚠':''}</option>
-              })}
-            </select>
+            <Label className="text-[9px] font-bold text-muted-foreground uppercase mb-1 block">Tuleja / Opakowanie</Label>
+            <Select value={line.packagingId||'__none'} onValueChange={v=>onChange('packagingId',v==='__none'?'':v)}>
+              <SelectTrigger className="h-8 text-[11px]"><SelectValue/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">— brak —</SelectItem>
+                {packaging.map((p:any)=>{
+                  const isLow = qty>0&&p.kgAvailable<100&&qty>p.kgAvailable
+                  return (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}{p.kgAvailable<100?` (${p.kgAvailable} szt)`:''}{isLow?' ⚠':''}
+                    </SelectItem>
+                  )
+                })}
+              </SelectContent>
+            </Select>
           </div>
           <div>
-            <label className="block text-[9px] font-bold text-ink-4 uppercase mb-1">Klient</label>
-            <select value={line.clientId} onChange={e=>{
-              const c = clients.find((x:any)=>x.id===e.target.value)
-              onChange('clientId', e.target.value)
+            <Label className="text-[9px] font-bold text-muted-foreground uppercase mb-1 block">Klient</Label>
+            <Select value={line.clientId||'__none'} onValueChange={v=>{
+              const id = v==='__none'?'':v
+              const c = clients.find((x:any)=>x.id===id)
+              onChange('clientId', id)
               onChange('clientName', c?.name??'')
-            }}
-              className="w-full h-8 px-2 text-[11px] border border-surface-4 focus:outline-none focus:border-brand bg-white">
-              <option value="">— brak —</option>
-              {clients.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            }}>
+              <SelectTrigger className="h-8 text-[11px]"><SelectValue/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">— brak —</SelectItem>
+                {clients.map((c:any)=><SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
         {/* Partie mięsa — rozwijany panel */}
-        <div className="border border-surface-4 rounded-lg overflow-hidden">
+        <div className="border rounded-lg overflow-hidden">
           <button onClick={()=>setShowBatchPanel(p=>!p)}
             className={`w-full flex items-center justify-between px-3 py-2 text-[11px] font-semibold transition-colors ${
               selIds.length>0
                 ? isOk ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-                : 'bg-surface-2 text-ink-3'
+                : 'bg-muted text-muted-foreground'
             }`}>
             <span className="flex items-center gap-2">
               <span>Partie mięsa (receptura: {line.recipeId?(recipes??[]).find((r:any)=>r.id===line.recipeId)?.name??'—':'nie wybrano'})</span>
@@ -424,13 +465,13 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
           </button>
 
           {showBatchPanel && (
-            <div className="border-t border-surface-4">
+            <div className="border-t">
               {relevantBatches.length===0 ? (
-                <div className="px-3 py-2.5 text-[11px] text-ink-3">
+                <div className="px-3 py-2.5 text-[11px] text-muted-foreground">
                   {line.recipeId ? 'Brak mięsa tej receptury w magazynie' : 'Wybierz recepturę aby zobaczyć dostępne partie'}
                 </div>
               ) : (
-                <div className="divide-y divide-surface-4 max-h-48 overflow-y-auto">
+                <div className="divide-y max-h-48 overflow-y-auto">
                   {relevantBatches.map((s:any)=>{
                     const isSel    = selIds.includes(s.id)
                     const maxSzt   = kgPerUnit>0 ? Math.floor(s.kgAvailLive/kgPerUnit) : 0
@@ -438,25 +479,25 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
                     const isEmpty  = s.kgAvailLive<=0.01
                     return (
                       <label key={s.id}
-                        className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-surface-2 transition-colors ${isSel?'bg-blue-50':''} ${isEmpty&&!isSel?'opacity-40':''}`}>
+                        className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors ${isSel?'bg-blue-50':''} ${isEmpty&&!isSel?'opacity-40':''}`}>
                         <input type="checkbox" checked={isSel} onChange={()=>toggleBatch(s.id)}
                           disabled={isEmpty&&!isSel}
-                          className="w-4 h-4 accent-brand flex-shrink-0"/>
+                          className="w-4 h-4 accent-primary flex-shrink-0"/>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-brand text-[12px]">{s.batchNo}</span>
-                            <span className="text-[10px] text-ink-3">{s.recipeName}</span>
+                            <span className="font-mono font-bold text-primary text-[12px]">{s.batchNo}</span>
+                            <span className="text-[10px] text-muted-foreground">{s.recipeName}</span>
                           </div>
                           <div className="flex items-center gap-3 text-[11px] mt-0.5">
                             <span className={`font-bold ${isEmpty?'text-red-500':isSel?'text-blue-700':'text-green-700'}`}>
                               {fmtKg(s.kgAvailLive)} kg dostępne
                             </span>
                             {kgPerUnit>0&&!isEmpty&&(
-                              <span className={`font-semibold ${isLow?'text-amber-600':'text-ink-3'}`}>
+                              <span className={`font-semibold ${isLow?'text-amber-600':'text-muted-foreground'}`}>
                                 = max {maxSzt} szt{isLow?` (z ${qty} zamówionych)`:''}
                               </span>
                             )}
-                            <span className="text-ink-4 text-[10px]">do: {fmtDatePl(s.expiryDate)}</span>
+                            <span className="text-muted-foreground text-[10px]">do: {fmtDatePl(s.expiryDate)}</span>
                           </div>
                         </div>
                         {isSel&&<span className="text-blue-600 font-bold text-[11px] flex-shrink-0">✓</span>}
@@ -642,15 +683,13 @@ function PlanForm({ onSave, onClose }: {
       {/* Data + import */}
       <div className="flex gap-3 items-end flex-wrap">
         <div>
-          <label className="block text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-1">Data produkcji</label>
-          <input type="date" value={planDate} onChange={e=>setPlanDate(e.target.value)}
-            className="h-9 px-3 text-sm border border-surface-4 focus:outline-none focus:border-brand bg-white"/>
+          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide mb-1 block">Data produkcji</Label>
+          <Input type="date" value={planDate} onChange={e=>setPlanDate(e.target.value)} className="h-9 w-auto text-sm"/>
         </div>
         {confirmed.length>0&&(
-          <button onClick={()=>setImportModal(true)}
-            className="flex items-center gap-1.5 h-9 px-3 text-sm font-semibold text-brand border border-brand/40 rounded hover:bg-brand-light">
+          <Button variant="outline" onClick={()=>setImportModal(true)} className="h-9 gap-1.5 text-sm">
             <Download size={14}/> Importuj z zamówienia ({confirmed.length})
-          </button>
+          </Button>
         )}
       </div>
 
@@ -659,7 +698,7 @@ function PlanForm({ onSave, onClose }: {
 
       {/* Pozycje */}
       <div>
-        <div className="text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-2">Pozycje produkcyjne</div>
+        <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-2">Pozycje produkcyjne</div>
         <div className="space-y-3">
           {lines.map((line,i)=>(
             <LineFormRow key={i} line={line} idx={i} total={lines.length}
@@ -672,32 +711,41 @@ function PlanForm({ onSave, onClose }: {
               onRemove={()=>removeLine(i)}/>
           ))}
         </div>
-        <button onClick={addLine} className="mt-2 flex items-center gap-1.5 text-[12px] font-semibold text-brand hover:text-brand/80">
+        <Button variant="ghost" onClick={addLine} className="mt-2 h-8 gap-1.5 text-[12px] text-primary px-2">
           <Plus size={14}/> Dodaj pozycję
-        </button>
+        </Button>
       </div>
 
       {/* Suma */}
-      <div className="bg-surface-2 border border-surface-4 rounded-xl p-3 flex items-center justify-between">
-        <span className="text-[12px] font-bold text-ink-3">SUMA PLANU:</span>
-        <div className="text-xl font-black text-brand">{fmtKg(totalKg,0)} kg</div>
-      </div>
+      <Card>
+        <CardContent className="p-3 flex items-center justify-between">
+          <span className="text-[12px] font-bold text-muted-foreground">SUMA PLANU:</span>
+          <div className="text-xl font-black text-primary">{fmtKg(totalKg,0)} kg</div>
+        </CardContent>
+      </Card>
 
-      {error&&<div className="text-[12px] text-danger bg-danger-light border border-danger-border px-3 py-2 flex items-center gap-2"><AlertTriangle size={13}/>{error}</div>}
-
-      <div className="flex gap-2">
-        <Button variant="secondary" onClick={onClose} className="flex-1">Anuluj</Button>
-        <Button onClick={handleSave} loading={saving} className="flex-1">Utwórz plan produkcji</Button>
-      </div>
-
-      {importModal&&(
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-lg p-5 shadow-xl">
-            <div className="text-[13px] font-bold text-ink mb-4">Import z zamówienia klienta</div>
-            <ImportOrderModal orders={confirmed} onImport={importLines} onClose={()=>setImportModal(false)}/>
-          </div>
+      {error && (
+        <div className="text-[12px] text-destructive bg-destructive/10 border border-destructive/20 px-3 py-2 rounded flex items-center gap-2">
+          <AlertTriangle size={13}/>{error}
         </div>
       )}
+
+      <div className="flex gap-2">
+        <Button variant="outline" onClick={onClose} className="flex-1">Anuluj</Button>
+        <Button onClick={handleSave} disabled={saving} className="flex-1">
+          {saving && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"/>}
+          Utwórz plan produkcji
+        </Button>
+      </div>
+
+      <Dialog open={importModal} onOpenChange={open=>!open&&setImportModal(false)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Import z zamówienia klienta</DialogTitle>
+          </DialogHeader>
+          <ImportOrderModal orders={confirmed} onImport={importLines} onClose={()=>setImportModal(false)}/>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -723,89 +771,105 @@ export function ProductionPlanningPage() {
             { label:'Planowane kg', val:`${fmtKg(activePlans.reduce((s,p)=>s+p.totalKg,0),0)} kg` },
             { label:'Planowane szt', val:`${activePlans.reduce((s,p)=>s+p.totalUnits,0)} szt` },
           ].map(k=>(
-            <div key={k.label} className="bg-white border border-surface-4 p-3">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-4">{k.label}</div>
-              <div className="text-xl font-bold text-ink">{k.val}</div>
-            </div>
+            <Card key={k.label}>
+              <CardContent className="p-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{k.label}</div>
+                <div className="text-xl font-bold">{k.val}</div>
+              </CardContent>
+            </Card>
           ))}
         </div>
         <div className="flex items-start">
-          <Button icon={<Plus size={14}/>} onClick={()=>setModal(true)}>Nowy plan</Button>
+          <Button onClick={()=>setModal(true)} className="gap-1.5"><Plus size={14}/>Nowy plan</Button>
         </div>
       </div>
 
-      <div className="bg-white border border-surface-4 shadow-card">
-        <div className="px-4 py-2.5 border-b border-surface-4">
-          <span className="text-[13px] font-semibold text-ink">{(plans??[]).length} planów</span>
+      <Card>
+        <div className="px-4 py-2.5 border-b">
+          <span className="text-[13px] font-semibold">{(plans??[]).length} planów</span>
         </div>
-        {loading?<div className="flex justify-center py-10"><Spinner size={20}/></div>
-        :(plans??[]).length===0?<EmptyState icon={<Factory size={32}/>} title="Brak planów" message="Utwórz plan"/>
-        :(
-          <div className="divide-y divide-surface-4">
+        {loading ? (
+          <div className="p-4 space-y-2">
+            {[1,2,3].map(i=><Skeleton key={i} className="h-14 w-full"/>)}
+          </div>
+        ) : (plans??[]).length===0 ? (
+          <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+            <Factory size={32}/>
+            <div className="font-semibold">Brak planów</div>
+            <div className="text-sm">Utwórz plan</div>
+          </div>
+        ) : (
+          <div className="divide-y">
             {(plans??[]).map(plan=>{
               const isExp=expanded===plan.id
               return (
                 <div key={plan.id}>
-                  <div className="px-4 py-3 flex items-center gap-3 hover:bg-surface-2 cursor-pointer"
+                  <div className="px-4 py-3 flex items-center gap-3 hover:bg-muted/50 cursor-pointer transition-colors"
                     onClick={()=>setExpanded(isExp?null:plan.id)}>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-brand">{plan.planNo}</span>
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${STATUS_COLORS[plan.status]}`}>
+                        <span className="font-mono font-bold text-primary">{plan.planNo}</span>
+                        <Badge variant="outline" className={STATUS_CLASS[plan.status]}>
                           {STATUS_LABELS[plan.status]}
-                        </span>
+                        </Badge>
                       </div>
-                      <div className="text-[11px] text-ink-3 mt-0.5">
+                      <div className="text-[11px] text-muted-foreground mt-0.5">
                         {fmtDatePl(plan.planDate)} · {plan.lines.length} poz. · {fmtKg(plan.totalKg,0)} kg · {plan.totalUnits} szt
                       </div>
                     </div>
                     <div className="flex gap-1 items-center">
                       {plan.status==='draft'&&(
-                        <button onClick={e=>{e.stopPropagation();productionPlansApi.updateStatus(plan.id,'active').then(refetch)}}
-                          className="text-[11px] text-amber-700 border border-amber-200 px-2 py-1 rounded hover:bg-amber-50">Aktywuj</button>
+                        <Button variant="outline" size="sm"
+                          className="h-7 text-[11px] text-amber-700 border-amber-200 hover:bg-amber-50"
+                          onClick={e=>{e.stopPropagation();productionPlansApi.updateStatus(plan.id,'active').then(refetch)}}>
+                          Aktywuj
+                        </Button>
                       )}
                       {plan.status==='active'&&(
-                        <button onClick={e=>{e.stopPropagation();productionPlansApi.updateStatus(plan.id,'done').then(refetch)}}
-                          className="text-[11px] text-green-700 border border-green-200 px-2 py-1 rounded hover:bg-green-50">Zakończ</button>
+                        <Button variant="outline" size="sm"
+                          className="h-7 text-[11px] text-green-700 border-green-200 hover:bg-green-50"
+                          onClick={e=>{e.stopPropagation();productionPlansApi.updateStatus(plan.id,'done').then(refetch)}}>
+                          Zakończ
+                        </Button>
                       )}
-                      {isExp?<ChevronUp size={16} className="text-ink-4"/>:<ChevronDown size={16} className="text-ink-4"/>}
+                      {isExp?<ChevronUp size={16} className="text-muted-foreground"/>:<ChevronDown size={16} className="text-muted-foreground"/>}
                     </div>
                   </div>
                   {isExp&&(
-                    <div className="px-4 pb-3 bg-surface-2/50 border-t border-surface-4 overflow-x-auto">
-                      <table className="w-full text-[11px] mt-2">
-                        <thead>
-                          <tr className="text-ink-4 uppercase text-[9px] font-semibold tracking-wider">
+                    <div className="px-4 pb-3 bg-muted/30 border-t overflow-x-auto">
+                      <Table className="text-[11px] mt-2">
+                        <TableHeader>
+                          <TableRow>
                             {['Szt','kg/szt','Razem','Receptura','Tuleja','Partie mięsa','Klient'].map(h=>(
-                              <th key={h} className="text-left pb-1 pr-3">{h}</th>
+                              <TableHead key={h} className="text-[9px] uppercase tracking-wider h-7 px-3">{h}</TableHead>
                             ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-surface-4">
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
                           {plan.lines.map(l=>(
-                            <tr key={l.id}>
-                              <td className="py-1.5 font-bold pr-3">{l.qty}</td>
-                              <td className="py-1.5 pr-3">{l.kgPerUnit} kg</td>
-                              <td className="py-1.5 font-bold text-brand pr-3">{fmtKg(l.totalKg,0)} kg</td>
-                              <td className="py-1.5 pr-3">{l.recipeName}</td>
-                              <td className="py-1.5 text-ink-3 pr-3">{l.packagingName||'—'}</td>
-                              <td className="py-1.5 pr-3">
+                            <TableRow key={l.id}>
+                              <TableCell className="py-1.5 font-bold px-3">{l.qty}</TableCell>
+                              <TableCell className="py-1.5 px-3">{l.kgPerUnit} kg</TableCell>
+                              <TableCell className="py-1.5 font-bold text-primary px-3">{fmtKg(l.totalKg,0)} kg</TableCell>
+                              <TableCell className="py-1.5 px-3">{l.recipeName}</TableCell>
+                              <TableCell className="py-1.5 text-muted-foreground px-3">{l.packagingName||'—'}</TableCell>
+                              <TableCell className="py-1.5 px-3">
                                 {(l as any).seasonedBatchNos?.length>0
                                   ? <div className="flex gap-1 flex-wrap">
                                       {(l as any).seasonedBatchNos.map((n:string)=>(
-                                        <span key={n} className="font-mono text-green-700 text-[10px] bg-green-50 px-1 py-0.5 rounded">{n}</span>
+                                        <Badge key={n} variant="outline" className="font-mono text-green-700 bg-green-50 border-green-200 text-[10px] h-5">{n}</Badge>
                                       ))}
                                     </div>
                                   : l.seasonedBatchNo
                                     ? <span className="font-mono text-green-700">{l.seasonedBatchNo}</span>
                                     : <span className="text-amber-600">Do przydzielenia</span>
                                 }
-                              </td>
-                              <td className="py-1.5 text-ink-3 text-[10px]">{l.clientName||'—'}</td>
-                            </tr>
+                              </TableCell>
+                              <TableCell className="py-1.5 text-muted-foreground text-[10px] px-3">{l.clientName||'—'}</TableCell>
+                            </TableRow>
                           ))}
-                        </tbody>
-                      </table>
+                        </TableBody>
+                      </Table>
                     </div>
                   )}
                 </div>
@@ -813,13 +877,16 @@ export function ProductionPlanningPage() {
             })}
           </div>
         )}
-      </div>
+      </Card>
 
-      {modal&&(
-        <Modal open title="Nowy plan produkcji" onClose={()=>setModal(false)} size="xl">
+      <Dialog open={modal} onOpenChange={open=>!open&&setModal(false)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Nowy plan produkcji</DialogTitle>
+          </DialogHeader>
           <PlanForm onSave={handleCreate} onClose={()=>setModal(false)}/>
-        </Modal>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
