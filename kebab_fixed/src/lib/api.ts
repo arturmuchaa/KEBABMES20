@@ -28,11 +28,18 @@ import type {
 } from './mockApi'
 
 // URL backendu:
-//   TRYB DEV (Tauri/przeglądarka w sieci LAN): ustaw VITE_API_URL=http://192.168.1.190:8000
-//   TRYB VPS (nginx proxy): zostaw VITE_API_URL="" — wtedy użyjemy ścieżki względnej /api
-const BASE = import.meta.env.VITE_API_URL
-  ? `${import.meta.env.VITE_API_URL}/api`
-  : '/api'
+//   Przeglądarka (VPS):  VITE_API_URL=""  → fetch('/api') → nginx proxy
+//   Tauri (desktop):     VITE_API_URL="http://204.168.166.34" → fetch absolutny do serwera
+//
+// Tauri nie może używać ścieżek względnych (/api) bo nie ma serwera HTTP lokalnie.
+// Wykrywamy środowisko Tauri przez window.__TAURI_INTERNALS__ ustawiane przez runtime.
+const _isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+
+const BASE = (() => {
+  if (import.meta.env.VITE_API_URL) return `${import.meta.env.VITE_API_URL}/api`
+  if (_isTauri) return 'http://204.168.166.34/api'  // fallback dla Tauri bez zmiennej
+  return '/api'  // przeglądarka — nginx proxy
+})()
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
