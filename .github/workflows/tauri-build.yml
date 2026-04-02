@@ -64,20 +64,18 @@ jobs:
 
       - name: Get version and artifact paths
         id: meta
-        shell: bash
+        shell: pwsh
         run: |
-          VERSION=$(grep '^version' kebab_fixed/src-tauri/Cargo.toml | head -1 | sed 's/version = "//' | sed 's/"//')
-          EXE=$(ls kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe | head -1)
-          SIG=$(ls kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.sig 2>/dev/null | head -1)
-          EXE_NAME=$(basename "$EXE")
-          SIGNATURE=""
-          if [ -n "$SIG" ]; then
-            SIGNATURE=$(cat "$SIG")
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "exe_path=$EXE" >> $GITHUB_OUTPUT
-          echo "exe_name=$EXE_NAME" >> $GITHUB_OUTPUT
-          echo "signature=$SIGNATURE" >> $GITHUB_OUTPUT
+          $VERSION = (Select-String -Path "kebab_fixed/src-tauri/Cargo.toml" -Pattern '^version\s*=\s*"(.+)"').Matches[0].Groups[1].Value
+          $BUNDLE = "kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
+          $EXE = Get-ChildItem "$BUNDLE/*.exe" | Select-Object -First 1
+          $SIG = Get-ChildItem "$BUNDLE/*.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $SIGNATURE = if ($SIG) { (Get-Content $SIG.FullName -Raw).Trim() } else { "" }
+          "version=$VERSION"          >> $env:GITHUB_OUTPUT
+          "exe_path=$($EXE.FullName)" >> $env:GITHUB_OUTPUT
+          "exe_name=$($EXE.Name)"     >> $env:GITHUB_OUTPUT
+          "signature=$SIGNATURE"      >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $VERSION | EXE: $($EXE.Name)"
 
       - name: Create GitHub Release and upload installer
         uses: softprops/action-gh-release@v2
@@ -96,33 +94,35 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update latest.json for auto-updater
-        shell: bash
+        shell: pwsh
         run: |
-          VERSION="${{ steps.meta.outputs.version }}"
-          EXE_NAME="${{ steps.meta.outputs.exe_name }}"
-          SIGNATURE="${{ steps.meta.outputs.signature }}"
-          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          URL="https://github.com/arturmuchaa/kebabmes20/releases/download/v${VERSION}/${EXE_NAME}"
+          $VERSION   = "${{ steps.meta.outputs.version }}"
+          $EXE_NAME  = "${{ steps.meta.outputs.exe_name }}"
+          $SIGNATURE = "${{ steps.meta.outputs.signature }}"
+          $PUB_DATE  = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
+          $URL       = "https://github.com/arturmuchaa/kebabmes20/releases/download/v${VERSION}/${EXE_NAME}"
 
-          cat > latest.json << EOF
-          {
-            "version": "${VERSION}",
-            "notes": "Nowa wersja Kebab MES ${VERSION}",
-            "pub_date": "${PUB_DATE}",
-            "platforms": {
-              "windows-x86_64": {
-                "signature": "${SIGNATURE}",
-                "url": "${URL}"
+          $json = @{
+            version  = $VERSION
+            notes    = "Nowa wersja Kebab MES $VERSION"
+            pub_date = $PUB_DATE
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $SIGNATURE
+                url       = $URL
               }
             }
-          }
-          EOF
+          } | ConvertTo-Json -Depth 5
+          $json | Set-Content -Path "latest.json" -Encoding UTF8
 
           git config user.email "github-actions@github.com"
           git config user.name "GitHub Actions"
           git add latest.json
-          git diff --staged --quiet || git commit -m "chore: update latest.json to v${VERSION} [skip ci]"
-          git push origin HEAD:main || git push origin HEAD:claude/kebab-mes-dashboard-BLmao
+          $diff = git diff --staged --name-only
+          if ($diff) {
+            git commit -m "chore: update latest.json to v${VERSION} [skip ci]"
+            git push origin HEAD:claude/kebab-mes-dashboard-BLmao
+          }
 
       - name: Upload installer artifact (backup)
         uses: actions/upload-artifact@v4
