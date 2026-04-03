@@ -244,8 +244,13 @@ export function PlanningPage() {
                   <TableCell className="px-3 py-2 font-mono font-bold text-primary">{o.orderNo}</TableCell>
                   <TableCell className="px-3 py-2">{o.recipeName}</TableCell>
                   <TableCell className="px-3 py-2 text-muted-foreground">{o.productTypeName ?? '—'}</TableCell>
-                  <TableCell className="px-3 py-2 font-semibold">{fmtKg(o.meatKg)} kg</TableCell>
-                  <TableCell className="px-3 py-2 text-green-700 font-semibold">{fmtKg(o.plannedOutputKg)} kg</TableCell>
+                  <TableCell className="px-3 py-2 font-semibold text-muted-foreground tabular-nums">{fmtKg(o.meatKg)} kg</TableCell>
+                  <TableCell className="px-3 py-2">
+                    <span className="text-green-700 font-bold tabular-nums">{fmtKg(o.plannedOutputKg)} kg</span>
+                    {o.plannedOutputKg > o.meatKg + 0.5 && (
+                      <div className="text-[10px] text-green-600 tabular-nums">+{fmtKg(o.plannedOutputKg - o.meatKg)} kg uzysk</div>
+                    )}
+                  </TableCell>
                   <TableCell className="px-3 py-2 text-muted-foreground">{o.machineId ? `Masownica ${o.machineId}` : '—'}</TableCell>
                   <TableCell className="px-3 py-2">
                     <Badge variant="outline" className={STATUS_CLASS[o.status]}>

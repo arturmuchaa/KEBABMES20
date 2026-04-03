@@ -1,16 +1,17 @@
 /**
  * RawStockPage — Magazyn surowca
  */
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { meatStockApi, deboningApi, rawBatchesApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
-import { Eye, ArrowRight, Beef, Layers, Package } from 'lucide-react'
+import { Eye, ArrowRight, Beef, Layers, Package, ChevronDown, ChevronUp, ChevronsUpDown, Search } from 'lucide-react'
 import type { MeatStock, DeboningSession, RawBatch } from '@/types'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -143,6 +144,19 @@ export function RawStockPage() {
   const [traceItem, setTraceItem] = useState<{
     type: 'meat' | 'backs' | 'bones'; item?: MeatStock; session?: DeboningSession; batch?: RawBatch
   } | null>(null)
+  const [filter,   setFilter]   = useState('')
+  const [sortCol,  setSortCol]  = useState<string>('expiryDate')
+  const [sortDir,  setSortDir]  = useState<'asc'|'desc'>('asc')
+
+  const toggleSort = (col: string) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
+
+  const SortIcon = ({ col }: { col: string }) =>
+    sortCol === col
+      ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
+      : <ChevronsUpDown size={11} className="opacity-30"/>
 
   const meatList = meatData?.data ?? []
   const sessions = debData?.data  ?? []
@@ -154,6 +168,74 @@ export function RawStockPage() {
 
   const backsItems = sessions.filter(s => Number(s.kgBacks || 0) > 0)
   const bonesItems = sessions.filter(s => Number(s.kgBones || 0) > 0)
+
+  // Filtered + sorted lists
+  const filteredMeat = useMemo(() => {
+    const q = filter.toLowerCase()
+    const getBatch = (m: MeatStock) => batches.find(b => b.id === m.rawBatchId || b.internalBatchNo === m.rawBatchNo)
+    const filtered = q
+      ? meatList.filter(m => {
+          const b = getBatch(m)
+          return (m.lotNo||'').toLowerCase().includes(q) ||
+                 (m.rawBatchNo||'').toLowerCase().includes(q) ||
+                 (b?.supplierName||'').toLowerCase().includes(q)
+        })
+      : meatList
+    return [...filtered].sort((a, b) => {
+      let cmp = 0
+      if (sortCol === 'expiryDate')   cmp = (a.expiryDate||'').localeCompare(b.expiryDate||'')
+      if (sortCol === 'kgAvailable')  cmp = Number(a.kgAvailable) - Number(b.kgAvailable)
+      if (sortCol === 'lotNo')        cmp = (a.lotNo||'').localeCompare(b.lotNo||'')
+      if (sortCol === 'rawBatchNo')   cmp = (a.rawBatchNo||'').localeCompare(b.rawBatchNo||'')
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [meatList, batches, filter, sortCol, sortDir])
+
+  const filteredBacks = useMemo(() => {
+    const q = filter.toLowerCase()
+    const getBatch = (s: DeboningSession) => batches.find(b => b.id === s.rawBatchId)
+    const filtered = q
+      ? backsItems.filter(s => {
+          const b = getBatch(s)
+          return (b?.internalBatchNo||'').toLowerCase().includes(q) ||
+                 (b?.supplierName||'').toLowerCase().includes(q) ||
+                 (s.rawBatchNo||'').toLowerCase().includes(q)
+        })
+      : backsItems
+    return [...filtered].sort((a, b) => {
+      let cmp = 0
+      const ba = batches.find(x => x.id === a.rawBatchId)
+      const bb = batches.find(x => x.id === b.rawBatchId)
+      if (sortCol === 'supplierName') cmp = (ba?.supplierName||'').localeCompare(bb?.supplierName||'')
+      if (sortCol === 'kgAvailable')  cmp = Number(a.kgBacks||0) - Number(b.kgBacks||0)
+      if (sortCol === 'rawBatchNo')   cmp = (ba?.internalBatchNo||'').localeCompare(bb?.internalBatchNo||'')
+      if (sortCol === 'expiryDate')   cmp = (a.createdAt||'').localeCompare(b.createdAt||'')
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [backsItems, batches, filter, sortCol, sortDir])
+
+  const filteredBones = useMemo(() => {
+    const q = filter.toLowerCase()
+    const getBatch = (s: DeboningSession) => batches.find(b => b.id === s.rawBatchId)
+    const filtered = q
+      ? bonesItems.filter(s => {
+          const b = getBatch(s)
+          return (b?.internalBatchNo||'').toLowerCase().includes(q) ||
+                 (b?.supplierName||'').toLowerCase().includes(q) ||
+                 (s.rawBatchNo||'').toLowerCase().includes(q)
+        })
+      : bonesItems
+    return [...filtered].sort((a, b) => {
+      let cmp = 0
+      const ba = batches.find(x => x.id === a.rawBatchId)
+      const bb = batches.find(x => x.id === b.rawBatchId)
+      if (sortCol === 'supplierName') cmp = (ba?.supplierName||'').localeCompare(bb?.supplierName||'')
+      if (sortCol === 'kgAvailable')  cmp = Number(a.kgBones||0) - Number(b.kgBones||0)
+      if (sortCol === 'rawBatchNo')   cmp = (ba?.internalBatchNo||'').localeCompare(bb?.internalBatchNo||'')
+      if (sortCol === 'expiryDate')   cmp = (a.createdAt||'').localeCompare(b.createdAt||'')
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [bonesItems, batches, filter, sortCol, sortDir])
 
   const loading = meatLoading || debLoading
 
@@ -200,10 +282,19 @@ export function RawStockPage() {
 
       {/* Content */}
       <Card>
-        <div className="px-5 py-3 border-b">
-          <CardTitle className="text-sm font-semibold">
+        <div className="px-4 py-2.5 border-b flex items-center gap-3">
+          <CardTitle className="text-sm font-semibold flex-1">
             {activeTab === 'meat' ? 'Mięso Z/S' : activeTab === 'backs' ? 'Grzbiety' : 'Kości'}
           </CardTitle>
+          <div className="relative w-52">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="h-8 pl-8 text-xs"
+              placeholder="Filtruj partię, dostawcę…"
+              value={filter}
+              onChange={e => { setFilter(e.target.value); setSortCol('expiryDate'); setSortDir('asc') }}
+            />
+          </div>
         </div>
         <CardContent className="p-0">
           {loading ? (
@@ -217,17 +308,29 @@ export function RawStockPage() {
                 <CardTitle className="text-sm font-medium text-muted-foreground">Brak mięsa</CardTitle>
                 <CardDescription>Mięso pojawi się po rozbiorze</CardDescription>
               </div>
+            ) : filteredMeat.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-2">
+                <Search size={28} className="text-muted-foreground opacity-20" />
+                <CardDescription>Brak wyników dla &ldquo;{filter}&rdquo;</CardDescription>
+              </div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    {['Nr partii mięsa / Partia','Dostępne','Daty',''].map(h => (
-                      <TableHead key={h} className="text-xs uppercase tracking-wide">{h}</TableHead>
-                    ))}
+                    <TableHead className="text-xs uppercase tracking-wide cursor-pointer select-none" onClick={() => toggleSort('rawBatchNo')}>
+                      <div className="flex items-center gap-1">Nr partii mięsa / Partia <SortIcon col="rawBatchNo"/></div>
+                    </TableHead>
+                    <TableHead className="text-xs uppercase tracking-wide cursor-pointer select-none" onClick={() => toggleSort('kgAvailable')}>
+                      <div className="flex items-center gap-1">Dostępne <SortIcon col="kgAvailable"/></div>
+                    </TableHead>
+                    <TableHead className="text-xs uppercase tracking-wide cursor-pointer select-none" onClick={() => toggleSort('expiryDate')}>
+                      <div className="flex items-center gap-1">Daty <SortIcon col="expiryDate"/></div>
+                    </TableHead>
+                    <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {meatList.map(m => {
+                  {filteredMeat.map(m => {
                     const batch = batches.find(b => b.id === m.rawBatchId || b.internalBatchNo === m.rawBatchNo)
                     return (
                       <TableRow key={m.id}>
@@ -275,17 +378,31 @@ export function RawStockPage() {
                 <CardTitle className="text-sm font-medium text-muted-foreground">Brak grzbietów</CardTitle>
                 <CardDescription>Grzbiety pojawią się po rozbiorze</CardDescription>
               </div>
+            ) : filteredBacks.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-2">
+                <Search size={28} className="text-muted-foreground opacity-20" />
+                <CardDescription>Brak wyników dla &ldquo;{filter}&rdquo;</CardDescription>
+              </div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    {['Partia','Dostawca','Grzbiety kg','Data'].map(h => (
-                      <TableHead key={h} className="text-xs uppercase tracking-wide">{h}</TableHead>
-                    ))}
+                    <TableHead className="text-xs uppercase tracking-wide cursor-pointer select-none" onClick={() => toggleSort('rawBatchNo')}>
+                      <div className="flex items-center gap-1">Partia <SortIcon col="rawBatchNo"/></div>
+                    </TableHead>
+                    <TableHead className="text-xs uppercase tracking-wide cursor-pointer select-none" onClick={() => toggleSort('supplierName')}>
+                      <div className="flex items-center gap-1">Dostawca <SortIcon col="supplierName"/></div>
+                    </TableHead>
+                    <TableHead className="text-xs uppercase tracking-wide cursor-pointer select-none" onClick={() => toggleSort('kgAvailable')}>
+                      <div className="flex items-center gap-1">Grzbiety kg <SortIcon col="kgAvailable"/></div>
+                    </TableHead>
+                    <TableHead className="text-xs uppercase tracking-wide cursor-pointer select-none" onClick={() => toggleSort('expiryDate')}>
+                      <div className="flex items-center gap-1">Data <SortIcon col="expiryDate"/></div>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {backsItems.map((s, i) => {
+                  {filteredBacks.map((s, i) => {
                     const batch = batches.find(b => b.id === s.rawBatchId)
                     return (
                       <TableRow key={i}>
@@ -312,17 +429,31 @@ export function RawStockPage() {
                 <CardTitle className="text-sm font-medium text-muted-foreground">Brak kości</CardTitle>
                 <CardDescription>Kości pojawią się po rozbiorze</CardDescription>
               </div>
+            ) : filteredBones.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-2">
+                <Search size={28} className="text-muted-foreground opacity-20" />
+                <CardDescription>Brak wyników dla &ldquo;{filter}&rdquo;</CardDescription>
+              </div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    {['Partia','Dostawca','Kości kg','Data'].map(h => (
-                      <TableHead key={h} className="text-xs uppercase tracking-wide">{h}</TableHead>
-                    ))}
+                    <TableHead className="text-xs uppercase tracking-wide cursor-pointer select-none" onClick={() => toggleSort('rawBatchNo')}>
+                      <div className="flex items-center gap-1">Partia <SortIcon col="rawBatchNo"/></div>
+                    </TableHead>
+                    <TableHead className="text-xs uppercase tracking-wide cursor-pointer select-none" onClick={() => toggleSort('supplierName')}>
+                      <div className="flex items-center gap-1">Dostawca <SortIcon col="supplierName"/></div>
+                    </TableHead>
+                    <TableHead className="text-xs uppercase tracking-wide cursor-pointer select-none" onClick={() => toggleSort('kgAvailable')}>
+                      <div className="flex items-center gap-1">Kości kg <SortIcon col="kgAvailable"/></div>
+                    </TableHead>
+                    <TableHead className="text-xs uppercase tracking-wide cursor-pointer select-none" onClick={() => toggleSort('expiryDate')}>
+                      <div className="flex items-center gap-1">Data <SortIcon col="expiryDate"/></div>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {bonesItems.map((s, i) => {
+                  {filteredBones.map((s, i) => {
                     const batch = batches.find(b => b.id === s.rawBatchId)
                     return (
                       <TableRow key={i}>

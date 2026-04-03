@@ -2,16 +2,17 @@
  * SeasonedMeatPage — Magazyn mięsa przyprawionego
  * FEFO, pełna traceability RAW→CUTTING→SEASONED
  */
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { seasonedMeatApi } from '@/lib/apiClient'
-import { fmtKg, fmtDatePl } from '@/lib/utils'
+import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
-import { Beef, AlertTriangle, ChevronRight, Eye, ChevronDown, ChevronUp } from 'lucide-react'
+import { Beef, AlertTriangle, ChevronRight, Eye, ChevronDown, ChevronUp, ChevronsUpDown, Search } from 'lucide-react'
 import type { SeasonedMeatBatch } from '@/lib/mockApi'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -206,9 +207,35 @@ export function SeasonedMeatPage() {
   const { data: all }           = useApi(() => seasonedMeatApi.all())
   const [traceId,   setTraceId] = useState<string | null>(null)
   const [expanded,  setExpanded] = useState<string | null>(null)
+  const [filter,    setFilter]   = useState('')
+  const [sortCol,   setSortCol]  = useState<'batchNo'|'recipeName'|'kgAvailable'|'expiryDate'>('expiryDate')
+  const [sortDir,   setSortDir]  = useState<'asc'|'desc'>('asc')
 
-  const batches    = data ?? []
+  const toggleSort = (col: typeof sortCol) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
+
+  const raw        = data ?? []
   const allBatches = all  ?? []
+
+  const batches = useMemo(() => {
+    const q = filter.toLowerCase()
+    const filtered = q
+      ? raw.filter(b =>
+          b.batchNo.toLowerCase().includes(q) ||
+          (b.recipeName || '').toLowerCase().includes(q)
+        )
+      : raw
+    return [...filtered].sort((a, b) => {
+      let cmp = 0
+      if (sortCol === 'batchNo')      cmp = a.batchNo.localeCompare(b.batchNo)
+      if (sortCol === 'recipeName')   cmp = (a.recipeName||'').localeCompare(b.recipeName||'')
+      if (sortCol === 'kgAvailable')  cmp = a.kgAvailable - b.kgAvailable
+      if (sortCol === 'expiryDate')   cmp = (a.expiryDate||'').localeCompare(b.expiryDate||'')
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [raw, filter, sortCol, sortDir])
   const totalAvail = batches.reduce((s, b) => s + b.kgAvailable, 0)
   const critical   = batches.filter(b => getExpiryStatus(b.expiryDate).daysLeft <= 1)
 
@@ -308,12 +335,51 @@ export function SeasonedMeatPage() {
           <CardTitle className="text-base">Dostępne partie (FEFO)</CardTitle>
         </CardHeader>
         <Separator />
+        {/* Filter + sort bar */}
+        <div className="px-4 py-2 flex flex-wrap items-center gap-2 border-b bg-muted/20">
+          <div className="relative flex-1 min-w-[160px]">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="h-8 pl-8 text-xs"
+              placeholder="Filtruj partię lub recepturę…"
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-1 flex-wrap">
+            {([
+              ['expiryDate', 'Ważność'],
+              ['recipeName', 'Receptura'],
+              ['kgAvailable', 'kg'],
+              ['batchNo', 'Partia'],
+            ] as const).map(([col, label]) => (
+              <Button
+                key={col}
+                variant={sortCol === col ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 text-xs gap-1 px-2"
+                onClick={() => toggleSort(col)}
+              >
+                {label}
+                {sortCol === col
+                  ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
+                  : <ChevronsUpDown size={11} className="opacity-40"/>
+                }
+              </Button>
+            ))}
+          </div>
+        </div>
         <CardContent className="p-0">
-          {batches.length === 0 ? (
+          {raw.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-2">
               <Beef size={36} className="text-muted-foreground opacity-20" />
               <CardTitle className="text-sm font-medium text-muted-foreground">Brak mięsa przyprawionego</CardTitle>
               <CardDescription>Zrealizuj zlecenia masowania</CardDescription>
+            </div>
+          ) : batches.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-2">
+              <Search size={28} className="text-muted-foreground opacity-20" />
+              <CardDescription>Brak wyników dla &ldquo;{filter}&rdquo;</CardDescription>
             </div>
           ) : (
             <div className="divide-y">

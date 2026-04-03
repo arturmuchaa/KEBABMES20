@@ -1,15 +1,16 @@
 /**
  * FinishedGoodsPage — Magazyn wyrobów gotowych
  */
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { finishedGoodsApi } from '@/lib/apiClient'
-import { fmtKg, fmtDatePl } from '@/lib/utils'
-import { Eye, ShoppingBag, ChevronDown, ChevronUp } from 'lucide-react'
+import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
+import { Eye, ShoppingBag, ChevronDown, ChevronUp, ChevronsUpDown, Search } from 'lucide-react'
 import type { FinishedGoodsItem } from '@/lib/mockApi'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -107,13 +108,51 @@ function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () =
   )
 }
 
+type SortCol = 'batchNo' | 'productTypeName' | 'clientName' | 'qty' | 'totalKg' | 'producedDate'
+
 export function FinishedGoodsPage() {
   const { data: items, loading } = useApi(() => finishedGoodsApi.list())
   const [detailItem, setDetailItem] = useState<FinishedGoodsItem | null>(null)
+  const [filter,   setFilter]   = useState('')
+  const [sortCol,  setSortCol]  = useState<SortCol>('producedDate')
+  const [sortDir,  setSortDir]  = useState<'asc'|'desc'>('desc')
 
-  const list     = items ?? []
-  const totalQty = list.reduce((s, i) => s + i.qtyAvailable, 0)
-  const totalKg  = list.reduce((s, i) => s + i.qtyAvailable * i.kgPerUnit, 0)
+  const toggleSort = (col: SortCol) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
+
+  const SortIcon = ({ col }: { col: SortCol }) =>
+    sortCol === col
+      ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
+      : <ChevronsUpDown size={11} className="opacity-30"/>
+
+  const rawList = items ?? []
+
+  const list = useMemo(() => {
+    const q = filter.toLowerCase()
+    const filtered = q
+      ? rawList.filter(i =>
+          i.batchNo.toLowerCase().includes(q) ||
+          (i.clientName || '').toLowerCase().includes(q) ||
+          (i.productTypeName || '').toLowerCase().includes(q) ||
+          (i.recipeName || '').toLowerCase().includes(q)
+        )
+      : rawList
+    return [...filtered].sort((a, b) => {
+      let cmp = 0
+      if (sortCol === 'batchNo')        cmp = a.batchNo.localeCompare(b.batchNo)
+      if (sortCol === 'productTypeName')cmp = (a.productTypeName||'').localeCompare(b.productTypeName||'')
+      if (sortCol === 'clientName')     cmp = (a.clientName||'').localeCompare(b.clientName||'')
+      if (sortCol === 'qty')            cmp = a.qtyAvailable - b.qtyAvailable
+      if (sortCol === 'totalKg')        cmp = (a.qtyAvailable * a.kgPerUnit) - (b.qtyAvailable * b.kgPerUnit)
+      if (sortCol === 'producedDate')   cmp = (a.producedDate||'').localeCompare(b.producedDate||'')
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [rawList, filter, sortCol, sortDir])
+
+  const totalQty = rawList.reduce((s, i) => s + i.qtyAvailable, 0)
+  const totalKg  = rawList.reduce((s, i) => s + i.qtyAvailable * i.kgPerUnit, 0)
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -121,9 +160,9 @@ export function FinishedGoodsPage() {
       {/* KPI */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Pozycje',      val: list.length,       accent: '' },
-          { label: 'Dostępne szt', val: totalQty,          accent: '' },
-          { label: 'Łącznie kg',   val: fmtKg(totalKg),   accent: 'text-green-700' },
+          { label: 'Pozycje',      val: rawList.length,       accent: '' },
+          { label: 'Dostępne szt', val: totalQty,             accent: '' },
+          { label: 'Łącznie kg',   val: fmtKg(totalKg),       accent: 'text-green-700' },
         ].map(k => (
           <Card key={k.label}>
             <CardContent className="p-4">
@@ -136,27 +175,77 @@ export function FinishedGoodsPage() {
 
       {/* Table */}
       <Card>
-        <div className="px-5 py-3 border-b">
+        <div className="px-5 py-3 border-b flex items-center justify-between gap-3">
           <CardTitle className="text-sm font-semibold">{list.length} partii wyrobów gotowych</CardTitle>
+          <div className="relative w-56">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="h-8 pl-8 text-xs"
+              placeholder="Filtruj klienta, produkt…"
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+            />
+          </div>
         </div>
         <CardContent className="p-0">
           {loading ? (
             <div className="p-4 space-y-3">
               {[0,1,2,3].map(i => <Skeleton key={i} className="h-12 w-full" />)}
             </div>
-          ) : list.length === 0 ? (
+          ) : rawList.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-2">
               <ShoppingBag size={36} className="text-muted-foreground opacity-20" />
               <CardTitle className="text-sm font-medium text-muted-foreground">Brak wyrobów</CardTitle>
               <CardDescription>Wyroby pojawią się po zakończeniu dnia produkcji</CardDescription>
             </div>
+          ) : list.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-2">
+              <Search size={28} className="text-muted-foreground opacity-20" />
+              <CardDescription>Brak wyników dla &ldquo;{filter}&rdquo;</CardDescription>
+            </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  {['Nr partii','Produkt · Receptura','Klient','Szt','kg/szt','Łącznie','Data','Partie mięsa',''].map(h => (
-                    <TableHead key={h} className="text-xs uppercase tracking-wide whitespace-nowrap">{h}</TableHead>
-                  ))}
+                  <TableHead
+                    className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
+                    onClick={() => toggleSort('batchNo')}
+                  >
+                    <div className="flex items-center gap-1">Nr partii <SortIcon col="batchNo"/></div>
+                  </TableHead>
+                  <TableHead
+                    className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
+                    onClick={() => toggleSort('productTypeName')}
+                  >
+                    <div className="flex items-center gap-1">Produkt · Receptura <SortIcon col="productTypeName"/></div>
+                  </TableHead>
+                  <TableHead
+                    className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
+                    onClick={() => toggleSort('clientName')}
+                  >
+                    <div className="flex items-center gap-1">Klient <SortIcon col="clientName"/></div>
+                  </TableHead>
+                  <TableHead
+                    className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
+                    onClick={() => toggleSort('qty')}
+                  >
+                    <div className="flex items-center gap-1">Szt <SortIcon col="qty"/></div>
+                  </TableHead>
+                  <TableHead className="text-xs uppercase tracking-wide whitespace-nowrap">kg/szt</TableHead>
+                  <TableHead
+                    className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
+                    onClick={() => toggleSort('totalKg')}
+                  >
+                    <div className="flex items-center gap-1">Łącznie <SortIcon col="totalKg"/></div>
+                  </TableHead>
+                  <TableHead
+                    className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
+                    onClick={() => toggleSort('producedDate')}
+                  >
+                    <div className="flex items-center gap-1">Data <SortIcon col="producedDate"/></div>
+                  </TableHead>
+                  <TableHead className="text-xs uppercase tracking-wide whitespace-nowrap">Partie mięsa</TableHead>
+                  <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
