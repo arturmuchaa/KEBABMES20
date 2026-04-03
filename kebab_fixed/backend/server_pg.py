@@ -2111,9 +2111,10 @@ def create_deboning_session_alias(body: dict):
 # sessions: historia sesji masowania
 
 class MixingLotDto(BaseModel):
-    # Akceptuje camelCase z frontendu
-    meatLotId: str = ""
-    kgPlanned: float = 0
+    # Akceptuje camelCase (meatLotId) i snake_case (meat_lot_id)
+    model_config = {"populate_by_name": True}
+    meatLotId: str = Field("", alias="meat_lot_id")
+    kgPlanned: float = Field(0, alias="kg_planned")
 
 class MixingOrderCreate(BaseModel):
     # Akceptuje zarówno camelCase (frontend) jak i snake_case
