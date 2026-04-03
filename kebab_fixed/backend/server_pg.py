@@ -140,6 +140,35 @@ def startup():
         logger.info("✓ Migracje OK")
     except Exception as e:
         logger.warning(f"Migracja: {e}")
+    # Backfill source_deboning_ids dla starych partii (bezpieczne, tylko puste)
+    try:
+        old_batches = query_all(
+            "SELECT id, mixing_order_no FROM seasoned_meat "
+            "WHERE source_deboning_ids = '{}' OR source_deboning_ids IS NULL")
+        fixed = 0
+        for sm in old_batches:
+            mo = query_one("SELECT id FROM mixing_orders WHERE order_no=%s",
+                           (sm.get('mixing_order_no'),)) if sm.get('mixing_order_no') else None
+            if not mo:
+                continue
+            lots = query_all("""
+                SELECT ms.deboning_session_id
+                FROM mixing_order_lots mol
+                LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+                WHERE mol.order_id = %s AND ms.deboning_session_id IS NOT NULL
+            """, (mo['id'],))
+            deb_ids = list({lt['deboning_session_id'] for lt in lots if lt.get('deboning_session_id')})
+            if deb_ids:
+                execute("""
+                    UPDATE seasoned_meat SET source_deboning_ids = %s::text[]
+                    WHERE id = %s AND (source_deboning_ids = '{}' OR source_deboning_ids IS NULL)
+                """, (deb_ids, sm['id']))
+                fixed += 1
+        if fixed:
+            logger.info(f"✓ Backfill lineage: naprawiono {fixed} partii mięsa przyprawionego")
+    except Exception as e:
+        logger.warning(f"Backfill lineage: {e}")
+
     # Zapewnij że sekwencja mixed_seq istnieje (numery MPP dla łączonych partii)
     try:
         execute("INSERT INTO sequences (key, value) VALUES ('mixed_seq', 0) ON CONFLICT (key) DO NOTHING")
@@ -858,6 +887,50 @@ def seasoned_trace(id: str):
                 "supplier":      sup,
                 "deboningEntry": _map_deboning_entry(deb) if deb else None,
             })
+
+    # Fallback: stare partie bez mixing_order_lots → szukaj przez source_deboning_ids
+    if not meat_lots_detail and batch.get('source_deboning_ids'):
+        for deb_id in (batch.get('source_deboning_ids') or []):
+            if not deb_id:
+                continue
+            deb = query_one("SELECT * FROM deboning_entries WHERE id=%s", (deb_id,))
+            if not deb:
+                continue
+            rb = query_one("SELECT * FROM raw_batches WHERE id=%s", (deb.get('raw_batch_id'),)) if deb.get('raw_batch_id') else None
+            sup = query_one("SELECT * FROM suppliers WHERE id=%s", (rb['supplier_id'],)) if rb and rb.get('supplier_id') else None
+            ms = query_one("SELECT * FROM meat_stock WHERE deboning_session_id=%s LIMIT 1", (deb_id,))
+            meat_lots_detail.append({
+                "meatStockId":   ms['id'] if ms else '',
+                "meatLotNo":     ms.get('lot_no') if ms else (deb.get('raw_batch_no') or ''),
+                "kgPlanned":     float(deb.get('kg_meat') or 0),
+                "kgActual":      float(deb.get('kg_meat') or 0),
+                "expiryDate":    str(ms.get('expiry_date') or '') if ms else '',
+                "rawBatch":      rb,
+                "supplier":      sup,
+                "deboningEntry": _map_deboning_entry(deb),
+            })
+
+    # Fallback 3: MP{seq} → szukaj raw_batch po internal_batch_seq
+    if not meat_lots_detail:
+        import re as _re
+        mp_match = _re.match(r'^MP(\d+)$', batch.get('batch_no') or '')
+        if mp_match:
+            raw_seq = int(mp_match.group(1))
+            rb = query_one("SELECT * FROM raw_batches WHERE internal_batch_seq=%s", (raw_seq,))
+            if rb:
+                sup = query_one("SELECT * FROM suppliers WHERE id=%s", (rb['supplier_id'],)) if rb.get('supplier_id') else None
+                ms = query_one("SELECT * FROM meat_stock WHERE raw_batch_id=%s ORDER BY created_at LIMIT 1", (rb['id'],))
+                deb = query_one("SELECT * FROM deboning_entries WHERE raw_batch_id=%s ORDER BY created_at LIMIT 1", (rb['id'],))
+                meat_lots_detail.append({
+                    "meatStockId":   ms['id'] if ms else '',
+                    "meatLotNo":     ms.get('lot_no') if ms else '',
+                    "kgPlanned":     float(batch.get('kg_produced') or 0),
+                    "kgActual":      float(batch.get('kg_produced') or 0),
+                    "expiryDate":    str(ms.get('expiry_date') or '') if ms else '',
+                    "rawBatch":      rb,
+                    "supplier":      sup,
+                    "deboningEntry": _map_deboning_entry(deb) if deb else None,
+                })
 
     # Podsumowanie
     total_raw_kg  = sum(l['kgPlanned'] for l in meat_lots_detail)
