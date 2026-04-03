@@ -936,6 +936,28 @@ def _resolve_lineage(seasoned_batch_nos: list) -> dict:
         "supplier_ids":       supplier_ids,
     }
 
+# ─── Uzysk: oblicz kg wyjściowe na podstawie receptury ────────
+def _calc_kg_output(recipe_id: str, kg_meat: float) -> float:
+    """
+    Oblicza uzysk: mięso + składniki w kg/L.
+    Pomija składniki w g/ml (np. przyprawy) — te nie wpływają znacząco na masę.
+    Woda (is_unlimited=true) zawsze wliczana.
+    """
+    if not recipe_id or kg_meat <= 0:
+        return round(kg_meat, 3)
+    ings = query_all("""
+        SELECT ri.qty_per_100kg, ri.unit, COALESCE(i.is_unlimited, false) AS is_unlimited
+        FROM recipe_ingredients ri
+        LEFT JOIN ingredients i ON i.id = ri.ingredient_id
+        WHERE ri.recipe_id = %s
+    """, (recipe_id,))
+    additional = sum(
+        float(ing.get('qty_per_100kg') or 0) * kg_meat / 100
+        for ing in ings
+        if (ing.get('unit') or '').lower() in ('kg', 'l') or ing.get('is_unlimited')
+    )
+    return round(kg_meat + additional, 3)
+
 # ─── Write-time lineage: seasoned_meat ←→ mixing_order ────────
 def _populate_seasoned_meat_lineage(batch_no: str, order_id: str) -> None:
     """
@@ -2253,8 +2275,7 @@ def create_mixing_order(dto: MixingOrderCreate):
     order_no = f"MAS-{year}-{str(seq).zfill(3)}"
     oid = cuid()
 
-    total_output_per_100kg = float(recipe.get('total_output_per_100kg') or 100)
-    planned_output_kg = round(total_output_per_100kg * dto.meat_kg / 100, 2)
+    planned_output_kg = _calc_kg_output(dto.recipe_id, dto.meat_kg)
 
     execute("""
         INSERT INTO mixing_orders
@@ -2371,11 +2392,7 @@ def finish_mixing_session(id: str, body: dict):
 
     meat_kg   = float(order.get('meat_kg') or 0)
     kg_done   = float(order.get('kg_done') or 0) + kg_meat
-    total_out_pct = float(query_one(
-        "SELECT total_output_per_100kg FROM recipes WHERE id=%s",
-        (order.get('recipe_id'),)
-    ).get('total_output_per_100kg') or 100) if order.get('recipe_id') else 100
-    kg_output = round(total_out_pct * kg_meat / 100, 2)
+    kg_output = _calc_kg_output(order.get('recipe_id'), kg_meat)
     new_status = 'done' if kg_done >= meat_kg - 0.1 else 'planned'
 
     # Generuj numer partii jeśli pusty
@@ -2519,7 +2536,8 @@ def seasoned_from_order(order_id: str, body: dict):
     else:
         mixed_seq = next_seq('mixed_seq')
         batch_no = f"MPP{mixed_seq}"
-    kg = float(body.get('kg_produced') or 0)
+    kg_meat_raw = float(body.get('kg_produced') or 0)
+    kg = _calc_kg_output(order.get('recipe_id'), kg_meat_raw)
     expiry = (datetime.utcnow() + timedelta(days=5)).date().isoformat()
     execute("""
         INSERT INTO seasoned_meat
