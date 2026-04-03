@@ -33,20 +33,29 @@ function ExpiryBadge({ date }: { date: string }) {
 }
 
 function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void }) {
-  const { data, loading } = useApi(
+  const { data, loading, error } = useApi(
     () => (seasonedMeatApi as any).getFullTrace(batchId),
     [batchId]
   )
+
+  // Derive rawBatchNos from meatLots (backend doesn't put them in summary)
+  const rawBatchNos: string[] = data
+    ? [...new Set(
+        (data.meatLots ?? [])
+          .map((l: any) => l.rawBatch?.internal_batch_no ?? l.rawBatch?.internalBatchNo)
+          .filter(Boolean) as string[]
+      )]
+    : []
 
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {data ? `Traceability — ${data.seasoned.batchNo}` : 'Traceability'}
+            {data ? `Śledzenie — ${data.seasoned.batchNo}` : 'Śledzenie partii'}
           </DialogTitle>
           <DialogDescription>
-            Pełny łańcuch: Dostawca → Ćwiartka → Rozbiór → Masowanie → Mięso przyprawione
+            Łańcuch: Przyjęcie → Rozbiór → Masowanie → Mięso przyprawione
           </DialogDescription>
         </DialogHeader>
 
@@ -54,14 +63,18 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
           <div className="space-y-3 py-4">
             {[0,1,2].map(i => <Skeleton key={i} className="h-12 w-full" />)}
           </div>
-        ) : !data ? null : (
+        ) : error || !data ? (
+          <div className="py-8 text-center text-sm text-destructive">
+            Błąd ładowania danych śledzenia. Sprawdź połączenie z serwerem.
+          </div>
+        ) : (
           <div className="space-y-4">
-            {/* Podsumowanie */}
+            {/* Podsumowanie kg */}
             <div className="grid grid-cols-3 gap-3">
               {[
-                { label: 'Surowiec (ćwiartka)', val: `${fmtKg(data.summary.totalRawKg)} kg`,    accent: '' },
-                { label: 'Mięso Z/S',           val: `${fmtKg(data.summary.totalMeatKg)} kg`,   accent: 'text-blue-700' },
-                { label: 'Produkt gotowy',       val: `${fmtKg(data.summary.totalOutputKg)} kg`, accent: 'text-green-700' },
+                { label: 'Surowiec (ćwiartka)', val: `${fmtKg(data.summary.totalRawKg ?? 0)} kg`, accent: '' },
+                { label: 'Mięso Z/S',           val: `${fmtKg(data.summary.totalMeatKg ?? 0)} kg`, accent: 'text-blue-700' },
+                { label: 'Dostępne',             val: `${fmtKg(data.seasoned.kgAvailable ?? 0)} kg`, accent: 'text-green-700' },
               ].map(k => (
                 <Card key={k.label} className="bg-muted/40 border-transparent text-center">
                   <CardContent className="p-3">
@@ -72,19 +85,19 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
               ))}
             </div>
 
-            {/* Łańcuch */}
+            {/* Łańcuch partii */}
             <Card className="bg-muted/40 border-transparent">
               <CardContent className="p-3">
                 <CardDescription className="text-[10px] font-bold uppercase tracking-wide mb-2">Łańcuch partii</CardDescription>
                 <div className="flex items-center gap-1 flex-wrap">
-                  {data.summary.rawBatchNos.map((n: string) => (
+                  {rawBatchNos.map(n => (
                     <code key={n} className="font-mono font-black text-blue-700 bg-blue-50 px-2 py-1 rounded text-xs">{n}</code>
                   ))}
-                  <ChevronRight size={12} className="text-muted-foreground" />
-                  {data.seasoned.meatLots.map((l: any) => (
-                    <code key={l.meatLotId} className="font-mono font-bold text-green-700 bg-green-50 px-2 py-1 rounded text-xs">{l.meatLotNo}</code>
+                  {rawBatchNos.length > 0 && <ChevronRight size={12} className="text-muted-foreground" />}
+                  {(data.meatLots ?? []).map((l: any) => (
+                    <code key={l.meatStockId ?? l.meatLotNo} className="font-mono font-bold text-green-700 bg-green-50 px-2 py-1 rounded text-xs">{l.meatLotNo}</code>
                   ))}
-                  <ChevronRight size={12} className="text-muted-foreground" />
+                  {(data.meatLots ?? []).length > 0 && <ChevronRight size={12} className="text-muted-foreground" />}
                   <code className="font-mono font-black text-primary bg-primary/10 px-2 py-1 rounded text-xs">{data.seasoned.batchNo}</code>
                 </div>
               </CardContent>
@@ -92,17 +105,17 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
 
             <Separator />
 
-            {/* Szczegóły */}
+            {/* Szczegóły lotów */}
             <div className="space-y-3">
-              <CardTitle className="text-sm">Szczegóły partii mięsa</CardTitle>
-              {data.meatLots.map((t: any, i: number) => (
+              <CardTitle className="text-sm">Szczegóły — partie mięsa</CardTitle>
+              {(data.meatLots ?? []).map((t: any, i: number) => (
                 <Card key={i}>
                   <div className="flex items-center justify-between px-3 py-2 bg-muted/40 border-b">
-                    <code className="font-mono font-bold text-green-700 text-sm">{t.meatStock?.lotNo ?? '—'}</code>
+                    <code className="font-mono font-bold text-green-700 text-sm">{t.meatLotNo ?? '—'}</code>
                     <div className="flex items-center gap-2">
-                      <CardDescription className="text-xs">{fmtKg(data.seasoned.meatLots[i]?.kgPlanned ?? 0)} kg</CardDescription>
-                      <Badge variant={t.meatStock ? 'success' : 'danger'}>
-                        {t.meatStock ? 'Znaleziono' : '⚠ Brak danych'}
+                      <CardDescription className="text-xs">{fmtKg(t.kgPlanned ?? 0)} kg</CardDescription>
+                      <Badge variant={t.rawBatch ? 'success' : 'danger'}>
+                        {t.rawBatch ? 'Znaleziono' : '⚠ Brak danych'}
                       </Badge>
                     </div>
                   </div>
@@ -115,7 +128,9 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
                           <CardDescription className="text-xs ml-2 inline">
                             {fmtKg(t.deboningEntry.kgTaken)} kg ćwiartki → {fmtKg(t.deboningEntry.kgMeat)} kg mięsa
                           </CardDescription>
-                          <CardDescription className="text-xs ml-2 inline">· {t.deboningEntry.workerName}</CardDescription>
+                          {t.deboningEntry.workerName && (
+                            <CardDescription className="text-xs ml-2 inline">· {t.deboningEntry.workerName}</CardDescription>
+                          )}
                         </div>
                       ) : <CardDescription className="text-xs text-destructive">⚠ Brak wpisu rozbioru</CardDescription>}
                     </div>
@@ -123,10 +138,18 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
                       <CardDescription className="text-xs font-semibold">Ćwiartka</CardDescription>
                       {t.rawBatch ? (
                         <div className="flex items-center gap-3 text-xs flex-wrap">
-                          <code className="font-mono font-bold text-blue-700">{t.rawBatch.internalBatchNo}</code>
-                          <CardDescription className="text-xs">{fmtKg(t.rawBatch.kgReceived)} kg przyjęte</CardDescription>
-                          <CardDescription className="text-xs">ubój: {fmtDatePl(t.rawBatch.slaughterDate)}</CardDescription>
-                          <CardDescription className="text-xs">ważność: {fmtDatePl(t.rawBatch.expiryDate)}</CardDescription>
+                          <code className="font-mono font-bold text-blue-700">
+                            {t.rawBatch.internal_batch_no ?? t.rawBatch.internalBatchNo ?? '—'}
+                          </code>
+                          <CardDescription className="text-xs">
+                            {fmtKg(t.rawBatch.kg_received ?? t.rawBatch.kgReceived ?? 0)} kg przyjęte
+                          </CardDescription>
+                          <CardDescription className="text-xs">
+                            ubój: {fmtDatePl(t.rawBatch.slaughter_date ?? t.rawBatch.slaughterDate ?? '')}
+                          </CardDescription>
+                          <CardDescription className="text-xs">
+                            ważność: {fmtDatePl(t.rawBatch.expiry_date ?? t.rawBatch.expiryDate ?? '')}
+                          </CardDescription>
                         </div>
                       ) : <CardDescription className="text-xs text-destructive">⚠ Brak danych ćwiartki</CardDescription>}
                     </div>
@@ -135,8 +158,12 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
                       {t.supplier ? (
                         <div className="flex items-center gap-3 text-xs flex-wrap">
                           <CardTitle className="text-xs">{t.supplier.name}</CardTitle>
-                          {t.supplier.vetNumber && <CardDescription className="text-xs">wet.: {t.supplier.vetNumber}</CardDescription>}
-                          {t.rawBatch?.supplierBatchNo && <CardDescription className="text-xs">nr: {t.rawBatch.supplierBatchNo}</CardDescription>}
+                          {(t.supplier.vet_number ?? t.supplier.vetNumber) && (
+                            <CardDescription className="text-xs">wet.: {t.supplier.vet_number ?? t.supplier.vetNumber}</CardDescription>
+                          )}
+                          {(t.rawBatch?.supplier_batch_no ?? t.rawBatch?.supplierBatchNo) && (
+                            <CardDescription className="text-xs">nr: {t.rawBatch?.supplier_batch_no ?? t.rawBatch?.supplierBatchNo}</CardDescription>
+                          )}
                         </div>
                       ) : <CardDescription className="text-xs text-destructive">⚠ Brak danych dostawcy</CardDescription>}
                     </div>
@@ -150,9 +177,20 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
               <CardContent className="p-3">
                 <CardDescription className="text-[10px] font-bold uppercase tracking-wide mb-2">Masowanie</CardDescription>
                 <div className="grid grid-cols-3 gap-2 text-xs">
-                  <div><CardDescription className="text-xs">Zlecenie: </CardDescription><code className="font-mono font-bold text-primary">{data.seasoned.mixingOrderNo}</code></div>
-                  <div><CardDescription className="text-xs">Receptura: </CardDescription><CardTitle className="text-xs inline">{data.seasoned.recipeName}</CardTitle></div>
-                  <div><CardDescription className="text-xs">Masownica: </CardDescription><CardTitle className="text-xs inline">{data.seasoned.machineId}</CardTitle></div>
+                  <div>
+                    <CardDescription className="text-xs">Zlecenie:</CardDescription>
+                    <code className="font-mono font-bold text-primary">{data.seasoned.mixingOrderNo ?? '—'}</code>
+                  </div>
+                  <div>
+                    <CardDescription className="text-xs">Receptura:</CardDescription>
+                    <CardTitle className="text-xs inline">{data.seasoned.recipeName ?? '—'}</CardTitle>
+                  </div>
+                  <div>
+                    <CardDescription className="text-xs">Masownica:</CardDescription>
+                    <CardTitle className="text-xs inline">
+                      {data.mixingOrder?.machine_id ?? data.mixingOrder?.machineId ?? '—'}
+                    </CardTitle>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -173,6 +211,16 @@ export function SeasonedMeatPage() {
   const allBatches = all  ?? []
   const totalAvail = batches.reduce((s, b) => s + b.kgAvailable, 0)
   const critical   = batches.filter(b => getExpiryStatus(b.expiryDate).daysLeft <= 1)
+
+  // Grupowanie po recepturze — podsumowanie na górze
+  const byRecipe: Record<string, { kg: number; count: number }> = {}
+  for (const b of batches) {
+    const key = b.recipeName || '—'
+    if (!byRecipe[key]) byRecipe[key] = { kg: 0, count: 0 }
+    byRecipe[key].kg    += b.kgAvailable
+    byRecipe[key].count += 1
+  }
+  const recipeRows = Object.entries(byRecipe).sort((a, b) => b[1].kg - a[1].kg)
 
   if (loading) {
     return (
@@ -210,9 +258,9 @@ export function SeasonedMeatPage() {
       {/* KPI */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Partie dostępne', val: batches.length,          accent: '' },
+          { label: 'Partie dostępne', val: batches.length,             accent: '' },
           { label: 'Łącznie kg',      val: `${fmtKg(totalAvail)} kg`, accent: 'text-green-700' },
-          { label: 'Alerty',          val: critical.length,         accent: critical.length > 0 ? 'text-destructive' : 'text-muted-foreground' },
+          { label: 'Alerty',          val: critical.length,            accent: critical.length > 0 ? 'text-destructive' : 'text-muted-foreground' },
         ].map(k => (
           <Card key={k.label}>
             <CardContent className="p-4">
@@ -222,6 +270,36 @@ export function SeasonedMeatPage() {
           </Card>
         ))}
       </div>
+
+      {/* Podsumowanie wg receptury */}
+      {recipeRows.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Stan według receptury</CardTitle>
+          </CardHeader>
+          <Separator />
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-xs">Receptura</TableHead>
+                  <TableHead className="text-xs text-right">Partii</TableHead>
+                  <TableHead className="text-xs text-right">Łącznie kg</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recipeRows.map(([name, { kg, count }]) => (
+                  <TableRow key={name}>
+                    <TableCell className="font-medium text-sm">{name}</TableCell>
+                    <TableCell className="text-right tabular-nums text-sm">{count}</TableCell>
+                    <TableCell className="text-right tabular-nums font-bold text-green-700 text-sm">{fmtKg(kg)} kg</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       {/* FEFO table */}
       <Card>
@@ -255,7 +333,7 @@ export function SeasonedMeatPage() {
                             <Badge variant="info" className="text-[10px]">{b.productTypeName}</Badge>
                           )}
                         </div>
-                        {/* Mini traceability */}
+                        {/* Mini łańcuch */}
                         <div className="flex items-center gap-1 flex-wrap">
                           {b.rawBatchNos.map(n => (
                             <code key={n} className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{n}</code>
@@ -279,7 +357,7 @@ export function SeasonedMeatPage() {
                           className="h-7 text-xs gap-1"
                           onClick={e => { e.stopPropagation(); setTraceId(b.id) }}
                         >
-                          <Eye size={11} /> Trace
+                          <Eye size={11} /> Śledzenie
                         </Button>
                         {isExp
                           ? <ChevronUp size={14} className="text-muted-foreground" />
@@ -295,12 +373,12 @@ export function SeasonedMeatPage() {
                           <div className="space-y-1">
                             <CardDescription className="text-[10px] font-bold uppercase tracking-wide mb-1">Masowanie</CardDescription>
                             <div>Zlecenie: <code className="font-mono font-bold text-primary">{b.mixingOrderNo}</code></div>
-                            <div>Masownica: <span className="font-medium">{b.machineId}</span></div>
+                            <div>Masownica: <span className="font-medium">{b.machineId ?? '—'}</span></div>
                             <div>Wyprodukowano: <span className="font-medium">{fmtKg(b.kgProduced)} kg</span></div>
-                            <div>Ukończono: <span className="font-medium">{fmtDatePl(b.completedAt.slice(0, 10))}</span></div>
+                            <div>Ukończono: <span className="font-medium">{fmtDatePl(b.completedAt?.slice(0, 10) ?? '')}</span></div>
                           </div>
                           <div className="space-y-1">
-                            <CardDescription className="text-[10px] font-bold uppercase tracking-wide mb-1">Ćwiartki (surowiec)</CardDescription>
+                            <CardDescription className="text-[10px] font-bold uppercase tracking-wide mb-1">Przyjęcie (surowiec)</CardDescription>
                             {(b.rawBatchNos?.length > 0
                               ? b.rawBatchNos
                               : [...new Set(b.meatLots.map((l: any) => l.rawBatchNo).filter(Boolean))]
@@ -309,7 +387,7 @@ export function SeasonedMeatPage() {
                             ))}
                             {b.slaughterDates.length > 0 && (
                               <CardDescription className="text-[10px] mt-1">
-                                Data uboju: {b.slaughterDates.map(d => fmtDatePl(d)).join(', ')}
+                                Data uboju: {b.slaughterDates.map((d: string) => fmtDatePl(d)).join(', ')}
                               </CardDescription>
                             )}
                           </div>
@@ -324,7 +402,7 @@ export function SeasonedMeatPage() {
         </CardContent>
       </Card>
 
-      {/* Historia */}
+      {/* Historia — zużyte partie */}
       {allBatches.filter(b => b.status === 'depleted').length > 0 && (
         <Card>
           <CardHeader className="pb-3">
@@ -333,18 +411,29 @@ export function SeasonedMeatPage() {
           <Separator />
           <CardContent className="p-0">
             <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-xs">Partia</TableHead>
+                  <TableHead className="text-xs">Receptura</TableHead>
+                  <TableHead className="text-xs">Przyjęcie</TableHead>
+                  <TableHead className="text-xs text-right">kg</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
               <TableBody>
                 {allBatches.filter(b => b.status === 'depleted').map(b => (
                   <TableRow key={b.id} className="opacity-60">
-                    <TableCell><code className="font-mono text-muted-foreground text-xs">{b.batchNo}</code></TableCell>
+                    <TableCell><code className="font-mono text-xs">{b.batchNo}</code></TableCell>
                     <TableCell><CardDescription>{b.recipeName}</CardDescription></TableCell>
                     <TableCell>
                       <code className="font-mono text-xs text-muted-foreground">{b.rawBatchNos.join(', ') || '—'}</code>
                     </TableCell>
-                    <TableCell><CardDescription className="tabular-nums">{fmtKg(b.kgProduced)} kg</CardDescription></TableCell>
+                    <TableCell className="text-right">
+                      <CardDescription className="tabular-nums">{fmtKg(b.kgProduced)} kg</CardDescription>
+                    </TableCell>
                     <TableCell>
                       <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setTraceId(b.id)}>
-                        <Eye size={11} /> Trace
+                        <Eye size={11} /> Śledzenie
                       </Button>
                     </TableCell>
                   </TableRow>

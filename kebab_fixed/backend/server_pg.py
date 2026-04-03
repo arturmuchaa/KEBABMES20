@@ -140,6 +140,12 @@ def startup():
         logger.info("✓ Migracje OK")
     except Exception as e:
         logger.warning(f"Migracja: {e}")
+    # Zapewnij że sekwencja mixed_seq istnieje (numery MPP dla łączonych partii)
+    try:
+        execute("INSERT INTO sequences (key, value) VALUES ('mixed_seq', 0) ON CONFLICT (key) DO NOTHING")
+        logger.info("✓ Sekwencja mixed_seq OK")
+    except Exception as e:
+        logger.warning(f"mixed_seq: {e}")
 
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -1527,6 +1533,7 @@ def list_finished():
 @app.post("/api/finished-goods")
 def create_finished_good(body: dict):
     seq = next_seq('finished_goods_seq')
+    default_batch_no = f"P{seq}"
     item = execute_returning("""
         INSERT INTO finished_goods
         (id, batch_no, plan_no, product_type_id, product_type_name,
@@ -1536,7 +1543,7 @@ def create_finished_good(body: dict):
          seasoned_batch_nos, created_at)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s,%s,%s)
         RETURNING *
-    """, (cuid(), body.get('batchNo', f"P{seq}"), body.get('planNo', ''),
+    """, (cuid(), body.get('batchNo', default_batch_no), body.get('planNo', ''),
           body.get('productTypeId', ''), body.get('productTypeName', ''),
           body.get('recipeId', ''), body.get('recipeName', ''),
           body.get('packagingId') or None, body.get('packagingName') or None,
@@ -1628,8 +1635,25 @@ def finish_day(dto: FinishDayDto):
             created.append(query_one("SELECT * FROM finished_goods WHERE id=%s", (existing['id'],)))
         else:
             seq = next_seq('finished_goods_seq')
-            first_batch = entry.seasoned_batch_nos[0] if entry.seasoned_batch_nos else ''
-            batch_no = first_batch if first_batch.startswith('P') else f"P{seq}"
+            # P{raw_seq} jeśli z jednej ćwiartki, PP{seq} jeśli z wielu partii
+            batch_no = f"PP{seq}"
+            if entry.seasoned_batch_nos and len(entry.seasoned_batch_nos) == 1:
+                sm_row = query_one("SELECT mixing_order_no FROM seasoned_meat WHERE batch_no=%s",
+                                   (entry.seasoned_batch_nos[0],))
+                if sm_row and sm_row.get('mixing_order_no'):
+                    mo_row = query_one("SELECT id FROM mixing_orders WHERE order_no=%s",
+                                       (sm_row['mixing_order_no'],))
+                    if mo_row:
+                        raw_seqs = query_all("""
+                            SELECT DISTINCT rb.internal_batch_seq
+                            FROM mixing_order_lots mol
+                            LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+                            LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
+                            WHERE mol.order_id = %s AND rb.internal_batch_seq IS NOT NULL
+                        """, (mo_row['id'],))
+                        s = [r['internal_batch_seq'] for r in raw_seqs if r.get('internal_batch_seq')]
+                        if len(s) == 1:
+                            batch_no = f"P{s[0]}"
 
             item = execute_returning("""
                 INSERT INTO finished_goods
@@ -2320,10 +2344,21 @@ def finish_mixing_session(id: str, body: dict):
     new_status = 'done' if kg_done >= meat_kg - 0.1 else 'planned'
 
     # Generuj numer partii jeśli pusty
+    # Format: MP{raw_seq} jeśli z jednej ćwiartki, MPP{counter} jeśli z wielu
     if not batch_no:
-        seq = next_seq('seasoned_seq')
-        year = datetime.now().year
-        batch_no = f"PW-{year}-{str(seq).zfill(3)}"
+        raw_seqs = query_all("""
+            SELECT DISTINCT rb.internal_batch_seq
+            FROM mixing_order_lots mol
+            LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+            LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
+            WHERE mol.order_id = %s AND rb.internal_batch_seq IS NOT NULL
+        """, (id,))
+        seqs = [r['internal_batch_seq'] for r in raw_seqs if r.get('internal_batch_seq')]
+        if len(seqs) == 1:
+            batch_no = f"MP{seqs[0]}"
+        else:
+            mixed_seq = next_seq('mixed_seq')
+            batch_no = f"MPP{mixed_seq}"
 
     # Dodaj sesję do historii
     session_id = cuid()
@@ -2421,9 +2456,20 @@ def seasoned_from_order(order_id: str, body: dict):
     from datetime import timedelta
     order = query_one("SELECT * FROM mixing_orders WHERE id=%s", (order_id,))
     if not order: raise HTTPException(404)
-    seq = next_seq('seasoned_seq')
-    year = datetime.now().year
-    batch_no = f"PW-{year}-{str(seq).zfill(3)}"
+    # MP{raw_seq} jeśli z jednej ćwiartki, MPP{counter} jeśli z wielu
+    raw_seqs = query_all("""
+        SELECT DISTINCT rb.internal_batch_seq
+        FROM mixing_order_lots mol
+        LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+        LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
+        WHERE mol.order_id = %s AND rb.internal_batch_seq IS NOT NULL
+    """, (order_id,))
+    seqs = [r['internal_batch_seq'] for r in raw_seqs if r.get('internal_batch_seq')]
+    if len(seqs) == 1:
+        batch_no = f"MP{seqs[0]}"
+    else:
+        mixed_seq = next_seq('mixed_seq')
+        batch_no = f"MPP{mixed_seq}"
     kg = float(body.get('kg_produced') or 0)
     expiry = (datetime.utcnow() + timedelta(days=5)).date().isoformat()
     execute("""
