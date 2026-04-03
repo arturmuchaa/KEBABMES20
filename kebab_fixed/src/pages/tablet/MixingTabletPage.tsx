@@ -437,8 +437,14 @@ function DoneScreen({ order, kgActual, seasonedBatchNo, onNext, onHome }: {
 type Phase = 'list' | 'machine' | 'meat' | 'steps' | 'done'
 
 export function MixingTabletPage() {
-  const { data: planned,    loading,      refetch  } = useApi(() => mixingOrdersApi.list('planned'))
-  const { data: inProgress,              refetch:rIP} = useApi(() => mixingOrdersApi.list('in_progress'))
+  // Pokaż zarówno 'planned' jak i 'confirmed' — operator widzi oba
+  const { data: plannedAll, loading, refetch } = useApi(() =>
+    mixingOrdersApi.list().then((all: any[]) =>
+      all.filter((o: any) => o.status === 'planned' || o.status === 'confirmed')
+    )
+  )
+  const planned = plannedAll
+  const { data: inProgress, refetch:rIP} = useApi(() => mixingOrdersApi.list('in_progress'))
   const { data: locks,                   refetch:rL } = useApi(() => machineLockApi.list())
 
   const startMut   = useMutation(({id,dto}:{id:string;dto:any}) => mixingOrdersApi.start(id,dto))

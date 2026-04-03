@@ -44,8 +44,11 @@ export function PlanningPage() {
   const { data: meatData }                   = useApi(() => meatStockApi.list())
   const { data: orders, refetch: refetchOrders } = useApi(() => mixingOrdersApi.list())
 
-  const createMut = useMutation((dto: CreateMixingOrderDto) => mixingOrdersApi.create(dto))
-  const cancelMut = useMutation((id: string) => mixingOrdersApi.cancel(id))
+  const createMut  = useMutation((dto: CreateMixingOrderDto) => mixingOrdersApi.create(dto))
+  const cancelMut  = useMutation((id: string) => mixingOrdersApi.cancel(id))
+  const confirmMut = useMutation((id: string) =>
+    (mixingOrdersApi as any).confirm(id)
+  )
 
   const [modalOpen,    setModalOpen]    = useState(false)
   const [step,         setStep]         = useState<1|2|3>(1)
@@ -144,10 +147,21 @@ export function PlanningPage() {
   }
 
   async function handleCancel(id: string, orderNo: string) {
+    if (!confirm(`Anulować zlecenie ${orderNo}? Zarezerwowane partie mięsa zostaną zwolnione.`)) return
     try {
       await cancelMut.mutate(id)
       refetchOrders()
-      toast.success(`Zlecenie ${orderNo} anulowane`)
+      toast.success(`Zlecenie ${orderNo} anulowane — partie zwolnione`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Błąd')
+    }
+  }
+
+  async function handleConfirm(id: string, orderNo: string) {
+    try {
+      await confirmMut.mutate(id)
+      refetchOrders()
+      toast.success(`Zlecenie ${orderNo} potwierdzone — zablokowane do masowania`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Błąd')
     }
@@ -155,12 +169,14 @@ export function PlanningPage() {
 
   const STATUS_LABELS: Record<string, string> = {
     planned:     'Zaplanowane',
+    confirmed:   'Potwierdzone',
     in_progress: 'W trakcie',
     done:        'Zakończone',
     cancelled:   'Anulowane',
   }
   const STATUS_CLASS: Record<string, string> = {
     planned:     'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-50',
+    confirmed:   'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-50',
     in_progress: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-50',
     done:        'bg-green-50 text-green-700 border-green-200 hover:bg-green-50',
     cancelled:   'bg-muted text-muted-foreground hover:bg-muted',
@@ -225,12 +241,22 @@ export function PlanningPage() {
                     </Badge>
                   </TableCell>
                   <TableCell className="px-3 py-2">
-                    {o.status === 'planned' && (
-                      <Button variant="ghost" size="sm" className="h-7 text-[11px] text-destructive hover:text-destructive px-2"
-                        onClick={() => handleCancel(o.id, o.orderNo)}>
-                        Anuluj
-                      </Button>
-                    )}
+                    <div className="flex gap-1">
+                      {o.status === 'planned' && (
+                        <Button variant="outline" size="sm" className="h-7 text-[11px] text-purple-700 border-purple-200 hover:bg-purple-50 px-2"
+                          onClick={() => handleConfirm(o.id, o.orderNo)}
+                          disabled={confirmMut.loading}>
+                          Potwierdź
+                        </Button>
+                      )}
+                      {o.status === 'planned' && (
+                        <Button variant="ghost" size="sm" className="h-7 text-[11px] text-destructive hover:text-destructive px-2"
+                          onClick={() => handleCancel(o.id, o.orderNo)}
+                          disabled={cancelMut.loading}>
+                          Anuluj
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -240,11 +266,11 @@ export function PlanningPage() {
       </Card>
 
       <Dialog open={modalOpen} onOpenChange={open => { if (!open) setModalOpen(false) }}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[92vh] flex flex-col p-0">
+          <DialogHeader className="px-6 pt-6 pb-2 flex-shrink-0">
             <DialogTitle>Nowe zlecenie masowania</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="overflow-y-auto flex-1 px-6 pb-2 space-y-4">
 
             {/* Krok 1 */}
             <div className="border rounded p-4">
@@ -405,22 +431,24 @@ export function PlanningPage() {
               </div>
             )}
 
-            <div className="flex gap-2 pt-1">
-              <Button variant="outline" className="flex-1" onClick={() => setModalOpen(false)}>Anuluj</Button>
-              {step < 3 ? (
-                <Button className="flex-1"
-                  disabled={step === 1 ? !selRecipeId : selLots.length === 0}
-                  onClick={() => { if (step === 1 && selRecipeId) setStep(2); else if (step === 2 && selLots.length > 0) setStep(3) }}>
-                  Dalej <ChevronRight size={14} className="ml-1"/>
-                </Button>
-              ) : (
-                <Button className="flex-1" disabled={createMut.loading || !selRecipeId || requestedKg <= 0 || selLots.length === 0}
-                  onClick={handleCreate}>
-                  {createMut.loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"/>}
-                  Utwórz zlecenie masowania
-                </Button>
-              )}
-            </div>
+          </div>
+
+          {/* Przyciski zawsze widoczne — poza obszarem scrollowania */}
+          <div className="flex gap-2 px-6 py-4 border-t flex-shrink-0 bg-background">
+            <Button variant="outline" className="flex-1" onClick={() => setModalOpen(false)}>Anuluj</Button>
+            {step < 3 ? (
+              <Button className="flex-1"
+                disabled={step === 1 ? !selRecipeId : selLots.length === 0}
+                onClick={() => { if (step === 1 && selRecipeId) setStep(2); else if (step === 2 && selLots.length > 0) setStep(3) }}>
+                Dalej <ChevronRight size={14} className="ml-1"/>
+              </Button>
+            ) : (
+              <Button className="flex-1" disabled={createMut.loading || !selRecipeId || requestedKg <= 0 || selLots.length === 0}
+                onClick={handleCreate}>
+                {createMut.loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"/>}
+                Utwórz zlecenie masowania
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>

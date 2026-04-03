@@ -2288,6 +2288,16 @@ def create_mixing_order(dto: MixingOrderCreate):
     order = query_one("SELECT * FROM mixing_orders WHERE id=%s", (oid,))
     return build_mixing_order(order)
 
+@app.patch("/api/mixing-orders/{id}/confirm")
+def confirm_mixing_order(id: str):
+    """Potwierdza zlecenie masowania — blokuje partie, uniemożliwia anulowanie."""
+    row = execute_returning("""
+        UPDATE mixing_orders SET status='confirmed'
+        WHERE id=%s AND status='planned' RETURNING *
+    """, (id,))
+    if not row: raise HTTPException(404, "Zlecenie nie znalezione lub już potwierdzone")
+    return build_mixing_order(row)
+
 @app.patch("/api/mixing-orders/{id}/start")
 def start_mixing_order(id: str, body: dict):
     machine_id = body.get('machineId') or body.get('machine_id')
@@ -2438,6 +2448,11 @@ def auto_approve_mixing(id: str):
 
 @app.patch("/api/mixing-orders/{id}/cancel")
 def cancel_mixing_order(id: str):
+    # Sprawdź czy można anulować (nie można anulować potwierdzonego/w trakcie)
+    order = query_one("SELECT status FROM mixing_orders WHERE id=%s", (id,))
+    if not order: raise HTTPException(404)
+    if order['status'] in ('confirmed', 'in_progress'):
+        raise HTTPException(400, f"Nie można anulować zlecenia o statusie '{order['status']}'. Skontaktuj się z kierownikiem.")
     # Zwolnij zarezerwowane kg mięsa
     lots = query_all("SELECT * FROM mixing_order_lots WHERE order_id=%s", (id,))
     for lot in lots:

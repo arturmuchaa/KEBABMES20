@@ -701,6 +701,8 @@ export const mixingOrdersApi = {
       batch_no: batchNo || '',
       lot_allocations: lotAllocations ?? [],
     }).then(mapMixingOrder),
+  confirm:     (id: string) =>
+    patch<any>(`/mixing-orders/${id}/confirm`, {}).then(mapMixingOrder),
   autoApprove: (id: string) =>
     patch<any>(`/mixing-orders/${id}/auto-approve`, {}).then(mapMixingOrder),
   cancel:      (id: string) =>
