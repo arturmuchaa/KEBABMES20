@@ -82,7 +82,7 @@ export function PlanningPage() {
   const plannedOutput = useMemo(() => {
     if (!selRecipe || requestedKg <= 0) return 0
     const ingredientsKg = (selRecipe.ingredients ?? [])
-      .filter(ri => ri.unit === 'kg' || ri.unit === 'l')
+      .filter(ri => ['kg', 'l', 'KG', 'L'].includes(ri.unit ?? '') || ri.isUnlimited)
       .reduce((s, ri) => s + (ri.qtyPer100kg * requestedKg / 100), 0)
     return Math.round((requestedKg + ingredientsKg) * 100) / 100
   }, [selRecipe, requestedKg])
