@@ -2270,20 +2270,44 @@ def create_mixing_order(dto: MixingOrderCreate):
           dto.notes or None, now_iso()))
 
     # Wstaw loty mięsa + rezerwuj kg w meat_stock
+    # WALIDACJA: sprawdź dostępność i brak double-bookingu
     for lot_dto in dto.meat_lots:
         stock = query_one("SELECT * FROM meat_stock WHERE id=%s", (lot_dto.meatLotId,))
-        if not stock: continue
+        if not stock:
+            raise HTTPException(400, f"Partia mięsa nie znaleziona: {lot_dto.meatLotId}")
+
+        available = float(stock.get('kg_available') or 0)
+        if available < lot_dto.kgPlanned - 0.1:
+            raise HTTPException(400,
+                f"Niewystarczające kg w partii {stock.get('lot_no','?')}: "
+                f"dostępne {available:.2f} kg, wymagane {lot_dto.kgPlanned:.2f} kg. "
+                f"Partia może być już przypisana do innego zlecenia.")
+
+        # Sprawdź double-booking — ta sama partia w innym aktywnym zleceniu
+        existing = query_one("""
+            SELECT mo.order_no FROM mixing_order_lots mol
+            JOIN mixing_orders mo ON mo.id = mol.order_id
+            WHERE mol.meat_stock_id = %s
+              AND mo.id != %s
+              AND mo.status NOT IN ('done', 'cancelled')
+        """, (lot_dto.meatLotId, oid))
+        if existing:
+            raise HTTPException(400,
+                f"Partia {stock.get('lot_no','?')} jest już przypisana "
+                f"do aktywnego zlecenia {existing['order_no']}. "
+                f"Anuluj tamto zlecenie lub użyj innej partii.")
+
         execute("""
             INSERT INTO mixing_order_lots
             (id, order_id, meat_stock_id, kg_planned, kg_actual)
             VALUES (%s,%s,%s,%s,0)
         """, (cuid(), oid, lot_dto.meatLotId, lot_dto.kgPlanned))
-        # Rezerwuj kg w meat_stock
+        # Rezerwuj kg w meat_stock — atomowe odjęcie z kontrolą dostępności
         execute("""
             UPDATE meat_stock
             SET kg_available = GREATEST(0, kg_available - %s)
-            WHERE id = %s
-        """, (lot_dto.kgPlanned, lot_dto.meatLotId))
+            WHERE id = %s AND kg_available >= %s
+        """, (lot_dto.kgPlanned, lot_dto.meatLotId, lot_dto.kgPlanned - 0.1))
 
     order = query_one("SELECT * FROM mixing_orders WHERE id=%s", (oid,))
     return build_mixing_order(order)
@@ -2448,11 +2472,19 @@ def auto_approve_mixing(id: str):
 
 @app.patch("/api/mixing-orders/{id}/cancel")
 def cancel_mixing_order(id: str):
-    # Sprawdź czy można anulować (nie można anulować potwierdzonego/w trakcie)
     order = query_one("SELECT status FROM mixing_orders WHERE id=%s", (id,))
     if not order: raise HTTPException(404)
-    if order['status'] in ('confirmed', 'in_progress'):
-        raise HTTPException(400, f"Nie można anulować zlecenia o statusie '{order['status']}'. Skontaktuj się z kierownikiem.")
+
+    # Zlecenia 'in_progress' NIE można anulować
+    if order['status'] == 'in_progress':
+        raise HTTPException(400, "Nie można anulować zlecenia w trakcie masowania. Zakończ sesję na tablecie.")
+
+    # 'confirmed' można anulować TYLKO jeśli ma puste loty (zlecenie z bugiem)
+    if order['status'] == 'confirmed':
+        lots_count = query_one("SELECT COUNT(*) as cnt FROM mixing_order_lots WHERE order_id=%s", (id,))
+        if lots_count and lots_count['cnt'] > 0:
+            raise HTTPException(400, "Nie można anulować potwierdzonego zlecenia z przypisanymi partiami mięsa.")
+
     # Zwolnij zarezerwowane kg mięsa
     lots = query_all("SELECT * FROM mixing_order_lots WHERE order_id=%s", (id,))
     for lot in lots:
@@ -2461,6 +2493,7 @@ def cancel_mixing_order(id: str):
             SET kg_available = kg_available + %s
             WHERE id = %s
         """, (float(lot.get('kg_planned') or 0), lot.get('meat_stock_id')))
+
     row = execute_returning(
         "UPDATE mixing_orders SET status='cancelled' WHERE id=%s RETURNING *", (id,))
     if not row: raise HTTPException(404)
