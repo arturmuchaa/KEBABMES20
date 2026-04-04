@@ -62,6 +62,15 @@ def execute_returning(sql: str, params=None) -> Optional[Dict]:
             conn.commit()
             return dict(row) if row else None
 
+def _b(body: dict, snake: str, default=None):
+    """Pobiera wartość z body akceptując snake_case i camelCase (toSnake konwertuje frontend)."""
+    if snake in body:
+        return body[snake]
+    # Auto-konwersja snake_case → camelCase: raw_batch_id → rawBatchId
+    parts = snake.split('_')
+    camel = parts[0] + ''.join(p.title() for p in parts[1:])
+    return body.get(camel, default)
+
 def next_seq(key: str) -> int:
     row = execute_returning(
         "UPDATE sequences SET value = value + 1 WHERE key = %s RETURNING value",
@@ -355,9 +364,9 @@ def update_batch(id: str, body: dict):
         UPDATE raw_batches SET supplier_batch_no=%s, slaughter_date=%s,
         received_date=%s, kg_received=%s, price_per_kg=%s,
         expiry_date=%s, notes=%s WHERE id=%s RETURNING *
-    """, (body.get('supplierBatchNo'), body.get('slaughterDate') or None,
-          body.get('receivedDate') or None, body.get('kgReceived', 0),
-          body.get('pricePerKg', 0), body.get('expiryDate') or None,
+    """, (_b(body,'supplier_batch_no'), _b(body,'slaughter_date') or None,
+          _b(body,'received_date') or None, _b(body,'kg_received', 0),
+          _b(body,'price_per_kg', 0), _b(body,'expiry_date') or None,
           body.get('notes'), id))
     if not row: raise HTTPException(404)
     return row
@@ -560,8 +569,8 @@ def create_ingredient_receipt(body: dict):
     row = execute_returning("""
         INSERT INTO ingredient_stock (id, ingredient_id, qty_available, qty_initial, expiry_date, batch_no, created_at)
         VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *
-    """, (cuid(), body.get('ingredientId'), body.get('qty', 0), body.get('qty', 0),
-          body.get('expiryDate') or None, body.get('batchNo') or None, now_iso()))
+    """, (cuid(), _b(body,'ingredient_id'), _b(body,'qty', 0), _b(body,'qty', 0),
+          _b(body,'expiry_date') or None, _b(body,'batch_no') or None, now_iso()))
     return row
 
 # ─── Opakowania i tuleje ──────────────────────────────────────
@@ -1638,14 +1647,14 @@ def create_finished_good(body: dict):
          seasoned_batch_nos, created_at)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s,%s,%s)
         RETURNING *
-    """, (cuid(), body.get('batchNo', default_batch_no), body.get('planNo', ''),
-          body.get('productTypeId', ''), body.get('productTypeName', ''),
-          body.get('recipeId', ''), body.get('recipeName', ''),
-          body.get('packagingId') or None, body.get('packagingName') or None,
-          body.get('clientName') or None, body.get('clientOrderNo') or None,
-          body.get('qty', 0), body.get('kgPerUnit', 0), body.get('totalKg', 0),
-          body.get('qty', 0), body.get('producedDate', datetime.now().date().isoformat()),
-          body.get('producedBy', []), body.get('seasonedBatchNos', []), now_iso()))
+    """, (cuid(), _b(body,'batch_no', default_batch_no), _b(body,'plan_no', ''),
+          _b(body,'product_type_id', ''), _b(body,'product_type_name', ''),
+          _b(body,'recipe_id', ''), _b(body,'recipe_name', ''),
+          _b(body,'packaging_id') or None, _b(body,'packaging_name') or None,
+          _b(body,'client_name') or None, _b(body,'client_order_no') or None,
+          _b(body,'qty', 0), _b(body,'kg_per_unit', 0), _b(body,'total_kg', 0),
+          _b(body,'qty', 0), _b(body,'produced_date', datetime.now().date().isoformat()),
+          _b(body,'produced_by', []), _b(body,'seasoned_batch_nos', []), now_iso()))
     return item
 
 @app.post("/api/finished-goods/finish-day")
@@ -2089,20 +2098,21 @@ def list_deboning_entries(session_id: str = None):
 
 @app.post("/api/deboning/entries")
 def create_deboning_entry(body: dict):
-    batch = query_one("SELECT * FROM raw_batches WHERE id=%s", (body.get('rawBatchId'),))
+    batch = query_one("SELECT * FROM raw_batches WHERE id=%s", (_b(body,'raw_batch_id'),))
     if not batch: raise HTTPException(404, "Partia nie znaleziona")
 
     # Szukaj nazwy pracownika jezeli podano tylko workerId
-    worker_name = body.get('workerName')
-    worker_id   = body.get('workerId')
+    worker_name = _b(body,'worker_name')
+    worker_id   = _b(body,'worker_id')
     if worker_id and not worker_name:
         worker = query_one("SELECT name FROM workers WHERE id=%s", (worker_id,))
         if worker:
             worker_name = worker['name']
 
-    # kgTaken (camelCase z frontu) lub kgQuarter (legacy)
-    kg_taken = float(body.get('kgTaken') or body.get('kgQuarter') or 0)
-    kg_meat  = float(body.get('kgMeat') or 0)
+    # kgTaken / kg_taken / kgQuarter / kg_quarter (różne nazwy historyczne)
+    kg_taken = float(_b(body,'kg_taken') or _b(body,'kg_quarter') or 0)
+    kg_meat  = float(_b(body,'kg_meat') or 0)
+    session_id = _b(body,'session_id')
 
     # BUGFIX KRYTYCZNY: walidacja po stronie backendu
     # Frontend moze byc pominienty, wiec backend musi sam pilnowac stanow
@@ -2128,7 +2138,7 @@ def create_deboning_entry(body: dict):
     entry_id   = cuid()
     session_no = f"RZB-{str(seq).zfill(3)}"
     meat_lot_no = f"M{batch['internal_batch_seq']}"
-    session_id  = body.get('sessionId')
+    # session_id already extracted above
 
     entry = execute_returning("""
         INSERT INTO deboning_entries
@@ -2174,10 +2184,10 @@ def update_deboning_entry(id: str, body: dict):
     existing = query_one("SELECT * FROM deboning_entries WHERE id=%s", (id,))
     if not existing: raise HTTPException(404)
 
-    kg_taken = float(body.get('kgTaken') or body.get('kgQuarter') or existing.get('kg_quarter') or 0)
-    kg_meat  = float(body.get('kgMeat') or existing.get('kg_meat') or 0)
-    kg_backs = float(body.get('kgBacks') or existing.get('kg_backs') or 0)
-    kg_bones = float(body.get('kgBones') or existing.get('kg_bones') or 0)
+    kg_taken = float(_b(body,'kg_taken') or _b(body,'kg_quarter') or existing.get('kg_quarter') or 0)
+    kg_meat  = float(_b(body,'kg_meat')  or existing.get('kg_meat')  or 0)
+    kg_backs = float(_b(body,'kg_backs') or existing.get('kg_backs') or 0)
+    kg_bones = float(_b(body,'kg_bones') or existing.get('kg_bones') or 0)
     kg_remainder = max(0, kg_taken - kg_meat)
     yield_pct = round((kg_meat / kg_taken * 100) if kg_taken > 0 else 0, 2)
 
