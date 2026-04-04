@@ -2098,8 +2098,13 @@ def list_deboning_entries(session_id: str = None):
 
 @app.post("/api/deboning/entries")
 def create_deboning_entry(body: dict):
-    batch = query_one("SELECT * FROM raw_batches WHERE id=%s", (_b(body,'raw_batch_id'),))
-    if not batch: raise HTTPException(404, "Partia nie znaleziona")
+    raw_batch_id = _b(body,'raw_batch_id')
+    batch = query_one("SELECT * FROM raw_batches WHERE id=%s", (raw_batch_id,))
+    if not batch:
+        # Spróbuj też po internal_batch_no (fallback)
+        batch = query_one("SELECT * FROM raw_batches WHERE internal_batch_no=%s", (raw_batch_id,))
+    if not batch:
+        raise HTTPException(404, f"Partia nie znaleziona (raw_batch_id={raw_batch_id!r}, body_keys={list(body.keys())})")
 
     # Szukaj nazwy pracownika jezeli podano tylko workerId
     worker_name = _b(body,'worker_name')
