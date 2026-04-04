@@ -212,10 +212,21 @@ export const deboningEntriesApi = {
   list: (sessionId?: string) =>
     get<any[]>(`/deboning/entries${sessionId ? `?session_id=${sessionId}` : ''}`)
       .then(r => Array.isArray(r) ? r : (r as any).data ?? []),
-  // create — wysyła kgTaken (nie kgQuarter) i sessionId
-  create: (dto: any) => post<any>('/deboning/entries', toSnake(dto)),
+  // create — wysyła oba formaty (camelCase + snake_case) dla kompatybilności z backend
+  create: (dto: any) => post<any>('/deboning/entries', {
+    ...toSnake(dto),
+    rawBatchId: dto.rawBatchId,
+    sessionId:  dto.sessionId,
+    workerId:   dto.workerId,
+    kgTaken:    dto.kgTaken,
+    kgMeat:     dto.kgMeat,
+  }),
   // update — obsługuje kgBacks i kgBones
-  update: (id: string, dto: any) => patch<any>(`/deboning/entries/${id}`, toSnake(dto)),
+  update: (id: string, dto: any) => patch<any>(`/deboning/entries/${id}`, {
+    ...toSnake(dto),
+    kgBacks: dto.kgBacks,
+    kgBones: dto.kgBones,
+  }),
   traceability: (batchId: string) => get<any>(`/deboning/entries/trace/${batchId}`),
 }
 
