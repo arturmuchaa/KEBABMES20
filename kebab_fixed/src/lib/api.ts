@@ -242,7 +242,7 @@ function mapMeatStock(raw: any): MeatStock {
     rawBatchId:         raw.raw_batch_id        ?? raw.rawBatchId        ?? '',
     rawBatchNo:         raw.raw_batch_no        ?? raw.rawBatchNo,
     kgInitial:          Number(raw.kg_initial   ?? raw.kgInitial         ?? 0),
-    kgAvailable:        Number(raw.kg_available ?? raw.kgAvailable       ?? 0),
+    kgAvailable:        Number(raw.kg_free ?? (Number(raw.kg_available ?? raw.kgAvailable ?? 0) - Number(raw.kg_reserved ?? 0))),
     productionDate:     raw.production_date     ?? raw.productionDate    ?? '',
     expiryDate:         raw.expiry_date         ?? raw.expiryDate        ?? '',
     status:             raw.status              ?? 'AVAILABLE',
