@@ -2447,20 +2447,6 @@ def create_mixing_order(dto: MixingOrderCreate):
                     f"dostępne {float(locked.get('kg_available') or 0):.2f} kg, wymagane {lot_dto.kgPlanned:.2f} kg. "
                     f"Partia może być już przypisana do innego zlecenia.")
 
-            # Sprawdź double-booking — ta sama partia w innym aktywnym zleceniu
-            existing = _conn_query_one(conn, """
-                SELECT mo.order_no FROM mixing_order_lots mol
-                JOIN mixing_orders mo ON mo.id = mol.order_id
-                WHERE mol.meat_stock_id = %s
-                  AND mo.id != %s
-                  AND mo.status NOT IN ('done', 'cancelled')
-                FOR UPDATE
-            """, (lot_dto.meatLotId, oid))
-            if existing:
-                raise HTTPException(400,
-                    f"Partia {locked.get('lot_no','?')} jest już przypisana "
-                    f"do aktywnego zlecenia {existing['order_no']}. "
-                    f"Anuluj tamto zlecenie lub użyj innej partii.")
             _conn_execute(conn, """
                 INSERT INTO mixing_order_lots
                 (id, order_id, meat_stock_id, kg_planned, kg_actual)
