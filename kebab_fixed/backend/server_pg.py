@@ -62,6 +62,52 @@ def execute_returning(sql: str, params=None) -> Optional[Dict]:
             conn.commit()
             return dict(row) if row else None
 
+# ─── Transaction-aware helpers (use existing connection, no auto-commit) ──────
+def _conn_execute(conn, sql: str, params=None) -> None:
+    with conn.cursor() as cur:
+        cur.execute(sql, params or ())
+
+def _conn_query_one(conn, sql: str, params=None) -> Optional[Dict]:
+    with conn.cursor() as cur:
+        cur.execute(sql, params or ())
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+def _conn_query_all(conn, sql: str, params=None) -> List[Dict]:
+    with conn.cursor() as cur:
+        cur.execute(sql, params or ())
+        return [dict(r) for r in cur.fetchall()]
+
+def create_stock_movement(conn, product_type: str, batch_id: str, qty: float,
+                          movement_type: str, source_type: str, source_id: str) -> None:
+    """
+    Insert a stock movement record within an existing DB transaction.
+    For OUT movements validates that total consumption never exceeds kg_initial.
+    Raises HTTPException(400) if validation fails.
+    """
+    if qty <= 0:
+        return
+    if movement_type == 'OUT':
+        stock = _conn_query_one(conn,
+            "SELECT kg_initial FROM meat_stock WHERE id = %s", (batch_id,))
+        if stock is not None:
+            kg_initial = float(stock.get('kg_initial') or 0)
+            already_out = _conn_query_one(conn, """
+                SELECT COALESCE(SUM(qty), 0) AS total_out
+                FROM stock_movements
+                WHERE batch_id = %s AND movement_type = 'OUT'
+            """, (batch_id,))
+            total_out = float(already_out.get('total_out') or 0) + qty
+            if total_out > kg_initial + 0.01:
+                raise HTTPException(400,
+                    f"Ruch OUT {qty} kg przekracza kg_initial {kg_initial} kg "
+                    f"dla partii {batch_id} (łącznie OUT: {total_out:.3f} kg)")
+    _conn_execute(conn, """
+        INSERT INTO stock_movements
+            (id, product_type, batch_id, qty, movement_type, source_type, source_id, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    """, (cuid(), product_type, batch_id, qty, movement_type, source_type, source_id, now_iso()))
+
 def _b(body: dict, snake: str, default=None):
     """Pobiera wartość z body akceptując snake_case i camelCase (toSnake konwertuje frontend)."""
     if snake in body:
@@ -2564,6 +2610,62 @@ def finish_mixing_session(id: str, body: dict):
             machine_id=NULL, confirmed_steps='{}'::jsonb
         WHERE id=%s RETURNING *
     """, (kg_done, new_status, completed_at, id))
+
+    # ─── Stock movements (atomic transaction) ─────────────────────────────────
+    # Determine actual kg consumed per lot in this session
+    if lot_allocations:
+        session_allocs = [
+            (a.get('meatLotId') or a.get('meat_lot_id'),
+             float(a.get('kg') or a.get('kg_used') or 0))
+            for a in lot_allocations
+        ]
+    else:
+        # Fallback: proportional share of kg_meat across all lots
+        lots_fb = query_all("SELECT meat_stock_id, kg_planned FROM mixing_order_lots WHERE order_id=%s", (id,))
+        total_planned = sum(float(lt.get('kg_planned') or 0) for lt in lots_fb) or 1
+        ratio = kg_meat / total_planned if meat_kg > 0 else 0
+        session_allocs = [
+            (lt['meat_stock_id'], round(float(lt.get('kg_planned') or 0) * ratio, 3))
+            for lt in lots_fb
+        ]
+
+    mv_conn = get_conn()
+    try:
+        # OUT movements — one per meat lot actually consumed
+        for meat_stock_id, kg_used_session in session_allocs:
+            if not meat_stock_id or kg_used_session <= 0:
+                continue
+            create_stock_movement(
+                mv_conn,
+                product_type='meat',
+                batch_id=meat_stock_id,
+                qty=kg_used_session,
+                movement_type='OUT',
+                source_type='mixing',
+                source_id=id,
+            )
+        # IN movement — seasoned_meat created in this session
+        sm_row = _conn_query_one(mv_conn, "SELECT id FROM seasoned_meat WHERE batch_no=%s", (batch_no,))
+        sm_id = sm_row['id'] if sm_row else batch_no
+        create_stock_movement(
+            mv_conn,
+            product_type='seasoned',
+            batch_id=sm_id,
+            qty=kg_output,
+            movement_type='IN',
+            source_type='mixing',
+            source_id=id,
+        )
+        mv_conn.commit()
+    except HTTPException:
+        mv_conn.rollback()
+        raise
+    except Exception as e:
+        mv_conn.rollback()
+        raise HTTPException(500, f"Błąd zapisu ruchów magazynowych: {e}")
+    finally:
+        mv_conn.close()
+    # ──────────────────────────────────────────────────────────────────────────
 
     return build_mixing_order(updated)
 

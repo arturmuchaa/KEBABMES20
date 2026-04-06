@@ -246,6 +246,18 @@ INSERT INTO sequences (key, value) VALUES
     ('finished_goods_seq', 0), ('packaging_seq', 0), ('client_seq', 0),
     ('supplier_seq', 0)
 ON CONFLICT (key) DO NOTHING;
+CREATE TABLE IF NOT EXISTS stock_movements (
+    id TEXT PRIMARY KEY,
+    product_type TEXT NOT NULL,
+    batch_id TEXT NOT NULL,
+    qty NUMERIC(10,3) NOT NULL,
+    movement_type TEXT NOT NULL CHECK (movement_type IN ('IN', 'OUT', 'TRANSFORM')),
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_batch_id ON stock_movements(batch_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_source_id ON stock_movements(source_id);
 """
 
 def main():
@@ -413,6 +425,21 @@ if __name__ == "__main__":
                 ("finished_goods", "source_mixing_ids",   "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_mixing_ids TEXT[] DEFAULT '{}'"),
                 ("finished_goods", "source_seasoned_ids", "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_seasoned_ids TEXT[] DEFAULT '{}'"),
                 ("finished_goods", "source_deboning_ids", "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_deboning_ids TEXT[] DEFAULT '{}'"),
+                # Stock movements v1
+                ("stock_movements", "create_table", """
+                    CREATE TABLE IF NOT EXISTS stock_movements (
+                        id TEXT PRIMARY KEY,
+                        product_type TEXT NOT NULL,
+                        batch_id TEXT NOT NULL,
+                        qty NUMERIC(10,3) NOT NULL,
+                        movement_type TEXT NOT NULL CHECK (movement_type IN ('IN', 'OUT', 'TRANSFORM')),
+                        source_type TEXT NOT NULL,
+                        source_id TEXT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT now()
+                    )
+                """),
+                ("stock_movements", "idx_batch_id", "CREATE INDEX IF NOT EXISTS idx_stock_movements_batch_id ON stock_movements(batch_id)"),
+                ("stock_movements", "idx_source_id", "CREATE INDEX IF NOT EXISTS idx_stock_movements_source_id ON stock_movements(source_id)"),
             ]
             for table, col, sql in migrations:
                 cur.execute(sql)
