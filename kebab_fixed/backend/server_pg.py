@@ -2459,6 +2459,10 @@ def create_mixing_order(dto: MixingOrderCreate):
 
         conn = get_conn()
         try:
+            _conn_query_all(conn, """
+                SELECT id FROM mixing_order_lots
+                WHERE order_id = %s ORDER BY id FOR UPDATE
+            """, (oid,))
             locked = _conn_query_one(conn,
                 "SELECT kg_available FROM meat_stock WHERE id=%s FOR UPDATE",
                 (lot_dto.meatLotId,))
@@ -2651,6 +2655,10 @@ def finish_mixing_session(id: str, body: dict):
 
     mv_conn = get_conn()
     try:
+        _conn_query_all(mv_conn, """
+            SELECT id FROM mixing_order_lots
+            WHERE order_id = %s ORDER BY id FOR UPDATE
+        """, (id,))
         for ms_id in sorted({ms for ms, _ in session_allocs if ms}):
             _conn_query_one(mv_conn,
                 "SELECT kg_available FROM meat_stock WHERE id=%s FOR UPDATE", (ms_id,))
@@ -2716,9 +2724,12 @@ def cancel_mixing_order(id: str):
             raise HTTPException(400, "Nie można anulować potwierdzonego zlecenia z przypisanymi partiami mięsa.")
 
     # Zwolnij zarezerwowane kg mięsa
-    lots = query_all("SELECT * FROM mixing_order_lots WHERE order_id=%s", (id,))
     conn = get_conn()
     try:
+        lots = _conn_query_all(conn, """
+            SELECT meat_stock_id, kg_planned FROM mixing_order_lots
+            WHERE order_id = %s ORDER BY meat_stock_id FOR UPDATE
+        """, (id,))
         for ms_id in sorted({lot['meat_stock_id'] for lot in lots if lot.get('meat_stock_id')}):
             _conn_query_one(conn,
                 "SELECT kg_available FROM meat_stock WHERE id=%s FOR UPDATE", (ms_id,))
