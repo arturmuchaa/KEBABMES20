@@ -2454,6 +2454,7 @@ def create_mixing_order(dto: MixingOrderCreate):
                 WHERE mol.meat_stock_id = %s
                   AND mo.id != %s
                   AND mo.status NOT IN ('done', 'cancelled')
+                FOR UPDATE
             """, (lot_dto.meatLotId, oid))
             if existing:
                 raise HTTPException(400,
@@ -2469,7 +2470,8 @@ def create_mixing_order(dto: MixingOrderCreate):
                 UPDATE meat_stock
                 SET kg_available = kg_available - %s
                 WHERE id = %s
-            """, (lot_dto.kgPlanned, lot_dto.meatLotId))
+                AND kg_available >= %s
+            """, (lot_dto.kgPlanned, lot_dto.meatLotId, lot_dto.kgPlanned))
 
         conn.commit()
     except HTTPException:
