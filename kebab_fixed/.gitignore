@@ -6,7 +6,10 @@ venv/
 .venv/
 
 # Build
+dist/
 build/
+.next/
+.cache/
 
 # Środowisko (NIE commituj haseł!)
 .env
