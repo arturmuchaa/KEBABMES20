@@ -2416,49 +2416,50 @@ def create_mixing_order(dto: MixingOrderCreate):
 
     planned_output_kg = _calc_kg_output(dto.recipe_id, dto.meat_kg)
 
-    execute("""
-        INSERT INTO mixing_orders
-        (id, order_no, recipe_id, recipe_name, product_type_id, product_type_name,
-         meat_kg, planned_output_kg, kg_done, machine_id,
-         status, notes, created_at)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,NULL,'planned',%s,%s)
-    """, (oid, order_no,
-          recipe['id'], recipe['name'],
-          dto.product_type_id or None,
-          product_type['name'] if product_type else None,
-          dto.meat_kg, planned_output_kg,
-          dto.notes or None, now_iso()))
+    # ── JEDNA TRANSAKCJA: INSERT mixing_orders + wszystkie loty atomowo ───────
+    conn = get_conn()
+    try:
+        _conn_execute(conn, """
+            INSERT INTO mixing_orders
+            (id, order_no, recipe_id, recipe_name, product_type_id, product_type_name,
+             meat_kg, planned_output_kg, kg_done, machine_id,
+             status, notes, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,NULL,'planned',%s,%s)
+        """, (oid, order_no,
+              recipe['id'], recipe['name'],
+              dto.product_type_id or None,
+              product_type['name'] if product_type else None,
+              dto.meat_kg, planned_output_kg,
+              dto.notes or None, now_iso()))
 
-    # Wstaw loty mięsa + rezerwuj kg w meat_stock
-    # WALIDACJA: sprawdź dostępność i brak double-bookingu
-    for lot_dto in dto.meat_lots:
-        stock = query_one("SELECT * FROM meat_stock WHERE id=%s", (lot_dto.meatLotId,))
-        if not stock:
-            raise HTTPException(400, f"Partia mięsa nie znaleziona: {lot_dto.meatLotId}")
+        # Wstaw loty mięsa + rezerwuj kg w meat_stock
+        # WALIDACJA: sprawdź dostępność i brak double-bookingu
+        for lot_dto in dto.meat_lots:
+            stock = query_one("SELECT * FROM meat_stock WHERE id=%s", (lot_dto.meatLotId,))
+            if not stock:
+                raise HTTPException(400, f"Partia mięsa nie znaleziona: {lot_dto.meatLotId}")
 
-        available = float(stock.get('kg_available') or 0)
-        if available < lot_dto.kgPlanned - 0.1:
-            raise HTTPException(400,
-                f"Niewystarczające kg w partii {stock.get('lot_no','?')}: "
-                f"dostępne {available:.2f} kg, wymagane {lot_dto.kgPlanned:.2f} kg. "
-                f"Partia może być już przypisana do innego zlecenia.")
+            available = float(stock.get('kg_available') or 0)
+            if available < lot_dto.kgPlanned - 0.1:
+                raise HTTPException(400,
+                    f"Niewystarczające kg w partii {stock.get('lot_no','?')}: "
+                    f"dostępne {available:.2f} kg, wymagane {lot_dto.kgPlanned:.2f} kg. "
+                    f"Partia może być już przypisana do innego zlecenia.")
 
-        # Sprawdź double-booking — ta sama partia w innym aktywnym zleceniu
-        existing = query_one("""
-            SELECT mo.order_no FROM mixing_order_lots mol
-            JOIN mixing_orders mo ON mo.id = mol.order_id
-            WHERE mol.meat_stock_id = %s
-              AND mo.id != %s
-              AND mo.status NOT IN ('done', 'cancelled')
-        """, (lot_dto.meatLotId, oid))
-        if existing:
-            raise HTTPException(400,
-                f"Partia {stock.get('lot_no','?')} jest już przypisana "
-                f"do aktywnego zlecenia {existing['order_no']}. "
-                f"Anuluj tamto zlecenie lub użyj innej partii.")
+            # Sprawdź double-booking — ta sama partia w innym aktywnym zleceniu
+            existing = query_one("""
+                SELECT mo.order_no FROM mixing_order_lots mol
+                JOIN mixing_orders mo ON mo.id = mol.order_id
+                WHERE mol.meat_stock_id = %s
+                  AND mo.id != %s
+                  AND mo.status NOT IN ('done', 'cancelled')
+            """, (lot_dto.meatLotId, oid))
+            if existing:
+                raise HTTPException(400,
+                    f"Partia {stock.get('lot_no','?')} jest już przypisana "
+                    f"do aktywnego zlecenia {existing['order_no']}. "
+                    f"Anuluj tamto zlecenie lub użyj innej partii.")
 
-        conn = get_conn()
-        try:
             _conn_query_all(conn, """
                 SELECT id FROM mixing_order_lots
                 WHERE order_id = %s ORDER BY id FOR UPDATE
@@ -2478,15 +2479,17 @@ def create_mixing_order(dto: MixingOrderCreate):
                 SET kg_available = kg_available - %s
                 WHERE id = %s
             """, (lot_dto.kgPlanned, lot_dto.meatLotId))
-            conn.commit()
-        except HTTPException:
-            conn.rollback()
-            raise
-        except Exception as e:
-            conn.rollback()
-            raise HTTPException(500, f"Błąd rezerwacji: {e}")
-        finally:
-            conn.close()
+
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(500, f"Błąd rezerwacji: {e}")
+    finally:
+        conn.close()
+    # ──────────────────────────────────────────────────────────────────────────
 
     order = query_one("SELECT * FROM mixing_orders WHERE id=%s", (oid,))
     return build_mixing_order(order)
