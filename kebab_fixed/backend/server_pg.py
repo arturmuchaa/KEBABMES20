@@ -2430,58 +2430,59 @@ def create_mixing_order(dto: MixingOrderCreate):
           dto.notes or None, now_iso()))
 
     # Wstaw loty mięsa + rezerwuj kg w meat_stock
-    # WALIDACJA + ROW-LEVEL LOCKING: jedna transakcja, ORDER BY id zapobiega deadlockom
-    conn = get_conn()
-    try:
-        for lot_dto in sorted(dto.meat_lots, key=lambda x: x.meatLotId):
-            stock = _conn_query_one(conn, "SELECT * FROM meat_stock WHERE id=%s", (lot_dto.meatLotId,))
-            if not stock:
-                raise HTTPException(400, f"Partia mięsa nie znaleziona: {lot_dto.meatLotId}")
+    # WALIDACJA: sprawdź dostępność i brak double-bookingu
+    for lot_dto in dto.meat_lots:
+        stock = query_one("SELECT * FROM meat_stock WHERE id=%s", (lot_dto.meatLotId,))
+        if not stock:
+            raise HTTPException(400, f"Partia mięsa nie znaleziona: {lot_dto.meatLotId}")
 
-            # Sprawdź double-booking — ta sama partia w innym aktywnym zleceniu
-            existing = _conn_query_one(conn, """
-                SELECT mo.order_no FROM mixing_order_lots mol
-                JOIN mixing_orders mo ON mo.id = mol.order_id
-                WHERE mol.meat_stock_id = %s
-                  AND mo.id != %s
-                  AND mo.status NOT IN ('done', 'cancelled')
-            """, (lot_dto.meatLotId, oid))
-            if existing:
-                raise HTTPException(400,
-                    f"Partia {stock.get('lot_no','?')} jest już przypisana "
-                    f"do aktywnego zlecenia {existing['order_no']}. "
-                    f"Anuluj tamto zlecenie lub użyj innej partii.")
+        available = float(stock.get('kg_available') or 0)
+        if available < lot_dto.kgPlanned - 0.1:
+            raise HTTPException(400,
+                f"Niewystarczające kg w partii {stock.get('lot_no','?')}: "
+                f"dostępne {available:.2f} kg, wymagane {lot_dto.kgPlanned:.2f} kg. "
+                f"Partia może być już przypisana do innego zlecenia.")
 
-            # LOCK — blokuje wiersz do końca transakcji
+        # Sprawdź double-booking — ta sama partia w innym aktywnym zleceniu
+        existing = query_one("""
+            SELECT mo.order_no FROM mixing_order_lots mol
+            JOIN mixing_orders mo ON mo.id = mol.order_id
+            WHERE mol.meat_stock_id = %s
+              AND mo.id != %s
+              AND mo.status NOT IN ('done', 'cancelled')
+        """, (lot_dto.meatLotId, oid))
+        if existing:
+            raise HTTPException(400,
+                f"Partia {stock.get('lot_no','?')} jest już przypisana "
+                f"do aktywnego zlecenia {existing['order_no']}. "
+                f"Anuluj tamto zlecenie lub użyj innej partii.")
+
+        conn = get_conn()
+        try:
             locked = _conn_query_one(conn,
                 "SELECT kg_available FROM meat_stock WHERE id=%s FOR UPDATE",
                 (lot_dto.meatLotId,))
-            available = float(locked.get('kg_available') or 0)
-            if available < lot_dto.kgPlanned - 0.1:
-                raise HTTPException(400,
-                    f"Niewystarczające kg w partii {stock.get('lot_no','?')}: "
-                    f"dostępne {available:.2f} kg, wymagane {lot_dto.kgPlanned:.2f} kg. "
-                    f"Partia może być już przypisana do innego zlecenia.")
-
+            if float(locked.get('kg_available') or 0) < lot_dto.kgPlanned - 0.1:
+                raise HTTPException(400, f"Brak kg w partii po locku: {lot_dto.meatLotId}")
             _conn_execute(conn, """
                 INSERT INTO mixing_order_lots
                 (id, order_id, meat_stock_id, kg_planned, kg_actual)
                 VALUES (%s,%s,%s,%s,0)
             """, (cuid(), oid, lot_dto.meatLotId, lot_dto.kgPlanned))
-            # Rezerwuj kg w meat_stock
-            _conn_execute(conn,
-                "UPDATE meat_stock SET kg_available = kg_available - %s WHERE id = %s",
-                (lot_dto.kgPlanned, lot_dto.meatLotId))
-
-        conn.commit()
-    except HTTPException:
-        conn.rollback()
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(500, f"Błąd rezerwacji partii mięsa: {e}")
-    finally:
-        conn.close()
+            _conn_execute(conn, """
+                UPDATE meat_stock
+                SET kg_available = kg_available - %s
+                WHERE id = %s
+            """, (lot_dto.kgPlanned, lot_dto.meatLotId))
+            conn.commit()
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception as e:
+            conn.rollback()
+            raise HTTPException(500, f"Błąd rezerwacji: {e}")
+        finally:
+            conn.close()
 
     order = query_one("SELECT * FROM mixing_orders WHERE id=%s", (oid,))
     return build_mixing_order(order)
@@ -2650,13 +2651,9 @@ def finish_mixing_session(id: str, body: dict):
 
     mv_conn = get_conn()
     try:
-        # LOCK mixing_order_lots + meat_stock — ORDER BY id zapobiega deadlockom
-        _conn_query_all(mv_conn,
-            "SELECT id FROM mixing_order_lots WHERE order_id=%s FOR UPDATE", (id,))
         for ms_id in sorted({ms for ms, _ in session_allocs if ms}):
             _conn_query_one(mv_conn,
                 "SELECT kg_available FROM meat_stock WHERE id=%s FOR UPDATE", (ms_id,))
-
         # OUT movements — one per meat lot actually consumed
         for meat_stock_id, kg_used_session in session_allocs:
             if not meat_stock_id or kg_used_session <= 0:
@@ -2718,23 +2715,19 @@ def cancel_mixing_order(id: str):
         if lots_count and lots_count['cnt'] > 0:
             raise HTTPException(400, "Nie można anulować potwierdzonego zlecenia z przypisanymi partiami mięsa.")
 
-    # Zwolnij zarezerwowane kg mięsa — row-level locking, ORDER BY id zapobiega deadlockom
+    # Zwolnij zarezerwowane kg mięsa
     lots = query_all("SELECT * FROM mixing_order_lots WHERE order_id=%s", (id,))
     conn = get_conn()
     try:
-        # LOCK mixing_order + wszystkie wiersze meat_stock (posortowane po id)
-        _conn_query_one(conn,
-            "SELECT id FROM mixing_orders WHERE id=%s FOR UPDATE", (id,))
         for ms_id in sorted({lot['meat_stock_id'] for lot in lots if lot.get('meat_stock_id')}):
             _conn_query_one(conn,
                 "SELECT kg_available FROM meat_stock WHERE id=%s FOR UPDATE", (ms_id,))
-
         for lot in lots:
-            if lot.get('meat_stock_id') and float(lot.get('kg_planned') or 0) > 0:
-                _conn_execute(conn,
-                    "UPDATE meat_stock SET kg_available = kg_available + %s WHERE id = %s",
-                    (float(lot['kg_planned']), lot['meat_stock_id']))
-
+            _conn_execute(conn, """
+                UPDATE meat_stock
+                SET kg_available = kg_available + %s
+                WHERE id = %s
+            """, (float(lot.get('kg_planned') or 0), lot.get('meat_stock_id')))
         row = _conn_execute_returning(conn,
             "UPDATE mixing_orders SET status='cancelled' WHERE id=%s RETURNING *", (id,))
         conn.commit()
@@ -2743,7 +2736,7 @@ def cancel_mixing_order(id: str):
         raise
     except Exception as e:
         conn.rollback()
-        raise HTTPException(500, f"Błąd anulowania zlecenia: {e}")
+        raise HTTPException(500, f"Błąd anulowania: {e}")
     finally:
         conn.close()
 
