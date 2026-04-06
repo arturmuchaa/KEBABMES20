@@ -10,6 +10,8 @@ Uruchomienie:
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List, Any, Dict
 from datetime import datetime, date
@@ -2881,6 +2883,23 @@ def all_history():
 @app.get("/api/system-logs")
 def system_logs():
     return []
+
+# ─── Frontend SPA (production) ────────────────────────────────
+_DIST = os.path.join(os.path.dirname(__file__), "../dist")
+
+if os.path.isdir(_DIST):
+    app.mount("/assets", StaticFiles(directory=os.path.join(_DIST, "assets")), name="assets")
+
+    @app.get("/", include_in_schema=False)
+    def _root():
+        return FileResponse(os.path.join(_DIST, "index.html"))
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def _spa(full_path: str):
+        p = os.path.join(_DIST, full_path)
+        if os.path.isfile(p):
+            return FileResponse(p)
+        return FileResponse(os.path.join(_DIST, "index.html"))
 
 if __name__ == "__main__":
     import uvicorn
