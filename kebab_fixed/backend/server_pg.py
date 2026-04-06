@@ -190,6 +190,9 @@ def startup():
         "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_mixing_ids TEXT[] DEFAULT '{}'",
         "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_seasoned_ids TEXT[] DEFAULT '{}'",
         "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_deboning_ids TEXT[] DEFAULT '{}'",
+        # Stock reservation model
+        "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS kg_reserved NUMERIC(10,3) DEFAULT 0",
+        "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS kg_used NUMERIC(10,3) DEFAULT 0",
     ]
     try:
         with get_conn() as conn:
@@ -2455,10 +2458,9 @@ def create_mixing_order(dto: MixingOrderCreate):
             cur = conn.cursor()
             cur.execute("""
                 UPDATE meat_stock
-                SET kg_available = kg_available - %s
+                SET kg_reserved = kg_reserved + %s
                 WHERE id = %s
-                AND kg_available >= %s
-            """, (lot_dto.kgPlanned, lot_dto.meatLotId, lot_dto.kgPlanned))
+            """, (lot_dto.kgPlanned, lot_dto.meatLotId))
             if cur.rowcount == 0:
                 raise HTTPException(400,
                     f"Race condition: brak kg w partii {lot_dto.meatLotId} (update failed)")
@@ -2661,6 +2663,14 @@ def finish_mixing_session(id: str, body: dict):
                 source_type='mixing',
                 source_id=id,
             )
+            mv_conn.cursor().execute("""
+                UPDATE meat_stock
+                SET
+                    kg_reserved  = GREATEST(0, kg_reserved  - %s),
+                    kg_available = GREATEST(0, kg_available - %s),
+                    kg_used      = kg_used + %s
+                WHERE id = %s
+            """, (kg_used_session, kg_used_session, kg_used_session, meat_stock_id))
         # IN movement — seasoned_meat created in this session
         sm_row = _conn_query_one(mv_conn, "SELECT id FROM seasoned_meat WHERE batch_no=%s", (batch_no,))
         sm_id = sm_row['id'] if sm_row else batch_no
@@ -2723,7 +2733,7 @@ def cancel_mixing_order(id: str):
             cur = conn.cursor()
             cur.execute("""
                 UPDATE meat_stock
-                SET kg_available = kg_available + %s
+                SET kg_reserved = GREATEST(0, kg_reserved - %s)
                 WHERE id = %s
             """, (float(lot.get('kg_planned') or 0), lot.get('meat_stock_id')))
             if cur.rowcount == 0:
