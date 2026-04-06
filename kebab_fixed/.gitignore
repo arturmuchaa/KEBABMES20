@@ -6,7 +6,6 @@ venv/
 .venv/
 
 # Build
-dist/
 build/
 
 # Środowisko (NIE commituj haseł!)
