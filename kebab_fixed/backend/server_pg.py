@@ -82,31 +82,36 @@ def create_stock_movement(conn, product_type: str, batch_id: str, qty: float,
                           movement_type: str, source_type: str, source_id: str) -> None:
     """
     Insert a stock movement record within an existing DB transaction.
-    For OUT movements validates that total consumption never exceeds kg_initial.
+    qty must be positive for IN, negative for OUT.
+    For OUT movements validates that stock does not go below zero.
     Raises HTTPException(400) if validation fails.
     """
-    if qty <= 0:
+    if qty == 0:
         return
     if movement_type == 'OUT':
+        abs_qty = abs(qty)
         stock = _conn_query_one(conn,
             "SELECT kg_initial FROM meat_stock WHERE id = %s", (batch_id,))
         if stock is not None:
             kg_initial = float(stock.get('kg_initial') or 0)
             already_out = _conn_query_one(conn, """
-                SELECT COALESCE(SUM(qty), 0) AS total_out
+                SELECT COALESCE(SUM(ABS(qty)), 0) AS total_out
                 FROM stock_movements
                 WHERE batch_id = %s AND movement_type = 'OUT'
             """, (batch_id,))
-            total_out = float(already_out.get('total_out') or 0) + qty
+            total_out = float(already_out.get('total_out') or 0) + abs_qty
             if total_out > kg_initial + 0.01:
                 raise HTTPException(400,
-                    f"Ruch OUT {qty} kg przekracza kg_initial {kg_initial} kg "
+                    f"Ruch OUT {abs_qty} kg przekracza kg_initial {kg_initial} kg "
                     f"dla partii {batch_id} (łącznie OUT: {total_out:.3f} kg)")
+        stored_qty = -abs_qty  # OUT is always stored as negative
+    else:
+        stored_qty = abs(qty)  # IN/TRANSFORM stored as positive
     _conn_execute(conn, """
         INSERT INTO stock_movements
             (id, product_type, batch_id, qty, movement_type, source_type, source_id, created_at)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-    """, (cuid(), product_type, batch_id, qty, movement_type, source_type, source_id, now_iso()))
+    """, (cuid(), product_type, batch_id, stored_qty, movement_type, source_type, source_id, now_iso()))
 
 def _b(body: dict, snake: str, default=None):
     """Pobiera wartość z body akceptując snake_case i camelCase (toSnake konwertuje frontend)."""
