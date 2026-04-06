@@ -2434,20 +2434,21 @@ def create_mixing_order(dto: MixingOrderCreate):
 
         # Wstaw loty mięsa + rezerwuj kg w meat_stock
         # WALIDACJA: sprawdź dostępność i brak double-bookingu
-        for lot_dto in dto.meat_lots:
-            stock = query_one("SELECT * FROM meat_stock WHERE id=%s", (lot_dto.meatLotId,))
-            if not stock:
+        for lot_dto in sorted(dto.meat_lots, key=lambda x: x.meatLotId):
+            locked = _conn_query_one(conn,
+                "SELECT * FROM meat_stock WHERE id=%s FOR UPDATE",
+                (lot_dto.meatLotId,))
+            if not locked:
                 raise HTTPException(400, f"Partia mięsa nie znaleziona: {lot_dto.meatLotId}")
 
-            available = float(stock.get('kg_available') or 0)
-            if available < lot_dto.kgPlanned - 0.1:
+            if float(locked.get('kg_available') or 0) < lot_dto.kgPlanned - 0.1:
                 raise HTTPException(400,
-                    f"Niewystarczające kg w partii {stock.get('lot_no','?')}: "
-                    f"dostępne {available:.2f} kg, wymagane {lot_dto.kgPlanned:.2f} kg. "
+                    f"Niewystarczające kg w partii {locked.get('lot_no','?')}: "
+                    f"dostępne {float(locked.get('kg_available') or 0):.2f} kg, wymagane {lot_dto.kgPlanned:.2f} kg. "
                     f"Partia może być już przypisana do innego zlecenia.")
 
             # Sprawdź double-booking — ta sama partia w innym aktywnym zleceniu
-            existing = query_one("""
+            existing = _conn_query_one(conn, """
                 SELECT mo.order_no FROM mixing_order_lots mol
                 JOIN mixing_orders mo ON mo.id = mol.order_id
                 WHERE mol.meat_stock_id = %s
@@ -2456,19 +2457,9 @@ def create_mixing_order(dto: MixingOrderCreate):
             """, (lot_dto.meatLotId, oid))
             if existing:
                 raise HTTPException(400,
-                    f"Partia {stock.get('lot_no','?')} jest już przypisana "
+                    f"Partia {locked.get('lot_no','?')} jest już przypisana "
                     f"do aktywnego zlecenia {existing['order_no']}. "
                     f"Anuluj tamto zlecenie lub użyj innej partii.")
-
-            _conn_query_all(conn, """
-                SELECT id FROM mixing_order_lots
-                WHERE order_id = %s ORDER BY id FOR UPDATE
-            """, (oid,))
-            locked = _conn_query_one(conn,
-                "SELECT kg_available FROM meat_stock WHERE id=%s FOR UPDATE",
-                (lot_dto.meatLotId,))
-            if float(locked.get('kg_available') or 0) < lot_dto.kgPlanned - 0.1:
-                raise HTTPException(400, f"Brak kg w partii po locku: {lot_dto.meatLotId}")
             _conn_execute(conn, """
                 INSERT INTO mixing_order_lots
                 (id, order_id, meat_stock_id, kg_planned, kg_actual)
