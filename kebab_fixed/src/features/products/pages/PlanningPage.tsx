@@ -58,18 +58,6 @@ export function PlanningPage() {
   const [selLots,      setSelLots]      = useState<{ lotId: string; kg: string }[]>([])
   const [notes,        setNotes]        = useState('')
 
-  // Aktywne zlecenia — sprawdzamy które loty są już zarezerwowane
-  const reservedLotIds = useMemo(() => {
-    const active = (orders ?? []).filter(o => ['planned','confirmed','in_progress'].includes(o.status))
-    const ids = new Set<string>()
-    for (const o of active) {
-      for (const lot of (o.meatLots ?? [])) {
-        if (lot.meatLotId) ids.add(lot.meatLotId)
-      }
-    }
-    return ids
-  }, [orders])
-
   const meatLots  = useMemo(() =>
     (meatData?.data ?? [])
       .filter(m => m.status !== 'DEPLETED' && m.status !== 'IN_PRODUCTION' && Number(m.kgAvailable) > 0)
@@ -355,11 +343,10 @@ export function PlanningPage() {
                     {meatLots.map(lot => {
                       const selIdx    = selLots.findIndex(l => l.lotId === lot.id)
                       const isSel     = selIdx >= 0
-                      const reserved  = reservedLotIds.has(lot.id)
                       const fullyUsed = Number(lot.kgAvailable) <= 0
                       return (
                         <div key={lot.id} className={`flex items-center gap-2 px-3 py-2 text-[12px] transition-colors ${
-                          isSel ? 'bg-blue-50' : fullyUsed ? 'bg-muted/40 opacity-60' : reserved ? 'bg-amber-50/40' : 'hover:bg-muted/50'
+                          isSel ? 'bg-blue-50' : fullyUsed ? 'bg-muted/40 opacity-60' : 'hover:bg-muted/50'
                         }`}>
                           <input type="checkbox" checked={isSel} disabled={fullyUsed && !isSel}
                             onChange={e => {
@@ -374,7 +361,6 @@ export function PlanningPage() {
                           <span className="text-muted-foreground flex-shrink-0 w-16 truncate">{lot.rawBatchNo}</span>
                           <span className="font-semibold text-green-700 flex-shrink-0 w-20 tabular-nums">{fmtKg(lot.kgAvailable)} kg</span>
                           {fullyUsed && <span className="text-[10px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded flex-shrink-0">wyczerpana</span>}
-                          {reserved && !fullyUsed && <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded flex-shrink-0">część zarezerwowana</span>}
                           <span className="text-muted-foreground text-[11px] flex-1">do: {fmtDatePl(lot.expiryDate)}</span>
                           {isSel && (
                             <Input type="number" min="0.1" step="0.1"
