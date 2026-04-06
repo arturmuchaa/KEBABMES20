@@ -429,10 +429,12 @@ def update_batch(id: str, body: dict):
 @app.get("/api/meat-stock")
 def list_meat():
     return {"data": query_all("""
-        SELECT m.*, b.internal_batch_no, b.supplier_name, b.slaughter_date as batch_slaughter_date
+        SELECT m.*,
+               (m.kg_available - COALESCE(m.kg_reserved, 0)) AS kg_free,
+               b.internal_batch_no, b.supplier_name, b.slaughter_date as batch_slaughter_date
         FROM meat_stock m
         LEFT JOIN raw_batches b ON b.id = m.raw_batch_id
-        WHERE m.kg_available > 0
+        WHERE (m.kg_available - COALESCE(m.kg_reserved, 0)) > 0
         ORDER BY m.expiry_date ASC, m.lot_no ASC
     """)}
 
@@ -2444,11 +2446,13 @@ def create_mixing_order(dto: MixingOrderCreate):
             if not locked:
                 raise HTTPException(400, f"Partia mięsa nie znaleziona: {lot_dto.meatLotId}")
 
-            if float(locked.get('kg_available') or 0) < lot_dto.kgPlanned - 0.1:
+            available = float(locked.get('kg_available') or 0)
+            reserved  = float(locked.get('kg_reserved')  or 0)
+            free = available - reserved
+            if free < lot_dto.kgPlanned - 0.1:
                 raise HTTPException(400,
                     f"Niewystarczające kg w partii {locked.get('lot_no','?')}: "
-                    f"dostępne {float(locked.get('kg_available') or 0):.2f} kg, wymagane {lot_dto.kgPlanned:.2f} kg. "
-                    f"Partia może być już przypisana do innego zlecenia.")
+                    f"wolne {free:.2f} kg (dostępne {available:.2f} - zarezerwowane {reserved:.2f}), wymagane {lot_dto.kgPlanned:.2f} kg.")
 
             _conn_execute(conn, """
                 INSERT INTO mixing_order_lots
