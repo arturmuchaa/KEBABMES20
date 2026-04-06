@@ -94,16 +94,10 @@ def create_stock_movement(conn, product_type: str, batch_id: str, qty: float,
             "SELECT kg_available FROM meat_stock WHERE id = %s", (batch_id,))
         if stock is not None:
             kg_available = float(stock.get('kg_available') or 0)
-            already_out = _conn_query_one(conn, """
-                SELECT COALESCE(SUM(ABS(qty)), 0) AS total_out
-                FROM stock_movements
-                WHERE batch_id = %s AND movement_type = 'OUT'
-            """, (batch_id,))
-            total_out = float(already_out.get('total_out') or 0) + abs_qty
-            if total_out > kg_available + 0.01:
+            if abs_qty > kg_available + 0.01:
                 raise HTTPException(400,
                     f"Ruch OUT {abs_qty} kg przekracza kg_available {kg_available} kg "
-                    f"dla partii {batch_id} (łącznie OUT: {total_out:.3f} kg)")
+                    f"dla partii {batch_id}")
         stored_qty = -abs_qty  # OUT is always stored as negative
     else:
         stored_qty = abs(qty)  # IN/TRANSFORM stored as positive
