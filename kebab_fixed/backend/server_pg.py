@@ -2466,12 +2466,16 @@ def create_mixing_order(dto: MixingOrderCreate):
                 (id, order_id, meat_stock_id, kg_planned, kg_actual)
                 VALUES (%s,%s,%s,%s,0)
             """, (cuid(), oid, lot_dto.meatLotId, lot_dto.kgPlanned))
-            _conn_execute(conn, """
+            cur = conn.cursor()
+            cur.execute("""
                 UPDATE meat_stock
                 SET kg_available = kg_available - %s
                 WHERE id = %s
                 AND kg_available >= %s
             """, (lot_dto.kgPlanned, lot_dto.meatLotId, lot_dto.kgPlanned))
+            if cur.rowcount == 0:
+                raise HTTPException(400,
+                    f"Race condition: brak kg w partii {lot_dto.meatLotId} (update failed)")
 
         conn.commit()
     except HTTPException:
@@ -2730,11 +2734,15 @@ def cancel_mixing_order(id: str):
             _conn_query_one(conn,
                 "SELECT kg_available FROM meat_stock WHERE id=%s FOR UPDATE", (ms_id,))
         for lot in lots:
-            _conn_execute(conn, """
+            cur = conn.cursor()
+            cur.execute("""
                 UPDATE meat_stock
                 SET kg_available = kg_available + %s
                 WHERE id = %s
             """, (float(lot.get('kg_planned') or 0), lot.get('meat_stock_id')))
+            if cur.rowcount == 0:
+                raise HTTPException(500,
+                    f"Nie można przywrócić kg dla partii {lot.get('meat_stock_id')} (update failed)")
         row = _conn_execute_returning(conn,
             "UPDATE mixing_orders SET status='cancelled' WHERE id=%s RETURNING *", (id,))
         conn.commit()
