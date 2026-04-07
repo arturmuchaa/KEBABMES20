@@ -247,7 +247,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 def root():
     _dist_index = os.path.join(os.path.dirname(__file__), "../dist/index.html")
     if os.path.isfile(_dist_index):
-        return FileResponse(_dist_index)
+        return FileResponse(_dist_index, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
     return HTMLResponse("<h1>Kebab MES API — uruchom npm run build</h1>")
 
 @app.get("/favicon.ico")
@@ -2882,7 +2882,7 @@ if os.path.isdir(_DIST):
         p = os.path.join(_DIST, full_path)
         if os.path.isfile(p):
             return FileResponse(p)
-        return FileResponse(os.path.join(_DIST, "index.html"))
+        return FileResponse(os.path.join(_DIST, "index.html"), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 if __name__ == "__main__":
     import uvicorn
