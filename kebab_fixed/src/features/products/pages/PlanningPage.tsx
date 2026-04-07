@@ -41,7 +41,7 @@ import {
 export function PlanningPage() {
   const { productTypes, loading: ptLoading } = useProductTypes()
   const { recipes, loading: recLoading }     = useRecipes()
-  const { data: meatData }                   = useApi(() => meatStockApi.list())
+  const { data: meatData, refetch: refetchMeat }  = useApi(() => meatStockApi.list())
   const { data: orders, refetch: refetchOrders } = useApi(() => mixingOrdersApi.list())
 
   const createMut  = useMutation((dto: CreateMixingOrderDto) => mixingOrdersApi.create(dto))
@@ -138,6 +138,7 @@ export function PlanningPage() {
     try {
       const created = await createMut.mutate(dto)
       refetchOrders()
+      refetchMeat()
       setModalOpen(false)
       resetModal()
       toast.success(`Zlecenie ${created.orderNo} utworzone`)
@@ -151,6 +152,7 @@ export function PlanningPage() {
     try {
       await cancelMut.mutate(id)
       refetchOrders()
+      refetchMeat()
       toast.success(`Zlecenie ${orderNo} anulowane — partie zwolnione`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Błąd')
