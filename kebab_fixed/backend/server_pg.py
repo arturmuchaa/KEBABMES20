@@ -243,25 +243,12 @@ def startup():
 
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 def root():
-    html = """<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Kebab MES API</title>
-<style>body{font-family:system-ui,sans-serif;max-width:600px;margin:60px auto;padding:0 20px;color:#1a1a1a}
-h1{color:#2563eb;margin-bottom:8px}p{color:#555;margin:4px 0}
-.btn{display:inline-block;margin-top:16px;padding:10px 20px;background:#2563eb;color:#fff;
-text-decoration:none;border-radius:8px;font-weight:600;margin-right:8px}
-.btn.sec{background:#f0f4ff;color:#2563eb}
-.status{display:inline-block;padding:4px 10px;background:#d1fae5;color:#065f46;border-radius:99px;font-size:13px;font-weight:600}
-</style></head><body>
-<h1>🥙 Kebab MES — Backend API</h1>
-<p class="status">✓ Serwer działa</p>
-<p style="margin-top:16px">Backend systemu zarządzania produkcją kebaba.</p>
-<p>Frontend: <strong>http://localhost:5173</strong></p>
-<a class="btn" href="/docs">📋 Dokumentacja API</a>
-<a class="btn sec" href="/health">❤️ Health check</a>
-</body></html>"""
-    return HTMLResponse(html)
+    _dist_index = os.path.join(os.path.dirname(__file__), "../dist/index.html")
+    if os.path.isfile(_dist_index):
+        return FileResponse(_dist_index)
+    return HTMLResponse("<h1>Kebab MES API — uruchom npm run build</h1>")
 
 @app.get("/favicon.ico")
 def favicon():
@@ -2889,10 +2876,6 @@ _DIST = os.path.join(os.path.dirname(__file__), "../dist")
 
 if os.path.isdir(_DIST):
     app.mount("/assets", StaticFiles(directory=os.path.join(_DIST, "assets")), name="assets")
-
-    @app.get("/", include_in_schema=False)
-    def _root():
-        return FileResponse(os.path.join(_DIST, "index.html"))
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def _spa(full_path: str):
