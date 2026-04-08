@@ -6,7 +6,7 @@
  * - Podczas pracy operator wpisuje tylko kg ćwiartki i kg mięsa (szybko, wielokrotnie)
  * - Sugestia kości/grzbietów pokazuje sumę z wszystkich wpisów danej partii
  */
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { rawBatchesApi, usersApi } from '@/lib/apiClient'
 import { Toast, Spinner } from '@/components/ui/widgets'
@@ -90,6 +90,13 @@ export function DeboningTabletPage() {
   const [shiftModal,  setShiftModal]  = useState(false)
   const [toast, setToast] = useState({ msg:'', type:'success' as 'success'|'error', visible:false })
   const cwRef = useRef<HTMLInputElement>(null)
+
+  // Synchronizuj selBatch z odświeżonymi danymi (kgAvailable po zapisie)
+  useEffect(() => {
+    if (!selBatch) return
+    const updated = (batchData.data?.data ?? []).find(b => b.id === selBatch.id)
+    if (updated && updated.kgAvailable !== selBatch.kgAvailable) setSelBatch(updated)
+  }, [batchData.data])
 
   const batches = (batchData.data?.data ?? [])
     .filter(b => Number(b.kgAvailable) > 0 && b.status !== 'used' && b.status !== 'expired' && b.status !== 'cancelled')

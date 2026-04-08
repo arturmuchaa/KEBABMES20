@@ -358,11 +358,23 @@ function mapRecipe(raw: any): Recipe {
   }
 }
 
+// BUGFIX: toSnake('qtyPer100kg') → 'qty_per100kg' (missing _ before kg).
+// Backend expects 'qty_per_100kg'. Serialize ingredients manually.
+function toSnakeRecipeDto(dto: CreateRecipeDto | UpdateRecipeDto) {
+  return {
+    ...toSnake(dto),
+    ingredients: (dto.ingredients ?? []).map((ri: any) => ({
+      ingredient_id:  ri.ingredientId  ?? ri.ingredient_id  ?? '',
+      qty_per_100kg:  ri.qtyPer100kg   ?? ri.qty_per_100kg  ?? 0,
+    })),
+  }
+}
+
 export const recipesApi = {
   list:       () => get<any[]>('/recipes').then(r => (Array.isArray(r) ? r : []).map(mapRecipe)),
   byId:       (id: string) => get<any>(`/recipes/${id}`).then(mapRecipe),
-  create:     (dto: CreateRecipeDto) => post<any>('/recipes', toSnake(dto)).then(mapRecipe),
-  update:     (id: string, dto: UpdateRecipeDto) => put<any>(`/recipes/${id}`, toSnake(dto)).then(mapRecipe),
+  create:     (dto: CreateRecipeDto) => post<any>('/recipes', toSnakeRecipeDto(dto)).then(mapRecipe),
+  update:     (id: string, dto: UpdateRecipeDto) => put<any>(`/recipes/${id}`, toSnakeRecipeDto(dto)).then(mapRecipe),
   deactivate: (id: string) => patch<void>(`/recipes/${id}/deactivate`, {}),
   calculate:  (id: string, kg: number) => get<any>(`/recipes/${id}/calculate?kg=${kg}`),
 }
@@ -434,10 +446,27 @@ export const invoicesApi = {
 }
 
 // ─── Opakowania / Tuleje ──────────────────────────────────────
+function mapPackaging(raw: any): PackagingItem {
+  return {
+    id:           raw.id          ?? '',
+    code:         raw.code        ?? '',
+    name:         raw.name        ?? '',
+    type:         raw.type        ?? 'opakowanie',
+    unit:         raw.unit        ?? 'szt',
+    kgInitial:    Number(raw.kg_initial   ?? raw.kgInitial   ?? 0),
+    kgAvailable:  Number(raw.kg_available ?? raw.kgAvailable ?? 0),
+    kgUsed:       Number(raw.kg_used      ?? raw.kgUsed      ?? 0),
+    supplierId:   raw.supplier_id  ?? raw.supplierId,
+    supplierName: raw.supplier_name ?? raw.supplierName,
+    expiryDate:   raw.expiry_date  ?? raw.expiryDate,
+    notes:        raw.notes,
+    createdAt:    raw.created_at   ?? raw.createdAt ?? '',
+  }
+}
 export const packagingApi = {
-  list:    () => get<PackagingItem[]>('/packaging'),
-  all:     () => get<PackagingItem[]>('/packaging/all'),
-  receive: (dto: CreatePackagingDto) => post<PackagingItem>('/packaging', toSnake(dto)),
+  list:    () => get<any[]>('/packaging').then(r => (Array.isArray(r) ? r : []).map(mapPackaging)),
+  all:     () => get<any[]>('/packaging/all').then(r => (Array.isArray(r) ? r : []).map(mapPackaging)),
+  receive: (dto: CreatePackagingDto) => post<any>('/packaging', toSnake(dto)).then(mapPackaging),
   use:     (id: string, qty: number) => patch<void>(`/packaging/${id}/use`, { qty }),
 }
 
