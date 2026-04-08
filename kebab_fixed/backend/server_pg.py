@@ -195,6 +195,8 @@ def startup():
         # Stock reservation model
         "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS kg_reserved NUMERIC(10,3) DEFAULT 0",
         "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS kg_used NUMERIC(10,3) DEFAULT 0",
+        # Śledź ile kg jest aktualnie w masownicy (ustawiane w finish_session, zerowane w auto_approve)
+        "ALTER TABLE mixing_orders ADD COLUMN IF NOT EXISTS kg_in_machine NUMERIC(10,3) DEFAULT 0",
     ]
     try:
         with get_conn() as conn:
@@ -2352,6 +2354,7 @@ def build_mixing_order(o: dict) -> dict:
         'meatKg':          meat_kg,
         'kgDone':          kg_done,
         'kgRemaining':     kg_remaining,
+        'kgInMachine':     float(o.get('kg_in_machine') or 0),
         'plannedOutputKg': planned_out,
         'machineId':       o.get('machine_id'),
         'status':          o.get('status') or 'planned',
@@ -2543,7 +2546,8 @@ def finish_mixing_session(id: str, body: dict):
     kg_output = _calc_kg_output(order.get('recipe_id'), kg_meat)
     # Gdy wszystkie kg zakończone → status in_progress (masownica jeszcze pracuje).
     # Operator potwierdzi zakończenie z tabletu po odliczeniu (auto-approve → 'done').
-    new_status = 'in_progress' if kg_done >= meat_kg - 0.1 else 'planned'
+    # Gdy częściowe → wróć do 'confirmed' (nie 'planned') żeby nie pojawiał się przycisk Potwierdź.
+    new_status = 'in_progress' if kg_done >= meat_kg - 0.1 else 'confirmed'
 
     # Generuj numer partii jeśli pusty
     # Format: MP{raw_seq} jeśli z jednej ćwiartki, MPP{counter} jeśli z wielu
@@ -2620,12 +2624,15 @@ def finish_mixing_session(id: str, body: dict):
 
     # Zaktualizuj zlecenie — wyczyść confirmed_steps dla następnej sesji, ustaw kg_done
     completed_at = now_iso() if new_status == 'done' else None
+    # kg_in_machine: bieżąca sesja jest w trakcie mieszania; zerowane przez auto_approve
+    kg_in_machine_val = kg_meat if new_status != 'done' else 0
     updated = execute_returning("""
         UPDATE mixing_orders
         SET kg_done=%s, status=%s, completed_at=%s,
-            machine_id=NULL, confirmed_steps='{}'::jsonb
+            machine_id=NULL, confirmed_steps='{}'::jsonb,
+            kg_in_machine=%s
         WHERE id=%s RETURNING *
-    """, (kg_done, new_status, completed_at, id))
+    """, (kg_done, new_status, completed_at, kg_in_machine_val, id))
 
     # ─── Stock movements (atomic transaction) ─────────────────────────────────
     # Determine actual kg consumed per lot in this session
@@ -2703,7 +2710,7 @@ def finish_mixing_session(id: str, body: dict):
 @app.patch("/api/mixing-orders/{id}/auto-approve")
 def auto_approve_mixing(id: str):
     row = execute_returning(
-        "UPDATE mixing_orders SET status='done', completed_at=%s WHERE id=%s RETURNING *",
+        "UPDATE mixing_orders SET status='done', completed_at=%s, kg_in_machine=0 WHERE id=%s RETURNING *",
         (now_iso(), id))
     if not row: raise HTTPException(404)
     return build_mixing_order(row)

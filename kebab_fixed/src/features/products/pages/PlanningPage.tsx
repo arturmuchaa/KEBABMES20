@@ -10,7 +10,7 @@
  *   4. System wylicza składniki + tworzy zlecenie MAS-xxx
  *   5. Zlecenie widoczne na tablecie masownicy
  */
-import { useState, useMemo, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -30,7 +30,7 @@ import {
 import { useProductTypes } from '../hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
 import { useApi, useMutation } from '@/hooks/useApi'
-import { meatStockApi, mixingOrdersApi } from '@/lib/apiClient'
+import { meatStockApi, mixingOrdersApi, machineLockApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import type { CreateMixingOrderDto } from '@/lib/mockApi'
 import {
@@ -41,11 +41,37 @@ import { DialogDescription } from '@/components/ui/dialog'
 import { fmtKg as fmt } from '@/lib/utils'
 import type { MixingOrder } from '@/lib/mockApi'
 
+function TimerTile({ kg, lock }: { kg: number; lock: any }) {
+  const [remaining, setRemaining] = useState(() =>
+    lock ? Math.max(0, Math.floor((new Date(lock.unlocksAt).getTime() - Date.now()) / 1000)) : 0
+  )
+  useEffect(() => {
+    if (!lock) return
+    const t = setInterval(() => {
+      const s = Math.max(0, Math.floor((new Date(lock.unlocksAt).getTime() - Date.now()) / 1000))
+      setRemaining(s)
+      if (s === 0) clearInterval(t)
+    }, 1000)
+    return () => clearInterval(t)
+  }, [lock])
+  const mm = String(Math.floor(remaining / 60)).padStart(2, '0')
+  const ss = String(remaining % 60).padStart(2, '0')
+  return (
+    <div className="border rounded-xl p-3 text-center bg-orange-50 text-orange-700 border-orange-200 col-span-2">
+      <div className="text-[10px] font-bold uppercase tracking-wide mb-1">W trakcie</div>
+      <div className="text-xl font-black tabular-nums">{fmt(kg)} kg</div>
+      {lock && <div className="text-[13px] font-mono font-bold mt-1">{mm}:{ss}</div>}
+      <div className="text-[10px] mt-0.5">{lock ? 'Masownica ' + lock.machineId : ''}</div>
+    </div>
+  )
+}
+
 export function PlanningPage() {
   const { productTypes, loading: ptLoading } = useProductTypes()
   const { recipes, loading: recLoading }     = useRecipes()
   const { data: meatData, refetch: refetchMeat }  = useApi(() => meatStockApi.list())
   const { data: orders, refetch: refetchOrders } = useApi(() => mixingOrdersApi.list())
+  const { data: locks, refetch: refetchLocks }  = useApi(() => machineLockApi.list())
 
   const [cancelTarget,   setCancelTarget]   = useState<MixingOrder | null>(null)
   const [progressTarget, setProgressTarget] = useState<MixingOrder | null>(null)
@@ -477,11 +503,12 @@ export function PlanningPage() {
 
       {/* Modal podglądu postępu zlecenia */}
       {progressTarget && (() => {
-        const o = progressTarget as any
-        const kgDone      = o.kgDone      ?? 0
-        const kgRemaining = o.kgRemaining ?? o.meatKg
-        const pct         = o.meatKg > 0 ? Math.round((kgDone / o.meatKg) * 100) : 0
-        const isInProgress = o.status === 'in_progress'
+        const o          = progressTarget as any
+        const kgInMach   = o.kgInMachine ?? 0
+        const kgDone     = Math.max(0, (o.kgDone ?? 0) - kgInMach)  // wymieszane + zatwierdzone
+        const kgRemaining = Math.max(0, (o.kgRemaining ?? o.meatKg) - kgInMach)
+        const activeLock = (locks ?? []).find((l: any) => l.orderId === o.id)
+        const pct = o.meatKg > 0 ? Math.round((kgDone / o.meatKg) * 100) : 0
         return (
           <Dialog open onOpenChange={open => { if (!open) setProgressTarget(null) }}>
             <DialogContent className="max-w-sm">
@@ -495,37 +522,39 @@ export function PlanningPage() {
                 {/* Pasek postępu */}
                 <div>
                   <div className="flex justify-between text-[11px] text-muted-foreground mb-1">
-                    <span>Postęp</span><span className="font-bold">{pct}%</span>
+                    <span>Postęp (zatwierdzone)</span><span className="font-bold">{pct}%</span>
                   </div>
                   <div className="h-3 bg-muted rounded-full overflow-hidden">
                     <div className="h-full bg-brand rounded-full transition-all"
                       style={{ width: `${Math.min(100, pct)}%` }}/>
                   </div>
                 </div>
-                {/* Kafelki */}
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { label: 'Zaplanowane', val: o.meatKg,    cls: 'bg-blue-50 text-blue-700 border-blue-200' },
-                    { label: 'Wymieszano',  val: kgDone,       cls: 'bg-green-50 text-green-700 border-green-200' },
-                    { label: 'Pozostało',   val: kgRemaining,  cls: kgRemaining > 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-muted text-muted-foreground border-border' },
-                  ].map(k => (
-                    <div key={k.label} className={`border rounded-xl p-3 text-center ${k.cls}`}>
-                      <div className="text-[10px] font-bold uppercase tracking-wide mb-1">{k.label}</div>
-                      <div className="text-xl font-black tabular-nums">{fmt(k.val)}</div>
-                      <div className="text-[10px] mt-0.5">kg</div>
-                    </div>
-                  ))}
+                {/* Kafelki — 4 jeśli jest aktywna sesja, 3 jeśli nie */}
+                <div className={`grid gap-2 ${kgInMach > 0 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                  <div className="border rounded-xl p-3 text-center bg-blue-50 text-blue-700 border-blue-200">
+                    <div className="text-[10px] font-bold uppercase tracking-wide mb-1">Zaplanowane</div>
+                    <div className="text-xl font-black tabular-nums">{fmt(o.meatKg)}</div>
+                    <div className="text-[10px] mt-0.5">kg</div>
+                  </div>
+                  <div className="border rounded-xl p-3 text-center bg-green-50 text-green-700 border-green-200">
+                    <div className="text-[10px] font-bold uppercase tracking-wide mb-1">Wymieszano</div>
+                    <div className="text-xl font-black tabular-nums">{fmt(kgDone)}</div>
+                    <div className="text-[10px] mt-0.5">kg</div>
+                  </div>
+                  {kgInMach > 0 && (
+                    <TimerTile kg={kgInMach} lock={activeLock} />
+                  )}
+                  <div className={`border rounded-xl p-3 text-center ${kgRemaining > 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-muted text-muted-foreground border-border'}`}>
+                    <div className="text-[10px] font-bold uppercase tracking-wide mb-1">Pozostało</div>
+                    <div className="text-xl font-black tabular-nums">{fmt(kgRemaining)}</div>
+                    <div className="text-[10px] mt-0.5">kg</div>
+                  </div>
                 </div>
-                {/* Status / masownica */}
+                {/* Status */}
                 <div className="bg-muted/30 rounded-xl px-3 py-2.5 flex items-center justify-between text-[12px]">
                   <span className="text-muted-foreground">Status</span>
                   <Badge variant="outline" className={STATUS_CLASS[o.status]}>{STATUS_LABELS[o.status]}</Badge>
                 </div>
-                {isInProgress && o.machineId && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-[12px] text-amber-700 font-semibold flex items-center gap-2">
-                    <AlertIcon size={13}/> Masownica {o.machineId} aktywnie miesza
-                  </div>
-                )}
                 {/* Partie mięsa */}
                 {(o.meatLots ?? []).length > 0 && (
                   <div className="border rounded-xl overflow-hidden">
