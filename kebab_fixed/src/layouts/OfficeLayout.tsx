@@ -23,6 +23,7 @@ const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
   '/office/planowanie-masowania':  { title: 'Planowanie masowania',        description: 'Zlecenia masowania' },
   '/office/planowanie-produkcji':  { title: 'Planowanie produkcji',        description: 'Harmonogram produkcji' },
   '/office/pracownicy':            { title: 'Pracownicy',                  description: 'Zarządzanie personelem' },
+  '/office/rozliczenia':           { title: 'Rozliczenia płac',            description: 'Akord · Tygodniówki · Paski wypłaty' },
   '/office/recall':                { title: 'Wycofanie (Recall)',          description: 'Śledzenie i wycofania' },
   '/office/uzytkownicy':           { title: 'Użytkownicy systemu',         description: 'Konta i uprawnienia' },
 }

@@ -19,6 +19,7 @@ import { PurchaseInvoicesPage } from '@/pages/office/PurchaseInvoicesPage'
 import { ClientOrdersPage } from '@/pages/office/ClientOrdersPage'
 import { ProductionPlanningPage } from '@/pages/office/ProductionPlanningPage'
 import { RecallPage }             from '@/pages/office/RecallPage'
+import { PayrollPage }            from '@/pages/office/PayrollPage'
 import { ProductTypesPage, RecipesPage, PlanningPage } from '@/features/products'
 import { DeboningTabletPage }  from '@/pages/tablet/DeboningTabletPage'
 import { MixingTabletPage }    from '@/pages/tablet/MixingTabletPage'
@@ -72,6 +73,7 @@ export default function App() {
         <Route path="planowanie-masowania"  element={<PlanningPage />} />
         <Route path="planowanie-produkcji"  element={<ProductionPlanningPage />} />
         <Route path="pracownicy"            element={<WorkersPage />} />
+        <Route path="rozliczenia"           element={<PayrollPage />} />
         <Route path="recall"                element={<RecallPage />} />
         <Route path="uzytkownicy"           element={<PlaceholderPage title="Użytkownicy" icon="🔐" description="" />} />
       </Route>

@@ -5,7 +5,7 @@ import {
   Layers, Users, UserCog, FlaskConical, ShoppingBag,
   BarChart2, CreditCard, Scissors, Monitor, Truck, Building2,
   FileText, X, Factory, ShoppingCart, Archive, AlertTriangle,
-  ChevronRight,
+  ChevronRight, Banknote,
 } from 'lucide-react'
 
 interface NavItem { to: string; label: string; icon: React.ReactNode }
@@ -42,8 +42,9 @@ const NAV: NavSection[] = [
     { to: '/office/recall', label: 'Wycofanie (Recall)', icon: <AlertTriangle size={14} /> },
   ]},
   { heading: 'Administracja', items: [
-    { to: '/office/pracownicy',  label: 'Pracownicy',  icon: <Users size={14} /> },
-    { to: '/office/uzytkownicy', label: 'Użytkownicy', icon: <UserCog size={14} /> },
+    { to: '/office/pracownicy',  label: 'Pracownicy',    icon: <Users size={14} /> },
+    { to: '/office/rozliczenia', label: 'Rozliczenia',   icon: <Banknote size={14} /> },
+    { to: '/office/uzytkownicy', label: 'Użytkownicy',   icon: <UserCog size={14} /> },
   ]},
 ]
 

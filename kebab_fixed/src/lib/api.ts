@@ -270,7 +270,25 @@ export const clientsApi = {
 // ─── Pracownicy ───────────────────────────────────────────────
 export const usersApi = {
   list:   () => get<User[]>('/workers'),
-  create: (dto: { name: string; role: string; pin?: string }) => post<User>('/workers', dto),
+  create: (dto: { name: string; role: string; pin?: string; ratePerKg?: number; contractType?: string; employerCostPct?: number }) =>
+    post<User>('/workers', toSnake(dto)),
+  update: (id: string, dto: { name?: string; role?: string; pin?: string; ratePerKg?: number; contractType?: string; employerCostPct?: number; active?: boolean }) =>
+    put<User>(`/workers/${id}`, toSnake(dto)),
+}
+
+// ─── Płace ────────────────────────────────────────────────────
+export const payrollApi = {
+  getWorkerDays: (workerId: string, dateFrom: string, dateTo: string) =>
+    get<any[]>(`/payroll/worker-days?worker_id=${workerId}&date_from=${dateFrom}&date_to=${dateTo}`),
+  createSettlement: (dto: {
+    workerId: string; dateFrom: string; dateTo: string;
+    workDates: string[]; kgPerDate: Record<string, number>;
+    ratePerKg: number; deductions: { description: string; amount: number }[];
+    notes?: string;
+  }) => post<any>('/payroll/settlements', toSnake(dto)),
+  listSettlements: (workerId?: string) =>
+    get<any[]>(`/payroll/settlements${workerId ? `?worker_id=${workerId}` : ''}`),
+  getSettlement: (id: string) => get<any>(`/payroll/settlements/${id}`),
 }
 
 // ─── Składniki ────────────────────────────────────────────────

@@ -197,6 +197,32 @@ def startup():
         "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS kg_used NUMERIC(10,3) DEFAULT 0",
         # Śledź ile kg jest aktualnie w masownicy (ustawiane w finish_session, zerowane w auto_approve)
         "ALTER TABLE mixing_orders ADD COLUMN IF NOT EXISTS kg_in_machine NUMERIC(10,3) DEFAULT 0",
+        # Płace — pola pracownika
+        "ALTER TABLE workers ADD COLUMN IF NOT EXISTS rate_per_kg NUMERIC(10,4) DEFAULT 0",
+        "ALTER TABLE workers ADD COLUMN IF NOT EXISTS contract_type TEXT DEFAULT 'zlecenie'",
+        "ALTER TABLE workers ADD COLUMN IF NOT EXISTS employer_cost_pct NUMERIC(5,2) DEFAULT 0",
+        # Płace — tabele rozliczeń
+        """CREATE TABLE IF NOT EXISTS payroll_settlements (
+            id TEXT PRIMARY KEY, worker_id TEXT NOT NULL, worker_name TEXT NOT NULL,
+            worker_role TEXT, date_from DATE NOT NULL, date_to DATE NOT NULL,
+            kg_total NUMERIC(10,3) DEFAULT 0, rate_per_kg NUMERIC(10,4) DEFAULT 0,
+            gross_amount NUMERIC(10,2) DEFAULT 0,
+            employer_cost_pct NUMERIC(5,2) DEFAULT 0,
+            employer_cost_amount NUMERIC(10,2) DEFAULT 0,
+            deductions_total NUMERIC(10,2) DEFAULT 0,
+            net_amount NUMERIC(10,2) DEFAULT 0,
+            contract_type TEXT DEFAULT 'zlecenie',
+            notes TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT now()
+        )""",
+        """CREATE TABLE IF NOT EXISTS settlement_deductions (
+            id TEXT PRIMARY KEY, settlement_id TEXT NOT NULL,
+            description TEXT NOT NULL, amount NUMERIC(10,2) NOT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS settled_days (
+            worker_id TEXT NOT NULL, work_date DATE NOT NULL,
+            settlement_id TEXT NOT NULL,
+            PRIMARY KEY (worker_id, work_date)
+        )""",
     ]
     try:
         with get_conn() as conn:
@@ -1944,6 +1970,18 @@ def delete_invoice(id: str):
 # ─── Pracownicy ───────────────────────────────────────────────
 class WorkerCreate(BaseModel):
     name: str; role: str = "WORKER_PRODUCTION"; pin: str = ""
+    rate_per_kg: float = 0.0
+    contract_type: str = "zlecenie"
+    employer_cost_pct: float = 0.0
+
+class WorkerUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    pin: Optional[str] = None
+    rate_per_kg: Optional[float] = None
+    contract_type: Optional[str] = None
+    employer_cost_pct: Optional[float] = None
+    active: Optional[bool] = None
 
 @app.get("/api/workers")
 def list_workers():
@@ -1952,9 +1990,139 @@ def list_workers():
 @app.post("/api/workers")
 def create_worker(dto: WorkerCreate):
     row = execute_returning("""
-        INSERT INTO workers (id, name, role, pin, active, created_at)
-        VALUES (%s,%s,%s,%s,true,%s) RETURNING *
-    """, (cuid(), dto.name, dto.role, dto.pin or None, now_iso()))
+        INSERT INTO workers (id, name, role, pin, active, rate_per_kg, contract_type, employer_cost_pct, created_at)
+        VALUES (%s,%s,%s,%s,true,%s,%s,%s,%s) RETURNING *
+    """, (cuid(), dto.name, dto.role, dto.pin or None,
+          dto.rate_per_kg, dto.contract_type, dto.employer_cost_pct, now_iso()))
+    return row
+
+@app.put("/api/workers/{worker_id}")
+def update_worker(worker_id: str, dto: WorkerUpdate):
+    existing = query_one("SELECT * FROM workers WHERE id=%s", (worker_id,))
+    if not existing: raise HTTPException(404, "Pracownik nie istnieje")
+    fields, vals = [], []
+    if dto.name is not None:               fields.append("name=%s");               vals.append(dto.name)
+    if dto.role is not None:               fields.append("role=%s");               vals.append(dto.role)
+    if dto.pin is not None:                fields.append("pin=%s");                vals.append(dto.pin or None)
+    if dto.rate_per_kg is not None:        fields.append("rate_per_kg=%s");        vals.append(dto.rate_per_kg)
+    if dto.contract_type is not None:      fields.append("contract_type=%s");      vals.append(dto.contract_type)
+    if dto.employer_cost_pct is not None:  fields.append("employer_cost_pct=%s");  vals.append(dto.employer_cost_pct)
+    if dto.active is not None:             fields.append("active=%s");             vals.append(dto.active)
+    if not fields: return existing
+    vals.append(worker_id)
+    row = execute_returning(f"UPDATE workers SET {', '.join(fields)} WHERE id=%s RETURNING *", vals)
+    return row
+
+# ─── Płace — worker days ─────────────────────────────────────
+@app.get("/api/payroll/worker-days")
+def get_worker_days(worker_id: str, date_from: str, date_to: str):
+    worker = query_one("SELECT * FROM workers WHERE id=%s", (worker_id,))
+    if not worker: raise HTTPException(404, "Pracownik nie istnieje")
+    role = worker.get('role', '')
+    settled_rows = query_all(
+        "SELECT work_date::text FROM settled_days WHERE worker_id=%s AND work_date BETWEEN %s AND %s",
+        (worker_id, date_from, date_to)
+    )
+    settled_dates = {r['work_date'] for r in settled_rows}
+
+    if 'DEBONING' in role:
+        rows = query_all("""
+            SELECT DATE(created_at AT TIME ZONE 'Europe/Warsaw') AS work_date,
+                   SUM(kg_quarter) AS kg_total, SUM(kg_meat) AS kg_meat,
+                   COUNT(*) AS entries_count
+            FROM deboning_entries
+            WHERE worker_id=%s
+              AND DATE(created_at AT TIME ZONE 'Europe/Warsaw') BETWEEN %s AND %s
+            GROUP BY DATE(created_at AT TIME ZONE 'Europe/Warsaw')
+            ORDER BY work_date
+        """, (worker_id, date_from, date_to))
+        return [{'workDate': str(r['work_date']), 'kgTotal': float(r['kg_total'] or 0),
+                 'kgMeat': float(r['kg_meat'] or 0), 'entriesCount': int(r['entries_count'] or 0),
+                 'settled': str(r['work_date']) in settled_dates} for r in rows]
+
+    elif 'PRODUCTION' in role:
+        worker_name = worker.get('name', '')
+        rows = query_all("""
+            SELECT DATE(added_at AT TIME ZONE 'Europe/Warsaw') AS work_date,
+                   SUM(total_kg) AS kg_total, COUNT(*) AS session_count
+            FROM finished_goods_sessions
+            WHERE %s = ANY(worker_names)
+              AND DATE(added_at AT TIME ZONE 'Europe/Warsaw') BETWEEN %s AND %s
+            GROUP BY DATE(added_at AT TIME ZONE 'Europe/Warsaw')
+            ORDER BY work_date
+        """, (worker_name, date_from, date_to))
+        return [{'workDate': str(r['work_date']), 'kgTotal': float(r['kg_total'] or 0),
+                 'sessionCount': int(r['session_count'] or 0),
+                 'settled': str(r['work_date']) in settled_dates} for r in rows]
+    return []
+
+# ─── Płace — rozliczenia ─────────────────────────────────────
+class SettlementDeductionDto(BaseModel):
+    description: str; amount: float
+
+class CreateSettlementDto(BaseModel):
+    worker_id: str
+    date_from: str; date_to: str
+    work_dates: List[str]
+    kg_per_date: Dict[str, float] = {}
+    rate_per_kg: float
+    deductions: List[SettlementDeductionDto] = []
+    notes: str = ""
+
+@app.post("/api/payroll/settlements")
+def create_settlement(dto: CreateSettlementDto):
+    worker = query_one("SELECT * FROM workers WHERE id=%s", (dto.worker_id,))
+    if not worker: raise HTTPException(404, "Pracownik nie istnieje")
+    for d in dto.work_dates:
+        ex = query_one("SELECT 1 FROM settled_days WHERE worker_id=%s AND work_date=%s", (dto.worker_id, d))
+        if ex: raise HTTPException(400, f"Dzień {d} jest już rozliczony")
+    kg_total = round(sum(dto.kg_per_date.get(d, 0) for d in dto.work_dates), 3)
+    gross_amount = round(kg_total * dto.rate_per_kg, 2)
+    deductions_total = round(sum(d.amount for d in dto.deductions), 2)
+    employer_cost_pct = float(worker.get('employer_cost_pct') or 0)
+    employer_cost_amount = round(gross_amount * employer_cost_pct / 100, 2)
+    net_amount = round(gross_amount - deductions_total, 2)
+    sid = cuid()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO payroll_settlements
+                (id,worker_id,worker_name,worker_role,date_from,date_to,kg_total,rate_per_kg,
+                 gross_amount,employer_cost_pct,employer_cost_amount,deductions_total,
+                 net_amount,contract_type,notes,created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (sid, dto.worker_id, worker['name'], worker.get('role'),
+                  dto.date_from, dto.date_to, kg_total, dto.rate_per_kg,
+                  gross_amount, employer_cost_pct, employer_cost_amount,
+                  deductions_total, net_amount, worker.get('contract_type','zlecenie'),
+                  dto.notes, now_iso()))
+            for ded in dto.deductions:
+                cur.execute("INSERT INTO settlement_deductions (id,settlement_id,description,amount) VALUES (%s,%s,%s,%s)",
+                            (cuid(), sid, ded.description, ded.amount))
+            for d in dto.work_dates:
+                cur.execute("INSERT INTO settled_days (worker_id,work_date,settlement_id) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                            (dto.worker_id, d, sid))
+        conn.commit()
+    row = query_one("SELECT * FROM payroll_settlements WHERE id=%s", (sid,))
+    row['deductions'] = query_all("SELECT * FROM settlement_deductions WHERE settlement_id=%s", (sid,))
+    return row
+
+@app.get("/api/payroll/settlements")
+def list_settlements(worker_id: Optional[str] = None):
+    if worker_id:
+        rows = query_all("SELECT * FROM payroll_settlements WHERE worker_id=%s ORDER BY created_at DESC", (worker_id,))
+    else:
+        rows = query_all("SELECT * FROM payroll_settlements ORDER BY created_at DESC LIMIT 100")
+    for r in rows:
+        r['date_from'] = str(r['date_from']); r['date_to'] = str(r['date_to'])
+    return rows
+
+@app.get("/api/payroll/settlements/{sid}")
+def get_settlement(sid: str):
+    row = query_one("SELECT * FROM payroll_settlements WHERE id=%s", (sid,))
+    if not row: raise HTTPException(404, "Rozliczenie nie istnieje")
+    row['deductions'] = query_all("SELECT * FROM settlement_deductions WHERE settlement_id=%s", (sid,))
+    row['date_from'] = str(row['date_from']); row['date_to'] = str(row['date_to'])
     return row
 
 # ─── Rodzaje produktów ────────────────────────────────────────
