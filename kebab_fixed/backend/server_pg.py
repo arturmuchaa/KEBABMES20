@@ -2713,15 +2713,13 @@ def cancel_mixing_order(id: str):
     order = query_one("SELECT status FROM mixing_orders WHERE id=%s", (id,))
     if not order: raise HTTPException(404)
 
-    # Zlecenia 'in_progress' NIE można anulować
+    # Zlecenia 'in_progress' NIE można anulować (operator aktywnie pracuje przy maszynie)
     if order['status'] == 'in_progress':
-        raise HTTPException(400, "Nie można anulować zlecenia w trakcie masowania. Zakończ sesję na tablecie.")
+        raise HTTPException(400, "Nie można anulować zlecenia w trakcie aktywnej sesji. Zakończ sesję na tablecie, a następnie anuluj.")
 
-    # 'confirmed' można anulować TYLKO jeśli ma puste loty (zlecenie z bugiem)
-    if order['status'] == 'confirmed':
-        lots_count = query_one("SELECT COUNT(*) as cnt FROM mixing_order_lots WHERE order_id=%s", (id,))
-        if lots_count and lots_count['cnt'] > 0:
-            raise HTTPException(400, "Nie można anulować potwierdzonego zlecenia z przypisanymi partiami mięsa.")
+    # Dozwolone statusy do anulowania: planned, confirmed (nawet z lotami — częściowe wykonanie)
+    if order['status'] not in ('planned', 'confirmed'):
+        raise HTTPException(400, f"Nie można anulować zlecenia o statusie '{order['status']}'.")
 
     # Zwolnij zarezerwowane kg mięsa
     conn = get_conn()
@@ -2734,6 +2732,8 @@ def cancel_mixing_order(id: str):
             _conn_query_one(conn,
                 "SELECT kg_available FROM meat_stock WHERE id=%s FOR UPDATE", (ms_id,))
         for lot in lots:
+            # kg_planned jest POZOSTAŁĄ ilością (po sesjach już odjęto kg_actual)
+            # więc zwalniamy tylko tę resztę z reservacji
             cur = conn.cursor()
             cur.execute("""
                 UPDATE meat_stock

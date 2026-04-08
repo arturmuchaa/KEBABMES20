@@ -10,7 +10,7 @@
  *   4. System wylicza składniki + tworzy zlecenie MAS-xxx
  *   5. Zlecenie widoczne na tablecie masownicy
  */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -35,14 +35,19 @@ import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import type { CreateMixingOrderDto } from '@/lib/mockApi'
 import {
   Calculator, Package, BookOpen, Beef, AlertTriangle,
-  CheckCircle, Plus, X, ChevronRight, ClipboardList,
+  CheckCircle, Plus, X, ChevronRight, ClipboardList, AlertTriangle as AlertIcon,
 } from 'lucide-react'
+import { DialogDescription } from '@/components/ui/dialog'
+import { fmtKg as fmt } from '@/lib/utils'
+import type { MixingOrder } from '@/lib/mockApi'
 
 export function PlanningPage() {
   const { productTypes, loading: ptLoading } = useProductTypes()
   const { recipes, loading: recLoading }     = useRecipes()
   const { data: meatData, refetch: refetchMeat }  = useApi(() => meatStockApi.list())
   const { data: orders, refetch: refetchOrders } = useApi(() => mixingOrdersApi.list())
+
+  const [cancelTarget, setCancelTarget] = useState<MixingOrder | null>(null)
 
   const createMut  = useMutation((dto: CreateMixingOrderDto) => mixingOrdersApi.create(dto))
   const cancelMut  = useMutation((id: string) => mixingOrdersApi.cancel(id))
@@ -147,13 +152,14 @@ export function PlanningPage() {
     }
   }
 
-  async function handleCancel(id: string, orderNo: string) {
-    if (!confirm(`Anulować zlecenie ${orderNo}? Zarezerwowane partie mięsa zostaną zwolnione.`)) return
+  async function handleCancelConfirmed() {
+    if (!cancelTarget) return
     try {
-      await cancelMut.mutate(id)
+      await cancelMut.mutate(cancelTarget.id)
       refetchOrders()
       refetchMeat()
-      toast.success(`Zlecenie ${orderNo} anulowane — partie zwolnione`)
+      toast.success(`Zlecenie ${cancelTarget.orderNo} anulowane — mięso zwolnione`)
+      setCancelTarget(null)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Błąd')
     }
@@ -256,9 +262,9 @@ export function PlanningPage() {
                           Potwierdź
                         </Button>
                       )}
-                      {o.status === 'planned' && (
+                      {(o.status === 'planned' || o.status === 'confirmed') && (
                         <Button variant="ghost" size="sm" className="h-7 text-[11px] text-destructive hover:text-destructive px-2"
-                          onClick={() => handleCancel(o.id, o.orderNo)}
+                          onClick={() => setCancelTarget(o as any)}
                           disabled={cancelMut.loading}>
                           Anuluj
                         </Button>
@@ -463,6 +469,63 @@ export function PlanningPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Modal potwierdzenia anulowania */}
+      {cancelTarget && (() => {
+        const kgDone      = (cancelTarget as any).kgDone ?? 0
+        const kgRemaining = (cancelTarget as any).kgRemaining ?? cancelTarget.meatKg
+        const hasPartial  = kgDone > 0
+        return (
+          <Dialog open onOpenChange={open => { if (!open) setCancelTarget(null) }}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-destructive">
+                  <AlertIcon size={18}/> Anulować zlecenie {cancelTarget.orderNo}?
+                </DialogTitle>
+                <DialogDescription>Ta operacja jest częściowo nieodwracalna</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 py-1">
+                {hasPartial && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                    <div className="text-[11px] font-bold text-red-600 uppercase mb-1 flex items-center gap-1">
+                      <AlertIcon size={11}/> Mięso już przetworzone — nie można przywrócić
+                    </div>
+                    <div className="text-2xl font-black text-red-700">{fmt(kgDone)} kg</div>
+                    <div className="text-[12px] text-red-500 mt-0.5">
+                      Zostało wymieszane jako: {cancelTarget.recipeName}. Pozostaje w magazynie przyprawionym.
+                    </div>
+                  </div>
+                )}
+                <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                  <div className="text-[11px] font-bold text-green-700 uppercase mb-1 flex items-center gap-1">
+                    <CheckCircle size={11}/> Mięso do zwolnienia — wróci do magazynu
+                  </div>
+                  <div className="text-2xl font-black text-green-700">{fmt(kgRemaining)} kg</div>
+                  <div className="text-[12px] text-green-600 mt-0.5">
+                    Zarezerwowane partie wrócą do puli dostępnego mięsa.
+                  </div>
+                </div>
+                {!hasPartial && (
+                  <div className="text-[12px] text-muted-foreground bg-muted/30 rounded-xl px-4 py-3">
+                    Zlecenie nie było jeszcze realizowane. Wszystkie {fmt(cancelTarget.meatKg)} kg mięsa zostanie zwolnione.
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button variant="outline" className="flex-1" onClick={() => setCancelTarget(null)}>
+                  Wróć
+                </Button>
+                <Button variant="destructive" className="flex-1"
+                  disabled={cancelMut.loading}
+                  onClick={handleCancelConfirmed}>
+                  {cancelMut.loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"/>}
+                  Anuluj zlecenie
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )
+      })()}
     </div>
   )
 }

@@ -498,8 +498,64 @@ function DoneScreen({ order, kgActual, seasonedBatchNo, onNext, onHome }: {
   )
 }
 
+// ─── Ekran podsumowania przed uruchomieniem masownicy ────────
+function ReviewScreen({ order, kgActual, onStart, loading }: {
+  order: MixingOrder; kgActual: number
+  onStart: () => void; loading: boolean
+}) {
+  return (
+    <div className="max-w-md mx-auto px-5 py-5">
+      <div className="font-mono text-sm text-brand font-bold mb-1">{order.orderNo} · Masownica {order.machineId}</div>
+      <h2 className="text-xl font-black text-ink mb-1">{order.recipeName}</h2>
+      <p className="text-sm text-ink-3 mb-4">Sprawdź składniki przed uruchomieniem masownicy</p>
+
+      {/* Mięso */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-3">
+        <div className="text-[10px] font-bold text-blue-700 uppercase mb-2">Mięso załadowane</div>
+        {order.meatLots.map(lot => (
+          <div key={lot.meatLotId} className="flex justify-between text-[13px] py-1 border-b border-blue-100 last:border-0">
+            <span className="font-mono font-bold">{lot.meatLotNo}</span>
+            <span className="text-ink-3 text-[11px]">{lot.rawBatchNo}</span>
+            <span className="font-bold text-blue-700">{fmtKg(lot.kgPlanned)} kg</span>
+          </div>
+        ))}
+        <div className="flex justify-between text-[13px] pt-2 font-black text-blue-800">
+          <span>Łącznie mięso:</span>
+          <span>{fmtKg(kgActual)} kg</span>
+        </div>
+      </div>
+
+      {/* Składniki */}
+      <div className="bg-surface-2 border border-surface-4 rounded-xl overflow-hidden mb-4">
+        <div className="text-[10px] font-bold text-ink-3 uppercase px-3 py-2 border-b">Składniki (potwierdzone ilości)</div>
+        {order.steps.map(s => (
+          <div key={s.stepNo} className="flex items-center justify-between px-3 py-2.5 border-b last:border-0">
+            <div className="flex items-center gap-2">
+              <CheckCircle size={14} className="text-success flex-shrink-0" />
+              <span className="font-semibold text-ink text-[14px]">{s.ingredientName}</span>
+            </div>
+            <span className="font-black text-success text-[18px] tabular-nums">
+              {((s as any).qtyConfirmed ?? s.qtyRequired).toFixed(3)}
+              <span className="text-[12px] font-medium text-ink-3 ml-1">{s.unit}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={onStart} disabled={loading}
+        className="w-full h-16 bg-success text-white rounded-2xl text-lg font-black flex items-center justify-center gap-3 disabled:opacity-50 active:scale-[.98] shadow-[0_4px_18px_rgba(5,150,105,.3)]">
+        {loading
+          ? <span className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          : <Play size={24} />}
+        Rozpocznij masowanie
+      </button>
+      <p className="text-center text-[11px] text-ink-4 mt-2">Po kliknięciu masownica zostanie uruchomiona</p>
+    </div>
+  )
+}
+
 // ─── Główna strona ────────────────────────────────────────────
-type Phase = 'list' | 'machine' | 'meat' | 'steps' | 'done'
+type Phase = 'list' | 'machine' | 'meat' | 'steps' | 'review' | 'done'
 
 export function MixingTabletPage() {
   // Tylko 'confirmed' — biuro musi potwierdzić zanim pojawi się na tablecie
@@ -575,24 +631,29 @@ export function MixingTabletPage() {
       setLiveOrder(updated)
       const next = updated.steps.findIndex((s: any) => !s.confirmed)
       if (next === -1) {
-        // Wszystkie kroki — finalizuj sesję (backend sam tworzy seasoned_meat i liczy kg_done)
-        const finished = await finishMut.mutate({ id: liveOrder.id, kg: kgActual, batchNo: '', lotAllocations: lotAllocs })
-        setLiveOrder(finished)
-        const batchNo = `PW-${new Date().getFullYear()}-${liveOrder.orderNo.split('-').pop()}`
-        setSeasonedBatchNo(batchNo)
-        // Sprawdź czy zlecenie w pełni wykonane (status = in_progress, kgRemaining < 0.1)
-        const fullyDone = (finished as any).kgRemaining < 0.1 || finished.status === 'in_progress'
-        setSessionFullyDone(fullyDone)
-        // Blokada maszyny 50 min
-        const lock = await lockMut.mutate({ m: updated.machineId!, id: liveOrder.id, no: liveOrder.orderNo })
-        setActiveLock(lock)
-        setPhase('done')
-        refetch(); rIP(); rL()
+        // Wszystkie kroki potwierdzone — przejdź do ekranu podsumowania
+        setPhase('review')
       } else {
         setStepIdx(next)
       }
     } catch(e) { showToast(e instanceof Error ? e.message : 'Błąd') }
   }, [liveOrder, kgActual, confirmMut, seasonMut, finishMut, lockMut, refetch, rIP, rL])
+
+  const handleStartMixing = useCallback(async () => {
+    if (!liveOrder) return
+    try {
+      const finished = await finishMut.mutate({ id: liveOrder.id, kg: kgActual, batchNo: '', lotAllocations: lotAllocs })
+      setLiveOrder(finished)
+      const batchNo = `PW-${new Date().getFullYear()}-${liveOrder.orderNo.split('-').pop()}`
+      setSeasonedBatchNo(batchNo)
+      const fullyDone = (finished as any).kgRemaining < 0.1 || finished.status === 'in_progress'
+      setSessionFullyDone(fullyDone)
+      const lock = await lockMut.mutate({ m: liveOrder.machineId!, id: liveOrder.id, no: liveOrder.orderNo })
+      setActiveLock(lock)
+      setPhase('done')
+      refetch(); rIP(); rL()
+    } catch(e) { showToast(e instanceof Error ? e.message : 'Błąd') }
+  }, [liveOrder, kgActual, lotAllocs, finishMut, lockMut, refetch, rIP, rL])
 
   const currentLocks = locks ?? []
   // 'in_progress' ze aktywną blokadą masownicy = masownica pracuje (chłodzenie) — nie wznawiaj
@@ -624,6 +685,10 @@ export function MixingTabletPage() {
       {phase === 'steps' && liveOrder && (
         <StepScreen order={liveOrder} kgActual={kgActual} stepIdx={stepIdx}
           onConfirm={handleConfirmStep} onBack={() => setPhase('meat')} loading={confirmMut.loading} />
+      )}
+      {phase === 'review' && liveOrder && (
+        <ReviewScreen order={liveOrder} kgActual={kgActual}
+          onStart={handleStartMixing} loading={finishMut.loading || lockMut.loading} />
       )}
 
       {phase === 'list' && (
