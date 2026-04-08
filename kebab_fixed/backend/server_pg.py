@@ -2541,7 +2541,9 @@ def finish_mixing_session(id: str, body: dict):
     meat_kg   = float(order.get('meat_kg') or 0)
     kg_done   = float(order.get('kg_done') or 0) + kg_meat
     kg_output = _calc_kg_output(order.get('recipe_id'), kg_meat)
-    new_status = 'done' if kg_done >= meat_kg - 0.1 else 'planned'
+    # Gdy wszystkie kg zakończone → status in_progress (masownica jeszcze pracuje).
+    # Operator potwierdzi zakończenie z tabletu po odliczeniu (auto-approve → 'done').
+    new_status = 'in_progress' if kg_done >= meat_kg - 0.1 else 'planned'
 
     # Generuj numer partii jeśli pusty
     # Format: MP{raw_seq} jeśli z jednej ćwiartki, MPP{counter} jeśli z wielu

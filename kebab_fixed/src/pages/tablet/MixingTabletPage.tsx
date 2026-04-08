@@ -23,20 +23,24 @@ import {
 const WEIGHT_TOLERANCE_KG = 0.050  // 50g
 
 // ─── Cooldown timer ──────────────────────────────────────────
-function CooldownTimer({ lock, onExpired, onHome }: {
-  lock: MachineLock; onExpired: () => void; onHome: () => void
+function CooldownTimer({ lock, isFullyDone, onComplete, onHome }: {
+  lock: MachineLock; isFullyDone: boolean
+  onComplete: () => void; onHome: () => void
 }) {
   const [remaining, setRemaining] = useState(() =>
     Math.max(0, Math.floor((new Date(lock.unlocksAt).getTime() - Date.now()) / 1000))
   )
+  const [expired, setExpired] = useState(remaining === 0)
+
   useEffect(() => {
+    if (remaining === 0) { setExpired(true); return }
     const t = setInterval(() => {
       const s = Math.max(0, Math.floor((new Date(lock.unlocksAt).getTime() - Date.now()) / 1000))
       setRemaining(s)
-      if (s === 0) { clearInterval(t); onExpired() }
+      if (s === 0) { clearInterval(t); setExpired(true) }
     }, 1000)
     return () => clearInterval(t)
-  }, [lock.unlocksAt, onExpired])
+  }, [lock.unlocksAt])
 
   const mm = String(Math.floor(remaining / 60)).padStart(2,'0')
   const ss = String(remaining % 60).padStart(2,'0')
@@ -47,16 +51,31 @@ function CooldownTimer({ lock, onExpired, onHome }: {
       </div>
       <h2 className="text-2xl font-black text-ink mb-1">Masownica {lock.machineId}</h2>
       <p className="text-base text-ink-3 mb-4">{lock.orderNo} — masowanie w trakcie</p>
-      <div className="text-7xl font-black tabular-nums text-amber-600 mb-4 font-mono">{mm}:{ss}</div>
-      <div className="w-full max-w-xs h-3 bg-surface-3 rounded-full overflow-hidden mb-6">
-        <div className="h-full bg-amber-400 rounded-full transition-all duration-1000"
-          style={{ width: `${(remaining / 3000) * 100}%` }} />
-      </div>
-      <p className="text-[12px] text-amber-700 mb-6">Pozostałe maszyny są dostępne</p>
+      {!expired ? (
+        <>
+          <div className="text-7xl font-black tabular-nums text-amber-600 mb-4 font-mono">{mm}:{ss}</div>
+          <div className="w-full max-w-xs h-3 bg-surface-3 rounded-full overflow-hidden mb-6">
+            <div className="h-full bg-amber-400 rounded-full transition-all duration-1000"
+              style={{ width: `${(remaining / 3000) * 100}%` }} />
+          </div>
+          <p className="text-[12px] text-amber-700 mb-6">Pozostałe maszyny są dostępne</p>
+        </>
+      ) : (
+        <div className="mb-6">
+          <div className="text-5xl font-black text-green-600 mb-2">00:00</div>
+          <p className="text-[13px] text-green-700 font-semibold">Czas masowania upłynął</p>
+        </div>
+      )}
       <button onClick={onHome}
-        className="w-full max-w-xs h-12 flex items-center justify-center gap-2 bg-white border-2 border-surface-4 text-ink rounded-2xl font-semibold">
+        className="w-full max-w-xs h-12 flex items-center justify-center gap-2 bg-white border-2 border-surface-4 text-ink rounded-2xl font-semibold mb-3">
         <Home size={16} /> Menu masowni
       </button>
+      {isFullyDone && expired && (
+        <button onClick={onComplete}
+          className="w-full max-w-xs h-14 flex items-center justify-center gap-2 bg-success text-white rounded-2xl text-base font-bold shadow-[0_4px_18px_rgba(5,150,105,.3)]">
+          <CheckCircle size={20} /> Zakończ masowanie
+        </button>
+      )}
     </div>
   )
 }
@@ -166,6 +185,7 @@ function MeatScreen({ order, onConfirm, onBack }: {
   onBack: () => void
 }) {
   const kgRemaining = (order as any).kgRemaining ?? order.meatKg
+  const [showRecipe, setShowRecipe] = useState(false)
 
   // Każda partia ma własne pole kg — operator wpisuje ile z każdej ładuje
   const [lotKgs, setLotKgs] = useState<Record<string, string>>(() => {
@@ -201,9 +221,54 @@ function MeatScreen({ order, onConfirm, onBack }: {
         <ChevronLeft size={16} /> Wstecz
       </button>
 
-      <div className="font-mono text-sm text-brand font-bold">{order.orderNo} · Masownica {order.machineId}</div>
-      <h2 className="text-xl font-black text-ink mb-1">{order.recipeName}</h2>
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <div>
+          <div className="font-mono text-sm text-brand font-bold">{order.orderNo} · Masownica {order.machineId}</div>
+          <h2 className="text-xl font-black text-ink">{order.recipeName}</h2>
+        </div>
+        <button onClick={() => setShowRecipe(true)}
+          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-purple-50 border border-purple-200 text-purple-700 rounded-xl text-[12px] font-semibold hover:bg-purple-100">
+          <ClipboardList size={14} /> Podgląd receptury
+        </button>
+      </div>
       <p className="text-sm text-ink-3 mb-4">Pozostało do wymieszania: <strong className="text-amber-600">{fmtKg(kgRemaining)} kg</strong></p>
+
+      {/* Modal podglądu receptury */}
+      {showRecipe && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-black text-ink">{order.recipeName}</h3>
+              <button onClick={() => setShowRecipe(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-surface-3 text-ink-3 hover:bg-surface-4">
+                ✕
+              </button>
+            </div>
+            <div className="text-[10px] font-bold text-ink-4 uppercase tracking-wider mb-2">
+              Składniki na {fmtKg(kgRemaining)} kg mięsa
+            </div>
+            <div className="space-y-2">
+              {order.steps.map(s => {
+                const qty = Math.round(s.qtyRequired * (kgRemaining / order.meatKg) * 1000) / 1000
+                return (
+                  <div key={s.stepNo} className="flex items-center justify-between bg-surface-2 rounded-xl px-3 py-2.5">
+                    <span className="font-semibold text-ink text-[14px]">{s.ingredientName}</span>
+                    <span className="font-black text-brand text-[18px] tabular-nums">{qty.toFixed(3)} <span className="text-[12px] font-medium text-ink-3">{s.unit}</span></span>
+                  </div>
+                )
+              })}
+              <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5">
+                <span className="font-semibold text-blue-700 text-[14px]">Mięso</span>
+                <span className="font-black text-blue-700 text-[18px] tabular-nums">{fmtKg(kgRemaining)} <span className="text-[12px] font-medium">kg</span></span>
+              </div>
+            </div>
+            <button onClick={() => setShowRecipe(false)}
+              className="w-full h-12 mt-4 bg-brand text-white rounded-2xl font-bold">
+              Zamknij
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-1">
         <div className="text-[10px] font-bold text-blue-700 uppercase mb-2 flex items-center gap-1.5">
@@ -437,22 +502,23 @@ function DoneScreen({ order, kgActual, seasonedBatchNo, onNext, onHome }: {
 type Phase = 'list' | 'machine' | 'meat' | 'steps' | 'done'
 
 export function MixingTabletPage() {
-  // Pokaż zarówno 'planned' jak i 'confirmed' — operator widzi oba
+  // Tylko 'confirmed' — biuro musi potwierdzić zanim pojawi się na tablecie
   const { data: plannedAll, loading, refetch } = useApi(() =>
     mixingOrdersApi.list().then((all: any[]) =>
-      all.filter((o: any) => o.status === 'planned' || o.status === 'confirmed')
+      all.filter((o: any) => o.status === 'confirmed')
     )
   )
   const planned = plannedAll
   const { data: inProgress, refetch:rIP} = useApi(() => mixingOrdersApi.list('in_progress'))
   const { data: locks,                   refetch:rL } = useApi(() => machineLockApi.list())
 
-  const startMut   = useMutation(({id,dto}:{id:string;dto:any}) => mixingOrdersApi.start(id,dto))
-  const allocMut   = useMutation(({id,m,kg}:{id:string;m:MachineId;kg:number}) => mixingOrdersApi.allocateToMachine(id,m,kg))
-  const confirmMut = useMutation(({id,dto}:{id:string;dto:any}) => mixingOrdersApi.confirmStep(id,dto))
-  const seasonMut  = useMutation(({id,kg}:{id:string;kg:number}) => seasonedMeatApi.createFromOrder(id,kg))
-  const finishMut  = useMutation(({id,kg,batchNo,lotAllocations}:{id:string;kg:number;batchNo:string;lotAllocations?:any[]}) => mixingOrdersApi.finishSession(id,kg,batchNo,lotAllocations))
-  const lockMut    = useMutation(({m,id,no}:{m:MachineId;id:string;no:string}) => machineLockApi.lock(m,id,no,50))
+  const startMut       = useMutation(({id,dto}:{id:string;dto:any}) => mixingOrdersApi.start(id,dto))
+  const allocMut       = useMutation(({id,m,kg}:{id:string;m:MachineId;kg:number}) => mixingOrdersApi.allocateToMachine(id,m,kg))
+  const confirmMut     = useMutation(({id,dto}:{id:string;dto:any}) => mixingOrdersApi.confirmStep(id,dto))
+  const seasonMut      = useMutation(({id,kg}:{id:string;kg:number}) => seasonedMeatApi.createFromOrder(id,kg))
+  const finishMut      = useMutation(({id,kg,batchNo,lotAllocations}:{id:string;kg:number;batchNo:string;lotAllocations?:any[]}) => mixingOrdersApi.finishSession(id,kg,batchNo,lotAllocations))
+  const lockMut        = useMutation(({m,id,no}:{m:MachineId;id:string;no:string}) => machineLockApi.lock(m,id,no,50))
+  const autoApproveMut = useMutation((id:string) => mixingOrdersApi.autoApprove(id))
 
   const [phase,    setPhase]    = useState<Phase>('list')
   const [selOrder, setSelOrder] = useState<MixingOrder | null>(null)
@@ -462,9 +528,18 @@ export function MixingTabletPage() {
   const [stepIdx,  setStepIdx]  = useState(0)
   const [seasonedBatchNo, setSeasonedBatchNo] = useState('')
   const [activeLock, setActiveLock] = useState<MachineLock | null>(null)
+  const [sessionFullyDone, setSessionFullyDone] = useState(false)
   const [toast, setToast] = useState('')
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4500) }
+
+  const handleComplete = useCallback(async () => {
+    if (!liveOrder) { handleHome(); return }
+    try {
+      await autoApproveMut.mutate(liveOrder.id)
+    } catch(e) { console.warn('autoApprove:', e) }
+    handleHome()
+  }, [liveOrder, autoApproveMut])
 
   function handleHome() {
     setPhase('list'); setSelOrder(null); setLiveOrder(null)
@@ -501,12 +576,13 @@ export function MixingTabletPage() {
       const next = updated.steps.findIndex((s: any) => !s.confirmed)
       if (next === -1) {
         // Wszystkie kroki — finalizuj sesję (backend sam tworzy seasoned_meat i liczy kg_done)
-        const actualOutput = Math.round(liveOrder.plannedOutputKg * (kgActual / liveOrder.meatKg) * 100) / 100
         const finished = await finishMut.mutate({ id: liveOrder.id, kg: kgActual, batchNo: '', lotAllocations: lotAllocs })
         setLiveOrder(finished)
-        // Pobierz numer partii z magazynu mięsa przyprawionego
         const batchNo = `PW-${new Date().getFullYear()}-${liveOrder.orderNo.split('-').pop()}`
         setSeasonedBatchNo(batchNo)
+        // Sprawdź czy zlecenie w pełni wykonane (status = in_progress, kgRemaining < 0.1)
+        const fullyDone = (finished as any).kgRemaining < 0.1 || finished.status === 'in_progress'
+        setSessionFullyDone(fullyDone)
         // Blokada maszyny 50 min
         const lock = await lockMut.mutate({ m: updated.machineId!, id: liveOrder.id, no: liveOrder.orderNo })
         setActiveLock(lock)
@@ -519,12 +595,20 @@ export function MixingTabletPage() {
   }, [liveOrder, kgActual, confirmMut, seasonMut, finishMut, lockMut, refetch, rIP, rL])
 
   const currentLocks = locks ?? []
+  // 'in_progress' ze aktywną blokadą masownicy = masownica pracuje (chłodzenie) — nie wznawiaj
+  const resumable = (inProgress ?? []).filter(o =>
+    !currentLocks.some(l => l.orderId === o.id)
+  )
+  const cooling = (inProgress ?? []).filter(o =>
+    currentLocks.some(l => l.orderId === o.id)
+  )
 
   return (
     <div className="min-h-screen bg-surface-2">
 
       {phase === 'done' && activeLock && (
-        <CooldownTimer lock={activeLock} onExpired={handleHome} onHome={handleHome} />
+        <CooldownTimer lock={activeLock} isFullyDone={sessionFullyDone}
+          onComplete={handleComplete} onHome={handleHome} />
       )}
       {phase === 'done' && !activeLock && liveOrder && (
         <DoneScreen order={liveOrder} kgActual={kgActual} seasonedBatchNo={seasonedBatchNo}
@@ -556,12 +640,25 @@ export function MixingTabletPage() {
               })}
             </div>
           )}
-          {(inProgress??[]).length > 0 && (
+          {cooling.length > 0 && (
+            <div className="bg-amber-50 border-b border-amber-200 px-5 py-2">
+              {cooling.map(o => {
+                const lock = currentLocks.find(l => l.orderId === o.id)
+                const mins = lock ? Math.max(0, Math.ceil((new Date(lock.unlocksAt).getTime()-Date.now())/60000)) : 0
+                return (
+                  <div key={o.id} className="text-[12px] text-amber-700 flex items-center gap-2">
+                    <Timer size={12} /> {o.orderNo} · {o.recipeName} · Masownica {o.machineId} — masowanie w trakcie (~{mins} min)
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          {resumable.length > 0 && (
             <div className="bg-blue-50 border-b border-blue-200 px-5 py-3">
               <div className="text-[11px] font-semibold text-blue-700 mb-1.5 flex items-center gap-1.5">
                 <AlertTriangle size={13} /> Wznów sesję
               </div>
-              {(inProgress??[]).map(o => (
+              {resumable.map(o => (
                 <button key={o.id} onClick={() => { setSelOrder(o); setLiveOrder(o); setPhase('machine') }}
                   className="w-full text-left bg-white border border-blue-200 rounded-xl px-4 py-2.5 text-[13px] font-semibold text-blue-700 hover:bg-blue-50 mb-1.5">
                   {o.orderNo} · {o.recipeName} · Masownica {o.machineId} → Wznów
