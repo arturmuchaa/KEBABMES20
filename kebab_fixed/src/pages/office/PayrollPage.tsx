@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { usersApi, payrollApi } from '@/lib/apiClient'
 import { toast } from 'sonner'
@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
-import { Scissors, Factory, Users, Plus, Trash2, Printer, ChevronRight, CheckCircle } from 'lucide-react'
+import { Scissors, Factory, Users, Plus, Trash2, Printer, ChevronRight, CheckCircle, Lock } from 'lucide-react'
 
 const ROLE_LABEL: Record<string, string> = {
   WORKER_DEBONING: 'Rozbiór', WORKER_PRODUCTION: 'Produkcja', WORKER_GENERAL: 'Ogólny',
@@ -51,7 +51,6 @@ export function PayrollPage() {
   const [selWorker, setSelWorker]   = useState<any>(null)
   const [range, setRange]           = useState(() => getDefaultRange())
   const [selectedDays, setSelectedDays] = useState<Set<string>>(new Set())
-  const [kgOverride, setKgOverride] = useState<Record<string, string>>({})
   const [deductions, setDeductions] = useState<{ id: string; description: string; amount: string }[]>([])
   const [showSettlement, setShowSettlement] = useState<any>(null)
 
@@ -71,7 +70,6 @@ export function PayrollPage() {
   function selectWorker(w: any) {
     setSelWorker(w)
     setSelectedDays(new Set())
-    setKgOverride({})
     setDeductions([])
   }
 
@@ -83,13 +81,9 @@ export function PayrollPage() {
     })
   }
 
-  const kgPerDay = useMemo(() => {
-    const map: Record<string, number> = {}
-    for (const d of workerDays ?? []) {
-      map[d.workDate] = parseFloat(kgOverride[d.workDate] ?? '') || d.kgTotal || 0
-    }
-    return map
-  }, [workerDays, kgOverride])
+  const kgPerDay: Record<string, number> = Object.fromEntries(
+    (workerDays ?? []).map((d: any) => [d.workDate, d.kgTotal ?? 0])
+  )
 
   const totalKg      = Array.from(selectedDays).reduce((s, d) => s + (kgPerDay[d] ?? 0), 0)
   const rate         = parseFloat(String((selWorker as any)?.ratePerKg ?? (selWorker as any)?.rate_per_kg ?? 0)) || 0
@@ -262,9 +256,9 @@ export function PayrollPage() {
                 ) : (
                   <div className="space-y-2">
                     {(workerDays ?? []).map((d: any) => {
-                      const kg = parseFloat(kgOverride[d.workDate] ?? '') || d.kgTotal || 0
+                      const kg   = d.kgTotal ?? 0
                       const earn = kg * rate
-                      const sel = selectedDays.has(d.workDate)
+                      const sel  = selectedDays.has(d.workDate)
                       return (
                         <div key={d.workDate}
                           className={`flex items-center gap-3 rounded-xl border-2 px-3 py-2.5 transition-all ${
@@ -285,26 +279,13 @@ export function PayrollPage() {
                               {d.settled && ' · Rozliczone'}
                             </div>
                           </div>
-                          {!d.settled ? (
-                            <div className="flex items-center gap-2">
-                              <div className="text-right">
-                                <div className="text-xs text-muted-foreground mb-0.5">kg</div>
-                                <Input
-                                  type="number" step="0.01" min="0"
-                                  className="w-20 h-7 text-xs text-right"
-                                  value={kgOverride[d.workDate] ?? String(d.kgTotal ?? 0)}
-                                  onChange={e => setKgOverride(o => ({ ...o, [d.workDate]: e.target.value }))}
-                                  onClick={e => e.stopPropagation()}
-                                />
-                              </div>
-                              <div className="text-right min-w-[60px]">
-                                <div className="text-xs text-muted-foreground mb-0.5">zarobek</div>
-                                <div className="text-sm font-bold text-green-700">{fmtPln(earn)} zł</div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="text-sm font-semibold text-muted-foreground">{fmtKg(d.kgTotal)} kg</div>
-                          )}
+                          <div className="text-right">
+                            <div className="text-sm font-bold tabular-nums">{fmtKg(kg)} kg</div>
+                            {!d.settled && sel && (
+                              <div className="text-xs text-green-700 font-semibold">{fmtPln(earn)} zł</div>
+                            )}
+                            {d.settled && <Lock size={11} className="text-muted-foreground ml-auto mt-0.5" />}
+                          </div>
                         </div>
                       )
                     })}
@@ -418,7 +399,7 @@ export function PayrollPage() {
                           <div className="text-base font-black text-green-700">{fmtPln(s.net_amount)} zł</div>
                           <button onClick={async () => {
                             const full = await payrollApi.getSettlement(s.id)
-                            setShowSettlement(full)
+                            printPaySlip(full)
                           }} className="text-xs text-primary hover:underline flex items-center gap-1 ml-auto">
                             <Printer size={11} /> Drukuj
                           </button>
@@ -444,16 +425,16 @@ export function PayrollPage() {
       {/* Modal paska wypłaty */}
       {showSettlement && (
         <Dialog open onOpenChange={() => setShowSettlement(null)}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Pasek wypłaty</DialogTitle>
               <DialogDescription>{showSettlement.worker_name}</DialogDescription>
             </DialogHeader>
-            <PaySlip settlement={showSettlement} />
+            <PaySlipPreview settlement={showSettlement} />
             <div className="flex justify-end gap-2 mt-2">
               <Button variant="outline" onClick={() => setShowSettlement(null)}>Zamknij</Button>
-              <Button onClick={() => window.print()}>
-                <Printer size={14} className="mr-2" /> Drukuj
+              <Button onClick={() => printPaySlip(showSettlement)}>
+                <Printer size={14} className="mr-2" /> Drukuj (1/4 A4)
               </Button>
             </div>
           </DialogContent>
@@ -463,77 +444,125 @@ export function PayrollPage() {
   )
 }
 
-// ─── Pasek wypłaty ────────────────────────────────────────────
-function PaySlip({ settlement: s }: { settlement: any }) {
+// ─── Helpers ──────────────────────────────────────────────────
+function kgLabel(role: string) {
+  if (role?.includes('DEBONING'))   return 'Pobrana ćwiartka'
+  if (role?.includes('PRODUCTION')) return 'Wyprodukowane'
+  return 'Przepracowane kg'
+}
+
+// ─── Podgląd paska (w modalu) ─────────────────────────────────
+function PaySlipPreview({ settlement: s }: { settlement: any }) {
   const dateFrom = new Date(s.date_from + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'long', year: 'numeric' })
   const dateTo   = new Date(s.date_to   + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'long', year: 'numeric' })
-  const printDate = new Date(s.created_at).toLocaleDateString('pl-PL', { day: 'numeric', month: 'long', year: 'numeric' })
+  const days: any[] = s.work_dates_detail ?? []
   return (
-    <div className="border-2 border-border rounded-xl p-5 space-y-4 print:border-black" id="pay-slip">
+    <div className="border-2 border-border rounded-xl p-4 space-y-3 text-sm">
       <div className="flex justify-between items-start">
         <div>
-          <div className="text-xs text-muted-foreground uppercase tracking-wide">Pasek wypłaty</div>
-          <div className="text-xl font-black">{s.worker_name}</div>
-          <div className="text-sm text-muted-foreground">
+          <div className="font-black text-base">{s.worker_name}</div>
+          <div className="text-xs text-muted-foreground">
             {ROLE_LABEL[s.worker_role] ?? s.worker_role} · {s.contract_type === 'praca' ? 'Umowa o pracę' : 'Umowa zlecenie'}
           </div>
         </div>
         <div className="text-right text-xs text-muted-foreground">
-          <div>Okres: {dateFrom}</div>
-          <div>— {dateTo}</div>
-          <div className="mt-1">Wygenerowano: {printDate}</div>
+          <div>{dateFrom}</div><div>— {dateTo}</div>
         </div>
       </div>
       <Separator />
-      <div className="space-y-2">
-        <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">Przepracowane kg</span>
-          <span className="font-semibold">{Number(s.kg_total).toFixed(2)} kg</span>
+      {days.length > 0 && (
+        <div className="space-y-1">
+          {days.map((d: any) => (
+            <div key={d.work_date} className="flex justify-between text-xs">
+              <span className="text-muted-foreground">
+                {new Date(d.work_date + 'T12:00:00').toLocaleDateString('pl-PL', { weekday: 'short', day: 'numeric', month: 'short' })}
+              </span>
+              <span className="font-semibold tabular-nums">{Number(d.kg).toFixed(2)} kg</span>
+            </div>
+          ))}
+          <Separator className="my-1" />
         </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">Stawka akordowa</span>
-          <span className="font-semibold">{Number(s.rate_per_kg).toFixed(4)} zł/kg</span>
-        </div>
-        <div className="flex justify-between text-sm font-bold">
-          <span>Wynagrodzenie brutto</span>
-          <span>{Number(s.gross_amount).toFixed(2)} zł</span>
-        </div>
-        {Number(s.employer_cost_amount) > 0 && (
-          <div className="flex justify-between text-sm text-orange-700">
-            <span>Koszt pracodawcy (ZUS itp.)</span>
-            <span>{Number(s.employer_cost_amount).toFixed(2)} zł</span>
-          </div>
-        )}
-      </div>
-      {(s.deductions ?? []).length > 0 && (
-        <>
-          <Separator />
-          <div className="space-y-1.5">
-            <div className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Potrącenia</div>
-            {(s.deductions ?? []).map((d: any) => (
-              <div key={d.id} className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{d.description}</span>
-                <span className="font-semibold text-red-600">- {Number(d.amount).toFixed(2)} zł</span>
-              </div>
-            ))}
-          </div>
-        </>
       )}
-      <Separator />
-      <div className="flex justify-between text-lg font-black">
-        <span>DO WYPŁATY (netto)</span>
-        <span className="text-green-700">{Number(s.net_amount).toFixed(2)} zł</span>
+      <div className="space-y-1">
+        <div className="flex justify-between"><span className="text-muted-foreground">{kgLabel(s.worker_role)}</span><span className="font-semibold">{Number(s.kg_total).toFixed(2)} kg</span></div>
+        <div className="flex justify-between"><span className="text-muted-foreground">Stawka</span><span className="font-semibold">{Number(s.rate_per_kg).toFixed(2)} zł/kg</span></div>
+        <div className="flex justify-between font-bold"><span>Brutto</span><span>{Number(s.gross_amount).toFixed(2)} zł</span></div>
+        {(s.deductions ?? []).map((d: any) => (
+          <div key={d.id} className="flex justify-between text-red-600">
+            <span className="text-xs">{d.description}</span><span>- {Number(d.amount).toFixed(2)} zł</span>
+          </div>
+        ))}
       </div>
-      <div className="mt-6 pt-4 border-t border-dashed grid grid-cols-2 gap-8 text-xs text-muted-foreground">
-        <div>
-          <div className="mb-8">Podpis pracodawcy:</div>
-          <div className="border-t border-gray-400 pt-1">................................</div>
-        </div>
-        <div>
-          <div className="mb-8">Podpis pracownika:</div>
-          <div className="border-t border-gray-400 pt-1">................................</div>
-        </div>
+      <Separator />
+      <div className="flex justify-between font-black text-base">
+        <span>Do wypłaty</span>
+        <span className="text-green-700">{Number(s.net_amount).toFixed(2)} zł</span>
       </div>
     </div>
   )
+}
+
+// ─── Druk w nowym oknie (1/4 A4 = A6) ────────────────────────
+function printPaySlip(s: any) {
+  const role    = s.worker_role ?? ''
+  const label   = kgLabel(role)
+  const roleStr = ROLE_LABEL[role] ?? role
+  const ct      = s.contract_type === 'praca' ? 'Umowa o pracę' : 'Umowa zlecenie'
+  const dfrom   = new Date(s.date_from + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })
+  const dto     = new Date(s.date_to   + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'short', year: 'numeric' })
+  const days: any[] = s.work_dates_detail ?? []
+
+  const daysRows = days.map(d => {
+    const earn = Number(d.kg) * Number(s.rate_per_kg)
+    const date = new Date(d.work_date + 'T12:00:00').toLocaleDateString('pl-PL', { weekday: 'short', day: 'numeric', month: 'short' })
+    return `<tr><td>${date}</td><td class="r">${Number(d.kg).toFixed(2)}</td><td class="r">${earn.toFixed(2)} zł</td></tr>`
+  }).join('')
+
+  const deductRows = (s.deductions ?? []).map((d: any) =>
+    `<tr><td>${d.description}</td><td class="r" style="color:#c00">- ${Number(d.amount).toFixed(2)} zł</td></tr>`
+  ).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Pasek — ${s.worker_name}</title>
+<style>
+  @page { size: A6; margin: 7mm; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;font-size:9.5px;color:#000}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px}
+  h2{font-size:13px;font-weight:900;margin-bottom:1px}
+  .sub{font-size:8px;color:#555}
+  .dates{text-align:right;font-size:8px;color:#555}
+  hr{border:none;border-top:1px solid #ccc;margin:4px 0}
+  table{width:100%;border-collapse:collapse;margin:3px 0}
+  td{padding:1.5px 0;vertical-align:top}
+  .r{text-align:right}
+  .lbl{color:#555}
+  .bold{font-weight:700}
+  .total{font-size:12px;font-weight:900}
+  .green{color:#166534}
+  .sigs{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:14px}
+  .sig-line{border-top:1px solid #333;padding-top:2px;font-size:7.5px;color:#666;margin-top:18px}
+</style></head><body>
+<div class="top">
+  <div><div class="sub">PASEK WYPŁATY</div><h2>${s.worker_name}</h2>
+  <div class="sub">${roleStr} · ${ct}</div></div>
+  <div class="dates"><div>Okres: ${dfrom}</div><div>— ${dto}</div></div>
+</div><hr>
+${daysRows ? `<table><thead><tr><th style="text-align:left;font-size:8px;color:#555">Data</th><th class="r" style="font-size:8px;color:#555">${label} kg</th><th class="r" style="font-size:8px;color:#555">Zarobek</th></tr></thead><tbody>${daysRows}</tbody></table><hr>` : ''}
+<table>
+  <tr><td class="lbl">${label}</td><td class="r bold">${Number(s.kg_total).toFixed(2)} kg</td></tr>
+  <tr><td class="lbl">Stawka akordowa</td><td class="r bold">${Number(s.rate_per_kg).toFixed(2)} zł/kg</td></tr>
+  <tr><td class="bold">Wynagrodzenie brutto</td><td class="r bold">${Number(s.gross_amount).toFixed(2)} zł</td></tr>
+  ${deductRows}
+</table><hr>
+<table><tr><td class="total green">DO WYPŁATY (netto)</td><td class="r total green">${Number(s.net_amount).toFixed(2)} zł</td></tr></table>
+<div class="sigs">
+  <div><div class="sig-line">Podpis pracodawcy</div></div>
+  <div><div class="sig-line">Podpis pracownika</div></div>
+</div>
+<script>window.onload=function(){window.print()}</script>
+</body></html>`
+
+  const win = window.open('', '_blank')
+  if (win) { win.document.write(html); win.document.close() }
 }

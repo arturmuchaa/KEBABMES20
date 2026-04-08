@@ -213,12 +213,14 @@ def startup():
             deductions_total NUMERIC(10,2) DEFAULT 0,
             net_amount NUMERIC(10,2) DEFAULT 0,
             contract_type TEXT DEFAULT 'zlecenie',
+            work_dates_detail JSONB DEFAULT '[]',
             notes TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT now()
         )""",
         """CREATE TABLE IF NOT EXISTS settlement_deductions (
             id TEXT PRIMARY KEY, settlement_id TEXT NOT NULL,
             description TEXT NOT NULL, amount NUMERIC(10,2) NOT NULL
         )""",
+        "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS work_dates_detail JSONB DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS settled_days (
             worker_id TEXT NOT NULL, work_date DATE NOT NULL,
             settlement_id TEXT NOT NULL,
@@ -2084,19 +2086,23 @@ def create_settlement(dto: CreateSettlementDto):
     employer_cost_amount = float(worker.get('employer_cost_amount') or 0)
     net_amount = round(gross_amount - deductions_total, 2)
     sid = cuid()
+    work_dates_detail = json.dumps([
+        {'work_date': d, 'kg': dto.kg_per_date.get(d, 0)}
+        for d in sorted(dto.work_dates)
+    ])
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO payroll_settlements
                 (id,worker_id,worker_name,worker_role,date_from,date_to,kg_total,rate_per_kg,
                  gross_amount,employer_cost_pct,employer_cost_amount,deductions_total,
-                 net_amount,contract_type,notes,created_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 net_amount,contract_type,work_dates_detail,notes,created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (sid, dto.worker_id, worker['name'], worker.get('role'),
                   dto.date_from, dto.date_to, kg_total, dto.rate_per_kg,
                   gross_amount, employer_cost_pct, employer_cost_amount,
                   deductions_total, net_amount, worker.get('contract_type','zlecenie'),
-                  dto.notes, now_iso()))
+                  work_dates_detail, dto.notes, now_iso()))
             for ded in dto.deductions:
                 cur.execute("INSERT INTO settlement_deductions (id,settlement_id,description,amount) VALUES (%s,%s,%s,%s)",
                             (cuid(), sid, ded.description, ded.amount))
