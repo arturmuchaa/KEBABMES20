@@ -1,5 +1,7 @@
 /**
  * FinishedGoodsPage — Magazyn wyrobów gotowych
+ * Kolumny: Ilość szt | kg/szt | Rodzaj · Receptura | Klient | Tuleja | Waga łączna | Nr partii
+ * Wyszukiwanie: klient, receptura, tuleja, kg/szt
  */
 import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
@@ -9,10 +11,8 @@ import { Eye, ShoppingBag, ChevronDown, ChevronUp, ChevronsUpDown, Search } from
 import type { FinishedGoodsItem } from '@/lib/mockApi'
 
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Separator } from '@/components/ui/separator'
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from '@/components/ui/card'
@@ -34,7 +34,6 @@ function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () =
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Podsumowanie */}
           <div className="grid grid-cols-2 gap-3">
             {[
               { label: 'Produkt',   val: item.productTypeName },
@@ -51,7 +50,6 @@ function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () =
             ))}
           </div>
 
-          {/* Partie mięsa */}
           {item.seasonedBatchNos.length > 0 && (
             <div className="space-y-1.5">
               <CardDescription className="text-[10px] font-bold uppercase">Partie mięsa (traceability)</CardDescription>
@@ -65,7 +63,6 @@ function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () =
             </div>
           )}
 
-          {/* Per session */}
           {subEntries.length > 0 && (
             <div className="space-y-2">
               <CardDescription className="text-[10px] font-bold uppercase">
@@ -95,7 +92,6 @@ function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () =
             </div>
           )}
 
-          {/* Workers */}
           {item.producedBy.length > 0 && (
             <div className="space-y-1">
               <CardDescription className="text-[10px] font-bold uppercase">Pracownicy</CardDescription>
@@ -108,13 +104,13 @@ function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () =
   )
 }
 
-type SortCol = 'batchNo' | 'productTypeName' | 'clientName' | 'qty' | 'totalKg' | 'producedDate'
+type SortCol = 'qty' | 'kgPerUnit' | 'productTypeName' | 'clientName' | 'packagingName' | 'totalKg' | 'batchNo'
 
 export function FinishedGoodsPage() {
   const { data: items, loading } = useApi(() => finishedGoodsApi.list())
   const [detailItem, setDetailItem] = useState<FinishedGoodsItem | null>(null)
   const [filter,   setFilter]   = useState('')
-  const [sortCol,  setSortCol]  = useState<SortCol>('producedDate')
+  const [sortCol,  setSortCol]  = useState<SortCol>('batchNo')
   const [sortDir,  setSortDir]  = useState<'asc'|'desc'>('desc')
 
   const toggleSort = (col: SortCol) => {
@@ -130,23 +126,26 @@ export function FinishedGoodsPage() {
   const rawList = items ?? []
 
   const list = useMemo(() => {
-    const q = filter.toLowerCase()
+    const q = filter.toLowerCase().trim()
     const filtered = q
       ? rawList.filter(i =>
-          i.batchNo.toLowerCase().includes(q) ||
-          (i.clientName || '').toLowerCase().includes(q) ||
-          (i.productTypeName || '').toLowerCase().includes(q) ||
-          (i.recipeName || '').toLowerCase().includes(q)
+          (i.clientName     || '').toLowerCase().includes(q) ||
+          (i.productTypeName|| '').toLowerCase().includes(q) ||
+          (i.recipeName     || '').toLowerCase().includes(q) ||
+          (i.packagingName  || '').toLowerCase().includes(q) ||
+          String(i.kgPerUnit).includes(q) ||
+          i.batchNo.toLowerCase().includes(q)
         )
       : rawList
     return [...filtered].sort((a, b) => {
       let cmp = 0
-      if (sortCol === 'batchNo')        cmp = a.batchNo.localeCompare(b.batchNo)
+      if (sortCol === 'qty')            cmp = a.qtyAvailable - b.qtyAvailable
+      if (sortCol === 'kgPerUnit')      cmp = a.kgPerUnit - b.kgPerUnit
       if (sortCol === 'productTypeName')cmp = (a.productTypeName||'').localeCompare(b.productTypeName||'')
       if (sortCol === 'clientName')     cmp = (a.clientName||'').localeCompare(b.clientName||'')
-      if (sortCol === 'qty')            cmp = a.qtyAvailable - b.qtyAvailable
+      if (sortCol === 'packagingName')  cmp = (a.packagingName||'').localeCompare(b.packagingName||'')
       if (sortCol === 'totalKg')        cmp = (a.qtyAvailable * a.kgPerUnit) - (b.qtyAvailable * b.kgPerUnit)
-      if (sortCol === 'producedDate')   cmp = (a.producedDate||'').localeCompare(b.producedDate||'')
+      if (sortCol === 'batchNo')        cmp = a.batchNo.localeCompare(b.batchNo)
       return sortDir === 'asc' ? cmp : -cmp
     })
   }, [rawList, filter, sortCol, sortDir])
@@ -160,14 +159,14 @@ export function FinishedGoodsPage() {
       {/* KPI */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Pozycje',      val: rawList.length,       accent: '' },
-          { label: 'Dostępne szt', val: totalQty,             accent: '' },
-          { label: 'Łącznie kg',   val: fmtKg(totalKg),       accent: 'text-green-700' },
+          { label: 'Pozycje',      val: rawList.length  },
+          { label: 'Dostępne szt', val: totalQty        },
+          { label: 'Łącznie kg',   val: fmtKg(totalKg)  },
         ].map(k => (
           <Card key={k.label}>
             <CardContent className="p-4">
               <CardDescription className="text-xs font-semibold uppercase tracking-wide mb-1">{k.label}</CardDescription>
-              <CardTitle className={`text-2xl font-black tabular-nums ${k.accent}`}>{k.val}</CardTitle>
+              <CardTitle className="text-2xl font-black tabular-nums">{k.val}</CardTitle>
             </CardContent>
           </Card>
         ))}
@@ -177,11 +176,11 @@ export function FinishedGoodsPage() {
       <Card>
         <div className="px-5 py-3 border-b flex items-center justify-between gap-3">
           <CardTitle className="text-sm font-semibold">{list.length} partii wyrobów gotowych</CardTitle>
-          <div className="relative w-56">
+          <div className="relative w-64">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="h-8 pl-8 text-xs"
-              placeholder="Filtruj klienta, produkt…"
+              placeholder="Szukaj: klient, receptura, tuleja, kg…"
               value={filter}
               onChange={e => setFilter(e.target.value)}
             />
@@ -209,15 +208,21 @@ export function FinishedGoodsPage() {
                 <TableRow className="hover:bg-transparent">
                   <TableHead
                     className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
-                    onClick={() => toggleSort('batchNo')}
+                    onClick={() => toggleSort('qty')}
                   >
-                    <div className="flex items-center gap-1">Nr partii <SortIcon col="batchNo"/></div>
+                    <div className="flex items-center gap-1">Ilość szt <SortIcon col="qty"/></div>
+                  </TableHead>
+                  <TableHead
+                    className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
+                    onClick={() => toggleSort('kgPerUnit')}
+                  >
+                    <div className="flex items-center gap-1">kg/szt <SortIcon col="kgPerUnit"/></div>
                   </TableHead>
                   <TableHead
                     className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
                     onClick={() => toggleSort('productTypeName')}
                   >
-                    <div className="flex items-center gap-1">Produkt · Receptura <SortIcon col="productTypeName"/></div>
+                    <div className="flex items-center gap-1">Rodzaj · Receptura <SortIcon col="productTypeName"/></div>
                   </TableHead>
                   <TableHead
                     className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
@@ -227,24 +232,22 @@ export function FinishedGoodsPage() {
                   </TableHead>
                   <TableHead
                     className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
-                    onClick={() => toggleSort('qty')}
+                    onClick={() => toggleSort('packagingName')}
                   >
-                    <div className="flex items-center gap-1">Szt <SortIcon col="qty"/></div>
+                    <div className="flex items-center gap-1">Tuleja <SortIcon col="packagingName"/></div>
                   </TableHead>
-                  <TableHead className="text-xs uppercase tracking-wide whitespace-nowrap">kg/szt</TableHead>
                   <TableHead
                     className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
                     onClick={() => toggleSort('totalKg')}
                   >
-                    <div className="flex items-center gap-1">Łącznie <SortIcon col="totalKg"/></div>
+                    <div className="flex items-center gap-1">Waga łączna <SortIcon col="totalKg"/></div>
                   </TableHead>
                   <TableHead
                     className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
-                    onClick={() => toggleSort('producedDate')}
+                    onClick={() => toggleSort('batchNo')}
                   >
-                    <div className="flex items-center gap-1">Data <SortIcon col="producedDate"/></div>
+                    <div className="flex items-center gap-1">Nr partii <SortIcon col="batchNo"/></div>
                   </TableHead>
-                  <TableHead className="text-xs uppercase tracking-wide whitespace-nowrap">Partie mięsa</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -254,32 +257,32 @@ export function FinishedGoodsPage() {
                   return (
                     <TableRow key={item.id}>
                       <TableCell>
-                        <code className="font-mono font-bold text-primary text-sm">{item.batchNo}</code>
-                        <CardDescription className="text-[10px]">{item.planNo}</CardDescription>
+                        <CardTitle className="text-sm font-bold tabular-nums">{item.qtyAvailable} szt</CardTitle>
+                        {subCount > 1 && <CardDescription className="text-[10px]">{subCount} sesji</CardDescription>}
+                      </TableCell>
+                      <TableCell>
+                        <CardDescription className="tabular-nums">{item.kgPerUnit} kg</CardDescription>
                       </TableCell>
                       <TableCell>
                         <CardTitle className="text-sm font-semibold">{item.productTypeName}</CardTitle>
                         <CardDescription className="text-xs">{item.recipeName}</CardDescription>
-                        {item.packagingName && <CardDescription className="text-[10px]">{item.packagingName}</CardDescription>}
                       </TableCell>
-                      <TableCell><CardDescription>{item.clientName || '—'}</CardDescription></TableCell>
                       <TableCell>
-                        <CardTitle className="text-sm font-bold tabular-nums">{item.qtyAvailable} szt</CardTitle>
-                        {subCount > 1 && <CardDescription className="text-[10px]">{subCount} sesji</CardDescription>}
+                        <CardDescription>{item.clientName || '—'}</CardDescription>
                       </TableCell>
-                      <TableCell><CardDescription className="tabular-nums">{item.kgPerUnit} kg</CardDescription></TableCell>
+                      <TableCell>
+                        {item.packagingName
+                          ? <CardDescription className="text-xs font-medium">{item.packagingName}</CardDescription>
+                          : <CardDescription className="text-[10px] opacity-40">—</CardDescription>}
+                      </TableCell>
                       <TableCell>
                         <CardTitle className="text-sm font-bold text-green-700 tabular-nums">
                           {fmtKg(item.qtyAvailable * item.kgPerUnit)}
                         </CardTitle>
                       </TableCell>
-                      <TableCell><CardDescription className="text-xs">{fmtDatePl(item.producedDate)}</CardDescription></TableCell>
                       <TableCell>
-                        <div className="flex gap-0.5 flex-wrap">
-                          {[...new Set(item.seasonedBatchNos)].map(n => (
-                            <code key={n} className="text-[10px] font-mono bg-green-50 text-green-700 px-1 py-0.5 rounded font-bold">{n}</code>
-                          ))}
-                        </div>
+                        <code className="font-mono font-bold text-primary text-sm">{item.batchNo}</code>
+                        <CardDescription className="text-[10px]">{fmtDatePl(item.producedDate)}</CardDescription>
                       </TableCell>
                       <TableCell>
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setDetailItem(item)}>

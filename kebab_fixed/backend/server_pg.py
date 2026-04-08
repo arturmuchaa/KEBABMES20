@@ -1835,6 +1835,15 @@ def finish_day(dto: FinishDayDto):
                   entry.seasoned_batch_nos, entry.worker_names, now_iso()))
             created.append(item)
 
+        # Pobierz tuleje z magazynu opakowań (1 sztuka produktu = 1 tuleja)
+        if entry.packaging_id:
+            execute("""
+                UPDATE packaging
+                SET kg_available = GREATEST(0, kg_available - %s),
+                    kg_used = kg_used + %s
+                WHERE id = %s
+            """, (entry.qty, entry.qty, entry.packaging_id))
+
     execute("UPDATE production_plans SET status='done' WHERE id=%s", (dto.plan_id,))
     return {"created": len(created), "items": created}
 
