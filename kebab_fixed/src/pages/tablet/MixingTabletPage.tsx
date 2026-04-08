@@ -253,7 +253,7 @@ function MeatScreen({ order, onConfirm, onBack }: {
                 return (
                   <div key={s.stepNo} className="flex items-center justify-between bg-surface-2 rounded-xl px-3 py-2.5">
                     <span className="font-semibold text-ink text-[14px]">{s.ingredientName}</span>
-                    <span className="font-black text-brand text-[18px] tabular-nums">{qty.toFixed(3)} <span className="text-[12px] font-medium text-ink-3">{s.unit}</span></span>
+                    <span className="font-black text-brand text-[18px] tabular-nums">{qty.toFixed(2)} <span className="text-[12px] font-medium text-ink-3">{s.unit}</span></span>
                   </div>
                 )
               })}
@@ -377,7 +377,7 @@ function StepScreen({ order, kgActual, stepIdx, onConfirm, onBack, loading }: {
             <div key={s.stepNo} className="flex items-center gap-2 text-[11px] text-green-700 bg-green-50 px-3 py-1.5 rounded-lg">
               <CheckCircle size={12} />
               <span className="font-semibold">{s.ingredientName}</span>
-              <span className="ml-auto font-mono">{(s.qtyConfirmed ?? s.qtyRequired).toFixed(3)} {s.unit}</span>
+              <span className="ml-auto font-mono">{(s.qtyConfirmed ?? s.qtyRequired).toFixed(2)} {s.unit}</span>
             </div>
           ))}
         </div>
@@ -387,7 +387,7 @@ function StepScreen({ order, kgActual, stepIdx, onConfirm, onBack, loading }: {
         isOk?'border-success bg-green-50/30':isWarn?'border-warn bg-amber-50/30':isOver?'border-red-400 bg-red-50/30':'border-brand bg-blue-50/20')}>
         <div className="text-[11px] font-bold text-ink-3 uppercase tracking-wide mb-1">Dodaj składnik</div>
         <div className="text-3xl font-black text-ink mb-1">{step.ingredientName}</div>
-        <div className="text-5xl font-black text-brand tabular-nums mt-2">{qtyRequired.toFixed(3)}</div>
+        <div className="text-5xl font-black text-brand tabular-nums mt-2">{qtyRequired.toFixed(2)}</div>
         <div className="text-xl font-medium text-ink-3">{step.unit}</div>
         <div className="text-[11px] text-ink-4 mt-1">Tolerancja: ±50 g</div>
       </div>
@@ -499,8 +499,9 @@ function DoneScreen({ order, kgActual, seasonedBatchNo, onNext, onHome }: {
 }
 
 // ─── Ekran podsumowania przed uruchomieniem masownicy ────────
-function ReviewScreen({ order, kgActual, onStart, loading }: {
+function ReviewScreen({ order, kgActual, lotAllocs, onStart, loading }: {
   order: MixingOrder; kgActual: number
+  lotAllocs: { meatLotId: string; kg: number }[]
   onStart: () => void; loading: boolean
 }) {
   return (
@@ -509,16 +510,20 @@ function ReviewScreen({ order, kgActual, onStart, loading }: {
       <h2 className="text-xl font-black text-ink mb-1">{order.recipeName}</h2>
       <p className="text-sm text-ink-3 mb-4">Sprawdź składniki przed uruchomieniem masownicy</p>
 
-      {/* Mięso */}
+      {/* Mięso — pokaż ile faktycznie załadowano z każdej partii */}
       <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-3">
         <div className="text-[10px] font-bold text-blue-700 uppercase mb-2">Mięso załadowane</div>
-        {order.meatLots.map(lot => (
-          <div key={lot.meatLotId} className="flex justify-between text-[13px] py-1 border-b border-blue-100 last:border-0">
-            <span className="font-mono font-bold">{lot.meatLotNo}</span>
-            <span className="text-ink-3 text-[11px]">{lot.rawBatchNo}</span>
-            <span className="font-bold text-blue-700">{fmtKg(lot.kgPlanned)} kg</span>
-          </div>
-        ))}
+        {order.meatLots.map(lot => {
+          const loaded = lotAllocs.find(a => a.meatLotId === lot.meatLotId)?.kg ?? 0
+          if (loaded <= 0) return null
+          return (
+            <div key={lot.meatLotId} className="flex justify-between text-[13px] py-1 border-b border-blue-100 last:border-0">
+              <span className="font-mono font-bold">{lot.meatLotNo}</span>
+              <span className="text-ink-3 text-[11px]">{lot.rawBatchNo}</span>
+              <span className="font-bold text-blue-700">{fmtKg(loaded)} kg</span>
+            </div>
+          )
+        })}
         <div className="flex justify-between text-[13px] pt-2 font-black text-blue-800">
           <span>Łącznie mięso:</span>
           <span>{fmtKg(kgActual)} kg</span>
@@ -535,7 +540,7 @@ function ReviewScreen({ order, kgActual, onStart, loading }: {
               <span className="font-semibold text-ink text-[14px]">{s.ingredientName}</span>
             </div>
             <span className="font-black text-success text-[18px] tabular-nums">
-              {((s as any).qtyConfirmed ?? s.qtyRequired).toFixed(3)}
+              {((s as any).qtyConfirmed ?? s.qtyRequired).toFixed(2)}
               <span className="text-[12px] font-medium text-ink-3 ml-1">{s.unit}</span>
             </span>
           </div>
@@ -687,7 +692,7 @@ export function MixingTabletPage() {
           onConfirm={handleConfirmStep} onBack={() => setPhase('meat')} loading={confirmMut.loading} />
       )}
       {phase === 'review' && liveOrder && (
-        <ReviewScreen order={liveOrder} kgActual={kgActual}
+        <ReviewScreen order={liveOrder} kgActual={kgActual} lotAllocs={lotAllocs}
           onStart={handleStartMixing} loading={finishMut.loading || lockMut.loading} />
       )}
 

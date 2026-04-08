@@ -35,7 +35,7 @@ import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import type { CreateMixingOrderDto } from '@/lib/mockApi'
 import {
   Calculator, Package, BookOpen, Beef, AlertTriangle,
-  CheckCircle, Plus, X, ChevronRight, ClipboardList, AlertTriangle as AlertIcon,
+  CheckCircle, Plus, X, ChevronRight, ClipboardList, AlertTriangle as AlertIcon, Eye,
 } from 'lucide-react'
 import { DialogDescription } from '@/components/ui/dialog'
 import { fmtKg as fmt } from '@/lib/utils'
@@ -47,7 +47,8 @@ export function PlanningPage() {
   const { data: meatData, refetch: refetchMeat }  = useApi(() => meatStockApi.list())
   const { data: orders, refetch: refetchOrders } = useApi(() => mixingOrdersApi.list())
 
-  const [cancelTarget, setCancelTarget] = useState<MixingOrder | null>(null)
+  const [cancelTarget,   setCancelTarget]   = useState<MixingOrder | null>(null)
+  const [progressTarget, setProgressTarget] = useState<MixingOrder | null>(null)
 
   const createMut  = useMutation((dto: CreateMixingOrderDto) => mixingOrdersApi.create(dto))
   const cancelMut  = useMutation((id: string) => mixingOrdersApi.cancel(id))
@@ -255,6 +256,10 @@ export function PlanningPage() {
                   </TableCell>
                   <TableCell className="px-3 py-2">
                     <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground"
+                        onClick={() => setProgressTarget(o as any)}>
+                        <Eye size={13}/>
+                      </Button>
                       {o.status === 'planned' && (
                         <Button variant="outline" size="sm" className="h-7 text-[11px] text-purple-700 border-purple-200 hover:bg-purple-50 px-2"
                           onClick={() => handleConfirm(o.id, o.orderNo)}
@@ -469,6 +474,77 @@ export function PlanningPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Modal podglądu postępu zlecenia */}
+      {progressTarget && (() => {
+        const o = progressTarget as any
+        const kgDone      = o.kgDone      ?? 0
+        const kgRemaining = o.kgRemaining ?? o.meatKg
+        const pct         = o.meatKg > 0 ? Math.round((kgDone / o.meatKg) * 100) : 0
+        const isInProgress = o.status === 'in_progress'
+        return (
+          <Dialog open onOpenChange={open => { if (!open) setProgressTarget(null) }}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Eye size={16}/> {o.orderNo} — Postęp masowania
+                </DialogTitle>
+                <DialogDescription>{o.recipeName}{o.productTypeName ? ` · ${o.productTypeName}` : ''}</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 py-1">
+                {/* Pasek postępu */}
+                <div>
+                  <div className="flex justify-between text-[11px] text-muted-foreground mb-1">
+                    <span>Postęp</span><span className="font-bold">{pct}%</span>
+                  </div>
+                  <div className="h-3 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-brand rounded-full transition-all"
+                      style={{ width: `${Math.min(100, pct)}%` }}/>
+                  </div>
+                </div>
+                {/* Kafelki */}
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: 'Zaplanowane', val: o.meatKg,    cls: 'bg-blue-50 text-blue-700 border-blue-200' },
+                    { label: 'Wymieszano',  val: kgDone,       cls: 'bg-green-50 text-green-700 border-green-200' },
+                    { label: 'Pozostało',   val: kgRemaining,  cls: kgRemaining > 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-muted text-muted-foreground border-border' },
+                  ].map(k => (
+                    <div key={k.label} className={`border rounded-xl p-3 text-center ${k.cls}`}>
+                      <div className="text-[10px] font-bold uppercase tracking-wide mb-1">{k.label}</div>
+                      <div className="text-xl font-black tabular-nums">{fmt(k.val)}</div>
+                      <div className="text-[10px] mt-0.5">kg</div>
+                    </div>
+                  ))}
+                </div>
+                {/* Status / masownica */}
+                <div className="bg-muted/30 rounded-xl px-3 py-2.5 flex items-center justify-between text-[12px]">
+                  <span className="text-muted-foreground">Status</span>
+                  <Badge variant="outline" className={STATUS_CLASS[o.status]}>{STATUS_LABELS[o.status]}</Badge>
+                </div>
+                {isInProgress && o.machineId && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-[12px] text-amber-700 font-semibold flex items-center gap-2">
+                    <AlertIcon size={13}/> Masownica {o.machineId} aktywnie miesza
+                  </div>
+                )}
+                {/* Partie mięsa */}
+                {(o.meatLots ?? []).length > 0 && (
+                  <div className="border rounded-xl overflow-hidden">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground px-3 py-1.5 bg-muted/30 border-b">Partie mięsa</div>
+                    {(o.meatLots ?? []).map((lot: any) => (
+                      <div key={lot.meatLotId} className="flex justify-between px-3 py-1.5 border-b last:border-0 text-[12px]">
+                        <span className="font-mono font-bold">{lot.meatLotNo}</span>
+                        <span className="text-muted-foreground">{lot.rawBatchNo}</span>
+                        <span className="font-semibold">{fmt(lot.kgPlanned)} kg</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <Button variant="outline" className="w-full" onClick={() => setProgressTarget(null)}>Zamknij</Button>
+            </DialogContent>
+          </Dialog>
+        )
+      })()}
 
       {/* Modal potwierdzenia anulowania */}
       {cancelTarget && (() => {
