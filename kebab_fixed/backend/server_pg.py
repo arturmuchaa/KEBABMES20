@@ -201,6 +201,7 @@ def startup():
         "ALTER TABLE workers ADD COLUMN IF NOT EXISTS rate_per_kg NUMERIC(10,4) DEFAULT 0",
         "ALTER TABLE workers ADD COLUMN IF NOT EXISTS contract_type TEXT DEFAULT 'zlecenie'",
         "ALTER TABLE workers ADD COLUMN IF NOT EXISTS employer_cost_pct NUMERIC(5,2) DEFAULT 0",
+        "ALTER TABLE workers ADD COLUMN IF NOT EXISTS employer_cost_amount NUMERIC(10,2) DEFAULT 0",
         # Płace — tabele rozliczeń
         """CREATE TABLE IF NOT EXISTS payroll_settlements (
             id TEXT PRIMARY KEY, worker_id TEXT NOT NULL, worker_name TEXT NOT NULL,
@@ -1972,7 +1973,7 @@ class WorkerCreate(BaseModel):
     name: str; role: str = "WORKER_PRODUCTION"; pin: str = ""
     rate_per_kg: float = 0.0
     contract_type: str = "zlecenie"
-    employer_cost_pct: float = 0.0
+    employer_cost_amount: float = 0.0
 
 class WorkerUpdate(BaseModel):
     name: Optional[str] = None
@@ -1980,7 +1981,7 @@ class WorkerUpdate(BaseModel):
     pin: Optional[str] = None
     rate_per_kg: Optional[float] = None
     contract_type: Optional[str] = None
-    employer_cost_pct: Optional[float] = None
+    employer_cost_amount: Optional[float] = None
     active: Optional[bool] = None
 
 @app.get("/api/workers")
@@ -1990,10 +1991,10 @@ def list_workers():
 @app.post("/api/workers")
 def create_worker(dto: WorkerCreate):
     row = execute_returning("""
-        INSERT INTO workers (id, name, role, pin, active, rate_per_kg, contract_type, employer_cost_pct, created_at)
+        INSERT INTO workers (id, name, role, pin, active, rate_per_kg, contract_type, employer_cost_amount, created_at)
         VALUES (%s,%s,%s,%s,true,%s,%s,%s,%s) RETURNING *
     """, (cuid(), dto.name, dto.role, dto.pin or None,
-          dto.rate_per_kg, dto.contract_type, dto.employer_cost_pct, now_iso()))
+          dto.rate_per_kg, dto.contract_type, dto.employer_cost_amount, now_iso()))
     return row
 
 @app.put("/api/workers/{worker_id}")
@@ -2001,13 +2002,13 @@ def update_worker(worker_id: str, dto: WorkerUpdate):
     existing = query_one("SELECT * FROM workers WHERE id=%s", (worker_id,))
     if not existing: raise HTTPException(404, "Pracownik nie istnieje")
     fields, vals = [], []
-    if dto.name is not None:               fields.append("name=%s");               vals.append(dto.name)
-    if dto.role is not None:               fields.append("role=%s");               vals.append(dto.role)
-    if dto.pin is not None:                fields.append("pin=%s");                vals.append(dto.pin or None)
-    if dto.rate_per_kg is not None:        fields.append("rate_per_kg=%s");        vals.append(dto.rate_per_kg)
-    if dto.contract_type is not None:      fields.append("contract_type=%s");      vals.append(dto.contract_type)
-    if dto.employer_cost_pct is not None:  fields.append("employer_cost_pct=%s");  vals.append(dto.employer_cost_pct)
-    if dto.active is not None:             fields.append("active=%s");             vals.append(dto.active)
+    if dto.name is not None:                  fields.append("name=%s");                  vals.append(dto.name)
+    if dto.role is not None:                  fields.append("role=%s");                  vals.append(dto.role)
+    if dto.pin is not None:                   fields.append("pin=%s");                   vals.append(dto.pin or None)
+    if dto.rate_per_kg is not None:           fields.append("rate_per_kg=%s");           vals.append(dto.rate_per_kg)
+    if dto.contract_type is not None:         fields.append("contract_type=%s");         vals.append(dto.contract_type)
+    if dto.employer_cost_amount is not None:  fields.append("employer_cost_amount=%s");  vals.append(dto.employer_cost_amount)
+    if dto.active is not None:                fields.append("active=%s");                vals.append(dto.active)
     if not fields: return existing
     vals.append(worker_id)
     row = execute_returning(f"UPDATE workers SET {', '.join(fields)} WHERE id=%s RETURNING *", vals)
@@ -2079,8 +2080,8 @@ def create_settlement(dto: CreateSettlementDto):
     kg_total = round(sum(dto.kg_per_date.get(d, 0) for d in dto.work_dates), 3)
     gross_amount = round(kg_total * dto.rate_per_kg, 2)
     deductions_total = round(sum(d.amount for d in dto.deductions), 2)
-    employer_cost_pct = float(worker.get('employer_cost_pct') or 0)
-    employer_cost_amount = round(gross_amount * employer_cost_pct / 100, 2)
+    employer_cost_pct = 0
+    employer_cost_amount = float(worker.get('employer_cost_amount') or 0)
     net_amount = round(gross_amount - deductions_total, 2)
     sid = cuid()
     with get_conn() as conn:

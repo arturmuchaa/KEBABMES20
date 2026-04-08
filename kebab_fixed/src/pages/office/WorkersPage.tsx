@@ -58,7 +58,7 @@ function initials(name: string) {
   return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
 }
 
-const BLANK_FORM = { login: '', name: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', contractType: 'zlecenie', employerCostPct: '0' }
+const BLANK_FORM = { login: '', name: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', contractType: 'zlecenie', employerCostAmount: '0' }
 
 export function WorkersPage() {
   const { data, loading, refetch } = useApi(() => usersApi.list())
@@ -71,14 +71,14 @@ export function WorkersPage() {
     name: d.name, role: d.role, pin: '',
     ratePerKg: parseFloat(d.ratePerKg) || 0,
     contractType: d.contractType,
-    employerCostPct: parseFloat(d.employerCostPct) || 0,
+    employerCostAmount: parseFloat(d.employerCostAmount) || 0,
   }))
   const updateMut = useMutation((d: { id: string } & typeof editForm) =>
     usersApi.update(d.id, {
       name: d.name, role: d.role,
       ratePerKg: parseFloat(d.ratePerKg) || 0,
       contractType: d.contractType,
-      employerCostPct: parseFloat(d.employerCostPct) || 0,
+      employerCostAmount: parseFloat(d.employerCostAmount) || 0,
     })
   )
 
@@ -115,7 +115,7 @@ export function WorkersPage() {
       role: u.role,
       ratePerKg: String((u as any).ratePerKg ?? (u as any).rate_per_kg ?? 0),
       contractType: (u as any).contractType ?? (u as any).contract_type ?? 'zlecenie',
-      employerCostPct: String((u as any).employerCostPct ?? (u as any).employer_cost_pct ?? 0),
+      employerCostAmount: String((u as any).employerCostAmount ?? (u as any).employer_cost_amount ?? 0),
     })
   }
 
@@ -210,6 +210,7 @@ export function WorkersPage() {
                 {allUsers.map(u => {
                   const rate = (u as any).ratePerKg ?? (u as any).rate_per_kg ?? 0
                   const ct   = (u as any).contractType ?? (u as any).contract_type ?? 'zlecenie'
+                  const eca  = Number((u as any).employerCostAmount ?? (u as any).employer_cost_amount ?? 0)
                   return (
                     <TableRow key={u.id}>
                       <TableCell>
@@ -237,6 +238,9 @@ export function WorkersPage() {
                             <span className="text-muted-foreground ml-2 text-xs">
                               {ct === 'praca' ? 'UoP' : 'Zlecenie'}
                             </span>
+                            {ct === 'praca' && eca > 0 && (
+                              <span className="text-orange-600 ml-1 text-xs">+{eca.toFixed(0)} zł/mies.</span>
+                            )}
                           </div>
                         ) : <span className="text-muted-foreground text-xs">—</span>}
                       </TableCell>
@@ -323,7 +327,7 @@ export function WorkersPage() {
 
 // ─── Reusable form component ──────────────────────────────────
 function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles }: {
-  form: { login: string; name: string; role: string; ratePerKg: string; contractType: string; employerCostPct: string }
+  form: { login: string; name: string; role: string; ratePerKg: string; contractType: string; employerCostAmount: string }
   setForm: React.Dispatch<React.SetStateAction<any>>
   onRoleChange: (role: string) => void
   onNameChange: (name: string) => void
@@ -390,19 +394,11 @@ function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles
           <Separator />
           <div className="space-y-3">
             <Label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Wynagrodzenie</Label>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Stawka akordowa (zł/kg)</Label>
-                <Input type="number" step="0.01" min="0"
-                  value={form.ratePerKg}
-                  onChange={e => setForm((f: any) => ({ ...f, ratePerKg: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Narzut pracodawcy (%)</Label>
-                <Input type="number" step="0.1" min="0" max="100"
-                  value={form.employerCostPct}
-                  onChange={e => setForm((f: any) => ({ ...f, employerCostPct: e.target.value }))} />
-              </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Stawka akordowa (zł/kg)</Label>
+              <Input type="number" step="0.01" min="0"
+                value={form.ratePerKg}
+                onChange={e => setForm((f: any) => ({ ...f, ratePerKg: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Rodzaj umowy</Label>
@@ -416,6 +412,16 @@ function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles
                 ))}
               </div>
             </div>
+            {form.contractType === 'praca' && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Koszty pracodawcy — ZUS itp. (zł/mies.)</Label>
+                <Input type="number" step="0.01" min="0"
+                  placeholder="np. 500.00"
+                  value={form.employerCostAmount}
+                  onChange={e => setForm((f: any) => ({ ...f, employerCostAmount: e.target.value }))} />
+                <p className="text-[10px] text-muted-foreground">Kwota zostanie uwzględniona w kalkulacji kosztów wyrobu gotowego</p>
+              </div>
+            )}
           </div>
         </>
       )}

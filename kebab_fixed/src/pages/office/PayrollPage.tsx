@@ -96,8 +96,7 @@ export function PayrollPage() {
   const gross        = totalKg * rate
   const deductTotal  = deductions.reduce((s, d) => s + (parseFloat(d.amount) || 0), 0)
   const net          = gross - deductTotal
-  const employerPct  = parseFloat(String((selWorker as any)?.employerCostPct ?? (selWorker as any)?.employer_cost_pct ?? 0)) || 0
-  const employerCost = gross * employerPct / 100
+  const employerCost = parseFloat(String((selWorker as any)?.employerCostAmount ?? (selWorker as any)?.employer_cost_amount ?? 0)) || 0
 
   async function handleSettle() {
     if (!selWorker || selectedDays.size === 0) return
@@ -332,9 +331,9 @@ export function PayrollPage() {
                       <span className="text-muted-foreground">Wynagrodzenie brutto ({rate.toFixed(2)} zł/kg)</span>
                       <span className="font-semibold">{fmtPln(gross)} zł</span>
                     </div>
-                    {employerPct > 0 && (
+                    {employerCost > 0 && (
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Koszt pracodawcy ({employerPct.toFixed(1)}%)</span>
+                        <span className="text-muted-foreground">Koszt pracodawcy (ZUS itp.)</span>
                         <span className="font-semibold text-orange-700">{fmtPln(employerCost)} zł</span>
                       </div>
                     )}
@@ -468,9 +467,9 @@ function PaySlip({ settlement: s }: { settlement: any }) {
           <span>Wynagrodzenie brutto</span>
           <span>{Number(s.gross_amount).toFixed(2)} zł</span>
         </div>
-        {Number(s.employer_cost_pct) > 0 && (
+        {Number(s.employer_cost_amount) > 0 && (
           <div className="flex justify-between text-sm text-orange-700">
-            <span>Koszt pracodawcy ({Number(s.employer_cost_pct).toFixed(1)}%)</span>
+            <span>Koszt pracodawcy (ZUS itp.)</span>
             <span>{Number(s.employer_cost_amount).toFixed(2)} zł</span>
           </div>
         )}
