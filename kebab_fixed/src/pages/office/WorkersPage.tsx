@@ -412,16 +412,20 @@ function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles
                 ))}
               </div>
             </div>
-            {form.contractType === 'praca' && (
-              <div className="space-y-1.5">
-                <Label className="text-xs">Koszty pracodawcy — ZUS itp. (zł/mies.)</Label>
-                <Input type="number" step="0.01" min="0"
-                  placeholder="np. 500.00"
-                  value={form.employerCostAmount}
-                  onChange={e => setForm((f: any) => ({ ...f, employerCostAmount: e.target.value }))} />
-                <p className="text-[10px] text-muted-foreground">Kwota zostanie uwzględniona w kalkulacji kosztów wyrobu gotowego</p>
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <Label className="text-xs">
+                Koszty pracodawcy (zł/mies.)
+                {form.contractType === 'praca'
+                  ? <span className="text-muted-foreground ml-1">— ZUS, składki itp.</span>
+                  : <span className="text-muted-foreground ml-1">— dodatkowe koszty</span>
+                }
+              </Label>
+              <Input type="number" step="0.01" min="0"
+                placeholder="np. 500.00"
+                value={form.employerCostAmount}
+                onChange={e => setForm((f: any) => ({ ...f, employerCostAmount: e.target.value }))} />
+              <p className="text-[10px] text-muted-foreground">Zostanie uwzględnione w kalkulacji kosztów wyrobu gotowego</p>
+            </div>
           </div>
         </>
       )}

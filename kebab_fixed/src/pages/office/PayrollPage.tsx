@@ -127,46 +127,77 @@ export function PayrollPage() {
     <div className="space-y-5 animate-fade-in">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
-        {/* Lewa kolumna — lista pracowników */}
+        {/* Lewa kolumna — lista pracowników (dwie grupy) */}
         <div className="space-y-3">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Pracownicy hali</CardTitle>
-              <CardDescription>Wybierz pracownika do rozliczenia</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              {wLoading ? (
-                <div className="p-4 space-y-2">
-                  {[0,1,2].map(i => <Skeleton key={i} className="h-14 rounded-xl" />)}
-                </div>
-              ) : (
-                <div className="p-3 space-y-1.5">
-                  {hallWorkers.map(w => {
-                    const rate = parseFloat(String((w as any).ratePerKg ?? (w as any).rate_per_kg ?? 0))
-                    const ct   = (w as any).contractType ?? (w as any).contract_type ?? 'zlecenie'
-                    return (
-                      <button key={w.id} onClick={() => selectWorker(w)}
-                        className={`w-full text-left rounded-xl border-2 px-3 py-2.5 transition-all ${selWorker?.id === w.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="text-muted-foreground">{ROLE_ICON[w.role]}</span>
-                            <span className="font-semibold text-sm">{w.name}</span>
-                          </div>
-                          <ChevronRight size={14} className="text-muted-foreground" />
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-0.5 ml-5">
-                          {ROLE_LABEL[w.role]} · {rate.toFixed(2)} zł/kg · {ct === 'praca' ? 'UoP' : 'Zlecenie'}
-                        </div>
-                      </button>
-                    )
-                  })}
-                  {hallWorkers.length === 0 && (
-                    <div className="text-center text-sm text-muted-foreground py-6">Brak pracowników hali</div>
-                  )}
-                </div>
+          {wLoading ? (
+            <Card><CardContent className="p-4 space-y-2">{[0,1,2].map(i => <Skeleton key={i} className="h-14 rounded-xl" />)}</CardContent></Card>
+          ) : (
+            <>
+              {(['WORKER_DEBONING', 'WORKER_PRODUCTION'] as const).map(roleKey => {
+                const group = hallWorkers.filter(w => w.role === roleKey)
+                if (group.length === 0) return null
+                return (
+                  <Card key={roleKey}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-1.5">
+                        {ROLE_ICON[roleKey]} {ROLE_LABEL[roleKey]}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0 pb-2">
+                      <div className="px-3 space-y-1.5">
+                        {group.map(w => {
+                          const wRate = parseFloat(String((w as any).ratePerKg ?? (w as any).rate_per_kg ?? 0))
+                          const ct    = (w as any).contractType ?? (w as any).contract_type ?? 'zlecenie'
+                          return (
+                            <button key={w.id} onClick={() => selectWorker(w)}
+                              className={`w-full text-left rounded-xl border-2 px-3 py-2.5 transition-all ${selWorker?.id === w.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}>
+                              <div className="flex items-center justify-between">
+                                <span className="font-semibold text-sm">{w.name}</span>
+                                <ChevronRight size={14} className="text-muted-foreground" />
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-0.5">
+                                {wRate.toFixed(2)} zł/kg · {ct === 'praca' ? 'UoP' : 'Zlecenie'}
+                              </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+              {hallWorkers.filter(w => w.role === 'WORKER_GENERAL').length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-1.5"><Users size={14} /> Ogólny</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0 pb-2">
+                    <div className="px-3 space-y-1.5">
+                      {hallWorkers.filter(w => w.role === 'WORKER_GENERAL').map(w => {
+                        const wRate = parseFloat(String((w as any).ratePerKg ?? (w as any).rate_per_kg ?? 0))
+                        const ct    = (w as any).contractType ?? (w as any).contract_type ?? 'zlecenie'
+                        return (
+                          <button key={w.id} onClick={() => selectWorker(w)}
+                            className={`w-full text-left rounded-xl border-2 px-3 py-2.5 transition-all ${selWorker?.id === w.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}>
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-sm">{w.name}</span>
+                              <ChevronRight size={14} className="text-muted-foreground" />
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              {wRate.toFixed(2)} zł/kg · {ct === 'praca' ? 'UoP' : 'Zlecenie'}
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
               )}
-            </CardContent>
-          </Card>
+              {hallWorkers.length === 0 && (
+                <Card><CardContent className="p-6 text-center text-sm text-muted-foreground">Brak pracowników hali</CardContent></Card>
+              )}
+            </>
+          )}
         </div>
 
         {/* Środkowa + prawa — rozliczenie */}
@@ -180,7 +211,7 @@ export function PayrollPage() {
                   <div className="text-lg font-black">{selWorker.name}</div>
                   <div className="text-sm text-muted-foreground">
                     {ROLE_LABEL[selWorker.role]} · Stawka: <strong>{rate.toFixed(2)} zł/kg</strong>
-                    {employerPct > 0 && <> · Narzut: <strong>{employerPct.toFixed(1)}%</strong></>}
+                    {employerCost > 0 && <> · Koszty: <strong>{fmtPln(employerCost)} zł/mies.</strong></>}
                     {' · '}{(selWorker.contractType ?? selWorker.contract_type ?? 'zlecenie') === 'praca' ? 'Umowa o pracę' : 'Umowa zlecenie'}
                   </div>
                 </div>
