@@ -89,8 +89,12 @@ function OrderForm({ onSave, onClose, initialData }: OrderFormProps) {
         clientId, orderDate, deliveryDate: deliveryDate || undefined, notes: notes || undefined,
         lines: validLines.map(l => ({
           qty: parseFloat(l.qty), kgPerUnit: parseFloat(l.kgPerUnit),
-          productTypeId: l.productTypeId, recipeId: l.recipeId,
+          productTypeId: l.productTypeId,
+          productTypeName: (productTypes ?? []).find((pt: any) => pt.id === l.productTypeId)?.name || '',
+          recipeId: l.recipeId,
+          recipeName: (recipes ?? []).find((r: any) => r.id === l.recipeId)?.name || '',
           packagingId: l.packagingId || undefined,
+          packagingName: l.packagingId ? (packaging.find((p: any) => p.id === l.packagingId)?.name || '') : undefined,
         })),
       })
       onClose()

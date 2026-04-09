@@ -531,12 +531,15 @@ function toSnakeOrderDto(dto: CreateClientOrderDto) {
     delivery_date: dto.deliveryDate,
     notes:         dto.notes,
     lines: dto.lines.map(l => ({
-      qty:             l.qty,
-      kg_per_unit:     l.kgPerUnit,
-      product_type_id: l.productTypeId,
-      recipe_id:       l.recipeId,
-      packaging_id:    l.packagingId,
-      notes:           l.notes,
+      qty:               l.qty,
+      kg_per_unit:       l.kgPerUnit,
+      product_type_id:   l.productTypeId,
+      product_type_name: (l as any).productTypeName || '',
+      recipe_id:         l.recipeId,
+      recipe_name:       (l as any).recipeName      || '',
+      packaging_id:      l.packagingId,
+      packaging_name:    (l as any).packagingName   || '',
+      notes:             l.notes,
     })),
   }
 }
