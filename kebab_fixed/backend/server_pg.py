@@ -2818,6 +2818,16 @@ def build_mixing_order(o: dict) -> dict:
 
 @app.get("/api/mixing-orders")
 def list_mixing_orders(status: str = ""):
+    # Auto-approve: jeśli in_progress i blokada masownicy wygasła → done
+    # (operator uruchomił masownicę, odliczanie skończyło się, tablet nie wysłał auto-approve)
+    execute("""
+        UPDATE mixing_orders
+        SET status = 'done', completed_at = NOW()
+        WHERE status = 'in_progress'
+          AND id NOT IN (
+              SELECT order_id FROM machine_locks WHERE expires_at > NOW()
+          )
+    """)
     sql = "SELECT * FROM mixing_orders"
     params: list = []
     if status:
