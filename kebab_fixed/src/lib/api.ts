@@ -732,6 +732,7 @@ function mapMixingOrder(raw: any): MixingOrder {
     createdAt:      raw.created_at       ?? raw.createdAt       ?? '',
     startedAt:      raw.started_at       ?? raw.startedAt,
     completedAt:    raw.completed_at     ?? raw.completedAt,
+    kgInMachine:    Number(raw.kgInMachine ?? raw.kg_in_machine ?? 0),
     sessions:       (raw.sessions ?? []).map(mapMixingSession),
   } as MixingOrder
 }

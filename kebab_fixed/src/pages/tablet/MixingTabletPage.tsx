@@ -39,10 +39,15 @@ function MachineTile({ lock, order }: { lock: MachineLock; order?: any }) {
   const mm = String(Math.floor(remaining / 60)).padStart(2, '0')
   const ss = String(remaining % 60).padStart(2, '0')
 
-  const kgMeat = order ? ((order.kgInMachine ?? 0) || (order.kgRemaining ?? order.meatKg)) : 0
+  const kgMeat = order
+    ? (order.kgInMachine > 0
+        ? order.kgInMachine
+        : (order.kgDone > 0 ? order.kgDone : order.meatKg))
+    : 0
+  const factor = order && order.meatKg > 0 ? kgMeat / order.meatKg : 1
   const additivesKg = order
-    ? (order.steps ?? []).reduce((sum: number, s: any) => sum + (s.qtyRequired ?? 0), 0)
-      * (order.meatKg > 0 ? Math.min(1, kgMeat / order.meatKg) : 1)
+    ? (order.steps ?? []).reduce((sum: number, s: any) =>
+        sum + (parseFloat(s.qtyConfirmed ?? s.qtyRequired ?? 0)) * factor, 0)
     : 0
 
   return (
@@ -288,10 +293,12 @@ function MeatScreen({ order, onConfirm, onBack }: {
           <div className="font-mono text-sm text-brand font-bold">{order.orderNo} · Masownica {order.machineId}</div>
           <h2 className="text-xl font-black text-ink">{order.recipeName}</h2>
         </div>
-        <button onClick={() => setShowRecipe(true)}
-          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-purple-50 border border-purple-200 text-purple-700 rounded-xl text-[12px] font-semibold hover:bg-purple-100">
-          <ClipboardList size={14} /> Podgląd receptury
-        </button>
+        {totalKg > 0 && (
+          <button onClick={() => setShowRecipe(true)}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-purple-50 border border-purple-200 text-purple-700 rounded-xl text-[12px] font-semibold hover:bg-purple-100">
+            <ClipboardList size={14} /> Podgląd receptury
+          </button>
+        )}
       </div>
       <p className="text-sm text-ink-3 mb-4">Pozostało do wymieszania: <strong className="text-amber-600">{fmtKg(kgRemaining)} kg</strong></p>
 
@@ -307,11 +314,11 @@ function MeatScreen({ order, onConfirm, onBack }: {
               </button>
             </div>
             <div className="text-[10px] font-bold text-ink-4 uppercase tracking-wider mb-2">
-              Składniki na {fmtKg(kgRemaining)} kg mięsa
+              Składniki na {fmtKg(totalKg)} kg mięsa
             </div>
             <div className="space-y-2">
               {order.steps.map(s => {
-                const qty = Math.round(s.qtyRequired * (kgRemaining / order.meatKg) * 1000) / 1000
+                const qty = Math.round(s.qtyRequired * (totalKg / order.meatKg) * 1000) / 1000
                 return (
                   <div key={s.stepNo} className="flex items-center justify-between bg-surface-2 rounded-xl px-3 py-2.5">
                     <span className="font-semibold text-ink text-[14px]">{s.ingredientName}</span>
@@ -592,21 +599,29 @@ function ReviewScreen({ order, kgActual, lotAllocs, onStart, loading }: {
         </div>
       </div>
 
-      {/* Składniki */}
+      {/* Składniki — skalowane do faktycznie załadowanego mięsa (kgActual) */}
       <div className="bg-surface-2 border border-surface-4 rounded-xl overflow-hidden mb-4">
-        <div className="text-[10px] font-bold text-ink-3 uppercase px-3 py-2 border-b">Składniki (potwierdzone ilości)</div>
-        {order.steps.map(s => (
-          <div key={s.stepNo} className="flex items-center justify-between px-3 py-2.5 border-b last:border-0">
-            <div className="flex items-center gap-2">
-              <CheckCircle size={14} className="text-success flex-shrink-0" />
-              <span className="font-semibold text-ink text-[14px]">{s.ingredientName}</span>
+        <div className="text-[10px] font-bold text-ink-3 uppercase px-3 py-2 border-b">
+          Składniki na {fmtKg(kgActual)} kg mięsa
+        </div>
+        {order.steps.map(s => {
+          const factor = order.meatKg > 0 ? kgActual / order.meatKg : 1
+          const qty = ((s as any).qtyConfirmed != null)
+            ? (s as any).qtyConfirmed
+            : s.qtyRequired * factor
+          return (
+            <div key={s.stepNo} className="flex items-center justify-between px-3 py-2.5 border-b last:border-0">
+              <div className="flex items-center gap-2">
+                <CheckCircle size={14} className="text-success flex-shrink-0" />
+                <span className="font-semibold text-ink text-[14px]">{s.ingredientName}</span>
+              </div>
+              <span className="font-black text-success text-[18px] tabular-nums">
+                {qty.toFixed(2)}
+                <span className="text-[12px] font-medium text-ink-3 ml-1">{s.unit}</span>
+              </span>
             </div>
-            <span className="font-black text-success text-[18px] tabular-nums">
-              {((s as any).qtyConfirmed ?? s.qtyRequired).toFixed(2)}
-              <span className="text-[12px] font-medium text-ink-3 ml-1">{s.unit}</span>
-            </span>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <button onClick={onStart} disabled={loading}
@@ -847,6 +862,34 @@ export function MixingTabletPage() {
                   const order = cooling.find(o => o.id === l.orderId)
                   return <MachineTile key={`${l.machineId}-${l.orderId}`} lock={l} order={order} />
                 })}
+                {/* Kafelek sumy wszystkich masownic */}
+                {currentLocks.length > 1 && (() => {
+                  const totalMeat = cooling.reduce((s, o) =>
+                    s + (o.kgInMachine > 0 ? o.kgInMachine : (o.kgDone > 0 ? o.kgDone : o.meatKg)), 0)
+                  const totalAdd  = cooling.reduce((s, o) => {
+                    const km = o.kgInMachine > 0 ? o.kgInMachine : (o.kgDone > 0 ? o.kgDone : o.meatKg)
+                    const f  = o.meatKg > 0 ? km / o.meatKg : 1
+                    return s + (o.steps ?? []).reduce((a: number, st: any) =>
+                      a + parseFloat(st.qtyConfirmed ?? st.qtyRequired ?? 0) * f, 0)
+                  }, 0)
+                  return (
+                    <div className="bg-ink/5 border border-ink/10 rounded-2xl p-4">
+                      <div className="text-[10px] font-bold text-ink-3 uppercase tracking-wide mb-2">Suma wszystkich masownic</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-white rounded-xl p-2 text-center">
+                          <div className="text-[10px] font-bold text-ink-3 uppercase mb-0.5">Mięso łącznie</div>
+                          <div className="text-lg font-black text-ink tabular-nums">{fmtKg(totalMeat, 0)}</div>
+                          <div className="text-[10px] text-ink-3">kg</div>
+                        </div>
+                        <div className="bg-white rounded-xl p-2 text-center">
+                          <div className="text-[10px] font-bold text-ink-3 uppercase mb-0.5">Dodatki łącznie</div>
+                          <div className="text-lg font-black text-ink tabular-nums">{fmtKg(totalAdd, 1)}</div>
+                          <div className="text-[10px] text-ink-3">kg</div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
           )}
