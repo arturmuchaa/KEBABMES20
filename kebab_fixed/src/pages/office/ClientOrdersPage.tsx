@@ -383,7 +383,7 @@ export function ClientOrdersPage() {
                         <Table className="mt-3">
                           <TableHeader>
                             <TableRow className="hover:bg-transparent">
-                              {['Szt','kg/szt','Razem kg','Rodzaj','Receptura','Tuleja','Realizacja'].map(h => (
+                              {['','Szt','kg/szt','Razem kg','Rodzaj','Receptura','Tuleja'].map(h => (
                                 <TableHead key={h} className="text-[9px] uppercase tracking-wide">{h}</TableHead>
                               ))}
                             </TableRow>
@@ -395,6 +395,21 @@ export function ClientOrdersPage() {
                               const isPartial = qtyDone > 0 && !isDone
                               return (
                                 <TableRow key={l.id}>
+                                  <TableCell className="pr-1 pl-0 w-10">
+                                    {isDone ? (
+                                      <div className="flex flex-col items-center text-green-600">
+                                        <CheckCircle2 size={14}/>
+                                        <span className="text-[9px] font-bold leading-tight">{qtyDone}/{l.qty}</span>
+                                        <span className="text-[8px] leading-none">szt</span>
+                                      </div>
+                                    ) : isPartial ? (
+                                      <div className="flex flex-col items-center text-amber-600">
+                                        <Clock size={14}/>
+                                        <span className="text-[9px] font-bold leading-tight">{qtyDone}/{l.qty}</span>
+                                        <span className="text-[8px] leading-none">szt</span>
+                                      </div>
+                                    ) : null}
+                                  </TableCell>
                                   <TableCell className="font-bold text-xs">{l.qty}</TableCell>
                                   <TableCell className="text-xs">{l.kgPerUnit} kg</TableCell>
                                   <TableCell>
@@ -404,21 +419,6 @@ export function ClientOrdersPage() {
                                   <TableCell className="text-xs">{l.recipeName || '—'}</TableCell>
                                   <TableCell>
                                     <CardDescription className="text-xs">{l.packagingName || '—'}</CardDescription>
-                                  </TableCell>
-                                  <TableCell>
-                                    {isDone ? (
-                                      <div className="flex items-center gap-1 text-green-700">
-                                        <CheckCircle2 size={12}/>
-                                        <span className="text-[10px] font-bold">Gotowe ({qtyDone} szt)</span>
-                                      </div>
-                                    ) : isPartial ? (
-                                      <div className="flex items-center gap-1 text-amber-700">
-                                        <Clock size={12}/>
-                                        <span className="text-[10px] font-semibold">{qtyDone}/{l.qty} szt</span>
-                                      </div>
-                                    ) : (
-                                      <span className="text-[10px] text-muted-foreground">—</span>
-                                    )}
                                   </TableCell>
                                 </TableRow>
                               )

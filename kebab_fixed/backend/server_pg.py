@@ -729,7 +729,10 @@ def list_orders(status: str = ""):
                 pkg = query_one("SELECT name FROM packaging WHERE id=%s", (line['packaging_id'],))
                 if pkg:
                     line['packaging_name'] = pkg['name'] or ''
-        # Policz qty_done z finished_goods dla każdej pozycji
+        # Policz qty_done z finished_goods dla każdej pozycji:
+        # - bezpośrednio powiązane z tym zamówieniem (client_order_no = order_no)
+        # - ORAZ nieprzypisane do żadnego zamówienia (client_order_no IS NULL/puste)
+        #   które pasują do klienta, receptury i kg/szt
         done_rows = query_all("""
             SELECT recipe_id, kg_per_unit, SUM(qty) as qty_done
             FROM finished_goods
@@ -740,9 +743,22 @@ def list_orders(status: str = ""):
         for dr in done_rows:
             key = f"{dr['recipe_id']}|{float(dr['kg_per_unit'])}"
             done_map[key] = int(dr['qty_done'] or 0)
+        # Nieprzypisane do zamówienia — pasują po recepturze i kg/szt
+        unlinked_rows = query_all("""
+            SELECT recipe_id, kg_per_unit, SUM(qty) as qty_done
+            FROM finished_goods
+            WHERE (client_order_no IS NULL OR client_order_no = '')
+            GROUP BY recipe_id, kg_per_unit
+        """)
+        unlinked_map: dict = {}
+        for dr in unlinked_rows:
+            key = f"{dr['recipe_id']}|{float(dr['kg_per_unit'])}"
+            unlinked_map[key] = int(dr['qty_done'] or 0)
         for line in lines:
             key = f"{line['recipe_id']}|{float(line['kg_per_unit'])}"
-            line['qty_done'] = done_map.get(key, 0)
+            direct = done_map.get(key, 0)
+            unlinked = unlinked_map.get(key, 0)
+            line['qty_done'] = direct + unlinked
         o['lines'] = lines
     return orders
 
@@ -3011,6 +3027,42 @@ def finish_mixing_session(id: str, body: dict):
 
     # Lineage — wymagana, nie opcjonalna
     _populate_seasoned_meat_lineage(batch_no, id)
+
+    # Odejmij składniki (przyprawy, dodatki) z magazynu składników
+    # Na podstawie receptury: qty_per_100kg / 100 * kg_meat (faktycznie zużyte mięso)
+    recipe_ingredients = query_all("""
+        SELECT ri.ingredient_id, ri.qty_per_100kg, i.unit, i.is_unlimited, i.name
+        FROM recipe_ingredients ri
+        JOIN ingredients i ON i.id = ri.ingredient_id
+        WHERE ri.recipe_id = %s
+    """, (order.get('recipe_id'),))
+    for ing in recipe_ingredients:
+        if ing.get('is_unlimited'):
+            continue
+        qty_needed = round(float(ing.get('qty_per_100kg') or 0) / 100.0 * kg_meat, 4)
+        if qty_needed <= 0:
+            continue
+        # Pobierz partie składnika (FIFO — najstarsze pierwsze)
+        batches = query_all("""
+            SELECT id, qty_available FROM ingredient_stock
+            WHERE ingredient_id = %s AND qty_available > 0
+            ORDER BY created_at ASC
+        """, (ing['ingredient_id'],))
+        remaining = qty_needed
+        for batch in batches:
+            if remaining <= 0:
+                break
+            avail = float(batch.get('qty_available') or 0)
+            deduct = min(avail, remaining)
+            execute("UPDATE ingredient_stock SET qty_available = qty_available - %s WHERE id = %s",
+                    (round(deduct, 4), batch['id']))
+            remaining = round(remaining - deduct, 4)
+        # Jeśli brakło na magazynie — loguj ostrzeżenie, nie blokuj (może być "na kredyt")
+        if remaining > 0.001:
+            logger.warning(
+                f"finish_mixing_session: niewystarczający stan składnika {ing.get('name')} "
+                f"(recipe={order.get('recipe_id')}, wymagane={qty_needed}, brakuje={remaining:.4f} {ing.get('unit','')})"
+            )
 
     # BUG 3 FIX: Zaktualizuj kg_planned w lotach — odejmij ile faktycznie zużyto w tej sesji
     # Dzięki temu następna sesja widzi poprawne dostępne kg per lot
