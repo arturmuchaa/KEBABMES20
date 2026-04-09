@@ -241,7 +241,7 @@ CREATE TABLE IF NOT EXISTS sequences (
     key TEXT PRIMARY KEY, value INTEGER DEFAULT 0
 );
 INSERT INTO sequences (key, value) VALUES
-    ('batch_seq', 171), ('deboning_seq', 0), ('mixing_seq', 0),
+    ('batch_seq', 208), ('deboning_seq', 0), ('mixing_seq', 0),
     ('seasoned_seq', 0), ('client_order_seq', 0), ('production_plan_seq', 0),
     ('finished_goods_seq', 0), ('packaging_seq', 0), ('client_seq', 0),
     ('supplier_seq', 0)
@@ -339,7 +339,7 @@ def reset():
 
         cur.execute("""
             UPDATE sequences SET value = CASE key
-                WHEN 'batch_seq' THEN 171
+                WHEN 'batch_seq' THEN 208
                 ELSE 0
             END
         """)

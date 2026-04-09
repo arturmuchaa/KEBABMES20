@@ -87,7 +87,6 @@ function validateCreate(f: CreateRawBatchDto): ValidationResult {
 
   // ERROR — blokuje zapis
   if (!f.supplierId)             return { ok: false, warnings, error: { type: 'error', message: 'Wybierz dostawcę' } }
-  if (!f.supplierBatchNo.trim()) return { ok: false, warnings, error: { type: 'error', message: 'Podaj numer partii dostawcy' } }
   if (!f.slaughterDate)          return { ok: false, warnings, error: { type: 'error', message: 'Podaj datę uboju' } }
   if (!f.receivedDate)           return { ok: false, warnings, error: { type: 'error', message: 'Podaj datę przyjęcia' } }
   if (!f.expiryDate)             return { ok: false, warnings, error: { type: 'error', message: 'Podaj datę ważności' } }
