@@ -76,11 +76,10 @@ export function PlanningPage() {
   const [cancelTarget,   setCancelTarget]   = useState<MixingOrder | null>(null)
   const [progressTarget, setProgressTarget] = useState<MixingOrder | null>(null)
 
-  const createMut  = useMutation((dto: CreateMixingOrderDto) => mixingOrdersApi.create(dto))
-  const cancelMut  = useMutation((id: string) => mixingOrdersApi.cancel(id))
-  const confirmMut = useMutation((id: string) =>
-    (mixingOrdersApi as any).confirm(id)
-  )
+  const createMut      = useMutation((dto: CreateMixingOrderDto) => mixingOrdersApi.create(dto))
+  const cancelMut      = useMutation((id: string) => mixingOrdersApi.cancel(id))
+  const confirmMut     = useMutation((id: string) => (mixingOrdersApi as any).confirm(id))
+  const approveMut     = useMutation((id: string) => mixingOrdersApi.autoApprove(id))
 
   const [modalOpen,    setModalOpen]    = useState(false)
   const [step,         setStep]         = useState<1|2|3>(1)
@@ -202,6 +201,16 @@ export function PlanningPage() {
     }
   }
 
+  async function handleApprove(id: string, orderNo: string) {
+    try {
+      await approveMut.mutate(id)
+      refetchOrders()
+      toast.success(`Zlecenie ${orderNo} zakończone`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Błąd')
+    }
+  }
+
   const STATUS_LABELS: Record<string, string> = {
     planned:     'Zaplanowane',
     confirmed:   'Potwierdzone',
@@ -291,6 +300,13 @@ export function PlanningPage() {
                           onClick={() => handleConfirm(o.id, o.orderNo)}
                           disabled={confirmMut.loading}>
                           Potwierdź
+                        </Button>
+                      )}
+                      {o.status === 'in_progress' && (
+                        <Button variant="outline" size="sm" className="h-7 text-[11px] text-green-700 border-green-200 hover:bg-green-50 px-2"
+                          onClick={() => handleApprove(o.id, o.orderNo)}
+                          disabled={approveMut.loading}>
+                          Zakończ
                         </Button>
                       )}
                       {(o.status === 'planned' || o.status === 'confirmed') && (
