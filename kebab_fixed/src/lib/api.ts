@@ -501,6 +501,7 @@ function mapOrderLine(raw: any) {
     recipeName:      raw.recipe_name      ?? raw.recipeName      ?? '',
     packagingId:     raw.packaging_id     ?? raw.packagingId,
     packagingName:   raw.packaging_name   ?? raw.packagingName,
+    qtyDone:         Number(raw.qty_done  ?? raw.qtyDone  ?? 0),
     notes:           raw.notes,
   }
 }

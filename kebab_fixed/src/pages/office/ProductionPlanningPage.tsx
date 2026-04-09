@@ -534,7 +534,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
 
 // ─── Formularz planu ──────────────────────────────────────────
 function PlanForm({ onSave, onClose }: {
-  onSave: (lines: CreatePlanLineDto[], date: string) => Promise<void>
+  onSave: (lines: CreatePlanLineDto[], date: string) => Promise<string>   // zwraca id planu
   onClose: () => void
 }) {
   const { data: orders }      = useApi(() => clientOrdersApi.list('confirmed'))
@@ -646,22 +646,27 @@ function PlanForm({ onSave, onClose }: {
     })
   }
 
-  async function handleSave() {
+  async function handleSave(toProduction: boolean) {
     const valid = lines.filter(l=>l.recipeId&&parseFloat(l.qty)>0&&parseFloat(l.kgPerUnit)>0)
     if (valid.length===0) { setError('Dodaj przynajmniej jedną pozycję z recepturą i kg'); return }
 
-    // Walidacja mięsa
-    for (const [id, used] of Object.entries(seasonedUsed)) {
-      const s = (seasonedRaw??[]).find((x:any)=>x.id===id)
-      if (s && used > s.kgAvailable+0.1) {
-        setError(`Za mało mięsa "${s.batchNo}" — potrzeba ${fmtKg(used)}, dostępne ${fmtKg(s.kgAvailable)}`)
-        return
+    // Walidacja mięsa przy wysyłaniu do produkcji
+    if (toProduction) {
+      for (const l of valid) {
+        const needed = parseFloat(l.qty) * parseFloat(l.kgPerUnit)
+        if (needed <= 0) continue
+        const ids = l.seasonedBatchIds?.length>0 ? l.seasonedBatchIds : (l.seasonedBatchId?[l.seasonedBatchId]:[])
+        if (ids.length === 0) {
+          const recipeName = (recipes??[]).find((r:any)=>r.id===l.recipeId)?.name ?? l.recipeId
+          setError(`Brak przydzielonego mięsa dla „${recipeName}" — przydziel partie mięsa lub zapisz jako szkic`)
+          return
+        }
       }
     }
 
     setSaving(true)
     try {
-      await onSave(valid.map(l=>({
+      const planId = await onSave(valid.map(l=>({
         qty:           parseFloat(l.qty),
         kgPerUnit:     parseFloat(l.kgPerUnit),
         productTypeId: l.productTypeId||'',
@@ -673,6 +678,16 @@ function PlanForm({ onSave, onClose }: {
         clientOrderNo: l.clientOrderNo||undefined,
         clientName:    l.clientName||undefined,
       })), planDate)
+
+      if (toProduction) {
+        try {
+          await productionPlansApi.updateStatus(planId, 'active')
+        } catch(e) {
+          setError(`Plan zapisany jako szkic. Błąd aktywacji: ${e instanceof Error?e.message:'Niewystarczająca ilość mięsa'}`)
+          setSaving(false)
+          return
+        }
+      }
       onClose()
     } catch(e){ setError(e instanceof Error?e.message:'Błąd') }
     finally { setSaving(false) }
@@ -731,10 +746,16 @@ function PlanForm({ onSave, onClose }: {
       )}
 
       <div className="flex gap-2">
-        <Button variant="outline" onClick={onClose} className="flex-1">Anuluj</Button>
-        <Button onClick={handleSave} disabled={saving} className="flex-1">
+        <Button variant="outline" onClick={onClose} disabled={saving} className="flex-1">Anuluj</Button>
+        <Button variant="outline" onClick={()=>handleSave(false)} disabled={saving}
+          className="flex-1 text-slate-700 border-slate-300 hover:bg-slate-50">
+          {saving && <span className="w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin mr-2"/>}
+          Zapisz szkic
+        </Button>
+        <Button onClick={()=>handleSave(true)} disabled={saving}
+          className="flex-1 bg-amber-600 hover:bg-amber-700">
           {saving && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"/>}
-          Utwórz plan produkcji
+          <Factory size={14} className="mr-1.5"/>Do produkcji
         </Button>
       </div>
 
@@ -756,9 +777,10 @@ export function ProductionPlanningPage() {
   const [modal,    setModal]    = useState(false)
   const [expanded, setExpanded] = useState<string|null>(null)
 
-  async function handleCreate(lines: CreatePlanLineDto[], planDate: string) {
-    await productionPlansApi.create({ planDate, lines })
+  async function handleCreate(lines: CreatePlanLineDto[], planDate: string): Promise<string> {
+    const plan = await productionPlansApi.create({ planDate, lines })
     refetch()
+    return plan.id
   }
 
   const activePlans = (plans??[]).filter(p=>p.status!=='done')
@@ -821,7 +843,15 @@ export function ProductionPlanningPage() {
                       {plan.status==='draft'&&(
                         <Button variant="outline" size="sm"
                           className="h-7 text-[11px] text-amber-700 border-amber-200 hover:bg-amber-50"
-                          onClick={e=>{e.stopPropagation();productionPlansApi.updateStatus(plan.id,'active').then(refetch)}}>
+                          onClick={async e=>{
+                            e.stopPropagation()
+                            try {
+                              await productionPlansApi.updateStatus(plan.id,'active')
+                              refetch()
+                            } catch(err) {
+                              alert(err instanceof Error ? err.message : 'Niewystarczająca ilość mięsa — dostosuj plan przed aktywacją')
+                            }
+                          }}>
                           Aktywuj
                         </Button>
                       )}

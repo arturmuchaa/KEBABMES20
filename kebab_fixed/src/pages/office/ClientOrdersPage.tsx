@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, clientsApi, packagingApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, todayIso } from '@/lib/utils'
-import { Check, ChevronDown, ChevronUp, Plus, ShoppingCart, Trash2, X } from 'lucide-react'
+import { Check, CheckCircle2, ChevronDown, ChevronUp, Clock, Plus, ShoppingCart, Trash2, X } from 'lucide-react'
 import { useProductTypes } from '@/features/products/hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
 import type { ClientOrder, CreateClientOrderDto } from '@/lib/mockApi'
@@ -332,33 +332,53 @@ export function ClientOrdersPage() {
                         <Table className="mt-3">
                           <TableHeader>
                             <TableRow className="hover:bg-transparent">
-                              {['Szt','kg/szt','Razem kg','Rodzaj','Receptura','Tuleja'].map(h => (
+                              {['Szt','kg/szt','Razem kg','Rodzaj','Receptura','Tuleja','Realizacja'].map(h => (
                                 <TableHead key={h} className="text-[9px] uppercase tracking-wide">{h}</TableHead>
                               ))}
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {o.lines.map(l => (
-                              <TableRow key={l.id}>
-                                <TableCell className="font-bold text-xs">{l.qty}</TableCell>
-                                <TableCell className="text-xs">{l.kgPerUnit} kg</TableCell>
-                                <TableCell>
-                                  <CardTitle className="text-xs text-primary tabular-nums">{fmtKg(l.totalKg, 0)} kg</CardTitle>
-                                </TableCell>
-                                <TableCell className="text-xs">{l.productTypeName}</TableCell>
-                                <TableCell className="text-xs">{l.recipeName}</TableCell>
-                                <TableCell>
-                                  <CardDescription className="text-xs">{l.packagingName || '—'}</CardDescription>
-                                </TableCell>
-                              </TableRow>
-                            ))}
+                            {o.lines.map(l => {
+                              const qtyDone = (l as any).qtyDone ?? 0
+                              const isDone = qtyDone >= l.qty
+                              const isPartial = qtyDone > 0 && !isDone
+                              return (
+                                <TableRow key={l.id}>
+                                  <TableCell className="font-bold text-xs">{l.qty}</TableCell>
+                                  <TableCell className="text-xs">{l.kgPerUnit} kg</TableCell>
+                                  <TableCell>
+                                    <CardTitle className="text-xs text-primary tabular-nums">{fmtKg(l.totalKg, 0)} kg</CardTitle>
+                                  </TableCell>
+                                  <TableCell className="text-xs">{l.productTypeName || '—'}</TableCell>
+                                  <TableCell className="text-xs">{l.recipeName || '—'}</TableCell>
+                                  <TableCell>
+                                    <CardDescription className="text-xs">{l.packagingName || '—'}</CardDescription>
+                                  </TableCell>
+                                  <TableCell>
+                                    {isDone ? (
+                                      <div className="flex items-center gap-1 text-green-700">
+                                        <CheckCircle2 size={12}/>
+                                        <span className="text-[10px] font-bold">Gotowe ({qtyDone} szt)</span>
+                                      </div>
+                                    ) : isPartial ? (
+                                      <div className="flex items-center gap-1 text-amber-700">
+                                        <Clock size={12}/>
+                                        <span className="text-[10px] font-semibold">{qtyDone}/{l.qty} szt</span>
+                                      </div>
+                                    ) : (
+                                      <span className="text-[10px] text-muted-foreground">—</span>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            })}
                             <TableRow className="font-bold">
                               <TableCell className="text-xs">{o.totalUnits} szt</TableCell>
                               <TableCell />
                               <TableCell>
                                 <CardTitle className="text-xs text-primary">{fmtKg(o.totalKg, 0)} kg</CardTitle>
                               </TableCell>
-                              <TableCell colSpan={3} />
+                              <TableCell colSpan={4} />
                             </TableRow>
                           </TableBody>
                         </Table>

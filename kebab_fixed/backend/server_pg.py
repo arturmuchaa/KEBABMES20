@@ -711,8 +711,23 @@ def list_orders(status: str = ""):
     sql += " ORDER BY created_at DESC"
     orders = query_all(sql, params or None)
     for o in orders:
-        o['lines'] = query_all(
+        lines = query_all(
             "SELECT * FROM client_order_lines WHERE order_id = %s", (o['id'],))
+        # Policz qty_done z finished_goods dla każdej pozycji
+        done_rows = query_all("""
+            SELECT recipe_id, kg_per_unit, SUM(qty) as qty_done
+            FROM finished_goods
+            WHERE client_order_no = %s
+            GROUP BY recipe_id, kg_per_unit
+        """, (o['order_no'],))
+        done_map: dict = {}
+        for dr in done_rows:
+            key = f"{dr['recipe_id']}|{float(dr['kg_per_unit'])}"
+            done_map[key] = int(dr['qty_done'] or 0)
+        for line in lines:
+            key = f"{line['recipe_id']}|{float(line['kg_per_unit'])}"
+            line['qty_done'] = done_map.get(key, 0)
+        o['lines'] = lines
     return orders
 
 @app.post("/api/client-orders")
@@ -736,6 +751,25 @@ def create_order(dto: ClientOrderCreate):
           round(total_kg, 3), total_units, dto.notes or None, now_iso()))
 
     for line in dto.lines:
+        # Uzupelnij nazwy z bazy jezeli brak (frontend wysyla tylko ID)
+        recipe_name = line.recipe_name
+        product_type_name = line.product_type_name
+        if not recipe_name and line.recipe_id:
+            r = query_one("SELECT name, product_type_name FROM recipes WHERE id=%s", (line.recipe_id,))
+            if r:
+                recipe_name = r['name'] or ''
+                if not product_type_name:
+                    product_type_name = r.get('product_type_name') or ''
+        if not product_type_name and line.product_type_id:
+            pt = query_one("SELECT name FROM product_types WHERE id=%s", (line.product_type_id,))
+            if pt:
+                product_type_name = pt['name'] or ''
+        packaging_name = line.packaging_name
+        if not packaging_name and line.packaging_id:
+            pkg = query_one("SELECT name FROM packaging WHERE id=%s", (line.packaging_id,))
+            if pkg:
+                packaging_name = pkg['name'] or ''
+
         execute("""
             INSERT INTO client_order_lines
             (id, order_id, qty, kg_per_unit, total_kg,
@@ -744,9 +778,9 @@ def create_order(dto: ClientOrderCreate):
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (cuid(), order['id'], line.qty, line.kg_per_unit,
               round(line.qty * line.kg_per_unit, 3),
-              line.product_type_id, line.product_type_name,
-              line.recipe_id, line.recipe_name,
-              line.packaging_id or None, line.packaging_name or None))
+              line.product_type_id or None, product_type_name or None,
+              line.recipe_id, recipe_name or None,
+              line.packaging_id or None, packaging_name or None))
 
     order['lines'] = query_all(
         "SELECT * FROM client_order_lines WHERE order_id = %s", (order['id'],))
@@ -922,7 +956,32 @@ def create_plan(dto: ProductionPlanCreate):
 
 @app.patch("/api/production-plans/{id}/status")
 def update_plan_status(id: str, body: dict):
-    execute("UPDATE production_plans SET status=%s WHERE id=%s", (body['status'], id))
+    new_status = body.get('status')
+
+    if new_status == 'active':
+        # Walidacja mięsa przed aktywacją — każda pozycja musi mieć przydzielone mięso
+        lines = query_all("SELECT * FROM production_plan_lines WHERE plan_id = %s", (id,))
+        errors = []
+        for line in lines:
+            total_kg = float(line.get('total_kg') or 0)
+            if total_kg <= 0:
+                continue
+            # Sprawdź batch_allocation — suma przydzielonych kg
+            ba = line.get('batch_allocation') or {}
+            if isinstance(ba, str):
+                try:
+                    import json as _j; ba = _j.loads(ba)
+                except Exception:
+                    ba = {}
+            allocated_kg = sum(float(v.get('kg', 0)) for v in ba.values()) if isinstance(ba, dict) else 0
+            if allocated_kg < total_kg - 0.1:
+                name = line.get('recipe_name') or line.get('product_type_name') or 'pozycja'
+                shortfall = round(total_kg - allocated_kg, 3)
+                errors.append(f"„{name}" brakuje {shortfall} kg mięsa")
+        if errors:
+            raise HTTPException(400, "Niewystarczająca ilość mięsa — dostosuj plan przed aktywacją:\n" + "; ".join(errors))
+
+    execute("UPDATE production_plans SET status=%s WHERE id=%s", (new_status, id))
     return {"ok": True}
 
 # ─── Mięso przyprawione ───────────────────────────────────────
@@ -3025,33 +3084,33 @@ VIES_API_KEY = "1cVi2cO97cKT"
 
 @app.get("/api/vies/lookup")
 def vies_lookup(vat: str):
-    """Proxy do viesapi.eu — ukrywa klucz API przed frontendem"""
-    import urllib.request, hmac, hashlib, time, base64
+    """Proxy do oficjalnego EU VIES REST API (ec.europa.eu)"""
+    import urllib.request, json as _json
     vat = vat.strip().upper().replace(" ", "")
     if len(vat) < 4:
         raise HTTPException(400, "Za krótki numer VAT")
 
-    try:
-        # viesapi.eu REST endpoint
-        url = f"https://www.viesapi.eu/api/get/vies/data/{vat}"
-        ts  = str(int(time.time()))
-        # HMAC-SHA256 signature: id + ts
-        sig = hmac.new(VIES_API_KEY.encode(), (VIES_API_ID + ts).encode(), hashlib.sha256).hexdigest()
+    # Wyodrebnij kod kraju i numer VAT (np. ATU74600247 → AT + U74600247)
+    country_code = vat[:2]
+    vat_number   = vat[2:]
 
+    if not country_code.isalpha() or not vat_number:
+        raise HTTPException(400, "Nieprawidłowy format VAT — oczekiwany: KK + numer, np. DE129274202")
+
+    try:
+        url = f"https://ec.europa.eu/taxation_customs/vies/rest-api/ms/{country_code}/vat/{vat_number}"
         req = urllib.request.Request(url)
-        req.add_header("Authorization", f"HMAC-SHA256 id={VIES_API_ID}, ts={ts}, sig={sig}")
         req.add_header("Accept", "application/json")
         req.add_header("User-Agent", "KebabMES/1.0")
 
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            import json as _json
+        with urllib.request.urlopen(req, timeout=15) as resp:
             data = _json.loads(resp.read().decode())
 
         return {
-            "vatNumber":     data.get("vatNumber") or vat,
-            "countryCode":   data.get("countryCode") or vat[:2],
-            "traderName":    data.get("traderName") or "",
-            "traderAddress": data.get("traderAddress") or "",
+            "vatNumber":     country_code + vat_number,
+            "countryCode":   data.get("countryCode") or country_code,
+            "traderName":    data.get("name")    or "",
+            "traderAddress": data.get("address") or "",
             "valid":         bool(data.get("valid")),
         }
     except urllib.error.HTTPError as e:
