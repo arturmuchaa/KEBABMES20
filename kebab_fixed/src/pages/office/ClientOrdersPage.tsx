@@ -314,10 +314,11 @@ export function ClientOrdersPage() {
                   <div key={o.id}>
                     {/* Row */}
                     <div
-                      className="px-4 py-3 flex items-center gap-3 hover:bg-muted/30 cursor-pointer transition-colors"
+                      className="hover:bg-muted/30 cursor-pointer transition-colors"
                       onClick={() => setExpanded(isExp ? null : o.id)}
                     >
-                      {/* Fulfillment indicator */}
+                      <div className="px-4 pt-3 pb-2 flex items-center gap-3">
+                      {/* Fulfillment szt indicator */}
                       {(() => {
                         const done = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0), 0)
                         const total = o.totalUnits
@@ -375,6 +376,30 @@ export function ClientOrdersPage() {
                         )}
                         {isExp ? <ChevronUp size={16} className="text-muted-foreground" /> : <ChevronDown size={16} className="text-muted-foreground" />}
                       </div>
+                      </div>
+                      {/* Pasek postępu kg */}
+                      {(() => {
+                        const kgDone = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0) * l.kgPerUnit, 0)
+                        if (kgDone <= 0) return null
+                        const pct = Math.min(100, Math.round(kgDone / o.totalKg * 100))
+                        const allDone = pct >= 100
+                        return (
+                          <div className="px-4 pb-3">
+                            <div className="flex justify-between items-center mb-1">
+                              <span className={`text-[11px] font-semibold ${allDone ? 'text-green-700' : 'text-amber-700'}`}>
+                                {fmtKg(kgDone, 0)} kg z {fmtKg(o.totalKg, 0)} kg
+                              </span>
+                              <span className={`text-[11px] font-bold ${allDone ? 'text-green-700' : 'text-amber-700'}`}>{pct}%</span>
+                            </div>
+                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${allDone ? 'bg-green-500' : pct >= 50 ? 'bg-amber-400' : 'bg-orange-400'}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })()}
                     </div>
 
                     {/* Expanded lines */}
