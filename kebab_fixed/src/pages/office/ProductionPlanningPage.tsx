@@ -32,6 +32,7 @@ import {
   ChevronUp,
   Download,
   Factory,
+  Pencil,
   Plus,
   Square,
   X,
@@ -533,10 +534,13 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
 }
 
 // ─── Formularz planu ──────────────────────────────────────────
-function PlanForm({ onSave, onClose }: {
-  onSave: (lines: CreatePlanLineDto[], date: string) => Promise<string>   // zwraca id planu
-  onClose: () => void
-}) {
+interface PlanFormProps {
+  onSave:       (lines: CreatePlanLineDto[], date: string) => Promise<string>
+  onClose:      () => void
+  initialPlan?: ProductionPlan   // gdy edycja
+}
+
+function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
   const { data: orders }      = useApi(() => clientOrdersApi.list('confirmed'))
   const { data: seasonedRaw } = useApi(() => seasonedMeatApi.list())
   const { data: pkgList }     = useApi(() => packagingApi.list())
@@ -544,8 +548,24 @@ function PlanForm({ onSave, onClose }: {
   const { productTypes }      = useProductTypes()
   const { recipes }           = useRecipes()
 
-  const [planDate,    setPlanDate]    = useState(todayIso())
-  const [lines,       setLines]       = useState<PlanLineForm[]>([emptyLine()])
+  const [planDate,    setPlanDate]    = useState(initialPlan?.planDate ?? todayIso())
+  const [lines,       setLines]       = useState<PlanLineForm[]>(
+    initialPlan?.lines.map(l => ({
+      qty:              String(l.qty),
+      kgPerUnit:        String(l.kgPerUnit),
+      productTypeId:    l.productTypeId ?? '',
+      recipeId:         l.recipeId,
+      packagingId:      l.packagingId ?? '',
+      clientId:         '',
+      clientName:       l.clientName ?? '',
+      seasonedBatchIds: (l as any).seasonedBatchNos?.length > 0
+        ? ((l as any).seasonedBatchIds ?? [])
+        : (l.seasonedBatchId ? [l.seasonedBatchId] : []),
+      seasonedBatchId:  l.seasonedBatchId ?? '',
+      clientOrderId:    l.clientOrderId ?? '',
+      clientOrderNo:    l.clientOrderNo ?? '',
+    })) ?? [emptyLine()]
+  )
   const [saving,      setSaving]      = useState(false)
   const [error,       setError]       = useState('')
   const [importModal, setImportModal] = useState(false)
@@ -775,10 +795,18 @@ function PlanForm({ onSave, onClose }: {
 export function ProductionPlanningPage() {
   const { data: plans, loading, refetch } = useApi(()=>productionPlansApi.list())
   const [modal,    setModal]    = useState(false)
+  const [editPlan, setEditPlan] = useState<ProductionPlan|null>(null)
   const [expanded, setExpanded] = useState<string|null>(null)
 
   async function handleCreate(lines: CreatePlanLineDto[], planDate: string): Promise<string> {
     const plan = await productionPlansApi.create({ planDate, lines })
+    refetch()
+    return plan.id
+  }
+
+  async function handleUpdate(lines: CreatePlanLineDto[], planDate: string): Promise<string> {
+    if (!editPlan) return ''
+    const plan = await productionPlansApi.update(editPlan.id, { planDate, lines })
     refetch()
     return plan.id
   }
@@ -841,19 +869,26 @@ export function ProductionPlanningPage() {
                     </div>
                     <div className="flex gap-1 items-center">
                       {plan.status==='draft'&&(
-                        <Button variant="outline" size="sm"
-                          className="h-7 text-[11px] text-amber-700 border-amber-200 hover:bg-amber-50"
-                          onClick={async e=>{
-                            e.stopPropagation()
-                            try {
-                              await productionPlansApi.updateStatus(plan.id,'active')
-                              refetch()
-                            } catch(err) {
-                              alert(err instanceof Error ? err.message : 'Niewystarczająca ilość mięsa — dostosuj plan przed aktywacją')
-                            }
-                          }}>
-                          Aktywuj
-                        </Button>
+                        <>
+                          <Button variant="ghost" size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-primary"
+                            onClick={e=>{e.stopPropagation();setEditPlan(plan)}}>
+                            <Pencil size={13}/>
+                          </Button>
+                          <Button variant="outline" size="sm"
+                            className="h-7 text-[11px] text-amber-700 border-amber-200 hover:bg-amber-50"
+                            onClick={async e=>{
+                              e.stopPropagation()
+                              try {
+                                await productionPlansApi.updateStatus(plan.id,'active')
+                                refetch()
+                              } catch(err) {
+                                alert(err instanceof Error ? err.message : 'Niewystarczająca ilość mięsa — dostosuj plan przed aktywacją')
+                              }
+                            }}>
+                            Aktywuj
+                          </Button>
+                        </>
                       )}
                       {plan.status==='active'&&(
                         <Button variant="outline" size="sm"
@@ -915,6 +950,21 @@ export function ProductionPlanningPage() {
             <DialogTitle>Nowy plan produkcji</DialogTitle>
           </DialogHeader>
           <PlanForm onSave={handleCreate} onClose={()=>setModal(false)}/>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editPlan} onOpenChange={open=>{ if(!open) setEditPlan(null) }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edycja planu {editPlan?.planNo}</DialogTitle>
+          </DialogHeader>
+          {editPlan && (
+            <PlanForm
+              initialPlan={editPlan}
+              onSave={handleUpdate}
+              onClose={()=>setEditPlan(null)}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>

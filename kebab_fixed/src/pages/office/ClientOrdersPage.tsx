@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, clientsApi, packagingApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, todayIso } from '@/lib/utils'
-import { Check, CheckCircle2, ChevronDown, ChevronUp, Clock, Plus, ShoppingCart, Trash2, X } from 'lucide-react'
+import { Check, CheckCircle2, ChevronDown, ChevronUp, Clock, Pencil, Plus, ShoppingCart, Trash2, X } from 'lucide-react'
 import { useProductTypes } from '@/features/products/hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
 import type { ClientOrder, CreateClientOrderDto } from '@/lib/mockApi'
@@ -41,17 +41,29 @@ const STATUS_VARIANT: Record<ClientOrder['status'], 'secondary' | 'info' | 'warn
   draft: 'secondary', confirmed: 'info', in_production: 'warning', done: 'success', cancelled: 'danger',
 }
 
-function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) => Promise<void>; onClose: () => void }) {
+interface OrderFormProps {
+  onSave:       (dto: CreateClientOrderDto) => Promise<void>
+  onClose:      () => void
+  initialData?: ClientOrder
+}
+
+function OrderForm({ onSave, onClose, initialData }: OrderFormProps) {
   const { data: clientList } = useApi(() => clientsApi.list())
   const { data: pkgList }    = useApi(() => packagingApi.list())
   const { productTypes }     = useProductTypes()
   const { recipes }          = useRecipes()
 
-  const [clientId,     setClientId]     = useState('')
-  const [orderDate,    setOrderDate]    = useState(todayIso())
-  const [deliveryDate, setDeliveryDate] = useState('')
-  const [notes,        setNotes]        = useState('')
-  const [lines,        setLines]        = useState<LineForm[]>([emptyLine()])
+  const [clientId,     setClientId]     = useState(initialData?.clientId ?? '')
+  const [orderDate,    setOrderDate]    = useState(initialData?.orderDate ?? todayIso())
+  const [deliveryDate, setDeliveryDate] = useState(initialData?.deliveryDate ?? '')
+  const [notes,        setNotes]        = useState(initialData?.notes ?? '')
+  const [lines,        setLines]        = useState<LineForm[]>(
+    initialData?.lines.map(l => ({
+      qty: String(l.qty), kgPerUnit: String(l.kgPerUnit),
+      productTypeId: l.productTypeId, recipeId: l.recipeId,
+      packagingId: l.packagingId ?? '', notes: l.notes ?? '',
+    })) ?? [emptyLine()]
+  )
   const [saving,       setSaving]       = useState(false)
   const [error,        setError]        = useState('')
 
@@ -228,14 +240,23 @@ function OrderForm({ onSave, onClose }: { onSave: (dto: CreateClientOrderDto) =>
 export function ClientOrdersPage() {
   const { data: orders, loading, refetch } = useApi(() => clientOrdersApi.list())
   const [modal,        setModal]        = useState(false)
+  const [editOrder,    setEditOrder]    = useState<ClientOrder | null>(null)
   const [expanded,     setExpanded]     = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState('')
 
   const filtered = (orders ?? []).filter(o => !filterStatus || o.status === filterStatus)
 
   async function handleCreate(dto: CreateClientOrderDto) { await clientOrdersApi.create(dto); refetch() }
+  async function handleUpdate(dto: CreateClientOrderDto) {
+    if (!editOrder) return
+    await clientOrdersApi.update(editOrder.id, dto)
+    refetch()
+  }
   async function handleStatus(id: string, status: ClientOrder['status']) { await clientOrdersApi.updateStatus(id, status); refetch() }
-  async function handleDelete(id: string) { await clientOrdersApi.delete(id); refetch() }
+  async function handleDelete(id: string) {
+    if (!confirm('Usunąć to zamówienie?')) return
+    await clientOrdersApi.delete(id); refetch()
+  }
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -312,7 +333,17 @@ export function ClientOrdersPage() {
                             <Check size={11} /> Potwierdź
                           </Button>
                         )}
-                        {o.status === 'draft' && (
+                        {(o.status === 'draft' || o.status === 'confirmed') && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-primary"
+                            onClick={e => { e.stopPropagation(); setEditOrder(o) }}
+                          >
+                            <Pencil size={12} />
+                          </Button>
+                        )}
+                        {(o.status === 'draft' || o.status === 'confirmed') && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -400,6 +431,23 @@ export function ClientOrdersPage() {
             <DialogDescription>Utwórz zamówienie z pozycjami produktów</DialogDescription>
           </DialogHeader>
           <OrderForm onSave={handleCreate} onClose={() => setModal(false)} />
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit order modal */}
+      <Dialog open={!!editOrder} onOpenChange={v => { if (!v) setEditOrder(null) }}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Edycja zamówienia {editOrder?.orderNo}</DialogTitle>
+            <DialogDescription>Zmień pozycje lub dane zamówienia</DialogDescription>
+          </DialogHeader>
+          {editOrder && (
+            <OrderForm
+              initialData={editOrder}
+              onSave={handleUpdate}
+              onClose={() => setEditOrder(null)}
+            />
+          )}
         </DialogContent>
       </Dialog>
 

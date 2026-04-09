@@ -545,6 +545,7 @@ export const clientOrdersApi = {
   list:         (status?: string) => get<any[]>(`/client-orders${status ? `?status=${status}` : ''}`).then(r => r.map(mapClientOrder)),
   byId:         (id: string) => get<any>(`/client-orders/${id}`).then(mapClientOrder),
   create:       (dto: CreateClientOrderDto) => post<any>('/client-orders', toSnakeOrderDto(dto)).then(mapClientOrder),
+  update:       (id: string, dto: CreateClientOrderDto) => put<any>(`/client-orders/${id}`, toSnakeOrderDto(dto)).then(mapClientOrder),
   updateStatus: (id: string, status: string) => patch<any>(`/client-orders/${id}/status`, { status }).then(mapClientOrder),
   delete:       (id: string) => del<void>(`/client-orders/${id}`),
 }
@@ -602,6 +603,7 @@ export const productionPlansApi = {
   list:         () => get<any[]>('/production-plans').then(r => r.map(mapPlan)),
   byId:         (id: string) => get<any>(`/production-plans/${id}`).then(mapPlan),
   create:       (dto: CreateProductionPlanDto) => post<any>('/production-plans', toSnake(dto)).then(mapPlan),
+  update:       (id: string, dto: CreateProductionPlanDto) => put<any>(`/production-plans/${id}`, toSnake(dto)).then(mapPlan),
   updateStatus: (id: string, status: string) => patch<void>(`/production-plans/${id}/status`, { status }),
 }
 

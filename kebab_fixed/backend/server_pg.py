@@ -713,6 +713,22 @@ def list_orders(status: str = ""):
     for o in orders:
         lines = query_all(
             "SELECT * FROM client_order_lines WHERE order_id = %s", (o['id'],))
+        # Backfill brakujących nazw (stare zamówienia bez nazw)
+        for line in lines:
+            if not line.get('recipe_name') and line.get('recipe_id'):
+                r = query_one("SELECT name, product_type_name FROM recipes WHERE id=%s", (line['recipe_id'],))
+                if r:
+                    line['recipe_name'] = r['name'] or ''
+                    if not line.get('product_type_name'):
+                        line['product_type_name'] = r.get('product_type_name') or ''
+            if not line.get('product_type_name') and line.get('product_type_id'):
+                pt = query_one("SELECT name FROM product_types WHERE id=%s", (line['product_type_id'],))
+                if pt:
+                    line['product_type_name'] = pt['name'] or ''
+            if not line.get('packaging_name') and line.get('packaging_id'):
+                pkg = query_one("SELECT name FROM packaging WHERE id=%s", (line['packaging_id'],))
+                if pkg:
+                    line['packaging_name'] = pkg['name'] or ''
         # Policz qty_done z finished_goods dla każdej pozycji
         done_rows = query_all("""
             SELECT recipe_id, kg_per_unit, SUM(qty) as qty_done
@@ -751,25 +767,7 @@ def create_order(dto: ClientOrderCreate):
           round(total_kg, 3), total_units, dto.notes or None, now_iso()))
 
     for line in dto.lines:
-        # Uzupelnij nazwy z bazy jezeli brak (frontend wysyla tylko ID)
-        recipe_name = line.recipe_name
-        product_type_name = line.product_type_name
-        if not recipe_name and line.recipe_id:
-            r = query_one("SELECT name, product_type_name FROM recipes WHERE id=%s", (line.recipe_id,))
-            if r:
-                recipe_name = r['name'] or ''
-                if not product_type_name:
-                    product_type_name = r.get('product_type_name') or ''
-        if not product_type_name and line.product_type_id:
-            pt = query_one("SELECT name FROM product_types WHERE id=%s", (line.product_type_id,))
-            if pt:
-                product_type_name = pt['name'] or ''
-        packaging_name = line.packaging_name
-        if not packaging_name and line.packaging_id:
-            pkg = query_one("SELECT name FROM packaging WHERE id=%s", (line.packaging_id,))
-            if pkg:
-                packaging_name = pkg['name'] or ''
-
+        rn, ptn, pkgn = _resolve_order_line_names(line)
         execute("""
             INSERT INTO client_order_lines
             (id, order_id, qty, kg_per_unit, total_kg,
@@ -778,9 +776,9 @@ def create_order(dto: ClientOrderCreate):
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (cuid(), order['id'], line.qty, line.kg_per_unit,
               round(line.qty * line.kg_per_unit, 3),
-              line.product_type_id or None, product_type_name or None,
-              line.recipe_id, recipe_name or None,
-              line.packaging_id or None, packaging_name or None))
+              line.product_type_id or None, ptn or None,
+              line.recipe_id, rn or None,
+              line.packaging_id or None, pkgn or None))
 
     order['lines'] = query_all(
         "SELECT * FROM client_order_lines WHERE order_id = %s", (order['id'],))
@@ -796,8 +794,72 @@ def update_order_status(id: str, body: dict):
 
 @app.delete("/api/client-orders/{id}")
 def delete_order(id: str):
+    order = query_one("SELECT status FROM client_orders WHERE id=%s", (id,))
+    if not order: raise HTTPException(404)
+    if order['status'] not in ('draft', 'confirmed'):
+        raise HTTPException(400, "Można usunąć tylko zamówienie w statusie Szkic lub Potwierdzone")
     execute("DELETE FROM client_orders WHERE id=%s", (id,))
     return {"ok": True}
+
+def _resolve_order_line_names(line) -> tuple:
+    """Zwraca (recipe_name, product_type_name, packaging_name) uzupełnione z bazy."""
+    recipe_name = line.recipe_name
+    product_type_name = line.product_type_name
+    if not recipe_name and line.recipe_id:
+        r = query_one("SELECT name, product_type_name FROM recipes WHERE id=%s", (line.recipe_id,))
+        if r:
+            recipe_name = r['name'] or ''
+            if not product_type_name:
+                product_type_name = r.get('product_type_name') or ''
+    if not product_type_name and line.product_type_id:
+        pt = query_one("SELECT name FROM product_types WHERE id=%s", (line.product_type_id,))
+        if pt:
+            product_type_name = pt['name'] or ''
+    packaging_name = line.packaging_name
+    if not packaging_name and line.packaging_id:
+        pkg = query_one("SELECT name FROM packaging WHERE id=%s", (line.packaging_id,))
+        if pkg:
+            packaging_name = pkg['name'] or ''
+    return recipe_name or '', product_type_name or '', packaging_name or ''
+
+@app.put("/api/client-orders/{id}")
+def update_order(id: str, dto: ClientOrderCreate):
+    order = query_one("SELECT * FROM client_orders WHERE id=%s", (id,))
+    if not order: raise HTTPException(404)
+    if order['status'] not in ('draft', 'confirmed'):
+        raise HTTPException(400, "Można edytować tylko zamówienia w statusie Szkic lub Potwierdzone")
+    client = query_one("SELECT * FROM clients WHERE id=%s", (dto.client_id,))
+    if not client: raise HTTPException(404, "Klient nie znaleziony")
+
+    total_kg    = sum(l.qty * l.kg_per_unit for l in dto.lines)
+    total_units = sum(l.qty for l in dto.lines)
+
+    execute("""
+        UPDATE client_orders SET
+        client_id=%s, client_name=%s, order_date=%s, delivery_date=%s,
+        total_kg=%s, total_units=%s, notes=%s
+        WHERE id=%s
+    """, (dto.client_id, client['name'], dto.order_date, dto.delivery_date or None,
+          round(total_kg, 3), total_units, dto.notes or None, id))
+
+    execute("DELETE FROM client_order_lines WHERE order_id=%s", (id,))
+    for line in dto.lines:
+        rn, ptn, pkgn = _resolve_order_line_names(line)
+        execute("""
+            INSERT INTO client_order_lines
+            (id, order_id, qty, kg_per_unit, total_kg,
+             product_type_id, product_type_name, recipe_id, recipe_name,
+             packaging_id, packaging_name)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (cuid(), id, line.qty, line.kg_per_unit,
+              round(line.qty * line.kg_per_unit, 3),
+              line.product_type_id or None, ptn or None,
+              line.recipe_id, rn or None,
+              line.packaging_id or None, pkgn or None))
+
+    updated = query_one("SELECT * FROM client_orders WHERE id=%s", (id,))
+    updated['lines'] = query_all("SELECT * FROM client_order_lines WHERE order_id=%s", (id,))
+    return updated
 
 # ─── Plany produkcji ──────────────────────────────────────────
 # BUGFIX: Frontend wysyla camelCase (recipeId, planDate, kgPerUnit).
@@ -953,6 +1015,122 @@ def create_plan(dto: ProductionPlanCreate):
     plan['lines'] = query_all(
         "SELECT * FROM production_plan_lines WHERE plan_id = %s", (plan['id'],))
     return plan
+
+@app.put("/api/production-plans/{id}")
+def update_plan(id: str, dto: ProductionPlanCreate):
+    """Edycja planu — tylko w statusie 'draft'. Przywraca mięso ze starych linii, aplikuje nowe."""
+    plan = query_one("SELECT * FROM production_plans WHERE id=%s", (id,))
+    if not plan: raise HTTPException(404)
+    if plan['status'] != 'draft':
+        raise HTTPException(400, "Można edytować tylko plan w statusie Szkic")
+
+    # Przywróć mięso z obecnych linii (cofnij rezerwacje)
+    old_lines = query_all("SELECT * FROM production_plan_lines WHERE plan_id=%s", (id,))
+    for old in old_lines:
+        ba = old.get('batch_allocation') or {}
+        if isinstance(ba, str):
+            try: ba = json.loads(ba)
+            except: ba = {}
+        for _bno, alloc in (ba.items() if isinstance(ba, dict) else []):
+            bid = alloc.get('batch_id')
+            kg_back = float(alloc.get('kg', 0))
+            if bid and kg_back > 0:
+                execute("""
+                    UPDATE seasoned_meat
+                    SET kg_available = kg_available + %s,
+                        kg_used = GREATEST(0, kg_used - %s)
+                    WHERE id=%s
+                """, (kg_back, kg_back, bid))
+
+    execute("DELETE FROM production_plan_lines WHERE plan_id=%s", (id,))
+
+    valid_lines = [l for l in dto.lines if l.recipe_id and l.qty > 0 and l.kg_per_unit > 0]
+    total_kg    = sum(l.qty * l.kg_per_unit for l in valid_lines)
+    total_units = sum(l.qty for l in valid_lines)
+
+    execute("""
+        UPDATE production_plans SET plan_date=%s, total_kg=%s, total_units=%s, notes=%s
+        WHERE id=%s
+    """, (dto.plan_date, round(total_kg, 3), total_units, dto.notes or None, id))
+
+    # Wstaw nowe linie — ta sama logika co create_plan
+    for line in valid_lines:
+        line_kg = round(line.qty * line.kg_per_unit, 3)
+        recipe_name = line.recipe_name
+        product_type_name = line.product_type_name
+        if not recipe_name and line.recipe_id:
+            r = query_one("SELECT name, product_type_name FROM recipes WHERE id=%s", (line.recipe_id,))
+            if r:
+                recipe_name = r['name'] or ''
+                if not product_type_name:
+                    product_type_name = r.get('product_type_name') or ''
+        packaging_name = line.packaging_name
+        if not packaging_name and line.packaging_id:
+            pkg = query_one("SELECT name FROM packaging WHERE id=%s", (line.packaging_id,))
+            if pkg: packaging_name = pkg['name'] or ''
+
+        all_batch_ids = line.seasoned_batch_ids if line.seasoned_batch_ids else (
+            [line.seasoned_batch_id] if line.seasoned_batch_id else [])
+        primary_batch_id = all_batch_ids[0] if all_batch_ids else None
+        primary_batch_no = ""
+        if primary_batch_id:
+            sb = query_one("SELECT batch_no FROM seasoned_meat WHERE id=%s", (primary_batch_id,))
+            if sb: primary_batch_no = sb['batch_no'] or ''
+
+        all_batch_nos: list = []
+        batch_allocation: dict = {}
+        if all_batch_ids:
+            remaining_qty = line.qty
+            for bid in all_batch_ids:
+                if remaining_qty <= 0: break
+                sb_row = query_one("SELECT batch_no, kg_available FROM seasoned_meat WHERE id=%s", (bid,))
+                if not sb_row: continue
+                b_no   = sb_row['batch_no']
+                kg_av  = float(sb_row.get('kg_available') or 0)
+                pcs    = int(min(remaining_qty, kg_av // line.kg_per_unit)) if line.kg_per_unit > 0 else remaining_qty
+                pcs    = max(0, min(pcs, remaining_qty))
+                all_batch_nos.append(b_no)
+                batch_allocation[b_no] = {"pieces": pcs, "kg": round(pcs * line.kg_per_unit, 3), "batch_id": bid}
+                remaining_qty -= pcs
+
+        execute("""
+            INSERT INTO production_plan_lines
+            (id, plan_id, qty, kg_per_unit, total_kg,
+             product_type_id, product_type_name, recipe_id, recipe_name,
+             packaging_id, packaging_name, seasoned_batch_id, seasoned_batch_no,
+             seasoned_batch_nos, batch_allocation,
+             client_order_id, client_order_no, client_name, kg_assigned, status)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s)
+        """, (cuid(), id, line.qty, line.kg_per_unit, line_kg,
+              line.product_type_id or None, product_type_name or None,
+              line.recipe_id, recipe_name,
+              line.packaging_id or None, packaging_name or None,
+              primary_batch_id, primary_batch_no or None,
+              all_batch_nos, json.dumps(batch_allocation),
+              line.client_order_id or None, line.client_order_no or None,
+              line.client_name or None,
+              line_kg if primary_batch_id else 0,
+              'assigned' if primary_batch_id else 'pending'))
+
+        if all_batch_ids:
+            remaining_kg = line_kg
+            for bid in all_batch_ids:
+                if remaining_kg <= 0: break
+                batch = query_one("SELECT kg_available FROM seasoned_meat WHERE id=%s", (bid,))
+                if not batch: continue
+                take = min(remaining_kg, float(batch['kg_available']))
+                if take > 0:
+                    execute("""
+                        UPDATE seasoned_meat
+                        SET kg_available = GREATEST(0, kg_available - %s),
+                            kg_used = kg_used + %s
+                        WHERE id=%s
+                    """, (round(take, 3), round(take, 3), bid))
+                    remaining_kg -= take
+
+    updated = query_one("SELECT * FROM production_plans WHERE id=%s", (id,))
+    updated['lines'] = query_all("SELECT * FROM production_plan_lines WHERE plan_id=%s", (id,))
+    return updated
 
 @app.patch("/api/production-plans/{id}/status")
 def update_plan_status(id: str, body: dict):
