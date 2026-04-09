@@ -1155,7 +1155,7 @@ def update_plan_status(id: str, body: dict):
             if allocated_kg < total_kg - 0.1:
                 name = line.get('recipe_name') or line.get('product_type_name') or 'pozycja'
                 shortfall = round(total_kg - allocated_kg, 3)
-                errors.append(f"„{name}" brakuje {shortfall} kg mięsa")
+                errors.append(f'"{name}" brakuje {shortfall} kg miesa')
         if errors:
             raise HTTPException(400, "Niewystarczająca ilość mięsa — dostosuj plan przed aktywacją:\n" + "; ".join(errors))
 
