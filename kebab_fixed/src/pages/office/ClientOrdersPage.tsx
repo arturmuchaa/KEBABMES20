@@ -90,7 +90,9 @@ function OrderForm({ onSave, onClose, initialData }: OrderFormProps) {
         lines: validLines.map(l => ({
           qty: parseFloat(l.qty), kgPerUnit: parseFloat(l.kgPerUnit),
           productTypeId: l.productTypeId,
-          productTypeName: (productTypes ?? []).find((pt: any) => pt.id === l.productTypeId)?.name || '',
+          productTypeName: (productTypes ?? []).find((pt: any) => pt.id === l.productTypeId)?.name
+                        || (recipes ?? []).find((r: any) => r.id === l.recipeId)?.productTypeName
+                        || '',
           recipeId: l.recipeId,
           recipeName: (recipes ?? []).find((r: any) => r.id === l.recipeId)?.name || '',
           packagingId: l.packagingId || undefined,
