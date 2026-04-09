@@ -15,8 +15,11 @@ import { Plus, AlertTriangle, CheckCircle } from 'lucide-react'
 import { useRawBatches, useCreateRawBatch } from '../hooks/useRawBatches'
 import { RawBatchesTable }    from '../components/RawBatchesTable'
 import { CreateRawBatchModal } from '../components/CreateRawBatchModal'
+import { EditRawBatchModal, type EditRawBatchFormData } from '../components/EditRawBatchModal'
+import { rawBatchesApi } from '../api'
 import { fmtKg, fmtDatePl, fmtPln } from '@/lib/utils'
 import { toast } from 'sonner'
+import type { RawBatch } from '@/types'
 
 function mapExpiryToUi(expiry: { level: string; daysLeft: number } | null) {
   if (!expiry) return null
@@ -32,6 +35,46 @@ function mapExpiryToUi(expiry: { level: string; daysLeft: number } | null) {
 
 export function RawBatchesPage() {
   const { batches, supplierOptions, loading, refetch } = useRawBatches()
+
+  // ── Edit state ─────────────────────────────────────────────────────────────
+  const [editBatch,   setEditBatch]   = useState<RawBatch | null>(null)
+  const [editLoading, setEditLoading] = useState(false)
+  const [editError,   setEditError]   = useState<string | null>(null)
+
+  const handleEditOpen = useCallback((batch: RawBatch) => {
+    setEditBatch(batch)
+    setEditError(null)
+  }, [])
+
+  const handleEditClose = useCallback(() => {
+    setEditBatch(null)
+    setEditError(null)
+  }, [])
+
+  const handleEditSubmit = useCallback(async (data: EditRawBatchFormData) => {
+    if (!editBatch) return
+    setEditLoading(true)
+    setEditError(null)
+    try {
+      await rawBatchesApi.edit(editBatch.id, {
+        supplierBatchNo: data.supplierBatchNo,
+        slaughterDate:   data.slaughterDate,
+        receivedDate:    data.receivedDate,
+        expiryDate:      data.expiryDate,
+        kgReceived:      data.kgReceived,
+        pricePerKg:      data.pricePerKg,
+        invoiceNo:       data.invoiceNo,
+        notes:           data.notes,
+      } as any)
+      setEditBatch(null)
+      refetch()
+      toast.success(`Partia ${editBatch.internalBatchNo} zaktualizowana`)
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : 'Błąd zapisu')
+    } finally {
+      setEditLoading(false)
+    }
+  }, [editBatch, refetch])
 
   const {
     form, suggestedBatchNo, suggestedNote, open, expiryPreview,
@@ -78,7 +121,7 @@ export function RawBatchesPage() {
       {/* Tabela */}
       <Card>
         <CardContent className="p-0">
-          <RawBatchesTable batches={batches} loading={loading} />
+          <RawBatchesTable batches={batches} loading={loading} onEdit={handleEditOpen} />
         </CardContent>
       </Card>
 
@@ -96,6 +139,16 @@ export function RawBatchesPage() {
         loading={mutationLoading}
         error={mutationError}
         onFieldChange={updateField}
+      />
+
+      {/* Modal edycji */}
+      <EditRawBatchModal
+        open={editBatch !== null}
+        batch={editBatch}
+        loading={editLoading}
+        error={editError}
+        onClose={handleEditClose}
+        onSubmit={handleEditSubmit}
       />
 
       {/* Krok 2 — potwierdzenie */}

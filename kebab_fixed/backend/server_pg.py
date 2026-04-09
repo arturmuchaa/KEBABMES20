@@ -434,12 +434,17 @@ def cancel_batch(id: str):
 
 @app.put("/api/raw-batches/{id}")
 def update_batch(id: str, body: dict):
+    # Guard: nie pozwól edytować jeśli partia trafiła do rozbioru
+    used_count = query_one("SELECT COUNT(*) AS cnt FROM deboning_entries WHERE raw_batch_id=%s", (id,))
+    if used_count and used_count['cnt'] > 0:
+        raise HTTPException(409, detail="Partia jest już używana w rozbiorze — edycja niemożliwa")
+    kg_received = _b(body,'kg_received', 0)
     row = execute_returning("""
         UPDATE raw_batches SET supplier_batch_no=%s, slaughter_date=%s,
-        received_date=%s, kg_received=%s, price_per_kg=%s,
+        received_date=%s, kg_received=%s, kg_available=%s, price_per_kg=%s,
         expiry_date=%s, notes=%s WHERE id=%s RETURNING *
     """, (_b(body,'supplier_batch_no'), _b(body,'slaughter_date') or None,
-          _b(body,'received_date') or None, _b(body,'kg_received', 0),
+          _b(body,'received_date') or None, kg_received, kg_received,
           _b(body,'price_per_kg', 0), _b(body,'expiry_date') or None,
           body.get('notes'), id))
     if not row: raise HTTPException(404)

@@ -6,21 +6,23 @@ import { ExpiryBadge, StatusBadge, computeDisplayStatus } from '@/components/ui/
 import { fmtKg, fmtDatePl, fmtPln } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
 import type { RawBatch } from '@/types'
-import { Package, ChevronDown, ChevronUp, ChevronsUpDown, Search } from 'lucide-react'
+import { Package, ChevronDown, ChevronUp, ChevronsUpDown, Search, Pencil } from 'lucide-react'
 
 interface RawBatchesTableProps {
-  batches: RawBatch[]
-  loading: boolean
+  batches:  RawBatch[]
+  loading:  boolean
+  onEdit?:  (batch: RawBatch) => void
 }
 
 type SortCol = 'internalBatchNo' | 'supplierName' | 'slaughterDate' | 'expiryDate' | 'kgReceived' | 'kgAvailable'
 
-export function RawBatchesTable({ batches, loading }: RawBatchesTableProps) {
+export function RawBatchesTable({ batches, loading, onEdit }: RawBatchesTableProps) {
   const [filter,  setFilter]  = useState('')
   const [sortCol, setSortCol] = useState<SortCol>('expiryDate')
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc')
@@ -66,6 +68,7 @@ export function RawBatchesTable({ batches, loading }: RawBatchesTableProps) {
     { col: 'kgAvailable',     label: 'Kg dostępne' },
     { col: null,              label: 'Cena/kg' },
     { col: null,              label: 'Status' },
+    { col: null,              label: '' },
   ]
 
   if (loading) {
@@ -191,6 +194,18 @@ export function RawBatchesTable({ batches, loading }: RawBatchesTableProps) {
                     <code className="font-mono text-xs text-muted-foreground">{fmtPln(b.pricePerKg)}</code>
                   </TableCell>
                   <TableCell><StatusBadge status={displayStatus} /></TableCell>
+                  <TableCell>
+                    {onEdit && Number(b.kgUsed) === 0 && b.status !== 'cancelled' && !b.isInUse && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                        onClick={() => onEdit(b)}
+                      >
+                        <Pencil size={13} />
+                      </Button>
+                    )}
+                  </TableCell>
                 </TableRow>
               )
             })}
