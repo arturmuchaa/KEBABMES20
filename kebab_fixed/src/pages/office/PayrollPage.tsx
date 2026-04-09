@@ -462,7 +462,7 @@ function PaySlipPreview({ settlement: s }: { settlement: any }) {
         <div>
           <div className="font-black text-base">{s.worker_name}</div>
           <div className="text-xs text-muted-foreground">
-            {ROLE_LABEL[s.worker_role] ?? s.worker_role} · {s.contract_type === 'praca' ? 'Umowa o pracę' : 'Umowa zlecenie'}
+            {ROLE_LABEL[s.worker_role] ?? s.worker_role}
           </div>
         </div>
         <div className="text-right text-xs text-muted-foreground">
@@ -486,7 +486,7 @@ function PaySlipPreview({ settlement: s }: { settlement: any }) {
       <div className="space-y-1">
         <div className="flex justify-between"><span className="text-muted-foreground">{kgLabel(s.worker_role)}</span><span className="font-semibold">{Number(s.kg_total).toFixed(2)} kg</span></div>
         <div className="flex justify-between"><span className="text-muted-foreground">Stawka</span><span className="font-semibold">{Number(s.rate_per_kg).toFixed(2)} zł/kg</span></div>
-        <div className="flex justify-between font-bold"><span>Brutto</span><span>{Number(s.gross_amount).toFixed(2)} zł</span></div>
+        <div className="flex justify-between font-bold"><span>Wynagrodzenie</span><span>{Number(s.gross_amount).toFixed(2)} zł</span></div>
         {(s.deductions ?? []).map((d: any) => (
           <div key={d.id} className="flex justify-between text-red-600">
             <span className="text-xs">{d.description}</span><span>- {Number(d.amount).toFixed(2)} zł</span>
@@ -495,7 +495,7 @@ function PaySlipPreview({ settlement: s }: { settlement: any }) {
       </div>
       <Separator />
       <div className="flex justify-between font-black text-base">
-        <span>Do wypłaty</span>
+        <span>DO WYPŁATY</span>
         <span className="text-green-700">{Number(s.net_amount).toFixed(2)} zł</span>
       </div>
     </div>
@@ -545,17 +545,17 @@ function printPaySlip(s: any) {
 </style></head><body>
 <div class="top">
   <div><div class="sub">PASEK WYPŁATY</div><h2>${s.worker_name}</h2>
-  <div class="sub">${roleStr} · ${ct}</div></div>
+  <div class="sub">${roleStr}</div></div>
   <div class="dates"><div>Okres: ${dfrom}</div><div>— ${dto}</div></div>
 </div><hr>
 ${daysRows ? `<table><thead><tr><th style="text-align:left;font-size:8px;color:#555">Data</th><th class="r" style="font-size:8px;color:#555">${label} kg</th><th class="r" style="font-size:8px;color:#555">Zarobek</th></tr></thead><tbody>${daysRows}</tbody></table><hr>` : ''}
 <table>
   <tr><td class="lbl">${label}</td><td class="r bold">${Number(s.kg_total).toFixed(2)} kg</td></tr>
   <tr><td class="lbl">Stawka akordowa</td><td class="r bold">${Number(s.rate_per_kg).toFixed(2)} zł/kg</td></tr>
-  <tr><td class="bold">Wynagrodzenie brutto</td><td class="r bold">${Number(s.gross_amount).toFixed(2)} zł</td></tr>
+  <tr><td class="bold">Wynagrodzenie</td><td class="r bold">${Number(s.gross_amount).toFixed(2)} zł</td></tr>
   ${deductRows}
 </table><hr>
-<table><tr><td class="total green">DO WYPŁATY (netto)</td><td class="r total green">${Number(s.net_amount).toFixed(2)} zł</td></tr></table>
+<table><tr><td class="total green">DO WYPŁATY</td><td class="r total green">${Number(s.net_amount).toFixed(2)} zł</td></tr></table>
 <div class="sigs">
   <div><div class="sig-line">Podpis pracodawcy</div></div>
   <div><div class="sig-line">Podpis pracownika</div></div>
