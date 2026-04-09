@@ -317,6 +317,20 @@ export function ClientOrdersPage() {
                       className="px-4 py-3 flex items-center gap-3 hover:bg-muted/30 cursor-pointer transition-colors"
                       onClick={() => setExpanded(isExp ? null : o.id)}
                     >
+                      {/* Fulfillment indicator */}
+                      {(() => {
+                        const done = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0), 0)
+                        const total = o.totalUnits
+                        if (done === 0) return null
+                        const allDone = done >= total
+                        return (
+                          <div className={`flex flex-col items-center min-w-[36px] ${allDone ? 'text-green-600' : 'text-amber-600'}`}>
+                            {allDone ? <CheckCircle2 size={18} /> : <Clock size={18} />}
+                            <span className="text-[10px] font-bold leading-tight mt-0.5">{done}/{total}</span>
+                            <span className="text-[9px] leading-none">szt</span>
+                          </div>
+                        )
+                      })()}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5">
                           <code className="font-mono font-bold text-primary text-sm">{o.orderNo}</code>
