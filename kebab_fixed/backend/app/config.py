@@ -1,4 +1,9 @@
-"""Centralized configuration loaded from environment."""
+"""Centralized configuration loaded from environment.
+
+Loads .env from (in order):
+1. /opt/kebab/config/.env  (production VPS)
+2. ../backend/.env         (development, relative to app/)
+"""
 from __future__ import annotations
 
 import os
@@ -8,12 +13,31 @@ from typing import List
 
 from dotenv import load_dotenv
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(ROOT_DIR / ".env")
+ROOT_DIR = Path(__file__).resolve().parent.parent  # .../backend
+
+# Production layout: /opt/kebab/config/.env
+# Development layout: backend/.env
+_PROD_ENV = Path("/opt/kebab/config/.env")
+if _PROD_ENV.is_file():
+    load_dotenv(_PROD_ENV)
+else:
+    load_dotenv(ROOT_DIR / ".env")
 
 
 def _split_csv(value: str) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _resolve_dist_dir() -> Path:
+    """Find the frontend dist directory.
+
+    Production: /opt/kebab/app/dist
+    Development: backend/../dist
+    """
+    prod_dist = Path("/opt/kebab/app/dist")
+    if prod_dist.is_dir():
+        return prod_dist
+    return ROOT_DIR.parent / "dist"
 
 
 @dataclass(frozen=True)
@@ -33,8 +57,8 @@ class Settings:
     log_level: str = os.environ.get("LOG_LEVEL", "INFO").upper()
     log_json: bool = os.environ.get("LOG_JSON", "false").lower() in ("1", "true", "yes")
 
-    dist_dir: Path = ROOT_DIR.parent / "dist"
-    app_version: str = "2.0.0"
+    dist_dir: Path = field(default_factory=_resolve_dist_dir)
+    app_version: str = "3.0.0"
 
     vies_api_id: str = os.environ.get("VIES_API_ID", "")
     vies_api_key: str = os.environ.get("VIES_API_KEY", "")

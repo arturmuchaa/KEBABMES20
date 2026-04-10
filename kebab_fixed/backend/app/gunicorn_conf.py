@@ -6,8 +6,8 @@ Usage:
 import multiprocessing
 import os
 
-# Bind
-bind = os.environ.get("BIND", "0.0.0.0:8000")
+# Bind — default 127.0.0.1 (nginx proxies), override with BIND env var
+bind = os.environ.get("BIND", "127.0.0.1:8000")
 
 # Workers — CPU-bound tasks are minimal (mostly I/O to Postgres),
 # so 2-4 workers per core is appropriate.
