@@ -1,0 +1,748 @@
+"""Mixing orders.
+
+Every operation that touches meat_stock.kg_reserved, kg_available or
+kg_used runs inside a transaction with SELECT ... FOR UPDATE row locks.
+Every actual mass movement is recorded via :func:`create_stock_movement`.
+"""
+import json
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Tuple
+
+from fastapi import HTTPException
+
+from app.db import (
+    cx_execute,
+    cx_execute_returning,
+    cx_execute_rowcount,
+    cx_query_all,
+    cx_query_one,
+    query_all,
+    query_one,
+    transaction,
+)
+from app.logging_config import get_logger
+from app.models.mixing import MixingOrderCreate
+from app.services.recipes_service import calc_kg_output
+from app.services.seasoned_meat_service import populate_lineage
+from app.utils.ids import cuid, next_seq, now_iso
+from app.utils.stock import create_stock_movement
+
+logger = get_logger(__name__)
+
+
+# ── Serialization helpers ─────────────────────────────────────────────
+
+def build_mixing_order(o: Dict) -> Dict:
+    """Transform a mixing_orders row into the camelCase DTO the frontend expects."""
+    oid = o["id"]
+    meat_lots = query_all(
+        """
+        SELECT mol.*, ms.lot_no AS meat_lot_no, ms.expiry_date,
+               rb.internal_batch_no AS raw_batch_no
+        FROM mixing_order_lots mol
+        LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+        LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
+        WHERE mol.order_id = %s
+        """,
+        (oid,),
+    )
+
+    recipe_id = o.get("recipe_id") or ""
+    steps: list[dict] = []
+    if recipe_id:
+        ings = query_all(
+            """
+            SELECT ri.*, i.is_unlimited
+            FROM recipe_ingredients ri
+            LEFT JOIN ingredients i ON i.id = ri.ingredient_id
+            WHERE ri.recipe_id = %s ORDER BY ri.id
+            """,
+            (recipe_id,),
+        )
+        confirmed_steps = o.get("confirmed_steps") or {}
+        if isinstance(confirmed_steps, str):
+            try:
+                confirmed_steps = json.loads(confirmed_steps)
+            except Exception:
+                confirmed_steps = {}
+        meat_kg_val = float(o.get("meat_kg") or 0)
+        for idx, ing in enumerate(ings, start=1):
+            qty_per = float(ing.get("qty_per_100kg") or 0)
+            qty_required = (
+                round(qty_per * meat_kg_val / 100, 3) if meat_kg_val > 0 else qty_per
+            )
+            step_key = str(idx)
+            confirmed_qty = (
+                confirmed_steps.get(step_key) if isinstance(confirmed_steps, dict) else None
+            )
+            steps.append(
+                {
+                    "stepNo": idx,
+                    "ingredientId": ing.get("ingredient_id") or "",
+                    "ingredientName": ing.get("ingredient_name") or "",
+                    "unit": ing.get("unit") or "kg",
+                    "qtyRequired": qty_required,
+                    "qtyConfirmed": float(confirmed_qty) if confirmed_qty is not None else None,
+                    "confirmed": confirmed_qty is not None,
+                    "isUnlimited": bool(ing.get("is_unlimited")),
+                }
+            )
+
+    sessions = query_all(
+        "SELECT * FROM mixing_sessions WHERE order_id = %s ORDER BY started_at",
+        (oid,),
+    )
+
+    meat_kg = float(o.get("meat_kg") or 0)
+    kg_done = float(o.get("kg_done") or 0)
+    kg_remaining = max(0.0, meat_kg - kg_done)
+
+    return {
+        "id": o["id"],
+        "orderNo": o.get("order_no") or "",
+        "recipeId": o.get("recipe_id") or "",
+        "recipeName": o.get("recipe_name") or "",
+        "productTypeId": o.get("product_type_id"),
+        "productTypeName": o.get("product_type_name"),
+        "meatKg": meat_kg,
+        "kgDone": kg_done,
+        "kgRemaining": kg_remaining,
+        "kgInMachine": float(o.get("kg_in_machine") or 0),
+        "plannedOutputKg": float(o.get("planned_output_kg") or 0),
+        "machineId": o.get("machine_id"),
+        "status": o.get("status") or "planned",
+        "notes": o.get("notes"),
+        "createdAt": str(o.get("created_at") or ""),
+        "startedAt": str(o["started_at"]) if o.get("started_at") else None,
+        "completedAt": str(o["completed_at"]) if o.get("completed_at") else None,
+        "meatLots": [
+            {
+                "meatLotId": lot.get("meat_stock_id") or lot.get("id") or "",
+                "meatLotNo": lot.get("meat_lot_no") or lot.get("lot_no") or "",
+                "rawBatchId": lot.get("raw_batch_id") or "",
+                "rawBatchNo": lot.get("raw_batch_no") or "",
+                "kgPlanned": float(lot.get("kg_planned") or lot.get("kg_allocated") or 0),
+                "kgActual": float(lot.get("kg_actual") or 0),
+                "expiryDate": str(lot["expiry_date"]) if lot.get("expiry_date") else "",
+            }
+            for lot in meat_lots
+        ],
+        "steps": steps,
+        "sessions": [
+            {
+                "sessionId": s.get("id") or "",
+                "machineId": s.get("machine_id"),
+                "kgMeat": float(s.get("kg_meat") or 0),
+                "kgOutput": float(s.get("kg_output") or 0),
+                "startedAt": str(s.get("started_at") or ""),
+                "completedAt": str(s.get("completed_at") or ""),
+                "batchNo": s.get("batch_no"),
+            }
+            for s in sessions
+        ],
+    }
+
+
+# ── Queries ────────────────────────────────────────────────────────────
+
+def list_mixing_orders(status: str | None) -> List[Dict]:
+    # Auto-close in_progress orders whose machine lock has expired.
+    with transaction() as conn:
+        cx_execute(
+            conn,
+            """
+            UPDATE mixing_orders
+            SET status = 'done', completed_at = NOW()
+            WHERE status = 'in_progress'
+              AND id NOT IN (
+                  SELECT order_id FROM machine_locks WHERE expires_at > NOW()
+              )
+            """,
+        )
+    sql = "SELECT * FROM mixing_orders"
+    params: list = []
+    if status:
+        sql += " WHERE status = %s"
+        params.append(status)
+    sql += " ORDER BY created_at DESC"
+    orders = query_all(sql, params or None)
+    return [build_mixing_order(o) for o in orders]
+
+
+def get_mixing_order(order_id: str) -> Dict:
+    order = query_one("SELECT * FROM mixing_orders WHERE id=%s", (order_id,))
+    if not order:
+        raise HTTPException(404, "Zlecenie masowania nie znalezione")
+    return build_mixing_order(order)
+
+
+# ── Create ─────────────────────────────────────────────────────────────
+
+def create_mixing_order(dto: MixingOrderCreate) -> Dict:
+    if not dto.recipe_id:
+        raise HTTPException(400, "recipe_id wymagane")
+    if not dto.meat_lots:
+        raise HTTPException(
+            400,
+            "Zlecenie masowania wymaga co najmniej jednej partii mięsa. "
+            "Wybierz partie z rozbioru przed utworzeniem zlecenia.",
+        )
+
+    seq = next_seq("mixing_seq")
+    year = datetime.now().year
+    order_no = f"MAS-{year}-{str(seq).zfill(3)}"
+    oid = cuid()
+
+    with transaction() as conn:
+        recipe = cx_query_one(
+            conn, "SELECT * FROM recipes WHERE id=%s", (dto.recipe_id,)
+        )
+        if not recipe:
+            raise HTTPException(404, "Receptura nie znaleziona")
+
+        product_type = None
+        if dto.product_type_id:
+            product_type = cx_query_one(
+                conn,
+                "SELECT * FROM product_types WHERE id=%s",
+                (dto.product_type_id,),
+            )
+
+        planned_output_kg = calc_kg_output(dto.recipe_id, dto.meat_kg)
+
+        cx_execute(
+            conn,
+            """
+            INSERT INTO mixing_orders
+                (id, order_no, recipe_id, recipe_name,
+                 product_type_id, product_type_name,
+                 meat_kg, planned_output_kg, kg_done, machine_id,
+                 status, notes, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,NULL,'planned',%s,%s)
+            """,
+            (
+                oid,
+                order_no,
+                recipe["id"],
+                recipe["name"],
+                dto.product_type_id or None,
+                product_type["name"] if product_type else None,
+                dto.meat_kg,
+                planned_output_kg,
+                dto.notes or None,
+                now_iso(),
+            ),
+        )
+
+        # Lock lots deterministically to avoid deadlocks
+        for lot_dto in sorted(dto.meat_lots, key=lambda x: x.meat_lot_id):
+            locked = cx_query_one(
+                conn,
+                "SELECT * FROM meat_stock WHERE id=%s FOR UPDATE",
+                (lot_dto.meat_lot_id,),
+            )
+            if not locked:
+                raise HTTPException(
+                    400, f"Partia mięsa nie znaleziona: {lot_dto.meat_lot_id}"
+                )
+
+            available = float(locked.get("kg_available") or 0)
+            reserved = float(locked.get("kg_reserved") or 0)
+            free = available - reserved
+            if free < lot_dto.kg_planned - 0.1:
+                raise HTTPException(
+                    400,
+                    f"Niewystarczające kg w partii {locked.get('lot_no','?')}: "
+                    f"wolne {free:.2f} kg (dostępne {available:.2f} - "
+                    f"zarezerwowane {reserved:.2f}), wymagane {lot_dto.kg_planned:.2f} kg.",
+                )
+
+            cx_execute(
+                conn,
+                """
+                INSERT INTO mixing_order_lots
+                    (id, order_id, meat_stock_id, kg_planned, kg_actual)
+                VALUES (%s,%s,%s,%s,0)
+                """,
+                (cuid(), oid, lot_dto.meat_lot_id, lot_dto.kg_planned),
+            )
+            rowcount = cx_execute_rowcount(
+                conn,
+                """
+                UPDATE meat_stock
+                SET kg_reserved = kg_reserved + %s
+                WHERE id = %s
+                """,
+                (lot_dto.kg_planned, lot_dto.meat_lot_id),
+            )
+            if rowcount == 0:
+                raise HTTPException(
+                    409,
+                    f"Race condition: brak kg w partii {lot_dto.meat_lot_id} "
+                    f"(update failed)",
+                )
+
+        order = cx_query_one(
+            conn, "SELECT * FROM mixing_orders WHERE id=%s", (oid,)
+        )
+    assert order is not None
+    logger.info(
+        "mixing.order.created",
+        extra={
+            "order_id": oid,
+            "order_no": order_no,
+            "meat_kg": dto.meat_kg,
+            "lots": len(dto.meat_lots),
+        },
+    )
+    return build_mixing_order(order)
+
+
+# ── Status transitions ─────────────────────────────────────────────────
+
+def confirm_mixing_order(order_id: str) -> Dict:
+    with transaction() as conn:
+        row = cx_execute_returning(
+            conn,
+            """
+            UPDATE mixing_orders SET status='confirmed'
+            WHERE id=%s AND status='planned' RETURNING *
+            """,
+            (order_id,),
+        )
+    if not row:
+        raise HTTPException(404, "Zlecenie nie znalezione lub już potwierdzone")
+    logger.info("mixing.order.confirmed", extra={"order_id": order_id})
+    return build_mixing_order(row)
+
+
+def start_mixing_order(order_id: str, body: Dict[str, Any]) -> Dict:
+    machine_id = body.get("machineId") or body.get("machine_id")
+    with transaction() as conn:
+        row = cx_execute_returning(
+            conn,
+            """
+            UPDATE mixing_orders
+            SET status='in_progress', started_at=%s, machine_id=%s
+            WHERE id=%s RETURNING *
+            """,
+            (now_iso(), machine_id, order_id),
+        )
+    if not row:
+        raise HTTPException(404, "Zlecenie nie znalezione")
+    logger.info(
+        "mixing.order.started",
+        extra={"order_id": order_id, "machine_id": machine_id},
+    )
+    return build_mixing_order(row)
+
+
+def allocate_to_machine(order_id: str, body: Dict[str, Any]) -> Dict:
+    machine_id = body.get("machine_id") or body.get("machineId")
+    with transaction() as conn:
+        row = cx_execute_returning(
+            conn,
+            "UPDATE mixing_orders SET machine_id=%s WHERE id=%s RETURNING *",
+            (machine_id, order_id),
+        )
+    if not row:
+        raise HTTPException(404, "Zlecenie nie znalezione")
+    return build_mixing_order(row)
+
+
+def confirm_mixing_step(order_id: str, body: Dict[str, Any]) -> Dict:
+    step_no = body.get("stepNo") or body.get("step_no") or 1
+    qty_conf = body.get("qtyConfirmed") or body.get("qty_confirmed") or 0
+    with transaction() as conn:
+        row = cx_execute_returning(
+            conn,
+            """
+            UPDATE mixing_orders
+            SET confirmed_steps = COALESCE(confirmed_steps, '{}'::jsonb)
+                || jsonb_build_object(%s::text, %s::numeric)
+            WHERE id=%s RETURNING *
+            """,
+            (str(step_no), qty_conf, order_id),
+        )
+    if not row:
+        raise HTTPException(404, "Zlecenie nie znalezione")
+    return build_mixing_order(row)
+
+
+def auto_approve_mixing(order_id: str) -> Dict:
+    with transaction() as conn:
+        row = cx_execute_returning(
+            conn,
+            """
+            UPDATE mixing_orders
+            SET status='done', completed_at=%s, kg_in_machine=0
+            WHERE id=%s
+            RETURNING *
+            """,
+            (now_iso(), order_id),
+        )
+    if not row:
+        raise HTTPException(404, "Zlecenie nie znalezione")
+    logger.info("mixing.order.auto_approved", extra={"order_id": order_id})
+    return build_mixing_order(row)
+
+
+# ── Finish session (stock movements + lineage + ingredient deduction) ─
+
+def finish_mixing_session(order_id: str, body: Dict[str, Any]) -> Dict:
+    """End a mixing session: produce seasoned_meat + record stock movements.
+
+    All writes — meat_stock row updates, stock_movements, seasoned_meat
+    upsert, ingredient deductions, mixing_orders update — happen inside
+    one transaction. FOR UPDATE locks cover every meat_stock row that
+    will be mutated.
+    """
+    kg_meat = float(body.get("kg_actual") or 0)
+    batch_no = body.get("batch_no") or body.get("batchNo") or ""
+    lot_allocations = body.get("lotAllocations") or body.get("lot_allocations") or []
+
+    if kg_meat <= 0:
+        raise HTTPException(400, "kg_actual musi być > 0")
+
+    with transaction() as conn:
+        order = cx_query_one(
+            conn, "SELECT * FROM mixing_orders WHERE id=%s FOR UPDATE", (order_id,)
+        )
+        if not order:
+            raise HTTPException(404, "Zlecenie nie znalezione")
+
+        meat_kg = float(order.get("meat_kg") or 0)
+        kg_done = float(order.get("kg_done") or 0) + kg_meat
+        kg_output = calc_kg_output(order.get("recipe_id"), kg_meat)
+        new_status = "in_progress" if kg_done >= meat_kg - 0.1 else "confirmed"
+
+        if not batch_no:
+            raw_seqs = cx_query_all(
+                conn,
+                """
+                SELECT DISTINCT rb.internal_batch_seq
+                FROM mixing_order_lots mol
+                LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+                LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
+                WHERE mol.order_id = %s AND rb.internal_batch_seq IS NOT NULL
+                """,
+                (order_id,),
+            )
+            seqs = [r["internal_batch_seq"] for r in raw_seqs if r.get("internal_batch_seq")]
+            if len(seqs) == 1:
+                batch_no = f"MP{seqs[0]}"
+            else:
+                batch_no = f"MPP{next_seq('mixed_seq')}"
+
+        machine_id = order.get("machine_id")
+
+        cx_execute(
+            conn,
+            """
+            INSERT INTO mixing_sessions
+                (id, order_id, machine_id, kg_meat, kg_output,
+                 batch_no, started_at, completed_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                cuid(),
+                order_id,
+                machine_id,
+                kg_meat,
+                kg_output,
+                batch_no,
+                str(order.get("started_at") or now_iso()),
+                now_iso(),
+            ),
+        )
+
+        expiry = (datetime.utcnow() + timedelta(days=5)).date().isoformat()
+        cx_execute(
+            conn,
+            """
+            INSERT INTO seasoned_meat
+                (id, batch_no, recipe_id, recipe_name, mixing_order_no,
+                 kg_produced, kg_available, kg_used, machine_id,
+                 expiry_date, status, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,0,%s,%s,'available',%s)
+            ON CONFLICT (batch_no) DO UPDATE
+            SET kg_produced  = seasoned_meat.kg_produced  + EXCLUDED.kg_produced,
+                kg_available = seasoned_meat.kg_available + EXCLUDED.kg_available
+            """,
+            (
+                cuid(),
+                batch_no,
+                order.get("recipe_id", ""),
+                order.get("recipe_name", ""),
+                order.get("order_no", ""),
+                kg_output,
+                kg_output,
+                machine_id,
+                expiry,
+                now_iso(),
+            ),
+        )
+
+        populate_lineage(conn, batch_no, order_id)
+
+        # Ingredient deduction (FIFO), non-blocking on shortages
+        recipe_ingredients = cx_query_all(
+            conn,
+            """
+            SELECT ri.ingredient_id, ri.qty_per_100kg, i.unit, i.is_unlimited, i.name
+            FROM recipe_ingredients ri
+            JOIN ingredients i ON i.id = ri.ingredient_id
+            WHERE ri.recipe_id = %s
+            """,
+            (order.get("recipe_id"),),
+        )
+        for ing in recipe_ingredients:
+            if ing.get("is_unlimited"):
+                continue
+            qty_needed = round(
+                float(ing.get("qty_per_100kg") or 0) / 100.0 * kg_meat, 4
+            )
+            if qty_needed <= 0:
+                continue
+            batches = cx_query_all(
+                conn,
+                """
+                SELECT id, qty_available
+                FROM ingredient_stock
+                WHERE ingredient_id = %s AND qty_available > 0
+                ORDER BY created_at ASC
+                FOR UPDATE
+                """,
+                (ing["ingredient_id"],),
+            )
+            remaining = qty_needed
+            for batch in batches:
+                if remaining <= 0:
+                    break
+                avail = float(batch.get("qty_available") or 0)
+                deduct = min(avail, remaining)
+                cx_execute(
+                    conn,
+                    "UPDATE ingredient_stock SET qty_available = qty_available - %s "
+                    "WHERE id = %s",
+                    (round(deduct, 4), batch["id"]),
+                )
+                remaining = round(remaining - deduct, 4)
+            if remaining > 0.001:
+                logger.warning(
+                    "mixing.ingredient.shortage",
+                    extra={
+                        "ingredient_id": ing.get("ingredient_id"),
+                        "ingredient_name": ing.get("name"),
+                        "recipe_id": order.get("recipe_id"),
+                        "order_id": order_id,
+                        "required": qty_needed,
+                        "missing": remaining,
+                        "unit": ing.get("unit") or "",
+                    },
+                )
+
+        # Session allocations
+        if lot_allocations:
+            session_allocs: List[Tuple[str, float]] = [
+                (
+                    a.get("meatLotId") or a.get("meat_lot_id"),
+                    float(a.get("kg") or a.get("kg_used") or 0),
+                )
+                for a in lot_allocations
+            ]
+        else:
+            lots_fb = cx_query_all(
+                conn,
+                "SELECT meat_stock_id, kg_planned FROM mixing_order_lots WHERE order_id=%s",
+                (order_id,),
+            )
+            total_planned = sum(float(lt.get("kg_planned") or 0) for lt in lots_fb) or 1
+            ratio = kg_meat / total_planned if meat_kg > 0 else 0
+            session_allocs = [
+                (
+                    lt["meat_stock_id"],
+                    round(float(lt.get("kg_planned") or 0) * ratio, 3),
+                )
+                for lt in lots_fb
+            ]
+
+        # Lock every meat_stock row we will mutate (deterministic order)
+        for ms_id in sorted({ms for ms, _ in session_allocs if ms}):
+            cx_query_one(
+                conn,
+                "SELECT id FROM meat_stock WHERE id=%s FOR UPDATE",
+                (ms_id,),
+            )
+
+        # OUT movements on meat_stock
+        for meat_stock_id, kg_used_session in session_allocs:
+            if not meat_stock_id or kg_used_session <= 0:
+                continue
+            create_stock_movement(
+                conn,
+                product_type="meat",
+                batch_id=meat_stock_id,
+                qty=kg_used_session,
+                movement_type="OUT",
+                source_type="mixing",
+                source_id=order_id,
+            )
+            cx_execute(
+                conn,
+                """
+                UPDATE meat_stock
+                SET kg_reserved  = GREATEST(0, kg_reserved  - %s),
+                    kg_available = GREATEST(0, kg_available - %s),
+                    kg_used      = kg_used + %s
+                WHERE id = %s
+                """,
+                (kg_used_session, kg_used_session, kg_used_session, meat_stock_id),
+            )
+
+        # Update mixing_order_lots to reflect consumption
+        if lot_allocations:
+            for alloc in lot_allocations:
+                lot_id = alloc.get("meatLotId") or alloc.get("meat_lot_id")
+                kg_used = float(alloc.get("kg") or alloc.get("kg_used") or 0)
+                if lot_id and kg_used > 0:
+                    cx_execute(
+                        conn,
+                        """
+                        UPDATE mixing_order_lots
+                        SET kg_planned = GREATEST(0, kg_planned - %s),
+                            kg_actual  = COALESCE(kg_actual, 0) + %s
+                        WHERE order_id = %s AND meat_stock_id = %s
+                        """,
+                        (kg_used, kg_used, order_id, lot_id),
+                    )
+        else:
+            if kg_meat > 0 and meat_kg > 0:
+                ratio = kg_meat / meat_kg
+                lots = cx_query_all(
+                    conn,
+                    "SELECT * FROM mixing_order_lots WHERE order_id=%s",
+                    (order_id,),
+                )
+                for lot in lots:
+                    reduce_by = round(float(lot.get("kg_planned") or 0) * ratio, 3)
+                    cx_execute(
+                        conn,
+                        """
+                        UPDATE mixing_order_lots
+                        SET kg_planned = GREATEST(0, kg_planned - %s),
+                            kg_actual  = COALESCE(kg_actual, 0) + %s
+                        WHERE id = %s
+                        """,
+                        (reduce_by, reduce_by, lot["id"]),
+                    )
+
+        # IN movement for the seasoned_meat produced
+        sm_row = cx_query_one(
+            conn, "SELECT id FROM seasoned_meat WHERE batch_no=%s", (batch_no,)
+        )
+        sm_id = sm_row["id"] if sm_row else batch_no
+        create_stock_movement(
+            conn,
+            product_type="seasoned",
+            batch_id=sm_id,
+            qty=kg_output,
+            movement_type="IN",
+            source_type="mixing",
+            source_id=order_id,
+        )
+
+        completed_at = now_iso() if new_status == "done" else None
+        kg_in_machine_val = kg_meat if new_status != "done" else 0
+        updated = cx_execute_returning(
+            conn,
+            """
+            UPDATE mixing_orders
+            SET kg_done=%s, status=%s, completed_at=%s,
+                machine_id=NULL, confirmed_steps='{}'::jsonb,
+                kg_in_machine=%s
+            WHERE id=%s
+            RETURNING *
+            """,
+            (kg_done, new_status, completed_at, kg_in_machine_val, order_id),
+        )
+
+    logger.info(
+        "mixing.session.finished",
+        extra={
+            "order_id": order_id,
+            "batch_no": batch_no,
+            "kg_meat": kg_meat,
+            "kg_output": kg_output,
+            "status": new_status,
+        },
+    )
+    return build_mixing_order(updated)
+
+
+def cancel_mixing_order(order_id: str) -> Dict:
+    with transaction() as conn:
+        order = cx_query_one(
+            conn,
+            "SELECT status FROM mixing_orders WHERE id=%s FOR UPDATE",
+            (order_id,),
+        )
+        if not order:
+            raise HTTPException(404, "Zlecenie nie znalezione")
+        if order["status"] == "in_progress":
+            raise HTTPException(
+                400,
+                "Nie można anulować zlecenia w trakcie aktywnej sesji. "
+                "Zakończ sesję na tablecie, a następnie anuluj.",
+            )
+        if order["status"] not in ("planned", "confirmed"):
+            raise HTTPException(
+                400,
+                f"Nie można anulować zlecenia o statusie '{order['status']}'.",
+            )
+
+        lots = cx_query_all(
+            conn,
+            """
+            SELECT meat_stock_id, kg_planned FROM mixing_order_lots
+            WHERE order_id = %s ORDER BY meat_stock_id FOR UPDATE
+            """,
+            (order_id,),
+        )
+        for ms_id in sorted(
+            {lot["meat_stock_id"] for lot in lots if lot.get("meat_stock_id")}
+        ):
+            cx_query_one(
+                conn,
+                "SELECT id FROM meat_stock WHERE id=%s FOR UPDATE",
+                (ms_id,),
+            )
+        for lot in lots:
+            kg_planned = float(lot.get("kg_planned") or 0)
+            if kg_planned <= 0:
+                continue
+            rowcount = cx_execute_rowcount(
+                conn,
+                """
+                UPDATE meat_stock
+                SET kg_reserved = GREATEST(0, kg_reserved - %s)
+                WHERE id = %s
+                """,
+                (kg_planned, lot.get("meat_stock_id")),
+            )
+            if rowcount == 0:
+                raise HTTPException(
+                    500,
+                    f"Nie można przywrócić kg dla partii "
+                    f"{lot.get('meat_stock_id')} (update failed)",
+                )
+
+        row = cx_execute_returning(
+            conn,
+            "UPDATE mixing_orders SET status='cancelled' WHERE id=%s RETURNING *",
+            (order_id,),
+        )
+    if not row:
+        raise HTTPException(404, "Zlecenie nie znalezione")
+    logger.info("mixing.order.cancelled", extra={"order_id": order_id})
+    return build_mixing_order(row)

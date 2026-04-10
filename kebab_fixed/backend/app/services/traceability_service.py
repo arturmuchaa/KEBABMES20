@@ -1,0 +1,687 @@
+"""Traceability engine + recall + admin repair tools.
+
+Directional tracing (``backward`` from finished_goods to raw, ``forward``
+from raw to finished_goods) walks the stored lineage arrays written at
+production time. Dynamic resolution kicks in only when stored lineage is
+missing — that path is safe to use on older records.
+"""
+from typing import Any, Dict, List, Optional, Set
+
+from app.db import (
+    cx_execute,
+    cx_query_all,
+    cx_query_one,
+    query_all,
+    query_one,
+    transaction,
+)
+from app.logging_config import get_logger
+from app.services.deboning_service import _map_deboning_entry
+from app.services.mixing_service import build_mixing_order
+
+logger = get_logger(__name__)
+
+
+# ── Helpers ───────────────────────────────────────────────────────────
+
+def _seen(lst: List[Dict]) -> Set[str]:
+    return {x["id"] for x in lst if x.get("id")}
+
+
+def _resolve_lineage(seasoned_batch_nos: List[str]) -> Dict[str, List[str]]:
+    mixing_order_ids: List[str] = []
+    seasoned_meat_ids: List[str] = []
+    deboning_entry_ids: List[str] = []
+    raw_batch_ids: List[str] = []
+    supplier_ids: List[str] = []
+
+    for bno in seasoned_batch_nos or []:
+        sm = query_one("SELECT * FROM seasoned_meat WHERE batch_no=%s", (bno,))
+        if not sm:
+            continue
+        if sm["id"] not in seasoned_meat_ids:
+            seasoned_meat_ids.append(sm["id"])
+
+        for did in sm.get("source_deboning_ids") or []:
+            if did and did not in deboning_entry_ids:
+                deboning_entry_ids.append(did)
+
+        mo = query_one(
+            "SELECT * FROM mixing_orders WHERE order_no=%s",
+            (sm.get("mixing_order_no"),),
+        )
+        if mo and mo["id"] not in mixing_order_ids:
+            mixing_order_ids.append(mo["id"])
+            lots = query_all(
+                """
+                SELECT mol.meat_stock_id, ms.raw_batch_id, ms.deboning_session_id
+                FROM mixing_order_lots mol
+                LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+                WHERE mol.order_id = %s
+                """,
+                (mo["id"],),
+            )
+            for lot in lots:
+                if (
+                    lot.get("deboning_session_id")
+                    and lot["deboning_session_id"] not in deboning_entry_ids
+                ):
+                    deboning_entry_ids.append(lot["deboning_session_id"])
+                if (
+                    lot.get("raw_batch_id")
+                    and lot["raw_batch_id"] not in raw_batch_ids
+                ):
+                    raw_batch_ids.append(lot["raw_batch_id"])
+                    rb = query_one(
+                        "SELECT supplier_id FROM raw_batches WHERE id=%s",
+                        (lot["raw_batch_id"],),
+                    )
+                    if (
+                        rb
+                        and rb.get("supplier_id")
+                        and rb["supplier_id"] not in supplier_ids
+                    ):
+                        supplier_ids.append(rb["supplier_id"])
+
+    return {
+        "mixing_order_ids": mixing_order_ids,
+        "seasoned_meat_ids": seasoned_meat_ids,
+        "deboning_entry_ids": deboning_entry_ids,
+        "raw_batch_ids": raw_batch_ids,
+        "supplier_ids": supplier_ids,
+    }
+
+
+# ── Backward / forward walks ──────────────────────────────────────────
+
+def _empty_trace() -> Dict[str, List]:
+    return {
+        "rawBatches": [],
+        "deboning": [],
+        "meatLots": [],
+        "mixingOrders": [],
+        "seasonedBatches": [],
+        "production": [],
+        "finishedGoods": [],
+        "suppliers": [],
+    }
+
+
+def _trace_backward(batch_id: str) -> Dict[str, List]:
+    result = _empty_trace()
+
+    fg = query_one(
+        "SELECT * FROM finished_goods WHERE id=%s OR batch_no=%s",
+        (batch_id, batch_id),
+    )
+    if fg:
+        if fg["id"] not in _seen(result["finishedGoods"]):
+            result["finishedGoods"].append(fg)
+        for mid in fg.get("source_mixing_ids") or []:
+            mo = query_one("SELECT * FROM mixing_orders WHERE id=%s", (mid,))
+            if mo and mo["id"] not in _seen(result["mixingOrders"]):
+                result["mixingOrders"].append(mo)
+        for sid in fg.get("source_seasoned_ids") or []:
+            sm = query_one("SELECT * FROM seasoned_meat WHERE id=%s", (sid,))
+            if sm and sm["id"] not in _seen(result["seasonedBatches"]):
+                result["seasonedBatches"].append(sm)
+        for did in fg.get("source_deboning_ids") or []:
+            de = query_one("SELECT * FROM deboning_entries WHERE id=%s", (did,))
+            if de and de["id"] not in _seen(result["deboning"]):
+                result["deboning"].append(_map_deboning_entry(de))
+        if not result["seasonedBatches"]:
+            for sbn in fg.get("seasoned_batch_nos") or []:
+                sm = query_one(
+                    "SELECT * FROM seasoned_meat WHERE batch_no=%s", (sbn,)
+                )
+                if sm and sm["id"] not in _seen(result["seasonedBatches"]):
+                    result["seasonedBatches"].append(sm)
+
+    if not result["seasonedBatches"]:
+        sm = query_one(
+            "SELECT * FROM seasoned_meat WHERE id=%s OR batch_no=%s",
+            (batch_id, batch_id),
+        )
+        if sm:
+            result["seasonedBatches"].append(sm)
+
+    for sm in list(result["seasonedBatches"]):
+        mo_nos = {m.get("order_no") for m in result["mixingOrders"]}
+        if sm.get("mixing_order_no") and sm["mixing_order_no"] not in mo_nos:
+            mo = query_one(
+                "SELECT * FROM mixing_orders WHERE order_no=%s",
+                (sm.get("mixing_order_no"),),
+            )
+            if mo and mo["id"] not in _seen(result["mixingOrders"]):
+                result["mixingOrders"].append(mo)
+
+    for mo in list(result["mixingOrders"]):
+        lots = query_all(
+            """
+            SELECT mol.*, ms.lot_no, ms.raw_batch_id, ms.raw_batch_no,
+                   ms.deboning_session_id
+            FROM mixing_order_lots mol
+            LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+            WHERE mol.order_id = %s
+            """,
+            (mo["id"],),
+        )
+        existing_lot_ids = {x.get("meat_stock_id") for x in result["meatLots"]}
+        for lot in lots:
+            if (
+                lot.get("meat_stock_id")
+                and lot["meat_stock_id"] not in existing_lot_ids
+            ):
+                result["meatLots"].append(lot)
+                existing_lot_ids.add(lot["meat_stock_id"])
+            if (
+                lot.get("deboning_session_id")
+                and lot["deboning_session_id"] not in _seen(result["deboning"])
+            ):
+                de = query_one(
+                    "SELECT * FROM deboning_entries WHERE id=%s",
+                    (lot["deboning_session_id"],),
+                )
+                if de:
+                    result["deboning"].append(_map_deboning_entry(de))
+            if (
+                lot.get("raw_batch_id")
+                and lot["raw_batch_id"] not in _seen(result["rawBatches"])
+            ):
+                rb = query_one(
+                    "SELECT * FROM raw_batches WHERE id=%s", (lot["raw_batch_id"],)
+                )
+                if rb:
+                    result["rawBatches"].append(rb)
+                    sup = query_one(
+                        "SELECT * FROM suppliers WHERE id=%s",
+                        (rb.get("supplier_id"),),
+                    )
+                    if sup and sup["id"] not in _seen(result["suppliers"]):
+                        result["suppliers"].append(sup)
+
+    return result
+
+
+def _trace_forward(batch_id: str) -> Dict[str, List]:
+    result = _empty_trace()
+
+    rb = query_one(
+        "SELECT * FROM raw_batches WHERE id=%s OR internal_batch_no=%s",
+        (batch_id, batch_id),
+    )
+    if not rb:
+        de_start = query_one("SELECT * FROM deboning_entries WHERE id=%s", (batch_id,))
+        if de_start:
+            rb = query_one(
+                "SELECT * FROM raw_batches WHERE id=%s",
+                (de_start.get("raw_batch_id"),),
+            )
+    if not rb:
+        return result
+
+    result["rawBatches"].append(rb)
+    raw_batch_id = rb["id"]
+    sup = query_one("SELECT * FROM suppliers WHERE id=%s", (rb.get("supplier_id"),))
+    if sup:
+        result["suppliers"].append(sup)
+
+    entries = query_all(
+        "SELECT * FROM deboning_entries WHERE raw_batch_id=%s", (raw_batch_id,)
+    )
+    result["deboning"] = [_map_deboning_entry(e) for e in entries]
+
+    meat_stocks = query_all(
+        "SELECT * FROM meat_stock WHERE raw_batch_id=%s", (raw_batch_id,)
+    )
+    for ms in meat_stocks:
+        lots = query_all(
+            "SELECT * FROM mixing_order_lots WHERE meat_stock_id=%s", (ms["id"],)
+        )
+        for lot in lots:
+            mo = query_one(
+                "SELECT * FROM mixing_orders WHERE id=%s", (lot.get("order_id"),)
+            )
+            if not mo or mo["id"] in _seen(result["mixingOrders"]):
+                continue
+            result["mixingOrders"].append(mo)
+
+            sbn_list = list(mo.get("source_seasoned_batch_ids") or [])
+            if not sbn_list:
+                sms_fb = query_all(
+                    "SELECT * FROM seasoned_meat WHERE mixing_order_no=%s",
+                    (mo.get("order_no"),),
+                )
+                sbn_list = [s.get("batch_no") for s in sms_fb if s.get("batch_no")]
+
+            for sbn in sbn_list:
+                sm = query_one(
+                    "SELECT * FROM seasoned_meat WHERE batch_no=%s", (sbn,)
+                )
+                if sm and sm["id"] not in _seen(result["seasonedBatches"]):
+                    result["seasonedBatches"].append(sm)
+                    fgs = query_all(
+                        "SELECT * FROM finished_goods "
+                        "WHERE %s = ANY(seasoned_batch_nos)",
+                        (sbn,),
+                    )
+                    for fg in fgs:
+                        if fg["id"] not in _seen(result["finishedGoods"]):
+                            result["finishedGoods"].append(fg)
+
+            if not result["finishedGoods"]:
+                fgs_fb = query_all(
+                    "SELECT * FROM finished_goods "
+                    "WHERE %s = ANY(source_mixing_ids)",
+                    (mo["id"],),
+                )
+                for fg in fgs_fb:
+                    if fg["id"] not in _seen(result["finishedGoods"]):
+                        result["finishedGoods"].append(fg)
+
+    return result
+
+
+def traceability(batch_id: str, direction: str = "backward") -> Dict[str, List]:
+    if direction == "forward":
+        return _trace_forward(batch_id)
+    return _trace_backward(batch_id)
+
+
+# ── Recall ────────────────────────────────────────────────────────────
+
+def recall(batch_id: str) -> Dict[str, Any]:
+    trace: Dict[str, List] = _empty_trace()
+
+    fg_direct = query_one(
+        "SELECT * FROM finished_goods WHERE id=%s OR batch_no=%s",
+        (batch_id, batch_id),
+    )
+    if fg_direct:
+        trace = _trace_backward(fg_direct["id"])
+        if not trace["finishedGoods"]:
+            trace["finishedGoods"] = [fg_direct]
+    else:
+        sm_direct = query_one(
+            "SELECT * FROM seasoned_meat WHERE id=%s OR batch_no=%s",
+            (batch_id, batch_id),
+        )
+        if sm_direct:
+            sbn = sm_direct.get("batch_no") or batch_id
+            fgs = query_all(
+                "SELECT * FROM finished_goods WHERE %s = ANY(seasoned_batch_nos)",
+                (sbn,),
+            )
+            if fgs:
+                for fg in fgs:
+                    sub = _trace_backward(fg["id"])
+                    for k in trace:
+                        seen_ids = _seen(trace[k])
+                        for item in sub[k]:
+                            if item.get("id") not in seen_ids:
+                                trace[k].append(item)
+                                seen_ids.add(item.get("id"))
+            else:
+                trace = _trace_backward(sbn)
+        else:
+            rb_direct = query_one(
+                "SELECT * FROM raw_batches WHERE id=%s OR internal_batch_no=%s",
+                (batch_id, batch_id),
+            )
+            if rb_direct:
+                trace = _trace_forward(rb_direct["id"])
+                if not trace["rawBatches"]:
+                    trace["rawBatches"] = [rb_direct]
+            else:
+                ms_direct = query_one(
+                    "SELECT * FROM meat_stock WHERE lot_no=%s OR id=%s",
+                    (batch_id, batch_id),
+                )
+                if ms_direct and ms_direct.get("raw_batch_id"):
+                    trace = _trace_forward(ms_direct["raw_batch_id"])
+
+    total_kg = round(
+        sum(float(fg.get("total_kg") or 0) for fg in trace["finishedGoods"]), 3
+    )
+    total_units = sum(int(fg.get("qty") or 0) for fg in trace["finishedGoods"])
+
+    deboning_summary = {
+        "totalKgMeat": round(
+            sum(float(d.get("kgMeat") or 0) for d in trace["deboning"]), 3
+        ),
+        "totalKgBones": round(
+            sum(float(d.get("kgBones") or 0) for d in trace["deboning"]), 3
+        ),
+        "totalKgBacks": round(
+            sum(float(d.get("kgBacks") or 0) for d in trace["deboning"]), 3
+        ),
+        "entryCount": len(trace["deboning"]),
+    }
+
+    clients: List[Dict] = []
+    seen_clients: Set[str] = set()
+    for fg in trace["finishedGoods"]:
+        cn = fg.get("client_name")
+        key = f"{cn}||{fg.get('client_order_no')}"
+        if cn and key not in seen_clients:
+            seen_clients.add(key)
+            clients.append(
+                {
+                    "clientName": cn,
+                    "clientOrderNo": fg.get("client_order_no"),
+                    "qty": int(fg.get("qty") or 0),
+                    "totalKg": float(fg.get("total_kg") or 0),
+                    "producedDate": str(fg.get("produced_date") or ""),
+                    "batchNo": fg.get("batch_no"),
+                }
+            )
+
+    timeline: List[Dict] = []
+    for rb in trace["rawBatches"]:
+        timeline.append(
+            {
+                "stage": "Przyjęcie surowca",
+                "batchNo": rb.get("internal_batch_no"),
+                "date": str(rb.get("received_date") or rb.get("created_at") or ""),
+                "details": f"{rb.get('supplier_name','?')} · {rb.get('kg_received',0)} kg",
+            }
+        )
+    for de in trace["deboning"]:
+        timeline.append(
+            {
+                "stage": "Rozbiór",
+                "batchNo": de.get("rawBatchNo"),
+                "date": str(de.get("createdAt") or ""),
+                "details": f"Mięso: {de.get('kgMeat',0)} kg · Wydajność: {de.get('yieldPct',0)}%",
+            }
+        )
+    for sm in trace["seasonedBatches"]:
+        timeline.append(
+            {
+                "stage": "Masowanie",
+                "batchNo": sm.get("batch_no"),
+                "date": str(sm.get("created_at") or ""),
+                "details": f"{sm.get('recipe_name','?')} · {sm.get('kg_produced',0)} kg",
+            }
+        )
+    for fg in trace["finishedGoods"]:
+        timeline.append(
+            {
+                "stage": "Wyrób gotowy",
+                "batchNo": fg.get("batch_no"),
+                "date": str(fg.get("produced_date") or fg.get("created_at") or ""),
+                "details": (
+                    f"{fg.get('qty',0)} szt · "
+                    f"{fg.get('total_kg',0)} kg → {fg.get('client_name','?')}"
+                ),
+            }
+        )
+    timeline.sort(key=lambda x: x.get("date") or "")
+
+    documents: List[Dict] = []
+    rb_ids = [rb["id"] for rb in trace["rawBatches"] if rb.get("id")]
+    if rb_ids:
+        invs = query_all(
+            "SELECT invoice_no, invoice_date, total_gross, category FROM invoices "
+            "WHERE raw_batch_id = ANY(%s::text[])",
+            (rb_ids,),
+        )
+        for inv in invs:
+            if inv.get("invoice_no"):
+                documents.append(
+                    {
+                        "type": "Faktura zakupowa",
+                        "number": inv.get("invoice_no"),
+                        "date": str(inv.get("invoice_date") or ""),
+                        "value": float(inv.get("total_gross") or 0),
+                    }
+                )
+    for fg in trace["finishedGoods"]:
+        if fg.get("client_order_no"):
+            documents.append(
+                {
+                    "type": "Zamówienie klienta",
+                    "number": fg.get("client_order_no"),
+                    "date": str(fg.get("produced_date") or ""),
+                    "value": float(fg.get("total_kg") or 0),
+                }
+            )
+
+    return {
+        "batchId": batch_id,
+        "raw_batches": trace["rawBatches"],
+        "deboning": trace["deboning"],
+        "deboning_summary": deboning_summary,
+        "seasoned": trace["seasonedBatches"],
+        "mixing_orders": trace["mixingOrders"],
+        "production": trace["production"],
+        "finished": trace["finishedGoods"],
+        "clients": clients,
+        "suppliers": trace["suppliers"],
+        "total_kg": total_kg,
+        "total_units": total_units,
+        "timeline": timeline,
+        "documents": documents,
+    }
+
+
+# ── Debug: chain verification for one finished_goods row ─────────────
+
+def debug_trace(finished_good_id: str) -> Dict[str, Any]:
+    fg = query_one(
+        "SELECT * FROM finished_goods WHERE id=%s OR batch_no=%s",
+        (finished_good_id, finished_good_id),
+    )
+    if not fg:
+        from fastapi import HTTPException
+
+        raise HTTPException(404, "Wyrób gotowy nie znaleziony")
+
+    deboning: List[Dict] = []
+    for did in fg.get("source_deboning_ids") or []:
+        de = query_one("SELECT * FROM deboning_entries WHERE id=%s", (did,))
+        if de:
+            deboning.append(_map_deboning_entry(de))
+
+    seasoned: List[Dict] = []
+    for sid in fg.get("source_seasoned_ids") or []:
+        sm = query_one("SELECT * FROM seasoned_meat WHERE id=%s", (sid,))
+        if sm:
+            seasoned.append(sm)
+    if not seasoned and fg.get("seasoned_batch_nos"):
+        for bno in fg["seasoned_batch_nos"] or []:
+            sm = query_one("SELECT * FROM seasoned_meat WHERE batch_no=%s", (bno,))
+            if sm and sm["id"] not in {s["id"] for s in seasoned}:
+                seasoned.append(sm)
+
+    mixing: List[Dict] = []
+    for mid in fg.get("source_mixing_ids") or []:
+        mo = query_one("SELECT * FROM mixing_orders WHERE id=%s", (mid,))
+        if mo:
+            mixing.append(build_mixing_order(mo))
+
+    raw_batches: List[Dict] = []
+    seen_rb: Set[str] = set()
+    for de in deboning:
+        rb_id = de.get("rawBatchId")
+        if rb_id and rb_id not in seen_rb:
+            seen_rb.add(rb_id)
+            rb = query_one("SELECT * FROM raw_batches WHERE id=%s", (rb_id,))
+            if rb:
+                raw_batches.append(rb)
+
+    missing_links = {
+        "has_seasoned_batch_nos": bool(fg.get("seasoned_batch_nos")),
+        "has_source_seasoned_ids": bool(fg.get("source_seasoned_ids")),
+        "has_source_mixing_ids": bool(fg.get("source_mixing_ids")),
+        "has_source_deboning_ids": bool(fg.get("source_deboning_ids")),
+        "deboning_resolved": bool(deboning),
+        "seasoned_resolved": bool(seasoned),
+        "mixing_resolved": bool(mixing),
+        "raw_batches_resolved": bool(raw_batches),
+    }
+    chain_complete = all(
+        [
+            missing_links["has_seasoned_batch_nos"],
+            missing_links["seasoned_resolved"],
+            missing_links["deboning_resolved"],
+        ]
+    )
+
+    return {
+        "finished": fg,
+        "deboning": deboning,
+        "seasoned": seasoned,
+        "mixing": mixing,
+        "raw_batches": raw_batches,
+        "chain_complete": chain_complete,
+        "missing_links": missing_links,
+    }
+
+
+# ── Admin: repair historical lineage ──────────────────────────────────
+
+def repair_lineage() -> Dict[str, Any]:
+    fixed_seasoned = 0
+    fixed_finished = 0
+    errors: List[str] = []
+
+    with transaction() as conn:
+        batches = cx_query_all(
+            conn,
+            "SELECT * FROM seasoned_meat "
+            "WHERE source_deboning_ids = '{}' OR source_deboning_ids IS NULL",
+        )
+        for sm in batches:
+            try:
+                mo = cx_query_one(
+                    conn,
+                    "SELECT * FROM mixing_orders WHERE order_no=%s",
+                    (sm.get("mixing_order_no"),),
+                )
+                if not mo:
+                    continue
+                lots = cx_query_all(
+                    conn,
+                    """
+                    SELECT mol.meat_stock_id, ms.deboning_session_id, ms.raw_batch_id
+                    FROM mixing_order_lots mol
+                    LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+                    WHERE mol.order_id = %s
+                    """,
+                    (mo["id"],),
+                )
+                deboning_ids = list(
+                    {
+                        lt["deboning_session_id"]
+                        for lt in lots
+                        if lt.get("deboning_session_id")
+                    }
+                )
+                if deboning_ids:
+                    cx_execute(
+                        conn,
+                        """
+                        UPDATE seasoned_meat
+                        SET source_deboning_ids = %s::text[]
+                        WHERE id = %s
+                          AND (source_deboning_ids = '{}' OR source_deboning_ids IS NULL)
+                        """,
+                        (deboning_ids, sm["id"]),
+                    )
+                    fixed_seasoned += 1
+                cx_execute(
+                    conn,
+                    """
+                    UPDATE mixing_orders
+                    SET source_seasoned_batch_ids = (
+                        SELECT ARRAY(SELECT DISTINCT unnest(
+                            COALESCE(source_seasoned_batch_ids,'{}') || ARRAY[%s]
+                        ))
+                    )
+                    WHERE id = %s
+                    """,
+                    (sm["batch_no"], mo["id"]),
+                )
+            except Exception as e:
+                errors.append(f"seasoned_meat {sm.get('batch_no')}: {e}")
+
+        fgs = cx_query_all(
+            conn,
+            """
+            SELECT * FROM finished_goods
+            WHERE (source_mixing_ids = '{}' OR source_mixing_ids IS NULL)
+              AND seasoned_batch_nos IS NOT NULL
+              AND array_length(seasoned_batch_nos, 1) > 0
+            """,
+        )
+
+    # Resolve lineage outside the write transaction to avoid long locks
+    for fg in fgs:
+        try:
+            lin = _resolve_lineage(fg.get("seasoned_batch_nos") or [])
+            if not lin["mixing_order_ids"] and not lin["deboning_entry_ids"]:
+                continue
+            with transaction() as conn2:
+                cx_execute(
+                    conn2,
+                    """
+                    UPDATE finished_goods
+                    SET source_mixing_ids   = %s::text[],
+                        source_seasoned_ids = %s::text[],
+                        source_deboning_ids = %s::text[]
+                    WHERE id = %s
+                    """,
+                    (
+                        lin["mixing_order_ids"],
+                        lin["seasoned_meat_ids"],
+                        lin["deboning_entry_ids"],
+                        fg["id"],
+                    ),
+                )
+            fixed_finished += 1
+        except Exception as e:
+            errors.append(f"finished_goods {fg.get('batch_no')}: {e}")
+
+    logger.info(
+        "admin.repair_lineage",
+        extra={
+            "fixed_seasoned": fixed_seasoned,
+            "fixed_finished": fixed_finished,
+            "errors": len(errors),
+        },
+    )
+    return {
+        "fixed_seasoned_meat": fixed_seasoned,
+        "fixed_finished_goods": fixed_finished,
+        "errors": errors,
+        "total_seasoned_checked": len(batches),
+        "total_finished_checked": len(fgs),
+    }
+
+
+def recalculate_recipe_yields() -> Dict[str, int]:
+    with transaction() as conn:
+        recipes = cx_query_all(conn, "SELECT * FROM recipes")
+        updated = 0
+        for r in recipes:
+            ings = cx_query_all(
+                conn,
+                "SELECT qty_per_100kg FROM recipe_ingredients WHERE recipe_id=%s",
+                (r["id"],),
+            )
+            auto_output = round(
+                100.0 + sum(float(i.get("qty_per_100kg") or 0) for i in ings), 3
+            )
+            if abs(auto_output - float(r.get("total_output_per_100kg") or 100)) > 0.01:
+                cx_execute(
+                    conn,
+                    "UPDATE recipes SET total_output_per_100kg=%s WHERE id=%s",
+                    (auto_output, r["id"]),
+                )
+                updated += 1
+    logger.info(
+        "admin.recalculate_recipe_yields",
+        extra={"updated": updated, "total": len(recipes)},
+    )
+    return {"updated_recipes": updated, "total": len(recipes)}

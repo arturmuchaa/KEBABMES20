@@ -1,0 +1,166 @@
+"""FastAPI application factory.
+
+Creates the app, registers routes, configures CORS, and serves the
+SPA frontend from ``../dist`` when the build directory exists.
+"""
+from __future__ import annotations
+
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+
+from app.config import settings
+from app.db import close_pool, init_pool
+from app.logging_config import configure_logging, get_logger
+from app.migrations import run_migrations
+from app.utils.ids import now_iso
+
+logger = get_logger(__name__)
+
+
+# ── Lifespan (startup + shutdown) ─────────────────────────────────────
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    configure_logging()
+    logger.info("app.startup", extra={"version": settings.app_version})
+    init_pool()
+    run_migrations()
+    yield
+    logger.info("app.shutdown")
+    close_pool()
+
+
+# ── Build the FastAPI instance ────────────────────────────────────────
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="Kebab MES API",
+        version=settings.app_version,
+        lifespan=_lifespan,
+    )
+
+    # CORS
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # ── Register route modules ────────────────────────────────────
+    from app.routes import (  # noqa: E402
+        health,
+        suppliers,
+        clients,
+        raw_batches,
+        meat_stock,
+        ingredients,
+        packaging,
+        orders,
+        production_plans,
+        recipes,
+        seasoned_meat,
+        mixing,
+        finished_goods,
+        invoices,
+        workers,
+        product_types,
+        production_sessions,
+        deboning,
+        machine_locks,
+        vies,
+        traceability,
+        stubs,
+    )
+
+    for mod in (
+        health,
+        suppliers,
+        clients,
+        raw_batches,
+        meat_stock,
+        ingredients,
+        packaging,
+        orders,
+        production_plans,
+        recipes,
+        seasoned_meat,
+        mixing,
+        finished_goods,
+        invoices,
+        workers,
+        product_types,
+        production_sessions,
+        deboning,
+        machine_locks,
+        vies,
+        traceability,
+        stubs,
+    ):
+        app.include_router(mod.router)
+
+    # ── Root + SPA fallback ───────────────────────────────────────
+    _dist = str(settings.dist_dir)
+
+    @app.get("/api/health-full")
+    def health_full():
+        from app.db import healthcheck
+        db_ok = healthcheck()
+        return {
+            "status": "ok" if db_ok else "degraded",
+            "database": "connected" if db_ok else "error",
+            "time": now_iso(),
+            "version": settings.app_version,
+        }
+
+    @app.get("/", include_in_schema=False)
+    def root():
+        index = os.path.join(_dist, "index.html")
+        if os.path.isfile(index):
+            return FileResponse(
+                index,
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            )
+        return HTMLResponse("<h1>Kebab MES API</h1>")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon():
+        ico_path = os.path.join(_dist, "favicon.ico")
+        if os.path.isfile(ico_path):
+            return FileResponse(ico_path)
+        from fastapi.responses import Response
+        return Response(content=b"", media_type="image/x-icon")
+
+    # Mount static assets if dist exists
+    if os.path.isdir(os.path.join(_dist, "assets")):
+        app.mount(
+            "/assets",
+            StaticFiles(directory=os.path.join(_dist, "assets")),
+            name="assets",
+        )
+
+    # SPA catch-all (must be last)
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa_fallback(full_path: str):
+        file_path = os.path.join(_dist, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        index = os.path.join(_dist, "index.html")
+        if os.path.isfile(index):
+            return FileResponse(
+                index,
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            )
+        return HTMLResponse("<h1>Kebab MES API</h1>", status_code=404)
+
+    return app
+
+
+app = create_app()
