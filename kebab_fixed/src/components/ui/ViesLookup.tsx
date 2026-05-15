@@ -21,7 +21,7 @@ interface Props {
 const _isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 const _envUrl  = import.meta.env.VITE_API_URL as string | undefined
 const API_BASE = _isTauri
-  ? `${_envUrl || 'http://204.168.166.34'}/api`
+  ? `${_envUrl || 'http://204.168.166.34:8080'}/api`
   : _envUrl ? `${_envUrl}/api` : '/api'
 
 const EU_COUNTRIES: Record<string, string> = {

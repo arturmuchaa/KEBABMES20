@@ -29,7 +29,7 @@ import type {
 
 // URL backendu:
 //   Przeglądarka (VPS):  VITE_API_URL=""  → fetch('/api') → nginx proxy
-//   Tauri (desktop):     VITE_API_URL="http://204.168.166.34" → fetch absolutny do serwera
+//   Tauri (desktop):     VITE_API_URL="http://204.168.166.34:8080" → fetch absolutny do serwera
 //
 // Tauri nie może używać ścieżek względnych (/api) bo nie ma serwera HTTP lokalnie.
 // Wykrywamy środowisko Tauri przez window.__TAURI_INTERNALS__ ustawiane przez runtime.
@@ -37,7 +37,7 @@ const _isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in windo
 
 const BASE = (() => {
   if (import.meta.env.VITE_API_URL) return `${import.meta.env.VITE_API_URL}/api`
-  if (_isTauri) return 'http://204.168.166.34/api'  // fallback dla Tauri bez zmiennej
+  if (_isTauri) return 'http://204.168.166.34:8080/api'  // fallback dla Tauri bez zmiennej (nginx MES = port 8080)
   return '/api'  // przeglądarka — nginx proxy
 })()
 

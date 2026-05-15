@@ -22,7 +22,7 @@ const GUS_KEY = 'bQnofjptVjNp8m2jL90lkSofEsluEoCJVORSAb5rzVTQ8ZrJodsECPrcQuUsEeT
 const BASE_API = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
   : (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-      ? 'http://204.168.166.34/api'
+      ? 'http://204.168.166.34:8080/api'
       : '/api')
 
 type GusStatus = 'idle' | 'loading' | 'found' | 'error'
