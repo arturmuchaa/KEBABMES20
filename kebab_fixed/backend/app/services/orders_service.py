@@ -13,10 +13,71 @@ from app.db import (
 )
 from app.logging_config import get_logger
 from app.models.orders import ClientOrderCreate, OrderLineCreate
-from app.utils.ids import cuid, next_seq, now_iso
+from app.utils.ids import cuid, now_iso
 from datetime import datetime
 
 logger = get_logger(__name__)
+
+
+def _order_period(order_date_raw: str | None) -> str:
+    if order_date_raw:
+        try:
+            return datetime.fromisoformat(order_date_raw).strftime("%m/%y")
+        except ValueError:
+            pass
+    return datetime.now().strftime("%m/%y")
+
+
+def _next_client_order_no(conn, order_date_raw: str | None) -> str:
+    period = _order_period(order_date_raw)
+    seq_key = f"client_order_seq:{period}"
+    month_part, year_part = period.split("/")
+
+    # Lock one row per month so parallel creates cannot allocate the same number.
+    cx_execute(
+        conn,
+        """
+        INSERT INTO sequences (key, value)
+        VALUES (%s, 0)
+        ON CONFLICT (key) DO NOTHING
+        """,
+        (seq_key,),
+    )
+    cx_query_one(
+        conn,
+        """
+        SELECT value
+        FROM sequences
+        WHERE key = %s
+        FOR UPDATE
+        """,
+        (seq_key,),
+    )
+
+    rows = cx_query_all(
+        conn,
+        """
+        SELECT split_part(order_no, '/', 2)::INTEGER AS seq
+        FROM client_orders
+        WHERE split_part(order_no, '/', 1) = 'Z'
+          AND split_part(order_no, '/', 3) = %s
+          AND split_part(order_no, '/', 4) = %s
+          AND split_part(order_no, '/', 2) ~ '^[0-9]+$'
+        ORDER BY seq
+        """,
+        (month_part, year_part),
+    )
+    used = {int(row["seq"]) for row in rows}
+    seq = 1
+    while seq in used:
+        seq += 1
+
+    cx_execute(
+        conn,
+        "UPDATE sequences SET value = GREATEST(value, %s) WHERE key = %s",
+        (seq, seq_key),
+    )
+    return f"Z/{seq}/{period}"
 
 
 def _resolve_line_names(conn, line: OrderLineCreate) -> Tuple[str, str, str]:
@@ -48,6 +109,67 @@ def _resolve_line_names(conn, line: OrderLineCreate) -> Tuple[str, str, str]:
     return recipe_name or "", product_type_name or "", packaging_name or ""
 
 
+def _hydrate_order(order: Dict[str, Any]) -> Dict[str, Any]:
+    lines = query_all(
+        "SELECT * FROM client_order_lines WHERE order_id = %s", (order["id"],)
+    )
+    for line in lines:
+        if not line.get("recipe_name") and line.get("recipe_id"):
+            r = query_one(
+                "SELECT name, product_type_name FROM recipes WHERE id=%s",
+                (line["recipe_id"],),
+            )
+            if r:
+                line["recipe_name"] = r["name"] or ""
+                if not line.get("product_type_name"):
+                    line["product_type_name"] = r.get("product_type_name") or ""
+        if not line.get("product_type_name") and line.get("product_type_id"):
+            pt = query_one(
+                "SELECT name FROM product_types WHERE id=%s",
+                (line["product_type_id"],),
+            )
+            if pt:
+                line["product_type_name"] = pt["name"] or ""
+        if not line.get("packaging_name") and line.get("packaging_id"):
+            pkg = query_one(
+                "SELECT name FROM packaging WHERE id=%s", (line["packaging_id"],)
+            )
+            if pkg:
+                line["packaging_name"] = pkg["name"] or ""
+
+    done_rows = query_all(
+        """
+        SELECT recipe_id, kg_per_unit, SUM(qty) AS qty_done
+        FROM finished_goods
+        WHERE client_order_no = %s
+        GROUP BY recipe_id, kg_per_unit
+        """,
+        (order["order_no"],),
+    )
+    done_map: dict = {
+        f"{dr['recipe_id']}|{float(dr['kg_per_unit'])}": int(dr["qty_done"] or 0)
+        for dr in done_rows
+    }
+    unlinked_rows = query_all(
+        """
+        SELECT recipe_id, kg_per_unit, SUM(qty) AS qty_done
+        FROM finished_goods
+        WHERE (client_order_no IS NULL OR client_order_no = '')
+        GROUP BY recipe_id, kg_per_unit
+        """
+    )
+    unlinked_map: dict = {
+        f"{dr['recipe_id']}|{float(dr['kg_per_unit'])}": int(dr["qty_done"] or 0)
+        for dr in unlinked_rows
+    }
+    for line in lines:
+        key = f"{line['recipe_id']}|{float(line['kg_per_unit'])}"
+        line["qty_done"] = done_map.get(key, 0) + unlinked_map.get(key, 0)
+
+    order["lines"] = lines
+    return order
+
+
 def list_orders(status: str | None) -> List[Dict]:
     sql = "SELECT * FROM client_orders"
     params: list = []
@@ -56,69 +178,17 @@ def list_orders(status: str | None) -> List[Dict]:
         params.append(status)
     sql += " ORDER BY created_at DESC"
     orders = query_all(sql, params or None)
-    for o in orders:
-        lines = query_all(
-            "SELECT * FROM client_order_lines WHERE order_id = %s", (o["id"],)
-        )
-        for line in lines:
-            if not line.get("recipe_name") and line.get("recipe_id"):
-                r = query_one(
-                    "SELECT name, product_type_name FROM recipes WHERE id=%s",
-                    (line["recipe_id"],),
-                )
-                if r:
-                    line["recipe_name"] = r["name"] or ""
-                    if not line.get("product_type_name"):
-                        line["product_type_name"] = r.get("product_type_name") or ""
-            if not line.get("product_type_name") and line.get("product_type_id"):
-                pt = query_one(
-                    "SELECT name FROM product_types WHERE id=%s",
-                    (line["product_type_id"],),
-                )
-                if pt:
-                    line["product_type_name"] = pt["name"] or ""
-            if not line.get("packaging_name") and line.get("packaging_id"):
-                pkg = query_one(
-                    "SELECT name FROM packaging WHERE id=%s", (line["packaging_id"],)
-                )
-                if pkg:
-                    line["packaging_name"] = pkg["name"] or ""
+    return [_hydrate_order(order) for order in orders]
 
-        done_rows = query_all(
-            """
-            SELECT recipe_id, kg_per_unit, SUM(qty) AS qty_done
-            FROM finished_goods
-            WHERE client_order_no = %s
-            GROUP BY recipe_id, kg_per_unit
-            """,
-            (o["order_no"],),
-        )
-        done_map: dict = {
-            f"{dr['recipe_id']}|{float(dr['kg_per_unit'])}": int(dr["qty_done"] or 0)
-            for dr in done_rows
-        }
-        unlinked_rows = query_all(
-            """
-            SELECT recipe_id, kg_per_unit, SUM(qty) AS qty_done
-            FROM finished_goods
-            WHERE (client_order_no IS NULL OR client_order_no = '')
-            GROUP BY recipe_id, kg_per_unit
-            """
-        )
-        unlinked_map: dict = {
-            f"{dr['recipe_id']}|{float(dr['kg_per_unit'])}": int(dr["qty_done"] or 0)
-            for dr in unlinked_rows
-        }
-        for line in lines:
-            key = f"{line['recipe_id']}|{float(line['kg_per_unit'])}"
-            line["qty_done"] = done_map.get(key, 0) + unlinked_map.get(key, 0)
-        o["lines"] = lines
-    return orders
+
+def get_order(order_id: str) -> Dict[str, Any]:
+    order = query_one("SELECT * FROM client_orders WHERE id = %s", (order_id,))
+    if not order:
+        raise HTTPException(404, "Zamówienie nie znalezione")
+    return _hydrate_order(order)
 
 
 def create_order(dto: ClientOrderCreate) -> Dict:
-    seq = next_seq("client_order_seq")
-    year = datetime.now().year
     total_kg = sum(l.qty * l.kg_per_unit for l in dto.lines)
     total_units = sum(l.qty for l in dto.lines)
 
@@ -128,6 +198,7 @@ def create_order(dto: ClientOrderCreate) -> Dict:
         )
         if not client:
             raise HTTPException(404, "Klient nie znaleziony")
+        order_no = _next_client_order_no(conn, dto.order_date)
 
         order = cx_execute_returning(
             conn,
@@ -140,9 +211,9 @@ def create_order(dto: ClientOrderCreate) -> Dict:
             """,
             (
                 cuid(),
-                f"ZAM-{year}-{str(seq).zfill(3)}",
+                order_no,
                 dto.client_id,
-                client["name"],
+                client.get("display_name") or client["name"],
                 dto.order_date,
                 dto.delivery_date or None,
                 round(total_kg, 3),
@@ -249,7 +320,7 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
             """,
             (
                 dto.client_id,
-                client["name"],
+                client.get("display_name") or client["name"],
                 dto.order_date,
                 dto.delivery_date or None,
                 round(total_kg, 3),
@@ -297,3 +368,48 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
         )
     logger.info("order.updated", extra={"order_id": order_id})
     return updated
+
+
+def production_progress(order_id: str) -> Dict[str, Any]:
+    """Dla każdej linii zamówienia zwraca:
+      qty_done    — sumarycznie szt z planów ze statusem 'done'
+      qty_pending — sumarycznie szt z planów 'draft' i 'active' (zarezerwowane)
+      qty_total   — ilość zamówiona
+      qty_remaining — qty_total - qty_done - qty_pending (jeśli > 0)
+    """
+    order = query_one("SELECT id, order_no FROM client_orders WHERE id=%s", (order_id,))
+    if not order:
+        raise HTTPException(404, "Zamówienie nie znalezione")
+    lines = query_all(
+        "SELECT id, qty FROM client_order_lines WHERE order_id=%s", (order_id,)
+    )
+    rows = query_all(
+        """
+        SELECT pl.client_order_line_id AS line_id,
+               COALESCE(SUM(CASE WHEN pp.status = 'done'                   THEN pl.qty ELSE 0 END), 0) AS qty_done,
+               COALESCE(SUM(CASE WHEN pp.status IN ('draft','active')      THEN pl.qty ELSE 0 END), 0) AS qty_pending
+        FROM production_plan_lines pl
+        JOIN production_plans pp ON pp.id = pl.plan_id
+        WHERE pl.client_order_line_id IN (SELECT id FROM client_order_lines WHERE order_id=%s)
+        GROUP BY pl.client_order_line_id
+        """,
+        (order_id,),
+    )
+    by_line = {r["line_id"]: r for r in rows}
+    result_lines = []
+    for line in lines:
+        agg = by_line.get(line["id"], {})
+        qty_total = int(line["qty"] or 0)
+        qty_done = int(agg.get("qty_done") or 0)
+        qty_pending = int(agg.get("qty_pending") or 0)
+        qty_remaining = max(0, qty_total - qty_done - qty_pending)
+        result_lines.append(
+            {
+                "line_id": line["id"],
+                "qty_total": qty_total,
+                "qty_done": qty_done,
+                "qty_pending": qty_pending,
+                "qty_remaining": qty_remaining,
+            }
+        )
+    return {"order_id": order_id, "order_no": order["order_no"], "lines": result_lines}

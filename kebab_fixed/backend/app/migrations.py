@@ -13,6 +13,51 @@ _DDL: list[str] = [
     "ALTER TABLE product_types ADD COLUMN IF NOT EXISTS description TEXT",
     "ALTER TABLE product_types ADD COLUMN IF NOT EXISTS components JSONB DEFAULT '[]'",
 
+    # ── Clients: nazwa wyświetlana (skrócona/zakładowa) ──
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS display_name TEXT",
+
+    # ── App settings (klucz–wartość) ──
+    """CREATE TABLE IF NOT EXISTS app_settings (
+        key        TEXT PRIMARY KEY,
+        value      JSONB NOT NULL,
+        updated_at TIMESTAMPTZ DEFAULT now()
+    )""",
+
+    # ── Order pallets (palety wydania) ──
+    """CREATE TABLE IF NOT EXISTS order_pallets (
+        id         TEXT PRIMARY KEY,
+        order_id   TEXT NOT NULL REFERENCES client_orders(id) ON DELETE CASCADE,
+        pallet_no  INTEGER NOT NULL,
+        notes      TEXT DEFAULT '',
+        created_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (order_id, pallet_no)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_order_pallets_order ON order_pallets(order_id)",
+
+    """CREATE TABLE IF NOT EXISTS order_pallet_items (
+        id            TEXT PRIMARY KEY,
+        pallet_id     TEXT NOT NULL REFERENCES order_pallets(id) ON DELETE CASCADE,
+        order_line_id TEXT NOT NULL REFERENCES client_order_lines(id) ON DELETE CASCADE,
+        qty           INTEGER NOT NULL CHECK (qty > 0)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_pallet_items_pallet ON order_pallet_items(pallet_id)",
+    "CREATE INDEX IF NOT EXISTS idx_pallet_items_line   ON order_pallet_items(order_line_id)",
+
+    # ── Tracking skanowania palet (kod QR) ──
+    "ALTER TABLE order_pallets ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'created'",
+    "ALTER TABLE order_pallets ADD COLUMN IF NOT EXISTS cold_storage_at TIMESTAMPTZ",
+    "ALTER TABLE order_pallets ADD COLUMN IF NOT EXISTS loaded_at TIMESTAMPTZ",
+    "CREATE INDEX IF NOT EXISTS idx_order_pallets_status ON order_pallets(status)",
+
+    """CREATE TABLE IF NOT EXISTS pallet_scans (
+        id          TEXT PRIMARY KEY,
+        pallet_id   TEXT NOT NULL REFERENCES order_pallets(id) ON DELETE CASCADE,
+        action      TEXT NOT NULL,
+        scanned_at  TIMESTAMPTZ DEFAULT now(),
+        operator    TEXT DEFAULT ''
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_pallet_scans_pallet ON pallet_scans(pallet_id)",
+
     # ── Traceability v2 — batch→batch lineage ──
     "ALTER TABLE seasoned_meat ADD COLUMN IF NOT EXISTS source_deboning_ids TEXT[] DEFAULT '{}'",
     "ALTER TABLE mixing_orders ADD COLUMN IF NOT EXISTS source_seasoned_batch_ids TEXT[] DEFAULT '{}'",
@@ -21,6 +66,8 @@ _DDL: list[str] = [
     "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_production_id TEXT",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS batch_allocation JSONB DEFAULT '{}'",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS seasoned_batch_nos TEXT[] DEFAULT '{}'",
+    "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS client_order_line_id TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_plan_lines_order_line ON production_plan_lines(client_order_line_id) WHERE client_order_line_id IS NOT NULL",
 
     # ── Traceability v3 — full chain in production_sessions + finished_goods ──
     "ALTER TABLE production_sessions ADD COLUMN IF NOT EXISTS source_seasoned_ids TEXT[] DEFAULT '{}'",
@@ -75,6 +122,40 @@ _DDL: list[str] = [
         settlement_id TEXT NOT NULL,
         PRIMARY KEY (worker_id, work_date)
     )""",
+
+    # ── Postęp produkcji per linia (live update z tabletu) ──
+    "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS qty_done INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS worker_entries JSONB NOT NULL DEFAULT '[]'",
+    "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS line_status TEXT NOT NULL DEFAULT 'PLANNED'",
+    "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS progress_updated_at TIMESTAMPTZ",
+
+    # ── Day closures (biuro zamyka dzień osobno dla każdej sekcji) ──
+    """CREATE TABLE IF NOT EXISTS day_closures (
+        id           TEXT PRIMARY KEY,
+        closure_date DATE NOT NULL,
+        section      TEXT NOT NULL,
+        closed_at    TIMESTAMPTZ DEFAULT now(),
+        closed_by    TEXT DEFAULT '',
+        notes        TEXT DEFAULT '',
+        UNIQUE (closure_date, section)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_day_closures_date_section ON day_closures(closure_date, section)",
+
+    # ── Samochody / pojazdy do załadunku ──
+    """CREATE TABLE IF NOT EXISTS vehicles (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        plate       TEXT DEFAULT '',
+        kind        TEXT NOT NULL DEFAULT 'own',
+        vehicle_type TEXT NOT NULL DEFAULT 'dostawczy',
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        active      BOOLEAN NOT NULL DEFAULT true,
+        notes       TEXT DEFAULT '',
+        created_at  TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_vehicles_active ON vehicles(active)",
+    "ALTER TABLE pallet_scans ADD COLUMN IF NOT EXISTS vehicle_id TEXT",
+    "ALTER TABLE order_pallets ADD COLUMN IF NOT EXISTS loaded_vehicle_id TEXT",
 ]
 
 
@@ -92,8 +173,32 @@ def run_migrations() -> None:
 
     _seed_water()
     _seed_mixed_seq()
+    _seed_vehicles()
     _backfill_lineage()
     logger.info("migrations.done")
+
+
+def _seed_vehicles() -> None:
+    """Wstępna lista samochodów do załadunku."""
+    try:
+        existing = query_one("SELECT count(*) AS n FROM vehicles")
+        if existing and int(existing.get("n", 0)) > 0:
+            return
+        seeds = [
+            ("Samochód dostawczy", "KRA621AK", "own",      "dostawczy", 10),
+            ("Samochód dostawczy", "KOL 47267", "own",     "dostawczy", 20),
+            ("TIR spedycja",       "",          "external", "tir",     30),
+            ("SOLO spedycja",      "",          "external", "solo",    40),
+        ]
+        for name, plate, kind, vtype, sort_order in seeds:
+            execute(
+                "INSERT INTO vehicles (id, name, plate, kind, vehicle_type, sort_order, active, created_at) "
+                "VALUES (gen_random_uuid()::text, %s, %s, %s, %s, %s, true, now())",
+                (name, plate, kind, vtype, sort_order),
+            )
+        logger.info("migrations.seed_vehicles.done", extra={"count": len(seeds)})
+    except Exception as exc:
+        logger.warning("migrations.seed_vehicles.error", extra={"error": str(exc)})
 
 
 def _seed_water() -> None:

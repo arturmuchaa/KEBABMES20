@@ -6,7 +6,8 @@ import { useApi } from '@/hooks/useApi'
 import { clientsApi } from '@/lib/apiClient'
 import { GusLookup, type GusCompanyData } from '@/components/ui/GusLookup'
 import { ViesLookup, type ViesCompanyData } from '@/components/ui/ViesLookup'
-import { Building2, Mail, Pencil, Phone, Plus, Search, Globe, Flag } from 'lucide-react'
+import { Building2, Mail, Pencil, Phone, Plus, Search, Globe, Flag, Trash2, CheckCircle } from 'lucide-react'
+import { toast } from 'sonner'
 import type { Client, CreateClientDto } from '@/lib/mockApi'
 
 import { Button } from '@/components/ui/button'
@@ -22,7 +23,74 @@ import {
 } from '@/components/ui/dialog'
 
 function emptyForm(): CreateClientDto {
-  return { name: '', nip: '', regon: '', address: '', city: '', contactName: '', phone: '', email: '' }
+  return { name: '', displayName: '', nip: '', regon: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '' }
+}
+
+interface AddressParts { address: string; postalCode: string; city: string }
+
+function gusAddress(d: GusCompanyData): AddressParts {
+  const streetBase = [d.ulica, d.numer_budynku].filter(Boolean).join(' ').trim()
+  const street = d.numer_lokalu ? `${streetBase}/${d.numer_lokalu}` : streetBase
+  return { address: street, postalCode: d.kod_pocztowy ?? '', city: d.miasto ?? '' }
+}
+
+function splitPostalCity(line: string): { postalCode: string; city: string } {
+  const m = line.match(/^([0-9][0-9\s-]{1,9})\s+(.+)$/)
+  if (m) return { postalCode: m[1].trim(), city: m[2].trim() }
+  return { postalCode: '', city: line }
+}
+
+function viesAddress(raw: string, country: string): AddressParts {
+  if (!raw) return { address: '', postalCode: '', city: '' }
+  const lines = raw.split(/[\n\r]+/).map(s => s.trim()).filter(Boolean)
+  if (lines.length === 0) return { address: '', postalCode: '', city: '' }
+  const stripCountry = (s: string) =>
+    country ? s.replace(new RegExp(`^${country}\\s*-\\s*`, 'i'), '') : s
+  if (lines.length === 1) {
+    const m = lines[0].match(/^(.*?)[,\s]+((?:[A-Z]{1,2}\s*-\s*)?\d[\d\s-]{2,}\s+.+)$/)
+    if (m) {
+      const { postalCode, city } = splitPostalCity(stripCountry(m[2].trim()))
+      return { address: m[1].trim(), postalCode, city }
+    }
+    return { address: lines[0], postalCode: '', city: '' }
+  }
+  const cityLine = stripCountry(lines[lines.length - 1])
+  const street = lines.slice(0, -1).join(', ')
+  const { postalCode, city } = splitPostalCity(cityLine)
+  return { address: street, postalCode, city }
+}
+
+interface ImportedData {
+  source: 'GUS' | 'VIES'
+  name?: string
+  vatId?: string
+  regon?: string
+  address?: string
+  postalCode?: string
+  city?: string
+}
+
+function ImportedBanner({ data }: { data: ImportedData }) {
+  return (
+    <Card className="border-2 border-green-300 bg-green-50">
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <CheckCircle size={15} className="text-green-600 flex-shrink-0" />
+          <span className="text-[12px] font-bold text-green-700">
+            Dane pobrane z {data.source} — sprawdź i uzupełnij brakujące
+          </span>
+        </div>
+        <div className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-0.5 text-[12px]">
+          {data.name && <><span className="text-slate-500 font-semibold">Nazwa</span><span className="font-semibold text-slate-900">{data.name}</span></>}
+          {data.vatId && <><span className="text-slate-500 font-semibold">{data.source === 'GUS' ? 'NIP' : 'VAT-UE'}</span><span className="font-mono text-slate-900">{data.vatId}</span></>}
+          {data.regon && <><span className="text-slate-500 font-semibold">REGON</span><span className="font-mono text-slate-900">{data.regon}</span></>}
+          {data.address && <><span className="text-slate-500 font-semibold">Adres</span><span className="text-slate-900">{data.address}</span></>}
+          {data.postalCode && <><span className="text-slate-500 font-semibold">Kod pocztowy</span><span className="font-mono text-slate-900">{data.postalCode}</span></>}
+          {data.city && <><span className="text-slate-500 font-semibold">Miasto</span><span className="text-slate-900">{data.city}</span></>}
+        </div>
+      </CardContent>
+    </Card>
+  )
 }
 
 function ClientForm({ initial, onSave, onClose }: {
@@ -30,21 +98,41 @@ function ClientForm({ initial, onSave, onClose }: {
 }) {
   const [form, setForm] = useState<CreateClientDto>(
     initial
-      ? { name: initial.name, nip: initial.nip, regon: initial.regon, address: initial.address, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email }
+      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email }
       : emptyForm()
   )
   const [saving,   setSaving]   = useState(false)
   const [error,    setError]    = useState('')
   const [mode,     setMode]     = useState<'gus'|'vies'|'manual'>(initial ? 'manual' : 'gus')
   const [isAbroad, setIsAbroad] = useState(false)
+  const [imported, setImported] = useState<ImportedData | null>(null)
 
   function applyGus(d: GusCompanyData) {
-    setForm(p => ({ ...p, name: d.nazwa ?? p.name, nip: d.nip ?? p.nip, regon: d.regon ?? p.regon, address: d.adres ?? p.address, city: d.miasto ?? p.city }))
+    const parts = gusAddress(d)
+    setForm(p => ({
+      ...p,
+      name: d.nazwa ?? p.name,
+      nip: d.nip ?? p.nip,
+      regon: d.regon ?? p.regon,
+      address: parts.address || p.address,
+      postalCode: parts.postalCode || p.postalCode,
+      city: parts.city || p.city,
+    }))
+    setImported({ source: 'GUS', name: d.nazwa, vatId: d.nip, regon: d.regon, ...parts })
     setMode('manual')
   }
 
   function applyVies(d: ViesCompanyData) {
-    setForm(p => ({ ...p, name: d.traderName || p.name, nip: d.vatNumber || p.nip, address: d.traderAddress || p.address }))
+    const parts = viesAddress(d.traderAddress, d.countryCode)
+    setForm(p => ({
+      ...p,
+      name: d.traderName || p.name,
+      nip: d.vatNumber || p.nip,
+      address: parts.address || p.address,
+      postalCode: parts.postalCode || p.postalCode,
+      city: parts.city || p.city,
+    }))
+    setImported({ source: 'VIES', name: d.traderName, vatId: d.vatNumber, ...parts })
     setMode('manual')
   }
 
@@ -103,13 +191,16 @@ function ClientForm({ initial, onSave, onClose }: {
       {/* Formularz */}
       {(mode === 'manual' || initial) && (
         <>
+          {imported && <ImportedBanner data={imported} />}
           <div className="grid grid-cols-2 gap-3">
             {[
-              { k: 'name',        label: 'Nazwa *',                    ph: 'ZAGROS SP. Z O.O.' },
+              { k: 'name',        label: 'Nazwa oficjalna *',          ph: 'OKAY TEKIN SP. Z O.O.' },
+              { k: 'displayName', label: 'Nazwa wyświetlana',          ph: 'Zagros (skrócona, do zamówień)' },
               { k: 'nip',         label: isAbroad ? 'VAT-UE' : 'NIP', ph: isAbroad ? 'DE123456789' : '1234567890' },
               { k: 'regon',       label: 'REGON',                      ph: '123456789' },
               { k: 'address',     label: 'Adres',                      ph: 'ul. Przykładowa 1' },
-              { k: 'city',        label: 'Miasto',                     ph: 'Kraków' },
+              { k: 'postalCode',  label: 'Kod pocztowy',               ph: '00-526' },
+              { k: 'city',        label: 'Miasto',                     ph: 'Warszawa' },
               { k: 'contactName', label: 'Osoba kontaktowa',           ph: 'Jan Kowalski' },
               { k: 'phone',       label: 'Telefon',                    ph: '+48 123 456 789' },
               { k: 'email',       label: 'E-mail',                     ph: 'kontakt@firma.pl' },
@@ -159,10 +250,17 @@ export function ClientsPage() {
   const [modal,  setModal]  = useState(false)
   const [edit,   setEdit]   = useState<Client | null>(null)
   const [search, setSearch] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<Client | null>(null)
+  const [deleting,     setDeleting]     = useState(false)
 
-  const clients = (clientList ?? []).filter(c =>
-    c.active && (!search || c.name.toLowerCase().includes(search.toLowerCase()) || c.nip?.includes(search))
-  )
+  const clients = (clientList ?? []).filter(c => {
+    if (!c.active) return false
+    if (!search) return true
+    const s = search.toLowerCase()
+    return c.name.toLowerCase().includes(s)
+      || (c.displayName ?? '').toLowerCase().includes(s)
+      || (c.nip ?? '').includes(search)
+  })
 
   async function handleSave(dto: CreateClientDto) {
     if (edit) await clientsApi.update(edit.id, dto)
@@ -173,6 +271,21 @@ export function ClientsPage() {
   function openAdd()       { setEdit(null); setModal(true) }
   function openEdit(c: Client) { setEdit(c); setModal(true) }
   function closeModal()    { setModal(false); setEdit(null) }
+
+  async function handleDelete() {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await clientsApi.delete(deleteTarget.id)
+      toast.success(`Kontrahent ${deleteTarget.displayName || deleteTarget.name} usunięty`)
+      setDeleteTarget(null)
+      refetch()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Nie można usunąć kontrahenta')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -214,16 +327,21 @@ export function ClientsPage() {
               {clients.map(c => (
                 <div key={c.id} className="px-4 py-3 flex items-center gap-3 hover:bg-muted/30 transition-colors">
                   <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <span className="text-primary font-black text-sm">{c.name[0]}</span>
+                    <span className="text-primary font-black text-sm">{(c.displayName || c.name)[0]}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <CardTitle className="text-sm font-semibold">{c.name}</CardTitle>
+                      <CardTitle className="text-sm font-semibold">{c.displayName || c.name}</CardTitle>
                       <code className="text-[10px] font-bold text-muted-foreground">{c.code}</code>
                     </div>
                     <div className="flex items-center gap-3 mt-0.5">
+                      {c.displayName && c.displayName !== c.name && (
+                        <CardDescription className="text-xs italic">{c.name}</CardDescription>
+                      )}
                       {c.nip && <CardDescription className="text-xs">NIP: {c.nip}</CardDescription>}
-                      {c.city && <CardDescription className="text-xs">{c.city}</CardDescription>}
+                      {(c.postalCode || c.city) && (
+                        <CardDescription className="text-xs">{[c.postalCode, c.city].filter(Boolean).join(' ')}</CardDescription>
+                      )}
                       {c.phone && (
                         <CardDescription className="flex items-center gap-1 text-xs">
                           <Phone size={10} />{c.phone}
@@ -238,6 +356,14 @@ export function ClientsPage() {
                   </div>
                   <Button variant="ghost" size="icon" onClick={() => openEdit(c)} className="h-8 w-8">
                     <Pencil size={13} />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setDeleteTarget(c)}
+                    className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                  >
+                    <Trash2 size={13} />
                   </Button>
                 </div>
               ))}
@@ -256,6 +382,32 @@ export function ClientsPage() {
             </DialogDescription>
           </DialogHeader>
           <ClientForm initial={edit} onSave={handleSave} onClose={closeModal} />
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <Dialog open={!!deleteTarget} onOpenChange={v => { if (!v && !deleting) setDeleteTarget(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Usunąć kontrahenta?</DialogTitle>
+            <DialogDescription>
+              Czy na pewno chcesz usunąć kontrahenta{' '}
+              <span className="font-semibold">{deleteTarget?.displayName || deleteTarget?.name}</span>?
+              Operacja jest możliwa tylko gdy klient nie ma żadnych zamówień.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              Anuluj
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting} className="gap-2">
+              {deleting
+                ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : <Trash2 size={14} />
+              }
+              Usuń
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

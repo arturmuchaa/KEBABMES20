@@ -4,7 +4,7 @@
  * - Pracownicy WORKER_PRODUCTION z bazy
  * - Zakończenie dnia → magazyn wyrobów gotowych
  */
-import { useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { productionPlansApi, usersApi, finishedGoodsApi } from '@/lib/apiClient'
 import { Spinner, EmptyState } from '@/components/ui/widgets'
@@ -434,6 +434,46 @@ export function ProductionTabletPage() {
   const [showFinish,     setShowFinish]     = useState(false)
   const [toast,          setToast]          = useState('')
 
+  // Hydratacja postępu z BE przy zmianie planu (live update między urządzeniami)
+  useEffect(() => {
+    if (!selectedPlanId) return
+    const plan = (plans ?? []).find(p => p.id === selectedPlanId)
+    if (!plan) return
+    const next: ProgressMap = {}
+    for (const l of plan.lines) {
+      const qtyDone = Number((l as any).qtyDone ?? 0)
+      const stRaw   = ((l as any).lineStatus ?? 'PLANNED') as 'PLANNED'|'IN_PROGRESS'|'DONE'
+      const entries = Array.isArray((l as any).workerEntries) ? (l as any).workerEntries : []
+      const status: 'PLANNED'|'IN_PROGRESS'|'DONE' =
+        qtyDone >= l.qty && l.qty > 0 ? 'DONE'
+        : qtyDone > 0 ? 'IN_PROGRESS'
+        : stRaw
+      if (qtyDone > 0 || entries.length > 0) {
+        next[l.id] = {
+          lineId: l.id,
+          completedPieces: Math.min(qtyDone, l.qty),
+          status,
+          workerEntries: entries,
+        }
+      }
+    }
+    setProgress(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPlanId, plans])
+
+  async function pushProgress(lineId: string, p: LineProgress) {
+    if (!selectedPlanId) return
+    try {
+      await productionPlansApi.updateLineProgress(selectedPlanId, lineId, {
+        qtyDone: p.completedPieces,
+        lineStatus: p.status,
+        workerEntries: p.workerEntries,
+      })
+    } catch (e) {
+      showToast(`Błąd zapisu: ${e instanceof Error ? e.message : 'nieznany'}`)
+    }
+  }
+
   const productionWorkers = (workers??[]).filter(w=>w.role==='WORKER_PRODUCTION'&&w.active)
   const activePlans       = (plans??[]).filter(p=>p.status==='active'||p.status==='draft')
   const selectedPlan      = (plans??[]).find(p=>p.id===selectedPlanId)??null
@@ -447,6 +487,7 @@ export function ProductionTabletPage() {
     const line = selectedPlan?.lines.find(l=>l.id===lineId)
     if (!line) return
     const now = new Date().toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})
+    let nextProgress: LineProgress | null = null
     setProgress(prev=>{
       const cur = prev[lineId]??{lineId,completedPieces:0,status:'PLANNED' as const,workerEntries:[]}
       const idx = cur.workerEntries.findIndex(e=>e.workerId===workerId)
@@ -455,8 +496,10 @@ export function ProductionTabletPage() {
         : [...cur.workerEntries,{workerId,workerName,pieces,addedAt:now}]
       const completed = Math.min(line.qty, cur.completedPieces+pieces)
       const status: 'PLANNED'|'IN_PROGRESS'|'DONE' = completed>=line.qty?'DONE':completed>0?'IN_PROGRESS':'PLANNED'
-      return {...prev,[lineId]:{lineId,completedPieces:completed,status,workerEntries:entries}}
+      nextProgress = {lineId,completedPieces:completed,status,workerEntries:entries}
+      return {...prev,[lineId]:nextProgress}
     })
+    if (nextProgress) pushProgress(lineId, nextProgress)
     setModalState(null)
   }
 
@@ -467,7 +510,9 @@ export function ProductionTabletPage() {
     if (!line) return
     const completed = Math.min(line.qty, entries.filter(e=>e.pieces>0).reduce((s,e)=>s+e.pieces,0))
     const status: 'PLANNED'|'IN_PROGRESS'|'DONE' = completed>=line.qty?'DONE':completed>0?'IN_PROGRESS':'PLANNED'
-    setProgress(prev=>({...prev,[lineId]:{lineId,completedPieces:completed,status,workerEntries:entries.filter(e=>e.pieces>0)}}))
+    const next: LineProgress = {lineId,completedPieces:completed,status,workerEntries:entries.filter(e=>e.pieces>0)}
+    setProgress(prev=>({...prev,[lineId]:next}))
+    pushProgress(lineId, next)
     setModalState(null)
   }
 

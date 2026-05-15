@@ -21,15 +21,16 @@ def create_client(dto: ClientCreate) -> Dict:
             conn,
             """
             INSERT INTO clients
-                (id, code, name, nip, regon, address, city,
+                (id, code, name, display_name, nip, regon, address, city,
                  contact_name, phone, email, active, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
             RETURNING *
             """,
             (
                 cuid(),
                 f"KLI-{str(seq).zfill(3)}",
                 dto.name,
+                dto.display_name or None,
                 dto.nip,
                 dto.regon,
                 dto.address,
@@ -50,13 +51,14 @@ def update_client(client_id: str, dto: ClientCreate) -> Dict:
             conn,
             """
             UPDATE clients
-            SET name=%s, nip=%s, regon=%s, address=%s, city=%s,
+            SET name=%s, display_name=%s, nip=%s, regon=%s, address=%s, city=%s,
                 contact_name=%s, phone=%s, email=%s
             WHERE id=%s
             RETURNING *
             """,
             (
                 dto.name,
+                dto.display_name or None,
                 dto.nip,
                 dto.regon,
                 dto.address,

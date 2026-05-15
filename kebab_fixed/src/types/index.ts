@@ -15,8 +15,11 @@ export type ExpiryStatus = ExpiryLevel
 export type MeatStockStatus = 'AVAILABLE' | 'RESERVED' | 'IN_PRODUCTION' | 'DEPLETED' | 'QUARANTINE'
 
 export interface Supplier {
-  id: string; code: string; name: string; nip?: string
-  vetNumber?: string; contactName?: string; phone?: string; email?: string; active: boolean
+  id: string; code: string; name: string; displayName?: string
+  nip?: string; regon?: string
+  vetNumber?: string
+  address?: string; postalCode?: string; city?: string
+  contactName?: string; phone?: string; email?: string; active: boolean
 }
 
 export interface User {
@@ -84,7 +87,10 @@ export interface CreateDeboningDto {
 }
 
 export interface CreateSupplierDto {
-  code: string; name: string; nip?: string; vetNumber?: string
+  code: string; name: string; displayName?: string
+  nip?: string; regon?: string
+  vetNumber?: string
+  address?: string; postalCode?: string; city?: string
   contactName?: string; phone?: string; email?: string
 }
 

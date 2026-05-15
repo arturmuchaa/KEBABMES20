@@ -1,13 +1,12 @@
 from pydantic import BaseModel
 
 
-class ClientCreate(BaseModel):
-    name: str
-    display_name: str = ""
+class CompanySettings(BaseModel):
+    name: str = ""
     nip: str = ""
     regon: str = ""
     address: str = ""
     city: str = ""
-    contact_name: str = ""
+    postal_code: str = ""
     phone: str = ""
     email: str = ""

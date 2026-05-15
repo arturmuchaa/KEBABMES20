@@ -39,7 +39,7 @@ def create_supplier(dto: SupplierCreate) -> Dict:
                 now_iso(),
             ),
         )
-    logger.info("supplier.created", extra={"supplier_id": row["id"], "name": dto.name})
+    logger.info("supplier.created", extra={"supplier_id": row["id"], "supplier_name": dto.name})
     return row
 
 
@@ -68,3 +68,16 @@ def update_supplier(supplier_id: str, dto: SupplierCreate) -> Dict:
         raise HTTPException(404, "Dostawca nie znaleziony")
     logger.info("supplier.updated", extra={"supplier_id": supplier_id})
     return row
+
+
+def delete_supplier(supplier_id: str) -> Dict:
+    with transaction() as conn:
+        row = cx_execute_returning(
+            conn,
+            "UPDATE suppliers SET active=false WHERE id=%s RETURNING *",
+            (supplier_id,),
+        )
+    if not row:
+        raise HTTPException(404, "Dostawca nie znaleziony")
+    logger.info("supplier.deleted", extra={"supplier_id": supplier_id})
+    return {"ok": True, "id": supplier_id}

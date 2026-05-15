@@ -164,11 +164,16 @@ export const rawBatchesApi = {
 function mapSupplier(raw: any): Supplier {
   return {
     id:          raw.id,
-    code:        raw.code          ?? '',
-    name:        raw.name          ?? '',
+    code:        raw.code           ?? '',
+    name:        raw.name           ?? '',
+    displayName: raw.display_name   ?? raw.displayName ?? '',
     nip:         raw.nip,
-    vetNumber:   raw.vet_number    ?? raw.vetNumber,
-    contactName: raw.contact_name  ?? raw.contactName,
+    regon:       raw.regon,
+    vetNumber:   raw.vet_number     ?? raw.vetNumber,
+    address:     raw.address,
+    postalCode:  raw.postal_code    ?? raw.postalCode ?? '',
+    city:        raw.city,
+    contactName: raw.contact_name   ?? raw.contactName,
     phone:       raw.phone,
     email:       raw.email,
     active:      raw.active ?? true,
@@ -180,6 +185,7 @@ export const suppliersApi = {
   nextCode: async () => '',
   create:   (dto: CreateSupplierDto) => post<any>('/suppliers', toSnake(dto)).then(mapSupplier),
   update:   (id: string, dto: Partial<CreateSupplierDto>) => put<any>(`/suppliers/${id}`, toSnake(dto)).then(mapSupplier),
+  delete:   (id: string) => del<{ ok: boolean; id: string }>(`/suppliers/${id}`),
 }
 
 // ─── Sesje produkcyjne — PRAWDZIWY backend ────────────────────
@@ -260,11 +266,32 @@ export const meatStockApi = {
 }
 
 // ─── Kontrahenci ──────────────────────────────────────────────
+// Backend zwraca snake_case (display_name, contact_name) — mapujemy do camelCase
+function mapClient(raw: any): Client {
+  return {
+    id:          raw.id,
+    code:        raw.code        ?? '',
+    name:        raw.name        ?? '',
+    displayName: raw.display_name ?? raw.displayName ?? '',
+    nip:         raw.nip,
+    regon:       raw.regon,
+    address:     raw.address,
+    postalCode:  raw.postal_code ?? raw.postalCode ?? '',
+    city:        raw.city,
+    contactName: raw.contact_name ?? raw.contactName,
+    phone:       raw.phone,
+    email:       raw.email,
+    active:      raw.active ?? true,
+    createdAt:   raw.created_at ?? raw.createdAt ?? '',
+  }
+}
+
 export const clientsApi = {
-  list:       () => get<Client[]>('/clients'),
-  create:     (dto: CreateClientDto) => post<Client>('/clients', toSnake(dto)),
-  update:     (id: string, dto: Partial<CreateClientDto>) => put<Client>(`/clients/${id}`, toSnake(dto)),
+  list:       () => get<any[]>('/clients').then(r => (Array.isArray(r) ? r : []).map(mapClient)),
+  create:     (dto: CreateClientDto) => post<any>('/clients', toSnake(dto)).then(mapClient),
+  update:     (id: string, dto: Partial<CreateClientDto>) => put<any>(`/clients/${id}`, toSnake(dto)).then(mapClient),
   deactivate: (id: string) => patch<void>(`/clients/${id}/deactivate`, {}),
+  delete:     (id: string) => del<{ ok: boolean }>(`/clients/${id}`),
 }
 
 // ─── Pracownicy ───────────────────────────────────────────────
@@ -277,9 +304,10 @@ export const usersApi = {
 }
 
 // ─── Płace ────────────────────────────────────────────────────
+// Backend używa Query(alias='workerId'/'dateFrom'/'dateTo') — wymagany camelCase w query stringu.
 export const payrollApi = {
   getWorkerDays: (workerId: string, dateFrom: string, dateTo: string) =>
-    get<any[]>(`/payroll/worker-days?worker_id=${workerId}&date_from=${dateFrom}&date_to=${dateTo}`),
+    get<any[]>(`/payroll/worker-days?workerId=${encodeURIComponent(workerId)}&dateFrom=${encodeURIComponent(dateFrom)}&dateTo=${encodeURIComponent(dateTo)}`),
   createSettlement: (dto: {
     workerId: string; dateFrom: string; dateTo: string;
     workDates: string[]; kgPerDate: Record<string, number>;
@@ -287,7 +315,7 @@ export const payrollApi = {
     notes?: string;
   }) => post<any>('/payroll/settlements', toSnake(dto)),
   listSettlements: (workerId?: string) =>
-    get<any[]>(`/payroll/settlements${workerId ? `?worker_id=${workerId}` : ''}`),
+    get<any[]>(`/payroll/settlements${workerId ? `?workerId=${encodeURIComponent(workerId)}` : ''}`),
   getSettlement: (id: string) => get<any>(`/payroll/settlements/${id}`),
 }
 
@@ -544,13 +572,310 @@ function toSnakeOrderDto(dto: CreateClientOrderDto) {
   }
 }
 
+export interface OrderProductionProgressLine {
+  lineId: string
+  qtyTotal: number
+  qtyDone: number
+  qtyPending: number
+  qtyRemaining: number
+}
+export interface OrderProductionProgress {
+  orderId: string
+  orderNo: string
+  lines: OrderProductionProgressLine[]
+}
+
 export const clientOrdersApi = {
   list:         (status?: string) => get<any[]>(`/client-orders${status ? `?status=${status}` : ''}`).then(r => r.map(mapClientOrder)),
   byId:         (id: string) => get<any>(`/client-orders/${id}`).then(mapClientOrder),
   create:       (dto: CreateClientOrderDto) => post<any>('/client-orders', toSnakeOrderDto(dto)).then(mapClientOrder),
+  productionProgress: (orderId: string) => get<any>(`/client-orders/${orderId}/production-progress`).then((raw: any): OrderProductionProgress => ({
+    orderId: raw.order_id ?? raw.orderId ?? '',
+    orderNo: raw.order_no ?? raw.orderNo ?? '',
+    lines:   (raw.lines ?? []).map((l: any): OrderProductionProgressLine => ({
+      lineId:       l.line_id      ?? l.lineId      ?? '',
+      qtyTotal:     Number(l.qty_total      ?? l.qtyTotal      ?? 0),
+      qtyDone:      Number(l.qty_done       ?? l.qtyDone       ?? 0),
+      qtyPending:   Number(l.qty_pending    ?? l.qtyPending    ?? 0),
+      qtyRemaining: Number(l.qty_remaining  ?? l.qtyRemaining  ?? 0),
+    })),
+  })),
   update:       (id: string, dto: CreateClientOrderDto) => put<any>(`/client-orders/${id}`, toSnakeOrderDto(dto)).then(mapClientOrder),
   updateStatus: (id: string, status: string) => patch<any>(`/client-orders/${id}/status`, { status }).then(mapClientOrder),
   delete:       (id: string) => del<void>(`/client-orders/${id}`),
+}
+
+// ─── Palety wydania ─────────────────────────────────────────────
+export interface OrderPalletItem {
+  id?:           string
+  orderLineId:   string
+  qty:           number
+  // wzbogacone z linii zamówienia (do wyświetlania)
+  kgPerUnit?:    number
+  productTypeName?: string
+  recipeName?:   string
+  packagingName?: string
+}
+
+export interface OrderPallet {
+  id?:        string
+  palletNo:   number
+  notes:      string
+  items:      OrderPalletItem[]
+  status?:        'created' | 'cold_storage' | 'loaded'
+  coldStorageAt?: string | null
+  loadedAt?:      string | null
+  totalQty?:      number
+  totalKg?:       number
+}
+
+function mapPalletItem(raw: any): OrderPalletItem {
+  return {
+    id:              raw.id,
+    orderLineId:     raw.order_line_id   ?? raw.orderLineId   ?? '',
+    qty:             Number(raw.qty      ?? 0),
+    kgPerUnit:       Number(raw.kg_per_unit ?? raw.kgPerUnit ?? 0),
+    productTypeName: raw.product_type_name ?? raw.productTypeName ?? '',
+    recipeName:      raw.recipe_name     ?? raw.recipeName     ?? '',
+    packagingName:   raw.packaging_name  ?? raw.packagingName  ?? '',
+  }
+}
+
+export type PalletStatus = 'created' | 'cold_storage' | 'loaded'
+
+function mapPallet(raw: any): OrderPallet {
+  return {
+    id:              raw.id,
+    palletNo:        Number(raw.pallet_no ?? raw.palletNo ?? 0),
+    notes:           raw.notes ?? '',
+    items:           (raw.items ?? []).map(mapPalletItem),
+    status:          (raw.status ?? 'created') as PalletStatus,
+    coldStorageAt:   raw.cold_storage_at ?? raw.coldStorageAt ?? null,
+    loadedAt:        raw.loaded_at       ?? raw.loadedAt       ?? null,
+    totalQty:        raw.total_qty != null ? Number(raw.total_qty) : undefined,
+    totalKg:         raw.total_kg  != null ? Number(raw.total_kg)  : undefined,
+  }
+}
+
+export const orderPalletsApi = {
+  list: (orderId: string) =>
+    get<any[]>(`/client-orders/${orderId}/pallets`)
+      .then(r => (Array.isArray(r) ? r : []).map(mapPallet)),
+  save: (orderId: string, pallets: OrderPallet[]) =>
+    put<any[]>(`/client-orders/${orderId}/pallets`, {
+      pallets: pallets.map(p => ({
+        pallet_no: p.palletNo,
+        notes:     p.notes,
+        items:     p.items.map(it => ({ order_line_id: it.orderLineId, qty: it.qty })),
+      })),
+    }).then(r => (Array.isArray(r) ? r : []).map(mapPallet)),
+  reset: (orderId: string, palletNo: number) =>
+    post<any>(`/client-orders/${orderId}/pallets/${palletNo}/reset`, {}).then(mapPallet),
+}
+
+// ─── Skanowanie palet (QR) ──────────────────────────────────────
+export interface PalletScanResult {
+  id:           string
+  palletNo:     number
+  status:       PalletStatus
+  coldStorageAt:string | null
+  loadedAt:     string | null
+  notes:        string
+  items:        OrderPalletItem[]
+  totalQty:     number
+  totalKg:      number
+  order: {
+    id:           string
+    orderNo:      string
+    clientName:   string
+    deliveryDate: string | null
+    status:       string
+  }
+}
+
+function mapScanResult(raw: any): PalletScanResult {
+  return {
+    id:            raw.id,
+    palletNo:      Number(raw.pallet_no ?? 0),
+    status:        (raw.status ?? 'created') as PalletStatus,
+    coldStorageAt: raw.cold_storage_at ?? null,
+    loadedAt:      raw.loaded_at ?? null,
+    notes:         raw.notes ?? '',
+    items:         (raw.items ?? []).map(mapPalletItem),
+    totalQty:      Number(raw.total_qty ?? 0),
+    totalKg:       Number(raw.total_kg ?? 0),
+    order: {
+      id:           raw.order?.id ?? '',
+      orderNo:      raw.order?.order_no ?? '',
+      clientName:   raw.order?.client_name ?? '',
+      deliveryDate: raw.order?.delivery_date ?? null,
+      status:       raw.order?.status ?? '',
+    },
+  }
+}
+
+export interface LoadingStatusTotals {
+  totalPallets:   number
+  loadedPallets:  number
+  coldPallets:    number
+  createdPallets: number
+  totalKg:        number
+  loadedKg:       number
+}
+
+export interface LoadingStatus {
+  order: {
+    id: string; orderNo: string; clientName: string; deliveryDate: string | null; status: string
+  }
+  pallets: OrderPallet[]
+  totals:  LoadingStatusTotals
+}
+
+function mapLoadingStatus(raw: any): LoadingStatus {
+  return {
+    order: {
+      id:           raw.order?.id ?? '',
+      orderNo:      raw.order?.order_no ?? '',
+      clientName:   raw.order?.client_name ?? '',
+      deliveryDate: raw.order?.delivery_date ?? null,
+      status:       raw.order?.status ?? '',
+    },
+    pallets: (raw.pallets ?? []).map(mapPallet),
+    totals: {
+      totalPallets:   Number(raw.totals?.total_pallets   ?? 0),
+      loadedPallets:  Number(raw.totals?.loaded_pallets  ?? 0),
+      coldPallets:    Number(raw.totals?.cold_pallets    ?? 0),
+      createdPallets: Number(raw.totals?.created_pallets ?? 0),
+      totalKg:        Number(raw.totals?.total_kg        ?? 0),
+      loadedKg:       Number(raw.totals?.loaded_kg       ?? 0),
+    },
+  }
+}
+
+export interface ActiveLoadingOrder {
+  id: string
+  orderNo: string
+  clientName: string
+  deliveryDate: string | null
+  orderStatus: string
+  totalPallets: number
+  loadedPallets: number
+  coldPallets: number
+  createdPallets: number
+}
+
+export interface ColdStoragePart {
+  qty:        number
+  kgPerUnit:  number
+}
+
+export interface ColdStoragePallet {
+  orderId:       string
+  orderNo:       string
+  clientName:    string
+  deliveryDate:  string | null
+  palletId:      string
+  palletNo:      number
+  coldStorageAt: string | null
+  notes:         string
+  totalKg:       number
+  totalQty:      number
+  parts:         ColdStoragePart[]
+}
+
+function mapColdStoragePallet(r: any): ColdStoragePallet {
+  const parts = Array.isArray(r.parts)
+    ? r.parts.map((p: any) => ({
+        qty:       Number(p.qty ?? 0),
+        kgPerUnit: Number(p.kg_per_unit ?? p.kgPerUnit ?? 0),
+      })).filter((p: ColdStoragePart) => p.qty > 0)
+    : []
+  return {
+    orderId:       r.order_id ?? '',
+    orderNo:       r.order_no ?? '',
+    clientName:    r.client_name ?? '',
+    deliveryDate:  r.delivery_date ?? null,
+    palletId:      r.pallet_id ?? '',
+    palletNo:      Number(r.pallet_no ?? 0),
+    coldStorageAt: r.cold_storage_at ?? null,
+    notes:         r.notes ?? '',
+    totalKg:       Number(r.total_kg ?? 0),
+    totalQty:      Number(r.total_qty ?? 0),
+    parts,
+  }
+}
+
+export const palletScanApi = {
+  scan: (
+    code: string,
+    action: 'cold_storage' | 'loaded',
+    operator = '',
+    vehicleId = '',
+  ) =>
+    post<any>('/pallets/scan', { code, action, operator, vehicle_id: vehicleId })
+      .then(mapScanResult),
+  inColdStorage: () =>
+    get<any[]>('/pallets/in-cold-storage')
+      .then(arr => (Array.isArray(arr) ? arr : []).map(mapColdStoragePallet)),
+  lookup: (code: string) =>
+    get<any>(`/pallets/lookup?code=${encodeURIComponent(code)}`).then(mapScanResult),
+  loadingStatus: (orderId: string) =>
+    get<any>(`/client-orders/${orderId}/loading-status`).then(mapLoadingStatus),
+  activeLoading: () =>
+    get<any[]>('/pallets/active-loading').then((arr): ActiveLoadingOrder[] =>
+      (Array.isArray(arr) ? arr : []).map(r => ({
+        id:             r.id,
+        orderNo:        r.order_no ?? '',
+        clientName:     r.client_name ?? '',
+        deliveryDate:   r.delivery_date ?? null,
+        orderStatus:    r.order_status ?? '',
+        totalPallets:   Number(r.total_pallets ?? 0),
+        loadedPallets:  Number(r.loaded_pallets ?? 0),
+        coldPallets:    Number(r.cold_pallets ?? 0),
+        createdPallets: Number(r.created_pallets ?? 0),
+      })),
+    ),
+}
+
+// ─── Ustawienia firmy (do wydruków) ─────────────────────────────
+export interface CompanySettings {
+  name:       string
+  nip:        string
+  regon:      string
+  address:    string
+  city:       string
+  postalCode: string
+  phone:      string
+  email:      string
+}
+
+function mapCompany(raw: any): CompanySettings {
+  return {
+    name:       raw.name        ?? '',
+    nip:        raw.nip         ?? '',
+    regon:      raw.regon       ?? '',
+    address:    raw.address     ?? '',
+    city:       raw.city        ?? '',
+    postalCode: raw.postal_code ?? raw.postalCode ?? '',
+    phone:      raw.phone       ?? '',
+    email:      raw.email       ?? '',
+  }
+}
+
+export const settingsApi = {
+  getCompany: () =>
+    get<any>('/settings/company').then(mapCompany),
+  saveCompany: (dto: CompanySettings) =>
+    put<any>('/settings/company', {
+      name:        dto.name,
+      nip:         dto.nip,
+      regon:       dto.regon,
+      address:     dto.address,
+      city:        dto.city,
+      postal_code: dto.postalCode,
+      phone:       dto.phone,
+      email:       dto.email,
+    }).then(mapCompany),
 }
 
 // ─── Plany produkcji ──────────────────────────────────────────
@@ -581,10 +906,16 @@ function mapPlanLine(raw: any) {
     seasonedBatchNos: raw.seasoned_batch_nos ?? raw.seasonedBatchNos ?? [],
     batchAllocation,
     kgAssigned:     Number(raw.kg_assigned   ?? raw.kgAssigned  ?? 0),
-    clientOrderId:  raw.client_order_id  ?? raw.clientOrderId,
-    clientOrderNo:  raw.client_order_no  ?? raw.clientOrderNo,
-    clientName:     raw.client_name      ?? raw.clientName,
-    status:         raw.status           ?? 'pending',
+    clientOrderId:     raw.client_order_id      ?? raw.clientOrderId,
+    clientOrderNo:     raw.client_order_no      ?? raw.clientOrderNo,
+    clientOrderLineId: raw.client_order_line_id ?? raw.clientOrderLineId,
+    clientName:        raw.client_name          ?? raw.clientName,
+    status:            raw.status               ?? 'pending',
+    qtyDone:           Number(raw.qty_done   ?? raw.qtyDone   ?? 0),
+    lineStatus:        (raw.line_status      ?? raw.lineStatus ?? 'PLANNED') as 'PLANNED'|'IN_PROGRESS'|'DONE',
+    workerEntries:     Array.isArray(raw.worker_entries ?? raw.workerEntries)
+                        ? (raw.worker_entries ?? raw.workerEntries) : [],
+    progressUpdatedAt: raw.progress_updated_at ?? raw.progressUpdatedAt ?? null,
   }
 }
 
@@ -608,6 +939,46 @@ export const productionPlansApi = {
   create:       (dto: CreateProductionPlanDto) => post<any>('/production-plans', toSnake(dto)).then(mapPlan),
   update:       (id: string, dto: CreateProductionPlanDto) => put<any>(`/production-plans/${id}`, toSnake(dto)).then(mapPlan),
   updateStatus: (id: string, status: string) => patch<void>(`/production-plans/${id}/status`, { status }),
+  updateLineProgress: (
+    planId: string,
+    lineId: string,
+    body: { qtyDone: number; lineStatus: 'PLANNED'|'IN_PROGRESS'|'DONE';
+            workerEntries: { workerId: string; workerName: string; pieces: number; addedAt: string }[] },
+  ) => patch<any>(`/production-plans/${planId}/lines/${lineId}/progress`, {
+    qty_done: body.qtyDone,
+    line_status: body.lineStatus,
+    worker_entries: body.workerEntries,
+  }),
+}
+
+// ─── Day closures ────────────────────────────────────────────
+export interface DayClosure {
+  id: string
+  closureDate: string
+  section: 'rozbior' | 'masownia' | 'produkcja'
+  closedAt: string
+  closedBy: string
+  notes: string
+}
+
+function mapDayClosure(r: any): DayClosure {
+  return {
+    id:          r.id ?? '',
+    closureDate: r.closure_date ?? r.closureDate ?? '',
+    section:     (r.section ?? '') as DayClosure['section'],
+    closedAt:    r.closed_at ?? r.closedAt ?? '',
+    closedBy:    r.closed_by ?? r.closedBy ?? '',
+    notes:       r.notes ?? '',
+  }
+}
+
+export const dayClosuresApi = {
+  listToday: () =>
+    get<any[]>('/day-closures').then(r => (Array.isArray(r) ? r : []).map(mapDayClosure)),
+  close: (section: DayClosure['section'], notes = '', closedBy = '') =>
+    post<any>('/day-closures', { section, notes, closed_by: closedBy }).then(mapDayClosure),
+  reopen: (section: DayClosure['section']) =>
+    del<{ ok: boolean }>(`/day-closures/${section}`),
 }
 
 // ─── Mięso przyprawione ───────────────────────────────────────
@@ -859,6 +1230,68 @@ export const finishedGoodsApi = {
 // ─── Health ───────────────────────────────────────────────────
 export const healthApi = {
   check: () => get<any>('/health'),
+}
+
+// ─── Samochody do załadunku ───────────────────────────────────
+export type VehicleKind = 'own' | 'external'
+export type VehicleType = 'dostawczy' | 'tir' | 'solo' | 'inny'
+
+export interface Vehicle {
+  id:          string
+  name:        string
+  plate:       string
+  kind:        VehicleKind
+  vehicleType: VehicleType
+  sortOrder:   number
+  notes:       string
+  active:      boolean
+}
+
+export interface VehicleInput {
+  name:        string
+  plate:       string
+  kind:        VehicleKind
+  vehicleType: VehicleType
+  sortOrder:   number
+  notes:       string
+  active?:     boolean
+}
+
+function mapVehicle(raw: any): Vehicle {
+  return {
+    id:          raw.id,
+    name:        raw.name ?? '',
+    plate:       raw.plate ?? '',
+    kind:        (raw.kind ?? 'own') as VehicleKind,
+    vehicleType: (raw.vehicle_type ?? raw.vehicleType ?? 'dostawczy') as VehicleType,
+    sortOrder:   Number(raw.sort_order ?? raw.sortOrder ?? 0),
+    notes:       raw.notes ?? '',
+    active:      raw.active !== false,
+  }
+}
+
+function vehiclePayload(dto: VehicleInput): any {
+  return {
+    name:         dto.name,
+    plate:        dto.plate,
+    kind:         dto.kind,
+    vehicle_type: dto.vehicleType,
+    sort_order:   dto.sortOrder,
+    notes:        dto.notes,
+    active:       dto.active ?? true,
+  }
+}
+
+export const vehiclesApi = {
+  list: (includeInactive = false) =>
+    get<any[]>(`/vehicles${includeInactive ? '?include_inactive=true' : ''}`)
+      .then(r => (Array.isArray(r) ? r : []).map(mapVehicle)),
+  create: (dto: VehicleInput) =>
+    post<any>('/vehicles', vehiclePayload(dto)).then(mapVehicle),
+  update: (id: string, dto: VehicleInput) =>
+    put<any>(`/vehicles/${id}`, vehiclePayload(dto)).then(mapVehicle),
+  remove: (id: string) =>
+    del<{ ok: boolean; id: string }>(`/vehicles/${id}`),
 }
 
 // ─── Traceability ─────────────────────────────────────────────

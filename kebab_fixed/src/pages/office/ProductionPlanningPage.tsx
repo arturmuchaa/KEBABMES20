@@ -5,9 +5,10 @@
  * - Partie w pozycji: czytelny dropdown zamiast checkboxów
  * - Klient: wybór z listy kontrahentów
  */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { productionPlansApi, clientOrdersApi, seasonedMeatApi, packagingApi, clientsApi } from '@/lib/apiClient'
+import type { OrderProductionProgress } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -54,14 +55,57 @@ interface PlanLineForm {
   seasonedBatchId:  string
   clientOrderId:    string
   clientOrderNo:    string
+  clientOrderLineId: string
 }
 
 const emptyLine = (): PlanLineForm => ({
   qty:'', kgPerUnit:'', productTypeId:'', recipeId:'', packagingId:'',
   clientId:'', clientName:'',
   seasonedBatchIds:[], seasonedBatchId:'',
-  clientOrderId:'', clientOrderNo:'',
+  clientOrderId:'', clientOrderNo:'', clientOrderLineId:'',
 })
+
+// Oblicza ile kg z zaznaczonych partii jest FAKTYCZNIE dostępne dla danej linii,
+// uwzględniając rezerwacje innych linii (proporcjonalnie, sekwencyjnie).
+function computeSelKgAvailForLine(
+  idx: number,
+  lines: PlanLineForm[],
+  seasonedRaw: any[],
+): number {
+  const line = lines[idx]
+  if (!line) return 0
+  const selIds = line.seasonedBatchIds?.length>0
+    ? line.seasonedBatchIds
+    : (line.seasonedBatchId ? [line.seasonedBatchId] : [])
+  if (selIds.length === 0) return 0
+
+  const otherUsed: Record<string, number> = {}
+  lines.forEach((ll, li) => {
+    if (li === idx) return
+    const lids = ll.seasonedBatchIds?.length>0
+      ? ll.seasonedBatchIds
+      : (ll.seasonedBatchId ? [ll.seasonedBatchId] : [])
+    const lNeeded = (parseFloat(ll.qty)||0)*(parseFloat(ll.kgPerUnit)||0)
+    let lStill = lNeeded
+    lids.forEach(id => {
+      if (lStill<=0) return
+      const s = seasonedRaw.find((x:any)=>x.id===id)
+      if (!s) return
+      const free = Math.max(0, s.kgAvailable - (otherUsed[id]??0))
+      const take = Math.min(lStill, free)
+      otherUsed[id] = (otherUsed[id]??0) + take
+      lStill -= take
+    })
+  })
+
+  let available = 0
+  selIds.forEach(id => {
+    const s = seasonedRaw.find((x:any)=>x.id===id)
+    if (!s) return
+    available += Math.max(0, s.kgAvailable - (otherUsed[id]??0))
+  })
+  return available
+}
 
 const STATUS_LABELS: Record<ProductionPlan['status'], string> = {
   draft:'Szkic', active:'Aktywny', done:'Ukończony',
@@ -78,42 +122,80 @@ function ImportOrderModal({ orders, onImport, onClose }: {
   onImport: (lines: PlanLineForm[]) => void
   onClose: () => void
 }) {
-  const [selectedOrder, setSelectedOrder] = useState<string>(orders[0]?.id ?? '')
-  const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set(orders[0]?.lines.map(l=>l.id)??[]))
+  const [selectedOrder,   setSelectedOrder]   = useState<string>(orders[0]?.id ?? '')
+  const [selectedLines,   setSelectedLines]   = useState<Set<string>>(new Set())
+  const [progress,        setProgress]        = useState<OrderProductionProgress | null>(null)
+  const [progressLoading, setProgressLoading] = useState(false)
 
   const order = orders.find(o=>o.id===selectedOrder)
 
+  // Mapa line_id -> {qty_done, qty_pending, qty_remaining}
+  const progressMap = useMemo(() => {
+    const m: Record<string, { qtyTotal: number; qtyDone: number; qtyPending: number; qtyRemaining: number }> = {}
+    progress?.lines.forEach(p => {
+      m[p.lineId] = { qtyTotal: p.qtyTotal, qtyDone: p.qtyDone, qtyPending: p.qtyPending, qtyRemaining: p.qtyRemaining }
+    })
+    return m
+  }, [progress])
+
+  function importableLines(o: ClientOrder | undefined): string[] {
+    if (!o) return []
+    return o.lines.filter(l => (progressMap[l.id]?.qtyRemaining ?? l.qty) > 0).map(l => l.id)
+  }
+
+  useEffect(() => {
+    if (!selectedOrder) { setProgress(null); return }
+    let cancelled = false
+    setProgressLoading(true)
+    clientOrdersApi.productionProgress(selectedOrder)
+      .then(p => { if (!cancelled) { setProgress(p); setProgressLoading(false) } })
+      .catch(()  => { if (!cancelled) { setProgress(null); setProgressLoading(false) } })
+    return () => { cancelled = true }
+  }, [selectedOrder])
+
+  // Po załadowaniu progress: zaznacz wszystkie linie z qty_remaining > 0
+  useEffect(() => {
+    if (progress) setSelectedLines(new Set(importableLines(order)))
+    else if (order) setSelectedLines(new Set(order.lines.map(l=>l.id)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress])
+
   function handleOrderChange(id: string) {
     setSelectedOrder(id)
-    const o = orders.find(x=>x.id===id)
-    setSelectedLines(new Set(o?.lines.map(l=>l.id)??[]))
+    setSelectedLines(new Set())
   }
 
   function toggleAll() {
     if (!order) return
-    const avail = order.lines.map(l=>l.id)
+    const avail = importableLines(order)
     setSelectedLines(selectedLines.size===avail.length ? new Set() : new Set(avail))
   }
 
   function handleConfirm() {
     if (!order) return
     const newLines: PlanLineForm[] = order.lines
-      .filter(l=>selectedLines.has(l.id))
-      .map(l=>({
-        qty:             String(l.qty),
-        kgPerUnit:       String(l.kgPerUnit),
-        productTypeId:   l.productTypeId,
-        recipeId:        l.recipeId,
-        packagingId:     l.packagingId??'',
-        clientId:        order.clientId,
-        clientName:      order.clientName,
-        seasonedBatchIds:[], seasonedBatchId:'',
-        clientOrderId:   order.id,
-        clientOrderNo:   order.orderNo,
-      }))
+      .filter(l => selectedLines.has(l.id))
+      .map(l => {
+        const remaining = progressMap[l.id]?.qtyRemaining ?? l.qty
+        return {
+          qty:             String(remaining),
+          kgPerUnit:       String(l.kgPerUnit),
+          productTypeId:   l.productTypeId,
+          recipeId:        l.recipeId,
+          packagingId:     l.packagingId??'',
+          clientId:        order.clientId,
+          clientName:      order.clientName,
+          seasonedBatchIds:[], seasonedBatchId:'',
+          clientOrderId:   order.id,
+          clientOrderNo:   order.orderNo,
+          clientOrderLineId: l.id,
+        }
+      })
     onImport(newLines)
     onClose()
   }
+
+  const availCount = order ? importableLines(order).length : 0
 
   return (
     <div className="space-y-4">
@@ -136,23 +218,70 @@ function ImportOrderModal({ orders, onImport, onClose }: {
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-bold text-muted-foreground uppercase">Pozycje</span>
-            <Button variant="ghost" size="sm" onClick={toggleAll} className="h-7 text-[11px] gap-1 px-2">
-              {selectedLines.size===order.lines.length
+            <Button variant="ghost" size="sm" onClick={toggleAll} disabled={availCount===0} className="h-7 text-[11px] gap-1 px-2">
+              {selectedLines.size===availCount && availCount>0
                 ? <><Square size={12}/>Odznacz</>
                 : <><CheckSquare size={12}/>Zaznacz wszystkie</>}
             </Button>
           </div>
-          <div className="border rounded-lg divide-y max-h-56 overflow-y-auto">
+          <div className="border rounded-lg divide-y max-h-72 overflow-y-auto">
             {order.lines.map(l=>{
-              const isSel = selectedLines.has(l.id)
+              const p          = progressMap[l.id]
+              const qtyDone    = p?.qtyDone    ?? 0
+              const qtyPending = p?.qtyPending ?? 0
+              const qtyRemain  = p?.qtyRemaining ?? l.qty
+              const isFull     = qtyRemain <= 0
+              const isPartial  = (qtyDone + qtyPending) > 0 && !isFull
+              const isSel      = selectedLines.has(l.id)
+
               return (
-                <label key={l.id} className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors ${isSel?'bg-blue-50':''}`}>
-                  <input type="checkbox" checked={isSel}
-                    onChange={()=>setSelectedLines(p=>{const n=new Set(p);n.has(l.id)?n.delete(l.id):n.add(l.id);return n})}
-                    className="w-4 h-4 accent-primary flex-shrink-0"/>
+                <label
+                  key={l.id}
+                  className={`flex items-center gap-3 px-3 py-2.5 transition-colors ${
+                    isFull
+                      ? 'bg-green-50/50 opacity-70 cursor-not-allowed'
+                      : `cursor-pointer hover:bg-muted/50 ${isSel?'bg-blue-50':''}`
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSel}
+                    disabled={isFull}
+                    onChange={()=>setSelectedLines(prev=>{
+                      const n = new Set(prev)
+                      n.has(l.id) ? n.delete(l.id) : n.add(l.id)
+                      return n
+                    })}
+                    className="w-4 h-4 accent-primary flex-shrink-0"
+                  />
                   <div className="flex-1 min-w-0">
-                    <div className="text-[12px] font-bold">{l.qty} szt × {l.kgPerUnit} kg = <span className="text-blue-700">{fmtKg(l.qty*l.kgPerUnit,0)} kg</span></div>
-                    <div className="text-[11px] text-muted-foreground">{l.productTypeName} · {l.recipeName}{l.packagingName?` · ${l.packagingName}`:''}</div>
+                    <div className="text-[12px] font-bold flex flex-wrap items-center gap-2">
+                      <span>{l.qty} szt × {l.kgPerUnit} kg = <span className="text-blue-700">{fmtKg(l.qty*l.kgPerUnit,0)} kg</span></span>
+                      {progressLoading && <span className="text-[10px] text-muted-foreground">…</span>}
+                      {isFull && (
+                        <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-semibold border border-green-200">
+                          ✓ Wyprodukowane
+                        </span>
+                      )}
+                      {isPartial && (
+                        <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-semibold border border-amber-200">
+                          do produkcji {qtyRemain} szt
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {l.productTypeName} · {l.recipeName}{l.packagingName?` · ${l.packagingName}`:''}
+                    </div>
+                    {(qtyDone>0 || qtyPending>0) && (
+                      <div className="text-[10px] mt-0.5 flex flex-wrap gap-2">
+                        {qtyDone>0 && (
+                          <span className="text-green-700 font-semibold">Wyprodukowano: {qtyDone}/{l.qty} szt</span>
+                        )}
+                        {qtyPending>0 && (
+                          <span className="text-amber-600 font-semibold">W toku/planie: {qtyPending} szt</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </label>
               )
@@ -160,7 +289,15 @@ function ImportOrderModal({ orders, onImport, onClose }: {
           </div>
           {selectedLines.size>0 && (
             <div className="text-[11px] text-primary font-semibold mt-1.5">
-              {selectedLines.size} pozycji · {fmtKg(order.lines.filter(l=>selectedLines.has(l.id)).reduce((s,l)=>s+l.qty*l.kgPerUnit,0),0)} kg
+              {selectedLines.size} pozycji · {fmtKg(
+                order.lines
+                  .filter(l=>selectedLines.has(l.id))
+                  .reduce((s,l)=>{
+                    const q = progressMap[l.id]?.qtyRemaining ?? l.qty
+                    return s + q*l.kgPerUnit
+                  }, 0),
+                0
+              )} kg do zaplanowania
             </div>
           )}
         </div>
@@ -561,9 +698,10 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
       seasonedBatchIds: (l as any).seasonedBatchNos?.length > 0
         ? ((l as any).seasonedBatchIds ?? [])
         : (l.seasonedBatchId ? [l.seasonedBatchId] : []),
-      seasonedBatchId:  l.seasonedBatchId ?? '',
-      clientOrderId:    l.clientOrderId ?? '',
-      clientOrderNo:    l.clientOrderNo ?? '',
+      seasonedBatchId:   l.seasonedBatchId ?? '',
+      clientOrderId:     l.clientOrderId ?? '',
+      clientOrderNo:     l.clientOrderNo ?? '',
+      clientOrderLineId: (l as any).clientOrderLineId ?? '',
     })) ?? [emptyLine()]
   )
   const [saving,      setSaving]      = useState(false)
@@ -670,18 +808,37 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
     const valid = lines.filter(l=>l.recipeId&&parseFloat(l.qty)>0&&parseFloat(l.kgPerUnit)>0)
     if (valid.length===0) { setError('Dodaj przynajmniej jedną pozycję z recepturą i kg'); return }
 
-    // Walidacja mięsa przy wysyłaniu do produkcji
-    if (toProduction) {
-      for (const l of valid) {
-        const needed = parseFloat(l.qty) * parseFloat(l.kgPerUnit)
-        if (needed <= 0) continue
-        const ids = l.seasonedBatchIds?.length>0 ? l.seasonedBatchIds : (l.seasonedBatchId?[l.seasonedBatchId]:[])
-        if (ids.length === 0) {
-          const recipeName = (recipes??[]).find((r:any)=>r.id===l.recipeId)?.name ?? l.recipeId
-          setError(`Brak przydzielonego mięsa dla „${recipeName}" — przydziel partie mięsa lub zapisz jako szkic`)
-          return
+    // Walidacja mięsa — zawsze (zarówno dla szkicu jak i produkcji).
+    // System NIE pozwala utworzyć planu z niedoborem mięsa, bo wtedy nadałby
+    // numer planu PP-... i częściowo zarezerwował magazyn.
+    const shortfalls: string[] = []
+    valid.forEach(l => {
+      const idx = lines.indexOf(l)
+      const needed = parseFloat(l.qty) * parseFloat(l.kgPerUnit)
+      if (needed <= 0) return
+      const ids = l.seasonedBatchIds?.length>0 ? l.seasonedBatchIds : (l.seasonedBatchId?[l.seasonedBatchId]:[])
+      const recipeName = (recipes??[]).find((r:any)=>r.id===l.recipeId)?.name ?? l.recipeId
+
+      if (ids.length === 0) {
+        if (toProduction) {
+          shortfalls.push(`„${recipeName}": brak przydzielonych partii mięsa`)
         }
+        return
       }
+
+      const avail = computeSelKgAvailForLine(idx, lines, seasonedRaw??[])
+      if (avail < needed - 0.1) {
+        const short = needed - avail
+        shortfalls.push(`„${recipeName}": potrzeba ${needed.toFixed(0)} kg, dostępne ${avail.toFixed(0)} kg — brakuje ${short.toFixed(0)} kg`)
+      }
+    })
+
+    if (shortfalls.length > 0) {
+      setError(
+        (toProduction ? 'Nie można wysłać do produkcji — niewystarczająca ilość mięsa:\n' : 'Nie można zapisać — niewystarczająca ilość mięsa:\n')
+        + shortfalls.map(s => '• ' + s).join('\n')
+      )
+      return
     }
 
     setSaving(true)
@@ -694,9 +851,10 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
         packagingId:   l.packagingId||undefined,
         seasonedBatchId:  l.seasonedBatchIds[0]||l.seasonedBatchId||undefined,
         seasonedBatchIds: l.seasonedBatchIds?.length>0 ? l.seasonedBatchIds : (l.seasonedBatchId?[l.seasonedBatchId]:undefined),
-        clientOrderId: l.clientOrderId||undefined,
-        clientOrderNo: l.clientOrderNo||undefined,
-        clientName:    l.clientName||undefined,
+        clientOrderId:     l.clientOrderId    ||undefined,
+        clientOrderNo:     l.clientOrderNo    ||undefined,
+        clientOrderLineId: l.clientOrderLineId||undefined,
+        clientName:        l.clientName       ||undefined,
       })), planDate)
 
       if (toProduction) {
@@ -760,8 +918,9 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
       </Card>
 
       {error && (
-        <div className="text-[12px] text-destructive bg-destructive/10 border border-destructive/20 px-3 py-2 rounded flex items-center gap-2">
-          <AlertTriangle size={13}/>{error}
+        <div className="text-[12px] text-destructive bg-destructive/10 border border-destructive/20 px-3 py-2 rounded flex items-start gap-2 whitespace-pre-line">
+          <AlertTriangle size={13} className="flex-shrink-0 mt-0.5"/>
+          <span>{error}</span>
         </div>
       )}
 

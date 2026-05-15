@@ -82,7 +82,7 @@ def create_recipe(dto: RecipeCreate) -> Dict:
                 (cuid(), row["id"], ing.ingredient_id, name, unit, ing.qty_per_100kg),
             )
         row["ingredients"] = _load_ingredients(conn, row["id"])
-        logger.info("recipe.created", extra={"recipe_id": row["id"], "name": dto.name})
+        logger.info("recipe.created", extra={"recipe_id": row["id"], "recipe_name": dto.name})
         return row
 
 

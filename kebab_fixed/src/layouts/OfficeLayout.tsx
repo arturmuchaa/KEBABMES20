@@ -26,6 +26,7 @@ const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
   '/office/rozliczenia':           { title: 'Rozliczenia płac',            description: 'Akord · Tygodniówki · Paski wypłaty' },
   '/office/recall':                { title: 'Wycofanie (Recall)',          description: 'Śledzenie i wycofania' },
   '/office/uzytkownicy':           { title: 'Użytkownicy systemu',         description: 'Konta i uprawnienia' },
+  '/office/ustawienia':            { title: 'Ustawienia firmy',            description: 'Dane do nagłówków WZ' },
 }
 
 export function OfficeLayout() {

@@ -1961,10 +1961,12 @@ export const machineLockApi = {
 export interface Client {
   id:           string
   code:         string       // KLI-001
-  name:         string
+  name:         string       // oficjalna nazwa z rejestru (zgodnie z NIP)
+  displayName?: string       // skrócona / zakładowa nazwa (np. "Zagros" zamiast "Okay Tekin Sp. z o.o.")
   nip?:         string
   regon?:       string
   address?:     string
+  postalCode?:  string
   city?:        string
   contactName?: string
   phone?:       string
@@ -1974,8 +1976,8 @@ export interface Client {
 }
 
 export interface CreateClientDto {
-  name: string; nip?: string; regon?: string; address?: string
-  city?: string; contactName?: string; phone?: string; email?: string
+  name: string; displayName?: string; nip?: string; regon?: string; address?: string
+  postalCode?: string; city?: string; contactName?: string; phone?: string; email?: string
 }
 
 let clients    = load<Client>('kebab_mes_clients', [])
@@ -2215,9 +2217,10 @@ export interface ProductionPlanLine {
   seasonedBatchIds?: string[]   // wiele partii
   seasonedBatchNos?: string[]
   kgAssigned:    number     // ile kg przypisano z magazynu
-  clientOrderId?: string
-  clientOrderNo?: string
-  clientName?:    string
+  clientOrderId?:     string
+  clientOrderNo?:     string
+  clientOrderLineId?: string
+  clientName?:        string
   status:        'pending' | 'assigned' | 'done'
 }
 
@@ -2239,7 +2242,7 @@ export interface CreatePlanLineDto {
   packagingId?: string
   seasonedBatchId?:  string          // główna/pierwsza partia
   seasonedBatchIds?: string[]        // wszystkie partie (multi)
-  clientOrderId?: string; clientOrderNo?: string; clientName?: string
+  clientOrderId?: string; clientOrderNo?: string; clientOrderLineId?: string; clientName?: string
 }
 
 export interface CreateProductionPlanDto {

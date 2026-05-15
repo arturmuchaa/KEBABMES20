@@ -18,6 +18,7 @@ class PlanLineCreate(BaseModel):
     seasoned_batch_ids: List[str] = Field(default_factory=list, alias="seasonedBatchIds")
     client_order_id: str = Field("", alias="clientOrderId")
     client_order_no: str = Field("", alias="clientOrderNo")
+    client_order_line_id: str = Field("", alias="clientOrderLineId")
     client_name: str = Field("", alias="clientName")
 
 

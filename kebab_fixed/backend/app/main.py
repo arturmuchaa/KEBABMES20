@@ -64,6 +64,7 @@ def create_app() -> FastAPI:
         ingredients,
         packaging,
         orders,
+        pallets,
         production_plans,
         recipes,
         seasoned_meat,
@@ -77,8 +78,12 @@ def create_app() -> FastAPI:
         machine_locks,
         vies,
         traceability,
+        vehicles,
+        day_closures,
         stubs,
     )
+    # Aliasujemy: app.routes.settings koliduje z app.config.settings używanym wyżej
+    from app.routes import settings as settings_route  # noqa: E402
 
     for mod in (
         health,
@@ -89,6 +94,7 @@ def create_app() -> FastAPI:
         ingredients,
         packaging,
         orders,
+        pallets,
         production_plans,
         recipes,
         seasoned_meat,
@@ -102,7 +108,10 @@ def create_app() -> FastAPI:
         machine_locks,
         vies,
         traceability,
+        vehicles,
+        day_closures,
         stubs,
+        settings_route,
     ):
         app.include_router(mod.router)
 

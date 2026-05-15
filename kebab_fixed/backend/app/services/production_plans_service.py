@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from app.db import (
     cx_execute,
     cx_execute_returning,
+    cx_execute_rowcount,
     cx_query_all,
     cx_query_one,
     query_all,
@@ -98,7 +99,7 @@ def _apply_reservations(conn, allocation: dict) -> None:
         kg = float(alloc.get("kg") or 0)
         if not bid or kg <= 0:
             continue
-        res = cx_execute(
+        rowcount = cx_execute_rowcount(
             conn,
             """
             UPDATE seasoned_meat
@@ -108,17 +109,60 @@ def _apply_reservations(conn, allocation: dict) -> None:
             """,
             (kg, kg, bid, kg),
         )
-        # Verify the row was updated — if not, concurrent modification stole kg
-        row = cx_query_one(
-            conn,
-            "SELECT kg_available FROM seasoned_meat WHERE id=%s",
-            (bid,),
-        )
-        if row is None or float(row.get("kg_available") or 0) < -0.001:
+        if rowcount == 0:
             raise HTTPException(
                 409,
-                f"Konflikt rezerwacji — nie udało się zabezpieczyć kg na partii {bid}",
+                f"Konflikt rezerwacji — partia {bid} nie ma już wymaganych kg "
+                f"(równoczesna modyfikacja). Spróbuj ponownie.",
             )
+
+
+def _check_plan_shortfalls(
+    conn, valid_lines: List[PlanLineCreate], locked: Dict[str, Dict]
+) -> List[str]:
+    """Sekwencyjnie symulujemy alokację mięsa między liniami planu.
+    Zwraca listę komunikatów o niedoborach (puste = OK).
+
+    Linie bez przydzielonych partii pomijamy — są dozwolone w szkicach;
+    aktywacja planu (update_plan_status='active') zablokuje je później.
+    """
+    remaining: Dict[str, float] = {
+        bid: float(row.get("kg_available") or 0) for bid, row in locked.items()
+    }
+    shortfalls: List[str] = []
+    for line in valid_lines:
+        line_kg = round(line.qty * line.kg_per_unit, 3)
+        if line_kg <= 0:
+            continue
+        ids = (
+            list(line.seasoned_batch_ids)
+            if line.seasoned_batch_ids
+            else ([line.seasoned_batch_id] if line.seasoned_batch_id else [])
+        )
+        ids = [b for b in ids if b]
+        if not ids:
+            continue
+        still_needed = line_kg
+        allocated = 0.0
+        for bid in ids:
+            if still_needed <= 0:
+                break
+            free = remaining.get(bid, 0.0)
+            if free <= 0:
+                continue
+            take = min(still_needed, free)
+            allocated += take
+            remaining[bid] = free - take
+            still_needed -= take
+        if allocated < line_kg - 0.1:
+            recipe_name, _, _ = _resolve_line_names(conn, line)
+            recipe_name = recipe_name or line.recipe_id or "pozycja"
+            shortage = round(line_kg - allocated, 3)
+            shortfalls.append(
+                f'"{recipe_name}": potrzeba {line_kg:.0f} kg, '
+                f"dostępne {allocated:.0f} kg — brakuje {shortage:.0f} kg"
+            )
+    return shortfalls
 
 
 def _restore_reservations(conn, plan_id: str) -> None:
@@ -197,8 +241,9 @@ def _insert_line(
              product_type_id, product_type_name, recipe_id, recipe_name,
              packaging_id, packaging_name, seasoned_batch_id, seasoned_batch_no,
              seasoned_batch_nos, batch_allocation,
-             client_order_id, client_order_no, client_name, kg_assigned, status)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s)
+             client_order_id, client_order_no, client_order_line_id, client_name,
+             kg_assigned, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s)
         """,
         (
             cuid(),
@@ -218,6 +263,7 @@ def _insert_line(
             json.dumps(allocation),
             line.client_order_id or None,
             line.client_order_no or None,
+            line.client_order_line_id or None,
             line.client_name or None,
             line_kg if primary_batch_id else 0,
             "assigned" if primary_batch_id else "pending",
@@ -257,8 +303,6 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
     if not valid_lines:
         raise HTTPException(400, "Brak poprawnych pozycji")
 
-    seq = next_seq("production_plan_seq")
-    year = datetime.now().year
     total_kg = sum(l.qty * l.kg_per_unit for l in valid_lines)
     total_units = sum(l.qty for l in valid_lines)
 
@@ -276,6 +320,19 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
             if bid
         }
         locked = _lock_seasoned_batches(conn, sorted(all_ids))
+
+        # Walidacja: czy zaznaczone partie mają wystarczająco kg na wszystkie linie?
+        # Jeśli nie — rzuć 400 PRZED nadaniem numeru planu i utworzeniem rekordu.
+        shortfalls = _check_plan_shortfalls(conn, valid_lines, locked)
+        if shortfalls:
+            raise HTTPException(
+                400,
+                "Niewystarczająca ilość mięsa — plan nie został utworzony:\n"
+                + "\n".join("• " + s for s in shortfalls),
+            )
+
+        seq = next_seq("production_plan_seq")
+        year = datetime.now().year
 
         plan = cx_execute_returning(
             conn,
@@ -372,6 +429,15 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
         }
         locked = _lock_seasoned_batches(conn, sorted(new_ids))
 
+        # Walidacja: czy zaznaczone partie mają wystarczająco kg?
+        shortfalls = _check_plan_shortfalls(conn, valid_lines, locked)
+        if shortfalls:
+            raise HTTPException(
+                400,
+                "Niewystarczająca ilość mięsa — plan nie został zaktualizowany:\n"
+                + "\n".join("• " + s for s in shortfalls),
+            )
+
         for line in valid_lines:
             line_kg = round(line.qty * line.kg_per_unit, 3)
             recipe_name, product_type_name, packaging_name = _resolve_line_names(
@@ -453,3 +519,56 @@ def update_plan_status(plan_id: str, status: str) -> Dict[str, bool]:
         )
     logger.info("plan.status_updated", extra={"plan_id": plan_id, "status": status})
     return {"ok": True}
+
+
+def update_line_progress(
+    plan_id: str,
+    line_id: str,
+    qty_done: int,
+    line_status: str,
+    worker_entries: list[dict],
+) -> Dict:
+    """Zapisz postęp linii produkcji — wywoływane z tabletu po każdym wpisie."""
+    line = query_one(
+        "SELECT id, plan_id, qty FROM production_plan_lines WHERE id=%s AND plan_id=%s",
+        (line_id, plan_id),
+    )
+    if not line:
+        raise HTTPException(404, "Linia planu nie znaleziona")
+
+    max_qty = int(line["qty"] or 0)
+    qty_done = max(0, min(int(qty_done or 0), max_qty))
+    status = (line_status or "PLANNED").upper()
+    if status not in ("PLANNED", "IN_PROGRESS", "DONE"):
+        status = "PLANNED"
+    # Dopasuj status do qty_done (samo-korygujący)
+    if qty_done >= max_qty and max_qty > 0:
+        status = "DONE"
+    elif qty_done > 0:
+        status = "IN_PROGRESS"
+    else:
+        status = "PLANNED"
+
+    with transaction() as conn:
+        cx_execute(
+            conn,
+            """
+            UPDATE production_plan_lines
+            SET qty_done = %s,
+                line_status = %s,
+                worker_entries = %s::jsonb,
+                progress_updated_at = now()
+            WHERE id = %s
+            """,
+            (qty_done, status, json.dumps(worker_entries or []), line_id),
+        )
+    logger.info(
+        "plan.line_progress",
+        extra={"plan_id": plan_id, "line_id": line_id, "qty_done": qty_done, "status": status},
+    )
+    return {
+        "ok": True,
+        "line_id": line_id,
+        "qty_done": qty_done,
+        "line_status": status,
+    }

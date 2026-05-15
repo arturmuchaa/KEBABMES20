@@ -1,0 +1,336 @@
+/**
+ * PalletsEditor — edytor palet wydania dla zamówienia klienta.
+ *
+ * Cechy:
+ * - Numeracja palet 1..N nadawana przez backend (pełny replace przy zapisie).
+ * - Paleta może zawierać pozycje z różnych linii zamówienia (połączone palety).
+ * - Pokazuje pozostałe szt do rozdysponowania per linia.
+ */
+import { useState, useMemo } from 'react'
+import { useApi } from '@/hooks/useApi'
+import { orderPalletsApi, type OrderPallet, type OrderLine } from '@/lib/apiClient'
+import { fmtKg } from '@/lib/utils'
+import { Plus, Trash2, Pencil, Package } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Card, CardContent, CardDescription, CardTitle,
+} from '@/components/ui/card'
+
+interface Props {
+  orderId: string
+  lines:   OrderLine[]
+}
+
+function lineLabel(l: OrderLine): string {
+  const parts = [`${l.qty} × ${l.kgPerUnit} kg`]
+  if (l.recipeName)      parts.push(l.recipeName)
+  if (l.productTypeName) parts.push(l.productTypeName)
+  return parts.join(' · ')
+}
+
+export function PalletsEditor({ orderId, lines }: Props) {
+  const { data: pallets, refetch } = useApi(() => orderPalletsApi.list(orderId), [orderId])
+  const list = pallets ?? []
+
+  const [showAdd,    setShowAdd]    = useState(false)
+  const [editingIdx, setEditingIdx] = useState<number | null>(null)
+  const [saving,     setSaving]     = useState(false)
+  const [error,      setError]      = useState<string | null>(null)
+
+  // ── Ile szt z danej linii już rozdysponowano na palety (opcjonalnie excl.) ──
+  const assignedByLine = useMemo(() => {
+    const m: Record<string, number> = {}
+    list.forEach(p => p.items.forEach(it => {
+      m[it.orderLineId] = (m[it.orderLineId] ?? 0) + it.qty
+    }))
+    return m
+  }, [list])
+
+  function remainingForLine(lineId: string, excludePalletIdx?: number): number {
+    const line = lines.find(l => l.id === lineId)
+    if (!line) return 0
+    const assigned = assignedByLine[lineId] ?? 0
+    const inExcluded = excludePalletIdx != null
+      ? (list[excludePalletIdx]?.items.find(i => i.orderLineId === lineId)?.qty ?? 0)
+      : 0
+    return Math.max(0, line.qty - assigned + inExcluded)
+  }
+
+  async function persist(updated: OrderPallet[]) {
+    setSaving(true); setError(null)
+    try {
+      await orderPalletsApi.save(orderId, updated)
+      refetch()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Błąd zapisu palet')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleSavePallet(idx: number | null, items: { lineId: string; qty: number }[], notes: string) {
+    const newPallet: OrderPallet = {
+      palletNo: 0,  // backend nadaje
+      notes,
+      items: items.filter(i => i.qty > 0).map(i => ({ orderLineId: i.lineId, qty: i.qty })),
+    }
+    if (newPallet.items.length === 0) {
+      setError('Dodaj przynajmniej jedną pozycję na paletę')
+      return
+    }
+    const updated = idx == null
+      ? [...list, newPallet]
+      : list.map((p, i) => i === idx ? newPallet : p)
+    await persist(updated)
+    setShowAdd(false)
+    setEditingIdx(null)
+  }
+
+  async function handleRemove(idx: number) {
+    if (!confirm(`Usunąć paletę nr ${list[idx].palletNo}?`)) return
+    await persist(list.filter((_, i) => i !== idx))
+  }
+
+  const totalKg = list.reduce((s, p) => s + p.items.reduce(
+    (ss, it) => ss + it.qty * (lines.find(l => l.id === it.orderLineId)?.kgPerUnit ?? 0), 0,
+  ), 0)
+  const totalUnits = list.reduce((s, p) => s + p.items.reduce((ss, it) => ss + it.qty, 0), 0)
+
+  return (
+    <div className="mt-4 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Package size={14} className="text-amber-600" />
+          <CardTitle className="text-xs font-semibold uppercase tracking-wide">
+            Palety wydania
+          </CardTitle>
+          <span className="text-[11px] text-muted-foreground tabular-nums">
+            {list.length} {list.length === 1 ? 'paleta' : 'palet'}
+            {totalKg > 0 && <> · {fmtKg(totalKg, 0)} kg · {totalUnits} szt</>}
+          </span>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-[11px] gap-1"
+          disabled={saving || (showAdd && editingIdx === null)}
+          onClick={() => { setEditingIdx(null); setShowAdd(true); setError(null) }}
+        >
+          <Plus size={12} /> Dodaj paletę
+        </Button>
+      </div>
+
+      {error && (
+        <CardDescription className="text-destructive text-xs">{error}</CardDescription>
+      )}
+
+      {list.length === 0 && !showAdd && (
+        <CardDescription className="text-[11px] italic">
+          Brak palet. Dodaj palety aby wygenerować wydruk zamówienia z numerami palet.
+        </CardDescription>
+      )}
+
+      {/* Lista palet */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        {list.map((p, idx) => {
+          const palletKg = p.items.reduce(
+            (s, it) => s + it.qty * (lines.find(l => l.id === it.orderLineId)?.kgPerUnit ?? 0), 0,
+          )
+          const isEdit = editingIdx === idx
+          if (isEdit) {
+            return (
+              <PalletForm
+                key={p.id ?? `e-${idx}`}
+                title={`Edycja palety nr ${p.palletNo}`}
+                lines={lines}
+                initial={p}
+                remainingForLine={lineId => remainingForLine(lineId, idx)}
+                onSave={(items, notes) => handleSavePallet(idx, items, notes)}
+                onCancel={() => setEditingIdx(null)}
+                saving={saving}
+              />
+            )
+          }
+          return (
+            <Card key={p.id ?? idx} className="bg-amber-50/50 border-amber-200">
+              <CardContent className="p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-7 h-7 rounded-full bg-amber-100 flex items-center justify-center">
+                      <span className="text-amber-900 font-bold text-xs">{p.palletNo}</span>
+                    </div>
+                    <CardTitle className="text-xs font-bold">Paleta nr {p.palletNo}</CardTitle>
+                  </div>
+                  <div className="flex gap-0.5">
+                    <Button
+                      variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-primary"
+                      onClick={() => { setShowAdd(false); setEditingIdx(idx); setError(null) }}
+                      disabled={saving}
+                    >
+                      <Pencil size={11} />
+                    </Button>
+                    <Button
+                      variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                      onClick={() => handleRemove(idx)}
+                      disabled={saving}
+                    >
+                      <Trash2 size={11} />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="mt-2 space-y-0.5">
+                  {p.items.map(it => {
+                    const ln = lines.find(l => l.id === it.orderLineId)
+                    return (
+                      <div key={it.id ?? it.orderLineId} className="flex justify-between text-[11px]">
+                        <span className="truncate">
+                          <span className="font-bold tabular-nums">{it.qty}× </span>
+                          {ln ? lineLabel(ln) : '—'}
+                        </span>
+                        <span className="text-muted-foreground tabular-nums flex-shrink-0 ml-2">
+                          {fmtKg(it.qty * (ln?.kgPerUnit ?? 0), 1)} kg
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <div className="mt-2 pt-1.5 border-t border-amber-200 flex justify-between text-[11px]">
+                  <span className="text-muted-foreground">Razem</span>
+                  <span className="font-bold tabular-nums">{fmtKg(palletKg, 1)} kg</span>
+                </div>
+
+                {p.notes && (
+                  <div className="mt-1 text-[10px] italic text-muted-foreground">{p.notes}</div>
+                )}
+              </CardContent>
+            </Card>
+          )
+        })}
+
+        {showAdd && (
+          <PalletForm
+            title={`Nowa paleta nr ${list.length + 1}`}
+            lines={lines}
+            initial={null}
+            remainingForLine={lineId => remainingForLine(lineId)}
+            onSave={(items, notes) => handleSavePallet(null, items, notes)}
+            onCancel={() => setShowAdd(false)}
+            saving={saving}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────
+// PalletForm — dodaj/edytuj paletę (wiele pozycji w jednym formularzu)
+// ──────────────────────────────────────────────────────────────────
+function PalletForm({
+  title, lines, initial, remainingForLine, onSave, onCancel, saving,
+}: {
+  title: string
+  lines: OrderLine[]
+  initial: OrderPallet | null
+  remainingForLine: (lineId: string) => number
+  onSave: (items: { lineId: string; qty: number }[], notes: string) => void | Promise<void>
+  onCancel: () => void
+  saving: boolean
+}) {
+  const initialMap = useMemo(() => {
+    const m: Record<string, number> = {}
+    initial?.items.forEach(it => { m[it.orderLineId] = it.qty })
+    return m
+  }, [initial])
+
+  const [qtys,  setQtys]  = useState<Record<string, number>>(initialMap)
+  const [notes, setNotes] = useState(initial?.notes ?? '')
+
+  const totalQty = Object.values(qtys).reduce((s, q) => s + (q || 0), 0)
+  const totalKg  = Object.entries(qtys).reduce((s, [lineId, q]) => {
+    const ln = lines.find(l => l.id === lineId)
+    return s + (q || 0) * (ln?.kgPerUnit ?? 0)
+  }, 0)
+
+  function handleSubmit() {
+    const items = Object.entries(qtys)
+      .filter(([, q]) => q > 0)
+      .map(([lineId, q]) => ({ lineId, qty: q }))
+    onSave(items, notes)
+  }
+
+  return (
+    <Card className="bg-white border-2 border-amber-300 md:col-span-2">
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-xs font-bold">{title}</CardTitle>
+          <span className="text-[11px] text-muted-foreground tabular-nums">
+            {totalQty} szt · {fmtKg(totalKg, 1)} kg
+          </span>
+        </div>
+
+        <div className="space-y-1.5">
+          {lines.map(l => {
+            const remaining = remainingForLine(l.id)
+            const cur       = qtys[l.id] ?? 0
+            const maxQty    = remaining
+            return (
+              <div key={l.id} className="flex items-center gap-2 text-xs">
+                <div className="flex-1 min-w-0">
+                  <div className="truncate">{lineLabel(l)}</div>
+                  <CardDescription className="text-[10px]">
+                    Pozostało: <span className="font-bold tabular-nums">{remaining}</span> szt z {l.qty}
+                  </CardDescription>
+                </div>
+                <Input
+                  type="number"
+                  min={0}
+                  max={maxQty}
+                  className="w-20 h-8 text-xs"
+                  value={cur || ''}
+                  onChange={e => {
+                    const raw = Number(e.target.value)
+                    const v   = Number.isFinite(raw) ? Math.max(0, Math.min(maxQty, Math.floor(raw))) : 0
+                    setQtys(p => ({ ...p, [l.id]: v }))
+                  }}
+                  placeholder="0"
+                />
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-[11px]">Uwagi do palety</Label>
+          <Input
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="np. Z górnej półki, numer chłodni..."
+            className="h-8 text-xs"
+          />
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <Button
+            size="sm"
+            className="h-7 text-[11px] gap-1"
+            onClick={handleSubmit}
+            disabled={saving || totalQty === 0}
+          >
+            {saving ? 'Zapisuję...' : (initial ? 'Zapisz zmiany' : 'Dodaj paletę')}
+          </Button>
+          <Button
+            variant="outline" size="sm" className="h-7 text-[11px]"
+            onClick={onCancel} disabled={saving}
+          >
+            Anuluj
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}

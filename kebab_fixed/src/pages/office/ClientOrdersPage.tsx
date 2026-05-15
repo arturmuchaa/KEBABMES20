@@ -5,7 +5,8 @@ import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, clientsApi, packagingApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, todayIso } from '@/lib/utils'
-import { Check, CheckCircle2, ChevronDown, ChevronUp, Clock, Pencil, Plus, ShoppingCart, Trash2, X } from 'lucide-react'
+import { Check, CheckCircle2, ChevronDown, ChevronUp, Clock, Pencil, Plus, Printer, ShoppingCart, Trash2, X } from 'lucide-react'
+import { PalletsEditor } from '@/components/orders/PalletsEditor'
 import { useProductTypes } from '@/features/products/hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
 import type { ClientOrder, CreateClientOrderDto } from '@/lib/mockApi'
@@ -113,7 +114,14 @@ function OrderForm({ onSave, onClose, initialData }: OrderFormProps) {
           <Select value={clientId} onValueChange={setClientId}>
             <SelectTrigger><SelectValue placeholder="Wybierz klienta..." /></SelectTrigger>
             <SelectContent>
-              {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+              {clients.map(c => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.displayName || c.name}
+                  {c.displayName && c.displayName !== c.name && (
+                    <span className="text-muted-foreground"> · {c.name}</span>
+                  )}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -344,6 +352,15 @@ export function ClientOrdersPage() {
                         </CardDescription>
                       </div>
                       <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1"
+                          onClick={e => { e.stopPropagation(); window.open(`/office/zamowienia/${o.id}/druk`, '_blank') }}
+                          title="Drukuj zamówienie"
+                        >
+                          <Printer size={11} /> Drukuj
+                        </Button>
                         {o.status === 'draft' && (
                           <Button
                             variant="outline"
@@ -458,6 +475,10 @@ export function ClientOrdersPage() {
                             </TableRow>
                           </TableBody>
                         </Table>
+
+                        <Separator className="my-3" />
+
+                        <PalletsEditor orderId={o.id} lines={o.lines} />
                       </div>
                     )}
                   </div>

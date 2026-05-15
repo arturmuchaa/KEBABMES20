@@ -17,13 +17,22 @@ import { PlaceholderPage }     from '@/pages/office/PlaceholderPage'
 import { FinishedGoodsPage }   from '@/pages/office/FinishedGoodsPage'
 import { PurchaseInvoicesPage } from '@/pages/office/PurchaseInvoicesPage'
 import { ClientOrdersPage } from '@/pages/office/ClientOrdersPage'
+import { OrderPrintPage }   from '@/pages/office/OrderPrintPage'
+import { PalletLabelPrintPage } from '@/pages/office/PalletLabelPrintPage'
+import { CompanySettingsPage } from '@/pages/office/CompanySettingsPage'
 import { ProductionPlanningPage } from '@/pages/office/ProductionPlanningPage'
 import { RecallPage }             from '@/pages/office/RecallPage'
 import { PayrollPage }            from '@/pages/office/PayrollPage'
+import { VehiclesPage }           from '@/pages/office/VehiclesPage'
 import { ProductTypesPage, RecipesPage, PlanningPage } from '@/features/products'
 import { DeboningTabletPage }  from '@/pages/tablet/DeboningTabletPage'
 import { MixingTabletPage }    from '@/pages/tablet/MixingTabletPage'
 import { ProductionTabletPage }from '@/pages/tablet/ProductionTabletPage'
+import { MobilePickerPage }         from '@/pages/mobile/MobilePickerPage'
+import { MobileMrozniaPage }        from '@/pages/mobile/MobileMrozniaPage'
+import { MobileVehiclePickerPage }  from '@/pages/mobile/MobileVehiclePickerPage'
+import { MobileZaladunekPage }      from '@/pages/mobile/MobileZaladunekPage'
+import { MobilePalletLandingPage }  from '@/pages/mobile/MobilePalletLandingPage'
 
 // ─── Blokada przypadkowego odświeżenia ───────────────────────
 function useBlockRefresh() {
@@ -53,6 +62,17 @@ export default function App() {
   useBlockRefresh()
   return (
     <Routes>
+      {/* Standalone print pages — bez sidebara */}
+      <Route path="/office/zamowienia/:id/druk" element={<OrderPrintPage />} />
+      <Route path="/office/zamowienia/:id/palety/:palletNo/druk" element={<PalletLabelPrintPage />} />
+
+      {/* Mobile — skan QR palet (poza OfficeLayout) */}
+      <Route path="/mobile"                          element={<MobilePickerPage />} />
+      <Route path="/mobile/mroznia"                  element={<MobileMrozniaPage />} />
+      <Route path="/mobile/zaladunek"                element={<MobileVehiclePickerPage />} />
+      <Route path="/mobile/zaladunek/:vehicleId"     element={<MobileZaladunekPage />} />
+      <Route path="/m/p/:orderId/:palletNo"          element={<MobilePalletLandingPage />} />
+
       <Route path="/office" element={<OfficeLayout />}>
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard"             element={<DashboardPage />} />
@@ -75,6 +95,8 @@ export default function App() {
         <Route path="pracownicy"            element={<WorkersPage />} />
         <Route path="rozliczenia"           element={<PayrollPage />} />
         <Route path="recall"                element={<RecallPage />} />
+        <Route path="samochody"             element={<VehiclesPage />} />
+        <Route path="ustawienia"            element={<CompanySettingsPage />} />
         <Route path="uzytkownicy"           element={<PlaceholderPage title="Użytkownicy" icon="🔐" description="" />} />
       </Route>
       <Route path="/tablet" element={<TabletLayout />}>

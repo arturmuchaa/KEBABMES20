@@ -7,24 +7,30 @@ export function useApi<T>(fetcher: () => Promise<T>, deps: unknown[] = []) {
   const ref       = useRef(fetcher)
   ref.current     = fetcher
   const abortRef  = useRef<AbortController | null>(null)
+  // Trzymamy referencję do `data`, żeby `run` mógł sprawdzić czy to pierwszy fetch
+  // (pokazać skeleton) czy refetch (cicho, bez migania UI).
+  const dataRef   = useRef<T | null>(null)
+  dataRef.current = data
 
   const run = useCallback(async () => {
-    // Anuluj poprzednie żądanie
     abortRef.current?.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
 
-    setLoading(true)
+    const firstFetch = dataRef.current === null
+    if (firstFetch) setLoading(true)
     setError(null)
     try {
       const result = await ref.current()
-      if (!ctrl.signal.aborted) setData(result)
+      if (!ctrl.signal.aborted) {
+        setData(result)
+        if (firstFetch) setLoading(false)
+      }
     } catch (e) {
       if (!ctrl.signal.aborted) {
         setError(e instanceof Error ? e.message : 'Błąd')
+        if (firstFetch) setLoading(false)
       }
-    } finally {
-      if (!ctrl.signal.aborted) setLoading(false)
     }
   }, []) // eslint-disable-line
 

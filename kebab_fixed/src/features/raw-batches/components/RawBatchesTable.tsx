@@ -12,17 +12,18 @@ import {
 } from '@/components/ui/table'
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
 import type { RawBatch } from '@/types'
-import { Package, ChevronDown, ChevronUp, ChevronsUpDown, Search, Pencil } from 'lucide-react'
+import { Package, ChevronDown, ChevronUp, ChevronsUpDown, Search, Pencil, Trash2 } from 'lucide-react'
 
 interface RawBatchesTableProps {
   batches:  RawBatch[]
   loading:  boolean
   onEdit?:  (batch: RawBatch) => void
+  onCancel?: (batch: RawBatch) => void
 }
 
 type SortCol = 'internalBatchNo' | 'supplierName' | 'slaughterDate' | 'expiryDate' | 'kgReceived' | 'kgAvailable'
 
-export function RawBatchesTable({ batches, loading, onEdit }: RawBatchesTableProps) {
+export function RawBatchesTable({ batches, loading, onEdit, onCancel }: RawBatchesTableProps) {
   const [filter,  setFilter]  = useState('')
   const [sortCol, setSortCol] = useState<SortCol>('expiryDate')
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc')
@@ -195,15 +196,31 @@ export function RawBatchesTable({ batches, loading, onEdit }: RawBatchesTablePro
                   </TableCell>
                   <TableCell><StatusBadge status={displayStatus} /></TableCell>
                   <TableCell>
-                    {onEdit && Number(b.kgUsed) === 0 && b.status !== 'cancelled' && !b.isInUse && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                        onClick={() => onEdit(b)}
-                      >
-                        <Pencil size={13} />
-                      </Button>
+                    {Number(b.kgUsed) === 0 && b.status !== 'cancelled' && !b.isInUse && (
+                      <div className="flex items-center gap-1">
+                        {onEdit && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                            onClick={() => onEdit(b)}
+                            title="Edytuj"
+                          >
+                            <Pencil size={13} />
+                          </Button>
+                        )}
+                        {onCancel && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => onCancel(b)}
+                            title="Usuń przyjęcie"
+                          >
+                            <Trash2 size={13} />
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </TableCell>
                 </TableRow>

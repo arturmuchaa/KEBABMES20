@@ -20,3 +20,8 @@ def create_supplier(dto: SupplierCreate):
 @router.put("/{supplier_id}")
 def update_supplier(supplier_id: str, dto: SupplierCreate):
     return svc.update_supplier(supplier_id, dto)
+
+
+@router.delete("/{supplier_id}")
+def delete_supplier(supplier_id: str):
+    return svc.delete_supplier(supplier_id)

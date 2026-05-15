@@ -5,7 +5,7 @@ import {
   Layers, Users, UserCog, FlaskConical, ShoppingBag,
   BarChart2, CreditCard, Scissors, Monitor, Truck, Building2,
   FileText, X, Factory, ShoppingCart, Archive, AlertTriangle,
-  ChevronRight, Banknote,
+  ChevronRight, Banknote, Settings, QrCode,
 } from 'lucide-react'
 
 interface NavItem { to: string; label: string; icon: React.ReactNode }
@@ -44,7 +44,9 @@ const NAV: NavSection[] = [
   { heading: 'Administracja', items: [
     { to: '/office/pracownicy',  label: 'Pracownicy',    icon: <Users size={14} /> },
     { to: '/office/rozliczenia', label: 'Rozliczenia',   icon: <Banknote size={14} /> },
+    { to: '/office/samochody',   label: 'Samochody',     icon: <Truck size={14} /> },
     { to: '/office/uzytkownicy', label: 'Użytkownicy',   icon: <UserCog size={14} /> },
+    { to: '/office/ustawienia',  label: 'Ustawienia firmy', icon: <Settings size={14} /> },
   ]},
 ]
 
@@ -52,6 +54,7 @@ const TABLET_LINKS = [
   { to: '/tablet/rozbior',   label: 'Rozbiór',   icon: <Scissors size={13} /> },
   { to: '/tablet/mieszanie', label: 'Masownia',  icon: <Layers size={13} /> },
   { to: '/tablet/produkcja', label: 'Produkcja', icon: <Monitor size={13} /> },
+  { to: '/mobile',           label: 'Skan QR palet', icon: <QrCode size={13} /> },
 ]
 
 export function OfficeSidebar({ onClose }: { onClose?: () => void }) {

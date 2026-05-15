@@ -53,6 +53,7 @@ export function PayrollPage() {
   const [selectedDays, setSelectedDays] = useState<Set<string>>(new Set())
   const [deductions, setDeductions] = useState<{ id: string; description: string; amount: string }[]>([])
   const [showSettlement, setShowSettlement] = useState<any>(null)
+  const [selectedSlips, setSelectedSlips] = useState<Set<string>>(new Set())
 
   const { data: workerDays, loading: daysLoading, refetch: refetchDays } = useApi(
     () => selWorker ? payrollApi.getWorkerDays(selWorker.id, range.from, range.to) : Promise.resolve([]),
@@ -375,7 +376,22 @@ export function PayrollPage() {
             {/* Historia rozliczeń */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Historia rozliczeń</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">Historia rozliczeń</CardTitle>
+                  {selectedSlips.size > 0 && (
+                    <button
+                      onClick={async () => {
+                        const ids = Array.from(selectedSlips).slice(0, 4)
+                        const full = await Promise.all(ids.map(id => payrollApi.getSettlement(id)))
+                        printPaySlips(full)
+                        setSelectedSlips(new Set())
+                      }}
+                      className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                    >
+                      <Printer size={12} /> Drukuj zaznaczone ({Math.min(selectedSlips.size, 4)})
+                    </button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="p-0">
                 {settLoading ? (
@@ -384,28 +400,46 @@ export function PayrollPage() {
                   <div className="text-sm text-muted-foreground text-center py-6">Brak rozliczeń</div>
                 ) : (
                   <div className="divide-y">
-                    {(settlements ?? []).map((s: any) => (
-                      <div key={s.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/30">
-                        <div>
-                          <div className="text-sm font-semibold">
-                            {new Date(s.date_from + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })} –{' '}
-                            {new Date(s.date_to + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {(settlements ?? []).map((s: any) => {
+                      const checked = selectedSlips.has(s.id)
+                      const disabledByLimit = !checked && selectedSlips.size >= 4
+                      return (
+                        <div key={s.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={disabledByLimit}
+                            onChange={() => {
+                              setSelectedSlips(prev => {
+                                const next = new Set(prev)
+                                if (next.has(s.id)) next.delete(s.id)
+                                else if (next.size < 4) next.add(s.id)
+                                return next
+                              })
+                            }}
+                            className="w-4 h-4 rounded cursor-pointer disabled:cursor-not-allowed disabled:opacity-30"
+                          />
+                          <div className="flex-1">
+                            <div className="text-sm font-semibold">
+                              {new Date(s.date_from + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })} –{' '}
+                              {new Date(s.date_to + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {fmtKg(s.kg_total)} kg · {fmtPln(s.gross_amount)} zł brutto
+                            </div>
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            {fmtKg(s.kg_total)} kg · {fmtPln(s.gross_amount)} zł brutto
+                          <div className="text-right">
+                            <div className="text-base font-black text-green-700">{fmtPln(s.net_amount)} zł</div>
+                            <button onClick={async () => {
+                              const full = await payrollApi.getSettlement(s.id)
+                              printPaySlips([full])
+                            }} className="text-xs text-primary hover:underline flex items-center gap-1 ml-auto">
+                              <Printer size={11} /> Drukuj
+                            </button>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <div className="text-base font-black text-green-700">{fmtPln(s.net_amount)} zł</div>
-                          <button onClick={async () => {
-                            const full = await payrollApi.getSettlement(s.id)
-                            printPaySlip(full)
-                          }} className="text-xs text-primary hover:underline flex items-center gap-1 ml-auto">
-                            <Printer size={11} /> Drukuj
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </CardContent>
@@ -433,8 +467,8 @@ export function PayrollPage() {
             <PaySlipPreview settlement={showSettlement} />
             <div className="flex justify-end gap-2 mt-2">
               <Button variant="outline" onClick={() => setShowSettlement(null)}>Zamknij</Button>
-              <Button onClick={() => printPaySlip(showSettlement)}>
-                <Printer size={14} className="mr-2" /> Drukuj (1/4 A4)
+              <Button onClick={() => printPaySlips([showSettlement])}>
+                <Printer size={14} className="mr-2" /> Drukuj (A4 — 4 paski)
               </Button>
             </div>
           </DialogContent>
@@ -485,7 +519,6 @@ function PaySlipPreview({ settlement: s }: { settlement: any }) {
       )}
       <div className="space-y-1">
         <div className="flex justify-between"><span className="text-muted-foreground">{kgLabel(s.worker_role)}</span><span className="font-semibold">{Number(s.kg_total).toFixed(2)} kg</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">Stawka</span><span className="font-semibold">{Number(s.rate_per_kg).toFixed(2)} zł/kg</span></div>
         <div className="flex justify-between font-bold"><span>Wynagrodzenie</span><span>{Number(s.gross_amount).toFixed(2)} zł</span></div>
         {(s.deductions ?? []).map((d: any) => (
           <div key={d.id} className="flex justify-between text-red-600">
@@ -502,64 +535,109 @@ function PaySlipPreview({ settlement: s }: { settlement: any }) {
   )
 }
 
-// ─── Druk w nowym oknie (1/4 A4 = A6) ────────────────────────
-function printPaySlip(s: any) {
+// ─── Pojedynczy pasek (HTML do osadzenia w komórce 2×2) ────────
+function paySlipHtml(s: any | null): string {
+  if (!s) {
+    return `<div class="cell empty">
+      <div class="empty-mark">— miejsce na kolejny pasek —</div>
+    </div>`
+  }
   const role    = s.worker_role ?? ''
   const label   = kgLabel(role)
   const roleStr = ROLE_LABEL[role] ?? role
-  const ct      = s.contract_type === 'praca' ? 'Umowa o pracę' : 'Umowa zlecenie'
   const dfrom   = new Date(s.date_from + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })
   const dto     = new Date(s.date_to   + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'short', year: 'numeric' })
   const days: any[] = s.work_dates_detail ?? []
-
+  // Stawka ukryta na pasku, ale używamy jej do policzenia zarobku per dzień
   const daysRows = days.map(d => {
     const earn = Number(d.kg) * Number(s.rate_per_kg)
     const date = new Date(d.work_date + 'T12:00:00').toLocaleDateString('pl-PL', { weekday: 'short', day: 'numeric', month: 'short' })
     return `<tr><td>${date}</td><td class="r">${Number(d.kg).toFixed(2)}</td><td class="r">${earn.toFixed(2)} zł</td></tr>`
   }).join('')
-
   const deductRows = (s.deductions ?? []).map((d: any) =>
     `<tr><td>${d.description}</td><td class="r" style="color:#c00">- ${Number(d.amount).toFixed(2)} zł</td></tr>`
   ).join('')
+  return `<div class="cell">
+    <div class="top">
+      <div><div class="sub">PASEK WYPŁATY</div><h2>${s.worker_name}</h2>
+      <div class="sub">${roleStr}</div></div>
+      <div class="dates"><div>Okres: ${dfrom}</div><div>— ${dto}</div></div>
+    </div>
+    <hr>
+    ${daysRows ? `<table class="days"><thead><tr><th style="text-align:left">Data</th><th class="r">${label} kg</th><th class="r">Zarobek</th></tr></thead><tbody>${daysRows}</tbody></table><hr>` : ''}
+    <table>
+      <tr><td class="lbl">${label}</td><td class="r bold">${Number(s.kg_total).toFixed(2)} kg</td></tr>
+      <tr><td class="bold">Wynagrodzenie</td><td class="r bold">${Number(s.gross_amount).toFixed(2)} zł</td></tr>
+      ${deductRows}
+    </table>
+    <hr>
+    <table><tr><td class="total green">DO WYPŁATY</td><td class="r total green">${Number(s.net_amount).toFixed(2)} zł</td></tr></table>
+    <div class="sigs">
+      <div><div class="sig-line">Podpis pracodawcy</div></div>
+      <div><div class="sig-line">Podpis pracownika</div></div>
+    </div>
+  </div>`
+}
+
+// ─── Druk 4 pasków na 1 stronie A4 (2×2) ──────────────────────
+function printPaySlips(items: any[]) {
+  // pad do 4 (1, 2, 3 → reszta puste); dla 5+ kolejne strony A4
+  const pages: (any | null)[][] = []
+  for (let i = 0; i < Math.max(1, items.length); i += 4) {
+    const chunk = items.slice(i, i + 4)
+    while (chunk.length < 4) chunk.push(null as any)
+    pages.push(chunk)
+  }
+  const sheets = pages.map(p => `
+    <div class="sheet">
+      ${p.map(paySlipHtml).join('')}
+    </div>
+  `).join('')
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Pasek — ${s.worker_name}</title>
+<title>Paski wypłaty</title>
 <style>
-  @page { size: A6; margin: 7mm; }
+  @page { size: A4 portrait; margin: 0; }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:Arial,sans-serif;font-size:9.5px;color:#000}
-  .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px}
+  body{font-family:Arial,sans-serif;font-size:10px;color:#000;background:#fff}
+  /* 2×2 grid na A4. Każda komórka ≈ A6 (105×148.5mm). */
+  .sheet{
+    width:210mm; height:297mm;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    grid-template-rows:1fr 1fr;
+    page-break-after: always;
+  }
+  .sheet:last-child{page-break-after:auto}
+  .cell{
+    border:1px dashed #777;
+    padding:6mm 7mm;
+    display:flex; flex-direction:column;
+    overflow:hidden;
+  }
+  .cell.empty{
+    display:flex; align-items:center; justify-content:center;
+    color:#bbb; font-size:9px; font-style:italic;
+  }
+  .empty-mark{transform:rotate(-12deg);opacity:0.5}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px}
   h2{font-size:13px;font-weight:900;margin-bottom:1px}
-  .sub{font-size:8px;color:#555}
-  .dates{text-align:right;font-size:8px;color:#555}
-  hr{border:none;border-top:1px solid #ccc;margin:4px 0}
-  table{width:100%;border-collapse:collapse;margin:3px 0}
-  td{padding:1.5px 0;vertical-align:top}
+  .sub{font-size:8.5px;color:#555}
+  .dates{text-align:right;font-size:8.5px;color:#555}
+  hr{border:none;border-top:1px solid #ccc;margin:3px 0}
+  table{width:100%;border-collapse:collapse;margin:2px 0}
+  td,th{padding:1.3px 0;vertical-align:top;font-size:9.5px}
+  .days th{font-size:8px;color:#555;text-align:right}
+  .days th:first-child{text-align:left}
   .r{text-align:right}
   .lbl{color:#555}
   .bold{font-weight:700}
   .total{font-size:12px;font-weight:900}
   .green{color:#166534}
-  .sigs{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:14px}
-  .sig-line{border-top:1px solid #333;padding-top:2px;font-size:7.5px;color:#666;margin-top:18px}
+  .sigs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:auto}
+  .sig-line{border-top:1px solid #333;padding-top:2px;font-size:7.5px;color:#666;margin-top:16px}
 </style></head><body>
-<div class="top">
-  <div><div class="sub">PASEK WYPŁATY</div><h2>${s.worker_name}</h2>
-  <div class="sub">${roleStr}</div></div>
-  <div class="dates"><div>Okres: ${dfrom}</div><div>— ${dto}</div></div>
-</div><hr>
-${daysRows ? `<table><thead><tr><th style="text-align:left;font-size:8px;color:#555">Data</th><th class="r" style="font-size:8px;color:#555">${label} kg</th><th class="r" style="font-size:8px;color:#555">Zarobek</th></tr></thead><tbody>${daysRows}</tbody></table><hr>` : ''}
-<table>
-  <tr><td class="lbl">${label}</td><td class="r bold">${Number(s.kg_total).toFixed(2)} kg</td></tr>
-  <tr><td class="lbl">Stawka akordowa</td><td class="r bold">${Number(s.rate_per_kg).toFixed(2)} zł/kg</td></tr>
-  <tr><td class="bold">Wynagrodzenie</td><td class="r bold">${Number(s.gross_amount).toFixed(2)} zł</td></tr>
-  ${deductRows}
-</table><hr>
-<table><tr><td class="total green">DO WYPŁATY</td><td class="r total green">${Number(s.net_amount).toFixed(2)} zł</td></tr></table>
-<div class="sigs">
-  <div><div class="sig-line">Podpis pracodawcy</div></div>
-  <div><div class="sig-line">Podpis pracownika</div></div>
-</div>
+${sheets}
 <script>window.onload=function(){window.print()}</script>
 </body></html>`
 

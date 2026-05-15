@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { Plus, AlertTriangle, CheckCircle } from 'lucide-react'
+import { Plus, AlertTriangle, CheckCircle, Trash2 } from 'lucide-react'
 import { useRawBatches, useCreateRawBatch } from '../hooks/useRawBatches'
 import { RawBatchesTable }    from '../components/RawBatchesTable'
 import { CreateRawBatchModal } from '../components/CreateRawBatchModal'
@@ -76,6 +76,29 @@ export function RawBatchesPage() {
     }
   }, [editBatch, refetch])
 
+  // ── Cancel (delete) state ──────────────────────────────────────────────────
+  const [cancelBatch,   setCancelBatch]   = useState<RawBatch | null>(null)
+  const [cancelLoading, setCancelLoading] = useState(false)
+
+  const handleCancelOpen = useCallback((batch: RawBatch) => {
+    setCancelBatch(batch)
+  }, [])
+
+  const handleCancelConfirm = useCallback(async () => {
+    if (!cancelBatch) return
+    setCancelLoading(true)
+    try {
+      await rawBatchesApi.cancel(cancelBatch.id, { reason: '' } as any)
+      toast.success(`Partia ${cancelBatch.internalBatchNo} usunięta`)
+      setCancelBatch(null)
+      refetch()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Błąd usuwania')
+    } finally {
+      setCancelLoading(false)
+    }
+  }, [cancelBatch, refetch])
+
   const {
     form, suggestedBatchNo, suggestedNote, open, expiryPreview,
     confirmOpen, validationResult, mutationLoading, mutationError,
@@ -121,7 +144,7 @@ export function RawBatchesPage() {
       {/* Tabela */}
       <Card>
         <CardContent className="p-0">
-          <RawBatchesTable batches={batches} loading={loading} onEdit={handleEditOpen} />
+          <RawBatchesTable batches={batches} loading={loading} onEdit={handleEditOpen} onCancel={handleCancelOpen} />
         </CardContent>
       </Card>
 
@@ -150,6 +173,32 @@ export function RawBatchesPage() {
         onClose={handleEditClose}
         onSubmit={handleEditSubmit}
       />
+
+      {/* Dialog potwierdzenia usuniecia (cancel) */}
+      <Dialog open={cancelBatch !== null} onOpenChange={v => { if (!v) setCancelBatch(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Usuń przyjęcie</DialogTitle>
+            <DialogDescription>
+              Czy na pewno usunąć partię <code className="font-mono font-bold text-primary">{cancelBatch?.internalBatchNo}</code>?
+              Ćwiartka jeszcze nie została wykorzystana, więc usunięcie jest bezpieczne.
+              Partia zostanie oznaczona jako anulowana (status w historii pozostanie).
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setCancelBatch(null)} disabled={cancelLoading}>
+              Anuluj
+            </Button>
+            <Button variant="destructive" onClick={handleCancelConfirm} disabled={cancelLoading} className="gap-2">
+              {cancelLoading
+                ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : <Trash2 size={14} />
+              }
+              Usuń
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Krok 2 — potwierdzenie */}
       <Dialog open={confirmOpen} onOpenChange={v => { if (!v) cancelConfirm() }}>
