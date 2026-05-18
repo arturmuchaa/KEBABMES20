@@ -167,16 +167,6 @@ function SingleReport({ data }: { data: ReportData }) {
         </tbody>
       </table>
 
-      {(() => {
-        const workers = [...new Set(sessions.map(s => s.workerName).filter(Boolean))]
-        return workers.length > 0 ? (
-          <div className="mb-3">
-            <div className="font-bold text-[10px] mb-1 bg-gray-200 p-1 border border-black">PRACOWNICY</div>
-            <div className="border border-black p-1 text-[10px]">{workers.join(', ')}</div>
-          </div>
-        ) : null
-      })()}
-
       <table className="w-full text-[10px]" style={{ borderCollapse: 'collapse' }}>
         <tbody>
           <tr>

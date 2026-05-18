@@ -1,12 +1,15 @@
-import { Outlet, useLocation, NavLink } from 'react-router-dom'
+import { Outlet, useLocation, NavLink, Link } from 'react-router-dom'
 import { OfficeSidebar } from './OfficeSidebar'
 import { useState, useEffect } from 'react'
-import { Menu, X, Bell, ChevronRight, LayoutDashboard } from 'lucide-react'
+import { Menu, X, Bell, ChevronRight, LayoutDashboard, Monitor } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
-  '/office/dashboard':             { title: 'Dashboard',                   description: 'Przegląd produkcji' },
-  '/office/faktury':               { title: 'Faktury i WZ',                description: 'Dokumenty zakupowe' },
+  '/office/dashboard':             { title: 'Pulpit operacyjny',           description: 'Newui2 — Command Center Light' },
+  '/office/dashboard-classic':     { title: 'Dashboard (klasyczny)',       description: 'Przegląd produkcji' },
+  '/office/dashboard-mui':         { title: 'Dashboard (MUI)',             description: 'Wariant Material Design' },
+  '/office/dashboard-pro':         { title: 'Komenda centralna' },
+  '/office/faktury':               { title: 'Faktury i PZ',                description: 'Dokumenty zakupowe' },
   '/office/dostawcy':              { title: 'Dostawcy',                    description: 'Zarządzanie dostawcami' },
   '/office/kontrahenci':           { title: 'Kontrahenci',                 description: 'Klienci i partnerzy' },
   '/office/zamowienia':            { title: 'Zamówienia',                  description: 'Zamówienia klientów' },
@@ -26,7 +29,7 @@ const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
   '/office/rozliczenia':           { title: 'Rozliczenia płac',            description: 'Akord · Tygodniówki · Paski wypłaty' },
   '/office/recall':                { title: 'Wycofanie (Recall)',          description: 'Śledzenie i wycofania' },
   '/office/uzytkownicy':           { title: 'Użytkownicy systemu',         description: 'Konta i uprawnienia' },
-  '/office/ustawienia':            { title: 'Ustawienia firmy',            description: 'Dane do nagłówków WZ' },
+  '/office/ustawienia':            { title: 'Ustawienia firmy',            description: 'Dane do nagłówków PZ' },
 }
 
 export function OfficeLayout() {
@@ -90,6 +93,26 @@ export function OfficeLayout() {
           <div className="flex items-center gap-3">
             {/* Date */}
             <span className="hidden sm:block text-[12px] text-gray-400 capitalize">{dateStr}</span>
+
+            {/* New UI toggle */}
+            <Link
+              to="/newui"
+              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold border transition-colors"
+              style={{ background: '#07090F', borderColor: '#232B40', color: '#06B6D4', letterSpacing: '0.04em' }}
+              title="Dark SCADA"
+            >
+              <Monitor size={12} />
+              Dark
+            </Link>
+            <Link
+              to="/newui2"
+              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold border transition-colors"
+              style={{ background: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8', letterSpacing: '0.04em' }}
+              title="Light Command Center"
+            >
+              <Monitor size={12} />
+              Light
+            </Link>
 
             {/* Notification bell */}
             <button className="relative p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">

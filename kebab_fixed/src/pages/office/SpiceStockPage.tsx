@@ -55,7 +55,7 @@ export function SpiceStockPage() {
   const [newCat,  setNewCat]  = useState<IngredientCategory>('spice_mix')
   const [newUnit, setNewUnit] = useState('kg')
 
-  // Przyjęcie WZ
+  // Przyjęcie PZ
   const [recQty,     setRecQty]     = useState('')
   const [recPrice,   setRecPrice]   = useState('')
   const [recInvoice, setRecInvoice] = useState('')
@@ -100,7 +100,7 @@ export function SpiceStockPage() {
     })
     if (err) { toast.error(err); return }
     refetchReceipts()
-    toast.success('Przyjęcie WZ zapisane')
+    toast.success('Przyjęcie PZ zapisane')
     setReceiptModal(false)
     setRecQty(''); setRecPrice(''); setRecInvoice(''); setRecExpiry('')
   }
@@ -174,7 +174,7 @@ export function SpiceStockPage() {
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setIngModal(true)}>Nowy składnik</Button>
             <Button size="sm" onClick={() => { setSelIngId(''); setReceiptModal(true) }}>
-              <Plus size={13} className="mr-1.5" /> Przyjęcie WZ
+              <Plus size={13} className="mr-1.5" /> Przyjęcie PZ
             </Button>
           </div>
         </CardHeader>
@@ -229,7 +229,7 @@ export function SpiceStockPage() {
                           className="h-6 px-1.5 text-[10px] font-medium text-primary"
                           onClick={e => { e.stopPropagation(); setSelIngId(ing.id); setReceiptModal(true) }}
                         >
-                          +WZ
+                          +PZ
                         </Button>
                         {isExp
                           ? <ChevronUp size={14} className="text-muted-foreground" />
@@ -243,12 +243,12 @@ export function SpiceStockPage() {
                       <div className="px-4 pb-3 bg-muted/20 border-t">
                         <CardDescription className="text-[10px] font-bold uppercase tracking-wide py-2">Historia przyjęć</CardDescription>
                         {recs.length === 0 ? (
-                          <CardDescription className="text-sm">Brak przyjęć — dodaj przez WZ lub Faktury</CardDescription>
+                          <CardDescription className="text-sm">Brak przyjęć — dodaj przez PZ lub Faktury</CardDescription>
                         ) : (
                           <Table>
                             <TableHeader>
                               <TableRow className="hover:bg-transparent">
-                                {['Data','Ilość','Cena/jedn.','FV / WZ','Ważność'].map(h => (
+                                {['Data','Ilość','Cena/jedn.','FV / PZ','Ważność'].map(h => (
                                   <TableHead key={h} className="text-[10px] uppercase tracking-wide">{h}</TableHead>
                                 ))}
                               </TableRow>
@@ -339,11 +339,11 @@ export function SpiceStockPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal: przyjęcie WZ */}
+      {/* Modal: przyjęcie PZ */}
       <Dialog open={receiptModal} onOpenChange={v => { if (!v) setReceiptModal(false) }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Przyjęcie WZ</DialogTitle>
+            <DialogTitle>Przyjęcie PZ</DialogTitle>
             <DialogDescription>Ręczne przyjęcie bez faktury</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -382,8 +382,8 @@ export function SpiceStockPage() {
               <CardDescription className="text-[10px]">Zazwyczaj +12 miesięcy od daty produkcji</CardDescription>
             </div>
             <div className="space-y-1.5">
-              <Label>Nr WZ / FV</Label>
-              <Input placeholder="np. WZ 001/2025" value={recInvoice} onChange={e => setRecInvoice(e.target.value)} />
+              <Label>Nr PZ / FV</Label>
+              <Input placeholder="np. PZ 001/2025" value={recInvoice} onChange={e => setRecInvoice(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label>Data przyjęcia</Label>
@@ -392,7 +392,7 @@ export function SpiceStockPage() {
             <Card className="bg-muted/40 border-transparent">
               <CardContent className="px-3 py-2">
                 <CardDescription className="text-xs">
-                  💡 Faktura może zostać powiązana później w module Faktury i WZ
+                  💡 Faktura może zostać powiązana później w module Faktury i PZ
                 </CardDescription>
               </CardContent>
             </Card>

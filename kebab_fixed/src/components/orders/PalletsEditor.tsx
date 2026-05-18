@@ -168,7 +168,13 @@ export function PalletsEditor({ orderId, lines }: Props) {
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 text-muted-foreground hover:text-blue-700"
-                      onClick={() => window.open(`/office/zamowienia/${orderId}/palety/${p.palletNo}/druk`, '_blank')}
+                      onClick={() => {
+                        const url = `/office/zamowienia/${orderId}/palety/${p.palletNo}/druk`
+                        const win = window.open(url, '_blank')
+                        if (!win || win.closed || typeof win.closed === 'undefined') {
+                          window.location.href = url
+                        }
+                      }}
                       title="Drukuj etykietę palety"
                       disabled={saving}
                     >

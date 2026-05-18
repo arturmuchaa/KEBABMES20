@@ -321,11 +321,11 @@ function InvoiceForm({ initial, onSave, onClose }: {
             </div>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={form.createWZ} onChange={e => set('createWZ', e.target.checked)} className="w-4 h-4 accent-green-600" />
-              <CardDescription className="text-xs text-green-700 font-semibold">Utwórz WZ — zasil magazyn przypraw</CardDescription>
+              <CardDescription className="text-xs text-green-700 font-semibold">Utwórz PZ — zasil magazyn przypraw</CardDescription>
             </label>
             {form.createWZ && (
               <CardDescription className="text-xs text-green-700 bg-white border border-green-200 rounded px-3 py-2">
-                ✓ Faktura powiązana z WZ — składnik zostanie dodany do magazynu
+                ✓ Faktura powiązana z PZ — składnik zostanie dodany do magazynu
               </CardDescription>
             )}
           </CardContent>
@@ -351,7 +351,7 @@ function InvoiceForm({ initial, onSave, onClose }: {
             </div>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={form.createWZ} onChange={e => set('createWZ', e.target.checked)} className="w-4 h-4 accent-purple-600" />
-              <CardDescription className="text-xs text-purple-700 font-semibold">Utwórz WZ — zasil magazyn opakowań</CardDescription>
+              <CardDescription className="text-xs text-purple-700 font-semibold">Utwórz PZ — zasil magazyn opakowań</CardDescription>
             </label>
             {form.createWZ && form.packagingId && (
               <CardDescription className="text-xs text-purple-700 bg-white border border-purple-200 rounded px-3 py-2">
@@ -359,7 +359,7 @@ function InvoiceForm({ initial, onSave, onClose }: {
               </CardDescription>
             )}
             {form.createWZ && !form.packagingId && (
-              <CardDescription className="text-xs text-amber-600">⚠ Wybierz opakowanie/tuleję żeby WZ zasilił magazyn</CardDescription>
+              <CardDescription className="text-xs text-amber-600">⚠ Wybierz opakowanie/tuleję żeby PZ zasilił magazyn</CardDescription>
             )}
           </CardContent>
         </Card>

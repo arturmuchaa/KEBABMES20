@@ -356,7 +356,14 @@ export function ClientOrdersPage() {
                           variant="outline"
                           size="sm"
                           className="h-7 text-xs gap-1"
-                          onClick={e => { e.stopPropagation(); window.open(`/office/zamowienia/${o.id}/druk`, '_blank') }}
+                          onClick={e => {
+                            e.stopPropagation()
+                            const url = `/office/zamowienia/${o.id}/druk`
+                            const win = window.open(url, '_blank')
+                            if (!win || win.closed || typeof win.closed === 'undefined') {
+                              window.location.href = url
+                            }
+                          }}
                           title="Drukuj zamówienie"
                         >
                           <Printer size={11} /> Drukuj

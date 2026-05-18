@@ -86,6 +86,7 @@ function mapRawBatch(raw: any): RawBatch {
     internalBatchSeq: Number(raw.internal_batch_seq ?? raw.internalBatchSeq ?? 0),
     supplierId:       raw.supplier_id        ?? raw.supplierId        ?? '',
     supplierName:     raw.supplier_name      ?? raw.supplierName,
+    supplierDisplayName: raw.supplier_display_name ?? raw.supplierDisplayName ?? '',
     supplierBatchNo:  raw.supplier_batch_no  ?? raw.supplierBatchNo  ?? '',
     supplierBatches:  raw.supplier_batches   ?? raw.supplierBatches,
     slaughterDate:    raw.slaughter_date     ?? raw.slaughterDate     ?? '',
@@ -835,6 +836,13 @@ export const palletScanApi = {
         createdPallets: Number(r.created_pallets ?? 0),
       })),
     ),
+  finalizeLoading: (vehicleId: string, orderIds: string[]) =>
+    post<{ ok: boolean; vehicle_id: string; orders: Array<{ order_id: string; order_no: string; client_name: string; pallets: number }> }>(
+      '/pallets/finalize-loading',
+      { vehicle_id: vehicleId, order_ids: orderIds },
+    ),
+  loadingDocument: (vehicleId: string, orderIds: string[]) =>
+    post<any>('/pallets/loading-document', { vehicle_id: vehicleId, order_ids: orderIds }),
 }
 
 // ─── Ustawienia firmy (do wydruków) ─────────────────────────────

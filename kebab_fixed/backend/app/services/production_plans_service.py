@@ -5,7 +5,6 @@ with FOR UPDATE row locks on every touched seasoned_meat row, so a
 concurrent plan cannot double-book the same lot.
 """
 import json
-from datetime import datetime
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
@@ -17,11 +16,12 @@ from app.db import (
     cx_query_all,
     cx_query_one,
     query_all,
+    query_one,
     transaction,
 )
 from app.logging_config import get_logger
 from app.models.production import PlanLineCreate, ProductionPlanCreate
-from app.utils.ids import cuid, next_seq, now_iso
+from app.utils.ids import cuid, next_dated_no, now_iso
 
 logger = get_logger(__name__)
 
@@ -331,8 +331,7 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
                 + "\n".join("• " + s for s in shortfalls),
             )
 
-        seq = next_seq("production_plan_seq")
-        year = datetime.now().year
+        plan_no = next_dated_no(conn, "PP", dto.plan_date)
 
         plan = cx_execute_returning(
             conn,
@@ -345,7 +344,7 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
             """,
             (
                 cuid(),
-                f"PP-{year}-{str(seq).zfill(3)}",
+                plan_no,
                 dto.plan_date,
                 round(total_kg, 3),
                 total_units,

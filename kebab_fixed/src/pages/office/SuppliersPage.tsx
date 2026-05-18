@@ -212,24 +212,28 @@ function SupplierForm({ initial, onSave, onClose }: {
           {imported && <ImportedBanner data={imported} />}
           <div className="grid grid-cols-2 gap-3">
             {[
-              { k: 'name',        label: 'Nazwa oficjalna *',          ph: 'OKAY TEKIN SP. Z O.O.' },
-              { k: 'displayName', label: 'Nazwa wyświetlana',          ph: 'Zagros (skrócona, do dokumentów)' },
-              { k: 'nip',         label: isAbroad ? 'VAT-UE' : 'NIP', ph: isAbroad ? 'DE123456789' : '1234567890' },
-              { k: 'regon',       label: 'REGON',                      ph: '123456789' },
-              { k: 'vetNumber',   label: 'Numer weterynaryjny',        ph: 'PL00000000WE' },
-              { k: 'address',     label: 'Adres',                      ph: 'ul. Przykładowa 1' },
-              { k: 'postalCode',  label: 'Kod pocztowy',               ph: '00-526' },
-              { k: 'city',        label: 'Miasto',                     ph: 'Warszawa' },
-              { k: 'contactName', label: 'Osoba kontaktowa',           ph: 'Jan Kowalski' },
-              { k: 'phone',       label: 'Telefon',                    ph: '+48 123 456 789' },
-              { k: 'email',       label: 'E-mail',                     ph: 'kontakt@firma.pl' },
+              { k: 'name',        label: 'Nazwa oficjalna *',          ph: '' },
+              { k: 'displayName', label: 'Nazwa wyświetlana',          ph: '' },
+              { k: 'nip',         label: isAbroad ? 'VAT-UE' : 'NIP', ph: '' },
+              { k: 'regon',       label: 'REGON',                      ph: '' },
+              { k: 'vetNumber',   label: 'Numer weterynaryjny',        ph: '' },
+              { k: 'address',     label: 'Adres',                      ph: '' },
+              { k: 'postalCode',  label: 'Kod pocztowy',               ph: '' },
+              { k: 'city',        label: 'Miasto',                     ph: '' },
+              { k: 'contactName', label: 'Osoba kontaktowa',           ph: '' },
+              { k: 'phone',       label: 'Telefon',                    ph: '' },
+              { k: 'email',       label: 'E-mail',                     ph: '' },
             ].map(f => (
               <div key={f.k} className="space-y-1.5">
                 <Label>{f.label}</Label>
                 <Input
                   value={(form as any)[f.k] ?? ''}
-                  onChange={e => set(f.k as keyof CreateSupplierDto, e.target.value)}
+                  onChange={e => {
+                    const v = f.k === 'displayName' ? e.target.value.toUpperCase() : e.target.value
+                    set(f.k as keyof CreateSupplierDto, v)
+                  }}
                   placeholder={f.ph}
+                  className={f.k === 'displayName' ? 'uppercase' : undefined}
                 />
               </div>
             ))}

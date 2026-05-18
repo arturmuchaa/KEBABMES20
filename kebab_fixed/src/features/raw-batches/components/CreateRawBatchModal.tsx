@@ -296,10 +296,10 @@ export function CreateRawBatchModal({
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Nr faktury / WZ</Label>
+              <Label>Nr faktury / PZ</Label>
               <Input
                 type="text"
-                placeholder="np. WZ 739/MDU/03/2026"
+                placeholder="np. PZ 739/MDU/03/2026"
                 value={form.invoiceNo ?? ''}
                 onChange={e => onFieldChange('invoiceNo', e.target.value)}
               />

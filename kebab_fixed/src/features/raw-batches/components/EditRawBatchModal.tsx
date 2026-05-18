@@ -145,11 +145,11 @@ export function EditRawBatchModal({
 
           {/* Nr faktury */}
           <div className="space-y-1.5">
-            <Label>Nr faktury / WZ</Label>
+            <Label>Nr faktury / PZ</Label>
             <Input
               value={form.invoiceNo}
               onChange={e => set('invoiceNo', e.target.value)}
-              placeholder="np. WZ 739/MDU/03/2026"
+              placeholder="np. PZ 739/MDU/03/2026"
             />
           </div>
 

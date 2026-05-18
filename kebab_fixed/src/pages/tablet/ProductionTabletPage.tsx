@@ -4,7 +4,7 @@
  * - Pracownicy WORKER_PRODUCTION z bazy
  * - Zakończenie dnia → magazyn wyrobów gotowych
  */
-import { useEffect, useState } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { productionPlansApi, usersApi, finishedGoodsApi } from '@/lib/apiClient'
 import { Spinner, EmptyState } from '@/components/ui/widgets'
@@ -423,7 +423,7 @@ function PlanPicker({ plans, onSelect }: { plans:ProductionPlan[]; onSelect:(id:
 
 // ─── Główna ───────────────────────────────────────────────────
 export function ProductionTabletPage() {
-  const { data:plans,   loading:plansLoading  } = useApi(()=>productionPlansApi.list())
+  const { data:plans,   loading:plansLoading,  refetch:refetchPlans } = useApi(()=>productionPlansApi.list())
   const { data:workers, loading:workersLoading } = useApi(()=>usersApi.list())
   const finishMut = useMutation(({planId, entries}:{planId:string;entries:any[]}) =>
     finishedGoodsApi.finishProductionDay(planId, entries))
@@ -434,46 +434,6 @@ export function ProductionTabletPage() {
   const [showFinish,     setShowFinish]     = useState(false)
   const [toast,          setToast]          = useState('')
 
-  // Hydratacja postępu z BE przy zmianie planu (live update między urządzeniami)
-  useEffect(() => {
-    if (!selectedPlanId) return
-    const plan = (plans ?? []).find(p => p.id === selectedPlanId)
-    if (!plan) return
-    const next: ProgressMap = {}
-    for (const l of plan.lines) {
-      const qtyDone = Number((l as any).qtyDone ?? 0)
-      const stRaw   = ((l as any).lineStatus ?? 'PLANNED') as 'PLANNED'|'IN_PROGRESS'|'DONE'
-      const entries = Array.isArray((l as any).workerEntries) ? (l as any).workerEntries : []
-      const status: 'PLANNED'|'IN_PROGRESS'|'DONE' =
-        qtyDone >= l.qty && l.qty > 0 ? 'DONE'
-        : qtyDone > 0 ? 'IN_PROGRESS'
-        : stRaw
-      if (qtyDone > 0 || entries.length > 0) {
-        next[l.id] = {
-          lineId: l.id,
-          completedPieces: Math.min(qtyDone, l.qty),
-          status,
-          workerEntries: entries,
-        }
-      }
-    }
-    setProgress(next)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPlanId, plans])
-
-  async function pushProgress(lineId: string, p: LineProgress) {
-    if (!selectedPlanId) return
-    try {
-      await productionPlansApi.updateLineProgress(selectedPlanId, lineId, {
-        qtyDone: p.completedPieces,
-        lineStatus: p.status,
-        workerEntries: p.workerEntries,
-      })
-    } catch (e) {
-      showToast(`Błąd zapisu: ${e instanceof Error ? e.message : 'nieznany'}`)
-    }
-  }
-
   const productionWorkers = (workers??[]).filter(w=>w.role==='WORKER_PRODUCTION'&&w.active)
   const activePlans       = (plans??[]).filter(p=>p.status==='active'||p.status==='draft')
   const selectedPlan      = (plans??[]).find(p=>p.id===selectedPlanId)??null
@@ -481,13 +441,44 @@ export function ProductionTabletPage() {
 
   function showToast(msg:string) { setToast(msg); setTimeout(()=>setToast(''),3500) }
 
+  // Seed local progress from server every time the selected plan changes.
+  // Without this, refresh wipes the in-progress state because saveProgress
+  // also persists to backend (PATCH .../lines/{id}/progress).
+  useEffect(()=>{
+    if (!selectedPlan) return
+    const seeded: ProgressMap = {}
+    for (const l of selectedPlan.lines) {
+      const completed = Number((l as any).qtyDone ?? 0)
+      const entries: WorkerEntry[] = Array.isArray((l as any).workerEntries) ? (l as any).workerEntries : []
+      const status = ((l as any).lineStatus as 'PLANNED'|'IN_PROGRESS'|'DONE') ?? 'PLANNED'
+      if (completed > 0 || entries.length > 0) {
+        seeded[l.id] = { lineId: l.id, completedPieces: completed, status, workerEntries: entries }
+      }
+    }
+    setProgress(seeded)
+  }, [selectedPlanId, plans])
+
+  async function persistLine(lineId:string, next:LineProgress) {
+    if (!selectedPlan) return
+    try {
+      await productionPlansApi.updateLineProgress(selectedPlan.id, lineId, {
+        qtyDone: next.completedPieces,
+        lineStatus: next.status,
+        workerEntries: next.workerEntries,
+      })
+    } catch (err) {
+      console.error('updateLineProgress failed', err)
+      showToast('Nie udało się zapisać postępu — odśwież stronę')
+    }
+  }
+
   function saveProgress(workerId:string, workerName:string, pieces:number) {
     if (!modalState) return
     const lineId = modalState.lineId
     const line = selectedPlan?.lines.find(l=>l.id===lineId)
     if (!line) return
     const now = new Date().toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})
-    let nextProgress: LineProgress | null = null
+    let nextLine: LineProgress | null = null
     setProgress(prev=>{
       const cur = prev[lineId]??{lineId,completedPieces:0,status:'PLANNED' as const,workerEntries:[]}
       const idx = cur.workerEntries.findIndex(e=>e.workerId===workerId)
@@ -496,10 +487,10 @@ export function ProductionTabletPage() {
         : [...cur.workerEntries,{workerId,workerName,pieces,addedAt:now}]
       const completed = Math.min(line.qty, cur.completedPieces+pieces)
       const status: 'PLANNED'|'IN_PROGRESS'|'DONE' = completed>=line.qty?'DONE':completed>0?'IN_PROGRESS':'PLANNED'
-      nextProgress = {lineId,completedPieces:completed,status,workerEntries:entries}
-      return {...prev,[lineId]:nextProgress}
+      nextLine = {lineId,completedPieces:completed,status,workerEntries:entries}
+      return {...prev,[lineId]:nextLine}
     })
-    if (nextProgress) pushProgress(lineId, nextProgress)
+    if (nextLine) persistLine(lineId, nextLine)
     setModalState(null)
   }
 
@@ -508,11 +499,12 @@ export function ProductionTabletPage() {
     const lineId = modalState.lineId
     const line = selectedPlan?.lines.find(l=>l.id===lineId)
     if (!line) return
-    const completed = Math.min(line.qty, entries.filter(e=>e.pieces>0).reduce((s,e)=>s+e.pieces,0))
+    const filtered = entries.filter(e=>e.pieces>0)
+    const completed = Math.min(line.qty, filtered.reduce((s,e)=>s+e.pieces,0))
     const status: 'PLANNED'|'IN_PROGRESS'|'DONE' = completed>=line.qty?'DONE':completed>0?'IN_PROGRESS':'PLANNED'
-    const next: LineProgress = {lineId,completedPieces:completed,status,workerEntries:entries.filter(e=>e.pieces>0)}
-    setProgress(prev=>({...prev,[lineId]:next}))
-    pushProgress(lineId, next)
+    const nextLine: LineProgress = {lineId,completedPieces:completed,status,workerEntries:filtered}
+    setProgress(prev=>({...prev,[lineId]:nextLine}))
+    persistLine(lineId, nextLine)
     setModalState(null)
   }
 
@@ -546,6 +538,7 @@ export function ProductionTabletPage() {
     setProgress({})
     setSelectedPlanId(null)
     setShowFinish(false)
+    refetchPlans()
   }
 
   if (plansLoading||workersLoading) return <div className="flex justify-center items-center h-full"><Spinner size={32}/></div>

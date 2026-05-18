@@ -50,7 +50,7 @@ export function ProductTypesPage() {
 
   const SOURCE_LABELS: Record<string, string> = {
     meat_stock: 'Mięso z/s (rozbiór)',
-    purchase:   'Zakup (FV/WZ)',
+    purchase:   'Zakup (FV/PZ)',
   }
 
   return (
@@ -187,7 +187,7 @@ export function ProductTypesPage() {
                       <SelectTrigger className="h-8 text-[12px]"><SelectValue/></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="meat_stock">Mięso z/s (rozbiór)</SelectItem>
-                        <SelectItem value="purchase">Zakup (FV/WZ)</SelectItem>
+                        <SelectItem value="purchase">Zakup (FV/PZ)</SelectItem>
                       </SelectContent>
                     </Select>
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive"

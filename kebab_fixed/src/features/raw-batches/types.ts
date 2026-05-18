@@ -25,6 +25,7 @@ export interface RawBatch {
 
   readonly supplierId:      string
   readonly supplierName?:   string
+  readonly supplierDisplayName?: string
   readonly supplierBatchNo: string
   readonly supplierBatches?: SupplierBatchItem[]
 

@@ -4,8 +4,9 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['"IBM Plex Mono"', 'monospace'],
+        sans:  ['Inter', 'system-ui', 'sans-serif'],
+        mono:  ['"JetBrains Mono"', '"IBM Plex Mono"', 'monospace'],
+        serif: ['"Instrument Serif"', '"Times New Roman"', 'serif'],
       },
       colors: {
         // ── Legacy custom tokens (preserved for existing pages) ──

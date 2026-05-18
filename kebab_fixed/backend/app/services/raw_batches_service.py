@@ -29,11 +29,14 @@ def list_all_batches() -> List[Dict]:
 
 def list_batches(active_only: bool, limit: int) -> Dict[str, Any]:
     limit = max(1, min(int(limit), 1000))
-    sql = "SELECT * FROM raw_batches"
+    sql = (
+        "SELECT b.*, s.display_name AS supplier_display_name "
+        "FROM raw_batches b LEFT JOIN suppliers s ON s.id = b.supplier_id"
+    )
     params: list = []
     if active_only:
-        sql += " WHERE status = 'active'"
-    sql += " ORDER BY internal_batch_seq ASC LIMIT %s"
+        sql += " WHERE b.status = 'active'"
+    sql += " ORDER BY b.internal_batch_seq ASC LIMIT %s"
     params.append(limit)
     return {"data": query_all(sql, params), "total": None}
 

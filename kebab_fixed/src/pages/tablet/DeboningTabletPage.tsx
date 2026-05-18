@@ -20,6 +20,8 @@ import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
 
+const KG_PER_CONTAINER = 15
+
 const BATCH_PAL = [
   { idle:'bg-blue-50 border-blue-200',   sel:'bg-brand border-brand text-white'          },
   { idle:'bg-green-50 border-green-200', sel:'bg-success border-success text-white'       },
@@ -123,11 +125,14 @@ export function DeboningTabletPage() {
     ? entries.filter(e => e.rawBatchId === selBatch.id)
     : []
 
-  // Sugestia kości/grzbietów — SUMA z wszystkich wpisów tej partii
-  const batchTotalTaken = batchEntries.reduce((s, e) => s + e.kgTaken, 0)
-  const batchTotalMeat  = batchEntries.reduce((s, e) => s + e.kgMeat, 0)
-  const batchSuggestion = batchTotalTaken > 0 && batchTotalMeat > 0
-    ? calcDeboning(batchTotalTaken, batchTotalMeat)
+  // Wpisy do zamknięcia kośćmi/grzbietami: wszystkie w bieżącej sesji bez wpisanych
+  // kg_backs i kg_bones. Pokrywa też przypadek dwóch partii z tej samej dostawy
+  // rozbieranych po sobie — operator klika "Zakończ partię" raz na końcu.
+  const pendingFinalize = entries.filter(e => (e.kgBacks ?? 0) === 0 && (e.kgBones ?? 0) === 0)
+  const finalizeTotalTaken = pendingFinalize.reduce((s, e) => s + e.kgTaken, 0)
+  const finalizeTotalMeat  = pendingFinalize.reduce((s, e) => s + e.kgMeat, 0)
+  const batchSuggestion = finalizeTotalTaken > 0 && finalizeTotalMeat > 0
+    ? calcDeboning(finalizeTotalTaken, finalizeTotalMeat)
     : null
 
   const showToast = (msg: string, type: 'success'|'error' = 'success') => {
@@ -154,7 +159,10 @@ export function DeboningTabletPage() {
     else showToast('Dzień produkcyjny rozpoczęty')
   }
 
-  // Zapisz kg mięsa — BEZ modalu kości (operator może wpisać wiele razy dla tej samej partii)
+  // Zapisz kg mięsa — modal kości/grzbietów otwierany TYLKO ręcznie przez "Zakończ partię".
+  // Auto-open po zużyciu pełnej raw_batch został usunięty: gdy z jednej dostawy było wiele
+  // połączonych partii, modal odpalał się po każdej z osobna, a operator wpisywał za każdym razem
+  // sumaryczne kg → kości/grzbiety były policzone wielokrotnie (zdublowane ilości).
   async function handleSave() {
     if (!selBatch || !selWorker || !canSave || !session) return
     const err = await addEntry(
@@ -164,7 +172,6 @@ export function DeboningTabletPage() {
     if (err) { showToast(err, 'error'); return }
     batchData.refetch()
 
-    // Sprawdź czy cała ćwiartka zużyta → automatycznie otwórz modal kości
     const totalTaken = batchEntries.reduce((s, e) => s + e.kgTaken, 0) + taken
     const batchKg    = Number(selBatch.kgAvailable)
     const isFullyUsed = batchKg > 0 && totalTaken >= batchKg - 0.1
@@ -172,48 +179,62 @@ export function DeboningTabletPage() {
     setKgTaken(''); setKgMeat('')
 
     if (isFullyUsed) {
-      // Cała ćwiartka rozebrana — automatycznie otwórz modal kości/grzbietów
-      const suggestion = {
-        kgBacks: Math.round((totalTaken + meat) * 0.12 * 100) / 100,
-        kgBones: Math.round((totalTaken + meat) * 0.08 * 100) / 100,
-      }
-      setInputBacks(suggestion.kgBacks.toFixed(2))
-      setInputBones(suggestion.kgBones.toFixed(2))
-      setFinishModal(true)
-      showToast(`✓ Ćwiartka ${selBatch.internalBatchNo} rozebrana — wpisz kości i grzbiety`)
+      showToast(`✓ Ćwiartka ${selBatch.internalBatchNo} rozebrana — kliknij "Zakończ partię" gdy wpiszesz wszystkie partie z dostawy`)
     } else {
       showToast(`Zapisano: ${fmtKg(meat)} kg mięsa`)
-      setTimeout(() => cwRef.current?.focus(), 100)
     }
+    setTimeout(() => cwRef.current?.focus(), 100)
   }
 
-  // Zakończ partię — TERAZ otwiera modal kości/grzbietów
+  // Zakończ partię — otwiera modal kości/grzbietów dla wszystkich niezakończonych wpisów
   function handleFinishBatch() {
-    if (batchEntries.length === 0) {
-      showToast('Brak wpisów dla tej partii', 'error')
+    if (pendingFinalize.length === 0) {
+      showToast('Brak wpisów do zakończenia', 'error')
       return
     }
-    // Prefill sugestią z sumy wszystkich wpisów
     setInputBacks(batchSuggestion ? batchSuggestion.kgBacks.toFixed(2) : '')
     setInputBones(batchSuggestion ? batchSuggestion.kgBones.toFixed(2) : '')
     setFinishModal(true)
   }
 
-  // Potwierdź kości/grzbiety — aktualizuj OSTATNI wpis partii
+  // Potwierdź kości/grzbiety — rozkładamy proporcjonalnie do kg_taken na każdy
+  // niezakończony wpis, żeby:
+  //  * suma kg_backs/kg_bones w raportach była dokładnie tym, co operator wpisał (bez dublowania),
+  //  * każda partia (raw_batch) z dostawy została fizycznie zamknięta (kg_backs/kg_bones>0),
+  //    więc nie wpadnie ponownie do pendingFinalize przy kolejnym kliknięciu.
   async function handleFinishConfirm() {
     if (!session) return
-    const kb = parseFloat(inputBacks) || 0
-    const kn = parseFloat(inputBones) || 0
-
-    // Aktualizuj ostatni wpis tej partii z kośćmi/grzbietami
-    const lastEntry = batchEntries[0] // sortowane desc, więc [0] = najnowszy
-    if (lastEntry) {
-      await editEntry(lastEntry.id, { kgBacks: kb, kgBones: kn }, session)
+    const kbTotal = parseFloat(inputBacks) || 0
+    const knTotal = parseFloat(inputBones) || 0
+    if (kbTotal <= 0 && knTotal <= 0) {
+      showToast('Wpisz kości lub grzbiety > 0', 'error')
+      return
+    }
+    const toFinalize = pendingFinalize
+    if (toFinalize.length === 0) {
+      setFinishModal(false)
+      return
+    }
+    const sumTaken = toFinalize.reduce((s, e) => s + e.kgTaken, 0) || 1
+    let runningBacks = 0
+    let runningBones = 0
+    for (let i = 0; i < toFinalize.length; i++) {
+      const e = toFinalize[i]
+      const isLast = i === toFinalize.length - 1
+      const share = e.kgTaken / sumTaken
+      const kb = isLast
+        ? Math.round((kbTotal - runningBacks) * 100) / 100
+        : Math.round(kbTotal * share * 100) / 100
+      const kn = isLast
+        ? Math.round((knTotal - runningBones) * 100) / 100
+        : Math.round(knTotal * share * 100) / 100
+      runningBacks += kb
+      runningBones += kn
+      await editEntry(e.id, { kgBacks: kb, kgBones: kn }, session)
     }
 
     setFinishModal(false)
-    showToast(`Partia ${selBatch?.internalBatchNo} zakończona`)
-    // Reset wyboru — przejdź do kolejnej partii
+    showToast(`Zakończono ${toFinalize.length} ${toFinalize.length === 1 ? 'wpis' : 'wpisów'} (${fmtKg(kbTotal,2)} kg grzbietów, ${fmtKg(knTotal,2)} kg kości)`)
     setSelBatch(null); setKgTaken(''); setKgMeat('')
   }
 
@@ -291,15 +312,19 @@ export function DeboningTabletPage() {
               {batches.map((b, i) => {
                 const pal = BATCH_PAL[i % BATCH_PAL.length]
                 const sel = selBatch?.id === b.id
-                // Liczba wpisów dla tej partii w bieżącej sesji
                 const bEntries = entries.filter(e => e.rawBatchId === b.id)
+                const supplier = b.supplierDisplayName || b.supplierName || '—'
+                const kg = Number(b.kgAvailable)
+                const containers = Math.floor(kg / KG_PER_CONTAINER)
+                const remainderKg = Math.round((kg % KG_PER_CONTAINER) * 10) / 10
                 return (
                   <button key={b.id} onClick={() => pickBatch(b)}
-                    className={cn('flex flex-col items-center justify-center gap-1 p-4 rounded-2xl border-2 min-h-[88px] text-center transition-all active:scale-95 select-none',
+                    className={cn('flex flex-col items-center justify-center gap-1 p-3 rounded-2xl border-2 min-h-[100px] text-center transition-all active:scale-95 select-none',
                       sel ? pal.sel : cn('bg-white', pal.idle, 'hover:shadow-md'))}>
-                    <div className={cn('text-xl font-black font-mono', sel?'text-white':'text-ink')}>{b.internalBatchNo}</div>
-                    <div className={cn('text-xs font-semibold', sel?'text-white/80':'text-ink-3')}>
-                      {fmtKg(b.kgAvailable, 1)} kg
+                    <div className={cn('text-[11px] font-bold uppercase truncate max-w-full leading-tight', sel?'text-white/90':'text-ink-3')}>{supplier}</div>
+                    <div className={cn('text-lg font-black font-mono leading-none', sel?'text-white':'text-ink')}>{b.internalBatchNo}</div>
+                    <div className={cn('text-xs font-semibold leading-tight', sel?'text-white/80':'text-ink-3')}>
+                      {fmtKg(kg, 1)} kg · {containers} poj.{remainderKg > 0 ? ` + ${fmtKg(remainderKg, 1)} kg` : ''}
                     </div>
                     {bEntries.length > 0 && (
                       <div className={cn('text-[10px] font-semibold', sel?'text-white/70':'text-green-600')}>
@@ -410,11 +435,22 @@ export function DeboningTabletPage() {
                 </div>
               </div>
             )}
-            {!isOver && kgAvailableNow > 0 && taken > 0 && (
-              <div className="text-[11px] text-ink-3 mt-1">
-                Zostanie: <strong>{fmtKg(Math.max(0, kgAvailableNow - taken))} kg</strong> z {fmtKg(kgAvailableNow)} kg
-              </div>
-            )}
+            {!isOver && taken > 0 && (() => {
+              const takenContainers = Math.floor(taken / KG_PER_CONTAINER)
+              const takenRemainder  = Math.round((taken % KG_PER_CONTAINER) * 10) / 10
+              return (
+                <div className="mt-2 bg-brand-light border border-brand-border rounded-xl px-3 py-2">
+                  <div className="text-[13px] font-bold text-brand">
+                    {takenContainers} poj.{takenRemainder > 0 ? ` + ${fmtKg(takenRemainder, 1)} kg` : ''}
+                  </div>
+                  {kgAvailableNow > 0 && (
+                    <div className="text-[11px] text-ink-3 mt-0.5">
+                      Zostanie: <strong>{fmtKg(Math.max(0, kgAvailableNow - taken))} kg</strong> z {fmtKg(kgAvailableNow)} kg
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
           </div>
           <div className={cn('bg-white border-2 rounded-2xl px-5 py-4 transition-colors', kgMeat?'border-brand':'border-surface-4')}>
             <div className="text-[10px] font-bold uppercase tracking-wide text-ink-3 mb-2">Mięso Z/S</div>

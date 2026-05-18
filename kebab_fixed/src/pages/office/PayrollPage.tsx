@@ -641,6 +641,13 @@ ${sheets}
 <script>window.onload=function(){window.print()}</script>
 </body></html>`
 
-  const win = window.open('', '_blank')
-  if (win) { win.document.write(html); win.document.close() }
+  // Blob URL działa zarówno w przeglądarce (window.open _blank) jak i w Tauri
+  // (window.open zwraca null → fallback do window.location).
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const win = window.open(url, '_blank')
+  if (!win || win.closed || typeof win.closed === 'undefined') {
+    window.location.href = url
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }

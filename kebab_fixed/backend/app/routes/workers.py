@@ -1,7 +1,7 @@
 """Worker and payroll endpoints."""
 from fastapi import APIRouter, Query
 
-from app.models.workers import WorkerCreate, CreateSettlementDto
+from app.models.workers import WorkerCreate, WorkerUpdate, CreateSettlementDto
 from app.services import workers_service as svc
 
 router = APIRouter(tags=["workers"])
@@ -20,7 +20,7 @@ def create_worker(dto: WorkerCreate):
 
 
 @router.put("/api/workers/{worker_id}")
-def update_worker(worker_id: str, dto: WorkerCreate):
+def update_worker(worker_id: str, dto: WorkerUpdate):
     return svc.update_worker(worker_id, dto)
 
 

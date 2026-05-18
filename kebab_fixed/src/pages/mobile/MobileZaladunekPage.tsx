@@ -21,6 +21,100 @@ type Toast = { ok: boolean; message: string; ts: number }
 const storageKeyFor = (vehicleId: string) =>
   `kebab.mobile.zaladunek.${vehicleId}.selectedOrderIds`
 
+function escapeHtml(s: string): string {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function fmtKgClean(n: number): string {
+  const num = Number(n) || 0
+  const rounded = Math.round(num * 10) / 10
+  const s = rounded.toFixed(1)
+  return (s.endsWith('.0') ? s.slice(0, -2) : s).replace('.', ',')
+}
+
+function renderLoadingDocument(doc: any, plateOverride?: string) {
+  const v = doc?.vehicle ?? {}
+  const orders: any[] = doc?.orders ?? []
+  const today = new Date().toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' })
+  const plate = plateOverride || v.plate || ''
+  const ordersHtml = orders.map((o: any) => {
+    const items = (o.items ?? []).map((l: any) => `
+      <tr>
+        <td>${escapeHtml(l.recipe_name || l.product_type_name || '')}</td>
+        <td class="r">${l.qty}</td>
+        <td class="r">${fmtKgClean(l.total_kg)} kg</td>
+      </tr>`).join('')
+    const pallets = (o.pallets ?? []).map((p: any) =>
+      `<span class="pill">P${p.pallet_no}</span>`).join(' ')
+    return `
+      <section class="order">
+        <div class="order-head">
+          <h3>${escapeHtml(o.order_no)} — ${escapeHtml(o.client_name)}</h3>
+          <div class="sub">
+            ${o.delivery_date ? 'Dostawa: ' + escapeHtml(o.delivery_date) + ' · ' : ''}
+            ${o.pallets?.length ?? 0} palet · ${fmtKgClean(o.total_kg)} kg · ${o.total_units} szt
+          </div>
+        </div>
+        <div class="pallets">${pallets}</div>
+        <table>
+          <thead><tr><th>Produkt</th><th class="r">Szt</th><th class="r">Razem kg</th></tr></thead>
+          <tbody>${items}</tbody>
+        </table>
+      </section>`
+  }).join('')
+
+  const html = `<!DOCTYPE html><html lang="pl"><head><meta charset="utf-8"/>
+<title>Wydanie ${escapeHtml(v.name || '')}</title>
+<style>
+  @page { size: A4 portrait; margin: 12mm }
+  * { box-sizing: border-box; margin: 0; padding: 0 }
+  body { font-family: Arial, sans-serif; font-size: 11px; color: #111 }
+  h1 { font-size: 18px; margin-bottom: 4px }
+  h3 { font-size: 13px; margin-bottom: 2px }
+  .meta { color: #555; font-size: 10px; margin-bottom: 10px }
+  table { width: 100%; border-collapse: collapse; margin-top: 4px }
+  th, td { border: 1px solid #ccc; padding: 3px 6px }
+  th { background: #f3f4f6; text-align: left; font-size: 10px }
+  .r { text-align: right }
+  .order { margin-top: 14px; page-break-inside: avoid }
+  .order-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #111; padding-bottom: 3px }
+  .order-head .sub { font-size: 10px; color: #555 }
+  .pallets { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px }
+  .pill { display: inline-block; padding: 2px 7px; border-radius: 9999px; background: #fef3c7; color: #92400e; font-weight: 700; font-size: 10px }
+  .sigs { margin-top: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px }
+  .sig { border-top: 1px solid #333; padding-top: 4px; font-size: 9px; color: #555 }
+  .actions { position: fixed; top: 8px; right: 8px }
+  @media print { .actions { display: none } }
+  button { font: inherit; padding: 6px 12px; border: 1px solid #888; background: #fff; cursor: pointer; border-radius: 6px }
+</style></head><body>
+<div class="actions"><button onclick="window.print()">Drukuj</button></div>
+<h1>Dokument wydania (WZ)</h1>
+<div class="meta">
+  Pojazd: <b>${escapeHtml(v.name || '')}</b>${plate ? ' · ' + escapeHtml(plate) : ''}${v.kind === 'own' ? ' · firmowy' : ' · spedycja'}<br/>
+  Wygenerowano: ${escapeHtml(today)} · Zamówień: ${orders.length}
+</div>
+${ordersHtml}
+<div class="sigs">
+  <div class="sig">Wydał (osoba magazynowa)</div>
+  <div class="sig">Odebrał (kierowca)</div>
+</div>
+<script>window.addEventListener('load', () => setTimeout(() => window.print(), 350))</script>
+</body></html>`
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const win = window.open(url, '_blank')
+  if (!win || win.closed || typeof win.closed === 'undefined') {
+    window.location.href = url
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
 function StatusBadge({ status }: { status?: string }) {
   if (status === 'loaded')       return <CheckCircle size={20} className="text-emerald-600" />
   if (status === 'cold_storage') return <CircleDot   size={20} className="text-sky-600" />
@@ -187,6 +281,42 @@ export function MobileZaladunekPage() {
   }, [statuses])
 
   const pct = totals.total > 0 ? Math.round((totals.loaded / totals.total) * 100) : 0
+  const allLoaded = totals.total > 0 && totals.loaded === totals.total
+  const isForwarder = vehicle?.kind && vehicle.kind !== 'own'
+  const [finalizing, setFinalizing] = useState(false)
+  const [confirmFinalize, setConfirmFinalize] = useState(false)
+  const [plateInput, setPlateInput] = useState('')
+
+  function openConfirm() {
+    setPlateInput(vehicle?.plate || '')
+    setConfirmFinalize(true)
+  }
+
+  async function handleFinalize() {
+    if (selectedIds.length === 0) return
+    const plate = plateInput.trim().toUpperCase()
+    if (isForwarder && !plate) {
+      setToast({ ok: false, message: 'Podaj numer rejestracyjny pojazdu spedycyjnego', ts: Date.now() })
+      return
+    }
+    setFinalizing(true)
+    try {
+      await palletScanApi.finalizeLoading(vehicleId, selectedIds)
+      const doc = await palletScanApi.loadingDocument(vehicleId, selectedIds)
+      renderLoadingDocument(doc, plate)
+      setToast({ ok: true, message: 'Załadunek zakończony · dokument wydania otwarty', ts: Date.now() })
+      try { localStorage.removeItem(storageKey) } catch {}
+      setSelectedIds([])
+      setStatuses({})
+      setConfirmFinalize(false)
+      setPlateInput('')
+      activeRes.refetch()
+    } catch (e) {
+      setToast({ ok: false, message: e instanceof Error ? e.message : 'Nie udało się zakończyć', ts: Date.now() })
+    } finally {
+      setFinalizing(false)
+    }
+  }
 
   // Zachowuje kolejność z selectedIds (priorytet załadunku)
   const selectedStatuses = selectedIds
@@ -491,9 +621,93 @@ export function MobileZaladunekPage() {
             >
               <Plus size={14} /> Dodaj / zmień kolejność
             </button>
+
+            {/* Zakończ załadunek */}
+            <button
+              type="button"
+              onClick={openConfirm}
+              disabled={totals.loaded === 0 || finalizing}
+              className={`flex items-center justify-center gap-2 rounded-lg px-3 py-3 text-base font-bold shadow ${
+                totals.loaded === 0
+                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  : allLoaded
+                    ? 'bg-emerald-500 text-white hover:bg-emerald-600'
+                    : 'bg-amber-500 text-white hover:bg-amber-600'
+              }`}
+            >
+              <CheckCircle2 size={18} />
+              {totals.loaded === 0
+                ? 'Brak załadowanych palet'
+                : allLoaded
+                  ? 'Zakończ załadunek pojazdu'
+                  : `Zakończ częściowo (${totals.loaded}/${totals.total} palet)`}
+            </button>
           </>
         )}
       </main>
+
+      {/* Dialog: potwierdzenie zakończenia */}
+      {confirmFinalize && (
+        <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center bg-black/40 px-3 py-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl">
+            <div className="text-base font-bold text-slate-900 mb-2">Zakończyć załadunek?</div>
+            {allLoaded ? (
+              <div className="text-sm text-slate-600 mb-4">
+                Zamknie się {selectedIds.length} {selectedIds.length === 1 ? 'zamówienie' : 'zamówienia'} ({totals.loaded} palet · {fmtKg(totals.loadedKg, 0)} kg). Otworzy się dokument wydania do druku.
+              </div>
+            ) : (
+              <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-3 mb-4">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle size={20} className="shrink-0 text-amber-600 mt-0.5" />
+                  <div className="text-sm">
+                    <div className="font-bold text-amber-900 mb-1">
+                      Częściowy załadunek — {totals.loaded} z {totals.total} palet
+                    </div>
+                    <div className="text-amber-800">
+                      Pozostałe <b>{totals.total - totals.loaded}</b> palet NIE pojedzie tym pojazdem. WZ zawiera tylko załadowane palety.
+                      Zamówienia z niezaładowanymi paletami pozostaną na liście aktywnych załadunków.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {isForwarder && (
+              <div className="mb-4">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-700 block mb-1">
+                  Nr rejestracyjny pojazdu spedycyjnego *
+                </label>
+                <input
+                  type="text"
+                  value={plateInput}
+                  onChange={e => setPlateInput(e.target.value.toUpperCase())}
+                  placeholder="np. KR1234A"
+                  autoFocus
+                  className="w-full rounded-lg border-2 border-amber-300 bg-white px-3 py-2 text-base font-mono font-bold tracking-wider text-slate-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                />
+                <div className="text-[11px] text-slate-500 mt-1">Wpisany numer pojawi się na dokumencie wydania.</div>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmFinalize(false)}
+                disabled={finalizing}
+                className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Anuluj
+              </button>
+              <button
+                type="button"
+                onClick={handleFinalize}
+                disabled={finalizing}
+                className="flex-1 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
+              >
+                {finalizing ? 'Zamykam…' : 'Tak, zakończ'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {scannerOpen && (
         <QrScannerModal

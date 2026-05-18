@@ -3,6 +3,10 @@ import { useEffect } from 'react'
 import { OfficeLayout }  from '@/layouts/OfficeLayout'
 import { TabletLayout }  from '@/layouts/TabletLayout'
 import { DashboardPage } from '@/pages/office/DashboardPage'
+import { DashboardMuiPage } from '@/pages/office/DashboardMuiPage'
+import { DashboardProPage } from '@/pages/office/DashboardProPage'
+import { NewUiDashboard } from '@/pages/newui/NewUiDashboard'
+import { NewUi2Dashboard } from '@/pages/newui/NewUi2Dashboard'
 import { RawBatchesPage }from '@/pages/office/RawBatchesPage'
 import { WorkersPage }   from '@/pages/office/WorkersPage'
 import { SuppliersPage } from '@/pages/office/SuppliersPage'
@@ -62,6 +66,14 @@ export default function App() {
   useBlockRefresh()
   return (
     <Routes>
+      {/* New UI — standalone dark SCADA dashboard */}
+      <Route path="/newui"  element={<NewUiDashboard />} />
+      <Route path="/newui2" element={<NewUi2Dashboard />} />
+
+      {/* Główny dashboard — newui2 (zastępuje klasyczny DashboardPage).
+          Renderowany STANDALONE, poza OfficeLayout — sidebar i topbar newui2 wygrywają. */}
+      <Route path="/office/dashboard" element={<NewUi2Dashboard />} />
+
       {/* Standalone print pages — bez sidebara */}
       <Route path="/office/zamowienia/:id/druk" element={<OrderPrintPage />} />
       <Route path="/office/zamowienia/:id/palety/:palletNo/druk" element={<PalletLabelPrintPage />} />
@@ -75,7 +87,9 @@ export default function App() {
 
       <Route path="/office" element={<OfficeLayout />}>
         <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard"             element={<DashboardPage />} />
+        <Route path="dashboard-classic"     element={<DashboardPage />} />
+        <Route path="dashboard-mui"         element={<DashboardMuiPage />} />
+        <Route path="dashboard-pro"         element={<DashboardProPage />} />
         <Route path="dostawcy"              element={<SuppliersPage />} />
         <Route path="kontrahenci"           element={<ClientsPage />} />
         <Route path="zamowienia"            element={<ClientOrdersPage />} />
