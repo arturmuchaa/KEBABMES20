@@ -7,9 +7,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AreaChart, Area, ResponsiveContainer } from 'recharts'
 import {
-  Factory, Beef, Package, Boxes, PackageCheck,
+  Factory, Beef, Package, Boxes,
   AlertTriangle, Truck, Check,
-  BarChart3, Scissors, Soup, ArrowRight,
+  Scissors, Soup, ArrowRight,
 } from 'lucide-react'
 import { useApi } from '@/hooks/useApi'
 import {
@@ -133,66 +133,6 @@ function Pct({ value, color = 'var(--accent)' }: { value: number; color?: string
   return (
     <div className="n2-bar">
       <div className="n2-bar-fill" style={{ width: `${Math.min(100, value)}%`, background: color }} />
-    </div>
-  )
-}
-
-function PipelineStrip({ stages }: { stages: { label: string; icon: React.ReactNode; value: string; unit: string; state: 'live' | 'active' | 'alert' | 'idle' }[] }) {
-  const stateColors: Record<string, string> = {
-    live:   'var(--green)',
-    active: 'var(--accent)',
-    alert:  'var(--red)',
-    idle:   'var(--ink-3)',
-  }
-  return (
-    <div style={{ display: 'flex', gap: 0, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)' }}>
-      {stages.map((s, i) => (
-        <div key={s.label} className={`n2-pipe-stage ${s.state}`} style={{ flex: 1, minWidth: 130, borderRight: i < stages.length - 1 ? '1px solid var(--border)' : 'none' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-            <span style={{ color: stateColors[s.state], flexShrink: 0 }}>{s.icon}</span>
-            <span className="n2-kicker" style={{ fontSize: 10.5 }}>{s.label}</span>
-            {s.state === 'live' && <LiveDot />}
-          </div>
-          <div className="n2-mono" style={{ fontSize: 22, fontWeight: 700, color: s.state === 'idle' ? 'var(--ink-3)' : 'var(--ink)', lineHeight: 1 }}>
-            {s.value}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 4 }}>{s.unit}</div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function MetricCard({ label, value, unit, sub, color, sparkData, icon }: {
-  label: string; value: React.ReactNode; unit?: string; sub?: string
-  color: string; sparkData: { v: number }[]; icon: React.ReactNode
-}) {
-  return (
-    <div className="n2-card n2-card-lift n2-metric" style={{ position: 'relative', overflow: 'hidden', '--m-color': color } as React.CSSProperties}>
-      <div style={{ padding: '16px 18px 10px' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
-          <span className="n2-kicker">{label}</span>
-          <span style={{ color, opacity: 0.7 }}>{icon}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-          <span className="n2-mono" style={{ fontSize: 32, fontWeight: 700, color: 'var(--ink)', lineHeight: 1 }}>{value}</span>
-          {unit && <span style={{ fontSize: 14, color: 'var(--ink-2)', fontWeight: 500 }}>{unit}</span>}
-        </div>
-        {sub && <div style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 6 }}>{sub}</div>}
-      </div>
-      <Sparkline data={sparkData} color={color} />
-    </div>
-  )
-}
-
-function StockRow({ label, kg, pct, color }: { label: string; kg: number; pct: number; color: string }) {
-  return (
-    <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border-2)' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink-2)' }}>{label}</span>
-        <span className="n2-mono" style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{fmtKg(kg, 0)} kg</span>
-      </div>
-      <Pct value={pct} color={color} />
     </div>
   )
 }
@@ -332,16 +272,54 @@ export function NewUi2Dashboard() {
 
   const loading = (batchRes.loading && !batchRes.data) || (plansRes.loading && !plansRes.data)
 
-  // ── Pipeline stages ──
-  const pipeStages = [
-    { label: 'Ćwiartka',    icon: <Beef size={13} />,        value: fmtKg(totalKgRaw, 0),      unit: 'kg magazyn',  state: (totalKgRaw > 0 ? 'active' : 'idle') as any },
-    { label: 'Rozbiór',     icon: <Scissors size={13} />,    value: String(todayDeb.length),    unit: 'sesji dziś',  state: (todayDeb.length > 0 ? 'live' : 'idle') as any },
-    { label: 'Mięso z/s',   icon: <Package size={13} />,     value: fmtKg(totalKgMeat, 0),     unit: 'kg dostępne', state: (totalKgMeat > 0 ? 'active' : 'idle') as any },
-    { label: 'Masowanie',   icon: <Soup size={13} />,        value: activeMixing.length > 0 ? `${mixPct.toFixed(0)}%` : '—', unit: `${activeMixing.length} aktywnych`, state: (activeMixing.length > 0 ? 'live' : 'idle') as any },
-    { label: 'Mięso przyp.',icon: <Boxes size={13} />,       value: fmtKg(totalKgSeasoned, 0), unit: 'kg gotowe',   state: (totalKgSeasoned > 0 ? 'active' : 'idle') as any },
-    { label: 'Produkcja',   icon: <Factory size={13} />,     value: activePlans.length > 0 ? `${prodPct.toFixed(0)}%` : '—', unit: `${activePlans.length} planów`,   state: (activePlans.length > 0 ? 'live' : 'idle') as any },
-    { label: 'Wyrób gotowy',icon: <PackageCheck size={13} />, value: String(allFinished.length), unit: 'partii',     state: (allFinished.length > 0 ? 'active' : 'idle') as any },
-  ]
+  // ── Live process detection ──
+  const rozbiorLive   = todayDeb.some((d: any) => !(d.endedAt ?? d.ended_at ?? d.finishedAt ?? d.finished_at))
+  const masowanieLive = activeMixing.some((o: any) => o.status === 'in_progress')
+  const produkcjaLive = activePlans.some((p: any) =>
+    (p.lines ?? []).some((l: any) => (l.lineStatus ?? '') === 'IN_PROGRESS'))
+
+  // ── Match orders ↔ active production lines ──
+  // Set of `clientName|recipeName` pairs currently being produced (IN_PROGRESS).
+  const liveRecipeClientPairs = useMemo(() => {
+    const s = new Set<string>()
+    activePlans.forEach((p: any) => {
+      (p.lines ?? []).forEach((l: any) => {
+        if ((l.lineStatus ?? '') !== 'IN_PROGRESS') return
+        const c = ((l as any).clientName ?? '').trim().toLowerCase()
+        const r = (l.recipeName ?? '').toLowerCase()
+        if (r) s.add(`${c}|${r}`)
+      })
+    })
+    return s
+  }, [activePlans])
+
+  function isOrderLive(o: any): boolean {
+    const c = (o.clientName ?? '').trim().toLowerCase()
+    return (o.lines ?? []).some((ol: any) => {
+      const r = (ol.recipeName ?? '').toLowerCase()
+      return liveRecipeClientPairs.has(`${c}|${r}`) || liveRecipeClientPairs.has(`|${r}`)
+    })
+  }
+
+  function orderProgress(o: any): { pct: number; qtyDone: number; qtyTotal: number; kgDone: number; kgTotal: number } {
+    const t = (o.lines ?? []).reduce((acc: any, l: any) => {
+      const q   = Number(l.qty) || 0
+      const qd  = Number((l as any).qtyDone) || 0
+      const kpu = Number(l.kgPerUnit) || 0
+      acc.qty     += q
+      acc.qtyDone += qd
+      acc.kg      += q  * kpu
+      acc.kgDone  += qd * kpu
+      return acc
+    }, { qty: 0, qtyDone: 0, kg: 0, kgDone: 0 })
+    return {
+      pct:      t.qty > 0 ? Math.min(100, (t.qtyDone / t.qty) * 100) : 0,
+      qtyDone:  t.qtyDone,
+      qtyTotal: t.qty,
+      kgDone:   t.kgDone,
+      kgTotal:  t.kg,
+    }
+  }
 
   // ── Expiry alert items ──
   const allAlerts = useMemo(() => {
@@ -380,149 +358,146 @@ export function NewUi2Dashboard() {
         </div>
       ) : (
         <>
-          {/* ── Pipeline ── */}
-          <div style={{ marginBottom: 20 }}>
-            <PipelineStrip stages={pipeStages} />
-          </div>
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/* ROW 1 — Stany magazynów (3 karty)                          */}
+          {/* ══════════════════════════════════════════════════════════ */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginBottom: 16 }}>
 
-          {/* ── KPI row ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
-            <MetricCard label="Ćwiartka · magazyn"   value={fmtKg(totalKgRaw, 0)}      unit="kg"  sub={`${activeBatches.length} partii · ${allAlerts.length > 0 ? allAlerts.length + ' alertów' : 'OK'}`} color="#1D4ED8" sparkData={sparks.raw}      icon={<Beef size={14} />} />
-            <MetricCard label="Mięso z/s"            value={fmtKg(totalKgMeat, 0)}     unit="kg"  sub={`${availableMeat.length} pozycji`}   color="#15803D" sparkData={sparks.meat}     icon={<Package size={14} />} />
-            <MetricCard label="Mięso przyprawione"   value={fmtKg(totalKgSeasoned, 0)} unit="kg"  sub={`${availableSeasoned.length} szarż`}  color="#7C3AED" sparkData={sparks.seasoned} icon={<Boxes size={14} />} />
-            <MetricCard label="Produkcja · postęp"   value={`${prodPct.toFixed(1)}`}   unit="%"   sub={`${fmtKg(prodProduced,0)} / ${fmtKg(prodPlanned,0)} kg`} color="#D97706" sparkData={sparks.prod} icon={<Factory size={14} />} />
-            <MetricCard label="Masowanie · postęp"   value={`${mixPct.toFixed(1)}`}    unit="%"   sub={`${activeMixing.length} aktywnych zleceń`} color="#0891B2" sparkData={sparks.mix} icon={<Soup size={14} />} />
-          </div>
-
-          {/* ── Main grid: production table + (alerts + mixing) ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.7fr) minmax(0, 1fr)', gap: 16, marginBottom: 16 }}>
-            {/* Production table */}
-            <div className="n2-card" style={{ overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Factory size={16} style={{ color: 'var(--accent)' }} />
-                  <span style={{ fontWeight: 600, fontSize: 15 }}>Aktywna produkcja</span>
-                  <span className="n2-badge n2-badge-blue">{prodRows.length} pozycji</span>
+            {/* Ćwiartka */}
+            <div className="n2-card n2-card-lift n2-metric" style={{ position: 'relative', overflow: 'hidden', '--m-color': '#1D4ED8' } as React.CSSProperties}>
+              <div style={{ padding: '18px 20px 12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                  <span className="n2-kicker">Ćwiartka — surowiec</span>
+                  <Beef size={20} style={{ color: '#1D4ED8', opacity: 0.65 }} />
                 </div>
-                <Link to="/office/planowanie-produkcji" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
-                  Plany <ArrowRight size={13} />
-                </Link>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+                  <span className="n2-mono" style={{ fontSize: 36, fontWeight: 700, color: 'var(--ink)', lineHeight: 1 }}>{fmtKg(totalKgRaw, 0)}</span>
+                  <span style={{ fontSize: 15, color: 'var(--ink-2)', fontWeight: 600 }}>kg</span>
+                </div>
+                <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, color: 'var(--ink-2)' }}>{activeBatches.length} {activeBatches.length === 1 ? 'partia' : 'partii'}</span>
+                  {allAlerts.length > 0 ? (
+                    <span className="n2-badge n2-badge-red"><AlertTriangle size={11} /> {allAlerts.length} alertów</span>
+                  ) : totalKgRaw > 0 ? (
+                    <span className="n2-badge n2-badge-green"><Check size={11} /> OK</span>
+                  ) : null}
+                </div>
               </div>
-              {prodRows.length === 0 ? (
-                <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-                  <Factory size={32} style={{ color: 'var(--ink-4)', margin: '0 auto 12px' }} />
-                  <div style={{ fontSize: 14, color: 'var(--ink-2)', fontStyle: 'italic' }}>Brak aktywnych planów produkcji</div>
-                  <Link to="/office/planowanie-produkcji" style={{ display: 'inline-block', marginTop: 12, fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>Aktywuj plan →</Link>
-                </div>
-              ) : (
-                <div style={{ overflowX: 'auto' }} className="n2-scroll">
-                  <table className="n2-table">
-                    <thead>
-                      <tr>
-                        <th>Status</th>
-                        <th>Receptura</th>
-                        <th style={{ textAlign: 'right' }}>kg/szt</th>
-                        <th>Postęp</th>
-                        <th style={{ textAlign: 'right' }}>Wyk./Plan</th>
-                        <th>Klient</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {prodRows.map(r => (
-                        <tr key={r.key} className={r.live ? 'row-live' : ''}>
-                          <td>
-                            {r.live
-                              ? <span className="n2-badge n2-badge-green"><LiveDot /> Running</span>
-                              : r.pct >= 100
-                              ? <span className="n2-badge n2-badge-gray"><Check size={9} /> Done</span>
-                              : r.qtyDone > 0
-                              ? <span className="n2-badge n2-badge-amber">W toku</span>
-                              : <span className="n2-badge n2-badge-gray">Plan</span>
-                            }
-                          </td>
-                          <td>
-                            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>{r.recipe}</div>
-                            {r.pkg && <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 2 }}>{r.pkg}</div>}
-                          </td>
-                          <td style={{ textAlign: 'right' }}>
-                            <span className="n2-mono" style={{ fontSize: 14, color: 'var(--ink-2)' }}>{r.kg} kg</span>
-                          </td>
-                          <td style={{ width: 140 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                              <div style={{ flex: 1 }}><Pct value={r.pct} color={r.live ? 'var(--green)' : r.pct > 0 ? 'var(--amber)' : 'var(--border)'} /></div>
-                              <span className="n2-mono" style={{ fontSize: 13, color: r.live ? 'var(--green)' : 'var(--ink-2)', fontWeight: 700, minWidth: 36 }}>{r.pct.toFixed(0)}%</span>
-                            </div>
-                          </td>
-                          <td style={{ textAlign: 'right' }}>
-                            <span className="n2-mono" style={{ fontSize: 14 }}>
-                              <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{r.qtyDone}</span>
-                              <span style={{ color: 'var(--ink-2)' }}> / {r.qtyPlan} szt</span>
-                            </span>
-                          </td>
-                          <td style={{ fontSize: 13, color: 'var(--ink-2)', maxWidth: 140 }}>
-                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.clients || '—'}</div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <Sparkline data={sparks.raw} color="#1D4ED8" />
+              <Link to="/office/magazyn/surowiec" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 20px', borderTop: '1px solid var(--border-2)', fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
+                Otwórz magazyn ćwiartki <ArrowRight size={14} />
+              </Link>
             </div>
 
-            {/* Alerts + mixing column */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {/* Expiry alerts */}
-              <div className="n2-card" style={{ overflow: 'hidden', flex: allAlerts.length > 0 ? 1 : 'none' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
-                  <AlertTriangle size={16} style={{ color: allAlerts.length > 0 ? 'var(--red)' : 'var(--ink-3)' }} />
-                  <span style={{ fontWeight: 600, fontSize: 15 }}>Alerty terminu</span>
-                  {allAlerts.length > 0 && <span className="n2-badge n2-badge-red">{allAlerts.length}</span>}
+            {/* Mięso z/s */}
+            <div className="n2-card n2-card-lift n2-metric" style={{ position: 'relative', overflow: 'hidden', '--m-color': '#15803D' } as React.CSSProperties}>
+              <div style={{ padding: '18px 20px 12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                  <span className="n2-kicker">Mięso z/s — po rozbiorze</span>
+                  <Package size={20} style={{ color: '#15803D', opacity: 0.65 }} />
                 </div>
-                {allAlerts.length === 0 ? (
-                  <div style={{ padding: '22px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <Check size={18} style={{ color: 'var(--green)', flexShrink: 0 }} />
-                    <span style={{ fontSize: 14, color: 'var(--ink-2)', fontStyle: 'italic' }}>Brak alertów — wszystkie partie OK</span>
-                  </div>
-                ) : (
-                  <div className="n2-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>
-                    {allAlerts.map(a => (
-                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderBottom: '1px solid var(--border-2)' }}>
-                        <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: a.sev === 'high' ? 'var(--red)' : 'var(--amber)' }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div className="n2-mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{a.batch}</div>
-                          <div style={{ fontSize: 12.5, color: 'var(--ink-2)', marginTop: 2 }}>{a.msg}</div>
-                        </div>
-                        <button
-                          style={{ flexShrink: 0, padding: '4px 10px', borderRadius: 5, background: 'var(--border-2)', border: '1px solid var(--border)', fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)', cursor: 'pointer' }}
-                          onClick={() => setAckedIds(prev => new Set([...prev, a.id]))}
-                        >
-                          ACK
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+                  <span className="n2-mono" style={{ fontSize: 36, fontWeight: 700, color: 'var(--ink)', lineHeight: 1 }}>{fmtKg(totalKgMeat, 0)}</span>
+                  <span style={{ fontSize: 15, color: 'var(--ink-2)', fontWeight: 600 }}>kg</span>
+                </div>
+                <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, color: 'var(--ink-2)' }}>{availableMeat.length} {availableMeat.length === 1 ? 'pozycja' : 'pozycji'}</span>
+                  {totalKgMeat > 0 && <span className="n2-badge n2-badge-green"><Check size={11} /> dostępne</span>}
+                </div>
               </div>
+              <Sparkline data={sparks.meat} color="#15803D" />
+              <Link to="/office/magazyn/surowiec" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 20px', borderTop: '1px solid var(--border-2)', fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
+                Otwórz magazyn mięsa z/s <ArrowRight size={14} />
+              </Link>
+            </div>
 
-              {/* Mixing orders */}
-              <div className="n2-card" style={{ overflow: 'hidden' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
-                  <Soup size={16} style={{ color: '#7C3AED' }} />
-                  <span style={{ fontWeight: 600, fontSize: 15 }}>Masowanie</span>
-                  <span className="n2-badge n2-badge-gray">{activeMixing.length} aktywnych</span>
+            {/* Mięso przyprawione */}
+            <div className="n2-card n2-card-lift n2-metric" style={{ position: 'relative', overflow: 'hidden', '--m-color': '#7C3AED' } as React.CSSProperties}>
+              <div style={{ padding: '18px 20px 12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                  <span className="n2-kicker">Mięso przyprawione</span>
+                  <Boxes size={20} style={{ color: '#7C3AED', opacity: 0.65 }} />
                 </div>
-                {activeMixing.length === 0 ? (
-                  <div style={{ padding: '18px', fontSize: 14, color: 'var(--ink-2)', fontStyle: 'italic' }}>Brak aktywnych zleceń</div>
-                ) : (
-                  <div style={{ padding: '10px 18px 14px' }}>
-                    {activeMixing.slice(0, 4).map((o: any) => {
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+                  <span className="n2-mono" style={{ fontSize: 36, fontWeight: 700, color: 'var(--ink)', lineHeight: 1 }}>{fmtKg(totalKgSeasoned, 0)}</span>
+                  <span style={{ fontSize: 15, color: 'var(--ink-2)', fontWeight: 600 }}>kg</span>
+                </div>
+                <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, color: 'var(--ink-2)' }}>{availableSeasoned.length} {availableSeasoned.length === 1 ? 'szarża' : 'szarż'}</span>
+                  {totalKgSeasoned > 0 && <span className="n2-badge n2-badge-green"><Check size={11} /> gotowe do produkcji</span>}
+                </div>
+              </div>
+              <Sparkline data={sparks.seasoned} color="#7C3AED" />
+              <Link to="/office/magazyn/mieso-przyp" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 20px', borderTop: '1px solid var(--border-2)', fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
+                Otwórz magazyn mięsa przyp. <ArrowRight size={14} />
+              </Link>
+            </div>
+          </div>
+
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/* ROW 2 — Postęp live 3 procesów (Rozbiór · Masowanie · Produkcja) */}
+          {/* ══════════════════════════════════════════════════════════ */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14, marginBottom: 16 }}>
+
+            {/* Rozbiór */}
+            <div className="n2-card n2-card-lift" style={{ position: 'relative', overflow: 'hidden', borderTop: `3px solid ${rozbiorLive ? 'var(--green)' : 'var(--border)'}` }}>
+              <div style={{ padding: '16px 20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Scissors size={18} style={{ color: '#0E7490' }} />
+                    <span style={{ fontWeight: 600, fontSize: 16 }}>Rozbiór</span>
+                    {rozbiorLive && <span className="n2-badge n2-badge-green"><LiveDot /> LIVE</span>}
+                  </div>
+                  <Link to="/office/deboning" style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    Sesje <ArrowRight size={13} />
+                  </Link>
+                </div>
+                <div className="n2-mono" style={{ fontSize: 30, fontWeight: 700, color: 'var(--ink)', lineHeight: 1 }}>
+                  {fmtKg(debKgMeat, 0)} <span style={{ fontSize: 15, color: 'var(--ink-2)', fontWeight: 500 }}>kg mięsa</span>
+                </div>
+                <div style={{ marginTop: 8, fontSize: 13, color: 'var(--ink-2)' }}>
+                  z {fmtKg(debKgQ, 0)} kg ćwiartki · {todayDeb.length} {todayDeb.length === 1 ? 'sesja' : 'sesji'} dziś
+                </div>
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                    <span className="n2-kicker" style={{ fontSize: 10.5 }}>Yield · mięso / ćwiartka</span>
+                    <span className="n2-mono" style={{ fontSize: 14, fontWeight: 700, color: debYield > 65 ? 'var(--green)' : debYield > 0 ? 'var(--amber)' : 'var(--ink-3)' }}>
+                      {debYield > 0 ? `${debYield.toFixed(1)}%` : '—'}
+                    </span>
+                  </div>
+                  <Pct value={debYield} color={debYield > 65 ? 'var(--green)' : 'var(--amber)'} />
+                </div>
+              </div>
+            </div>
+
+            {/* Masowanie */}
+            <div className="n2-card n2-card-lift" style={{ position: 'relative', overflow: 'hidden', borderTop: `3px solid ${masowanieLive ? 'var(--green)' : 'var(--border)'}` }}>
+              <div style={{ padding: '16px 20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Soup size={18} style={{ color: '#7C3AED' }} />
+                    <span style={{ fontWeight: 600, fontSize: 16 }}>Masowanie</span>
+                    {masowanieLive && <span className="n2-badge n2-badge-green"><LiveDot /> LIVE</span>}
+                  </div>
+                  <Link to="/office/planowanie-masowania" style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    Plan <ArrowRight size={13} />
+                  </Link>
+                </div>
+                <div className="n2-mono" style={{ fontSize: 30, fontWeight: 700, color: 'var(--ink)', lineHeight: 1 }}>
+                  {activeMixing.length > 0 ? `${mixPct.toFixed(0)}%` : '—'}
+                </div>
+                <div style={{ marginTop: 8, fontSize: 13, color: 'var(--ink-2)' }}>
+                  {activeMixing.length} {activeMixing.length === 1 ? 'aktywne zlecenie' : 'aktywnych zleceń'}
+                </div>
+                {activeMixing.length > 0 && (
+                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {activeMixing.slice(0, 3).map((o: any) => {
                       const pct = Number(o.meatKg) > 0 ? Math.min(100, Number(o.kgDone) / Number(o.meatKg) * 100) : 0
                       return (
-                        <div key={o.id} style={{ marginBottom: 12 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                            <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>{o.recipeName ?? '—'}</span>
-                            <span className="n2-mono" style={{ fontSize: 13, color: 'var(--ink-2)', flexShrink: 0 }}>{fmtKg(o.kgDone, 0)} / {fmtKg(o.meatKg, 0)} kg</span>
+                        <div key={o.id}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>{o.recipeName ?? '—'}</span>
+                            <span className="n2-mono" style={{ fontSize: 12, color: 'var(--ink-2)' }}>{fmtKg(o.kgDone, 0)} / {fmtKg(o.meatKg, 0)} kg</span>
                           </div>
                           <Pct value={pct} color="#7C3AED" />
                         </div>
@@ -532,106 +507,168 @@ export function NewUi2Dashboard() {
                 )}
               </div>
             </div>
-          </div>
 
-          {/* ── Bottom: stock + orders ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.4fr)', gap: 16 }}>
-            {/* Stock summary */}
-            <div className="n2-card" style={{ padding: '18px', overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                <BarChart3 size={16} style={{ color: 'var(--accent)' }} />
-                <span style={{ fontWeight: 600, fontSize: 15 }}>Stan magazynów</span>
-              </div>
-
-              <div style={{ marginBottom: 4, paddingBottom: 12, borderBottom: '1px solid var(--border-2)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 7 }}>
-                  <span style={{ fontSize: 14, color: 'var(--ink-2)', fontWeight: 500 }}>Rozbiór dziś · yield</span>
-                  <span className="n2-mono" style={{ fontSize: 15, fontWeight: 700, color: debYield > 65 ? 'var(--green)' : debYield > 0 ? 'var(--amber)' : 'var(--ink-3)' }}>
-                    {debYield > 0 ? `${debYield.toFixed(1)}%` : '—'}
-                  </span>
+            {/* Produkcja */}
+            <div className="n2-card n2-card-lift" style={{ position: 'relative', overflow: 'hidden', borderTop: `3px solid ${produkcjaLive ? 'var(--green)' : 'var(--border)'}` }}>
+              <div style={{ padding: '16px 20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Factory size={18} style={{ color: '#D97706' }} />
+                    <span style={{ fontWeight: 600, fontSize: 16 }}>Produkcja</span>
+                    {produkcjaLive && <span className="n2-badge n2-badge-green"><LiveDot /> LIVE</span>}
+                  </div>
+                  <Link to="/office/planowanie-produkcji" style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    Plany <ArrowRight size={13} />
+                  </Link>
                 </div>
-                {debKgQ > 0 && <div style={{ fontSize: 12.5, color: 'var(--ink-2)', marginBottom: 7 }}>{fmtKg(debKgQ, 0)} kg ćwiartki → {fmtKg(debKgMeat, 0)} kg mięsa</div>}
-                <Pct value={debYield > 0 ? debYield : 0} color="var(--amber)" />
-              </div>
-
-              <StockRow label="Ćwiartka (surowiec)"    kg={totalKgRaw}       pct={Math.min(100, totalKgRaw / 10)} color="var(--accent)" />
-              <StockRow label="Mięso z/s po rozbiorze" kg={totalKgMeat}      pct={Math.min(100, totalKgMeat / 5)} color="var(--green)" />
-              <StockRow label="Mięso przyprawione"     kg={totalKgSeasoned}  pct={Math.min(100, totalKgSeasoned / 5)} color="#7C3AED" />
-              <div style={{ paddingTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <Link to="/office/magazyn/surowiec"   style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>Surowiec →</Link>
-                <Link to="/office/magazyn/surowiec"   style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>Mięso z/s →</Link>
-                <Link to="/office/magazyn/mieso-przyp" style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>Mięso przyp. →</Link>
+                <div className="n2-mono" style={{ fontSize: 30, fontWeight: 700, color: 'var(--ink)', lineHeight: 1 }}>
+                  {activePlans.length > 0 ? `${prodPct.toFixed(0)}%` : '—'}
+                </div>
+                <div style={{ marginTop: 8, fontSize: 13, color: 'var(--ink-2)' }}>
+                  {fmtKg(prodProduced, 0)} / {fmtKg(prodPlanned, 0)} kg · {activePlans.length} {activePlans.length === 1 ? 'plan' : 'planów'}
+                </div>
+                {prodRows.length > 0 && (
+                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {prodRows.slice(0, 3).map((r) => (
+                      <div key={r.key}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>
+                            {r.live && <LiveDot />} {r.recipe}
+                          </span>
+                          <span className="n2-mono" style={{ fontSize: 12, color: 'var(--ink-2)' }}>{r.qtyDone} / {r.qtyPlan} szt</span>
+                        </div>
+                        <Pct value={r.pct} color={r.live ? 'var(--green)' : r.pct > 0 ? '#D97706' : 'var(--border)'} />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
+          </div>
 
-            {/* Orders */}
-            <div className="n2-card" style={{ overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Truck size={16} style={{ color: 'var(--amber)' }} />
-                  <span style={{ fontWeight: 600, fontSize: 15 }}>Zamówienia</span>
-                  <span className="n2-badge n2-badge-gray">{visibleOrders.length} aktywnych</span>
-                </div>
-                <Link to="/office/zamowienia" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
-                  Wszystkie <ArrowRight size={13} />
-                </Link>
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/* ROW 3 — Pełna lista zamówień z postępem live              */}
+          {/* ══════════════════════════════════════════════════════════ */}
+          <div className="n2-card" style={{ overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Truck size={16} style={{ color: 'var(--amber)' }} />
+                <span style={{ fontWeight: 600, fontSize: 15 }}>Zamówienia · postęp produkcji</span>
+                <span className="n2-badge n2-badge-gray">{visibleOrders.length} aktywnych</span>
+                {visibleOrders.filter(isOrderLive).length > 0 && (
+                  <span className="n2-badge n2-badge-green"><LiveDot /> {visibleOrders.filter(isOrderLive).length} live</span>
+                )}
               </div>
-              {visibleOrders.length === 0 ? (
-                <div style={{ padding: '32px 20px', textAlign: 'center', fontSize: 14, color: 'var(--ink-2)', fontStyle: 'italic' }}>Brak aktywnych zamówień</div>
-              ) : (
-                <div className="n2-scroll" style={{ maxHeight: 360, overflowY: 'auto' }}>
-                  <table className="n2-table">
-                    <thead>
-                      <tr>
-                        <th>Nr / Klient</th>
-                        <th>Status</th>
-                        <th style={{ textAlign: 'right' }}>Dostawa</th>
-                        <th style={{ textAlign: 'right' }}>Szt</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleOrders.slice(0, 12).map((o: any) => {
-                        const daysLeft = o.deliveryDate
-                          ? Math.round((new Date(o.deliveryDate).getTime() - Date.now()) / 86400000)
-                          : null
-                        const urgent = daysLeft !== null && daysLeft <= 2
-                        return (
-                          <tr key={o.id}>
-                            <td>
-                              <div className="n2-mono" style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--accent)' }}>{o.orderNo}</div>
-                              <div style={{ fontSize: 13.5, color: 'var(--ink-2)', marginTop: 2 }}>{o.clientName}</div>
-                            </td>
-                            <td>
-                              <span className={`n2-badge ${STATUS_BADGE[o.status] ?? 'n2-badge-gray'}`}>
-                                {STATUS_LABEL[o.status] ?? o.status}
-                              </span>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              {o.deliveryDate ? (
-                                <div>
-                                  <div className="n2-mono" style={{ fontSize: 14, color: urgent ? 'var(--red)' : 'var(--ink)', fontWeight: urgent ? 700 : 600 }}>
-                                    {new Date(o.deliveryDate).toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })}
-                                  </div>
-                                  {daysLeft !== null && (
-                                    <div style={{ fontSize: 11.5, color: urgent ? 'var(--red)' : 'var(--ink-2)' }}>
-                                      {daysLeft < 0 ? 'po terminie' : daysLeft === 0 ? 'dziś' : `za ${daysLeft}d`}
-                                    </div>
-                                  )}
+              <Link to="/office/zamowienia" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
+                Otwórz pełną listę <ArrowRight size={13} />
+              </Link>
+            </div>
+            {visibleOrders.length === 0 ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center', fontSize: 14, color: 'var(--ink-2)', fontStyle: 'italic' }}>Brak aktywnych zamówień</div>
+            ) : (
+              <div className="n2-scroll" style={{ maxHeight: 560, overflowY: 'auto' }}>
+                <table className="n2-table">
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                    <tr>
+                      <th>Nr / Klient</th>
+                      <th>Status</th>
+                      <th style={{ textAlign: 'right' }}>Dostawa</th>
+                      <th>Postęp produkcji</th>
+                      <th style={{ textAlign: 'right' }}>Szt</th>
+                      <th style={{ textAlign: 'right' }}>kg</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleOrders.map((o: any) => {
+                      const daysLeft = o.deliveryDate
+                        ? Math.round((new Date(o.deliveryDate).getTime() - Date.now()) / 86400000)
+                        : null
+                      const urgent = daysLeft !== null && daysLeft <= 2
+                      const live   = isOrderLive(o)
+                      const prog   = orderProgress(o)
+                      const progDone = prog.pct >= 100
+                      return (
+                        <tr key={o.id} className={live ? 'row-live' : ''}>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                              <span className="n2-mono" style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{o.orderNo}</span>
+                              {live && <span className="n2-badge n2-badge-green" style={{ fontSize: 10.5, padding: '1px 6px' }}><LiveDot /> LIVE</span>}
+                            </div>
+                            <div style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 2 }}>{o.clientName}</div>
+                          </td>
+                          <td>
+                            <span className={`n2-badge ${STATUS_BADGE[o.status] ?? 'n2-badge-gray'}`}>
+                              {STATUS_LABEL[o.status] ?? o.status}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            {o.deliveryDate ? (
+                              <div>
+                                <div className="n2-mono" style={{ fontSize: 14, color: urgent ? 'var(--red)' : 'var(--ink)', fontWeight: urgent ? 700 : 600 }}>
+                                  {new Date(o.deliveryDate).toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })}
                                 </div>
-                              ) : '—'}
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <span className="n2-mono" style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--ink)' }}>{o.totalUnits ?? '—'}</span>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+                                {daysLeft !== null && (
+                                  <div style={{ fontSize: 11.5, color: urgent ? 'var(--red)' : 'var(--ink-2)' }}>
+                                    {daysLeft < 0 ? 'po terminie' : daysLeft === 0 ? 'dziś' : `za ${daysLeft}d`}
+                                  </div>
+                                )}
+                              </div>
+                            ) : '—'}
+                          </td>
+                          <td style={{ width: 200, minWidth: 180 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div style={{ flex: 1 }}>
+                                <Pct value={prog.pct} color={progDone ? 'var(--green)' : live ? 'var(--green)' : prog.pct > 0 ? '#D97706' : 'var(--border)'} />
+                              </div>
+                              <span className="n2-mono" style={{ fontSize: 13, fontWeight: 700, minWidth: 42, color: progDone ? 'var(--green)' : live ? 'var(--green)' : 'var(--ink-2)' }}>
+                                {prog.pct.toFixed(0)}%
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 11.5, color: 'var(--ink-2)', marginTop: 3 }}>
+                              {prog.qtyDone} / {prog.qtyTotal} szt
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <span className="n2-mono" style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>{o.totalUnits ?? '—'}</span>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <span className="n2-mono" style={{ fontSize: 13.5, color: 'var(--ink-2)' }}>{fmtKg(o.totalKg ?? 0, 0)}</span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
+
+          {/* Alerty (jeżeli są) — kompaktowy banner na dole */}
+          {allAlerts.length > 0 && (
+            <div className="n2-card" style={{ marginTop: 16, overflow: 'hidden', borderColor: 'var(--red-bd)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderBottom: '1px solid var(--border)', background: 'var(--red-lt)' }}>
+                <AlertTriangle size={16} style={{ color: 'var(--red)' }} />
+                <span style={{ fontWeight: 600, fontSize: 14.5, color: 'var(--red)' }}>Alerty terminu — {allAlerts.length}</span>
+              </div>
+              <div className="n2-scroll" style={{ maxHeight: 200, overflowY: 'auto' }}>
+                {allAlerts.map(a => (
+                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 18px', borderBottom: '1px solid var(--border-2)' }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: a.sev === 'high' ? 'var(--red)' : 'var(--amber)' }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="n2-mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{a.batch}</div>
+                      <div style={{ fontSize: 12.5, color: 'var(--ink-2)', marginTop: 2 }}>{a.msg}</div>
+                    </div>
+                    <button
+                      style={{ flexShrink: 0, padding: '4px 10px', borderRadius: 5, background: 'var(--border-2)', border: '1px solid var(--border)', fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)', cursor: 'pointer' }}
+                      onClick={() => setAckedIds(prev => new Set([...prev, a.id]))}
+                    >
+                      ACK
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
