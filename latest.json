@@ -1,11 +1,11 @@
 {
-  "version": "2.5.3",
-  "notes": "Nowa wersja Kebab MES 2.5.3 — fix CSP (port :8080), dashboard scalony z MES, większe czcionki",
-  "pub_date": "2026-05-18T13:00:00Z",
+  "pub_date": "2026-05-18T16:26:44Z",
+  "version": "2.5.4",
+  "notes": "Nowa wersja Kebab MES 2.5.4",
   "platforms": {
     "windows-x86_64": {
-      "signature": "",
-      "url": "https://github.com/arturmuchaa/kebabmes20/releases/download/v2.5.3/Kebab%20MES_2.5.3_x64-setup.exe"
+      "url": "https://github.com/arturmuchaa/kebabmes20/releases/download/v2.5.4/Kebab MES_2.5.4_x64-setup.exe",
+      "signature": ""
     }
   }
 }
