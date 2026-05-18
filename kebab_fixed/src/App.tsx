@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { OfficeLayout }  from '@/layouts/OfficeLayout'
 import { TabletLayout }  from '@/layouts/TabletLayout'
-import { NewUi2Dashboard } from '@/pages/newui/NewUi2Dashboard'
+import { DashboardPage } from '@/pages/office/DashboardPage'
 import { RawBatchesPage }from '@/pages/office/RawBatchesPage'
 import { WorkersPage }   from '@/pages/office/WorkersPage'
 import { SuppliersPage } from '@/pages/office/SuppliersPage'
@@ -75,7 +75,7 @@ export default function App() {
 
       <Route path="/office" element={<OfficeLayout />}>
         <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard"             element={<NewUi2Dashboard />} />
+        <Route path="dashboard"             element={<DashboardPage />} />
         <Route path="dostawcy"              element={<SuppliersPage />} />
         <Route path="kontrahenci"           element={<ClientsPage />} />
         <Route path="zamowienia"            element={<ClientOrdersPage />} />
