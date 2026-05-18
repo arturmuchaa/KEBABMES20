@@ -123,6 +123,9 @@ jobs:
           Copy-Item latest.json -Destination "$env:RUNNER_TEMP/latest.json" -Force
           git config user.email "github-actions@github.com"
           git config user.name "GitHub Actions"
+          # Wyrzucamy zmiany z builda (package-lock, generowane ikony itd) — i tak je nadpisze checkout main.
+          git reset --hard HEAD
+          git clean -fd
           git fetch origin main
           git checkout -B main origin/main
           Copy-Item "$env:RUNNER_TEMP/latest.json" -Destination latest.json -Force
