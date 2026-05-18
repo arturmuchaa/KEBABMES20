@@ -9,7 +9,7 @@ import { AreaChart, Area, ResponsiveContainer } from 'recharts'
 import {
   Factory, Beef, Package, Boxes,
   AlertTriangle, Truck, Check,
-  Scissors, Soup, ArrowRight,
+  Scissors, Soup, ArrowRight, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { useApi } from '@/hooks/useApi'
 import {
@@ -154,6 +154,7 @@ const STATUS_LABEL: Record<string, string> = {
 // ════════════════════════════════════════════════════════════════════════
 export function NewUi2Dashboard() {
   const [ackedIds, setAckedIds] = useState<Set<string>>(new Set())
+  const [prodExpanded, setProdExpanded] = useState(false)
 
   const batchRes    = useApi(() => rawBatchesApi.list({ active_only: true, limit: 500 }))
   const meatRes     = useApi(() => meatStockApi.list())
@@ -246,7 +247,14 @@ export function NewUi2Dashboard() {
       }
     }
     const rows = Array.from(m.values()).map(r => ({ ...r, pct: r.qtyPlan > 0 ? (r.qtyDone / r.qtyPlan) * 100 : 0 }))
-    return rows.sort((a, b) => (b.live ? 1 : 0) - (a.live ? 1 : 0) || b.kgPlan - a.kgPlan)
+    // Sort: live (IN_PROGRESS) → partial (qtyDone > 0 ale nie done) → planned (qtyDone === 0) → done (pct >= 100)
+    function bucket(r: any): number {
+      if (r.live) return 0
+      if (r.pct >= 100) return 3
+      if (r.qtyDone > 0) return 1
+      return 2
+    }
+    return rows.sort((a, b) => bucket(a) - bucket(b) || b.kgPlan - a.kgPlan)
   }, [activePlans])
 
   // ── Mixing ──
@@ -372,7 +380,7 @@ export function NewUi2Dashboard() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
                   <span className="n2-mono" style={{ fontSize: 36, fontWeight: 700, color: 'var(--ink)', lineHeight: 1 }}>{fmtKg(totalKgRaw, 0)}</span>
-                  <span style={{ fontSize: 15, color: 'var(--ink-2)', fontWeight: 600 }}>kg</span>
+                  <span style={{ fontSize: 15, color: 'var(--ink-2)', fontWeight: 600 }}>kg na magazynie</span>
                 </div>
                 <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 13, color: 'var(--ink-2)' }}>{activeBatches.length} {activeBatches.length === 1 ? 'partia' : 'partii'}</span>
@@ -381,6 +389,18 @@ export function NewUi2Dashboard() {
                   ) : totalKgRaw > 0 ? (
                     <span className="n2-badge n2-badge-green"><Check size={11} /> OK</span>
                   ) : null}
+                </div>
+                {/* Dziś — live counter zużycia ćwiartki przez rozbiór */}
+                <div style={{ marginTop: 12, padding: '10px 12px', background: 'var(--bg, #F8FAFC)', borderRadius: 7, border: '1px solid var(--border-2)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className="n2-kicker" style={{ fontSize: 10.5 }}>Dziś · rozbiór</span>
+                    {rozbiorLive && <span className="n2-badge n2-badge-green" style={{ fontSize: 10, padding: '1px 6px' }}><LiveDot /> LIVE</span>}
+                  </div>
+                  <div style={{ marginTop: 5, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                    <span className="n2-mono" style={{ fontSize: 20, fontWeight: 700, color: rozbiorLive ? 'var(--green)' : 'var(--ink)' }}>{fmtKg(debKgQ, 0)}</span>
+                    <span style={{ fontSize: 12, color: 'var(--ink-2)', fontWeight: 600 }}>kg użyto</span>
+                    <span style={{ fontSize: 11.5, color: 'var(--ink-3)', marginLeft: 'auto' }}>{todayDeb.length} {todayDeb.length === 1 ? 'sesja' : 'sesji'}</span>
+                  </div>
                 </div>
               </div>
               <Sparkline data={sparks.raw} color="#1D4ED8" />
@@ -508,9 +528,9 @@ export function NewUi2Dashboard() {
               </div>
             </div>
 
-            {/* Produkcja */}
+            {/* Produkcja — z rozwijanym pełnym widokiem wszystkich pozycji */}
             <div className="n2-card n2-card-lift" style={{ position: 'relative', overflow: 'hidden', borderTop: `3px solid ${produkcjaLive ? 'var(--green)' : 'var(--border)'}` }}>
-              <div style={{ padding: '16px 20px' }}>
+              <div style={{ padding: '16px 20px 12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <Factory size={18} style={{ color: '#D97706' }} />
@@ -521,28 +541,136 @@ export function NewUi2Dashboard() {
                     Plany <ArrowRight size={13} />
                   </Link>
                 </div>
-                <div className="n2-mono" style={{ fontSize: 30, fontWeight: 700, color: 'var(--ink)', lineHeight: 1 }}>
-                  {activePlans.length > 0 ? `${prodPct.toFixed(0)}%` : '—'}
+
+                {/* Total — %  +  planowane kg */}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                  <span className="n2-mono" style={{ fontSize: 30, fontWeight: 700, color: 'var(--ink)', lineHeight: 1 }}>
+                    {activePlans.length > 0 ? `${prodPct.toFixed(0)}%` : '—'}
+                  </span>
+                  <span style={{ fontSize: 13, color: 'var(--ink-2)' }}>postęp total</span>
                 </div>
-                <div style={{ marginTop: 8, fontSize: 13, color: 'var(--ink-2)' }}>
-                  {fmtKg(prodProduced, 0)} / {fmtKg(prodPlanned, 0)} kg · {activePlans.length} {activePlans.length === 1 ? 'plan' : 'planów'}
+                <div style={{ marginTop: 6, fontSize: 13, color: 'var(--ink-2)' }}>
+                  <span className="n2-mono" style={{ fontWeight: 700, color: 'var(--ink)' }}>{fmtKg(prodProduced, 0)}</span>
+                  <span> / </span>
+                  <span className="n2-mono" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>{fmtKg(prodPlanned, 0)} kg</span>
+                  <span> · {activePlans.length} {activePlans.length === 1 ? 'plan' : 'planów'}</span>
                 </div>
-                {prodRows.length > 0 && (
-                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {prodRows.slice(0, 3).map((r) => (
-                      <div key={r.key}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                          <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>
-                            {r.live && <LiveDot />} {r.recipe}
-                          </span>
-                          <span className="n2-mono" style={{ fontSize: 12, color: 'var(--ink-2)' }}>{r.qtyDone} / {r.qtyPlan} szt</span>
-                        </div>
-                        <Pct value={r.pct} color={r.live ? 'var(--green)' : r.pct > 0 ? '#D97706' : 'var(--border)'} />
-                      </div>
-                    ))}
+                <div style={{ marginTop: 10 }}>
+                  <Pct value={prodPct} color={produkcjaLive ? 'var(--green)' : '#D97706'} />
+                </div>
+
+                {/* Aktualnie produkowany rodzaj (pierwszy live row) */}
+                {prodRows.filter(r => r.live).slice(0, 1).map(r => (
+                  <div key={r.key} style={{ marginTop: 12, padding: '10px 12px', background: 'var(--green-lt)', borderRadius: 7, border: '1px solid var(--green-bd)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <span className="n2-kicker" style={{ fontSize: 10.5, color: 'var(--green)' }}>
+                        <LiveDot /> Aktualnie produkowane
+                      </span>
+                      <span className="n2-mono" style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>{r.pct.toFixed(0)}%</span>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>{r.recipe}</div>
+                    <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>
+                      <span className="n2-mono" style={{ fontWeight: 700, color: 'var(--ink)' }}>{r.qtyDone}</span>
+                      <span> / </span>
+                      <span className="n2-mono" style={{ fontWeight: 700 }}>{r.qtyPlan} szt</span>
+                      <span style={{ color: 'var(--ink-3)' }}> × {r.kg} kg </span>
+                      <span> = </span>
+                      <span className="n2-mono" style={{ fontWeight: 700, color: 'var(--ink)' }}>{fmtKg(r.kgPlan, 0)} kg</span>
+                    </div>
+                    {r.clients && <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 3 }}>dla: {r.clients}</div>}
                   </div>
-                )}
+                ))}
+
+                {/* Najbliższe 2 pozycje (nie-live, partial / planned, NIE done) */}
+                {(() => {
+                  const next = prodRows.filter(r => !r.live && r.pct < 100).slice(0, 2)
+                  return next.length > 0 ? (
+                    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                      <span className="n2-kicker" style={{ fontSize: 10 }}>Następne</span>
+                      {next.map(r => (
+                        <div key={r.key}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                            <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>{r.recipe}</span>
+                            <span className="n2-mono" style={{ fontSize: 12, color: 'var(--ink-2)' }}>{r.qtyDone} / {r.qtyPlan} szt</span>
+                          </div>
+                          <Pct value={r.pct} color={r.pct > 0 ? '#D97706' : 'var(--border)'} />
+                        </div>
+                      ))}
+                    </div>
+                  ) : null
+                })()}
               </div>
+
+              {/* Rozwiń pełną listę */}
+              {prodRows.length > 0 && (
+                <button
+                  onClick={() => setProdExpanded(v => !v)}
+                  style={{ width: '100%', padding: '10px 20px', borderTop: '1px solid var(--border-2)', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12.5, fontWeight: 600, color: 'var(--accent)' }}
+                >
+                  <span>
+                    {prodExpanded ? 'Zwiń' : `Pokaż wszystkie pozycje (${prodRows.length})`}
+                  </span>
+                  {prodExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+              )}
+
+              {/* Rozwinięta lista wszystkich pozycji */}
+              {prodExpanded && prodRows.length > 0 && (
+                <div className="n2-scroll" style={{ maxHeight: 400, overflowY: 'auto', borderTop: '1px solid var(--border-2)' }}>
+                  <table className="n2-table">
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                      <tr>
+                        <th>Status</th>
+                        <th>Receptura</th>
+                        <th>Postęp</th>
+                        <th style={{ textAlign: 'right' }}>szt</th>
+                        <th style={{ textAlign: 'right' }}>kg</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {prodRows.map(r => {
+                        const done    = r.pct >= 100
+                        const partial = !r.live && !done && r.qtyDone > 0
+                        const planned = !r.live && !done && r.qtyDone === 0
+                        return (
+                          <tr key={r.key} className={r.live ? 'row-live' : ''}>
+                            <td>
+                              {r.live   ? <span className="n2-badge n2-badge-green"><LiveDot /> LIVE</span>
+                              : done    ? <span className="n2-badge n2-badge-gray"><Check size={10} /> Zakończone</span>
+                              : partial ? <span className="n2-badge n2-badge-amber">W toku</span>
+                              : planned ? <span className="n2-badge n2-badge-blue">Następne</span>
+                              : null}
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600, fontSize: 13.5, color: done ? 'var(--ink-3)' : 'var(--ink)', textDecoration: done ? 'line-through' : 'none' }}>{r.recipe}</div>
+                              {r.pkg && <div style={{ fontSize: 11.5, color: 'var(--ink-2)', marginTop: 2 }}>{r.pkg}</div>}
+                              {r.clients && <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>{r.clients}</div>}
+                            </td>
+                            <td style={{ width: 140 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <div style={{ flex: 1 }}>
+                                  <Pct value={r.pct} color={done ? 'var(--green)' : r.live ? 'var(--green)' : partial ? '#D97706' : 'var(--border)'} />
+                                </div>
+                                <span className="n2-mono" style={{ fontSize: 12, fontWeight: 700, minWidth: 36, color: done ? 'var(--green)' : r.live ? 'var(--green)' : 'var(--ink-2)' }}>{r.pct.toFixed(0)}%</span>
+                              </div>
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              <span className="n2-mono" style={{ fontSize: 13 }}>
+                                <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{r.qtyDone}</span>
+                                <span style={{ color: 'var(--ink-3)' }}> / {r.qtyPlan}</span>
+                              </span>
+                              <div style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>× {r.kg} kg</div>
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              <span className="n2-mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{fmtKg(r.kgPlan, 0)}</span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
 
