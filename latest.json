@@ -1,11 +1,11 @@
 {
-  "pub_date": "2026-05-18T17:14:29Z",
-  "notes": "Nowa wersja Kebab MES 2.5.5",
-  "version": "2.5.5",
+  "notes": "Nowa wersja Kebab MES 2.5.6",
+  "pub_date": "2026-05-18T20:20:52Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "",
-      "url": "https://github.com/arturmuchaa/kebabmes20/releases/download/v2.5.5/Kebab MES_2.5.5_x64-setup.exe"
+      "url": "https://github.com/arturmuchaa/kebabmes20/releases/download/v2.5.6/Kebab MES_2.5.6_x64-setup.exe",
+      "signature": ""
     }
-  }
+  },
+  "version": "2.5.6"
 }
