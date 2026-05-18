@@ -117,13 +117,20 @@ jobs:
           } | ConvertTo-Json -Depth 5
           $json | Set-Content -Path "latest.json" -Encoding UTF8
 
+          # Wrzucamy latest.json na branch main — tauri.conf.json wskazuje
+          # endpoint .../main/latest.json. Wcześniej szło na claude/* przez
+          # co auto-updater nigdy nie widział nowych wersji.
+          Copy-Item latest.json -Destination "$env:RUNNER_TEMP/latest.json" -Force
           git config user.email "github-actions@github.com"
           git config user.name "GitHub Actions"
+          git fetch origin main
+          git checkout -B main origin/main
+          Copy-Item "$env:RUNNER_TEMP/latest.json" -Destination latest.json -Force
           git add latest.json
           $diff = git diff --staged --name-only
           if ($diff) {
             git commit -m "chore: update latest.json to v${VERSION} [skip ci]"
-            git push origin HEAD:claude/kebab-mes-dashboard-BLmao
+            git push origin main
           }
 
       - name: Upload installer artifact (backup)
