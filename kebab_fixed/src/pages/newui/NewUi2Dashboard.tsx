@@ -45,21 +45,23 @@ const N2_CSS = `
     --ink-2:     #475569;
     --ink-3:     #94A3B8;
     --ink-4:     #CBD5E1;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     -webkit-font-smoothing: antialiased;
-    font-feature-settings: 'cv11' on;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv11' on, 'ss01' on;
     color: var(--ink);
-    font-size: 13.5px;
-    line-height: 1.5;
+    font-size: 15px;
+    line-height: 1.55;
+    letter-spacing: -0.005em;
   }
   .n2 *, .n2 *::before, .n2 *::after { box-sizing: border-box; }
   .n2 a { color: inherit; text-decoration: none; }
-  .n2-mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
-  .n2-kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
+  .n2-mono { font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; font-weight: 600; }
+  .n2-kicker { font-size: 11.5px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; color: var(--ink-2); }
   .n2-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
   .n2-card-lift { transition: box-shadow 0.15s ease; }
   .n2-card-lift:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.07); }
-  .n2-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 4px; font-size: 10.5px; font-weight: 600; }
+  .n2-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 5px; font-size: 12px; font-weight: 600; }
   .n2-badge-green { background: var(--green-lt); color: var(--green); border: 1px solid var(--green-bd); }
   .n2-badge-amber { background: var(--amber-lt); color: var(--amber); border: 1px solid var(--amber-bd); }
   .n2-badge-red   { background: var(--red-lt);   color: var(--red);   border: 1px solid var(--red-bd);   }
@@ -69,7 +71,7 @@ const N2_CSS = `
   .n2-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s ease; }
   .n2-pipeline { display: flex; align-items: stretch; gap: 0; overflow-x: auto; }
   .n2-pipe-stage {
-    flex: 1; min-width: 110px; padding: 10px 14px;
+    flex: 1; min-width: 130px; padding: 12px 16px;
     border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
     border-right: 1px solid var(--border);
     background: var(--surface); transition: background 0.15s;
@@ -80,9 +82,9 @@ const N2_CSS = `
   .n2-pipe-stage.live  { background: rgba(21,128,61,0.04); border-top-color: var(--green); border-top-width: 2px; }
   .n2-pipe-stage.alert { background: rgba(185,28,28,0.04); border-top-color: var(--red);   border-top-width: 2px; }
   .n2-pipe-stage.idle  { opacity: 0.55; }
-  .n2-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .n2-table th { padding: 7px 12px; text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); background: #FAFBFD; border-bottom: 1px solid var(--border); }
-  .n2-table td { padding: 8px 12px; border-bottom: 1px solid var(--border-2); vertical-align: middle; }
+  .n2-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .n2-table th { padding: 10px 14px; text-align: left; font-size: 11.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-2); background: #FAFBFD; border-bottom: 1px solid var(--border); }
+  .n2-table td { padding: 11px 14px; border-bottom: 1px solid var(--border-2); vertical-align: middle; }
   .n2-table tbody tr:last-child td { border-bottom: none; }
   .n2-table tbody tr:hover td { background: #FAFBFD; }
   .n2-table .row-live td { border-left: 2px solid var(--green); }
@@ -145,16 +147,16 @@ function PipelineStrip({ stages }: { stages: { label: string; icon: React.ReactN
   return (
     <div style={{ display: 'flex', gap: 0, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)' }}>
       {stages.map((s, i) => (
-        <div key={s.label} className={`n2-pipe-stage ${s.state}`} style={{ flex: 1, minWidth: 100, borderRight: i < stages.length - 1 ? '1px solid var(--border)' : 'none' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+        <div key={s.label} className={`n2-pipe-stage ${s.state}`} style={{ flex: 1, minWidth: 130, borderRight: i < stages.length - 1 ? '1px solid var(--border)' : 'none' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
             <span style={{ color: stateColors[s.state], flexShrink: 0 }}>{s.icon}</span>
-            <span className="n2-kicker" style={{ fontSize: 9 }}>{s.label}</span>
+            <span className="n2-kicker" style={{ fontSize: 10.5 }}>{s.label}</span>
             {s.state === 'live' && <LiveDot />}
           </div>
-          <div className="n2-mono" style={{ fontSize: 18, fontWeight: 700, color: s.state === 'idle' ? 'var(--ink-3)' : 'var(--ink)', lineHeight: 1 }}>
+          <div className="n2-mono" style={{ fontSize: 22, fontWeight: 700, color: s.state === 'idle' ? 'var(--ink-3)' : 'var(--ink)', lineHeight: 1 }}>
             {s.value}
           </div>
-          <div style={{ fontSize: 10.5, color: 'var(--ink-3)', marginTop: 2 }}>{s.unit}</div>
+          <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 4 }}>{s.unit}</div>
         </div>
       ))}
     </div>
@@ -167,16 +169,16 @@ function MetricCard({ label, value, unit, sub, color, sparkData, icon }: {
 }) {
   return (
     <div className="n2-card n2-card-lift n2-metric" style={{ position: 'relative', overflow: 'hidden', '--m-color': color } as React.CSSProperties}>
-      <div style={{ padding: '14px 16px 8px' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+      <div style={{ padding: '16px 18px 10px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
           <span className="n2-kicker">{label}</span>
           <span style={{ color, opacity: 0.7 }}>{icon}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-          <span className="n2-mono" style={{ fontSize: 28, fontWeight: 700, color: 'var(--ink)', lineHeight: 1 }}>{value}</span>
-          {unit && <span style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 500 }}>{unit}</span>}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+          <span className="n2-mono" style={{ fontSize: 32, fontWeight: 700, color: 'var(--ink)', lineHeight: 1 }}>{value}</span>
+          {unit && <span style={{ fontSize: 14, color: 'var(--ink-2)', fontWeight: 500 }}>{unit}</span>}
         </div>
-        {sub && <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 4 }}>{sub}</div>}
+        {sub && <div style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 6 }}>{sub}</div>}
       </div>
       <Sparkline data={sparkData} color={color} />
     </div>
@@ -185,10 +187,10 @@ function MetricCard({ label, value, unit, sub, color, sparkData, icon }: {
 
 function StockRow({ label, kg, pct, color }: { label: string; kg: number; pct: number; color: string }) {
   return (
-    <div style={{ padding: '10px 0', borderBottom: '1px solid var(--border-2)' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ink-2)' }}>{label}</span>
-        <span className="n2-mono" style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>{fmtKg(kg, 0)} kg</span>
+    <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border-2)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+        <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink-2)' }}>{label}</span>
+        <span className="n2-mono" style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{fmtKg(kg, 0)} kg</span>
       </div>
       <Pct value={pct} color={color} />
     </div>
@@ -358,16 +360,16 @@ export function NewUi2Dashboard() {
       <style dangerouslySetInnerHTML={{ __html: N2_CSS }} />
 
       {/* Page title (slim — OfficeLayout daje breadcrumb i topbar) */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)', lineHeight: 1, margin: 0 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--ink)', lineHeight: 1.1, margin: 0, letterSpacing: '-0.015em' }}>
             Pulpit operacyjny
           </h1>
-          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 6, marginBottom: 0 }}>
+          <p style={{ fontSize: 14, color: 'var(--ink-2)', marginTop: 8, marginBottom: 0 }}>
             {activePlans.length} aktywnych planów · {activeMixing.length} masowań · {todayDeb.length} sesji rozbioru · odśwież co 7s
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 6, background: 'var(--green-lt)', border: '1px solid var(--green-bd)', fontSize: 12, fontWeight: 600, color: 'var(--green)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 14px', borderRadius: 7, background: 'var(--green-lt)', border: '1px solid var(--green-bd)', fontSize: 13, fontWeight: 600, color: 'var(--green)' }}>
           <LiveDot /> Na żywo
         </div>
       </div>
@@ -396,21 +398,21 @@ export function NewUi2Dashboard() {
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.7fr) minmax(0, 1fr)', gap: 16, marginBottom: 16 }}>
             {/* Production table */}
             <div className="n2-card" style={{ overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Factory size={14} style={{ color: 'var(--accent)' }} />
-                  <span style={{ fontWeight: 600, fontSize: 13.5 }}>Aktywna produkcja</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Factory size={16} style={{ color: 'var(--accent)' }} />
+                  <span style={{ fontWeight: 600, fontSize: 15 }}>Aktywna produkcja</span>
                   <span className="n2-badge n2-badge-blue">{prodRows.length} pozycji</span>
                 </div>
-                <Link to="/office/planowanie-produkcji" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--accent)', fontWeight: 500 }}>
-                  Plany <ArrowRight size={12} />
+                <Link to="/office/planowanie-produkcji" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
+                  Plany <ArrowRight size={13} />
                 </Link>
               </div>
               {prodRows.length === 0 ? (
                 <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-                  <Factory size={28} style={{ color: 'var(--ink-4)', margin: '0 auto 10px' }} />
-                  <div style={{ fontSize: 13, color: 'var(--ink-3)', fontStyle: 'italic' }}>Brak aktywnych planów produkcji</div>
-                  <Link to="/office/planowanie-produkcji" style={{ display: 'inline-block', marginTop: 10, fontSize: 12, color: 'var(--accent)', fontWeight: 500 }}>Aktywuj plan →</Link>
+                  <Factory size={32} style={{ color: 'var(--ink-4)', margin: '0 auto 12px' }} />
+                  <div style={{ fontSize: 14, color: 'var(--ink-2)', fontStyle: 'italic' }}>Brak aktywnych planów produkcji</div>
+                  <Link to="/office/planowanie-produkcji" style={{ display: 'inline-block', marginTop: 12, fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>Aktywuj plan →</Link>
                 </div>
               ) : (
                 <div style={{ overflowX: 'auto' }} className="n2-scroll">
@@ -439,25 +441,25 @@ export function NewUi2Dashboard() {
                             }
                           </td>
                           <td>
-                            <div style={{ fontWeight: 500, fontSize: 13, color: 'var(--ink)' }}>{r.recipe}</div>
-                            {r.pkg && <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{r.pkg}</div>}
+                            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>{r.recipe}</div>
+                            {r.pkg && <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 2 }}>{r.pkg}</div>}
                           </td>
                           <td style={{ textAlign: 'right' }}>
-                            <span className="n2-mono" style={{ fontSize: 12, color: 'var(--ink-2)' }}>{r.kg} kg</span>
+                            <span className="n2-mono" style={{ fontSize: 14, color: 'var(--ink-2)' }}>{r.kg} kg</span>
                           </td>
-                          <td style={{ width: 120 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <td style={{ width: 140 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                               <div style={{ flex: 1 }}><Pct value={r.pct} color={r.live ? 'var(--green)' : r.pct > 0 ? 'var(--amber)' : 'var(--border)'} /></div>
-                              <span className="n2-mono" style={{ fontSize: 11, color: r.live ? 'var(--green)' : 'var(--ink-3)', fontWeight: 600, minWidth: 30 }}>{r.pct.toFixed(0)}%</span>
+                              <span className="n2-mono" style={{ fontSize: 13, color: r.live ? 'var(--green)' : 'var(--ink-2)', fontWeight: 700, minWidth: 36 }}>{r.pct.toFixed(0)}%</span>
                             </div>
                           </td>
                           <td style={{ textAlign: 'right' }}>
-                            <span className="n2-mono" style={{ fontSize: 12 }}>
+                            <span className="n2-mono" style={{ fontSize: 14 }}>
                               <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{r.qtyDone}</span>
-                              <span style={{ color: 'var(--ink-3)' }}> / {r.qtyPlan} szt</span>
+                              <span style={{ color: 'var(--ink-2)' }}> / {r.qtyPlan} szt</span>
                             </span>
                           </td>
-                          <td style={{ fontSize: 12, color: 'var(--ink-2)', maxWidth: 120 }}>
+                          <td style={{ fontSize: 13, color: 'var(--ink-2)', maxWidth: 140 }}>
                             <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.clients || '—'}</div>
                           </td>
                         </tr>
@@ -472,27 +474,27 @@ export function NewUi2Dashboard() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {/* Expiry alerts */}
               <div className="n2-card" style={{ overflow: 'hidden', flex: allAlerts.length > 0 ? 1 : 'none' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
-                  <AlertTriangle size={14} style={{ color: allAlerts.length > 0 ? 'var(--red)' : 'var(--ink-3)' }} />
-                  <span style={{ fontWeight: 600, fontSize: 13.5 }}>Alerty terminu</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+                  <AlertTriangle size={16} style={{ color: allAlerts.length > 0 ? 'var(--red)' : 'var(--ink-3)' }} />
+                  <span style={{ fontWeight: 600, fontSize: 15 }}>Alerty terminu</span>
                   {allAlerts.length > 0 && <span className="n2-badge n2-badge-red">{allAlerts.length}</span>}
                 </div>
                 {allAlerts.length === 0 ? (
-                  <div style={{ padding: '20px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <Check size={16} style={{ color: 'var(--green)', flexShrink: 0 }} />
-                    <span style={{ fontSize: 12.5, color: 'var(--ink-3)', fontStyle: 'italic' }}>Brak alertów — wszystkie partie OK</span>
+                  <div style={{ padding: '22px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <Check size={18} style={{ color: 'var(--green)', flexShrink: 0 }} />
+                    <span style={{ fontSize: 14, color: 'var(--ink-2)', fontStyle: 'italic' }}>Brak alertów — wszystkie partie OK</span>
                   </div>
                 ) : (
-                  <div className="n2-scroll" style={{ maxHeight: 260, overflowY: 'auto' }}>
+                  <div className="n2-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>
                     {allAlerts.map(a => (
-                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px', borderBottom: '1px solid var(--border-2)' }}>
-                        <div style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: a.sev === 'high' ? 'var(--red)' : 'var(--amber)' }} />
+                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderBottom: '1px solid var(--border-2)' }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: a.sev === 'high' ? 'var(--red)' : 'var(--amber)' }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div className="n2-mono" style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)' }}>{a.batch}</div>
-                          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>{a.msg}</div>
+                          <div className="n2-mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{a.batch}</div>
+                          <div style={{ fontSize: 12.5, color: 'var(--ink-2)', marginTop: 2 }}>{a.msg}</div>
                         </div>
                         <button
-                          style={{ flexShrink: 0, padding: '2px 8px', borderRadius: 4, background: 'var(--border-2)', border: '1px solid var(--border)', fontSize: 10, fontWeight: 600, color: 'var(--ink-2)', cursor: 'pointer' }}
+                          style={{ flexShrink: 0, padding: '4px 10px', borderRadius: 5, background: 'var(--border-2)', border: '1px solid var(--border)', fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)', cursor: 'pointer' }}
                           onClick={() => setAckedIds(prev => new Set([...prev, a.id]))}
                         >
                           ACK
@@ -505,22 +507,22 @@ export function NewUi2Dashboard() {
 
               {/* Mixing orders */}
               <div className="n2-card" style={{ overflow: 'hidden' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
-                  <Soup size={14} style={{ color: '#7C3AED' }} />
-                  <span style={{ fontWeight: 600, fontSize: 13.5 }}>Masowanie</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+                  <Soup size={16} style={{ color: '#7C3AED' }} />
+                  <span style={{ fontWeight: 600, fontSize: 15 }}>Masowanie</span>
                   <span className="n2-badge n2-badge-gray">{activeMixing.length} aktywnych</span>
                 </div>
                 {activeMixing.length === 0 ? (
-                  <div style={{ padding: '16px', fontSize: 12.5, color: 'var(--ink-3)', fontStyle: 'italic' }}>Brak aktywnych zleceń</div>
+                  <div style={{ padding: '18px', fontSize: 14, color: 'var(--ink-2)', fontStyle: 'italic' }}>Brak aktywnych zleceń</div>
                 ) : (
-                  <div style={{ padding: '8px 16px 12px' }}>
+                  <div style={{ padding: '10px 18px 14px' }}>
                     {activeMixing.slice(0, 4).map((o: any) => {
                       const pct = Number(o.meatKg) > 0 ? Math.min(100, Number(o.kgDone) / Number(o.meatKg) * 100) : 0
                       return (
-                        <div key={o.id} style={{ marginBottom: 10 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                            <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>{o.recipeName ?? '—'}</span>
-                            <span className="n2-mono" style={{ fontSize: 11, color: 'var(--ink-2)', flexShrink: 0 }}>{fmtKg(o.kgDone, 0)} / {fmtKg(o.meatKg, 0)} kg</span>
+                        <div key={o.id} style={{ marginBottom: 12 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                            <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>{o.recipeName ?? '—'}</span>
+                            <span className="n2-mono" style={{ fontSize: 13, color: 'var(--ink-2)', flexShrink: 0 }}>{fmtKg(o.kgDone, 0)} / {fmtKg(o.meatKg, 0)} kg</span>
                           </div>
                           <Pct value={pct} color="#7C3AED" />
                         </div>
@@ -535,49 +537,49 @@ export function NewUi2Dashboard() {
           {/* ── Bottom: stock + orders ── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.4fr)', gap: 16 }}>
             {/* Stock summary */}
-            <div className="n2-card" style={{ padding: '16px', overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                <BarChart3 size={14} style={{ color: 'var(--accent)' }} />
-                <span style={{ fontWeight: 600, fontSize: 13.5 }}>Stan magazynów</span>
+            <div className="n2-card" style={{ padding: '18px', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                <BarChart3 size={16} style={{ color: 'var(--accent)' }} />
+                <span style={{ fontWeight: 600, fontSize: 15 }}>Stan magazynów</span>
               </div>
 
-              <div style={{ marginBottom: 4, paddingBottom: 10, borderBottom: '1px solid var(--border-2)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-                  <span style={{ fontSize: 12, color: 'var(--ink-2)', fontWeight: 500 }}>Rozbiór dziś · yield</span>
-                  <span className="n2-mono" style={{ fontSize: 13, fontWeight: 700, color: debYield > 65 ? 'var(--green)' : debYield > 0 ? 'var(--amber)' : 'var(--ink-3)' }}>
+              <div style={{ marginBottom: 4, paddingBottom: 12, borderBottom: '1px solid var(--border-2)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 7 }}>
+                  <span style={{ fontSize: 14, color: 'var(--ink-2)', fontWeight: 500 }}>Rozbiór dziś · yield</span>
+                  <span className="n2-mono" style={{ fontSize: 15, fontWeight: 700, color: debYield > 65 ? 'var(--green)' : debYield > 0 ? 'var(--amber)' : 'var(--ink-3)' }}>
                     {debYield > 0 ? `${debYield.toFixed(1)}%` : '—'}
                   </span>
                 </div>
-                {debKgQ > 0 && <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>{fmtKg(debKgQ, 0)} kg ćwiartki → {fmtKg(debKgMeat, 0)} kg mięsa</div>}
+                {debKgQ > 0 && <div style={{ fontSize: 12.5, color: 'var(--ink-2)', marginBottom: 7 }}>{fmtKg(debKgQ, 0)} kg ćwiartki → {fmtKg(debKgMeat, 0)} kg mięsa</div>}
                 <Pct value={debYield > 0 ? debYield : 0} color="var(--amber)" />
               </div>
 
               <StockRow label="Ćwiartka (surowiec)"    kg={totalKgRaw}       pct={Math.min(100, totalKgRaw / 10)} color="var(--accent)" />
               <StockRow label="Mięso z/s po rozbiorze" kg={totalKgMeat}      pct={Math.min(100, totalKgMeat / 5)} color="var(--green)" />
               <StockRow label="Mięso przyprawione"     kg={totalKgSeasoned}  pct={Math.min(100, totalKgSeasoned / 5)} color="#7C3AED" />
-              <div style={{ paddingTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <Link to="/office/magazyn/surowiec"   style={{ fontSize: 11.5, color: 'var(--accent)', fontWeight: 500 }}>Surowiec →</Link>
-                <Link to="/office/magazyn/surowiec"   style={{ fontSize: 11.5, color: 'var(--accent)', fontWeight: 500 }}>Mięso z/s →</Link>
-                <Link to="/office/magazyn/mieso-przyp" style={{ fontSize: 11.5, color: 'var(--accent)', fontWeight: 500 }}>Mięso przyp. →</Link>
+              <div style={{ paddingTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <Link to="/office/magazyn/surowiec"   style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>Surowiec →</Link>
+                <Link to="/office/magazyn/surowiec"   style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>Mięso z/s →</Link>
+                <Link to="/office/magazyn/mieso-przyp" style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>Mięso przyp. →</Link>
               </div>
             </div>
 
             {/* Orders */}
             <div className="n2-card" style={{ overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Truck size={14} style={{ color: 'var(--amber)' }} />
-                  <span style={{ fontWeight: 600, fontSize: 13.5 }}>Zamówienia</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Truck size={16} style={{ color: 'var(--amber)' }} />
+                  <span style={{ fontWeight: 600, fontSize: 15 }}>Zamówienia</span>
                   <span className="n2-badge n2-badge-gray">{visibleOrders.length} aktywnych</span>
                 </div>
-                <Link to="/office/zamowienia" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--accent)', fontWeight: 500 }}>
-                  Wszystkie <ArrowRight size={12} />
+                <Link to="/office/zamowienia" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
+                  Wszystkie <ArrowRight size={13} />
                 </Link>
               </div>
               {visibleOrders.length === 0 ? (
-                <div style={{ padding: '32px 20px', textAlign: 'center', fontSize: 13, color: 'var(--ink-3)', fontStyle: 'italic' }}>Brak aktywnych zamówień</div>
+                <div style={{ padding: '32px 20px', textAlign: 'center', fontSize: 14, color: 'var(--ink-2)', fontStyle: 'italic' }}>Brak aktywnych zamówień</div>
               ) : (
-                <div className="n2-scroll" style={{ maxHeight: 320, overflowY: 'auto' }}>
+                <div className="n2-scroll" style={{ maxHeight: 360, overflowY: 'auto' }}>
                   <table className="n2-table">
                     <thead>
                       <tr>
@@ -596,8 +598,8 @@ export function NewUi2Dashboard() {
                         return (
                           <tr key={o.id}>
                             <td>
-                              <div className="n2-mono" style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--accent)' }}>{o.orderNo}</div>
-                              <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 1 }}>{o.clientName}</div>
+                              <div className="n2-mono" style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--accent)' }}>{o.orderNo}</div>
+                              <div style={{ fontSize: 13.5, color: 'var(--ink-2)', marginTop: 2 }}>{o.clientName}</div>
                             </td>
                             <td>
                               <span className={`n2-badge ${STATUS_BADGE[o.status] ?? 'n2-badge-gray'}`}>
@@ -607,11 +609,11 @@ export function NewUi2Dashboard() {
                             <td style={{ textAlign: 'right' }}>
                               {o.deliveryDate ? (
                                 <div>
-                                  <div className="n2-mono" style={{ fontSize: 12, color: urgent ? 'var(--red)' : 'var(--ink)', fontWeight: urgent ? 700 : 500 }}>
+                                  <div className="n2-mono" style={{ fontSize: 14, color: urgent ? 'var(--red)' : 'var(--ink)', fontWeight: urgent ? 700 : 600 }}>
                                     {new Date(o.deliveryDate).toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })}
                                   </div>
                                   {daysLeft !== null && (
-                                    <div style={{ fontSize: 10, color: urgent ? 'var(--red)' : 'var(--ink-3)' }}>
+                                    <div style={{ fontSize: 11.5, color: urgent ? 'var(--red)' : 'var(--ink-2)' }}>
                                       {daysLeft < 0 ? 'po terminie' : daysLeft === 0 ? 'dziś' : `za ${daysLeft}d`}
                                     </div>
                                   )}
@@ -619,7 +621,7 @@ export function NewUi2Dashboard() {
                               ) : '—'}
                             </td>
                             <td style={{ textAlign: 'right' }}>
-                              <span className="n2-mono" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>{o.totalUnits ?? '—'}</span>
+                              <span className="n2-mono" style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--ink)' }}>{o.totalUnits ?? '—'}</span>
                             </td>
                           </tr>
                         )

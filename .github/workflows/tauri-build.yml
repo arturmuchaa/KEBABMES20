@@ -58,7 +58,9 @@ jobs:
         run: npx tauri build --target x86_64-pc-windows-msvc
         working-directory: kebab_fixed
         env:
-          VITE_API_URL: ${{ secrets.VITE_API_URL || 'http://204.168.166.34' }}
+          # Hardcode — nginx MES nasłuchuje na :8080. Secret VITE_API_URL ignorujemy,
+          # bo wcześniej był ustawiony bez portu i Tauri łapał pusty backend.
+          VITE_API_URL: 'http://204.168.166.34:8080'
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
