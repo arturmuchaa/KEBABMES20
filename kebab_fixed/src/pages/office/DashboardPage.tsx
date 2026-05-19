@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
-import { ProcessStatusPanel } from '@/features/operations/ProcessStatusPanel'
+import { ProcessStatusBadge } from '@/features/operations/ProcessStatusBadge'
 import {
   rawBatchesApi, meatStockApi, seasonedMeatApi,
   productionPlansApi, mixingOrdersApi, clientOrdersApi, finishedGoodsApi,
@@ -492,9 +492,6 @@ export function DashboardPage() {
       {/* ── Status bar ────────────────────────────────────────── */}
       <DashboardStatusBar />
 
-      {/* ── Statusy procesów operacyjnych (Rozbiór · Masowanie · Produkcja) ── */}
-      <ProcessStatusPanel />
-
       {/* ── KPI row ───────────────────────────────────────────── */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard
@@ -636,32 +633,23 @@ export function DashboardPage() {
       {/* ── Rozbiór + Masowanie + Produkcja — na żywo ───────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* Rozbiór — live gdy są wpisy dziś */}
+        {/* Rozbiór */}
         {(() => {
-          const isLive = todayDeb.length > 0
+          const dataActive = todayDeb.length > 0
           return (
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <Scissors size={15} className={isLive ? "text-amber-500 animate-pulse" : "text-gray-400"} />
+                  <Scissors size={15} className={dataActive ? "text-amber-500 animate-pulse" : "text-gray-400"} />
                   Rozbiór
                 </CardTitle>
                 <CardDescription className="mt-0.5">
                   Dzisiaj · {todayDeb.length} {todayDeb.length === 1 ? 'sesja' : 'sesji'}
                 </CardDescription>
               </div>
-              {isLive ? (
-                <Badge variant="info" className="flex-shrink-0 gap-1.5 font-medium">
-                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
-                  Na żywo
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="flex-shrink-0 gap-1.5 font-medium text-gray-500 border-gray-300">
-                  Oczekuje
-                </Badge>
-              )}
+              <ProcessStatusBadge processType="deboning" dataActive={dataActive} />
             </div>
           </CardHeader>
           <Separator />
@@ -785,32 +773,23 @@ export function DashboardPage() {
           )
         })()}
 
-        {/* Masowanie — live gdy są zlecenia in_progress */}
+        {/* Masowanie */}
         {(() => {
-          const isLive = activeMixing.some((o: any) => o.status === 'in_progress')
+          const dataActive = activeMixing.some((o: any) => o.status === 'in_progress')
           return (
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <Soup size={15} className={isLive ? "text-purple-500 animate-pulse" : "text-gray-400"} />
+                  <Soup size={15} className={dataActive ? "text-purple-500 animate-pulse" : "text-gray-400"} />
                   Masowanie
                 </CardTitle>
                 <CardDescription className="mt-0.5">
                   Aktywne zlecenia · {activeMixing.length}
                 </CardDescription>
               </div>
-              {isLive ? (
-                <Badge variant="info" className="flex-shrink-0 gap-1.5 font-medium">
-                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
-                  Na żywo
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="flex-shrink-0 gap-1.5 font-medium text-gray-500 border-gray-300">
-                  Oczekuje
-                </Badge>
-              )}
+              <ProcessStatusBadge processType="mixing" dataActive={dataActive} />
             </div>
           </CardHeader>
           <Separator />
@@ -860,9 +839,9 @@ export function DashboardPage() {
           )
         })()}
 
-        {/* Produkcja — live gdy jakaś linia IN_PROGRESS */}
+        {/* Produkcja */}
         {(() => {
-          const isLive = activePlans.some((p: any) =>
+          const dataActive = activePlans.some((p: any) =>
             (p.lines ?? []).some((l: any) => (l.lineStatus ?? '') === 'IN_PROGRESS'))
           return (
         <Card>
@@ -870,23 +849,14 @@ export function DashboardPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <Factory size={15} className={isLive ? "text-blue-500 animate-pulse" : "text-gray-400"} />
+                  <Factory size={15} className={dataActive ? "text-blue-500 animate-pulse" : "text-gray-400"} />
                   Produkcja
                 </CardTitle>
                 <CardDescription className="mt-0.5">
                   Aktywne plany · {activePlans.length}
                 </CardDescription>
               </div>
-              {isLive ? (
-                <Badge variant="info" className="flex-shrink-0 gap-1.5 font-medium">
-                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
-                  Na żywo
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="flex-shrink-0 gap-1.5 font-medium text-gray-500 border-gray-300">
-                  Oczekuje
-                </Badge>
-              )}
+              <ProcessStatusBadge processType="production" dataActive={dataActive} />
             </div>
           </CardHeader>
           <Separator />

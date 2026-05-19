@@ -1,0 +1,66 @@
+/**
+ * ProcessStatusBadge — kompaktowy badge statusu procesu do nagłówka karty.
+ *
+ *   session.status='closed' → "Do potwierdzenia" (amber) + mały przycisk "Potwierdź"
+ *   session.status='open'   → "Na żywo" (niebieski pulse)
+ *   dataActive (np. są wpisy IN_PROGRESS w danych dziedzinowych) → "Na żywo"
+ *   inaczej                 → "Oczekuje" (szare)
+ *
+ * `dataActive` to fallback gdy operator nie korzysta z production_sessions
+ * (np. mixing/production tablet jeszcze nie integrują sesji).
+ */
+import { Loader2, CheckCircle2 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { useProcessSession, type ProcessType } from './useProcessSession'
+
+interface Props {
+  processType: ProcessType
+  dataActive: boolean
+}
+
+export function ProcessStatusBadge({ processType, dataActive }: Props) {
+  const { session, approve, busy } = useProcessSession(processType)
+
+  // Operator zakończył na tablecie — biuro musi potwierdzić
+  if (session?.status === 'closed') {
+    return (
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <Badge variant="outline" className="gap-1.5 font-medium text-amber-700 border-amber-300 bg-amber-50">
+          <span className="inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
+          Do potwierdzenia
+        </Badge>
+        <button
+          onClick={async () => {
+            if (!confirm('Potwierdzić zakończenie tego procesu? Dzień zostanie zamknięty.')) return
+            const err = await approve()
+            if (err) alert(err)
+          }}
+          disabled={busy}
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-green-600 text-white text-[11px] font-semibold hover:bg-green-700 transition-colors disabled:opacity-60"
+        >
+          {busy
+            ? <><Loader2 size={11} className="animate-spin" /> …</>
+            : <><CheckCircle2 size={11} /> Potwierdź</>
+          }
+        </button>
+      </div>
+    )
+  }
+
+  // Sesja open lub dane wskazują aktywność
+  if (session?.status === 'open' || dataActive) {
+    return (
+      <Badge variant="info" className="flex-shrink-0 gap-1.5 font-medium">
+        <span className="inline-flex h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
+        Na żywo
+      </Badge>
+    )
+  }
+
+  // Brak aktywności
+  return (
+    <Badge variant="outline" className="flex-shrink-0 gap-1.5 font-medium text-gray-500 border-gray-300">
+      Oczekuje
+    </Badge>
+  )
+}
