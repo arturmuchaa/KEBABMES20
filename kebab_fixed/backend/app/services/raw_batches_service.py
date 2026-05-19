@@ -1,12 +1,15 @@
+import re
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.db import cx_execute_returning, cx_query_one, query_all, query_one, transaction
+from app.db import cx_execute, cx_execute_returning, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.models.raw_batches import RawBatchCreate
 from app.utils.body import body_get
 from app.utils.ids import cuid, next_seq, now_iso
+
+_BATCH_NO_RE = re.compile(r"^R(\d+)$")
 
 logger = get_logger(__name__)
 
@@ -42,8 +45,59 @@ def list_batches(active_only: bool, limit: int) -> Dict[str, Any]:
 
 
 def create_batch(dto: RawBatchCreate) -> Dict:
-    seq = next_seq("batch_seq")
+    """Tworzy nową partię surowca.
+
+    Numer partii (`internal_batch_no`):
+      - jeżeli dto.internal_batch_no jest podane i pasuje do `R<liczba>`,
+        używa tego numeru. `batch_seq` jest synchronizowane do max(seq, podana)
+        żeby kolejne auto-numery były wyższe.
+      - jeżeli brak — pobiera kolejny z `batch_seq` (R<N+1>).
+    """
+    custom_no = (dto.internal_batch_no or "").strip().upper()
+    if custom_no:
+        match = _BATCH_NO_RE.match(custom_no)
+        if not match:
+            raise HTTPException(400, "Numer partii musi mieć format R<liczba>, np. R308")
+        custom_seq = int(match.group(1))
+        if custom_seq < 1:
+            raise HTTPException(400, "Numer partii musi być >= R1")
+    else:
+        custom_seq = None
+
     with transaction() as conn:
+        if custom_seq is not None:
+            # sprawdź unikalność
+            existing = cx_query_one(
+                conn,
+                "SELECT 1 FROM raw_batches WHERE internal_batch_no=%s",
+                (custom_no,),
+            )
+            if existing:
+                raise HTTPException(409, f"Partia {custom_no} już istnieje")
+            seq = custom_seq
+            internal_no = custom_no
+            # zsynchronizuj sequences żeby kolejne auto-numery były wyższe
+            cx_execute(
+                conn,
+                """
+                INSERT INTO sequences (key, value) VALUES ('batch_seq', %s)
+                ON CONFLICT (key) DO UPDATE SET value = GREATEST(sequences.value, EXCLUDED.value)
+                """,
+                (custom_seq,),
+            )
+        else:
+            # auto-numerowanie: kolejny z batch_seq
+            row = cx_query_one(
+                conn,
+                """
+                INSERT INTO sequences (key, value) VALUES ('batch_seq', 1)
+                ON CONFLICT (key) DO UPDATE SET value = sequences.value + 1
+                RETURNING value
+                """,
+            )
+            seq = int(row["value"])
+            internal_no = f"R{seq}"
+
         sup = cx_query_one(
             conn, "SELECT * FROM suppliers WHERE id = %s", (dto.supplier_id,)
         )
@@ -60,7 +114,7 @@ def create_batch(dto: RawBatchCreate) -> Dict:
             """,
             (
                 cuid(),
-                f"R{seq}",
+                internal_no,
                 seq,
                 dto.supplier_id,
                 sup["name"] if sup else "",

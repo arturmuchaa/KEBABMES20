@@ -68,6 +68,13 @@ export function CreateRawBatchModal({
     }
   }, [open, suggestedBatchNo])
 
+  // Wyślij wpisany customBatchNo do parent form — backend go użyje
+  // jeśli różny od suggestedBatchNo (auto-numerowania).
+  useEffect(() => {
+    const trimmed = customBatchNo.trim().toUpperCase()
+    onFieldChange('internalBatchNo', trimmed && trimmed !== (suggestedBatchNo || '').toUpperCase() ? trimmed : undefined)
+  }, [customBatchNo, suggestedBatchNo])
+
   const totalKg       = useMemo(() => batchItems.reduce((s, i) => s + (i.kgReceived || 0), 0), [batchItems])
   const containers    = useMemo(() => Math.floor(totalKg / KG_PER_CONTAINER), [totalKg])
   const remainderKg   = useMemo(() => totalKg % KG_PER_CONTAINER, [totalKg])

@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class RawBatchCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    internal_batch_no: str = Field("", alias="internalBatchNo")  # opcjonalny — user może wpisać np. "R308"
     supplier_id: str = Field("", alias="supplierId")
     supplier_batch_no: str = Field("", alias="supplierBatchNo")
     slaughter_date: str = Field("", alias="slaughterDate")
@@ -21,6 +22,7 @@ class RawBatchCreate(BaseModel):
     def model_validate(cls, obj, **kw):  # type: ignore[override]
         if isinstance(obj, dict):
             mapping = {
+                "internalBatchNo": "internal_batch_no",
                 "supplierId": "supplier_id",
                 "supplierBatchNo": "supplier_batch_no",
                 "slaughterDate": "slaughter_date",

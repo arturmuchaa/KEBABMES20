@@ -68,6 +68,7 @@ export interface SupplierBatchItem {
 }
 
 export interface CreateRawBatchDto {
+  internalBatchNo?: string   // user może wpisać własny np. "R308"; backend zsynchronizuje batch_seq
   supplierId:       string
   supplierBatchNo:  string
   slaughterDate:    string
