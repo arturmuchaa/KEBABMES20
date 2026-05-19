@@ -52,9 +52,14 @@ def list_sessions(process_type: str) -> List[Dict]:
 
 
 def get_active_session(process_type: str) -> Optional[Dict]:
+    """Najnowsza sesja, która jeszcze nie jest zatwierdzona przez biuro.
+
+    Zwraca status 'open' (operator pracuje) lub 'closed' (operator zakończył,
+    biuro musi potwierdzić). Pomija 'approved' (dzień zamknięty).
+    """
     row = query_one(
         "SELECT * FROM production_sessions "
-        "WHERE process_type=%s AND status='open' "
+        "WHERE process_type=%s AND status IN ('open','closed') "
         "ORDER BY created_at DESC LIMIT 1",
         (process_type,),
     )

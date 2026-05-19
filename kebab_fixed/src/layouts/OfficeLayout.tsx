@@ -3,6 +3,9 @@ import { OfficeSidebar } from './OfficeSidebar'
 import { useState, useEffect } from 'react'
 import { Menu, X, Bell, ChevronRight, LayoutDashboard } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import pkg from '../../package.json'
+
+const APP_VERSION = pkg.version
 
 const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
   '/office/dashboard':             { title: 'Pulpit operacyjny' },
@@ -90,6 +93,14 @@ export function OfficeLayout() {
           <div className="flex items-center gap-3">
             {/* Date */}
             <span className="hidden sm:block text-[12px] text-gray-400 capitalize">{dateStr}</span>
+
+            {/* App version */}
+            <span
+              className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md text-[10.5px] font-mono font-semibold tracking-wide bg-gray-100 text-gray-600 border border-gray-200"
+              title="Wersja aplikacji"
+            >
+              v{APP_VERSION}
+            </span>
 
             {/* Notification bell */}
             <button className="relative p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">

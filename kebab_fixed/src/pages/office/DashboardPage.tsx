@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
+import { ProcessStatusPanel } from '@/features/operations/ProcessStatusPanel'
 import {
   rawBatchesApi, meatStockApi, seasonedMeatApi,
   productionPlansApi, mixingOrdersApi, clientOrdersApi, finishedGoodsApi,
@@ -490,6 +491,9 @@ export function DashboardPage() {
 
       {/* ── Status bar ────────────────────────────────────────── */}
       <DashboardStatusBar />
+
+      {/* ── Statusy procesów operacyjnych (Rozbiór · Masowanie · Produkcja) ── */}
+      <ProcessStatusPanel />
 
       {/* ── KPI row ───────────────────────────────────────────── */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">

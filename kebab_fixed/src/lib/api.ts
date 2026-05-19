@@ -193,16 +193,16 @@ export const suppliersApi = {
 // Poprzednio: zaślepka zwracająca Promise.resolve([]) → przycisk "Rozpocznij dzień" nic nie robił
 export const productionSessionsApi = {
   list:  (processType?: string) =>
-    get<any[]>(`/production-sessions${processType ? `?type=${processType}` : ''}`),
+    get<any[]>(`/production-sessions${processType ? `?processType=${processType}` : ''}`),
   active: (processType = 'deboning') =>
-    get<any>(`/production-sessions/active?type=${processType}`),
+    get<any>(`/production-sessions/active?processType=${processType}`),
   byId:  (id: string) =>
     get<any>(`/production-sessions/${id}`),
   start: (dto: any) =>
     post<any>('/production-sessions', toSnake(dto)),
-  close: (id: string, dto: any) =>
+  close: (id: string, dto: any = {}) =>
     patch<any>(`/production-sessions/${id}/close`, toSnake(dto)),
-  approve: (id: string, dto: any) =>
+  approve: (id: string, dto: any = {}) =>
     patch<any>(`/production-sessions/${id}/approve`, toSnake(dto)),
 }
 
