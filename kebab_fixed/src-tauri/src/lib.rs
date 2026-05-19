@@ -10,8 +10,14 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = check_for_updates(handle).await {
+                if let Err(e) = check_for_updates(handle.clone()).await {
                     eprintln!("Update check failed: {e}");
+                    let _ = tauri_plugin_dialog::DialogExt::dialog(&handle)
+                        .message(format!(
+                            "Aktualizacja nie powiodła się:\n\n{e}\n\nMożesz pobrać najnowszą wersję ręcznie:\nhttps://github.com/arturmuchaa/KEBABMES20/releases/latest"
+                        ))
+                        .title("Błąd aktualizacji")
+                        .blocking_show();
                 }
             });
             Ok(())

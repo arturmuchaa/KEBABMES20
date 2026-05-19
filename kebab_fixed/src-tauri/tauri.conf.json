@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Kebab MES",
-  "version": "2.5.7",
+  "version": "2.5.8",
   "identifier": "pl.kebabmes.app",
   "build": {
     "beforeBuildCommand": "npm run build",
@@ -28,7 +28,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMxN0FFRDVGMzZCNkM4MzcKUldRM3lMWTJYKzE2TVlWNno5MTBIb1Boc1pabGdBY0w0SUhOemU2K1M2YlRXMXJ6Z1ArZ2lOdEQK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ4NkZBOTM4RkYyRjdERUUKUldUdWZTLy9PS2x2U0Z2VnNZRkhMOEtIcXUyUkF0eUJkNTJmMEpzWGlkN090eGxkWG1yUjZJdWMK",
       "endpoints": [
         "https://raw.githubusercontent.com/arturmuchaa/kebabmes20/main/latest.json"
       ],
