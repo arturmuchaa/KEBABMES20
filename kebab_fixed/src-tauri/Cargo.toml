@@ -1,6 +1,6 @@
 [package]
 name = "kebab-mes"
-version = "2.5.17"
+version = "2.5.18"
 description = "Kebab MES — System zarządzania produkcją"
 authors = []
 edition = "2021"

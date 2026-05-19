@@ -218,13 +218,17 @@ export function DeboningTabletPage() {
   // useCallback: stabilna referencja onClick → React.memo na BatchTile/WorkerTile
   // może efektywnie zatrzymywać re-rendery tile'ów. Bez tego każdy render parenta
   // tworzy nową funkcję → memo nieskuteczne → mruganie listy.
+  //
+  // preventScroll: true — focus bez auto-scrolla do inputa.
+  // Bez tego po wyborze partii ekran skakał w dół do pola "kg ćwiartki"
+  // (browser default behaviour focusa).
   const pickBatch = useCallback((b: RawBatch) => {
     setSelBatch(b); setKgTaken(''); setKgMeat('')
-    setTimeout(() => cwRef.current?.focus(), 120)
+    setTimeout(() => cwRef.current?.focus({ preventScroll: true }), 120)
   }, [])
   const pickWorker = useCallback((w: User) => {
     setSelWorker(w)
-    setTimeout(() => cwRef.current?.focus(), 120)
+    setTimeout(() => cwRef.current?.focus({ preventScroll: true }), 120)
   }, [])
   function reset() {
     setSelBatch(null); setSelWorker(null); setKgTaken(''); setKgMeat('')
@@ -261,7 +265,7 @@ export function DeboningTabletPage() {
     } else {
       showToast(`Zapisano: ${fmtKg(meat)} kg mięsa`)
     }
-    setTimeout(() => cwRef.current?.focus(), 100)
+    setTimeout(() => cwRef.current?.focus({ preventScroll: true }), 100)
   }
 
   // Zakończ partię — otwiera modal kości/grzbietów dla wszystkich niezakończonych wpisów
