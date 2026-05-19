@@ -76,8 +76,12 @@ jobs:
           "version=$VERSION"          >> $env:GITHUB_OUTPUT
           "exe_path=$($EXE.FullName)" >> $env:GITHUB_OUTPUT
           "exe_name=$($EXE.Name)"     >> $env:GITHUB_OUTPUT
+          "sig_path=$(if ($SIG) { $SIG.FullName } else { '' })" >> $env:GITHUB_OUTPUT
           "signature=$SIGNATURE"      >> $env:GITHUB_OUTPUT
-          Write-Host "Version: $VERSION | EXE: $($EXE.Name)"
+          Write-Host "Version: $VERSION | EXE: $($EXE.Name) | SIG: $(if ($SIG) { $SIG.Name } else { 'BRAK!' })"
+          # Pełna lista plików bundle nsis (do diagnostyki)
+          Write-Host "Bundle contents:"
+          Get-ChildItem $BUNDLE | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) B)" }
 
       - name: Create GitHub Release and upload installer
         uses: softprops/action-gh-release@v2
@@ -91,7 +95,9 @@ jobs:
 
             **Instalacja:** Pobierz i uruchom plik `.exe`
             **Aktualizacja:** Aplikacja sprawdza aktualizacje automatycznie przy starcie
-          files: ${{ steps.meta.outputs.exe_path }}
+          files: |
+            ${{ steps.meta.outputs.exe_path }}
+            ${{ steps.meta.outputs.sig_path }}
           make_latest: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
