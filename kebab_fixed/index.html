@@ -10,13 +10,39 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
 
-    <!-- PWA / iOS "Dodaj do ekranu początkowego" -->
-    <link rel="manifest" href="/manifest-rozbior.json" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png" />
+    <!-- PWA / iOS "Dodaj do ekranu początkowego"
+         Manifest, ikona i tytuł są wybierane SYNCHRONNIE w skrypcie poniżej
+         na podstawie window.location.pathname — żeby iOS Safari odczytał
+         poprawne meta dla strony którą user właśnie otworzył.
+         Hook usePwaPage w React duplikuje to przy SPA-nawigacji. -->
+    <link id="kebab-manifest" rel="manifest" href="/manifest-rozbior.json" />
+    <link id="kebab-apple-icon" rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Rozbiór" />
+    <meta id="kebab-apple-title" name="apple-mobile-web-app-title" content="Rozbiór" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <script>
+      // Per-page PWA config — odpalane przed Reactem żeby iOS Safari
+      // odczytał poprawny manifest/ikonę/tytuł od pierwszej milisekundy.
+      (function () {
+        var path = window.location.pathname || '/';
+        var cfg = null;
+        if (path === '/mobile' || path.indexOf('/mobile/') === 0 || path.indexOf('/m/') === 0) {
+          cfg = { manifest: '/manifest-skaner.json', icon: '/icons/skaner-apple-touch-icon-180.png', title: 'Skaner QR', docTitle: 'Skaner QR — Kebab MES' };
+        } else if (path === '/tablet/rozbior') {
+          cfg = { manifest: '/manifest-rozbior.json', icon: '/icons/apple-touch-icon-180.png', title: 'Rozbiór', docTitle: 'Rozbiór — Kebab MES' };
+        }
+        if (cfg) {
+          var m = document.getElementById('kebab-manifest');
+          if (m) m.href = cfg.manifest;
+          var i = document.getElementById('kebab-apple-icon');
+          if (i) i.href = cfg.icon;
+          var t = document.getElementById('kebab-apple-title');
+          if (t) t.content = cfg.title;
+          document.title = cfg.docTitle;
+        }
+      })();
+    </script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
