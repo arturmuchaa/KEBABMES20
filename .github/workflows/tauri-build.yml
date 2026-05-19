@@ -108,7 +108,11 @@ jobs:
           $EXE_NAME  = "${{ steps.meta.outputs.exe_name }}"
           $SIGNATURE = "${{ steps.meta.outputs.signature }}"
           $PUB_DATE  = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
-          $URL       = "https://github.com/arturmuchaa/kebabmes20/releases/download/v${VERSION}/${EXE_NAME}"
+          # GitHub Release przy uploadzie zamienia spacje w nazwie asseta na kropki
+          # (np. "Kebab MES_2.5.10_x64-setup.exe" → "Kebab.MES_2.5.10_x64-setup.exe").
+          # URL w latest.json musi pasować do faktycznej nazwy assetu, inaczej 404.
+          $ASSET_NAME = $EXE_NAME -replace ' ', '.'
+          $URL       = "https://github.com/arturmuchaa/kebabmes20/releases/download/v${VERSION}/${ASSET_NAME}"
 
           $json = @{
             version  = $VERSION
