@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { Menu, X, Bell, ChevronRight, LayoutDashboard } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import pkg from '../../package.json'
+import { ZoomControls } from '@/features/ui/ZoomControls'
+import { useZoomInit } from '@/features/ui/useZoom'
 
 const APP_VERSION = pkg.version
 
@@ -37,6 +39,7 @@ export function OfficeLayout() {
   const page = PAGE_TITLES[pathname] ?? { title: 'Kebab MES' }
   const [mobileOpen, setMobileOpen] = useState(false)
   useEffect(() => { setMobileOpen(false) }, [pathname])
+  useZoomInit()
 
   const today = new Date()
   const dateStr = today.toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -93,6 +96,9 @@ export function OfficeLayout() {
           <div className="flex items-center gap-3">
             {/* Date */}
             <span className="hidden sm:block text-[12px] text-gray-400 capitalize">{dateStr}</span>
+
+            {/* Zoom controls */}
+            <ZoomControls />
 
             {/* App version */}
             <span
