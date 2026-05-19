@@ -257,7 +257,7 @@ export function DeboningTabletPage() {
       <BlockScreen icon={<Play size={40} />} title="Rozpocznij dzień"
         subtitle={`Data produkcyjna: ${timeWindow.productionDate}`}
         action={
-          <button onClick={handleStartDay} disabled={startLoading}
+          <button type="button" onClick={handleStartDay} disabled={startLoading}
             className="w-full max-w-xs h-16 bg-brand text-white rounded-2xl text-lg font-bold flex items-center justify-center gap-3 active:scale-95">
             {startLoading ? <span className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Play size={22} />}
             Rozpocznij dzień
@@ -373,7 +373,7 @@ export function DeboningTabletPage() {
                   {' '}{fmtKg(batchTotalTaken, 1)} kg ćw. → {fmtKg(batchTotalMeat, 1)} kg mięsa
                   {' '}({fmtPct(batchTotalMeat/batchTotalTaken*100, 1)} wydajność)
                 </div>
-                <button onClick={handleFinishBatch}
+                <button type="button" onClick={handleFinishBatch}
                   className="flex items-center gap-1.5 text-[11px] font-bold text-white bg-amber-500 hover:bg-amber-600 px-3 py-1.5 rounded-xl active:scale-95 transition-all">
                   <Flag size={12} /> Zakończ partię
                 </button>
@@ -480,13 +480,13 @@ export function DeboningTabletPage() {
         )}
 
         {/* Przycisk Zapisz — bez modalu kości */}
-        <button onClick={handleSave} disabled={!canSave || addLoading}
+        <button type="button" onClick={handleSave} disabled={!canSave || addLoading}
           className="w-full h-14 flex items-center justify-center gap-3 bg-brand text-white rounded-2xl text-base font-bold shadow-[0_4px_18px_rgba(29,78,216,.3)] hover:-translate-y-0.5 active:scale-[.98] transition-all disabled:opacity-50">
           {addLoading ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={18} />}
           Zapisz wpis
         </button>
 
-        <button onClick={() => setShiftModal(true)}
+        <button type="button" onClick={() => setShiftModal(true)}
           className="w-full h-11 mt-2.5 flex items-center justify-center gap-2 bg-white border-2 border-surface-4 text-ink-3 rounded-2xl text-sm font-semibold hover:border-danger hover:text-danger hover:bg-danger-light transition-all">
           <LogOut size={15} /> Zakończ zmianę
         </button>
@@ -522,7 +522,7 @@ export function DeboningTabletPage() {
                     <div className="text-sm font-black text-success bg-success-light border border-success-border rounded-lg px-2.5 py-1 tabular-nums">
                       {fmtPct(s.yieldPct)}
                     </div>
-                    <button onClick={() => { setEditEntry_s(s); setKgTaken(String(s.kgTaken)); setKgMeat(String(s.kgMeat)) }}
+                    <button type="button" onClick={() => { setEditEntry_s(s); setKgTaken(String(s.kgTaken)); setKgMeat(String(s.kgMeat)) }}
                       className="w-8 h-8 flex items-center justify-center rounded-lg border border-surface-4 text-ink-3 hover:border-warn hover:text-warn">
                       <Pencil size={13} />
                     </button>
@@ -578,7 +578,7 @@ export function DeboningTabletPage() {
             </div>
 
             <div className="flex gap-3">
-              <button onClick={() => {
+              <button type="button" onClick={() => {
                 if (batchSuggestion) {
                   setInputBacks(batchSuggestion.kgBacks.toFixed(2))
                   setInputBones(batchSuggestion.kgBones.toFixed(2))
@@ -587,7 +587,7 @@ export function DeboningTabletPage() {
                 className="flex-1 h-12 rounded-xl bg-blue-50 font-semibold text-sm text-blue-700 border border-blue-200">
                 Użyj sugestii
               </button>
-              <button onClick={handleFinishConfirm}
+              <button type="button" onClick={handleFinishConfirm}
                 className="flex-1 h-12 rounded-xl bg-amber-500 text-white font-bold text-sm">
                 Potwierdź i zakończ
               </button>
@@ -620,9 +620,9 @@ export function DeboningTabletPage() {
               ))}
             </div>
             <div className="flex gap-3">
-              <button onClick={() => { setEditEntry_s(null); setKgTaken(''); setKgMeat('') }}
+              <button type="button" onClick={() => { setEditEntry_s(null); setKgTaken(''); setKgMeat('') }}
                 className="flex-1 h-12 rounded-xl bg-surface-2 font-bold text-sm text-ink-2 border border-surface-4">Anuluj</button>
-              <button onClick={handleUpdateEntry}
+              <button type="button" onClick={handleUpdateEntry}
                 className="flex-1 h-12 rounded-xl bg-warn text-white font-bold text-sm">Zapisz</button>
             </div>
           </div>
@@ -637,9 +637,9 @@ export function DeboningTabletPage() {
             <h3 className="text-lg font-bold text-ink mb-2">Zakończyć zmianę?</h3>
             <p className="text-sm text-ink-3 mb-5">Sesja zostanie zamknięta. Biuro zatwierdzi dane.</p>
             <div className="flex gap-2">
-              <button onClick={() => setShiftModal(false)}
+              <button type="button" onClick={() => setShiftModal(false)}
                 className="flex-1 h-11 rounded-xl bg-surface-2 text-ink-2 font-semibold text-sm border border-surface-4">Anuluj</button>
-              <button onClick={async () => {
+              <button type="button" onClick={async () => {
                 setShiftModal(false)
                 const err = await closeDay()
                 if (err) showToast(err, 'error')

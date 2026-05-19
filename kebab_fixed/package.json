@@ -1,6 +1,6 @@
 {
   "name": "kebab-mes",
-  "version": "2.5.14",
+  "version": "2.5.15",
   "description": "KEBAB MES — System zarządzania produkcją kebaba",
   "type": "module",
   "scripts": {
