@@ -71,7 +71,7 @@ export function OfficeSidebar({ onClose }: { onClose?: () => void }) {
           </div>
           <div>
             <div className="text-[13px] font-bold text-gray-900 leading-none">Kebab</div>
-            <div className="text-[10px] font-medium text-gray-400 leading-none mt-0.5">MES v2.3</div>
+            <div className="text-[10px] font-medium text-gray-400 leading-none mt-0.5">MES</div>
           </div>
         </div>
         {onClose && (
