@@ -2,6 +2,24 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── iOS PWA — safe-area insets (notch, home indicator) ──
+ * Tylko w trybie standalone (po dodaniu do ekranu początkowego). */
+@media all and (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+/* iOS Safari < 13 fallback przez navigator.standalone */
+@supports (-webkit-touch-callout: none) {
+  body.ios-pwa {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
 @layer base {
   :root {
     /* ── shadcn/ui CSS Variables (light theme) ── */

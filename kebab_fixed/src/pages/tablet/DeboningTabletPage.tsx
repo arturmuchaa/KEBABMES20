@@ -19,6 +19,7 @@ import {
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
+import { InstallIosHint } from '@/features/pwa/InstallIosHint'
 
 const KG_PER_CONTAINER = 15
 
@@ -713,6 +714,7 @@ export function DeboningTabletPage() {
       )}
 
       <Toast message={toast.msg} type={toast.type} visible={toast.visible} />
+      <InstallIosHint />
     </div>
   )
 }
