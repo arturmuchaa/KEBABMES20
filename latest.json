@@ -1,11 +1,11 @@
 {
-  "notes": "Nowa wersja Kebab MES 2.5.20",
-  "pub_date": "2026-05-19T13:16:49Z",
+  "notes": "Nowa wersja Kebab MES 2.5.21",
+  "version": "2.5.21",
+  "pub_date": "2026-05-19T13:20:46Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://github.com/arturmuchaa/kebabmes20/releases/download/v2.5.20/Kebab.MES_2.5.20_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUdWZTLy9PS2x2U01RalBsRTNGd1NrNnpNOGpqNlRmRUZmb2lTWE83Yjc1QVBKdC9HbVpQQXVmZnljL01MaFRHZ045aGJic0xoTjBubFB3L2FZeVVvdWtHWVhpYWFXOEFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc5MTk2NjAxCWZpbGU6S2ViYWIgTUVTXzIuNS4yMF94NjQtc2V0dXAuZXhlCm5lRFFlR0FUREptSW1JR0JkSkVzOFUzbjhBdTZaQTJ5RHV1OHBNbjF5Yyt5ZHJING9HSUlYSVRkTWJtemFNOEpIdDVmTmdPbFdyeWorQ0RkYTRVRkNnPT0K"
+      "url": "https://github.com/arturmuchaa/kebabmes20/releases/download/v2.5.21/Kebab.MES_2.5.21_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUdWZTLy9PS2x2U0t0QloxNUFMTDRCKy9VY3hHRk94WG5EMWE3SGx1bDVYQndjR25scGNCdyt2NHVHQXgwZXhGUDN5MFd0dzFheFJvQ3E1Z2FraGp6VVhpTVZnZEhQNndVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc5MTk2ODM4CWZpbGU6S2ViYWIgTUVTXzIuNS4yMV94NjQtc2V0dXAuZXhlCnF5RWZFZEdqUjVtcXZIWjBzTnlVblZsUm83MGlSUFhCYnoraUcwMkcrR2hZK3NlaHAyekk0ZklKdm95cjJqejBwbldpcURMSUtUcnpqci8zZGQ3ZURnPT0K"
     }
-  },
-  "version": "2.5.20"
+  }
 }
