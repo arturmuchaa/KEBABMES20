@@ -124,6 +124,8 @@ export function DeboningTabletPage() {
   const batchEntries = selBatch
     ? entries.filter(e => e.rawBatchId === selBatch.id)
     : []
+  const batchTotalTaken = batchEntries.reduce((s, e) => s + e.kgTaken, 0)
+  const batchTotalMeat  = batchEntries.reduce((s, e) => s + e.kgMeat,  0)
 
   // Wpisy do zamknięcia kośćmi/grzbietami: wszystkie w bieżącej sesji bez wpisanych
   // kg_backs i kg_bones. Pokrywa też przypadek dwóch partii z tej samej dostawy
