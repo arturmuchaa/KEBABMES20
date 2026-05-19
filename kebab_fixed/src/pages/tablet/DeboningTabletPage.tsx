@@ -20,6 +20,7 @@ import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
 import { InstallIosHint } from '@/features/pwa/InstallIosHint'
+import { usePwaPage } from '@/features/pwa/usePwaPage'
 
 const KG_PER_CONTAINER = 15
 
@@ -132,6 +133,12 @@ const WorkerTile = memo(function WorkerTile({ worker, selected, paletteIdx, onSe
 })
 
 export function DeboningTabletPage() {
+  usePwaPage({
+    title: 'Rozbiór — Kebab MES',
+    appleTitle: 'Rozbiór',
+    manifestPath: '/manifest-rozbior.json',
+    appleTouchIcon: '/icons/apple-touch-icon-180.png',
+  })
   const batchData  = useApi(() => rawBatchesApi.list())
   const workerData = useApi(() => usersApi.list())
 
@@ -714,7 +721,7 @@ export function DeboningTabletPage() {
       )}
 
       <Toast message={toast.msg} type={toast.type} visible={toast.visible} />
-      <InstallIosHint />
+      <InstallIosHint appKey="rozbior" appName="Rozbiór" />
     </div>
   )
 }

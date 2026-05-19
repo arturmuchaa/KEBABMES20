@@ -1,7 +1,15 @@
 import { Link } from 'react-router-dom'
 import { Snowflake, Truck, ArrowLeft } from 'lucide-react'
+import { usePwaPage } from '@/features/pwa/usePwaPage'
+import { InstallIosHint } from '@/features/pwa/InstallIosHint'
 
 export function MobilePickerPage() {
+  usePwaPage({
+    title: 'Skaner QR — Kebab MES',
+    appleTitle: 'Skaner QR',
+    manifestPath: '/manifest-skaner.json',
+    appleTouchIcon: '/icons/skaner-apple-touch-icon-180.png',
+  })
   return (
     <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
       <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -34,6 +42,7 @@ export function MobilePickerPage() {
       <footer className="border-t border-slate-200 bg-white px-4 py-2 text-center text-xs text-slate-500">
         Kebab MES · skan QR
       </footer>
+      <InstallIosHint appKey="skaner" appName="Skaner QR" />
     </div>
   )
 }

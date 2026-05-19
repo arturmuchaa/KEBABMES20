@@ -4,12 +4,17 @@
  *   - jesteśmy w Safari na iOS (nie WKWebView, nie Chrome iOS — tylko Safari
  *     pozwala dodać do home screen)
  *   - apka NIE działa w trybie standalone (jeszcze nie zainstalowana)
- *   - user nie zamknął wcześniej (localStorage 'kebab.pwaHintDismissed')
+ *   - user nie zamknął wcześniej (localStorage 'kebab.pwaHintDismissed.<appKey>')
  */
 import { useEffect, useState } from 'react'
 import { Share, Plus, X } from 'lucide-react'
 
-const KEY = 'kebab.pwaHintDismissed'
+interface InstallIosHintProps {
+  /** Klucz do localStorage żeby zamknięcie dla jednej apki nie wycisza innych */
+  appKey: string
+  /** Etykieta pod ikoną na iOS — pokazana w tekście instrukcji */
+  appName: string
+}
 
 function isIosSafari(): boolean {
   if (typeof navigator === 'undefined') return false
@@ -27,20 +32,21 @@ function isStandalone(): boolean {
   return window.matchMedia?.('(display-mode: standalone)').matches ?? false
 }
 
-export function InstallIosHint() {
+export function InstallIosHint({ appKey, appName }: InstallIosHintProps) {
   const [show, setShow] = useState(false)
+  const storageKey = `kebab.pwaHintDismissed.${appKey}`
 
   useEffect(() => {
-    if (localStorage.getItem(KEY) === '1') return
+    if (localStorage.getItem(storageKey) === '1') return
     if (!isIosSafari()) return
     if (isStandalone()) return
     setShow(true)
-  }, [])
+  }, [storageKey])
 
   if (!show) return null
 
   function dismiss() {
-    localStorage.setItem(KEY, '1')
+    localStorage.setItem(storageKey, '1')
     setShow(false)
   }
 
@@ -53,10 +59,10 @@ export function InstallIosHint() {
           </div>
           <div className="flex-1 min-w-0">
             <div className="font-bold text-ink text-sm leading-tight">
-              Dodaj do ekranu początkowego
+              Dodaj {appName} do ekranu początkowego
             </div>
             <div className="text-xs text-ink-3 mt-1 leading-relaxed">
-              Aby używać Rozbioru jak aplikacji: kliknij <Share size={11} className="inline align-text-bottom mx-0.5" /> <strong>Udostępnij</strong> w pasku Safari, potem <strong>„Do ekranu początkowego"</strong>.
+              Aby używać jak aplikacji: kliknij <Share size={11} className="inline align-text-bottom mx-0.5" /> <strong>Udostępnij</strong> w pasku Safari, potem <strong>„Do ekranu początkowego"</strong>.
             </div>
           </div>
           <button
