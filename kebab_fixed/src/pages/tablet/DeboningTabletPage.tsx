@@ -6,7 +6,7 @@
  * - Podczas pracy operator wpisuje tylko kg ćwiartki i kg mięsa (szybko, wielokrotnie)
  * - Sugestia kości/grzbietów pokazuje sumę z wszystkich wpisów danej partii
  */
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback, memo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { rawBatchesApi, usersApi } from '@/lib/apiClient'
 import { Toast, Spinner } from '@/components/ui/widgets'
@@ -71,6 +71,65 @@ function BlockScreen({ icon, title, subtitle, action }: {
   )
 }
 
+// ─── BatchTile (memoized) ─────────────────────────────────────────
+// Wyciągnięte z mapy `batches.map(...)` żeby zatrzymać re-render gdy
+// inne partie/state się zmieniają. React.memo + stabilny onSelect → tylko
+// faktyczna zmiana wartości tile'a powoduje re-render.
+interface BatchTileProps {
+  batch: RawBatch
+  selected: boolean
+  paletteIdx: number
+  entryCount: number
+  onSelect: (b: RawBatch) => void
+}
+const BatchTile = memo(function BatchTile({ batch, selected, paletteIdx, entryCount, onSelect }: BatchTileProps) {
+  const pal = BATCH_PAL[paletteIdx % BATCH_PAL.length]
+  const supplier = batch.supplierDisplayName || batch.supplierName || '—'
+  const kg = Number(batch.kgAvailable)
+  const containers = Math.floor(kg / KG_PER_CONTAINER)
+  const remainderKg = Math.round((kg % KG_PER_CONTAINER) * 10) / 10
+  return (
+    <button type="button" onClick={() => onSelect(batch)}
+      className={cn('flex flex-col items-center justify-center gap-1 p-3 rounded-2xl border-2 min-h-[100px] text-center transition-colors active:scale-95 select-none',
+        selected ? pal.sel : cn('bg-white', pal.idle, 'hover:shadow-md'))}>
+      <div className={cn('text-[11px] font-bold uppercase truncate max-w-full leading-tight', selected?'text-white/90':'text-ink-3')}>{supplier}</div>
+      <div className={cn('text-lg font-black font-mono leading-none', selected?'text-white':'text-ink')}>{batch.internalBatchNo}</div>
+      <div className={cn('text-xs font-semibold leading-tight', selected?'text-white/80':'text-ink-3')}>
+        {fmtKg(kg, 1)} kg · {containers} poj.{remainderKg > 0 ? ` + ${fmtKg(remainderKg, 1)} kg` : ''}
+      </div>
+      {entryCount > 0 && (
+        <div className={cn('text-[10px] font-semibold', selected?'text-white/70':'text-green-600')}>
+          {entryCount} wpis{entryCount > 1 ? 'y' : ''}
+        </div>
+      )}
+      <ExpiryBadgeLocal date={batch.expiryDate} selected={selected} />
+    </button>
+  )
+})
+
+// ─── WorkerTile (memoized) ────────────────────────────────────────
+interface WorkerTileProps {
+  worker: User
+  selected: boolean
+  paletteIdx: number
+  onSelect: (w: User) => void
+}
+const WorkerTile = memo(function WorkerTile({ worker, selected, paletteIdx, onSelect }: WorkerTileProps) {
+  const pal = WORKER_PAL[paletteIdx % WORKER_PAL.length]
+  const init = worker.name.split(' ').map((n: string) => n[0]).join('').slice(0,2).toUpperCase()
+  return (
+    <button type="button" onClick={() => onSelect(worker)}
+      className={cn('flex flex-col items-center justify-center gap-1.5 py-4 px-2 rounded-2xl border-2 min-h-[88px] text-center transition-colors active:scale-95 select-none',
+        selected ? 'bg-brand border-brand shadow-md' : 'bg-white border-surface-4 hover:shadow-md')}>
+      <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-black"
+        style={selected ? {background:'rgba(255,255,255,.2)',color:'#fff'} : {background:pal.bg,color:pal.color}}>
+        {init}
+      </div>
+      <div className={cn('text-xs font-bold leading-tight', selected?'text-white':'text-ink')}>{worker.name}</div>
+    </button>
+  )
+})
+
 export function DeboningTabletPage() {
   const batchData  = useApi(() => rawBatchesApi.list())
   const workerData = useApi(() => usersApi.list())
@@ -100,15 +159,29 @@ export function DeboningTabletPage() {
     if (updated && updated.kgAvailable !== selBatch.kgAvailable) setSelBatch(updated)
   }, [batchData.data])
 
-  const batches = (batchData.data?.data ?? [])
-    .filter(b => Number(b.kgAvailable) > 0 && b.status !== 'used' && b.status !== 'expired' && b.status !== 'cancelled')
-    // FEFO: ta sama data ważności → niższy numer partii (starszy) idzie pierwszy
-    .sort((a, b) => {
-      if (a.expiryDate !== b.expiryDate) return a.expiryDate < b.expiryDate ? -1 : 1
-      return (a.internalBatchSeq ?? 0) - (b.internalBatchSeq ?? 0)
-    })
+  // useMemo: stabilna referencja zfiltrowanych/posortowanych list — bez tego
+  // każdy re-render parent (np. zmiana kgTaken state) produkuje nowy array,
+  // co psuje memoization tile'i.
+  const batches = useMemo(() =>
+    (batchData.data?.data ?? [])
+      .filter(b => Number(b.kgAvailable) > 0 && b.status !== 'used' && b.status !== 'expired' && b.status !== 'cancelled')
+      // FEFO: ta sama data ważności → niższy numer partii (starszy) idzie pierwszy
+      .sort((a, b) => {
+        if (a.expiryDate !== b.expiryDate) return a.expiryDate < b.expiryDate ? -1 : 1
+        return (a.internalBatchSeq ?? 0) - (b.internalBatchSeq ?? 0)
+      }),
+    [batchData.data])
 
-  const workers = (workerData.data ?? []).filter(u => u.role === 'WORKER_DEBONING')
+  const workers = useMemo(() =>
+    (workerData.data ?? []).filter(u => u.role === 'WORKER_DEBONING'),
+    [workerData.data])
+
+  // Mapa batchId → liczba wpisów (do BatchTile, żeby nie liczyć w mapie inline)
+  const entryCountByBatchId = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const e of entries) m.set(e.rawBatchId, (m.get(e.rawBatchId) ?? 0) + 1)
+    return m
+  }, [entries])
 
   const taken    = parseFloat(kgTaken) || 0
   const meat     = parseFloat(kgMeat)  || 0
@@ -142,14 +215,17 @@ export function DeboningTabletPage() {
     setTimeout(() => setToast(t => ({ ...t, visible: false })), 3000)
   }
 
-  function pickBatch(b: RawBatch) {
+  // useCallback: stabilna referencja onClick → React.memo na BatchTile/WorkerTile
+  // może efektywnie zatrzymywać re-rendery tile'ów. Bez tego każdy render parenta
+  // tworzy nową funkcję → memo nieskuteczne → mruganie listy.
+  const pickBatch = useCallback((b: RawBatch) => {
     setSelBatch(b); setKgTaken(''); setKgMeat('')
     setTimeout(() => cwRef.current?.focus(), 120)
-  }
-  function pickWorker(w: User) {
+  }, [])
+  const pickWorker = useCallback((w: User) => {
     setSelWorker(w)
     setTimeout(() => cwRef.current?.focus(), 120)
-  }
+  }, [])
   function reset() {
     setSelBatch(null); setSelWorker(null); setKgTaken(''); setKgMeat('')
     setEditEntry_s(null); setFinishModal(false)
@@ -311,32 +387,16 @@ export function DeboningTabletPage() {
         : batches.length === 0
           ? <div className="text-center py-8 text-sm text-ink-3"><Package size={32} className="mx-auto mb-2 text-ink-5" /><p>Brak partii.</p></div>
           : <div className={cn('grid gap-2.5 mb-3', batches.length <= 2 ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3')}>
-              {batches.map((b, i) => {
-                const pal = BATCH_PAL[i % BATCH_PAL.length]
-                const sel = selBatch?.id === b.id
-                const bEntries = entries.filter(e => e.rawBatchId === b.id)
-                const supplier = b.supplierDisplayName || b.supplierName || '—'
-                const kg = Number(b.kgAvailable)
-                const containers = Math.floor(kg / KG_PER_CONTAINER)
-                const remainderKg = Math.round((kg % KG_PER_CONTAINER) * 10) / 10
-                return (
-                  <button key={b.id} onClick={() => pickBatch(b)}
-                    className={cn('flex flex-col items-center justify-center gap-1 p-3 rounded-2xl border-2 min-h-[100px] text-center transition-all active:scale-95 select-none',
-                      sel ? pal.sel : cn('bg-white', pal.idle, 'hover:shadow-md'))}>
-                    <div className={cn('text-[11px] font-bold uppercase truncate max-w-full leading-tight', sel?'text-white/90':'text-ink-3')}>{supplier}</div>
-                    <div className={cn('text-lg font-black font-mono leading-none', sel?'text-white':'text-ink')}>{b.internalBatchNo}</div>
-                    <div className={cn('text-xs font-semibold leading-tight', sel?'text-white/80':'text-ink-3')}>
-                      {fmtKg(kg, 1)} kg · {containers} poj.{remainderKg > 0 ? ` + ${fmtKg(remainderKg, 1)} kg` : ''}
-                    </div>
-                    {bEntries.length > 0 && (
-                      <div className={cn('text-[10px] font-semibold', sel?'text-white/70':'text-green-600')}>
-                        {bEntries.length} wpis{bEntries.length > 1 ? 'y' : ''}
-                      </div>
-                    )}
-                    <ExpiryBadgeLocal date={b.expiryDate} selected={sel} />
-                  </button>
-                )
-              })}
+              {batches.map((b, i) => (
+                <BatchTile
+                  key={b.id}
+                  batch={b}
+                  selected={selBatch?.id === b.id}
+                  paletteIdx={i}
+                  entryCount={entryCountByBatchId.get(b.id) ?? 0}
+                  onSelect={pickBatch}
+                />
+              ))}
             </div>
       }
 
@@ -391,22 +451,15 @@ export function DeboningTabletPage() {
         ? <div className="flex justify-center py-6"><Spinner size={28} /></div>
         : <div className={cn('grid gap-2 mb-2',
             workers.length <= 3 ? `grid-cols-${Math.max(2,workers.length)}` : workers.length <= 6 ? 'grid-cols-3' : 'grid-cols-4')}>
-            {workers.map((w, i) => {
-              const pal = WORKER_PAL[i % WORKER_PAL.length]
-              const sel = selWorker?.id === w.id
-              const init = w.name.split(' ').map((n: string) => n[0]).join('').slice(0,2).toUpperCase()
-              return (
-                <button key={w.id} onClick={() => pickWorker(w)}
-                  className={cn('flex flex-col items-center justify-center gap-1.5 py-4 px-2 rounded-2xl border-2 min-h-[88px] text-center transition-all active:scale-95 select-none',
-                    sel ? 'bg-brand border-brand shadow-md' : 'bg-white border-surface-4 hover:shadow-md')}>
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-black"
-                    style={sel ? {background:'rgba(255,255,255,.2)',color:'#fff'} : {background:pal.bg,color:pal.color}}>
-                    {init}
-                  </div>
-                  <div className={cn('text-xs font-bold leading-tight', sel?'text-white':'text-ink')}>{w.name}</div>
-                </button>
-              )
-            })}
+            {workers.map((w, i) => (
+              <WorkerTile
+                key={w.id}
+                worker={w}
+                selected={selWorker?.id === w.id}
+                paletteIdx={i}
+                onSelect={pickWorker}
+              />
+            ))}
           </div>
       }
 

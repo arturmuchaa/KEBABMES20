@@ -1,5 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 
+/**
+ * Stabilny JSON-equality check.
+ * KLUCZOWE: pozwala uniknąć re-renderów przy pollingu gdy serwer zwraca
+ * identyczne dane (np. polling /entries co 5s — bez tego cała strona
+ * re-renderuje się co 5s mimo braku zmian, powodując mruganie UI).
+ */
+function shallowEqualByJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (a === null || b === null || a === undefined || b === undefined) return false
+  try {
+    return JSON.stringify(a) === JSON.stringify(b)
+  } catch {
+    return false
+  }
+}
+
 export function useApi<T>(fetcher: () => Promise<T>, deps: unknown[] = []) {
   const [data,    setData]    = useState<T | null>(null)
   const [loading, setLoading] = useState(true)
@@ -23,7 +39,11 @@ export function useApi<T>(fetcher: () => Promise<T>, deps: unknown[] = []) {
     try {
       const result = await ref.current()
       if (!ctrl.signal.aborted) {
-        setData(result)
+        // Pomiń aktualizację jeżeli wynik jest IDENTYCZNY z poprzednim —
+        // zapobiega niepotrzebnym re-renderom przy pollingach (mruganiu).
+        if (!shallowEqualByJson(dataRef.current, result)) {
+          setData(result)
+        }
         if (firstFetch) setLoading(false)
       }
     } catch (e) {
