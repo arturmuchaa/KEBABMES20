@@ -1,7 +1,8 @@
 """Traceability, recall, and admin endpoints."""
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.services import traceability_service as svc
+from app.utils.auth import require_admin
 
 router = APIRouter(tags=["traceability"])
 
@@ -24,11 +25,11 @@ def debug_trace(finished_good_id: str):
     return svc.debug_trace(finished_good_id)
 
 
-@router.post("/api/admin/repair-lineage")
+@router.post("/api/admin/repair-lineage", dependencies=[Depends(require_admin)])
 def repair_lineage():
     return svc.repair_lineage()
 
 
-@router.post("/api/admin/recalculate-recipe-yields")
+@router.post("/api/admin/recalculate-recipe-yields", dependencies=[Depends(require_admin)])
 def recalculate_recipe_yields():
     return svc.recalculate_recipe_yields()

@@ -4,8 +4,11 @@ The ``finish_day`` operation is the MES's terminal step and MUST:
     * run inside a single transaction,
     * record every kg of packaging consumption,
     * emit ``stock_movements`` IN entries for every finished_goods row,
+    * emit ``stock_movements`` OUT entries for the seasoned_meat consumed,
+    * deduct seasoned_meat.kg_reserved + kg_available (and bump kg_used),
     * maintain write-time lineage (source_mixing_ids / seasoned / deboning).
 """
+import json
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -102,6 +105,122 @@ def _resolve_lineage(conn, seasoned_batch_nos: List[str]) -> Dict[str, List[str]
         "raw_batch_ids": raw_batch_ids,
         "supplier_ids": supplier_ids,
     }
+
+
+def _consume_seasoned_for_entry(
+    conn,
+    *,
+    plan_id: str,
+    plan_line_id: str,
+    entry_qty: int,
+    total_kg: float,
+    seasoned_batch_nos: List[str],
+) -> None:
+    """Zdejmij seasoned_meat odpowiadające ``entry_qty`` sztuk z linii planu.
+
+    Strategia:
+        1. Spróbuj wczytać ``production_plan_lines.batch_allocation`` —
+           tam plan zapamiętał kto-ile-kg ma dostarczyć. Skaluj proporcjonalnie
+           ``entry_qty / line.qty`` (operator może domykać w kilku wpisach).
+        2. Brak alokacji w planie → fallback: równy podział ``total_kg``
+           pomiędzy ``seasoned_batch_nos``.
+
+    Dla każdej partii:
+        * lockuje wiersz ``FOR UPDATE``,
+        * dekrementuje kg_reserved i kg_available, inkrementuje kg_used,
+        * emituje ``stock_movements`` OUT (źródło: plan).
+
+    Funkcja musi działać wewnątrz transakcji wywołującego.
+    """
+    if total_kg <= 0:
+        return
+
+    per_batch: Dict[str, Dict[str, Any]] = {}
+
+    if plan_line_id:
+        line = cx_query_one(
+            conn,
+            """
+            SELECT batch_allocation, qty
+            FROM production_plan_lines
+            WHERE id = %s FOR UPDATE
+            """,
+            (plan_line_id,),
+        )
+        if line:
+            ba = line.get("batch_allocation") or {}
+            if isinstance(ba, str):
+                try:
+                    ba = json.loads(ba)
+                except Exception:
+                    ba = {}
+            line_qty = max(1, int(line.get("qty") or 0))
+            scale = entry_qty / line_qty if line_qty > 0 else 1.0
+            if isinstance(ba, dict):
+                for batch_no, alloc in ba.items():
+                    if not isinstance(alloc, dict):
+                        continue
+                    bid = alloc.get("batch_id")
+                    full_kg = float(alloc.get("kg") or 0)
+                    take = round(full_kg * scale, 3)
+                    if not bid or take <= 0:
+                        continue
+                    per_batch[bid] = {"kg": take, "batch_no": batch_no or ""}
+
+    # Fallback: equal split when allocation missing
+    if not per_batch and seasoned_batch_nos:
+        share = round(total_kg / max(1, len(seasoned_batch_nos)), 3)
+        for bno in seasoned_batch_nos:
+            sm = cx_query_one(
+                conn, "SELECT id FROM seasoned_meat WHERE batch_no=%s", (bno,)
+            )
+            if sm and sm.get("id"):
+                per_batch[sm["id"]] = {"kg": share, "batch_no": bno}
+
+    if not per_batch:
+        logger.warning(
+            "finish_day.seasoned_consume.no_target",
+            extra={
+                "plan_id": plan_id,
+                "plan_line_id": plan_line_id,
+                "total_kg": total_kg,
+                "seasoned_batch_nos": seasoned_batch_nos,
+            },
+        )
+        return
+
+    # Lock all touched rows in deterministic order first to avoid deadlocks
+    for bid in sorted(per_batch.keys()):
+        cx_query_one(
+            conn,
+            "SELECT id FROM seasoned_meat WHERE id=%s FOR UPDATE",
+            (bid,),
+        )
+
+    for bid, payload in per_batch.items():
+        take = float(payload["kg"])
+        if take <= 0:
+            continue
+        cx_execute(
+            conn,
+            """
+            UPDATE seasoned_meat
+            SET kg_reserved  = GREATEST(0, COALESCE(kg_reserved, 0) - %s),
+                kg_available = GREATEST(0, kg_available - %s),
+                kg_used      = COALESCE(kg_used, 0) + %s
+            WHERE id = %s
+            """,
+            (take, take, take, bid),
+        )
+        create_stock_movement(
+            conn,
+            product_type="seasoned",
+            batch_id=bid,
+            qty=take,
+            movement_type="OUT",
+            source_type="plan",
+            source_id=plan_id,
+        )
 
 
 def _consume_packaging(conn, packaging_id: str, qty: int, source_id: str) -> None:
@@ -478,6 +597,20 @@ def _process_finish_day_entry(
                 entry.worker_names,
                 now_iso(),
             ),
+        )
+
+    # Konsumpcja seasoned_meat: zdejmij kg_reserved + kg_available, dodaj
+    # kg_used, emituj OUT-movement. To domyka łańcuch audytu który wcześniej
+    # urywał się na finished_goods IN — patrz CLAUDE.md "TRACEABILITY MUST
+    # WORK BOTH WAYS".
+    if total_kg > 0:
+        _consume_seasoned_for_entry(
+            conn,
+            plan_id=plan["id"],
+            plan_line_id=entry.plan_line_id,
+            entry_qty=entry.qty,
+            total_kg=total_kg,
+            seasoned_batch_nos=entry.seasoned_batch_nos or [],
         )
 
     # Audit trail: IN movement for each entry (supports deltas)

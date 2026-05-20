@@ -1,9 +1,12 @@
 """Seasoned meat endpoints."""
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
+from app.logging_config import get_logger
 from app.services import seasoned_meat_service as svc
 
 router = APIRouter(prefix="/api/seasoned-meat", tags=["seasoned-meat"])
+
+logger = get_logger(__name__)
 
 
 @router.get("/all")
@@ -21,6 +24,20 @@ def seasoned_trace(batch_id: str):
     return svc.seasoned_trace(batch_id)
 
 
-@router.post("/from-order/{order_id}")
+@router.post("/from-order/{order_id}", deprecated=True)
 def seasoned_from_order(order_id: str, body: dict):
-    return svc.seasoned_from_order(order_id, body)
+    # Endpoint zwracał IN na seasoned_meat bez OUT na meat_stock —
+    # tworzył partię z powietrza, łamiąc kontrakt CLAUDE.md. Frontend
+    # (MixingTabletPage) nigdy go nie wywołuje; właściwy przepływ to
+    # PATCH /api/mixing-orders/{id}/finish-session.
+    logger.warning(
+        "seasoned_from_order.deprecated_call",
+        extra={"order_id": order_id, "body_keys": list((body or {}).keys())},
+    )
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Endpoint wycofany. Użyj PATCH /api/mixing-orders/{id}/finish-session "
+            "(proper transformation z OUT meat → IN seasoned i pełnym audytem)."
+        ),
+    )

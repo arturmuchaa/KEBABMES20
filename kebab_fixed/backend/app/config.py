@@ -63,5 +63,10 @@ class Settings:
     vies_api_id: str = os.environ.get("VIES_API_ID", "")
     vies_api_key: str = os.environ.get("VIES_API_KEY", "")
 
+    # Token przesyłany w nagłówku X-Admin-Token na endpointach /api/admin/*.
+    # Pusty = soft-mode (pozwala, ale loguje warning na każdym wywołaniu).
+    # Ustaw w /opt/kebab/config/.env żeby wymusić hard-fail bez tokenu.
+    admin_token: str = os.environ.get("ADMIN_TOKEN", "")
+
 
 settings = Settings()

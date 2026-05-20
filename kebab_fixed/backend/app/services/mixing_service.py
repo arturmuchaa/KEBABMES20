@@ -414,7 +414,11 @@ def finish_mixing_session(order_id: str, body: Dict[str, Any]) -> Dict:
         meat_kg = float(order.get("meat_kg") or 0)
         kg_done = float(order.get("kg_done") or 0) + kg_meat
         kg_output = calc_kg_output(order.get("recipe_id"), kg_meat)
-        new_status = "in_progress" if kg_done >= meat_kg - 0.1 else "confirmed"
+        # Pełne kg_done → zlecenie zakończone; mniejsze → wciąż w trakcie.
+        # Poprzednia wersja miała zamienione gałęzie i status='done' nigdy nie
+        # trafiał do bazy z tej funkcji — zamknięcie szło tylko przez sweep
+        # w list_mixing_orders / auto_approve_mixing.
+        new_status = "done" if kg_done >= meat_kg - 0.1 else "in_progress"
 
         if not batch_no:
             raw_seqs = cx_query_all(

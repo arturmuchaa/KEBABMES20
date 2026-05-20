@@ -3,7 +3,9 @@
 Every statement MUST be safe to re-run (IF NOT EXISTS, ADD COLUMN IF NOT EXISTS).
 Never DROP or ALTER TYPE in a way that destroys data.
 """
-from app.db import execute, query_all, query_one
+import json
+
+from app.db import cx_execute, cx_query_all, execute, query_all, query_one, transaction
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -79,6 +81,9 @@ _DDL: list[str] = [
     # ── Stock reservation model ──
     "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS kg_reserved NUMERIC(10,3) DEFAULT 0",
     "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS kg_used NUMERIC(10,3) DEFAULT 0",
+    # Reservation model rozszerzony na seasoned_meat — plany rezerwują kg_reserved,
+    # finish_day (faktyczne wyprodukowanie) zdejmuje kg_reserved + kg_available.
+    "ALTER TABLE seasoned_meat ADD COLUMN IF NOT EXISTS kg_reserved NUMERIC(10,3) DEFAULT 0",
 
     # ── Mixing machine tracking ──
     "ALTER TABLE mixing_orders ADD COLUMN IF NOT EXISTS kg_in_machine NUMERIC(10,3) DEFAULT 0",
@@ -175,6 +180,7 @@ def run_migrations() -> None:
     _seed_mixed_seq()
     _seed_vehicles()
     _backfill_lineage()
+    _migrate_plan_reservations_to_kg_reserved()
     logger.info("migrations.done")
 
 
@@ -226,6 +232,96 @@ def _seed_mixed_seq() -> None:
         )
     except Exception as exc:
         logger.warning("migrations.seed_mixed_seq.error", extra={"error": str(exc)})
+
+
+def _migrate_plan_reservations_to_kg_reserved() -> None:
+    """Jednorazowo przenosi rezerwacje aktywnych/szkicowych planów z
+    kg_available/kg_used na nowe pole kg_reserved.
+
+    Poprzednia wersja _apply_reservations w production_plans_service
+    dekrementowała kg_available i inkrementowała kg_used już przy
+    utworzeniu planu — traktując rezerwację jak konsumpcję. Po fixie
+    rezerwacja siedzi w kg_reserved, a konsumpcja dzieje się dopiero w
+    finish_day. Ta funkcja "odwija" stary stan dla planów które jeszcze
+    nie zostały zamknięte (status != 'done').
+
+    Idempotentna przez marker w app_settings — uruchamia się tylko raz.
+    """
+    try:
+        marker = query_one(
+            "SELECT key FROM app_settings WHERE key='migration_kg_reserved_v1'"
+        )
+        if marker:
+            return
+        with transaction() as conn:
+            plans = cx_query_all(
+                conn,
+                "SELECT id, plan_no FROM production_plans "
+                "WHERE status IN ('draft', 'active')",
+            )
+            touched_batches = 0
+            total_kg_moved = 0.0
+            for p in plans:
+                lines = cx_query_all(
+                    conn,
+                    "SELECT batch_allocation FROM production_plan_lines WHERE plan_id=%s",
+                    (p["id"],),
+                )
+                for line in lines:
+                    ba = line.get("batch_allocation") or {}
+                    if isinstance(ba, str):
+                        try:
+                            ba = json.loads(ba)
+                        except Exception:
+                            ba = {}
+                    if not isinstance(ba, dict):
+                        continue
+                    for alloc in ba.values():
+                        if not isinstance(alloc, dict):
+                            continue
+                        bid = alloc.get("batch_id")
+                        kg = float(alloc.get("kg") or 0)
+                        if not bid or kg <= 0:
+                            continue
+                        cx_execute(
+                            conn,
+                            """
+                            UPDATE seasoned_meat
+                            SET kg_available = kg_available + %s,
+                                kg_used      = GREATEST(0, kg_used - %s),
+                                kg_reserved  = COALESCE(kg_reserved, 0) + %s
+                            WHERE id = %s
+                            """,
+                            (kg, kg, kg, bid),
+                        )
+                        touched_batches += 1
+                        total_kg_moved += kg
+            cx_execute(
+                conn,
+                """
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES ('migration_kg_reserved_v1', %s::jsonb, now())
+                ON CONFLICT (key) DO NOTHING
+                """,
+                (json.dumps({
+                    "plans": len(plans),
+                    "rows_touched": touched_batches,
+                    "kg_moved": round(total_kg_moved, 3),
+                }),),
+            )
+        logger.info(
+            "migrations.kg_reserved_v1.done",
+            extra={
+                "plans": len(plans),
+                "rows_touched": touched_batches,
+                "kg_moved": round(total_kg_moved, 3),
+            },
+        )
+    except Exception as exc:
+        logger.warning(
+            "migrations.kg_reserved_v1.error",
+            extra={"error": str(exc)},
+        )
 
 
 def _backfill_lineage() -> None:

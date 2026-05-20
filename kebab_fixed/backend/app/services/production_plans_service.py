@@ -70,15 +70,19 @@ def _compute_allocation(
                 break
             sb_row = locked.get(bid) or cx_query_one(
                 conn,
-                "SELECT batch_no, kg_available FROM seasoned_meat WHERE id=%s",
+                "SELECT batch_no, kg_available, kg_reserved FROM seasoned_meat WHERE id=%s",
                 (bid,),
             )
             if not sb_row:
                 continue
             b_no = sb_row["batch_no"]
-            kg_av = float(sb_row.get("kg_available") or 0)
+            kg_free = max(
+                0.0,
+                float(sb_row.get("kg_available") or 0)
+                - float(sb_row.get("kg_reserved") or 0),
+            )
             if line.kg_per_unit > 0:
-                pcs_from_batch = int(min(remaining_qty, kg_av // line.kg_per_unit))
+                pcs_from_batch = int(min(remaining_qty, kg_free // line.kg_per_unit))
             else:
                 pcs_from_batch = remaining_qty
             pcs_from_batch = max(0, min(pcs_from_batch, remaining_qty))
@@ -94,6 +98,12 @@ def _compute_allocation(
 
 
 def _apply_reservations(conn, allocation: dict) -> None:
+    """Rezerwuj kg na seasoned_meat poprzez kg_reserved.
+
+    Nie dotyka kg_available ani kg_used. Realna konsumpcja (zdjęcie z
+    available + przeniesienie do used) dzieje się dopiero w finish_day
+    razem z emisją OUT-movement.
+    """
     for _, alloc in allocation.items():
         bid = alloc.get("batch_id")
         kg = float(alloc.get("kg") or 0)
@@ -103,11 +113,11 @@ def _apply_reservations(conn, allocation: dict) -> None:
             conn,
             """
             UPDATE seasoned_meat
-            SET kg_available = kg_available - %s,
-                kg_used = kg_used + %s
-            WHERE id=%s AND kg_available >= %s
+            SET kg_reserved = COALESCE(kg_reserved, 0) + %s
+            WHERE id = %s
+              AND (kg_available - COALESCE(kg_reserved, 0)) >= %s
             """,
-            (kg, kg, bid, kg),
+            (kg, bid, kg),
         )
         if rowcount == 0:
             raise HTTPException(
@@ -125,9 +135,16 @@ def _check_plan_shortfalls(
 
     Linie bez przydzielonych partii pomijamy — są dozwolone w szkicach;
     aktywacja planu (update_plan_status='active') zablokuje je później.
+
+    Wolne kg = kg_available - kg_reserved (rezerwacje innych aktywnych
+    planów są odejmowane razem z naszymi nowymi liniami w trakcie symulacji).
     """
     remaining: Dict[str, float] = {
-        bid: float(row.get("kg_available") or 0) for bid, row in locked.items()
+        bid: max(
+            0.0,
+            float(row.get("kg_available") or 0) - float(row.get("kg_reserved") or 0),
+        )
+        for bid, row in locked.items()
     }
     shortfalls: List[str] = []
     for line in valid_lines:
@@ -199,15 +216,17 @@ def _restore_reservations(conn, plan_id: str) -> None:
             bid = alloc.get("batch_id")
             kg_back = float(alloc.get("kg") or 0)
             if bid and kg_back > 0:
+                # Plan był rezerwacją — zwracamy kg_reserved bez ruszania
+                # kg_available/kg_used (konsumpcja dzieje się dopiero w
+                # finish_day).
                 cx_execute(
                     conn,
                     """
                     UPDATE seasoned_meat
-                    SET kg_available = kg_available + %s,
-                        kg_used = GREATEST(0, kg_used - %s)
-                    WHERE id=%s
+                    SET kg_reserved = GREATEST(0, COALESCE(kg_reserved, 0) - %s)
+                    WHERE id = %s
                     """,
-                    (kg_back, kg_back, bid),
+                    (kg_back, bid),
                 )
 
 
