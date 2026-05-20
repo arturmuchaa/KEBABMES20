@@ -15,6 +15,7 @@ import { DeboningReportsPage } from '@/pages/office/DeboningReportsPage'
 import { HaccpReportPage } from '@/pages/office/HaccpReportPage'
 import { PlaceholderPage }     from '@/pages/office/PlaceholderPage'
 import { FinishedGoodsPage }   from '@/pages/office/FinishedGoodsPage'
+import { FinishedGoodsDetailPage } from '@/pages/office/FinishedGoodsDetailPage'
 import { PurchaseInvoicesPage } from '@/pages/office/PurchaseInvoicesPage'
 import { ClientOrdersPage } from '@/pages/office/ClientOrdersPage'
 import { OrderPrintPage }   from '@/pages/office/OrderPrintPage'
@@ -86,6 +87,7 @@ export default function App() {
         <Route path="magazyn/mieso-przyp"   element={<SeasonedMeatPage />} />
         <Route path="magazyn/opakowania"    element={<PackagingPage />} />
         <Route path="magazyn/gotowe"        element={<FinishedGoodsPage />} />
+        <Route path="magazyn/gotowe/:groupKey" element={<FinishedGoodsDetailPage />} />
         <Route path="deboning"              element={<DeboningReportsPage />} />
         <Route path="haccp-report"          element={<HaccpReportPage />} />
         <Route path="rodzaje-produktow"     element={<ProductTypesPage />} />

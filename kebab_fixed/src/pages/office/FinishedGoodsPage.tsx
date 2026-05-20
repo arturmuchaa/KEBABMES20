@@ -1,417 +1,335 @@
 /**
- * FinishedGoodsPage — Magazyn wyrobów gotowych
- * Kolumny: Ilość szt | kg/szt | Rodzaj · Receptura | Klient | Tuleja | Waga łączna | Nr partii
- * Wyszukiwanie: klient, receptura, tuleja, kg/szt
+ * FinishedGoodsPage — Magazyn wyrobów gotowych.
+ *
+ * Widok główny: grid kart pogrupowanych po (recipe_id, kg/szt). Karta pokazuje
+ * sumę szt+kg dla rodzaju produktu, badge stanu (niski/średni/wysoki) i liczbę
+ * partii. Klik karty → strona szczegółów (/office/magazyn/gotowe/:groupKey)
+ * z listą partii w kolejności FEFO.
  */
-import { useState, useMemo, useEffect } from 'react'
+import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
-import { finishedGoodsApi, traceabilityApi } from '@/lib/apiClient'
-import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
-import { Eye, ShoppingBag, ChevronDown, ChevronUp, ChevronsUpDown, Search, GitBranch, Beef, Soup, Package, Factory } from 'lucide-react'
+import { finishedGoodsApi } from '@/lib/apiClient'
+import { fmtKg, cn } from '@/lib/utils'
+import {
+  ShoppingBag, Search, Boxes, ArrowRight, AlertTriangle, CheckCircle2,
+} from 'lucide-react'
 import type { FinishedGoodsItem } from '@/lib/mockApi'
 
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from '@/components/ui/card'
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
-} from '@/components/ui/dialog'
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
 
-function LineageChain({ batchId }: { batchId: string }) {
-  const [data, setData] = useState<any | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+// ─── Progi stanu ─────────────────────────────────────────────
+// Domyślne progi szt — możliwy upgrade w przyszłości (per receptura).
+const LOW_THRESHOLD  = 30
+const HIGH_THRESHOLD = 100
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    traceabilityApi.backward(batchId)
-      .then(r => { if (!cancelled) { setData(r); setError(null); setLoading(false) } })
-      .catch(e => { if (!cancelled) { setError(e instanceof Error ? e.message : 'Błąd ładowania'); setLoading(false) } })
-    return () => { cancelled = true }
-  }, [batchId])
+type Level = 'empty' | 'low' | 'med' | 'high'
 
-  if (loading) return <CardDescription className="text-xs italic">Wczytuję łańcuch partii...</CardDescription>
-  if (error) return <CardDescription className="text-xs text-red-600">Błąd: {error}</CardDescription>
-  if (!data) return null
+function levelOf(qty: number): Level {
+  if (qty <= 0)               return 'empty'
+  if (qty <  LOW_THRESHOLD)   return 'low'
+  if (qty <  HIGH_THRESHOLD)  return 'med'
+  return 'high'
+}
 
-  const rawBatches: any[]      = data.rawBatches      ?? []
-  const deboning: any[]        = data.deboning        ?? []
-  const mixingOrders: any[]    = data.mixingOrders    ?? []
-  const seasonedBatches: any[] = data.seasonedBatches ?? []
-  const suppliers: any[]       = data.suppliers       ?? []
+const LEVEL_STYLE: Record<Level, { accent: string; pill: string; text: string; icon: React.ReactNode; label: string }> = {
+  empty: {
+    accent: 'bg-gradient-to-r from-gray-300 via-gray-400 to-gray-300',
+    pill:   'bg-gray-100 text-gray-600 border-gray-300',
+    text:   'text-gray-500',
+    icon:   <ShoppingBag size={11} />,
+    label:  'Brak',
+  },
+  low: {
+    accent: 'bg-gradient-to-r from-red-400 via-red-500 to-red-400',
+    pill:   'bg-red-50 text-red-700 border-red-200',
+    text:   'text-red-700',
+    icon:   <AlertTriangle size={11} />,
+    label:  'Niski stan',
+  },
+  med: {
+    accent: 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400',
+    pill:   'bg-amber-50 text-amber-700 border-amber-200',
+    text:   'text-amber-700',
+    icon:   <Boxes size={11} />,
+    label:  'Średni stan',
+  },
+  high: {
+    accent: 'bg-gradient-to-r from-emerald-400 via-emerald-500 to-emerald-400',
+    pill:   'bg-emerald-50 text-emerald-700 border-emerald-200',
+    text:   'text-emerald-700',
+    icon:   <CheckCircle2 size={11} />,
+    label:  'Wysoki stan',
+  },
+}
 
-  const supplierByBatch = new Map<string, string>()
-  rawBatches.forEach((rb: any) => {
-    const sup = suppliers.find((s: any) => s.id === rb.supplier_id)
-    if (sup) supplierByBatch.set(rb.id, sup.display_name || sup.name || '')
+// ─── Grupowanie ──────────────────────────────────────────────
+interface ProductGroup {
+  groupKey:       string        // url-safe: recipeId__kgPerUnit (encoded)
+  recipeId:       string
+  recipeName:     string
+  productTypeName:string
+  kgPerUnit:      number
+  totalQty:       number
+  totalKg:        number
+  batches:        FinishedGoodsItem[]
+  oldestDate:     string        // najstarsza data produkcji w grupie (FEFO heads-up)
+  clientCount:    number
+}
+
+function groupKeyOf(recipeId: string, kg: number): string {
+  return encodeURIComponent(`${recipeId || '__'}__${kg}`)
+}
+
+function groupItems(items: FinishedGoodsItem[]): ProductGroup[] {
+  const map = new Map<string, ProductGroup>()
+  for (const it of items) {
+    const key = groupKeyOf(it.recipeId || it.recipeName, it.kgPerUnit)
+    const clients = new Set<string>()
+    const existing = map.get(key)
+    if (existing) {
+      existing.totalQty += it.qtyAvailable
+      existing.totalKg  += it.qtyAvailable * it.kgPerUnit
+      existing.batches.push(it)
+      if (it.producedDate && (!existing.oldestDate || it.producedDate < existing.oldestDate)) {
+        existing.oldestDate = it.producedDate
+      }
+      if (it.clientName) existing.batches.forEach(b => { if (b.clientName) clients.add(b.clientName) })
+      existing.clientCount = new Set(existing.batches.map(b => b.clientName).filter(Boolean)).size
+    } else {
+      if (it.clientName) clients.add(it.clientName)
+      map.set(key, {
+        groupKey:        key,
+        recipeId:        it.recipeId,
+        recipeName:      it.recipeName || '—',
+        productTypeName: it.productTypeName || '',
+        kgPerUnit:       it.kgPerUnit,
+        totalQty:        it.qtyAvailable,
+        totalKg:         it.qtyAvailable * it.kgPerUnit,
+        batches:         [it],
+        oldestDate:      it.producedDate,
+        clientCount:     clients.size,
+      })
+    }
+  }
+  // Sortuj: najpierw niski stan, potem wg kg malejąco
+  return Array.from(map.values()).sort((a, b) => {
+    const la = levelOf(a.totalQty)
+    const lb = levelOf(b.totalQty)
+    const ord: Record<Level, number> = { low: 0, med: 1, high: 2, empty: 3 }
+    if (ord[la] !== ord[lb]) return ord[la] - ord[lb]
+    return b.totalKg - a.totalKg
   })
+}
 
-  const Box = ({ icon, color, label, items, extractKey, extractLabel, extractSub }: {
-    icon: React.ReactNode; color: string; label: string; items: any[]
-    extractKey: (i: any) => string; extractLabel: (i: any) => string; extractSub?: (i: any) => string | null
-  }) => (
-    <div className="flex-1 min-w-[160px]">
-      <div className={cn('flex items-center gap-1.5 mb-1.5', color)}>
-        {icon}
-        <span className="text-[10px] font-bold uppercase tracking-wide">{label}</span>
-      </div>
-      {items.length === 0 ? (
-        <div className="text-[11px] text-muted-foreground italic px-2 py-1.5 rounded bg-gray-50 border border-gray-200">brak</div>
-      ) : (
-        <div className="space-y-1">
-          {items.map(i => (
-            <div key={extractKey(i)} className={cn('px-2 py-1.5 rounded border')}>
-              <code className="font-mono font-bold text-xs block">{extractLabel(i)}</code>
-              {extractSub && extractSub(i) && (
-                <div className="text-[10px] text-muted-foreground mt-0.5">{extractSub(i)}</div>
+function daysSince(dateStr: string): number {
+  if (!dateStr) return 0
+  const t = Date.parse(dateStr)
+  if (!t || isNaN(t)) return 0
+  return Math.floor((Date.now() - t) / (1000 * 60 * 60 * 24))
+}
+
+// ─── Karta grupy ─────────────────────────────────────────────
+function ProductCard({ g }: { g: ProductGroup }) {
+  const level = levelOf(g.totalQty)
+  const s     = LEVEL_STYLE[level]
+  const days  = daysSince(g.oldestDate)
+
+  return (
+    <Link
+      to={`/office/magazyn/gotowe/${g.groupKey}`}
+      className="group block relative overflow-hidden rounded-2xl border border-surface-4 bg-white shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200"
+    >
+      {/* Akcent kolorowy */}
+      <div className={cn('absolute top-0 inset-x-0 h-1', s.accent)} />
+
+      <div className="p-5 pt-6">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div className="min-w-0 flex-1">
+            <CardTitle className="text-base font-semibold leading-tight truncate">
+              {g.recipeName}
+            </CardTitle>
+            <div className="flex items-center gap-2 mt-1">
+              <code className="font-mono text-xs font-bold text-primary bg-primary/5 px-1.5 py-0.5 rounded">
+                {g.kgPerUnit} kg
+              </code>
+              {g.productTypeName && g.productTypeName !== g.recipeName && (
+                <CardDescription className="text-[11px] truncate">{g.productTypeName}</CardDescription>
               )}
             </div>
-          ))}
+          </div>
+          <Badge variant="outline" className={cn('text-[10px] font-medium gap-1 flex-shrink-0', s.pill)}>
+            {s.icon}
+            {s.label}
+          </Badge>
         </div>
-      )}
-    </div>
-  )
 
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-1.5">
-        <GitBranch size={13} className="text-primary"/>
-        <CardDescription className="text-[10px] font-bold uppercase">Pełny łańcuch partii (traceability)</CardDescription>
-      </div>
-      <div className="flex flex-wrap gap-2 items-stretch bg-gradient-to-br from-blue-50/30 to-white border rounded-xl p-3">
-        <Box
-          icon={<Beef size={11}/>}
-          color="text-blue-700"
-          label="Ćwiartka"
-          items={rawBatches}
-          extractKey={(rb) => rb.id}
-          extractLabel={(rb) => rb.internal_batch_no || rb.id.slice(0,8)}
-          extractSub={(rb) => supplierByBatch.get(rb.id) || rb.supplier_name || null}
-        />
-        <div className="self-center text-muted-foreground text-lg leading-none">→</div>
-        <Box
-          icon={<Package size={11}/>}
-          color="text-green-700"
-          label="Rozbiór · mięso z/s"
-          items={deboning}
-          extractKey={(d) => d.id}
-          extractLabel={(d) => d.meatLotNo || d.meat_lot_no || d.id.slice(0,8)}
-          extractSub={(d) => {
-            const kg = Number(d.kgMeat ?? d.kg_meat ?? 0)
-            return kg > 0 ? `${fmtKg(kg, 1)} kg` : null
-          }}
-        />
-        <div className="self-center text-muted-foreground text-lg leading-none">→</div>
-        <Box
-          icon={<Soup size={11}/>}
-          color="text-purple-700"
-          label="Masowanie · zlecenie"
-          items={mixingOrders}
-          extractKey={(mo) => mo.id}
-          extractLabel={(mo) => mo.order_no || mo.id.slice(0,8)}
-          extractSub={(mo) => mo.recipe_name || null}
-        />
-        <div className="self-center text-muted-foreground text-lg leading-none">→</div>
-        <Box
-          icon={<Beef size={11}/>}
-          color="text-amber-700"
-          label="Mięso przyprawione"
-          items={seasonedBatches}
-          extractKey={(sm) => sm.id}
-          extractLabel={(sm) => sm.batch_no || sm.id.slice(0,8)}
-          extractSub={(sm) => {
-            const kg = Number(sm.kg_produced ?? 0)
-            return kg > 0 ? `${fmtKg(kg, 1)} kg` : null
-          }}
-        />
-        <div className="self-center text-muted-foreground text-lg leading-none">→</div>
-        <div className="flex-1 min-w-[140px]">
-          <div className="flex items-center gap-1.5 mb-1.5 text-red-700">
-            <Factory size={11}/>
-            <span className="text-[10px] font-bold uppercase tracking-wide">Wyrób gotowy</span>
+        {/* Główne liczby */}
+        <div className="flex items-baseline gap-3 mb-3">
+          <div>
+            <div className={cn('font-mono text-3xl font-black tabular-nums leading-none', s.text)}>
+              {g.totalQty}
+            </div>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mt-1">szt</div>
           </div>
-          <div className="px-2 py-1.5 rounded border-2 border-red-300 bg-red-50">
-            <code className="font-mono font-bold text-xs text-red-700 block">{(data.finishedGoods ?? [])[0]?.batch_no || batchId}</code>
+          <div className="text-muted-foreground text-2xl leading-none">·</div>
+          <div>
+            <div className="font-mono text-3xl font-black tabular-nums leading-none text-ink-2">
+              {fmtKg(g.totalKg, 0)}
+            </div>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mt-1">kg</div>
           </div>
         </div>
+
+        {/* Stopka */}
+        <div className="flex items-center justify-between pt-3 border-t border-surface-3">
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span>{g.batches.length} {g.batches.length === 1 ? 'partia' : 'partii'}</span>
+            {days > 0 && (
+              <span className={cn(
+                'tabular-nums',
+                days > 7  ? 'text-red-600 font-semibold' :
+                days > 3  ? 'text-amber-600 font-semibold' :
+                'text-muted-foreground',
+              )}>
+                najstarsza: {days}d
+              </span>
+            )}
+          </div>
+          <ArrowRight size={14} className="text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+        </div>
       </div>
-    </div>
+    </Link>
   )
 }
 
-function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () => void }) {
-  const subEntries: any[] = (item as any).subEntries ?? []
-  return (
-    <Dialog open onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Szczegóły — {item.batchNo}</DialogTitle>
-          <DialogDescription>Pełne dane partii wyrobu gotowego</DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: 'Produkt',   val: item.productTypeName },
-              { label: 'Receptura', val: item.recipeName },
-              { label: 'Tuleja',    val: item.packagingName ?? '—' },
-              { label: 'Klient',    val: item.clientName ?? '—' },
-              { label: 'Łącznie',   val: `${item.qty} szt · ${fmtKg(item.totalKg)} kg` },
-              { label: 'Data',      val: fmtDatePl(item.producedDate) },
-            ].map(r => (
-              <div key={r.label}>
-                <CardDescription className="text-[10px] font-bold uppercase mb-0.5">{r.label}</CardDescription>
-                <CardTitle className="text-sm font-semibold">{r.val}</CardTitle>
-              </div>
-            ))}
-          </div>
-
-          {/* Pełen łańcuch partii: ćwiartka → rozbiór → masowanie → mięso przyprawione → kebab */}
-          <LineageChain batchId={item.id} />
-
-          {subEntries.length > 0 && (
-            <div className="space-y-2">
-              <CardDescription className="text-[10px] font-bold uppercase">
-                Wyprodukowano w {subEntries.length} sesji
-              </CardDescription>
-              <div className="divide-y border rounded-xl overflow-hidden">
-                {subEntries.map((s: any, i: number) => (
-                  <div key={i} className="px-3 py-2.5 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <CardTitle className="text-sm font-bold">{s.qty} szt</CardTitle>
-                      <CardDescription className="text-xs">{fmtKg(s.totalKg)} kg</CardDescription>
-                      {(s.seasonedBatchNos ?? []).length > 0 && (
-                        <div className="flex gap-1">
-                          {(s.seasonedBatchNos ?? []).map((n: string) => (
-                            <code key={n} className="font-mono text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{n}</code>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <CardDescription className="text-xs">{(s.workerNames ?? []).join(', ')}</CardDescription>
-                      <CardDescription className="text-xs">{s.addedAt?.slice(11, 16) ?? ''}</CardDescription>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {item.producedBy.length > 0 && (
-            <div className="space-y-1">
-              <CardDescription className="text-[10px] font-bold uppercase">Pracownicy</CardDescription>
-              <CardTitle className="text-sm font-medium">{item.producedBy.join(', ')}</CardTitle>
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-type SortCol = 'qty' | 'kgPerUnit' | 'productTypeName' | 'clientName' | 'packagingName' | 'totalKg' | 'batchNo'
-
+// ─── Strona ─────────────────────────────────────────────────
 export function FinishedGoodsPage() {
   const { data: items, loading } = useApi(() => finishedGoodsApi.list())
-  const [detailItem, setDetailItem] = useState<FinishedGoodsItem | null>(null)
-  const [filter,   setFilter]   = useState('')
-  const [sortCol,  setSortCol]  = useState<SortCol>('batchNo')
-  const [sortDir,  setSortDir]  = useState<'asc'|'desc'>('desc')
-
-  const toggleSort = (col: SortCol) => {
-    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortCol(col); setSortDir('asc') }
-  }
-
-  const SortIcon = ({ col }: { col: SortCol }) =>
-    sortCol === col
-      ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
-      : <ChevronsUpDown size={11} className="opacity-30"/>
+  const [filter, setFilter] = useState('')
+  const [onlyLow, setOnlyLow] = useState(false)
 
   const rawList = items ?? []
 
-  const list = useMemo(() => {
+  const allGroups = useMemo(() => groupItems(rawList), [rawList])
+
+  const groups = useMemo(() => {
+    let result = allGroups
     const q = filter.toLowerCase().trim()
-    const filtered = q
-      ? rawList.filter(i =>
-          (i.clientName     || '').toLowerCase().includes(q) ||
-          (i.productTypeName|| '').toLowerCase().includes(q) ||
-          (i.recipeName     || '').toLowerCase().includes(q) ||
-          (i.packagingName  || '').toLowerCase().includes(q) ||
-          String(i.kgPerUnit).includes(q) ||
-          i.batchNo.toLowerCase().includes(q)
-        )
-      : rawList
-    return [...filtered].sort((a, b) => {
-      let cmp = 0
-      if (sortCol === 'qty')            cmp = a.qtyAvailable - b.qtyAvailable
-      if (sortCol === 'kgPerUnit')      cmp = a.kgPerUnit - b.kgPerUnit
-      if (sortCol === 'productTypeName')cmp = (a.productTypeName||'').localeCompare(b.productTypeName||'')
-      if (sortCol === 'clientName')     cmp = (a.clientName||'').localeCompare(b.clientName||'')
-      if (sortCol === 'packagingName')  cmp = (a.packagingName||'').localeCompare(b.packagingName||'')
-      if (sortCol === 'totalKg')        cmp = (a.qtyAvailable * a.kgPerUnit) - (b.qtyAvailable * b.kgPerUnit)
-      if (sortCol === 'batchNo')        cmp = a.batchNo.localeCompare(b.batchNo)
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [rawList, filter, sortCol, sortDir])
+    if (q) {
+      result = result.filter(g =>
+        (g.recipeName || '').toLowerCase().includes(q) ||
+        (g.productTypeName || '').toLowerCase().includes(q) ||
+        String(g.kgPerUnit).includes(q)
+      )
+    }
+    if (onlyLow) {
+      result = result.filter(g => {
+        const l = levelOf(g.totalQty)
+        return l === 'low' || l === 'empty'
+      })
+    }
+    return result
+  }, [allGroups, filter, onlyLow])
 
   const totalQty = rawList.reduce((s, i) => s + i.qtyAvailable, 0)
   const totalKg  = rawList.reduce((s, i) => s + i.qtyAvailable * i.kgPerUnit, 0)
 
+  const lowCount = allGroups.filter(g => {
+    const l = levelOf(g.totalQty)
+    return l === 'low' || l === 'empty'
+  }).length
+
   return (
     <div className="space-y-5 animate-fade-in">
 
-      {/* KPI */}
-      <div className="grid grid-cols-3 gap-4">
+      {/* ── KPI ────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Pozycje',      val: rawList.length  },
-          { label: 'Dostępne szt', val: totalQty        },
-          { label: 'Łącznie kg',   val: fmtKg(totalKg)  },
+          { label: 'Rodzajów',     val: allGroups.length, accent: 'text-ink' },
+          { label: 'Dostępne szt', val: totalQty,         accent: 'text-ink' },
+          { label: 'Łącznie kg',   val: fmtKg(totalKg, 0), accent: 'text-ink' },
+          { label: 'Niski stan',   val: lowCount,         accent: lowCount > 0 ? 'text-red-600' : 'text-emerald-600' },
         ].map(k => (
           <Card key={k.label}>
             <CardContent className="p-4">
-              <CardDescription className="text-xs font-semibold uppercase tracking-wide mb-1">{k.label}</CardDescription>
-              <CardTitle className="text-2xl font-black tabular-nums">{k.val}</CardTitle>
+              <CardDescription className="text-[10px] font-bold uppercase tracking-wider mb-2">{k.label}</CardDescription>
+              <CardTitle className={cn('text-3xl font-black tabular-nums', k.accent)}>{k.val}</CardTitle>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* Table */}
-      <Card>
-        <div className="px-5 py-3 border-b flex items-center justify-between gap-3">
-          <CardTitle className="text-sm font-semibold">{list.length} partii wyrobów gotowych</CardTitle>
-          <div className="relative w-64">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="h-8 pl-8 text-xs"
-              placeholder="Szukaj: klient, receptura, tuleja, kg…"
-              value={filter}
-              onChange={e => setFilter(e.target.value)}
-            />
-          </div>
+      {/* ── Filtr ──────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[200px] max-w-md">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="h-9 pl-9 text-sm"
+            placeholder="Szukaj: receptura, rodzaj, kg…"
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+          />
         </div>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-4 space-y-3">
-              {[0,1,2,3].map(i => <Skeleton key={i} className="h-12 w-full" />)}
-            </div>
-          ) : rawList.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-2">
-              <ShoppingBag size={36} className="text-muted-foreground opacity-20" />
-              <CardTitle className="text-sm font-medium text-muted-foreground">Brak wyrobów</CardTitle>
-              <CardDescription>Wyroby pojawią się po zakończeniu dnia produkcji</CardDescription>
-            </div>
-          ) : list.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 gap-2">
-              <Search size={28} className="text-muted-foreground opacity-20" />
-              <CardDescription>Brak wyników dla &ldquo;{filter}&rdquo;</CardDescription>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead
-                    className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
-                    onClick={() => toggleSort('qty')}
-                  >
-                    <div className="flex items-center gap-1">Ilość szt <SortIcon col="qty"/></div>
-                  </TableHead>
-                  <TableHead
-                    className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
-                    onClick={() => toggleSort('kgPerUnit')}
-                  >
-                    <div className="flex items-center gap-1">kg/szt <SortIcon col="kgPerUnit"/></div>
-                  </TableHead>
-                  <TableHead
-                    className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
-                    onClick={() => toggleSort('productTypeName')}
-                  >
-                    <div className="flex items-center gap-1">Rodzaj · Receptura <SortIcon col="productTypeName"/></div>
-                  </TableHead>
-                  <TableHead
-                    className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
-                    onClick={() => toggleSort('clientName')}
-                  >
-                    <div className="flex items-center gap-1">Klient <SortIcon col="clientName"/></div>
-                  </TableHead>
-                  <TableHead
-                    className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
-                    onClick={() => toggleSort('packagingName')}
-                  >
-                    <div className="flex items-center gap-1">Tuleja <SortIcon col="packagingName"/></div>
-                  </TableHead>
-                  <TableHead
-                    className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
-                    onClick={() => toggleSort('totalKg')}
-                  >
-                    <div className="flex items-center gap-1">Waga łączna <SortIcon col="totalKg"/></div>
-                  </TableHead>
-                  <TableHead
-                    className="text-xs uppercase tracking-wide whitespace-nowrap cursor-pointer select-none"
-                    onClick={() => toggleSort('batchNo')}
-                  >
-                    <div className="flex items-center gap-1">Nr partii <SortIcon col="batchNo"/></div>
-                  </TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {list.map(item => {
-                  const subCount = ((item as any).subEntries ?? []).length
-                  return (
-                    <TableRow key={item.id}>
-                      <TableCell>
-                        <CardTitle className="text-sm font-bold tabular-nums">{item.qtyAvailable} szt</CardTitle>
-                        {subCount > 1 && <CardDescription className="text-[10px]">{subCount} sesji</CardDescription>}
-                      </TableCell>
-                      <TableCell>
-                        <CardDescription className="tabular-nums">{item.kgPerUnit} kg</CardDescription>
-                      </TableCell>
-                      <TableCell>
-                        <CardTitle className="text-sm font-semibold">{item.productTypeName}</CardTitle>
-                        <CardDescription className="text-xs">{item.recipeName}</CardDescription>
-                      </TableCell>
-                      <TableCell>
-                        <CardDescription>{item.clientName || '—'}</CardDescription>
-                      </TableCell>
-                      <TableCell>
-                        {item.packagingName
-                          ? <CardDescription className="text-xs font-medium">{item.packagingName}</CardDescription>
-                          : <CardDescription className="text-[10px] opacity-40">—</CardDescription>}
-                      </TableCell>
-                      <TableCell>
-                        <CardTitle className="text-sm font-bold text-green-700 tabular-nums">
-                          {fmtKg(item.qtyAvailable * item.kgPerUnit)}
-                        </CardTitle>
-                      </TableCell>
-                      <TableCell>
-                        <code className="font-mono font-bold text-primary text-sm">{item.batchNo}</code>
-                        <CardDescription className="text-[10px]">{fmtDatePl(item.producedDate)}</CardDescription>
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setDetailItem(item)}>
-                          <Eye size={13} />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
+        <button
+          onClick={() => setOnlyLow(v => !v)}
+          className={cn(
+            'h-9 px-3 rounded-lg border text-xs font-semibold flex items-center gap-2 transition-colors',
+            onlyLow
+              ? 'bg-red-50 text-red-700 border-red-200'
+              : 'bg-white text-muted-foreground border-surface-4 hover:bg-surface-2'
           )}
+        >
+          <AlertTriangle size={13} />
+          Tylko niski stan
+          {onlyLow && lowCount > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-bold tabular-nums">
+              {lowCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* ── Grid kart ──────────────────────────────────────── */}
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {[0,1,2,3,4,5].map(i => <Skeleton key={i} className="h-44 rounded-2xl" />)}
+        </div>
+      ) : rawList.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 gap-3">
+            <ShoppingBag size={48} className="text-muted-foreground opacity-20" />
+            <CardTitle className="text-base font-medium text-muted-foreground">Brak wyrobów gotowych</CardTitle>
+            <CardDescription>Wyroby pojawią się po potwierdzeniu produkcji przez biuro.</CardDescription>
+          </CardContent>
+        </Card>
+      ) : groups.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-10 gap-2">
+            <Search size={28} className="text-muted-foreground opacity-20" />
+            <CardDescription>Brak wyników{filter && ` dla „${filter}"`}{onlyLow && ' (przy filtrze niskiego stanu)'}</CardDescription>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {groups.map(g => <ProductCard key={g.groupKey} g={g} />)}
+        </div>
+      )}
+
+      {/* ── Stopka legendy ────────────────────────────────── */}
+      <Card className="bg-muted/40 border-dashed">
+        <CardContent className="p-3 flex items-center gap-4 flex-wrap text-[11px] text-muted-foreground">
+          <CardDescription className="text-[10px] font-bold uppercase">Stan zapasów</CardDescription>
+          <div className="flex items-center gap-1.5"><span className="w-3 h-1 rounded bg-red-500"/> &lt; {LOW_THRESHOLD} szt — niski</div>
+          <div className="flex items-center gap-1.5"><span className="w-3 h-1 rounded bg-amber-500"/> {LOW_THRESHOLD}–{HIGH_THRESHOLD-1} szt — średni</div>
+          <div className="flex items-center gap-1.5"><span className="w-3 h-1 rounded bg-emerald-500"/> ≥ {HIGH_THRESHOLD} szt — wysoki</div>
         </CardContent>
       </Card>
-
-      {detailItem && <DetailModal item={detailItem} onClose={() => setDetailItem(null)} />}
     </div>
   )
 }
