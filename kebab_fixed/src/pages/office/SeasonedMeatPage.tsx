@@ -231,20 +231,24 @@ export function SeasonedMeatPage() {
       let cmp = 0
       if (sortCol === 'batchNo')      cmp = a.batchNo.localeCompare(b.batchNo)
       if (sortCol === 'recipeName')   cmp = (a.recipeName||'').localeCompare(b.recipeName||'')
-      if (sortCol === 'kgAvailable')  cmp = a.kgAvailable - b.kgAvailable
+      if (sortCol === 'kgAvailable')  cmp = (a.kgFree ?? a.kgAvailable) - (b.kgFree ?? b.kgAvailable)
       if (sortCol === 'expiryDate')   cmp = (a.expiryDate||'').localeCompare(b.expiryDate||'')
       return sortDir === 'asc' ? cmp : -cmp
     })
   }, [raw, filter, sortCol, sortDir])
-  const totalAvail = batches.reduce((s, b) => s + b.kgAvailable, 0)
+  // FEFO listing wyświetla "wolne" kg — kgFree z backendu (kg_available - kg_reserved).
+  // Partie w 100% zarezerwowane w ogóle nie wracają z backendu, więc tu pokazujemy
+  // tylko te dostępne do zaplanowania.
+  const kgOf = (b: any) => Number(b.kgFree ?? b.kgAvailable) || 0
+  const totalAvail = batches.reduce((s, b) => s + kgOf(b), 0)
   const critical   = batches.filter(b => getExpiryStatus(b.expiryDate).daysLeft <= 1)
 
-  // Grupowanie po recepturze — podsumowanie na górze
+  // Grupowanie po recepturze — podsumowanie na górze (po wolnych kg)
   const byRecipe: Record<string, { kg: number; count: number }> = {}
   for (const b of batches) {
     const key = b.recipeName || '—'
     if (!byRecipe[key]) byRecipe[key] = { kg: 0, count: 0 }
-    byRecipe[key].kg    += b.kgAvailable
+    byRecipe[key].kg    += kgOf(b)
     byRecipe[key].count += 1
   }
   const recipeRows = Object.entries(byRecipe).sort((a, b) => b[1].kg - a[1].kg)
@@ -414,7 +418,16 @@ export function SeasonedMeatPage() {
                       </div>
                       <div className="flex items-center gap-3 flex-shrink-0">
                         <div className="text-right">
-                          <CardTitle className="text-sm text-green-600 tabular-nums">{fmtKg(b.kgAvailable)} kg</CardTitle>
+                          <CardTitle className="text-sm text-green-600 tabular-nums">
+                            {fmtKg(b.kgFree ?? b.kgAvailable)} kg
+                          </CardTitle>
+                          {Number(b.kgReserved ?? 0) > 0 && (
+                            <div className="mt-0.5">
+                              <Badge variant="outline" className="text-[9px] font-medium text-amber-700 border-amber-300 bg-amber-50 gap-0.5 px-1.5 py-0">
+                                rezerwacja {fmtKg(b.kgReserved ?? 0)} kg
+                              </Badge>
+                            </div>
+                          )}
                           <ExpiryBadge date={b.expiryDate} />
                         </div>
                         <Button

@@ -841,8 +841,19 @@ export function DashboardPage() {
 
         {/* Produkcja */}
         {(() => {
+          // "Na żywo" tylko gdy linia jest IN_PROGRESS i miała progres
+          // ostatnio (≤ 30 min). Bez staleness-guarda plany z zapomnianymi
+          // IN_PROGRESS pokazywały się jako żywe choć produkcja stała.
+          const STALE_MS = 30 * 60 * 1000
+          const now = Date.now()
           const dataActive = activePlans.some((p: any) =>
-            (p.lines ?? []).some((l: any) => (l.lineStatus ?? '') === 'IN_PROGRESS'))
+            (p.lines ?? []).some((l: any) => {
+              if ((l.lineStatus ?? '') !== 'IN_PROGRESS') return false
+              const updated = l.progressUpdatedAt
+                ? Date.parse(l.progressUpdatedAt)
+                : 0
+              return updated > 0 && now - updated < STALE_MS
+            }))
           return (
         <Card>
           <CardHeader className="pb-3">

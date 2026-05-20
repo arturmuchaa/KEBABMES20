@@ -1014,6 +1014,12 @@ function mapSeasonedMeat(raw: any): SeasonedMeatBatch {
     kgProduced:     Number(raw.kg_produced  ?? raw.kgProduced  ?? 0),
     kgAvailable:    Number(raw.kg_available ?? raw.kgAvailable ?? 0),
     kgUsed:         Number(raw.kg_used      ?? raw.kgUsed      ?? 0),
+    kgReserved:     Number(raw.kg_reserved  ?? raw.kgReserved  ?? 0),
+    kgFree:         Number(
+      raw.kg_free ?? raw.kgFree
+      ?? (Number(raw.kg_available ?? raw.kgAvailable ?? 0)
+          - Number(raw.kg_reserved  ?? raw.kgReserved  ?? 0))
+    ),
     machineId:      raw.machine_id      ?? raw.machineId,
     meatLots,
     rawBatchIds:    raw.raw_batch_ids   ?? raw.rawBatchIds    ?? [],

@@ -1717,6 +1717,10 @@ export interface SeasonedMeatBatch {
   readonly kgProduced:    number
   readonly kgAvailable:   number
   readonly kgUsed:        number
+  // Nowe (po dodaniu rezerwacji): kg_reserved + wolne = kg_available − kg_reserved.
+  // Field optional bo mockApi nie inicjalizuje, backend zawsze wysyła.
+  readonly kgReserved?:   number
+  readonly kgFree?:       number
   readonly machineId:     MachineId
   // Traceability pełna — WSZYSTKIE linki do góry łańcucha
   readonly meatLots:           MixingOrderMeatLot[]

@@ -201,16 +201,20 @@ def _consume_seasoned_for_entry(
         take = float(payload["kg"])
         if take <= 0:
             continue
+        # Konsumpcja: zdejmij z kg_available, dodaj do kg_used.
+        # kg_reserved NIE ruszamy tutaj — to robi `release_plan_reservations`
+        # przy zamknięciu planu (finish_day kończy => zwalnia wszystkie
+        # rezerwacje planu hurtowo, niezależnie czy linie zostały wyprodukowane).
+        # Bez tego nie-wyprodukowane linie zostawały z kg_reserved na zawsze.
         cx_execute(
             conn,
             """
             UPDATE seasoned_meat
-            SET kg_reserved  = GREATEST(0, COALESCE(kg_reserved, 0) - %s),
-                kg_available = GREATEST(0, kg_available - %s),
+            SET kg_available = GREATEST(0, kg_available - %s),
                 kg_used      = COALESCE(kg_used, 0) + %s
             WHERE id = %s
             """,
-            (take, take, take, bid),
+            (take, take, bid),
         )
         create_stock_movement(
             conn,
@@ -376,6 +380,29 @@ def finish_day(dto: FinishDayDto) -> Dict[str, Any]:
         for entry in dto.entries:
             created.append(_process_finish_day_entry(conn, plan, entry, today))
 
+        # Zamknij wszystkie linie planu i sam plan.
+        # Bez tego linie z qty_done > 0 zostają jako IN_PROGRESS i dashboard
+        # nadal pokazuje "Na żywo" mimo że dzień jest zamknięty.
+        cx_execute(
+            conn,
+            """
+            UPDATE production_plan_lines
+            SET line_status = 'DONE',
+                progress_updated_at = COALESCE(progress_updated_at, now())
+            WHERE plan_id = %s
+              AND qty_done > 0
+            """,
+            (dto.plan_id,),
+        )
+
+        # Zwolnij wszystkie kg_reserved tego planu — niezależnie od tego
+        # czy linie zostały faktycznie wyprodukowane. Bez tego nie-wykonane
+        # linie blokowały kg_reserved na zawsze (plan.status='done' a
+        # rezerwacja stała). Konsumpcja (kg_available / kg_used) odbyła się
+        # już per-entry; tu zamykamy stronę rezerwacyjną.
+        from app.services.production_plans_service import _restore_reservations
+        _restore_reservations(conn, dto.plan_id)
+
         cx_execute(
             conn,
             "UPDATE production_plans SET status='done' WHERE id=%s",
@@ -499,15 +526,22 @@ def _process_finish_day_entry(
         )
         item_id = existing["id"]
     else:
-        seq = next_seq("finished_goods_seq")
-        batch_no = f"PP{seq}"
-        # Try to use P{raw_seq} when the whole row descends from a single
-        # physical raw batch.
+        # Strategia nazewnictwa:
+        # 1) Pojedyncze seasoned ze 1 raw batch     → P{raw_seq}/{n}   (np. P171/1)
+        # 2) Pojedyncze seasoned z wielu raw (MPP*) → {sm_batch_no}/{n} (np. MPP1/1)
+        # 3) Wiele seasoned źródeł                  → PP{global_seq}
+        # n = liczba istniejących finished_goods z tego źródła + 1 (per source).
+        # Dzięki temu user widzi w magazynie wyraźny związek z partią
+        # zaprawioną zamiast losowych PP1/PP2/PP3.
+        batch_no = ""
         if entry.seasoned_batch_nos and len(entry.seasoned_batch_nos) == 1:
+            sm_batch_no = entry.seasoned_batch_nos[0]
+            # Spróbuj P{raw_seq} dla single-raw (zachowanie historyczne)
+            single_raw_prefix = ""
             sm_row = cx_query_one(
                 conn,
                 "SELECT mixing_order_no FROM seasoned_meat WHERE batch_no=%s",
-                (entry.seasoned_batch_nos[0],),
+                (sm_batch_no,),
             )
             if sm_row and sm_row.get("mixing_order_no"):
                 mo_row = cx_query_one(
@@ -533,7 +567,21 @@ def _process_finish_day_entry(
                         if r.get("internal_batch_seq")
                     ]
                     if len(sids) == 1:
-                        batch_no = f"P{sids[0]}"
+                        single_raw_prefix = f"P{sids[0]}"
+
+            prefix = single_raw_prefix or sm_batch_no
+            # Policz ile finished_goods już ma ten prefix → przydziel kolejny n.
+            count_row = cx_query_one(
+                conn,
+                "SELECT count(*) AS n FROM finished_goods WHERE batch_no LIKE %s",
+                (f"{prefix}/%",),
+            )
+            n = int((count_row or {}).get("n") or 0) + 1
+            batch_no = f"{prefix}/{n}"
+        else:
+            # Brak źródła albo wiele źródeł — globalny licznik
+            seq = next_seq("finished_goods_seq")
+            batch_no = f"PP{seq}"
 
         item = cx_execute_returning(
             conn,

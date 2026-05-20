@@ -91,7 +91,7 @@ function computeSelKgAvailForLine(
       if (lStill<=0) return
       const s = seasonedRaw.find((x:any)=>x.id===id)
       if (!s) return
-      const free = Math.max(0, s.kgAvailable - (otherUsed[id]??0))
+      const free = Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0))
       const take = Math.min(lStill, free)
       otherUsed[id] = (otherUsed[id]??0) + take
       lStill -= take
@@ -102,7 +102,7 @@ function computeSelKgAvailForLine(
   selIds.forEach(id => {
     const s = seasonedRaw.find((x:any)=>x.id===id)
     if (!s) return
-    available += Math.max(0, s.kgAvailable - (otherUsed[id]??0))
+    available += Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0))
   })
   return available
 }
@@ -333,7 +333,7 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
     if (!byRecipe[s.recipeId]) {
       byRecipe[s.recipeId] = { recipeId:s.recipeId, recipeName:s.recipeName, totalKg:0, usedKg:0, remainingKg:0, batches:[] }
     }
-    byRecipe[s.recipeId].totalKg    += s.kgAvailable
+    byRecipe[s.recipeId].totalKg    += (s.kgFree ?? s.kgAvailable)
     byRecipe[s.recipeId].usedKg     += seasonedUsed[s.id]??0
     byRecipe[s.recipeId].batches.push(s)
   })
@@ -458,7 +458,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
         if (lStill<=0) return
         const s = seasonedRaw.find((x:any)=>x.id===id)
         if (!s) return
-        const free = Math.max(0, s.kgAvailable - (otherUsed[id]??0))
+        const free = Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0))
         const take = Math.min(lStill, free)
         otherUsed[id] = (otherUsed[id]??0) + take
         lStill -= take
@@ -469,7 +469,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
     selIds.forEach(id => {
       const s = seasonedRaw.find((x:any)=>x.id===id)
       if (!s) return
-      available += Math.max(0, s.kgAvailable - (otherUsed[id]??0))
+      available += Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0))
     })
     return available
   })()
@@ -735,7 +735,7 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
         if (!s) return
         // Ile jeszcze wolne w tej partii po wcześniejszych rezerwacjach
         const alreadyReserved = map[id] ?? 0
-        const freeInBatch = Math.max(0, s.kgAvailable - alreadyReserved)
+        const freeInBatch = Math.max(0, (s.kgFree ?? s.kgAvailable) - alreadyReserved)
         const take = Math.min(stillNeeded, freeInBatch)
         if (take > 0) {
           map[id] = alreadyReserved + take
@@ -749,7 +749,7 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
   const seasonedAvail = useMemo(() =>
     (seasonedRaw??[]).map((s:any) => ({
       ...s,
-      kgAvailLive: Math.max(0, s.kgAvailable - (seasonedUsed[s.id]??0)),
+      kgAvailLive: Math.max(0, (s.kgFree ?? s.kgAvailable) - (seasonedUsed[s.id]??0)),
     }))
   , [seasonedRaw, seasonedUsed])
 

@@ -530,6 +530,12 @@ def update_plan_status(plan_id: str, status: str) -> Dict[str, bool]:
                     "Niewystarczająca ilość mięsa — dostosuj plan przed aktywacją:\n"
                     + "; ".join(errors),
                 )
+        # Zamknięcie planu (done/cancelled/draft) musi zwolnić rezerwacje
+        # na seasoned_meat. finish_day robi to samodzielnie; ale gdy biuro
+        # ręcznie ustawi status na 'done' / 'cancelled' / cofnie do 'draft',
+        # rezerwacje muszą wrócić do puli.
+        if status in ("done", "cancelled", "draft"):
+            _restore_reservations(conn, plan_id)
         cx_execute(
             conn,
             "UPDATE production_plans SET status=%s WHERE id=%s",

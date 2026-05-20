@@ -22,18 +22,44 @@ logger = get_logger(__name__)
 
 
 def list_all_seasoned() -> List[Dict]:
-    return query_all("SELECT * FROM seasoned_meat ORDER BY created_at DESC")
+    return list_all_seasoned_with_reservations()
 
 
 def list_seasoned() -> Dict[str, List[Dict]]:
+    """Zwraca tylko partie z wolnymi kg (kg_available - kg_reserved > 0).
+
+    Po zatwierdzeniu planu produkcji kg lecą do kg_reserved (nie do kg_used),
+    więc partia nadal istnieje fizycznie, ale nie powinna być widoczna jako
+    "do zaplanowania". Dodatkowo wystawiamy kg_free i kg_reserved żeby
+    frontend mógł pokazać statystyki rezerwacji.
+    """
     rows = query_all(
         """
-        SELECT * FROM seasoned_meat
-        WHERE kg_available > 0 AND status != 'depleted'
+        SELECT *,
+               (kg_available - COALESCE(kg_reserved, 0)) AS kg_free
+        FROM seasoned_meat
+        WHERE (kg_available - COALESCE(kg_reserved, 0)) > 0
+          AND status != 'depleted'
         ORDER BY expiry_date ASC, batch_no ASC
         """
     )
     return {"data": rows}
+
+
+def list_all_seasoned_with_reservations() -> List[Dict]:
+    """Pełna lista (włącznie z w 100% zarezerwowanymi) — dla widoku 'wszystkie'.
+
+    Używana w office/magazyn/mieso-przyp żeby pokazać też partie które są
+    zarezerwowane (oznaczone badge'em "zarezerwowane").
+    """
+    return query_all(
+        """
+        SELECT *,
+               (kg_available - COALESCE(kg_reserved, 0)) AS kg_free
+        FROM seasoned_meat
+        ORDER BY created_at DESC
+        """
+    )
 
 
 def populate_lineage(conn, batch_no: str, order_id: str) -> None:
