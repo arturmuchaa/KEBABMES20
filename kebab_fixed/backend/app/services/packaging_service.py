@@ -12,6 +12,7 @@ from app.db import (
 from app.logging_config import get_logger
 from app.models.packaging import PackagingReceive
 from app.utils.ids import cuid, next_seq, now_iso
+from app.utils.stock import create_stock_movement
 
 logger = get_logger(__name__)
 
@@ -42,6 +43,16 @@ def receive_packaging(dto: PackagingReceive) -> Dict:
                 """,
                 (dto.qty, dto.qty, existing["id"]),
             )
+            if float(dto.qty or 0) > 0:
+                create_stock_movement(
+                    conn,
+                    product_type="packaging",
+                    batch_id=existing["id"],
+                    qty=float(dto.qty),
+                    movement_type="IN",
+                    source_type="supplier",
+                    source_id=dto.supplier_id or existing["id"],
+                )
             row = cx_query_one(
                 conn, "SELECT * FROM packaging WHERE id = %s", (existing["id"],)
             )
@@ -74,6 +85,16 @@ def receive_packaging(dto: PackagingReceive) -> Dict:
                 now_iso(),
             ),
         )
+        if float(dto.qty or 0) > 0:
+            create_stock_movement(
+                conn,
+                product_type="packaging",
+                batch_id=row["id"],
+                qty=float(dto.qty),
+                movement_type="IN",
+                source_type="supplier",
+                source_id=dto.supplier_id or row["id"],
+            )
     logger.info(
         "packaging.received",
         extra={"packaging_id": row["id"], "qty": dto.qty, "mode": "new"},
@@ -108,6 +129,16 @@ def use_packaging(packaging_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
             WHERE id = %s
             """,
             (qty, qty, packaging_id),
+        )
+        # Manualne zużycie (poza finish_day) też musi mieć ślad audytu.
+        create_stock_movement(
+            conn,
+            product_type="packaging",
+            batch_id=packaging_id,
+            qty=qty,
+            movement_type="OUT",
+            source_type="manual",
+            source_id=packaging_id,
         )
     logger.info("packaging.used", extra={"packaging_id": packaging_id, "qty": qty})
     return {"ok": True}

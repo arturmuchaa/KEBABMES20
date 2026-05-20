@@ -1,7 +1,7 @@
 """Raw batches (quarter carcass) endpoints."""
 from fastapi import APIRouter, Query
 
-from app.models.raw_batches import RawBatchCreate
+from app.models.raw_batches import RawBatchCreate, RawBatchUpdate
 from app.services import raw_batches_service as svc
 
 router = APIRouter(prefix="/api/raw-batches", tags=["raw-batches"])
@@ -42,5 +42,5 @@ def cancel_batch(batch_id: str):
 
 
 @router.put("/{batch_id}")
-def update_batch(batch_id: str, body: dict):
-    return svc.update_batch(batch_id, body)
+def update_batch(batch_id: str, dto: RawBatchUpdate):
+    return svc.update_batch(batch_id, dto)

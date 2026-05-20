@@ -5,6 +5,7 @@ from app.logging_config import get_logger
 from app.models.ingredients import IngredientCreate
 from app.utils.body import body_get
 from app.utils.ids import cuid, now_iso
+from app.utils.stock import create_stock_movement
 
 logger = get_logger(__name__)
 
@@ -77,6 +78,16 @@ def create_ingredient_receipt(body: Dict[str, Any]) -> Dict:
                 now_iso(),
             ),
         )
+        if qty > 0:
+            create_stock_movement(
+                conn,
+                product_type="ingredient",
+                batch_id=stock_id,
+                qty=qty,
+                movement_type="IN",
+                source_type="receipt",
+                source_id=ingredient_id or stock_id,
+            )
     logger.info(
         "ingredient.receipt.created",
         extra={"stock_id": stock_id, "ingredient_id": ingredient_id, "qty": qty},

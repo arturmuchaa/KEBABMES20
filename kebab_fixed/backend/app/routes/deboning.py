@@ -1,6 +1,7 @@
 """Deboning endpoints."""
 from fastapi import APIRouter, Query
 
+from app.models.deboning import DeboningEntryCreate, DeboningEntryUpdate
 from app.services import deboning_service as svc
 
 router = APIRouter(tags=["deboning"])
@@ -20,13 +21,13 @@ def list_deboning_entries(session_id: str = Query(None, alias="session_id")):
 
 
 @router.post("/api/deboning/entries")
-def create_deboning_entry(body: dict):
-    return svc.create_deboning_entry(body)
+def create_deboning_entry(dto: DeboningEntryCreate):
+    return svc.create_deboning_entry(dto)
 
 
 @router.patch("/api/deboning/entries/{entry_id}")
-def update_deboning_entry(entry_id: str, body: dict):
-    return svc.update_deboning_entry(entry_id, body)
+def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate):
+    return svc.update_deboning_entry(entry_id, dto)
 
 
 @router.get("/api/deboning")
@@ -35,5 +36,5 @@ def list_deboning_sessions():
 
 
 @router.post("/api/deboning")
-def create_deboning_session_alias(body: dict):
-    return svc.create_deboning_entry(body)
+def create_deboning_session_alias(dto: DeboningEntryCreate):
+    return svc.create_deboning_entry(dto)

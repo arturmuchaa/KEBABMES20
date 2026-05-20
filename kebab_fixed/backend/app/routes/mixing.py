@@ -1,8 +1,9 @@
 """Mixing orders endpoints."""
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
-from app.models.mixing import MixingOrderCreate
+from app.models.mixing import FinishMixingSessionDto, MixingOrderCreate
 from app.services import mixing_service as svc
+from app.utils.auth import require_admin
 
 router = APIRouter(prefix="/api/mixing-orders", tags=["mixing-orders"])
 
@@ -43,8 +44,8 @@ def confirm_mixing_step(order_id: str, body: dict):
 
 
 @router.patch("/{order_id}/finish-session")
-def finish_mixing_session(order_id: str, body: dict):
-    return svc.finish_mixing_session(order_id, body)
+def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto):
+    return svc.finish_mixing_session(order_id, dto)
 
 
 @router.patch("/{order_id}/auto-approve")
@@ -55,3 +56,12 @@ def auto_approve_mixing(order_id: str):
 @router.patch("/{order_id}/cancel")
 def cancel_mixing_order(order_id: str):
     return svc.cancel_mixing_order(order_id)
+
+
+@router.post("/cleanup-stale", dependencies=[Depends(require_admin)])
+def cleanup_stale():
+    """Zamknij in_progress zlecenia bez aktywnej blokady maszyny.
+
+    Do uruchamiania z systemd-timera (np. co 5 minut) albo ręcznie z biura.
+    """
+    return svc.cleanup_stale_in_progress()

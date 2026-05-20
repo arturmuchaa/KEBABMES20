@@ -1043,9 +1043,8 @@ export const seasonedMeatApi = {
     ),
   byId:            (id: string) =>
     get<any>(`/seasoned-meat/${id}`).then(mapSeasonedMeat),
-  createFromOrder: (id: string, kg: number) =>
-    post<any>(`/seasoned-meat/from-order/${id}`, { kg_produced: kg })
-      .then((r: any) => ({ id: r.id, batchNo: r.batch_no ?? r.batchNo, kgProduced: kg })),
+  // createFromOrder usunięty — backend zwraca 410, właściwy flow to
+  // mixingOrdersApi.finishSession (PATCH /api/mixing-orders/{id}/finish-session).
   getFullTrace: (id: string) => get<any>(`/seasoned-meat/${id}/trace`),
 }
 

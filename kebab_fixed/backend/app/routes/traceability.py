@@ -25,6 +25,11 @@ def debug_trace(finished_good_id: str):
     return svc.debug_trace(finished_good_id)
 
 
+@router.get("/api/admin/lineage-health", dependencies=[Depends(require_admin)])
+def lineage_health(limit: int = Query(200)):
+    return svc.lineage_health(limit)
+
+
 @router.post("/api/admin/repair-lineage", dependencies=[Depends(require_admin)])
 def repair_lineage():
     return svc.repair_lineage()

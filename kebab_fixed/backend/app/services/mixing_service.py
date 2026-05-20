@@ -21,7 +21,7 @@ from app.db import (
     transaction,
 )
 from app.logging_config import get_logger
-from app.models.mixing import MixingOrderCreate
+from app.models.mixing import FinishMixingSessionDto, MixingOrderCreate
 from app.services.recipes_service import calc_kg_output
 from app.services.seasoned_meat_service import populate_lineage
 from app.utils.ids import cuid, next_seq, now_iso
@@ -146,9 +146,30 @@ def build_mixing_order(o: Dict) -> Dict:
 # ── Queries ────────────────────────────────────────────────────────────
 
 def list_mixing_orders(status: str | None) -> List[Dict]:
-    # Auto-close in_progress orders whose machine lock has expired.
+    """Czysty odczyt — żadnych mutacji na ścieżce GET.
+
+    Auto-close osieroconych zleceń (in_progress bez aktywnej blokady
+    maszyny) wydzielony do :func:`cleanup_stale_in_progress` — wywoływane
+    z admin-endpointu lub systemd-timera, nie z handlerów odczytu.
+    """
+    sql = "SELECT * FROM mixing_orders"
+    params: list = []
+    if status:
+        sql += " WHERE status = %s"
+        params.append(status)
+    sql += " ORDER BY created_at DESC"
+    orders = query_all(sql, params or None)
+    return [build_mixing_order(o) for o in orders]
+
+
+def cleanup_stale_in_progress() -> Dict[str, Any]:
+    """Zamknij in_progress zlecenia, których blokada maszyny wygasła.
+
+    Bezpieczne do uruchomienia z cron/systemd-timera oraz z admin-endpointu.
+    Zwraca licznik zamkniętych zleceń.
+    """
     with transaction() as conn:
-        cx_execute(
+        rowcount = cx_execute_rowcount(
             conn,
             """
             UPDATE mixing_orders
@@ -159,14 +180,9 @@ def list_mixing_orders(status: str | None) -> List[Dict]:
               )
             """,
         )
-    sql = "SELECT * FROM mixing_orders"
-    params: list = []
-    if status:
-        sql += " WHERE status = %s"
-        params.append(status)
-    sql += " ORDER BY created_at DESC"
-    orders = query_all(sql, params or None)
-    return [build_mixing_order(o) for o in orders]
+    if rowcount:
+        logger.info("mixing.cleanup.closed_stale", extra={"count": rowcount})
+    return {"closed": int(rowcount or 0)}
 
 
 def get_mixing_order(order_id: str) -> Dict:
@@ -389,7 +405,7 @@ def auto_approve_mixing(order_id: str) -> Dict:
 
 # ── Finish session (stock movements + lineage + ingredient deduction) ─
 
-def finish_mixing_session(order_id: str, body: Dict[str, Any]) -> Dict:
+def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
     """End a mixing session: produce seasoned_meat + record stock movements.
 
     All writes — meat_stock row updates, stock_movements, seasoned_meat
@@ -397,9 +413,11 @@ def finish_mixing_session(order_id: str, body: Dict[str, Any]) -> Dict:
     one transaction. FOR UPDATE locks cover every meat_stock row that
     will be mutated.
     """
-    kg_meat = float(body.get("kg_actual") or 0)
-    batch_no = body.get("batch_no") or body.get("batchNo") or ""
-    lot_allocations = body.get("lotAllocations") or body.get("lot_allocations") or []
+    kg_meat = float(dto.kg_actual)
+    batch_no = dto.batch_no or ""
+    lot_allocations = [
+        {"meatLotId": a.meat_lot_id, "kg": float(a.kg)} for a in dto.lot_allocations
+    ]
 
     if kg_meat <= 0:
         raise HTTPException(400, "kg_actual musi być > 0")
@@ -524,12 +542,25 @@ def finish_mixing_session(order_id: str, body: Dict[str, Any]) -> Dict:
                 if remaining <= 0:
                     break
                 avail = float(batch.get("qty_available") or 0)
-                deduct = min(avail, remaining)
+                deduct = round(min(avail, remaining), 4)
+                if deduct <= 0:
+                    continue
                 cx_execute(
                     conn,
                     "UPDATE ingredient_stock SET qty_available = qty_available - %s "
                     "WHERE id = %s",
-                    (round(deduct, 4), batch["id"]),
+                    (deduct, batch["id"]),
+                )
+                # Per-batch OUT movement — pozwala śledzić wstecznie który
+                # batch składnika zasilił którą partię seasoned_meat.
+                create_stock_movement(
+                    conn,
+                    product_type="ingredient",
+                    batch_id=batch["id"],
+                    qty=deduct,
+                    movement_type="OUT",
+                    source_type="mixing",
+                    source_id=order_id,
                 )
                 remaining = round(remaining - deduct, 4)
             if remaining > 0.001:

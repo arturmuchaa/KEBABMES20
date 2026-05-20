@@ -660,6 +660,45 @@ def repair_lineage() -> Dict[str, Any]:
     }
 
 
+def lineage_health(limit: int = 200) -> Dict[str, Any]:
+    """Wykryj finished_goods z niekompletnym łańcuchem śledzenia.
+
+    Pierwsze ``limit`` rekordów, gdzie brakuje któregokolwiek z:
+        * seasoned_batch_nos
+        * source_seasoned_ids
+        * source_mixing_ids
+        * source_deboning_ids
+
+    Przeznaczone do uruchamiania z cron/systemd-timera; brak alarmu
+    (broken_count == 0) oznacza, że łańcuch jest spójny.
+    """
+    limit = max(1, min(int(limit), 1000))
+    broken_rows = query_all(
+        """
+        SELECT id, batch_no, produced_date,
+               COALESCE(array_length(seasoned_batch_nos, 1), 0)   AS seasoned_nos_count,
+               COALESCE(array_length(source_seasoned_ids, 1), 0)  AS seasoned_ids_count,
+               COALESCE(array_length(source_mixing_ids, 1), 0)    AS mixing_ids_count,
+               COALESCE(array_length(source_deboning_ids, 1), 0)  AS deboning_ids_count
+        FROM finished_goods
+        WHERE COALESCE(array_length(seasoned_batch_nos, 1), 0) = 0
+           OR COALESCE(array_length(source_seasoned_ids, 1), 0) = 0
+           OR COALESCE(array_length(source_mixing_ids, 1), 0) = 0
+           OR COALESCE(array_length(source_deboning_ids, 1), 0) = 0
+        ORDER BY produced_date DESC NULLS LAST, batch_no DESC
+        LIMIT %s
+        """,
+        (limit,),
+    )
+    total_finished = query_one("SELECT count(*) AS n FROM finished_goods")
+    return {
+        "broken_count": len(broken_rows),
+        "total_finished": int((total_finished or {}).get("n") or 0),
+        "broken": broken_rows,
+        "ok": len(broken_rows) == 0,
+    }
+
+
 def recalculate_recipe_yields() -> Dict[str, int]:
     with transaction() as conn:
         recipes = cx_query_all(conn, "SELECT * FROM recipes")

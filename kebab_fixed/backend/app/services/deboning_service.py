@@ -20,7 +20,7 @@ from app.db import (
     transaction,
 )
 from app.logging_config import get_logger
-from app.utils.body import body_get
+from app.models.deboning import DeboningEntryCreate, DeboningEntryUpdate
 from app.utils.ids import cuid, next_seq, now_iso
 from app.utils.stock import create_stock_movement
 
@@ -77,13 +77,13 @@ def deboning_trace(batch_id: str) -> Dict[str, List[Dict]]:
     return {"data": [_map_deboning_entry(e) for e in entries]}
 
 
-def create_deboning_entry(body: Dict[str, Any]) -> Dict:
-    raw_batch_id = body_get(body, "raw_batch_id")
-    worker_id = body_get(body, "worker_id")
-    worker_name = body_get(body, "worker_name")
-    kg_taken = float(body_get(body, "kg_taken") or body_get(body, "kg_quarter") or 0)
-    kg_meat = float(body_get(body, "kg_meat") or 0)
-    session_id = body_get(body, "session_id")
+def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
+    raw_batch_id = dto.raw_batch_id
+    worker_id = dto.worker_id
+    worker_name = dto.worker_name
+    kg_taken = float(dto.kg_taken or dto.kg_quarter or 0)
+    kg_meat = float(dto.kg_meat)
+    session_id = dto.session_id
 
     if kg_taken <= 0:
         raise HTTPException(400, "Ilość pobranej ćwiartki musi być > 0")
@@ -191,6 +191,19 @@ def create_deboning_entry(body: Dict[str, Any]) -> Dict:
             (kg_taken, batch["id"]),
         )
 
+        # Audit: rozbiór zdejmuje kg_taken z raw_batches → OUT movement.
+        # Konsekwentne sumowanie ruchów po product_type="raw" daje rzeczywisty
+        # stan partii surowca bez konieczności łączenia z deboning_entries.
+        create_stock_movement(
+            conn,
+            product_type="raw",
+            batch_id=batch["id"],
+            qty=kg_taken,
+            movement_type="OUT",
+            source_type="deboning",
+            source_id=entry_id,
+        )
+
         # Compute meat_stock expiry
         recv = batch.get("received_date")
         if recv:
@@ -259,7 +272,7 @@ def create_deboning_entry(body: Dict[str, Any]) -> Dict:
     return _map_deboning_entry(entry)  # type: ignore[arg-type]
 
 
-def update_deboning_entry(entry_id: str, body: Dict[str, Any]) -> Dict:
+def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate) -> Dict:
     with transaction() as conn:
         existing = cx_query_one(
             conn, "SELECT * FROM deboning_entries WHERE id=%s FOR UPDATE", (entry_id,)
@@ -267,14 +280,19 @@ def update_deboning_entry(entry_id: str, body: Dict[str, Any]) -> Dict:
         if not existing:
             raise HTTPException(404, "Wpis rozbioru nie znaleziony")
         kg_taken = float(
-            body_get(body, "kg_taken")
-            or body_get(body, "kg_quarter")
-            or existing.get("kg_quarter")
-            or 0
+            dto.kg_taken
+            if dto.kg_taken is not None
+            else (dto.kg_quarter if dto.kg_quarter is not None else (existing.get("kg_quarter") or 0))
         )
-        kg_meat = float(body_get(body, "kg_meat") or existing.get("kg_meat") or 0)
-        kg_backs = float(body_get(body, "kg_backs") or existing.get("kg_backs") or 0)
-        kg_bones = float(body_get(body, "kg_bones") or existing.get("kg_bones") or 0)
+        kg_meat = float(
+            dto.kg_meat if dto.kg_meat is not None else (existing.get("kg_meat") or 0)
+        )
+        kg_backs = float(
+            dto.kg_backs if dto.kg_backs is not None else (existing.get("kg_backs") or 0)
+        )
+        kg_bones = float(
+            dto.kg_bones if dto.kg_bones is not None else (existing.get("kg_bones") or 0)
+        )
         if kg_meat > kg_taken:
             raise HTTPException(400, "kg mięsa nie może przekraczać pobranej ćwiartki")
         kg_remainder = max(0, kg_taken - kg_meat)

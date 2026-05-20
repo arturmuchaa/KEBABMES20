@@ -5,9 +5,10 @@ from fastapi import HTTPException
 
 from app.db import cx_execute, cx_execute_returning, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
-from app.models.raw_batches import RawBatchCreate
+from app.models.raw_batches import RawBatchCreate, RawBatchUpdate
 from app.utils.body import body_get
 from app.utils.ids import cuid, next_seq, now_iso
+from app.utils.stock import create_stock_movement
 
 _BATCH_NO_RE = re.compile(r"^R(\d+)$")
 
@@ -130,6 +131,19 @@ def create_batch(dto: RawBatchCreate) -> Dict:
                 now_iso(),
             ),
         )
+
+        # Audit: każde przyjęcie surowca = IN movement (product_type="raw").
+        if float(dto.kg_received or 0) > 0:
+            create_stock_movement(
+                conn,
+                product_type="raw",
+                batch_id=row["id"],
+                qty=float(dto.kg_received),
+                movement_type="IN",
+                source_type="supplier",
+                source_id=dto.supplier_id or row["id"],
+            )
+
     logger.info(
         "raw_batch.created",
         extra={
@@ -162,7 +176,7 @@ def cancel_batch(batch_id: str) -> Dict:
     return row
 
 
-def update_batch(batch_id: str, body: Dict[str, Any]) -> Dict:
+def update_batch(batch_id: str, dto: RawBatchUpdate) -> Dict:
     with transaction() as conn:
         used = cx_query_one(
             conn,
@@ -173,7 +187,7 @@ def update_batch(batch_id: str, body: Dict[str, Any]) -> Dict:
             raise HTTPException(
                 409, "Partia jest już używana w rozbiorze — edycja niemożliwa"
             )
-        kg_received = body_get(body, "kg_received", 0)
+        kg_received = float(dto.kg_received)
         row = cx_execute_returning(
             conn,
             """
@@ -185,14 +199,14 @@ def update_batch(batch_id: str, body: Dict[str, Any]) -> Dict:
             RETURNING *
             """,
             (
-                body_get(body, "supplier_batch_no"),
-                body_get(body, "slaughter_date") or None,
-                body_get(body, "received_date") or None,
+                dto.supplier_batch_no,
+                dto.slaughter_date or None,
+                dto.received_date or None,
                 kg_received,
                 kg_received,
-                body_get(body, "price_per_kg", 0),
-                body_get(body, "expiry_date") or None,
-                body.get("notes"),
+                float(dto.price_per_kg),
+                dto.expiry_date or None,
+                dto.notes,
                 batch_id,
             ),
         )

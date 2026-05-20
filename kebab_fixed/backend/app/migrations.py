@@ -161,6 +161,69 @@ _DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_vehicles_active ON vehicles(active)",
     "ALTER TABLE pallet_scans ADD COLUMN IF NOT EXISTS vehicle_id TEXT",
     "ALTER TABLE order_pallets ADD COLUMN IF NOT EXISTS loaded_vehicle_id TEXT",
+
+    # ── CHECK constraints (NOT VALID — dotyczą tylko nowych wierszy) ──
+    # Sens: blokuj ujemne kg. Stare wiersze nie są skanowane przy ADD;
+    # po sprawdzeniu czystości danych admin może VALIDATE CONSTRAINT.
+    # Każdy statement w osobnym DO bo CHECK nie wspiera IF NOT EXISTS.
+    """DO $$ BEGIN
+        ALTER TABLE meat_stock ADD CONSTRAINT meat_stock_kg_nonneg_ck
+            CHECK (
+                COALESCE(kg_initial, 0) >= 0
+                AND COALESCE(kg_available, 0) >= 0
+                AND COALESCE(kg_reserved, 0) >= 0
+                AND COALESCE(kg_used, 0) >= 0
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE seasoned_meat ADD CONSTRAINT seasoned_meat_kg_nonneg_ck
+            CHECK (
+                COALESCE(kg_produced, 0) >= 0
+                AND COALESCE(kg_available, 0) >= 0
+                AND COALESCE(kg_reserved, 0) >= 0
+                AND COALESCE(kg_used, 0) >= 0
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE raw_batches ADD CONSTRAINT raw_batches_kg_nonneg_ck
+            CHECK (
+                COALESCE(kg_received, 0) >= 0
+                AND COALESCE(kg_available, 0) >= 0
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE packaging ADD CONSTRAINT packaging_kg_nonneg_ck
+            CHECK (
+                COALESCE(kg_initial, 0) >= 0
+                AND COALESCE(kg_available, 0) >= 0
+                AND COALESCE(kg_used, 0) >= 0
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE ingredient_stock ADD CONSTRAINT ingredient_stock_qty_nonneg_ck
+            CHECK (
+                COALESCE(qty_initial, 0) >= 0
+                AND COALESCE(qty_available, 0) >= 0
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE mixing_orders ADD CONSTRAINT mixing_orders_kg_nonneg_ck
+            CHECK (
+                COALESCE(meat_kg, 0) >= 0
+                AND COALESCE(kg_done, 0) >= 0
+                AND COALESCE(kg_in_machine, 0) >= 0
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE finished_goods ADD CONSTRAINT finished_goods_qty_nonneg_ck
+            CHECK (
+                COALESCE(qty, 0) >= 0
+                AND COALESCE(qty_available, 0) >= 0
+                AND COALESCE(qty_shipped, 0) >= 0
+                AND COALESCE(kg_per_unit, 0) >= 0
+                AND COALESCE(total_kg, 0) >= 0
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
 ]
 
 

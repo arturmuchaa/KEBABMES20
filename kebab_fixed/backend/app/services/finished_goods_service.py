@@ -24,7 +24,7 @@ from app.db import (
     transaction,
 )
 from app.logging_config import get_logger
-from app.models.production import FinishDayDto, FinishDayEntry
+from app.models.production import FinishDayDto, FinishDayEntry, FinishedGoodCreate
 from app.utils.body import body_get
 from app.utils.ids import cuid, next_seq, now_iso
 from app.utils.stock import create_stock_movement
@@ -279,13 +279,14 @@ def list_finished() -> List[Dict]:
     return items
 
 
-def create_finished_good(body: Dict[str, Any]) -> Dict:
+def create_finished_good(dto: FinishedGoodCreate) -> Dict:
     seq = next_seq("finished_goods_seq")
     default_batch_no = f"P{seq}"
-    qty = int(body_get(body, "qty", 0) or 0)
-    kg_per_unit = float(body_get(body, "kg_per_unit", 0) or 0)
+    qty = int(dto.qty)
+    kg_per_unit = float(dto.kg_per_unit)
     total_kg = round(qty * kg_per_unit, 3)
-    batch_no = body_get(body, "batch_no", default_batch_no) or default_batch_no
+    batch_no = dto.batch_no or default_batch_no
+    produced_date = dto.produced_date or datetime.now().date().isoformat()
 
     with transaction() as conn:
         item = cx_execute_returning(
@@ -303,23 +304,22 @@ def create_finished_good(body: Dict[str, Any]) -> Dict:
             (
                 cuid(),
                 batch_no,
-                body_get(body, "plan_no", "") or "",
-                body_get(body, "product_type_id", "") or "",
-                body_get(body, "product_type_name", "") or "",
-                body_get(body, "recipe_id", "") or "",
-                body_get(body, "recipe_name", "") or "",
-                body_get(body, "packaging_id") or None,
-                body_get(body, "packaging_name") or None,
-                body_get(body, "client_name") or None,
-                body_get(body, "client_order_no") or None,
+                dto.plan_no or "",
+                dto.product_type_id or "",
+                dto.product_type_name or "",
+                dto.recipe_id or "",
+                dto.recipe_name or "",
+                dto.packaging_id or None,
+                dto.packaging_name or None,
+                dto.client_name or None,
+                dto.client_order_no or None,
                 qty,
                 kg_per_unit,
                 total_kg,
                 qty,
-                body_get(body, "produced_date", datetime.now().date().isoformat())
-                or datetime.now().date().isoformat(),
-                body_get(body, "produced_by", []) or [],
-                body_get(body, "seasoned_batch_nos", []) or [],
+                produced_date,
+                dto.produced_by or [],
+                dto.seasoned_batch_nos or [],
                 now_iso(),
             ),
         )
@@ -337,9 +337,8 @@ def create_finished_good(body: Dict[str, Any]) -> Dict:
                 source_id=item["id"],
             )
 
-        packaging_id = body_get(body, "packaging_id")
-        if packaging_id and qty > 0:
-            _consume_packaging(conn, packaging_id, qty, item["id"])
+        if dto.packaging_id and qty > 0:
+            _consume_packaging(conn, dto.packaging_id, qty, item["id"])
 
     logger.info(
         "finished_goods.created",

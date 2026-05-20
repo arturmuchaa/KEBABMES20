@@ -11,7 +11,7 @@
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
-import { mixingOrdersApi, seasonedMeatApi, machineLockApi } from '@/lib/apiClient'
+import { mixingOrdersApi, machineLockApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import type { MixingOrder, MachineId, MachineLock } from '@/lib/mockApi'
 import { Spinner } from '@/components/ui/widgets'
@@ -653,7 +653,6 @@ export function MixingTabletPage() {
   const startMut       = useMutation(({id,dto}:{id:string;dto:any}) => mixingOrdersApi.start(id,dto))
   const allocMut       = useMutation(({id,m,kg}:{id:string;m:MachineId;kg:number}) => mixingOrdersApi.allocateToMachine(id,m,kg))
   const confirmMut     = useMutation(({id,dto}:{id:string;dto:any}) => mixingOrdersApi.confirmStep(id,dto))
-  const seasonMut      = useMutation(({id,kg}:{id:string;kg:number}) => seasonedMeatApi.createFromOrder(id,kg))
   const finishMut      = useMutation(({id,kg,batchNo,lotAllocations}:{id:string;kg:number;batchNo:string;lotAllocations?:any[]}) => mixingOrdersApi.finishSession(id,kg,batchNo,lotAllocations))
   const lockMut        = useMutation(({m,id,no}:{m:MachineId;id:string;no:string}) => machineLockApi.lock(m,id,no,50))
   const autoApproveMut = useMutation((id:string) => mixingOrdersApi.autoApprove(id))
@@ -719,7 +718,7 @@ export function MixingTabletPage() {
         setStepIdx(next)
       }
     } catch(e) { showToast(e instanceof Error ? e.message : 'Błąd') }
-  }, [liveOrder, kgActual, confirmMut, seasonMut, finishMut, lockMut, refetch, rIP, rL])
+  }, [liveOrder, kgActual, confirmMut, finishMut, lockMut, refetch, rIP, rL])
 
   const handleStartMixing = useCallback(async () => {
     if (!liveOrder) return
