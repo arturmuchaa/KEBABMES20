@@ -2,14 +2,17 @@
  * useProcessSession — pollowanie statusu sesji procesu (deboning / mixing / production).
  *
  * Stany:
- *   null               → brak aktywnej sesji (proces nie rozpoczęty lub zatwierdzony)
  *   session.status='open'   → operator pracuje (LIVE)
- *   session.status='closed' → operator zakończył na tablecie, biuro musi potwierdzić
+ *   session.status='closed' → operator zakończył, biuro musi potwierdzić
+ *   session = null & todayApproved=true → biuro już zatwierdziło dziś (Zakończono)
+ *   session = null & todayApproved=false → brak sesji (Oczekuje / fallback dataActive)
  *
- * Po approve karta wraca do null przy następnym pollu (active() filtruje 'approved').
+ * active() filtruje 'approved' więc po approve trzeba osobno sprawdzić listę
+ * dzisiejszych sesji żeby wiedzieć czy dzień jest już domknięty.
  */
 import { useEffect, useState, useCallback } from 'react'
 import { productionSessionsApi } from '@/lib/apiClient'
+import { todayIso } from '@/lib/utils'
 
 export type ProcessType = 'deboning' | 'mixing' | 'production'
 
@@ -25,14 +28,24 @@ const POLL_MS = 7000
 
 export function useProcessSession(processType: ProcessType) {
   const [session, setSession] = useState<ProcessSession | null>(null)
+  const [todayApproved, setTodayApproved] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const refetch = useCallback(async () => {
     try {
-      const data = await productionSessionsApi.active(processType)
-      setSession(data && data.id ? (data as ProcessSession) : null)
+      const [active, all] = await Promise.all([
+        productionSessionsApi.active(processType),
+        productionSessionsApi.list(processType),
+      ])
+      setSession(active && active.id ? (active as ProcessSession) : null)
+      const today = todayIso()
+      const approved = Array.isArray(all)
+        ? all.some((s: any) => s.sessionDate === today && s.status === 'approved')
+        : false
+      setTodayApproved(approved)
     } catch {
       setSession(null)
+      setTodayApproved(false)
     }
   }, [processType])
 
@@ -56,5 +69,5 @@ export function useProcessSession(processType: ProcessType) {
     }
   }, [session, refetch])
 
-  return { session, approve, busy, refetch }
+  return { session, todayApproved, approve, busy, refetch }
 }

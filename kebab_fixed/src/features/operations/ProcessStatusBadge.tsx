@@ -1,13 +1,14 @@
 /**
  * ProcessStatusBadge — kompaktowy badge statusu procesu do nagłówka karty.
  *
- *   session.status='closed' → "Do potwierdzenia" (amber) + mały przycisk "Potwierdź"
+ *   session.status='closed' → "Do potwierdzenia" (amber) + przycisk "Potwierdź"
  *   session.status='open'   → "Na żywo" (niebieski pulse)
- *   dataActive (np. są wpisy IN_PROGRESS w danych dziedzinowych) → "Na żywo"
+ *   todayApproved=true      → "Zakończony" (zielony, bez pulse) — biuro już
+ *                              zatwierdziło dzisiejszą sesję; statystyki
+ *                              dzisiejsze nadal widoczne do końca dnia
+ *   dataActive (fallback)   → "Na żywo" — tablet nie używa production_sessions
+ *                              (mixing/produkcja sterowane przez status zleceń)
  *   inaczej                 → "Oczekuje" (szare)
- *
- * `dataActive` to fallback gdy operator nie korzysta z production_sessions
- * (np. mixing/production tablet jeszcze nie integrują sesji).
  */
 import { Loader2, CheckCircle2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -19,7 +20,7 @@ interface Props {
 }
 
 export function ProcessStatusBadge({ processType, dataActive }: Props) {
-  const { session, approve, busy } = useProcessSession(processType)
+  const { session, todayApproved, approve, busy } = useProcessSession(processType)
 
   // Operator zakończył na tablecie — biuro musi potwierdzić
   if (session?.status === 'closed') {
@@ -47,8 +48,28 @@ export function ProcessStatusBadge({ processType, dataActive }: Props) {
     )
   }
 
-  // Sesja open lub dane wskazują aktywność
-  if (session?.status === 'open' || dataActive) {
+  // Sesja open (operator pracuje)
+  if (session?.status === 'open') {
+    return (
+      <Badge variant="info" className="flex-shrink-0 gap-1.5 font-medium">
+        <span className="inline-flex h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
+        Na żywo
+      </Badge>
+    )
+  }
+
+  // Biuro już zatwierdziło dzisiejszą sesję — dzień domknięty
+  if (todayApproved) {
+    return (
+      <Badge variant="outline" className="flex-shrink-0 gap-1.5 font-medium text-green-700 border-green-300 bg-green-50">
+        <CheckCircle2 size={11} />
+        Zakończony
+      </Badge>
+    )
+  }
+
+  // Brak sesji ale są aktywne dane domenowe (np. tablet bez sesji, ale są zlecenia in_progress)
+  if (dataActive) {
     return (
       <Badge variant="info" className="flex-shrink-0 gap-1.5 font-medium">
         <span className="inline-flex h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
