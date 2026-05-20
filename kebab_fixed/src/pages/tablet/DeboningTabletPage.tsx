@@ -552,12 +552,15 @@ export function DeboningTabletPage() {
           {addLoading ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={18} />}
           Zapisz wpis
         </button>
-
-        <button type="button" onClick={() => setShiftModal(true)}
-          className="w-full h-11 mt-2.5 flex items-center justify-center gap-2 bg-white border-2 border-surface-4 text-ink-3 rounded-2xl text-sm font-semibold hover:border-danger hover:text-danger hover:bg-danger-light transition-all">
-          <LogOut size={15} /> Zakończ zmianę
-        </button>
       </div>
+
+      {/* "Zakończ zmianę" — POZA wrapperem z pointer-events-none, żeby
+          operator mógł zakończyć dzień nawet bez wybranej partii/pracownika
+          (np. ostatni wpis już zapisany, kasujemy zaznaczenie i kończymy). */}
+      <button type="button" onClick={() => setShiftModal(true)}
+        className="w-full h-11 mt-2.5 flex items-center justify-center gap-2 bg-white border-2 border-surface-4 text-ink-3 rounded-2xl text-sm font-semibold hover:border-danger hover:text-danger hover:bg-danger-light transition-all">
+        <LogOut size={15} /> Zakończ zmianę
+      </button>
 
       {/* Wpisy z dziś */}
       <div className="flex items-center gap-3 mt-8 mb-4">

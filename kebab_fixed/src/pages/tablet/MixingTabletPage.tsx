@@ -654,13 +654,16 @@ export function MixingTabletPage() {
   const startSessionMut = useMutation(() => productionSessionsApi.start({ processType: 'mixing' }))
   const closeSessionMut = useMutation((id: string) => productionSessionsApi.close(id, {}))
 
-  // Auto-start sesji gdy pierwszy raz wejdzie operator (brak aktywnej sesji)
-  // żeby biuro widziało "Na żywo" odkąd ktoś otworzył tablet masowania.
-  useEffect(() => {
-    if (mixingSession === null && !startSessionMut.loading) {
-      startSessionMut.mutate().then(() => refetchSession()).catch(() => {})
-    }
-  }, [mixingSession, startSessionMut.loading])
+  // Sesja startuje LAZILY: dopiero gdy operator naprawdę zaczyna pracę
+  // (pierwsza maszyna). Brak auto-startu na otwarcie tabletu — inaczej
+  // "Na żywo" świeci się mimo braku zleceń / faktycznej aktywności.
+  const ensureSession = useCallback(async () => {
+    if (mixingSession && mixingSession.status === 'open') return
+    try {
+      await startSessionMut.mutate()
+      await refetchSession()
+    } catch {/* ignore — istniejąca sesja zwróci 200 z istniejącą */}
+  }, [mixingSession, startSessionMut, refetchSession])
 
   const startMut       = useMutation(({id,dto}:{id:string;dto:any}) => mixingOrdersApi.start(id,dto))
   const allocMut       = useMutation(({id,m,kg}:{id:string;m:MachineId;kg:number}) => mixingOrdersApi.allocateToMachine(id,m,kg))
@@ -699,12 +702,14 @@ export function MixingTabletPage() {
   const handleStartMachine = useCallback(async (machineId: MachineId) => {
     if (!selOrder) return
     try {
+      // Sesja masowania startuje przy pierwszym realnym działaniu operatora.
+      await ensureSession()
       const updated = await startMut.mutate({ id: selOrder.id, dto: { machineId } })
       setLiveOrder(updated)
       setPhase('meat')
       refetch(); rIP()
     } catch(e) { showToast(e instanceof Error ? e.message : 'Błąd') }
-  }, [selOrder, startMut, refetch, rIP])
+  }, [selOrder, startMut, ensureSession, refetch, rIP])
 
   const handleMeatConfirm = useCallback(async (allocs: { meatLotId: string; kg: number }[], totalKg: number) => {
     if (!liveOrder) return
