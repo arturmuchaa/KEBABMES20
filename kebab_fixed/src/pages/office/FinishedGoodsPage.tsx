@@ -1,335 +1,310 @@
 /**
- * FinishedGoodsPage — Magazyn wyrobów gotowych.
+ * FinishedGoodsPage — Magazyn wyrobów gotowych (lista, styl Subiekt GT).
  *
- * Widok główny: grid kart pogrupowanych po (recipe_id, kg/szt). Karta pokazuje
- * sumę szt+kg dla rodzaju produktu, badge stanu (niski/średni/wysoki) i liczbę
- * partii. Klik karty → strona szczegółów (/office/magazyn/gotowe/:groupKey)
- * z listą partii w kolejności FEFO.
+ * Gęsta tabela z stickyheader, sortowaniem i szybkim filtrem. Klik wiersza
+ * → modal ze szczegółami i pełnym łańcuchem traceability.
  */
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
 import { finishedGoodsApi } from '@/lib/apiClient'
-import { fmtKg, cn } from '@/lib/utils'
+import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import {
-  ShoppingBag, Search, Boxes, ArrowRight, AlertTriangle, CheckCircle2,
+  Eye, Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Download, ShoppingBag,
 } from 'lucide-react'
 import type { FinishedGoodsItem } from '@/lib/mockApi'
 
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
-  Card, CardContent, CardDescription, CardHeader, CardTitle,
+  Card, CardContent, CardDescription, CardTitle,
 } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { DetailModal } from '@/features/finished-goods/components/DetailModal'
 
-// ─── Progi stanu ─────────────────────────────────────────────
-// Domyślne progi szt — możliwy upgrade w przyszłości (per receptura).
-const LOW_THRESHOLD  = 30
-const HIGH_THRESHOLD = 100
+// ─── Sort ────────────────────────────────────────────────────
+type SortCol =
+  | 'batchNo' | 'producedDate' | 'qty' | 'kgPerUnit' | 'totalKg'
+  | 'productTypeName' | 'recipeName' | 'packagingName' | 'clientName'
 
-type Level = 'empty' | 'low' | 'med' | 'high'
-
-function levelOf(qty: number): Level {
-  if (qty <= 0)               return 'empty'
-  if (qty <  LOW_THRESHOLD)   return 'low'
-  if (qty <  HIGH_THRESHOLD)  return 'med'
-  return 'high'
-}
-
-const LEVEL_STYLE: Record<Level, { accent: string; pill: string; text: string; icon: React.ReactNode; label: string }> = {
-  empty: {
-    accent: 'bg-gradient-to-r from-gray-300 via-gray-400 to-gray-300',
-    pill:   'bg-gray-100 text-gray-600 border-gray-300',
-    text:   'text-gray-500',
-    icon:   <ShoppingBag size={11} />,
-    label:  'Brak',
-  },
-  low: {
-    accent: 'bg-gradient-to-r from-red-400 via-red-500 to-red-400',
-    pill:   'bg-red-50 text-red-700 border-red-200',
-    text:   'text-red-700',
-    icon:   <AlertTriangle size={11} />,
-    label:  'Niski stan',
-  },
-  med: {
-    accent: 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400',
-    pill:   'bg-amber-50 text-amber-700 border-amber-200',
-    text:   'text-amber-700',
-    icon:   <Boxes size={11} />,
-    label:  'Średni stan',
-  },
-  high: {
-    accent: 'bg-gradient-to-r from-emerald-400 via-emerald-500 to-emerald-400',
-    pill:   'bg-emerald-50 text-emerald-700 border-emerald-200',
-    text:   'text-emerald-700',
-    icon:   <CheckCircle2 size={11} />,
-    label:  'Wysoki stan',
-  },
-}
-
-// ─── Grupowanie ──────────────────────────────────────────────
-interface ProductGroup {
-  groupKey:       string        // url-safe: recipeId__kgPerUnit (encoded)
-  recipeId:       string
-  recipeName:     string
-  productTypeName:string
-  kgPerUnit:      number
-  totalQty:       number
-  totalKg:        number
-  batches:        FinishedGoodsItem[]
-  oldestDate:     string        // najstarsza data produkcji w grupie (FEFO heads-up)
-  clientCount:    number
-}
-
-function groupKeyOf(recipeId: string, kg: number): string {
-  return encodeURIComponent(`${recipeId || '__'}__${kg}`)
-}
-
-function groupItems(items: FinishedGoodsItem[]): ProductGroup[] {
-  const map = new Map<string, ProductGroup>()
-  for (const it of items) {
-    const key = groupKeyOf(it.recipeId || it.recipeName, it.kgPerUnit)
-    const clients = new Set<string>()
-    const existing = map.get(key)
-    if (existing) {
-      existing.totalQty += it.qtyAvailable
-      existing.totalKg  += it.qtyAvailable * it.kgPerUnit
-      existing.batches.push(it)
-      if (it.producedDate && (!existing.oldestDate || it.producedDate < existing.oldestDate)) {
-        existing.oldestDate = it.producedDate
-      }
-      if (it.clientName) existing.batches.forEach(b => { if (b.clientName) clients.add(b.clientName) })
-      existing.clientCount = new Set(existing.batches.map(b => b.clientName).filter(Boolean)).size
-    } else {
-      if (it.clientName) clients.add(it.clientName)
-      map.set(key, {
-        groupKey:        key,
-        recipeId:        it.recipeId,
-        recipeName:      it.recipeName || '—',
-        productTypeName: it.productTypeName || '',
-        kgPerUnit:       it.kgPerUnit,
-        totalQty:        it.qtyAvailable,
-        totalKg:         it.qtyAvailable * it.kgPerUnit,
-        batches:         [it],
-        oldestDate:      it.producedDate,
-        clientCount:     clients.size,
-      })
+function compareRows(col: SortCol) {
+  return (a: FinishedGoodsItem, b: FinishedGoodsItem) => {
+    switch (col) {
+      case 'qty':             return a.qtyAvailable - b.qtyAvailable
+      case 'kgPerUnit':       return a.kgPerUnit - b.kgPerUnit
+      case 'totalKg':         return (a.qtyAvailable * a.kgPerUnit) - (b.qtyAvailable * b.kgPerUnit)
+      case 'producedDate':    return (a.producedDate || '').localeCompare(b.producedDate || '')
+      case 'productTypeName': return (a.productTypeName || '').localeCompare(b.productTypeName || '')
+      case 'recipeName':      return (a.recipeName      || '').localeCompare(b.recipeName      || '')
+      case 'packagingName':   return (a.packagingName   || '').localeCompare(b.packagingName   || '')
+      case 'clientName':      return (a.clientName      || '').localeCompare(b.clientName      || '')
+      case 'batchNo':         return a.batchNo.localeCompare(b.batchNo)
     }
   }
-  // Sortuj: najpierw niski stan, potem wg kg malejąco
-  return Array.from(map.values()).sort((a, b) => {
-    const la = levelOf(a.totalQty)
-    const lb = levelOf(b.totalQty)
-    const ord: Record<Level, number> = { low: 0, med: 1, high: 2, empty: 3 }
-    if (ord[la] !== ord[lb]) return ord[la] - ord[lb]
-    return b.totalKg - a.totalKg
-  })
 }
 
-function daysSince(dateStr: string): number {
-  if (!dateStr) return 0
-  const t = Date.parse(dateStr)
-  if (!t || isNaN(t)) return 0
-  return Math.floor((Date.now() - t) / (1000 * 60 * 60 * 24))
-}
-
-// ─── Karta grupy ─────────────────────────────────────────────
-function ProductCard({ g }: { g: ProductGroup }) {
-  const level = levelOf(g.totalQty)
-  const s     = LEVEL_STYLE[level]
-  const days  = daysSince(g.oldestDate)
-
-  return (
-    <Link
-      to={`/office/magazyn/gotowe/${g.groupKey}`}
-      className="group block relative overflow-hidden rounded-2xl border border-surface-4 bg-white shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200"
-    >
-      {/* Akcent kolorowy */}
-      <div className={cn('absolute top-0 inset-x-0 h-1', s.accent)} />
-
-      <div className="p-5 pt-6">
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="min-w-0 flex-1">
-            <CardTitle className="text-base font-semibold leading-tight truncate">
-              {g.recipeName}
-            </CardTitle>
-            <div className="flex items-center gap-2 mt-1">
-              <code className="font-mono text-xs font-bold text-primary bg-primary/5 px-1.5 py-0.5 rounded">
-                {g.kgPerUnit} kg
-              </code>
-              {g.productTypeName && g.productTypeName !== g.recipeName && (
-                <CardDescription className="text-[11px] truncate">{g.productTypeName}</CardDescription>
-              )}
-            </div>
-          </div>
-          <Badge variant="outline" className={cn('text-[10px] font-medium gap-1 flex-shrink-0', s.pill)}>
-            {s.icon}
-            {s.label}
-          </Badge>
-        </div>
-
-        {/* Główne liczby */}
-        <div className="flex items-baseline gap-3 mb-3">
-          <div>
-            <div className={cn('font-mono text-3xl font-black tabular-nums leading-none', s.text)}>
-              {g.totalQty}
-            </div>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mt-1">szt</div>
-          </div>
-          <div className="text-muted-foreground text-2xl leading-none">·</div>
-          <div>
-            <div className="font-mono text-3xl font-black tabular-nums leading-none text-ink-2">
-              {fmtKg(g.totalKg, 0)}
-            </div>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mt-1">kg</div>
-          </div>
-        </div>
-
-        {/* Stopka */}
-        <div className="flex items-center justify-between pt-3 border-t border-surface-3">
-          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-            <span>{g.batches.length} {g.batches.length === 1 ? 'partia' : 'partii'}</span>
-            {days > 0 && (
-              <span className={cn(
-                'tabular-nums',
-                days > 7  ? 'text-red-600 font-semibold' :
-                days > 3  ? 'text-amber-600 font-semibold' :
-                'text-muted-foreground',
-              )}>
-                najstarsza: {days}d
-              </span>
-            )}
-          </div>
-          <ArrowRight size={14} className="text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
-        </div>
-      </div>
-    </Link>
-  )
+// ─── CSV export ──────────────────────────────────────────────
+function exportCsv(rows: FinishedGoodsItem[]) {
+  const headers = ['Nr partii','Data produkcji','Ilość','kg/szt','Razem kg','Rodzaj','Receptura','Tuleja','Klient','Zamówienie']
+  const csv = [headers.join(';')]
+    .concat(rows.map(r => [
+      r.batchNo,
+      r.producedDate,
+      r.qtyAvailable,
+      String(r.kgPerUnit).replace('.', ','),
+      String(r.qtyAvailable * r.kgPerUnit).replace('.', ','),
+      r.productTypeName || '',
+      r.recipeName || '',
+      r.packagingName || '',
+      r.clientName || '',
+      r.clientOrderNo || '',
+    ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(';')))
+    .join('\n')
+  const blob = new Blob([new TextEncoder().encode('﻿' + csv)], { type: 'text/csv;charset=utf-8' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  const today = new Date().toISOString().slice(0, 10)
+  a.href = url
+  a.download = `magazyn-wyrobow-gotowych-${today}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 // ─── Strona ─────────────────────────────────────────────────
 export function FinishedGoodsPage() {
   const { data: items, loading } = useApi(() => finishedGoodsApi.list())
-  const [filter, setFilter] = useState('')
-  const [onlyLow, setOnlyLow] = useState(false)
+  const [detailItem, setDetailItem] = useState<FinishedGoodsItem | null>(null)
+  const [filter,   setFilter]   = useState('')
+  const [sortCol,  setSortCol]  = useState<SortCol>('batchNo')
+  const [sortDir,  setSortDir]  = useState<'asc' | 'desc'>('desc')
 
   const rawList = items ?? []
 
-  const allGroups = useMemo(() => groupItems(rawList), [rawList])
-
-  const groups = useMemo(() => {
-    let result = allGroups
+  const list = useMemo(() => {
     const q = filter.toLowerCase().trim()
+    let result = rawList
     if (q) {
-      result = result.filter(g =>
-        (g.recipeName || '').toLowerCase().includes(q) ||
-        (g.productTypeName || '').toLowerCase().includes(q) ||
-        String(g.kgPerUnit).includes(q)
+      result = rawList.filter(i =>
+        (i.batchNo         || '').toLowerCase().includes(q) ||
+        (i.clientName      || '').toLowerCase().includes(q) ||
+        (i.clientOrderNo   || '').toLowerCase().includes(q) ||
+        (i.productTypeName || '').toLowerCase().includes(q) ||
+        (i.recipeName      || '').toLowerCase().includes(q) ||
+        (i.packagingName   || '').toLowerCase().includes(q) ||
+        String(i.kgPerUnit).includes(q)
       )
     }
-    if (onlyLow) {
-      result = result.filter(g => {
-        const l = levelOf(g.totalQty)
-        return l === 'low' || l === 'empty'
-      })
-    }
-    return result
-  }, [allGroups, filter, onlyLow])
+    const cmp = compareRows(sortCol)
+    return [...result].sort((a, b) => sortDir === 'asc' ? cmp(a, b) : -cmp(a, b))
+  }, [rawList, filter, sortCol, sortDir])
 
-  const totalQty = rawList.reduce((s, i) => s + i.qtyAvailable, 0)
-  const totalKg  = rawList.reduce((s, i) => s + i.qtyAvailable * i.kgPerUnit, 0)
+  const totalQty = list.reduce((s, i) => s + i.qtyAvailable, 0)
+  const totalKg  = list.reduce((s, i) => s + i.qtyAvailable * i.kgPerUnit, 0)
 
-  const lowCount = allGroups.filter(g => {
-    const l = levelOf(g.totalQty)
-    return l === 'low' || l === 'empty'
-  }).length
+  const toggleSort = (col: SortCol) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
+
+  const SortIcon = ({ col }: { col: SortCol }) =>
+    sortCol === col
+      ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
+      : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60"/>
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
 
-      {/* ── KPI ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: 'Rodzajów',     val: allGroups.length, accent: 'text-ink' },
-          { label: 'Dostępne szt', val: totalQty,         accent: 'text-ink' },
-          { label: 'Łącznie kg',   val: fmtKg(totalKg, 0), accent: 'text-ink' },
-          { label: 'Niski stan',   val: lowCount,         accent: lowCount > 0 ? 'text-red-600' : 'text-emerald-600' },
-        ].map(k => (
-          <Card key={k.label}>
-            <CardContent className="p-4">
-              <CardDescription className="text-[10px] font-bold uppercase tracking-wider mb-2">{k.label}</CardDescription>
-              <CardTitle className={cn('text-3xl font-black tabular-nums', k.accent)}>{k.val}</CardTitle>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* ── Toolbar ─────────────────────────────────────── */}
+      <Card>
+        <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3 flex-1 min-w-[260px]">
+            <div className="relative flex-1 max-w-md">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-8 pl-8 pr-8 text-xs"
+                placeholder="Filtruj: nr partii, klient, receptura, tuleja, kg…"
+                value={filter}
+                onChange={e => setFilter(e.target.value)}
+                autoFocus
+              />
+              {filter && (
+                <button
+                  onClick={() => setFilter('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-ink"
+                  title="Wyczyść"
+                >
+                  <X size={13}/>
+                </button>
+              )}
+            </div>
+          </div>
 
-      {/* ── Filtr ──────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-[200px] max-w-md">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="h-9 pl-9 text-sm"
-            placeholder="Szukaj: receptura, rodzaj, kg…"
-            value={filter}
-            onChange={e => setFilter(e.target.value)}
-          />
+          {/* Inline KPI — kompaktowe, magazynowo (Subiekt GT style) */}
+          <div className="flex items-center gap-4 text-[11px] tabular-nums">
+            <div className="flex items-center gap-1.5">
+              <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Pozycji:</CardDescription>
+              <span className="font-bold">{list.length}{list.length !== rawList.length && <span className="text-muted-foreground">/{rawList.length}</span>}</span>
+            </div>
+            <div className="w-px h-4 bg-surface-4" />
+            <div className="flex items-center gap-1.5">
+              <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Szt:</CardDescription>
+              <span className="font-bold">{totalQty}</span>
+            </div>
+            <div className="w-px h-4 bg-surface-4" />
+            <div className="flex items-center gap-1.5">
+              <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Kg:</CardDescription>
+              <span className="font-bold text-emerald-700">{fmtKg(totalKg, 0)}</span>
+            </div>
+            <div className="w-px h-4 bg-surface-4" />
+            <button
+              onClick={() => exportCsv(list)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-surface-4 hover:bg-surface-2 text-[11px] font-medium"
+              title="Eksportuj CSV"
+            >
+              <Download size={11}/> CSV
+            </button>
+          </div>
         </div>
-        <button
-          onClick={() => setOnlyLow(v => !v)}
-          className={cn(
-            'h-9 px-3 rounded-lg border text-xs font-semibold flex items-center gap-2 transition-colors',
-            onlyLow
-              ? 'bg-red-50 text-red-700 border-red-200'
-              : 'bg-white text-muted-foreground border-surface-4 hover:bg-surface-2'
-          )}
-        >
-          <AlertTriangle size={13} />
-          Tylko niski stan
-          {onlyLow && lowCount > 0 && (
-            <span className="ml-1 px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-bold tabular-nums">
-              {lowCount}
-            </span>
-          )}
-        </button>
-      </div>
+      </Card>
 
-      {/* ── Grid kart ──────────────────────────────────────── */}
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {[0,1,2,3,4,5].map(i => <Skeleton key={i} className="h-44 rounded-2xl" />)}
-        </div>
-      ) : rawList.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16 gap-3">
-            <ShoppingBag size={48} className="text-muted-foreground opacity-20" />
-            <CardTitle className="text-base font-medium text-muted-foreground">Brak wyrobów gotowych</CardTitle>
+      {/* ── Tabela ─────────────────────────────────────── */}
+      <Card className="overflow-hidden">
+        {loading ? (
+          <div className="p-4 space-y-2">
+            {[0,1,2,3,4,5,6,7].map(i => <Skeleton key={i} className="h-8 w-full" />)}
+          </div>
+        ) : rawList.length === 0 ? (
+          <CardContent className="flex flex-col items-center justify-center py-16 gap-2">
+            <ShoppingBag size={36} className="text-muted-foreground opacity-20" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">Brak wyrobów gotowych</CardTitle>
             <CardDescription>Wyroby pojawią się po potwierdzeniu produkcji przez biuro.</CardDescription>
           </CardContent>
-        </Card>
-      ) : groups.length === 0 ? (
-        <Card>
+        ) : list.length === 0 ? (
           <CardContent className="flex flex-col items-center justify-center py-10 gap-2">
             <Search size={28} className="text-muted-foreground opacity-20" />
-            <CardDescription>Brak wyników{filter && ` dla „${filter}"`}{onlyLow && ' (przy filtrze niskiego stanu)'}</CardDescription>
+            <CardDescription>Brak wyników dla „{filter}"</CardDescription>
           </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {groups.map(g => <ProductCard key={g.groupKey} g={g} />)}
-        </div>
-      )}
-
-      {/* ── Stopka legendy ────────────────────────────────── */}
-      <Card className="bg-muted/40 border-dashed">
-        <CardContent className="p-3 flex items-center gap-4 flex-wrap text-[11px] text-muted-foreground">
-          <CardDescription className="text-[10px] font-bold uppercase">Stan zapasów</CardDescription>
-          <div className="flex items-center gap-1.5"><span className="w-3 h-1 rounded bg-red-500"/> &lt; {LOW_THRESHOLD} szt — niski</div>
-          <div className="flex items-center gap-1.5"><span className="w-3 h-1 rounded bg-amber-500"/> {LOW_THRESHOLD}–{HIGH_THRESHOLD-1} szt — średni</div>
-          <div className="flex items-center gap-1.5"><span className="w-3 h-1 rounded bg-emerald-500"/> ≥ {HIGH_THRESHOLD} szt — wysoki</div>
-        </CardContent>
+        ) : (
+          <div className="overflow-auto max-h-[calc(100vh-12rem)]">
+            <table className="w-full text-[11px] tabular-nums">
+              <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
+                <tr>
+                  {[
+                    { col: 'batchNo'         as SortCol, label: 'Nr partii',     align: 'left'  },
+                    { col: 'producedDate'    as SortCol, label: 'Data',          align: 'left'  },
+                    { col: 'qty'             as SortCol, label: 'Ilość',         align: 'right' },
+                    { col: 'kgPerUnit'       as SortCol, label: 'kg/szt',        align: 'right' },
+                    { col: 'totalKg'         as SortCol, label: 'Razem kg',      align: 'right' },
+                    { col: 'productTypeName' as SortCol, label: 'Rodzaj',        align: 'left'  },
+                    { col: 'recipeName'      as SortCol, label: 'Receptura',     align: 'left'  },
+                    { col: 'packagingName'   as SortCol, label: 'Tuleja',        align: 'left'  },
+                    { col: 'clientName'      as SortCol, label: 'Klient',        align: 'left'  },
+                  ].map(h => (
+                    <th
+                      key={h.col}
+                      onClick={() => toggleSort(h.col)}
+                      className={cn(
+                        'group cursor-pointer select-none px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
+                        h.align === 'right' && 'text-right',
+                      )}
+                    >
+                      <span className={cn('inline-flex items-center gap-1', h.align === 'right' && 'flex-row-reverse')}>
+                        {h.label}
+                        <SortIcon col={h.col} />
+                      </span>
+                    </th>
+                  ))}
+                  <th className="w-8" />
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((item, idx) => {
+                  const subCount = ((item as any).subEntries ?? []).length
+                  const totalRowKg = item.qtyAvailable * item.kgPerUnit
+                  return (
+                    <tr
+                      key={item.id}
+                      onClick={() => setDetailItem(item)}
+                      className={cn(
+                        'cursor-pointer border-b border-surface-3 transition-colors',
+                        idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
+                        'hover:bg-blue-50/60'
+                      )}
+                    >
+                      <td className="px-2.5 py-1.5 whitespace-nowrap">
+                        <code className="font-mono font-bold text-primary text-[12px]">{item.batchNo}</code>
+                        {subCount > 1 && (
+                          <span className="ml-1 text-[9px] text-muted-foreground" title={`${subCount} sesji`}>·{subCount}</span>
+                        )}
+                      </td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink-2">
+                        {fmtDatePl(item.producedDate)}
+                      </td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap text-right font-bold">
+                        {item.qtyAvailable}
+                        <span className="text-muted-foreground font-normal text-[10px]"> szt</span>
+                      </td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap text-right text-ink-2">
+                        {item.kgPerUnit}
+                      </td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap text-right font-bold text-emerald-700">
+                        {fmtKg(totalRowKg, 0)}
+                      </td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink">
+                        {item.productTypeName || <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink-2 max-w-[200px] truncate" title={item.recipeName}>
+                        {item.recipeName || <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink-2">
+                        {item.packagingName || <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink-2 max-w-[200px]">
+                        {item.clientName ? (
+                          <span className="truncate inline-block max-w-full align-bottom" title={item.clientName}>
+                            {item.clientName}
+                            {item.clientOrderNo && (
+                              <span className="ml-1 text-muted-foreground font-mono text-[10px]">({item.clientOrderNo})</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground italic">—</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDetailItem(item) }}
+                          className="inline-flex items-center justify-center w-6 h-6 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
+                          title="Szczegóły / łańcuch partii"
+                        >
+                          <Eye size={12} />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              {/* Suma na dole (sticky? — można rozważyć) */}
+              <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
+                <tr>
+                  <td className="px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-ink-2" colSpan={2}>
+                    Suma · {list.length} pozycji
+                  </td>
+                  <td className="px-2.5 py-2 text-right font-bold tabular-nums text-ink">
+                    {totalQty}
+                    <span className="text-muted-foreground font-normal text-[10px]"> szt</span>
+                  </td>
+                  <td />
+                  <td className="px-2.5 py-2 text-right font-bold tabular-nums text-emerald-700">
+                    {fmtKg(totalKg, 0)} kg
+                  </td>
+                  <td colSpan={5} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
       </Card>
+
+      {detailItem && <DetailModal item={detailItem} onClose={() => setDetailItem(null)} />}
     </div>
   )
 }
