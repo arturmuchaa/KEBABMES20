@@ -6,7 +6,7 @@
  */
 import { useState, useMemo, useEffect } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
-import { productionPlansApi, usersApi, finishedGoodsApi } from '@/lib/apiClient'
+import { productionPlansApi, usersApi } from '@/lib/apiClient'
 import { Spinner, EmptyState } from '@/components/ui/widgets'
 import { fmtKg, cn } from '@/lib/utils'
 import { ChevronRight, Plus, Minus, Pencil, CheckCircle, Factory, RefreshCw, LogOut, AlertTriangle, Info, Layers } from 'lucide-react'
@@ -345,9 +345,9 @@ function FinishDayModal({ plan, progress, onConfirm, onClose }: {
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/40 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="bg-white rounded-3xl w-full max-w-md p-6" onClick={e=>e.stopPropagation()}>
         <div className="flex items-center gap-3 mb-5">
-          <div className="w-12 h-12 bg-green-100 rounded-2xl flex items-center justify-center"><LogOut size={24} className="text-green-600"/></div>
+          <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center"><LogOut size={24} className="text-amber-600"/></div>
           <div>
-            <h3 className="text-lg font-black text-ink">Zakończ dzień produkcji</h3>
+            <h3 className="text-lg font-black text-ink">Zakończ produkcję</h3>
             <p className="text-sm text-ink-3">Plan: {plan.planNo}</p>
           </div>
         </div>
@@ -359,24 +359,24 @@ function FinishDayModal({ plan, progress, onConfirm, onClose }: {
           {plannedLines.length>0&&<div className="flex justify-between"><span className="text-ink-3">Niezrealizowane:</span><span className="font-semibold text-ink-3">{plannedLines.length}</span></div>}
         </div>
 
-        <div className="bg-green-50 border border-green-200 px-3 py-2.5 rounded-xl mb-5 text-[11px] text-green-700">
-          <CheckCircle size={13} className="inline mr-1.5"/>
-          Wszystkie wyprodukowane sztuki ({totalDone} szt) zostaną automatycznie dodane do <strong>Magazynu wyrobów gotowych</strong>
+        <div className="bg-amber-50 border border-amber-200 px-3 py-2.5 rounded-xl mb-5 text-[11px] text-amber-700">
+          <Info size={13} className="inline mr-1.5"/>
+          Wpisy zostaną wysłane do <strong>biura do potwierdzenia</strong>. Kebab trafi do <strong>magazynu wyrobów gotowych</strong> dopiero po zatwierdzeniu w panelu biura.
         </div>
 
         {(partialLines.length>0||plannedLines.length>0)&&(
-          <div className="bg-amber-50 border border-amber-200 px-3 py-2.5 rounded-xl mb-5 text-[11px] text-amber-700 flex items-start gap-2">
-            <AlertTriangle size={13} className="flex-shrink-0 mt-0.5"/>
-            <span>Pozycje częściowe lub niezrealizowane zostaną zapisane z aktualnym postępem. Plan zostanie zamknięty.</span>
+          <div className="bg-surface-2 border border-surface-4 px-3 py-2.5 rounded-xl mb-5 text-[11px] text-ink-2 flex items-start gap-2">
+            <AlertTriangle size={13} className="flex-shrink-0 mt-0.5 text-ink-3"/>
+            <span>Pozycje częściowe lub niezrealizowane zostaną wysłane z aktualnym postępem.</span>
           </div>
         )}
 
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 h-12 rounded-2xl bg-surface-2 font-bold text-sm text-ink-2 border border-surface-4">Anuluj</button>
           <button onClick={handleConfirm} disabled={saving||totalDone===0}
-            className="flex-1 h-12 rounded-2xl bg-success text-white font-bold text-sm disabled:opacity-40 flex items-center justify-center gap-2">
+            className="flex-1 h-12 rounded-2xl bg-amber-600 text-white font-bold text-sm disabled:opacity-40 flex items-center justify-center gap-2">
             {saving?<span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"/>:<CheckCircle size={16}/>}
-            Zakończ i zapisz do magazynu
+            Wyślij do potwierdzenia biura
           </button>
         </div>
       </div>
@@ -426,7 +426,8 @@ export function ProductionTabletPage() {
   const { data:plans,   loading:plansLoading,  refetch:refetchPlans } = useApi(()=>productionPlansApi.list())
   const { data:workers, loading:workersLoading } = useApi(()=>usersApi.list())
   const finishMut = useMutation(({planId, entries}:{planId:string;entries:any[]}) =>
-    finishedGoodsApi.finishProductionDay(planId, entries))
+    productionPlansApi.tabletFinish(planId, entries))
+  const reopenMut = useMutation((planId:string) => productionPlansApi.tabletReopen(planId))
 
   const [selectedPlanId, setSelectedPlanId] = useState<string|null>(null)
   const [progress,       setProgress]       = useState<ProgressMap>({})
@@ -534,16 +535,52 @@ export function ProductionTabletPage() {
         }
       })
     await finishMut.mutate({ planId: selectedPlan.id, entries })
-    showToast(`Zapisano ${entries.reduce((s,e)=>s+e.qty,0)} szt do magazynu wyrobów gotowych`)
-    setProgress({})
-    setSelectedPlanId(null)
+    showToast(`Wysłano ${entries.reduce((s,e)=>s+e.qty,0)} szt do potwierdzenia biura`)
     setShowFinish(false)
+    refetchPlans()
+  }
+
+  async function handleReopen() {
+    if (!selectedPlan) return
+    if (!confirm('Cofnąć zakończenie i wrócić do edycji wpisów?')) return
+    await reopenMut.mutate(selectedPlan.id)
+    showToast('Wrócono do edycji')
     refetchPlans()
   }
 
   if (plansLoading||workersLoading) return <div className="flex justify-center items-center h-full"><Spinner size={32}/></div>
 
   if (!selectedPlan) return <div className="flex flex-col h-full overflow-hidden"><PlanPicker plans={activePlans} onSelect={setSelectedPlanId}/></div>
+
+  // Plan wysłany do biura — operator nie może edytować dopóki biuro nie potwierdzi
+  // (lub nie cofnie). Możliwe akcje: cofnąć (tablet-reopen) lub zmienić plan.
+  if ((selectedPlan as any).tabletFinishedAt && !(selectedPlan as any).officeConfirmedAt) {
+    const sentAt = new Date((selectedPlan as any).tabletFinishedAt).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[70vh] p-6 text-center max-w-md mx-auto">
+        <div className="w-20 h-20 bg-amber-100 rounded-3xl flex items-center justify-center mb-5">
+          <CheckCircle size={40} className="text-amber-600"/>
+        </div>
+        <h2 className="text-2xl font-black text-ink mb-2">Wysłano do biura</h2>
+        <p className="text-base text-ink-3 mb-1">Plan <span className="font-mono font-bold text-brand">{selectedPlan.planNo}</span></p>
+        <p className="text-sm text-ink-3 mb-6">Wysłano o {sentAt} · czeka na potwierdzenie biura</p>
+        <div className="bg-amber-50 border border-amber-200 px-4 py-3 rounded-xl text-[12px] text-amber-700 mb-6">
+          <Info size={14} className="inline mr-1.5"/>
+          Kebab zostanie dodany do magazynu wyrobów gotowych dopiero po zatwierdzeniu przez biuro.
+        </div>
+        <div className="flex gap-3 w-full">
+          <button onClick={handleReopen} disabled={reopenMut.loading}
+            className="flex-1 h-14 rounded-2xl bg-surface-2 border border-surface-4 font-bold text-ink-2 disabled:opacity-50">
+            Cofnij i edytuj
+          </button>
+          <button onClick={()=>{setSelectedPlanId(null);setProgress({})}}
+            className="flex-1 h-14 rounded-2xl bg-brand text-white font-bold flex items-center justify-center gap-2">
+            <RefreshCw size={16}/>Wybierz inny plan
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   const sortedLines = [...selectedPlan.lines].sort((a,b)=>{
     const pa=progress[a.id]?.status??'PLANNED'

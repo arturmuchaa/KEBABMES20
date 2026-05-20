@@ -929,15 +929,17 @@ function mapPlanLine(raw: any) {
 
 function mapPlan(raw: any): any {
   return {
-    id:         raw.id          ?? '',
-    planNo:     raw.plan_no     ?? raw.planNo     ?? '',
-    planDate:   raw.plan_date   ?? raw.planDate   ?? '',
-    totalKg:    Number(raw.total_kg    ?? raw.totalKg    ?? 0),
-    totalUnits: Number(raw.total_units ?? raw.totalUnits ?? 0),
-    status:     raw.status      ?? 'draft',
-    notes:      raw.notes,
-    createdAt:  raw.created_at  ?? raw.createdAt  ?? '',
-    lines:      (raw.lines ?? []).map(mapPlanLine),
+    id:                 raw.id          ?? '',
+    planNo:             raw.plan_no     ?? raw.planNo     ?? '',
+    planDate:           raw.plan_date   ?? raw.planDate   ?? '',
+    totalKg:            Number(raw.total_kg    ?? raw.totalKg    ?? 0),
+    totalUnits:         Number(raw.total_units ?? raw.totalUnits ?? 0),
+    status:             raw.status      ?? 'draft',
+    notes:              raw.notes,
+    createdAt:          raw.created_at  ?? raw.createdAt  ?? '',
+    tabletFinishedAt:   raw.tablet_finished_at  ?? raw.tabletFinishedAt  ?? null,
+    officeConfirmedAt:  raw.office_confirmed_at ?? raw.officeConfirmedAt ?? null,
+    lines:              (raw.lines ?? []).map(mapPlanLine),
   }
 }
 
@@ -957,6 +959,12 @@ export const productionPlansApi = {
     line_status: body.lineStatus,
     worker_entries: body.workerEntries,
   }),
+  tabletFinish:  (planId: string, entries: any[]) =>
+    post<any>(`/production-plans/${planId}/tablet-finish`, { entries }),
+  tabletReopen:  (planId: string) =>
+    post<any>(`/production-plans/${planId}/tablet-reopen`, {}),
+  officeConfirm: (planId: string) =>
+    post<any>(`/production-plans/${planId}/office-confirm`, {}),
 }
 
 // ─── Day closures ────────────────────────────────────────────

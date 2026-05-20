@@ -11,13 +11,13 @@
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
-import { mixingOrdersApi, machineLockApi } from '@/lib/apiClient'
+import { mixingOrdersApi, machineLockApi, productionSessionsApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import type { MixingOrder, MachineId, MachineLock } from '@/lib/mockApi'
 import { Spinner } from '@/components/ui/widgets'
 import {
   Play, CheckCircle, RotateCcw, AlertTriangle,
-  Scale, ClipboardList, Lock, Timer, Beef, ChevronLeft, Home, Info,
+  Scale, ClipboardList, Lock, Timer, Beef, ChevronLeft, Home, Info, LogOut,
 } from 'lucide-react'
 
 const WEIGHT_TOLERANCE_KG = 0.050  // 50g
@@ -650,6 +650,18 @@ export function MixingTabletPage() {
   const { data: inProgress, refetch:rIP} = useApi(() => mixingOrdersApi.list('in_progress'))
   const { data: locks,                   refetch:rL } = useApi(() => machineLockApi.list())
 
+  const { data: mixingSession, refetch: refetchSession } = useApi(() => productionSessionsApi.active('mixing'))
+  const startSessionMut = useMutation(() => productionSessionsApi.start({ processType: 'mixing' }))
+  const closeSessionMut = useMutation((id: string) => productionSessionsApi.close(id, {}))
+
+  // Auto-start sesji gdy pierwszy raz wejdzie operator (brak aktywnej sesji)
+  // żeby biuro widziało "Na żywo" odkąd ktoś otworzył tablet masowania.
+  useEffect(() => {
+    if (mixingSession === null && !startSessionMut.loading) {
+      startSessionMut.mutate().then(() => refetchSession()).catch(() => {})
+    }
+  }, [mixingSession, startSessionMut.loading])
+
   const startMut       = useMutation(({id,dto}:{id:string;dto:any}) => mixingOrdersApi.start(id,dto))
   const allocMut       = useMutation(({id,m,kg}:{id:string;m:MachineId;kg:number}) => mixingOrdersApi.allocateToMachine(id,m,kg))
   const confirmMut     = useMutation(({id,dto}:{id:string;dto:any}) => mixingOrdersApi.confirmStep(id,dto))
@@ -745,6 +757,44 @@ export function MixingTabletPage() {
     currentLocks.some(l => l.orderId === o.id)
   )
 
+  // Dzień zamknięty na tablecie — czeka na biuro (lub już potwierdzone)
+  const sessionClosed = mixingSession && (mixingSession.status === 'closed' || mixingSession.status === 'approved')
+  if (sessionClosed && phase === 'list') {
+    const closedAt = mixingSession.endedAt ? new Date(mixingSession.endedAt).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'}) : ''
+    const isApproved = mixingSession.status === 'approved'
+    return (
+      <div className="min-h-screen bg-surface-2 flex items-center justify-center p-6">
+        <div className="text-center max-w-md">
+          <div className={cn('w-20 h-20 rounded-3xl flex items-center justify-center mb-5 mx-auto',
+            isApproved ? 'bg-green-100' : 'bg-amber-100')}>
+            <CheckCircle size={40} className={isApproved ? 'text-green-600' : 'text-amber-600'}/>
+          </div>
+          <h2 className="text-2xl font-black text-ink mb-2">
+            {isApproved ? 'Dzień zatwierdzony' : 'Dzień zakończony'}
+          </h2>
+          <p className="text-sm text-ink-3 mb-1">
+            {isApproved
+              ? `Biuro zatwierdziło sesję ${mixingSession.sessionDate}`
+              : `Czeka na potwierdzenie biura · zamknięte ${closedAt}`}
+          </p>
+          <p className="text-xs text-ink-4 mt-6">Wróć jutro lub poczekaj na nową sesję.</p>
+        </div>
+      </div>
+    )
+  }
+
+  const handleCloseDay = async () => {
+    if (!mixingSession || mixingSession.status !== 'open') return
+    if (!confirm('Zakończyć dzień masowania? Biuro musi potwierdzić zamknięcie.')) return
+    try {
+      await closeSessionMut.mutate(mixingSession.id)
+      await refetchSession()
+      showToast('Dzień masowania zamknięty — czeka na biuro')
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Błąd zamknięcia dnia')
+    }
+  }
+
   return (
     <div className="min-h-screen bg-surface-2">
 
@@ -796,8 +846,18 @@ export function MixingTabletPage() {
                   <p className="text-base text-ink-3">Biuro nie zaplanowało masowania.</p>
                 </div>
               : <div className="max-w-2xl mx-auto px-5 py-5">
-                  <h2 className="text-xl font-black text-ink mb-1">Wybierz zlecenie</h2>
-                  <p className="text-sm text-ink-3 mb-4">{(planned??[]).length} zleceń</p>
+                  <div className="flex items-start justify-between mb-4 gap-3">
+                    <div>
+                      <h2 className="text-xl font-black text-ink mb-1">Wybierz zlecenie</h2>
+                      <p className="text-sm text-ink-3">{(planned??[]).length} zleceń</p>
+                    </div>
+                    {mixingSession?.status === 'open' && (
+                      <button onClick={handleCloseDay} disabled={closeSessionMut.loading}
+                        className="flex items-center gap-1.5 text-[12px] font-bold px-3 py-2 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 disabled:opacity-50 self-start">
+                        <LogOut size={13}/>Zakończ dzień
+                      </button>
+                    )}
+                  </div>
                   <div className="space-y-3">
                     {(planned??[]).map(o => {
                       const kgDone      = (o as any).kgDone ?? 0

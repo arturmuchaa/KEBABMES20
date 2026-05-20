@@ -134,6 +134,15 @@ _DDL: list[str] = [
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS line_status TEXT NOT NULL DEFAULT 'PLANNED'",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS progress_updated_at TIMESTAMPTZ",
 
+    # ── Production plan — tablet → office confirmation flow ──
+    # Tablet klika "Zakończ produkcję": stempluje tablet_finished_at i zapisuje
+    # entries do tablet_pending_entries. Kebab NIE wchodzi jeszcze na magazyn.
+    # Biuro w panelu klika "Potwierdź": stempluje office_confirmed_at i URUCHAMIA
+    # finish_day (tworzy finished_goods, zwalnia kg_reserved, status='done').
+    "ALTER TABLE production_plans ADD COLUMN IF NOT EXISTS tablet_finished_at TIMESTAMPTZ",
+    "ALTER TABLE production_plans ADD COLUMN IF NOT EXISTS office_confirmed_at TIMESTAMPTZ",
+    "ALTER TABLE production_plans ADD COLUMN IF NOT EXISTS tablet_pending_entries JSONB",
+
     # ── Day closures (biuro zamyka dzień osobno dla każdej sekcji) ──
     """CREATE TABLE IF NOT EXISTS day_closures (
         id           TEXT PRIMARY KEY,

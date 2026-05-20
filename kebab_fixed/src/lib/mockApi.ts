@@ -2238,6 +2238,8 @@ export interface ProductionPlan {
   status:      'draft' | 'active' | 'done'
   notes?:      string
   createdAt:   string
+  tabletFinishedAt?:  string | null  // operator zakończył, czeka na biuro
+  officeConfirmedAt?: string | null  // biuro potwierdziło, finish_day wykonany
 }
 
 export interface CreatePlanLineDto {

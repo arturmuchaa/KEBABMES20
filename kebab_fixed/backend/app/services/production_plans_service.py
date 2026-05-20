@@ -596,3 +596,132 @@ def update_line_progress(
         "qty_done": qty_done,
         "line_status": status,
     }
+
+
+def tablet_finish(plan_id: str, entries: list[dict]) -> Dict[str, Any]:
+    """Tablet zakończył produkcję — wpisuje pending entries i stempluje czas.
+
+    Nie tworzy finished_goods, nie zwalnia rezerwacji, nie zmienia statusu
+    planu. Biuro musi zatwierdzić: POST /office-confirm wywoła finish_day
+    z entries z tablet_pending_entries.
+    """
+    with transaction() as conn:
+        plan = cx_query_one(
+            conn,
+            "SELECT id, status, office_confirmed_at FROM production_plans "
+            "WHERE id=%s FOR UPDATE",
+            (plan_id,),
+        )
+        if not plan:
+            raise HTTPException(404, "Plan nie znaleziony")
+        if plan.get("status") == "done" or plan.get("office_confirmed_at"):
+            raise HTTPException(400, "Plan już potwierdzony przez biuro")
+        cx_execute(
+            conn,
+            """
+            UPDATE production_plans
+            SET tablet_finished_at = now(),
+                tablet_pending_entries = %s::jsonb
+            WHERE id = %s
+            """,
+            (json.dumps(entries or []), plan_id),
+        )
+    logger.info(
+        "plan.tablet_finished",
+        extra={"plan_id": plan_id, "entries": len(entries or [])},
+    )
+    return {"ok": True, "plan_id": plan_id, "pending_entries": len(entries or [])}
+
+
+def tablet_reopen(plan_id: str) -> Dict[str, Any]:
+    """Cofa stan 'tablet zakończył' — operator chce dodać jeszcze wpisy.
+
+    Dozwolone tylko gdy biuro jeszcze nie potwierdziło.
+    """
+    with transaction() as conn:
+        plan = cx_query_one(
+            conn,
+            "SELECT id, office_confirmed_at FROM production_plans "
+            "WHERE id=%s FOR UPDATE",
+            (plan_id,),
+        )
+        if not plan:
+            raise HTTPException(404, "Plan nie znaleziony")
+        if plan.get("office_confirmed_at"):
+            raise HTTPException(400, "Plan już potwierdzony przez biuro — nie można cofnąć")
+        cx_execute(
+            conn,
+            """
+            UPDATE production_plans
+            SET tablet_finished_at = NULL,
+                tablet_pending_entries = NULL
+            WHERE id = %s
+            """,
+            (plan_id,),
+        )
+    logger.info("plan.tablet_reopened", extra={"plan_id": plan_id})
+    return {"ok": True, "plan_id": plan_id}
+
+
+def office_confirm(plan_id: str) -> Dict[str, Any]:
+    """Biuro potwierdza zakończenie planu — uruchamia finish_day.
+
+    Czyta tablet_pending_entries, składa FinishDayDto i wywołuje
+    finish_day (która stworzy finished_goods, zwolni rezerwacje
+    i ustawi status='done'). Następnie stempluje office_confirmed_at
+    i czyści pending entries.
+    """
+    from app.models.production import FinishDayDto, FinishDayEntry
+    from app.services.finished_goods_service import finish_day
+
+    plan = query_one(
+        "SELECT id, status, tablet_pending_entries, tablet_finished_at, office_confirmed_at "
+        "FROM production_plans WHERE id=%s",
+        (plan_id,),
+    )
+    if not plan:
+        raise HTTPException(404, "Plan nie znaleziony")
+    if plan.get("office_confirmed_at") or plan.get("status") == "done":
+        raise HTTPException(400, "Plan już potwierdzony")
+    if not plan.get("tablet_finished_at"):
+        raise HTTPException(400, "Tablet jeszcze nie zakończył produkcji")
+
+    raw = plan.get("tablet_pending_entries") or []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = []
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(400, "Brak wpisów do zatwierdzenia — operator nie wprowadził produkcji")
+
+    entries: list[FinishDayEntry] = []
+    for e in raw:
+        try:
+            entries.append(FinishDayEntry(**e))
+        except Exception as exc:
+            raise HTTPException(
+                400, f"Niepoprawny wpis z tabletu: {exc}"
+            ) from exc
+
+    dto = FinishDayDto(plan_id=plan_id, entries=entries)
+    result = finish_day(dto)
+
+    # finish_day już ustawił status='done'. Dopisz znacznik biura
+    # i wyczyść tablet_pending_entries.
+    with transaction() as conn:
+        cx_execute(
+            conn,
+            """
+            UPDATE production_plans
+            SET office_confirmed_at = now(),
+                tablet_pending_entries = NULL
+            WHERE id = %s
+            """,
+            (plan_id,),
+        )
+    logger.info(
+        "plan.office_confirmed",
+        extra={"plan_id": plan_id, "items_created": result.get("created", 0)},
+    )
+    return {"ok": True, "plan_id": plan_id, **result}

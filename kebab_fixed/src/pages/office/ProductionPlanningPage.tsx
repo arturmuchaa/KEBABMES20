@@ -1049,11 +1049,38 @@ export function ProductionPlanningPage() {
                           </Button>
                         </>
                       )}
-                      {plan.status==='active'&&(
+                      {plan.status==='active' && (plan as any).tabletFinishedAt && !(plan as any).officeConfirmedAt && (
+                        <>
+                          <Badge variant="warning" className="text-[10px] gap-1 mr-1">
+                            <span className="inline-flex h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            Do potwierdzenia
+                          </Badge>
+                          <Button variant="default" size="sm"
+                            className="h-7 text-[11px] bg-green-600 hover:bg-green-700 text-white"
+                            onClick={async e=>{
+                              e.stopPropagation()
+                              if (!confirm(`Potwierdzić zakończenie planu ${plan.planNo}? Kebab trafi do magazynu wyrobów gotowych.`)) return
+                              try {
+                                await productionPlansApi.officeConfirm(plan.id)
+                                refetch()
+                              } catch(err) {
+                                alert(err instanceof Error ? err.message : 'Błąd potwierdzenia')
+                              }
+                            }}>
+                            Potwierdź
+                          </Button>
+                        </>
+                      )}
+                      {plan.status==='active' && !(plan as any).tabletFinishedAt && (
                         <Button variant="outline" size="sm"
-                          className="h-7 text-[11px] text-green-700 border-green-200 hover:bg-green-50"
-                          onClick={e=>{e.stopPropagation();productionPlansApi.updateStatus(plan.id,'done').then(refetch)}}>
-                          Zakończ
+                          className="h-7 text-[11px] text-muted-foreground border-surface-4 hover:bg-surface-2"
+                          onClick={async e=>{
+                            e.stopPropagation()
+                            if (!confirm(`Zamknąć plan ${plan.planNo} bez produkcji? Rezerwacje mięsa zostaną zwolnione.`)) return
+                            await productionPlansApi.updateStatus(plan.id,'done')
+                            refetch()
+                          }}>
+                          Anuluj
                         </Button>
                       )}
                       {isExp?<ChevronUp size={16} className="text-muted-foreground"/>:<ChevronDown size={16} className="text-muted-foreground"/>}

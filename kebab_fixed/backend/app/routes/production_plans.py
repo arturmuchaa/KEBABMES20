@@ -1,5 +1,5 @@
 """Production plans endpoints."""
-from typing import List
+from typing import List, Any, Dict
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -21,6 +21,10 @@ class LineProgressDto(BaseModel):
     qty_done:       int = 0
     line_status:    str = "PLANNED"
     worker_entries: List[WorkerEntryDto] = []
+
+
+class TabletFinishDto(BaseModel):
+    entries: List[Dict[str, Any]] = []
 
 
 @router.get("")
@@ -52,3 +56,21 @@ def update_line_progress(plan_id: str, line_id: str, body: LineProgressDto):
         line_status=body.line_status,
         worker_entries=[e.model_dump() for e in body.worker_entries],
     )
+
+
+@router.post("/{plan_id}/tablet-finish")
+def tablet_finish(plan_id: str, body: TabletFinishDto):
+    """Tablet zakończył produkcję — czeka na potwierdzenie biura."""
+    return svc.tablet_finish(plan_id, body.entries)
+
+
+@router.post("/{plan_id}/tablet-reopen")
+def tablet_reopen(plan_id: str):
+    """Cofa stan 'tablet zakończył'."""
+    return svc.tablet_reopen(plan_id)
+
+
+@router.post("/{plan_id}/office-confirm")
+def office_confirm(plan_id: str):
+    """Biuro potwierdza koniec produkcji — uruchamia finish_day."""
+    return svc.office_confirm(plan_id)
