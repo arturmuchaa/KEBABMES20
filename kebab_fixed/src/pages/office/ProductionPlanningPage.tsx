@@ -1018,12 +1018,49 @@ export function ProductionPlanningPage() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-mono font-bold text-primary">{plan.planNo}</span>
-                        <Badge variant="outline" className={STATUS_CLASS[plan.status]}>
-                          {STATUS_LABELS[plan.status]}
-                        </Badge>
+                        {(() => {
+                          // Dla planów 'done' liczymy procent ukończenia
+                          // z qty_done na liniach planu — żeby biuro widziało
+                          // czy plan zamknięty w 100% czy częściowo.
+                          if (plan.status !== 'done') {
+                            return (
+                              <Badge variant="outline" className={STATUS_CLASS[plan.status]}>
+                                {STATUS_LABELS[plan.status]}
+                              </Badge>
+                            )
+                          }
+                          const totalQty = plan.lines.reduce((s,l) => s + Number(l.qty || 0), 0)
+                          const doneQty  = plan.lines.reduce((s,l) => s + Number((l as any).qtyDone || 0), 0)
+                          const pct = totalQty > 0 ? Math.round((doneQty / totalQty) * 100) : 0
+                          if (pct >= 100) {
+                            return (
+                              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                Ukończony 100%
+                              </Badge>
+                            )
+                          }
+                          if (pct === 0) {
+                            return (
+                              <Badge variant="outline" className="bg-gray-50 text-gray-600 border-gray-200">
+                                Zamknięty (bez produkcji)
+                              </Badge>
+                            )
+                          }
+                          return (
+                            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                              Ukończony częściowo · {pct}%
+                            </Badge>
+                          )
+                        })()}
                       </div>
                       <div className="text-[11px] text-muted-foreground mt-0.5">
                         {fmtDatePl(plan.planDate)} · {plan.lines.length} poz. · {fmtKg(plan.totalKg,0)} kg · {plan.totalUnits} szt
+                        {plan.status === 'done' && (() => {
+                          const doneQty = plan.lines.reduce((s,l) => s + Number((l as any).qtyDone || 0), 0)
+                          const doneKg  = plan.lines.reduce((s,l) => s + Number((l as any).qtyDone || 0) * Number(l.kgPerUnit || 0), 0)
+                          if (doneQty === plan.totalUnits) return null
+                          return <span className="text-green-700 font-semibold"> · wyprodukowano {doneQty} szt / {fmtKg(doneKg,0)} kg</span>
+                        })()}
                       </div>
                     </div>
                     <div className="flex gap-1 items-center">
@@ -1091,15 +1128,29 @@ export function ProductionPlanningPage() {
                       <Table className="text-[11px] mt-2">
                         <TableHeader>
                           <TableRow>
-                            {['Szt','kg/szt','Razem','Receptura','Tuleja','Partie mięsa','Klient'].map(h=>(
+                            {['Szt','Wykonano','kg/szt','Razem','Receptura','Tuleja','Partie mięsa','Klient'].map(h=>(
                               <TableHead key={h} className="text-[9px] uppercase tracking-wider h-7 px-3">{h}</TableHead>
                             ))}
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {plan.lines.map(l=>(
+                          {plan.lines.map(l=>{
+                            const qtyDone = Number((l as any).qtyDone || 0)
+                            const lineStatus = ((l as any).lineStatus || 'PLANNED') as 'PLANNED'|'IN_PROGRESS'|'DONE'
+                            const pct = l.qty > 0 ? Math.round((qtyDone / l.qty) * 100) : 0
+                            return (
                             <TableRow key={l.id}>
                               <TableCell className="py-1.5 font-bold px-3">{l.qty}</TableCell>
+                              <TableCell className="py-1.5 px-3">
+                                {qtyDone === 0 ? (
+                                  <span className="text-muted-foreground">—</span>
+                                ) : pct >= 100 ? (
+                                  <span className="font-bold text-green-700">{qtyDone} / {l.qty} ✓</span>
+                                ) : (
+                                  <span className="font-bold text-amber-700">{qtyDone} / {l.qty} <span className="text-[10px] font-medium">({pct}%)</span></span>
+                                )}
+                                {lineStatus === 'IN_PROGRESS' && <Badge variant="outline" className="ml-1 text-[9px] h-4 px-1 bg-amber-50 text-amber-700 border-amber-200">w trakcie</Badge>}
+                              </TableCell>
                               <TableCell className="py-1.5 px-3">{l.kgPerUnit} kg</TableCell>
                               <TableCell className="py-1.5 font-bold text-primary px-3">{fmtKg(l.totalKg,0)} kg</TableCell>
                               <TableCell className="py-1.5 px-3">{l.recipeName}</TableCell>
@@ -1118,7 +1169,7 @@ export function ProductionPlanningPage() {
                               </TableCell>
                               <TableCell className="py-1.5 text-muted-foreground text-[10px] px-3">{l.clientName||'—'}</TableCell>
                             </TableRow>
-                          ))}
+                          )})}
                         </TableBody>
                       </Table>
                     </div>

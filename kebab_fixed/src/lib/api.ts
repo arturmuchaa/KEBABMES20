@@ -1317,10 +1317,11 @@ export const vehiclesApi = {
 
 // ─── Traceability ─────────────────────────────────────────────
 export const traceabilityApi = {
+  // backend Query alias = "batchId" (camelCase) — bez tego zwraca pustą strukturę
   backward: (batchId: string) =>
-    get<any>(`/traceability?batch_id=${encodeURIComponent(batchId)}&direction=backward`),
+    get<any>(`/traceability?batchId=${encodeURIComponent(batchId)}&direction=backward`),
   forward:  (batchId: string) =>
-    get<any>(`/traceability?batch_id=${encodeURIComponent(batchId)}&direction=forward`),
+    get<any>(`/traceability?batchId=${encodeURIComponent(batchId)}&direction=forward`),
 }
 
 // ─── Recall (Wycofanie partii) ────────────────────────────────
