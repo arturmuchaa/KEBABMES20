@@ -1222,7 +1222,7 @@ function OrderRow({ order, qtyDone, qtyInProgress, inProgressByLineId }: {
               <TableRow className="hover:bg-transparent">
                 <TableHead className="text-[10px] uppercase tracking-wide">Szt</TableHead>
                 <TableHead className="text-[10px] uppercase tracking-wide">Wykonano</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-wide">kg/szt</TableHead>
+                <TableHead className="text-[10px] uppercase tracking-wide">kg</TableHead>
                 <TableHead className="text-[10px] uppercase tracking-wide">Razem kg</TableHead>
                 <TableHead className="text-[10px] uppercase tracking-wide">Rodzaj</TableHead>
                 <TableHead className="text-[10px] uppercase tracking-wide">Receptura</TableHead>

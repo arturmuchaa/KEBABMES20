@@ -512,14 +512,14 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
       </div>
 
       <div className="p-3">
-        {/* Rząd 1: Szt, kg/szt, Rodzaj, Receptura */}
+        {/* Rząd 1: Szt, kg, Rodzaj, Receptura */}
         <div className="grid grid-cols-4 gap-2 mb-2">
           <div>
             <Label className="text-[9px] font-bold text-muted-foreground uppercase mb-1 block">Szt *</Label>
             <Input type="number" min="1" value={line.qty} onChange={e=>onChange('qty',e.target.value)} className="h-8 text-sm px-2"/>
           </div>
           <div>
-            <Label className="text-[9px] font-bold text-muted-foreground uppercase mb-1 block">kg/szt *</Label>
+            <Label className="text-[9px] font-bold text-muted-foreground uppercase mb-1 block">kg *</Label>
             <Input type="number" min="0.1" step="0.1" value={line.kgPerUnit} onChange={e=>onChange('kgPerUnit',e.target.value)} className="h-8 text-sm px-2"/>
           </div>
           <div>
@@ -1128,7 +1128,7 @@ export function ProductionPlanningPage() {
                       <Table className="text-[11px] mt-2">
                         <TableHeader>
                           <TableRow>
-                            {['Szt','Wykonano','kg/szt','Razem','Receptura','Tuleja','Partie mięsa','Klient'].map(h=>(
+                            {['Szt','Wykonano','kg','Razem','Receptura','Tuleja','Partie mięsa','Klient'].map(h=>(
                               <TableHead key={h} className="text-[9px] uppercase tracking-wider h-7 px-3">{h}</TableHead>
                             ))}
                           </TableRow>

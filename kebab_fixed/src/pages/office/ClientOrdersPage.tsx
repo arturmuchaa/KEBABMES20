@@ -162,7 +162,7 @@ function OrderForm({ onSave, onClose, initialData }: OrderFormProps) {
                     <Input type="number" min="1" step="1" value={line.qty} onChange={e => setLine(i, 'qty', e.target.value)} placeholder="20" className="h-8 text-sm" />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-[9px]">kg/szt</Label>
+                    <Label className="text-[9px]">kg</Label>
                     <Input type="number" min="0.1" step="0.1" value={line.kgPerUnit} onChange={e => setLine(i, 'kgPerUnit', e.target.value)} placeholder="40" className="h-8 text-sm" />
                   </div>
                   <div className="space-y-1">
@@ -432,7 +432,7 @@ export function ClientOrdersPage() {
                         <Table className="mt-3">
                           <TableHeader>
                             <TableRow className="hover:bg-transparent">
-                              {['','Szt','kg/szt','Razem kg','Rodzaj','Receptura','Tuleja'].map(h => (
+                              {['','Szt','kg','Razem kg','Rodzaj','Receptura','Tuleja'].map(h => (
                                 <TableHead key={h} className="text-[9px] uppercase tracking-wide">{h}</TableHead>
                               ))}
                             </TableRow>
