@@ -1,11 +1,14 @@
 /**
- * ClientOrdersPage — Zamówienia od kontrahentów
+ * ClientOrdersPage — Zamówienia od kontrahentów (lista, styl Subiekt GT).
  */
-import { useState, useMemo } from 'react'
+import { Fragment, useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, clientsApi, packagingApi } from '@/lib/apiClient'
-import { fmtKg, fmtDatePl, todayIso } from '@/lib/utils'
-import { Check, CheckCircle2, ChevronDown, ChevronUp, Clock, Pencil, Plus, Printer, ShoppingCart, Trash2, X } from 'lucide-react'
+import { fmtKg, fmtDatePl, todayIso, cn } from '@/lib/utils'
+import {
+  Check, CheckCircle2, ChevronDown, ChevronUp, ChevronsUpDown, Clock,
+  Pencil, Plus, Printer, ShoppingCart, Trash2, X, Search, Download,
+} from 'lucide-react'
 import { PalletsEditor } from '@/components/orders/PalletsEditor'
 import { useProductTypes } from '@/features/products/hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
@@ -26,9 +29,6 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table'
 
 interface LineForm {
   qty: string; kgPerUnit: string; productTypeId: string; recipeId: string; packagingId: string; notes: string
@@ -251,14 +251,86 @@ function OrderForm({ onSave, onClose, initialData }: OrderFormProps) {
   )
 }
 
+type SortCol = 'orderNo' | 'clientName' | 'orderDate' | 'deliveryDate' | 'status' | 'totalUnits' | 'totalKg' | 'progress'
+
+function progressOf(o: ClientOrder): number {
+  if (!o.totalUnits) return 0
+  const done = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0), 0)
+  return Math.min(100, Math.round((done / o.totalUnits) * 100))
+}
+
+function exportCsv(rows: ClientOrder[]) {
+  const headers = ['Nr zam.','Klient','Data zam.','Dostawa','Status','Szt','Razem kg','% wykonania','Uwagi']
+  const csv = [headers.join(';')].concat(rows.map(o => [
+    o.orderNo, o.clientName,
+    o.orderDate, o.deliveryDate || '',
+    STATUS_LABELS[o.status],
+    String(o.totalUnits),
+    String(o.totalKg).replace('.', ','),
+    String(progressOf(o)),
+    o.notes || '',
+  ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(';'))).join('\n')
+  const blob = new Blob([new TextEncoder().encode('﻿' + csv)], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = `zamowienia-${new Date().toISOString().slice(0,10)}.csv`; a.click()
+  URL.revokeObjectURL(url)
+}
+
 export function ClientOrdersPage() {
   const { data: orders, loading, refetch } = useApi(() => clientOrdersApi.list())
   const [modal,        setModal]        = useState(false)
   const [editOrder,    setEditOrder]    = useState<ClientOrder | null>(null)
   const [expanded,     setExpanded]     = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState('')
+  const [search,       setSearch]       = useState('')
+  const [sortCol,      setSortCol]      = useState<SortCol>('orderDate')
+  const [sortDir,      setSortDir]      = useState<'asc'|'desc'>('desc')
 
-  const filtered = (orders ?? []).filter(o => !filterStatus || o.status === filterStatus)
+  const rawList = orders ?? []
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim()
+    let result = rawList
+    if (filterStatus) result = result.filter(o => o.status === filterStatus)
+    if (q) {
+      result = result.filter(o =>
+        (o.orderNo || '').toLowerCase().includes(q)
+        || (o.clientName || '').toLowerCase().includes(q)
+        || (o.notes || '').toLowerCase().includes(q)
+        || (o.lines || []).some(l =>
+          (l.recipeName || '').toLowerCase().includes(q)
+          || (l.productTypeName || '').toLowerCase().includes(q)
+          || (l.packagingName || '').toLowerCase().includes(q)
+        )
+      )
+    }
+    return [...result].sort((a, b) => {
+      let cmp = 0
+      if (sortCol === 'orderNo')      cmp = a.orderNo.localeCompare(b.orderNo)
+      if (sortCol === 'clientName')   cmp = a.clientName.localeCompare(b.clientName)
+      if (sortCol === 'orderDate')    cmp = (a.orderDate    || '').localeCompare(b.orderDate    || '')
+      if (sortCol === 'deliveryDate') cmp = (a.deliveryDate || '').localeCompare(b.deliveryDate || '')
+      if (sortCol === 'status')       cmp = a.status.localeCompare(b.status)
+      if (sortCol === 'totalUnits')   cmp = a.totalUnits - b.totalUnits
+      if (sortCol === 'totalKg')      cmp = a.totalKg - b.totalKg
+      if (sortCol === 'progress')     cmp = progressOf(a) - progressOf(b)
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [rawList, filterStatus, search, sortCol, sortDir])
+
+  const totalKg    = filtered.reduce((s, o) => s + o.totalKg, 0)
+  const totalUnits = filtered.reduce((s, o) => s + o.totalUnits, 0)
+
+  const toggleSort = (col: SortCol) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
+
+  const SortIcon = ({ col }: { col: SortCol }) =>
+    sortCol === col
+      ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
+      : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60"/>
 
   async function handleCreate(dto: CreateClientOrderDto) { await clientOrdersApi.create(dto); refetch() }
   async function handleUpdate(dto: CreateClientOrderDto) {
@@ -272,228 +344,359 @@ export function ClientOrdersPage() {
     await clientOrdersApi.delete(id); refetch()
   }
 
+  const STATUS_BADGE_CLS: Record<ClientOrder['status'], string> = {
+    draft:         'bg-gray-50 text-gray-700 border-gray-200',
+    confirmed:     'bg-blue-50 text-blue-700 border-blue-200',
+    in_production: 'bg-amber-50 text-amber-700 border-amber-200',
+    done:          'bg-emerald-50 text-emerald-700 border-emerald-200',
+    cancelled:     'bg-red-50 text-red-700 border-red-200',
+  }
+
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
 
-      {/* Filter + action */}
-      <div className="flex gap-3">
-        <Select value={filterStatus || '__all'} onValueChange={v => setFilterStatus(v === '__all' ? '' : v)}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Wszystkie statusy" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all">Wszystkie statusy</SelectItem>
-            {(['draft','confirmed','in_production','done','cancelled'] as ClientOrder['status'][]).map(s => (
-              <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <div className="ml-auto">
-          <Button onClick={() => setModal(true)}>
-            <Plus size={14} className="mr-1.5" /> Nowe zamówienie
-          </Button>
-        </div>
-      </div>
-
-      {/* Orders list */}
+      {/* Toolbar */}
       <Card>
-        <div className="flex items-center gap-2 px-5 py-3 border-b">
-          <CardTitle className="text-sm font-semibold">{filtered.length} zamówień</CardTitle>
-          <CardDescription className="text-xs">
-            · łącznie {fmtKg(filtered.reduce((s, o) => s + o.totalKg, 0), 0)} kg
-          </CardDescription>
+        <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3 flex-1 min-w-[280px]">
+            <div className="relative flex-1 max-w-md">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-9 pl-9 pr-8 text-sm"
+                placeholder="Filtruj: nr zam., klient, receptura, tuleja, uwagi…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                autoFocus
+              />
+              {search && (
+                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-ink">
+                  <X size={14}/>
+                </button>
+              )}
+            </div>
+            <Select value={filterStatus || '__all'} onValueChange={v => setFilterStatus(v === '__all' ? '' : v)}>
+              <SelectTrigger className="h-9 w-48 text-sm">
+                <SelectValue placeholder="Wszystkie statusy" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all">Wszystkie statusy</SelectItem>
+                {(['draft','confirmed','in_production','done','cancelled'] as ClientOrder['status'][]).map(s => (
+                  <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-4 text-xs tabular-nums">
+            <div className="flex items-center gap-1.5">
+              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Zamówień:</CardDescription>
+              <span className="font-bold">{filtered.length}{filtered.length !== rawList.length && <span className="text-muted-foreground">/{rawList.length}</span>}</span>
+            </div>
+            <div className="w-px h-4 bg-surface-4" />
+            <div className="flex items-center gap-1.5">
+              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Szt:</CardDescription>
+              <span className="font-bold">{totalUnits}</span>
+            </div>
+            <div className="w-px h-4 bg-surface-4" />
+            <div className="flex items-center gap-1.5">
+              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Kg:</CardDescription>
+              <span className="font-bold text-emerald-700">{fmtKg(totalKg, 0)}</span>
+            </div>
+            <div className="w-px h-4 bg-surface-4" />
+            <button onClick={() => exportCsv(filtered)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-surface-4 hover:bg-surface-2 text-xs font-medium" title="Eksportuj CSV">
+              <Download size={12}/> CSV
+            </button>
+            <Button size="sm" className="h-7 px-2.5 text-xs gap-1" onClick={() => setModal(true)}>
+              <Plus size={12}/> Nowe
+            </Button>
+          </div>
         </div>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-4 space-y-3">
-              {[0,1,2].map(i => <Skeleton key={i} className="h-16 w-full" />)}
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-2">
-              <ShoppingCart size={36} className="text-muted-foreground opacity-20" />
-              <CardTitle className="text-sm font-medium text-muted-foreground">Brak zamówień</CardTitle>
-              <CardDescription>Dodaj zamówienie od klienta</CardDescription>
-            </div>
-          ) : (
-            <div className="divide-y">
-              {filtered.map(o => {
-                const isExp = expanded === o.id
-                return (
-                  <div key={o.id}>
-                    {/* Row */}
-                    <div
-                      className="hover:bg-muted/30 cursor-pointer transition-colors"
-                      onClick={() => setExpanded(isExp ? null : o.id)}
+      </Card>
+
+      {/* Tabela */}
+      <Card className="overflow-hidden">
+        {loading ? (
+          <div className="p-4 space-y-2">
+            {[0,1,2,3,4].map(i => <Skeleton key={i} className="h-8 w-full" />)}
+          </div>
+        ) : rawList.length === 0 ? (
+          <CardContent className="flex flex-col items-center justify-center py-16 gap-2">
+            <ShoppingCart size={36} className="text-muted-foreground opacity-20" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">Brak zamówień</CardTitle>
+            <CardDescription>Dodaj pierwsze zamówienie od klienta</CardDescription>
+          </CardContent>
+        ) : filtered.length === 0 ? (
+          <CardContent className="flex flex-col items-center justify-center py-10 gap-2">
+            <Search size={28} className="text-muted-foreground opacity-20" />
+            <CardDescription>Brak wyników</CardDescription>
+          </CardContent>
+        ) : (
+          <div className="overflow-auto max-h-[calc(100vh-12rem)]">
+            <table className="w-full text-xs tabular-nums">
+              <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
+                <tr>
+                  <th className="w-6" />
+                  {[
+                    { col: 'orderNo'      as SortCol, label: 'Nr zam.',   align: 'left'  },
+                    { col: 'clientName'   as SortCol, label: 'Klient',    align: 'left'  },
+                    { col: 'orderDate'    as SortCol, label: 'Data',      align: 'left'  },
+                    { col: 'deliveryDate' as SortCol, label: 'Dostawa',   align: 'left'  },
+                    { col: 'status'       as SortCol, label: 'Status',    align: 'left'  },
+                    { col: 'totalUnits'   as SortCol, label: 'Szt',       align: 'right' },
+                    { col: 'totalKg'      as SortCol, label: 'Razem kg',  align: 'right' },
+                    { col: 'progress'     as SortCol, label: 'Postęp',    align: 'left'  },
+                  ].map(h => (
+                    <th
+                      key={h.col}
+                      onClick={() => toggleSort(h.col)}
+                      className={cn(
+                        'group cursor-pointer select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
+                        h.align === 'right' && 'text-right',
+                      )}
                     >
-                      <div className="px-4 pt-3 pb-2 flex items-center gap-3">
-                      {/* Fulfillment szt indicator */}
-                      {(() => {
-                        const done = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0), 0)
-                        const total = o.totalUnits
-                        if (done === 0) return null
-                        const allDone = done >= total
-                        return (
-                          <div className={`flex flex-col items-center min-w-[36px] ${allDone ? 'text-green-600' : 'text-amber-600'}`}>
-                            {allDone ? <CheckCircle2 size={18} /> : <Clock size={18} />}
-                            <span className="text-[10px] font-bold leading-tight mt-0.5">{done}/{total}</span>
-                            <span className="text-[9px] leading-none">szt</span>
-                          </div>
-                        )
-                      })()}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <code className="font-mono font-bold text-primary text-sm">{o.orderNo}</code>
-                          <Badge variant={STATUS_VARIANT[o.status]}>{STATUS_LABELS[o.status]}</Badge>
-                        </div>
-                        <CardTitle className="text-sm font-semibold">{o.clientName}</CardTitle>
-                        <CardDescription className="text-xs mt-0.5">
-                          {fmtDatePl(o.orderDate)} · {o.lines.length} poz. · {fmtKg(o.totalKg, 0)} kg · {o.totalUnits} szt
-                          {o.deliveryDate && ` · dostawa: ${fmtDatePl(o.deliveryDate)}`}
-                        </CardDescription>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs gap-1"
-                          onClick={e => {
-                            e.stopPropagation()
-                            const url = `/office/zamowienia/${o.id}/druk`
-                            const win = window.open(url, '_blank')
-                            if (!win || win.closed || typeof win.closed === 'undefined') {
-                              window.location.href = url
-                            }
-                          }}
-                          title="Drukuj zamówienie"
-                        >
-                          <Printer size={11} /> Drukuj
-                        </Button>
-                        {o.status === 'draft' && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs text-green-700 border-green-200 hover:bg-green-50 gap-1"
-                            onClick={e => { e.stopPropagation(); handleStatus(o.id, 'confirmed') }}
-                          >
-                            <Check size={11} /> Potwierdź
-                          </Button>
+                      <span className={cn('inline-flex items-center gap-1', h.align === 'right' && 'flex-row-reverse')}>
+                        {h.label}
+                        <SortIcon col={h.col} />
+                      </span>
+                    </th>
+                  ))}
+                  <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-right">Akcja</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((o, idx) => {
+                  const isExp = expanded === o.id
+                  const qtyDone = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0), 0)
+                  const kgDone  = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0) * l.kgPerUnit, 0)
+                  const pct     = progressOf(o)
+                  const isDue   = o.deliveryDate
+                    ? new Date(o.deliveryDate).getTime() - Date.now() < 1000 * 60 * 60 * 48
+                    : false
+
+                  return (
+                    <Fragment key={o.id}>
+                      <tr
+                        onClick={() => setExpanded(isExp ? null : o.id)}
+                        className={cn(
+                          'cursor-pointer border-b border-surface-3 transition-colors',
+                          idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
+                          isExp ? 'bg-blue-50/40' : 'hover:bg-blue-50/60',
                         )}
-                        {(o.status === 'draft' || o.status === 'confirmed') && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-primary"
-                            onClick={e => { e.stopPropagation(); setEditOrder(o) }}
-                          >
-                            <Pencil size={12} />
-                          </Button>
-                        )}
-                        {(o.status === 'draft' || o.status === 'confirmed') && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            onClick={e => { e.stopPropagation(); handleDelete(o.id) }}
-                          >
-                            <Trash2 size={12} />
-                          </Button>
-                        )}
-                        {isExp ? <ChevronUp size={16} className="text-muted-foreground" /> : <ChevronDown size={16} className="text-muted-foreground" />}
-                      </div>
-                      </div>
-                      {/* Pasek postępu kg */}
-                      {(() => {
-                        const kgDone = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0) * l.kgPerUnit, 0)
-                        if (kgDone <= 0) return null
-                        const pct = Math.min(100, Math.round(kgDone / o.totalKg * 100))
-                        const allDone = pct >= 100
-                        return (
-                          <div className="px-4 pb-3">
-                            <div className="flex justify-between items-center mb-1">
-                              <span className={`text-[11px] font-semibold ${allDone ? 'text-green-700' : 'text-amber-700'}`}>
-                                {fmtKg(kgDone, 0)} kg z {fmtKg(o.totalKg, 0)} kg
+                      >
+                        <td className="px-1 py-2 text-center text-muted-foreground">
+                          {isExp ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                        </td>
+                        <td className="px-2.5 py-2 whitespace-nowrap">
+                          <code className="font-mono font-bold text-primary text-[13px]">{o.orderNo}</code>
+                        </td>
+                        <td className="px-2.5 py-2 whitespace-nowrap text-ink font-medium max-w-[240px] truncate" title={o.clientName}>
+                          {o.clientName}
+                        </td>
+                        <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
+                          {fmtDatePl(o.orderDate)}
+                        </td>
+                        <td className="px-2.5 py-2 whitespace-nowrap">
+                          {o.deliveryDate ? (
+                            <span className={isDue && o.status !== 'done' && o.status !== 'cancelled' ? 'text-red-600 font-semibold' : 'text-ink-2'}>
+                              {fmtDatePl(o.deliveryDate)}
+                            </span>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="px-2.5 py-2 whitespace-nowrap">
+                          <Badge variant="outline" className={cn('text-[10px] font-medium', STATUS_BADGE_CLS[o.status])}>
+                            {STATUS_LABELS[o.status]}
+                          </Badge>
+                        </td>
+                        <td className="px-2.5 py-2 whitespace-nowrap text-right">
+                          {qtyDone > 0 ? (
+                            <>
+                              <span className={pct >= 100 ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
+                                {qtyDone}
                               </span>
-                              <span className={`text-[11px] font-bold ${allDone ? 'text-green-700' : 'text-amber-700'}`}>{pct}%</span>
+                              <span className="text-muted-foreground">/{o.totalUnits}</span>
+                            </>
+                          ) : (
+                            <span className="font-bold">{o.totalUnits}</span>
+                          )}
+                          <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
+                        </td>
+                        <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold text-emerald-700">
+                          {fmtKg(o.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span>
+                        </td>
+                        <td className="px-2.5 py-2 whitespace-nowrap min-w-[140px]">
+                          {qtyDone > 0 ? (
+                            <div className="flex items-center gap-2">
+                              <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden flex-1 max-w-[100px]">
+                                <div
+                                  className={cn('h-full rounded-full', pct >= 100 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-400' : 'bg-orange-400')}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                              <span className={cn('text-[11px] font-semibold tabular-nums', pct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>
+                                {pct}%
+                              </span>
                             </div>
-                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all ${allDone ? 'bg-green-500' : pct >= 50 ? 'bg-amber-400' : 'bg-orange-400'}`}
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-[11px]">—</span>
+                          )}
+                        </td>
+                        <td className="px-2 py-2 whitespace-nowrap text-right">
+                          <div className="inline-flex items-center gap-0.5">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const url = `/office/zamowienia/${o.id}/druk`
+                                const win = window.open(url, '_blank')
+                                if (!win || win.closed || typeof win.closed === 'undefined') {
+                                  window.location.href = url
+                                }
+                              }}
+                              className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
+                              title="Drukuj"
+                            >
+                              <Printer size={13}/>
+                            </button>
+                            {o.status === 'draft' && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleStatus(o.id, 'confirmed') }}
+                                className="inline-flex items-center justify-center w-7 h-7 rounded text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                title="Potwierdź"
+                              >
+                                <Check size={13}/>
+                              </button>
+                            )}
+                            {(o.status === 'draft' || o.status === 'confirmed') && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setEditOrder(o) }}
+                                className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
+                                title="Edytuj"
+                              >
+                                <Pencil size={13}/>
+                              </button>
+                            )}
+                            {(o.status === 'draft' || o.status === 'confirmed') && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDelete(o.id) }}
+                                className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                title="Usuń"
+                              >
+                                <Trash2 size={13}/>
+                              </button>
+                            )}
                           </div>
-                        )
-                      })()}
-                    </div>
+                        </td>
+                      </tr>
 
-                    {/* Expanded lines */}
-                    {isExp && (
-                      <div className="px-4 pb-4 bg-muted/20 border-t">
-                        <Table className="mt-3">
-                          <TableHeader>
-                            <TableRow className="hover:bg-transparent">
-                              {['','Szt','kg','Razem kg','Rodzaj','Receptura','Tuleja'].map(h => (
-                                <TableHead key={h} className="text-[9px] uppercase tracking-wide">{h}</TableHead>
-                              ))}
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {o.lines.map(l => {
-                              const qtyDone = (l as any).qtyDone ?? 0
-                              const isDone = qtyDone >= l.qty
-                              const isPartial = qtyDone > 0 && !isDone
-                              return (
-                                <TableRow key={l.id}>
-                                  <TableCell className="pr-1 pl-0 w-10">
-                                    {isDone ? (
-                                      <div className="flex flex-col items-center text-green-600">
-                                        <CheckCircle2 size={14}/>
-                                        <span className="text-[9px] font-bold leading-tight">{qtyDone}/{l.qty}</span>
-                                        <span className="text-[8px] leading-none">szt</span>
-                                      </div>
-                                    ) : isPartial ? (
-                                      <div className="flex flex-col items-center text-amber-600">
-                                        <Clock size={14}/>
-                                        <span className="text-[9px] font-bold leading-tight">{qtyDone}/{l.qty}</span>
-                                        <span className="text-[8px] leading-none">szt</span>
-                                      </div>
-                                    ) : null}
-                                  </TableCell>
-                                  <TableCell className="font-bold text-xs">{l.qty}</TableCell>
-                                  <TableCell className="text-xs">{l.kgPerUnit} kg</TableCell>
-                                  <TableCell>
-                                    <CardTitle className="text-xs text-primary tabular-nums">{fmtKg(l.totalKg, 0)} kg</CardTitle>
-                                  </TableCell>
-                                  <TableCell className="text-xs">{l.productTypeName || '—'}</TableCell>
-                                  <TableCell className="text-xs">{l.recipeName || '—'}</TableCell>
-                                  <TableCell>
-                                    <CardDescription className="text-xs">{l.packagingName || '—'}</CardDescription>
-                                  </TableCell>
-                                </TableRow>
-                              )
-                            })}
-                            <TableRow className="font-bold">
-                              <TableCell className="text-xs">{o.totalUnits} szt</TableCell>
-                              <TableCell />
-                              <TableCell>
-                                <CardTitle className="text-xs text-primary">{fmtKg(o.totalKg, 0)} kg</CardTitle>
-                              </TableCell>
-                              <TableCell colSpan={4} />
-                            </TableRow>
-                          </TableBody>
-                        </Table>
+                      {/* Rozwinięcie: pozycje + palety */}
+                      {isExp && (
+                        <tr>
+                          <td colSpan={10} className="bg-blue-50/20 border-b border-surface-3 px-4 py-3">
+                            {o.notes && (
+                              <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs">
+                                <span className="font-bold text-amber-700">Uwagi: </span>
+                                <span className="text-amber-900">{o.notes}</span>
+                              </div>
+                            )}
 
-                        <Separator className="my-3" />
+                            {/* Lines */}
+                            <div className="mb-3">
+                              <CardDescription className="text-[11px] font-bold uppercase tracking-wide mb-1.5">
+                                Pozycje zamówienia ({o.lines.length})
+                              </CardDescription>
+                              <div className="overflow-x-auto rounded border border-surface-3 bg-white">
+                                <table className="w-full text-xs tabular-nums">
+                                  <thead className="bg-surface-2">
+                                    <tr>
+                                      {['Status','Szt','kg','Razem kg','Rodzaj','Receptura','Tuleja'].map(h => (
+                                        <th key={h} className="px-2.5 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-2 whitespace-nowrap">{h}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {o.lines.map((l, li) => {
+                                      const lineDone = (l as any).qtyDone ?? 0
+                                      const isLineDone    = lineDone >= l.qty
+                                      const isLinePartial = lineDone > 0 && !isLineDone
+                                      return (
+                                        <tr key={l.id} className={li % 2 === 0 ? 'bg-white' : 'bg-surface-2/40'}>
+                                          <td className="px-2.5 py-2 whitespace-nowrap">
+                                            {isLineDone ? (
+                                              <Badge variant="outline" className="text-[10px] gap-1 bg-emerald-50 text-emerald-700 border-emerald-200">
+                                                <CheckCircle2 size={10}/> {lineDone}/{l.qty}
+                                              </Badge>
+                                            ) : isLinePartial ? (
+                                              <Badge variant="outline" className="text-[10px] gap-1 bg-amber-50 text-amber-700 border-amber-200">
+                                                <Clock size={10}/> {lineDone}/{l.qty}
+                                              </Badge>
+                                            ) : (
+                                              <span className="text-muted-foreground text-[11px]">—</span>
+                                            )}
+                                          </td>
+                                          <td className="px-2.5 py-2 font-bold">{l.qty}<span className="text-muted-foreground font-normal text-[11px]"> szt</span></td>
+                                          <td className="px-2.5 py-2 text-ink-2">{l.kgPerUnit}<span className="text-muted-foreground text-[11px]"> kg</span></td>
+                                          <td className="px-2.5 py-2 font-bold text-emerald-700">{fmtKg(l.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span></td>
+                                          <td className="px-2.5 py-2 text-ink">{l.productTypeName || <span className="text-muted-foreground">—</span>}</td>
+                                          <td className="px-2.5 py-2 text-ink-2">{l.recipeName || <span className="text-muted-foreground">—</span>}</td>
+                                          <td className="px-2.5 py-2 text-ink-2">{l.packagingName || <span className="text-muted-foreground">—</span>}</td>
+                                        </tr>
+                                      )
+                                    })}
+                                    <tr className="border-t-2 border-surface-4 bg-surface-2/60 font-bold">
+                                      <td className="px-2.5 py-2 text-[11px] uppercase tracking-wider text-ink-2">Suma</td>
+                                      <td className="px-2.5 py-2">{o.totalUnits}<span className="text-muted-foreground font-normal text-[11px]"> szt</span></td>
+                                      <td />
+                                      <td className="px-2.5 py-2 text-emerald-700">{fmtKg(o.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span></td>
+                                      <td colSpan={3} />
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
 
-                        <PalletsEditor orderId={o.id} lines={o.lines} />
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </CardContent>
+                            {/* Progress (jeśli jakikolwiek) */}
+                            {kgDone > 0 && (
+                              <div className="mb-3 px-3 py-2 bg-white rounded border border-surface-3">
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <span className={cn('text-xs font-semibold', pct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>
+                                    Wyprodukowano {fmtKg(kgDone, 0)} kg z {fmtKg(o.totalKg, 0)} kg
+                                  </span>
+                                  <span className={cn('text-xs font-bold', pct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>{pct}%</span>
+                                </div>
+                                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                  <div
+                                    className={cn('h-full rounded-full transition-all', pct >= 100 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-400' : 'bg-orange-400')}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Palety */}
+                            <PalletsEditor orderId={o.id} lines={o.lines} />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+              <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
+                <tr>
+                  <td className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2" colSpan={6}>
+                    Suma · {filtered.length} zamówień
+                  </td>
+                  <td className="px-2.5 py-2 text-right font-bold tabular-nums text-ink">
+                    {totalUnits}<span className="text-muted-foreground font-normal text-[11px]"> szt</span>
+                  </td>
+                  <td className="px-2.5 py-2 text-right font-bold tabular-nums text-emerald-700">
+                    {fmtKg(totalKg, 0)} kg
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
       </Card>
 
       {/* New order modal */}
