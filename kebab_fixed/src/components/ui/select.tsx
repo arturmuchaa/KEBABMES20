@@ -60,12 +60,17 @@ SelectScrollDownButton.displayName = SelectPrimitive.ScrollDownButton.displayNam
 const SelectContent = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "popper", ...props }, ref) => (
+>(({ className, children, position = "popper", sideOffset = 4, collisionPadding = 8, ...props }, ref) => (
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       ref={ref}
+      sideOffset={sideOffset}
+      collisionPadding={collisionPadding}
       className={cn(
-        "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-modal data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        // max-h przekazywane do --radix-select-content-available-height — ogranicza wysokość
+        // dropdownu, gdy nie mieści się między triggerem a krawędzią okna.
+        "relative z-[100] max-h-[min(384px,var(--radix-select-content-available-height,384px))] min-w-[8rem] overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-modal",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
         position === "popper" &&
           "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
         className
@@ -74,11 +79,18 @@ const SelectContent = React.forwardRef<
       {...props}
     >
       <SelectScrollUpButton />
+      {/*
+        BUG: Stary szablon shadcn ustawiał Viewport h-[var(--radix-select-trigger-height)]
+        — czyli wymuszał wysokość Viewportu na wysokość triggera (np. 36px). Przy zoom
+        przeglądarki ≠ 100% albo przy mniejszych triggerach (h-8) Radix robił niespójne
+        obliczenia i lista wypadała poza popover. Usuwamy h-* — Viewport sam rośnie
+        z itemami do max-h ustawionego na Content (powyżej).
+      */}
       <SelectPrimitive.Viewport
         className={cn(
           "p-1",
           position === "popper" &&
-            "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]"
+            "w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1"
         )}
       >
         {children}
