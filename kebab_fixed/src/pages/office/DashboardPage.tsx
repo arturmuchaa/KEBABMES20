@@ -436,12 +436,13 @@ export function DashboardPage() {
   const currentlyProducing = productionTypes.filter(t => t.inProgress)
 
   // ── Live qty wyprodukowane (w trakcie) per zamówienie i per pozycja zamówienia ─
-  // Agregujemy qty_done z linii aktywnych planów, które wskazują na clientOrderId / clientOrderLineId.
-  // Sekcja "Zamówienia od klientów" sumuje to z finished_goods (po finish-day) — pokazuje live postęp,
-  // który rośnie z każdym wpisem operatora na tablecie (PATCH .../lines/{id}/progress).
-  const { inProgressQtyByOrderId, inProgressQtyByOrderLineId } = useMemo(() => {
-    const byOrder = new Map<string, number>()
-    const byLine  = new Map<string, number>()
+  // - inProgressByLine: tylko AKTYWNE plany — używane do badge "w produkcji"
+  // - totalDoneByLine: WSZYSTKIE plany (incl. status='done') — używane w rozwinięciu
+  //   jako sumaryczne "Wykonano" per pozycja, żeby po finish-day wartość nie znikała
+  const { inProgressQtyByOrderId, inProgressQtyByOrderLineId, totalDoneQtyByOrderLineId } = useMemo(() => {
+    const byOrder      = new Map<string, number>()
+    const byLine       = new Map<string, number>()
+    const byLineAll    = new Map<string, number>()
     for (const p of activePlans) {
       for (const l of (p.lines ?? [])) {
         const orderId = (l as any).clientOrderId || ''
@@ -452,8 +453,20 @@ export function DashboardPage() {
         if (orderLineId) byLine.set(orderLineId, (byLine.get(orderLineId) ?? 0) + qtyDone)
       }
     }
-    return { inProgressQtyByOrderId: byOrder, inProgressQtyByOrderLineId: byLine }
-  }, [activePlans])
+    for (const p of allPlans) {
+      for (const l of (p.lines ?? [])) {
+        const orderLineId = (l as any).clientOrderLineId || ''
+        const qtyDone = Number((l as any).qtyDone) || 0
+        if (qtyDone <= 0 || !orderLineId) continue
+        byLineAll.set(orderLineId, (byLineAll.get(orderLineId) ?? 0) + qtyDone)
+      }
+    }
+    return {
+      inProgressQtyByOrderId:      byOrder,
+      inProgressQtyByOrderLineId:  byLine,
+      totalDoneQtyByOrderLineId:   byLineAll,
+    }
+  }, [activePlans, allPlans])
 
   // ── Masowanie LIVE ─────────────────────────────────────────────
   const activeMixing = allMixing.filter(o => o.status !== 'done' && o.status !== 'cancelled')
@@ -1145,6 +1158,7 @@ export function DashboardPage() {
               finishedQtyByOrderNo={finishedQtyByOrderNo}
               inProgressQtyByOrderId={inProgressQtyByOrderId}
               inProgressByLineId={inProgressQtyByOrderLineId}
+              qtyDoneByLineId={totalDoneQtyByOrderLineId}
             />
           )}
         </CardContent>
@@ -1158,11 +1172,12 @@ export function DashboardPage() {
 // OrdersTable — dense table z zamówieniami w stylu Subiekt GT
 //   Klik wiersza rozwija inline pozycje zamówienia (line breakdown).
 // ─────────────────────────────────────────────────────────────────
-function OrdersTable({ orders, finishedQtyByOrderNo, inProgressQtyByOrderId, inProgressByLineId }: {
+function OrdersTable({ orders, finishedQtyByOrderNo, inProgressQtyByOrderId, inProgressByLineId, qtyDoneByLineId }: {
   orders: any[]
   finishedQtyByOrderNo: Map<string, number>
   inProgressQtyByOrderId: Map<string, number>
   inProgressByLineId: Map<string, number>
+  qtyDoneByLineId: Map<string, number>
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
 
@@ -1285,16 +1300,25 @@ function OrdersTable({ orders, finishedQtyByOrderNo, inProgressQtyByOrderId, inP
                           </thead>
                           <tbody>
                             {(o.lines ?? []).map((l: any, li: number) => {
+                              // Wykonano = qty_done ze wszystkich planów (active + done).
+                              // inProgressByLineId pokazałoby tylko aktywne — po finish-day
+                              // wartość znikałaby z rozwinięcia, mimo że produkcja się odbyła.
+                              const lineDone = qtyDoneByLineId.get(l.id) ?? 0
                               const linePending = inProgressByLineId.get(l.id) ?? 0
-                              const linePct     = Number(l.qty) > 0 ? Math.round((linePending / Number(l.qty)) * 100) : 0
+                              const linePct  = Number(l.qty) > 0 ? Math.round((lineDone / Number(l.qty)) * 100) : 0
                               return (
                                 <tr key={l.id} className={li % 2 === 0 ? 'bg-white' : 'bg-surface-2/40'}>
                                   <td className="px-2.5 py-2 font-bold">{l.qty}<span className="text-muted-foreground font-normal text-[11px]"> szt</span></td>
                                   <td className="px-2.5 py-2">
-                                    {linePending > 0 ? (
+                                    {lineDone > 0 ? (
                                       <>
-                                        <span className={cn('font-bold', linePct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>{linePending}</span>
+                                        <span className={cn('font-bold', linePct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>
+                                          {lineDone}
+                                        </span>
                                         <span className="text-muted-foreground"> ({linePct}%)</span>
+                                        {linePending > 0 && linePending < lineDone && (
+                                          <span className="text-[10px] text-amber-600 ml-1">· {linePending} w produkcji</span>
+                                        )}
                                       </>
                                     ) : <span className="text-muted-foreground">—</span>}
                                   </td>
