@@ -120,9 +120,11 @@ function EmptyCard({ icon, title, description }: {
 }
 
 /**
- * Status bar — pulsujący wskaźnik live + zegar + data. Kotwica wizualna na górze dashboardu.
+ * Status bar — wskaźnik live + zegar + data.
+ * "Na żywo" świeci się tylko gdy zakład faktycznie pracuje
+ * (przynajmniej jeden z procesów: rozbiór/masowanie/produkcja).
  */
-function DashboardStatusBar() {
+function DashboardStatusBar({ live }: { live: boolean }) {
   const [now, setNow] = useState(new Date())
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000)
@@ -135,15 +137,20 @@ function DashboardStatusBar() {
   return (
     <div className="flex items-center justify-between gap-4 px-5 py-3 rounded-xl border border-surface-4 bg-white shadow-sm">
       <div className="flex items-center gap-3 min-w-0">
-        <span className="relative flex h-2 w-2 flex-shrink-0">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+        {live ? (
+          <span className="relative flex h-2 w-2 flex-shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+          </span>
+        ) : (
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-slate-300 flex-shrink-0" />
+        )}
+        <span className={cn(
+          'text-[10px] font-semibold uppercase tracking-[0.18em] leading-none',
+          live ? 'text-ink-2' : 'text-slate-500',
+        )}>
+          {live ? 'Na żywo' : 'Oczekuje'}
         </span>
-        <div className="flex items-center gap-2 leading-none">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-2">Na żywo</span>
-          <span className="text-ink-5">·</span>
-          <span className="text-[11px] text-ink-3 truncate">odświeżanie co {POLL_MS / 1000}&nbsp;s</span>
-        </div>
       </div>
       <div className="flex items-center gap-3 text-xs">
         <div className="flex items-center gap-0 divide-x divide-surface-4">
@@ -490,7 +497,14 @@ export function DashboardPage() {
     <div className="space-y-6 animate-fade-in">
 
       {/* ── Status bar ────────────────────────────────────────── */}
-      <DashboardStatusBar />
+      {/* Czy zakład pracuje? — przynajmniej jeden proces aktywny. */}
+      {(() => {
+        const debLive  = todayDeb.length > 0
+        const mixLive  = activeMixing.some((o: any) => o.status === 'in_progress')
+        const prodLive = activePlans.some((p: any) =>
+          (p.lines ?? []).some((l: any) => (l.lineStatus ?? '') === 'IN_PROGRESS'))
+        return <DashboardStatusBar live={debLive || mixLive || prodLive} />
+      })()}
 
       {/* ── KPI row ───────────────────────────────────────────── */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
@@ -999,11 +1013,11 @@ export function DashboardPage() {
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <Package size={15} className="text-green-500" />
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Package size={13} className="text-green-500" />
                 Mięso z/s — po rozbiorze
               </CardTitle>
-              <CardDescription className="mt-0.5">
+              <CardDescription className="text-[11px] mt-0.5">
                 Suma kg per partia surowca · {meatByBatch.length} partii
               </CardDescription>
             </div>
@@ -1055,11 +1069,11 @@ export function DashboardPage() {
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <Boxes size={15} className="text-purple-500" />
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Boxes size={13} className="text-purple-500" />
                 Mięso przyprawione — magazyn
               </CardTitle>
-              <CardDescription className="mt-0.5">
+              <CardDescription className="text-[11px] mt-0.5">
                 Suma kg per receptura · {seasonedByRecipe.length} receptur
               </CardDescription>
             </div>
@@ -1106,11 +1120,11 @@ export function DashboardPage() {
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
           <div>
-            <CardTitle className="flex items-center gap-2">
-              <Truck size={15} className="text-amber-500" />
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Truck size={13} className="text-amber-500" />
               Zamówienia od klientów
             </CardTitle>
-            <CardDescription className="mt-0.5">
+            <CardDescription className="text-[11px] mt-0.5">
               Sortowanie od najszybszej daty wyjazdu · {visibleOrders.length} aktywnych
             </CardDescription>
           </div>
