@@ -112,9 +112,9 @@ export function FinishedGoodsPage() {
         <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3 flex-1 min-w-[260px]">
             <div className="relative flex-1 max-w-md">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
-                className="h-8 pl-8 pr-8 text-xs"
+                className="h-9 pl-9 pr-8 text-sm"
                 placeholder="Filtruj: nr partii, klient, receptura, tuleja, kg…"
                 value={filter}
                 onChange={e => setFilter(e.target.value)}
@@ -126,35 +126,35 @@ export function FinishedGoodsPage() {
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-ink"
                   title="Wyczyść"
                 >
-                  <X size={13}/>
+                  <X size={14}/>
                 </button>
               )}
             </div>
           </div>
 
           {/* Inline KPI — kompaktowe, magazynowo (Subiekt GT style) */}
-          <div className="flex items-center gap-4 text-[11px] tabular-nums">
+          <div className="flex items-center gap-4 text-xs tabular-nums">
             <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Pozycji:</CardDescription>
+              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Pozycji:</CardDescription>
               <span className="font-bold">{list.length}{list.length !== rawList.length && <span className="text-muted-foreground">/{rawList.length}</span>}</span>
             </div>
             <div className="w-px h-4 bg-surface-4" />
             <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Szt:</CardDescription>
+              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Szt:</CardDescription>
               <span className="font-bold">{totalQty}</span>
             </div>
             <div className="w-px h-4 bg-surface-4" />
             <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Kg:</CardDescription>
+              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Kg:</CardDescription>
               <span className="font-bold text-emerald-700">{fmtKg(totalKg, 0)}</span>
             </div>
             <div className="w-px h-4 bg-surface-4" />
             <button
               onClick={() => exportCsv(list)}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-surface-4 hover:bg-surface-2 text-[11px] font-medium"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-surface-4 hover:bg-surface-2 text-xs font-medium"
               title="Eksportuj CSV"
             >
-              <Download size={11}/> CSV
+              <Download size={12}/> CSV
             </button>
           </div>
         </div>
@@ -179,7 +179,7 @@ export function FinishedGoodsPage() {
           </CardContent>
         ) : (
           <div className="overflow-auto max-h-[calc(100vh-12rem)]">
-            <table className="w-full text-[11px] tabular-nums">
+            <table className="w-full text-xs tabular-nums">
               <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
                 <tr>
                   {[
@@ -195,7 +195,7 @@ export function FinishedGoodsPage() {
                       key={h.col}
                       onClick={() => toggleSort(h.col)}
                       className={cn(
-                        'group cursor-pointer select-none px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
+                        'group cursor-pointer select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
                         h.align === 'right' && 'text-right',
                       )}
                     >
@@ -221,23 +221,23 @@ export function FinishedGoodsPage() {
                         'hover:bg-blue-50/60'
                       )}
                     >
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-right font-bold">
+                      <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold">
                         {item.qtyAvailable}
-                        <span className="text-muted-foreground font-normal text-[10px]"> szt</span>
+                        <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-right text-ink-2">
-                        {item.kgPerUnit}
+                      <td className="px-2.5 py-2 whitespace-nowrap text-right text-ink-2">
+                        {item.kgPerUnit}<span className="text-muted-foreground font-normal text-[11px]"> kg</span>
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink">
+                      <td className="px-2.5 py-2 whitespace-nowrap text-ink">
                         {item.productTypeName || <span className="text-muted-foreground">—</span>}
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink-2 max-w-[200px] truncate" title={item.recipeName}>
+                      <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[200px] truncate" title={item.recipeName}>
                         {item.recipeName || <span className="text-muted-foreground">—</span>}
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink-2">
+                      <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
                         {item.packagingName || <span className="text-muted-foreground">—</span>}
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink-2 max-w-[220px]">
+                      <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[220px]">
                         {item.clientName ? (
                           <span className="truncate inline-block max-w-full align-bottom" title={item.clientName}>
                             {item.clientName}
@@ -246,16 +246,16 @@ export function FinishedGoodsPage() {
                           <span className="text-muted-foreground italic">—</span>
                         )}
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-right font-bold text-emerald-700">
-                        {fmtKg(totalRowKg, 0)}
+                      <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold text-emerald-700">
+                        {fmtKg(totalRowKg, 0)}<span className="font-normal text-[11px]"> kg</span>
                       </td>
-                      <td className="px-2 py-1.5 text-right">
+                      <td className="px-2 py-2 text-right">
                         <button
                           onClick={(e) => { e.stopPropagation(); setDetailItem(item) }}
                           className="inline-flex items-center justify-center w-6 h-6 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
                           title="Szczegóły / łańcuch partii"
                         >
-                          <Eye size={12} />
+                          <Eye size={13} />
                         </button>
                       </td>
                     </tr>
@@ -266,9 +266,9 @@ export function FinishedGoodsPage() {
                 <tr>
                   <td className="px-2.5 py-2 text-right font-bold tabular-nums text-ink">
                     {totalQty}
-                    <span className="text-muted-foreground font-normal text-[10px]"> szt</span>
+                    <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
                   </td>
-                  <td colSpan={5} className="px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-ink-2">
+                  <td colSpan={5} className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2">
                     Suma · {list.length} pozycji
                   </td>
                   <td className="px-2.5 py-2 text-right font-bold tabular-nums text-emerald-700">

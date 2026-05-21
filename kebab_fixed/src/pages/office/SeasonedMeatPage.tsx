@@ -122,7 +122,7 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
             {/* Łańcuch */}
             <Card className="bg-muted/40 border-transparent">
               <CardContent className="p-3">
-                <CardDescription className="text-[10px] font-bold uppercase tracking-wide mb-2">Łańcuch partii</CardDescription>
+                <CardDescription className="text-[11px] font-bold uppercase tracking-wide mb-2">Łańcuch partii</CardDescription>
                 <div className="flex items-center gap-1 flex-wrap">
                   {rawBatchNos.map(n => (
                     <code key={n} className="font-mono font-black text-blue-700 bg-blue-50 px-2 py-1 rounded text-xs">{n}</code>
@@ -209,7 +209,7 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
             {/* Masowanie */}
             <Card className="bg-muted/40 border-transparent">
               <CardContent className="p-3">
-                <CardDescription className="text-[10px] font-bold uppercase tracking-wide mb-2">Masowanie</CardDescription>
+                <CardDescription className="text-[11px] font-bold uppercase tracking-wide mb-2">Masowanie</CardDescription>
                 <div className="grid grid-cols-3 gap-2 text-xs">
                   <div>
                     <CardDescription className="text-xs">Zlecenie:</CardDescription>
@@ -290,9 +290,9 @@ export function SeasonedMeatPage() {
         <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3 flex-1 min-w-[260px]">
             <div className="relative flex-1 max-w-md">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
-                className="h-8 pl-8 pr-8 text-xs"
+                className="h-9 pl-9 pr-8 text-sm"
                 placeholder="Filtruj: nr partii, receptura, rodzaj, masownica, partia surowca…"
                 value={filter}
                 onChange={e => setFilter(e.target.value)}
@@ -306,21 +306,21 @@ export function SeasonedMeatPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 text-[11px] tabular-nums">
+          <div className="flex items-center gap-4 text-xs tabular-nums">
             <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Partii:</CardDescription>
+              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Partii:</CardDescription>
               <span className="font-bold">{list.length}{list.length !== raw.length && <span className="text-muted-foreground">/{raw.length}</span>}</span>
             </div>
             <div className="w-px h-4 bg-surface-4" />
             <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Wolne kg:</CardDescription>
+              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Wolne kg:</CardDescription>
               <span className="font-bold text-emerald-700">{fmtKg(totalFree, 0)}</span>
             </div>
             {totalReserved > 0 && (
               <>
                 <div className="w-px h-4 bg-surface-4" />
                 <div className="flex items-center gap-1.5">
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Rezerwacja:</CardDescription>
+                  <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Rezerwacja:</CardDescription>
                   <span className="font-bold text-amber-700">{fmtKg(totalReserved, 0)}</span>
                 </div>
               </>
@@ -352,7 +352,7 @@ export function SeasonedMeatPage() {
           </CardContent>
         ) : (
           <div className="overflow-auto max-h-[calc(100vh-12rem)]">
-            <table className="w-full text-[11px] tabular-nums">
+            <table className="w-full text-xs tabular-nums">
               <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
                 <tr>
                   {[
@@ -368,7 +368,7 @@ export function SeasonedMeatPage() {
                       key={h.col}
                       onClick={() => toggleSort(h.col)}
                       className={cn(
-                        'group cursor-pointer select-none px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
+                        'group cursor-pointer select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
                         h.align === 'right' && 'text-right',
                       )}
                     >
@@ -378,7 +378,7 @@ export function SeasonedMeatPage() {
                       </span>
                     </th>
                   ))}
-                  <th className="text-left px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-ink-2 whitespace-nowrap">
+                  <th className="text-left px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 whitespace-nowrap">
                     Łańcuch
                   </th>
                   <th className="w-8" />
@@ -398,34 +398,34 @@ export function SeasonedMeatPage() {
                         'hover:bg-blue-50/60'
                       )}
                     >
-                      <td className="px-2.5 py-1.5 whitespace-nowrap">
+                      <td className="px-2.5 py-2 whitespace-nowrap">
                         <code className="font-mono font-bold text-primary text-[12px]">{b.batchNo}</code>
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink font-medium max-w-[200px] truncate" title={b.recipeName}>
+                      <td className="px-2.5 py-2 whitespace-nowrap text-ink font-medium max-w-[200px] truncate" title={b.recipeName}>
                         {b.recipeName || <span className="text-muted-foreground">—</span>}
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink-2">
+                      <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
                         {b.productTypeName || <span className="text-muted-foreground">—</span>}
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-right font-bold text-emerald-700">
+                      <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold text-emerald-700">
                         {fmtKg(kgFree, 1)}
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-right">
+                      <td className="px-2.5 py-2 whitespace-nowrap text-right">
                         {kgReserved > 0
                           ? <span className="font-bold text-amber-700">{fmtKg(kgReserved, 1)}</span>
                           : <span className="text-muted-foreground">—</span>
                         }
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap">
+                      <td className="px-2.5 py-2 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
                           <span className="text-ink-2">{fmtDatePl(b.expiryDate)}</span>
                           {b.expiryDate && <ExpiryBadge date={b.expiryDate} />}
                         </div>
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink-2">
+                      <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
                         {b.completedAt ? fmtDatePl(b.completedAt.slice(0, 10)) : <span className="text-muted-foreground">—</span>}
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap">
+                      <td className="px-2.5 py-2 whitespace-nowrap">
                         <div className="flex items-center gap-1 flex-nowrap overflow-hidden max-w-[260px]">
                           {(b.rawBatchNos || []).slice(0, 2).map((n: string) => (
                             <code key={n} className="font-mono text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{n}</code>
@@ -452,7 +452,7 @@ export function SeasonedMeatPage() {
               </tbody>
               <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
                 <tr>
-                  <td colSpan={3} className="px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-ink-2">
+                  <td colSpan={3} className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2">
                     Suma · {list.length} partii
                   </td>
                   <td className="px-2.5 py-2 text-right font-bold tabular-nums text-emerald-700">
@@ -484,11 +484,11 @@ export function SeasonedMeatPage() {
           </button>
           {showHistory && (
             <div className="border-t overflow-auto max-h-[40vh]">
-              <table className="w-full text-[11px] tabular-nums">
+              <table className="w-full text-xs tabular-nums">
                 <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
                   <tr>
                     {['Nr partii','Receptura','Wyprodukowano','Ukończono','Źródło'].map(h => (
-                      <th key={h} className="px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-ink-2 text-left whitespace-nowrap">{h}</th>
+                      <th key={h} className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-left whitespace-nowrap">{h}</th>
                     ))}
                     <th className="w-8" />
                   </tr>
@@ -504,15 +504,15 @@ export function SeasonedMeatPage() {
                         'hover:bg-blue-50/60 hover:opacity-100'
                       )}
                     >
-                      <td className="px-2.5 py-1.5 whitespace-nowrap">
+                      <td className="px-2.5 py-2 whitespace-nowrap">
                         <code className="font-mono font-bold text-muted-foreground text-[12px]">{b.batchNo}</code>
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink-2">{b.recipeName || '—'}</td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink-2">{fmtKg(b.kgProduced, 1)} kg</td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-ink-2">
+                      <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">{b.recipeName || '—'}</td>
+                      <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">{fmtKg(b.kgProduced, 1)} kg</td>
+                      <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
                         {b.completedAt ? fmtDatePl(b.completedAt.slice(0, 10)) : '—'}
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap">
+                      <td className="px-2.5 py-2 whitespace-nowrap">
                         <code className="font-mono text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
                           {(b.rawBatchNos || []).join(', ') || '—'}
                         </code>

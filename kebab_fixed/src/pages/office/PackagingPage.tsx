@@ -189,9 +189,9 @@ export function PackagingPage() {
         <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3 flex-1 min-w-[260px]">
             <div className="relative flex-1 max-w-md">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
-                className="h-8 pl-8 pr-8 text-xs"
+                className="h-9 pl-9 pr-8 text-sm"
                 placeholder="Filtruj: nazwa, typ, dostawca…"
                 value={filter}
                 onChange={e => setFilter(e.target.value)}
@@ -205,14 +205,14 @@ export function PackagingPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 text-[11px] tabular-nums">
+          <div className="flex items-center gap-4 text-xs tabular-nums">
             <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Pozycji:</CardDescription>
+              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Pozycji:</CardDescription>
               <span className="font-bold">{list.length}{list.length !== rawList.length && <span className="text-muted-foreground">/{rawList.length}</span>}</span>
             </div>
             <div className="w-px h-4 bg-surface-4" />
             <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Dostępne:</CardDescription>
+              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Dostępne:</CardDescription>
               <span className="font-bold text-emerald-700">{totalAvail.toFixed(0)}</span>
             </div>
             <div className="w-px h-4 bg-surface-4" />
@@ -245,7 +245,7 @@ export function PackagingPage() {
           </CardContent>
         ) : (
           <div className="overflow-auto max-h-[calc(100vh-12rem)]">
-            <table className="w-full text-[11px] tabular-nums">
+            <table className="w-full text-xs tabular-nums">
               <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
                 <tr>
                   {[
@@ -259,7 +259,7 @@ export function PackagingPage() {
                       key={h.col}
                       onClick={() => toggleSort(h.col)}
                       className={cn(
-                        'group cursor-pointer select-none px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
+                        'group cursor-pointer select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
                         h.align === 'right' && 'text-right',
                       )}
                     >
@@ -281,23 +281,23 @@ export function PackagingPage() {
                       'hover:bg-blue-50/60'
                     )}
                   >
-                    <td className="px-2.5 py-1.5 whitespace-nowrap text-ink font-medium">
+                    <td className="px-2.5 py-2 whitespace-nowrap text-ink font-medium">
                       {item.name}
                     </td>
-                    <td className="px-2.5 py-1.5 whitespace-nowrap text-ink-2">
+                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
                       {TYPE_LABELS[item.type]}
                     </td>
-                    <td className="px-2.5 py-1.5 whitespace-nowrap text-right font-bold">
+                    <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold">
                       <span className={item.kgAvailable > 0 ? 'text-emerald-700' : 'text-muted-foreground'}>
                         {item.kgAvailable}
                       </span>
                       <span className="text-muted-foreground font-normal text-[10px]"> {item.unit}</span>
                     </td>
-                    <td className="px-2.5 py-1.5 whitespace-nowrap text-right text-ink-2">
+                    <td className="px-2.5 py-2 whitespace-nowrap text-right text-ink-2">
                       {item.kgUsed}
                       <span className="text-muted-foreground font-normal text-[10px]"> {item.unit}</span>
                     </td>
-                    <td className="px-2.5 py-1.5 whitespace-nowrap text-ink-2 max-w-[260px] truncate" title={item.supplierName || ''}>
+                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[260px] truncate" title={item.supplierName || ''}>
                       {item.supplierName || <span className="text-muted-foreground">—</span>}
                     </td>
                   </tr>
@@ -305,7 +305,7 @@ export function PackagingPage() {
               </tbody>
               <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
                 <tr>
-                  <td colSpan={2} className="px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-ink-2">
+                  <td colSpan={2} className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2">
                     Suma · {list.length} pozycji
                   </td>
                   <td className="px-2.5 py-2 text-right font-bold tabular-nums text-emerald-700">
