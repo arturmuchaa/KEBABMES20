@@ -1,12 +1,16 @@
 /**
  * ClientsPage — Kontrahenci
  */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { clientsApi } from '@/lib/apiClient'
 import { GusLookup, type GusCompanyData } from '@/components/ui/GusLookup'
 import { ViesLookup, type ViesCompanyData } from '@/components/ui/ViesLookup'
-import { Building2, Mail, Pencil, Phone, Plus, Search, Globe, Flag, Trash2, CheckCircle } from 'lucide-react'
+import {
+  Building2, Pencil, Plus, Search, Globe, Flag, Trash2, CheckCircle,
+  X, ChevronDown, ChevronUp, ChevronsUpDown, Download,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { Client, CreateClientDto } from '@/lib/mockApi'
 
@@ -14,7 +18,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Separator } from '@/components/ui/separator'
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from '@/components/ui/card'
@@ -249,6 +252,22 @@ function ClientForm({ initial, onSave, onClose }: {
   )
 }
 
+type SortCol = 'name' | 'nip' | 'city' | 'phone' | 'email'
+
+function exportCsv(rows: Client[]) {
+  const headers = ['Nazwa','NIP','REGON','Adres','Kod pocztowy','Miasto','Osoba kontaktowa','Telefon','E-mail']
+  const csv = [headers.join(';')].concat(rows.map(c => [
+    c.displayName || c.name, c.nip || '', c.regon || '',
+    c.address || '', c.postalCode || '', c.city || '',
+    c.contactName || '', c.phone || '', c.email || '',
+  ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(';'))).join('\n')
+  const blob = new Blob([new TextEncoder().encode('﻿' + csv)], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = `kontrahenci-${new Date().toISOString().slice(0,10)}.csv`; a.click()
+  URL.revokeObjectURL(url)
+}
+
 export function ClientsPage() {
   const { data: clientList, loading, refetch } = useApi(() => clientsApi.list())
   const [modal,  setModal]  = useState(false)
@@ -256,15 +275,46 @@ export function ClientsPage() {
   const [search, setSearch] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Client | null>(null)
   const [deleting,     setDeleting]     = useState(false)
+  const [sortCol, setSortCol] = useState<SortCol>('name')
+  const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc')
 
-  const clients = (clientList ?? []).filter(c => {
-    if (!c.active) return false
-    if (!search) return true
-    const s = search.toLowerCase()
-    return c.name.toLowerCase().includes(s)
-      || (c.displayName ?? '').toLowerCase().includes(s)
-      || (c.nip ?? '').includes(search)
-  })
+  const rawList = (clientList ?? []).filter(c => c.active)
+
+  const clients = useMemo(() => {
+    const q = search.toLowerCase().trim()
+    let result = rawList
+    if (q) {
+      result = rawList.filter(c =>
+        c.name.toLowerCase().includes(q)
+        || (c.displayName ?? '').toLowerCase().includes(q)
+        || (c.nip ?? '').toLowerCase().includes(q)
+        || (c.city ?? '').toLowerCase().includes(q)
+        || (c.phone ?? '').toLowerCase().includes(q)
+        || (c.email ?? '').toLowerCase().includes(q)
+      )
+    }
+    return [...result].sort((a, b) => {
+      let cmp = 0
+      const an = (a.displayName || a.name || '').toLowerCase()
+      const bn = (b.displayName || b.name || '').toLowerCase()
+      if (sortCol === 'name')  cmp = an.localeCompare(bn)
+      if (sortCol === 'nip')   cmp = (a.nip || '').localeCompare(b.nip || '')
+      if (sortCol === 'city')  cmp = (a.city || '').localeCompare(b.city || '')
+      if (sortCol === 'phone') cmp = (a.phone || '').localeCompare(b.phone || '')
+      if (sortCol === 'email') cmp = (a.email || '').localeCompare(b.email || '')
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [rawList, search, sortCol, sortDir])
+
+  const toggleSort = (col: SortCol) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
+
+  const SortIcon = ({ col }: { col: SortCol }) =>
+    sortCol === col
+      ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
+      : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60"/>
 
   async function handleSave(dto: CreateClientDto) {
     if (edit) await clientsApi.update(edit.id, dto)
@@ -292,88 +342,148 @@ export function ClientsPage() {
   }
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
 
-      {/* Search + action */}
-      <div className="flex gap-3">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Szukaj kontrahenta..."
-            className="pl-9"
-          />
-        </div>
-        <Button onClick={openAdd}>
-          <Plus size={14} className="mr-1.5" /> Dodaj kontrahenta
-        </Button>
-      </div>
-
-      {/* List card */}
+      {/* Toolbar */}
       <Card>
-        <div className="flex items-center justify-between px-5 py-3 border-b">
-          <CardTitle className="text-sm font-semibold">{clients.length} kontrahentów</CardTitle>
+        <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3 flex-1 min-w-[260px]">
+            <div className="relative flex-1 max-w-md">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-9 pl-9 pr-8 text-sm"
+                placeholder="Filtruj: nazwa, NIP, miasto, telefon, e-mail…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                autoFocus
+              />
+              {search && (
+                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-ink">
+                  <X size={14}/>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 text-xs tabular-nums">
+            <div className="flex items-center gap-1.5">
+              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Kontrahentów:</CardDescription>
+              <span className="font-bold">{clients.length}{clients.length !== rawList.length && <span className="text-muted-foreground">/{rawList.length}</span>}</span>
+            </div>
+            <div className="w-px h-4 bg-surface-4" />
+            <button onClick={() => exportCsv(clients)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-surface-4 hover:bg-surface-2 text-xs font-medium" title="Eksportuj CSV">
+              <Download size={12}/> CSV
+            </button>
+            <Button size="sm" className="h-7 px-2.5 text-xs gap-1" onClick={openAdd}>
+              <Plus size={12}/> Dodaj
+            </Button>
+          </div>
         </div>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-4 space-y-3">
-              {[0,1,2,3].map(i => <Skeleton key={i} className="h-14 w-full" />)}
-            </div>
-          ) : clients.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-2">
-              <Building2 size={36} className="text-muted-foreground opacity-20" />
-              <CardTitle className="text-sm font-medium text-muted-foreground">Brak kontrahentów</CardTitle>
-              <CardDescription>Dodaj pierwszego klienta klikając przycisk powyżej</CardDescription>
-            </div>
-          ) : (
-            <div className="divide-y">
-              {clients.map(c => (
-                <div key={c.id} className="px-4 py-3 flex items-center gap-3 hover:bg-muted/30 transition-colors">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <span className="text-primary font-black text-sm">{(c.displayName || c.name)[0]}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <CardTitle className="text-sm font-semibold">{c.displayName || c.name}</CardTitle>
-                      <code className="text-[10px] font-bold text-muted-foreground">{c.code}</code>
-                    </div>
-                    <div className="flex items-center gap-3 mt-0.5">
-                      {c.displayName && c.displayName !== c.name && (
-                        <CardDescription className="text-xs italic">{c.name}</CardDescription>
-                      )}
-                      {c.nip && <CardDescription className="text-xs">NIP: {c.nip}</CardDescription>}
-                      {(c.postalCode || c.city) && (
-                        <CardDescription className="text-xs">{[c.postalCode, c.city].filter(Boolean).join(' ')}</CardDescription>
-                      )}
-                      {c.phone && (
-                        <CardDescription className="flex items-center gap-1 text-xs">
-                          <Phone size={10} />{c.phone}
-                        </CardDescription>
-                      )}
-                      {c.email && (
-                        <CardDescription className="flex items-center gap-1 text-xs">
-                          <Mail size={10} />{c.email}
-                        </CardDescription>
-                      )}
-                    </div>
-                  </div>
-                  <Button variant="ghost" size="icon" onClick={() => openEdit(c)} className="h-8 w-8">
-                    <Pencil size={13} />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setDeleteTarget(c)}
-                    className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+      </Card>
+
+      {/* Tabela */}
+      <Card className="overflow-hidden">
+        {loading ? (
+          <div className="p-4 space-y-2">
+            {[0,1,2,3,4,5].map(i => <Skeleton key={i} className="h-8 w-full" />)}
+          </div>
+        ) : rawList.length === 0 ? (
+          <CardContent className="flex flex-col items-center justify-center py-16 gap-2">
+            <Building2 size={36} className="text-muted-foreground opacity-20" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">Brak kontrahentów</CardTitle>
+            <CardDescription>Dodaj pierwszego klienta przyciskiem powyżej</CardDescription>
+          </CardContent>
+        ) : clients.length === 0 ? (
+          <CardContent className="flex flex-col items-center justify-center py-10 gap-2">
+            <Search size={28} className="text-muted-foreground opacity-20" />
+            <CardDescription>Brak wyników dla „{search}"</CardDescription>
+          </CardContent>
+        ) : (
+          <div className="overflow-auto max-h-[calc(100vh-12rem)]">
+            <table className="w-full text-xs tabular-nums">
+              <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
+                <tr>
+                  {[
+                    { col: 'name'  as SortCol, label: 'Nazwa',   align: 'left' },
+                    { col: 'nip'   as SortCol, label: 'NIP',     align: 'left' },
+                    { col: 'city'  as SortCol, label: 'Miasto',  align: 'left' },
+                    { col: 'phone' as SortCol, label: 'Telefon', align: 'left' },
+                    { col: 'email' as SortCol, label: 'E-mail',  align: 'left' },
+                  ].map(h => (
+                    <th
+                      key={h.col}
+                      onClick={() => toggleSort(h.col)}
+                      className="group cursor-pointer select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap text-left"
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        {h.label}
+                        <SortIcon col={h.col} />
+                      </span>
+                    </th>
+                  ))}
+                  <th className="w-20 px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-right">Akcja</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clients.map((c, idx) => (
+                  <tr
+                    key={c.id}
+                    onClick={() => openEdit(c)}
+                    className={cn(
+                      'cursor-pointer border-b border-surface-3 transition-colors',
+                      idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
+                      'hover:bg-blue-50/60'
+                    )}
                   >
-                    <Trash2 size={13} />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
+                    <td className="px-2.5 py-2 whitespace-nowrap max-w-[280px]">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-ink truncate" title={c.displayName || c.name}>
+                          {c.displayName || c.name}
+                        </span>
+                        {c.code && <code className="font-mono text-[10px] font-bold text-muted-foreground">{c.code}</code>}
+                      </div>
+                      {c.displayName && c.displayName !== c.name && (
+                        <div className="text-[10px] text-muted-foreground italic truncate" title={c.name}>{c.name}</div>
+                      )}
+                    </td>
+                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
+                      {c.nip ? <code className="font-mono">{c.nip}</code> : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[200px] truncate" title={[c.postalCode, c.city].filter(Boolean).join(' ')}>
+                      {(c.postalCode || c.city)
+                        ? [c.postalCode, c.city].filter(Boolean).join(' ')
+                        : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
+                      {c.phone || <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[260px] truncate" title={c.email || ''}>
+                      {c.email || <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-2 py-2 whitespace-nowrap text-right">
+                      <div className="inline-flex items-center gap-0.5">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openEdit(c) }}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
+                          title="Edytuj"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(c) }}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          title="Usuń"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
       {/* Modal */}
