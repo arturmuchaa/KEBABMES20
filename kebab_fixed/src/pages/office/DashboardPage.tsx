@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { ProcessStatusBadge } from '@/features/operations/ProcessStatusBadge'
 import {
@@ -7,7 +7,7 @@ import {
   deboningApi,
 } from '@/lib/apiClient'
 import { ExpiryBadge, StatusBadge, computeDisplayStatus } from '@/components/ui/badge'
-import { fmtKg, fmtPct, fmtDatePl, getExpiryStatus, todayIso } from '@/lib/utils'
+import { fmtKg, fmtPct, fmtDatePl, getExpiryStatus, todayIso, cn } from '@/lib/utils'
 import { Link } from 'react-router-dom'
 
 import {
@@ -1020,38 +1020,32 @@ export function DashboardPage() {
                 description="Wykonaj rozbiór aby zasilić magazyn" />
             ) : (
               <div className="max-h-80 overflow-y-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead className="text-xs uppercase tracking-wide">Partia surowca</TableHead>
-                      <TableHead className="text-xs uppercase tracking-wide text-center">Lotów</TableHead>
-                      <TableHead className="text-xs uppercase tracking-wide">Najbliższa ważność</TableHead>
-                      <TableHead className="text-xs uppercase tracking-wide text-right">Razem</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {meatByBatch.map(g => (
-                      <TableRow key={g.rawBatchNo}>
-                        <TableCell>
-                          <code className="font-mono font-bold text-foreground text-xs bg-muted px-1.5 py-0.5 rounded">
-                            {g.rawBatchNo}
-                          </code>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant="outline" className="tabular-nums">{g.lots}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          {g.earliestExpiry ? <ExpiryBadge dateStr={g.earliestExpiry} /> : '—'}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <CardTitle className="text-sm font-semibold tabular-nums">
-                            {fmtKg(g.kg, 1)} kg
-                          </CardTitle>
-                        </TableCell>
-                      </TableRow>
+                <table className="w-full text-xs tabular-nums">
+                  <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
+                    <tr>
+                      <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-left">Partia surowca</th>
+                      <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-center">Lotów</th>
+                      <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-left">Ważność</th>
+                      <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-right">Razem</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {meatByBatch.map((g, idx) => (
+                      <tr key={g.rawBatchNo} className={cn('border-b border-surface-3', idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40', 'hover:bg-blue-50/60')}>
+                        <td className="px-2.5 py-2 whitespace-nowrap">
+                          <code className="font-mono font-bold text-foreground text-[12px] bg-muted px-1.5 py-0.5 rounded">{g.rawBatchNo}</code>
+                        </td>
+                        <td className="px-2.5 py-2 text-center text-ink-2">{g.lots}</td>
+                        <td className="px-2.5 py-2 whitespace-nowrap">
+                          {g.earliestExpiry ? <ExpiryBadge dateStr={g.earliestExpiry} /> : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="px-2.5 py-2 text-right whitespace-nowrap font-bold text-emerald-700">
+                          {fmtKg(g.kg, 1)}<span className="font-normal text-[11px]"> kg</span>
+                        </td>
+                      </tr>
                     ))}
-                  </TableBody>
-                </Table>
+                  </tbody>
+                </table>
               </div>
             )}
           </CardContent>
@@ -1082,32 +1076,26 @@ export function DashboardPage() {
                 description="Zakończ zlecenie masowania aby zasilić magazyn" />
             ) : (
               <div className="max-h-80 overflow-y-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead className="text-xs uppercase tracking-wide">Receptura</TableHead>
-                      <TableHead className="text-xs uppercase tracking-wide text-center">Szarż</TableHead>
-                      <TableHead className="text-xs uppercase tracking-wide text-right">Razem</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {seasonedByRecipe.map(g => (
-                      <TableRow key={g.recipeName}>
-                        <TableCell>
-                          <CardTitle className="text-sm font-semibold">{g.recipeName}</CardTitle>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant="outline" className="tabular-nums">{g.batches}</Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <CardTitle className="text-sm font-semibold tabular-nums">
-                            {fmtKg(g.kg, 1)} kg
-                          </CardTitle>
-                        </TableCell>
-                      </TableRow>
+                <table className="w-full text-xs tabular-nums">
+                  <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
+                    <tr>
+                      <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-left">Receptura</th>
+                      <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-center">Szarż</th>
+                      <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-right">Razem</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {seasonedByRecipe.map((g, idx) => (
+                      <tr key={g.recipeName} className={cn('border-b border-surface-3', idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40', 'hover:bg-blue-50/60')}>
+                        <td className="px-2.5 py-2 font-semibold text-ink">{g.recipeName}</td>
+                        <td className="px-2.5 py-2 text-center text-ink-2">{g.batches}</td>
+                        <td className="px-2.5 py-2 text-right whitespace-nowrap font-bold text-emerald-700">
+                          {fmtKg(g.kg, 1)}<span className="font-normal text-[11px]"> kg</span>
+                        </td>
+                      </tr>
                     ))}
-                  </TableBody>
-                </Table>
+                  </tbody>
+                </table>
               </div>
             )}
           </CardContent>
@@ -1138,21 +1126,12 @@ export function DashboardPage() {
             <EmptyCard icon={<Truck size={36} />} title="Brak aktywnych zamówień"
               description="Utwórz zamówienie w sekcji „Zamówienia od klientów”" />
           ) : (
-            <div className="divide-y">
-              {visibleOrders.map(o => {
-                const finished = finishedQtyByOrderNo.get(o.orderNo) ?? 0
-                const inProgress = inProgressQtyByOrderId.get(o.id) ?? 0
-                return (
-                  <OrderRow
-                    key={o.id}
-                    order={o}
-                    qtyDone={finished + inProgress}
-                    qtyInProgress={inProgress}
-                    inProgressByLineId={inProgressQtyByOrderLineId}
-                  />
-                )
-              })}
-            </div>
+            <OrdersTable
+              orders={visibleOrders}
+              finishedQtyByOrderNo={finishedQtyByOrderNo}
+              inProgressQtyByOrderId={inProgressQtyByOrderId}
+              inProgressByLineId={inProgressQtyByOrderLineId}
+            />
           )}
         </CardContent>
       </Card>
@@ -1162,104 +1141,168 @@ export function DashboardPage() {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// OrderRow — wiersz zamówienia z paskiem postępu i podglądem pozycji
+// OrdersTable — dense table z zamówieniami w stylu Subiekt GT
+//   Klik wiersza rozwija inline pozycje zamówienia (line breakdown).
 // ─────────────────────────────────────────────────────────────────
-function OrderRow({ order, qtyDone, qtyInProgress, inProgressByLineId }: {
-  order: any
-  qtyDone: number
-  qtyInProgress: number
+function OrdersTable({ orders, finishedQtyByOrderNo, inProgressQtyByOrderId, inProgressByLineId }: {
+  orders: any[]
+  finishedQtyByOrderNo: Map<string, number>
+  inProgressQtyByOrderId: Map<string, number>
   inProgressByLineId: Map<string, number>
 }) {
-  const [open, setOpen] = useState(false)
-  const qtyTotal = Number(order.totalUnits ?? 0)
-  const pct      = qtyTotal > 0 ? (qtyDone / qtyTotal) * 100 : 0
-  const isDue    = order.deliveryDate
-    ? new Date(order.deliveryDate).getTime() - Date.now() < 1000 * 60 * 60 * 48
-    : false
+  const [expanded, setExpanded] = useState<string | null>(null)
+
+  const ORDER_STATUS_BADGE_CLS: Record<string, string> = {
+    draft:         'bg-gray-50 text-gray-700 border-gray-200',
+    confirmed:     'bg-blue-50 text-blue-700 border-blue-200',
+    in_production: 'bg-amber-50 text-amber-700 border-amber-200',
+    done:          'bg-emerald-50 text-emerald-700 border-emerald-200',
+    cancelled:     'bg-red-50 text-red-700 border-red-200',
+  }
 
   return (
-    <div className="px-4 py-3 hover:bg-muted/30 transition-colors">
-      <div className="flex items-center gap-3 cursor-pointer" onClick={() => setOpen(v => !v)}>
-        <button className="text-muted-foreground hover:text-foreground transition-colors">
-          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </button>
+    <div className="overflow-auto max-h-[60vh]">
+      <table className="w-full text-xs tabular-nums">
+        <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
+          <tr>
+            <th className="w-6" />
+            <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-left">Nr zam.</th>
+            <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-left">Klient</th>
+            <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-left">Dostawa</th>
+            <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-left">Status</th>
+            <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-right">Szt</th>
+            <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-right">Razem kg</th>
+            <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-left min-w-[160px]">Postęp</th>
+          </tr>
+        </thead>
+        <tbody>
+          {orders.map((o, idx) => {
+            const isExp     = expanded === o.id
+            const finished  = finishedQtyByOrderNo.get(o.orderNo) ?? 0
+            const inProgress= inProgressQtyByOrderId.get(o.id) ?? 0
+            const qtyDone   = finished + inProgress
+            const qtyTotal  = Number(o.totalUnits ?? 0)
+            const pct       = qtyTotal > 0 ? Math.round((qtyDone / qtyTotal) * 100) : 0
+            const isDue     = o.deliveryDate
+              ? new Date(o.deliveryDate).getTime() - Date.now() < 1000 * 60 * 60 * 48
+              : false
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <code className="font-mono font-bold text-primary text-xs">{order.orderNo}</code>
-            <CardTitle className="text-sm truncate">{order.clientName}</CardTitle>
-            <Badge variant={ORDER_STATUS_VARIANT[order.status] ?? 'outline'} className="text-[10px]">
-              {ORDER_STATUS_LABEL[order.status] ?? order.status}
-            </Badge>
-            {qtyInProgress > 0 && (
-              <Badge variant="warning" className="text-[10px] gap-1">
-                <Zap size={9} /> w produkcji
-              </Badge>
-            )}
-            {order.deliveryDate && (
-              <Badge variant={isDue ? 'danger' : 'outline'} className="text-[10px] gap-1">
-                <Truck size={9} /> {fmtDatePl(order.deliveryDate)}
-              </Badge>
-            )}
-          </div>
-          <div className="mt-1.5 flex items-center gap-3">
-            <div className="flex-1 max-w-md">
-              <ProgressBar value={pct} color={pct >= 100 ? 'green' : pct > 0 ? 'amber' : 'blue'} height={6} />
-            </div>
-            <div className="text-xs tabular-nums whitespace-nowrap">
-              <span className="font-bold">{qtyDone} szt</span>
-              <span className="text-muted-foreground"> / {qtyTotal} szt</span>
-              <span className="ml-2 font-semibold text-amber-600">{pct.toFixed(0)}%</span>
-            </div>
-          </div>
-        </div>
-      </div>
+            return (
+              <Fragment key={o.id}>
+                <tr
+                  onClick={() => setExpanded(isExp ? null : o.id)}
+                  className={cn(
+                    'cursor-pointer border-b border-surface-3 transition-colors',
+                    idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
+                    isExp ? 'bg-blue-50/40' : 'hover:bg-blue-50/60',
+                  )}
+                >
+                  <td className="px-1 py-2 text-center text-muted-foreground">
+                    {isExp ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
+                  </td>
+                  <td className="px-2.5 py-2 whitespace-nowrap">
+                    <code className="font-mono font-bold text-primary text-[12px]">{o.orderNo}</code>
+                  </td>
+                  <td className="px-2.5 py-2 whitespace-nowrap text-ink font-medium max-w-[220px] truncate" title={o.clientName}>
+                    {o.clientName}
+                  </td>
+                  <td className="px-2.5 py-2 whitespace-nowrap">
+                    {o.deliveryDate ? (
+                      <span className={isDue && o.status !== 'done' && o.status !== 'cancelled' ? 'text-red-600 font-semibold' : 'text-ink-2'}>
+                        {fmtDatePl(o.deliveryDate)}
+                      </span>
+                    ) : <span className="text-muted-foreground">—</span>}
+                  </td>
+                  <td className="px-2.5 py-2 whitespace-nowrap">
+                    <Badge variant="outline" className={cn('text-[10px] font-medium', ORDER_STATUS_BADGE_CLS[o.status] || '')}>
+                      {ORDER_STATUS_LABEL[o.status] ?? o.status}
+                    </Badge>
+                    {inProgress > 0 && (
+                      <Badge variant="warning" className="text-[10px] ml-1 gap-1">
+                        <Zap size={9}/> w produkcji
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="px-2.5 py-2 whitespace-nowrap text-right">
+                    {qtyDone > 0 ? (
+                      <>
+                        <span className={pct >= 100 ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>{qtyDone}</span>
+                        <span className="text-muted-foreground">/{qtyTotal}</span>
+                      </>
+                    ) : (
+                      <span className="font-bold">{qtyTotal}</span>
+                    )}
+                    <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
+                  </td>
+                  <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold text-emerald-700">
+                    {fmtKg(o.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span>
+                  </td>
+                  <td className="px-2.5 py-2 whitespace-nowrap">
+                    {qtyTotal > 0 && (
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden flex-1 max-w-[140px]">
+                          <div
+                            className={cn('h-full rounded-full', pct >= 100 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-400' : pct > 0 ? 'bg-orange-400' : 'bg-slate-300')}
+                            style={{ width: `${Math.max(pct, 2)}%` }}
+                          />
+                        </div>
+                        <span className={cn('text-[11px] font-semibold tabular-nums', pct >= 100 ? 'text-emerald-700' : pct > 0 ? 'text-amber-700' : 'text-muted-foreground')}>
+                          {pct}%
+                        </span>
+                      </div>
+                    )}
+                  </td>
+                </tr>
 
-      {open && (
-        <div className="mt-3 pl-7">
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="text-[10px] uppercase tracking-wide">Szt</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-wide">Wykonano</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-wide">kg</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-wide">Razem kg</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-wide">Rodzaj</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-wide">Receptura</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-wide">Tuleja</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(order.lines ?? []).map((l: any) => {
-                const lineDone = inProgressByLineId.get(l.id) ?? 0
-                const linePct = Number(l.qty) > 0 ? (lineDone / Number(l.qty)) * 100 : 0
-                return (
-                  <TableRow key={l.id}>
-                    <TableCell className="font-bold text-xs">{l.qty}</TableCell>
-                    <TableCell className="text-xs tabular-nums">
-                      <span className={`font-bold ${
-                        linePct >= 100 ? 'text-green-600' : lineDone > 0 ? 'text-amber-600' : 'text-muted-foreground'
-                      }`}>{lineDone}</span>
-                      <span className="text-muted-foreground"> ({linePct.toFixed(0)}%)</span>
-                    </TableCell>
-                    <TableCell className="text-xs">{l.kgPerUnit} kg</TableCell>
-                    <TableCell>
-                      <CardTitle className="text-xs text-primary tabular-nums">
-                        {fmtKg(l.totalKg, 0)} kg
-                      </CardTitle>
-                    </TableCell>
-                    <TableCell className="text-xs">{l.productTypeName || '—'}</TableCell>
-                    <TableCell className="text-xs">{l.recipeName || '—'}</TableCell>
-                    <TableCell>
-                      <CardDescription className="text-xs">{l.packagingName || '—'}</CardDescription>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+                {isExp && (
+                  <tr>
+                    <td colSpan={8} className="bg-blue-50/20 border-b border-surface-3 px-4 py-3">
+                      <CardDescription className="text-[11px] font-bold uppercase tracking-wide mb-1.5">
+                        Pozycje ({(o.lines ?? []).length})
+                      </CardDescription>
+                      <div className="overflow-x-auto rounded border border-surface-3 bg-white">
+                        <table className="w-full text-xs tabular-nums">
+                          <thead className="bg-surface-2">
+                            <tr>
+                              {['Szt','Wykonano','kg','Razem kg','Rodzaj','Receptura','Tuleja'].map(h => (
+                                <th key={h} className="px-2.5 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-2 whitespace-nowrap">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(o.lines ?? []).map((l: any, li: number) => {
+                              const linePending = inProgressByLineId.get(l.id) ?? 0
+                              const linePct     = Number(l.qty) > 0 ? Math.round((linePending / Number(l.qty)) * 100) : 0
+                              return (
+                                <tr key={l.id} className={li % 2 === 0 ? 'bg-white' : 'bg-surface-2/40'}>
+                                  <td className="px-2.5 py-2 font-bold">{l.qty}<span className="text-muted-foreground font-normal text-[11px]"> szt</span></td>
+                                  <td className="px-2.5 py-2">
+                                    {linePending > 0 ? (
+                                      <>
+                                        <span className={cn('font-bold', linePct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>{linePending}</span>
+                                        <span className="text-muted-foreground"> ({linePct}%)</span>
+                                      </>
+                                    ) : <span className="text-muted-foreground">—</span>}
+                                  </td>
+                                  <td className="px-2.5 py-2 text-ink-2">{l.kgPerUnit}<span className="text-muted-foreground text-[11px]"> kg</span></td>
+                                  <td className="px-2.5 py-2 font-bold text-emerald-700">{fmtKg(l.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span></td>
+                                  <td className="px-2.5 py-2 text-ink">{l.productTypeName || <span className="text-muted-foreground">—</span>}</td>
+                                  <td className="px-2.5 py-2 text-ink-2">{l.recipeName || <span className="text-muted-foreground">—</span>}</td>
+                                  <td className="px-2.5 py-2 text-ink-2">{l.packagingName || <span className="text-muted-foreground">—</span>}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
