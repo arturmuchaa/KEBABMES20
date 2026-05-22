@@ -60,11 +60,18 @@ SelectScrollDownButton.displayName = SelectPrimitive.ScrollDownButton.displayNam
 const SelectContent = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "item-aligned", sideOffset = 4, collisionPadding = 8, ...props }, ref) => (
-  // position="item-aligned" (default) — anchor jak natywny <select>: opcja
-  // zaznaczona ląduje nad triggerem, lista rośnie w górę/dół. Przy zoom 150%
-  // popper (floating-ui) gubił subpixel-math i opcje wypadały poza popover
-  // ("rozsypane po ekranie"). item-aligned nie używa transformów, jest stabilny.
+>(({ className, children, position = "popper", sideOffset = 4, collisionPadding = 8, ...props }, ref) => (
+  // position="popper" — floating-ui pozycjonuje listę pod/nad triggerem.
+  // item-aligned próbował kłaść zaznaczoną opcję NAD triggerem i przy triggerach
+  // blisko górnej krawędzi dialogu lista uciekała w górę poza viewport — wracamy
+  // do popper.
+  //
+  // KLUCZOWE: NIE nakładamy własnych `translate-*` na Content. floating-ui ustawia
+  // inline `transform: translate3d(...)` z pozycjami subpixel; każdy dodatkowy
+  // transform z klasy CSS jest nadpisany (inline > rules), więc i tak nie działa,
+  // a przy zoom 150% animacje slide-in z `translate-y-*` w klatkach kolidowały z
+  // tym co liczyła floating-ui i opcje wypadały poza popover ("rozsypane luzem").
+  // Zostają tylko fade + zoom (działają przez transform-origin, nie translate).
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       ref={ref}
@@ -74,9 +81,7 @@ const SelectContent = React.forwardRef<
         // max-h przekazywane do --radix-select-content-available-height — ogranicza wysokość
         // dropdownu, gdy nie mieści się między triggerem a krawędzią okna.
         "relative z-[100] max-h-[min(384px,var(--radix-select-content-available-height,384px))] min-w-[8rem] overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-modal",
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
-        position === "popper" &&
-          "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
         className
       )}
       position={position}
