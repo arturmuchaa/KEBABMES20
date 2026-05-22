@@ -60,23 +60,47 @@ SelectScrollDownButton.displayName = SelectPrimitive.ScrollDownButton.displayNam
 const SelectContent = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "popper", sideOffset = 4, collisionPadding = 8, ...props }, ref) => (
-  // position="popper" — floating-ui pozycjonuje listę pod/nad triggerem.
-  // item-aligned próbował kłaść zaznaczoną opcję NAD triggerem i przy triggerach
-  // blisko górnej krawędzi dialogu lista uciekała w górę poza viewport — wracamy
-  // do popper.
+>(({
+  className,
+  children,
+  position = "popper",
+  side = "bottom",
+  align = "start",
+  sideOffset = 4,
+  alignOffset = 0,
+  avoidCollisions = false,
+  ...props
+}, ref) => (
+  // === DLACZEGO TE PROPSY ===
   //
-  // KLUCZOWE: NIE nakładamy własnych `translate-*` na Content. floating-ui ustawia
-  // inline `transform: translate3d(...)` z pozycjami subpixel; każdy dodatkowy
-  // transform z klasy CSS jest nadpisany (inline > rules), więc i tak nie działa,
-  // a przy zoom 150% animacje slide-in z `translate-y-*` w klatkach kolidowały z
-  // tym co liczyła floating-ui i opcje wypadały poza popover ("rozsypane luzem").
-  // Zostają tylko fade + zoom (działają przez transform-origin, nie translate).
+  // Triggery Selecta w naszych modalach (np. ClientOrdersPage > "Nowe zamówienie")
+  // siedzą wewnątrz `<div max-h-[75vh] overflow-y-auto>` w DialogContent który ma
+  // `transform: translate(-50%,-50%)`. Radix `position="popper"` używa floating-ui,
+  // a floating-ui w połączeniu z (transformed ancestor + scroll-container + zoom
+  // przeglądarki ≠ 100%) potrafi "shiftować" popover w dół (collision-avoidance
+  // myśli że trafi w krawędź) → opcje pojawiają się 100-200px poniżej triggera,
+  // w środku formularza, "luzem". Item-aligned z kolei próbował przyłożyć
+  // zaznaczoną opcję NAD triggerem — przy triggerach blisko górnej krawędzi
+  // dialogu lista uciekała w górę.
+  //
+  // Rozwiązanie: zostaje `popper` (najbardziej przewidywalny), ale wyłączamy
+  // collision-avoidance i pinujemy popover deterministycznie pod triggerem
+  // (side=bottom, align=start). Jeśli się nie zmieści w dół, lepiej żeby się
+  // przewinął (overflow z max-h niżej) niż żeby "uciekał" gdzie indziej.
+  //
+  // NIE nakładamy własnych `translate-*` w className — floating-ui ustawia inline
+  // `transform: translate3d(...)` i każda klasa CSS z transform jest i tak
+  // nadpisana (inline > rules). Animacje slide-from-* właśnie tym translate'em
+  // zaśmiecały i przy zoom 150% gubiły subpixel-math. Zostają fade + zoom (te
+  // używają transform-origin, nie translate, więc współgrają z floating-ui).
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       ref={ref}
+      side={side}
+      align={align}
       sideOffset={sideOffset}
-      collisionPadding={collisionPadding}
+      alignOffset={alignOffset}
+      avoidCollisions={avoidCollisions}
       className={cn(
         // max-h przekazywane do --radix-select-content-available-height — ogranicza wysokość
         // dropdownu, gdy nie mieści się między triggerem a krawędzią okna.
