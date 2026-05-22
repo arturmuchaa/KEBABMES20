@@ -60,7 +60,11 @@ SelectScrollDownButton.displayName = SelectPrimitive.ScrollDownButton.displayNam
 const SelectContent = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "popper", sideOffset = 4, collisionPadding = 8, ...props }, ref) => (
+>(({ className, children, position = "item-aligned", sideOffset = 4, collisionPadding = 8, ...props }, ref) => (
+  // position="item-aligned" (default) — anchor jak natywny <select>: opcja
+  // zaznaczona ląduje nad triggerem, lista rośnie w górę/dół. Przy zoom 150%
+  // popper (floating-ui) gubił subpixel-math i opcje wypadały poza popover
+  // ("rozsypane po ekranie"). item-aligned nie używa transformów, jest stabilny.
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       ref={ref}
