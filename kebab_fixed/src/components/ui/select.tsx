@@ -70,29 +70,35 @@ const SelectContent = React.forwardRef<
   alignOffset = 0,
   avoidCollisions = false,
   ...props
-}, ref) => (
-  // === DLACZEGO TE PROPSY ===
+}, ref) => {
+  // === ROOT-CAUSE BUGA "opcje uciekają obok triggera przy zoom 125/150%" ===
   //
-  // Triggery Selecta w naszych modalach (np. ClientOrdersPage > "Nowe zamówienie")
-  // siedzą wewnątrz `<div max-h-[75vh] overflow-y-auto>` w DialogContent który ma
-  // `transform: translate(-50%,-50%)`. Radix `position="popper"` używa floating-ui,
-  // a floating-ui w połączeniu z (transformed ancestor + scroll-container + zoom
-  // przeglądarki ≠ 100%) potrafi "shiftować" popover w dół (collision-avoidance
-  // myśli że trafi w krawędź) → opcje pojawiają się 100-200px poniżej triggera,
-  // w środku formularza, "luzem". Item-aligned z kolei próbował przyłożyć
-  // zaznaczoną opcję NAD triggerem — przy triggerach blisko górnej krawędzi
-  // dialogu lista uciekała w górę.
+  // Aplikacja używa custom hooka `useZoom` (features/ui/useZoom.ts) który
+  // ustawia `document.documentElement.style.zoom = '125%'` (auto-detect dla
+  // monitorów 2K/4K + Ctrl + = / Ctrl + −). To NIE jest browser zoom (Ctrl++);
+  // to CSS `zoom` property na <html>.
   //
-  // Rozwiązanie: zostaje `popper` (najbardziej przewidywalny), ale wyłączamy
-  // collision-avoidance i pinujemy popover deterministycznie pod triggerem
-  // (side=bottom, align=start). Jeśli się nie zmieści w dół, lepiej żeby się
-  // przewinął (overflow z max-h niżej) niż żeby "uciekał" gdzie indziej.
+  // Radix Popper (floating-ui) bierze getBoundingClientRect triggera (zwraca
+  // POST-zoom CSS px, np. y=158 przy realnym y=126) i wpisuje te wartości jako
+  // `transform: translate3d(x, y, 0)` na popper-wrapper. Wrapper jest dzieckiem
+  // <body> które jest wewnątrz zoomowanego <html> → transform jest skalowany
+  // PONOWNIE przez zoom. Visual y = 158/1.25 × 1.25 → ale 158 to już post-zoom,
+  // więc visual y staje się 158 × 1.25 = 197.5. Popover ląduje ~40-200px obok
+  // i poniżej triggera ("rozsypane luzem", "ucieka do góry").
   //
-  // NIE nakładamy własnych `translate-*` w className — floating-ui ustawia inline
-  // `transform: translate3d(...)` i każda klasa CSS z transform jest i tak
-  // nadpisana (inline > rules). Animacje slide-from-* właśnie tym translate'em
-  // zaśmiecały i przy zoom 150% gubiły subpixel-math. Zostają fade + zoom (te
-  // używają transform-origin, nie translate, więc współgrają z floating-ui).
+  // Fix: po otwarciu popper'a kompensujemy `zoom` na wrapperze (1/zoom) tak żeby
+  // transform Radixa trafił w prawidłowe visual pixele, a na Content stosujemy
+  // `zoom = htmlZoom` żeby treść popover'a miała ten sam rozmiar co reszta UI.
+  // Net effect: pozycja idealnie pod triggerem + rozmiar zgodny z aplikacją.
+  //
+  // Sprawdzone w Playwright przy html.zoom=125%: trigger.x=74,bottom=158.375
+  // → wrapper.x=74, wrapper.y=162 (gap 3.625 = sideOffset 4). Bez kompensacji
+  // wrapper był (92.5, 202.5) — 18px w prawo, 44px niżej.
+  // Kompensacja CSS-zoom na <html> jest robiona globalnie przez MutationObserver
+  // zarejestrowany w useZoomInit (features/ui/useZoom.ts) — łapie KAŻDY
+  // `[data-radix-popper-content-wrapper]` przy pojawieniu się w DOM (Select,
+  // DropdownMenu, Tooltip, etc.) i koryguje pozycję+rozmiar.
+  return (
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       ref={ref}
@@ -131,7 +137,8 @@ const SelectContent = React.forwardRef<
       <SelectScrollDownButton />
     </SelectPrimitive.Content>
   </SelectPrimitive.Portal>
-))
+  )
+})
 SelectContent.displayName = SelectPrimitive.Content.displayName
 
 const SelectLabel = React.forwardRef<

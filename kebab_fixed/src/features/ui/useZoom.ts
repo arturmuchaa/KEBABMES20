@@ -65,8 +65,72 @@ function setValueInternal(v: ZoomStep) {
     // `zoom` jest niestandardowy ale wspierany przez wszystkie Chromium-based
     // (Tauri WebView2, Chrome, Edge). Bez rozmycia, scrollbary działają.
     ;(document.documentElement.style as any).zoom = v === 100 ? '' : `${v}%`
+    // Po zmianie zoom — repozycjonuj już otwarte popper'y (Select/Dropdown/Tooltip)
+    applyZoomCompensationToAll()
   }
   _subscribers.forEach(fn => fn())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kompensacja CSS `zoom` na <html> dla Radix Popper (Select/Dropdown/Tooltip)
+//
+// Problem: Radix popper (floating-ui) liczy pozycję triggera przez
+// getBoundingClientRect (zwraca POST-zoom CSS px) i wpisuje to jako
+// transform: translate3d(x, y, 0) na popper-wrapperze. Wrapper jest w <body>
+// które dziedziczy CSS `zoom` z <html>, więc transform jest skalowany PONOWNIE
+// → popover ląduje obok triggera (np. przy zoom 125% przesunięcie ~20% w prawo
+// i ~30% w dół).
+//
+// Fix: na każdym popper-wrapperze ustaw `zoom: 1/htmlZoom` (anuluje skalowanie
+// transformu) a na samym Content (dziecku wrappera) ustaw `zoom: htmlZoom`
+// (przywraca rozmiar zgodny z resztą UI). Net: pozycja idealnie pod triggerem,
+// rozmiar pasujący do reszty zoomowanej aplikacji.
+// ─────────────────────────────────────────────────────────────────────────────
+const POPPER_SELECTOR = '[data-radix-popper-content-wrapper]'
+
+function currentHtmlZoom(): number {
+  if (typeof document === 'undefined') return 1
+  const raw = (document.documentElement.style as any).zoom || ''
+  const n = parseFloat(raw)
+  if (isNaN(n) || n === 0) return 1
+  return n > 10 ? n / 100 : n
+}
+
+function applyZoomCompensation(wrapper: HTMLElement) {
+  const zoom = currentHtmlZoom()
+  // Content to bezpośrednie dziecko wrappera (Radix tak je opakowuje)
+  const content = wrapper.firstElementChild as HTMLElement | null
+  if (zoom === 1) {
+    ;(wrapper.style as any).zoom = ''
+    if (content) (content.style as any).zoom = ''
+    return
+  }
+  ;(wrapper.style as any).zoom = String(1 / zoom)
+  if (content) (content.style as any).zoom = String(zoom)
+}
+
+function applyZoomCompensationToAll() {
+  if (typeof document === 'undefined') return
+  document.querySelectorAll<HTMLElement>(POPPER_SELECTOR).forEach(applyZoomCompensation)
+}
+
+let _observer: MutationObserver | null = null
+function ensurePopperObserver() {
+  if (_observer || typeof document === 'undefined') return
+  _observer = new MutationObserver(muts => {
+    for (const m of muts) {
+      m.addedNodes.forEach(node => {
+        if (!(node instanceof HTMLElement)) return
+        if (node.matches?.(POPPER_SELECTOR)) {
+          applyZoomCompensation(node)
+        }
+        // Niektóre frameworki opakowują wrapper w dodatkowy node — sprawdź też
+        // dzieci dodanego węzła.
+        node.querySelectorAll?.<HTMLElement>(POPPER_SELECTOR).forEach(applyZoomCompensation)
+      })
+    }
+  })
+  _observer.observe(document.body, { childList: true, subtree: true })
 }
 
 function subscribe(fn: () => void) {
@@ -99,7 +163,8 @@ export function useZoom() {
  */
 export function useZoomInit() {
   useEffect(() => {
-    // Apply initial value
+    // Apply initial value + włącz globalny obserwator popperów
+    ensurePopperObserver()
     setValueInternal(getValue())
 
     function onKey(e: KeyboardEvent) {
