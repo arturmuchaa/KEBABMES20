@@ -17,6 +17,11 @@ const NAV: NavSection[] = [
     { to: '/office/kontrahenci', label: 'Kontrahenci', icon: <Building2 size={14} /> },
     { to: '/office/zamowienia',  label: 'Zamówienia',  icon: <ShoppingCart size={14} /> },
   ]},
+  { heading: 'Zamówienia — TEST', items: [
+    { to: '/office/zamowienia-test-a', label: 'Wariant A — tabela',      icon: <FlaskConical size={14} /> },
+    { to: '/office/zamowienia-test-b', label: 'Wariant B — klawiatura',  icon: <FlaskConical size={14} /> },
+    { to: '/office/zamowienia-test-c', label: 'Wariant C — szybki pasek', icon: <FlaskConical size={14} /> },
+  ]},
   { heading: 'Zakupy', items: [
     { to: '/office/faktury', label: 'Faktury zakupowe', icon: <CreditCard size={14} /> },
   ]},

@@ -29,11 +29,8 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-
-interface LineForm {
-  qty: string; kgPerUnit: string; productTypeId: string; recipeId: string; packagingId: string; notes: string
-}
-const emptyLine = (): LineForm => ({ qty: '', kgPerUnit: '', productTypeId: '', recipeId: '', packagingId: '', notes: '' })
+import { LinesEditor } from '@/features/orders/order-form/LinesEditor'
+import { emptyLine, type LineForm, type OrderLineVariant } from '@/features/orders/order-form/types'
 
 const STATUS_LABELS: Record<ClientOrder['status'], string> = {
   draft: 'Szkic', confirmed: 'Potwierdzone', in_production: 'W produkcji', done: 'Zrealizowane', cancelled: 'Anulowane',
@@ -46,9 +43,10 @@ interface OrderFormProps {
   onSave:       (dto: CreateClientOrderDto) => Promise<void>
   onClose:      () => void
   initialData?: ClientOrder
+  variant?:     OrderLineVariant
 }
 
-function OrderForm({ onSave, onClose, initialData }: OrderFormProps) {
+function OrderForm({ onSave, onClose, initialData, variant = 'cards' }: OrderFormProps) {
   const { data: clientList } = useApi(() => clientsApi.list())
   const { data: pkgList }    = useApi(() => packagingApi.list())
   const { productTypes }     = useProductTypes()
@@ -74,6 +72,8 @@ function OrderForm({ onSave, onClose, initialData }: OrderFormProps) {
   function setLine(i: number, k: keyof LineForm, v: string) {
     setLines(p => p.map((l, j) => j === i ? { ...l, [k]: v } : l))
   }
+  const addLine = () => setLines(p => [...p, emptyLine()])
+  const removeLine = (i: number) => setLines(p => p.filter((_, j) => j !== i))
 
   const totals = useMemo(() => ({
     totalUnits: lines.reduce((s, l) => s + (parseFloat(l.qty) || 0), 0),
@@ -140,72 +140,17 @@ function OrderForm({ onSave, onClose, initialData }: OrderFormProps) {
       {/* Pozycje */}
       <div className="space-y-3">
         <Label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Pozycje zamówienia</Label>
-        {lines.map((line, i) => {
-          const totalKg = (parseFloat(line.qty) || 0) * (parseFloat(line.kgPerUnit) || 0)
-          const filteredRecipes = recipes.filter(r =>
-            !line.productTypeId || !r.productTypeId || r.productTypeId === line.productTypeId
-          )
-          return (
-            <Card key={i} className="border-muted">
-              <CardContent className="p-3">
-                <div className="flex items-center justify-between mb-3">
-                  <CardDescription className="text-xs font-bold uppercase">Pozycja {i + 1}</CardDescription>
-                  {lines.length > 1 && (
-                    <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => setLines(p => p.filter((_, j) => j !== i))}>
-                      <X size={12} />
-                    </Button>
-                  )}
-                </div>
-                <div className="grid gap-2" style={{gridTemplateColumns: '80px 80px 1fr 1fr 1fr 90px'}}>
-                  <div className="space-y-1">
-                    <Label className="text-[9px]">Ilość (szt)</Label>
-                    <Input type="number" min="1" step="1" value={line.qty} onChange={e => setLine(i, 'qty', e.target.value)} placeholder="20" className="h-8 text-sm" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[9px]">kg</Label>
-                    <Input type="number" min="0.1" step="0.1" value={line.kgPerUnit} onChange={e => setLine(i, 'kgPerUnit', e.target.value)} placeholder="40" className="h-8 text-sm" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[9px]">Rodzaj produktu</Label>
-                    <Select value={line.productTypeId} onValueChange={v => { setLine(i, 'productTypeId', v); setLine(i, 'recipeId', '') }}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Wybierz..." /></SelectTrigger>
-                      <SelectContent>
-                        {(productTypes ?? []).map(pt => <SelectItem key={pt.id} value={pt.id}>{pt.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[9px]">Receptura</Label>
-                    <Select value={line.recipeId} onValueChange={v => setLine(i, 'recipeId', v)}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Wybierz..." /></SelectTrigger>
-                      <SelectContent>
-                        {filteredRecipes.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[9px]">Tuleja / opak.</Label>
-                    <Select value={line.packagingId || '__none'} onValueChange={v => setLine(i, 'packagingId', v === '__none' ? '' : v)}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="— brak —" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none">— brak —</SelectItem>
-                        {packaging.map(p => <SelectItem key={p.id} value={p.id}>{p.name} ({p.kgAvailable} {p.unit})</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex flex-col justify-end">
-                    <Card className="bg-blue-50 border-blue-200 h-8 flex items-center px-3">
-                      <span className="text-xs font-bold text-blue-700 tabular-nums whitespace-nowrap">= {fmtKg(totalKg, 0)} kg</span>
-                    </Card>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )
-        })}
-        <Button variant="ghost" size="sm" onClick={() => setLines(p => [...p, emptyLine()])} className="gap-1.5 text-primary">
-          <Plus size={13} /> Dodaj pozycję
-        </Button>
+        <LinesEditor
+          variant={variant}
+          lines={lines}
+          setLine={setLine}
+          setLines={setLines}
+          addLine={addLine}
+          removeLine={removeLine}
+          productTypes={productTypes ?? []}
+          recipes={recipes ?? []}
+          packaging={packaging}
+        />
       </div>
 
       {/* Suma */}
@@ -277,7 +222,7 @@ function exportCsv(rows: ClientOrder[]) {
   URL.revokeObjectURL(url)
 }
 
-export function ClientOrdersPage() {
+export function ClientOrdersPage({ variant = 'cards' }: { variant?: OrderLineVariant }) {
   const { data: orders, loading, refetch } = useApi(() => clientOrdersApi.list())
   const [modal,        setModal]        = useState(false)
   const [editOrder,    setEditOrder]    = useState<ClientOrder | null>(null)
@@ -706,7 +651,7 @@ export function ClientOrdersPage() {
             <DialogTitle>Nowe zamówienie od klienta</DialogTitle>
             <DialogDescription>Utwórz zamówienie z pozycjami produktów</DialogDescription>
           </DialogHeader>
-          <OrderForm onSave={handleCreate} onClose={() => setModal(false)} />
+          <OrderForm variant={variant} onSave={handleCreate} onClose={() => setModal(false)} />
         </DialogContent>
       </Dialog>
 
@@ -719,6 +664,7 @@ export function ClientOrdersPage() {
           </DialogHeader>
           {editOrder && (
             <OrderForm
+              variant={variant}
               initialData={editOrder}
               onSave={handleUpdate}
               onClose={() => setEditOrder(null)}
