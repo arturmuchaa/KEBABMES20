@@ -94,6 +94,10 @@ _DDL: list[str] = [
     "ALTER TABLE workers ADD COLUMN IF NOT EXISTS employer_cost_pct NUMERIC(5,2) DEFAULT 0",
     "ALTER TABLE workers ADD COLUMN IF NOT EXISTS employer_cost_amount NUMERIC(10,2) DEFAULT 0",
 
+    # ── Faktury: trwałe powiązanie pozycji (kalkulacja kosztu wg ceny z FZ) ──
+    "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS ingredient_id TEXT",
+    "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS packaging_id TEXT",
+
     # ── Payroll tables ──
     """CREATE TABLE IF NOT EXISTS payroll_settlements (
         id TEXT PRIMARY KEY,

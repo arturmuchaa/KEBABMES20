@@ -426,6 +426,21 @@ export const recipesApi = {
   calculate:  (id: string, kg: number) => get<any>(`/recipes/${id}/calculate?kg=${kg}`),
 }
 
+// ─── Kalkulacja kosztu wyrobu ─────────────────────────────────
+export interface CostParams { backsPrice: number; bonesPrice: number; plantPerKg: number }
+export const costApi = {
+  params:     () => get<CostParams>('/cost/params'),
+  saveParams: (p: CostParams) => put<CostParams>('/cost/params', p),
+  averages:   () => get<Record<string, number>>('/cost/averages'),
+  recipeCost: (recipeId: string, q: Record<string, unknown> = {}) => {
+    const qs = Object.entries(q)
+      .filter(([, v]) => v !== undefined && v !== null && v !== '')
+      .map(([k, v]) => `${k}=${encodeURIComponent(Array.isArray(v) ? v.join(',') : String(v))}`)
+      .join('&')
+    return get<any>(`/cost/recipe/${recipeId}${qs ? '?' + qs : ''}`)
+  },
+}
+
 // ─── Rodzaje produktów ────────────────────────────────────────
 // BUGFIX: Backend zwraca snake_case, frontend oczekuje camelCase + zawsze tablicę components
 function mapProductType(raw: any): ProductType {

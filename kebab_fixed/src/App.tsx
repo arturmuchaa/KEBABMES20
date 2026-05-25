@@ -17,6 +17,7 @@ import { PlaceholderPage }     from '@/pages/office/PlaceholderPage'
 import { FinishedGoodsPage }   from '@/pages/office/FinishedGoodsPage'
 import { PurchaseInvoicesPage } from '@/pages/office/PurchaseInvoicesPage'
 import { ClientOrdersPage } from '@/pages/office/ClientOrdersPage'
+import { CostCalculatorPage } from '@/pages/office/CostCalculatorPage'
 import { OrderPrintPage }   from '@/pages/office/OrderPrintPage'
 import { PalletLabelPrintPage } from '@/pages/office/PalletLabelPrintPage'
 import { CompanySettingsPage } from '@/pages/office/CompanySettingsPage'
@@ -90,6 +91,7 @@ export default function App() {
         <Route path="haccp-report"          element={<HaccpReportPage />} />
         <Route path="rodzaje-produktow"     element={<ProductTypesPage />} />
         <Route path="receptury"             element={<RecipesPage />} />
+        <Route path="kalkulacja-kosztow"    element={<CostCalculatorPage />} />
         <Route path="planowanie-masowania"  element={<PlanningPage />} />
         <Route path="planowanie-produkcji"  element={<ProductionPlanningPage />} />
         <Route path="pracownicy"            element={<WorkersPage />} />

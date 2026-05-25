@@ -53,9 +53,9 @@ def create_invoice(dto: InvoiceCreate) -> Dict:
             INSERT INTO invoices
                 (id, invoice_no, supplier_id, category, invoice_date, due_date,
                  qty, unit_price, vat_rate, total_net, total_vat, total_gross,
-                 raw_batch_id, notes, currency, exchange_rate, amount_eur,
-                 created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 raw_batch_id, ingredient_id, packaging_id, notes, currency,
+                 exchange_rate, amount_eur, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING *
             """,
             (
@@ -72,6 +72,8 @@ def create_invoice(dto: InvoiceCreate) -> Dict:
                 vat,
                 gross,
                 dto.raw_batch_id or None,
+                dto.ingredient_id or None,
+                dto.packaging_id or None,
                 dto.notes or None,
                 dto.currency or "PLN",
                 exchange_rate,

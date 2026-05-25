@@ -81,6 +81,7 @@ def create_app() -> FastAPI:
         vehicles,
         day_closures,
         stubs,
+        cost,
     )
     # Aliasujemy: app.routes.settings koliduje z app.config.settings używanym wyżej
     from app.routes import settings as settings_route  # noqa: E402
@@ -111,6 +112,7 @@ def create_app() -> FastAPI:
         vehicles,
         day_closures,
         stubs,
+        cost,
         settings_route,
     ):
         app.include_router(mod.router)
