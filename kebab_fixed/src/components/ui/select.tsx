@@ -71,33 +71,20 @@ const SelectContent = React.forwardRef<
   avoidCollisions = false,
   ...props
 }, ref) => {
-  // === ROOT-CAUSE BUGA "opcje uciekają obok triggera przy zoom 125/150%" ===
+  // === BUG "opcje uciekają obok triggera przy zoom 125/150%" ===
   //
   // Aplikacja używa custom hooka `useZoom` (features/ui/useZoom.ts) który
-  // ustawia `document.documentElement.style.zoom = '125%'` (auto-detect dla
-  // monitorów 2K/4K + Ctrl + = / Ctrl + −). To NIE jest browser zoom (Ctrl++);
-  // to CSS `zoom` property na <html>.
+  // ustawia `document.documentElement.style.zoom` (auto-detect dla monitorów
+  // 2K/4K + Ctrl + = / Ctrl + −). To NIE jest browser zoom (Ctrl++); to CSS
+  // `zoom` na <html>, a Radix Popper pozycjonuje się względem getBoundingClientRect
+  // triggera. Czy popover trafia pod trigger zależy od tego, czy gBCR skaluje
+  // współrzędne zoomem — a to różni się między silnikami Chromium (nowy WebView2
+  // skaluje, starszy nie). Stała kompensacja pod jeden silnik psuła drugi.
   //
-  // Radix Popper (floating-ui) bierze getBoundingClientRect triggera (zwraca
-  // POST-zoom CSS px, np. y=158 przy realnym y=126) i wpisuje te wartości jako
-  // `transform: translate3d(x, y, 0)` na popper-wrapper. Wrapper jest dzieckiem
-  // <body> które jest wewnątrz zoomowanego <html> → transform jest skalowany
-  // PONOWNIE przez zoom. Visual y = 158/1.25 × 1.25 → ale 158 to już post-zoom,
-  // więc visual y staje się 158 × 1.25 = 197.5. Popover ląduje ~40-200px obok
-  // i poniżej triggera ("rozsypane luzem", "ucieka do góry").
-  //
-  // Fix: po otwarciu popper'a kompensujemy `zoom` na wrapperze (1/zoom) tak żeby
-  // transform Radixa trafił w prawidłowe visual pixele, a na Content stosujemy
-  // `zoom = htmlZoom` żeby treść popover'a miała ten sam rozmiar co reszta UI.
-  // Net effect: pozycja idealnie pod triggerem + rozmiar zgodny z aplikacją.
-  //
-  // Sprawdzone w Playwright przy html.zoom=125%: trigger.x=74,bottom=158.375
-  // → wrapper.x=74, wrapper.y=162 (gap 3.625 = sideOffset 4). Bez kompensacji
-  // wrapper był (92.5, 202.5) — 18px w prawo, 44px niżej.
-  // Kompensacja CSS-zoom na <html> jest robiona globalnie przez MutationObserver
-  // zarejestrowany w useZoomInit (features/ui/useZoom.ts) — łapie KAŻDY
-  // `[data-radix-popper-content-wrapper]` przy pojawieniu się w DOM (Select,
-  // DropdownMenu, Tooltip, etc.) i koryguje pozycję+rozmiar.
+  // Pozycjonowanie/rozmiar popovera koryguje GLOBALNIE i ADAPTACYJNIE
+  // useZoomInit → MutationObserver w features/ui/useZoom.ts: wykrywa tryb gBCR
+  // w runtime i kompensuje `zoom` na `[data-radix-popper-content-wrapper]` tylko
+  // gdy trzeba (Select, DropdownMenu, Tooltip…). Pełne wyjaśnienie tam.
   return (
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
