@@ -49,6 +49,18 @@ do `OrderForm` w obu oknach (nowe/edycja).
 - Build przechodzi; popovery list rozwijanych działają (po wcześniejszym fixie zoomu).
 - Użytkownik może przeklikać 3 podstrony i wskazać najlepszą.
 
+## Decyzja (2026-05-25)
+Użytkownik przetestował 3 warianty i wybrał **C `quickadd`**. Wdrożono go jako
+docelowy edytor pozycji w `/office/zamowienia` (OrderForm renderuje
+`OrderLinesQuickAdd` bezpośrednio). Usunięto: podstrony testowe i routy
+`zamowienia-test-a|b|c`, sekcję menu „Zamówienia — TEST", oraz nieużywane
+komponenty wariantów (Cards/Table/Keyboard) i dispatcher LinesEditor.
+Pozostają `types.ts` + `OrderLinesQuickAdd.tsx`.
+
+Znana niedogodność wariantu C: w trybie EDYCJI istniejącego zamówienia pozycje
+z listy można usunąć, ale nie edytować w miejscu (trzeba usunąć i dodać ponownie
+przez pasek). Do rozważenia osobno, jeśli okaże się uciążliwe.
+
 ## Poza zakresem (YAGNI)
 - Brak nowych zależności (custom combobox); typeahead = wbudowany Radix Select.
 - Brak zmian w backendzie i modelu danych.

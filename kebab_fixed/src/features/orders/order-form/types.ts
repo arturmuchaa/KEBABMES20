@@ -17,8 +17,6 @@ export const emptyLine = (): LineForm => ({
   qty: '', kgPerUnit: '', productTypeId: '', recipeId: '', packagingId: '', notes: '',
 })
 
-export type OrderLineVariant = 'cards' | 'table' | 'keyboard' | 'quickadd'
-
 export interface ProductTypeLite { id: string; name: string }
 export interface RecipeLite { id: string; name: string; productTypeId?: string; productTypeName?: string }
 export interface PackagingLite { id: string; name: string; kgAvailable?: number; unit?: string }

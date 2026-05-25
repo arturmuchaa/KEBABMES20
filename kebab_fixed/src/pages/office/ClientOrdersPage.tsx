@@ -29,8 +29,8 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { LinesEditor } from '@/features/orders/order-form/LinesEditor'
-import { emptyLine, type LineForm, type OrderLineVariant } from '@/features/orders/order-form/types'
+import { OrderLinesQuickAdd } from '@/features/orders/order-form/OrderLinesQuickAdd'
+import { emptyLine, type LineForm } from '@/features/orders/order-form/types'
 
 const STATUS_LABELS: Record<ClientOrder['status'], string> = {
   draft: 'Szkic', confirmed: 'Potwierdzone', in_production: 'W produkcji', done: 'Zrealizowane', cancelled: 'Anulowane',
@@ -43,10 +43,9 @@ interface OrderFormProps {
   onSave:       (dto: CreateClientOrderDto) => Promise<void>
   onClose:      () => void
   initialData?: ClientOrder
-  variant?:     OrderLineVariant
 }
 
-function OrderForm({ onSave, onClose, initialData, variant = 'cards' }: OrderFormProps) {
+function OrderForm({ onSave, onClose, initialData }: OrderFormProps) {
   const { data: clientList } = useApi(() => clientsApi.list())
   const { data: pkgList }    = useApi(() => packagingApi.list())
   const { productTypes }     = useProductTypes()
@@ -140,8 +139,7 @@ function OrderForm({ onSave, onClose, initialData, variant = 'cards' }: OrderFor
       {/* Pozycje */}
       <div className="space-y-3">
         <Label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Pozycje zamówienia</Label>
-        <LinesEditor
-          variant={variant}
+        <OrderLinesQuickAdd
           lines={lines}
           setLine={setLine}
           setLines={setLines}
@@ -222,7 +220,7 @@ function exportCsv(rows: ClientOrder[]) {
   URL.revokeObjectURL(url)
 }
 
-export function ClientOrdersPage({ variant = 'cards' }: { variant?: OrderLineVariant }) {
+export function ClientOrdersPage() {
   const { data: orders, loading, refetch } = useApi(() => clientOrdersApi.list())
   const [modal,        setModal]        = useState(false)
   const [editOrder,    setEditOrder]    = useState<ClientOrder | null>(null)
@@ -651,7 +649,7 @@ export function ClientOrdersPage({ variant = 'cards' }: { variant?: OrderLineVar
             <DialogTitle>Nowe zamówienie od klienta</DialogTitle>
             <DialogDescription>Utwórz zamówienie z pozycjami produktów</DialogDescription>
           </DialogHeader>
-          <OrderForm variant={variant} onSave={handleCreate} onClose={() => setModal(false)} />
+          <OrderForm onSave={handleCreate} onClose={() => setModal(false)} />
         </DialogContent>
       </Dialog>
 
@@ -664,7 +662,6 @@ export function ClientOrdersPage({ variant = 'cards' }: { variant?: OrderLineVar
           </DialogHeader>
           {editOrder && (
             <OrderForm
-              variant={variant}
               initialData={editOrder}
               onSave={handleUpdate}
               onClose={() => setEditOrder(null)}

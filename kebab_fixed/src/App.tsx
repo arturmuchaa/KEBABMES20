@@ -79,9 +79,6 @@ export default function App() {
         <Route path="dostawcy"              element={<SuppliersPage />} />
         <Route path="kontrahenci"           element={<ClientsPage />} />
         <Route path="zamowienia"            element={<ClientOrdersPage />} />
-        <Route path="zamowienia-test-a"     element={<ClientOrdersPage variant="table" />} />
-        <Route path="zamowienia-test-b"     element={<ClientOrdersPage variant="keyboard" />} />
-        <Route path="zamowienia-test-c"     element={<ClientOrdersPage variant="quickadd" />} />
         <Route path="faktury"               element={<PurchaseInvoicesPage />} />
         <Route path="raw-batches"           element={<RawBatchesPage />} />
         <Route path="magazyn/surowiec"      element={<RawStockPage />} />
