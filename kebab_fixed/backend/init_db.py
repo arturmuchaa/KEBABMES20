@@ -103,6 +103,8 @@ CREATE TABLE IF NOT EXISTS ingredient_stock (
     id TEXT PRIMARY KEY, ingredient_id TEXT REFERENCES ingredients(id),
     ingredient_name TEXT, qty_available NUMERIC(10,3), qty_initial NUMERIC(10,3),
     expiry_date DATE, batch_no TEXT, supplier_id TEXT,
+    price_per_unit NUMERIC(10,4) DEFAULT 0,
+    invoice_no TEXT, received_date DATE, notes TEXT DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS product_types (

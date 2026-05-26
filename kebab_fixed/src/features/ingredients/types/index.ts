@@ -66,6 +66,8 @@ export interface IngredientReceipt {
   readonly pricePerUnit: number
   readonly invoiceNo?:   string          // FV lub WZ
   readonly receivedDate: string
+  readonly expiryDate?:  string
+  readonly batchNo?:     string
   readonly supplierId?:  string
   readonly notes?:       string
   readonly createdAt:    string
@@ -77,6 +79,8 @@ export interface CreateIngredientReceiptDto {
   pricePerUnit: number
   invoiceNo?:   string
   receivedDate: string
+  expiryDate?:  string
+  batchNo?:     string
   supplierId?:  string
   notes?:       string
 }

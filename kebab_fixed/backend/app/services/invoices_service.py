@@ -119,8 +119,9 @@ def create_invoice(dto: InvoiceCreate) -> Dict:
                     """
                     INSERT INTO ingredient_stock
                         (id, ingredient_id, qty_available, qty_initial,
-                         expiry_date, batch_no, created_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s)
+                         expiry_date, batch_no, supplier_id, price_per_unit,
+                         invoice_no, received_date, notes, created_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     (
                         stock_id,
@@ -129,6 +130,11 @@ def create_invoice(dto: InvoiceCreate) -> Dict:
                         dto.qty,
                         dto.expiry_date or None,
                         dto.batch_no or None,
+                        dto.supplier_id or None,
+                        dto.unit_price,
+                        dto.invoice_no or None,
+                        dto.invoice_date or None,
+                        dto.notes or None,
                         now_iso(),
                     ),
                 )

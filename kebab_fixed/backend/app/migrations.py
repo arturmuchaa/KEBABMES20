@@ -88,6 +88,12 @@ _DDL: list[str] = [
     # ── Mixing machine tracking ──
     "ALTER TABLE mixing_orders ADD COLUMN IF NOT EXISTS kg_in_machine NUMERIC(10,3) DEFAULT 0",
 
+    # ── Ingredient receipts metadata ──
+    "ALTER TABLE ingredient_stock ADD COLUMN IF NOT EXISTS price_per_unit NUMERIC(10,4) DEFAULT 0",
+    "ALTER TABLE ingredient_stock ADD COLUMN IF NOT EXISTS invoice_no TEXT",
+    "ALTER TABLE ingredient_stock ADD COLUMN IF NOT EXISTS received_date DATE",
+    "ALTER TABLE ingredient_stock ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT ''",
+
     # ── Worker payroll fields ──
     "ALTER TABLE workers ADD COLUMN IF NOT EXISTS rate_per_kg NUMERIC(10,4) DEFAULT 0",
     "ALTER TABLE workers ADD COLUMN IF NOT EXISTS contract_type TEXT DEFAULT 'zlecenie'",
@@ -256,8 +262,61 @@ def run_migrations() -> None:
     _seed_mixed_seq()
     _seed_vehicles()
     _backfill_lineage()
+    _backfill_ingredient_receipts()
     _migrate_plan_reservations_to_kg_reserved()
     logger.info("migrations.done")
+
+
+def _backfill_ingredient_receipts() -> None:
+    """Backfill receipt metadata from invoice-linked stock movements."""
+    try:
+        row = query_one(
+            """
+            WITH updated AS (
+                UPDATE ingredient_stock s
+                SET
+                    price_per_unit = CASE
+                        WHEN COALESCE(s.price_per_unit, 0) = 0
+                            THEN COALESCE(i.unit_price, 0)
+                        ELSE s.price_per_unit
+                    END,
+                    invoice_no = COALESCE(s.invoice_no, i.invoice_no),
+                    received_date = COALESCE(s.received_date, i.invoice_date),
+                    supplier_id = COALESCE(s.supplier_id, i.supplier_id),
+                    notes = CASE
+                        WHEN COALESCE(s.notes, '') = ''
+                            THEN COALESCE(i.notes, '')
+                        ELSE s.notes
+                    END
+                FROM stock_movements sm
+                JOIN invoices i ON i.id = sm.source_id
+                WHERE sm.batch_id = s.id
+                  AND sm.product_type = 'ingredient'
+                  AND sm.source_type = 'invoice'
+                  AND i.category = 'PRZYPRAWY_I_DODATKI'
+                  AND (
+                      COALESCE(s.price_per_unit, 0) = 0
+                      OR s.invoice_no IS NULL
+                      OR s.received_date IS NULL
+                      OR s.supplier_id IS NULL
+                      OR COALESCE(s.notes, '') = ''
+                  )
+                RETURNING s.id
+            )
+            SELECT COUNT(*)::int AS cnt FROM updated
+            """
+        )
+        fixed = int(row["cnt"]) if row and row.get("cnt") is not None else 0
+        if fixed:
+            logger.info(
+                "migrations.backfill_ingredient_receipts.done",
+                extra={"fixed": fixed},
+            )
+    except Exception as exc:
+        logger.warning(
+            "migrations.backfill_ingredient_receipts.error",
+            extra={"error": str(exc)},
+        )
 
 
 def _seed_vehicles() -> None:

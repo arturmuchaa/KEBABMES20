@@ -108,6 +108,7 @@ def create_app() -> FastAPI:
         deboning,
         machine_locks,
         vies,
+        vies.gus_router,
         traceability,
         vehicles,
         day_closures,

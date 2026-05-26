@@ -348,15 +348,19 @@ function mapIngredientStock(raw: any) {
 }
 
 function mapIngredientReceipt(raw: any): IngredientReceipt {
+  const legacyExpiry = typeof raw.notes === 'string'
+    ? raw.notes.match(/Ważność:\s*(\d{4}-\d{2}-\d{2})/)?.[1]
+    : undefined
+
   return {
     id:           raw.id,
     ingredientId: raw.ingredient_id  ?? raw.ingredientId  ?? '',
-    qty:          Number(raw.qty_available ?? raw.qty ?? 0),
+    qty:          Number(raw.qty_initial ?? raw.qty_available ?? raw.qty ?? 0),
     unit:         raw.unit           ?? 'kg',
     pricePerUnit: Number(raw.price_per_unit ?? raw.pricePerUnit ?? 0),
     invoiceNo:    raw.invoice_no     ?? raw.invoiceNo,
-    receivedDate: raw.created_at     ?? raw.receivedDate   ?? '',
-    expiryDate:   raw.expiry_date    ?? raw.expiryDate,
+    receivedDate: raw.received_date  ?? raw.receivedDate ?? raw.created_at ?? raw.createdAt ?? '',
+    expiryDate:   raw.expiry_date    ?? raw.expiryDate ?? legacyExpiry,
     batchNo:      raw.batch_no       ?? raw.batchNo,
     supplierId:   raw.supplier_id    ?? raw.supplierId,
     notes:        raw.notes,

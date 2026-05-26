@@ -14,11 +14,11 @@ export interface GusCompanyData {
   numer_lokalu?:  string
   kod_pocztowy?:  string
   miasto?:        string
+  adres?:         string
 }
 
 interface GusLookupProps { onFound: (d: GusCompanyData) => void }
 
-const GUS_KEY = 'bQnofjptVjNp8m2jL90lkSofEsluEoCJVORSAb5rzVTQ8ZrJodsECPrcQuUsEeTg'
 const BASE_API = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
   : (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -38,28 +38,16 @@ export function GusLookup({ onFound }: GusLookupProps) {
     if (clean.length !== 10) { setStatus('error'); setMsg('NIP musi mieć dokładnie 10 cyfr'); return }
     setStatus('loading'); setResult(null); setMsg('')
     try {
-      // Próba 1: przez backend proxy (brak CORS)
-      let data: any = null
-      try {
-        const proxyRes = await fetch(`${BASE_API}/gus/${clean}`)
-        if (proxyRes.ok) data = await proxyRes.json()
-      } catch {}
-
-      // Próba 2: bezpośrednio do dataport.pl
-      if (!data) {
-        const res = await fetch(
-          `https://dataport.pl/api/v1/company/${clean}?format=full`,
-          { headers: { 'X-API-Key': GUS_KEY, Accept: 'application/json' } }
-        )
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        data = await res.json()
-      }
+      const res = await fetch(`${BASE_API}/gus/${clean}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || `Błąd ${res.status}`)
 
       if (!data?.nazwa) { setStatus('error'); setMsg(data?.message ?? 'Nie znaleziono firmy w GUS'); return }
       const company: GusCompanyData = {
         nip: clean, regon: data.regon, nazwa: data.nazwa ?? '',
         ulica: data.ulica, numer_budynku: data.numer_budynku,
         numer_lokalu: data.numer_lokalu, kod_pocztowy: data.kod_pocztowy, miasto: data.miasto,
+        adres: data.adres,
       }
       setResult(company); setStatus('found'); onFound(company)
     } catch (e) {

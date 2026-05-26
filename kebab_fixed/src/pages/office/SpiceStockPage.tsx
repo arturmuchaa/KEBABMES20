@@ -48,6 +48,10 @@ function expiryFromNotes(notes?: string): string | undefined {
   return m?.[1]
 }
 
+function getReceiptExpiry(receipt?: { expiryDate?: string; notes?: string }) {
+  return receipt?.expiryDate || expiryFromNotes(receipt?.notes)
+}
+
 function ExpiryCell({ date }: { date?: string }) {
   if (!date) return <span className="text-muted-foreground">—</span>
   const { daysLeft } = getExpiryStatus(date)
@@ -77,7 +81,7 @@ function exportCsv(rows: any[], stockMap: Map<string, any>, receiptMap: Map<stri
       String(s?.qtyAvailable ?? 0).replace('.', ','),
       ing.unit,
       last ? fmtDatePl(last.receivedDate) : '',
-      expiryFromNotes(last?.notes) || '',
+      getReceiptExpiry(last) || '',
     ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(';')
   })).join('\n')
   const blob = new Blob([new TextEncoder().encode('﻿' + csv)], { type: 'text/csv;charset=utf-8' })
@@ -144,7 +148,7 @@ export function SpiceStockPage() {
       if (sortCol === 'qty')         cmp = (sa?.qtyAvailable ?? 0) - (sb?.qtyAvailable ?? 0)
       if (sortCol === 'unit')        cmp = (a.unit || '').localeCompare(b.unit || '')
       if (sortCol === 'lastReceipt') cmp = (recsA[0]?.receivedDate || '').localeCompare(recsB[0]?.receivedDate || '')
-      if (sortCol === 'expiry')      cmp = (expiryFromNotes(recsA[0]?.notes) || '').localeCompare(expiryFromNotes(recsB[0]?.notes) || '')
+      if (sortCol === 'expiry')      cmp = (getReceiptExpiry(recsA[0]) || '').localeCompare(getReceiptExpiry(recsB[0]) || '')
       return sortDir === 'asc' ? cmp : -cmp
     })
   }, [displayIngredients, filter, sortCol, sortDir, stockMap, receiptMap])
@@ -176,7 +180,7 @@ export function SpiceStockPage() {
       pricePerUnit: parseFloat(recPrice) || 0,
       invoiceNo:    recInvoice || undefined,
       receivedDate: recDate,
-      notes:        recExpiry ? `Ważność: ${recExpiry}` : undefined,
+      expiryDate:   recExpiry || undefined,
     })
     if (err) { toast.error(err); return }
     refetchReceipts()
@@ -294,7 +298,7 @@ export function SpiceStockPage() {
                   const last = recs[0]
                   const isExp = expanded === ing.id
                   const qty   = s?.qtyAvailable ?? 0
-                  const expDate = expiryFromNotes(last?.notes)
+                  const expDate = getReceiptExpiry(last)
 
                   return (
                     <Fragment key={ing.id}>
@@ -375,7 +379,7 @@ export function SpiceStockPage() {
                                         <code className="font-mono text-xs text-muted-foreground">{r.invoiceNo || '—'}</code>
                                       </TableCell>
                                       <TableCell className="py-1.5">
-                                        <ExpiryCell date={expiryFromNotes(r.notes)} />
+                                        <ExpiryCell date={getReceiptExpiry(r)} />
                                       </TableCell>
                                     </TableRow>
                                   ))}
