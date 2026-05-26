@@ -82,6 +82,7 @@ def create_app() -> FastAPI:
         day_closures,
         stubs,
         cost,
+        desktop_updates,
     )
     # Aliasujemy: app.routes.settings koliduje z app.config.settings używanym wyżej
     from app.routes import settings as settings_route  # noqa: E402
@@ -114,9 +115,10 @@ def create_app() -> FastAPI:
         day_closures,
         stubs,
         cost,
+        desktop_updates,
         settings_route,
     ):
-        app.include_router(mod.router)
+        app.include_router(getattr(mod, "router", mod))
 
     # ── Root + SPA fallback ───────────────────────────────────────
     _dist = str(settings.dist_dir)

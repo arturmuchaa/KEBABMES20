@@ -1,4 +1,4 @@
-"""Kalkulacja kosztu 1 kg wyrobu wg receptury.
+"""Kalkulacja ceny 1 kg wyrobu wg receptury.
 
 Hybryda: średnie z realnych danych (nadpisywalne w zapytaniu) + parametry z app_settings.
 Ceny składników/opakowań z OSTATNIEJ faktury danej pozycji (po ingredient_id/packaging_id).
@@ -24,6 +24,7 @@ logger = get_logger(__name__)
 
 COST_PARAMS_KEY = "cost_params"
 _DEFAULTS = {"backsPrice": 0.50, "bonesPrice": 0.02, "plantPerKg": 2.00}
+_WINDOWS = {"all": None, "today": 1, "7d": 7, "30d": 30}
 
 
 def _f(v, default: float = 0.0) -> float:
@@ -32,6 +33,23 @@ def _f(v, default: float = 0.0) -> float:
         return float(v) if v is not None else default
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_window(window: Optional[str]) -> str:
+    key = (window or "all").strip().lower()
+    if key not in _WINDOWS:
+        raise HTTPException(400, "Nieprawidłowy zakres cen")
+    return key
+
+
+def _window_sql(date_expr: str, window: str) -> str:
+    if window == "today":
+        return f" AND {date_expr} = CURRENT_DATE"
+    if window == "7d":
+        return f" AND {date_expr} >= CURRENT_DATE - INTERVAL '6 days'"
+    if window == "30d":
+        return f" AND {date_expr} >= CURRENT_DATE - INTERVAL '29 days'"
+    return ""
 
 
 # ── Parametry (app_settings) ───────────────────────────────────────────
@@ -65,10 +83,14 @@ def save_params(dto: CostParams) -> Dict:
 
 
 # ── Średnie z realnych danych ──────────────────────────────────────────
-def get_averages() -> Dict:
+def get_averages(window: Optional[str] = None) -> Dict:
+    window_key = _normalize_window(window)
     q = query_one(
-        """SELECT SUM(price_per_kg * kg_received) / NULLIF(SUM(kg_received), 0) AS v
-           FROM raw_batches WHERE price_per_kg > 0 AND kg_received > 0"""
+        f"""SELECT COUNT(*) AS rows,
+                   SUM(price_per_kg * kg_received) / NULLIF(SUM(kg_received), 0) AS v
+           FROM raw_batches
+           WHERE price_per_kg > 0 AND kg_received > 0
+             {_window_sql("COALESCE(received_date, created_at::date)", window_key)}"""
     )
     quarter_price = round(_f(q and q.get("v")), 4)
 
@@ -81,10 +103,13 @@ def get_averages() -> Dict:
     akord = round(_f(a and a.get("v")), 4)
 
     d = query_one(
-        """SELECT SUM(kg_meat) AS meat, SUM(kg_backs) AS backs,
+        f"""SELECT COUNT(*) AS rows,
+                  SUM(kg_meat) AS meat, SUM(kg_backs) AS backs,
                   SUM(kg_bones) AS bones, SUM(kg_quarter) AS quarter,
                   AVG(NULLIF(yield_pct, 0)) AS avg_yield
-           FROM deboning_entries WHERE kg_quarter > 0"""
+           FROM deboning_entries
+           WHERE kg_quarter > 0
+             {_window_sql("created_at::date", window_key)}"""
     )
     quarter_sum = _f(d and d.get("quarter"))
     if quarter_sum > 0:
@@ -96,27 +121,76 @@ def get_averages() -> Dict:
         backs_pct = 0.0
         bones_pct = 0.0
 
-    return {
+    result = {
         "quarterPrice": quarter_price,
         "akord": akord,
         "yieldPct": yield_pct,
         "backsPct": backs_pct,
         "bonesPct": bones_pct,
     }
+    if window_key == "all":
+        return result
+
+    fallback = get_averages("all")
+    if int(q.get("rows") or 0) == 0:
+        result["quarterPrice"] = fallback["quarterPrice"]
+    if int(d.get("rows") or 0) == 0:
+        result["yieldPct"] = fallback["yieldPct"]
+        result["backsPct"] = fallback["backsPct"]
+        result["bonesPct"] = fallback["bonesPct"]
+    return result
 
 
-def _latest_invoice_price(category: str, id_col: str, id_val: str) -> Optional[float]:
-    """Cena jednostkowa z ostatniej faktury danej pozycji. id_col jest stałą wewnętrzną."""
+def _invoice_price(category: str, id_col: str, id_val: str, window: str) -> Optional[float]:
+    """Cena jednostkowa danej pozycji z wybranego zakresu dat z fallbackiem do all-time."""
     if not id_val:
         return None
     row = query_one(
+        f"""SELECT COUNT(*) AS rows,
+                   SUM(unit_price * CASE WHEN COALESCE(qty, 0) > 0 THEN qty ELSE 1 END)
+                     / NULLIF(SUM(CASE WHEN COALESCE(qty, 0) > 0 THEN qty ELSE 1 END), 0) AS avg_price
+            FROM invoices
+            WHERE category = %s AND {id_col} = %s AND unit_price > 0
+              {_window_sql("COALESCE(invoice_date, created_at::date)", window)}""",
+        (category, id_val),
+    )
+    if row and int(row.get("rows") or 0) > 0 and row.get("avg_price") is not None:
+        return _f(row.get("avg_price"))
+    if window != "all":
+        return _invoice_price(category, id_col, id_val, "all")
+    latest = query_one(
         f"""SELECT unit_price FROM invoices
             WHERE category = %s AND {id_col} = %s AND unit_price > 0
             ORDER BY invoice_date DESC NULLS LAST, created_at DESC
             LIMIT 1""",
         (category, id_val),
     )
-    return _f(row.get("unit_price")) if row else None
+    return _f(latest.get("unit_price")) if latest else None
+
+
+def list_recipe_price_overview() -> List[Dict]:
+    recipes = query_all(
+        "SELECT id, name, product_type_name, total_output_per_100kg FROM recipes WHERE active = true ORDER BY name"
+    )
+    out: List[Dict] = []
+    for recipe in recipes:
+        prices: Dict[str, Dict] = {}
+        for window in ("today", "7d", "30d"):
+            calc = compute_recipe_cost(recipe["id"], {"window": window})
+            prices[window] = {
+                "costPerKg": round(_f(calc.get("costPerKgBase")), 4),
+                "hasMissingPrice": bool(calc.get("hasMissingPrice")),
+            }
+        out.append(
+            {
+                "recipeId": recipe["id"],
+                "recipeName": recipe.get("name"),
+                "productTypeName": recipe.get("product_type_name"),
+                "totalOutputPer100kg": round(_f(recipe.get("total_output_per_100kg"), 100.0), 3),
+                "prices": prices,
+            }
+        )
+    return out
 
 
 # ── Kalkulacja ─────────────────────────────────────────────────────────
@@ -129,7 +203,8 @@ def compute_recipe_cost(recipe_id: str, ov: Dict) -> Dict:
         (recipe_id,),
     )
 
-    avg = get_averages()
+    window = _normalize_window(str(ov.get("window") or "all"))
+    avg = get_averages(window)
     params = get_params()
 
     def pick(key: str, src: Dict, src_key: str) -> float:
@@ -158,8 +233,8 @@ def compute_recipe_cost(recipe_id: str, ov: Dict) -> Dict:
     any_missing = False
     for ing in ings:
         qty = _f(ing.get("qty_per_100kg"))
-        price = _latest_invoice_price(
-            "PRZYPRAWY_I_DODATKI", "ingredient_id", ing.get("ingredient_id") or ""
+        price = _invoice_price(
+            "PRZYPRAWY_I_DODATKI", "ingredient_id", ing.get("ingredient_id") or "", window
         )
         missing = price is None
         cost = round(qty * price, 4) if price is not None else 0.0
@@ -188,7 +263,7 @@ def compute_recipe_cost(recipe_id: str, ov: Dict) -> Dict:
     kg_per_unit = _f(ov.get("kgPerUnit"))
     for pid in pkg_ids:
         prow = query_one("SELECT id, name FROM packaging WHERE id=%s", (pid,))
-        price = _latest_invoice_price("OPAKOWANIA_TULEJE", "packaging_id", pid)
+        price = _invoice_price("OPAKOWANIA_TULEJE", "packaging_id", pid, window)
         missing = price is None
         if missing:
             pkg_missing = True
@@ -207,6 +282,7 @@ def compute_recipe_cost(recipe_id: str, ov: Dict) -> Dict:
         "recipeId": recipe_id,
         "recipeName": recipe.get("name"),
         "productTypeName": recipe.get("product_type_name"),
+        "window": window,
         "outputPer100kg": round(output, 3),
         "params": {
             "quarterPrice": round(quarter_price, 4),

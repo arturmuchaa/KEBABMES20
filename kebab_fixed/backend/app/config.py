@@ -40,6 +40,13 @@ def _resolve_dist_dir() -> Path:
     return ROOT_DIR.parent / "dist"
 
 
+def _resolve_desktop_updates_dir() -> Path:
+    prod_dir = Path("/opt/kebab/app/desktop-updates")
+    if prod_dir.parent.is_dir():
+        return prod_dir
+    return ROOT_DIR.parent / "desktop-updates"
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str = os.environ.get(
@@ -58,6 +65,7 @@ class Settings:
     log_json: bool = os.environ.get("LOG_JSON", "false").lower() in ("1", "true", "yes")
 
     dist_dir: Path = field(default_factory=_resolve_dist_dir)
+    desktop_updates_dir: Path = field(default_factory=_resolve_desktop_updates_dir)
     app_version: str = "3.0.0"
 
     vies_api_id: str = os.environ.get("VIES_API_ID", "")

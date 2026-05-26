@@ -37,7 +37,7 @@ const NAV: NavSection[] = [
     { to: '/office/receptury',            label: 'Receptury',         icon: <BookOpen size={14} /> },
     { to: '/office/planowanie-masowania', label: 'Plan. masowania',   icon: <Layers size={14} /> },
     { to: '/office/planowanie-produkcji', label: 'Plan. produkcji',   icon: <Factory size={14} /> },
-    { to: '/office/kalkulacja-kosztow',   label: 'Kalkulacja kosztów', icon: <Calculator size={14} /> },
+    { to: '/office/kalkulacja-kosztow',   label: 'Kalkulacja cen', icon: <Calculator size={14} /> },
   ]},
   { heading: 'Jakość', items: [
     { to: '/office/recall', label: 'Wycofanie (Recall)', icon: <AlertTriangle size={14} /> },

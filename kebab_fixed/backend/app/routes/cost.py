@@ -1,4 +1,4 @@
-"""Kalkulacja kosztu 1 kg wyrobu wg receptury."""
+"""Kalkulacja cen 1 kg wyrobu wg receptury."""
 from typing import Optional
 
 from fastapi import APIRouter
@@ -20,13 +20,19 @@ def save_params(dto: CostParams):
 
 
 @router.get("/averages")
-def get_averages():
-    return svc.get_averages()
+def get_averages(window: Optional[str] = None):
+    return svc.get_averages(window)
+
+
+@router.get("/recipes-summary")
+def recipe_summaries():
+    return svc.list_recipe_price_overview()
 
 
 @router.get("/recipe/{recipe_id}")
 def recipe_cost(
     recipe_id: str,
+    window: Optional[str] = None,
     quarterPrice: Optional[float] = None,
     akord: Optional[float] = None,
     yieldPct: Optional[float] = None,
@@ -39,6 +45,7 @@ def recipe_cost(
     kgPerUnit: Optional[float] = None,
 ):
     ov = {
+        "window": window,
         "quarterPrice": quarterPrice,
         "akord": akord,
         "yieldPct": yieldPct,

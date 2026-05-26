@@ -83,7 +83,43 @@ jobs:
           Write-Host "Bundle contents:"
           Get-ChildItem $BUNDLE | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) B)" }
 
-      - name: Create GitHub Release and upload installer
+      - name: Publish installer to VPS updater
+        shell: pwsh
+        env:
+          KEBAB_UPDATER_PUBLISH_URL: ${{ secrets.KEBAB_UPDATER_PUBLISH_URL }}
+          KEBAB_UPDATER_ADMIN_TOKEN: ${{ secrets.KEBAB_UPDATER_ADMIN_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:KEBAB_UPDATER_PUBLISH_URL) -or [string]::IsNullOrWhiteSpace($env:KEBAB_UPDATER_ADMIN_TOKEN)) {
+            Write-Host "Updater publish secrets missing; skipping VPS publish."
+            exit 0
+          }
+
+          $VERSION = "${{ steps.meta.outputs.version }}"
+          $SIGNATURE = "${{ steps.meta.outputs.signature }}"
+          $FILENAME = "${{ steps.meta.outputs.exe_name }}"
+          $PUB_DATE = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
+          $NOTES = "Nowa wersja Kebab MES $VERSION"
+          $URL = "$env:KEBAB_UPDATER_PUBLISH_URL?version=$([uri]::EscapeDataString($VERSION))&signature=$([uri]::EscapeDataString($SIGNATURE))&filename=$([uri]::EscapeDataString($FILENAME))&notes=$([uri]::EscapeDataString($NOTES))&pub_date=$([uri]::EscapeDataString($PUB_DATE))"
+
+          curl.exe --fail --silent --show-error `
+            -k `
+            -X POST `
+            -H "X-Admin-Token: $env:KEBAB_UPDATER_ADMIN_TOKEN" `
+            -H "Content-Type: application/octet-stream" `
+            --data-binary "@${{ steps.meta.outputs.exe_path }}" `
+            "$URL"
+
+      - name: Upload installer artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: KebabMES-${{ steps.meta.outputs.version }}-Windows-Setup
+          path: |
+            ${{ steps.meta.outputs.exe_path }}
+            ${{ steps.meta.outputs.sig_path }}
+          retention-days: 90
+
+      - name: Create GitHub Release and upload installer (best effort)
+        continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.meta.outputs.version }}
@@ -100,55 +136,3 @@ jobs:
             ${{ steps.meta.outputs.sig_path }}
           make_latest: true
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update latest.json for auto-updater
-        shell: pwsh
-        run: |
-          $VERSION   = "${{ steps.meta.outputs.version }}"
-          $EXE_NAME  = "${{ steps.meta.outputs.exe_name }}"
-          $SIGNATURE = "${{ steps.meta.outputs.signature }}"
-          $PUB_DATE  = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
-          # GitHub Release przy uploadzie zamienia spacje w nazwie asseta na kropki
-          # (np. "Kebab MES_2.5.10_x64-setup.exe" → "Kebab.MES_2.5.10_x64-setup.exe").
-          # URL w latest.json musi pasować do faktycznej nazwy assetu, inaczej 404.
-          $ASSET_NAME = $EXE_NAME -replace ' ', '.'
-          $URL       = "https://github.com/arturmuchaa/kebabmes20/releases/download/v${VERSION}/${ASSET_NAME}"
-
-          $json = @{
-            version  = $VERSION
-            notes    = "Nowa wersja Kebab MES $VERSION"
-            pub_date = $PUB_DATE
-            platforms = @{
-              "windows-x86_64" = @{
-                signature = $SIGNATURE
-                url       = $URL
-              }
-            }
-          } | ConvertTo-Json -Depth 5
-          $json | Set-Content -Path "latest.json" -Encoding UTF8
-
-          # Wrzucamy latest.json na branch main — tauri.conf.json wskazuje
-          # endpoint .../main/latest.json. Wcześniej szło na claude/* przez
-          # co auto-updater nigdy nie widział nowych wersji.
-          Copy-Item latest.json -Destination "$env:RUNNER_TEMP/latest.json" -Force
-          git config user.email "github-actions@github.com"
-          git config user.name "GitHub Actions"
-          # Wyrzucamy zmiany z builda (package-lock, generowane ikony itd) — i tak je nadpisze checkout main.
-          git reset --hard HEAD
-          git clean -fd
-          git fetch origin main
-          git checkout -B main origin/main
-          Copy-Item "$env:RUNNER_TEMP/latest.json" -Destination latest.json -Force
-          git add latest.json
-          $diff = git diff --staged --name-only
-          if ($diff) {
-            git commit -m "chore: update latest.json to v${VERSION} [skip ci]"
-            git push origin main
-          }
-
-      - name: Upload installer artifact (backup)
-        uses: actions/upload-artifact@v4
-        with:
-          name: KebabMES-${{ steps.meta.outputs.version }}-Windows-Setup
-          path: ${{ steps.meta.outputs.exe_path }}
-          retention-days: 90

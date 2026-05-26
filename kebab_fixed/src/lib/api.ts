@@ -431,11 +431,20 @@ export const recipesApi = {
 }
 
 // ─── Kalkulacja kosztu wyrobu ─────────────────────────────────
+export type CostWindow = 'all' | 'today' | '7d' | '30d'
 export interface CostParams { backsPrice: number; bonesPrice: number; plantPerKg: number }
+export interface RecipePriceSummary {
+  recipeId: string
+  recipeName: string
+  productTypeName?: string
+  totalOutputPer100kg: number
+  prices: Record<'today' | '7d' | '30d', { costPerKg: number; hasMissingPrice: boolean }>
+}
 export const costApi = {
-  params:     () => get<CostParams>('/cost/params'),
-  saveParams: (p: CostParams) => put<CostParams>('/cost/params', p),
-  averages:   () => get<Record<string, number>>('/cost/averages'),
+  params:         () => get<CostParams>('/cost/params'),
+  saveParams:     (p: CostParams) => put<CostParams>('/cost/params', p),
+  averages:       (window?: CostWindow) => get<Record<string, number>>(`/cost/averages${window ? `?window=${window}` : ''}`),
+  recipesSummary: () => get<RecipePriceSummary[]>('/cost/recipes-summary'),
   recipeCost: (recipeId: string, q: Record<string, unknown> = {}) => {
     const qs = Object.entries(q)
       .filter(([, v]) => v !== undefined && v !== null && v !== '')
