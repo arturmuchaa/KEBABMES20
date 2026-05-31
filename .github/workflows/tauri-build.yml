@@ -84,6 +84,9 @@ jobs:
           Get-ChildItem $BUNDLE | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) B)" }
 
       - name: Publish installer to VPS updater
+        # continue-on-error: porażka publikacji (np. zły token w sekrecie) NIE może
+        # blokować uploadu artefaktu ani utworzenia GitHub Release poniżej.
+        continue-on-error: true
         shell: pwsh
         env:
           KEBAB_UPDATER_PUBLISH_URL: ${{ secrets.KEBAB_UPDATER_PUBLISH_URL }}
@@ -94,9 +97,10 @@ jobs:
           $pub = "$env:KEBAB_UPDATER_PUBLISH_URL".Trim()
           $tok = "$env:KEBAB_UPDATER_ADMIN_TOKEN".Trim()
 
-          # URL publikacji nie jest poufny (host:port jest już w VITE_API_URL i CSP).
-          # Jeśli sekret pusty lub zniekształcony — użyj zweryfikowanego endpointu backendu.
-          if ($pub -notmatch '^https?://') {
+          # URL publikacji nie jest poufny (host:port jest już w VITE_API_URL i CSP)
+          # i ma jeden poprawny kształt. Akceptuj sekret tylko gdy wskazuje właściwy
+          # endpoint; w innym wypadku użyj zweryfikowanego domyślnego URL-a.
+          if ($pub -notmatch '/api/admin/desktop-updates/publish/?$') {
             $pub = 'http://204.168.166.34:8080/api/admin/desktop-updates/publish'
             Write-Host "KEBAB_UPDATER_PUBLISH_URL pusty/niepoprawny — używam domyślnego: $pub"
           }
@@ -122,6 +126,7 @@ jobs:
             "$URL"
 
       - name: Upload installer artifact (backup)
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: KebabMES-${{ steps.meta.outputs.version }}-Windows-Setup
@@ -131,6 +136,7 @@ jobs:
           retention-days: 90
 
       - name: Create GitHub Release and upload installer (best effort)
+        if: ${{ always() }}
         continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
