@@ -1,13 +1,17 @@
 /**
  * RozbiorRoute — przełącznik widoku rozbioru.
- * Renderuje klasyczny ekran albo HMI v2 zależnie od trybu (useHmiMode).
- * Przełącznik trybu znajduje się w nagłówku TabletLayout (tylko na /tablet/rozbior).
+ * Renderuje klasyczny ekran, HMI v2 (Clinical Light) albo HMI v3 (Control Room)
+ * zależnie od trybu (useHmiMode). Przełącznik trybu jest w nagłówku TabletLayout
+ * (tylko na /tablet/rozbior). Wszystkie warianty dostępne równolegle do testów.
  */
 import { useHmiMode } from '@/features/deboning/useHmiMode'
 import { DeboningTabletPage } from '@/pages/tablet/DeboningTabletPage'
 import { DeboningHmiPage } from '@/pages/tablet/DeboningHmiPage'
+import { DeboningHmiV3Page } from '@/pages/tablet/DeboningHmiV3Page'
 
 export function RozbiorRoute() {
   const mode = useHmiMode()
-  return mode === 'v2' ? <DeboningHmiPage /> : <DeboningTabletPage />
+  if (mode === 'v3') return <DeboningHmiV3Page />
+  if (mode === 'v2') return <DeboningHmiPage />
+  return <DeboningTabletPage />
 }

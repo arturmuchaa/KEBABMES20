@@ -6,21 +6,22 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
-import { MonitorSmartphone } from 'lucide-react'
-import { useHmiMode, toggleHmiMode } from '@/features/deboning/useHmiMode'
+import { useHmiMode, setHmiMode, HMI_MODES, HMI_LABELS } from '@/features/deboning/useHmiMode'
 
-// Przełącznik trybu rozbioru (klasyk ↔ HMI v2). Widoczny tylko na /tablet/rozbior.
+// Segmentowany przełącznik widoku rozbioru (Klasyczny / HMI v2 / HMI v3).
+// Wszystkie warianty dostępne do testów. Widoczny tylko na /tablet/rozbior.
 function HmiToggle() {
   const mode = useHmiMode()
   return (
-    <button type="button" onClick={toggleHmiMode}
-      className={cn('flex items-center gap-2 h-10 px-4 rounded-xl text-sm font-bold border-2 transition-colors active:scale-95',
-        mode === 'v2'
-          ? 'bg-brand text-white border-brand'
-          : 'bg-white text-ink-2 border-surface-4 hover:border-brand-border')}>
-      <MonitorSmartphone size={16} />
-      {mode === 'v2' ? 'HMI' : 'Klasyczny'}
-    </button>
+    <div className="flex items-center gap-1 p-1 rounded-xl bg-surface-3 border border-surface-4">
+      {HMI_MODES.map(m => (
+        <button key={m} type="button" onClick={() => setHmiMode(m)}
+          className={cn('h-8 px-3 rounded-lg text-[13px] font-bold transition-colors active:scale-95',
+            mode === m ? 'bg-brand text-white shadow-sm' : 'text-ink-3 hover:text-ink')}>
+          {HMI_LABELS[m]}
+        </button>
+      ))}
+    </div>
   )
 }
 
