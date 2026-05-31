@@ -23,7 +23,7 @@ import { fmtKg, fmtPct, cn, calcDeboning } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
 import {
   AlertTriangle, Save, Package, LogOut, Play, Lock, Flag, Delete, Info, X, Check,
-  Sun, Moon, Boxes, Users, Activity,
+  Sun, Moon, Boxes, Users, History, BarChart3,
 } from 'lucide-react'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
@@ -44,9 +44,9 @@ const VARS: Record<Theme, CSSProperties> = {
     ['--rdbg' as string]: '#05080d', ['--rdink' as string]: '#3fb950',
   },
   light: {
-    ['--app' as string]: '#e7ebf0', ['--panel' as string]: '#ffffff', ['--panel2' as string]: '#eef2f7',
-    ['--bd' as string]: '#c2cad6', ['--bd2' as string]: '#d8dee6',
-    ['--ink' as string]: '#0f172a', ['--mut' as string]: '#5b6675',
+    ['--app' as string]: '#dfe3e8', ['--panel' as string]: '#eef1f5', ['--panel2' as string]: '#e2e7ee',
+    ['--bd' as string]: '#b8c0cc', ['--bd2' as string]: '#cdd4dd',
+    ['--ink' as string]: '#1a2230', ['--mut' as string]: '#586273',
     ['--grn' as string]: '#15803d', ['--amb' as string]: '#b45309', ['--red' as string]: '#dc2626', ['--blu' as string]: '#1d4ed8',
     ['--rdbg' as string]: '#0c1320', ['--rdink' as string]: '#34d399',
   },
@@ -73,28 +73,22 @@ function TagCell({ label, value, accent }: { label: string; value: React.ReactNo
   )
 }
 
-// ─── Pasek KPI (memo, własny 30s timer dla kg/h) ───────────────────
-const KpiBar = memo(function KpiBar({ entries, startedAt }: { entries: DeboningEntry[]; startedAt?: string }) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => { const i = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(i) }, [])
-
+// ─── Pasek KPI (memo) ──────────────────────────────────────────────
+const KpiBar = memo(function KpiBar({ entries }: { entries: DeboningEntry[] }) {
   const totTaken = entries.reduce((s, e) => s + e.kgTaken, 0)
   const totMeat  = entries.reduce((s, e) => s + e.kgMeat, 0)
-  const totWaste = entries.reduce((s, e) => s + (e.kgBones ?? 0) + (e.kgBacks ?? 0), 0)
+  const totBacks = entries.reduce((s, e) => s + (e.kgBacks ?? 0), 0)
+  const totBones = entries.reduce((s, e) => s + (e.kgBones ?? 0), 0)
   const yieldPct = totTaken > 0 ? (totMeat / totTaken) * 100 : 0
-  const wastePct = totTaken > 0 ? (totWaste / totTaken) * 100 : 0
-  const hours = startedAt ? Math.max((now - new Date(startedAt).getTime()) / 3_600_000, 1 / 60) : 0
-  const kgH = hours > 0 ? totMeat / hours : 0
-  const workers = new Set(entries.map(e => e.workerId)).size
 
   const yColor = yieldPct >= 75 ? 'var(--grn)' : yieldPct >= 60 ? 'var(--amb)' : totMeat > 0 ? 'var(--red)' : 'var(--mut)'
   const cells: { label: string; val: string; color?: string }[] = [
-    { label: 'Suma zmiany', val: `${fmtKg(totMeat, 0)} kg`, color: 'var(--ink)' },
+    { label: 'Ćwiartka dziś', val: `${fmtKg(totTaken, 0)} kg`, color: 'var(--ink)' },
+    { label: 'Mięso', val: `${fmtKg(totMeat, 0)} kg`, color: 'var(--grn)' },
     { label: 'Wydajność', val: totMeat > 0 ? fmtPct(yieldPct, 1) : '—', color: yColor },
-    { label: 'kg / h', val: kgH > 0 ? fmtKg(kgH, 0) : '—', color: 'var(--blu)' },
-    { label: 'Odpad', val: totWaste > 0 ? fmtPct(wastePct, 1) : '—', color: 'var(--amb)' },
+    { label: 'Grzbiety', val: `${fmtKg(totBacks, 0)} kg`, color: 'var(--amb)' },
+    { label: 'Kości', val: `${fmtKg(totBones, 0)} kg`, color: 'var(--amb)' },
     { label: 'Wpisy', val: String(entries.length), color: 'var(--ink)' },
-    { label: 'Operatorzy', val: String(workers), color: 'var(--ink)' },
   ]
   return (
     <div className="grid grid-cols-6 flex-shrink-0 border-t border-[var(--bd)] bg-[var(--panel)]">
@@ -143,13 +137,14 @@ const EmployeeCard = memo(function EmployeeCard({ worker, selected, onSelect }: 
   const init = worker.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
   return (
     <button type="button" onClick={() => onSelect(worker)}
-      className={cn('relative flex items-center gap-2.5 rounded-md border-2 min-h-[60px] px-3 select-none active:translate-y-px',
+      className={cn('relative flex items-center gap-3 rounded-md border-2 min-h-[72px] px-3.5 select-none active:translate-y-px',
         selected ? 'bg-[var(--panel2)] border-[var(--blu)]' : 'bg-[var(--panel)] border-[var(--bd)]')}>
-      <span className="w-10 h-10 rounded flex items-center justify-center text-base font-bold flex-shrink-0 border"
+      {selected && <span className="absolute inset-y-0 left-0 w-1 bg-[var(--blu)] rounded-l" />}
+      <span className="w-12 h-12 rounded flex items-center justify-center text-lg font-bold flex-shrink-0 border"
         style={selected ? { background: 'var(--blu)', color: 'var(--app)', borderColor: 'var(--blu)' } : { background: 'var(--panel2)', color: 'var(--ink)', borderColor: 'var(--bd)' }}>
         {init}
       </span>
-      <span className="text-sm font-bold leading-tight text-[var(--ink)] truncate">{worker.name}</span>
+      <span className="text-base font-bold leading-tight text-[var(--ink)] truncate">{worker.name}</span>
     </button>
   )
 })
@@ -243,6 +238,8 @@ export function DeboningHmiV4Page() {
   const [inputBacks,  setInputBacks]  = useState('')
   const [inputBones,  setInputBones]  = useState('')
   const [shiftModal,  setShiftModal]  = useState(false)
+  const [historyModal, setHistoryModal] = useState(false)
+  const [statsModal,   setStatsModal]   = useState(false)
   const [toast, setToast] = useState({ msg: '', type: 'success' as 'success'|'error', visible: false })
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -268,6 +265,26 @@ export function DeboningHmiV4Page() {
     const m = new Map<string, number>()
     for (const e of entries) m.set(e.rawBatchId, (m.get(e.rawBatchId) ?? 0) + 1)
     return m
+  }, [entries])
+
+  // Max 6 najpilniejszych partii (FEFO) — bez scrolla w lewej kolumnie.
+  const visibleBatches = useMemo(() => batches.slice(0, 6), [batches])
+  // Pasek górny: liczba aktywnych partii + suma pozostałych kg.
+  const batchCount = batches.length
+  const kgRemaining = useMemo(() => batches.reduce((s, b) => s + Number(b.kgAvailable), 0), [batches])
+  const online = !batchData.error && !workerData.error
+
+  // Statystyki live z dnia — agregacja po operatorze.
+  const workerStats = useMemo(() => {
+    const m = new Map<string, { name: string; taken: number; meat: number }>()
+    for (const e of entries) {
+      const cur = m.get(e.workerId) ?? { name: e.workerName, taken: 0, meat: 0 }
+      cur.taken += e.kgTaken; cur.meat += e.kgMeat
+      m.set(e.workerId, cur)
+    }
+    return Array.from(m.values())
+      .map(s => ({ ...s, yieldPct: s.taken > 0 ? (s.meat / s.taken) * 100 : 0 }))
+      .sort((a, b) => b.meat - a.meat)
   }, [entries])
 
   const taken = parseFloat(kgTaken) || 0
@@ -375,18 +392,17 @@ export function DeboningHmiV4Page() {
       {/* ─── PASEK GÓRNY ─── */}
       <header className="flex items-stretch h-16 flex-shrink-0 bg-[var(--panel)] border-b-2 border-[var(--bd)]">
         <div className="flex items-center gap-3 px-5">
-          <div className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--grn)' }} />
+          <span className="relative flex w-3.5 h-3.5" title={online ? 'Online' : 'Offline'}>
+            {online && <span className="absolute inset-0 rounded-full animate-ping opacity-60" style={{ background: 'var(--grn)' }} />}
+            <span className="relative w-3.5 h-3.5 rounded-full" style={{ background: online ? 'var(--grn)' : 'var(--red)' }} />
+          </span>
           <div className="leading-none">
-            <div className="text-lg font-black tracking-tight">ROZBIÓR</div>
+            <div className="text-xl font-black tracking-tight">ROZBIÓR</div>
             <div className="text-[10px] font-bold uppercase tracking-[.18em] text-[var(--mut)]">Stacja · Deboning</div>
           </div>
         </div>
-        <div className="flex items-center gap-1.5 px-4 border-l border-[var(--bd)]">
-          <Activity size={16} style={{ color: 'var(--grn)' }} />
-          <span className="text-sm font-bold uppercase tracking-wide" style={{ color: 'var(--grn)' }}>Online</span>
-        </div>
-        <TagCell label="Partia" value={selBatch ? selBatch.internalBatchNo : '—'} accent={selBatch ? 'var(--blu)' : 'var(--mut)'} />
-        <TagCell label="Operator" value={selWorker ? selWorker.name : '—'} accent={selWorker ? 'var(--blu)' : 'var(--mut)'} />
+        <TagCell label="Partie" value={batchCount} accent="var(--ink)" />
+        <TagCell label="Pozostało" value={`${fmtKg(kgRemaining, 0)} kg`} accent="var(--blu)" />
         <TagCell label="Zmiana" value={session.sessionDate} />
         <div className="flex-1 flex items-center justify-end gap-4 px-4 border-l border-[var(--bd)]">
           {fefoAlerts.length > 0 && (
@@ -395,6 +411,12 @@ export function DeboningHmiV4Page() {
             </span>
           )}
           <TopClock />
+        </div>
+        <div className="flex items-center gap-3 px-5 border-l border-[var(--bd)]">
+          <div className="flex flex-col items-end leading-none min-w-0">
+            <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[var(--mut)] mb-1">Operator</span>
+            <span className="text-base font-black truncate max-w-[180px]" style={{ color: selWorker ? 'var(--blu)' : 'var(--mut)' }}>{selWorker ? selWorker.name : '—'}</span>
+          </div>
           <button type="button" onClick={toggleTheme} aria-label="Motyw"
             className="w-10 h-10 rounded-md border-2 border-[var(--bd)] flex items-center justify-center text-[var(--mut)] active:translate-y-px">
             {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
@@ -407,20 +429,23 @@ export function DeboningHmiV4Page() {
 
         {/* LEWY: selekcje */}
         <div className="flex flex-col gap-px bg-[var(--bd)] overflow-hidden">
-          <section className="flex flex-col flex-1 bg-[var(--app)] overflow-hidden">
+          <section className="flex flex-col flex-shrink-0 bg-[var(--app)] overflow-hidden">
             <div className="flex items-center gap-2 px-3 py-2 bg-[var(--panel)] border-b border-[var(--bd)] flex-shrink-0">
               <Boxes size={16} style={{ color: 'var(--blu)' }} />
               <span className="text-xs font-black uppercase tracking-[.16em] text-[var(--mut)]">Partia · FEFO</span>
+              {batchCount > visibleBatches.length && (
+                <span className="ml-auto text-[11px] font-bold text-[var(--mut)]">6 z {batchCount}</span>
+              )}
             </div>
             {batchData.loading
               ? <div className="flex justify-center py-8"><Spinner size={28} /></div>
-              : batches.length === 0
-                ? <div className="flex flex-col items-center justify-center flex-1 text-[var(--mut)]"><Package size={32} className="mb-2" />Brak partii</div>
-                : <div className="grid grid-cols-2 gap-2 p-2 overflow-y-auto scrollbar-thin content-start">
-                    {batches.map(b => <BatchCard key={b.id} batch={b} selected={selBatch?.id === b.id} entryCount={entryCountByBatchId.get(b.id) ?? 0} onSelect={pickBatch} />)}
+              : visibleBatches.length === 0
+                ? <div className="flex flex-col items-center justify-center py-10 text-[var(--mut)]"><Package size={32} className="mb-2" />Brak partii</div>
+                : <div className="grid grid-cols-2 gap-2 p-2 content-start">
+                    {visibleBatches.map(b => <BatchCard key={b.id} batch={b} selected={selBatch?.id === b.id} entryCount={entryCountByBatchId.get(b.id) ?? 0} onSelect={pickBatch} />)}
                   </div>}
           </section>
-          <section className="flex flex-col bg-[var(--app)] max-h-[42%] overflow-hidden">
+          <section className="flex flex-col flex-1 bg-[var(--app)] overflow-hidden">
             <div className="flex items-center gap-2 px-3 py-2 bg-[var(--panel)] border-b border-[var(--bd)] flex-shrink-0">
               <Users size={16} style={{ color: 'var(--blu)' }} />
               <span className="text-xs font-black uppercase tracking-[.16em] text-[var(--mut)]">Operator</span>
@@ -479,12 +504,22 @@ export function DeboningHmiV4Page() {
             ZAPISZ WPIS
           </button>
           <button type="button" onClick={handleFinishBatch} disabled={pendingFinalize.length === 0}
-            className="h-20 rounded-md flex items-center justify-center gap-2 text-lg font-bold active:translate-y-px disabled:opacity-30 border-2"
+            className="h-16 rounded-md flex items-center justify-center gap-2 text-lg font-bold active:translate-y-px disabled:opacity-30 border-2"
             style={{ color: 'var(--amb)', borderColor: 'var(--amb)' }}>
             <Flag size={22} /> Zakończ partię
           </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setHistoryModal(true)}
+              className="h-16 rounded-md flex flex-col items-center justify-center gap-1 text-sm font-bold active:translate-y-px border-2 border-[var(--bd)] text-[var(--ink)]">
+              <History size={20} style={{ color: 'var(--blu)' }} /> Historia
+            </button>
+            <button type="button" onClick={() => setStatsModal(true)}
+              className="h-16 rounded-md flex flex-col items-center justify-center gap-1 text-sm font-bold active:translate-y-px border-2 border-[var(--bd)] text-[var(--ink)]">
+              <BarChart3 size={20} style={{ color: 'var(--blu)' }} /> Statystyki
+            </button>
+          </div>
           <button type="button" onClick={() => setShiftModal(true)}
-            className="h-16 rounded-md flex items-center justify-center gap-2 text-base font-bold active:translate-y-px border-2"
+            className="h-14 rounded-md flex items-center justify-center gap-2 text-base font-bold active:translate-y-px border-2"
             style={{ color: 'var(--red)', borderColor: 'var(--bd)' }}>
             <LogOut size={20} /> Zakończ zmianę
           </button>
@@ -496,7 +531,7 @@ export function DeboningHmiV4Page() {
         <span className="text-[11px] font-black uppercase tracking-[.16em] text-[var(--mut)] flex-shrink-0">Dziś</span>
         <EntriesStrip entries={entries} />
       </div>
-      <KpiBar entries={entries} startedAt={session.startedAt} />
+      <KpiBar entries={entries} />
 
       {/* ─── MODALE ─── */}
       {finishModal && (
@@ -543,6 +578,100 @@ export function DeboningHmiV4Page() {
               <button type="button" disabled={closeLoading} onClick={async () => { setShiftModal(false); const err = await closeDay(); if (err) showToast(err, 'error'); else showToast('Zmiana zakończona') }}
                 className="flex-1 h-16 rounded-md font-black text-lg flex items-center justify-center gap-2" style={{ background: 'var(--red)', color: '#fff' }}><LogOut size={22} /> Zakończ</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {historyModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-black/70" style={VARS[theme]} onClick={() => setHistoryModal(false)}>
+          <div className="w-full max-w-3xl max-h-[88vh] flex flex-col rounded-md bg-[var(--panel)] border-2 border-[var(--bd)] text-[var(--ink)]" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 p-5 border-b border-[var(--bd)] flex-shrink-0">
+              <div className="w-11 h-11 rounded-md border-2 flex items-center justify-center" style={{ color: 'var(--blu)', borderColor: 'var(--blu)' }}><History size={24} /></div>
+              <div className="flex-1">
+                <h3 className="text-2xl font-black leading-none">Historia wpisów</h3>
+                <p className="text-sm text-[var(--mut)] mt-1">{entries.length} wpis(ów) · zmiana {session.sessionDate}</p>
+              </div>
+              <button type="button" onClick={() => setHistoryModal(false)} className="w-11 h-11 rounded-md border-2 border-[var(--bd)] flex items-center justify-center text-[var(--mut)]"><X size={22} /></button>
+            </div>
+            {entries.length === 0
+              ? <div className="flex flex-col items-center justify-center py-16 text-[var(--mut)]"><History size={36} className="mb-2" />Brak wpisów z dziś</div>
+              : <div className="overflow-y-auto scrollbar-thin">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-[var(--panel2)] text-[var(--mut)]">
+                      <tr className="text-left">
+                        <th className="px-4 py-2.5 font-black uppercase tracking-wide text-[11px]">Czas</th>
+                        <th className="px-3 py-2.5 font-black uppercase tracking-wide text-[11px]">Partia</th>
+                        <th className="px-3 py-2.5 font-black uppercase tracking-wide text-[11px]">Operator</th>
+                        <th className="px-3 py-2.5 font-black uppercase tracking-wide text-[11px] text-right">Ćwiartka</th>
+                        <th className="px-3 py-2.5 font-black uppercase tracking-wide text-[11px] text-right">Mięso</th>
+                        <th className="px-3 py-2.5 font-black uppercase tracking-wide text-[11px] text-right">Wyd.</th>
+                        <th className="px-4 py-2.5 font-black uppercase tracking-wide text-[11px] text-right">Grzb./Kości</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entries.slice().reverse().map(e => (
+                        <tr key={e.id} className="border-t border-[var(--bd2)]">
+                          <td className="px-4 py-2.5 font-mono tabular-nums text-[var(--mut)]">{new Date(e.createdAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</td>
+                          <td className="px-3 py-2.5 font-mono font-bold text-[var(--blu)]">{e.rawBatchNo}</td>
+                          <td className="px-3 py-2.5 font-semibold">{e.workerName}</td>
+                          <td className="px-3 py-2.5 font-mono tabular-nums text-right">{fmtKg(e.kgTaken, 1)}</td>
+                          <td className="px-3 py-2.5 font-mono tabular-nums text-right font-bold">{fmtKg(e.kgMeat, 1)}</td>
+                          <td className="px-3 py-2.5 font-mono tabular-nums text-right font-bold" style={{ color: e.yieldPct >= 75 ? 'var(--grn)' : e.yieldPct >= 60 ? 'var(--amb)' : 'var(--red)' }}>{fmtPct(e.yieldPct, 0)}</td>
+                          <td className="px-4 py-2.5 font-mono tabular-nums text-right text-[var(--mut)]">{fmtKg(e.kgBacks ?? 0, 1)} / {fmtKg(e.kgBones ?? 0, 1)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>}
+          </div>
+        </div>
+      )}
+
+      {statsModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-black/70" style={VARS[theme]} onClick={() => setStatsModal(false)}>
+          <div className="w-full max-w-2xl max-h-[88vh] flex flex-col rounded-md bg-[var(--panel)] border-2 border-[var(--bd)] text-[var(--ink)]" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 p-5 border-b border-[var(--bd)] flex-shrink-0">
+              <div className="w-11 h-11 rounded-md border-2 flex items-center justify-center" style={{ color: 'var(--blu)', borderColor: 'var(--blu)' }}><BarChart3 size={24} /></div>
+              <div className="flex-1">
+                <h3 className="text-2xl font-black leading-none">Statystyki — live z dnia</h3>
+                <p className="text-sm text-[var(--mut)] mt-1">Uzysk wg operatora · zmiana {session.sessionDate}</p>
+              </div>
+              <button type="button" onClick={() => setStatsModal(false)} className="w-11 h-11 rounded-md border-2 border-[var(--bd)] flex items-center justify-center text-[var(--mut)]"><X size={22} /></button>
+            </div>
+            {workerStats.length === 0
+              ? <div className="flex flex-col items-center justify-center py-16 text-[var(--mut)]"><BarChart3 size={36} className="mb-2" />Brak danych z dziś</div>
+              : <div className="overflow-y-auto scrollbar-thin">
+                  <table className="w-full text-base">
+                    <thead className="sticky top-0 bg-[var(--panel2)] text-[var(--mut)]">
+                      <tr className="text-left">
+                        <th className="px-5 py-3 font-black uppercase tracking-wide text-[11px]">Operator</th>
+                        <th className="px-3 py-3 font-black uppercase tracking-wide text-[11px] text-right">Ćwiartka</th>
+                        <th className="px-3 py-3 font-black uppercase tracking-wide text-[11px] text-right">Mięso</th>
+                        <th className="px-5 py-3 font-black uppercase tracking-wide text-[11px] text-right">% uzysku</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {workerStats.map(s => (
+                        <tr key={s.name} className="border-t border-[var(--bd2)]">
+                          <td className="px-5 py-3 font-bold">{s.name}</td>
+                          <td className="px-3 py-3 font-mono tabular-nums text-right">{fmtKg(s.taken, 0)} kg</td>
+                          <td className="px-3 py-3 font-mono tabular-nums text-right font-bold">{fmtKg(s.meat, 0)} kg</td>
+                          <td className="px-5 py-3 font-mono tabular-nums text-right font-black" style={{ color: s.yieldPct >= 75 ? 'var(--grn)' : s.yieldPct >= 60 ? 'var(--amb)' : 'var(--red)' }}>{fmtPct(s.yieldPct, 1)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-[var(--bd)] bg-[var(--panel2)]">
+                        <td className="px-5 py-3 font-black uppercase tracking-wide text-[12px] text-[var(--mut)]">Razem</td>
+                        <td className="px-3 py-3 font-mono tabular-nums text-right font-bold">{fmtKg(workerStats.reduce((s, w) => s + w.taken, 0), 0)} kg</td>
+                        <td className="px-3 py-3 font-mono tabular-nums text-right font-bold">{fmtKg(workerStats.reduce((s, w) => s + w.meat, 0), 0)} kg</td>
+                        <td className="px-5 py-3 font-mono tabular-nums text-right font-black" style={{ color: 'var(--grn)' }}>
+                          {(() => { const t = workerStats.reduce((s, w) => s + w.taken, 0); const m = workerStats.reduce((s, w) => s + w.meat, 0); return t > 0 ? fmtPct((m / t) * 100, 1) : '—' })()}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>}
           </div>
         </div>
       )}
