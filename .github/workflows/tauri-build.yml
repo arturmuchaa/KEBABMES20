@@ -89,8 +89,19 @@ jobs:
           KEBAB_UPDATER_PUBLISH_URL: ${{ secrets.KEBAB_UPDATER_PUBLISH_URL }}
           KEBAB_UPDATER_ADMIN_TOKEN: ${{ secrets.KEBAB_UPDATER_ADMIN_TOKEN }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:KEBAB_UPDATER_PUBLISH_URL) -or [string]::IsNullOrWhiteSpace($env:KEBAB_UPDATER_ADMIN_TOKEN)) {
-            Write-Host "Updater publish secrets missing; skipping VPS publish."
+          # Trim — sekrety wklejane w UI GitHuba często mają końcowy \r\n, który
+          # przechodzi przez IsNullOrWhiteSpace, ale psuje URL (curl: Bad hostname).
+          $pub = "$env:KEBAB_UPDATER_PUBLISH_URL".Trim()
+          $tok = "$env:KEBAB_UPDATER_ADMIN_TOKEN".Trim()
+
+          # URL publikacji nie jest poufny (host:port jest już w VITE_API_URL i CSP).
+          # Jeśli sekret pusty lub zniekształcony — użyj zweryfikowanego endpointu backendu.
+          if ($pub -notmatch '^https?://') {
+            $pub = 'http://204.168.166.34:8080/api/admin/desktop-updates/publish'
+            Write-Host "KEBAB_UPDATER_PUBLISH_URL pusty/niepoprawny — używam domyślnego: $pub"
+          }
+          if ([string]::IsNullOrWhiteSpace($tok)) {
+            Write-Host "KEBAB_UPDATER_ADMIN_TOKEN brak; pomijam publikację na VPS (artefakt i tak zostanie wgrany)."
             exit 0
           }
 
@@ -99,12 +110,13 @@ jobs:
           $FILENAME = "${{ steps.meta.outputs.exe_name }}"
           $PUB_DATE = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
           $NOTES = "Nowa wersja Kebab MES $VERSION"
-          $URL = "$env:KEBAB_UPDATER_PUBLISH_URL?version=$([uri]::EscapeDataString($VERSION))&signature=$([uri]::EscapeDataString($SIGNATURE))&filename=$([uri]::EscapeDataString($FILENAME))&notes=$([uri]::EscapeDataString($NOTES))&pub_date=$([uri]::EscapeDataString($PUB_DATE))"
+          $URL = "$pub?version=$([uri]::EscapeDataString($VERSION))&signature=$([uri]::EscapeDataString($SIGNATURE))&filename=$([uri]::EscapeDataString($FILENAME))&notes=$([uri]::EscapeDataString($NOTES))&pub_date=$([uri]::EscapeDataString($PUB_DATE))"
+          Write-Host "Publikuję $FILENAME (v$VERSION) -> $pub"
 
           curl.exe --fail --silent --show-error `
             -k `
             -X POST `
-            -H "X-Admin-Token: $env:KEBAB_UPDATER_ADMIN_TOKEN" `
+            -H "X-Admin-Token: $tok" `
             -H "Content-Type: application/octet-stream" `
             --data-binary "@${{ steps.meta.outputs.exe_path }}" `
             "$URL"
