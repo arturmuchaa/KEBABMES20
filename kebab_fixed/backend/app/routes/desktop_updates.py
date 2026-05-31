@@ -106,7 +106,7 @@ async def publish_desktop_update(
         "pub_date": pub_date.strip(),
     }
     _META_FILE.write_text(json.dumps(meta, ensure_ascii=True, indent=2), encoding="utf-8")
-    logger.info("desktop_updates.published", extra={"version": meta["version"], "filename": safe_name})
+    logger.info("desktop_updates.published", extra={"version": meta["version"], "installer": safe_name})
     return {
         "ok": True,
         "manifest": _manifest_payload(request, meta),
