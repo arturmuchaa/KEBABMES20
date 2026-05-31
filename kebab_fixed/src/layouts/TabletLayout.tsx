@@ -6,6 +6,23 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
+import { MonitorSmartphone } from 'lucide-react'
+import { useHmiMode, toggleHmiMode } from '@/features/deboning/useHmiMode'
+
+// Przełącznik trybu rozbioru (klasyk ↔ HMI v2). Widoczny tylko na /tablet/rozbior.
+function HmiToggle() {
+  const mode = useHmiMode()
+  return (
+    <button type="button" onClick={toggleHmiMode}
+      className={cn('flex items-center gap-2 h-10 px-4 rounded-xl text-sm font-bold border-2 transition-colors active:scale-95',
+        mode === 'v2'
+          ? 'bg-brand text-white border-brand'
+          : 'bg-white text-ink-2 border-surface-4 hover:border-brand-border')}>
+      <MonitorSmartphone size={16} />
+      {mode === 'v2' ? 'HMI' : 'Klasyczny'}
+    </button>
+  )
+}
 
 const PAGE_META: Record<string, { title: string; sub: string }> = {
   '/tablet/rozbior':   { title: 'Rozbiór',   sub: 'Panel rozbioru ćwiartki' },
@@ -46,7 +63,10 @@ export function TabletLayout() {
             <div className="text-[11px] text-ink-3 font-medium">{meta.sub}</div>
           </div>
         </div>
-        <Clock />
+        <div className="flex items-center gap-3">
+          {pathname === '/tablet/rozbior' && <HmiToggle />}
+          <Clock />
+        </div>
       </header>
 
       {/* Strona tabletu — bez zakładek nawigacyjnych */}

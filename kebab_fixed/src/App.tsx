@@ -26,7 +26,7 @@ import { RecallPage }             from '@/pages/office/RecallPage'
 import { PayrollPage }            from '@/pages/office/PayrollPage'
 import { VehiclesPage }           from '@/pages/office/VehiclesPage'
 import { ProductTypesPage, RecipesPage, PlanningPage } from '@/features/products'
-import { DeboningTabletPage }  from '@/pages/tablet/DeboningTabletPage'
+import { RozbiorRoute }        from '@/pages/tablet/RozbiorRoute'
 import { MixingTabletPage }    from '@/pages/tablet/MixingTabletPage'
 import { ProductionTabletPage }from '@/pages/tablet/ProductionTabletPage'
 import { MobilePickerPage }         from '@/pages/mobile/MobilePickerPage'
@@ -102,7 +102,7 @@ export default function App() {
         <Route path="uzytkownicy"           element={<PlaceholderPage title="Użytkownicy" icon="🔐" description="" />} />
       </Route>
       <Route path="/tablet" element={<TabletLayout />}>
-        <Route path="rozbior"   element={<DeboningTabletPage />} />
+        <Route path="rozbior"   element={<RozbiorRoute />} />
         <Route path="mieszanie" element={<MixingTabletPage />} />
         <Route path="produkcja" element={<ProductionTabletPage />} />
       </Route>
