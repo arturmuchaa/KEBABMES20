@@ -1,0 +1,96 @@
+name: Build Tauri Kiosk — Rozbiór (Windows)
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - 'kiosk-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-kiosk:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './kebab_fixed/src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm install
+        working-directory: kebab_fixed
+
+      - name: Install Tauri CLI
+        run: npm install --save-dev @tauri-apps/cli@^2
+        working-directory: kebab_fixed
+
+      - name: Generate icons from app-icon.png
+        run: npx tauri icon src-tauri/app-icon.png
+        working-directory: kebab_fixed
+
+      - name: Build Tauri Kiosk (Windows NSIS)
+        run: npx tauri build --target x86_64-pc-windows-msvc --config src-tauri/tauri.kiosk.conf.json --features kiosk
+        working-directory: kebab_fixed
+        env:
+          VITE_API_URL: 'http://204.168.166.34:8080'
+
+      - name: Get version and artifact paths
+        id: meta
+        shell: pwsh
+        run: |
+          $VERSION = (Select-String -Path "kebab_fixed/src-tauri/Cargo.toml" -Pattern '^version\s*=\s*"(.+)"').Matches[0].Groups[1].Value
+          $BUNDLE = "kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
+          $EXE = Get-ChildItem "$BUNDLE/*.exe" | Select-Object -First 1
+          "version=$VERSION"          >> $env:GITHUB_OUTPUT
+          "exe_path=$($EXE.FullName)" >> $env:GITHUB_OUTPUT
+          "exe_name=$($EXE.Name)"     >> $env:GITHUB_OUTPUT
+          Write-Host "Kiosk version: $VERSION | EXE: $($EXE.Name)"
+          Get-ChildItem $BUNDLE | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) B)" }
+
+      - name: Upload kiosk installer artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: KebabRozbior-Kiosk-${{ steps.meta.outputs.version }}-Windows-Setup
+          path: ${{ steps.meta.outputs.exe_path }}
+          retention-days: 90
+
+      - name: Create GitHub Release (kiosk)
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('kiosk-v{0}', steps.meta.outputs.version) }}
+          name: Kebab Rozbiór Kiosk v${{ steps.meta.outputs.version }}
+          body: |
+            ## Kebab Rozbiór — Kiosk (Windows)
+
+            Dedykowany instalator TYLKO panelu rozbioru, tryb kiosk:
+            pełny ekran, bez paska Windows, okna nie da się zamknąć (Alt+F4 zablokowane),
+            auto-dopasowanie do rozdzielczości. Wszystkie warianty/motywy HMI w środku
+            (Klasyczny / v2 / v3 / v4 light+dark — selektor w nagłówku).
+
+            **Instalacja:** uruchom `.exe` na komputerze panelowym.
+            **Wyjście (serwis):** zakończ proces przez Menedżer zadań (Ctrl+Shift+Esc).
+          files: ${{ steps.meta.outputs.exe_path }}
+          make_latest: false
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Kebab Rozbior HMI",
+  "identifier": "pl.kebabmes.rozbior",
+  "app": {
+    "windows": [
+      {
+        "title": "Rozbiór HMI",
+        "url": "kiosk.html",
+        "fullscreen": true,
+        "decorations": false,
+        "resizable": false,
+        "maximized": true,
+        "skipTaskbar": true,
+        "alwaysOnTop": true,
+        "closable": false,
+        "focus": true
+      }
+    ]
+  },
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "nsis": {
+        "languages": ["Polish"],
+        "displayLanguageSelector": false,
+        "installMode": "perMachine"
+      }
+    }
+  }
+}
