@@ -10,13 +10,14 @@
  */
 import { useSyncExternalStore } from 'react'
 
-export type HmiMode = 'classic' | 'v2' | 'v3' | 'v4'
-export const HMI_MODES: HmiMode[] = ['classic', 'v2', 'v3', 'v4']
+export type HmiMode = 'classic' | 'v2' | 'v3' | 'v4' | 'v5'
+export const HMI_MODES: HmiMode[] = ['classic', 'v2', 'v3', 'v4', 'v5']
 export const HMI_LABELS: Record<HmiMode, string> = {
   classic: 'Klasyczny',
   v2: 'HMI v2',
   v3: 'HMI v3',
   v4: 'HMI v4',
+  v5: 'HMI v5',
 }
 
 const KEY = 'rozbior_hmi_mode'
@@ -25,7 +26,7 @@ const LEGACY_KEY = 'rozbior_hmi_v2'
 function read(): HmiMode {
   try {
     const v = localStorage.getItem(KEY)
-    if (v === 'classic' || v === 'v2' || v === 'v3' || v === 'v4') return v
+    if (v === 'classic' || v === 'v2' || v === 'v3' || v === 'v4' || v === 'v5') return v
     // migracja ze starego klucza binarnego
     if (localStorage.getItem(LEGACY_KEY) === '1') return 'v2'
     return 'classic'
