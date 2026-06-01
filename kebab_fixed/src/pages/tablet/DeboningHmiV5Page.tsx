@@ -4,7 +4,7 @@ import { rawBatchesApi, usersApi } from '@/lib/apiClient'
 import { Spinner } from '@/components/ui/widgets'
 import { fmtKg, fmtPct, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
-import { Sun, Moon, Play, Lock, AlertTriangle, Save, Flag, LogOut, Delete } from 'lucide-react'
+import { Sun, Moon, Play, Lock, AlertTriangle, Save, Flag, LogOut, Delete, X, BarChart3 } from 'lucide-react'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
@@ -201,25 +201,46 @@ const V5Numpad = memo(function V5Numpad({ onKey, onBackspaceStart, onBackspaceEn
   )
 })
 
-// ─── Pasek statusu — wpisy dnia ────────────────────────────────────
-const EntriesStrip = memo(function EntriesStrip({ entries }: { entries: DeboningEntry[] }) {
-  if (entries.length === 0) return (
-    <span className="text-sm font-mono" style={{ color: 'var(--mut)' }}>Brak wpisów z dziś</span>
-  )
-  const last5 = entries.slice().reverse().slice(0, 5)
+// ─── Pasek KPI ─────────────────────────────────────────────────────
+const V5KpiBar = memo(function V5KpiBar({ entries, onShowEntries, onShowStats }: {
+  entries: DeboningEntry[]; onShowEntries: () => void; onShowStats: () => void
+}) {
+  const totTaken = entries.reduce((s, e) => s + e.kgTaken, 0)
+  const totMeat  = entries.reduce((s, e) => s + e.kgMeat, 0)
+  const totBacks = entries.reduce((s, e) => s + (e.kgBacks ?? 0), 0)
+  const totBones = entries.reduce((s, e) => s + (e.kgBones ?? 0), 0)
+  const yieldPct = totTaken > 0 ? (totMeat / totTaken) * 100 : 0
+  const yColor = yieldPct >= 75 ? 'var(--grn)' : yieldPct >= 60 ? 'var(--amb)' : totMeat > 0 ? 'var(--red)' : 'var(--mut)'
+
   return (
-    <div className="flex items-center gap-4 overflow-hidden">
-      {last5.map((e, i) => (
-        <span key={e.id} className="flex-shrink-0 font-mono text-sm tabular-nums flex items-center gap-1.5">
-          {i > 0 && <span style={{ color: 'var(--bd)' }}>·</span>}
-          <span style={{ color: 'var(--accent)' }}>{e.rawBatchNo}</span>
-          <span style={{ color: 'var(--ink)' }}>{e.workerName.split(' ')[0]}</span>
-          <span style={{ color: 'var(--mut)' }}>{fmtKg(e.kgTaken, 0)}→{fmtKg(e.kgMeat, 0)} kg</span>
-          <span style={{ color: e.yieldPct >= 75 ? 'var(--grn)' : e.yieldPct >= 60 ? 'var(--amb)' : 'var(--red)' }}>
-            {fmtPct(e.yieldPct, 0)}
-          </span>
-        </span>
+    <div className="flex-shrink-0 h-[60px] grid grid-cols-8 border-t-2" style={{ background: 'var(--panel)', borderColor: 'var(--bd)' }}>
+      {[
+        { label: 'Ćwiartka dziś', val: `${fmtKg(totTaken, 0)} kg`, color: 'var(--ink)' },
+        { label: 'Mięso',         val: `${fmtKg(totMeat, 0)} kg`,  color: 'var(--grn)' },
+        { label: 'Wydajność',     val: totMeat > 0 ? fmtPct(yieldPct, 1) : '—', color: yColor },
+        { label: 'Grzbiety',      val: `${fmtKg(totBacks, 0)} kg`, color: 'var(--amb)' },
+        { label: 'Kości',         val: `${fmtKg(totBones, 0)} kg`, color: 'var(--amb)' },
+        { label: 'Wpisy',         val: String(entries.length),      color: 'var(--ink)' },
+      ].map(c => (
+        <div key={c.label} className="flex flex-col items-center justify-center border-r-2" style={{ borderColor: 'var(--bd)' }}>
+          <span className="font-mono text-xl font-black tabular-nums leading-none" style={{ color: c.color }}>{c.val}</span>
+          <span className="text-[10px] font-bold uppercase tracking-[.14em] mt-0.5" style={{ color: 'var(--mut)' }}>{c.label}</span>
+        </div>
       ))}
+      {/* Przycisk: Wpisy dzisiaj */}
+      <button type="button" onClick={onShowEntries}
+        className="flex flex-col items-center justify-center gap-0.5 border-r-2 active:scale-95 transition-transform"
+        style={{ color: 'var(--accent)', borderColor: 'var(--bd)' }}>
+        <span className="text-xl font-black leading-none">📋</span>
+        <span className="text-[10px] font-black uppercase tracking-[.14em]">Wpisy</span>
+      </button>
+      {/* Przycisk: Statystyki */}
+      <button type="button" onClick={onShowStats}
+        className="flex flex-col items-center justify-center gap-0.5 active:scale-95 transition-transform"
+        style={{ color: 'var(--grn)' }}>
+        <BarChart3 size={20} />
+        <span className="text-[10px] font-black uppercase tracking-[.14em]">Statystyki</span>
+      </button>
     </div>
   )
 })
@@ -249,6 +270,8 @@ export function DeboningHmiV5Page() {
   const [saveFlash, setSaveFlash] = useState(false)
   const [finishModal, setFinishModal] = useState(false)
   const [shiftModal,  setShiftModal]  = useState(false)
+  const [statsModal,   setStatsModal]   = useState(false)
+  const [entriesModal, setEntriesModal] = useState(false)
   const [inputBacks,  setInputBacks]  = useState('')
   const [inputBones,  setInputBones]  = useState('')
   const [toastMsg,    setToastMsg]    = useState('')
@@ -288,6 +311,18 @@ export function DeboningHmiV5Page() {
     const m = new Map<string, number>()
     for (const e of entries) m.set(e.workerId, (m.get(e.workerId) ?? 0) + 1)
     return m
+  }, [entries])
+
+  const workerStats = useMemo(() => {
+    const m = new Map<string, { name: string; taken: number; meat: number }>()
+    for (const e of entries) {
+      const cur = m.get(e.workerId) ?? { name: e.workerName, taken: 0, meat: 0 }
+      cur.taken += e.kgTaken; cur.meat += e.kgMeat
+      m.set(e.workerId, cur)
+    }
+    return Array.from(m.values())
+      .map(s => ({ ...s, yieldPct: s.taken > 0 ? (s.meat / s.taken) * 100 : 0 }))
+      .sort((a, b) => b.taken - a.taken)
   }, [entries])
 
   const pendingFinalize = entries.filter(e => (e.kgBacks ?? 0) === 0 && (e.kgBones ?? 0) === 0)
@@ -575,13 +610,99 @@ export function DeboningHmiV5Page() {
         </div>
       </div>
 
-      {/* ─── PASEK STATUSU (54px) ─── */}
-      <div className="flex-shrink-0 h-[54px] border-t-2 flex items-center gap-3 px-5"
-        style={{ background: 'var(--panel)', borderColor: 'var(--bd)' }}>
-        <span className="text-[11px] font-black uppercase tracking-[.18em] flex-shrink-0"
-          style={{ color: 'var(--mut)' }}>DZIŚ</span>
-        <EntriesStrip entries={entries} />
-      </div>
+      {/* ─── KPI BAR ─── */}
+      <V5KpiBar entries={entries} onShowEntries={() => setEntriesModal(true)} onShowStats={() => setStatsModal(true)} />
+
+      {/* ─── MODAL: Wpisy dzisiaj ─── */}
+      {entriesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" style={VARS[theme]}>
+          <div className="w-[820px] max-h-[85vh] rounded-2xl border-2 flex flex-col"
+            style={{ background: 'var(--panel)', borderColor: 'var(--bd)', color: 'var(--ink)' }}>
+            <div className="flex items-center gap-4 px-6 py-4 border-b-2 flex-shrink-0" style={{ borderColor: 'var(--bd)' }}>
+              <span className="text-2xl">📋</span>
+              <h3 className="text-2xl font-black flex-1">Wpisy dzisiaj</h3>
+              <span className="text-sm font-bold" style={{ color: 'var(--mut)' }}>{entries.length} wpisów</span>
+              <button type="button" onClick={() => setEntriesModal(false)}
+                className="w-10 h-10 rounded-xl border-2 flex items-center justify-center"
+                style={{ borderColor: 'var(--bd)', color: 'var(--mut)' }}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <div className="grid grid-cols-5 px-4 py-2 text-[11px] font-black uppercase tracking-[.14em] sticky top-0"
+                style={{ background: 'var(--panel2)', color: 'var(--mut)' }}>
+                <span>Godzina</span>
+                <span>Pracownik</span>
+                <span>Partia</span>
+                <span className="text-right">Ćwiartka → Mięso</span>
+                <span className="text-right">Wydajność</span>
+              </div>
+              {entries.length === 0 ? (
+                <div className="px-4 py-10 text-center text-sm" style={{ color: 'var(--mut)' }}>Brak wpisów z dziś</div>
+              ) : entries.slice().reverse().map(e => {
+                const yColor = e.yieldPct >= 75 ? 'var(--grn)' : e.yieldPct >= 60 ? 'var(--amb)' : 'var(--red)'
+                const time = new Date(e.createdAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
+                return (
+                  <div key={e.id} className="grid grid-cols-5 px-4 py-3 border-t-2 items-center"
+                    style={{ borderColor: 'var(--bd)' }}>
+                    <span className="font-mono text-sm" style={{ color: 'var(--mut)' }}>{time}</span>
+                    <span className="text-sm font-semibold">{e.workerName}</span>
+                    <span className="font-mono text-sm font-bold" style={{ color: 'var(--accent)' }}>{e.rawBatchNo}</span>
+                    <span className="text-right font-mono text-sm tabular-nums">{fmtKg(e.kgTaken, 1)} → {fmtKg(e.kgMeat, 1)} kg</span>
+                    <span className="text-right font-mono font-black tabular-nums" style={{ color: yColor }}>{fmtPct(e.yieldPct, 1)}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL: Statystyki dnia ─── */}
+      {statsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" style={VARS[theme]}>
+          <div className="w-[680px] max-h-[80vh] rounded-2xl border-2 flex flex-col"
+            style={{ background: 'var(--panel)', borderColor: 'var(--bd)', color: 'var(--ink)' }}>
+            <div className="flex items-center gap-4 px-6 py-4 border-b-2 flex-shrink-0" style={{ borderColor: 'var(--bd)' }}>
+              <BarChart3 size={26} style={{ color: 'var(--grn)' }} />
+              <h3 className="text-2xl font-black flex-1">Statystyki dnia</h3>
+              <button type="button" onClick={() => setStatsModal(false)}
+                className="w-10 h-10 rounded-xl border-2 flex items-center justify-center"
+                style={{ borderColor: 'var(--bd)', color: 'var(--mut)' }}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <div className="grid grid-cols-4 px-4 py-2 text-[11px] font-black uppercase tracking-[.14em] sticky top-0"
+                style={{ background: 'var(--panel2)', color: 'var(--mut)' }}>
+                <span>Pracownik</span>
+                <span className="text-right">Ćwiartka</span>
+                <span className="text-right">Mięso</span>
+                <span className="text-right">Wydajność</span>
+              </div>
+              {workerStats.length === 0 ? (
+                <div className="px-4 py-10 text-center text-sm" style={{ color: 'var(--mut)' }}>Brak wpisów z dziś</div>
+              ) : workerStats.map((s, i) => {
+                const yColor = s.yieldPct >= 75 ? 'var(--grn)' : s.yieldPct >= 60 ? 'var(--amb)' : 'var(--red)'
+                return (
+                  <div key={s.name} className="grid grid-cols-4 px-4 py-4 border-t-2 items-center"
+                    style={{ borderColor: 'var(--bd)', background: i === 0 ? 'color-mix(in srgb, var(--grn) 8%, var(--panel))' : undefined }}>
+                    <div className="flex items-center gap-2">
+                      {i === 0 && <span className="text-lg">🥇</span>}
+                      {i === 1 && <span className="text-lg">🥈</span>}
+                      {i === 2 && <span className="text-lg">🥉</span>}
+                      <span className="font-semibold text-base">{s.name}</span>
+                    </div>
+                    <span className="text-right font-mono font-bold tabular-nums text-base">{fmtKg(s.taken, 1)} kg</span>
+                    <span className="text-right font-mono font-bold tabular-nums text-base" style={{ color: 'var(--grn)' }}>{fmtKg(s.meat, 1)} kg</span>
+                    <span className="text-right font-mono font-black tabular-nums text-xl" style={{ color: yColor }}>{fmtPct(s.yieldPct, 1)}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── MODAL: Zakończenie partii ─── */}
       {finishModal && (
