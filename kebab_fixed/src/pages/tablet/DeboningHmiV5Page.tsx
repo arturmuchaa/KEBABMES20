@@ -273,6 +273,7 @@ export function DeboningHmiV5Page() {
   const [statsModal,   setStatsModal]   = useState(false)
   const [entriesModal, setEntriesModal] = useState(false)
   const [statsSort,    setStatsSort]    = useState<'taken' | 'meat' | 'yield'>('taken')
+  const [statsDir,     setStatsDir]     = useState<'asc' | 'desc'>('asc')
   const [inputBacks,  setInputBacks]  = useState('')
   const [inputBones,  setInputBones]  = useState('')
   const [toastMsg,    setToastMsg]    = useState('')
@@ -297,12 +298,14 @@ export function DeboningHmiV5Page() {
   }, [])
 
   // Partii — memoizacja stabilna, FEFO sort, max 6
-  const batches = useMemo(() =>
+  const allActiveBatches = useMemo(() =>
     (batchData.data?.data ?? [])
       .filter(b => Number(b.kgAvailable) > 0 && b.status !== 'used' && b.status !== 'expired' && b.status !== 'cancelled')
-      .sort((a, b) => a.expiryDate !== b.expiryDate ? (a.expiryDate < b.expiryDate ? -1 : 1) : (a.internalBatchSeq ?? 0) - (b.internalBatchSeq ?? 0))
-      .slice(0, 6),
+      .sort((a, b) => a.expiryDate !== b.expiryDate ? (a.expiryDate < b.expiryDate ? -1 : 1) : (a.internalBatchSeq ?? 0) - (b.internalBatchSeq ?? 0)),
     [batchData.data])
+
+  const batches = useMemo(() => allActiveBatches.slice(0, 6), [allActiveBatches])
+  const totalKgMagazyn = useMemo(() => allActiveBatches.reduce((s, b) => s + Number(b.kgAvailable), 0), [allActiveBatches])
 
   const workers = useMemo(() =>
     (workerData.data ?? []).filter(u => u.role === 'WORKER_DEBONING'),
@@ -324,8 +327,8 @@ export function DeboningHmiV5Page() {
     const rows = Array.from(m.values())
       .map(s => ({ ...s, yieldPct: s.taken > 0 ? (s.meat / s.taken) * 100 : 0 }))
     const key = statsSort === 'taken' ? 'taken' : statsSort === 'meat' ? 'meat' : 'yieldPct'
-    return rows.sort((a, b) => a[key] - b[key])
-  }, [entries, statsSort])
+    return rows.sort((a, b) => statsDir === 'asc' ? a[key] - b[key] : b[key] - a[key])
+  }, [entries, statsSort, statsDir])
 
   const pendingFinalize = entries.filter(e => (e.kgBacks ?? 0) === 0 && (e.kgBones ?? 0) === 0)
   const finalizeTotalTaken = pendingFinalize.reduce((s, e) => s + e.kgTaken, 0)
@@ -487,10 +490,21 @@ export function DeboningHmiV5Page() {
       {/* ─── NAGŁÓWEK (60px) ─── */}
       <header className="flex-shrink-0 h-[60px] flex items-center gap-4 px-5 border-b-2"
         style={{ background: 'var(--panel)', borderColor: 'var(--bd)' }}>
-        <div className="font-black text-xl tracking-tight" style={{ color: 'var(--ink)' }}>ROZBIÓR</div>
-        <div className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--mut)' }}>
+        <div className="font-black text-xl tracking-tight flex-shrink-0" style={{ color: 'var(--ink)' }}>ROZBIÓR</div>
+        <div className="text-xs font-bold uppercase tracking-widest flex-shrink-0" style={{ color: 'var(--mut)' }}>
           {session.sessionDate}
         </div>
+        {/* ─── Komórki info ─── */}
+        {([
+          { label: 'Magazyn', val: `${fmtKg(totalKgMagazyn, 0)} kg`, color: 'var(--ink)' },
+          { label: 'Partie',  val: String(allActiveBatches.length),    color: 'var(--ink)' },
+          { label: 'Operator', val: selWorker?.name.split(' ')[0] ?? '—', color: selWorker ? 'var(--accent)' : 'var(--mut)' },
+        ] as const).map(c => (
+          <div key={c.label} className="flex flex-col justify-center pl-4 border-l-2 flex-shrink-0" style={{ borderColor: 'var(--bd)' }}>
+            <span className="text-[10px] font-black uppercase tracking-[.16em] leading-none mb-0.5" style={{ color: 'var(--mut)' }}>{c.label}</span>
+            <span className="text-sm font-black leading-none truncate max-w-[120px]" style={{ color: c.color }}>{c.val}</span>
+          </div>
+        ))}
         <div className="flex-1" />
         {fefoAlerts.length > 0 && (
           <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-bold border-2"
@@ -675,17 +689,20 @@ export function DeboningHmiV5Page() {
               </button>
             </div>
             <div className="overflow-y-auto flex-1">
-              {/* Nagłówki — klikalne, sortują rosnąco */}
+              {/* Nagłówki — klikalne, toggle kierunku */}
               <div className="grid grid-cols-4 sticky top-0" style={{ background: 'var(--panel2)' }}>
                 <div className="px-4 py-3 text-[11px] font-black uppercase tracking-[.14em]" style={{ color: 'var(--mut)' }}>
                   Pracownik
                 </div>
                 {([['taken', 'Ćwiartka'], ['meat', 'Mięso'], ['yield', 'Procent']] as const).map(([key, label]) => (
-                  <button key={key} type="button" onClick={() => setStatsSort(key)}
+                  <button key={key} type="button" onClick={() => {
+                    if (statsSort === key) setStatsDir(d => d === 'asc' ? 'desc' : 'asc')
+                    else { setStatsSort(key); setStatsDir('asc') }
+                  }}
                     className="px-4 py-3 text-right text-[11px] font-black uppercase tracking-[.14em] flex items-center justify-end gap-1 transition-colors"
                     style={{ color: statsSort === key ? 'var(--accent)' : 'var(--mut)' }}>
                     {label}
-                    <span className="text-[10px]">{statsSort === key ? '▲' : ''}</span>
+                    <span className="text-[10px]">{statsSort === key ? (statsDir === 'asc' ? '▲' : '▼') : ''}</span>
                   </button>
                 ))}
               </div>
