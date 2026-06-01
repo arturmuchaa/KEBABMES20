@@ -40,7 +40,6 @@
     ],
     "windows": {
       "nsis": {
-        "productName": "Rozbiór HMI",
         "languages": ["Polish"],
         "displayLanguageSelector": false,
         "installMode": "perMachine"
