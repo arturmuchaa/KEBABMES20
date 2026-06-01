@@ -144,9 +144,9 @@ Wyświetlany inline obok etykiety MIĘSO Z/S, obliczany na bieżąco:
 ### Auto-fokus flow:
 1. Tap pracownika → fokus na ĆWIARTKA (niebieska ramka)
 2. Wpisanie cyfr → aktualizacja pola ĆWIARTKA
-3. Tap `.` lub specjalny klawisz `→` → fokus skacze na MIĘSO Z/S
-4. Wpisanie cyfr → aktualizacja pola MIĘSO + obliczenie wydajności
-5. Oba pola wypełnione → przycisk ZAPISZ zmienia się na intensywny zielony
+3. Tap bezpośrednio w pole MIĘSO Z/S → fokus skacze na MIĘSO (lub operator tapuje kafel MIĘSO z poziomu pola ĆWIARTKA); brak auto-przeskoku po liczbie cyfr (ryzyko błędu przy 2-cyfrowych wartościach)
+4. Wpisanie cyfr → aktualizacja pola MIĘSO + obliczenie wydajności na bieżąco
+5. Oba pola mają wartość > 0 → przycisk ZAPISZ zmienia się na intensywny zielony
 
 ### Przycisk ZAPISZ WPIS (90px, pełna szerokość panelu):
 | Stan | Wygląd |
