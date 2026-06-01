@@ -129,6 +129,78 @@ const WorkerTile = memo(function WorkerTile({ worker, selected, entryCount, onSe
   )
 })
 
+// ─── Pole wagi ─────────────────────────────────────────────────────
+function Readout({ label, value, active, extra, onActivate }: {
+  label: string; value: string; active: boolean; extra?: React.ReactNode; onActivate: () => void
+}) {
+  return (
+    <button type="button" onClick={onActivate}
+      className="w-full rounded-xl border-2 p-3 text-left flex-shrink-0 transition-colors"
+      style={{ background: 'var(--panel)', borderColor: active ? 'var(--accent)' : 'var(--bd)' }}>
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-[11px] font-black uppercase tracking-[.18em]"
+          style={{ color: active ? 'var(--accent)' : 'var(--mut)' }}>
+          {label}
+        </span>
+        {extra}
+      </div>
+      <div className="flex items-baseline gap-2">
+        <span className="font-mono font-black tabular-nums leading-none" style={{ fontSize: 56, color: value ? 'var(--ink)' : 'var(--mut)' }}>
+          {value || '0'}
+        </span>
+        <span className="text-xl font-bold" style={{ color: 'var(--mut)' }}>kg</span>
+        {active && <span className="ml-auto w-2 h-8 rounded-full animate-pulse" style={{ background: 'var(--accent)' }} />}
+      </div>
+    </button>
+  )
+}
+
+// ─── Numpad ────────────────────────────────────────────────────────
+const V5Numpad = memo(function V5Numpad({ onKey, onBackspaceStart, onBackspaceEnd, disabled }: {
+  onKey: (k: string) => void
+  onBackspaceStart: () => void
+  onBackspaceEnd: () => void
+  disabled: boolean
+}) {
+  const rows = [['7','8','9'],['4','5','6'],['1','2','3']]
+  return (
+    <div className={cn('flex flex-col gap-2 flex-1 min-h-0', disabled && 'opacity-40 pointer-events-none')}>
+      {rows.map(row => (
+        <div key={row[0]} className="flex gap-2 flex-1">
+          {row.map(k => (
+            <button key={k} type="button" onClick={() => onKey(k)}
+              className="flex-1 rounded-xl border-2 font-mono text-4xl font-black flex items-center justify-center select-none active:scale-[0.96] transition-transform"
+              style={{ background: 'var(--panel)', borderColor: 'var(--bd)', color: 'var(--ink)' }}>
+              {k}
+            </button>
+          ))}
+        </div>
+      ))}
+      <div className="flex gap-2 flex-1">
+        <button type="button" onClick={() => onKey('0')}
+          className="flex-[2] rounded-xl border-2 font-mono text-4xl font-black flex items-center justify-center select-none active:scale-[0.96] transition-transform"
+          style={{ background: 'var(--panel)', borderColor: 'var(--bd)', color: 'var(--ink)' }}>
+          0
+        </button>
+        <button type="button" onClick={() => onKey('.')}
+          className="flex-1 rounded-xl border-2 font-mono text-4xl font-black flex items-center justify-center select-none active:scale-[0.96]"
+          style={{ background: 'var(--panel)', borderColor: 'var(--bd)', color: 'var(--mut)' }}>
+          .
+        </button>
+        <button type="button"
+          onClick={() => onKey('⌫')}
+          onPointerDown={onBackspaceStart}
+          onPointerUp={onBackspaceEnd}
+          onPointerLeave={onBackspaceEnd}
+          className="flex-1 rounded-xl border-2 flex items-center justify-center select-none active:scale-[0.96]"
+          style={{ background: 'var(--panel)', borderColor: 'var(--bd)', color: 'var(--amb)' }}>
+          <Delete size={32} />
+        </button>
+      </div>
+    </div>
+  )
+})
+
 export function DeboningHmiV5Page() {
   const [theme, setTheme] = useState<Theme>(() => {
     try { return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark' } catch { return 'dark' }
@@ -400,9 +472,58 @@ export function DeboningHmiV5Page() {
           }
         </div>
 
-        {/* PRAWY: panel wag 46% — placeholder */}
-        <div className="flex-1 flex items-center justify-center" style={{ background: 'var(--app)' }}>
-          <span className="text-2xl font-bold" style={{ color: 'var(--mut)' }}>Panel wag — Task 5</span>
+        {/* PRAWY: panel wag 46% */}
+        <div className="flex-1 flex flex-col gap-3 p-4 min-h-0" style={{ background: 'var(--app)' }}>
+          {/* Pole ĆWIARTKA */}
+          <Readout
+            label="Ćwiartka pobrana"
+            value={kgTaken}
+            active={active === 'taken'}
+            onActivate={() => setActive('taken')}
+          />
+
+          {/* Pole MIĘSO Z/S + wydajność */}
+          <Readout
+            label="Mięso Z/S"
+            value={kgMeat}
+            active={active === 'meat'}
+            onActivate={() => setActive('meat')}
+            extra={
+              yieldPct > 0 ? (
+                <span className="text-sm font-black tabular-nums"
+                  style={{ color: yieldPct >= 75 ? 'var(--grn)' : yieldPct >= 60 ? 'var(--amb)' : 'var(--red)' }}>
+                  {fmtPct(yieldPct, 1)} wydajność
+                </span>
+              ) : undefined
+            }
+          />
+
+          {/* Numpad */}
+          <V5Numpad
+            onKey={pressKey}
+            onBackspaceStart={handleStartBackspaceHold}
+            onBackspaceEnd={handleEndBackspaceHold}
+            disabled={!selBatch || !selWorker}
+          />
+
+          {/* Przycisk ZAPISZ */}
+          <button type="button" onClick={handleSave}
+            disabled={!canSave || addLoading}
+            className={cn(
+              'flex-shrink-0 h-[90px] w-full rounded-xl text-2xl font-black flex items-center justify-center gap-4 transition-all active:scale-[0.98]',
+              saveFlash && 'scale-[1.02]'
+            )}
+            style={{
+              background: canSave ? (saveFlash ? '#15803d' : 'var(--grn)') : 'var(--panel)',
+              color: canSave ? '#fff' : 'var(--mut)',
+              border: `2px solid ${canSave ? 'var(--grn)' : 'var(--bd)'}`,
+              opacity: !canSave ? 0.45 : 1,
+            }}>
+            {addLoading
+              ? <span className="w-9 h-9 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+              : <Save size={34} />}
+            ZAPISZ WPIS
+          </button>
         </div>
       </div>
 
