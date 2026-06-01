@@ -272,6 +272,7 @@ export function DeboningHmiV5Page() {
   const [shiftModal,  setShiftModal]  = useState(false)
   const [statsModal,   setStatsModal]   = useState(false)
   const [entriesModal, setEntriesModal] = useState(false)
+  const [statsSort,    setStatsSort]    = useState<'taken' | 'meat' | 'yield'>('taken')
   const [inputBacks,  setInputBacks]  = useState('')
   const [inputBones,  setInputBones]  = useState('')
   const [toastMsg,    setToastMsg]    = useState('')
@@ -320,10 +321,11 @@ export function DeboningHmiV5Page() {
       cur.taken += e.kgTaken; cur.meat += e.kgMeat
       m.set(e.workerId, cur)
     }
-    return Array.from(m.values())
+    const rows = Array.from(m.values())
       .map(s => ({ ...s, yieldPct: s.taken > 0 ? (s.meat / s.taken) * 100 : 0 }))
-      .sort((a, b) => b.taken - a.taken)
-  }, [entries])
+    const key = statsSort === 'taken' ? 'taken' : statsSort === 'meat' ? 'meat' : 'yieldPct'
+    return rows.sort((a, b) => a[key] - b[key])
+  }, [entries, statsSort])
 
   const pendingFinalize = entries.filter(e => (e.kgBacks ?? 0) === 0 && (e.kgBones ?? 0) === 0)
   const finalizeTotalTaken = pendingFinalize.reduce((s, e) => s + e.kgTaken, 0)
@@ -673,29 +675,39 @@ export function DeboningHmiV5Page() {
               </button>
             </div>
             <div className="overflow-y-auto flex-1">
-              <div className="grid grid-cols-4 px-4 py-2 text-[11px] font-black uppercase tracking-[.14em] sticky top-0"
-                style={{ background: 'var(--panel2)', color: 'var(--mut)' }}>
-                <span>Pracownik</span>
-                <span className="text-right">Ćwiartka</span>
-                <span className="text-right">Mięso</span>
-                <span className="text-right">Wydajność</span>
+              {/* Nagłówki — klikalne, sortują rosnąco */}
+              <div className="grid grid-cols-4 sticky top-0" style={{ background: 'var(--panel2)' }}>
+                <div className="px-4 py-3 text-[11px] font-black uppercase tracking-[.14em]" style={{ color: 'var(--mut)' }}>
+                  Pracownik
+                </div>
+                {([['taken', 'Ćwiartka'], ['meat', 'Mięso'], ['yield', 'Procent']] as const).map(([key, label]) => (
+                  <button key={key} type="button" onClick={() => setStatsSort(key)}
+                    className="px-4 py-3 text-right text-[11px] font-black uppercase tracking-[.14em] flex items-center justify-end gap-1 transition-colors"
+                    style={{ color: statsSort === key ? 'var(--accent)' : 'var(--mut)' }}>
+                    {label}
+                    <span className="text-[10px]">{statsSort === key ? '▲' : ''}</span>
+                  </button>
+                ))}
               </div>
               {workerStats.length === 0 ? (
                 <div className="px-4 py-10 text-center text-sm" style={{ color: 'var(--mut)' }}>Brak wpisów z dziś</div>
-              ) : workerStats.map((s, i) => {
+              ) : workerStats.map(s => {
                 const yColor = s.yieldPct >= 75 ? 'var(--grn)' : s.yieldPct >= 60 ? 'var(--amb)' : 'var(--red)'
                 return (
                   <div key={s.name} className="grid grid-cols-4 px-4 py-4 border-t-2 items-center"
-                    style={{ borderColor: 'var(--bd)', background: i === 0 ? 'color-mix(in srgb, var(--grn) 8%, var(--panel))' : undefined }}>
-                    <div className="flex items-center gap-2">
-                      {i === 0 && <span className="text-lg">🥇</span>}
-                      {i === 1 && <span className="text-lg">🥈</span>}
-                      {i === 2 && <span className="text-lg">🥉</span>}
-                      <span className="font-semibold text-base">{s.name}</span>
-                    </div>
-                    <span className="text-right font-mono font-bold tabular-nums text-base">{fmtKg(s.taken, 1)} kg</span>
-                    <span className="text-right font-mono font-bold tabular-nums text-base" style={{ color: 'var(--grn)' }}>{fmtKg(s.meat, 1)} kg</span>
-                    <span className="text-right font-mono font-black tabular-nums text-xl" style={{ color: yColor }}>{fmtPct(s.yieldPct, 1)}</span>
+                    style={{ borderColor: 'var(--bd)' }}>
+                    <span className="font-semibold text-base">{s.name}</span>
+                    <span className="text-right font-mono font-bold tabular-nums text-base"
+                      style={{ color: statsSort === 'taken' ? 'var(--ink)' : 'var(--mut)' }}>
+                      {fmtKg(s.taken, 1)} kg
+                    </span>
+                    <span className="text-right font-mono font-bold tabular-nums text-base"
+                      style={{ color: statsSort === 'meat' ? 'var(--grn)' : 'var(--mut)' }}>
+                      {fmtKg(s.meat, 1)} kg
+                    </span>
+                    <span className="text-right font-mono font-black tabular-nums text-xl" style={{ color: yColor }}>
+                      {fmtPct(s.yieldPct, 1)}
+                    </span>
                   </div>
                 )
               })}
