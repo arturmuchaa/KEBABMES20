@@ -10,10 +10,12 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        // Główna aplikacja (web + desktop pełny) oraz dedykowane wejście kiosku
-        // rozbioru (osobny build Tauri, fullscreen, tylko panel rozbioru).
+        // Główna aplikacja (web + desktop pełny)
         main: path.resolve(__dirname, 'index.html'),
+        // Stary kiosk rozbioru (wszystkie warianty z przełącznikiem)
         kiosk: path.resolve(__dirname, 'kiosk.html'),
+        // Standalone HMI v7 "Precision Light" — panel PC 21", bez przełącznika
+        'rozbior-v7': path.resolve(__dirname, 'rozbior-v7.html'),
       },
     },
   },
