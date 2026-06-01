@@ -88,11 +88,20 @@ export function DeboningHmiV5Page() {
   const [toastVis,    setToastVis]    = useState(false)
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveFlashRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const showToast = useCallback((msg: string, type: 'ok' | 'err' = 'ok') => {
     setToastMsg(msg); setToastType(type); setToastVis(true)
     if (toastRef.current) clearTimeout(toastRef.current)
     toastRef.current = setTimeout(() => setToastVis(false), 3000)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (toastRef.current) clearTimeout(toastRef.current)
+      if (longPressRef.current) clearTimeout(longPressRef.current)
+      if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
+    }
   }, [])
 
   // Partii — memoizacja stabilna, FEFO sort, max 6
@@ -159,6 +168,7 @@ export function DeboningHmiV5Page() {
   }
 
   async function handleSave() {
+    if (addLoading) return
     if (!selBatch || !selWorker || !canSave || !session) return
     const err = await addEntry(
       { sessionId: session.id, rawBatchId: selBatch.id, workerId: selWorker.id, kgTaken: taken, kgMeat: meat },
@@ -167,7 +177,8 @@ export function DeboningHmiV5Page() {
     if (err) { showToast(err, 'err'); return }
     batchData.refetch()
     setSaveFlash(true)
-    setTimeout(() => setSaveFlash(false), 300)
+    if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
+    saveFlashRef.current = setTimeout(() => setSaveFlash(false), 300)
     setKgTaken(''); setKgMeat(''); setActive('taken')
     showToast(`Zapisano: ${fmtKg(meat)} kg mięsa`)
   }
