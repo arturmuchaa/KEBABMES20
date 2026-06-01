@@ -282,7 +282,7 @@ export function DeboningHmiV5Page() {
     </div>
   )
 
-  const fefoAlerts = batches.filter(b => getExpiryStatus(b.expiryDate).daysLeft <= 2)
+  const fefoAlerts = batches.filter(b => getExpiryStatus(b.expiryDate).daysLeft <= 3)
 
   return wrap(
     <>
