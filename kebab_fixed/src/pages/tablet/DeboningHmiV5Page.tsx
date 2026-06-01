@@ -130,14 +130,16 @@ const WorkerTile = memo(function WorkerTile({ worker, selected, entryCount, onSe
 })
 
 // ─── Pole wagi ─────────────────────────────────────────────────────
-function Readout({ label, value, active, extra, onActivate }: {
-  label: string; value: string; active: boolean; extra?: React.ReactNode; onActivate: () => void
+function Readout({ label, value, active, extra, helper, unit = 'kg', onActivate }: {
+  label: string; value: string; active: boolean
+  extra?: React.ReactNode; helper?: React.ReactNode; unit?: string
+  onActivate: () => void
 }) {
   return (
     <button type="button" onClick={onActivate}
       className="w-full rounded-xl border-2 p-3 text-left flex-shrink-0 transition-colors"
       style={{ background: 'var(--panel)', borderColor: active ? 'var(--accent)' : 'var(--bd)' }}>
-      <div className="flex items-baseline justify-between mb-1">
+      <div className="flex items-center justify-between mb-1">
         <span className="text-[11px] font-black uppercase tracking-[.18em]"
           style={{ color: active ? 'var(--accent)' : 'var(--mut)' }}>
           {label}
@@ -148,9 +150,10 @@ function Readout({ label, value, active, extra, onActivate }: {
         <span className="font-mono font-black tabular-nums leading-none" style={{ fontSize: 56, color: value ? 'var(--ink)' : 'var(--mut)' }}>
           {value || '0'}
         </span>
-        <span className="text-xl font-bold" style={{ color: 'var(--mut)' }}>kg</span>
+        <span className="text-xl font-bold" style={{ color: 'var(--mut)' }}>{unit}</span>
         {active && <span className="ml-auto w-2 h-8 rounded-full animate-pulse" style={{ background: 'var(--accent)' }} />}
       </div>
+      {helper && <div className="mt-1 text-sm font-bold tabular-nums" style={{ color: 'var(--mut)' }}>{helper}</div>}
     </button>
   )
 }
@@ -267,6 +270,7 @@ export function DeboningHmiV5Page() {
   const [kgTaken,   setKgTaken]   = useState('')
   const [kgMeat,    setKgMeat]    = useState('')
   const [active,    setActive]    = useState<ActiveField>('taken')
+  const [takenMode, setTakenMode] = useState<'kg' | 'poj'>('kg')
   const [saveFlash, setSaveFlash] = useState(false)
   const [finishModal, setFinishModal] = useState(false)
   const [shiftModal,  setShiftModal]  = useState(false)
@@ -355,7 +359,8 @@ export function DeboningHmiV5Page() {
     showToast(`Zakończono ${pendingFinalize.length} wpisów`)
   }
 
-  const taken = parseFloat(kgTaken) || 0
+  const takenRaw = parseFloat(kgTaken) || 0
+  const taken = takenMode === 'poj' ? takenRaw * KG_PER_CONTAINER : takenRaw
   const meat  = parseFloat(kgMeat)  || 0
   const yieldPct = taken > 0 && meat > 0 && meat <= taken ? (meat / taken) * 100 : 0
   const canSave  = !!selBatch && !!selWorker && taken > 0 && meat > 0 && meat <= taken
@@ -385,6 +390,10 @@ export function DeboningHmiV5Page() {
 
   const handleEndBackspaceHold = useCallback(() => {
     if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null }
+  }, [])
+
+  const switchTakenMode = useCallback((mode: 'kg' | 'poj') => {
+    setTakenMode(mode); setKgTaken(''); setActive('taken')
   }, [])
 
   const pickBatch = useCallback((b: RawBatch) => {
@@ -548,7 +557,7 @@ export function DeboningHmiV5Page() {
       <div className="flex-1 flex min-h-0">
 
         {/* LEWY: grid pracowników 54% */}
-        <div className="flex-shrink-0 w-[54%] p-3 border-r-2" style={{ borderColor: 'var(--bd)', background: 'var(--app)' }}>
+        <div className="flex-shrink-0 w-[45%] p-3 border-r-2" style={{ borderColor: 'var(--bd)', background: 'var(--app)' }}>
           {workerData.loading
             ? <div className="flex items-center justify-center h-full"><Spinner size={32} /></div>
             : (
@@ -573,11 +582,33 @@ export function DeboningHmiV5Page() {
 
         {/* PRAWY: panel wag 46% */}
         <div className="flex-1 flex flex-col gap-3 p-4 min-h-0" style={{ background: 'var(--app)' }}>
-          {/* Pole ĆWIARTKA */}
+          {/* Pole ĆWIARTKA — toggle kg/poj */}
           <Readout
             label="Ćwiartka pobrana"
             value={kgTaken}
             active={active === 'taken'}
+            unit={takenMode === 'kg' ? 'kg' : 'poj.'}
+            helper={
+              takenRaw > 0
+                ? takenMode === 'kg'
+                  ? `= ${Math.floor(takenRaw / KG_PER_CONTAINER)} poj.`
+                  : `= ${fmtKg(takenRaw * KG_PER_CONTAINER, 0)} kg`
+                : undefined
+            }
+            extra={
+              <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                {(['kg', 'poj'] as const).map(m => (
+                  <button key={m} type="button" onClick={() => switchTakenMode(m)}
+                    className="px-2 py-0.5 rounded-md text-[11px] font-black uppercase transition-colors"
+                    style={{
+                      background: takenMode === m ? 'var(--accent)' : 'var(--panel2)',
+                      color: takenMode === m ? '#fff' : 'var(--mut)',
+                    }}>
+                    {m}
+                  </button>
+                ))}
+              </div>
+            }
             onActivate={() => setActive('taken')}
           />
 
