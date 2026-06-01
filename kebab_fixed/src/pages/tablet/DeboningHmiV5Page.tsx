@@ -295,6 +295,7 @@ export function DeboningHmiV5Page() {
 
   async function handleFinishBatchConfirm() {
     if (!session) return
+    if (pendingFinalize.length === 0) { showToast('Brak wpisów do zakończenia', 'err'); return }
     const kbTotal = parseFloat(inputBacks) || 0
     const knTotal = parseFloat(inputBones) || 0
     if (kbTotal <= 0 && knTotal <= 0) { showToast('Wpisz kości lub grzbiety > 0', 'err'); return }
