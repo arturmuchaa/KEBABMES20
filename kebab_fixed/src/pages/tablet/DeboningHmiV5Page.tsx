@@ -582,35 +582,48 @@ export function DeboningHmiV5Page() {
 
         {/* PRAWY: panel wag 46% */}
         <div className="flex-1 flex flex-col gap-3 p-4 min-h-0" style={{ background: 'var(--app)' }}>
-          {/* Pole ĆWIARTKA — toggle kg/poj */}
-          <Readout
-            label="Ćwiartka pobrana"
-            value={kgTaken}
-            active={active === 'taken'}
-            unit={takenMode === 'kg' ? 'kg' : 'poj.'}
-            helper={
-              takenRaw > 0
-                ? takenMode === 'kg'
-                  ? `= ${Math.floor(takenRaw / KG_PER_CONTAINER)} poj.`
-                  : `= ${fmtKg(takenRaw * KG_PER_CONTAINER, 0)} kg`
-                : undefined
-            }
-            extra={
-              <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                {(['kg', 'poj'] as const).map(m => (
-                  <button key={m} type="button" onClick={() => switchTakenMode(m)}
-                    className="px-2 py-0.5 rounded-md text-[11px] font-black uppercase transition-colors"
-                    style={{
-                      background: takenMode === m ? 'var(--accent)' : 'var(--panel2)',
-                      color: takenMode === m ? '#fff' : 'var(--mut)',
-                    }}>
-                    {m}
-                  </button>
-                ))}
+          {/* Pole ĆWIARTKA — dwa pola obok siebie: kg | poj. */}
+          <div className="flex gap-2 flex-shrink-0">
+            {/* Lewa połówka: KG */}
+            <button type="button" onClick={() => switchTakenMode('kg')}
+              className="flex-1 rounded-xl border-2 p-3 text-left transition-colors"
+              style={{ background: 'var(--panel)', borderColor: active === 'taken' && takenMode === 'kg' ? 'var(--accent)' : 'var(--bd)' }}>
+              <div className="text-[11px] font-black uppercase tracking-[.18em] mb-1"
+                style={{ color: active === 'taken' && takenMode === 'kg' ? 'var(--accent)' : 'var(--mut)' }}>
+                Ćwiartka kg
               </div>
-            }
-            onActivate={() => setActive('taken')}
-          />
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono font-black tabular-nums leading-none"
+                  style={{ fontSize: 52, color: takenMode === 'kg' ? (kgTaken ? 'var(--ink)' : 'var(--mut)') : 'var(--ink)' }}>
+                  {takenMode === 'kg' ? (kgTaken || '0') : fmtKg(takenRaw * KG_PER_CONTAINER, 0)}
+                </span>
+                <span className="text-lg font-bold" style={{ color: 'var(--mut)' }}>kg</span>
+                {active === 'taken' && takenMode === 'kg' && (
+                  <span className="ml-auto w-2 h-7 rounded-full animate-pulse" style={{ background: 'var(--accent)' }} />
+                )}
+              </div>
+            </button>
+
+            {/* Prawa połówka: POJ. */}
+            <button type="button" onClick={() => switchTakenMode('poj')}
+              className="flex-1 rounded-xl border-2 p-3 text-left transition-colors"
+              style={{ background: 'var(--panel)', borderColor: active === 'taken' && takenMode === 'poj' ? 'var(--accent)' : 'var(--bd)' }}>
+              <div className="text-[11px] font-black uppercase tracking-[.18em] mb-1"
+                style={{ color: active === 'taken' && takenMode === 'poj' ? 'var(--accent)' : 'var(--mut)' }}>
+                Pojemniki
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono font-black tabular-nums leading-none"
+                  style={{ fontSize: 52, color: takenMode === 'poj' ? (kgTaken ? 'var(--ink)' : 'var(--mut)') : 'var(--ink)' }}>
+                  {takenMode === 'poj' ? (kgTaken || '0') : Math.floor(takenRaw / KG_PER_CONTAINER)}
+                </span>
+                <span className="text-lg font-bold" style={{ color: 'var(--mut)' }}>poj.</span>
+                {active === 'taken' && takenMode === 'poj' && (
+                  <span className="ml-auto w-2 h-7 rounded-full animate-pulse" style={{ background: 'var(--accent)' }} />
+                )}
+              </div>
+            </button>
+          </div>
 
           {/* Pole MIĘSO Z/S + wydajność */}
           <Readout
