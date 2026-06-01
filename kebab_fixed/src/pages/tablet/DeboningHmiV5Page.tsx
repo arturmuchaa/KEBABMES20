@@ -201,6 +201,29 @@ const V5Numpad = memo(function V5Numpad({ onKey, onBackspaceStart, onBackspaceEn
   )
 })
 
+// ─── Pasek statusu — wpisy dnia ────────────────────────────────────
+const EntriesStrip = memo(function EntriesStrip({ entries }: { entries: DeboningEntry[] }) {
+  if (entries.length === 0) return (
+    <span className="text-sm font-mono" style={{ color: 'var(--mut)' }}>Brak wpisów z dziś</span>
+  )
+  const last5 = entries.slice().reverse().slice(0, 5)
+  return (
+    <div className="flex items-center gap-4 overflow-hidden">
+      {last5.map((e, i) => (
+        <span key={e.id} className="flex-shrink-0 font-mono text-sm tabular-nums flex items-center gap-1.5">
+          {i > 0 && <span style={{ color: 'var(--bd)' }}>·</span>}
+          <span style={{ color: 'var(--accent)' }}>{e.rawBatchNo}</span>
+          <span style={{ color: 'var(--ink)' }}>{e.workerName.split(' ')[0]}</span>
+          <span style={{ color: 'var(--mut)' }}>{fmtKg(e.kgTaken, 0)}→{fmtKg(e.kgMeat, 0)} kg</span>
+          <span style={{ color: e.yieldPct >= 75 ? 'var(--grn)' : e.yieldPct >= 60 ? 'var(--amb)' : 'var(--red)' }}>
+            {fmtPct(e.yieldPct, 0)}
+          </span>
+        </span>
+      ))}
+    </div>
+  )
+})
+
 export function DeboningHmiV5Page() {
   const [theme, setTheme] = useState<Theme>(() => {
     try { return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark' } catch { return 'dark' }
@@ -528,10 +551,11 @@ export function DeboningHmiV5Page() {
       </div>
 
       {/* ─── PASEK STATUSU (54px) ─── */}
-      <div className="flex-shrink-0 h-[54px] border-t-2 flex items-center px-4"
+      <div className="flex-shrink-0 h-[54px] border-t-2 flex items-center gap-3 px-5"
         style={{ background: 'var(--panel)', borderColor: 'var(--bd)' }}>
-        <span className="text-xs font-bold uppercase tracking-widest mr-3" style={{ color: 'var(--mut)' }}>Dziś</span>
-        <span className="text-sm font-mono" style={{ color: 'var(--mut)' }}>Pasek statusu — WIP</span>
+        <span className="text-[11px] font-black uppercase tracking-[.18em] flex-shrink-0"
+          style={{ color: 'var(--mut)' }}>DZIŚ</span>
+        <EntriesStrip entries={entries} />
       </div>
     </>
   )
