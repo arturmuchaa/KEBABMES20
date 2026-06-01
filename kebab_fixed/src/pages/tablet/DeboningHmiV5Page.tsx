@@ -239,7 +239,7 @@ export function DeboningHmiV5Page() {
   const batchData  = useApi(() => rawBatchesApi.list())
   const workerData = useApi(() => usersApi.list())
   const { session, timeWindow, loading: sessionLoading, startDay, startLoading, closeDay, closeLoading } = useProductionSession()
-  const { entries, addEntry, addLoading } = useDeboningEntries(session?.id ?? null)
+  const { entries, addEntry, editEntry, addLoading } = useDeboningEntries(session?.id ?? null)
 
   const [selBatch,  setSelBatch]  = useState<RawBatch | null>(null)
   const [selWorker, setSelWorker] = useState<User | null>(null)
@@ -289,6 +289,30 @@ export function DeboningHmiV5Page() {
     for (const e of entries) m.set(e.workerId, (m.get(e.workerId) ?? 0) + 1)
     return m
   }, [entries])
+
+  const pendingFinalize = entries.filter(e => (e.kgBacks ?? 0) === 0 && (e.kgBones ?? 0) === 0)
+  const finalizeTotalTaken = pendingFinalize.reduce((s, e) => s + e.kgTaken, 0)
+
+  async function handleFinishBatchConfirm() {
+    if (!session) return
+    const kbTotal = parseFloat(inputBacks) || 0
+    const knTotal = parseFloat(inputBones) || 0
+    if (kbTotal <= 0 && knTotal <= 0) { showToast('Wpisz kości lub grzbiety > 0', 'err'); return }
+    const sumTaken = finalizeTotalTaken || 1
+    let rb = 0, rn = 0
+    for (let i = 0; i < pendingFinalize.length; i++) {
+      const e = pendingFinalize[i]
+      const isLast = i === pendingFinalize.length - 1
+      const share = e.kgTaken / sumTaken
+      const kb = isLast ? Math.round((kbTotal - rb) * 100) / 100 : Math.round(kbTotal * share * 100) / 100
+      const kn = isLast ? Math.round((knTotal - rn) * 100) / 100 : Math.round(knTotal * share * 100) / 100
+      rb += kb; rn += kn
+      await editEntry(e.id, { kgBacks: kb, kgBones: kn }, session)
+    }
+    setFinishModal(false)
+    setInputBacks(''); setInputBones('')
+    showToast(`Zakończono ${pendingFinalize.length} wpisów`)
+  }
 
   const taken = parseFloat(kgTaken) || 0
   const meat  = parseFloat(kgMeat)  || 0
@@ -557,6 +581,85 @@ export function DeboningHmiV5Page() {
           style={{ color: 'var(--mut)' }}>DZIŚ</span>
         <EntriesStrip entries={entries} />
       </div>
+
+      {/* ─── MODAL: Zakończenie partii ─── */}
+      {finishModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" style={VARS[theme]}>
+          <div className="w-[480px] rounded-2xl border-2 p-8 flex flex-col gap-6"
+            style={{ background: 'var(--panel)', borderColor: 'var(--bd)', color: 'var(--ink)' }}>
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-xl border-2 flex items-center justify-center"
+                style={{ borderColor: 'var(--amb)', color: 'var(--amb)' }}><Flag size={30} /></div>
+              <div>
+                <h3 className="text-2xl font-black">Zakończenie partii</h3>
+                <p className="text-sm" style={{ color: 'var(--mut)' }}>
+                  {pendingFinalize.length} wpisów · {fmtKg(finalizeTotalTaken, 1)} kg ćwiartki
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--mut)' }}>Grzbiety (kg)</span>
+                <input type="number" min="0" step="0.01" value={inputBacks}
+                  onChange={e => setInputBacks(e.target.value)}
+                  className="h-14 rounded-xl border-2 px-4 text-2xl font-mono font-bold bg-transparent outline-none"
+                  style={{ borderColor: 'var(--bd)', color: 'var(--ink)' }} />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--mut)' }}>Kości (kg)</span>
+                <input type="number" min="0" step="0.01" value={inputBones}
+                  onChange={e => setInputBones(e.target.value)}
+                  className="h-14 rounded-xl border-2 px-4 text-2xl font-mono font-bold bg-transparent outline-none"
+                  style={{ borderColor: 'var(--bd)', color: 'var(--ink)' }} />
+              </label>
+            </div>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setFinishModal(false)}
+                className="flex-1 h-14 rounded-xl border-2 text-lg font-bold"
+                style={{ borderColor: 'var(--bd)', color: 'var(--mut)' }}>
+                Anuluj
+              </button>
+              <button type="button" onClick={handleFinishBatchConfirm}
+                className="flex-[2] h-14 rounded-xl text-lg font-bold"
+                style={{ background: 'var(--amb)', color: '#fff' }}>
+                Zatwierdź zakończenie
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL: Zakończenie zmiany ─── */}
+      {shiftModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" style={VARS[theme]}>
+          <div className="w-[400px] rounded-2xl border-2 p-8 flex flex-col gap-6"
+            style={{ background: 'var(--panel)', borderColor: 'var(--bd)', color: 'var(--ink)' }}>
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-xl border-2 flex items-center justify-center"
+                style={{ borderColor: 'var(--red)', color: 'var(--red)' }}><LogOut size={30} /></div>
+              <div>
+                <h3 className="text-2xl font-black">Zakończyć zmianę?</h3>
+                <p className="text-sm" style={{ color: 'var(--mut)' }}>Sesja zostanie zamknięta.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setShiftModal(false)}
+                className="flex-1 h-14 rounded-xl border-2 text-lg font-bold"
+                style={{ borderColor: 'var(--bd)', color: 'var(--mut)' }}>
+                Anuluj
+              </button>
+              <button type="button" onClick={handleCloseShift} disabled={closeLoading}
+                className="flex-[2] h-14 rounded-xl text-lg font-bold flex items-center justify-center gap-3"
+                style={{ background: 'var(--red)', color: '#fff' }}>
+                {closeLoading
+                  ? <span className="w-6 h-6 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+                  : <LogOut size={22} />}
+                Zakończ zmianę
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
