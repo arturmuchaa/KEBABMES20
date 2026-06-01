@@ -56,6 +56,46 @@ const TopClock = memo(function TopClock() {
   )
 })
 
+// ─── Kafel partii ──────────────────────────────────────────────────
+const BatchTile = memo(function BatchTile({ batch, selected, onSelect }: {
+  batch: RawBatch; selected: boolean; onSelect: (b: RawBatch) => void
+}) {
+  const { daysLeft } = getExpiryStatus(batch.expiryDate)
+  const kg = Number(batch.kgAvailable)
+  const containers = Math.floor(kg / KG_PER_CONTAINER)
+  const daysColor = daysLeft <= 0 ? 'var(--red)' : daysLeft <= 3 ? 'var(--amb)' : 'var(--mut)'
+  const supplierLabel = batch.supplierDisplayName ?? batch.supplierName ?? '—'
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(batch)}
+      className={cn(
+        'flex flex-col justify-between p-3 rounded-xl border-2 h-full text-left select-none active:translate-y-px transition-colors',
+        selected
+          ? 'border-[var(--accent)] bg-[var(--accent)]'
+          : 'border-[var(--bd)] bg-[var(--panel)] hover:border-[var(--accent)]'
+      )}
+      style={selected ? { color: '#fff' } : undefined}
+    >
+      <div className="flex items-start justify-between gap-1">
+        <span className="font-mono text-lg font-black leading-none" style={selected ? undefined : { color: 'var(--ink)' }}>
+          {batch.internalBatchNo}
+        </span>
+        <span className="text-xs font-bold tabular-nums" style={{ color: selected ? 'rgba(255,255,255,0.8)' : daysColor }}>
+          {daysLeft < 0 ? 'PRZETERM.' : daysLeft === 0 ? 'DZIŚ!' : `${daysLeft}d`}
+        </span>
+      </div>
+      <span className="text-[11px] font-semibold truncate" style={{ color: selected ? 'rgba(255,255,255,0.85)' : 'var(--mut)' }}>
+        {supplierLabel}
+      </span>
+      <span className="text-[11px] tabular-nums" style={{ color: selected ? 'rgba(255,255,255,0.75)' : 'var(--mut)' }}>
+        {fmtKg(kg, 0)} kg · {containers} poj.
+      </span>
+    </button>
+  )
+})
+
 export function DeboningHmiV5Page() {
   const [theme, setTheme] = useState<Theme>(() => {
     try { return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark' } catch { return 'dark' }
@@ -242,6 +282,72 @@ export function DeboningHmiV5Page() {
     </div>
   )
 
-  // Główny ekran — placeholder do następnych tasków
-  return wrap(<div className="flex-1 flex items-center justify-center text-4xl font-bold" style={{ color: 'var(--mut)' }}>HMI v5 — w budowie</div>)
+  const fefoAlerts = batches.filter(b => getExpiryStatus(b.expiryDate).daysLeft <= 2)
+
+  return wrap(
+    <>
+      {/* ─── TOAST ─── */}
+      <div className={cn(
+        'fixed top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3.5 rounded-xl border-2 text-base font-bold flex items-center gap-3 transition-opacity duration-150',
+        toastVis ? 'opacity-100' : 'opacity-0 pointer-events-none'
+      )} style={{ background: 'var(--panel)', borderColor: toastType === 'ok' ? 'var(--grn)' : 'var(--red)', color: toastType === 'ok' ? 'var(--grn)' : 'var(--red)' }}>
+        {toastType === 'ok' ? '✓' : '⚠'} {toastMsg}
+      </div>
+
+      {/* ─── NAGŁÓWEK (60px) ─── */}
+      <header className="flex-shrink-0 h-[60px] flex items-center gap-4 px-5 border-b-2"
+        style={{ background: 'var(--panel)', borderColor: 'var(--bd)' }}>
+        <div className="font-black text-xl tracking-tight" style={{ color: 'var(--ink)' }}>ROZBIÓR</div>
+        <div className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--mut)' }}>
+          {session.sessionDate}
+        </div>
+        <div className="flex-1" />
+        {fefoAlerts.length > 0 && (
+          <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-bold border-2"
+            style={{ color: 'var(--red)', borderColor: 'var(--red)' }}>
+            <AlertTriangle size={16} />
+            {fefoAlerts.length === 1 ? `Partia ${fefoAlerts[0].internalBatchNo} — termin!` : `${fefoAlerts.length} partii — termin!`}
+          </span>
+        )}
+        <TopClock />
+        <button type="button" onClick={toggleTheme} aria-label="Motyw"
+          className="w-10 h-10 rounded-lg border-2 flex items-center justify-center"
+          style={{ borderColor: 'var(--bd)', color: 'var(--mut)' }}>
+          {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+        </button>
+        <button type="button" onClick={() => setShiftModal(true)}
+          className="h-9 px-4 rounded-lg border-2 text-sm font-bold flex items-center gap-2"
+          style={{ borderColor: 'var(--bd)', color: 'var(--mut)' }}>
+          <LogOut size={16} /> Zakończ zmianę
+        </button>
+        <button type="button" onClick={() => setFinishModal(true)}
+          className="h-9 px-4 rounded-lg border-2 text-sm font-bold flex items-center gap-2"
+          style={{ borderColor: 'var(--amb)', color: 'var(--amb)' }}>
+          <Flag size={16} /> Zakończ partię
+        </button>
+      </header>
+
+      {/* ─── PASEK PARTII (88px) ─── */}
+      <div className="flex-shrink-0 h-[88px] px-3 py-2 grid gap-2 border-b-2"
+        style={{ gridTemplateColumns: `repeat(${Math.max(batches.length, 1)}, 1fr)`, background: 'var(--app)', borderColor: 'var(--bd)' }}>
+        {batchData.loading
+          ? <div className="col-span-6 flex items-center justify-center"><Spinner size={24} /></div>
+          : batches.length === 0
+            ? <div className="col-span-6 flex items-center justify-center text-sm font-bold" style={{ color: 'var(--mut)' }}>Brak aktywnych partii</div>
+            : batches.map(b => (
+                <BatchTile key={b.id} batch={b} selected={selBatch?.id === b.id} onSelect={pickBatch} />
+              ))
+        }
+      </div>
+
+      {/* ─── OBSZAR GŁÓWNY + PASEK STATUSU — placeholder ─── */}
+      <div className="flex-1 flex items-center justify-center text-2xl font-bold min-h-0" style={{ color: 'var(--mut)' }}>
+        Grid + Panel — kolejne taski
+      </div>
+      <div className="flex-shrink-0 h-[54px] border-t-2 flex items-center px-4"
+        style={{ background: 'var(--panel)', borderColor: 'var(--bd)' }}>
+        <span className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--mut)' }}>Pasek statusu — WIP</span>
+      </div>
+    </>
+  )
 }
