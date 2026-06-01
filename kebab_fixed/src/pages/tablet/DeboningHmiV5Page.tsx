@@ -96,6 +96,39 @@ const BatchTile = memo(function BatchTile({ batch, selected, onSelect }: {
   )
 })
 
+// ─── Kafel pracownika ──────────────────────────────────────────────
+const WorkerTile = memo(function WorkerTile({ worker, selected, entryCount, onSelect }: {
+  worker: User; selected: boolean; entryCount: number; onSelect: (w: User) => void
+}) {
+  const initials = worker.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(worker)}
+      className={cn(
+        'relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 select-none active:scale-[0.98] transition-all',
+        selected
+          ? 'border-[var(--accent)] bg-[var(--accent)]'
+          : 'border-[var(--bd)] bg-[var(--panel)] hover:border-[var(--accent)]'
+      )}
+    >
+      <span className="text-4xl font-black leading-none" style={{ color: selected ? '#fff' : 'var(--ink)' }}>
+        {initials}
+      </span>
+      <span className="text-sm font-semibold leading-tight text-center px-2 truncate w-full"
+        style={{ color: selected ? 'rgba(255,255,255,0.9)' : 'var(--ink)' }}>
+        {worker.name}
+      </span>
+      {entryCount > 0 && (
+        <span className="absolute bottom-2 right-2 min-w-[22px] h-[22px] px-1.5 rounded-full text-xs font-black flex items-center justify-center"
+          style={{ background: selected ? '#fff' : 'var(--grn)', color: selected ? 'var(--accent)' : '#fff' }}>
+          {entryCount}
+        </span>
+      )}
+    </button>
+  )
+})
+
 export function DeboningHmiV5Page() {
   const [theme, setTheme] = useState<Theme>(() => {
     try { return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark' } catch { return 'dark' }
@@ -340,13 +373,44 @@ export function DeboningHmiV5Page() {
         }
       </div>
 
-      {/* ─── OBSZAR GŁÓWNY + PASEK STATUSU — placeholder ─── */}
-      <div className="flex-1 flex items-center justify-center text-2xl font-bold min-h-0" style={{ color: 'var(--mut)' }}>
-        Grid + Panel — kolejne taski
+      {/* ─── OBSZAR GŁÓWNY ─── */}
+      <div className="flex-1 flex min-h-0">
+
+        {/* LEWY: grid pracowników 54% */}
+        <div className="flex-shrink-0 w-[54%] p-3 border-r-2" style={{ borderColor: 'var(--bd)', background: 'var(--app)' }}>
+          {workerData.loading
+            ? <div className="flex items-center justify-center h-full"><Spinner size={32} /></div>
+            : (
+              <div className="grid grid-cols-4 grid-rows-4 gap-2 h-full">
+                {Array.from({ length: 16 }, (_, i) => {
+                  const w = workers[i]
+                  if (!w) return <div key={`empty-${i}`} />
+                  return (
+                    <WorkerTile
+                      key={w.id}
+                      worker={w}
+                      selected={selWorker?.id === w.id}
+                      entryCount={entryCountByWorkerId.get(w.id) ?? 0}
+                      onSelect={pickWorker}
+                    />
+                  )
+                })}
+              </div>
+            )
+          }
+        </div>
+
+        {/* PRAWY: panel wag 46% — placeholder */}
+        <div className="flex-1 flex items-center justify-center" style={{ background: 'var(--app)' }}>
+          <span className="text-2xl font-bold" style={{ color: 'var(--mut)' }}>Panel wag — Task 5</span>
+        </div>
       </div>
+
+      {/* ─── PASEK STATUSU (54px) ─── */}
       <div className="flex-shrink-0 h-[54px] border-t-2 flex items-center px-4"
         style={{ background: 'var(--panel)', borderColor: 'var(--bd)' }}>
-        <span className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--mut)' }}>Pasek statusu — WIP</span>
+        <span className="text-xs font-bold uppercase tracking-widest mr-3" style={{ color: 'var(--mut)' }}>Dziś</span>
+        <span className="text-sm font-mono" style={{ color: 'var(--mut)' }}>Pasek statusu — WIP</span>
       </div>
     </>
   )
