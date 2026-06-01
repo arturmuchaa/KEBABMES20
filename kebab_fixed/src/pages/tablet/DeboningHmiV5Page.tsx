@@ -423,7 +423,7 @@ export function DeboningHmiV5Page() {
   }
 
   const wrap = (children: React.ReactNode) => (
-    <div className="h-screen w-screen overflow-hidden flex flex-col bg-[var(--app)] text-[var(--ink)]" style={VARS[theme]}>
+    <div className="h-full w-full overflow-hidden flex flex-col bg-[var(--app)] text-[var(--ink)]" style={VARS[theme]}>
       {children}
     </div>
   )
