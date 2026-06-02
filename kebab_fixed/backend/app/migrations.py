@@ -285,6 +285,9 @@ _DDL: list[str] = [
         closed_at       TIMESTAMPTZ
     )""",
     "CREATE INDEX IF NOT EXISTS idx_cartons_status ON cartons(status)",
+
+    # ── QR per sztuka — Faza 2: termin przydatności w recepturze ──
+    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS shelf_life_days INTEGER NOT NULL DEFAULT 5",
 ]
 
 
