@@ -1,4 +1,5 @@
 """label_templates — upsert, pobieranie i sprawdzanie szablonu etykiety (per klient+receptura)."""
+import json
 from typing import Any, Dict, Optional
 
 from app.db import cx_execute_returning, query_one, transaction
@@ -70,7 +71,7 @@ def upsert_template(dto: Dict[str, Any]) -> Dict[str, Any]:
                 dto.get("recipe_id") or "",
                 dto.get("kind") or "overlay",
                 dto.get("background_data") or "",
-                __import__("json").dumps(dto.get("field_positions") or {}),
+                json.dumps(dto.get("field_positions") or {}),
                 dto.get("page_size") or "a4",
                 int(dto.get("labels_per_sheet") or 2),
                 dto.get("zpl") or "",
