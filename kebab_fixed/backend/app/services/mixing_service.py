@@ -24,6 +24,7 @@ from app.logging_config import get_logger
 from app.models.mixing import FinishMixingSessionDto, MixingOrderCreate
 from app.services.recipes_service import calc_kg_output
 from app.services.seasoned_meat_service import populate_lineage
+from app.utils.batch_numbers import combined_batch_no
 from app.utils.ids import cuid, next_seq, now_iso
 from app.utils.stock import create_stock_movement
 
@@ -452,9 +453,9 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
             )
             seqs = [r["internal_batch_seq"] for r in raw_seqs if r.get("internal_batch_seq")]
             if len(seqs) == 1:
-                batch_no = f"MP{seqs[0]}"
+                batch_no = str(seqs[0])
             else:
-                batch_no = f"MPP{next_seq('mixed_seq')}"
+                batch_no = combined_batch_no(next_seq("pp_seq"))
 
         machine_id = order.get("machine_id")
 
