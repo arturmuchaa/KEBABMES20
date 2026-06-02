@@ -51,8 +51,11 @@ def test_combined_batch_no():
 
 def test_is_combined():
     assert is_combined("PP1") is True
+    assert is_combined("PP27") is True
     assert is_combined("344") is False
     assert is_combined("") is False
+    assert is_combined("PP") is False
+    assert is_combined("PPx") is False
 
 
 # --- kebab_batch_no --------------------------------------------------------
