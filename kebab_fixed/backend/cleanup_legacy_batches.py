@@ -23,6 +23,7 @@ DATABASE_URL = os.environ.get(
 # production_sessions (process_type='deboning'). raw_batch_history
 # referencjonuje raw_batches, więc musi być usunięta przed nią.
 DELETE_ORDER = [
+    "stock_movements",
     "finished_goods_sessions",
     "finished_goods",
     "mixing_order_lots",
@@ -34,14 +35,16 @@ DELETE_ORDER = [
     "raw_batch_history",
     "production_sessions",
     "raw_batches",
-    "stock_movements",
 ]
 
 # Sekwencje: batch_seq=343 → następna partia 344; reszta wyzerowana.
 # Nazwy zgodne z init_db.py: batch_seq, deboning_seq, mixing_seq,
 # seasoned_seq, finished_goods_seq, mixed_seq.
+# pp_seq — nowy klucz dla partii łączonych (PP{n}); zerujemy, by po czyszczeniu
+# pierwsza partia łączona była PP1.
 SEQUENCES = {
     "batch_seq": 343,
+    "pp_seq": 0,
     "deboning_seq": 0,
     "mixing_seq": 0,
     "seasoned_seq": 0,
