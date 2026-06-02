@@ -50,11 +50,11 @@ def list_batches(active_only: bool, limit: int) -> Dict[str, Any]:
 def create_batch(dto: RawBatchCreate) -> Dict:
     """Tworzy nową partię surowca.
 
-    Numer partii (`internal_batch_no`):
-      - jeżeli dto.internal_batch_no jest podane i pasuje do `R<liczba>`,
+    Numer partii (`internal_batch_no`) — goły numer, bez litery:
+      - jeżeli dto.internal_batch_no jest podane i jest liczbą (np. 344),
         używa tego numeru. `batch_seq` jest synchronizowane do max(seq, podana)
         żeby kolejne auto-numery były wyższe.
-      - jeżeli brak — pobiera kolejny z `batch_seq` (R<N+1>).
+      - jeżeli brak — pobiera kolejny z `batch_seq` (N+1).
     """
     try:
         custom_seq = parse_reception_no(dto.internal_batch_no)
