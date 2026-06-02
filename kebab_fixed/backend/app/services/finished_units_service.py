@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from app.db import cx_execute, cx_query_all, cx_query_one, query_one, transaction
 from app.logging_config import get_logger
-from app.utils.ids import cuid, next_seq, now_iso
+from app.utils.ids import cuid, now_iso
 from app.utils.unit_codes import next_produced_status, parse_unit_qr, unit_qr
 
 logger = get_logger(__name__)
@@ -40,9 +40,8 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
         seasoned = line.get("seasoned_batch_nos") or []
         batch_no = seasoned[0] if seasoned else ""
         created = 0
-        for _ in range(qty):
+        for i in range(qty):
             uid = cuid()
-            seq = next_seq("unit_seq")
             cx_execute(
                 conn,
                 """
@@ -55,9 +54,9 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
                 (
                     uid,
                     unit_qr(uid),
-                    seq,
+                    i + 1,
                     plan_line_id,
-                    line.get("client_order_line_id"),
+                    line.get("client_order_id"),
                     line.get("client_name") or "",
                     line.get("product_type_id") or "",
                     line.get("recipe_id") or "",
