@@ -6,8 +6,9 @@
  * - Klient: wybór z listy kontrahentów
  */
 import { useState, useMemo, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
-import { productionPlansApi, clientOrdersApi, seasonedMeatApi, packagingApi, clientsApi } from '@/lib/apiClient'
+import { productionPlansApi, clientOrdersApi, seasonedMeatApi, packagingApi, clientsApi, finishedUnitsApi } from '@/lib/apiClient'
 import type { OrderProductionProgress } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -40,7 +41,7 @@ import {
 } from 'lucide-react'
 import { useProductTypes } from '@/features/products/hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
-import type { ProductionPlan, CreatePlanLineDto, ClientOrder } from '@/lib/mockApi'
+import type { ProductionPlan, ProductionPlanLine, CreatePlanLineDto, ClientOrder } from '@/lib/mockApi'
 
 interface PlanLineForm {
   qty:              string
@@ -956,6 +957,8 @@ export function ProductionPlanningPage() {
   const [modal,    setModal]    = useState(false)
   const [editPlan, setEditPlan] = useState<ProductionPlan|null>(null)
   const [expanded, setExpanded] = useState<string|null>(null)
+  const navigate = useNavigate()
+  const [generatingLine, setGeneratingLine] = useState<string|null>(null)
 
   async function handleCreate(lines: CreatePlanLineDto[], planDate: string): Promise<string> {
     const plan = await productionPlansApi.create({ planDate, lines })
@@ -968,6 +971,20 @@ export function ProductionPlanningPage() {
     const plan = await productionPlansApi.update(editPlan.id, { planDate, lines })
     refetch()
     return plan.id
+  }
+
+  async function handleGenerateLabels(planId: string, line: ProductionPlanLine) {
+    setGeneratingLine(line.id)
+    try {
+      await finishedUnitsApi.generateFromPlanLine(line.id)
+    } catch {
+      // Ignoruj błąd — często jednostki już istnieją; i tak przechodzimy do druku
+    }
+    setGeneratingLine(null)
+    const params = new URLSearchParams({ planLineId: line.id })
+    if (line.clientName) params.set('clientId', line.clientName)
+    if (line.recipeId)   params.set('recipeId', line.recipeId)
+    navigate(`/etykiety/druk?${params.toString()}`)
   }
 
   const activePlans = (plans??[]).filter(p=>p.status!=='done')
@@ -1128,7 +1145,7 @@ export function ProductionPlanningPage() {
                       <Table className="text-[11px] mt-2">
                         <TableHeader>
                           <TableRow>
-                            {['Szt','Wykonano','kg','Razem','Receptura','Tuleja','Partie mięsa','Klient'].map(h=>(
+                            {['Szt','Wykonano','kg','Razem','Receptura','Tuleja','Partie mięsa','Klient',''].map(h=>(
                               <TableHead key={h} className="text-[9px] uppercase tracking-wider h-7 px-3">{h}</TableHead>
                             ))}
                           </TableRow>
@@ -1168,6 +1185,22 @@ export function ProductionPlanningPage() {
                                 }
                               </TableCell>
                               <TableCell className="py-1.5 text-muted-foreground text-[10px] px-3">{l.clientName||'—'}</TableCell>
+                              <TableCell className="py-1 px-2">
+                                {(plan.status === 'active' || plan.status === 'done') && l.recipeId && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={generatingLine === l.id}
+                                    className="h-6 text-[10px] px-2 text-violet-700 border-violet-200 hover:bg-violet-50 whitespace-nowrap"
+                                    onClick={e => { e.stopPropagation(); handleGenerateLabels(plan.id, l as ProductionPlanLine) }}
+                                  >
+                                    {generatingLine === l.id
+                                      ? <span className="w-3 h-3 border border-violet-300 border-t-violet-700 rounded-full animate-spin mr-1" />
+                                      : null}
+                                    Etykiety
+                                  </Button>
+                                )}
+                              </TableCell>
                             </TableRow>
                           )})}
                         </TableBody>
