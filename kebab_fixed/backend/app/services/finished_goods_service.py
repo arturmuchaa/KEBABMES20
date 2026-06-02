@@ -26,6 +26,7 @@ from app.db import (
 from app.logging_config import get_logger
 from app.models.production import FinishDayDto, FinishDayEntry, FinishedGoodCreate
 from app.utils.body import body_get
+from app.utils.batch_numbers import combined_batch_no, kebab_batch_no
 from app.utils.ids import cuid, next_seq, now_iso
 from app.utils.stock import create_stock_movement
 
@@ -284,13 +285,19 @@ def list_finished() -> List[Dict]:
 
 
 def create_finished_good(dto: FinishedGoodCreate) -> Dict:
-    seq = next_seq("finished_goods_seq")
-    default_batch_no = f"P{seq}"
     qty = int(dto.qty)
     kg_per_unit = float(dto.kg_per_unit)
     total_kg = round(qty * kg_per_unit, 3)
-    batch_no = dto.batch_no or default_batch_no
     produced_date = dto.produced_date or datetime.now().date().isoformat()
+    if dto.batch_no:
+        batch_no = dto.batch_no
+    else:
+        batch_no = kebab_batch_no(
+            produced_date,
+            (dto.seasoned_batch_nos[0]
+             if dto.seasoned_batch_nos and len(dto.seasoned_batch_nos) == 1
+             else combined_batch_no(next_seq("pp_seq"))),
+        )
 
     with transaction() as conn:
         item = cx_execute_returning(
@@ -420,6 +427,21 @@ def finish_day(dto: FinishDayDto) -> Dict[str, Any]:
     return {"created": len([c for c in created if c]), "items": [c for c in created if c]}
 
 
+def _compute_kebab_batch_no(
+    conn, produced_date: str, seasoned_batch_nos: List[str]
+) -> str:
+    """Numer kebaba.
+
+    * 1 partia wsadowa → 'ddmmrr <numer wsadu>' (np. '020626 344').
+    * >1 partii (fizycznie zmieszane w tych samych sztukach)
+      → nowa partia łączona PP{n}, numer 'ddmmrr PP{n}'.
+    """
+    if seasoned_batch_nos and len(seasoned_batch_nos) == 1:
+        return kebab_batch_no(produced_date, seasoned_batch_nos[0])
+    pp = combined_batch_no(next_seq("pp_seq"))
+    return kebab_batch_no(produced_date, pp)
+
+
 def _process_finish_day_entry(
     conn, plan: Dict, entry: FinishDayEntry, today: str
 ) -> Dict | None:
@@ -442,11 +464,14 @@ def _process_finish_day_entry(
     src_seasoned = lineage["seasoned_meat_ids"]
     src_deboning = lineage["deboning_entry_ids"]
 
+    batch_no = _compute_kebab_batch_no(conn, today, entry.seasoned_batch_nos or [])
+
     existing = cx_query_one(
         conn,
         """
         SELECT * FROM finished_goods
         WHERE produced_date = %s
+          AND batch_no = %s
           AND recipe_id = %s
           AND COALESCE(packaging_id,'') = %s
           AND COALESCE(client_name,'') = %s
@@ -455,6 +480,7 @@ def _process_finish_day_entry(
         """,
         (
             today,
+            batch_no,
             entry.recipe_id,
             entry.packaging_id or "",
             entry.client_name or "",
@@ -526,63 +552,6 @@ def _process_finish_day_entry(
         )
         item_id = existing["id"]
     else:
-        # Strategia nazewnictwa:
-        # 1) Pojedyncze seasoned ze 1 raw batch     → P{raw_seq}/{n}   (np. P171/1)
-        # 2) Pojedyncze seasoned z wielu raw (MPP*) → {sm_batch_no}/{n} (np. MPP1/1)
-        # 3) Wiele seasoned źródeł                  → PP{global_seq}
-        # n = liczba istniejących finished_goods z tego źródła + 1 (per source).
-        # Dzięki temu user widzi w magazynie wyraźny związek z partią
-        # zaprawioną zamiast losowych PP1/PP2/PP3.
-        batch_no = ""
-        if entry.seasoned_batch_nos and len(entry.seasoned_batch_nos) == 1:
-            sm_batch_no = entry.seasoned_batch_nos[0]
-            # Spróbuj P{raw_seq} dla single-raw (zachowanie historyczne)
-            single_raw_prefix = ""
-            sm_row = cx_query_one(
-                conn,
-                "SELECT mixing_order_no FROM seasoned_meat WHERE batch_no=%s",
-                (sm_batch_no,),
-            )
-            if sm_row and sm_row.get("mixing_order_no"):
-                mo_row = cx_query_one(
-                    conn,
-                    "SELECT id FROM mixing_orders WHERE order_no=%s",
-                    (sm_row["mixing_order_no"],),
-                )
-                if mo_row:
-                    raw_seqs = cx_query_all(
-                        conn,
-                        """
-                        SELECT DISTINCT rb.internal_batch_seq
-                        FROM mixing_order_lots mol
-                        LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
-                        LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
-                        WHERE mol.order_id = %s AND rb.internal_batch_seq IS NOT NULL
-                        """,
-                        (mo_row["id"],),
-                    )
-                    sids = [
-                        r["internal_batch_seq"]
-                        for r in raw_seqs
-                        if r.get("internal_batch_seq")
-                    ]
-                    if len(sids) == 1:
-                        single_raw_prefix = f"P{sids[0]}"
-
-            prefix = single_raw_prefix or sm_batch_no
-            # Policz ile finished_goods już ma ten prefix → przydziel kolejny n.
-            count_row = cx_query_one(
-                conn,
-                "SELECT count(*) AS n FROM finished_goods WHERE batch_no LIKE %s",
-                (f"{prefix}/%",),
-            )
-            n = int((count_row or {}).get("n") or 0) + 1
-            batch_no = f"{prefix}/{n}"
-        else:
-            # Brak źródła albo wiele źródeł — globalny licznik
-            seq = next_seq("finished_goods_seq")
-            batch_no = f"PP{seq}"
-
         item = cx_execute_returning(
             conn,
             """
