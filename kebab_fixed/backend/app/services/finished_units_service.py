@@ -69,7 +69,7 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
             )
             created += 1
 
-        logger.info("finished_units.generated", extra={"plan_line_id": plan_line_id, "created": created})
+        logger.info("finished_units.generated", extra={"plan_line_id": plan_line_id, "created_count": created})
         return {"planLineId": plan_line_id, "created": created, "existing": 0}
 
 
