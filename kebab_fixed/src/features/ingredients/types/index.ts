@@ -103,6 +103,7 @@ export interface Recipe {
   readonly ingredients:   RecipeIngredient[]
   /** Łączna masa gotowego produktu na 100 kg mięsa (wyliczana) */
   readonly totalOutputPer100kg: number
+  readonly shelfLifeDays: number          // dni przydatności do spożycia
   readonly notes?:        string
   readonly active:        boolean
   readonly createdAt:     string
@@ -113,6 +114,7 @@ export interface CreateRecipeDto {
   name:           string
   productTypeId?: string
   ingredients:    Omit<RecipeIngredient, 'id' | 'ingredientName' | 'unit' | 'isUnlimited'>[]
+  shelfLifeDays?: number
   notes?:         string
 }
 
@@ -120,6 +122,7 @@ export interface UpdateRecipeDto {
   name?:          string
   productTypeId?: string
   ingredients?:   Omit<RecipeIngredient, 'id' | 'ingredientName' | 'unit' | 'isUnlimited'>[]
+  shelfLifeDays?: number
   notes?:         string
   active?:        boolean
 }

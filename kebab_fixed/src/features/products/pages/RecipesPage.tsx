@@ -170,6 +170,13 @@ export function RecipesPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div>
+                <Label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1 block">Dni przydatności (termin)</Label>
+                <Input type="number" min="1" step="1" placeholder="5"
+                  value={form.shelfLifeDays}
+                  onChange={e => form.setShelfLifeDays(Math.max(1, parseInt(e.target.value) || 5))}
+                  className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"/>
+              </div>
             </div>
 
             <div>

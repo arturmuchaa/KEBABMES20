@@ -1243,6 +1243,7 @@ export const recipesApi = {
       productTypeId:       dto.productTypeId,
       ingredients:         enriched,
       totalOutputPer100kg,
+      shelfLifeDays:       dto.shelfLifeDays ?? 5,
       notes:               dto.notes,
       active:              true,
       createdAt:           nowIso(),
