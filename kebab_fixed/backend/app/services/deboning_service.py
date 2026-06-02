@@ -153,7 +153,8 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
 
         kg_remainder = max(0, kg_taken - kg_meat)
         yield_pct = round(yield_pct_val, 2)
-        meat_lot_no = f"M{batch['internal_batch_seq']}"
+        # Numer mięsa po rozbiorze = ten sam numer co partia surowca (bez litery).
+        meat_lot_no = batch["internal_batch_no"]
 
         entry = cx_execute_returning(
             conn,
