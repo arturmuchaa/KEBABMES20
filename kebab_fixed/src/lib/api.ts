@@ -401,6 +401,7 @@ function mapRecipe(raw: any): Recipe {
     productTypeId:        raw.product_type_id       ?? raw.productTypeId,
     productTypeName:      raw.product_type_name     ?? raw.productTypeName,
     totalOutputPer100kg:  Number(raw.total_output_per_100kg ?? raw.totalOutputPer100kg ?? 100),
+    shelfLifeDays:        Number(raw.shelf_life_days ?? raw.shelfLifeDays ?? 5),
     notes:                raw.notes,
     active:               raw.active               ?? true,
     createdAt:            raw.created_at            ?? raw.createdAt ?? '',
@@ -414,6 +415,7 @@ function mapRecipe(raw: any): Recipe {
 function toSnakeRecipeDto(dto: CreateRecipeDto | UpdateRecipeDto) {
   return {
     ...toSnake(dto),
+    shelf_life_days: dto.shelfLifeDays ?? 5,
     ingredients: (dto.ingredients ?? []).map((ri: any) => ({
       ingredient_id:  ri.ingredientId  ?? ri.ingredient_id  ?? '',
       qty_per_100kg:  ri.qtyPer100kg   ?? ri.qty_per_100kg  ?? 0,
@@ -871,6 +873,90 @@ export const palletScanApi = {
     ),
   loadingDocument: (vehicleId: string, orderIds: string[]) =>
     post<any>('/pallets/loading-document', { vehicle_id: vehicleId, order_ids: orderIds }),
+}
+
+// ─── QR per sztuka — finished units + cartons ──────────────────
+export interface FinishedUnitCard {
+  id: string
+  qrCode: string
+  status: string
+  clientName: string
+  productTypeId: string
+  recipeId: string
+  tuleja: string
+  weightKg: number
+  batchNo: string
+  trolleyId: string | null
+  cartonId: string | null
+  producedAt: string
+}
+
+export interface ScanProducedResult {
+  ok: boolean
+  unitId: string
+  status: string
+  clientName: string
+  batchNo: string
+  weightKg: number
+  done: number
+  total: number
+}
+
+export interface CartonScanResult {
+  ok: boolean
+  reason: string
+  packedQty: number
+  targetQty: number
+  cartonStatus?: string
+}
+
+export const finishedUnitsApi = {
+  generateFromPlanLine: (planLineId: string) =>
+    post<{ planLineId: string; created: number; existing: number }>(
+      '/finished-units/from-plan-line', { plan_line_id: planLineId }),
+  scanProduced: (code: string, trolleyId?: string) =>
+    post<ScanProducedResult>('/finished-units/scan-produced',
+      { code, trolley_id: trolleyId ?? null }),
+  lookup: (code: string) =>
+    get<FinishedUnitCard>(`/finished-units/lookup?code=${encodeURIComponent(code)}`),
+  listByPlanLine: (planLineId: string) =>
+    get<FinishedUnitCard[]>(`/finished-units?plan_line_id=${encodeURIComponent(planLineId)}`),
+}
+
+export const cartonsApi = {
+  create: (dto: { orderId?: string; clientName: string; productTypeId: string; recipeId: string; tuleja?: string; targetQty: number; targetWeightKg: number }) =>
+    post<{ id: string; status: string }>('/cartons', {
+      order_id: dto.orderId ?? null,
+      client_name: dto.clientName,
+      product_type_id: dto.productTypeId,
+      recipe_id: dto.recipeId,
+      tuleja: dto.tuleja ?? '',
+      target_qty: dto.targetQty,
+      target_weight_kg: dto.targetWeightKg,
+    }),
+  scan: (cartonId: string, code: string) =>
+    post<CartonScanResult>(`/cartons/${cartonId}/scan`, { code }),
+}
+
+// ─── Szablony etykiet ─────────────────────────────────────────
+export interface LabelFieldPos { x: number; y: number; size: number }
+export interface LabelTemplate {
+  id: string; clientId: string; recipeId: string; kind: string
+  backgroundData: string; fieldPositions: Record<string, LabelFieldPos>
+  pageSize: string; labelsPerSheet: number; zpl: string
+}
+export const labelTemplatesApi = {
+  get: (clientId: string, recipeId: string) =>
+    get<{ exists: boolean; template: LabelTemplate | null }>(
+      `/label-templates?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
+  exists: (clientId: string, recipeId: string) =>
+    get<{ exists: boolean }>(`/label-templates/exists?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
+  save: (tpl: { clientId?: string; recipeId?: string; kind?: string; backgroundData?: string; fieldPositions?: Record<string, LabelFieldPos>; pageSize?: string; labelsPerSheet?: number; zpl?: string }) =>
+    put<LabelTemplate>('/label-templates', {
+      client_id: tpl.clientId ?? '', recipe_id: tpl.recipeId ?? '', kind: tpl.kind ?? 'overlay',
+      background_data: tpl.backgroundData ?? '', field_positions: tpl.fieldPositions ?? {},
+      page_size: tpl.pageSize ?? 'a4', labels_per_sheet: tpl.labelsPerSheet ?? 2, zpl: tpl.zpl ?? '',
+    }),
 }
 
 // ─── Ustawienia firmy (do wydruków) ─────────────────────────────

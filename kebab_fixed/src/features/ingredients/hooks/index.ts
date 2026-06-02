@@ -120,6 +120,7 @@ export function useRecipeForm(initial?: Recipe) {
   const [name,          setName]          = useState(initial?.name ?? '')
   const [productTypeId, setProductTypeId] = useState(initial?.productTypeId ?? '')
   const [notes,         setNotes]         = useState(initial?.notes ?? '')
+  const [shelfLifeDays, setShelfLifeDays] = useState(initial?.shelfLifeDays ?? 5)
   const [rows, setRows] = useState<{ ingredientId: string; qtyPer100kg: string }[]>(
     initial?.ingredients.map(r => ({
       ingredientId: r.ingredientId,
@@ -141,18 +142,20 @@ export function useRecipeForm(initial?: Recipe) {
     name,
     productTypeId: productTypeId || undefined,
     notes:         notes || undefined,
+    shelfLifeDays,
     ingredients:   rows
       .filter(r => r.ingredientId && parseFloat(r.qtyPer100kg) > 0)
       .map(r => ({ ingredientId: r.ingredientId, qtyPer100kg: parseFloat(r.qtyPer100kg) })),
-  }), [name, productTypeId, notes, rows])
+  }), [name, productTypeId, notes, shelfLifeDays, rows])
 
   const reset = useCallback(() => {
-    setName(''); setProductTypeId(''); setNotes('')
+    setName(''); setProductTypeId(''); setNotes(''); setShelfLifeDays(5)
     setRows([{ ingredientId: '', qtyPer100kg: '' }])
   }, [])
 
   return {
     name, setName, productTypeId, setProductTypeId, notes, setNotes,
+    shelfLifeDays, setShelfLifeDays,
     rows, addRow, removeRow, updateRow,
     sumPer100kg: Math.round(sumPer100kg * 1000) / 1000,
     totalOutputPer100kg: Math.round(totalOutputPer100kg * 1000) / 1000,

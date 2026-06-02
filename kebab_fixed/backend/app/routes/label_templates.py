@@ -1,0 +1,25 @@
+"""Endpointy szablonów etykiet."""
+from fastapi import APIRouter
+
+from app.models.label_templates import LabelTemplateUpsert
+from app.services import label_templates_service as svc
+
+router = APIRouter(prefix="/api/label-templates", tags=["label-templates"])
+
+
+@router.put("")
+def upsert(dto: LabelTemplateUpsert):
+    return svc.upsert_template(dto.model_dump())
+
+
+@router.get("")
+def get(client_id: str = "", recipe_id: str = ""):
+    tpl = svc.get_template(client_id, recipe_id)
+    if tpl is None:
+        return {"exists": False, "template": None}
+    return {"exists": True, "template": tpl}
+
+
+@router.get("/exists")
+def exists(client_id: str = "", recipe_id: str = ""):
+    return svc.template_exists(client_id, recipe_id)

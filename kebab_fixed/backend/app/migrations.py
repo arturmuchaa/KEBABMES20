@@ -243,6 +243,67 @@ _DDL: list[str] = [
                 AND COALESCE(total_kg, 0) >= 0
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+
+    # ── QR per sztuka — finished_units + cartons ──
+    """CREATE TABLE IF NOT EXISTS finished_units (
+        id            TEXT PRIMARY KEY,
+        qr_code       TEXT NOT NULL UNIQUE,
+        qr_seq        INTEGER,
+        plan_line_id  TEXT,
+        order_id      TEXT,
+        client_name   TEXT DEFAULT '',
+        product_type_id TEXT DEFAULT '',
+        recipe_id     TEXT DEFAULT '',
+        tuleja        TEXT DEFAULT '',
+        weight_kg     NUMERIC NOT NULL DEFAULT 0,
+        batch_no      TEXT DEFAULT '',
+        produced_date TEXT DEFAULT '',
+        status        TEXT NOT NULL DEFAULT 'planned',
+        trolley_id    TEXT,
+        produced_at   TIMESTAMPTZ,
+        carton_id     TEXT,
+        created_at    TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_finished_units_status   ON finished_units(status)",
+    "CREATE INDEX IF NOT EXISTS idx_finished_units_batch    ON finished_units(batch_no)",
+    "CREATE INDEX IF NOT EXISTS idx_finished_units_planline ON finished_units(plan_line_id)",
+    "CREATE INDEX IF NOT EXISTS idx_finished_units_carton   ON finished_units(carton_id) WHERE carton_id IS NOT NULL",
+
+    """CREATE TABLE IF NOT EXISTS cartons (
+        id              TEXT PRIMARY KEY,
+        order_id        TEXT,
+        client_name     TEXT DEFAULT '',
+        product_type_id TEXT DEFAULT '',
+        recipe_id       TEXT DEFAULT '',
+        tuleja          TEXT DEFAULT '',
+        target_qty      INTEGER NOT NULL DEFAULT 0,
+        target_weight_kg NUMERIC NOT NULL DEFAULT 0,
+        packed_qty      INTEGER NOT NULL DEFAULT 0,
+        status          TEXT NOT NULL DEFAULT 'open',
+        pallet_id       TEXT,
+        created_at      TIMESTAMPTZ DEFAULT now(),
+        closed_at       TIMESTAMPTZ
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_cartons_status ON cartons(status)",
+
+    # ── QR per sztuka — Faza 2: termin przydatności w recepturze ──
+    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS shelf_life_days INTEGER NOT NULL DEFAULT 5",
+
+    # ── QR per sztuka — Faza 3: szablony etykiet (per klient+receptura) ──
+    """CREATE TABLE IF NOT EXISTS label_templates (
+        id              TEXT PRIMARY KEY,
+        client_id       TEXT NOT NULL DEFAULT '',
+        recipe_id       TEXT NOT NULL DEFAULT '',
+        kind            TEXT NOT NULL DEFAULT 'overlay',
+        background_data TEXT DEFAULT '',
+        field_positions JSONB NOT NULL DEFAULT '{}',
+        page_size       TEXT NOT NULL DEFAULT 'a4',
+        labels_per_sheet INTEGER NOT NULL DEFAULT 2,
+        zpl             TEXT DEFAULT '',
+        updated_at      TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (client_id, recipe_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_label_templates_client_recipe ON label_templates(client_id, recipe_id)",
 ]
 
 
