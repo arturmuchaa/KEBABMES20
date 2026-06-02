@@ -54,6 +54,25 @@ wskaźnikiem zielony/czerwony + dźwięk, bez wpisywania z klawiatury.
 - **„Na górkę":** produkcja na stan dostaje etykietę z pseudo-klientem `STAN/MAGAZYN`;
   właściwy klient przypisywany przy pakowaniu/wydaniu.
 
+## Integracja z głównym MES (zasada: warstwa detalu, NIE osobny silos)
+
+`finished_units` to **warstwa detalu (pojedyncza sztuka) POD istniejącymi encjami**, a nie równoległy
+system. Wszystko spina się z głównym MES:
+- **Planowanie produkcji** (`production_plans`/`production_plan_lines`) jest źródłem — sztuki
+  powstają z linii planu (`generate_units_from_plan_line`), dziedziczą partię wsadową i klienta.
+- **Wyrób gotowy** (`finished_goods`, batch-level) **pozostaje rekordem zbiorczym**, na którym
+  opiera się reszta MES (magazyn, stany, raporty, wysyłka). Sztuki linkują się do tej samej partii
+  przez **`batch_no`** (klucz rollupu, jest indeks `idx_finished_units_batch`); `finished_goods.qty`
+  danej partii = liczba jej sztuk. **Nie budujemy drugiego systemu stanów** — sztuki to warstwa
+  detalu pod istniejącym wyrobem gotowym.
+- **Identyfikowalność** — sztuka → `batch_no` → istniejący lineage (wsad → rozbiór → ćwiartka →
+  dostawca) oraz w przód: sztuka → karton → **istniejące palety** (`order_pallets`/`pallet_scans`)
+  → pojazd. Wycofanie po partii znajduje sztuki → kartony → wysyłki. Reużycie, nie duplikacja.
+- **Zamówienia/klienci/receptury** — sztuki używają istniejących `client_orders`, `recipes`,
+  `product_types`; żadnych równoległych słowników.
+
+Reguła praktyczna: zanim dodasz nową tabelę/encję, sprawdź czy nie wystarczy link do istniejącej.
+
 ## Architektura — 4 fazy
 
 ### Wspólny model danych
