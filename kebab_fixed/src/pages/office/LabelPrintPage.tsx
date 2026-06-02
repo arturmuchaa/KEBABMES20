@@ -17,9 +17,13 @@ function fmtDate(iso: string): string {
 }
 
 function addDays(isoDate: string, days: number): string {
-  const date = new Date(`${isoDate.slice(0, 10)}T00:00:00`)
-  date.setDate(date.getDate() + days)
-  return date.toISOString().slice(0, 10)
+  // Parsowanie numeryczne (Date.UTC) zamiast new Date(string) — bezpieczne na
+  // iOS/WebKit, który jest restrykcyjny wobec formatów dat i potrafi rzucić.
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDate || '')
+  if (!m) return ''
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
+  d.setUTCDate(d.getUTCDate() + (days || 0))
+  return d.toISOString().slice(0, 10)
 }
 
 function todayIso(): string {
@@ -168,13 +172,19 @@ export function LabelPrintPage() {
   }
 
   // ── Error states ──
-  const anyError = unitsRes.error || templateRes.error || recipeRes.error
-  if (anyError) {
+  // Pokazujemy KTÓRE źródło zawiodło — diagnostyka (np. iOS/WebKit).
+  const errParts: string[] = []
+  if (unitsRes.error)    errParts.push(`sztuki: ${unitsRes.error}`)
+  if (templateRes.error) errParts.push(`szablon: ${templateRes.error}`)
+  if (recipeRes.error)   errParts.push(`receptura: ${recipeRes.error}`)
+  if (errParts.length > 0) {
     return (
       <div className="min-h-screen bg-slate-50 px-4 py-10">
         <div className="mx-auto max-w-xl rounded-xl border border-red-200 bg-white p-6 shadow-sm">
           <div className="mb-2 text-lg font-bold text-red-700">Błąd ładowania danych</div>
-          <div className="text-sm text-slate-700">{anyError}</div>
+          <ul className="text-sm text-slate-700 list-disc pl-5">
+            {errParts.map((e, i) => <li key={i}>{e}</li>)}
+          </ul>
         </div>
       </div>
     )
