@@ -845,11 +845,22 @@ export function MixingTabletPage() {
           {loading
             ? <div className="flex justify-center py-16"><Spinner size={32} /></div>
             : (planned??[]).length === 0
-              ? <div className="flex flex-col items-center justify-center min-h-[60vh] p-8 text-center">
-                  <ClipboardList size={48} className="text-ink-5 mb-4" />
-                  <h2 className="text-2xl font-black text-ink mb-2">Brak zleceń</h2>
-                  <p className="text-base text-ink-3">Biuro nie zaplanowało masowania.</p>
-                </div>
+              ? (inProgress ?? []).length > 0
+                // Reszta zlecenia jest w toku / masownica chłodzi — NIE jest tak,
+                // że biuro nic nie zaplanowało. Pokaż pozostałe kg + wskaż sekcję
+                // „Masownice w pracy" (poniżej), gdzie operator wznowi po ostygnięciu.
+                ? <div className="flex flex-col items-center justify-center min-h-[60vh] p-8 text-center">
+                    <Lock size={48} className="text-amber-500 mb-4" />
+                    <h2 className="text-2xl font-black text-ink mb-2">Masowanie w toku</h2>
+                    <p className="text-base text-ink-3 max-w-md">
+                      Masownica chłodzi. Zostało <strong className="text-amber-600">{fmtKg((inProgress ?? []).reduce((s, o: any) => s + ((o.kgRemaining ?? o.meatKg) || 0), 0), 0)} kg</strong> do dokończenia — szczegóły niżej w „Masownice w pracy", wznów po ostygnięciu.
+                    </p>
+                  </div>
+                : <div className="flex flex-col items-center justify-center min-h-[60vh] p-8 text-center">
+                    <ClipboardList size={48} className="text-ink-5 mb-4" />
+                    <h2 className="text-2xl font-black text-ink mb-2">Brak zleceń</h2>
+                    <p className="text-base text-ink-3">Biuro nie zaplanowało masowania.</p>
+                  </div>
               : <div className="max-w-2xl mx-auto px-5 py-5">
                   <div className="flex items-start justify-between mb-4 gap-3">
                     <div>

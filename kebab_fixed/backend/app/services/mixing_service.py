@@ -440,17 +440,41 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
         new_status = "done" if kg_done >= meat_kg - 0.1 else "in_progress"
 
         if not batch_no:
-            raw_seqs = cx_query_all(
-                conn,
-                """
-                SELECT DISTINCT rb.internal_batch_seq
-                FROM mixing_order_lots mol
-                LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
-                LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
-                WHERE mol.order_id = %s AND rb.internal_batch_seq IS NOT NULL
-                """,
-                (order_id,),
-            )
+            # Numer partii (goły vs PP) liczymy z partii FAKTYCZNIE zużytych w
+            # TEJ sesji (lot_allocations), a NIE z wszystkich lotów zlecenia.
+            # Inaczej: zlecenie obejmujące 2 partie (np. 3000 kg z dwóch)
+            # dałoby PP nawet gdy operator wrzucił do maszyny tylko jedną
+            # partię (800 kg). PP powstaje tylko gdy w jednym wsadzie fizycznie
+            # zmieszano >1 partię. Fallback (brak alokacji) → loty zlecenia z kg.
+            consumed_ids = [
+                a["meatLotId"]
+                for a in lot_allocations
+                if a.get("meatLotId") and float(a.get("kg") or 0) > 0
+            ]
+            if consumed_ids:
+                raw_seqs = cx_query_all(
+                    conn,
+                    """
+                    SELECT DISTINCT rb.internal_batch_seq
+                    FROM meat_stock ms
+                    JOIN raw_batches rb ON rb.id = ms.raw_batch_id
+                    WHERE ms.id = ANY(%s) AND rb.internal_batch_seq IS NOT NULL
+                    """,
+                    (consumed_ids,),
+                )
+            else:
+                raw_seqs = cx_query_all(
+                    conn,
+                    """
+                    SELECT DISTINCT rb.internal_batch_seq
+                    FROM mixing_order_lots mol
+                    LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+                    LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
+                    WHERE mol.order_id = %s AND rb.internal_batch_seq IS NOT NULL
+                      AND mol.kg_planned > 0
+                    """,
+                    (order_id,),
+                )
             seqs = [r["internal_batch_seq"] for r in raw_seqs if r.get("internal_batch_seq")]
             if len(seqs) == 1:
                 batch_no = str(seqs[0])
