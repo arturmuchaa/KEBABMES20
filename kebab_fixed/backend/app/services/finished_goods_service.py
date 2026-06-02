@@ -292,12 +292,7 @@ def create_finished_good(dto: FinishedGoodCreate) -> Dict:
     if dto.batch_no:
         batch_no = dto.batch_no
     else:
-        batch_no = kebab_batch_no(
-            produced_date,
-            (dto.seasoned_batch_nos[0]
-             if dto.seasoned_batch_nos and len(dto.seasoned_batch_nos) == 1
-             else combined_batch_no(next_seq("pp_seq"))),
-        )
+        batch_no = _compute_kebab_batch_no(produced_date, dto.seasoned_batch_nos or [])
 
     with transaction() as conn:
         item = cx_execute_returning(
@@ -427,9 +422,7 @@ def finish_day(dto: FinishDayDto) -> Dict[str, Any]:
     return {"created": len([c for c in created if c]), "items": [c for c in created if c]}
 
 
-def _compute_kebab_batch_no(
-    conn, produced_date: str, seasoned_batch_nos: List[str]
-) -> str:
+def _compute_kebab_batch_no(produced_date: str, seasoned_batch_nos: List[str]) -> str:
     """Numer kebaba.
 
     * 1 partia wsadowa → 'ddmmrr <numer wsadu>' (np. '020626 344').
@@ -464,7 +457,7 @@ def _process_finish_day_entry(
     src_seasoned = lineage["seasoned_meat_ids"]
     src_deboning = lineage["deboning_entry_ids"]
 
-    batch_no = _compute_kebab_batch_no(conn, today, entry.seasoned_batch_nos or [])
+    batch_no = _compute_kebab_batch_no(today, entry.seasoned_batch_nos or [])
 
     existing = cx_query_one(
         conn,
