@@ -7,6 +7,11 @@ from app.services import finished_units_service as svc
 router = APIRouter(prefix="/api/finished-units", tags=["finished-units"])
 
 
+@router.get("")
+def list_by_plan_line(plan_line_id: str = ""):
+    return svc.list_units_by_plan_line(plan_line_id)
+
+
 @router.post("/from-plan-line")
 def generate_from_plan_line(dto: GenerateUnitsRequest):
     return svc.generate_units_from_plan_line(dto.plan_line_id)

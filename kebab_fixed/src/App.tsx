@@ -20,6 +20,7 @@ import { ClientOrdersPage } from '@/pages/office/ClientOrdersPage'
 import { CostCalculatorPage } from '@/pages/office/CostCalculatorPage'
 import { OrderPrintPage }   from '@/pages/office/OrderPrintPage'
 import { PalletLabelPrintPage } from '@/pages/office/PalletLabelPrintPage'
+import { LabelPrintPage }       from '@/pages/office/LabelPrintPage'
 import { CompanySettingsPage } from '@/pages/office/CompanySettingsPage'
 import { ProductionPlanningPage } from '@/pages/office/ProductionPlanningPage'
 import { RecallPage }             from '@/pages/office/RecallPage'
@@ -68,6 +69,7 @@ export default function App() {
       {/* Standalone print pages — bez sidebara */}
       <Route path="/office/zamowienia/:id/druk" element={<OrderPrintPage />} />
       <Route path="/office/zamowienia/:id/palety/:palletNo/druk" element={<PalletLabelPrintPage />} />
+      <Route path="/etykiety/druk" element={<LabelPrintPage />} />
 
       {/* Mobile — skan QR palet (poza OfficeLayout) */}
       <Route path="/mobile"                          element={<MobilePickerPage />} />

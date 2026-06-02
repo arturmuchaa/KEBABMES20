@@ -3,7 +3,7 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from app.db import cx_execute, cx_query_all, cx_query_one, query_one, transaction
+from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.utils.ids import cuid, now_iso
 from app.utils.unit_codes import next_produced_status, parse_unit_qr, unit_qr
@@ -71,6 +71,24 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
 
         logger.info("finished_units.generated", extra={"plan_line_id": plan_line_id, "created": created})
         return {"planLineId": plan_line_id, "created": created, "existing": 0}
+
+
+def list_units_by_plan_line(plan_line_id: str) -> List[Dict[str, Any]]:
+    """Lista sztuk danej linii planu (do druku etykiet)."""
+    rows = query_all(
+        "SELECT * FROM finished_units WHERE plan_line_id=%s ORDER BY qr_seq",
+        (plan_line_id,),
+    )
+    return [
+        {
+            "id": r["id"], "qrCode": r["qr_code"], "status": r["status"],
+            "clientName": r.get("client_name") or "", "recipeId": r.get("recipe_id") or "",
+            "productTypeId": r.get("product_type_id") or "", "tuleja": r.get("tuleja") or "",
+            "weightKg": float(r.get("weight_kg") or 0), "batchNo": r.get("batch_no") or "",
+            "producedDate": r.get("produced_date") or "",
+        }
+        for r in rows
+    ]
 
 
 def scan_produced(code: str, trolley_id: str | None = None) -> Dict[str, Any]:

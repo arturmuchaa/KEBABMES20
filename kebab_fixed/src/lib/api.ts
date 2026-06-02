@@ -919,6 +919,8 @@ export const finishedUnitsApi = {
       { code, trolley_id: trolleyId ?? null }),
   lookup: (code: string) =>
     get<FinishedUnitCard>(`/finished-units/lookup?code=${encodeURIComponent(code)}`),
+  listByPlanLine: (planLineId: string) =>
+    get<FinishedUnitCard[]>(`/finished-units?plan_line_id=${encodeURIComponent(planLineId)}`),
 }
 
 export const cartonsApi = {
@@ -934,6 +936,27 @@ export const cartonsApi = {
     }),
   scan: (cartonId: string, code: string) =>
     post<CartonScanResult>(`/cartons/${cartonId}/scan`, { code }),
+}
+
+// ─── Szablony etykiet ─────────────────────────────────────────
+export interface LabelFieldPos { x: number; y: number; size: number }
+export interface LabelTemplate {
+  id: string; clientId: string; recipeId: string; kind: string
+  backgroundData: string; fieldPositions: Record<string, LabelFieldPos>
+  pageSize: string; labelsPerSheet: number; zpl: string
+}
+export const labelTemplatesApi = {
+  get: (clientId: string, recipeId: string) =>
+    get<{ exists: boolean; template: LabelTemplate | null }>(
+      `/label-templates?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
+  exists: (clientId: string, recipeId: string) =>
+    get<{ exists: boolean }>(`/label-templates/exists?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
+  save: (tpl: { clientId?: string; recipeId?: string; kind?: string; backgroundData?: string; fieldPositions?: Record<string, LabelFieldPos>; pageSize?: string; labelsPerSheet?: number; zpl?: string }) =>
+    put<LabelTemplate>('/label-templates', {
+      client_id: tpl.clientId ?? '', recipe_id: tpl.recipeId ?? '', kind: tpl.kind ?? 'overlay',
+      background_data: tpl.backgroundData ?? '', field_positions: tpl.fieldPositions ?? {},
+      page_size: tpl.pageSize ?? 'a4', labels_per_sheet: tpl.labelsPerSheet ?? 2, zpl: tpl.zpl ?? '',
+    }),
 }
 
 // ─── Ustawienia firmy (do wydruków) ─────────────────────────────
