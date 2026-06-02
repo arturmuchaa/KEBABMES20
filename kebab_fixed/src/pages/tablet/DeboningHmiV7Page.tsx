@@ -65,26 +65,26 @@ const V7BatchTile = memo(function V7BatchTile({ batch, selected, onSelect }: {
       className="flex flex-col justify-between h-full text-left select-none active:opacity-75"
       style={{
         background: selected ? C.inv : C.s1,
-        borderTop: `4px solid ${statusColor}`,
-        padding: '10px 16px',
+        borderTop: `5px solid ${statusColor}`,
+        padding: '14px 20px',
         borderRadius: 3,
         border: `1px solid ${selected ? C.inv : C.bd}`,
-        borderTopWidth: 4,
+        borderTopWidth: 5,
         borderTopColor: statusColor,
         transition: 'background 0.06s',
       }}>
       <div className="flex items-start justify-between gap-2">
-        <span style={{ fontFamily: 'monospace', fontSize: 24, fontWeight: 900, color: selected ? '#fff' : C.ink, lineHeight: 1 }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 40, fontWeight: 900, color: selected ? '#fff' : C.ink, lineHeight: 1 }}>
           {batch.internalBatchNo}
         </span>
-        <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 800, color: selected ? 'rgba(255,255,255,0.8)' : statusColor, paddingTop: 2 }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 800, color: selected ? 'rgba(255,255,255,0.8)' : statusColor, paddingTop: 6 }}>
           {daysLeft < 0 ? 'PRZET.' : daysLeft === 0 ? 'DZIŚ!' : `${daysLeft}d`}
         </span>
       </div>
-      <span style={{ fontSize: 13, fontWeight: 600, color: selected ? 'rgba(255,255,255,0.75)' : C.mut2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span style={{ fontSize: 16, fontWeight: 700, color: selected ? 'rgba(255,255,255,0.75)' : C.mut2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {supplierLabel}
       </span>
-      <span style={{ fontFamily: 'monospace', fontSize: 13, color: selected ? 'rgba(255,255,255,0.6)' : C.mut }}>
+      <span style={{ fontFamily: 'monospace', fontSize: 16, color: selected ? 'rgba(255,255,255,0.6)' : C.mut }}>
         {fmtKg(kg, 0)} kg · {containers} poj.
       </span>
     </button>
@@ -494,7 +494,7 @@ export function DeboningHmiV7Page() {
       </header>
 
       {/* PASEK PARTII */}
-      <div className="flex-shrink-0 grid gap-1.5 px-1.5 py-1.5" style={{ height: 100, background: C.bg, gridTemplateColumns: `repeat(${Math.max(batches.length, 1)}, 1fr)` }}>
+      <div className="flex-shrink-0 grid gap-1.5 px-1.5 py-1.5" style={{ height: 160, background: C.bg, gridTemplateColumns: `repeat(${Math.max(batches.length, 1)}, 1fr)` }}>
         {batchData.loading
           ? <div className="col-span-6 flex items-center justify-center"><Spinner size={22} /></div>
           : batches.length === 0
