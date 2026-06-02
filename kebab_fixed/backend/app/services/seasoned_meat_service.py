@@ -130,6 +130,10 @@ def seasoned_from_order(order_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
         if not order:
             raise HTTPException(404, "Zlecenie masowania nie znalezione")
 
+        # Spójnie z finish_mixing_session: numer partii (goły vs PP) liczymy
+        # tylko z lotów REALNIE powiązanych ze zleceniem — faktycznie zużytych
+        # (kg_actual > 0) lub wciąż zaplanowanych (kg_planned > 0). Wykluczamy
+        # fantomowe loty 0/0 kg, które dawałyby fałszywe PP mimo jednej partii.
         raw_seqs = cx_query_all(
             conn,
             """
@@ -138,6 +142,7 @@ def seasoned_from_order(order_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
             LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
             LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
             WHERE mol.order_id = %s AND rb.internal_batch_seq IS NOT NULL
+              AND (COALESCE(mol.kg_actual, 0) > 0 OR COALESCE(mol.kg_planned, 0) > 0)
             """,
             (order_id,),
         )
