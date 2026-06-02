@@ -20,7 +20,7 @@ export type RawBatchStatus = RawBatchDerivedStatus | 'cancelled'
 
 export interface RawBatch {
   readonly id:               string
-  readonly internalBatchNo:  string   // "R171" — nadawany przez backend, read-only
+  readonly internalBatchNo:  string   // np. "344" — nadawany przez backend, read-only
   readonly internalBatchSeq: number   // integer — FEFO tie-breaker
 
   readonly supplierId:      string
@@ -68,7 +68,7 @@ export interface SupplierBatchItem {
 }
 
 export interface CreateRawBatchDto {
-  internalBatchNo?: string   // user może wpisać własny np. "R308"; backend zsynchronizuje batch_seq
+  internalBatchNo?: string   // user może wpisać własny np. "344"; backend zsynchronizuje batch_seq
   supplierId:       string
   supplierBatchNo:  string
   slaughterDate:    string
