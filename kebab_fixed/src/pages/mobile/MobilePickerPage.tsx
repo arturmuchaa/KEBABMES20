@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Snowflake, Truck, ArrowLeft } from 'lucide-react'
+import { Snowflake, Truck, Factory, Package, ArrowLeft } from 'lucide-react'
 import { usePwaPage } from '@/features/pwa/usePwaPage'
 import { InstallIosHint } from '@/features/pwa/InstallIosHint'
 
@@ -36,6 +36,24 @@ export function MobilePickerPage() {
           <Truck size={56} />
           <div className="text-2xl font-bold uppercase tracking-wide">Załadunek</div>
           <div className="text-sm text-amber-50">Wjazd na samochód</div>
+        </Link>
+
+        <Link
+          to="/mobile/produkcja"
+          className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-6 py-10 text-center text-white shadow-lg hover:bg-emerald-700 active:scale-[0.99] sm:w-96"
+        >
+          <Factory size={56} />
+          <div className="text-2xl font-bold uppercase tracking-wide">Produkcja (skan)</div>
+          <div className="text-sm text-emerald-50">Skan sztuk na wózek / do mroźni</div>
+        </Link>
+
+        <Link
+          to="/mobile/pakowanie"
+          className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-violet-600 px-6 py-10 text-center text-white shadow-lg hover:bg-violet-700 active:scale-[0.99] sm:w-96"
+        >
+          <Package size={56} />
+          <div className="text-2xl font-bold uppercase tracking-wide">Pakowanie</div>
+          <div className="text-sm text-violet-100">Pakowanie sztuk do kartonu</div>
         </Link>
       </main>
 

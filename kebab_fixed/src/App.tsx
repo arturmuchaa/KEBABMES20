@@ -34,6 +34,8 @@ import { MobileMrozniaPage }        from '@/pages/mobile/MobileMrozniaPage'
 import { MobileVehiclePickerPage }  from '@/pages/mobile/MobileVehiclePickerPage'
 import { MobileZaladunekPage }      from '@/pages/mobile/MobileZaladunekPage'
 import { MobilePalletLandingPage }  from '@/pages/mobile/MobilePalletLandingPage'
+import { MobileProdukcjaPage }      from '@/pages/mobile/MobileProdukcjaPage'
+import { MobilePakowaniePage }      from '@/pages/mobile/MobilePakowaniePage'
 
 // ─── Blokada przypadkowego odświeżenia ───────────────────────
 function useBlockRefresh() {
@@ -73,6 +75,8 @@ export default function App() {
       <Route path="/mobile/zaladunek"                element={<MobileVehiclePickerPage />} />
       <Route path="/mobile/zaladunek/:vehicleId"     element={<MobileZaladunekPage />} />
       <Route path="/m/p/:orderId/:palletNo"          element={<MobilePalletLandingPage />} />
+      <Route path="/mobile/produkcja"               element={<MobileProdukcjaPage />} />
+      <Route path="/mobile/pakowanie"               element={<MobilePakowaniePage />} />
 
       <Route path="/office" element={<OfficeLayout />}>
         <Route index element={<Navigate to="dashboard" replace />} />
