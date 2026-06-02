@@ -15,6 +15,7 @@ from app.db import (
 )
 from app.logging_config import get_logger
 from app.services.recipes_service import calc_kg_output
+from app.utils.batch_numbers import combined_batch_no
 from app.utils.ids import cuid, next_seq, now_iso
 from app.utils.stock import create_stock_movement
 
@@ -142,9 +143,9 @@ def seasoned_from_order(order_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
         )
         seqs = [r["internal_batch_seq"] for r in raw_seqs if r.get("internal_batch_seq")]
         if len(seqs) == 1:
-            batch_no = f"MP{seqs[0]}"
+            batch_no = str(seqs[0])
         else:
-            batch_no = f"MPP{next_seq('mixed_seq')}"
+            batch_no = combined_batch_no(next_seq("pp_seq"))
 
         kg = calc_kg_output(order.get("recipe_id"), kg_meat_raw)
         expiry = (datetime.utcnow() + timedelta(days=5)).date().isoformat()
@@ -310,7 +311,8 @@ def seasoned_trace(batch_id: str) -> Dict[str, Any]:
             )
 
     if not meat_lots_detail:
-        mp_match = re.match(r"^MP(\d+)$", batch.get("batch_no") or "")
+        # Goły numer partii (np. "344") == internal_batch_seq surowca.
+        mp_match = re.match(r"^(\d+)$", batch.get("batch_no") or "")
         if mp_match:
             raw_seq = int(mp_match.group(1))
             rb = query_one(

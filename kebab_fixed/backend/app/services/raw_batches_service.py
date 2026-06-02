@@ -1,4 +1,3 @@
-import re
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -6,11 +5,13 @@ from fastapi import HTTPException
 from app.db import cx_execute, cx_execute_returning, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.models.raw_batches import RawBatchCreate, RawBatchUpdate
+from app.utils.batch_numbers import (
+    format_reception_no,
+    parse_reception_no,
+)
 from app.utils.body import body_get
 from app.utils.ids import cuid, next_seq, now_iso
 from app.utils.stock import create_stock_movement
-
-_BATCH_NO_RE = re.compile(r"^R(\d+)$")
 
 logger = get_logger(__name__)
 
@@ -18,10 +19,11 @@ logger = get_logger(__name__)
 def next_batch_number() -> Dict[str, Any]:
     row = query_one("SELECT value FROM sequences WHERE key='batch_seq'")
     next_val = (int(row["value"]) if row else 171) + 1
+    no = format_reception_no(next_val)
     return {
-        "nextNo": f"R{next_val}",
+        "nextNo": no,
         "seq": next_val,
-        "suggestedBatchNo": f"R{next_val}",
+        "suggestedBatchNo": no,
         "suggestedSeq": next_val,
         "note": "Numer zostanie potwierdzony przy zapisie",
     }
@@ -48,22 +50,17 @@ def list_batches(active_only: bool, limit: int) -> Dict[str, Any]:
 def create_batch(dto: RawBatchCreate) -> Dict:
     """Tworzy nową partię surowca.
 
-    Numer partii (`internal_batch_no`):
-      - jeżeli dto.internal_batch_no jest podane i pasuje do `R<liczba>`,
+    Numer partii (`internal_batch_no`) — goły numer, bez litery:
+      - jeżeli dto.internal_batch_no jest podane i jest liczbą (np. 344),
         używa tego numeru. `batch_seq` jest synchronizowane do max(seq, podana)
         żeby kolejne auto-numery były wyższe.
-      - jeżeli brak — pobiera kolejny z `batch_seq` (R<N+1>).
+      - jeżeli brak — pobiera kolejny z `batch_seq` (N+1).
     """
-    custom_no = (dto.internal_batch_no or "").strip().upper()
-    if custom_no:
-        match = _BATCH_NO_RE.match(custom_no)
-        if not match:
-            raise HTTPException(400, "Numer partii musi mieć format R<liczba>, np. R308")
-        custom_seq = int(match.group(1))
-        if custom_seq < 1:
-            raise HTTPException(400, "Numer partii musi być >= R1")
-    else:
-        custom_seq = None
+    try:
+        custom_seq = parse_reception_no(dto.internal_batch_no)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    custom_no = format_reception_no(custom_seq) if custom_seq is not None else ""
 
     with transaction() as conn:
         if custom_seq is not None:
@@ -97,7 +94,7 @@ def create_batch(dto: RawBatchCreate) -> Dict:
                 """,
             )
             seq = int(row["value"])
-            internal_no = f"R{seq}"
+            internal_no = format_reception_no(seq)
 
         sup = cx_query_one(
             conn, "SELECT * FROM suppliers WHERE id = %s", (dto.supplier_id,)

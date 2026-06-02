@@ -65,26 +65,26 @@ const V7BatchTile = memo(function V7BatchTile({ batch, selected, onSelect }: {
       className="flex flex-col justify-between h-full text-left select-none active:opacity-75"
       style={{
         background: selected ? C.inv : C.s1,
-        borderTop: `3px solid ${statusColor}`,
-        padding: '8px 12px',
+        borderTop: `4px solid ${statusColor}`,
+        padding: '10px 16px',
         borderRadius: 3,
         border: `1px solid ${selected ? C.inv : C.bd}`,
-        borderTopWidth: 3,
+        borderTopWidth: 4,
         borderTopColor: statusColor,
         transition: 'background 0.06s',
       }}>
       <div className="flex items-start justify-between gap-2">
-        <span style={{ fontFamily: 'monospace', fontSize: 20, fontWeight: 900, color: selected ? '#fff' : C.ink, lineHeight: 1 }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 24, fontWeight: 900, color: selected ? '#fff' : C.ink, lineHeight: 1 }}>
           {batch.internalBatchNo}
         </span>
-        <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: selected ? 'rgba(255,255,255,0.7)' : statusColor }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 800, color: selected ? 'rgba(255,255,255,0.8)' : statusColor, paddingTop: 2 }}>
           {daysLeft < 0 ? 'PRZET.' : daysLeft === 0 ? 'DZIŚ!' : `${daysLeft}d`}
         </span>
       </div>
-      <span style={{ fontSize: 11, color: selected ? 'rgba(255,255,255,0.65)' : C.mut2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span style={{ fontSize: 13, fontWeight: 600, color: selected ? 'rgba(255,255,255,0.75)' : C.mut2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {supplierLabel}
       </span>
-      <span style={{ fontFamily: 'monospace', fontSize: 11, color: selected ? 'rgba(255,255,255,0.55)' : C.mut }}>
+      <span style={{ fontFamily: 'monospace', fontSize: 13, color: selected ? 'rgba(255,255,255,0.6)' : C.mut }}>
         {fmtKg(kg, 0)} kg · {containers} poj.
       </span>
     </button>
@@ -98,7 +98,7 @@ const V7WorkerTile = memo(function V7WorkerTile({ worker, selected, entryCount, 
   const initials = worker.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
   return (
     <button type="button" onClick={() => onSelect(worker)}
-      className="relative flex flex-col items-center justify-center gap-1.5 select-none active:opacity-75"
+      className="relative flex flex-col items-center justify-center gap-1 select-none active:opacity-75"
       style={{
         background: selected ? C.inv : C.s1,
         borderRadius: 3,
@@ -106,16 +106,16 @@ const V7WorkerTile = memo(function V7WorkerTile({ worker, selected, entryCount, 
         transition: 'background 0.05s, border-color 0.05s',
       }}>
       <span style={{
-        fontFamily: 'monospace', fontSize: 38, fontWeight: 900, lineHeight: 1,
+        fontFamily: 'monospace', fontSize: 32, fontWeight: 900, lineHeight: 1,
         color: selected ? '#fff' : C.ink,
       }}>{initials}</span>
       <span style={{
-        fontSize: 11, fontWeight: 600, color: selected ? 'rgba(255,255,255,0.8)' : C.mut2,
-        textAlign: 'center', padding: '0 4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%',
+        fontSize: 13, fontWeight: 700, color: selected ? 'rgba(255,255,255,0.85)' : C.ink,
+        textAlign: 'center', padding: '0 6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%',
       }}>{worker.name}</span>
       {entryCount > 0 && (
-        <span className="absolute top-1.5 right-1.5 min-w-[20px] h-5 px-1 flex items-center justify-center rounded-sm text-[11px] font-black"
-          style={{ background: selected ? 'rgba(255,255,255,0.2)' : C.ink, color: selected ? '#fff' : '#fff', fontFamily: 'monospace' }}>
+        <span className="absolute top-1 right-1 min-w-[20px] h-5 px-1 flex items-center justify-center rounded-sm text-[11px] font-black"
+          style={{ background: selected ? 'rgba(255,255,255,0.25)' : C.ink, color: '#fff', fontFamily: 'monospace' }}>
           {entryCount}
         </span>
       )}
@@ -124,23 +124,34 @@ const V7WorkerTile = memo(function V7WorkerTile({ worker, selected, entryCount, 
 })
 
 // ─── Pole readout ──────────────────────────────────────────────────
-function V7Readout({ label, value, active, unit = 'kg', helper, onActivate }: {
-  label: string; value: string; active: boolean; unit?: string; helper?: string; onActivate: () => void
+function V7Readout({ label, value, active, locked, unit = 'kg', helper, onActivate }: {
+  label: string; value: string; active: boolean; locked?: boolean
+  unit?: string; helper?: string; onActivate: () => void
 }) {
   return (
-    <button type="button" onClick={onActivate} className="w-full text-left flex-shrink-0 flex flex-col"
+    <button type="button" onClick={locked ? undefined : onActivate}
+      className="w-full text-left flex-shrink-0 flex flex-col"
       style={{
-        background: active ? C.inv : C.s1,
+        background: active ? C.inv : locked ? C.s2 : C.s1,
         borderRadius: 3,
         padding: '10px 14px',
-        border: `1px solid ${active ? C.inv : C.bd}`,
+        border: `1px solid ${active ? C.inv : locked ? C.bd : C.bd}`,
+        opacity: locked ? 0.72 : 1,
+        cursor: locked ? 'default' : 'pointer',
         transition: 'background 0.06s',
       }}>
-      <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.18em', textTransform: 'uppercase', color: active ? 'rgba(255,255,255,0.5)' : C.mut2 }}>
-        {label}
-      </span>
+      <div className="flex items-center justify-between">
+        <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.18em', textTransform: 'uppercase', color: active ? 'rgba(255,255,255,0.5)' : C.mut2 }}>
+          {label}
+        </span>
+        {locked && (
+          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', color: C.mut, background: C.s3, padding: '2px 6px', borderRadius: 2 }}>
+            AUTO
+          </span>
+        )}
+      </div>
       <div className="flex items-baseline gap-2 mt-1">
-        <span style={{ fontFamily: 'monospace', fontSize: 68, fontWeight: 900, lineHeight: 1, color: active ? '#fff' : (value ? C.ink : C.mut), letterSpacing: -1 }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 68, fontWeight: 900, lineHeight: 1, color: active ? '#fff' : (value && value !== '0' ? C.ink : C.mut), letterSpacing: -1 }}>
           {value || '0'}
         </span>
         <span style={{ fontSize: 18, fontWeight: 700, color: active ? 'rgba(255,255,255,0.4)' : C.mut }}>{unit}</span>
@@ -193,31 +204,65 @@ const V7KpiBar = memo(function V7KpiBar({ entries, onEntries, onStats }: {
   const yPct = totTaken > 0 ? (totMeat / totTaken) * 100 : 0
   const yColor = yPct >= 75 ? C.grn : yPct >= 60 ? C.amb : totMeat > 0 ? C.red : C.mut
 
-  const cells = [
-    { label: 'ĆWIARTKA', val: `${fmtKg(totTaken, 0)} kg`, color: C.ink },
-    { label: 'MIĘSO',    val: `${fmtKg(totMeat, 0)} kg`,  color: C.grn },
-    { label: 'WYDAJNOŚĆ',val: totMeat > 0 ? fmtPct(yPct, 1) : '—', color: yColor },
-    { label: 'GRZBIETY', val: `${fmtKg(totBacks, 0)} kg`, color: C.amb },
-    { label: 'KOŚCI',    val: `${fmtKg(totBones, 0)} kg`, color: C.amb },
-    { label: 'WPISY',    val: String(entries.length),       color: C.ink },
-  ]
+  const yBg   = yPct >= 75 ? 'rgba(26,127,55,0.07)' : yPct >= 60 ? 'rgba(154,103,0,0.07)' : totMeat > 0 ? 'rgba(209,36,47,0.07)' : 'transparent'
 
   return (
-    <div className="flex-shrink-0 flex" style={{ height: 56, background: C.s1, borderTop: `1px solid ${C.bd}` }}>
-      {cells.map(c => (
-        <div key={c.label} className="flex-1 flex flex-col items-center justify-center" style={{ borderRight: `1px solid ${C.bd}` }}>
-          <span style={{ fontFamily: 'monospace', fontSize: 20, fontWeight: 900, color: c.color, lineHeight: 1 }}>{c.val}</span>
-          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.16em', color: C.mut, marginTop: 3 }}>{c.label}</span>
-        </div>
-      ))}
-      <button type="button" onClick={onEntries} className="flex-1 flex flex-col items-center justify-center gap-0.5 active:bg-[#f0f2f5]" style={{ color: C.acc, background: 'transparent', border: 'none', borderRight: `1px solid ${C.bd}`, cursor: 'pointer' }}>
-        <span style={{ fontSize: 16 }}>📋</span>
-        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', color: C.acc }}>WPISY</span>
+    <div className="flex-shrink-0 flex" style={{ height: 68, background: C.s1, borderTop: `2px solid ${C.bd}` }}>
+
+      {/* Ćwiartka */}
+      <div className="flex-1 flex flex-col items-center justify-center gap-0.5" style={{ borderRight: `1px solid ${C.bd}` }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 900, color: C.ink, lineHeight: 1 }}>{fmtKg(totTaken, 0)} kg</span>
+        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.16em', color: C.mut }}>ĆWIARTKA</span>
+      </div>
+
+      {/* Mięso */}
+      <div className="flex-1 flex flex-col items-center justify-center gap-0.5" style={{ borderRight: `1px solid ${C.bd}` }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 900, color: C.grn, lineHeight: 1 }}>{fmtKg(totMeat, 0)} kg</span>
+        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.16em', color: C.mut }}>MIĘSO</span>
+      </div>
+
+      {/* Wydajność — wyróżnione tło */}
+      <div className="flex-[1.4] flex flex-col items-center justify-center gap-0.5" style={{ borderRight: `1px solid ${C.bd}`, background: yBg }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 26, fontWeight: 900, color: yColor, lineHeight: 1 }}>
+          {totMeat > 0 ? fmtPct(yPct, 1) : '—'}
+        </span>
+        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.16em', color: C.mut }}>WYDAJNOŚĆ</span>
+      </div>
+
+      {/* Grzbiety */}
+      <div className="flex-1 flex flex-col items-center justify-center gap-0.5" style={{ borderRight: `1px solid ${C.bd}` }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 900, color: C.amb, lineHeight: 1 }}>{fmtKg(totBacks, 0)} kg</span>
+        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.16em', color: C.mut }}>GRZBIETY</span>
+      </div>
+
+      {/* Kości */}
+      <div className="flex-1 flex flex-col items-center justify-center gap-0.5" style={{ borderRight: `1px solid ${C.bd}` }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 900, color: C.amb, lineHeight: 1 }}>{fmtKg(totBones, 0)} kg</span>
+        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.16em', color: C.mut }}>KOŚCI</span>
+      </div>
+
+      {/* Wpisy */}
+      <div className="flex-[0.7] flex flex-col items-center justify-center gap-0.5" style={{ borderRight: `1px solid ${C.bd}` }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 26, fontWeight: 900, color: C.ink, lineHeight: 1 }}>{entries.length}</span>
+        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.16em', color: C.mut }}>WPISY</span>
+      </div>
+
+      {/* Przycisk: lista wpisów */}
+      <button type="button" onClick={onEntries}
+        className="flex-[0.9] flex flex-col items-center justify-center gap-1 active:opacity-60"
+        style={{ background: 'transparent', border: 'none', borderRight: `1px solid ${C.bd}`, cursor: 'pointer' }}>
+        <span style={{ fontSize: 18, lineHeight: 1 }}>📋</span>
+        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', color: C.acc }}>LISTA</span>
       </button>
-      <button type="button" onClick={onStats} className="flex-1 flex flex-col items-center justify-center gap-0.5 active:bg-[#f0f2f5]" style={{ color: C.grn, background: 'transparent', border: 'none', cursor: 'pointer' }}>
-        <BarChart3 size={16} />
-        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', color: C.grn }}>STATYSTYKI</span>
+
+      {/* Przycisk: statystyki */}
+      <button type="button" onClick={onStats}
+        className="flex-[0.9] flex flex-col items-center justify-center gap-1 active:opacity-60"
+        style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
+        <BarChart3 size={18} style={{ color: C.grn }} />
+        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', color: C.grn }}>RANKING</span>
       </button>
+
     </div>
   )
 })
@@ -449,7 +494,7 @@ export function DeboningHmiV7Page() {
       </header>
 
       {/* PASEK PARTII */}
-      <div className="flex-shrink-0 grid gap-1 px-1 py-1" style={{ height: 88, background: C.bg, gridTemplateColumns: `repeat(${Math.max(batches.length, 1)}, 1fr)` }}>
+      <div className="flex-shrink-0 grid gap-1.5 px-1.5 py-1.5" style={{ height: 100, background: C.bg, gridTemplateColumns: `repeat(${Math.max(batches.length, 1)}, 1fr)` }}>
         {batchData.loading
           ? <div className="col-span-6 flex items-center justify-center"><Spinner size={22} /></div>
           : batches.length === 0
@@ -465,7 +510,7 @@ export function DeboningHmiV7Page() {
         <div className="flex-shrink-0 p-1.5" style={{ width: '45%', background: C.bg, borderRight: `1px solid ${C.bd}` }}>
           {workerData.loading
             ? <div className="flex h-full items-center justify-center"><Spinner size={30} /></div>
-            : <div className="grid grid-cols-4 grid-rows-4 gap-1.5 h-full">
+            : <div className="grid grid-cols-4 grid-rows-4 gap-1 h-full">
                 {Array.from({ length: 16 }, (_, i) => {
                   const w = workers[i]
                   if (!w) return <div key={`e-${i}`} />
@@ -478,14 +523,28 @@ export function DeboningHmiV7Page() {
         {/* PRAWY: panel wag */}
         <div className="flex-1 flex flex-col gap-2 p-3 min-h-0" style={{ background: C.bg }}>
 
-          {/* Pola ćwiartki — split kg/poj */}
+          {/* Pola ćwiartki — split 75/25 kg|poj */}
           <div className="flex gap-2 flex-shrink-0">
-            <V7Readout label="Ćwiartka kg" value={takenMode === 'kg' ? kgTaken : fmtKg(takenRaw * KG_PER_CONTAINER, 0)}
-              active={active === 'taken' && takenMode === 'kg'} unit="kg"
-              onActivate={() => switchTakenMode('kg')} />
-            <V7Readout label="Pojemniki" value={takenMode === 'poj' ? kgTaken : String(Math.floor(takenRaw / KG_PER_CONTAINER) || '0')}
-              active={active === 'taken' && takenMode === 'poj'} unit="poj."
-              onActivate={() => switchTakenMode('poj')} />
+            <div style={{ flex: 3 }}>
+              <V7Readout
+                label="Ćwiartka kg"
+                value={takenMode === 'kg' ? kgTaken : (takenRaw > 0 ? fmtKg(takenRaw * KG_PER_CONTAINER, 0) : '')}
+                active={active === 'taken' && takenMode === 'kg'}
+                locked={takenMode === 'poj'}
+                unit="kg"
+                onActivate={() => switchTakenMode('kg')}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <V7Readout
+                label="Pojemniki"
+                value={takenMode === 'poj' ? kgTaken : (takenRaw > 0 ? String(Math.floor(takenRaw / KG_PER_CONTAINER)) : '')}
+                active={active === 'taken' && takenMode === 'poj'}
+                locked={takenMode === 'kg'}
+                unit="poj."
+                onActivate={() => switchTakenMode('poj')}
+              />
+            </div>
           </div>
 
           {/* Pole mięsa */}

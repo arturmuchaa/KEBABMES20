@@ -1,0 +1,3 @@
+# Zależności deweloperskie (testy) — NIE instalowane na produkcji.
+-r requirements_pg.txt
+pytest>=8.0.0
