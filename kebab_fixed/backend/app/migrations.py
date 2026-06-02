@@ -288,6 +288,22 @@ _DDL: list[str] = [
 
     # ── QR per sztuka — Faza 2: termin przydatności w recepturze ──
     "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS shelf_life_days INTEGER NOT NULL DEFAULT 5",
+
+    # ── QR per sztuka — Faza 3: szablony etykiet (per klient+receptura) ──
+    """CREATE TABLE IF NOT EXISTS label_templates (
+        id              TEXT PRIMARY KEY,
+        client_id       TEXT NOT NULL DEFAULT '',
+        recipe_id       TEXT NOT NULL DEFAULT '',
+        kind            TEXT NOT NULL DEFAULT 'overlay',
+        background_data TEXT DEFAULT '',
+        field_positions JSONB NOT NULL DEFAULT '{}',
+        page_size       TEXT NOT NULL DEFAULT 'a4',
+        labels_per_sheet INTEGER NOT NULL DEFAULT 2,
+        zpl             TEXT DEFAULT '',
+        updated_at      TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (client_id, recipe_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_label_templates_client_recipe ON label_templates(client_id, recipe_id)",
 ]
 
 
