@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Snowflake, Truck, Factory, Package, ArrowLeft } from 'lucide-react'
+import { Snowflake, Truck, Factory, Package, ArrowLeft, QrCode } from 'lucide-react'
 import { usePwaPage } from '@/features/pwa/usePwaPage'
 import { InstallIosHint } from '@/features/pwa/InstallIosHint'
 
@@ -54,6 +54,15 @@ export function MobilePickerPage() {
           <Package size={56} />
           <div className="text-2xl font-bold uppercase tracking-wide">Pakowanie</div>
           <div className="text-sm text-violet-100">Pakowanie sztuk do kartonu</div>
+        </Link>
+
+        <Link
+          to="/mobile/sztuka"
+          className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-orange-500 px-6 py-10 text-center text-white shadow-lg hover:bg-orange-600 active:scale-[0.99] sm:w-96"
+        >
+          <QrCode size={56} />
+          <div className="text-2xl font-bold uppercase tracking-wide">Karta sztuki (skan)</div>
+          <div className="text-sm text-orange-50">Skan QR → pełne dane sztuki</div>
         </Link>
       </main>
 
