@@ -304,6 +304,9 @@ _DDL: list[str] = [
         UNIQUE (client_id, recipe_id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_label_templates_client_recipe ON label_templates(client_id, recipe_id)",
+
+    # ── QR per sztuka — Faza 3+: oryginalny PDF tła etykiety (wektorowy) ──
+    "ALTER TABLE label_templates ADD COLUMN IF NOT EXISTS background_pdf TEXT DEFAULT ''",
 ]
 
 

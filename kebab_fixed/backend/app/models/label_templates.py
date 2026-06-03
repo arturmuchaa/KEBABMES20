@@ -9,6 +9,7 @@ class LabelTemplateUpsert(BaseModel):
     recipe_id: str = ""
     kind: str = "overlay"
     background_data: str = ""          # base64 data URL obrazu tła
+    background_pdf: str = ""           # oryginalny PDF tła (base64) — pod druk wektorowy
     field_positions: Dict[str, Any] = {}
     page_size: str = "a4"
     labels_per_sheet: int = 2

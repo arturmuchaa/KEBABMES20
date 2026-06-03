@@ -24,18 +24,20 @@ def _row_to_summary(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _row_to_full(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Mapuje wiersz DB na camelCase (pełny, z backgroundData i zpl)."""
+    """Mapuje wiersz DB na camelCase (pełny, z backgroundData, backgroundPdf i zpl)."""
     return {
         "id": row["id"],
         "clientId": row.get("client_id") or "",
         "recipeId": row.get("recipe_id") or "",
         "kind": row.get("kind") or "overlay",
         "backgroundData": row.get("background_data") or "",
+        "backgroundPdf": row.get("background_pdf") or "",
         "fieldPositions": row.get("field_positions") or {},
         "pageSize": row.get("page_size") or "a4",
         "labelsPerSheet": int(row.get("labels_per_sheet") or 2),
         "zpl": row.get("zpl") or "",
         "hasBackground": bool(row.get("background_data")),
+        "hasPdf": bool(row.get("background_pdf")),
     }
 
 
@@ -52,12 +54,13 @@ def upsert_template(dto: Dict[str, Any]) -> Dict[str, Any]:
             conn,
             """
             INSERT INTO label_templates
-                (id, client_id, recipe_id, kind, background_data,
+                (id, client_id, recipe_id, kind, background_data, background_pdf,
                  field_positions, page_size, labels_per_sheet, zpl, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, now())
+            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, now())
             ON CONFLICT (client_id, recipe_id) DO UPDATE SET
                 kind             = EXCLUDED.kind,
                 background_data  = EXCLUDED.background_data,
+                background_pdf   = EXCLUDED.background_pdf,
                 field_positions  = EXCLUDED.field_positions,
                 page_size        = EXCLUDED.page_size,
                 labels_per_sheet = EXCLUDED.labels_per_sheet,
@@ -71,6 +74,7 @@ def upsert_template(dto: Dict[str, Any]) -> Dict[str, Any]:
                 dto.get("recipe_id") or "",
                 dto.get("kind") or "overlay",
                 dto.get("background_data") or "",
+                dto.get("background_pdf") or "",
                 json.dumps(dto.get("field_positions") or {}),
                 dto.get("page_size") or "a4",
                 int(dto.get("labels_per_sheet") or 2),
@@ -104,7 +108,8 @@ def list_templates() -> list:
     """Zwraca listę wszystkich szablonów etykiet (bez backgroundData)."""
     rows = query_all(
         "SELECT id, client_id, recipe_id, kind, page_size, labels_per_sheet, "
-        "(background_data <> '') AS has_background, updated_at "
+        "(background_data <> '') AS has_background, "
+        "(background_pdf <> '') AS has_pdf, updated_at "
         "FROM label_templates ORDER BY client_id, recipe_id"
     )
     return [
@@ -116,6 +121,7 @@ def list_templates() -> list:
             "pageSize": r.get("page_size") or "a4",
             "labelsPerSheet": int(r.get("labels_per_sheet") or 2),
             "hasBackground": bool(r.get("has_background")),
+            "hasPdf": bool(r.get("has_pdf")),
             "updatedAt": str(r.get("updated_at") or ""),
         }
         for r in rows
