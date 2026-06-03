@@ -275,6 +275,8 @@ export function LabelPrintPage() {
                         left: `${pos.x + dx}%`,
                         top: `${pos.y}%`,
                         fontSize: `${pos.size}pt`,
+                        fontFamily: pos.fontFamily || 'Arial',
+                        fontWeight: pos.bold ? 700 : 400,
                       }}
                     >
                       {values[key]}

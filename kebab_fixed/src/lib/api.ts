@@ -939,7 +939,7 @@ export const cartonsApi = {
 }
 
 // ─── Szablony etykiet ─────────────────────────────────────────
-export interface LabelFieldPos { x: number; y: number; size: number }
+export interface LabelFieldPos { x: number; y: number; size: number; fontFamily?: string; bold?: boolean }
 export interface LabelTemplate {
   id: string; clientId: string; recipeId: string; kind: string
   backgroundData: string; fieldPositions: Record<string, LabelFieldPos>

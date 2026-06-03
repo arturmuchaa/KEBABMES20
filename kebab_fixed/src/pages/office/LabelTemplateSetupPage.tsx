@@ -11,6 +11,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Save, Upload, ImageIcon, Tag, ZoomIn, ZoomOut } from 'lucide-react'
+import QRCode from 'qrcode'
 import { useApi } from '@/hooks/useApi'
 import { clientsApi, recipesApi, labelTemplatesApi } from '@/lib/apiClient'
 import { pdfFirstPageToPng } from '@/lib/pdfToImage'
@@ -25,7 +26,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 
-// ─── Typy ──────────────────────────────────────────────────────
+// ─── Stałe ─────────────────────────────────────────────────────
 const FIELDS: { key: string; label: string; defaultSize: number }[] = [
   { key: 'qr',          label: 'Kod QR',           defaultSize: 20 },
   { key: 'prod_date',   label: 'Data produkcji',    defaultSize: 8  },
@@ -42,144 +43,120 @@ const FIELD_COLORS: Record<string, string> = {
   batch_no:    '#7c3aed',
 }
 
-type FieldPositions = Record<string, LabelFieldPos>
-
-// ─── FieldMarker — znacznik na podglądzie ──────────────────────
-interface FieldMarkerProps {
-  fieldKey: string
-  label: string
-  pos: LabelFieldPos
-  isSelected: boolean
-  onClick: () => void
+// Przykładowe wartości do podglądu WYSIWYG
+const SAMPLE_VALUES: Record<string, string> = {
+  prod_date:   '03.06.2026',
+  freeze_date: '03.06.2026',
+  best_before: '03.06.2027',
+  batch_no:    '030625 123',
 }
 
-function FieldMarker({ fieldKey, label, pos, isSelected, onClick }: FieldMarkerProps) {
+// Dostępne rodziny czcionek
+const FONT_FAMILIES = [
+  'Arial',
+  'Arial Narrow',
+  'Helvetica',
+  'Times New Roman',
+  'Courier New',
+  'Verdana',
+  'Tahoma',
+  'Calibri',
+]
+
+// A4 width in pt (210mm = 595.276pt)
+const A4_WIDTH_PT = 595.276
+// A4 width in mm
+const A4_WIDTH_MM = 210
+
+type FieldPositions = Record<string, LabelFieldPos>
+
+// ─── WysiwygTextMarker ─────────────────────────────────────────
+interface WysiwygTextMarkerProps {
+  fieldKey: string
+  pos: LabelFieldPos
+  sampleText: string
+  previewW: number
+  isSelected: boolean
+  isGhost?: boolean
+  offsetX?: number
+  onClick?: () => void
+}
+
+function WysiwygTextMarker({
+  fieldKey, pos, sampleText, previewW, isSelected, isGhost = false, offsetX = 0, onClick,
+}: WysiwygTextMarkerProps) {
+  const fontPx = pos.size * previewW / A4_WIDTH_PT
   const color = FIELD_COLORS[fieldKey] ?? '#666'
-  const dotSize = isSelected ? 10 : 8
-  const crossLen = isSelected ? 8 : 6
+  const opacity = isGhost ? 0.3 : 1
+
   return (
-    <div
-      onClick={e => { e.stopPropagation(); onClick() }}
+    <span
+      onClick={onClick ? (e) => { e.stopPropagation(); onClick() } : undefined}
       style={{
         position: 'absolute',
-        left: `${pos.x}%`,
+        left: `${pos.x + offsetX}%`,
         top: `${pos.y}%`,
-        transform: 'translate(-50%, -50%)',
-        cursor: 'pointer',
-        zIndex: 10,
+        fontFamily: pos.fontFamily || 'Arial',
+        fontWeight: pos.bold ? 700 : 400,
+        fontSize: `${fontPx}px`,
+        lineHeight: 1.1,
+        whiteSpace: 'nowrap',
+        color,
+        opacity,
+        cursor: isGhost ? 'default' : 'pointer',
+        pointerEvents: isGhost ? 'none' : 'auto',
+        outline: isSelected ? `1px dashed ${color}` : 'none',
+        outlineOffset: '1px',
+        zIndex: isGhost ? 8 : 10,
+        userSelect: 'none',
+        textShadow: '0 0 3px rgba(255,255,255,0.85)',
       }}
     >
-      {/* Crosshair lines */}
-      <div style={{
-        position: 'absolute',
-        left: '50%',
-        top: '50%',
-        transform: 'translate(-50%, -50%)',
-        width: crossLen * 2 + dotSize,
-        height: 1,
-        background: color,
-        opacity: 0.7,
-        pointerEvents: 'none',
-      }} />
-      <div style={{
-        position: 'absolute',
-        left: '50%',
-        top: '50%',
-        transform: 'translate(-50%, -50%)',
-        width: 1,
-        height: crossLen * 2 + dotSize,
-        background: color,
-        opacity: 0.7,
-        pointerEvents: 'none',
-      }} />
-      {/* Center dot */}
-      <div
-        style={{
-          width: dotSize,
-          height: dotSize,
-          borderRadius: '50%',
-          background: color,
-          border: isSelected ? '1.5px solid white' : '1px solid white',
-          boxShadow: isSelected ? `0 0 0 1.5px ${color}` : `0 1px 2px rgba(0,0,0,0.5)`,
-          transition: 'all 0.15s ease',
-          position: 'relative',
-          zIndex: 1,
-        }}
-      />
-      {/* Label — tiny, offset above-right, non-interactive */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: '100%',
-          left: '100%',
-          marginBottom: 2,
-          marginLeft: 2,
-          fontSize: 9,
-          fontWeight: 700,
-          color,
-          whiteSpace: 'nowrap',
-          background: 'rgba(255,255,255,0.88)',
-          padding: '0px 2px',
-          borderRadius: 2,
-          pointerEvents: 'none',
-          lineHeight: '13px',
-        }}
-      >
-        {label}
-      </div>
-    </div>
+      {sampleText}
+    </span>
   )
 }
 
-// ─── GhostMarker — duch markera dla pozostałych slotów etykiet ──
-interface GhostMarkerProps {
-  fieldKey: string
-  x: number
-  y: number
+// ─── WysiwygQrMarker ──────────────────────────────────────────
+interface WysiwygQrMarkerProps {
+  pos: LabelFieldPos
+  qrDataUrl: string
+  previewW: number
+  isSelected: boolean
+  isGhost?: boolean
+  offsetX?: number
+  onClick?: () => void
 }
 
-function GhostMarker({ fieldKey, x, y }: GhostMarkerProps) {
-  const color = FIELD_COLORS[fieldKey] ?? '#666'
+function WysiwygQrMarker({
+  pos, qrDataUrl, previewW, isSelected, isGhost = false, offsetX = 0, onClick,
+}: WysiwygQrMarkerProps) {
+  const qrPx = pos.size / A4_WIDTH_MM * previewW
+  const color = FIELD_COLORS['qr']
+  const opacity = isGhost ? 0.3 : 1
+
   return (
-    <div
+    <img
+      src={qrDataUrl}
+      alt="QR"
+      onClick={onClick ? (e) => { e.stopPropagation(); onClick() } : undefined}
+      draggable={false}
       style={{
         position: 'absolute',
-        left: `${x}%`,
-        top: `${y}%`,
-        transform: 'translate(-50%, -50%)',
-        pointerEvents: 'none',
-        zIndex: 8,
-        opacity: 0.35,
+        left: `${pos.x + offsetX}%`,
+        top: `${pos.y}%`,
+        width: `${qrPx}px`,
+        height: `${qrPx}px`,
+        imageRendering: 'pixelated',
+        opacity,
+        cursor: isGhost ? 'default' : 'pointer',
+        pointerEvents: isGhost ? 'none' : 'auto',
+        outline: isSelected ? `1px dashed ${color}` : 'none',
+        outlineOffset: '1px',
+        zIndex: isGhost ? 8 : 10,
+        userSelect: 'none',
       }}
-    >
-      <div style={{
-        position: 'absolute',
-        left: '50%',
-        top: '50%',
-        transform: 'translate(-50%, -50%)',
-        width: 20,
-        height: 1,
-        background: color,
-      }} />
-      <div style={{
-        position: 'absolute',
-        left: '50%',
-        top: '50%',
-        transform: 'translate(-50%, -50%)',
-        width: 1,
-        height: 20,
-        background: color,
-      }} />
-      <div style={{
-        width: 7,
-        height: 7,
-        borderRadius: '50%',
-        background: color,
-        border: '1px solid white',
-        position: 'relative',
-        zIndex: 1,
-      }} />
-    </div>
+    />
   )
 }
 
@@ -191,12 +168,21 @@ interface FieldRowProps {
   isSelected: boolean
   onSelect: () => void
   onSizeChange: (size: number) => void
+  onFontFamilyChange: (family: string) => void
+  onBoldChange: (bold: boolean) => void
   onClear: () => void
   onNudge: (fieldKey: string, axis: 'x' | 'y', delta: number) => void
 }
 
-function FieldRow({ fieldKey, label, pos, isSelected, onSelect, onSizeChange, onClear, onNudge }: FieldRowProps) {
+function FieldRow({
+  fieldKey, label, pos, isSelected, onSelect, onSizeChange,
+  onFontFamilyChange, onBoldChange, onClear, onNudge,
+}: FieldRowProps) {
   const color = FIELD_COLORS[fieldKey] ?? '#666'
+  const isQr = fieldKey === 'qr'
+  const currentFamily = pos?.fontFamily || 'Arial'
+  const currentBold = pos?.bold ?? false
+
   return (
     <div
       className={`flex flex-col gap-1 p-2 rounded-lg border cursor-pointer transition-all ${
@@ -228,9 +214,9 @@ function FieldRow({ fieldKey, label, pos, isSelected, onSelect, onSizeChange, on
             value={pos?.size ?? (FIELDS.find(f => f.key === fieldKey)?.defaultSize ?? 8)}
             onChange={e => onSizeChange(Number(e.target.value))}
             className="h-6 w-14 text-[11px] px-1.5 py-0"
-            title="Rozmiar (pt)"
+            title={isQr ? 'Rozmiar (mm)' : 'Rozmiar (pt)'}
           />
-          <span className="text-[10px] text-muted-foreground">pt</span>
+          <span className="text-[10px] text-muted-foreground">{isQr ? 'mm' : 'pt'}</span>
           {pos && (
             <button
               onClick={onClear}
@@ -242,6 +228,34 @@ function FieldRow({ fieldKey, label, pos, isSelected, onSelect, onSizeChange, on
           )}
         </div>
       </div>
+
+      {/* Kontrolki czcionki — tylko dla pól tekstowych */}
+      {!isQr && (
+        <div
+          className="flex items-center gap-2 pl-5"
+          onClick={e => e.stopPropagation()}
+        >
+          <select
+            value={currentFamily}
+            onChange={e => onFontFamilyChange(e.target.value)}
+            className="h-6 text-[10px] border border-border rounded px-1 bg-background flex-1 min-w-0"
+            title="Rodzina czcionki"
+          >
+            {FONT_FAMILIES.map(f => (
+              <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
+            ))}
+          </select>
+          <label className="flex items-center gap-1 cursor-pointer select-none shrink-0">
+            <input
+              type="checkbox"
+              checked={currentBold}
+              onChange={e => onBoldChange(e.target.checked)}
+              className="w-3 h-3"
+            />
+            <span className="text-[10px] font-bold">B</span>
+          </label>
+        </div>
+      )}
 
       {/* Nudge controls — only when selected and placed */}
       {isSelected && pos && (
@@ -304,11 +318,22 @@ export function LabelTemplateSetupPage() {
   const [saving,          setSaving]          = useState(false)
   const [templateLoaded,  setTemplateLoaded]  = useState(false)
   const [zoom,            setZoom]            = useState(1)
+  const [sampleQrUrl,     setSampleQrUrl]     = useState('')
 
   const previewRef = useRef<HTMLDivElement>(null)
 
   // Podstawowa szerokość podglądu w px — zoom mnoży tę wartość (nie scale CSS)
   const BASE_PREVIEW_WIDTH = 520
+
+  // Szerokość podglądu w px (używana do przeliczania rozmiarów WYSIWYG)
+  const previewW = BASE_PREVIEW_WIDTH * zoom
+
+  // Wygeneruj przykładowy QR raz przy montowaniu
+  useEffect(() => {
+    QRCode.toDataURL('U|PODGLAD', { width: 240, margin: 0 })
+      .then(url => setSampleQrUrl(url))
+      .catch(() => {})
+  }, [])
 
   // Dane list
   const { data: clients, loading: clientsLoading } = useApi(() => clientsApi.list())
@@ -363,10 +388,16 @@ export function LabelTemplateSetupPage() {
     const x = ((e.clientX - rect.left) / rect.width) * 100
     const y = ((e.clientY - rect.top) / rect.height) * 100
     const defaultSize = FIELDS.find(f => f.key === selectedField)?.defaultSize ?? 8
-    const existingSize = fieldPositions[selectedField]?.size ?? defaultSize
+    const existing = fieldPositions[selectedField]
     setFieldPositions(prev => ({
       ...prev,
-      [selectedField]: { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, size: existingSize },
+      [selectedField]: {
+        x: Math.round(x * 10) / 10,
+        y: Math.round(y * 10) / 10,
+        size: existing?.size ?? defaultSize,
+        fontFamily: existing?.fontFamily,
+        bold: existing?.bold,
+      },
     }))
   }
 
@@ -376,6 +407,26 @@ export function LabelTemplateSetupPage() {
         return { ...prev, [fieldKey]: { x: 50, y: 50, size } }
       }
       return { ...prev, [fieldKey]: { ...prev[fieldKey], size } }
+    })
+  }
+
+  function handleFontFamilyChange(fieldKey: string, fontFamily: string) {
+    setFieldPositions(prev => {
+      if (!prev[fieldKey]) {
+        const defaultSize = FIELDS.find(f => f.key === fieldKey)?.defaultSize ?? 8
+        return { ...prev, [fieldKey]: { x: 50, y: 50, size: defaultSize, fontFamily } }
+      }
+      return { ...prev, [fieldKey]: { ...prev[fieldKey], fontFamily } }
+    })
+  }
+
+  function handleBoldChange(fieldKey: string, bold: boolean) {
+    setFieldPositions(prev => {
+      if (!prev[fieldKey]) {
+        const defaultSize = FIELDS.find(f => f.key === fieldKey)?.defaultSize ?? 8
+        return { ...prev, [fieldKey]: { x: 50, y: 50, size: defaultSize, bold } }
+      }
+      return { ...prev, [fieldKey]: { ...prev[fieldKey], bold } }
     })
   }
 
@@ -579,6 +630,8 @@ export function LabelTemplateSetupPage() {
                       isSelected={selectedField === f.key}
                       onSelect={() => setSelectedField(prev => prev === f.key ? null : f.key)}
                       onSizeChange={size => handleSizeChange(f.key, size)}
+                      onFontFamilyChange={family => handleFontFamilyChange(f.key, family)}
+                      onBoldChange={bold => handleBoldChange(f.key, bold)}
                       onClear={() => handleClearField(f.key)}
                       onNudge={handleNudge}
                     />
@@ -652,7 +705,7 @@ export function LabelTemplateSetupPage() {
                       ref={previewRef}
                       onClick={handlePreviewClick}
                       style={{
-                        width: `${BASE_PREVIEW_WIDTH * zoom}px`,
+                        width: `${previewW}px`,
                         aspectRatio: '210 / 297',
                         position: 'relative',
                         cursor: selectedField && backgroundData ? 'crosshair' : 'default',
@@ -674,35 +727,73 @@ export function LabelTemplateSetupPage() {
                             }}
                             draggable={false}
                           />
-                          {/* Markery pól (lewy slot) */}
+
+                          {/* WYSIWYG markery pól (lewy slot) */}
                           {FIELDS.map(f => {
                             const pos = fieldPositions[f.key]
                             if (!pos) return null
+                            if (f.key === 'qr') {
+                              if (!sampleQrUrl) return null
+                              return (
+                                <WysiwygQrMarker
+                                  key={f.key}
+                                  pos={pos}
+                                  qrDataUrl={sampleQrUrl}
+                                  previewW={previewW}
+                                  isSelected={selectedField === f.key}
+                                  onClick={() => setSelectedField(prev => prev === f.key ? null : f.key)}
+                                />
+                              )
+                            }
                             return (
-                              <FieldMarker
+                              <WysiwygTextMarker
                                 key={f.key}
                                 fieldKey={f.key}
-                                label={f.label}
                                 pos={pos}
+                                sampleText={SAMPLE_VALUES[f.key] ?? f.label}
+                                previewW={previewW}
                                 isSelected={selectedField === f.key}
                                 onClick={() => setSelectedField(prev => prev === f.key ? null : f.key)}
                               />
                             )
                           })}
+
                           {/* Duchy — pozostałe sloty (i=1..labelsPerSheet-1) */}
                           {FIELDS.map(f => {
                             const pos = fieldPositions[f.key]
                             if (!pos) return null
                             const slotWidth = 100 / labelsPerSheet
-                            return Array.from({ length: labelsPerSheet - 1 }, (_, i) => (
-                              <GhostMarker
-                                key={`${f.key}-ghost-${i + 1}`}
-                                fieldKey={f.key}
-                                x={pos.x + (i + 1) * slotWidth}
-                                y={pos.y}
-                              />
-                            ))
+                            return Array.from({ length: labelsPerSheet - 1 }, (_, i) => {
+                              const offsetX = (i + 1) * slotWidth
+                              if (f.key === 'qr') {
+                                if (!sampleQrUrl) return null
+                                return (
+                                  <WysiwygQrMarker
+                                    key={`${f.key}-ghost-${i + 1}`}
+                                    pos={pos}
+                                    qrDataUrl={sampleQrUrl}
+                                    previewW={previewW}
+                                    isSelected={false}
+                                    isGhost
+                                    offsetX={offsetX}
+                                  />
+                                )
+                              }
+                              return (
+                                <WysiwygTextMarker
+                                  key={`${f.key}-ghost-${i + 1}`}
+                                  fieldKey={f.key}
+                                  pos={pos}
+                                  sampleText={SAMPLE_VALUES[f.key] ?? f.label}
+                                  previewW={previewW}
+                                  isSelected={false}
+                                  isGhost
+                                  offsetX={offsetX}
+                                />
+                              )
+                            })
                           })}
+
                           {/* Instrukcja nakładki */}
                           {selectedField && (
                             <div style={{
