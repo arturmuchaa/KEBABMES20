@@ -10,7 +10,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { Save, Upload, ImageIcon, Tag } from 'lucide-react'
+import { Save, Upload, ImageIcon, Tag, ZoomIn, ZoomOut } from 'lucide-react'
 import { useApi } from '@/hooks/useApi'
 import { clientsApi, recipesApi, labelTemplatesApi } from '@/lib/apiClient'
 import { pdfFirstPageToPng } from '@/lib/pdfToImage'
@@ -127,6 +127,58 @@ function FieldMarker({ fieldKey, label, pos, isSelected, onClick }: FieldMarkerP
       >
         {label}
       </div>
+    </div>
+  )
+}
+
+// ─── GhostMarker — duch markera dla pozostałych slotów etykiet ──
+interface GhostMarkerProps {
+  fieldKey: string
+  x: number
+  y: number
+}
+
+function GhostMarker({ fieldKey, x, y }: GhostMarkerProps) {
+  const color = FIELD_COLORS[fieldKey] ?? '#666'
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: `${x}%`,
+        top: `${y}%`,
+        transform: 'translate(-50%, -50%)',
+        pointerEvents: 'none',
+        zIndex: 8,
+        opacity: 0.35,
+      }}
+    >
+      <div style={{
+        position: 'absolute',
+        left: '50%',
+        top: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 20,
+        height: 1,
+        background: color,
+      }} />
+      <div style={{
+        position: 'absolute',
+        left: '50%',
+        top: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 1,
+        height: 20,
+        background: color,
+      }} />
+      <div style={{
+        width: 7,
+        height: 7,
+        borderRadius: '50%',
+        background: color,
+        border: '1px solid white',
+        position: 'relative',
+        zIndex: 1,
+      }} />
     </div>
   )
 }
@@ -251,8 +303,12 @@ export function LabelTemplateSetupPage() {
   const [pdfNote,         setPdfNote]         = useState(false)
   const [saving,          setSaving]          = useState(false)
   const [templateLoaded,  setTemplateLoaded]  = useState(false)
+  const [zoom,            setZoom]            = useState(1)
 
   const previewRef = useRef<HTMLDivElement>(null)
+
+  // Podstawowa szerokość podglądu w px — zoom mnoży tę wartość (nie scale CSS)
+  const BASE_PREVIEW_WIDTH = 520
 
   // Dane list
   const { data: clients, loading: clientsLoading } = useApi(() => clientsApi.list())
@@ -546,73 +602,132 @@ export function LabelTemplateSetupPage() {
                   </div>
                 </div>
 
-                {/* Podgląd — enlarged for precise placement */}
+                {/* Podgląd A4 z zoomem i duchami */}
                 <div className="order-1 lg:order-2">
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">
-                    Podgląd etykiety
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground flex-1">
+                      Podgląd arkusza A4
+                    </span>
+                    {/* Kontrolka powiększenia */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-muted-foreground font-semibold">Powiększenie</span>
+                      <button
+                        className="w-6 h-6 rounded border border-border bg-background hover:bg-muted flex items-center justify-center disabled:opacity-40"
+                        title="Zmniejsz"
+                        disabled={zoom <= 1}
+                        onClick={() => setZoom(z => Math.max(1, Math.round((z - 0.25) * 100) / 100))}
+                      >
+                        <ZoomOut size={12} />
+                      </button>
+                      <span className="text-[11px] font-mono w-8 text-center select-none">{zoom.toFixed(2)}×</span>
+                      <button
+                        className="w-6 h-6 rounded border border-border bg-background hover:bg-muted flex items-center justify-center disabled:opacity-40"
+                        title="Powiększ"
+                        disabled={zoom >= 4}
+                        onClick={() => setZoom(z => Math.min(4, Math.round((z + 0.25) * 100) / 100))}
+                      >
+                        <ZoomIn size={12} />
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Notatka pomocnicza */}
+                  <div className="text-[11px] text-muted-foreground bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mb-2">
+                    Ustaw pola na <strong>LEWEJ etykiecie</strong> — system powieli je na pozostałe (po prawej).
+                    Tło to cały arkusz A4 z wszystkimi etykietami.
+                  </div>
+
+                  {/* Przewijany kontener — scroll przy zoom>1 */}
                   <div
-                    ref={previewRef}
-                    onClick={handlePreviewClick}
                     style={{
-                      width: '100%',
-                      maxWidth: 600,
-                      position: 'relative',
+                      overflow: 'auto',
+                      maxHeight: '70vh',
                       border: '1.5px solid #e2e8f0',
                       borderRadius: 8,
-                      overflow: 'hidden',
-                      cursor: selectedField && backgroundData ? 'crosshair' : 'default',
-                      minHeight: backgroundData ? undefined : 180,
                       background: backgroundData ? undefined : '#f8fafc',
                     }}
                   >
-                    {backgroundData ? (
-                      <>
-                        <img
-                          src={backgroundData}
-                          alt="Tło etykiety"
-                          style={{ width: '100%', display: 'block', userSelect: 'none', pointerEvents: 'none' }}
-                          draggable={false}
-                        />
-                        {/* Markery pól */}
-                        {FIELDS.map(f => {
-                          const pos = fieldPositions[f.key]
-                          if (!pos) return null
-                          return (
-                            <FieldMarker
-                              key={f.key}
-                              fieldKey={f.key}
-                              label={f.label}
-                              pos={pos}
-                              isSelected={selectedField === f.key}
-                              onClick={() => setSelectedField(prev => prev === f.key ? null : f.key)}
-                            />
-                          )
-                        })}
-                        {/* Instrukcja nakładki */}
-                        {selectedField && (
-                          <div style={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            background: 'rgba(37,99,235,0.85)',
-                            color: 'white',
-                            fontSize: 11,
-                            fontWeight: 600,
-                            padding: '4px 8px',
-                            pointerEvents: 'none',
-                          }}>
-                            Kliknij, aby ustawić pozycję: {FIELDS.find(f => f.key === selectedField)?.label}
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center h-44 gap-2 text-muted-foreground">
-                        <ImageIcon size={28} />
-                        <span className="text-sm">Wgraj tło etykiety, aby zobaczyć podgląd</span>
-                      </div>
-                    )}
+                    {/* Element podglądu — szerokość = BASE * zoom, wysokość wynika z aspect-ratio A4 */}
+                    <div
+                      ref={previewRef}
+                      onClick={handlePreviewClick}
+                      style={{
+                        width: `${BASE_PREVIEW_WIDTH * zoom}px`,
+                        aspectRatio: '210 / 297',
+                        position: 'relative',
+                        cursor: selectedField && backgroundData ? 'crosshair' : 'default',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {backgroundData ? (
+                        <>
+                          <img
+                            src={backgroundData}
+                            alt="Tło etykiety"
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'fill',
+                              display: 'block',
+                              userSelect: 'none',
+                              pointerEvents: 'none',
+                            }}
+                            draggable={false}
+                          />
+                          {/* Markery pól (lewy slot) */}
+                          {FIELDS.map(f => {
+                            const pos = fieldPositions[f.key]
+                            if (!pos) return null
+                            return (
+                              <FieldMarker
+                                key={f.key}
+                                fieldKey={f.key}
+                                label={f.label}
+                                pos={pos}
+                                isSelected={selectedField === f.key}
+                                onClick={() => setSelectedField(prev => prev === f.key ? null : f.key)}
+                              />
+                            )
+                          })}
+                          {/* Duchy — pozostałe sloty (i=1..labelsPerSheet-1) */}
+                          {FIELDS.map(f => {
+                            const pos = fieldPositions[f.key]
+                            if (!pos) return null
+                            const slotWidth = 100 / labelsPerSheet
+                            return Array.from({ length: labelsPerSheet - 1 }, (_, i) => (
+                              <GhostMarker
+                                key={`${f.key}-ghost-${i + 1}`}
+                                fieldKey={f.key}
+                                x={pos.x + (i + 1) * slotWidth}
+                                y={pos.y}
+                              />
+                            ))
+                          })}
+                          {/* Instrukcja nakładki */}
+                          {selectedField && (
+                            <div style={{
+                              position: 'absolute',
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              background: 'rgba(37,99,235,0.85)',
+                              color: 'white',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: '4px 8px',
+                              pointerEvents: 'none',
+                            }}>
+                              Kliknij, aby ustawić pozycję: {FIELDS.find(f => f.key === selectedField)?.label}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
+                          <ImageIcon size={28} />
+                          <span className="text-sm">Wgraj tło etykiety, aby zobaczyć podgląd</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
