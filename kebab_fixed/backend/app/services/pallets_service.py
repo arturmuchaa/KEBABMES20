@@ -425,12 +425,15 @@ def reset_pallet(order_id: str, pallet_no: int) -> Dict:
 # ── Pakowanie sztuk do palety ─────────────────────────────────────
 
 def _pallet_pack_state(conn, pallet_id):
-    """Zwróć (pallet_row, order_id, planned_by_key, packed_by_key)."""
+    """Zwróć (pallet_row, order_id, pallet_client, planned_by_key, packed_by_key)."""
     pallet = cx_query_one(
         conn, "SELECT * FROM order_pallets WHERE id=%s FOR UPDATE", (pallet_id,))
     if not pallet:
         raise HTTPException(404, "Paleta nie znaleziona")
     order_id = pallet["order_id"]
+    order = cx_query_one(
+        conn, "SELECT client_name FROM client_orders WHERE id=%s", (order_id,))
+    pallet_client = (order or {}).get("client_name") or ""
 
     lines = cx_query_all(
         conn,
@@ -456,7 +459,7 @@ def _pallet_pack_state(conn, pallet_id):
         k = pallet_line_key(u["product_type_id"], u["recipe_id"], u["weight_kg"])
         packed_by_key[k] = packed_by_key.get(k, 0) + 1
 
-    return pallet, order_id, planned_by_key, packed_by_key
+    return pallet, order_id, pallet_client, planned_by_key, packed_by_key
 
 
 def pack_unit_into_pallet(pallet_id: str, code: str) -> Dict:
@@ -466,14 +469,14 @@ def pack_unit_into_pallet(pallet_id: str, code: str) -> Dict:
         raise HTTPException(400, "Nieprawidłowy kod QR sztuki")
 
     with transaction() as conn:
-        pallet, order_id, planned_by_key, packed_by_key = _pallet_pack_state(conn, pallet_id)
+        pallet, order_id, pallet_client, planned_by_key, packed_by_key = _pallet_pack_state(conn, pallet_id)
         unit = cx_query_one(
             conn, "SELECT * FROM finished_units WHERE id=%s FOR UPDATE", (unit_id,))
         if not unit:
             raise HTTPException(404, "Sztuka nie znaleziona")
 
         ok, reason, _key = validate_pack_to_pallet(
-            unit, order_id, planned_by_key, packed_by_key)
+            unit, pallet_client, planned_by_key, packed_by_key)
 
         planned_total = sum(planned_by_key.values())
         packed_total = sum(packed_by_key.values())
@@ -484,8 +487,8 @@ def pack_unit_into_pallet(pallet_id: str, code: str) -> Dict:
 
         cx_execute(
             conn,
-            "UPDATE finished_units SET status=%s, pallet_id=%s WHERE id=%s",
-            (PACKED, pallet_id, unit_id),
+            "UPDATE finished_units SET status=%s, pallet_id=%s, order_id=%s, client_name=%s WHERE id=%s",
+            (PACKED, pallet_id, order_id, pallet_client, unit_id),
         )
         packed_total += 1
         new_status = "packed" if packed_total >= planned_total else "packing"
