@@ -71,8 +71,8 @@ export function PalletLabelPrintPage() {
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
     const url = `${origin}/m/p/${order.id}/${target.palletNo}`
     QRCode.toDataURL(url, {
-      errorCorrectionLevel: 'M',
-      margin: 1,
+      errorCorrectionLevel: 'Q', // 25% korekcji; 'Q' a nie 'H', bo payload to dłuższy URL (druk biurowy)
+      margin: 4,                 // quiet zone — wymagane 4 moduły białego marginesu
       width: 480,
       color: { dark: '#000000', light: '#FFFFFF' },
     }).then(setQrDataUrl).catch(() => setQrDataUrl(''))

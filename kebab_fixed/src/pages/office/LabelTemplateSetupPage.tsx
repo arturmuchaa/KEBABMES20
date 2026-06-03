@@ -28,7 +28,7 @@ import {
 
 // ─── Stałe ─────────────────────────────────────────────────────
 const FIELDS: { key: string; label: string; defaultSize: number }[] = [
-  { key: 'qr',          label: 'Kod QR',           defaultSize: 20 },
+  { key: 'qr',          label: 'Kod QR',           defaultSize: 25 },
   { key: 'prod_date',   label: 'Data produkcji',    defaultSize: 8  },
   { key: 'freeze_date', label: 'Zamrożone dnia',    defaultSize: 8  },
   { key: 'best_before', label: 'Należy spożyć do',  defaultSize: 8  },

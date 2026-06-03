@@ -229,7 +229,11 @@ export function LabelPrintPage() {
     Promise.all(
       units.map(async (u) => {
         try {
-          const url = await QRCode.toDataURL(u.qrCode, { width: 240, margin: 0 })
+          const url = await QRCode.toDataURL(u.qrCode, {
+            width: 240,
+            margin: 4,                 // quiet zone — wymagane 4 moduły białego marginesu
+            errorCorrectionLevel: 'H', // 30% korekcji: odporność na szron/stretch/refleksy w szokówce i mroźni
+          })
           map[u.id] = url
         } catch {
           map[u.id] = ''
