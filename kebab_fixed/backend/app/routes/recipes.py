@@ -12,6 +12,11 @@ def list_recipes():
     return svc.list_recipes()
 
 
+@router.get("/{recipe_id}")
+def get_recipe(recipe_id: str):
+    return svc.get_recipe(recipe_id)
+
+
 @router.post("")
 def create_recipe(dto: RecipeCreate):
     return svc.create_recipe(dto)

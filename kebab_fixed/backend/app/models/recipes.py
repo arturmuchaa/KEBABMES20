@@ -17,5 +17,6 @@ class RecipeCreate(BaseModel):
     product_type_id: str = Field("", alias="productTypeId")
     product_type_name: str = Field("", alias="productTypeName")
     total_output_per_100kg: float = Field(100, alias="totalOutputPer100kg")
+    shelf_life_days: int = Field(5, alias="shelfLifeDays")
     notes: str = ""
     ingredients: List[RecipeIngredientDto] = Field(default_factory=list)

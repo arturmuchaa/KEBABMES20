@@ -46,6 +46,15 @@ def list_recipes() -> List[Dict]:
         return recipes
 
 
+def get_recipe(recipe_id: str) -> Dict:
+    with transaction() as conn:
+        row = cx_query_one(conn, "SELECT * FROM recipes WHERE id=%s", (recipe_id,))
+        if not row:
+            raise HTTPException(404, "Receptura nie znaleziona")
+        row["ingredients"] = _load_ingredients(conn, row["id"])
+        return row
+
+
 def create_recipe(dto: RecipeCreate) -> Dict:
     auto_output = round(
         100.0 + sum(float(ing.qty_per_100kg) for ing in dto.ingredients), 3
@@ -56,8 +65,8 @@ def create_recipe(dto: RecipeCreate) -> Dict:
             """
             INSERT INTO recipes
                 (id, name, product_type_id, product_type_name,
-                 total_output_per_100kg, active, notes, created_at)
-            VALUES (%s,%s,%s,%s,%s,true,%s,%s)
+                 total_output_per_100kg, shelf_life_days, active, notes, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,true,%s,%s)
             RETURNING *
             """,
             (
@@ -66,6 +75,7 @@ def create_recipe(dto: RecipeCreate) -> Dict:
                 dto.product_type_id or None,
                 dto.product_type_name,
                 auto_output,
+                dto.shelf_life_days,
                 dto.notes or None,
                 now_iso(),
             ),
@@ -96,7 +106,7 @@ def update_recipe(recipe_id: str, dto: RecipeCreate) -> Dict:
             """
             UPDATE recipes
             SET name=%s, product_type_id=%s, product_type_name=%s,
-                total_output_per_100kg=%s, notes=%s, updated_at=%s
+                total_output_per_100kg=%s, shelf_life_days=%s, notes=%s, updated_at=%s
             WHERE id=%s
             """,
             (
@@ -104,6 +114,7 @@ def update_recipe(recipe_id: str, dto: RecipeCreate) -> Dict:
                 dto.product_type_id or None,
                 dto.product_type_name,
                 auto_output,
+                dto.shelf_life_days,
                 dto.notes or None,
                 now_iso(),
                 recipe_id,
