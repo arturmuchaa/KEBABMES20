@@ -30,6 +30,23 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+/** Returns DDMMYY string from ISO date YYYY-MM-DD */
+function ddmmrr(isoDate: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDate || '')
+  if (!m) return ''
+  const yy = m[1].slice(2) // last 2 digits of year
+  return `${m[3]}${m[2]}${yy}`
+}
+
+/** Formats weight: drops trailing .0 — integer → "50 kg", decimal → "50.5 kg" */
+function formatWeight(weightKg: number | undefined | null): string {
+  if (weightKg === undefined || weightKg === null) return ''
+  const n = Number(weightKg)
+  if (isNaN(n)) return ''
+  // parseFloat removes trailing zeros (e.g. 50.00 → "50", 50.5 → "50.5")
+  return `${parseFloat(n.toFixed(10))} kg`
+}
+
 /** Compute dynamic field values for one unit. */
 function unitFieldValues(
   unit: FinishedUnitCard,
@@ -37,11 +54,13 @@ function unitFieldValues(
 ): Record<string, string> {
   const prodDateIso = (unit as any).producedDate || unit.producedAt?.slice(0, 10) || todayIso()
   const bestBeforeIso = addDays(prodDateIso, shelfLifeDays)
+  const prefix = ddmmrr(prodDateIso)
   return {
     prod_date: fmtDate(prodDateIso),
     freeze_date: fmtDate(prodDateIso),
     best_before: fmtDate(bestBeforeIso),
-    batch_no: unit.batchNo,
+    batch_no: unit.batchNo ? `${prefix} ${unit.batchNo}` : prefix,
+    weight: formatWeight((unit as any).weightKg),
   }
 }
 
@@ -263,8 +282,8 @@ export function LabelPrintPage() {
                   />
                 )}
 
-                {/* Text fields: prod_date, freeze_date, best_before, batch_no */}
-                {(['prod_date', 'freeze_date', 'best_before', 'batch_no'] as const).map((key) => {
+                {/* Text fields: prod_date, freeze_date, best_before, batch_no, weight */}
+                {(['prod_date', 'freeze_date', 'best_before', 'batch_no', 'weight'] as const).map((key) => {
                   const pos = fp[key]
                   if (!pos) return null
                   return (

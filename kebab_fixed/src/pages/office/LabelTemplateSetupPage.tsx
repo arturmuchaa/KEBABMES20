@@ -33,6 +33,7 @@ const FIELDS: { key: string; label: string; defaultSize: number }[] = [
   { key: 'freeze_date', label: 'Zamrożone dnia',    defaultSize: 8  },
   { key: 'best_before', label: 'Należy spożyć do',  defaultSize: 8  },
   { key: 'batch_no',    label: 'Nr partii',          defaultSize: 8  },
+  { key: 'weight',      label: 'Waga',               defaultSize: 10 },
 ]
 
 const FIELD_COLORS: Record<string, string> = {
@@ -41,6 +42,7 @@ const FIELD_COLORS: Record<string, string> = {
   freeze_date: '#0891b2',
   best_before: '#d97706',
   batch_no:    '#7c3aed',
+  weight:      '#db2777',
 }
 
 // Przykładowe wartości do podglądu WYSIWYG
@@ -48,7 +50,8 @@ const SAMPLE_VALUES: Record<string, string> = {
   prod_date:   '03.06.2026',
   freeze_date: '03.06.2026',
   best_before: '03.06.2027',
-  batch_no:    '030625 123',
+  batch_no:    '030625 346',
+  weight:      '50 kg',
 }
 
 // Dostępne rodziny czcionek
@@ -172,11 +175,12 @@ interface FieldRowProps {
   onBoldChange: (bold: boolean) => void
   onClear: () => void
   onNudge: (fieldKey: string, axis: 'x' | 'y', delta: number) => void
+  onPositionChange: (fieldKey: string, axis: 'x' | 'y', value: number) => void
 }
 
 function FieldRow({
   fieldKey, label, pos, isSelected, onSelect, onSizeChange,
-  onFontFamilyChange, onBoldChange, onClear, onNudge,
+  onFontFamilyChange, onBoldChange, onClear, onNudge, onPositionChange,
 }: FieldRowProps) {
   const color = FIELD_COLORS[fieldKey] ?? '#666'
   const isQr = fieldKey === 'qr'
@@ -260,38 +264,73 @@ function FieldRow({
       {/* Nudge controls — only when selected and placed */}
       {isSelected && pos && (
         <div
-          className="flex items-center gap-3 pt-1 pl-5"
+          className="flex flex-col gap-1 pt-1 pl-5"
           onClick={e => e.stopPropagation()}
         >
-          {/* X nudge */}
-          <div className="flex items-center gap-1">
-            <span className="text-[9px] font-bold text-muted-foreground w-3">X</span>
-            <button
-              className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center leading-none"
-              title="X −0.2%"
-              onClick={() => onNudge(fieldKey, 'x', -0.2)}
-            >◀</button>
-            <span className="text-[10px] font-mono w-10 text-center select-none">{pos.x.toFixed(1)}%</span>
-            <button
-              className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center leading-none"
-              title="X +0.2%"
-              onClick={() => onNudge(fieldKey, 'x', 0.2)}
-            >▶</button>
+          <div className="flex items-center gap-3">
+            {/* X nudge */}
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-muted-foreground w-3">X</span>
+              <button
+                className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center leading-none"
+                title="X −0.1%"
+                onClick={() => onNudge(fieldKey, 'x', -0.1)}
+              >◀</button>
+              <span className="text-[10px] font-mono w-10 text-center select-none">{pos.x.toFixed(1)}%</span>
+              <button
+                className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center leading-none"
+                title="X +0.1%"
+                onClick={() => onNudge(fieldKey, 'x', 0.1)}
+              >▶</button>
+            </div>
+            {/* Y nudge */}
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-muted-foreground w-3">Y</span>
+              <button
+                className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center leading-none"
+                title="Y −0.1%"
+                onClick={() => onNudge(fieldKey, 'y', -0.1)}
+              >▲</button>
+              <span className="text-[10px] font-mono w-10 text-center select-none">{pos.y.toFixed(1)}%</span>
+              <button
+                className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center leading-none"
+                title="Y +0.1%"
+                onClick={() => onNudge(fieldKey, 'y', 0.1)}
+              >▼</button>
+            </div>
           </div>
-          {/* Y nudge */}
-          <div className="flex items-center gap-1">
-            <span className="text-[9px] font-bold text-muted-foreground w-3">Y</span>
-            <button
-              className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center leading-none"
-              title="Y −0.2%"
-              onClick={() => onNudge(fieldKey, 'y', -0.2)}
-            >▲</button>
-            <span className="text-[10px] font-mono w-10 text-center select-none">{pos.y.toFixed(1)}%</span>
-            <button
-              className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center leading-none"
-              title="Y +0.2%"
-              onClick={() => onNudge(fieldKey, 'y', 0.2)}
-            >▼</button>
+          {/* Direct X/Y numeric inputs */}
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-muted-foreground">X (%)</span>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                value={pos.x.toFixed(1)}
+                onChange={e => {
+                  const v = Math.round(Math.min(100, Math.max(0, Number(e.target.value))) * 10) / 10
+                  onPositionChange(fieldKey, 'x', v)
+                }}
+                className="h-6 w-16 text-[10px] px-1.5 py-0 font-mono"
+              />
+            </label>
+            <label className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-muted-foreground">Y (%)</span>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                value={pos.y.toFixed(1)}
+                onChange={e => {
+                  const v = Math.round(Math.min(100, Math.max(0, Number(e.target.value))) * 10) / 10
+                  onPositionChange(fieldKey, 'y', v)
+                }}
+                className="h-6 w-16 text-[10px] px-1.5 py-0 font-mono"
+              />
+            </label>
           </div>
         </div>
       )}
@@ -438,13 +477,22 @@ export function LabelTemplateSetupPage() {
     })
   }
 
-  // Precyzyjne dosuwanie pola o 0.2% w osi x lub y
+  // Precyzyjne dosuwanie pola o 0.1% w osi x lub y
   function handleNudge(fieldKey: string, axis: 'x' | 'y', delta: number) {
     setFieldPositions(prev => {
       const pos = prev[fieldKey]
       if (!pos) return prev
       const newVal = Math.max(0, Math.min(100, Math.round((pos[axis] + delta) * 10) / 10))
       return { ...prev, [fieldKey]: { ...pos, [axis]: newVal } }
+    })
+  }
+
+  // Bezpośrednie ustawienie pozycji pola (X/Y input)
+  function handlePositionChange(fieldKey: string, axis: 'x' | 'y', value: number) {
+    setFieldPositions(prev => {
+      const pos = prev[fieldKey]
+      if (!pos) return prev
+      return { ...prev, [fieldKey]: { ...pos, [axis]: value } }
     })
   }
 
@@ -634,6 +682,7 @@ export function LabelTemplateSetupPage() {
                       onBoldChange={bold => handleBoldChange(f.key, bold)}
                       onClear={() => handleClearField(f.key)}
                       onNudge={handleNudge}
+                      onPositionChange={handlePositionChange}
                     />
                   ))}
 
