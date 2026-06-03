@@ -97,6 +97,36 @@ def _client_matches(unit_client, pallet_client) -> bool:
     return (unit_client or "").strip().lower() == (pallet_client or "").strip().lower()
 
 
+def validate_loose_dispatch(unit: Dict, dispatch_client: Optional[str]) -> Tuple[bool, str]:
+    """Czy sztukę można wydać luzem na to wydanie.
+
+    unit: {status, client_name, dispatch_id}; dispatch_client: klient wydania.
+    """
+    status = unit.get("status")
+    if status == SHIPPED:
+        return False, "Sztuka już wydana"
+    if status == PACKED:
+        return False, "Sztuka spakowana na paletę — wydaj przez wyjazd"
+    if status != PRODUCED:
+        return False, "Sztuka nie potwierdzona na produkcji"
+    if unit.get("dispatch_id"):
+        return False, "Sztuka już na innym wydaniu"
+    if not _client_matches(unit.get("client_name"), dispatch_client):
+        return False, "Inny klient niż wydanie"
+    return True, ""
+
+
+def group_units_for_out(units) -> Dict[tuple, dict]:
+    """Grupuj sztuki po (produced_date, batch_no, recipe_id) → {count, kg}."""
+    out: Dict[tuple, dict] = {}
+    for u in units:
+        key = (u.get("produced_date") or "", u.get("batch_no") or "", u.get("recipe_id") or "")
+        g = out.setdefault(key, {"count": 0, "kg": 0.0})
+        g["count"] += 1
+        g["kg"] += float(u.get("weight_kg") or 0)
+    return out
+
+
 def validate_pack_to_pallet(unit: Dict, pallet_client: Optional[str], planned_by_key: Dict, packed_by_key: Dict) -> Tuple[bool, str, Optional[tuple]]:
     """Czysta walidacja pakowania sztuki do palety.
 
