@@ -70,3 +70,42 @@ def validate_pack(unit: Dict, carton: Dict) -> Tuple[bool, str]:
     if carton_client and carton_client != "STAN" and (unit.get("client_name") or "") != carton_client:
         return False, "Inny klient niż w kartonie"
     return True, ""
+
+
+def pallet_line_key(product_type_id, recipe_id, weight) -> tuple:
+    """Klucz grupujący pozycję: (produkt, receptura, waga zaokrąglona do 3 miejsc)."""
+    return (
+        (product_type_id or ""),
+        (recipe_id or ""),
+        round(float(weight or 0), 3),
+    )
+
+
+def validate_pack_to_pallet(unit, pallet_order_id, planned_by_key, packed_by_key):
+    """Czysta walidacja pakowania sztuki do palety.
+
+    unit: dict {status, order_id, product_type_id, recipe_id, weight_kg}
+    pallet_order_id: id zamówienia palety
+    planned_by_key: {pallet_line_key: planowana liczba szt}
+    packed_by_key:  {pallet_line_key: już spakowane szt}
+    Zwraca (ok: bool, reason: str, key | None).
+    Partia (batch_no) NIE jest kryterium — różne partie dozwolone.
+    """
+    status = unit.get("status")
+    if status != PRODUCED:
+        if status == PACKED:
+            return False, "Sztuka już spakowana", None
+        return False, "Sztuka nie potwierdzona na produkcji", None
+
+    if (unit.get("order_id") or "") != (pallet_order_id or ""):
+        return False, "Sztuka z innego zamówienia", None
+
+    key = pallet_line_key(
+        unit.get("product_type_id"), unit.get("recipe_id"), unit.get("weight_kg"))
+    if key not in planned_by_key:
+        return False, "Inny produkt/waga niż na palecie", None
+
+    if int(packed_by_key.get(key, 0)) >= int(planned_by_key[key]):
+        return False, "Pozycja palety pełna", None
+
+    return True, "", key
