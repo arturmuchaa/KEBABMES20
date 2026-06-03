@@ -653,7 +653,7 @@ export interface OrderPallet {
   palletNo:   number
   notes:      string
   items:      OrderPalletItem[]
-  status?:        'created' | 'cold_storage' | 'loaded'
+  status?:        'created' | 'packing' | 'packed' | 'cold_storage' | 'loaded'
   coldStorageAt?: string | null
   loadedAt?:      string | null
   totalQty?:      number
@@ -672,7 +672,7 @@ function mapPalletItem(raw: any): OrderPalletItem {
   }
 }
 
-export type PalletStatus = 'created' | 'cold_storage' | 'loaded'
+export type PalletStatus = 'created' | 'packing' | 'packed' | 'cold_storage' | 'loaded'
 
 function mapPallet(raw: any): OrderPallet {
   return {

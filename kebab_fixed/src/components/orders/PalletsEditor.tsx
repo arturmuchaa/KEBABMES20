@@ -6,9 +6,10 @@
  * - Paleta może zawierać pozycje z różnych linii zamówienia (połączone palety).
  * - Pokazuje pozostałe szt do rozdysponowania per linia.
  */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { orderPalletsApi, type OrderPallet, type OrderLine } from '@/lib/apiClient'
+import { palletsApi, type PalletBatchRow } from '@/lib/api'
 import { fmtKg } from '@/lib/utils'
 import { Plus, Trash2, Pencil, Package, Printer } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -219,6 +220,10 @@ export function PalletsEditor({ orderId, lines }: Props) {
                   <span className="font-bold tabular-nums">{fmtKg(palletKg, 1)} kg</span>
                 </div>
 
+                {p.status && p.status !== 'created' && (
+                  <PalletPackInfo palletId={p.id} status={p.status} />
+                )}
+
                 {p.notes && (
                   <div className="mt-1 text-[10px] italic text-muted-foreground">{p.notes}</div>
                 )}
@@ -239,6 +244,47 @@ export function PalletsEditor({ orderId, lines }: Props) {
           />
         )}
       </div>
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────
+// PalletPackInfo — status pakowania + skład partii (read-only, HDI)
+// ──────────────────────────────────────────────────────────────────
+const PACK_STATUS_LABEL: Record<string, string> = {
+  packing:      'Pakowanie w toku',
+  packed:       'Zapakowana',
+  cold_storage: 'Mroźnia składowa',
+  loaded:       'Załadowana',
+}
+
+function PalletPackInfo({ palletId, status }: { palletId?: string; status: string }) {
+  const [batch, setBatch] = useState<PalletBatchRow[]>([])
+
+  useEffect(() => {
+    if (!palletId) return
+    let cancelled = false
+    palletsApi.batchBreakdown(palletId)
+      .then(rows => { if (!cancelled) setBatch(rows ?? []) })
+      .catch(() => { if (!cancelled) setBatch([]) })
+    return () => { cancelled = true }
+  }, [palletId])
+
+  return (
+    <div className="mt-2 pt-1.5 border-t border-amber-200">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-700">
+        {PACK_STATUS_LABEL[status] ?? status}
+      </div>
+      {batch.length > 0 && (
+        <div className="mt-1 space-y-0.5">
+          {batch.map(b => (
+            <div key={b.batchNo || '—'} className="flex justify-between text-[10px] tabular-nums">
+              <span className="text-muted-foreground">Partia {b.batchNo || '—'}</span>
+              <span className="font-semibold">{b.qty} szt · {fmtKg(b.weightKg, 0)} kg</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
