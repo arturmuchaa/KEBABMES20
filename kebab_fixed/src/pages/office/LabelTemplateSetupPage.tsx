@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 import { Save, Upload, ImageIcon, Tag } from 'lucide-react'
 import { useApi } from '@/hooks/useApi'
 import { clientsApi, recipesApi, labelTemplatesApi } from '@/lib/apiClient'
+import { pdfFirstPageToPng } from '@/lib/pdfToImage'
 import type { LabelFieldPos } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -209,21 +210,21 @@ export function LabelTemplateSetupPage() {
   useEffect(() => { loadTemplate() }, [loadTemplate])
 
   // Obsługa wgrania pliku
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-
+    setPdfNote(false)
     if (file.type === 'application/pdf') {
-      setPdfNote(true)
-      setBackgroundData('')
+      try {
+        const png = await pdfFirstPageToPng(file)
+        setBackgroundData(png)
+      } catch {
+        setPdfNote(true)  // pokaż wskazówkę gdy rasteryzacja się nie uda
+      }
       return
     }
-
-    setPdfNote(false)
     const reader = new FileReader()
-    reader.onload = ev => {
-      setBackgroundData(ev.target?.result as string ?? '')
-    }
+    reader.onload = ev => setBackgroundData((ev.target?.result as string) ?? '')
     reader.readAsDataURL(file)
   }
 
@@ -396,7 +397,7 @@ export function LabelTemplateSetupPage() {
 
               {pdfNote && (
                 <div className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                  Dla PDF wyeksportuj stronę jako PNG/JPG i wgraj obraz. Rasteryzacja PDF nie jest obsługiwana.
+                  PDF jest obsługiwany — wgrywany jako tło (renderowana 1. strona). Jeśli etykieta to A4 z 2 sztukami, wytnij wcześniej do jednej etykiety.
                 </div>
               )}
 
