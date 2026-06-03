@@ -9,10 +9,13 @@ from typing import Dict, List
 
 from fastapi import HTTPException
 
-from app.db import cx_execute, cx_query_all, query_all, query_one, transaction
+from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.models.orders import PalletDto
 from app.utils.ids import cuid
+from app.utils.unit_codes import (
+    PACKED, pallet_line_key, parse_unit_qr, validate_pack_to_pallet,
+)
 
 logger = get_logger(__name__)
 
@@ -417,3 +420,79 @@ def reset_pallet(order_id: str, pallet_no: int) -> Dict:
         )
     logger.info("pallet.reset", extra={"order_id": order_id, "pallet_no": pallet_no})
     return _pallet_with_items(order_id, pallet_no)
+
+
+# ── Pakowanie sztuk do palety ─────────────────────────────────────
+
+def _pallet_pack_state(conn, pallet_id):
+    """Zwróć (pallet_row, order_id, planned_by_key, packed_by_key)."""
+    pallet = cx_query_one(
+        conn, "SELECT * FROM order_pallets WHERE id=%s FOR UPDATE", (pallet_id,))
+    if not pallet:
+        raise HTTPException(404, "Paleta nie znaleziona")
+    order_id = pallet["order_id"]
+
+    lines = cx_query_all(
+        conn,
+        """SELECT pi.qty, l.product_type_id, l.recipe_id, l.kg_per_unit
+           FROM order_pallet_items pi
+           JOIN client_order_lines l ON l.id = pi.order_line_id
+           WHERE pi.pallet_id = %s""",
+        (pallet_id,),
+    )
+    planned_by_key: Dict[tuple, int] = {}
+    for ln in lines:
+        k = pallet_line_key(ln["product_type_id"], ln["recipe_id"], ln["kg_per_unit"])
+        planned_by_key[k] = planned_by_key.get(k, 0) + int(ln["qty"] or 0)
+
+    packed_rows = cx_query_all(
+        conn,
+        """SELECT product_type_id, recipe_id, weight_kg
+           FROM finished_units WHERE pallet_id = %s""",
+        (pallet_id,),
+    )
+    packed_by_key: Dict[tuple, int] = {}
+    for u in packed_rows:
+        k = pallet_line_key(u["product_type_id"], u["recipe_id"], u["weight_kg"])
+        packed_by_key[k] = packed_by_key.get(k, 0) + 1
+
+    return pallet, order_id, planned_by_key, packed_by_key
+
+
+def pack_unit_into_pallet(pallet_id: str, code: str) -> Dict:
+    """Skan sztuki do palety: walidacja + zapis pallet_id na sztuce, aktualizacja statusu."""
+    unit_id = parse_unit_qr(code)
+    if not unit_id:
+        raise HTTPException(400, "Nieprawidłowy kod QR sztuki")
+
+    with transaction() as conn:
+        pallet, order_id, planned_by_key, packed_by_key = _pallet_pack_state(conn, pallet_id)
+        unit = cx_query_one(
+            conn, "SELECT * FROM finished_units WHERE id=%s FOR UPDATE", (unit_id,))
+        if not unit:
+            raise HTTPException(404, "Sztuka nie znaleziona")
+
+        ok, reason, _key = validate_pack_to_pallet(
+            unit, order_id, planned_by_key, packed_by_key)
+
+        planned_total = sum(planned_by_key.values())
+        packed_total = sum(packed_by_key.values())
+        if not ok:
+            return {"ok": False, "reason": reason,
+                    "packedQty": packed_total, "targetQty": planned_total,
+                    "palletStatus": pallet.get("status") or "created"}
+
+        cx_execute(
+            conn,
+            "UPDATE finished_units SET status=%s, pallet_id=%s WHERE id=%s",
+            (PACKED, pallet_id, unit_id),
+        )
+        packed_total += 1
+        new_status = "packed" if packed_total >= planned_total else "packing"
+        cx_execute(
+            conn, "UPDATE order_pallets SET status=%s WHERE id=%s",
+            (new_status, pallet_id),
+        )
+        return {"ok": True, "reason": "",
+                "packedQty": packed_total, "targetQty": planned_total,
+                "palletStatus": new_status}
