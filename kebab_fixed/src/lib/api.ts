@@ -907,7 +907,7 @@ export const palletScanApi = {
     post<any>('/pallets/loading-document', { vehicle_id: vehicleId, order_ids: orderIds }),
 }
 
-// ─── QR per sztuka — finished units + cartons ──────────────────
+// ─── QR per sztuka — finished units ────────────────────────────
 export interface FinishedUnitCard {
   id: string
   qrCode: string
@@ -934,14 +934,6 @@ export interface ScanProducedResult {
   total: number
 }
 
-export interface CartonScanResult {
-  ok: boolean
-  reason: string
-  packedQty: number
-  targetQty: number
-  cartonStatus?: string
-}
-
 export const finishedUnitsApi = {
   generateFromPlanLine: (planLineId: string) =>
     post<{ planLineId: string; created: number; existing: number }>(
@@ -953,21 +945,6 @@ export const finishedUnitsApi = {
     get<FinishedUnitCard>(`/finished-units/lookup?code=${encodeURIComponent(code)}`),
   listByPlanLine: (planLineId: string) =>
     get<FinishedUnitCard[]>(`/finished-units?plan_line_id=${encodeURIComponent(planLineId)}`),
-}
-
-export const cartonsApi = {
-  create: (dto: { orderId?: string; clientName: string; productTypeId: string; recipeId: string; tuleja?: string; targetQty: number; targetWeightKg: number }) =>
-    post<{ id: string; status: string }>('/cartons', {
-      order_id: dto.orderId ?? null,
-      client_name: dto.clientName,
-      product_type_id: dto.productTypeId,
-      recipe_id: dto.recipeId,
-      tuleja: dto.tuleja ?? '',
-      target_qty: dto.targetQty,
-      target_weight_kg: dto.targetWeightKg,
-    }),
-  scan: (cartonId: string, code: string) =>
-    post<CartonScanResult>(`/cartons/${cartonId}/scan`, { code }),
 }
 
 // ─── Szablony etykiet ─────────────────────────────────────────
