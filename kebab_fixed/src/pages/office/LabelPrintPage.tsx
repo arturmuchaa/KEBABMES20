@@ -248,8 +248,10 @@ export function LabelPrintPage() {
           align-content: flex-start;
         }
         .label-cell {
-          width: ${Math.floor(100 / perSheet)}%;
-          height: ${297 / Math.ceil(units.length / perSheet)}mm;
+          /* Na arkuszu jest dokładnie ${perSheet} etykiet w jednym rzędzie,
+             każda pełnej wysokości A4 → 1/${perSheet} A4 (np. 2 → 1/2 A4). */
+          width: ${100 / perSheet}%;
+          height: 297mm;
           box-sizing: border-box;
         }
         @media screen {
