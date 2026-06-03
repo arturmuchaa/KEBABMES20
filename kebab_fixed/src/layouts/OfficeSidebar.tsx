@@ -35,6 +35,7 @@ const NAV: NavSection[] = [
   { heading: 'Produkcja', items: [
     { to: '/office/rodzaje-produktow',    label: 'Rodzaje produktów', icon: <Package size={14} /> },
     { to: '/office/receptury',            label: 'Receptury',         icon: <BookOpen size={14} /> },
+    { to: '/office/szablony-etykiet',     label: 'Szablony etykiet',  icon: <QrCode size={14} /> },
     { to: '/office/planowanie-masowania', label: 'Plan. masowania',   icon: <Layers size={14} /> },
     { to: '/office/planowanie-produkcji', label: 'Plan. produkcji',   icon: <Factory size={14} /> },
     { to: '/office/kalkulacja-kosztow',   label: 'Kalkulacja cen', icon: <Calculator size={14} /> },

@@ -957,6 +957,8 @@ export const labelTemplatesApi = {
       background_data: tpl.backgroundData ?? '', field_positions: tpl.fieldPositions ?? {},
       page_size: tpl.pageSize ?? 'a4', labels_per_sheet: tpl.labelsPerSheet ?? 2, zpl: tpl.zpl ?? '',
     }),
+  list: () =>
+    get<Array<{ id: string; clientId: string; recipeId: string; kind: string; pageSize: string; labelsPerSheet: number; hasBackground: boolean; updatedAt: string }>>('/label-templates/all'),
 }
 
 // ─── Ustawienia firmy (do wydruków) ─────────────────────────────

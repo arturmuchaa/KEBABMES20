@@ -2,7 +2,7 @@
 import json
 from typing import Any, Dict, Optional
 
-from app.db import cx_execute_returning, query_one, transaction
+from app.db import cx_execute_returning, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.utils.ids import cuid
 
@@ -98,6 +98,28 @@ def get_template(client_id: str, recipe_id: str) -> Optional[Dict[str, Any]]:
     if row is None:
         return None
     return _row_to_full(row)
+
+
+def list_templates() -> list:
+    """Zwraca listę wszystkich szablonów etykiet (bez backgroundData)."""
+    rows = query_all(
+        "SELECT id, client_id, recipe_id, kind, page_size, labels_per_sheet, "
+        "(background_data <> '') AS has_background, updated_at "
+        "FROM label_templates ORDER BY client_id, recipe_id"
+    )
+    return [
+        {
+            "id": r["id"],
+            "clientId": r.get("client_id") or "",
+            "recipeId": r.get("recipe_id") or "",
+            "kind": r.get("kind") or "overlay",
+            "pageSize": r.get("page_size") or "a4",
+            "labelsPerSheet": int(r.get("labels_per_sheet") or 2),
+            "hasBackground": bool(r.get("has_background")),
+            "updatedAt": str(r.get("updated_at") or ""),
+        }
+        for r in rows
+    ]
 
 
 def template_exists(client_id: str, recipe_id: str) -> Dict[str, Any]:

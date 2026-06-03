@@ -27,6 +27,7 @@ import { ProductionPlanningPage } from '@/pages/office/ProductionPlanningPage'
 import { RecallPage }             from '@/pages/office/RecallPage'
 import { PayrollPage }            from '@/pages/office/PayrollPage'
 import { VehiclesPage }           from '@/pages/office/VehiclesPage'
+import { LabelTemplatesPage }     from '@/pages/office/LabelTemplatesPage'
 import { ProductTypesPage, RecipesPage, PlanningPage } from '@/features/products'
 import { RozbiorRoute }        from '@/pages/tablet/RozbiorRoute'
 import { MixingTabletPage }    from '@/pages/tablet/MixingTabletPage'
@@ -101,6 +102,7 @@ export default function App() {
         <Route path="haccp-report"          element={<HaccpReportPage />} />
         <Route path="rodzaje-produktow"     element={<ProductTypesPage />} />
         <Route path="receptury"             element={<RecipesPage />} />
+        <Route path="szablony-etykiet"      element={<LabelTemplatesPage />} />
         <Route path="kalkulacja-kosztow"    element={<CostCalculatorPage />} />
         <Route path="planowanie-masowania"  element={<PlanningPage />} />
         <Route path="planowanie-produkcji"  element={<ProductionPlanningPage />} />

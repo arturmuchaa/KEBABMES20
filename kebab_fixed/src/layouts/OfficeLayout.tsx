@@ -25,6 +25,7 @@ const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
   '/office/haccp-report':          { title: 'Raport HACCP',                description: 'Dokumentacja HACCP' },
   '/office/rodzaje-produktow':     { title: 'Rodzaje produktów',           description: 'Katalog produktów' },
   '/office/receptury':             { title: 'Receptury',                   description: 'Składy i receptury' },
+  '/office/szablony-etykiet':      { title: 'Szablony etykiet',            description: 'Konfiguracje etykiet per klient i receptura' },
   '/office/planowanie-masowania':  { title: 'Planowanie masowania',        description: 'Zlecenia masowania' },
   '/office/planowanie-produkcji':  { title: 'Planowanie produkcji',        description: 'Harmonogram produkcji' },
   '/office/pracownicy':            { title: 'Pracownicy',                  description: 'Zarządzanie personelem' },

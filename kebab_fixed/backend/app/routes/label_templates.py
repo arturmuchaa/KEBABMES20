@@ -23,3 +23,8 @@ def get(client_id: str = "", recipe_id: str = ""):
 @router.get("/exists")
 def exists(client_id: str = "", recipe_id: str = ""):
     return svc.template_exists(client_id, recipe_id)
+
+
+@router.get("/all")
+def list_all():
+    return svc.list_templates()
