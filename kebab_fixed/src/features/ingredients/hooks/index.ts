@@ -156,7 +156,7 @@ export function useRecipeForm(initial?: Recipe) {
   return {
     name, setName, productTypeId, setProductTypeId, notes, setNotes,
     shelfLifeDays, setShelfLifeDays,
-    rows, addRow, removeRow, updateRow,
+    rows, setRows, addRow, removeRow, updateRow,
     sumPer100kg: Math.round(sumPer100kg * 1000) / 1000,
     totalOutputPer100kg: Math.round(totalOutputPer100kg * 1000) / 1000,
     toDto, reset,

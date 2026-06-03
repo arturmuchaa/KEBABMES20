@@ -23,17 +23,42 @@ import {
 import { useIngredients, useRecipes, useRecipeForm } from '@/features/ingredients/hooks'
 import { useProductTypes } from '../hooks'
 import type { Recipe } from '@/features/ingredients/types'
-import { Plus, X, ChevronDown, ChevronUp, BookOpen, AlertTriangle } from 'lucide-react'
+import { Plus, X, ChevronDown, ChevronUp, BookOpen, AlertTriangle, Pencil } from 'lucide-react'
 
 export function RecipesPage() {
-  const { recipes, loading, create, createLoading } = useRecipes()
+  const { recipes, loading, create, createLoading, update, updateLoading } = useRecipes()
   const { ingredients: ingList } = useIngredients()
   const { productTypes }         = useProductTypes()
   const form = useRecipeForm()
 
-  const [modalOpen,  setModalOpen]  = useState(false)
-  const [expanded,   setExpanded]   = useState<string | null>(null)
-  const [viewRecipe, setViewRecipe] = useState<Recipe | null>(null)
+  const [modalOpen,    setModalOpen]    = useState(false)
+  const [editingId,    setEditingId]    = useState<string | null>(null)
+  const [expanded,     setExpanded]     = useState<string | null>(null)
+  const [viewRecipe,   setViewRecipe]   = useState<Recipe | null>(null)
+
+  function loadRecipeIntoForm(r: Recipe) {
+    form.setName(r.name)
+    form.setProductTypeId(r.productTypeId ?? '')
+    form.setNotes(r.notes ?? '')
+    form.setShelfLifeDays(r.shelfLifeDays ?? 5)
+    form.setRows(
+      r.ingredients.length > 0
+        ? r.ingredients.map(ri => ({ ingredientId: ri.ingredientId, qtyPer100kg: String(ri.qtyPer100kg) }))
+        : [{ ingredientId: '', qtyPer100kg: '' }]
+    )
+  }
+
+  function openCreateModal() {
+    setEditingId(null)
+    form.reset()
+    setModalOpen(true)
+  }
+
+  function openEditModal(r: Recipe) {
+    setEditingId(r.id)
+    loadRecipeIntoForm(r)
+    setModalOpen(true)
+  }
 
   async function handleCreate() {
     const dto = form.toDto()
@@ -41,6 +66,15 @@ export function RecipesPage() {
     if (err) { toast.error(err); return }
     toast.success(`Receptura "${dto.name}" zapisana`)
     setModalOpen(false); form.reset()
+  }
+
+  async function handleUpdate() {
+    if (!editingId) return
+    const dto = form.toDto()
+    const err = await update(editingId, dto)
+    if (err) { toast.error(err); return }
+    toast.success('Receptura zaktualizowana')
+    setModalOpen(false); setEditingId(null); form.reset()
   }
 
   const ingOptions = ingList.filter(i => i.active)
@@ -53,7 +87,7 @@ export function RecipesPage() {
           Receptury masowania — dawkowanie składników na 100 kg mięsa.
           Składniki pobierane z <strong>magazynu przypraw i dodatków</strong>.
         </p>
-        <Button size="sm" onClick={() => { form.reset(); setModalOpen(true) }} className="gap-1.5">
+        <Button size="sm" onClick={openCreateModal} className="gap-1.5">
           <Plus size={13}/> Nowa receptura
         </Button>
       </div>
@@ -67,7 +101,7 @@ export function RecipesPage() {
           <BookOpen size={32}/>
           <div className="font-semibold">Brak receptur</div>
           <div className="text-sm">Dodaj pierwszą recepturę masowania</div>
-          <Button size="sm" onClick={() => { form.reset(); setModalOpen(true) }} className="gap-1.5 mt-1">
+          <Button size="sm" onClick={openCreateModal} className="gap-1.5 mt-1">
             <Plus size={13}/> Dodaj recepturę
           </Button>
         </div>
@@ -92,6 +126,10 @@ export function RecipesPage() {
                     )}
                   </div>
                 </div>
+                <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1"
+                  onClick={e => { e.stopPropagation(); openEditModal(r) }}>
+                  <Pencil size={11}/> Edytuj
+                </Button>
                 <Button variant="outline" size="sm" className="h-7 text-[11px]"
                   onClick={e => { e.stopPropagation(); setViewRecipe(r) }}>
                   Podgląd
@@ -146,11 +184,11 @@ export function RecipesPage() {
         </Card>
       )}
 
-      {/* Modal: nowa receptura */}
-      <Dialog open={modalOpen} onOpenChange={open => { if (!open) setModalOpen(false) }}>
+      {/* Modal: nowa / edycja receptury */}
+      <Dialog open={modalOpen} onOpenChange={open => { if (!open) { setModalOpen(false); setEditingId(null) } }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Nowa receptura</DialogTitle>
+            <DialogTitle>{editingId ? 'Edytuj recepturę' : 'Nowa receptura'}</DialogTitle>
             <DialogDescription>Dawkowanie na 100 kg mięsa</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -253,10 +291,16 @@ export function RecipesPage() {
             </div>
 
             <div className="flex gap-2 pt-1">
-              <Button variant="outline" className="flex-1" onClick={() => setModalOpen(false)}>Anuluj</Button>
-              <Button className="flex-1" disabled={createLoading || !form.name.trim() || !form.toDto().ingredients.length} onClick={handleCreate}>
-                {createLoading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"/>}
-                Zapisz recepturę
+              <Button variant="outline" className="flex-1" onClick={() => { setModalOpen(false); setEditingId(null); form.reset() }}>Anuluj</Button>
+              <Button
+                className="flex-1"
+                disabled={(editingId ? updateLoading : createLoading) || !form.name.trim() || !form.toDto().ingredients.length}
+                onClick={editingId ? handleUpdate : handleCreate}
+              >
+                {(editingId ? updateLoading : createLoading) && (
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"/>
+                )}
+                {editingId ? 'Zapisz zmiany' : 'Zapisz recepturę'}
               </Button>
             </div>
           </div>
