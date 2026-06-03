@@ -271,6 +271,24 @@ _DDL: list[str] = [
     "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS pallet_id TEXT",
     "CREATE INDEX IF NOT EXISTS idx_finished_units_pallet ON finished_units(pallet_id) WHERE pallet_id IS NOT NULL",
 
+    """CREATE TABLE IF NOT EXISTS dispatches (
+        id            TEXT PRIMARY KEY,
+        trip_id       TEXT,
+        client_id     TEXT,
+        client_name   TEXT NOT NULL DEFAULT '',
+        vehicle_id    TEXT,
+        cmr_requested BOOLEAN NOT NULL DEFAULT false,
+        status        TEXT NOT NULL DEFAULT 'open',
+        operator      TEXT DEFAULT '',
+        notes         TEXT DEFAULT '',
+        created_at    TIMESTAMPTZ DEFAULT now(),
+        shipped_at    TIMESTAMPTZ
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_dispatches_status ON dispatches(status)",
+    "CREATE INDEX IF NOT EXISTS idx_dispatches_client ON dispatches(client_id)",
+    "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS dispatch_id TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_finished_units_dispatch ON finished_units(dispatch_id) WHERE dispatch_id IS NOT NULL",
+
     """CREATE TABLE IF NOT EXISTS cartons (
         id              TEXT PRIMARY KEY,
         order_id        TEXT,
