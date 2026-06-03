@@ -25,7 +25,7 @@ _PAL_URL_RE   = re.compile(r"/m/p/([^/]+)/(\d+)\b")
 
 # Definicje transition status → status. `from` = stany dopuszczalne, `field` = kolumna timestampa.
 _TRANSITIONS = {
-    "cold_storage": {"from": ("created",),       "field": "cold_storage_at"},
+    "cold_storage": {"from": ("packed",),        "field": "cold_storage_at"},
     "loaded":       {"from": ("cold_storage",),  "field": "loaded_at"},
 }
 
