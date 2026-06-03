@@ -2,8 +2,9 @@
  * LabelTemplatesPage — lista zapisanych szablonów etykiet (per klient + receptura).
  * Umożliwia przejście do edytora istniejącego szablonu lub tworzenie nowego.
  */
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Tag, Pencil, CheckCircle2, MinusCircle } from 'lucide-react'
+import { Plus, Tag, Pencil, CheckCircle2, MinusCircle, Trash2 } from 'lucide-react'
 import { useApi } from '@/hooks/useApi'
 import { labelTemplatesApi, recipesApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -15,6 +16,7 @@ import { Badge } from '@/components/ui/badge'
 
 export function LabelTemplatesPage() {
   const navigate = useNavigate()
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const templatesRes = useApi(() => labelTemplatesApi.list(), [])
   const recipesRes   = useApi(() => recipesApi.list(), [])
@@ -27,6 +29,17 @@ export function LabelTemplatesPage() {
 
   const loading = templatesRes.loading || recipesRes.loading
   const error   = templatesRes.error   || recipesRes.error
+
+  async function handleDelete(id: string) {
+    if (!window.confirm('Usunąć szablon etykiety? Tej operacji nie można cofnąć.')) return
+    setDeletingId(id)
+    try {
+      await labelTemplatesApi.remove(id)
+      templatesRes.refetch()
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   function formatDate(raw: string) {
     if (!raw) return '—'
@@ -86,7 +99,7 @@ export function LabelTemplatesPage() {
                   <TableHead>Format</TableHead>
                   <TableHead className="text-center">Tło</TableHead>
                   <TableHead>Zaktualizowano</TableHead>
-                  <TableHead className="w-24" />
+                  <TableHead className="w-40" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -125,6 +138,15 @@ export function LabelTemplatesPage() {
                           onClick={() => navigate(editUrl)}
                         >
                           <Pencil size={13} /> Edytuj
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1.5 text-destructive hover:text-destructive"
+                          onClick={() => handleDelete(tpl.id)}
+                          disabled={deletingId === tpl.id}
+                        >
+                          <Trash2 size={13} /> Usuń
                         </Button>
                       </TableCell>
                     </TableRow>

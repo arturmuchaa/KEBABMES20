@@ -2,7 +2,7 @@
 import json
 from typing import Any, Dict, Optional
 
-from app.db import cx_execute_returning, query_all, query_one, transaction
+from app.db import cx_execute, cx_execute_returning, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.utils.ids import cuid
 
@@ -129,3 +129,11 @@ def template_exists(client_id: str, recipe_id: str) -> Dict[str, Any]:
         (client_id, recipe_id),
     )
     return {"exists": row is not None}
+
+
+def delete_template(template_id: str) -> Dict[str, Any]:
+    """Usuwa szablon etykiety na podstawie ID."""
+    with transaction() as conn:
+        cx_execute(conn, "DELETE FROM label_templates WHERE id=%s", (template_id,))
+    logger.info("label_template.deleted", extra={"template_id": template_id})
+    return {"deleted": True}

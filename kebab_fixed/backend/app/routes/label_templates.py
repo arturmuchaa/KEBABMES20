@@ -28,3 +28,8 @@ def exists(client_id: str = "", recipe_id: str = ""):
 @router.get("/all")
 def list_all():
     return svc.list_templates()
+
+
+@router.delete("/{template_id}")
+def delete(template_id: str):
+    return svc.delete_template(template_id)

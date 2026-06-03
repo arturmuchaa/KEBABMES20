@@ -959,6 +959,7 @@ export const labelTemplatesApi = {
     }),
   list: () =>
     get<Array<{ id: string; clientId: string; recipeId: string; kind: string; pageSize: string; labelsPerSheet: number; hasBackground: boolean; updatedAt: string }>>('/label-templates/all'),
+  remove: (id: string) => del<{ deleted: boolean }>(`/label-templates/${encodeURIComponent(id)}`),
 }
 
 // ─── Ustawienia firmy (do wydruków) ─────────────────────────────
