@@ -496,3 +496,43 @@ def pack_unit_into_pallet(pallet_id: str, code: str) -> Dict:
         return {"ok": True, "reason": "",
                 "packedQty": packed_total, "targetQty": planned_total,
                 "palletStatus": new_status}
+
+
+def batch_breakdown(pallet_id: str) -> List[Dict]:
+    """Skład partii palety — dane do HDI."""
+    rows = query_all(
+        """SELECT batch_no, COUNT(*) AS qty, SUM(weight_kg) AS kg
+           FROM finished_units WHERE pallet_id=%s
+           GROUP BY batch_no ORDER BY batch_no""",
+        (pallet_id,),
+    )
+    return [{"batchNo": r["batch_no"] or "", "qty": int(r["qty"]),
+             "weightKg": float(r["kg"] or 0)} for r in rows]
+
+
+def pallet_detail_by_id(pallet_id: str) -> Dict:
+    """Szczegóły palety dla mobile: nagłówek + postęp + skład partii."""
+    pallet = query_one("SELECT * FROM order_pallets WHERE id=%s", (pallet_id,))
+    if not pallet:
+        raise HTTPException(404, "Paleta nie znaleziona")
+    detail = _pallet_with_items(pallet["order_id"], pallet["pallet_no"])
+    packed = query_one(
+        "SELECT COUNT(*) AS c FROM finished_units WHERE pallet_id=%s", (pallet_id,))
+    detail["id"] = pallet_id
+    detail["packed_qty"] = int(packed["c"] if packed else 0)
+    detail["batch_breakdown"] = batch_breakdown(pallet_id)
+    return detail
+
+
+def pallets_to_pack() -> List[Dict]:
+    """Palety w trakcie/do pakowania (status created lub packing) — dla mobile."""
+    return query_all(
+        """SELECT p.id, p.order_id, p.pallet_no, p.status,
+                  o.order_no, o.client_name,
+                  (SELECT COUNT(*) FROM finished_units fu WHERE fu.pallet_id=p.id) AS packed_qty,
+                  (SELECT COALESCE(SUM(pi.qty),0) FROM order_pallet_items pi WHERE pi.pallet_id=p.id) AS target_qty
+           FROM order_pallets p
+           LEFT JOIN client_orders o ON o.id = p.order_id
+           WHERE p.status IN ('created','packing')
+           ORDER BY o.client_name, p.pallet_no""",
+    )
