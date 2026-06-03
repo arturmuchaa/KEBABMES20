@@ -6,7 +6,7 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
 /** Rasteryzuje 1. stronę PDF do PNG (data URL). targetWidth = szerokość docelowa w px. */
-export async function pdfFirstPageToPng(file: File, targetWidth = 1240): Promise<string> {
+export async function pdfFirstPageToPng(file: File, targetWidth = 1800): Promise<string> {
   const data = await file.arrayBuffer()
   const pdf = await pdfjsLib.getDocument({ data }).promise
   const page = await pdf.getPage(1)

@@ -4,7 +4,7 @@ import { ArrowLeft, Printer } from 'lucide-react'
 import QRCode from 'qrcode'
 import { useApi } from '@/hooks/useApi'
 import { finishedUnitsApi, labelTemplatesApi, recipesApi } from '@/lib/apiClient'
-import type { FinishedUnitCard, LabelFieldPos, LabelTemplate } from '@/lib/api'
+import type { FinishedUnitCard, LabelTemplate } from '@/lib/api'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -30,81 +30,19 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-// ─── LabelTile — renders one label ───────────────────────────────────────────
-
-interface LabelTileProps {
-  unit: FinishedUnitCard
-  template: LabelTemplate
-  qrDataUrl: string
-  shelfLifeDays: number
-}
-
-function LabelTile({ unit, template, qrDataUrl, shelfLifeDays }: LabelTileProps) {
-  // Backend list endpoint returns producedDate (produced_date column),
-  // lookup returns producedAt (produced_at column) — handle both
+/** Compute dynamic field values for one unit. */
+function unitFieldValues(
+  unit: FinishedUnitCard,
+  shelfLifeDays: number,
+): Record<string, string> {
   const prodDateIso = (unit as any).producedDate || unit.producedAt?.slice(0, 10) || todayIso()
   const bestBeforeIso = addDays(prodDateIso, shelfLifeDays)
-
-  const fields: Record<string, string> = {
+  return {
     prod_date: fmtDate(prodDateIso),
     freeze_date: fmtDate(prodDateIso),
     best_before: fmtDate(bestBeforeIso),
     batch_no: unit.batchNo,
   }
-
-  function overlayStyle(pos: LabelFieldPos): React.CSSProperties {
-    return {
-      position: 'absolute',
-      left: `${pos.x}%`,
-      top: `${pos.y}%`,
-      fontSize: `${pos.size}pt`,
-      lineHeight: 1.1,
-      whiteSpace: 'nowrap',
-    }
-  }
-
-  const fp = template.fieldPositions
-
-  return (
-    <div
-      className="label-tile"
-      style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}
-    >
-      {/* Background image */}
-      {template.backgroundData && (
-        <img
-          src={template.backgroundData}
-          alt=""
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'fill' }}
-        />
-      )}
-
-      {/* QR code overlay */}
-      {fp.qr && qrDataUrl && (
-        <img
-          src={qrDataUrl}
-          alt={`QR ${unit.qrCode}`}
-          style={{
-            ...overlayStyle(fp.qr),
-            width: `${fp.qr.size}mm`,
-            height: `${fp.qr.size}mm`,
-            imageRendering: 'pixelated',
-          }}
-        />
-      )}
-
-      {/* Text fields */}
-      {Object.entries(fields).map(([key, value]) => {
-        const pos = fp[key]
-        if (!pos) return null
-        return (
-          <span key={key} style={overlayStyle(pos)}>
-            {value}
-          </span>
-        )
-      })}
-    </div>
-  )
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -230,29 +168,36 @@ export function LabelPrintPage() {
   }
 
   // ── Build pages ──
-  const perSheet   = template.labelsPerSheet || 2
+  const perSheet = template.labelsPerSheet || 2
   const pages: FinishedUnitCard[][] = []
   for (let i = 0; i < units.length; i += perSheet) {
     pages.push(units.slice(i, i + perSheet))
   }
 
+  const fp = template.fieldPositions
+
   return (
     <div className="min-h-screen bg-white text-black">
       <style>{`
         .label-sheet {
+          position: relative;
           width: 210mm;
-          min-height: 297mm;
-          background: #fff;
-          display: flex;
-          flex-wrap: wrap;
-          align-content: flex-start;
-        }
-        .label-cell {
-          /* Na arkuszu jest dokładnie ${perSheet} etykiet w jednym rzędzie,
-             każda pełnej wysokości A4 → 1/${perSheet} A4 (np. 2 → 1/2 A4). */
-          width: ${100 / perSheet}%;
           height: 297mm;
+          overflow: hidden;
+          background: #fff;
           box-sizing: border-box;
+        }
+        .label-bg {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: fill;
+        }
+        .label-field {
+          position: absolute;
+          line-height: 1.1;
+          white-space: nowrap;
         }
         @media screen {
           .label-sheet {
@@ -263,8 +208,8 @@ export function LabelPrintPage() {
         @media print {
           .no-print { display: none !important; }
           html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
-          .label-sheet { margin: 0 !important; box-shadow: none !important; page-break-after: always; }
-          .label-sheet:last-child { page-break-after: avoid; }
+          .label-sheet { margin: 0 !important; box-shadow: none !important; break-after: page; }
+          .label-sheet:last-child { break-after: auto; }
           @page { size: A4 portrait; margin: 0; }
         }
       `}</style>
@@ -289,16 +234,56 @@ export function LabelPrintPage() {
 
       {pages.map((pageUnits, pageIdx) => (
         <div key={pageIdx} className="label-sheet">
-          {pageUnits.map((unit) => (
-            <div key={unit.id} className="label-cell">
-              <LabelTile
-                unit={unit}
-                template={template}
-                qrDataUrl={qrMap[unit.id] ?? ''}
-                shelfLifeDays={shelfLifeDays}
-              />
-            </div>
-          ))}
+          {/* ONE background fills the full A4 sheet — the artwork is the whole page */}
+          {template.backgroundData && (
+            <img className="label-bg" src={template.backgroundData} alt="" />
+          )}
+
+          {/* For each unit on this sheet, overlay its fields at the correct slot offset */}
+          {pageUnits.map((unit, slot) => {
+            const dx = slot * (100 / perSheet)
+            const values = unitFieldValues(unit, shelfLifeDays)
+            const qrDataUrl = qrMap[unit.id] ?? ''
+
+            return (
+              <div key={unit.id}>
+                {/* QR code */}
+                {fp.qr && qrDataUrl && (
+                  <img
+                    className="label-field"
+                    src={qrDataUrl}
+                    alt={`QR ${unit.qrCode}`}
+                    style={{
+                      left: `${fp.qr.x + dx}%`,
+                      top: `${fp.qr.y}%`,
+                      width: `${fp.qr.size}mm`,
+                      height: `${fp.qr.size}mm`,
+                      imageRendering: 'pixelated',
+                    }}
+                  />
+                )}
+
+                {/* Text fields: prod_date, freeze_date, best_before, batch_no */}
+                {(['prod_date', 'freeze_date', 'best_before', 'batch_no'] as const).map((key) => {
+                  const pos = fp[key]
+                  if (!pos) return null
+                  return (
+                    <span
+                      key={key}
+                      className="label-field"
+                      style={{
+                        left: `${pos.x + dx}%`,
+                        top: `${pos.y}%`,
+                        fontSize: `${pos.size}pt`,
+                      }}
+                    >
+                      {values[key]}
+                    </span>
+                  )
+                })}
+              </div>
+            )
+          })}
         </div>
       ))}
     </div>
