@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Download, Printer } from 'lucide-react'
 import QRCode from 'qrcode'
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
+import { PDFDocument, rgb } from 'pdf-lib'
+import fontkit from '@pdf-lib/fontkit'
+import arialRegularUrl from '@/assets/fonts/LiberationSans-Regular.ttf?url'
+import arialBoldUrl from '@/assets/fonts/LiberationSans-Bold.ttf?url'
 import { useApi } from '@/hooks/useApi'
 import { finishedUnitsApi, labelTemplatesApi, recipesApi } from '@/lib/apiClient'
 import type { FinishedUnitCard, LabelTemplate, LabelSlotOffset } from '@/lib/api'
@@ -102,8 +105,13 @@ async function buildVectorPdf(
 
   const srcDoc = await PDFDocument.load(dataUrlToBytes(template.backgroundPdf!))
   const out = await PDFDocument.create()
-  const font = await out.embedFont(StandardFonts.Helvetica)
-  const fontBold = await out.embedFont(StandardFonts.HelveticaBold)
+  out.registerFontkit(fontkit)
+  const [regBytes, boldBytes] = await Promise.all([
+    fetch(arialRegularUrl).then(r => r.arrayBuffer()),
+    fetch(arialBoldUrl).then(r => r.arrayBuffer()),
+  ])
+  const font = await out.embedFont(regBytes, { subset: true })
+  const fontBold = await out.embedFont(boldBytes, { subset: true })
   const fp = template.fieldPositions
   const slotOffsets = template.slotOffsets
 
