@@ -268,6 +268,8 @@ _DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_finished_units_batch    ON finished_units(batch_no)",
     "CREATE INDEX IF NOT EXISTS idx_finished_units_planline ON finished_units(plan_line_id)",
     "CREATE INDEX IF NOT EXISTS idx_finished_units_carton   ON finished_units(carton_id) WHERE carton_id IS NOT NULL",
+    "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS pallet_id TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_finished_units_pallet ON finished_units(pallet_id) WHERE pallet_id IS NOT NULL",
 
     """CREATE TABLE IF NOT EXISTS cartons (
         id              TEXT PRIMARY KEY,
