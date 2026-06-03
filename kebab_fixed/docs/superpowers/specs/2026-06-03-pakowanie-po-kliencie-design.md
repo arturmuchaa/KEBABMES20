@@ -65,12 +65,17 @@ do zamówienia palety.
 
 ### 1. Reguła klienta (zastępuje regułę zamówienia)
 
+Sentinel klienta „na magazyn" = produkcja bez konkretnego klienta. Kanoniczna nazwa to
+**`na magazyn`**; rozpoznajemy też pusty string oraz starą wartość `STAN` (dane
+historyczne) — porównanie **bez rozróżniania wielkości liter**.
+
 Sztuka pasuje do palety pod względem klienta, gdy zachodzi którykolwiek:
 
-- sztuka jest „na stan": `unit.client_name` ∈ {`""`, `"STAN"`} → **wildcard**, wchodzi
-  do palety dowolnego klienta;
-- paleta jest „na stan": `pallet_client` ∈ {`""`, `"STAN"`} → przyjmuje dowolną sztukę;
-- `unit.client_name == pallet_client`.
+- sztuka jest „na magazyn" (`unit.client_name` ∈ zbiorze magazynowym) → **wildcard**,
+  wchodzi do palety dowolnego klienta;
+- paleta jest „na magazyn" (`pallet_client` ∈ zbiorze magazynowym) → przyjmuje dowolną
+  sztukę;
+- `unit.client_name == pallet_client` (po normalizacji wielkości liter/spacji).
 
 W przeciwnym razie: błąd **„Inny klient niż na palecie"**.
 
@@ -94,16 +99,18 @@ def validate_pack_to_pallet(unit, pallet_client, planned_by_key, packed_by_key):
   4. pozycja pełna → „Pozycja palety pełna".
   5. OK → `(True, "", key)`.
 
-Pomocniczo dodać predykat:
+Pomocniczo dodać predykat (porównanie po normalizacji: `strip().lower()`):
 ```python
-_STOCK_CLIENTS = {"", "STAN"}
+# Kanoniczna nazwa magazynowa: "na magazyn". "STAN" — legacy. "" — brak klienta.
+_STOCK_CLIENTS = {"", "na magazyn", "magazyn", "stan"}
+
+def _is_stock(client) -> bool:
+    return (client or "").strip().lower() in _STOCK_CLIENTS
 
 def _client_matches(unit_client, pallet_client) -> bool:
-    uc = (unit_client or "").strip()
-    pc = (pallet_client or "").strip()
-    if uc in _STOCK_CLIENTS or pc in _STOCK_CLIENTS:
+    if _is_stock(unit_client) or _is_stock(pallet_client):
         return True
-    return uc == pc
+    return (unit_client or "").strip().lower() == (pallet_client or "").strip().lower()
 ```
 
 ### 3. Serwis: pobranie klienta palety + alokacja przy spakowaniu
@@ -153,9 +160,10 @@ Aktualizacja `backend/tests/test_pack_to_pallet.py`:
 - Pomocnik `_unit` zyskuje pole `client` (domyślnie np. `"Zagros"`).
 - Nowe/zmienione testy walidacji (czysta funkcja, sygnatura `pallet_client`):
   - `test_same_client_ok` — klient sztuki == klient palety → OK.
-  - `test_stock_unit_wildcard_ok` — `unit.client_name == "STAN"` (i `""`) do palety
-    „Zagros" → OK.
-  - `test_stock_pallet_accepts_any` — `pallet_client == "STAN"`, sztuka „Zagros" → OK.
+  - `test_stock_unit_wildcard_ok` — `unit.client_name == "na magazyn"` (oraz `""` i legacy
+    `"STAN"`) do palety „Zagros" → OK.
+  - `test_stock_pallet_accepts_any` — `pallet_client == "na magazyn"`, sztuka „Zagros" → OK.
+  - `test_client_match_case_insensitive` — `"Zagros"` vs `"zagros "` → OK (normalizacja).
   - `test_different_client_rejected` — sztuka „Kowalski" do palety „Zagros" → błąd,
     „klient" w reason.
   - Zachować: `test_not_produced`, `test_already_packed`, `test_wrong_product_or_weight`,
@@ -174,5 +182,6 @@ Brak zmian schematu. Tylko logika + testy.
 
 ## Otwarte kwestie
 
-- Czy „na stan" obejmuje też inne sentinele niż `STAN`/pusty (np. „MAGAZYN")? Zakładamy
-  zbiór `{"", "STAN"}`; rozszerzalne stałą `_STOCK_CLIENTS`, jeśli zajdzie potrzeba.
+- Rozstrzygnięte: sentinel magazynowy to **„na magazyn"** (kanoniczny), z rozpoznaniem
+  pustego stringa oraz legacy `STAN`/`MAGAZYN`, bez rozróżniania wielkości liter.
+  Zbiór w stałej `_STOCK_CLIENTS`, łatwo rozszerzalny.
