@@ -81,15 +81,31 @@ def pallet_line_key(product_type_id: Optional[str], recipe_id: Optional[str], we
     )
 
 
-def validate_pack_to_pallet(unit: Dict, pallet_order_id: Optional[str], planned_by_key: Dict, packed_by_key: Dict) -> Tuple[bool, str, Optional[tuple]]:
+# Klienci „magazynowi" — produkcja bez konkretnego odbiorcy. Wildcard przy pakowaniu.
+# Kanoniczny: "na magazyn". "stan"/"magazyn" — legacy. "" — brak klienta.
+_STOCK_CLIENTS = {"", "na magazyn", "magazyn", "stan"}
+
+
+def _is_stock(client) -> bool:
+    return (client or "").strip().lower() in _STOCK_CLIENTS
+
+
+def _client_matches(unit_client, pallet_client) -> bool:
+    """Klient sztuki pasuje do klienta palety (magazynowy = wildcard, bez wielkości liter)."""
+    if _is_stock(unit_client) or _is_stock(pallet_client):
+        return True
+    return (unit_client or "").strip().lower() == (pallet_client or "").strip().lower()
+
+
+def validate_pack_to_pallet(unit: Dict, pallet_client: Optional[str], planned_by_key: Dict, packed_by_key: Dict) -> Tuple[bool, str, Optional[tuple]]:
     """Czysta walidacja pakowania sztuki do palety.
 
-    unit: dict {status, order_id, product_type_id, recipe_id, weight_kg}
-    pallet_order_id: id zamówienia palety
+    unit: dict {status, client_name, product_type_id, recipe_id, weight_kg}
+    pallet_client: nazwa klienta palety (z zamówienia)
     planned_by_key: {pallet_line_key: planowana liczba szt}
     packed_by_key:  {pallet_line_key: już spakowane szt}
     Zwraca (ok: bool, reason: str, key | None).
-    Partia (batch_no) NIE jest kryterium — różne partie dozwolone.
+    Partia (batch_no) ani order_id NIE są kryterium. Klient „na magazyn" = wildcard.
     """
     status = unit.get("status")
     if status != PRODUCED:
@@ -97,8 +113,8 @@ def validate_pack_to_pallet(unit: Dict, pallet_order_id: Optional[str], planned_
             return False, "Sztuka już spakowana", None
         return False, "Sztuka nie potwierdzona na produkcji", None
 
-    if (unit.get("order_id") or "") != (pallet_order_id or ""):
-        return False, "Sztuka z innego zamówienia", None
+    if not _client_matches(unit.get("client_name"), pallet_client):
+        return False, "Inny klient niż na palecie", None
 
     key = pallet_line_key(
         unit.get("product_type_id"), unit.get("recipe_id"), unit.get("weight_kg"))
