@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Printer } from 'lucide-react'
+import { ArrowLeft, Download, Printer } from 'lucide-react'
 import QRCode from 'qrcode'
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { useApi } from '@/hooks/useApi'
 import { finishedUnitsApi, labelTemplatesApi, recipesApi } from '@/lib/apiClient'
 import type { FinishedUnitCard, LabelTemplate } from '@/lib/api'
@@ -64,6 +65,84 @@ function unitFieldValues(
   }
 }
 
+// ─── pdf-lib helpers ──────────────────────────────────────────────────────────
+
+function dataUrlToBytes(dataUrl: string): Uint8Array {
+  const b64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl
+  const bin = atob(b64)
+  const arr = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+  return arr
+}
+
+const TEXT_KEYS = ['prod_date', 'freeze_date', 'best_before', 'batch_no', 'weight'] as const
+
+async function buildVectorPdf(
+  template: LabelTemplate,
+  units: FinishedUnitCard[],
+  perSheet: number,
+  shelfLifeDays: number,
+  qrMapRef: Record<string, string>,
+): Promise<string> {
+  const MM = 2.83465 // mm → pt
+
+  const srcDoc = await PDFDocument.load(dataUrlToBytes(template.backgroundPdf!))
+  const out = await PDFDocument.create()
+  const font = await out.embedFont(StandardFonts.Helvetica)
+  const fontBold = await out.embedFont(StandardFonts.HelveticaBold)
+  const fp = template.fieldPositions
+
+  for (let i = 0; i < units.length; i += perSheet) {
+    const group = units.slice(i, i + perSheet)
+    const [copied] = await out.copyPages(srcDoc, [0])
+    out.addPage(copied)
+    const pageW = copied.getWidth()
+    const pageH = copied.getHeight()
+
+    for (let slot = 0; slot < group.length; slot++) {
+      const unit = group[slot]
+      const dx = slot * (100 / perSheet)
+      const vals = unitFieldValues(unit, shelfLifeDays)
+
+      // Text fields
+      for (const key of TEXT_KEYS) {
+        const pos = fp[key]
+        if (!pos || !vals[key]) continue
+        const xPt = ((pos.x + dx) / 100) * pageW
+        const sizePt = pos.size
+        const yTopFrac = (pos.y / 100) * pageH
+        copied.drawText(String(vals[key]), {
+          x: xPt,
+          y: pageH - yTopFrac - sizePt,
+          size: sizePt,
+          font: pos.bold ? fontBold : font,
+          color: rgb(0, 0, 0),
+        })
+      }
+
+      // QR code
+      const qrPos = fp['qr']
+      const qrUrl = qrMapRef[unit.id]
+      if (qrPos && qrUrl) {
+        const img = await out.embedPng(dataUrlToBytes(qrUrl))
+        const sPt = qrPos.size * MM
+        const xPt = ((qrPos.x + dx) / 100) * pageW
+        const yTopFrac = (qrPos.y / 100) * pageH
+        copied.drawImage(img, {
+          x: xPt,
+          y: pageH - yTopFrac - sPt,
+          width: sPt,
+          height: sPt,
+        })
+      }
+    }
+  }
+
+  const bytes = await out.save()
+  const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' })
+  return URL.createObjectURL(blob)
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function LabelPrintPage() {
@@ -77,7 +156,10 @@ export function LabelPrintPage() {
   const recipeRes   = useApi(() => recipesApi.byId(recipeId),                  [recipeId])
 
   const [qrMap, setQrMap] = useState<Record<string, string>>({})
+  const [pdfUrl, setPdfUrl] = useState('')
   const printedRef = useRef(false)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const pdfBuiltRef = useRef(false)
 
   const units    = unitsRes.data ?? []
   const tplResp  = templateRes.data
@@ -111,12 +193,33 @@ export function LabelPrintPage() {
   const allQrReady = units.length > 0 && units.every((u) => qrMap[u.id] !== undefined)
   const dataReady  = allQrReady && template !== null && recipe !== null
 
+  // Build vector PDF when template has backgroundPdf and all QR codes are ready
   useEffect(() => {
-    if (!dataReady || printedRef.current) return
+    if (!dataReady || !template?.backgroundPdf || pdfBuiltRef.current) return
+    if (Object.keys(qrMap).length === 0) return
+    pdfBuiltRef.current = true
+    let objectUrl = ''
+    buildVectorPdf(template, units, template.labelsPerSheet || 2, shelfLifeDays, qrMap)
+      .then((url) => {
+        objectUrl = url
+        setPdfUrl(url)
+      })
+      .catch((err) => {
+        console.error('buildVectorPdf failed:', err)
+      })
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataReady, template?.backgroundPdf, qrMap])
+
+  // Auto-print for raster (image background) mode only
+  useEffect(() => {
+    if (!dataReady || template?.backgroundPdf || printedRef.current) return
     printedRef.current = true
     const timer = window.setTimeout(() => window.print(), 300)
     return () => window.clearTimeout(timer)
-  }, [dataReady])
+  }, [dataReady, template?.backgroundPdf])
 
   // ── Loading states ──
   const anyLoading = unitsRes.loading || templateRes.loading || recipeRes.loading
@@ -195,6 +298,62 @@ export function LabelPrintPage() {
 
   const fp = template.fieldPositions
 
+  // ── Vector PDF render branch (pdf-lib) ──
+  if (template.backgroundPdf) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col">
+        {/* Top bar */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-slate-100 px-4 py-2">
+          <Link
+            to="/office/planowanie-produkcji"
+            className="flex items-center gap-1.5 text-sm text-slate-700 hover:text-slate-900"
+          >
+            <ArrowLeft size={14} /> Wróć
+          </Link>
+          <div className="text-sm text-slate-600">
+            {units.length} etykiet · {pages.length} stron · {perSheet}/A4
+            {pdfUrl && <span className="ml-2 text-green-700 font-semibold">✓ PDF wektorowy</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            {pdfUrl && (
+              <a
+                href={pdfUrl}
+                download="etykiety.pdf"
+                className="flex items-center gap-1.5 rounded bg-slate-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-700"
+              >
+                <Download size={14} /> Pobierz PDF
+              </a>
+            )}
+            <button
+              disabled={!pdfUrl}
+              onClick={() => iframeRef.current?.contentWindow?.print()}
+              className="flex items-center gap-1.5 rounded bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              <Printer size={14} /> Drukuj
+            </button>
+          </div>
+        </div>
+
+        {/* PDF viewer */}
+        <div className="flex-1 flex items-stretch">
+          {!pdfUrl ? (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm py-20">
+              Generuję PDF wektorowy…
+            </div>
+          ) : (
+            <iframe
+              ref={iframeRef}
+              src={pdfUrl}
+              title="Podgląd etykiet PDF"
+              style={{ width: '100%', height: '90vh', border: 0 }}
+            />
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Raster (image background) render branch — fallback ──
   return (
     <div className="min-h-screen bg-white text-black">
       <style>{`

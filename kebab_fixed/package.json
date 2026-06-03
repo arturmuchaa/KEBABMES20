@@ -24,6 +24,7 @@
     "clsx": "^2.1.0",
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^0.323.0",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.8.69",
     "qrcode": "^1.5.4",
     "react": "^18.2.0",

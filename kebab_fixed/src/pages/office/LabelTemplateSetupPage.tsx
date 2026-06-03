@@ -350,6 +350,7 @@ export function LabelTemplateSetupPage() {
   const [clientId,        setClientId]        = useState(urlClientId)
   const [recipeId,        setRecipeId]        = useState(urlRecipeId)
   const [backgroundData,  setBackgroundData]  = useState('')
+  const [backgroundPdf,   setBackgroundPdf]   = useState('')
   const [fieldPositions,  setFieldPositions]  = useState<FieldPositions>({})
   const [labelsPerSheet,  setLabelsPerSheet]  = useState(2)
   const [selectedField,   setSelectedField]   = useState<string | null>(null)
@@ -386,10 +387,12 @@ export function LabelTemplateSetupPage() {
       const res = await labelTemplatesApi.get(clientId, recipeId)
       if (res.exists && res.template) {
         setBackgroundData(res.template.backgroundData ?? '')
+        setBackgroundPdf(res.template.backgroundPdf ?? '')
         setFieldPositions(res.template.fieldPositions ?? {})
         setLabelsPerSheet(res.template.labelsPerSheet ?? 2)
       } else {
         setBackgroundData('')
+        setBackgroundPdf('')
         setFieldPositions({})
         setLabelsPerSheet(2)
       }
@@ -407,14 +410,30 @@ export function LabelTemplateSetupPage() {
     if (!file) return
     setPdfNote(false)
     if (file.type === 'application/pdf') {
+      // Równolegle: rasteryzuj do PNG (podgląd) ORAZ zachowaj oryginalny PDF (druk wektorowy)
+      const pdfDataUrlPromise = new Promise<string>((resolve) => {
+        const r = new FileReader()
+        r.onload = ev => resolve((ev.target?.result as string) ?? '')
+        r.readAsDataURL(file)
+      })
       try {
-        const png = await pdfFirstPageToPng(file)
+        const [png, pdfDataUrl] = await Promise.all([pdfFirstPageToPng(file), pdfDataUrlPromise])
         setBackgroundData(png)
+        setBackgroundPdf(pdfDataUrl)
       } catch {
         setPdfNote(true)  // pokaż wskazówkę gdy rasteryzacja się nie uda
+        // Mimo to spróbuj załadować PDF do podglądu
+        const pdfDataUrl = await new Promise<string>((resolve) => {
+          const r = new FileReader()
+          r.onload = ev => resolve((ev.target?.result as string) ?? '')
+          r.readAsDataURL(file)
+        })
+        setBackgroundPdf(pdfDataUrl)
       }
       return
     }
+    // Obraz (PNG/JPG/WebP) — brak wektorowego PDF
+    setBackgroundPdf('')
     const reader = new FileReader()
     reader.onload = ev => setBackgroundData((ev.target?.result as string) ?? '')
     reader.readAsDataURL(file)
@@ -508,6 +527,7 @@ export function LabelTemplateSetupPage() {
         recipeId,
         kind: 'overlay',
         backgroundData,
+        backgroundPdf,
         fieldPositions,
         pageSize: 'a4',
         labelsPerSheet,
@@ -643,7 +663,9 @@ export function LabelTemplateSetupPage() {
 
               {backgroundData && !pdfNote && (
                 <div className="text-[12px] text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
-                  ✓ Tło wgrane
+                  {backgroundPdf
+                    ? '✓ PDF wektorowy (ostry druk)'
+                    : '⚠ tło rastrowe — druk mniej ostry'}
                 </div>
               )}
             </CardContent>
