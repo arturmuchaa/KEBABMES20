@@ -704,6 +704,38 @@ export const orderPalletsApi = {
     post<any>(`/client-orders/${orderId}/pallets/${palletNo}/reset`, {}).then(mapPallet),
 }
 
+// ─── Pakowanie sztuk do palety ──────────────────────────────────
+export interface PalletPackResult {
+  ok:           boolean
+  reason:       string
+  packedQty:    number
+  targetQty:    number
+  palletStatus: string
+}
+
+export interface PalletBatchRow { batchNo: string; qty: number; weightKg: number }
+
+export interface PalletToPack {
+  id: string; orderId: string; palletNo: number; status: string
+  orderNo: string; clientName: string; packedQty: number; targetQty: number
+}
+
+export const palletsApi = {
+  toPack: () =>
+    get<any[]>('/pallets/to-pack').then(rows => (rows ?? []).map((r: any): PalletToPack => ({
+      id: r.id, orderId: r.order_id, palletNo: Number(r.pallet_no ?? 0),
+      status: r.status ?? 'created', orderNo: r.order_no ?? '',
+      clientName: r.client_name ?? '', packedQty: Number(r.packed_qty ?? 0),
+      targetQty: Number(r.target_qty ?? 0),
+    }))),
+  detail: (palletId: string) => get<any>(`/pallets/by-id/${palletId}`),
+  lookup: (code: string) => get<any>(`/pallets/lookup?code=${encodeURIComponent(code)}`),
+  packUnit: (palletId: string, code: string) =>
+    post<PalletPackResult>(`/pallets/${palletId}/pack`, { code }),
+  batchBreakdown: (palletId: string) =>
+    get<PalletBatchRow[]>(`/pallets/${palletId}/batch-breakdown`),
+}
+
 // ─── Skanowanie palet (QR) ──────────────────────────────────────
 export interface PalletScanResult {
   id:           string
