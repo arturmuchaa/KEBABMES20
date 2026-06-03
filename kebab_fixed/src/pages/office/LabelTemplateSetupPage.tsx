@@ -15,7 +15,7 @@ import QRCode from 'qrcode'
 import { useApi } from '@/hooks/useApi'
 import { clientsApi, recipesApi, labelTemplatesApi } from '@/lib/apiClient'
 import { pdfFirstPageToPng } from '@/lib/pdfToImage'
-import type { LabelFieldPos } from '@/lib/api'
+import type { LabelFieldPos, LabelSlotOffset } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -82,15 +82,22 @@ interface WysiwygTextMarkerProps {
   isSelected: boolean
   isGhost?: boolean
   offsetX?: number
+  offsetY?: number
   onClick?: () => void
 }
 
 function WysiwygTextMarker({
-  fieldKey, pos, sampleText, previewW, isSelected, isGhost = false, offsetX = 0, onClick,
+  fieldKey, pos, sampleText, previewW, isSelected, isGhost = false, offsetX = 0, offsetY = 0, onClick,
 }: WysiwygTextMarkerProps) {
   const fontPx = pos.size * previewW / A4_WIDTH_PT
   const color = FIELD_COLORS[fieldKey] ?? '#666'
   const opacity = isGhost ? 0.3 : 1
+  const isWeight = fieldKey === 'weight'
+
+  // For weight: split number + " kg"
+  const spaceIdx = isWeight ? sampleText.indexOf(' ') : -1
+  const numberPart = isWeight && spaceIdx >= 0 ? sampleText.slice(0, spaceIdx) : sampleText
+  const unitPart = isWeight && spaceIdx >= 0 ? sampleText.slice(spaceIdx) : ''
 
   return (
     <span
@@ -98,9 +105,8 @@ function WysiwygTextMarker({
       style={{
         position: 'absolute',
         left: `${pos.x + offsetX}%`,
-        top: `${pos.y}%`,
+        top: `${pos.y + offsetY}%`,
         fontFamily: pos.fontFamily || 'Arial',
-        fontWeight: pos.bold ? 700 : 400,
         fontSize: `${fontPx}px`,
         lineHeight: 1.1,
         whiteSpace: 'nowrap',
@@ -115,7 +121,14 @@ function WysiwygTextMarker({
         textShadow: '0 0 3px rgba(255,255,255,0.85)',
       }}
     >
-      {sampleText}
+      {isWeight ? (
+        <>
+          <span style={{ fontWeight: pos.bold ? 700 : 400 }}>{numberPart}</span>
+          {unitPart && <span style={{ fontWeight: 400 }}>{unitPart}</span>}
+        </>
+      ) : (
+        <span style={{ fontWeight: pos.bold ? 700 : 400 }}>{sampleText}</span>
+      )}
     </span>
   )
 }
@@ -128,11 +141,12 @@ interface WysiwygQrMarkerProps {
   isSelected: boolean
   isGhost?: boolean
   offsetX?: number
+  offsetY?: number
   onClick?: () => void
 }
 
 function WysiwygQrMarker({
-  pos, qrDataUrl, previewW, isSelected, isGhost = false, offsetX = 0, onClick,
+  pos, qrDataUrl, previewW, isSelected, isGhost = false, offsetX = 0, offsetY = 0, onClick,
 }: WysiwygQrMarkerProps) {
   const qrPx = pos.size / A4_WIDTH_MM * previewW
   const color = FIELD_COLORS['qr']
@@ -147,7 +161,7 @@ function WysiwygQrMarker({
       style={{
         position: 'absolute',
         left: `${pos.x + offsetX}%`,
-        top: `${pos.y}%`,
+        top: `${pos.y + offsetY}%`,
         width: `${qrPx}px`,
         height: `${qrPx}px`,
         imageRendering: 'pixelated',
@@ -338,6 +352,11 @@ function FieldRow({
   )
 }
 
+// ─── Pomocnicze ─────────────────────────────────────────────────
+function defaultSlotOffsets(count: number): LabelSlotOffset[] {
+  return Array.from({ length: count }, (_, i) => ({ dx: i * (100 / count), dy: 0 }))
+}
+
 // ─── Strona główna ─────────────────────────────────────────────
 export function LabelTemplateSetupPage() {
   const [searchParams] = useSearchParams()
@@ -353,6 +372,7 @@ export function LabelTemplateSetupPage() {
   const [backgroundPdf,   setBackgroundPdf]   = useState('')
   const [fieldPositions,  setFieldPositions]  = useState<FieldPositions>({})
   const [labelsPerSheet,  setLabelsPerSheet]  = useState(2)
+  const [slotOffsets,     setSlotOffsets]     = useState<LabelSlotOffset[]>(() => defaultSlotOffsets(2))
   const [selectedField,   setSelectedField]   = useState<string | null>(null)
   const [pdfNote,         setPdfNote]         = useState(false)
   const [saving,          setSaving]          = useState(false)
@@ -386,15 +406,31 @@ export function LabelTemplateSetupPage() {
     try {
       const res = await labelTemplatesApi.get(clientId, recipeId)
       if (res.exists && res.template) {
-        setBackgroundData(res.template.backgroundData ?? '')
-        setBackgroundPdf(res.template.backgroundPdf ?? '')
-        setFieldPositions(res.template.fieldPositions ?? {})
-        setLabelsPerSheet(res.template.labelsPerSheet ?? 2)
+        const tpl = res.template
+        const perSheet = tpl.labelsPerSheet ?? 2
+        setBackgroundData(tpl.backgroundData ?? '')
+        setBackgroundPdf(tpl.backgroundPdf ?? '')
+        setFieldPositions(tpl.fieldPositions ?? {})
+        setLabelsPerSheet(perSheet)
+        // Użyj zapisanych offsetów lub wygeneruj domyślne
+        if (tpl.slotOffsets && tpl.slotOffsets.length > 0) {
+          // Upewnij się że mamy dokładnie perSheet elementów
+          const loaded = tpl.slotOffsets
+          if (loaded.length >= perSheet) {
+            setSlotOffsets(loaded.slice(0, perSheet))
+          } else {
+            const defaults = defaultSlotOffsets(perSheet)
+            setSlotOffsets(defaults.map((d, i) => loaded[i] ?? d))
+          }
+        } else {
+          setSlotOffsets(defaultSlotOffsets(perSheet))
+        }
       } else {
         setBackgroundData('')
         setBackgroundPdf('')
         setFieldPositions({})
         setLabelsPerSheet(2)
+        setSlotOffsets(defaultSlotOffsets(2))
       }
     } catch {
       // Brak szablonu — to OK
@@ -531,6 +567,7 @@ export function LabelTemplateSetupPage() {
         fieldPositions,
         pageSize: 'a4',
         labelsPerSheet,
+        slotOffsets,
       })
       toast.success('Szablon zapisany')
     } catch (err) {
@@ -717,7 +754,15 @@ export function LabelTemplateSetupPage() {
                       min={1}
                       max={20}
                       value={labelsPerSheet}
-                      onChange={e => setLabelsPerSheet(Number(e.target.value))}
+                      onChange={e => {
+                        const n = Math.max(1, Math.min(20, Number(e.target.value)))
+                        setLabelsPerSheet(n)
+                        // Aktualizuj slotOffsets: zachowaj istniejące, dopełnij domyślnymi
+                        setSlotOffsets(prev => {
+                          const defaults = defaultSlotOffsets(n)
+                          return defaults.map((d, i) => prev[i] ?? d)
+                        })
+                      }}
                       className="h-9 w-24 text-sm"
                     />
                     <div className="text-[11px] text-muted-foreground">
@@ -833,33 +878,35 @@ export function LabelTemplateSetupPage() {
                           {FIELDS.map(f => {
                             const pos = fieldPositions[f.key]
                             if (!pos) return null
-                            const slotWidth = 100 / labelsPerSheet
                             return Array.from({ length: labelsPerSheet - 1 }, (_, i) => {
-                              const offsetX = (i + 1) * slotWidth
+                              const slotIdx = i + 1
+                              const ghostOffset = slotOffsets[slotIdx] ?? { dx: slotIdx * (100 / labelsPerSheet), dy: 0 }
                               if (f.key === 'qr') {
                                 if (!sampleQrUrl) return null
                                 return (
                                   <WysiwygQrMarker
-                                    key={`${f.key}-ghost-${i + 1}`}
+                                    key={`${f.key}-ghost-${slotIdx}`}
                                     pos={pos}
                                     qrDataUrl={sampleQrUrl}
                                     previewW={previewW}
                                     isSelected={false}
                                     isGhost
-                                    offsetX={offsetX}
+                                    offsetX={ghostOffset.dx}
+                                    offsetY={ghostOffset.dy}
                                   />
                                 )
                               }
                               return (
                                 <WysiwygTextMarker
-                                  key={`${f.key}-ghost-${i + 1}`}
+                                  key={`${f.key}-ghost-${slotIdx}`}
                                   fieldKey={f.key}
                                   pos={pos}
                                   sampleText={SAMPLE_VALUES[f.key] ?? f.label}
                                   previewW={previewW}
                                   isSelected={false}
                                   isGhost
-                                  offsetX={offsetX}
+                                  offsetX={ghostOffset.dx}
+                                  offsetY={ghostOffset.dy}
                                 />
                               )
                             })
@@ -895,6 +942,126 @@ export function LabelTemplateSetupPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Korekta położenia etykiet 2+ */}
+          {labelsPerSheet > 1 && (
+            <Card>
+              <CardContent className="pt-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <Tag size={15} className="text-muted-foreground" />
+                  <span className="text-[13px] font-semibold">Korekta położenia etykiet 2+</span>
+                </div>
+                <div className="text-[11px] text-muted-foreground bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5 mb-3">
+                  Domyślnie kolejna etykieta jest auto-przesunięta; tu możesz delikatnie skorygować jeśli tło nie jest idealnie symetryczne.
+                </div>
+                <div className="space-y-3">
+                  {Array.from({ length: labelsPerSheet - 1 }, (_, i) => {
+                    const slotIdx = i + 1
+                    const offset = slotOffsets[slotIdx] ?? { dx: slotIdx * (100 / labelsPerSheet), dy: 0 }
+                    const defaultOffset = { dx: slotIdx * (100 / labelsPerSheet), dy: 0 }
+                    const isDirty = Math.abs(offset.dx - defaultOffset.dx) > 0.001 || Math.abs(offset.dy - defaultOffset.dy) > 0.001
+                    return (
+                      <div key={slotIdx} className="flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-muted/20">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[12px] font-semibold">Etykieta {slotIdx + 1}</span>
+                          {isDirty && (
+                            <button
+                              className="text-[10px] text-blue-600 hover:underline ml-1"
+                              onClick={() => {
+                                setSlotOffsets(prev => {
+                                  const next = [...prev]
+                                  next[slotIdx] = { dx: slotIdx * (100 / labelsPerSheet), dy: 0 }
+                                  return next
+                                })
+                              }}
+                            >
+                              resetuj
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 flex-wrap">
+                          {/* X offset */}
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] font-bold text-muted-foreground w-4">X</span>
+                            <button
+                              className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center"
+                              title="X −0.1%"
+                              onClick={() => setSlotOffsets(prev => {
+                                const next = [...prev]
+                                next[slotIdx] = { ...offset, dx: Math.round((offset.dx - 0.1) * 10) / 10 }
+                                return next
+                              })}
+                            >◀</button>
+                            <Input
+                              type="number"
+                              step={0.1}
+                              value={offset.dx.toFixed(1)}
+                              onChange={e => {
+                                const v = Math.round(Number(e.target.value) * 10) / 10
+                                setSlotOffsets(prev => {
+                                  const next = [...prev]
+                                  next[slotIdx] = { ...offset, dx: v }
+                                  return next
+                                })
+                              }}
+                              className="h-6 w-20 text-[10px] px-1.5 py-0 font-mono"
+                            />
+                            <span className="text-[9px] text-muted-foreground">%</span>
+                            <button
+                              className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center"
+                              title="X +0.1%"
+                              onClick={() => setSlotOffsets(prev => {
+                                const next = [...prev]
+                                next[slotIdx] = { ...offset, dx: Math.round((offset.dx + 0.1) * 10) / 10 }
+                                return next
+                              })}
+                            >▶</button>
+                          </div>
+                          {/* Y offset */}
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] font-bold text-muted-foreground w-4">Y</span>
+                            <button
+                              className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center"
+                              title="Y −0.1%"
+                              onClick={() => setSlotOffsets(prev => {
+                                const next = [...prev]
+                                next[slotIdx] = { ...offset, dy: Math.round((offset.dy - 0.1) * 10) / 10 }
+                                return next
+                              })}
+                            >▲</button>
+                            <Input
+                              type="number"
+                              step={0.1}
+                              value={offset.dy.toFixed(1)}
+                              onChange={e => {
+                                const v = Math.round(Number(e.target.value) * 10) / 10
+                                setSlotOffsets(prev => {
+                                  const next = [...prev]
+                                  next[slotIdx] = { ...offset, dy: v }
+                                  return next
+                                })
+                              }}
+                              className="h-6 w-20 text-[10px] px-1.5 py-0 font-mono"
+                            />
+                            <span className="text-[9px] text-muted-foreground">%</span>
+                            <button
+                              className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center"
+                              title="Y +0.1%"
+                              onClick={() => setSlotOffsets(prev => {
+                                const next = [...prev]
+                                next[slotIdx] = { ...offset, dy: Math.round((offset.dy + 0.1) * 10) / 10 }
+                                return next
+                              })}
+                            >▼</button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Zapis */}
           <div className="flex items-center justify-end gap-3 pb-6">

@@ -14,3 +14,4 @@ class LabelTemplateUpsert(BaseModel):
     page_size: str = "a4"
     labels_per_sheet: int = 2
     zpl: str = ""
+    slot_offsets: list = []            # [{dx: float, dy: float}, ...] per slot; slot 0 = {0,0}

@@ -5,7 +5,7 @@ import QRCode from 'qrcode'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { useApi } from '@/hooks/useApi'
 import { finishedUnitsApi, labelTemplatesApi, recipesApi } from '@/lib/apiClient'
-import type { FinishedUnitCard, LabelTemplate } from '@/lib/api'
+import type { FinishedUnitCard, LabelTemplate, LabelSlotOffset } from '@/lib/api'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -77,6 +77,20 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
 
 const TEXT_KEYS = ['prod_date', 'freeze_date', 'best_before', 'batch_no', 'weight'] as const
 
+// ─── Slot offset helpers ──────────────────────────────────────────────────────
+
+/** Returns the effective X offset for a given slot, in percentage points of page width. */
+function slotOffsetX(slot: number, perSheet: number, offsets: LabelSlotOffset[] | undefined): number {
+  if (offsets && offsets[slot] !== undefined) return offsets[slot].dx
+  return slot * (100 / perSheet)
+}
+
+/** Returns the effective Y offset for a given slot, in percentage points of page height. */
+function slotOffsetY(slot: number, offsets: LabelSlotOffset[] | undefined): number {
+  if (offsets && offsets[slot] !== undefined) return offsets[slot].dy
+  return 0
+}
+
 async function buildVectorPdf(
   template: LabelTemplate,
   units: FinishedUnitCard[],
@@ -91,6 +105,7 @@ async function buildVectorPdf(
   const font = await out.embedFont(StandardFonts.Helvetica)
   const fontBold = await out.embedFont(StandardFonts.HelveticaBold)
   const fp = template.fieldPositions
+  const slotOffsets = template.slotOffsets
 
   for (let i = 0; i < units.length; i += perSheet) {
     const group = units.slice(i, i + perSheet)
@@ -101,23 +116,53 @@ async function buildVectorPdf(
 
     for (let slot = 0; slot < group.length; slot++) {
       const unit = group[slot]
-      const dx = slot * (100 / perSheet)
+      const offsetX = slotOffsetX(slot, perSheet, slotOffsets)
+      const offsetY = slotOffsetY(slot, slotOffsets)
       const vals = unitFieldValues(unit, shelfLifeDays)
 
       // Text fields
       for (const key of TEXT_KEYS) {
         const pos = fp[key]
         if (!pos || !vals[key]) continue
-        const xPt = ((pos.x + dx) / 100) * pageW
+        const effectiveX = pos.x + offsetX
+        const effectiveY = pos.y + offsetY
+        const xPt = (effectiveX / 100) * pageW
         const sizePt = pos.size
-        const yTopFrac = (pos.y / 100) * pageH
-        copied.drawText(String(vals[key]), {
-          x: xPt,
-          y: pageH - yTopFrac - sizePt,
-          size: sizePt,
-          font: pos.bold ? fontBold : font,
-          color: rgb(0, 0, 0),
-        })
+        const yTopFrac = (effectiveY / 100) * pageH
+
+        if (key === 'weight') {
+          // Split "number kg" → number part bold (if pos.bold), " kg" always regular
+          const raw = String(vals[key])
+          const spaceIdx = raw.indexOf(' ')
+          const numberPart = spaceIdx >= 0 ? raw.slice(0, spaceIdx) : raw
+          const unitPart = spaceIdx >= 0 ? raw.slice(spaceIdx) : ''
+          const activeFont = pos.bold ? fontBold : font
+          copied.drawText(numberPart, {
+            x: xPt,
+            y: pageH - yTopFrac - sizePt,
+            size: sizePt,
+            font: activeFont,
+            color: rgb(0, 0, 0),
+          })
+          if (unitPart) {
+            const numberWidth = activeFont.widthOfTextAtSize(numberPart, sizePt)
+            copied.drawText(unitPart, {
+              x: xPt + numberWidth,
+              y: pageH - yTopFrac - sizePt,
+              size: sizePt,
+              font,
+              color: rgb(0, 0, 0),
+            })
+          }
+        } else {
+          copied.drawText(String(vals[key]), {
+            x: xPt,
+            y: pageH - yTopFrac - sizePt,
+            size: sizePt,
+            font: pos.bold ? fontBold : font,
+            color: rgb(0, 0, 0),
+          })
+        }
       }
 
       // QR code
@@ -126,8 +171,8 @@ async function buildVectorPdf(
       if (qrPos && qrUrl) {
         const img = await out.embedPng(dataUrlToBytes(qrUrl))
         const sPt = qrPos.size * MM
-        const xPt = ((qrPos.x + dx) / 100) * pageW
-        const yTopFrac = (qrPos.y / 100) * pageH
+        const xPt = ((qrPos.x + offsetX) / 100) * pageW
+        const yTopFrac = ((qrPos.y + offsetY) / 100) * pageH
         copied.drawImage(img, {
           x: xPt,
           y: pageH - yTopFrac - sPt,
@@ -419,7 +464,8 @@ export function LabelPrintPage() {
 
           {/* For each unit on this sheet, overlay its fields at the correct slot offset */}
           {pageUnits.map((unit, slot) => {
-            const dx = slot * (100 / perSheet)
+            const offsetX = slotOffsetX(slot, perSheet, template.slotOffsets)
+            const offsetY = slotOffsetY(slot, template.slotOffsets)
             const values = unitFieldValues(unit, shelfLifeDays)
             const qrDataUrl = qrMap[unit.id] ?? ''
 
@@ -432,8 +478,8 @@ export function LabelPrintPage() {
                     src={qrDataUrl}
                     alt={`QR ${unit.qrCode}`}
                     style={{
-                      left: `${fp.qr.x + dx}%`,
-                      top: `${fp.qr.y}%`,
+                      left: `${fp.qr.x + offsetX}%`,
+                      top: `${fp.qr.y + offsetY}%`,
                       width: `${fp.qr.size}mm`,
                       height: `${fp.qr.size}mm`,
                       imageRendering: 'pixelated',
@@ -445,15 +491,33 @@ export function LabelPrintPage() {
                 {(['prod_date', 'freeze_date', 'best_before', 'batch_no', 'weight'] as const).map((key) => {
                   const pos = fp[key]
                   if (!pos) return null
+                  const effectiveLeft = pos.x + offsetX
+                  const effectiveTop = pos.y + offsetY
+                  const sharedStyle = {
+                    left: `${effectiveLeft}%`,
+                    top: `${effectiveTop}%`,
+                    fontSize: `${pos.size}pt`,
+                    fontFamily: pos.fontFamily || 'Arial',
+                  }
+                  if (key === 'weight') {
+                    // Number part: bold if pos.bold; " kg" always regular weight 400
+                    const raw = values[key] ?? ''
+                    const spaceIdx = raw.indexOf(' ')
+                    const numberPart = spaceIdx >= 0 ? raw.slice(0, spaceIdx) : raw
+                    const unitPart = spaceIdx >= 0 ? raw.slice(spaceIdx) : ''
+                    return (
+                      <span key={key} className="label-field" style={sharedStyle}>
+                        <span style={{ fontWeight: pos.bold ? 700 : 400 }}>{numberPart}</span>
+                        {unitPart && <span style={{ fontWeight: 400 }}>{unitPart}</span>}
+                      </span>
+                    )
+                  }
                   return (
                     <span
                       key={key}
                       className="label-field"
                       style={{
-                        left: `${pos.x + dx}%`,
-                        top: `${pos.y}%`,
-                        fontSize: `${pos.size}pt`,
-                        fontFamily: pos.fontFamily || 'Arial',
+                        ...sharedStyle,
                         fontWeight: pos.bold ? 700 : 400,
                       }}
                     >

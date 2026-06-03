@@ -307,6 +307,9 @@ _DDL: list[str] = [
 
     # ── QR per sztuka — Faza 3+: oryginalny PDF tła etykiety (wektorowy) ──
     "ALTER TABLE label_templates ADD COLUMN IF NOT EXISTS background_pdf TEXT DEFAULT ''",
+
+    # ── QR per sztuka — Faza 3++: korekta offsetu per slot (auto 2. etykieta) ──
+    "ALTER TABLE label_templates ADD COLUMN IF NOT EXISTS slot_offsets JSONB DEFAULT '[]'",
 ]
 
 
