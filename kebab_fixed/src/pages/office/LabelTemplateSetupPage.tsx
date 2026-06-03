@@ -55,6 +55,8 @@ interface FieldMarkerProps {
 
 function FieldMarker({ fieldKey, label, pos, isSelected, onClick }: FieldMarkerProps) {
   const color = FIELD_COLORS[fieldKey] ?? '#666'
+  const dotSize = isSelected ? 10 : 8
+  const crossLen = isSelected ? 8 : 6
   return (
     <div
       onClick={e => { e.stopPropagation(); onClick() }}
@@ -67,32 +69,60 @@ function FieldMarker({ fieldKey, label, pos, isSelected, onClick }: FieldMarkerP
         zIndex: 10,
       }}
     >
+      {/* Crosshair lines */}
+      <div style={{
+        position: 'absolute',
+        left: '50%',
+        top: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: crossLen * 2 + dotSize,
+        height: 1,
+        background: color,
+        opacity: 0.7,
+        pointerEvents: 'none',
+      }} />
+      <div style={{
+        position: 'absolute',
+        left: '50%',
+        top: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 1,
+        height: crossLen * 2 + dotSize,
+        background: color,
+        opacity: 0.7,
+        pointerEvents: 'none',
+      }} />
+      {/* Center dot */}
       <div
         style={{
-          width: isSelected ? 16 : 12,
-          height: isSelected ? 16 : 12,
+          width: dotSize,
+          height: dotSize,
           borderRadius: '50%',
           background: color,
-          border: isSelected ? '2px solid white' : '1.5px solid white',
-          boxShadow: isSelected ? `0 0 0 2px ${color}` : `0 1px 3px rgba(0,0,0,0.4)`,
+          border: isSelected ? '1.5px solid white' : '1px solid white',
+          boxShadow: isSelected ? `0 0 0 1.5px ${color}` : `0 1px 2px rgba(0,0,0,0.5)`,
           transition: 'all 0.15s ease',
+          position: 'relative',
+          zIndex: 1,
         }}
       />
+      {/* Label — tiny, offset above-right, non-interactive */}
       <div
         style={{
           position: 'absolute',
-          top: '100%',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          marginTop: 2,
+          bottom: '100%',
+          left: '100%',
+          marginBottom: 2,
+          marginLeft: 2,
           fontSize: 9,
           fontWeight: 700,
           color,
           whiteSpace: 'nowrap',
-          background: 'rgba(255,255,255,0.9)',
-          padding: '1px 3px',
-          borderRadius: 3,
+          background: 'rgba(255,255,255,0.88)',
+          padding: '0px 2px',
+          borderRadius: 2,
           pointerEvents: 'none',
+          lineHeight: '13px',
         }}
       >
         {label}
@@ -110,53 +140,95 @@ interface FieldRowProps {
   onSelect: () => void
   onSizeChange: (size: number) => void
   onClear: () => void
+  onNudge: (fieldKey: string, axis: 'x' | 'y', delta: number) => void
 }
 
-function FieldRow({ fieldKey, label, pos, isSelected, onSelect, onSizeChange, onClear }: FieldRowProps) {
+function FieldRow({ fieldKey, label, pos, isSelected, onSelect, onSizeChange, onClear, onNudge }: FieldRowProps) {
   const color = FIELD_COLORS[fieldKey] ?? '#666'
   return (
     <div
-      className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${
+      className={`flex flex-col gap-1 p-2 rounded-lg border cursor-pointer transition-all ${
         isSelected
           ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-300'
           : 'border-border hover:bg-muted/50'
       }`}
       onClick={onSelect}
     >
-      <div
-        style={{ width: 10, height: 10, borderRadius: '50%', background: color, flexShrink: 0 }}
-      />
-      <div className="flex-1 min-w-0">
-        <div className="text-[12px] font-semibold truncate">{label}</div>
-        {pos ? (
-          <div className="text-[10px] text-muted-foreground">
-            x: {pos.x.toFixed(1)}% y: {pos.y.toFixed(1)}%
-          </div>
-        ) : (
-          <div className="text-[10px] text-amber-600 font-medium">Kliknij na podgląd →</div>
-        )}
-      </div>
-      <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
-        <Input
-          type="number"
-          min={4}
-          max={60}
-          value={pos?.size ?? (FIELDS.find(f => f.key === fieldKey)?.defaultSize ?? 8)}
-          onChange={e => onSizeChange(Number(e.target.value))}
-          className="h-6 w-14 text-[11px] px-1.5 py-0"
-          title="Rozmiar (pt)"
+      <div className="flex items-center gap-2">
+        <div
+          style={{ width: 10, height: 10, borderRadius: '50%', background: color, flexShrink: 0 }}
         />
-        <span className="text-[10px] text-muted-foreground">pt</span>
-        {pos && (
-          <button
-            onClick={onClear}
-            className="ml-1 text-muted-foreground hover:text-destructive text-[11px] font-bold leading-none px-1"
-            title="Usuń pozycję"
-          >
-            ×
-          </button>
-        )}
+        <div className="flex-1 min-w-0">
+          <div className="text-[12px] font-semibold truncate">{label}</div>
+          {pos ? (
+            <div className="text-[10px] text-muted-foreground">
+              x: {pos.x.toFixed(1)}% y: {pos.y.toFixed(1)}%
+            </div>
+          ) : (
+            <div className="text-[10px] text-amber-600 font-medium">Kliknij na podgląd →</div>
+          )}
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+          <Input
+            type="number"
+            min={4}
+            max={60}
+            value={pos?.size ?? (FIELDS.find(f => f.key === fieldKey)?.defaultSize ?? 8)}
+            onChange={e => onSizeChange(Number(e.target.value))}
+            className="h-6 w-14 text-[11px] px-1.5 py-0"
+            title="Rozmiar (pt)"
+          />
+          <span className="text-[10px] text-muted-foreground">pt</span>
+          {pos && (
+            <button
+              onClick={onClear}
+              className="ml-1 text-muted-foreground hover:text-destructive text-[11px] font-bold leading-none px-1"
+              title="Usuń pozycję"
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Nudge controls — only when selected and placed */}
+      {isSelected && pos && (
+        <div
+          className="flex items-center gap-3 pt-1 pl-5"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* X nudge */}
+          <div className="flex items-center gap-1">
+            <span className="text-[9px] font-bold text-muted-foreground w-3">X</span>
+            <button
+              className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center leading-none"
+              title="X −0.2%"
+              onClick={() => onNudge(fieldKey, 'x', -0.2)}
+            >◀</button>
+            <span className="text-[10px] font-mono w-10 text-center select-none">{pos.x.toFixed(1)}%</span>
+            <button
+              className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center leading-none"
+              title="X +0.2%"
+              onClick={() => onNudge(fieldKey, 'x', 0.2)}
+            >▶</button>
+          </div>
+          {/* Y nudge */}
+          <div className="flex items-center gap-1">
+            <span className="text-[9px] font-bold text-muted-foreground w-3">Y</span>
+            <button
+              className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center leading-none"
+              title="Y −0.2%"
+              onClick={() => onNudge(fieldKey, 'y', -0.2)}
+            >▲</button>
+            <span className="text-[10px] font-mono w-10 text-center select-none">{pos.y.toFixed(1)}%</span>
+            <button
+              className="w-5 h-5 rounded border border-border bg-background hover:bg-muted text-[10px] font-bold flex items-center justify-center leading-none"
+              title="Y +0.2%"
+              onClick={() => onNudge(fieldKey, 'y', 0.2)}
+            >▼</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -259,6 +331,16 @@ export function LabelTemplateSetupPage() {
     })
   }
 
+  // Precyzyjne dosuwanie pola o 0.2% w osi x lub y
+  function handleNudge(fieldKey: string, axis: 'x' | 'y', delta: number) {
+    setFieldPositions(prev => {
+      const pos = prev[fieldKey]
+      if (!pos) return prev
+      const newVal = Math.max(0, Math.min(100, Math.round((pos[axis] + delta) * 10) / 10))
+      return { ...prev, [fieldKey]: { ...pos, [axis]: newVal } }
+    })
+  }
+
   async function handleSave() {
     if (!clientId || !recipeId) {
       toast.error('Wybierz klienta i recepturę')
@@ -283,7 +365,9 @@ export function LabelTemplateSetupPage() {
     }
   }
 
-  const clientName = (clients ?? []).find((c: any) => c.id === clientId)?.name ?? clientId
+  // BUG 2 FIX: clientId now holds the client NAME (Select value={c.name}),
+  // so clientName === clientId; fallback to clientId is correct for both new and legacy.
+  const clientName = clientId
   const recipeName = (recipes ?? []).find((r: any) => r.id === recipeId)?.name ?? recipeId
   const isReady    = Boolean(clientId && recipeId)
 
@@ -326,7 +410,8 @@ export function LabelTemplateSetupPage() {
                     {(clients ?? [])
                       .filter((c: any) => c.active !== false)
                       .map((c: any) => (
-                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        // BUG 2 FIX: value={c.name} — key by NAME so save and print use the same key
+                        <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
                       ))}
                   </SelectContent>
                 </Select>
@@ -422,7 +507,7 @@ export function LabelTemplateSetupPage() {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,600px)] gap-5">
 
                 {/* Lista pól */}
                 <div className="space-y-2 order-2 lg:order-1">
@@ -439,6 +524,7 @@ export function LabelTemplateSetupPage() {
                       onSelect={() => setSelectedField(prev => prev === f.key ? null : f.key)}
                       onSizeChange={size => handleSizeChange(f.key, size)}
                       onClear={() => handleClearField(f.key)}
+                      onNudge={handleNudge}
                     />
                   ))}
 
@@ -460,7 +546,7 @@ export function LabelTemplateSetupPage() {
                   </div>
                 </div>
 
-                {/* Podgląd */}
+                {/* Podgląd — enlarged for precise placement */}
                 <div className="order-1 lg:order-2">
                   <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">
                     Podgląd etykiety
@@ -469,7 +555,8 @@ export function LabelTemplateSetupPage() {
                     ref={previewRef}
                     onClick={handlePreviewClick}
                     style={{
-                      width: 360,
+                      width: '100%',
+                      maxWidth: 600,
                       position: 'relative',
                       border: '1.5px solid #e2e8f0',
                       borderRadius: 8,
