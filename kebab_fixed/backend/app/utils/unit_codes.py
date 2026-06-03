@@ -72,7 +72,7 @@ def validate_pack(unit: Dict, carton: Dict) -> Tuple[bool, str]:
     return True, ""
 
 
-def pallet_line_key(product_type_id, recipe_id, weight) -> tuple:
+def pallet_line_key(product_type_id: Optional[str], recipe_id: Optional[str], weight) -> tuple:
     """Klucz grupujący pozycję: (produkt, receptura, waga zaokrąglona do 3 miejsc)."""
     return (
         (product_type_id or ""),
@@ -81,7 +81,7 @@ def pallet_line_key(product_type_id, recipe_id, weight) -> tuple:
     )
 
 
-def validate_pack_to_pallet(unit, pallet_order_id, planned_by_key, packed_by_key):
+def validate_pack_to_pallet(unit: Dict, pallet_order_id: Optional[str], planned_by_key: Dict, packed_by_key: Dict) -> Tuple[bool, str, Optional[tuple]]:
     """Czysta walidacja pakowania sztuki do palety.
 
     unit: dict {status, order_id, product_type_id, recipe_id, weight_kg}
@@ -105,7 +105,7 @@ def validate_pack_to_pallet(unit, pallet_order_id, planned_by_key, packed_by_key
     if key not in planned_by_key:
         return False, "Inny produkt/waga niż na palecie", None
 
-    if int(packed_by_key.get(key, 0)) >= int(planned_by_key[key]):
+    if int(packed_by_key.get(key) or 0) >= int(planned_by_key.get(key) or 0):
         return False, "Pozycja palety pełna", None
 
     return True, "", key

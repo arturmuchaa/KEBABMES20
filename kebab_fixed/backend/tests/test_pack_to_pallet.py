@@ -52,13 +52,13 @@ def test_position_full():
 
 
 def test_different_batches_allowed():
-    ok1, _, _ = validate_pack_to_pallet(
-        _unit(), pallet_order_id="O1",
-        planned_by_key={P1R1_40: 20}, packed_by_key={P1R1_40: 0})
-    ok2, _, _ = validate_pack_to_pallet(
-        _unit(), pallet_order_id="O1",
-        planned_by_key={P1R1_40: 20}, packed_by_key={P1R1_40: 1})
-    assert ok1 is True and ok2 is True
+    key = P1R1_40
+    plan = {key: 20}
+    u1 = {**_unit(), "batch_no": "B1"}
+    u2 = {**_unit(), "batch_no": "B2"}
+    ok1, _, k1 = validate_pack_to_pallet(u1, "O1", plan, {key: 0})
+    ok2, _, k2 = validate_pack_to_pallet(u2, "O1", plan, {key: 1})
+    assert ok1 is True and ok2 is True and k1 == k2
 
 
 def test_pallet_line_key_rounds_weight():
