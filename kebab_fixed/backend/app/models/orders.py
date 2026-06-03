@@ -44,3 +44,7 @@ class PalletScanRequest(BaseModel):
     action: str
     operator: str = ""
     vehicle_id: str = ""
+
+
+class PackUnitRequest(BaseModel):
+    code: str
