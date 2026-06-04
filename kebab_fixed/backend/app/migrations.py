@@ -315,6 +315,40 @@ _DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_hdi_status ON hdi_documents(status)",
     "CREATE INDEX IF NOT EXISTS idx_hdi_order ON hdi_documents(order_id)",
 
+    # ── Przewoźnicy (słownik) ──
+    """CREATE TABLE IF NOT EXISTS carriers (
+        id            TEXT PRIMARY KEY,
+        name          TEXT NOT NULL,
+        address       TEXT DEFAULT '',
+        postal_code   TEXT DEFAULT '',
+        city          TEXT DEFAULT '',
+        country       TEXT DEFAULT '',
+        nip           TEXT DEFAULT '',
+        vat_eu        TEXT DEFAULT '',
+        default_plate TEXT DEFAULT '',
+        phone         TEXT DEFAULT '',
+        notes         TEXT DEFAULT '',
+        active        BOOLEAN NOT NULL DEFAULT true,
+        created_at    TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_carriers_active ON carriers(active)",
+
+    # ── CMR dokumenty ──
+    """CREATE TABLE IF NOT EXISTS cmr_documents (
+        id           TEXT PRIMARY KEY,
+        number       TEXT NOT NULL,
+        seq          INTEGER NOT NULL,
+        order_id     TEXT,
+        client_name  TEXT DEFAULT '',
+        carrier_id   TEXT,
+        status       TEXT NOT NULL DEFAULT 'wystawiony',
+        payload      JSONB NOT NULL DEFAULT '{}',
+        issue_date   TEXT DEFAULT '',
+        created_at   TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_cmr_order ON cmr_documents(order_id)",
+    "CREATE INDEX IF NOT EXISTS idx_cmr_created ON cmr_documents(created_at)",
+
     """CREATE TABLE IF NOT EXISTS cartons (
         id              TEXT PRIMARY KEY,
         order_id        TEXT,
