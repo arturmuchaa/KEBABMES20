@@ -5,12 +5,14 @@ import QRCode from 'qrcode'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, orderPalletsApi } from '@/lib/apiClient'
 import { fmtKg } from '@/lib/utils'
+import { useClientNames } from '@/lib/clientNames'
 
 function formatKgCompact(value: number) {
   return Number.isInteger(value) ? fmtKg(value, 0) : fmtKg(value, 1)
 }
 
 export function PalletLabelPrintPage() {
+  const clientDisplay = useClientNames()
   const { id = '', palletNo = '' } = useParams<{ id: string; palletNo: string }>()
   const orderRes = useApi(() => clientOrdersApi.byId(id), [id])
   const palletsRes = useApi(() => orderPalletsApi.list(id), [id])
@@ -223,7 +225,7 @@ export function PalletLabelPrintPage() {
                 visibility: layoutReady ? 'visible' : 'hidden',
               }}
             >
-              <div>{order.clientName}</div>
+              <div>{clientDisplay(order.clientName)}</div>
               <div className="mt-4">{stats.mainLabel}</div>
             </div>
           </div>

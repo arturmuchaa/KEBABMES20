@@ -15,8 +15,10 @@ import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, orderPalletsApi, settingsApi, type OrderPallet } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl } from '@/lib/utils'
 import { Printer, ArrowLeft } from 'lucide-react'
+import { useClientNames } from '@/lib/clientNames'
 
 export function OrderPrintPage() {
+  const clientDisplay = useClientNames()
   const { id = '' } = useParams<{ id: string }>()
 
   const orderRes   = useApi(() => clientOrdersApi.byId(id), [id])
@@ -148,7 +150,7 @@ export function OrderPrintPage() {
         {/* Odbiorca */}
         <div className="mb-5 text-sm">
           <div className="text-xs uppercase tracking-wide text-slate-500 font-semibold mb-1">Odbiorca</div>
-          <div className="font-bold text-base">{order.clientName}</div>
+          <div className="font-bold text-base">{clientDisplay(order.clientName)}</div>
         </div>
 
         {/* Tabela pozycji */}
