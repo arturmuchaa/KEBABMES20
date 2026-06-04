@@ -5,10 +5,12 @@ import { dispatchesApi, clientsApi, type DispatchScanResult, type DispatchBatchR
 import { useApi } from '@/hooks/useApi'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { beepOk, beepErr } from '@/features/pwa/beep'
+import { useClientNames } from '@/lib/clientNames'
 
 interface ActiveDispatch { id: string; clientName: string; qty: number }
 
 export function MobileWydanieLuzemPage() {
+  const clientDisplay = useClientNames()
   const [dispatch, setDispatch] = useState<ActiveDispatch | null>(null)
   const [batch, setBatch] = useState<DispatchBatchRow[]>([])
   const [clientName, setClientName] = useState('')
@@ -97,7 +99,7 @@ export function MobileWydanieLuzemPage() {
             <div className="flex items-center justify-between gap-2 rounded-xl border border-orange-300 bg-orange-50 px-3 py-3">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-orange-600">Wydanie otwarte</div>
-                <div className="text-sm font-bold">{dispatch.clientName}</div>
+                <div className="text-sm font-bold">{clientDisplay(dispatch.clientName)}</div>
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-2xl font-bold tabular-nums text-orange-700">{dispatch.qty} szt</div>
@@ -140,7 +142,7 @@ export function MobileWydanieLuzemPage() {
               <select value={clientId} onChange={(e) => { setClientId(e.target.value); setClientName(clients.find((c: any) => c.id === e.target.value)?.name ?? '') }}
                 className="mb-3 w-full rounded-lg border-2 border-slate-300 bg-white px-3 py-2 text-base">
                 <option value="">— wybierz —</option>
-                {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {clients.map((c: any) => <option key={c.id} value={c.id}>{c.displayName || c.name}</option>)}
               </select>
               <button onClick={createDispatch} className="w-full rounded-lg bg-orange-600 px-4 py-3 text-base font-bold text-white hover:bg-orange-700">Rozpocznij wydanie</button>
               {last && !last.ok && <div className="mt-2 text-sm text-red-700">{last.message}</div>}
@@ -153,7 +155,7 @@ export function MobileWydanieLuzemPage() {
                   {openList.map(d => (
                     <li key={d.id}>
                       <button onClick={() => openExisting(d.id, d.clientName)} className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:bg-orange-50">
-                        <span className="text-sm font-semibold">{d.clientName || '—'}</span>
+                        <span className="text-sm font-semibold">{d.clientName ? clientDisplay(d.clientName) : '—'}</span>
                         <span className="text-sm font-bold tabular-nums text-orange-700">{d.qty} szt</span>
                       </button>
                     </li>

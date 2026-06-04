@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { finishedUnitsApi, type FinishedUnitCard } from '@/lib/api'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
+import { useClientNames } from '@/lib/clientNames'
 
 // ─── helpers ────────────────────────────────────────────────────
 
@@ -59,6 +60,7 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 // ─── Main page ──────────────────────────────────────────────────
 
 export function MobileSztukaPage() {
+  const clientDisplay = useClientNames()
   const [value,       setValue]       = useState('')
   const [busy,        setBusy]        = useState(false)
   const [card,        setCard]        = useState<FinishedUnitCard | null>(null)
@@ -178,7 +180,7 @@ export function MobileSztukaPage() {
 
             {/* Rows */}
             <div className="px-4 py-1">
-              <Row label="Klient"          value={card.clientName || '—'} />
+              <Row label="Klient"          value={clientDisplay(card.clientName) || '—'} />
               <Row label="Waga"            value={card.weightKg != null ? `${card.weightKg} kg` : '—'} />
               <Row label="Receptura"       value={card.recipeId || '—'} />
               <Row label="Tuleja"          value={card.tuleja || '—'} />

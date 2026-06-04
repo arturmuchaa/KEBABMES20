@@ -16,6 +16,7 @@ import {
 import { useApi } from '@/hooks/useApi'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { fmtKg } from '@/lib/utils'
+import { useClientNames } from '@/lib/clientNames'
 
 type Toast = { ok: boolean; message: string; ts: number }
 const storageKeyFor = (vehicleId: string) =>
@@ -159,6 +160,7 @@ function PalletRow({ p }: { p: OrderPallet }) {
 }
 
 export function MobileZaladunekPage() {
+  const clientDisplay = useClientNames()
   const { vehicleId = '' } = useParams<{ vehicleId: string }>()
   const storageKey = storageKeyFor(vehicleId)
 
@@ -389,9 +391,9 @@ export function MobileZaladunekPage() {
                       const o = ordersById.get(id)
                       const status = statuses[id]
                       const headline = o
-                        ? `${o.orderNo} · ${o.clientName}`
+                        ? `${o.orderNo} · ${clientDisplay(o.clientName)}`
                         : status
-                          ? `${status.order.orderNo} · ${status.order.clientName}`
+                          ? `${status.order.orderNo} · ${clientDisplay(status.order.clientName)}`
                           : id
                       const meta = o
                         ? `${o.loadedPallets}/${o.totalPallets} palet${o.deliveryDate ? ` · ${o.deliveryDate}` : ''}`
@@ -475,7 +477,7 @@ export function MobileZaladunekPage() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-sm font-semibold text-slate-900">
-                              {o.orderNo} · {o.clientName}
+                              {o.orderNo} · {clientDisplay(o.clientName)}
                             </div>
                             <div className="text-xs text-slate-500">
                               {o.loadedPallets}/{o.totalPallets} palet {dd}
@@ -591,7 +593,7 @@ export function MobileZaladunekPage() {
                             {idx + 1}
                           </div>
                           <div className="min-w-0">
-                            <div className="truncate text-sm font-bold text-slate-900">{s.order.clientName}</div>
+                            <div className="truncate text-sm font-bold text-slate-900">{clientDisplay(s.order.clientName)}</div>
                             <div className="text-xs text-slate-500">Zam. {s.order.orderNo}</div>
                           </div>
                         </div>

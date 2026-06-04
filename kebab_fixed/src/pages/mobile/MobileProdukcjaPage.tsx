@@ -4,6 +4,7 @@ import { ArrowLeft, Camera, CheckCircle2, AlertTriangle, Factory } from 'lucide-
 import { finishedUnitsApi, type ScanProducedResult } from '@/lib/api'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { beepOk, beepErr } from '@/features/pwa/beep'
+import { useClientNames } from '@/lib/clientNames'
 
 interface ScanEntry {
   ts: number
@@ -13,6 +14,7 @@ interface ScanEntry {
 }
 
 export function MobileProdukcjaPage() {
+  const clientDisplay = useClientNames()
   const [value, setValue] = useState('')
   const [trolleyId, setTrolleyId] = useState('')
   const [busy, setBusy] = useState(false)
@@ -35,7 +37,7 @@ export function MobileProdukcjaPage() {
       setLast({
         ts: Date.now(),
         ok: true,
-        message: `${result.clientName} · partia ${result.batchNo} · ${result.weightKg} kg`,
+        message: `${clientDisplay(result.clientName)} · partia ${result.batchNo} · ${result.weightKg} kg`,
         result,
       })
       beepOk()

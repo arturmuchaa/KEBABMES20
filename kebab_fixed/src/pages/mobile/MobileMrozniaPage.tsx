@@ -7,6 +7,7 @@ import { palletScanApi, type ColdStoragePallet, type PalletScanResult } from '@/
 import { useApi } from '@/hooks/useApi'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { fmtKg } from '@/lib/utils'
+import { useClientNames } from '@/lib/clientNames'
 
 interface HistoryEntry {
   ts: number
@@ -39,6 +40,7 @@ function partsLabel(parts: { qty: number; kgPerUnit: number }[]): string {
 }
 
 export function MobileMrozniaPage() {
+  const clientDisplay = useClientNames()
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [last, setLast] = useState<HistoryEntry | null>(null)
@@ -93,7 +95,7 @@ export function MobileMrozniaPage() {
       setLast({
         ts: Date.now(),
         ok: true,
-        message: `P${result.palletNo} → mroźnia (${result.order.clientName})`,
+        message: `P${result.palletNo} → mroźnia (${clientDisplay(result.order.clientName)})`,
         pallet: result,
       })
       try { navigator.vibrate?.(80) } catch {}
@@ -214,7 +216,7 @@ export function MobileMrozniaPage() {
               <div key={g.orderId} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                 <div className="flex items-baseline justify-between gap-2 border-b border-slate-200 px-3 py-2 bg-slate-50">
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-bold text-slate-900">{g.clientName}</div>
+                    <div className="truncate text-sm font-bold text-slate-900">{clientDisplay(g.clientName)}</div>
                     <div className="text-xs text-slate-500">
                       Zam. {g.orderNo}{g.deliveryDate ? ` · dostawa ${g.deliveryDate}` : ''}
                     </div>

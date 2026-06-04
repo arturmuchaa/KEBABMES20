@@ -12,6 +12,7 @@ import {
   type Vehicle,
 } from '@/lib/api'
 import { fmtKg } from '@/lib/utils'
+import { useClientNames } from '@/lib/clientNames'
 
 const LAST_VEHICLE_KEY = 'kebab.mobile.lastVehicleId'
 
@@ -45,6 +46,7 @@ function StatusPill({ status }: { status: string }) {
 }
 
 export function MobilePalletLandingPage() {
+  const clientDisplay = useClientNames()
   const { orderId = '', palletNo = '' } = useParams<{ orderId: string; palletNo: string }>()
   const navigate = useNavigate()
 
@@ -114,7 +116,7 @@ export function MobilePalletLandingPage() {
           <>
             <section className="rounded-xl border border-white/10 bg-slate-800/60 p-4">
               <div className="text-xs uppercase tracking-wide text-slate-400">Zamówienie</div>
-              <div className="text-lg font-bold">{state.pallet.order.clientName}</div>
+              <div className="text-lg font-bold">{clientDisplay(state.pallet.order.clientName)}</div>
               <div className="text-sm text-slate-300">
                 {state.pallet.order.orderNo}
                 {state.pallet.order.deliveryDate ? ` · ${state.pallet.order.deliveryDate}` : ''}
@@ -147,7 +149,7 @@ export function MobilePalletLandingPage() {
                   {state.action === 'cold_storage' ? 'W MROŹNI' : 'ZAŁADOWANE'}
                 </div>
                 <div className="mt-1 text-sm text-slate-200">
-                  P{state.pallet.palletNo} · {state.pallet.order.clientName}
+                  P{state.pallet.palletNo} · {clientDisplay(state.pallet.order.clientName)}
                 </div>
                 <div className="text-xs text-slate-400">{state.pallet.order.orderNo}</div>
               </div>
