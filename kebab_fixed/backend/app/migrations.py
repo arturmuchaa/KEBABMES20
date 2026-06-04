@@ -295,6 +295,26 @@ _DDL: list[str] = [
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_address TEXT DEFAULT ''",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_city TEXT DEFAULT ''",
 
+    # ── HDI dokumenty ──
+    """CREATE TABLE IF NOT EXISTS hdi_documents (
+        id           TEXT PRIMARY KEY,
+        number       TEXT NOT NULL,
+        seq          INTEGER NOT NULL,
+        year_month   TEXT NOT NULL,
+        order_id     TEXT,
+        client_name  TEXT DEFAULT '',
+        language     TEXT DEFAULT 'pl',
+        status       TEXT NOT NULL DEFAULT 'wstepny',
+        incomplete   BOOLEAN NOT NULL DEFAULT false,
+        header       JSONB NOT NULL DEFAULT '{}',
+        items        JSONB NOT NULL DEFAULT '[]',
+        totals       JSONB NOT NULL DEFAULT '{}',
+        issue_date   TEXT DEFAULT '',
+        created_at   TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_hdi_status ON hdi_documents(status)",
+    "CREATE INDEX IF NOT EXISTS idx_hdi_order ON hdi_documents(order_id)",
+
     """CREATE TABLE IF NOT EXISTS cartons (
         id              TEXT PRIMARY KEY,
         order_id        TEXT,
