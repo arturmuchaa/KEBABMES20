@@ -736,6 +736,41 @@ export const palletsApi = {
     get<PalletBatchRow[]>(`/pallets/${palletId}/batch-breakdown`),
 }
 
+// ─── Wydania luzem (dispatches) ─────────────────────────────────
+export interface DispatchBatchRow { batchNo: string; qty: number; weightKg: number }
+
+export interface DispatchScanResult {
+  ok: boolean
+  reason: string
+  qty: number
+  batchBreakdown: DispatchBatchRow[]
+}
+
+export interface DispatchOpen {
+  id: string; clientName: string; vehicleId: string | null
+  cmrRequested: boolean; qty: number; createdAt: string
+}
+
+export const dispatchesApi = {
+  create: (dto: { clientId?: string; clientName: string; vehicleId?: string; cmrRequested?: boolean }) =>
+    post<{ id: string; status: string }>('/dispatches', {
+      client_id: dto.clientId ?? null,
+      client_name: dto.clientName,
+      vehicle_id: dto.vehicleId ?? null,
+      cmr_requested: !!dto.cmrRequested,
+    }),
+  listOpen: () =>
+    get<any[]>('/dispatches/open').then(rows => (rows ?? []).map((r: any): DispatchOpen => ({
+      id: r.id, clientName: r.client_name ?? '', vehicleId: r.vehicle_id ?? null,
+      cmrRequested: !!r.cmr_requested, qty: Number(r.qty ?? 0), createdAt: r.created_at ?? '',
+    }))),
+  detail: (id: string) => get<any>(`/dispatches/${id}`),
+  scan: (id: string, code: string) => post<DispatchScanResult>(`/dispatches/${id}/scan`, { code }),
+  remove: (id: string, code: string) => post<DispatchScanResult>(`/dispatches/${id}/remove`, { code }),
+  close: (id: string) => post<{ id: string; status: string; units: number }>(`/dispatches/${id}/close`, {}),
+  batchBreakdown: (id: string) => get<DispatchBatchRow[]>(`/dispatches/${id}/batch-breakdown`),
+}
+
 // ─── Skanowanie palet (QR) ──────────────────────────────────────
 export interface PalletScanResult {
   id:           string
