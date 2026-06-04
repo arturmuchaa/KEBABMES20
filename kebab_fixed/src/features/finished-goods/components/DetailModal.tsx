@@ -96,7 +96,7 @@ export function LineageChain({ batchId }: { batchId: string }) {
           label="Rozbiór · mięso z/s"
           items={deboning}
           extractKey={(d) => d.id}
-          extractLabel={(d) => d.meatLotNo || d.meat_lot_no || d.id.slice(0,8)}
+          extractLabel={(d) => d.rawBatchNo || d.raw_batch_no || d.meatLotNo || d.meat_lot_no || d.id.slice(0,8)}
           extractSub={(d) => {
             const kg = Number(d.kgMeat ?? d.kg_meat ?? 0)
             return kg > 0 ? `${fmtKg(kg, 1)} kg` : null

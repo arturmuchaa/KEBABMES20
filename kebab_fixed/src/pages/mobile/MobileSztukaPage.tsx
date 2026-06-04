@@ -182,7 +182,8 @@ export function MobileSztukaPage() {
             <div className="px-4 py-1">
               <Row label="Klient"          value={clientDisplay(card.clientName) || '—'} />
               <Row label="Waga"            value={card.weightKg != null ? `${card.weightKg} kg` : '—'} />
-              <Row label="Receptura"       value={card.recipeId || '—'} />
+              <Row label="Produkt"         value={card.productTypeName || '—'} />
+              <Row label="Receptura"       value={card.recipeName || card.recipeId || '—'} />
               <Row label="Tuleja"          value={card.tuleja || '—'} />
               <Row label="Data produkcji"  value={fmtDate(card.producedAt)} />
               <Row label="Lokalizacja"     value={locationLabel(card)} />

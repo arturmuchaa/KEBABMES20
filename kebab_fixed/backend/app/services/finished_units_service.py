@@ -147,13 +147,17 @@ def lookup_unit(code: str) -> Dict[str, Any]:
     unit = query_one("SELECT * FROM finished_units WHERE id=%s", (unit_id,))
     if not unit:
         raise HTTPException(404, "Sztuka nie znaleziona")
+    recipe = query_one("SELECT name FROM recipes WHERE id=%s", (unit.get("recipe_id"),)) or {}
+    ptype = query_one("SELECT name FROM product_types WHERE id=%s", (unit.get("product_type_id"),)) or {}
     return {
         "id": unit["id"],
         "qrCode": unit["qr_code"],
         "status": unit["status"],
         "clientName": unit.get("client_name") or "",
         "productTypeId": unit.get("product_type_id") or "",
+        "productTypeName": ptype.get("name") or "",
         "recipeId": unit.get("recipe_id") or "",
+        "recipeName": recipe.get("name") or "",
         "tuleja": unit.get("tuleja") or "",
         "weightKg": float(unit.get("weight_kg") or 0),
         "batchNo": unit.get("batch_no") or "",

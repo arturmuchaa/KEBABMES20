@@ -112,9 +112,9 @@ export function LabelTemplatesPage() {
                     <TableRow key={tpl.id}>
                       <TableCell className="font-semibold">{tpl.clientId || <span className="text-muted-foreground">—</span>}</TableCell>
                       <TableCell>
-                        {recipeName !== tpl.recipeId
+                        {recipeName && recipeName !== tpl.recipeId
                           ? recipeName
-                          : <span className="font-mono text-xs text-muted-foreground">{tpl.recipeId}</span>}
+                          : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{formatLabel}</Badge>

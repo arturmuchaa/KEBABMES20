@@ -949,7 +949,9 @@ export interface FinishedUnitCard {
   status: string
   clientName: string
   productTypeId: string
+  productTypeName?: string
   recipeId: string
+  recipeName?: string
   tuleja: string
   weightKg: number
   batchNo: string
