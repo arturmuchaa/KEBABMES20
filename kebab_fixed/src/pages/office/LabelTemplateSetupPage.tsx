@@ -8,9 +8,9 @@
  *   4. Zapisz szablon
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { Save, Upload, ImageIcon, Tag, ZoomIn, ZoomOut } from 'lucide-react'
+import { Save, Upload, ImageIcon, Tag, ZoomIn, ZoomOut, ArrowLeft } from 'lucide-react'
 import QRCode from 'qrcode'
 import { useApi } from '@/hooks/useApi'
 import { clientsApi, recipesApi, labelTemplatesApi } from '@/lib/apiClient'
@@ -360,6 +360,8 @@ function defaultSlotOffsets(count: number): LabelSlotOffset[] {
 // ─── Strona główna ─────────────────────────────────────────────
 export function LabelTemplateSetupPage() {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const goBack = () => navigate('/office/szablony-etykiet')
 
   // Dane z URL
   const urlClientId  = searchParams.get('clientId')  ?? ''
@@ -584,7 +586,29 @@ export function LabelTemplateSetupPage() {
   const isReady    = Boolean(clientId && recipeId)
 
   return (
-    <div className="space-y-5 animate-fade-in max-w-5xl">
+    <div className="min-h-screen w-full bg-slate-50 animate-fade-in">
+      {/* Pasek nawigacji — zawsze widoczny, łatwy powrót do dalszej pracy */}
+      <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-2.5 backdrop-blur lg:px-8">
+        <button
+          onClick={goBack}
+          className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+        >
+          <ArrowLeft size={16} /> Szablony etykiet
+        </button>
+        <Button
+          onClick={handleSave}
+          disabled={saving || !clientId || !recipeId}
+          size="sm"
+          className="gap-2"
+        >
+          {saving
+            ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            : <Save size={14} />}
+          Zapisz szablon
+        </Button>
+      </div>
+
+      <div className="mx-auto max-w-6xl space-y-5 px-4 py-5 lg:px-8">
 
       {/* Nagłówek */}
       <Card>
@@ -1065,6 +1089,9 @@ export function LabelTemplateSetupPage() {
 
           {/* Zapis */}
           <div className="flex items-center justify-end gap-3 pb-6">
+            <Button variant="outline" onClick={goBack} className="gap-2">
+              <ArrowLeft size={14} /> Wstecz
+            </Button>
             <Button
               onClick={handleSave}
               disabled={saving || !clientId || !recipeId}
@@ -1079,6 +1106,7 @@ export function LabelTemplateSetupPage() {
           </div>
         </>
       )}
+      </div>
     </div>
   )
 }
