@@ -117,23 +117,23 @@ export function HdiPrintPage() {
 
         /* ── Header meta row ── */
         .hdi .meta-table td {
-          border: 1px solid #000;
+          border: 1px solid #9a9a9a;
           padding: 3px 6px;
           vertical-align: middle;
         }
 
         /* ── Producer / market block ── */
         .hdi .header-table td {
-          border: 1px solid #000;
+          border: 1px solid #9a9a9a;
           padding: 3px 6px;
           vertical-align: top;
         }
 
         /* ── Products table ── */
         .hdi .prod-table th {
-          border: 1px solid #000;
+          border: 1px solid #9a9a9a;
           padding: 2px 4px;
-          background: #f0f0f0;
+          background: #e9e9e9;
           text-align: center;
           font-size: 8px;
           line-height: 1.2;
@@ -141,7 +141,7 @@ export function HdiPrintPage() {
           font-weight: bold;
         }
         .hdi .prod-table td {
-          border: 1px solid #000;
+          border: 1px solid #9a9a9a;
           padding: 2px 4px;
           vertical-align: middle;
           font-size: 9px;
@@ -149,9 +149,9 @@ export function HdiPrintPage() {
         .hdi .prod-table td.center { text-align: center; }
         .hdi .prod-table td.right { text-align: right; }
         .hdi .prod-table tr.total-row td {
-          background: #f8f8f8;
+          background: #ededed;
           font-weight: bold;
-          border-top: 1.5px solid #000;
+          border-top: 1.5px solid #6f6f6f;
         }
         .hdi .prod-table tr.empty-row td {
           height: 14px;
@@ -185,7 +185,7 @@ export function HdiPrintPage() {
 
         /* ── Info table ── */
         .hdi .info-table td {
-          border: 1px solid #000;
+          border: 1px solid #9a9a9a;
           padding: 3px 6px;
           vertical-align: top;
           font-size: 9px;
@@ -195,11 +195,12 @@ export function HdiPrintPage() {
           white-space: nowrap;
           width: 26%;
           font-size: 8.5px;
+          background: #f0f0f0;
         }
 
         /* ── Remarks ── */
         .hdi .remarks-box {
-          border: 1px solid #000;
+          border: 1px solid #9a9a9a;
           padding: 3px 6px;
           margin-top: 3px;
         }
@@ -294,6 +295,8 @@ export function HdiPrintPage() {
                 <div style={{ fontWeight: 'bold', marginBottom: '1px' }}>{bi('producer')}:</div>
                 <div style={{ fontWeight: 700, fontSize: '9.5px' }}>{h.producer_name}</div>
                 <div>{h.producer_addr}</div>
+                {h.producer_nip && <div>NIP: {h.producer_nip}</div>}
+                {h.producer_email && <div>E-mail: {h.producer_email}</div>}
               </td>
               <td style={{ width: '42%' }}>
                 <div style={{ fontSize: '7.5px', lineHeight: 1.2, marginBottom: '3px' }}>

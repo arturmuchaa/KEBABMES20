@@ -177,6 +177,7 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
     recipient = ", ".join(x for x in [client_name, client_addr, client.get('nip', '')] if x)
     header = {
         "producer_name": co.get("name", ""), "producer_addr": company_addr,
+        "producer_nip": co.get("nip", ""), "producer_email": co.get("email", ""),
         "vet_number": co.get("vet_number", ""),
         "market_domestic": bool(co.get("market_domestic", True)),
         "market_eu": bool(co.get("market_eu", True)),
@@ -195,6 +196,28 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
 
 def generate_hdi(order_id: str) -> Dict[str, Any]:
     data = build_hdi(order_id)
+    # Numer HDI jest STAŁY per zamówienie/wydanie. Jeśli dokument dla tego
+    # zamówienia już istnieje, NIE nabijamy kolejnego numeru — zwracamy ten sam.
+    # Dopóki status to 'wstepny', odświeżamy jego treść (stan produkcji mógł się
+    # zmienić), zachowując numer; po potwierdzeniu zwracamy bez zmian.
+    existing = query_one(
+        "SELECT id, number, status FROM hdi_documents WHERE order_id=%s ORDER BY created_at LIMIT 1",
+        (order_id,))
+    if existing:
+        if existing["status"] == "wstepny":
+            with transaction() as conn:
+                cx_execute(conn,
+                    """UPDATE hdi_documents
+                       SET client_name=%s, language=%s, incomplete=%s,
+                           header=%s::jsonb, items=%s::jsonb, totals=%s::jsonb
+                       WHERE id=%s""",
+                    (data["client_name"], data["language"], data["incomplete"],
+                     json.dumps(data["header"]), json.dumps(data["items"]),
+                     json.dumps(data["totals"]), existing["id"]))
+        logger.info("hdi.reused", extra={"hdi_id": existing["id"], "number": existing["number"]})
+        return {"id": existing["id"], "number": existing["number"], "status": existing["status"],
+                "incomplete": data["incomplete"], "totals": data["totals"]}
+
     today = datetime.now()
     ym = today.strftime("%y%m")  # RRMM
     hid = cuid()
