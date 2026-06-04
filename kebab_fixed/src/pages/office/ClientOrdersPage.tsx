@@ -4,6 +4,7 @@
 import { Fragment, useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, clientsApi, packagingApi } from '@/lib/apiClient'
+import { hdiApi } from '@/lib/api'
 import { useClientNames } from '@/lib/clientNames'
 import { fmtKg, fmtDatePl, todayIso, cn } from '@/lib/utils'
 import {
@@ -500,6 +501,23 @@ export function ClientOrdersPage() {
                               title="Drukuj"
                             >
                               <Printer size={13}/>
+                            </button>
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                try {
+                                  const r = await hdiApi.generate(o.id)
+                                  const url = `/office/hdi/${r.id}/druk`
+                                  const win = window.open(url, '_blank')
+                                  if (!win || win.closed || typeof win.closed === 'undefined') window.location.href = url
+                                } catch (err) {
+                                  alert(err instanceof Error ? err.message : 'Błąd generowania HDI')
+                                }
+                              }}
+                              className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-violet-700 hover:bg-violet-50"
+                              title="Generuj HDI"
+                            >
+                              HDI
                             </button>
                             {o.status === 'draft' && (
                               <button

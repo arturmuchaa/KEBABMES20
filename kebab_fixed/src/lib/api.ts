@@ -1031,6 +1031,26 @@ export const labelsZebraApi = {
       `&client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
 }
 
+// ─── HDI ────────────────────────────────────────────────────────
+export interface HdiBatch { partia: string; termin: string; qty: number }
+export interface HdiItem { name: string; qty: number; kg: number; batches: HdiBatch[] }
+export interface HdiDoc {
+  id: string; number: string; clientName: string; language: string; status: string
+  incomplete: boolean; issueDate: string
+  header: Record<string, any>; items: HdiItem[]; totals: { qty: number; kg: number }
+}
+
+export const hdiApi = {
+  generate: (orderId: string) =>
+    post<{ id: string; number: string; status: string }>(`/hdi/generate?order_id=${encodeURIComponent(orderId)}`, {}),
+  get: (id: string) => get<any>(`/hdi/${id}`).then((r: any): HdiDoc => ({
+    id: r.id, number: r.number, clientName: r.client_name ?? '', language: r.language ?? 'pl',
+    status: r.status ?? 'wstepny', incomplete: !!r.incomplete, issueDate: r.issue_date ?? '',
+    header: r.header ?? {}, items: r.items ?? [], totals: r.totals ?? { qty: 0, kg: 0 },
+  })),
+  list: () => get<any[]>('/hdi'),
+}
+
 // ─── Ustawienia firmy (do wydruków) ─────────────────────────────
 export interface CompanySettings {
   name:       string
