@@ -9,6 +9,16 @@ from app.utils.ids import cuid
 logger = get_logger(__name__)
 
 
+def _no_nul(s) -> str:
+    """PostgreSQL TEXT nie przyjmuje znaku NUL (0x00) — usuń go.
+
+    Rastrowe eksporty .prn (EPL z grafiką GW) zawierają bajty 0x00, które
+    psycopg odrzuca ('A string literal cannot contain NUL'). Czyścimy je,
+    by zapis szablonu nie zwracał 500.
+    """
+    return (str(s) if s is not None else "").replace("\x00", "")
+
+
 def _row_to_summary(row: Dict[str, Any]) -> Dict[str, Any]:
     """Mapuje wiersz DB na camelCase (bez backgroundData — dla listy/upsert)."""
     return {
@@ -75,12 +85,12 @@ def upsert_template(dto: Dict[str, Any]) -> Dict[str, Any]:
                 dto.get("client_id") or "",
                 dto.get("recipe_id") or "",
                 dto.get("kind") or "overlay",
-                dto.get("background_data") or "",
-                dto.get("background_pdf") or "",
+                _no_nul(dto.get("background_data")),
+                _no_nul(dto.get("background_pdf")),
                 json.dumps(dto.get("field_positions") or {}),
                 dto.get("page_size") or "a4",
                 int(dto.get("labels_per_sheet") or 2),
-                dto.get("zpl") or "",
+                _no_nul(dto.get("zpl")),
                 json.dumps(dto.get("slot_offsets") or []),
             ),
         )
