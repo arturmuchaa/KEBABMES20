@@ -381,6 +381,8 @@ export function LabelTemplateSetupPage() {
   const [templateLoaded,  setTemplateLoaded]  = useState(false)
   const [zoom,            setZoom]            = useState(1)
   const [sampleQrUrl,     setSampleQrUrl]     = useState('')
+  const [kind,            setKind]            = useState<'overlay' | 'zpl'>('overlay')
+  const [zpl,             setZpl]             = useState('')
 
   const previewRef = useRef<HTMLDivElement>(null)
 
@@ -410,6 +412,8 @@ export function LabelTemplateSetupPage() {
       if (res.exists && res.template) {
         const tpl = res.template
         const perSheet = tpl.labelsPerSheet ?? 2
+        setKind(tpl.kind === 'zpl' ? 'zpl' : 'overlay')
+        setZpl(tpl.zpl ?? '')
         setBackgroundData(tpl.backgroundData ?? '')
         setBackgroundPdf(tpl.backgroundPdf ?? '')
         setFieldPositions(tpl.fieldPositions ?? {})
@@ -428,6 +432,8 @@ export function LabelTemplateSetupPage() {
           setSlotOffsets(defaultSlotOffsets(perSheet))
         }
       } else {
+        setKind('overlay')
+        setZpl('')
         setBackgroundData('')
         setBackgroundPdf('')
         setFieldPositions({})
@@ -563,7 +569,8 @@ export function LabelTemplateSetupPage() {
       await labelTemplatesApi.save({
         clientId,
         recipeId,
-        kind: 'overlay',
+        kind,
+        zpl,
         backgroundData,
         backgroundPdf,
         fieldPositions,
@@ -692,7 +699,32 @@ export function LabelTemplateSetupPage() {
         </CardContent>
       </Card>
 
-      {isReady && (
+      {/* Typ etykiety: nakładka PDF (A4) lub Zebra (ZPL) */}
+      <Card>
+        <CardContent className="pt-5 space-y-3">
+          <Label className="text-xs">Typ etykiety</Label>
+          <div className="flex gap-2">
+            <Button type="button" variant={kind === 'overlay' ? 'default' : 'outline'} size="sm" onClick={() => setKind('overlay')}>Nakładka PDF</Button>
+            <Button type="button" variant={kind === 'zpl' ? 'default' : 'outline'} size="sm" onClick={() => setKind('zpl')}>Zebra (ZPL)</Button>
+          </div>
+
+          {kind === 'zpl' && (
+            <div className="space-y-2">
+              <input type="file" accept=".prn,.zpl,.txt" onChange={async (e) => {
+                const f = e.target.files?.[0]; if (f) setZpl(await f.text())
+              }} className="block text-sm" />
+              <textarea value={zpl} onChange={e => setZpl(e.target.value)} rows={8}
+                placeholder="Wklej lub wgraj ZPL z ZebraDesigner (.prn)…"
+                className="w-full rounded-lg border-2 border-slate-300 p-2 font-mono text-xs" />
+              <div className="text-[11px] text-slate-500">
+                Placeholdery: <code>[[QR]] [[PARTIA]] [[DATA_PROD]] [[DATA_MROZ]] [[BEST_BEFORE]] [[WAGA]] [[NETTO]] [[KLIENT]] [[RECEPTURA]] [[PRODUKT]]</code>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {isReady && kind === 'overlay' && (
         <>
           {/* Wgranie tła */}
           <Card>
