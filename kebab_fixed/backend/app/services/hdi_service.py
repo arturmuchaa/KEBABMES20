@@ -184,6 +184,9 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
         "unload": dest or ", ".join(x for x in [client_name, client_addr] if x),
         "load": co.get("load_place") or company_addr,
         "seller": f"{co.get('name', '')}, {company_addr}".strip(", "),
+        # Nr rejestracyjny / typ samochodu — uzupełniany przy załadunku (wybór
+        # pojazdu); pusty, dopóki sztuki nie zostaną zeskanowane na konkretny wóz.
+        "reg_number": "",
     }
     return {"order_id": order_id, "client_name": order.get("client_name", ""), "language": lang,
             "incomplete": incomplete, "header": header, "items": items,

@@ -4,7 +4,7 @@ import { ArrowLeft, Printer } from 'lucide-react'
 import { hdiApi, type HdiDoc } from '@/lib/api'
 
 const L: Record<string, Record<string, string>> = {
-  pl: { title: 'HANDLOWY DOKUMENT IDENTYFIKACYJNY', number: 'Numer HDI', issue: 'Data wystawienia', producer: 'Producent', qual: 'Zakład zakwalifikowany do prowadzenia sprzedaży na rynek', vet: 'Weterynaryjny numer identyfikacyjny', dom: 'Krajowy /domestic market/ National', eu: 'Unii Europejskiej /UE / Europäische Union', superv: 'Zakład posiada stały nadzór weterynaryjny i wprowadzony system HACCP.', lp: 'L.P', cName: 'NAZWA TOWARU', cQty: 'L.B SZT.', cNet: 'MASA NETTO', cBatch: 'NR PARTII', cExp: 'TERMIN PRZYDATNOŚCI', total: 'RAZEM', recip: 'ODBIORCA', unload: 'MIEJSCE ROZŁADUNKU', regno: 'NUMER REJESTRACYJNY', fridge: 'Samochód zabudowany chłodnią -18°C', load: 'MIEJSCE ZAŁADUNKU', seller: 'SPRZEDAWCA', remarks: 'UWAGI / WARUNKI REKLAMACJI / COMMENTS/CONDITIONS REGARDING COMPLAINTS/ ANMERKUNGEN/VORAUSSETZUNGEN FÜR BESCHWERDEN/', ship: 'Data wysyłki', sign: 'Podpis Wystawiającego',
+  pl: { title: 'HANDLOWY DOKUMENT IDENTYFIKACYJNY', number: 'Numer HDI', issue: 'Data wystawienia', producer: 'Producent', qual: 'Zakład zakwalifikowany do prowadzenia sprzedaży na rynek', vet: 'Weterynaryjny numer identyfikacyjny', dom: 'Krajowy /domestic market/ National', eu: 'Unii Europejskiej /UE / Europäische Union', superv: 'Zakład posiada stały nadzór weterynaryjny i wprowadzony system HACCP.', lp: 'L.P', cName: 'NAZWA TOWARU', cQty: 'L.B SZT.', cNet: 'MASA NETTO', cBatch: 'NR PARTII', cExp: 'TERMIN PRZYDATNOŚCI', total: 'RAZEM', recip: 'ODBIORCA', unload: 'MIEJSCE ROZŁADUNKU', regno: 'NUMER REJESTRACYJNY / TYP SAMOCHODU', fridge: 'Samochód z zabudową mroźniczą -18°C', load: 'MIEJSCE ZAŁADUNKU', seller: 'SPRZEDAWCA', remarks: 'UWAGI / WARUNKI REKLAMACJI / COMMENTS/CONDITIONS REGARDING COMPLAINTS/ ANMERKUNGEN/VORAUSSETZUNGEN FÜR BESCHWERDEN/', ship: 'Data wysyłki', sign: 'Podpis Wystawiającego',
     c1pl: 'Wszelkie zastrzeżenia co do jakości i ilości towaru (reklamacje) należy zgłaszać w trakcie rozładunku i/lub do czasu podpisania dokumentów towarzyszących dostawie (faktura, WZ, CMR).',
     c1: 'Any objections to the quality or quantity of the goods (complaints) must be reported during loading/unloading and/or until the documents accompanying the delivery (invoice, delivery note, CMR) have been signed.',
     c2pl: 'Braki wagowe należy udokumentować w obecności osoby dostarczającej towar (kierowcy), na przyjętym w firmie formularzu, podpisanym przez obie strony. Następnie oryginał lub ksero załączyć do dokumentów zwrotnych.',
@@ -16,7 +16,7 @@ const L: Record<string, Record<string, string>> = {
     c5pl: 'Podpisując dokumenty towarzyszących dostawie (faktura, WZ, CMR) zgadzasz się z powyższymi i akceptujesz warunki reklamacji przyjętymi w firmie i udostępnianych na życzenie klienta.',
     c5: 'By signing the documents accompanying the delivery (invoice, delivery note, CMR), you agree with the above and accept the terms and conditions regarding complaints adopted by the company and made available on the client\'s request.',
   },
-  de: { title: 'HANDELSIDENTIFIKATIONSDOKUMENT', number: 'HDI-Nummer', issue: 'Datum der Ausgabe', producer: 'Hersteller', qual: 'Für den Verkauf auf dem Markt qualifizierte(r) Betrieb(e)', vet: 'Veterinärkontrollnummer', dom: 'National', eu: 'Europäische Union', superv: 'Der Betrieb wird ständig tierärztlich überwacht und verfügt über ein HACCP-System.', lp: 'L.P', cName: 'WARENBEZEICHNUNG', cQty: 'STÜCKZAHL', cNet: 'NETTOGEWICHT', cBatch: 'CHARGENNUMMER', cExp: 'MHD', total: 'GESAMT', recip: 'EMPFÄNGER', unload: 'ABLADEORT', regno: 'REGISTRIERNUMMER', fridge: 'Auto mit Kühlschrank -18°C', load: 'LADEORT', seller: 'VERKÄUFER', remarks: 'ANMERKUNGEN / VORAUSSETZUNGEN FÜR BESCHWERDEN', ship: 'Datum des Versands', sign: 'Unterschrift des Ausstellers',
+  de: { title: 'HANDELSIDENTIFIKATIONSDOKUMENT', number: 'HDI-Nummer', issue: 'Datum der Ausgabe', producer: 'Hersteller', qual: 'Für den Verkauf auf dem Markt qualifizierte(r) Betrieb(e)', vet: 'Veterinärkontrollnummer', dom: 'National', eu: 'Europäische Union', superv: 'Der Betrieb wird ständig tierärztlich überwacht und verfügt über ein HACCP-System.', lp: 'L.P', cName: 'WARENBEZEICHNUNG', cQty: 'STÜCKZAHL', cNet: 'NETTOGEWICHT', cBatch: 'CHARGENNUMMER', cExp: 'MHD', total: 'GESAMT', recip: 'EMPFÄNGER', unload: 'ABLADEORT', regno: 'REGISTRIERNUMMER / FAHRZEUGTYP', fridge: 'Auto mit Tiefkühlaufbau -18°C', load: 'LADEORT', seller: 'VERKÄUFER', remarks: 'ANMERKUNGEN / VORAUSSETZUNGEN FÜR BESCHWERDEN', ship: 'Datum des Versands', sign: 'Unterschrift des Ausstellers',
     c1pl: 'Wszelkie zastrzeżenia co do jakości i ilości towaru (reklamacje) należy zgłaszać w trakcie rozładunku i/lub do czasu podpisania dokumentów towarzyszących dostawie (faktura, WZ, CMR).',
     c1: 'Beanstandungen der Qualität und Menge der Ware (Reklamationen) müssen während des Be-/Entladens und/oder bis zur Unterzeichnung der Lieferpapiere (Rechnung, Lieferschein, CMR) erfolgen.',
     c2pl: 'Braki wagowe należy udokumentować w obecności osoby dostarczającej towar (kierowcy), na przyjętym w firmie formularzu, podpisanym przez obie strony. Następnie oryginał lub ksero załączyć do dokumentów zwrotnych.',
@@ -28,7 +28,7 @@ const L: Record<string, Record<string, string>> = {
     c5pl: 'Podpisując dokumenty towarzyszących dostawie (faktura, WZ, CMR) zgadzasz się z powyższymi i akceptujesz warunki reklamacji przyjętymi w firmie i udostępnianych na życzenie klienta.',
     c5: 'Mit Ihrer Unterschrift auf den der Lieferung beigefügten Dokumenten (Rechnung, Lieferschein, CMR) erklären Sie sich mit dem Vorstehenden einverstanden und akzeptieren die vom Unternehmen festgelegten und auf Anfrage zur Verfügung gestellten Reklamationsbedingungen.',
   },
-  en: { title: 'COMMERCIAL IDENTIFICATION DOCUMENT', number: 'HDI No.', issue: 'Date of issue', producer: 'Producer', qual: 'Establishment qualified to sell on the market', vet: 'Veterinary identification number', dom: 'Domestic market', eu: 'European Union', superv: 'The establishment is under permanent veterinary supervision and has a HACCP system.', lp: 'No.', cName: 'PRODUCT NAME', cQty: 'QTY', cNet: 'NET WEIGHT', cBatch: 'BATCH NO.', cExp: 'BEST BEFORE', total: 'TOTAL', recip: 'RECIPIENT', unload: 'UNLOADING PLACE', regno: 'REGISTRATION NUMBER', fridge: 'Refrigerated truck -18°C', load: 'LOADING PLACE', seller: 'SELLER', remarks: 'COMMENTS / CONDITIONS REGARDING COMPLAINTS', ship: 'Date of shipment', sign: 'Signature of the issuer',
+  en: { title: 'COMMERCIAL IDENTIFICATION DOCUMENT', number: 'HDI No.', issue: 'Date of issue', producer: 'Producer', qual: 'Establishment qualified to sell on the market', vet: 'Veterinary identification number', dom: 'Domestic market', eu: 'European Union', superv: 'The establishment is under permanent veterinary supervision and has a HACCP system.', lp: 'No.', cName: 'PRODUCT NAME', cQty: 'QTY', cNet: 'NET WEIGHT', cBatch: 'BATCH NO.', cExp: 'BEST BEFORE', total: 'TOTAL', recip: 'RECIPIENT', unload: 'UNLOADING PLACE', regno: 'REGISTRATION NUMBER / VEHICLE TYPE', fridge: 'Truck with freezer body -18°C', load: 'LOADING PLACE', seller: 'SELLER', remarks: 'COMMENTS / CONDITIONS REGARDING COMPLAINTS', ship: 'Date of shipment', sign: 'Signature of the issuer',
     c1pl: 'Wszelkie zastrzeżenia co do jakości i ilości towaru (reklamacje) należy zgłaszać w trakcie rozładunku i/lub do czasu podpisania dokumentów towarzyszących dostawie (faktura, WZ, CMR).',
     c1: 'Any objections to the quality or quantity of the goods (complaints) must be reported during loading/unloading and/or until the documents accompanying the delivery (invoice, delivery note, CMR) have been signed.',
     c2pl: 'Braki wagowe należy udokumentować w obecności osoby dostarczającej towar (kierowcy), na przyjętym w firmie formularzu, podpisanym przez obie strony. Następnie oryginał lub ksero załączyć do dokumentów zwrotnych.',
@@ -40,7 +40,7 @@ const L: Record<string, Record<string, string>> = {
     c5pl: 'Podpisując dokumenty towarzyszących dostawie (faktura, WZ, CMR) zgadzasz się z powyższymi i akceptujesz warunki reklamacji przyjętymi w firmie i udostępnianych na życzenie klienta.',
     c5: 'By signing the documents accompanying the delivery, you agree with the above and accept the terms and conditions regarding complaints.',
   },
-  sk: { title: 'OBCHODNÝ IDENTIFIKAČNÝ DOKLAD', number: 'Číslo HDI', issue: 'Dátum vystavenia', producer: 'Výrobca', qual: 'Prevádzka kvalifikovaná na predaj na trhu', vet: 'Veterinárne identifikačné číslo', dom: 'Domáci trh', eu: 'Európska únia', superv: 'Prevádzka je pod stálym veterinárnym dozorom a má zavedený systém HACCP.', lp: 'Č.', cName: 'NÁZOV TOVARU', cQty: 'KS', cNet: 'ČISTÁ HMOTNOSŤ', cBatch: 'ČÍSLO ŠARŽE', cExp: 'DÁTUM SPOTREBY', total: 'SPOLU', recip: 'PRÍJEMCA', unload: 'MIESTO VYKLÁDKY', regno: 'EVIDENČNÉ ČÍSLO', fridge: 'Auto s chladiarňou -18°C', load: 'MIESTO NAKLÁDKY', seller: 'PREDÁVAJÚCI', remarks: 'POZNÁMKY / PODMIENKY REKLAMÁCIE', ship: 'Dátum odoslania', sign: 'Podpis vystaviteľa',
+  sk: { title: 'OBCHODNÝ IDENTIFIKAČNÝ DOKLAD', number: 'Číslo HDI', issue: 'Dátum vystavenia', producer: 'Výrobca', qual: 'Prevádzka kvalifikovaná na predaj na trhu', vet: 'Veterinárne identifikačné číslo', dom: 'Domáci trh', eu: 'Európska únia', superv: 'Prevádzka je pod stálym veterinárnym dozorom a má zavedený systém HACCP.', lp: 'Č.', cName: 'NÁZOV TOVARU', cQty: 'KS', cNet: 'ČISTÁ HMOTNOSŤ', cBatch: 'ČÍSLO ŠARŽE', cExp: 'DÁTUM SPOTREBY', total: 'SPOLU', recip: 'PRÍJEMCA', unload: 'MIESTO VYKLÁDKY', regno: 'EVIDENČNÉ ČÍSLO / TYP VOZIDLA', fridge: 'Auto s mraziarenskou nadstavbou -18°C', load: 'MIESTO NAKLÁDKY', seller: 'PREDÁVAJÚCI', remarks: 'POZNÁMKY / PODMIENKY REKLAMÁCIE', ship: 'Dátum odoslania', sign: 'Podpis vystaviteľa',
     c1pl: 'Wszelkie zastrzeżenia co do jakości i ilości towaru (reklamacje) należy zgłaszać w trakcie rozładunku i/lub do czasu podpisania dokumentów towarzyszących dostawie (faktura, WZ, CMR).',
     c1: 'Všetky výhrady k akosti a množstvu tovaru (reklamácie) je potrebné nahlásiť počas vykládky a/alebo do podpísania dokladov priložených k dodávke.',
     c2pl: 'Braki wagowe należy udokumentować w obecności osoby dostarczającej towar (kierowcy), na przyjętym w firmie formularzu, podpisanym przez obie strony.',
@@ -52,7 +52,7 @@ const L: Record<string, Record<string, string>> = {
     c5pl: 'Podpisując dokumenty towarzyszących dostawie zgadzasz się z powyższymi warunkami reklamacji.',
     c5: 'Podpisom dokladov k dodávke súhlasíte s vyššie uvedenými podmienkami reklamácie.',
   },
-  cs: { title: 'OBCHODNÍ IDENTIFIKAČNÍ DOKLAD', number: 'Číslo HDI', issue: 'Datum vystavení', producer: 'Výrobce', qual: 'Provozovna kvalifikovaná k prodeji na trhu', vet: 'Veterinární identifikační číslo', dom: 'Domácí trh', eu: 'Evropská unie', superv: 'Provozovna je pod stálým veterinárním dozorem a má zaveden systém HACCP.', lp: 'Č.', cName: 'NÁZEV ZBOŽÍ', cQty: 'KS', cNet: 'ČISTÁ HMOTNOST', cBatch: 'ČÍSLO ŠARŽE', cExp: 'DATUM SPOTŘEBY', total: 'CELKEM', recip: 'PŘÍJEMCE', unload: 'MÍSTO VYKLÁDKY', regno: 'EVIDENČNÍ ČÍSLO', fridge: 'Auto s chladírnou -18°C', load: 'MÍSTO NAKLÁDKY', seller: 'PRODÁVAJÍCÍ', remarks: 'POZNÁMKY / PODMÍNKY REKLAMACE', ship: 'Datum odeslání', sign: 'Podpis vystavitele',
+  cs: { title: 'OBCHODNÍ IDENTIFIKAČNÍ DOKLAD', number: 'Číslo HDI', issue: 'Datum vystavení', producer: 'Výrobce', qual: 'Provozovna kvalifikovaná k prodeji na trhu', vet: 'Veterinární identifikační číslo', dom: 'Domácí trh', eu: 'Evropská unie', superv: 'Provozovna je pod stálým veterinárním dozorem a má zaveden systém HACCP.', lp: 'Č.', cName: 'NÁZEV ZBOŽÍ', cQty: 'KS', cNet: 'ČISTÁ HMOTNOST', cBatch: 'ČÍSLO ŠARŽE', cExp: 'DATUM SPOTŘEBY', total: 'CELKEM', recip: 'PŘÍJEMCE', unload: 'MÍSTO VYKLÁDKY', regno: 'EVIDENČNÍ ČÍSLO / TYP VOZIDLA', fridge: 'Auto s mrazírenskou nástavbou -18°C', load: 'MÍSTO NAKLÁDKY', seller: 'PRODÁVAJÍCÍ', remarks: 'POZNÁMKY / PODMÍNKY REKLAMACE', ship: 'Datum odeslání', sign: 'Podpis vystavitele',
     c1pl: 'Wszelkie zastrzeżenia co do jakości i ilości towaru (reklamacje) należy zgłaszać w trakcie rozładunku i/lub do czasu podpisania dokumentów towarzyszących dostawie (faktura, WZ, CMR).',
     c1: 'Veškeré výhrady k jakosti a množství zboží (reklamace) je nutné nahlásit během vykládky a/nebo do podpisu dokladů přiložených k dodávce.',
     c2pl: 'Braki wagowe należy udokumentować w obecności osoby dostarczającej towar (kierowcy).',
@@ -157,23 +157,17 @@ export function HdiPrintPage() {
           height: 14px;
         }
 
-        /* ── Multi-batch: extra batch rows ── */
-        .hdi .prod-table tr.batch-extra td {
-          border: 1px solid #000;
-          border-top: 1px dashed #aaa;
-          padding: 2px 4px;
-          vertical-align: middle;
-          font-size: 8.5px;
-        }
+        /* ── Multi-batch: osobne kolumny szt / partia / termin ── */
         .hdi .prod-table td.bqty-cell {
           white-space: nowrap;
           font-weight: bold;
-          font-size: 8.5px;
-          text-align: right;
+          font-size: 8px;
+          text-align: center;
         }
         .hdi .prod-table td.bpartia-cell {
           font-family: 'Courier New', monospace;
           font-size: 8px;
+          text-align: center;
           white-space: nowrap;
         }
         .hdi .prod-table td.btermin-cell {
@@ -181,9 +175,12 @@ export function HdiPrintPage() {
           font-size: 8.5px;
           white-space: nowrap;
         }
-        /* first batch row inside the main product row (no dashed top) */
-        .hdi .prod-table td.batch-first {
-          border-top: 1px solid #000;
+        /* każdy wiersz partii — stała wysokość, by szt/partia/termin były wyrównane */
+        .hdi .prod-table .bline {
+          line-height: 1.5;
+        }
+        .hdi .prod-table .bline + .bline {
+          border-top: 1px dotted #ccc;
         }
 
         /* ── Info table ── */
@@ -328,11 +325,12 @@ export function HdiPrintPage() {
         <table className="prod-table" style={{ marginBottom: '2px' }}>
           <colgroup>
             <col style={{ width: '4%' }} />
-            <col style={{ width: '30%' }} />
+            <col style={{ width: '28%' }} />
             <col style={{ width: '9%' }} />
             <col style={{ width: '11%' }} />
-            <col style={{ width: '25%' }} />
-            <col style={{ width: '21%' }} />
+            <col style={{ width: '8%' }} />
+            <col style={{ width: '23%' }} />
+            <col style={{ width: '17%' }} />
           </colgroup>
           <thead>
             <tr>
@@ -340,55 +338,39 @@ export function HdiPrintPage() {
               <th>{two('cName')}</th>
               <th>{two('cQty')}</th>
               <th>{two('cNet')}</th>
+              <th></th>
               <th>{two('cBatch')}</th>
               <th>{two('cExp')}</th>
             </tr>
           </thead>
           <tbody>
-            {items.flatMap((it, i) => {
+            {items.map((it, i) => {
               const multi = it.batches.length > 1
-              const batchCount = it.batches.length || 1
-              const firstBatch = it.batches[0]
-
-              // Main row — spans all batch rows for lp/name/qty/kg columns
-              const mainRow = (
+              return (
                 <tr key={`item-${i}`}>
-                  <td className="center" rowSpan={batchCount}>{i + 1}.</td>
-                  <td style={{ fontWeight: 600 }} rowSpan={batchCount}>{it.name}</td>
-                  <td className="center" rowSpan={batchCount}>{it.qty}szt.</td>
-                  <td className="center" rowSpan={batchCount}>{it.kg.toFixed(0)}kg</td>
-                  {/* First batch inline */}
-                  <td className="bpartia-cell" style={{ textAlign: multi ? undefined : 'center' }}>
-                    {multi
-                      ? <><span className="bqty-cell" style={{ marginRight: '4px', display: 'inline-block', minWidth: '30px', textAlign: 'right', fontWeight: 'bold' }}>{firstBatch?.qty}SZT</span>{firstBatch?.partia}</>
-                      : <span style={{ fontFamily: "'Courier New', monospace", fontSize: '8.5px' }}>{firstBatch?.partia}</span>
-                    }
+                  <td className="center">{i + 1}.</td>
+                  <td style={{ fontWeight: 600 }}>{it.name}</td>
+                  <td className="center">{it.qty}szt.</td>
+                  <td className="center">{it.kg.toFixed(0)}kg</td>
+                  {/* Osobna kolumna: liczba sztuk z danej partii (jak na wzorze) */}
+                  <td className="bqty-cell">
+                    {multi ? it.batches.map((b, j) => (<div key={j} className="bline">{b.qty}SZT</div>)) : null}
                   </td>
-                  <td className="btermin-cell">{firstBatch?.termin}</td>
+                  <td className="bpartia-cell">
+                    {it.batches.map((b, j) => (<div key={j} className="bline">{b.partia}</div>))}
+                  </td>
+                  <td className="btermin-cell">
+                    {it.batches.map((b, j) => (<div key={j} className="bline">{b.termin}</div>))}
+                  </td>
                 </tr>
               )
-
-              // Extra batch rows (2nd batch onwards)
-              const extraRows = multi
-                ? it.batches.slice(1).map((b, j) => (
-                    <tr key={`item-${i}-b${j + 1}`} className="batch-extra">
-                      <td className="bpartia-cell">
-                        <span style={{ marginRight: '4px', display: 'inline-block', minWidth: '30px', textAlign: 'right', fontWeight: 'bold', fontSize: '8.5px' }}>{b.qty}SZT</span>
-                        {b.partia}
-                      </td>
-                      <td className="btermin-cell">{b.termin}</td>
-                    </tr>
-                  ))
-                : []
-
-              return [mainRow, ...extraRows]
             })}
 
             {/* Empty padding rows */}
             {Array.from({ length: padCount }).map((_, i) => (
               <tr key={`e${i}`} className="empty-row">
                 <td className="center" style={{ color: '#999', fontSize: '8px' }}>{items.length + i + 1}.</td>
-                <td></td><td></td><td></td><td></td><td></td>
+                <td></td><td></td><td></td><td></td><td></td><td></td>
               </tr>
             ))}
 
@@ -398,6 +380,7 @@ export function HdiPrintPage() {
               <td className="right">{bi('total')}:</td>
               <td className="center">{doc.totals.qty}szt.</td>
               <td className="center">{doc.totals.kg.toFixed(0)}kg</td>
+              <td></td>
               <td></td>
               <td></td>
             </tr>
@@ -418,6 +401,8 @@ export function HdiPrintPage() {
             <tr>
               <td className="label-cell">{two('regno')}</td>
               <td>
+                {/* Nr rejestracyjny pobierany przy załadunku (wybór samochodu); pusty, gdy brak */}
+                {h.reg_number ? <div style={{ fontWeight: 700 }}>{h.reg_number}</div> : null}
                 {pl.fridge}
                 {!mono && <><br /><span style={{ fontStyle: 'italic', color: '#333' }}>{cl.fridge}</span></>}
               </td>
