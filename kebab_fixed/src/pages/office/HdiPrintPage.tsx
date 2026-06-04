@@ -234,6 +234,11 @@ export function HdiPrintPage() {
           font-size: 8.5px;
           background: #f0f0f0;
         }
+        /* Wartości adresowe (nieprzetłumaczone) — wyśrodkowane. */
+        .hdi .info-table td.val-center {
+          text-align: center;
+          vertical-align: middle;
+        }
 
         /* ── Remarks ── */
         .hdi .remarks-box {
@@ -320,14 +325,6 @@ export function HdiPrintPage() {
         ref={sheetRef}
         style={scale !== 1 ? { transform: `scale(${scale})`, transformOrigin: 'top center' } : undefined}
       >
-
-        {/* Wstępny banner */}
-        {doc.status === 'wstepny' && (
-          <div style={{ marginBottom: '4px', border: '1px solid #d97706', background: '#fffbeb', padding: '3px 8px', fontSize: '8.5px', fontWeight: 700, color: '#92400e' }}>
-            DOKUMENT WSTĘPNY — towar niezeskanowany na załadunku, możliwe rozbieżności
-            {doc.incomplete ? ' · wystawiony na stan faktyczny (niekompletny względem zamówienia)' : ''}
-          </div>
-        )}
 
         {/* ── Tytuł ── */}
         <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '11.5px', lineHeight: 1.3, marginBottom: '4px' }}>
@@ -459,11 +456,11 @@ export function HdiPrintPage() {
           <tbody>
             <tr>
               <td className="label-cell">{two('recip')}</td>
-              <td>{h.recipient}</td>
+              <td className="val-center">{h.recipient}</td>
             </tr>
             <tr>
               <td className="label-cell">{two('unload')}</td>
-              <td>{h.unload}</td>
+              <td className="val-center">{h.unload}</td>
             </tr>
             <tr>
               <td className="label-cell">{two('regno')}</td>
@@ -476,11 +473,11 @@ export function HdiPrintPage() {
             </tr>
             <tr>
               <td className="label-cell">{two('load')}</td>
-              <td>{h.load}</td>
+              <td className="val-center">{h.load}</td>
             </tr>
             <tr>
               <td className="label-cell">{two('seller')}</td>
-              <td>{h.seller}</td>
+              <td className="val-center">{h.seller}</td>
             </tr>
           </tbody>
         </table>
