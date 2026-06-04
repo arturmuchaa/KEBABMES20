@@ -193,11 +193,11 @@ export function MobileSztukaPage() {
             {/* Traceability link */}
             <div className="border-t border-slate-100 px-4 py-3">
               <Link
-                to="/office/recall"
+                to={`/mobile/przeplyw?batch=${encodeURIComponent(card.batchNo || '')}`}
                 className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 active:scale-[0.99]"
               >
                 <Search size={15} className="shrink-0 text-slate-500" />
-                Pokaż pochodzenie partii
+                Pokaż przepływ partii
               </Link>
             </div>
           </div>
