@@ -1040,6 +1040,11 @@ export interface HdiDoc {
   header: Record<string, any>; items: HdiItem[]; totals: { qty: number; kg: number }
 }
 
+export interface HdiListRow {
+  id: string; number: string; clientName: string; status: string
+  incomplete: boolean; issueDate: string; createdAt: string
+}
+
 export const hdiApi = {
   generate: (orderId: string) =>
     post<{ id: string; number: string; status: string; incomplete: boolean; totals: { qty: number; kg: number } }>(`/hdi/generate?order_id=${encodeURIComponent(orderId)}`, {}),
@@ -1049,6 +1054,10 @@ export const hdiApi = {
     header: r.header ?? {}, items: r.items ?? [], totals: r.totals ?? { qty: 0, kg: 0 },
   })),
   list: () => get<any[]>('/hdi'),
+  listDocs: () => get<any[]>('/hdi').then(rows => (rows ?? []).map((r): HdiListRow => ({
+    id: r.id, number: r.number ?? '', clientName: r.client_name ?? '', status: r.status ?? '',
+    incomplete: !!r.incomplete, issueDate: r.issue_date ?? '', createdAt: r.created_at ?? '',
+  }))),
 }
 
 // ─── Ustawienia firmy (do wydruków) ─────────────────────────────

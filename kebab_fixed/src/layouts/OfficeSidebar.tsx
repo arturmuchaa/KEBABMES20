@@ -16,6 +16,7 @@ const NAV: NavSection[] = [
     { to: '/office/dostawcy',    label: 'Dostawcy',    icon: <Truck size={14} /> },
     { to: '/office/kontrahenci', label: 'Kontrahenci', icon: <Building2 size={14} /> },
     { to: '/office/zamowienia',  label: 'Zamówienia',  icon: <ShoppingCart size={14} /> },
+    { to: '/office/hdi',         label: 'Dokumenty HDI', icon: <FileText size={14} /> },
   ]},
   { heading: 'Zakupy', items: [
     { to: '/office/faktury', label: 'Faktury zakupowe', icon: <CreditCard size={14} /> },

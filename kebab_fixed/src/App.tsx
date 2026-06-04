@@ -23,6 +23,7 @@ import { PalletLabelPrintPage } from '@/pages/office/PalletLabelPrintPage'
 import { LabelPrintPage }       from '@/pages/office/LabelPrintPage'
 import { ZebraPrintPage }       from '@/pages/office/ZebraPrintPage'
 import { HdiPrintPage }         from '@/pages/office/HdiPrintPage'
+import { HdiDocumentsPage }     from '@/pages/office/HdiDocumentsPage'
 import { LabelTemplateSetupPage } from '@/pages/office/LabelTemplateSetupPage'
 import { CompanySettingsPage } from '@/pages/office/CompanySettingsPage'
 import { ProductionPlanningPage } from '@/pages/office/ProductionPlanningPage'
@@ -99,6 +100,7 @@ export default function App() {
         <Route path="dostawcy"              element={<SuppliersPage />} />
         <Route path="kontrahenci"           element={<ClientsPage />} />
         <Route path="zamowienia"            element={<ClientOrdersPage />} />
+        <Route path="hdi"                   element={<HdiDocumentsPage />} />
         <Route path="faktury"               element={<PurchaseInvoicesPage />} />
         <Route path="raw-batches"           element={<RawBatchesPage />} />
         <Route path="magazyn/surowiec"      element={<RawStockPage />} />
