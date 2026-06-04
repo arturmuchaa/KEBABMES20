@@ -987,6 +987,16 @@ export function ProductionPlanningPage() {
     navigate(`/etykiety/druk?${params.toString()}`)
   }
 
+  async function handleGenerateZebra(line: ProductionPlanLine) {
+    setGeneratingLine(line.id)
+    try { await finishedUnitsApi.generateFromPlanLine(line.id) } catch { /* sztuki mogą już istnieć */ }
+    setGeneratingLine(null)
+    const params = new URLSearchParams({ planLineId: line.id })
+    if (line.clientName) params.set('clientId', line.clientName)
+    if (line.recipeId)   params.set('recipeId', line.recipeId)
+    navigate(`/etykiety/zebra?${params.toString()}`)
+  }
+
   const activePlans = (plans??[]).filter(p=>p.status!=='done')
 
   return (
@@ -1198,6 +1208,17 @@ export function ProductionPlanningPage() {
                                       ? <span className="w-3 h-3 border border-violet-300 border-t-violet-700 rounded-full animate-spin mr-1" />
                                       : null}
                                     Etykiety
+                                  </Button>
+                                )}
+                                {(plan.status === 'active' || plan.status === 'done') && l.recipeId && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={generatingLine === l.id}
+                                    className="h-6 text-[10px] px-2 ml-1 text-blue-700 border-blue-200 hover:bg-blue-50 whitespace-nowrap"
+                                    onClick={e => { e.stopPropagation(); handleGenerateZebra(l as ProductionPlanLine) }}
+                                  >
+                                    Zebra
                                   </Button>
                                 )}
                               </TableCell>
