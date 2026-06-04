@@ -138,9 +138,15 @@ Etykiety pól **stałe, trójjęzyczne PL/EN/DE** (jak na oryginalnym druku CMR 
   (prefill `default_plate`), nr FV, instrukcje (prefill), franco (prefill), lista towarów
   (linia kebaba auto + „dodaj pozycję" name/qty/kg). „Generuj" → `cmrApi.generate(orderId, form)`
   → otwiera druk.
-- **`CmrPrintPage`** (`/office/cmr/:id/druk`) — odwzorowanie wzoru: ramki 1–24, **4 kopie**
-  (nagłówki: „Kopia dla nadawcy/odbiorcy/przewoźnika/firmy") = 4 strony A4 (każda
-  `page-break-after`), `?pdf=1` wyłącza auto-print. Layout tabelaryczny w ramkach jak wzór.
+- **`CmrPrintPage`** (`/office/cmr/:id/druk`) — odwzorowanie wzoru: ramki 1–24, **4 kopie
+  w kolorach jak na druku CMR** = 4 strony A4 (każda `page-break-after`), `?pdf=1` wyłącza
+  auto-print. Kolor dotyczy ramek/etykiet/tekstu formularza całej strony:
+  1. **czerwona** — „Kopia dla nadawcy"
+  2. **niebieska** — „Kopia dla odbiorcy"
+  3. **zielona** — „Kopia dla przewoźnika"
+  4. **czarna** — 4. egzemplarz (bez etykiety koloru)
+  Wartości danych (nadawca/odbiorca/towar…) identyczne na każdej kopii; różni się tylko
+  kolor i etykieta kopii.
 - **`CmrDocumentsPage`** (`/office/cmr`) — lista jak `HdiDocumentsPage` (numer, klient,
   przewoźnik, data; sort domyślnie numer malejąco; akcje Pobierz PDF / Drukuj / Otwórz).
   Pozycja menu „Dokumenty CMR" pod „Dokumenty HDI".
@@ -177,9 +183,10 @@ sekwencja), `main.py` (rejestracja routerów).
 `App.tsx` (trasy), `layouts/OfficeSidebar.tsx` (menu), `pages/office/ClientOrdersPage.tsx`
 (przycisk „CMR"), `lib/api.ts` (`carriersApi`, `cmrApi`).
 
-## Otwarte/decyzje domyślne (do potwierdzenia w przeglądzie)
+## Decyzje (potwierdzone)
 
-- Numer wyświetlany: zwykła liczba „1", „2"… (bez zer wiodących). Można zmienić na
-  zero-padding (np. „000001"), jeśli wolisz jak na wzorze.
-- 4 kopie A4 (potwierdzone). Status CMR: jednolity „wystawiony" w Etapie 1
-  (potwierdzanie przy skanowaniu — Etap 2).
+- **Numer**: zwykła liczba od 1 („1", „2", …), bez zer wiodących, ciągła, stała per
+  zamówienie.
+- **4 kopie A4** w kolorach jak na wzorze: czerwona (nadawca), niebieska (odbiorca),
+  zielona (przewoźnik), czarna (4. egz.).
+- **Status CMR** w Etapie 1: jednolity „wystawiony" (potwierdzanie przy skanowaniu — Etap 2).
