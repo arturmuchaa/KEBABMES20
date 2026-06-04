@@ -10,3 +10,7 @@ class CompanySettings(BaseModel):
     postal_code: str = ""
     phone: str = ""
     email: str = ""
+    vet_number: str = ""
+    market_domestic: bool = True
+    market_eu: bool = True
+    load_place: str = ""

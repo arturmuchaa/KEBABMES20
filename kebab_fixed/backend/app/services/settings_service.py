@@ -18,6 +18,7 @@ def _empty_company() -> Dict:
     return {
         "name": "", "nip": "", "regon": "", "address": "",
         "city": "", "postal_code": "", "phone": "", "email": "",
+        "vet_number": "", "market_domestic": True, "market_eu": True, "load_place": "",
     }
 
 

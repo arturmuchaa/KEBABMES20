@@ -17,6 +17,7 @@ import { Separator } from '@/components/ui/separator'
 
 const emptyCompany: CompanySettings = {
   name: '', nip: '', regon: '', address: '', city: '', postalCode: '', phone: '', email: '',
+  vetNumber: '', marketDomestic: true, marketEu: true, loadPlace: '',
 }
 
 export function CompanySettingsPage() {
@@ -79,6 +80,30 @@ export function CompanySettingsPage() {
                 />
               </div>
             ))}
+          </div>
+
+          <Separator />
+
+          <div className="space-y-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Dane do HDI</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Weterynaryjny nr identyfikacyjny</Label>
+                <Input value={form.vetNumber ?? ''} onChange={e => set('vetNumber', e.target.value)} placeholder="PL 12060602WE" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Miejsce załadunku <span className="text-slate-400">(puste = adres firmy)</span></Label>
+                <Input value={form.loadPlace ?? ''} onChange={e => set('loadPlace', e.target.value)} placeholder="ul. … , 00-001 Miasto" />
+              </div>
+            </div>
+            <div className="flex items-center gap-5">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={!!form.marketDomestic} onChange={e => set('marketDomestic', e.target.checked)} /> Rynek krajowy
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={!!form.marketEu} onChange={e => set('marketEu', e.target.checked)} /> Unia Europejska
+              </label>
+            </div>
           </div>
 
           <Separator />

@@ -289,6 +289,12 @@ _DDL: list[str] = [
     "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS dispatch_id TEXT",
     "CREATE INDEX IF NOT EXISTS idx_finished_units_dispatch ON finished_units(dispatch_id) WHERE dispatch_id IS NOT NULL",
 
+    # ── HDI fundament: język + miejsce przeznaczenia klienta ──
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS language TEXT DEFAULT ''",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_name TEXT DEFAULT ''",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_address TEXT DEFAULT ''",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_city TEXT DEFAULT ''",
+
     """CREATE TABLE IF NOT EXISTS cartons (
         id              TEXT PRIMARY KEY,
         order_id        TEXT,

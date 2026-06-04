@@ -282,6 +282,10 @@ function mapClient(raw: any): Client {
     contactName: raw.contact_name ?? raw.contactName,
     phone:       raw.phone,
     email:       raw.email,
+    language:    raw.language ?? '',
+    destName:    raw.dest_name ?? raw.destName ?? '',
+    destAddress: raw.dest_address ?? raw.destAddress ?? '',
+    destCity:    raw.dest_city ?? raw.destCity ?? '',
     active:      raw.active ?? true,
     createdAt:   raw.created_at ?? raw.createdAt ?? '',
   }
@@ -1037,6 +1041,10 @@ export interface CompanySettings {
   postalCode: string
   phone:      string
   email:      string
+  vetNumber:      string
+  marketDomestic: boolean
+  marketEu:       boolean
+  loadPlace:      string
 }
 
 function mapCompany(raw: any): CompanySettings {
@@ -1049,6 +1057,10 @@ function mapCompany(raw: any): CompanySettings {
     postalCode: raw.postal_code ?? raw.postalCode ?? '',
     phone:      raw.phone       ?? '',
     email:      raw.email       ?? '',
+    vetNumber:      raw.vet_number      ?? raw.vetNumber      ?? '',
+    marketDomestic: raw.market_domestic ?? raw.marketDomestic ?? true,
+    marketEu:       raw.market_eu       ?? raw.marketEu       ?? true,
+    loadPlace:      raw.load_place      ?? raw.loadPlace      ?? '',
   }
 }
 
@@ -1065,6 +1077,10 @@ export const settingsApi = {
       postal_code: dto.postalCode,
       phone:       dto.phone,
       email:       dto.email,
+      vet_number:      dto.vetNumber,
+      market_domestic: dto.marketDomestic,
+      market_eu:       dto.marketEu,
+      load_place:      dto.loadPlace,
     }).then(mapCompany),
 }
 

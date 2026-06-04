@@ -25,8 +25,16 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 
+const _CC_LANG: Record<string, string> = { PL: 'pl', DE: 'de', AT: 'de', SK: 'sk', CZ: 'cs' }
+function langFromNip(nip?: string): string {
+  const s = (nip || '').trim().toUpperCase()
+  const cc = s.length >= 2 && /^[A-Z]{2}/.test(s) ? s.slice(0, 2) : ''
+  if (!cc) return 'pl'
+  return _CC_LANG[cc] || 'en'
+}
+
 function emptyForm(): CreateClientDto {
-  return { name: '', displayName: '', nip: '', regon: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '' }
+  return { name: '', displayName: '', nip: '', regon: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '', language: '', destName: '', destAddress: '', destCity: '' }
 }
 
 interface AddressParts { address: string; postalCode: string; city: string }
@@ -101,7 +109,7 @@ function ClientForm({ initial, onSave, onClose }: {
 }) {
   const [form, setForm] = useState<CreateClientDto>(
     initial
-      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email }
+      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email, language: initial.language, destName: initial.destName, destAddress: initial.destAddress, destCity: initial.destCity }
       : emptyForm()
   )
   const [saving,   setSaving]   = useState(false)
@@ -215,12 +223,39 @@ function ClientForm({ initial, onSave, onClose }: {
                   onChange={e => {
                     const v = f.k === 'displayName' ? e.target.value.toUpperCase() : e.target.value
                     set(f.k as keyof CreateClientDto, v)
+                    if (f.k === 'nip' && !form.language) set('language', langFromNip(v))
                   }}
                   placeholder={f.ph}
                   className={f.k === 'displayName' ? 'uppercase' : undefined}
                 />
               </div>
             ))}
+            <div className="space-y-1.5">
+              <Label>Język HDI</Label>
+              <select
+                value={form.language || ''}
+                onChange={e => set('language', e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">— auto z NIP —</option>
+                <option value="pl">Polski</option>
+                <option value="de">Niemiecki</option>
+                <option value="sk">Słowacki</option>
+                <option value="cs">Czeski</option>
+                <option value="en">Angielski</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Miejsce przeznaczenia <span className="font-normal normal-case text-slate-400">(zostaw puste = adres klienta)</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Nazwa</Label><Input value={form.destName ?? ''} onChange={e => set('destName', e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Adres</Label><Input value={form.destAddress ?? ''} onChange={e => set('destAddress', e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Miasto</Label><Input value={form.destCity ?? ''} onChange={e => set('destCity', e.target.value)} /></div>
+            </div>
           </div>
           {!initial && (
             <Button variant="ghost" size="sm" onClick={() => setMode(isAbroad ? 'vies' : 'gus')} className="text-xs text-primary">

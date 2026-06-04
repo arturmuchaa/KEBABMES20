@@ -22,8 +22,9 @@ def create_client(dto: ClientCreate) -> Dict:
             """
             INSERT INTO clients
                 (id, code, name, display_name, nip, regon, address, city,
-                 contact_name, phone, email, active, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
+                 contact_name, phone, email, language, dest_name, dest_address, dest_city,
+                 active, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
             RETURNING *
             """,
             (
@@ -38,6 +39,10 @@ def create_client(dto: ClientCreate) -> Dict:
                 dto.contact_name,
                 dto.phone,
                 dto.email,
+                dto.language,
+                dto.dest_name,
+                dto.dest_address,
+                dto.dest_city,
                 now_iso(),
             ),
         )
@@ -52,7 +57,8 @@ def update_client(client_id: str, dto: ClientCreate) -> Dict:
             """
             UPDATE clients
             SET name=%s, display_name=%s, nip=%s, regon=%s, address=%s, city=%s,
-                contact_name=%s, phone=%s, email=%s
+                contact_name=%s, phone=%s, email=%s,
+                language=%s, dest_name=%s, dest_address=%s, dest_city=%s
             WHERE id=%s
             RETURNING *
             """,
@@ -66,6 +72,10 @@ def update_client(client_id: str, dto: ClientCreate) -> Dict:
                 dto.contact_name,
                 dto.phone,
                 dto.email,
+                dto.language,
+                dto.dest_name,
+                dto.dest_address,
+                dto.dest_city,
                 client_id,
             ),
         )

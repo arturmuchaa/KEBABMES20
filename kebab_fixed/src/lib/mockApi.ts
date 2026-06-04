@@ -1976,6 +1976,10 @@ export interface Client {
   contactName?: string
   phone?:       string
   email?:       string
+  language?:    string       // pl/de/sk/cs/en — język HDI
+  destName?:    string       // miejsce przeznaczenia (puste = adres klienta)
+  destAddress?: string
+  destCity?:    string
   active:       boolean
   createdAt:    string
 }
@@ -1983,6 +1987,7 @@ export interface Client {
 export interface CreateClientDto {
   name: string; displayName?: string; nip?: string; regon?: string; address?: string
   postalCode?: string; city?: string; contactName?: string; phone?: string; email?: string
+  language?: string; destName?: string; destAddress?: string; destCity?: string
 }
 
 let clients    = load<Client>('kebab_mes_clients', [])

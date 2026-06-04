@@ -11,3 +11,7 @@ class ClientCreate(BaseModel):
     contact_name: str = ""
     phone: str = ""
     email: str = ""
+    language: str = ""
+    dest_name: str = ""
+    dest_address: str = ""
+    dest_city: str = ""
