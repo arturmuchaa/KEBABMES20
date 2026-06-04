@@ -96,7 +96,8 @@ def group_hdi_items(units: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for u in units:
         w = round(float(u.get("weight_kg") or 0), 3)
         key = ((u.get("product_type_name") or "").strip(), w)
-        grp = by_prod.setdefault(key, {"name": _product_label(key[0], w), "qty": 0, "kg": 0.0, "_b": {}})
+        grp = by_prod.setdefault(key, {"name": _product_label(key[0], w), "qty": 0, "kg": 0.0,
+                                       "_base": key[0], "_w": w, "_b": {}})
         grp["qty"] += 1
         grp["kg"] += w
         pd = u.get("produced_date") or ""
@@ -107,9 +108,18 @@ def group_hdi_items(units: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         b["qty"] += 1
     out: List[Dict[str, Any]] = []
     for grp in by_prod.values():
-        grp["batches"] = list(grp.pop("_b").values())
+        batches = list(grp.pop("_b").values())
+        # Najliczniejsza partia pierwsza (jak na wzorze HDI).
+        batches.sort(key=lambda b: b["qty"], reverse=True)
+        grp["batches"] = batches
         grp["kg"] = round(grp["kg"], 3)
         out.append(grp)
+    # Kolejność pozycji: wg przepisu (nazwa rosnąco), w obrębie przepisu
+    # od najwyższej wagi do najniższej (jak na wzorze HDI klienta).
+    out.sort(key=lambda g: (g["_base"], -g["_w"]))
+    for grp in out:
+        grp.pop("_base", None)
+        grp.pop("_w", None)
     return out
 
 
@@ -155,13 +165,16 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
     company_addr = f"{co.get('address','')}, {co.get('postal_code','')} {co.get('city','')}".strip(", ")
     client_addr = f"{client.get('address','')}, {client.get('city','')}".strip(", ")
     dest = " ".join(x for x in [client.get('dest_name', ''), client.get('dest_address', ''), client.get('dest_city', '')] if x).strip()
+    # Fallback na nazwę z zamówienia, gdy brak rekordu klienta w słowniku.
+    client_name = client.get('name') or order.get('client_name', '')
+    recipient = ", ".join(x for x in [client_name, client_addr, client.get('nip', '')] if x)
     header = {
         "producer_name": co.get("name", ""), "producer_addr": company_addr,
         "vet_number": co.get("vet_number", ""),
         "market_domestic": bool(co.get("market_domestic", True)),
         "market_eu": bool(co.get("market_eu", True)),
-        "recipient": f"{client.get('name', '')}, {client_addr}, {client.get('nip', '')}".strip(", "),
-        "unload": dest or f"{client.get('name', '')}, {client_addr}".strip(", "),
+        "recipient": recipient,
+        "unload": dest or ", ".join(x for x in [client_name, client_addr] if x),
         "load": co.get("load_place") or company_addr,
         "seller": f"{co.get('name', '')}, {company_addr}".strip(", "),
     }

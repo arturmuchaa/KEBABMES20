@@ -46,6 +46,40 @@ def test_group_empty():
     assert group_hdi_items([]) == []
 
 
+def test_group_sorted_by_weight_desc_within_recipe():
+    units = (
+        [_u(pt="GOLD KEBAB", w=15)] * 1
+        + [_u(pt="GOLD KEBAB", w=50)] * 1
+        + [_u(pt="GOLD KEBAB", w=30)] * 1
+        + [_u(pt="GOLD KEBAB", w=40)] * 1
+    )
+    items = group_hdi_items(units)
+    assert [i["name"] for i in items] == [
+        "GOLD KEBAB 50KG", "GOLD KEBAB 40KG", "GOLD KEBAB 30KG", "GOLD KEBAB 15KG"]
+
+
+def test_group_two_recipes_each_sorted_desc():
+    units = [
+        _u(pt="GOLD KEBAB", w=20), _u(pt="GOLD KEBAB", w=40),
+        _u(pt="DROB KEBAB", w=10), _u(pt="DROB KEBAB", w=30),
+    ]
+    items = group_hdi_items(units)
+    assert [i["name"] for i in items] == [
+        "DROB KEBAB 30KG", "DROB KEBAB 10KG", "GOLD KEBAB 40KG", "GOLD KEBAB 20KG"]
+
+
+def test_group_batches_sorted_by_qty_desc():
+    units = (
+        [_u(w=20, batch="325", pd="2026-05-30")] * 74
+        + [_u(w=20, batch="332", pd="2026-05-29")] * 6
+    )
+    items = group_hdi_items(units)
+    assert len(items) == 1
+    batches = items[0]["batches"]
+    assert [b["qty"] for b in batches] == [74, 6]
+    assert batches[0]["partia"] == "300526 325"
+
+
 def _line(qty_done=2, kg=40, recipe_id="r1", recipe_name="GOLD KEBAB",
           ba=None, sbn=None, pd="2026-05-27T11:43:47+00:00"):
     return {"qty_done": qty_done, "kg_per_unit": kg, "recipe_id": recipe_id,
