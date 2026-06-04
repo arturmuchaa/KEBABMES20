@@ -81,16 +81,19 @@ const L: Record<string, Record<string, string>> = {
 // Wysokość zadrukowanej części A4 w px (96dpi): 297mm − 2×8mm marginesu ≈ 1062px.
 // Lekki zapas, by druk nigdy nie przelał się na drugą stronę.
 const A4_PRINTABLE_PX = 1054
+// Maksymalna liczba wierszy tabeli (pozycje + puste dopełniające).
+const MAX_ROWS = 20
 
 export function HdiPrintPage() {
   const { id = '' } = useParams<{ id: string }>()
   const [doc, setDoc] = useState<HdiDoc | null>(null)
   const [err, setErr] = useState('')
-  // Dopasowanie do pełnej strony A4: dosypujemy puste wiersze, gdy asortymentu
-  // mało (wypełnienie strony), a skalujemy w dół, gdy pozycji jest tyle, że
-  // dokument przelewałby się na drugą stronę. Dzięki temu zawsze jedna A4.
+  // Dopasowanie do pełnej strony A4: tabela ma MAKS. 20 wierszy (pozycje +
+  // ewentualne puste do 20), a wolną przestrzeń rozkładamy równo, podwyższając
+  // wiersze (rowExtra), aż wypełnią A4. Gdy pozycji jest tyle, że dokument
+  // przelewałby się na drugą stronę — skalujemy w dół. Zawsze jedna A4.
   const sheetRef = useRef<HTMLDivElement>(null)
-  const [pad, setPad] = useState(0)
+  const [rowExtra, setRowExtra] = useState(0)
   const [scale, setScale] = useState(1)
   const [scaledH, setScaledH] = useState<number | null>(null)
   // ?pdf=1 → render do PDF przez headless Chrome; nie wywołuj wtedy window.print().
@@ -98,35 +101,33 @@ export function HdiPrintPage() {
   useEffect(() => { hdiApi.get(id).then(setDoc).catch(e => setErr(e instanceof Error ? e.message : 'Błąd')) }, [id])
 
   // Pomiar SYNCHRONICZNY w useLayoutEffect (przed paintem), bez requestAnimationFrame
-  // — inaczej zrzut PDF przez headless Chrome wyścigowo łapie stan sprzed dosypania
-  // wierszy. Wysokość bazową liczymy odejmując bieżące wypełnienie/skalę, więc efekt
-  // jest deterministyczny i zbieżny w 1–2 przebiegach układu.
+  // — inaczej zrzut PDF przez headless Chrome wyścigowo łapie stan sprzed dopasowania.
+  // Wysokość bazową liczymy odejmując bieżące podwyższenie/skalę → deterministyczne.
   useLayoutEffect(() => {
     if (!doc) return
     const sheet = sheetRef.current
     if (!sheet) return
+    const n = doc.items?.length || 0
+    const bodyRows = n <= MAX_ROWS ? MAX_ROWS : n
     const scaled = scale !== 1
-    const rowRect = (sheet.querySelector('[data-row]') as HTMLElement | null)?.getBoundingClientRect()
-    const rowH = (rowRect ? rowRect.height : 20) / (scaled ? scale : 1)
-    if (rowH <= 4) return
     const hNow = sheet.getBoundingClientRect().height
-    // Prawdziwa (nieskalowana) wysokość treści bez dosypanych wierszy:
-    const h0 = scaled ? hNow / scale : hNow - pad * rowH
+    // Prawdziwa (nieskalowana) wysokość bez rozłożonego naddatku wierszy:
+    const h0 = scaled ? hNow / scale : hNow - rowExtra * bodyRows
     if (h0 > A4_PRINTABLE_PX + 2) {
+      if (rowExtra !== 0) setRowExtra(0)
       const s = Math.max(0.55, A4_PRINTABLE_PX / h0)
-      if (pad !== 0) setPad(0)
       if (Math.abs(s - scale) > 0.004) { setScale(s); setScaledH(Math.ceil(h0 * s)) }
     } else {
       if (scale !== 1) { setScale(1); setScaledH(null) }
-      const want = Math.max(0, Math.min(60, Math.floor((A4_PRINTABLE_PX - h0) / rowH)))
-      if (want !== pad) setPad(want)
+      const want = bodyRows > 0 ? Math.max(0, Math.min(40, (A4_PRINTABLE_PX - h0) / bodyRows)) : 0
+      if (Math.abs(want - rowExtra) > 0.5) setRowExtra(want)
     }
-  }, [doc, id, pad, scale])
+  }, [doc, id, rowExtra, scale])
 
   useEffect(() => {
-    // Drukuj/PDF dopiero po dopasowaniu (pad/scale ustawione w layout-effekcie).
+    // Drukuj/PDF dopiero po dopasowaniu (rowExtra/scale ustawione w layout-effekcie).
     if (doc && !isPdf) { const t = setTimeout(() => window.print(), 600); return () => clearTimeout(t) }
-  }, [doc, isPdf, pad, scale])
+  }, [doc, isPdf, rowExtra, scale])
   if (err) return <div className="p-8 text-red-700">{err}</div>
   if (!doc) return <div className="p-8 text-slate-500">Ładowanie HDI…</div>
 
@@ -144,7 +145,8 @@ export function HdiPrintPage() {
   const bi = (k: string) => mono ? pl[k] : `${pl[k]} / ${cl[k]}`
 
   const items = doc.items || []
-  const padCount = pad
+  // Maks. 20 wierszy: dopełniamy pustymi tylko gdy pozycji ≤ 20.
+  const padCount = Math.max(0, MAX_ROWS - items.length)
 
   return (
     <div style={{ background: '#fff', color: '#000' }}>
@@ -206,10 +208,15 @@ export function HdiPrintPage() {
           font-weight: bold;
           border-top: 1.5px solid #6f6f6f;
         }
-        /* Puste wiersze wypełniające — ta sama wysokość co wiersze danych,
-           by dopełnienie strony A4 było równe i przewidywalne. */
+        /* Puste wiersze wypełniające — ta sama wysokość co wiersze danych. */
         .hdi .prod-table tr.empty-row td {
           height: 1.3em;
+        }
+        /* Równomierne podwyższenie wierszy (pozycje + puste), by ≤20 wierszy
+           wypełniało pełną A4. --rowpad wyliczany w JS i dzielony na górę/dół. */
+        .hdi .prod-table tr.body-row td {
+          padding-top: calc(2px + var(--rowpad, 0px));
+          padding-bottom: calc(2px + var(--rowpad, 0px));
         }
 
         /* ── Multi-batch: osobne kolumny szt / partia / termin ── */
@@ -252,9 +259,9 @@ export function HdiPrintPage() {
           font-size: 8.5px;
           background: #f0f0f0;
         }
-        /* Wartości adresowe (nieprzetłumaczone) — wyśrodkowane. */
+        /* Wartości adresowe (nieprzetłumaczone) — do lewej, wyśrodkowane w pionie. */
         .hdi .info-table td.val-center {
-          text-align: center;
+          text-align: left;
           vertical-align: middle;
         }
 
@@ -341,7 +348,10 @@ export function HdiPrintPage() {
       <div
         className="hdi"
         ref={sheetRef}
-        style={scale !== 1 ? { transform: `scale(${scale})`, transformOrigin: 'top center' } : undefined}
+        style={{
+          ['--rowpad' as any]: `${rowExtra / 2}px`,
+          ...(scale !== 1 ? { transform: `scale(${scale})`, transformOrigin: 'top center' } : {}),
+        }}
       >
 
         {/* ── Tytuł ── */}
@@ -429,7 +439,7 @@ export function HdiPrintPage() {
             {items.map((it, i) => {
               const multi = it.batches.length > 1
               return (
-                <tr key={`item-${i}`}>
+                <tr key={`item-${i}`} className="body-row">
                   <td className="center">{i + 1}.</td>
                   <td style={{ fontWeight: 600 }}>{it.name}</td>
                   <td className="center">{it.qty}szt.</td>
@@ -450,7 +460,7 @@ export function HdiPrintPage() {
 
             {/* Empty padding rows */}
             {Array.from({ length: padCount }).map((_, i) => (
-              <tr key={`e${i}`} className="empty-row">
+              <tr key={`e${i}`} className="empty-row body-row">
                 <td className="center" style={{ color: '#999', fontSize: '8px' }}>{items.length + i + 1}.</td>
                 <td></td><td></td><td></td><td></td><td></td><td></td>
               </tr>
