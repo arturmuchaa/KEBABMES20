@@ -39,6 +39,7 @@ import { MobileZaladunekPage }      from '@/pages/mobile/MobileZaladunekPage'
 import { MobilePalletLandingPage }  from '@/pages/mobile/MobilePalletLandingPage'
 import { MobileProdukcjaPage }      from '@/pages/mobile/MobileProdukcjaPage'
 import { MobilePakowaniePage }      from '@/pages/mobile/MobilePakowaniePage'
+import { MobileWydanieLuzemPage }   from '@/pages/mobile/MobileWydanieLuzemPage'
 import { MobileSztukaPage }         from '@/pages/mobile/MobileSztukaPage'
 
 // ─── Blokada przypadkowego odświeżenia ───────────────────────
@@ -83,6 +84,7 @@ export default function App() {
       <Route path="/m/p/:orderId/:palletNo"          element={<MobilePalletLandingPage />} />
       <Route path="/mobile/produkcja"               element={<MobileProdukcjaPage />} />
       <Route path="/mobile/pakowanie"               element={<MobilePakowaniePage />} />
+      <Route path="/mobile/wydanie"                 element={<MobileWydanieLuzemPage />} />
       <Route path="/mobile/sztuka"                  element={<MobileSztukaPage />} />
 
       <Route path="/office" element={<OfficeLayout />}>
