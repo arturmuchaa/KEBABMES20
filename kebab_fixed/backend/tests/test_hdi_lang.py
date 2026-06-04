@@ -13,8 +13,8 @@ def test_known_prefixes():
     assert lang_from_nip("AT U12345678") == "de"
     assert lang_from_nip("SK1234567890") == "sk"
     assert lang_from_nip("CZ12345678") == "cs"
+    assert lang_from_nip("SI54806852") == "sl"
 
 
 def test_unknown_prefix_fallback_en():
-    assert lang_from_nip("SI54806852") == "en"
     assert lang_from_nip("FR12345678901") == "en"

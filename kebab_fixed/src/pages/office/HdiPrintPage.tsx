@@ -64,6 +64,18 @@ const L: Record<string, Record<string, string>> = {
     c5pl: 'Podpisując dokumenty towarzyszących dostawie zgadzasz się z powyższymi warunkami reklamacji.',
     c5: 'Podpisem dokladů k dodávce souhlasíte s výše uvedenými podmínkami reklamace.',
   },
+  sl: { title: 'KOMERCIALNI IDENTIFIKACIJSKI DOKUMENT', number: 'Številka HDI', issue: 'Datum izdaje', producer: 'Proizvajalec', qual: 'Obrat, pooblaščen za prodajo na trgu', vet: 'Veterinarska identifikacijska številka', dom: 'Domači trg', eu: 'Evropska unija', superv: 'Obrat je pod stalnim veterinarskim nadzorom in ima vzpostavljen sistem HACCP.', lp: 'Št.', cName: 'NAZIV BLAGA', cQty: 'KOS', cNet: 'NETO MASA', cBatch: 'ŠT. SERIJE', cExp: 'ROK UPORABE', total: 'SKUPAJ', recip: 'PREJEMNIK', unload: 'KRAJ RAZTOVARJANJA', regno: 'REGISTRSKA ŠTEVILKA / TIP VOZILA', fridge: 'Vozilo s hladilno nadgradnjo -18°C', load: 'KRAJ NAKLADANJA', seller: 'PRODAJALEC', remarks: 'OPOMBE / POGOJI ZA REKLAMACIJE', ship: 'Datum odpreme', sign: 'Podpis izdajatelja', stamp: 'Podpis in žig izdajatelja',
+    c1pl: 'Wszelkie zastrzeżenia co do jakości i ilości towaru (reklamacje) należy zgłaszać w trakcie rozładunku i/lub do czasu podpisania dokumentów towarzyszących dostawie (faktura, WZ, CMR).',
+    c1: 'Vse pripombe glede kakovosti in količine blaga (reklamacije) je treba sporočiti med raztovarjanjem in/ali do podpisa dokumentov, priloženih dobavi (račun, dobavnica, CMR).',
+    c2pl: 'Braki wagowe należy udokumentować w obecności osoby dostarczającej towar (kierowcy), na przyjętym w firmie formularzu, podpisanym przez obie strony. Następnie oryginał lub ksero załączyć do dokumentów zwrotnych.',
+    c2: 'Manjko v teži je treba dokumentirati v prisotnosti osebe, ki dostavlja blago (voznika), na obrazcu, ki ga sprejme podjetje in ga podpišeta obe strani. Nato izvirnik ali kopijo priložite vračilnim dokumentom.',
+    c3pl: 'Reklamacje nie będą rozpatrywane po akceptacji dostawy (podpisanie dokumentów towarzyszących dostawie: faktura, WZ, CMR), bez wcześniejszego zgłoszenia zastrzeżeń co do dostawy*.',
+    c3: 'Reklamacije po sprejemu dobave (podpis dokumentov, priloženih dobavi: račun, dobavnica, CMR) brez predhodne prijave pripomb ne bodo obravnavane*.',
+    c4pl: '*nie dotyczy sytuacji otrzymania nieprawidłowych wyników badań wykonywanych przez instytucje Państwowe sprawujące kontrolę nad zakładami',
+    c4: '*Ne velja v primeru neustreznih rezultatov testov, ki jih izvajajo državne institucije, ki nadzorujejo obrate.',
+    c5pl: 'Podpisując dokumenty towarzyszących dostawie (faktura, WZ, CMR) zgadzasz się z powyższymi i akceptujesz warunki reklamacji przyjętymi w firmie i udostępnianych na życzenie klienta.',
+    c5: 'S podpisom dokumentov, priloženih dobavi (račun, dobavnica, CMR), se strinjate z navedenim in sprejmete pogoje reklamacij, ki jih določa podjetje in so na voljo na zahtevo stranke.',
+  },
 }
 
 // Wysokość zadrukowanej części A4 w px (96dpi): 297mm − 2×8mm marginesu ≈ 1062px.
@@ -85,25 +97,31 @@ export function HdiPrintPage() {
   const isPdf = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('pdf')
   useEffect(() => { hdiApi.get(id).then(setDoc).catch(e => setErr(e instanceof Error ? e.message : 'Błąd')) }, [id])
 
+  // Pomiar SYNCHRONICZNY w useLayoutEffect (przed paintem), bez requestAnimationFrame
+  // — inaczej zrzut PDF przez headless Chrome wyścigowo łapie stan sprzed dosypania
+  // wierszy. Wysokość bazową liczymy odejmując bieżące wypełnienie/skalę, więc efekt
+  // jest deterministyczny i zbieżny w 1–2 przebiegach układu.
   useLayoutEffect(() => {
     if (!doc) return
-    // Pomiar w stanie bazowym (bez paddingu/skali), po wyrenderowaniu.
-    setPad(0); setScale(1); setScaledH(null)
-    const raf = requestAnimationFrame(() => {
-      const sheet = sheetRef.current
-      if (!sheet) return
-      const rowEl = sheet.querySelector('[data-row]') as HTMLElement | null
-      const rowH = rowEl ? rowEl.getBoundingClientRect().height : 20
-      const hPx = sheet.getBoundingClientRect().height
-      if (hPx > A4_PRINTABLE_PX + 2) {
-        const s = Math.max(0.55, A4_PRINTABLE_PX / hPx)
-        setScale(s); setScaledH(Math.ceil(hPx * s))
-      } else if (rowH > 4) {
-        setPad(Math.max(0, Math.min(60, Math.floor((A4_PRINTABLE_PX - hPx) / rowH))))
-      }
-    })
-    return () => cancelAnimationFrame(raf)
-  }, [doc, id])
+    const sheet = sheetRef.current
+    if (!sheet) return
+    const scaled = scale !== 1
+    const rowRect = (sheet.querySelector('[data-row]') as HTMLElement | null)?.getBoundingClientRect()
+    const rowH = (rowRect ? rowRect.height : 20) / (scaled ? scale : 1)
+    if (rowH <= 4) return
+    const hNow = sheet.getBoundingClientRect().height
+    // Prawdziwa (nieskalowana) wysokość treści bez dosypanych wierszy:
+    const h0 = scaled ? hNow / scale : hNow - pad * rowH
+    if (h0 > A4_PRINTABLE_PX + 2) {
+      const s = Math.max(0.55, A4_PRINTABLE_PX / h0)
+      if (pad !== 0) setPad(0)
+      if (Math.abs(s - scale) > 0.004) { setScale(s); setScaledH(Math.ceil(h0 * s)) }
+    } else {
+      if (scale !== 1) { setScale(1); setScaledH(null) }
+      const want = Math.max(0, Math.min(60, Math.floor((A4_PRINTABLE_PX - h0) / rowH)))
+      if (want !== pad) setPad(want)
+    }
+  }, [doc, id, pad, scale])
 
   useEffect(() => {
     // Drukuj/PDF dopiero po dopasowaniu (pad/scale ustawione w layout-effekcie).
