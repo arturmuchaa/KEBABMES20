@@ -1010,6 +1010,21 @@ export const labelTemplatesApi = {
   remove: (id: string) => del<{ deleted: boolean }>(`/label-templates/${encodeURIComponent(id)}`),
 }
 
+// ─── Etykiety Zebra (ZPL) ───────────────────────────────────────
+export interface ZebraRenderResult {
+  ok: boolean
+  reason?: string
+  zpl?: string
+  count?: number
+}
+
+export const labelsZebraApi = {
+  render: (planLineId: string, clientId: string, recipeId: string) =>
+    get<ZebraRenderResult>(
+      `/labels/zebra/render?plan_line_id=${encodeURIComponent(planLineId)}` +
+      `&client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
+}
+
 // ─── Ustawienia firmy (do wydruków) ─────────────────────────────
 export interface CompanySettings {
   name:       string
