@@ -507,6 +507,11 @@ export function ClientOrdersPage() {
                                 e.stopPropagation()
                                 try {
                                   const r = await hdiApi.generate(o.id)
+                                  if (r.incomplete) {
+                                    alert(`Uwaga: nie wszystkie sztuki z zamówienia zostały wyprodukowane.\n` +
+                                          `HDI ${r.number} wystawiono na stan faktyczny: ` +
+                                          `${r.totals?.qty ?? 0} szt. / ${(r.totals?.kg ?? 0).toFixed(0)} kg.`)
+                                  }
                                   const url = `/office/hdi/${r.id}/druk`
                                   const win = window.open(url, '_blank')
                                   if (!win || win.closed || typeof win.closed === 'undefined') window.location.href = url

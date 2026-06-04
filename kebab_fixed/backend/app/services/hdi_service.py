@@ -33,6 +33,63 @@ def format_hdi_number(seq: int, year_month: str) -> str:
     return f"{seq}/{mm}/{yy}"
 
 
+def _pd_iso(val) -> str:
+    """Zamień produced-date (datetime/str/None) → 'RRRR-MM-DD' lub dzisiejszą datę."""
+    if val is None:
+        return datetime.now().date().isoformat()
+    if hasattr(val, "isoformat"):
+        return val.isoformat()[:10]
+    s = str(val)[:10]
+    if len(s) == 10 and s[4] == "-" and s[7] == "-":
+        return s
+    return datetime.now().date().isoformat()
+
+
+def units_from_plan_lines(lines: List[Dict[str, Any]], shelf_by_recipe: Dict[str, int]) -> List[Dict[str, Any]]:
+    """Zsyntetyzuj sztuki HDI z linii planu produkcji.
+
+    Źródłem prawdy o faktycznej produkcji jest ``production_plan_lines.qty_done``
+    (zaraportowane przez pracownika), NIE ``finished_units`` (zasilane dopiero przy
+    zamknięciu dnia). Dzięki temu HDI da się wystawić w każdym momencie, ze stanem
+    faktycznym tego, co wyprodukowano.
+
+    Numer partii bierzemy z ``batch_allocation`` (mapa partia_wsadu → {pieces}),
+    rozbijając sztuki per partia mięsa. Gdy alokacja nie sumuje się do ``qty_done``
+    lub jej brak — całość trafia do jednej partii (``seasoned_batch_no``).
+    """
+    units: List[Dict[str, Any]] = []
+    for line in lines:
+        qty_done = int(line.get("qty_done") or 0)
+        if qty_done <= 0:
+            continue
+        name = (line.get("recipe_name") or line.get("product_type_name") or "").strip()
+        weight = line.get("kg_per_unit") or 0
+        shelf = int(shelf_by_recipe.get(line.get("recipe_id"), 0) or 0)
+        pd = _pd_iso(line.get("progress_updated_at"))
+
+        ba = line.get("batch_allocation") or {}
+        alloc = {bno: int((info or {}).get("pieces") or 0) for bno, info in ba.items()} if isinstance(ba, dict) else {}
+        if alloc and sum(alloc.values()) == qty_done:
+            buckets = list(alloc.items())
+        else:
+            sbn = line.get("seasoned_batch_no")
+            if not sbn:
+                lst = line.get("seasoned_batch_nos") or []
+                sbn = lst[0] if lst else ""
+            buckets = [(sbn or "", qty_done)]
+
+        for bno, pieces in buckets:
+            for _ in range(int(pieces)):
+                units.append({
+                    "product_type_name": name,
+                    "weight_kg": weight,
+                    "batch_no": bno,
+                    "produced_date": pd,
+                    "shelf_life_days": shelf,
+                })
+    return units
+
+
 def group_hdi_items(units: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Grupuj sztuki po (produkt, waga) → pozycje HDI z partiami."""
     by_prod: Dict[tuple, Dict[str, Any]] = {}
@@ -60,17 +117,26 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
     order = query_one("SELECT * FROM client_orders WHERE id=%s", (order_id,))
     if not order:
         raise HTTPException(404, "Zamówienie nie znalezione")
-    units = query_all(
-        """SELECT fu.weight_kg, fu.batch_no, fu.produced_date, fu.product_type_id, fu.recipe_id,
-                  pt.name AS product_type_name, r.shelf_life_days
-           FROM finished_units fu
-           LEFT JOIN product_types pt ON pt.id = fu.product_type_id
-           LEFT JOIN recipes r ON r.id = fu.recipe_id
-           WHERE fu.order_id=%s""",
+    # Źródło prawdy = produkcja zaraportowana na planie (qty_done), aby HDI dało
+    # się wystawić w każdym momencie ze stanem faktycznym (NIE finished_units,
+    # które są zasilane dopiero przy zamknięciu dnia).
+    lines = query_all(
+        """SELECT pl.qty_done, pl.kg_per_unit, pl.recipe_id, pl.recipe_name,
+                  pl.product_type_name, pl.batch_allocation, pl.seasoned_batch_no,
+                  pl.seasoned_batch_nos, pl.progress_updated_at
+           FROM production_plan_lines pl
+           WHERE pl.client_order_id=%s AND COALESCE(pl.qty_done,0) > 0""",
         (order_id,),
     )
+    recipe_ids = sorted({l.get("recipe_id") for l in lines if l.get("recipe_id")})
+    shelf_by_recipe: Dict[str, int] = {}
+    if recipe_ids:
+        for r in query_all(
+            "SELECT id, shelf_life_days FROM recipes WHERE id = ANY(%s)", (recipe_ids,)):
+            shelf_by_recipe[r["id"]] = int(r.get("shelf_life_days") or 0)
+    units = units_from_plan_lines(lines, shelf_by_recipe)
     if not units:
-        raise HTTPException(400, "Brak wyprodukowanych sztuk do HDI")
+        raise HTTPException(400, "Brak wyprodukowanej produkcji dla tego zamówienia")
     items = group_hdi_items(units)
     total_qty = sum(i["qty"] for i in items)
     total_kg = round(sum(i["kg"] for i in items), 3)
@@ -123,7 +189,8 @@ def generate_hdi(order_id: str) -> Dict[str, Any]:
              data["incomplete"], json.dumps(data["header"]), json.dumps(data["items"]),
              json.dumps(data["totals"]), today.strftime("%d.%m.%Y"), now_iso()))
     logger.info("hdi.generated", extra={"hdi_id": hid, "number": number})
-    return {"id": hid, "number": number, "status": "wstepny"}
+    return {"id": hid, "number": number, "status": "wstepny",
+            "incomplete": data["incomplete"], "totals": data["totals"]}
 
 
 def get_hdi(hdi_id: str) -> Dict[str, Any]:
