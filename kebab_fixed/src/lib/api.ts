@@ -1058,6 +1058,7 @@ export const hdiApi = {
     id: r.id, number: r.number ?? '', clientName: r.client_name ?? '', status: r.status ?? '',
     incomplete: !!r.incomplete, issueDate: r.issue_date ?? '', createdAt: r.created_at ?? '',
   }))),
+  pdfUrl: (id: string) => `${BASE}/hdi/${encodeURIComponent(id)}/pdf`,
 }
 
 // ─── Ustawienia firmy (do wydruków) ─────────────────────────────

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Printer } from 'lucide-react'
+import { ArrowLeft, Printer, Download } from 'lucide-react'
 import { hdiApi, type HdiDoc } from '@/lib/api'
 
 const L: Record<string, Record<string, string>> = {
@@ -72,8 +72,10 @@ export function HdiPrintPage() {
   const { id = '' } = useParams<{ id: string }>()
   const [doc, setDoc] = useState<HdiDoc | null>(null)
   const [err, setErr] = useState('')
+  // ?pdf=1 → render do PDF przez headless Chrome; nie wywołuj wtedy window.print().
+  const isPdf = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('pdf')
   useEffect(() => { hdiApi.get(id).then(setDoc).catch(e => setErr(e instanceof Error ? e.message : 'Błąd')) }, [id])
-  useEffect(() => { if (doc) { const t = setTimeout(() => window.print(), 500); return () => clearTimeout(t) } }, [doc])
+  useEffect(() => { if (doc && !isPdf) { const t = setTimeout(() => window.print(), 500); return () => clearTimeout(t) } }, [doc, isPdf])
   if (err) return <div className="p-8 text-red-700">{err}</div>
   if (!doc) return <div className="p-8 text-slate-500">Ładowanie HDI…</div>
 
@@ -253,6 +255,12 @@ export function HdiPrintPage() {
         >
           <Printer size={14} /> Drukuj
         </button>
+        <a
+          href={hdiApi.pdfUrl(id)}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#fff', color: '#be123c', border: '1px solid #fecdd3', borderRadius: '4px', padding: '5px 12px', fontSize: '13px', cursor: 'pointer', textDecoration: 'none' }}
+        >
+          <Download size={14} /> Pobierz PDF
+        </a>
       </div>
 
       <div className="hdi">

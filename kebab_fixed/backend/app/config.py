@@ -71,6 +71,13 @@ class Settings:
     vies_api_id: str = os.environ.get("VIES_API_ID", "")
     vies_api_key: str = os.environ.get("VIES_API_KEY", "")
 
+    # Adres, pod którym backend sam siebie widzi (do renderowania PDF przez
+    # headless Chrome). Domyślnie wyprowadzony z BIND (np. 127.0.0.1:8010).
+    self_base_url: str = os.environ.get(
+        "SELF_BASE_URL",
+        "http://" + os.environ.get("BIND", "127.0.0.1:8000"),
+    )
+
     # Token przesyłany w nagłówku X-Admin-Token na endpointach /api/admin/*.
     # Pusty = soft-mode (pozwala, ale loguje warning na każdym wywołaniu).
     # Ustaw w /opt/kebab/config/.env żeby wymusić hard-fail bez tokenu.

@@ -10,7 +10,7 @@ import { useApi } from '@/hooks/useApi'
 import { hdiApi, type HdiListRow } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
-  Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Printer, FileText, ExternalLink,
+  Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Printer, FileText, ExternalLink, FileDown,
 } from 'lucide-react'
 
 import { Input } from '@/components/ui/input'
@@ -55,6 +55,16 @@ function openPrint(id: string) {
   const url = `/office/hdi/${id}/druk`
   const win = window.open(url, '_blank')
   if (!win || win.closed || typeof win.closed === 'undefined') window.location.href = url
+}
+
+function downloadPdf(id: string) {
+  // Endpoint zwraca PDF jako attachment → przeglądarka pobiera plik.
+  const a = document.createElement('a')
+  a.href = hdiApi.pdfUrl(id)
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
 }
 
 // ─── Strona ─────────────────────────────────────────────────
@@ -210,9 +220,16 @@ export function HdiDocumentsPage() {
                     <td className="px-2.5 py-2 whitespace-nowrap text-right">
                       <div className="inline-flex items-center gap-0.5">
                         <button
+                          onClick={(e) => { e.stopPropagation(); downloadPdf(r.id) }}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-rose-600 hover:bg-rose-50"
+                          title="Pobierz PDF"
+                        >
+                          <FileDown size={13}/>
+                        </button>
+                        <button
                           onClick={(e) => { e.stopPropagation(); openPrint(r.id) }}
                           className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
-                          title="Drukuj / zapisz PDF"
+                          title="Drukuj"
                         >
                           <Printer size={13}/>
                         </button>
