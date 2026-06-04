@@ -8,6 +8,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
+import { useClientNames } from '@/lib/clientNames'
 import { productionPlansApi, clientOrdersApi, seasonedMeatApi, packagingApi, clientsApi, finishedUnitsApi } from '@/lib/apiClient'
 import type { OrderProductionProgress } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -123,6 +124,7 @@ function ImportOrderModal({ orders, onImport, onClose }: {
   onImport: (lines: PlanLineForm[]) => void
   onClose: () => void
 }) {
+  const clientDisplay = useClientNames()
   const [selectedOrder,   setSelectedOrder]   = useState<string>(orders[0]?.id ?? '')
   const [selectedLines,   setSelectedLines]   = useState<Set<string>>(new Set())
   const [progress,        setProgress]        = useState<OrderProductionProgress | null>(null)
@@ -209,7 +211,7 @@ function ImportOrderModal({ orders, onImport, onClose }: {
           <SelectContent>
             {orders.map(o=>(
               <SelectItem key={o.id} value={o.id}>
-                {o.orderNo} · {o.clientName} · {fmtKg(o.totalKg,0)} kg
+                {o.orderNo} · {clientDisplay(o.clientName)} · {fmtKg(o.totalKg,0)} kg
               </SelectItem>
             ))}
           </SelectContent>
@@ -433,6 +435,7 @@ interface LineFormProps {
 }
 
 function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging, clients, seasonedAvail, seasonedUsed, seasonedRaw, onChange, onRemove }: LineFormProps) {
+  const clientDisplay = useClientNames()
   const [showBatchPanel, setShowBatchPanel] = useState(false)
 
   const qty        = parseFloat(line.qty)||0
@@ -501,7 +504,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
           <span className="text-[11px] font-bold text-muted-foreground">Pozycja {idx+1}</span>
           {line.clientName && (
             <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-semibold">
-              {line.clientName}{line.clientOrderNo?` · ${line.clientOrderNo}`:''}
+              {clientDisplay(line.clientName)}{line.clientOrderNo?` · ${line.clientOrderNo}`:''}
             </span>
           )}
         </div>
@@ -575,7 +578,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
               <SelectTrigger className="h-8 text-[11px]"><SelectValue/></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none">— brak —</SelectItem>
-                {clients.map((c:any)=><SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                {clients.map((c:any)=><SelectItem key={c.id} value={c.id}>{c.displayName || c.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -953,6 +956,7 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
 
 // ─── Strona główna ────────────────────────────────────────────
 export function ProductionPlanningPage() {
+  const clientDisplay = useClientNames()
   const { data: plans, loading, refetch } = useApi(()=>productionPlansApi.list())
   const [modal,    setModal]    = useState(false)
   const [editPlan, setEditPlan] = useState<ProductionPlan|null>(null)
@@ -1194,7 +1198,7 @@ export function ProductionPlanningPage() {
                                     : <span className="text-amber-600">Do przydzielenia</span>
                                 }
                               </TableCell>
-                              <TableCell className="py-1.5 text-muted-foreground text-[10px] px-3">{l.clientName||'—'}</TableCell>
+                              <TableCell className="py-1.5 text-muted-foreground text-[10px] px-3">{l.clientName ? clientDisplay(l.clientName) : '—'}</TableCell>
                               <TableCell className="py-1 px-2">
                                 {(plan.status === 'active' || plan.status === 'done') && l.recipeId && (
                                   <Button

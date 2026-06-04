@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react'
 import { traceabilityApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
+import { useClientNames } from '@/lib/clientNames'
 import { GitBranch, Beef, Soup, Package, Factory } from 'lucide-react'
 import type { FinishedGoodsItem } from '@/lib/mockApi'
 
@@ -142,6 +143,7 @@ export function LineageChain({ batchId }: { batchId: string }) {
 }
 
 export function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () => void }) {
+  const clientDisplay = useClientNames()
   const subEntries: any[] = (item as any).subEntries ?? []
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
@@ -157,7 +159,7 @@ export function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClos
               { label: 'Produkt',   val: item.productTypeName },
               { label: 'Receptura', val: item.recipeName },
               { label: 'Tuleja',    val: item.packagingName ?? '—' },
-              { label: 'Klient',    val: item.clientName ?? '—' },
+              { label: 'Klient',    val: item.clientName ? clientDisplay(item.clientName) : '—' },
               { label: 'Łącznie',   val: `${item.qty} szt · ${fmtKg(item.totalKg)} kg` },
               { label: 'Data',      val: fmtDatePl(item.producedDate) },
             ].map(r => (

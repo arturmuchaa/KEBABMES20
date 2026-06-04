@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
+import { useClientNames } from '@/lib/clientNames'
 import { ProcessStatusBadge } from '@/features/operations/ProcessStatusBadge'
 import {
   rawBatchesApi, meatStockApi, seasonedMeatApi,
@@ -208,6 +209,7 @@ const ORDER_STATUS_VARIANT: Record<string, any> = {
 // DashboardPage
 // ─────────────────────────────────────────────────────────────────
 export function DashboardPage() {
+  const clientDisplay = useClientNames()
   const batchRes    = useApi(() => rawBatchesApi.list({ active_only: true, limit: 500 }))
   const meatRes     = useApi(() => meatStockApi.list())
   const seasonedRes = useApi(() => seasonedMeatApi.list())
@@ -979,7 +981,7 @@ export function DashboardPage() {
                                 {t.recipeName} · {t.kgPerUnit}kg
                                 {clients.length > 0 && (
                                   <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                                    · {clients.join(', ')}
+                                    · {clients.map(n => clientDisplay(n)).join(', ')}
                                   </span>
                                 )}
                               </div>
@@ -1179,6 +1181,7 @@ function OrdersTable({ orders, finishedQtyByOrderNo, inProgressQtyByOrderId, inP
   inProgressByLineId: Map<string, number>
   qtyDoneByLineId: Map<string, number>
 }) {
+  const clientDisplay = useClientNames()
   const [expanded, setExpanded] = useState<string | null>(null)
 
   const ORDER_STATUS_BADGE_CLS: Record<string, string> = {
@@ -1233,7 +1236,7 @@ function OrdersTable({ orders, finishedQtyByOrderNo, inProgressQtyByOrderId, inP
                     <code className="font-mono font-bold text-primary text-[12px]">{o.orderNo}</code>
                   </td>
                   <td className="px-2.5 py-2 whitespace-nowrap text-ink font-medium max-w-[220px] truncate" title={o.clientName}>
-                    {o.clientName}
+                    {clientDisplay(o.clientName)}
                   </td>
                   <td className="px-2.5 py-2 whitespace-nowrap">
                     {o.deliveryDate ? (

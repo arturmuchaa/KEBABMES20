@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { recallApi } from '@/lib/api'
+import { useClientNames } from '@/lib/clientNames'
 
 interface RecallResult {
   batchId:          string
@@ -100,6 +101,7 @@ function KpiCard({ label, value, sub, color }: {
 
 // ─── Główny komponent ──────────────────────────────────────────
 export function RecallPage() {
+  const clientDisplay = useClientNames()
   const [query,   setQuery]   = useState('')
   const [loading, setLoading] = useState(false)
   const [result,  setResult]  = useState<RecallResult | null>(null)
@@ -193,7 +195,7 @@ export function RecallPage() {
                 <div className="flex flex-wrap gap-2">
                   {result.clients.map((c, i) => (
                     <span key={i} className="bg-red-100 text-red-800 text-xs font-semibold px-2 py-1 rounded-lg border border-red-200">
-                      {c.clientName}
+                      {clientDisplay(c.clientName)}
                     </span>
                   ))}
                 </div>
@@ -307,7 +309,7 @@ export function RecallPage() {
                 {result.clients.map((c, i) => (
                   <div key={i} className="flex items-center justify-between bg-surface-2 rounded-lg px-3 py-2.5 border border-surface-3">
                     <div>
-                      <div className="font-bold text-ink text-sm">{c.clientName}</div>
+                      <div className="font-bold text-ink text-sm">{clientDisplay(c.clientName)}</div>
                       {c.clientOrderNo && (
                         <div className="text-xs text-ink-3 font-mono">{c.clientOrderNo}</div>
                       )}

@@ -654,7 +654,7 @@ export function LabelTemplateSetupPage() {
                       .filter((c: any) => c.active !== false)
                       .map((c: any) => (
                         // BUG 2 FIX: value={c.name} — key by NAME so save and print use the same key
-                        <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                        <SelectItem key={c.id} value={c.name}>{c.displayName || c.name}</SelectItem>
                       ))}
                   </SelectContent>
                 </Select>

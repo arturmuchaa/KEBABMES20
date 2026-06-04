@@ -4,6 +4,7 @@
 import { Fragment, useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, clientsApi, packagingApi } from '@/lib/apiClient'
+import { useClientNames } from '@/lib/clientNames'
 import { fmtKg, fmtDatePl, todayIso, cn } from '@/lib/utils'
 import {
   Check, CheckCircle2, ChevronDown, ChevronUp, ChevronsUpDown, Clock,
@@ -221,6 +222,7 @@ function exportCsv(rows: ClientOrder[]) {
 }
 
 export function ClientOrdersPage() {
+  const clientDisplay = useClientNames()
   const { data: orders, loading, refetch } = useApi(() => clientOrdersApi.list())
   const [modal,        setModal]        = useState(false)
   const [editOrder,    setEditOrder]    = useState<ClientOrder | null>(null)
@@ -433,7 +435,7 @@ export function ClientOrdersPage() {
                           <code className="font-mono font-bold text-primary text-[13px]">{o.orderNo}</code>
                         </td>
                         <td className="px-2.5 py-2 whitespace-nowrap text-ink font-medium max-w-[240px] truncate" title={o.clientName}>
-                          {o.clientName}
+                          {clientDisplay(o.clientName)}
                         </td>
                         <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
                           {fmtDatePl(o.orderDate)}

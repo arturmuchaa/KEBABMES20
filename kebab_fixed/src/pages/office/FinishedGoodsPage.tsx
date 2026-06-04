@@ -7,6 +7,7 @@
 import { useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { finishedGoodsApi } from '@/lib/apiClient'
+import { useClientNames } from '@/lib/clientNames'
 import { fmtKg, cn } from '@/lib/utils'
 import {
   Eye, Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Download, ShoppingBag,
@@ -65,6 +66,7 @@ function exportCsv(rows: FinishedGoodsItem[]) {
 
 // ─── Strona ─────────────────────────────────────────────────
 export function FinishedGoodsPage() {
+  const clientDisplay = useClientNames()
   const { data: items, loading } = useApi(() => finishedGoodsApi.list())
   const [detailItem, setDetailItem] = useState<FinishedGoodsItem | null>(null)
   const [filter,   setFilter]   = useState('')
@@ -240,7 +242,7 @@ export function FinishedGoodsPage() {
                       <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[220px]">
                         {item.clientName ? (
                           <span className="truncate inline-block max-w-full align-bottom" title={item.clientName}>
-                            {item.clientName}
+                            {clientDisplay(item.clientName)}
                           </span>
                         ) : (
                           <span className="text-muted-foreground italic">—</span>

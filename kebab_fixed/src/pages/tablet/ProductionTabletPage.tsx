@@ -7,6 +7,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { productionPlansApi, usersApi } from '@/lib/apiClient'
+import { useClientNames } from '@/lib/clientNames'
 import { Spinner, EmptyState } from '@/components/ui/widgets'
 import { fmtKg, cn } from '@/lib/utils'
 import { ChevronRight, Plus, Minus, Pencil, CheckCircle, Factory, RefreshCw, LogOut, AlertTriangle, Info, Layers } from 'lucide-react'
@@ -75,6 +76,7 @@ function ProductionRow({ line, nr, prog, onClick, onEdit, onBatchInfo }: {
   line:ProductionPlanLine; nr:number; prog:LineProgress|undefined
   onClick:()=>void; onEdit:()=>void; onBatchInfo:()=>void
 }) {
+  const clientDisplay = useClientNames()
   const status    = prog?.status??'PLANNED'
   const completed = prog?.completedPieces??0
   const pct       = line.qty>0?(completed/line.qty)*100:0
@@ -108,7 +110,7 @@ function ProductionRow({ line, nr, prog, onClick, onEdit, onBatchInfo }: {
             {batchNos.length>2&&<span className="text-[8px] text-ink-3">+{batchNos.length-2}</span>}
           </div>
           <span className="text-xs font-bold text-ink-2 font-mono truncate text-center">{line.packagingName||'—'}</span>
-          <span className="text-xs font-bold text-ink truncate">{line.clientName||'—'}</span>
+          <span className="text-xs font-bold text-ink truncate">{line.clientName ? clientDisplay(line.clientName) : '—'}</span>
           <div className="text-right">
             <span className="text-sm font-black text-success tabular-nums">{line.totalKg}</span>
             <span className="text-[9px] text-ink-3 font-semibold ml-0.5">kg</span>
@@ -166,6 +168,7 @@ function ProgressModal({ line, prog, mode, workers, onSave, onSaveEdit, onClose 
   workers:User[]; onSave:(wId:string,wName:string,pieces:number)=>void
   onSaveEdit:(entries:WorkerEntry[])=>void; onClose:()=>void
 }) {
+  const clientDisplay = useClientNames()
   const [worker,      setWorker]      = useState('')
   const [count,       setCount]       = useState(1)
   const [editEntries, setEditEntries] = useState<WorkerEntry[]>(()=>(prog?.workerEntries??[]).map(e=>({...e})))
@@ -177,7 +180,7 @@ function ProgressModal({ line, prog, mode, workers, onSave, onSaveEdit, onClose 
       <div className="bg-white rounded-3xl w-full max-w-sm p-6" onClick={e=>e.stopPropagation()}>
         <div className="mb-4 pb-4 border-b border-surface-3">
           <div className="text-xs font-bold text-ink-3 mb-1">Dodaj postęp</div>
-          <div className="font-black text-ink text-lg">{line.clientName||line.recipeName}</div>
+          <div className="font-black text-ink text-lg">{line.clientName ? clientDisplay(line.clientName) : line.recipeName}</div>
           <div className="text-sm text-ink-3 mt-0.5">{line.qty}×{line.kgPerUnit}kg · {line.recipeName}</div>
           <div className="text-xs text-ink-3 mt-1">Wykonano <strong>{completed}</strong>/{line.qty} · Pozostało <strong className="text-warn">{rem}</strong></div>
         </div>
@@ -225,7 +228,7 @@ function ProgressModal({ line, prog, mode, workers, onSave, onSaveEdit, onClose 
       <div className="bg-white rounded-3xl w-full max-w-sm p-6" onClick={e=>e.stopPropagation()}>
         <div className="mb-4 pb-4 border-b border-surface-3">
           <div className="flex items-center gap-2 mb-1"><Pencil size={13} className="text-warn"/><div className="text-xs font-bold text-warn uppercase">Korekta</div></div>
-          <div className="font-black text-ink text-lg">{line.clientName||line.recipeName}</div>
+          <div className="font-black text-ink text-lg">{line.clientName ? clientDisplay(line.clientName) : line.recipeName}</div>
         </div>
         {editEntries.length===0 ? <div className="text-center py-6 text-sm text-ink-3">Brak wpisów</div> : (
           <div className="space-y-2 mb-5">
