@@ -13,7 +13,7 @@ from app.db import (
 )
 from app.logging_config import get_logger
 from app.models.orders import ClientOrderCreate, OrderLineCreate
-from app.utils.ids import cuid, now_iso
+from app.utils.ids import cuid, now_iso, slugify_for_number
 from datetime import datetime
 
 logger = get_logger(__name__)
@@ -28,12 +28,17 @@ def _order_period(order_date_raw: str | None) -> str:
     return datetime.now().strftime("%m/%y")
 
 
-def _next_client_order_no(conn, order_date_raw: str | None) -> str:
+def _next_client_order_no(
+    conn, client_display_name: str, order_date_raw: str | None
+) -> str:
+    # Format numeru: {nazwa_wyświetlana_klienta}/Z/{kolejny_w_msc}/MM/RR
+    # (np. ZAGROS/Z/1/05/26). Sekwencja jest liczona PER KLIENT i miesiąc.
     period = _order_period(order_date_raw)
-    seq_key = f"client_order_seq:{period}"
     month_part, year_part = period.split("/")
+    client_slug = slugify_for_number(client_display_name)
+    seq_key = f"client_order_seq:{client_slug}:{period}"
 
-    # Lock one row per month so parallel creates cannot allocate the same number.
+    # Lock one row per client+month so parallel creates cannot allocate the same number.
     cx_execute(
         conn,
         """
@@ -57,15 +62,16 @@ def _next_client_order_no(conn, order_date_raw: str | None) -> str:
     rows = cx_query_all(
         conn,
         """
-        SELECT split_part(order_no, '/', 2)::INTEGER AS seq
+        SELECT split_part(order_no, '/', 3)::INTEGER AS seq
         FROM client_orders
-        WHERE split_part(order_no, '/', 1) = 'Z'
-          AND split_part(order_no, '/', 3) = %s
+        WHERE split_part(order_no, '/', 1) = %s
+          AND split_part(order_no, '/', 2) = 'Z'
           AND split_part(order_no, '/', 4) = %s
-          AND split_part(order_no, '/', 2) ~ '^[0-9]+$'
+          AND split_part(order_no, '/', 5) = %s
+          AND split_part(order_no, '/', 3) ~ '^[0-9]+$'
         ORDER BY seq
         """,
-        (month_part, year_part),
+        (client_slug, month_part, year_part),
     )
     used = {int(row["seq"]) for row in rows}
     seq = 1
@@ -77,7 +83,7 @@ def _next_client_order_no(conn, order_date_raw: str | None) -> str:
         "UPDATE sequences SET value = GREATEST(value, %s) WHERE key = %s",
         (seq, seq_key),
     )
-    return f"Z/{seq}/{period}"
+    return f"{client_slug}/Z/{seq}/{period}"
 
 
 def _resolve_line_names(conn, line: OrderLineCreate) -> Tuple[str, str, str]:
@@ -198,7 +204,8 @@ def create_order(dto: ClientOrderCreate) -> Dict:
         )
         if not client:
             raise HTTPException(404, "Klient nie znaleziony")
-        order_no = _next_client_order_no(conn, dto.order_date)
+        client_display = client.get("display_name") or client["name"]
+        order_no = _next_client_order_no(conn, client_display, dto.order_date)
 
         order = cx_execute_returning(
             conn,
