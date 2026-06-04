@@ -156,9 +156,16 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
     ordered_qty = int((ordered or {}).get("q") or 0)
     incomplete = ordered_qty > 0 and total_qty < ordered_qty
 
-    client = query_one(
-        "SELECT name, address, city, nip, language, dest_name, dest_address, dest_city FROM clients WHERE name=%s",
-        (order.get("client_name"),)) or {}
+    # Klient: najpierw po client_id (pewny klucz obcy zamówienia), dopiero potem
+    # po nazwie. Bez tego zamówienia, gdzie client_name jest wolnym tekstem
+    # niepasującym do słownika, gubiły pełne dane odbiorcy (NIP, adres, język).
+    cols = "name, address, city, nip, language, dest_name, dest_address, dest_city"
+    client = None
+    if order.get("client_id"):
+        client = query_one(f"SELECT {cols} FROM clients WHERE id=%s", (order.get("client_id"),))
+    if not client:
+        client = query_one(f"SELECT {cols} FROM clients WHERE name=%s", (order.get("client_name"),))
+    client = client or {}
     co = get_company()
     lang = client.get("language") or lang_from_nip(client.get("nip") or "")
 
