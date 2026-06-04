@@ -78,9 +78,14 @@ const L: Record<string, Record<string, string>> = {
   },
 }
 
-// Wysokość zadrukowanej części A4 w px (96dpi): 297mm − 2×8mm marginesu ≈ 1062px.
-// Lekki zapas, by druk nigdy nie przelał się na drugą stronę.
-const A4_PRINTABLE_PX = 1054
+// Zadrukowana część A4 przy marginesie 8mm (96dpi) ≈ 1062px. NIE wypełniamy do
+// samej krawędzi — przeglądarka przy „drukuj" często dokłada własne marginesy
+// i nagłówki/stopki, które zjadają miejsce i wypychały dokument na 2. stronę.
+// Dlatego: wypełniamy wiersze tylko do A4_FILL_PX (z zapasem na dole), a gdy
+// treść przekracza A4_MAX_PX — skalujemy w dół. To gwarantuje jedną stronę
+// także przy domyślnych ustawieniach druku.
+const A4_FILL_PX = 1000   // cel wypełnienia (zapas ~16mm względem 1062)
+const A4_MAX_PX = 1030    // powyżej tego skalujemy dokument w dół
 // Maksymalna liczba wierszy tabeli (pozycje + puste dopełniające).
 const MAX_ROWS = 20
 
@@ -113,13 +118,13 @@ export function HdiPrintPage() {
     const hNow = sheet.getBoundingClientRect().height
     // Prawdziwa (nieskalowana) wysokość bez rozłożonego naddatku wierszy:
     const h0 = scaled ? hNow / scale : hNow - rowExtra * bodyRows
-    if (h0 > A4_PRINTABLE_PX + 2) {
+    if (h0 > A4_MAX_PX + 2) {
       if (rowExtra !== 0) setRowExtra(0)
-      const s = Math.max(0.55, A4_PRINTABLE_PX / h0)
+      const s = Math.max(0.55, A4_MAX_PX / h0)
       if (Math.abs(s - scale) > 0.004) { setScale(s); setScaledH(Math.ceil(h0 * s)) }
     } else {
       if (scale !== 1) { setScale(1); setScaledH(null) }
-      const want = bodyRows > 0 ? Math.max(0, Math.min(40, (A4_PRINTABLE_PX - h0) / bodyRows)) : 0
+      const want = bodyRows > 0 ? Math.max(0, Math.min(40, (A4_FILL_PX - h0) / bodyRows)) : 0
       if (Math.abs(want - rowExtra) > 0.5) setRowExtra(want)
     }
   }, [doc, id, rowExtra, scale])
