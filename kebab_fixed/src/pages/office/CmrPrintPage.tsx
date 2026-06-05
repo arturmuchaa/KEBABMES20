@@ -13,7 +13,8 @@ function fmt(date?: string) {
 }
 
 // Pole nakładane na druk: pozycja w % strony A4 (left/top), szerokość, rozmiar.
-function F({ l, t, w, s = 8, bold, center, right, children }: {
+// Czcionka danych jak na oryginalnym druku CMR: Roboto Condensed.
+function F({ l, t, w, s = 10.5, bold, center, right, children }: {
   l: number; t: number; w?: number; s?: number
   bold?: boolean; center?: boolean; right?: boolean; children?: React.ReactNode
 }) {
@@ -21,22 +22,22 @@ function F({ l, t, w, s = 8, bold, center, right, children }: {
     <div style={{
       position: 'absolute', left: `${l}%`, top: `${t}%`,
       width: w ? `${w}%` : undefined,
-      fontSize: `${s}px`, fontWeight: bold ? 700 : 400, lineHeight: 1.15,
+      fontSize: `${s}px`, fontWeight: bold ? 700 : 400, lineHeight: 1.32,
       textAlign: center ? 'center' : right ? 'right' : 'left',
-      color: '#000', fontFamily: 'Arial, Helvetica, sans-serif',
+      color: '#000', fontFamily: "'Roboto Condensed', Arial, sans-serif",
     }}>{children}</div>
   )
 }
 
 function Addr({ d }: { d: any }) {
   if (!d) return null
-  const cityLine = [d.postal_code, d.city].filter(Boolean).join(' ')
+  // Wiersz miejscowości jak na wzorze: „kod, miasto, kraj" (przecinkami, w jednej linii).
+  const cityLine = [d.postal_code, d.city, d.country].filter(Boolean).join(', ')
   return (
     <>
-      {d.name && <div style={{ fontWeight: 700 }}>{d.name}</div>}
+      {d.name && <div>{d.name}</div>}
       {d.address && <div>{d.address}</div>}
       {cityLine && <div>{cityLine}</div>}
-      {d.country && <div>{d.country}</div>}
     </>
   )
 }
@@ -47,33 +48,33 @@ function CmrSheet({ doc, bg }: { doc: any; bg: string }) {
   const goods: any[] = p.goods || []
   const c = p.carrier || {}
 
-  const ROW0 = 48.6      // top % pierwszego wiersza towaru
-  const ROWH = 2.55      // wysokość wiersza w %
+  const ROW0 = 48.9      // top % pierwszego wiersza towaru
+  const ROWH = 2.75      // wysokość wiersza w %
 
   return (
     <div className="cmr-page">
       <img className="cmr-bg" src={bg} alt="" />
 
       {/* Numer CMR (po „CMR No:") */}
-      <F l={83} t={9.6} s={12} bold>{doc.number}</F>
+      <F l={83} t={9.4} s={14} bold>{doc.number}</F>
 
       {/* 1 Nadawca */}
-      <F l={6} t={9.3} w={20} s={7.5}><Addr d={p.sender} /></F>
-      <F l={40.5} t={12.5} w={13} s={7.5}>{p.sender?.nip}</F>
+      <F l={6} t={9.4} w={26} s={10.5}><Addr d={p.sender} /></F>
+      <F l={41} t={12.4} w={13} s={10}>{p.sender?.nip}</F>
 
       {/* 2 Odbiorca */}
-      <F l={6} t={19.2} w={20} s={7.5}><Addr d={p.consignee} /></F>
-      <F l={40.5} t={22.4} w={13} s={7.5}>{p.consignee?.nip}</F>
+      <F l={6} t={19.3} w={26} s={10.5}><Addr d={p.consignee} /></F>
+      <F l={41} t={22.3} w={13} s={10}>{p.consignee?.nip}</F>
 
       {/* 3 Miejsce przeznaczenia */}
-      <F l={6} t={28.6} w={42} s={7.5}>{p.delivery_place}</F>
+      <F l={6} t={28.6} w={42} s={10.5}>{p.delivery_place}</F>
 
       {/* 4 Miejsce i data załadowania */}
-      <F l={6} t={36.4} w={30} s={7.5}>{p.load_place}</F>
-      <F l={6} t={38.0} w={30} s={7.5}>{fmt(p.load_date)}</F>
+      <F l={6} t={36.4} w={26} s={10}>{p.load_place}</F>
+      <F l={34} t={36.4} w={14} s={10}>{fmt(p.load_date)}</F>
 
       {/* 5 Załączone dokumenty */}
-      <F l={6} t={42.2} w={42} s={7.5}>
+      <F l={6} t={42.0} w={42} s={10}>
         {att.hdi_number && <div>HDI {att.hdi_number}</div>}
         {att.invoice_no && <div>{att.invoice_no}</div>}
       </F>
@@ -81,29 +82,29 @@ function CmrSheet({ doc, bg }: { doc: any; bg: string }) {
       {/* 6–11 Towar (wiersze) */}
       {goods.map((g, i) => (
         <div key={i}>
-          <F l={22} t={ROW0 + i * ROWH} w={9} s={7.5} center>{g.qty || ''}</F>
-          <F l={45} t={ROW0 + i * ROWH} w={20} s={7.5}>{g.name}</F>
-          <F l={74} t={ROW0 + i * ROWH} w={11} s={7.5} right>{g.kg ? `${g.kg}` : ''}</F>
+          <F l={22} t={ROW0 + i * ROWH} w={9} s={10} center>{g.qty || ''}</F>
+          <F l={45} t={ROW0 + i * ROWH} w={20} s={10}>{g.name}</F>
+          <F l={73} t={ROW0 + i * ROWH} w={12} s={10} right>{g.kg ? `${g.kg}` : ''}</F>
         </div>
       ))}
       {/* Waga brutto razem (dół kolumny 11) */}
-      <F l={74} t={57.2} w={11} s={8} right bold>{p.gross_kg ? `${p.gross_kg}` : ''}</F>
+      <F l={73} t={57.0} w={12} s={10.5} right bold>{p.gross_kg ? `${p.gross_kg}` : ''}</F>
 
       {/* 13 Instrukcje nadawcy */}
-      <F l={6} t={66.9} w={43} s={7.5}>{p.instructions}</F>
+      <F l={6} t={67.0} w={43} s={10}>{p.instructions}</F>
 
       {/* 14 Postanowienia dot. przewoźnego (Franco) — w wolnym miejscu obok etykiety */}
-      <F l={31} t={77.3} w={18} s={7.5}>{p.franco}</F>
+      <F l={31} t={77.2} w={18} s={10}>{p.franco}</F>
 
       {/* 16 Przewoźnik */}
-      <F l={54} t={18.6} w={18} s={7.5}><Addr d={c} /></F>
-      <F l={85} t={22.6} w={10} s={7.5}>{c.nip}</F>
-      <F l={85} t={23.6} w={10} s={7.5}>{c.vat_eu}</F>
-      <F l={54} t={25.4} w={20} s={7.5}>{c.plate ? `Nr rej.: ${c.plate}` : ''}</F>
+      <F l={54} t={18.7} w={20} s={10.5}><Addr d={c} /></F>
+      <F l={85} t={22.4} w={11} s={10}>{c.nip}</F>
+      <F l={85} t={23.5} w={11} s={10}>{c.vat_eu}</F>
+      <F l={54} t={25.4} w={22} s={10}>{c.plate ? `Nr rej.: ${c.plate}` : ''}</F>
 
       {/* 21 Wystawiono w / data */}
-      <F l={22} t={84.1} w={14} s={7.5}>{p.established_place}</F>
-      <F l={37} t={84.1} w={14} s={7.5}>{fmt(p.established_date)}</F>
+      <F l={21} t={84.0} w={14} s={10}>{p.established_place}</F>
+      <F l={37} t={84.0} w={14} s={10}>{fmt(p.established_date)}</F>
     </div>
   )
 }
@@ -131,6 +132,18 @@ export function CmrPrintPage() {
   return (
     <div style={{ background: '#fff', color: '#000' }}>
       <style>{`
+        @font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 400;
+          src: url('/fonts/robotocondensed-400-latin-ext.woff2') format('woff2');
+          unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+        @font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 400;
+          src: url('/fonts/robotocondensed-400-latin.woff2') format('woff2');
+          unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+        @font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 700;
+          src: url('/fonts/robotocondensed-700-latin-ext.woff2') format('woff2');
+          unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+        @font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 700;
+          src: url('/fonts/robotocondensed-700-latin.woff2') format('woff2');
+          unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
         @media print {
           .no-print { display: none !important; }
           @page { size: A4 portrait; margin: 0; }

@@ -47,6 +47,18 @@ def cmr_totals(goods: List[Dict[str, Any]]) -> Dict[str, Any]:
             "kg": round(sum(float(g.get("kg") or 0) for g in goods), 3)}
 
 
+# Nazwa kraju na CMR (jak na wzorze: pełna nazwa) wg prefiksu NIP/VAT.
+_CC_NAME = {"PL": "Poland", "SI": "Slovenia", "DE": "Germany", "AT": "Austria",
+            "SK": "Slovakia", "CZ": "Czechia", "IT": "Italy", "FR": "France",
+            "HU": "Hungary", "HR": "Croatia", "RO": "Romania", "NL": "Netherlands"}
+
+
+def country_from_nip(nip: str, default: str = "Poland") -> str:
+    s = (nip or "").strip().upper()
+    cc = s[:2] if len(s) >= 2 and s[:2].isalpha() else ""
+    return _CC_NAME.get(cc, default if not cc else cc)
+
+
 def _carrier_snapshot(carrier_id: str, plate: str) -> Dict[str, Any]:
     c = query_one("SELECT * FROM carriers WHERE id=%s", (carrier_id,)) if carrier_id else None
     c = c or {}
@@ -97,9 +109,12 @@ def build_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
     payload = {
         "sender": {"name": co.get("name", ""), "address": company_addr,
                    "postal_code": co.get("postal_code", ""), "city": load_city,
-                   "country": "PL", "nip": co.get("nip", "")},
+                   "country": country_from_nip(co.get("nip", ""), "Poland"),
+                   "nip": co.get("nip", "")},
         "consignee": {"name": client_name, "address": client.get("address", ""),
-                      "city": client.get("city", ""), "nip": client.get("nip", "")},
+                      "city": client.get("city", ""),
+                      "country": country_from_nip(client.get("nip", ""), ""),
+                      "nip": client.get("nip", "")},
         "delivery_place": dest or ", ".join(x for x in [client_name, client_addr] if x),
         "load_place": co.get("load_place") or f"{company_addr}, {load_city}".strip(", "),
         "load_date": today,
