@@ -159,7 +159,15 @@ export function HdiPrintPage() {
         @media print {
           .no-print { display: none !important; }
           @page { size: A4 portrait; margin: 8mm; }
-          body { margin: 0; }
+          /* Tło aplikacji (jasnoszare) wychodziło jako jasny pasek na dole strony —
+             wymuś biel całej strony przy druku. */
+          html, body { margin: 0; background: #fff !important; }
+        }
+        /* Wymuś druk teł (szare pola) — bez tego przeglądarka/drukarka pomija
+           kolory tła i pola wychodzą białe mimo ustawień. */
+        .hdi, .hdi * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
         }
         .hdi {
           max-width: 194mm;
@@ -193,7 +201,7 @@ export function HdiPrintPage() {
         .hdi .prod-table th {
           border: 1px solid #9a9a9a;
           padding: 2px 4px;
-          background: #e9e9e9;
+          background: #d7d7d7;
           text-align: center;
           font-size: 8px;
           line-height: 1.2;
@@ -209,7 +217,7 @@ export function HdiPrintPage() {
         .hdi .prod-table td.center { text-align: center; }
         .hdi .prod-table td.right { text-align: right; }
         .hdi .prod-table tr.total-row td {
-          background: #ededed;
+          background: #e1e1e1;
           font-weight: bold;
           border-top: 1.5px solid #6f6f6f;
         }
@@ -262,7 +270,7 @@ export function HdiPrintPage() {
           white-space: nowrap;
           width: 26%;
           font-size: 8.5px;
-          background: #f0f0f0;
+          background: #d7d7d7;
         }
         /* Wartości adresowe (nieprzetłumaczone) — do lewej, wyśrodkowane w pionie. */
         .hdi .info-table td.val-center {
