@@ -98,7 +98,7 @@ def build_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
         "sender": {"name": co.get("name", ""), "address": company_addr,
                    "postal_code": co.get("postal_code", ""), "city": load_city,
                    "country": "PL", "nip": co.get("nip", "")},
-        "consignee": {"name": client_name, "address": client_addr,
+        "consignee": {"name": client_name, "address": client.get("address", ""),
                       "city": client.get("city", ""), "nip": client.get("nip", "")},
         "delivery_place": dest or ", ".join(x for x in [client_name, client_addr] if x),
         "load_place": co.get("load_place") or f"{company_addr}, {load_city}".strip(", "),
