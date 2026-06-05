@@ -96,7 +96,7 @@ function CmrSheet({ doc, color, label }: { doc: any; color: string; label: strin
           </Box>
           <Box num={5} label="Załączone dokumenty / Documents attached / Beigefügte Dokumente">
             {att.hdi_number && <div>HDI {att.hdi_number}</div>}
-            {att.invoice_no && <div>FV {att.invoice_no}</div>}
+            {att.invoice_no && <div>{att.invoice_no}</div>}
           </Box>
 
           {/* Goods table: boxes 6-9, 11 */}
