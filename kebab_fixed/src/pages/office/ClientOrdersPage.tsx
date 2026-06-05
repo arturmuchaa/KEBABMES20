@@ -5,6 +5,7 @@ import { Fragment, useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, clientsApi, packagingApi } from '@/lib/apiClient'
 import { hdiApi } from '@/lib/api'
+import { CmrFormModal } from '@/components/cmr/CmrFormModal'
 import { useClientNames } from '@/lib/clientNames'
 import { fmtKg, fmtDatePl, todayIso, cn } from '@/lib/utils'
 import {
@@ -227,6 +228,7 @@ export function ClientOrdersPage() {
   const { data: orders, loading, refetch } = useApi(() => clientOrdersApi.list())
   const [modal,        setModal]        = useState(false)
   const [editOrder,    setEditOrder]    = useState<ClientOrder | null>(null)
+  const [cmrOrderId,   setCmrOrderId]   = useState<string | null>(null)
   const [expanded,     setExpanded]     = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState('')
   const [search,       setSearch]       = useState('')
@@ -524,6 +526,13 @@ export function ClientOrdersPage() {
                             >
                               HDI
                             </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setCmrOrderId(o.id) }}
+                              className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-teal-700 hover:bg-teal-50"
+                              title="Wystaw CMR"
+                            >
+                              CMR
+                            </button>
                             {o.status === 'draft' && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleStatus(o.id, 'confirmed') }}
@@ -694,6 +703,8 @@ export function ClientOrdersPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {cmrOrderId && <CmrFormModal orderId={cmrOrderId} onClose={() => setCmrOrderId(null)} />}
 
     </div>
   )
