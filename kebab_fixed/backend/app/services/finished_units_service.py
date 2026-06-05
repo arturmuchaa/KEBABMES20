@@ -11,6 +11,30 @@ from app.utils.unit_codes import next_produced_status, parse_unit_qr, unit_qr
 logger = get_logger(__name__)
 
 
+def batch_sequence(qty, batch_allocation, seasoned_batch_no=None,
+                   seasoned_batch_nos=None) -> List[str]:
+    """Numer partii dla każdej z `qty` sztuk, wg `batch_allocation` (rozbicie
+    partii ustawione w planowaniu, np. 6 z 346 + 18 z 347).
+
+    Gdy alokacja sumuje się do qty — rozdaj partie per sztuka. W innym wypadku
+    (brak alokacji / niezgodna suma) cała linia idzie na jedną partię
+    (`seasoned_batch_no`, a w razie braku pierwszy z `seasoned_batch_nos`).
+    Spójne z HDI (`hdi_service.units_from_plan_lines`).
+    """
+    qty = int(qty or 0)
+    ba = batch_allocation if isinstance(batch_allocation, dict) else {}
+    alloc = {bno: int((info or {}).get("pieces") or 0) for bno, info in ba.items()}
+    seq: List[str] = []
+    if alloc and sum(alloc.values()) == qty:
+        for bno, pieces in alloc.items():
+            seq.extend([bno] * int(pieces))
+        return seq
+    sbn = seasoned_batch_no or ""
+    if not sbn and seasoned_batch_nos:
+        sbn = seasoned_batch_nos[0] if seasoned_batch_nos else ""
+    return [sbn or ""] * qty
+
+
 def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
     """Tworzy `qty` rekordów finished_units (status 'planned') dla linii planu.
 
@@ -27,21 +51,50 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
 
         existing = cx_query_all(
             conn,
-            "SELECT id FROM finished_units WHERE plan_line_id=%s",
+            "SELECT id, qr_seq, status, batch_no FROM finished_units WHERE plan_line_id=%s ORDER BY qr_seq",
             (plan_line_id,),
         )
         if existing:
-            return {"planLineId": plan_line_id, "created": 0, "existing": len(existing)}
+            # Sztuki już istnieją. Jeśli wszystkie są jeszcze 'planned' (nie
+            # wyprodukowane/zeskanowane), zsynchronizuj numery partii z aktualnym
+            # rozbiciem (batch_allocation) — naprawia wcześniejsze błędne etykiety,
+            # gdzie wszystko szło na jedną partię. Wyprodukowanych NIE ruszamy.
+            resynced = 0
+            if all((u.get("status") == "planned") for u in existing):
+                seq = batch_sequence(
+                    len(existing),
+                    line.get("batch_allocation"),
+                    line.get("seasoned_batch_no"),
+                    line.get("seasoned_batch_nos"),
+                )
+                for u in existing:
+                    idx = int(u.get("qr_seq") or 0) - 1
+                    want = seq[idx] if 0 <= idx < len(seq) else (seq[-1] if seq else "")
+                    if want and want != (u.get("batch_no") or ""):
+                        cx_execute(conn, "UPDATE finished_units SET batch_no=%s WHERE id=%s",
+                                   (want, u["id"]))
+                        resynced += 1
+                if resynced:
+                    logger.info("finished_units.batch_resynced",
+                                extra={"plan_line_id": plan_line_id, "resynced_count": resynced})
+            return {"planLineId": plan_line_id, "created": 0,
+                    "existing": len(existing), "resynced": resynced}
 
         qty = int(line.get("qty") or 0)
         if qty <= 0:
             raise HTTPException(400, "Linia planu ma qty <= 0")
 
-        seasoned = line.get("seasoned_batch_nos") or []
-        batch_no = seasoned[0] if seasoned else ""
+        # Numer partii per sztuka wg rozbicia z planowania (batch_allocation).
+        seq = batch_sequence(
+            qty,
+            line.get("batch_allocation"),
+            line.get("seasoned_batch_no"),
+            line.get("seasoned_batch_nos"),
+        )
         created = 0
         for i in range(qty):
             uid = cuid()
+            batch_no = seq[i] if i < len(seq) else (seq[-1] if seq else "")
             cx_execute(
                 conn,
                 """
