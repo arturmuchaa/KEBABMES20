@@ -47,16 +47,22 @@ export function PalletLabelPrintPage() {
 
     const totalQty = details.reduce((sum, item) => sum + item.qty, 0)
     const totalKg = details.reduce((sum, item) => sum + item.qty * item.kgPerUnit, 0)
-    const uniqueKg = [...new Set(details.map((item) => item.kgPerUnit).filter((value) => value > 0))]
 
-    const mainLabel = uniqueKg.length === 1
-      ? `${totalQty} X ${formatKgCompact(uniqueKg[0])}KG`
-      : `${totalQty} SZT / ${formatKgCompact(totalKg)}KG`
+    // Karton mieszany → osobna pozycja na każdą wagę (np. „30 X 15KG", „40 X 10KG"),
+    // żeby klient widział rozbicie, a nie zsumowane „70 SZT".
+    const byKg = new Map<number, number>()
+    details.forEach((item) => {
+      if (item.kgPerUnit > 0) byKg.set(item.kgPerUnit, (byKg.get(item.kgPerUnit) ?? 0) + item.qty)
+    })
+    const groups = [...byKg.entries()].sort((a, b) => b[0] - a[0]) // waga malejąco
+    const mainLines = groups.length
+      ? groups.map(([kg, qty]) => `${qty} X ${formatKgCompact(kg)}KG`)
+      : [`${totalQty} SZT`]
 
     return {
       totalQty,
       totalKg,
-      mainLabel,
+      mainLines,
     }
   }, [order, target])
 
@@ -226,7 +232,9 @@ export function PalletLabelPrintPage() {
               }}
             >
               <div>{clientDisplay(order.clientName)}</div>
-              <div className="mt-4">{stats.mainLabel}</div>
+              {stats.mainLines.map((ln, i) => (
+                <div key={i} className={i === 0 ? 'mt-4' : ''}>{ln}</div>
+              ))}
             </div>
           </div>
 
