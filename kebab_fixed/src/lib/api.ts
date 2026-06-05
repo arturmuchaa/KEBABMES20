@@ -1061,6 +1061,46 @@ export const hdiApi = {
   pdfUrl: (id: string) => `${BASE}/hdi/${encodeURIComponent(id)}/pdf`,
 }
 
+// ─── Przewoźnicy + CMR ──────────────────────────────────────────
+export interface Carrier {
+  id: string; name: string; address: string; postalCode: string; city: string
+  country: string; nip: string; vatEu: string; defaultPlate: string; phone: string; notes: string
+}
+function mapCarrier(r: any): Carrier {
+  return { id: r.id, name: r.name ?? '', address: r.address ?? '', postalCode: r.postal_code ?? '',
+    city: r.city ?? '', country: r.country ?? '', nip: r.nip ?? '', vatEu: r.vat_eu ?? '',
+    defaultPlate: r.default_plate ?? '', phone: r.phone ?? '', notes: r.notes ?? '' }
+}
+export interface CarrierInput {
+  name: string; address?: string; postal_code?: string; city?: string; country?: string
+  nip?: string; vat_eu?: string; default_plate?: string; phone?: string; notes?: string
+}
+export const carriersApi = {
+  list: () => get<any[]>('/carriers').then(rs => (rs ?? []).map(mapCarrier)),
+  create: (dto: CarrierInput) => post<any>('/carriers', dto).then(mapCarrier),
+  update: (id: string, dto: CarrierInput) => put<any>(`/carriers/${id}`, dto).then(mapCarrier),
+  deactivate: (id: string) => patch<any>(`/carriers/${id}/deactivate`, {}),
+}
+
+export interface CmrGoodsLine { name: string; qty: number; kg: number }
+export interface CmrFormInput {
+  carrier_id: string; plate: string; invoice_no: string; instructions: string
+  franco: string; goods_manual: CmrGoodsLine[]
+}
+export interface CmrListRow {
+  id: string; number: string; clientName: string; status: string; issueDate: string; createdAt: string
+}
+export const cmrApi = {
+  generate: (orderId: string, form: CmrFormInput) =>
+    post<{ id: string; number: string; status: string }>(`/cmr/generate?order_id=${encodeURIComponent(orderId)}`, form),
+  get: (id: string) => get<any>(`/cmr/${id}`),
+  listDocs: () => get<any[]>('/cmr').then(rs => (rs ?? []).map((r): CmrListRow => ({
+    id: r.id, number: r.number ?? '', clientName: r.client_name ?? '', status: r.status ?? '',
+    issueDate: r.issue_date ?? '', createdAt: r.created_at ?? '',
+  }))),
+  pdfUrl: (id: string) => `${BASE}/cmr/${encodeURIComponent(id)}/pdf`,
+}
+
 // ─── Ustawienia firmy (do wydruków) ─────────────────────────────
 export interface CompanySettings {
   name:       string
