@@ -349,6 +349,13 @@ _DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_cmr_order ON cmr_documents(order_id)",
     "CREATE INDEX IF NOT EXISTS idx_cmr_created ON cmr_documents(created_at)",
 
+    # ── Konfiguracja układu druku CMR (pozycje pól nakładanych na druk) ──
+    """CREATE TABLE IF NOT EXISTS cmr_layout (
+        id          TEXT PRIMARY KEY,
+        positions   JSONB NOT NULL DEFAULT '{}',
+        updated_at  TIMESTAMPTZ DEFAULT now()
+    )""",
+
     """CREATE TABLE IF NOT EXISTS cartons (
         id              TEXT PRIMARY KEY,
         order_id        TEXT,

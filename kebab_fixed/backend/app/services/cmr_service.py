@@ -176,3 +176,19 @@ def list_cmr() -> List[Dict[str, Any]]:
     return query_all(
         "SELECT id, number, client_name, carrier_id, status, issue_date, created_at "
         "FROM cmr_documents ORDER BY seq DESC")
+
+
+# ── Układ druku CMR (pozycje pól ustawiane w konfiguratorze) ──
+def get_cmr_layout() -> Dict[str, Any]:
+    row = query_one("SELECT positions FROM cmr_layout WHERE id='default'")
+    return (row or {}).get("positions") or {}
+
+
+def save_cmr_layout(positions: Dict[str, Any]) -> Dict[str, Any]:
+    with transaction() as conn:
+        cx_execute(conn,
+            """INSERT INTO cmr_layout (id, positions, updated_at)
+               VALUES ('default', %s::jsonb, now())
+               ON CONFLICT (id) DO UPDATE SET positions=EXCLUDED.positions, updated_at=now()""",
+            (json.dumps(positions),))
+    return positions

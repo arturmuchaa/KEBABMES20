@@ -1099,6 +1099,8 @@ export const cmrApi = {
     issueDate: r.issue_date ?? '', createdAt: r.created_at ?? '',
   }))),
   pdfUrl: (id: string) => `${BASE}/cmr/${encodeURIComponent(id)}/pdf`,
+  getLayout: () => get<Record<string, any>>('/cmr/layout'),
+  saveLayout: (positions: Record<string, any>) => put<Record<string, any>>('/cmr/layout', positions),
 }
 
 // ─── Ustawienia firmy (do wydruków) ─────────────────────────────

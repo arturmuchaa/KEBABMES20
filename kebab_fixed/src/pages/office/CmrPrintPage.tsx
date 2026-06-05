@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft, Printer, Download } from 'lucide-react'
 import { cmrApi } from '@/lib/api'
+import { mergeCmrPositions, CMR_LINE_GAP, CMR_GOODS_ROWH,
+         type CmrPositions, type FieldPos } from '@/lib/cmrLayout'
 
 // Cztery kopie = cztery strony oficjalnego druku (tło 1:1), różnią się kolorem.
 const COPY_BG = ['/cmr/cmr-1.png', '/cmr/cmr-2.png', '/cmr/cmr-3.png', '/cmr/cmr-4.png']
@@ -30,80 +32,65 @@ function F({ l, t, w, s = 10.5, bold, center, right, children }: {
   )
 }
 
-// Blok adresowy: 3 linie (nazwa / ulica / „kod, miasto, kraj") rozmieszczone
-// dokładnie jak na wzorze — odstęp linii 1,3% wysokości A4.
-function AddrBlock({ d, l, t, s = 11.5 }: { d: any; l: number; t: number; s?: number }) {
+// Blok adresowy: 3 linie (nazwa / ulica / „kod, miasto, kraj") wg pozycji z konfiguracji.
+function AddrBlock({ d, p, gap }: { d: any; p: FieldPos; gap: number }) {
   if (!d) return null
   const cityLine = [d.postal_code, d.city, d.country].filter(Boolean).join(', ')
   const lines = [d.name, d.address, cityLine].filter(Boolean)
-  return <>{lines.map((ln, i) => <F key={i} l={l} t={t + i * 1.3} w={26} s={s}>{ln}</F>)}</>
+  return <>{lines.map((ln, i) => <F key={i} l={p.x} t={p.y + i * gap} w={26} s={p.size}>{ln}</F>)}</>
 }
 
-function CmrSheet({ doc, bg }: { doc: any; bg: string }) {
+function CmrSheet({ doc, bg, pos }: { doc: any; bg: string; pos: CmrPositions }) {
   const p = doc.payload || {}
   const att = p.attachments || {}
   const goods: any[] = p.goods || []
   const c = p.carrier || {}
-
-  // Współrzędne wyciągnięte 1:1 z wypełnionego cmr wzor.pdf (pozycje wartości).
-  const ROW0 = 48.3      // top % pierwszego wiersza towaru (jak na wzorze)
-  const ROWH = 2.7       // odstęp wierszy
+  const P = (k: string): FieldPos => pos[k] || { x: 0, y: 0, size: 11 }
+  const rowH = CMR_GOODS_ROWH
+  const gN = P('goodsNum'), gQ = P('goodsQty'), gNa = P('goodsName'), gK = P('goodsKg')
 
   return (
     <div className="cmr-page">
       <img className="cmr-bg" src={bg} alt="" />
 
-      {/* Numer CMR (po „CMR No:") */}
-      <F l={79.3} t={8.7} s={15} bold>{doc.number}</F>
+      <F l={P('cmrNo').x} t={P('cmrNo').y} s={P('cmrNo').size} bold>{doc.number}</F>
 
-      {/* 1 Nadawca */}
-      <AddrBlock d={p.sender} l={8.4} t={8.7} />
-      <F l={35.4} t={12.7} w={16} s={11}>{p.sender?.nip}</F>
+      <AddrBlock d={p.sender} p={P('sender')} gap={CMR_LINE_GAP} />
+      <F l={P('senderNip').x} t={P('senderNip').y} w={16} s={P('senderNip').size}>{p.sender?.nip}</F>
 
-      {/* 2 Odbiorca */}
-      <AddrBlock d={p.consignee} l={8.4} t={18.6} />
-      <F l={36.4} t={22.6} w={15} s={11}>{p.consignee?.nip}</F>
+      <AddrBlock d={p.consignee} p={P('consignee')} gap={CMR_LINE_GAP} />
+      <F l={P('consigneeNip').x} t={P('consigneeNip').y} w={15} s={P('consigneeNip').size}>{p.consignee?.nip}</F>
 
-      {/* 3 Miejsce przeznaczenia (pełny adres odbiorcy, jak na wzorze) */}
-      <AddrBlock d={p.consignee} l={8.4} t={28.5} />
+      <AddrBlock d={p.consignee} p={P('delivery')} gap={CMR_LINE_GAP} />
 
-      {/* 4 Miejsce i data załadowania */}
-      <F l={8.4} t={38.4} w={26} s={11}>{p.load_place}</F>
-      <F l={42.1} t={38.4} w={14} s={11}>{fmt(p.load_date)}</F>
+      <F l={P('loadPlace').x} t={P('loadPlace').y} w={26} s={P('loadPlace').size}>{p.load_place}</F>
+      <F l={P('loadDate').x} t={P('loadDate').y} w={14} s={P('loadDate').size}>{fmt(p.load_date)}</F>
 
-      {/* 5 Załączone dokumenty (HDI + nr FV) */}
-      {att.hdi_number && <F l={8.4} t={42.0} w={42} s={11}>HDI {att.hdi_number}</F>}
-      {att.invoice_no && <F l={8.4} t={43.2} w={42} s={11}>{att.invoice_no}</F>}
+      {att.hdi_number && <F l={P('attHdi').x} t={P('attHdi').y} w={42} s={P('attHdi').size}>HDI {att.hdi_number}</F>}
+      {att.invoice_no && <F l={P('attInvoice').x} t={P('attInvoice').y} w={42} s={P('attInvoice').size}>{att.invoice_no}</F>}
 
-      {/* 6–11 Towar (wiersze) */}
       {goods.map((g, i) => (
         <div key={i}>
-          <F l={6.8} t={ROW0 + i * ROWH} w={4} s={11}>{i + 1}.</F>
-          <F l={22} t={ROW0 + i * ROWH} w={9} s={11}>{g.qty || ''}</F>
-          <F l={47.7} t={ROW0 + i * ROWH} w={18} s={11}>{g.name}</F>
-          <F l={77.6} t={ROW0 + i * ROWH} w={9} s={11}>{g.kg ? `${g.kg}` : ''}</F>
+          <F l={gN.x} t={gN.y + i * rowH} w={4} s={gN.size}>{i + 1}.</F>
+          <F l={gQ.x} t={gQ.y + i * rowH} w={9} s={gQ.size}>{g.qty || ''}</F>
+          <F l={gNa.x} t={gNa.y + i * rowH} w={18} s={gNa.size}>{g.name}</F>
+          <F l={gK.x} t={gK.y + i * rowH} w={9} s={gK.size}>{g.kg ? `${g.kg}` : ''}</F>
         </div>
       ))}
-      {/* Waga brutto razem (gdy więcej niż jedna pozycja) */}
       {goods.length > 1 && (
-        <F l={77.6} t={57.0} w={9} s={11} bold>{p.gross_kg ? `${p.gross_kg}` : ''}</F>
+        <F l={P('goodsGross').x} t={P('goodsGross').y} w={9} s={P('goodsGross').size} bold>{p.gross_kg ? `${p.gross_kg}` : ''}</F>
       )}
 
-      {/* 13 Instrukcje nadawcy */}
-      <F l={9.3} t={65.8} w={42} s={11}>{p.instructions}</F>
+      <F l={P('instructions').x} t={P('instructions').y} w={42} s={P('instructions').size}>{p.instructions}</F>
+      <F l={P('franco').x} t={P('franco').y} w={18} s={P('franco').size}>{p.franco}</F>
 
-      {/* 14 Postanowienia dot. przewoźnego (Franco) */}
-      <F l={31} t={77.4} w={18} s={11}>{p.franco}</F>
+      <AddrBlock d={c} p={P('carrier')} gap={CMR_LINE_GAP} />
+      <F l={P('carrierNip').x} t={P('carrierNip').y} w={13} s={P('carrierNip').size}>{c.nip}</F>
+      <F l={P('carrierVat').x} t={P('carrierVat').y} w={13} s={P('carrierVat').size}>{c.vat_eu}</F>
+      <F l={P('carrierPlate').x} t={P('carrierPlate').y} w={22} s={P('carrierPlate').size}>{c.plate ? `Nr rej.: ${c.plate}` : ''}</F>
 
-      {/* 16 Przewoźnik */}
-      <AddrBlock d={c} l={53.7} t={18.6} />
-      <F l={78} t={23.4} w={13} s={11}>{c.nip}</F>
-      <F l={78} t={24.5} w={13} s={11}>{c.vat_eu}</F>
-      <F l={53.7} t={26.0} w={22} s={11}>{c.plate ? `Nr rej.: ${c.plate}` : ''}</F>
-
-      {/* 21 Wystawiono w / data */}
-      <F l={15.6} t={83.1} w={14} s={11}>{p.established_place}</F>
-      <F l={32.7} t={83.1} w={14} s={11}>{fmt(p.established_date)}</F>
+      <F l={P('establishedPlace').x} t={P('establishedPlace').y} w={14} s={P('establishedPlace').size}>{p.established_place}</F>
+      <F l={P('establishedDate').x} t={P('establishedDate').y} w={14} s={P('establishedDate').size}>{fmt(p.established_date)}</F>
     </div>
   )
 }
@@ -111,22 +98,25 @@ function CmrSheet({ doc, bg }: { doc: any; bg: string }) {
 export function CmrPrintPage() {
   const { id = '' } = useParams<{ id: string }>()
   const [doc, setDoc] = useState<any>(null)
+  const [pos, setPos] = useState<CmrPositions | null>(null)
   const [err, setErr] = useState('')
   const isPdf = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('pdf')
 
   useEffect(() => {
     cmrApi.get(id).then(setDoc).catch(e => setErr(e instanceof Error ? e.message : 'Błąd'))
+    cmrApi.getLayout().then(l => setPos(mergeCmrPositions(l))).catch(() => setPos(mergeCmrPositions(null)))
   }, [id])
 
   useEffect(() => {
-    if (doc && !isPdf) {
+    // Drukuj dopiero, gdy mamy dokument i ustawienia układu.
+    if (doc && pos && !isPdf) {
       const t = setTimeout(() => window.print(), 700)
       return () => clearTimeout(t)
     }
-  }, [doc, isPdf])
+  }, [doc, pos, isPdf])
 
   if (err) return <div className="p-8 text-red-700">{err}</div>
-  if (!doc) return <div className="p-8 text-slate-500">Ładowanie CMR…</div>
+  if (!doc || !pos) return <div className="p-8 text-slate-500">Ładowanie CMR…</div>
 
   return (
     <div style={{ background: '#fff', color: '#000' }}>
@@ -187,7 +177,7 @@ export function CmrPrintPage() {
       </div>
 
       {COPY_BG.map((bg, i) => (
-        <CmrSheet key={i} doc={doc} bg={bg} />
+        <CmrSheet key={i} doc={doc} bg={bg} pos={pos} />
       ))}
     </div>
   )

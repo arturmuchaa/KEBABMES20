@@ -17,6 +17,17 @@ def generate(order_id: str = Query(...), form: CmrForm = CmrForm()):
     return svc.generate_cmr(order_id, form.model_dump())
 
 
+# /layout musi być PRZED /{cmr_id}, by nie złapała go trasa z parametrem.
+@router.get("/layout")
+def get_layout():
+    return svc.get_cmr_layout()
+
+
+@router.put("/layout")
+def put_layout(positions: dict):
+    return svc.save_cmr_layout(positions)
+
+
 @router.get("/{cmr_id}/pdf")
 def pdf(cmr_id: str):
     doc = svc.get_cmr(cmr_id)
