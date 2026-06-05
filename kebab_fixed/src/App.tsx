@@ -26,6 +26,7 @@ import { HdiPrintPage }         from '@/pages/office/HdiPrintPage'
 import { CmrPrintPage }         from '@/pages/office/CmrPrintPage'
 import { HdiDocumentsPage }     from '@/pages/office/HdiDocumentsPage'
 import { CmrDocumentsPage }     from '@/pages/office/CmrDocumentsPage'
+import { CmrLayoutConfigPage }  from '@/pages/office/CmrLayoutConfigPage'
 import { CarriersPage }         from '@/pages/office/CarriersPage'
 import { LabelTemplateSetupPage } from '@/pages/office/LabelTemplateSetupPage'
 import { CompanySettingsPage } from '@/pages/office/CompanySettingsPage'
@@ -107,6 +108,7 @@ export default function App() {
         <Route path="hdi"                   element={<HdiDocumentsPage />} />
         <Route path="przewoznicy"           element={<CarriersPage />} />
         <Route path="cmr"                   element={<CmrDocumentsPage />} />
+        <Route path="cmr-konfigurator"      element={<CmrLayoutConfigPage />} />
         <Route path="faktury"               element={<PurchaseInvoicesPage />} />
         <Route path="raw-batches"           element={<RawBatchesPage />} />
         <Route path="magazyn/surowiec"      element={<RawStockPage />} />
