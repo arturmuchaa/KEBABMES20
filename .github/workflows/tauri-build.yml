@@ -92,18 +92,13 @@ jobs:
           KEBAB_UPDATER_PUBLISH_URL: ${{ secrets.KEBAB_UPDATER_PUBLISH_URL }}
           KEBAB_UPDATER_ADMIN_TOKEN: ${{ secrets.KEBAB_UPDATER_ADMIN_TOKEN }}
         run: |
-          # Trim — sekrety wklejane w UI GitHuba często mają końcowy \r\n, który
-          # przechodzi przez IsNullOrWhiteSpace, ale psuje URL (curl: Bad hostname).
-          $pub = "$env:KEBAB_UPDATER_PUBLISH_URL".Trim()
-          $tok = "$env:KEBAB_UPDATER_ADMIN_TOKEN".Trim()
-
-          # URL publikacji nie jest poufny (host:port jest już w VITE_API_URL i CSP)
-          # i ma jeden poprawny kształt. Akceptuj sekret tylko gdy wskazuje właściwy
-          # endpoint; w innym wypadku użyj zweryfikowanego domyślnego URL-a.
-          if ($pub -notmatch '/api/admin/desktop-updates/publish/?$') {
-            $pub = 'http://204.168.166.34:8080/api/admin/desktop-updates/publish'
-            Write-Host "KEBAB_UPDATER_PUBLISH_URL pusty/niepoprawny — używam domyślnego: $pub"
-          }
+          # URL publikacji ZAHARDKODOWANY (host:port jest jawny w VITE_API_URL/CSP).
+          # Sekret KEBAB_UPDATER_PUBLISH_URL bywał zanieczyszczony niewidocznymi
+          # znakami (zero-width / NBSP), których .Trim() NIE usuwa → curl: (3) Bad
+          # hostname. Token czyścimy do samych drukowalnych znaków ASCII (ten sam
+          # problem mógłby psuć nagłówek).
+          $pub = 'http://204.168.166.34:8080/api/admin/desktop-updates/publish'
+          $tok = ("$env:KEBAB_UPDATER_ADMIN_TOKEN" -replace '[^\x21-\x7e]', '')
           if ([string]::IsNullOrWhiteSpace($tok)) {
             Write-Host "KEBAB_UPDATER_ADMIN_TOKEN brak; pomijam publikację na VPS (artefakt i tak zostanie wgrany)."
             exit 0
