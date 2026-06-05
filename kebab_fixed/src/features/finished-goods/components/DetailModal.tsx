@@ -1,14 +1,15 @@
 /**
- * DetailModal — szczegóły partii wyrobu gotowego + pełny łańcuch traceability.
+ * DetailModal — szczegóły SKU (wyrób gotowy) z rozbiciem wg partii
+ * + pełny łańcuch traceability per partia (accordion).
  *
- * Współdzielony między listą (grid kart) a stroną szczegółów rodzaju produktu.
+ * Props: group: SkuGroup (zamiast pojedynczego FinishedGoodsItem).
  */
 import { useState, useEffect } from 'react'
 import { traceabilityApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { useClientNames } from '@/lib/clientNames'
-import { GitBranch, Beef, Scissors, FlaskConical, Package2 } from 'lucide-react'
-import type { FinishedGoodsItem } from '@/lib/mockApi'
+import { GitBranch, Beef, Scissors, FlaskConical, Package2, ChevronRight } from 'lucide-react'
+import type { SkuGroup } from '@/pages/office/FinishedGoodsPage'
 
 import {
   CardDescription, CardTitle,
@@ -16,6 +17,19 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
+
+// ─── Task 4: dedupe + sort batch arrays in traceability steps ─────────────────
+function uniqSortBatches(batches: { partia: string; sub?: string | null }[]) {
+  const seen = new Set<string>()
+  const out: { partia: string; sub?: string | null }[] = []
+  for (const b of batches) {
+    const k = b.partia || ''
+    if (k && seen.has(k)) continue
+    seen.add(k)
+    out.push(b)
+  }
+  return out.sort((a, b) => (a.partia || '').localeCompare(b.partia || '', undefined, { numeric: true }))
+}
 
 // ─── Step card w łańcuchu traceability ───────────────────────
 type StepConfig = {
@@ -127,10 +141,10 @@ export function LineageChain({ batchId }: { batchId: string }) {
     accentBorder: 'border-sky-200',
     accentText: 'text-sky-700',
     badgeBg: 'bg-sky-100',
-    batches: rawBatches.map(rb => ({
+    batches: uniqSortBatches(rawBatches.map(rb => ({
       partia: rb.internal_batch_no || rb.id?.slice(0, 8) || '—',
       sub: supplierByBatch.get(rb.id) || rb.supplier_name || null,
-    })),
+    }))),
   }
 
   // ── Krok 2: Rozbiór ───────────────────────────────────────
@@ -142,17 +156,16 @@ export function LineageChain({ batchId }: { batchId: string }) {
     accentBorder: 'border-emerald-200',
     accentText: 'text-emerald-700',
     badgeBg: 'bg-emerald-100',
-    batches: deboning.map(d => {
+    batches: uniqSortBatches(deboning.map(d => {
       const kg = Number(d.kgMeat ?? d.kg_meat ?? 0)
       return {
         partia: d.rawBatchNo || d.raw_batch_no || d.meatLotNo || d.meat_lot_no || d.id?.slice(0, 8) || '—',
         sub: kg > 0 ? `${fmtKg(kg, 1)} kg mięsa` : null,
       }
-    }),
+    })),
   }
 
   // ── Krok 3: Masowanie (scalony z mięsem przyprawionym) ────
-  // Partia = seasonedBatches[].batch_no; sub = zlecenie + kg
   const step3: StepConfig = {
     stepNo: 3,
     icon: <FlaskConical size={12} />,
@@ -161,28 +174,29 @@ export function LineageChain({ batchId }: { batchId: string }) {
     accentBorder: 'border-violet-200',
     accentText: 'text-violet-700',
     badgeBg: 'bg-violet-100',
-    batches: seasonedBatches.length > 0
-      ? seasonedBatches.map(sm => {
-          const kg = Number(sm.kg_produced ?? 0)
-          const orderNo = sm.mixing_order_no || ''
-          const recipe = recipeByOrderNo.get(orderNo) || ''
-          const subParts: string[] = []
-          if (orderNo) subParts.push(`zlec. ${orderNo}`)
-          if (recipe) subParts.push(recipe)
-          if (kg > 0) subParts.push(`${fmtKg(kg, 1)} kg`)
-          return {
-            partia: sm.batch_no || sm.id?.slice(0, 8) || '—',
-            sub: subParts.length > 0 ? subParts.join(' · ') : null,
-          }
-        })
-      : mixingOrders.map(mo => ({
-          // fallback: no seasoned batches recorded yet — show order as placeholder
-          partia: '—',
-          sub: `zlec. ${mo.order_no || ''}${mo.recipe_name ? ' · ' + mo.recipe_name : ''}`,
-        })),
+    batches: uniqSortBatches(
+      seasonedBatches.length > 0
+        ? seasonedBatches.map(sm => {
+            const kg = Number(sm.kg_produced ?? 0)
+            const orderNo = sm.mixing_order_no || ''
+            const recipe = recipeByOrderNo.get(orderNo) || ''
+            const subParts: string[] = []
+            if (orderNo) subParts.push(`zlec. ${orderNo}`)
+            if (recipe) subParts.push(recipe)
+            if (kg > 0) subParts.push(`${fmtKg(kg, 1)} kg`)
+            return {
+              partia: sm.batch_no || sm.id?.slice(0, 8) || '—',
+              sub: subParts.length > 0 ? subParts.join(' · ') : null,
+            }
+          })
+        : mixingOrders.map(mo => ({
+            partia: '—',
+            sub: `zlec. ${mo.order_no || ''}${mo.recipe_name ? ' · ' + mo.recipe_name : ''}`,
+          }))
+    ),
   }
 
-  // ── Krok 4: Wyrób gotowy ──────────────────────────────────
+  // ── Krok 4: Wyrób gotowy (bez dedupu — ta partia jest konkretna) ──
   const finishedBatchNo = (data.finishedGoods ?? [])[0]?.batch_no || batchId
   const step4: StepConfig = {
     stepNo: 4,
@@ -219,26 +233,32 @@ export function LineageChain({ batchId }: { batchId: string }) {
   )
 }
 
-export function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClose: () => void }) {
+export function DetailModal({ group, onClose }: { group: SkuGroup; onClose: () => void }) {
   const clientDisplay = useClientNames()
-  const subEntries: any[] = (item as any).subEntries ?? []
+  const [openId, setOpenId] = useState<string | null>(
+    group.batches.length === 1 ? group.batches[0].id : null
+  )
+  const workers = Array.from(new Set(group.batches.flatMap(b => b.producedBy ?? [])))
+
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Szczegóły — {item.batchNo}</DialogTitle>
-          <DialogDescription>Pełne dane partii wyrobu gotowego</DialogDescription>
+          <DialogTitle>
+            {group.productTypeName} · {group.clientName ? clientDisplay(group.clientName) : '—'} · {group.kgPerUnit}KG
+          </DialogTitle>
+          <DialogDescription>
+            {group.qty} szt · {fmtKg(group.totalKg)} kg · {group.batches.length} {group.batches.length === 1 ? 'partia' : 'partie/partii'}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             {[
-              { label: 'Produkt',   val: item.productTypeName },
-              { label: 'Receptura', val: item.recipeName },
-              { label: 'Tuleja',    val: item.packagingName ?? '—' },
-              { label: 'Klient',    val: item.clientName ? clientDisplay(item.clientName) : '—' },
-              { label: 'Łącznie',   val: `${item.qty} szt · ${fmtKg(item.totalKg)} kg` },
-              { label: 'Data',      val: fmtDatePl(item.producedDate) },
+              { label: 'Receptura', val: group.recipeName || '—' },
+              { label: 'Tuleja',    val: group.packagingName || '—' },
+              { label: 'Klient',    val: group.clientName ? clientDisplay(group.clientName) : '—' },
+              { label: 'Łącznie',   val: `${group.qty} szt · ${fmtKg(group.totalKg)} kg` },
             ].map(r => (
               <div key={r.label}>
                 <CardDescription className="text-[10px] font-bold uppercase mb-0.5">{r.label}</CardDescription>
@@ -247,51 +267,49 @@ export function DetailModal({ item, onClose }: { item: FinishedGoodsItem; onClos
             ))}
           </div>
 
-          <LineageChain batchId={item.id} />
-
-          {subEntries.length > 0 && (
+          <div className="space-y-2">
+            <CardDescription className="text-[10px] font-bold uppercase tracking-wider">
+              Skład wg partii ({group.batches.length})
+            </CardDescription>
             <div className="space-y-2">
-              <CardDescription className="text-[10px] font-bold uppercase tracking-wider">
-                Sesje produkcji ({subEntries.length})
-              </CardDescription>
-              <div className="divide-y border border-slate-200 rounded-xl overflow-hidden">
-                {subEntries.map((s: any, i: number) => (
-                  <div key={i} className="px-3 py-2.5 flex items-start justify-between gap-3 bg-white hover:bg-slate-50/60 transition-colors">
-                    {/* Left: qty + kg */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="font-bold text-sm tabular-nums">{s.qty}</span>
-                      <span className="text-muted-foreground text-xs">szt</span>
-                      <span className="text-slate-300 text-xs">·</span>
-                      <span className="text-xs tabular-nums text-ink-2">{fmtKg(s.totalKg)} kg</span>
-                    </div>
-                    {/* Center: partia badges */}
-                    {(s.seasonedBatchNos ?? []).length > 0 && (
-                      <div className="flex flex-wrap gap-1 flex-1">
-                        <span className="text-[10px] text-muted-foreground self-center mr-0.5">partia:</span>
-                        {(s.seasonedBatchNos ?? []).map((n: string) => (
-                          <code key={n} className="font-mono text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded">{n}</code>
-                        ))}
+              {group.batches.map(b => {
+                const open = openId === b.id
+                const bKg = (b.qtyAvailable ?? b.qty) * b.kgPerUnit
+                return (
+                  <div key={b.id} className="rounded-xl border border-slate-200 overflow-hidden">
+                    <button
+                      onClick={() => setOpenId(open ? null : b.id)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 bg-white hover:bg-slate-50/70 transition-colors text-left"
+                    >
+                      <span className={cn('shrink-0 text-slate-400 transition-transform', open && 'rotate-90')}>
+                        <ChevronRight size={15} />
+                      </span>
+                      <code className="font-mono font-bold text-sm tracking-tight text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                        {b.batchNo || '—'}
+                      </code>
+                      <span className="font-bold text-sm tabular-nums">
+                        {b.qtyAvailable ?? b.qty}
+                        <span className="text-muted-foreground font-normal text-xs"> szt</span>
+                      </span>
+                      <span className="text-slate-300">·</span>
+                      <span className="text-xs tabular-nums text-ink-2">{fmtKg(bKg)} kg</span>
+                      <span className="ml-auto text-[11px] text-muted-foreground">{fmtDatePl(b.producedDate)}</span>
+                    </button>
+                    {open && (
+                      <div className="px-3 py-3 border-t border-slate-100 bg-slate-50/40">
+                        <LineageChain batchId={b.id} />
                       </div>
                     )}
-                    {/* Right: workers + time */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      {(s.workerNames ?? []).length > 0 && (
-                        <CardDescription className="text-[10px] truncate max-w-[120px]">{(s.workerNames ?? []).join(', ')}</CardDescription>
-                      )}
-                      {s.addedAt && (
-                        <CardDescription className="text-[10px] font-mono tabular-nums">{s.addedAt.slice(11, 16)}</CardDescription>
-                      )}
-                    </div>
                   </div>
-                ))}
-              </div>
+                )
+              })}
             </div>
-          )}
+          </div>
 
-          {item.producedBy.length > 0 && (
+          {workers.length > 0 && (
             <div className="space-y-1">
               <CardDescription className="text-[10px] font-bold uppercase">Pracownicy</CardDescription>
-              <CardTitle className="text-sm font-medium">{item.producedBy.join(', ')}</CardTitle>
+              <CardTitle className="text-sm font-medium">{workers.join(', ')}</CardTitle>
             </div>
           )}
         </div>

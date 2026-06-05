@@ -2,7 +2,7 @@
  * FinishedGoodsPage — Magazyn wyrobów gotowych (lista, styl Subiekt GT).
  *
  * Gęsta tabela z stickyheader, sortowaniem i szybkim filtrem. Klik wiersza
- * → modal ze szczegółami i pełnym łańcuchem traceability.
+ * → modal ze szczegółami per SKU + rozbiciem wg partii + łańcuchem traceability.
  */
 import { useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
@@ -21,19 +21,49 @@ import {
 } from '@/components/ui/card'
 import { DetailModal } from '@/features/finished-goods/components/DetailModal'
 
+// ─── Grupowanie po SKU (łączymy partie/daty w jeden wiersz magazynu) ──────────
+export interface SkuGroup {
+  key: string
+  productTypeName: string
+  recipeName: string
+  packagingName: string
+  clientName: string
+  kgPerUnit: number
+  qty: number
+  totalKg: number
+  batches: FinishedGoodsItem[]
+}
+
+export function groupBySku(items: FinishedGoodsItem[]): SkuGroup[] {
+  const map = new Map<string, SkuGroup>()
+  for (const it of items) {
+    const key = [it.productTypeName, it.recipeName, it.packagingName,
+                 it.clientName, it.kgPerUnit].join('|')
+    let g = map.get(key)
+    if (!g) {
+      g = { key, productTypeName: it.productTypeName, recipeName: it.recipeName,
+            packagingName: it.packagingName, clientName: it.clientName,
+            kgPerUnit: it.kgPerUnit, qty: 0, totalKg: 0, batches: [] }
+      map.set(key, g)
+    }
+    g.qty += it.qtyAvailable
+    g.totalKg += it.qtyAvailable * it.kgPerUnit
+    g.batches.push(it)
+  }
+  return [...map.values()]
+}
+
 // ─── Sort ────────────────────────────────────────────────────
 type SortCol =
-  | 'batchNo'
   | 'qty' | 'kgPerUnit' | 'totalKg'
   | 'productTypeName' | 'recipeName' | 'packagingName' | 'clientName'
 
 function compareRows(col: SortCol) {
-  return (a: FinishedGoodsItem, b: FinishedGoodsItem) => {
+  return (a: SkuGroup, b: SkuGroup) => {
     switch (col) {
-      case 'batchNo':         return (a.batchNo         || '').localeCompare(b.batchNo         || '')
-      case 'qty':             return a.qtyAvailable - b.qtyAvailable
+      case 'qty':             return a.qty - b.qty
       case 'kgPerUnit':       return a.kgPerUnit - b.kgPerUnit
-      case 'totalKg':         return (a.qtyAvailable * a.kgPerUnit) - (b.qtyAvailable * b.kgPerUnit)
+      case 'totalKg':         return a.totalKg - b.totalKg
       case 'productTypeName': return (a.productTypeName || '').localeCompare(b.productTypeName || '')
       case 'recipeName':      return (a.recipeName      || '').localeCompare(b.recipeName      || '')
       case 'packagingName':   return (a.packagingName   || '').localeCompare(b.packagingName   || '')
@@ -43,19 +73,19 @@ function compareRows(col: SortCol) {
 }
 
 // ─── CSV export ──────────────────────────────────────────────
-function exportCsv(rows: FinishedGoodsItem[]) {
-  const headers = ['Partia','Ilość','kg','Rodzaj','Receptura','Tuleja','Klient','Razem kg']
+function exportCsv(rows: SkuGroup[]) {
+  const headers = ['Rodzaj', 'Receptura', 'Tuleja', 'Klient', 'kg/szt', 'Ilość (szt)', 'Razem kg', 'Partie']
   const csv = [headers.join(';')]
-    .concat(rows.map(r => [
-      r.batchNo || '',
-      r.qtyAvailable,
-      String(r.kgPerUnit).replace('.', ','),
-      r.productTypeName || '',
-      r.recipeName || '',
-      r.packagingName || '',
-      r.clientName || '',
-      String(r.qtyAvailable * r.kgPerUnit).replace('.', ','),
-    ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(';')))
+    .concat(rows.map(g => [
+      g.productTypeName || '',
+      g.recipeName || '',
+      g.packagingName || '',
+      g.clientName || '',
+      String(g.kgPerUnit).replace('.', ','),
+      g.qty,
+      String(g.totalKg).replace('.', ','),
+      g.batches.map(b => b.batchNo || '').filter(Boolean).join(' / '),
+    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')))
     .join('\n')
   const blob = new Blob([new TextEncoder().encode('﻿' + csv)], { type: 'text/csv;charset=utf-8' })
   const url  = URL.createObjectURL(blob)
@@ -71,7 +101,7 @@ function exportCsv(rows: FinishedGoodsItem[]) {
 export function FinishedGoodsPage() {
   const clientDisplay = useClientNames()
   const { data: items, loading } = useApi(() => finishedGoodsApi.list())
-  const [detailItem, setDetailItem] = useState<FinishedGoodsItem | null>(null)
+  const [detailGroup, setDetailGroup] = useState<SkuGroup | null>(null)
   const [filter,   setFilter]   = useState('')
   const [sortCol,  setSortCol]  = useState<SortCol>('productTypeName')
   const [sortDir,  setSortDir]  = useState<'asc' | 'desc'>('asc')
@@ -80,24 +110,23 @@ export function FinishedGoodsPage() {
 
   const list = useMemo(() => {
     const q = filter.toLowerCase().trim()
-    let result = rawList
+    let result = groupBySku(rawList)
     if (q) {
-      result = rawList.filter(i =>
-        (i.batchNo         || '').toLowerCase().includes(q) ||
-        (i.clientName      || '').toLowerCase().includes(q) ||
-        (i.clientOrderNo   || '').toLowerCase().includes(q) ||
-        (i.productTypeName || '').toLowerCase().includes(q) ||
-        (i.recipeName      || '').toLowerCase().includes(q) ||
-        (i.packagingName   || '').toLowerCase().includes(q) ||
-        String(i.kgPerUnit).includes(q)
+      result = result.filter(g =>
+        (g.clientName      || '').toLowerCase().includes(q) ||
+        (g.productTypeName || '').toLowerCase().includes(q) ||
+        (g.recipeName      || '').toLowerCase().includes(q) ||
+        (g.packagingName   || '').toLowerCase().includes(q) ||
+        String(g.kgPerUnit).includes(q) ||
+        g.batches.some(b => (b.batchNo || '').toLowerCase().includes(q))
       )
     }
     const cmp = compareRows(sortCol)
     return [...result].sort((a, b) => sortDir === 'asc' ? cmp(a, b) : -cmp(a, b))
   }, [rawList, filter, sortCol, sortDir])
 
-  const totalQty = list.reduce((s, i) => s + i.qtyAvailable, 0)
-  const totalKg  = list.reduce((s, i) => s + i.qtyAvailable * i.kgPerUnit, 0)
+  const totalQty = list.reduce((s, g) => s + g.qty, 0)
+  const totalKg  = list.reduce((s, g) => s + g.totalKg, 0)
 
   const toggleSort = (col: SortCol) => {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -108,6 +137,8 @@ export function FinishedGoodsPage() {
     sortCol === col
       ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
       : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60"/>
+
+  const allGroups = groupBySku(rawList)
 
   return (
     <div className="space-y-3 animate-fade-in">
@@ -120,7 +151,7 @@ export function FinishedGoodsPage() {
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="h-9 pl-9 pr-8 text-sm"
-                placeholder="Filtruj: nr partii, klient, receptura, tuleja, kg…"
+                placeholder="Filtruj: klient, receptura, tuleja, kg, nr partii…"
                 value={filter}
                 onChange={e => setFilter(e.target.value)}
                 autoFocus
@@ -141,7 +172,12 @@ export function FinishedGoodsPage() {
           <div className="flex items-center gap-4 text-xs tabular-nums">
             <div className="flex items-center gap-1.5">
               <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Pozycji:</CardDescription>
-              <span className="font-bold">{list.length}{list.length !== rawList.length && <span className="text-muted-foreground">/{rawList.length}</span>}</span>
+              <span className="font-bold">
+                {list.length}
+                {list.length !== allGroups.length && (
+                  <span className="text-muted-foreground">/{allGroups.length}</span>
+                )}
+              </span>
             </div>
             <div className="w-px h-4 bg-surface-4" />
             <div className="flex items-center gap-1.5">
@@ -188,7 +224,6 @@ export function FinishedGoodsPage() {
               <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
                 <tr>
                   {[
-                    { col: 'batchNo'         as SortCol, label: 'Partia',    align: 'left'  },
                     { col: 'qty'             as SortCol, label: 'Ilość',     align: 'right' },
                     { col: 'kgPerUnit'       as SortCol, label: 'kg',        align: 'right' },
                     { col: 'productTypeName' as SortCol, label: 'Rodzaj',    align: 'left'  },
@@ -215,76 +250,66 @@ export function FinishedGoodsPage() {
                 </tr>
               </thead>
               <tbody>
-                {list.map((item, idx) => {
-                  const totalRowKg = item.qtyAvailable * item.kgPerUnit
-                  return (
-                    <tr
-                      key={item.id}
-                      onClick={() => setDetailItem(item)}
-                      className={cn(
-                        'cursor-pointer border-b border-surface-3 transition-colors',
-                        idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
-                        'hover:bg-blue-50/60'
+                {list.map((g, idx) => (
+                  <tr
+                    key={g.key}
+                    onClick={() => setDetailGroup(g)}
+                    className={cn(
+                      'cursor-pointer border-b border-surface-3 transition-colors',
+                      idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
+                      'hover:bg-blue-50/60'
+                    )}
+                  >
+                    <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold">
+                      {g.qty}
+                      <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
+                    </td>
+                    <td className="px-2.5 py-2 whitespace-nowrap text-right text-ink-2">
+                      {g.kgPerUnit}<span className="text-muted-foreground font-normal text-[11px]"> kg</span>
+                    </td>
+                    <td className="px-2.5 py-2 whitespace-nowrap text-ink">
+                      {g.productTypeName || <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[200px] truncate" title={g.recipeName}>
+                      {g.recipeName || <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
+                      {g.packagingName || <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[220px]">
+                      {g.clientName ? (
+                        <span className="truncate inline-block max-w-full align-bottom" title={g.clientName}>
+                          {clientDisplay(g.clientName)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground italic">—</span>
                       )}
-                    >
-                      <td className="px-2.5 py-2 whitespace-nowrap">
-                        {item.batchNo
-                          ? <code className="font-mono font-bold text-xs tracking-tight text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">{item.batchNo}</code>
-                          : <span className="text-muted-foreground">—</span>
-                        }
-                      </td>
-                      <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold">
-                        {item.qtyAvailable}
-                        <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
-                      </td>
-                      <td className="px-2.5 py-2 whitespace-nowrap text-right text-ink-2">
-                        {item.kgPerUnit}<span className="text-muted-foreground font-normal text-[11px]"> kg</span>
-                      </td>
-                      <td className="px-2.5 py-2 whitespace-nowrap text-ink">
-                        {item.productTypeName || <span className="text-muted-foreground">—</span>}
-                      </td>
-                      <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[200px] truncate" title={item.recipeName}>
-                        {item.recipeName || <span className="text-muted-foreground">—</span>}
-                      </td>
-                      <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
-                        {item.packagingName || <span className="text-muted-foreground">—</span>}
-                      </td>
-                      <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[220px]">
-                        {item.clientName ? (
-                          <span className="truncate inline-block max-w-full align-bottom" title={item.clientName}>
-                            {clientDisplay(item.clientName)}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground italic">—</span>
-                        )}
-                      </td>
-                      <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold text-emerald-700">
-                        {fmtKg(totalRowKg, 0)}<span className="font-normal text-[11px]"> kg</span>
-                      </td>
-                      <td className="px-2 py-2 text-right">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setDetailItem(item) }}
-                          className="inline-flex items-center justify-center w-6 h-6 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
-                          title="Szczegóły / łańcuch partii"
-                        >
-                          <Eye size={13} />
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
+                    </td>
+                    <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold text-emerald-700">
+                      {fmtKg(g.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span>
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDetailGroup(g) }}
+                        className="inline-flex items-center justify-center w-6 h-6 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
+                        title="Szczegóły / łańcuch partii"
+                      >
+                        <Eye size={13} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
               <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
                 <tr>
-                  {/* Partia col — empty in summary */}
                   <td className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2">
-                    Suma · {list.length} pozycji
+                    Suma · {list.length} {list.length === 1 ? 'pozycja' : 'pozycji'}
                   </td>
                   <td className="px-2.5 py-2 text-right font-bold tabular-nums text-ink">
                     {totalQty}
                     <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
                   </td>
-                  <td colSpan={5} />
+                  <td colSpan={4} />
                   <td className="px-2.5 py-2 text-right font-bold tabular-nums text-emerald-700">
                     {fmtKg(totalKg, 0)} kg
                   </td>
@@ -296,7 +321,7 @@ export function FinishedGoodsPage() {
         )}
       </Card>
 
-      {detailItem && <DetailModal item={detailItem} onClose={() => setDetailItem(null)} />}
+      {detailGroup && <DetailModal group={detailGroup} onClose={() => setDetailGroup(null)} />}
     </div>
   )
 }
