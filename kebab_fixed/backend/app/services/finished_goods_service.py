@@ -380,7 +380,7 @@ def finish_day(dto: FinishDayDto) -> Dict[str, Any]:
             raise HTTPException(400, "Plan już zamknięty")
 
         for entry in dto.entries:
-            created.append(_process_finish_day_entry(conn, plan, entry, today))
+            created.extend(_process_finish_day_entry(conn, plan, entry, today) or [])
 
         # Zamknij wszystkie linie planu i sam plan.
         # Bez tego linie z qty_done > 0 zostają jako IN_PROGRESS i dashboard
@@ -435,29 +435,40 @@ def _compute_kebab_batch_no(produced_date: str, seasoned_batch_nos: List[str]) -
     return kebab_batch_no(produced_date, pp)
 
 
-def _process_finish_day_entry(
-    conn, plan: Dict, entry: FinishDayEntry, today: str
-) -> Dict | None:
-    if entry.qty <= 0:
-        return None
-    total_kg = round(entry.qty * entry.kg_per_unit, 3)
+def entry_batch_portions(qty, batch_allocation) -> List[Dict[str, Any]]:
+    """Rozbij wpis zamknięcia dnia na porcje per partia wsadowa wg
+    ``batch_allocation`` (sztuki na partię ustawione w planowaniu).
 
-    if not entry.seasoned_batch_nos:
-        logger.warning(
-            "finish_day.missing_seasoned",
-            extra={
-                "plan_line_id": entry.plan_line_id,
-                "recipe_id": entry.recipe_id,
-                "qty": entry.qty,
-            },
-        )
+    Zwraca ``[{"batch_no", "qty"}]`` gdy alokacja dzieli się czysto na sztuki
+    (suma ``pieces`` == qty) — wtedy każda partia dostaje osobny wiersz
+    finished_goods, więc każda sztuka ma poprawną partię. W innym wypadku ``[]``
+    (sygnał: tryb łączony — jedna partia / PP gdy fizycznie zmieszane).
+    Spójne z `finished_units` i HDI, które też rozbijają per `batch_allocation`.
+    """
+    qty = int(qty or 0)
+    ba = batch_allocation if isinstance(batch_allocation, dict) else {}
+    portions: List[Dict[str, Any]] = []
+    total = 0
+    for bno, alloc in ba.items():
+        if not isinstance(alloc, dict):
+            continue
+        pieces = int(alloc.get("pieces") or 0)
+        if pieces <= 0:
+            continue
+        total += pieces
+        portions.append({"batch_no": bno, "qty": pieces})
+    if portions and total == qty:
+        return portions
+    return []
 
-    lineage = _resolve_lineage(conn, entry.seasoned_batch_nos or [])
+
+def _upsert_goods_row(conn, plan, entry, today, batch_no, qty, total_kg,
+                      seasoned_batch_nos, lineage) -> str:
+    """Utwórz lub zinkrementuj jeden wiersz finished_goods dla danej partii
+    kebaba (+ sesja + ruch IN). Zwraca id wiersza."""
     src_mixing = lineage["mixing_order_ids"]
     src_seasoned = lineage["seasoned_meat_ids"]
     src_deboning = lineage["deboning_entry_ids"]
-
-    batch_no = _compute_kebab_batch_no(today, entry.seasoned_batch_nos or [])
 
     existing = cx_query_one(
         conn,
@@ -471,14 +482,8 @@ def _process_finish_day_entry(
           AND kg_per_unit = %s
         FOR UPDATE
         """,
-        (
-            today,
-            batch_no,
-            entry.recipe_id,
-            entry.packaging_id or "",
-            entry.client_name or "",
-            entry.kg_per_unit,
-        ),
+        (today, batch_no, entry.recipe_id, entry.packaging_id or "",
+         entry.client_name or "", entry.kg_per_unit),
     )
 
     if existing:
@@ -492,56 +497,20 @@ def _process_finish_day_entry(
                 produced_by = array_cat(COALESCE(produced_by,'{}'::text[]), %s::text[]),
                 seasoned_batch_nos = (
                     SELECT ARRAY(SELECT DISTINCT unnest(
-                        COALESCE(seasoned_batch_nos,'{}'::text[]) || %s::text[]
-                    ))
-                ),
+                        COALESCE(seasoned_batch_nos,'{}'::text[]) || %s::text[]))),
                 source_mixing_ids = (
                     SELECT ARRAY(SELECT DISTINCT unnest(
-                        COALESCE(source_mixing_ids,'{}'::text[]) || %s::text[]
-                    ))
-                ),
+                        COALESCE(source_mixing_ids,'{}'::text[]) || %s::text[]))),
                 source_seasoned_ids = (
                     SELECT ARRAY(SELECT DISTINCT unnest(
-                        COALESCE(source_seasoned_ids,'{}'::text[]) || %s::text[]
-                    ))
-                ),
+                        COALESCE(source_seasoned_ids,'{}'::text[]) || %s::text[]))),
                 source_deboning_ids = (
                     SELECT ARRAY(SELECT DISTINCT unnest(
-                        COALESCE(source_deboning_ids,'{}'::text[]) || %s::text[]
-                    ))
-                )
+                        COALESCE(source_deboning_ids,'{}'::text[]) || %s::text[])))
             WHERE id = %s
             """,
-            (
-                entry.qty,
-                total_kg,
-                entry.qty,
-                entry.worker_names,
-                entry.seasoned_batch_nos,
-                src_mixing,
-                src_seasoned,
-                src_deboning,
-                existing["id"],
-            ),
-        )
-        cx_execute(
-            conn,
-            """
-            INSERT INTO finished_goods_sessions
-                (id, goods_id, plan_line_id, qty, total_kg,
-                 seasoned_batch_nos, worker_names, added_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                cuid(),
-                existing["id"],
-                entry.plan_line_id,
-                entry.qty,
-                total_kg,
-                entry.seasoned_batch_nos,
-                entry.worker_names,
-                now_iso(),
-            ),
+            (qty, total_kg, qty, entry.worker_names, seasoned_batch_nos,
+             src_mixing, src_seasoned, src_deboning, existing["id"]),
         )
         item_id = existing["id"]
     else:
@@ -559,84 +528,108 @@ def _process_finish_day_entry(
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING id
             """,
-            (
-                cuid(),
-                batch_no,
-                plan["plan_no"],
-                entry.product_type_id,
-                entry.product_type_name,
-                entry.recipe_id,
-                entry.recipe_name,
-                entry.packaging_id or None,
-                entry.packaging_name or None,
-                entry.client_name or None,
-                entry.client_order_no or None,
-                entry.qty,
-                entry.kg_per_unit,
-                total_kg,
-                entry.qty,
-                today,
-                entry.worker_names,
-                entry.seasoned_batch_nos,
-                plan["id"],
-                src_mixing,
-                src_seasoned,
-                src_deboning,
-                now_iso(),
-            ),
+            (cuid(), batch_no, plan["plan_no"], entry.product_type_id,
+             entry.product_type_name, entry.recipe_id, entry.recipe_name,
+             entry.packaging_id or None, entry.packaging_name or None,
+             entry.client_name or None, entry.client_order_no or None,
+             qty, entry.kg_per_unit, total_kg, qty, today, entry.worker_names,
+             seasoned_batch_nos, plan["id"], src_mixing, src_seasoned,
+             src_deboning, now_iso()),
         )
         assert item is not None
         item_id = item["id"]
 
-        cx_execute(
-            conn,
-            """
-            INSERT INTO finished_goods_sessions
-                (id, goods_id, plan_line_id, qty, total_kg,
-                 seasoned_batch_nos, worker_names, added_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                cuid(),
-                item_id,
-                entry.plan_line_id,
-                entry.qty,
-                total_kg,
-                entry.seasoned_batch_nos,
-                entry.worker_names,
-                now_iso(),
-            ),
+    cx_execute(
+        conn,
+        """
+        INSERT INTO finished_goods_sessions
+            (id, goods_id, plan_line_id, qty, total_kg,
+             seasoned_batch_nos, worker_names, added_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+        """,
+        (cuid(), item_id, entry.plan_line_id, qty, total_kg,
+         seasoned_batch_nos, entry.worker_names, now_iso()),
+    )
+
+    if total_kg > 0:
+        create_stock_movement(
+            conn, product_type="finished_goods", batch_id=item_id,
+            qty=total_kg, movement_type="IN", source_type="plan",
+            source_id=plan["id"],
+        )
+    return item_id
+
+
+def _process_finish_day_entry(
+    conn, plan: Dict, entry: FinishDayEntry, today: str
+) -> List[Dict]:
+    """Zapis wpisu zamknięcia dnia.
+
+    Gdy linia ma rozbicie partii (`batch_allocation`) dzielące się czysto na
+    sztuki → OSOBNY wiersz finished_goods per partia (każda sztuka ma poprawną
+    partię, spójnie z `finished_units`/HDI). W innym wypadku jeden wiersz
+    (partia, a przy fizycznym zmieszaniu — PP). Konsumpcja mięsa i opakowań
+    odbywa się RAZ na cały wpis (rozbicie kg per partia w `_consume_seasoned`).
+    """
+    if entry.qty <= 0:
+        return []
+    if not entry.seasoned_batch_nos:
+        logger.warning(
+            "finish_day.missing_seasoned",
+            extra={"plan_line_id": entry.plan_line_id,
+                   "recipe_id": entry.recipe_id, "qty": entry.qty},
         )
 
-    # Konsumpcja seasoned_meat: zdejmij kg_reserved + kg_available, dodaj
-    # kg_used, emituj OUT-movement. To domyka łańcuch audytu który wcześniej
-    # urywał się na finished_goods IN — patrz CLAUDE.md "TRACEABILITY MUST
-    # WORK BOTH WAYS".
+    # Rozbicie partii z linii planu (sztuki per partia).
+    allocation: Dict[str, Any] = {}
+    if entry.plan_line_id:
+        ln = cx_query_one(
+            conn, "SELECT batch_allocation FROM production_plan_lines WHERE id=%s",
+            (entry.plan_line_id,))
+        if ln:
+            ba = ln.get("batch_allocation") or {}
+            if isinstance(ba, str):
+                try:
+                    ba = json.loads(ba)
+                except Exception:
+                    ba = {}
+            allocation = ba if isinstance(ba, dict) else {}
+
+    portions = entry_batch_portions(entry.qty, allocation)
+    item_ids: List[str] = []
+
+    if portions:
+        # Osobny wiersz per partia — każda sztuka dostaje swój numer partii.
+        for p in portions:
+            raw = p["batch_no"]
+            pqty = int(p["qty"])
+            pkg_kg = round(pqty * entry.kg_per_unit, 3)
+            bno = kebab_batch_no(today, raw)
+            lineage = _resolve_lineage(conn, [raw])
+            item_ids.append(_upsert_goods_row(
+                conn, plan, entry, today, bno, pqty, pkg_kg, [raw], lineage))
+    else:
+        # Tryb łączony: jedna partia (lub PP gdy fizycznie zmieszane).
+        total_kg = round(entry.qty * entry.kg_per_unit, 3)
+        bno = _compute_kebab_batch_no(today, entry.seasoned_batch_nos or [])
+        lineage = _resolve_lineage(conn, entry.seasoned_batch_nos or [])
+        item_ids.append(_upsert_goods_row(
+            conn, plan, entry, today, bno, entry.qty, total_kg,
+            entry.seasoned_batch_nos or [], lineage))
+
+    # Konsumpcja seasoned_meat — RAZ na cały wpis (split per partia w środku).
+    # Domyka łańcuch audytu — patrz CLAUDE.md "TRACEABILITY MUST WORK BOTH WAYS".
+    total_kg = round(entry.qty * entry.kg_per_unit, 3)
     if total_kg > 0:
         _consume_seasoned_for_entry(
-            conn,
-            plan_id=plan["id"],
-            plan_line_id=entry.plan_line_id,
-            entry_qty=entry.qty,
-            total_kg=total_kg,
+            conn, plan_id=plan["id"], plan_line_id=entry.plan_line_id,
+            entry_qty=entry.qty, total_kg=total_kg,
             seasoned_batch_nos=entry.seasoned_batch_nos or [],
         )
 
-    # Audit trail: IN movement for each entry (supports deltas)
-    if total_kg > 0:
-        create_stock_movement(
-            conn,
-            product_type="finished_goods",
-            batch_id=item_id,
-            qty=total_kg,
-            movement_type="IN",
-            source_type="plan",
-            source_id=plan["id"],
-        )
+    # Opakowania — RAZ na cały wpis.
+    if entry.packaging_id and entry.qty > 0 and item_ids:
+        _consume_packaging(conn, entry.packaging_id, entry.qty, item_ids[0])
 
-    if entry.packaging_id and entry.qty > 0:
-        _consume_packaging(conn, entry.packaging_id, entry.qty, item_id)
-
-    return cx_query_one(
-        conn, "SELECT * FROM finished_goods WHERE id=%s", (item_id,)
-    )
+    return [cx_query_one(conn, "SELECT * FROM finished_goods WHERE id=%s", (iid,))
+            for iid in item_ids]
