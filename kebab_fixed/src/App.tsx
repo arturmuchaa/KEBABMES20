@@ -23,6 +23,7 @@ import { PalletLabelPrintPage } from '@/pages/office/PalletLabelPrintPage'
 import { LabelPrintPage }       from '@/pages/office/LabelPrintPage'
 import { ZebraPrintPage }       from '@/pages/office/ZebraPrintPage'
 import { HdiPrintPage }         from '@/pages/office/HdiPrintPage'
+import { CmrPrintPage }         from '@/pages/office/CmrPrintPage'
 import { HdiDocumentsPage }     from '@/pages/office/HdiDocumentsPage'
 import { CarriersPage }         from '@/pages/office/CarriersPage'
 import { LabelTemplateSetupPage } from '@/pages/office/LabelTemplateSetupPage'
@@ -81,6 +82,7 @@ export default function App() {
       <Route path="/etykiety/druk"    element={<LabelPrintPage />} />
       <Route path="/etykiety/zebra"   element={<ZebraPrintPage />} />
       <Route path="/office/hdi/:id/druk" element={<HdiPrintPage />} />
+      <Route path="/office/cmr/:id/druk" element={<CmrPrintPage />} />
       <Route path="/etykiety/szablon" element={<LabelTemplateSetupPage />} />
 
       {/* Mobile — skan QR palet (poza OfficeLayout) */}
