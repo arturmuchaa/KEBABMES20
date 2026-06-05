@@ -18,6 +18,7 @@ const NAV: NavSection[] = [
     { to: '/office/zamowienia',  label: 'Zamówienia',  icon: <ShoppingCart size={14} /> },
     { to: '/office/hdi',         label: 'Dokumenty HDI', icon: <FileText size={14} /> },
     { to: '/office/przewoznicy', label: 'Przewoźnicy',   icon: <Truck size={14} /> },
+    { to: '/office/cmr',         label: 'Dokumenty CMR', icon: <FileText size={14} /> },
   ]},
   { heading: 'Zakupy', items: [
     { to: '/office/faktury', label: 'Faktury zakupowe', icon: <CreditCard size={14} /> },
