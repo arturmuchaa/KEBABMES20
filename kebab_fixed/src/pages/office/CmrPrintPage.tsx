@@ -22,24 +22,21 @@ function F({ l, t, w, s = 10.5, bold, center, right, children }: {
     <div style={{
       position: 'absolute', left: `${l}%`, top: `${t}%`,
       width: w ? `${w}%` : undefined,
-      fontSize: `${s}px`, fontWeight: bold ? 700 : 400, lineHeight: 1.32,
+      fontSize: `${s}px`, fontWeight: bold ? 700 : 400, lineHeight: 1.1,
       textAlign: center ? 'center' : right ? 'right' : 'left',
       color: '#000', fontFamily: "'Roboto Condensed', Arial, sans-serif",
+      textTransform: 'uppercase',
     }}>{children}</div>
   )
 }
 
-function Addr({ d }: { d: any }) {
+// Blok adresowy: 3 linie (nazwa / ulica / „kod, miasto, kraj") rozmieszczone
+// dokładnie jak na wzorze — odstęp linii 1,3% wysokości A4.
+function AddrBlock({ d, l, t, s = 11.5 }: { d: any; l: number; t: number; s?: number }) {
   if (!d) return null
-  // Wiersz miejscowości jak na wzorze: „kod, miasto, kraj" (przecinkami, w jednej linii).
   const cityLine = [d.postal_code, d.city, d.country].filter(Boolean).join(', ')
-  return (
-    <>
-      {d.name && <div>{d.name}</div>}
-      {d.address && <div>{d.address}</div>}
-      {cityLine && <div>{cityLine}</div>}
-    </>
-  )
+  const lines = [d.name, d.address, cityLine].filter(Boolean)
+  return <>{lines.map((ln, i) => <F key={i} l={l} t={t + i * 1.3} w={26} s={s}>{ln}</F>)}</>
 }
 
 function CmrSheet({ doc, bg }: { doc: any; bg: string }) {
@@ -48,63 +45,65 @@ function CmrSheet({ doc, bg }: { doc: any; bg: string }) {
   const goods: any[] = p.goods || []
   const c = p.carrier || {}
 
-  const ROW0 = 48.9      // top % pierwszego wiersza towaru
-  const ROWH = 2.75      // wysokość wiersza w %
+  // Współrzędne wyciągnięte 1:1 z wypełnionego cmr wzor.pdf (pozycje wartości).
+  const ROW0 = 48.3      // top % pierwszego wiersza towaru (jak na wzorze)
+  const ROWH = 2.7       // odstęp wierszy
 
   return (
     <div className="cmr-page">
       <img className="cmr-bg" src={bg} alt="" />
 
       {/* Numer CMR (po „CMR No:") */}
-      <F l={83} t={9.4} s={14} bold>{doc.number}</F>
+      <F l={79.3} t={8.7} s={15} bold>{doc.number}</F>
 
       {/* 1 Nadawca */}
-      <F l={6} t={9.4} w={26} s={10.5}><Addr d={p.sender} /></F>
-      <F l={41} t={12.4} w={13} s={10}>{p.sender?.nip}</F>
+      <AddrBlock d={p.sender} l={8.4} t={8.7} />
+      <F l={35.4} t={12.7} w={16} s={11}>{p.sender?.nip}</F>
 
       {/* 2 Odbiorca */}
-      <F l={6} t={19.3} w={26} s={10.5}><Addr d={p.consignee} /></F>
-      <F l={41} t={22.3} w={13} s={10}>{p.consignee?.nip}</F>
+      <AddrBlock d={p.consignee} l={8.4} t={18.6} />
+      <F l={36.4} t={22.6} w={15} s={11}>{p.consignee?.nip}</F>
 
-      {/* 3 Miejsce przeznaczenia */}
-      <F l={6} t={28.6} w={42} s={10.5}>{p.delivery_place}</F>
+      {/* 3 Miejsce przeznaczenia (pełny adres odbiorcy, jak na wzorze) */}
+      <AddrBlock d={p.consignee} l={8.4} t={28.5} />
 
       {/* 4 Miejsce i data załadowania */}
-      <F l={6} t={36.4} w={26} s={10}>{p.load_place}</F>
-      <F l={34} t={36.4} w={14} s={10}>{fmt(p.load_date)}</F>
+      <F l={8.4} t={38.4} w={26} s={11}>{p.load_place}</F>
+      <F l={42.1} t={38.4} w={14} s={11}>{fmt(p.load_date)}</F>
 
-      {/* 5 Załączone dokumenty */}
-      <F l={6} t={42.0} w={42} s={10}>
-        {att.hdi_number && <div>HDI {att.hdi_number}</div>}
-        {att.invoice_no && <div>{att.invoice_no}</div>}
-      </F>
+      {/* 5 Załączone dokumenty (HDI + nr FV) */}
+      {att.hdi_number && <F l={8.4} t={42.0} w={42} s={11}>HDI {att.hdi_number}</F>}
+      {att.invoice_no && <F l={8.4} t={43.2} w={42} s={11}>{att.invoice_no}</F>}
 
       {/* 6–11 Towar (wiersze) */}
       {goods.map((g, i) => (
         <div key={i}>
-          <F l={22} t={ROW0 + i * ROWH} w={9} s={10} center>{g.qty || ''}</F>
-          <F l={45} t={ROW0 + i * ROWH} w={20} s={10}>{g.name}</F>
-          <F l={73} t={ROW0 + i * ROWH} w={12} s={10} right>{g.kg ? `${g.kg}` : ''}</F>
+          <F l={6.8} t={ROW0 + i * ROWH} w={4} s={11}>{i + 1}.</F>
+          <F l={22} t={ROW0 + i * ROWH} w={9} s={11}>{g.qty || ''}</F>
+          <F l={47.7} t={ROW0 + i * ROWH} w={18} s={11}>{g.name}</F>
+          <F l={77.6} t={ROW0 + i * ROWH} w={9} s={11}>{g.kg ? `${g.kg}` : ''}</F>
         </div>
       ))}
-      {/* Waga brutto razem (dół kolumny 11) */}
-      <F l={73} t={57.0} w={12} s={10.5} right bold>{p.gross_kg ? `${p.gross_kg}` : ''}</F>
+      {/* Waga brutto razem (gdy więcej niż jedna pozycja) */}
+      {goods.length > 1 && (
+        <F l={77.6} t={57.0} w={9} s={11} bold>{p.gross_kg ? `${p.gross_kg}` : ''}</F>
+      )}
 
       {/* 13 Instrukcje nadawcy */}
-      <F l={6} t={67.0} w={43} s={10}>{p.instructions}</F>
+      <F l={9.3} t={65.8} w={42} s={11}>{p.instructions}</F>
 
-      {/* 14 Postanowienia dot. przewoźnego (Franco) — w wolnym miejscu obok etykiety */}
-      <F l={31} t={77.2} w={18} s={10}>{p.franco}</F>
+      {/* 14 Postanowienia dot. przewoźnego (Franco) */}
+      <F l={31} t={77.4} w={18} s={11}>{p.franco}</F>
 
       {/* 16 Przewoźnik */}
-      <F l={54} t={18.7} w={20} s={10.5}><Addr d={c} /></F>
-      <F l={85} t={22.4} w={11} s={10}>{c.nip}</F>
-      <F l={85} t={23.5} w={11} s={10}>{c.vat_eu}</F>
-      <F l={54} t={25.4} w={22} s={10}>{c.plate ? `Nr rej.: ${c.plate}` : ''}</F>
+      <AddrBlock d={c} l={53.7} t={18.6} />
+      <F l={78} t={23.4} w={13} s={11}>{c.nip}</F>
+      <F l={78} t={24.5} w={13} s={11}>{c.vat_eu}</F>
+      <F l={53.7} t={26.0} w={22} s={11}>{c.plate ? `Nr rej.: ${c.plate}` : ''}</F>
 
       {/* 21 Wystawiono w / data */}
-      <F l={21} t={84.0} w={14} s={10}>{p.established_place}</F>
-      <F l={37} t={84.0} w={14} s={10}>{fmt(p.established_date)}</F>
+      <F l={15.6} t={83.1} w={14} s={11}>{p.established_place}</F>
+      <F l={32.7} t={83.1} w={14} s={11}>{fmt(p.established_date)}</F>
     </div>
   )
 }
