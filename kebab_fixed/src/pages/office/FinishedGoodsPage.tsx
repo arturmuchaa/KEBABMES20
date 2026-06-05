@@ -23,12 +23,14 @@ import { DetailModal } from '@/features/finished-goods/components/DetailModal'
 
 // ─── Sort ────────────────────────────────────────────────────
 type SortCol =
+  | 'batchNo'
   | 'qty' | 'kgPerUnit' | 'totalKg'
   | 'productTypeName' | 'recipeName' | 'packagingName' | 'clientName'
 
 function compareRows(col: SortCol) {
   return (a: FinishedGoodsItem, b: FinishedGoodsItem) => {
     switch (col) {
+      case 'batchNo':         return (a.batchNo         || '').localeCompare(b.batchNo         || '')
       case 'qty':             return a.qtyAvailable - b.qtyAvailable
       case 'kgPerUnit':       return a.kgPerUnit - b.kgPerUnit
       case 'totalKg':         return (a.qtyAvailable * a.kgPerUnit) - (b.qtyAvailable * b.kgPerUnit)
@@ -42,9 +44,10 @@ function compareRows(col: SortCol) {
 
 // ─── CSV export ──────────────────────────────────────────────
 function exportCsv(rows: FinishedGoodsItem[]) {
-  const headers = ['Ilość','kg','Rodzaj','Receptura','Tuleja','Klient','Razem kg']
+  const headers = ['Partia','Ilość','kg','Rodzaj','Receptura','Tuleja','Klient','Razem kg']
   const csv = [headers.join(';')]
     .concat(rows.map(r => [
+      r.batchNo || '',
       r.qtyAvailable,
       String(r.kgPerUnit).replace('.', ','),
       r.productTypeName || '',
@@ -185,6 +188,7 @@ export function FinishedGoodsPage() {
               <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
                 <tr>
                   {[
+                    { col: 'batchNo'         as SortCol, label: 'Partia',    align: 'left'  },
                     { col: 'qty'             as SortCol, label: 'Ilość',     align: 'right' },
                     { col: 'kgPerUnit'       as SortCol, label: 'kg',        align: 'right' },
                     { col: 'productTypeName' as SortCol, label: 'Rodzaj',    align: 'left'  },
@@ -223,6 +227,12 @@ export function FinishedGoodsPage() {
                         'hover:bg-blue-50/60'
                       )}
                     >
+                      <td className="px-2.5 py-2 whitespace-nowrap">
+                        {item.batchNo
+                          ? <code className="font-mono font-bold text-xs tracking-tight text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">{item.batchNo}</code>
+                          : <span className="text-muted-foreground">—</span>
+                        }
+                      </td>
                       <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold">
                         {item.qtyAvailable}
                         <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
@@ -266,13 +276,15 @@ export function FinishedGoodsPage() {
               </tbody>
               <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
                 <tr>
+                  {/* Partia col — empty in summary */}
+                  <td className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2">
+                    Suma · {list.length} pozycji
+                  </td>
                   <td className="px-2.5 py-2 text-right font-bold tabular-nums text-ink">
                     {totalQty}
                     <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
                   </td>
-                  <td colSpan={5} className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2">
-                    Suma · {list.length} pozycji
-                  </td>
+                  <td colSpan={5} />
                   <td className="px-2.5 py-2 text-right font-bold tabular-nums text-emerald-700">
                     {fmtKg(totalKg, 0)} kg
                   </td>
