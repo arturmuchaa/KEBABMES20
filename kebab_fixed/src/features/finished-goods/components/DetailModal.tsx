@@ -245,7 +245,9 @@ export function DetailModal({ group, onClose }: { group: SkuGroup; onClose: () =
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {group.productTypeName} · {group.clientName ? clientDisplay(group.clientName) : '—'} · {group.kgPerUnit}KG
+            {[group.productTypeName || group.recipeName,
+              group.clientName ? clientDisplay(group.clientName) : '',
+              `${group.kgPerUnit}KG`].filter(Boolean).join(' · ')}
           </DialogTitle>
           <DialogDescription>
             {group.qty} szt · {fmtKg(group.totalKg)} kg · {group.batches.length} {group.batches.length === 1 ? 'partia' : 'partie/partii'}
