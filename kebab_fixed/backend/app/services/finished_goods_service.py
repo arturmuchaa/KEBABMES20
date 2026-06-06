@@ -26,7 +26,7 @@ from app.db import (
 from app.logging_config import get_logger
 from app.models.production import FinishDayDto, FinishDayEntry, FinishedGoodCreate
 from app.utils.body import body_get
-from app.utils.batch_numbers import combined_batch_no, kebab_batch_no
+from app.utils.batch_numbers import kebab_batch_no, production_combined_batch_no
 from app.utils.ids import cuid, next_seq, now_iso
 from app.utils.stock import create_stock_movement
 
@@ -426,13 +426,14 @@ def _compute_kebab_batch_no(produced_date: str, seasoned_batch_nos: List[str]) -
     """Numer kebaba.
 
     * 1 partia wsadowa → 'ddmmrr <numer wsadu>' (np. '020626 344').
-    * >1 partii (fizycznie zmieszane w tych samych sztukach)
-      → nowa partia łączona PP{n}, numer 'ddmmrr PP{n}'.
+    * >1 partii (fizycznie zmieszane na PRODUKCJI w tych samych sztukach)
+      → nowa partia łączona PPP{n}, numer 'ddmmrr PPP{n}'.
+      (PP zostaje zarezerwowane dla łączenia w mieszalniku/beczce.)
     """
     if seasoned_batch_nos and len(seasoned_batch_nos) == 1:
         return kebab_batch_no(produced_date, seasoned_batch_nos[0])
-    pp = combined_batch_no(next_seq("pp_seq"))
-    return kebab_batch_no(produced_date, pp)
+    ppp = production_combined_batch_no(next_seq("ppp_seq"))
+    return kebab_batch_no(produced_date, ppp)
 
 
 def entry_batch_portions(qty, batch_allocation) -> List[Dict[str, Any]]:
