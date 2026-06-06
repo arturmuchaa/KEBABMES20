@@ -15,6 +15,12 @@ def traceability(
     return svc.traceability(batch_id, direction)
 
 
+@router.get("/api/traceability/batch-report/{batch_no:path}")
+def batch_report(batch_no: str):
+    from app.services import batch_report_service as brs
+    return brs.batch_report(batch_no)
+
+
 @router.get("/api/recall/{batch_id}")
 def recall(batch_id: str):
     return svc.recall(batch_id)
