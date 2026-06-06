@@ -63,6 +63,19 @@ def is_production_combined(batch_no: Optional[str]) -> bool:
     return bool(batch_no) and bool(_PROD_COMBINED_NO_RE.match(batch_no))
 
 
+def classify_batch_type(batch_no: Optional[str]) -> str:
+    """Typ partii na podstawie numeru (akceptuje 'ddmmrr <wsad>' lub goły wsad):
+    'production' (PPP), 'mixer' (PP), 'single' (pozostałe/goły numer)."""
+    if not batch_no:
+        return "single"
+    token = batch_no.strip().split(" ")[-1]  # 'ddmmrr PPP1' -> 'PPP1'
+    if is_production_combined(token):
+        return "production"
+    if is_combined(token):
+        return "mixer"
+    return "single"
+
+
 def _ddmmrr(produced_date: Union[str, date, datetime]) -> str:
     if isinstance(produced_date, str):
         d = datetime.strptime(produced_date[:10], "%Y-%m-%d").date()
