@@ -15,6 +15,7 @@ from typing import Optional, Union
 
 _BARE_NO_RE = re.compile(r"^\d+$")
 _COMBINED_NO_RE = re.compile(r"^PP\d+$")
+_PROD_COMBINED_NO_RE = re.compile(r"^PPP\d+$")
 
 
 def parse_reception_no(raw: Optional[str]) -> Optional[int]:
@@ -49,6 +50,17 @@ def combined_batch_no(n: int) -> str:
 def is_combined(batch_no: Optional[str]) -> bool:
     """Czy dany numer to partia łączona (prefiks PP + cyfry, np. PP1)."""
     return bool(batch_no) and bool(_COMBINED_NO_RE.match(batch_no))
+
+
+def production_combined_batch_no(n: int) -> str:
+    """Numer partii łączonej NA PRODUKCJI (marynowane mięso zmieszane przy
+    formowaniu), w odróżnieniu od PP łączonej w mieszalniku."""
+    return f"PPP{n}"
+
+
+def is_production_combined(batch_no: Optional[str]) -> bool:
+    """Czy numer to partia łączona na produkcji (prefiks PPP + cyfry, np. PPP1)."""
+    return bool(batch_no) and bool(_PROD_COMBINED_NO_RE.match(batch_no))
 
 
 def _ddmmrr(produced_date: Union[str, date, datetime]) -> str:

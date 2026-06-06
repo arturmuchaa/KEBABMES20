@@ -70,3 +70,29 @@ def test_kebab_batch_no_combined_batch():
 def test_kebab_batch_no_accepts_date_object():
     from datetime import date
     assert kebab_batch_no(date(2026, 6, 2), "344") == "020626 344"
+
+
+# --- production_combined_batch_no / is_production_combined --------------------
+def test_production_combined_batch_no():
+    from app.utils.batch_numbers import production_combined_batch_no
+    assert production_combined_batch_no(1) == "PPP1"
+    assert production_combined_batch_no(7) == "PPP7"
+
+
+def test_is_production_combined_true_for_ppp():
+    from app.utils.batch_numbers import is_production_combined
+    assert is_production_combined("PPP1") is True
+
+
+def test_is_production_combined_false_for_pp_and_bare():
+    from app.utils.batch_numbers import is_production_combined
+    assert is_production_combined("PP1") is False
+    assert is_production_combined("326") is False
+    assert is_production_combined(None) is False
+
+
+def test_pp_is_not_mistaken_for_ppp_by_is_combined():
+    # PP (mieszalnik) nadal jest "combined", ale NIE "production_combined"
+    from app.utils.batch_numbers import is_combined, is_production_combined
+    assert is_combined("PP1") is True
+    assert is_production_combined("PP1") is False
