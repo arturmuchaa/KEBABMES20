@@ -1,8 +1,33 @@
 // Układ druku CMR: pozycje pól (% strony A4), wspólne dla druku i konfiguratora.
 // Konfigurator zapisuje nadpisania do bazy (cmr_layout); druk scala je z DEFAULTS.
 
-export interface FieldPos { x: number; y: number; size: number }
+export interface FieldPos {
+  x: number
+  y: number
+  size: number
+  font?: string      // klucz z CMR_FONTS (brak = 'condensed')
+  bold?: boolean
+  italic?: boolean
+  hidden?: boolean   // pole predefiniowane ukryte — nie drukuje się
+  custom?: boolean   // pole własne dodane w konfiguratorze
+  text?: string      // treść pola własnego
+  label?: string     // etykieta pola własnego (na liście)
+}
 export type CmrPositions = Record<string, FieldPos>
+
+// ─── Czcionki dostępne w konfiguratorze ───────────────────────────────────────
+// Tylko rodziny pewne na wydruku (Roboto Condensed ładowane z woff2; reszta to
+// generyczne rodziny renderowane też przez headless Chromium przy generacji PDF).
+export interface CmrFont { key: string; label: string; css: string }
+export const CMR_FONTS: CmrFont[] = [
+  { key: 'condensed', label: 'Roboto Condensed', css: "'Roboto Condensed', Arial, sans-serif" },
+  { key: 'sans',      label: 'Bezszeryfowa',     css: 'Arial, Helvetica, sans-serif' },
+  { key: 'serif',     label: 'Szeryfowa',        css: '"Times New Roman", Times, serif' },
+  { key: 'mono',      label: 'Maszynowa',        css: '"Courier New", Courier, monospace' },
+]
+export function fontCss(key?: string): string {
+  return (CMR_FONTS.find(f => f.key === key) || CMR_FONTS[0]).css
+}
 
 // Domyślne pozycje (wyciągnięte z wzoru). Konfigurator pozwala je nadpisać.
 export const CMR_DEFAULTS: CmrPositions = {
@@ -63,11 +88,27 @@ export const CMR_FIELDS: FieldMeta[] = [
   { key: 'establishedDate',  label: '21 Data wystawienia',   sample: '05.06.2026' },
 ]
 
-// Scal zapisaną konfigurację z domyślną (pełny zestaw pól zawsze obecny).
+// Scal zapisaną konfigurację z domyślną (pełny zestaw pól predefiniowanych zawsze
+// obecny) oraz zachowaj pola własne (klucze spoza DEFAULTS, np. custom_*).
 export function mergeCmrPositions(saved: CmrPositions | null | undefined): CmrPositions {
   const out: CmrPositions = {}
   for (const k of Object.keys(CMR_DEFAULTS)) {
     out[k] = { ...CMR_DEFAULTS[k], ...(saved?.[k] || {}) }
   }
+  if (saved) {
+    for (const k of Object.keys(saved)) {
+      if (!(k in CMR_DEFAULTS)) out[k] = saved[k]   // pola własne
+    }
+  }
   return out
+}
+
+// Klucze pól własnych (dodanych w konfiguratorze) z układu.
+export function customFieldKeys(positions: CmrPositions): string[] {
+  return Object.keys(positions).filter(k => positions[k]?.custom)
+}
+
+// Nowy unikalny klucz pola własnego.
+export function newCustomKey(): string {
+  return `custom_${Date.now().toString(36)}${Math.floor(Math.random() * 1e3)}`
 }

@@ -1,16 +1,22 @@
 /**
  * CmrLayoutConfigPage — Wizualny konfigurator pozycji pól CMR.
  * Drag & drop markerów na tle oficjalnego formularza CMR.
+ * Pozwala też dodawać/usuwać własne pola tekstowe i zmieniać czcionki.
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Settings } from 'lucide-react'
+import { Settings, Plus, Trash2, Eye, Bold, Italic } from 'lucide-react'
 import { cmrApi } from '@/lib/api'
 import {
   CMR_FIELDS,
   CMR_LINE_GAP,
+  CMR_FONTS,
+  fontCss,
+  customFieldKeys,
+  newCustomKey,
   mergeCmrPositions,
   type CmrPositions,
   type FieldPos,
+  type FieldMeta,
 } from '@/lib/cmrLayout'
 
 // A4: 210mm × 297mm. Referencyjny piksel bazowy dla druku = 793.7px (96dpi × 210mm/25.4).
@@ -24,15 +30,16 @@ const BLOCK_LINE3 = '00-000, MIASTO, KRAJ'
 
 // ─── Marker pola ──────────────────────────────────────────────────────────────
 interface MarkerProps {
-  field: typeof CMR_FIELDS[number]
+  field: FieldMeta
   pos: FieldPos
+  custom: boolean
   selected: boolean
   dragging: boolean
   onMouseDown: (e: React.MouseEvent, key: string) => void
   onClick: (key: string) => void
 }
 
-function FieldMarker({ field, pos, selected, dragging, onMouseDown, onClick }: MarkerProps) {
+function FieldMarker({ field, pos, custom, selected, dragging, onMouseDown, onClick }: MarkerProps) {
   const lineGapPx = (CMR_LINE_GAP / 100) * CH
   const fontSize = pos.size * SCALE
   const style: React.CSSProperties = {
@@ -40,20 +47,17 @@ function FieldMarker({ field, pos, selected, dragging, onMouseDown, onClick }: M
     left: `${pos.x}%`,
     top: `${pos.y}%`,
     cursor: dragging ? 'grabbing' : 'grab',
-    fontFamily: "'Roboto Condensed', Arial, sans-serif",
+    fontFamily: fontCss(pos.font),
     fontSize: `${fontSize}px`,
-    fontWeight: 400,
+    fontWeight: pos.bold ? 700 : 400,
+    fontStyle: pos.italic ? 'italic' : 'normal',
     lineHeight: 1.1,
-    textTransform: 'uppercase',
+    textTransform: custom ? 'none' : 'uppercase',
     color: '#000',
     whiteSpace: 'nowrap',
     userSelect: 'none',
-    outline: selected
-      ? '1.5px solid #2563eb'
-      : undefined,
-    background: selected
-      ? 'rgba(37,99,235,.08)'
-      : undefined,
+    outline: selected ? '1.5px solid #2563eb' : custom ? '1px dashed #16a34a' : undefined,
+    background: selected ? 'rgba(37,99,235,.08)' : custom ? 'rgba(22,163,74,.05)' : undefined,
     padding: '0 1px',
     zIndex: selected ? 20 : 10,
   }
@@ -78,7 +82,7 @@ function FieldMarker({ field, pos, selected, dragging, onMouseDown, onClick }: M
           <div style={{ marginTop: `${lineGapPx}px` }}>{BLOCK_LINE3}</div>
         </>
       ) : (
-        field.sample
+        field.sample || '(puste)'
       )}
     </div>
   )
@@ -141,13 +145,40 @@ export function CmrLayoutConfigPage() {
     }
   }, [draggingKey])
 
-  // ─── Zmiana rozmiaru ────────────────────────────────────────────────────────
+  // ─── Modyfikacje pola ─────────────────────────────────────────────────────────
+  function patch(key: string, p: Partial<FieldPos>) {
+    setPositions(prev => ({ ...prev, [key]: { ...prev[key], ...p } }))
+  }
+
   function changeSize(key: string, delta: number) {
-    setPositions(prev => {
-      const cur = prev[key]
-      const size = Math.min(24, Math.max(6, cur.size + delta))
-      return { ...prev, [key]: { ...cur, size } }
-    })
+    const cur = positions[key]
+    if (!cur) return
+    patch(key, { size: Math.min(24, Math.max(6, cur.size + delta)) })
+  }
+
+  function addCustomField() {
+    const key = newCustomKey()
+    setPositions(prev => ({
+      ...prev,
+      [key]: { x: 45, y: 45, size: 11, custom: true, text: 'NOWY TEKST', label: 'Pole własne' },
+    }))
+    setSelectedKey(key)
+  }
+
+  // Usuń pole: własne → kasuj; predefiniowane → ukryj (można przywrócić).
+  function removeField(key: string) {
+    const cur = positions[key]
+    if (!cur) return
+    if (cur.custom) {
+      setPositions(prev => {
+        const out = { ...prev }
+        delete out[key]
+        return out
+      })
+      setSelectedKey(null)
+    } else {
+      patch(key, { hidden: true })
+    }
   }
 
   // ─── Nudge strzałkami ───────────────────────────────────────────────────────
@@ -195,12 +226,31 @@ export function CmrLayoutConfigPage() {
   }
 
   function handleReset() {
-    if (window.confirm('Przywrócić domyślne pozycje pól?')) {
+    if (window.confirm('Przywrócić domyślne pozycje pól? (usunie też pola własne)')) {
       setPositions(mergeCmrPositions(null))
+      setSelectedKey(null)
     }
   }
 
+  // ─── Listy pól ────────────────────────────────────────────────────────────────
+  const customKeys = customFieldKeys(positions)
+  // Field-meta dla pola własnego (do markera i listy).
+  const customMeta = (key: string): FieldMeta => ({
+    key,
+    label: positions[key]?.label || 'Pole własne',
+    sample: positions[key]?.text || '',
+  })
+  // Markery na kanwie: predefiniowane nieukryte + wszystkie własne.
+  const canvasMarkers: { meta: FieldMeta; custom: boolean }[] = [
+    ...CMR_FIELDS.filter(f => !positions[f.key]?.hidden).map(meta => ({ meta, custom: false })),
+    ...customKeys.map(k => ({ meta: customMeta(k), custom: true })),
+  ]
+
   const selPos = selectedKey ? positions[selectedKey] : null
+  const selCustom = !!selPos?.custom
+  const selMeta = selectedKey
+    ? (selCustom ? customMeta(selectedKey) : CMR_FIELDS.find(f => f.key === selectedKey))
+    : null
 
   return (
     <div style={{ background: '#fff' }}>
@@ -228,7 +278,7 @@ export function CmrLayoutConfigPage() {
       <div className="flex items-center gap-2 px-5 py-3 border-b border-gray-200 bg-white sticky top-0 z-30">
         <Settings size={16} className="text-gray-500" />
         <h1 className="text-sm font-semibold text-gray-800">Konfigurator CMR — pozycje pól</h1>
-        <span className="text-xs text-gray-400 ml-2">Przeciągnij markery na tle formularza · Strzałki = ±0.1% · Kliknij pole = wybierz</span>
+        <span className="text-xs text-gray-400 ml-2">Przeciągnij markery · Strzałki = ±0.1% · Kliknij = wybierz</span>
       </div>
 
       {/* Główny układ: lewa = kanwa, prawa = panel */}
@@ -263,16 +313,17 @@ export function CmrLayoutConfigPage() {
           />
 
           {/* Markery pól */}
-          {CMR_FIELDS.map(field => {
-            const pos = positions[field.key]
+          {canvasMarkers.map(({ meta, custom }) => {
+            const pos = positions[meta.key]
             if (!pos) return null
             return (
               <FieldMarker
-                key={field.key}
-                field={field}
+                key={meta.key}
+                field={meta}
                 pos={pos}
-                selected={selectedKey === field.key}
-                dragging={draggingKey === field.key}
+                custom={custom}
+                selected={selectedKey === meta.key}
+                dragging={draggingKey === meta.key}
                 onMouseDown={handleMarkerMouseDown}
                 onClick={setSelectedKey}
               />
@@ -281,7 +332,7 @@ export function CmrLayoutConfigPage() {
         </div>
 
         {/* ── PANEL BOCZNY ── */}
-        <div className="flex flex-col gap-3 flex-1 min-w-[220px] max-w-[280px]">
+        <div className="flex flex-col gap-3 flex-1 min-w-[240px] max-w-[300px]">
 
           {/* Przyciski akcji */}
           <div className="flex gap-2">
@@ -300,19 +351,54 @@ export function CmrLayoutConfigPage() {
             </button>
           </div>
 
+          <button
+            onClick={addCustomField}
+            className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-green-600 hover:bg-green-700 text-white rounded"
+          >
+            <Plus size={14} /> Dodaj pole tekstowe
+          </button>
+
           {/* Szczegóły wybranego pola */}
           {selectedKey && selPos && (
-            <div className="border border-blue-200 rounded-lg p-3 bg-blue-50 text-xs">
-              <div className="font-semibold text-blue-800 mb-2 truncate">
-                {CMR_FIELDS.find(f => f.key === selectedKey)?.label ?? selectedKey}
+            <div className="border border-blue-200 rounded-lg p-3 bg-blue-50 text-xs space-y-2">
+              <div className="font-semibold text-blue-800 truncate">
+                {selMeta?.label ?? selectedKey}
               </div>
-              <div className="flex gap-3 mb-2 text-gray-600 font-mono text-[11px]">
+
+              {/* Treść + etykieta — tylko pola własne */}
+              {selCustom && (
+                <>
+                  <label className="block">
+                    <span className="text-[11px] text-gray-500">Treść:</span>
+                    <input
+                      type="text"
+                      value={selPos.text ?? ''}
+                      onChange={e => patch(selectedKey, { text: e.target.value })}
+                      className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-[12px]"
+                      placeholder="Tekst na druku"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-[11px] text-gray-500">Nazwa (na liście):</span>
+                    <input
+                      type="text"
+                      value={selPos.label ?? ''}
+                      onChange={e => patch(selectedKey, { label: e.target.value })}
+                      className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-[12px]"
+                      placeholder="Pole własne"
+                    />
+                  </label>
+                </>
+              )}
+
+              <div className="flex gap-3 text-gray-600 font-mono text-[11px]">
                 <span>x: {selPos.x.toFixed(1)}%</span>
                 <span>y: {selPos.y.toFixed(1)}%</span>
-                <span>{selPos.size.toFixed(1)} px</span>
               </div>
+
+              {/* Rozmiar */}
               <div className="flex items-center gap-2">
-                <span className="text-gray-500 text-[11px]">Rozmiar:</span>
+                <span className="text-gray-500 text-[11px] w-12">Rozmiar:</span>
                 <button
                   onClick={() => changeSize(selectedKey, -0.5)}
                   className="w-6 h-6 flex items-center justify-center rounded bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 text-sm font-bold leading-none"
@@ -323,7 +409,51 @@ export function CmrLayoutConfigPage() {
                   className="w-6 h-6 flex items-center justify-center rounded bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 text-sm font-bold leading-none"
                 >+</button>
               </div>
-              <div className="mt-2 text-[10px] text-gray-400">Strzałki klawiatury = ±0.1%</div>
+
+              {/* Czcionka */}
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500 text-[11px] w-12">Czcionka:</span>
+                <select
+                  value={selPos.font ?? 'condensed'}
+                  onChange={e => patch(selectedKey, { font: e.target.value })}
+                  className="flex-1 rounded border border-gray-300 px-1.5 py-1 text-[12px] bg-white"
+                >
+                  {CMR_FONTS.map(f => (
+                    <option key={f.key} value={f.key}>{f.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Pogrubienie / kursywa */}
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500 text-[11px] w-12">Styl:</span>
+                <button
+                  onClick={() => patch(selectedKey, { bold: !selPos.bold })}
+                  className={[
+                    'w-7 h-7 flex items-center justify-center rounded border text-gray-700',
+                    selPos.bold ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-300 hover:bg-gray-100',
+                  ].join(' ')}
+                  title="Pogrubienie"
+                ><Bold size={14} /></button>
+                <button
+                  onClick={() => patch(selectedKey, { italic: !selPos.italic })}
+                  className={[
+                    'w-7 h-7 flex items-center justify-center rounded border text-gray-700',
+                    selPos.italic ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-300 hover:bg-gray-100',
+                  ].join(' ')}
+                  title="Kursywa"
+                ><Italic size={14} /></button>
+              </div>
+
+              {/* Usuń / ukryj */}
+              <button
+                onClick={() => removeField(selectedKey)}
+                className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 text-xs font-medium bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded"
+              >
+                <Trash2 size={13} /> {selCustom ? 'Usuń pole' : 'Ukryj pole (nie drukuj)'}
+              </button>
+
+              <div className="text-[10px] text-gray-400">Strzałki klawiatury = ±0.1%</div>
             </div>
           )}
 
@@ -331,7 +461,7 @@ export function CmrLayoutConfigPage() {
           <div
             ref={fieldListRef}
             className="border border-gray-200 rounded-lg overflow-y-auto"
-            style={{ maxHeight: CH - 140 }}
+            style={{ maxHeight: CH - 220 }}
           >
             <div className="px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wide border-b border-gray-100">
               Pola formularza
@@ -339,25 +469,77 @@ export function CmrLayoutConfigPage() {
             {CMR_FIELDS.map(field => {
               const pos = positions[field.key]
               const isSelected = selectedKey === field.key
+              const hidden = !!pos?.hidden
               return (
-                <button
+                <div
                   key={field.key}
                   data-field={field.key}
-                  onClick={() => setSelectedKey(field.key)}
                   className={[
-                    'w-full text-left px-3 py-1.5 text-xs border-b border-gray-50 last:border-0 transition-colors',
-                    isSelected
-                      ? 'bg-blue-50 text-blue-800 font-medium'
-                      : 'hover:bg-gray-50 text-gray-700',
+                    'flex items-center border-b border-gray-50 last:border-0',
+                    isSelected ? 'bg-blue-50' : 'hover:bg-gray-50',
                   ].join(' ')}
                 >
-                  <div className="truncate">{field.label}</div>
-                  {pos && (
-                    <div className="text-[10px] font-mono text-gray-400 mt-0.5">
-                      {pos.x.toFixed(1)}% / {pos.y.toFixed(1)}% · {pos.size}px
-                    </div>
+                  <button
+                    onClick={() => setSelectedKey(field.key)}
+                    className={[
+                      'flex-1 text-left px-3 py-1.5 text-xs',
+                      isSelected ? 'text-blue-800 font-medium' : 'text-gray-700',
+                      hidden ? 'opacity-40' : '',
+                    ].join(' ')}
+                  >
+                    <div className="truncate">{field.label}{hidden ? ' (ukryte)' : ''}</div>
+                    {pos && (
+                      <div className="text-[10px] font-mono text-gray-400 mt-0.5">
+                        {pos.x.toFixed(1)}% / {pos.y.toFixed(1)}% · {pos.size}px
+                      </div>
+                    )}
+                  </button>
+                  {hidden && (
+                    <button
+                      onClick={() => patch(field.key, { hidden: false })}
+                      className="px-2 text-gray-400 hover:text-green-600"
+                      title="Pokaż pole"
+                    ><Eye size={14} /></button>
                   )}
-                </button>
+                </div>
+              )
+            })}
+
+            {customKeys.length > 0 && (
+              <div className="px-3 py-2 text-[10px] font-semibold text-green-600 uppercase tracking-wide border-b border-t border-gray-100">
+                Pola własne
+              </div>
+            )}
+            {customKeys.map(key => {
+              const pos = positions[key]
+              const isSelected = selectedKey === key
+              return (
+                <div
+                  key={key}
+                  data-field={key}
+                  className={[
+                    'flex items-center border-b border-gray-50 last:border-0',
+                    isSelected ? 'bg-blue-50' : 'hover:bg-gray-50',
+                  ].join(' ')}
+                >
+                  <button
+                    onClick={() => setSelectedKey(key)}
+                    className={[
+                      'flex-1 text-left px-3 py-1.5 text-xs',
+                      isSelected ? 'text-blue-800 font-medium' : 'text-gray-700',
+                    ].join(' ')}
+                  >
+                    <div className="truncate">{pos?.label || 'Pole własne'}</div>
+                    <div className="text-[10px] font-mono text-gray-400 mt-0.5 truncate">
+                      „{pos?.text || ''}"
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => removeField(key)}
+                    className="px-2 text-gray-400 hover:text-red-600"
+                    title="Usuń pole"
+                  ><Trash2 size={14} /></button>
+                </div>
               )
             })}
           </div>
