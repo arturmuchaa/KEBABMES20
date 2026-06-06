@@ -25,7 +25,7 @@ from app.models.mixing import FinishMixingSessionDto, MixingOrderCreate
 from app.services.recipes_service import calc_kg_output
 from app.services.seasoned_meat_service import populate_lineage
 from app.utils.batch_numbers import combined_batch_no
-from app.utils.ids import cuid, next_seq, now_iso
+from app.utils.ids import cuid, next_dated_no, next_seq, now_iso
 from app.utils.stock import create_stock_movement
 
 logger = get_logger(__name__)
@@ -205,12 +205,11 @@ def create_mixing_order(dto: MixingOrderCreate) -> Dict:
             "Wybierz partie z rozbioru przed utworzeniem zlecenia.",
         )
 
-    seq = next_seq("mixing_seq")
-    year = datetime.now().year
-    order_no = f"MAS-{year}-{str(seq).zfill(3)}"
     oid = cuid()
 
     with transaction() as conn:
+        # Numer zlecenia masowania = MAS/dd/mm/rr (wspólny helper, jak produkcja PP).
+        order_no = next_dated_no(conn, "MAS")
         recipe = cx_query_one(
             conn, "SELECT * FROM recipes WHERE id=%s", (dto.recipe_id,)
         )

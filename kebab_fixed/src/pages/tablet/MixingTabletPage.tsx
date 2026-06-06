@@ -742,7 +742,10 @@ export function MixingTabletPage() {
     try {
       const finished = await finishMut.mutate({ id: liveOrder.id, kg: kgActual, batchNo: '', lotAllocations: lotAllocs })
       setLiveOrder(finished)
-      const batchNo = `PW-${new Date().getFullYear()}-${liveOrder.orderNo.split('-').pop()}`
+      // Prawdziwy numer partii nadaje backend (np. 326 / PP1) — bierzemy go z ostatniej sesji,
+      // a nie budujemy z numeru zlecenia (który jest teraz MAS/dd/mm/rr).
+      const sess = (finished as any).sessions || []
+      const batchNo = sess.length ? (sess[sess.length - 1]?.batchNo || '') : ''
       setSeasonedBatchNo(batchNo)
       const fullyDone = (finished as any).kgRemaining < 0.1 || finished.status === 'in_progress'
       setSessionFullyDone(fullyDone)

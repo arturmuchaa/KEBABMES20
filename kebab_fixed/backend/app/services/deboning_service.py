@@ -21,7 +21,7 @@ from app.db import (
 )
 from app.logging_config import get_logger
 from app.models.deboning import DeboningEntryCreate, DeboningEntryUpdate
-from app.utils.ids import cuid, next_seq, now_iso
+from app.utils.ids import cuid, next_dated_no, now_iso
 from app.utils.stock import create_stock_movement
 
 logger = get_logger(__name__)
@@ -106,11 +106,11 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
             f"Wydajność {round(yield_pct_val,1)}% jest bardzo niska — sprawdź dane",
         )
 
-    seq = next_seq("deboning_seq")
     entry_id = cuid()
-    session_no = f"RZB-{str(seq).zfill(3)}"
 
     with transaction() as conn:
+        # Numer zlecenia rozbioru = ROZ/dd/mm/rr (wspólny helper, jak produkcja PP).
+        session_no = next_dated_no(conn, "ROZ")
         # Row lock the raw batch so two concurrent deboning entries
         # cannot each pass the availability check on the same batch.
         batch = cx_query_one(

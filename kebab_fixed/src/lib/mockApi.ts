@@ -73,6 +73,14 @@ let meatSeq  = ctr.meatSeq
 let logSeq   = ctr.logSeq ?? 0
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// Numer zlecenia datowany PREFIKS/dd/mm/rr (mirror backend next_dated_no, mock-only).
+const datedNo = (prefix: string, n: number): string => {
+  const d = new Date()
+  const p = (x: number) => String(x).padStart(2, '0')
+  const base = `${prefix}/${p(d.getDate())}/${p(d.getMonth() + 1)}/${String(d.getFullYear()).slice(-2)}`
+  return n <= 1 ? base : `${base}/${n}`
+}
 const delay = (ms = 300) => new Promise(r => setTimeout(r, ms))
 const cuid  = () => Math.random().toString(36).slice(2, 12)
 const nowIso = () => new Date().toISOString()
@@ -475,7 +483,7 @@ export const deboningApi = {
 
     const session: DeboningSession = {
       id:          cuid(),
-      sessionNo:   `RZB-${String(debSeq).padStart(3, '0')}`,
+      sessionNo:   datedNo('ROZ', debSeq),
       rawBatchId:  dto.rawBatchId,
       rawBatchNo:  batch.internalBatchNo,
       workerId:    dto.workerId,
@@ -887,7 +895,7 @@ export const deboningEntriesApi = {
       kgBacks:     kgRemainder * 0.4,
       kgRemainder,
       yieldPct:    dto.kgTaken > 0 ? (dto.kgMeat / dto.kgTaken) * 100 : 0,
-      sessionNo:   `RZB-${String(entrySeq).padStart(3, '0')}`,
+      sessionNo:   datedNo('ROZ', entrySeq),
       tempInput:   dto.tempInput,
       tempRoom:    dto.tempRoom,
       notes:       dto.notes,
@@ -1357,7 +1365,7 @@ export interface MixingOrderStep {
 
 export interface MixingOrder {
   readonly id:             string
-  readonly orderNo:        string      // "MAS-2025-001"
+  readonly orderNo:        string      // "MAS/dd/mm/rr" (np. MAS/06/06/26)
   readonly productTypeId?: string
   readonly productTypeName?:string
   readonly recipeId:       string
@@ -1466,11 +1474,8 @@ export const mixingOrdersApi = {
 
     mixingSeq++
     const year = new Date().getFullYear()
-    // Numer zlecenia masowania = M{numer ćwiartki} np. M174 (dziedziczony z R174)
-    const firstRawNo = enrichedLots[0]?.rawBatchNo ?? ''  // np. "R174"
-    const masOrderNo = firstRawNo.startsWith('R')
-      ? `M${firstRawNo.slice(1)}`   // "R174" → "M174"
-      : `M${mixingSeq}`
+    // Numer zlecenia masowania = MAS/dd/mm/rr (mirror backend next_dated_no).
+    const masOrderNo = datedNo('MAS', mixingSeq)
 
     const order: MixingOrder = {
       id:               cuid(),

@@ -43,7 +43,7 @@ export interface DeboningEntry {
   readonly kgBacks:     number
   readonly kgRemainder: number
   readonly yieldPct:    number
-  readonly sessionNo:   string        // "RZB-2025-001" — wsteczna kompatybilność
+  readonly sessionNo:   string        // "ROZ/dd/mm/rr" (np. ROZ/06/06/26)
   readonly tempInput?:  number
   readonly tempRoom?:   number
   readonly notes?:      string

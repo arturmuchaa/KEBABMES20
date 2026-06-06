@@ -62,6 +62,18 @@ def _parse_iso_date(raw: str | None) -> Optional[datetime]:
         return None
 
 
+def format_dated_no(prefix: str, when, seq: int) -> str:
+    """Pure formatter for a dated business number ``PREFIX/dd/mm/rr``.
+
+    ``seq == 1`` (first of the day) yields the bare ``PREFIX/dd/mm/rr``;
+    later same-day entries append ``/2``, ``/3`` etc. ``when`` may be a
+    ``date`` or ``datetime``.
+    """
+    date_part = when.strftime("%d/%m/%y")
+    base = f"{prefix}/{date_part}"
+    return base if seq <= 1 else f"{base}/{seq}"
+
+
 def next_dated_no(conn, prefix: str, date_raw: str | None = None) -> str:
     """Allocate next business number of the form PREFIX/dd/mm/rr.
 
@@ -71,7 +83,6 @@ def next_dated_no(conn, prefix: str, date_raw: str | None = None) -> str:
     """
     date = _parse_iso_date(date_raw) or datetime.now()
     date_part = date.strftime("%d/%m/%y")
-    base = f"{prefix}/{date_part}"
     seq_key = f"dated_no:{prefix}:{date_part}"
 
     cx_execute(
@@ -92,4 +103,4 @@ def next_dated_no(conn, prefix: str, date_raw: str | None = None) -> str:
         "UPDATE sequences SET value = %s WHERE key = %s",
         (new_val, seq_key),
     )
-    return base if new_val == 1 else f"{base}/{new_val}"
+    return format_dated_no(prefix, date, new_val)

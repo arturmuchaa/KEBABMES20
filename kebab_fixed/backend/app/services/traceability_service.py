@@ -166,6 +166,14 @@ def _trace_backward(batch_id: str) -> Dict[str, List]:
             """,
             (mo["id"],),
         )
+        # Numery partii płynące przez masowanie = loty mięsa (np. "326"),
+        # NIE numer zlecenia (order_no = MAS/dd/mm/rr). Front pokazuje je w łańcuchu.
+        seen_bn: list[str] = []
+        for lot in lots:
+            bn = lot.get("lot_no") or lot.get("raw_batch_no")
+            if bn and str(bn) not in seen_bn:
+                seen_bn.append(str(bn))
+        mo["batch_nos"] = seen_bn
         existing_lot_ids = {x.get("meat_stock_id") for x in result["meatLots"]}
         for lot in lots:
             if (

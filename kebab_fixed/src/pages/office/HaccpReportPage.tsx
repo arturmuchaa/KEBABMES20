@@ -65,9 +65,13 @@ function SingleReport({ data }: { data: ReportData }) {
     return { totalTaken, totalMeat, totalBacks, totalBones, uppzKat3, loss: 0 }
   }, [sessions])
 
-  const reportNo = sessions.length > 0
-    ? sessions[0].sessionNo?.split('-')[2] || '001'
-    : '001'
+  // Numer raportu = licznik dnia z numeru sesji ROZ/dd/mm/rr[/n]; brak sufiksu → 001.
+  const reportNo = (() => {
+    const sn = sessions[0]?.sessionNo
+    if (!sn) return '001'
+    const parts = sn.split('/')
+    return parts.length >= 5 ? parts[4] : '001'
+  })()
 
   return (
     <div className="bg-white p-6 mb-4" style={{ pageBreakAfter: 'always' }}>

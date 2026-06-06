@@ -45,8 +45,10 @@ export function MobilePrzeplywPartiiPage() {
     {
       icon: <Soup size={18} />, color: 'text-purple-700', stage: 'Masowanie',
       items: (data.mixingOrders ?? []).map((mo: any) => ({
-        partia: mo.order_no || (mo.id ? String(mo.id).slice(0, 8) : '—'),
-        details: [mo.recipe_name || ''].filter(Boolean),
+        // Partia płynąca przez masowanie = numer(y) wsadu (np. 326), NIE numer zlecenia.
+        partia: (mo.batch_nos?.length ? mo.batch_nos.join(', ') : '')
+          || (mo.id ? String(mo.id).slice(0, 8) : '—'),
+        details: [mo.recipe_name || '', mo.order_no ? `zlec. ${mo.order_no}` : ''].filter(Boolean),
       })),
     },
     {
