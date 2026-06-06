@@ -1592,6 +1592,8 @@ export const traceabilityApi = {
     get<any>(`/traceability?batchId=${encodeURIComponent(batchId)}&direction=backward`),
   forward:  (batchId: string) =>
     get<any>(`/traceability?batchId=${encodeURIComponent(batchId)}&direction=forward`),
+  batchReport: (batchNo: string) =>
+    get<any>(`/traceability/batch-report/${encodeURIComponent(batchNo)}`),
 }
 
 // ─── Recall (Wycofanie partii) ────────────────────────────────

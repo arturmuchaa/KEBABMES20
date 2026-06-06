@@ -175,6 +175,11 @@ export function RecallPage() {
             <div className="flex items-center gap-2 mb-3">
               <AlertTriangle size={16} className="text-red-600"/>
               <span className="font-black text-red-800 text-sm uppercase tracking-wide">Podsumowanie wycofania</span>
+              <a
+                href={`/office/partia/${encodeURIComponent(result.batchId)}/raport`}
+                target="_blank" rel="noreferrer"
+                className="ml-auto rounded bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
+              >Raport partii (PDF)</a>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <KpiCard label="Łączna masa wycofana (kg)" value={Number(result.total_kg).toFixed(1)} color="bg-white border-red-200"/>

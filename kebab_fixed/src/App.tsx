@@ -24,6 +24,7 @@ import { LabelPrintPage }       from '@/pages/office/LabelPrintPage'
 import { ZebraPrintPage }       from '@/pages/office/ZebraPrintPage'
 import { HdiPrintPage }         from '@/pages/office/HdiPrintPage'
 import { CmrPrintPage }         from '@/pages/office/CmrPrintPage'
+import { BatchReportPage }      from '@/pages/office/BatchReportPage'
 import { HdiDocumentsPage }     from '@/pages/office/HdiDocumentsPage'
 import { CmrDocumentsPage }     from '@/pages/office/CmrDocumentsPage'
 import { CmrLayoutConfigPage }  from '@/pages/office/CmrLayoutConfigPage'
@@ -85,6 +86,7 @@ export default function App() {
       <Route path="/etykiety/zebra"   element={<ZebraPrintPage />} />
       <Route path="/office/hdi/:id/druk" element={<HdiPrintPage />} />
       <Route path="/office/cmr/:id/druk" element={<CmrPrintPage />} />
+      <Route path="/office/partia/:batchNo/raport" element={<BatchReportPage />} />
       <Route path="/etykiety/szablon" element={<LabelTemplateSetupPage />} />
 
       {/* Mobile — skan QR palet (poza OfficeLayout) */}
