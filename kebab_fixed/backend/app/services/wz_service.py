@@ -45,3 +45,103 @@ def build_wz_lines(items: List[Dict[str, Any]], valued: bool) -> Tuple[List[Dict
             total += value
         lines.append(line)
     return lines, round(total, 2)
+
+
+def should_reuse(existing: Optional[Dict], source_id: Optional[str]) -> bool:
+    """WZ jest idempotentny per źródło: istniejący dokument dla danego
+    (source_type, source_id) zwracamy ponownie. WZ ręczny (brak source_id)
+    zawsze tworzy nowy dokument."""
+    return bool(existing) and bool((source_id or "").strip())
+
+
+def _seller_block() -> Dict[str, Any]:
+    co = get_company()
+    addr = f"{co.get('address','')}, {co.get('postal_code','')} {co.get('city','')}".strip(", ")
+    return {
+        "name": co.get("name", ""),
+        "address": addr,
+        "nip": co.get("nip", ""),
+        "email": co.get("email", ""),
+    }
+
+
+def generate_wz(
+    source_type: Optional[str],
+    source_id: Optional[str],
+    buyer: Dict[str, Any],
+    items: List[Dict[str, Any]],
+    valued: bool = True,
+    place: Optional[str] = None,
+    issued_date: Optional[str] = None,
+    release_date: Optional[str] = None,
+    notes: str = "",
+) -> Dict[str, Any]:
+    if not items:
+        raise HTTPException(400, "WZ wymaga co najmniej jednej pozycji")
+
+    lines, total = build_wz_lines(items, valued)
+    co = get_company()
+    today = date.today()
+    issued = issued_date or today.strftime("%d.%m.%Y")
+    released = release_date or issued
+    place_val = place or co.get("city") or ""
+    seller = _seller_block()
+
+    with transaction() as conn:
+        existing = None
+        if (source_id or "").strip():
+            existing = cx_query_one(
+                conn,
+                "SELECT * FROM wz_documents WHERE source_type=%s AND source_id=%s "
+                "ORDER BY created_at LIMIT 1",
+                (source_type, source_id),
+            )
+        if should_reuse(existing, source_id):
+            if existing["status"] == "wstepny":
+                cx_execute_returning(
+                    conn,
+                    """UPDATE wz_documents SET buyer_name=%s, buyer_address=%s,
+                       buyer_nip=%s, valued=%s, lines=%s, total_value=%s, place=%s,
+                       issued_date=%s, release_date=%s, notes=%s WHERE id=%s RETURNING id""",
+                    (buyer.get("name"), buyer.get("address"), buyer.get("nip"),
+                     valued, json.dumps(lines), total, place_val, issued, released,
+                     notes, existing["id"]),
+                )
+            logger.info("wz.reused", extra={"wz_id": existing["id"], "number": existing["number"]})
+            return get_wz(existing["id"])
+
+        ym = today.strftime("%y%m")  # RRMM
+        seq_row = cx_query_one(
+            conn, "SELECT COALESCE(MAX(seq),0)+1 AS n FROM wz_documents WHERE year_month=%s", (ym,)
+        )
+        seq = int(seq_row["n"])
+        number = format_wz_number(seq, ym)
+        wid = cuid()
+        cx_execute_returning(
+            conn,
+            """INSERT INTO wz_documents
+               (id, number, seq, year_month, source_type, source_id, seller,
+                buyer_name, buyer_address, buyer_nip, valued, lines, total_value,
+                place, issued_date, release_date, status, notes, created_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s)
+               RETURNING id""",
+            (wid, number, seq, ym, source_type, source_id, json.dumps(seller),
+             buyer.get("name"), buyer.get("address"), buyer.get("nip"), valued,
+             json.dumps(lines), total, place_val, issued, released, notes, now_iso()),
+        )
+    logger.info("wz.generated", extra={"wz_id": wid, "number": number})
+    return get_wz(wid)
+
+
+def get_wz(wz_id: str) -> Dict[str, Any]:
+    row = query_one("SELECT * FROM wz_documents WHERE id=%s", (wz_id,))
+    if not row:
+        raise HTTPException(404, "Dokument WZ nie istnieje")
+    return row
+
+
+def list_wz() -> List[Dict[str, Any]]:
+    return query_all(
+        "SELECT id, number, buyer_name, total_value, valued, status, issued_date, "
+        "created_at FROM wz_documents ORDER BY created_at DESC"
+    )
