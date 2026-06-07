@@ -1088,6 +1088,13 @@ export const wzApi = {
   }) => post<WzDoc>('/wz', body),
   list: () => get<WzDoc[]>('/wz'),
   byId: (id: string) => get<WzDoc>(`/wz/${id}`),
+  stockFg: () => get<any[]>('/wz/stock/finished-goods'),
+  stockRaw: () => get<any[]>('/wz/stock/raw'),
+  createManual: (body: {
+    buyer: { name: string; address?: string; nip?: string };
+    items: { stockType: 'fg' | 'raw'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string }[];
+    valued?: boolean; place?: string; issuedDate?: string; releaseDate?: string; notes?: string;
+  }) => post<WzDoc>('/wz/manual', body),
   pdfUrl: (id: string) => `${BASE}/wz/${encodeURIComponent(id)}/pdf`,
 }
 
