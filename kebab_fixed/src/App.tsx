@@ -29,6 +29,7 @@ import { HdiDocumentsPage }     from '@/pages/office/HdiDocumentsPage'
 import { CmrDocumentsPage }     from '@/pages/office/CmrDocumentsPage'
 import { WzPrintPage }          from '@/pages/office/WzPrintPage'
 import { WzDocumentsPage }      from '@/pages/office/WzDocumentsPage'
+import { WzNewPage }            from '@/pages/office/WzNewPage'
 import { CmrLayoutConfigPage }  from '@/pages/office/CmrLayoutConfigPage'
 import { CarriersPage }         from '@/pages/office/CarriersPage'
 import { LabelTemplateSetupPage } from '@/pages/office/LabelTemplateSetupPage'
@@ -112,6 +113,7 @@ export default function App() {
         <Route path="zamowienia"            element={<ClientOrdersPage />} />
         <Route path="hdi"                   element={<HdiDocumentsPage />} />
         <Route path="wz"                    element={<WzDocumentsPage />} />
+        <Route path="wz/nowy"               element={<WzNewPage />} />
         <Route path="przewoznicy"           element={<CarriersPage />} />
         <Route path="cmr"                   element={<CmrDocumentsPage />} />
         <Route path="cmr-konfigurator"      element={<CmrLayoutConfigPage />} />
