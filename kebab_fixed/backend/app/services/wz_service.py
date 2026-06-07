@@ -9,10 +9,18 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
 
-from app.db import cx_execute_returning, cx_query_one, query_all, query_one, transaction
+from app.db import (
+    cx_execute,
+    cx_execute_returning,
+    cx_query_one,
+    query_all,
+    query_one,
+    transaction,
+)
 from app.logging_config import get_logger
 from app.services.settings_service import get_company
 from app.utils.ids import cuid, now_iso
+from app.utils.stock import create_stock_movement
 
 logger = get_logger(__name__)
 
@@ -165,6 +173,87 @@ def generate_wz(
             conn, source_type=source_type, source_id=source_id, seller=seller,
             buyer=buyer, valued=valued, lines=lines, total=total, place=place_val,
             issued=issued, released=released, notes=notes)
+    return get_wz(wid)
+
+
+def create_manual_wz(
+    buyer: Dict[str, Any],
+    selections: List[Dict[str, Any]],
+    valued: bool = True,
+    place: Optional[str] = None,
+    issued_date: Optional[str] = None,
+    release_date: Optional[str] = None,
+    notes: str = "",
+) -> Dict[str, Any]:
+    """Ręczny WZ ze sprzedaży z magazynu. Atomowo: dokument WZ + rozchód
+    (FG: szt, surowiec: kg). Brak stanu → 400 + rollback całości."""
+    if not selections:
+        raise HTTPException(400, "WZ wymaga co najmniej jednej pozycji")
+
+    lines, total = build_manual_wz_lines(selections, valued)
+    co = get_company()
+    today = date.today()
+    issued = issued_date or today.strftime("%d.%m.%Y")
+    released = release_date or issued
+    place_val = place or co.get("city") or ""
+    seller = _seller_block()
+
+    with transaction() as conn:
+        wid = _insert_wz(
+            conn, source_type="manual", source_id=None, seller=seller,
+            buyer=buyer, valued=valued, lines=lines, total=total, place=place_val,
+            issued=issued, released=released, notes=notes)
+
+        for sel in selections:
+            stype = sel.get("stock_type")
+            sid = sel.get("stock_id")
+            qty = float(sel.get("qty") or 0)
+            if qty <= 0:
+                raise HTTPException(400, "Ilość pozycji musi być > 0")
+
+            if stype == "fg":
+                row = cx_query_one(
+                    conn,
+                    "SELECT id, batch_no, qty_available, kg_per_unit FROM finished_goods WHERE id=%s FOR UPDATE",
+                    (sid,))
+                if not row:
+                    raise HTTPException(400, "Pozycja magazynowa nie istnieje")
+                need = int(qty)
+                avail = int(row.get("qty_available") or 0)
+                if avail < need:
+                    raise HTTPException(
+                        400, f"Za mało wyrobu (partia {row.get('batch_no')}): jest {avail} szt, potrzeba {need}")
+                cx_execute(
+                    conn,
+                    "UPDATE finished_goods SET qty_available=qty_available-%s, qty_shipped=qty_shipped+%s WHERE id=%s",
+                    (need, need, sid))
+                create_stock_movement(
+                    conn, product_type="finished_goods", batch_id=sid,
+                    qty=need * float(row.get("kg_per_unit") or 0),
+                    movement_type="OUT", source_type="wz", source_id=wid)
+
+            elif stype == "raw":
+                row = cx_query_one(
+                    conn,
+                    "SELECT id, internal_batch_no, kg_available FROM raw_batches WHERE id=%s FOR UPDATE",
+                    (sid,))
+                if not row:
+                    raise HTTPException(400, "Pozycja magazynowa nie istnieje")
+                avail = float(row.get("kg_available") or 0)
+                if avail + 1e-6 < qty:
+                    raise HTTPException(
+                        400, f"Za mało surowca (partia {row.get('internal_batch_no')}): jest {avail} kg, potrzeba {qty}")
+                cx_execute(
+                    conn,
+                    "UPDATE raw_batches SET kg_available=GREATEST(0, kg_available-%s) WHERE id=%s",
+                    (qty, sid))
+                create_stock_movement(
+                    conn, product_type="raw", batch_id=sid, qty=qty,
+                    movement_type="OUT", source_type="wz", source_id=wid)
+            else:
+                raise HTTPException(400, f"Nieznany typ magazynu: {stype}")
+
+    logger.info("wz.manual.created", extra={"wz_id": wid, "items": len(selections)})
     return get_wz(wid)
 
 
