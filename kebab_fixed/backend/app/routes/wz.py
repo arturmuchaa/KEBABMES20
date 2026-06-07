@@ -1,0 +1,53 @@
+"""Endpointy WZ (Wydanie Zewnętrzne)."""
+from urllib.parse import quote
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
+
+from app.config import settings
+from app.services import wz_service as svc
+from app.services.pdf_render import render_url_to_pdf
+
+router = APIRouter(prefix="/api/wz", tags=["wz"])
+
+
+@router.post("")
+def generate(body: dict):
+    return svc.generate_wz(
+        source_type=body.get("sourceType"),
+        source_id=body.get("sourceId"),
+        buyer=body.get("buyer") or {},
+        items=body.get("items") or [],
+        valued=bool(body.get("valued", True)),
+        place=body.get("place"),
+        issued_date=body.get("issuedDate"),
+        release_date=body.get("releaseDate"),
+        notes=body.get("notes", ""),
+    )
+
+
+@router.get("")
+def list_docs():
+    return svc.list_wz()
+
+
+@router.get("/{wz_id}/pdf")
+def pdf(wz_id: str):
+    doc = svc.get_wz(wz_id)  # 404, gdy nie istnieje
+    url = f"{settings.self_base_url}/office/wz/{wz_id}/druk?pdf=1"
+    try:
+        data = render_url_to_pdf(url)
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+    number = (doc.get("number") or wz_id).replace("/", "-")
+    filename = f"WZ_{number}.pdf"
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
+@router.get("/{wz_id}")
+def get(wz_id: str):
+    return svc.get_wz(wz_id)
