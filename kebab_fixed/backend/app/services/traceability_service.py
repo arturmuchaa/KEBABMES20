@@ -28,6 +28,41 @@ def _seen(lst: List[Dict]) -> Set[str]:
     return {x["id"] for x in lst if x.get("id")}
 
 
+# ── Dezambiguacja gołego numeru partii ────────────────────────────────
+# Ten sam numer (np. „347") bywa jednocześnie surowcem, lotem mięsa i partią
+# masowania (skutek numeracji bez prefiksów). Linki w bazie idą po UUID, więc
+# integralność jest OK — ale ręczny lookup po numerze musi pokazać WSZYSTKIE
+# pasujące obiekty z etykietą etapu, zamiast po cichu wybierać jeden.
+
+STAGE_LABELS = {
+    "finished_goods": "Wyrób gotowy",
+    "seasoned_meat": "Mięso przyprawione (masowanie)",
+    "meat_lot": "Mięso po rozbiorze (lot)",
+    "raw_batch": "Surowiec (przyjęcie)",
+}
+# Kolejność wyświetlania: od najbardziej „w dół" procesu do surowca.
+_STAGE_ORDER = ["finished_goods", "seasoned_meat", "meat_lot", "raw_batch"]
+
+
+def label_candidates(candidates: List[Dict]) -> List[Dict]:
+    """Dodaj czytelną etykietę etapu i posortuj downstream→surowiec."""
+    out = [
+        {**c, "stage": STAGE_LABELS.get(c.get("type"), c.get("type"))}
+        for c in (candidates or [])
+    ]
+    out.sort(
+        key=lambda c: _STAGE_ORDER.index(c["type"])
+        if c.get("type") in _STAGE_ORDER
+        else len(_STAGE_ORDER)
+    )
+    return out
+
+
+def is_ambiguous(candidates: List[Dict]) -> bool:
+    """True, gdy numer wskazuje na więcej niż jeden ETAP (typ obiektu)."""
+    return len({c.get("type") for c in (candidates or [])}) > 1
+
+
 def _resolve_lineage(seasoned_batch_nos: List[str]) -> Dict[str, List[str]]:
     mixing_order_ids: List[str] = []
     seasoned_meat_ids: List[str] = []
@@ -298,6 +333,35 @@ def traceability(batch_id: str, direction: str = "backward") -> Dict[str, List]:
 
 # ── Recall ────────────────────────────────────────────────────────────
 
+def find_batch_candidates(number: str) -> List[Dict]:
+    """Wszystkie obiekty pasujące do gołego numeru partii, z każdego etapu.
+
+    Dopasowanie po numerach „ludzkich" (batch_no / lot_no / internal_batch_no),
+    nie po UUID — to one się kolidują. Zwraca [{type, id, number}].
+    """
+    n = (number or "").strip()
+    if not n:
+        return []
+    out: List[Dict] = []
+    for row in query_all(
+        "SELECT id, batch_no FROM finished_goods WHERE batch_no=%s", (n,)
+    ):
+        out.append({"type": "finished_goods", "id": row["id"], "number": row.get("batch_no")})
+    for row in query_all(
+        "SELECT id, batch_no FROM seasoned_meat WHERE batch_no=%s", (n,)
+    ):
+        out.append({"type": "seasoned_meat", "id": row["id"], "number": row.get("batch_no")})
+    for row in query_all(
+        "SELECT id, lot_no FROM meat_stock WHERE lot_no=%s", (n,)
+    ):
+        out.append({"type": "meat_lot", "id": row["id"], "number": row.get("lot_no")})
+    for row in query_all(
+        "SELECT id, internal_batch_no FROM raw_batches WHERE internal_batch_no=%s", (n,)
+    ):
+        out.append({"type": "raw_batch", "id": row["id"], "number": row.get("internal_batch_no")})
+    return out
+
+
 def recall(batch_id: str) -> Dict[str, Any]:
     trace: Dict[str, List] = _empty_trace()
     resolved_via = "string"
@@ -479,9 +543,28 @@ def recall(batch_id: str) -> Dict[str, Any]:
                 }
             )
 
+    # Dezambiguacja: czy ten numer pasuje też do innych etapów? (tylko dla
+    # ścieżki po numerze — skan sztuki przez FK jest jednoznaczny).
+    candidates: List[Dict] = []
+    ambiguous = False
+    if resolved_via != "fk":
+        candidates = label_candidates(find_batch_candidates(batch_id))
+        ambiguous = is_ambiguous(candidates)
+
+    # Produkty uboczne (ABP) z partii surowca w łańcuchu — gdzie poszły kości/grzbiety/odpad.
+    from app.services.byproducts_service import byproducts_for_raw_batch
+
+    byproducts: List[Dict] = []
+    for rb in trace["rawBatches"]:
+        if rb.get("id"):
+            byproducts.extend(byproducts_for_raw_batch(rb["id"]))
+
     return {
         "batchId": batch_id,
         "resolvedVia": resolved_via,
+        "candidates": candidates,
+        "ambiguous": ambiguous,
+        "byproducts": byproducts,
         "raw_batches": trace["rawBatches"],
         "deboning": trace["deboning"],
         "deboning_summary": deboning_summary,
@@ -766,6 +849,12 @@ def lineage_health(limit: int = 200) -> Dict[str, Any]:
         (limit,),
     )
     orphan_count = int(units_stats.get("orphans") or 0)
+
+    # Otwarte loty ABP (kości/grzbiety/odpad bez zarejestrowanej utylizacji).
+    from app.services.byproducts_service import open_byproducts_summary
+
+    abp = open_byproducts_summary()
+
     return {
         "broken_count": len(broken_rows),
         "total_finished": int((total_finished or {}).get("n") or 0),
@@ -777,6 +866,7 @@ def lineage_health(limit: int = 200) -> Dict[str, Any]:
             "pending": int(units_stats.get("pending") or 0),
             "orphan_sample": orphan_units,
         },
+        "byproducts_open": abp,
         "ok": len(broken_rows) == 0 and orphan_count == 0,
     }
 

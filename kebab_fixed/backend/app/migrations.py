@@ -293,6 +293,25 @@ _DDL: list[str] = [
     "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS source_finished_goods_id TEXT",
     "CREATE INDEX IF NOT EXISTS idx_finished_units_goods ON finished_units(source_finished_goods_id) WHERE source_finished_goods_id IS NOT NULL",
 
+    # ── Produkty uboczne rozbioru (ABP — kości/grzbiety/inne) z utylizacją (C) ──
+    """CREATE TABLE IF NOT EXISTS byproduct_lots (
+        id TEXT PRIMARY KEY,
+        deboning_entry_id TEXT REFERENCES deboning_entries(id) ON DELETE CASCADE,
+        raw_batch_id TEXT,
+        raw_batch_no TEXT,
+        kind TEXT NOT NULL,
+        kg NUMERIC(10,3) NOT NULL DEFAULT 0,
+        destination TEXT,
+        doc_ref TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        disposed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        CONSTRAINT byproduct_lots_kg_nonneg_ck CHECK (kg >= 0)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_byproduct_lots_entry ON byproduct_lots(deboning_entry_id)",
+    "CREATE INDEX IF NOT EXISTS idx_byproduct_lots_raw ON byproduct_lots(raw_batch_id)",
+    "CREATE INDEX IF NOT EXISTS idx_byproduct_lots_status ON byproduct_lots(status)",
+
     # ── HDI fundament: język + miejsce przeznaczenia klienta ──
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS language TEXT DEFAULT ''",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_name TEXT DEFAULT ''",
@@ -424,7 +443,20 @@ def run_migrations() -> None:
     _migrate_plan_reservations_to_kg_reserved()
     _add_finished_units_goods_fk()
     _backfill_unit_goods_links()
+    _backfill_byproduct_lots()
     logger.info("migrations.done")
+
+
+def _backfill_byproduct_lots() -> None:
+    """Wygeneruj loty ABP dla historycznych rozbiorów (idempotentne)."""
+    try:
+        from app.services.byproducts_service import backfill_byproduct_lots
+
+        backfill_byproduct_lots()
+    except Exception as exc:
+        logger.warning(
+            "migrations.backfill_byproduct_lots.failed", extra={"error": str(exc)}
+        )
 
 
 def _add_finished_units_goods_fk() -> None:

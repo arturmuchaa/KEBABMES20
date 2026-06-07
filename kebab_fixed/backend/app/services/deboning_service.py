@@ -182,6 +182,11 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
             ),
         )
 
+        # Produkty uboczne (ABP) — część niemięsna jako śledzony lot do utylizacji.
+        from app.services.byproducts_service import create_byproduct_lots_for_entry
+
+        create_byproduct_lots_for_entry(conn, entry)
+
         cx_execute(
             conn,
             """

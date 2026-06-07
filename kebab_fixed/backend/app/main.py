@@ -96,6 +96,7 @@ def create_app() -> FastAPI:
         stubs,
         cost,
         desktop_updates,
+        byproducts,
     )
     # Aliasujemy: app.routes.settings koliduje z app.config.settings używanym wyżej
     from app.routes import settings as settings_route  # noqa: E402
@@ -136,6 +137,7 @@ def create_app() -> FastAPI:
         stubs,
         cost,
         desktop_updates,
+        byproducts,
         settings_route,
     ):
         app.include_router(getattr(mod, "router", mod))
