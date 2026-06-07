@@ -27,6 +27,8 @@ import { CmrPrintPage }         from '@/pages/office/CmrPrintPage'
 import { BatchReportPage }      from '@/pages/office/BatchReportPage'
 import { HdiDocumentsPage }     from '@/pages/office/HdiDocumentsPage'
 import { CmrDocumentsPage }     from '@/pages/office/CmrDocumentsPage'
+import { WzPrintPage }          from '@/pages/office/WzPrintPage'
+import { WzDocumentsPage }      from '@/pages/office/WzDocumentsPage'
 import { CmrLayoutConfigPage }  from '@/pages/office/CmrLayoutConfigPage'
 import { CarriersPage }         from '@/pages/office/CarriersPage'
 import { LabelTemplateSetupPage } from '@/pages/office/LabelTemplateSetupPage'
@@ -86,6 +88,7 @@ export default function App() {
       <Route path="/etykiety/zebra"   element={<ZebraPrintPage />} />
       <Route path="/office/hdi/:id/druk" element={<HdiPrintPage />} />
       <Route path="/office/cmr/:id/druk" element={<CmrPrintPage />} />
+      <Route path="/office/wz/:id/druk" element={<WzPrintPage />} />
       <Route path="/office/partia/:batchNo/raport" element={<BatchReportPage />} />
       <Route path="/etykiety/szablon" element={<LabelTemplateSetupPage />} />
 
@@ -108,6 +111,7 @@ export default function App() {
         <Route path="kontrahenci"           element={<ClientsPage />} />
         <Route path="zamowienia"            element={<ClientOrdersPage />} />
         <Route path="hdi"                   element={<HdiDocumentsPage />} />
+        <Route path="wz"                    element={<WzDocumentsPage />} />
         <Route path="przewoznicy"           element={<CarriersPage />} />
         <Route path="cmr"                   element={<CmrDocumentsPage />} />
         <Route path="cmr-konfigurator"      element={<CmrLayoutConfigPage />} />
