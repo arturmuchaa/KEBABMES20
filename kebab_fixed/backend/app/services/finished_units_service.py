@@ -35,6 +35,104 @@ def batch_sequence(qty, batch_allocation, seasoned_batch_no=None,
     return [sbn or ""] * qty
 
 
+def resolve_unit_goods_id(unit_batch_no, candidates) -> "str | None":
+    """Twardy link sztuka → wyrób gotowy (finished_goods.id).
+
+    `candidates` to wiersze z junction `finished_goods_sessions` (przez
+    plan_line_id sztuki), każdy: ``{"goods_id", "seasoned_batch_nos"}``.
+
+    Zasada: NIGDY nie zgaduj.
+      * 0 kandydatów → None (linia bez finished_goods — dzień niezamknięty)
+      * dokładnie 1 wyrób → przypisz (nawet gdy batch_no nie pasuje)
+      * >1 wyrobów → dezambiguuj po batch_no ∈ seasoned_batch_nos;
+        jednoznaczne dopasowanie → przypisz, w przeciwnym razie None
+        (sierota do ręcznej decyzji — błędny link gorszy niż brak).
+    """
+    ids = list({c.get("goods_id") for c in (candidates or []) if c.get("goods_id")})
+    if not ids:
+        return None
+    if len(ids) == 1:
+        return ids[0]
+    bn = (unit_batch_no or "").strip()
+    if not bn:
+        return None
+    matches = {
+        c.get("goods_id")
+        for c in candidates
+        if c.get("goods_id") and bn in (c.get("seasoned_batch_nos") or [])
+    }
+    return next(iter(matches)) if len(matches) == 1 else None
+
+
+def _goods_candidates(conn, plan_line_id: str) -> List[Dict[str, Any]]:
+    """Wyroby gotowe powiązane z daną linią planu przez junction."""
+    if not plan_line_id:
+        return []
+    return cx_query_all(
+        conn,
+        """
+        SELECT fgs.goods_id, fg.seasoned_batch_nos
+        FROM finished_goods_sessions fgs
+        JOIN finished_goods fg ON fg.id = fgs.goods_id
+        WHERE fgs.plan_line_id = %s
+        """,
+        (plan_line_id,),
+    )
+
+
+def link_units_for_plan_line(conn, plan_line_id: str) -> int:
+    """Ustaw source_finished_goods_id dla sztuk jednej linii planu (w trwającej tx).
+
+    Wywoływane przy finish_day (gdy powstaje finished_goods) oraz w backfillu.
+    Zwraca liczbę zaktualizowanych sztuk.
+    """
+    if not plan_line_id:
+        return 0
+    candidates = _goods_candidates(conn, plan_line_id)
+    if not candidates:
+        return 0
+    units = cx_query_all(
+        conn,
+        "SELECT id, batch_no, source_finished_goods_id FROM finished_units WHERE plan_line_id=%s",
+        (plan_line_id,),
+    )
+    updated = 0
+    for u in units:
+        gid = resolve_unit_goods_id(u.get("batch_no"), candidates)
+        if gid and gid != u.get("source_finished_goods_id"):
+            cx_execute(
+                conn,
+                "UPDATE finished_units SET source_finished_goods_id=%s WHERE id=%s",
+                (gid, u["id"]),
+            )
+            updated += 1
+    return updated
+
+
+def backfill_unit_goods_links() -> Dict[str, int]:
+    """Migracja danych: podłącz istniejące sztuki do wyrobów gotowych.
+
+    Idempotentne — pomija sztuki już podłączone. Sztuki, których linia planu
+    nie ma jeszcze finished_goods (dzień niezamknięty) zostają NULL — to stan
+    oczekujący, NIE sierota. Zwraca statystyki.
+    """
+    with transaction() as conn:
+        plan_lines = cx_query_all(
+            conn,
+            """
+            SELECT DISTINCT plan_line_id
+            FROM finished_units
+            WHERE plan_line_id IS NOT NULL AND plan_line_id <> ''
+              AND source_finished_goods_id IS NULL
+            """,
+        )
+        linked = 0
+        for row in plan_lines:
+            linked += link_units_for_plan_line(conn, row["plan_line_id"])
+    logger.info("finished_units.backfill_goods_links", extra={"linked": linked})
+    return {"linked": linked, "plan_lines_checked": len(plan_lines)}
+
+
 def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
     """Tworzy `qty` rekordów finished_units (status 'planned') dla linii planu.
 

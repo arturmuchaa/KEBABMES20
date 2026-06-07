@@ -300,12 +300,36 @@ def traceability(batch_id: str, direction: str = "backward") -> Dict[str, List]:
 
 def recall(batch_id: str) -> Dict[str, Any]:
     trace: Dict[str, List] = _empty_trace()
+    resolved_via = "string"
 
-    fg_direct = query_one(
-        "SELECT * FROM finished_goods WHERE id=%s OR batch_no=%s",
-        (batch_id, batch_id),
+    # Skan pojedynczej sztuki (QR 'U|<id>' lub jej id/qr_code) → idź przez TWARDY
+    # link FK source_finished_goods_id, nie przez dopasowanie tekstowego batch_no.
+    from app.utils.unit_codes import parse_unit_qr
+
+    unit_id = parse_unit_qr(batch_id) or batch_id
+    unit = query_one(
+        "SELECT * FROM finished_units WHERE id=%s OR qr_code=%s",
+        (unit_id, batch_id),
     )
-    if fg_direct:
+    if unit and unit.get("source_finished_goods_id"):
+        trace = _trace_backward(unit["source_finished_goods_id"])
+        resolved_via = "fk"
+    elif unit and unit.get("batch_no"):
+        # Sztuka bez twardego linku (dzień niezamknięty / sierota) — fallback
+        # po numerze partii, żeby skan nadal coś zwrócił.
+        batch_id = unit["batch_no"]
+
+    fg_direct = (
+        None
+        if resolved_via == "fk"
+        else query_one(
+            "SELECT * FROM finished_goods WHERE id=%s OR batch_no=%s",
+            (batch_id, batch_id),
+        )
+    )
+    if resolved_via == "fk":
+        pass
+    elif fg_direct:
         trace = _trace_backward(fg_direct["id"])
         if not trace["finishedGoods"]:
             trace["finishedGoods"] = [fg_direct]
@@ -457,6 +481,7 @@ def recall(batch_id: str) -> Dict[str, Any]:
 
     return {
         "batchId": batch_id,
+        "resolvedVia": resolved_via,
         "raw_batches": trace["rawBatches"],
         "deboning": trace["deboning"],
         "deboning_summary": deboning_summary,
@@ -699,11 +724,60 @@ def lineage_health(limit: int = 200) -> Dict[str, Any]:
         (limit,),
     )
     total_finished = query_one("SELECT count(*) AS n FROM finished_goods")
+
+    # ── Detektor sierot: sztuki bez twardego linku do wyrobu gotowego ──
+    # Sierota = sztuka, której linia planu MA już finished_goods (przez junction
+    # finished_goods_sessions), ale source_finished_goods_id jest NULL. Sztuki
+    # linii bez finished_goods (dzień niezamknięty) to stan oczekujący, NIE sierota.
+    units_stats = query_one(
+        """
+        SELECT
+          count(*) AS total,
+          count(*) FILTER (WHERE source_finished_goods_id IS NOT NULL) AS linked,
+          count(*) FILTER (
+            WHERE source_finished_goods_id IS NULL
+              AND EXISTS (
+                SELECT 1 FROM finished_goods_sessions s
+                WHERE s.plan_line_id = finished_units.plan_line_id
+              )
+          ) AS orphans,
+          count(*) FILTER (
+            WHERE source_finished_goods_id IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM finished_goods_sessions s
+                WHERE s.plan_line_id = finished_units.plan_line_id
+              )
+          ) AS pending
+        FROM finished_units
+        """
+    ) or {}
+    orphan_units = query_all(
+        """
+        SELECT id, qr_code, batch_no, plan_line_id, status
+        FROM finished_units fu
+        WHERE source_finished_goods_id IS NULL
+          AND EXISTS (
+            SELECT 1 FROM finished_goods_sessions s
+            WHERE s.plan_line_id = fu.plan_line_id
+          )
+        ORDER BY produced_date DESC NULLS LAST
+        LIMIT %s
+        """,
+        (limit,),
+    )
+    orphan_count = int(units_stats.get("orphans") or 0)
     return {
         "broken_count": len(broken_rows),
         "total_finished": int((total_finished or {}).get("n") or 0),
         "broken": broken_rows,
-        "ok": len(broken_rows) == 0,
+        "units": {
+            "total": int(units_stats.get("total") or 0),
+            "linked": int(units_stats.get("linked") or 0),
+            "orphans": orphan_count,
+            "pending": int(units_stats.get("pending") or 0),
+            "orphan_sample": orphan_units,
+        },
+        "ok": len(broken_rows) == 0 and orphan_count == 0,
     }
 
 

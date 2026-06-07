@@ -632,5 +632,11 @@ def _process_finish_day_entry(
     if entry.packaging_id and entry.qty > 0 and item_ids:
         _consume_packaging(conn, entry.packaging_id, entry.qty, item_ids[0])
 
+    # Twardy link sztuka → wyrób gotowy (raz, gdy wszystkie wyroby tej linii już są).
+    if entry.plan_line_id:
+        from app.services.finished_units_service import link_units_for_plan_line
+
+        link_units_for_plan_line(conn, entry.plan_line_id)
+
     return [cx_query_one(conn, "SELECT * FROM finished_goods WHERE id=%s", (iid,))
             for iid in item_ids]

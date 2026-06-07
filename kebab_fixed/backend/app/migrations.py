@@ -289,6 +289,10 @@ _DDL: list[str] = [
     "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS dispatch_id TEXT",
     "CREATE INDEX IF NOT EXISTS idx_finished_units_dispatch ON finished_units(dispatch_id) WHERE dispatch_id IS NOT NULL",
 
+    # ── Twardy link sztuka → wyrób gotowy (traceability fundament B) ──
+    "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS source_finished_goods_id TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_finished_units_goods ON finished_units(source_finished_goods_id) WHERE source_finished_goods_id IS NOT NULL",
+
     # ── HDI fundament: język + miejsce przeznaczenia klienta ──
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS language TEXT DEFAULT ''",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_name TEXT DEFAULT ''",
@@ -418,7 +422,49 @@ def run_migrations() -> None:
     _backfill_lineage()
     _backfill_ingredient_receipts()
     _migrate_plan_reservations_to_kg_reserved()
+    _add_finished_units_goods_fk()
+    _backfill_unit_goods_links()
     logger.info("migrations.done")
+
+
+def _add_finished_units_goods_fk() -> None:
+    """Dodaj FK finished_units.source_finished_goods_id → finished_goods(id).
+
+    Postgres nie ma ADD CONSTRAINT IF NOT EXISTS — sprawdzamy pg_constraint.
+    ON DELETE SET NULL: usunięcie wyrobu nie kasuje sztuk, tylko zrywa link
+    (wtedy wykryje to detektor sierot w lineage_health).
+    """
+    try:
+        exists = query_one(
+            "SELECT 1 FROM pg_constraint WHERE conname = 'finished_units_goods_fk'"
+        )
+        if exists:
+            return
+        execute(
+            """
+            ALTER TABLE finished_units
+            ADD CONSTRAINT finished_units_goods_fk
+            FOREIGN KEY (source_finished_goods_id)
+            REFERENCES finished_goods(id) ON DELETE SET NULL
+            """
+        )
+        logger.info("migrations.finished_units_goods_fk.added")
+    except Exception as exc:
+        logger.warning(
+            "migrations.finished_units_goods_fk.failed", extra={"error": str(exc)}
+        )
+
+
+def _backfill_unit_goods_links() -> None:
+    """Podłącz istniejące sztuki do wyrobów gotowych (idempotentne)."""
+    try:
+        from app.services.finished_units_service import backfill_unit_goods_links
+
+        backfill_unit_goods_links()
+    except Exception as exc:
+        logger.warning(
+            "migrations.backfill_unit_goods_links.failed", extra={"error": str(exc)}
+        )
 
 
 def _backfill_ingredient_receipts() -> None:
