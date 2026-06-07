@@ -90,6 +90,32 @@ def _seller_block() -> Dict[str, Any]:
     }
 
 
+def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
+               total, place, issued, released, notes) -> str:
+    """Wstaw dokument WZ w trwającej transakcji, nadaj numer WZ/NN/MM/RR. Zwraca id."""
+    today = date.today()
+    ym = today.strftime("%y%m")  # RRMM
+    seq_row = cx_query_one(
+        conn, "SELECT COALESCE(MAX(seq),0)+1 AS n FROM wz_documents WHERE year_month=%s", (ym,))
+    seq = int(seq_row["n"])
+    number = format_wz_number(seq, ym)
+    wid = cuid()
+    cx_execute_returning(
+        conn,
+        """INSERT INTO wz_documents
+           (id, number, seq, year_month, source_type, source_id, seller,
+            buyer_name, buyer_address, buyer_nip, valued, lines, total_value,
+            place, issued_date, release_date, status, notes, created_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s)
+           RETURNING id""",
+        (wid, number, seq, ym, source_type, source_id, json.dumps(seller),
+         buyer.get("name"), buyer.get("address"), buyer.get("nip"), valued,
+         json.dumps(lines), total, place, issued, released, notes, now_iso()),
+    )
+    logger.info("wz.generated", extra={"wz_id": wid, "number": number})
+    return wid
+
+
 def generate_wz(
     source_type: Optional[str],
     source_id: Optional[str],
@@ -135,26 +161,10 @@ def generate_wz(
             logger.info("wz.reused", extra={"wz_id": existing["id"], "number": existing["number"]})
             return get_wz(existing["id"])
 
-        ym = today.strftime("%y%m")  # RRMM
-        seq_row = cx_query_one(
-            conn, "SELECT COALESCE(MAX(seq),0)+1 AS n FROM wz_documents WHERE year_month=%s", (ym,)
-        )
-        seq = int(seq_row["n"])
-        number = format_wz_number(seq, ym)
-        wid = cuid()
-        cx_execute_returning(
-            conn,
-            """INSERT INTO wz_documents
-               (id, number, seq, year_month, source_type, source_id, seller,
-                buyer_name, buyer_address, buyer_nip, valued, lines, total_value,
-                place, issued_date, release_date, status, notes, created_at)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s)
-               RETURNING id""",
-            (wid, number, seq, ym, source_type, source_id, json.dumps(seller),
-             buyer.get("name"), buyer.get("address"), buyer.get("nip"), valued,
-             json.dumps(lines), total, place_val, issued, released, notes, now_iso()),
-        )
-    logger.info("wz.generated", extra={"wz_id": wid, "number": number})
+        wid = _insert_wz(
+            conn, source_type=source_type, source_id=source_id, seller=seller,
+            buyer=buyer, valued=valued, lines=lines, total=total, place=place_val,
+            issued=issued, released=released, notes=notes)
     return get_wz(wid)
 
 
