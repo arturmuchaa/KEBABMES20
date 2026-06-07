@@ -1069,6 +1069,28 @@ export const hdiApi = {
   pdfUrl: (id: string) => `${BASE}/hdi/${encodeURIComponent(id)}/pdf`,
 }
 
+// ─── WZ (Wydanie Zewnętrzne) ────────────────────────────────────
+export interface WzLine { name: string; qty: number; unit: string; price: number | null; value: number | null; batch_no?: string | null }
+export interface WzDoc {
+  id: string; number: string; sourceType?: string; sourceId?: string
+  seller?: { name?: string; address?: string; nip?: string; email?: string }
+  buyer_name?: string; buyer_address?: string; buyer_nip?: string
+  valued: boolean; lines: WzLine[]; total_value: number
+  place?: string; issued_date?: string; release_date?: string; status: string
+}
+
+export const wzApi = {
+  generate: (body: {
+    sourceType?: string; sourceId?: string;
+    buyer: { name: string; address?: string; nip?: string };
+    items: { name: string; qty: number; unit?: string; price?: number; batch_no?: string }[];
+    valued?: boolean; place?: string; issuedDate?: string; releaseDate?: string; notes?: string;
+  }) => post<WzDoc>('/wz', body),
+  list: () => get<WzDoc[]>('/wz'),
+  byId: (id: string) => get<WzDoc>(`/wz/${id}`),
+  pdfUrl: (id: string) => `${BASE}/wz/${encodeURIComponent(id)}/pdf`,
+}
+
 // ─── Przewoźnicy + CMR ──────────────────────────────────────────
 export interface Carrier {
   id: string; name: string; address: string; postalCode: string; city: string
