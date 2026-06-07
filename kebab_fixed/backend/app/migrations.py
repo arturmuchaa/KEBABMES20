@@ -312,6 +312,32 @@ _DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_byproduct_lots_raw ON byproduct_lots(raw_batch_id)",
     "CREATE INDEX IF NOT EXISTS idx_byproduct_lots_status ON byproduct_lots(status)",
 
+    # ── Dokument WZ (Wydanie Zewnętrzne) — SP-1 ──
+    """CREATE TABLE IF NOT EXISTS wz_documents (
+        id TEXT PRIMARY KEY,
+        number TEXT NOT NULL,
+        seq INTEGER NOT NULL DEFAULT 0,
+        year_month TEXT NOT NULL DEFAULT '',
+        source_type TEXT,
+        source_id TEXT,
+        seller JSONB DEFAULT '{}',
+        buyer_name TEXT,
+        buyer_address TEXT,
+        buyer_nip TEXT,
+        valued BOOLEAN NOT NULL DEFAULT true,
+        lines JSONB DEFAULT '[]',
+        total_value NUMERIC(12,2) DEFAULT 0,
+        place TEXT,
+        issued_date TEXT,
+        release_date TEXT,
+        status TEXT NOT NULL DEFAULT 'wstepny',
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_wz_source ON wz_documents(source_type, source_id)",
+    "CREATE INDEX IF NOT EXISTS idx_wz_number ON wz_documents(number)",
+    "CREATE INDEX IF NOT EXISTS idx_wz_ym ON wz_documents(year_month)",
+
     # ── HDI fundament: język + miejsce przeznaczenia klienta ──
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS language TEXT DEFAULT ''",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_name TEXT DEFAULT ''",
