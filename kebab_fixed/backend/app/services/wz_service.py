@@ -47,6 +47,21 @@ def build_wz_lines(items: List[Dict[str, Any]], valued: bool) -> Tuple[List[Dict
     return lines, round(total, 2)
 
 
+def build_manual_wz_lines(selections: List[Dict[str, Any]], valued: bool) -> Tuple[List[Dict[str, Any]], float]:
+    """Mapuje wybór magazynu na pozycje WZ (reużywa build_wz_lines) i dokleja
+    ślad magazynowy (stock_type/stock_id) do każdej pozycji."""
+    items = [
+        {"name": s.get("name"), "qty": s.get("qty"), "unit": s.get("unit"),
+         "price": s.get("price"), "batch_no": s.get("batch_no")}
+        for s in (selections or [])
+    ]
+    lines, total = build_wz_lines(items, valued)
+    for line, s in zip(lines, selections or []):
+        line["stock_type"] = s.get("stock_type")
+        line["stock_id"] = s.get("stock_id")
+    return lines, total
+
+
 def is_foreign_nip(nip: Optional[str]) -> bool:
     """Klient zagraniczny, gdy NIP zaczyna się od dwóch liter różnych od 'PL'
     (np. DE, SK, AT). Czyste cyfry lub 'PL…' = krajowy. Puste = krajowy."""
