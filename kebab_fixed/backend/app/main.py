@@ -46,10 +46,16 @@ def create_app() -> FastAPI:
     )
 
     # CORS
+    # Aplikacja nie używa uwierzytelniania cookie/sesją, więc allow_credentials
+    # musi być False — inaczej w połączeniu z origin="*" przeglądarka i tak
+    # odrzuca żądania (spec CORS), a włączone credentials niepotrzebnie
+    # rozszerzałoby powierzchnię ataku. Klient desktop (Tauri) korzysta z
+    # nagłówków bez credentials, więc to bezpieczne.
+    _cors_credentials = settings.cors_origins != ["*"]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_credentials=True,
+        allow_credentials=_cors_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )

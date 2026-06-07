@@ -100,6 +100,7 @@ export interface Recipe {
   readonly id:            string
   readonly name:          string          // np. "Receptura Standard Van Hess"
   readonly productTypeId?: string         // opcjonalne powiązanie z rodzajem kebabu
+  readonly productTypeName?: string       // denormalizowana nazwa rodzaju (z JOINa backendu)
   readonly ingredients:   RecipeIngredient[]
   /** Łączna masa gotowego produktu na 100 kg mięsa (wyliczana) */
   readonly totalOutputPer100kg: number

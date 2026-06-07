@@ -72,7 +72,7 @@ function ExpiryBadge({ date }: { date: string }) {
 
 // ─── TracePanel (lineage modal) ──────────────────────────────
 function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void }) {
-  const { data, loading, error } = useApi(
+  const { data, loading, error } = useApi<any>(
     () => (seasonedMeatApi as any).getFullTrace(batchId),
     [batchId]
   )

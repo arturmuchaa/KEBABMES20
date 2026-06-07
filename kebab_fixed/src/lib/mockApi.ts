@@ -585,18 +585,25 @@ export const INVOICE_CATEGORY_LABELS: Record<InvoiceCategory, string> = {
 export interface PurchaseInvoiceLine {
   name: string; qty: number; unitPrice: number; vatRate: number
   netAmount: number; vatAmount: number; grossAmount: number
+  lineName?: string
 }
 
 export interface PurchaseInvoice {
   id: string; invoiceNo: string; supplierId: string; supplierName: string
   category: InvoiceCategory
-  rawBatchId?: string; rawBatchNo?: string
+  rawBatchId?: string; rawBatchNo?: string; rawBatchIds?: string[]
   ingredientId?: string; ingredientName?: string
+  packagingId?: string; packagingName?: string
   expiryDate?: string; batchNo?: string
   invoiceDate: string; dueDate?: string
-  lines: PurchaseInvoiceLine[]
-  netTotal: number; vatTotal: number; grossTotal: number
-  vatRate: number; notes?: string; createdAt: string
+  // Realny backend zwraca fakturę płasko (kolumny tabeli `invoices`):
+  qty?: number; unitPrice?: number
+  totalNet?: number; totalVat?: number; totalGross?: number
+  currency?: string; amountEur?: number
+  // Legacy (kształt mocka) — opcjonalne, nieobecne w odpowiedzi backendu:
+  lines?: PurchaseInvoiceLine[]
+  netTotal?: number; vatTotal?: number; grossTotal?: number
+  vatRate?: number; notes?: string; createdAt: string
 }
 
 export interface CreatePurchaseInvoiceDto {
@@ -624,6 +631,8 @@ export const invoicesApi = {
     const sup   = suppliers.find(s => s.id === dto.supplierId)
     const batch = dto.rawBatchId ? batches.find(b => b.id === dto.rawBatchId) : undefined
     const ing   = dto.ingredientId ? ingredients.find(i => i.id === dto.ingredientId) : undefined
+    const pkgId = (dto as any).packagingId
+    const pkgItem = pkgId ? packagingItems.find(p => p.id === pkgId) : undefined
     const vat   = dto.vatRate ?? 0.05
     const net   = dto.qty * dto.unitPrice
     const lineName = dto.lineName

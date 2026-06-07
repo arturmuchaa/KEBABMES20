@@ -190,7 +190,7 @@ type Tab = 'meat' | 'backs' | 'bones'
 export function RawStockPage() {
   const { data: meatData, loading: meatLoading } = useApi(() => meatStockApi.list())
   const { data: debData,  loading: debLoading  } = useApi(() => deboningApi.list())
-  const { data: batchData } = useApi(() => (rawBatchesApi as any).all())
+  const { data: batchData } = useApi<{ data: any[] }>(() => (rawBatchesApi as any).all())
 
   const [activeTab, setActiveTab] = useState<Tab>('meat')
   const [traceItem, setTraceItem] = useState<{

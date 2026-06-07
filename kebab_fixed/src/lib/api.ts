@@ -8,16 +8,20 @@
 import type {
   RawBatch, Supplier, User,
   CreateRawBatchDto, CreateSupplierDto, Paginated,
+  MeatStock, DeboningSession,
 } from '@/types'
 import type {
-  PurchaseInvoice, CreatePurchaseInvoiceDto,
-  MeatStock, DeboningSession,
   Recipe, CreateRecipeDto, UpdateRecipeDto,
   Ingredient, CreateIngredientDto,
   IngredientReceipt, CreateIngredientReceiptDto,
+} from '@/features/ingredients/types'
+import type {
+  ProductType, CreateProductTypeDto,
+} from '@/features/products/types'
+import type {
+  PurchaseInvoice, CreatePurchaseInvoiceDto,
   MixingOrder, CreateMixingOrderDto,
   SeasonedMeatBatch,
-  ProductType, CreateProductTypeDto,
   MachineLock, MachineId,
   Client, CreateClientDto,
   ClientOrder, CreateClientOrderDto,
@@ -250,8 +254,12 @@ function mapMeatStock(raw: any): MeatStock {
     rawBatchNo:         raw.raw_batch_no        ?? raw.rawBatchNo,
     kgInitial:          Number(raw.kg_initial   ?? raw.kgInitial         ?? 0),
     kgAvailable:        Number(raw.kg_free      ?? raw.kg_available ?? raw.kgAvailable ?? 0),
+    kgReserved:         Number(raw.kg_reserved  ?? raw.kgReserved        ?? 0),
+    kgInProcess:        Number(raw.kg_in_process ?? raw.kgInProcess      ?? 0),
+    kgUsed:             Number(raw.kg_used      ?? raw.kgUsed            ?? 0),
     productionDate:     raw.production_date     ?? raw.productionDate    ?? '',
     expiryDate:         raw.expiry_date         ?? raw.expiryDate        ?? '',
+    expiryStatus:       raw.expiry_status       ?? raw.expiryStatus      ?? 'OK',
     status:             raw.status              ?? 'AVAILABLE',
     createdAt:          raw.created_at          ?? raw.createdAt         ?? '',
   }
@@ -302,9 +310,9 @@ export const clientsApi = {
 // ─── Pracownicy ───────────────────────────────────────────────
 export const usersApi = {
   list:   () => get<User[]>('/workers'),
-  create: (dto: { name: string; role: string; pin?: string; ratePerKg?: number; contractType?: string; employerCostPct?: number }) =>
+  create: (dto: { name: string; role: string; pin?: string; ratePerKg?: number; contractType?: string; employerCostAmount?: number }) =>
     post<User>('/workers', toSnake(dto)),
-  update: (id: string, dto: { name?: string; role?: string; pin?: string; ratePerKg?: number; contractType?: string; employerCostPct?: number; active?: boolean }) =>
+  update: (id: string, dto: { name?: string; role?: string; pin?: string; ratePerKg?: number; contractType?: string; employerCostAmount?: number; active?: boolean }) =>
     put<User>(`/workers/${id}`, toSnake(dto)),
 }
 
@@ -1604,7 +1612,7 @@ export const recallApi = {
 // Re-eksportuj typy z mockApi (niezmienione)
 export type {
   PurchaseInvoice, CreatePurchaseInvoiceDto,
-  InvoiceCategory, INVOICE_CATEGORY_LABELS,
+  InvoiceCategory,
   Client, CreateClientDto,
   ClientOrder, CreateClientOrderDto,
   OrderLine,

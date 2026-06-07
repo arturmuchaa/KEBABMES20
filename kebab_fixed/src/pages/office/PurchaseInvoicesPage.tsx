@@ -95,7 +95,7 @@ function InvoiceForm({ initial, onSave, onClose }: {
   onClose: () => void
 }) {
   const { data: suppData }  = useApi(() => suppliersApi.list())
-  const { data: batchData } = useApi(() => (rawBatchesApi as any).all())
+  const { data: batchData } = useApi<{ data: any[] }>(() => (rawBatchesApi as any).all())
   const { data: ingData }   = useApi(() => ingredientsApi.list())
   const { data: pkgData }   = useApi(() => packagingApi.all())
 

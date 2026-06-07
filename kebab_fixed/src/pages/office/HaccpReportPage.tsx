@@ -196,7 +196,7 @@ function SingleReport({ data }: { data: ReportData }) {
 
 export function HaccpReportPage() {
   const { data: debData,   loading: debLoading  } = useApi(() => deboningApi.list())
-  const { data: batchData, loading: batchLoading } = useApi(() => (rawBatchesApi as any).all())
+  const { data: batchData, loading: batchLoading } = useApi<{ data: any[] }>(() => (rawBatchesApi as any).all())
   const { data: supplierData }                     = useApi(() => suppliersApi.list())
 
   const [dateFrom,       setDateFrom]       = useState('')

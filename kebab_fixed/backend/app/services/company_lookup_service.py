@@ -6,11 +6,10 @@ from urllib import error, request
 
 from fastapi import HTTPException
 
+from app.config import settings
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
-
-_DATAPORT_API_KEY = "bQnofjptVjNp8m2jL90lkSofEsluEoCJVORSAb5rzVTQ8ZrJodsECPrcQuUsEeTg"
 
 
 def _clean_nip(nip: str) -> str:
@@ -22,11 +21,15 @@ def _clean_nip(nip: str) -> str:
 
 def gus_lookup(nip: str) -> dict:
     clean = _clean_nip(nip)
+    api_key = (settings.dataport_api_key or "").strip()
+    if not api_key:
+        logger.error("gus.lookup.no_api_key")
+        raise HTTPException(503, "Lookup GUS niedostępny — brak konfiguracji DATAPORT_API_KEY")
     url = f"https://dataport.pl/api/v1/company/{clean}?format=full"
     req = request.Request(
         url,
         headers={
-            "X-API-Key": _DATAPORT_API_KEY,
+            "X-API-Key": api_key,
             "Accept": "application/json",
             "User-Agent": "Kebab-MES/3.0",
         },

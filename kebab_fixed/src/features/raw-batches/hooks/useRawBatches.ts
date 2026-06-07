@@ -18,7 +18,7 @@ import { todayIso }       from '@/lib/utils'
 import { rawBatchesApi }  from '../api'
 import type {
   RawBatch, CreateRawBatchDto, EditRawBatchDto, CancelRawBatchDto,
-  SupplierOption, ValidationResult, EditLockResult,
+  SupplierOption, ValidationResult, ValidationWarning, EditLockResult,
   RawBatchHistoryEntry,
 } from '../types'
 
@@ -82,7 +82,7 @@ export function useRawBatches() {
 // Komponenty nie decydują co jest błędem — hook decyduje.
 
 function validateCreate(f: CreateRawBatchDto): ValidationResult {
-  const warnings = []
+  const warnings: ValidationWarning[] = []
   const today = todayIso()
 
   // ERROR — blokuje zapis
@@ -208,7 +208,7 @@ export function useCreateRawBatch(
     const result = validateCreate(form)
     setValidationResult(result)
 
-    if (!result.ok) return result.error.message
+    if (!result.ok && 'error' in result) return result.error.message
 
     // Sprawdzenie duplikatów (osobne zapytanie)
     try {

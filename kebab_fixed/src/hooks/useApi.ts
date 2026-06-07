@@ -62,15 +62,15 @@ export function useApi<T>(fetcher: () => Promise<T>, deps: unknown[] = []) {
   return { data, loading, error, refetch: run }
 }
 
-export function useMutation<I, O>(fn: (i: I) => Promise<O>) {
+export function useMutation<I = void, O = unknown>(fn: (i: I) => Promise<O>) {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState<string | null>(null)
 
-  const mutate = useCallback(async (input: I): Promise<O> => {
+  const mutate = useCallback(async (input?: I): Promise<O> => {
     setLoading(true)
     setError(null)
     try {
-      return await fn(input)
+      return await fn(input as I)
     } catch (e) {
       const m = e instanceof Error ? e.message : 'Błąd'
       setError(m)

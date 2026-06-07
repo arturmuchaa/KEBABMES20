@@ -71,6 +71,10 @@ class Settings:
     vies_api_id: str = os.environ.get("VIES_API_ID", "")
     vies_api_key: str = os.environ.get("VIES_API_KEY", "")
 
+    # Klucz API dataport.pl (lookup GUS po NIP). Wymagany — ustaw w
+    # /opt/kebab/config/.env. Pusty = endpoint GUS zwróci 503.
+    dataport_api_key: str = os.environ.get("DATAPORT_API_KEY", "")
+
     # Adres, pod którym backend sam siebie widzi (do renderowania PDF przez
     # headless Chrome). Domyślnie wyprowadzony z BIND (np. 127.0.0.1:8010).
     self_base_url: str = os.environ.get(
