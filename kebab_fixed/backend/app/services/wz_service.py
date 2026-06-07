@@ -47,6 +47,16 @@ def build_wz_lines(items: List[Dict[str, Any]], valued: bool) -> Tuple[List[Dict
     return lines, round(total, 2)
 
 
+def is_foreign_nip(nip: Optional[str]) -> bool:
+    """Klient zagraniczny, gdy NIP zaczyna się od dwóch liter różnych od 'PL'
+    (np. DE, SK, AT). Czyste cyfry lub 'PL…' = krajowy. Puste = krajowy."""
+    s = (nip or "").strip().upper()
+    if len(s) < 2:
+        return False
+    prefix = s[:2]
+    return prefix.isalpha() and prefix != "PL"
+
+
 def should_reuse(existing: Optional[Dict], source_id: Optional[str]) -> bool:
     """WZ jest idempotentny per źródło: istniejący dokument dla danego
     (source_type, source_id) zwracamy ponownie. WZ ręczny (brak source_id)
