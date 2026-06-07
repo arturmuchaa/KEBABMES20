@@ -269,3 +269,18 @@ def list_wz() -> List[Dict[str, Any]]:
         "SELECT id, number, buyer_name, total_value, valued, status, issued_date, "
         "created_at FROM wz_documents ORDER BY created_at DESC"
     )
+
+
+def stock_finished_goods() -> List[Dict[str, Any]]:
+    return query_all(
+        """SELECT id, batch_no, recipe_name, product_type_name,
+                  qty_available, kg_per_unit
+           FROM finished_goods WHERE COALESCE(qty_available,0) > 0
+           ORDER BY produced_date DESC NULLS LAST, batch_no""")
+
+
+def stock_raw() -> List[Dict[str, Any]]:
+    return query_all(
+        """SELECT id, internal_batch_no, supplier_name, kg_available
+           FROM raw_batches WHERE COALESCE(kg_available,0) > 0
+           ORDER BY received_date DESC NULLS LAST, internal_batch_no""")

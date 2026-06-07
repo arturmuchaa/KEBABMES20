@@ -48,6 +48,35 @@ def pdf(wz_id: str):
     )
 
 
+@router.get("/stock/finished-goods")
+def stock_fg():
+    return svc.stock_finished_goods()
+
+
+@router.get("/stock/raw")
+def stock_raw():
+    return svc.stock_raw()
+
+
+@router.post("/manual")
+def manual(body: dict):
+    items = [
+        {"stock_type": it.get("stockType"), "stock_id": it.get("stockId"),
+         "name": it.get("name"), "unit": it.get("unit"), "qty": it.get("qty"),
+         "price": it.get("price"), "batch_no": it.get("batchNo")}
+        for it in (body.get("items") or [])
+    ]
+    return svc.create_manual_wz(
+        buyer=body.get("buyer") or {},
+        selections=items,
+        valued=bool(body.get("valued", True)),
+        place=body.get("place"),
+        issued_date=body.get("issuedDate"),
+        release_date=body.get("releaseDate"),
+        notes=body.get("notes", ""),
+    )
+
+
 @router.get("/{wz_id}")
 def get(wz_id: str):
     return svc.get_wz(wz_id)
