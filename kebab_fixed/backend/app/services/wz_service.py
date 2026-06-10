@@ -275,6 +275,46 @@ def create_manual_wz(
     return get_wz(wid)
 
 
+def apply_wz_prices(lines: List[Dict[str, Any]], prices: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], float]:
+    """Nałóż ceny [{index, price}] na kopię pozycji; przelicz value=qty*price
+    i sumę. Indeksy spoza zakresu pomijane. Nie mutuje wejścia."""
+    out = [dict(l) for l in (lines or [])]
+    for p in prices or []:
+        try:
+            i = int(p.get("index"))
+        except (TypeError, ValueError):
+            continue
+        if 0 <= i < len(out):
+            price = round(float(p.get("price") or 0), 2)
+            qty = float(out[i].get("qty") or 0)
+            out[i]["price"] = price
+            out[i]["value"] = round(qty * price, 2)
+    total = round(sum(float(l.get("value") or 0) for l in out), 2)
+    return out, total
+
+
+def update_wz_prices(wz_id: str, prices: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Uzupełnij ceny na WZ wstępnym: nadpisuje wskazane pozycje, valued=True,
+    przelicza total_value. WZ potwierdzony → 409."""
+    if not prices:
+        raise HTTPException(400, "Brak cen do uzupełnienia")
+    with transaction() as conn:
+        row = cx_query_one(conn, "SELECT id, status, lines FROM wz_documents WHERE id=%s FOR UPDATE", (wz_id,))
+        if not row:
+            raise HTTPException(404, "Dokument WZ nie istnieje")
+        if row.get("status") != "wstepny":
+            raise HTTPException(409, "Ceny można uzupełnić tylko na WZ wstępnym")
+        lines = row.get("lines")
+        if not isinstance(lines, list):
+            lines = json.loads(lines or "[]")
+        new_lines, total = apply_wz_prices(lines, prices)
+        cx_execute(conn,
+                   "UPDATE wz_documents SET lines=%s, total_value=%s, valued=TRUE WHERE id=%s",
+                   (json.dumps(new_lines), total, wz_id))
+    logger.info("wz.prices_updated", extra={"wz_id": wz_id, "total": total})
+    return get_wz(wz_id)
+
+
 def get_wz(wz_id: str) -> Dict[str, Any]:
     row = query_one("SELECT * FROM wz_documents WHERE id=%s", (wz_id,))
     if not row:
