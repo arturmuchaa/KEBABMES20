@@ -42,7 +42,11 @@ export function WzDocumentsPage() {
   }
   const setPrice = (i: number, v: number) =>
     setEditLines(ls => ls.map((l, j) => j === i ? { ...l, price: v } : l))
-  const editTotal = editLines.reduce((s, l) => s + l.qty * (l.price ?? 0), 0)
+  // Pozycje z wagą (total_kg) wyceniane za kg — jak w apply_wz_prices na backendzie
+  const editTotal = editLines.reduce((s, l) => {
+    const kg = Number(l.total_kg ?? 0)
+    return s + (kg > 0 ? kg : l.qty) * (l.price ?? 0)
+  }, 0)
 
   const savePrices = async () => {
     if (!editId) return
@@ -99,7 +103,9 @@ export function WzDocumentsPage() {
                     <TableCell className="py-2 px-3">{fmtDatePl(d.issued_date)}</TableCell>
                     <TableCell className="py-2 px-3 font-medium">{d.buyer_name}</TableCell>
                     <TableCell className="py-2 px-3 text-right font-mono">
-                      {d.valued ? `${(d.total_value ?? 0).toFixed(2)} zł` : <span className="text-muted-foreground">—</span>}
+                      {d.valued
+                        ? `${(d.total_value ?? 0).toFixed(2)} ${(d.currency || 'PLN').toUpperCase() === 'EUR' ? '€' : 'zł'}`
+                        : <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell className="py-2 px-3">
                       {d.valued
@@ -140,28 +146,33 @@ export function WzDocumentsPage() {
                           <Table className="text-[12px] bg-background rounded-md border">
                             <TableHeader>
                               <TableRow>
-                                {['Towar', 'Partia', 'Ilość', 'j.m.', 'Cena', 'Wartość'].map((h, i) => (
+                                {['Towar', 'Partia', 'Ilość', 'j.m.', 'Waga', 'Cena/kg', 'Wartość'].map((h, i) => (
                                   <TableHead key={i} className="text-[9px] uppercase tracking-wider h-7 px-2">{h}</TableHead>
                                 ))}
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {editLines.map((l, i) => (
-                                <TableRow key={i}>
-                                  <TableCell className="py-1.5 px-2 font-medium">{l.name}</TableCell>
-                                  <TableCell className="py-1.5 px-2 font-mono text-green-700">{l.batch_no || '—'}</TableCell>
-                                  <TableCell className="py-1.5 px-2 font-mono">{l.qty}</TableCell>
-                                  <TableCell className="py-1.5 px-2 text-muted-foreground">{l.unit}</TableCell>
-                                  <TableCell className="py-1.5 px-2">
-                                    <Input type="number" min={0} step="0.01" value={l.price ?? ''}
-                                           className="h-8 w-24 font-mono"
-                                           onChange={e => setPrice(i, Number(e.target.value))} />
-                                  </TableCell>
-                                  <TableCell className="py-1.5 px-2 text-right font-mono font-semibold">
-                                    {(l.qty * (l.price ?? 0)).toFixed(2)}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
+                              {editLines.map((l, i) => {
+                                const kg = Number(l.total_kg ?? 0)
+                                const base = kg > 0 ? kg : l.qty
+                                return (
+                                  <TableRow key={i}>
+                                    <TableCell className="py-1.5 px-2 font-medium">{l.name}</TableCell>
+                                    <TableCell className="py-1.5 px-2 font-mono text-green-700">{l.batch_no || '—'}</TableCell>
+                                    <TableCell className="py-1.5 px-2 font-mono">{l.qty}</TableCell>
+                                    <TableCell className="py-1.5 px-2 text-muted-foreground">{l.unit}</TableCell>
+                                    <TableCell className="py-1.5 px-2 font-mono">{kg > 0 ? `${kg} kg` : '—'}</TableCell>
+                                    <TableCell className="py-1.5 px-2">
+                                      <Input type="number" min={0} step="0.01" value={l.price ?? ''}
+                                             className="h-8 w-24 font-mono"
+                                             onChange={e => setPrice(i, Number(e.target.value))} />
+                                    </TableCell>
+                                    <TableCell className="py-1.5 px-2 text-right font-mono font-semibold">
+                                      {(base * (l.price ?? 0)).toFixed(2)}
+                                    </TableCell>
+                                  </TableRow>
+                                )
+                              })}
                             </TableBody>
                           </Table>
                           <div className="flex items-center justify-between mt-3">

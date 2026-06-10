@@ -337,6 +337,9 @@ _DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_wz_source ON wz_documents(source_type, source_id)",
     "CREATE INDEX IF NOT EXISTS idx_wz_number ON wz_documents(number)",
     "CREATE INDEX IF NOT EXISTS idx_wz_ym ON wz_documents(year_month)",
+    # ── WZ: waluta dokumentu + kurs EUR/PLN (NBP) z dnia wystawienia ──
+    "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'PLN'",
+    "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS eur_rate NUMERIC(10,4)",
 
     # ── HDI fundament: język + miejsce przeznaczenia klienta ──
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS language TEXT DEFAULT ''",

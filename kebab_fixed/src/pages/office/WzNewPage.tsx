@@ -19,18 +19,26 @@ import {
 } from '@/components/ui/dialog'
 import {
   ArrowLeft, Plus, Trash2, Search, Eye, Printer, FileText,
-  FileCheck2, CheckCircle2, Package, Beef, AlertTriangle,
+  FileCheck2, CheckCircle2, Package, Beef, AlertTriangle, RefreshCw,
 } from 'lucide-react'
 
 type Row = {
   stockType: 'fg' | 'raw'; stockId: string; name: string; unit: string
   qty: number; price: number; batchNo?: string; available: number
+  kgPerUnit?: number   // FG: waga 1 szt — wycena za kg
 }
 
 const isForeignNip = (nip: string) => {
   const s = (nip || '').trim().toUpperCase()
   return s.length >= 2 && /^[A-Z]{2}/.test(s) && s.slice(0, 2) !== 'PL'
 }
+
+const fmtKg3 = (n: number) => Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/\.?0+$/, '')
+
+/** Waga pozycji w kg: FG = szt × kg/szt, surowiec = qty (jednostka kg). */
+const rowKg = (r: Row) => r.kgPerUnit ? r.qty * r.kgPerUnit : (r.unit === 'kg' ? r.qty : 0)
+/** Wartość pozycji: cena ZA KG gdy znamy wagę, inaczej za jednostkę. */
+const rowValue = (r: Row) => (rowKg(r) > 0 ? rowKg(r) : r.qty) * r.price
 
 export function WzNewPage() {
   const nav = useNavigate()
@@ -39,12 +47,18 @@ export function WzNewPage() {
   const [raw, setRaw] = useState<any[]>([])
   const [seller, setSeller] = useState<{ name?: string; address?: string; nip?: string }>({})
 
+  const [clientId, setClientId] = useState('')
+  const [stockView, setStockView] = useState<'client' | 'all'>('all')
   const [buyer, setBuyer] = useState({ name: '', address: '', nip: '' })
   const [rows, setRows]   = useState<Row[]>([])
   const [tab, setTab]     = useState<'fg' | 'raw'>('fg')
   const [query, setQuery] = useState('')
 
   const [valued, setValued]           = useState(true)
+  const [currency, setCurrency]       = useState<'PLN' | 'EUR'>('PLN')
+  const [eurRate, setEurRate]         = useState<number | ''>('')
+  const [eurRateDate, setEurRateDate] = useState('')
+  const [rateLoading, setRateLoading] = useState(false)
   const [issuedDate, setIssuedDate]   = useState(todayIso())
   const [releaseDate, setReleaseDate] = useState(todayIso())
   const [place, setPlace]             = useState('')
@@ -69,11 +83,31 @@ export function WzNewPage() {
     }).catch(() => {})
   }, [])
 
+  const fetchNbpRate = () => {
+    setRateLoading(true)
+    fetch('https://api.nbp.pl/api/exchangerates/rates/a/eur/?format=json')
+      .then(r => r.json())
+      .then(d => {
+        const rate = d?.rates?.[0]
+        if (rate?.mid) { setEurRate(Number(rate.mid)); setEurRateDate(rate.effectiveDate || '') }
+      })
+      .catch(() => { /* brak internetu/NBP — kurs można wpisać ręcznie */ })
+      .finally(() => setRateLoading(false))
+  }
+  useEffect(() => { if (currency === 'EUR' && eurRate === '') fetchNbpRate() }, [currency])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selectedClient = useMemo(() => clients.find(c => c.id === clientId), [clients, clientId])
+  const clientName = (selectedClient?.name || selectedClient?.displayName || '').trim()
+
   const foreign = useMemo(() => isForeignNip(buyer.nip), [buyer.nip])
-  const total = rows.reduce((s, r) => s + r.qty * r.price, 0)
+  const totalValue = rows.reduce((s, r) => s + rowValue(r), 0)
+  const totalKg = rows.reduce((s, r) => s + rowKg(r), 0)
   const overdrawn = rows.filter(r => r.qty > r.available)
+  const sym = currency === 'EUR' ? '€' : 'zł'
 
   const pickClient = (id: string) => {
+    setClientId(id)
+    setStockView('client')
     const c = clients.find(x => x.id === id)
     if (c) setBuyer({
       name: c.name || c.displayName || '',
@@ -82,22 +116,38 @@ export function WzNewPage() {
     })
   }
 
+  const fgName = (g: any) => {
+    const base = g.recipe_name || g.product_type_name || 'Wyrób'
+    const kg = Number(g.kg_per_unit || 0)
+    return kg > 0 ? `${base} ${fmtKg3(kg)}kg` : base
+  }
+
   const addedIds = useMemo(() => new Set(rows.map(r => r.stockId)), [rows])
   const addFg = (g: any) => setRows(r => [...r, {
-    stockType: 'fg', stockId: g.id, name: g.recipe_name || g.product_type_name || 'Wyrób',
-    unit: 'szt', qty: 1, price: 0, batchNo: g.batch_no, available: Number(g.qty_available || 0),
+    stockType: 'fg', stockId: g.id, name: fgName(g),
+    unit: 'szt', qty: 1, price: 0, batchNo: g.batch_no,
+    available: Number(g.qty_available || 0),
+    kgPerUnit: Number(g.kg_per_unit || 0) || undefined,
   }])
   const addRaw = (b: any) => setRows(r => [...r, {
     stockType: 'raw', stockId: b.id, name: `Surowiec ${b.internal_batch_no}`,
-    unit: 'kg', qty: 1, price: 0, batchNo: b.internal_batch_no, available: Number(b.kg_available || 0),
+    unit: 'kg', qty: 1, price: 0, batchNo: b.internal_batch_no,
+    available: Number(b.kg_available || 0),
   }])
   const upd = (i: number, k: 'qty' | 'price', v: number) =>
     setRows(r => r.map((x, j) => j === i ? { ...x, [k]: v } : x))
   const del = (i: number) => setRows(r => r.filter((_, j) => j !== i))
 
   const q = query.trim().toLowerCase()
+  const matchesClient = (g: any) =>
+    stockView === 'all' || !clientName ||
+    (g.client_name || '').trim().toLowerCase() === clientName.toLowerCase()
   const fgFiltered = fg.filter(g =>
-    !q || `${g.recipe_name || ''} ${g.product_type_name || ''} ${g.batch_no || ''}`.toLowerCase().includes(q))
+    matchesClient(g) &&
+    (!q || `${g.recipe_name || ''} ${g.product_type_name || ''} ${g.batch_no || ''}`.toLowerCase().includes(q)))
+  const fgClientCount = clientName
+    ? fg.filter(g => (g.client_name || '').trim().toLowerCase() === clientName.toLowerCase()).length
+    : 0
   const rawFiltered = raw.filter(b =>
     !q || `${b.internal_batch_no || ''} ${b.supplier_name || ''}`.toLowerCase().includes(q))
 
@@ -107,11 +157,15 @@ export function WzNewPage() {
     seller,
     buyer_name: buyer.name, buyer_address: buyer.address, buyer_nip: buyer.nip,
     valued,
+    currency,
+    eur_rate: currency === 'EUR' && eurRate !== '' ? Number(eurRate) : null,
     lines: rows.map(r => ({
       name: r.name, qty: r.qty, unit: r.unit, batch_no: r.batchNo ?? null,
-      price: valued ? r.price : null, value: valued ? r.qty * r.price : null,
+      kg_per_unit: r.kgPerUnit ?? null,
+      total_kg: r.kgPerUnit ? Math.round(r.qty * r.kgPerUnit * 1000) / 1000 : null,
+      price: valued ? r.price : null, value: valued ? Math.round(rowValue(r) * 100) / 100 : null,
     })),
-    total_value: valued ? total : undefined,
+    total_value: valued ? Math.round(totalValue * 100) / 100 : undefined,
   }
 
   const validate = (): string => {
@@ -119,6 +173,8 @@ export function WzNewPage() {
     if (!rows.length)       return 'Dodaj co najmniej jedną pozycję z magazynu'
     if (rows.some(r => r.qty <= 0)) return 'Ilość każdej pozycji musi być większa od zera'
     if (overdrawn.length)   return `Ilość przekracza stan magazynowy: ${overdrawn.map(r => r.name).join(', ')}`
+    if (valued && currency === 'EUR' && !(Number(eurRate) > 0))
+      return 'Brak kursu EUR — pobierz z NBP lub wpisz ręcznie'
     return ''
   }
 
@@ -128,7 +184,14 @@ export function WzNewPage() {
     setErr(''); setSaving(true)
     try {
       const doc = await wzApi.createManual({
-        buyer, items: rows, valued,
+        buyer,
+        items: rows.map(r => ({
+          stockType: r.stockType, stockId: r.stockId, name: r.name, unit: r.unit,
+          qty: r.qty, price: r.price, batchNo: r.batchNo, kgPerUnit: r.kgPerUnit,
+        })),
+        valued,
+        currency,
+        eurRate: currency === 'EUR' && eurRate !== '' ? Number(eurRate) : null,
         place: place || undefined,
         issuedDate: issuedDate || undefined,
         releaseDate: releaseDate || undefined,
@@ -143,6 +206,7 @@ export function WzNewPage() {
   const resetForm = () => {
     setSavedDoc(null); setRows([]); setErr(''); setNotes('')
     setBuyer({ name: '', address: '', nip: '' })
+    setClientId(''); setStockView('all')
     setIssuedDate(todayIso()); setReleaseDate(todayIso())
     wzApi.stockFg().then(setFg)
     wzApi.stockRaw().then(setRaw)
@@ -160,7 +224,9 @@ export function WzNewPage() {
               <div className="font-mono font-bold text-primary text-xl mt-1">{savedDoc.number}</div>
               <div className="text-sm text-muted-foreground mt-1">
                 {savedDoc.buyer_name} · {rows.length} poz.
-                {savedDoc.valued ? ` · ${(savedDoc.total_value ?? 0).toFixed(2)} zł` : ' · bez cen'}
+                {savedDoc.valued
+                  ? ` · ${(savedDoc.total_value ?? 0).toFixed(2)} ${(savedDoc.currency || 'PLN') === 'EUR' ? '€' : 'zł'}`
+                  : ' · bez cen'}
               </div>
             </div>
             <div className="flex flex-wrap justify-center gap-2 mt-3">
@@ -224,7 +290,7 @@ export function WzNewPage() {
             <CardContent className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-1.5 md:col-span-2">
                 <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Klient z bazy</Label>
-                <Select onValueChange={pickClient}>
+                <Select value={clientId} onValueChange={pickClient}>
                   <SelectTrigger className="h-9"><SelectValue placeholder="Wybierz klienta..." /></SelectTrigger>
                   <SelectContent>
                     {clients.map(c => (
@@ -252,8 +318,20 @@ export function WzNewPage() {
           </Card>
 
           <Card>
-            <div className="px-4 py-2.5 border-b flex items-center gap-3">
+            <div className="px-4 py-2.5 border-b flex items-center gap-3 flex-wrap">
               <span className="text-[13px] font-semibold">Pozycje z magazynu</span>
+              {clientName && tab === 'fg' && (
+                <div className="flex rounded-md border overflow-hidden">
+                  {([['client', `${clientName} (${fgClientCount})`], ['all', 'Wszystkie']] as const).map(([key, label]) => (
+                    <button key={key}
+                            className={cn('px-2.5 h-7 text-[11px] font-semibold transition-colors',
+                              stockView === key ? 'bg-green-600 text-white' : 'bg-background text-muted-foreground hover:bg-muted')}
+                            onClick={() => setStockView(key)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="flex rounded-md border overflow-hidden ml-auto">
                 {([['fg', 'Wyroby gotowe', Package], ['raw', 'Surowce', Beef]] as const).map(([key, label, Icon]) => (
                   <button key={key}
@@ -278,10 +356,17 @@ export function WzNewPage() {
                   return (
                     <div key={g.id} className="px-3 py-2 flex items-center gap-3 hover:bg-muted/50">
                       <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-medium truncate">{g.recipe_name || g.product_type_name || 'Wyrób'}</div>
+                        <div className="text-[13px] font-medium truncate">
+                          {fgName(g)}
+                          {g.client_name && (
+                            <span className="ml-2 text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1 py-px">
+                              {g.client_name}
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
                           <span className="font-mono text-green-700 bg-green-50 border border-green-200 rounded px-1">{g.batch_no}</span>
-                          <span>{g.qty_available} szt dostępne</span>
+                          <span>{g.qty_available} szt · {fmtKg3(Number(g.qty_available || 0) * Number(g.kg_per_unit || 0))} kg dostępne</span>
                         </div>
                       </div>
                       <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1 shrink-0"
@@ -311,7 +396,10 @@ export function WzNewPage() {
                 })}
                 {((tab === 'fg' && !fgFiltered.length) || (tab === 'raw' && !rawFiltered.length)) && (
                   <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">
-                    {q ? 'Brak wyników wyszukiwania' : 'Brak dostępnego stanu magazynowego'}
+                    {q ? 'Brak wyników wyszukiwania'
+                      : tab === 'fg' && stockView === 'client'
+                        ? `Brak wyrobów przypisanych do klienta ${clientName} — przełącz na „Wszystkie"`
+                        : 'Brak dostępnego stanu magazynowego'}
                   </div>
                 )}
               </div>
@@ -320,7 +408,7 @@ export function WzNewPage() {
                 <Table className="text-[12px]">
                   <TableHeader>
                     <TableRow>
-                      {['Towar', 'Partia', 'Ilość', 'j.m.', ...(valued ? ['Cena', 'Wartość'] : []), ''].map((h, i) => (
+                      {['Towar', 'Partia', 'Ilość', 'Waga', ...(valued ? [`Cena/kg [${sym}]`, `Wartość [${sym}]`] : []), ''].map((h, i) => (
                         <TableHead key={i} className="text-[9px] uppercase tracking-wider h-7 px-2">{h}</TableHead>
                       ))}
                     </TableRow>
@@ -337,6 +425,7 @@ export function WzNewPage() {
                               <Input type="number" min={0} max={r.available} value={r.qty}
                                      className={cn('h-8 w-20 font-mono', over && 'border-red-400 focus-visible:ring-red-400')}
                                      onChange={e => upd(i, 'qty', Number(e.target.value))} />
+                              <span className="text-[11px] text-muted-foreground">{r.unit}</span>
                               {over && (
                                 <span title={`Dostępne tylko ${r.available} ${r.unit}`}>
                                   <AlertTriangle size={14} className="text-red-600" />
@@ -347,7 +436,10 @@ export function WzNewPage() {
                               dostępne {r.available} {r.unit}
                             </div>
                           </TableCell>
-                          <TableCell className="py-1.5 px-2 text-muted-foreground">{r.unit}</TableCell>
+                          <TableCell className="py-1.5 px-2 font-mono font-semibold whitespace-nowrap">
+                            {rowKg(r) > 0 ? `${fmtKg3(rowKg(r))} kg` : '—'}
+                            {r.kgPerUnit ? <div className="text-[10px] font-normal text-muted-foreground">{fmtKg3(r.kgPerUnit)} kg/szt</div> : null}
+                          </TableCell>
                           {valued && (
                             <TableCell className="py-1.5 px-2">
                               <Input type="number" min={0} step="0.01" value={r.price}
@@ -356,8 +448,8 @@ export function WzNewPage() {
                             </TableCell>
                           )}
                           {valued && (
-                            <TableCell className="py-1.5 px-2 text-right font-mono font-semibold">
-                              {(r.qty * r.price).toFixed(2)}
+                            <TableCell className="py-1.5 px-2 text-right font-mono font-semibold whitespace-nowrap">
+                              {rowValue(r).toFixed(2)} {sym}
                             </TableCell>
                           )}
                           <TableCell className="py-1.5 px-2 w-9">
@@ -401,6 +493,42 @@ export function WzNewPage() {
                   </div>
                 )}
               </div>
+              {valued && (
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Waluta</Label>
+                  <div className="grid grid-cols-2 rounded-md border overflow-hidden">
+                    {(['PLN', 'EUR'] as const).map(c => (
+                      <button key={c}
+                              className={cn('h-8 text-[11px] font-semibold transition-colors',
+                                currency === c ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:bg-muted')}
+                              onClick={() => setCurrency(c)}>
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                  {currency === 'EUR' && (
+                    <div className="flex items-center gap-1.5">
+                      <Input type="number" min={0} step="0.0001" value={eurRate}
+                             placeholder="kurs EUR"
+                             className="h-8 font-mono text-[12px]"
+                             onChange={e => setEurRate(e.target.value === '' ? '' : Number(e.target.value))} />
+                      <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" title="Pobierz kurs z NBP"
+                              disabled={rateLoading} onClick={fetchNbpRate}>
+                        <RefreshCw size={13} className={rateLoading ? 'animate-spin' : ''} />
+                      </Button>
+                    </div>
+                  )}
+                  {currency === 'EUR' && (
+                    <div className="text-[10px] text-muted-foreground">
+                      {eurRate !== '' && eurRateDate
+                        ? <>Kurs średni NBP (tab. A) z {eurRateDate}</>
+                        : eurRate !== ''
+                          ? 'Kurs wpisany ręcznie'
+                          : rateLoading ? 'Pobieranie kursu z NBP…' : 'Pobierz kurs z NBP lub wpisz ręcznie'}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1.5">
                   <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Data wystawienia</Label>
@@ -431,10 +559,19 @@ export function WzNewPage() {
                 <span className="text-muted-foreground">Pozycje</span>
                 <span className="font-semibold">{rows.length}</span>
               </div>
+              <div className="flex justify-between text-[12px]">
+                <span className="text-muted-foreground">Razem waga</span>
+                <span className="font-mono font-semibold">{fmtKg3(totalKg)} kg</span>
+              </div>
               {valued && (
                 <div className="flex justify-between items-baseline border-t pt-2">
                   <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Razem</span>
-                  <span className="font-mono font-bold text-xl">{total.toFixed(2)} <span className="text-[12px] font-medium text-muted-foreground">zł</span></span>
+                  <span className="font-mono font-bold text-xl">{totalValue.toFixed(2)} <span className="text-[12px] font-medium text-muted-foreground">{sym}</span></span>
+                </div>
+              )}
+              {valued && currency === 'EUR' && Number(eurRate) > 0 && totalValue > 0 && (
+                <div className="text-right text-[11px] text-muted-foreground -mt-2">
+                  ≈ {(totalValue * Number(eurRate)).toFixed(2)} zł (kurs {Number(eurRate).toFixed(4)})
                 </div>
               )}
               {err && (

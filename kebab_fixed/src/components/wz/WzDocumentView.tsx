@@ -15,16 +15,38 @@ export type WzDocData = {
   valued: boolean
   lines: WzLine[]
   total_value?: number
+  currency?: string
+  eur_rate?: number | null
 }
 
 export function asWzDocData(doc: WzDoc): WzDocData { return doc }
 
 const fmt = (n: number | null | undefined) => (n ?? 0).toFixed(2)
+const fmtKg3 = (n: number | null | undefined) => {
+  const v = Number(n ?? 0)
+  return Number.isInteger(v) ? String(v) : v.toFixed(3).replace(/\.?0+$/, '')
+}
+const curSymbol = (c?: string) => (c || 'PLN').toUpperCase() === 'EUR' ? '€' : 'zł'
+
+const lineValue = (l: WzLine) => {
+  if (l.value != null) return l.value
+  const base = (l.total_kg ?? 0) > 0 ? Number(l.total_kg) : l.qty
+  return base * (l.price ?? 0)
+}
 
 /** Arkusz dokumentu WZ — wspólny dla podglądu (modal), strony wydruku i PDF.
- *  Klasyczny układ dokumentu magazynowego: nagłówek, strony, tabela, podpisy. */
+ *  Klasyczny układ dokumentu magazynowego: nagłówek, strony, tabela, podpisy.
+ *  Pozycje z wagą (total_kg) mają kolumnę "Waga" i cenę ZA KG. */
 export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean }) {
-  const head = ['Lp', 'Nazwa towaru', 'Partia', 'Ilość', 'j.m.', ...(doc.valued ? ['Cena jedn.', 'Wartość'] : [])]
+  const hasKg = doc.lines.some(l => (l.total_kg ?? 0) > 0)
+  const sym = curSymbol(doc.currency)
+  const isEur = (doc.currency || 'PLN').toUpperCase() === 'EUR'
+  const totalKg = doc.lines.reduce((s, l) => s + Number(l.total_kg ?? 0), 0)
+  const head = [
+    'Lp', 'Nazwa towaru', 'Partia', 'Ilość', 'j.m.',
+    ...(hasKg ? ['Waga'] : []),
+    ...(doc.valued ? [hasKg ? `Cena/kg [${sym}]` : `Cena jedn. [${sym}]`, `Wartość [${sym}]`] : []),
+  ]
   const cols = head.length
   return (
     <div className="wz bg-white text-[#111] mx-auto" style={{ width: 794, padding: 40, fontSize: 13 }}>
@@ -79,27 +101,43 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
               <td className="border border-[#9a9a9a] px-2 py-1.5 font-mono text-[12px]">{l.batch_no || '—'}</td>
               <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">{l.qty}</td>
               <td className="border border-[#9a9a9a] px-2 py-1.5 w-12">{l.unit}</td>
+              {hasKg && (
+                <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">
+                  {(l.total_kg ?? 0) > 0 ? `${fmtKg3(l.total_kg)} kg` : '—'}
+                </td>
+              )}
               {doc.valued && <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">{fmt(l.price)}</td>}
-              {doc.valued && <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">{fmt(l.value ?? l.qty * (l.price ?? 0))}</td>}
+              {doc.valued && <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">{fmt(lineValue(l))}</td>}
             </tr>
           ))}
           {!doc.lines.length && (
             <tr><td colSpan={cols} className="border border-[#9a9a9a] px-2 py-4 text-center text-[#888]">Brak pozycji</td></tr>
           )}
         </tbody>
-        {doc.valued && doc.lines.length > 0 && (
+        {doc.lines.length > 0 && (hasKg || doc.valued) && (
           <tfoot>
             <tr>
-              <td colSpan={cols - 1} className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold">Razem</td>
-              <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold font-mono">
-                {fmt(doc.total_value ?? doc.lines.reduce((s, l) => s + l.qty * (l.price ?? 0), 0))}
-              </td>
+              <td colSpan={5} className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold">Razem</td>
+              {hasKg && (
+                <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold font-mono">{fmtKg3(totalKg)} kg</td>
+              )}
+              {doc.valued && <td className="border border-[#9a9a9a] px-2 py-1.5" />}
+              {doc.valued && (
+                <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold font-mono">
+                  {fmt(doc.total_value ?? doc.lines.reduce((s, l) => s + lineValue(l), 0))} {sym}
+                </td>
+              )}
             </tr>
           </tfoot>
         )}
       </table>
 
-      <div className="mt-6 text-[12px]">Data wydania: <b>{fmtDatePl(doc.release_date)}</b></div>
+      <div className="mt-3 flex justify-between text-[12px]">
+        <div>Data wydania: <b>{fmtDatePl(doc.release_date)}</b></div>
+        {isEur && doc.eur_rate ? (
+          <div className="text-[#444]">Kurs EUR/PLN (NBP, tab. A): <b className="font-mono">{Number(doc.eur_rate).toFixed(4)}</b></div>
+        ) : null}
+      </div>
 
       {/* Podpisy */}
       <div className="flex justify-between mt-16">

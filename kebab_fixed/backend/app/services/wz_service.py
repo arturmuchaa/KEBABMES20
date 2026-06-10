@@ -33,11 +33,17 @@ def format_wz_number(seq: int, year_month: str) -> str:
 
 
 def build_wz_lines(items: List[Dict[str, Any]], valued: bool) -> Tuple[List[Dict[str, Any]], float]:
-    """Zbuduj pozycje WZ. valued=True → cena + wartość (qty*price)."""
+    """Zbuduj pozycje WZ. valued=True → cena + wartość.
+
+    Pozycje z kg_per_unit (wyroby gotowe) są wyceniane ZA KG:
+    total_kg = qty * kg_per_unit, value = total_kg * price.
+    Pozycje bez kg_per_unit liczą się po staremu: value = qty * price.
+    """
     lines: List[Dict[str, Any]] = []
     total = 0.0
     for it in items or []:
         qty = float(it.get("qty") or 0)
+        kg_per_unit = float(it.get("kg_per_unit") or 0)
         line: Dict[str, Any] = {
             "name": it.get("name") or "",
             "qty": round(qty, 3),
@@ -46,9 +52,13 @@ def build_wz_lines(items: List[Dict[str, Any]], valued: bool) -> Tuple[List[Dict
             "price": None,
             "value": None,
         }
+        if kg_per_unit > 0:
+            line["kg_per_unit"] = round(kg_per_unit, 3)
+            line["total_kg"] = round(qty * kg_per_unit, 3)
         if valued:
             price = float(it.get("price") or 0)
-            value = round(qty * price, 2)
+            base = line.get("total_kg") if kg_per_unit > 0 else qty
+            value = round(float(base) * price, 2)
             line["price"] = round(price, 2)
             line["value"] = value
             total += value
@@ -61,7 +71,8 @@ def build_manual_wz_lines(selections: List[Dict[str, Any]], valued: bool) -> Tup
     ślad magazynowy (stock_type/stock_id) do każdej pozycji."""
     items = [
         {"name": s.get("name"), "qty": s.get("qty"), "unit": s.get("unit"),
-         "price": s.get("price"), "batch_no": s.get("batch_no")}
+         "price": s.get("price"), "batch_no": s.get("batch_no"),
+         "kg_per_unit": s.get("kg_per_unit")}
         for s in (selections or [])
     ]
     lines, total = build_wz_lines(items, valued)
@@ -118,7 +129,8 @@ def _seller_block() -> Dict[str, Any]:
 
 
 def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
-               total, place, issued, released, notes) -> str:
+               total, place, issued, released, notes,
+               currency: str = "PLN", eur_rate: Optional[float] = None) -> str:
     """Wstaw dokument WZ w trwającej transakcji, nadaj numer WZ/NN/MM/RR. Zwraca id."""
     today = date.today()
     ym = today.strftime("%y%m")  # RRMM
@@ -132,12 +144,14 @@ def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
         """INSERT INTO wz_documents
            (id, number, seq, year_month, source_type, source_id, seller,
             buyer_name, buyer_address, buyer_nip, valued, lines, total_value,
-            place, issued_date, release_date, status, notes, created_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s)
+            place, issued_date, release_date, status, notes, currency, eur_rate,
+            created_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s,%s,%s)
            RETURNING id""",
         (wid, number, seq, ym, source_type, source_id, json.dumps(seller),
          buyer.get("name"), buyer.get("address"), buyer.get("nip"), valued,
-         json.dumps(lines), total, place, issued, released, notes, now_iso()),
+         json.dumps(lines), total, place, issued, released, notes,
+         (currency or "PLN").upper(), eur_rate, now_iso()),
     )
     logger.info("wz.generated", extra={"wz_id": wid, "number": number})
     return wid
@@ -203,9 +217,14 @@ def create_manual_wz(
     issued_date: Optional[str] = None,
     release_date: Optional[str] = None,
     notes: str = "",
+    currency: str = "PLN",
+    eur_rate: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Ręczny WZ ze sprzedaży z magazynu. Atomowo: dokument WZ + rozchód
-    (FG: szt, surowiec: kg). Brak stanu → 400 + rollback całości."""
+    (FG: szt, surowiec: kg). Brak stanu → 400 + rollback całości.
+
+    currency: 'PLN' lub 'EUR'; przy EUR eur_rate = kurs średni NBP użyty
+    do wyceny (zapisywany na dokumencie dla rozliczeń)."""
     if not selections:
         raise HTTPException(400, "WZ wymaga co najmniej jednej pozycji")
 
@@ -221,7 +240,8 @@ def create_manual_wz(
         wid = _insert_wz(
             conn, source_type="manual", source_id=None, seller=seller,
             buyer=buyer, valued=valued, lines=lines, total=total, place=place_val,
-            issued=issued, released=released, notes=notes)
+            issued=issued, released=released, notes=notes,
+            currency=currency, eur_rate=eur_rate)
 
         for sel in selections:
             stype = sel.get("stock_type")
@@ -277,8 +297,10 @@ def create_manual_wz(
 
 
 def apply_wz_prices(lines: List[Dict[str, Any]], prices: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], float]:
-    """Nałóż ceny [{index, price}] na kopię pozycji; przelicz value=qty*price
-    i sumę. Indeksy spoza zakresu pomijane. Nie mutuje wejścia."""
+    """Nałóż ceny [{index, price}] na kopię pozycji; przelicz wartość i sumę.
+    Pozycje z total_kg wyceniane za kg (value=total_kg*price), pozostałe
+    za jednostkę (value=qty*price). Indeksy spoza zakresu pomijane.
+    Nie mutuje wejścia."""
     out = [dict(l) for l in (lines or [])]
     for p in prices or []:
         try:
@@ -287,9 +309,10 @@ def apply_wz_prices(lines: List[Dict[str, Any]], prices: List[Dict[str, Any]]) -
             continue
         if 0 <= i < len(out):
             price = round(float(p.get("price") or 0), 2)
-            qty = float(out[i].get("qty") or 0)
+            total_kg = float(out[i].get("total_kg") or 0)
+            base = total_kg if total_kg > 0 else float(out[i].get("qty") or 0)
             out[i]["price"] = price
-            out[i]["value"] = round(qty * price, 2)
+            out[i]["value"] = round(base * price, 2)
     total = round(sum(float(l.get("value") or 0) for l in out), 2)
     return out, total
 
@@ -464,7 +487,7 @@ def list_wz() -> List[Dict[str, Any]]:
 def stock_finished_goods() -> List[Dict[str, Any]]:
     return query_all(
         """SELECT id, batch_no, recipe_name, product_type_name,
-                  qty_available, kg_per_unit
+                  qty_available, kg_per_unit, client_name, client_order_no
            FROM finished_goods WHERE COALESCE(qty_available,0) > 0
            ORDER BY produced_date DESC NULLS LAST, batch_no""")
 

@@ -1070,13 +1070,20 @@ export const hdiApi = {
 }
 
 // ─── WZ (Wydanie Zewnętrzne) ────────────────────────────────────
-export interface WzLine { name: string; qty: number; unit: string; price: number | null; value: number | null; batch_no?: string | null }
+export interface WzLine {
+  name: string; qty: number; unit: string; price: number | null; value: number | null
+  batch_no?: string | null
+  kg_per_unit?: number | null   // waga 1 szt — pozycje FG wyceniane za kg
+  total_kg?: number | null      // qty * kg_per_unit
+}
 export interface WzDoc {
   id: string; number: string; sourceType?: string; sourceId?: string
   seller?: { name?: string; address?: string; nip?: string; email?: string }
   buyer_name?: string; buyer_address?: string; buyer_nip?: string
   valued: boolean; lines: WzLine[]; total_value: number
   place?: string; issued_date?: string; release_date?: string; status: string
+  currency?: string             // 'PLN' | 'EUR'
+  eur_rate?: number | null      // kurs średni NBP użyty przy EUR
 }
 
 export const wzApi = {
@@ -1092,8 +1099,9 @@ export const wzApi = {
   stockRaw: () => get<any[]>('/wz/stock/raw'),
   createManual: (body: {
     buyer: { name: string; address?: string; nip?: string };
-    items: { stockType: 'fg' | 'raw'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string }[];
+    items: { stockType: 'fg' | 'raw'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string; kgPerUnit?: number }[];
     valued?: boolean; place?: string; issuedDate?: string; releaseDate?: string; notes?: string;
+    currency?: string; eurRate?: number | null;
   }) => post<WzDoc>('/wz/manual', body),
   updatePrices: (id: string, prices: { index: number; price: number }[]) =>
     patch<WzDoc>(`/wz/${encodeURIComponent(id)}/prices`, { prices }),
