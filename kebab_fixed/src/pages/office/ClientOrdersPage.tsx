@@ -4,7 +4,7 @@
 import { Fragment, useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, clientsApi, packagingApi } from '@/lib/apiClient'
-import { hdiApi } from '@/lib/api'
+import { hdiApi, wzApi } from '@/lib/api'
 import { CmrFormModal } from '@/components/cmr/CmrFormModal'
 import { useClientNames } from '@/lib/clientNames'
 import { fmtKg, fmtDatePl, todayIso, cn } from '@/lib/utils'
@@ -525,6 +525,27 @@ export function ClientOrdersPage() {
                               title="Generuj HDI"
                             >
                               HDI
+                            </button>
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                try {
+                                  const r = await wzApi.fromOrder(o.id)
+                                  if (r.incomplete) {
+                                    alert(`Uwaga: zamówienie zrealizowane częściowo — może brakować sztuk.\n` +
+                                          `WZ ${r.number} wystawiono na stan faktyczny produkcji.`)
+                                  }
+                                  const url = `/office/wz/${r.id}/druk`
+                                  const win = window.open(url, '_blank')
+                                  if (!win || win.closed || typeof win.closed === 'undefined') window.location.href = url
+                                } catch (err) {
+                                  alert(err instanceof Error ? err.message : 'Błąd wystawiania WZ')
+                                }
+                              }}
+                              className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-amber-700 hover:bg-amber-50"
+                              title="Wystaw WZ (rozchód ze stanu)"
+                            >
+                              WZ
                             </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); setCmrOrderId(o.id) }}

@@ -1095,6 +1095,10 @@ export const wzApi = {
     items: { stockType: 'fg' | 'raw'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string }[];
     valued?: boolean; place?: string; issuedDate?: string; releaseDate?: string; notes?: string;
   }) => post<WzDoc>('/wz/manual', body),
+  updatePrices: (id: string, prices: { index: number; price: number }[]) =>
+    patch<WzDoc>(`/wz/${encodeURIComponent(id)}/prices`, { prices }),
+  fromOrder: (orderId: string) =>
+    post<WzDoc & { incomplete?: boolean }>('/wz/from-order', { orderId }),
   pdfUrl: (id: string) => `${BASE}/wz/${encodeURIComponent(id)}/pdf`,
 }
 
