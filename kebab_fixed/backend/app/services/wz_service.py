@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from app.db import (
     cx_execute,
     cx_execute_returning,
+    cx_query_all,
     cx_query_one,
     query_all,
     query_one,
@@ -313,6 +314,135 @@ def update_wz_prices(wz_id: str, prices: List[Dict[str, Any]]) -> Dict[str, Any]
                    (json.dumps(new_lines), total, wz_id))
     logger.info("wz.prices_updated", extra={"wz_id": wz_id, "total": total})
     return get_wz(wz_id)
+
+
+def wz_order_incomplete(produced: int, ordered: int) -> bool:
+    """Flaga „może brakować": zamówiono więcej, niż wyprodukowano."""
+    return ordered > 0 and produced < ordered
+
+
+def build_order_wz_lines(plan_lines: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int]:
+    """Linie WZ z linii planu produkcji: pozycja per (receptura, partia) wg
+    batch_allocation (fallback: seasoned_batch_no, jak w HDI). Ilościowe.
+    Zwraca (linie, suma wyprodukowanych szt)."""
+    agg: Dict[Tuple, int] = {}
+    produced = 0
+    for line in plan_lines or []:
+        qty_done = int(line.get("qty_done") or 0)
+        if qty_done <= 0:
+            continue
+        produced += qty_done
+        name = (line.get("recipe_name") or line.get("product_type_name") or "Kebab").strip()
+        rid = line.get("recipe_id")
+        ba = line.get("batch_allocation") or {}
+        alloc = ({bno: int((info or {}).get("pieces") or 0) for bno, info in ba.items()}
+                 if isinstance(ba, dict) else {})
+        if alloc and sum(alloc.values()) == qty_done:
+            buckets = list(alloc.items())
+        else:
+            sbn = line.get("seasoned_batch_no")
+            if not sbn:
+                lst = line.get("seasoned_batch_nos") or []
+                sbn = lst[0] if lst else ""
+            buckets = [(sbn or "", qty_done)]
+        for bno, pieces in buckets:
+            key = (rid, name, bno)
+            agg[key] = agg.get(key, 0) + int(pieces)
+    lines = [
+        {"name": name, "qty": qty, "unit": "szt", "batch_no": bno,
+         "price": None, "value": None, "stock_type": "fg", "recipe_id": rid}
+        for (rid, name, bno), qty in sorted(agg.items(), key=lambda kv: (kv[0][1], kv[0][2] or ""))
+    ]
+    return lines, produced
+
+
+def create_wz_from_order(order_id: str) -> Dict[str, Any]:
+    """WZ z zamówienia: pozycje z qty_done linii planu, rozchód FG, flaga
+    incomplete. Idempotentny per (source_type='order', source_id=order_id)."""
+    order = query_one("SELECT * FROM client_orders WHERE id=%s", (order_id,))
+    if not order:
+        raise HTTPException(404, "Zamówienie nie znalezione")
+
+    plan_lines = query_all(
+        """SELECT pl.qty_done, pl.recipe_id, pl.recipe_name, pl.product_type_name,
+                  pl.batch_allocation, pl.seasoned_batch_no, pl.seasoned_batch_nos
+           FROM production_plan_lines pl
+           WHERE pl.client_order_id=%s AND COALESCE(pl.qty_done,0) > 0""",
+        (order_id,))
+    lines, produced = build_order_wz_lines(plan_lines)
+    if not lines:
+        raise HTTPException(400, "Brak wyprodukowanych pozycji do WZ")
+
+    ordered = query_one(
+        "SELECT COALESCE(SUM(qty),0) AS q FROM client_order_lines WHERE order_id=%s", (order_id,))
+    incomplete = wz_order_incomplete(produced, int((ordered or {}).get("q") or 0))
+
+    # Klient jak w HDI: najpierw client_id, potem nazwa.
+    client = None
+    if order.get("client_id"):
+        client = query_one("SELECT name, address, city, nip FROM clients WHERE id=%s",
+                           (order.get("client_id"),))
+    if not client:
+        client = query_one("SELECT name, address, city, nip FROM clients WHERE name=%s",
+                           (order.get("client_name"),))
+    client = client or {}
+    buyer = {"name": client.get("name") or order.get("client_name") or "",
+             "address": f"{client.get('address') or ''} {client.get('city') or ''}".strip(),
+             "nip": client.get("nip") or ""}
+
+    issued = date.today().strftime("%d.%m.%Y")
+    notes = "UWAGA: zamówienie zrealizowane częściowo — może brakować sztuk." if incomplete else ""
+
+    with transaction() as conn:
+        existing = cx_query_one(
+            conn, "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
+                  "ORDER BY created_at LIMIT 1", (order_id,))
+        if existing:
+            doc = get_wz(existing["id"])
+            doc["incomplete"] = incomplete
+            logger.info("wz.order.reused", extra={"wz_id": existing["id"]})
+            return doc
+
+        wid = _insert_wz(
+            conn, source_type="order", source_id=order_id, seller=_seller_block(),
+            buyer=buyer, valued=False, lines=lines, total=0.0,
+            place=get_company().get("city") or "", issued=issued, released=issued,
+            notes=notes)
+
+        for ln in lines:
+            need = int(ln["qty"])
+            if need <= 0:
+                continue
+            sql = ("SELECT id, qty_available, kg_per_unit FROM finished_goods "
+                   "WHERE batch_no=%s")
+            params: List[Any] = [ln.get("batch_no")]
+            if ln.get("recipe_id"):
+                sql += " AND recipe_id=%s"
+                params.append(ln["recipe_id"])
+            sql += " ORDER BY (COALESCE(client_name,'')='') DESC, qty_available DESC FOR UPDATE"
+            rows = cx_query_all(conn, sql, tuple(params))
+            for row in rows:
+                take = min(need, max(0, int(row.get("qty_available") or 0)))
+                if take > 0:
+                    cx_execute(
+                        conn,
+                        "UPDATE finished_goods SET qty_available=qty_available-%s, qty_shipped=qty_shipped+%s WHERE id=%s",
+                        (take, take, row["id"]))
+                    create_stock_movement(
+                        conn, product_type="finished_goods", batch_id=row["id"],
+                        qty=take * float(row.get("kg_per_unit") or 0),
+                        movement_type="OUT", source_type="wz", source_id=wid)
+                    need -= take
+                if need == 0:
+                    break
+            if need > 0:
+                raise HTTPException(
+                    400, f"Za mało na stanie wyrobów dla partii {ln.get('batch_no')} (brakuje {need} szt)")
+
+    logger.info("wz.order.created", extra={"wz_id": wid, "order_id": order_id, "wz_incomplete": incomplete})
+    doc = get_wz(wid)
+    doc["incomplete"] = incomplete
+    return doc
 
 
 def get_wz(wz_id: str) -> Dict[str, Any]:

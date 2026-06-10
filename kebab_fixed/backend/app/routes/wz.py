@@ -77,6 +77,19 @@ def manual(body: dict):
     )
 
 
+@router.patch("/{wz_id}/prices")
+def update_prices(wz_id: str, body: dict):
+    return svc.update_wz_prices(wz_id, body.get("prices") or [])
+
+
+@router.post("/from-order")
+def from_order(body: dict):
+    order_id = (body.get("orderId") or "").strip()
+    if not order_id:
+        raise HTTPException(400, "orderId wymagany")
+    return svc.create_wz_from_order(order_id)
+
+
 @router.get("/{wz_id}")
 def get(wz_id: str):
     return svc.get_wz(wz_id)
