@@ -352,7 +352,7 @@ export function DashboardPage() {
     : 'green'
 
   // ── Produkcja LIVE — z planów + finished goods ─────────────────
-  const activePlans = allPlans.filter(p => p.status !== 'done' && p.status !== 'draft')
+  const activePlans = allPlans.filter(p => p.status === 'active')
   const finishedKgByPlan = useMemo(() => {
     const m = new Map<string, number>()
     allFinished.forEach((f: any) => {

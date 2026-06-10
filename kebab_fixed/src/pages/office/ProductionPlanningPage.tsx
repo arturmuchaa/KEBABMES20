@@ -110,12 +110,13 @@ function computeSelKgAvailForLine(
 }
 
 const STATUS_LABELS: Record<ProductionPlan['status'], string> = {
-  draft:'Szkic', active:'Aktywny', done:'Ukończony',
+  draft:'Szkic', active:'Aktywny', done:'Ukończony', cancelled:'Anulowany',
 }
 const STATUS_CLASS: Record<ProductionPlan['status'], string> = {
   draft: '',
   active: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-50',
   done: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-50',
+  cancelled: 'bg-red-50 text-red-700 border-red-200 hover:bg-red-50',
 }
 
 // ─── Import z zamówień ────────────────────────────────────────
@@ -994,7 +995,7 @@ export function ProductionPlanningPage() {
   // Etykiety Zebra w planowaniu produkcji tymczasowo wyłączone (do dopracowania) —
   // zostają same etykiety PDF. Trasa /etykiety/zebra i handler nadal istnieją.
 
-  const activePlans = (plans??[]).filter(p=>p.status!=='done')
+  const activePlans = (plans??[]).filter(p=>p.status!=='done'&&p.status!=='cancelled')
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -1137,8 +1138,8 @@ export function ProductionPlanningPage() {
                           className="h-7 text-[11px] text-muted-foreground border-surface-4 hover:bg-surface-2"
                           onClick={async e=>{
                             e.stopPropagation()
-                            if (!confirm(`Zamknąć plan ${plan.planNo} bez produkcji? Rezerwacje mięsa zostaną zwolnione.`)) return
-                            await productionPlansApi.updateStatus(plan.id,'done')
+                            if (!confirm(`Anulować plan ${plan.planNo}? Rezerwacje mięsa zostaną zwolnione, a plan nie będzie liczony jako wykonany.`)) return
+                            await productionPlansApi.updateStatus(plan.id,'cancelled')
                             refetch()
                           }}>
                           Anuluj

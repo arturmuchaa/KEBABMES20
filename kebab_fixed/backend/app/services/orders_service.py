@@ -377,38 +377,38 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
     return updated
 
 
-def production_progress(order_id: str) -> Dict[str, Any]:
-    """Dla każdej linii zamówienia zwraca:
-      qty_done    — sumarycznie szt z planów ze statusem 'done'
+def aggregate_order_progress(
+    order_lines: List[Dict[str, Any]], plan_lines: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Dla każdej linii zamówienia liczy:
+      qty_done    — faktycznie wyprodukowane szt (qty_done linii) z planów 'done'
       qty_pending — sumarycznie szt z planów 'draft' i 'active' (zarezerwowane)
       qty_total   — ilość zamówiona
       qty_remaining — qty_total - qty_done - qty_pending (jeśli > 0)
+
+    Plany 'cancelled' nie liczą się wcale; plany 'done' liczą się tylko
+    w wysokości realnej produkcji (qty_done), nie ilości zaplanowanej —
+    plan zamknięty częściowo lub bez produkcji nie blokuje ponownego
+    zaplanowania pozostałych sztuk.
     """
-    order = query_one("SELECT id, order_no FROM client_orders WHERE id=%s", (order_id,))
-    if not order:
-        raise HTTPException(404, "Zamówienie nie znalezione")
-    lines = query_all(
-        "SELECT id, qty FROM client_order_lines WHERE order_id=%s", (order_id,)
-    )
-    rows = query_all(
-        """
-        SELECT pl.client_order_line_id AS line_id,
-               COALESCE(SUM(CASE WHEN pp.status = 'done'                   THEN pl.qty ELSE 0 END), 0) AS qty_done,
-               COALESCE(SUM(CASE WHEN pp.status IN ('draft','active')      THEN pl.qty ELSE 0 END), 0) AS qty_pending
-        FROM production_plan_lines pl
-        JOIN production_plans pp ON pp.id = pl.plan_id
-        WHERE pl.client_order_line_id IN (SELECT id FROM client_order_lines WHERE order_id=%s)
-        GROUP BY pl.client_order_line_id
-        """,
-        (order_id,),
-    )
-    by_line = {r["line_id"]: r for r in rows}
+    agg: Dict[str, Dict[str, int]] = {}
+    for pl in plan_lines:
+        lid = pl.get("client_order_line_id")
+        if not lid:
+            continue
+        a = agg.setdefault(lid, {"qty_done": 0, "qty_pending": 0})
+        status = pl.get("plan_status")
+        if status == "done":
+            a["qty_done"] += int(pl.get("qty_done") or 0)
+        elif status in ("draft", "active"):
+            a["qty_pending"] += int(pl.get("qty") or 0)
+
     result_lines = []
-    for line in lines:
-        agg = by_line.get(line["id"], {})
+    for line in order_lines:
+        a = agg.get(line["id"], {})
         qty_total = int(line["qty"] or 0)
-        qty_done = int(agg.get("qty_done") or 0)
-        qty_pending = int(agg.get("qty_pending") or 0)
+        qty_done = int(a.get("qty_done") or 0)
+        qty_pending = int(a.get("qty_pending") or 0)
         qty_remaining = max(0, qty_total - qty_done - qty_pending)
         result_lines.append(
             {
@@ -419,4 +419,25 @@ def production_progress(order_id: str) -> Dict[str, Any]:
                 "qty_remaining": qty_remaining,
             }
         )
+    return result_lines
+
+
+def production_progress(order_id: str) -> Dict[str, Any]:
+    """Postęp produkcji per linia zamówienia — patrz aggregate_order_progress."""
+    order = query_one("SELECT id, order_no FROM client_orders WHERE id=%s", (order_id,))
+    if not order:
+        raise HTTPException(404, "Zamówienie nie znalezione")
+    lines = query_all(
+        "SELECT id, qty FROM client_order_lines WHERE order_id=%s", (order_id,)
+    )
+    plan_lines = query_all(
+        """
+        SELECT pl.client_order_line_id, pl.qty, pl.qty_done, pp.status AS plan_status
+        FROM production_plan_lines pl
+        JOIN production_plans pp ON pp.id = pl.plan_id
+        WHERE pl.client_order_line_id IN (SELECT id FROM client_order_lines WHERE order_id=%s)
+        """,
+        (order_id,),
+    )
+    result_lines = aggregate_order_progress(lines, plan_lines)
     return {"order_id": order_id, "order_no": order["order_no"], "lines": result_lines}

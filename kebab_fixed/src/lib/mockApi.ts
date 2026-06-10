@@ -2255,7 +2255,7 @@ export interface ProductionPlan {
   lines:       ProductionPlanLine[]
   totalKg:     number
   totalUnits:  number
-  status:      'draft' | 'active' | 'done'
+  status:      'draft' | 'active' | 'done' | 'cancelled'
   notes?:      string
   createdAt:   string
   tabletFinishedAt?:  string | null  // operator zakończył, czeka na biuro
