@@ -947,10 +947,20 @@ export const palletScanApi = {
         createdPallets: Number(r.created_pallets ?? 0),
       })),
     ),
-  finalizeLoading: (vehicleId: string, orderIds: string[]) =>
-    post<{ ok: boolean; vehicle_id: string; orders: Array<{ order_id: string; order_no: string; client_name: string; pallets: number }> }>(
+  finalizeLoading: (vehicleId: string, orderIds: string[], plate?: string) =>
+    post<{
+      ok: boolean; vehicle_id: string; plate?: string
+      orders: Array<{
+        order_id: string; order_no: string; client_name: string; pallets: number
+        units?: number; skipped?: string
+        wz_id?: string; wz_number?: string
+        wz_status?: 'potwierdzony' | 'rozjazd'
+        diff?: WzLoadingDiff[]
+        hdi_number?: string | null; hdi_error?: string | null
+      }>
+    }>(
       '/pallets/finalize-loading',
-      { vehicle_id: vehicleId, order_ids: orderIds },
+      { vehicle_id: vehicleId, order_ids: orderIds, plate: plate || '' },
     ),
   loadingDocument: (vehicleId: string, orderIds: string[]) =>
     post<any>('/pallets/loading-document', { vehicle_id: vehicleId, order_ids: orderIds }),
@@ -1078,14 +1088,33 @@ export interface WzLine {
   kg_per_unit?: number | null   // waga 1 szt — pozycje FG wyceniane za kg
   total_kg?: number | null      // qty * kg_per_unit
 }
+export interface WzLoadingDiff {
+  name: string; batch_no: string | null
+  doc_qty: number; loaded_qty: number; diff: number
+}
 export interface WzDoc {
   id: string; number: string; sourceType?: string; sourceId?: string
+  source_type?: string; source_id?: string
   seller?: { name?: string; address?: string; nip?: string; email?: string }
   buyer_name?: string; buyer_address?: string; buyer_nip?: string
   valued: boolean; lines: WzLine[]; total_value: number
   place?: string; issued_date?: string; release_date?: string; status: string
   currency?: string             // 'PLN' | 'EUR'
   eur_rate?: number | null      // kurs średni NBP użyty przy EUR
+  loading_status?: 'potwierdzony' | 'rozjazd' | null  // weryfikacja przy załadunku
+  loading_diff?: WzLoadingDiff[] | null
+  vehicle_plate?: string | null
+  loaded_at?: string | null
+}
+export interface QuantityChainLine {
+  recipe_id: string; kg_per_unit: number; name: string
+  ordered: number; planned: number; reported: number
+  scanned: number; packed: number; shipped: number; documented: number
+}
+export interface QuantityChain {
+  order_id: string; order_no: string; client_name?: string
+  wz_number?: string | null; loading_status?: string | null; vehicle_plate?: string | null
+  lines: QuantityChainLine[]
 }
 
 export const wzApi = {
@@ -1107,6 +1136,8 @@ export const wzApi = {
   }) => post<WzDoc>('/wz/manual', body),
   updatePrices: (id: string, prices: { index: number; price: number }[]) =>
     patch<WzDoc>(`/wz/${encodeURIComponent(id)}/prices`, { prices }),
+  quantityChain: (orderId: string) =>
+    get<QuantityChain>(`/client-orders/${encodeURIComponent(orderId)}/quantity-chain`),
   fromOrderPreview: (orderId: string) =>
     get<{
       order_id: string; order_no: string; buyer_name: string; buyer_nip: string

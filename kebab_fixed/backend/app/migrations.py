@@ -340,6 +340,11 @@ _DDL: list[str] = [
     # ── WZ: waluta dokumentu + kurs EUR/PLN (NBP) z dnia wystawienia ──
     "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'PLN'",
     "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS eur_rate NUMERIC(10,4)",
+    # ── WZ: weryfikacja przy załadunku (dokument wstępny vs faktyczny załadunek) ──
+    "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS loading_status TEXT",       # NULL|potwierdzony|rozjazd
+    "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS loading_diff JSONB",        # [{name,batch_no,doc_qty,loaded_qty,diff}]
+    "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS loaded_at TIMESTAMPTZ",
+    "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS vehicle_plate TEXT",
 
     # ── HDI fundament: język + miejsce przeznaczenia klienta ──
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS language TEXT DEFAULT ''",

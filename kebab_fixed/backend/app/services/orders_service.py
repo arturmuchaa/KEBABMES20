@@ -428,6 +428,96 @@ def aggregate_order_progress(
     return result_lines
 
 
+def quantity_chain(order_id: str) -> Dict[str, Any]:
+    """Raport rozjazdu: łańcuch ilości per pozycja zamówienia (receptura+waga):
+    zamówiono → zaplanowano → wpisano na tablecie → zeskanowano na produkcji →
+    spakowano do kartonów → wyjechało (shipped) → na dokumencie WZ.
+    Pokazuje, na którym etapie zginęły/przybyły sztuki.
+    """
+    import json as _json
+
+    order = query_one(
+        "SELECT id, order_no, client_name FROM client_orders WHERE id=%s", (order_id,))
+    if not order:
+        raise HTTPException(404, "Zamówienie nie znalezione")
+
+    def key_of(rid: Any, kg: Any) -> tuple:
+        return (str(rid or ""), round(float(kg or 0), 3))
+
+    rows: Dict[tuple, Dict[str, Any]] = {}
+
+    def bucket(rid: Any, kg: Any, name: str = "") -> Dict[str, Any]:
+        k = key_of(rid, kg)
+        b = rows.setdefault(k, {
+            "recipe_id": k[0], "kg_per_unit": k[1], "name": name,
+            "ordered": 0, "planned": 0, "reported": 0,
+            "scanned": 0, "packed": 0, "shipped": 0, "documented": 0,
+        })
+        if name and not b["name"]:
+            b["name"] = name
+        return b
+
+    for ln in query_all(
+        "SELECT recipe_id, recipe_name, kg_per_unit, qty FROM client_order_lines WHERE order_id=%s",
+        (order_id,),
+    ):
+        b = bucket(ln["recipe_id"], ln["kg_per_unit"], ln.get("recipe_name") or "")
+        b["ordered"] += int(ln.get("qty") or 0)
+
+    plan_lines = query_all(
+        """SELECT pl.id, pl.recipe_id, pl.recipe_name, pl.kg_per_unit, pl.qty, pl.qty_done
+           FROM production_plan_lines pl
+           JOIN production_plans pp ON pp.id = pl.plan_id
+           WHERE pl.client_order_id=%s AND pp.status <> 'cancelled'""",
+        (order_id,))
+    for pl in plan_lines:
+        b = bucket(pl["recipe_id"], pl["kg_per_unit"], pl.get("recipe_name") or "")
+        b["planned"] += int(pl.get("qty") or 0)
+        b["reported"] += int(pl.get("qty_done") or 0)
+
+    plan_line_ids = [pl["id"] for pl in plan_lines]
+    if plan_line_ids:
+        for u in query_all(
+            """SELECT recipe_id, weight_kg, status, COUNT(*) AS c
+               FROM finished_units WHERE plan_line_id = ANY(%s)
+               GROUP BY recipe_id, weight_kg, status""",
+            (plan_line_ids,),
+        ):
+            b = bucket(u["recipe_id"], u["weight_kg"])
+            c = int(u["c"] or 0)
+            status = u.get("status") or ""
+            if status != "planned":
+                b["scanned"] += c
+            if status in ("packed", "shipped"):
+                b["packed"] += c
+            if status == "shipped":
+                b["shipped"] += c
+
+    wz = query_one(
+        "SELECT number, lines, loading_status, loading_diff, vehicle_plate "
+        "FROM wz_documents WHERE source_type='order' AND source_id=%s "
+        "ORDER BY created_at LIMIT 1",
+        (order_id,))
+    if wz:
+        wz_lines = wz.get("lines")
+        if isinstance(wz_lines, str):
+            wz_lines = _json.loads(wz_lines or "[]")
+        for ln in wz_lines or []:
+            b = bucket(ln.get("recipe_id"), ln.get("kg_per_unit"), ln.get("name") or "")
+            b["documented"] += int(ln.get("qty") or 0)
+
+    out = sorted(rows.values(), key=lambda r: (r["name"], -r["kg_per_unit"]))
+    return {
+        "order_id": order_id,
+        "order_no": order["order_no"],
+        "client_name": order.get("client_name"),
+        "wz_number": (wz or {}).get("number"),
+        "loading_status": (wz or {}).get("loading_status"),
+        "vehicle_plate": (wz or {}).get("vehicle_plate"),
+        "lines": out,
+    }
+
+
 def production_progress(order_id: str) -> Dict[str, Any]:
     """Postęp produkcji per linia zamówienia — patrz aggregate_order_progress."""
     order = query_one("SELECT id, order_no FROM client_orders WHERE id=%s", (order_id,))

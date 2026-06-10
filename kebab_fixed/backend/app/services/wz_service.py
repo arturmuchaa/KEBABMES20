@@ -569,7 +569,9 @@ def get_wz(wz_id: str) -> Dict[str, Any]:
 def list_wz() -> List[Dict[str, Any]]:
     return query_all(
         "SELECT id, number, buyer_name, total_value, valued, status, issued_date, "
-        "created_at FROM wz_documents ORDER BY created_at DESC"
+        "currency, source_type, source_id, loading_status, loading_diff, "
+        "vehicle_plate, loaded_at, created_at "
+        "FROM wz_documents ORDER BY created_at DESC"
     )
 
 

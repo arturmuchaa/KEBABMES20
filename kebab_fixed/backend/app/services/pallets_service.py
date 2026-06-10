@@ -394,7 +394,8 @@ def active_orders_for_loading() -> List[Dict]:
            FROM client_orders o
            JOIN order_pallets p ON p.order_id = o.id
            GROUP BY o.id
-           HAVING SUM(CASE WHEN p.status <> 'loaded' THEN 1 ELSE 0 END) > 0
+           HAVING SUM(CASE WHEN p.status NOT IN ('loaded','shipped') THEN 1 ELSE 0 END) > 0
+              AND SUM(CASE WHEN p.status <> 'shipped' THEN 1 ELSE 0 END) > 0
            ORDER BY o.delivery_date NULLS LAST, o.order_no"""
     )
 

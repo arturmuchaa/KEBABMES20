@@ -2,9 +2,30 @@
 from fastapi import APIRouter, Query
 
 from app.models.orders import PackUnitRequest, PalletScanRequest
-from app.services import pallets_service
+from app.services import loading_service, pallets_service
 
 router = APIRouter(prefix="/api/pallets", tags=["pallets"])
+
+
+@router.post("/finalize-loading")
+def finalize_loading(body: dict):
+    """Zamknięcie załadunku pojazdu: sztuki→shipped, WZ (weryfikacja
+    istniejącego albo utworzenie + rozchód), HDI z nr rejestracyjnym."""
+    return loading_service.finalize_loading(
+        vehicle_id=(body.get("vehicle_id") or "").strip(),
+        order_ids=[str(x) for x in (body.get("order_ids") or []) if x],
+        operator=body.get("operator") or "",
+        plate=body.get("plate") or "",
+    )
+
+
+@router.post("/loading-document")
+def loading_document(body: dict):
+    """Dokument wydania dla kierowcy (dane do renderu po stronie mobile)."""
+    return loading_service.loading_document(
+        vehicle_id=(body.get("vehicle_id") or "").strip(),
+        order_ids=[str(x) for x in (body.get("order_ids") or []) if x],
+    )
 
 
 @router.post("/scan")

@@ -43,6 +43,12 @@ def production_progress(order_id: str):
     return svc.production_progress(order_id)
 
 
+@router.get("/{order_id}/quantity-chain")
+def quantity_chain(order_id: str):
+    """Raport rozjazdu: łańcuch ilości zamówiono→…→dokument per pozycja."""
+    return svc.quantity_chain(order_id)
+
+
 # ── Palety wydania ────────────────────────────────────────────────
 @router.get("/{order_id}/pallets")
 def list_pallets(order_id: str):

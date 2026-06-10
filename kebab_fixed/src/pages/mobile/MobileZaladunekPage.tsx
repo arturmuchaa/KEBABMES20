@@ -303,10 +303,22 @@ export function MobileZaladunekPage() {
     }
     setFinalizing(true)
     try {
-      await palletScanApi.finalizeLoading(vehicleId, selectedIds)
+      const res = await palletScanApi.finalizeLoading(vehicleId, selectedIds, plate)
       const doc = await palletScanApi.loadingDocument(vehicleId, selectedIds)
       renderLoadingDocument(doc, plate)
-      setToast({ ok: true, message: 'Załadunek zakończony · dokument wydania otwarty', ts: Date.now() })
+      const rozjazdy = (res.orders || []).filter(o => o.wz_status === 'rozjazd')
+      const wzNums = (res.orders || []).filter(o => o.wz_number).map(o => o.wz_number).join(', ')
+      if (rozjazdy.length) {
+        setToast({
+          ok: false,
+          message: `UWAGA — ROZJAZD z dokumentem WZ: ${rozjazdy.map(o => o.order_no).join(', ')}. ` +
+                   `Załadunek zapisany, ale biuro musi skorygować dokument przed fakturą ` +
+                   `(szczegóły: Dokumenty WZ → Raport rozjazdu).`,
+          ts: Date.now(),
+        })
+      } else {
+        setToast({ ok: true, message: `Załadunek zakończony · WZ: ${wzNums || '—'} · dokument wydania otwarty`, ts: Date.now() })
+      }
       try { localStorage.removeItem(storageKey) } catch {}
       setSelectedIds([])
       setStatuses({})

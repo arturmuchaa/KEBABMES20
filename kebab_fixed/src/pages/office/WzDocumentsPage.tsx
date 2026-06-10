@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { wzApi, WzDoc, WzLine } from '@/lib/api'
-import { fmtDatePl } from '@/lib/utils'
+import { wzApi, WzDoc, WzLine, QuantityChain } from '@/lib/api'
+import { cn, fmtDatePl } from '@/lib/utils'
 import { WzDocumentView } from '@/components/wz/WzDocumentView'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -14,7 +14,134 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
-import { Plus, Printer, FileText, Eye, FileSpreadsheet, Pencil, ChevronUp } from 'lucide-react'
+import { Plus, Printer, FileText, Eye, FileSpreadsheet, Pencil, ChevronUp, AlertTriangle, CheckCircle2, Truck } from 'lucide-react'
+
+/** Raport rozjazdu: różnice dokument↔załadunek + łańcuch ilości per etap. */
+function LoadingReportDialog({ doc, onClose }: { doc: WzDoc; onClose: () => void }) {
+  const [chain, setChain] = useState<QuantityChain | null>(null)
+  const [chainErr, setChainErr] = useState('')
+  const orderId = doc.source_id || doc.sourceId
+  useEffect(() => {
+    if (!orderId) { setChainErr('Dokument bez powiązanego zamówienia'); return }
+    wzApi.quantityChain(orderId)
+      .then(setChain)
+      .catch(e => setChainErr(e instanceof Error ? e.message : 'Błąd raportu'))
+  }, [orderId])
+
+  const diffs = (doc.loading_diff || []).filter(d => d.diff !== 0)
+  const STAGES: { key: keyof QuantityChain['lines'][number]; label: string }[] = [
+    { key: 'ordered',    label: 'Zamówiono' },
+    { key: 'planned',    label: 'Zaplanowano' },
+    { key: 'reported',   label: 'Tablet' },
+    { key: 'scanned',    label: 'Skan prod.' },
+    { key: 'packed',     label: 'W kartonach' },
+    { key: 'shipped',    label: 'Wyjechało' },
+    { key: 'documented', label: 'Na WZ' },
+  ]
+  return (
+    <Dialog open onOpenChange={open => { if (!open) onClose() }}>
+      <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            Raport załadunku — {doc.number}
+            {doc.loading_status === 'rozjazd'
+              ? <Badge variant="danger" className="text-[10px] gap-1"><AlertTriangle size={11} /> ROZJAZD</Badge>
+              : <Badge variant="success" className="text-[10px] gap-1"><CheckCircle2 size={11} /> Potwierdzony</Badge>}
+            {doc.vehicle_plate && (
+              <span className="text-[11px] font-normal text-muted-foreground inline-flex items-center gap-1">
+                <Truck size={12} /> {doc.vehicle_plate}
+              </span>
+            )}
+          </DialogTitle>
+        </DialogHeader>
+
+        {doc.loading_status === 'rozjazd' && (
+          <div className="text-[12px] bg-red-50 border border-red-200 text-red-800 rounded-md px-3 py-2">
+            Faktyczny załadunek różni się od dokumentu — <b>skoryguj WZ przed wystawieniem faktury</b>,
+            inaczej klient dostanie fakturę na inną ilość, niż pojechała.
+          </div>
+        )}
+
+        {diffs.length > 0 && (
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">
+              Różnice dokument ↔ auto
+            </div>
+            <Table className="text-[12px]">
+              <TableHeader>
+                <TableRow>
+                  {['Towar', 'Partia', 'Na WZ', 'Na aucie', 'Różnica'].map((h, i) => (
+                    <TableHead key={i} className="text-[9px] uppercase tracking-wider h-7 px-2">{h}</TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {diffs.map((d, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="py-1.5 px-2 font-medium">{d.name}</TableCell>
+                    <TableCell className="py-1.5 px-2 font-mono text-green-700">{d.batch_no || '—'}</TableCell>
+                    <TableCell className="py-1.5 px-2 font-mono">{d.doc_qty}</TableCell>
+                    <TableCell className="py-1.5 px-2 font-mono">{d.loaded_qty}</TableCell>
+                    <TableCell className={cn('py-1.5 px-2 font-mono font-bold', d.diff < 0 ? 'text-red-600' : 'text-amber-600')}>
+                      {d.diff > 0 ? `+${d.diff}` : d.diff}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">
+            Łańcuch ilości — gdzie powstała różnica
+          </div>
+          {chainErr && <div className="text-[12px] text-muted-foreground">{chainErr}</div>}
+          {!chain && !chainErr && <div className="text-[12px] text-muted-foreground">Ładowanie…</div>}
+          {chain && (
+            <Table className="text-[12px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-[9px] uppercase tracking-wider h-7 px-2">Pozycja</TableHead>
+                  {STAGES.map(s => (
+                    <TableHead key={s.key} className="text-[9px] uppercase tracking-wider h-7 px-2 text-right">{s.label}</TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {chain.lines.map((l, i) => {
+                  const vals = STAGES.map(s => Number(l[s.key] ?? 0))
+                  return (
+                    <TableRow key={i}>
+                      <TableCell className="py-1.5 px-2 font-medium whitespace-nowrap">{l.name}</TableCell>
+                      {vals.map((v, j) => {
+                        const drop = j > 0 && v < vals[j - 1]
+                        return (
+                          <TableCell key={j} className={cn('py-1.5 px-2 text-right font-mono',
+                            drop && 'bg-red-50 text-red-700 font-bold')}>
+                            {v}
+                          </TableCell>
+                        )
+                      })}
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          )}
+          <div className="text-[10px] text-muted-foreground mt-1.5">
+            Czerwone pole = etap, na którym ubyły sztuki względem poprzedniego. Tak znajdziesz miejsce błędu
+            (np. tablet 20 → kartony 19 = zgubiono przy pakowaniu).
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={onClose}>Zamknij</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 export function WzDocumentsPage() {
   const nav = useNavigate()
@@ -25,6 +152,7 @@ export function WzDocumentsPage() {
   const [editErr, setEditErr] = useState('')
   const [saving, setSaving]   = useState(false)
   const [previewDoc, setPreviewDoc] = useState<WzDoc | null>(null)
+  const [reportDoc, setReportDoc]   = useState<WzDoc | null>(null)
 
   const reload = () => wzApi.list().then(setDocs)
   useEffect(() => { reload() }, [])
@@ -105,7 +233,7 @@ export function WzDocumentsPage() {
           <Table className="text-[12px]">
             <TableHeader>
               <TableRow>
-                {['Numer', 'Data', 'Odbiorca', 'Wartość', 'Status', ''].map((h, i) => (
+                {['Numer', 'Data', 'Odbiorca', 'Wartość', 'Status', 'Załadunek', ''].map((h, i) => (
                   <TableHead key={i} className={`text-[9px] uppercase tracking-wider h-8 px-3 ${h === 'Wartość' ? 'text-right' : ''}`}>{h}</TableHead>
                 ))}
               </TableRow>
@@ -126,6 +254,23 @@ export function WzDocumentsPage() {
                       {d.valued
                         ? <Badge variant="success" className="text-[10px]">Wyceniony</Badge>
                         : <Badge variant="warning" className="text-[10px]">Do wyceny</Badge>}
+                    </TableCell>
+                    <TableCell className="py-2 px-3">
+                      {d.loading_status === 'rozjazd' ? (
+                        <button onClick={() => setReportDoc(d)} title="Raport rozjazdu">
+                          <Badge variant="danger" className="text-[10px] gap-1 cursor-pointer hover:bg-red-200">
+                            <AlertTriangle size={10} /> ROZJAZD
+                          </Badge>
+                        </button>
+                      ) : d.loading_status === 'potwierdzony' ? (
+                        <button onClick={() => setReportDoc(d)} title="Raport załadunku">
+                          <Badge variant="success" className="text-[10px] gap-1 cursor-pointer hover:bg-green-200">
+                            <CheckCircle2 size={10} /> Potwierdzony
+                          </Badge>
+                        </button>
+                      ) : (
+                        <span className="text-muted-foreground text-[11px]">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="py-1.5 px-3">
                       <div className="flex justify-end gap-1">
@@ -153,7 +298,7 @@ export function WzDocumentsPage() {
                   </TableRow>
                   {editId === d.id && (
                     <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={6} className="bg-muted/30 p-4">
+                      <TableCell colSpan={7} className="bg-muted/30 p-4">
                         <div className="max-w-2xl">
                           <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
                             Uzupełnij ceny — {d.number}
@@ -242,6 +387,8 @@ export function WzDocumentsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {reportDoc && <LoadingReportDialog doc={reportDoc} onClose={() => setReportDoc(null)} />}
     </div>
   )
 }
