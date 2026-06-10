@@ -82,20 +82,33 @@ def build_manual_wz_lines(selections: List[Dict[str, Any]], valued: bool) -> Tup
     return lines, total
 
 
-def build_dispatch_wz_lines(groups: Dict, recipe_names: Dict[str, str]) -> List[Dict[str, Any]]:
-    """Pozycje WZ z grup wydania (group_units_for_out): linia ilościowa per
-    (data, partia, receptura) — bez cen (WZ wstępny, valued=False)."""
+def build_goods_wz_lines(goods_with_counts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Pozycje WZ z wydania po twardym linku sztuka→wyrób: jedna linia per
+    finished_goods. batch_no = pełna partia WYROBU (format "ddmmrr partia",
+    jak na etykiecie i HDI). kg_per_unit/total_kg dołączone, żeby późniejsze
+    uzupełnienie cen liczyło ZA KG (apply_wz_prices). Bez cen (WZ wstępny).
+
+    goods_with_counts: [{"goods": wiersz finished_goods, "count": szt}]
+    """
     lines: List[Dict[str, Any]] = []
-    for (_produced_date, batch_no, recipe_id), g in (groups or {}).items():
-        lines.append({
-            "name": recipe_names.get(recipe_id) or "Kebab",
-            "qty": int(g.get("count") or 0),
+    for g in goods_with_counts or []:
+        fg = g.get("goods") or {}
+        count = int(g.get("count") or 0)
+        kgpu = float(fg.get("kg_per_unit") or 0)
+        line: Dict[str, Any] = {
+            "name": fg.get("recipe_name") or fg.get("product_type_name") or "Kebab",
+            "qty": count,
             "unit": "szt",
-            "batch_no": batch_no,
+            "batch_no": fg.get("batch_no"),
             "price": None,
             "value": None,
             "stock_type": "fg",
-        })
+            "stock_id": fg.get("id"),
+        }
+        if kgpu > 0:
+            line["kg_per_unit"] = round(kgpu, 3)
+            line["total_kg"] = round(count * kgpu, 3)
+        lines.append(line)
     lines.sort(key=lambda l: (l["name"], l["batch_no"] or ""))
     return lines
 

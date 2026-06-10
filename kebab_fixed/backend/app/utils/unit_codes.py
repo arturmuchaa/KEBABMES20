@@ -6,7 +6,7 @@ Statusy sztuki: planned → produced → packed → shipped.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 PLANNED = "planned"
 PRODUCED = "produced"
@@ -116,15 +116,26 @@ def validate_loose_dispatch(unit: Dict, dispatch_client: Optional[str]) -> Tuple
     return True, ""
 
 
-def group_units_for_out(units) -> Dict[tuple, dict]:
-    """Grupuj sztuki po (produced_date, batch_no, recipe_id) → {count, kg}."""
-    out: Dict[tuple, dict] = {}
+def group_units_by_goods(units) -> Tuple[Dict[str, dict], List[Dict]]:
+    """Grupuj sztuki po twardym linku source_finished_goods_id → {goods_id: {count, kg}}.
+
+    Sztuki bez linku (dzień produkcji niezamknięty) wracają osobno — wydanie
+    musi je odrzucić. Zgadywanie po stringu partii jest ZABRONIONE:
+    unit.batch_no to partia MIĘSA (np. "353"), a finished_goods.batch_no to
+    partia WYROBU ("ddmmrr partia", np. "100626 353") — to różne przestrzenie
+    i dopasowanie po równości nigdy nie zachodzi.
+    """
+    groups: Dict[str, dict] = {}
+    unlinked: List[Dict] = []
     for u in units:
-        key = (u.get("produced_date") or "", u.get("batch_no") or "", u.get("recipe_id") or "")
-        g = out.setdefault(key, {"count": 0, "kg": 0.0})
+        gid = u.get("source_finished_goods_id")
+        if not gid:
+            unlinked.append(u)
+            continue
+        g = groups.setdefault(gid, {"count": 0, "kg": 0.0})
         g["count"] += 1
         g["kg"] += float(u.get("weight_kg") or 0)
-    return out
+    return groups, unlinked
 
 
 def validate_pack_to_pallet(unit: Dict, pallet_client: Optional[str], planned_by_key: Dict, packed_by_key: Dict) -> Tuple[bool, str, Optional[tuple]]:

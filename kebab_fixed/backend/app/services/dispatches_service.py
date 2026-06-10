@@ -7,11 +7,11 @@ from fastapi import HTTPException
 from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.services.settings_service import get_company
-from app.services.wz_service import _insert_wz, _seller_block, build_dispatch_wz_lines
+from app.services.wz_service import _insert_wz, _seller_block, build_goods_wz_lines
 from app.utils.ids import cuid, now_iso
 from app.utils.stock import create_stock_movement
 from app.utils.unit_codes import (
-    SHIPPED, group_units_for_out, parse_unit_qr, validate_loose_dispatch,
+    SHIPPED, group_units_by_goods, parse_unit_qr, validate_loose_dispatch,
 )
 
 logger = get_logger(__name__)
@@ -98,21 +98,44 @@ def close_dispatch(dispatch_id: str) -> Dict[str, Any]:
 
         units = cx_query_all(
             conn,
-            """SELECT id, produced_date, batch_no, recipe_id, weight_kg
+            """SELECT id, weight_kg, source_finished_goods_id
                FROM finished_units WHERE dispatch_id=%s""",
             (dispatch_id,),
         )
         if not units:
             raise HTTPException(400, "Brak sztuk na wydaniu")
 
-        groups = group_units_for_out(units)
+        # Twardy link sztuka → wyrób gotowy (source_finished_goods_id, nadawany
+        # przy zamknięciu dnia). Dopasowanie po stringu partii zabronione:
+        # sztuka nosi partię mięsa ("353"), wyrób partię kebaba ("100626 353").
+        groups, unlinked = group_units_by_goods(units)
+        if unlinked:
+            raise HTTPException(
+                400,
+                f"{len(unlinked)} szt na wydaniu nie ma powiązania z wyrobem gotowym "
+                "(dzień produkcji niezamknięty?). Zatwierdź produkcję w biurze "
+                "(plan → Potwierdź), a potem zamknij wydanie.")
 
-        # WZ z zawartości wydania (ilościowy, ceny później) — idempotentnie.
-        recipe_ids = sorted({k[2] for k in groups if k[2]})
-        recipe_names: Dict[str, str] = {}
-        if recipe_ids:
-            for r in cx_query_all(conn, "SELECT id, name FROM recipes WHERE id = ANY(%s)", (recipe_ids,)):
-                recipe_names[r["id"]] = r.get("name") or ""
+        # Zbierz i zablokuj wyroby w deterministycznej kolejności (anty-deadlock),
+        # sprawdź stany PRZED wystawieniem WZ.
+        goods_with_counts: List[Dict[str, Any]] = []
+        for gid in sorted(groups):
+            fg = cx_query_one(
+                conn,
+                """SELECT id, batch_no, recipe_id, recipe_name, product_type_name,
+                          qty_available, kg_per_unit
+                   FROM finished_goods WHERE id=%s FOR UPDATE""",
+                (gid,))
+            if not fg:
+                raise HTTPException(400, f"Wyrób gotowy powiązany ze sztukami nie istnieje ({gid})")
+            need = int(groups[gid]["count"])
+            avail = int(fg.get("qty_available") or 0)
+            if avail < need:
+                raise HTTPException(
+                    400,
+                    f"Za mało na stanie wyrobów (partia {fg.get('batch_no')}): "
+                    f"jest {avail} szt, wydanie wymaga {need}")
+            goods_with_counts.append({"goods": fg, "count": need})
 
         buyer: Dict[str, Any] = {"name": disp.get("client_name") or "", "address": "", "nip": ""}
         if disp.get("client_id"):
@@ -132,40 +155,25 @@ def close_dispatch(dispatch_id: str) -> Dict[str, Any]:
             issued = date.today().strftime("%d.%m.%Y")
             wid = _insert_wz(
                 conn, source_type="dispatch", source_id=dispatch_id, seller=_seller_block(),
-                buyer=buyer, valued=False, lines=build_dispatch_wz_lines(groups, recipe_names),
+                buyer=buyer, valued=False, lines=build_goods_wz_lines(goods_with_counts),
                 total=0.0, place=get_company().get("city") or "", issued=issued,
                 released=issued, notes="")
             wz_number = cx_query_one(conn, "SELECT number FROM wz_documents WHERE id=%s", (wid,))["number"]
 
-        for (produced_date, batch_no, recipe_id), g in groups.items():
-            rows = cx_query_all(
+        # Rozchód dokładnie z wyrobów, z których pochodzą sztuki (wiersze już
+        # zablokowane FOR UPDATE i zwalidowane wyżej).
+        for g in goods_with_counts:
+            fg, take = g["goods"], g["count"]
+            cx_execute(
                 conn,
-                """SELECT id, qty_available, kg_per_unit FROM finished_goods
-                   WHERE produced_date=%s AND batch_no=%s AND recipe_id=%s
-                   ORDER BY (COALESCE(client_name,'')='') DESC, qty_available DESC
-                   FOR UPDATE""",
-                (produced_date or None, batch_no, recipe_id),
+                "UPDATE finished_goods SET qty_available=qty_available-%s, qty_shipped=qty_shipped+%s WHERE id=%s",
+                (take, take, fg["id"]),
             )
-            remaining = g["count"]
-            for row in rows:
-                take = min(remaining, max(0, int(row.get("qty_available") or 0)))
-                if take > 0:
-                    cx_execute(
-                        conn,
-                        "UPDATE finished_goods SET qty_available=qty_available-%s, qty_shipped=qty_shipped+%s WHERE id=%s",
-                        (take, take, row["id"]),
-                    )
-                    create_stock_movement(
-                        conn, product_type="finished_goods", batch_id=row["id"],
-                        qty=take * float(row.get("kg_per_unit") or 0),
-                        movement_type="OUT", source_type="wz", source_id=wid,
-                    )
-                    remaining -= take
-                if remaining == 0:
-                    break
-            if remaining > 0:
-                raise HTTPException(
-                    400, f"Za mało na stanie wyrobów dla partii {batch_no} (brakuje {remaining} szt)")
+            create_stock_movement(
+                conn, product_type="finished_goods", batch_id=fg["id"],
+                qty=take * float(fg.get("kg_per_unit") or 0),
+                movement_type="OUT", source_type="wz", source_id=wid,
+            )
 
         cx_execute(conn, "UPDATE finished_units SET status=%s WHERE dispatch_id=%s", (SHIPPED, dispatch_id))
         cx_execute(conn, "UPDATE dispatches SET status='shipped', shipped_at=%s WHERE id=%s",
