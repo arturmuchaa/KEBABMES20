@@ -20,7 +20,7 @@
 - Modify: `backend/app/services/wz_service.py`
 - Test: `backend/tests/test_wz_dispatch_lines.py`
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 `backend/tests/test_wz_dispatch_lines.py`:
 
@@ -64,12 +64,12 @@ def test_empty_groups():
     assert build_dispatch_wz_lines({}, {}) == []
 ```
 
-- [ ] **Step 2: Run — FAIL**
+- [x] **Step 2: Run — FAIL**
 
 Run: `cd backend && pytest tests/test_wz_dispatch_lines.py -q`
 Expected: FAIL (ImportError: cannot import name 'build_dispatch_wz_lines').
 
-- [ ] **Step 3: Implementacja — dopisz do `wz_service.py`** (po `build_manual_wz_lines`)
+- [x] **Step 3: Implementacja — dopisz do `wz_service.py`** (po `build_manual_wz_lines`)
 
 ```python
 def build_dispatch_wz_lines(groups: Dict, recipe_names: Dict[str, str]) -> List[Dict[str, Any]]:
@@ -90,12 +90,12 @@ def build_dispatch_wz_lines(groups: Dict, recipe_names: Dict[str, str]) -> List[
     return lines
 ```
 
-- [ ] **Step 4: Run — PASS**
+- [x] **Step 4: Run — PASS**
 
 Run: `cd backend && pytest tests/test_wz_dispatch_lines.py -q`
 Expected: PASS (4 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/services/wz_service.py backend/tests/test_wz_dispatch_lines.py
@@ -112,7 +112,7 @@ git commit -m "feat(wz): build_dispatch_wz_lines — pozycje WZ z grup wydania (
 Minimalna zmiana: ta sama logika OUT, zmienia się tylko `source_type/source_id`
 ruchu + powstaje dokument WZ (idempotentnie). Brak nowych ruchów magazynowych.
 
-- [ ] **Step 1: Importy** (na górze `dispatches_service.py`)
+- [x] **Step 1: Importy** (na górze `dispatches_service.py`)
 
 ```python
 from datetime import date
@@ -123,7 +123,7 @@ from app.services.wz_service import _insert_wz, _seller_block, build_dispatch_wz
 
 (`wz_service` nie importuje `dispatches_service` — brak cyklu importów.)
 
-- [ ] **Step 2: W `close_dispatch`, po `groups = group_units_for_out(units)` a PRZED pętlą rozchodu**, wstaw:
+- [x] **Step 2: W `close_dispatch`, po `groups = group_units_for_out(units)` a PRZED pętlą rozchodu**, wstaw:
 
 ```python
         # WZ z zawartości wydania (ilościowy, ceny później) — idempotentnie.
@@ -159,7 +159,7 @@ from app.services.wz_service import _insert_wz, _seller_block, build_dispatch_wz
 
 (Dodaj `Dict` do importu typing w nagłówku pliku: `from typing import Any, Dict, List`.)
 
-- [ ] **Step 3: W pętli rozchodu zmień TYLKO atrybucję ruchu**
+- [x] **Step 3: W pętli rozchodu zmień TYLKO atrybucję ruchu**
 
 ```python
                     create_stock_movement(
@@ -169,7 +169,7 @@ from app.services.wz_service import _insert_wz, _seller_block, build_dispatch_wz
                     )
 ```
 
-- [ ] **Step 4: Zwróć WZ w odpowiedzi** (ostatnia linia `close_dispatch`)
+- [x] **Step 4: Zwróć WZ w odpowiedzi** (ostatnia linia `close_dispatch`)
 
 ```python
         logger.info("dispatch.closed", extra={"dispatch_id": dispatch_id, "units": len(units), "wz_id": wid})
@@ -177,12 +177,12 @@ from app.services.wz_service import _insert_wz, _seller_block, build_dispatch_wz
                 "wzId": wid, "wzNumber": wz_number}
 ```
 
-- [ ] **Step 5: Sanity — pełne testy czyste + import**
+- [x] **Step 5: Sanity — pełne testy czyste + import**
 
 Run: `cd backend && pytest tests/ -q && python -c "import app.services.dispatches_service"`
 Expected: PASS, brak ImportError.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app/services/dispatches_service.py
@@ -197,7 +197,7 @@ git commit -m "feat(wz): close_dispatch generuje WZ i przypisuje rozchód do WZ 
 - Modify: `backend/app/services/wz_service.py`
 - Test: `backend/tests/test_wz_apply_prices.py`
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 `backend/tests/test_wz_apply_prices.py`:
 
@@ -237,12 +237,12 @@ def test_does_not_mutate_input():
     assert src[0]["price"] is None
 ```
 
-- [ ] **Step 2: Run — FAIL**
+- [x] **Step 2: Run — FAIL**
 
 Run: `cd backend && pytest tests/test_wz_apply_prices.py -q`
 Expected: FAIL (ImportError).
 
-- [ ] **Step 3: Implementacja — dopisz do `wz_service.py`**
+- [x] **Step 3: Implementacja — dopisz do `wz_service.py`**
 
 ```python
 def apply_wz_prices(lines: List[Dict[str, Any]], prices: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], float]:
@@ -263,12 +263,12 @@ def apply_wz_prices(lines: List[Dict[str, Any]], prices: List[Dict[str, Any]]) -
     return out, total
 ```
 
-- [ ] **Step 4: Run — PASS**
+- [x] **Step 4: Run — PASS**
 
 Run: `cd backend && pytest tests/test_wz_apply_prices.py -q`
 Expected: PASS (4 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/services/wz_service.py backend/tests/test_wz_apply_prices.py
@@ -283,7 +283,7 @@ git commit -m "feat(wz): apply_wz_prices — nakładanie cen na pozycje WZ (TDD)
 - Modify: `backend/app/services/wz_service.py`
 - Modify: `backend/app/routes/wz.py`
 
-- [ ] **Step 1: Usługa — dopisz do `wz_service.py`** (po `create_manual_wz`)
+- [x] **Step 1: Usługa — dopisz do `wz_service.py`** (po `create_manual_wz`)
 
 ```python
 def update_wz_prices(wz_id: str, prices: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -308,7 +308,7 @@ def update_wz_prices(wz_id: str, prices: List[Dict[str, Any]]) -> Dict[str, Any]
     return get_wz(wz_id)
 ```
 
-- [ ] **Step 2: Endpoint — dopisz do `routes/wz.py`** (przed `GET /{wz_id}`)
+- [x] **Step 2: Endpoint — dopisz do `routes/wz.py`** (przed `GET /{wz_id}`)
 
 ```python
 @router.patch("/{wz_id}/prices")
@@ -316,12 +316,12 @@ def update_prices(wz_id: str, body: dict):
     return svc.update_wz_prices(wz_id, body.get("prices") or [])
 ```
 
-- [ ] **Step 3: Sanity**
+- [x] **Step 3: Sanity**
 
 Run: `cd backend && pytest tests/ -q && python -c "import app.routes.wz"`
 Expected: PASS, brak ImportError.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add backend/app/services/wz_service.py backend/app/routes/wz.py
@@ -336,7 +336,7 @@ git commit -m "feat(wz): update_wz_prices + PATCH /api/wz/{id}/prices"
 - Modify: `src/lib/api.ts` (w `wzApi`)
 - Modify: `src/pages/office/WzDocumentsPage.tsx`
 
-- [ ] **Step 1: `api.ts` — dopisz do `wzApi`**
+- [x] **Step 1: `api.ts` — dopisz do `wzApi`**
 
 ```typescript
   updatePrices: (id: string, prices: { index: number; price: number }[]) =>
@@ -345,7 +345,7 @@ git commit -m "feat(wz): update_wz_prices + PATCH /api/wz/{id}/prices"
 
 (Helper `patch` już istnieje w `api.ts`.)
 
-- [ ] **Step 2: `WzDocumentsPage.tsx` — edytor cen**
+- [x] **Step 2: `WzDocumentsPage.tsx` — edytor cen**
 
 Przy WZ `!d.valued && d.status === 'wstepny'` przycisk „Uzupełnij ceny".
 Klik → `wzApi.byId(d.id)` → rozwija wiersz edycji pod dokumentem: tabelka
@@ -354,12 +354,12 @@ przycisk „Zapisz ceny" → `wzApi.updatePrices(d.id, prices)` → odśwież li
 (`wzApi.list()`), zwiń edytor. Błąd → komunikat w wierszu (styl jak `err`
 w `WzNewPage`). Stan: `editId: string | null`, `editLines`, `editErr`.
 
-- [ ] **Step 3: Typecheck + build**
+- [x] **Step 3: Typecheck + build**
 
 Run: `npm run typecheck && npm run build`
 Expected: 0 błędów.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/lib/api.ts src/pages/office/WzDocumentsPage.tsx
@@ -376,7 +376,7 @@ git commit -m "feat(wz): edytor cen na liście WZ (uzupełnianie cen po wydaniu)
 - Modify: `backend/app/services/wz_service.py`
 - Test: `backend/tests/test_wz_from_order.py`
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 `backend/tests/test_wz_from_order.py`:
 
@@ -429,12 +429,12 @@ def test_skips_lines_without_production():
     assert lines == [] and produced == 0
 ```
 
-- [ ] **Step 2: Run — FAIL**
+- [x] **Step 2: Run — FAIL**
 
 Run: `cd backend && pytest tests/test_wz_from_order.py -q`
 Expected: FAIL (ImportError).
 
-- [ ] **Step 3: Implementacja — dopisz do `wz_service.py`**
+- [x] **Step 3: Implementacja — dopisz do `wz_service.py`**
 
 ```python
 def wz_order_incomplete(produced: int, ordered: int) -> bool:
@@ -477,12 +477,12 @@ def build_order_wz_lines(plan_lines: List[Dict[str, Any]]) -> Tuple[List[Dict[st
     return lines, produced
 ```
 
-- [ ] **Step 4: Run — PASS**
+- [x] **Step 4: Run — PASS**
 
 Run: `cd backend && pytest tests/test_wz_from_order.py -q`
 Expected: PASS (5 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/services/wz_service.py backend/tests/test_wz_from_order.py
@@ -500,7 +500,7 @@ Wzorzec rozchodu z `close_dispatch`: dopasowanie `finished_goods` po
 `(batch_no, recipe_id)` (bez `produced_date` — zamówienie może być realizowane
 z kilku dni), FOR UPDATE, greedy po `qty_available`, brak stanu → 400 + rollback.
 
-- [ ] **Step 1: Implementacja — dopisz do `wz_service.py`** (po `update_wz_prices`)
+- [x] **Step 1: Implementacja — dopisz do `wz_service.py`** (po `update_wz_prices`)
 
 ```python
 def create_wz_from_order(order_id: str) -> Dict[str, Any]:
@@ -594,12 +594,12 @@ def create_wz_from_order(order_id: str) -> Dict[str, Any]:
 
 Wymaga `cx_query_all` w imporcie z `app.db` (dopisz do istniejącego importu).
 
-- [ ] **Step 2: Sanity**
+- [x] **Step 2: Sanity**
 
 Run: `cd backend && pytest tests/ -q && python -c "import app.services.wz_service"`
 Expected: PASS, brak ImportError.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add backend/app/services/wz_service.py
@@ -613,7 +613,7 @@ git commit -m "feat(wz): create_wz_from_order — WZ z zamówienia z rozchodem F
 **Files:**
 - Modify: `backend/app/routes/wz.py`
 
-- [ ] **Step 1: Endpoint** (obok `POST /manual`, przed `GET /{wz_id}`)
+- [x] **Step 1: Endpoint** (obok `POST /manual`, przed `GET /{wz_id}`)
 
 ```python
 @router.post("/from-order")
@@ -624,12 +624,12 @@ def from_order(body: dict):
     return svc.create_wz_from_order(order_id)
 ```
 
-- [ ] **Step 2: Sanity**
+- [x] **Step 2: Sanity**
 
 Run: `cd backend && python -c "import app.routes.wz" && pytest tests/ -q`
 Expected: brak ImportError, PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add backend/app/routes/wz.py
@@ -644,14 +644,14 @@ git commit -m "feat(wz): POST /api/wz/from-order"
 - Modify: `src/lib/api.ts` (w `wzApi`)
 - Modify: `src/pages/office/ClientOrdersPage.tsx`
 
-- [ ] **Step 1: `api.ts` — dopisz do `wzApi`**
+- [x] **Step 1: `api.ts` — dopisz do `wzApi`**
 
 ```typescript
   fromOrder: (orderId: string) =>
     post<WzDoc & { incomplete?: boolean }>('/wz/from-order', { orderId }),
 ```
 
-- [ ] **Step 2: `ClientOrdersPage.tsx` — przycisk „WZ"** (obok przycisku HDI, wzorzec 1:1 jak HDI ~linia 507-528)
+- [x] **Step 2: `ClientOrdersPage.tsx` — przycisk „WZ"** (obok przycisku HDI, wzorzec 1:1 jak HDI ~linia 507-528)
 
 ```tsx
                             <button
@@ -679,12 +679,12 @@ git commit -m "feat(wz): POST /api/wz/from-order"
 
 Dodaj `wzApi` do importu z `@/lib/api`.
 
-- [ ] **Step 3: Typecheck + build**
+- [x] **Step 3: Typecheck + build**
 
 Run: `npm run typecheck && npm run build`
 Expected: 0 błędów.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/lib/api.ts src/pages/office/ClientOrdersPage.tsx
@@ -695,12 +695,12 @@ git commit -m "feat(wz): przycisk WZ z zamówienia na liście zamówień"
 
 ### Task 10: Weryfikacja końcowa + deploy + smoke na żywej bazie
 
-- [ ] **Step 1: Pełny przebieg testów i builda**
+- [x] **Step 1: Pełny przebieg testów i builda**
 
 Run: `cd backend && pytest tests/ -q` oraz `npm run typecheck && npm run build`
 Expected: wszystko PASS / 0 błędów.
 
-- [ ] **Step 2: Deploy backend** (jak zawsze: kopiowanie plików, NIE git)
+- [x] **Step 2: Deploy backend** (jak zawsze: kopiowanie plików, NIE git)
 
 ```bash
 cp backend/app/services/wz_service.py backend/app/services/dispatches_service.py /opt/kebab/app/backend/app/services/
@@ -709,13 +709,13 @@ systemctl restart kebab-mes.service
 curl -s http://127.0.0.1:8010/api/health
 ```
 
-- [ ] **Step 3: Deploy frontend** (zachowując stare hashe assetów — Tauri!)
+- [x] **Step 3: Deploy frontend** (zachowując stare hashe assetów — Tauri!)
 
 ```bash
 cp -r dist/. /opt/kebab/app/dist/
 ```
 
-- [ ] **Step 4: Smoke na żywej bazie** (spec: „zamknięcie testowego wydania tworzy WZ i jeden OUT pod source_id=wz; brak podwójnego ruchu")
+- [x] **Step 4: Smoke na żywej bazie** (spec: „zamknięcie testowego wydania tworzy WZ i jeden OUT pod source_id=wz; brak podwójnego ruchu")
 
 1. `POST /api/wz/from-order` na zamówieniu testowym z `qty_done>0` → dokument
    z liniami, rozchód widoczny: `SELECT * FROM stock_movements WHERE source_type='wz' AND source_id=<wid>`.
@@ -730,4 +730,4 @@ Jeśli krok smoke wymaga danych, których nie wolno ruszać — ogranicz się do
 1-3 (zamówienie testowe) i weryfikacji `close_dispatch` przy najbliższym
 realnym wydaniu.
 
-- [ ] **Step 5: Commit dokumentacji planu (odhaczone checkboxy)**
+- [x] **Step 5: Commit dokumentacji planu (odhaczone checkboxy)**
