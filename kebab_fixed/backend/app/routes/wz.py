@@ -85,12 +85,24 @@ def update_prices(wz_id: str, body: dict):
     return svc.update_wz_prices(wz_id, body.get("prices") or [])
 
 
+@router.get("/from-order/{order_id}/preview")
+def from_order_preview(order_id: str):
+    """Pozycje przyszłego WZ z zamówienia (do okna cen) — bez tworzenia dokumentu."""
+    return svc.preview_order_wz(order_id)
+
+
 @router.post("/from-order")
 def from_order(body: dict):
     order_id = (body.get("orderId") or "").strip()
     if not order_id:
         raise HTTPException(400, "orderId wymagany")
-    return svc.create_wz_from_order(order_id)
+    return svc.create_wz_from_order(
+        order_id,
+        valued=bool(body.get("valued", False)),
+        currency=(body.get("currency") or "PLN"),
+        eur_rate=body.get("eurRate"),
+        prices=body.get("prices") or None,
+    )
 
 
 @router.get("/{wz_id}")

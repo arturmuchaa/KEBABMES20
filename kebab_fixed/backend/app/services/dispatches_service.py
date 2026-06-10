@@ -152,7 +152,7 @@ def close_dispatch(dispatch_id: str) -> Dict[str, Any]:
         if existing_wz:
             wid, wz_number = existing_wz["id"], existing_wz["number"]
         else:
-            issued = date.today().strftime("%d.%m.%Y")
+            issued = date.today().isoformat()
             wid = _insert_wz(
                 conn, source_type="dispatch", source_id=dispatch_id, seller=_seller_block(),
                 buyer=buyer, valued=False, lines=build_goods_wz_lines(goods_with_counts),

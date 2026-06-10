@@ -187,7 +187,7 @@ def generate_wz(
     lines, total = build_wz_lines(items, valued)
     co = get_company()
     today = date.today()
-    issued = issued_date or today.strftime("%d.%m.%Y")
+    issued = issued_date or today.isoformat()
     released = release_date or issued
     place_val = place or co.get("city") or ""
     seller = _seller_block()
@@ -244,7 +244,7 @@ def create_manual_wz(
     lines, total = build_manual_wz_lines(selections, valued)
     co = get_company()
     today = date.today()
-    issued = issued_date or today.strftime("%d.%m.%Y")
+    issued = issued_date or today.isoformat()
     released = release_date or issued
     place_val = place or co.get("city") or ""
     seller = _seller_block()
@@ -357,10 +357,15 @@ def wz_order_incomplete(produced: int, ordered: int) -> bool:
     return ordered > 0 and produced < ordered
 
 
+def _fmt_kg(v: float) -> str:
+    return str(int(v)) if float(v).is_integer() else f"{v:g}"
+
+
 def build_order_wz_lines(plan_lines: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int]:
-    """Linie WZ z linii planu produkcji: pozycja per (receptura, partia) wg
-    batch_allocation (fallback: seasoned_batch_no, jak w HDI). Ilościowe.
-    Zwraca (linie, suma wyprodukowanych szt)."""
+    """Linie WZ z linii planu produkcji: pozycja per (receptura, waga, partia)
+    wg batch_allocation (fallback: seasoned_batch_no, jak w HDI).
+    Jak w WZ ręcznym: nazwa z wagą ("Gold2 40kg"), kg_per_unit/total_kg na
+    linii (wycena ZA KG). Zwraca (linie, suma wyprodukowanych szt)."""
     agg: Dict[Tuple, int] = {}
     produced = 0
     for line in plan_lines or []:
@@ -370,6 +375,7 @@ def build_order_wz_lines(plan_lines: List[Dict[str, Any]]) -> Tuple[List[Dict[st
         produced += qty_done
         name = (line.get("recipe_name") or line.get("product_type_name") or "Kebab").strip()
         rid = line.get("recipe_id")
+        kgpu = float(line.get("kg_per_unit") or 0)
         ba = line.get("batch_allocation") or {}
         alloc = ({bno: int((info or {}).get("pieces") or 0) for bno, info in ba.items()}
                  if isinstance(ba, dict) else {})
@@ -384,19 +390,27 @@ def build_order_wz_lines(plan_lines: List[Dict[str, Any]]) -> Tuple[List[Dict[st
         for bno, pieces in buckets:
             if int(pieces) <= 0:
                 continue
-            key = (rid, name, bno)
+            key = (rid, name, bno, kgpu)
             agg[key] = agg.get(key, 0) + int(pieces)
-    lines = [
-        {"name": name, "qty": qty, "unit": "szt", "batch_no": bno,
-         "price": None, "value": None, "stock_type": "fg", "recipe_id": rid}
-        for (rid, name, bno), qty in sorted(agg.items(), key=lambda kv: (kv[0][1], kv[0][2] or ""))
-    ]
+    lines: List[Dict[str, Any]] = []
+    for (rid, name, bno, kgpu), qty in sorted(
+        agg.items(), key=lambda kv: (kv[0][1], -kv[0][3], kv[0][2] or "")
+    ):
+        ln: Dict[str, Any] = {
+            "name": f"{name} {_fmt_kg(kgpu)}kg" if kgpu > 0 else name,
+            "qty": qty, "unit": "szt", "batch_no": bno,
+            "price": None, "value": None, "stock_type": "fg", "recipe_id": rid,
+        }
+        if kgpu > 0:
+            ln["kg_per_unit"] = round(kgpu, 3)
+            ln["total_kg"] = round(qty * kgpu, 3)
+        lines.append(ln)
     return lines, produced
 
 
-def create_wz_from_order(order_id: str) -> Dict[str, Any]:
-    """WZ z zamówienia: pozycje z qty_done linii planu, rozchód FG, flaga
-    incomplete. Idempotentny per (source_type='order', source_id=order_id)."""
+def _order_wz_payload(order_id: str) -> Dict[str, Any]:
+    """Wspólne dane WZ z zamówienia: zamówienie, linie (z wagą), produkcja,
+    flaga incomplete, dane odbiorcy. Używane przez podgląd i wystawienie."""
     order = query_one("SELECT * FROM client_orders WHERE id=%s", (order_id,))
     if not order:
         raise HTTPException(404, "Zamówienie nie znalezione")
@@ -405,19 +419,19 @@ def create_wz_from_order(order_id: str) -> Dict[str, Any]:
     # wpisany na tablecie przed anulowaniem).
     plan_lines = query_all(
         """SELECT pl.qty_done, pl.recipe_id, pl.recipe_name, pl.product_type_name,
-                  pl.batch_allocation, pl.seasoned_batch_no, pl.seasoned_batch_nos
+                  pl.kg_per_unit, pl.batch_allocation, pl.seasoned_batch_no,
+                  pl.seasoned_batch_nos
            FROM production_plan_lines pl
            JOIN production_plans pp ON pp.id = pl.plan_id
            WHERE pl.client_order_id=%s AND COALESCE(pl.qty_done,0) > 0
              AND pp.status <> 'cancelled'""",
         (order_id,))
     lines, produced = build_order_wz_lines(plan_lines)
-    if not lines:
-        raise HTTPException(400, "Brak wyprodukowanych pozycji do WZ")
 
     ordered = query_one(
         "SELECT COALESCE(SUM(qty),0) AS q FROM client_order_lines WHERE order_id=%s", (order_id,))
-    incomplete = wz_order_incomplete(produced, int((ordered or {}).get("q") or 0))
+    ordered_qty = int((ordered or {}).get("q") or 0)
+    incomplete = wz_order_incomplete(produced, ordered_qty)
 
     # Klient jak w HDI: najpierw client_id, potem nazwa.
     client = None
@@ -432,7 +446,53 @@ def create_wz_from_order(order_id: str) -> Dict[str, Any]:
              "address": f"{client.get('address') or ''} {client.get('city') or ''}".strip(),
              "nip": client.get("nip") or ""}
 
-    issued = date.today().strftime("%d.%m.%Y")
+    return {"order": order, "lines": lines, "produced": produced,
+            "ordered": ordered_qty, "incomplete": incomplete, "buyer": buyer}
+
+
+def preview_order_wz(order_id: str) -> Dict[str, Any]:
+    """Podgląd pozycji WZ z zamówienia (do okna cen) — bez tworzenia dokumentu."""
+    p = _order_wz_payload(order_id)
+    existing = query_one(
+        "SELECT id, number, valued FROM wz_documents WHERE source_type='order' AND source_id=%s "
+        "ORDER BY created_at LIMIT 1", (order_id,))
+    return {
+        "order_id": order_id,
+        "order_no": p["order"].get("order_no"),
+        "buyer_name": p["buyer"].get("name"),
+        "buyer_nip": p["buyer"].get("nip"),
+        "produced": p["produced"],
+        "ordered": p["ordered"],
+        "incomplete": p["incomplete"],
+        "lines": p["lines"],
+        "existing": ({"id": existing["id"], "number": existing["number"],
+                      "valued": existing["valued"]} if existing else None),
+    }
+
+
+def create_wz_from_order(
+    order_id: str,
+    valued: bool = False,
+    currency: str = "PLN",
+    eur_rate: Optional[float] = None,
+    prices: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """WZ z zamówienia: pozycje z qty_done linii planu, rozchód FG, flaga
+    incomplete. Idempotentny per (source_type='order', source_id=order_id).
+
+    valued + prices = [{index, price}] → wycena ZA KG (apply_wz_prices liczy
+    po total_kg linii) w walucie currency (przy EUR eur_rate = kurs NBP)."""
+    p = _order_wz_payload(order_id)
+    order, buyer, incomplete = p["order"], p["buyer"], p["incomplete"]
+    lines = p["lines"]
+    if not lines:
+        raise HTTPException(400, "Brak wyprodukowanych pozycji do WZ")
+
+    total = 0.0
+    if valued and prices:
+        lines, total = apply_wz_prices(lines, prices)
+
+    issued = date.today().isoformat()
     notes = "UWAGA: zamówienie zrealizowane częściowo — może brakować sztuk." if incomplete else ""
 
     with transaction() as conn:
@@ -447,9 +507,9 @@ def create_wz_from_order(order_id: str) -> Dict[str, Any]:
 
         wid = _insert_wz(
             conn, source_type="order", source_id=order_id, seller=_seller_block(),
-            buyer=buyer, valued=False, lines=lines, total=0.0,
+            buyer=buyer, valued=valued, lines=lines, total=total,
             place=get_company().get("city") or "", issued=issued, released=issued,
-            notes=notes)
+            notes=notes, currency=currency, eur_rate=eur_rate)
 
         for ln in lines:
             need = int(ln["qty"])

@@ -1107,8 +1107,18 @@ export const wzApi = {
   }) => post<WzDoc>('/wz/manual', body),
   updatePrices: (id: string, prices: { index: number; price: number }[]) =>
     patch<WzDoc>(`/wz/${encodeURIComponent(id)}/prices`, { prices }),
-  fromOrder: (orderId: string) =>
-    post<WzDoc & { incomplete?: boolean }>('/wz/from-order', { orderId }),
+  fromOrderPreview: (orderId: string) =>
+    get<{
+      order_id: string; order_no: string; buyer_name: string; buyer_nip: string
+      produced: number; ordered: number; incomplete: boolean
+      lines: WzLine[]
+      existing: { id: string; number: string; valued: boolean } | null
+    }>(`/wz/from-order/${encodeURIComponent(orderId)}/preview`),
+  fromOrder: (orderId: string, opts?: {
+    valued?: boolean; currency?: string; eurRate?: number | null
+    prices?: { index: number; price: number }[]
+  }) =>
+    post<WzDoc & { incomplete?: boolean }>('/wz/from-order', { orderId, ...(opts || {}) }),
   pdfUrl: (id: string) => `${BASE}/wz/${encodeURIComponent(id)}/pdf`,
 }
 

@@ -56,3 +56,30 @@ def test_skips_zero_piece_batches_in_allocation():
 def test_skips_lines_without_production():
     lines, produced = build_order_wz_lines([{"qty_done": 0, "recipe_name": "X"}])
     assert lines == [] and produced == 0
+
+
+def test_lines_carry_weight_like_manual_wz():
+    # Jak w WZ ręcznym: nazwa z wagą, kg_per_unit/total_kg na linii (wycena za kg)
+    plan_lines = [{
+        "qty_done": 10, "recipe_id": "r1", "recipe_name": "Gold2", "kg_per_unit": 40,
+        "batch_allocation": {"353": {"pieces": 10}},
+    }]
+    lines, produced = build_order_wz_lines(plan_lines)
+    assert produced == 10
+    assert lines[0]["name"] == "Gold2 40kg"
+    assert lines[0]["kg_per_unit"] == 40 and lines[0]["total_kg"] == 400
+    assert lines[0]["qty"] == 10 and lines[0]["batch_no"] == "353"
+
+
+def test_lines_split_per_weight_same_recipe():
+    # Gold2 40kg i Gold2 30kg to OSOBNE pozycje (jak w zamyśle: rodzaj+waga)
+    plan_lines = [
+        {"qty_done": 10, "recipe_id": "r1", "recipe_name": "Gold2", "kg_per_unit": 40,
+         "seasoned_batch_no": "353"},
+        {"qty_done": 30, "recipe_id": "r1", "recipe_name": "Gold2", "kg_per_unit": 30,
+         "seasoned_batch_no": "353"},
+    ]
+    lines, produced = build_order_wz_lines(plan_lines)
+    assert produced == 40
+    assert [(l["name"], l["qty"], l.get("total_kg")) for l in lines] == [
+        ("Gold2 40kg", 10, 400), ("Gold2 30kg", 30, 900)]

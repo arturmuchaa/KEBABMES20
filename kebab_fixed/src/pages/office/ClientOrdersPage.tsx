@@ -6,6 +6,7 @@ import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, clientsApi, packagingApi } from '@/lib/apiClient'
 import { hdiApi, wzApi } from '@/lib/api'
 import { CmrFormModal } from '@/components/cmr/CmrFormModal'
+import { WzFromOrderModal } from '@/components/wz/WzFromOrderModal'
 import { useClientNames } from '@/lib/clientNames'
 import { fmtKg, fmtDatePl, todayIso, cn } from '@/lib/utils'
 import {
@@ -229,6 +230,7 @@ export function ClientOrdersPage() {
   const [modal,        setModal]        = useState(false)
   const [editOrder,    setEditOrder]    = useState<ClientOrder | null>(null)
   const [cmrOrderId,   setCmrOrderId]   = useState<string | null>(null)
+  const [wzOrderId,    setWzOrderId]    = useState<string | null>(null)
   const [expanded,     setExpanded]     = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState('')
   const [search,       setSearch]       = useState('')
@@ -527,38 +529,7 @@ export function ClientOrdersPage() {
                               HDI
                             </button>
                             <button
-                              onClick={async (e) => {
-                                e.stopPropagation()
-                                try {
-                                  // WZ liczy produkcję zaraportowaną na tablecie (qty_done) —
-                                  // skanowanie palet NIE jest wymagane. Przy brakach pytamy
-                                  // PRZED wystawieniem: Anuluj / wystaw mimo to.
-                                  const prog = await clientOrdersApi.productionProgress(o.id)
-                                  const done  = (prog?.lines ?? []).reduce((s: number, l: any) => s + (l.qtyReported ?? 0), 0)
-                                  const total = (prog?.lines ?? []).reduce((s: number, l: any) => s + (l.qtyTotal ?? 0), 0)
-                                  if (done <= 0) {
-                                    alert(`Brak zaraportowanej produkcji dla tego zamówienia (0 z ${total} szt).\n\n` +
-                                          `WZ z zamówienia powstaje ze sztuk wpisanych na tablecie produkcyjnym ` +
-                                          `(skanowanie palet nie jest wymagane). Zakończ produkcję na tablecie ` +
-                                          `albo wystaw WZ ręcznie z magazynu (Dokumenty WZ → Nowy WZ).`)
-                                    return
-                                  }
-                                  if (done < total) {
-                                    const ok = confirm(
-                                      `UWAGA: zaraportowano ${done} z ${total} szt zamówienia.\n\n` +
-                                      `Produkcja nie została w pełni wpisana na tablecie — dokument ` +
-                                      `powstanie na stan faktyczny (${done} szt) i może zawierać braki.\n\n` +
-                                      `OK = wystaw WZ mimo to · Anuluj = przerwij`)
-                                    if (!ok) return
-                                  }
-                                  const r = await wzApi.fromOrder(o.id)
-                                  const url = `/office/wz/${r.id}/druk`
-                                  const win = window.open(url, '_blank')
-                                  if (!win || win.closed || typeof win.closed === 'undefined') window.location.href = url
-                                } catch (err) {
-                                  alert(err instanceof Error ? err.message : 'Błąd wystawiania WZ')
-                                }
-                              }}
+                              onClick={(e) => { e.stopPropagation(); setWzOrderId(o.id) }}
                               className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-amber-700 hover:bg-amber-50"
                               title="Wystaw WZ (rozchód ze stanu)"
                             >
@@ -743,6 +714,7 @@ export function ClientOrdersPage() {
       </Dialog>
 
       {cmrOrderId && <CmrFormModal orderId={cmrOrderId} onClose={() => setCmrOrderId(null)} />}
+      {wzOrderId && <WzFromOrderModal orderId={wzOrderId} onClose={() => setWzOrderId(null)} />}
 
     </div>
   )

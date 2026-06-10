@@ -16,7 +16,12 @@ export const fmtKg = (n: number | string, d = 2): string => {
 }
 export const fmtPct    = (n: number | string, d = 2) => Number(n).toFixed(d).replace('.', ',') + '%'
 export const fmtDate   = (d?: string) => d ? d.slice(0, 10) : '—'
-export const fmtDatePl = (d?: string) => { if (!d) return '—'; const [y,m,day] = d.slice(0,10).split('-'); return `${day}.${m}.${y}` }
+export const fmtDatePl = (d?: string) => {
+  if (!d) return '—'
+  if (d.includes('.')) return d // już "dd.mm.rrrr" (starsze dokumenty WZ) — nie psuć
+  const [y, m, day] = d.slice(0, 10).split('-')
+  return day && m ? `${day}.${m}.${y}` : d
+}
 export const fmtPln    = (n: number | string) => Number(n).toLocaleString('pl-PL', { minimumFractionDigits:2, maximumFractionDigits:2 }) + ' zł'
 export const todayIso  = () => new Date().toISOString().slice(0, 10)
 
