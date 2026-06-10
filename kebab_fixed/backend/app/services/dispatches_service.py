@@ -1,10 +1,13 @@
 """Wydania (dispatches) — wydanie luzem sztuk + rozchód magazynu wyrobów."""
+from datetime import date
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
 from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
+from app.services.settings_service import get_company
+from app.services.wz_service import _insert_wz, _seller_block, build_dispatch_wz_lines
 from app.utils.ids import cuid, now_iso
 from app.utils.stock import create_stock_movement
 from app.utils.unit_codes import (
@@ -103,6 +106,37 @@ def close_dispatch(dispatch_id: str) -> Dict[str, Any]:
             raise HTTPException(400, "Brak sztuk na wydaniu")
 
         groups = group_units_for_out(units)
+
+        # WZ z zawartości wydania (ilościowy, ceny później) — idempotentnie.
+        recipe_ids = sorted({k[2] for k in groups if k[2]})
+        recipe_names: Dict[str, str] = {}
+        if recipe_ids:
+            for r in cx_query_all(conn, "SELECT id, name FROM recipes WHERE id = ANY(%s)", (recipe_ids,)):
+                recipe_names[r["id"]] = r.get("name") or ""
+
+        buyer: Dict[str, Any] = {"name": disp.get("client_name") or "", "address": "", "nip": ""}
+        if disp.get("client_id"):
+            cli = cx_query_one(conn, "SELECT name, address, city, nip FROM clients WHERE id=%s",
+                               (disp["client_id"],))
+            if cli:
+                buyer = {"name": cli.get("name") or buyer["name"],
+                         "address": f"{cli.get('address') or ''} {cli.get('city') or ''}".strip(),
+                         "nip": cli.get("nip") or ""}
+
+        existing_wz = cx_query_one(
+            conn, "SELECT id, number FROM wz_documents WHERE source_type='dispatch' AND source_id=%s "
+                  "ORDER BY created_at LIMIT 1", (dispatch_id,))
+        if existing_wz:
+            wid, wz_number = existing_wz["id"], existing_wz["number"]
+        else:
+            issued = date.today().strftime("%d.%m.%Y")
+            wid = _insert_wz(
+                conn, source_type="dispatch", source_id=dispatch_id, seller=_seller_block(),
+                buyer=buyer, valued=False, lines=build_dispatch_wz_lines(groups, recipe_names),
+                total=0.0, place=get_company().get("city") or "", issued=issued,
+                released=issued, notes="")
+            wz_number = cx_query_one(conn, "SELECT number FROM wz_documents WHERE id=%s", (wid,))["number"]
+
         for (produced_date, batch_no, recipe_id), g in groups.items():
             rows = cx_query_all(
                 conn,
@@ -124,7 +158,7 @@ def close_dispatch(dispatch_id: str) -> Dict[str, Any]:
                     create_stock_movement(
                         conn, product_type="finished_goods", batch_id=row["id"],
                         qty=take * float(row.get("kg_per_unit") or 0),
-                        movement_type="OUT", source_type="dispatch", source_id=dispatch_id,
+                        movement_type="OUT", source_type="wz", source_id=wid,
                     )
                     remaining -= take
                 if remaining == 0:
@@ -136,8 +170,9 @@ def close_dispatch(dispatch_id: str) -> Dict[str, Any]:
         cx_execute(conn, "UPDATE finished_units SET status=%s WHERE dispatch_id=%s", (SHIPPED, dispatch_id))
         cx_execute(conn, "UPDATE dispatches SET status='shipped', shipped_at=%s WHERE id=%s",
                    (now_iso(), dispatch_id))
-        logger.info("dispatch.closed", extra={"dispatch_id": dispatch_id, "units": len(units)})
-        return {"id": dispatch_id, "status": "shipped", "units": len(units)}
+        logger.info("dispatch.closed", extra={"dispatch_id": dispatch_id, "units": len(units), "wz_id": wid})
+        return {"id": dispatch_id, "status": "shipped", "units": len(units),
+                "wzId": wid, "wzNumber": wz_number}
 
 
 def dispatch_detail(dispatch_id: str) -> Dict[str, Any]:
