@@ -346,6 +346,8 @@ def build_order_wz_lines(plan_lines: List[Dict[str, Any]]) -> Tuple[List[Dict[st
                 sbn = lst[0] if lst else ""
             buckets = [(sbn or "", qty_done)]
         for bno, pieces in buckets:
+            if int(pieces) <= 0:
+                continue
             key = (rid, name, bno)
             agg[key] = agg.get(key, 0) + int(pieces)
     lines = [

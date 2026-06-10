@@ -41,6 +41,18 @@ def test_aggregates_same_recipe_and_batch_across_lines():
     assert lines[0]["qty"] == 5 and produced == 5
 
 
+def test_skips_zero_piece_batches_in_allocation():
+    # Realny przypadek: alokacja zawiera partię z pieces=0 (np. PP1) obok
+    # właściwej — pozycja zerowa nie może trafić na dokument.
+    plan_lines = [{
+        "qty_done": 10, "recipe_id": "r1", "recipe_name": "GOLD KEBAB",
+        "batch_allocation": {"349": {"pieces": 10}, "PP1": {"pieces": 0}},
+    }]
+    lines, produced = build_order_wz_lines(plan_lines)
+    assert [(l["batch_no"], l["qty"]) for l in lines] == [("349", 10)]
+    assert produced == 10
+
+
 def test_skips_lines_without_production():
     lines, produced = build_order_wz_lines([{"qty_done": 0, "recipe_name": "X"}])
     assert lines == [] and produced == 0
