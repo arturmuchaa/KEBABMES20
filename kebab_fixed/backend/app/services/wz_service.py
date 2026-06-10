@@ -455,13 +455,25 @@ def create_wz_from_order(order_id: str) -> Dict[str, Any]:
             need = int(ln["qty"])
             if need <= 0:
                 continue
+            # Linia z planu nosi partię MIĘSA ("353"); finished_goods.batch_no to
+            # partia WYROBU ("ddmmrr 353") — równość nigdy nie zachodzi. Dopasowanie
+            # po seasoned_batch_nos (tablica partii mięsa wyrobu). Pierwszeństwo:
+            # wyroby wyprodukowane pod TO zamówienie → magazynowe → pozostałe.
+            line_batch = (ln.get("batch_no") or "").strip()
             sql = ("SELECT id, qty_available, kg_per_unit FROM finished_goods "
-                   "WHERE batch_no=%s")
-            params: List[Any] = [ln.get("batch_no")]
+                   "WHERE COALESCE(qty_available,0) > 0")
+            params: List[Any] = []
+            if line_batch:
+                sql += " AND %s = ANY(seasoned_batch_nos)"
+                params.append(line_batch)
             if ln.get("recipe_id"):
                 sql += " AND recipe_id=%s"
                 params.append(ln["recipe_id"])
-            sql += " ORDER BY (COALESCE(client_name,'')='') DESC, qty_available DESC FOR UPDATE"
+            if not params:
+                raise HTTPException(400, "Pozycja WZ bez partii i receptury — nie można dopasować stanu")
+            sql += (" ORDER BY (client_order_no=%s) DESC,"
+                    " (COALESCE(client_name,'')='') DESC, qty_available DESC FOR UPDATE")
+            params.append(order.get("order_no") or "")
             rows = cx_query_all(conn, sql, tuple(params))
             for row in rows:
                 take = min(need, max(0, int(row.get("qty_available") or 0)))
