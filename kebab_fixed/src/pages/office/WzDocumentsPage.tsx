@@ -1,12 +1,29 @@
 import { Fragment, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { wzApi, WzDoc, WzLine } from '@/lib/api'
+import { fmtDatePl } from '@/lib/utils'
+import { WzDocumentView } from '@/components/wz/WzDocumentView'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
+import { Plus, Printer, FileText, Eye, FileSpreadsheet, Pencil, ChevronUp } from 'lucide-react'
 
 export function WzDocumentsPage() {
-  const [docs, setDocs] = useState<WzDoc[]>([])
-  const [editId, setEditId] = useState<string | null>(null)
+  const nav = useNavigate()
+  const [docs, setDocs]       = useState<WzDoc[] | null>(null)
+  const [editId, setEditId]   = useState<string | null>(null)
   const [editLines, setEditLines] = useState<WzLine[]>([])
   const [editErr, setEditErr] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [saving, setSaving]   = useState(false)
+  const [previewDoc, setPreviewDoc] = useState<WzDoc | null>(null)
 
   const reload = () => wzApi.list().then(setDocs)
   useEffect(() => { reload() }, [])
@@ -18,6 +35,10 @@ export function WzDocumentsPage() {
       setEditLines(doc.lines || [])
       setEditId(id)
     } catch (e: any) { alert(e?.message || 'Błąd pobierania WZ') }
+  }
+  const openPreview = async (id: string) => {
+    try { setPreviewDoc(await wzApi.byId(id)) }
+    catch (e: any) { alert(e?.message || 'Błąd pobierania WZ') }
   }
   const setPrice = (i: number, v: number) =>
     setEditLines(ls => ls.map((l, j) => j === i ? { ...l, price: v } : l))
@@ -36,77 +57,164 @@ export function WzDocumentsPage() {
   }
 
   return (
-    <div style={{ padding: 24 }}>
-      <h1 style={{ fontSize: 22, marginBottom: 16 }}>Dokumenty WZ</h1>
-      <a href="/office/wz/nowy" style={{ display: 'inline-block', marginBottom: 12, padding: '6px 12px', background: '#111', color: '#fff', borderRadius: 4, textDecoration: 'none' }}>+ Nowy WZ</a>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr>{['Numer', 'Data', 'Odbiorca', 'Wartość', 'Status', ''].map((h, i) => (
-            <th key={i} style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>{h}</th>))}
-          </tr>
-        </thead>
-        <tbody>
-          {docs.map(d => (
-            <Fragment key={d.id}>
-              <tr>
-                <td style={{ padding: 8 }}>{d.number}</td>
-                <td style={{ padding: 8 }}>{d.issued_date}</td>
-                <td style={{ padding: 8 }}>{d.buyer_name}</td>
-                <td style={{ padding: 8, textAlign: 'right' }}>{d.valued ? (d.total_value ?? 0).toFixed(2) : '—'}</td>
-                <td style={{ padding: 8 }}>{d.status}</td>
-                <td style={{ padding: 8 }}>
-                  <a href={`/office/wz/${d.id}/druk`} target="_blank" rel="noreferrer">Drukuj</a>
-                  {' · '}
-                  <a href={wzApi.pdfUrl(d.id)} target="_blank" rel="noreferrer">PDF</a>
-                  {!d.valued && d.status === 'wstepny' && (
-                    <>
-                      {' · '}
-                      <button onClick={() => editId === d.id ? setEditId(null) : openEditor(d.id)}
-                              style={{ color: '#b45309', background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}>
-                        {editId === d.id ? 'Zwiń' : 'Uzupełnij ceny'}
-                      </button>
-                    </>
+    <div className="space-y-4 animate-fade-in">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold leading-tight">Dokumenty WZ</h1>
+          <div className="text-[11px] text-muted-foreground">Wydania zewnętrzne — sprzedaż z magazynu</div>
+        </div>
+        <Button className="gap-1.5" onClick={() => nav('/office/wz/nowy')}>
+          <Plus size={14} /> Nowy WZ
+        </Button>
+      </div>
+
+      <Card>
+        <div className="px-4 py-2.5 border-b">
+          <span className="text-[13px] font-semibold">{docs?.length ?? '…'} dokumentów</span>
+        </div>
+        {!docs ? (
+          <div className="p-4 space-y-2">
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-10 w-full" />)}
+          </div>
+        ) : !docs.length ? (
+          <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+            <FileSpreadsheet size={32} />
+            <div className="font-semibold">Brak dokumentów WZ</div>
+            <div className="text-sm">Wystaw pierwszy dokument przyciskiem „Nowy WZ"</div>
+          </div>
+        ) : (
+          <Table className="text-[12px]">
+            <TableHeader>
+              <TableRow>
+                {['Numer', 'Data', 'Odbiorca', 'Wartość', 'Status', ''].map((h, i) => (
+                  <TableHead key={i} className={`text-[9px] uppercase tracking-wider h-8 px-3 ${h === 'Wartość' ? 'text-right' : ''}`}>{h}</TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {docs.map(d => (
+                <Fragment key={d.id}>
+                  <TableRow className="hover:bg-muted/50">
+                    <TableCell className="py-2 px-3 font-mono font-bold text-primary">{d.number}</TableCell>
+                    <TableCell className="py-2 px-3">{fmtDatePl(d.issued_date)}</TableCell>
+                    <TableCell className="py-2 px-3 font-medium">{d.buyer_name}</TableCell>
+                    <TableCell className="py-2 px-3 text-right font-mono">
+                      {d.valued ? `${(d.total_value ?? 0).toFixed(2)} zł` : <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell className="py-2 px-3">
+                      {d.valued
+                        ? <Badge variant="success" className="text-[10px]">Wyceniony</Badge>
+                        : <Badge variant="warning" className="text-[10px]">Do wyceny</Badge>}
+                    </TableCell>
+                    <TableCell className="py-1.5 px-3">
+                      <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
+                                title="Podgląd" onClick={() => openPreview(d.id)}>
+                          <Eye size={13} />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
+                                title="Drukuj" onClick={() => window.open(`/office/wz/${d.id}/druk`, '_blank')}>
+                          <Printer size={13} />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
+                                title="PDF" onClick={() => window.open(wzApi.pdfUrl(d.id), '_blank')}>
+                          <FileText size={13} />
+                        </Button>
+                        {!d.valued && d.status === 'wstepny' && (
+                          <Button variant="outline" size="sm"
+                                  className="h-7 text-[11px] gap-1 text-amber-700 border-amber-200 hover:bg-amber-50"
+                                  onClick={() => editId === d.id ? setEditId(null) : openEditor(d.id)}>
+                            {editId === d.id ? <><ChevronUp size={12} /> Zwiń</> : <><Pencil size={12} /> Uzupełnij ceny</>}
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {editId === d.id && (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={6} className="bg-muted/30 p-4">
+                        <div className="max-w-2xl">
+                          <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+                            Uzupełnij ceny — {d.number}
+                          </div>
+                          <Table className="text-[12px] bg-background rounded-md border">
+                            <TableHeader>
+                              <TableRow>
+                                {['Towar', 'Partia', 'Ilość', 'j.m.', 'Cena', 'Wartość'].map((h, i) => (
+                                  <TableHead key={i} className="text-[9px] uppercase tracking-wider h-7 px-2">{h}</TableHead>
+                                ))}
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {editLines.map((l, i) => (
+                                <TableRow key={i}>
+                                  <TableCell className="py-1.5 px-2 font-medium">{l.name}</TableCell>
+                                  <TableCell className="py-1.5 px-2 font-mono text-green-700">{l.batch_no || '—'}</TableCell>
+                                  <TableCell className="py-1.5 px-2 font-mono">{l.qty}</TableCell>
+                                  <TableCell className="py-1.5 px-2 text-muted-foreground">{l.unit}</TableCell>
+                                  <TableCell className="py-1.5 px-2">
+                                    <Input type="number" min={0} step="0.01" value={l.price ?? ''}
+                                           className="h-8 w-24 font-mono"
+                                           onChange={e => setPrice(i, Number(e.target.value))} />
+                                  </TableCell>
+                                  <TableCell className="py-1.5 px-2 text-right font-mono font-semibold">
+                                    {(l.qty * (l.price ?? 0)).toFixed(2)}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                          <div className="flex items-center justify-between mt-3">
+                            <div className="text-[12px]">
+                              <span className="text-muted-foreground uppercase tracking-wider text-[10px] mr-2">Razem</span>
+                              <span className="font-mono font-bold text-base">{editTotal.toFixed(2)} zł</span>
+                            </div>
+                            <Button size="sm" disabled={saving} onClick={savePrices} className="gap-1.5">
+                              {saving ? 'Zapisywanie…' : 'Zapisz ceny'}
+                            </Button>
+                          </div>
+                          {editErr && (
+                            <div className="text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2 mt-2">
+                              {editErr}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
                   )}
-                </td>
-              </tr>
-              {editId === d.id && (
-                <tr>
-                  <td colSpan={6} style={{ padding: 8, background: '#fafafa', borderBottom: '1px solid #ddd' }}>
-                    <table style={{ borderCollapse: 'collapse', minWidth: 560 }}>
-                      <thead><tr>{['Towar', 'Partia', 'Ilość', 'j.m.', 'Cena', 'Wartość'].map((h, i) => (
-                        <th key={i} style={{ textAlign: 'left', padding: 4, borderBottom: '1px solid #ddd' }}>{h}</th>))}</tr></thead>
-                      <tbody>
-                        {editLines.map((l, i) => (
-                          <tr key={i}>
-                            <td style={{ padding: 4 }}>{l.name}</td>
-                            <td style={{ padding: 4 }}>{l.batch_no}</td>
-                            <td style={{ padding: 4 }}>{l.qty}</td>
-                            <td style={{ padding: 4 }}>{l.unit}</td>
-                            <td style={{ padding: 4 }}>
-                              <input type="number" min={0} step="0.01" value={l.price ?? ''} style={{ width: 90 }}
-                                     onChange={e => setPrice(i, Number(e.target.value))} />
-                            </td>
-                            <td style={{ padding: 4, textAlign: 'right' }}>{(l.qty * (l.price ?? 0)).toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot><tr>
-                        <td colSpan={5} style={{ textAlign: 'right', fontWeight: 700, padding: 4 }}>Razem</td>
-                        <td style={{ textAlign: 'right', fontWeight: 700, padding: 4 }}>{editTotal.toFixed(2)}</td>
-                      </tr></tfoot>
-                    </table>
-                    {editErr && <div style={{ color: '#b91c1c', marginTop: 6 }}>{editErr}</div>}
-                    <button onClick={savePrices} disabled={saving}
-                            style={{ marginTop: 8, padding: '6px 12px', fontWeight: 700 }}>
-                      {saving ? 'Zapisywanie…' : 'Zapisz ceny'}
-                    </button>
-                  </td>
-                </tr>
+                </Fragment>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Card>
+
+      <Dialog open={!!previewDoc} onOpenChange={open => { if (!open) setPreviewDoc(null) }}>
+        <DialogContent className="max-w-[880px] max-h-[85vh] overflow-y-auto bg-surface-3 p-6">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              Podgląd dokumentu {previewDoc?.number}
+              {previewDoc && (
+                <span className="flex gap-1.5">
+                  <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1"
+                          onClick={() => window.open(`/office/wz/${previewDoc.id}/druk`, '_blank')}>
+                    <Printer size={12} /> Drukuj
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1"
+                          onClick={() => window.open(wzApi.pdfUrl(previewDoc.id), '_blank')}>
+                    <FileText size={12} /> PDF
+                  </Button>
+                </span>
               )}
-            </Fragment>
-          ))}
-        </tbody>
-      </table>
+            </DialogTitle>
+          </DialogHeader>
+          {previewDoc && (
+            <div className="shadow-lg border border-surface-4 w-fit mx-auto">
+              <WzDocumentView doc={previewDoc} />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
