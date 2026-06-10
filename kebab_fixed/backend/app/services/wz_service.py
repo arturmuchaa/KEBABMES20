@@ -388,11 +388,15 @@ def create_wz_from_order(order_id: str) -> Dict[str, Any]:
     if not order:
         raise HTTPException(404, "Zamówienie nie znalezione")
 
+    # Plany anulowane nie liczą się do wydania (qty_done mógł zostać
+    # wpisany na tablecie przed anulowaniem).
     plan_lines = query_all(
         """SELECT pl.qty_done, pl.recipe_id, pl.recipe_name, pl.product_type_name,
                   pl.batch_allocation, pl.seasoned_batch_no, pl.seasoned_batch_nos
            FROM production_plan_lines pl
-           WHERE pl.client_order_id=%s AND COALESCE(pl.qty_done,0) > 0""",
+           JOIN production_plans pp ON pp.id = pl.plan_id
+           WHERE pl.client_order_id=%s AND COALESCE(pl.qty_done,0) > 0
+             AND pp.status <> 'cancelled'""",
         (order_id,))
     lines, produced = build_order_wz_lines(plan_lines)
     if not lines:

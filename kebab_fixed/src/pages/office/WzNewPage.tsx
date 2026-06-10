@@ -24,7 +24,7 @@ import {
 
 type Row = {
   stockType: 'fg' | 'raw'; stockId: string; name: string; unit: string
-  qty: number; price: number; batchNo?: string; available: number
+  qtyStr: string; priceStr: string; batchNo?: string; available: number
   kgPerUnit?: number   // FG: waga 1 szt — wycena za kg
 }
 
@@ -33,12 +33,28 @@ const isForeignNip = (nip: string) => {
   return s.length >= 2 && /^[A-Z]{2}/.test(s) && s.slice(0, 2) !== 'PL'
 }
 
+/** "3,25" / "3.25" / "10" → liczba; śmieci → 0. */
+const toNum = (s: string) => {
+  const n = parseFloat((s || '').trim().replace(',', '.'))
+  return Number.isFinite(n) ? n : 0
+}
+/** Zostaw tylko cyfry i jeden separator dziesiętny (przecinek lub kropka). */
+const sanitizeDecimal = (s: string) => {
+  const cleaned = s.replace(/[^\d.,]/g, '')
+  const firstSep = cleaned.search(/[.,]/)
+  if (firstSep === -1) return cleaned
+  return cleaned.slice(0, firstSep + 1) + cleaned.slice(firstSep + 1).replace(/[.,]/g, '')
+}
+const sanitizeInt = (s: string) => s.replace(/\D/g, '')
+
 const fmtKg3 = (n: number) => Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/\.?0+$/, '')
 
+const rowQty   = (r: Row) => toNum(r.qtyStr)
+const rowPrice = (r: Row) => toNum(r.priceStr)
 /** Waga pozycji w kg: FG = szt × kg/szt, surowiec = qty (jednostka kg). */
-const rowKg = (r: Row) => r.kgPerUnit ? r.qty * r.kgPerUnit : (r.unit === 'kg' ? r.qty : 0)
+const rowKg = (r: Row) => r.kgPerUnit ? rowQty(r) * r.kgPerUnit : (r.unit === 'kg' ? rowQty(r) : 0)
 /** Wartość pozycji: cena ZA KG gdy znamy wagę, inaczej za jednostkę. */
-const rowValue = (r: Row) => (rowKg(r) > 0 ? rowKg(r) : r.qty) * r.price
+const rowValue = (r: Row) => (rowKg(r) > 0 ? rowKg(r) : rowQty(r)) * rowPrice(r)
 
 export function WzNewPage() {
   const nav = useNavigate()
@@ -56,7 +72,7 @@ export function WzNewPage() {
 
   const [valued, setValued]           = useState(true)
   const [currency, setCurrency]       = useState<'PLN' | 'EUR'>('PLN')
-  const [eurRate, setEurRate]         = useState<number | ''>('')
+  const [eurRateStr, setEurRateStr]   = useState('')
   const [eurRateDate, setEurRateDate] = useState('')
   const [rateLoading, setRateLoading] = useState(false)
   const [issuedDate, setIssuedDate]   = useState(todayIso())
@@ -83,18 +99,19 @@ export function WzNewPage() {
     }).catch(() => {})
   }, [])
 
+  const eurRate = toNum(eurRateStr)
   const fetchNbpRate = () => {
     setRateLoading(true)
     fetch('https://api.nbp.pl/api/exchangerates/rates/a/eur/?format=json')
       .then(r => r.json())
       .then(d => {
         const rate = d?.rates?.[0]
-        if (rate?.mid) { setEurRate(Number(rate.mid)); setEurRateDate(rate.effectiveDate || '') }
+        if (rate?.mid) { setEurRateStr(String(rate.mid)); setEurRateDate(rate.effectiveDate || '') }
       })
       .catch(() => { /* brak internetu/NBP — kurs można wpisać ręcznie */ })
       .finally(() => setRateLoading(false))
   }
-  useEffect(() => { if (currency === 'EUR' && eurRate === '') fetchNbpRate() }, [currency])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (currency === 'EUR' && !eurRateStr) fetchNbpRate() }, [currency])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedClient = useMemo(() => clients.find(c => c.id === clientId), [clients, clientId])
   const clientName = (selectedClient?.name || selectedClient?.displayName || '').trim()
@@ -102,7 +119,7 @@ export function WzNewPage() {
   const foreign = useMemo(() => isForeignNip(buyer.nip), [buyer.nip])
   const totalValue = rows.reduce((s, r) => s + rowValue(r), 0)
   const totalKg = rows.reduce((s, r) => s + rowKg(r), 0)
-  const overdrawn = rows.filter(r => r.qty > r.available)
+  const overdrawn = rows.filter(r => rowQty(r) > r.available)
   const sym = currency === 'EUR' ? '€' : 'zł'
 
   const pickClient = (id: string) => {
@@ -125,16 +142,16 @@ export function WzNewPage() {
   const addedIds = useMemo(() => new Set(rows.map(r => r.stockId)), [rows])
   const addFg = (g: any) => setRows(r => [...r, {
     stockType: 'fg', stockId: g.id, name: fgName(g),
-    unit: 'szt', qty: 1, price: 0, batchNo: g.batch_no,
+    unit: 'szt', qtyStr: '1', priceStr: '', batchNo: g.batch_no,
     available: Number(g.qty_available || 0),
     kgPerUnit: Number(g.kg_per_unit || 0) || undefined,
   }])
   const addRaw = (b: any) => setRows(r => [...r, {
     stockType: 'raw', stockId: b.id, name: `Surowiec ${b.internal_batch_no}`,
-    unit: 'kg', qty: 1, price: 0, batchNo: b.internal_batch_no,
+    unit: 'kg', qtyStr: '1', priceStr: '', batchNo: b.internal_batch_no,
     available: Number(b.kg_available || 0),
   }])
-  const upd = (i: number, k: 'qty' | 'price', v: number) =>
+  const upd = (i: number, k: 'qtyStr' | 'priceStr', v: string) =>
     setRows(r => r.map((x, j) => j === i ? { ...x, [k]: v } : x))
   const del = (i: number) => setRows(r => r.filter((_, j) => j !== i))
 
@@ -158,12 +175,12 @@ export function WzNewPage() {
     buyer_name: buyer.name, buyer_address: buyer.address, buyer_nip: buyer.nip,
     valued,
     currency,
-    eur_rate: currency === 'EUR' && eurRate !== '' ? Number(eurRate) : null,
+    eur_rate: currency === 'EUR' && eurRate > 0 ? eurRate : null,
     lines: rows.map(r => ({
-      name: r.name, qty: r.qty, unit: r.unit, batch_no: r.batchNo ?? null,
+      name: r.name, qty: rowQty(r), unit: r.unit, batch_no: r.batchNo ?? null,
       kg_per_unit: r.kgPerUnit ?? null,
-      total_kg: r.kgPerUnit ? Math.round(r.qty * r.kgPerUnit * 1000) / 1000 : null,
-      price: valued ? r.price : null, value: valued ? Math.round(rowValue(r) * 100) / 100 : null,
+      total_kg: r.kgPerUnit ? Math.round(rowQty(r) * r.kgPerUnit * 1000) / 1000 : null,
+      price: valued ? rowPrice(r) : null, value: valued ? Math.round(rowValue(r) * 100) / 100 : null,
     })),
     total_value: valued ? Math.round(totalValue * 100) / 100 : undefined,
   }
@@ -171,9 +188,9 @@ export function WzNewPage() {
   const validate = (): string => {
     if (!buyer.name.trim()) return 'Wybierz klienta lub wpisz nazwę odbiorcy'
     if (!rows.length)       return 'Dodaj co najmniej jedną pozycję z magazynu'
-    if (rows.some(r => r.qty <= 0)) return 'Ilość każdej pozycji musi być większa od zera'
+    if (rows.some(r => rowQty(r) <= 0)) return 'Ilość każdej pozycji musi być większa od zera'
     if (overdrawn.length)   return `Ilość przekracza stan magazynowy: ${overdrawn.map(r => r.name).join(', ')}`
-    if (valued && currency === 'EUR' && !(Number(eurRate) > 0))
+    if (valued && currency === 'EUR' && !(eurRate > 0))
       return 'Brak kursu EUR — pobierz z NBP lub wpisz ręcznie'
     return ''
   }
@@ -187,11 +204,11 @@ export function WzNewPage() {
         buyer,
         items: rows.map(r => ({
           stockType: r.stockType, stockId: r.stockId, name: r.name, unit: r.unit,
-          qty: r.qty, price: r.price, batchNo: r.batchNo, kgPerUnit: r.kgPerUnit,
+          qty: rowQty(r), price: rowPrice(r), batchNo: r.batchNo, kgPerUnit: r.kgPerUnit,
         })),
         valued,
         currency,
-        eurRate: currency === 'EUR' && eurRate !== '' ? Number(eurRate) : null,
+        eurRate: currency === 'EUR' && eurRate > 0 ? eurRate : null,
         place: place || undefined,
         issuedDate: issuedDate || undefined,
         releaseDate: releaseDate || undefined,
@@ -415,16 +432,18 @@ export function WzNewPage() {
                   </TableHeader>
                   <TableBody>
                     {rows.map((r, i) => {
-                      const over = r.qty > r.available
+                      const over = rowQty(r) > r.available
                       return (
                         <TableRow key={i}>
                           <TableCell className="py-1.5 px-2 font-medium">{r.name}</TableCell>
                           <TableCell className="py-1.5 px-2 font-mono text-green-700">{r.batchNo || '—'}</TableCell>
                           <TableCell className="py-1.5 px-2">
                             <div className="flex items-center gap-1.5">
-                              <Input type="number" min={0} max={r.available} value={r.qty}
+                              <Input type="text" inputMode={r.unit === 'szt' ? 'numeric' : 'decimal'}
+                                     value={r.qtyStr}
                                      className={cn('h-8 w-20 font-mono', over && 'border-red-400 focus-visible:ring-red-400')}
-                                     onChange={e => upd(i, 'qty', Number(e.target.value))} />
+                                     onFocus={e => e.target.select()}
+                                     onChange={e => upd(i, 'qtyStr', r.unit === 'szt' ? sanitizeInt(e.target.value) : sanitizeDecimal(e.target.value))} />
                               <span className="text-[11px] text-muted-foreground">{r.unit}</span>
                               {over && (
                                 <span title={`Dostępne tylko ${r.available} ${r.unit}`}>
@@ -442,9 +461,11 @@ export function WzNewPage() {
                           </TableCell>
                           {valued && (
                             <TableCell className="py-1.5 px-2">
-                              <Input type="number" min={0} step="0.01" value={r.price}
+                              <Input type="text" inputMode="decimal" placeholder="0,00"
+                                     value={r.priceStr}
                                      className="h-8 w-24 font-mono"
-                                     onChange={e => upd(i, 'price', Number(e.target.value))} />
+                                     onFocus={e => e.target.select()}
+                                     onChange={e => upd(i, 'priceStr', sanitizeDecimal(e.target.value))} />
                             </TableCell>
                           )}
                           {valued && (
@@ -508,10 +529,11 @@ export function WzNewPage() {
                   </div>
                   {currency === 'EUR' && (
                     <div className="flex items-center gap-1.5">
-                      <Input type="number" min={0} step="0.0001" value={eurRate}
+                      <Input type="text" inputMode="decimal" value={eurRateStr}
                              placeholder="kurs EUR"
                              className="h-8 font-mono text-[12px]"
-                             onChange={e => setEurRate(e.target.value === '' ? '' : Number(e.target.value))} />
+                             onFocus={e => e.target.select()}
+                             onChange={e => { setEurRateStr(sanitizeDecimal(e.target.value)); setEurRateDate('') }} />
                       <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" title="Pobierz kurs z NBP"
                               disabled={rateLoading} onClick={fetchNbpRate}>
                         <RefreshCw size={13} className={rateLoading ? 'animate-spin' : ''} />
@@ -520,9 +542,9 @@ export function WzNewPage() {
                   )}
                   {currency === 'EUR' && (
                     <div className="text-[10px] text-muted-foreground">
-                      {eurRate !== '' && eurRateDate
+                      {eurRateStr && eurRateDate
                         ? <>Kurs średni NBP (tab. A) z {eurRateDate}</>
-                        : eurRate !== ''
+                        : eurRateStr
                           ? 'Kurs wpisany ręcznie'
                           : rateLoading ? 'Pobieranie kursu z NBP…' : 'Pobierz kurs z NBP lub wpisz ręcznie'}
                     </div>
@@ -569,9 +591,9 @@ export function WzNewPage() {
                   <span className="font-mono font-bold text-xl">{totalValue.toFixed(2)} <span className="text-[12px] font-medium text-muted-foreground">{sym}</span></span>
                 </div>
               )}
-              {valued && currency === 'EUR' && Number(eurRate) > 0 && totalValue > 0 && (
+              {valued && currency === 'EUR' && eurRate > 0 && totalValue > 0 && (
                 <div className="text-right text-[11px] text-muted-foreground -mt-2">
-                  ≈ {(totalValue * Number(eurRate)).toFixed(2)} zł (kurs {Number(eurRate).toFixed(4)})
+                  ≈ {(totalValue * eurRate).toFixed(2)} zł (kurs {eurRate.toFixed(4)})
                 </div>
               )}
               {err && (

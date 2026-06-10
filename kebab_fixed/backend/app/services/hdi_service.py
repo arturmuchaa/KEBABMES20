@@ -130,12 +130,15 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
     # Źródło prawdy = produkcja zaraportowana na planie (qty_done), aby HDI dało
     # się wystawić w każdym momencie ze stanem faktycznym (NIE finished_units,
     # które są zasilane dopiero przy zamknięciu dnia).
+    # Plany anulowane wykluczone — qty_done mógł zostać wpisany przed anulowaniem.
     lines = query_all(
         """SELECT pl.qty_done, pl.kg_per_unit, pl.recipe_id, pl.recipe_name,
                   pl.product_type_name, pl.batch_allocation, pl.seasoned_batch_no,
                   pl.seasoned_batch_nos, pl.progress_updated_at
            FROM production_plan_lines pl
-           WHERE pl.client_order_id=%s AND COALESCE(pl.qty_done,0) > 0""",
+           JOIN production_plans pp ON pp.id = pl.plan_id
+           WHERE pl.client_order_id=%s AND COALESCE(pl.qty_done,0) > 0
+             AND pp.status <> 'cancelled'""",
         (order_id,),
     )
     recipe_ids = sorted({l.get("recipe_id") for l in lines if l.get("recipe_id")})

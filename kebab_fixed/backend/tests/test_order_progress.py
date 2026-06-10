@@ -19,8 +19,8 @@ def test_cancelled_plan_does_not_count_as_done():
         {"client_order_line_id": "L2", "qty": 30, "qty_done": 0, "plan_status": "cancelled"},
     ]
     r = _by_line(aggregate_order_progress(ORDER_LINES, plan_lines))
-    assert r["L1"] == {"line_id": "L1", "qty_total": 20, "qty_done": 0, "qty_pending": 0, "qty_remaining": 20}
-    assert r["L2"] == {"line_id": "L2", "qty_total": 30, "qty_done": 0, "qty_pending": 0, "qty_remaining": 30}
+    assert r["L1"] == {"line_id": "L1", "qty_total": 20, "qty_done": 0, "qty_pending": 0, "qty_reported": 0, "qty_remaining": 20}
+    assert r["L2"] == {"line_id": "L2", "qty_total": 30, "qty_done": 0, "qty_pending": 0, "qty_reported": 0, "qty_remaining": 30}
 
 
 def test_cancelled_plan_with_tablet_progress_does_not_count():
@@ -75,13 +75,25 @@ def test_mixed_done_cancelled_and_active():
         {"client_order_line_id": "L1", "qty": 6, "qty_done": 0, "plan_status": "active"},
     ]
     r = _by_line(aggregate_order_progress(ORDER_LINES, plan_lines))
-    assert r["L1"] == {"line_id": "L1", "qty_total": 20, "qty_done": 8, "qty_pending": 6, "qty_remaining": 6}
+    assert r["L1"] == {"line_id": "L1", "qty_total": 20, "qty_done": 8, "qty_pending": 6, "qty_reported": 8, "qty_remaining": 6}
 
 
 def test_lines_without_plans_fully_remaining():
     r = _by_line(aggregate_order_progress(ORDER_LINES, []))
     assert r["L1"]["qty_remaining"] == 20
     assert r["L2"]["qty_remaining"] == 30
+
+
+def test_reported_counts_active_plans_for_wz_precheck():
+    # WZ/HDI z zamówienia biorą qty_done niezależnie od statusu planu —
+    # qty_reported musi to odzwierciedlać (tablet wpisał 10 na planie active).
+    plan_lines = [
+        {"client_order_line_id": "L1", "qty": 10, "qty_done": 10, "plan_status": "active"},
+        {"client_order_line_id": "L1", "qty": 5, "qty_done": 5, "plan_status": "cancelled"},
+    ]
+    r = _by_line(aggregate_order_progress(ORDER_LINES, plan_lines))
+    assert r["L1"]["qty_done"] == 0        # plan niezamknięty — postęp formalny 0
+    assert r["L1"]["qty_reported"] == 10   # ale na WZ wejdzie 10 (anulowany nie liczy się)
 
 
 def test_plan_lines_without_order_link_ignored():

@@ -620,6 +620,7 @@ export interface OrderProductionProgressLine {
   qtyTotal: number
   qtyDone: number
   qtyPending: number
+  qtyReported: number   // wpisane na tablecie (bez planów anulowanych) — tyle wejdzie na WZ/HDI
   qtyRemaining: number
 }
 export interface OrderProductionProgress {
@@ -640,6 +641,7 @@ export const clientOrdersApi = {
       qtyTotal:     Number(l.qty_total      ?? l.qtyTotal      ?? 0),
       qtyDone:      Number(l.qty_done       ?? l.qtyDone       ?? 0),
       qtyPending:   Number(l.qty_pending    ?? l.qtyPending    ?? 0),
+      qtyReported:  Number(l.qty_reported   ?? l.qtyReported   ?? 0),
       qtyRemaining: Number(l.qty_remaining  ?? l.qtyRemaining  ?? 0),
     })),
   })),

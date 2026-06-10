@@ -42,8 +42,9 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
   const sym = curSymbol(doc.currency)
   const isEur = (doc.currency || 'PLN').toUpperCase() === 'EUR'
   const totalKg = doc.lines.reduce((s, l) => s + Number(l.total_kg ?? 0), 0)
+  // Bez kolumny "Partia" — numery partii podaje HDI dołączane do WZ.
   const head = [
-    'Lp', 'Nazwa towaru', 'Partia', 'Ilość', 'j.m.',
+    'Lp', 'Nazwa towaru', 'Ilość', 'j.m.',
     ...(hasKg ? ['Waga'] : []),
     ...(doc.valued ? [hasKg ? `Cena/kg [${sym}]` : `Cena jedn. [${sym}]`, `Wartość [${sym}]`] : []),
   ]
@@ -98,7 +99,6 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
             <tr key={i}>
               <td className="border border-[#9a9a9a] px-2 py-1.5 text-center w-9">{i + 1}</td>
               <td className="border border-[#9a9a9a] px-2 py-1.5">{l.name}</td>
-              <td className="border border-[#9a9a9a] px-2 py-1.5 font-mono text-[12px]">{l.batch_no || '—'}</td>
               <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">{l.qty}</td>
               <td className="border border-[#9a9a9a] px-2 py-1.5 w-12">{l.unit}</td>
               {hasKg && (
@@ -117,7 +117,7 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
         {doc.lines.length > 0 && (hasKg || doc.valued) && (
           <tfoot>
             <tr>
-              <td colSpan={5} className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold">Razem</td>
+              <td colSpan={4} className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold">Razem</td>
               {hasKg && (
                 <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold font-mono">{fmtKg3(totalKg)} kg</td>
               )}

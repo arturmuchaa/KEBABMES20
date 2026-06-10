@@ -21,6 +21,7 @@ export function WzDocumentsPage() {
   const [docs, setDocs]       = useState<WzDoc[] | null>(null)
   const [editId, setEditId]   = useState<string | null>(null)
   const [editLines, setEditLines] = useState<WzLine[]>([])
+  const [priceStrs, setPriceStrs] = useState<string[]>([])
   const [editErr, setEditErr] = useState('')
   const [saving, setSaving]   = useState(false)
   const [previewDoc, setPreviewDoc] = useState<WzDoc | null>(null)
@@ -28,11 +29,24 @@ export function WzDocumentsPage() {
   const reload = () => wzApi.list().then(setDocs)
   useEffect(() => { reload() }, [])
 
+  // "3,25" / "3.25" → liczba; pusty/śmieci → 0
+  const toNum = (s: string) => {
+    const n = parseFloat((s || '').trim().replace(',', '.'))
+    return Number.isFinite(n) ? n : 0
+  }
+  const sanitizeDecimal = (s: string) => {
+    const cleaned = s.replace(/[^\d.,]/g, '')
+    const firstSep = cleaned.search(/[.,]/)
+    if (firstSep === -1) return cleaned
+    return cleaned.slice(0, firstSep + 1) + cleaned.slice(firstSep + 1).replace(/[.,]/g, '')
+  }
+
   const openEditor = async (id: string) => {
     setEditErr('')
     try {
       const doc = await wzApi.byId(id)
       setEditLines(doc.lines || [])
+      setPriceStrs((doc.lines || []).map(l => l.price != null ? String(l.price) : ''))
       setEditId(id)
     } catch (e: any) { alert(e?.message || 'Błąd pobierania WZ') }
   }
@@ -40,19 +54,20 @@ export function WzDocumentsPage() {
     try { setPreviewDoc(await wzApi.byId(id)) }
     catch (e: any) { alert(e?.message || 'Błąd pobierania WZ') }
   }
-  const setPrice = (i: number, v: number) =>
-    setEditLines(ls => ls.map((l, j) => j === i ? { ...l, price: v } : l))
+  const setPriceStr = (i: number, v: string) =>
+    setPriceStrs(ps => ps.map((p, j) => j === i ? sanitizeDecimal(v) : p))
   // Pozycje z wagą (total_kg) wyceniane za kg — jak w apply_wz_prices na backendzie
-  const editTotal = editLines.reduce((s, l) => {
+  const lineTotal = (l: WzLine, i: number) => {
     const kg = Number(l.total_kg ?? 0)
-    return s + (kg > 0 ? kg : l.qty) * (l.price ?? 0)
-  }, 0)
+    return (kg > 0 ? kg : l.qty) * toNum(priceStrs[i] ?? '')
+  }
+  const editTotal = editLines.reduce((s, l, i) => s + lineTotal(l, i), 0)
 
   const savePrices = async () => {
     if (!editId) return
     setEditErr(''); setSaving(true)
     try {
-      const prices = editLines.map((l, index) => ({ index, price: l.price ?? 0 }))
+      const prices = editLines.map((_, index) => ({ index, price: toNum(priceStrs[index] ?? '') }))
       await wzApi.updatePrices(editId, prices)
       setEditId(null)
       await reload()
@@ -154,7 +169,6 @@ export function WzDocumentsPage() {
                             <TableBody>
                               {editLines.map((l, i) => {
                                 const kg = Number(l.total_kg ?? 0)
-                                const base = kg > 0 ? kg : l.qty
                                 return (
                                   <TableRow key={i}>
                                     <TableCell className="py-1.5 px-2 font-medium">{l.name}</TableCell>
@@ -163,12 +177,14 @@ export function WzDocumentsPage() {
                                     <TableCell className="py-1.5 px-2 text-muted-foreground">{l.unit}</TableCell>
                                     <TableCell className="py-1.5 px-2 font-mono">{kg > 0 ? `${kg} kg` : '—'}</TableCell>
                                     <TableCell className="py-1.5 px-2">
-                                      <Input type="number" min={0} step="0.01" value={l.price ?? ''}
+                                      <Input type="text" inputMode="decimal" placeholder="0,00"
+                                             value={priceStrs[i] ?? ''}
                                              className="h-8 w-24 font-mono"
-                                             onChange={e => setPrice(i, Number(e.target.value))} />
+                                             onFocus={e => e.target.select()}
+                                             onChange={e => setPriceStr(i, e.target.value)} />
                                     </TableCell>
                                     <TableCell className="py-1.5 px-2 text-right font-mono font-semibold">
-                                      {(base * (l.price ?? 0)).toFixed(2)}
+                                      {lineTotal(l, i).toFixed(2)}
                                     </TableCell>
                                   </TableRow>
                                 )

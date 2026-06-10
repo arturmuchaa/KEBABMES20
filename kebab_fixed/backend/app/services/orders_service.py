@@ -383,6 +383,9 @@ def aggregate_order_progress(
     """Dla każdej linii zamówienia liczy:
       qty_done    — faktycznie wyprodukowane szt (qty_done linii) z planów 'done'
       qty_pending — sumarycznie szt z planów 'draft' i 'active' (zarezerwowane)
+      qty_reported — szt wpisane na tablecie we WSZYSTKICH planach poza
+                     'cancelled' (także aktywnych) — tyle wejdzie na WZ/HDI
+                     z zamówienia, które nie patrzą na status planu
       qty_total   — ilość zamówiona
       qty_remaining — qty_total - qty_done - qty_pending (jeśli > 0)
 
@@ -396,12 +399,14 @@ def aggregate_order_progress(
         lid = pl.get("client_order_line_id")
         if not lid:
             continue
-        a = agg.setdefault(lid, {"qty_done": 0, "qty_pending": 0})
+        a = agg.setdefault(lid, {"qty_done": 0, "qty_pending": 0, "qty_reported": 0})
         status = pl.get("plan_status")
         if status == "done":
             a["qty_done"] += int(pl.get("qty_done") or 0)
         elif status in ("draft", "active"):
             a["qty_pending"] += int(pl.get("qty") or 0)
+        if status != "cancelled":
+            a["qty_reported"] += int(pl.get("qty_done") or 0)
 
     result_lines = []
     for line in order_lines:
@@ -416,6 +421,7 @@ def aggregate_order_progress(
                 "qty_total": qty_total,
                 "qty_done": qty_done,
                 "qty_pending": qty_pending,
+                "qty_reported": int(a.get("qty_reported") or 0),
                 "qty_remaining": qty_remaining,
             }
         )
