@@ -70,6 +70,24 @@ def build_manual_wz_lines(selections: List[Dict[str, Any]], valued: bool) -> Tup
     return lines, total
 
 
+def build_dispatch_wz_lines(groups: Dict, recipe_names: Dict[str, str]) -> List[Dict[str, Any]]:
+    """Pozycje WZ z grup wydania (group_units_for_out): linia ilościowa per
+    (data, partia, receptura) — bez cen (WZ wstępny, valued=False)."""
+    lines: List[Dict[str, Any]] = []
+    for (_produced_date, batch_no, recipe_id), g in (groups or {}).items():
+        lines.append({
+            "name": recipe_names.get(recipe_id) or "Kebab",
+            "qty": int(g.get("count") or 0),
+            "unit": "szt",
+            "batch_no": batch_no,
+            "price": None,
+            "value": None,
+            "stock_type": "fg",
+        })
+    lines.sort(key=lambda l: (l["name"], l["batch_no"] or ""))
+    return lines
+
+
 def is_foreign_nip(nip: Optional[str]) -> bool:
     """Klient zagraniczny, gdy NIP zaczyna się od dwóch liter różnych od 'PL'
     (np. DE, SK, AT). Czyste cyfry lub 'PL…' = krajowy. Puste = krajowy."""
