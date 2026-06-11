@@ -5,12 +5,11 @@
  * - Partie w pozycji: czytelny dropdown zamiast checkboxów
  * - Klient: wybór z listy kontrahentów
  */
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
 import { useClientNames } from '@/lib/clientNames'
 import { productionPlansApi, clientOrdersApi, seasonedMeatApi, packagingApi, clientsApi, finishedUnitsApi } from '@/lib/apiClient'
-import type { OrderProductionProgress } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -33,11 +32,13 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronUp,
+  CornerDownLeft,
   Download,
   Factory,
   Pencil,
   Plus,
   Square,
+  Trash2,
   X,
 } from 'lucide-react'
 import { useProductTypes } from '@/features/products/hooks'
@@ -107,6 +108,57 @@ function computeSelKgAvailForLine(
     available += Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0))
   })
   return available
+}
+
+// Mapa rezerwacji: ile kg z każdej partii zajmują podane linie formularza
+// (zachłannie, w kolejności linii i zaznaczonych partii).
+function computeUsage(lines: PlanLineForm[], seasonedRaw: any[]): Record<string, number> {
+  const map: Record<string, number> = {}
+  lines.forEach(l => {
+    const needed = (parseFloat(l.qty)||0) * (parseFloat(l.kgPerUnit)||0)
+    if (needed <= 0) return
+    const ids = l.seasonedBatchIds?.length>0
+      ? l.seasonedBatchIds
+      : (l.seasonedBatchId ? [l.seasonedBatchId] : [])
+    if (ids.length === 0) return
+    let stillNeeded = needed
+    ids.forEach(id => {
+      if (stillNeeded <= 0) return
+      const s = seasonedRaw.find((x:any)=>x.id===id)
+      if (!s) return
+      const free = Math.max(0, (s.kgFree ?? s.kgAvailable) - (map[id] ?? 0))
+      const take = Math.min(stillNeeded, free)
+      if (take > 0) { map[id] = (map[id]??0) + take; stillNeeded -= take }
+    })
+  })
+  return map
+}
+
+// Automatyczny przydział partii (FEFO) dla nowych linii — pula = wolne kg
+// po odjęciu rezerwacji już istniejących linii formularza.
+function autoAssignNewLines(newLines: PlanLineForm[], existing: PlanLineForm[], seasonedRaw: any[]): PlanLineForm[] {
+  const used = computeUsage(existing, seasonedRaw)
+  const pool = seasonedRaw
+    .map((s:any) => ({
+      id: s.id, recipeId: s.recipeId, expiryDate: s.expiryDate,
+      rem: Math.max(0, (s.kgFree ?? s.kgAvailable) - (used[s.id]??0)),
+    }))
+    .sort((a,b)=>a.expiryDate>b.expiryDate?1:-1)
+  return newLines.map(line => {
+    if (line.seasonedBatchIds?.length>0 || line.seasonedBatchId) return line
+    const needed = (parseFloat(line.qty)||0)*(parseFloat(line.kgPerUnit)||0)
+    if (needed<=0 || !line.recipeId) return line
+    let still = needed
+    const assigned: string[] = []
+    for (const b of pool) {
+      if (still<=0) break
+      if (b.recipeId!==line.recipeId || b.rem<=0.01) continue
+      const take = Math.min(still, b.rem)
+      b.rem -= take; still -= take
+      assigned.push(b.id)
+    }
+    return assigned.length===0 ? line : { ...line, seasonedBatchIds: assigned, seasonedBatchId: assigned[0] }
+  })
 }
 
 const STATUS_LABELS: Record<ProductionPlan['status'], string> = {
@@ -229,223 +281,242 @@ function ImportOrderModal({ orders, meatFreeByRecipe, onImport, onClose }: {
   onClose: () => void
 }) {
   const clientDisplay = useClientNames()
-  const [selectedOrder,   setSelectedOrder]   = useState<string>(orders[0]?.id ?? '')
-  const [selectedLines,   setSelectedLines]   = useState<Set<string>>(new Set())
-  const [progress,        setProgress]        = useState<OrderProductionProgress | null>(null)
-  const [progressLoading, setProgressLoading] = useState(false)
+  const [expandedId,   setExpandedId]   = useState<string|null>(null)
+  const [selected,     setSelected]     = useState<Set<string>>(new Set())
+  // Postęp produkcji per linia zamówienia (scalany z kolejnych zamówień)
+  const [progressByLine, setProgressByLine] = useState<Record<string, { qtyDone: number; qtyPending: number; qtyRemaining: number }>>({})
+  const [loadedOrders, setLoadedOrders] = useState<Set<string>>(new Set())
+  const [loadingOrder, setLoadingOrder] = useState<string|null>(null)
 
-  const order = orders.find(o=>o.id===selectedOrder)
+  const remainingOf = (l: { id: string; qty: number }) => progressByLine[l.id]?.qtyRemaining ?? l.qty
 
-  // Mapa line_id -> {qty_done, qty_pending, qty_remaining}
-  const progressMap = useMemo(() => {
-    const m: Record<string, { qtyTotal: number; qtyDone: number; qtyPending: number; qtyRemaining: number }> = {}
-    progress?.lines.forEach(p => {
-      m[p.lineId] = { qtyTotal: p.qtyTotal, qtyDone: p.qtyDone, qtyPending: p.qtyPending, qtyRemaining: p.qtyRemaining }
+  async function toggleOrder(o: ClientOrder) {
+    if (expandedId === o.id) { setExpandedId(null); return }
+    setExpandedId(o.id)
+    if (loadedOrders.has(o.id)) return
+    setLoadingOrder(o.id)
+    let merged: Record<string, { qtyDone: number; qtyPending: number; qtyRemaining: number }> = {}
+    try {
+      const p = await clientOrdersApi.productionProgress(o.id)
+      p.lines.forEach(pl => { merged[pl.lineId] = { qtyDone: pl.qtyDone, qtyPending: pl.qtyPending, qtyRemaining: pl.qtyRemaining } })
+      setProgressByLine(prev => ({ ...prev, ...merged }))
+    } catch { /* brak postępu — traktuj całość jako do wyprodukowania */ }
+    setLoadedOrders(prev => new Set(prev).add(o.id))
+    // Po rozwinięciu od razu zaznacz wszystko, co zostało do wyprodukowania
+    setSelected(prev => {
+      const n = new Set(prev)
+      o.lines.forEach(l => { if ((merged[l.id]?.qtyRemaining ?? l.qty) > 0) n.add(l.id) })
+      return n
     })
-    return m
-  }, [progress])
-
-  function importableLines(o: ClientOrder | undefined): string[] {
-    if (!o) return []
-    return o.lines.filter(l => (progressMap[l.id]?.qtyRemaining ?? l.qty) > 0).map(l => l.id)
+    setLoadingOrder(null)
   }
 
-  useEffect(() => {
-    if (!selectedOrder) { setProgress(null); return }
-    let cancelled = false
-    setProgressLoading(true)
-    clientOrdersApi.productionProgress(selectedOrder)
-      .then(p => { if (!cancelled) { setProgress(p); setProgressLoading(false) } })
-      .catch(()  => { if (!cancelled) { setProgress(null); setProgressLoading(false) } })
-    return () => { cancelled = true }
-  }, [selectedOrder])
-
-  // Po załadowaniu progress: zaznacz wszystkie linie z qty_remaining > 0
-  useEffect(() => {
-    if (progress) setSelectedLines(new Set(importableLines(order)))
-    else if (order) setSelectedLines(new Set(order.lines.map(l=>l.id)))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progress])
-
-  function handleOrderChange(id: string) {
-    setSelectedOrder(id)
-    setSelectedLines(new Set())
-  }
-
-  function toggleAll() {
-    if (!order) return
-    const avail = importableLines(order)
-    setSelectedLines(selectedLines.size===avail.length ? new Set() : new Set(avail))
+  function toggleAllInOrder(o: ClientOrder) {
+    const avail = o.lines.filter(l => remainingOf(l) > 0).map(l => l.id)
+    const allSel = avail.length > 0 && avail.every(id => selected.has(id))
+    setSelected(prev => {
+      const n = new Set(prev)
+      avail.forEach(id => allSel ? n.delete(id) : n.add(id))
+      return n
+    })
   }
 
   function handleConfirm() {
-    if (!order) return
-    const newLines: PlanLineForm[] = order.lines
-      .filter(l => selectedLines.has(l.id))
-      .map(l => {
-        const remaining = progressMap[l.id]?.qtyRemaining ?? l.qty
-        return {
-          qty:             String(remaining),
-          kgPerUnit:       String(l.kgPerUnit),
-          productTypeId:   l.productTypeId,
-          recipeId:        l.recipeId,
-          packagingId:     l.packagingId??'',
-          clientId:        order.clientId,
-          clientName:      order.clientName,
-          seasonedBatchIds:[], seasonedBatchId:'',
-          clientOrderId:   order.id,
-          clientOrderNo:   order.orderNo,
-          clientOrderLineId: l.id,
-        }
+    const newLines: PlanLineForm[] = []
+    orders.forEach(o => o.lines.forEach(l => {
+      if (!selected.has(l.id)) return
+      const remaining = remainingOf(l)
+      if (remaining <= 0) return
+      newLines.push({
+        qty:             String(remaining),
+        kgPerUnit:       String(l.kgPerUnit),
+        productTypeId:   l.productTypeId,
+        recipeId:        l.recipeId,
+        packagingId:     l.packagingId??'',
+        clientId:        o.clientId,
+        clientName:      o.clientName,
+        seasonedBatchIds:[], seasonedBatchId:'',
+        clientOrderId:   o.id,
+        clientOrderNo:   o.orderNo,
+        clientOrderLineId: l.id,
       })
+    }))
+    if (newLines.length === 0) return
     onImport(newLines)
     onClose()
   }
 
-  const availCount = order ? importableLines(order).length : 0
+  // Podsumowanie wyboru (może obejmować pozycje z kilku zamówień)
+  const summary = useMemo(() => {
+    let count = 0, kg = 0
+    orders.forEach(o => o.lines.forEach(l => {
+      if (!selected.has(l.id)) return
+      const r = remainingOf(l)
+      if (r <= 0) return
+      count += 1
+      kg += r * l.kgPerUnit
+    }))
+    return { count, kg }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, selected, progressByLine])
 
   return (
-    <div className="space-y-4">
-      <div>
-        <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide mb-1 block">Zamówienie</Label>
-        <Select value={selectedOrder} onValueChange={handleOrderChange}>
-          <SelectTrigger className="h-9 text-sm">
-            <SelectValue/>
-          </SelectTrigger>
-          <SelectContent>
-            {orders.map(o=>(
-              <SelectItem key={o.id} value={o.id}>
-                {o.orderNo} · {clientDisplay(o.clientName)} · {fmtKg(o.totalKg,0)} kg
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+    <div className="space-y-3">
+      <div className="text-[11px] text-muted-foreground">
+        Kliknij zamówienie, aby zobaczyć pozycje — to, co zostało do wyprodukowania, zaznacza się samo.
+        Możesz wybrać pozycje z kilku zamówień naraz.
       </div>
-      {order && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-muted/40 px-3 py-2 text-[11px]">
-          <span className="font-bold text-foreground">{clientDisplay(order.clientName)}</span>
-          {order.deliveryDate && (
-            <span className="text-muted-foreground">Dostawa: <strong className="text-foreground">{fmtDatePl(order.deliveryDate)}</strong></span>
-          )}
-          <span className="text-muted-foreground">
-            {order.lines.length} poz. · <strong className="text-foreground">{fmtKg(order.totalKg,0)} kg</strong> · {order.totalUnits} szt
-          </span>
-        </div>
-      )}
-      {order && (
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold text-muted-foreground uppercase">Pozycje</span>
-            <Button variant="ghost" size="sm" onClick={toggleAll} disabled={availCount===0} className="h-7 text-[11px] gap-1 px-2">
-              {selectedLines.size===availCount && availCount>0
-                ? <><Square size={12}/>Odznacz</>
-                : <><CheckSquare size={12}/>Zaznacz wszystkie</>}
-            </Button>
-          </div>
-          <div className="border rounded-lg divide-y max-h-80 overflow-y-auto">
-            {order.lines.map(l=>{
-              const p          = progressMap[l.id]
-              const qtyDone    = p?.qtyDone    ?? 0
-              const qtyPending = p?.qtyPending ?? 0
-              const qtyRemain  = p?.qtyRemaining ?? l.qty
-              const isFull     = qtyRemain <= 0
-              const isSel      = selectedLines.has(l.id)
-              const needKg     = qtyRemain * l.kgPerUnit
-              const meatFree   = meatFreeByRecipe[l.recipeId] ?? 0
-              const meatOk     = meatFree >= needKg - 0.1
-              const pctDone    = l.qty > 0 ? (qtyDone    / l.qty) * 100 : 0
-              const pctPending = l.qty > 0 ? (qtyPending / l.qty) * 100 : 0
 
-              return (
-                <label
-                  key={l.id}
-                  className={`flex items-start gap-3 px-3 py-2.5 transition-colors ${
-                    isFull
-                      ? 'bg-green-50/50 opacity-70 cursor-not-allowed'
-                      : `cursor-pointer hover:bg-muted/50 ${isSel?'bg-blue-50/60':''}`
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={isSel}
-                    disabled={isFull}
-                    onChange={()=>setSelectedLines(prev=>{
-                      const n = new Set(prev)
-                      n.has(l.id) ? n.delete(l.id) : n.add(l.id)
-                      return n
-                    })}
-                    className="w-4 h-4 accent-primary flex-shrink-0 mt-0.5"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[12px] font-bold flex flex-wrap items-center gap-2">
-                      <span className="truncate">{l.productTypeName} · {l.recipeName}</span>
-                      {progressLoading && <span className="text-[10px] text-muted-foreground font-normal">…</span>}
-                      {isFull && (
-                        <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-semibold border border-green-200">
-                          ✓ Wyprodukowane
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">
-                      {qtyRemain < l.qty
-                        ? <><strong className="text-amber-700">{qtyRemain} szt do produkcji</strong> (z {l.qty})</>
-                        : <>{l.qty} szt</>
-                      } × {l.kgPerUnit} kg = <strong className="text-blue-700">{fmtKg(needKg,0)} kg</strong>
-                      {l.packagingName ? <span> · {l.packagingName}</span> : null}
-                    </div>
-                    {/* Pasek postępu produkcji: zielone = wyprodukowane, bursztyn = w toku/planie */}
-                    {(qtyDone>0 || qtyPending>0) && (
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden flex">
-                          <div className="h-full bg-green-500" style={{width:`${pctDone}%`}}/>
-                          <div className="h-full bg-amber-400" style={{width:`${pctPending}%`}}/>
-                        </div>
-                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                          {qtyDone>0 && <span className="text-green-700 font-semibold">{qtyDone} got.</span>}
-                          {qtyDone>0 && qtyPending>0 && ' · '}
-                          {qtyPending>0 && <span className="text-amber-600 font-semibold">{qtyPending} w toku</span>}
-                        </span>
-                      </div>
+      {/* Lista zamówień — klient + total kg w wierszu, szczegóły w rozwinięciu */}
+      <div className="border rounded-lg divide-y max-h-[60vh] overflow-y-auto">
+        {orders.map(o => {
+          const isExp        = expandedId === o.id
+          const selInOrder   = o.lines.filter(l => selected.has(l.id) && remainingOf(l) > 0).length
+          const availInOrder = o.lines.filter(l => remainingOf(l) > 0)
+          const allSel       = availInOrder.length > 0 && availInOrder.every(l => selected.has(l.id))
+          return (
+            <div key={o.id}>
+              <button
+                onClick={() => toggleOrder(o)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/50 ${isExp ? 'bg-blue-50/50' : ''}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[12px] font-bold truncate">{clientDisplay(o.clientName)}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{o.orderNo}</span>
+                    {selInOrder > 0 && (
+                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-semibold">
+                        {selInOrder} zazn.
+                      </span>
                     )}
                   </div>
-                  {/* Wskaźnik mięsa dla receptury tej pozycji */}
-                  {!isFull && (
-                    <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded font-semibold border whitespace-nowrap ${
-                      meatOk
-                        ? 'bg-green-50 text-green-700 border-green-200'
-                        : 'bg-red-50 text-red-600 border-red-200'
-                    }`}>
-                      mięso: {fmtKg(meatFree,0)} kg{meatOk ? '' : ` (brak ${fmtKg(needKg-meatFree,0)})`}
-                    </span>
+                  <div className="text-[11px] text-muted-foreground mt-0.5">
+                    {o.deliveryDate ? <>dostawa <strong className="text-foreground">{fmtDatePl(o.deliveryDate)}</strong> · </> : null}
+                    {o.lines.length} poz. · {o.totalUnits} szt
+                  </div>
+                </div>
+                <div className="text-sm font-black text-blue-700 flex-shrink-0">{fmtKg(o.totalKg,0)} kg</div>
+                {isExp
+                  ? <ChevronUp size={15} className="text-muted-foreground flex-shrink-0"/>
+                  : <ChevronDown size={15} className="text-muted-foreground flex-shrink-0"/>}
+              </button>
+
+              {isExp && (
+                <div className="border-t bg-muted/20">
+                  {loadingOrder === o.id ? (
+                    <div className="p-3 space-y-2">
+                      <Skeleton className="h-9 w-full"/>
+                      <Skeleton className="h-9 w-full"/>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-end px-3 pt-1.5">
+                        <Button variant="ghost" size="sm" onClick={() => toggleAllInOrder(o)}
+                          disabled={availInOrder.length === 0} className="h-6 text-[10px] gap-1 px-2">
+                          {allSel ? <><Square size={11}/>Odznacz</> : <><CheckSquare size={11}/>Zaznacz wszystkie</>}
+                        </Button>
+                      </div>
+                      <div className="divide-y">
+                        {o.lines.map(l=>{
+                          const p          = progressByLine[l.id]
+                          const qtyDone    = p?.qtyDone    ?? 0
+                          const qtyPending = p?.qtyPending ?? 0
+                          const qtyRemain  = p?.qtyRemaining ?? l.qty
+                          const isFull     = qtyRemain <= 0
+                          const isSel      = selected.has(l.id)
+                          const needKg     = qtyRemain * l.kgPerUnit
+                          const meatFree   = meatFreeByRecipe[l.recipeId] ?? 0
+                          const meatOk     = meatFree >= needKg - 0.1
+                          const pctDone    = l.qty > 0 ? (qtyDone    / l.qty) * 100 : 0
+                          const pctPending = l.qty > 0 ? (qtyPending / l.qty) * 100 : 0
+
+                          return (
+                            <label
+                              key={l.id}
+                              className={`flex items-start gap-3 px-3 py-2.5 transition-colors ${
+                                isFull
+                                  ? 'bg-green-50/50 opacity-70 cursor-not-allowed'
+                                  : `cursor-pointer hover:bg-muted/50 ${isSel?'bg-blue-50/60':''}`
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSel}
+                                disabled={isFull}
+                                onChange={()=>setSelected(prev=>{
+                                  const n = new Set(prev)
+                                  n.has(l.id) ? n.delete(l.id) : n.add(l.id)
+                                  return n
+                                })}
+                                className="w-4 h-4 accent-primary flex-shrink-0 mt-0.5"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[12px] font-bold flex flex-wrap items-center gap-2">
+                                  <span className="truncate">{l.productTypeName} · {l.recipeName}</span>
+                                  {isFull && (
+                                    <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-semibold border border-green-200">
+                                      ✓ Wyprodukowane
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-muted-foreground mt-0.5">
+                                  {qtyRemain < l.qty
+                                    ? <><strong className="text-amber-700">{qtyRemain} szt do produkcji</strong> (z {l.qty})</>
+                                    : <>{l.qty} szt</>
+                                  } × {l.kgPerUnit} kg = <strong className="text-blue-700">{fmtKg(needKg,0)} kg</strong>
+                                  {l.packagingName ? <span> · {l.packagingName}</span> : null}
+                                </div>
+                                {/* Pasek postępu produkcji: zielone = wyprodukowane, bursztyn = w toku/planie */}
+                                {(qtyDone>0 || qtyPending>0) && (
+                                  <div className="flex items-center gap-2 mt-1.5">
+                                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden flex">
+                                      <div className="h-full bg-green-500" style={{width:`${pctDone}%`}}/>
+                                      <div className="h-full bg-amber-400" style={{width:`${pctPending}%`}}/>
+                                    </div>
+                                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                      {qtyDone>0 && <span className="text-green-700 font-semibold">{qtyDone} got.</span>}
+                                      {qtyDone>0 && qtyPending>0 && ' · '}
+                                      {qtyPending>0 && <span className="text-amber-600 font-semibold">{qtyPending} w toku</span>}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                              {/* Wskaźnik mięsa dla receptury tej pozycji */}
+                              {!isFull && (
+                                <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded font-semibold border whitespace-nowrap ${
+                                  meatOk
+                                    ? 'bg-green-50 text-green-700 border-green-200'
+                                    : 'bg-red-50 text-red-600 border-red-200'
+                                }`}>
+                                  mięso: {fmtKg(meatFree,0)} kg{meatOk ? '' : ` (brak ${fmtKg(needKg-meatFree,0)})`}
+                                </span>
+                              )}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </>
                   )}
-                </label>
-              )
-            })}
-          </div>
-          {selectedLines.size>0 && (
-            <div className="flex items-center justify-between rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 mt-2">
-              <span className="text-[11px] font-semibold text-blue-700">
-                Wybrano {selectedLines.size} poz. do zaplanowania
-              </span>
-              <span className="text-sm font-black text-blue-700">
-                {fmtKg(
-                  order.lines
-                    .filter(l=>selectedLines.has(l.id))
-                    .reduce((s,l)=>{
-                      const q = progressMap[l.id]?.qtyRemaining ?? l.qty
-                      return s + q*l.kgPerUnit
-                    }, 0),
-                  0
-                )} kg
-              </span>
+                </div>
+              )}
             </div>
-          )}
+          )
+        })}
+      </div>
+
+      {summary.count > 0 && (
+        <div className="flex items-center justify-between rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
+          <span className="text-[11px] font-semibold text-blue-700">
+            Wybrano {summary.count} poz. do zaplanowania
+          </span>
+          <span className="text-sm font-black text-blue-700">{fmtKg(summary.kg,0)} kg</span>
         </div>
       )}
+
       <div className="flex gap-2">
         <Button variant="outline" onClick={onClose} className="flex-1">Anuluj</Button>
-        <Button onClick={handleConfirm} disabled={selectedLines.size===0} className="flex-1">
-          <Download size={14} className="mr-1"/> Importuj {selectedLines.size} poz.
+        <Button onClick={handleConfirm} disabled={summary.count===0} className="flex-1">
+          <Download size={14} className="mr-1"/> Importuj {summary.count} poz.
         </Button>
       </div>
     </div>
@@ -554,6 +625,114 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+// ─── Pasek szybkiego dodawania pozycji (styl POS, jak w zamówieniach) ─
+interface QuickAddProps {
+  onAdd:            (line: PlanLineForm) => void
+  productTypes:     any[]
+  recipes:          any[]
+  packaging:        any[]
+  clients:          any[]
+  meatFreeByRecipe: Record<string, number>
+}
+
+function PlanLineQuickAdd({ onAdd, productTypes, recipes, packaging, clients, meatFreeByRecipe }: QuickAddProps) {
+  const [draft, setDraft] = useState<PlanLineForm>(emptyLine())
+  const [hint,  setHint]  = useState('')
+  const qtyRef = useRef<HTMLInputElement|null>(null)
+
+  function set(k: keyof PlanLineForm, v: string) {
+    setDraft(d => {
+      if (k === 'productTypeId') return { ...d, productTypeId: v, recipeId: '' }
+      if (k === 'clientId') {
+        const c = clients.find((x:any)=>x.id===v)
+        return { ...d, clientId: v, clientName: c?.name ?? '' }
+      }
+      return { ...d, [k]: v }
+    })
+  }
+
+  function commit() {
+    if (!draft.recipeId || !(parseFloat(draft.qty)>0) || !(parseFloat(draft.kgPerUnit)>0)) {
+      setHint('Uzupełnij szt, kg i recepturę')
+      return
+    }
+    onAdd({ ...draft })
+    setDraft(emptyLine())
+    setHint('')
+    requestAnimationFrame(() => qtyRef.current?.focus())
+  }
+
+  function onKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') { e.preventDefault(); commit() }
+  }
+
+  useEffect(() => { qtyRef.current?.focus() }, [])
+
+  const draftRecipes = recipes.filter((r:any) =>
+    !draft.productTypeId || !r.productTypeId || r.productTypeId === draft.productTypeId)
+
+  const needKg  = (parseFloat(draft.qty)||0) * (parseFloat(draft.kgPerUnit)||0)
+  const freeKg  = draft.recipeId ? (meatFreeByRecipe[draft.recipeId] ?? 0) : null
+  const meatOk  = freeKg === null || needKg <= 0 || freeKg >= needKg - 0.1
+
+  return (
+    <div className="rounded-lg border border-primary/30 bg-primary/5 p-2">
+      <div className="grid items-end gap-1.5" style={{ gridTemplateColumns: '64px 64px 1fr 1.2fr 1fr 1fr auto' }}>
+        <Input ref={qtyRef} type="number" min="1" step="1" value={draft.qty}
+          onChange={e=>set('qty',e.target.value)} onKeyDown={onKeyDown}
+          placeholder="szt" className="h-8 text-sm px-2"/>
+        <Input type="number" min="0.1" step="0.1" value={draft.kgPerUnit}
+          onChange={e=>set('kgPerUnit',e.target.value)} onKeyDown={onKeyDown}
+          placeholder="kg" className="h-8 text-sm px-2"/>
+        <Select value={draft.productTypeId} onValueChange={v=>set('productTypeId',v)}>
+          <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder="Rodzaj..."/></SelectTrigger>
+          <SelectContent>
+            {productTypes.map((pt:any)=><SelectItem key={pt.id} value={pt.id}>{pt.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={draft.recipeId} onValueChange={v=>set('recipeId',v)}>
+          <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder="Receptura..."/></SelectTrigger>
+          <SelectContent>
+            {draftRecipes.map((r:any)=>(
+              <SelectItem key={r.id} value={r.id}>
+                {r.name}
+                <span className="text-muted-foreground"> · {fmtKg(meatFreeByRecipe[r.id] ?? 0, 0)} kg</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={draft.packagingId || '__none'} onValueChange={v=>set('packagingId', v==='__none'?'':v)}>
+          <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder="Tuleja..."/></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none">— brak —</SelectItem>
+            {packaging.map((p:any)=><SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={draft.clientId || '__none'} onValueChange={v=>set('clientId', v==='__none'?'':v)}>
+          <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder="Klient..."/></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none">— brak —</SelectItem>
+            {clients.map((c:any)=><SelectItem key={c.id} value={c.id}>{c.displayName || c.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Button onClick={commit} size="sm" className="h-8 gap-1.5"><CornerDownLeft size={13}/> Dodaj</Button>
+      </div>
+      <div className="mt-1 flex items-center justify-between gap-2 min-h-[16px]">
+        {hint
+          ? <p className="text-[11px] text-destructive font-medium">{hint}</p>
+          : <p className="text-[10px] text-muted-foreground">Enter dodaje pozycję — partie mięsa przydzielą się same (FEFO)</p>}
+        {freeKg !== null && needKg > 0 && (
+          <span className={`text-[10px] font-semibold whitespace-nowrap ${meatOk ? 'text-green-700' : 'text-red-600'}`}>
+            {meatOk
+              ? `✓ mięso: ${fmtKg(freeKg,0)} kg wolne`
+              : `⚠ brakuje ${fmtKg(needKg-(freeKg??0),0)} kg mięsa (wolne ${fmtKg(freeKg??0,0)} kg)`}
+          </span>
+        )}
       </div>
     </div>
   )
@@ -824,6 +1003,7 @@ interface PlanFormProps {
 }
 
 function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
+  const clientDisplay = useClientNames()
   const { data: orders }      = useApi(() => clientOrdersApi.list('confirmed'))
   const { data: seasonedRaw } = useApi(() => seasonedMeatApi.list())
   const { data: pkgList }     = useApi(() => packagingApi.list())
@@ -848,49 +1028,19 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
       clientOrderId:     l.clientOrderId ?? '',
       clientOrderNo:     l.clientOrderNo ?? '',
       clientOrderLineId: (l as any).clientOrderLineId ?? '',
-    })) ?? [emptyLine()]
+    })) ?? []
   )
-  const [saving,      setSaving]      = useState(false)
-  const [error,       setError]       = useState('')
-  const [importModal, setImportModal] = useState(false)
+  const [saving,       setSaving]       = useState(false)
+  const [error,        setError]        = useState('')
+  const [importModal,  setImportModal]  = useState(false)
+  const [expandedLine, setExpandedLine] = useState<number|null>(null)
 
   const confirmed = (orders??[]).filter(o=>o.status==='confirmed')
   const packaging = pkgList??[]
   const clients   = (clientList??[]).filter((c:any)=>c.active)
 
-  // ── Żywe zużycie mięsa — PROPORCJONALNE wg pojemności ──────
-  const seasonedUsed = useMemo(() => {
-    // Buduj mapę rezerwacji sekwencyjnie, partia po partii (FEFO zachłanne)
-    // seasonedUsed[id] = ile kg ZAREZERWOWANO z tej partii przez wszystkie linie
-    const map: Record<string, number> = {}
-
-    lines.forEach(l => {
-      const needed = (parseFloat(l.qty)||0) * (parseFloat(l.kgPerUnit)||0)
-      if (needed <= 0) return
-      const ids = l.seasonedBatchIds?.length>0
-        ? l.seasonedBatchIds
-        : (l.seasonedBatchId ? [l.seasonedBatchId] : [])
-      if (ids.length === 0) return
-
-      // Dla każdej zaznaczonej partii: weź min(potrzeba_z_tej_partii, dostępne)
-      // "dostępne" = kgAvailable z bazy MINUS co już zarezerwowały poprzednie linie
-      let stillNeeded = needed
-      ids.forEach(id => {
-        if (stillNeeded <= 0) return
-        const s = (seasonedRaw??[]).find((x:any)=>x.id===id)
-        if (!s) return
-        // Ile jeszcze wolne w tej partii po wcześniejszych rezerwacjach
-        const alreadyReserved = map[id] ?? 0
-        const freeInBatch = Math.max(0, (s.kgFree ?? s.kgAvailable) - alreadyReserved)
-        const take = Math.min(stillNeeded, freeInBatch)
-        if (take > 0) {
-          map[id] = alreadyReserved + take
-          stillNeeded -= take
-        }
-      })
-    })
-    return map
-  }, [lines, seasonedRaw])
+  // ── Żywe zużycie mięsa — zachłannie, partia po partii (FEFO) ──
+  const seasonedUsed = useMemo(() => computeUsage(lines, seasonedRaw??[]), [lines, seasonedRaw])
 
   const seasonedAvail = useMemo(() =>
     (seasonedRaw??[]).map((s:any) => ({
@@ -950,14 +1100,15 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
   function setLine(i: number, k: keyof PlanLineForm, v: any) {
     setLines(p=>p.map((l,j)=>j===i?{...l,[k]:v}:l))
   }
-  function addLine()          { setLines(p=>[...p,emptyLine()]) }
-  function removeLine(i: number) { setLines(p=>p.filter((_,j)=>j!==i)) }
+  function removeLine(i: number) {
+    setLines(p=>p.filter((_,j)=>j!==i))
+    setExpandedLine(null)
+  }
 
-  function importLines(newLines: PlanLineForm[]) {
-    setLines(p=>{
-      const hasContent = p.some(l=>l.qty||l.productTypeId)
-      return hasContent ? [...p,...newLines] : newLines
-    })
+  // Nowe pozycje (z paska szybkiego dodawania lub importu) dostają
+  // od razu automatyczny przydział partii FEFO.
+  function addCommittedLines(newLines: PlanLineForm[]) {
+    setLines(p=>[...p, ...autoAssignNewLines(newLines, p, seasonedRaw??[])])
   }
 
   async function handleSave(toProduction: boolean) {
@@ -1045,24 +1196,89 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
       {/* Panel mięsa */}
       <MeatPanel seasonedAvail={seasonedAvail} seasonedUsed={seasonedUsed} onAutoAssign={autoAssignRecipe}/>
 
-      {/* Pozycje */}
+      {/* Pozycje — pasek szybkiego dodawania + zwarta lista */}
       <div>
         <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-2">Pozycje produkcyjne</div>
-        <div className="space-y-3">
-          {lines.map((line,i)=>(
-            <LineFormRow key={i} line={line} idx={i} total={lines.length}
-              lines={lines}
-              productTypes={productTypes??[]} recipes={recipes??[]}
-              packaging={packaging} clients={clients}
-              seasonedAvail={seasonedAvail} seasonedUsed={seasonedUsed}
-              seasonedRaw={seasonedRaw??[]}
-              onChange={(k,v)=>setLine(i,k,v)}
-              onRemove={()=>removeLine(i)}/>
-          ))}
-        </div>
-        <Button variant="ghost" onClick={addLine} className="mt-2 h-8 gap-1.5 text-[12px] text-primary px-2">
-          <Plus size={14}/> Dodaj pozycję
-        </Button>
+        <PlanLineQuickAdd
+          onAdd={l=>addCommittedLines([l])}
+          productTypes={productTypes??[]} recipes={recipes??[]}
+          packaging={packaging} clients={clients}
+          meatFreeByRecipe={meatFreeByRecipe}/>
+        {lines.length===0 ? (
+          <div className="rounded-lg border border-dashed py-5 text-center text-xs text-muted-foreground mt-2">
+            Brak pozycji — dodaj pierwszą powyżej (Enter) lub zaimportuj z zamówienia
+          </div>
+        ) : (
+          <div className="rounded-lg border bg-background divide-y mt-2">
+            {lines.map((line,i)=>{
+              const qty    = parseFloat(line.qty)||0
+              const kgPu   = parseFloat(line.kgPerUnit)||0
+              const tkg    = qty*kgPu
+              const ids    = line.seasonedBatchIds?.length>0 ? line.seasonedBatchIds : (line.seasonedBatchId?[line.seasonedBatchId]:[])
+              const avail  = ids.length>0 ? computeSelKgAvailForLine(i, lines, seasonedRaw??[]) : 0
+              const meatOk = ids.length>0 && avail >= tkg-0.1
+              const isExp  = expandedLine===i
+              const rcName = (recipes??[]).find((r:any)=>r.id===line.recipeId)?.name ?? '—'
+              const ptName = (productTypes??[]).find((pt:any)=>pt.id===line.productTypeId)?.name
+              const pkName = packaging.find((p:any)=>p.id===line.packagingId)?.name
+              return (
+                <div key={i}>
+                  <div
+                    className="flex items-center gap-2.5 px-3 py-2 text-xs cursor-pointer hover:bg-muted/40 transition-colors"
+                    onClick={()=>setExpandedLine(isExp?null:i)}
+                  >
+                    <span className="w-5 text-center text-muted-foreground font-medium">{i+1}</span>
+                    <span className="tabular-nums font-bold whitespace-nowrap">{line.qty||0}× {line.kgPerUnit||0}kg</span>
+                    <span className="flex-1 truncate min-w-0">
+                      {ptName ? <>{ptName} <span className="text-muted-foreground">/</span> </> : null}{rcName}
+                      {pkName && <span className="text-muted-foreground"> · {pkName}</span>}
+                      {line.clientName && (
+                        <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-semibold ml-1.5">
+                          {clientDisplay(line.clientName)}{line.clientOrderNo?` · ${line.clientOrderNo}`:''}
+                        </span>
+                      )}
+                    </span>
+                    {/* Status mięsa pozycji */}
+                    <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded font-semibold border whitespace-nowrap ${
+                      ids.length===0
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : meatOk
+                          ? 'bg-green-50 text-green-700 border-green-200'
+                          : 'bg-red-50 text-red-600 border-red-200'
+                    }`}>
+                      {ids.length===0
+                        ? 'bez partii'
+                        : meatOk ? `✓ ${ids.length} part.` : `brak ${fmtKg(tkg-avail,0)} kg`}
+                    </span>
+                    <span className="font-bold text-blue-700 tabular-nums whitespace-nowrap">{fmtKg(tkg,0)} kg</span>
+                    <span className="text-muted-foreground flex-shrink-0">
+                      {isExp ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                    </span>
+                    <button
+                      onClick={e=>{e.stopPropagation();removeLine(i)}}
+                      title="Usuń pozycję"
+                      className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex-shrink-0">
+                      <Trash2 size={13}/>
+                    </button>
+                  </div>
+                  {/* Szczegóły pozycji — pełny edytor z partiami mięsa */}
+                  {isExp && (
+                    <div className="px-3 pb-3 pt-1 bg-muted/30 border-t">
+                      <LineFormRow line={line} idx={i} total={1}
+                        lines={lines}
+                        productTypes={productTypes??[]} recipes={recipes??[]}
+                        packaging={packaging} clients={clients}
+                        seasonedAvail={seasonedAvail} seasonedUsed={seasonedUsed}
+                        seasonedRaw={seasonedRaw??[]}
+                        onChange={(k,v)=>setLine(i,k,v)}
+                        onRemove={()=>removeLine(i)}/>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Suma */}
@@ -1099,7 +1315,7 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
           <DialogHeader>
             <DialogTitle>Import z zamówienia klienta</DialogTitle>
           </DialogHeader>
-          <ImportOrderModal orders={confirmed} meatFreeByRecipe={meatFreeByRecipe} onImport={importLines} onClose={()=>setImportModal(false)}/>
+          <ImportOrderModal orders={confirmed} meatFreeByRecipe={meatFreeByRecipe} onImport={addCommittedLines} onClose={()=>setImportModal(false)}/>
         </DialogContent>
       </Dialog>
     </div>
