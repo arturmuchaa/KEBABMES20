@@ -164,7 +164,13 @@ def list_mixing_orders(status: str | None) -> List[Dict]:
 
 
 def cleanup_stale_in_progress() -> Dict[str, Any]:
-    """Zamknij in_progress zlecenia, których blokada maszyny wygasła.
+    """Zamknij in_progress zlecenia, których blokada maszyny wygasła
+    i które są FAKTYCZNIE wykonane (kg_done >= meat_kg).
+
+    UWAGA: in_progress bez blokady to także legalny stan „do wznowienia"
+    (operator wrzucił część, np. 600 z 3000 kg, i wróci po kolejny wsad) —
+    takich zleceń NIE wolno zamykać jako done, bo plan znika z paneli,
+    a pozostałe kg nigdy nie zostają wymieszane.
 
     Bezpieczne do uruchomienia z cron/systemd-timera oraz z admin-endpointu.
     Zwraca licznik zamkniętych zleceń.
@@ -176,6 +182,7 @@ def cleanup_stale_in_progress() -> Dict[str, Any]:
             UPDATE mixing_orders
             SET status = 'done', completed_at = NOW()
             WHERE status = 'in_progress'
+              AND COALESCE(kg_done, 0) >= COALESCE(meat_kg, 0) - 0.1
               AND id NOT IN (
                   SELECT order_id FROM machine_locks WHERE expires_at > NOW()
               )
@@ -340,12 +347,20 @@ def start_mixing_order(order_id: str, body: Dict[str, Any]) -> Dict:
             """
             UPDATE mixing_orders
             SET status='in_progress', started_at=%s, machine_id=%s
-            WHERE id=%s RETURNING *
+            WHERE id=%s AND status IN ('planned','confirmed','in_progress')
+            RETURNING *
             """,
             (now_iso(), machine_id, order_id),
         )
-    if not row:
-        raise HTTPException(404, "Zlecenie nie znalezione")
+        if not row:
+            existing = cx_query_one(
+                conn, "SELECT status FROM mixing_orders WHERE id=%s", (order_id,))
+            if existing:
+                raise HTTPException(
+                    409,
+                    f"Zlecenie ma status '{existing['status']}' — nie można rozpocząć "
+                    "(zamknięte lub anulowane).")
+            raise HTTPException(404, "Zlecenie nie znalezione")
     logger.info(
         "mixing.order.started",
         extra={"order_id": order_id, "machine_id": machine_id},
@@ -386,7 +401,37 @@ def confirm_mixing_step(order_id: str, body: Dict[str, Any]) -> Dict:
 
 
 def auto_approve_mixing(order_id: str) -> Dict:
+    """Zamknij zlecenie (tablet po pełnym wymieszaniu / biuro wymusza).
+
+    Przy zamknięciu CZĘŚCIOWEGO zlecenia (kg_done < meat_kg) niewykorzystane
+    rezerwacje mięsa muszą wrócić do puli — pozostała rezerwacja per lot to
+    aktualne mixing_order_lots.kg_planned (maleje przy każdej sesji).
+    Bez tego kg_reserved na meat_stock wisiało na zawsze.
+    """
     with transaction() as conn:
+        lots = cx_query_all(
+            conn,
+            """SELECT meat_stock_id, kg_planned FROM mixing_order_lots
+               WHERE order_id=%s AND COALESCE(kg_planned,0) > 0
+               ORDER BY meat_stock_id FOR UPDATE""",
+            (order_id,),
+        )
+        for ms_id in sorted({l["meat_stock_id"] for l in lots if l.get("meat_stock_id")}):
+            cx_query_one(conn, "SELECT id FROM meat_stock WHERE id=%s FOR UPDATE", (ms_id,))
+        for lot in lots:
+            leftover = float(lot.get("kg_planned") or 0)
+            if leftover <= 0 or not lot.get("meat_stock_id"):
+                continue
+            cx_execute(
+                conn,
+                "UPDATE meat_stock SET kg_reserved = GREATEST(0, kg_reserved - %s) WHERE id=%s",
+                (leftover, lot["meat_stock_id"]),
+            )
+        cx_execute(
+            conn,
+            "UPDATE mixing_order_lots SET kg_planned=0 WHERE order_id=%s",
+            (order_id,),
+        )
         row = cx_execute_returning(
             conn,
             """
@@ -796,6 +841,13 @@ def cancel_mixing_order(order_id: str) -> Dict:
                     f"{lot.get('meat_stock_id')} (update failed)",
                 )
 
+        # Wyzeruj kg_planned lotów — rezerwacja oddana wyżej; bez tego
+        # stare wartości udają żywe rezerwacje w raportach/audytach.
+        cx_execute(
+            conn,
+            "UPDATE mixing_order_lots SET kg_planned=0 WHERE order_id=%s",
+            (order_id,),
+        )
         row = cx_execute_returning(
             conn,
             "UPDATE mixing_orders SET status='cancelled' WHERE id=%s RETURNING *",

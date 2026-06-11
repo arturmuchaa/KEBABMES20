@@ -143,6 +143,12 @@ function CooldownTimer({ lock, isFullyDone, onComplete, onHome }: {
           <CheckCircle size={20} /> Zakończ masowanie
         </button>
       )}
+      {!isFullyDone && (
+        <p className="text-[12px] text-ink-3 max-w-xs">
+          Wsad częściowy — po wymieszaniu zlecenie wróci na listę
+          „Do wznowienia" z pozostałymi kg. Nie zamykaj zlecenia.
+        </p>
+      )}
     </div>
   )
 }
@@ -747,7 +753,11 @@ export function MixingTabletPage() {
       const sess = (finished as any).sessions || []
       const batchNo = sess.length ? (sess[sess.length - 1]?.batchNo || '') : ''
       setSeasonedBatchNo(batchNo)
-      const fullyDone = (finished as any).kgRemaining < 0.1 || finished.status === 'in_progress'
+      // Zlecenie skończone TYLKO gdy całe zaplanowane kg przeszło przez maszynę.
+      // BUG (zgłoszony: "3000 kg znika po 600 kg"): warunek miał odwrócony status
+      // ('in_progress' zamiast 'done') — częściowy wsad pokazywał "Zakończ
+      // masowanie", a klik robił auto-approve całego zlecenia.
+      const fullyDone = (finished as any).kgRemaining < 0.1 || finished.status === 'done'
       setSessionFullyDone(fullyDone)
       const lock = await lockMut.mutate({ m: liveOrder.machineId!, id: liveOrder.id, no: liveOrder.orderNo })
       setActiveLock(lock)
@@ -840,7 +850,7 @@ export function MixingTabletPage() {
               {resumable.map(o => (
                 <button key={o.id} onClick={() => { setSelOrder(o); setLiveOrder(o); setPhase('machine') }}
                   className="w-full text-left bg-white border border-blue-200 rounded-xl px-4 py-2.5 text-[13px] font-semibold text-blue-700 hover:bg-blue-50 mb-1.5">
-                  {o.orderNo} · {o.recipeName} · Masownica {o.machineId} → Wznów
+                  {o.orderNo} · {o.recipeName} · zostało {fmtKg((o as any).kgRemaining ?? o.meatKg, 0)} kg → Wznów
                 </button>
               ))}
             </div>
