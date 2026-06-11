@@ -1,15 +1,16 @@
 /**
- * HMI v8 — „PORCELANA". Jasny przemysłowy HMI rozbioru pod panel
- * nierdzewny 21" (landscape, dotyk w rękawicy, mocne oświetlenie hali).
+ * HMI v8 — jasny przemysłowy HMI rozbioru pod panel nierdzewny 21"
+ * (landscape, dotyk w rękawicy, mocne oświetlenie hali).
  *
- * Założenia (wymagania właściciela):
- *  - tylko jasny motyw, duże i czytelne przyciski,
- *  - pracownicy = MAŁE kafelki (pasek chipów), partie i wagi = DUŻE,
- *  - idiotoodporność: kroki ①②③, przycisk ZAPISZ zawsze mówi czego
- *    brakuje, mięso > zabrane blokuje zapis i świeci na czerwono.
+ * Wymagania właściciela (iteracja 2):
+ *  - chłodna jasna paleta (bez beżu),
+ *  - pracownicy: WIĘKSZE kafelki (grid), sekcja wagi KOMPAKTOWA,
+ *  - osobne okna: WPISY dnia oraz STATYSTYKI per pracownik
+ *    (kto ile zabrał / ile mięsa / jaki uzysk / ile wpisów, sortowanie),
+ *  - idiotoodporność: kroki ①②③, ZAPISZ zawsze mówi czego brakuje,
+ *    mięso > zabrane blokuje i świeci na czerwono.
  *
- * Logika (sesja, wpisy, FEFO, kości/grzbiety) przeniesiona 1:1 z HMI v5 —
- * zmienia się wyłącznie warstwa prezentacji.
+ * Logika (sesja, wpisy, FEFO, kości/grzbiety) przeniesiona 1:1 z HMI v5.
  */
 import { useState, useRef, useEffect, useMemo, useCallback, memo, type CSSProperties } from 'react'
 import { useApi } from '@/hooks/useApi'
@@ -24,18 +25,19 @@ import { useProductionSession, useDeboningEntries } from '@/features/deboning/ho
 const KG_PER_CONTAINER = 15
 
 type ActiveField = 'taken' | 'meat'
+type StatsSort = 'taken' | 'meat' | 'yield' | 'count'
 
-/** Paleta „porcelana" — ciepła biel hali, atrament, akcenty sygnalizacyjne. */
+/** Chłodna jasna paleta — biel techniczna + stalowa szarość + atrament. */
 const VARS: CSSProperties = {
-  ['--app' as string]:   '#F3F1EC',
+  ['--app' as string]:   '#EDF0F4',
   ['--panel' as string]: '#FFFFFF',
-  ['--key' as string]:   '#FBFAF7',
-  ['--bd' as string]:    '#D9D4CA',
-  ['--ink' as string]:   '#191613',
-  ['--mut' as string]:   '#8A8276',
-  ['--grn' as string]:   '#157A3A',
-  ['--amb' as string]:   '#B07A12',
-  ['--red' as string]:   '#BE2B1C',
+  ['--key' as string]:   '#F7F9FB',
+  ['--bd' as string]:    '#CDD5DE',
+  ['--ink' as string]:   '#101820',
+  ['--mut' as string]:   '#71808F',
+  ['--grn' as string]:   '#15803D',
+  ['--amb' as string]:   '#B45309',
+  ['--red' as string]:   '#C0271E',
 }
 
 const Clock = memo(function Clock() {
@@ -51,7 +53,6 @@ const Clock = memo(function Clock() {
   )
 })
 
-/** Numer kroku — wypełnia się po zaliczeniu. */
 function StepDot({ no, done }: { no: number; done: boolean }) {
   return (
     <span className="w-9 h-9 rounded-full border-[3px] flex items-center justify-center text-lg font-black flex-shrink-0"
@@ -63,18 +64,22 @@ function StepDot({ no, done }: { no: number; done: boolean }) {
   )
 }
 
-function SectionLabel({ no, done, children }: { no: number; done: boolean; children: React.ReactNode }) {
+function SectionLabel({ no, done, children, right }: {
+  no: number; done: boolean; children: React.ReactNode; right?: React.ReactNode
+}) {
   return (
     <div className="flex items-center gap-3 mb-2 flex-shrink-0">
       <StepDot no={no} done={done} />
       <span className="text-[15px] font-black uppercase tracking-[.18em]" style={{ color: 'var(--ink)' }}>
         {children}
       </span>
+      <div className="flex-1" />
+      {right}
     </div>
   )
 }
 
-// ─── Kafel partii (DUŻY — lewa szyna) ──────────────────────────────
+// ─── Kafel partii (lewa szyna) ─────────────────────────────────────
 const V8BatchTile = memo(function V8BatchTile({ batch, selected, first, onSelect }: {
   batch: RawBatch; selected: boolean; first: boolean; onSelect: (b: RawBatch) => void
 }) {
@@ -123,23 +128,24 @@ const V8BatchTile = memo(function V8BatchTile({ batch, selected, first, onSelect
   )
 })
 
-// ─── Chip pracownika (MAŁY — wymaganie właściciela) ────────────────
-const V8WorkerChip = memo(function V8WorkerChip({ worker, selected, entryCount, onSelect }: {
+// ─── Kafel pracownika (DUŻY — iteracja 2) ──────────────────────────
+const V8WorkerTile = memo(function V8WorkerTile({ worker, selected, entryCount, onSelect }: {
   worker: User; selected: boolean; entryCount: number; onSelect: (w: User) => void
 }) {
-  const first = worker.name.split(' ')[0]
-  const last = worker.name.split(' ').slice(1).join(' ')
+  const initials = worker.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
   return (
     <button type="button" onClick={() => onSelect(worker)}
-      className="h-14 px-4 rounded-xl border-[3px] flex items-center gap-2 select-none active:translate-y-px transition-colors flex-shrink-0"
+      className="relative rounded-2xl border-[3px] flex flex-col items-center justify-center gap-1.5 select-none active:translate-y-px transition-colors min-h-0"
       style={selected
         ? { background: 'var(--ink)', borderColor: 'var(--ink)', color: '#fff' }
         : { background: 'var(--panel)', borderColor: 'var(--bd)', color: 'var(--ink)' }}>
-      <span className="text-base font-black leading-none whitespace-nowrap">
-        {first}{last ? ` ${last[0]}.` : ''}
+      <span className="text-4xl font-black leading-none">{initials}</span>
+      <span className="text-[15px] font-bold leading-tight px-2 truncate w-full text-center"
+        style={{ color: selected ? 'rgba(255,255,255,.9)' : 'var(--ink)' }}>
+        {worker.name}
       </span>
       {entryCount > 0 && (
-        <span className="min-w-[24px] h-6 px-1.5 rounded-full text-[12px] font-black flex items-center justify-center"
+        <span className="absolute top-2 right-2 min-w-[28px] h-7 px-2 rounded-full text-[14px] font-black flex items-center justify-center"
           style={{ background: selected ? '#fff' : 'var(--grn)', color: selected ? 'var(--ink)' : '#fff' }}>
           {entryCount}
         </span>
@@ -148,34 +154,34 @@ const V8WorkerChip = memo(function V8WorkerChip({ worker, selected, entryCount, 
   )
 })
 
-// ─── Wielki odczyt wagi ────────────────────────────────────────────
+// ─── Kompaktowy odczyt wagi ────────────────────────────────────────
 function V8Readout({ label, value, unit, active, error, sub, onActivate, extraHeader }: {
   label: string; value: string; unit: string; active: boolean; error?: boolean
   sub?: string; onActivate: () => void; extraHeader?: React.ReactNode
 }) {
   return (
     <button type="button" onClick={onActivate}
-      className="flex-1 rounded-2xl border-[3px] px-6 py-4 text-left select-none transition-colors flex flex-col min-w-0"
+      className="flex-1 rounded-2xl border-[3px] px-6 py-3 text-left select-none transition-colors flex flex-col justify-between min-w-0"
       style={{
         background: 'var(--panel)',
         borderColor: error ? 'var(--red)' : active ? 'var(--ink)' : 'var(--bd)',
-        boxShadow: active && !error ? '0 0 0 3px rgba(25,22,19,.15)' : undefined,
+        boxShadow: active && !error ? '0 0 0 3px rgba(16,24,32,.14)' : undefined,
       }}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[14px] font-black uppercase tracking-[.18em]"
+        <span className="text-[13px] font-black uppercase tracking-[.16em]"
           style={{ color: error ? 'var(--red)' : active ? 'var(--ink)' : 'var(--mut)' }}>
           {label}
         </span>
         {extraHeader}
       </div>
-      <div className="flex items-baseline gap-2 mt-1">
+      <div className="flex items-baseline gap-2">
         <span className="font-mono font-black tabular-nums leading-none"
-          style={{ fontSize: 'clamp(56px, 5.5vw, 88px)', color: error ? 'var(--red)' : value ? 'var(--ink)' : 'var(--bd)' }}>
+          style={{ fontSize: 'clamp(44px, 3.6vw, 64px)', color: error ? 'var(--red)' : value ? 'var(--ink)' : 'var(--bd)' }}>
           {value || '0'}
         </span>
-        <span className="text-2xl font-black" style={{ color: 'var(--mut)' }}>{unit}</span>
+        <span className="text-xl font-black" style={{ color: 'var(--mut)' }}>{unit}</span>
       </div>
-      <div className="text-[13px] font-bold mt-auto pt-1" style={{ color: error ? 'var(--red)' : 'var(--mut)' }}>
+      <div className="text-[12px] font-bold truncate" style={{ color: error ? 'var(--red)' : 'var(--mut)' }}>
         {sub || ' '}
       </div>
     </button>
@@ -197,7 +203,7 @@ const V8Numpad = memo(function V8Numpad({ onKey, onBackStart, onBackEnd }: {
           onPointerLeave={k === '⌫' ? onBackEnd : undefined}
           className="rounded-2xl border-[3px] font-black select-none active:translate-y-[2px] transition-transform flex items-center justify-center"
           style={{
-            background: k === '⌫' ? '#F4E8E6' : 'var(--key)',
+            background: k === '⌫' ? '#FBEAE8' : 'var(--key)',
             borderColor: k === '⌫' ? 'var(--red)' : 'var(--bd)',
             color: k === '⌫' ? 'var(--red)' : 'var(--ink)',
             fontSize: 'clamp(28px, 2.4vw, 40px)',
@@ -227,6 +233,9 @@ export function DeboningHmiV8Page() {
   const [finishModal,  setFinishModal]  = useState(false)
   const [shiftModal,   setShiftModal]   = useState(false)
   const [entriesModal, setEntriesModal] = useState(false)
+  const [statsModal,   setStatsModal]   = useState(false)
+  const [statsSort,    setStatsSort]    = useState<StatsSort>('meat')
+  const [statsDir,     setStatsDir]     = useState<'asc' | 'desc'>('desc')
   const [inputBacks, setInputBacks] = useState('')
   const [inputBones, setInputBones] = useState('')
   const [toastMsg,  setToastMsg]  = useState('')
@@ -272,6 +281,27 @@ export function DeboningHmiV8Page() {
     return { taken, meat, yieldPct: taken > 0 ? (meat / taken) * 100 : 0 }
   }, [entries])
 
+  /** Statystyki per pracownik: kto ile zabrał / mięsa / uzysk / wpisów. */
+  const workerStats = useMemo(() => {
+    const m = new Map<string, { name: string; taken: number; meat: number; count: number }>()
+    for (const e of entries) {
+      const cur = m.get(e.workerId) ?? { name: e.workerName, taken: 0, meat: 0, count: 0 }
+      cur.taken += e.kgTaken; cur.meat += e.kgMeat; cur.count += 1
+      m.set(e.workerId, cur)
+    }
+    const rows = Array.from(m.values())
+      .map(s => ({ ...s, yieldPct: s.taken > 0 ? (s.meat / s.taken) * 100 : 0 }))
+    const key = statsSort === 'taken' ? 'taken' : statsSort === 'meat' ? 'meat' : statsSort === 'count' ? 'count' : 'yieldPct'
+    return rows.sort((a, b) => statsDir === 'asc' ? (a as any)[key] - (b as any)[key] : (b as any)[key] - (a as any)[key])
+  }, [entries, statsSort, statsDir])
+
+  const toggleStatsSort = useCallback((key: StatsSort) => {
+    setStatsSort(prev => {
+      if (prev === key) { setStatsDir(d => d === 'asc' ? 'desc' : 'asc'); return prev }
+      setStatsDir('desc'); return key
+    })
+  }, [])
+
   const pendingFinalize = entries.filter(e => (e.kgBacks ?? 0) === 0 && (e.kgBones ?? 0) === 0)
   const finalizeTotalTaken = pendingFinalize.reduce((s, e) => s + e.kgTaken, 0)
 
@@ -282,7 +312,6 @@ export function DeboningHmiV8Page() {
   const yieldPct = taken > 0 && meat > 0 && !meatTooBig ? (meat / taken) * 100 : 0
   const canSave = !!selBatch && !!selWorker && taken > 0 && meat > 0 && !meatTooBig
 
-  /** Idiotoodporność: przycisk zawsze mówi, czego brakuje. */
   const saveHint = !selBatch ? 'WYBIERZ PARTIĘ'
     : !selWorker ? 'WYBIERZ PRACOWNIKA'
     : taken <= 0 ? 'PODAJ WAGĘ ZABRANĄ'
@@ -370,6 +399,8 @@ export function DeboningHmiV8Page() {
     else { setShiftModal(false); showToast('Zmiana zakończona') }
   }
 
+  const yieldColor = (pct: number) => pct >= 75 ? 'var(--grn)' : pct >= 60 ? 'var(--amb)' : 'var(--red)'
+
   const wrap = (children: React.ReactNode) => (
     <div className="h-full w-full overflow-hidden flex flex-col" style={{ ...VARS, background: 'var(--app)', color: 'var(--ink)' }}>
       {children}
@@ -390,7 +421,7 @@ export function DeboningHmiV8Page() {
       </div>
       <button type="button" onClick={handleStartDay} disabled={startLoading}
         className="h-28 px-20 rounded-3xl text-4xl font-black flex items-center gap-5 active:translate-y-px"
-        style={{ background: 'var(--grn)', color: '#fff', boxShadow: '0 8px 0 #0E5226' }}>
+        style={{ background: 'var(--grn)', color: '#fff', boxShadow: '0 8px 0 #0C5527' }}>
         {startLoading
           ? <span className="w-9 h-9 border-4 border-white/30 border-t-white rounded-full animate-spin" />
           : <Play size={40} />}
@@ -413,12 +444,10 @@ export function DeboningHmiV8Page() {
 
   return wrap(
     <>
-      {/* Błysk zapisu — pełnoekranowe potwierdzenie */}
       <div className={cn('fixed inset-0 z-[60] pointer-events-none transition-opacity',
         saveFlash ? 'opacity-100' : 'opacity-0')}
-        style={{ background: 'rgba(21,122,58,.22)', transitionDuration: saveFlash ? '0ms' : '350ms' }} />
+        style={{ background: 'rgba(21,128,61,.22)', transitionDuration: saveFlash ? '0ms' : '350ms' }} />
 
-      {/* Toast */}
       <div className={cn(
         'fixed top-5 left-1/2 -translate-x-1/2 z-50 px-8 py-4 rounded-2xl border-[3px] text-xl font-black flex items-center gap-3 transition-opacity duration-150',
         toastVis ? 'opacity-100' : 'opacity-0 pointer-events-none')}
@@ -427,20 +456,21 @@ export function DeboningHmiV8Page() {
       </div>
 
       {/* ── NAGŁÓWEK ── */}
-      <header className="flex-shrink-0 h-[68px] flex items-center gap-6 px-6 border-b-[3px]"
+      <header className="flex-shrink-0 h-[68px] flex items-center gap-5 px-6 border-b-[3px]"
         style={{ background: 'var(--panel)', borderColor: 'var(--bd)' }}>
         <div className="font-black text-2xl tracking-tight">ROZBIÓR</div>
         <div className="text-[13px] font-black uppercase tracking-[.2em]" style={{ color: 'var(--mut)' }}>
           {session.sessionDate}
         </div>
-        <div className="flex items-baseline gap-2 pl-6 border-l-[3px]" style={{ borderColor: 'var(--bd)' }}>
+        <div className="flex items-baseline gap-2 pl-5 border-l-[3px]" style={{ borderColor: 'var(--bd)' }}>
           <span className="text-[12px] font-black uppercase tracking-[.16em]" style={{ color: 'var(--mut)' }}>Magazyn</span>
           <span className="font-mono text-xl font-black tabular-nums">{fmtKg(totalKgMagazyn, 0)} kg</span>
         </div>
-        <div className="flex items-baseline gap-2 pl-6 border-l-[3px]" style={{ borderColor: 'var(--bd)' }}>
+        <div className="flex items-baseline gap-2 pl-5 border-l-[3px]" style={{ borderColor: 'var(--bd)' }}>
           <span className="text-[12px] font-black uppercase tracking-[.16em]" style={{ color: 'var(--mut)' }}>Dziś</span>
-          <span className="font-mono text-xl font-black tabular-nums">{fmtKg(dayTotals.meat, 0)} kg mięsa</span>
-          <span className="font-mono text-xl font-black tabular-nums" style={{ color: 'var(--grn)' }}>
+          <span className="font-mono text-xl font-black tabular-nums">{fmtKg(dayTotals.meat, 0)} kg</span>
+          <span className="font-mono text-xl font-black tabular-nums"
+            style={{ color: dayTotals.taken > 0 ? yieldColor(dayTotals.yieldPct) : 'var(--mut)' }}>
             {dayTotals.taken > 0 ? fmtPct(dayTotals.yieldPct, 0) : '—'}
           </span>
         </div>
@@ -450,6 +480,11 @@ export function DeboningHmiV8Page() {
           style={{ borderColor: 'var(--bd)', color: 'var(--ink)', background: 'var(--key)' }}>
           <ListChecks size={20} /> Wpisy ({entries.length})
         </button>
+        <button type="button" onClick={() => setStatsModal(true)}
+          className="h-12 px-5 rounded-xl border-[3px] flex items-center gap-2 text-base font-black"
+          style={{ borderColor: 'var(--bd)', color: 'var(--ink)', background: 'var(--key)' }}>
+          <BarChart3 size={20} /> Statystyki
+        </button>
         <button type="button" onClick={() => setShiftModal(true)}
           className="h-12 px-5 rounded-xl border-[3px] flex items-center gap-2 text-base font-black"
           style={{ borderColor: 'var(--bd)', color: 'var(--mut)', background: 'var(--key)' }}>
@@ -458,10 +493,10 @@ export function DeboningHmiV8Page() {
         <Clock />
       </header>
 
-      {/* ── TRZON: partie | środek | numpad ── */}
+      {/* ── TRZON ── */}
       <div className="flex-1 min-h-0 flex gap-4 p-4">
 
-        {/* Lewa szyna — PARTIE (duże kafle, FEFO) */}
+        {/* Lewa szyna — partie */}
         <aside className="w-[360px] flex-shrink-0 flex flex-col min-h-0">
           <SectionLabel no={1} done={!!selBatch}>Partia</SectionLabel>
           <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2.5 pr-1">
@@ -478,17 +513,18 @@ export function DeboningHmiV8Page() {
           </div>
           <button type="button" onClick={() => setFinishModal(true)}
             className="mt-3 h-16 rounded-2xl border-[3px] flex items-center justify-center gap-3 text-lg font-black flex-shrink-0"
-            style={{ borderColor: 'var(--amb)', color: 'var(--amb)', background: '#FBF3E2' }}>
+            style={{ borderColor: 'var(--amb)', color: 'var(--amb)', background: '#FDF3E7' }}>
             <Flag size={22} /> Zakończ partię — kości / grzbiety
           </button>
         </aside>
 
-        {/* Środek — pracownicy (małe chipy) + wagi + uzysk */}
+        {/* Środek — DUZI pracownicy + kompaktowe wagi */}
         <main className="flex-1 min-w-0 flex flex-col min-h-0">
           <SectionLabel no={2} done={!!selWorker}>Pracownik</SectionLabel>
-          <div className="flex flex-wrap gap-2 mb-4 flex-shrink-0 max-h-[124px] overflow-y-auto">
+          <div className="grid grid-cols-5 gap-2.5 flex-1 min-h-0 overflow-y-auto content-stretch mb-3"
+            style={{ gridAutoRows: 'minmax(92px, 1fr)' }}>
             {workers.map(w => (
-              <V8WorkerChip key={w.id} worker={w} selected={selWorker?.id === w.id}
+              <V8WorkerTile key={w.id} worker={w} selected={selWorker?.id === w.id}
                 entryCount={entryCountByWorkerId.get(w.id) ?? 0} onSelect={pickWorker} />
             ))}
             {workers.length === 0 && (
@@ -497,7 +533,7 @@ export function DeboningHmiV8Page() {
           </div>
 
           <SectionLabel no={3} done={taken > 0 && meat > 0 && !meatTooBig}>Waga</SectionLabel>
-          <div className="flex gap-4 flex-1 min-h-0">
+          <div className="flex gap-4 h-[168px] flex-shrink-0">
             <V8Readout
               label={takenMode === 'poj' ? 'Zabrano · pojemniki' : 'Zabrano z partii'}
               value={kgTaken}
@@ -530,8 +566,8 @@ export function DeboningHmiV8Page() {
             />
           </div>
 
-          {/* Uzysk — żywy wskaźnik */}
-          <div className="mt-4 rounded-2xl border-[3px] px-6 py-4 flex items-center gap-6 flex-shrink-0"
+          {/* Uzysk */}
+          <div className="mt-3 rounded-2xl border-[3px] px-6 py-3 flex items-center gap-6 flex-shrink-0"
             style={{ background: 'var(--panel)', borderColor: meatTooBig ? 'var(--red)' : 'var(--bd)' }}>
             <span className="text-[14px] font-black uppercase tracking-[.18em] flex-shrink-0" style={{ color: 'var(--mut)' }}>
               Uzysk
@@ -540,11 +576,11 @@ export function DeboningHmiV8Page() {
               <div className="h-full rounded-full transition-all duration-200"
                 style={{
                   width: `${Math.min(100, yieldPct)}%`,
-                  background: meatTooBig ? 'var(--red)' : yieldPct >= 75 ? 'var(--grn)' : yieldPct >= 60 ? 'var(--amb)' : yieldPct > 0 ? 'var(--red)' : 'transparent',
+                  background: meatTooBig ? 'var(--red)' : yieldPct > 0 ? yieldColor(yieldPct) : 'transparent',
                 }} />
             </div>
             <span className="font-mono font-black tabular-nums text-5xl flex-shrink-0 w-[180px] text-right"
-              style={{ color: meatTooBig ? 'var(--red)' : yieldPct >= 75 ? 'var(--grn)' : yieldPct >= 60 ? 'var(--amb)' : yieldPct > 0 ? 'var(--red)' : 'var(--bd)' }}>
+              style={{ color: meatTooBig ? 'var(--red)' : yieldPct > 0 ? yieldColor(yieldPct) : 'var(--bd)' }}>
               {meatTooBig ? '!!!' : yieldPct > 0 ? fmtPct(yieldPct, 1) : '— %'}
             </span>
           </div>
@@ -556,9 +592,9 @@ export function DeboningHmiV8Page() {
           <button type="button" onClick={handleSave} disabled={!canSave || addLoading}
             className="h-[120px] rounded-3xl flex flex-col items-center justify-center gap-1 select-none active:translate-y-[3px] transition-transform flex-shrink-0"
             style={canSave
-              ? { background: 'var(--grn)', color: '#fff', boxShadow: '0 7px 0 #0E5226' }
+              ? { background: 'var(--grn)', color: '#fff', boxShadow: '0 7px 0 #0C5527' }
               : meatTooBig
-                ? { background: '#F4E8E6', color: 'var(--red)', border: '3px solid var(--red)' }
+                ? { background: '#FBEAE8', color: 'var(--red)', border: '3px solid var(--red)' }
                 : { background: 'var(--key)', color: 'var(--mut)', border: '3px solid var(--bd)' }}>
             <span className="flex items-center gap-3 text-3xl font-black tracking-wide">
               {addLoading
@@ -578,10 +614,10 @@ export function DeboningHmiV8Page() {
       {/* ── MODAL: wpisy dnia ── */}
       {entriesModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" style={VARS}>
-          <div className="w-[860px] max-h-[82vh] rounded-3xl border-[3px] flex flex-col overflow-hidden"
+          <div className="w-[900px] max-h-[82vh] rounded-3xl border-[3px] flex flex-col overflow-hidden"
             style={{ background: 'var(--panel)', borderColor: 'var(--bd)' }}>
             <div className="flex items-center px-7 py-5 border-b-[3px]" style={{ borderColor: 'var(--bd)' }}>
-              <BarChart3 size={26} className="mr-3" />
+              <ListChecks size={26} className="mr-3" />
               <h3 className="text-3xl font-black flex-1">Wpisy dnia ({entries.length})</h3>
               <button type="button" onClick={() => setEntriesModal(false)}
                 className="w-14 h-14 rounded-2xl border-[3px] flex items-center justify-center"
@@ -591,31 +627,72 @@ export function DeboningHmiV8Page() {
               {entries.length === 0 && (
                 <div className="px-6 py-14 text-center text-xl font-bold" style={{ color: 'var(--mut)' }}>Brak wpisów z dziś</div>
               )}
-              {entries.map(e => {
-                const yc = e.yieldPct >= 75 ? 'var(--grn)' : e.yieldPct >= 60 ? 'var(--amb)' : 'var(--red)'
-                return (
-                  <div key={e.id} className="grid grid-cols-[120px_1fr_120px_220px_110px] items-center px-7 py-4 border-t-2"
-                    style={{ borderColor: 'var(--bd)' }}>
-                    <span className="font-mono text-lg font-bold" style={{ color: 'var(--mut)' }}>
-                      {new Date(e.createdAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    <span className="text-xl font-black truncate">{e.workerName}</span>
-                    <span className="font-mono text-xl font-black tabular-nums">{e.rawBatchNo}</span>
-                    <span className="text-right font-mono text-xl font-bold tabular-nums">
-                      {fmtKg(e.kgTaken, 1)} → {fmtKg(e.kgMeat, 1)} kg
-                    </span>
-                    <span className="text-right font-mono text-2xl font-black tabular-nums" style={{ color: yc }}>
-                      {fmtPct(e.yieldPct, 1)}
-                    </span>
-                  </div>
-                )
-              })}
+              {entries.map(e => (
+                <div key={e.id} className="grid grid-cols-[110px_1fr_110px_230px_110px] items-center px-7 py-4 border-t-2"
+                  style={{ borderColor: 'var(--bd)' }}>
+                  <span className="font-mono text-lg font-bold" style={{ color: 'var(--mut)' }}>
+                    {new Date(e.createdAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <span className="text-xl font-black truncate">{e.workerName}</span>
+                  <span className="font-mono text-xl font-black tabular-nums">{e.rawBatchNo}</span>
+                  <span className="text-right font-mono text-xl font-bold tabular-nums">
+                    {fmtKg(e.kgTaken, 1)} → {fmtKg(e.kgMeat, 1)} kg
+                  </span>
+                  <span className="text-right font-mono text-2xl font-black tabular-nums" style={{ color: yieldColor(e.yieldPct) }}>
+                    {fmtPct(e.yieldPct, 1)}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       )}
 
-      {/* ── MODAL: zakończ partię (kości / grzbiety) ── */}
+      {/* ── MODAL: statystyki pracowników ── */}
+      {statsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" style={VARS}>
+          <div className="w-[900px] max-h-[82vh] rounded-3xl border-[3px] flex flex-col overflow-hidden"
+            style={{ background: 'var(--panel)', borderColor: 'var(--bd)' }}>
+            <div className="flex items-center px-7 py-5 border-b-[3px]" style={{ borderColor: 'var(--bd)' }}>
+              <BarChart3 size={26} className="mr-3" />
+              <h3 className="text-3xl font-black flex-1">Statystyki pracowników</h3>
+              <button type="button" onClick={() => setStatsModal(false)}
+                className="w-14 h-14 rounded-2xl border-[3px] flex items-center justify-center"
+                style={{ borderColor: 'var(--bd)' }}><X size={26} /></button>
+            </div>
+            <div className="grid grid-cols-[1fr_150px_150px_150px_130px] px-7 py-3 sticky top-0"
+              style={{ background: 'var(--key)' }}>
+              <span className="text-[12px] font-black uppercase tracking-[.16em]" style={{ color: 'var(--mut)' }}>Pracownik</span>
+              {([['taken', 'Zabrano'], ['meat', 'Mięso'], ['yield', 'Uzysk'], ['count', 'Wpisy']] as const).map(([key, label]) => (
+                <button key={key} type="button" onClick={() => toggleStatsSort(key)}
+                  className="text-right text-[12px] font-black uppercase tracking-[.16em] flex items-center justify-end gap-1"
+                  style={{ color: statsSort === key ? 'var(--ink)' : 'var(--mut)' }}>
+                  {label} <span className="text-[10px]">{statsSort === key ? (statsDir === 'asc' ? '▲' : '▼') : ''}</span>
+                </button>
+              ))}
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {workerStats.length === 0 && (
+                <div className="px-6 py-14 text-center text-xl font-bold" style={{ color: 'var(--mut)' }}>Brak wpisów z dziś</div>
+              )}
+              {workerStats.map(s => (
+                <div key={s.name} className="grid grid-cols-[1fr_150px_150px_150px_130px] items-center px-7 py-4 border-t-2"
+                  style={{ borderColor: 'var(--bd)' }}>
+                  <span className="text-xl font-black truncate">{s.name}</span>
+                  <span className="text-right font-mono text-xl font-bold tabular-nums">{fmtKg(s.taken, 0)} kg</span>
+                  <span className="text-right font-mono text-xl font-bold tabular-nums">{fmtKg(s.meat, 0)} kg</span>
+                  <span className="text-right font-mono text-2xl font-black tabular-nums" style={{ color: yieldColor(s.yieldPct) }}>
+                    {fmtPct(s.yieldPct, 1)}
+                  </span>
+                  <span className="text-right font-mono text-xl font-bold tabular-nums">{s.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: zakończ partię ── */}
       {finishModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" style={VARS}>
           <div className="w-[620px] rounded-3xl border-[3px] p-8 flex flex-col gap-6"
@@ -642,7 +719,7 @@ export function DeboningHmiV8Page() {
             ))}
             <button type="button" onClick={handleFinishBatchConfirm}
               className="h-20 rounded-2xl text-2xl font-black"
-              style={{ background: 'var(--amb)', color: '#fff', boxShadow: '0 6px 0 #7d5407' }}>
+              style={{ background: 'var(--amb)', color: '#fff', boxShadow: '0 6px 0 #7c3c06' }}>
               Zatwierdź i zakończ
             </button>
           </div>
@@ -661,12 +738,12 @@ export function DeboningHmiV8Page() {
             </p>
             <div className="flex gap-3">
               <button type="button" onClick={() => setShiftModal(false)}
-                className="flex-1 h-18 py-5 rounded-2xl border-[3px] text-xl font-black"
+                className="flex-1 py-5 rounded-2xl border-[3px] text-xl font-black"
                 style={{ borderColor: 'var(--bd)', color: 'var(--ink)' }}>
                 Wróć
               </button>
               <button type="button" onClick={handleCloseShift} disabled={closeLoading}
-                className="flex-1 h-18 py-5 rounded-2xl text-xl font-black"
+                className="flex-1 py-5 rounded-2xl text-xl font-black"
                 style={{ background: 'var(--red)', color: '#fff', boxShadow: '0 5px 0 #7c1a11' }}>
                 {closeLoading ? 'Zamykam…' : 'Tak, zakończ dzień'}
               </button>
