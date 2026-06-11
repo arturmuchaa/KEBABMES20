@@ -13,9 +13,11 @@ import { DeboningHmiV4Page } from '@/pages/tablet/DeboningHmiV4Page'
 import { DeboningHmiV5Page } from '@/pages/tablet/DeboningHmiV5Page'
 import { DeboningHmiV6Page } from '@/pages/tablet/DeboningHmiV6Page'
 import { DeboningHmiV7Page } from '@/pages/tablet/DeboningHmiV7Page'
+import { DeboningHmiV8Page } from '@/pages/tablet/DeboningHmiV8Page'
 
 export function RozbiorRoute() {
   const mode = useHmiMode()
+  if (mode === 'v8') return <DeboningHmiV8Page />
   if (mode === 'v7') return <DeboningHmiV7Page />
   if (mode === 'v6') return <DeboningHmiV6Page />
   if (mode === 'v5') return <DeboningHmiV5Page />
