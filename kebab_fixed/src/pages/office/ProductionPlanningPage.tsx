@@ -146,23 +146,30 @@ function computeMixedPieces(
     return s ? Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0)) : 0
   })
 
+  // FEFO jak w backendzie: całe sztuki z partii, a jej resztkę od razu
+  // zużyj w sztuce mieszanej dopełnionej z kolejnych partii.
   let remaining = qty
-  for (let i = 0; i < frees.length && remaining > 0; i++) {
-    const pcs = Math.min(remaining, Math.floor(frees[i] / kgPu))
-    frees[i] -= pcs * kgPu
-    remaining -= pcs
-  }
   let mixed = 0
-  while (remaining > 0) {
-    let need = kgPu
-    for (let i = 0; i < frees.length && need > 1e-6; i++) {
-      const take = Math.min(need, frees[i])
-      frees[i] -= take
-      need -= take
+  for (let i = 0; i < frees.length; i++) {
+    if (remaining > 0) {
+      const pcs = Math.min(remaining, Math.floor(frees[i] / kgPu))
+      frees[i] -= pcs * kgPu
+      remaining -= pcs
     }
-    if (need > 1e-6) break
-    mixed++
-    remaining--
+    while (remaining > 0 && frees[i] > 1e-6) {
+      let need = kgPu
+      const taken: Array<[number, number]> = []
+      for (let j = i; j < frees.length && need > 1e-6; j++) {
+        const take = Math.min(need, frees[j])
+        if (take <= 1e-6) continue
+        taken.push([j, take])
+        need -= take
+      }
+      if (need > 1e-6) break
+      taken.forEach(([j, take]) => { frees[j] -= take })
+      mixed++
+      remaining--
+    }
   }
   return mixed
 }

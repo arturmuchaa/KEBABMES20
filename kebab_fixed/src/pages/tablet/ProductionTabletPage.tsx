@@ -21,7 +21,11 @@ type ModalMode   = 'add'|'edit'|'batchInfo'
 interface ModalState { lineId:string; mode:ModalMode }
 
 // Alokacja partii: klucz = batch_no, wartość = {pieces, kg, batch_id}
-interface BatchAllocEntry { pieces:number; kg:number; batch_id?:string }
+interface BatchAllocEntry {
+  pieces:number; kg:number; batch_id?:string
+  // kubełek sztuk MIESZANYCH (partia PM{n}): kg per partia źródłowa
+  parts?: Record<string, { kg:number; batch_id?:string }>
+}
 type BatchAlloc = Record<string, BatchAllocEntry>
 
 const STATUS_PILL: Record<'PLANNED'|'IN_PROGRESS'|'DONE', string> = {
@@ -282,42 +286,85 @@ function BatchInfoModal({ line, onClose }: { line:ProductionPlanLine; onClose:()
           </div>
         </div>
 
-        {batchNos.length === 0 ? (
-          <div className="text-center py-6 text-sm text-ink-3">Brak przypisanych partii</div>
-        ) : (
-          <div className="space-y-2 mb-4">
-            {batchNos.map((bno:string, i:number) => {
-              const alloc = batchAlloc[bno]
-              const pieces = alloc?.pieces ?? (i === 0 ? line.qty : 0)
-              const kg     = alloc?.kg     ?? pieces * line.kgPerUnit
-              return (
-                <div key={bno} className="bg-surface-2 rounded-xl p-3 border border-surface-4">
+        {(() => {
+          // Wiersze z batch_allocation (czyste partie + kubełek PM sztuk
+          // mieszanych); fallback na listę partii, gdy alokacji brak.
+          const allocKeys = Object.keys(batchAlloc)
+          type Row = { bno:string; pieces:number; kg:number; mixed:boolean; parts?:Record<string,{kg:number}> }
+          let rows: Row[] = []
+          if (allocKeys.length > 0) {
+            const isMixedKey = (k:string) => k === '__MIXED__' || /^PM\d+$/.test(k)
+            // czyste partie w kolejności zaznaczenia, PM na końcu
+            const ordered = [
+              ...batchNos.filter((b:string)=>allocKeys.includes(b)),
+              ...allocKeys.filter(k=>!batchNos.includes(k)),
+            ]
+            // partie z 0 sztuk pomijamy — ich kg (resztki) widać w składzie PM
+            rows = ordered.map(k => {
+              const a = batchAlloc[k]
+              return {
+                bno: k === '__MIXED__' ? 'PM (po aktywacji)' : k,
+                pieces: a?.pieces ?? 0,
+                kg: a?.kg ?? 0,
+                mixed: isMixedKey(k),
+                parts: a?.parts,
+              }
+            }).filter(r => r.pieces > 0)
+          }
+          if (rows.length === 0 && batchNos.length > 0) {
+            rows = batchNos.map((bno:string, i:number) => ({
+              bno, mixed:false,
+              pieces: i === 0 ? line.qty : 0,
+              kg: (i === 0 ? line.qty : 0) * line.kgPerUnit,
+            }))
+          }
+          if (rows.length === 0) {
+            return <div className="text-center py-6 text-sm text-ink-3">Brak przypisanych partii</div>
+          }
+          const totPieces = rows.reduce((s,r)=>s+r.pieces,0)
+          const totKg     = rows.reduce((s,r)=>s+r.kg,0)
+          return (
+            <div className="space-y-2 mb-4">
+              {rows.map((r, i) => (
+                <div key={r.bno} className={cn('rounded-xl p-3 border',
+                  r.mixed ? 'bg-violet-50 border-violet-200' : 'bg-surface-2 border-surface-4')}>
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="font-mono text-xs font-bold text-brand bg-brand-light border border-brand-border px-2 py-0.5 rounded">{bno}</span>
+                    <span className={cn('font-mono text-xs font-bold px-2 py-0.5 rounded border',
+                      r.mixed
+                        ? 'text-violet-700 bg-violet-100 border-violet-300'
+                        : 'text-brand bg-brand-light border-brand-border')}>{r.bno}</span>
                     <span className={cn('text-xs font-bold px-2 py-0.5 rounded-full',
-                      i === 0 ? 'bg-success-light text-success' : 'bg-warn-light text-warn')}>
-                      Partia {String.fromCharCode(65 + i)}
+                      r.mixed ? 'bg-violet-100 text-violet-700'
+                        : i === 0 ? 'bg-success-light text-success' : 'bg-warn-light text-warn')}>
+                      {r.mixed ? 'Partia MIESZANA' : `Partia ${String.fromCharCode(65 + i)}`}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="text-center bg-white rounded-lg p-2 border border-surface-3">
-                      <div className="text-2xl font-black text-ink tabular-nums">{pieces}</div>
+                      <div className="text-2xl font-black text-ink tabular-nums">{r.pieces}</div>
                       <div className="text-[9px] font-bold text-ink-3 uppercase">sztuk</div>
                     </div>
                     <div className="text-center bg-white rounded-lg p-2 border border-surface-3">
-                      <div className="text-2xl font-black text-brand tabular-nums">{fmtKg(kg, 0)}</div>
+                      <div className="text-2xl font-black text-brand tabular-nums">{fmtKg(r.kg, 0)}</div>
                       <div className="text-[9px] font-bold text-ink-3 uppercase">kg</div>
                     </div>
                   </div>
+                  {r.mixed && r.parts && (
+                    <div className="mt-2 text-[11px] font-semibold text-violet-700">
+                      Skład: {Object.entries(r.parts)
+                        .map(([p, v]) => `${fmtKg(v.kg ?? 0)} kg z ${p}`)
+                        .join(' + ')}
+                    </div>
+                  )}
                 </div>
-              )
-            })}
-            <div className="flex justify-between text-xs font-semibold text-ink-3 px-1 pt-1 border-t border-surface-3">
-              <span>Łącznie:</span>
-              <span className="font-black text-ink">{line.qty} szt · {line.totalKg} kg</span>
+              ))}
+              <div className="flex justify-between text-xs font-semibold text-ink-3 px-1 pt-1 border-t border-surface-3">
+                <span>Łącznie:</span>
+                <span className="font-black text-ink">{totPieces} szt · {fmtKg(totKg,0)} kg</span>
+              </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         <button onClick={onClose} className="w-full h-12 rounded-2xl bg-surface-2 font-bold text-sm text-ink-2 border border-surface-4">
           Zamknij

@@ -99,3 +99,25 @@ def test_respects_existing_reservations():
     nos, alloc, _, _ = _compute_allocation(None, line, 20.0, locked)
     assert alloc[MIXED_KEY]["parts"]["346"]["kg"] == 5.0
     assert alloc[MIXED_KEY]["parts"]["347"]["kg"] == 15.0
+
+
+def test_leftover_used_first_even_when_next_batch_covers_all():
+    # Przypadek ze screenshota (IMG_5657): PP1 ma resztkę 30 kg, 349 ma
+    # 900 kg, plan 20 szt × 40 kg. Planista dołożył PP1, żeby ją ZUŻYĆ —
+    # resztka idzie do pierwszej (mieszanej) sztuki, mimo że 349 samo
+    # pokryłoby całość. Wcześniej: PP1 = 0 szt / 0 kg (nieużyta).
+    locked = _locked([
+        {"id": "pp", "batch_no": "PP1", "kg_available": 30.0, "kg_reserved": 0},
+        {"id": "b", "batch_no": "349", "kg_available": 900.0, "kg_reserved": 0},
+    ])
+    line = PlanLineCreate(qty=20, kg_per_unit=40, recipe_id="r",
+                          seasoned_batch_ids=["pp", "b"])
+    nos, alloc, _, _ = _compute_allocation(None, line, 800.0, locked)
+    assert alloc[MIXED_KEY]["pieces"] == 1
+    assert alloc[MIXED_KEY]["parts"]["PP1"]["kg"] == 30.0
+    assert alloc[MIXED_KEY]["parts"]["349"]["kg"] == 10.0
+    assert alloc["349"]["pieces"] == 19          # reszta czysta z 349
+    assert alloc["PP1"]["pieces"] == 0
+    kg = _allocation_kg_per_batch(alloc)
+    assert kg["pp"] == 30.0                       # PP1 zużyte W CAŁOŚCI
+    assert kg["b"] == 770.0                       # 19×40 + 10 dopełnienia

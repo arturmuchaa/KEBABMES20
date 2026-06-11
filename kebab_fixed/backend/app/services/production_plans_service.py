@@ -104,16 +104,25 @@ def _compute_allocation(
 
     kg_pu = float(line.kg_per_unit or 0)
     remaining_qty = int(line.qty)
+    eps = 1e-6
+    mixed_pieces = 0
+    mixed_parts: dict[str, dict] = {}
 
-    # 1) Całe sztuki per partia
-    for b in pool:
-        if remaining_qty <= 0:
-            break
-        if kg_pu > 0:
-            pcs = int(min(remaining_qty, b["free"] // kg_pu))
+    # Partia po partii (kolejność zaznaczenia = FEFO): najpierw całe sztuki
+    # z partii, a jej RESZTKĘ od razu zużyj w sztuce mieszanej dopełnionej
+    # z kolejnych partii. Dzięki temu resztka starszej partii (np. PP1)
+    # jest fizycznie wykorzystana, nawet gdy następna partia sama
+    # pokryłaby całą linię — planista dokłada partię właśnie po to.
+    for i, b in enumerate(pool):
+        # 1) Całe sztuki z tej partii
+        if remaining_qty > 0:
+            if kg_pu > 0:
+                pcs = int(min(remaining_qty, b["free"] // kg_pu))
+            else:
+                pcs = remaining_qty
+            pcs = max(0, min(pcs, remaining_qty))
         else:
-            pcs = remaining_qty
-        pcs = max(0, min(pcs, remaining_qty))
+            pcs = 0
         if pcs > 0 or b["b_no"] not in allocation:
             all_batch_nos.append(b["b_no"])
             allocation[b["b_no"]] = {
@@ -124,31 +133,30 @@ def _compute_allocation(
             b["free"] -= pcs * kg_pu
             remaining_qty -= pcs
 
-    # 2) Sztuki mieszane z resztek (każda = kg z >=2 partii)
-    eps = 1e-6
-    mixed_pieces = 0
-    mixed_parts: dict[str, dict] = {}
-    while remaining_qty > 0 and kg_pu > 0:
-        need = kg_pu
-        taken: list[tuple[dict, float]] = []
-        for b in pool:
-            if need <= eps:
+        # 2) Resztka tej partii → sztuka mieszana (dopełniona z kolejnych)
+        while remaining_qty > 0 and kg_pu > 0 and b["free"] > eps:
+            need = kg_pu
+            taken: list[tuple[dict, float]] = []
+            for b2 in pool[i:]:
+                if need <= eps:
+                    break
+                take = min(need, b2["free"])
+                if take <= eps:
+                    continue
+                taken.append((b2, take))
+                need -= take
+            if need > eps:
+                # Nie da się złożyć całej sztuki — zostaw nieprzydzielone,
+                # niedobór złapie walidacja (_check_plan_shortfalls / aktywacja).
                 break
-            take = min(need, b["free"])
-            if take <= eps:
-                continue
-            taken.append((b, take))
-            need -= take
-        if need > eps:
-            # Resztek nie starcza na całą sztukę — zostaw nieprzydzielone,
-            # niedobór złapie walidacja (_check_plan_shortfalls / aktywacja).
-            break
-        for b, take in taken:
-            b["free"] -= take
-            part = mixed_parts.setdefault(b["b_no"], {"kg": 0.0, "batch_id": b["bid"]})
-            part["kg"] = round(float(part["kg"]) + take, 3)
-        mixed_pieces += 1
-        remaining_qty -= 1
+            for b2, take in taken:
+                b2["free"] -= take
+                part = mixed_parts.setdefault(
+                    b2["b_no"], {"kg": 0.0, "batch_id": b2["bid"]}
+                )
+                part["kg"] = round(float(part["kg"]) + take, 3)
+            mixed_pieces += 1
+            remaining_qty -= 1
 
     if mixed_pieces > 0:
         allocation[MIXED_KEY] = {
