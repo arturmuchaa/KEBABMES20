@@ -350,7 +350,9 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
                 + "\n".join("• " + s for s in shortfalls),
             )
 
-        plan_no = next_dated_no(conn, "PP", dto.plan_date)
+        # Spójna numeracja procesu: ROZ/dd/mm/rr (rozbiór), MAS/… (masowanie),
+        # PROD/… (produkcja). Stare plany zostają z prefiksem PP.
+        plan_no = next_dated_no(conn, "PROD", dto.plan_date)
 
         plan = cx_execute_returning(
             conn,

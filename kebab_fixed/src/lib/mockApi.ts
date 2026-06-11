@@ -2250,7 +2250,7 @@ export interface ProductionPlanLine {
 
 export interface ProductionPlan {
   id:          string
-  planNo:      string       // PP-2026-001
+  planNo:      string       // PROD/dd/mm/rr (starsze: PP/dd/mm/rr)
   planDate:    string
   lines:       ProductionPlanLine[]
   totalKg:     number
