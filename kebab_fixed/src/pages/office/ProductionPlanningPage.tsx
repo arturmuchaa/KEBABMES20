@@ -121,57 +121,74 @@ function computeSelKgAvailForLine(
   return available
 }
 
-// Ile sztuk linii będzie MIESZANYCH (składanych z resztek kilku partii —
-// dostaną wspólną partię PM zamiast numeru partii wsadowej). Lustrzane
-// odbicie backendowego _compute_allocation: najpierw całe sztuki per
-// partia, reszta z resztek.
-function computeMixedPieces(
+// Podgląd rozbicia linii na partie — lustrzane odbicie backendowego
+// _compute_allocation (FEFO): całe sztuki z partii, a jej resztkę od razu
+// zużyj w sztuce mieszanej (PM) dopełnionej z kolejnych partii.
+interface AllocPreview {
+  clean:       Array<{ batchNo: string; pieces: number }>
+  mixedPieces: number
+  mixedParts:  Array<{ batchNo: string; kg: number }>
+}
+
+function computeAllocPreview(
   idx: number,
   lines: PlanLineForm[],
   seasonedRaw: any[],
-): number {
+): AllocPreview | null {
   const line = lines[idx]
-  if (!line) return 0
+  if (!line) return null
   const qty  = parseFloat(line.qty)||0
   const kgPu = parseFloat(line.kgPerUnit)||0
-  if (qty <= 0 || kgPu <= 0) return 0
+  if (qty <= 0 || kgPu <= 0) return null
   const selIds = line.seasonedBatchIds?.length>0
     ? line.seasonedBatchIds
     : (line.seasonedBatchId ? [line.seasonedBatchId] : [])
-  if (selIds.length < 2) return 0
+  if (selIds.length === 0) return null
 
   const otherUsed = computeOtherUsed(idx, lines, seasonedRaw)
-  const frees = selIds.map(id => {
+  const pool = selIds.map(id => {
     const s = seasonedRaw.find((x:any)=>x.id===id)
-    return s ? Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0)) : 0
+    return {
+      batchNo: s?.batchNo ?? '?',
+      free: s ? Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0)) : 0,
+    }
   })
 
-  // FEFO jak w backendzie: całe sztuki z partii, a jej resztkę od razu
-  // zużyj w sztuce mieszanej dopełnionej z kolejnych partii.
+  const clean: Array<{ batchNo: string; pieces: number }> = []
+  const partsMap: Record<string, number> = {}
   let remaining = qty
   let mixed = 0
-  for (let i = 0; i < frees.length; i++) {
+  for (let i = 0; i < pool.length; i++) {
+    const b = pool[i]
     if (remaining > 0) {
-      const pcs = Math.min(remaining, Math.floor(frees[i] / kgPu))
-      frees[i] -= pcs * kgPu
+      const pcs = Math.min(remaining, Math.floor(b.free / kgPu))
+      if (pcs > 0) clean.push({ batchNo: b.batchNo, pieces: pcs })
+      b.free -= pcs * kgPu
       remaining -= pcs
     }
-    while (remaining > 0 && frees[i] > 1e-6) {
+    while (remaining > 0 && b.free > 1e-6) {
       let need = kgPu
       const taken: Array<[number, number]> = []
-      for (let j = i; j < frees.length && need > 1e-6; j++) {
-        const take = Math.min(need, frees[j])
+      for (let j = i; j < pool.length && need > 1e-6; j++) {
+        const take = Math.min(need, pool[j].free)
         if (take <= 1e-6) continue
         taken.push([j, take])
         need -= take
       }
       if (need > 1e-6) break
-      taken.forEach(([j, take]) => { frees[j] -= take })
+      taken.forEach(([j, take]) => {
+        pool[j].free -= take
+        partsMap[pool[j].batchNo] = (partsMap[pool[j].batchNo] ?? 0) + take
+      })
       mixed++
       remaining--
     }
   }
-  return mixed
+  return {
+    clean,
+    mixedPieces: mixed,
+    mixedParts: Object.entries(partsMap).map(([batchNo, kg]) => ({ batchNo, kg })),
+  }
 }
 
 // Mapa rezerwacji: ile kg z każdej partii zajmują podane linie formularza
@@ -1281,7 +1298,8 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
               const ids    = line.seasonedBatchIds?.length>0 ? line.seasonedBatchIds : (line.seasonedBatchId?[line.seasonedBatchId]:[])
               const avail  = ids.length>0 ? computeSelKgAvailForLine(i, lines, seasonedRaw??[]) : 0
               const meatOk = ids.length>0 && avail >= tkg-0.1
-              const mixedPcs = meatOk ? computeMixedPieces(i, lines, seasonedRaw??[]) : 0
+              const preview = meatOk ? computeAllocPreview(i, lines, seasonedRaw??[]) : null
+              const mixedPcs = preview?.mixedPieces ?? 0
               const isExp  = expandedLine===i
               const rcName = (recipes??[]).find((r:any)=>r.id===line.recipeId)?.name ?? '—'
               const ptName = (productTypes??[]).find((pt:any)=>pt.id===line.productTypeId)?.name
@@ -1328,6 +1346,22 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
                       <Trash2 size={13}/>
                     </button>
                   </div>
+                  {/* Podgląd: ile sztuk z której partii (+ skład sztuki PM) */}
+                  {preview && (preview.clean.length>0 || preview.mixedPieces>0) && (
+                    <div className="px-3 pb-1.5 -mt-0.5 pl-10 text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                      <span className="uppercase font-semibold tracking-wide">Rozbicie:</span>
+                      {preview.clean.map(c=>(
+                        <span key={c.batchNo} className="font-semibold">
+                          {c.pieces}× <span className="font-mono text-foreground">{c.batchNo}</span>
+                        </span>
+                      ))}
+                      {preview.mixedPieces>0 && (
+                        <span className="font-semibold text-violet-700">
+                          {preview.mixedPieces}× PM ({preview.mixedParts.map(p=>`${fmtKg(p.kg)} kg ${p.batchNo}`).join(' + ')})
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {/* Szczegóły pozycji — pełny edytor z partiami mięsa */}
                   {isExp && (
                     <div className="px-3 pb-3 pt-1 bg-muted/30 border-t">
@@ -1617,16 +1651,47 @@ export function ProductionPlanningPage() {
                               <TableCell className="py-1.5 px-3">{l.recipeName}</TableCell>
                               <TableCell className="py-1.5 text-muted-foreground px-3">{l.packagingName||'—'}</TableCell>
                               <TableCell className="py-1.5 px-3">
-                                {(l as any).seasonedBatchNos?.length>0
-                                  ? <div className="flex gap-1 flex-wrap">
-                                      {(l as any).seasonedBatchNos.map((n:string)=>(
-                                        <Badge key={n} variant="outline" className="font-mono text-green-700 bg-green-50 border-green-200 text-[10px] h-5">{n}</Badge>
-                                      ))}
-                                    </div>
-                                  : l.seasonedBatchNo
-                                    ? <span className="font-mono text-green-700">{l.seasonedBatchNo}</span>
-                                    : <span className="text-amber-600">Do przydzielenia</span>
-                                }
+                                {(() => {
+                                  // Rozbicie z batch_allocation: "349 ×19" + fioletowy
+                                  // badge PM ze składem; fallback na same numery partii.
+                                  const ba = ((l as any).batchAllocation ?? {}) as Record<string, any>
+                                  const isMixedKey = (k:string) => k === '__MIXED__' || /^PM\d+$/.test(k)
+                                  const entries = Object.entries(ba)
+                                    .filter(([,a]) => (a?.pieces ?? 0) > 0)
+                                    .sort(([k1],[k2]) => Number(isMixedKey(k1)) - Number(isMixedKey(k2)))
+                                  if (entries.length > 0) {
+                                    return (
+                                      <div className="flex gap-1 flex-wrap">
+                                        {entries.map(([k, a]) => {
+                                          const mixed = isMixedKey(k)
+                                          const label = k === '__MIXED__' ? 'PM' : k
+                                          const title = mixed && a.parts
+                                            ? Object.entries(a.parts as Record<string, any>)
+                                                .map(([p, v]) => `${fmtKg(v?.kg ?? 0)} kg z ${p}`)
+                                                .join(' + ')
+                                            : undefined
+                                          return (
+                                            <Badge key={k} variant="outline" title={title}
+                                              className={`font-mono text-[10px] h-5 ${mixed
+                                                ? 'text-violet-700 bg-violet-50 border-violet-200'
+                                                : 'text-green-700 bg-green-50 border-green-200'}`}>
+                                              {label} ×{a.pieces}
+                                            </Badge>
+                                          )
+                                        })}
+                                      </div>
+                                    )
+                                  }
+                                  return (l as any).seasonedBatchNos?.length>0
+                                    ? <div className="flex gap-1 flex-wrap">
+                                        {(l as any).seasonedBatchNos.map((n:string)=>(
+                                          <Badge key={n} variant="outline" className="font-mono text-green-700 bg-green-50 border-green-200 text-[10px] h-5">{n}</Badge>
+                                        ))}
+                                      </div>
+                                    : l.seasonedBatchNo
+                                      ? <span className="font-mono text-green-700">{l.seasonedBatchNo}</span>
+                                      : <span className="text-amber-600">Do przydzielenia</span>
+                                })()}
                               </TableCell>
                               <TableCell className="py-1.5 text-muted-foreground text-[10px] px-3">{l.clientName ? clientDisplay(l.clientName) : '—'}</TableCell>
                               <TableCell className="py-1 px-2">

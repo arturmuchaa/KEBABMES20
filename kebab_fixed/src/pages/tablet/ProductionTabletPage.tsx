@@ -89,7 +89,23 @@ function ProductionRow({ line, nr, prog, onClick, onEdit, onBatchInfo }: {
   const accent    = status==='IN_PROGRESS'?'border-l-warn':status==='DONE'?'border-l-success':'border-l-surface-4'
   const rowBg     = isDone?'bg-success-light/30':status==='IN_PROGRESS'?'bg-warn-light/20':'bg-white'
   const batchNos  = (line as any).seasonedBatchNos ?? (line.seasonedBatchNo?[line.seasonedBatchNo]:[])
-  const hasBatches = batchNos.length > 0
+  // Chipy z rozbicia: "349 ×19", "PM1 ×1" (partie 0-sztukowe pominięte);
+  // fallback na same numery, gdy alokacji brak.
+  const batchChips: Array<{label:string; mixed:boolean}> = (() => {
+    const ba = ((line as any).batchAllocation ?? {}) as Record<string, any>
+    const isMixedKey = (k:string) => k === '__MIXED__' || /^PM\d+$/.test(k)
+    const entries = Object.entries(ba)
+      .filter(([,a]) => (a?.pieces ?? 0) > 0)
+      .sort(([k1],[k2]) => Number(isMixedKey(k1)) - Number(isMixedKey(k2)))
+    if (entries.length > 0) {
+      return entries.map(([k, a]) => ({
+        label: `${k === '__MIXED__' ? 'PM' : k} ×${a.pieces}`,
+        mixed: isMixedKey(k),
+      }))
+    }
+    return batchNos.map((n:string)=>({ label:n, mixed:false }))
+  })()
+  const hasBatches = batchNos.length > 0 || batchChips.length > 0
 
   return (
     <div className={cn('border-b-2 border-surface-3 last:border-b-0 border-l-4',accent,rowBg)}>
@@ -105,13 +121,16 @@ function ProductionRow({ line, nr, prog, onClick, onEdit, onBatchInfo }: {
           </div>
           <span className="text-xs font-semibold text-ink uppercase truncate">{line.recipeName}</span>
           <div className="flex flex-col items-center gap-0.5">
-            {batchNos.length>0
-              ? batchNos.slice(0,2).map((n:string,i:number)=>(
-                  <span key={i} className="text-[9px] font-bold font-mono text-brand bg-brand-light border border-brand-border px-1 py-0.5 rounded whitespace-nowrap">{n}</span>
+            {batchChips.length>0
+              ? batchChips.slice(0,2).map((c,i)=>(
+                  <span key={i} className={cn('text-[9px] font-bold font-mono px-1 py-0.5 rounded whitespace-nowrap border',
+                    c.mixed
+                      ? 'text-violet-700 bg-violet-50 border-violet-200'
+                      : 'text-brand bg-brand-light border-brand-border')}>{c.label}</span>
                 ))
               : <span className="text-[9px] text-ink-4">—</span>
             }
-            {batchNos.length>2&&<span className="text-[8px] text-ink-3">+{batchNos.length-2}</span>}
+            {batchChips.length>2&&<span className="text-[8px] text-ink-3">+{batchChips.length-2}</span>}
           </div>
           <span className="text-xs font-bold text-ink-2 font-mono truncate text-center">{line.packagingName||'—'}</span>
           <span className="text-xs font-bold text-ink truncate">{line.clientName ? clientDisplay(line.clientName) : '—'}</span>
