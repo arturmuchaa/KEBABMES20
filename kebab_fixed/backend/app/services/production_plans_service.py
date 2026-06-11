@@ -21,7 +21,8 @@ from app.db import (
 )
 from app.logging_config import get_logger
 from app.models.production import PlanLineCreate, ProductionPlanCreate
-from app.utils.ids import cuid, next_dated_no, now_iso
+from app.utils.batch_numbers import production_mixed_batch_no
+from app.utils.ids import cuid, next_dated_no, next_seq, now_iso
 
 logger = get_logger(__name__)
 
@@ -41,9 +42,27 @@ def _lock_seasoned_batches(conn, batch_ids: List[str]) -> Dict[str, Dict]:
     return locked
 
 
+# Klucz kubełka sztuk MIESZANYCH w batch_allocation. Sztuki składane z
+# resztek kilku partii dostają jeden wspólny numer PM{n} — nadawany przy
+# aktywacji planu (_assign_pm_numbers), do tego czasu trzymane pod sentinelem.
+MIXED_KEY = "__MIXED__"
+
+
 def _compute_allocation(
     conn, line: PlanLineCreate, line_kg: float, locked: Dict[str, Dict]
 ) -> tuple[list[str], dict, str | None, str]:
+    """Rozbij sztuki linii na partie wsadowe.
+
+    Najpierw CAŁE sztuki mieszczące się w jednej partii (każda sztuka jeden
+    numer partii). Sztuki, na które żadna pojedyncza partia już nie ma kg,
+    są składane z resztek kilku partii i trafiają do kubełka ``MIXED_KEY``
+    z rozbiciem kg per partia w ``parts`` — z nich powstaje partia PM.
+
+    Mutuje ``locked`` (podbija kg_reserved w snapshotcie), żeby kolejne
+    linie tego samego planu liczyły się na pomniejszonej puli — DB i tak
+    pilnuje tego w _apply_reservations, ale bez aktualizacji snapshotu
+    dochodziło do fałszywych 409 przy wielu liniach z tej samej partii.
+    """
     all_batch_ids = (
         list(line.seasoned_batch_ids)
         if line.seasoned_batch_ids
@@ -63,38 +82,125 @@ def _compute_allocation(
         if sb_row:
             primary_batch_no = sb_row.get("batch_no") or ""
 
-    if all_batch_ids:
-        remaining_qty = line.qty
-        for bid in all_batch_ids:
-            if remaining_qty <= 0:
+    if not all_batch_ids:
+        return all_batch_nos, allocation, primary_batch_id, primary_batch_no
+
+    # Pula wolnych kg per partia, w kolejności zaznaczenia (FEFO z planowania)
+    pool: list[dict] = []
+    for bid in all_batch_ids:
+        sb_row = locked.get(bid) or cx_query_one(
+            conn,
+            "SELECT batch_no, kg_available, kg_reserved FROM seasoned_meat WHERE id=%s",
+            (bid,),
+        )
+        if not sb_row:
+            continue
+        kg_free = max(
+            0.0,
+            float(sb_row.get("kg_available") or 0)
+            - float(sb_row.get("kg_reserved") or 0),
+        )
+        pool.append({"bid": bid, "b_no": sb_row["batch_no"], "free": kg_free})
+
+    kg_pu = float(line.kg_per_unit or 0)
+    remaining_qty = int(line.qty)
+
+    # 1) Całe sztuki per partia
+    for b in pool:
+        if remaining_qty <= 0:
+            break
+        if kg_pu > 0:
+            pcs = int(min(remaining_qty, b["free"] // kg_pu))
+        else:
+            pcs = remaining_qty
+        pcs = max(0, min(pcs, remaining_qty))
+        if pcs > 0 or b["b_no"] not in allocation:
+            all_batch_nos.append(b["b_no"])
+            allocation[b["b_no"]] = {
+                "pieces": pcs,
+                "kg": round(pcs * kg_pu, 3),
+                "batch_id": b["bid"],
+            }
+            b["free"] -= pcs * kg_pu
+            remaining_qty -= pcs
+
+    # 2) Sztuki mieszane z resztek (każda = kg z >=2 partii)
+    eps = 1e-6
+    mixed_pieces = 0
+    mixed_parts: dict[str, dict] = {}
+    while remaining_qty > 0 and kg_pu > 0:
+        need = kg_pu
+        taken: list[tuple[dict, float]] = []
+        for b in pool:
+            if need <= eps:
                 break
-            sb_row = locked.get(bid) or cx_query_one(
-                conn,
-                "SELECT batch_no, kg_available, kg_reserved FROM seasoned_meat WHERE id=%s",
-                (bid,),
-            )
-            if not sb_row:
+            take = min(need, b["free"])
+            if take <= eps:
                 continue
-            b_no = sb_row["batch_no"]
-            kg_free = max(
-                0.0,
-                float(sb_row.get("kg_available") or 0)
-                - float(sb_row.get("kg_reserved") or 0),
-            )
-            if line.kg_per_unit > 0:
-                pcs_from_batch = int(min(remaining_qty, kg_free // line.kg_per_unit))
-            else:
-                pcs_from_batch = remaining_qty
-            pcs_from_batch = max(0, min(pcs_from_batch, remaining_qty))
-            if pcs_from_batch > 0 or b_no not in allocation:
-                all_batch_nos.append(b_no)
-                allocation[b_no] = {
-                    "pieces": pcs_from_batch,
-                    "kg": round(pcs_from_batch * line.kg_per_unit, 3),
-                    "batch_id": bid,
-                }
-                remaining_qty -= pcs_from_batch
+            taken.append((b, take))
+            need -= take
+        if need > eps:
+            # Resztek nie starcza na całą sztukę — zostaw nieprzydzielone,
+            # niedobór złapie walidacja (_check_plan_shortfalls / aktywacja).
+            break
+        for b, take in taken:
+            b["free"] -= take
+            part = mixed_parts.setdefault(b["b_no"], {"kg": 0.0, "batch_id": b["bid"]})
+            part["kg"] = round(float(part["kg"]) + take, 3)
+        mixed_pieces += 1
+        remaining_qty -= 1
+
+    if mixed_pieces > 0:
+        allocation[MIXED_KEY] = {
+            "pieces": mixed_pieces,
+            "kg": round(mixed_pieces * kg_pu, 3),
+            "parts": mixed_parts,
+        }
+
+    # Zaktualizuj snapshot locked o kg tej linii (kolejne linie planu
+    # liczą się już na pomniejszonej puli).
+    reserved_now: Dict[str, float] = {}
+    for key, alloc in allocation.items():
+        if key == MIXED_KEY:
+            for p in alloc["parts"].values():
+                bid = p.get("batch_id")
+                if bid:
+                    reserved_now[bid] = reserved_now.get(bid, 0.0) + float(p["kg"])
+        else:
+            bid = alloc.get("batch_id")
+            kg = float(alloc.get("kg") or 0)
+            if bid and kg > 0:
+                reserved_now[bid] = reserved_now.get(bid, 0.0) + kg
+    for bid, kg in reserved_now.items():
+        row = locked.get(bid)
+        if row is not None:
+            row["kg_reserved"] = float(row.get("kg_reserved") or 0) + kg
+
     return all_batch_nos, allocation, primary_batch_id, primary_batch_no
+
+
+def _allocation_kg_per_batch(allocation: dict) -> Dict[str, float]:
+    """Sumaryczne kg per batch_id z alokacji — wliczając kubełek sztuk
+    mieszanych (MIXED/PM), którego kg siedzą w ``parts``."""
+    out: Dict[str, float] = {}
+    for key, alloc in (allocation.items() if isinstance(allocation, dict) else []):
+        if not isinstance(alloc, dict):
+            continue
+        parts = alloc.get("parts")
+        if isinstance(parts, dict):
+            for p in parts.values():
+                if not isinstance(p, dict):
+                    continue
+                bid = p.get("batch_id")
+                kg = float(p.get("kg") or 0)
+                if bid and kg > 0:
+                    out[bid] = out.get(bid, 0.0) + kg
+        else:
+            bid = alloc.get("batch_id")
+            kg = float(alloc.get("kg") or 0)
+            if bid and kg > 0:
+                out[bid] = out.get(bid, 0.0) + kg
+    return out
 
 
 def _apply_reservations(conn, allocation: dict) -> None:
@@ -102,13 +208,10 @@ def _apply_reservations(conn, allocation: dict) -> None:
 
     Nie dotyka kg_available ani kg_used. Realna konsumpcja (zdjęcie z
     available + przeniesienie do used) dzieje się dopiero w finish_day
-    razem z emisją OUT-movement.
+    razem z emisją OUT-movement. Sztuki mieszane (kubełek parts) rezerwują
+    faktyczne kg w każdej partii źródłowej.
     """
-    for _, alloc in allocation.items():
-        bid = alloc.get("batch_id")
-        kg = float(alloc.get("kg") or 0)
-        if not bid or kg <= 0:
-            continue
+    for bid, kg in _allocation_kg_per_batch(allocation).items():
         rowcount = cx_execute_rowcount(
             conn,
             """
@@ -186,6 +289,7 @@ def _restore_reservations(conn, plan_id: str) -> None:
     old_lines = cx_query_all(
         conn, "SELECT * FROM production_plan_lines WHERE plan_id=%s", (plan_id,)
     )
+    per_line_kg: list[Dict[str, float]] = []
     touched_ids: set[str] = set()
     for old in old_lines:
         ba = old.get("batch_allocation") or {}
@@ -194,28 +298,17 @@ def _restore_reservations(conn, plan_id: str) -> None:
                 ba = json.loads(ba)
             except Exception:
                 ba = {}
-        if isinstance(ba, dict):
-            for alloc in ba.values():
-                if isinstance(alloc, dict) and alloc.get("batch_id"):
-                    touched_ids.add(alloc["batch_id"])
+        kg_map = _allocation_kg_per_batch(ba if isinstance(ba, dict) else {})
+        per_line_kg.append(kg_map)
+        touched_ids.update(kg_map.keys())
     # Lock all touched rows in deterministic order first
     for bid in sorted(touched_ids):
         cx_query_one(
             conn, "SELECT id FROM seasoned_meat WHERE id=%s FOR UPDATE", (bid,)
         )
-    for old in old_lines:
-        ba = old.get("batch_allocation") or {}
-        if isinstance(ba, str):
-            try:
-                ba = json.loads(ba)
-            except Exception:
-                ba = {}
-        for _, alloc in (ba.items() if isinstance(ba, dict) else []):
-            if not isinstance(alloc, dict):
-                continue
-            bid = alloc.get("batch_id")
-            kg_back = float(alloc.get("kg") or 0)
-            if bid and kg_back > 0:
+    for kg_map in per_line_kg:
+        for bid, kg_back in kg_map.items():
+            if kg_back > 0:
                 # Plan był rezerwacją — zwracamy kg_reserved bez ruszania
                 # kg_available/kg_used (konsumpcja dzieje się dopiero w
                 # finish_day).
@@ -494,6 +587,49 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
     return updated
 
 
+def ensure_pm_assigned(conn, line_row: Dict) -> dict:
+    """Zwróć batch_allocation linii z realnym numerem PM zamiast sentinela
+    MIXED_KEY (jeśli trzeba — nadaje numer i zapisuje linię).
+
+    Wołane przy aktywacji planu (wtedy etykiety i magazyn widzą już PM)
+    oraz defensywnie z finished_units / finish_day, na wypadek linii
+    aktywowanych starszym kodem.
+    """
+    ba = line_row.get("batch_allocation") or {}
+    if isinstance(ba, str):
+        try:
+            ba = json.loads(ba)
+        except Exception:
+            ba = {}
+    if not isinstance(ba, dict):
+        return {}
+    if MIXED_KEY not in ba:
+        return ba
+    pm_no = production_mixed_batch_no(next_seq("pm_seq"))
+    ba[pm_no] = ba.pop(MIXED_KEY)
+    cx_execute(
+        conn,
+        "UPDATE production_plan_lines SET batch_allocation=%s WHERE id=%s",
+        (json.dumps(ba), line_row["id"]),
+    )
+    logger.info(
+        "plan.pm_assigned",
+        extra={"plan_line_id": line_row.get("id"), "pm_no": pm_no},
+    )
+    return ba
+
+
+def _assign_pm_numbers(conn, plan_id: str) -> None:
+    """Nadaj numery PM wszystkim liniom planu z kubełkiem sztuk mieszanych."""
+    lines = cx_query_all(
+        conn,
+        "SELECT id, batch_allocation FROM production_plan_lines WHERE plan_id=%s",
+        (plan_id,),
+    )
+    for ln in lines:
+        ensure_pm_assigned(conn, ln)
+
+
 def update_plan_status(plan_id: str, status: str) -> Dict[str, bool]:
     with transaction() as conn:
         if status == "active":
@@ -532,6 +668,9 @@ def update_plan_status(plan_id: str, status: str) -> Dict[str, bool]:
                     "Niewystarczająca ilość mięsa — dostosuj plan przed aktywacją:\n"
                     + "; ".join(errors),
                 )
+            # Sztuki mieszane dostają realny numer PM dopiero teraz —
+            # od aktywacji etykiety i magazyn widzą ten sam numer.
+            _assign_pm_numbers(conn, plan_id)
         # Zamknięcie planu (done/cancelled/draft) musi zwolnić rezerwacje
         # na seasoned_meat. finish_day robi to samodzielnie; ale gdy biuro
         # ręcznie ustawi status na 'done' / 'cancelled' / cofnie do 'draft',

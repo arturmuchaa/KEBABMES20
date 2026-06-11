@@ -26,7 +26,7 @@ from app.db import (
 from app.logging_config import get_logger
 from app.models.production import FinishDayDto, FinishDayEntry, FinishedGoodCreate
 from app.utils.body import body_get
-from app.utils.batch_numbers import kebab_batch_no, production_combined_batch_no
+from app.utils.batch_numbers import kebab_batch_no, production_mixed_batch_no
 from app.utils.ids import cuid, next_seq, now_iso
 from app.utils.stock import create_stock_movement
 
@@ -158,15 +158,25 @@ def _consume_seasoned_for_entry(
             line_qty = max(1, int(line.get("qty") or 0))
             scale = entry_qty / line_qty if line_qty > 0 else 1.0
             if isinstance(ba, dict):
+                def _add(bid: str, batch_no: str, kg: float) -> None:
+                    take = round(kg * scale, 3)
+                    if not bid or take <= 0:
+                        return
+                    cur = per_batch.setdefault(bid, {"kg": 0.0, "batch_no": batch_no or ""})
+                    cur["kg"] = round(float(cur["kg"]) + take, 3)
+
                 for batch_no, alloc in ba.items():
                     if not isinstance(alloc, dict):
                         continue
-                    bid = alloc.get("batch_id")
-                    full_kg = float(alloc.get("kg") or 0)
-                    take = round(full_kg * scale, 3)
-                    if not bid or take <= 0:
+                    parts = alloc.get("parts")
+                    if isinstance(parts, dict):
+                        # Kubełek sztuk mieszanych (PM) — kg siedzą w parts,
+                        # konsumpcja schodzi z partii źródłowych.
+                        for p_no, p in parts.items():
+                            if isinstance(p, dict):
+                                _add(p.get("batch_id"), p_no, float(p.get("kg") or 0))
                         continue
-                    per_batch[bid] = {"kg": take, "batch_no": batch_no or ""}
+                    _add(alloc.get("batch_id"), batch_no, float(alloc.get("kg") or 0))
 
     # Fallback: equal split when allocation missing
     if not per_batch and seasoned_batch_nos:
@@ -423,28 +433,31 @@ def finish_day(dto: FinishDayDto) -> Dict[str, Any]:
 
 
 def _compute_kebab_batch_no(produced_date: str, seasoned_batch_nos: List[str]) -> str:
-    """Numer kebaba.
+    """Numer kebaba (tryb łączony — fallback gdy brak czystej alokacji).
 
     * 1 partia wsadowa → 'ddmmrr <numer wsadu>' (np. '020626 344').
     * >1 partii (fizycznie zmieszane na PRODUKCJI w tych samych sztukach)
-      → nowa partia łączona PPP{n}, numer 'ddmmrr PPP{n}'.
-      (PP zostaje zarezerwowane dla łączenia w mieszalniku/beczce.)
+      → nowa partia mieszana PM{n}, numer 'ddmmrr PM{n}'.
+      (PP zostaje zarezerwowane dla łączenia w masownicy; historyczne
+      numery PPP pozostają w danych i są rozpoznawane jako legacy.)
     """
     if seasoned_batch_nos and len(seasoned_batch_nos) == 1:
         return kebab_batch_no(produced_date, seasoned_batch_nos[0])
-    ppp = production_combined_batch_no(next_seq("ppp_seq"))
-    return kebab_batch_no(produced_date, ppp)
+    pm = production_mixed_batch_no(next_seq("pm_seq"))
+    return kebab_batch_no(produced_date, pm)
 
 
 def entry_batch_portions(qty, batch_allocation) -> List[Dict[str, Any]]:
     """Rozbij wpis zamknięcia dnia na porcje per partia wsadowa wg
     ``batch_allocation`` (sztuki na partię ustawione w planowaniu).
 
-    Zwraca ``[{"batch_no", "qty"}]`` gdy alokacja dzieli się czysto na sztuki
-    (suma ``pieces`` == qty) — wtedy każda partia dostaje osobny wiersz
-    finished_goods, więc każda sztuka ma poprawną partię. W innym wypadku ``[]``
-    (sygnał: tryb łączony — jedna partia / PP gdy fizycznie zmieszane).
-    Spójne z `finished_units` i HDI, które też rozbijają per `batch_allocation`.
+    Zwraca ``[{"batch_no", "qty", "source_nos"}]`` gdy alokacja dzieli się
+    czysto na sztuki (suma ``pieces`` == qty) — wtedy każda partia dostaje
+    osobny wiersz finished_goods, więc każda sztuka ma poprawną partię.
+    Kubełek sztuk MIESZANYCH (numer PM{n}, kg w ``parts``) daje porcję,
+    której ``source_nos`` to partie źródłowe z ``parts`` (lineage).
+    W innym wypadku ``[]`` (sygnał: tryb łączony — jedna partia / PM gdy
+    fizycznie zmieszane bez alokacji). Spójne z `finished_units` i HDI.
     """
     qty = int(qty or 0)
     ba = batch_allocation if isinstance(batch_allocation, dict) else {}
@@ -456,8 +469,14 @@ def entry_batch_portions(qty, batch_allocation) -> List[Dict[str, Any]]:
         pieces = int(alloc.get("pieces") or 0)
         if pieces <= 0:
             continue
+        parts = alloc.get("parts")
+        source_nos = (
+            [p for p in parts.keys() if p]
+            if isinstance(parts, dict) and parts
+            else [bno]
+        )
         total += pieces
-        portions.append({"batch_no": bno, "qty": pieces})
+        portions.append({"batch_no": bno, "qty": pieces, "source_nos": source_nos})
     if portions and total == qty:
         return portions
     return []
@@ -581,34 +600,33 @@ def _process_finish_day_entry(
                    "recipe_id": entry.recipe_id, "qty": entry.qty},
         )
 
-    # Rozbicie partii z linii planu (sztuki per partia).
+    # Rozbicie partii z linii planu (sztuki per partia). ensure_pm_assigned
+    # zamienia ewentualny sentinel sztuk mieszanych na realny numer PM
+    # (normalnie zrobiła to już aktywacja planu).
     allocation: Dict[str, Any] = {}
     if entry.plan_line_id:
         ln = cx_query_one(
-            conn, "SELECT batch_allocation FROM production_plan_lines WHERE id=%s",
+            conn, "SELECT id, batch_allocation FROM production_plan_lines WHERE id=%s",
             (entry.plan_line_id,))
         if ln:
-            ba = ln.get("batch_allocation") or {}
-            if isinstance(ba, str):
-                try:
-                    ba = json.loads(ba)
-                except Exception:
-                    ba = {}
-            allocation = ba if isinstance(ba, dict) else {}
+            from app.services.production_plans_service import ensure_pm_assigned
+            allocation = ensure_pm_assigned(conn, ln)
 
     portions = entry_batch_portions(entry.qty, allocation)
     item_ids: List[str] = []
 
     if portions:
         # Osobny wiersz per partia — każda sztuka dostaje swój numer partii.
+        # Porcja PM (sztuki mieszane) ma lineage z partii źródłowych (parts).
         for p in portions:
             raw = p["batch_no"]
             pqty = int(p["qty"])
+            source_nos = p.get("source_nos") or [raw]
             pkg_kg = round(pqty * entry.kg_per_unit, 3)
             bno = kebab_batch_no(today, raw)
-            lineage = _resolve_lineage(conn, [raw])
+            lineage = _resolve_lineage(conn, source_nos)
             item_ids.append(_upsert_goods_row(
-                conn, plan, entry, today, bno, pqty, pkg_kg, [raw], lineage))
+                conn, plan, entry, today, bno, pqty, pkg_kg, source_nos, lineage))
     else:
         # Tryb łączony: jedna partia (lub PP gdy fizycznie zmieszane).
         total_kg = round(entry.qty * entry.kg_per_unit, 3)

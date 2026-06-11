@@ -32,3 +32,16 @@ def test_batch_sequence_three_batches():
     assert len(seq) == 30
     assert seq.count("349") == 26
     assert seq.count("PP1") == 4
+
+
+def test_batch_sequence_mixed_bucket_pm():
+    # 20 szt: 19 z 347 + 1 mieszana PM1 → 19 etykiet "347" + 1 etykieta "PM1"
+    seq = batch_sequence(20, {
+        "346": {"pieces": 0},
+        "347": {"pieces": 19},
+        "PM1": {"pieces": 1, "parts": {"346": {"kg": 1.0}, "347": {"kg": 19.0}}},
+    }, "346", ["346", "347"])
+    assert len(seq) == 20
+    assert seq.count("347") == 19
+    assert seq.count("PM1") == 1
+    assert seq.count("346") == 0

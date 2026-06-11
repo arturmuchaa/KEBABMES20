@@ -3,9 +3,12 @@
 Jedyne źródło prawdy dla formatów numerów partii w całym systemie:
 
   * przyjęcie / rozbiór / mieszanie pojedyncze → goły numer, np. "344"
-  * mieszanie/produkcja łączona              → "PP{n}", np. "PP1"
-  * kebab                                    → "ddmmrr <numer wsadu>",
-                                               np. "020626 344" / "020626 PP1"
+  * łączenie partii w masownicy               → "PP{n}", np. "PP1"
+  * mieszanie przyprawionego mięsa NA PRODUKCJI → "PM{n}", np. "PM1"
+    (resztka jednej partii dołożona do sztuki z innej partii;
+     historycznie używano prefiksu "PPP{n}" — nadal rozpoznawany)
+  * kebab                                     → "ddmmrr <numer wsadu>",
+                                                np. "020626 344" / "020626 PM1"
 """
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ from typing import Optional, Union
 _BARE_NO_RE = re.compile(r"^\d+$")
 _COMBINED_NO_RE = re.compile(r"^PP\d+$")
 _PROD_COMBINED_NO_RE = re.compile(r"^PPP\d+$")
+_PROD_MIXED_NO_RE = re.compile(r"^PM\d+$")
 
 
 def parse_reception_no(raw: Optional[str]) -> Optional[int]:
@@ -53,23 +57,35 @@ def is_combined(batch_no: Optional[str]) -> bool:
 
 
 def production_combined_batch_no(n: int) -> str:
-    """Numer partii łączonej NA PRODUKCJI (marynowane mięso zmieszane przy
-    formowaniu), w odróżnieniu od PP łączonej w mieszalniku."""
+    """LEGACY: stary numer partii łączonej na produkcji (PPP{n}).
+    Nowe numery nadaje production_mixed_batch_no (PM{n}); PPP zostaje
+    tylko do rozpoznawania historycznych danych."""
     return f"PPP{n}"
 
 
 def is_production_combined(batch_no: Optional[str]) -> bool:
-    """Czy numer to partia łączona na produkcji (prefiks PPP + cyfry, np. PPP1)."""
+    """Czy numer to legacy partia łączona na produkcji (prefiks PPP, np. PPP1)."""
     return bool(batch_no) and bool(_PROD_COMBINED_NO_RE.match(batch_no))
+
+
+def production_mixed_batch_no(n: int) -> str:
+    """Numer partii mieszanej NA PRODUKCJI (przyprawione mięso z >1 partii
+    w tej samej sztuce), w odróżnieniu od PP łączonej w masownicy."""
+    return f"PM{n}"
+
+
+def is_production_mixed(batch_no: Optional[str]) -> bool:
+    """Czy numer to partia mieszana na produkcji (prefiks PM + cyfry, np. PM1)."""
+    return bool(batch_no) and bool(_PROD_MIXED_NO_RE.match(batch_no))
 
 
 def classify_batch_type(batch_no: Optional[str]) -> str:
     """Typ partii na podstawie numeru (akceptuje 'ddmmrr <wsad>' lub goły wsad):
-    'production' (PPP), 'mixer' (PP), 'single' (pozostałe/goły numer)."""
+    'production' (PM, legacy PPP), 'mixer' (PP), 'single' (pozostałe/goły numer)."""
     if not batch_no:
         return "single"
-    token = batch_no.strip().split(" ")[-1]  # 'ddmmrr PPP1' -> 'PPP1'
-    if is_production_combined(token):
+    token = batch_no.strip().split(" ")[-1]  # 'ddmmrr PM1' -> 'PM1'
+    if is_production_mixed(token) or is_production_combined(token):
         return "production"
     if is_combined(token):
         return "mixer"

@@ -147,6 +147,12 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
         if not line:
             raise HTTPException(404, "Linia planu nie znaleziona")
 
+        # Sztuki mieszane (resztki kilku partii w jednej sztuce) muszą mieć
+        # realny numer PM zanim rozdamy partie na etykiety. Normalnie nadaje
+        # go aktywacja planu; tu defensywnie dla starszych planów.
+        from app.services.production_plans_service import ensure_pm_assigned
+        allocation = ensure_pm_assigned(conn, line)
+
         existing = cx_query_all(
             conn,
             "SELECT id, qr_seq, status, batch_no FROM finished_units WHERE plan_line_id=%s ORDER BY qr_seq",
@@ -161,7 +167,7 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
             if all((u.get("status") == "planned") for u in existing):
                 seq = batch_sequence(
                     len(existing),
-                    line.get("batch_allocation"),
+                    allocation,
                     line.get("seasoned_batch_no"),
                     line.get("seasoned_batch_nos"),
                 )
@@ -182,10 +188,11 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
         if qty <= 0:
             raise HTTPException(400, "Linia planu ma qty <= 0")
 
-        # Numer partii per sztuka wg rozbicia z planowania (batch_allocation).
+        # Numer partii per sztuka wg rozbicia z planowania (batch_allocation);
+        # sztuki mieszane dostają wspólny numer PM{n}.
         seq = batch_sequence(
             qty,
-            line.get("batch_allocation"),
+            allocation,
             line.get("seasoned_batch_no"),
             line.get("seasoned_batch_nos"),
         )

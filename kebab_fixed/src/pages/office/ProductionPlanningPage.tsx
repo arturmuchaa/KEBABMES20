@@ -68,20 +68,13 @@ const emptyLine = (): PlanLineForm => ({
   clientOrderId:'', clientOrderNo:'', clientOrderLineId:'',
 })
 
-// Oblicza ile kg z zaznaczonych partii jest FAKTYCZNIE dostępne dla danej linii,
-// uwzględniając rezerwacje innych linii (proporcjonalnie, sekwencyjnie).
-function computeSelKgAvailForLine(
+// Zajętość partii przez WSZYSTKIE linie poza wskazaną (zachłannie,
+// w kolejności linii i zaznaczonych partii).
+function computeOtherUsed(
   idx: number,
   lines: PlanLineForm[],
   seasonedRaw: any[],
-): number {
-  const line = lines[idx]
-  if (!line) return 0
-  const selIds = line.seasonedBatchIds?.length>0
-    ? line.seasonedBatchIds
-    : (line.seasonedBatchId ? [line.seasonedBatchId] : [])
-  if (selIds.length === 0) return 0
-
+): Record<string, number> {
   const otherUsed: Record<string, number> = {}
   lines.forEach((ll, li) => {
     if (li === idx) return
@@ -100,6 +93,24 @@ function computeSelKgAvailForLine(
       lStill -= take
     })
   })
+  return otherUsed
+}
+
+// Oblicza ile kg z zaznaczonych partii jest FAKTYCZNIE dostępne dla danej linii,
+// uwzględniając rezerwacje innych linii (proporcjonalnie, sekwencyjnie).
+function computeSelKgAvailForLine(
+  idx: number,
+  lines: PlanLineForm[],
+  seasonedRaw: any[],
+): number {
+  const line = lines[idx]
+  if (!line) return 0
+  const selIds = line.seasonedBatchIds?.length>0
+    ? line.seasonedBatchIds
+    : (line.seasonedBatchId ? [line.seasonedBatchId] : [])
+  if (selIds.length === 0) return 0
+
+  const otherUsed = computeOtherUsed(idx, lines, seasonedRaw)
 
   let available = 0
   selIds.forEach(id => {
@@ -108,6 +119,52 @@ function computeSelKgAvailForLine(
     available += Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0))
   })
   return available
+}
+
+// Ile sztuk linii będzie MIESZANYCH (składanych z resztek kilku partii —
+// dostaną wspólną partię PM zamiast numeru partii wsadowej). Lustrzane
+// odbicie backendowego _compute_allocation: najpierw całe sztuki per
+// partia, reszta z resztek.
+function computeMixedPieces(
+  idx: number,
+  lines: PlanLineForm[],
+  seasonedRaw: any[],
+): number {
+  const line = lines[idx]
+  if (!line) return 0
+  const qty  = parseFloat(line.qty)||0
+  const kgPu = parseFloat(line.kgPerUnit)||0
+  if (qty <= 0 || kgPu <= 0) return 0
+  const selIds = line.seasonedBatchIds?.length>0
+    ? line.seasonedBatchIds
+    : (line.seasonedBatchId ? [line.seasonedBatchId] : [])
+  if (selIds.length < 2) return 0
+
+  const otherUsed = computeOtherUsed(idx, lines, seasonedRaw)
+  const frees = selIds.map(id => {
+    const s = seasonedRaw.find((x:any)=>x.id===id)
+    return s ? Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0)) : 0
+  })
+
+  let remaining = qty
+  for (let i = 0; i < frees.length && remaining > 0; i++) {
+    const pcs = Math.min(remaining, Math.floor(frees[i] / kgPu))
+    frees[i] -= pcs * kgPu
+    remaining -= pcs
+  }
+  let mixed = 0
+  while (remaining > 0) {
+    let need = kgPu
+    for (let i = 0; i < frees.length && need > 1e-6; i++) {
+      const take = Math.min(need, frees[i])
+      frees[i] -= take
+      need -= take
+    }
+    if (need > 1e-6) break
+    mixed++
+    remaining--
+  }
+  return mixed
 }
 
 // Mapa rezerwacji: ile kg z każdej partii zajmują podane linie formularza
@@ -1217,6 +1274,7 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
               const ids    = line.seasonedBatchIds?.length>0 ? line.seasonedBatchIds : (line.seasonedBatchId?[line.seasonedBatchId]:[])
               const avail  = ids.length>0 ? computeSelKgAvailForLine(i, lines, seasonedRaw??[]) : 0
               const meatOk = ids.length>0 && avail >= tkg-0.1
+              const mixedPcs = meatOk ? computeMixedPieces(i, lines, seasonedRaw??[]) : 0
               const isExp  = expandedLine===i
               const rcName = (recipes??[]).find((r:any)=>r.id===line.recipeId)?.name ?? '—'
               const ptName = (productTypes??[]).find((pt:any)=>pt.id===line.productTypeId)?.name
@@ -1248,7 +1306,9 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
                     }`}>
                       {ids.length===0
                         ? 'bez partii'
-                        : meatOk ? `✓ ${ids.length} part.` : `brak ${fmtKg(tkg-avail,0)} kg`}
+                        : meatOk
+                          ? `✓ ${ids.length} part.${mixedPcs>0 ? ` · ${mixedPcs} szt PM` : ''}`
+                          : `brak ${fmtKg(tkg-avail,0)} kg`}
                     </span>
                     <span className="font-bold text-blue-700 tabular-nums whitespace-nowrap">{fmtKg(tkg,0)} kg</span>
                     <span className="text-muted-foreground flex-shrink-0">

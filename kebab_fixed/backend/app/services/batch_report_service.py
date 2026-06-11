@@ -15,15 +15,25 @@ def build_composition(
     """Lista rodziców partii z kg/szt z alokacji planu.
 
     ``allocation`` = {batch_no: {"kg": float, "pieces": int}} (z
-    production_plan_lines.batch_allocation). Brak wpisu → kg/pieces None
-    (NIE zgadujemy — uczciwość wobec inspektora)."""
+    production_plan_lines.batch_allocation). Kubełek sztuk mieszanych
+    (PM{n}, kg w ``parts``) dolicza kg do partii źródłowych. Brak wpisu →
+    kg/pieces None (NIE zgadujemy — uczciwość wobec inspektora)."""
     alloc = allocation if isinstance(allocation, dict) else {}
+    mixed_kg: Dict[str, float] = {}
+    for a in alloc.values():
+        if isinstance(a, dict) and isinstance(a.get("parts"), dict):
+            for p_no, p in a["parts"].items():
+                if isinstance(p, dict) and float(p.get("kg") or 0) > 0:
+                    mixed_kg[p_no] = mixed_kg.get(p_no, 0.0) + float(p["kg"])
     out: List[Dict[str, Any]] = []
     for bno in parent_batch_nos or []:
         a = alloc.get(bno) if isinstance(alloc.get(bno), dict) else {}
+        kg = a.get("kg") if a else None
+        if mixed_kg.get(bno):
+            kg = round(float(kg or 0) + mixed_kg[bno], 3)
         out.append({
             "batch_no": bno,
-            "kg": a.get("kg") if a else None,
+            "kg": kg,
             "pieces": a.get("pieces") if a else None,
         })
     return out

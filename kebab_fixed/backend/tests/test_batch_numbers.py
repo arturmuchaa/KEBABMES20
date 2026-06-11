@@ -96,3 +96,21 @@ def test_pp_is_not_mistaken_for_ppp_by_is_combined():
     from app.utils.batch_numbers import is_combined, is_production_combined
     assert is_combined("PP1") is True
     assert is_production_combined("PP1") is False
+
+
+def test_production_mixed_batch_no_pm():
+    from app.utils.batch_numbers import is_production_mixed, production_mixed_batch_no
+    assert production_mixed_batch_no(1) == "PM1"
+    assert is_production_mixed("PM1") is True
+    assert is_production_mixed("PP1") is False     # masownica
+    assert is_production_mixed("PPP1") is False    # legacy produkcja
+    assert is_production_mixed("326") is False
+    assert is_production_mixed(None) is False
+
+
+def test_classify_pm_as_production():
+    from app.utils.batch_numbers import classify_batch_type
+    assert classify_batch_type("060626 PM2") == "production"
+    assert classify_batch_type("PM2") == "production"
+    # legacy PPP nadal rozpoznawane
+    assert classify_batch_type("060626 PPP1") == "production"
