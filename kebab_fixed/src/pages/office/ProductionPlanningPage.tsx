@@ -119,9 +119,112 @@ const STATUS_CLASS: Record<ProductionPlan['status'], string> = {
   cancelled: 'bg-red-50 text-red-700 border-red-200 hover:bg-red-50',
 }
 
+// ─── Przegląd mięsa na stronie głównej ────────────────────────
+// Planista widzi stan mięsa przyprawionego per receptura bez
+// otwierania formularza planu.
+function MeatStockOverview() {
+  const { data: seasoned, loading } = useApi(() => seasonedMeatApi.list())
+  const [collapsed, setCollapsed] = useState(false)
+
+  const byRecipe = useMemo(() => {
+    const m: Record<string, {
+      recipeName: string
+      freeKg: number; reservedKg: number; totalKg: number
+      batches: number; nearestExpiry: string
+    }> = {}
+    ;(seasoned ?? []).forEach((s: any) => {
+      const free     = Math.max(0, s.kgFree ?? s.kgAvailable ?? 0)
+      const reserved = Math.max(0, s.kgReserved ?? 0)
+      if (free <= 0 && reserved <= 0) return
+      if (!m[s.recipeId]) {
+        m[s.recipeId] = { recipeName: s.recipeName, freeKg: 0, reservedKg: 0, totalKg: 0, batches: 0, nearestExpiry: '' }
+      }
+      const r = m[s.recipeId]
+      r.freeKg     += free
+      r.reservedKg += reserved
+      r.totalKg    += free + reserved
+      r.batches    += 1
+      if (free > 0 && s.expiryDate && (!r.nearestExpiry || s.expiryDate < r.nearestExpiry)) {
+        r.nearestExpiry = s.expiryDate
+      }
+    })
+    return Object.values(m).sort((a, b) => b.freeKg - a.freeKg)
+  }, [seasoned])
+
+  const totalFree = byRecipe.reduce((s, r) => s + r.freeKg, 0)
+
+  function expiryDays(iso: string): number | null {
+    if (!iso) return null
+    const d = Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000)
+    return Number.isFinite(d) ? d : null
+  }
+
+  return (
+    <Card className="overflow-hidden">
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        className="w-full px-4 py-2.5 flex items-center gap-2 border-b bg-blue-50/60 hover:bg-blue-50 transition-colors"
+      >
+        <BarChart2 size={14} className="text-blue-600"/>
+        <span className="text-[12px] font-bold text-blue-800 uppercase tracking-wide">Mięso do dyspozycji</span>
+        {!loading && (
+          <span className="text-[12px] font-black text-blue-700 ml-1">{fmtKg(totalFree, 0)} kg</span>
+        )}
+        <span className="ml-auto text-muted-foreground">
+          {collapsed ? <ChevronDown size={15}/> : <ChevronUp size={15}/>}
+        </span>
+      </button>
+      {!collapsed && (
+        loading ? (
+          <div className="p-3 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
+            {[1,2,3,4].map(i => <Skeleton key={i} className="h-20 w-full"/>)}
+          </div>
+        ) : byRecipe.length === 0 ? (
+          <div className="px-4 py-5 text-[12px] text-muted-foreground">
+            Brak mięsa przyprawionego w magazynie — zaplanuj masowanie, aby mieć z czego produkować.
+          </div>
+        ) : (
+          <div className="p-3 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
+            {byRecipe.map(r => {
+              const days     = expiryDays(r.nearestExpiry)
+              const expSoon  = days !== null && days <= 2
+              const pctFree  = r.totalKg > 0 ? (r.freeKg / r.totalKg) * 100 : 0
+              const isEmpty  = r.freeKg < 0.1
+              return (
+                <div key={r.recipeName} className={`rounded-lg border p-3 ${isEmpty ? 'bg-muted/40 border-muted' : 'bg-white border-blue-100'}`}>
+                  <div className="text-[11px] font-bold truncate mb-1" title={r.recipeName}>{r.recipeName}</div>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className={`text-2xl font-black leading-none ${isEmpty ? 'text-muted-foreground' : 'text-green-700'}`}>
+                      {fmtKg(r.freeKg, 0)}
+                    </span>
+                    <span className="text-[11px] font-semibold text-muted-foreground">kg wolne</span>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden mt-2">
+                    <div className={`h-full rounded-full ${isEmpty ? 'bg-muted' : 'bg-green-500'}`} style={{ width: `${pctFree}%` }}/>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-1.5 flex flex-wrap gap-x-2">
+                    <span>{r.batches} parti{r.batches === 1 ? 'a' : r.batches < 5 ? 'e' : 'i'}</span>
+                    {r.reservedKg > 0.1 && <span className="text-amber-600">zarez. {fmtKg(r.reservedKg, 0)} kg</span>}
+                    {days !== null && (
+                      <span className={expSoon ? 'text-red-600 font-bold' : ''}>
+                        ważność: {fmtDatePl(r.nearestExpiry)}{expSoon ? ` (${days <= 0 ? 'dziś!' : `${days} dn.`})` : ''}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      )}
+    </Card>
+  )
+}
+
 // ─── Import z zamówień ────────────────────────────────────────
-function ImportOrderModal({ orders, onImport, onClose }: {
+function ImportOrderModal({ orders, meatFreeByRecipe, onImport, onClose }: {
   orders: ClientOrder[]
+  meatFreeByRecipe: Record<string, number>
   onImport: (lines: PlanLineForm[]) => void
   onClose: () => void
 }) {
@@ -219,6 +322,17 @@ function ImportOrderModal({ orders, onImport, onClose }: {
         </Select>
       </div>
       {order && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-muted/40 px-3 py-2 text-[11px]">
+          <span className="font-bold text-foreground">{clientDisplay(order.clientName)}</span>
+          {order.deliveryDate && (
+            <span className="text-muted-foreground">Dostawa: <strong className="text-foreground">{fmtDatePl(order.deliveryDate)}</strong></span>
+          )}
+          <span className="text-muted-foreground">
+            {order.lines.length} poz. · <strong className="text-foreground">{fmtKg(order.totalKg,0)} kg</strong> · {order.totalUnits} szt
+          </span>
+        </div>
+      )}
+      {order && (
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-bold text-muted-foreground uppercase">Pozycje</span>
@@ -228,23 +342,27 @@ function ImportOrderModal({ orders, onImport, onClose }: {
                 : <><CheckSquare size={12}/>Zaznacz wszystkie</>}
             </Button>
           </div>
-          <div className="border rounded-lg divide-y max-h-72 overflow-y-auto">
+          <div className="border rounded-lg divide-y max-h-80 overflow-y-auto">
             {order.lines.map(l=>{
               const p          = progressMap[l.id]
               const qtyDone    = p?.qtyDone    ?? 0
               const qtyPending = p?.qtyPending ?? 0
               const qtyRemain  = p?.qtyRemaining ?? l.qty
               const isFull     = qtyRemain <= 0
-              const isPartial  = (qtyDone + qtyPending) > 0 && !isFull
               const isSel      = selectedLines.has(l.id)
+              const needKg     = qtyRemain * l.kgPerUnit
+              const meatFree   = meatFreeByRecipe[l.recipeId] ?? 0
+              const meatOk     = meatFree >= needKg - 0.1
+              const pctDone    = l.qty > 0 ? (qtyDone    / l.qty) * 100 : 0
+              const pctPending = l.qty > 0 ? (qtyPending / l.qty) * 100 : 0
 
               return (
                 <label
                   key={l.id}
-                  className={`flex items-center gap-3 px-3 py-2.5 transition-colors ${
+                  className={`flex items-start gap-3 px-3 py-2.5 transition-colors ${
                     isFull
                       ? 'bg-green-50/50 opacity-70 cursor-not-allowed'
-                      : `cursor-pointer hover:bg-muted/50 ${isSel?'bg-blue-50':''}`
+                      : `cursor-pointer hover:bg-muted/50 ${isSel?'bg-blue-50/60':''}`
                   }`}
                 >
                   <input
@@ -256,52 +374,70 @@ function ImportOrderModal({ orders, onImport, onClose }: {
                       n.has(l.id) ? n.delete(l.id) : n.add(l.id)
                       return n
                     })}
-                    className="w-4 h-4 accent-primary flex-shrink-0"
+                    className="w-4 h-4 accent-primary flex-shrink-0 mt-0.5"
                   />
                   <div className="flex-1 min-w-0">
                     <div className="text-[12px] font-bold flex flex-wrap items-center gap-2">
-                      <span>{l.qty} szt × {l.kgPerUnit} kg = <span className="text-blue-700">{fmtKg(l.qty*l.kgPerUnit,0)} kg</span></span>
-                      {progressLoading && <span className="text-[10px] text-muted-foreground">…</span>}
+                      <span className="truncate">{l.productTypeName} · {l.recipeName}</span>
+                      {progressLoading && <span className="text-[10px] text-muted-foreground font-normal">…</span>}
                       {isFull && (
                         <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-semibold border border-green-200">
                           ✓ Wyprodukowane
                         </span>
                       )}
-                      {isPartial && (
-                        <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-semibold border border-amber-200">
-                          do produkcji {qtyRemain} szt
-                        </span>
-                      )}
                     </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {l.productTypeName} · {l.recipeName}{l.packagingName?` · ${l.packagingName}`:''}
+                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                      {qtyRemain < l.qty
+                        ? <><strong className="text-amber-700">{qtyRemain} szt do produkcji</strong> (z {l.qty})</>
+                        : <>{l.qty} szt</>
+                      } × {l.kgPerUnit} kg = <strong className="text-blue-700">{fmtKg(needKg,0)} kg</strong>
+                      {l.packagingName ? <span> · {l.packagingName}</span> : null}
                     </div>
+                    {/* Pasek postępu produkcji: zielone = wyprodukowane, bursztyn = w toku/planie */}
                     {(qtyDone>0 || qtyPending>0) && (
-                      <div className="text-[10px] mt-0.5 flex flex-wrap gap-2">
-                        {qtyDone>0 && (
-                          <span className="text-green-700 font-semibold">Wyprodukowano: {qtyDone}/{l.qty} szt</span>
-                        )}
-                        {qtyPending>0 && (
-                          <span className="text-amber-600 font-semibold">W toku/planie: {qtyPending} szt</span>
-                        )}
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden flex">
+                          <div className="h-full bg-green-500" style={{width:`${pctDone}%`}}/>
+                          <div className="h-full bg-amber-400" style={{width:`${pctPending}%`}}/>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                          {qtyDone>0 && <span className="text-green-700 font-semibold">{qtyDone} got.</span>}
+                          {qtyDone>0 && qtyPending>0 && ' · '}
+                          {qtyPending>0 && <span className="text-amber-600 font-semibold">{qtyPending} w toku</span>}
+                        </span>
                       </div>
                     )}
                   </div>
+                  {/* Wskaźnik mięsa dla receptury tej pozycji */}
+                  {!isFull && (
+                    <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded font-semibold border whitespace-nowrap ${
+                      meatOk
+                        ? 'bg-green-50 text-green-700 border-green-200'
+                        : 'bg-red-50 text-red-600 border-red-200'
+                    }`}>
+                      mięso: {fmtKg(meatFree,0)} kg{meatOk ? '' : ` (brak ${fmtKg(needKg-meatFree,0)})`}
+                    </span>
+                  )}
                 </label>
               )
             })}
           </div>
           {selectedLines.size>0 && (
-            <div className="text-[11px] text-primary font-semibold mt-1.5">
-              {selectedLines.size} pozycji · {fmtKg(
-                order.lines
-                  .filter(l=>selectedLines.has(l.id))
-                  .reduce((s,l)=>{
-                    const q = progressMap[l.id]?.qtyRemaining ?? l.qty
-                    return s + q*l.kgPerUnit
-                  }, 0),
-                0
-              )} kg do zaplanowania
+            <div className="flex items-center justify-between rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 mt-2">
+              <span className="text-[11px] font-semibold text-blue-700">
+                Wybrano {selectedLines.size} poz. do zaplanowania
+              </span>
+              <span className="text-sm font-black text-blue-700">
+                {fmtKg(
+                  order.lines
+                    .filter(l=>selectedLines.has(l.id))
+                    .reduce((s,l)=>{
+                      const q = progressMap[l.id]?.qtyRemaining ?? l.qty
+                      return s + q*l.kgPerUnit
+                    }, 0),
+                  0
+                )} kg
+              </span>
             </div>
           )}
         </div>
@@ -361,6 +497,7 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-[12px] font-bold truncate">{r.recipeName}</span>
+                    <span className="text-[10px] text-muted-foreground">{r.batches.length} parti{r.batches.length===1?'a':r.batches.length<5?'e':'i'}</span>
                     {isFull && <span className="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded font-semibold">Wszystko zaplanowane</span>}
                   </div>
                   {/* Pasek + liczniki w jednym wierszu */}
@@ -369,14 +506,18 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
                       <div className={`h-full rounded-full ${isFull?'bg-green-500':pct>80?'bg-amber-400':'bg-blue-500'}`}
                         style={{width:`${pct}%`}}/>
                     </div>
-                    <div className="flex items-center gap-2 text-[10px] whitespace-nowrap flex-shrink-0">
-                      <span className="text-muted-foreground">Total: <strong>{fmtKg(r.totalKg,0)}</strong></span>
-                      <span className="text-amber-600">Zapl: <strong>{fmtKg(r.usedKg,0)}</strong></span>
-                      <span className={isFull?'text-green-600':'text-blue-700'}>
-                        Pozostało: <strong>{fmtKg(r.remainingKg,0)} kg</strong>
-                      </span>
+                    <div className="flex items-center gap-2 text-[10px] whitespace-nowrap flex-shrink-0 text-muted-foreground">
+                      <span>w planie: <strong className="text-amber-600">{fmtKg(r.usedKg,0)}</strong></span>
+                      <span>z <strong>{fmtKg(r.totalKg,0)} kg</strong></span>
                     </div>
                   </div>
+                </div>
+                {/* Wolne kg — główna liczba dla planisty */}
+                <div className="text-right flex-shrink-0 min-w-[72px]">
+                  <div className={`text-lg font-black leading-none ${isFull?'text-green-600':'text-blue-700'}`}>
+                    {fmtKg(r.remainingKg,0)} kg
+                  </div>
+                  <div className="text-[9px] text-muted-foreground uppercase tracking-wide mt-0.5">do dyspozycji</div>
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   <Button variant="outline" size="sm"
@@ -760,6 +901,16 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
 
   const totalKg = lines.reduce((s,l)=>s+(parseFloat(l.qty)||0)*(parseFloat(l.kgPerUnit)||0), 0)
 
+  // Wolne kg per receptura (po odjęciu rezerwacji bieżącego formularza) —
+  // dla wskaźnika "czy starczy mięsa" w modalu importu zamówień
+  const meatFreeByRecipe = useMemo(() => {
+    const m: Record<string, number> = {}
+    seasonedAvail.forEach((s:any) => {
+      m[s.recipeId] = (m[s.recipeId] ?? 0) + Math.max(0, s.kgAvailLive ?? 0)
+    })
+    return m
+  }, [seasonedAvail])
+
   // Auto-assign FEFO — proporcjonalnie z puli partii
   function autoAssignRecipe(recipeId: string) {
     const available = seasonedAvail
@@ -944,11 +1095,11 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
       </div>
 
       <Dialog open={importModal} onOpenChange={open=>!open&&setImportModal(false)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Import z zamówienia klienta</DialogTitle>
           </DialogHeader>
-          <ImportOrderModal orders={confirmed} onImport={importLines} onClose={()=>setImportModal(false)}/>
+          <ImportOrderModal orders={confirmed} meatFreeByRecipe={meatFreeByRecipe} onImport={importLines} onClose={()=>setImportModal(false)}/>
         </DialogContent>
       </Dialog>
     </div>
@@ -1017,6 +1168,8 @@ export function ProductionPlanningPage() {
           <Button onClick={()=>setModal(true)} className="gap-1.5"><Plus size={14}/>Nowy plan</Button>
         </div>
       </div>
+
+      <MeatStockOverview/>
 
       <Card>
         <div className="px-4 py-2.5 border-b">
@@ -1223,7 +1376,7 @@ export function ProductionPlanningPage() {
       </Card>
 
       <Dialog open={modal} onOpenChange={open=>!open&&setModal(false)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>Nowy plan produkcji</DialogTitle>
           </DialogHeader>
@@ -1232,7 +1385,7 @@ export function ProductionPlanningPage() {
       </Dialog>
 
       <Dialog open={!!editPlan} onOpenChange={open=>{ if(!open) setEditPlan(null) }}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>Edycja planu {editPlan?.planNo}</DialogTitle>
           </DialogHeader>
