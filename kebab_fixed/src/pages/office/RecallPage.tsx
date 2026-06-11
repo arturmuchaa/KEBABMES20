@@ -2,7 +2,8 @@
  * RecallPage — Wycofanie partii (Recall)
  * Kompletny widok recall z sekcjami po polsku
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Search, AlertTriangle, Package, FlaskConical, ShoppingBag,
   Users, ChevronDown, ChevronRight, Loader2, Clock, FileText, Layers
@@ -102,13 +103,14 @@ function KpiCard({ label, value, sub, color }: {
 // ─── Główny komponent ──────────────────────────────────────────
 export function RecallPage() {
   const clientDisplay = useClientNames()
-  const [query,   setQuery]   = useState('')
+  const [searchParams] = useSearchParams()
+  const [query,   setQuery]   = useState(searchParams.get('batch') ?? '')
   const [loading, setLoading] = useState(false)
   const [result,  setResult]  = useState<RecallResult | null>(null)
   const [error,   setError]   = useState('')
 
-  async function doSearch() {
-    const q = query.trim()
+  async function doSearch(qOverride?: string) {
+    const q = (qOverride ?? query).trim()
     if (!q) return
     setLoading(true)
     setError('')
@@ -122,6 +124,13 @@ export function RecallPage() {
       setLoading(false)
     }
   }
+
+  // Prefill z parametru ?batch= (wejście z panelu Śledzenie surowca)
+  useEffect(() => {
+    const b = searchParams.get('batch')
+    if (b) doSearch(b)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -150,7 +159,7 @@ export function RecallPage() {
           />
         </div>
         <button
-          onClick={doSearch}
+          onClick={() => doSearch()}
           disabled={loading || !query.trim()}
           className="h-11 px-6 bg-red-600 text-white rounded-xl font-bold text-sm hover:bg-red-700 disabled:opacity-40 flex items-center gap-2"
         >

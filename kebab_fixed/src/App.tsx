@@ -36,6 +36,7 @@ import { LabelTemplateSetupPage } from '@/pages/office/LabelTemplateSetupPage'
 import { CompanySettingsPage } from '@/pages/office/CompanySettingsPage'
 import { ProductionPlanningPage } from '@/pages/office/ProductionPlanningPage'
 import { RecallPage }             from '@/pages/office/RecallPage'
+import { TracePage }              from '@/pages/office/TracePage'
 import { PayrollPage }            from '@/pages/office/PayrollPage'
 import { VehiclesPage }           from '@/pages/office/VehiclesPage'
 import { LabelTemplatesPage }     from '@/pages/office/LabelTemplatesPage'
@@ -134,6 +135,7 @@ export default function App() {
         <Route path="planowanie-produkcji"  element={<ProductionPlanningPage />} />
         <Route path="pracownicy"            element={<WorkersPage />} />
         <Route path="rozliczenia"           element={<PayrollPage />} />
+        <Route path="sledzenie"             element={<TracePage />} />
         <Route path="recall"                element={<RecallPage />} />
         <Route path="samochody"             element={<VehiclesPage />} />
         <Route path="ustawienia"            element={<CompanySettingsPage />} />

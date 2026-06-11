@@ -26,6 +26,12 @@ def recall(batch_id: str):
     return svc.recall(batch_id)
 
 
+@router.get("/api/trace/tree")
+def trace_tree(q: str = Query("")):
+    """Drzewo śledzenia surowca (panel „Śledzenie surowca")."""
+    return svc.trace_tree(q)
+
+
 @router.get("/api/debug/trace/{finished_good_id}")
 def debug_trace(finished_good_id: str):
     return svc.debug_trace(finished_good_id)

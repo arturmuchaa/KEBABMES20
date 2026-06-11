@@ -5,7 +5,7 @@ import {
   Layers, Users, UserCog, FlaskConical, ShoppingBag,
   BarChart2, CreditCard, Scissors, Monitor, Truck, Building2,
   FileText, X, Factory, ShoppingCart, Archive, AlertTriangle,
-  ChevronRight, Banknote, Settings, QrCode, Calculator,
+  ChevronRight, Banknote, Settings, QrCode, Calculator, GitBranch,
 } from 'lucide-react'
 
 interface NavItem { to: string; label: string; icon: React.ReactNode }
@@ -46,7 +46,7 @@ const NAV: NavSection[] = [
     { to: '/office/kalkulacja-kosztow',   label: 'Kalkulacja cen', icon: <Calculator size={14} /> },
   ]},
   { heading: 'Jakość', items: [
-    { to: '/office/recall', label: 'Wycofanie (Recall)', icon: <AlertTriangle size={14} /> },
+    { to: '/office/sledzenie', label: 'Śledzenie surowca', icon: <GitBranch size={14} /> },
   ]},
   { heading: 'Administracja', items: [
     { to: '/office/pracownicy',  label: 'Pracownicy',    icon: <Users size={14} /> },

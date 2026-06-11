@@ -1693,6 +1693,11 @@ export const recallApi = {
   get: (batchId: string) => get<any>(`/recall/${encodeURIComponent(batchId)}`),
 }
 
+// ─── Śledzenie surowca (drzewo trace) ─────────────────────────
+export const traceApi = {
+  tree: (q: string) => get<any>(`/trace/tree?q=${encodeURIComponent(q)}`),
+}
+
 // Re-eksportuj typy z mockApi (niezmienione)
 export type {
   PurchaseInvoice, CreatePurchaseInvoiceDto,

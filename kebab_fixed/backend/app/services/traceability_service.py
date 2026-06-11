@@ -896,3 +896,300 @@ def recalculate_recipe_yields() -> Dict[str, int]:
         extra={"updated": updated, "total": len(recipes)},
     )
     return {"updated_recipes": updated, "total": len(recipes)}
+
+
+# ── Drzewo śledzenia surowca (panel „Śledzenie surowca") ─────────────
+# Pełny przepływ partii w przód i w tył jako drzewo:
+# przyjęcie → rozbiór → masowanie → mięso przyprawione → wyrób gotowy,
+# z dokumentami do druku per węzeł (faktura, raport partii, zamówienie,
+# HDI, WZ, CMR, etykiety).
+
+def _tree_node(ntype: str, row_id: str, batch_no: str, title: str,
+               subtitle: str = "", date: str = "", kg=None, qty=None,
+               docs=None) -> Dict[str, Any]:
+    return {
+        "type": ntype,
+        "id": row_id,
+        "batchNo": batch_no or "",
+        "title": title or "",
+        "subtitle": subtitle or "",
+        "date": str(date or ""),
+        "kg": kg,
+        "qty": qty,
+        "highlight": False,
+        "docs": docs or [],
+        "children": [],
+    }
+
+
+def trace_tree(q: str) -> Dict[str, Any]:
+    base = recall(q)
+
+    raw_rows = base["raw_batches"]
+    deb_rows = base["deboning"]          # camelCase (_map_deboning_entry)
+    mix_rows = base["mixing_orders"]
+    sea_rows = base["seasoned"]
+    fg_rows = base["finished"]
+    suppliers = {s["id"]: s for s in base["suppliers"] if s.get("id")}
+
+    nq = (q or "").strip()
+
+    def hl(batch_no) -> bool:
+        if not nq or not batch_no:
+            return False
+        s = str(batch_no)
+        return nq == s or nq in s.split(" ")
+
+    # ── Dokumenty per encja ──
+    rb_ids = [r["id"] for r in raw_rows if r.get("id")]
+    invoices_by_rb: Dict[str, List[Dict]] = {}
+    if rb_ids:
+        for inv in query_all(
+            "SELECT raw_batch_id, invoice_no, invoice_date FROM invoices "
+            "WHERE raw_batch_id = ANY(%s::text[])",
+            (rb_ids,),
+        ):
+            invoices_by_rb.setdefault(inv["raw_batch_id"], []).append(inv)
+
+    order_ids: Dict[str, str] = {}
+    order_nos = sorted({
+        fg.get("client_order_no") for fg in fg_rows if fg.get("client_order_no")
+    })
+    if order_nos:
+        for o in query_all(
+            "SELECT id, order_no FROM client_orders WHERE order_no = ANY(%s::text[])",
+            (list(order_nos),),
+        ):
+            order_ids[o["order_no"]] = o["id"]
+
+    docs_by_order: Dict[str, List[Dict]] = {}
+    oid_list = list(order_ids.values())
+    if oid_list:
+        for h in query_all(
+            "SELECT id, number, order_id, issue_date FROM hdi_documents "
+            "WHERE order_id = ANY(%s::text[])",
+            (oid_list,),
+        ):
+            docs_by_order.setdefault(h["order_id"], []).append({
+                "kind": "hdi", "label": "HDI", "number": h.get("number"),
+                "refId": h["id"], "date": str(h.get("issue_date") or ""),
+            })
+        for w in query_all(
+            "SELECT id, number, source_id, issued_date FROM wz_documents "
+            "WHERE source_type='order' AND source_id = ANY(%s::text[])",
+            (oid_list,),
+        ):
+            docs_by_order.setdefault(w["source_id"], []).append({
+                "kind": "wz", "label": "WZ", "number": w.get("number"),
+                "refId": w["id"], "date": str(w.get("issued_date") or ""),
+            })
+        for c in query_all(
+            "SELECT id, number, order_id, issue_date FROM cmr_documents "
+            "WHERE order_id = ANY(%s::text[])",
+            (oid_list,),
+        ):
+            docs_by_order.setdefault(c["order_id"], []).append({
+                "kind": "cmr", "label": "CMR", "number": c.get("number"),
+                "refId": c["id"], "date": str(c.get("issue_date") or ""),
+            })
+
+    # plan_line dla etykiet (junction finished_goods_sessions)
+    fg_ids = [f["id"] for f in fg_rows if f.get("id")]
+    plan_line_by_goods: Dict[str, str] = {}
+    if fg_ids:
+        for r in query_all(
+            "SELECT goods_id, plan_line_id FROM finished_goods_sessions "
+            "WHERE goods_id = ANY(%s::text[])",
+            (fg_ids,),
+        ):
+            if r.get("plan_line_id"):
+                plan_line_by_goods.setdefault(r["goods_id"], r["plan_line_id"])
+
+    # ── Węzły per etap ──
+    raw_nodes: Dict[str, Dict] = {}
+    for rb in raw_rows:
+        docs = [{
+            "kind": "invoice", "label": "Faktura zakupowa",
+            "number": inv.get("invoice_no"),
+            "date": str(inv.get("invoice_date") or ""),
+        } for inv in invoices_by_rb.get(rb["id"], []) if inv.get("invoice_no")]
+        if rb.get("internal_batch_no"):
+            docs.append({
+                "kind": "batch_report", "label": "Raport partii",
+                "number": rb["internal_batch_no"],
+                "refNo": rb["internal_batch_no"], "date": "",
+            })
+        sup = suppliers.get(rb.get("supplier_id") or "")
+        n = _tree_node(
+            "raw", rb["id"], rb.get("internal_batch_no"), "Przyjęcie surowca",
+            subtitle=(sup or {}).get("name") or rb.get("supplier_name") or "",
+            date=rb.get("received_date") or rb.get("created_at"),
+            kg=float(rb.get("kg_received") or 0), docs=docs,
+        )
+        n["highlight"] = hl(rb.get("internal_batch_no"))
+        raw_nodes[rb["id"]] = n
+
+    deb_nodes: Dict[str, Dict] = {}
+    for de in deb_rows:
+        n = _tree_node(
+            "deboning", de["id"], de.get("meatLotNo") or de.get("rawBatchNo"),
+            "Rozbiór",
+            subtitle=(
+                f"mięso {de.get('kgMeat', 0)} kg · wydajność {de.get('yieldPct', 0)}%"
+            ),
+            date=de.get("sessionDate") or de.get("createdAt"),
+            kg=float(de.get("kgMeat") or 0),
+        )
+        n["highlight"] = hl(de.get("meatLotNo"))
+        deb_nodes[de["id"]] = n
+
+    mix_nodes: Dict[str, Dict] = {}
+    for mo in mix_rows:
+        n = _tree_node(
+            "mixing", mo["id"], mo.get("order_no"), "Masowanie",
+            subtitle=mo.get("recipe_name") or "",
+            date=str(mo.get("created_at") or ""),
+            kg=float(mo.get("kg_actual") or mo.get("kg_planned") or 0),
+        )
+        n["highlight"] = hl(mo.get("order_no"))
+        mix_nodes[mo["id"]] = n
+
+    sea_nodes: Dict[str, Dict] = {}
+    for sm in sea_rows:
+        docs = []
+        if sm.get("batch_no"):
+            docs.append({
+                "kind": "batch_report", "label": "Raport partii",
+                "number": sm["batch_no"], "refNo": sm["batch_no"], "date": "",
+            })
+        n = _tree_node(
+            "seasoned", sm["id"], sm.get("batch_no"), "Mięso przyprawione",
+            subtitle=sm.get("recipe_name") or "",
+            date=str(sm.get("completed_at") or sm.get("created_at") or ""),
+            kg=float(sm.get("kg_produced") or 0), docs=docs,
+        )
+        n["highlight"] = hl(sm.get("batch_no"))
+        sea_nodes[sm["id"]] = n
+
+    fg_nodes: Dict[str, Dict] = {}
+    for fg in fg_rows:
+        docs = []
+        ono = fg.get("client_order_no")
+        oid = order_ids.get(ono or "")
+        if oid:
+            docs.append({
+                "kind": "order", "label": "Zamówienie", "number": ono,
+                "refId": oid, "date": "",
+            })
+            docs.extend(docs_by_order.get(oid, []))
+        pl_id = plan_line_by_goods.get(fg["id"])
+        if pl_id:
+            docs.append({
+                "kind": "labels", "label": "Etykiety", "number": "",
+                "refId": pl_id, "date": "",
+            })
+        if fg.get("batch_no"):
+            docs.append({
+                "kind": "batch_report", "label": "Raport partii",
+                "number": fg["batch_no"], "refNo": fg["batch_no"], "date": "",
+            })
+        n = _tree_node(
+            "finished", fg["id"], fg.get("batch_no"), "Wyrób gotowy",
+            subtitle=" · ".join(
+                str(x) for x in [fg.get("client_name"), ono] if x
+            ),
+            date=str(fg.get("produced_date") or fg.get("created_at") or ""),
+            kg=float(fg.get("total_kg") or 0), qty=int(fg.get("qty") or 0),
+            docs=docs,
+        )
+        n["highlight"] = hl(fg.get("batch_no"))
+        fg_nodes[fg["id"]] = n
+
+    # ── Krawędzie (dziecko może mieć wielu rodziców — pokazujemy pod każdym) ──
+    attached: Set[str] = set()
+    pairs: Set[str] = set()
+
+    def attach(parent: Dict, child_key: str, child: Dict) -> None:
+        pk = f"{parent['type']}|{parent['id']}|{child_key}"
+        if pk in pairs:
+            return
+        pairs.add(pk)
+        parent["children"].append(child)
+        attached.add(child_key)
+
+    # rozbiór → przyjęcie
+    for de in deb_rows:
+        parent = raw_nodes.get(de.get("rawBatchId") or "")
+        if parent is not None:
+            attach(parent, f"deboning|{de['id']}", deb_nodes[de["id"]])
+
+    # masowanie → rozbiór (lub wprost przyjęcie, gdy brak wpisu rozbioru)
+    for mo in mix_rows:
+        rows = query_all(
+            """
+            SELECT ms.raw_batch_id, ms.deboning_session_id
+            FROM mixing_order_lots mol
+            LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+            WHERE mol.order_id = %s
+            """,
+            (mo["id"],),
+        )
+        for r in rows:
+            child_key = f"mixing|{mo['id']}"
+            de_id = r.get("deboning_session_id") or ""
+            rb_id = r.get("raw_batch_id") or ""
+            if de_id in deb_nodes:
+                attach(deb_nodes[de_id], child_key, mix_nodes[mo["id"]])
+            elif rb_id in raw_nodes:
+                attach(raw_nodes[rb_id], child_key, mix_nodes[mo["id"]])
+
+    # mięso przyprawione → masowanie
+    mo_by_no = {m.get("order_no"): m["id"] for m in mix_rows if m.get("order_no")}
+    for sm in sea_rows:
+        child_key = f"seasoned|{sm['id']}"
+        mo_id = sm.get("mixing_order_id") or mo_by_no.get(sm.get("mixing_order_no") or "")
+        if mo_id and mo_id in mix_nodes:
+            attach(mix_nodes[mo_id], child_key, sea_nodes[sm["id"]])
+
+    # wyrób gotowy → mięso przyprawione (po id źródłowych, fallback po numerze)
+    sea_by_no = {s.get("batch_no"): s["id"] for s in sea_rows if s.get("batch_no")}
+    for fg in fg_rows:
+        child_key = f"finished|{fg['id']}"
+        sids = [s for s in (fg.get("source_seasoned_ids") or []) if s in sea_nodes]
+        if not sids:
+            sids = [
+                sea_by_no[bn] for bn in (fg.get("seasoned_batch_nos") or [])
+                if bn in sea_by_no
+            ]
+        for sid in sids:
+            attach(sea_nodes[sid], child_key, fg_nodes[fg["id"]])
+
+    # ── Korzenie: przyjęcia + wszystko, co nie ma rodzica ──
+    roots: List[Dict] = list(raw_nodes.values())
+    for kind, nodes in (
+        ("deboning", deb_nodes), ("mixing", mix_nodes),
+        ("seasoned", sea_nodes), ("finished", fg_nodes),
+    ):
+        for nid, node in nodes.items():
+            if f"{kind}|{nid}" not in attached:
+                roots.append(node)
+
+    return {
+        "query": q,
+        "resolvedVia": base.get("resolvedVia"),
+        "ambiguous": base.get("ambiguous", False),
+        "candidates": base.get("candidates", []),
+        "roots": roots,
+        "summary": {
+            "totalKg": base.get("total_kg", 0),
+            "totalUnits": base.get("total_units", 0),
+            "rawBatches": len(raw_rows),
+            "deboning": len(deb_rows),
+            "mixing": len(mix_rows),
+            "seasoned": len(sea_rows),
+            "finished": len(fg_rows),
+            "suppliers": [s.get("name") for s in base["suppliers"] if s.get("name")],
+            "clients": base.get("clients", []),
+        },
+        "byproducts": base.get("byproducts", []),
+    }
