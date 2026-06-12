@@ -187,6 +187,181 @@ def _compute_allocation(
     return all_batch_nos, allocation, primary_batch_id, primary_batch_no
 
 
+# ── Kebab komponentowy (np. 70/30): skład produkcyjny z receptury ──────
+# Komponent = rodzaj mięsa przyprawionego (material_type) + udział %.
+# Sztuka jest składana CELOWO z kilku partii (po jednej na komponent) →
+# partia wyrobu = "355/356" (numery partii komponentów po ukośniku).
+# Resztkowe sztuki, w których udział komponentu trzeba dosztukować z dwóch
+# partii, lądują w kubełku MIXED (numer PM przy aktywacji) — jak dotąd.
+
+def _recipe_components(conn, recipe_id: str) -> list[dict]:
+    if not recipe_id:
+        return []
+    row = cx_query_one(
+        conn, "SELECT components FROM recipes WHERE id=%s", (recipe_id,)
+    )
+    if not row:
+        return []
+    comps = row.get("components") or []
+    if isinstance(comps, str):
+        try:
+            comps = json.loads(comps)
+        except Exception:
+            comps = []
+    return [
+        c for c in comps
+        if isinstance(c, dict) and float(c.get("pct") or 0) > 0
+    ]
+
+
+def _allocate_components(
+    qty: int, kg_pu: float, components: list[dict],
+    pools: list[list[dict]],
+) -> dict:
+    """Czysta alokacja sztuk komponentowych.
+
+    ``pools[i]`` = lista partii i-tego komponentu (FEFO):
+    ``{"bid", "b_no", "free"}`` — mutowana (free maleje).
+
+    Zwraca allocation: {"355/356": {pieces, kg, parts}, MIXED_KEY: {...}}.
+    Sztuki nieprzydzielone (brak kg któregoś komponentu) zostają poza
+    alokacją — niedobór łapie walidacja aktywacji.
+    """
+    eps = 1e-6
+    comp_kg = [kg_pu * float(c.get("pct") or 0) / 100.0 for c in components]
+    allocation: dict[str, dict] = {}
+    mixed_pieces = 0
+    mixed_parts: dict[str, dict] = {}
+
+    for _ in range(int(qty)):
+        taken_per_comp: list[list[tuple[dict, float]]] = []
+        ok = True
+        for ci in range(len(components)):
+            need = comp_kg[ci]
+            taken: list[tuple[dict, float]] = []
+            for b in pools[ci]:
+                if need <= eps:
+                    break
+                take = min(need, b["free"])
+                if take <= eps:
+                    continue
+                taken.append((b, take))
+                need -= take
+            if need > eps:
+                ok = False
+                break
+            taken_per_comp.append(taken)
+        if not ok:
+            break  # niedobór — reszta sztuk nieprzydzielona
+
+        for taken in taken_per_comp:
+            for b, take in taken:
+                b["free"] -= take
+
+        boundary = any(len(t) > 1 for t in taken_per_comp)
+        if boundary:
+            # Udział komponentu dosztukowany z >1 partii → sztuka MIESZANA (PM)
+            mixed_pieces += 1
+            for taken in taken_per_comp:
+                for b, take in taken:
+                    p = mixed_parts.setdefault(
+                        b["b_no"], {"kg": 0.0, "batch_id": b["bid"]}
+                    )
+                    p["kg"] = round(float(p["kg"]) + take, 3)
+        else:
+            label = "/".join(t[0][0]["b_no"] for t in taken_per_comp)
+            g = allocation.setdefault(
+                label, {"pieces": 0, "kg": 0.0, "parts": {}}
+            )
+            g["pieces"] += 1
+            g["kg"] = round(g["pieces"] * kg_pu, 3)
+            for taken in taken_per_comp:
+                for b, take in taken:
+                    p = g["parts"].setdefault(
+                        b["b_no"], {"kg": 0.0, "batch_id": b["bid"]}
+                    )
+                    p["kg"] = round(float(p["kg"]) + take, 3)
+
+    if mixed_pieces > 0:
+        allocation[MIXED_KEY] = {
+            "pieces": mixed_pieces,
+            "kg": round(mixed_pieces * kg_pu, 3),
+            "parts": mixed_parts,
+        }
+    return allocation
+
+
+def _compute_component_allocation(
+    conn, line: PlanLineCreate, components: list[dict]
+) -> tuple[list[str], dict, str | None, str]:
+    """Alokacja dla receptury komponentowej — partie wybierane automatycznie
+    (FEFO) per rodzaj mięsa, bez ręcznego zaznaczania w planowaniu."""
+    kg_pu = float(line.kg_per_unit or 0)
+    pools: list[list[dict]] = []
+    all_ids: list[str] = []
+    rows_by_comp: list[list[str]] = []
+    for c in components:
+        rows = cx_query_all(
+            conn,
+            """
+            SELECT id FROM seasoned_meat
+            WHERE COALESCE(material_type_id,'') = %s
+              AND status = 'available'
+              AND (kg_available - COALESCE(kg_reserved,0)) > 0.01
+            """,
+            (c.get("materialTypeId") or "",),
+        )
+        ids = [r["id"] for r in rows]
+        rows_by_comp.append(ids)
+        all_ids.extend(ids)
+
+    # Lock deterministycznie (sorted) — potem pule w kolejności FEFO
+    locked_rows: Dict[str, Dict] = {}
+    for bid in sorted(set(all_ids)):
+        r = cx_query_one(
+            conn, "SELECT * FROM seasoned_meat WHERE id=%s FOR UPDATE", (bid,)
+        )
+        if r:
+            locked_rows[bid] = r
+
+    for ids in rows_by_comp:
+        pool = []
+        for bid in ids:
+            r = locked_rows.get(bid)
+            if not r:
+                continue
+            free = max(
+                0.0,
+                float(r.get("kg_available") or 0)
+                - float(r.get("kg_reserved") or 0),
+            )
+            if free <= 0.01:
+                continue
+            pool.append({
+                "bid": bid,
+                "b_no": r.get("batch_no") or "",
+                "free": free,
+                "expiry": str(r.get("expiry_date") or ""),
+            })
+        pool.sort(key=lambda b: (b["expiry"], b["b_no"]))
+        pools.append(pool)
+
+    allocation = _allocate_components(int(line.qty), kg_pu, components, pools)
+
+    # Partie źródłowe (lineage / seasoned_batch_nos)
+    src_nos: list[str] = []
+    src_ids: list[str] = []
+    for alloc in allocation.values():
+        for bno, p in (alloc.get("parts") or {}).items():
+            if bno not in src_nos:
+                src_nos.append(bno)
+            if p.get("batch_id") and p["batch_id"] not in src_ids:
+                src_ids.append(p["batch_id"])
+    primary_id = src_ids[0] if src_ids else None
+    primary_no = src_nos[0] if src_nos else ""
+    return src_nos, allocation, primary_id, primary_no
+
+
 def _allocation_kg_per_batch(allocation: dict) -> Dict[str, float]:
     """Sumaryczne kg per batch_id z alokacji — wliczając kubełek sztuk
     mieszanych (MIXED/PM), którego kg siedzą w ``parts``."""
@@ -481,9 +656,17 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
             recipe_name, product_type_name, packaging_name = _resolve_line_names(
                 conn, line
             )
-            nos, allocation, primary_id, primary_no = _compute_allocation(
-                conn, line, line_kg, locked
-            )
+            comps = _recipe_components(conn, line.recipe_id)
+            if comps:
+                # Receptura komponentowa (np. 70/30) — partie per komponent
+                # dobierane automatycznie FEFO po rodzaju mięsa
+                nos, allocation, primary_id, primary_no = (
+                    _compute_component_allocation(conn, line, comps)
+                )
+            else:
+                nos, allocation, primary_id, primary_no = _compute_allocation(
+                    conn, line, line_kg, locked
+                )
             _insert_line(
                 conn,
                 plan["id"],
@@ -564,9 +747,15 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
             recipe_name, product_type_name, packaging_name = _resolve_line_names(
                 conn, line
             )
-            nos, allocation, primary_id, primary_no = _compute_allocation(
-                conn, line, line_kg, locked
-            )
+            comps = _recipe_components(conn, line.recipe_id)
+            if comps:
+                nos, allocation, primary_id, primary_no = (
+                    _compute_component_allocation(conn, line, comps)
+                )
+            else:
+                nos, allocation, primary_id, primary_no = _compute_allocation(
+                    conn, line, line_kg, locked
+                )
             _insert_line(
                 conn,
                 plan_id,

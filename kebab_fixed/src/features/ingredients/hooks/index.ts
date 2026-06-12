@@ -127,6 +127,15 @@ export function useRecipeForm(initial?: Recipe) {
       qtyPer100kg:  String(r.qtyPer100kg),
     })) ?? [{ ingredientId: '', qtyPer100kg: '' }]
   )
+  // Skład produkcyjny (kebab komponentowy, np. 70/30) — pusta lista =
+  // produkt jednoskładnikowy; partie per komponent dobiera system (FEFO)
+  const [compRows, setCompRows] = useState<{ materialTypeId: string; materialName: string; pct: string }[]>(
+    initial?.components?.map(c => ({
+      materialTypeId: c.materialTypeId,
+      materialName:   c.materialName,
+      pct:            String(c.pct),
+    })) ?? []
+  )
 
   const addRow    = useCallback(() => setRows(p => [...p, { ingredientId: '', qtyPer100kg: '' }]), [])
   const removeRow = useCallback((idx: number) => setRows(p => p.filter((_, i) => i !== idx)), [])
@@ -137,6 +146,7 @@ export function useRecipeForm(initial?: Recipe) {
   // Wylicz podgląd sumy na 100 kg mięsa
   const sumPer100kg = rows.reduce((s, r) => s + (parseFloat(r.qtyPer100kg) || 0), 0)
   const totalOutputPer100kg = 100 + sumPer100kg
+  const compPctSum = compRows.reduce((s, c) => s + (parseFloat(c.pct) || 0), 0)
 
   const toDto = useCallback((): CreateRecipeDto => ({
     name,
@@ -146,17 +156,22 @@ export function useRecipeForm(initial?: Recipe) {
     ingredients:   rows
       .filter(r => r.ingredientId && parseFloat(r.qtyPer100kg) > 0)
       .map(r => ({ ingredientId: r.ingredientId, qtyPer100kg: parseFloat(r.qtyPer100kg) })),
-  }), [name, productTypeId, notes, shelfLifeDays, rows])
+    components:    compRows
+      .filter(c => c.materialTypeId && parseFloat(c.pct) > 0)
+      .map(c => ({ materialTypeId: c.materialTypeId, materialName: c.materialName, pct: parseFloat(c.pct) })),
+  }), [name, productTypeId, notes, shelfLifeDays, rows, compRows])
 
   const reset = useCallback(() => {
     setName(''); setProductTypeId(''); setNotes(''); setShelfLifeDays(5)
     setRows([{ ingredientId: '', qtyPer100kg: '' }])
+    setCompRows([])
   }, [])
 
   return {
     name, setName, productTypeId, setProductTypeId, notes, setNotes,
     shelfLifeDays, setShelfLifeDays,
     rows, setRows, addRow, removeRow, updateRow,
+    compRows, setCompRows, compPctSum: Math.round(compPctSum * 100) / 100,
     sumPer100kg: Math.round(sumPer100kg * 1000) / 1000,
     totalOutputPer100kg: Math.round(totalOutputPer100kg * 1000) / 1000,
     toDto, reset,

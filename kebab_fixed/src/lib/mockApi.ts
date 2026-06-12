@@ -1736,6 +1736,10 @@ export interface SeasonedMeatBatch {
   // Field optional bo mockApi nie inicjalizuje, backend zawsze wysyła.
   readonly kgReserved?:   number
   readonly kgFree?:       number
+  // Rodzaj surowca wsadu (ćwiartka po rozbiorze / filet / indyk…) —
+  // komponenty kebaba wybierają partie po rodzaju
+  readonly materialTypeId?: string
+  readonly materialName?:   string
   readonly machineId:     MachineId
   // Traceability pełna — WSZYSTKIE linki do góry łańcucha
   readonly meatLots:           MixingOrderMeatLot[]

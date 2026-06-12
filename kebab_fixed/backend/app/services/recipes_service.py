@@ -1,3 +1,4 @@
+import json
 from typing import Dict, List, Optional
 
 from fastapi import HTTPException
@@ -55,18 +56,40 @@ def get_recipe(recipe_id: str) -> Dict:
         return row
 
 
+def _validate_components(dto: RecipeCreate) -> str:
+    """Skład produkcyjny (JSON dla kolumny recipes.components).
+    Udziały muszą sumować się do 100% (z tolerancją zaokrągleń)."""
+    comps = [c for c in (dto.components or []) if float(c.pct or 0) > 0]
+    if comps:
+        total = sum(float(c.pct) for c in comps)
+        if abs(total - 100.0) > 0.5:
+            raise HTTPException(
+                400, f"Udziały komponentów muszą sumować się do 100% (jest {total:g}%)"
+            )
+    return json.dumps([
+        {
+            "materialTypeId": c.material_type_id,
+            "materialName": c.material_name,
+            "pct": float(c.pct),
+        }
+        for c in comps
+    ])
+
+
 def create_recipe(dto: RecipeCreate) -> Dict:
     auto_output = round(
         100.0 + sum(float(ing.qty_per_100kg) for ing in dto.ingredients), 3
     )
+    components_json = _validate_components(dto)
     with transaction() as conn:
         row = cx_query_one(
             conn,
             """
             INSERT INTO recipes
                 (id, name, product_type_id, product_type_name,
-                 total_output_per_100kg, shelf_life_days, active, notes, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,true,%s,%s)
+                 total_output_per_100kg, shelf_life_days, active, notes,
+                 components, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,true,%s,%s,%s)
             RETURNING *
             """,
             (
@@ -77,6 +100,7 @@ def create_recipe(dto: RecipeCreate) -> Dict:
                 auto_output,
                 dto.shelf_life_days,
                 dto.notes or None,
+                components_json,
                 now_iso(),
             ),
         )
@@ -100,13 +124,15 @@ def update_recipe(recipe_id: str, dto: RecipeCreate) -> Dict:
     auto_output = round(
         100.0 + sum(float(ing.qty_per_100kg) for ing in dto.ingredients), 3
     )
+    components_json = _validate_components(dto)
     with transaction() as conn:
         cx_execute(
             conn,
             """
             UPDATE recipes
             SET name=%s, product_type_id=%s, product_type_name=%s,
-                total_output_per_100kg=%s, shelf_life_days=%s, notes=%s, updated_at=%s
+                total_output_per_100kg=%s, shelf_life_days=%s, notes=%s,
+                components=%s, updated_at=%s
             WHERE id=%s
             """,
             (
@@ -116,6 +142,7 @@ def update_recipe(recipe_id: str, dto: RecipeCreate) -> Dict:
                 auto_output,
                 dto.shelf_life_days,
                 dto.notes or None,
+                components_json,
                 now_iso(),
                 recipe_id,
             ),

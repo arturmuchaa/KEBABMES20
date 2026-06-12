@@ -11,6 +11,16 @@ class RecipeIngredientDto(BaseModel):
     qty_per_100kg: float = Field(0, alias="qtyPer100kg")
 
 
+class RecipeComponentDto(BaseModel):
+    """Komponent składu produkcyjnego (kebab komponentowy, np. 70/30):
+    rodzaj mięsa przyprawionego + udział %. Pusta lista komponentów =
+    produkt jednoskładnikowy (dotychczasowe zachowanie)."""
+    model_config = ConfigDict(populate_by_name=True)
+    material_type_id: str = Field("", alias="materialTypeId")
+    material_name: str = Field("", alias="materialName")
+    pct: float = 0
+
+
 class RecipeCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     name: str = ""
@@ -20,3 +30,4 @@ class RecipeCreate(BaseModel):
     shelf_life_days: int = Field(5, alias="shelfLifeDays")
     notes: str = ""
     ingredients: List[RecipeIngredientDto] = Field(default_factory=list)
+    components: List[RecipeComponentDto] = Field(default_factory=list)

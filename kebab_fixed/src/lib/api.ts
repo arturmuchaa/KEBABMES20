@@ -424,6 +424,9 @@ function mapRecipeIngredient(raw: any) {
 }
 
 function mapRecipe(raw: any): Recipe {
+  // Skład produkcyjny (kebab komponentowy, np. 70/30) — jsonb z backendu
+  let comps: any = raw.components ?? []
+  if (typeof comps === 'string') { try { comps = JSON.parse(comps) } catch { comps = [] } }
   return {
     id:                   raw.id,
     name:                 raw.name                  ?? '',
@@ -436,7 +439,12 @@ function mapRecipe(raw: any): Recipe {
     createdAt:            raw.created_at            ?? raw.createdAt ?? '',
     updatedAt:            raw.updated_at            ?? raw.updatedAt,
     ingredients: (raw.ingredients ?? []).map(mapRecipeIngredient),
-  }
+    components: (Array.isArray(comps) ? comps : []).map((c: any) => ({
+      materialTypeId: c.materialTypeId ?? c.material_type_id ?? '',
+      materialName:   c.materialName   ?? c.material_name   ?? '',
+      pct:            Number(c.pct) || 0,
+    })),
+  } as Recipe
 }
 
 // BUGFIX: toSnake('qtyPer100kg') → 'qty_per100kg' (missing _ before kg).
@@ -448,6 +456,12 @@ function toSnakeRecipeDto(dto: CreateRecipeDto | UpdateRecipeDto) {
     ingredients: (dto.ingredients ?? []).map((ri: any) => ({
       ingredient_id:  ri.ingredientId  ?? ri.ingredient_id  ?? '',
       qty_per_100kg:  ri.qtyPer100kg   ?? ri.qty_per_100kg  ?? 0,
+    })),
+    // Skład produkcyjny (komponenty 70/30) — aliasy camelCase akceptowane
+    components: ((dto as any).components ?? []).map((c: any) => ({
+      materialTypeId: c.materialTypeId ?? '',
+      materialName:   c.materialName   ?? '',
+      pct:            Number(c.pct) || 0,
     })),
   }
 }
@@ -1402,6 +1416,8 @@ function mapSeasonedMeat(raw: any): SeasonedMeatBatch {
     kgAvailable:    Number(raw.kg_available ?? raw.kgAvailable ?? 0),
     kgUsed:         Number(raw.kg_used      ?? raw.kgUsed      ?? 0),
     kgReserved:     Number(raw.kg_reserved  ?? raw.kgReserved  ?? 0),
+    materialTypeId: raw.material_type_id ?? raw.materialTypeId ?? '',
+    materialName:   raw.material_name    ?? raw.materialName   ?? '',
     kgFree:         Number(
       raw.kg_free ?? raw.kgFree
       ?? (Number(raw.kg_available ?? raw.kgAvailable ?? 0)

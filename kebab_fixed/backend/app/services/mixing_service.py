@@ -548,14 +548,30 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
         )
 
         expiry = (datetime.utcnow() + timedelta(days=5)).date().isoformat()
+        # Rodzaj surowca partii przyprawionej = rodzaj lotów wsadu (w beczce
+        # nie mieszamy surowców). Komponenty kebaba wybierają po rodzaju.
+        mat_row = cx_query_one(
+            conn,
+            """
+            SELECT ms.material_type_id, ms.material_name
+            FROM mixing_order_lots mol
+            JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+            WHERE mol.order_id = %s
+              AND COALESCE(ms.material_type_id,'') <> ''
+            LIMIT 1
+            """,
+            (order_id,),
+        )
+        mat_id = (mat_row or {}).get("material_type_id") or "mat-cwiartka"
+        mat_name = (mat_row or {}).get("material_name") or "Ćwiartka z kurczaka"
         cx_execute(
             conn,
             """
             INSERT INTO seasoned_meat
                 (id, batch_no, recipe_id, recipe_name, mixing_order_no,
                  kg_produced, kg_available, kg_used, machine_id,
-                 expiry_date, status, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,0,%s,%s,'available',%s)
+                 expiry_date, status, material_type_id, material_name, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,0,%s,%s,'available',%s,%s,%s)
             ON CONFLICT (batch_no) DO UPDATE
             SET kg_produced  = seasoned_meat.kg_produced  + EXCLUDED.kg_produced,
                 kg_available = seasoned_meat.kg_available + EXCLUDED.kg_available
@@ -570,6 +586,8 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
                 kg_output,
                 machine_id,
                 expiry,
+                mat_id,
+                mat_name,
                 now_iso(),
             ),
         )

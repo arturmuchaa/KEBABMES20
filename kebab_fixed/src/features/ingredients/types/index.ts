@@ -96,12 +96,23 @@ export interface RecipeIngredient {
   readonly isUnlimited:     boolean
 }
 
+/** Komponent składu produkcyjnego (kebab komponentowy, np. 70/30):
+ *  rodzaj mięsa przyprawionego + udział %. Pusta lista = produkt
+ *  jednoskładnikowy. Partie per komponent dobiera system (FEFO). */
+export interface RecipeComponent {
+  materialTypeId: string
+  materialName:   string
+  pct:            number
+}
+
 export interface Recipe {
   readonly id:            string
   readonly name:          string          // np. "Receptura Standard Van Hess"
   readonly productTypeId?: string         // opcjonalne powiązanie z rodzajem kebabu
   readonly productTypeName?: string       // denormalizowana nazwa rodzaju (z JOINa backendu)
   readonly ingredients:   RecipeIngredient[]
+  /** Skład produkcyjny — komponenty (np. 70% ćwiartka + 30% filet) */
+  readonly components?:   RecipeComponent[]
   /** Łączna masa gotowego produktu na 100 kg mięsa (wyliczana) */
   readonly totalOutputPer100kg: number
   readonly shelfLifeDays: number          // dni przydatności do spożycia
@@ -115,6 +126,7 @@ export interface CreateRecipeDto {
   name:           string
   productTypeId?: string
   ingredients:    Omit<RecipeIngredient, 'id' | 'ingredientName' | 'unit' | 'isUnlimited'>[]
+  components?:    RecipeComponent[]
   shelfLifeDays?: number
   notes?:         string
 }
@@ -123,6 +135,7 @@ export interface UpdateRecipeDto {
   name?:          string
   productTypeId?: string
   ingredients?:   Omit<RecipeIngredient, 'id' | 'ingredientName' | 'unit' | 'isUnlimited'>[]
+  components?:    RecipeComponent[]
   shelfLifeDays?: number
   notes?:         string
   active?:        boolean

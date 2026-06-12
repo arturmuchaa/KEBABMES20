@@ -242,6 +242,30 @@ function autoAssignNewLines(newLines: PlanLineForm[], existing: PlanLineForm[], 
   })
 }
 
+// ─── Kebab komponentowy (np. 70/30) ───────────────────────────
+// Receptura ze składem produkcyjnym: partie per komponent dobiera backend
+// (FEFO po rodzaju mięsa) — planista nie zaznacza partii ręcznie.
+interface RecipeComponentLite { materialTypeId: string; materialName: string; pct: number }
+
+function recipeComponents(recipes: any[], recipeId: string): RecipeComponentLite[] {
+  if (!recipeId) return []
+  const r = (recipes ?? []).find((x: any) => x.id === recipeId)
+  return (r?.components ?? []) as RecipeComponentLite[]
+}
+
+// Dostępność mięsa per komponent (wolne kg wg rodzaju surowca)
+function componentAvailability(
+  comps: RecipeComponentLite[], qty: number, kgPu: number, seasonedRaw: any[],
+) {
+  return comps.map(c => {
+    const free = (seasonedRaw ?? [])
+      .filter((s: any) => (s.materialTypeId ?? '') === c.materialTypeId)
+      .reduce((s2: number, s: any) => s2 + Math.max(0, (s.kgFree ?? s.kgAvailable) - 0), 0)
+    const need = qty * kgPu * c.pct / 100
+    return { ...c, free, need, ok: free >= need - 0.1 }
+  })
+}
+
 const STATUS_LABELS: Record<ProductionPlan['status'], string> = {
   draft:'Szkic', active:'Aktywny', done:'Ukończony', cancelled:'Anulowany',
 }
@@ -758,7 +782,8 @@ function PlanLineQuickAdd({ onAdd, productTypes, recipes, packaging, clients, me
     !draft.productTypeId || !r.productTypeId || r.productTypeId === draft.productTypeId)
 
   const needKg  = (parseFloat(draft.qty)||0) * (parseFloat(draft.kgPerUnit)||0)
-  const freeKg  = draft.recipeId ? (meatFreeByRecipe[draft.recipeId] ?? 0) : null
+  const draftComps = recipeComponents(recipes, draft.recipeId)
+  const freeKg  = draft.recipeId && draftComps.length === 0 ? (meatFreeByRecipe[draft.recipeId] ?? 0) : null
   const meatOk  = freeKg === null || needKg <= 0 || freeKg >= needKg - 0.1
 
   return (
@@ -782,7 +807,12 @@ function PlanLineQuickAdd({ onAdd, productTypes, recipes, packaging, clients, me
             {draftRecipes.map((r:any)=>(
               <SelectItem key={r.id} value={r.id}>
                 {r.name}
-                <span className="text-muted-foreground"> · {fmtKg(meatFreeByRecipe[r.id] ?? 0, 0)} kg</span>
+                <span className="text-muted-foreground">
+                  {' · '}
+                  {(r.components?.length ?? 0) > 0
+                    ? `skład ${r.components.map((c:any)=>c.pct).join('/')}`
+                    : `${fmtKg(meatFreeByRecipe[r.id] ?? 0, 0)} kg`}
+                </span>
               </SelectItem>
             ))}
           </SelectContent>
@@ -986,7 +1016,19 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
           </div>
         </div>
 
-        {/* Partie mięsa — rozwijany panel */}
+        {/* Receptura komponentowa: partie dobiera backend per komponent */}
+        {recipeComponents(recipes??[], line.recipeId).length>0 ? (
+          <div className="border border-violet-200 rounded-lg bg-violet-50/50 px-3 py-2 text-[11px]">
+            <span className="font-bold text-violet-700">Kebab komponentowy</span>
+            <span className="text-muted-foreground"> — skład: </span>
+            {recipeComponents(recipes??[], line.recipeId).map((c,ci)=>(
+              <span key={c.materialTypeId} className="font-semibold text-violet-700">
+                {ci>0?' + ':''}{c.pct}% {c.materialName}
+              </span>
+            ))}
+            <span className="text-muted-foreground"> · partie per komponent dobierze system (FEFO), wyrób dostanie partię łączoną np. „120626 355/356"</span>
+          </div>
+        ) : (
         <div className="border rounded-lg overflow-hidden">
           <button onClick={()=>setShowBatchPanel(p=>!p)}
             className={`w-full flex items-center justify-between px-3 py-2 text-[11px] font-semibold transition-colors ${
@@ -1062,6 +1104,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
             </div>
           )}
         </div>
+        )}
 
         {/* Suma pozycji */}
         {totalKgLine>0&&(
@@ -1208,6 +1251,22 @@ function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFormProps
       const ids = l.seasonedBatchIds?.length>0 ? l.seasonedBatchIds : (l.seasonedBatchId?[l.seasonedBatchId]:[])
       const recipeName = (recipes??[]).find((r:any)=>r.id===l.recipeId)?.name ?? l.recipeId
 
+      // Receptura komponentowa — partie dobiera backend; sprawdź tylko
+      // dostępność wolnych kg per komponent (rodzaj mięsa)
+      const comps = recipeComponents(recipes??[], l.recipeId)
+      if (comps.length > 0) {
+        const qty = parseFloat(l.qty) || 0
+        const kgPu = parseFloat(l.kgPerUnit) || 0
+        componentAvailability(comps, qty, kgPu, seasonedRaw??[]).forEach(c => {
+          if (!c.ok) {
+            shortfalls.push(
+              `„${recipeName}": komponent ${c.materialName} (${c.pct}%) — potrzeba ${c.need.toFixed(0)} kg, wolne ${c.free.toFixed(0)} kg`
+            )
+          }
+        })
+        return
+      }
+
       if (ids.length === 0) {
         if (toProduction) {
           shortfalls.push(`„${recipeName}": brak przydzielonych partii mięsa`)
@@ -1317,6 +1376,10 @@ function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFormProps
               const meatOk = ids.length>0 && avail >= tkg-0.1
               const preview = meatOk ? computeAllocPreview(i, lines, seasonedRaw??[]) : null
               const mixedPcs = preview?.mixedPieces ?? 0
+              // Receptura komponentowa: partie dobierze backend per komponent
+              const comps = recipeComponents(recipes??[], line.recipeId)
+              const compAvail = comps.length>0 ? componentAvailability(comps, qty, kgPu, seasonedRaw??[]) : []
+              const compOk = compAvail.length>0 && compAvail.every(c=>c.ok)
               const isExp  = expandedLine===i
               const rcName = (recipes??[]).find((r:any)=>r.id===line.recipeId)?.name ?? '—'
               const ptName = (productTypes??[]).find((pt:any)=>pt.id===line.productTypeId)?.name
@@ -1339,19 +1402,31 @@ function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFormProps
                       )}
                     </span>
                     {/* Status mięsa pozycji */}
-                    <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded font-semibold border whitespace-nowrap ${
-                      ids.length===0
-                        ? 'bg-amber-50 text-amber-700 border-amber-200'
-                        : meatOk
-                          ? 'bg-green-50 text-green-700 border-green-200'
+                    {comps.length>0 ? (
+                      <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded font-semibold border whitespace-nowrap ${
+                        compOk
+                          ? 'bg-violet-50 text-violet-700 border-violet-200'
                           : 'bg-red-50 text-red-600 border-red-200'
-                    }`}>
-                      {ids.length===0
-                        ? 'bez partii'
-                        : meatOk
-                          ? `✓ ${ids.length} part.${mixedPcs>0 ? ` · ${mixedPcs} szt PM` : ''}`
-                          : `brak ${fmtKg(tkg-avail,0)} kg`}
-                    </span>
+                      }`}>
+                        {compOk
+                          ? `✓ skład ${comps.map(c=>c.pct).join('/')}`
+                          : `brak: ${compAvail.find(c=>!c.ok)?.materialName ?? 'komponentu'}`}
+                      </span>
+                    ) : (
+                      <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded font-semibold border whitespace-nowrap ${
+                        ids.length===0
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : meatOk
+                            ? 'bg-green-50 text-green-700 border-green-200'
+                            : 'bg-red-50 text-red-600 border-red-200'
+                      }`}>
+                        {ids.length===0
+                          ? 'bez partii'
+                          : meatOk
+                            ? `✓ ${ids.length} part.${mixedPcs>0 ? ` · ${mixedPcs} szt PM` : ''}`
+                            : `brak ${fmtKg(tkg-avail,0)} kg`}
+                      </span>
+                    )}
                     <span className="font-bold text-blue-700 tabular-nums whitespace-nowrap">{fmtKg(tkg,0)} kg</span>
                     <span className="text-muted-foreground flex-shrink-0">
                       {isExp ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
@@ -1363,6 +1438,18 @@ function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFormProps
                       <Trash2 size={13}/>
                     </button>
                   </div>
+                  {/* Skład komponentowy: potrzeby vs wolne kg per rodzaj mięsa */}
+                  {comps.length>0 && tkg>0 && (
+                    <div className="px-3 pb-1.5 -mt-0.5 pl-10 text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="uppercase font-semibold tracking-wide">Skład:</span>
+                      {compAvail.map(c=>(
+                        <span key={c.materialTypeId} className={`font-semibold ${c.ok?'':'text-red-600'}`}>
+                          {c.pct}% {c.materialName} ({fmtKg(c.need,0)} kg / wolne {fmtKg(c.free,0)} kg)
+                        </span>
+                      ))}
+                      <span className="text-violet-700">· partie dobierze system (FEFO)</span>
+                    </div>
+                  )}
                   {/* Podgląd: ile sztuk z której partii (+ skład sztuki PM) */}
                   {preview && (preview.clean.length>0 || preview.mixedPieces>0) && (
                     <div className="px-3 pb-1.5 -mt-0.5 pl-10 text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-0.5">

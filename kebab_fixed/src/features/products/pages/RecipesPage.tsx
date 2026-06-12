@@ -22,6 +22,8 @@ import {
 } from '@/components/ui/select'
 import { useIngredients, useRecipes, useRecipeForm } from '@/features/ingredients/hooks'
 import { useProductTypes } from '../hooks'
+import { useApi } from '@/hooks/useApi'
+import { rawBatchesApi } from '@/lib/apiClient'
 import type { Recipe } from '@/features/ingredients/types'
 import { Plus, X, ChevronDown, ChevronUp, BookOpen, AlertTriangle, Pencil } from 'lucide-react'
 
@@ -30,6 +32,9 @@ export function RecipesPage() {
   const { ingredients: ingList } = useIngredients()
   const { productTypes }         = useProductTypes()
   const form = useRecipeForm()
+  // Rodzaje surowca do komponentów (kebab 70/30)
+  const { data: matTypesData } = useApi(() => (rawBatchesApi as any).materialTypes())
+  const matTypes: { id: string; name: string }[] = (matTypesData as any) ?? []
 
   const [modalOpen,    setModalOpen]    = useState(false)
   const [editingId,    setEditingId]    = useState<string | null>(null)
@@ -45,6 +50,11 @@ export function RecipesPage() {
       r.ingredients.length > 0
         ? r.ingredients.map(ri => ({ ingredientId: ri.ingredientId, qtyPer100kg: String(ri.qtyPer100kg) }))
         : [{ ingredientId: '', qtyPer100kg: '' }]
+    )
+    form.setCompRows(
+      (r.components ?? []).map(c => ({
+        materialTypeId: c.materialTypeId, materialName: c.materialName, pct: String(c.pct),
+      }))
     )
   }
 
@@ -283,6 +293,68 @@ export function RecipesPage() {
               </div>
             </div>
 
+            {/* Skład produkcyjny — kebab komponentowy (np. 70/30) */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <Label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">
+                  Skład produkcyjny (komponenty mięsa)
+                </Label>
+                <Button variant="ghost" size="sm"
+                  onClick={() => form.setCompRows(p => [...p, { materialTypeId: '', materialName: '', pct: '' }])}
+                  className="h-6 text-[11px] gap-1 px-2 text-primary">
+                  <Plus size={11}/> Dodaj komponent
+                </Button>
+              </div>
+              {form.compRows.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Produkt jednoskładnikowy — partie mięsa wybierane w planowaniu.
+                  Dodaj komponenty (np. 70% ćwiartka + 30% filet), aby kebab był
+                  składany z kilku rodzajów mięsa — partie per komponent dobierze
+                  system (FEFO), a wyrób dostanie partię łączoną np. „120626 355/356".
+                </p>
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    {form.compRows.map((c, idx) => (
+                      <div key={idx} className="grid grid-cols-[1fr_100px_32px] gap-2 items-center">
+                        <Select value={c.materialTypeId || '__none'} onValueChange={v => {
+                          const id = v === '__none' ? '' : v
+                          const m = matTypes.find(x => x.id === id)
+                          form.setCompRows(p => p.map((r, i) =>
+                            i === idx ? { ...r, materialTypeId: id, materialName: m?.name ?? '' } : r))
+                        }}>
+                          <SelectTrigger className="h-8 text-[12px]"><SelectValue placeholder="Rodzaj mięsa..."/></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none">Rodzaj mięsa...</SelectItem>
+                            {matTypes.map(m => (
+                              <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="flex items-center gap-1">
+                          <Input type="number" min="1" max="100" step="1" placeholder="%"
+                            value={c.pct}
+                            onChange={e => form.setCompRows(p => p.map((r, i) =>
+                              i === idx ? { ...r, pct: e.target.value } : r))}
+                            className="h-8 text-[13px] font-bold text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"/>
+                          <span className="text-[11px] text-muted-foreground">%</span>
+                        </div>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          onClick={() => form.setCompRows(p => p.filter((_, i) => i !== idx))}>
+                          <X size={14}/>
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className={`mt-1.5 text-[11px] font-semibold ${
+                    Math.abs(form.compPctSum - 100) <= 0.5 ? 'text-green-700' : 'text-red-600'
+                  }`}>
+                    Suma udziałów: {form.compPctSum}%{Math.abs(form.compPctSum - 100) > 0.5 ? ' — musi wynosić 100%' : ' ✓'}
+                  </div>
+                </>
+              )}
+            </div>
+
             <div>
               <Label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1 block">Uwagi</Label>
               <textarea rows={2} placeholder="Opcjonalne uwagi..."
@@ -294,7 +366,8 @@ export function RecipesPage() {
               <Button variant="outline" className="flex-1" onClick={() => { setModalOpen(false); setEditingId(null); form.reset() }}>Anuluj</Button>
               <Button
                 className="flex-1"
-                disabled={(editingId ? updateLoading : createLoading) || !form.name.trim() || !form.toDto().ingredients.length}
+                disabled={(editingId ? updateLoading : createLoading) || !form.name.trim() || !form.toDto().ingredients.length
+                  || (form.compRows.length > 0 && Math.abs(form.compPctSum - 100) > 0.5)}
                 onClick={editingId ? handleUpdate : handleCreate}
               >
                 {(editingId ? updateLoading : createLoading) && (
