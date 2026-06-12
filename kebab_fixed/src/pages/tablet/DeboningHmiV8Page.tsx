@@ -95,7 +95,7 @@ const V8BatchTile = memo(function V8BatchTile({ batch, selected, first, onSelect
   return (
     <button type="button" onClick={() => onSelect(batch)}
       className={cn(
-        'w-full text-left rounded-2xl border-[3px] px-5 py-4 select-none active:translate-y-px transition-colors flex-shrink-0',
+        'w-[290px] text-left rounded-2xl border-[3px] px-5 py-3 select-none active:translate-y-px transition-colors flex-shrink-0 h-full',
         selected ? '' : 'hover:border-[var(--ink)]'
       )}
       style={selected
@@ -111,7 +111,7 @@ const V8BatchTile = memo(function V8BatchTile({ batch, selected, first, onSelect
             style={{ background: 'var(--grn)', color: '#fff' }}>najpierw</span>
         )}
       </div>
-      <div className="flex items-center justify-between mt-2">
+      <div className="flex items-center justify-between mt-1.5">
         <span className="text-xl font-black tabular-nums" style={{ color: selected ? '#fff' : 'var(--ink)' }}>
           {fmtKg(kg, 0)} <span className="text-sm font-bold" style={{ color: selected ? 'rgba(255,255,255,.7)' : 'var(--mut)' }}>kg</span>
         </span>
@@ -493,36 +493,39 @@ export function DeboningHmiV8Page() {
         <Clock />
       </header>
 
-      {/* ── TRZON ── */}
-      <div className="flex-1 min-h-0 flex gap-4 p-4">
+      {/* ── TRZON: czytanie z góry na dół, w kolejności pracy ──
+          ① PARTIA (poziomy pas) → ② PRACOWNIK (siatka) →
+          ③ dolna strefa rąk: WAGA | NUMPAD | ZAPISZ */}
+      <div className="flex-1 min-h-0 flex flex-col gap-3 p-4">
 
-        {/* Lewa szyna — partie */}
-        <aside className="w-[360px] flex-shrink-0 flex flex-col min-h-0">
+        {/* ① PARTIA — poziomy pas u góry */}
+        <section className="flex-shrink-0">
           <SectionLabel no={1} done={!!selBatch}>Partia</SectionLabel>
-          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2.5 pr-1">
+          <div className="flex gap-2.5 h-[116px] overflow-x-auto pb-1">
             {batches.map((b, i) => (
               <V8BatchTile key={b.id} batch={b} first={i === 0}
                 selected={selBatch?.id === b.id} onSelect={pickBatch} />
             ))}
             {batches.length === 0 && (
-              <div className="rounded-2xl border-[3px] border-dashed p-8 text-center text-lg font-bold"
+              <div className="rounded-2xl border-[3px] border-dashed px-10 flex items-center text-lg font-bold"
                 style={{ borderColor: 'var(--bd)', color: 'var(--mut)' }}>
                 Brak partii na magazynie
               </div>
             )}
+            <button type="button" onClick={() => setFinishModal(true)}
+              className="ml-auto w-[230px] h-full rounded-2xl border-[3px] flex flex-col items-center justify-center gap-2 text-base font-black flex-shrink-0"
+              style={{ borderColor: 'var(--amb)', color: 'var(--amb)', background: '#FDF3E7' }}>
+              <Flag size={26} />
+              <span className="text-center leading-tight">Zakończ partię<br />kości / grzbiety</span>
+            </button>
           </div>
-          <button type="button" onClick={() => setFinishModal(true)}
-            className="mt-3 h-16 rounded-2xl border-[3px] flex items-center justify-center gap-3 text-lg font-black flex-shrink-0"
-            style={{ borderColor: 'var(--amb)', color: 'var(--amb)', background: '#FDF3E7' }}>
-            <Flag size={22} /> Zakończ partię — kości / grzbiety
-          </button>
-        </aside>
+        </section>
 
-        {/* Środek — DUZI pracownicy + kompaktowe wagi */}
-        <main className="flex-1 min-w-0 flex flex-col min-h-0">
+        {/* ② PRACOWNIK — siatka dużych kafli */}
+        <section className="flex-1 min-h-0 flex flex-col">
           <SectionLabel no={2} done={!!selWorker}>Pracownik</SectionLabel>
-          <div className="grid grid-cols-5 gap-2.5 flex-1 min-h-0 overflow-y-auto content-stretch mb-3"
-            style={{ gridAutoRows: 'minmax(92px, 1fr)' }}>
+          <div className="grid grid-cols-6 gap-2.5 flex-1 min-h-0 overflow-y-auto content-stretch"
+            style={{ gridAutoRows: 'minmax(84px, 1fr)' }}>
             {workers.map(w => (
               <V8WorkerTile key={w.id} worker={w} selected={selWorker?.id === w.id}
                 entryCount={entryCountByWorkerId.get(w.id) ?? 0} onSelect={pickWorker} />
@@ -531,9 +534,15 @@ export function DeboningHmiV8Page() {
               <span className="text-base font-bold" style={{ color: 'var(--mut)' }}>Brak pracowników rozbioru</span>
             )}
           </div>
+        </section>
 
+        {/* ③ STREFA RĄK — wagi + uzysk | numpad | ZAPISZ */}
+        <section className="flex-shrink-0 h-[356px] flex flex-col">
           <SectionLabel no={3} done={taken > 0 && meat > 0 && !meatTooBig}>Waga</SectionLabel>
-          <div className="flex gap-4 h-[168px] flex-shrink-0">
+          <div className="flex-1 min-h-0 flex gap-4">
+            {/* Wagi + uzysk */}
+            <div className="flex-1 min-w-0 flex flex-col gap-3">
+              <div className="flex gap-4 flex-1 min-h-0">
             <V8Readout
               label={takenMode === 'poj' ? 'Zabrano · pojemniki' : 'Zabrano z partii'}
               value={kgTaken}
@@ -564,51 +573,56 @@ export function DeboningHmiV8Page() {
               onActivate={() => setActive('meat')}
               sub={meatTooBig ? `Mięso nie może przekraczać ${fmtKg(taken, 0)} kg zabranych!` : ''}
             />
-          </div>
+              </div>
 
-          {/* Uzysk */}
-          <div className="mt-3 rounded-2xl border-[3px] px-6 py-3 flex items-center gap-6 flex-shrink-0"
-            style={{ background: 'var(--panel)', borderColor: meatTooBig ? 'var(--red)' : 'var(--bd)' }}>
-            <span className="text-[14px] font-black uppercase tracking-[.18em] flex-shrink-0" style={{ color: 'var(--mut)' }}>
-              Uzysk
-            </span>
-            <div className="flex-1 h-6 rounded-full overflow-hidden" style={{ background: 'var(--app)' }}>
-              <div className="h-full rounded-full transition-all duration-200"
-                style={{
-                  width: `${Math.min(100, yieldPct)}%`,
-                  background: meatTooBig ? 'var(--red)' : yieldPct > 0 ? yieldColor(yieldPct) : 'transparent',
-                }} />
+              {/* Uzysk */}
+              <div className="rounded-2xl border-[3px] px-6 py-3 flex items-center gap-6 flex-shrink-0"
+                style={{ background: 'var(--panel)', borderColor: meatTooBig ? 'var(--red)' : 'var(--bd)' }}>
+                <span className="text-[14px] font-black uppercase tracking-[.18em] flex-shrink-0" style={{ color: 'var(--mut)' }}>
+                  Uzysk
+                </span>
+                <div className="flex-1 h-6 rounded-full overflow-hidden" style={{ background: 'var(--app)' }}>
+                  <div className="h-full rounded-full transition-all duration-200"
+                    style={{
+                      width: `${Math.min(100, yieldPct)}%`,
+                      background: meatTooBig ? 'var(--red)' : yieldPct > 0 ? yieldColor(yieldPct) : 'transparent',
+                    }} />
+                </div>
+                <span className="font-mono font-black tabular-nums text-5xl flex-shrink-0 w-[180px] text-right"
+                  style={{ color: meatTooBig ? 'var(--red)' : yieldPct > 0 ? yieldColor(yieldPct) : 'var(--bd)' }}>
+                  {meatTooBig ? '!!!' : yieldPct > 0 ? fmtPct(yieldPct, 1) : '— %'}
+                </span>
+              </div>
             </div>
-            <span className="font-mono font-black tabular-nums text-5xl flex-shrink-0 w-[180px] text-right"
-              style={{ color: meatTooBig ? 'var(--red)' : yieldPct > 0 ? yieldColor(yieldPct) : 'var(--bd)' }}>
-              {meatTooBig ? '!!!' : yieldPct > 0 ? fmtPct(yieldPct, 1) : '— %'}
-            </span>
-          </div>
-        </main>
 
-        {/* Prawa szyna — numpad + ZAPISZ */}
-        <aside className="w-[400px] flex-shrink-0 flex flex-col gap-3 min-h-0">
-          <V8Numpad onKey={pressKey} onBackStart={handleBackStart} onBackEnd={handleBackEnd} />
-          <button type="button" onClick={handleSave} disabled={!canSave || addLoading}
-            className="h-[120px] rounded-3xl flex flex-col items-center justify-center gap-1 select-none active:translate-y-[3px] transition-transform flex-shrink-0"
-            style={canSave
-              ? { background: 'var(--grn)', color: '#fff', boxShadow: '0 7px 0 #0C5527' }
-              : meatTooBig
-                ? { background: '#FBEAE8', color: 'var(--red)', border: '3px solid var(--red)' }
-                : { background: 'var(--key)', color: 'var(--mut)', border: '3px solid var(--bd)' }}>
-            <span className="flex items-center gap-3 text-3xl font-black tracking-wide">
+            {/* Numpad — pod ręką, obok wag */}
+            <div className="w-[430px] flex-shrink-0 flex flex-col">
+              <V8Numpad onKey={pressKey} onBackStart={handleBackStart} onBackEnd={handleBackEnd} />
+            </div>
+
+            {/* ZAPISZ — wielki blok zamykający strefę rąk */}
+            <button type="button" onClick={handleSave} disabled={!canSave || addLoading}
+              className="w-[300px] flex-shrink-0 rounded-3xl flex flex-col items-center justify-center gap-3 px-6 select-none active:translate-y-[3px] transition-transform"
+              style={canSave
+                ? { background: 'var(--grn)', color: '#fff', boxShadow: '0 7px 0 #0C5527' }
+                : meatTooBig
+                  ? { background: '#FBEAE8', color: 'var(--red)', border: '3px solid var(--red)' }
+                  : { background: 'var(--key)', color: 'var(--mut)', border: '3px solid var(--bd)' }}>
               {addLoading
-                ? <span className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin" />
-                : canSave ? <Save size={32} /> : null}
-              {saveHint}
-            </span>
-            {canSave && (
-              <span className="text-base font-bold opacity-90">
-                {selWorker?.name.split(' ')[0]} · partia {selBatch?.internalBatchNo} · {fmtKg(meat, 1)} kg · {fmtPct(yieldPct, 1)}
+                ? <span className="w-9 h-9 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+                : canSave ? <Save size={44} /> : null}
+              <span className="text-[27px] font-black tracking-wide text-center leading-tight">
+                {saveHint}
               </span>
-            )}
-          </button>
-        </aside>
+              {canSave && (
+                <span className="text-base font-bold opacity-90 text-center leading-snug">
+                  {selWorker?.name.split(' ')[0]} · partia {selBatch?.internalBatchNo}<br />
+                  {fmtKg(meat, 1)} kg · {fmtPct(yieldPct, 1)}
+                </span>
+              )}
+            </button>
+          </div>
+        </section>
       </div>
 
       {/* ── MODAL: wpisy dnia ── */}
