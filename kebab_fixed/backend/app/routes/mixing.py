@@ -13,6 +13,19 @@ def list_mixing_orders(status: str = Query("")):
     return svc.list_mixing_orders(status or None)
 
 
+# IMPORTANT: /day-plan przed /{order_id}
+@router.get("/day-plan")
+def get_day_plan():
+    """Dzisiejsza kolejka masowania (1→n) + rev do wykrywania zmian planu."""
+    return svc.get_day_plan()
+
+
+@router.put("/day-plan")
+def save_day_plan(body: dict):
+    """Upsert planu dnia: edycja/kolejność/anulowanie pozycji w kolejce."""
+    return svc.save_day_plan(body.get("items") or [])
+
+
 @router.get("/{order_id}")
 def get_mixing_order(order_id: str):
     return svc.get_mixing_order(order_id)

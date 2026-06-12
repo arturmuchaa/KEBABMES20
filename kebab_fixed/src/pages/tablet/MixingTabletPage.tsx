@@ -9,9 +9,9 @@
  * Po każdej sesji zlecenie wraca na "planned" z kgRemaining -= kgActual
  * Dopiero gdy kgRemaining < 0.1 → status "done"
  */
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
-import { mixingOrdersApi, machineLockApi, productionSessionsApi } from '@/lib/apiClient'
+import { mixingOrdersApi, machineLockApi, meatStockApi, productionSessionsApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import type { MixingOrder, MachineId, MachineLock } from '@/lib/mockApi'
 import { Spinner } from '@/components/ui/widgets'
@@ -252,18 +252,29 @@ function MachineScreen({ order, locks, onConfirm, onBack, loading }: {
 }
 
 // ─── Ekran wpisywania kg mięsa ────────────────────────────────
-function MeatScreen({ order, onConfirm, onBack }: {
+interface MeatScreenLot {
+  meatLotId: string; meatLotNo: string; rawBatchNo: string
+  kgPlanned: number; expiryDate: string; materialName?: string
+}
+
+function MeatScreen({ order, availableLots, onConfirm, onBack }: {
   order: MixingOrder
+  // Zlecenie z planu dnia nie ma prealokowanych lotów — operator wybiera
+  // z dostępnych na magazynie mięsa (FEFO)
+  availableLots?: MeatScreenLot[]
   onConfirm: (lotAllocations: { meatLotId: string; kg: number }[], totalKg: number) => void
   onBack: () => void
 }) {
   const kgRemaining = (order as any).kgRemaining ?? order.meatKg
   const [showRecipe, setShowRecipe] = useState(false)
+  const lots: MeatScreenLot[] = order.meatLots.length > 0
+    ? (order.meatLots as any)
+    : (availableLots ?? [])
 
   // Każda partia ma własne pole kg — operator wpisuje ile z każdej ładuje
   const [lotKgs, setLotKgs] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
-    order.meatLots.forEach(lot => { init[lot.meatLotId] = '' })
+    lots.forEach(lot => { init[lot.meatLotId] = '' })
     return init
   })
 
@@ -272,7 +283,7 @@ function MeatScreen({ order, onConfirm, onBack }: {
 
   // Walidacja per lot
   const lotErrors: Record<string, string> = {}
-  order.meatLots.forEach(lot => {
+  lots.forEach(lot => {
     const kg = parseFloat(lotKgs[lot.meatLotId] || '0') || 0
     if (kg > lot.kgPlanned + 0.01) {
       lotErrors[lot.meatLotId] = `Maks. ${fmtKg(lot.kgPlanned)} kg`
@@ -282,7 +293,7 @@ function MeatScreen({ order, onConfirm, onBack }: {
   const canConfirm = totalKg > 0 && !hasErrors
 
   function handleConfirm() {
-    const allocs = order.meatLots
+    const allocs = lots
       .map(lot => ({ meatLotId: lot.meatLotId, kg: parseFloat(lotKgs[lot.meatLotId] || '0') || 0 }))
       .filter(a => a.kg > 0)
     onConfirm(allocs, totalKg)
@@ -350,7 +361,7 @@ function MeatScreen({ order, onConfirm, onBack }: {
           <Info size={12} /> Wpisz ile kg z każdej partii ładujesz do tej maszyny
         </div>
         <div className="space-y-3">
-          {order.meatLots.map(lot => {
+          {lots.map(lot => {
             const kg    = parseFloat(lotKgs[lot.meatLotId] || '0') || 0
             const err   = lotErrors[lot.meatLotId]
             const hasKg = kg > 0
@@ -657,6 +668,18 @@ export function MixingTabletPage() {
   const { data: locks,                   refetch:rL } = useApi(() => machineLockApi.list())
 
   const { data: mixingSession, refetch: refetchSession } = useApi(() => productionSessionsApi.active('mixing'))
+  // Dostępne loty mięsa (FEFO) — dla zleceń z planu dnia bez prealokacji
+  const { data: meatStockData, refetch: refetchMeatStock } = useApi(() => meatStockApi.list())
+  const availableMeatLots = useMemo(() =>
+    ((meatStockData as any)?.data ?? [])
+      .filter((m: any) => m.status !== 'DEPLETED' && Number(m.kgAvailable) - Number(m.kgReserved ?? 0) > 0.01)
+      .sort((a: any, b: any) => (a.expiryDate > b.expiryDate ? 1 : -1))
+      .map((m: any) => ({
+        meatLotId: m.id, meatLotNo: m.lotNo, rawBatchNo: m.rawBatchNo ?? '',
+        kgPlanned: Math.max(0, Number(m.kgAvailable) - Number(m.kgReserved ?? 0)),
+        expiryDate: m.expiryDate ?? '', materialName: m.materialName ?? '',
+      })),
+    [meatStockData])
   const startSessionMut = useMutation(() => productionSessionsApi.start({ processType: 'mixing' }))
   const closeSessionMut = useMutation((id: string) => productionSessionsApi.close(id, {}))
 
@@ -702,7 +725,7 @@ export function MixingTabletPage() {
   function handleHome() {
     setPhase('list'); setSelOrder(null); setLiveOrder(null)
     setKgActual(0); setLotAllocs([]); setStepIdx(0)
-    refetch(); rIP(); rL()
+    refetch(); rIP(); rL(); refetchMeatStock()
   }
 
   const handleStartMachine = useCallback(async (machineId: MachineId) => {
@@ -829,7 +852,8 @@ export function MixingTabletPage() {
           onConfirm={handleStartMachine} onBack={handleHome} loading={startMut.loading} />
       )}
       {phase === 'meat' && liveOrder && (
-        <MeatScreen order={liveOrder} onConfirm={handleMeatConfirm} onBack={() => setPhase('machine')} />
+        <MeatScreen order={liveOrder} availableLots={availableMeatLots}
+          onConfirm={handleMeatConfirm} onBack={() => setPhase('machine')} />
       )}
       {phase === 'steps' && liveOrder && (
         <StepScreen order={liveOrder} kgActual={kgActual} stepIdx={stepIdx}

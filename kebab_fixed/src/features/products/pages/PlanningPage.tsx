@@ -11,6 +11,7 @@
  *   5. Zlecenie widoczne na tablecie masownicy
  */
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { MixingDayPlanEditor } from '../components/MixingDayPlanEditor'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -245,6 +246,9 @@ export function PlanningPage() {
           <Plus size={14}/> Nowe zlecenie masowania
         </Button>
       </div>
+
+      {/* Plan dnia: kilka receptur w kolejności 1→n, edycja na żywo */}
+      <MixingDayPlanEditor onSaved={() => refetchOrders()} />
 
       <Card>
         <div className="px-4 py-2.5 border-b flex items-center justify-between">

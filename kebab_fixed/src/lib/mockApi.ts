@@ -1375,6 +1375,8 @@ export interface MixingOrderStep {
 export interface MixingOrder {
   readonly id:             string
   readonly orderNo:        string      // "MAS/dd/mm/rr" (np. MAS/06/06/26)
+  /** Kolejność w planie dnia masowania (1→n); 0 = poza planem dnia */
+  readonly daySeq?:        number
   readonly productTypeId?: string
   readonly productTypeName?:string
   readonly recipeId:       string

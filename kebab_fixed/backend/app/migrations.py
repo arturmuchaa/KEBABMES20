@@ -473,6 +473,9 @@ _DDL: list[str] = [
     "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS material_name TEXT DEFAULT ''",
     "ALTER TABLE seasoned_meat ADD COLUMN IF NOT EXISTS material_type_id TEXT",
     "ALTER TABLE seasoned_meat ADD COLUMN IF NOT EXISTS material_name TEXT DEFAULT ''",
+    # ── Plan dnia masowania: kolejność zleceń (operator jedzie 1→n) ──
+    "ALTER TABLE mixing_orders ADD COLUMN IF NOT EXISTS day_seq INTEGER DEFAULT 0",
+
     # ── Skład produkcyjny receptury (kebab komponentowy, np. 70/30) ──
     # [{"materialTypeId","materialName","pct"}] — pusta lista = produkt
     # jednoskładnikowy (dotychczasowe zachowanie bez zmian)

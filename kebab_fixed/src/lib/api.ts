@@ -1515,6 +1515,7 @@ function mapMixingOrder(raw: any): MixingOrder {
     machineId:      raw.machine_id       ?? raw.machineId,
     steps:          (raw.steps ?? []).map(mapMixingOrderStep),
     status:         raw.status           ?? 'planned',
+    daySeq:         Number(raw.day_seq   ?? raw.daySeq          ?? 0),
     notes:          raw.notes,
     createdAt:      raw.created_at       ?? raw.createdAt       ?? '',
     startedAt:      raw.started_at       ?? raw.startedAt,
@@ -1530,6 +1531,19 @@ export const mixingOrdersApi = {
       .then(r => (Array.isArray(r) ? r : (r as any).data ?? []).map(mapMixingOrder)),
   byId:              (id: string) =>
     get<any>(`/mixing-orders/${id}`).then(mapMixingOrder),
+  // Plan dnia masowania: kolejka 1→n + rev (wykrywanie zmian planu na panelu)
+  dayPlan:           () =>
+    get<any>('/mixing-orders/day-plan').then(r => ({
+      items: (r?.items ?? []).map(mapMixingOrder),
+      rev:   r?.rev ?? '',
+    })),
+  saveDayPlan:       (items: { id?: string; recipeId: string; meatKg: number; seq: number }[]) =>
+    put<any>('/mixing-orders/day-plan', {
+      items: items.map(i => ({ id: i.id, recipeId: i.recipeId, meatKg: i.meatKg, seq: i.seq })),
+    }).then(r => ({
+      items: (r?.items ?? []).map(mapMixingOrder),
+      rev:   r?.rev ?? '',
+    })),
   create:            (dto: CreateMixingOrderDto) =>
     post<any>('/mixing-orders', {
       product_type_id: dto.productTypeId,

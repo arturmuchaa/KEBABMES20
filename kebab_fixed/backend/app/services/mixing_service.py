@@ -4,6 +4,7 @@ Every operation that touches meat_stock.kg_reserved, kg_available or
 kg_used runs inside a transaction with SELECT ... FOR UPDATE row locks.
 Every actual mass movement is recorded via :func:`create_stock_movement`.
 """
+import hashlib
 import json
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple
@@ -112,6 +113,7 @@ def build_mixing_order(o: Dict) -> Dict:
         "plannedOutputKg": float(o.get("planned_output_kg") or 0),
         "machineId": o.get("machine_id"),
         "status": o.get("status") or "planned",
+        "daySeq": int(o.get("day_seq") or 0),
         "notes": o.get("notes"),
         "createdAt": str(o.get("created_at") or ""),
         "startedAt": str(o["started_at"]) if o.get("started_at") else None,
@@ -158,7 +160,9 @@ def list_mixing_orders(status: str | None) -> List[Dict]:
     if status:
         sql += " WHERE status = %s"
         params.append(status)
-    sql += " ORDER BY created_at DESC"
+    # Kolejność planu dnia (day_seq 1→n) przed resztą; operator jedzie po kolei
+    sql += (" ORDER BY CASE WHEN COALESCE(day_seq,0) > 0 THEN day_seq "
+            "ELSE 999999 END, created_at DESC")
     orders = query_all(sql, params or None)
     return [build_mixing_order(o) for o in orders]
 
@@ -562,6 +566,16 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
             """,
             (order_id,),
         )
+        if not mat_row and lot_allocations:
+            # Zlecenie z planu dnia: loty dopiero w lot_allocations tej sesji
+            first_ms = (lot_allocations[0] or {}).get("meatLotId") or \
+                       (lot_allocations[0] or {}).get("meat_lot_id")
+            if first_ms:
+                mat_row = cx_query_one(
+                    conn,
+                    "SELECT material_type_id, material_name FROM meat_stock WHERE id=%s",
+                    (first_ms,),
+                )
         mat_id = (mat_row or {}).get("material_type_id") or "mat-cwiartka"
         mat_name = (mat_row or {}).get("material_name") or "Ćwiartka z kurczaka"
         cx_execute(
@@ -728,7 +742,7 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
                 lot_id = alloc.get("meatLotId") or alloc.get("meat_lot_id")
                 kg_used = float(alloc.get("kg") or alloc.get("kg_used") or 0)
                 if lot_id and kg_used > 0:
-                    cx_execute(
+                    rowcount = cx_execute_rowcount(
                         conn,
                         """
                         UPDATE mixing_order_lots
@@ -738,6 +752,19 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
                         """,
                         (kg_used, kg_used, order_id, lot_id),
                     )
+                    if rowcount == 0:
+                        # Zlecenie z planu dnia — loty wybrane dopiero przy
+                        # maszynie; dopisz wiersz, żeby lineage/trace widziały
+                        # źródło mięsa (mixing_order_lots = krawędź łańcucha)
+                        cx_execute(
+                            conn,
+                            """
+                            INSERT INTO mixing_order_lots
+                                (id, order_id, meat_stock_id, kg_planned, kg_actual)
+                            VALUES (%s,%s,%s,0,%s)
+                            """,
+                            (cuid(), order_id, lot_id, kg_used),
+                        )
         else:
             if kg_meat > 0 and meat_kg > 0:
                 ratio = kg_meat / meat_kg
@@ -875,3 +902,120 @@ def cancel_mixing_order(order_id: str) -> Dict:
         raise HTTPException(404, "Zlecenie nie znalezione")
     logger.info("mixing.order.cancelled", extra={"order_id": order_id})
     return build_mixing_order(row)
+
+
+# ── Plan dnia masowania (kolejka 1→n, edycja na żywo z biura) ──────────
+# Biuro planuje dzień jednym zaleceniem: kilka receptur z kolejnością
+# (np. 1. Gold 2000 kg, 2. Gold2 2000, 3. Beyaz 3000). Operator widzi
+# CAŁY plan na panelu i jedzie po kolei. Plan można edytować w ciągu dnia
+# — ale tylko pozycje jeszcze w kolejce (planned/confirmed); to, co już
+# w masownicy (in_progress) lub gotowe (done), jest nietykalne.
+
+def get_day_plan() -> Dict[str, Any]:
+    rows = query_all(
+        "SELECT * FROM mixing_orders "
+        "WHERE created_at::date = CURRENT_DATE AND status <> 'cancelled' "
+        "ORDER BY CASE WHEN COALESCE(day_seq,0) > 0 THEN day_seq "
+        "ELSE 999999 END, created_at",
+    )
+    items = [build_mixing_order(o) for o in rows]
+    # rev = podpis planu; panel operatora wykrywa zmianę → baner "plan zmieniony"
+    sig = "|".join(
+        f"{i['id']}:{i['daySeq']}:{i['recipeId']}:{i['meatKg']}:{i['status']}"
+        for i in items
+    )
+    rev = hashlib.md5(sig.encode()).hexdigest()[:12]
+    return {"items": items, "rev": rev}
+
+
+def save_day_plan(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Upsert dzisiejszej kolejki masowania.
+
+    * pozycja z id w kolejce (planned/confirmed) → aktualizacja receptury/kg/kolejności
+    * pozycja z id w masownicy/gotowa → tylko kolejność (reszta nietykalna)
+    * pozycja bez id → nowe zlecenie 'confirmed' (bez lotów — operator
+      wybiera partie mięsa przy maszynie)
+    * pozycja w kolejce usunięta z planu → anulowanie (zwolnienie rezerwacji)
+    """
+    to_cancel: List[str] = []
+    with transaction() as conn:
+        today = cx_query_all(
+            conn,
+            "SELECT id, status FROM mixing_orders "
+            "WHERE created_at::date = CURRENT_DATE AND status <> 'cancelled' "
+            "FOR UPDATE",
+        )
+        editable = {r["id"] for r in today if r["status"] in ("planned", "confirmed")}
+        untouchable = {r["id"] for r in today if r["status"] in ("in_progress", "done")}
+        sent: set = set()
+
+        for idx, it in enumerate(items):
+            seq = int(it.get("seq") or it.get("daySeq") or (idx + 1))
+            oid = str(it.get("id") or "")
+            recipe_id = str(it.get("recipeId") or it.get("recipe_id") or "")
+            meat_kg = float(it.get("meatKg") or it.get("meat_kg") or 0)
+
+            if oid and oid in untouchable:
+                cx_execute(
+                    conn, "UPDATE mixing_orders SET day_seq=%s WHERE id=%s",
+                    (seq, oid),
+                )
+                sent.add(oid)
+                continue
+
+            if oid and oid in editable:
+                recipe = cx_query_one(
+                    conn, "SELECT * FROM recipes WHERE id=%s", (recipe_id,)
+                ) if recipe_id else None
+                if not recipe:
+                    raise HTTPException(400, "Receptura wymagana dla pozycji planu")
+                if meat_kg <= 0:
+                    raise HTTPException(400, "Kg mięsa musi być > 0")
+                cx_execute(
+                    conn,
+                    """
+                    UPDATE mixing_orders
+                    SET day_seq=%s, recipe_id=%s, recipe_name=%s, meat_kg=%s,
+                        planned_output_kg=%s
+                    WHERE id=%s AND status IN ('planned','confirmed')
+                    """,
+                    (seq, recipe["id"], recipe["name"], meat_kg,
+                     calc_kg_output(recipe["id"], meat_kg), oid),
+                )
+                sent.add(oid)
+                continue
+
+            # Nowa pozycja planu
+            recipe = cx_query_one(
+                conn, "SELECT * FROM recipes WHERE id=%s", (recipe_id,)
+            )
+            if not recipe:
+                raise HTTPException(400, "Receptura nie znaleziona")
+            if meat_kg <= 0:
+                raise HTTPException(400, "Kg mięsa musi być > 0")
+            order_no = next_dated_no(conn, "MAS")
+            cx_execute(
+                conn,
+                """
+                INSERT INTO mixing_orders
+                    (id, order_no, recipe_id, recipe_name, meat_kg,
+                     planned_output_kg, kg_done, machine_id, status,
+                     day_seq, created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,0,NULL,'confirmed',%s,%s)
+                """,
+                (cuid(), order_no, recipe["id"], recipe["name"], meat_kg,
+                 calc_kg_output(recipe["id"], meat_kg), seq, now_iso()),
+            )
+
+        to_cancel = sorted(editable - sent)
+
+    # Anulowanie POZA transakcją planu — cancel_mixing_order zwalnia
+    # rezerwacje lotów we własnej transakcji
+    for oid in to_cancel:
+        try:
+            cancel_mixing_order(oid)
+        except HTTPException:
+            pass  # np. wyścig ze startem na panelu — pozycja zostaje
+
+    logger.info("mixing.day_plan.saved", extra={"items_count": len(items)})
+    return get_day_plan()
