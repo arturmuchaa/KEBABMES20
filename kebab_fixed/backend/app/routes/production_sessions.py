@@ -16,6 +16,12 @@ def get_active_session(process_type: str = Query("deboning", alias="processType"
     return svc.get_active_session(process_type)
 
 
+@router.get("/pending")
+def list_pending():
+    """Sesje czekające na potwierdzenie biura (w tym auto-domknięte zaległe)."""
+    return svc.list_pending()
+
+
 @router.get("/{session_id}")
 def get_session(session_id: str):
     return svc.get_session_by_id(session_id)

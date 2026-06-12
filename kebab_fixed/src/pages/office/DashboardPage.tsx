@@ -5,7 +5,7 @@ import { ProcessStatusBadge } from '@/features/operations/ProcessStatusBadge'
 import {
   rawBatchesApi, meatStockApi, seasonedMeatApi,
   productionPlansApi, mixingOrdersApi, clientOrdersApi, finishedGoodsApi,
-  deboningApi,
+  deboningApi, productionSessionsApi,
 } from '@/lib/apiClient'
 import { ExpiryBadge, StatusBadge, computeDisplayStatus } from '@/components/ui/badge'
 import { fmtKg, fmtPct, fmtDatePl, getExpiryStatus, todayIso, cn } from '@/lib/utils'
@@ -197,6 +197,10 @@ const ORDER_STATUS_LABEL: Record<string, string> = {
   done:           'Zrealizowane',
   cancelled:      'Anulowane',
 }
+const PROCESS_LABEL: Record<string, string> = {
+  deboning: 'Rozbiór', mixing: 'Masowanie', production: 'Produkcja',
+}
+
 const ORDER_STATUS_VARIANT: Record<string, any> = {
   draft:         'outline',
   confirmed:     'info',
@@ -218,6 +222,8 @@ export function DashboardPage() {
   const ordersRes   = useApi(() => clientOrdersApi.list())
   const finishedRes = useApi(() => finishedGoodsApi.list())
   const deboningRes = useApi(() => deboningApi.list())
+  // Sesje czekające na potwierdzenie biura (w tym zaległe z poprzednich dni)
+  const pendingRes  = useApi(() => productionSessionsApi.pending())
 
   // Live polling — odświeża sekcje produkcyjne i magazynowe co POLL_MS
   useEffect(() => {
@@ -230,11 +236,12 @@ export function DashboardPage() {
       ordersRes.refetch()
       finishedRes.refetch()
       deboningRes.refetch()
+      pendingRes.refetch()
     }, POLL_MS)
     return () => clearInterval(t)
   }, [batchRes.refetch, meatRes.refetch, seasonedRes.refetch,
       plansRes.refetch, mixingRes.refetch, ordersRes.refetch,
-      finishedRes.refetch, deboningRes.refetch])
+      finishedRes.refetch, deboningRes.refetch, pendingRes.refetch])
 
   // Skeleton tylko przy pierwszym ładowaniu (gdy żadnych danych jeszcze nie ma).
   // Polling robi setLoading(true) na useApi przy każdym refetch — bez tego warunku
@@ -252,6 +259,36 @@ export function DashboardPage() {
   const allOrders   = ordersRes.data         ?? []
   const allFinished = finishedRes.data       ?? []
   const allDeboning = deboningRes.data?.data ?? []
+
+  // ── Do potwierdzenia przez biuro: sesje (rozbiór/masowanie) + plany ──
+  const pendingSessions = (pendingRes.data ?? []) as any[]
+  const [confirmBusy, setConfirmBusy] = useState<string | null>(null)
+
+  async function approvePendingSession(s: any) {
+    if (!confirm(`Potwierdzić zakończenie: ${PROCESS_LABEL[s.processType] ?? s.processType} z dnia ${fmtDatePl(s.sessionDate)}?`)) return
+    setConfirmBusy(s.id)
+    try {
+      await productionSessionsApi.approve(s.id, { approvedBy: 'office' })
+      pendingRes.refetch()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Błąd potwierdzania')
+    } finally {
+      setConfirmBusy(null)
+    }
+  }
+
+  async function confirmPlanFinish(p: any) {
+    if (!confirm(`Potwierdzić zakończenie planu ${p.planNo}? Kebab trafi do magazynu wyrobów gotowych.`)) return
+    setConfirmBusy(p.id)
+    try {
+      await productionPlansApi.officeConfirm(p.id)
+      plansRes.refetch()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Błąd potwierdzania')
+    } finally {
+      setConfirmBusy(null)
+    }
+  }
 
   // ── Rozbiór — sesje z dzisiaj (live) ───────────────────────────
   const today        = todayIso()
@@ -353,6 +390,10 @@ export function DashboardPage() {
 
   // ── Produkcja LIVE — z planów + finished goods ─────────────────
   const activePlans = allPlans.filter(p => p.status === 'active')
+  // Plany zakończone na tablecie, czekające na potwierdzenie biura
+  const plansToConfirm = activePlans.filter(
+    (p: any) => p.tabletFinishedAt && !p.officeConfirmedAt
+  )
   const finishedKgByPlan = useMemo(() => {
     const m = new Map<string, number>()
     allFinished.forEach((f: any) => {
@@ -520,6 +561,72 @@ export function DashboardPage() {
           (p.lines ?? []).some((l: any) => (l.lineStatus ?? '') === 'IN_PROGRESS'))
         return <DashboardStatusBar live={debLive || mixLive || prodLive} />
       })()}
+
+      {/* ── Do potwierdzenia przez biuro ──────────────────────────
+          Tablet kończy sesję/plan, biuro potwierdza tutaj. Zaległe
+          (z poprzednich dni) są wyróżnione — jeden dzień = jedna sesja. */}
+      {(pendingSessions.length > 0 || plansToConfirm.length > 0) && (
+        <Card className="border-amber-300 bg-amber-50/40">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle size={15} className="text-amber-600" />
+              <span className="text-sm font-bold text-amber-800">
+                Do potwierdzenia przez biuro · {pendingSessions.length + plansToConfirm.length}
+              </span>
+            </div>
+            <div className="space-y-2">
+              {pendingSessions.map((s: any) => {
+                const stale = (s.sessionDate ?? '') < today
+                return (
+                  <div key={s.id} className="flex items-center gap-3 bg-white border border-amber-200 rounded-lg px-3 py-2">
+                    <Badge variant="outline" className="font-semibold flex-shrink-0">
+                      {PROCESS_LABEL[s.processType] ?? s.processType}
+                    </Badge>
+                    <span className="text-xs font-semibold">{fmtDatePl(s.sessionDate)}</span>
+                    {s.endedAt && (
+                      <span className="text-[11px] text-muted-foreground">
+                        zakończona {String(s.endedAt).slice(11, 16)}
+                      </span>
+                    )}
+                    {stale && (
+                      <Badge variant="outline" className="text-[10px] text-red-600 border-red-200 bg-red-50">
+                        zaległa
+                      </Badge>
+                    )}
+                    <Button size="sm" disabled={confirmBusy === s.id}
+                      onClick={() => approvePendingSession(s)}
+                      className="ml-auto h-7 text-[11px] bg-green-600 hover:bg-green-700 gap-1">
+                      <CheckCircle2 size={12} />
+                      {confirmBusy === s.id ? '…' : 'Potwierdź'}
+                    </Button>
+                  </div>
+                )
+              })}
+              {plansToConfirm.map((p: any) => (
+                <div key={p.id} className="flex items-center gap-3 bg-white border border-amber-200 rounded-lg px-3 py-2">
+                  <Badge variant="outline" className="font-semibold flex-shrink-0">Produkcja</Badge>
+                  <span className="text-xs font-mono font-bold text-primary">{p.planNo}</span>
+                  <span className="text-xs font-semibold">{fmtDatePl(p.planDate)}</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {fmtKg(Number(p.totalKg), 0)} kg · plan zakończony na tablecie
+                  </span>
+                  {(p.planDate ?? '') < today && (
+                    <Badge variant="outline" className="text-[10px] text-red-600 border-red-200 bg-red-50">
+                      zaległy
+                    </Badge>
+                  )}
+                  <Button size="sm" disabled={confirmBusy === p.id}
+                    onClick={() => confirmPlanFinish(p)}
+                    className="ml-auto h-7 text-[11px] bg-green-600 hover:bg-green-700 gap-1">
+                    <CheckCircle2 size={12} />
+                    {confirmBusy === p.id ? '…' : 'Potwierdź'}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── KPI row ───────────────────────────────────────────── */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
@@ -890,7 +997,23 @@ export function DashboardPage() {
                   Aktywne plany · {activePlans.length}
                 </CardDescription>
               </div>
-              <ProcessStatusBadge processType="production" dataActive={dataActive} />
+              {/* Plan zakończony na tablecie → biuro potwierdza wprost z kafelka */}
+              {plansToConfirm.length > 0 ? (
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Badge variant="outline" className="gap-1.5 font-medium text-amber-700 border-amber-300 bg-amber-50">
+                    <span className="inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
+                    Do potwierdzenia
+                  </Badge>
+                  <Button size="sm" disabled={confirmBusy === plansToConfirm[0].id}
+                    onClick={() => confirmPlanFinish(plansToConfirm[0])}
+                    className="h-7 text-[11px] bg-green-600 hover:bg-green-700 gap-1">
+                    <CheckCircle2 size={12} />
+                    {confirmBusy === plansToConfirm[0].id ? '…' : 'Potwierdź'}
+                  </Button>
+                </div>
+              ) : (
+                <ProcessStatusBadge processType="production" dataActive={dataActive} />
+              )}
             </div>
           </CardHeader>
           <Separator />

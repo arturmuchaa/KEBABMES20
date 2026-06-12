@@ -52,18 +52,46 @@ def list_sessions(process_type: str) -> List[Dict]:
 
 
 def get_active_session(process_type: str) -> Optional[Dict]:
-    """Najnowsza sesja, która jeszcze nie jest zatwierdzona przez biuro.
+    """Sesja DZISIEJSZEGO dnia roboczego, jeszcze nie zatwierdzona przez biuro.
 
     Zwraca status 'open' (operator pracuje) lub 'closed' (operator zakończył,
     biuro musi potwierdzić). Pomija 'approved' (dzień zamknięty).
+
+    Tylko bieżąca data biznesowa — sesje z poprzednich dni NIE są "aktywne"
+    (jeden dzień = jedna sesja; zaległe niezatwierdzone widać w list_pending,
+    a dashboard pokazuje je jako zaległość do potwierdzenia, nie jako LIVE).
     """
     row = query_one(
         "SELECT * FROM production_sessions "
-        "WHERE process_type=%s AND status IN ('open','closed') "
+        "WHERE process_type=%s AND session_date=%s AND status IN ('open','closed') "
         "ORDER BY created_at DESC LIMIT 1",
-        (process_type,),
+        (process_type, _prod_date()),
     )
     return _map(row)
+
+
+def list_pending() -> List[Dict]:
+    """Sesje wymagające potwierdzenia biura (wszystkie procesy).
+
+    Osierocone sesje 'open' z poprzednich dni (operator zapomniał zakończyć)
+    są przy odczycie automatycznie domykane (status='closed'), żeby trafiły
+    do tej listy zamiast wisieć wiecznie jako "Na żywo".
+    """
+    today = _prod_date()
+    with transaction() as conn:
+        from app.db import cx_execute
+        cx_execute(
+            conn,
+            "UPDATE production_sessions "
+            "SET status='closed', ended_at=COALESCE(ended_at, %s) "
+            "WHERE status='open' AND session_date < %s",
+            (now_iso(), today),
+        )
+    rows = query_all(
+        "SELECT * FROM production_sessions WHERE status='closed' "
+        "ORDER BY session_date DESC, created_at DESC",
+    )
+    return [_map(r) for r in rows]  # type: ignore[list-item]
 
 
 def get_session_by_id(session_id: str) -> Dict:

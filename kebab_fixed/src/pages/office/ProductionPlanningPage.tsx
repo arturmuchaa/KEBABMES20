@@ -1078,12 +1078,13 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
 
 // ─── Formularz planu ──────────────────────────────────────────
 interface PlanFormProps {
-  onSave:       (lines: CreatePlanLineDto[], date: string) => Promise<string>
-  onClose:      () => void
-  initialPlan?: ProductionPlan   // gdy edycja
+  onSave:        (lines: CreatePlanLineDto[], date: string) => Promise<string>
+  onClose:       () => void
+  initialPlan?:  ProductionPlan   // gdy edycja
+  existingPlans?: ProductionPlan[] // do ostrzeżenia "jeden dzień = jeden plan"
 }
 
-function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
+function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFormProps) {
   const clientDisplay = useClientNames()
   const { data: orders }      = useApi(() => clientOrdersApi.list('confirmed'))
   const { data: seasonedRaw } = useApi(() => seasonedMeatApi.list())
@@ -1273,6 +1274,22 @@ function PlanForm({ onSave, onClose, initialPlan }: PlanFormProps) {
           </Button>
         )}
       </div>
+
+      {/* Jeden dzień = jeden plan produkcji — ostrzeż przy duplikacie daty */}
+      {(() => {
+        const dup = (existingPlans ?? []).find(p =>
+          p.planDate === planDate && p.status !== 'cancelled' && p.id !== initialPlan?.id)
+        return dup ? (
+          <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg flex items-center gap-2">
+            <AlertTriangle size={13} className="flex-shrink-0"/>
+            <span>
+              Na {fmtDatePl(planDate)} istnieje już plan <strong className="font-mono">{dup.planNo}</strong>
+              {' '}({STATUS_LABELS[dup.status]}). Zwykle jeden dzień = jeden plan produkcji —
+              rozważ edycję istniejącego zamiast tworzenia drugiego.
+            </span>
+          </div>
+        ) : null
+      })()}
 
       {/* Panel mięsa */}
       <MeatPanel seasonedAvail={seasonedAvail} seasonedUsed={seasonedUsed} onAutoAssign={autoAssignRecipe}/>
@@ -1728,7 +1745,7 @@ export function ProductionPlanningPage() {
           <DialogHeader>
             <DialogTitle>Nowy plan produkcji</DialogTitle>
           </DialogHeader>
-          <PlanForm onSave={handleCreate} onClose={()=>setModal(false)}/>
+          <PlanForm onSave={handleCreate} onClose={()=>setModal(false)} existingPlans={plans??[]}/>
         </DialogContent>
       </Dialog>
 
@@ -1742,6 +1759,7 @@ export function ProductionPlanningPage() {
               initialPlan={editPlan}
               onSave={handleUpdate}
               onClose={()=>setEditPlan(null)}
+              existingPlans={plans??[]}
             />
           )}
         </DialogContent>

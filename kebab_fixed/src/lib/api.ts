@@ -200,6 +200,8 @@ export const productionSessionsApi = {
     get<any[]>(`/production-sessions${processType ? `?processType=${processType}` : ''}`),
   active: (processType = 'deboning') =>
     get<any>(`/production-sessions/active?processType=${processType}`),
+  pending: () =>
+    get<any[]>('/production-sessions/pending'),
   byId:  (id: string) =>
     get<any>(`/production-sessions/${id}`),
   start: (dto: any) =>
