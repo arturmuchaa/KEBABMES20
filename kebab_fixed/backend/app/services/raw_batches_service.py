@@ -99,6 +99,21 @@ def create_batch(dto: RawBatchCreate) -> Dict:
         sup = cx_query_one(
             conn, "SELECT * FROM suppliers WHERE id = %s", (dto.supplier_id,)
         )
+        # Rodzaj surowca — domyślnie ćwiartka (jedyny wymagający rozbioru)
+        mat = None
+        if dto.material_type_id:
+            mat = cx_query_one(
+                conn, "SELECT * FROM raw_material_types WHERE id=%s",
+                (dto.material_type_id,),
+            )
+        if not mat:
+            mat = cx_query_one(
+                conn, "SELECT * FROM raw_material_types WHERE id='mat-cwiartka'"
+            )
+        mat_id = mat["id"] if mat else ""
+        mat_name = mat["name"] if mat else ""
+        requires_deboning = bool(mat["requires_deboning"]) if mat else True
+
         row = cx_execute_returning(
             conn,
             """
@@ -106,8 +121,8 @@ def create_batch(dto: RawBatchCreate) -> Dict:
             (id, internal_batch_no, internal_batch_seq, supplier_id, supplier_name,
              supplier_batch_no, slaughter_date, received_date, kg_received,
              kg_available, price_per_kg, expiry_date, status, notes,
-             invoice_no, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s,%s)
+             invoice_no, material_type_id, material_name, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s,%s,%s,%s)
             RETURNING *
             """,
             (
@@ -125,6 +140,8 @@ def create_batch(dto: RawBatchCreate) -> Dict:
                 dto.expiry_date or None,
                 dto.notes,
                 dto.invoice_no or None,
+                mat_id,
+                mat_name,
                 now_iso(),
             ),
         )
@@ -139,6 +156,63 @@ def create_batch(dto: RawBatchCreate) -> Dict:
                 movement_type="IN",
                 source_type="supplier",
                 source_id=dto.supplier_id or row["id"],
+            )
+
+        # Surowiec bez rozbioru (filet, indyk…): od razu trafia na magazyn
+        # mięsa jako lot do masowania — odpowiednik "natychmiastowego rozbioru
+        # 1:1". Partia przyjęcia zostaje zapisem traceability (kg_available=0,
+        # stan żyje w meat_stock pod tym samym numerem partii).
+        if not requires_deboning and float(dto.kg_received or 0) > 0:
+            kg = float(dto.kg_received)
+            cx_execute(
+                conn,
+                "UPDATE raw_batches SET kg_available=0 WHERE id=%s",
+                (row["id"],),
+            )
+            row["kg_available"] = 0
+            cx_execute(
+                conn,
+                """
+                INSERT INTO meat_stock
+                    (id, lot_no, raw_batch_id, raw_batch_no, kg_initial,
+                     kg_available, production_date, expiry_date, status,
+                     material_type_id, material_name, created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,COALESCE(%s::date, CURRENT_DATE),%s,'AVAILABLE',%s,%s,%s)
+                """,
+                (
+                    cuid(),
+                    internal_no,
+                    row["id"],
+                    internal_no,
+                    kg,
+                    kg,
+                    dto.received_date or None,
+                    dto.expiry_date or None,
+                    mat_id,
+                    mat_name,
+                    now_iso(),
+                ),
+            )
+            create_stock_movement(
+                conn,
+                product_type="raw",
+                batch_id=row["id"],
+                qty=kg,
+                movement_type="OUT",
+                source_type="reception_transfer",
+                source_id=row["id"],
+            )
+            ms_row = cx_query_one(
+                conn, "SELECT id FROM meat_stock WHERE lot_no=%s", (internal_no,)
+            )
+            create_stock_movement(
+                conn,
+                product_type="meat",
+                batch_id=ms_row["id"] if ms_row else internal_no,
+                qty=kg,
+                movement_type="IN",
+                source_type="reception",
+                source_id=row["id"],
             )
 
     logger.info(

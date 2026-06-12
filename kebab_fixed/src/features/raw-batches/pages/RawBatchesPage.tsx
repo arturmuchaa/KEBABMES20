@@ -1,7 +1,9 @@
 /**
  * RawBatchesPage — shadcn/ui
  */
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useApi } from '@/hooks/useApi'
+import { rawBatchesApi as legacyRawBatchesApi } from '@/lib/apiClient'
 import { Button } from '@/components/ui/button'
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
@@ -35,6 +37,19 @@ function mapExpiryToUi(expiry: { level: string; daysLeft: number } | null) {
 
 export function RawBatchesPage() {
   const { batches, supplierOptions, loading, refetch } = useRawBatches()
+
+  // ── Rodzaje surowca (ćwiartka / filet / indyk…) — przełącznik ──────────────
+  const { data: materialTypes } = useApi(() => (legacyRawBatchesApi as any).materialTypes())
+  const matList: { id: string; name: string; requiresDeboning: boolean }[] =
+    (materialTypes as any) ?? [{ id: 'mat-cwiartka', name: 'Ćwiartka z kurczaka', requiresDeboning: true }]
+  const [matId, setMatId] = useState('mat-cwiartka')
+  const selMat = matList.find(m => m.id === matId) ?? matList[0]
+
+  // Lista filtrowana po wybranym rodzaju (stare partie bez rodzaju = ćwiartka)
+  const matBatches = useMemo(
+    () => batches.filter((b: any) => (b.materialTypeId || 'mat-cwiartka') === matId),
+    [batches, matId],
+  )
 
   // ── Edit state ─────────────────────────────────────────────────────────────
   const [editBatch,   setEditBatch]   = useState<RawBatch | null>(null)
@@ -113,6 +128,13 @@ export function RawBatchesPage() {
   const expiryPreviewMapped = useMemo(() => mapExpiryToUi(expiryPreview), [expiryPreview])
   const warnings = validationResult?.ok ? validationResult.warnings : []
 
+  // Rodzaj surowca wstrzykiwany do formularza przyjęcia (zmiana taba lub
+  // otwarcie modala ustawia materialTypeId w dto)
+  useEffect(() => {
+    updateField('materialTypeId' as any, matId as any)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matId, open])
+
   const handleSubmit = useCallback(async () => {
     const err = await requestSubmit()
     if (err) toast.error(err)
@@ -129,22 +151,48 @@ export function RawBatchesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <CardTitle className="text-base">Partie ćwiartki — widok operacyjny</CardTitle>
+          <CardTitle className="text-base">Przyjęcie surowca — widok operacyjny</CardTitle>
           <CardDescription className="mt-0.5">
             Tylko aktywne · sortowanie FEFO · odświeża co 5s
           </CardDescription>
         </div>
         <Button onClick={openModal}>
-          <Plus size={15} className="mr-1.5" /> Przyjmij partię
+          <Plus size={15} className="mr-1.5" /> Przyjmij: {selMat?.name ?? 'partię'}
         </Button>
       </div>
+
+      {/* Przełącznik rodzaju surowca */}
+      <div className="flex gap-1.5 flex-wrap">
+        {matList.map(m => (
+          <button key={m.id}
+            onClick={() => setMatId(m.id)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+              matId === m.id
+                ? 'bg-primary text-white border-primary'
+                : 'bg-white text-ink-2 border-surface-4 hover:border-primary/50'
+            }`}>
+            {m.name}
+            {!m.requiresDeboning && (
+              <span className={`ml-1.5 text-[9px] font-semibold uppercase ${matId === m.id ? 'text-white/70' : 'text-muted-foreground'}`}>
+                bez rozbioru
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+      {selMat && !selMat.requiresDeboning && (
+        <CardDescription className="text-xs -mt-2">
+          Surowiec bez rozbioru — po przyjęciu od razu trafia na magazyn mięsa
+          i jest dostępny do masowania pod numerem partii przyjęcia.
+        </CardDescription>
+      )}
 
       <Separator />
 
       {/* Tabela */}
       <Card>
         <CardContent className="p-0">
-          <RawBatchesTable batches={batches} loading={loading} onEdit={handleEditOpen} onCancel={handleCancelOpen} />
+          <RawBatchesTable batches={matBatches} loading={loading} onEdit={handleEditOpen} onCancel={handleCancelOpen} />
         </CardContent>
       </Card>
 

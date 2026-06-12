@@ -229,8 +229,9 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
             INSERT INTO meat_stock
                 (id, lot_no, deboning_session_id, session_no,
                  raw_batch_id, raw_batch_no, kg_initial, kg_available,
-                 production_date, expiry_date, status, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_DATE,%s,'AVAILABLE',%s)
+                 production_date, expiry_date, status,
+                 material_type_id, material_name, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_DATE,%s,'AVAILABLE',%s,%s,%s)
             ON CONFLICT (lot_no) DO UPDATE
             SET kg_initial  = meat_stock.kg_initial  + EXCLUDED.kg_initial,
                 kg_available = meat_stock.kg_available + EXCLUDED.kg_available
@@ -245,6 +246,8 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
                 kg_meat,
                 kg_meat,
                 exp,
+                batch.get("material_type_id") or "mat-cwiartka",
+                batch.get("material_name") or "Ćwiartka z kurczaka",
                 now_iso(),
             ),
         )

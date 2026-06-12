@@ -49,6 +49,10 @@ export interface MeatStock {
   expiryDate: string; expiryStatus: ExpiryStatus
   storageLocation?: string; status: MeatStockStatus; createdAt: string
   productType?: 'meat' | 'backs' | 'bones'
+  // Rodzaj surowca (ćwiartka po rozbiorze / filet / indyk…) — komponenty
+  // kebaba w recepturze wybierają partie po rodzaju
+  materialTypeId?: string
+  materialName?:   string
   // Alokacje per maszyna (traceability IN_PROCESS)
   machineAllocations?: MeatMachineAllocation[]
 }

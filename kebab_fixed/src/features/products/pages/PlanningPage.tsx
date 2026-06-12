@@ -413,6 +413,11 @@ export function PlanningPage() {
                             }}
                             className="w-4 h-4 flex-shrink-0 accent-primary"/>
                           <span className="font-mono font-bold flex-shrink-0 w-24">{lot.lotNo}</span>
+                          {(lot as any).materialName && (lot as any).materialTypeId !== 'mat-cwiartka' && (
+                            <span className="text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded flex-shrink-0">
+                              {(lot as any).materialName}
+                            </span>
+                          )}
                           <span className="text-muted-foreground flex-shrink-0 w-16 truncate">{lot.rawBatchNo}</span>
                           <span className="font-semibold text-green-700 flex-shrink-0 w-20 tabular-nums">{fmtKg(lot.kgAvailable)} kg</span>
                           {fullyUsed && <span className="text-[10px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded flex-shrink-0">wyczerpana</span>}

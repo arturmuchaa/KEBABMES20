@@ -106,6 +106,8 @@ function mapRawBatch(raw: any): RawBatch {
     utilizationPct:   Number(raw.utilization_pct ?? raw.utilizationPct ?? 0),
     pricePerKg:       Number(raw.price_per_kg ?? raw.pricePerKg ?? 0),
     invoiceNo:        raw.invoice_no         ?? raw.invoiceNo,
+    materialTypeId:   raw.material_type_id   ?? raw.materialTypeId ?? '',
+    materialName:     raw.material_name      ?? raw.materialName   ?? '',
     status:           raw.status,
     isInUse:          raw.is_in_use          ?? raw.isInUse,
     editReason:       raw.edit_reason        ?? raw.editReason,
@@ -157,6 +159,17 @@ export const rawBatchesApi = {
 
   create: (dto: CreateRawBatchDto) =>
     post<any>('/raw-batches', toSnake(dto)).then(mapRawBatch),
+
+  // Słownik rodzajów surowca (ćwiartka/filet/indyk; kategorie drob/czerwone)
+  materialTypes: () =>
+    get<any[]>('/raw-batches/material-types').then(rows =>
+      (Array.isArray(rows) ? rows : []).map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        requiresDeboning: !!(r.requires_deboning ?? r.requiresDeboning),
+        category: r.category ?? 'drob',
+      }))
+    ),
 
   edit: (id: string, dto: Partial<CreateRawBatchDto>) =>
     put<any>(`/raw-batches/${id}`, toSnake(dto)).then(mapRawBatch),
@@ -263,8 +276,10 @@ function mapMeatStock(raw: any): MeatStock {
     expiryDate:         raw.expiry_date         ?? raw.expiryDate        ?? '',
     expiryStatus:       raw.expiry_status       ?? raw.expiryStatus      ?? 'OK',
     status:             raw.status              ?? 'AVAILABLE',
+    materialTypeId:     raw.material_type_id    ?? raw.materialTypeId    ?? '',
+    materialName:       raw.material_name       ?? raw.materialName      ?? '',
     createdAt:          raw.created_at          ?? raw.createdAt         ?? '',
-  }
+  } as MeatStock
 }
 
 export const meatStockApi = {

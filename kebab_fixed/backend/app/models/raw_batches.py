@@ -7,6 +7,7 @@ class RawBatchCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, validate_default=True)
 
     internal_batch_no: str = Field("", alias="internalBatchNo")  # opcjonalny — user może wpisać np. "R308"
+    material_type_id: str = Field("", alias="materialTypeId")    # rodzaj surowca (domyślnie ćwiartka)
     supplier_id: str = Field(..., alias="supplierId", min_length=1)
     supplier_batch_no: str = Field("", alias="supplierBatchNo")
     slaughter_date: str = Field("", alias="slaughterDate")

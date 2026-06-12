@@ -43,6 +43,10 @@ export interface RawBatch {
   readonly pricePerKg: number
   readonly invoiceNo?: string
 
+  // Rodzaj surowca (ćwiartka / filet z kurczaka / mięso z indyka…)
+  readonly materialTypeId?: string
+  readonly materialName?:   string
+
   // Status — opcjonalny cache backendu + 'cancelled' który nie da się derive'ować
   readonly status?: RawBatchStatus
 
@@ -69,6 +73,7 @@ export interface SupplierBatchItem {
 
 export interface CreateRawBatchDto {
   internalBatchNo?: string   // user może wpisać własny np. "344"; backend zsynchronizuje batch_seq
+  materialTypeId?:  string   // rodzaj surowca (domyślnie ćwiartka)
   supplierId:       string
   supplierBatchNo:  string
   slaughterDate:    string

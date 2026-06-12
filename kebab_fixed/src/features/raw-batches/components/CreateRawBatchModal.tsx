@@ -107,7 +107,7 @@ export function CreateRawBatchModal({
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Przyjęcie ćwiartki</DialogTitle>
+          <DialogTitle>Przyjęcie surowca</DialogTitle>
           <DialogDescription>Rejestracja partii surowca z dokumentu HDI</DialogDescription>
         </DialogHeader>
 

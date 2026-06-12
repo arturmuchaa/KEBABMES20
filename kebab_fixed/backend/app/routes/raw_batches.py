@@ -1,6 +1,7 @@
-"""Raw batches (quarter carcass) endpoints."""
+"""Raw batches (przyjęcie surowca: ćwiartka, filet, indyk…) endpoints."""
 from fastapi import APIRouter, Query
 
+from app.db import query_all
 from app.models.raw_batches import RawBatchCreate, RawBatchUpdate
 from app.services import raw_batches_service as svc
 
@@ -11,6 +12,14 @@ router = APIRouter(prefix="/api/raw-batches", tags=["raw-batches"])
 @router.get("/next-number")
 def next_batch_number():
     return svc.next_batch_number()
+
+
+@router.get("/material-types")
+def list_material_types():
+    """Słownik rodzajów surowca (ćwiartka/filet/indyk; kategorie drob/czerwone)."""
+    return query_all(
+        "SELECT * FROM raw_material_types WHERE active ORDER BY requires_deboning DESC, name"
+    )
 
 
 @router.get("/all")

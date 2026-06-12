@@ -26,7 +26,7 @@ const NAV: NavSection[] = [
     { to: '/office/faktury', label: 'Faktury zakupowe', icon: <CreditCard size={14} /> },
   ]},
   { heading: 'Magazyny', items: [
-    { to: '/office/raw-batches',         label: 'Przyjęcie ćwiartki',  icon: <Package size={14} /> },
+    { to: '/office/raw-batches',         label: 'Przyjęcie surowca',  icon: <Package size={14} /> },
     { to: '/office/magazyn/surowiec',    label: 'Surowiec',            icon: <Beef size={14} /> },
     { to: '/office/magazyn/przyprawy',   label: 'Przyprawy i dodatki', icon: <FlaskConical size={14} /> },
     { to: '/office/magazyn/mieso-przyp', label: 'Mięso przyprawione',  icon: <Beef size={14} /> },

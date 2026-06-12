@@ -454,6 +454,25 @@ _DDL: list[str] = [
 
     # ── QR per sztuka — Faza 3++: korekta offsetu per slot (auto 2. etykieta) ──
     "ALTER TABLE label_templates ADD COLUMN IF NOT EXISTS slot_offsets JSONB DEFAULT '[]'",
+
+    # ── Rodzaje surowca — przyjęcie nie tylko ćwiartki (filet, indyk; ──
+    # ── w przyszłości kategoria 'czerwone': wołowina 80/20, łój itd.) ──
+    """CREATE TABLE IF NOT EXISTS raw_material_types (
+        id                TEXT PRIMARY KEY,
+        name              TEXT NOT NULL UNIQUE,
+        requires_deboning BOOLEAN NOT NULL DEFAULT false,
+        category          TEXT NOT NULL DEFAULT 'drob',
+        active            BOOLEAN NOT NULL DEFAULT true,
+        created_at        TIMESTAMPTZ DEFAULT now()
+    )""",
+    "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS material_type_id TEXT",
+    "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS material_name TEXT DEFAULT ''",
+    # Rodzaj płynie przez cały łańcuch: magazyn mięsa → masowanie → mięso
+    # przyprawione (komponenty kebaba w Fazie B wybierają partie po rodzaju).
+    "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS material_type_id TEXT",
+    "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS material_name TEXT DEFAULT ''",
+    "ALTER TABLE seasoned_meat ADD COLUMN IF NOT EXISTS material_type_id TEXT",
+    "ALTER TABLE seasoned_meat ADD COLUMN IF NOT EXISTS material_name TEXT DEFAULT ''",
 ]
 
 
@@ -470,6 +489,7 @@ def run_migrations() -> None:
             )
 
     _seed_water()
+    _seed_raw_material_types()
     _seed_mixed_seq()
     _seed_vehicles()
     _backfill_lineage()
@@ -622,6 +642,37 @@ def _seed_water() -> None:
             logger.info("migrations.seed_water.created")
     except Exception as exc:
         logger.warning("migrations.seed_water.error", extra={"error": str(exc)})
+
+
+def _seed_raw_material_types() -> None:
+    """Słownik rodzajów surowca — ćwiartka (rozbiór) + surowce bez rozbioru.
+    Idempotentny; nowe rodzaje (np. wołowina 80/20, łój — kategoria
+    'czerwone') dodaje się wpisem w tej tabeli, bez zmian w kodzie."""
+    rows = [
+        ("mat-cwiartka",      "Ćwiartka z kurczaka", True,  "drob"),
+        ("mat-filet-kurczak", "Filet z kurczaka",    False, "drob"),
+        ("mat-mieso-indyk",   "Mięso z indyka",      False, "drob"),
+    ]
+    try:
+        for rid, name, deb, cat in rows:
+            execute(
+                "INSERT INTO raw_material_types (id, name, requires_deboning, category) "
+                "VALUES (%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING",
+                (rid, name, deb, cat),
+            )
+        # Istniejące partie bez rodzaju = ćwiartka (jedyny dotychczasowy surowiec)
+        execute(
+            "UPDATE raw_batches SET material_type_id='mat-cwiartka', "
+            "material_name='Ćwiartka z kurczaka' "
+            "WHERE COALESCE(material_type_id,'')=''"
+        )
+        execute(
+            "UPDATE meat_stock SET material_type_id='mat-cwiartka', "
+            "material_name='Ćwiartka z kurczaka' "
+            "WHERE COALESCE(material_type_id,'')=''"
+        )
+    except Exception as exc:
+        logger.warning("migrations.seed_raw_material_types.error", extra={"error": str(exc)})
 
 
 def _seed_mixed_seq() -> None:
