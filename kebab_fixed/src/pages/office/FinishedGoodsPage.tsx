@@ -36,9 +36,17 @@ export interface SkuGroup {
 
 export function groupBySku(items: FinishedGoodsItem[]): SkuGroup[] {
   const map = new Map<string, SkuGroup>()
+  // Klucz po ID (receptura, tuleja) + znormalizowanym kliencie i wadze —
+  // klucz po nazwach dublował pozycje przy różnicach w pustych polach /
+  // wielkości liter (np. dwa wiersze „Zagros 20×40 kg" zamiast jednego).
+  const norm = (s?: string) => (s ?? '').trim().toLowerCase()
   for (const it of items) {
-    const key = [it.productTypeName, it.recipeName, it.packagingName,
-                 it.clientName, it.kgPerUnit].join('|')
+    const key = [
+      it.recipeId || norm(it.recipeName),
+      it.packagingId || norm(it.packagingName),
+      norm(it.clientName),
+      Math.round(Number(it.kgPerUnit) * 1000),
+    ].join('|')
     let g = map.get(key)
     if (!g) {
       g = { key, productTypeName: it.productTypeName, recipeName: it.recipeName,
@@ -46,9 +54,17 @@ export function groupBySku(items: FinishedGoodsItem[]): SkuGroup[] {
             kgPerUnit: it.kgPerUnit, qty: 0, totalKg: 0, batches: [] }
       map.set(key, g)
     }
+    // Wyświetlane nazwy: pierwsza niepusta wartość z grupy
+    if (!g.productTypeName && it.productTypeName) g.productTypeName = it.productTypeName
+    if (!g.packagingName && it.packagingName)     g.packagingName   = it.packagingName
+    if (!g.clientName && it.clientName)           g.clientName      = it.clientName
     g.qty += it.qtyAvailable
     g.totalKg += it.qtyAvailable * it.kgPerUnit
     g.batches.push(it)
+  }
+  // Partie w podglądzie: najstarsza data produkcji pierwsza (FEFO)
+  for (const g of map.values()) {
+    g.batches.sort((a, b) => (a.producedDate || '').localeCompare(b.producedDate || ''))
   }
   return [...map.values()]
 }
