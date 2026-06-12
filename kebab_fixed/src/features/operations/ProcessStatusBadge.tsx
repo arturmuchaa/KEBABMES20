@@ -20,7 +20,7 @@ interface Props {
 }
 
 export function ProcessStatusBadge({ processType, dataActive }: Props) {
-  const { session, todayApproved, approve, busy } = useProcessSession(processType)
+  const { session, todayApproved, approve, closeAndApprove, busy } = useProcessSession(processType)
 
   // Operator zakończył na tablecie — biuro musi potwierdzić
   if (session?.status === 'closed') {
@@ -48,13 +48,29 @@ export function ProcessStatusBadge({ processType, dataActive }: Props) {
     )
   }
 
-  // Sesja open (operator pracuje)
+  // Sesja open (operator pracuje) — biuro może domknąć dzień, gdy tablet
+  // zapomniał kliknąć "Zakończ dzień" (sesja wisi jako "Na żywo" mimo
+  // zakończonej pracy).
   if (session?.status === 'open') {
     return (
-      <Badge variant="info" className="flex-shrink-0 gap-1.5 font-medium">
-        <span className="inline-flex h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
-        Na żywo
-      </Badge>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <Badge variant="info" className="gap-1.5 font-medium">
+          <span className="inline-flex h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
+          Na żywo
+        </Badge>
+        <button
+          onClick={async () => {
+            if (!confirm('Zamknąć dzień za tablet? Sesja zostanie zakończona i potwierdzona przez biuro.')) return
+            const err = await closeAndApprove()
+            if (err) alert(err)
+          }}
+          disabled={busy}
+          title="Tablet nie zakończył sesji — zamknij i potwierdź dzień z biura"
+          className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-surface-4 bg-white text-[11px] font-semibold text-ink-3 hover:text-ink hover:border-ink-3 transition-colors disabled:opacity-60"
+        >
+          {busy ? <Loader2 size={11} className="animate-spin" /> : 'Zamknij dzień'}
+        </button>
+      </div>
     )
   }
 

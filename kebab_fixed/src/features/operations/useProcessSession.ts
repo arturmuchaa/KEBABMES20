@@ -69,5 +69,24 @@ export function useProcessSession(processType: ProcessType) {
     }
   }, [session, refetch])
 
-  return { session, todayApproved, approve, busy, refetch }
+  // Biuro domyka dzień, gdy tablet zapomniał kliknąć "Zakończ dzień":
+  // zamyka otwartą sesję i od razu ją zatwierdza.
+  const closeAndApprove = useCallback(async (): Promise<string | null> => {
+    if (!session) return 'Brak otwartej sesji'
+    setBusy(true)
+    try {
+      if (session.status === 'open') {
+        await productionSessionsApi.close(session.id, { notes: 'zamknięte przez biuro' })
+      }
+      await productionSessionsApi.approve(session.id, { approvedBy: 'office' })
+      await refetch()
+      return null
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Błąd zamykania'
+    } finally {
+      setBusy(false)
+    }
+  }, [session, refetch])
+
+  return { session, todayApproved, approve, closeAndApprove, busy, refetch }
 }
