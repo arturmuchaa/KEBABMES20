@@ -657,10 +657,20 @@ function ReviewScreen({ order, kgActual, lotAllocs, onStart, loading }: {
 type Phase = 'list' | 'machine' | 'meat' | 'steps' | 'review' | 'done'
 
 export function MixingTabletPage() {
-  // Tylko 'confirmed' — biuro musi potwierdzić zanim pojawi się na tablecie
+  // confirmed + in_progress z pozostałymi kg — operator widzi zlecenie nawet
+  // gdy masownica już pracuje i może załadować kolejną masownicę od razu.
   const { data: plannedAll, loading, refetch } = useApi(() =>
     mixingOrdersApi.list().then((all: any[]) =>
-      all.filter((o: any) => o.status === 'confirmed')
+      all
+        .filter((o: any) =>
+          o.status === 'confirmed' ||
+          (o.status === 'in_progress' && ((o as any).kgRemaining ?? o.meatKg) > 0.1)
+        )
+        .sort((a: any, b: any) =>
+          a.status === 'in_progress' && b.status !== 'in_progress' ? -1
+          : b.status === 'in_progress' && a.status !== 'in_progress' ? 1
+          : 0
+        )
     )
   )
   const planned = plannedAll
