@@ -804,10 +804,8 @@ export function MixingTabletPage() {
   }, [liveOrder, kgActual, lotAllocs, finishMut, lockMut, refetch, rIP, rL])
 
   const currentLocks = locks ?? []
-  // 'in_progress' ze aktywną blokadą masownicy = masownica pracuje (chłodzenie) — nie wznawiaj
-  const resumable = (inProgress ?? []).filter(o =>
-    !currentLocks.some(l => l.orderId === o.id)
-  )
+  // Zlecenia in_progress z aktywną blokadą = masownica pracuje (chłodzenie).
+  // Używane w sekcji "Masownice w pracy" i "Suma wszystkich masownic".
   const cooling = (inProgress ?? []).filter(o =>
     currentLocks.some(l => l.orderId === o.id)
   )
@@ -880,19 +878,6 @@ export function MixingTabletPage() {
 
       {phase === 'list' && (
         <>
-          {resumable.length > 0 && (
-            <div className="bg-blue-50 border-b border-blue-200 px-5 py-3">
-              <div className="text-[11px] font-semibold text-blue-700 mb-1.5 flex items-center gap-1.5">
-                <AlertTriangle size={13} /> Wznów sesję
-              </div>
-              {resumable.map(o => (
-                <button key={o.id} onClick={() => { setSelOrder(o); setLiveOrder(o); setPhase('machine') }}
-                  className="w-full text-left bg-white border border-blue-200 rounded-xl px-4 py-2.5 text-[13px] font-semibold text-blue-700 hover:bg-blue-50 mb-1.5">
-                  {o.orderNo} · {o.recipeName} · zostało {fmtKg((o as any).kgRemaining ?? o.meatKg, 0)} kg → Wznów
-                </button>
-              ))}
-            </div>
-          )}
           {loading
             ? <div className="flex justify-center py-16"><Spinner size={32} /></div>
             : (planned??[]).length === 0
