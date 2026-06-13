@@ -793,7 +793,11 @@ export function MixingTabletPage() {
       const fullyDone = (finished as any).kgRemaining < 0.1 || finished.status === 'done'
       setSessionFullyDone(fullyDone)
       const lock = await lockMut.mutate({ m: liveOrder.machineId!, id: liveOrder.id, no: liveOrder.orderNo })
-      setActiveLock(lock)
+      // Pełna sesja → CooldownTimer (operator czeka na ostygnięcie).
+      // Częściowa sesja → DoneScreen z "Kolejna maszyna" — operator może od razu
+      // załadować kolejną masownicę. Blokada maszyny i tak jest w DB i widać ją
+      // jako "🔒 X min" w MachineScreen przy wyborze maszyny dla kolejnej sesji.
+      setActiveLock(fullyDone ? lock : null)
       setPhase('done')
       refetch(); rIP(); rL()
     } catch(e) { showToast(e instanceof Error ? e.message : 'Błąd') }
