@@ -926,15 +926,36 @@ export function MixingTabletPage() {
                       const kgDone      = (o as any).kgDone ?? 0
                       const kgRemaining = (o as any).kgRemaining ?? o.meatKg
                       const pct         = o.meatKg > 0 ? (kgDone / o.meatKg) * 100 : 0
+                      const orderLocks  = currentLocks.filter((l: any) => l.orderId === o.id)
                       return (
                         <button key={o.id}
                           onClick={() => { setSelOrder(o); setLiveOrder(o); setPhase('machine') }}
-                          className="w-full text-left bg-white border-2 border-surface-4 rounded-2xl p-4 hover:border-brand hover:shadow-md active:scale-[.99] transition-all">
+                          className={`w-full text-left border-2 rounded-2xl p-4 hover:border-brand hover:shadow-md active:scale-[.99] transition-all ${
+                            o.status === 'in_progress' ? 'bg-amber-50/60 border-amber-200' : 'bg-white border-surface-4'
+                          }`}>
                           <div className="flex items-start justify-between gap-3">
                             <div>
                               <div className="font-mono font-bold text-brand">{o.orderNo}</div>
                               <div className="text-lg font-black text-ink mt-0.5">{o.recipeName}</div>
                               {o.productTypeName && <div className="text-sm text-ink-3">{o.productTypeName}</div>}
+                              {o.status === 'in_progress' && orderLocks.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {orderLocks.map((l: any) => {
+                                    const minsLeft = Math.max(0, Math.ceil((new Date(l.unlocksAt).getTime() - Date.now()) / 60000))
+                                    return (
+                                      <span key={l.machineId}
+                                        className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                                        <Timer size={9}/> Masownica {l.machineId} · {minsLeft} min
+                                      </span>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                              {o.status === 'in_progress' && orderLocks.length === 0 && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 mt-1">
+                                  Do wznowienia
+                                </span>
+                              )}
                             </div>
                             <div className="text-right flex-shrink-0">
                               <div className="text-2xl font-black text-ink">{fmtKg(kgRemaining, 0)}</div>
