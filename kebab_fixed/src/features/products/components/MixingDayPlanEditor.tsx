@@ -161,11 +161,15 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
                 <Badge variant="outline" className={`text-[10px] flex-shrink-0 ${st.cls}`}>
                   {st.label}{r.status === 'in_progress' && r.kgDone ? ` · ${fmtKg(r.kgDone, 0)} kg` : ''}
                 </Badge>
-                <div className="flex flex-col flex-shrink-0">
+                <div className="flex flex-col flex-shrink-0 gap-0.5">
                   <button onClick={() => move(i, -1)} disabled={i === 0}
-                    className="h-4 text-muted-foreground hover:text-ink disabled:opacity-20"><ArrowUp size={12}/></button>
+                    className="h-8 w-8 rounded flex items-center justify-center cursor-pointer text-muted-foreground hover:text-ink hover:bg-muted/60 disabled:opacity-20 disabled:cursor-not-allowed">
+                    <ArrowUp size={14}/>
+                  </button>
                   <button onClick={() => move(i, 1)} disabled={i === rows.length - 1}
-                    className="h-4 text-muted-foreground hover:text-ink disabled:opacity-20"><ArrowDown size={12}/></button>
+                    className="h-8 w-8 rounded flex items-center justify-center cursor-pointer text-muted-foreground hover:text-ink hover:bg-muted/60 disabled:opacity-20 disabled:cursor-not-allowed">
+                    <ArrowDown size={14}/>
+                  </button>
                 </div>
                 <button
                   onClick={() => { setRows(p => p.filter((_, j) => j !== i)); setDirty(true) }}
@@ -187,7 +191,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
 
         <div className="flex items-center gap-2 pt-1">
           <Button variant="outline" size="sm" className="h-8 gap-1 text-[12px]"
-            onClick={() => { setRows(p => [...p, { recipeId: '', meatKg: '', status: 'new' }]); setDirty(true) }}>
+            onClick={() => { setRows(p => [...p, { recipeId: '', meatKg: '100', status: 'new' }]); setDirty(true) }}>
             <Plus size={13}/> Dodaj pozycję
           </Button>
           <Button size="sm" disabled={saving || !dirty}
