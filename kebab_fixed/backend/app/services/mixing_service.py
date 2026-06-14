@@ -1039,8 +1039,12 @@ def save_day_plan(items: List[Dict[str, Any]]) -> Dict[str, Any]:
             oid = str(it.get("id") or "")
             recipe_id = str(it.get("recipeId") or it.get("recipe_id") or "")
             meat_kg = float(it.get("meatKg") or it.get("meat_kg") or 0)
+            lots = it.get("meatLots") or it.get("meat_lots") or []
 
-            if oid and oid in untouchable:
+            is_untouchable = bool(oid and oid in untouchable)
+            validate_day_plan_item(it, is_untouchable)
+
+            if is_untouchable:
                 cx_execute(
                     conn, "UPDATE mixing_orders SET day_seq=%s WHERE id=%s",
                     (seq, oid),
@@ -1051,11 +1055,9 @@ def save_day_plan(items: List[Dict[str, Any]]) -> Dict[str, Any]:
             if oid and oid in editable:
                 recipe = cx_query_one(
                     conn, "SELECT * FROM recipes WHERE id=%s", (recipe_id,)
-                ) if recipe_id else None
+                )
                 if not recipe:
                     raise HTTPException(400, "Receptura wymagana dla pozycji planu")
-                if meat_kg <= 0:
-                    raise HTTPException(400, "Kg mięsa musi być > 0")
                 cx_execute(
                     conn,
                     """
@@ -1067,17 +1069,19 @@ def save_day_plan(items: List[Dict[str, Any]]) -> Dict[str, Any]:
                     (seq, recipe["id"], recipe["name"], meat_kg,
                      calc_kg_output(recipe["id"], meat_kg), oid),
                 )
+                # Re-rezerwacja: zwolnij stare loty, zarezerwuj nowe
+                _release_order_lots_cx(conn, oid)
+                _reserve_order_lots_cx(conn, oid, lots)
                 sent.add(oid)
                 continue
 
-            # Nowa pozycja planu
+            # Nowa pozycja planu — tworzy zlecenie z rezerwacją partii
             recipe = cx_query_one(
                 conn, "SELECT * FROM recipes WHERE id=%s", (recipe_id,)
             )
             if not recipe:
                 raise HTTPException(400, "Receptura nie znaleziona")
-            if meat_kg <= 0:
-                raise HTTPException(400, "Kg mięsa musi być > 0")
+            new_oid = cuid()
             order_no = next_dated_no(conn, "MAS")
             cx_execute(
                 conn,
@@ -1088,9 +1092,10 @@ def save_day_plan(items: List[Dict[str, Any]]) -> Dict[str, Any]:
                      day_seq, created_at)
                 VALUES (%s,%s,%s,%s,%s,%s,0,NULL,'confirmed',%s,%s)
                 """,
-                (cuid(), order_no, recipe["id"], recipe["name"], meat_kg,
+                (new_oid, order_no, recipe["id"], recipe["name"], meat_kg,
                  calc_kg_output(recipe["id"], meat_kg), seq, now_iso()),
             )
+            _reserve_order_lots_cx(conn, new_oid, lots)
 
         to_cancel = sorted(editable - sent)
 
