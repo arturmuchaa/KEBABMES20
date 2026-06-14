@@ -1221,6 +1221,8 @@ export const cmrApi = {
     id: r.id, number: r.number ?? '', clientName: r.client_name ?? '', status: r.status ?? '',
     issueDate: r.issue_date ?? '', createdAt: r.created_at ?? '',
   }))),
+  update: (id: string, form: CmrFormInput) =>
+    req<{ id: string; status: string }>('PATCH', `/cmr/${encodeURIComponent(id)}`, form),
   pdfUrl: (id: string) => `${BASE}/cmr/${encodeURIComponent(id)}/pdf`,
   getLayout: () => get<Record<string, any>>('/cmr/layout'),
   saveLayout: (positions: Record<string, any>) => put<Record<string, any>>('/cmr/layout', positions),
@@ -1537,9 +1539,24 @@ export const mixingOrdersApi = {
       items: (r?.items ?? []).map(mapMixingOrder),
       rev:   r?.rev ?? '',
     })),
-  saveDayPlan:       (items: { id?: string; recipeId: string; meatKg: number; seq: number }[]) =>
+  saveDayPlan:       (items: {
+    id?: string
+    recipeId: string
+    meatKg: number
+    seq: number
+    meatLots: { meatLotId: string; kgPlanned: number }[]
+  }[]) =>
     put<any>('/mixing-orders/day-plan', {
-      items: items.map(i => ({ id: i.id, recipeId: i.recipeId, meatKg: i.meatKg, seq: i.seq })),
+      items: items.map(i => ({
+        id: i.id,
+        recipeId: i.recipeId,
+        meatKg: i.meatKg,
+        seq: i.seq,
+        meatLots: i.meatLots.map(l => ({
+          meatLotId: l.meatLotId,
+          kgPlanned: l.kgPlanned,
+        })),
+      })),
     }).then(r => ({
       items: (r?.items ?? []).map(mapMixingOrder),
       rev:   r?.rev ?? '',
