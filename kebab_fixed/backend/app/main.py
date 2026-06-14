@@ -62,6 +62,7 @@ def create_app() -> FastAPI:
 
     # ── Register route modules ────────────────────────────────────
     from app.routes import (  # noqa: E402
+        auth,
         health,
         suppliers,
         clients,
@@ -103,6 +104,7 @@ def create_app() -> FastAPI:
     from app.routes import settings as settings_route  # noqa: E402
 
     for mod in (
+        auth,
         health,
         suppliers,
         clients,
