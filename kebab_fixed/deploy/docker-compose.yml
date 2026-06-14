@@ -1,0 +1,43 @@
+# Kebab MES — jedna instancja = jeden klient.
+# Uruchamiany przez deploy/nowy-klient.sh, który podaje -p kebab-<slug> i --env-file.
+# Każdy projekt compose ma własne wolumeny → osobna, czysta baza (izolacja klientów).
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kebab_mes}
+      POSTGRES_USER: ${POSTGRES_USER:-kebab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?ustaw POSTGRES_PASSWORD (uzyj deploy/nowy-klient.sh)}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kebab} -d ${POSTGRES_DB:-kebab_mes}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      BIND: 0.0.0.0:8000
+      SELF_BASE_URL: http://127.0.0.1:8000
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      MODULES: ${MODULES:-}
+      CLIENT_NAME: ${CLIENT_NAME:-}
+      CLIENT_NIP: ${CLIENT_NIP:-}
+      DATAPORT_API_KEY: ${DATAPORT_API_KEY:-}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+    ports:
+      - "${APP_PORT:-8080}:8000"
+
+volumes:
+  pgdata:

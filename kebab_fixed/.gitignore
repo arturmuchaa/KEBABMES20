@@ -16,6 +16,13 @@ build/
 .env.local
 backend/.env
 
+# Wdrożenia klientów — sekrety per klient (generowane przez deploy/nowy-klient.sh)
+clients/
+
+# E2E (Playwright)
+test-results/
+playwright-report/
+
 # Logi
 *.log
 npm-debug.log*
