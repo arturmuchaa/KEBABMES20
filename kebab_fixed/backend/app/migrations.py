@@ -485,7 +485,7 @@ _DDL: list[str] = [
     "ALTER TABLE workers ADD COLUMN IF NOT EXISTS departments JSONB DEFAULT '[]'",
     "ALTER TABLE workers ADD COLUMN IF NOT EXISTS pin_hash TEXT",
     "ALTER TABLE workers ADD COLUMN IF NOT EXISTS failed_attempts INT DEFAULT 0",
-    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP",
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ",
     """CREATE TABLE IF NOT EXISTS app_users (
         id TEXT PRIMARY KEY,
         login TEXT UNIQUE NOT NULL,
@@ -495,7 +495,7 @@ _DDL: list[str] = [
         active BOOLEAN NOT NULL DEFAULT true,
         must_change_password BOOLEAN NOT NULL DEFAULT false,
         failed_attempts INT NOT NULL DEFAULT 0,
-        locked_until TIMESTAMP,
+        locked_until TIMESTAMPTZ,
         created_at TEXT NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS sessions (
@@ -503,9 +503,9 @@ _DDL: list[str] = [
         subject_type TEXT NOT NULL,
         subject_id TEXT NOT NULL,
         label TEXT DEFAULT '',
-        created_at TEXT NOT NULL,
-        last_seen TEXT NOT NULL,
-        expires_at TIMESTAMP
+        created_at TIMESTAMPTZ NOT NULL,
+        last_seen TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ
     )""",
 ]
 

@@ -33,6 +33,8 @@ def _create_session(subject_type: str, subject_id: str, label: str) -> str:
 
 
 def _record_failure(table: str, row_id: str, attempts: int) -> None:
+    if table not in ("app_users", "workers"):
+        raise ValueError(f"niedozwolona tabela: {table!r}")
     new_attempts, locked_until = register_failure(attempts, _now())
     execute(
         f"UPDATE {table} SET failed_attempts=%s, locked_until=%s WHERE id=%s",
@@ -41,6 +43,8 @@ def _record_failure(table: str, row_id: str, attempts: int) -> None:
 
 
 def _reset_failures(table: str, row_id: str) -> None:
+    if table not in ("app_users", "workers"):
+        raise ValueError(f"niedozwolona tabela: {table!r}")
     execute(f"UPDATE {table} SET failed_attempts=0, locked_until=NULL WHERE id=%s", (row_id,))
 
 

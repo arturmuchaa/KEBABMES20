@@ -1,5 +1,5 @@
 """Endpointy uwierzytelniania."""
-from fastapi import APIRouter, Header, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 
 from app.models.auth import ChangePasswordDto, LoginDto, LoginPinDto
 from app.services import auth_service as svc
@@ -18,6 +18,8 @@ def login(dto: LoginDto):
     return svc.login_office(dto.login, dto.password)
 
 
+# Udostępnienie id+name aktywnych pracowników bez uwierzytelnienia jest celowe —
+# ekran logowania PIN (kiosk/LAN) potrzebuje listy operatorów do wyboru.
 @router.get("/api/auth/operators")
 def operators(department: str = Query(...)):
     return svc.list_operators(department)
@@ -30,8 +32,10 @@ def login_pin(dto: LoginPinDto):
 
 @router.get("/api/auth/me")
 def me(request: Request):
-    # middleware już zweryfikował sesję i wstawił podmiot do request.state
-    return getattr(request.state, "subject", None)
+    subject = getattr(request.state, "subject", None)
+    if subject is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Brak sesji")
+    return subject
 
 
 @router.post("/api/auth/logout")
