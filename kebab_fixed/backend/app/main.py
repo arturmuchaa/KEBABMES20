@@ -31,6 +31,8 @@ async def _lifespan(app: FastAPI):
     logger.info("app.startup", extra={"version": settings.app_version})
     init_pool()
     run_migrations()
+    from app.services.app_users_service import ensure_bootstrap_admin
+    ensure_bootstrap_admin()
     yield
     logger.info("app.shutdown")
     close_pool()
@@ -65,6 +67,7 @@ def create_app() -> FastAPI:
 
     # ── Register route modules ────────────────────────────────────
     from app.routes import (  # noqa: E402
+        app_users,
         auth,
         health,
         suppliers,
@@ -107,6 +110,7 @@ def create_app() -> FastAPI:
     from app.routes import settings as settings_route  # noqa: E402
 
     for mod in (
+        app_users,
         auth,
         health,
         suppliers,
