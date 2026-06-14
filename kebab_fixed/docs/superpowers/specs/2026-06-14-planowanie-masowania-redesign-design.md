@@ -25,7 +25,9 @@ partii** wbudowaną w wiersz planu.
 - **Zakres**: przeprojektowanie całej strony. Plan dnia = jedyny sposób
   planowania.
 - **Mięso**: pełna rezerwacja partii FEFO już przy planowaniu, wbudowana
-  w wiersz planu.
+  w wiersz planu. **Partie są obowiązkowe** — nie można zapisać planu, jeśli
+  którakolwiek edytowalna pozycja nie ma w pełni przypisanych partii (suma kg
+  partii = kg wiersza).
 - **Usuwamy**: modal „Nowe zlecenie masowania" (3 kroki) oraz osobną tabelę
   „Zlecenia masowania". Ich funkcje wchłania plan dnia (logika FEFO i podglądu
   składników jest **przenoszona**, nie kasowana).
@@ -91,7 +93,9 @@ Każda jednostka: jedno zadanie, jasny interfejs, testowalna osobno.
   w kolejności FEFO (najwcześniej wygasające najpierw), respektując dostępność;
   per-wiersz override w rozwinięciu.
 - **Walidacja na żywo**: chip `⚠ brak` gdy suma partii < kg wiersza; górny pasek
-  czerwienieje gdy Σ planu > dostępne mięso.
+  czerwienieje gdy Σ planu > dostępne mięso. Przycisk `Zapisz plan` zablokowany,
+  dopóki każda edytowalna pozycja nie ma kompletnych partii (partie
+  obowiązkowe).
 - **Status na żywo**: badge + kg w masownicy / postęp (recykling logiki
   z obecnego progress-modala), odświeżanie co 15 s; baner „plan zmieniony" dla
   operatora przez `rev` (już działa, bez zmian).
@@ -102,13 +106,15 @@ Każda jednostka: jedno zadanie, jasny interfejs, testowalna osobno.
 
 - **`PUT /api/mixing-orders/day-plan`** (`save_day_plan`) rozszerzamy o
   `meatLots` per pozycja. Dziś pozycja przyjmuje tylko `recipeId` / `meatKg` /
-  `seq`, a nowe pozycje tworzą zlecenie `confirmed` **bez** lotów. Po zmianie:
+  `seq`, a nowe pozycje tworzą zlecenie `confirmed` **bez** lotów. Po zmianie
+  **partie są obowiązkowe** dla pozycji edytowalnych:
   - nowa pozycja z `meatLots` → tworzy zlecenie z **rezerwacją partii**
     (reużycie logiki rezerwacji z `create_mixing_order`),
   - edytowana pozycja w kolejce → aktualizacja receptury / kg / **lotów**
     (re-rezerwacja: zwolnij stare, zarezerwuj nowe),
-  - pozycja bez `meatLots` → zachowanie jak dziś (operator wybierze przy
-    maszynie) — wsteczna zgodność.
+  - pozycja edytowalna bez `meatLots` lub z sumą lotów ≠ kg → **błąd 400**
+    (walidacja po stronie serwera, lustro walidacji frontu).
+  - pozycje `in_progress` / `done` — loty nietykalne (jak dziś, tylko `seq`).
 - Reszta endpointów (`start` / `finish-session` / `cancel` / `auto-approve`)
   bez zmian.
 - `get_day_plan` zwraca już `meatLots` per zlecenie (`build_mixing_order`) —
@@ -124,7 +130,8 @@ Każda jednostka: jedno zadanie, jasny interfejs, testowalna osobno.
 ## Testowanie
 
 - Backend: testy `save_day_plan` z `meatLots` — tworzenie z rezerwacją,
-  edycja z re-rezerwacją, usunięcie → zwolnienie, wsteczna zgodność (bez lotów).
-- Walidacja: suma lotów ≠ kg wiersza, kg lota > dostępne.
+  edycja z re-rezerwacją, usunięcie → zwolnienie.
+- Walidacja: pozycja edytowalna bez lotów → 400, suma lotów ≠ kg wiersza → 400,
+  kg lota > dostępne → 400.
 - Frontend: render planu, dodawanie/usuwanie wiersza, auto-FEFO całość
   rozdziela poprawnie, blokada wierszy `in_progress`/`done`.
