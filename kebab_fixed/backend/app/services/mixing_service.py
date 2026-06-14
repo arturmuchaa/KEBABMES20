@@ -911,6 +911,39 @@ def cancel_mixing_order(order_id: str) -> Dict:
 # — ale tylko pozycje jeszcze w kolejce (planned/confirmed); to, co już
 # w masownicy (in_progress) lub gotowe (done), jest nietykalne.
 
+def validate_day_plan_item(item: Dict[str, Any], is_untouchable: bool) -> None:
+    """Waliduje pojedynczą pozycję planu dnia.
+
+    Partie mięsa są OBOWIĄZKOWE dla pozycji edytowalnych (nowa/w kolejce):
+    suma kgPlanned partii musi równać się meatKg (tolerancja 0.5 kg).
+    Pozycje nietykalne (in_progress/done) pomijają sprawdzanie partii —
+    ich loty są już zarezerwowane i nie wolno ich ruszać.
+    """
+    if is_untouchable:
+        return
+    recipe_id = str(item.get("recipeId") or item.get("recipe_id") or "")
+    meat_kg = float(item.get("meatKg") or item.get("meat_kg") or 0)
+    if not recipe_id:
+        raise HTTPException(400, "Receptura wymagana dla pozycji planu")
+    if meat_kg <= 0:
+        raise HTTPException(400, "Kg mięsa musi być > 0")
+    lots = item.get("meatLots") or item.get("meat_lots") or []
+    if not lots:
+        raise HTTPException(
+            400,
+            "Każda pozycja planu wymaga przypisanych partii mięsa "
+            "(partie obowiązkowe przy planowaniu).",
+        )
+    total = sum(
+        float(l.get("kgPlanned") or l.get("kg_planned") or 0) for l in lots
+    )
+    if abs(total - meat_kg) > 0.5:
+        raise HTTPException(
+            400,
+            f"Suma partii ({total:.2f} kg) ≠ kg pozycji ({meat_kg:.2f} kg).",
+        )
+
+
 def get_day_plan() -> Dict[str, Any]:
     rows = query_all(
         "SELECT * FROM mixing_orders "
