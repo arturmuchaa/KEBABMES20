@@ -28,6 +28,8 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   const [error, setError] = useState('')
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const dragIdx = useRef<number | null>(null)
+  const dirtyRef = useRef(dirty)
+  useEffect(() => { dirtyRef.current = dirty }, [dirty])
 
   // Dostępne partie mięsa (wolne kg = available - reserved), FEFO
   const pickerLots: PickerLot[] = useMemo(() =>
@@ -62,12 +64,15 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
     } catch { setLoaded(true) }
   }
 
+  // Wczytaj plan przy montażu; odświeżaj co 15 s, ale NIE nadpisuj edycji
+  // w toku (dirty czytane przez ref, by efekt nie restartował przy każdej
+  // zmianie dirty — inaczej dodanie wiersza natychmiast kasuje load()em).
   useEffect(() => {
     load()
-    const t = setInterval(() => { if (!dirty) load() }, 15000)
+    const t = setInterval(() => { if (!dirtyRef.current) load() }, 15000)
     return () => clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty])
+  }, [])
 
   const recipeOutput = (recipeId: string, meatKg: number) => {
     const r = recipes.find((x: any) => x.id === recipeId)
