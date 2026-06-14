@@ -29,7 +29,7 @@ def create_client(dto: ClientCreate) -> Dict:
             """,
             (
                 cuid(),
-                f"KLI-{str(seq).zfill(3)}",
+                f"K{seq}",
                 dto.name,
                 dto.display_name or None,
                 dto.nip,

@@ -126,7 +126,7 @@ export function FinishedGoodsPage() {
 
   const list = useMemo(() => {
     const q = filter.toLowerCase().trim()
-    let result = groupBySku(rawList)
+    let result = groupBySku(rawList).filter(g => g.qty > 0)
     if (q) {
       result = result.filter(g =>
         (g.clientName      || '').toLowerCase().includes(q) ||

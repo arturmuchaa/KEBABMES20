@@ -8,6 +8,10 @@ from fastapi import HTTPException
 from app.db import cx_execute, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.utils.ids import cuid, now_iso
+from app.services.order_stock_service import (
+    produced_by_key_from_plan_lines,
+    stock_portions_for_order,
+)
 from app.services.settings_service import get_company
 
 logger = get_logger(__name__)
@@ -77,10 +81,22 @@ def build_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(404, "Zamówienie nie znalezione")
 
     plan_lines = query_all(
-        """SELECT qty_done, kg_per_unit FROM production_plan_lines
+        """SELECT qty_done, recipe_id, kg_per_unit FROM production_plan_lines
            WHERE client_order_id=%s AND COALESCE(qty_done,0) > 0""",
         (order_id,),
     )
+    # Braki względem zamówienia pokryj zapasem magazynowym (produkcja "na
+    # magazyn" sprzed zamówienia nie ma linku w liniach planu) — porcje
+    # wchodzą do zbiorczej pozycji kebaba jak linie planu.
+    order_lines = query_all(
+        "SELECT recipe_id, kg_per_unit, qty FROM client_order_lines WHERE order_id=%s",
+        (order_id,))
+    portions = stock_portions_for_order(
+        order_id, order.get("order_no") or "", order_lines,
+        produced_by_key_from_plan_lines(plan_lines))
+    plan_lines = plan_lines + [
+        {"qty_done": p["take"], "kg_per_unit": (p.get("fg") or {}).get("kg_per_unit")}
+        for p in portions]
     goods = build_goods(plan_lines, form.get("goods_manual") or [])
     if not goods:
         raise HTTPException(400, "Brak towaru do umieszczenia na CMR")
@@ -123,7 +139,6 @@ def build_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
         "goods": goods,
         "gross_kg": totals["kg"],
         "instructions": form.get("instructions") or "TRANSPORT MROŻNICZY -22",
-        "franco": form.get("franco") or (f"Franco {load_city}".strip()),
         "carrier": _carrier_snapshot(form.get("carrier_id", ""), form.get("plate", "")),
         "established_place": load_city,
         "established_date": today,
@@ -163,6 +178,34 @@ def generate_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
              json.dumps(data["payload"]), today.strftime("%d.%m.%Y"), now_iso()))
     logger.info("cmr.generated", extra={"cmr_id": cid, "number": number})
     return {"id": cid, "number": number, "status": "wystawiony"}
+
+
+def update_cmr(cmr_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
+    row = query_one("SELECT * FROM cmr_documents WHERE id=%s", (cmr_id,))
+    if not row:
+        raise HTTPException(404, "CMR nie znaleziony")
+    payload = row.get("payload") or {}
+    carrier_id = form.get("carrier_id") or row.get("carrier_id") or ""
+    carrier = _carrier_snapshot(carrier_id, form.get("plate") or payload.get("carrier", {}).get("plate", ""))
+    payload["carrier"] = carrier
+    if "invoice_no" in form:
+        att = payload.get("attachments") or {}
+        att["invoice_no"] = form["invoice_no"]
+        payload["attachments"] = att
+    if "instructions" in form:
+        payload["instructions"] = form["instructions"]
+    if "goods_manual" in form:
+        plan_goods = [g for g in (payload.get("goods") or []) if g.get("auto")]
+        manual = [{"name": g.get("name", ""), "qty": int(g.get("qty") or 0),
+                   "kg": round(float(g.get("kg") or 0), 3)}
+                  for g in form["goods_manual"] if (g.get("name") or "").strip()]
+        payload["goods"] = plan_goods + manual
+        payload["gross_kg"] = round(sum(float(g.get("kg") or 0) for g in payload["goods"]), 3)
+    with transaction() as conn:
+        cx_execute(conn,
+            "UPDATE cmr_documents SET carrier_id=%s, payload=%s::jsonb WHERE id=%s",
+            (carrier_id or None, json.dumps(payload), cmr_id))
+    return {"id": cmr_id, "status": "ok"}
 
 
 def get_cmr(cmr_id: str) -> Dict[str, Any]:

@@ -9,8 +9,9 @@ import { useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { cmrApi, type CmrListRow } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { CmrEditModal } from '@/components/cmr/CmrEditModal'
 import {
-  Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Printer, FileText, ExternalLink, FileDown,
+  Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Printer, FileText, ExternalLink, FileDown, Pencil,
 } from 'lucide-react'
 
 import { Input } from '@/components/ui/input'
@@ -66,8 +67,9 @@ function downloadPdf(id: string) {
 
 // ─── Strona ─────────────────────────────────────────────────
 export function CmrDocumentsPage() {
-  const { data: rows, loading } = useApi(() => cmrApi.listDocs())
+  const { data: rows, loading, refetch } = useApi(() => cmrApi.listDocs())
   const [filter,  setFilter]  = useState('')
+  const [editId, setEditId] = useState<string | null>(null)
   // Domyślnie: po numerze, od najnowszego (numerycznie malejąco).
   const [sortCol, setSortCol] = useState<SortCol>('number')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -209,6 +211,13 @@ export function CmrDocumentsPage() {
                     <td className="px-2.5 py-2 whitespace-nowrap text-right">
                       <div className="inline-flex items-center gap-0.5">
                         <button
+                          onClick={(e) => { e.stopPropagation(); setEditId(r.id) }}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-amber-600 hover:bg-amber-50"
+                          title="Edytuj CMR"
+                        >
+                          <Pencil size={13}/>
+                        </button>
+                        <button
                           onClick={(e) => { e.stopPropagation(); downloadPdf(r.id) }}
                           className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-rose-600 hover:bg-rose-50"
                           title="Pobierz PDF"
@@ -238,6 +247,13 @@ export function CmrDocumentsPage() {
           </div>
         )}
       </Card>
+      {editId && (
+        <CmrEditModal
+          cmrId={editId}
+          onClose={() => setEditId(null)}
+          onSaved={() => refetch?.()}
+        />
+      )}
     </div>
   )
 }

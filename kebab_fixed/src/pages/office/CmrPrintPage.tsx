@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft, Printer, Download } from 'lucide-react'
 import { cmrApi } from '@/lib/api'
-import { mergeCmrPositions, CMR_LINE_GAP, CMR_GOODS_ROWH, fontCss, customFieldKeys,
+import { mergeCmrPositions, CMR_LINE_GAP, getGoodsRowH, fontCss, customFieldKeys,
          type CmrPositions, type FieldPos } from '@/lib/cmrLayout'
 
 // Cztery kopie = cztery strony oficjalnego druku (tło 1:1), różnią się kolorem.
@@ -46,7 +46,7 @@ function AddrBlock({ d, p, gap }: { d: any; p: FieldPos; gap: number }) {
   ))}</>
 }
 
-function CmrSheet({ doc, bg, pos }: { doc: any; bg: string; pos: CmrPositions }) {
+function CmrSheet({ doc, bg, pos, rowH }: { doc: any; bg: string; pos: CmrPositions; rowH: number }) {
   const p = doc.payload || {}
   const att = p.attachments || {}
   const goods: any[] = p.goods || []
@@ -57,7 +57,6 @@ function CmrSheet({ doc, bg, pos }: { doc: any; bg: string; pos: CmrPositions })
     const q = P(k)
     return { font: q.font, bold: q.bold, italic: q.italic, hidden: q.hidden }
   }
-  const rowH = CMR_GOODS_ROWH
   const gN = P('goodsNum'), gQ = P('goodsQty'), gNa = P('goodsName'), gK = P('goodsKg')
 
   return (
@@ -93,12 +92,11 @@ function CmrSheet({ doc, bg, pos }: { doc: any; bg: string; pos: CmrPositions })
       )}
 
       <F l={P('instructions').x} t={P('instructions').y} w={42} s={P('instructions').size} {...ff('instructions')}>{p.instructions}</F>
-      <F l={P('franco').x} t={P('franco').y} w={18} s={P('franco').size} {...ff('franco')}>{p.franco}</F>
 
       <AddrBlock d={c} p={P('carrier')} gap={CMR_LINE_GAP} />
       <F l={P('carrierNip').x} t={P('carrierNip').y} w={13} s={P('carrierNip').size} {...ff('carrierNip')}>{c.nip}</F>
       <F l={P('carrierVat').x} t={P('carrierVat').y} w={13} s={P('carrierVat').size} {...ff('carrierVat')}>{c.vat_eu}</F>
-      <F l={P('carrierPlate').x} t={P('carrierPlate').y} w={22} s={P('carrierPlate').size} {...ff('carrierPlate')}>{c.plate ? `Nr rej.: ${c.plate}` : ''}</F>
+      <F l={P('carrierPlate').x} t={P('carrierPlate').y} w={22} s={P('carrierPlate').size} {...ff('carrierPlate')}>{c.plate || ''}</F>
 
       <F l={P('establishedPlace').x} t={P('establishedPlace').y} w={14} s={P('establishedPlace').size} {...ff('establishedPlace')}>{p.established_place}</F>
       <F l={P('establishedDate').x} t={P('establishedDate').y} w={14} s={P('establishedDate').size} {...ff('establishedDate')}>{fmt(p.established_date)}</F>
@@ -199,7 +197,7 @@ export function CmrPrintPage() {
       </div>
 
       {COPY_BG.map((bg, i) => (
-        <CmrSheet key={i} doc={doc} bg={bg} pos={pos} />
+        <CmrSheet key={i} doc={doc} bg={bg} pos={pos} rowH={getGoodsRowH(pos)} />
       ))}
     </div>
   )

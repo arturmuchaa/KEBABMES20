@@ -23,6 +23,9 @@ clients/
 test-results/
 playwright-report/
 
+# Artefakty narzędzi (superpowers brainstorm itp.)
+.superpowers/
+
 # Logi
 *.log
 npm-debug.log*

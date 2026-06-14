@@ -8,9 +8,13 @@ from fastapi import HTTPException
 from app.db import cx_execute, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.utils.ids import cuid, now_iso
-from app.utils.batch_numbers import kebab_batch_no
+from app.utils.batch_numbers import kebab_batch_no, kebab_batch_wsad
 from app.utils.unit_codes import best_before
 from app.utils.hdi_lang import lang_from_nip
+from app.services.order_stock_service import (
+    produced_by_key_from_plan_lines,
+    stock_portions_for_order,
+)
 from app.services.settings_service import get_company
 
 logger = get_logger(__name__)
@@ -90,6 +94,36 @@ def units_from_plan_lines(lines: List[Dict[str, Any]], shelf_by_recipe: Dict[str
     return units
 
 
+def units_from_stock_portions(
+    portions: List[Dict[str, Any]], shelf_by_recipe: Dict[str, int]
+) -> List[Dict[str, Any]]:
+    """Zsyntetyzuj sztuki HDI z porcji magazynowych finished_goods (pokrycie
+    zamówienia towarem zrobionym "na magazyn", bez linku w liniach planu).
+
+    ``batch_no`` sztuki to GOŁY wsad (kebab_batch_wsad) — pełną partię
+    'ddmmrr wsad' odtwarza group_hdi_items z produced_date, identycznie jak
+    dla sztuk z linii planu."""
+    units: List[Dict[str, Any]] = []
+    for p in portions or []:
+        fg = p.get("fg") or {}
+        take = int(p.get("take") or 0)
+        if take <= 0:
+            continue
+        name = (fg.get("recipe_name") or fg.get("product_type_name") or "").strip()
+        pd = _pd_iso(fg.get("produced_date"))
+        bno = kebab_batch_wsad(fg.get("batch_no") or "")
+        shelf = int(shelf_by_recipe.get(fg.get("recipe_id"), 0) or 0)
+        for _ in range(take):
+            units.append({
+                "product_type_name": name,
+                "weight_kg": fg.get("kg_per_unit") or 0,
+                "batch_no": bno,
+                "produced_date": pd,
+                "shelf_life_days": shelf,
+            })
+    return units
+
+
 def group_hdi_items(units: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Grupuj sztuki po (produkt, waga) → pozycje HDI z partiami."""
     by_prod: Dict[tuple, Dict[str, Any]] = {}
@@ -141,22 +175,33 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
              AND pp.status <> 'cancelled'""",
         (order_id,),
     )
-    recipe_ids = sorted({l.get("recipe_id") for l in lines if l.get("recipe_id")})
+    # Braki względem zamówienia pokryj zapasem magazynowym (produkcja "na
+    # magazyn" sprzed zamówienia nie ma linku w liniach planu).
+    order_lines = query_all(
+        "SELECT recipe_id, kg_per_unit, qty FROM client_order_lines WHERE order_id=%s",
+        (order_id,))
+    portions = stock_portions_for_order(
+        order_id, order.get("order_no") or "", order_lines,
+        produced_by_key_from_plan_lines(lines))
+
+    recipe_ids = sorted(
+        {l.get("recipe_id") for l in lines if l.get("recipe_id")}
+        | {(p.get("fg") or {}).get("recipe_id") for p in portions
+           if (p.get("fg") or {}).get("recipe_id")})
     shelf_by_recipe: Dict[str, int] = {}
     if recipe_ids:
         for r in query_all(
             "SELECT id, shelf_life_days FROM recipes WHERE id = ANY(%s)", (recipe_ids,)):
             shelf_by_recipe[r["id"]] = int(r.get("shelf_life_days") or 0)
     units = units_from_plan_lines(lines, shelf_by_recipe)
+    units += units_from_stock_portions(portions, shelf_by_recipe)
     if not units:
         raise HTTPException(400, "Brak wyprodukowanej produkcji dla tego zamówienia")
     items = group_hdi_items(units)
     total_qty = sum(i["qty"] for i in items)
     total_kg = round(sum(i["kg"] for i in items), 3)
 
-    ordered = query_one(
-        "SELECT COALESCE(SUM(qty),0) AS q FROM client_order_lines WHERE order_id=%s", (order_id,))
-    ordered_qty = int((ordered or {}).get("q") or 0)
+    ordered_qty = sum(int(ln.get("qty") or 0) for ln in order_lines)
     incomplete = ordered_qty > 0 and total_qty < ordered_qty
 
     # Klient: najpierw po client_id (pewny klucz obcy zamówienia), dopiero potem

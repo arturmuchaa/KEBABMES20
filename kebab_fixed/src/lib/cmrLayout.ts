@@ -47,7 +47,6 @@ export const CMR_DEFAULTS: CmrPositions = {
   goodsKg:          { x: 77.6, y: 48.3, size: 11 },
   goodsGross:       { x: 77.6, y: 57.0, size: 11 },
   instructions:     { x: 9.3,  y: 65.8, size: 11 },
-  franco:           { x: 31,   y: 77.4, size: 11 },
   carrier:          { x: 53.7, y: 18.6, size: 11.5 },
   carrierNip:       { x: 78,   y: 23.4, size: 11 },
   carrierVat:       { x: 78,   y: 24.5, size: 11 },
@@ -60,10 +59,15 @@ export const CMR_DEFAULTS: CmrPositions = {
 export const CMR_LINE_GAP = 1.3
 export const CMR_GOODS_ROWH = 2.7
 
+// Pobierz odstęp wierszy towarów z zapisanego layoutu (lub domyślny).
+export function getGoodsRowH(saved: CmrPositions | null | undefined): number {
+  const v = (saved as any)?._goodsRowH
+  return (typeof v === 'number' && v > 0) ? v : CMR_GOODS_ROWH
+}
+
 // Metadane pól do konfiguratora: etykieta + przykładowa wartość (podgląd na tle).
 export interface FieldMeta { key: string; label: string; sample: string; block?: boolean }
 export const CMR_FIELDS: FieldMeta[] = [
-  { key: 'cmrNo',            label: 'Numer CMR',              sample: '1' },
   { key: 'sender',           label: '1 Nadawca',             sample: 'FHUP MAREK KSIĘŻYC', block: true },
   { key: 'senderNip',        label: '1 NIP nadawcy',         sample: '5130064478' },
   { key: 'consignee',        label: '2 Odbiorca',            sample: 'POLAT D.O.O.', block: true },
@@ -79,11 +83,10 @@ export const CMR_FIELDS: FieldMeta[] = [
   { key: 'goodsKg',          label: '11 Waga poz.',          sample: '200' },
   { key: 'goodsGross',       label: '11 Waga razem',         sample: '206' },
   { key: 'instructions',     label: '13 Instrukcje',         sample: 'TRANSPORT MROŻNICZY -22' },
-  { key: 'franco',           label: '14 Franco',             sample: 'FRANCO RUDAWA' },
   { key: 'carrier',          label: '16 Przewoźnik',         sample: 'FTH DAMIAN UCHNAST', block: true },
   { key: 'carrierNip',       label: '16 NIP przewoźnika',    sample: 'WP84860T' },
   { key: 'carrierVat',       label: '16 VAT przewoźnika',    sample: 'SI77745083' },
-  { key: 'carrierPlate',     label: '16 Nr rej.',            sample: 'NR REJ.: SK226WM' },
+  { key: 'carrierPlate',     label: '16 Nr rej.',            sample: 'SK226WM' },
   { key: 'establishedPlace', label: '21 Wystawiono w',       sample: 'RUDAWA' },
   { key: 'establishedDate',  label: '21 Data wystawienia',   sample: '05.06.2026' },
 ]

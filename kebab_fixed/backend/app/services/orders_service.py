@@ -156,9 +156,13 @@ def _hydrate_order(order: Dict[str, Any]) -> Dict[str, Any]:
         f"{dr['recipe_id']}|{float(dr['kg_per_unit'])}": int(dr["qty_done"] or 0)
         for dr in done_rows
     }
+    # Zapas bez zamówienia liczy się do pokrycia tylko w wysokości
+    # qty_available — po wydaniu (WZ/wydanie) rozchód stempluje zużyte sztuki
+    # numerem zamówienia (done_map), a reszta nie może fantomowo pokrywać
+    # kolejnych zamówień tym samym, już wydanym towarem.
     unlinked_rows = query_all(
         """
-        SELECT recipe_id, kg_per_unit, SUM(qty) AS qty_done
+        SELECT recipe_id, kg_per_unit, SUM(qty_available) AS qty_done
         FROM finished_goods
         WHERE (client_order_no IS NULL OR client_order_no = '')
         GROUP BY recipe_id, kg_per_unit

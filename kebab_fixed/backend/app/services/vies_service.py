@@ -51,5 +51,5 @@ def vies_lookup(vat: str) -> Dict:
         "countryCode": data.get("countryCode") or country_code,
         "traderName": data.get("name") or "",
         "traderAddress": data.get("address") or "",
-        "valid": bool(data.get("valid")),
+        "valid": bool(data.get("isValid") or data.get("valid")),
     }

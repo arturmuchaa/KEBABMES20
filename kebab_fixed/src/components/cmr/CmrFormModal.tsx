@@ -7,7 +7,6 @@ export function CmrFormModal({ orderId, onClose }: { orderId: string; onClose: (
   const [plate, setPlate] = useState('')
   const [invoiceNo, setInvoiceNo] = useState('')
   const [instructions, setInstructions] = useState('TRANSPORT MROŻNICZY -22')
-  const [franco, setFranco] = useState('')
   const [goods, setGoods] = useState<CmrGoodsLine[]>([])
   const [busy, setBusy] = useState(false)
 
@@ -27,7 +26,7 @@ export function CmrFormModal({ orderId, onClose }: { orderId: string; onClose: (
     setBusy(true)
     try {
       const r = await cmrApi.generate(orderId, {
-        carrier_id: carrierId, plate, invoice_no: invoiceNo, instructions, franco,
+        carrier_id: carrierId, plate, invoice_no: invoiceNo, instructions,
         goods_manual: goods.filter(g => g.name.trim()),
       })
       const url = `/office/cmr/${r.id}/druk`
@@ -52,7 +51,6 @@ export function CmrFormModal({ orderId, onClose }: { orderId: string; onClose: (
         <label>Nr rejestracyjny <input value={plate} onChange={e => setPlate(e.target.value)} style={{ width: '100%' }} /></label>
         <label>Nr faktury (pole 5) <input value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="FV 11/06/2026" style={{ width: '100%' }} /></label>
         <label>Instrukcje (pole 13) <input value={instructions} onChange={e => setInstructions(e.target.value)} style={{ width: '100%' }} /></label>
-        <label>Franco (pole 14) <input value={franco} onChange={e => setFranco(e.target.value)} placeholder="Franco Rudawa" style={{ width: '100%' }} /></label>
         <div style={{ marginTop: 8 }}>
           <b>Dodatkowy towar (poza kebabem)</b>
           {goods.map((g, i) => (

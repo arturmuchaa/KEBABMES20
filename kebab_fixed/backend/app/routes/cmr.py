@@ -42,6 +42,11 @@ def pdf(cmr_id: str):
                     headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"})
 
 
+@router.patch("/{cmr_id}")
+def update(cmr_id: str, form: CmrForm = CmrForm()):
+    return svc.update_cmr(cmr_id, form.model_dump())
+
+
 @router.get("/{cmr_id}")
 def get(cmr_id: str):
     return svc.get_cmr(cmr_id)

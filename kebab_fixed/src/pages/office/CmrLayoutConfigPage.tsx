@@ -10,6 +10,8 @@ import {
   CMR_FIELDS,
   CMR_LINE_GAP,
   CMR_FONTS,
+  CMR_GOODS_ROWH,
+  getGoodsRowH,
   fontCss,
   customFieldKeys,
   newCustomKey,
@@ -91,6 +93,7 @@ function FieldMarker({ field, pos, custom, selected, dragging, onMouseDown, onCl
 // ─── Strona konfiguratora ─────────────────────────────────────────────────────
 export function CmrLayoutConfigPage() {
   const [positions, setPositions] = useState<CmrPositions>(() => mergeCmrPositions(null))
+  const [goodsRowH, setGoodsRowH] = useState(CMR_GOODS_ROWH)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
@@ -101,7 +104,10 @@ export function CmrLayoutConfigPage() {
   // Załaduj układ z backendu
   useEffect(() => {
     cmrApi.getLayout()
-      .then(l => setPositions(mergeCmrPositions(l)))
+      .then(l => {
+        setPositions(mergeCmrPositions(l))
+        setGoodsRowH(getGoodsRowH(l as CmrPositions))
+      })
       .catch(() => setPositions(mergeCmrPositions(null)))
   }, [])
 
@@ -216,7 +222,7 @@ export function CmrLayoutConfigPage() {
   async function handleSave() {
     setSaving(true)
     try {
-      await cmrApi.saveLayout(positions)
+      await cmrApi.saveLayout({ ...positions, _goodsRowH: goodsRowH } as any)
       alert('Zapisano')
     } catch (err: any) {
       alert('Błąd zapisu: ' + (err?.message || err))
@@ -228,6 +234,7 @@ export function CmrLayoutConfigPage() {
   function handleReset() {
     if (window.confirm('Przywrócić domyślne pozycje pól? (usunie też pola własne)')) {
       setPositions(mergeCmrPositions(null))
+      setGoodsRowH(CMR_GOODS_ROWH)
       setSelectedKey(null)
     }
   }
@@ -357,6 +364,22 @@ export function CmrLayoutConfigPage() {
           >
             <Plus size={14} /> Dodaj pole tekstowe
           </button>
+
+          {/* Odstęp wierszy towarów */}
+          <div className="border border-gray-200 rounded-lg p-3 text-xs space-y-1.5">
+            <div className="font-semibold text-gray-700">Odstęp wierszy towarów</div>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min={1.0} max={5.0} step={0.1}
+                value={goodsRowH}
+                onChange={e => setGoodsRowH(parseFloat(e.target.value))}
+                className="flex-1"
+              />
+              <span className="font-mono text-[12px] w-8 text-center">{goodsRowH.toFixed(1)}</span>
+            </div>
+            <div className="text-[10px] text-gray-400">Zapisz by zastosować na wydruku</div>
+          </div>
 
           {/* Szczegóły wybranego pola */}
           {selectedKey && selPos && (

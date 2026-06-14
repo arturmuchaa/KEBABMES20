@@ -37,6 +37,7 @@ import { CompanySettingsPage } from '@/pages/office/CompanySettingsPage'
 import { ProductionPlanningPage } from '@/pages/office/ProductionPlanningPage'
 import { RecallPage }             from '@/pages/office/RecallPage'
 import { MixingHmiV1Page }        from '@/pages/tablet/MixingHmiV1Page'
+import { MixingHmiV2Page }        from '@/pages/tablet/MixingHmiV2Page'
 import { TracePage }              from '@/pages/office/TracePage'
 import { PayrollPage }            from '@/pages/office/PayrollPage'
 import { VehiclesPage }           from '@/pages/office/VehiclesPage'
@@ -145,6 +146,7 @@ export default function App() {
       <Route path="/tablet" element={<TabletLayout />}>
         <Route path="rozbior"   element={<RozbiorRoute />} />
         <Route path="mieszanie" element={<MixingHmiV1Page />} />
+        <Route path="mieszanie-v2" element={<MixingHmiV2Page />} />
         <Route path="mieszanie-mobile" element={<MixingTabletPage />} />
         <Route path="produkcja" element={<ProductionTabletPage />} />
       </Route>

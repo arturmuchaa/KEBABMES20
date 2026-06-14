@@ -19,6 +19,10 @@ from app.db import (
     transaction,
 )
 from app.logging_config import get_logger
+from app.services.order_stock_service import (
+    produced_by_key_from_plan_lines,
+    stock_portions_for_order,
+)
 from app.services.settings_service import get_company
 from app.utils.ids import cuid, now_iso
 from app.utils.stock import create_stock_movement
@@ -408,6 +412,94 @@ def build_order_wz_lines(plan_lines: List[Dict[str, Any]]) -> Tuple[List[Dict[st
     return lines, produced
 
 
+def build_stock_wz_lines(portions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Linie WZ z porcji magazynowych (pokrycie zamówienia zapasem zrobionym
+    "na magazyn"). batch_no = pełna partia WYROBU (jak w WZ ręcznym), stock_id
+    wskazuje konkretny wiersz finished_goods do rozchodu."""
+    lines: List[Dict[str, Any]] = []
+    for p in portions or []:
+        fg = p.get("fg") or {}
+        take = int(p.get("take") or 0)
+        if take <= 0:
+            continue
+        name = (fg.get("recipe_name") or fg.get("product_type_name") or "Kebab").strip()
+        kgpu = float(fg.get("kg_per_unit") or 0)
+        ln: Dict[str, Any] = {
+            "name": f"{name} {_fmt_kg(kgpu)}kg" if kgpu > 0 else name,
+            "qty": take, "unit": "szt", "batch_no": fg.get("batch_no"),
+            "price": None, "value": None, "stock_type": "fg",
+            "stock_id": fg.get("id"), "recipe_id": fg.get("recipe_id"),
+        }
+        if kgpu > 0:
+            ln["kg_per_unit"] = round(kgpu, 3)
+            ln["total_kg"] = round(take * kgpu, 3)
+        lines.append(ln)
+    return lines
+
+
+def _consume_fg_for_order(conn, row: Dict[str, Any], take: int,
+                          order: Dict[str, Any], wid: str) -> None:
+    """Rozchód ``take`` szt z wiersza finished_goods pod zamówienie + TRWAŁA
+    atrybucja (stempel client_order_no). Bez stempla postęp zamówienia
+    (done_map w _hydrate_order) znikał po wyzerowaniu qty_available i kolejne
+    zamówienia widziały fantomowe pokrycie z już wydanego zapasu.
+
+    * wiersz już przypisany temu zamówieniu → zwykły rozchód,
+    * cały nietknięty wiersz bez zamówienia → stempel na wierszu + rozchód,
+    * częściowy rozchód → split: klon z ``take`` przypisany zamówieniu
+      (qty_available=0, qty_shipped=take), oryginał pomniejszony o ``take``.
+
+    Ruch magazynowy OUT zawsze na ORYGINALNYM wierszu (tam zaksięgowano IN).
+    """
+    order_no = (order.get("order_no") or "").strip()
+    kgpu = float(row.get("kg_per_unit") or 0)
+    row_order = (row.get("client_order_no") or "").strip()
+    if order_no and row_order == order_no:
+        cx_execute(
+            conn,
+            "UPDATE finished_goods SET qty_available=qty_available-%s, qty_shipped=qty_shipped+%s WHERE id=%s",
+            (take, take, row["id"]))
+    elif (not row_order and take == int(row.get("qty") or 0)
+          and int(row.get("qty_shipped") or 0) == 0):
+        cx_execute(
+            conn,
+            """UPDATE finished_goods
+               SET qty_available=qty_available-%s, qty_shipped=qty_shipped+%s,
+                   client_order_no=%s,
+                   client_name=COALESCE(NULLIF(client_name,''), %s)
+               WHERE id=%s""",
+            (take, take, order_no or None, order.get("client_name") or None, row["id"]))
+    else:
+        cx_execute(
+            conn,
+            """UPDATE finished_goods
+               SET qty=qty-%s, qty_available=qty_available-%s,
+                   total_kg=GREATEST(0, total_kg-%s)
+               WHERE id=%s""",
+            (take, take, round(take * kgpu, 3), row["id"]))
+        cx_execute(
+            conn,
+            """INSERT INTO finished_goods
+                 (id, batch_no, plan_no, product_type_id, product_type_name,
+                  recipe_id, recipe_name, packaging_id, packaging_name,
+                  client_name, client_order_no, qty, kg_per_unit, total_kg,
+                  qty_available, qty_shipped, produced_date, produced_by,
+                  seasoned_batch_nos, source_production_id, source_mixing_ids,
+                  source_seasoned_ids, source_deboning_ids, created_at)
+               SELECT %s, batch_no, plan_no, product_type_id, product_type_name,
+                      recipe_id, recipe_name, packaging_id, packaging_name,
+                      COALESCE(NULLIF(%s,''), client_name), %s, %s, kg_per_unit,
+                      %s, 0, %s, produced_date, produced_by,
+                      seasoned_batch_nos, source_production_id, source_mixing_ids,
+                      source_seasoned_ids, source_deboning_ids, now()
+               FROM finished_goods WHERE id=%s""",
+            (cuid(), order.get("client_name") or "", order_no or None,
+             take, round(take * kgpu, 3), take, row["id"]))
+    create_stock_movement(
+        conn, product_type="finished_goods", batch_id=row["id"],
+        qty=take * kgpu, movement_type="OUT", source_type="wz", source_id=wid)
+
+
 def _order_wz_payload(order_id: str) -> Dict[str, Any]:
     """Wspólne dane WZ z zamówienia: zamówienie, linie (z wagą), produkcja,
     flaga incomplete, dane odbiorcy. Używane przez podgląd i wystawienie."""
@@ -428,9 +520,20 @@ def _order_wz_payload(order_id: str) -> Dict[str, Any]:
         (order_id,))
     lines, produced = build_order_wz_lines(plan_lines)
 
-    ordered = query_one(
-        "SELECT COALESCE(SUM(qty),0) AS q FROM client_order_lines WHERE order_id=%s", (order_id,))
-    ordered_qty = int((ordered or {}).get("q") or 0)
+    order_lines = query_all(
+        "SELECT recipe_id, kg_per_unit, qty FROM client_order_lines WHERE order_id=%s",
+        (order_id,))
+    ordered_qty = sum(int(ln.get("qty") or 0) for ln in order_lines)
+
+    # Braki względem zamówienia pokryj zapasem magazynowym (produkcja "na
+    # magazyn" zrobiona przed zamówieniem nie ma linku w liniach planu).
+    portions = stock_portions_for_order(
+        order_id, order.get("order_no") or "", order_lines,
+        produced_by_key_from_plan_lines(plan_lines))
+    stock_lines = build_stock_wz_lines(portions)
+    lines = lines + stock_lines
+    produced += sum(int(ln.get("qty") or 0) for ln in stock_lines)
+
     incomplete = wz_order_incomplete(produced, ordered_qty)
 
     # Klient jak w HDI: najpierw client_id, potem nazwa.
@@ -511,17 +614,32 @@ def create_wz_from_order(
             place=get_company().get("city") or "", issued=issued, released=issued,
             notes=notes, currency=currency, eur_rate=eur_rate)
 
+        fg_cols = ("id, qty, qty_available, qty_shipped, kg_per_unit, "
+                   "client_order_no, client_name")
         for ln in lines:
             need = int(ln["qty"])
             if need <= 0:
+                continue
+            # Linia magazynowa (pokrycie zapasem) wskazuje konkretny wiersz
+            # finished_goods — rozchód dokładnie z niego.
+            if ln.get("stock_id"):
+                row = cx_query_one(
+                    conn,
+                    f"SELECT {fg_cols} FROM finished_goods WHERE id=%s FOR UPDATE",
+                    (ln["stock_id"],))
+                avail = int((row or {}).get("qty_available") or 0)
+                if not row or avail < need:
+                    raise HTTPException(
+                        400, f"Za mało na stanie wyrobów (partia {ln.get('batch_no')}): "
+                             f"jest {avail} szt, potrzeba {need}")
+                _consume_fg_for_order(conn, row, need, order, wid)
                 continue
             # Linia z planu nosi partię MIĘSA ("353"); finished_goods.batch_no to
             # partia WYROBU ("ddmmrr 353") — równość nigdy nie zachodzi. Dopasowanie
             # po seasoned_batch_nos (tablica partii mięsa wyrobu). Pierwszeństwo:
             # wyroby wyprodukowane pod TO zamówienie → magazynowe → pozostałe.
             line_batch = (ln.get("batch_no") or "").strip()
-            sql = ("SELECT id, qty_available, kg_per_unit FROM finished_goods "
-                   "WHERE COALESCE(qty_available,0) > 0")
+            sql = f"SELECT {fg_cols} FROM finished_goods WHERE COALESCE(qty_available,0) > 0"
             params: List[Any] = []
             if line_batch:
                 sql += " AND %s = ANY(seasoned_batch_nos)"
@@ -538,14 +656,7 @@ def create_wz_from_order(
             for row in rows:
                 take = min(need, max(0, int(row.get("qty_available") or 0)))
                 if take > 0:
-                    cx_execute(
-                        conn,
-                        "UPDATE finished_goods SET qty_available=qty_available-%s, qty_shipped=qty_shipped+%s WHERE id=%s",
-                        (take, take, row["id"]))
-                    create_stock_movement(
-                        conn, product_type="finished_goods", batch_id=row["id"],
-                        qty=take * float(row.get("kg_per_unit") or 0),
-                        movement_type="OUT", source_type="wz", source_id=wid)
+                    _consume_fg_for_order(conn, row, take, order, wid)
                     need -= take
                 if need == 0:
                     break

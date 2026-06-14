@@ -274,7 +274,7 @@ export function DetailModal({ group, onClose }: { group: SkuGroup; onClose: () =
               Skład wg partii ({group.batches.length})
             </CardDescription>
             <div className="space-y-2">
-              {group.batches.map(b => {
+              {group.batches.filter(b => (b.qtyAvailable ?? b.qty) > 0).map(b => {
                 const open = openId === b.id
                 const bKg = (b.qtyAvailable ?? b.qty) * b.kgPerUnit
                 return (

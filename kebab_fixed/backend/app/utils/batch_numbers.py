@@ -105,3 +105,14 @@ def _ddmmrr(produced_date: Union[str, date, datetime]) -> str:
 def kebab_batch_no(produced_date: Union[str, date, datetime], batch_no: str) -> str:
     """Numer kebaba = 'ddmmrr <numer wsadu>' (np. '020626 344')."""
     return f"{_ddmmrr(produced_date)} {batch_no}"
+
+
+_KEBAB_FULL_RE = re.compile(r"^\d{6}\s+(\S.*)$")
+
+
+def kebab_batch_wsad(batch_no: Optional[str]) -> str:
+    """Goły numer wsadu z numeru kebaba: '020626 344' → '344'.
+    Numer bez prefiksu daty zwracany bez zmian (idempotentne)."""
+    s = (batch_no or "").strip()
+    m = _KEBAB_FULL_RE.match(s)
+    return m.group(1) if m else s
