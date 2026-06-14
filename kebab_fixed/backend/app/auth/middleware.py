@@ -6,7 +6,6 @@ from fastapi.responses import JSONResponse
 
 from app.auth.permissions import can_access, permission_for_path
 from app.auth.render_token import verify_render_token
-from app.config import settings
 from app.services import auth_service
 
 
@@ -22,6 +21,10 @@ async def auth_middleware(request: Request, call_next):
     if not path.startswith("/api/"):
         return await call_next(request)
 
+    # Preflight CORS musi dojść do CORSMiddleware (inaczej brak naglowkow CORS → SPA pada)
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     required = permission_for_path(path)
     request.state.subject = None
 
@@ -30,7 +33,7 @@ async def auth_middleware(request: Request, call_next):
 
     # Token renderowania PDF (headless chrome) — dostęp do stron danych dla wydruku
     rtok = request.headers.get("x-render-token") or request.query_params.get("render_token")
-    if rtok and verify_render_token(rtok, secret=settings.admin_token or "render"):
+    if rtok and verify_render_token(rtok):
         return await call_next(request)
 
     subject = auth_service.resolve_session(_bearer(request))
