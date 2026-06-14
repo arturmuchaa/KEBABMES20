@@ -60,6 +60,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    from app.auth.middleware import auth_middleware
+    app.middleware("http")(auth_middleware)
+
     # ── Register route modules ────────────────────────────────────
     from app.routes import (  # noqa: E402
         auth,
