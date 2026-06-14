@@ -10,6 +10,7 @@ class WorkerCreate(BaseModel):
     rate_per_kg: float = 0.0
     contract_type: str = "zlecenie"
     employer_cost_amount: float = 0.0
+    departments: List[str] = []
 
 
 class WorkerUpdate(BaseModel):
@@ -20,6 +21,7 @@ class WorkerUpdate(BaseModel):
     contract_type: Optional[str] = None
     employer_cost_amount: Optional[float] = None
     active: Optional[bool] = None
+    departments: Optional[List[str]] = None
 
 
 class SettlementDeductionDto(BaseModel):
