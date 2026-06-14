@@ -204,6 +204,96 @@ def get_mixing_order(order_id: str) -> Dict:
     return build_mixing_order(order)
 
 
+# ── Rezerwacja lotów (wspólne helpery) ─────────────────────────────────
+
+def _reserve_order_lots_cx(
+    conn, order_id: str, lots: List[Dict[str, Any]]
+) -> None:
+    """Rezerwuje partie mięsa dla zlecenia w otwartej transakcji.
+
+    `lots`: lista {meatLotId|meat_lot_id, kgPlanned|kg_planned}. Blokuje
+    partie deterministycznie (sorted po id) by uniknąć deadlocków, sprawdza
+    wolne kg (available - reserved) i podnosi kg_reserved + wstawia
+    mixing_order_lots. Wyciągnięte z create_mixing_order.
+    """
+    norm = [
+        (
+            str(l.get("meatLotId") or l.get("meat_lot_id") or ""),
+            float(l.get("kgPlanned") or l.get("kg_planned") or 0),
+        )
+        for l in lots
+    ]
+    for ms_id, kg_planned in sorted(norm, key=lambda x: x[0]):
+        if not ms_id or kg_planned <= 0:
+            continue
+        locked = cx_query_one(
+            conn, "SELECT * FROM meat_stock WHERE id=%s FOR UPDATE", (ms_id,)
+        )
+        if not locked:
+            raise HTTPException(400, f"Partia mięsa nie znaleziona: {ms_id}")
+        available = float(locked.get("kg_available") or 0)
+        reserved = float(locked.get("kg_reserved") or 0)
+        free = available - reserved
+        if free < kg_planned - 0.1:
+            raise HTTPException(
+                400,
+                f"Niewystarczające kg w partii {locked.get('lot_no','?')}: "
+                f"wolne {free:.2f} kg, wymagane {kg_planned:.2f} kg.",
+            )
+        cx_execute(
+            conn,
+            """
+            INSERT INTO mixing_order_lots
+                (id, order_id, meat_stock_id, kg_planned, kg_actual)
+            VALUES (%s,%s,%s,%s,0)
+            """,
+            (cuid(), order_id, ms_id, kg_planned),
+        )
+        rowcount = cx_execute_rowcount(
+            conn,
+            "UPDATE meat_stock SET kg_reserved = kg_reserved + %s WHERE id = %s",
+            (kg_planned, ms_id),
+        )
+        if rowcount == 0:
+            raise HTTPException(
+                409, f"Race condition: brak kg w partii {ms_id} (update failed)"
+            )
+
+
+def _release_order_lots_cx(conn, order_id: str) -> None:
+    """Zwalnia rezerwacje i USUWA wiersze mixing_order_lots zlecenia.
+
+    Używane przy re-rezerwacji edytowanej pozycji planu (czysty restart
+    lotów). cancel_mixing_order ma własną wersję (zeruje kg_planned dla
+    audytu) — tu kasujemy, bo zaraz wstawiamy nowe.
+    """
+    lots = cx_query_all(
+        conn,
+        "SELECT meat_stock_id, kg_planned FROM mixing_order_lots "
+        "WHERE order_id=%s ORDER BY meat_stock_id FOR UPDATE",
+        (order_id,),
+    )
+    for ms_id in sorted(
+        {l["meat_stock_id"] for l in lots if l.get("meat_stock_id")}
+    ):
+        cx_query_one(
+            conn, "SELECT id FROM meat_stock WHERE id=%s FOR UPDATE", (ms_id,)
+        )
+    for lot in lots:
+        kg = float(lot.get("kg_planned") or 0)
+        if kg <= 0:
+            continue
+        cx_execute(
+            conn,
+            "UPDATE meat_stock SET kg_reserved = GREATEST(0, kg_reserved - %s) "
+            "WHERE id=%s",
+            (kg, lot.get("meat_stock_id")),
+        )
+    cx_execute(
+        conn, "DELETE FROM mixing_order_lots WHERE order_id=%s", (order_id,)
+    )
+
+
 # ── Create ─────────────────────────────────────────────────────────────
 
 def create_mixing_order(dto: MixingOrderCreate) -> Dict:
@@ -261,53 +351,15 @@ def create_mixing_order(dto: MixingOrderCreate) -> Dict:
             ),
         )
 
-        # Lock lots deterministically to avoid deadlocks
-        for lot_dto in sorted(dto.meat_lots, key=lambda x: x.meat_lot_id):
-            locked = cx_query_one(
-                conn,
-                "SELECT * FROM meat_stock WHERE id=%s FOR UPDATE",
-                (lot_dto.meat_lot_id,),
-            )
-            if not locked:
-                raise HTTPException(
-                    400, f"Partia mięsa nie znaleziona: {lot_dto.meat_lot_id}"
-                )
-
-            available = float(locked.get("kg_available") or 0)
-            reserved = float(locked.get("kg_reserved") or 0)
-            free = available - reserved
-            if free < lot_dto.kg_planned - 0.1:
-                raise HTTPException(
-                    400,
-                    f"Niewystarczające kg w partii {locked.get('lot_no','?')}: "
-                    f"wolne {free:.2f} kg (dostępne {available:.2f} - "
-                    f"zarezerwowane {reserved:.2f}), wymagane {lot_dto.kg_planned:.2f} kg.",
-                )
-
-            cx_execute(
-                conn,
-                """
-                INSERT INTO mixing_order_lots
-                    (id, order_id, meat_stock_id, kg_planned, kg_actual)
-                VALUES (%s,%s,%s,%s,0)
-                """,
-                (cuid(), oid, lot_dto.meat_lot_id, lot_dto.kg_planned),
-            )
-            rowcount = cx_execute_rowcount(
-                conn,
-                """
-                UPDATE meat_stock
-                SET kg_reserved = kg_reserved + %s
-                WHERE id = %s
-                """,
-                (lot_dto.kg_planned, lot_dto.meat_lot_id),
-            )
-            if rowcount == 0:
-                raise HTTPException(
-                    409,
-                    f"Race condition: brak kg w partii {lot_dto.meat_lot_id} "
-                    f"(update failed)",
-                )
+        # Rezerwacja partii (wspólny helper)
+        _reserve_order_lots_cx(
+            conn,
+            oid,
+            [
+                {"meatLotId": l.meat_lot_id, "kgPlanned": l.kg_planned}
+                for l in dto.meat_lots
+            ],
+        )
 
         order = cx_query_one(
             conn, "SELECT * FROM mixing_orders WHERE id=%s", (oid,)
