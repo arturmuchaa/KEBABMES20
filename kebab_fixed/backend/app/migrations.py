@@ -480,6 +480,33 @@ _DDL: list[str] = [
     # [{"materialTypeId","materialName","pct"}] — pusta lista = produkt
     # jednoskładnikowy (dotychczasowe zachowanie bez zmian)
     "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS components JSONB DEFAULT '[]'",
+
+    # ── Auth: konta i sesje ──
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS departments JSONB DEFAULT '[]'",
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS pin_hash TEXT",
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS failed_attempts INT DEFAULT 0",
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP",
+    """CREATE TABLE IF NOT EXISTS app_users (
+        id TEXT PRIMARY KEY,
+        login TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'office',
+        display_name TEXT NOT NULL DEFAULT '',
+        active BOOLEAN NOT NULL DEFAULT true,
+        must_change_password BOOLEAN NOT NULL DEFAULT false,
+        failed_attempts INT NOT NULL DEFAULT 0,
+        locked_until TIMESTAMP,
+        created_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS sessions (
+        token TEXT PRIMARY KEY,
+        subject_type TEXT NOT NULL,
+        subject_id TEXT NOT NULL,
+        label TEXT DEFAULT '',
+        created_at TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        expires_at TIMESTAMP
+    )""",
 ]
 
 
