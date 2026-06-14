@@ -13,5 +13,5 @@ def verify_secret(secret: str, hashed: str) -> bool:
         return False
     try:
         return bcrypt.checkpw(secret.encode("utf-8"), hashed.encode("utf-8"))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, AttributeError):
         return False

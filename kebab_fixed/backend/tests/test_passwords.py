@@ -19,3 +19,8 @@ def test_verify_false_for_wrong():
 
 def test_verify_false_for_empty_hash():
     assert verify_secret("1234", "") is False
+
+
+def test_verify_false_for_none_secret():
+    h = hash_secret("x")
+    assert verify_secret(None, h) is False  # type: ignore[arg-type]

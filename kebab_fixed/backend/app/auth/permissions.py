@@ -38,19 +38,23 @@ DEPARTMENT_PREFIXES = {
 }
 
 
+def _matches(path: str, prefix: str) -> bool:
+    return path == prefix or path.startswith(prefix + "/")
+
+
 def permission_for_path(path: str) -> str:
     for p in PUBLIC_PREFIXES:
-        if path.startswith(p):
+        if _matches(path, p):
             return "public"
     for p in ANY_PREFIXES:
-        if path.startswith(p):
+        if _matches(path, p):
             return "any"
     for p in ADMIN_PREFIXES:
-        if path.startswith(p):
+        if _matches(path, p):
             return "admin"
     for dept, prefixes in DEPARTMENT_PREFIXES.items():
         for p in prefixes:
-            if path.startswith(p):
+            if _matches(path, p):
                 return dept
     return "office"  # default-deny: wymaga co najmniej biura
 

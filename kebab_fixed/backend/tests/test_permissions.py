@@ -53,3 +53,8 @@ def test_operator_access():
 
 def test_public_always_accessible():
     assert can_access(None, "public") is True
+
+
+def test_login_prefix_does_not_overmatch():
+    # przyszly /api/auth/login-cokolwiek NIE moze byc automatycznie public
+    assert permission_for_path("/api/auth/login-secret") == "office"
