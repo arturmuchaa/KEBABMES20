@@ -40,6 +40,7 @@ import { MixingHmiV1Page }        from '@/pages/tablet/MixingHmiV1Page'
 import { MixingHmiV2Page }        from '@/pages/tablet/MixingHmiV2Page'
 import { TracePage }              from '@/pages/office/TracePage'
 import { PayrollPage }            from '@/pages/office/PayrollPage'
+import { UsersPage }              from '@/pages/office/UsersPage'
 import { VehiclesPage }           from '@/pages/office/VehiclesPage'
 import { LabelTemplatesPage }     from '@/pages/office/LabelTemplatesPage'
 import { ProductTypesPage, RecipesPage, PlanningPage } from '@/features/products'
@@ -145,7 +146,7 @@ export default function App() {
         <Route path="recall"                element={<RecallPage />} />
         <Route path="samochody"             element={<VehiclesPage />} />
         <Route path="ustawienia"            element={<CompanySettingsPage />} />
-        <Route path="uzytkownicy"           element={<PlaceholderPage title="Użytkownicy" icon="🔐" description="" />} />
+        <Route path="uzytkownicy"           element={<UsersPage />} />
       </Route>
       <Route path="/tablet" element={<TabletLayout />}>
         <Route path="rozbior"          element={<RequireDepartment dept="rozbior"><RozbiorRoute /></RequireDepartment>} />
