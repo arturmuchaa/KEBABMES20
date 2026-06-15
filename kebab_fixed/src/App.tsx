@@ -59,6 +59,7 @@ import { MobileSztukaPage }         from '@/pages/mobile/MobileSztukaPage'
 import { LoginPage }               from '@/pages/auth/LoginPage'
 import { ChangePasswordPage }      from '@/pages/auth/ChangePasswordPage'
 import { PanelLoginPage }          from '@/pages/auth/PanelLoginPage'
+import { RequireOffice, RequireDepartment } from '@/features/auth/guards'
 
 // ─── Blokada przypadkowego odświeżenia ───────────────────────
 function useBlockRefresh() {
@@ -111,7 +112,7 @@ export default function App() {
       <Route path="/mobile/przeplyw"                element={<MobilePrzeplywPartiiPage />} />
       <Route path="/mobile/sztuka"                  element={<MobileSztukaPage />} />
 
-      <Route path="/office" element={<OfficeLayout />}>
+      <Route path="/office" element={<RequireOffice><OfficeLayout /></RequireOffice>}>
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard"             element={<DashboardPage />} />
         <Route path="dostawcy"              element={<SuppliersPage />} />
@@ -147,11 +148,11 @@ export default function App() {
         <Route path="uzytkownicy"           element={<PlaceholderPage title="Użytkownicy" icon="🔐" description="" />} />
       </Route>
       <Route path="/tablet" element={<TabletLayout />}>
-        <Route path="rozbior"   element={<RozbiorRoute />} />
-        <Route path="mieszanie" element={<MixingHmiV1Page />} />
-        <Route path="mieszanie-v2" element={<MixingHmiV2Page />} />
-        <Route path="mieszanie-mobile" element={<MixingTabletPage />} />
-        <Route path="produkcja" element={<ProductionTabletPage />} />
+        <Route path="rozbior"          element={<RequireDepartment dept="rozbior"><RozbiorRoute /></RequireDepartment>} />
+        <Route path="mieszanie"        element={<RequireDepartment dept="produkcja"><MixingHmiV1Page /></RequireDepartment>} />
+        <Route path="mieszanie-v2"     element={<RequireDepartment dept="produkcja"><MixingHmiV2Page /></RequireDepartment>} />
+        <Route path="mieszanie-mobile" element={<RequireDepartment dept="produkcja"><MixingTabletPage /></RequireDepartment>} />
+        <Route path="produkcja"        element={<RequireDepartment dept="produkcja"><ProductionTabletPage /></RequireDepartment>} />
       </Route>
       <Route path="/login"        element={<LoginPage />} />
       <Route path="/zmiana-hasla" element={<ChangePasswordPage />} />
