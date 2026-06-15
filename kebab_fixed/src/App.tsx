@@ -56,6 +56,9 @@ import { MobilePakowaniePage }      from '@/pages/mobile/MobilePakowaniePage'
 import { MobileWydanieLuzemPage }   from '@/pages/mobile/MobileWydanieLuzemPage'
 import { MobilePrzeplywPartiiPage } from '@/pages/mobile/MobilePrzeplywPartiiPage'
 import { MobileSztukaPage }         from '@/pages/mobile/MobileSztukaPage'
+import { LoginPage }               from '@/pages/auth/LoginPage'
+import { ChangePasswordPage }      from '@/pages/auth/ChangePasswordPage'
+import { PanelLoginPage }          from '@/pages/auth/PanelLoginPage'
 
 // ─── Blokada przypadkowego odświeżenia ───────────────────────
 function useBlockRefresh() {
@@ -150,6 +153,9 @@ export default function App() {
         <Route path="mieszanie-mobile" element={<MixingTabletPage />} />
         <Route path="produkcja" element={<ProductionTabletPage />} />
       </Route>
+      <Route path="/login"        element={<LoginPage />} />
+      <Route path="/zmiana-hasla" element={<ChangePasswordPage />} />
+      <Route path="/panel"        element={<PanelLoginPage />} />
       <Route path="*" element={<Navigate to="/office/dashboard" replace />} />
     </Routes>
   )
