@@ -7,6 +7,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { useHmiMode, setHmiMode, HMI_MODES, HMI_LABELS } from '@/features/deboning/useHmiMode'
+import { useAuth } from '@/features/auth/AuthContext'
 
 // Segmentowany przełącznik widoku rozbioru (Klasyczny / HMI v2 / HMI v3).
 // Wszystkie warianty dostępne do testów. Widoczny tylko na /tablet/rozbior.
@@ -50,6 +51,7 @@ function Clock() {
 export function TabletLayout() {
   const { pathname } = useLocation()
   const meta = PAGE_META[pathname] ?? { title: 'Hala', sub: '' }
+  const { user, logout } = useAuth()
 
   return (
     <div className="flex flex-col h-full bg-surface-2 overflow-hidden">
@@ -67,6 +69,11 @@ export function TabletLayout() {
         <div className="flex items-center gap-3">
           {pathname === '/tablet/rozbior' && <HmiToggle />}
           <Clock />
+          <div className="flex items-center gap-2">
+            <span>{user?.name}</span>
+            <button onClick={() => { logout(); location.href = '/panel' }}
+                    className="px-3 py-1 bg-gray-700 rounded">Wyloguj / zmień operatora</button>
+          </div>
         </div>
       </header>
 

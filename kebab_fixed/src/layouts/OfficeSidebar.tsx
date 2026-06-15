@@ -1,5 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/features/auth/AuthContext'
 import {
   LayoutDashboard, Package, Beef, ClipboardList, BookOpen,
   Layers, Users, UserCog, FlaskConical, ShoppingBag,
@@ -66,6 +67,7 @@ const TABLET_LINKS = [
 
 export function OfficeSidebar({ onClose }: { onClose?: () => void }) {
   const { pathname } = useLocation()
+  const { user } = useAuth()
 
   return (
     <aside className="w-56 h-full flex flex-col bg-white border-r border-gray-200 overflow-y-auto scrollbar-thin">
@@ -114,7 +116,7 @@ export function OfficeSidebar({ onClose }: { onClose?: () => void }) {
               </span>
             </div>
             <ul className="space-y-0.5">
-              {section.items.map(item => (
+              {section.items.filter(item => item.to !== '/office/uzytkownicy' || user?.role === 'admin').map(item => (
                 <li key={item.to}>
                   <NavLink
                     to={item.to}
