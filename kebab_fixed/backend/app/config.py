@@ -90,5 +90,11 @@ class Settings:
     admin_login: str = os.environ.get("ADMIN_LOGIN", "")
     admin_password: str = os.environ.get("ADMIN_PASSWORD", "")
 
+    # Sekret HMAC do tokenów renderowania PDF. Pusty = sekret efemeryczny
+    # losowany przy starcie (OK dla dev/jednego procesu). W produkcji ustaw
+    # stałą wartość w /opt/kebab/config/.env, aby tokeny były spójne między
+    # workerami gunicorna i przetrwały restart/deploy.
+    render_token_secret: str = os.environ.get("RENDER_TOKEN_SECRET", "")
+
 
 settings = Settings()

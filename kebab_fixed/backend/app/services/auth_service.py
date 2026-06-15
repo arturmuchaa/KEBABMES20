@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, status
 
 from app.auth.lockout import is_locked, register_failure
+from app.auth.session_policy import is_expired, next_expiry
 from app.db import execute, query_all, query_one
 from app.utils.ids import cuid, now_iso
 from app.utils.passwords import hash_secret, verify_secret
@@ -25,9 +26,9 @@ def _create_session(subject_type: str, subject_id: str, label: str) -> str:
     token = _new_token()
     ts = now_iso()
     execute(
-        "INSERT INTO sessions (token, subject_type, subject_id, label, created_at, last_seen) "
-        "VALUES (%s,%s,%s,%s,%s,%s)",
-        (token, subject_type, subject_id, label, ts, ts),
+        "INSERT INTO sessions (token, subject_type, subject_id, label, created_at, last_seen, expires_at) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        (token, subject_type, subject_id, label, ts, ts, next_expiry(_now())),
     )
     return token
 
@@ -99,7 +100,15 @@ def resolve_session(token: str) -> dict | None:
     s = query_one("SELECT * FROM sessions WHERE token=%s", (token,))
     if not s:
         return None
-    execute("UPDATE sessions SET last_seen=%s WHERE token=%s", (now_iso(), token))
+    now = _now()
+    if is_expired(s.get("expires_at"), now):
+        execute("DELETE FROM sessions WHERE token=%s", (token,))
+        return None
+    # Sliding expiration: każde użycie przesuwa wygaśnięcie o pełny TTL.
+    execute(
+        "UPDATE sessions SET last_seen=%s, expires_at=%s WHERE token=%s",
+        (now_iso(), next_expiry(now), token),
+    )
     if s["subject_type"] == "office":
         u = query_one("SELECT * FROM app_users WHERE id=%s", (s["subject_id"],))
         if not u or not u["active"]:

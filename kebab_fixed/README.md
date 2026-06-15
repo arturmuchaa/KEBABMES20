@@ -7,7 +7,7 @@ System MES do zarządzania produkcją kebaba: rozbiór, masowanie, receptury, ma
 ```
 kebab/
 ├── backend/          # Python FastAPI + PostgreSQL
-│   ├── server_pg.py  # API (FastAPI)
+│   ├── app/          # API (FastAPI) — entrypoint app.main:app
 │   ├── init_db.py    # Tworzenie / migracja bazy
 │   └── requirements_pg.txt
 ├── src/              # Frontend React + Vite + TypeScript
@@ -68,7 +68,7 @@ server {
 ```bash
 cd backend
 pip3 install -r requirements_pg.txt
-uvicorn server_pg:app --host 0.0.0.0 --port 8000
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ## Uruchomienie frontendu (dev)
