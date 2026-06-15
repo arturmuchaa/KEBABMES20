@@ -339,9 +339,9 @@ export const clientsApi = {
 // ─── Pracownicy ───────────────────────────────────────────────
 export const usersApi = {
   list:   () => get<User[]>('/workers'),
-  create: (dto: { name: string; role: string; pin?: string; ratePerKg?: number; contractType?: string; employerCostAmount?: number }) =>
+  create: (dto: { name: string; role: string; pin?: string; departments?: string[]; ratePerKg?: number; contractType?: string; employerCostAmount?: number }) =>
     post<User>('/workers', toSnake(dto)),
-  update: (id: string, dto: { name?: string; role?: string; pin?: string; ratePerKg?: number; contractType?: string; employerCostAmount?: number; active?: boolean }) =>
+  update: (id: string, dto: { name?: string; role?: string; pin?: string; departments?: string[]; ratePerKg?: number; contractType?: string; employerCostAmount?: number; active?: boolean }) =>
     put<User>(`/workers/${id}`, toSnake(dto)),
 }
 
