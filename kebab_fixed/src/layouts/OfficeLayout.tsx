@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import pkg from '../../package.json'
 import { ZoomControls } from '@/features/ui/ZoomControls'
 import { useZoomInit } from '@/features/ui/useZoom'
+import { useAuth } from '@/features/auth/AuthContext'
 
 const APP_VERSION = pkg.version
 
@@ -41,6 +42,7 @@ export function OfficeLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   useEffect(() => { setMobileOpen(false) }, [pathname])
   useZoomInit()
+  const { user, logout } = useAuth()
 
   const today = new Date()
   const dateStr = today.toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -116,13 +118,9 @@ export function OfficeLayout() {
 
             {/* User avatar */}
             <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
-              <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-[11px] font-bold text-white shadow-sm">
-                AM
-              </div>
-              <div className="hidden sm:block">
-                <div className="text-[12px] font-semibold text-gray-700 leading-none">Admin</div>
-                <div className="text-[10px] text-gray-400 leading-none mt-0.5">MES System</div>
-              </div>
+              <span className="text-sm text-gray-600">{user?.name}</span>
+              <button onClick={() => { logout(); location.href = '/login' }}
+                      className="text-sm text-red-600">Wyloguj</button>
             </div>
           </div>
         </header>

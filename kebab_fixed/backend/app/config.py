@@ -87,5 +87,8 @@ class Settings:
     # Ustaw w /opt/kebab/config/.env żeby wymusić hard-fail bez tokenu.
     admin_token: str = os.environ.get("ADMIN_TOKEN", "")
 
+    admin_login: str = os.environ.get("ADMIN_LOGIN", "")
+    admin_password: str = os.environ.get("ADMIN_PASSWORD", "")
+
 
 settings = Settings()

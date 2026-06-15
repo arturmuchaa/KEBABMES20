@@ -16,6 +16,7 @@ from app.db import (
 from app.logging_config import get_logger
 from app.models.workers import CreateSettlementDto, WorkerCreate, WorkerUpdate
 from app.utils.ids import cuid, now_iso
+from app.utils.passwords import hash_secret
 
 logger = get_logger(__name__)
 
@@ -27,21 +28,24 @@ def list_workers() -> List[Dict]:
 
 
 def create_worker(dto: WorkerCreate) -> Dict:
+    pin_hash = hash_secret(dto.pin) if dto.pin else None
+    departments_json = json.dumps(dto.departments or [])
     with transaction() as conn:
         row = cx_execute_returning(
             conn,
             """
             INSERT INTO workers
-                (id, name, role, pin, active, rate_per_kg,
+                (id, name, role, pin, pin_hash, departments, active, rate_per_kg,
                  contract_type, employer_cost_amount, created_at)
-            VALUES (%s,%s,%s,%s,true,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s)
             RETURNING *
             """,
             (
                 cuid(),
                 dto.name,
                 dto.role,
-                dto.pin or None,
+                pin_hash,
+                departments_json,
                 dto.rate_per_kg,
                 dto.contract_type,
                 dto.employer_cost_amount,
@@ -69,8 +73,10 @@ def update_worker(worker_id: str, dto: WorkerUpdate) -> Dict:
             fields.append("role=%s")
             vals.append(dto.role)
         if dto.pin is not None:
-            fields.append("pin=%s")
-            vals.append(dto.pin or None)
+            if dto.pin:
+                fields.append("pin_hash=%s")
+                vals.append(hash_secret(dto.pin))
+            # never store plaintext pin; leave pin column untouched
         if dto.rate_per_kg is not None:
             fields.append("rate_per_kg=%s")
             vals.append(dto.rate_per_kg)
@@ -83,6 +89,9 @@ def update_worker(worker_id: str, dto: WorkerUpdate) -> Dict:
         if dto.active is not None:
             fields.append("active=%s")
             vals.append(dto.active)
+        if dto.departments is not None:
+            fields.append("departments=%s")
+            vals.append(json.dumps(dto.departments))
         if not fields:
             return existing
         vals.append(worker_id)

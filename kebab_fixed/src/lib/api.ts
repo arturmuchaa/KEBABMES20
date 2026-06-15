@@ -5,6 +5,7 @@
  *
  * BUGFIX: mapowanie snake_case (Python backend) → camelCase (TypeScript frontend)
  */
+import { tokenStore } from '@/features/auth/storage'
 import type {
   RawBatch, Supplier, User,
   CreateRawBatchDto, CreateSupplierDto, Paginated,
@@ -39,18 +40,29 @@ import type {
 // Wykrywamy środowisko Tauri przez window.__TAURI_INTERNALS__ ustawiane przez runtime.
 const _isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
-const BASE = (() => {
+export const BASE = (() => {
   if (import.meta.env.VITE_API_URL) return `${import.meta.env.VITE_API_URL}/api`
   if (_isTauri) return 'http://204.168.166.34:8080/api'  // fallback dla Tauri bez zmiennej (nginx MES = port 8080)
   return '/api'  // przeglądarka — nginx proxy
 })()
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const token = tokenStore.get()
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
+  if (res.status === 401) {
+    tokenStore.clear()
+    if (!location.pathname.startsWith('/login') && !location.pathname.startsWith('/panel')) {
+      location.href = '/login'
+    }
+    throw new Error('Sesja wygasła')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     const msg = err.detail || err.message || `HTTP ${res.status}`
@@ -327,9 +339,9 @@ export const clientsApi = {
 // ─── Pracownicy ───────────────────────────────────────────────
 export const usersApi = {
   list:   () => get<User[]>('/workers'),
-  create: (dto: { name: string; role: string; pin?: string; ratePerKg?: number; contractType?: string; employerCostAmount?: number }) =>
+  create: (dto: { name: string; role: string; pin?: string; departments?: string[]; ratePerKg?: number; contractType?: string; employerCostAmount?: number }) =>
     post<User>('/workers', toSnake(dto)),
-  update: (id: string, dto: { name?: string; role?: string; pin?: string; ratePerKg?: number; contractType?: string; employerCostAmount?: number; active?: boolean }) =>
+  update: (id: string, dto: { name?: string; role?: string; pin?: string; departments?: string[]; ratePerKg?: number; contractType?: string; employerCostAmount?: number; active?: boolean }) =>
     put<User>(`/workers/${id}`, toSnake(dto)),
 }
 
@@ -1208,7 +1220,7 @@ export const carriersApi = {
 export interface CmrGoodsLine { name: string; qty: number; kg: number }
 export interface CmrFormInput {
   carrier_id: string; plate: string; invoice_no: string; instructions: string
-  franco: string; goods_manual: CmrGoodsLine[]
+  franco?: string; goods_manual: CmrGoodsLine[]
 }
 export interface CmrListRow {
   id: string; number: string; clientName: string; status: string; issueDate: string; createdAt: string
@@ -1778,3 +1790,5 @@ export type {
 } from './mockApi'
 
 export { INVOICE_CATEGORY_LABELS } from './mockApi'
+
+export { BASE as API_BASE }

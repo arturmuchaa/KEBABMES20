@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 
+from app.auth.render_token import make_render_token
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -25,6 +26,12 @@ def find_chrome() -> str | None:
         if os.path.exists(path):
             return path
     return None
+
+
+def _with_render_token(url: str) -> str:
+    tok = make_render_token(ttl=120)   # NO secret arg — uses shared _DEFAULT_SECRET
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}render_token={tok}"
 
 
 def render_url_to_pdf(url: str, timeout: int = 45) -> bytes:
@@ -48,7 +55,7 @@ def render_url_to_pdf(url: str, timeout: int = 45) -> bytes:
             # Daj czas Reactowi na pobranie danych i render przed zrzutem.
             "--virtual-time-budget=8000",
             f"--print-to-pdf={out_path}",
-            url,
+            _with_render_token(url),
         ]
         proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
         if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:

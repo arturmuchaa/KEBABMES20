@@ -58,7 +58,9 @@ function initials(name: string) {
   return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
 }
 
-const BLANK_FORM = { login: '', name: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', contractType: 'zlecenie', employerCostAmount: '0' }
+const ALL_DEPTS = ['rozbior', 'produkcja', 'pakowanie', 'wydanie'] as const
+
+const BLANK_FORM = { login: '', name: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', contractType: 'zlecenie', employerCostAmount: '0', pin: '', departments: [] as string[] }
 
 export function WorkersPage() {
   const { data, loading, refetch } = useApi(() => usersApi.list())
@@ -68,7 +70,9 @@ export function WorkersPage() {
   const [editForm, setEditForm] = useState({ ...BLANK_FORM })
 
   const createMut = useMutation((d: typeof form) => usersApi.create({
-    name: d.name, role: d.role, pin: '',
+    name: d.name, role: d.role,
+    pin: d.pin || undefined,
+    departments: d.departments,
     ratePerKg: parseFloat(d.ratePerKg) || 0,
     contractType: d.contractType,
     employerCostAmount: parseFloat(d.employerCostAmount) || 0,
@@ -76,6 +80,8 @@ export function WorkersPage() {
   const updateMut = useMutation((d: { id: string } & typeof editForm) =>
     usersApi.update(d.id, {
       name: d.name, role: d.role,
+      pin: d.pin || undefined,
+      departments: d.departments,
       ratePerKg: parseFloat(d.ratePerKg) || 0,
       contractType: d.contractType,
       employerCostAmount: parseFloat(d.employerCostAmount) || 0,
@@ -116,6 +122,8 @@ export function WorkersPage() {
       ratePerKg: String((u as any).ratePerKg ?? (u as any).rate_per_kg ?? 0),
       contractType: (u as any).contractType ?? (u as any).contract_type ?? 'zlecenie',
       employerCostAmount: String((u as any).employerCostAmount ?? (u as any).employer_cost_amount ?? 0),
+      pin: '',
+      departments: (u as any).departments ?? [],
     })
   }
 
@@ -327,7 +335,7 @@ export function WorkersPage() {
 
 // ─── Reusable form component ──────────────────────────────────
 function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles }: {
-  form: { login: string; name: string; role: string; ratePerKg: string; contractType: string; employerCostAmount: string }
+  form: { login: string; name: string; role: string; ratePerKg: string; contractType: string; employerCostAmount: string; pin: string; departments: string[] }
   setForm: React.Dispatch<React.SetStateAction<any>>
   onRoleChange: (role: string) => void
   onNameChange: (name: string) => void
@@ -425,6 +433,41 @@ function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles
                 value={form.employerCostAmount}
                 onChange={e => setForm((f: any) => ({ ...f, employerCostAmount: e.target.value }))} />
               <p className="text-[10px] text-muted-foreground">Zostanie uwzględnione w kalkulacji kosztów wyrobu gotowego</p>
+            </div>
+          </div>
+          <Separator />
+          <div className="space-y-3">
+            <Label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">PIN i działy</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs">PIN (opcjonalny)</Label>
+              <Input
+                value={form.pin ?? ''}
+                onChange={e => setForm((f: any) => ({ ...f, pin: e.target.value }))}
+                placeholder="np. 1234"
+                inputMode="numeric"
+                maxLength={8}
+              />
+              <p className="text-[10px] text-muted-foreground">Służy do logowania na panelu tabletu</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Działy (dostęp do paneli)</Label>
+              <div className="flex flex-wrap gap-3 pt-1">
+                {ALL_DEPTS.map(d => (
+                  <label key={d} className="flex items-center gap-1 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={(form.departments ?? []).includes(d)}
+                      onChange={e => setForm((f: any) => ({
+                        ...f,
+                        departments: e.target.checked
+                          ? [...(f.departments ?? []), d]
+                          : (f.departments ?? []).filter((x: string) => x !== d),
+                      }))}
+                    />
+                    {d}
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
         </>

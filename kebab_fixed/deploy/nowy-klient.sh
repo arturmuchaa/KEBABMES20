@@ -30,6 +30,7 @@ read -rp "Moduły (pusto=wszystkie, np. 'rozbior'): " MODULES
 
 PASS="$(openssl rand -hex 24)"
 ADMIN="$(openssl rand -hex 24)"
+ADMIN_PW="$(openssl rand -hex 16)"
 
 mkdir -p "$CLIENT_DIR"
 cat > "$ENV_FILE" <<EOF
@@ -45,6 +46,8 @@ MODULES=$MODULES
 CORS_ORIGINS=*
 DATAPORT_API_KEY=
 ADMIN_TOKEN=$ADMIN
+ADMIN_LOGIN=admin
+ADMIN_PASSWORD=$ADMIN_PW
 EOF
 chmod 600 "$ENV_FILE"
 echo "Zapisano $ENV_FILE (sekrety wygenerowane losowo — TRZYMAJ POZA GITEM)."
@@ -56,6 +59,7 @@ cat <<EOF
 
 ✅ GOTOWE — klient '$SLUG'
    UI/API:   http://<host>:$APP_PORT
+   Konto biura: admin / $ADMIN_PW  (zmień po 1. logowaniu)
    Projekt:  kebab-$SLUG
    Logi:     docker compose -p kebab-$SLUG -f deploy/docker-compose.yml logs -f
    Backup:   docker exec kebab-$SLUG-db-1 pg_dump -U kebab kebab_mes > backup-$SLUG.sql
