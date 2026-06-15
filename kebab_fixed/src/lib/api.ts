@@ -5,6 +5,7 @@
  *
  * BUGFIX: mapowanie snake_case (Python backend) → camelCase (TypeScript frontend)
  */
+import { tokenStore } from '@/features/auth/storage'
 import type {
   RawBatch, Supplier, User,
   CreateRawBatchDto, CreateSupplierDto, Paginated,
@@ -39,18 +40,29 @@ import type {
 // Wykrywamy środowisko Tauri przez window.__TAURI_INTERNALS__ ustawiane przez runtime.
 const _isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
-const BASE = (() => {
+export const BASE = (() => {
   if (import.meta.env.VITE_API_URL) return `${import.meta.env.VITE_API_URL}/api`
   if (_isTauri) return 'http://204.168.166.34:8080/api'  // fallback dla Tauri bez zmiennej (nginx MES = port 8080)
   return '/api'  // przeglądarka — nginx proxy
 })()
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const token = tokenStore.get()
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
+  if (res.status === 401) {
+    tokenStore.clear()
+    if (!location.pathname.startsWith('/login') && !location.pathname.startsWith('/panel')) {
+      location.href = '/login'
+    }
+    throw new Error('Sesja wygasła')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     const msg = err.detail || err.message || `HTTP ${res.status}`
@@ -1778,3 +1790,5 @@ export type {
 } from './mockApi'
 
 export { INVOICE_CATEGORY_LABELS } from './mockApi'
+
+export { BASE as API_BASE }
