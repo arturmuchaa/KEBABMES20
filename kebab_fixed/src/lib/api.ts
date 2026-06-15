@@ -1220,7 +1220,7 @@ export const carriersApi = {
 export interface CmrGoodsLine { name: string; qty: number; kg: number }
 export interface CmrFormInput {
   carrier_id: string; plate: string; invoice_no: string; instructions: string
-  franco: string; goods_manual: CmrGoodsLine[]
+  franco?: string; goods_manual: CmrGoodsLine[]
 }
 export interface CmrListRow {
   id: string; number: string; clientName: string; status: string; issueDate: string; createdAt: string
