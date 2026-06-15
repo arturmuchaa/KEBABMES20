@@ -6,6 +6,7 @@ import './index.css'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
 import { ErrorBoundary, installGlobalErrorLogger } from '@/components/ErrorBoundary'
+import { AuthProvider } from '@/features/auth/AuthContext'
 
 installGlobalErrorLogger()
 
@@ -13,10 +14,12 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <BrowserRouter>
-        <TooltipProvider delayDuration={300}>
-          <App />
-          <Toaster richColors closeButton />
-        </TooltipProvider>
+        <AuthProvider>
+          <TooltipProvider delayDuration={300}>
+            <App />
+            <Toaster richColors closeButton />
+          </TooltipProvider>
+        </AuthProvider>
       </BrowserRouter>
     </ErrorBoundary>
   </React.StrictMode>,
