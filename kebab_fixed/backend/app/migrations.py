@@ -509,6 +509,13 @@ _DDL: list[str] = [
     )""",
     # Bazy utworzone przed dodaniem idle-timeoutu sesji mogą nie mieć kolumny.
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ",
+
+    # ── Przyprawione: rozdzielenie partii per (produkt + surowiec + dzień) ──
+    "ALTER TABLE seasoned_meat ADD COLUMN IF NOT EXISTS production_day date DEFAULT CURRENT_DATE",
+    "UPDATE seasoned_meat SET production_day = created_at::date WHERE production_day IS NULL",
+    "ALTER TABLE seasoned_meat DROP CONSTRAINT IF EXISTS seasoned_meat_batch_no_key",
+    "CREATE UNIQUE INDEX IF NOT EXISTS seasoned_meat_recipe_batch_day_key "
+    "ON seasoned_meat (recipe_id, batch_no, production_day)",
 ]
 
 
