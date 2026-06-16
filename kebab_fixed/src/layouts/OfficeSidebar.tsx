@@ -44,6 +44,7 @@ const NAV: NavSection[] = [
     { to: '/office/szablony-etykiet',     label: 'Szablony etykiet',  icon: <QrCode size={14} /> },
     { to: '/office/planowanie-masowania', label: 'Plan. masowania',   icon: <Layers size={14} /> },
     { to: '/office/historia-masowania',   label: 'Historia masowania', icon: <History size={14} /> },
+    { to: '/office/historia-produkcji',   label: 'Historia produkcji', icon: <History size={14} /> },
     { to: '/office/planowanie-produkcji', label: 'Plan. produkcji',   icon: <Factory size={14} /> },
     { to: '/office/kalkulacja-kosztow',   label: 'Kalkulacja cen', icon: <Calculator size={14} /> },
   ]},
