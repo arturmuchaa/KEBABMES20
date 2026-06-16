@@ -11,7 +11,7 @@ export interface BatchCandidate {
   rawBatchNo:     string
   materialTypeId: string
   materialName:   string
-  kgFree:         number   // kgAvailable - kgReserved
+  kgFree:         number   // wolne kg (kgAvailable z mapMeatStock = kg_free, już netto)
   expiryDate:     string
   expiryStatus:   string   // 'OK' | 'SOON' | 'EXPIRED' | ...
 }
@@ -49,7 +49,7 @@ export function buildBatchCandidates(
       rawBatchNo:     m.rawBatchNo ?? '',
       materialTypeId: m.materialTypeId ?? '',
       materialName:   m.materialName ?? '',
-      kgFree:         Math.max(0, Number(m.kgAvailable ?? 0) - Number(m.kgReserved ?? 0)),
+      kgFree:         Math.max(0, Number(m.kgAvailable ?? 0)),
       expiryDate:     m.expiryDate ?? '',
       expiryStatus:   m.expiryStatus ?? 'OK',
     }))
