@@ -52,8 +52,8 @@ function SegFilter({ value, onChange }: { value: StatusFilter; onChange: (v: Sta
   return (
     <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-surface-3 border border-surface-4">
       {STATUS_TABS.map(t => (
-        <button key={t.key} type="button" onClick={() => onChange(t.key)}
-          className={cn('h-7 px-3 rounded-md text-[12px] font-semibold transition-colors',
+        <button key={t.key} type="button" aria-pressed={value === t.key} onClick={() => onChange(t.key)}
+          className={cn('h-7 px-3 rounded-md text-[12px] font-semibold transition-colors cursor-pointer',
             value === t.key ? 'bg-white text-ink shadow-sm' : 'text-ink-3 hover:text-ink')}>
           {t.label}
         </button>
@@ -94,7 +94,7 @@ function OrderCard({ o }: { o: any }) {
               {st.icon}{st.label}
             </Badge>
           </div>
-          <div className="mt-0.5 font-mono text-[11px] text-ink-4">{o.orderNo}</div>
+          <div className="mt-0.5 font-mono text-[11px] text-ink-3">{o.orderNo}</div>
 
           <div className="mt-2.5 flex items-center gap-2 flex-wrap text-[12px]">
             {rawBatches.length > 0 && (
@@ -126,8 +126,8 @@ function OrderCard({ o }: { o: any }) {
           <div className="mt-1.5 h-1.5 rounded-full bg-surface-4 overflow-hidden">
             <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${pct}%` }} />
           </div>
-          <div className="mt-1 text-[11px] text-ink-4">
-            uzysk <span className="font-semibold text-ink-3 tabular-nums">{fmtKg(kgOutput, 0)} kg</span>
+          <div className="mt-1 text-[11px] text-ink-3">
+            uzysk <span className="font-semibold text-ink-2 tabular-nums">{fmtKg(kgOutput, 0)} kg</span>
             {sessions.length > 0 && (
               <ChevronDown size={13} className={cn('inline ml-1 transition-transform text-ink-4', open && 'rotate-180')} />
             )}
@@ -220,14 +220,14 @@ export function MixingHistoryPage() {
             </div>
             <div className="relative w-64">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-4" />
-              <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Szukaj: produkt, partia, nr…" className="pl-9 h-9 bg-white" />
+              <Input value={q} onChange={e => setQ(e.target.value)} aria-label="Szukaj w historii masowania" placeholder="Szukaj: produkt, partia, nr…" className="pl-9 h-9 bg-white" />
             </div>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             <SegFilter value={status} onChange={setStatus} />
             <div className="flex items-center gap-1.5">
               <CalendarDays size={14} className="text-ink-4" />
-              <Input type="date" value={date} onChange={e => setDate(e.target.value)} className="h-7 w-40 bg-white text-[12px]" />
+              <Input type="date" value={date} onChange={e => setDate(e.target.value)} aria-label="Filtruj po dacie" className="h-7 w-40 bg-white text-[12px]" />
               {date && (
                 <button onClick={() => setDate('')} className="text-[12px] text-ink-3 hover:text-ink underline">wyczyść</button>
               )}
@@ -255,8 +255,8 @@ export function MixingHistoryPage() {
               const isOpen = forceOpen || openDays.has(d.key)
               return (
                 <section key={d.key} className="rounded-xl border border-surface-4 bg-white overflow-hidden">
-                  <button onClick={() => toggleDay(d.key)}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors">
+                  <button onClick={() => toggleDay(d.key)} aria-expanded={isOpen}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors cursor-pointer">
                     <ChevronDown size={16} className={cn('text-ink-4 transition-transform', isOpen && 'rotate-180')} />
                     <CalendarDays size={16} className="text-brand" />
                     <span className="text-[15px] font-extrabold text-ink capitalize">{d.weekday}</span>
