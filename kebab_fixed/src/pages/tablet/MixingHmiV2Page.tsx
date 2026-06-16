@@ -307,8 +307,23 @@ function ListScreenV2({
                     </div>
                   </div>
                 )}
+                {o.meatLots.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {o.meatLots.slice(0, 4).map((lot: any) => (
+                      <span key={lot.meatLotId}
+                        className="inline-flex items-center gap-1.5 text-[12px] font-bold px-2.5 py-1 rounded-full"
+                        style={{ background: 'var(--bd)', color: 'var(--ink)' }}>
+                        <Beef size={11} /> {lot.rawBatchNo || lot.meatLotNo} · {fmtKg(lot.kgPlanned, 0)} kg
+                      </span>
+                    ))}
+                    {o.meatLots.length > 4 && (
+                      <span className="text-[12px] font-bold px-2 py-1" style={{ color: 'var(--mut)' }}>
+                        +{o.meatLots.length - 4}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div className="flex gap-4 mt-2 text-[13px]" style={{ color: 'var(--mut)' }}>
-                  <span className="flex items-center gap-1"><Beef size={13} /> {o.meatLots.length} partie</span>
                   <span>{o.steps.length} składników</span>
                 </div>
               </button>
