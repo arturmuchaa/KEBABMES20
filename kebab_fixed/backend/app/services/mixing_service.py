@@ -206,6 +206,45 @@ def get_mixing_order(order_id: str) -> Dict:
 
 # ── Rezerwacja lotów (wspólne helpery) ─────────────────────────────────
 
+RESERVE_TOLERANCE_KG = 0.1
+
+
+def normalize_reservation_lots(lots: List[Dict[str, Any]]) -> List[Tuple[str, float]]:
+    """Czysta logika: [{meatLotId|meat_lot_id, kgPlanned|kg_planned}] →
+    posortowana po id lista (ms_id, kg). Pomija pozycje bez id lub z kg<=0.
+
+    Sort po id jest deterministyczny — gwarantuje stałą kolejność blokad
+    SELECT ... FOR UPDATE (anty-deadlock przy współbieżnych zleceniach).
+    Akceptuje oba formaty kluczy (camelCase z frontu, snake_case z backendu).
+    """
+    norm = [
+        (
+            str(l.get("meatLotId") or l.get("meat_lot_id") or ""),
+            float(l.get("kgPlanned") or l.get("kg_planned") or 0),
+        )
+        for l in lots
+    ]
+    return sorted(
+        [(ms_id, kg) for ms_id, kg in norm if ms_id and kg > 0],
+        key=lambda x: x[0],
+    )
+
+
+def free_kg(available: Any, reserved: Any) -> float:
+    """Wolne kg partii = dostępne - zarezerwowane (oba mogą być None)."""
+    return float(available or 0) - float(reserved or 0)
+
+
+def has_enough_free(
+    available: Any,
+    reserved: Any,
+    kg_needed: float,
+    tolerance: float = RESERVE_TOLERANCE_KG,
+) -> bool:
+    """Czy partia ma wolne kg na rezerwację (z tolerancją zaokrągleń wag)."""
+    return free_kg(available, reserved) >= float(kg_needed) - tolerance
+
+
 def _reserve_order_lots_cx(
     conn, order_id: str, lots: List[Dict[str, Any]]
 ) -> None:
@@ -216,25 +255,16 @@ def _reserve_order_lots_cx(
     wolne kg (available - reserved) i podnosi kg_reserved + wstawia
     mixing_order_lots. Wyciągnięte z create_mixing_order.
     """
-    norm = [
-        (
-            str(l.get("meatLotId") or l.get("meat_lot_id") or ""),
-            float(l.get("kgPlanned") or l.get("kg_planned") or 0),
-        )
-        for l in lots
-    ]
-    for ms_id, kg_planned in sorted(norm, key=lambda x: x[0]):
-        if not ms_id or kg_planned <= 0:
-            continue
+    for ms_id, kg_planned in normalize_reservation_lots(lots):
         locked = cx_query_one(
             conn, "SELECT * FROM meat_stock WHERE id=%s FOR UPDATE", (ms_id,)
         )
         if not locked:
             raise HTTPException(400, f"Partia mięsa nie znaleziona: {ms_id}")
-        available = float(locked.get("kg_available") or 0)
-        reserved = float(locked.get("kg_reserved") or 0)
-        free = available - reserved
-        if free < kg_planned - 0.1:
+        if not has_enough_free(
+            locked.get("kg_available"), locked.get("kg_reserved"), kg_planned
+        ):
+            free = free_kg(locked.get("kg_available"), locked.get("kg_reserved"))
             raise HTTPException(
                 400,
                 f"Niewystarczające kg w partii {locked.get('lot_no','?')}: "
