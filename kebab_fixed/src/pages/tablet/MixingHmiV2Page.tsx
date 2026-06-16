@@ -14,6 +14,8 @@ import {
   Play, CheckCircle, AlertTriangle, Lock, Timer,
   ClipboardList, Home, LogOut, CalendarDays, RefreshCw, Beef, RotateCcw,
 } from 'lucide-react'
+import { BatchPickerSheet } from '@/pages/tablet/mixing/BatchPickerSheet'
+import type { RawMeatStock, BatchCandidate } from '@/pages/tablet/mixing/batchCandidates'
 
 // ─── Paleta Porcelana ─────────────────────────────────────────────────────────
 const VARS: CSSProperties = {
@@ -457,24 +459,61 @@ interface MeatScreenLot {
   kgPlanned: number; expiryDate: string
 }
 
-function MeatScreenV2({ order, availableLots, onConfirm, onBack }: {
+function MeatScreenV2({ order, availableLots, rawMeatStock = [], onConfirm, onBack }: {
   order: MixingOrder; availableLots?: MeatScreenLot[]
+  rawMeatStock?: RawMeatStock[]
   onConfirm: (allocs: { meatLotId: string; kg: number }[], total: number) => void
   onBack: () => void
 }) {
   const kgRemaining = (order as any).kgRemaining ?? order.meatKg
-  const lots: MeatScreenLot[] = order.meatLots.length > 0 ? (order.meatLots as any) : (availableLots ?? [])
+  const initialLots: MeatScreenLot[] = order.meatLots.length > 0 ? (order.meatLots as any) : (availableLots ?? [])
+  // Lokalna kopia wierszy — pozwala podmienić partię (warstwa 1: ślad przez lotAllocations).
+  const [lots, setLots] = useState<MeatScreenLot[]>(initialLots)
+  const [pickerForLotId, setPickerForLotId] = useState<string | null>(null)
+
+  // Maks kg per wiersz: kgPlanned planowanej, a po podmianie — wolne kg ze stanu.
+  const [maxKgByLot, setMaxKgByLot] = useState<Record<string, number>>(() => {
+    const m: Record<string, number> = {}
+    initialLots.forEach(l => { m[l.meatLotId] = l.kgPlanned })
+    return m
+  })
+
+  // Materiał wymagany = materiał pierwszej planowanej partii (gdy znaleziony w stanie).
+  const requiredMaterialTypeId = (() => {
+    const first = initialLots[0]
+    const match = rawMeatStock.find(s => String(s.id) === String(first?.meatLotId))
+    return match?.materialTypeId ?? null
+  })()
+
   const [lotKgs, setLotKgs] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
     lots.forEach(lot => { init[lot.meatLotId] = '' })
     return init
   })
+
+  function applyBatchSwap(oldLotId: string, c: BatchCandidate) {
+    setLots(prev => prev.map(l => l.meatLotId === oldLotId ? {
+      meatLotId: c.meatStockId, meatLotNo: c.lotNo, rawBatchNo: c.rawBatchNo,
+      kgPlanned: c.kgFree, expiryDate: c.expiryDate,
+    } : l))
+    setMaxKgByLot(prev => {
+      const { [oldLotId]: _drop, ...rest } = prev
+      return { ...rest, [c.meatStockId]: c.kgFree }
+    })
+    setLotKgs(prev => {
+      const { [oldLotId]: _drop, ...rest } = prev
+      return { ...rest, [c.meatStockId]: '' }
+    })
+    setPickerForLotId(null)
+  }
+
   const totalKg = Object.values(lotKgs).reduce((s, v) => s + (parseFloat(v) || 0), 0)
   const isOverRemaining = totalKg > kgRemaining + 0.01
   const lotErrors: Record<string, string> = {}
   lots.forEach(lot => {
-    const kg = parseFloat(lotKgs[lot.meatLotId] || '0') || 0
-    if (kg > lot.kgPlanned + 0.01) lotErrors[lot.meatLotId] = `Maks. ${fmtKg(lot.kgPlanned)} kg`
+    const kg  = parseFloat(lotKgs[lot.meatLotId] || '0') || 0
+    const max = maxKgByLot[lot.meatLotId] ?? lot.kgPlanned
+    if (kg > max + 0.01) lotErrors[lot.meatLotId] = `Maks. ${fmtKg(max)} kg`
   })
   const hasErrors = Object.keys(lotErrors).length > 0 || isOverRemaining
   const canConfirm = totalKg > 0 && !hasErrors
@@ -500,14 +539,21 @@ function MeatScreenV2({ order, availableLots, onConfirm, onBack }: {
                 borderColor: err ? 'var(--red)' : hasKg ? 'var(--grn)' : 'var(--bd)',
                 background: 'var(--panel)',
               }}>
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 gap-2">
                 <span className="font-mono text-[18px] font-black" style={{ color: 'var(--blu)' }}>{lot.meatLotNo}</span>
                 <span className="text-[13px] font-bold" style={{ color: 'var(--mut)' }}>{lot.rawBatchNo}</span>
-                <span className="text-[14px] font-bold" style={{ color: 'var(--mut)' }}>maks. {fmtKg(lot.kgPlanned)} kg</span>
+                <span className="text-[14px] font-bold" style={{ color: 'var(--mut)' }}>
+                  maks. {fmtKg(maxKgByLot[lot.meatLotId] ?? lot.kgPlanned)} kg
+                </span>
+                <button type="button" onClick={() => setPickerForLotId(lot.meatLotId)}
+                  className="text-[13px] font-bold px-3 py-1.5 rounded-lg border-2 active:scale-95"
+                  style={{ borderColor: 'var(--blu)', color: 'var(--blu)' }}>
+                  Zmień partię
+                </button>
               </div>
               <div className="flex items-baseline gap-2">
                 <input type="number" inputMode="decimal" min="0" step="0.1"
-                  max={lot.kgPlanned}
+                  max={maxKgByLot[lot.meatLotId] ?? lot.kgPlanned}
                   placeholder="0"
                   value={lotKgs[lot.meatLotId]}
                   onFocus={e => e.target.select()}
@@ -560,6 +606,17 @@ function MeatScreenV2({ order, availableLots, onConfirm, onBack }: {
           <Beef size={22} /> Przelicz składniki
         </HmiBtn>
       </div>
+
+      {pickerForLotId && (
+        <BatchPickerSheet
+          rawStock={rawMeatStock}
+          requiredMaterialTypeId={requiredMaterialTypeId}
+          neededKg={parseFloat(lotKgs[pickerForLotId] || '0') || (maxKgByLot[pickerForLotId] ?? 0)}
+          excludeStockIds={lots.map(l => l.meatLotId).filter(id => id !== pickerForLotId)}
+          onPick={c => applyBatchSwap(pickerForLotId, c)}
+          onClose={() => setPickerForLotId(null)}
+        />
+      )}
     </div>
   )
 }
@@ -1005,6 +1062,7 @@ function MixingHmiV2Main() {
       )}
       {phase === 'meat' && liveOrder && (
         <MeatScreenV2 order={liveOrder} availableLots={availableMeatLots}
+          rawMeatStock={(meatStockData as any)?.data ?? []}
           onConfirm={handleMeatConfirm} onBack={() => setPhase('machine')} />
       )}
       {phase === 'steps' && liveOrder && (
