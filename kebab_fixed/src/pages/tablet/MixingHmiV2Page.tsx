@@ -216,15 +216,20 @@ function ListScreenV2({
   if (orders.length === 0) {
     const hasInProgress = inProgress.length > 0
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 p-10">
-        <Lock size={64} style={{ color: hasInProgress ? 'var(--amb)' : 'var(--mut)' }} />
-        <div className="text-3xl font-black" style={{ color: 'var(--ink)' }}>
-          {hasInProgress ? 'Masowanie w toku' : 'Brak zleceń'}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="max-w-2xl mx-auto px-6 py-10 flex flex-col items-center gap-4">
+          <Lock size={64} style={{ color: hasInProgress ? 'var(--amb)' : 'var(--mut)' }} />
+          <div className="text-3xl font-black" style={{ color: 'var(--ink)' }}>
+            {hasInProgress ? 'Masowanie w toku' : 'Brak zleceń'}
+          </div>
+          <div className="text-lg text-center" style={{ color: 'var(--mut)' }}>
+            {hasInProgress
+              ? `Pozostało ${fmtKg(inProgress.reduce((s, o: any) => s + ((o.kgRemaining ?? o.meatKg) || 0), 0), 0)} kg — masownica chłodzi`
+              : 'Biuro nie zaplanowało masowania'}
+          </div>
         </div>
-        <div className="text-lg" style={{ color: 'var(--mut)' }}>
-          {hasInProgress
-            ? `Pozostało ${fmtKg(inProgress.reduce((s, o: any) => s + ((o.kgRemaining ?? o.meatKg) || 0), 0), 0)} kg — masownica chłodzi`
-            : 'Biuro nie zaplanowało masowania'}
+        <div className="max-w-2xl mx-auto px-6 pb-6">
+          <ActiveMachinesPanel locks={locks} />
         </div>
       </div>
     )
@@ -312,16 +317,21 @@ function ListScreenV2({
         </div>
 
         {/* Aktywne masownice */}
-        {locks.length > 0 && (
-          <div className="mt-6">
-            <div className="text-[13px] font-black uppercase tracking-widest mb-3" style={{ color: 'var(--mut)' }}>
-              Masownice w pracy
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {locks.map(l => <ActiveMachineTile key={`${l.machineId}-${l.orderId}`} lock={l} />)}
-            </div>
-          </div>
-        )}
+        <ActiveMachinesPanel locks={locks} />
+      </div>
+    </div>
+  )
+}
+
+function ActiveMachinesPanel({ locks }: { locks: MachineLock[] }) {
+  if (locks.length === 0) return null
+  return (
+    <div className="mt-6">
+      <div className="text-[13px] font-black uppercase tracking-widest mb-3" style={{ color: 'var(--mut)' }}>
+        Masownice w pracy
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        {locks.map(l => <ActiveMachineTile key={`${l.machineId}-${l.orderId}`} lock={l} />)}
       </div>
     </div>
   )
@@ -346,6 +356,9 @@ function ActiveMachineTile({ lock }: { lock: MachineLock }) {
       style={{ borderColor: 'var(--amb)', background: '#FDF3E7' }}>
       <Timer size={20} style={{ color: 'var(--amb)' }} className="mx-auto mb-1" />
       <div className="text-lg font-black" style={{ color: 'var(--ink)' }}>Masownica {lock.machineId}</div>
+      <div className="text-[12px] font-mono font-bold truncate" style={{ color: 'var(--mut)' }}>
+        {lock.orderNo}
+      </div>
       <div className="text-3xl font-black font-mono tabular-nums" style={{ color: 'var(--amb)' }}>{mm}:{ss}</div>
     </div>
   )
