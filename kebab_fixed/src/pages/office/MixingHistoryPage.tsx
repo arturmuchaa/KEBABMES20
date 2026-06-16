@@ -14,19 +14,11 @@ import { mixingOrdersApi } from '@/lib/apiClient'
 import { fmtKg, cn } from '@/lib/utils'
 import {
   Layers, Search, Beef, ArrowRight, Cog, ChevronDown,
-  CalendarDays, CheckCircle2, Clock3, XCircle, CircleDashed, Package,
+  CalendarDays, Package,
 } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { StatusBadge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-
-// ─── Status → wygląd ────────────────────────────────────────────────────
-const STATUS: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
-  done:        { label: 'Zakończone',  cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: <CheckCircle2 size={12} /> },
-  in_progress: { label: 'W toku',      cls: 'bg-amber-50 text-amber-700 border-amber-200',       icon: <Clock3 size={12} /> },
-  planned:     { label: 'Zaplanowane', cls: 'bg-slate-100 text-slate-600 border-slate-200',      icon: <CircleDashed size={12} /> },
-  cancelled:   { label: 'Anulowane',   cls: 'bg-rose-50 text-rose-600 border-rose-200',          icon: <XCircle size={12} /> },
-}
 
 // Filtr statusu: domyślnie tylko zakończone.
 type StatusFilter = 'done' | 'all' | 'cancelled'
@@ -65,7 +57,6 @@ function SegFilter({ value, onChange }: { value: StatusFilter; onChange: (v: Sta
 // ─── Karta zlecenia ─────────────────────────────────────────────────────
 function OrderCard({ o }: { o: any }) {
   const [open, setOpen] = useState(false)
-  const st = STATUS[o.status] ?? STATUS.planned
   const meatKg = Number(o.meatKg || 0)
   const kgDone = Number(o.kgDone || 0)
   const pct = meatKg > 0 ? Math.min(100, (kgDone / meatKg) * 100) : 0
@@ -90,9 +81,7 @@ function OrderCard({ o }: { o: any }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[15px] font-bold text-ink leading-tight">{o.recipeName || 'Bez receptury'}</span>
-            <Badge variant="outline" className={cn('text-[10px] gap-1 font-semibold', st.cls)}>
-              {st.icon}{st.label}
-            </Badge>
+            <StatusBadge status={o.status} />
           </div>
           <div className="mt-0.5 font-mono text-[11px] text-ink-3">{o.orderNo}</div>
 

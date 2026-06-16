@@ -15,19 +15,11 @@ import { productionPlansApi } from '@/lib/apiClient'
 import { fmtKg, cn } from '@/lib/utils'
 import {
   Factory, Search, ArrowRight, Box, ChevronDown,
-  CalendarDays, CheckCircle2, Clock3, XCircle, CircleDashed, Package, User, ShoppingCart,
+  CalendarDays, Package, User, ShoppingCart,
 } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { StatusBadge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-
-// ─── Status → wygląd (wspólne z masowaniem dla spójności) ───────────────
-const STATUS: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
-  DONE:        { label: 'Zakończone',  cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: <CheckCircle2 size={12} /> },
-  IN_PROGRESS: { label: 'W toku',      cls: 'bg-amber-50 text-amber-700 border-amber-200',       icon: <Clock3 size={12} /> },
-  PLANNED:     { label: 'Zaplanowane', cls: 'bg-slate-100 text-slate-600 border-slate-200',      icon: <CircleDashed size={12} /> },
-  cancelled:   { label: 'Anulowane',   cls: 'bg-rose-50 text-rose-600 border-rose-200',          icon: <XCircle size={12} /> },
-}
 
 type StatusFilter = 'done' | 'all' | 'cancelled'
 const STATUS_TABS: { key: StatusFilter; label: string }[] = [
@@ -68,7 +60,6 @@ function SegFilter({ value, onChange }: { value: StatusFilter; onChange: (v: Sta
 // ─── Karta linii produkcji ──────────────────────────────────────────────
 function LineCard({ line }: { line: any }) {
   const [open, setOpen] = useState(false)
-  const st = STATUS[effStatus(line)] ?? STATUS.PLANNED
   const qty = Number(line.qty || 0)
   const qtyDone = Number(line.qtyDone || 0)
   const pct = qty > 0 ? Math.min(100, (qtyDone / qty) * 100) : 0
@@ -91,9 +82,7 @@ function LineCard({ line }: { line: any }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[15px] font-bold text-ink leading-tight">{productName}</span>
-            <Badge variant="outline" className={cn('text-[10px] gap-1 font-semibold', st.cls)}>
-              {st.icon}{st.label}
-            </Badge>
+            <StatusBadge status={effStatus(line)} />
           </div>
           <div className="mt-0.5 font-mono text-[11px] text-ink-3">
             {line.planNo}{line.productTypeName && line.recipeName ? ` · ${line.productTypeName}` : ''}
