@@ -25,6 +25,14 @@ def main():
 
         orig = rows[0]
         kg_used_total = float(orig.get("kg_used") or 0)
+        kg_reserved_total = float(orig.get("kg_reserved") or 0)
+        if kg_reserved_total > 0.001:
+            print(
+                f"PRZERWANO: batch_no={BATCH_NO} ma kg_reserved={kg_reserved_total} > 0. "
+                f"Skrypt NIE redystrybuuje rezerwacji — zwolnij rezerwacje (lub dokończ/anuluj "
+                f"plany produkcji korzystające z 364) i uruchom ponownie."
+            )
+            return
         mat_id = orig.get("material_type_id")
         mat_name = orig.get("material_name")
         expiry = orig.get("expiry_date")
