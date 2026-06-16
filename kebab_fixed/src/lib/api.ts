@@ -1586,6 +1586,10 @@ export const mixingOrdersApi = {
     }).then(mapMixingOrder),
   start:             (id: string, dto: any) =>
     patch<any>(`/mixing-orders/${id}/start`, toSnake(dto)).then(mapMixingOrder),
+  replaceMeatLots: (id: string, lots: { meatLotId: string; kgPlanned: number }[]) =>
+    patch<any>(`/mixing-orders/${id}/meat-lots`, {
+      meat_lots: lots.map(l => ({ meat_lot_id: l.meatLotId, kg_planned: l.kgPlanned })),
+    }).then(mapMixingOrder),
   allocateToMachine: (id: string, m: MachineId, kg: number) =>
     patch<any>(`/mixing-orders/${id}/allocate`, { machine_id: m, kg }).then(mapMixingOrder),
   confirmStep:   (id: string, dto: any) =>

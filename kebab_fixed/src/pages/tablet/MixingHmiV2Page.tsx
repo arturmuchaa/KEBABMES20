@@ -462,7 +462,8 @@ interface MeatScreenLot {
 function MeatScreenV2({ order, availableLots, rawMeatStock = [], onConfirm, onBack }: {
   order: MixingOrder; availableLots?: MeatScreenLot[]
   rawMeatStock?: RawMeatStock[]
-  onConfirm: (allocs: { meatLotId: string; kg: number }[], total: number) => void
+  onConfirm: (allocs: { meatLotId: string; kg: number }[], total: number,
+              planLots?: { meatLotId: string; kgPlanned: number }[] | null) => void
   onBack: () => void
 }) {
   const kgRemaining = (order as any).kgRemaining ?? order.meatKg
@@ -470,6 +471,8 @@ function MeatScreenV2({ order, availableLots, rawMeatStock = [], onConfirm, onBa
   // Lokalna kopia wierszy — pozwala podmienić partię (warstwa 1: ślad przez lotAllocations).
   const [lots, setLots] = useState<MeatScreenLot[]>(initialLots)
   const [pickerForLotId, setPickerForLotId] = useState<string | null>(null)
+  const [updatePlan, setUpdatePlan] = useState(false)
+  const [swappedAny, setSwappedAny] = useState(false)
 
   // Maks kg per wiersz: kgPlanned planowanej, a po podmianie — wolne kg ze stanu.
   const [maxKgByLot, setMaxKgByLot] = useState<Record<string, number>>(() => {
@@ -504,6 +507,7 @@ function MeatScreenV2({ order, availableLots, rawMeatStock = [], onConfirm, onBa
       const { [oldLotId]: _drop, ...rest } = prev
       return { ...rest, [c.meatStockId]: '' }
     })
+    setSwappedAny(true)
     setPickerForLotId(null)
   }
 
@@ -593,6 +597,17 @@ function MeatScreenV2({ order, availableLots, rawMeatStock = [], onConfirm, onBa
         </div>
       )}
 
+      {swappedAny && (
+        <label className="flex items-center gap-3 mb-4 px-2 py-3 rounded-xl cursor-pointer"
+          style={{ background: 'var(--panel)', border: '2px solid var(--bd)' }}>
+          <input type="checkbox" checked={updatePlan} onChange={e => setUpdatePlan(e.target.checked)}
+            className="w-6 h-6" />
+          <span className="text-[15px] font-bold" style={{ color: 'var(--ink)' }}>
+            Zaktualizuj plan zlecenia podmienioną partią
+          </span>
+        </label>
+      )}
+
       <div className="flex gap-4">
         <HmiBtn onClick={onBack} color="panel" className="flex-1">← Wstecz</HmiBtn>
         <HmiBtn
@@ -600,7 +615,10 @@ function MeatScreenV2({ order, availableLots, rawMeatStock = [], onConfirm, onBa
             const allocs = lots
               .map(lot => ({ meatLotId: lot.meatLotId, kg: parseFloat(lotKgs[lot.meatLotId] || '0') || 0 }))
               .filter(a => a.kg > 0)
-            onConfirm(allocs, totalKg)
+            const planLots = updatePlan
+              ? lots.map(l => ({ meatLotId: l.meatLotId, kgPlanned: maxKgByLot[l.meatLotId] ?? l.kgPlanned }))
+              : null
+            onConfirm(allocs, totalKg, planLots)
           }}
           disabled={!canConfirm} color="grn" className="flex-1">
           <Beef size={22} /> Przelicz składniki
@@ -994,9 +1012,18 @@ function MixingHmiV2Main() {
     } catch (e) { showToast(e instanceof Error ? e.message : 'Błąd') }
   }, [selOrder, startMut, ensureSession, refetch, rIP])
 
-  const handleMeatConfirm = useCallback(async (allocs: { meatLotId: string; kg: number }[], total: number) => {
+  const handleMeatConfirm = useCallback(async (
+    allocs: { meatLotId: string; kg: number }[], total: number,
+    planLots?: { meatLotId: string; kgPlanned: number }[] | null,
+  ) => {
     if (!liveOrder) return
     setKgActual(total); setLotAllocs(allocs)
+    if (planLots && planLots.length > 0) {
+      try {
+        const updated = await mixingOrdersApi.replaceMeatLots(liveOrder.id, planLots)
+        setLiveOrder(updated)
+      } catch (e) { showToast(e instanceof Error ? e.message : 'Nie udało się zaktualizować planu') }
+    }
     try { await allocMut.mutate({ id: liveOrder.id, m: liveOrder.machineId!, kg: total }) } catch { /* ignore */ }
     setStepIdx(0); setPhase('steps')
   }, [liveOrder, allocMut])

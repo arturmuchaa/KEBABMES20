@@ -46,6 +46,12 @@ def start_mixing_order(order_id: str, body: dict):
     return svc.start_mixing_order(order_id, body)
 
 
+@router.patch("/{order_id}/meat-lots")
+def replace_meat_lots(order_id: str, body: dict):
+    lots = body.get("meat_lots") or body.get("meatLots") or []
+    return svc.replace_order_meat_lots(order_id, lots)
+
+
 @router.patch("/{order_id}/allocate")
 def allocate_to_machine(order_id: str, body: dict):
     return svc.allocate_to_machine(order_id, body)
