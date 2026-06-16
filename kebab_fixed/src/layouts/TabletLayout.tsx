@@ -7,6 +7,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { useHmiMode, setHmiMode, HMI_MODES, HMI_LABELS } from '@/features/deboning/useHmiMode'
+import { useMixHmiMode, setMixHmiMode, MIX_HMI_MODES, MIX_HMI_LABELS } from '@/features/mixing/useMixHmiMode'
 import { useAuth } from '@/features/auth/AuthContext'
 
 // Segmentowany przełącznik widoku rozbioru (Klasyczny / HMI v2 / HMI v3).
@@ -20,6 +21,23 @@ function HmiToggle() {
           className={cn('h-8 px-3 rounded-lg text-[13px] font-bold transition-colors active:scale-95',
             mode === m ? 'bg-brand text-white shadow-sm' : 'text-ink-3 hover:text-ink')}>
           {HMI_LABELS[m]}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// Segmentowany przełącznik widoku masowania (Klasyczny / HMI v1 / HMI v2).
+// Wszystkie warianty dostępne do testów. Widoczny tylko na /tablet/mieszanie.
+function MixHmiToggle() {
+  const mode = useMixHmiMode()
+  return (
+    <div className="flex items-center gap-1 p-1 rounded-xl bg-surface-3 border border-surface-4">
+      {MIX_HMI_MODES.map(m => (
+        <button key={m} type="button" onClick={() => setMixHmiMode(m)}
+          className={cn('h-8 px-3 rounded-lg text-[13px] font-bold transition-colors active:scale-95',
+            mode === m ? 'bg-brand text-white shadow-sm' : 'text-ink-3 hover:text-ink')}>
+          {MIX_HMI_LABELS[m]}
         </button>
       ))}
     </div>
@@ -68,6 +86,7 @@ export function TabletLayout() {
         </div>
         <div className="flex items-center gap-3">
           {pathname === '/tablet/rozbior' && <HmiToggle />}
+          {pathname === '/tablet/mieszanie' && <MixHmiToggle />}
           <Clock />
           <div className="flex items-center gap-2">
             <span>{user?.name}</span>
