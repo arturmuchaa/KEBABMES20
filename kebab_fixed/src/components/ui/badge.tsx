@@ -76,23 +76,78 @@ export function ExpiryBadge({ dateStr, compact }: { dateStr: string; compact?: b
   return <MiniTag variant={variant}>{text}</MiniTag>
 }
 
-// ─── StatusBadge ─────────────────────────────────────────────
-const STATUS_META: Record<string, { label: string; variant: BadgeVariant }> = {
-  active:          { label: 'OK',        variant: 'green' },
-  low_expiry:      { label: 'LOW',       variant: 'amber' },
-  expired:         { label: 'CRITICAL',  variant: 'red'   },
-  used:            { label: 'USED',      variant: 'gray'  },
-  cancelled:       { label: 'CANCELLED', variant: 'gray'  },
-  AVAILABLE:       { label: 'OK',        variant: 'green' },
-  PARTIALLY_USED:  { label: 'LOW',       variant: 'amber' },
-  DEPLETED:        { label: 'USED',      variant: 'gray'  },
-  QUARANTINE:      { label: 'CRITICAL',  variant: 'red'   },
+// ─── StatusBadge (KANONICZNY system statusów całej aplikacji) ─────────────
+// Jedno źródło prawdy dla statusów zleceń, produkcji, dokumentów i magazynu.
+// Miękkie tony (50/200) + ikona = spójny, dopracowany wygląd wszędzie.
+import {
+  CheckCircle2, Clock3, CircleDashed, XCircle, FileEdit, FileCheck2, Send,
+  type LucideIcon,
+} from 'lucide-react'
+
+type StatusTone = 'green' | 'amber' | 'red' | 'gray' | 'blue'
+type StatusIcon = LucideIcon
+
+const TONE: Record<StatusTone, string> = {
+  green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  amber: 'bg-amber-50 text-amber-700 border-amber-200',
+  red:   'bg-rose-50 text-rose-600 border-rose-200',
+  gray:  'bg-slate-100 text-slate-600 border-slate-200',
+  blue:  'bg-blue-50 text-blue-700 border-blue-200',
 }
 
-export function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_META[status] ?? { label: status, variant: 'gray' as BadgeVariant }
-  return <MiniTag variant={s.variant}>{s.label}</MiniTag>
+const STATUS_META: Record<string, { label: string; tone: StatusTone; Icon?: StatusIcon }> = {
+  // — magazyn / partie (etykiety zachowane krótkie dla gęstych tabel) —
+  active:          { label: 'OK',        tone: 'green' },
+  low_expiry:      { label: 'LOW',       tone: 'amber' },
+  expired:         { label: 'CRITICAL',  tone: 'red'   },
+  used:            { label: 'USED',      tone: 'gray'  },
+  AVAILABLE:       { label: 'OK',        tone: 'green' },
+  PARTIALLY_USED:  { label: 'LOW',       tone: 'amber' },
+  DEPLETED:        { label: 'USED',      tone: 'gray'  },
+  QUARANTINE:      { label: 'CRITICAL',  tone: 'red'   },
+  // — zlecenia masowania / linie produkcji (PL + ikona) —
+  planned:      { label: 'Zaplanowane', tone: 'gray',  Icon: CircleDashed },
+  in_progress:  { label: 'W toku',      tone: 'amber', Icon: Clock3 },
+  done:         { label: 'Zakończone',  tone: 'green', Icon: CheckCircle2 },
+  cancelled:    { label: 'Anulowane',   tone: 'red',   Icon: XCircle },
+  PLANNED:      { label: 'Zaplanowane', tone: 'gray',  Icon: CircleDashed },
+  IN_PROGRESS:  { label: 'W toku',      tone: 'amber', Icon: Clock3 },
+  DONE:         { label: 'Zakończone',  tone: 'green', Icon: CheckCircle2 },
+  // — dokumenty (HDI / WZ / CMR) —
+  draft:        { label: 'Szkic',       tone: 'gray',  Icon: FileEdit },
+  issued:       { label: 'Wystawiony',  tone: 'blue',  Icon: FileCheck2 },
+  sent:         { label: 'Wysłany',     tone: 'blue',  Icon: Send },
+  confirmed:    { label: 'Zatwierdzony',tone: 'green', Icon: CheckCircle2 },
 }
+
+// Użycie:
+//   <StatusBadge status="done" />                 — auto label+ton+ikona z mapy
+//   <StatusBadge tone="green" label="Zrealizowane" />  — domena z własną etykietą
+export function StatusBadge({ status, tone, label, icon: IconOverride, className }: {
+  status?: string
+  tone?: StatusTone
+  label?: string
+  icon?: StatusIcon
+  className?: string
+}) {
+  const meta = status ? STATUS_META[status] : undefined
+  const t = tone ?? meta?.tone ?? 'gray'
+  const Icon = IconOverride ?? meta?.Icon
+  const text = label ?? meta?.label ?? status ?? '—'
+  return (
+    <span className={cn(
+      'inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold whitespace-nowrap',
+      TONE[t], className,
+    )}>
+      {Icon && <Icon size={11} />}
+      {text}
+    </span>
+  )
+}
+
+// Tony statusów dla domen z własnymi etykietami (dokumenty, zamówienia).
+export const STATUS_TONE = TONE
+export type { StatusTone }
 
 // ─── computeDisplayStatus ────────────────────────────────────
 export function computeDisplayStatus(expiryDate: string, kgAvailable: number): string {

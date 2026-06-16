@@ -16,6 +16,7 @@ import {
 
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { StatusBadge, type StatusTone } from '@/components/ui/badge'
 import {
   Card, CardContent, CardDescription, CardTitle,
 } from '@/components/ui/card'
@@ -43,10 +44,8 @@ function compareRows(col: SortCol) {
 const STATUS_LABEL: Record<string, string> = {
   wstepny: 'Wstępny', potwierdzony: 'Potwierdzony', korekta: 'Korekta',
 }
-const STATUS_CLASS: Record<string, string> = {
-  wstepny: 'bg-amber-50 text-amber-700 border-amber-200',
-  potwierdzony: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  korekta: 'bg-rose-50 text-rose-700 border-rose-200',
+const DOC_TONE: Record<string, StatusTone> = {
+  wstepny: 'amber', potwierdzony: 'green', korekta: 'red',
 }
 
 function openPrint(id: string) {
@@ -201,12 +200,7 @@ export function CmrDocumentsPage() {
                     <td className="px-2.5 py-2 whitespace-nowrap">{r.issueDate || '—'}</td>
                     <td className="px-2.5 py-2 whitespace-nowrap font-medium">{r.clientName || '—'}</td>
                     <td className="px-2.5 py-2 whitespace-nowrap">
-                      <span className={cn(
-                        'inline-block px-1.5 py-px rounded text-[10px] font-semibold border',
-                        STATUS_CLASS[r.status] || 'bg-surface-2 text-ink-2 border-surface-4'
-                      )}>
-                        {STATUS_LABEL[r.status] || r.status || '—'}
-                      </span>
+                      <StatusBadge tone={DOC_TONE[r.status] ?? 'gray'} label={STATUS_LABEL[r.status] || r.status || '—'} />
                     </td>
                     <td className="px-2.5 py-2 whitespace-nowrap text-right">
                       <div className="inline-flex items-center gap-0.5">

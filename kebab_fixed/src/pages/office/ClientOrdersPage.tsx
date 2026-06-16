@@ -21,7 +21,7 @@ import type { ClientOrder, CreateClientOrderDto } from '@/lib/mockApi'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
+import { Badge, StatusBadge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -41,6 +41,9 @@ const STATUS_LABELS: Record<ClientOrder['status'], string> = {
 }
 const STATUS_VARIANT: Record<ClientOrder['status'], 'secondary' | 'info' | 'warning' | 'success' | 'danger'> = {
   draft: 'secondary', confirmed: 'info', in_production: 'warning', done: 'success', cancelled: 'danger',
+}
+const ORDER_TONE: Record<ClientOrder['status'], 'gray' | 'blue' | 'amber' | 'green' | 'red'> = {
+  draft: 'gray', confirmed: 'blue', in_production: 'amber', done: 'green', cancelled: 'red',
 }
 
 interface OrderFormProps {
@@ -294,14 +297,6 @@ export function ClientOrdersPage() {
     await clientOrdersApi.delete(id); refetch()
   }
 
-  const STATUS_BADGE_CLS: Record<ClientOrder['status'], string> = {
-    draft:         'bg-gray-50 text-gray-700 border-gray-200',
-    confirmed:     'bg-blue-50 text-blue-700 border-blue-200',
-    in_production: 'bg-amber-50 text-amber-700 border-amber-200',
-    done:          'bg-emerald-50 text-emerald-700 border-emerald-200',
-    cancelled:     'bg-red-50 text-red-700 border-red-200',
-  }
-
   return (
     <div className="space-y-3 animate-fade-in">
 
@@ -453,9 +448,7 @@ export function ClientOrdersPage() {
                           ) : <span className="text-muted-foreground">—</span>}
                         </td>
                         <td className="px-2.5 py-2 whitespace-nowrap">
-                          <Badge variant="outline" className={cn('text-[10px] font-medium', STATUS_BADGE_CLS[o.status])}>
-                            {STATUS_LABELS[o.status]}
-                          </Badge>
+                          <StatusBadge tone={ORDER_TONE[o.status]} label={STATUS_LABELS[o.status]} />
                         </td>
                         <td className="px-2.5 py-2 whitespace-nowrap text-right">
                           {qtyDone > 0 ? (
