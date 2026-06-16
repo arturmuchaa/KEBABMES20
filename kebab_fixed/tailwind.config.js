@@ -4,13 +4,14 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans:  ['Inter', 'system-ui', 'sans-serif'],
-        mono:  ['"JetBrains Mono"', '"IBM Plex Mono"', 'monospace'],
+        sans:  ['"Fira Sans"', 'Inter', 'system-ui', 'sans-serif'],
+        mono:  ['"Fira Code"', '"JetBrains Mono"', 'monospace'],
         serif: ['"Instrument Serif"', '"Times New Roman"', 'serif'],
       },
       colors: {
         // ── Legacy custom tokens (preserved for existing pages) ──
-        ink: { DEFAULT:'#111827', 2:'#374151', 3:'#6B7280', 4:'#9CA3AF', 5:'#D1D5DB' },
+        // ink-4 podbity z #9CA3AF (≈2.8:1) do #6F7787 (≈4.3:1) — czytelność WCAG AA
+        ink: { DEFAULT:'#111827', 2:'#374151', 3:'#6B7280', 4:'#6F7787', 5:'#B6BCC6' },
         surface: { DEFAULT:'#FFFFFF', 2:'#F9FAFB', 3:'#F3F4F6', 4:'#E5E7EB', 5:'#D1D5DB' },
         brand:   { DEFAULT:'#1D4ED8', dark:'#1E40AF', light:'#EFF6FF', border:'#BFDBFE' },
         success: { DEFAULT:'#059669', light:'#ECFDF5', border:'#A7F3D0' },
@@ -54,11 +55,12 @@ export default {
         },
       },
       boxShadow: {
-        card:       '0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04)',
-        'card-hover': '0 4px 16px rgba(0,0,0,.08)',
-        md:         '0 4px 12px rgba(0,0,0,.08)',
-        modal:      '0 20px 60px rgba(0,0,0,.18)',
-        sm:         '0 1px 2px rgba(0,0,0,.05)',
+        // Miękkie cienie w tonacji slate (16,24,40) — głębia premium zamiast płaskiej czerni
+        card:        '0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.10)',
+        'card-hover':'0 6px 20px rgba(16,24,40,.10), 0 2px 6px rgba(16,24,40,.06)',
+        md:          '0 4px 12px rgba(16,24,40,.08)',
+        modal:       '0 24px 64px rgba(16,24,40,.20)',
+        sm:          '0 1px 2px rgba(16,24,40,.06)',
       },
       borderRadius: {
         DEFAULT: '4px', lg:'8px', xl:'10px', '2xl':'12px', '3xl':'16px',
