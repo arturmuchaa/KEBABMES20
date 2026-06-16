@@ -14,6 +14,8 @@ import {
   Play, CheckCircle, AlertTriangle, Lock, Timer,
   ClipboardList, Home, LogOut, CalendarDays, RefreshCw, Beef, RotateCcw,
 } from 'lucide-react'
+import { BatchPickerSheet } from '@/pages/tablet/mixing/BatchPickerSheet'
+import type { RawMeatStock, BatchCandidate } from '@/pages/tablet/mixing/batchCandidates'
 
 // ─── Paleta Porcelana ─────────────────────────────────────────────────────────
 const VARS: CSSProperties = {
@@ -216,15 +218,20 @@ function ListScreenV2({
   if (orders.length === 0) {
     const hasInProgress = inProgress.length > 0
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 p-10">
-        <Lock size={64} style={{ color: hasInProgress ? 'var(--amb)' : 'var(--mut)' }} />
-        <div className="text-3xl font-black" style={{ color: 'var(--ink)' }}>
-          {hasInProgress ? 'Masowanie w toku' : 'Brak zleceń'}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="max-w-2xl mx-auto px-6 py-10 flex flex-col items-center gap-4">
+          <Lock size={64} style={{ color: hasInProgress ? 'var(--amb)' : 'var(--mut)' }} />
+          <div className="text-3xl font-black" style={{ color: 'var(--ink)' }}>
+            {hasInProgress ? 'Masowanie w toku' : 'Brak zleceń'}
+          </div>
+          <div className="text-lg text-center" style={{ color: 'var(--mut)' }}>
+            {hasInProgress
+              ? `Pozostało ${fmtKg(inProgress.reduce((s, o: any) => s + ((o.kgRemaining ?? o.meatKg) || 0), 0), 0)} kg — masownica chłodzi`
+              : 'Biuro nie zaplanowało masowania'}
+          </div>
         </div>
-        <div className="text-lg" style={{ color: 'var(--mut)' }}>
-          {hasInProgress
-            ? `Pozostało ${fmtKg(inProgress.reduce((s, o: any) => s + ((o.kgRemaining ?? o.meatKg) || 0), 0), 0)} kg — masownica chłodzi`
-            : 'Biuro nie zaplanowało masowania'}
+        <div className="max-w-2xl mx-auto px-6 pb-6">
+          <ActiveMachinesPanel locks={locks} />
         </div>
       </div>
     )
@@ -302,8 +309,23 @@ function ListScreenV2({
                     </div>
                   </div>
                 )}
+                {o.meatLots.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {o.meatLots.slice(0, 4).map((lot: any) => (
+                      <span key={lot.meatLotId}
+                        className="inline-flex items-center gap-1.5 text-[12px] font-bold px-2.5 py-1 rounded-full"
+                        style={{ background: 'var(--bd)', color: 'var(--ink)' }}>
+                        <Beef size={11} /> {lot.rawBatchNo || lot.meatLotNo} · {fmtKg(lot.kgPlanned, 0)} kg
+                      </span>
+                    ))}
+                    {o.meatLots.length > 4 && (
+                      <span className="text-[12px] font-bold px-2 py-1" style={{ color: 'var(--mut)' }}>
+                        +{o.meatLots.length - 4}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div className="flex gap-4 mt-2 text-[13px]" style={{ color: 'var(--mut)' }}>
-                  <span className="flex items-center gap-1"><Beef size={13} /> {o.meatLots.length} partie</span>
                   <span>{o.steps.length} składników</span>
                 </div>
               </button>
@@ -312,16 +334,21 @@ function ListScreenV2({
         </div>
 
         {/* Aktywne masownice */}
-        {locks.length > 0 && (
-          <div className="mt-6">
-            <div className="text-[13px] font-black uppercase tracking-widest mb-3" style={{ color: 'var(--mut)' }}>
-              Masownice w pracy
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {locks.map(l => <ActiveMachineTile key={`${l.machineId}-${l.orderId}`} lock={l} />)}
-            </div>
-          </div>
-        )}
+        <ActiveMachinesPanel locks={locks} />
+      </div>
+    </div>
+  )
+}
+
+function ActiveMachinesPanel({ locks }: { locks: MachineLock[] }) {
+  if (locks.length === 0) return null
+  return (
+    <div className="mt-6">
+      <div className="text-[13px] font-black uppercase tracking-widest mb-3" style={{ color: 'var(--mut)' }}>
+        Masownice w pracy
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        {locks.map(l => <ActiveMachineTile key={`${l.machineId}-${l.orderId}`} lock={l} />)}
       </div>
     </div>
   )
@@ -346,6 +373,9 @@ function ActiveMachineTile({ lock }: { lock: MachineLock }) {
       style={{ borderColor: 'var(--amb)', background: '#FDF3E7' }}>
       <Timer size={20} style={{ color: 'var(--amb)' }} className="mx-auto mb-1" />
       <div className="text-lg font-black" style={{ color: 'var(--ink)' }}>Masownica {lock.machineId}</div>
+      <div className="text-[12px] font-mono font-bold truncate" style={{ color: 'var(--mut)' }}>
+        {lock.orderNo}
+      </div>
       <div className="text-3xl font-black font-mono tabular-nums" style={{ color: 'var(--amb)' }}>{mm}:{ss}</div>
     </div>
   )
@@ -429,24 +459,65 @@ interface MeatScreenLot {
   kgPlanned: number; expiryDate: string
 }
 
-function MeatScreenV2({ order, availableLots, onConfirm, onBack }: {
+function MeatScreenV2({ order, availableLots, rawMeatStock = [], onConfirm, onBack }: {
   order: MixingOrder; availableLots?: MeatScreenLot[]
-  onConfirm: (allocs: { meatLotId: string; kg: number }[], total: number) => void
+  rawMeatStock?: RawMeatStock[]
+  onConfirm: (allocs: { meatLotId: string; kg: number }[], total: number,
+              planLots?: { meatLotId: string; kgPlanned: number }[] | null) => void
   onBack: () => void
 }) {
   const kgRemaining = (order as any).kgRemaining ?? order.meatKg
-  const lots: MeatScreenLot[] = order.meatLots.length > 0 ? (order.meatLots as any) : (availableLots ?? [])
+  const initialLots: MeatScreenLot[] = order.meatLots.length > 0 ? (order.meatLots as any) : (availableLots ?? [])
+  // Lokalna kopia wierszy — pozwala podmienić partię (warstwa 1: ślad przez lotAllocations).
+  const [lots, setLots] = useState<MeatScreenLot[]>(initialLots)
+  const [pickerForLotId, setPickerForLotId] = useState<string | null>(null)
+  const [updatePlan, setUpdatePlan] = useState(false)
+  const [swappedAny, setSwappedAny] = useState(false)
+
+  // Maks kg per wiersz: kgPlanned planowanej, a po podmianie — wolne kg ze stanu.
+  const [maxKgByLot, setMaxKgByLot] = useState<Record<string, number>>(() => {
+    const m: Record<string, number> = {}
+    initialLots.forEach(l => { m[l.meatLotId] = l.kgPlanned })
+    return m
+  })
+
+  // Materiał wymagany = materiał pierwszej planowanej partii (gdy znaleziony w stanie).
+  const requiredMaterialTypeId = (() => {
+    const first = initialLots[0]
+    const match = rawMeatStock.find(s => String(s.id) === String(first?.meatLotId))
+    return match?.materialTypeId ?? null
+  })()
+
   const [lotKgs, setLotKgs] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
     lots.forEach(lot => { init[lot.meatLotId] = '' })
     return init
   })
+
+  function applyBatchSwap(oldLotId: string, c: BatchCandidate) {
+    setLots(prev => prev.map(l => l.meatLotId === oldLotId ? {
+      meatLotId: c.meatStockId, meatLotNo: c.lotNo, rawBatchNo: c.rawBatchNo,
+      kgPlanned: c.kgFree, expiryDate: c.expiryDate,
+    } : l))
+    setMaxKgByLot(prev => {
+      const { [oldLotId]: _drop, ...rest } = prev
+      return { ...rest, [c.meatStockId]: c.kgFree }
+    })
+    setLotKgs(prev => {
+      const { [oldLotId]: _drop, ...rest } = prev
+      return { ...rest, [c.meatStockId]: '' }
+    })
+    setSwappedAny(true)
+    setPickerForLotId(null)
+  }
+
   const totalKg = Object.values(lotKgs).reduce((s, v) => s + (parseFloat(v) || 0), 0)
   const isOverRemaining = totalKg > kgRemaining + 0.01
   const lotErrors: Record<string, string> = {}
   lots.forEach(lot => {
-    const kg = parseFloat(lotKgs[lot.meatLotId] || '0') || 0
-    if (kg > lot.kgPlanned + 0.01) lotErrors[lot.meatLotId] = `Maks. ${fmtKg(lot.kgPlanned)} kg`
+    const kg  = parseFloat(lotKgs[lot.meatLotId] || '0') || 0
+    const max = maxKgByLot[lot.meatLotId] ?? lot.kgPlanned
+    if (kg > max + 0.01) lotErrors[lot.meatLotId] = `Maks. ${fmtKg(max)} kg`
   })
   const hasErrors = Object.keys(lotErrors).length > 0 || isOverRemaining
   const canConfirm = totalKg > 0 && !hasErrors
@@ -472,14 +543,21 @@ function MeatScreenV2({ order, availableLots, onConfirm, onBack }: {
                 borderColor: err ? 'var(--red)' : hasKg ? 'var(--grn)' : 'var(--bd)',
                 background: 'var(--panel)',
               }}>
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 gap-2">
                 <span className="font-mono text-[18px] font-black" style={{ color: 'var(--blu)' }}>{lot.meatLotNo}</span>
                 <span className="text-[13px] font-bold" style={{ color: 'var(--mut)' }}>{lot.rawBatchNo}</span>
-                <span className="text-[14px] font-bold" style={{ color: 'var(--mut)' }}>maks. {fmtKg(lot.kgPlanned)} kg</span>
+                <span className="text-[14px] font-bold" style={{ color: 'var(--mut)' }}>
+                  maks. {fmtKg(maxKgByLot[lot.meatLotId] ?? lot.kgPlanned)} kg
+                </span>
+                <button type="button" onClick={() => setPickerForLotId(lot.meatLotId)}
+                  className="text-[13px] font-bold px-3 py-1.5 rounded-lg border-2 active:scale-95"
+                  style={{ borderColor: 'var(--blu)', color: 'var(--blu)' }}>
+                  Zmień partię
+                </button>
               </div>
               <div className="flex items-baseline gap-2">
                 <input type="number" inputMode="decimal" min="0" step="0.1"
-                  max={lot.kgPlanned}
+                  max={maxKgByLot[lot.meatLotId] ?? lot.kgPlanned}
                   placeholder="0"
                   value={lotKgs[lot.meatLotId]}
                   onFocus={e => e.target.select()}
@@ -519,6 +597,17 @@ function MeatScreenV2({ order, availableLots, onConfirm, onBack }: {
         </div>
       )}
 
+      {swappedAny && (
+        <label className="flex items-center gap-3 mb-4 px-2 py-3 rounded-xl cursor-pointer"
+          style={{ background: 'var(--panel)', border: '2px solid var(--bd)' }}>
+          <input type="checkbox" checked={updatePlan} onChange={e => setUpdatePlan(e.target.checked)}
+            className="w-6 h-6" />
+          <span className="text-[15px] font-bold" style={{ color: 'var(--ink)' }}>
+            Zaktualizuj plan zlecenia podmienioną partią
+          </span>
+        </label>
+      )}
+
       <div className="flex gap-4">
         <HmiBtn onClick={onBack} color="panel" className="flex-1">← Wstecz</HmiBtn>
         <HmiBtn
@@ -526,12 +615,26 @@ function MeatScreenV2({ order, availableLots, onConfirm, onBack }: {
             const allocs = lots
               .map(lot => ({ meatLotId: lot.meatLotId, kg: parseFloat(lotKgs[lot.meatLotId] || '0') || 0 }))
               .filter(a => a.kg > 0)
-            onConfirm(allocs, totalKg)
+            const planLots = updatePlan
+              ? lots.map(l => ({ meatLotId: l.meatLotId, kgPlanned: maxKgByLot[l.meatLotId] ?? l.kgPlanned }))
+              : null
+            onConfirm(allocs, totalKg, planLots)
           }}
           disabled={!canConfirm} color="grn" className="flex-1">
           <Beef size={22} /> Przelicz składniki
         </HmiBtn>
       </div>
+
+      {pickerForLotId && (
+        <BatchPickerSheet
+          rawStock={rawMeatStock}
+          requiredMaterialTypeId={requiredMaterialTypeId}
+          neededKg={parseFloat(lotKgs[pickerForLotId] || '0') || (maxKgByLot[pickerForLotId] ?? 0)}
+          excludeStockIds={lots.map(l => l.meatLotId).filter(id => id !== pickerForLotId)}
+          onPick={c => applyBatchSwap(pickerForLotId, c)}
+          onClose={() => setPickerForLotId(null)}
+        />
+      )}
     </div>
   )
 }
@@ -851,11 +954,11 @@ function MixingHmiV2Main() {
 
   const availableMeatLots = useMemo(() =>
     ((meatStockData as any)?.data ?? [])
-      .filter((m: any) => m.status !== 'DEPLETED' && Number(m.kgAvailable) - Number(m.kgReserved ?? 0) > 0.01)
+      .filter((m: any) => m.status !== 'DEPLETED' && Number(m.kgAvailable) > 0.01)
       .sort((a: any, b: any) => (a.expiryDate > b.expiryDate ? 1 : -1))
       .map((m: any) => ({
         meatLotId: m.id, meatLotNo: m.lotNo, rawBatchNo: m.rawBatchNo ?? '',
-        kgPlanned: Math.max(0, Number(m.kgAvailable) - Number(m.kgReserved ?? 0)),
+        kgPlanned: Math.max(0, Number(m.kgAvailable)),
         expiryDate: m.expiryDate ?? '',
       })),
     [meatStockData])
@@ -909,9 +1012,18 @@ function MixingHmiV2Main() {
     } catch (e) { showToast(e instanceof Error ? e.message : 'Błąd') }
   }, [selOrder, startMut, ensureSession, refetch, rIP])
 
-  const handleMeatConfirm = useCallback(async (allocs: { meatLotId: string; kg: number }[], total: number) => {
+  const handleMeatConfirm = useCallback(async (
+    allocs: { meatLotId: string; kg: number }[], total: number,
+    planLots?: { meatLotId: string; kgPlanned: number }[] | null,
+  ) => {
     if (!liveOrder) return
     setKgActual(total); setLotAllocs(allocs)
+    if (planLots && planLots.length > 0) {
+      try {
+        const updated = await mixingOrdersApi.replaceMeatLots(liveOrder.id, planLots)
+        setLiveOrder(updated)
+      } catch (e) { showToast(e instanceof Error ? e.message : 'Nie udało się zaktualizować planu') }
+    }
     try { await allocMut.mutate({ id: liveOrder.id, m: liveOrder.machineId!, kg: total }) } catch { /* ignore */ }
     setStepIdx(0); setPhase('steps')
   }, [liveOrder, allocMut])
@@ -977,6 +1089,7 @@ function MixingHmiV2Main() {
       )}
       {phase === 'meat' && liveOrder && (
         <MeatScreenV2 order={liveOrder} availableLots={availableMeatLots}
+          rawMeatStock={(meatStockData as any)?.data ?? []}
           onConfirm={handleMeatConfirm} onBack={() => setPhase('machine')} />
       )}
       {phase === 'steps' && liveOrder && (

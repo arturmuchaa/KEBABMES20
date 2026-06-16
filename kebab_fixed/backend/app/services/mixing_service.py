@@ -294,6 +294,29 @@ def _release_order_lots_cx(conn, order_id: str) -> None:
     )
 
 
+def replace_order_meat_lots(order_id: str, lots: List[Dict[str, Any]]) -> Dict:
+    """Trwale podmienia zaplanowane partie zlecenia (warstwa 2).
+
+    `lots`: [{meatLotId, kgPlanned}]. Zwalnia stare rezerwacje, kasuje
+    mixing_order_lots i rezerwuje nowe — atomowo. Walidacja wolnych kg
+    jest w _reserve_order_lots_cx (HTTP 400 przy braku).
+    """
+    with transaction() as conn:
+        order = cx_query_one(
+            conn, "SELECT * FROM mixing_orders WHERE id=%s", (order_id,)
+        )
+        if not order:
+            raise HTTPException(404, "Zlecenie masowania nie znalezione")
+        _release_order_lots_cx(conn, order_id)
+        _reserve_order_lots_cx(conn, order_id, lots)
+        order = cx_query_one(
+            conn, "SELECT * FROM mixing_orders WHERE id=%s", (order_id,)
+        )
+    assert order is not None
+    logger.info("mixing.order.lots_replaced", extra={"order_id": order_id, "lots": len(lots)})
+    return build_mixing_order(order)
+
+
 # ── Create ─────────────────────────────────────────────────────────────
 
 def create_mixing_order(dto: MixingOrderCreate) -> Dict:

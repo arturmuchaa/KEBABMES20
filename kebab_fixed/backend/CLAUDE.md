@@ -12,8 +12,9 @@
   - `app/models/`  — modele
   - `app/migrations.py` — migracje odpalane **automatycznie przy starcie**
     (lifespan → `run_migrations()`).
-- **`server_pg.py`** — LEGACY monolit (stary psycopg2). NIE rozwijać; nowy kod
-  idzie do `app/`.
+- **`server_pg.py`** — USUNIĘTY (2026-06-15). Był to legacy monolit BEZ
+  uwierzytelniania (100 tras, CORS `*`) — ryzyko jeśli ktoś go uruchomił.
+  Jedyny entrypoint to `app.main:app`.
 
 ## Uruchomienie (dev, z katalogu `backend/`)
 ```bash

@@ -23,6 +23,11 @@ from app.utils.ids import now_iso
 logger = get_logger(__name__)
 
 
+def cors_is_wildcard(origins: list[str]) -> bool:
+    """True jeśli konfiguracja CORS dopuszcza dowolny origin ("*")."""
+    return "*" in origins
+
+
 # ── Lifespan (startup + shutdown) ─────────────────────────────────────
 
 @asynccontextmanager
@@ -53,6 +58,11 @@ def create_app() -> FastAPI:
     # odrzuca żądania (spec CORS), a włączone credentials niepotrzebnie
     # rozszerzałoby powierzchnię ataku. Klient desktop (Tauri) korzysta z
     # nagłówków bez credentials, więc to bezpieczne.
+    if cors_is_wildcard(settings.cors_origins):
+        logger.warning(
+            "cors.wildcard_origin",
+            extra={"hint": "Ustaw CORS_ORIGINS na konkretne domeny w produkcji"},
+        )
     _cors_credentials = settings.cors_origins != ["*"]
     app.add_middleware(
         CORSMiddleware,

@@ -36,7 +36,6 @@ import { LabelTemplateSetupPage } from '@/pages/office/LabelTemplateSetupPage'
 import { CompanySettingsPage } from '@/pages/office/CompanySettingsPage'
 import { ProductionPlanningPage } from '@/pages/office/ProductionPlanningPage'
 import { RecallPage }             from '@/pages/office/RecallPage'
-import { MixingHmiV1Page }        from '@/pages/tablet/MixingHmiV1Page'
 import { MixingHmiV2Page }        from '@/pages/tablet/MixingHmiV2Page'
 import { TracePage }              from '@/pages/office/TracePage'
 import { PayrollPage }            from '@/pages/office/PayrollPage'
@@ -46,6 +45,7 @@ import { LabelTemplatesPage }     from '@/pages/office/LabelTemplatesPage'
 import { ProductTypesPage, RecipesPage, PlanningPage } from '@/features/products'
 import { RozbiorRoute }        from '@/pages/tablet/RozbiorRoute'
 import { MixingTabletPage }    from '@/pages/tablet/MixingTabletPage'
+import { MieszanieRoute }      from '@/pages/tablet/MieszanieRoute'
 import { ProductionTabletPage }from '@/pages/tablet/ProductionTabletPage'
 import { MobilePickerPage }         from '@/pages/mobile/MobilePickerPage'
 import { MobileMrozniaPage }        from '@/pages/mobile/MobileMrozniaPage'
@@ -150,7 +150,7 @@ export default function App() {
       </Route>
       <Route path="/tablet" element={<TabletLayout />}>
         <Route path="rozbior"          element={<RequireDepartment dept="rozbior"><RozbiorRoute /></RequireDepartment>} />
-        <Route path="mieszanie"        element={<RequireDepartment dept="produkcja"><MixingHmiV1Page /></RequireDepartment>} />
+        <Route path="mieszanie"        element={<RequireDepartment dept="produkcja"><MieszanieRoute /></RequireDepartment>} />
         <Route path="mieszanie-v2"     element={<RequireDepartment dept="produkcja"><MixingHmiV2Page /></RequireDepartment>} />
         <Route path="mieszanie-mobile" element={<RequireDepartment dept="produkcja"><MixingTabletPage /></RequireDepartment>} />
         <Route path="produkcja"        element={<RequireDepartment dept="produkcja"><ProductionTabletPage /></RequireDepartment>} />

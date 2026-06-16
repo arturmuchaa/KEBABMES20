@@ -507,6 +507,8 @@ _DDL: list[str] = [
         last_seen TIMESTAMPTZ NOT NULL,
         expires_at TIMESTAMPTZ
     )""",
+    # Bazy utworzone przed dodaniem idle-timeoutu sesji mogą nie mieć kolumny.
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ",
 ]
 
 

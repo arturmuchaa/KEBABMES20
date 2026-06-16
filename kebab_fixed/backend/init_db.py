@@ -308,7 +308,7 @@ def main():
 
         conn.close()
         print(f"✓ Schemat tabel utworzony w bazie '{dbname}'")
-        print(f"✓ Gotowe! Uruchom teraz: uvicorn server_pg:app --host 0.0.0.0 --port 8000 --reload")
+        print(f"✓ Gotowe! Uruchom teraz: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload")
     except Exception as e:
         print(f"✗ Błąd tworzenia tabel: {e}")
 
