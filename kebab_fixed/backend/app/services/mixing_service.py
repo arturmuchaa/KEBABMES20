@@ -683,33 +683,59 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
                 )
         mat_id = (mat_row or {}).get("material_type_id") or "mat-cwiartka"
         mat_name = (mat_row or {}).get("material_name") or "Ćwiartka z kurczaka"
-        cx_execute(
+        # Tożsamość partii przyprawionego = (recipe_id, batch_no, dzień produkcji).
+        # Różne receptury z tej samej partii surowca = osobne partie (nie zlewamy).
+        # production_day liczony z now_iso() — spójny z created_at (bez dryfu TZ).
+        recipe_id_val = order.get("recipe_id", "")
+        prod_iso = now_iso()
+        production_day = prod_iso[:10]  # 'YYYY-MM-DD'
+        existing = cx_query_one(
             conn,
             """
-            INSERT INTO seasoned_meat
-                (id, batch_no, recipe_id, recipe_name, mixing_order_no,
-                 kg_produced, kg_available, kg_used, machine_id,
-                 expiry_date, status, material_type_id, material_name, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,0,%s,%s,'available',%s,%s,%s)
-            ON CONFLICT (batch_no) DO UPDATE
-            SET kg_produced  = seasoned_meat.kg_produced  + EXCLUDED.kg_produced,
-                kg_available = seasoned_meat.kg_available + EXCLUDED.kg_available
+            SELECT id FROM seasoned_meat
+            WHERE recipe_id = %s AND batch_no = %s AND production_day = %s
+            FOR UPDATE
             """,
-            (
-                cuid(),
-                batch_no,
-                order.get("recipe_id", ""),
-                order.get("recipe_name", ""),
-                order.get("order_no", ""),
-                kg_output,
-                kg_output,
-                machine_id,
-                expiry,
-                mat_id,
-                mat_name,
-                now_iso(),
-            ),
+            (recipe_id_val, batch_no, production_day),
         )
+        if existing:
+            cx_execute(
+                conn,
+                """
+                UPDATE seasoned_meat
+                SET kg_produced  = kg_produced  + %s,
+                    kg_available = kg_available + %s
+                WHERE id = %s
+                """,
+                (kg_output, kg_output, existing["id"]),
+            )
+        else:
+            cx_execute(
+                conn,
+                """
+                INSERT INTO seasoned_meat
+                    (id, batch_no, recipe_id, recipe_name, mixing_order_no,
+                     kg_produced, kg_available, kg_used, machine_id,
+                     expiry_date, status, material_type_id, material_name,
+                     production_day, created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,0,%s,%s,'available',%s,%s,%s,%s)
+                """,
+                (
+                    cuid(),
+                    batch_no,
+                    recipe_id_val,
+                    order.get("recipe_name", ""),
+                    order.get("order_no", ""),
+                    kg_output,
+                    kg_output,
+                    machine_id,
+                    expiry,
+                    mat_id,
+                    mat_name,
+                    production_day,
+                    prod_iso,
+                ),
+            )
 
         populate_lineage(conn, batch_no, order_id)
 

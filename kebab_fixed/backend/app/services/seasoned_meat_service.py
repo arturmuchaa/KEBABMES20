@@ -377,3 +377,33 @@ def seasoned_trace(batch_id: str) -> Dict[str, Any]:
             "meatLotCount": len(meat_lots_detail),
         },
     }
+
+
+def split_seasoned_sessions(sessions, kg_used_total):
+    """Czysta korekta: zlane sesje jednej partii (batch_no) → grupy
+    per (recipe_id, dzień). Zużyte kg przypisane FEFO (najstarszy dzień
+    pierwszy). Zwraca listę dict-ów posortowaną FEFO:
+    {recipe_id, recipe_name, production_day, kg_produced, kg_used, kg_available}.
+
+    sessions: [{recipe_id, recipe_name, day('YYYY-MM-DD'), kg_output}].
+    """
+    groups: dict = {}
+    for s in sessions:
+        key = (s["recipe_id"], s["day"])
+        g = groups.setdefault(key, {
+            "recipe_id": s["recipe_id"],
+            "recipe_name": s["recipe_name"],
+            "production_day": s["day"],
+            "kg_produced": 0.0,
+        })
+        g["kg_produced"] += float(s["kg_output"] or 0)
+
+    ordered = sorted(groups.values(), key=lambda g: (g["production_day"], g["recipe_id"]))
+    remaining = float(kg_used_total or 0)
+    for g in ordered:
+        take = min(remaining, g["kg_produced"])
+        g["kg_used"] = round(take, 3)
+        g["kg_available"] = round(g["kg_produced"] - take, 3)
+        g["kg_produced"] = round(g["kg_produced"], 3)
+        remaining -= take
+    return ordered
