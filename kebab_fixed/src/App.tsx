@@ -10,6 +10,7 @@ import { ClientsPage }   from '@/pages/office/ClientsPage'
 import { RawStockPage }  from '@/pages/office/RawStockPage'
 import { SpiceStockPage }from '@/pages/office/SpiceStockPage'
 import { SeasonedMeatPage } from '@/pages/office/SeasonedMeatPage'
+import { MixingHistoryPage } from '@/pages/office/MixingHistoryPage'
 import { PackagingPage } from '@/pages/office/PackagingPage'
 import { DeboningReportsPage } from '@/pages/office/DeboningReportsPage'
 import { HaccpReportPage } from '@/pages/office/HaccpReportPage'
@@ -139,6 +140,7 @@ export default function App() {
         <Route path="szablony-etykiet"      element={<LabelTemplatesPage />} />
         <Route path="kalkulacja-kosztow"    element={<CostCalculatorPage />} />
         <Route path="planowanie-masowania"  element={<PlanningPage />} />
+        <Route path="historia-masowania"    element={<MixingHistoryPage />} />
         <Route path="planowanie-produkcji"  element={<ProductionPlanningPage />} />
         <Route path="pracownicy"            element={<WorkersPage />} />
         <Route path="rozliczenia"           element={<PayrollPage />} />
