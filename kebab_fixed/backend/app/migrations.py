@@ -516,6 +516,18 @@ _DDL: list[str] = [
     "ALTER TABLE seasoned_meat DROP CONSTRAINT IF EXISTS seasoned_meat_batch_no_key",
     "CREATE UNIQUE INDEX IF NOT EXISTS seasoned_meat_recipe_batch_day_key "
     "ON seasoned_meat (recipe_id, batch_no, production_day)",
+
+    # ── Audit log (kto/co/kiedy — compliance/ślad zmian) ──
+    """CREATE TABLE IF NOT EXISTS audit_log (
+        id      BIGSERIAL PRIMARY KEY,
+        at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        subject TEXT,
+        method  TEXT NOT NULL,
+        path    TEXT NOT NULL,
+        status  INTEGER,
+        ip      TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_audit_log_at ON audit_log(at DESC)",
 ]
 
 

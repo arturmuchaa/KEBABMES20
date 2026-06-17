@@ -12,6 +12,7 @@ import { SpiceStockPage }from '@/pages/office/SpiceStockPage'
 import { SeasonedMeatPage } from '@/pages/office/SeasonedMeatPage'
 import { MixingHistoryPage } from '@/pages/office/MixingHistoryPage'
 import { ProductionHistoryPage } from '@/pages/office/ProductionHistoryPage'
+import { AuditLogPage } from '@/pages/office/AuditLogPage'
 import { PackagingPage } from '@/pages/office/PackagingPage'
 import { DeboningReportsPage } from '@/pages/office/DeboningReportsPage'
 import { HaccpReportPage } from '@/pages/office/HaccpReportPage'
@@ -65,19 +66,18 @@ import { PanelLoginPage }          from '@/pages/auth/PanelLoginPage'
 import { RequireOffice, RequireDepartment } from '@/features/auth/guards'
 
 // ─── Blokada przypadkowego odświeżenia ───────────────────────
+// Ostrzegaj TYLKO przy realnie niezapisanych zmianach, nie przy każdym
+// aktywnym polu (np. wyszukiwarka/filtr nie mogą blokować nawigacji).
+// Wyzwalacze: otwarty modal edycji (`[role="dialog"]`) lub element jawnie
+// oznaczony `[data-unsaved="true"]` (formularz może to ustawić gdy „dirty").
 function useBlockRefresh() {
   useEffect(() => {
     function handleBeforeUnload(e: BeforeUnloadEvent) {
-      // Sprawdź czy jest aktywny input/textarea/select
-      const active = document.activeElement
-      const isInForm = active && (
-        active.tagName === 'INPUT' ||
-        active.tagName === 'TEXTAREA' ||
-        active.tagName === 'SELECT' ||
-        (active as HTMLElement).closest('[data-form]') !== null ||
-        (active as HTMLElement).closest('[role="dialog"]') !== null
-      )
-      if (isInForm) {
+      const active = document.activeElement as HTMLElement | null
+      const hasUnsaved =
+        document.querySelector('[data-unsaved="true"]') !== null ||
+        (active?.closest('[role="dialog"]') ?? null) !== null
+      if (hasUnsaved) {
         e.preventDefault()
         e.returnValue = 'Masz niezapisane dane. Na pewno chcesz opuścić stronę?'
         return e.returnValue
@@ -151,6 +151,7 @@ export default function App() {
         <Route path="samochody"             element={<VehiclesPage />} />
         <Route path="ustawienia"            element={<CompanySettingsPage />} />
         <Route path="uzytkownicy"           element={<UsersPage />} />
+        <Route path="audyt"                 element={<AuditLogPage />} />
       </Route>
       <Route path="/tablet" element={<TabletLayout />}>
         <Route path="rozbior"          element={<RequireDepartment dept="rozbior"><RozbiorRoute /></RequireDepartment>} />

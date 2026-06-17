@@ -6,7 +6,7 @@ import {
   Layers, Users, UserCog, FlaskConical, ShoppingBag,
   BarChart2, CreditCard, Scissors, Monitor, Truck, Building2,
   FileText, X, Factory, ShoppingCart, Archive,
-  Banknote, Settings, QrCode, Calculator, GitBranch, History, ChevronRight,
+  Banknote, Settings, QrCode, Calculator, GitBranch, History, ChevronRight, ShieldCheck,
 } from 'lucide-react'
 
 interface NavItem { to: string; label: string; icon: React.ReactNode }
@@ -56,6 +56,7 @@ const NAV: NavSection[] = [
     { to: '/office/rozliczenia', label: 'Rozliczenia',   icon: <Banknote size={15} /> },
     { to: '/office/samochody',   label: 'Samochody',     icon: <Truck size={15} /> },
     { to: '/office/uzytkownicy', label: 'Użytkownicy',   icon: <UserCog size={15} /> },
+    { to: '/office/audyt',       label: 'Dziennik audytu', icon: <ShieldCheck size={15} /> },
     { to: '/office/ustawienia',  label: 'Ustawienia firmy', icon: <Settings size={15} /> },
   ]},
 ]
@@ -144,7 +145,7 @@ export function OfficeSidebar({ onClose }: { onClose?: () => void }) {
             </div>
             <ul className="space-y-0.5">
               {section.items
-                .filter(item => item.to !== '/office/uzytkownicy' || user?.role === 'admin')
+                .filter(item => !['/office/uzytkownicy', '/office/audyt'].includes(item.to) || user?.role === 'admin')
                 .map(item => <li key={item.to}><SideItem {...item} /></li>)}
             </ul>
           </div>
