@@ -23,8 +23,9 @@ if TEST_DATABASE_URL:
 
 # Tabele czyszczone przed każdym testem integracyjnym (CASCADE łapie zależne).
 _TRUNCATE = [
-    "stock_movements", "seasoned_meat", "mixing_sessions", "mixing_order_lots",
-    "mixing_orders", "meat_stock", "raw_batches", "recipe_ingredients", "recipes",
+    "stock_movements", "finished_goods", "production_plan_lines", "production_plans",
+    "seasoned_meat", "mixing_sessions", "mixing_order_lots", "mixing_orders",
+    "meat_stock", "raw_batches", "recipe_ingredients", "recipes",
     "product_types", "machine_locks", "sequences", "suppliers", "ingredients",
 ]
 
