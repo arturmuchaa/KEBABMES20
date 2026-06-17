@@ -23,6 +23,9 @@ export type MeatSourceType = 'meat_stock' | 'purchase'
 export interface ProductMeatComponent {
   readonly id:           string
   readonly name:         string          // np. "Mięso z/s", "Filet z kurczaka", "Indyk"
+  /** Powiązanie z katalogiem rodzajów surowca (raw_material_types). Kanoniczny
+   *  klucz dopasowania partii przyprawionego na produkcji (np. mat-filet-kurczak). */
+  readonly materialTypeId?: string
   readonly sourceType:   MeatSourceType
   readonly pct:          number          // 0–100, suma składników = 100
   /** Dla sourceType='meat_stock': powiązanie z lotem mięsa (opcjonalne) */
@@ -71,6 +74,6 @@ export function validateComponents(components: Omit<ProductMeatComponent, 'id'>[
     return { ok: false, sumPct: rounded, message: `Suma udziałów to ${rounded}% — musi wynosić dokładnie 100%` }
   }
   if (components.some(c => c.pct <= 0)) return { ok: false, sumPct: rounded, message: 'Każdy składnik musi mieć udział > 0%' }
-  if (components.some(c => !c.name.trim())) return { ok: false, sumPct: rounded, message: 'Każdy składnik musi mieć nazwę' }
+  if (components.some(c => !c.materialTypeId)) return { ok: false, sumPct: rounded, message: 'Każdy składnik musi mieć wybrany rodzaj surowca' }
   return { ok: true, sumPct: rounded }
 }

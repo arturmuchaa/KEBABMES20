@@ -40,6 +40,7 @@ def build_mixing_order(o: Dict) -> Dict:
     meat_lots = query_all(
         """
         SELECT mol.*, ms.lot_no AS meat_lot_no, ms.expiry_date,
+               ms.material_type_id, ms.material_name,
                rb.internal_batch_no AS raw_batch_no
         FROM mixing_order_lots mol
         LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
@@ -122,6 +123,8 @@ def build_mixing_order(o: Dict) -> Dict:
             {
                 "meatLotId": lot.get("meat_stock_id") or lot.get("id") or "",
                 "meatLotNo": lot.get("meat_lot_no") or lot.get("lot_no") or "",
+                "materialTypeId": lot.get("material_type_id") or "",
+                "materialName": lot.get("material_name") or "",
                 "rawBatchId": lot.get("raw_batch_id") or "",
                 "rawBatchNo": lot.get("raw_batch_no") or "",
                 "kgPlanned": float(lot.get("kg_planned") or lot.get("kg_allocated") or 0),

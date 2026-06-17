@@ -182,6 +182,18 @@ function MachineScreen({ order, locks, onConfirm, onBack, loading }: {
 
       <div className="font-mono text-sm text-brand font-bold">{order.orderNo}</div>
       <h2 className="text-xl font-black text-ink mb-1">{order.recipeName}</h2>
+      {(() => {
+        const mats = Array.from(new Set((order.meatLots ?? []).map((l: any) => l.materialName).filter(Boolean)))
+        if (mats.length === 0) return null
+        const isFilet = mats.some(m => /filet/i.test(String(m)))
+        return (
+          <span className={cn('inline-flex items-center gap-1.5 text-[13px] font-black px-2.5 py-1 rounded-full mb-2',
+            isFilet ? 'bg-amber-100 text-amber-700 border-2 border-amber-400'
+                    : 'bg-blue-50 text-blue-700 border-2 border-blue-300')}>
+            <Beef size={12} /> {mats.join(' + ')}
+          </span>
+        )
+      })()}
 
       {/* Postęp zlecenia */}
       <div className="bg-surface-2 border border-surface-4 rounded-xl p-3 mb-4">

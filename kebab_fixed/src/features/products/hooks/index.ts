@@ -13,7 +13,7 @@ import type {
 
 // ─── Pusty komponent ──────────────────────────────────────────
 function emptyComponent(): Omit<ProductMeatComponent, 'id'> {
-  return { name: '', sourceType: 'meat_stock', pct: 0 }
+  return { name: '', materialTypeId: '', sourceType: 'meat_stock', pct: 0 }
 }
 
 // ─── useProductTypes — lista i operacje ───────────────────────
@@ -89,6 +89,24 @@ export function useProductTypeForm(initial?: ProductType) {
     ))
   }, [])
 
+  // Wybór rodzaju surowca z katalogu — ustawia materialTypeId, nazwę (do
+  // wyświetlania) i źródło (rozbiór vs zakup wg requiresDeboning) naraz.
+  const setComponentMaterial = useCallback((
+    idx: number,
+    mat: { id: string; name: string; requiresDeboning?: boolean },
+  ) => {
+    setComponents(prev => prev.map((c, i) =>
+      i === idx
+        ? {
+            ...c,
+            materialTypeId: mat.id,
+            name: mat.name,
+            sourceType: mat.requiresDeboning ? 'meat_stock' : 'purchase',
+          }
+        : c
+    ))
+  }, [])
+
   // Automatyczne uzupełnienie ostatniego % do 100
   const autoFillLastPct = useCallback(() => {
     if (components.length < 2) return
@@ -115,7 +133,7 @@ export function useProductTypeForm(initial?: ProductType) {
     name, setName,
     description, setDescription,
     components,
-    addComponent, removeComponent, updateComponent, autoFillLastPct,
+    addComponent, removeComponent, updateComponent, setComponentMaterial, autoFillLastPct,
     validation,
     toDto,
     reset,

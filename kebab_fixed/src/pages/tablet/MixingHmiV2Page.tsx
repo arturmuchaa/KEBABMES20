@@ -269,6 +269,19 @@ function ListScreenV2({
                   <div className="flex-1">
                     <div className="font-mono text-[13px] font-bold" style={{ color: 'var(--mut)' }}>{o.orderNo}</div>
                     <div className="text-2xl font-black mt-0.5" style={{ color: 'var(--ink)' }}>{o.recipeName}</div>
+                    {(() => {
+                      const mats = Array.from(new Set((o.meatLots ?? []).map((l: any) => l.materialName).filter(Boolean)))
+                      if (mats.length === 0) return null
+                      const isFilet = mats.some(m => /filet/i.test(String(m)))
+                      return (
+                        <span className="inline-flex items-center gap-1.5 text-[14px] font-black px-3 py-1 rounded-full mt-1.5"
+                          style={isFilet
+                            ? { background: '#FEF3C7', color: '#B45309', border: '2px solid #F59E0B' }
+                            : { background: '#EBF0FF', color: 'var(--blu)', border: '2px solid #93C5FD' }}>
+                          <Beef size={13} /> {mats.join(' + ')}
+                        </span>
+                      )
+                    })()}
                     {orderLocks.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mt-2">
                         {orderLocks.map((l: any) => {

@@ -19,6 +19,8 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import { useApi } from '@/hooks/useApi'
+import { rawBatchesApi } from '@/lib/apiClient'
 import { useProductTypes, useProductTypeForm } from '../hooks'
 import type { ProductType } from '../types'
 import { Plus, Pencil, X, ChevronDown, ChevronUp, Trash2, AlertTriangle, CheckCircle } from 'lucide-react'
@@ -30,6 +32,9 @@ export function ProductTypesPage() {
   const [expanded,  setExpanded]  = useState<string | null>(null)
 
   const form = useProductTypeForm(editItem ?? undefined)
+  // Katalog rodzajów surowca (ćwiartka→udo z rozbioru, filet, indyk…)
+  const { data: matTypesData } = useApi(() => (rawBatchesApi as any).materialTypes())
+  const matTypes: { id: string; name: string; requiresDeboning?: boolean }[] = (matTypesData as any) ?? []
 
   function openCreate() { form.reset(); setEditItem(null); setModalOpen(true) }
   function openEdit(p: ProductType) { setEditItem(p); setModalOpen(true) }
@@ -166,16 +171,26 @@ export function ProductTypesPage() {
                 </Button>
               </div>
               <div className="grid grid-cols-[1fr_90px_140px_32px] gap-2 mb-1">
-                {['Nazwa składnika','Udział %','Źródło',''].map(h => (
+                {['Rodzaj surowca','Udział %','Źródło',''].map(h => (
                   <div key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</div>
                 ))}
               </div>
               <div className="space-y-1.5">
                 {form.components.map((c, idx) => (
                   <div key={idx} className="grid grid-cols-[1fr_90px_140px_32px] gap-2 items-center">
-                    <Input placeholder="np. Mięso z/s, Filet z kurczaka"
-                      value={c.name} onChange={e => form.updateComponent(idx, 'name', e.target.value)}
-                      className="h-8 text-[13px]"/>
+                    <Select value={c.materialTypeId || ''} onValueChange={v => {
+                      const mat = matTypes.find(m => m.id === v)
+                      if (mat) form.setComponentMaterial(idx, mat)
+                    }}>
+                      <SelectTrigger className="h-8 text-[13px]">
+                        <SelectValue placeholder="Wybierz surowiec…"/>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {matTypes.map(m => (
+                          <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <div className="flex items-center gap-1">
                       <Input type="number" min="0" max="100" step="0.1" placeholder="0"
                         value={c.pct || ''}
@@ -183,13 +198,9 @@ export function ProductTypesPage() {
                         className="h-8 text-[13px] font-bold text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"/>
                       <span className="text-[11px] text-muted-foreground flex-shrink-0">%</span>
                     </div>
-                    <Select value={c.sourceType} onValueChange={v => form.updateComponent(idx, 'sourceType', v as any)}>
-                      <SelectTrigger className="h-8 text-[12px]"><SelectValue/></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="meat_stock">Mięso z/s (rozbiór)</SelectItem>
-                        <SelectItem value="purchase">Zakup (FV/PZ)</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <div className="h-8 flex items-center px-2 text-[11px] text-muted-foreground truncate">
+                      {SOURCE_LABELS[c.sourceType] ?? '—'}
+                    </div>
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive"
                       onClick={() => form.removeComponent(idx)} disabled={form.components.length <= 1}>
                       <X size={14}/>

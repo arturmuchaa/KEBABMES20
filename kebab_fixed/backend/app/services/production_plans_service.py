@@ -214,6 +214,50 @@ def _recipe_components(conn, recipe_id: str) -> list[dict]:
     ]
 
 
+def _product_type_components(conn, product_type_id: str | None) -> list[dict]:
+    """Skład produkcyjny z RODZAJU produktu (kanoniczne źródło 70/30).
+
+    Komponent rodzaju = {materialTypeId, name, pct}. Zwraca tylko komponenty
+    z dodatnim udziałem i powiązanym material_type — w formacie zgodnym z
+    ``_compute_component_allocation`` (klucz ``materialTypeId``)."""
+    if not product_type_id:
+        return []
+    row = cx_query_one(
+        conn, "SELECT components FROM product_types WHERE id=%s", (product_type_id,)
+    )
+    if not row:
+        return []
+    comps = row.get("components") or []
+    if isinstance(comps, str):
+        try:
+            comps = json.loads(comps)
+        except Exception:
+            comps = []
+    out: list[dict] = []
+    for c in comps:
+        if not isinstance(c, dict) or float(c.get("pct") or 0) <= 0:
+            continue
+        mat = c.get("materialTypeId") or c.get("material_type_id") or ""
+        if not mat:
+            continue
+        out.append({
+            "materialTypeId": mat,
+            "materialName": c.get("name") or c.get("materialName") or "",
+            "pct": float(c.get("pct") or 0),
+        })
+    return out
+
+
+def _line_components(conn, line: PlanLineCreate) -> list[dict]:
+    """Skład produkcyjny linii. Pierwszeństwo ma RODZAJ produktu, gdy ma ≥2
+    komponenty z material_type (np. 70/30 udo/filet). W przeciwnym razie
+    fallback na komponenty receptury (pełna zgodność wstecz)."""
+    pt_comps = _product_type_components(conn, getattr(line, "product_type_id", None))
+    if len(pt_comps) >= 2:
+        return pt_comps
+    return _recipe_components(conn, line.recipe_id)
+
+
 def _allocate_components(
     qty: int, kg_pu: float, components: list[dict],
     pools: list[list[dict]],
@@ -656,7 +700,7 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
             recipe_name, product_type_name, packaging_name = _resolve_line_names(
                 conn, line
             )
-            comps = _recipe_components(conn, line.recipe_id)
+            comps = _line_components(conn, line)
             if comps:
                 # Receptura komponentowa (np. 70/30) — partie per komponent
                 # dobierane automatycznie FEFO po rodzaju mięsa
@@ -747,7 +791,7 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
             recipe_name, product_type_name, packaging_name = _resolve_line_names(
                 conn, line
             )
-            comps = _recipe_components(conn, line.recipe_id)
+            comps = _line_components(conn, line)
             if comps:
                 nos, allocation, primary_id, primary_no = (
                     _compute_component_allocation(conn, line, comps)

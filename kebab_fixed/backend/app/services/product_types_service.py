@@ -33,6 +33,9 @@ def _map(row: Dict) -> Dict:
                     "name": c.get("name", ""),
                     "pct": float(c.get("pct", 0)),
                     "sourceType": c.get("sourceType", "meat_stock"),
+                    "materialTypeId": c.get("materialTypeId")
+                    or c.get("material_type_id")
+                    or "",
                 }
             )
     return {
@@ -60,6 +63,9 @@ def _comps_to_json(components: List) -> str:
                 "name": c.get("name", ""),
                 "pct": c.get("pct", 0),
                 "sourceType": c.get("sourceType", "meat_stock"),
+                "materialTypeId": c.get("materialTypeId")
+                or c.get("material_type_id")
+                or "",
             }
             for c in components
             if isinstance(c, dict)
