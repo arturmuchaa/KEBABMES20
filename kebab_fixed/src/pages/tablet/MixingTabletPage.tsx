@@ -682,11 +682,12 @@ export function MixingTabletPage() {
   const { data: meatStockData, refetch: refetchMeatStock } = useApi(() => meatStockApi.list())
   const availableMeatLots = useMemo(() =>
     ((meatStockData as any)?.data ?? [])
-      .filter((m: any) => m.status !== 'DEPLETED' && Number(m.kgAvailable) - Number(m.kgReserved ?? 0) > 0.01)
+      // m.kgAvailable z mapMeatStock to już kg_free — NIE odejmować kgReserved drugi raz
+      .filter((m: any) => m.status !== 'DEPLETED' && Number(m.kgAvailable) > 0.01)
       .sort((a: any, b: any) => (a.expiryDate > b.expiryDate ? 1 : -1))
       .map((m: any) => ({
         meatLotId: m.id, meatLotNo: m.lotNo, rawBatchNo: m.rawBatchNo ?? '',
-        kgPlanned: Math.max(0, Number(m.kgAvailable) - Number(m.kgReserved ?? 0)),
+        kgPlanned: Math.max(0, Number(m.kgAvailable)),
         expiryDate: m.expiryDate ?? '', materialName: m.materialName ?? '',
       })),
     [meatStockData])
