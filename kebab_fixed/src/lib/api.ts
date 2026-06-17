@@ -210,6 +210,10 @@ function mapSupplier(raw: any): Supplier {
   }
 }
 
+export const auditApi = {
+  list: (limit = 200) => get<any[]>(`/audit-log?limit=${limit}`),
+}
+
 export const suppliersApi = {
   list:     () => get<any[]>('/suppliers').then(r => (Array.isArray(r) ? r : []).map(mapSupplier)),
   nextCode: async () => '',

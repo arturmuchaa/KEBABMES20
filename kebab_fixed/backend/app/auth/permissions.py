@@ -27,7 +27,7 @@ ANY_PREFIXES = (
 )
 
 # Tylko admin (konta biura)
-ADMIN_PREFIXES = ("/api/app-users",)
+ADMIN_PREFIXES = ("/api/app-users", "/api/audit-log")
 
 # Działy hali → prefiksy
 DEPARTMENT_PREFIXES = {

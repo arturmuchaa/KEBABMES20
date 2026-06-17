@@ -73,11 +73,16 @@ def create_app() -> FastAPI:
     )
 
     from app.auth.middleware import auth_middleware
+    from app.auth.audit import audit_middleware
+    # Kolejność: audit rejestrowane po auth → jest „na zewnątrz", więc po
+    # await call_next subject (ustawiony przez auth) jest już dostępny.
     app.middleware("http")(auth_middleware)
+    app.middleware("http")(audit_middleware)
 
     # ── Register route modules ────────────────────────────────────
     from app.routes import (  # noqa: E402
         app_users,
+        audit,
         auth,
         health,
         suppliers,
@@ -151,6 +156,7 @@ def create_app() -> FastAPI:
         machine_locks,
         vies,
         vies.gus_router,
+        audit,
         traceability,
         vehicles,
         day_closures,
