@@ -1,0 +1,9 @@
+[Unit]
+Description=Kebab MES — backup bazy danych (pg_dump + gzip + retencja)
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/kebab/scripts/backup_db.sh
+Nice=10
+IOSchedulingClass=idle
