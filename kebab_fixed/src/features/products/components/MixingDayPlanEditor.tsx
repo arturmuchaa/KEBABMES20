@@ -31,7 +31,8 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   const dirtyRef = useRef(dirty)
   useEffect(() => { dirtyRef.current = dirty }, [dirty])
 
-  // Dostępne partie mięsa (wolne kg = available - reserved), FEFO
+  // Dostępne partie mięsa, FEFO. UWAGA: m.kgAvailable z mapMeatStock to już
+  // kg_free (= available - reserved), NIE odejmować kgReserved drugi raz!
   const pickerLots: PickerLot[] = useMemo(() =>
     (meatData?.data ?? [])
       .filter((m: any) => m.status !== 'DEPLETED' && m.status !== 'IN_PRODUCTION')
@@ -39,7 +40,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
         id: m.id,
         lotNo: m.lotNo,
         rawBatchNo: m.rawBatchNo,
-        kgAvailable: Math.max(0, Number(m.kgAvailable) - Number(m.kgReserved ?? 0)),
+        kgAvailable: Math.max(0, Number(m.kgAvailable)),
         expiryDate: m.expiryDate,
         materialName: m.materialName,
         materialTypeId: m.materialTypeId,
