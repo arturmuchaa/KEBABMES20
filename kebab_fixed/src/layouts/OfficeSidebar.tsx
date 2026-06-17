@@ -6,7 +6,7 @@ import {
   Layers, Users, UserCog, FlaskConical, ShoppingBag,
   BarChart2, CreditCard, Scissors, Monitor, Truck, Building2,
   FileText, X, Factory, ShoppingCart, Archive,
-  Banknote, Settings, QrCode, Calculator, GitBranch, History, ChevronRight, ShieldCheck,
+  Banknote, Settings, QrCode, Calculator, GitBranch, History, ChevronRight, ShieldCheck, BarChart3,
 } from 'lucide-react'
 
 interface NavItem { to: string; label: string; icon: React.ReactNode }
@@ -45,6 +45,7 @@ const NAV: NavSection[] = [
     { to: '/office/planowanie-masowania', label: 'Plan. masowania',   icon: <Layers size={15} /> },
     { to: '/office/historia-masowania',   label: 'Historia masowania', icon: <History size={15} /> },
     { to: '/office/historia-produkcji',   label: 'Historia produkcji', icon: <History size={15} /> },
+    { to: '/office/analityka',            label: 'Analityka',          icon: <BarChart3 size={15} /> },
     { to: '/office/planowanie-produkcji', label: 'Plan. produkcji',   icon: <Factory size={15} /> },
     { to: '/office/kalkulacja-kosztow',   label: 'Kalkulacja cen', icon: <Calculator size={15} /> },
   ]},

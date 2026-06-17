@@ -214,6 +214,15 @@ export const auditApi = {
   list: (limit = 200) => get<any[]>(`/audit-log?limit=${limit}`),
 }
 
+export const analyticsApi = {
+  mixingYield: (from: string, to: string, g: string) =>
+    get<any[]>(`/analytics/mixing-yield?from=${from}&to=${to}&granularity=${g}`),
+  volume: (from: string, to: string, g: string) =>
+    get<any[]>(`/analytics/volume?from=${from}&to=${to}&granularity=${g}`),
+  costTrend: (from: string, to: string, g: string) =>
+    get<any[]>(`/analytics/cost-trend?from=${from}&to=${to}&granularity=${g}`),
+}
+
 export const suppliersApi = {
   list:     () => get<any[]>('/suppliers').then(r => (Array.isArray(r) ? r : []).map(mapSupplier)),
   nextCode: async () => '',

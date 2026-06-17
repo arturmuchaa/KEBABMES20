@@ -83,6 +83,7 @@ def create_app() -> FastAPI:
     from app.routes import (  # noqa: E402
         app_users,
         audit,
+        analytics,
         auth,
         health,
         suppliers,
@@ -157,6 +158,7 @@ def create_app() -> FastAPI:
         vies,
         vies.gus_router,
         audit,
+        analytics,
         traceability,
         vehicles,
         day_closures,
