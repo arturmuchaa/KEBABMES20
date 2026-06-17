@@ -1,0 +1,10 @@
+[Unit]
+Description=Kebab MES — codzienny backup bazy (02:30, z nadrobieniem)
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
