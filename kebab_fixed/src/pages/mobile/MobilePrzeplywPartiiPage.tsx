@@ -15,17 +15,10 @@ function kgLine(kg: number): string | null {
   return kg > 0 ? `${fmtKg(kg, 1)} kg` : null
 }
 
-/** Etykieta wyrobu gotowego: "ddmmrr nrpartii" (data produkcji + nr partii). */
+/** Etykieta wyrobu gotowego. `finished_goods.batch_no` to już „ddmmrr nrpartii"
+ * (kebab_batch_no), więc NIE doklejamy daty drugi raz (był dubel). */
 function finishedLabel(fg: any): string {
-  const bno = fg.batch_no || (fg.id ? String(fg.id).slice(0, 8) : '—')
-  const raw = fg.produced_date || fg.created_at || ''
-  if (!raw) return bno
-  const d = new Date(raw)
-  if (Number.isNaN(d.getTime())) return bno
-  const dd = String(d.getDate()).padStart(2, '0')
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const rr = String(d.getFullYear()).slice(-2)
-  return `${dd}${mm}${rr} ${bno}`
+  return fg.batch_no || (fg.id ? String(fg.id).slice(0, 8) : '—')
 }
 
 export function MobilePrzeplywPartiiPage() {

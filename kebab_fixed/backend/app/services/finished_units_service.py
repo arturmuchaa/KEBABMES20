@@ -218,7 +218,8 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
                     line.get("client_name") or "",
                     line.get("product_type_id") or "",
                     line.get("recipe_id") or "",
-                    line.get("tuleja") or "",
+                    # Linia planu trzyma tuleję w packaging_name (brak kolumny tuleja).
+                    line.get("tuleja") or line.get("packaging_name") or "",
                     float(line.get("kg_per_unit") or 0),
                     batch_no,
                     line.get("produced_date") or "",
