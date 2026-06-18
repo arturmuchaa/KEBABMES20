@@ -21,6 +21,25 @@ def _kg(v: Any) -> float:
     return round(float(v or 0), 3)
 
 
+def pick_line_for_unit(unit: Dict[str, Any], lines: List[Dict[str, Any]]):
+    """Pierwsza pozycja kartonu z wolnym miejscem, zgodna ze specyfikacją sztuki
+    (receptura + rodzaj + tuleja==packaging_name + waga). Sztuka nie ma packaging_id,
+    więc tuleję dopasowujemy po nazwie."""
+    for ln in lines:
+        if int(ln.get("packed_qty") or 0) >= int(ln.get("target_qty") or 0):
+            continue
+        if (unit.get("recipe_id") or "") != (ln.get("recipe_id") or ""):
+            continue
+        if (unit.get("product_type_id") or "") != (ln.get("product_type_id") or ""):
+            continue
+        if (unit.get("tuleja") or "") != (ln.get("packaging_name") or ""):
+            continue
+        if _kg(unit.get("weight_kg")) != _kg(ln.get("kg_per_unit")):
+            continue
+        return ln
+    return None
+
+
 def create_stock_carton(dto: StockCartonCreate) -> Dict:
     """Utwórz pusty karton magazynowy (status open) z globalnym numerem.
 
