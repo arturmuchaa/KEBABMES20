@@ -78,3 +78,26 @@ class FinishedGoodCreate(BaseModel):
     produced_date: str = Field("", alias="producedDate")
     produced_by: List[str] = Field(default_factory=list, alias="producedBy")
     seasoned_batch_nos: List[str] = Field(default_factory=list, alias="seasonedBatchNos")
+
+
+class StockCartonCreate(BaseModel):
+    """POST /api/finished-goods/stock-carton — karton magazynowy „z ręki".
+
+    Wyrób na magazyn (bez zamówienia) z przypisanym klientem; dostaje globalny
+    carton_no. Później biuro wiąże go z pasującym zamówieniem (assign).
+    """
+
+    model_config = ConfigDict(populate_by_name=True, validate_default=True)
+
+    client_id: str = Field(..., alias="clientId", min_length=1)
+    client_name: str = Field("", alias="clientName")
+    recipe_id: str = Field(..., alias="recipeId", min_length=1)
+    recipe_name: str = Field("", alias="recipeName")
+    product_type_id: str = Field(..., alias="productTypeId", min_length=1)
+    product_type_name: str = Field("", alias="productTypeName")
+    packaging_id: str = Field("", alias="packagingId")
+    packaging_name: str = Field("", alias="packagingName")
+    qty: int = Field(..., gt=0)
+    kg_per_unit: float = Field(..., alias="kgPerUnit", gt=0)
+    produced_date: str = Field("", alias="producedDate")
+    batch_no: str = Field("", alias="batchNo")

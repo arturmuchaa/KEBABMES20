@@ -708,6 +708,36 @@ export const clientOrdersApi = {
   update:       (id: string, dto: CreateClientOrderDto) => put<any>(`/client-orders/${id}`, toSnakeOrderDto(dto)).then(mapClientOrder),
   updateStatus: (id: string, status: string) => patch<any>(`/client-orders/${id}/status`, { status }).then(mapClientOrder),
   delete:       (id: string) => del<void>(`/client-orders/${id}`),
+  // Kartony magazynowe „z ręki" pasujące do zamówienia + przypisanie
+  stockCartonSuggestions: (orderId: string) =>
+    get<StockCartonSuggestion[]>(`/client-orders/${orderId}/stock-carton-suggestions`),
+  assignStockCarton: (orderId: string, cartonId: string) =>
+    post<any>(`/client-orders/${orderId}/assign-stock-carton`, { carton_id: cartonId }),
+}
+
+export interface StockCartonSuggestion {
+  cartonId: string
+  cartonNo: number | null
+  orderLineId: string
+  qty: number
+  kgPerUnit: number
+  batchNo: string
+  productTypeName: string
+  recipeName: string
+  packagingName: string
+}
+
+export interface StockCartonCreateDto {
+  clientId: string
+  clientName: string
+  recipeId: string
+  recipeName: string
+  productTypeId: string
+  productTypeName: string
+  packagingId: string
+  packagingName: string
+  qty: number
+  kgPerUnit: number
 }
 
 // ─── Palety wydania ─────────────────────────────────────────────
@@ -1721,6 +1751,9 @@ export const finishedGoodsApi = {
   create: (dto: any) => post<FinishedGoodsItem>('/finished-goods', toSnake(dto)),
   finishProductionDay: (planId: string, entries: any[]) =>
     post<any>('/finished-goods/finish-day', { plan_id: planId, entries: entries.map(toSnake) }),
+  // Karton magazynowy „z ręki" (wyrób na magazyn z przypisanym klientem)
+  createStockCarton: (dto: StockCartonCreateDto) =>
+    post<any>('/finished-goods/stock-carton', toSnake(dto)),
 }
 
 // ─── Health ───────────────────────────────────────────────────

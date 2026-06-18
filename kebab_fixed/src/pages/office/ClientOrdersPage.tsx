@@ -14,6 +14,7 @@ import {
   Pencil, Plus, Printer, ShoppingCart, Trash2, X, Search, Download,
 } from 'lucide-react'
 import { PalletsEditor } from '@/components/orders/PalletsEditor'
+import { StockCartonSuggestions } from '@/features/finished-goods/components/StockCartonSuggestions'
 import { useProductTypes } from '@/features/products/hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
 import type { ClientOrder, CreateClientOrderDto } from '@/lib/mockApi'
@@ -649,6 +650,9 @@ export function ClientOrdersPage() {
                                 </div>
                               </div>
                             )}
+
+                            {/* Pasujące kartony z magazynu (powiązanie „na magazyn" → zamówienie) */}
+                            <StockCartonSuggestions orderId={o.id} />
 
                             {/* Palety */}
                             <PalletsEditor orderId={o.id} lines={o.lines} />

@@ -70,6 +70,10 @@ _DDL: list[str] = [
     "ALTER TABLE production_sessions ADD COLUMN IF NOT EXISTS source_mixing_batch_ids TEXT[] DEFAULT '{}'",
     "ALTER TABLE production_sessions ADD COLUMN IF NOT EXISTS batch_allocation JSONB DEFAULT '{}'",
     "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_production_id TEXT",
+    # Karton magazynowy „z ręki": carton_no = globalny numer (wspólny carton_seq
+    # z paletami), client_id = pewne dopasowanie klienta do zamówienia.
+    "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS carton_no INTEGER",
+    "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS client_id TEXT",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS batch_allocation JSONB DEFAULT '{}'",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS seasoned_batch_nos TEXT[] DEFAULT '{}'",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS client_order_line_id TEXT",

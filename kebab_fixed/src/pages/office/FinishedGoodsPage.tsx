@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/card'
 import { DetailModal } from '@/features/finished-goods/components/DetailModal'
 import { OfficeUnitLookup } from '@/features/finished-goods/components/OfficeUnitLookup'
+import { StockCartonModal } from '@/features/finished-goods/components/StockCartonModal'
 
 // ─── Grupowanie po SKU (łączymy partie/daty w jeden wiersz magazynu) ──────────
 export interface SkuGroup {
@@ -117,7 +118,7 @@ function exportCsv(rows: SkuGroup[]) {
 // ─── Strona ─────────────────────────────────────────────────
 export function FinishedGoodsPage() {
   const clientDisplay = useClientNames()
-  const { data: items, loading } = useApi(() => finishedGoodsApi.list())
+  const { data: items, loading, refetch } = useApi(() => finishedGoodsApi.list())
   const [detailGroup, setDetailGroup] = useState<SkuGroup | null>(null)
   const [filter,   setFilter]   = useState('')
   const [sortCol,  setSortCol]  = useState<SortCol>('productTypeName')
@@ -185,6 +186,8 @@ export function FinishedGoodsPage() {
             </div>
             {/* Wyszukiwarka pojedynczej sztuki po QR — lokalizacja kebaba */}
             <OfficeUnitLookup />
+            {/* Karton magazynowy „z ręki" */}
+            <StockCartonModal onCreated={refetch} />
           </div>
 
           {/* Inline KPI — kompaktowe, magazynowo (Subiekt GT style) */}

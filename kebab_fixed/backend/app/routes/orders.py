@@ -2,8 +2,10 @@
 from fastapi import APIRouter, Query
 
 from app.models.orders import ClientOrderCreate, PalletsRequest
+from app.services import finished_goods_service
 from app.services import orders_service as svc
 from app.services import pallets_service
+from app.services import stock_carton_match_service
 
 router = APIRouter(prefix="/api/client-orders", tags=["client-orders"])
 
@@ -68,3 +70,16 @@ def loading_status(order_id: str):
 @router.post("/{order_id}/pallets/{pallet_no}/reset")
 def reset_pallet(order_id: str, pallet_no: int):
     return pallets_service.reset_pallet(order_id, pallet_no)
+
+
+@router.get("/{order_id}/stock-carton-suggestions")
+def stock_carton_suggestions(order_id: str):
+    """Pasujące kartony magazynowe do tego zamówienia (klient+receptura+rodzaj+tuleja+waga)."""
+    return stock_carton_match_service.suggestions_for_order(order_id)
+
+
+@router.post("/{order_id}/assign-stock-carton")
+def assign_stock_carton(order_id: str, body: dict):
+    """Powiąż wskazany karton magazynowy z zamówieniem (biuro zatwierdza)."""
+    carton_id = (body or {}).get("carton_id") or (body or {}).get("cartonId") or ""
+    return finished_goods_service.assign_stock_carton_to_order(carton_id, order_id)
