@@ -878,6 +878,10 @@ export const dispatchesApi = {
     }))),
   detail: (id: string) => get<any>(`/dispatches/${id}`),
   scan: (id: string, code: string) => post<DispatchScanResult>(`/dispatches/${id}/scan`, { code }),
+  // Skan całego kartonu magazynowego (SCARTON|id) na wyjazd — wszystkie sztuki kartonu.
+  scanCarton: (id: string, code: string) =>
+    post<{ ok: boolean; cartonNo: string; added: number; qty: number; batchBreakdown: DispatchBatchRow[] }>(
+      `/dispatches/${id}/scan-carton`, { code }),
   remove: (id: string, code: string) => post<DispatchScanResult>(`/dispatches/${id}/remove`, { code }),
   close: (id: string) => post<{ id: string; status: string; units: number }>(`/dispatches/${id}/close`, {}),
   batchBreakdown: (id: string) => get<DispatchBatchRow[]>(`/dispatches/${id}/batch-breakdown`),
