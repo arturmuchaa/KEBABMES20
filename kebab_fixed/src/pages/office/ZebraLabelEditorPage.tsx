@@ -169,6 +169,16 @@ export function ZebraLabelEditorPage() {
               <Field label="Klient"><Picker value={clientId} onChange={setClientId} items={clients} ph="Klient…" /></Field>
               <Field label="Receptura"><Picker value={recipeId} onChange={setRecipeId} items={recipes} ph="Receptura…" /></Field>
             </div>
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="font-semibold text-slate-600">Rozmiar:</span>
+              {[[100, 150], [100, 300]].map(([w, h]) => (
+                <button key={`${w}x${h}`} onClick={() => { setWidthMm(w); setHeightMm(h) }}
+                  className={`rounded px-2 py-0.5 ${widthMm === w && heightMm === h ? 'bg-blue-600 text-white' : 'bg-slate-200 hover:bg-slate-300'}`}>
+                  {w}×{h} mm
+                </button>
+              ))}
+              <span className="text-slate-400">(szer. ≤ głowicy ~104mm; długość 150/300)</span>
+            </div>
             <div className="grid grid-cols-3 gap-2">
               <Field label="Szer. (mm)"><Input type="number" value={widthMm} onChange={e => setWidthMm(+e.target.value || 0)} /></Field>
               <Field label="Wys. (mm)"><Input type="number" value={heightMm} onChange={e => setHeightMm(+e.target.value || 0)} /></Field>
