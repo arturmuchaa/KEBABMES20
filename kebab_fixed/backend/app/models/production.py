@@ -80,24 +80,43 @@ class FinishedGoodCreate(BaseModel):
     seasoned_batch_nos: List[str] = Field(default_factory=list, alias="seasonedBatchNos")
 
 
-class StockCartonCreate(BaseModel):
-    """POST /api/finished-goods/stock-carton — karton magazynowy „z ręki".
+class StockCartonLineDto(BaseModel):
+    """Pojedyncza pozycja kartonu (rodzaj+receptura+tuleja+waga+ilość)."""
 
-    Wyrób na magazyn (bez zamówienia) z przypisanym klientem; dostaje globalny
-    carton_no. Później biuro wiąże go z pasującym zamówieniem (assign).
+    model_config = ConfigDict(populate_by_name=True)
+
+    recipe_id: str = Field("", alias="recipeId")
+    recipe_name: str = Field("", alias="recipeName")
+    product_type_id: str = Field("", alias="productTypeId")
+    product_type_name: str = Field("", alias="productTypeName")
+    packaging_id: str = Field("", alias="packagingId")
+    packaging_name: str = Field("", alias="packagingName")
+    kg_per_unit: float = Field(..., alias="kgPerUnit", gt=0)
+    qty: int = Field(..., gt=0)
+
+
+class StockCartonCreate(BaseModel):
+    """POST /api/stock-cartons — karton magazynowy „z ręki" (bez zamówienia).
+
+    Karton dla JEDNEGO klienta z listą pozycji `lines` (skład mieszany). Dla
+    wstecznej zgodności akceptuje też pojedynczy spec (recipe_id/qty/kg_per_unit) —
+    wtedy serwis tworzy z niego jedną pozycję. Dostaje globalny carton_no; później
+    biuro wiąże go z pasującym zamówieniem (assign).
     """
 
     model_config = ConfigDict(populate_by_name=True, validate_default=True)
 
     client_id: str = Field(..., alias="clientId", min_length=1)
     client_name: str = Field("", alias="clientName")
-    recipe_id: str = Field(..., alias="recipeId", min_length=1)
+    lines: List[StockCartonLineDto] = Field(default_factory=list)
+    # ── wstecznie: pojedynczy spec (opcjonalny) ──
+    recipe_id: str = Field("", alias="recipeId")
     recipe_name: str = Field("", alias="recipeName")
-    product_type_id: str = Field(..., alias="productTypeId", min_length=1)
+    product_type_id: str = Field("", alias="productTypeId")
     product_type_name: str = Field("", alias="productTypeName")
     packaging_id: str = Field("", alias="packagingId")
     packaging_name: str = Field("", alias="packagingName")
-    qty: int = Field(..., gt=0)
-    kg_per_unit: float = Field(..., alias="kgPerUnit", gt=0)
+    qty: int = Field(0)
+    kg_per_unit: float = Field(0, alias="kgPerUnit")
     produced_date: str = Field("", alias="producedDate")
     batch_no: str = Field("", alias="batchNo")

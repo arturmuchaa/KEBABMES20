@@ -8,9 +8,9 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from app.db import cx_execute, cx_query_one, query_all, query_one, transaction
+from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
-from app.models.production import StockCartonCreate
+from app.models.production import StockCartonCreate, StockCartonLineDto
 from app.utils.ids import cuid, format_carton_no, next_seq, now_iso
 from app.utils.unit_codes import parse_unit_qr
 
@@ -40,54 +40,88 @@ def pick_line_for_unit(unit: Dict[str, Any], lines: List[Dict[str, Any]]):
     return None
 
 
-def create_stock_carton(dto: StockCartonCreate) -> Dict:
-    """Utwórz pusty karton magazynowy (status open) z globalnym numerem.
+def _lines_from_dto(dto: StockCartonCreate) -> List[StockCartonLineDto]:
+    """Pozycje z DTO; wstecznie: pojedynczy spec → jedna pozycja."""
+    lines = list(getattr(dto, "lines", None) or [])
+    if lines:
+        return lines
+    return [StockCartonLineDto(
+        recipe_id=dto.recipe_id, recipe_name=dto.recipe_name or "",
+        product_type_id=dto.product_type_id, product_type_name=dto.product_type_name or "",
+        packaging_id=dto.packaging_id or "", packaging_name=dto.packaging_name or "",
+        kg_per_unit=float(dto.kg_per_unit), qty=int(dto.qty),
+    )]
 
-    Blokada duplikatu: jeśli istnieje już OTWARTY karton o tym samym składzie
-    (klient+receptura+rodzaj+tuleja+waga), nie pozwalamy utworzyć kolejnego —
-    najpierw trzeba go spakować (inaczej mnożyłyby się puste, identyczne kartony).
+
+def _line_signature(lines: List[StockCartonLineDto]):
+    """Sygnatura składu (do dedupu) niezależna od kolejności pozycji."""
+    return sorted((l.recipe_id or "", l.product_type_id or "", l.packaging_id or "",
+                   _kg(l.kg_per_unit), int(l.qty)) for l in lines)
+
+
+def create_stock_carton(dto: StockCartonCreate) -> Dict:
+    """Utwórz karton magazynowy (nagłówek + pozycje) z globalnym numerem.
+
+    Skład mieszany: lista pozycji (rodzaj+receptura+tuleja+waga+ilość) dla jednego
+    klienta. Blokada duplikatu: otwarty, niepowiązany karton tego klienta o
+    identycznym ZESTAWIE pozycji — najpierw trzeba go spakować.
     """
+    lines = _lines_from_dto(dto)
+    if not lines:
+        raise HTTPException(400, "Karton musi mieć co najmniej jedną pozycję")
+    sig = _line_signature(lines)
     with transaction() as conn:
-        dup = cx_query_one(
+        candidates = cx_query_all(
             conn,
-            """
-            SELECT carton_no FROM stock_cartons
-            WHERE status='open' AND linked_order_id IS NULL
-              AND COALESCE(client_id,'')=%s AND COALESCE(recipe_id,'')=%s
-              AND COALESCE(product_type_id,'')=%s AND COALESCE(packaging_id,'')=%s
-              AND kg_per_unit=%s
-            LIMIT 1
-            """,
-            (dto.client_id, dto.recipe_id or "", dto.product_type_id or "",
-             dto.packaging_id or "", float(dto.kg_per_unit)),
+            """SELECT id, carton_no FROM stock_cartons
+               WHERE status='open' AND linked_order_id IS NULL
+                 AND COALESCE(client_id,'')=%s""",
+            (dto.client_id,),
         )
-        if dup:
-            raise HTTPException(
-                409,
-                f"Taki karton już istnieje (nr {format_carton_no(dup['carton_no'])}) "
-                "— najpierw go spakuj",
+        for cand in candidates:
+            cl = cx_query_all(
+                conn,
+                "SELECT recipe_id, product_type_id, packaging_id, kg_per_unit, target_qty "
+                "FROM stock_carton_lines WHERE carton_id=%s",
+                (cand["id"],),
             )
+            cand_sig = sorted((r.get("recipe_id") or "", r.get("product_type_id") or "",
+                               r.get("packaging_id") or "", _kg(r.get("kg_per_unit")),
+                               int(r.get("target_qty") or 0)) for r in cl)
+            if cand_sig == sig:
+                raise HTTPException(
+                    409,
+                    f"Taki karton już istnieje (nr {format_carton_no(cand['carton_no'])}) "
+                    "— najpierw go spakuj",
+                )
         carton_no = next_seq("carton_seq")
+        total_qty = sum(int(l.qty) for l in lines)
         row = cx_query_one(
             conn,
             """
             INSERT INTO stock_cartons
-                (id, carton_no, client_id, client_name, recipe_id, recipe_name,
-                 product_type_id, product_type_name, packaging_id, packaging_name,
-                 kg_per_unit, target_qty, packed_qty, status, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,'open',%s)
+                (id, carton_no, client_id, client_name, kg_per_unit, target_qty,
+                 packed_qty, status, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,0,'open',%s)
             RETURNING *
             """,
-            (
-                cuid(), carton_no, dto.client_id, dto.client_name or "",
-                dto.recipe_id or "", dto.recipe_name or "",
-                dto.product_type_id or "", dto.product_type_name or "",
-                dto.packaging_id or "", dto.packaging_name or "",
-                float(dto.kg_per_unit), int(dto.qty), now_iso(),
-            ),
+            (cuid(), carton_no, dto.client_id, dto.client_name or "",
+             _kg(lines[0].kg_per_unit), total_qty, now_iso()),
         )
+        for l in lines:
+            cx_execute(
+                conn,
+                """INSERT INTO stock_carton_lines
+                     (id, carton_id, recipe_id, recipe_name, product_type_id, product_type_name,
+                      packaging_id, packaging_name, kg_per_unit, target_qty, packed_qty)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0)""",
+                (cuid(), row["id"], l.recipe_id or "", l.recipe_name or "",
+                 l.product_type_id or "", l.product_type_name or "",
+                 l.packaging_id or "", l.packaging_name or "",
+                 _kg(l.kg_per_unit), int(l.qty)),
+            )
     logger.info("stock_cartons.created",
-                extra={"id": row["id"], "carton_no": carton_no, "target_qty": dto.qty})
+                extra={"carton_no": carton_no, "target_qty": total_qty, "n_lines": len(lines)})
     return row
 
 
@@ -103,8 +137,11 @@ def scan_unit_into_carton(carton_id: str, code: str) -> Dict[str, Any]:
         )
         if not carton:
             raise HTTPException(404, "Karton nie znaleziony")
-        if int(carton["packed_qty"]) >= int(carton["target_qty"]):
-            raise HTTPException(409, "Karton jest pełny")
+        lines = cx_query_all(
+            conn,
+            "SELECT * FROM stock_carton_lines WHERE carton_id=%s ORDER BY kg_per_unit",
+            (carton_id,),
+        )
         unit = cx_query_one(
             conn, "SELECT * FROM finished_units WHERE id=%s FOR UPDATE", (unit_id,)
         )
@@ -113,12 +150,18 @@ def scan_unit_into_carton(carton_id: str, code: str) -> Dict[str, Any]:
         # Idempotencja (retry/dubel z kolejki offline): sztuka już w TYM kartonie
         # → zwróć OK bez podwajania.
         if unit.get("carton_id") == carton_id:
+            agg = cx_query_one(
+                conn,
+                "SELECT COALESCE(SUM(packed_qty),0) AS p, COALESCE(SUM(target_qty),0) AS t "
+                "FROM stock_carton_lines WHERE carton_id=%s",
+                (carton_id,),
+            )
             return {
                 "ok": True,
                 "cartonNo": format_carton_no(carton["carton_no"]),
-                "packedQty": int(carton["packed_qty"]),
-                "targetQty": int(carton["target_qty"]),
-                "full": int(carton["packed_qty"]) >= int(carton["target_qty"]),
+                "packedQty": int(agg["p"]),
+                "targetQty": int(agg["t"]),
+                "full": int(agg["p"]) >= int(agg["t"]),
                 "batchNo": unit.get("batch_no") or "",
             }
         if unit.get("status") != "produced":
@@ -129,23 +172,32 @@ def scan_unit_into_carton(carton_id: str, code: str) -> Dict[str, Any]:
             )
         if unit.get("carton_id"):
             raise HTTPException(409, "Sztuka jest już w innym kartonie")
-        # Zgodność fizyczna: receptura + rodzaj + tuleja + waga sztuki.
-        if (unit.get("recipe_id") or "") != (carton.get("recipe_id") or ""):
-            raise HTTPException(409, "Sztuka ma inną recepturę niż karton")
-        if (unit.get("product_type_id") or "") != (carton.get("product_type_id") or ""):
-            raise HTTPException(409, "Sztuka ma inny rodzaj niż karton")
-        if (unit.get("tuleja") or "") != (carton.get("packaging_name") or ""):
-            raise HTTPException(409, "Sztuka ma inną tuleję niż karton")
-        if _kg(unit.get("weight_kg")) != _kg(carton.get("kg_per_unit")):
-            raise HTTPException(409, "Sztuka ma inną wagę niż karton")
-
+        # Dopasuj sztukę do pozycji kartonu z wolnym miejscem (skład mieszany).
+        line = pick_line_for_unit(unit, lines)
+        if line is None:
+            raise HTTPException(
+                409,
+                "Brak wolnej pozycji kartonu dla tej sztuki "
+                "(niezgodna receptura/rodzaj/tuleja/waga albo pozycja pełna)",
+            )
         cx_execute(
             conn,
             "UPDATE finished_units SET carton_id=%s, status='packed' WHERE id=%s",
             (carton_id, unit_id),
         )
-        new_packed = int(carton["packed_qty"]) + 1
-        full = new_packed >= int(carton["target_qty"])
+        cx_execute(
+            conn,
+            "UPDATE stock_carton_lines SET packed_qty=packed_qty+1 WHERE id=%s",
+            (line["id"],),
+        )
+        agg = cx_query_one(
+            conn,
+            "SELECT COALESCE(SUM(packed_qty),0) AS p, COALESCE(SUM(target_qty),0) AS t "
+            "FROM stock_carton_lines WHERE carton_id=%s",
+            (carton_id,),
+        )
+        new_packed, target = int(agg["p"]), int(agg["t"])
+        full = new_packed >= target
         cx_execute(
             conn,
             "UPDATE stock_cartons SET packed_qty=%s, status=%s, closed_at=%s WHERE id=%s",
@@ -156,7 +208,7 @@ def scan_unit_into_carton(carton_id: str, code: str) -> Dict[str, Any]:
         "ok": True,
         "cartonNo": format_carton_no(carton["carton_no"]),
         "packedQty": new_packed,
-        "targetQty": int(carton["target_qty"]),
+        "targetQty": target,
         "full": full,
         "batchNo": unit.get("batch_no") or "",
     }
@@ -196,13 +248,7 @@ def assign_carton_to_order(carton_id: str, order_id: str) -> Dict:
     return {"ok": True, "cartonId": carton_id, "orderNo": order["order_no"]}
 
 
-def eligible_units_for_carton(carton_id: str) -> List[Dict]:
-    """Sztuki uprawnione do tego kartonu (do walidacji lokalnej offline):
-    wyprodukowane, niespakowane, zgodne ze specyfikacją kartonu
-    (receptura + rodzaj + tuleja + waga)."""
-    carton = query_one("SELECT * FROM stock_cartons WHERE id=%s", (carton_id,))
-    if not carton:
-        raise HTTPException(404, "Karton nie znaleziony")
+def _eligible_for_spec(recipe_id, product_type_id, packaging_name, kg) -> List[Dict]:
     rows = query_all(
         """
         SELECT qr_code, batch_no FROM finished_units
@@ -211,10 +257,40 @@ def eligible_units_for_carton(carton_id: str) -> List[Dict]:
           AND COALESCE(tuleja,'')=%s AND weight_kg=%s
         ORDER BY batch_no, qr_seq
         """,
-        (carton.get("recipe_id") or "", carton.get("product_type_id") or "",
-         carton.get("packaging_name") or "", _kg(carton.get("kg_per_unit"))),
+        (recipe_id or "", product_type_id or "", packaging_name or "", _kg(kg)),
     )
     return [{"code": r["qr_code"], "batchNo": r.get("batch_no") or ""} for r in rows]
+
+
+def eligible_units_for_line(line_id: str) -> List[Dict]:
+    """Sztuki uprawnione do TEJ pozycji kartonu (produced, niespakowane, zgodna spec)."""
+    line = query_one("SELECT * FROM stock_carton_lines WHERE id=%s", (line_id,))
+    if not line:
+        raise HTTPException(404, "Pozycja kartonu nie znaleziona")
+    return _eligible_for_spec(line.get("recipe_id"), line.get("product_type_id"),
+                              line.get("packaging_name"), line.get("kg_per_unit"))
+
+
+def eligible_units_for_carton(carton_id: str) -> List[Dict]:
+    """Sztuki uprawnione do kartonu (suma po pozycjach z wolnym miejscem) — do
+    walidacji lokalnej offline. Bez duplikatów kodów."""
+    carton = query_one("SELECT id FROM stock_cartons WHERE id=%s", (carton_id,))
+    if not carton:
+        raise HTTPException(404, "Karton nie znaleziony")
+    lines = query_all(
+        "SELECT recipe_id, product_type_id, packaging_name, kg_per_unit "
+        "FROM stock_carton_lines WHERE carton_id=%s AND packed_qty < target_qty",
+        (carton_id,),
+    )
+    out: List[Dict] = []
+    seen = set()
+    for ln in lines:
+        for u in _eligible_for_spec(ln.get("recipe_id"), ln.get("product_type_id"),
+                                    ln.get("packaging_name"), ln.get("kg_per_unit")):
+            if u["code"] not in seen:
+                seen.add(u["code"])
+                out.append(u)
+    return out
 
 
 def get_carton(carton_id: str) -> Dict:

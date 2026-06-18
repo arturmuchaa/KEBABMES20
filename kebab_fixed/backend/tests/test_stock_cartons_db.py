@@ -8,8 +8,8 @@ Wymaga TEST_DATABASE_URL (patrz conftest), inaczej skip.
 import pytest
 from fastapi import HTTPException
 
-from app.db import execute, query_one
-from app.models.production import StockCartonCreate
+from app.db import execute, query_all, query_one
+from app.models.production import StockCartonCreate, StockCartonLineDto
 from app.services.stock_cartons_service import (
     assign_carton_to_order,
     create_stock_carton,
@@ -62,6 +62,33 @@ def test_create_allows_after_first_packed(db):
     # ten sam spec, ale poprzedni już spakowany → wolno utworzyć kolejny
     c2 = create_stock_carton(_dto(qty=1))
     assert c2["carton_no"] != c["carton_no"]
+
+
+# ── Karton mieszany (wiele pozycji) ────────────────────────────────────
+def test_create_mixed_carton_has_two_lines(db):
+    dto = StockCartonCreate(client_id="c1", client_name="Zagros", lines=[
+        StockCartonLineDto(recipe_id="r1", product_type_id="pt1", packaging_name="Tuleja A", kg_per_unit=10.0, qty=30),
+        StockCartonLineDto(recipe_id="r1", product_type_id="pt1", packaging_name="Tuleja B", kg_per_unit=15.0, qty=20),
+    ])
+    carton = create_stock_carton(dto)
+    assert carton["target_qty"] == 50
+    lines = query_all("SELECT * FROM stock_carton_lines WHERE carton_id=%s ORDER BY kg_per_unit", (carton["id"],))
+    assert len(lines) == 2
+    assert int(lines[0]["target_qty"]) == 30 and float(lines[0]["kg_per_unit"]) == 10.0
+    assert int(lines[1]["target_qty"]) == 20 and float(lines[1]["kg_per_unit"]) == 15.0
+
+
+def test_scan_mixed_carton_full_after_all_lines(db):
+    carton = create_stock_carton(StockCartonCreate(client_id="c1", lines=[
+        StockCartonLineDto(recipe_id="r1", product_type_id="p1", packaging_name="METAL 40", kg_per_unit=10.0, qty=1),
+        StockCartonLineDto(recipe_id="r1", product_type_id="p1", packaging_name="METAL 40", kg_per_unit=15.0, qty=1),
+    ]))
+    _seed_unit("m10", kg=10.0)
+    _seed_unit("m15", kg=15.0)
+    r1 = scan_unit_into_carton(carton["id"], unit_qr("m10"))
+    assert r1["full"] is False
+    r2 = scan_unit_into_carton(carton["id"], unit_qr("m15"))
+    assert r2["full"] is True and r2["targetQty"] == 2 and r2["packedQty"] == 2
 
 
 # ── Skan sztuki do kartonu ─────────────────────────────────────────────
