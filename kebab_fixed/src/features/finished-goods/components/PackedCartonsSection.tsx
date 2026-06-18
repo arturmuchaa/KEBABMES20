@@ -29,11 +29,19 @@ export function PackedCartonsSection({ refreshKey = 0 }: { refreshKey?: number }
         <div className="divide-y">
           {cartons.map(c => {
             const full = c.packedQty >= c.targetQty
+            const mixed = c.lines.length > 1
+            // Skład: jednorodny → „Rodzaj · waga"; mieszany → „30×10kg + 20×15kg".
+            const composition = mixed
+              ? c.lines.map(l => `${l.targetQty}×${l.kgPerUnit}kg`).join(' + ')
+              : `${c.productTypeName || c.recipeName} · ${c.kgPerUnit} kg`
             return (
               <div key={c.id} className="flex items-center gap-3 py-2">
                 <span className="font-mono text-sm font-black text-teal-800">Karton {formatCartonNo(c.cartonNo)}</span>
-                <span className="min-w-0 truncate text-sm text-slate-700">
-                  {clientDisplay(c.clientName)} · {c.productTypeName || c.recipeName} · {c.kgPerUnit} kg
+                {mixed && (
+                  <span className="shrink-0 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700">mix</span>
+                )}
+                <span className="min-w-0 truncate text-sm text-slate-700" title={composition}>
+                  {clientDisplay(c.clientName)} · {composition}
                 </span>
                 <span className="ml-auto text-sm font-bold tabular-nums text-slate-600">
                   {c.packedQty}/{c.targetQty}

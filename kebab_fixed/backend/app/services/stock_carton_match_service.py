@@ -75,15 +75,16 @@ def suggestions_for_order(order_id: str) -> List[Dict[str, Any]]:
     )
     cartons = query_all(
         """
-        SELECT id, carton_no, client_id, recipe_id, product_type_id, packaging_id,
-               kg_per_unit, packed_qty
+        SELECT id, carton_no, client_id, recipe_id, recipe_name, product_type_id,
+               product_type_name, packaging_id, packaging_name, kg_per_unit, packed_qty
         FROM stock_cartons
         WHERE linked_order_id IS NULL
         """,
     )
     for c in cartons:
         lns = query_all(
-            "SELECT recipe_id, product_type_id, packaging_id, kg_per_unit, packed_qty "
+            "SELECT recipe_id, recipe_name, product_type_id, product_type_name, "
+            "       packaging_id, packaging_name, kg_per_unit, packed_qty "
             "FROM stock_carton_lines WHERE carton_id=%s",
             (c["id"],),
         )
@@ -92,9 +93,11 @@ def suggestions_for_order(order_id: str) -> List[Dict[str, Any]]:
         elif int(c.get("packed_qty") or 0) > 0:
             # Karton „legacy" bez pozycji — potraktuj nagłówek jako jedną pozycję.
             c["lines"] = [{
-                "recipe_id": c.get("recipe_id"), "product_type_id": c.get("product_type_id"),
-                "packaging_id": c.get("packaging_id"), "kg_per_unit": c.get("kg_per_unit"),
-                "packed_qty": c.get("packed_qty"),
+                "recipe_id": c.get("recipe_id"), "recipe_name": c.get("recipe_name"),
+                "product_type_id": c.get("product_type_id"),
+                "product_type_name": c.get("product_type_name"),
+                "packaging_id": c.get("packaging_id"), "packaging_name": c.get("packaging_name"),
+                "kg_per_unit": c.get("kg_per_unit"), "packed_qty": c.get("packed_qty"),
             }]
         else:
             c["lines"] = []

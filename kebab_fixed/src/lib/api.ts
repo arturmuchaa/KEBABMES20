@@ -710,9 +710,18 @@ export const clientOrdersApi = {
   delete:       (id: string) => del<void>(`/client-orders/${id}`),
   // Kartony magazynowe „z ręki" pasujące do zamówienia + przypisanie
   stockCartonSuggestions: (orderId: string) =>
-    get<StockCartonSuggestion[]>(`/client-orders/${orderId}/stock-carton-suggestions`),
+    get<any[]>(`/client-orders/${orderId}/stock-carton-suggestions`)
+      .then(rows => (rows ?? []).map(mapStockCartonSuggestion)),
   assignStockCarton: (orderId: string, cartonId: string) =>
     post<any>(`/client-orders/${orderId}/assign-stock-carton`, { carton_id: cartonId }),
+}
+
+export interface StockCartonSuggestionLine {
+  recipeName: string
+  productTypeName: string
+  packagingName: string
+  kgPerUnit: number
+  packedQty: number
 }
 
 export interface StockCartonSuggestion {
@@ -720,11 +729,24 @@ export interface StockCartonSuggestion {
   cartonNo: number | null
   orderLineId: string
   qty: number
-  kgPerUnit: number
-  batchNo: string
-  productTypeName: string
-  recipeName: string
-  packagingName: string
+  /** Skład kartonu (pozycje). Karton jednorodny = jedna pozycja. */
+  lines: StockCartonSuggestionLine[]
+}
+
+function mapStockCartonSuggestion(r: any): StockCartonSuggestion {
+  return {
+    cartonId: r.cartonId ?? r.carton_id ?? '',
+    cartonNo: r.cartonNo ?? r.carton_no ?? null,
+    orderLineId: r.orderLineId ?? r.order_line_id ?? '',
+    qty: Number(r.qty ?? 0),
+    lines: (r.lines ?? []).map((l: any): StockCartonSuggestionLine => ({
+      recipeName: l.recipe_name ?? l.recipeName ?? '',
+      productTypeName: l.product_type_name ?? l.productTypeName ?? '',
+      packagingName: l.packaging_name ?? l.packagingName ?? '',
+      kgPerUnit: Number(l.kg_per_unit ?? l.kgPerUnit ?? 0),
+      packedQty: Number(l.packed_qty ?? l.packedQty ?? 0),
+    })),
+  }
 }
 
 export interface StockCartonLineDto {
