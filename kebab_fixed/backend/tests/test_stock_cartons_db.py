@@ -13,6 +13,7 @@ from app.models.production import StockCartonCreate
 from app.services.stock_cartons_service import (
     assign_carton_to_order,
     create_stock_carton,
+    eligible_units_for_carton,
     scan_unit_into_carton,
 )
 from app.services.stock_carton_match_service import suggestions_for_order
@@ -129,6 +130,18 @@ def test_scan_rejects_when_carton_full(db):
     assert exc.value.status_code == 409
     cc = query_one("SELECT status FROM stock_cartons WHERE id=%s", (c["id"],))
     assert cc["status"] == "packed"  # osiągnięto target → zamknięty
+
+
+# ── Walidacja lokalna offline: lista uprawnionych sztuk ────────────────
+def test_eligible_units_returns_matching_produced_unpacked(db):
+    c = create_stock_carton(_dto())
+    _seed_unit("e1")                              # pasuje
+    _seed_unit("e2")                              # pasuje
+    _seed_unit("e3", ptype="INNY")                # zła spec
+    _seed_unit("e4", status="planned")            # nie wyprodukowana
+    _seed_unit("e5", carton_id="x", status="packed")  # już spakowana
+    codes = {u["code"] for u in eligible_units_for_carton(c["id"])}
+    assert codes == {unit_qr("e1"), unit_qr("e2")}
 
 
 # ── Faza 2: dopasowanie + przypisanie do zamówienia ────────────────────

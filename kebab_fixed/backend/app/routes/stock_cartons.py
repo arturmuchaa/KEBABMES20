@@ -22,6 +22,12 @@ def list_open():
     return svc.list_open_cartons()
 
 
+@router.get("/{carton_id}/eligible-units")
+def eligible_units(carton_id: str):
+    """Sztuki uprawnione do kartonu — prefetch do walidacji lokalnej offline."""
+    return svc.eligible_units_for_carton(carton_id)
+
+
 @router.get("/{carton_id}")
 def get(carton_id: str):
     return svc.get_carton(carton_id)

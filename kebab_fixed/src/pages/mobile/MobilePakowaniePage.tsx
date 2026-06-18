@@ -7,8 +7,9 @@ import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { beepOk, beepErr } from '@/features/pwa/beep'
 import { useClientNames } from '@/lib/clientNames'
 import { formatCartonNo } from '@/lib/unitLocation'
-import { enqueueScan, getQueuedScans, removeQueuedScan, queuedCount } from '@/features/offline/scanQueue'
+import { enqueueScan, getQueuedScans, removeQueuedScan, queuedCount, saveEligibleUnits, getEligibleUnits } from '@/features/offline/scanQueue'
 import { summarizeSync, type SyncResult, type SyncSummary } from '@/features/offline/summarizeSync'
+import { validateScanLocally } from '@/features/offline/validateScanLocally'
 import { WifiOff, Wifi } from 'lucide-react'
 
 function isNetworkError(e: unknown): boolean {
@@ -60,6 +61,8 @@ export function MobilePakowaniePage() {
   const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
   const [pending, setPending] = useState(0)
   const [syncReport, setSyncReport] = useState<SyncSummary | null>(null)
+  // Uprawnione sztuki aktywnego kartonu (pobrane online) → walidacja lokalna offline.
+  const [eligible, setEligible] = useState<Set<string>>(new Set())
 
   const inputRef = useRef<HTMLInputElement | null>(null)
   const toPackRes = useApi(() => palletsApi.toPack(), [])
@@ -131,6 +134,7 @@ export function MobilePakowaniePage() {
       })
       setBatch(d.batch_breakdown ?? [])
       setLast(null)
+      setEligible(new Set())  // palety zamówień: fallback optymistyczny (bez walidacji lokalnej)
     } catch (e) {
       beepErr()
       setLast({ ok: false, message: e instanceof Error ? e.message : 'Nie udało się otworzyć palety' })
@@ -153,6 +157,15 @@ export function MobilePakowaniePage() {
       })
       setBatch([])
       setLast(null)
+      // Prefetch uprawnionych sztuk do walidacji lokalnej offline.
+      try {
+        const codes = await stockCartonsApi.eligibleUnits(id)
+        await saveEligibleUnits(id, codes)
+        setEligible(new Set(codes))
+      } catch {
+        // offline lub błąd → spróbuj z IndexedDB (ostatni prefetch)
+        setEligible(new Set(await getEligibleUnits(id)))
+      }
     } catch (e) {
       beepErr()
       setLast({ ok: false, message: e instanceof Error ? e.message : 'Nie znaleziono kartonu' })
@@ -181,14 +194,26 @@ export function MobilePakowaniePage() {
       setValue(''); return openByCode(trimmed)
     }
 
-    // Offline → do kolejki, optymistycznie (dosłane po złapaniu sieci).
+    // Offline → walidacja lokalna (karton magazynowy z pobraną listą), potem kolejka.
     async function queueOptimistic() {
+      const canValidate = pallet!.kind === 'stock' && eligible.size > 0
+      if (canValidate) {
+        const queued = await getQueuedScans()
+        const scanned = new Set(queued.filter(q => q.containerId === pallet!.id).map(q => q.code))
+        const v = validateScanLocally({ code: trimmed, eligible, scanned })
+        if (!v.ok) {
+          beepErr()
+          try { navigator.vibrate?.([60, 40, 60]) } catch {}
+          setLast({ ok: false, message: v.reason || 'Sztuka nie pasuje' })
+          return
+        }
+      }
       await enqueueScan({ kind: pallet!.kind, containerId: pallet!.id, code: trimmed, ts: Date.now() })
       refreshPending()
       beepOk()
       try { navigator.vibrate?.(80) } catch {}
       setPallet(prev => prev ? { ...prev, packedQty: prev.packedQty + 1 } : null)
-      setLast({ ok: true, message: 'Zakolejkowano — czeka na sieć' })
+      setLast({ ok: true, message: canValidate ? 'Zakolejkowano — sprawdzone lokalnie' : 'Zakolejkowano — czeka na sieć' })
     }
 
     if (!navigator.onLine) {

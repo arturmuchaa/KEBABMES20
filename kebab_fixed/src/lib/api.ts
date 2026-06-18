@@ -1793,6 +1793,9 @@ export const stockCartonsApi = {
   listOpen: () => get<any[]>('/stock-cartons/open').then(rows => (rows ?? []).map(mapStockCarton)),
   get:      (id: string) => get<any>(`/stock-cartons/${id}`).then(mapStockCarton),
   scan:     (id: string, code: string) => post<StockCartonScanResult>(`/stock-cartons/${id}/scan`, { code }),
+  // Uprawnione sztuki (prefetch do walidacji lokalnej offline) → kody QR
+  eligibleUnits: (id: string) =>
+    get<any[]>(`/stock-cartons/${id}/eligible-units`).then(rows => (rows ?? []).map((r: any) => r.code as string)),
 }
 
 // ─── Health ───────────────────────────────────────────────────

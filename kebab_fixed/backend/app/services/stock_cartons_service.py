@@ -177,6 +177,27 @@ def assign_carton_to_order(carton_id: str, order_id: str) -> Dict:
     return {"ok": True, "cartonId": carton_id, "orderNo": order["order_no"]}
 
 
+def eligible_units_for_carton(carton_id: str) -> List[Dict]:
+    """Sztuki uprawnione do tego kartonu (do walidacji lokalnej offline):
+    wyprodukowane, niespakowane, zgodne ze specyfikacją kartonu
+    (receptura + rodzaj + tuleja + waga)."""
+    carton = query_one("SELECT * FROM stock_cartons WHERE id=%s", (carton_id,))
+    if not carton:
+        raise HTTPException(404, "Karton nie znaleziony")
+    rows = query_all(
+        """
+        SELECT qr_code, batch_no FROM finished_units
+        WHERE status='produced' AND carton_id IS NULL
+          AND COALESCE(recipe_id,'')=%s AND COALESCE(product_type_id,'')=%s
+          AND COALESCE(tuleja,'')=%s AND weight_kg=%s
+        ORDER BY batch_no, qr_seq
+        """,
+        (carton.get("recipe_id") or "", carton.get("product_type_id") or "",
+         carton.get("packaging_name") or "", _kg(carton.get("kg_per_unit"))),
+    )
+    return [{"code": r["qr_code"], "batchNo": r.get("batch_no") or ""} for r in rows]
+
+
 def get_carton(carton_id: str) -> Dict:
     row = query_one("SELECT * FROM stock_cartons WHERE id=%s", (carton_id,))
     if not row:
