@@ -42,7 +42,7 @@ def _matches(path: str, prefix: str) -> bool:
     return path == prefix or path.startswith(prefix + "/")
 
 
-def permission_for_path(path: str) -> str:
+def permission_for_path(path: str, method: str = "GET") -> str:
     for p in PUBLIC_PREFIXES:
         if _matches(path, p):
             return "public"
@@ -52,6 +52,19 @@ def permission_for_path(path: str) -> str:
     for p in ADMIN_PREFIXES:
         if _matches(path, p):
             return "admin"
+    # Karton magazynowy: skan/odczyt = hala (pakowanie); tworzenie i ręczne dodanie
+    # sztuk z magazynu = biuro (office ma nadzbiór, więc i tak ma dostęp do skanu).
+    if path.startswith("/api/stock-cartons"):
+        if method == "POST" and path == "/api/stock-cartons":
+            return "office"
+        if path.endswith("/add") and "/lines/" in path:
+            return "office"
+        return "pakowanie"
+    # Palety: pakowanie sztuk = hala; skan na wyjazd / mroźnia = wydanie.
+    if path.startswith("/api/pallets"):
+        if path == "/api/pallets/scan" or path == "/api/pallets/in-cold-storage":
+            return "wydanie"
+        return "pakowanie"
     for dept, prefixes in DEPARTMENT_PREFIXES.items():
         for p in prefixes:
             if _matches(path, p):
