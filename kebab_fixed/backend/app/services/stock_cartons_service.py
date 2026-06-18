@@ -225,6 +225,13 @@ def assign_carton_to_order(carton_id: str, order_id: str) -> Dict:
             raise HTTPException(404, "Karton nie znaleziony")
         if carton.get("linked_order_id"):
             raise HTTPException(409, "Karton jest już powiązany z zamówieniem")
+        packed = cx_query_one(
+            conn,
+            "SELECT COALESCE(SUM(packed_qty),0) AS p FROM stock_carton_lines WHERE carton_id=%s",
+            (carton_id,),
+        )
+        if int(packed["p"]) <= 0:
+            raise HTTPException(409, "Karton jest pusty — najpierw spakuj sztuki")
         order = cx_query_one(
             conn, "SELECT id, order_no, client_id FROM client_orders WHERE id=%s",
             (order_id,),

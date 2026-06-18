@@ -218,6 +218,14 @@ def test_assign_links_carton_and_validates_client(db):
     assert u["order_id"] == "ord1"
 
 
+def test_assign_rejects_empty_carton(db):
+    c = create_stock_carton(_dto(client_id="c1"))  # nic nie spakowane
+    _seed_client_order(client_id="c1", order_no="ZAM/7")
+    with pytest.raises(HTTPException) as exc:
+        assign_carton_to_order(c["id"], "ord1")
+    assert exc.value.status_code == 409
+
+
 def test_assign_rejects_other_client(db):
     c = create_stock_carton(_dto(client_id="c1"))
     _seed_unit("ub1"); scan_unit_into_carton(c["id"], unit_qr("ub1"))
