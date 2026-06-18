@@ -88,17 +88,17 @@ export function PalletLabelPrintPage() {
     )
   }
 
+  const cornerNo = target.cartonNo || `P${target.palletNo}`
   return (
     <CartonLabel
-      topBig={`P${target.palletNo}`}
-      topSmall={target.cartonNo ? `KARTON ${target.cartonNo}` : undefined}
+      cornerNo={cornerNo}
       clientName={clientDisplay(order.clientName)}
       mainLines={stats.mainLines}
       totalKg={stats.totalKg}
       footerLabel="ZAMÓWIENIE:"
       footerValue={order.orderNo}
       qrDataUrl={qrDataUrl}
-      qrCaption={`P${target.palletNo} · ${order.orderNo}`}
+      qrCaption={`${cornerNo} · ${order.orderNo}`}
       backTo="/office/zamowienia"
       backLabel="Wróć do zamówień"
     />

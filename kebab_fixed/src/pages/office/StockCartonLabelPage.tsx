@@ -32,15 +32,14 @@ export function StockCartonLabelPage() {
 
   return (
     <CartonLabel
-      topBig={cartonNo}
-      topSmall="KARTON"
+      cornerNo={cartonNo}
       clientName={clientDisplay(carton.clientName)}
       mainLines={mainLines}
       totalKg={carton.targetQty * carton.kgPerUnit}
       footerLabel="MAGAZYN"
       footerValue=""
       qrDataUrl={qrUrl}
-      qrCaption={`KARTON ${cartonNo}`}
+      qrCaption={cartonNo}
       backTo="/office/magazyn/gotowe"
       backLabel="Wróć"
     />

@@ -15,10 +15,8 @@ export function formatKgCompact(value: number) {
 }
 
 export interface CartonLabelProps {
-  /** Duży numer w prawym górnym rogu (np. „P3" lub numer kartonu). */
-  topBig: string
-  /** Mały podpis nad numerem (np. „KARTON 000042"). */
-  topSmall?: string
+  /** Numer kartonu — mały, prawy górny róg, BEZ dopisku (np. „000005"). */
+  cornerNo: string
   clientName: string
   /** Pozycje główne, np. ["18 X 40KG"]. */
   mainLines: string[]
@@ -33,7 +31,7 @@ export interface CartonLabelProps {
 }
 
 export function CartonLabel(props: CartonLabelProps) {
-  const { topBig, topSmall, clientName, mainLines, totalKg,
+  const { cornerNo, clientName, mainLines, totalKg,
           footerLabel, footerValue, qrDataUrl, qrCaption, backTo,
           backLabel = 'Wróć' } = props
 
@@ -97,15 +95,9 @@ export function CartonLabel(props: CartonLabelProps) {
 
       <div className="label-page relative overflow-hidden">
         <div className="flex h-full w-full flex-col px-[12.7mm] py-[12.7mm]">
-          <div className="flex items-start justify-end leading-none" style={{ fontFamily: '"Arial Black", Arial, sans-serif' }}>
-            <div className="flex flex-col items-end">
-              {topSmall && (
-                <div className="text-[11pt] font-bold tracking-wider text-slate-700" style={{ fontFamily: 'Arial, sans-serif' }}>
-                  {topSmall}
-                </div>
-              )}
-              <div className="text-[38pt]">{topBig}</div>
-            </div>
+          <div className="flex items-start justify-end leading-none" style={{ fontFamily: 'Arial, sans-serif' }}>
+            {/* Numer kartonu — mały, prawy górny róg, bez dopisku */}
+            <div className="text-[12pt] font-bold tracking-widest text-slate-800">{cornerNo}</div>
           </div>
 
           <div ref={contentBoxRef} className="flex flex-1 items-center justify-center overflow-hidden py-4">

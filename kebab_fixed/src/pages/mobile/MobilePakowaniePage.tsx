@@ -195,23 +195,18 @@ export function MobilePakowaniePage() {
       <main className="flex flex-1 flex-col gap-3 p-3">
         {pallet ? (
           <>
-            {/* Nagłówek aktywnej palety */}
+            {/* Nagłówek aktywnego kartonu — spójny dla zamówienia i magazynu */}
             <div className="flex items-center justify-between gap-2 rounded-xl border border-violet-300 bg-violet-50 px-3 py-3 shadow-sm">
               <div className="flex items-center gap-2">
                 <PackageOpen size={22} className="shrink-0 text-violet-600" />
                 <div>
-                  {/* Globalny numer kartonu — lewy górny róg */}
-                  {pallet.cartonNo && (
-                    <div className="font-mono text-base font-black leading-none text-violet-900">
-                      Karton {pallet.cartonNo}
-                    </div>
-                  )}
-                  <div className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-violet-600">
-                    {pallet.kind === 'stock' ? 'Karton magazynowy' : 'Paleta otwarta'}
+                  {/* Numer kartonu — wspólna numeracja (zamówienie i magazyn) */}
+                  <div className="font-mono text-base font-black leading-none text-violet-900">
+                    Karton {pallet.cartonNo || '—'}
                   </div>
-                  <div className="text-sm font-bold text-slate-900">
+                  <div className="mt-0.5 text-sm font-bold text-slate-900">
                     {pallet.kind === 'stock'
-                      ? (pallet.productName || 'na magazyn')
+                      ? 'Magazyn (bez zamówienia)'
                       : `Zamówienie ${pallet.orderNo || '—'}`}
                   </div>
                   <div className="text-xs text-slate-500">{clientDisplay(pallet.clientName)}</div>
@@ -329,6 +324,8 @@ export function MobilePakowaniePage() {
                 <div className="py-4 text-center text-sm text-slate-500">Brak pojemników do spakowania</div>
               ) : (
                 <ul className="flex flex-col gap-2">
+                  {/* Palety zamówień i kartony magazynowe — JEDEN spójny wygląd.
+                      Różni je tylko wiersz: numer zamówienia vs „magazyn". */}
                   {palletsToPack.map(p => (
                     <li key={p.id}>
                       <button
@@ -337,12 +334,10 @@ export function MobilePakowaniePage() {
                         className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:border-violet-300 hover:bg-violet-50"
                       >
                         <div className="min-w-0">
-                          {p.cartonNo && (
-                            <div className="font-mono text-xs font-black text-violet-900">Karton {p.cartonNo}</div>
-                          )}
+                          <div className="font-mono text-sm font-black text-violet-900">Karton {p.cartonNo || '—'}</div>
                           <div className="truncate text-sm font-semibold text-slate-900">{p.clientName ? clientDisplay(p.clientName) : '—'}</div>
                           <div className="text-xs text-slate-500">
-                            Zam. {p.orderNo || '—'} · Paleta P{p.palletNo}
+                            Zamówienie {p.orderNo || '—'}
                             {p.status === 'packing' && <span className="ml-1 text-violet-600">· w toku</span>}
                           </div>
                         </div>
@@ -357,17 +352,15 @@ export function MobilePakowaniePage() {
                       <button
                         type="button"
                         onClick={() => openStockCartonById(c.id)}
-                        className="flex w-full items-center justify-between rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-left hover:border-teal-300 hover:bg-teal-100"
+                        className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:border-violet-300 hover:bg-violet-50"
                       >
                         <div className="min-w-0">
-                          <div className="font-mono text-xs font-black text-teal-800">Karton {formatCartonNo(c.cartonNo)}</div>
+                          <div className="font-mono text-sm font-black text-violet-900">Karton {formatCartonNo(c.cartonNo)}</div>
                           <div className="truncate text-sm font-semibold text-slate-900">{c.clientName ? clientDisplay(c.clientName) : '—'}</div>
-                          <div className="text-xs text-slate-500">
-                            {c.productTypeName || c.recipeName} · {c.kgPerUnit} kg · <span className="text-teal-700">magazyn (bez zam.)</span>
-                          </div>
+                          <div className="text-xs text-slate-500">Magazyn (bez zamówienia)</div>
                         </div>
-                        <div className="shrink-0 text-right text-sm font-bold tabular-nums text-teal-700">
-                          {c.packedQty}<span className="text-teal-400">/{c.targetQty}</span>
+                        <div className="shrink-0 text-right text-sm font-bold tabular-nums text-violet-700">
+                          {c.packedQty}<span className="text-violet-400">/{c.targetQty}</span>
                         </div>
                       </button>
                     </li>
