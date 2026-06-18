@@ -32,9 +32,10 @@ export function RecipesPage() {
   const { ingredients: ingList } = useIngredients()
   const { productTypes }         = useProductTypes()
   const form = useRecipeForm()
-  // Rodzaje surowca do komponentów (kebab 70/30)
+  // Surowce masowalne do komponentów (mięso z/s, filet, indyk — nie ćwiartka)
   const { data: matTypesData } = useApi(() => (rawBatchesApi as any).materialTypes())
-  const matTypes: { id: string; name: string }[] = (matTypesData as any) ?? []
+  const matTypes: { id: string; name: string }[] =
+    ((matTypesData as any) ?? []).filter((m: any) => !m.requiresDeboning)
 
   const [modalOpen,    setModalOpen]    = useState(false)
   const [editingId,    setEditingId]    = useState<string | null>(null)

@@ -32,9 +32,12 @@ export function ProductTypesPage() {
   const [expanded,  setExpanded]  = useState<string | null>(null)
 
   const form = useProductTypeForm(editItem ?? undefined)
-  // Katalog rodzajów surowca (ćwiartka→udo z rozbioru, filet, indyk…)
+  // Katalog surowców MASOWALNYCH (skład rodzaju = to, co wchodzi do masowania):
+  // mięso z/s, filet, indyk — NIE ćwiartka (ćwiartkę najpierw się rozbiera).
+  // Filtr: requiresDeboning=false.
   const { data: matTypesData } = useApi(() => (rawBatchesApi as any).materialTypes())
-  const matTypes: { id: string; name: string; requiresDeboning?: boolean }[] = (matTypesData as any) ?? []
+  const matTypes: { id: string; name: string; requiresDeboning?: boolean; receivable?: boolean }[] =
+    ((matTypesData as any) ?? []).filter((m: any) => !m.requiresDeboning)
 
   function openCreate() { form.reset(); setEditItem(null); setModalOpen(true) }
   function openEdit(p: ProductType) { setEditItem(p); setModalOpen(true) }

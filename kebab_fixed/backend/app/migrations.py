@@ -465,6 +465,13 @@ _DDL: list[str] = [
         active            BOOLEAN NOT NULL DEFAULT true,
         created_at        TIMESTAMPTZ DEFAULT now()
     )""",
+    # Rozróżnienie kontekstu rodzaju surowca:
+    #   receivable=true            → pokazuje się przy PRZYJĘCIU (ćwiartka, filet, indyk)
+    #   requires_deboning=false    → MASOWALNY wprost, pokazuje się w SKŁADZIE rodzaju
+    #                                (mięso z/s, filet, indyk — NIE ćwiartka)
+    # 'Mięso z/s' = produkt rozbioru: receivable=false (nie przyjmuje się go),
+    # requires_deboning=false (gotowe do masowania).
+    "ALTER TABLE raw_material_types ADD COLUMN IF NOT EXISTS receivable BOOLEAN NOT NULL DEFAULT true",
     "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS material_type_id TEXT",
     "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS material_name TEXT DEFAULT ''",
     # Rodzaj płynie przez cały łańcuch: magazyn mięsa → masowanie → mięso
@@ -703,18 +710,27 @@ def _seed_raw_material_types() -> None:
     """Słownik rodzajów surowca — ćwiartka (rozbiór) + surowce bez rozbioru.
     Idempotentny; nowe rodzaje (np. wołowina 80/20, łój — kategoria
     'czerwone') dodaje się wpisem w tej tabeli, bez zmian w kodzie."""
+    # (id, nazwa, requires_deboning, kategoria, receivable)
     rows = [
-        ("mat-cwiartka",      "Ćwiartka z kurczaka", True,  "drob"),
-        ("mat-filet-kurczak", "Filet z kurczaka",    False, "drob"),
-        ("mat-mieso-indyk",   "Mięso z indyka",      False, "drob"),
+        ("mat-cwiartka",      "Ćwiartka z kurczaka", True,  "drob", True),
+        ("mat-filet-kurczak", "Filet z kurczaka",    False, "drob", True),
+        ("mat-mieso-indyk",   "Mięso z indyka",      False, "drob", True),
+        # Produkt rozbioru — nie przyjmuje się go (receivable=False), masowalny.
+        ("mat-mieso-zs",      "Mięso z/s",           False, "drob", False),
     ]
     try:
-        for rid, name, deb, cat in rows:
+        for rid, name, deb, cat, recv in rows:
             execute(
-                "INSERT INTO raw_material_types (id, name, requires_deboning, category) "
-                "VALUES (%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING",
-                (rid, name, deb, cat),
+                "INSERT INTO raw_material_types (id, name, requires_deboning, category, receivable) "
+                "VALUES (%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING",
+                (rid, name, deb, cat, recv),
             )
+        # Wymuś poprawne flagi dla 'Mięso z/s' także na istniejących bazach
+        # (gdyby wiersz powstał wcześniej / z domyślnym receivable=true).
+        execute(
+            "UPDATE raw_material_types SET requires_deboning=false, receivable=false "
+            "WHERE id='mat-mieso-zs'"
+        )
         # Istniejące partie bez rodzaju = ćwiartka (jedyny dotychczasowy surowiec)
         execute(
             "UPDATE raw_batches SET material_type_id='mat-cwiartka', "
@@ -726,8 +742,60 @@ def _seed_raw_material_types() -> None:
             "material_name='Ćwiartka z kurczaka' "
             "WHERE COALESCE(material_type_id,'')=''"
         )
+        _migrate_cwiartka_to_mieso_zs()
     except Exception as exc:
         logger.warning("migrations.seed_raw_material_types.error", extra={"error": str(exc)})
+
+
+def _migrate_cwiartka_to_mieso_zs() -> None:
+    """Jednorazowa, idempotentna migracja: mięso z rozbioru przestaje dziedziczyć
+    ćwiartkę i staje się odrębnym rodzajem 'Mięso z/s'.
+
+    - meat_stock/seasoned_meat z `mat-cwiartka` = produkty rozbioru → `mat-mieso-zs`.
+      (Surowiec ćwiartka nigdy nie trafia do meat_stock/seasoned — tam jest tylko
+       wynik rozbioru albo filet, więc retag jest bezpieczny.)
+    - raw_batches ZOSTAJĄ ćwiartką (to faktyczny surowiec wejściowy).
+    - product_types.components: `mat-cwiartka` → `mat-mieso-zs`; komponenty nazwane
+      'MIĘSO Z/S' bez materialTypeId dostają `mat-mieso-zs`.
+    """
+    execute(
+        "UPDATE meat_stock SET material_type_id='mat-mieso-zs', material_name='Mięso z/s' "
+        "WHERE material_type_id='mat-cwiartka'"
+    )
+    execute(
+        "UPDATE seasoned_meat SET material_type_id='mat-mieso-zs', material_name='Mięso z/s' "
+        "WHERE material_type_id='mat-cwiartka'"
+    )
+    # Składy rodzajów produktu — przepisanie JSONB po stronie Pythona.
+    pts = query_all(
+        "SELECT id, components FROM product_types "
+        "WHERE jsonb_array_length(COALESCE(components,'[]')) > 0"
+    )
+    for pt in pts:
+        comps = pt.get("components") or []
+        if isinstance(comps, str):
+            try:
+                comps = json.loads(comps)
+            except Exception:
+                continue
+        changed = False
+        for c in comps:
+            if not isinstance(c, dict):
+                continue
+            mat = c.get("materialTypeId") or c.get("material_type_id") or ""
+            name = (c.get("name") or "").strip().upper().replace("Ę", "E")
+            if mat == "mat-cwiartka":
+                c["materialTypeId"] = "mat-mieso-zs"
+                c["name"] = "Mięso z/s"
+                changed = True
+            elif not mat and name in ("MIESO Z/S", "MIESO Z S", "MIESOZS"):
+                c["materialTypeId"] = "mat-mieso-zs"
+                changed = True
+        if changed:
+            execute(
+                "UPDATE product_types SET components=%s::jsonb WHERE id=%s",
+                (json.dumps(comps), pt["id"]),
+            )
 
 
 def _seed_mixed_seq() -> None:

@@ -1072,6 +1072,14 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="font-mono font-bold text-primary text-[12px]">{s.batchNo}</span>
+                            {s.materialName && (
+                              <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${
+                                s.materialTypeId==='mat-filet-kurczak'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-blue-50 text-blue-700'}`}>
+                                {s.materialName}
+                              </span>
+                            )}
                             <span className="text-[10px] text-muted-foreground">{s.recipeName}</span>
                           </div>
                           <div className="flex items-center gap-3 text-[11px] mt-0.5">

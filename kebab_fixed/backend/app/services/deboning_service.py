@@ -246,8 +246,12 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
                 kg_meat,
                 kg_meat,
                 exp,
-                batch.get("material_type_id") or "mat-cwiartka",
-                batch.get("material_name") or "Ćwiartka z kurczaka",
+                # Rozbiór wytwarza NOWY surowiec — „Mięso z/s" — odrębny od
+                # ćwiartki (surowca wejściowego). Dzięki temu w całym dalszym
+                # łańcuchu (masowanie, planowanie, etykieta) mięso z rozbioru
+                # jest czytelnie odróżnialne od fileta i nie myli się z surowcem.
+                "mat-mieso-zs",
+                "Mięso z/s",
                 now_iso(),
             ),
         )

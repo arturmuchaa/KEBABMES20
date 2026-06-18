@@ -1,6 +1,6 @@
 """Testy: RODZAJ produktu jest kanonicznym źródłem składu 70/30 na produkcji.
 
-Skład (np. 70% udo z rozbioru `mat-cwiartka` + 30% filet `mat-filet-kurczak`)
+Skład (np. 70% mięso z/s `mat-mieso-zs` + 30% filet `mat-filet-kurczak`)
 mieszka na product_types.components i steruje alokacją per komponent oraz
 etykietą dwupartiową `partiamięsa/partiafileta`. Receptura zostaje fallbackiem
 wstecznym.
@@ -45,7 +45,7 @@ def _seed_recipe(recipe_id, comps):
 # ── Czysta alokacja 70/30 + etykieta dwupartiowa (bez DB) ──────────────
 def test_allocate_components_70_30_dual_label():
     comps = [
-        {"materialTypeId": "mat-cwiartka", "pct": 70},
+        {"materialTypeId": "mat-mieso-zs", "pct": 70},
         {"materialTypeId": "mat-filet-kurczak", "pct": 30},
     ]
     pools = [
@@ -65,7 +65,7 @@ def test_allocate_components_70_30_dual_label():
 # ── Źródło składu z RODZAJU produktu ───────────────────────────────────
 def test_product_type_components_reads_material_and_pct(db):
     _seed_product_type("pt1", [
-        {"id": "c1", "name": "Udo z kurczaka", "pct": 70, "materialTypeId": "mat-cwiartka"},
+        {"id": "c1", "name": "Udo z kurczaka", "pct": 70, "materialTypeId": "mat-mieso-zs"},
         {"id": "c2", "name": "Filet z kurczaka", "pct": 30, "materialTypeId": "mat-filet-kurczak"},
         {"id": "c3", "name": "Pusty", "pct": 0, "materialTypeId": "mat-x"},      # pct=0 → pominięty
         {"id": "c4", "name": "Bez surowca", "pct": 10, "materialTypeId": ""},     # brak material → pominięty
@@ -73,7 +73,7 @@ def test_product_type_components_reads_material_and_pct(db):
     with transaction() as conn:
         comps = _product_type_components(conn, "pt1")
     assert [(c["materialTypeId"], c["pct"]) for c in comps] == [
-        ("mat-cwiartka", 70.0),
+        ("mat-mieso-zs", 70.0),
         ("mat-filet-kurczak", 30.0),
     ]
 
@@ -81,7 +81,7 @@ def test_product_type_components_reads_material_and_pct(db):
 def test_line_components_prefers_product_type_over_recipe(db):
     # Rodzaj ma 2 komponenty (70/30) → wygrywa z komponentami receptury
     _seed_product_type("pt1", [
-        {"id": "c1", "name": "Udo", "pct": 70, "materialTypeId": "mat-cwiartka"},
+        {"id": "c1", "name": "Udo", "pct": 70, "materialTypeId": "mat-mieso-zs"},
         {"id": "c2", "name": "Filet", "pct": 30, "materialTypeId": "mat-filet-kurczak"},
     ])
     _seed_recipe("r1", [
@@ -90,22 +90,22 @@ def test_line_components_prefers_product_type_over_recipe(db):
     line = _Line(product_type_id="pt1", recipe_id="r1")
     with transaction() as conn:
         comps = _line_components(conn, line)
-    assert {c["materialTypeId"] for c in comps} == {"mat-cwiartka", "mat-filet-kurczak"}
+    assert {c["materialTypeId"] for c in comps} == {"mat-mieso-zs", "mat-filet-kurczak"}
 
 
 def test_line_components_falls_back_to_recipe_when_single_component(db):
     # Rodzaj jednoskładnikowy (100% udo) → produkcja idzie starą ścieżką
     # receptury (back-compat). _line_components zwraca komponenty receptury.
     _seed_product_type("pt2", [
-        {"id": "c1", "name": "Udo", "pct": 100, "materialTypeId": "mat-cwiartka"},
+        {"id": "c1", "name": "Udo", "pct": 100, "materialTypeId": "mat-mieso-zs"},
     ])
     _seed_recipe("r2", [
-        {"materialTypeId": "mat-cwiartka", "pct": 60},
+        {"materialTypeId": "mat-mieso-zs", "pct": 60},
         {"materialTypeId": "mat-filet-kurczak", "pct": 40},
     ])
     line = _Line(product_type_id="pt2", recipe_id="r2")
     with transaction() as conn:
         comps = _line_components(conn, line)
     # zwrócono komponenty RECEPTURY (rodzaj miał <2 komponentów)
-    assert {c["materialTypeId"] for c in comps} == {"mat-cwiartka", "mat-filet-kurczak"}
+    assert {c["materialTypeId"] for c in comps} == {"mat-mieso-zs", "mat-filet-kurczak"}
     assert sum(c["pct"] for c in comps) == 100.0

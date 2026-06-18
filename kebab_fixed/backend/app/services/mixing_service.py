@@ -684,8 +684,10 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
                     "SELECT material_type_id, material_name FROM meat_stock WHERE id=%s",
                     (first_ms,),
                 )
-        mat_id = (mat_row or {}).get("material_type_id") or "mat-cwiartka"
-        mat_name = (mat_row or {}).get("material_name") or "Ćwiartka z kurczaka"
+        # Magazyn mięsa zawiera produkty rozbioru (mięso z/s) lub gotowce (filet);
+        # surowca-ćwiartki tu nie ma, więc fallback = mięso z/s.
+        mat_id = (mat_row or {}).get("material_type_id") or "mat-mieso-zs"
+        mat_name = (mat_row or {}).get("material_name") or "Mięso z/s"
         # Tożsamość partii przyprawionego = (recipe_id, batch_no, dzień produkcji).
         # Różne receptury z tej samej partii surowca = osobne partie (nie zlewamy).
         # production_day liczony z now_iso() — spójny z created_at (bez dryfu TZ).

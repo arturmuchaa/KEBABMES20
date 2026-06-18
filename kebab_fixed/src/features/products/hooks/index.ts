@@ -93,7 +93,7 @@ export function useProductTypeForm(initial?: ProductType) {
   // wyświetlania) i źródło (rozbiór vs zakup wg requiresDeboning) naraz.
   const setComponentMaterial = useCallback((
     idx: number,
-    mat: { id: string; name: string; requiresDeboning?: boolean },
+    mat: { id: string; name: string; requiresDeboning?: boolean; receivable?: boolean },
   ) => {
     setComponents(prev => prev.map((c, i) =>
       i === idx
@@ -101,7 +101,9 @@ export function useProductTypeForm(initial?: ProductType) {
             ...c,
             materialTypeId: mat.id,
             name: mat.name,
-            sourceType: mat.requiresDeboning ? 'meat_stock' : 'purchase',
+            // Źródło: surowiec nieprzyjmowalny (receivable=false) = produkt rozbioru
+            // → magazyn mięsa (Mięso z/s). Przyjmowalny gotowiec (filet, indyk) = zakup.
+            sourceType: mat.receivable === false ? 'meat_stock' : 'purchase',
           }
         : c
     ))
