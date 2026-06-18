@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent } from '@/components/ui/card'
+import { UnitReprintModal, type ReprintLine } from '@/features/production/components/UnitReprintModal'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
@@ -1544,6 +1545,7 @@ export function ProductionPlanningPage() {
   const [expanded, setExpanded] = useState<string|null>(null)
   const navigate = useNavigate()
   const [generatingLine, setGeneratingLine] = useState<string|null>(null)
+  const [reprintLine, setReprintLine] = useState<ReprintLine|null>(null)
 
   async function handleCreate(lines: CreatePlanLineDto[], planDate: string): Promise<string> {
     const plan = await productionPlansApi.create({ planDate, lines })
@@ -1579,6 +1581,11 @@ export function ProductionPlanningPage() {
 
   return (
     <div className="space-y-4 animate-fade-in">
+      <UnitReprintModal
+        line={reprintLine}
+        open={!!reprintLine}
+        onClose={() => setReprintLine(null)}
+      />
       <div className="flex gap-3">
         <div className="grid grid-cols-2 gap-3 flex-1">
           {[
@@ -1819,6 +1826,20 @@ export function ProductionPlanningPage() {
                                       ? <span className="w-3 h-3 border border-violet-300 border-t-violet-700 rounded-full animate-spin mr-1" />
                                       : null}
                                     Etykiety
+                                  </Button>
+                                )}
+                                {(plan.status === 'active' || plan.status === 'done') && l.recipeId && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    title="Dodruk pojedynczej etykiety (awaria druku)"
+                                    className="h-6 text-[10px] px-2 ml-1 text-slate-600 hover:bg-slate-100 whitespace-nowrap"
+                                    onClick={e => { e.stopPropagation(); setReprintLine({
+                                      id: l.id, clientName: l.clientName, recipeId: l.recipeId,
+                                      recipeName: l.recipeName, qty: l.qty,
+                                    }) }}
+                                  >
+                                    Dodruk
                                   </Button>
                                 )}
                               </TableCell>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Download, Printer } from 'lucide-react'
 import QRCode from 'qrcode'
+import { filterUnitsByIds } from '@/lib/unitReprint'
 import { PDFDocument, rgb } from 'pdf-lib'
 import fontkit from '@pdf-lib/fontkit'
 import arialRegularUrl from '@/assets/fonts/LiberationSans-Regular.ttf?url'
@@ -203,6 +204,8 @@ export function LabelPrintPage() {
   const planLineId = params.get('planLineId') || ''
   const clientId   = params.get('clientId')   || ''
   const recipeId   = params.get('recipeId')   || ''
+  // Dodruk pojedynczej/wybranych sztuk: ?unitIds=id1,id2 → drukuj tylko te.
+  const unitIdsFilter = (params.get('unitIds') || '').split(',').map(s => s.trim()).filter(Boolean)
 
   const unitsRes    = useApi(() => finishedUnitsApi.listByPlanLine(planLineId), [planLineId])
   const templateRes = useApi(() => labelTemplatesApi.get(clientId, recipeId),  [clientId, recipeId])
@@ -214,7 +217,7 @@ export function LabelPrintPage() {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pdfBuiltRef = useRef(false)
 
-  const units    = unitsRes.data ?? []
+  const units    = filterUnitsByIds(unitsRes.data ?? [], unitIdsFilter)
   const tplResp  = templateRes.data
   const template = tplResp?.template ?? null
   const recipe   = recipeRes.data
