@@ -14,6 +14,7 @@ from app.services.stock_cartons_service import (
     add_units_to_carton_line,
     assign_carton_to_order,
     create_stock_carton,
+    eligible_by_line,
     eligible_units_for_carton,
     get_carton,
     scan_unit_into_carton,
@@ -91,6 +92,24 @@ def test_scan_mixed_carton_full_after_all_lines(db):
     assert r1["full"] is False
     r2 = scan_unit_into_carton(carton["id"], unit_qr("m15"))
     assert r2["full"] is True and r2["targetQty"] == 2 and r2["packedQty"] == 2
+
+
+def test_eligible_by_line_returns_codes_and_remaining(db):
+    carton = create_stock_carton(StockCartonCreate(client_id="c1", lines=[
+        StockCartonLineDto(recipe_id="r1", product_type_id="p1", packaging_name="METAL 40", kg_per_unit=10.0, qty=2),
+        StockCartonLineDto(recipe_id="r1", product_type_id="p1", packaging_name="METAL 40", kg_per_unit=15.0, qty=1),
+    ]))
+    _seed_unit("eb10a", kg=10.0); _seed_unit("eb10b", kg=10.0)
+    _seed_unit("eb15", kg=15.0)
+    # spakuj jedną sztukę 10kg → remaining tej pozycji spada do 1
+    scan_unit_into_carton(carton["id"], unit_qr("eb10a"))
+    out = eligible_by_line(carton["id"])
+    by_kg = {round(float(l["kgPerUnit"]), 0): l for l in out}
+    assert by_kg[10.0]["remaining"] == 1   # 2 target − 1 packed
+    assert by_kg[15.0]["remaining"] == 1
+    # uprawnione kody dla pozycji 10kg = pozostała niespakowana sztuka 10kg
+    assert unit_qr("eb10b") in by_kg[10.0]["codes"]
+    assert unit_qr("eb15") in by_kg[15.0]["codes"]
 
 
 def test_get_carton_returns_lines(db):

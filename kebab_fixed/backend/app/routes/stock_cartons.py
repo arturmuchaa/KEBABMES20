@@ -28,6 +28,12 @@ def eligible_units(carton_id: str):
     return svc.eligible_units_for_carton(carton_id)
 
 
+@router.get("/{carton_id}/eligible-by-line")
+def eligible_by_line(carton_id: str):
+    """Snapshot uprawnionych sztuk per pozycja (+ remaining) — walidacja offline per pozycja."""
+    return svc.eligible_by_line(carton_id)
+
+
 @router.get("/lines/{line_id}/eligible-units")
 def line_eligible(line_id: str):
     """Sztuki uprawnione do konkretnej pozycji kartonu (podgląd w biurze)."""

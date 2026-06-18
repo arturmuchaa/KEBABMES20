@@ -278,6 +278,30 @@ def eligible_units_for_line(line_id: str) -> List[Dict]:
                               line.get("packaging_name"), line.get("kg_per_unit"))
 
 
+def eligible_by_line(carton_id: str) -> List[Dict]:
+    """Snapshot do walidacji offline per pozycja: dla każdej pozycji kartonu
+    jej id, target/packed/remaining oraz kody uprawnionych sztuk."""
+    carton = query_one("SELECT id FROM stock_cartons WHERE id=%s", (carton_id,))
+    if not carton:
+        raise HTTPException(404, "Karton nie znaleziony")
+    out: List[Dict] = []
+    for ln in _carton_lines(carton_id):
+        codes = [u["code"] for u in _eligible_for_spec(
+            ln.get("recipe_id"), ln.get("product_type_id"),
+            ln.get("packaging_name"), ln.get("kg_per_unit"))]
+        target = int(ln.get("target_qty") or 0)
+        packed = int(ln.get("packed_qty") or 0)
+        out.append({
+            "lineId": ln["id"],
+            "kgPerUnit": _kg(ln.get("kg_per_unit")),
+            "targetQty": target,
+            "packedQty": packed,
+            "remaining": max(0, target - packed),
+            "codes": codes,
+        })
+    return out
+
+
 def add_units_to_carton_line(carton_id: str, line_id: str, qty: int) -> Dict:
     """Biuro: dorzuć do `qty` uprawnionych sztuk (FIFO po partii) do pozycji —
     przez tę samą operację co skan na hali (pełna walidacja + traceability)."""

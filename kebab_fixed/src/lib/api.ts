@@ -1860,6 +1860,13 @@ export const stockCartonsApi = {
   // Uprawnione sztuki (prefetch do walidacji lokalnej offline) → kody QR
   eligibleUnits: (id: string) =>
     get<any[]>(`/stock-cartons/${id}/eligible-units`).then(rows => (rows ?? []).map((r: any) => r.code as string)),
+  // Snapshot uprawnionych sztuk per pozycja (+ wolne miejsce) — walidacja offline per pozycja
+  eligibleByLine: (id: string) =>
+    get<any[]>(`/stock-cartons/${id}/eligible-by-line`).then(rows => (rows ?? []).map((r: any) => ({
+      lineId: (r.lineId ?? r.line_id ?? '') as string,
+      remaining: Number(r.remaining ?? 0),
+      codes: ((r.codes ?? []) as string[]),
+    }))),
   // Sztuki uprawnione do konkretnej pozycji (podgląd w biurze)
   lineEligible: (lineId: string) =>
     get<any[]>(`/stock-cartons/lines/${lineId}/eligible-units`)
