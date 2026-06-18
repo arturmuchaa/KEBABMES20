@@ -1,8 +1,9 @@
 """Testy czystej logiki dopasowania kartonu magazynowego do zamówienia.
 
 Karton magazynowy (finished_goods na magazyn) wiąże się z zamówieniem TYLKO gdy
-zgadza się: klient + receptura + rodzaj (product_type) + tuleja (packaging) + waga
-sztuki (kg_per_unit). Bez DB — czysta funkcja.
+KAŻDA jego pozycja (packed_qty>0) pasuje do jakiejś linii zamówienia tego klienta:
+klient + receptura + rodzaj (product_type) + tuleja (packaging) + waga sztuki
+(kg_per_unit). Bez DB — czysta funkcja.
 """
 from app.services.stock_carton_match_service import match_cartons
 
@@ -14,9 +15,11 @@ def _line(lid, recipe="r1", ptype="p1", pack="pak1", kg=50.0, qty=15):
 
 def _carton(cid, *, carton_no=1, client="c1", recipe="r1", ptype="p1",
             pack="pak1", kg=50.0, qty_available=15):
+    """Karton jednorodny = nagłówek + jedna pozycja (packed_qty=qty_available)."""
     return {"id": cid, "carton_no": carton_no, "client_id": client,
-            "recipe_id": recipe, "product_type_id": ptype, "packaging_id": pack,
-            "kg_per_unit": kg, "qty_available": qty_available}
+            "lines": [{"recipe_id": recipe, "product_type_id": ptype,
+                       "packaging_id": pack, "kg_per_unit": kg,
+                       "packed_qty": qty_available}]}
 
 
 def test_full_match_returns_suggestion():
@@ -68,3 +71,32 @@ def test_multiple_lines_one_matching():
     lines = [_line("l1", ptype="INNY"), _line("l2")]
     sugg = match_cartons("c1", lines, [_carton("k1")])
     assert {s["orderLineId"] for s in sugg} == {"l2"}
+
+
+def test_mixed_carton_matches_when_all_lines_match():
+    lines = [
+        {"id": "L1", "recipe_id": "r1", "product_type_id": "pt1", "packaging_id": "pk1", "kg_per_unit": 10.0, "qty": 100},
+        {"id": "L2", "recipe_id": "r1", "product_type_id": "pt1", "packaging_id": "pk2", "kg_per_unit": 15.0, "qty": 100},
+    ]
+    cartons = [{
+        "id": "c1", "carton_no": 1, "client_id": "cl1",
+        "lines": [
+            {"recipe_id": "r1", "product_type_id": "pt1", "packaging_id": "pk1", "kg_per_unit": 10.0, "packed_qty": 30},
+            {"recipe_id": "r1", "product_type_id": "pt1", "packaging_id": "pk2", "kg_per_unit": 15.0, "packed_qty": 20},
+        ],
+    }]
+    out = match_cartons("cl1", lines, cartons)
+    assert len(out) == 1 and out[0]["cartonId"] == "c1"
+    assert out[0]["qty"] == 50
+
+
+def test_mixed_carton_skipped_when_one_line_unmatched():
+    lines = [{"id": "L1", "recipe_id": "r1", "product_type_id": "pt1", "packaging_id": "pk1", "kg_per_unit": 10.0, "qty": 100}]
+    cartons = [{
+        "id": "c1", "carton_no": 1, "client_id": "cl1",
+        "lines": [
+            {"recipe_id": "r1", "product_type_id": "pt1", "packaging_id": "pk1", "kg_per_unit": 10.0, "packed_qty": 30},
+            {"recipe_id": "rX", "product_type_id": "pt1", "packaging_id": "pk9", "kg_per_unit": 9.0, "packed_qty": 5},
+        ],
+    }]
+    assert match_cartons("cl1", lines, cartons) == []
