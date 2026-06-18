@@ -727,17 +727,21 @@ export interface StockCartonSuggestion {
   packagingName: string
 }
 
-export interface StockCartonCreateDto {
-  clientId: string
-  clientName: string
+export interface StockCartonLineDto {
   recipeId: string
   recipeName: string
   productTypeId: string
   productTypeName: string
   packagingId: string
   packagingName: string
-  qty: number
   kgPerUnit: number
+  qty: number
+}
+
+export interface StockCartonCreateDto {
+  clientId: string
+  clientName: string
+  lines: StockCartonLineDto[]
 }
 
 // ─── Palety wydania ─────────────────────────────────────────────
@@ -1754,10 +1758,26 @@ export const finishedGoodsApi = {
 }
 
 // ─── Karton magazynowy (jednostka pakowa bez zamówienia) ──────────
+export interface StockCartonLine {
+  id: string
+  recipeId: string
+  recipeName: string
+  productTypeId: string
+  productTypeName: string
+  packagingId: string
+  packagingName: string
+  kgPerUnit: number
+  targetQty: number
+  packedQty: number
+}
+
 export interface StockCarton {
   id: string
   cartonNo: number | null
   clientName: string
+  /** Skład kartonu (pozycje). Karton jednorodny = jedna pozycja. */
+  lines: StockCartonLine[]
+  /** Nazwa pierwszej pozycji — skrótowy podpis kartonu w listach. */
   recipeName: string
   productTypeName: string
   packagingName: string
@@ -1767,15 +1787,33 @@ export interface StockCarton {
   status: string
 }
 
+function mapStockCartonLine(l: any): StockCartonLine {
+  return {
+    id: l.id ?? '',
+    recipeId: l.recipe_id ?? l.recipeId ?? '',
+    recipeName: l.recipe_name ?? l.recipeName ?? '',
+    productTypeId: l.product_type_id ?? l.productTypeId ?? '',
+    productTypeName: l.product_type_name ?? l.productTypeName ?? '',
+    packagingId: l.packaging_id ?? l.packagingId ?? '',
+    packagingName: l.packaging_name ?? l.packagingName ?? '',
+    kgPerUnit: Number(l.kg_per_unit ?? l.kgPerUnit ?? 0),
+    targetQty: Number(l.target_qty ?? l.targetQty ?? 0),
+    packedQty: Number(l.packed_qty ?? l.packedQty ?? 0),
+  }
+}
+
 function mapStockCarton(r: any): StockCarton {
+  const lines: StockCartonLine[] = (r.lines ?? []).map(mapStockCartonLine)
+  const first = lines[0]
   return {
     id: r.id,
     cartonNo: r.carton_no ?? r.cartonNo ?? null,
     clientName: r.client_name ?? '',
-    recipeName: r.recipe_name ?? '',
-    productTypeName: r.product_type_name ?? '',
-    packagingName: r.packaging_name ?? '',
-    kgPerUnit: Number(r.kg_per_unit ?? 0),
+    lines,
+    recipeName: first?.recipeName ?? r.recipe_name ?? '',
+    productTypeName: first?.productTypeName ?? r.product_type_name ?? '',
+    packagingName: first?.packagingName ?? r.packaging_name ?? '',
+    kgPerUnit: first?.kgPerUnit ?? Number(r.kg_per_unit ?? 0),
     targetQty: Number(r.target_qty ?? 0),
     packedQty: Number(r.packed_qty ?? 0),
     status: r.status ?? 'open',
@@ -1796,6 +1834,13 @@ export const stockCartonsApi = {
   // Uprawnione sztuki (prefetch do walidacji lokalnej offline) → kody QR
   eligibleUnits: (id: string) =>
     get<any[]>(`/stock-cartons/${id}/eligible-units`).then(rows => (rows ?? []).map((r: any) => r.code as string)),
+  // Sztuki uprawnione do konkretnej pozycji (podgląd w biurze)
+  lineEligible: (lineId: string) =>
+    get<any[]>(`/stock-cartons/lines/${lineId}/eligible-units`)
+      .then(rows => (rows ?? []).map((r: any) => ({ code: r.code as string, batchNo: (r.batchNo ?? r.batch_no ?? '') as string }))),
+  // Biuro: dorzuć N uprawnionych sztuk z magazynu do pozycji (FIFO)
+  addToLine: (cartonId: string, lineId: string, qty: number) =>
+    post<{ ok: boolean; added: number }>(`/stock-cartons/${cartonId}/lines/${lineId}/add`, { qty }),
 }
 
 // ─── Health ───────────────────────────────────────────────────
