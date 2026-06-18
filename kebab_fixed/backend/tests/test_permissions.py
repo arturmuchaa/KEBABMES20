@@ -58,3 +58,35 @@ def test_public_always_accessible():
 def test_login_prefix_does_not_overmatch():
     # przyszly /api/auth/login-cokolwiek NIE moze byc automatycznie public
     assert permission_for_path("/api/auth/login-secret") == "office"
+
+
+# ── Pakowanie hali: skan palet/kartonów (fix B) ────────────────────────
+def test_hall_can_scan_stock_carton():
+    assert permission_for_path("/api/stock-cartons/abc/scan", "POST") == "pakowanie"
+
+
+def test_hall_can_list_open_cartons():
+    assert permission_for_path("/api/stock-cartons/open", "GET") == "pakowanie"
+    assert permission_for_path("/api/stock-cartons/abc/eligible-units", "GET") == "pakowanie"
+
+
+def test_create_stock_carton_is_office():
+    assert permission_for_path("/api/stock-cartons", "POST") == "office"
+
+
+def test_manual_add_to_line_is_office():
+    assert permission_for_path("/api/stock-cartons/c1/lines/l1/add", "POST") == "office"
+
+
+def test_hall_can_pack_pallet():
+    assert permission_for_path("/api/pallets/abc/pack", "POST") == "pakowanie"
+    assert permission_for_path("/api/pallets/to-pack", "GET") == "pakowanie"
+
+
+def test_pallet_loading_scan_is_wydanie():
+    assert permission_for_path("/api/pallets/scan", "POST") == "wydanie"
+    assert permission_for_path("/api/pallets/in-cold-storage", "GET") == "wydanie"
+
+
+def test_carton_dispatch_is_wydanie():
+    assert permission_for_path("/api/dispatches/abc/scan-carton", "POST") == "wydanie"

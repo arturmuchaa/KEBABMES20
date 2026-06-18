@@ -1,6 +1,7 @@
 """Pokrycie zamówienia zapasem magazynowym (produkcja "na magazyn" sprzed
 zamówienia) — czysta logika porcjowania i budowy linii dokumentów."""
 from app.services.order_stock_service import (
+    _key,
     compute_shortfalls,
     portion_stock_rows,
     produced_by_key_from_plan_lines,
@@ -33,6 +34,20 @@ def test_no_shortfall_when_plan_covers_order():
     produced = produced_by_key_from_plan_lines(
         [{"recipe_id": "r1", "kg_per_unit": 40, "qty_done": 18}])
     assert compute_shortfalls(ORDER_LINES, produced) == {}
+
+
+def test_cartoned_units_reduce_shortfall():
+    order_lines = [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 50}]
+    cartoned = {_key("r1", 10.0): 20}  # 20 szt już w kartonie pod to zamówienie
+    short = compute_shortfalls(order_lines, {}, cartoned)
+    assert short == {_key("r1", 10.0): 30}
+
+
+def test_cartoned_plus_produced_cover_fully():
+    order_lines = [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 50}]
+    produced = {_key("r1", 10.0): 30}
+    cartoned = {_key("r1", 10.0): 20}
+    assert compute_shortfalls(order_lines, produced, cartoned) == {}
 
 
 def test_stock_only_order_fully_covered_from_stock():

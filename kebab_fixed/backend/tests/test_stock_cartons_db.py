@@ -8,12 +8,15 @@ Wymaga TEST_DATABASE_URL (patrz conftest), inaczej skip.
 import pytest
 from fastapi import HTTPException
 
-from app.db import execute, query_one
-from app.models.production import StockCartonCreate
+from app.db import execute, query_all, query_one
+from app.models.production import StockCartonCreate, StockCartonLineDto
 from app.services.stock_cartons_service import (
+    add_units_to_carton_line,
     assign_carton_to_order,
     create_stock_carton,
+    eligible_by_line,
     eligible_units_for_carton,
+    get_carton,
     scan_unit_into_carton,
 )
 from app.services.stock_carton_match_service import suggestions_for_order
@@ -62,6 +65,75 @@ def test_create_allows_after_first_packed(db):
     # ten sam spec, ale poprzedni już spakowany → wolno utworzyć kolejny
     c2 = create_stock_carton(_dto(qty=1))
     assert c2["carton_no"] != c["carton_no"]
+
+
+# ── Karton mieszany (wiele pozycji) ────────────────────────────────────
+def test_create_mixed_carton_has_two_lines(db):
+    dto = StockCartonCreate(client_id="c1", client_name="Zagros", lines=[
+        StockCartonLineDto(recipe_id="r1", product_type_id="pt1", packaging_name="Tuleja A", kg_per_unit=10.0, qty=30),
+        StockCartonLineDto(recipe_id="r1", product_type_id="pt1", packaging_name="Tuleja B", kg_per_unit=15.0, qty=20),
+    ])
+    carton = create_stock_carton(dto)
+    assert carton["target_qty"] == 50
+    lines = query_all("SELECT * FROM stock_carton_lines WHERE carton_id=%s ORDER BY kg_per_unit", (carton["id"],))
+    assert len(lines) == 2
+    assert int(lines[0]["target_qty"]) == 30 and float(lines[0]["kg_per_unit"]) == 10.0
+    assert int(lines[1]["target_qty"]) == 20 and float(lines[1]["kg_per_unit"]) == 15.0
+
+
+def test_scan_mixed_carton_full_after_all_lines(db):
+    carton = create_stock_carton(StockCartonCreate(client_id="c1", lines=[
+        StockCartonLineDto(recipe_id="r1", product_type_id="p1", packaging_name="METAL 40", kg_per_unit=10.0, qty=1),
+        StockCartonLineDto(recipe_id="r1", product_type_id="p1", packaging_name="METAL 40", kg_per_unit=15.0, qty=1),
+    ]))
+    _seed_unit("m10", kg=10.0)
+    _seed_unit("m15", kg=15.0)
+    r1 = scan_unit_into_carton(carton["id"], unit_qr("m10"))
+    assert r1["full"] is False
+    r2 = scan_unit_into_carton(carton["id"], unit_qr("m15"))
+    assert r2["full"] is True and r2["targetQty"] == 2 and r2["packedQty"] == 2
+
+
+def test_eligible_by_line_returns_codes_and_remaining(db):
+    carton = create_stock_carton(StockCartonCreate(client_id="c1", lines=[
+        StockCartonLineDto(recipe_id="r1", product_type_id="p1", packaging_name="METAL 40", kg_per_unit=10.0, qty=2),
+        StockCartonLineDto(recipe_id="r1", product_type_id="p1", packaging_name="METAL 40", kg_per_unit=15.0, qty=1),
+    ]))
+    _seed_unit("eb10a", kg=10.0); _seed_unit("eb10b", kg=10.0)
+    _seed_unit("eb15", kg=15.0)
+    # spakuj jedną sztukę 10kg → remaining tej pozycji spada do 1
+    scan_unit_into_carton(carton["id"], unit_qr("eb10a"))
+    out = eligible_by_line(carton["id"])
+    by_kg = {round(float(l["kgPerUnit"]), 0): l for l in out}
+    assert by_kg[10.0]["remaining"] == 1   # 2 target − 1 packed
+    assert by_kg[15.0]["remaining"] == 1
+    # uprawnione kody dla pozycji 10kg = pozostała niespakowana sztuka 10kg
+    assert unit_qr("eb10b") in by_kg[10.0]["codes"]
+    assert unit_qr("eb15") in by_kg[15.0]["codes"]
+
+
+def test_get_carton_returns_lines(db):
+    carton = create_stock_carton(StockCartonCreate(client_id="c1", lines=[
+        StockCartonLineDto(recipe_id="r1", recipe_name="Gold", product_type_id="p1",
+                           product_type_name="UDO", packaging_name="METAL 40", kg_per_unit=10.0, qty=3),
+        StockCartonLineDto(recipe_id="r1", product_type_id="p1", packaging_name="METAL 40", kg_per_unit=15.0, qty=2),
+    ]))
+    detail = get_carton(carton["id"])
+    assert len(detail["lines"]) == 2
+    assert {int(l["target_qty"]) for l in detail["lines"]} == {3, 2}
+
+
+# ── Ręczne dodanie sztuk z magazynu (biuro) ────────────────────────────
+def test_add_units_to_line_packs_fifo(db):
+    carton = create_stock_carton(StockCartonCreate(client_id="c1", lines=[
+        StockCartonLineDto(recipe_id="r1", product_type_id="p1", packaging_name="METAL 40", kg_per_unit=40.0, qty=5)]))
+    line = query_one("SELECT id FROM stock_carton_lines WHERE carton_id=%s", (carton["id"],))
+    for i in range(3):
+        _seed_unit(f"add{i}")
+    res = add_units_to_carton_line(carton["id"], line["id"], 2)
+    assert res["added"] == 2
+    packed = query_one("SELECT packed_qty FROM stock_carton_lines WHERE id=%s", (line["id"],))
+    assert int(packed["packed_qty"]) == 2
 
 
 # ── Skan sztuki do kartonu ─────────────────────────────────────────────
@@ -175,6 +247,14 @@ def test_assign_links_carton_and_validates_client(db):
     assert cc["linked_order_no"] == "ZAM/5"
     u = query_one("SELECT order_id FROM finished_units WHERE id='ua1'")
     assert u["order_id"] == "ord1"
+
+
+def test_assign_rejects_empty_carton(db):
+    c = create_stock_carton(_dto(client_id="c1"))  # nic nie spakowane
+    _seed_client_order(client_id="c1", order_no="ZAM/7")
+    with pytest.raises(HTTPException) as exc:
+        assign_carton_to_order(c["id"], "ord1")
+    assert exc.value.status_code == 409
 
 
 def test_assign_rejects_other_client(db):

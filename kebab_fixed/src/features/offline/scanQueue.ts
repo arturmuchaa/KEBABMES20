@@ -65,9 +65,18 @@ export async function queuedCount(): Promise<number> {
 }
 
 // ── Uprawnione sztuki kartonu (prefetch do walidacji lokalnej offline) ──
-export async function saveEligibleUnits(cartonId: string, codes: string[]): Promise<void> {
+/** Pozycja kartonu do walidacji offline per pozycja (uprawnione kody + wolne miejsce). */
+export interface OfflineCartonLine {
+  lineId: string
+  remaining: number
+  codes: string[]
+}
+
+export async function saveEligibleUnits(
+  cartonId: string, codes: string[], lines: OfflineCartonLine[] = [],
+): Promise<void> {
   try {
-    await tx(ELIGIBLE, 'readwrite', (s) => s.put({ cartonId, codes, ts: Date.now() }))
+    await tx(ELIGIBLE, 'readwrite', (s) => s.put({ cartonId, codes, lines, ts: Date.now() }))
   } catch { /* brak IndexedDB → fallback optymistyczny */ }
 }
 
@@ -77,6 +86,17 @@ export async function getEligibleUnits(cartonId: string): Promise<string[]> {
       ELIGIBLE, 'readonly', (s) => s.get(cartonId) as IDBRequest<any>,
     )
     return row?.codes ?? []
+  } catch {
+    return []
+  }
+}
+
+export async function getCartonLines(cartonId: string): Promise<OfflineCartonLine[]> {
+  try {
+    const row = await tx<{ cartonId: string; lines?: OfflineCartonLine[] } | undefined>(
+      ELIGIBLE, 'readonly', (s) => s.get(cartonId) as IDBRequest<any>,
+    )
+    return row?.lines ?? []
   } catch {
     return []
   }

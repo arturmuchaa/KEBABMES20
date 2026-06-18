@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Camera, CheckCircle2, AlertTriangle, Package, PackageOpen, X, ScanLine } from 'lucide-react'
-import { palletsApi, stockCartonsApi, type PalletPackResult, type PalletBatchRow } from '@/lib/api'
+import { palletsApi, stockCartonsApi, type PalletPackResult, type PalletBatchRow, type StockCartonLine } from '@/lib/api'
 import { useApi } from '@/hooks/useApi'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { beepOk, beepErr } from '@/features/pwa/beep'
 import { useClientNames } from '@/lib/clientNames'
 import { formatCartonNo } from '@/lib/unitLocation'
-import { enqueueScan, getQueuedScans, removeQueuedScan, queuedCount, saveEligibleUnits, getEligibleUnits } from '@/features/offline/scanQueue'
+import { enqueueScan, getQueuedScans, removeQueuedScan, queuedCount, saveEligibleUnits, getEligibleUnits, getCartonLines, type OfflineCartonLine } from '@/features/offline/scanQueue'
 import { summarizeSync, type SyncResult, type SyncSummary } from '@/features/offline/summarizeSync'
-import { validateScanLocally } from '@/features/offline/validateScanLocally'
+import { validateScanLocally, validateScanPerLine, type OfflineLine } from '@/features/offline/validateScanLocally'
 import { WifiOff, Wifi } from 'lucide-react'
 
 function isNetworkError(e: unknown): boolean {
@@ -29,6 +29,8 @@ interface ActivePallet {
   productName?: string
   targetQty: number
   packedQty: number
+  // Pozycje kartonu magazynowego (skład mieszany) — tylko dla kind==='stock'.
+  lines?: StockCartonLine[]
 }
 
 function parseStockCarton(code: string): string | null {
@@ -63,6 +65,8 @@ export function MobilePakowaniePage() {
   const [syncReport, setSyncReport] = useState<SyncSummary | null>(null)
   // Uprawnione sztuki aktywnego kartonu (pobrane online) → walidacja lokalna offline.
   const [eligible, setEligible] = useState<Set<string>>(new Set())
+  // Pozycje kartonu do walidacji offline PER POZYCJA (uprawnione kody + wolne miejsce).
+  const [offlineLines, setOfflineLines] = useState<OfflineLine[]>([])
 
   const inputRef = useRef<HTMLInputElement | null>(null)
   const toPackRes = useApi(() => palletsApi.toPack(), [])
@@ -135,6 +139,7 @@ export function MobilePakowaniePage() {
       setBatch(d.batch_breakdown ?? [])
       setLast(null)
       setEligible(new Set())  // palety zamówień: fallback optymistyczny (bez walidacji lokalnej)
+      setOfflineLines([])
     } catch (e) {
       beepErr()
       setLast({ ok: false, message: e instanceof Error ? e.message : 'Nie udało się otworzyć palety' })
@@ -154,17 +159,22 @@ export function MobilePakowaniePage() {
         productName: c.productTypeName || c.recipeName,
         targetQty: c.targetQty,
         packedQty: c.packedQty,
+        lines: c.lines,
       })
       setBatch([])
       setLast(null)
-      // Prefetch uprawnionych sztuk do walidacji lokalnej offline.
+      // Prefetch do walidacji lokalnej offline: per pozycja (kody + wolne miejsce).
       try {
-        const codes = await stockCartonsApi.eligibleUnits(id)
-        await saveEligibleUnits(id, codes)
-        setEligible(new Set(codes))
+        const byLine = await stockCartonsApi.eligibleByLine(id)
+        const union = Array.from(new Set(byLine.flatMap(l => l.codes)))
+        await saveEligibleUnits(id, union, byLine)
+        setEligible(new Set(union))
+        setOfflineLines(byLine.map(l => ({ lineId: l.lineId, eligible: new Set(l.codes), remaining: l.remaining })))
       } catch {
         // offline lub błąd → spróbuj z IndexedDB (ostatni prefetch)
         setEligible(new Set(await getEligibleUnits(id)))
+        const savedLines: OfflineCartonLine[] = await getCartonLines(id)
+        setOfflineLines(savedLines.map(l => ({ lineId: l.lineId, eligible: new Set(l.codes), remaining: l.remaining })))
       }
     } catch (e) {
       beepErr()
@@ -196,11 +206,15 @@ export function MobilePakowaniePage() {
 
     // Offline → walidacja lokalna (karton magazynowy z pobraną listą), potem kolejka.
     async function queueOptimistic() {
-      const canValidate = pallet!.kind === 'stock' && eligible.size > 0
+      const canValidate = pallet!.kind === 'stock' && (offlineLines.length > 0 || eligible.size > 0)
       if (canValidate) {
         const queued = await getQueuedScans()
-        const scanned = new Set(queued.filter(q => q.containerId === pallet!.id).map(q => q.code))
-        const v = validateScanLocally({ code: trimmed, eligible, scanned })
+        const scannedCodes = queued.filter(q => q.containerId === pallet!.id).map(q => q.code)
+        // Per pozycja gdy mamy strukturę pozycji (mix + kontrola pojemności pozycji),
+        // inaczej fallback na płaską listę uprawnionych.
+        const v = offlineLines.length > 0
+          ? validateScanPerLine({ code: trimmed, lines: offlineLines, scanned: scannedCodes })
+          : validateScanLocally({ code: trimmed, eligible, scanned: new Set(scannedCodes) })
         if (!v.ok) {
           beepErr()
           try { navigator.vibrate?.([60, 40, 60]) } catch {}
@@ -406,6 +420,19 @@ export function MobilePakowaniePage() {
                     {last.message}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Skład kartonu magazynowego (pozycje) — postęp zbiorczy w nagłówku */}
+            {pallet.kind === 'stock' && (pallet.lines?.length ?? 0) > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <div className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Skład kartonu</div>
+                {pallet.lines!.map(l => (
+                  <div key={l.id} className="flex justify-between border-b border-slate-100 py-1 text-sm tabular-nums last:border-0">
+                    <span className="text-slate-700">{l.productTypeName || l.recipeName || '—'}{l.packagingName ? ` · ${l.packagingName}` : ''}</span>
+                    <span className="font-semibold text-slate-900">{l.targetQty} szt · {l.kgPerUnit.toFixed(0)} kg</span>
+                  </div>
+                ))}
               </div>
             )}
 

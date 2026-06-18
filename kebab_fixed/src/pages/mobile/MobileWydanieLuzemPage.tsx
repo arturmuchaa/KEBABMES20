@@ -47,6 +47,21 @@ export function MobileWydanieLuzemPage() {
   async function handleScan(code: string, mode: 'scan' | 'remove' = 'scan') {
     const trimmed = code.trim()
     if (!trimmed || busy || !dispatch) return
+    // Skan całego kartonu magazynowego → dorzuca wszystkie jego sztuki na wyjazd.
+    if (mode === 'scan' && /^SCARTON\|/i.test(trimmed)) {
+      setBusy(true)
+      try {
+        const r = await dispatchesApi.scanCarton(dispatch.id, trimmed)
+        beepOk(); try { navigator.vibrate?.(80) } catch {}
+        setDispatch(prev => prev ? { ...prev, qty: r.qty } : null)
+        setBatch(r.batchBreakdown ?? [])
+        setLast({ ok: true, message: `Karton ${r.cartonNo} dodany — ${r.added} szt` })
+      } catch (e) {
+        beepErr(); try { navigator.vibrate?.([60, 40, 60]) } catch {}
+        setLast({ ok: false, message: e instanceof Error ? e.message : 'Błąd skanu kartonu' })
+      } finally { setBusy(false); setValue(''); focusInput() }
+      return
+    }
     setBusy(true)
     try {
       const r: DispatchScanResult = mode === 'remove'
@@ -108,7 +123,7 @@ export function MobileWydanieLuzemPage() {
             </div>
 
             <form onSubmit={(e) => { e.preventDefault(); handleScan(value) }} className="flex items-stretch gap-2">
-              <input ref={inputRef} value={value} onChange={(e) => setValue(e.target.value)} placeholder="Zeskanuj QR sztuki" autoFocus autoComplete="off" spellCheck={false}
+              <input ref={inputRef} value={value} onChange={(e) => setValue(e.target.value)} placeholder="Zeskanuj QR sztuki lub kartonu" autoFocus autoComplete="off" spellCheck={false}
                 className="flex-1 rounded-lg border-2 border-orange-300 bg-white px-3 py-3 text-base focus:border-orange-500 focus:outline-none" />
               <button type="button" onClick={() => setScannerOpen(true)} className="flex items-center justify-center rounded-lg bg-orange-600 px-4 text-white" aria-label="Kamera"><Camera size={22} /></button>
               <button type="button" onClick={() => handleScan(value, 'remove')} className="flex items-center justify-center rounded-lg bg-slate-200 px-3 text-slate-700" aria-label="Cofnij sztukę"><Undo2 size={20} /></button>

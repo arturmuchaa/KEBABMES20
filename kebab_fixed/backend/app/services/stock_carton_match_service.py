@@ -28,25 +28,31 @@ def match_cartons(
     order_lines: List[Dict[str, Any]],
     cartons: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Czysta logika dopasowania. Zwraca jedną sugestię na karton, podpiętą do
-    pierwszej pasującej linii zamówienia."""
+    """Czysta logika dopasowania kartonu mieszanego. Sugestia na karton tylko gdy
+    KAŻDA jego pozycja (packed_qty>0) pasuje do jakiejś linii zamówienia tego klienta.
+    Podpięcie do pierwszej pasującej linii; qty = suma spakowanych sztuk."""
     out: List[Dict[str, Any]] = []
     for c in cartons:
-        if int(c.get("qty_available") or 0) <= 0:
+        lines = [l for l in (c.get("lines") or []) if int(l.get("packed_qty") or 0) > 0]
+        if not lines:
             continue
-        line = next((ln for ln in order_lines if _line_matches(c, order_client_id, ln)), None)
-        if not line:
+        matched_line = None
+        all_ok = True
+        for cl in lines:
+            spec = {"client_id": c.get("client_id"), **cl}
+            ol = next((o for o in order_lines if _line_matches(spec, order_client_id, o)), None)
+            if ol is None:
+                all_ok = False
+                break
+            matched_line = matched_line or ol
+        if not all_ok or matched_line is None:
             continue
         out.append({
             "cartonId": c["id"],
             "cartonNo": c.get("carton_no"),
-            "orderLineId": line["id"],
-            "qty": int(c.get("qty_available") or 0),
-            "kgPerUnit": _kg(c.get("kg_per_unit")),
-            "batchNo": c.get("batch_no") or "",
-            "productTypeName": c.get("product_type_name") or "",
-            "recipeName": c.get("recipe_name") or "",
-            "packagingName": c.get("packaging_name") or "",
+            "orderLineId": matched_line["id"],
+            "qty": sum(int(l.get("packed_qty") or 0) for l in lines),
+            "lines": lines,
         })
     return out
 
@@ -69,12 +75,30 @@ def suggestions_for_order(order_id: str) -> List[Dict[str, Any]]:
     )
     cartons = query_all(
         """
-        SELECT id, carton_no, client_id, recipe_id, product_type_id, packaging_id,
-               kg_per_unit, target_qty AS qty_available, '' AS batch_no,
-               product_type_name, recipe_name, packaging_name
+        SELECT id, carton_no, client_id, recipe_id, recipe_name, product_type_id,
+               product_type_name, packaging_id, packaging_name, kg_per_unit, packed_qty
         FROM stock_cartons
         WHERE linked_order_id IS NULL
-          AND COALESCE(packed_qty, 0) > 0
         """,
     )
+    for c in cartons:
+        lns = query_all(
+            "SELECT recipe_id, recipe_name, product_type_id, product_type_name, "
+            "       packaging_id, packaging_name, kg_per_unit, packed_qty "
+            "FROM stock_carton_lines WHERE carton_id=%s",
+            (c["id"],),
+        )
+        if lns:
+            c["lines"] = lns
+        elif int(c.get("packed_qty") or 0) > 0:
+            # Karton „legacy" bez pozycji — potraktuj nagłówek jako jedną pozycję.
+            c["lines"] = [{
+                "recipe_id": c.get("recipe_id"), "recipe_name": c.get("recipe_name"),
+                "product_type_id": c.get("product_type_id"),
+                "product_type_name": c.get("product_type_name"),
+                "packaging_id": c.get("packaging_id"), "packaging_name": c.get("packaging_name"),
+                "kg_per_unit": c.get("kg_per_unit"), "packed_qty": c.get("packed_qty"),
+            }]
+        else:
+            c["lines"] = []
     return match_cartons(order.get("client_id") or "", lines, cartons)

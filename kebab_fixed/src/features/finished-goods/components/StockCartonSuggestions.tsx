@@ -41,19 +41,35 @@ export function StockCartonSuggestions({ orderId }: { orderId: string }) {
         {suggestions.map(s => (
           <li
             key={s.cartonId}
-            className="flex items-center gap-3 rounded-md border border-emerald-200 bg-white px-3 py-2"
+            className="flex items-start gap-3 rounded-md border border-emerald-200 bg-white px-3 py-2"
           >
-            <span className="font-mono text-sm font-black text-emerald-900">
+            <span className="mt-0.5 shrink-0 font-mono text-sm font-black text-emerald-900">
               Karton {formatCartonNo(s.cartonNo) || '—'}
             </span>
-            <span className="text-xs text-slate-600">
-              {s.productTypeName || s.recipeName} · {s.qty}× {s.kgPerUnit} kg
-              {s.packagingName ? ` · ${s.packagingName}` : ''}
-            </span>
+            <div className="min-w-0 flex-1 text-xs text-slate-600">
+              {s.lines.length === 0 ? (
+                <span>{s.qty} szt</span>
+              ) : s.lines.length === 1 ? (
+                <span>
+                  {s.lines[0].productTypeName || s.lines[0].recipeName} · {s.lines[0].packedQty}× {s.lines[0].kgPerUnit} kg
+                  {s.lines[0].packagingName ? ` · ${s.lines[0].packagingName}` : ''}
+                </span>
+              ) : (
+                <ul className="space-y-0.5">
+                  {s.lines.map((l, i) => (
+                    <li key={i} className="tabular-nums">
+                      <span className="font-semibold text-slate-700">{l.packedQty}× {l.kgPerUnit} kg</span>
+                      {' · '}{l.productTypeName || l.recipeName}{l.packagingName ? ` · ${l.packagingName}` : ''}
+                    </li>
+                  ))}
+                  <li className="text-[11px] font-semibold text-emerald-700">Razem {s.qty} szt · {s.lines.length} pozycje</li>
+                </ul>
+              )}
+            </div>
             <button
               onClick={() => assign(s)}
               disabled={busyId === s.cartonId}
-              className="ml-auto inline-flex items-center gap-1.5 rounded bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              className="ml-auto mt-0.5 inline-flex shrink-0 items-center gap-1.5 rounded bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
             >
               {busyId === s.cartonId ? <Loader2 size={13} className="animate-spin" /> : <PackageCheck size={13} />}
               Przypisz

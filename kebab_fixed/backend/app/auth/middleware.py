@@ -25,7 +25,7 @@ async def auth_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
 
-    required = permission_for_path(path)
+    required = permission_for_path(path, request.method)
     request.state.subject = None
 
     if required == "public":

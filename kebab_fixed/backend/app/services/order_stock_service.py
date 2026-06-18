@@ -37,10 +37,13 @@ def produced_by_key_from_plan_lines(plan_lines: List[Dict[str, Any]]) -> Dict[Ke
 
 
 def compute_shortfalls(
-    order_lines: List[Dict[str, Any]], produced_by_key: Dict[Key, int]
+    order_lines: List[Dict[str, Any]],
+    produced_by_key: Dict[Key, int],
+    cartoned_by_key: Dict[Key, int] = None,
 ) -> Dict[Key, int]:
-    """Ile sztuk per (receptura, waga) brakuje do pokrycia zamówienia
-    po odjęciu produkcji zaraportowanej na planach tego zamówienia."""
+    """Ile sztuk per (receptura, waga) brakuje do pokrycia zamówienia po odjęciu
+    produkcji zaraportowanej na planach tego zamówienia ORAZ sztuk już spakowanych
+    do kartonów powiązanych z tym zamówieniem (anty-dublowanie z FIFO finished_goods)."""
     short: Dict[Key, int] = {}
     for ln in order_lines or []:
         k = _key(ln.get("recipe_id"), ln.get("kg_per_unit"))
@@ -48,6 +51,9 @@ def compute_shortfalls(
     for k, done in (produced_by_key or {}).items():
         if k in short:
             short[k] = short[k] - int(done or 0)
+    for k, packed in (cartoned_by_key or {}).items():
+        if k in short:
+            short[k] = short[k] - int(packed or 0)
     return {k: v for k, v in short.items() if v > 0}
 
 
@@ -88,7 +94,22 @@ def stock_portions_for_order(
     produced_by_key: Dict[Key, int],
 ) -> List[Dict[str, Any]]:
     """Porcje magazynowe pokrywające braki zamówienia (patrz moduł)."""
-    shortfalls = compute_shortfalls(order_lines, produced_by_key)
+    # Sztuki spakowane do kartonów powiązanych z tym zamówieniem już je pokrywają —
+    # wyklucz je z FIFO finished_goods, żeby nie liczyć ich drugi raz.
+    cartoned_rows = query_all(
+        """
+        SELECT fu.recipe_id, fu.weight_kg, COUNT(*) AS qty
+        FROM finished_units fu
+        JOIN stock_cartons sc ON sc.id = fu.carton_id
+        WHERE sc.linked_order_id = %s AND fu.status IN ('packed', 'shipped')
+        GROUP BY fu.recipe_id, fu.weight_kg
+        """,
+        (order_id,),
+    )
+    cartoned_by_key = {
+        _key(r["recipe_id"], r["weight_kg"]): int(r["qty"]) for r in cartoned_rows
+    }
+    shortfalls = compute_shortfalls(order_lines, produced_by_key, cartoned_by_key)
     if not shortfalls:
         return []
     fg_rows = query_all(

@@ -566,6 +566,22 @@ _DDL: list[str] = [
         ip      TEXT
     )""",
     "CREATE INDEX IF NOT EXISTS idx_audit_log_at ON audit_log(at DESC)",
+
+    # ── Karton magazynowy: nagłówek + pozycje (skład mieszany) ──
+    """CREATE TABLE IF NOT EXISTS stock_carton_lines (
+        id                TEXT PRIMARY KEY,
+        carton_id         TEXT NOT NULL,
+        recipe_id         TEXT DEFAULT '',
+        recipe_name       TEXT DEFAULT '',
+        product_type_id   TEXT DEFAULT '',
+        product_type_name TEXT DEFAULT '',
+        packaging_id      TEXT DEFAULT '',
+        packaging_name    TEXT DEFAULT '',
+        kg_per_unit       NUMERIC NOT NULL DEFAULT 0,
+        target_qty        INTEGER NOT NULL DEFAULT 0,
+        packed_qty        INTEGER NOT NULL DEFAULT 0
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_stock_carton_lines_carton ON stock_carton_lines(carton_id)",
 ]
 
 
@@ -591,7 +607,37 @@ def run_migrations() -> None:
     _add_finished_units_goods_fk()
     _backfill_unit_goods_links()
     _backfill_byproduct_lots()
+    _backfill_stock_carton_lines()
     logger.info("migrations.done")
+
+
+def _backfill_stock_carton_lines() -> None:
+    """Każdy istniejący (jednorodny) karton bez pozycji → jedna pozycja z jego składu."""
+    try:
+        from app.utils.ids import cuid
+
+        legacy = query_all(
+            """SELECT sc.* FROM stock_cartons sc
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM stock_carton_lines l WHERE l.carton_id = sc.id)"""
+        )
+        for c in legacy:
+            execute(
+                """INSERT INTO stock_carton_lines
+                     (id, carton_id, recipe_id, recipe_name, product_type_id,
+                      product_type_name, packaging_id, packaging_name,
+                      kg_per_unit, target_qty, packed_qty)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (cuid(), c["id"], c.get("recipe_id") or "", c.get("recipe_name") or "",
+                 c.get("product_type_id") or "", c.get("product_type_name") or "",
+                 c.get("packaging_id") or "", c.get("packaging_name") or "",
+                 float(c.get("kg_per_unit") or 0), int(c.get("target_qty") or 0),
+                 int(c.get("packed_qty") or 0)),
+            )
+    except Exception as exc:
+        logger.warning(
+            "migrations.backfill_stock_carton_lines.failed", extra={"error": str(exc)}
+        )
 
 
 def _backfill_byproduct_lots() -> None:
