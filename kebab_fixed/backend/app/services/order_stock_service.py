@@ -37,10 +37,13 @@ def produced_by_key_from_plan_lines(plan_lines: List[Dict[str, Any]]) -> Dict[Ke
 
 
 def compute_shortfalls(
-    order_lines: List[Dict[str, Any]], produced_by_key: Dict[Key, int]
+    order_lines: List[Dict[str, Any]],
+    produced_by_key: Dict[Key, int],
+    cartoned_by_key: Dict[Key, int] = None,
 ) -> Dict[Key, int]:
-    """Ile sztuk per (receptura, waga) brakuje do pokrycia zamówienia
-    po odjęciu produkcji zaraportowanej na planach tego zamówienia."""
+    """Ile sztuk per (receptura, waga) brakuje do pokrycia zamówienia po odjęciu
+    produkcji zaraportowanej na planach tego zamówienia ORAZ sztuk już spakowanych
+    do kartonów powiązanych z tym zamówieniem (anty-dublowanie z FIFO finished_goods)."""
     short: Dict[Key, int] = {}
     for ln in order_lines or []:
         k = _key(ln.get("recipe_id"), ln.get("kg_per_unit"))
@@ -48,6 +51,9 @@ def compute_shortfalls(
     for k, done in (produced_by_key or {}).items():
         if k in short:
             short[k] = short[k] - int(done or 0)
+    for k, packed in (cartoned_by_key or {}).items():
+        if k in short:
+            short[k] = short[k] - int(packed or 0)
     return {k: v for k, v in short.items() if v > 0}
 
 
