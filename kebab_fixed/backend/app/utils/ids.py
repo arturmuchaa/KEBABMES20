@@ -62,6 +62,14 @@ def _parse_iso_date(raw: str | None) -> Optional[datetime]:
         return None
 
 
+def format_carton_no(seq: int) -> str:
+    """Globalny numer kartonu (= paleta) — 6-cyfrowy z zerami wiodącymi.
+
+    ``1 -> '000001'``. Powyżej miliona nie obcina (``1234567`` zostaje).
+    """
+    return f"{int(seq):06d}"
+
+
 def format_dated_no(prefix: str, when, seq: int) -> str:
     """Pure formatter for a dated business number ``PREFIX/dd/mm/rr``.
 

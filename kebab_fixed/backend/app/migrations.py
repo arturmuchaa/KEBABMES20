@@ -46,6 +46,10 @@ _DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_pallet_items_line   ON order_pallet_items(order_line_id)",
 
     # ── Tracking skanowania palet (kod QR) ──
+    # Globalny unikalny numer kartonu (= paleta), sekwencyjny od 000001.
+    # Nadawany przy tworzeniu palety (next_seq('carton_seq')); wyświetlany w UI
+    # (lewy górny róg) i na etykiecie (mały, prawy górny róg).
+    "ALTER TABLE order_pallets ADD COLUMN IF NOT EXISTS carton_no INTEGER",
     "ALTER TABLE order_pallets ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'created'",
     "ALTER TABLE order_pallets ADD COLUMN IF NOT EXISTS cold_storage_at TIMESTAMPTZ",
     "ALTER TABLE order_pallets ADD COLUMN IF NOT EXISTS loaded_at TIMESTAMPTZ",

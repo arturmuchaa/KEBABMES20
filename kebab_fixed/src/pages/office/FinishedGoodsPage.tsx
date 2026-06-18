@@ -20,6 +20,7 @@ import {
   Card, CardContent, CardDescription, CardTitle,
 } from '@/components/ui/card'
 import { DetailModal } from '@/features/finished-goods/components/DetailModal'
+import { OfficeUnitLookup } from '@/features/finished-goods/components/OfficeUnitLookup'
 
 // ─── Grupowanie po SKU (łączymy partie/daty w jeden wiersz magazynu) ──────────
 export interface SkuGroup {
@@ -182,6 +183,8 @@ export function FinishedGoodsPage() {
                 </button>
               )}
             </div>
+            {/* Wyszukiwarka pojedynczej sztuki po QR — lokalizacja kebaba */}
+            <OfficeUnitLookup />
           </div>
 
           {/* Inline KPI — kompaktowe, magazynowo (Subiekt GT style) */}

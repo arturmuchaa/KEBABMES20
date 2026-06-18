@@ -180,6 +180,20 @@ def _trace_backward(batch_id: str) -> Dict[str, List]:
         if sm:
             result["seasonedBatches"].append(sm)
 
+    # Domknięcie łańcucha „w przód": gdy wejściem była partia przyprawionego
+    # (a nie wyrób), dociągnij wyroby gotowe, które ZUŻYŁY tę partię — żeby
+    # ostatnim krokiem przepływu był wyrób gotowy, nie mięso przyprawione.
+    if not result["finishedGoods"]:
+        for sm in list(result["seasonedBatches"]):
+            fgs = query_all(
+                "SELECT * FROM finished_goods "
+                "WHERE %s = ANY(seasoned_batch_nos) OR %s = ANY(source_seasoned_ids)",
+                (sm.get("batch_no"), sm.get("id")),
+            )
+            for fg in fgs:
+                if fg["id"] not in _seen(result["finishedGoods"]):
+                    result["finishedGoods"].append(fg)
+
     for sm in list(result["seasonedBatches"]):
         mo_nos = {m.get("order_no") for m in result["mixingOrders"]}
         if sm.get("mixing_order_no") and sm["mixing_order_no"] not in mo_nos:

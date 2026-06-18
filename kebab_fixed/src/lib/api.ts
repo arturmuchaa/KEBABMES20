@@ -6,6 +6,7 @@
  * BUGFIX: mapowanie snake_case (Python backend) → camelCase (TypeScript frontend)
  */
 import { tokenStore } from '@/features/auth/storage'
+import { formatCartonNo } from '@/lib/unitLocation'
 import type {
   RawBatch, Supplier, User,
   CreateRawBatchDto, CreateSupplierDto, Paginated,
@@ -724,6 +725,8 @@ export interface OrderPalletItem {
 export interface OrderPallet {
   id?:        string
   palletNo:   number
+  /** Globalny numer kartonu (= paleta), np. "000042". */
+  cartonNo?:  string
   notes:      string
   items:      OrderPalletItem[]
   status?:        'created' | 'packing' | 'packed' | 'cold_storage' | 'loaded'
@@ -751,6 +754,7 @@ function mapPallet(raw: any): OrderPallet {
   return {
     id:              raw.id,
     palletNo:        Number(raw.pallet_no ?? raw.palletNo ?? 0),
+    cartonNo:        formatCartonNo(raw.carton_no ?? raw.cartonNo),
     notes:           raw.notes ?? '',
     items:           (raw.items ?? []).map(mapPalletItem),
     status:          (raw.status ?? 'created') as PalletStatus,
@@ -789,7 +793,7 @@ export interface PalletPackResult {
 export interface PalletBatchRow { batchNo: string; qty: number; weightKg: number }
 
 export interface PalletToPack {
-  id: string; orderId: string; palletNo: number; status: string
+  id: string; orderId: string; palletNo: number; cartonNo: string; status: string
   orderNo: string; clientName: string; packedQty: number; targetQty: number
 }
 
@@ -797,6 +801,7 @@ export const palletsApi = {
   toPack: () =>
     get<any[]>('/pallets/to-pack').then(rows => (rows ?? []).map((r: any): PalletToPack => ({
       id: r.id, orderId: r.order_id, palletNo: Number(r.pallet_no ?? 0),
+      cartonNo: formatCartonNo(r.carton_no ?? r.cartonNo),
       status: r.status ?? 'created', orderNo: r.order_no ?? '',
       clientName: r.client_name ?? '', packedQty: Number(r.packed_qty ?? 0),
       targetQty: Number(r.target_qty ?? 0),
@@ -1040,7 +1045,17 @@ export interface FinishedUnitCard {
   batchNo: string
   trolleyId: string | null
   cartonId: string | null
+  /** Globalny numer kartonu (= paleta), np. "000042"; pusty gdy niespakowana. */
+  cartonNo: string
   producedAt: string
+}
+
+export interface LocationSummary {
+  planned: number
+  produced: number
+  packed: number
+  shipped: number
+  cartons: string[]
 }
 
 export interface ScanProducedResult {
@@ -1065,6 +1080,8 @@ export const finishedUnitsApi = {
     get<FinishedUnitCard>(`/finished-units/lookup?code=${encodeURIComponent(code)}`),
   listByPlanLine: (planLineId: string) =>
     get<FinishedUnitCard[]>(`/finished-units?plan_line_id=${encodeURIComponent(planLineId)}`),
+  locationSummary: (batchNo: string) =>
+    get<LocationSummary>(`/finished-units/location-summary?batch_no=${encodeURIComponent(batchNo)}`),
 }
 
 // ─── Szablony etykiet ─────────────────────────────────────────

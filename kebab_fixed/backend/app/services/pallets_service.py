@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.models.orders import PalletDto
-from app.utils.ids import cuid
+from app.utils.ids import cuid, next_seq
 from app.utils.unit_codes import (
     PACKED, pallet_line_key, parse_unit_qr, validate_pack_to_pallet,
 )
@@ -143,6 +143,17 @@ def save_pallets(order_id: str, pallets: List[PalletDto]) -> List[Dict]:
 
     # 7) Usuń tylko palety nie-zeskanowane, potem dopisz palety z incoming z numeracją
     with transaction() as conn:
+        # Zachowaj istniejące numery kartonów per pallet_no — re-edycja palety nie
+        # zmienia jej numeru kartonu (numer jest stały, „leci po kolei" globalnie).
+        carton_by_no = {
+            int(r["pallet_no"]): r["carton_no"]
+            for r in cx_query_all(
+                conn,
+                "SELECT pallet_no, carton_no FROM order_pallets WHERE order_id=%s",
+                (order_id,),
+            )
+            if r.get("carton_no") is not None
+        }
         if scanned_ids:
             cx_execute(
                 conn,
@@ -161,10 +172,14 @@ def save_pallets(order_id: str, pallets: List[PalletDto]) -> List[Dict]:
             while next_no in used:
                 next_no += 1
             pallet_id = cuid()
+            carton_no = carton_by_no.get(next_no)
+            if carton_no is None:
+                carton_no = next_seq("carton_seq")
             cx_execute(
                 conn,
-                "INSERT INTO order_pallets (id, order_id, pallet_no, notes) VALUES (%s,%s,%s,%s)",
-                (pallet_id, order_id, next_no, p.notes or ""),
+                "INSERT INTO order_pallets (id, order_id, pallet_no, notes, carton_no) "
+                "VALUES (%s,%s,%s,%s,%s)",
+                (pallet_id, order_id, next_no, p.notes or "", carton_no),
             )
             for it in p.items:
                 if it.qty <= 0:
@@ -531,7 +546,7 @@ def pallet_detail_by_id(pallet_id: str) -> Dict:
 def pallets_to_pack() -> List[Dict]:
     """Palety w trakcie/do pakowania (status created lub packing) — dla mobile."""
     return query_all(
-        """SELECT p.id, p.order_id, p.pallet_no, p.status,
+        """SELECT p.id, p.order_id, p.pallet_no, p.carton_no, p.status,
                   o.order_no, o.client_name,
                   (SELECT COUNT(*) FROM finished_units fu WHERE fu.pallet_id=p.id) AS packed_qty,
                   (SELECT COALESCE(SUM(pi.qty),0) FROM order_pallet_items pi WHERE pi.pallet_id=p.id) AS target_qty

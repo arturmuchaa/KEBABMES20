@@ -25,3 +25,9 @@ def scan_produced(dto: ScanProducedRequest):
 @router.get("/lookup")
 def lookup(code: str):
     return svc.lookup_unit(code)
+
+
+@router.get("/location-summary")
+def location_summary(batch_no: str = ""):
+    """Rozkład sztuk partii po lokalizacjach (dla biura)."""
+    return svc.location_summary_by_batch(batch_no)

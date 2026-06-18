@@ -214,7 +214,18 @@ export function PalletLabelPrintPage() {
             className="flex items-start justify-end leading-none"
             style={{ fontFamily: '"Arial Black", Arial, sans-serif' }}
           >
-            <div className="text-[38pt]">P{target.palletNo}</div>
+            <div className="flex flex-col items-end">
+              {/* Globalny numer kartonu — mały, prawy górny róg */}
+              {target.cartonNo && (
+                <div
+                  className="text-[11pt] font-bold tracking-wider text-slate-700"
+                  style={{ fontFamily: 'Arial, sans-serif' }}
+                >
+                  KARTON {target.cartonNo}
+                </div>
+              )}
+              <div className="text-[38pt]">P{target.palletNo}</div>
+            </div>
           </div>
 
           <div

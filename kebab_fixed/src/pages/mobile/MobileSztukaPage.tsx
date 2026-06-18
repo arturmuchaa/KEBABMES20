@@ -6,6 +6,7 @@ import {
 import { finishedUnitsApi, type FinishedUnitCard } from '@/lib/api'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { useClientNames } from '@/lib/clientNames'
+import { unitLocation } from '@/lib/unitLocation'
 
 // ─── helpers ────────────────────────────────────────────────────
 
@@ -41,9 +42,13 @@ function statusMeta(status: UnitStatus): StatusMeta {
 }
 
 function locationLabel(card: FinishedUnitCard): string {
-  if (card.cartonId)  return 'W kartonie'
-  if (card.trolleyId) return `Wózek ${card.trolleyId}`
-  return '—'
+  // Lokalizacja wyprowadzona ze statusu sztuki (wspólna logika z biurem):
+  // planned→produkcja, produced→mroźnia szokowa, packed→karton+składowa, shipped→klient.
+  return unitLocation({
+    status: card.status,
+    cartonNo: card.cartonNo,
+    clientName: card.clientName,
+  })
 }
 
 // ─── Row helper ─────────────────────────────────────────────────

@@ -6,11 +6,13 @@ import { useApi } from '@/hooks/useApi'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { beepOk, beepErr } from '@/features/pwa/beep'
 import { useClientNames } from '@/lib/clientNames'
+import { formatCartonNo } from '@/lib/unitLocation'
 
 interface ActivePallet {
   id: string
   orderNo: string
   clientName: string
+  cartonNo: string
   targetQty: number
   packedQty: number
 }
@@ -55,6 +57,7 @@ export function MobilePakowaniePage() {
         id: d.id,
         orderNo: d.order?.order_no ?? '',
         clientName: d.order?.client_name ?? '',
+        cartonNo: formatCartonNo(d.carton_no ?? d.cartonNo),
         targetQty: Number(d.total_qty ?? 0),
         packedQty: Number(d.packed_qty ?? 0),
       })
@@ -143,7 +146,13 @@ export function MobilePakowaniePage() {
               <div className="flex items-center gap-2">
                 <PackageOpen size={22} className="shrink-0 text-violet-600" />
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-violet-600">Paleta otwarta</div>
+                  {/* Globalny numer kartonu — lewy górny róg */}
+                  {pallet.cartonNo && (
+                    <div className="font-mono text-base font-black leading-none text-violet-900">
+                      Karton {pallet.cartonNo}
+                    </div>
+                  )}
+                  <div className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-violet-600">Paleta otwarta</div>
                   <div className="text-sm font-bold text-slate-900">Zamówienie {pallet.orderNo || '—'}</div>
                   <div className="text-xs text-slate-500">{clientDisplay(pallet.clientName)}</div>
                 </div>
@@ -268,6 +277,9 @@ export function MobilePakowaniePage() {
                         className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:border-violet-300 hover:bg-violet-50"
                       >
                         <div className="min-w-0">
+                          {p.cartonNo && (
+                            <div className="font-mono text-xs font-black text-violet-900">Karton {p.cartonNo}</div>
+                          )}
                           <div className="truncate text-sm font-semibold text-slate-900">{p.clientName ? clientDisplay(p.clientName) : '—'}</div>
                           <div className="text-xs text-slate-500">
                             Zam. {p.orderNo || '—'} · Paleta P{p.palletNo}

@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
-from app.utils.ids import cuid, now_iso
+from app.utils.ids import cuid, format_carton_no, now_iso
 from app.utils.unit_codes import next_produced_status, parse_unit_qr, unit_qr
 
 logger = get_logger(__name__)
@@ -307,6 +307,14 @@ def lookup_unit(code: str) -> Dict[str, Any]:
         raise HTTPException(404, "Sztuka nie znaleziona")
     recipe = query_one("SELECT name FROM recipes WHERE id=%s", (unit.get("recipe_id"),)) or {}
     ptype = query_one("SELECT name FROM product_types WHERE id=%s", (unit.get("product_type_id"),)) or {}
+    # Numer kartonu (= paleta) — globalny, sformatowany; do lokalizacji „Karton 000042".
+    carton_no = ""
+    if unit.get("pallet_id"):
+        pal = query_one(
+            "SELECT carton_no FROM order_pallets WHERE id=%s", (unit.get("pallet_id"),)
+        )
+        if pal and pal.get("carton_no") is not None:
+            carton_no = format_carton_no(pal["carton_no"])
     return {
         "id": unit["id"],
         "qrCode": unit["qr_code"],
@@ -321,5 +329,38 @@ def lookup_unit(code: str) -> Dict[str, Any]:
         "batchNo": unit.get("batch_no") or "",
         "trolleyId": unit.get("trolley_id"),
         "cartonId": unit.get("carton_id"),
+        "cartonNo": carton_no,
         "producedAt": str(unit.get("produced_at") or ""),
     }
+
+
+def location_summary_by_batch(batch_no: str) -> Dict[str, Any]:
+    """Rozkład sztuk partii po statusach + numery kartonów spakowanych.
+
+    Dla biura: „gdzie jest kebab" bez chodzenia do hali. Zwraca liczniki
+    planned/produced/packed/shipped oraz listę numerów kartonów (sformatowanych)
+    dla sztuk spakowanych tej partii.
+    """
+    rows = query_all(
+        """
+        SELECT fu.status, op.carton_no
+        FROM finished_units fu
+        LEFT JOIN order_pallets op ON op.id = fu.pallet_id
+        WHERE fu.batch_no = %s
+        """,
+        (batch_no,),
+    )
+    summary: Dict[str, Any] = {
+        "planned": 0, "produced": 0, "packed": 0, "shipped": 0, "cartons": [],
+    }
+    cartons: List[str] = []
+    for r in rows:
+        st = r.get("status") or ""
+        if st in summary:
+            summary[st] += 1
+        if r.get("carton_no") is not None:
+            c = format_carton_no(r["carton_no"])
+            if c not in cartons:
+                cartons.append(c)
+    summary["cartons"] = sorted(cartons)
+    return summary

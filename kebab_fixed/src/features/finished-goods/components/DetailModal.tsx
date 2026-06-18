@@ -10,6 +10,7 @@ import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { useClientNames } from '@/lib/clientNames'
 import { GitBranch, Beef, Scissors, FlaskConical, Package2, ChevronRight } from 'lucide-react'
 import type { SkuGroup } from '@/pages/office/FinishedGoodsPage'
+import { BatchLocationSummary } from '@/features/finished-goods/components/BatchLocationSummary'
 
 import {
   CardDescription, CardTitle,
@@ -299,6 +300,7 @@ export function DetailModal({ group, onClose }: { group: SkuGroup; onClose: () =
                     </button>
                     {open && (
                       <div className="px-3 py-3 border-t border-slate-100 bg-slate-50/40">
+                        <BatchLocationSummary batchNo={b.batchNo || ''} />
                         <LineageChain batchId={b.id} />
                       </div>
                     )}

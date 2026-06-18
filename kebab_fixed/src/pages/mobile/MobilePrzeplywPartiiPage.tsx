@@ -15,6 +15,19 @@ function kgLine(kg: number): string | null {
   return kg > 0 ? `${fmtKg(kg, 1)} kg` : null
 }
 
+/** Etykieta wyrobu gotowego: "ddmmrr nrpartii" (data produkcji + nr partii). */
+function finishedLabel(fg: any): string {
+  const bno = fg.batch_no || (fg.id ? String(fg.id).slice(0, 8) : '—')
+  const raw = fg.produced_date || fg.created_at || ''
+  if (!raw) return bno
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return bno
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const rr = String(d.getFullYear()).slice(-2)
+  return `${dd}${mm}${rr} ${bno}`
+}
+
 export function MobilePrzeplywPartiiPage() {
   const [params] = useSearchParams()
   const batch = params.get('batch') || ''
@@ -59,10 +72,10 @@ export function MobilePrzeplywPartiiPage() {
       })),
     },
     {
-      icon: <Factory size={18} />, color: 'text-red-700', stage: 'Produkcja / wyrób',
+      icon: <Factory size={18} />, color: 'text-red-700', stage: 'Wyrób gotowy',
       items: (data.finishedGoods ?? []).map((fg: any) => ({
-        partia: fg.batch_no || (fg.id ? String(fg.id).slice(0, 8) : '—'),
-        details: [],
+        partia: finishedLabel(fg),
+        details: [kgLine(Number(fg.total_kg ?? 0)) || ''].filter(Boolean),
       })),
     },
   ]
