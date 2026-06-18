@@ -311,17 +311,32 @@ def eligible_units_for_carton(carton_id: str) -> List[Dict]:
     return out
 
 
+def _carton_lines(carton_id: str) -> List[Dict]:
+    return query_all(
+        "SELECT id, recipe_id, recipe_name, product_type_id, product_type_name, "
+        "       packaging_id, packaging_name, kg_per_unit, target_qty, packed_qty "
+        "FROM stock_carton_lines WHERE carton_id=%s ORDER BY kg_per_unit",
+        (carton_id,),
+    )
+
+
+def _attach_lines(row: Dict) -> Dict:
+    row["lines"] = _carton_lines(row["id"])
+    return row
+
+
 def get_carton(carton_id: str) -> Dict:
     row = query_one("SELECT * FROM stock_cartons WHERE id=%s", (carton_id,))
     if not row:
         raise HTTPException(404, "Karton nie znaleziony")
-    return row
+    return _attach_lines(row)
 
 
 def list_open_cartons() -> List[Dict]:
-    return query_all(
+    rows = query_all(
         "SELECT * FROM stock_cartons WHERE status='open' ORDER BY carton_no"
     )
+    return [_attach_lines(r) for r in rows]
 
 
 def list_cartons() -> List[Dict]:
@@ -342,5 +357,5 @@ def list_cartons() -> List[Dict]:
         shipped = int(r.get("shipped_qty") or 0)
         if packed > 0 and shipped >= packed:
             continue  # wyjechało → znika
-        out.append(r)
+        out.append(_attach_lines(r))
     return out
