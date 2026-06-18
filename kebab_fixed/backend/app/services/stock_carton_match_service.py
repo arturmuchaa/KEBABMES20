@@ -52,7 +52,11 @@ def match_cartons(
 
 
 def suggestions_for_order(order_id: str) -> List[Dict[str, Any]]:
-    """Pasujące kartony magazynowe dla zamówienia (DB wrapper nad match_cartons)."""
+    """Pasujące kartony magazynowe (stock_cartons) dla zamówienia.
+
+    Bierze kartony niezwiązane z żadnym zamówieniem (linked_order_id NULL),
+    dopasowane po client_id + recipe_id + product_type_id + packaging_id + kg_per_unit.
+    """
     order = query_one(
         "SELECT id, client_id FROM client_orders WHERE id=%s", (order_id,)
     )
@@ -66,12 +70,11 @@ def suggestions_for_order(order_id: str) -> List[Dict[str, Any]]:
     cartons = query_all(
         """
         SELECT id, carton_no, client_id, recipe_id, product_type_id, packaging_id,
-               kg_per_unit, qty_available, batch_no, product_type_name, recipe_name,
-               packaging_name
-        FROM finished_goods
-        WHERE carton_no IS NOT NULL
-          AND COALESCE(client_order_no, '') = ''
-          AND COALESCE(qty_available, 0) > 0
+               kg_per_unit, target_qty AS qty_available, '' AS batch_no,
+               product_type_name, recipe_name, packaging_name
+        FROM stock_cartons
+        WHERE linked_order_id IS NULL
+          AND COALESCE(packed_qty, 0) > 0
         """,
     )
     return match_cartons(order.get("client_id") or "", lines, cartons)

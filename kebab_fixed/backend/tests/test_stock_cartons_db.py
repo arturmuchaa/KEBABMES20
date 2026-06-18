@@ -1,0 +1,146 @@
+"""Testy: karton magazynowy = jednostka pakowa (bez zamówienia).
+
+Biuro tworzy karton (spec + carton_no); magazynier skanuje WYPRODUKOWANE sztuki
+do kartonu (finished_units.carton_id). Zgodne z łańcuchem co do sztuki.
+
+Wymaga TEST_DATABASE_URL (patrz conftest), inaczej skip.
+"""
+import pytest
+from fastapi import HTTPException
+
+from app.db import execute, query_one
+from app.models.production import StockCartonCreate
+from app.services.stock_cartons_service import (
+    assign_carton_to_order,
+    create_stock_carton,
+    scan_unit_into_carton,
+)
+from app.services.stock_carton_match_service import suggestions_for_order
+from app.utils.ids import now_iso
+from app.utils.unit_codes import unit_qr
+
+
+def _dto(**kw):
+    base = dict(client_id="c1", client_name="GOLD", recipe_id="r1", recipe_name="Gold",
+                product_type_id="p1", product_type_name="UDO 100%",
+                packaging_id="pak1", packaging_name="METAL 40", qty=18, kg_per_unit=40.0)
+    base.update(kw)
+    return StockCartonCreate(**base)
+
+
+def _seed_unit(uid, *, status="produced", recipe="r1", ptype="p1",
+               tuleja="METAL 40", kg=40.0, client="GOLD", carton_id=None):
+    execute(
+        "INSERT INTO finished_units "
+        "(id, qr_code, status, recipe_id, product_type_id, tuleja, weight_kg, "
+        " client_name, batch_no, carton_id, created_at) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'180626 1',%s,%s)",
+        (uid, unit_qr(uid), status, recipe, ptype, tuleja, kg, client, carton_id, now_iso()),
+    )
+
+
+# ── Tworzenie kartonu ──────────────────────────────────────────────────
+def test_create_assigns_carton_no_open(db):
+    c = create_stock_carton(_dto())
+    assert c["carton_no"] is not None
+    assert c["status"] == "open"
+    assert c["packed_qty"] == 0
+    assert c["target_qty"] == 18
+
+
+# ── Skan sztuki do kartonu ─────────────────────────────────────────────
+def test_scan_packs_matching_produced_unit(db):
+    c = create_stock_carton(_dto())
+    _seed_unit("u1")
+    res = scan_unit_into_carton(c["id"], unit_qr("u1"))
+    assert res["packedQty"] == 1
+    u = query_one("SELECT carton_id, status FROM finished_units WHERE id='u1'")
+    assert u["carton_id"] == c["id"]
+    assert u["status"] == "packed"
+    cc = query_one("SELECT packed_qty FROM stock_cartons WHERE id=%s", (c["id"],))
+    assert cc["packed_qty"] == 1
+
+
+def test_scan_rejects_wrong_spec(db):
+    c = create_stock_carton(_dto())
+    _seed_unit("u2", ptype="INNY")
+    with pytest.raises(HTTPException) as exc:
+        scan_unit_into_carton(c["id"], unit_qr("u2"))
+    assert exc.value.status_code == 409
+
+
+def test_scan_rejects_wrong_weight(db):
+    c = create_stock_carton(_dto())
+    _seed_unit("u2b", kg=30.0)
+    with pytest.raises(HTTPException) as exc:
+        scan_unit_into_carton(c["id"], unit_qr("u2b"))
+    assert exc.value.status_code == 409
+
+
+def test_scan_rejects_unproduced_unit(db):
+    c = create_stock_carton(_dto())
+    _seed_unit("u3", status="planned")
+    with pytest.raises(HTTPException) as exc:
+        scan_unit_into_carton(c["id"], unit_qr("u3"))
+    assert exc.value.status_code == 409
+
+
+def test_scan_rejects_already_packed_unit(db):
+    c = create_stock_carton(_dto())
+    _seed_unit("u4", status="packed", carton_id="other")
+    with pytest.raises(HTTPException) as exc:
+        scan_unit_into_carton(c["id"], unit_qr("u4"))
+    assert exc.value.status_code == 409
+
+
+def test_scan_rejects_when_carton_full(db):
+    c = create_stock_carton(_dto(qty=1))
+    _seed_unit("u5"); _seed_unit("u6")
+    scan_unit_into_carton(c["id"], unit_qr("u5"))
+    with pytest.raises(HTTPException) as exc:
+        scan_unit_into_carton(c["id"], unit_qr("u6"))
+    assert exc.value.status_code == 409
+    cc = query_one("SELECT status FROM stock_cartons WHERE id=%s", (c["id"],))
+    assert cc["status"] == "packed"  # osiągnięto target → zamknięty
+
+
+# ── Faza 2: dopasowanie + przypisanie do zamówienia ────────────────────
+def _seed_client_order(order_id="ord1", order_no="ZAM/1", client_id="c1"):
+    execute("INSERT INTO clients (id, code, name) VALUES (%s,%s,%s) ON CONFLICT (id) DO NOTHING",
+            (client_id, client_id, client_id))
+    execute("INSERT INTO client_orders (id, order_no, client_id) VALUES (%s,%s,%s)",
+            (order_id, order_no, client_id))
+    execute(
+        "INSERT INTO client_order_lines "
+        "(id, order_id, qty, kg_per_unit, recipe_id, product_type_id, packaging_id) "
+        "VALUES ('l1',%s,18,40.0,'r1','p1','pak1')",
+        (order_id,),
+    )
+
+
+def test_suggestions_match_packed_carton(db):
+    c = create_stock_carton(_dto())
+    _seed_unit("us1"); scan_unit_into_carton(c["id"], unit_qr("us1"))
+    _seed_client_order(client_id="c1")
+    sugg = suggestions_for_order("ord1")
+    assert any(s["cartonId"] == c["id"] for s in sugg)
+
+
+def test_assign_links_carton_and_validates_client(db):
+    c = create_stock_carton(_dto(client_id="c1"))
+    _seed_unit("ua1"); scan_unit_into_carton(c["id"], unit_qr("ua1"))
+    _seed_client_order(client_id="c1", order_no="ZAM/5")
+    assign_carton_to_order(c["id"], "ord1")
+    cc = query_one("SELECT linked_order_no FROM stock_cartons WHERE id=%s", (c["id"],))
+    assert cc["linked_order_no"] == "ZAM/5"
+    u = query_one("SELECT order_id FROM finished_units WHERE id='ua1'")
+    assert u["order_id"] == "ord1"
+
+
+def test_assign_rejects_other_client(db):
+    c = create_stock_carton(_dto(client_id="c1"))
+    _seed_unit("ub1"); scan_unit_into_carton(c["id"], unit_qr("ub1"))
+    _seed_client_order(client_id="INNY", order_no="ZAM/9")
+    with pytest.raises(HTTPException) as exc:
+        assign_carton_to_order(c["id"], "ord1")
+    assert exc.value.status_code == 409

@@ -57,6 +57,15 @@ export function MobilePickerPage() {
         </Link>
 
         <Link
+          to="/mobile/karton-magazynowy"
+          className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-teal-600 px-6 py-10 text-center text-white shadow-lg hover:bg-teal-700 active:scale-[0.99] sm:w-96"
+        >
+          <Package size={56} />
+          <div className="text-2xl font-bold uppercase tracking-wide">Karton magazynowy</div>
+          <div className="text-sm text-teal-50">Pakowanie na magazyn (bez zamówienia)</div>
+        </Link>
+
+        <Link
           to="/mobile/wydanie"
           className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-6 py-10 text-center text-white shadow-lg hover:bg-emerald-700 active:scale-[0.99] sm:w-96"
         >

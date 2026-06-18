@@ -25,6 +25,8 @@ import { CostCalculatorPage } from '@/pages/office/CostCalculatorPage'
 import { OrderPrintPage }   from '@/pages/office/OrderPrintPage'
 import { PalletLabelPrintPage } from '@/pages/office/PalletLabelPrintPage'
 import { LabelPrintPage }       from '@/pages/office/LabelPrintPage'
+import { StockCartonLabelPage }  from '@/pages/office/StockCartonLabelPage'
+import { MobileKartonMagazynowyPage } from '@/pages/mobile/MobileKartonMagazynowyPage'
 import { ZebraPrintPage }       from '@/pages/office/ZebraPrintPage'
 import { HdiPrintPage }         from '@/pages/office/HdiPrintPage'
 import { CmrPrintPage }         from '@/pages/office/CmrPrintPage'
@@ -97,6 +99,7 @@ export default function App() {
       <Route path="/office/zamowienia/:id/druk" element={<OrderPrintPage />} />
       <Route path="/office/zamowienia/:id/palety/:palletNo/druk" element={<PalletLabelPrintPage />} />
       <Route path="/etykiety/druk"    element={<LabelPrintPage />} />
+      <Route path="/etykiety/karton/:id" element={<StockCartonLabelPage />} />
       <Route path="/etykiety/zebra"   element={<ZebraPrintPage />} />
       <Route path="/office/hdi/:id/druk" element={<HdiPrintPage />} />
       <Route path="/office/cmr/:id/druk" element={<CmrPrintPage />} />
@@ -112,6 +115,7 @@ export default function App() {
       <Route path="/m/p/:orderId/:palletNo"          element={<MobilePalletLandingPage />} />
       <Route path="/mobile/produkcja"               element={<MobileProdukcjaPage />} />
       <Route path="/mobile/pakowanie"               element={<MobilePakowaniePage />} />
+      <Route path="/mobile/karton-magazynowy"       element={<MobileKartonMagazynowyPage />} />
       <Route path="/mobile/wydanie"                 element={<MobileWydanieLuzemPage />} />
       <Route path="/mobile/przeplyw"                element={<MobilePrzeplywPartiiPage />} />
       <Route path="/mobile/sztuka"                  element={<MobileSztukaPage />} />

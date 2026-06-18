@@ -121,6 +121,7 @@ def create_app() -> FastAPI:
         desktop_updates,
         byproducts,
         wz,
+        stock_cartons,
     )
     # Aliasujemy: app.routes.settings koliduje z app.config.settings używanym wyżej
     from app.routes import settings as settings_route  # noqa: E402

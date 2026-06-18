@@ -1751,9 +1751,47 @@ export const finishedGoodsApi = {
   create: (dto: any) => post<FinishedGoodsItem>('/finished-goods', toSnake(dto)),
   finishProductionDay: (planId: string, entries: any[]) =>
     post<any>('/finished-goods/finish-day', { plan_id: planId, entries: entries.map(toSnake) }),
-  // Karton magazynowy „z ręki" (wyrób na magazyn z przypisanym klientem)
-  createStockCarton: (dto: StockCartonCreateDto) =>
-    post<any>('/finished-goods/stock-carton', toSnake(dto)),
+}
+
+// ─── Karton magazynowy (jednostka pakowa bez zamówienia) ──────────
+export interface StockCarton {
+  id: string
+  cartonNo: number | null
+  clientName: string
+  recipeName: string
+  productTypeName: string
+  packagingName: string
+  kgPerUnit: number
+  targetQty: number
+  packedQty: number
+  status: string
+}
+
+function mapStockCarton(r: any): StockCarton {
+  return {
+    id: r.id,
+    cartonNo: r.carton_no ?? r.cartonNo ?? null,
+    clientName: r.client_name ?? '',
+    recipeName: r.recipe_name ?? '',
+    productTypeName: r.product_type_name ?? '',
+    packagingName: r.packaging_name ?? '',
+    kgPerUnit: Number(r.kg_per_unit ?? 0),
+    targetQty: Number(r.target_qty ?? 0),
+    packedQty: Number(r.packed_qty ?? 0),
+    status: r.status ?? 'open',
+  }
+}
+
+export interface StockCartonScanResult {
+  ok: boolean; cartonNo: string; packedQty: number; targetQty: number
+  full: boolean; batchNo: string
+}
+
+export const stockCartonsApi = {
+  create:   (dto: StockCartonCreateDto) => post<any>('/stock-cartons', toSnake(dto)).then(mapStockCarton),
+  listOpen: () => get<any[]>('/stock-cartons/open').then(rows => (rows ?? []).map(mapStockCarton)),
+  get:      (id: string) => get<any>(`/stock-cartons/${id}`).then(mapStockCarton),
+  scan:     (id: string, code: string) => post<StockCartonScanResult>(`/stock-cartons/${id}/scan`, { code }),
 }
 
 // ─── Health ───────────────────────────────────────────────────

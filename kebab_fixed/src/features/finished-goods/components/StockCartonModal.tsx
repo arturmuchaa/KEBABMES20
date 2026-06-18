@@ -5,7 +5,7 @@
  */
 import { useState } from 'react'
 import { useApi } from '@/hooks/useApi'
-import { clientsApi, recipesApi, productTypesApi, packagingApi, finishedGoodsApi } from '@/lib/api'
+import { clientsApi, recipesApi, productTypesApi, packagingApi, stockCartonsApi } from '@/lib/api'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { PackagePlus } from 'lucide-react'
 
-export function StockCartonModal({ onCreated }: { onCreated?: () => void }) {
+export function StockCartonModal({ onCreated }: { onCreated?: (cartonId: string) => void }) {
   const [open, setOpen] = useState(false)
   const { data: clients } = useApi(() => clientsApi.list(), [])
   const { data: recipes } = useApi(() => recipesApi.list(), [])
@@ -44,14 +44,16 @@ export function StockCartonModal({ onCreated }: { onCreated?: () => void }) {
     setBusy(true); setError(null)
     const find = (arr: any[] | null | undefined, id: string) => (arr ?? []).find((x: any) => x.id === id)
     try {
-      await finishedGoodsApi.createStockCarton({
+      const carton = await stockCartonsApi.create({
         clientId,        clientName:      find(clients, clientId)?.name ?? '',
         recipeId,        recipeName:      find(recipes, recipeId)?.name ?? '',
         productTypeId,   productTypeName: find(ptypes, productTypeId)?.name ?? '',
         packagingId,     packagingName:   find(packs, packagingId)?.name ?? '',
         qty: Number(qty), kgPerUnit: Number(kgPerUnit),
       })
-      setOpen(false); reset(); onCreated?.()
+      setOpen(false); reset(); onCreated?.(carton.id)
+      // Od razu otwórz etykietę kartonu (magazynier ją drukuje i pakuje do niego sztuki)
+      window.open(`/etykiety/karton/${carton.id}`, '_blank')
     } catch (e: any) {
       setError(e?.message || 'Nie udało się dodać kartonu')
     } finally {
@@ -62,12 +64,12 @@ export function StockCartonModal({ onCreated }: { onCreated?: () => void }) {
   return (
     <>
       <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setOpen(true)}>
-        <PackagePlus size={15} /> Dodaj karton z ręki
+        <PackagePlus size={15} /> Karton magazynowy
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Karton z ręki (na magazyn)</DialogTitle>
+            <DialogTitle>Nowy karton magazynowy</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-1">
             <Field label="Klient">
@@ -83,7 +85,7 @@ export function StockCartonModal({ onCreated }: { onCreated?: () => void }) {
               <Picker value={packagingId} onChange={setPackagingId} items={packs} placeholder="(opcjonalnie)" />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Ilość (szt)">
+              <Field label="Docelowa ilość (szt)">
                 <Input type="number" min={1} value={qty} onChange={e => setQty(e.target.value)} />
               </Field>
               <Field label="Waga sztuki (kg)">

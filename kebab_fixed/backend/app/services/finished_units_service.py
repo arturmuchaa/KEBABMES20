@@ -308,7 +308,8 @@ def lookup_unit(code: str) -> Dict[str, Any]:
         raise HTTPException(404, "Sztuka nie znaleziona")
     recipe = query_one("SELECT name FROM recipes WHERE id=%s", (unit.get("recipe_id"),)) or {}
     ptype = query_one("SELECT name FROM product_types WHERE id=%s", (unit.get("product_type_id"),)) or {}
-    # Numer kartonu (= paleta) — globalny, sformatowany; do lokalizacji „Karton 000042".
+    # Numer kartonu — globalny, sformatowany; do lokalizacji „Karton 000042".
+    # Źródło: paleta zamówienia (pallet_id) ALBO karton magazynowy (carton_id).
     carton_no = ""
     if unit.get("pallet_id"):
         pal = query_one(
@@ -316,6 +317,12 @@ def lookup_unit(code: str) -> Dict[str, Any]:
         )
         if pal and pal.get("carton_no") is not None:
             carton_no = format_carton_no(pal["carton_no"])
+    if not carton_no and unit.get("carton_id"):
+        sc = query_one(
+            "SELECT carton_no FROM stock_cartons WHERE id=%s", (unit.get("carton_id"),)
+        )
+        if sc and sc.get("carton_no") is not None:
+            carton_no = format_carton_no(sc["carton_no"])
     return {
         "id": unit["id"],
         "qrCode": unit["qr_code"],

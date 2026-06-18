@@ -2,10 +2,10 @@
 from fastapi import APIRouter, Query
 
 from app.models.orders import ClientOrderCreate, PalletsRequest
-from app.services import finished_goods_service
 from app.services import orders_service as svc
 from app.services import pallets_service
 from app.services import stock_carton_match_service
+from app.services import stock_cartons_service
 
 router = APIRouter(prefix="/api/client-orders", tags=["client-orders"])
 
@@ -82,4 +82,4 @@ def stock_carton_suggestions(order_id: str):
 def assign_stock_carton(order_id: str, body: dict):
     """Powiąż wskazany karton magazynowy z zamówieniem (biuro zatwierdza)."""
     carton_id = (body or {}).get("carton_id") or (body or {}).get("cartonId") or ""
-    return finished_goods_service.assign_stock_carton_to_order(carton_id, order_id)
+    return stock_cartons_service.assign_carton_to_order(carton_id, order_id)

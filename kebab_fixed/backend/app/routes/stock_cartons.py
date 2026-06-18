@@ -1,0 +1,28 @@
+"""Karton magazynowy = jednostka pakowa (bez zamówienia)."""
+from fastapi import APIRouter
+
+from app.models.production import StockCartonCreate
+from app.services import stock_cartons_service as svc
+
+router = APIRouter(prefix="/api/stock-cartons", tags=["stock-cartons"])
+
+
+@router.post("")
+def create(dto: StockCartonCreate):
+    return svc.create_stock_carton(dto)
+
+
+@router.get("/open")
+def list_open():
+    return svc.list_open_cartons()
+
+
+@router.get("/{carton_id}")
+def get(carton_id: str):
+    return svc.get_carton(carton_id)
+
+
+@router.post("/{carton_id}/scan")
+def scan(carton_id: str, body: dict):
+    code = (body or {}).get("code") or ""
+    return svc.scan_unit_into_carton(carton_id, code)

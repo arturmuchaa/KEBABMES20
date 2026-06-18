@@ -28,7 +28,6 @@ from app.models.production import (
     FinishDayDto,
     FinishDayEntry,
     FinishedGoodCreate,
-    StockCartonCreate,
 )
 from app.utils.body import body_get
 from app.utils.batch_numbers import kebab_batch_no, production_mixed_batch_no
@@ -366,94 +365,6 @@ def create_finished_good(dto: FinishedGoodCreate) -> Dict:
         extra={"id": item["id"], "batch_no": item["batch_no"], "qty": qty},
     )
     return item
-
-
-def create_stock_carton(dto: StockCartonCreate) -> Dict:
-    """Karton magazynowy „z ręki": wyrób na magazyn (client_order_no puste) z
-    przypisanym klientem i globalnym carton_no. Zużywa tuleję jak zwykły wyrób."""
-    qty = int(dto.qty)
-    kg_per_unit = float(dto.kg_per_unit)
-    total_kg = round(qty * kg_per_unit, 3)
-    produced_date = dto.produced_date or datetime.now().date().isoformat()
-    batch_no = dto.batch_no or _compute_kebab_batch_no(produced_date, [])
-
-    with transaction() as conn:
-        carton_no = next_seq("carton_seq")
-        item = cx_execute_returning(
-            conn,
-            """
-            INSERT INTO finished_goods
-                (id, batch_no, product_type_id, product_type_name,
-                 recipe_id, recipe_name, packaging_id, packaging_name,
-                 client_id, client_name, client_order_no, qty, kg_per_unit, total_kg,
-                 qty_available, qty_shipped, produced_date, carton_no, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s,%s,0,%s,%s,%s)
-            RETURNING *
-            """,
-            (
-                cuid(), batch_no,
-                dto.product_type_id or "", dto.product_type_name or "",
-                dto.recipe_id or "", dto.recipe_name or "",
-                dto.packaging_id or None, dto.packaging_name or None,
-                dto.client_id, dto.client_name or None,
-                qty, kg_per_unit, total_kg, qty, produced_date, carton_no, now_iso(),
-            ),
-        )
-        assert item is not None
-        if total_kg > 0:
-            create_stock_movement(
-                conn, product_type="finished_goods", batch_id=item["id"],
-                qty=total_kg, movement_type="IN", source_type="stock_carton",
-                source_id=item["id"],
-            )
-        if dto.packaging_id and qty > 0:
-            _consume_packaging(conn, dto.packaging_id, qty, item["id"])
-
-    logger.info(
-        "finished_goods.stock_carton_created",
-        extra={"id": item["id"], "carton_no": carton_no, "qty": qty},
-    )
-    return item
-
-
-def assign_stock_carton_to_order(carton_id: str, order_id: str) -> Dict:
-    """Powiąż karton magazynowy z zamówieniem — stempluje client_order_no.
-
-    Walidacja: klient kartonu MUSI zgadzać się z klientem zamówienia (obrona
-    przed pomyłką fizyczną). Po stemplu order_stock_service liczy karton do
-    pokrycia, a dokumenty WZ/HDI/CMR działają bez zmian.
-    """
-    with transaction() as conn:
-        carton = cx_query_one(
-            conn, "SELECT * FROM finished_goods WHERE id=%s FOR UPDATE", (carton_id,)
-        )
-        if not carton:
-            raise HTTPException(404, "Karton nie znaleziony")
-        if carton.get("carton_no") is None:
-            raise HTTPException(400, "To nie jest karton magazynowy")
-        if (carton.get("client_order_no") or "").strip():
-            raise HTTPException(409, "Karton jest już powiązany z zamówieniem")
-        order = cx_query_one(
-            conn, "SELECT id, order_no, client_id, client_name FROM client_orders WHERE id=%s",
-            (order_id,),
-        )
-        if not order:
-            raise HTTPException(404, "Zamówienie nie znalezione")
-        if (carton.get("client_id") or "") != (order.get("client_id") or ""):
-            raise HTTPException(
-                409,
-                "Karton należy do innego klienta niż zamówienie — nie można powiązać",
-            )
-        cx_execute(
-            conn,
-            "UPDATE finished_goods SET client_order_no=%s, client_name=%s WHERE id=%s",
-            (order["order_no"], order.get("client_name") or carton.get("client_name"), carton_id),
-        )
-    logger.info(
-        "finished_goods.stock_carton_assigned",
-        extra={"carton_id": carton_id, "order_id": order_id, "order_no": order["order_no"]},
-    )
-    return {"ok": True, "cartonId": carton_id, "orderNo": order["order_no"]}
 
 
 def finish_day(dto: FinishDayDto) -> Dict[str, Any]:

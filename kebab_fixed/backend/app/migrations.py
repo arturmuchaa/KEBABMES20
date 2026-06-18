@@ -70,10 +70,33 @@ _DDL: list[str] = [
     "ALTER TABLE production_sessions ADD COLUMN IF NOT EXISTS source_mixing_batch_ids TEXT[] DEFAULT '{}'",
     "ALTER TABLE production_sessions ADD COLUMN IF NOT EXISTS batch_allocation JSONB DEFAULT '{}'",
     "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_production_id TEXT",
-    # Karton magazynowy „z ręki": carton_no = globalny numer (wspólny carton_seq
-    # z paletami), client_id = pewne dopasowanie klienta do zamówienia.
+    # (legacy, nieużywane — karton magazynowy przeniesiony do stock_cartons)
     "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS carton_no INTEGER",
     "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS client_id TEXT",
+    # ── Karton magazynowy = jednostka pakowa (bez zamówienia). Sztuki wpadają
+    #    przez skan (finished_units.carton_id). Numer wspólny carton_seq z paletami.
+    """CREATE TABLE IF NOT EXISTS stock_cartons (
+        id                TEXT PRIMARY KEY,
+        carton_no         INTEGER,
+        client_id         TEXT,
+        client_name       TEXT DEFAULT '',
+        recipe_id         TEXT DEFAULT '',
+        recipe_name       TEXT DEFAULT '',
+        product_type_id   TEXT DEFAULT '',
+        product_type_name TEXT DEFAULT '',
+        packaging_id      TEXT DEFAULT '',
+        packaging_name    TEXT DEFAULT '',
+        kg_per_unit       NUMERIC NOT NULL DEFAULT 0,
+        target_qty        INTEGER NOT NULL DEFAULT 0,
+        packed_qty        INTEGER NOT NULL DEFAULT 0,
+        status            TEXT NOT NULL DEFAULT 'open',
+        linked_order_id   TEXT,
+        linked_order_no   TEXT,
+        created_at        TIMESTAMPTZ DEFAULT now(),
+        closed_at         TIMESTAMPTZ
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_stock_cartons_status ON stock_cartons(status)",
+    "CREATE INDEX IF NOT EXISTS idx_stock_cartons_client ON stock_cartons(client_id)",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS batch_allocation JSONB DEFAULT '{}'",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS seasoned_batch_nos TEXT[] DEFAULT '{}'",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS client_order_line_id TEXT",
