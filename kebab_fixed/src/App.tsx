@@ -26,6 +26,7 @@ import { OrderPrintPage }   from '@/pages/office/OrderPrintPage'
 import { PalletLabelPrintPage } from '@/pages/office/PalletLabelPrintPage'
 import { LabelPrintPage }       from '@/pages/office/LabelPrintPage'
 import { StockCartonLabelPage }  from '@/pages/office/StockCartonLabelPage'
+import { ZebraLabelEditorPage }   from '@/pages/office/ZebraLabelEditorPage'
 import { ZebraPrintPage }       from '@/pages/office/ZebraPrintPage'
 import { HdiPrintPage }         from '@/pages/office/HdiPrintPage'
 import { CmrPrintPage }         from '@/pages/office/CmrPrintPage'
@@ -99,6 +100,7 @@ export default function App() {
       <Route path="/office/zamowienia/:id/palety/:palletNo/druk" element={<PalletLabelPrintPage />} />
       <Route path="/etykiety/druk"    element={<LabelPrintPage />} />
       <Route path="/etykiety/karton/:id" element={<StockCartonLabelPage />} />
+      <Route path="/etykiety/zebra-edytor" element={<ZebraLabelEditorPage />} />
       <Route path="/etykiety/zebra"   element={<ZebraPrintPage />} />
       <Route path="/office/hdi/:id/druk" element={<HdiPrintPage />} />
       <Route path="/office/cmr/:id/druk" element={<CmrPrintPage />} />

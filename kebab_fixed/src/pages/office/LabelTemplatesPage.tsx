@@ -64,9 +64,14 @@ export function LabelTemplatesPage() {
             Zapisane konfiguracje etykiet dla par klient&nbsp;+&nbsp;receptura.
           </p>
         </div>
-        <Button onClick={() => navigate('/etykiety/szablon')} className="gap-2">
-          <Plus size={14} /> Nowy szablon
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => navigate('/etykiety/zebra-edytor')} className="gap-2">
+            <Plus size={14} /> Etykieta Zebra (ZPL)
+          </Button>
+          <Button onClick={() => navigate('/etykiety/szablon')} className="gap-2">
+            <Plus size={14} /> Nowy szablon (PDF)
+          </Button>
+        </div>
       </div>
 
       {/* Table card */}

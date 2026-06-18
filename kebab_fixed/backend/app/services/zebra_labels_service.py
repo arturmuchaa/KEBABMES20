@@ -75,4 +75,24 @@ def render_zebra_labels(plan_line_id: str, client_id: str, recipe_id: str) -> Di
 
     zpl_tpl = tpl["zpl"]
     blocks = [merge_zpl(zpl_tpl, unit_zpl_values(u, recipe)) for u in units]
-    return {"ok": True, "zpl": "\n".join(blocks), "count": len(blocks)}
+    # Druk wsadowy: identyczne etykiety → jedna + ^PQ{ilość} (jak Zebra Designer),
+    # zamiast N× powtórzonego (potencjalnie wielkiego) rastra tła.
+    return {"ok": True, "zpl": pq_grouped_zpl(blocks), "count": len(blocks)}
+
+
+def pq_grouped_zpl(blocks):
+    """Grupuje identyczne bloki ZPL → każdy unikalny raz + ^PQ{liczba kopii}.
+    Kolejność wg pierwszego wystąpienia. ^PQ wstawiane przed końcowym ^XZ."""
+    from collections import OrderedDict
+    counts: "OrderedDict[str, int]" = OrderedDict()
+    for b in blocks:
+        counts[b] = counts.get(b, 0) + 1
+    out = []
+    for block, n in counts.items():
+        idx = block.rfind("^XZ")
+        pq = f"^PQ{n},0,0,Y"
+        if idx < 0:
+            out.append(f"{block}\n{pq}")
+        else:
+            out.append(f"{block[:idx].rstrip()}\n{pq}\n^XZ")
+    return "\n".join(out)
