@@ -28,14 +28,19 @@ export function StockCartonLabelPage() {
   if (!carton) return <div className="p-10 text-center text-slate-500">Ładowanie etykiety…</div>
 
   const cartonNo = formatCartonNo(carton.cartonNo)
-  const mainLines = [`${carton.targetQty} X ${formatKgCompact(carton.kgPerUnit)}KG`]
+  // Karton mieszany: jedna linia opisu na pozycję; total = suma po pozycjach.
+  const lines: { targetQty: number; kgPerUnit: number }[] = carton.lines?.length
+    ? carton.lines.map(l => ({ targetQty: l.targetQty, kgPerUnit: l.kgPerUnit }))
+    : [{ targetQty: carton.targetQty, kgPerUnit: carton.kgPerUnit }]
+  const mainLines = lines.map(l => `${l.targetQty} X ${formatKgCompact(l.kgPerUnit)}KG`)
+  const totalKg = lines.reduce((sum, l) => sum + l.targetQty * l.kgPerUnit, 0)
 
   return (
     <CartonLabel
       cornerNo={cartonNo}
       clientName={clientDisplay(carton.clientName)}
       mainLines={mainLines}
-      totalKg={carton.targetQty * carton.kgPerUnit}
+      totalKg={totalKg}
       footerLabel="MAGAZYN"
       footerValue=""
       qrDataUrl={qrUrl}
