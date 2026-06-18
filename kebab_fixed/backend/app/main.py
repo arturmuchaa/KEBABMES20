@@ -168,6 +168,7 @@ def create_app() -> FastAPI:
         desktop_updates,
         byproducts,
         wz,
+        stock_cartons,
         settings_route,
     ):
         app.include_router(getattr(mod, "router", mod))

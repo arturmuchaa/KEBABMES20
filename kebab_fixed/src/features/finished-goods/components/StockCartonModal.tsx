@@ -5,7 +5,7 @@
  */
 import { useState } from 'react'
 import { useApi } from '@/hooks/useApi'
-import { clientsApi, recipesApi, productTypesApi, packagingApi, stockCartonsApi } from '@/lib/api'
+import { clientsApi, recipesApi, productTypesApi, packagingApi, stockCartonsApi, finishedGoodsApi } from '@/lib/api'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
@@ -22,6 +22,11 @@ export function StockCartonModal({ onCreated }: { onCreated?: (cartonId: string)
   const { data: recipes } = useApi(() => recipesApi.list(), [])
   const { data: ptypes } = useApi(() => productTypesApi.list(), [])
   const { data: packs } = useApi(() => packagingApi.list(), [])
+  // Wyroby gotowe na magazynie (bez zamówienia, dostępne) — do prefilla kartonu.
+  const { data: fgAll } = useApi(() => finishedGoodsApi.list(), [])
+  const stockGoods = ((fgAll as any[]) ?? []).filter(
+    g => !(g.clientOrderNo || '').trim() && Number(g.qtyAvailable) > 0,
+  )
 
   const [clientId, setClientId] = useState('')
   const [recipeId, setRecipeId] = useState('')
@@ -37,6 +42,17 @@ export function StockCartonModal({ onCreated }: { onCreated?: (cartonId: string)
   function reset() {
     setClientId(''); setRecipeId(''); setProductTypeId(''); setPackagingId('')
     setQty(''); setKgPerUnit(''); setError(null)
+  }
+
+  function prefillFromGoods(g: any) {
+    const norm = (s?: string) => (s ?? '').trim().toLowerCase()
+    const c = (clients ?? []).find((x: any) => norm(x.name) === norm(g.clientName))
+    if (c) setClientId(c.id)
+    setRecipeId(g.recipeId || '')
+    setProductTypeId(g.productTypeId || '')
+    setPackagingId(g.packagingId || '')
+    setQty(String(g.qtyAvailable ?? ''))
+    setKgPerUnit(String(g.kgPerUnit ?? ''))
   }
 
   async function submit() {
@@ -72,6 +88,23 @@ export function StockCartonModal({ onCreated }: { onCreated?: (cartonId: string)
             <DialogTitle>Nowy karton magazynowy</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-1">
+            {stockGoods.length > 0 && (
+              <Field label="Z magazynu wyrobu gotowego (wypełnia spec)">
+                <Select value="" onValueChange={(id) => {
+                  const g = stockGoods.find((x: any) => x.id === id)
+                  if (g) prefillFromGoods(g)
+                }}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Wybierz kebab z magazynu…" /></SelectTrigger>
+                  <SelectContent>
+                    {stockGoods.map((g: any) => (
+                      <SelectItem key={g.id} value={g.id}>
+                        {(g.batchNo ? g.batchNo + ' · ' : '')}{g.clientName || '—'} · {g.productTypeName || g.recipeName} · {g.qtyAvailable}×{g.kgPerUnit}kg
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
             <Field label="Klient">
               <Picker value={clientId} onChange={setClientId} items={clients} placeholder="Wybierz klienta…" />
             </Field>

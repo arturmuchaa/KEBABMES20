@@ -1,20 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Camera, CheckCircle2, AlertTriangle, Package, PackageOpen, X, ScanLine } from 'lucide-react'
-import { palletsApi, type PalletPackResult, type PalletBatchRow } from '@/lib/api'
+import { palletsApi, stockCartonsApi, type PalletPackResult, type PalletBatchRow } from '@/lib/api'
 import { useApi } from '@/hooks/useApi'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { beepOk, beepErr } from '@/features/pwa/beep'
 import { useClientNames } from '@/lib/clientNames'
 import { formatCartonNo } from '@/lib/unitLocation'
 
+// Pakowanie obejmuje DWA rodzaje pojemników: paleta zamówienia ('order') oraz
+// karton magazynowy bez zamówienia ('stock'). Ta sama operacja skanu sztuk.
 interface ActivePallet {
+  kind: 'order' | 'stock'
   id: string
   orderNo: string
   clientName: string
   cartonNo: string
+  productName?: string
   targetQty: number
   packedQty: number
+}
+
+function parseStockCarton(code: string): string | null {
+  const m = code.trim().match(/^SCARTON\|(.+)$/i)
+  return m ? m[1] : null
 }
 
 interface ScanFeedback {
@@ -40,6 +49,8 @@ export function MobilePakowaniePage() {
 
   const inputRef = useRef<HTMLInputElement | null>(null)
   const toPackRes = useApi(() => palletsApi.toPack(), [])
+  const stockRes = useApi(() => stockCartonsApi.listOpen(), [])
+  function refetchLists() { toPackRes.refetch?.(); stockRes.refetch?.() }
 
   const focusInput = useCallback(() => {
     setTimeout(() => inputRef.current?.focus(), 30)
@@ -49,11 +60,12 @@ export function MobilePakowaniePage() {
     if (pallet) focusInput()
   }, [pallet, focusInput])
 
-  // ─── Otwieranie palety ───
+  // ─── Otwieranie palety zamówienia ───
   async function openPalletById(id: string) {
     try {
       const d = await palletsApi.detail(id)
       setPallet({
+        kind: 'order',
         id: d.id,
         orderNo: d.order?.order_no ?? '',
         clientName: d.order?.client_name ?? '',
@@ -69,7 +81,32 @@ export function MobilePakowaniePage() {
     }
   }
 
-  async function openPalletByCode(code: string) {
+  // ─── Otwieranie kartonu magazynowego (bez zamówienia) ───
+  async function openStockCartonById(id: string) {
+    try {
+      const c = await stockCartonsApi.get(id)
+      setPallet({
+        kind: 'stock',
+        id: c.id,
+        orderNo: '',
+        clientName: c.clientName,
+        cartonNo: formatCartonNo(c.cartonNo),
+        productName: c.productTypeName || c.recipeName,
+        targetQty: c.targetQty,
+        packedQty: c.packedQty,
+      })
+      setBatch([])
+      setLast(null)
+    } catch (e) {
+      beepErr()
+      setLast({ ok: false, message: e instanceof Error ? e.message : 'Nie znaleziono kartonu' })
+    }
+  }
+
+  // Skan QR pojemnika: SCARTON| → karton magazynowy; inaczej → paleta zamówienia.
+  async function openByCode(code: string) {
+    const stockId = parseStockCarton(code)
+    if (stockId) return openStockCartonById(stockId)
     try {
       const p = await palletsApi.lookup(code)
       await openPalletById(p.id)
@@ -79,29 +116,45 @@ export function MobilePakowaniePage() {
     }
   }
 
-  // ─── Pakowanie sztuki ───
+  // ─── Pakowanie sztuki (gałąź wg rodzaju pojemnika) ───
   async function handleSubmit(code: string) {
     const trimmed = code.trim()
     if (!trimmed || busy || !pallet) return
+    // Skan QR pojemnika w trakcie pakowania → przełącz pojemnik.
+    if (parseStockCarton(trimmed) || /^PAL\|/i.test(trimmed)) {
+      setValue(''); return openByCode(trimmed)
+    }
     setBusy(true)
     try {
-      const result = await palletsApi.packUnit(pallet.id, trimmed)
-      if (result.ok) {
+      if (pallet.kind === 'stock') {
+        const r = await stockCartonsApi.scan(pallet.id, trimmed)
         beepOk()
         try { navigator.vibrate?.(80) } catch {}
-        setBatch(await palletsApi.batchBreakdown(pallet.id))
-        if (result.palletStatus === 'packed') {
-          setLast({ ok: true, message: 'Paleta zapakowana', result })
-          setPallet(null)
-          toPackRes.refetch?.()
+        if (r.full) {
+          setLast({ ok: true, message: 'Karton zapakowany' })
+          setPallet(null); refetchLists()
         } else {
-          setPallet(prev => prev ? { ...prev, packedQty: result.packedQty } : null)
-          setLast({ ok: true, message: 'Sztuka spakowana', result })
+          setPallet(prev => prev ? { ...prev, packedQty: r.packedQty } : null)
+          setLast({ ok: true, message: `Sztuka spakowana — ${r.packedQty}/${r.targetQty}` })
         }
       } else {
-        beepErr()
-        try { navigator.vibrate?.([60, 40, 60]) } catch {}
-        setLast({ ok: false, message: result.reason || 'Nieprawidłowy kod', result })
+        const result = await palletsApi.packUnit(pallet.id, trimmed)
+        if (result.ok) {
+          beepOk()
+          try { navigator.vibrate?.(80) } catch {}
+          setBatch(await palletsApi.batchBreakdown(pallet.id))
+          if (result.palletStatus === 'packed') {
+            setLast({ ok: true, message: 'Paleta zapakowana', result })
+            setPallet(null); refetchLists()
+          } else {
+            setPallet(prev => prev ? { ...prev, packedQty: result.packedQty } : null)
+            setLast({ ok: true, message: 'Sztuka spakowana', result })
+          }
+        } else {
+          beepErr()
+          try { navigator.vibrate?.([60, 40, 60]) } catch {}
+          setLast({ ok: false, message: result.reason || 'Nieprawidłowy kod', result })
+        }
       }
     } catch (e) {
       beepErr()
@@ -118,10 +171,11 @@ export function MobilePakowaniePage() {
     setPallet(null)
     setLast(null)
     setBatch([])
-    toPackRes.refetch?.()
+    refetchLists()
   }
 
   const palletsToPack = toPackRes.data ?? []
+  const stockToPack = stockRes.data ?? []
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
@@ -133,7 +187,7 @@ export function MobilePakowaniePage() {
           <ArrowLeft size={16} /> Wstecz
         </Link>
         <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider">
-          <Package size={18} /> Pakowanie palet
+          <Package size={18} /> Pakowanie
         </div>
         <div className="w-16" />
       </header>
@@ -152,8 +206,14 @@ export function MobilePakowaniePage() {
                       Karton {pallet.cartonNo}
                     </div>
                   )}
-                  <div className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-violet-600">Paleta otwarta</div>
-                  <div className="text-sm font-bold text-slate-900">Zamówienie {pallet.orderNo || '—'}</div>
+                  <div className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-violet-600">
+                    {pallet.kind === 'stock' ? 'Karton magazynowy' : 'Paleta otwarta'}
+                  </div>
+                  <div className="text-sm font-bold text-slate-900">
+                    {pallet.kind === 'stock'
+                      ? (pallet.productName || 'na magazyn')
+                      : `Zamówienie ${pallet.orderNo || '—'}`}
+                  </div>
                   <div className="text-xs text-slate-500">{clientDisplay(pallet.clientName)}</div>
                 </div>
               </div>
@@ -249,24 +309,24 @@ export function MobilePakowaniePage() {
               </div>
             )}
 
-            {/* Skan QR palety */}
+            {/* Skan QR pojemnika (paleta lub karton magazynowy) */}
             <button
               type="button"
               onClick={() => setPalletScanOpen(true)}
               className="flex items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 py-3 text-base font-bold text-white hover:bg-violet-700"
             >
-              <ScanLine size={20} /> Skanuj QR palety
+              <ScanLine size={20} /> Skanuj QR palety / kartonu
             </button>
 
-            {/* Lista palet do spakowania */}
+            {/* Lista pojemników do spakowania: palety zamówień + kartony magazynowe */}
             <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
               <div className="mb-2 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-700">
-                <PackageOpen size={16} className="text-violet-600" /> Palety do spakowania
+                <PackageOpen size={16} className="text-violet-600" /> Do spakowania
               </div>
-              {toPackRes.loading ? (
+              {toPackRes.loading || stockRes.loading ? (
                 <div className="py-4 text-center text-sm text-slate-500">Ładowanie…</div>
-              ) : palletsToPack.length === 0 ? (
-                <div className="py-4 text-center text-sm text-slate-500">Brak palet do spakowania</div>
+              ) : palletsToPack.length === 0 && stockToPack.length === 0 ? (
+                <div className="py-4 text-center text-sm text-slate-500">Brak pojemników do spakowania</div>
               ) : (
                 <ul className="flex flex-col gap-2">
                   {palletsToPack.map(p => (
@@ -292,6 +352,26 @@ export function MobilePakowaniePage() {
                       </button>
                     </li>
                   ))}
+                  {stockToPack.map(c => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onClick={() => openStockCartonById(c.id)}
+                        className="flex w-full items-center justify-between rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-left hover:border-teal-300 hover:bg-teal-100"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-mono text-xs font-black text-teal-800">Karton {formatCartonNo(c.cartonNo)}</div>
+                          <div className="truncate text-sm font-semibold text-slate-900">{c.clientName ? clientDisplay(c.clientName) : '—'}</div>
+                          <div className="text-xs text-slate-500">
+                            {c.productTypeName || c.recipeName} · {c.kgPerUnit} kg · <span className="text-teal-700">magazyn (bez zam.)</span>
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right text-sm font-bold tabular-nums text-teal-700">
+                          {c.packedQty}<span className="text-teal-400">/{c.targetQty}</span>
+                        </div>
+                      </button>
+                    </li>
+                  ))}
                 </ul>
               )}
             </div>
@@ -307,10 +387,10 @@ export function MobilePakowaniePage() {
         />
       )}
 
-      {/* Skaner palety */}
+      {/* Skaner pojemnika (paleta lub karton magazynowy) */}
       {palletScanOpen && (
         <QrScannerModal
-          onScan={(text) => { setPalletScanOpen(false); openPalletByCode(text) }}
+          onScan={(text) => { setPalletScanOpen(false); openByCode(text) }}
           onClose={() => { setPalletScanOpen(false) }}
         />
       )}
