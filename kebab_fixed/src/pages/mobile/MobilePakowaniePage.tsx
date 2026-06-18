@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Camera, CheckCircle2, AlertTriangle, Package, PackageOpen, X, ScanLine } from 'lucide-react'
-import { palletsApi, stockCartonsApi, type PalletPackResult, type PalletBatchRow } from '@/lib/api'
+import { palletsApi, stockCartonsApi, type PalletPackResult, type PalletBatchRow, type StockCartonLine } from '@/lib/api'
 import { useApi } from '@/hooks/useApi'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { beepOk, beepErr } from '@/features/pwa/beep'
@@ -29,6 +29,8 @@ interface ActivePallet {
   productName?: string
   targetQty: number
   packedQty: number
+  // Pozycje kartonu magazynowego (skład mieszany) — tylko dla kind==='stock'.
+  lines?: StockCartonLine[]
 }
 
 function parseStockCarton(code: string): string | null {
@@ -154,6 +156,7 @@ export function MobilePakowaniePage() {
         productName: c.productTypeName || c.recipeName,
         targetQty: c.targetQty,
         packedQty: c.packedQty,
+        lines: c.lines,
       })
       setBatch([])
       setLast(null)
@@ -406,6 +409,19 @@ export function MobilePakowaniePage() {
                     {last.message}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Skład kartonu magazynowego (pozycje) — postęp zbiorczy w nagłówku */}
+            {pallet.kind === 'stock' && (pallet.lines?.length ?? 0) > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <div className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Skład kartonu</div>
+                {pallet.lines!.map(l => (
+                  <div key={l.id} className="flex justify-between border-b border-slate-100 py-1 text-sm tabular-nums last:border-0">
+                    <span className="text-slate-700">{l.productTypeName || l.recipeName || '—'}{l.packagingName ? ` · ${l.packagingName}` : ''}</span>
+                    <span className="font-semibold text-slate-900">{l.targetQty} szt · {l.kgPerUnit.toFixed(0)} kg</span>
+                  </div>
+                ))}
               </div>
             )}
 
