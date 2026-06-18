@@ -94,7 +94,22 @@ def stock_portions_for_order(
     produced_by_key: Dict[Key, int],
 ) -> List[Dict[str, Any]]:
     """Porcje magazynowe pokrywające braki zamówienia (patrz moduł)."""
-    shortfalls = compute_shortfalls(order_lines, produced_by_key)
+    # Sztuki spakowane do kartonów powiązanych z tym zamówieniem już je pokrywają —
+    # wyklucz je z FIFO finished_goods, żeby nie liczyć ich drugi raz.
+    cartoned_rows = query_all(
+        """
+        SELECT fu.recipe_id, fu.weight_kg, COUNT(*) AS qty
+        FROM finished_units fu
+        JOIN stock_cartons sc ON sc.id = fu.carton_id
+        WHERE sc.linked_order_id = %s AND fu.status IN ('packed', 'shipped')
+        GROUP BY fu.recipe_id, fu.weight_kg
+        """,
+        (order_id,),
+    )
+    cartoned_by_key = {
+        _key(r["recipe_id"], r["weight_kg"]): int(r["qty"]) for r in cartoned_rows
+    }
+    shortfalls = compute_shortfalls(order_lines, produced_by_key, cartoned_by_key)
     if not shortfalls:
         return []
     fg_rows = query_all(
