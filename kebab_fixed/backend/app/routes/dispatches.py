@@ -32,6 +32,12 @@ def scan(dispatch_id: str, body: DispatchScanRequest):
     return svc.scan_into_dispatch(dispatch_id, body.code)
 
 
+@router.post("/{dispatch_id}/scan-carton")
+def scan_carton(dispatch_id: str, body: DispatchScanRequest):
+    """Skan kartonu magazynowego (SCARTON|id) na wyjazd — wszystkie sztuki kartonu."""
+    return svc.scan_carton_into_dispatch(dispatch_id, body.code)
+
+
 @router.post("/{dispatch_id}/remove")
 def remove(dispatch_id: str, body: DispatchScanRequest):
     return svc.remove_unit(dispatch_id, body.code)

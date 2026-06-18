@@ -4,17 +4,62 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
+import re
+
 from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.services.settings_service import get_company
 from app.services.wz_service import _insert_wz, _seller_block, build_goods_wz_lines
-from app.utils.ids import cuid, now_iso
+from app.utils.ids import cuid, format_carton_no, now_iso
 from app.utils.stock import create_stock_movement
 from app.utils.unit_codes import (
-    SHIPPED, group_units_by_goods, parse_unit_qr, validate_loose_dispatch,
+    PACKED, SHIPPED, _client_matches, group_units_by_goods, parse_unit_qr,
+    validate_loose_dispatch,
 )
 
 logger = get_logger(__name__)
+
+
+def _parse_stock_carton(code: str):
+    m = re.match(r"^SCARTON\|(.+)$", (code or "").strip(), re.IGNORECASE)
+    return m.group(1) if m else None
+
+
+def scan_carton_into_dispatch(dispatch_id: str, code: str) -> Dict[str, Any]:
+    """Skan kartonu magazynowego na wyjazd. Wszystkie spakowane sztuki kartonu
+    dostają dispatch_id (idempotentnie); close_dispatch przełączy je na shipped.
+    Działa ad-hoc (wyjazd bez klienta) i pod zamówienie (karton powiązany)."""
+    carton_id = _parse_stock_carton(code)
+    if not carton_id:
+        raise HTTPException(400, "Nieprawidłowy kod QR kartonu")
+    with transaction() as conn:
+        disp = cx_query_one(conn, "SELECT * FROM dispatches WHERE id=%s FOR UPDATE", (dispatch_id,))
+        if not disp:
+            raise HTTPException(404, "Wydanie nie znalezione")
+        if disp.get("status") != "open":
+            raise HTTPException(409, "Wydanie zamknięte")
+        carton = cx_query_one(conn, "SELECT * FROM stock_cartons WHERE id=%s", (carton_id,))
+        if not carton:
+            raise HTTPException(404, "Karton nie znaleziony")
+        disp_client = (disp.get("client_name") or "").strip()
+        if disp_client and not _client_matches(carton.get("client_name"), disp_client):
+            raise HTTPException(409, "Karton należy do innego klienta niż wydanie")
+        units = cx_query_all(
+            conn,
+            "SELECT id FROM finished_units "
+            "WHERE carton_id=%s AND status=%s AND dispatch_id IS NULL",
+            (carton_id, PACKED),
+        )
+        for u in units:
+            cx_execute(conn, "UPDATE finished_units SET dispatch_id=%s WHERE id=%s",
+                       (dispatch_id, u["id"]))
+        qty = cx_query_one(conn, "SELECT COUNT(*) AS c FROM finished_units WHERE dispatch_id=%s",
+                           (dispatch_id,))
+        bb = _batch_breakdown(conn, dispatch_id)
+    logger.info("dispatches.carton_scanned",
+                extra={"dispatch_id": dispatch_id, "carton_id": carton_id, "added": len(units)})
+    return {"ok": True, "cartonNo": format_carton_no(carton["carton_no"]),
+            "added": len(units), "qty": int(qty["c"] if qty else 0), "batchBreakdown": bb}
 
 
 def create_dispatch(dto: Dict[str, Any]) -> Dict[str, Any]:
