@@ -48,6 +48,21 @@ def test_create_assigns_carton_no_open(db):
     assert c["target_qty"] == 18
 
 
+def test_create_blocks_duplicate_open_carton(db):
+    create_stock_carton(_dto())
+    with pytest.raises(HTTPException) as exc:
+        create_stock_carton(_dto())   # ten sam spec, otwarty → blokada
+    assert exc.value.status_code == 409
+
+
+def test_create_allows_after_first_packed(db):
+    c = create_stock_carton(_dto(qty=1))
+    _seed_unit("ud1"); scan_unit_into_carton(c["id"], unit_qr("ud1"))  # pierwszy spakowany
+    # ten sam spec, ale poprzedni już spakowany → wolno utworzyć kolejny
+    c2 = create_stock_carton(_dto(qty=1))
+    assert c2["carton_no"] != c["carton_no"]
+
+
 # ── Skan sztuki do kartonu ─────────────────────────────────────────────
 def test_scan_packs_matching_produced_unit(db):
     c = create_stock_carton(_dto())

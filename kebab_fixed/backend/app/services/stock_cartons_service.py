@@ -22,8 +22,32 @@ def _kg(v: Any) -> float:
 
 
 def create_stock_carton(dto: StockCartonCreate) -> Dict:
-    """Utwórz pusty karton magazynowy (status open) z globalnym numerem."""
+    """Utwórz pusty karton magazynowy (status open) z globalnym numerem.
+
+    Blokada duplikatu: jeśli istnieje już OTWARTY karton o tym samym składzie
+    (klient+receptura+rodzaj+tuleja+waga), nie pozwalamy utworzyć kolejnego —
+    najpierw trzeba go spakować (inaczej mnożyłyby się puste, identyczne kartony).
+    """
     with transaction() as conn:
+        dup = cx_query_one(
+            conn,
+            """
+            SELECT carton_no FROM stock_cartons
+            WHERE status='open' AND linked_order_id IS NULL
+              AND COALESCE(client_id,'')=%s AND COALESCE(recipe_id,'')=%s
+              AND COALESCE(product_type_id,'')=%s AND COALESCE(packaging_id,'')=%s
+              AND kg_per_unit=%s
+            LIMIT 1
+            """,
+            (dto.client_id, dto.recipe_id or "", dto.product_type_id or "",
+             dto.packaging_id or "", float(dto.kg_per_unit)),
+        )
+        if dup:
+            raise HTTPException(
+                409,
+                f"Taki karton już istnieje (nr {format_carton_no(dup['carton_no'])}) "
+                "— najpierw go spakuj",
+            )
         carton_no = next_seq("carton_seq")
         row = cx_query_one(
             conn,
@@ -153,3 +177,25 @@ def list_open_cartons() -> List[Dict]:
     return query_all(
         "SELECT * FROM stock_cartons WHERE status='open' ORDER BY carton_no"
     )
+
+
+def list_cartons() -> List[Dict]:
+    """Wszystkie kartony do sekcji „Spakowane kebaby" — ze statusem. Kartony,
+    których sztuki w całości wyjechały (wydane), znikają z listy."""
+    rows = query_all(
+        """
+        SELECT sc.*,
+               (SELECT count(*) FROM finished_units fu
+                 WHERE fu.carton_id = sc.id AND fu.status='shipped') AS shipped_qty
+        FROM stock_cartons sc
+        ORDER BY sc.carton_no DESC
+        """,
+    )
+    out: List[Dict] = []
+    for r in rows:
+        packed = int(r.get("packed_qty") or 0)
+        shipped = int(r.get("shipped_qty") or 0)
+        if packed > 0 and shipped >= packed:
+            continue  # wyjechało → znika
+        out.append(r)
+    return out

@@ -12,6 +12,11 @@ def create(dto: StockCartonCreate):
     return svc.create_stock_carton(dto)
 
 
+@router.get("")
+def list_all():
+    return svc.list_cartons()
+
+
 @router.get("/open")
 def list_open():
     return svc.list_open_cartons()

@@ -1789,6 +1789,7 @@ export interface StockCartonScanResult {
 
 export const stockCartonsApi = {
   create:   (dto: StockCartonCreateDto) => post<any>('/stock-cartons', toSnake(dto)).then(mapStockCarton),
+  list:     () => get<any[]>('/stock-cartons').then(rows => (rows ?? []).map(mapStockCarton)),
   listOpen: () => get<any[]>('/stock-cartons/open').then(rows => (rows ?? []).map(mapStockCarton)),
   get:      (id: string) => get<any>(`/stock-cartons/${id}`).then(mapStockCarton),
   scan:     (id: string, code: string) => post<StockCartonScanResult>(`/stock-cartons/${id}/scan`, { code }),

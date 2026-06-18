@@ -22,6 +22,7 @@ import {
 import { DetailModal } from '@/features/finished-goods/components/DetailModal'
 import { OfficeUnitLookup } from '@/features/finished-goods/components/OfficeUnitLookup'
 import { StockCartonModal } from '@/features/finished-goods/components/StockCartonModal'
+import { PackedCartonsSection } from '@/features/finished-goods/components/PackedCartonsSection'
 
 // ─── Grupowanie po SKU (łączymy partie/daty w jeden wiersz magazynu) ──────────
 export interface SkuGroup {
@@ -120,6 +121,7 @@ export function FinishedGoodsPage() {
   const clientDisplay = useClientNames()
   const { data: items, loading, refetch } = useApi(() => finishedGoodsApi.list())
   const [detailGroup, setDetailGroup] = useState<SkuGroup | null>(null)
+  const [cartonRefresh, setCartonRefresh] = useState(0)
   const [filter,   setFilter]   = useState('')
   const [sortCol,  setSortCol]  = useState<SortCol>('productTypeName')
   const [sortDir,  setSortDir]  = useState<'asc' | 'desc'>('asc')
@@ -187,7 +189,7 @@ export function FinishedGoodsPage() {
             {/* Wyszukiwarka pojedynczej sztuki po QR — lokalizacja kebaba */}
             <OfficeUnitLookup />
             {/* Karton magazynowy „z ręki" */}
-            <StockCartonModal onCreated={refetch} />
+            <StockCartonModal onCreated={() => { refetch(); setCartonRefresh(k => k + 1) }} />
           </div>
 
           {/* Inline KPI — kompaktowe, magazynowo (Subiekt GT style) */}
@@ -342,6 +344,9 @@ export function FinishedGoodsPage() {
           </div>
         )}
       </Card>
+
+      {/* Spakowane kebaby — lista utworzonych kartonów ze statusem */}
+      <PackedCartonsSection refreshKey={cartonRefresh} />
 
       {detailGroup && <DetailModal group={detailGroup} onClose={() => setDetailGroup(null)} />}
     </div>
