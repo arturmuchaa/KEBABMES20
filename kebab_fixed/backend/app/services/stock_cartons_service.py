@@ -271,6 +271,17 @@ def eligible_units_for_line(line_id: str) -> List[Dict]:
                               line.get("packaging_name"), line.get("kg_per_unit"))
 
 
+def add_units_to_carton_line(carton_id: str, line_id: str, qty: int) -> Dict:
+    """Biuro: dorzuć do `qty` uprawnionych sztuk (FIFO po partii) do pozycji —
+    przez tę samą operację co skan na hali (pełna walidacja + traceability)."""
+    codes = [u["code"] for u in eligible_units_for_line(line_id)]
+    added = 0
+    for code in codes[: max(0, int(qty))]:
+        scan_unit_into_carton(carton_id, code)
+        added += 1
+    return {"ok": True, "added": added}
+
+
 def eligible_units_for_carton(carton_id: str) -> List[Dict]:
     """Sztuki uprawnione do kartonu (suma po pozycjach z wolnym miejscem) — do
     walidacji lokalnej offline. Bez duplikatów kodów."""

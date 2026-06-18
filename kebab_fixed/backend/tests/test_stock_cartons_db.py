@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from app.db import execute, query_all, query_one
 from app.models.production import StockCartonCreate, StockCartonLineDto
 from app.services.stock_cartons_service import (
+    add_units_to_carton_line,
     assign_carton_to_order,
     create_stock_carton,
     eligible_units_for_carton,
@@ -89,6 +90,19 @@ def test_scan_mixed_carton_full_after_all_lines(db):
     assert r1["full"] is False
     r2 = scan_unit_into_carton(carton["id"], unit_qr("m15"))
     assert r2["full"] is True and r2["targetQty"] == 2 and r2["packedQty"] == 2
+
+
+# ── Ręczne dodanie sztuk z magazynu (biuro) ────────────────────────────
+def test_add_units_to_line_packs_fifo(db):
+    carton = create_stock_carton(StockCartonCreate(client_id="c1", lines=[
+        StockCartonLineDto(recipe_id="r1", product_type_id="p1", packaging_name="METAL 40", kg_per_unit=40.0, qty=5)]))
+    line = query_one("SELECT id FROM stock_carton_lines WHERE carton_id=%s", (carton["id"],))
+    for i in range(3):
+        _seed_unit(f"add{i}")
+    res = add_units_to_carton_line(carton["id"], line["id"], 2)
+    assert res["added"] == 2
+    packed = query_one("SELECT packed_qty FROM stock_carton_lines WHERE id=%s", (line["id"],))
+    assert int(packed["packed_qty"]) == 2
 
 
 # ── Skan sztuki do kartonu ─────────────────────────────────────────────

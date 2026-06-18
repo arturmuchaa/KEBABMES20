@@ -28,6 +28,18 @@ def eligible_units(carton_id: str):
     return svc.eligible_units_for_carton(carton_id)
 
 
+@router.get("/lines/{line_id}/eligible-units")
+def line_eligible(line_id: str):
+    """Sztuki uprawnione do konkretnej pozycji kartonu (podgląd w biurze)."""
+    return svc.eligible_units_for_line(line_id)
+
+
+@router.post("/{carton_id}/lines/{line_id}/add")
+def line_add(carton_id: str, line_id: str, body: dict):
+    """Biuro: dorzuć N uprawnionych sztuk z magazynu do pozycji (FIFO)."""
+    return svc.add_units_to_carton_line(carton_id, line_id, int((body or {}).get("qty") or 0))
+
+
 @router.get("/{carton_id}")
 def get(carton_id: str):
     return svc.get_carton(carton_id)
