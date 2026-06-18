@@ -7,6 +7,15 @@ import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { beepOk, beepErr } from '@/features/pwa/beep'
 import { useClientNames } from '@/lib/clientNames'
 import { formatCartonNo } from '@/lib/unitLocation'
+import { enqueueScan, getQueuedScans, removeQueuedScan, queuedCount } from '@/features/offline/scanQueue'
+import { summarizeSync, type SyncResult, type SyncSummary } from '@/features/offline/summarizeSync'
+import { WifiOff, Wifi } from 'lucide-react'
+
+function isNetworkError(e: unknown): boolean {
+  if (!navigator.onLine) return true
+  const msg = e instanceof Error ? e.message : String(e)
+  return /failed to fetch|networkerror|load failed|fetch/i.test(msg)
+}
 
 // Pakowanie obejmuje DWA rodzaje pojemników: paleta zamówienia ('order') oraz
 // karton magazynowy bez zamówienia ('stock'). Ta sama operacja skanu sztuk.
@@ -47,10 +56,16 @@ export function MobilePakowaniePage() {
   const [unitScanOpen, setUnitScanOpen] = useState(false)
   const [palletScanOpen, setPalletScanOpen] = useState(false)
 
+  // Offline: stan sieci, liczba skanów czekających w kolejce, raport po synchronizacji.
+  const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
+  const [pending, setPending] = useState(0)
+  const [syncReport, setSyncReport] = useState<SyncSummary | null>(null)
+
   const inputRef = useRef<HTMLInputElement | null>(null)
   const toPackRes = useApi(() => palletsApi.toPack(), [])
   const stockRes = useApi(() => stockCartonsApi.listOpen(), [])
   function refetchLists() { toPackRes.refetch?.(); stockRes.refetch?.() }
+  const refreshPending = useCallback(() => { queuedCount().then(setPending) }, [])
 
   const focusInput = useCallback(() => {
     setTimeout(() => inputRef.current?.focus(), 30)
@@ -59,6 +74,47 @@ export function MobilePakowaniePage() {
   useEffect(() => {
     if (pallet) focusInput()
   }, [pallet, focusInput])
+
+  // ─── Kolejka offline: dosyłanie po złapaniu sieci ───
+  const flushQueue = useCallback(async () => {
+    if (!navigator.onLine) return
+    const items = await getQueuedScans()
+    if (items.length === 0) return
+    const results: SyncResult[] = []
+    for (const it of items) {
+      try {
+        if (it.kind === 'stock') {
+          await stockCartonsApi.scan(it.containerId, it.code)
+          results.push({ code: it.code, ok: true })
+        } else {
+          const r = await palletsApi.packUnit(it.containerId, it.code)
+          results.push({ code: it.code, ok: r.ok, reason: r.ok ? undefined : (r.reason || 'odrzucono') })
+        }
+        if (it.id != null) await removeQueuedScan(it.id)
+      } catch (e) {
+        if (isNetworkError(e)) break // sieć padła w trakcie — reszta zostaje na później
+        // Błąd walidacji (4xx) — odrzucone, usuń z kolejki i zaraportuj.
+        results.push({ code: it.code, ok: false, reason: e instanceof Error ? e.message : 'odrzucono' })
+        if (it.id != null) await removeQueuedScan(it.id)
+      }
+    }
+    refreshPending()
+    refetchLists()
+    if (results.length > 0) setSyncReport(summarizeSync(results))
+  }, [refreshPending])
+
+  useEffect(() => {
+    refreshPending()
+    const goOnline = () => { setOnline(true); flushQueue() }
+    const goOffline = () => setOnline(false)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    if (navigator.onLine) flushQueue()
+    return () => {
+      window.removeEventListener('online', goOnline)
+      window.removeEventListener('offline', goOffline)
+    }
+  }, [flushQueue, refreshPending])
 
   // ─── Otwieranie palety zamówienia ───
   async function openPalletById(id: string) {
@@ -124,6 +180,23 @@ export function MobilePakowaniePage() {
     if (parseStockCarton(trimmed) || /^PAL\|/i.test(trimmed)) {
       setValue(''); return openByCode(trimmed)
     }
+
+    // Offline → do kolejki, optymistycznie (dosłane po złapaniu sieci).
+    async function queueOptimistic() {
+      await enqueueScan({ kind: pallet!.kind, containerId: pallet!.id, code: trimmed, ts: Date.now() })
+      refreshPending()
+      beepOk()
+      try { navigator.vibrate?.(80) } catch {}
+      setPallet(prev => prev ? { ...prev, packedQty: prev.packedQty + 1 } : null)
+      setLast({ ok: true, message: 'Zakolejkowano — czeka na sieć' })
+    }
+
+    if (!navigator.onLine) {
+      setBusy(true)
+      try { await queueOptimistic() } finally { setBusy(false); setValue(''); focusInput() }
+      return
+    }
+
     setBusy(true)
     try {
       if (pallet.kind === 'stock') {
@@ -157,9 +230,14 @@ export function MobilePakowaniePage() {
         }
       }
     } catch (e) {
-      beepErr()
-      try { navigator.vibrate?.([60, 40, 60]) } catch {}
-      setLast({ ok: false, message: e instanceof Error ? e.message : 'Błąd skanowania' })
+      if (isNetworkError(e)) {
+        // Sieć padła podczas skanu → do kolejki, nie gubimy sztuki.
+        await queueOptimistic()
+      } else {
+        beepErr()
+        try { navigator.vibrate?.([60, 40, 60]) } catch {}
+        setLast({ ok: false, message: e instanceof Error ? e.message : 'Błąd skanowania' })
+      }
     } finally {
       setBusy(false)
       setValue('')
@@ -189,10 +267,38 @@ export function MobilePakowaniePage() {
         <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider">
           <Package size={18} /> Pakowanie
         </div>
-        <div className="w-16" />
+        <div className="flex w-16 items-center justify-end gap-1">
+          {online
+            ? <Wifi size={16} className="text-violet-100" />
+            : <WifiOff size={16} className="text-amber-300" />}
+          {pending > 0 && (
+            <span className="rounded-full bg-amber-400 px-1.5 text-[11px] font-bold text-amber-950">{pending}</span>
+          )}
+        </div>
       </header>
 
       <main className="flex flex-1 flex-col gap-3 p-3">
+        {/* Pasek offline */}
+        {(!online || pending > 0) && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+            <WifiOff size={14} className="shrink-0" />
+            {online ? `Dosyłanie zaległych skanów… (${pending})` : `Tryb offline — skany w kolejce: ${pending}`}
+          </div>
+        )}
+        {/* Raport synchronizacji */}
+        {syncReport && (
+          <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-emerald-800">Synchronizacja: wysłano {syncReport.sent}, odrzucono {syncReport.rejected}</span>
+              <button onClick={() => setSyncReport(null)} className="text-emerald-700 underline">ok</button>
+            </div>
+            {syncReport.details.length > 0 && (
+              <ul className="mt-1 list-disc pl-4 text-red-700">
+                {syncReport.details.map((d, i) => <li key={i}>{d.code}: {d.reason}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
         {pallet ? (
           <>
             {/* Nagłówek aktywnego kartonu — spójny dla zamówienia i magazynu */}

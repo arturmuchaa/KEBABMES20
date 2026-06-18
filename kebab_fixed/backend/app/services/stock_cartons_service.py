@@ -91,6 +91,17 @@ def scan_unit_into_carton(carton_id: str, code: str) -> Dict[str, Any]:
         )
         if not unit:
             raise HTTPException(404, "Sztuka nie znaleziona")
+        # Idempotencja (retry/dubel z kolejki offline): sztuka już w TYM kartonie
+        # → zwróć OK bez podwajania.
+        if unit.get("carton_id") == carton_id:
+            return {
+                "ok": True,
+                "cartonNo": format_carton_no(carton["carton_no"]),
+                "packedQty": int(carton["packed_qty"]),
+                "targetQty": int(carton["target_qty"]),
+                "full": int(carton["packed_qty"]) >= int(carton["target_qty"]),
+                "batchNo": unit.get("batch_no") or "",
+            }
         if unit.get("status") != "produced":
             raise HTTPException(
                 409,

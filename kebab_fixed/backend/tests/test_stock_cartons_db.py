@@ -76,6 +76,18 @@ def test_scan_packs_matching_produced_unit(db):
     assert cc["packed_qty"] == 1
 
 
+def test_scan_same_unit_into_same_carton_is_idempotent(db):
+    # Ponowny skan tej samej sztuki do TEGO kartonu (retry/dubel z kolejki offline)
+    # → OK, bez podwojenia i bez błędu.
+    c = create_stock_carton(_dto())
+    _seed_unit("uidem")
+    r1 = scan_unit_into_carton(c["id"], unit_qr("uidem"))
+    r2 = scan_unit_into_carton(c["id"], unit_qr("uidem"))
+    assert r1["packedQty"] == 1 and r2["packedQty"] == 1
+    cc = query_one("SELECT packed_qty FROM stock_cartons WHERE id=%s", (c["id"],))
+    assert cc["packed_qty"] == 1
+
+
 def test_scan_rejects_wrong_spec(db):
     c = create_stock_carton(_dto())
     _seed_unit("u2", ptype="INNY")
