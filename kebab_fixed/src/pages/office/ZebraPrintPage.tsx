@@ -48,6 +48,17 @@ export function ZebraPrintPage() {
     finally { setBusy(false) }
   }
 
+  function downloadZpl() {
+    if (!render?.zpl) { setMsg({ ok: false, text: 'Brak ZPL do pobrania' }); return }
+    const blob = new Blob([render.zpl], { type: 'text/plain' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `etykiety-${planLineId || 'zebra'}.zpl`
+    a.click()
+    URL.revokeObjectURL(a.href)
+    setMsg({ ok: true, text: 'Pobrano ZPL — wyślij do Zebry (Zebra Setup Utilities → Send File)' })
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-6">
       <div className="mx-auto max-w-xl space-y-4">
@@ -93,6 +104,14 @@ export function ZebraPrintPage() {
               </button>
             </div>
           </div>
+        )}
+
+        {/* Awaryjny druk USB bez BrowserPrint: pobierz ZPL i wyślij przez Zebra Setup Utilities */}
+        {render?.ok && (
+          <button onClick={downloadZpl}
+            className="w-full rounded-lg border-2 border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Pobierz ZPL (druk USB bez BrowserPrint)
+          </button>
         )}
 
         {msg && (

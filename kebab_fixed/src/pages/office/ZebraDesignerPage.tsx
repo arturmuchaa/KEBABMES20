@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { ArrowLeft, Type, QrCode, Square, Save, Printer, Trash2, LayoutTemplate } from 'lucide-react'
+import { ArrowLeft, Type, QrCode, Square, Save, Printer, Trash2, LayoutTemplate, ClipboardPaste, FileDown } from 'lucide-react'
 import { zebraDesignsApi, type ZebraDesign, type ZebraElement } from '@/lib/api'
 import { getDevices, sendZpl, type ZebraDevice } from '@/lib/zebra'
 import { LABEL_PRESETS } from '@/features/zebra/labelPresets'
@@ -20,6 +20,11 @@ export function ZebraDesignerPage() {
   const [sizeKey, setSizeKey] = useState('100x150')
   const [dpi, setDpi] = useState(203)
   const [elements, setElements] = useState<ZebraElement[]>([])
+  const [backgroundZpl, setBackgroundZpl] = useState('')
+  const [bgImg, setBgImg] = useState('')          // podgląd tła 1:1 (Labelary PNG)
+  const [bgBusy, setBgBusy] = useState(false)
+  const [pasteOpen, setPasteOpen] = useState(false)
+  const [pasteText, setPasteText] = useState('')
   const [sel, setSel] = useState<string | null>(null)
   const [devices, setDevices] = useState<ZebraDevice[]>([])
   const [deviceUid, setDeviceUid] = useState('')
@@ -31,8 +36,13 @@ export function ZebraDesignerPage() {
 
   useEffect(() => {
     zebraDesignsApi.get(recipeId, sizeKey).then(r => {
-      if (r.exists && r.design) { setElements(r.design.elements || []); setDpi(r.design.dpi || 203) }
-      else setElements([])
+      if (r.exists && r.design) {
+        setElements(r.design.elements || []); setDpi(r.design.dpi || 203)
+        const bg = r.design.backgroundZpl || ''
+        setBackgroundZpl(bg)
+        if (bg) renderBg(bg, r.design.dpi || 203)
+        else setBgImg('')
+      } else { setElements([]); setBackgroundZpl(''); setBgImg('') }
       setSel(null)
     }).catch(() => setElements([]))
   }, [recipeId, sizeKey])
@@ -48,6 +58,48 @@ export function ZebraDesignerPage() {
         ? { id: uid(), type, x: 5, y: 5, mag: 5, value: '[[QR]]' }
         : { id: uid(), type, x: 5, y: 5, w: 40, h: 15, thickMm: 0.4 }
     setElements(e => [...e, base]); setSel(base.id)
+  }
+
+  // Podgląd tła 1:1 — renderuje wklejony ZPL do obrazka przez serwis Labelary.
+  async function renderBg(zpl: string, useDpi = dpi) {
+    if (!zpl.trim()) { setBgImg(''); return }
+    setBgBusy(true)
+    try {
+      const dpmm = useDpi >= 300 ? 12 : 8
+      const wIn = (size.w / 25.4).toFixed(2)
+      const hIn = (size.h / 25.4).toFixed(2)
+      const res = await fetch(`https://api.labelary.com/v1/printers/${dpmm}dpmm/labels/${wIn}x${hIn}/0/`, {
+        method: 'POST', headers: { Accept: 'image/png' }, body: zpl,
+      })
+      if (!res.ok) throw new Error(`Labelary ${res.status}`)
+      const blob = await res.blob()
+      setBgImg(URL.createObjectURL(blob))
+      setMsg('Podgląd tła zaktualizowany')
+    } catch (e) {
+      setBgImg('')
+      setMsg(e instanceof Error ? `Podgląd tła: ${e.message}` : 'Błąd podglądu tła (Labelary)')
+    } finally { setBgBusy(false) }
+  }
+
+  function applyBackground() {
+    setBackgroundZpl(pasteText)
+    setPasteOpen(false)
+    renderBg(pasteText)
+  }
+
+  async function downloadZpl() {
+    const d: ZebraDesign = { recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements }
+    try {
+      const r = await zebraDesignsApi.renderSample(d)
+      if (!r.zpl) { setMsg('Brak ZPL do pobrania'); return }
+      const blob = new Blob([r.zpl], { type: 'text/plain' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `etykieta-${sizeKey}.zpl`
+      a.click()
+      URL.revokeObjectURL(a.href)
+      setMsg('Pobrano ZPL')
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Błąd pobierania ZPL') }
   }
 
   function loadPreset(key: string) {
@@ -78,12 +130,12 @@ export function ZebraDesignerPage() {
   function onPointerUp() { drag.current = null }
 
   async function save() {
-    const d: ZebraDesign = { recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, elements }
+    const d: ZebraDesign = { recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements }
     try { await zebraDesignsApi.save(d); setMsg('Zapisano') } catch (e) { setMsg(e instanceof Error ? e.message : 'Błąd zapisu') }
   }
 
   async function testPrint() {
-    const d: ZebraDesign = { recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, elements }
+    const d: ZebraDesign = { recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements }
     const dev = devices.find(x => x.uid === deviceUid)
     if (!dev) { setMsg('Brak drukarki Zebra (BrowserPrint)'); return }
     try { const r = await zebraDesignsApi.renderSample(d); if (r.zpl) { await sendZpl(dev, r.zpl); setMsg('Wysłano test') } }
@@ -114,7 +166,9 @@ export function ZebraDesignerPage() {
         <button onClick={() => addEl('text')} className="flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-sm"><Type size={14} /> Tekst</button>
         <button onClick={() => addEl('qr')} className="flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-sm"><QrCode size={14} /> QR</button>
         <button onClick={() => addEl('box')} className="flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-sm"><Square size={14} /> Ramka</button>
+        <button onClick={() => { setPasteText(backgroundZpl); setPasteOpen(o => !o) }} className="flex items-center gap-1 rounded bg-amber-200 px-2 py-1 text-sm font-semibold text-amber-900" title="Wklej ZPL z Zebra Designer — podgląd 1:1"><ClipboardPaste size={14} /> Wklej ZPL (tło)</button>
         <button onClick={save} className="flex items-center gap-1 rounded bg-blue-600 px-3 py-1 text-sm font-semibold text-white"><Save size={14} /> Zapisz</button>
+        <button onClick={downloadZpl} className="flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-sm" title="Pobierz złożony ZPL do pliku (druk USB przez Zebra Setup Utilities)"><FileDown size={14} /> Pobierz ZPL</button>
         <select value={deviceUid} onChange={e => setDeviceUid(e.target.value)} className="rounded border px-2 py-1 text-sm">
           {devices.length === 0 && <option value="">— brak drukarki —</option>}
           {devices.map(d => <option key={d.uid} value={d.uid}>{d.name}</option>)}
@@ -122,6 +176,27 @@ export function ZebraDesignerPage() {
         <button onClick={testPrint} className="flex items-center gap-1 rounded bg-emerald-600 px-3 py-1 text-sm font-semibold text-white"><Printer size={14} /> Test druku</button>
         {msg && <span className="text-sm text-slate-600">{msg}</span>}
       </div>
+
+      {/* Panel: wklej ZPL z Zebra Designer → podgląd tła 1:1 (Labelary) */}
+      {pasteOpen && (
+        <div className="border-b bg-amber-50 px-4 py-3">
+          <div className="mb-1 text-xs font-semibold text-amber-900">
+            Wklej ZPL z Zebra Designer (eksport „do pliku" → Notatnik → Ctrl+A, Ctrl+C). Tło renderowane 1:1; pola dynamiczne nakładasz na wierzch.
+          </div>
+          <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} rows={4}
+            placeholder="^XA ... ^GFA ... ^XZ"
+            className="w-full rounded border border-amber-300 px-2 py-1 font-mono text-[11px]" />
+          <div className="mt-2 flex items-center gap-2">
+            <button onClick={applyBackground} disabled={bgBusy}
+              className="rounded bg-amber-600 px-3 py-1 text-sm font-semibold text-white disabled:opacity-50">
+              {bgBusy ? 'Renderuję…' : 'Ustaw tło 1:1'}
+            </button>
+            <button onClick={() => { setBackgroundZpl(''); setBgImg(''); setPasteText(''); setPasteOpen(false) }}
+              className="rounded bg-slate-200 px-3 py-1 text-sm">Usuń tło</button>
+            <span className="text-xs text-amber-800">Wymaga internetu (Labelary). Tło zapisuje się z projektem.</span>
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-4 p-4">
         {/* Canvas */}
@@ -133,6 +208,11 @@ export function ZebraDesignerPage() {
           className="relative shrink-0 border border-slate-400 bg-white shadow"
           style={{ width: size.w * SCALE, height: size.h * SCALE }}
         >
+          {/* Tło 1:1 z wklejonego ZPL (render Labelary) */}
+          {bgImg && (
+            <img src={bgImg} alt="tło etykiety" draggable={false}
+              className="pointer-events-none absolute inset-0 h-full w-full object-contain" />
+          )}
           {elements.map(el => (
             <div
               key={el.id}

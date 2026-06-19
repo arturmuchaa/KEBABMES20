@@ -1201,6 +1201,8 @@ export interface ZebraElement {
 export interface ZebraDesign {
   recipeId: string; sizeKey: string
   widthMm: number; heightMm: number; dpi: number
+  /** Tło ZPL wklejone z Zebra Designer (statyka 1:1); pola dynamiczne nakładane na wierzch. */
+  backgroundZpl?: string
   elements: ZebraElement[]
 }
 
@@ -1211,14 +1213,16 @@ export const zebraDesignsApi = {
   save: (d: ZebraDesign) =>
     put<{ ok: boolean }>('/zebra-designs', {
       recipe_id: d.recipeId, size_key: d.sizeKey,
-      width_mm: d.widthMm, height_mm: d.heightMm, dpi: d.dpi, elements: d.elements,
+      width_mm: d.widthMm, height_mm: d.heightMm, dpi: d.dpi,
+      background_zpl: d.backgroundZpl ?? '', elements: d.elements,
     }),
   render: (recipeId: string, sizeKey: string, planLineId: string) =>
     get<{ ok: boolean; reason?: string; zpl?: string; count?: number }>(
       `/zebra-designs/render?recipe_id=${encodeURIComponent(recipeId)}&size_key=${encodeURIComponent(sizeKey)}&plan_line_id=${encodeURIComponent(planLineId)}`),
   renderSample: (d: ZebraDesign) =>
     post<{ ok: boolean; zpl?: string; count?: number }>('/zebra-designs/render-sample', {
-      width_mm: d.widthMm, height_mm: d.heightMm, dpi: d.dpi, elements: d.elements,
+      width_mm: d.widthMm, height_mm: d.heightMm, dpi: d.dpi,
+      background_zpl: d.backgroundZpl ?? '', elements: d.elements,
     }),
 }
 

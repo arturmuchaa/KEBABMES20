@@ -18,8 +18,10 @@ export async function loadBrowserPrint(): Promise<any> {
   if (window.BrowserPrint) return window.BrowserPrint
   if (!loadPromise) {
     loadPromise = (async () => {
+      // Rdzeń klienta (definiuje window.BrowserPrint: getLocalDevices/getDefaultDevice/Device.send).
       await loadScript('/browserprint/BrowserPrint-3.1.250.min.js')
-      await loadScript('/browserprint/BrowserPrint-Zebra-1.0.5.min.js')
+      // Helper Zebra (status/konfiguracja) — opcjonalny; brak pliku nie blokuje druku ZPL.
+      await loadScript('/browserprint/BrowserPrint-Zebra-1.0.5.min.js').catch(() => {})
       if (!window.BrowserPrint) throw new Error('BrowserPrint niedostępny')
       return window.BrowserPrint
     })().catch(e => { loadPromise = null; throw e })
