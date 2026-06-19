@@ -33,6 +33,19 @@ def test_design_to_zpl_text():
     assert "^FDWaga 15^FS" in z
 
 
+def test_design_to_zpl_with_background():
+    # Tło ZPL wklejone z Zebra Designer (statyka) + nakładka pola dynamicznego.
+    bg = "^XA\n^FO20,20^GFA,...raster...^FS\n^XZ"
+    d = {"width_mm": 100, "height_mm": 150, "dpi": 203, "background_zpl": bg, "elements": [
+        {"id": "1", "type": "text", "x": 5, "y": 120, "w": 60, "fontMm": 4, "align": "L", "value": "[[WAGA]] kg"}]}
+    z = design_to_zpl(d, {"WAGA": "15"})
+    assert z.startswith("^XA")
+    assert "^GFA" in z                 # tło zachowane
+    assert z.count("^XZ") == 1         # dokładnie jedno zamknięcie
+    assert z.rstrip().endswith("^XZ")
+    assert "^FD15 kg^FS" in z          # pole dynamiczne na wierzchu
+
+
 def test_design_to_zpl_qr_and_box():
     d = {"width_mm": 100, "height_mm": 150, "dpi": 203, "elements": [
         {"id": "q", "type": "qr", "x": 5, "y": 5, "mag": 4, "value": "[[QR]]"},

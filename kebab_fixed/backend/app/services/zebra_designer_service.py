@@ -30,12 +30,9 @@ def _merge(value: str, values: Dict[str, str]) -> str:
     return _TOKEN_RE.sub("", out)
 
 
-def design_to_zpl(design: Dict[str, Any], values: Dict[str, str]) -> str:
-    dpi = int(design.get("dpi") or 203)
-    w = _mm_to_dots(design.get("width_mm") or 100, dpi)
-    h = _mm_to_dots(design.get("height_mm") or 150, dpi)
-    out: List[str] = ["^XA", "^CI28", f"^PW{w}", f"^LL{h}", "^LS0"]
-    for el in (design.get("elements") or []):
+def _element_blocks(elements, dpi, values) -> List[str]:
+    out: List[str] = []
+    for el in (elements or []):
         t = el.get("type")
         x = _mm_to_dots(el.get("x") or 0, dpi)
         y = _mm_to_dots(el.get("y") or 0, dpi)
@@ -56,8 +53,24 @@ def design_to_zpl(design: Dict[str, Any], values: Dict[str, str]) -> str:
             bh = _mm_to_dots(el.get("h") or 10, dpi)
             th = max(1, _mm_to_dots(el.get("thickMm") or 0.3, dpi))
             out.append(f"^FO{x},{y}^GB{bw},{bh},{th}^FS")
-    out.append("^XZ")
-    return "\n".join(out)
+    return out
+
+
+def design_to_zpl(design: Dict[str, Any], values: Dict[str, str]) -> str:
+    dpi = int(design.get("dpi") or 203)
+    blocks = _element_blocks(design.get("elements"), dpi, values)
+    bg = (design.get("background_zpl") or "").strip()
+    if bg:
+        # Tło wklejone z Zebra Designer (statyka 1:1) — usuń zamykające ^XZ,
+        # dołącz ^CI28 (UTF-8 dla nakładki) i pola dynamiczne na wierzch, zamknij ^XZ.
+        base = re.sub(r"\^XZ\s*$", "", bg).rstrip()
+        if "^CI28" not in base:
+            base = re.sub(r"(\^XA)", r"\1^CI28", base, count=1)
+        parts = [base] + blocks + ["^XZ"]
+        return "\n".join(p for p in parts if p)
+    w = _mm_to_dots(design.get("width_mm") or 100, dpi)
+    h = _mm_to_dots(design.get("height_mm") or 150, dpi)
+    return "\n".join(["^XA", "^CI28", f"^PW{w}", f"^LL{h}", "^LS0", *blocks, "^XZ"])
 
 
 def _row_to_design(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -67,6 +80,7 @@ def _row_to_design(row: Dict[str, Any]) -> Dict[str, Any]:
         "widthMm": float(row.get("width_mm") or 100),
         "heightMm": float(row.get("height_mm") or 150),
         "dpi": int(row.get("dpi") or 203),
+        "backgroundZpl": row.get("background_zpl") or "",
         "elements": row.get("elements") or [],
     }
 
@@ -87,16 +101,18 @@ def save_design(dto: Dict[str, Any]) -> Dict[str, Any]:
             conn,
             """
             INSERT INTO zebra_label_designs
-                (id, recipe_id, size_key, width_mm, height_mm, dpi, elements, updated_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb, now())
+                (id, recipe_id, size_key, width_mm, height_mm, dpi, background_zpl, elements, updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb, now())
             ON CONFLICT (recipe_id, size_key) DO UPDATE SET
                 width_mm = EXCLUDED.width_mm, height_mm = EXCLUDED.height_mm,
-                dpi = EXCLUDED.dpi, elements = EXCLUDED.elements, updated_at = now()
+                dpi = EXCLUDED.dpi, background_zpl = EXCLUDED.background_zpl,
+                elements = EXCLUDED.elements, updated_at = now()
             RETURNING id
             """,
             (cuid(), dto.get("recipe_id") or "", dto.get("size_key") or "",
              float(dto.get("width_mm") or 100), float(dto.get("height_mm") or 150),
-             int(dto.get("dpi") or 203), json.dumps(dto.get("elements") or [])),
+             int(dto.get("dpi") or 203), dto.get("background_zpl") or "",
+             json.dumps(dto.get("elements") or [])),
         )
     return {"ok": True}
 
@@ -106,6 +122,7 @@ def _design_dict_from_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "width_mm": float(row.get("width_mm") or 100),
         "height_mm": float(row.get("height_mm") or 150),
         "dpi": int(row.get("dpi") or 203),
+        "background_zpl": row.get("background_zpl") or "",
         "elements": row.get("elements") or [],
     }
 

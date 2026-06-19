@@ -10,6 +10,7 @@ class SaveDesignRequest(BaseModel):
     width_mm: float = 100
     height_mm: float = 150
     dpi: int = 203
+    background_zpl: str = ""
     elements: List[Any] = []
 
 
@@ -17,4 +18,5 @@ class RenderSampleRequest(BaseModel):
     width_mm: float = 100
     height_mm: float = 150
     dpi: int = 203
+    background_zpl: str = ""
     elements: List[Any] = []
