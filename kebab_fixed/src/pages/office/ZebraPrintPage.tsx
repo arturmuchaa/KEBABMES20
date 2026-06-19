@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { Printer, ArrowLeft, AlertTriangle, CheckCircle2 } from 'lucide-react'
-import { labelsZebraApi, type ZebraRenderResult } from '@/lib/api'
+import { labelsZebraApi, zebraDesignsApi, type ZebraRenderResult } from '@/lib/api'
 import { getDevices, sendZpl, type ZebraDevice } from '@/lib/zebra'
 
 const TEST_ZPL = '^XA^FO50,50^A0N,40,40^FDTest Zebra^FS^XZ'
+const SIZE_KEYS = ['100x150', '100x300']
 
 export function ZebraPrintPage() {
   const [params] = useSearchParams()
@@ -18,11 +19,18 @@ export function ZebraPrintPage() {
   const [sdkError, setSdkError] = useState('')
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [sizeKey, setSizeKey] = useState('100x150')
 
   useEffect(() => {
-    labelsZebraApi.render(planLineId, clientId, recipeId).then(setRender).catch(() =>
-      setRender({ ok: false, reason: 'Błąd pobierania ZPL' }))
-  }, [planLineId, clientId, recipeId])
+    // Najpierw projekt z edytora (wektorowy ZPL); brak → fallback na import .prn.
+    zebraDesignsApi.render(recipeId, sizeKey, planLineId)
+      .then(r => {
+        if (r.ok) { setRender(r as ZebraRenderResult); return }
+        return labelsZebraApi.render(planLineId, clientId, recipeId).then(setRender)
+      })
+      .catch(() => labelsZebraApi.render(planLineId, clientId, recipeId).then(setRender)
+        .catch(() => setRender({ ok: false, reason: 'Błąd pobierania ZPL' })))
+  }, [planLineId, clientId, recipeId, sizeKey])
 
   useEffect(() => {
     getDevices()
@@ -64,6 +72,10 @@ export function ZebraPrintPage() {
 
         {!sdkError && (
           <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Rozmiar etykiety (projekt Zebra)</label>
+            <select value={sizeKey} onChange={e => setSizeKey(e.target.value)} className="w-full rounded-lg border-2 border-slate-300 px-3 py-2 text-base">
+              {SIZE_KEYS.map(k => <option key={k} value={k}>{k.replace('x', '×')} mm</option>)}
+            </select>
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Drukarka</label>
             <select value={deviceUid} onChange={e => setDeviceUid(e.target.value)} className="w-full rounded-lg border-2 border-slate-300 px-3 py-2 text-base">
               {devices.length === 0 && <option value="">— brak drukarek —</option>}
