@@ -1226,6 +1226,22 @@ export const zebraDesignsApi = {
     }),
 }
 
+// ─── Wyszukiwanie firmy po NIP/VAT (przez autoryzowany wrapper — z tokenem!) ──
+// WAŻNE: te wywołania MUSZĄ iść przez req() (Bearer token), bo /api/gus i /api/vies
+// są chronione RBAC. Surowy fetch bez tokenu = 401 „Brak dostępu" (był stały bug).
+export interface NipCompany {
+  nip: string; regon?: string; nazwa: string
+  ulica?: string; numer_budynku?: string; numer_lokalu?: string
+  kod_pocztowy?: string; miasto?: string; adres?: string
+}
+export interface ViesCompany {
+  vatNumber: string; countryCode: string; traderName: string; traderAddress: string; valid: boolean
+}
+export const companyApi = {
+  gus: (nip: string) => get<NipCompany>(`/gus/${encodeURIComponent(nip)}`),
+  vies: (vat: string) => get<ViesCompany>(`/vies/lookup?vat=${encodeURIComponent(vat)}`),
+}
+
 // ─── HDI ────────────────────────────────────────────────────────
 export interface HdiBatch { partia: string; termin: string; qty: number }
 export interface HdiItem { name: string; qty: number; kg: number; batches: HdiBatch[] }
