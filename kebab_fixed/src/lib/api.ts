@@ -1187,6 +1187,41 @@ export const labelsZebraApi = {
       `&client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
 }
 
+// ─── Wizualny projektant etykiet Zebra (Z-Design-1) ──────────────
+export interface ZebraElement {
+  id: string
+  type: 'text' | 'qr' | 'box'
+  x: number; y: number
+  w?: number; h?: number
+  fontMm?: number; align?: 'L' | 'C' | 'R'
+  mag?: number; thickMm?: number
+  value?: string
+}
+
+export interface ZebraDesign {
+  recipeId: string; sizeKey: string
+  widthMm: number; heightMm: number; dpi: number
+  elements: ZebraElement[]
+}
+
+export const zebraDesignsApi = {
+  get: (recipeId: string, sizeKey: string) =>
+    get<{ exists: boolean; design: ZebraDesign | null }>(
+      `/zebra-designs?recipe_id=${encodeURIComponent(recipeId)}&size_key=${encodeURIComponent(sizeKey)}`),
+  save: (d: ZebraDesign) =>
+    put<{ ok: boolean }>('/zebra-designs', {
+      recipe_id: d.recipeId, size_key: d.sizeKey,
+      width_mm: d.widthMm, height_mm: d.heightMm, dpi: d.dpi, elements: d.elements,
+    }),
+  render: (recipeId: string, sizeKey: string, planLineId: string) =>
+    get<{ ok: boolean; reason?: string; zpl?: string; count?: number }>(
+      `/zebra-designs/render?recipe_id=${encodeURIComponent(recipeId)}&size_key=${encodeURIComponent(sizeKey)}&plan_line_id=${encodeURIComponent(planLineId)}`),
+  renderSample: (d: ZebraDesign) =>
+    post<{ ok: boolean; zpl?: string; count?: number }>('/zebra-designs/render-sample', {
+      width_mm: d.widthMm, height_mm: d.heightMm, dpi: d.dpi, elements: d.elements,
+    }),
+}
+
 // ─── HDI ────────────────────────────────────────────────────────
 export interface HdiBatch { partia: string; termin: string; qty: number }
 export interface HdiItem { name: string; qty: number; kg: number; batches: HdiBatch[] }
