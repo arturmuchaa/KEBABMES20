@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { ArrowLeft, Type, QrCode, Square, Save, Printer, Trash2, LayoutTemplate, ClipboardPaste, FileDown } from 'lucide-react'
 import { zebraDesignsApi, type ZebraDesign, type ZebraElement } from '@/lib/api'
-import { getDevices, sendZpl, type ZebraDevice } from '@/lib/zebra'
+import { getDevices, sendZpl, probeBrowserPrint, browserPrintBaseUrl, type ZebraDevice } from '@/lib/zebra'
 import { LABEL_PRESETS } from '@/features/zebra/labelPresets'
 
 const SCALE = 3 // px per mm na canvasie
@@ -28,6 +28,7 @@ export function ZebraDesignerPage() {
   const [sel, setSel] = useState<string | null>(null)
   const [devices, setDevices] = useState<ZebraDevice[]>([])
   const [deviceUid, setDeviceUid] = useState('')
+  const [bpHint, setBpHint] = useState('')
   const [msg, setMsg] = useState('')
   const canvasRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null)
@@ -48,7 +49,13 @@ export function ZebraDesignerPage() {
   }, [recipeId, sizeKey])
 
   useEffect(() => {
-    getDevices().then(({ default: d, list }) => { setDevices(list); setDeviceUid(d?.uid || list[0]?.uid || '') }).catch(() => {})
+    getDevices().then(async ({ default: d, list }) => {
+      setDevices(list); setDeviceUid(d?.uid || list[0]?.uid || '')
+      if (list.length === 0) {
+        const probe = await probeBrowserPrint()
+        setBpHint(probe.ok ? 'Połączono z BrowserPrint, ale brak drukarki — ustaw drukarkę (domyślną) w aplikacji Zebra BrowserPrint.' : (probe.reason || ''))
+      } else setBpHint('')
+    }).catch((e) => setBpHint(e instanceof Error ? e.message : 'BrowserPrint niedostępny'))
   }, [])
 
   function addEl(type: ZebraElement['type']) {
@@ -176,6 +183,19 @@ export function ZebraDesignerPage() {
         <button onClick={testPrint} className="flex items-center gap-1 rounded bg-emerald-600 px-3 py-1 text-sm font-semibold text-white"><Printer size={14} /> Test druku</button>
         {msg && <span className="text-sm text-slate-600">{msg}</span>}
       </div>
+
+      {/* Diagnostyka: MES nie widzi drukarki mimo BrowserPrint */}
+      {devices.length === 0 && bpHint && (
+        <div className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+          ⚠️ {bpHint}
+          {browserPrintBaseUrl().startsWith('https') && (
+            <a href="https://localhost:9101" target="_blank" rel="noreferrer"
+              className="ml-2 font-semibold text-amber-900 underline">
+              → otwórz https://localhost:9101 i zaufaj certyfikatowi
+            </a>
+          )}
+        </div>
+      )}
 
       {/* Panel: wklej ZPL z Zebra Designer → podgląd tła 1:1 (Labelary) */}
       {pasteOpen && (
