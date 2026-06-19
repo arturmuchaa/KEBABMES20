@@ -1190,12 +1190,18 @@ export const labelsZebraApi = {
 // ─── Wizualny projektant etykiet Zebra (Z-Design-1) ──────────────
 export interface ZebraElement {
   id: string
-  type: 'text' | 'qr' | 'box'
+  type: 'text' | 'qr' | 'box' | 'image'
   x: number; y: number
   w?: number; h?: number
   fontMm?: number; align?: 'L' | 'C' | 'R'
   mag?: number; thickMm?: number
   value?: string
+  // Tekst-grafika / obraz: render do ^GFA (Arial + polskie znaki, logo HALAL/WE).
+  graphic?: boolean          // tekst renderowany jako grafika (font systemowy)
+  font?: string              // np. 'Arial' (gdy graphic=true)
+  bold?: boolean
+  src?: string               // dataURL podglądu obrazu (type='image')
+  gf?: string                // gotowa komenda ^GFA (liczona przy zapisie/wgraniu)
 }
 
 export interface ZebraDesign {

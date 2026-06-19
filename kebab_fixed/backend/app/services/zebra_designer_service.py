@@ -36,6 +36,12 @@ def _element_blocks(elements, dpi, values) -> List[str]:
         t = el.get("type")
         x = _mm_to_dots(el.get("x") or 0, dpi)
         y = _mm_to_dots(el.get("y") or 0, dpi)
+        # Element zrasteryzowany (obraz HALAL/WE, albo tekst-grafika z fontem systemowym
+        # i polskimi znakami): gotowe ^GFA wygenerowane w przeglądarce.
+        gf = el.get("gf")
+        if gf:
+            out.append(f"^FO{x},{y}{gf}^FS")
+            continue
         if t == "text":
             fw = _mm_to_dots(el.get("fontMm") or 3, dpi)
             bw = _mm_to_dots(el.get("w") or 50, dpi)

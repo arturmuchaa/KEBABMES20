@@ -33,6 +33,14 @@ def test_design_to_zpl_text():
     assert "^FDWaga 15^FS" in z
 
 
+def test_design_to_zpl_emits_graphic_element():
+    # Element z gotową grafiką ^GFA (obraz HALAL/WE albo tekst-grafika z fontem systemowym).
+    d = {"width_mm": 100, "height_mm": 150, "dpi": 203, "elements": [
+        {"id": "g", "type": "image", "x": 10, "y": 20, "gf": "^GFA,4,4,1,00FF00FF"}]}
+    z = design_to_zpl(d, {})
+    assert "^FO80,160^GFA,4,4,1,00FF00FF^FS" in z   # 10mm,20mm @203dpi = 80,160
+
+
 def test_design_to_zpl_with_background():
     # Tło ZPL wklejone z Zebra Designer (statyka) + nakładka pola dynamicznego.
     bg = "^XA\n^FO20,20^GFA,...raster...^FS\n^XZ"

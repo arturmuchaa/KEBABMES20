@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { ArrowLeft, Type, QrCode, Square, Save, Printer, Trash2, LayoutTemplate, ClipboardPaste, FileDown } from 'lucide-react'
+import { ArrowLeft, Type, QrCode, Square, Save, Printer, Trash2, LayoutTemplate, ClipboardPaste, FileDown, Image as ImageIcon } from 'lucide-react'
 import { zebraDesignsApi, type ZebraDesign, type ZebraElement } from '@/lib/api'
 import { getDevices, sendZpl, probeBrowserPrint, browserPrintBaseUrl, type ZebraDevice } from '@/lib/zebra'
 import { LABEL_PRESETS } from '@/features/zebra/labelPresets'
+import { textToGfa, imageToGfa, loadImage } from '@/features/zebra/raster'
 
 const SCALE = 3 // px per mm na canvasie
 const SIZES: Record<string, { w: number; h: number }> = {
@@ -31,9 +32,23 @@ export function ZebraDesignerPage() {
   const [bpHint, setBpHint] = useState('')
   const [msg, setMsg] = useState('')
   const canvasRef = useRef<HTMLDivElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null)
 
   const size = SIZES[sizeKey] || SIZES['100x150']
+
+  function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const src = String(reader.result || '')
+      const el = { id: uid(), type: 'image' as const, x: 5, y: 5, w: 25, h: 15, src }
+      setElements(prev => [...prev, el]); setSel(el.id)
+    }
+    reader.readAsDataURL(file)
+  }
 
   useEffect(() => {
     zebraDesignsApi.get(recipeId, sizeKey).then(r => {
@@ -95,7 +110,7 @@ export function ZebraDesignerPage() {
   }
 
   async function downloadZpl() {
-    const d: ZebraDesign = { recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements }
+    const d: ZebraDesign = { recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements: await withGraphics(elements) }
     try {
       const r = await zebraDesignsApi.renderSample(d)
       if (!r.zpl) { setMsg('Brak ZPL do pobrania'); return }
@@ -120,6 +135,28 @@ export function ZebraDesignerPage() {
     setElements(e => e.map(el => el.id === id ? { ...el, ...patch } : el))
   }
 
+  // Policz ^GFA dla obrazów i tekstu-grafiki (font systemowy + polskie znaki).
+  // Dla obrazu NIE wysyłamy ciężkiego dataURL na backend — tylko gotowe gf + src do edycji.
+  async function withGraphics(els: ZebraElement[]): Promise<ZebraElement[]> {
+    const out: ZebraElement[] = []
+    for (const el of els) {
+      if (el.type === 'image' && el.src) {
+        const img = await loadImage(el.src)
+        const { gf } = imageToGfa(img, el.w || 25, el.h || 15, dpi)
+        out.push({ ...el, gf })
+      } else if (el.type === 'text' && el.graphic && !(el.value || '').includes('[[')) {
+        const { gf } = textToGfa({
+          text: el.value || '', fontMm: el.fontMm || 3, widthMm: el.w || 50,
+          dpi, family: el.font || 'Arial, sans-serif', align: el.align, bold: el.bold,
+        })
+        out.push({ ...el, gf })
+      } else {
+        out.push({ ...el, gf: undefined })
+      }
+    }
+    return out
+  }
+
   function onPointerDown(e: React.PointerEvent, id: string) {
     e.stopPropagation(); setSel(id)
     const el = elements.find(x => x.id === id); if (!el) return
@@ -137,12 +174,12 @@ export function ZebraDesignerPage() {
   function onPointerUp() { drag.current = null }
 
   async function save() {
-    const d: ZebraDesign = { recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements }
+    const d: ZebraDesign = { recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements: await withGraphics(elements) }
     try { await zebraDesignsApi.save(d); setMsg('Zapisano') } catch (e) { setMsg(e instanceof Error ? e.message : 'Błąd zapisu') }
   }
 
   async function testPrint() {
-    const d: ZebraDesign = { recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements }
+    const d: ZebraDesign = { recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements: await withGraphics(elements) }
     const dev = devices.find(x => x.uid === deviceUid)
     if (!dev) { setMsg('Brak drukarki Zebra (BrowserPrint)'); return }
     try { const r = await zebraDesignsApi.renderSample(d); if (r.zpl) { await sendZpl(dev, r.zpl); setMsg('Wysłano test') } }
@@ -173,6 +210,8 @@ export function ZebraDesignerPage() {
         <button onClick={() => addEl('text')} className="flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-sm"><Type size={14} /> Tekst</button>
         <button onClick={() => addEl('qr')} className="flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-sm"><QrCode size={14} /> QR</button>
         <button onClick={() => addEl('box')} className="flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-sm"><Square size={14} /> Ramka</button>
+        <button onClick={() => fileRef.current?.click()} className="flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-sm" title="Wgraj obraz (HALAL, znak WE, logo)"><ImageIcon size={14} /> Obraz</button>
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickImage} />
         <button onClick={() => { setPasteText(backgroundZpl); setPasteOpen(o => !o) }} className="flex items-center gap-1 rounded bg-amber-200 px-2 py-1 text-sm font-semibold text-amber-900" title="Wklej ZPL z Zebra Designer — podgląd 1:1"><ClipboardPaste size={14} /> Wklej ZPL (tło)</button>
         <button onClick={save} className="flex items-center gap-1 rounded bg-blue-600 px-3 py-1 text-sm font-semibold text-white"><Save size={14} /> Zapisz</button>
         <button onClick={downloadZpl} className="flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-sm" title="Pobierz złożony ZPL do pliku (druk USB przez Zebra Setup Utilities)"><FileDown size={14} /> Pobierz ZPL</button>
@@ -241,7 +280,9 @@ export function ZebraDesignerPage() {
               style={{ left: el.x * SCALE, top: el.y * SCALE }}
             >
               {el.type === 'text' && (
-                <div style={{ width: (el.w || 60) * SCALE, fontSize: (el.fontMm || 4) * SCALE, lineHeight: 1.05,
+                <div style={{ width: (el.w || 60) * SCALE, fontSize: (el.fontMm || 4) * SCALE, lineHeight: 1.2,
+                  fontFamily: el.graphic ? (el.font || 'Arial, sans-serif') : undefined,
+                  fontWeight: el.bold ? 700 : 400, whiteSpace: 'pre-wrap',
                   textAlign: el.align === 'C' ? 'center' : el.align === 'R' ? 'right' : 'left' }}>
                   {el.value || ''}
                 </div>
@@ -253,6 +294,13 @@ export function ZebraDesignerPage() {
               {el.type === 'box' && (
                 <div style={{ width: (el.w || 40) * SCALE, height: (el.h || 15) * SCALE,
                   border: `${Math.max(1, (el.thickMm || 0.4) * SCALE)}px solid #111` }} />
+              )}
+              {el.type === 'image' && (
+                el.src
+                  ? <img src={el.src} alt="" draggable={false}
+                      style={{ width: (el.w || 25) * SCALE, height: (el.h || 15) * SCALE, objectFit: 'contain' }} />
+                  : <div className="flex items-center justify-center bg-slate-200 text-[8px]"
+                      style={{ width: (el.w || 25) * SCALE, height: (el.h || 15) * SCALE }}>obraz</div>
               )}
             </div>
           ))}
@@ -287,6 +335,27 @@ export function ZebraDesignerPage() {
                   <select value="" onChange={e => e.target.value && update(selEl.id, { value: (selEl.value || '') + e.target.value })} className="w-full rounded border px-1">
                     {BIND.map(b => <option key={b} value={b}>{b || '— wybierz —'}</option>)}
                   </select></label>
+                <label className="block">Czcionka
+                  <select value={selEl.graphic ? 'arial' : 'zpl'}
+                    onChange={e => update(selEl.id, e.target.value === 'arial'
+                      ? { graphic: true, font: 'Arial, sans-serif' } : { graphic: false })}
+                    className="w-full rounded border px-1">
+                    <option value="arial">Arial (grafika, polskie znaki)</option>
+                    <option value="zpl">Domyślna ZPL (tylko ASCII)</option>
+                  </select></label>
+                {selEl.graphic && (
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={!!selEl.bold} onChange={e => update(selEl.id, { bold: e.target.checked })} /> Pogrubienie</label>
+                )}
+                {selEl.graphic && (selEl.value || '').includes('[[') && (
+                  <div className="rounded bg-amber-50 p-1 text-[11px] text-amber-800">Tekst‑grafika nie podstawia pól dynamicznych — dla [[…]] użyj „Domyślna ZPL".</div>
+                )}
+              </>)}
+              {selEl.type === 'image' && (<>
+                <div className="grid grid-cols-2 gap-2">
+                  <label>Szer. mm<input type="number" value={selEl.w || 0} onChange={e => update(selEl.id, { w: Number(e.target.value) })} className="w-full rounded border px-1" /></label>
+                  <label>Wys. mm<input type="number" value={selEl.h || 0} onChange={e => update(selEl.id, { h: Number(e.target.value) })} className="w-full rounded border px-1" /></label>
+                </div>
+                <div className="text-[11px] text-slate-500">Obraz drukowany jako grafika monochromatyczna (próg jasności). Najlepiej czytelne logo/kontur (HALAL, znak WE).</div>
               </>)}
               {selEl.type === 'qr' && (<>
                 <label className="block">Powiększenie (1–10)<input type="number" min={1} max={10} value={selEl.mag || 5} onChange={e => update(selEl.id, { mag: Number(e.target.value) })} className="w-full rounded border px-1" /></label>
