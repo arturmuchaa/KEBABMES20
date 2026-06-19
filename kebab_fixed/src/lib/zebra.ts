@@ -59,7 +59,9 @@ export async function probeBrowserPrint(): Promise<{ ok: boolean; reason?: strin
   const base = browserPrintBaseUrl()
   const https = base.startsWith('https')
   try {
-    await fetch(base + 'available', { method: 'GET' })
+    // no-cors: interesuje nas tylko OSIĄGALNOŚĆ usługi (TCP), nie odczyt odpowiedzi —
+    // inaczej brak nagłówków CORS dawał FAŁSZYWY „nie można połączyć".
+    await fetch(base + 'available', { method: 'GET', mode: 'no-cors' })
     return { ok: true }
   } catch {
     return {
