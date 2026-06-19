@@ -8,7 +8,7 @@ import fontkit from '@pdf-lib/fontkit'
 import arialRegularUrl from '@/assets/fonts/LiberationSans-Regular.ttf?url'
 import arialBoldUrl from '@/assets/fonts/LiberationSans-Bold.ttf?url'
 import { useApi } from '@/hooks/useApi'
-import { finishedUnitsApi, labelTemplatesApi, recipesApi } from '@/lib/apiClient'
+import { finishedUnitsApi, labelTemplatesApi, recipesApi, clientsApi } from '@/lib/apiClient'
 import type { FinishedUnitCard, LabelTemplate, LabelSlotOffset } from '@/lib/api'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -56,6 +56,7 @@ function formatWeight(weightKg: number | undefined | null): string {
 function unitFieldValues(
   unit: FinishedUnitCard,
   shelfLifeDays: number,
+  orgCode = '',
 ): Record<string, string> {
   const prodDateIso = (unit as any).producedDate || unit.producedAt?.slice(0, 10) || todayIso()
   const bestBeforeIso = addDays(prodDateIso, shelfLifeDays)
@@ -66,6 +67,8 @@ function unitFieldValues(
     best_before: fmtDate(bestBeforeIso),
     batch_no: unit.batchNo ? `${prefix} ${unit.batchNo}` : prefix,
     weight: formatWeight((unit as any).weightKg),
+    // Kod nadzoru HALAL — stały dla całej partii, wpisywany przy druku (klient pod nadzorem).
+    org_code: orgCode || '',
   }
 }
 
@@ -79,7 +82,7 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
   return arr
 }
 
-const TEXT_KEYS = ['prod_date', 'freeze_date', 'best_before', 'batch_no', 'weight'] as const
+const TEXT_KEYS = ['prod_date', 'freeze_date', 'best_before', 'batch_no', 'weight', 'org_code'] as const
 
 // ─── Slot offset helpers ──────────────────────────────────────────────────────
 
@@ -101,6 +104,7 @@ async function buildVectorPdf(
   perSheet: number,
   shelfLifeDays: number,
   qrMapRef: Record<string, string>,
+  orgCode = '',
 ): Promise<string> {
   const MM = 2.83465 // mm → pt
 
@@ -127,7 +131,7 @@ async function buildVectorPdf(
       const unit = group[slot]
       const offsetX = slotOffsetX(slot, perSheet, slotOffsets)
       const offsetY = slotOffsetY(slot, slotOffsets)
-      const vals = unitFieldValues(unit, shelfLifeDays)
+      const vals = unitFieldValues(unit, shelfLifeDays, orgCode)
 
       // Text fields
       for (const key of TEXT_KEYS) {
@@ -210,12 +214,23 @@ export function LabelPrintPage() {
   const unitsRes    = useApi(() => finishedUnitsApi.listByPlanLine(planLineId), [planLineId])
   const templateRes = useApi(() => labelTemplatesApi.get(clientId, recipeId),  [clientId, recipeId])
   const recipeRes   = useApi(() => recipesApi.byId(recipeId),                  [recipeId])
+  const clientsRes  = useApi(() => clientsApi.list(), [])
+
+  const halal = !!(clientsRes.data ?? []).find((c: any) => c.id === clientId)?.halalSupervision
+  const [orgCode, setOrgCode] = useState('')
+  // Prefill kodu nadzoru z pamięci per klient (poprzedni druk) — edytowalny co partię.
+  useEffect(() => {
+    if (clientId) setOrgCode(localStorage.getItem(`orgcode:${clientId}`) || '')
+  }, [clientId])
+  function changeOrgCode(v: string) {
+    setOrgCode(v)
+    if (clientId) localStorage.setItem(`orgcode:${clientId}`, v)
+  }
 
   const [qrMap, setQrMap] = useState<Record<string, string>>({})
   const [pdfUrl, setPdfUrl] = useState('')
   const printedRef = useRef(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const pdfBuiltRef = useRef(false)
 
   const units    = filterUnitsByIds(unitsRes.data ?? [], unitIdsFilter)
   const tplResp  = templateRes.data
@@ -255,11 +270,10 @@ export function LabelPrintPage() {
 
   // Build vector PDF when template has backgroundPdf and all QR codes are ready
   useEffect(() => {
-    if (!dataReady || !template?.backgroundPdf || pdfBuiltRef.current) return
+    if (!dataReady || !template?.backgroundPdf) return
     if (Object.keys(qrMap).length === 0) return
-    pdfBuiltRef.current = true
     let objectUrl = ''
-    buildVectorPdf(template, units, template.labelsPerSheet || 2, shelfLifeDays, qrMap)
+    buildVectorPdf(template, units, template.labelsPerSheet || 2, shelfLifeDays, qrMap, orgCode)
       .then((url) => {
         objectUrl = url
         setPdfUrl(url)
@@ -271,15 +285,17 @@ export function LabelPrintPage() {
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataReady, template?.backgroundPdf, qrMap])
+  }, [dataReady, template?.backgroundPdf, qrMap, orgCode])
 
   // Auto-print for raster (image background) mode only
   useEffect(() => {
     if (!dataReady || template?.backgroundPdf || printedRef.current) return
+    if (clientsRes.loading) return            // poczekaj aż wiemy czy klient ma nadzór
+    if (halal && !orgCode) return             // nadzór HALAL → najpierw wpisz kod nadzoru
     printedRef.current = true
     const timer = window.setTimeout(() => window.print(), 300)
     return () => window.clearTimeout(timer)
-  }, [dataReady, template?.backgroundPdf])
+  }, [dataReady, template?.backgroundPdf, clientsRes.loading, halal, orgCode])
 
   // ── Loading states ──
   const anyLoading = unitsRes.loading || templateRes.loading || recipeRes.loading
@@ -370,9 +386,16 @@ export function LabelPrintPage() {
           >
             <ArrowLeft size={14} /> Wróć
           </Link>
-          <div className="text-sm text-slate-600">
-            {units.length} etykiet · {pages.length} stron · {perSheet}/A4
-            {pdfUrl && <span className="ml-2 text-green-700 font-semibold">✓ PDF wektorowy</span>}
+          <div className="flex items-center gap-3 text-sm text-slate-600">
+            <span>{units.length} etykiet · {pages.length} stron · {perSheet}/A4</span>
+            {halal && (
+              <label className="flex items-center gap-1.5 font-semibold text-slate-700">
+                Kod nadzoru:
+                <input value={orgCode} onChange={e => changeOrgCode(e.target.value)} placeholder="np. 7J8EX"
+                  className="w-24 rounded border border-slate-300 px-2 py-0.5 font-mono uppercase" />
+              </label>
+            )}
+            {pdfUrl && <span className="text-green-700 font-semibold">✓ PDF wektorowy</span>}
           </div>
           <div className="flex items-center gap-2">
             {pdfUrl && (
@@ -459,8 +482,15 @@ export function LabelPrintPage() {
         >
           <ArrowLeft size={14} /> Wróć
         </Link>
-        <div className="text-sm text-slate-600">
-          {units.length} etykiet · {pages.length} stron · {perSheet}/A4
+        <div className="flex items-center gap-3 text-sm text-slate-600">
+          <span>{units.length} etykiet · {pages.length} stron · {perSheet}/A4</span>
+          {halal && (
+            <label className="flex items-center gap-1.5 font-semibold text-slate-700">
+              Kod nadzoru:
+              <input value={orgCode} onChange={e => changeOrgCode(e.target.value)} placeholder="np. 7J8EX"
+                className="w-24 rounded border border-slate-300 px-2 py-0.5 font-mono uppercase" />
+            </label>
+          )}
         </div>
         <button
           onClick={() => window.print()}
@@ -481,7 +511,7 @@ export function LabelPrintPage() {
           {pageUnits.map((unit, slot) => {
             const offsetX = slotOffsetX(slot, perSheet, template.slotOffsets)
             const offsetY = slotOffsetY(slot, template.slotOffsets)
-            const values = unitFieldValues(unit, shelfLifeDays)
+            const values = unitFieldValues(unit, shelfLifeDays, orgCode)
             const qrDataUrl = qrMap[unit.id] ?? ''
 
             return (
@@ -503,9 +533,10 @@ export function LabelPrintPage() {
                 )}
 
                 {/* Text fields: prod_date, freeze_date, best_before, batch_no, weight */}
-                {(['prod_date', 'freeze_date', 'best_before', 'batch_no', 'weight'] as const).map((key) => {
+                {(['prod_date', 'freeze_date', 'best_before', 'batch_no', 'weight', 'org_code'] as const).map((key) => {
                   const pos = fp[key]
                   if (!pos) return null
+                  if (key === 'org_code' && !values[key]) return null
                   const effectiveLeft = pos.x + offsetX
                   const effectiveTop = pos.y + offsetY
                   const sharedStyle = {

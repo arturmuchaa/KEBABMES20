@@ -34,7 +34,7 @@ function langFromNip(nip?: string): string {
 }
 
 function emptyForm(): CreateClientDto {
-  return { name: '', displayName: '', nip: '', regon: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '', language: '', destName: '', destAddress: '', destCity: '' }
+  return { name: '', displayName: '', nip: '', regon: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '', language: '', destName: '', destAddress: '', destCity: '', halalSupervision: false }
 }
 
 interface AddressParts { address: string; postalCode: string; city: string }
@@ -109,7 +109,7 @@ function ClientForm({ initial, onSave, onClose }: {
 }) {
   const [form, setForm] = useState<CreateClientDto>(
     initial
-      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email, language: initial.language, destName: initial.destName, destAddress: initial.destAddress, destCity: initial.destCity }
+      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email, language: initial.language, destName: initial.destName, destAddress: initial.destAddress, destCity: initial.destCity, halalSupervision: initial.halalSupervision }
       : emptyForm()
   )
   const [saving,   setSaving]   = useState(false)
@@ -257,6 +257,12 @@ function ClientForm({ initial, onSave, onClose }: {
               <div className="space-y-1.5"><Label>Miasto</Label><Input value={form.destCity ?? ''} onChange={e => set('destCity', e.target.value)} /></div>
             </div>
           </div>
+          <label className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm">
+            <input type="checkbox" checked={!!form.halalSupervision}
+              onChange={e => setForm(p => ({ ...p, halalSupervision: e.target.checked }))} />
+            <span className="font-semibold">Nadzór HALAL</span>
+            <span className="text-xs text-slate-500">— etykieta dostaje pole „kod nadzoru" (wpisywany przy druku, inny co zamówienie)</span>
+          </label>
           {!initial && (
             <Button variant="ghost" size="sm" onClick={() => setMode(isAbroad ? 'vies' : 'gus')} className="text-xs text-primary">
               ← Wróć do wyszukiwania {isAbroad ? 'VIES' : 'GUS'}

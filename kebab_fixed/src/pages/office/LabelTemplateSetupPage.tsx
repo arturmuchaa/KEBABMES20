@@ -34,6 +34,7 @@ const FIELDS: { key: string; label: string; defaultSize: number }[] = [
   { key: 'best_before', label: 'Należy spożyć do',  defaultSize: 8  },
   { key: 'batch_no',    label: 'Nr partii',          defaultSize: 8  },
   { key: 'weight',      label: 'Waga',               defaultSize: 10 },
+  { key: 'org_code',    label: 'Kod nadzoru HALAL',  defaultSize: 8  },
 ]
 
 const FIELD_COLORS: Record<string, string> = {
@@ -43,6 +44,7 @@ const FIELD_COLORS: Record<string, string> = {
   best_before: '#d97706',
   batch_no:    '#7c3aed',
   weight:      '#db2777',
+  org_code:    '#0d9488',
 }
 
 // Przykładowe wartości do podglądu WYSIWYG
@@ -52,6 +54,7 @@ const SAMPLE_VALUES: Record<string, string> = {
   best_before: '03.06.2027',
   batch_no:    '030625 346',
   weight:      '50 kg',
+  org_code:    '7J8EX',
 }
 
 // Dostępne rodziny czcionek
