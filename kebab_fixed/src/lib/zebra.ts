@@ -43,3 +43,30 @@ export async function getDevices(): Promise<{ default: ZebraDevice | null; list:
 export function sendZpl(device: ZebraDevice, zpl: string): Promise<void> {
   return new Promise((resolve, reject) => device.send(zpl, () => resolve(), (e: any) => reject(e)))
 }
+
+/** Adres usługi BrowserPrint zależny od protokołu strony (mixed-content wymusza ten wybór). */
+export function browserPrintBaseUrl(): string {
+  return (typeof location !== 'undefined' && location.protocol === 'https:')
+    ? 'https://localhost:9101/' : 'http://localhost:9100/'
+}
+
+/**
+ * Sonda: czy przeglądarka może połączyć się z lokalną usługą Zebra BrowserPrint.
+ * Rozróżnia najczęstsze przyczyny „MES nie widzi drukarki mimo działającego BrowserPrint":
+ * usługa nieuruchomiona vs zablokowany certyfikat HTTPS (localhost:9101).
+ */
+export async function probeBrowserPrint(): Promise<{ ok: boolean; reason?: string }> {
+  const base = browserPrintBaseUrl()
+  const https = base.startsWith('https')
+  try {
+    await fetch(base + 'available', { method: 'GET' })
+    return { ok: true }
+  } catch {
+    return {
+      ok: false,
+      reason: https
+        ? 'MES działa po HTTPS i nie może połączyć się z usługą BrowserPrint (https://localhost:9101) — najpewniej niezaufany certyfikat. Otwórz w tej przeglądarce https://localhost:9101, kliknij „Zaawansowane → Przejdź do localhost", potem odśwież MES. Alternatywnie otwórz MES przez http://…:8080.'
+        : 'Nie można połączyć z usługą Zebra BrowserPrint (http://localhost:9100). Sprawdź, czy program Zebra BrowserPrint jest uruchomiony na tym komputerze.',
+    }
+  }
+}

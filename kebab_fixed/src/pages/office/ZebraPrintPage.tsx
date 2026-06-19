@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { Printer, ArrowLeft, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { labelsZebraApi, zebraDesignsApi, type ZebraRenderResult } from '@/lib/api'
-import { getDevices, sendZpl, type ZebraDevice } from '@/lib/zebra'
+import { getDevices, sendZpl, probeBrowserPrint, type ZebraDevice } from '@/lib/zebra'
 
 const TEST_ZPL = '^XA^FO50,50^A0N,40,40^FDTest Zebra^FS^XZ'
 const SIZE_KEYS = ['100x150', '100x300']
@@ -20,6 +20,7 @@ export function ZebraPrintPage() {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [sizeKey, setSizeKey] = useState('100x150')
+  const [bpHint, setBpHint] = useState('')   // diagnostyka połączenia z BrowserPrint
 
   useEffect(() => {
     // Najpierw projekt z edytora (wektorowy ZPL); brak → fallback na import .prn.
@@ -34,7 +35,16 @@ export function ZebraPrintPage() {
 
   useEffect(() => {
     getDevices()
-      .then(({ default: def, list }) => { setDevices(list); setDeviceUid(def?.uid || list[0]?.uid || '') })
+      .then(async ({ default: def, list }) => {
+        setDevices(list); setDeviceUid(def?.uid || list[0]?.uid || '')
+        // BrowserPrint załadował się, ale nie zwrócił żadnej drukarki → zdiagnozuj połączenie.
+        if (list.length === 0) {
+          const probe = await probeBrowserPrint()
+          setBpHint(probe.ok
+            ? 'Połączono z BrowserPrint, ale brak drukarki. Ustaw drukarkę w aplikacji Zebra BrowserPrint (jako domyślną).'
+            : (probe.reason || ''))
+        } else { setBpHint('') }
+      })
       .catch((e) => setSdkError(e instanceof Error ? e.message : 'BrowserPrint niedostępny'))
   }, [])
 
@@ -92,6 +102,11 @@ export function ZebraPrintPage() {
               {devices.length === 0 && <option value="">— brak drukarek —</option>}
               {devices.map(d => <option key={d.uid} value={d.uid}>{d.name}</option>)}
             </select>
+            {devices.length === 0 && bpHint && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" /> {bpHint}
+              </div>
+            )}
 
             <div className="flex gap-2">
               <button disabled={busy || !render?.ok} onClick={() => render?.zpl && print(render.zpl, `Druk ${render.count} szt`)}
