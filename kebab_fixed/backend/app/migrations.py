@@ -582,6 +582,20 @@ _DDL: list[str] = [
         packed_qty        INTEGER NOT NULL DEFAULT 0
     )""",
     "CREATE INDEX IF NOT EXISTS idx_stock_carton_lines_carton ON stock_carton_lines(carton_id)",
+
+    # ── Wizualny projektant etykiet Zebra (Z-Design-1) ──
+    """CREATE TABLE IF NOT EXISTS zebra_label_designs (
+        id          TEXT PRIMARY KEY,
+        recipe_id   TEXT NOT NULL DEFAULT '',
+        size_key    TEXT NOT NULL DEFAULT '',
+        width_mm    NUMERIC NOT NULL DEFAULT 100,
+        height_mm   NUMERIC NOT NULL DEFAULT 150,
+        dpi         INTEGER NOT NULL DEFAULT 203,
+        elements    JSONB NOT NULL DEFAULT '[]',
+        updated_at  TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_zebra_designs_recipe_size ON zebra_label_designs(recipe_id, size_key)",
+    "CREATE INDEX IF NOT EXISTS idx_zebra_designs_recipe ON zebra_label_designs(recipe_id)",
 ]
 
 
