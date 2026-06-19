@@ -19,9 +19,9 @@ export async function loadBrowserPrint(): Promise<any> {
   if (!loadPromise) {
     loadPromise = (async () => {
       // Rdzeń klienta (definiuje window.BrowserPrint: getLocalDevices/getDefaultDevice/Device.send).
+      // Celuje zawsze w http://localhost:9100 (tam działa usługa). Drugiego pliku Zebra
+      // NIE ładujemy — nie mamy go, a fallback SPA zwracał HTML → SyntaxError w konsoli.
       await loadScript('/browserprint/BrowserPrint-3.1.250.min.js')
-      // Helper Zebra (status/konfiguracja) — opcjonalny; brak pliku nie blokuje druku ZPL.
-      await loadScript('/browserprint/BrowserPrint-Zebra-1.0.5.min.js').catch(() => {})
       if (!window.BrowserPrint) throw new Error('BrowserPrint niedostępny')
       return window.BrowserPrint
     })().catch(e => { loadPromise = null; throw e })
@@ -44,10 +44,10 @@ export function sendZpl(device: ZebraDevice, zpl: string): Promise<void> {
   return new Promise((resolve, reject) => device.send(zpl, () => resolve(), (e: any) => reject(e)))
 }
 
-/** Adres usługi BrowserPrint zależny od protokołu strony (mixed-content wymusza ten wybór). */
+/** Usługa Zebra BrowserPrint słucha na http://localhost:9100 (loopback http).
+ * Z bezpiecznej strony (https/localhost) Chrome pozwala sięgnąć po http://localhost. */
 export function browserPrintBaseUrl(): string {
-  return (typeof location !== 'undefined' && location.protocol === 'https:')
-    ? 'https://localhost:9101/' : 'http://localhost:9100/'
+  return 'http://localhost:9100/'
 }
 
 /**
@@ -57,18 +57,25 @@ export function browserPrintBaseUrl(): string {
  */
 export async function probeBrowserPrint(): Promise<{ ok: boolean; reason?: string }> {
   const base = browserPrintBaseUrl()
-  const https = base.startsWith('https')
+  // Chrome blokuje dostęp do localhost ze stron, które NIE są bezpiecznym kontekstem
+  // (http po adresie IP). Bezpieczny kontekst = https albo localhost.
+  const secure = typeof window !== 'undefined' && (window.isSecureContext === true)
+  if (!secure) {
+    return {
+      ok: false,
+      reason: 'MES otwarty jako „niezabezpieczony" (http po adresie IP) — Chrome blokuje dostęp do drukarki na localhost. '
+        + 'Otwórz MES przez HTTPS: https://<adres>:8443 (zaakceptuj certyfikat). Wtedy druk Zebra zadziała.',
+    }
+  }
   try {
-    // no-cors: interesuje nas tylko OSIĄGALNOŚĆ usługi (TCP), nie odczyt odpowiedzi —
-    // inaczej brak nagłówków CORS dawał FAŁSZYWY „nie można połączyć".
+    // no-cors: interesuje nas OSIĄGALNOŚĆ usługi, nie odczyt odpowiedzi.
     await fetch(base + 'available', { method: 'GET', mode: 'no-cors' })
     return { ok: true }
   } catch {
     return {
       ok: false,
-      reason: https
-        ? 'MES działa po HTTPS i nie może połączyć się z usługą BrowserPrint (https://localhost:9101) — najpewniej niezaufany certyfikat. Otwórz w tej przeglądarce https://localhost:9101, kliknij „Zaawansowane → Przejdź do localhost", potem odśwież MES. Alternatywnie otwórz MES przez http://…:8080.'
-        : 'Nie można połączyć z usługą Zebra BrowserPrint (http://localhost:9100). Sprawdź, czy program Zebra BrowserPrint jest uruchomiony na tym komputerze.',
+      reason: 'Nie można połączyć z usługą Zebra BrowserPrint (http://localhost:9100). '
+        + 'Sprawdź, czy program Zebra BrowserPrint jest uruchomiony na tym komputerze.',
     }
   }
 }
