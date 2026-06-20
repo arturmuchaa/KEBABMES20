@@ -254,7 +254,11 @@ export function LabelPrintPage() {
   const recipeRes   = useApi(() => recipesApi.byId(recipeId),                  [recipeId])
   const clientsRes  = useApi(() => clientsApi.list(), [])
 
-  const halal = !!(clientsRes.data ?? []).find((c: any) => c.id === clientId)?.halalSupervision
+  // Plan przekazuje clientId jako NAZWĘ (czasem wyświetlaną), nie id — dopasuj po
+  // id ORAZ name/displayName, inaczej pole „Kod nadzoru" nigdy się nie pokaże.
+  const halal = !!(clientsRes.data ?? []).find(
+    (c: any) => c.id === clientId || c.name === clientId || c.displayName === clientId,
+  )?.halalSupervision
   const [orgCode, setOrgCode] = useState('')
   // Prefill kodu nadzoru z pamięci per klient (poprzedni druk) — edytowalny co partię.
   useEffect(() => {
