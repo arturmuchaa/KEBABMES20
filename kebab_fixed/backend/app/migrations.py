@@ -487,6 +487,9 @@ _DDL: list[str] = [
     "ALTER TABLE label_templates ADD COLUMN IF NOT EXISTS slot_offsets JSONB DEFAULT '[]'",
     # ── Kalibracja druku: kompensacja ucinanego paska (przesunięcie X/Y w mm + skala %) ──
     "ALTER TABLE label_templates ADD COLUMN IF NOT EXISTS print_calib JSONB NOT NULL DEFAULT '{}'",
+    # ── Pozycje pól per slot (etykieta 2+): ręczne ustawienie KAŻDEGO pola osobno na
+    #    nierównej etykiecie (gdy globalny offset nie wystarcza). {slot: {fieldKey: {x,y,...}}} ──
+    "ALTER TABLE label_templates ADD COLUMN IF NOT EXISTS slot_field_positions JSONB NOT NULL DEFAULT '{}'",
 
     # ── Rodzaje surowca — przyjęcie nie tylko ćwiartki (filet, indyk; ──
     # ── w przyszłości kategoria 'czerwone': wołowina 80/20, łój itd.) ──

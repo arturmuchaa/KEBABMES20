@@ -9,7 +9,7 @@ import arialRegularUrl from '@/assets/fonts/LiberationSans-Regular.ttf?url'
 import arialBoldUrl from '@/assets/fonts/LiberationSans-Bold.ttf?url'
 import { useApi } from '@/hooks/useApi'
 import { finishedUnitsApi, labelTemplatesApi, recipesApi, clientsApi } from '@/lib/apiClient'
-import type { FinishedUnitCard, LabelTemplate, LabelSlotOffset } from '@/lib/api'
+import type { FinishedUnitCard, LabelTemplate, LabelSlotOffset, LabelFieldPos } from '@/lib/api'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -98,6 +98,25 @@ function slotOffsetY(slot: number, offsets: LabelSlotOffset[] | undefined): numb
   return 0
 }
 
+/**
+ * Resolves the effective position of a field on a given slot.
+ * Jeśli istnieje ręczne nadpisanie (slotFieldPositions[slot][key]) → pozycja BEZWZGLĘDNA
+ * (bez globalnego slotOffset) — do nierównych etykiet. Inaczej: pozycja bazowa + slotOffset.
+ */
+function resolveFieldPos(
+  base: LabelFieldPos | undefined,
+  slotFieldPositions: Record<string, Record<string, LabelFieldPos>> | undefined,
+  slot: number,
+  key: string,
+  offsetX: number,
+  offsetY: number,
+): LabelFieldPos | null {
+  const override = slotFieldPositions?.[String(slot)]?.[key]
+  if (override) return override
+  if (!base) return null
+  return { ...base, x: base.x + offsetX, y: base.y + offsetY }
+}
+
 async function buildVectorPdf(
   template: LabelTemplate,
   units: FinishedUnitCard[],
@@ -119,6 +138,7 @@ async function buildVectorPdf(
   const fontBold = await out.embedFont(boldBytes, { subset: true })
   const fp = template.fieldPositions
   const slotOffsets = template.slotOffsets
+  const slotFP = template.slotFieldPositions
 
   // ── Kalibracja druku — kompensacja ucinanego paska (przesunięcie X/Y w mm + skala %).
   // Stosujemy jako jedno przekształcenie afiniczne na CAŁEJ stronie (tło + nadrukowane pola
@@ -153,13 +173,11 @@ async function buildVectorPdf(
 
       // Text fields
       for (const key of TEXT_KEYS) {
-        const pos = fp[key]
+        const pos = resolveFieldPos(fp[key], slotFP, slot, key, offsetX, offsetY)
         if (!pos || !vals[key]) continue
-        const effectiveX = pos.x + offsetX
-        const effectiveY = pos.y + offsetY
-        const xPt = tx((effectiveX / 100) * pageW)
+        const xPt = tx((pos.x / 100) * pageW)
         const sizePt = ts(pos.size)
-        const yTopFrac = (effectiveY / 100) * pageH
+        const yTopFrac = (pos.y / 100) * pageH
         const yPt = ty(pageH - yTopFrac - pos.size)
 
         if (key === 'weight') {
@@ -198,13 +216,13 @@ async function buildVectorPdf(
       }
 
       // QR code
-      const qrPos = fp['qr']
+      const qrPos = resolveFieldPos(fp['qr'], slotFP, slot, 'qr', offsetX, offsetY)
       const qrUrl = qrMapRef[unit.id]
       if (qrPos && qrUrl) {
         const img = await out.embedPng(dataUrlToBytes(qrUrl))
         const qrSizePt = qrPos.size * MM
-        const xPt = tx(((qrPos.x + offsetX) / 100) * pageW)
-        const yTopFrac = ((qrPos.y + offsetY) / 100) * pageH
+        const xPt = tx((qrPos.x / 100) * pageW)
+        const yTopFrac = (qrPos.y / 100) * pageH
         const yPt = ty(pageH - yTopFrac - qrSizePt)
         page.drawImage(img, {
           x: xPt,
@@ -545,19 +563,20 @@ export function LabelPrintPage() {
             const values = unitFieldValues(unit, shelfLifeDays, orgCode)
             const qrDataUrl = qrMap[unit.id] ?? ''
 
+            const qrPos = resolveFieldPos(fp.qr, template.slotFieldPositions, slot, 'qr', offsetX, offsetY)
             return (
               <div key={unit.id}>
                 {/* QR code */}
-                {fp.qr && qrDataUrl && (
+                {qrPos && qrDataUrl && (
                   <img
                     className="label-field"
                     src={qrDataUrl}
                     alt={`QR ${unit.qrCode}`}
                     style={{
-                      left: `${fp.qr.x + offsetX}%`,
-                      top: `${fp.qr.y + offsetY}%`,
-                      width: `${fp.qr.size}mm`,
-                      height: `${fp.qr.size}mm`,
+                      left: `${qrPos.x}%`,
+                      top: `${qrPos.y}%`,
+                      width: `${qrPos.size}mm`,
+                      height: `${qrPos.size}mm`,
                       imageRendering: 'pixelated',
                     }}
                   />
@@ -565,14 +584,12 @@ export function LabelPrintPage() {
 
                 {/* Text fields: prod_date, freeze_date, best_before, batch_no, weight */}
                 {(['prod_date', 'freeze_date', 'best_before', 'batch_no', 'weight', 'org_code'] as const).map((key) => {
-                  const pos = fp[key]
+                  const pos = resolveFieldPos(fp[key], template.slotFieldPositions, slot, key, offsetX, offsetY)
                   if (!pos) return null
                   if (key === 'org_code' && !values[key]) return null
-                  const effectiveLeft = pos.x + offsetX
-                  const effectiveTop = pos.y + offsetY
                   const sharedStyle = {
-                    left: `${effectiveLeft}%`,
-                    top: `${effectiveTop}%`,
+                    left: `${pos.x}%`,
+                    top: `${pos.y}%`,
                     fontSize: `${pos.size}pt`,
                     fontFamily: pos.fontFamily || 'Arial',
                   }

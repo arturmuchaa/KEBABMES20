@@ -16,3 +16,4 @@ class LabelTemplateUpsert(BaseModel):
     zpl: str = ""
     slot_offsets: list = []            # [{dx: float, dy: float}, ...] per slot; slot 0 = {0,0}
     print_calib: Dict[str, Any] = {}   # {dxMm, dyMm, scale} — kompensacja ucinanego paska przy druku
+    slot_field_positions: Dict[str, Any] = {}  # {slot: {fieldKey: {x,y,size,...}}} — ręczne pozycje pól na etykiecie 2+

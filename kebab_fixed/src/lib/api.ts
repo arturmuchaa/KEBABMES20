@@ -1156,6 +1156,9 @@ export interface LabelTemplate {
   pageSize: string; labelsPerSheet: number; zpl: string
   slotOffsets?: LabelSlotOffset[]
   printCalib?: LabelPrintCalib
+  /** Ręczne pozycje pól per slot (etykieta 2+): { "1": { qr: {x,y,size}, batch_no: {...} } }.
+   *  Pole z nadpisaniem ignoruje globalny slotOffset — pozycja jest bezwzględna na arkuszu. */
+  slotFieldPositions?: Record<string, Record<string, LabelFieldPos>>
 }
 export const labelTemplatesApi = {
   get: (clientId: string, recipeId: string) =>
@@ -1165,7 +1168,7 @@ export const labelTemplatesApi = {
     get<{ exists: boolean }>(`/label-templates/exists?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
   resolve: (clientId: string, recipeId: string) =>
     get<{ kind: 'zebra' | 'pdf' | 'none' }>(`/label-templates/resolve?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
-  save: (tpl: { clientId?: string; recipeId?: string; kind?: string; backgroundData?: string; backgroundPdf?: string; fieldPositions?: Record<string, LabelFieldPos>; pageSize?: string; labelsPerSheet?: number; zpl?: string; slotOffsets?: LabelSlotOffset[]; printCalib?: LabelPrintCalib }) =>
+  save: (tpl: { clientId?: string; recipeId?: string; kind?: string; backgroundData?: string; backgroundPdf?: string; fieldPositions?: Record<string, LabelFieldPos>; pageSize?: string; labelsPerSheet?: number; zpl?: string; slotOffsets?: LabelSlotOffset[]; printCalib?: LabelPrintCalib; slotFieldPositions?: Record<string, Record<string, LabelFieldPos>> }) =>
     put<LabelTemplate>('/label-templates', {
       client_id: tpl.clientId ?? '', recipe_id: tpl.recipeId ?? '', kind: tpl.kind ?? 'overlay',
       background_data: tpl.backgroundData ?? '', background_pdf: tpl.backgroundPdf ?? '',
@@ -1173,6 +1176,7 @@ export const labelTemplatesApi = {
       page_size: tpl.pageSize ?? 'a4', labels_per_sheet: tpl.labelsPerSheet ?? 2, zpl: tpl.zpl ?? '',
       slot_offsets: tpl.slotOffsets ?? [],
       print_calib: tpl.printCalib ?? {},
+      slot_field_positions: tpl.slotFieldPositions ?? {},
     }),
   list: () =>
     get<Array<{ id: string; clientId: string; recipeId: string; kind: string; pageSize: string; labelsPerSheet: number; hasBackground: boolean; updatedAt: string }>>('/label-templates/all'),
