@@ -147,11 +147,22 @@ async function buildVectorPdf(
   const scale = (calib.scale ?? 100) / 100
   const dxPt = (calib.dxMm ?? 0) * MM
   const dyPt = (calib.dyMm ?? 0) * MM
+  // „Dopasuj tło do A4" — rozciąga tło na cały arkusz A4 (jak podgląd w projektancie
+  // i jak gałąź rastrowa), usuwając puste marginesy gdy źródłowy PDF nie jest A4.
+  const fit = !!calib.fit
+  const A4W = 595.276   // 210 mm w pt
+  const A4H = 841.89    // 297 mm w pt
 
   const srcPage = srcDoc.getPage(0)
-  const pageW = srcPage.getWidth()
-  const pageH = srcPage.getHeight()
+  const srcW = srcPage.getWidth()
+  const srcH = srcPage.getHeight()
   const embedded = await out.embedPage(srcPage)
+  // Wymiar strony wyjściowej + układ współrzędnych pól: A4 gdy „fit", inaczej rozmiar źródła.
+  const pageW = fit ? A4W : srcW
+  const pageH = fit ? A4H : srcH
+  // Skala tła: przy „fit" rozciągamy do A4 (osobno X/Y = object-fit: fill), potem skala kalibracji.
+  const bgScaleX = (fit ? pageW / srcW : 1) * scale
+  const bgScaleY = (fit ? pageH / srcH : 1) * scale
   // Tło rysowane od lewego-dolnego rogu; przy scale<1 górna krawędź zostaje u góry,
   // a dyPt dosuwa zawartość w dół. Pola używają tego samego mapowania (tx/ty/ts).
   const baseX = dxPt
@@ -163,7 +174,7 @@ async function buildVectorPdf(
   for (let i = 0; i < units.length; i += perSheet) {
     const group = units.slice(i, i + perSheet)
     const page = out.addPage([pageW, pageH])
-    page.drawPage(embedded, { x: baseX, y: baseY, xScale: scale, yScale: scale })
+    page.drawPage(embedded, { x: baseX, y: baseY, xScale: bgScaleX, yScale: bgScaleY })
 
     for (let slot = 0; slot < group.length; slot++) {
       const unit = group[slot]

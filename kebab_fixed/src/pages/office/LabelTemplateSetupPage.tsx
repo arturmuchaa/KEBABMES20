@@ -440,7 +440,7 @@ export function LabelTemplateSetupPage() {
           setSlotOffsets(defaultSlotOffsets(perSheet))
         }
         const c = tpl.printCalib ?? {}
-        setPrintCalib({ dxMm: c.dxMm ?? 0, dyMm: c.dyMm ?? 0, scale: c.scale ?? 100 })
+        setPrintCalib({ dxMm: c.dxMm ?? 0, dyMm: c.dyMm ?? 0, scale: c.scale ?? 100, fit: !!c.fit })
         setSlotFieldPositions(tpl.slotFieldPositions ?? {})
         setEditingSlot(0)
       } else {
@@ -1225,10 +1225,24 @@ export function LabelTemplateSetupPage() {
                 {(printCalib.dxMm || printCalib.dyMm || (printCalib.scale ?? 100) !== 100) ? (
                   <button
                     className="text-[10px] text-blue-600 hover:underline"
-                    onClick={() => setPrintCalib({ dxMm: 0, dyMm: 0, scale: 100 })}
+                    onClick={() => setPrintCalib(p => ({ dxMm: 0, dyMm: 0, scale: 100, fit: p.fit }))}
                   >resetuj</button>
                 ) : null}
               </div>
+              {/* Dopasowanie tła do A4 — usuwa puste marginesy gdy źródłowy PDF nie jest pełnym A4 */}
+              <label className="flex items-start gap-2 mt-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={!!printCalib.fit}
+                  onChange={e => setPrintCalib(p => ({ ...p, fit: e.target.checked }))}
+                />
+                <span className="text-[12px] text-slate-700">
+                  <b>Dopasuj tło do A4 (rozciągnij, bez marginesów)</b> — gdy etykieta zostawia
+                  puste miejsce z boków/na dole, włącz to: tło rozciągnie się na cały arkusz A4
+                  (jak na podglądzie). Dotyczy tła PDF.
+                </span>
+              </label>
             </CardContent>
           </Card>
 
