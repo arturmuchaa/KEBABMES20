@@ -193,6 +193,7 @@ async function buildVectorPdf(
   // (2) gdy treść ma białe marginesy WtopioNE w grafikę, przybliża do samej treści
   // (crop), skalując tło I pola razem, więc nic się nie rozjeżdża.
   const fit = !!calib.fit
+  const fitStretch = !!calib.fitStretch
   const A4W = 595.276   // 210 mm w pt
   const A4H = 841.89    // 297 mm w pt
 
@@ -216,33 +217,43 @@ async function buildVectorPdf(
     }
   }
 
-  // Wspólne przekształcenie afiniczne f(px,py)=(Tx+S·px, Ty+S·py) dla tła i pól
-  // (px,py = punkt w pt w układzie strony, origin lewy-dolny).
-  let S: number, Tx: number, Ty: number
+  // Przekształcenie afiniczne (osobno X/Y): f(px,py)=(Tx+px·Sx, Ty+py·Sy) dla tła i pól.
+  // Sx≠Sy tylko w trybie „rozciągnij na całą wysokość" (usuwa pasek u dołu).
+  let Sx: number, Sy: number, Tx: number, Ty: number
   if (crop) {
-    // box treści w pt (origin lewy-dolny); y obrazu liczony od góry → odwracamy
     const bx0 = crop.x0 * pageW, bx1 = crop.x1 * pageW
     const yblLow = pageH * (1 - crop.y1), yblHigh = pageH * (1 - crop.y0)
-    const cx = (bx0 + bx1) / 2, cy = (yblLow + yblHigh) / 2
-    // skala „contain" — powiększ box treści aż wypełni krótszą oś (nie obcina treści)
-    const cropScale = Math.min(pageW / (bx1 - bx0), pageH / (yblHigh - yblLow))
-    S = cropScale * scale
-    Tx = (pageW / 2 + dxPt) - S * cx
-    Ty = (pageH / 2 - dyPt) - S * cy
+    const fillX = pageW / (bx1 - bx0)
+    const fillY = pageH / (yblHigh - yblLow)
+    if (fitStretch) {
+      // Wypełnij CAŁY arkusz: box treści → pełne A4 (lekkie rozciągnięcie pionowe/poziome).
+      Sx = fillX * scale
+      Sy = fillY * scale
+      Tx = -Sx * bx0 + dxPt
+      Ty = -Sy * yblLow - dyPt
+    } else {
+      // „contain" — powiększ proporcjonalnie aż treść wypełni krótszą oś (bez obcinania, bez deformacji).
+      const s = Math.min(fillX, fillY) * scale
+      const cx = (bx0 + bx1) / 2, cy = (yblLow + yblHigh) / 2
+      Sx = Sy = s
+      Tx = (pageW / 2 + dxPt) - s * cx
+      Ty = (pageH / 2 - dyPt) - s * cy
+    }
   } else {
     // bez cropu: górna krawędź u góry, dyPt dosuwa w dół (jak dotąd)
-    S = scale
+    Sx = Sy = scale
     Tx = dxPt
     Ty = pageH * (1 - scale) - dyPt
   }
-  const tx = (px: number) => Tx + px * S
-  const ty = (py: number) => Ty + py * S
-  const ts = (s: number) => s * S
+  const tx = (px: number) => Tx + px * Sx
+  const ty = (py: number) => Ty + py * Sy
+  const ts = (s: number) => s * Sy                  // rozmiar tekstu skaluje się z wysokością
+  const tsSquare = (s: number) => s * Math.min(Sx, Sy)  // QR zawsze kwadratowy (czytelność skanu)
 
   for (let i = 0; i < units.length; i += perSheet) {
     const group = units.slice(i, i + perSheet)
     const page = out.addPage([pageW, pageH])
-    page.drawPage(embedded, { x: Tx, y: Ty, xScale: S * srcToPageX, yScale: S * srcToPageY })
+    page.drawPage(embedded, { x: Tx, y: Ty, xScale: Sx * srcToPageX, yScale: Sy * srcToPageY })
 
     for (let slot = 0; slot < group.length; slot++) {
       const unit = group[slot]
@@ -299,15 +310,14 @@ async function buildVectorPdf(
       const qrUrl = qrMapRef[unit.id]
       if (qrPos && qrUrl) {
         const img = await out.embedPng(dataUrlToBytes(qrUrl))
-        const qrSizePt = qrPos.size * MM
+        const qpt = tsSquare(qrPos.size * MM)   // QR kwadratowy nawet przy rozciąganiu
         const xPt = tx((qrPos.x / 100) * pageW)
-        const yTopFrac = (qrPos.y / 100) * pageH
-        const yPt = ty(pageH - yTopFrac - qrSizePt)
+        const yTopEdge = ty(pageH - (qrPos.y / 100) * pageH)  // górna krawędź QR (układ lewy-dolny)
         page.drawImage(img, {
           x: xPt,
-          y: yPt,
-          width: ts(qrSizePt),
-          height: ts(qrSizePt),
+          y: yTopEdge - qpt,
+          width: qpt,
+          height: qpt,
         })
       }
     }

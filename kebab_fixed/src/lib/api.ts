@@ -1149,8 +1149,9 @@ export const finishedUnitsApi = {
 export interface LabelFieldPos { x: number; y: number; size: number; fontFamily?: string; bold?: boolean }
 export interface LabelSlotOffset { dx: number; dy: number }
 /** Kalibracja druku: kompensacja ucinanego paska — przesunięcie X/Y w mm + skala (%).
- *  fit = rozciągnij tło PDF na cały arkusz A4 (usuń puste marginesy). */
-export interface LabelPrintCalib { dxMm?: number; dyMm?: number; scale?: number; fit?: boolean }
+ *  fit = dopasuj/przytnij tło do treści A4; fitStretch = rozciągnij treść na CAŁĄ wysokość
+ *  (usuwa biały pasek u dołu, dopuszcza lekkie pionowe rozciągnięcie). */
+export interface LabelPrintCalib { dxMm?: number; dyMm?: number; scale?: number; fit?: boolean; fitStretch?: boolean }
 export interface LabelTemplate {
   id: string; clientId: string; recipeId: string; kind: string
   backgroundData: string; backgroundPdf?: string; fieldPositions: Record<string, LabelFieldPos>
