@@ -1185,8 +1185,9 @@ export function LabelTemplateSetupPage() {
               </div>
               <div className="text-[11px] text-muted-foreground bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mb-3">
                 Jeśli drukarka ucina pasek z brzegu — przesuń całą etykietę (tło + pola razem)
-                do środka. <b>X+</b> = w prawo, <b>Y+</b> = w dół (w mm). Jeśli treść nie mieści się
-                w polu drukowania, zmniejsz <b>skalę</b> (np. 98%). Działa dla druku PDF i obrazu.
+                do środka. <b>X+</b> = w prawo, <b>Y+</b> = w dół (w mm). <b>Skala</b>: 98% gdy treść
+                się nie mieści, &gt;100% gdy chcesz powiększyć etykietę i wypełnić arkusz. Działa dla
+                druku PDF i obrazu.
               </div>
               <div className="flex items-center gap-5 flex-wrap">
                 {/* Przesunięcie X w mm */}
@@ -1215,7 +1216,7 @@ export function LabelTemplateSetupPage() {
                 <div className="flex items-center gap-1.5">
                   <span className="text-[11px] font-bold text-muted-foreground">Skala</span>
                   <Input
-                    type="number" step={0.5} min={50} max={100}
+                    type="number" step={0.5} min={50} max={130}
                     value={printCalib.scale ?? 100}
                     onChange={e => setPrintCalib(p => ({ ...p, scale: Math.round(Number(e.target.value) * 10) / 10 }))}
                     className="h-7 w-20 text-[11px] px-1.5 py-0 font-mono"

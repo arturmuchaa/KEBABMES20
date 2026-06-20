@@ -74,6 +74,48 @@ function unitFieldValues(
 
 // ─── pdf-lib helpers ──────────────────────────────────────────────────────────
 
+/**
+ * Wykrywa prostokąt rzeczywistej treści (nie-białej) na obrazie tła — do „Dopasuj do A4",
+ * gdy etykieta ma białe marginesy WtopioNE w grafikę (PDF jest A4, ale projekt mały na środku).
+ * Zwraca ułamki [0..1] (x0,y0 od lewego-górnego) albo null.
+ */
+async function contentBBox(dataUrl: string): Promise<{ x0: number; y0: number; x1: number; y1: number } | null> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const w = img.naturalWidth, h = img.naturalHeight
+      if (!w || !h) { resolve(null); return }
+      const maxDim = 1000
+      const sc = Math.min(1, maxDim / Math.max(w, h))
+      const cw = Math.max(1, Math.round(w * sc)), ch = Math.max(1, Math.round(h * sc))
+      const cv = document.createElement('canvas')
+      cv.width = cw; cv.height = ch
+      const ctx = cv.getContext('2d', { willReadFrequently: true })
+      if (!ctx) { resolve(null); return }
+      ctx.drawImage(img, 0, 0, cw, ch)
+      let data: Uint8ClampedArray
+      try { data = ctx.getImageData(0, 0, cw, ch).data } catch { resolve(null); return }
+      let minX = cw, minY = ch, maxX = -1, maxY = -1
+      const TH = 244 // próg bieli (RGB ≥ TH = tło)
+      for (let y = 0; y < ch; y++) {
+        for (let x = 0; x < cw; x++) {
+          const i = (y * cw + x) * 4
+          const a = data[i + 3]
+          const isBg = a < 10 || (data[i] >= TH && data[i + 1] >= TH && data[i + 2] >= TH)
+          if (!isBg) {
+            if (x < minX) minX = x; if (x > maxX) maxX = x
+            if (y < minY) minY = y; if (y > maxY) maxY = y
+          }
+        }
+      }
+      if (maxX < 0) { resolve(null); return }
+      resolve({ x0: minX / cw, y0: minY / ch, x1: (maxX + 1) / cw, y1: (maxY + 1) / ch })
+    }
+    img.onerror = () => resolve(null)
+    img.src = dataUrl
+  })
+}
+
 function dataUrlToBytes(dataUrl: string): Uint8Array {
   const b64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl
   const bin = atob(b64)
@@ -147,8 +189,9 @@ async function buildVectorPdf(
   const scale = (calib.scale ?? 100) / 100
   const dxPt = (calib.dxMm ?? 0) * MM
   const dyPt = (calib.dyMm ?? 0) * MM
-  // „Dopasuj tło do A4" — rozciąga tło na cały arkusz A4 (jak podgląd w projektancie
-  // i jak gałąź rastrowa), usuwając puste marginesy gdy źródłowy PDF nie jest A4.
+  // „Dopasuj tło do A4" — wypełnia arkusz: (1) rozciąga źródłowy PDF do A4, oraz
+  // (2) gdy treść ma białe marginesy WtopioNE w grafikę, przybliża do samej treści
+  // (crop), skalując tło I pola razem, więc nic się nie rozjeżdża.
   const fit = !!calib.fit
   const A4W = 595.276   // 210 mm w pt
   const A4H = 841.89    // 297 mm w pt
@@ -160,21 +203,46 @@ async function buildVectorPdf(
   // Wymiar strony wyjściowej + układ współrzędnych pól: A4 gdy „fit", inaczej rozmiar źródła.
   const pageW = fit ? A4W : srcW
   const pageH = fit ? A4H : srcH
-  // Skala tła: przy „fit" rozciągamy do A4 (osobno X/Y = object-fit: fill), potem skala kalibracji.
-  const bgScaleX = (fit ? pageW / srcW : 1) * scale
-  const bgScaleY = (fit ? pageH / srcH : 1) * scale
-  // Tło rysowane od lewego-dolnego rogu; przy scale<1 górna krawędź zostaje u góry,
-  // a dyPt dosuwa zawartość w dół. Pola używają tego samego mapowania (tx/ty/ts).
-  const baseX = dxPt
-  const baseY = pageH * (1 - scale) - dyPt
-  const tx = (px: number) => baseX + px * scale
-  const ty = (py: number) => baseY + py * scale
-  const ts = (s: number) => s * scale
+  const srcToPageX = pageW / srcW   // rozciągnięcie źródła do strony (object-fit: fill przy fit)
+  const srcToPageY = pageH / srcH
+
+  // Crop do treści — tylko gdy fit, mamy obraz tła i są realne marginesy do usunięcia.
+  let crop: { x0: number; y0: number; x1: number; y1: number } | null = null
+  if (fit && template.backgroundData) {
+    const bb = await contentBBox(template.backgroundData)
+    if (bb && (bb.x1 - bb.x0) > 0.05 && (bb.y1 - bb.y0) > 0.05 &&
+        ((bb.x1 - bb.x0) < 0.97 || (bb.y1 - bb.y0) < 0.97)) {
+      crop = bb
+    }
+  }
+
+  // Wspólne przekształcenie afiniczne f(px,py)=(Tx+S·px, Ty+S·py) dla tła i pól
+  // (px,py = punkt w pt w układzie strony, origin lewy-dolny).
+  let S: number, Tx: number, Ty: number
+  if (crop) {
+    // box treści w pt (origin lewy-dolny); y obrazu liczony od góry → odwracamy
+    const bx0 = crop.x0 * pageW, bx1 = crop.x1 * pageW
+    const yblLow = pageH * (1 - crop.y1), yblHigh = pageH * (1 - crop.y0)
+    const cx = (bx0 + bx1) / 2, cy = (yblLow + yblHigh) / 2
+    // skala „contain" — powiększ box treści aż wypełni krótszą oś (nie obcina treści)
+    const cropScale = Math.min(pageW / (bx1 - bx0), pageH / (yblHigh - yblLow))
+    S = cropScale * scale
+    Tx = (pageW / 2 + dxPt) - S * cx
+    Ty = (pageH / 2 - dyPt) - S * cy
+  } else {
+    // bez cropu: górna krawędź u góry, dyPt dosuwa w dół (jak dotąd)
+    S = scale
+    Tx = dxPt
+    Ty = pageH * (1 - scale) - dyPt
+  }
+  const tx = (px: number) => Tx + px * S
+  const ty = (py: number) => Ty + py * S
+  const ts = (s: number) => s * S
 
   for (let i = 0; i < units.length; i += perSheet) {
     const group = units.slice(i, i + perSheet)
     const page = out.addPage([pageW, pageH])
-    page.drawPage(embedded, { x: baseX, y: baseY, xScale: bgScaleX, yScale: bgScaleY })
+    page.drawPage(embedded, { x: Tx, y: Ty, xScale: S * srcToPageX, yScale: S * srcToPageY })
 
     for (let slot = 0; slot < group.length; slot++) {
       const unit = group[slot]
