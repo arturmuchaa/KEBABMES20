@@ -15,3 +15,4 @@ class LabelTemplateUpsert(BaseModel):
     labels_per_sheet: int = 2
     zpl: str = ""
     slot_offsets: list = []            # [{dx: float, dy: float}, ...] per slot; slot 0 = {0,0}
+    print_calib: Dict[str, Any] = {}   # {dxMm, dyMm, scale} — kompensacja ucinanego paska przy druku

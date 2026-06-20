@@ -1148,11 +1148,14 @@ export const finishedUnitsApi = {
 // ─── Szablony etykiet ─────────────────────────────────────────
 export interface LabelFieldPos { x: number; y: number; size: number; fontFamily?: string; bold?: boolean }
 export interface LabelSlotOffset { dx: number; dy: number }
+/** Kalibracja druku: kompensacja ucinanego paska — przesunięcie X/Y w mm + skala (%). */
+export interface LabelPrintCalib { dxMm?: number; dyMm?: number; scale?: number }
 export interface LabelTemplate {
   id: string; clientId: string; recipeId: string; kind: string
   backgroundData: string; backgroundPdf?: string; fieldPositions: Record<string, LabelFieldPos>
   pageSize: string; labelsPerSheet: number; zpl: string
   slotOffsets?: LabelSlotOffset[]
+  printCalib?: LabelPrintCalib
 }
 export const labelTemplatesApi = {
   get: (clientId: string, recipeId: string) =>
@@ -1160,13 +1163,14 @@ export const labelTemplatesApi = {
       `/label-templates?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
   exists: (clientId: string, recipeId: string) =>
     get<{ exists: boolean }>(`/label-templates/exists?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
-  save: (tpl: { clientId?: string; recipeId?: string; kind?: string; backgroundData?: string; backgroundPdf?: string; fieldPositions?: Record<string, LabelFieldPos>; pageSize?: string; labelsPerSheet?: number; zpl?: string; slotOffsets?: LabelSlotOffset[] }) =>
+  save: (tpl: { clientId?: string; recipeId?: string; kind?: string; backgroundData?: string; backgroundPdf?: string; fieldPositions?: Record<string, LabelFieldPos>; pageSize?: string; labelsPerSheet?: number; zpl?: string; slotOffsets?: LabelSlotOffset[]; printCalib?: LabelPrintCalib }) =>
     put<LabelTemplate>('/label-templates', {
       client_id: tpl.clientId ?? '', recipe_id: tpl.recipeId ?? '', kind: tpl.kind ?? 'overlay',
       background_data: tpl.backgroundData ?? '', background_pdf: tpl.backgroundPdf ?? '',
       field_positions: tpl.fieldPositions ?? {},
       page_size: tpl.pageSize ?? 'a4', labels_per_sheet: tpl.labelsPerSheet ?? 2, zpl: tpl.zpl ?? '',
       slot_offsets: tpl.slotOffsets ?? [],
+      print_calib: tpl.printCalib ?? {},
     }),
   list: () =>
     get<Array<{ id: string; clientId: string; recipeId: string; kind: string; pageSize: string; labelsPerSheet: number; hasBackground: boolean; updatedAt: string }>>('/label-templates/all'),

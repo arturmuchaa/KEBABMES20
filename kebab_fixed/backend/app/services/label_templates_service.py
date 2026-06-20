@@ -49,6 +49,7 @@ def _row_to_full(row: Dict[str, Any]) -> Dict[str, Any]:
         "hasBackground": bool(row.get("background_data")),
         "hasPdf": bool(row.get("background_pdf")),
         "slotOffsets": row.get("slot_offsets") or [],
+        "printCalib": row.get("print_calib") or {},
     }
 
 
@@ -66,8 +67,8 @@ def upsert_template(dto: Dict[str, Any]) -> Dict[str, Any]:
             """
             INSERT INTO label_templates
                 (id, client_id, recipe_id, kind, background_data, background_pdf,
-                 field_positions, page_size, labels_per_sheet, zpl, slot_offsets, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, now())
+                 field_positions, page_size, labels_per_sheet, zpl, slot_offsets, print_calib, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s::jsonb, now())
             ON CONFLICT (client_id, recipe_id) DO UPDATE SET
                 kind             = EXCLUDED.kind,
                 background_data  = EXCLUDED.background_data,
@@ -77,6 +78,7 @@ def upsert_template(dto: Dict[str, Any]) -> Dict[str, Any]:
                 labels_per_sheet = EXCLUDED.labels_per_sheet,
                 zpl              = EXCLUDED.zpl,
                 slot_offsets     = EXCLUDED.slot_offsets,
+                print_calib      = EXCLUDED.print_calib,
                 updated_at       = now()
             RETURNING *
             """,
@@ -92,6 +94,7 @@ def upsert_template(dto: Dict[str, Any]) -> Dict[str, Any]:
                 int(dto.get("labels_per_sheet") or 2),
                 _no_nul(dto.get("zpl")),
                 json.dumps(dto.get("slot_offsets") or []),
+                json.dumps(dto.get("print_calib") or {}),
             ),
         )
 

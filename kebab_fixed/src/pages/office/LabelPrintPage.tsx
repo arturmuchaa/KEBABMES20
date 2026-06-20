@@ -120,12 +120,30 @@ async function buildVectorPdf(
   const fp = template.fieldPositions
   const slotOffsets = template.slotOffsets
 
+  // ── Kalibracja druku — kompensacja ucinanego paska (przesunięcie X/Y w mm + skala %).
+  // Stosujemy jako jedno przekształcenie afiniczne na CAŁEJ stronie (tło + nadrukowane pola
+  // razem), więc nic się nie rozjeżdża. dxMm + = w prawo, dyMm + = w dół, scale w %.
+  const calib = template.printCalib || {}
+  const scale = (calib.scale ?? 100) / 100
+  const dxPt = (calib.dxMm ?? 0) * MM
+  const dyPt = (calib.dyMm ?? 0) * MM
+
+  const srcPage = srcDoc.getPage(0)
+  const pageW = srcPage.getWidth()
+  const pageH = srcPage.getHeight()
+  const embedded = await out.embedPage(srcPage)
+  // Tło rysowane od lewego-dolnego rogu; przy scale<1 górna krawędź zostaje u góry,
+  // a dyPt dosuwa zawartość w dół. Pola używają tego samego mapowania (tx/ty/ts).
+  const baseX = dxPt
+  const baseY = pageH * (1 - scale) - dyPt
+  const tx = (px: number) => baseX + px * scale
+  const ty = (py: number) => baseY + py * scale
+  const ts = (s: number) => s * scale
+
   for (let i = 0; i < units.length; i += perSheet) {
     const group = units.slice(i, i + perSheet)
-    const [copied] = await out.copyPages(srcDoc, [0])
-    out.addPage(copied)
-    const pageW = copied.getWidth()
-    const pageH = copied.getHeight()
+    const page = out.addPage([pageW, pageH])
+    page.drawPage(embedded, { x: baseX, y: baseY, xScale: scale, yScale: scale })
 
     for (let slot = 0; slot < group.length; slot++) {
       const unit = group[slot]
@@ -139,9 +157,10 @@ async function buildVectorPdf(
         if (!pos || !vals[key]) continue
         const effectiveX = pos.x + offsetX
         const effectiveY = pos.y + offsetY
-        const xPt = (effectiveX / 100) * pageW
-        const sizePt = pos.size
+        const xPt = tx((effectiveX / 100) * pageW)
+        const sizePt = ts(pos.size)
         const yTopFrac = (effectiveY / 100) * pageH
+        const yPt = ty(pageH - yTopFrac - pos.size)
 
         if (key === 'weight') {
           // Split "number kg" → number part bold (if pos.bold), " kg" always regular
@@ -150,27 +169,27 @@ async function buildVectorPdf(
           const numberPart = spaceIdx >= 0 ? raw.slice(0, spaceIdx) : raw
           const unitPart = spaceIdx >= 0 ? raw.slice(spaceIdx) : ''
           const activeFont = pos.bold ? fontBold : font
-          copied.drawText(numberPart, {
+          page.drawText(numberPart, {
             x: xPt,
-            y: pageH - yTopFrac - sizePt,
+            y: yPt,
             size: sizePt,
             font: activeFont,
             color: rgb(0, 0, 0),
           })
           if (unitPart) {
             const numberWidth = activeFont.widthOfTextAtSize(numberPart, sizePt)
-            copied.drawText(unitPart, {
+            page.drawText(unitPart, {
               x: xPt + numberWidth,
-              y: pageH - yTopFrac - sizePt,
+              y: yPt,
               size: sizePt,
               font,
               color: rgb(0, 0, 0),
             })
           }
         } else {
-          copied.drawText(String(vals[key]), {
+          page.drawText(String(vals[key]), {
             x: xPt,
-            y: pageH - yTopFrac - sizePt,
+            y: yPt,
             size: sizePt,
             font: pos.bold ? fontBold : font,
             color: rgb(0, 0, 0),
@@ -183,14 +202,15 @@ async function buildVectorPdf(
       const qrUrl = qrMapRef[unit.id]
       if (qrPos && qrUrl) {
         const img = await out.embedPng(dataUrlToBytes(qrUrl))
-        const sPt = qrPos.size * MM
-        const xPt = ((qrPos.x + offsetX) / 100) * pageW
+        const qrSizePt = qrPos.size * MM
+        const xPt = tx(((qrPos.x + offsetX) / 100) * pageW)
         const yTopFrac = ((qrPos.y + offsetY) / 100) * pageH
-        copied.drawImage(img, {
+        const yPt = ty(pageH - yTopFrac - qrSizePt)
+        page.drawImage(img, {
           x: xPt,
-          y: pageH - yTopFrac - sPt,
-          width: sPt,
-          height: sPt,
+          y: yPt,
+          width: ts(qrSizePt),
+          height: ts(qrSizePt),
         })
       }
     }
@@ -374,6 +394,10 @@ export function LabelPrintPage() {
 
   const fp = template.fieldPositions
 
+  // Kalibracja druku (kompensacja ucinanego paska) — wspólna dla obu gałęzi.
+  const calib = template.printCalib || {}
+  const calibTransform = `translate(${calib.dxMm ?? 0}mm, ${calib.dyMm ?? 0}mm) scale(${(calib.scale ?? 100) / 100})`
+
   // ── Vector PDF render branch (pdf-lib) ──
   if (template.backgroundPdf) {
     return (
@@ -448,6 +472,11 @@ export function LabelPrintPage() {
           background: #fff;
           box-sizing: border-box;
         }
+        .label-calib {
+          position: absolute;
+          inset: 0;
+          transform-origin: top left;
+        }
         .label-bg {
           position: absolute;
           inset: 0;
@@ -502,6 +531,8 @@ export function LabelPrintPage() {
 
       {pages.map((pageUnits, pageIdx) => (
         <div key={pageIdx} className="label-sheet">
+         {/* Kalibracja druku: tło + pola przesuwane/skalowane razem */}
+         <div className="label-calib" style={{ transform: calibTransform }}>
           {/* ONE background fills the full A4 sheet — the artwork is the whole page */}
           {template.backgroundData && (
             <img className="label-bg" src={template.backgroundData} alt="" />
@@ -574,6 +605,7 @@ export function LabelPrintPage() {
               </div>
             )
           })}
+         </div>
         </div>
       ))}
     </div>

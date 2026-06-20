@@ -485,6 +485,8 @@ _DDL: list[str] = [
 
     # ── QR per sztuka — Faza 3++: korekta offsetu per slot (auto 2. etykieta) ──
     "ALTER TABLE label_templates ADD COLUMN IF NOT EXISTS slot_offsets JSONB DEFAULT '[]'",
+    # ── Kalibracja druku: kompensacja ucinanego paska (przesunięcie X/Y w mm + skala %) ──
+    "ALTER TABLE label_templates ADD COLUMN IF NOT EXISTS print_calib JSONB NOT NULL DEFAULT '{}'",
 
     # ── Rodzaje surowca — przyjęcie nie tylko ćwiartki (filet, indyk; ──
     # ── w przyszłości kategoria 'czerwone': wołowina 80/20, łój itd.) ──

@@ -15,7 +15,7 @@ import QRCode from 'qrcode'
 import { useApi } from '@/hooks/useApi'
 import { clientsApi, recipesApi, labelTemplatesApi } from '@/lib/apiClient'
 import { pdfFirstPageToPng } from '@/lib/pdfToImage'
-import type { LabelFieldPos, LabelSlotOffset } from '@/lib/api'
+import type { LabelFieldPos, LabelSlotOffset, LabelPrintCalib } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -378,6 +378,7 @@ export function LabelTemplateSetupPage() {
   const [fieldPositions,  setFieldPositions]  = useState<FieldPositions>({})
   const [labelsPerSheet,  setLabelsPerSheet]  = useState(2)
   const [slotOffsets,     setSlotOffsets]     = useState<LabelSlotOffset[]>(() => defaultSlotOffsets(2))
+  const [printCalib,      setPrintCalib]      = useState<LabelPrintCalib>({ dxMm: 0, dyMm: 0, scale: 100 })
   const [selectedField,   setSelectedField]   = useState<string | null>(null)
   const [pdfNote,         setPdfNote]         = useState(false)
   const [saving,          setSaving]          = useState(false)
@@ -434,6 +435,8 @@ export function LabelTemplateSetupPage() {
         } else {
           setSlotOffsets(defaultSlotOffsets(perSheet))
         }
+        const c = tpl.printCalib ?? {}
+        setPrintCalib({ dxMm: c.dxMm ?? 0, dyMm: c.dyMm ?? 0, scale: c.scale ?? 100 })
       } else {
         setKind('overlay')
         setZpl('')
@@ -442,6 +445,7 @@ export function LabelTemplateSetupPage() {
         setFieldPositions({})
         setLabelsPerSheet(2)
         setSlotOffsets(defaultSlotOffsets(2))
+        setPrintCalib({ dxMm: 0, dyMm: 0, scale: 100 })
       }
     } catch {
       // Brak szablonu — to OK
@@ -580,6 +584,7 @@ export function LabelTemplateSetupPage() {
         pageSize: 'a4',
         labelsPerSheet,
         slotOffsets,
+        printCalib,
       })
       toast.success('Szablon zapisany')
     } catch (err) {
@@ -1121,6 +1126,62 @@ export function LabelTemplateSetupPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* Kalibracja druku — kompensacja ucinanego paska */}
+          <Card>
+            <CardContent className="pt-5">
+              <div className="flex items-center gap-2 mb-2">
+                <Tag size={15} className="text-muted-foreground" />
+                <span className="text-[13px] font-semibold">Kalibracja druku (ucinany pasek / marginesy)</span>
+              </div>
+              <div className="text-[11px] text-muted-foreground bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mb-3">
+                Jeśli drukarka ucina pasek z brzegu — przesuń całą etykietę (tło + pola razem)
+                do środka. <b>X+</b> = w prawo, <b>Y+</b> = w dół (w mm). Jeśli treść nie mieści się
+                w polu drukowania, zmniejsz <b>skalę</b> (np. 98%). Działa dla druku PDF i obrazu.
+              </div>
+              <div className="flex items-center gap-5 flex-wrap">
+                {/* Przesunięcie X w mm */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-muted-foreground">Przesuń X</span>
+                  <Input
+                    type="number" step={0.5}
+                    value={printCalib.dxMm ?? 0}
+                    onChange={e => setPrintCalib(p => ({ ...p, dxMm: Math.round(Number(e.target.value) * 10) / 10 }))}
+                    className="h-7 w-20 text-[11px] px-1.5 py-0 font-mono"
+                  />
+                  <span className="text-[10px] text-muted-foreground">mm</span>
+                </div>
+                {/* Przesunięcie Y w mm */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-muted-foreground">Przesuń Y</span>
+                  <Input
+                    type="number" step={0.5}
+                    value={printCalib.dyMm ?? 0}
+                    onChange={e => setPrintCalib(p => ({ ...p, dyMm: Math.round(Number(e.target.value) * 10) / 10 }))}
+                    className="h-7 w-20 text-[11px] px-1.5 py-0 font-mono"
+                  />
+                  <span className="text-[10px] text-muted-foreground">mm</span>
+                </div>
+                {/* Skala */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-muted-foreground">Skala</span>
+                  <Input
+                    type="number" step={0.5} min={50} max={100}
+                    value={printCalib.scale ?? 100}
+                    onChange={e => setPrintCalib(p => ({ ...p, scale: Math.round(Number(e.target.value) * 10) / 10 }))}
+                    className="h-7 w-20 text-[11px] px-1.5 py-0 font-mono"
+                  />
+                  <span className="text-[10px] text-muted-foreground">%</span>
+                </div>
+                {(printCalib.dxMm || printCalib.dyMm || (printCalib.scale ?? 100) !== 100) ? (
+                  <button
+                    className="text-[10px] text-blue-600 hover:underline"
+                    onClick={() => setPrintCalib({ dxMm: 0, dyMm: 0, scale: 100 })}
+                  >resetuj</button>
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Zapis */}
           <div className="flex items-center justify-end gap-3 pb-6">
