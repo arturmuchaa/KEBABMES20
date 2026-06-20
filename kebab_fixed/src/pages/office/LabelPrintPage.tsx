@@ -240,10 +240,11 @@ async function buildVectorPdf(
       Ty = (pageH / 2 - dyPt) - s * cy
     }
   } else {
-    // bez cropu: górna krawędź u góry, dyPt dosuwa w dół (jak dotąd)
+    // bez cropu: skaluj względem ŚRODKA strony, żeby szablon był zawsze wyśrodkowany
+    // (a nie dosunięty do rogu przy skali ≠ 100%). dxPt/dyPt dosuwa już wyśrodkowaną treść.
     Sx = Sy = scale
-    Tx = dxPt
-    Ty = pageH * (1 - scale) - dyPt
+    Tx = (pageW / 2 + dxPt) - Sx * (pageW / 2)
+    Ty = (pageH / 2 - dyPt) - Sy * (pageH / 2)
   }
   const tx = (px: number) => Tx + px * Sx
   const ty = (py: number) => Ty + py * Sy
@@ -591,7 +592,7 @@ export function LabelPrintPage() {
         .label-calib {
           position: absolute;
           inset: 0;
-          transform-origin: top left;
+          transform-origin: center center;
         }
         .label-bg {
           position: absolute;
