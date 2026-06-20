@@ -25,6 +25,12 @@ def exists(client_id: str = "", recipe_id: str = ""):
     return svc.template_exists(client_id, recipe_id)
 
 
+@router.get("/resolve")
+def resolve(client_id: str = "", recipe_id: str = ""):
+    """Zwraca {kind: 'zebra'|'pdf'|'none'} — którą etykietę ma para klient+receptura."""
+    return svc.resolve_label_kind(client_id, recipe_id)
+
+
 @router.get("/all")
 def list_all():
     return svc.list_templates()

@@ -4,6 +4,7 @@
  */
 import { useState } from 'react'
 import { Search, CheckCircle, AlertTriangle } from 'lucide-react'
+import { companyApi } from '@/lib/api'
 
 export interface GusCompanyData {
   nip:            string
@@ -19,11 +20,6 @@ export interface GusCompanyData {
 
 interface GusLookupProps { onFound: (d: GusCompanyData) => void }
 
-const BASE_API = import.meta.env.VITE_API_URL
-  ? `${import.meta.env.VITE_API_URL}/api`
-  : (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-      ? 'http://204.168.166.34:8080/api'
-      : '/api')
 
 type GusStatus = 'idle' | 'loading' | 'found' | 'error'
 
@@ -38,11 +34,8 @@ export function GusLookup({ onFound }: GusLookupProps) {
     if (clean.length !== 10) { setStatus('error'); setMsg('NIP musi mieć dokładnie 10 cyfr'); return }
     setStatus('loading'); setResult(null); setMsg('')
     try {
-      const res = await fetch(`${BASE_API}/gus/${clean}`)
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || `Błąd ${res.status}`)
-
-      if (!data?.nazwa) { setStatus('error'); setMsg(data?.message ?? 'Nie znaleziono firmy w GUS'); return }
+      const data = await companyApi.gus(clean)   // autoryzowane (Bearer token) — bez 401
+      if (!data?.nazwa) { setStatus('error'); setMsg('Nie znaleziono firmy w rejestrze (MF/GUS)'); return }
       const company: GusCompanyData = {
         nip: clean, regon: data.regon, nazwa: data.nazwa ?? '',
         ulica: data.ulica, numer_budynku: data.numer_budynku,

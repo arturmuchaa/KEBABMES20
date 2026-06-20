@@ -15,3 +15,4 @@ class ClientCreate(BaseModel):
     dest_name: str = ""
     dest_address: str = ""
     dest_city: str = ""
+    halal_supervision: bool = False

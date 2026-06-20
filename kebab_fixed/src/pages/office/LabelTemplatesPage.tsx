@@ -4,7 +4,7 @@
  */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Tag, Pencil, CheckCircle2, MinusCircle, Trash2 } from 'lucide-react'
+import { Plus, Tag, Pencil, CheckCircle2, MinusCircle, Trash2, LayoutTemplate } from 'lucide-react'
 import { useApi } from '@/hooks/useApi'
 import { labelTemplatesApi, recipesApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -65,8 +65,8 @@ export function LabelTemplatesPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => navigate('/etykiety/zebra-edytor')} className="gap-2">
-            <Plus size={14} /> Etykieta Zebra (ZPL)
+          <Button variant="outline" onClick={() => navigate('/etykiety/zebra-designer')} className="gap-2">
+            <LayoutTemplate size={14} /> Projektant Zebra
           </Button>
           <Button onClick={() => navigate('/etykiety/szablon')} className="gap-2">
             <Plus size={14} /> Nowy szablon (PDF)

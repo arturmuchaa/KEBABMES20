@@ -485,6 +485,11 @@ _DDL: list[str] = [
 
     # ── QR per sztuka — Faza 3++: korekta offsetu per slot (auto 2. etykieta) ──
     "ALTER TABLE label_templates ADD COLUMN IF NOT EXISTS slot_offsets JSONB DEFAULT '[]'",
+    # ── Kalibracja druku: kompensacja ucinanego paska (przesunięcie X/Y w mm + skala %) ──
+    "ALTER TABLE label_templates ADD COLUMN IF NOT EXISTS print_calib JSONB NOT NULL DEFAULT '{}'",
+    # ── Pozycje pól per slot (etykieta 2+): ręczne ustawienie KAŻDEGO pola osobno na
+    #    nierównej etykiecie (gdy globalny offset nie wystarcza). {slot: {fieldKey: {x,y,...}}} ──
+    "ALTER TABLE label_templates ADD COLUMN IF NOT EXISTS slot_field_positions JSONB NOT NULL DEFAULT '{}'",
 
     # ── Rodzaje surowca — przyjęcie nie tylko ćwiartki (filet, indyk; ──
     # ── w przyszłości kategoria 'czerwone': wołowina 80/20, łój itd.) ──
@@ -582,6 +587,29 @@ _DDL: list[str] = [
         packed_qty        INTEGER NOT NULL DEFAULT 0
     )""",
     "CREATE INDEX IF NOT EXISTS idx_stock_carton_lines_carton ON stock_carton_lines(carton_id)",
+
+    # ── Wizualny projektant etykiet Zebra (Z-Design-1) ──
+    """CREATE TABLE IF NOT EXISTS zebra_label_designs (
+        id          TEXT PRIMARY KEY,
+        recipe_id   TEXT NOT NULL DEFAULT '',
+        size_key    TEXT NOT NULL DEFAULT '',
+        width_mm    NUMERIC NOT NULL DEFAULT 100,
+        height_mm   NUMERIC NOT NULL DEFAULT 150,
+        dpi         INTEGER NOT NULL DEFAULT 203,
+        elements    JSONB NOT NULL DEFAULT '[]',
+        updated_at  TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_zebra_designs_recipe_size ON zebra_label_designs(recipe_id, size_key)",
+    "CREATE INDEX IF NOT EXISTS idx_zebra_designs_recipe ON zebra_label_designs(recipe_id)",
+    # Tło ZPL wklejone z Zebra Designer (statyka 1:1) — pola dynamiczne nakładane na wierzch.
+    "ALTER TABLE zebra_label_designs ADD COLUMN IF NOT EXISTS background_zpl TEXT NOT NULL DEFAULT ''",
+    # Projekt Zebra teraz per (klient + receptura) — jak szablon PDF. Wybieramy klienta
+    # i recepturę, tworzymy etykietę. size_key zostaje jako metadana rozmiaru.
+    "ALTER TABLE zebra_label_designs ADD COLUMN IF NOT EXISTS client_id TEXT NOT NULL DEFAULT ''",
+    "DROP INDEX IF EXISTS uq_zebra_designs_recipe_size",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_zebra_designs_client_recipe ON zebra_label_designs(client_id, recipe_id)",
+    # Klient pod nadzorem HALAL → etykieta dostaje pole „kod nadzoru" (org_code).
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS halal_supervision BOOLEAN NOT NULL DEFAULT false",
 ]
 
 

@@ -15,7 +15,7 @@ import QRCode from 'qrcode'
 import { useApi } from '@/hooks/useApi'
 import { clientsApi, recipesApi, labelTemplatesApi } from '@/lib/apiClient'
 import { pdfFirstPageToPng } from '@/lib/pdfToImage'
-import type { LabelFieldPos, LabelSlotOffset } from '@/lib/api'
+import type { LabelFieldPos, LabelSlotOffset, LabelPrintCalib } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -34,6 +34,7 @@ const FIELDS: { key: string; label: string; defaultSize: number }[] = [
   { key: 'best_before', label: 'Należy spożyć do',  defaultSize: 8  },
   { key: 'batch_no',    label: 'Nr partii',          defaultSize: 8  },
   { key: 'weight',      label: 'Waga',               defaultSize: 10 },
+  { key: 'org_code',    label: 'Kod nadzoru HALAL',  defaultSize: 8  },
 ]
 
 const FIELD_COLORS: Record<string, string> = {
@@ -43,6 +44,7 @@ const FIELD_COLORS: Record<string, string> = {
   best_before: '#d97706',
   batch_no:    '#7c3aed',
   weight:      '#db2777',
+  org_code:    '#0d9488',
 }
 
 // Przykładowe wartości do podglądu WYSIWYG
@@ -52,6 +54,7 @@ const SAMPLE_VALUES: Record<string, string> = {
   best_before: '03.06.2027',
   batch_no:    '030625 346',
   weight:      '50 kg',
+  org_code:    '7J8EX',
 }
 
 // Dostępne rodziny czcionek
@@ -375,6 +378,11 @@ export function LabelTemplateSetupPage() {
   const [fieldPositions,  setFieldPositions]  = useState<FieldPositions>({})
   const [labelsPerSheet,  setLabelsPerSheet]  = useState(2)
   const [slotOffsets,     setSlotOffsets]     = useState<LabelSlotOffset[]>(() => defaultSlotOffsets(2))
+  const [printCalib,      setPrintCalib]      = useState<LabelPrintCalib>({ dxMm: 0, dyMm: 0, scale: 100 })
+  // Która etykieta na arkuszu jest właśnie edytowana (0 = pierwsza/bazowa).
+  const [editingSlot,     setEditingSlot]     = useState(0)
+  // Ręczne pozycje pól per slot 2+ (nadpisują globalny offset). { "1": { qr: {...}, ... } }
+  const [slotFieldPositions, setSlotFieldPositions] = useState<Record<string, FieldPositions>>({})
   const [selectedField,   setSelectedField]   = useState<string | null>(null)
   const [pdfNote,         setPdfNote]         = useState(false)
   const [saving,          setSaving]          = useState(false)
@@ -431,6 +439,10 @@ export function LabelTemplateSetupPage() {
         } else {
           setSlotOffsets(defaultSlotOffsets(perSheet))
         }
+        const c = tpl.printCalib ?? {}
+        setPrintCalib({ dxMm: c.dxMm ?? 0, dyMm: c.dyMm ?? 0, scale: c.scale ?? 100, fit: !!c.fit, fitStretch: !!c.fitStretch })
+        setSlotFieldPositions(tpl.slotFieldPositions ?? {})
+        setEditingSlot(0)
       } else {
         setKind('overlay')
         setZpl('')
@@ -439,6 +451,9 @@ export function LabelTemplateSetupPage() {
         setFieldPositions({})
         setLabelsPerSheet(2)
         setSlotOffsets(defaultSlotOffsets(2))
+        setPrintCalib({ dxMm: 0, dyMm: 0, scale: 100 })
+        setSlotFieldPositions({})
+        setEditingSlot(0)
       }
     } catch {
       // Brak szablonu — to OK
@@ -483,80 +498,113 @@ export function LabelTemplateSetupPage() {
     reader.readAsDataURL(file)
   }
 
-  // Kliknięcie na podgląd — ustaw pozycję wybranego pola
+  // ── Edycja z uwzględnieniem aktywnej etykiety (slotu) ──
+  // editingSlot 0 → pozycje bazowe (pierwsza etykieta). slot>0 → ręczne nadpisania
+  // (slotFieldPositions), które ignorują globalny offset (do nierównych etykiet).
+  const slotKey = String(editingSlot)
+
+  // Pozycja „dziedziczona" pola na aktywnym slocie = baza + globalny offset slotu.
+  function inheritedPos(fieldKey: string): LabelFieldPos | undefined {
+    const base = fieldPositions[fieldKey]
+    if (!base) return undefined
+    if (editingSlot === 0) return base
+    const off = slotOffsets[editingSlot] ?? { dx: editingSlot * (100 / labelsPerSheet), dy: 0 }
+    return { ...base, x: Math.round((base.x + off.dx) * 10) / 10, y: Math.round((base.y + off.dy) * 10) / 10 }
+  }
+
+  // Czy pole ma RĘCZNE nadpisanie na aktywnym slocie (>0).
+  function hasOverride(fieldKey: string): boolean {
+    return editingSlot > 0 && !!slotFieldPositions[slotKey]?.[fieldKey]
+  }
+
+  // Pozycja do wyświetlenia/edycji na aktywnym slocie.
+  function activePos(fieldKey: string): LabelFieldPos | undefined {
+    if (editingSlot === 0) return fieldPositions[fieldKey]
+    return slotFieldPositions[slotKey]?.[fieldKey] ?? inheritedPos(fieldKey)
+  }
+
+  // Zapis pozycji pola na aktywnym slocie (slot 0 → baza; slot>0 → nadpisanie).
+  function writePos(fieldKey: string, next: LabelFieldPos) {
+    if (editingSlot === 0) {
+      setFieldPositions(prev => ({ ...prev, [fieldKey]: next }))
+    } else {
+      setSlotFieldPositions(prev => ({
+        ...prev,
+        [slotKey]: { ...(prev[slotKey] ?? {}), [fieldKey]: next },
+      }))
+    }
+  }
+
+  // Kliknięcie na podgląd — ustaw pozycję wybranego pola na aktywnej etykiecie
   function handlePreviewClick(e: React.MouseEvent<HTMLDivElement>) {
     if (!selectedField || !backgroundData) return
     const rect = e.currentTarget.getBoundingClientRect()
     const x = ((e.clientX - rect.left) / rect.width) * 100
     const y = ((e.clientY - rect.top) / rect.height) * 100
     const defaultSize = FIELDS.find(f => f.key === selectedField)?.defaultSize ?? 8
-    const existing = fieldPositions[selectedField]
-    setFieldPositions(prev => ({
-      ...prev,
-      [selectedField]: {
-        x: Math.round(x * 10) / 10,
-        y: Math.round(y * 10) / 10,
-        size: existing?.size ?? defaultSize,
-        fontFamily: existing?.fontFamily,
-        bold: existing?.bold,
-      },
-    }))
+    const existing = activePos(selectedField)
+    writePos(selectedField, {
+      x: Math.round(x * 10) / 10,
+      y: Math.round(y * 10) / 10,
+      size: existing?.size ?? defaultSize,
+      fontFamily: existing?.fontFamily,
+      bold: existing?.bold,
+    })
   }
 
   function handleSizeChange(fieldKey: string, size: number) {
-    setFieldPositions(prev => {
-      if (!prev[fieldKey]) {
-        return { ...prev, [fieldKey]: { x: 50, y: 50, size } }
-      }
-      return { ...prev, [fieldKey]: { ...prev[fieldKey], size } }
-    })
+    const cur = activePos(fieldKey)
+    if (cur) { writePos(fieldKey, { ...cur, size }); return }
+    setFieldPositions(prev => ({ ...prev, [fieldKey]: { x: 50, y: 50, size } }))
   }
 
   function handleFontFamilyChange(fieldKey: string, fontFamily: string) {
-    setFieldPositions(prev => {
-      if (!prev[fieldKey]) {
-        const defaultSize = FIELDS.find(f => f.key === fieldKey)?.defaultSize ?? 8
-        return { ...prev, [fieldKey]: { x: 50, y: 50, size: defaultSize, fontFamily } }
-      }
-      return { ...prev, [fieldKey]: { ...prev[fieldKey], fontFamily } }
-    })
+    const cur = activePos(fieldKey)
+    if (cur) { writePos(fieldKey, { ...cur, fontFamily }); return }
+    const defaultSize = FIELDS.find(f => f.key === fieldKey)?.defaultSize ?? 8
+    setFieldPositions(prev => ({ ...prev, [fieldKey]: { x: 50, y: 50, size: defaultSize, fontFamily } }))
   }
 
   function handleBoldChange(fieldKey: string, bold: boolean) {
-    setFieldPositions(prev => {
-      if (!prev[fieldKey]) {
-        const defaultSize = FIELDS.find(f => f.key === fieldKey)?.defaultSize ?? 8
-        return { ...prev, [fieldKey]: { x: 50, y: 50, size: defaultSize, bold } }
-      }
-      return { ...prev, [fieldKey]: { ...prev[fieldKey], bold } }
-    })
+    const cur = activePos(fieldKey)
+    if (cur) { writePos(fieldKey, { ...cur, bold }); return }
+    const defaultSize = FIELDS.find(f => f.key === fieldKey)?.defaultSize ?? 8
+    setFieldPositions(prev => ({ ...prev, [fieldKey]: { x: 50, y: 50, size: defaultSize, bold } }))
   }
 
   function handleClearField(fieldKey: string) {
-    setFieldPositions(prev => {
-      const next = { ...prev }
-      delete next[fieldKey]
-      return next
-    })
+    if (editingSlot === 0) {
+      setFieldPositions(prev => {
+        const next = { ...prev }
+        delete next[fieldKey]
+        return next
+      })
+    } else {
+      // slot>0 → usuń ręczne nadpisanie, wróć do dziedziczenia z globalnego offsetu
+      setSlotFieldPositions(prev => {
+        const slotMap = { ...(prev[slotKey] ?? {}) }
+        delete slotMap[fieldKey]
+        const next = { ...prev }
+        if (Object.keys(slotMap).length === 0) delete next[slotKey]
+        else next[slotKey] = slotMap
+        return next
+      })
+    }
   }
 
-  // Precyzyjne dosuwanie pola o 0.1% w osi x lub y
+  // Precyzyjne dosuwanie pola o 0.1% w osi x lub y (na aktywnym slocie)
   function handleNudge(fieldKey: string, axis: 'x' | 'y', delta: number) {
-    setFieldPositions(prev => {
-      const pos = prev[fieldKey]
-      if (!pos) return prev
-      const newVal = Math.max(0, Math.min(100, Math.round((pos[axis] + delta) * 10) / 10))
-      return { ...prev, [fieldKey]: { ...pos, [axis]: newVal } }
-    })
+    const cur = activePos(fieldKey)
+    if (!cur) return
+    const newVal = Math.max(0, Math.min(100, Math.round((cur[axis] + delta) * 10) / 10))
+    writePos(fieldKey, { ...cur, [axis]: newVal })
   }
 
-  // Bezpośrednie ustawienie pozycji pola (X/Y input)
+  // Bezpośrednie ustawienie pozycji pola (X/Y input) na aktywnym slocie
   function handlePositionChange(fieldKey: string, axis: 'x' | 'y', value: number) {
-    setFieldPositions(prev => {
-      const pos = prev[fieldKey]
-      if (!pos) return prev
-      return { ...prev, [fieldKey]: { ...pos, [axis]: value } }
-    })
+    const cur = activePos(fieldKey)
+    if (!cur) return
+    writePos(fieldKey, { ...cur, [axis]: value })
   }
 
   async function handleSave() {
@@ -577,6 +625,8 @@ export function LabelTemplateSetupPage() {
         pageSize: 'a4',
         labelsPerSheet,
         slotOffsets,
+        printCalib,
+        slotFieldPositions,
       })
       toast.success('Szablon zapisany')
     } catch (err) {
@@ -781,6 +831,35 @@ export function LabelTemplateSetupPage() {
 
                 {/* Lista pól */}
                 <div className="space-y-2 order-2 lg:order-1">
+                  {/* Wybór edytowanej etykiety — pozwala ustawić KAŻDE pole osobno na 2. etykiecie */}
+                  {labelsPerSheet > 1 && (
+                    <div className="rounded-lg border border-border bg-muted/30 p-2 mb-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1.5">
+                        Edytujesz etykietę
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {Array.from({ length: labelsPerSheet }, (_, s) => (
+                          <button
+                            key={s}
+                            onClick={() => setEditingSlot(s)}
+                            className={`rounded px-2.5 py-1 text-[11px] font-semibold border ${
+                              editingSlot === s
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-background text-slate-700 border-border hover:bg-muted'
+                            }`}
+                          >
+                            Etykieta {s + 1}
+                          </button>
+                        ))}
+                      </div>
+                      {editingSlot > 0 && (
+                        <div className="text-[11px] text-muted-foreground mt-1.5">
+                          Ręcznie ustawione pola na tej etykiecie mają <b>własną pozycję</b> (ignorują
+                          globalny offset). „Wyczyść" pole = powrót do dziedziczenia.
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">
                     Wybierz pole → kliknij na podgląd
                   </div>
@@ -788,8 +867,8 @@ export function LabelTemplateSetupPage() {
                     <FieldRow
                       key={f.key}
                       fieldKey={f.key}
-                      label={f.label}
-                      pos={fieldPositions[f.key]}
+                      label={hasOverride(f.key) ? `${f.label} ✋` : f.label}
+                      pos={activePos(f.key)}
                       isSelected={selectedField === f.key}
                       onSelect={() => setSelectedField(prev => prev === f.key ? null : f.key)}
                       onSizeChange={size => handleSizeChange(f.key, size)}
@@ -858,8 +937,9 @@ export function LabelTemplateSetupPage() {
 
                   {/* Notatka pomocnicza */}
                   <div className="text-[11px] text-muted-foreground bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mb-2">
-                    Ustaw pola na <strong>LEWEJ etykiecie</strong> — system powieli je na pozostałe (po prawej).
-                    Tło to cały arkusz A4 z wszystkimi etykietami.
+                    Ustaw pola na <strong>1. etykiecie</strong> — system powieli je na pozostałe.
+                    Jeśli któraś etykieta jest nierówna, przełącz „Edytujesz etykietę" na 2 i ustaw
+                    każde pole osobno (kliknij na podgląd) — będzie miało własną pozycję.
                   </div>
 
                   {/* Przewijany kontener — scroll przy zoom>1 */}
@@ -900,69 +980,46 @@ export function LabelTemplateSetupPage() {
                             draggable={false}
                           />
 
-                          {/* WYSIWYG markery pól (lewy slot) */}
-                          {FIELDS.map(f => {
-                            const pos = fieldPositions[f.key]
-                            if (!pos) return null
-                            if (f.key === 'qr') {
-                              if (!sampleQrUrl) return null
-                              return (
-                                <WysiwygQrMarker
-                                  key={f.key}
-                                  pos={pos}
-                                  qrDataUrl={sampleQrUrl}
-                                  previewW={previewW}
-                                  isSelected={selectedField === f.key}
-                                  onClick={() => setSelectedField(prev => prev === f.key ? null : f.key)}
-                                />
-                              )
-                            }
-                            return (
-                              <WysiwygTextMarker
-                                key={f.key}
-                                fieldKey={f.key}
-                                pos={pos}
-                                sampleText={SAMPLE_VALUES[f.key] ?? f.label}
-                                previewW={previewW}
-                                isSelected={selectedField === f.key}
-                                onClick={() => setSelectedField(prev => prev === f.key ? null : f.key)}
-                              />
-                            )
-                          })}
-
-                          {/* Duchy — pozostałe sloty (i=1..labelsPerSheet-1) */}
-                          {FIELDS.map(f => {
-                            const pos = fieldPositions[f.key]
-                            if (!pos) return null
-                            return Array.from({ length: labelsPerSheet - 1 }, (_, i) => {
-                              const slotIdx = i + 1
-                              const ghostOffset = slotOffsets[slotIdx] ?? { dx: slotIdx * (100 / labelsPerSheet), dy: 0 }
+                          {/* WYSIWYG markery pól — wszystkie sloty. Aktywna etykieta = solidne,
+                              klikalne markery; pozostałe to półprzezroczyste duchy. Pola z ręcznym
+                              nadpisaniem (slot>0) mają pozycję bezwzględną, reszta = baza + offset. */}
+                          {Array.from({ length: labelsPerSheet }, (_, s) => {
+                            const off = slotOffsets[s] ?? { dx: s * (100 / labelsPerSheet), dy: 0 }
+                            const active = s === editingSlot
+                            return FIELDS.map(f => {
+                              const base = fieldPositions[f.key]
+                              const override = slotFieldPositions[String(s)]?.[f.key]
+                              const pos = s === 0
+                                ? base
+                                : (override ?? (base ? { ...base, x: base.x + off.dx, y: base.y + off.dy } : undefined))
+                              if (!pos) return null
+                              const onClick = active
+                                ? () => setSelectedField(prev => prev === f.key ? null : f.key)
+                                : undefined
                               if (f.key === 'qr') {
                                 if (!sampleQrUrl) return null
                                 return (
                                   <WysiwygQrMarker
-                                    key={`${f.key}-ghost-${slotIdx}`}
+                                    key={`${f.key}-${s}`}
                                     pos={pos}
                                     qrDataUrl={sampleQrUrl}
                                     previewW={previewW}
-                                    isSelected={false}
-                                    isGhost
-                                    offsetX={ghostOffset.dx}
-                                    offsetY={ghostOffset.dy}
+                                    isSelected={active && selectedField === f.key}
+                                    isGhost={!active}
+                                    onClick={onClick}
                                   />
                                 )
                               }
                               return (
                                 <WysiwygTextMarker
-                                  key={`${f.key}-ghost-${slotIdx}`}
+                                  key={`${f.key}-${s}`}
                                   fieldKey={f.key}
                                   pos={pos}
                                   sampleText={SAMPLE_VALUES[f.key] ?? f.label}
                                   previewW={previewW}
-                                  isSelected={false}
-                                  isGhost
-                                  offsetX={ghostOffset.dx}
-                                  offsetY={ghostOffset.dy}
+                                  isSelected={active && selectedField === f.key}
+                                  isGhost={!active}
+                                  onClick={onClick}
                                 />
                               )
                             })
@@ -1118,6 +1175,90 @@ export function LabelTemplateSetupPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* Kalibracja druku — kompensacja ucinanego paska */}
+          <Card>
+            <CardContent className="pt-5">
+              <div className="flex items-center gap-2 mb-2">
+                <Tag size={15} className="text-muted-foreground" />
+                <span className="text-[13px] font-semibold">Kalibracja druku (ucinany pasek / marginesy)</span>
+              </div>
+              <div className="text-[11px] text-muted-foreground bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mb-3">
+                Jeśli drukarka ucina pasek z brzegu — przesuń całą etykietę (tło + pola razem)
+                do środka. <b>X+</b> = w prawo, <b>Y+</b> = w dół (w mm). <b>Skala</b>: 98% gdy treść
+                się nie mieści, &gt;100% gdy chcesz powiększyć etykietę i wypełnić arkusz. Działa dla
+                druku PDF i obrazu.
+              </div>
+              <div className="flex items-center gap-5 flex-wrap">
+                {/* Przesunięcie X w mm */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-muted-foreground">Przesuń X</span>
+                  <Input
+                    type="number" step={0.5}
+                    value={printCalib.dxMm ?? 0}
+                    onChange={e => setPrintCalib(p => ({ ...p, dxMm: Math.round(Number(e.target.value) * 10) / 10 }))}
+                    className="h-7 w-20 text-[11px] px-1.5 py-0 font-mono"
+                  />
+                  <span className="text-[10px] text-muted-foreground">mm</span>
+                </div>
+                {/* Przesunięcie Y w mm */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-muted-foreground">Przesuń Y</span>
+                  <Input
+                    type="number" step={0.5}
+                    value={printCalib.dyMm ?? 0}
+                    onChange={e => setPrintCalib(p => ({ ...p, dyMm: Math.round(Number(e.target.value) * 10) / 10 }))}
+                    className="h-7 w-20 text-[11px] px-1.5 py-0 font-mono"
+                  />
+                  <span className="text-[10px] text-muted-foreground">mm</span>
+                </div>
+                {/* Skala */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-muted-foreground">Skala</span>
+                  <Input
+                    type="number" step={0.5} min={50} max={130}
+                    value={printCalib.scale ?? 100}
+                    onChange={e => setPrintCalib(p => ({ ...p, scale: Math.round(Number(e.target.value) * 10) / 10 }))}
+                    className="h-7 w-20 text-[11px] px-1.5 py-0 font-mono"
+                  />
+                  <span className="text-[10px] text-muted-foreground">%</span>
+                </div>
+                {(printCalib.dxMm || printCalib.dyMm || (printCalib.scale ?? 100) !== 100) ? (
+                  <button
+                    className="text-[10px] text-blue-600 hover:underline"
+                    onClick={() => setPrintCalib(p => ({ dxMm: 0, dyMm: 0, scale: 100, fit: p.fit, fitStretch: p.fitStretch }))}
+                  >resetuj</button>
+                ) : null}
+              </div>
+              {/* Dopasowanie tła do A4 — usuwa puste marginesy gdy źródłowy PDF nie jest pełnym A4 */}
+              <label className="flex items-start gap-2 mt-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={!!printCalib.fit}
+                  onChange={e => setPrintCalib(p => ({ ...p, fit: e.target.checked }))}
+                />
+                <span className="text-[12px] text-slate-700">
+                  <b>Dopasuj tło do A4 (przytnij białe marginesy)</b> — wykrywa rzeczywistą treść
+                  etykiety i przybliża ją do brzegów (bez deformacji). Dotyczy tła PDF.
+                </span>
+              </label>
+              {printCalib.fit && (
+                <label className="flex items-start gap-2 mt-2 ml-6 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={!!printCalib.fitStretch}
+                    onChange={e => setPrintCalib(p => ({ ...p, fitStretch: e.target.checked }))}
+                  />
+                  <span className="text-[12px] text-slate-700">
+                    <b>Rozciągnij na całą wysokość (usuń pasek u dołu)</b> — wypełnia cały arkusz;
+                    dopuszcza lekkie pionowe rozciągnięcie etykiety. QR zostaje kwadratowy.
+                  </span>
+                </label>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Zapis */}
           <div className="flex items-center justify-end gap-3 pb-6">

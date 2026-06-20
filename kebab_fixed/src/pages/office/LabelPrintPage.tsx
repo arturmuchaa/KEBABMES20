@@ -8,8 +8,8 @@ import fontkit from '@pdf-lib/fontkit'
 import arialRegularUrl from '@/assets/fonts/LiberationSans-Regular.ttf?url'
 import arialBoldUrl from '@/assets/fonts/LiberationSans-Bold.ttf?url'
 import { useApi } from '@/hooks/useApi'
-import { finishedUnitsApi, labelTemplatesApi, recipesApi } from '@/lib/apiClient'
-import type { FinishedUnitCard, LabelTemplate, LabelSlotOffset } from '@/lib/api'
+import { finishedUnitsApi, labelTemplatesApi, recipesApi, clientsApi } from '@/lib/apiClient'
+import type { FinishedUnitCard, LabelTemplate, LabelSlotOffset, LabelFieldPos } from '@/lib/api'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -56,6 +56,7 @@ function formatWeight(weightKg: number | undefined | null): string {
 function unitFieldValues(
   unit: FinishedUnitCard,
   shelfLifeDays: number,
+  orgCode = '',
 ): Record<string, string> {
   const prodDateIso = (unit as any).producedDate || unit.producedAt?.slice(0, 10) || todayIso()
   const bestBeforeIso = addDays(prodDateIso, shelfLifeDays)
@@ -66,10 +67,54 @@ function unitFieldValues(
     best_before: fmtDate(bestBeforeIso),
     batch_no: unit.batchNo ? `${prefix} ${unit.batchNo}` : prefix,
     weight: formatWeight((unit as any).weightKg),
+    // Kod nadzoru HALAL — stały dla całej partii, wpisywany przy druku (klient pod nadzorem).
+    org_code: orgCode || '',
   }
 }
 
 // ─── pdf-lib helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Wykrywa prostokąt rzeczywistej treści (nie-białej) na obrazie tła — do „Dopasuj do A4",
+ * gdy etykieta ma białe marginesy WtopioNE w grafikę (PDF jest A4, ale projekt mały na środku).
+ * Zwraca ułamki [0..1] (x0,y0 od lewego-górnego) albo null.
+ */
+async function contentBBox(dataUrl: string): Promise<{ x0: number; y0: number; x1: number; y1: number } | null> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const w = img.naturalWidth, h = img.naturalHeight
+      if (!w || !h) { resolve(null); return }
+      const maxDim = 1000
+      const sc = Math.min(1, maxDim / Math.max(w, h))
+      const cw = Math.max(1, Math.round(w * sc)), ch = Math.max(1, Math.round(h * sc))
+      const cv = document.createElement('canvas')
+      cv.width = cw; cv.height = ch
+      const ctx = cv.getContext('2d', { willReadFrequently: true })
+      if (!ctx) { resolve(null); return }
+      ctx.drawImage(img, 0, 0, cw, ch)
+      let data: Uint8ClampedArray
+      try { data = ctx.getImageData(0, 0, cw, ch).data } catch { resolve(null); return }
+      let minX = cw, minY = ch, maxX = -1, maxY = -1
+      const TH = 244 // próg bieli (RGB ≥ TH = tło)
+      for (let y = 0; y < ch; y++) {
+        for (let x = 0; x < cw; x++) {
+          const i = (y * cw + x) * 4
+          const a = data[i + 3]
+          const isBg = a < 10 || (data[i] >= TH && data[i + 1] >= TH && data[i + 2] >= TH)
+          if (!isBg) {
+            if (x < minX) minX = x; if (x > maxX) maxX = x
+            if (y < minY) minY = y; if (y > maxY) maxY = y
+          }
+        }
+      }
+      if (maxX < 0) { resolve(null); return }
+      resolve({ x0: minX / cw, y0: minY / ch, x1: (maxX + 1) / cw, y1: (maxY + 1) / ch })
+    }
+    img.onerror = () => resolve(null)
+    img.src = dataUrl
+  })
+}
 
 function dataUrlToBytes(dataUrl: string): Uint8Array {
   const b64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl
@@ -79,7 +124,7 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
   return arr
 }
 
-const TEXT_KEYS = ['prod_date', 'freeze_date', 'best_before', 'batch_no', 'weight'] as const
+const TEXT_KEYS = ['prod_date', 'freeze_date', 'best_before', 'batch_no', 'weight', 'org_code'] as const
 
 // ─── Slot offset helpers ──────────────────────────────────────────────────────
 
@@ -95,12 +140,32 @@ function slotOffsetY(slot: number, offsets: LabelSlotOffset[] | undefined): numb
   return 0
 }
 
+/**
+ * Resolves the effective position of a field on a given slot.
+ * Jeśli istnieje ręczne nadpisanie (slotFieldPositions[slot][key]) → pozycja BEZWZGLĘDNA
+ * (bez globalnego slotOffset) — do nierównych etykiet. Inaczej: pozycja bazowa + slotOffset.
+ */
+function resolveFieldPos(
+  base: LabelFieldPos | undefined,
+  slotFieldPositions: Record<string, Record<string, LabelFieldPos>> | undefined,
+  slot: number,
+  key: string,
+  offsetX: number,
+  offsetY: number,
+): LabelFieldPos | null {
+  const override = slotFieldPositions?.[String(slot)]?.[key]
+  if (override) return override
+  if (!base) return null
+  return { ...base, x: base.x + offsetX, y: base.y + offsetY }
+}
+
 async function buildVectorPdf(
   template: LabelTemplate,
   units: FinishedUnitCard[],
   perSheet: number,
   shelfLifeDays: number,
   qrMapRef: Record<string, string>,
+  orgCode = '',
 ): Promise<string> {
   const MM = 2.83465 // mm → pt
 
@@ -115,29 +180,96 @@ async function buildVectorPdf(
   const fontBold = await out.embedFont(boldBytes, { subset: true })
   const fp = template.fieldPositions
   const slotOffsets = template.slotOffsets
+  const slotFP = template.slotFieldPositions
+
+  // ── Kalibracja druku — kompensacja ucinanego paska (przesunięcie X/Y w mm + skala %).
+  // Stosujemy jako jedno przekształcenie afiniczne na CAŁEJ stronie (tło + nadrukowane pola
+  // razem), więc nic się nie rozjeżdża. dxMm + = w prawo, dyMm + = w dół, scale w %.
+  const calib = template.printCalib || {}
+  const scale = (calib.scale ?? 100) / 100
+  const dxPt = (calib.dxMm ?? 0) * MM
+  const dyPt = (calib.dyMm ?? 0) * MM
+  // „Dopasuj tło do A4" — wypełnia arkusz: (1) rozciąga źródłowy PDF do A4, oraz
+  // (2) gdy treść ma białe marginesy WtopioNE w grafikę, przybliża do samej treści
+  // (crop), skalując tło I pola razem, więc nic się nie rozjeżdża.
+  const fit = !!calib.fit
+  const fitStretch = !!calib.fitStretch
+  const A4W = 595.276   // 210 mm w pt
+  const A4H = 841.89    // 297 mm w pt
+
+  const srcPage = srcDoc.getPage(0)
+  const srcW = srcPage.getWidth()
+  const srcH = srcPage.getHeight()
+  const embedded = await out.embedPage(srcPage)
+  // Wymiar strony wyjściowej + układ współrzędnych pól: A4 gdy „fit", inaczej rozmiar źródła.
+  const pageW = fit ? A4W : srcW
+  const pageH = fit ? A4H : srcH
+  const srcToPageX = pageW / srcW   // rozciągnięcie źródła do strony (object-fit: fill przy fit)
+  const srcToPageY = pageH / srcH
+
+  // Crop do treści — tylko gdy fit, mamy obraz tła i są realne marginesy do usunięcia.
+  let crop: { x0: number; y0: number; x1: number; y1: number } | null = null
+  if (fit && template.backgroundData) {
+    const bb = await contentBBox(template.backgroundData)
+    if (bb && (bb.x1 - bb.x0) > 0.05 && (bb.y1 - bb.y0) > 0.05 &&
+        ((bb.x1 - bb.x0) < 0.97 || (bb.y1 - bb.y0) < 0.97)) {
+      crop = bb
+    }
+  }
+
+  // Przekształcenie afiniczne (osobno X/Y): f(px,py)=(Tx+px·Sx, Ty+py·Sy) dla tła i pól.
+  // Sx≠Sy tylko w trybie „rozciągnij na całą wysokość" (usuwa pasek u dołu).
+  let Sx: number, Sy: number, Tx: number, Ty: number
+  if (crop) {
+    const bx0 = crop.x0 * pageW, bx1 = crop.x1 * pageW
+    const yblLow = pageH * (1 - crop.y1), yblHigh = pageH * (1 - crop.y0)
+    const fillX = pageW / (bx1 - bx0)
+    const fillY = pageH / (yblHigh - yblLow)
+    if (fitStretch) {
+      // Wypełnij CAŁY arkusz: box treści → pełne A4 (lekkie rozciągnięcie pionowe/poziome).
+      Sx = fillX * scale
+      Sy = fillY * scale
+      Tx = -Sx * bx0 + dxPt
+      Ty = -Sy * yblLow - dyPt
+    } else {
+      // „contain" — powiększ proporcjonalnie aż treść wypełni krótszą oś (bez obcinania, bez deformacji).
+      const s = Math.min(fillX, fillY) * scale
+      const cx = (bx0 + bx1) / 2, cy = (yblLow + yblHigh) / 2
+      Sx = Sy = s
+      Tx = (pageW / 2 + dxPt) - s * cx
+      Ty = (pageH / 2 - dyPt) - s * cy
+    }
+  } else {
+    // bez cropu: skaluj względem ŚRODKA strony, żeby szablon był zawsze wyśrodkowany
+    // (a nie dosunięty do rogu przy skali ≠ 100%). dxPt/dyPt dosuwa już wyśrodkowaną treść.
+    Sx = Sy = scale
+    Tx = (pageW / 2 + dxPt) - Sx * (pageW / 2)
+    Ty = (pageH / 2 - dyPt) - Sy * (pageH / 2)
+  }
+  const tx = (px: number) => Tx + px * Sx
+  const ty = (py: number) => Ty + py * Sy
+  const ts = (s: number) => s * Sy                  // rozmiar tekstu skaluje się z wysokością
+  const tsSquare = (s: number) => s * Math.min(Sx, Sy)  // QR zawsze kwadratowy (czytelność skanu)
 
   for (let i = 0; i < units.length; i += perSheet) {
     const group = units.slice(i, i + perSheet)
-    const [copied] = await out.copyPages(srcDoc, [0])
-    out.addPage(copied)
-    const pageW = copied.getWidth()
-    const pageH = copied.getHeight()
+    const page = out.addPage([pageW, pageH])
+    page.drawPage(embedded, { x: Tx, y: Ty, xScale: Sx * srcToPageX, yScale: Sy * srcToPageY })
 
     for (let slot = 0; slot < group.length; slot++) {
       const unit = group[slot]
       const offsetX = slotOffsetX(slot, perSheet, slotOffsets)
       const offsetY = slotOffsetY(slot, slotOffsets)
-      const vals = unitFieldValues(unit, shelfLifeDays)
+      const vals = unitFieldValues(unit, shelfLifeDays, orgCode)
 
       // Text fields
       for (const key of TEXT_KEYS) {
-        const pos = fp[key]
+        const pos = resolveFieldPos(fp[key], slotFP, slot, key, offsetX, offsetY)
         if (!pos || !vals[key]) continue
-        const effectiveX = pos.x + offsetX
-        const effectiveY = pos.y + offsetY
-        const xPt = (effectiveX / 100) * pageW
-        const sizePt = pos.size
-        const yTopFrac = (effectiveY / 100) * pageH
+        const xPt = tx((pos.x / 100) * pageW)
+        const sizePt = ts(pos.size)
+        const yTopFrac = (pos.y / 100) * pageH
+        const yPt = ty(pageH - yTopFrac - pos.size)
 
         if (key === 'weight') {
           // Split "number kg" → number part bold (if pos.bold), " kg" always regular
@@ -146,27 +278,27 @@ async function buildVectorPdf(
           const numberPart = spaceIdx >= 0 ? raw.slice(0, spaceIdx) : raw
           const unitPart = spaceIdx >= 0 ? raw.slice(spaceIdx) : ''
           const activeFont = pos.bold ? fontBold : font
-          copied.drawText(numberPart, {
+          page.drawText(numberPart, {
             x: xPt,
-            y: pageH - yTopFrac - sizePt,
+            y: yPt,
             size: sizePt,
             font: activeFont,
             color: rgb(0, 0, 0),
           })
           if (unitPart) {
             const numberWidth = activeFont.widthOfTextAtSize(numberPart, sizePt)
-            copied.drawText(unitPart, {
+            page.drawText(unitPart, {
               x: xPt + numberWidth,
-              y: pageH - yTopFrac - sizePt,
+              y: yPt,
               size: sizePt,
               font,
               color: rgb(0, 0, 0),
             })
           }
         } else {
-          copied.drawText(String(vals[key]), {
+          page.drawText(String(vals[key]), {
             x: xPt,
-            y: pageH - yTopFrac - sizePt,
+            y: yPt,
             size: sizePt,
             font: pos.bold ? fontBold : font,
             color: rgb(0, 0, 0),
@@ -175,18 +307,18 @@ async function buildVectorPdf(
       }
 
       // QR code
-      const qrPos = fp['qr']
+      const qrPos = resolveFieldPos(fp['qr'], slotFP, slot, 'qr', offsetX, offsetY)
       const qrUrl = qrMapRef[unit.id]
       if (qrPos && qrUrl) {
         const img = await out.embedPng(dataUrlToBytes(qrUrl))
-        const sPt = qrPos.size * MM
-        const xPt = ((qrPos.x + offsetX) / 100) * pageW
-        const yTopFrac = ((qrPos.y + offsetY) / 100) * pageH
-        copied.drawImage(img, {
+        const qpt = tsSquare(qrPos.size * MM)   // QR kwadratowy nawet przy rozciąganiu
+        const xPt = tx((qrPos.x / 100) * pageW)
+        const yTopEdge = ty(pageH - (qrPos.y / 100) * pageH)  // górna krawędź QR (układ lewy-dolny)
+        page.drawImage(img, {
           x: xPt,
-          y: pageH - yTopFrac - sPt,
-          width: sPt,
-          height: sPt,
+          y: yTopEdge - qpt,
+          width: qpt,
+          height: qpt,
         })
       }
     }
@@ -210,12 +342,27 @@ export function LabelPrintPage() {
   const unitsRes    = useApi(() => finishedUnitsApi.listByPlanLine(planLineId), [planLineId])
   const templateRes = useApi(() => labelTemplatesApi.get(clientId, recipeId),  [clientId, recipeId])
   const recipeRes   = useApi(() => recipesApi.byId(recipeId),                  [recipeId])
+  const clientsRes  = useApi(() => clientsApi.list(), [])
+
+  // Plan przekazuje clientId jako NAZWĘ (czasem wyświetlaną), nie id — dopasuj po
+  // id ORAZ name/displayName, inaczej pole „Kod nadzoru" nigdy się nie pokaże.
+  const halal = !!(clientsRes.data ?? []).find(
+    (c: any) => c.id === clientId || c.name === clientId || c.displayName === clientId,
+  )?.halalSupervision
+  const [orgCode, setOrgCode] = useState('')
+  // Prefill kodu nadzoru z pamięci per klient (poprzedni druk) — edytowalny co partię.
+  useEffect(() => {
+    if (clientId) setOrgCode(localStorage.getItem(`orgcode:${clientId}`) || '')
+  }, [clientId])
+  function changeOrgCode(v: string) {
+    setOrgCode(v)
+    if (clientId) localStorage.setItem(`orgcode:${clientId}`, v)
+  }
 
   const [qrMap, setQrMap] = useState<Record<string, string>>({})
   const [pdfUrl, setPdfUrl] = useState('')
   const printedRef = useRef(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const pdfBuiltRef = useRef(false)
 
   const units    = filterUnitsByIds(unitsRes.data ?? [], unitIdsFilter)
   const tplResp  = templateRes.data
@@ -233,7 +380,7 @@ export function LabelPrintPage() {
       units.map(async (u) => {
         try {
           const url = await QRCode.toDataURL(u.qrCode, {
-            width: 240,
+            width: 1000,               // wysoka rozdzielczość → ostre krawędzie modułów w druku (~1000px na ~25mm = ~1000dpi)
             margin: 4,                 // quiet zone — wymagane 4 moduły białego marginesu
             errorCorrectionLevel: 'H', // 30% korekcji: odporność na szron/stretch/refleksy w szokówce i mroźni
           })
@@ -255,11 +402,10 @@ export function LabelPrintPage() {
 
   // Build vector PDF when template has backgroundPdf and all QR codes are ready
   useEffect(() => {
-    if (!dataReady || !template?.backgroundPdf || pdfBuiltRef.current) return
+    if (!dataReady || !template?.backgroundPdf) return
     if (Object.keys(qrMap).length === 0) return
-    pdfBuiltRef.current = true
     let objectUrl = ''
-    buildVectorPdf(template, units, template.labelsPerSheet || 2, shelfLifeDays, qrMap)
+    buildVectorPdf(template, units, template.labelsPerSheet || 2, shelfLifeDays, qrMap, orgCode)
       .then((url) => {
         objectUrl = url
         setPdfUrl(url)
@@ -271,15 +417,17 @@ export function LabelPrintPage() {
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataReady, template?.backgroundPdf, qrMap])
+  }, [dataReady, template?.backgroundPdf, qrMap, orgCode])
 
   // Auto-print for raster (image background) mode only
   useEffect(() => {
     if (!dataReady || template?.backgroundPdf || printedRef.current) return
+    if (clientsRes.loading) return            // poczekaj aż wiemy czy klient ma nadzór
+    if (halal && !orgCode) return             // nadzór HALAL → najpierw wpisz kod nadzoru
     printedRef.current = true
     const timer = window.setTimeout(() => window.print(), 300)
     return () => window.clearTimeout(timer)
-  }, [dataReady, template?.backgroundPdf])
+  }, [dataReady, template?.backgroundPdf, clientsRes.loading, halal, orgCode])
 
   // ── Loading states ──
   const anyLoading = unitsRes.loading || templateRes.loading || recipeRes.loading
@@ -358,6 +506,10 @@ export function LabelPrintPage() {
 
   const fp = template.fieldPositions
 
+  // Kalibracja druku (kompensacja ucinanego paska) — wspólna dla obu gałęzi.
+  const calib = template.printCalib || {}
+  const calibTransform = `translate(${calib.dxMm ?? 0}mm, ${calib.dyMm ?? 0}mm) scale(${(calib.scale ?? 100) / 100})`
+
   // ── Vector PDF render branch (pdf-lib) ──
   if (template.backgroundPdf) {
     return (
@@ -370,9 +522,16 @@ export function LabelPrintPage() {
           >
             <ArrowLeft size={14} /> Wróć
           </Link>
-          <div className="text-sm text-slate-600">
-            {units.length} etykiet · {pages.length} stron · {perSheet}/A4
-            {pdfUrl && <span className="ml-2 text-green-700 font-semibold">✓ PDF wektorowy</span>}
+          <div className="flex items-center gap-3 text-sm text-slate-600">
+            <span>{units.length} etykiet · {pages.length} stron · {perSheet}/A4</span>
+            {halal && (
+              <label className="flex items-center gap-1.5 font-semibold text-slate-700">
+                Kod nadzoru:
+                <input value={orgCode} onChange={e => changeOrgCode(e.target.value)} placeholder="np. 7J8EX"
+                  className="w-24 rounded border border-slate-300 px-2 py-0.5 font-mono uppercase" />
+              </label>
+            )}
+            {pdfUrl && <span className="text-green-700 font-semibold">✓ PDF wektorowy</span>}
           </div>
           <div className="flex items-center gap-2">
             {pdfUrl && (
@@ -417,6 +576,11 @@ export function LabelPrintPage() {
   return (
     <div className="min-h-screen bg-white text-black">
       <style>{`
+        /* Pełna wierność druku — nie pozwól przeglądarce przyciemniać/pomijać tła i obrazów */
+        html, body, .label-sheet, .label-bg, .label-field {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
         .label-sheet {
           position: relative;
           width: 210mm;
@@ -425,12 +589,18 @@ export function LabelPrintPage() {
           background: #fff;
           box-sizing: border-box;
         }
+        .label-calib {
+          position: absolute;
+          inset: 0;
+          transform-origin: center center;
+        }
         .label-bg {
           position: absolute;
           inset: 0;
           width: 100%;
           height: 100%;
           object-fit: fill;
+          image-rendering: auto;
         }
         .label-field {
           position: absolute;
@@ -459,8 +629,15 @@ export function LabelPrintPage() {
         >
           <ArrowLeft size={14} /> Wróć
         </Link>
-        <div className="text-sm text-slate-600">
-          {units.length} etykiet · {pages.length} stron · {perSheet}/A4
+        <div className="flex items-center gap-3 text-sm text-slate-600">
+          <span>{units.length} etykiet · {pages.length} stron · {perSheet}/A4</span>
+          {halal && (
+            <label className="flex items-center gap-1.5 font-semibold text-slate-700">
+              Kod nadzoru:
+              <input value={orgCode} onChange={e => changeOrgCode(e.target.value)} placeholder="np. 7J8EX"
+                className="w-24 rounded border border-slate-300 px-2 py-0.5 font-mono uppercase" />
+            </label>
+          )}
         </div>
         <button
           onClick={() => window.print()}
@@ -472,6 +649,8 @@ export function LabelPrintPage() {
 
       {pages.map((pageUnits, pageIdx) => (
         <div key={pageIdx} className="label-sheet">
+         {/* Kalibracja druku: tło + pola przesuwane/skalowane razem */}
+         <div className="label-calib" style={{ transform: calibTransform }}>
           {/* ONE background fills the full A4 sheet — the artwork is the whole page */}
           {template.backgroundData && (
             <img className="label-bg" src={template.backgroundData} alt="" />
@@ -481,36 +660,36 @@ export function LabelPrintPage() {
           {pageUnits.map((unit, slot) => {
             const offsetX = slotOffsetX(slot, perSheet, template.slotOffsets)
             const offsetY = slotOffsetY(slot, template.slotOffsets)
-            const values = unitFieldValues(unit, shelfLifeDays)
+            const values = unitFieldValues(unit, shelfLifeDays, orgCode)
             const qrDataUrl = qrMap[unit.id] ?? ''
 
+            const qrPos = resolveFieldPos(fp.qr, template.slotFieldPositions, slot, 'qr', offsetX, offsetY)
             return (
               <div key={unit.id}>
                 {/* QR code */}
-                {fp.qr && qrDataUrl && (
+                {qrPos && qrDataUrl && (
                   <img
                     className="label-field"
                     src={qrDataUrl}
                     alt={`QR ${unit.qrCode}`}
                     style={{
-                      left: `${fp.qr.x + offsetX}%`,
-                      top: `${fp.qr.y + offsetY}%`,
-                      width: `${fp.qr.size}mm`,
-                      height: `${fp.qr.size}mm`,
+                      left: `${qrPos.x}%`,
+                      top: `${qrPos.y}%`,
+                      width: `${qrPos.size}mm`,
+                      height: `${qrPos.size}mm`,
                       imageRendering: 'pixelated',
                     }}
                   />
                 )}
 
                 {/* Text fields: prod_date, freeze_date, best_before, batch_no, weight */}
-                {(['prod_date', 'freeze_date', 'best_before', 'batch_no', 'weight'] as const).map((key) => {
-                  const pos = fp[key]
+                {(['prod_date', 'freeze_date', 'best_before', 'batch_no', 'weight', 'org_code'] as const).map((key) => {
+                  const pos = resolveFieldPos(fp[key], template.slotFieldPositions, slot, key, offsetX, offsetY)
                   if (!pos) return null
-                  const effectiveLeft = pos.x + offsetX
-                  const effectiveTop = pos.y + offsetY
+                  if (key === 'org_code' && !values[key]) return null
                   const sharedStyle = {
-                    left: `${effectiveLeft}%`,
-                    top: `${effectiveTop}%`,
+                    left: `${pos.x}%`,
+                    top: `${pos.y}%`,
                     fontSize: `${pos.size}pt`,
                     fontFamily: pos.fontFamily || 'Arial',
                   }
@@ -543,6 +722,7 @@ export function LabelPrintPage() {
               </div>
             )
           })}
+         </div>
         </div>
       ))}
     </div>

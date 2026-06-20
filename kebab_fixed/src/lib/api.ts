@@ -340,6 +340,7 @@ function mapClient(raw: any): Client {
     destName:    raw.dest_name ?? raw.destName ?? '',
     destAddress: raw.dest_address ?? raw.destAddress ?? '',
     destCity:    raw.dest_city ?? raw.destCity ?? '',
+    halalSupervision: !!(raw.halal_supervision ?? raw.halalSupervision ?? false),
     active:      raw.active ?? true,
     createdAt:   raw.created_at ?? raw.createdAt ?? '',
   }
@@ -1147,11 +1148,19 @@ export const finishedUnitsApi = {
 // ─── Szablony etykiet ─────────────────────────────────────────
 export interface LabelFieldPos { x: number; y: number; size: number; fontFamily?: string; bold?: boolean }
 export interface LabelSlotOffset { dx: number; dy: number }
+/** Kalibracja druku: kompensacja ucinanego paska — przesunięcie X/Y w mm + skala (%).
+ *  fit = dopasuj/przytnij tło do treści A4; fitStretch = rozciągnij treść na CAŁĄ wysokość
+ *  (usuwa biały pasek u dołu, dopuszcza lekkie pionowe rozciągnięcie). */
+export interface LabelPrintCalib { dxMm?: number; dyMm?: number; scale?: number; fit?: boolean; fitStretch?: boolean }
 export interface LabelTemplate {
   id: string; clientId: string; recipeId: string; kind: string
   backgroundData: string; backgroundPdf?: string; fieldPositions: Record<string, LabelFieldPos>
   pageSize: string; labelsPerSheet: number; zpl: string
   slotOffsets?: LabelSlotOffset[]
+  printCalib?: LabelPrintCalib
+  /** Ręczne pozycje pól per slot (etykieta 2+): { "1": { qr: {x,y,size}, batch_no: {...} } }.
+   *  Pole z nadpisaniem ignoruje globalny slotOffset — pozycja jest bezwzględna na arkuszu. */
+  slotFieldPositions?: Record<string, Record<string, LabelFieldPos>>
 }
 export const labelTemplatesApi = {
   get: (clientId: string, recipeId: string) =>
@@ -1159,13 +1168,17 @@ export const labelTemplatesApi = {
       `/label-templates?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
   exists: (clientId: string, recipeId: string) =>
     get<{ exists: boolean }>(`/label-templates/exists?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
-  save: (tpl: { clientId?: string; recipeId?: string; kind?: string; backgroundData?: string; backgroundPdf?: string; fieldPositions?: Record<string, LabelFieldPos>; pageSize?: string; labelsPerSheet?: number; zpl?: string; slotOffsets?: LabelSlotOffset[] }) =>
+  resolve: (clientId: string, recipeId: string) =>
+    get<{ kind: 'zebra' | 'pdf' | 'none' }>(`/label-templates/resolve?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
+  save: (tpl: { clientId?: string; recipeId?: string; kind?: string; backgroundData?: string; backgroundPdf?: string; fieldPositions?: Record<string, LabelFieldPos>; pageSize?: string; labelsPerSheet?: number; zpl?: string; slotOffsets?: LabelSlotOffset[]; printCalib?: LabelPrintCalib; slotFieldPositions?: Record<string, Record<string, LabelFieldPos>> }) =>
     put<LabelTemplate>('/label-templates', {
       client_id: tpl.clientId ?? '', recipe_id: tpl.recipeId ?? '', kind: tpl.kind ?? 'overlay',
       background_data: tpl.backgroundData ?? '', background_pdf: tpl.backgroundPdf ?? '',
       field_positions: tpl.fieldPositions ?? {},
       page_size: tpl.pageSize ?? 'a4', labels_per_sheet: tpl.labelsPerSheet ?? 2, zpl: tpl.zpl ?? '',
       slot_offsets: tpl.slotOffsets ?? [],
+      print_calib: tpl.printCalib ?? {},
+      slot_field_positions: tpl.slotFieldPositions ?? {},
     }),
   list: () =>
     get<Array<{ id: string; clientId: string; recipeId: string; kind: string; pageSize: string; labelsPerSheet: number; hasBackground: boolean; updatedAt: string }>>('/label-templates/all'),
@@ -1185,6 +1198,70 @@ export const labelsZebraApi = {
     get<ZebraRenderResult>(
       `/labels/zebra/render?plan_line_id=${encodeURIComponent(planLineId)}` +
       `&client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
+}
+
+// ─── Wizualny projektant etykiet Zebra (Z-Design-1) ──────────────
+export interface ZebraElement {
+  id: string
+  type: 'text' | 'qr' | 'box' | 'image'
+  x: number; y: number
+  w?: number; h?: number
+  fontMm?: number; align?: 'L' | 'C' | 'R'
+  mag?: number; thickMm?: number
+  value?: string
+  // Tekst-grafika / obraz: render do ^GFA (Arial + polskie znaki, logo HALAL/WE).
+  graphic?: boolean          // tekst renderowany jako grafika (font systemowy)
+  font?: string              // np. 'Arial' (gdy graphic=true)
+  bold?: boolean
+  src?: string               // dataURL podglądu obrazu (type='image')
+  gf?: string                // gotowa komenda ^GFA (liczona przy zapisie/wgraniu)
+}
+
+export interface ZebraDesign {
+  clientId: string; recipeId: string; sizeKey: string
+  widthMm: number; heightMm: number; dpi: number
+  /** Tło ZPL wklejone z Zebra Designer (statyka 1:1); pola dynamiczne nakładane na wierzch. */
+  backgroundZpl?: string
+  elements: ZebraElement[]
+}
+
+export const zebraDesignsApi = {
+  get: (clientId: string, recipeId: string) =>
+    get<{ exists: boolean; design: ZebraDesign | null }>(
+      `/zebra-designs?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
+  save: (d: ZebraDesign) =>
+    put<{ ok: boolean }>('/zebra-designs', {
+      client_id: d.clientId, recipe_id: d.recipeId, size_key: d.sizeKey,
+      width_mm: d.widthMm, height_mm: d.heightMm, dpi: d.dpi,
+      background_zpl: d.backgroundZpl ?? '', elements: d.elements,
+    }),
+  render: (clientId: string, recipeId: string, planLineId: string) =>
+    get<{ ok: boolean; reason?: string; zpl?: string; count?: number }>(
+      `/zebra-designs/render?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}&plan_line_id=${encodeURIComponent(planLineId)}`),
+  renderSample: (d: ZebraDesign) =>
+    post<{ ok: boolean; zpl?: string; count?: number }>('/zebra-designs/render-sample', {
+      width_mm: d.widthMm, height_mm: d.heightMm, dpi: d.dpi,
+      background_zpl: d.backgroundZpl ?? '', elements: d.elements,
+    }),
+}
+
+/** Rodzaj etykiety dla pary klient+receptura: 'zebra' (drukarka etykiet) / 'pdf' / 'none'. */
+export type LabelKind = 'zebra' | 'pdf' | 'none'
+
+// ─── Wyszukiwanie firmy po NIP/VAT (przez autoryzowany wrapper — z tokenem!) ──
+// WAŻNE: te wywołania MUSZĄ iść przez req() (Bearer token), bo /api/gus i /api/vies
+// są chronione RBAC. Surowy fetch bez tokenu = 401 „Brak dostępu" (był stały bug).
+export interface NipCompany {
+  nip: string; regon?: string; nazwa: string
+  ulica?: string; numer_budynku?: string; numer_lokalu?: string
+  kod_pocztowy?: string; miasto?: string; adres?: string
+}
+export interface ViesCompany {
+  vatNumber: string; countryCode: string; traderName: string; traderAddress: string; valid: boolean
+}
+export const companyApi = {
+  gus: (nip: string) => get<NipCompany>(`/gus/${encodeURIComponent(nip)}`),
+  vies: (vat: string) => get<ViesCompany>(`/vies/lookup?vat=${encodeURIComponent(vat)}`),
 }
 
 // ─── HDI ────────────────────────────────────────────────────────

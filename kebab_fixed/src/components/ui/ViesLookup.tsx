@@ -3,6 +3,7 @@
  */
 import { useState } from 'react'
 import { Search, Loader2, CheckCircle, AlertTriangle, Globe } from 'lucide-react'
+import { companyApi } from '@/lib/api'
 
 export interface ViesCompanyData {
   vatNumber:    string
@@ -15,12 +16,6 @@ export interface ViesCompanyData {
 interface Props {
   onFound: (data: ViesCompanyData) => void
 }
-
-const _isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-const _envUrl  = import.meta.env.VITE_API_URL as string | undefined
-const API_BASE = _isTauri
-  ? `${_envUrl || 'http://204.168.166.34:8080'}/api`
-  : _envUrl ? `${_envUrl}/api` : '/api'
 
 const EU_COUNTRIES: Record<string, string> = {
   AT:'Austria', BE:'Belgia', BG:'Bułgaria', CY:'Cypr', CZ:'Czechy',
@@ -46,11 +41,7 @@ export function ViesLookup({ onFound }: Props) {
     const vat = `${prefix}${body}`
     setLoading(true); setError(''); setResult(null)
     try {
-      const res  = await fetch(`${API_BASE}/vies/lookup?vat=${encodeURIComponent(vat)}`)
-      const ct   = res.headers.get('content-type') || ''
-      if (!ct.includes('application/json')) throw new Error(`Błąd serwera (${res.status})`)
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || `Błąd ${res.status}`)
+      const data = await companyApi.vies(vat)   // autoryzowane (Bearer token) — bez 401
       if (!data.valid) { setError(`Numer ${vat} nie jest aktywny w systemie VIES`); return }
       setResult({
         vatNumber:     data.vatNumber    || vat,
