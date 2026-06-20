@@ -7,6 +7,7 @@ from app.db import cx_execute_returning, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.utils.ids import cuid
 from app.services.zebra_labels_service import _zpl_escape, unit_zpl_values
+from app.services.label_templates_service import client_key_candidates
 
 logger = get_logger(__name__)
 
@@ -94,8 +95,8 @@ def _row_to_design(row: Dict[str, Any]) -> Dict[str, Any]:
 
 def get_design(client_id: str, recipe_id: str) -> Dict[str, Any]:
     row = query_one(
-        "SELECT * FROM zebra_label_designs WHERE client_id=%s AND recipe_id=%s",
-        (client_id, recipe_id),
+        "SELECT * FROM zebra_label_designs WHERE client_id = ANY(%s) AND recipe_id=%s",
+        (client_key_candidates(client_id), recipe_id),
     )
     if not row:
         return {"exists": False, "design": None}
@@ -137,8 +138,8 @@ def _design_dict_from_row(row: Dict[str, Any]) -> Dict[str, Any]:
 
 def render_units(client_id: str, recipe_id: str, plan_line_id: str) -> Dict[str, Any]:
     row = query_one(
-        "SELECT * FROM zebra_label_designs WHERE client_id=%s AND recipe_id=%s",
-        (client_id, recipe_id),
+        "SELECT * FROM zebra_label_designs WHERE client_id = ANY(%s) AND recipe_id=%s",
+        (client_key_candidates(client_id), recipe_id),
     )
     if not row:
         return {"ok": False, "reason": "Brak projektu etykiety Zebra"}

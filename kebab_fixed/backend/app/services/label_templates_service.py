@@ -9,6 +9,27 @@ from app.utils.ids import cuid
 logger = get_logger(__name__)
 
 
+def client_key_candidates(client_id: str) -> list:
+    """Wszystkie warianty klucza klienta do dopasowania szablonu.
+
+    Szablon zapisuje się pod NAZWĄ klienta (np. „SAS ISSA DISTRIB"), ale plan
+    produkcji potrafi przekazać nazwę WYŚWIETLANĄ (np. „ISSA DISTRIB") lub id.
+    Zwracamy wszystkie warianty (raw + name + display_name), by lookup zawsze
+    trafiał niezależnie od tego, którą formą posługuje się wołający.
+    """
+    cands = [client_id] if client_id else []
+    row = query_one(
+        "SELECT name, display_name FROM clients "
+        "WHERE name=%s OR display_name=%s OR id=%s LIMIT 1",
+        (client_id, client_id, client_id),
+    )
+    if row:
+        for k in (row.get("name"), row.get("display_name")):
+            if k and k not in cands:
+                cands.append(k)
+    return cands or [client_id]
+
+
 def _no_nul(s) -> str:
     """PostgreSQL TEXT nie przyjmuje znaku NUL (0x00) — usuń go.
 
@@ -116,8 +137,8 @@ def upsert_template(dto: Dict[str, Any]) -> Dict[str, Any]:
 def get_template(client_id: str, recipe_id: str) -> Optional[Dict[str, Any]]:
     """Zwraca pełny szablon (incl. backgroundData) lub None jeśli nie istnieje."""
     row = query_one(
-        "SELECT * FROM label_templates WHERE client_id=%s AND recipe_id=%s",
-        (client_id, recipe_id),
+        "SELECT * FROM label_templates WHERE client_id = ANY(%s) AND recipe_id=%s",
+        (client_key_candidates(client_id), recipe_id),
     )
     if row is None:
         return None
@@ -151,8 +172,8 @@ def list_templates() -> list:
 def template_exists(client_id: str, recipe_id: str) -> Dict[str, Any]:
     """Sprawdza czy szablon dla danej pary (client_id, recipe_id) istnieje."""
     row = query_one(
-        "SELECT id FROM label_templates WHERE client_id=%s AND recipe_id=%s",
-        (client_id, recipe_id),
+        "SELECT id FROM label_templates WHERE client_id = ANY(%s) AND recipe_id=%s",
+        (client_key_candidates(client_id), recipe_id),
     )
     return {"exists": row is not None}
 
@@ -164,15 +185,16 @@ def resolve_label_kind(client_id: str, recipe_id: str) -> Dict[str, Any]:
     sprawdzamy szablon PDF (druk na zwykłej drukarce). Używane przez plan
     produkcji: jeden przycisk „Etykieta" otwiera właściwy wydruk.
     """
+    cands = client_key_candidates(client_id)
     zebra = query_one(
-        "SELECT 1 FROM zebra_label_designs WHERE client_id=%s AND recipe_id=%s",
-        (client_id, recipe_id),
+        "SELECT 1 FROM zebra_label_designs WHERE client_id = ANY(%s) AND recipe_id=%s",
+        (cands, recipe_id),
     )
     if zebra is not None:
         return {"kind": "zebra"}
     pdf = query_one(
-        "SELECT 1 FROM label_templates WHERE client_id=%s AND recipe_id=%s",
-        (client_id, recipe_id),
+        "SELECT 1 FROM label_templates WHERE client_id = ANY(%s) AND recipe_id=%s",
+        (cands, recipe_id),
     )
     if pdf is not None:
         return {"kind": "pdf"}
