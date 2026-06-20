@@ -290,7 +290,7 @@ export function LabelPrintPage() {
       units.map(async (u) => {
         try {
           const url = await QRCode.toDataURL(u.qrCode, {
-            width: 240,
+            width: 1000,               // wysoka rozdzielczość → ostre krawędzie modułów w druku (~1000px na ~25mm = ~1000dpi)
             margin: 4,                 // quiet zone — wymagane 4 moduły białego marginesu
             errorCorrectionLevel: 'H', // 30% korekcji: odporność na szron/stretch/refleksy w szokówce i mroźni
           })
@@ -486,6 +486,11 @@ export function LabelPrintPage() {
   return (
     <div className="min-h-screen bg-white text-black">
       <style>{`
+        /* Pełna wierność druku — nie pozwól przeglądarce przyciemniać/pomijać tła i obrazów */
+        html, body, .label-sheet, .label-bg, .label-field {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
         .label-sheet {
           position: relative;
           width: 210mm;
@@ -505,6 +510,7 @@ export function LabelPrintPage() {
           width: 100%;
           height: 100%;
           object-fit: fill;
+          image-rendering: auto;
         }
         .label-field {
           position: absolute;
