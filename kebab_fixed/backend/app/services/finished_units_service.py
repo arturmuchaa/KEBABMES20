@@ -147,6 +147,15 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
         if not line:
             raise HTTPException(404, "Linia planu nie znaleziona")
 
+        # Data produkcji na etykiecie = DATA PLANU (produkcja zaplanowana, np. na
+        # poniedziałek 22.06), a nie dzień drukowania. Plan trzyma plan_date.
+        plan = cx_query_one(
+            conn,
+            "SELECT plan_date FROM production_plans WHERE id=%s",
+            (line.get("plan_id"),),
+        )
+        plan_date = str((plan or {}).get("plan_date") or "")[:10]
+
         # Sztuki mieszane (resztki kilku partii w jednej sztuce) muszą mieć
         # realny numer PM zanim rozdamy partie na etykiety. Normalnie nadaje
         # go aktywacja planu; tu defensywnie dla starszych planów.
@@ -171,6 +180,15 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
                     line.get("seasoned_batch_no"),
                     line.get("seasoned_batch_nos"),
                 )
+                # Data produkcji = data planu (etykiety drukowane z wyprzedzeniem).
+                if plan_date:
+                    cx_execute(
+                        conn,
+                        "UPDATE finished_units SET produced_date=%s "
+                        "WHERE plan_line_id=%s AND status='planned' "
+                        "AND COALESCE(produced_date,'') <> %s",
+                        (plan_date, plan_line_id, plan_date),
+                    )
                 for u in existing:
                     idx = int(u.get("qr_seq") or 0) - 1
                     want = seq[idx] if 0 <= idx < len(seq) else (seq[-1] if seq else "")
@@ -222,7 +240,7 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
                     line.get("tuleja") or line.get("packaging_name") or "",
                     float(line.get("kg_per_unit") or 0),
                     batch_no,
-                    line.get("produced_date") or "",
+                    plan_date or line.get("produced_date") or "",
                     now_iso(),
                 ),
             )
