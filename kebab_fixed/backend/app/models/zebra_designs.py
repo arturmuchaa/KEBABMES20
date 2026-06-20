@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 
 class SaveDesignRequest(BaseModel):
+    client_id: str = ""
     recipe_id: str = ""
     size_key: str = ""
     width_mm: float = 100

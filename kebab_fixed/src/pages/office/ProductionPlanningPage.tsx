@@ -9,7 +9,7 @@ import { useState, useMemo, useEffect, useRef, type KeyboardEvent as ReactKeyboa
 import { useNavigate } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
 import { useClientNames } from '@/lib/clientNames'
-import { productionPlansApi, clientOrdersApi, seasonedMeatApi, packagingApi, clientsApi, finishedUnitsApi } from '@/lib/apiClient'
+import { productionPlansApi, clientOrdersApi, seasonedMeatApi, packagingApi, clientsApi, finishedUnitsApi, labelTemplatesApi } from '@/lib/apiClient'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -1567,15 +1567,22 @@ export function ProductionPlanningPage() {
     } catch {
       // Ignoruj błąd — często jednostki już istnieją; i tak przechodzimy do druku
     }
-    setGeneratingLine(null)
     const params = new URLSearchParams({ planLineId: line.id })
     if (line.clientName) params.set('clientId', line.clientName)
     if (line.recipeId)   params.set('recipeId', line.recipeId)
-    navigate(`/etykiety/druk?${params.toString()}`)
-  }
 
-  // Etykiety Zebra w planowaniu produkcji tymczasowo wyłączone (do dopracowania) —
-  // zostają same etykiety PDF. Trasa /etykiety/zebra i handler nadal istnieją.
+    // Jeden przycisk „Etykieta" — system sam wie, czy dla tej pary (klient+receptura)
+    // zdefiniowano etykietę Zebra (drukarka etykiet) czy PDF (zwykła drukarka).
+    let kind: 'zebra' | 'pdf' | 'none' = 'pdf'
+    try {
+      const r = await labelTemplatesApi.resolve(line.clientName || '', line.recipeId || '')
+      kind = r.kind
+    } catch {
+      // Brak rozstrzygnięcia → domyślnie PDF (pokaże ekran konfiguracji, jeśli brak szablonu).
+    }
+    setGeneratingLine(null)
+    navigate(`/etykiety/${kind === 'zebra' ? 'zebra' : 'druk'}?${params.toString()}`)
+  }
 
   const activePlans = (plans??[]).filter(p=>p.status!=='done'&&p.status!=='cancelled')
 

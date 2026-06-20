@@ -68,9 +68,6 @@ export function LabelTemplatesPage() {
           <Button variant="outline" onClick={() => navigate('/etykiety/zebra-designer')} className="gap-2">
             <LayoutTemplate size={14} /> Projektant Zebra
           </Button>
-          <Button variant="outline" onClick={() => navigate('/etykiety/zebra-edytor')} className="gap-2">
-            <Plus size={14} /> Etykieta Zebra (ZPL)
-          </Button>
           <Button onClick={() => navigate('/etykiety/szablon')} className="gap-2">
             <Plus size={14} /> Nowy szablon (PDF)
           </Button>

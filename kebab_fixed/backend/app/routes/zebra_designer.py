@@ -8,8 +8,8 @@ router = APIRouter(prefix="/api/zebra-designs", tags=["zebra-designs"])
 
 
 @router.get("")
-def get(recipe_id: str = Query(""), size_key: str = Query("")):
-    return svc.get_design(recipe_id, size_key)
+def get(client_id: str = Query(""), recipe_id: str = Query("")):
+    return svc.get_design(client_id, recipe_id)
 
 
 @router.put("")
@@ -18,8 +18,8 @@ def save(dto: SaveDesignRequest):
 
 
 @router.get("/render")
-def render(recipe_id: str = Query(""), size_key: str = Query(""), plan_line_id: str = Query("")):
-    return svc.render_units(recipe_id, size_key, plan_line_id)
+def render(client_id: str = Query(""), recipe_id: str = Query(""), plan_line_id: str = Query("")):
+    return svc.render_units(client_id, recipe_id, plan_line_id)
 
 
 @router.post("/render-sample")

@@ -1163,6 +1163,8 @@ export const labelTemplatesApi = {
       `/label-templates?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
   exists: (clientId: string, recipeId: string) =>
     get<{ exists: boolean }>(`/label-templates/exists?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
+  resolve: (clientId: string, recipeId: string) =>
+    get<{ kind: 'zebra' | 'pdf' | 'none' }>(`/label-templates/resolve?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
   save: (tpl: { clientId?: string; recipeId?: string; kind?: string; backgroundData?: string; backgroundPdf?: string; fieldPositions?: Record<string, LabelFieldPos>; pageSize?: string; labelsPerSheet?: number; zpl?: string; slotOffsets?: LabelSlotOffset[]; printCalib?: LabelPrintCalib }) =>
     put<LabelTemplate>('/label-templates', {
       client_id: tpl.clientId ?? '', recipe_id: tpl.recipeId ?? '', kind: tpl.kind ?? 'overlay',
@@ -1210,7 +1212,7 @@ export interface ZebraElement {
 }
 
 export interface ZebraDesign {
-  recipeId: string; sizeKey: string
+  clientId: string; recipeId: string; sizeKey: string
   widthMm: number; heightMm: number; dpi: number
   /** Tło ZPL wklejone z Zebra Designer (statyka 1:1); pola dynamiczne nakładane na wierzch. */
   backgroundZpl?: string
@@ -1218,24 +1220,27 @@ export interface ZebraDesign {
 }
 
 export const zebraDesignsApi = {
-  get: (recipeId: string, sizeKey: string) =>
+  get: (clientId: string, recipeId: string) =>
     get<{ exists: boolean; design: ZebraDesign | null }>(
-      `/zebra-designs?recipe_id=${encodeURIComponent(recipeId)}&size_key=${encodeURIComponent(sizeKey)}`),
+      `/zebra-designs?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
   save: (d: ZebraDesign) =>
     put<{ ok: boolean }>('/zebra-designs', {
-      recipe_id: d.recipeId, size_key: d.sizeKey,
+      client_id: d.clientId, recipe_id: d.recipeId, size_key: d.sizeKey,
       width_mm: d.widthMm, height_mm: d.heightMm, dpi: d.dpi,
       background_zpl: d.backgroundZpl ?? '', elements: d.elements,
     }),
-  render: (recipeId: string, sizeKey: string, planLineId: string) =>
+  render: (clientId: string, recipeId: string, planLineId: string) =>
     get<{ ok: boolean; reason?: string; zpl?: string; count?: number }>(
-      `/zebra-designs/render?recipe_id=${encodeURIComponent(recipeId)}&size_key=${encodeURIComponent(sizeKey)}&plan_line_id=${encodeURIComponent(planLineId)}`),
+      `/zebra-designs/render?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}&plan_line_id=${encodeURIComponent(planLineId)}`),
   renderSample: (d: ZebraDesign) =>
     post<{ ok: boolean; zpl?: string; count?: number }>('/zebra-designs/render-sample', {
       width_mm: d.widthMm, height_mm: d.heightMm, dpi: d.dpi,
       background_zpl: d.backgroundZpl ?? '', elements: d.elements,
     }),
 }
+
+/** Rodzaj etykiety dla pary klient+receptura: 'zebra' (drukarka etykiet) / 'pdf' / 'none'. */
+export type LabelKind = 'zebra' | 'pdf' | 'none'
 
 // ─── Wyszukiwanie firmy po NIP/VAT (przez autoryzowany wrapper — z tokenem!) ──
 // WAŻNE: te wywołania MUSZĄ iść przez req() (Bearer token), bo /api/gus i /api/vies

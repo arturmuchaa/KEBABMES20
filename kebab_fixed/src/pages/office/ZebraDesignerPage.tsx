@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { ArrowLeft, Type, QrCode, Square, Save, Printer, Trash2, LayoutTemplate, ClipboardPaste, FileDown, Image as ImageIcon } from 'lucide-react'
-import { zebraDesignsApi, type ZebraDesign, type ZebraElement } from '@/lib/api'
+import { zebraDesignsApi, clientsApi, recipesApi, type ZebraDesign, type ZebraElement } from '@/lib/api'
+import { useApi } from '@/hooks/useApi'
 import { getDevices, sendZpl, probeBrowserPrint, browserPrintBaseUrl, type ZebraDevice } from '@/lib/zebra'
 import { LABEL_PRESETS } from '@/features/zebra/labelPresets'
 import { textToGfa, imageToGfa, loadImage } from '@/features/zebra/raster'
@@ -17,7 +18,12 @@ function uid() { return Math.random().toString(36).slice(2, 9) }
 
 export function ZebraDesignerPage() {
   const [params] = useSearchParams()
-  const recipeId = params.get('recipeId') || ''
+  // Etykieta Zebra per (klient + receptura) — jak szablon PDF: najpierw wybierz parę,
+  // potem projektuj i zapisz. clientId = NAZWA klienta (spójnie z drukiem i PDF).
+  const [clientId, setClientId] = useState(params.get('clientId') || '')
+  const [recipeId, setRecipeId] = useState(params.get('recipeId') || '')
+  const { data: clients } = useApi(() => clientsApi.list(), [])
+  const { data: recipes } = useApi(() => recipesApi.list(), [])
   const [sizeKey, setSizeKey] = useState('100x150')
   const [dpi, setDpi] = useState(203)
   const [elements, setElements] = useState<ZebraElement[]>([])
@@ -51,9 +57,11 @@ export function ZebraDesignerPage() {
   }
 
   useEffect(() => {
-    zebraDesignsApi.get(recipeId, sizeKey).then(r => {
+    if (!clientId || !recipeId) { setElements([]); setBackgroundZpl(''); setBgImg(''); setSel(null); return }
+    zebraDesignsApi.get(clientId, recipeId).then(r => {
       if (r.exists && r.design) {
         setElements(r.design.elements || []); setDpi(r.design.dpi || 203)
+        if (r.design.sizeKey && SIZES[r.design.sizeKey]) setSizeKey(r.design.sizeKey)
         const bg = r.design.backgroundZpl || ''
         setBackgroundZpl(bg)
         if (bg) renderBg(bg, r.design.dpi || 203)
@@ -61,7 +69,7 @@ export function ZebraDesignerPage() {
       } else { setElements([]); setBackgroundZpl(''); setBgImg('') }
       setSel(null)
     }).catch(() => setElements([]))
-  }, [recipeId, sizeKey])
+  }, [clientId, recipeId])
 
   useEffect(() => {
     getDevices().then(async ({ default: d, list }) => {
@@ -110,7 +118,7 @@ export function ZebraDesignerPage() {
   }
 
   async function downloadZpl() {
-    const d: ZebraDesign = { recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements: await withGraphics(elements) }
+    const d: ZebraDesign = { clientId, recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements: await withGraphics(elements) }
     try {
       const r = await zebraDesignsApi.renderSample(d)
       if (!r.zpl) { setMsg('Brak ZPL do pobrania'); return }
@@ -174,12 +182,13 @@ export function ZebraDesignerPage() {
   function onPointerUp() { drag.current = null }
 
   async function save() {
-    const d: ZebraDesign = { recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements: await withGraphics(elements) }
+    if (!clientId || !recipeId) { setMsg('Najpierw wybierz klienta i recepturę') ; return }
+    const d: ZebraDesign = { clientId, recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements: await withGraphics(elements) }
     try { await zebraDesignsApi.save(d); setMsg('Zapisano') } catch (e) { setMsg(e instanceof Error ? e.message : 'Błąd zapisu') }
   }
 
   async function testPrint() {
-    const d: ZebraDesign = { recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements: await withGraphics(elements) }
+    const d: ZebraDesign = { clientId, recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements: await withGraphics(elements) }
     const dev = devices.find(x => x.uid === deviceUid)
     if (!dev) { setMsg('Brak drukarki Zebra (BrowserPrint)'); return }
     try { const r = await zebraDesignsApi.renderSample(d); if (r.zpl) { await sendZpl(dev, r.zpl); setMsg('Wysłano test') } }
@@ -193,6 +202,17 @@ export function ZebraDesignerPage() {
       <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b bg-white px-4 py-2">
         <Link to="/office/szablony-etykiet" className="flex items-center gap-1 text-sm font-semibold text-slate-600"><ArrowLeft size={16} /> Wstecz</Link>
         <span className="mx-2 text-sm font-bold">Projektant Zebra</span>
+        {/* Najpierw wybierz klienta i recepturę (jak w PDF) — projekt zapisuje się dla tej pary */}
+        <select value={clientId} onChange={e => setClientId(e.target.value)}
+          className="rounded border border-slate-300 px-2 py-1 text-sm" title="Klient">
+          <option value="">— klient —</option>
+          {(clients ?? []).map((c: any) => <option key={c.id} value={c.name}>{c.displayName || c.name}</option>)}
+        </select>
+        <select value={recipeId} onChange={e => setRecipeId(e.target.value)}
+          className="rounded border border-slate-300 px-2 py-1 text-sm" title="Receptura (przyprawa)">
+          <option value="">— receptura —</option>
+          {(recipes ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
         <select value={sizeKey} onChange={e => setSizeKey(e.target.value)} className="rounded border px-2 py-1 text-sm">
           <option value="100x150">100×150 mm</option>
           <option value="100x300">100×300 mm</option>

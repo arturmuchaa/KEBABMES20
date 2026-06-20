@@ -600,6 +600,11 @@ _DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_zebra_designs_recipe ON zebra_label_designs(recipe_id)",
     # Tło ZPL wklejone z Zebra Designer (statyka 1:1) — pola dynamiczne nakładane na wierzch.
     "ALTER TABLE zebra_label_designs ADD COLUMN IF NOT EXISTS background_zpl TEXT NOT NULL DEFAULT ''",
+    # Projekt Zebra teraz per (klient + receptura) — jak szablon PDF. Wybieramy klienta
+    # i recepturę, tworzymy etykietę. size_key zostaje jako metadana rozmiaru.
+    "ALTER TABLE zebra_label_designs ADD COLUMN IF NOT EXISTS client_id TEXT NOT NULL DEFAULT ''",
+    "DROP INDEX IF EXISTS uq_zebra_designs_recipe_size",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_zebra_designs_client_recipe ON zebra_label_designs(client_id, recipe_id)",
     # Klient pod nadzorem HALAL → etykieta dostaje pole „kod nadzoru" (org_code).
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS halal_supervision BOOLEAN NOT NULL DEFAULT false",
 ]

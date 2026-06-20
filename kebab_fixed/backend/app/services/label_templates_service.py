@@ -153,6 +153,28 @@ def template_exists(client_id: str, recipe_id: str) -> Dict[str, Any]:
     return {"exists": row is not None}
 
 
+def resolve_label_kind(client_id: str, recipe_id: str) -> Dict[str, Any]:
+    """Rozstrzyga, jaką etykietę ma para (klient, receptura): Zebra czy PDF.
+
+    Priorytet ma projekt Zebra (druk na drukarce etykiet); jeśli go brak —
+    sprawdzamy szablon PDF (druk na zwykłej drukarce). Używane przez plan
+    produkcji: jeden przycisk „Etykieta" otwiera właściwy wydruk.
+    """
+    zebra = query_one(
+        "SELECT 1 FROM zebra_label_designs WHERE client_id=%s AND recipe_id=%s",
+        (client_id, recipe_id),
+    )
+    if zebra is not None:
+        return {"kind": "zebra"}
+    pdf = query_one(
+        "SELECT 1 FROM label_templates WHERE client_id=%s AND recipe_id=%s",
+        (client_id, recipe_id),
+    )
+    if pdf is not None:
+        return {"kind": "pdf"}
+    return {"kind": "none"}
+
+
 def delete_template(template_id: str) -> Dict[str, Any]:
     """Usuwa szablon etykiety na podstawie ID."""
     with transaction() as conn:

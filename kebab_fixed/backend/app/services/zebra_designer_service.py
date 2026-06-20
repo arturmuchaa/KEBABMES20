@@ -81,6 +81,7 @@ def design_to_zpl(design: Dict[str, Any], values: Dict[str, str]) -> str:
 
 def _row_to_design(row: Dict[str, Any]) -> Dict[str, Any]:
     return {
+        "clientId": row.get("client_id") or "",
         "recipeId": row.get("recipe_id") or "",
         "sizeKey": row.get("size_key") or "",
         "widthMm": float(row.get("width_mm") or 100),
@@ -91,10 +92,10 @@ def _row_to_design(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def get_design(recipe_id: str, size_key: str) -> Dict[str, Any]:
+def get_design(client_id: str, recipe_id: str) -> Dict[str, Any]:
     row = query_one(
-        "SELECT * FROM zebra_label_designs WHERE recipe_id=%s AND size_key=%s",
-        (recipe_id, size_key),
+        "SELECT * FROM zebra_label_designs WHERE client_id=%s AND recipe_id=%s",
+        (client_id, recipe_id),
     )
     if not row:
         return {"exists": False, "design": None}
@@ -107,15 +108,16 @@ def save_design(dto: Dict[str, Any]) -> Dict[str, Any]:
             conn,
             """
             INSERT INTO zebra_label_designs
-                (id, recipe_id, size_key, width_mm, height_mm, dpi, background_zpl, elements, updated_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb, now())
-            ON CONFLICT (recipe_id, size_key) DO UPDATE SET
+                (id, client_id, recipe_id, size_key, width_mm, height_mm, dpi, background_zpl, elements, updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb, now())
+            ON CONFLICT (client_id, recipe_id) DO UPDATE SET
+                size_key = EXCLUDED.size_key,
                 width_mm = EXCLUDED.width_mm, height_mm = EXCLUDED.height_mm,
                 dpi = EXCLUDED.dpi, background_zpl = EXCLUDED.background_zpl,
                 elements = EXCLUDED.elements, updated_at = now()
             RETURNING id
             """,
-            (cuid(), dto.get("recipe_id") or "", dto.get("size_key") or "",
+            (cuid(), dto.get("client_id") or "", dto.get("recipe_id") or "", dto.get("size_key") or "",
              float(dto.get("width_mm") or 100), float(dto.get("height_mm") or 150),
              int(dto.get("dpi") or 203), dto.get("background_zpl") or "",
              json.dumps(dto.get("elements") or [])),
@@ -133,10 +135,10 @@ def _design_dict_from_row(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def render_units(recipe_id: str, size_key: str, plan_line_id: str) -> Dict[str, Any]:
+def render_units(client_id: str, recipe_id: str, plan_line_id: str) -> Dict[str, Any]:
     row = query_one(
-        "SELECT * FROM zebra_label_designs WHERE recipe_id=%s AND size_key=%s",
-        (recipe_id, size_key),
+        "SELECT * FROM zebra_label_designs WHERE client_id=%s AND recipe_id=%s",
+        (client_id, recipe_id),
     )
     if not row:
         return {"ok": False, "reason": "Brak projektu etykiety Zebra"}

@@ -5,7 +5,6 @@ import { labelsZebraApi, zebraDesignsApi, type ZebraRenderResult } from '@/lib/a
 import { getDevices, sendZpl, probeBrowserPrint, type ZebraDevice } from '@/lib/zebra'
 
 const TEST_ZPL = '^XA^FO50,50^A0N,40,40^FDTest Zebra^FS^XZ'
-const SIZE_KEYS = ['100x150', '100x300']
 
 export function ZebraPrintPage() {
   const [params] = useSearchParams()
@@ -19,19 +18,19 @@ export function ZebraPrintPage() {
   const [sdkError, setSdkError] = useState('')
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
-  const [sizeKey, setSizeKey] = useState('100x150')
   const [bpHint, setBpHint] = useState('')   // diagnostyka połączenia z BrowserPrint
 
   useEffect(() => {
-    // Najpierw projekt z edytora (wektorowy ZPL); brak → fallback na import .prn.
-    zebraDesignsApi.render(recipeId, sizeKey, planLineId)
+    // Projekt Zebra z projektanta (per klient+receptura); rozmiar zapisany w projekcie.
+    // Brak → fallback na import .prn.
+    zebraDesignsApi.render(clientId, recipeId, planLineId)
       .then(r => {
         if (r.ok) { setRender(r as ZebraRenderResult); return }
         return labelsZebraApi.render(planLineId, clientId, recipeId).then(setRender)
       })
       .catch(() => labelsZebraApi.render(planLineId, clientId, recipeId).then(setRender)
         .catch(() => setRender({ ok: false, reason: 'Błąd pobierania ZPL' })))
-  }, [planLineId, clientId, recipeId, sizeKey])
+  }, [planLineId, clientId, recipeId])
 
   useEffect(() => {
     getDevices()
@@ -86,17 +85,13 @@ export function ZebraPrintPage() {
         {render && !render.ok && (
           <div className="rounded-lg border border-red-200 bg-white p-4 text-sm">
             <div className="font-bold text-red-700">{render.reason}</div>
-            <Link to={`/etykiety/szablon?clientId=${encodeURIComponent(clientId)}&recipeId=${encodeURIComponent(recipeId)}`}
-              className="mt-2 inline-block text-blue-700 underline">Konfiguruj szablon Zebra</Link>
+            <Link to={`/etykiety/zebra-designer?clientId=${encodeURIComponent(clientId)}&recipeId=${encodeURIComponent(recipeId)}`}
+              className="mt-2 inline-block text-blue-700 underline">Otwórz Projektant Zebra</Link>
           </div>
         )}
 
         {!sdkError && (
           <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Rozmiar etykiety (projekt Zebra)</label>
-            <select value={sizeKey} onChange={e => setSizeKey(e.target.value)} className="w-full rounded-lg border-2 border-slate-300 px-3 py-2 text-base">
-              {SIZE_KEYS.map(k => <option key={k} value={k}>{k.replace('x', '×')} mm</option>)}
-            </select>
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Drukarka</label>
             <select value={deviceUid} onChange={e => setDeviceUid(e.target.value)} className="w-full rounded-lg border-2 border-slate-300 px-3 py-2 text-base">
               {devices.length === 0 && <option value="">— brak drukarek —</option>}
