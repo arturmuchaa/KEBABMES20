@@ -3,6 +3,8 @@ import { Boxes, AlertTriangle } from 'lucide-react'
 import { fmtKg, fmtPct } from '@/lib/utils'
 import { materialRequirementsApi, type RequirementsSummary, type RawRequirementTotal } from '@/lib/api'
 
+const CWIARTKA = 'mat-cwiartka'
+
 export function MaterialSummaryCard() {
   const [data, setData] = useState<RequirementsSummary | null>(null)
   useEffect(() => {
@@ -32,6 +34,9 @@ export function MaterialSummaryCard() {
                 <AlertTriangle size={12} className="text-red-600 shrink-0" />
                 <span className="text-muted-foreground">{s.rawName}:</span>
                 <span className="font-bold text-red-700">{fmtKg(s.kgNetShortage, 0)} kg</span>
+                {s.rawTypeId === CWIARTKA && s.kgMeat > 0 && (
+                  <span className="text-[10px] text-muted-foreground">(z tego mięso z/s: {fmtKg(s.kgMeat, 0)} kg)</span>
+                )}
                 <span className="text-[10px] text-muted-foreground">(jest {fmtKg(s.kgAvailable, 0)})</span>
               </div>
             ))
@@ -51,9 +56,14 @@ function SummaryCol({ title, rows }: { title: string; rows: RawRequirementTotal[
         <div className="text-xs text-muted-foreground">—</div>
       ) : (
         nonZero.map(r => (
-          <div key={r.rawTypeId} className="flex justify-between text-xs tabular-nums">
-            <span className="text-muted-foreground">{r.rawName}</span>
-            <span className="font-bold text-ink">{fmtKg(r.kgRaw, 0)} kg</span>
+          <div key={r.rawTypeId} className="flex justify-between gap-2 text-xs tabular-nums">
+            <span className="text-muted-foreground">
+              {r.rawName}
+              {r.rawTypeId === CWIARTKA && r.kgMeat > 0 && (
+                <span className="text-[10px] text-muted-foreground"> (mięso z/s: {fmtKg(r.kgMeat, 0)} kg)</span>
+              )}
+            </span>
+            <span className="font-bold text-ink whitespace-nowrap">{fmtKg(r.kgRaw, 0)} kg</span>
           </div>
         ))
       )}

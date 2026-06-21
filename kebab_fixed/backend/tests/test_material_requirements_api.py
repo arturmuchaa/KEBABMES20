@@ -67,8 +67,10 @@ def test_summary_remaining_uses_qty_done_and_net_shortage_cascade(monkeypatch):
         "lines": [{"qty": 10, "qty_done": 4, "kg_per_unit": 10,
                    "recipe_id": "r1", "product_type_id": "pt1"}],
     })
-    # magazyn: 10 kg gotowego mięsa z/s + 5 kg ćwiartki
+    # magazyn: 10 kg gotowego mięsa z/s + 5 kg ćwiartki; brak przyprawionego/planów
     monkeypatch.setattr(mrs, "_stock_by_type", lambda: {"mat-mieso-zs": 10.0, "mat-cwiartka": 5.0})
+    monkeypatch.setattr(mrs, "seasoned_free_by_recipe", lambda: {})
+    monkeypatch.setattr(mrs, "active_plan_output_by_recipe", lambda: {})
 
     data = mrs.requirements_summary()
     total = {t["raw_type_id"]: t["kg_raw"] for t in data["total"]}
@@ -82,6 +84,29 @@ def test_summary_remaining_uses_qty_done_and_net_shortage_cascade(monkeypatch):
     assert net["mat-cwiartka"]["kg_needed_raw"] == 100.0
     assert net["mat-cwiartka"]["kg_available"] == 5.0
     assert net["mat-cwiartka"]["kg_net_shortage"] == 95.0
+    # ćwiartka niesie też ile z niej mięsa z/s (50 kg = brak z/s po magazynie)
+    assert net["mat-cwiartka"]["kg_meat"] == 50.0
+
+
+def test_summary_seasoned_and_planned_reduce_cwiartka(monkeypatch):
+    # zamówienie: 10 szt × 10 kg = 100 kg output (nic nie zrobione); yield 50%
+    _patch_common(monkeypatch, yield_pct=50.0)
+    import app.services.orders_service as os_
+    monkeypatch.setattr(os_, "list_orders", lambda status: [{"id": "o1", "status": "new"}])
+    monkeypatch.setattr(os_, "get_order", lambda oid: {
+        "id": "o1",
+        "lines": [{"qty": 10, "qty_done": 0, "kg_per_unit": 10,
+                   "recipe_id": "r1", "product_type_id": "pt1"}],
+    })
+    monkeypatch.setattr(mrs, "_stock_by_type", lambda: {})
+    # 30 kg gotowego przyprawionego + 50 kg output aktywnego planu → zostaje 20 output
+    monkeypatch.setattr(mrs, "seasoned_free_by_recipe", lambda: {"r1": 30.0})
+    monkeypatch.setattr(mrs, "active_plan_output_by_recipe", lambda: {"r1": 50.0})
+
+    net = {s["raw_type_id"]: s for s in mrs.requirements_summary()["net_shortage"]}
+    # 100 - 30 - 50 = 20 output → 20 z/s → ćwiartka 20/0.5 = 40
+    assert net["mat-cwiartka"]["kg_needed_raw"] == 40.0
+    assert net["mat-cwiartka"]["kg_meat"] == 20.0
 
 
 def test_save_deboning_yield_rejects_out_of_range():

@@ -123,13 +123,16 @@ def compute_net_shortage(
             avail_meat = float((stock_by_type or {}).get(meat_type, 0.0))
             brak_meat = max(0.0, float(need) - avail_meat)
             need_raw = round(brak_meat / (yield_pct / 100.0), 3) if yield_pct > 0 else 0.0
+            kg_meat = round(brak_meat, 3)  # ile mięsa z/s da ta ćwiartka
         else:                       # filet/indyk 1:1
             need_raw = round(float(need), 3)
+            kg_meat = need_raw
         avail_raw = float((stock_by_type or {}).get(raw_type, 0.0))
         rows.append({
             "raw_type_id": raw_type,
             "raw_name": name_of.get(raw_type, raw_type),
             "kg_needed_raw": need_raw,
+            "kg_meat": kg_meat,
             "kg_available": round(avail_raw, 3),
             "kg_net_shortage": round(max(0.0, need_raw - avail_raw), 3),
         })
@@ -182,14 +185,44 @@ def components_for(product_type_id: str, recipe_id: str):
 
 
 def _sum_by_raw(line_rows: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Suma per surowiec: kg_raw (np. ćwiartka) + kg_meat (mięso, które z niego wyjdzie)."""
     agg: Dict[str, Dict[str, Any]] = {}
     for rows in line_rows:
         for r in rows:
             rt = r["raw_type_id"]
             if rt not in agg:
-                agg[rt] = {"raw_type_id": rt, "raw_name": r["raw_name"], "kg_raw": 0.0}
+                agg[rt] = {"raw_type_id": rt, "raw_name": r["raw_name"], "kg_raw": 0.0, "kg_meat": 0.0}
             agg[rt]["kg_raw"] = round(agg[rt]["kg_raw"] + float(r["kg_raw"]), 3)
+            agg[rt]["kg_meat"] = round(agg[rt]["kg_meat"] + float(r.get("kg_meat") or 0), 3)
     return list(agg.values())
+
+
+def compute_reduced_need(
+    out_by_recipe: Dict[str, float],
+    recipe_meta: Dict[str, Dict[str, Any]],
+    seasoned_free: Dict[str, float],
+    planned_out: Dict[str, float],
+    yield_pct: float,
+    name_of: Dict[str, str],
+):
+    """Per receptura: od zapotrzebowania na wyrób (output) odejmij gotowe mięso
+    przyprawione (seasoned_free) i output aktywnych planów (planned_out), dopiero
+    z reszty policz zapotrzebowanie na mięso. Zwraca (need_meat_by_type, rows)."""
+    need: Dict[str, float] = {}
+    rows_all: List[List[Dict[str, Any]]] = []
+    for rid, out in (out_by_recipe or {}).items():
+        reduced = max(0.0, float(out)
+                      - float((seasoned_free or {}).get(rid, 0.0))
+                      - float((planned_out or {}).get(rid, 0.0)))
+        meta = (recipe_meta or {}).get(rid, {})
+        rws = requirements_for_line(
+            reduced, meta.get("ingredients", []), meta.get("primary", []),
+            meta.get("fallback", []), yield_pct, name_of,
+        )
+        rows_all.append(rws)
+        for mt, kg in aggregate_meat_need([rws]).items():
+            need[mt] = round(need.get(mt, 0.0) + kg, 3)
+    return need, rows_all
 
 
 def _rows_for_items(items: List[Dict[str, Any]], yield_pct: float, names: Dict[str, str]):
@@ -251,6 +284,37 @@ def _stock_by_type() -> Dict[str, float]:
     return out
 
 
+def seasoned_free_by_recipe() -> Dict[str, float]:
+    """Wolne mięso przyprawione per receptura (kg_available − kg_reserved)."""
+    out: Dict[str, float] = {}
+    for r in query_all(
+        "SELECT recipe_id, COALESCE(SUM(kg_available - COALESCE(kg_reserved,0)),0) AS kg "
+        "FROM seasoned_meat GROUP BY recipe_id"
+    ):
+        if r.get("recipe_id"):
+            out[r["recipe_id"]] = out.get(r["recipe_id"], 0.0) + float(r["kg"] or 0)
+    return out
+
+
+def active_plan_output_by_recipe() -> Dict[str, float]:
+    """Output (kg) zaplanowanej, niewykonanej produkcji z AKTYWNYCH planów
+    (status='active' = mięso zarezerwowane), per receptura."""
+    out: Dict[str, float] = {}
+    for r in query_all(
+        """
+        SELECT pl.recipe_id,
+               COALESCE(SUM((pl.qty - pl.qty_done) * pl.kg_per_unit), 0) AS kg
+        FROM production_plan_lines pl
+        JOIN production_plans pp ON pp.id = pl.plan_id
+        WHERE pp.status = 'active' AND pl.qty > pl.qty_done
+        GROUP BY pl.recipe_id
+        """
+    ):
+        if r.get("recipe_id"):
+            out[r["recipe_id"]] = out.get(r["recipe_id"], 0.0) + float(r["kg"] or 0)
+    return out
+
+
 def requirements_summary() -> Dict[str, Any]:
     from app.services.settings_service import get_deboning_yield_pct
     from app.services.orders_service import get_order, list_orders
@@ -258,7 +322,9 @@ def requirements_summary() -> Dict[str, Any]:
     names = material_names()
     total_lines: List[List[Dict[str, Any]]] = []
     remaining_lines: List[List[Dict[str, Any]]] = []
-    remaining_need: Dict[str, float] = {}
+    # Zapotrzebowanie na wyrób (output) per receptura — dla niedoboru netto z pipeline.
+    out_by_recipe: Dict[str, float] = {}
+    recipe_pt: Dict[str, str] = {}
     for o in list_orders(None):
         if (o.get("status") or "") in ("done", "cancelled"):
             continue
@@ -267,17 +333,31 @@ def requirements_summary() -> Dict[str, Any]:
         for ln in order.get("lines", []):
             qty = float(ln.get("qty") or 0)
             rem = max(0.0, qty - float(ln.get("qty_done") or 0))
-            base = {"kg_per_unit": ln.get("kg_per_unit"), "recipe_id": ln.get("recipe_id"),
+            rid = ln.get("recipe_id") or ""
+            base = {"kg_per_unit": ln.get("kg_per_unit"), "recipe_id": rid,
                     "product_type_id": ln.get("product_type_id")}
             items_total.append({**base, "qty": qty})
             items_rem.append({**base, "qty": rem})
+            if rid:
+                out_by_recipe[rid] = round(
+                    out_by_recipe.get(rid, 0.0) + rem * float(ln.get("kg_per_unit") or 0), 3)
+                recipe_pt.setdefault(rid, ln.get("product_type_id") or "")
         _, pl_total = _rows_for_items(items_total, yield_pct, names)
         _, pl_rem = _rows_for_items(items_rem, yield_pct, names)
         total_lines.extend(pl_total)
         remaining_lines.extend(pl_rem)
-        for mt, kg in aggregate_meat_need(pl_rem).items():
-            remaining_need[mt] = round(remaining_need.get(mt, 0.0) + kg, 3)
-    net = compute_net_shortage(remaining_need, _stock_by_type(), yield_pct, names)
+    # Pipeline: odejmij gotowe przyprawione + output aktywnych planów per receptura.
+    recipe_meta: Dict[str, Dict[str, Any]] = {}
+    for rid, pt in recipe_pt.items():
+        primary, fallback = components_for(pt, rid)
+        recipe_meta[rid] = {"ingredients": recipe_ingredients(rid),
+                            "primary": primary, "fallback": fallback}
+    reduced_need, _ = compute_reduced_need(
+        out_by_recipe, recipe_meta,
+        seasoned_free_by_recipe(), active_plan_output_by_recipe(),
+        yield_pct, names,
+    )
+    net = compute_net_shortage(reduced_need, _stock_by_type(), yield_pct, names)
     return {
         "total": _sum_by_raw(total_lines),
         "remaining": _sum_by_raw(remaining_lines),

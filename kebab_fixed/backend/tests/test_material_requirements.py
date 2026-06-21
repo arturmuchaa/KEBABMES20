@@ -6,6 +6,8 @@ from app.services.material_requirements_service import (
     requirements_for_line,
     aggregate_meat_need,
     compute_net_shortage,
+    compute_reduced_need,
+    _sum_by_raw,
     MIESO_ZS,
     CWIARTKA,
 )
@@ -129,6 +131,50 @@ def test_compute_net_shortage_never_negative():
     rows = compute_net_shortage(need, stock, 70.0, NAMES)
     by = {r["raw_type_id"]: r for r in rows}
     assert by["mat-filet-kurczak"]["kg_net_shortage"] == 0.0
+
+
+def test_compute_net_shortage_carries_kg_meat_for_cwiartka():
+    # potrzeba 100 z/s, magazyn z/s 20 → brak 80; ćwiartka 80/0.5=160; kg_meat=80
+    rows = compute_net_shortage({"mat-mieso-zs": 100.0}, {"mat-mieso-zs": 20.0}, 50.0, NAMES)
+    by = {r["raw_type_id"]: r for r in rows}
+    assert by[CWIARTKA]["kg_needed_raw"] == 160.0
+    assert by[CWIARTKA]["kg_meat"] == 80.0   # ile z/s z tej ćwiartki
+
+
+def test_sum_by_raw_carries_kg_meat():
+    # 70 kg mięsa z/s → ćwiartka (yield 50% → 140), kg_meat=70
+    rows = requirements_for_line(100.0, [], [
+        {"materialTypeId": "mat-mieso-zs", "name": "Mięso z/s", "pct": 70},
+        {"materialTypeId": "mat-filet-kurczak", "name": "Filet", "pct": 30},
+    ], None, 50.0, NAMES)
+    sums = {s["raw_type_id"]: s for s in _sum_by_raw([rows])}
+    assert sums[CWIARTKA]["kg_raw"] == 140.0
+    assert sums[CWIARTKA]["kg_meat"] == 70.0
+    assert sums["mat-filet-kurczak"]["kg_meat"] == 30.0
+
+
+def test_compute_reduced_need_subtracts_seasoned_and_planned():
+    # receptura r1: 100 kg output, brak dodatków, jednoskładnikowy (mięso z/s)
+    out_by_recipe = {"r1": 100.0}
+    meta = {"r1": {"ingredients": [], "primary": [], "fallback": []}}
+    # gotowe przyprawione 30 + zaplanowana produkcja 20 → zostaje 50 output → 50 z/s
+    need, _ = compute_reduced_need(
+        out_by_recipe, meta,
+        seasoned_free={"r1": 30.0}, planned_out={"r1": 20.0},
+        yield_pct=50.0, name_of=NAMES,
+    )
+    assert need[MIESO_ZS] == 50.0
+
+
+def test_compute_reduced_need_floor_zero_when_pipeline_covers_all():
+    out_by_recipe = {"r1": 40.0}
+    meta = {"r1": {"ingredients": [], "primary": [], "fallback": []}}
+    need, _ = compute_reduced_need(
+        out_by_recipe, meta,
+        seasoned_free={"r1": 100.0}, planned_out={},
+        yield_pct=50.0, name_of=NAMES,
+    )
+    assert need.get(MIESO_ZS, 0.0) == 0.0
 
 
 # ── Task 3: wybór współczynnika wydajności rozbioru ──────────────────────

@@ -1473,7 +1473,7 @@ export interface RequirementLineRow {
   rawTypeId: string; rawName: string; requiresDeboning: boolean; kgRaw: number
   lineIndex?: number
 }
-export interface RawRequirementTotal { rawTypeId: string; rawName: string; kgRaw: number }
+export interface RawRequirementTotal { rawTypeId: string; rawName: string; kgRaw: number; kgMeat: number }
 export interface MaterialRequirements {
   lines: RequirementLineRow[]
   totalsByRaw: RawRequirementTotal[]
@@ -1481,7 +1481,7 @@ export interface MaterialRequirements {
 }
 export interface NetShortageRow {
   rawTypeId: string; rawName: string
-  kgNeededRaw: number; kgAvailable: number; kgNetShortage: number
+  kgNeededRaw: number; kgMeat: number; kgAvailable: number; kgNetShortage: number
 }
 export interface RequirementsSummary {
   total: RawRequirementTotal[]
@@ -1502,7 +1502,7 @@ function mapReqLine(r: any): RequirementLineRow {
   }
 }
 const mapRawTotal = (r: any): RawRequirementTotal =>
-  ({ rawTypeId: r.raw_type_id, rawName: r.raw_name, kgRaw: Number(r.kg_raw ?? 0) })
+  ({ rawTypeId: r.raw_type_id, rawName: r.raw_name, kgRaw: Number(r.kg_raw ?? 0), kgMeat: Number(r.kg_meat ?? 0) })
 function mapRequirements(raw: any): MaterialRequirements {
   return {
     lines: (raw.lines ?? []).map(mapReqLine),
@@ -1512,8 +1512,8 @@ function mapRequirements(raw: any): MaterialRequirements {
 }
 const mapNetShortage = (r: any): NetShortageRow => ({
   rawTypeId: r.raw_type_id, rawName: r.raw_name,
-  kgNeededRaw: Number(r.kg_needed_raw ?? 0), kgAvailable: Number(r.kg_available ?? 0),
-  kgNetShortage: Number(r.kg_net_shortage ?? 0),
+  kgNeededRaw: Number(r.kg_needed_raw ?? 0), kgMeat: Number(r.kg_meat ?? 0),
+  kgAvailable: Number(r.kg_available ?? 0), kgNetShortage: Number(r.kg_net_shortage ?? 0),
 })
 
 export const materialRequirementsApi = {

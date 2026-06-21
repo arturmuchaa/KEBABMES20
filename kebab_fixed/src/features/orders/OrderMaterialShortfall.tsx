@@ -35,6 +35,9 @@ export function OrderMaterialShortfall({ orderId }: { orderId: string }) {
           <span key={t.rawTypeId}>
             <span className="text-muted-foreground">{t.rawName}:</span>{' '}
             <span className="font-bold text-amber-900">{fmtKg(t.kgRaw, 0)} kg</span>
+            {t.rawTypeId === 'mat-cwiartka' && t.kgMeat > 0 && (
+              <span className="text-[10px] text-amber-700"> (mięso z/s: {fmtKg(t.kgMeat, 0)} kg)</span>
+            )}
           </span>
         ))}
       </div>
