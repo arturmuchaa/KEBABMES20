@@ -3,8 +3,18 @@ from app.services.material_requirements_service import (
     meat_factor,
     kg_meat_from_output,
     normalize_components,
+    requirements_for_line,
+    aggregate_meat_need,
+    compute_net_shortage,
     MIESO_ZS,
+    CWIARTKA,
 )
+
+NAMES = {
+    "mat-mieso-zs": "Mięso z/s",
+    "mat-cwiartka": "Ćwiartka z kurczaka",
+    "mat-filet-kurczak": "Filet z kurczaka",
+}
 
 
 def test_meat_factor_sums_only_kg_and_l_ingredients():
@@ -52,3 +62,70 @@ def test_normalize_components_drops_zero_pct_and_reads_camel():
         {"material_type_id": MIESO_ZS, "name": "Mięso z/s", "pct": 70.0},
         {"material_type_id": "mat-filet-kurczak", "name": "Filet", "pct": 30.0},
     ]
+
+
+def test_requirements_for_line_7030_splits_meat_and_raw():
+    # 100 kg mięsa (brak dodatków), skład 70/30, yield 50% → ćwiartka = 70/0.5 = 140
+    comps = [
+        {"materialTypeId": "mat-mieso-zs", "name": "Mięso z/s", "pct": 70},
+        {"materialTypeId": "mat-filet-kurczak", "name": "Filet", "pct": 30},
+    ]
+    rows = requirements_for_line(100.0, [], comps, None, 50.0, NAMES)
+    by = {r["meat_type_id"]: r for r in rows}
+    # mięso z/s: 70 kg mięsa → ćwiartka 140 kg, requires_deboning
+    assert by["mat-mieso-zs"]["kg_meat"] == 70.0
+    assert by["mat-mieso-zs"]["raw_type_id"] == CWIARTKA
+    assert by["mat-mieso-zs"]["requires_deboning"] is True
+    assert by["mat-mieso-zs"]["kg_raw"] == 140.0
+    # filet: 30 kg mięsa → 30 kg surowca 1:1, bez rozbioru
+    assert by["mat-filet-kurczak"]["kg_meat"] == 30.0
+    assert by["mat-filet-kurczak"]["raw_type_id"] == "mat-filet-kurczak"
+    assert by["mat-filet-kurczak"]["requires_deboning"] is False
+    assert by["mat-filet-kurczak"]["kg_raw"] == 30.0
+
+
+def test_requirements_for_line_single_component_mieso_zs():
+    # brak składu → cały kg_meat jako mięso z/s; yield 70% → ćwiartka 100/0.7
+    rows = requirements_for_line(100.0, [], [], None, 70.0, NAMES)
+    assert len(rows) == 1
+    assert rows[0]["raw_type_id"] == CWIARTKA
+    assert rows[0]["kg_raw"] == round(100.0 / 0.7, 3)
+
+
+def test_aggregate_meat_need_sums_by_meat_type():
+    l1 = requirements_for_line(100.0, [], [
+        {"materialTypeId": "mat-mieso-zs", "name": "", "pct": 70},
+        {"materialTypeId": "mat-filet-kurczak", "name": "", "pct": 30},
+    ], None, 70.0, NAMES)
+    l2 = requirements_for_line(100.0, [], [], None, 70.0, NAMES)  # 100 kg mięso z/s
+    need = aggregate_meat_need([l1, l2])
+    assert need["mat-mieso-zs"] == 170.0
+    assert need["mat-filet-kurczak"] == 30.0
+
+
+def test_compute_net_shortage_cascade_uses_mieso_zs_first_then_cwiartka():
+    # potrzeba 170 kg mięsa z/s; magazyn: 50 kg mięsa z/s, 100 kg ćwiartki; yield 50%
+    need = {"mat-mieso-zs": 170.0}
+    stock = {"mat-mieso-zs": 50.0, "mat-cwiartka": 100.0}
+    rows = compute_net_shortage(need, stock, 50.0, NAMES)
+    by = {r["raw_type_id"]: r for r in rows}
+    # brak mięsa z/s = 170-50 = 120 → ćwiartka = 120/0.5 = 240; netto = 240-100 = 140
+    assert by[CWIARTKA]["kg_needed_raw"] == 240.0
+    assert by[CWIARTKA]["kg_available"] == 100.0
+    assert by[CWIARTKA]["kg_net_shortage"] == 140.0
+
+
+def test_compute_net_shortage_filet_1to1_against_stock():
+    need = {"mat-filet-kurczak": 30.0}
+    stock = {"mat-filet-kurczak": 12.0}
+    rows = compute_net_shortage(need, stock, 70.0, NAMES)
+    by = {r["raw_type_id"]: r for r in rows}
+    assert by["mat-filet-kurczak"]["kg_net_shortage"] == 18.0
+
+
+def test_compute_net_shortage_never_negative():
+    need = {"mat-filet-kurczak": 5.0}
+    stock = {"mat-filet-kurczak": 50.0}
+    rows = compute_net_shortage(need, stock, 70.0, NAMES)
+    by = {r["raw_type_id"]: r for r in rows}
+    assert by["mat-filet-kurczak"]["kg_net_shortage"] == 0.0
