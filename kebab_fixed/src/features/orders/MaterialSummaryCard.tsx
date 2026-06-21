@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Boxes, AlertTriangle } from 'lucide-react'
-import { fmtKg } from '@/lib/utils'
+import { fmtKg, fmtPct } from '@/lib/utils'
 import { materialRequirementsApi, type RequirementsSummary, type RawRequirementTotal } from '@/lib/api'
 
 export function MaterialSummaryCard() {
   const [data, setData] = useState<RequirementsSummary | null>(null)
   useEffect(() => {
-    materialRequirementsApi.summary().then(setData).catch(() => setData(null))
+    materialRequirementsApi.summary()
+      .then(setData)
+      .catch(err => { console.error('podsumowanie zapotrzebowania:', err); setData(null) })
   }, [])
   if (!data) return null
   const shortages = data.netShortage.filter(s => s.kgNetShortage > 0)
@@ -15,7 +17,7 @@ export function MaterialSummaryCard() {
     <div className="rounded-xl border border-surface-3 bg-white p-3">
       <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-ink-2">
         <Boxes size={14} /> Surowiec do realizacji wszystkich zamówień
-        <span className="ml-auto font-normal normal-case text-muted-foreground">wydajność rozbioru {fmtKg(data.yieldPct, 0)}%</span>
+        <span className="ml-auto font-normal normal-case text-muted-foreground">wydajność rozbioru {fmtPct(data.yieldPct, 0)}</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <SummaryCol title="Zapotrzebowanie (całość)" rows={data.total} />
