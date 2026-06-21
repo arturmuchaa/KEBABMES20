@@ -34,9 +34,15 @@ pytest                              # cały zestaw (pytest.ini: testpaths=tests,
 pytest tests/test_finished_units.py -v        # jeden plik
 pytest -k traceability -v                     # po nazwie
 ```
-Testy importują `from app.services...` → **uruchamiać z katalogu `backend/`**.
-Każda zmiana w `services/` dotykająca stocku/partii MUSI mieć test
-(kontrakt: `1000 kg → use 200 → expect 800`, trace raw↔finished).
+Testy importują `from app.services...` → **uruchamiać z katalogu `backend/`**
+(`python3 -m pytest`, jeśli brak gołego `python`). Każda zmiana w `services/`
+dotykająca stocku/partii MUSI mieć test (kontrakt: `1000 kg → use 200 → expect
+800`, trace raw↔finished).
+
+**Wzorzec testów:** logikę czystą testuj bezpośrednio (bez DB). Endpointów NIE
+testuj surowym `TestClient` — middleware auth jest default-deny i zwróci 401;
+zamiast tego testuj funkcje serwisu, monkeypatchując ładowarki DB
+(`monkeypatch.setattr(mod, "query_fn", lambda …: …)`).
 
 ## Konfiguracja (env)
 Ładowane w `app/config.py` w kolejności:
@@ -57,9 +63,14 @@ Kluczowe zmienne:
 gunicorn app.main:app -c app/gunicorn_conf.py     # BIND z env → 127.0.0.1:8010
 ```
 - Worker: `uvicorn.workers.UvicornWorker`, `preload_app`, proc `kebab-mes`.
-- Serwowane przez systemd unit **`kebab-mes`**, za nginx.
-- Deploy = clone + `cp app/` + restart (pliki kopiowane, NIE git pull). Baza :5433.
+- Serwowane przez systemd unit **`kebab-mes`**, za nginx (dist na :8080). Baza :5433.
 - Frontend `dist/` szukany w `/opt/kebab/app/dist` (prod) lub `../dist` (dev).
+- **Deploy:** `deploy/deploy.sh [all|frontend|backend]` (kopiuje `app/` + `dist`,
+  backup, health-check 8010, rollback). Pliki kopiowane, **NIE** git pull.
+- 🔴 **OBOWIĄZKOWO przed deployem** (prod bywa PRZED gitem — server-only hotfixy):
+  `diff -rq /opt/kebab/app/backend/app /opt/kebab/kebab_new/kebab_fixed/backend/app | grep -i differ`
+  — jeśli prod ma treść spoza repo, **najpierw scommituj do gita** (inaczej deploy
+  ją nadpisze; tak padły etykiety 2026-06-21). Po deployu smoke-test druku etykiet/WZ/HDI.
 
 ## Inicjalizacja / utrzymanie bazy
 - `python init_db.py` — świeża baza.
