@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { settingsApi, type CompanySettings } from '@/lib/apiClient'
-import { Save, Building2 } from 'lucide-react'
+import { Save, Building2, Percent } from 'lucide-react'
 
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
@@ -28,6 +28,24 @@ export function CompanySettingsPage() {
   const [saved, setSaved] = useState(false)
 
   useEffect(() => { if (data) setForm(data) }, [data])
+
+  // ── Wydajność rozbioru (planowanie zapotrzebowania na surowiec) ──
+  const { data: yieldData, refetch: refetchYield } = useApi(() => settingsApi.getDeboningYield())
+  const { mutate: saveYield, loading: savingYield } = useMutation((p: number) => settingsApi.saveDeboningYield(p))
+  const [yieldPct, setYieldPct] = useState('')
+  const [yieldSaved, setYieldSaved] = useState(false)
+  const [yieldErr, setYieldErr] = useState('')
+
+  useEffect(() => { if (yieldData != null) setYieldPct(String(yieldData)) }, [yieldData])
+
+  async function handleSaveYield() {
+    const v = parseFloat(yieldPct.replace(',', '.'))
+    if (!(v > 0 && v <= 100)) { setYieldErr('Podaj wartość z zakresu 0–100%'); return }
+    setYieldErr('')
+    await saveYield(v)
+    setYieldSaved(true)
+    refetchYield()
+  }
 
   function set<K extends keyof CompanySettings>(k: K, v: CompanySettings[K]) {
     setForm(p => ({ ...p, [k]: v }))
@@ -122,6 +140,47 @@ export function CompanySettingsPage() {
               </CardDescription>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex-row items-center gap-3 space-y-0">
+          <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+            <Percent size={18} />
+          </div>
+          <div>
+            <CardTitle>Wydajność rozbioru</CardTitle>
+            <CardDescription>
+              Używana do planowania zapotrzebowania na ćwiartkę (ile ćwiartki na mięso z/s).
+              Domyślnie liczona ze średniej historycznej rozbiorów.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <Separator />
+        <CardContent className="pt-5 space-y-3">
+          <div className="flex items-end gap-3">
+            <div className="space-y-1.5 w-40">
+              <Label className="text-xs">Wydajność (%)</Label>
+              <Input
+                type="number" min="1" max="100" step="0.1"
+                value={yieldPct}
+                onChange={e => { setYieldPct(e.target.value); setYieldSaved(false); setYieldErr('') }}
+                placeholder="70"
+              />
+            </div>
+            <Button onClick={handleSaveYield} disabled={savingYield} className="gap-2">
+              {savingYield
+                ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : <Save size={14} />
+              }
+              Zapisz wydajność
+            </Button>
+            {yieldSaved && <CardDescription className="text-green-700 text-sm">✓ Zapisano</CardDescription>}
+            {yieldErr && <CardDescription className="text-destructive text-sm">{yieldErr}</CardDescription>}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Tylko planowanie — nie wpływa na faktyczny rozbiór ani stany magazynowe.
+          </p>
         </CardContent>
       </Card>
     </div>
