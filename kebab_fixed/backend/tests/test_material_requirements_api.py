@@ -84,6 +84,16 @@ def test_summary_remaining_uses_qty_done_and_net_shortage_cascade(monkeypatch):
     assert net["mat-cwiartka"]["kg_net_shortage"] == 95.0
 
 
+def test_save_deboning_yield_rejects_out_of_range():
+    import pytest
+    from fastapi import HTTPException
+    from app.routes.settings import save_deboning_yield
+    for bad in (0, -5, 150, "abc", None):
+        with pytest.raises(HTTPException) as exc:
+            save_deboning_yield({"pct": bad})
+        assert exc.value.status_code == 400
+
+
 def test_summary_skips_done_and_cancelled_orders(monkeypatch):
     _patch_common(monkeypatch, yield_pct=70.0)
     import app.services.orders_service as os_

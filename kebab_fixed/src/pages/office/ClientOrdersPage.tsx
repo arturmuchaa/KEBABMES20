@@ -37,6 +37,7 @@ import {
 import { OrderLinesQuickAdd } from '@/features/orders/order-form/OrderLinesQuickAdd'
 import { emptyLine, type LineForm } from '@/features/orders/order-form/types'
 import { MaterialSummaryCard } from '@/features/orders/MaterialSummaryCard'
+import { OrderMaterialShortfall } from '@/features/orders/OrderMaterialShortfall'
 
 const STATUS_LABELS: Record<ClientOrder['status'], string> = {
   draft: 'Szkic', confirmed: 'Potwierdzone', in_production: 'W produkcji', done: 'Zrealizowane', cancelled: 'Anulowane',
@@ -636,6 +637,9 @@ export function ClientOrdersPage() {
                                 </table>
                               </div>
                             </div>
+
+                            {/* Brakujący surowiec na niewykonaną część zamówienia */}
+                            {o.status !== 'cancelled' && <OrderMaterialShortfall orderId={o.id} />}
 
                             {/* Progress (jeśli jakikolwiek) */}
                             {kgDone > 0 && (
