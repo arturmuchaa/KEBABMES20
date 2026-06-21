@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Boxes } from 'lucide-react'
+import { Boxes, CheckCircle2 } from 'lucide-react'
 import { fmtKg } from '@/lib/utils'
 import { materialRequirementsApi, type MaterialRequirements } from '@/lib/api'
+import { CWIARTKA, Dot, Kg } from './material-ui'
 
 /** Surowiec potrzebny na NIEWYKONANĄ część zamówienia (qty - qty_done).
  *  Renderowany w rozwinięciu wiersza zamówienia; pobiera dane przy montażu. */
@@ -19,28 +20,29 @@ export function OrderMaterialShortfall({ orderId }: { orderId: string }) {
   const rows = data.totalsByRaw.filter(t => t.kgRaw > 0)
   if (rows.length === 0) {
     return (
-      <div className="mb-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-700">
-        Surowiec na resztę: nic nie brakuje — całość zaraportowana ✓
+      <div className="mb-3 flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs font-medium text-emerald-700">
+        <CheckCircle2 size={13} /> Surowiec na resztę: nic nie brakuje — całość zaraportowana
       </div>
     )
   }
 
   return (
-    <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded">
-      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-amber-800">
+    <div className="mb-3 overflow-hidden rounded-lg border border-amber-200 bg-amber-50/50">
+      <div className="flex items-center gap-1.5 border-b border-amber-200/70 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-amber-800">
         <Boxes size={12} /> Brakujący surowiec na resztę zamówienia
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs tabular-nums">
+      <ul className="divide-y divide-amber-200/50">
         {rows.map(t => (
-          <span key={t.rawTypeId}>
-            <span className="text-muted-foreground">{t.rawName}:</span>{' '}
-            <span className="font-bold text-amber-900">{fmtKg(t.kgRaw, 0)} kg</span>
-            {t.rawTypeId === 'mat-cwiartka' && t.kgMeat > 0 && (
-              <span className="text-[10px] text-amber-700"> (mięso z/s: {fmtKg(t.kgMeat, 0)} kg)</span>
+          <li key={t.rawTypeId} className="flex items-baseline gap-2 px-3 py-1.5 text-xs">
+            <Dot rawTypeId={t.rawTypeId} />
+            <span className="text-ink-2">{t.rawName}</span>
+            {t.rawTypeId === CWIARTKA && t.kgMeat > 0 && (
+              <span className="text-[10px] text-amber-700/80 tabular-nums">· mięso z/s {fmtKg(t.kgMeat, 0)} kg</span>
             )}
-          </span>
+            <span className="ml-auto text-amber-900"><Kg value={t.kgRaw} /></span>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   )
 }
