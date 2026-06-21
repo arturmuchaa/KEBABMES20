@@ -129,3 +129,25 @@ def test_compute_net_shortage_never_negative():
     rows = compute_net_shortage(need, stock, 70.0, NAMES)
     by = {r["raw_type_id"]: r for r in rows}
     assert by["mat-filet-kurczak"]["kg_net_shortage"] == 0.0
+
+
+# ── Task 3: wybór współczynnika wydajności rozbioru ──────────────────────
+from app.services.settings_service import resolve_yield_pct
+
+
+def test_resolve_yield_prefers_saved_value():
+    assert resolve_yield_pct(saved=65.0, historical_avg=80.0) == 65.0
+
+
+def test_resolve_yield_falls_back_to_historical_when_unset():
+    assert resolve_yield_pct(saved=None, historical_avg=72.5) == 72.5
+
+
+def test_resolve_yield_defaults_to_70_when_no_data():
+    assert resolve_yield_pct(saved=None, historical_avg=None) == 70.0
+
+
+def test_resolve_yield_ignores_out_of_range_saved():
+    # poza (0,100] → traktuj jak brak, użyj historycznej / domyślnej
+    assert resolve_yield_pct(saved=0.0, historical_avg=None) == 70.0
+    assert resolve_yield_pct(saved=150.0, historical_avg=None) == 70.0
