@@ -22,6 +22,17 @@ class ClientOrderCreate(BaseModel):
     lines: List[OrderLineCreate]
 
 
+class RequirementsPreviewItem(BaseModel):
+    qty: float = 0
+    kg_per_unit: float = 0
+    recipe_id: str = ""
+    product_type_id: str = ""
+
+
+class RequirementsPreviewRequest(BaseModel):
+    items: List[RequirementsPreviewItem]
+
+
 # ── Palety wydania ────────────────────────────────────────────────
 class PalletItemDto(BaseModel):
     order_line_id: str

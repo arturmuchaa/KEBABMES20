@@ -4,7 +4,10 @@ Czysta logika (bez DB) + funkcje agregujące z zapytaniami. Łańcuch:
   qty*kg_per_unit = kg_output  →  kg_meat = kg_output/(1+f)  →  podział wg
   components (70/30)  →  surowiec (ćwiartka po yield lub filet 1:1).
 """
+import json
 from typing import Any, Dict, List, Optional
+
+from app.db import query_all, query_one
 
 MIESO_ZS = "mat-mieso-zs"
 CWIARTKA = "mat-cwiartka"
@@ -131,3 +134,153 @@ def compute_net_shortage(
             "kg_net_shortage": round(max(0.0, need_raw - avail_raw), 3),
         })
     return rows
+
+
+# ── Warstwa DB + orkiestracja ────────────────────────────────────────────
+def material_names() -> Dict[str, str]:
+    rows = query_all("SELECT id, name FROM raw_material_types")
+    return {r["id"]: r["name"] for r in rows}
+
+
+def recipe_ingredients(recipe_id: str) -> List[Dict[str, Any]]:
+    if not recipe_id:
+        return []
+    return query_all(
+        """
+        SELECT ri.qty_per_100kg, ri.unit,
+               COALESCE(i.is_unlimited, false) AS is_unlimited
+        FROM recipe_ingredients ri
+        LEFT JOIN ingredients i ON i.id = ri.ingredient_id
+        WHERE ri.recipe_id = %s
+        """,
+        (recipe_id,),
+    )
+
+
+def _parse_components(val: Any) -> List[Dict[str, Any]]:
+    if isinstance(val, str):
+        try:
+            val = json.loads(val)
+        except Exception:
+            return []
+    return val if isinstance(val, list) else []
+
+
+def components_for(product_type_id: str, recipe_id: str):
+    """Zwraca (primary, fallback): product_types.components > recipes.components."""
+    primary: List[Dict[str, Any]] = []
+    fallback: List[Dict[str, Any]] = []
+    if product_type_id:
+        row = query_one("SELECT components FROM product_types WHERE id = %s", (product_type_id,))
+        if row:
+            primary = _parse_components(row.get("components"))
+    if recipe_id:
+        row = query_one("SELECT components FROM recipes WHERE id = %s", (recipe_id,))
+        if row:
+            fallback = _parse_components(row.get("components"))
+    return primary, fallback
+
+
+def _sum_by_raw(line_rows: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    agg: Dict[str, Dict[str, Any]] = {}
+    for rows in line_rows:
+        for r in rows:
+            rt = r["raw_type_id"]
+            if rt not in agg:
+                agg[rt] = {"raw_type_id": rt, "raw_name": r["raw_name"], "kg_raw": 0.0}
+            agg[rt]["kg_raw"] = round(agg[rt]["kg_raw"] + float(r["kg_raw"]), 3)
+    return list(agg.values())
+
+
+def _rows_for_items(items: List[Dict[str, Any]], yield_pct: float, names: Dict[str, str]):
+    """items: [{qty, kg_per_unit, recipe_id, product_type_id}] → (flat_lines, per_line_rows)."""
+    flat: List[Dict[str, Any]] = []
+    per_line: List[List[Dict[str, Any]]] = []
+    for idx, it in enumerate(items):
+        kg_output = float(it.get("qty") or 0) * float(it.get("kg_per_unit") or 0)
+        if kg_output <= 0:
+            per_line.append([])
+            continue
+        ings = recipe_ingredients(it.get("recipe_id") or "")
+        primary, fallback = components_for(it.get("product_type_id") or "", it.get("recipe_id") or "")
+        rows = requirements_for_line(kg_output, ings, primary, fallback, yield_pct, names)
+        for r in rows:
+            flat.append({**r, "line_index": idx})
+        per_line.append(rows)
+    return flat, per_line
+
+
+def preview_requirements(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    from app.services.settings_service import get_deboning_yield_pct
+    yield_pct = get_deboning_yield_pct()
+    names = material_names()
+    flat, per_line = _rows_for_items(items, yield_pct, names)
+    return {"lines": flat, "totals_by_raw": _sum_by_raw(per_line), "yield_pct": yield_pct}
+
+
+def requirements_for_order(order_id: str, basis: str = "total") -> Dict[str, Any]:
+    from app.services.orders_service import get_order
+    order = get_order(order_id)
+    items: List[Dict[str, Any]] = []
+    for ln in order.get("lines", []):
+        qty = float(ln.get("qty") or 0)
+        if basis == "remaining":
+            qty = max(0.0, qty - float(ln.get("qty_done") or 0))
+        items.append({
+            "qty": qty,
+            "kg_per_unit": ln.get("kg_per_unit"),
+            "recipe_id": ln.get("recipe_id"),
+            "product_type_id": ln.get("product_type_id"),
+        })
+    return preview_requirements(items)
+
+
+def _stock_by_type() -> Dict[str, float]:
+    """Stan dostępny: ćwiartka z raw_batches(active), mięso z/s+filet+indyk z meat_stock."""
+    out: Dict[str, float] = {}
+    for r in query_all(
+        "SELECT material_type_id, COALESCE(SUM(kg_available),0) AS kg "
+        "FROM raw_batches WHERE status='active' GROUP BY material_type_id"
+    ):
+        out[r["material_type_id"]] = out.get(r["material_type_id"], 0.0) + float(r["kg"] or 0)
+    for r in query_all(
+        "SELECT material_type_id, COALESCE(SUM(kg_available - COALESCE(kg_reserved,0)),0) AS kg "
+        "FROM meat_stock GROUP BY material_type_id"
+    ):
+        out[r["material_type_id"]] = out.get(r["material_type_id"], 0.0) + float(r["kg"] or 0)
+    return out
+
+
+def requirements_summary() -> Dict[str, Any]:
+    from app.services.settings_service import get_deboning_yield_pct
+    from app.services.orders_service import get_order, list_orders
+    yield_pct = get_deboning_yield_pct()
+    names = material_names()
+    total_lines: List[List[Dict[str, Any]]] = []
+    remaining_lines: List[List[Dict[str, Any]]] = []
+    remaining_need: Dict[str, float] = {}
+    for o in list_orders(None):
+        if (o.get("status") or "") in ("done", "cancelled"):
+            continue
+        order = get_order(o["id"])
+        items_total, items_rem = [], []
+        for ln in order.get("lines", []):
+            qty = float(ln.get("qty") or 0)
+            rem = max(0.0, qty - float(ln.get("qty_done") or 0))
+            base = {"kg_per_unit": ln.get("kg_per_unit"), "recipe_id": ln.get("recipe_id"),
+                    "product_type_id": ln.get("product_type_id")}
+            items_total.append({**base, "qty": qty})
+            items_rem.append({**base, "qty": rem})
+        _, pl_total = _rows_for_items(items_total, yield_pct, names)
+        _, pl_rem = _rows_for_items(items_rem, yield_pct, names)
+        total_lines.extend(pl_total)
+        remaining_lines.extend(pl_rem)
+        for mt, kg in aggregate_meat_need(pl_rem).items():
+            remaining_need[mt] = round(remaining_need.get(mt, 0.0) + kg, 3)
+    net = compute_net_shortage(remaining_need, _stock_by_type(), yield_pct, names)
+    return {
+        "total": _sum_by_raw(total_lines),
+        "remaining": _sum_by_raw(remaining_lines),
+        "net_shortage": net,
+        "yield_pct": yield_pct,
+    }
