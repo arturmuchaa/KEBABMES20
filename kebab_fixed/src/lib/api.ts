@@ -1304,6 +1304,78 @@ export const settingsApi = {
       market_eu:       dto.marketEu,
       load_place:      dto.loadPlace,
     }).then(mapCompany),
+  getDeboningYield: () =>
+    get<any>('/settings/deboning-yield').then(r => Number(r.deboningYieldPct ?? 70)),
+  saveDeboningYield: (pct: number) =>
+    put<any>('/settings/deboning-yield', { pct }).then(r => Number(r.deboningYieldPct ?? pct)),
+}
+
+// ─── Zapotrzebowanie na surowiec ──────────────────────────────
+export interface RequirementLineRow {
+  meatTypeId: string; meatName: string; kgMeat: number
+  rawTypeId: string; rawName: string; requiresDeboning: boolean; kgRaw: number
+  lineIndex?: number
+}
+export interface RawRequirementTotal { rawTypeId: string; rawName: string; kgRaw: number }
+export interface MaterialRequirements {
+  lines: RequirementLineRow[]
+  totalsByRaw: RawRequirementTotal[]
+  yieldPct: number
+}
+export interface NetShortageRow {
+  rawTypeId: string; rawName: string
+  kgNeededRaw: number; kgAvailable: number; kgNetShortage: number
+}
+export interface RequirementsSummary {
+  total: RawRequirementTotal[]
+  remaining: RawRequirementTotal[]
+  netShortage: NetShortageRow[]
+  yieldPct: number
+}
+export interface PreviewItem {
+  qty: number; kgPerUnit: number; recipeId: string; productTypeId: string
+}
+
+function mapReqLine(r: any): RequirementLineRow {
+  return {
+    meatTypeId: r.meat_type_id, meatName: r.meat_name, kgMeat: Number(r.kg_meat ?? 0),
+    rawTypeId: r.raw_type_id, rawName: r.raw_name,
+    requiresDeboning: !!r.requires_deboning, kgRaw: Number(r.kg_raw ?? 0),
+    lineIndex: r.line_index,
+  }
+}
+const mapRawTotal = (r: any): RawRequirementTotal =>
+  ({ rawTypeId: r.raw_type_id, rawName: r.raw_name, kgRaw: Number(r.kg_raw ?? 0) })
+function mapRequirements(raw: any): MaterialRequirements {
+  return {
+    lines: (raw.lines ?? []).map(mapReqLine),
+    totalsByRaw: (raw.totals_by_raw ?? []).map(mapRawTotal),
+    yieldPct: Number(raw.yield_pct ?? 70),
+  }
+}
+const mapNetShortage = (r: any): NetShortageRow => ({
+  rawTypeId: r.raw_type_id, rawName: r.raw_name,
+  kgNeededRaw: Number(r.kg_needed_raw ?? 0), kgAvailable: Number(r.kg_available ?? 0),
+  kgNetShortage: Number(r.kg_net_shortage ?? 0),
+})
+
+export const materialRequirementsApi = {
+  preview: (items: PreviewItem[]) =>
+    post<any>('/client-orders/preview-requirements', {
+      items: items.map(i => ({
+        qty: i.qty, kg_per_unit: i.kgPerUnit,
+        recipe_id: i.recipeId, product_type_id: i.productTypeId,
+      })),
+    }).then(mapRequirements),
+  forOrder: (id: string, basis: 'total' | 'remaining' = 'total') =>
+    get<any>(`/client-orders/${id}/material-requirements?basis=${basis}`).then(mapRequirements),
+  summary: (): Promise<RequirementsSummary> =>
+    get<any>('/client-orders/material-requirements/summary').then(raw => ({
+      total: (raw.total ?? []).map(mapRawTotal),
+      remaining: (raw.remaining ?? []).map(mapRawTotal),
+      netShortage: (raw.net_shortage ?? []).map(mapNetShortage),
+      yieldPct: Number(raw.yield_pct ?? 70),
+    })),
 }
 
 // ─── Plany produkcji ──────────────────────────────────────────

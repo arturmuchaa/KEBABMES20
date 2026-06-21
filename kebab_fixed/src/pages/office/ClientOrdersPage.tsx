@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/select'
 import { OrderLinesQuickAdd } from '@/features/orders/order-form/OrderLinesQuickAdd'
 import { emptyLine, type LineForm } from '@/features/orders/order-form/types'
+import { MaterialSummaryCard } from '@/features/orders/MaterialSummaryCard'
 
 const STATUS_LABELS: Record<ClientOrder['status'], string> = {
   draft: 'Szkic', confirmed: 'Potwierdzone', in_production: 'W produkcji', done: 'Zrealizowane', cancelled: 'Anulowane',
@@ -299,6 +300,9 @@ export function ClientOrdersPage() {
 
   return (
     <div className="space-y-3 animate-fade-in">
+
+      {/* Zapotrzebowanie na surowiec dla wszystkich otwartych zamówień */}
+      <MaterialSummaryCard />
 
       {/* Toolbar */}
       <Card>

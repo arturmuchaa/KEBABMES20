@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { fmtKg, cn } from '@/lib/utils'
 import { lineKg, filterRecipesFor, isLineComplete, emptyLine, type LinesEditorProps, type LineForm } from './types'
+import { MaterialRequirementsPanel } from './MaterialRequirementsPanel'
+import type { PreviewItem } from '@/lib/api'
 
 const hasData = (l: LineForm) => !!(l.qty || l.kgPerUnit || l.productTypeId || l.recipeId || l.packagingId)
 
@@ -25,6 +27,19 @@ export function OrderLinesQuickAdd({ lines, setLines, removeLine, productTypes, 
 
   const totalKg = committed.reduce((s, { l }) => s + lineKg(l), 0)
   const totalUnits = committed.reduce((s, { l }) => s + (parseFloat(l.qty) || 0), 0)
+
+  // Pozycje do podglądu zapotrzebowania: zatwierdzone + draft (gdy kompletny w kluczowych polach).
+  const previewItems: PreviewItem[] = [
+    ...committed.map(({ l }) => ({
+      qty: parseFloat(l.qty) || 0,
+      kgPerUnit: parseFloat(l.kgPerUnit) || 0,
+      recipeId: l.recipeId, productTypeId: l.productTypeId,
+    })),
+    ...(draft.qty && draft.kgPerUnit && draft.recipeId
+      ? [{ qty: parseFloat(draft.qty) || 0, kgPerUnit: parseFloat(draft.kgPerUnit) || 0,
+           recipeId: draft.recipeId, productTypeId: draft.productTypeId }]
+      : []),
+  ]
 
   const setDraftField = (k: keyof LineForm, v: string) =>
     setDraft(d => k === 'productTypeId' ? { ...d, productTypeId: v, recipeId: '' } : { ...d, [k]: v })
@@ -81,6 +96,9 @@ export function OrderLinesQuickAdd({ lines, setLines, removeLine, productTypes, 
         </div>
         {hint && <p className="mt-1 text-[11px] text-destructive font-medium">{hint}</p>}
       </div>
+
+      {/* Zapotrzebowanie na surowiec (live) */}
+      <MaterialRequirementsPanel items={previewItems} />
 
       {/* Lista dodanych pozycji */}
       {committed.length === 0 ? (
