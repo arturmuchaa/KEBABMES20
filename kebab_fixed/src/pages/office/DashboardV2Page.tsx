@@ -26,14 +26,12 @@ function LiveClock() {
   return <span className="font-mono tabular-nums text-ink font-semibold leading-none">{time}</span>
 }
 
-// ── Command header ──────────────────────────────────────────────
-function CommandHeader({ live, dateLong }: { live: boolean; dateLong: string }) {
+// ── Context bar (data + status live + zegar) ─────────────────────
+// Tytuł strony renderuje OfficeLayout — tutaj NIE powtarzamy go.
+function ContextBar({ live, dateLong }: { live: boolean; dateLong: string }) {
   return (
-    <header className="flex flex-wrap items-center justify-between gap-4 pb-1">
-      <div className="min-w-0">
-        <h1 className="text-[22px] font-extrabold tracking-tight text-ink leading-none">Pulpit operacyjny</h1>
-        <p className="mt-1.5 text-[13px] text-ink-3 first-letter:uppercase">{dateLong}</p>
-      </div>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <p className="text-[13px] font-medium text-ink-3 first-letter:uppercase">{dateLong}</p>
       <div className="flex items-center gap-2.5 rounded-xl border border-surface-4 bg-white px-4 py-2 shadow-sm">
         <span className="relative flex h-2 w-2" aria-hidden>
           {live && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />}
@@ -45,7 +43,7 @@ function CommandHeader({ live, dateLong }: { live: boolean; dateLong: string }) 
         <span className="h-4 w-px bg-surface-4" />
         <LiveClock />
       </div>
-    </header>
+    </div>
   )
 }
 
@@ -188,7 +186,7 @@ export function DashboardV2Page() {
 
   return (
     <div className="space-y-6">
-      <CommandHeader live={d.live} dateLong={dateLong} />
+      <ContextBar live={d.live} dateLong={dateLong} />
 
       {/* ── Skrzynka akcji biura: potwierdzenia + krótki termin ── */}
       {(pendingCount > 0 || alertBatches.length > 0) && (
