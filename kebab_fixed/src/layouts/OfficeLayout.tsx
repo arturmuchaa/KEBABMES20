@@ -12,6 +12,7 @@ const APP_VERSION = pkg.version
 
 const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
   '/office/dashboard':             { title: 'Pulpit operacyjny' },
+  '/office/dashboard-v2':          { title: 'Pulpit operacyjny', description: 'Nowy układ (v2)' },
   '/office/faktury':               { title: 'Faktury i PZ',                description: 'Dokumenty zakupowe' },
   '/office/dostawcy':              { title: 'Dostawcy',                    description: 'Zarządzanie dostawcami' },
   '/office/kontrahenci':           { title: 'Kontrahenci',                 description: 'Klienci i partnerzy' },
