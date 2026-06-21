@@ -131,8 +131,9 @@ export function OfficeSidebar({ onClose }: { onClose?: () => void }) {
       </div>
 
       {/* Dashboard */}
-      <div className="px-3 pt-3">
+      <div className="px-3 pt-3 space-y-0.5">
         <SideItem to="/office/dashboard" icon={<LayoutDashboard size={15} />} label="Dashboard" />
+        <SideItem to="/office/dashboard-v2" icon={<LayoutDashboard size={15} />} label="Dashboard v2" />
       </div>
 
       {/* Nav sections */}

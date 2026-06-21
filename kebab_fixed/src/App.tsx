@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { OfficeLayout }  from '@/layouts/OfficeLayout'
 import { TabletLayout }  from '@/layouts/TabletLayout'
 import { DashboardPage } from '@/pages/office/DashboardPage'
+import { DashboardV2Page } from '@/pages/office/DashboardV2Page'
 import { RawBatchesPage }from '@/pages/office/RawBatchesPage'
 import { WorkersPage }   from '@/pages/office/WorkersPage'
 import { SuppliersPage } from '@/pages/office/SuppliersPage'
@@ -125,6 +126,7 @@ export default function App() {
       <Route path="/office" element={<RequireOffice><OfficeLayout /></RequireOffice>}>
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard"             element={<DashboardPage />} />
+        <Route path="dashboard-v2"          element={<DashboardV2Page />} />
         <Route path="dostawcy"              element={<SuppliersPage />} />
         <Route path="kontrahenci"           element={<ClientsPage />} />
         <Route path="zamowienia"            element={<ClientOrdersPage />} />
