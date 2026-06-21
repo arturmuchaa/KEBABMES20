@@ -1,5 +1,5 @@
 """App-wide settings endpoints (klucz–wartość)."""
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.models.settings import CompanySettings
 from app.services import settings_service as svc
@@ -24,4 +24,10 @@ def get_deboning_yield():
 
 @router.put("/deboning-yield")
 def save_deboning_yield(body: dict):
-    return svc.save_deboning_yield_pct(float(body.get("pct", 70.0)))
+    try:
+        pct = float(body.get("pct"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Pole 'pct' musi być liczbą")
+    if not (0 < pct <= 100):
+        raise HTTPException(400, "Wydajność rozbioru musi być w zakresie (0, 100]")
+    return svc.save_deboning_yield_pct(pct)
