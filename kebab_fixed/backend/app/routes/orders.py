@@ -1,8 +1,13 @@
 """Client orders endpoints."""
 from fastapi import APIRouter, Query
 
-from app.models.orders import ClientOrderCreate, PalletsRequest
+from app.models.orders import (
+    ClientOrderCreate,
+    PalletsRequest,
+    RequirementsPreviewRequest,
+)
 from app.services import orders_service as svc
+from app.services import material_requirements_service as mrs
 from app.services import pallets_service
 from app.services import stock_carton_match_service
 from app.services import stock_cartons_service
@@ -13,6 +18,24 @@ router = APIRouter(prefix="/api/client-orders", tags=["client-orders"])
 @router.get("")
 def list_orders(status: str = Query("")):
     return svc.list_orders(status or None)
+
+
+# ── Zapotrzebowanie na surowiec ───────────────────────────────────
+# Trasy statyczne MUSZĄ być przed dynamicznymi /{order_id}, inaczej
+# "material-requirements"/"preview-requirements" złapie się jako order_id.
+@router.get("/material-requirements/summary")
+def material_requirements_summary():
+    return mrs.requirements_summary()
+
+
+@router.post("/preview-requirements")
+def preview_requirements(body: RequirementsPreviewRequest):
+    return mrs.preview_requirements([i.model_dump() for i in body.items])
+
+
+@router.get("/{order_id}/material-requirements")
+def order_material_requirements(order_id: str, basis: str = Query("total")):
+    return mrs.requirements_for_order(order_id, basis)
 
 
 @router.get("/{order_id}")
