@@ -63,25 +63,28 @@ export function MaterialSummaryCard() {
   )
 }
 
-/** Kafelek niedoboru — liczba jako bohater + kontekst pod spodem. */
+/** Kafelek niedoboru — liczba jako bohater + skąd ona wynika. */
 function ShortageTile({ s }: { s: NetShortageRow }) {
   const a = accentOf(s.rawTypeId)
   return (
-    <div className="rounded-lg border border-rose-200/70 bg-white px-3 py-2">
+    <div className="relative overflow-hidden rounded-lg border border-rose-200/70 bg-white py-2 pl-3.5 pr-3 shadow-sm">
+      <span className={`absolute inset-y-0 left-0 w-1 ${a.dot}`} aria-hidden />
       <div className="flex items-center gap-1.5">
         <Dot rawTypeId={s.rawTypeId} />
-        <span className="truncate text-[11px] font-medium text-ink-2">{s.rawName}</span>
+        <span className="truncate text-[11px] font-semibold text-ink-2">{s.rawName}</span>
+        <span className="ml-auto text-[9px] font-bold uppercase tracking-[0.1em] text-rose-400">brakuje</span>
       </div>
-      <div className="mt-0.5 text-lg leading-tight text-rose-700">
-        <Kg value={s.kgNetShortage} />
+      <div className="mt-0.5 text-2xl font-black leading-none text-rose-700 tabular-nums">
+        {fmtKg(s.kgNetShortage, 0)}<span className="ml-1 text-sm font-semibold text-rose-400">kg</span>
       </div>
-      <div className="mt-0.5 space-y-0.5 text-[10px] leading-tight text-muted-foreground tabular-nums">
+      <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] leading-tight text-muted-foreground tabular-nums">
+        <span>potrzeba {fmtKg(s.kgNeededRaw, 0)} kg</span>
+        <span className="text-surface-4">·</span>
+        <span>w magazynie {fmtKg(s.kgAvailable, 0)} kg</span>
         {s.rawTypeId === CWIARTKA && s.kgMeat > 0 && (
-          <div>z tego mięso z/s: <span className="font-semibold text-rose-600/90">{fmtKg(s.kgMeat, 0)} kg</span></div>
+          <span className="w-full text-rose-600/80">z tego mięso z/s: <span className="font-semibold">{fmtKg(s.kgMeat, 0)} kg</span></span>
         )}
-        <div>w magazynie: {fmtKg(s.kgAvailable, 0)} kg</div>
       </div>
-      <span className={`mt-1 block h-0.5 w-8 rounded-full ${a.dot} opacity-60`} />
     </div>
   )
 }
@@ -95,9 +98,9 @@ function ContextCol({ title, rows }: { title: string; rows: RawRequirementTotal[
       {nonZero.length === 0 ? (
         <div className="text-xs text-muted-foreground">—</div>
       ) : (
-        <ul className="space-y-1">
+        <ul className="-mx-1.5 space-y-0.5">
           {nonZero.map(r => (
-            <li key={r.rawTypeId} className="flex items-baseline gap-2 text-xs leading-relaxed">
+            <li key={r.rawTypeId} className="flex items-baseline gap-2 rounded px-1.5 py-1 text-xs leading-tight transition-colors hover:bg-surface-2/50">
               <Dot rawTypeId={r.rawTypeId} />
               <span className="text-ink-2">{r.rawName}</span>
               {r.rawTypeId === CWIARTKA && r.kgMeat > 0 && (
