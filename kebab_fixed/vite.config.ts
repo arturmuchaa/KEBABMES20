@@ -16,6 +16,8 @@ export default defineConfig({
         kiosk: path.resolve(__dirname, 'kiosk.html'),
         // Standalone HMI v7 "Precision Light" — panel PC 21", bez przełącznika
         'rozbior-v7': path.resolve(__dirname, 'rozbior-v7.html'),
+        // Standalone HMI v10 — biel + akcent indygo, panel PC 21.5", bez przełącznika
+        'rozbior-v10': path.resolve(__dirname, 'rozbior-v10.html'),
       },
     },
   },
