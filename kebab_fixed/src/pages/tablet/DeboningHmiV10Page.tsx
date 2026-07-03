@@ -607,14 +607,14 @@ export function DeboningHmiV10Page() {
                 <CircleGauge value={shift.yieldPct} min={0} max={100} color="var(--accent)" />
                 <div>
                   <div className="hmi-v10-mono font-extrabold text-2xl leading-none">{shift.totMeat > 0 ? fmtPct(shift.yieldPct, 0) : '—'}</div>
-                  <div className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--mut)' }}>cel {YIELD_BAND_LO}–{YIELD_BAND_HI}%</div>
+                  <div className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--mut)' }}>Wydajność</div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <CircleGauge value={shift.tempo} min={0} max={TEMPO_TARGET * 1.25} color="var(--success)" />
                 <div>
                   <div className="hmi-v10-mono font-extrabold text-2xl leading-none">{fmtKg(shift.tempo, 0)}</div>
-                  <div className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--mut)' }}>kg/h · cel {TEMPO_TARGET}</div>
+                  <div className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--mut)' }}>kg/h</div>
                 </div>
               </div>
             </div>
