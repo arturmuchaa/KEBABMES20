@@ -153,7 +153,7 @@ const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount
     <button type="button" onClick={() => onSelect(worker)}
       className="relative flex flex-col items-center justify-center gap-1 select-none active:scale-[0.98] transition-all px-2"
       style={{
-        borderRadius: 10, minHeight: 88,
+        borderRadius: 10, aspectRatio: '1',
         background: selected ? 'var(--accent)' : 'var(--panel)',
         border: `1px solid ${selected ? 'var(--accent)' : 'var(--line)'}`,
         color: selected ? '#fff' : 'var(--ink)',
@@ -537,7 +537,7 @@ export function DeboningHmiV10Page() {
             ? <div className="flex items-center justify-center h-full"><Spinner size={32} /></div>
             : (
               <div className="flex-1 min-h-0 overflow-y-auto"
-                style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gridAutoRows: 'minmax(88px, 1fr)', gap: 8, alignContent: 'start' }}>
+                style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 8, alignContent: 'start' }}>
                 {workers.map(w => {
                   const ws = perWorker.get(w.id)
                   return (
