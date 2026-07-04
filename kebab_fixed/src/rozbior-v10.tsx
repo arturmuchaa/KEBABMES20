@@ -183,19 +183,19 @@ function KioskGate() {
 function SplashScreen() {
   return (
     <div className="h-full w-full flex flex-col items-center justify-center gap-7" style={{ background: '#FFFFFF' }}>
-      <img src="/logo-ksiezyc.png" alt="Księżyc" style={{ maxWidth: '42vw', height: 'auto' }} />
+      <img src="/logo-ksiezyc.png" alt="Księżyc" width={800} height={276} style={{ width: 800, height: 276 }} />
       <div className="w-8 h-8 rounded-full animate-spin" style={{ border: '4px solid #E0E7FF', borderTopColor: '#4F46E5' }} />
     </div>
   )
 }
 
-// Minimalny czas splasha (3s) — bez tego logo znikało natychmiast po
+// Minimalny czas splasha (5s) — bez tego logo znikało natychmiast po
 // zamontowaniu Reacta (ładowanie sesji jest zwykle szybsze niż mrugnięcie
 // okiem), więc w praktyce nie było go widać wcale.
 function SplashGate() {
   const [showSplash, setShowSplash] = useState(true)
   useEffect(() => {
-    const t = setTimeout(() => setShowSplash(false), 3000)
+    const t = setTimeout(() => setShowSplash(false), 5000)
     return () => clearTimeout(t)
   }, [])
   if (showSplash) return <SplashScreen />
