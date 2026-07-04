@@ -177,6 +177,31 @@ function KioskGate() {
   return <DeboningHmiV10Page />
 }
 
+// Ten sam wygląd co statyczny splash w rozbior-v10.html (logo + kółeczko) —
+// żeby przejście ze statycznego HTML na wersję renderowaną przez Reacta było
+// niewidoczne (identyczne logo/pozycja/tło), zamiast "skoku" między nimi.
+function SplashScreen() {
+  return (
+    <div className="h-full w-full flex flex-col items-center justify-center gap-7" style={{ background: '#FFFFFF' }}>
+      <img src="/logo-ksiezyc.png" alt="Księżyc" style={{ maxWidth: '42vw', height: 'auto' }} />
+      <div className="w-8 h-8 rounded-full animate-spin" style={{ border: '4px solid #E0E7FF', borderTopColor: '#4F46E5' }} />
+    </div>
+  )
+}
+
+// Minimalny czas splasha (3s) — bez tego logo znikało natychmiast po
+// zamontowaniu Reacta (ładowanie sesji jest zwykle szybsze niż mrugnięcie
+// okiem), więc w praktyce nie było go widać wcale.
+function SplashGate() {
+  const [showSplash, setShowSplash] = useState(true)
+  useEffect(() => {
+    const t = setTimeout(() => setShowSplash(false), 3000)
+    return () => clearTimeout(t)
+  }, [])
+  if (showSplash) return <SplashScreen />
+  return <KioskGate />
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
@@ -185,7 +210,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <KioskGuards />
           {/* Wrapper h-screen/w-screen — dzieci używają h-full/w-full */}
           <div style={{ height: '100vh', width: '100vw', overflow: 'hidden' }}>
-            <KioskGate />
+            <SplashGate />
           </div>
         </TooltipProvider>
       </AuthProvider>
