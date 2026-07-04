@@ -45,6 +45,7 @@ const VARS: CSSProperties = {
   ['--lineSoft' as string]:   '#E2E5EA',
   ['--accent' as string]:     '#4F46E5',
   ['--accentSoft' as string]: '#EEF2FF',
+  ['--barBg' as string]:      '#D3DBF7',
   ['--success' as string]:    '#16A34A',
   ['--amb' as string]:        '#B45309',
   ['--ambSoft' as string]:    '#FFFBF3',
@@ -113,8 +114,8 @@ function SectionStep({ no, done, children }: { no: number; done: boolean; childr
 }
 
 // ─── Kafel partii ──────────────────────────────────────────────────
-const BatchTileV10 = memo(function BatchTileV10({ batch, selected, first, onSelect }: {
-  batch: RawBatch; selected: boolean; first: boolean; onSelect: (b: RawBatch) => void
+const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect }: {
+  batch: RawBatch; selected: boolean; onSelect: (b: RawBatch) => void
 }) {
   const { daysLeft } = getExpiryStatus(batch.expiryDate)
   const kg = Number(batch.kgAvailable)
@@ -131,11 +132,6 @@ const BatchTileV10 = memo(function BatchTileV10({ batch, selected, first, onSele
       }}>
       <div className="flex items-start justify-between gap-2">
         <span className="hmi-v10-mono font-bold text-2xl leading-none">{batch.internalBatchNo}</span>
-        {first && !selected && (
-          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full" style={{ letterSpacing: '.04em', background: 'var(--accentSoft)', color: 'var(--accent)' }}>
-            najpierw
-          </span>
-        )}
       </div>
       <div className="flex items-center justify-between mt-2 leading-none">
         <span className="hmi-v10-mono text-lg font-bold leading-none">{fmtKg(kg, 0)} kg</span>
@@ -143,7 +139,7 @@ const BatchTileV10 = memo(function BatchTileV10({ batch, selected, first, onSele
           {expired ? 'przeterm.' : daysLeft === 0 ? 'dziś!' : `${daysLeft} dni`}
         </span>
       </div>
-      <div className="text-[13px] font-medium truncate mt-1.5 leading-none" style={{ color: selected ? 'rgba(255,255,255,.75)' : 'var(--mut)' }}>
+      <div className="text-[13px] font-medium truncate mt-1.5 block" style={{ color: selected ? 'rgba(255,255,255,.75)' : 'var(--mut)', lineHeight: 1.3 }}>
         {batch.supplierDisplayName ?? batch.supplierName ?? '—'} · {Math.floor(kg / KG_PER_CONTAINER)} poj.
       </div>
     </button>
@@ -505,7 +501,7 @@ export function DeboningHmiV10Page() {
         {toastMsg}
       </div>
 
-      <header className="flex-shrink-0 h-[72px] flex items-center gap-5 px-6" style={{ background: 'var(--accentSoft)', borderBottom: '1px solid var(--line)' }}>
+      <header className="flex-shrink-0 h-[76px] flex items-center gap-5 px-6" style={{ background: 'var(--barBg)', borderBottom: '1px solid var(--line)' }}>
         <div>
           <div className="font-extrabold text-xl leading-none uppercase" style={{ letterSpacing: '-.01em' }}>Rozbiór</div>
           <div className="hmi-v10-mono text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.14em' }}>
@@ -519,7 +515,7 @@ export function DeboningHmiV10Page() {
         ] as const).map(c => (
           <div key={c.label} className="flex flex-col justify-center pl-5 flex-shrink-0" style={{ borderLeft: '1px solid var(--lineSoft)' }}>
             <span className="text-[9px] font-bold uppercase leading-none mb-1" style={{ color: 'var(--mut)', letterSpacing: '.14em' }}>{c.label}</span>
-            <span className="hmi-v10-mono text-sm font-bold leading-none truncate max-w-[140px]" style={{ color: (c as any).color ?? 'var(--ink)' }}>{c.val}</span>
+            <span className="hmi-v10-mono text-sm font-bold truncate max-w-[140px] block" style={{ color: (c as any).color ?? 'var(--ink)', lineHeight: 1.3 }}>{c.val}</span>
           </div>
         ))}
         <div className="flex-1" />
@@ -552,8 +548,8 @@ export function DeboningHmiV10Page() {
           ? <div className="flex items-center justify-center w-full"><Spinner size={24} /></div>
           : batches.length === 0
             ? <div className="flex items-center justify-center w-full text-sm font-bold" style={{ color: 'var(--mut)' }}>Brak aktywnych partii</div>
-            : batches.map((b, i) => (
-                <BatchTileV10 key={b.id} batch={b} first={i === 0} selected={selBatch?.id === b.id} onSelect={pickBatch} />
+            : batches.map(b => (
+                <BatchTileV10 key={b.id} batch={b} selected={selBatch?.id === b.id} onSelect={pickBatch} />
               ))
         }
       </div>
@@ -706,7 +702,7 @@ export function DeboningHmiV10Page() {
         </div>
       </div>
 
-      <div className="flex-shrink-0 h-[76px] grid grid-cols-6" style={{ background: 'var(--accentSoft)', borderTop: '1px solid var(--line)' }}>
+      <div className="flex-shrink-0 h-[76px] grid grid-cols-6" style={{ background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
         {[
           { label: 'Ćwiartka dziś', val: `${fmtKg(shift.totTaken, 0)} kg` },
           { label: 'Mięso',         val: `${fmtKg(shift.totMeat, 0)} kg` },
