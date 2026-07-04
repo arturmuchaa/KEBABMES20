@@ -19,6 +19,7 @@ import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, Li
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
+import { useAuth } from '@/features/auth/AuthContext'
 import './DeboningHmiV10Page.css'
 
 const KG_PER_CONTAINER = 15
@@ -230,6 +231,7 @@ const NumpadV10 = memo(function NumpadV10({ onKey, onBackStart, onBackEnd, disab
 interface HmiAlarm { id: string; level: 'red' | 'amb'; text: string }
 
 export function DeboningHmiV10Page() {
+  const { user: loggedInUser } = useAuth()
   const batchData  = useApi(() => rawBatchesApi.list())
   const workerData = useApi(() => usersApi.list())
   const { session, timeWindow, loading: sessionLoading, startDay, startLoading, closeDay, closeLoading } = useProductionSession()
@@ -492,7 +494,7 @@ export function DeboningHmiV10Page() {
         {([
           { label: 'Magazyn',  val: `${fmtKg(totalKgMagazyn, 0)} kg` },
           { label: 'Partie',   val: String(allActiveBatches.length) },
-          { label: 'Operator', val: selWorker?.name.split(' ')[0] ?? '—', color: selWorker ? 'var(--accent)' : 'var(--mut)' },
+          { label: 'Pracownik', val: selWorker?.name.split(' ')[0] ?? '—', color: selWorker ? 'var(--accent)' : 'var(--mut)' },
         ] as const).map(c => (
           <div key={c.label} className="flex flex-col justify-center pl-5 flex-shrink-0" style={{ borderLeft: '1px solid var(--lineSoft)' }}>
             <span className="text-[9px] font-bold uppercase leading-none mb-1" style={{ color: 'var(--mut)', letterSpacing: '.14em' }}>{c.label}</span>
@@ -518,6 +520,10 @@ export function DeboningHmiV10Page() {
           style={{ border: '1px solid var(--ambLine)', color: 'var(--amb)', borderRadius: 8, background: 'var(--ambSoft)' }}>
           <Flag size={15} /> Zakończ partię
         </button>
+        <div className="flex flex-col justify-center items-end pl-5 flex-shrink-0" style={{ borderLeft: '1px solid var(--lineSoft)' }}>
+          <span className="text-[9px] font-bold uppercase leading-none mb-1" style={{ color: 'var(--mut)', letterSpacing: '.14em' }}>Operator</span>
+          <span className="text-sm font-bold leading-none truncate max-w-[140px]">{loggedInUser?.name ?? '—'}</span>
+        </div>
       </header>
 
       <div className="flex-shrink-0 h-[102px] px-4 py-3 flex items-center gap-2.5 overflow-x-auto">
