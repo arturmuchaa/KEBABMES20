@@ -107,23 +107,39 @@ jobs:
           $URL = "$pub?version=$([uri]::EscapeDataString($VERSION))&signature=$([uri]::EscapeDataString($SIGNATURE))&filename=$([uri]::EscapeDataString($FILENAME))&notes=$([uri]::EscapeDataString($NOTES))&pub_date=$([uri]::EscapeDataString($PUB_DATE))"
 
           Write-Host "Publikuję $FILENAME (v$VERSION) -> $pub"
-          Write-Host "Signature length: $($SIGNATURE.Length) chars, contains CR/LF: $($SIGNATURE -match '\r|\n')"
-          Write-Host "URL length: $($URL.Length) chars, contains CR/LF: $($URL -match '\r|\n')"
-          Write-Host "URL well-formed (System.Uri): $([uri]::IsWellFormedUriString($URL, [UriKind]::Absolute))"
 
-          # Bisekcja (build 1.0.11) namierzyła problem do samego $URL jako
-          # argumentu przekazywanego do curl.exe: nawet goły "curl ... "$URL""
-          # bez żadnych nagłówków/POST/--data-binary/array-splattingu failował
-          # identycznie z "Bad hostname" — więc to NIE nagłówki, NIE POST, NIE
-          # --data-binary, NIE splatting. $URL sam w sobie jest poprawnym,
-          # dobrze sformowanym stringiem (długość, brak CR/LF, well-formed
-          # sprawdzone wyżej) — problem leży więc w tym, JAK PowerShell/curl.exe
-          # na tym konkretnym windows-latest runnerze przekazuje ten string
-          # jako argument procesu natywnego (marshaling argv), nie w samej
-          # treści URL-a. Rozwiązanie: ominąć curl.exe całkowicie i użyć
-          # naturalnego klienta HTTP PowerShell (Invoke-RestMethod) — URL i
-          # ścieżka pliku idą wtedy jako zwykłe parametry .NET, bez żadnego
-          # przekazywania przez wiersz poleceń procesu natywnego.
+          # 1.0.12 obalił poprzednią hipotezę: [uri]::IsWellFormedUriString($URL)
+          # zwróciło False i Invoke-RestMethod (natywny .NET, nie curl.exe) padł
+          # z "Invalid URI: The hostname could not be parsed" — więc $URL jest
+          # NAPRAWDĘ źle sformowany, to nie kwestia przekazywania argv do curl.
+          # Bisekcja budowy query-stringu krok po kroku, żeby namierzyć KTÓRY
+          # parametr psuje parsowanie hosta (dziwne samo w sobie — host jest na
+          # samym początku stringa, więc coś dalej musi wpływać na to jak .NET
+          # go interpretuje, albo $pub nie jest tym, czym się wydaje).
+          $qVersion  = "$pub?version=$([uri]::EscapeDataString($VERSION))"
+          $qSig      = "$qVersion&signature=$([uri]::EscapeDataString($SIGNATURE))"
+          $qFilename = "$qSig&filename=$([uri]::EscapeDataString($FILENAME))"
+          $qNotes    = "$qFilename&notes=$([uri]::EscapeDataString($NOTES))"
+
+          Write-Host "=== BISEKCJA URI ==="
+          Write-Host "pub sam:        [$pub] wellformed=$([uri]::IsWellFormedUriString($pub, [UriKind]::Absolute))"
+          Write-Host "pub+version:    wellformed=$([uri]::IsWellFormedUriString($qVersion, [UriKind]::Absolute))"
+          Write-Host "  +signature:   wellformed=$([uri]::IsWellFormedUriString($qSig, [UriKind]::Absolute)) (len=$($qSig.Length))"
+          Write-Host "  +filename:    wellformed=$([uri]::IsWellFormedUriString($qFilename, [UriKind]::Absolute))"
+          Write-Host "  +notes:       wellformed=$([uri]::IsWellFormedUriString($qNotes, [UriKind]::Absolute))"
+          Write-Host "  +pub_date(URL):wellformed=$([uri]::IsWellFormedUriString($URL, [UriKind]::Absolute))"
+          # Rzeczywista próba budowy System.Uri na każdym kroku — komunikat
+          # wyjątku (jeśli jest) mówi WPROST co konkretnie nie gra, zamiast
+          # tylko True/False.
+          foreach ($pair in @(@('pub',$pub), @('version',$qVersion), @('signature',$qSig), @('filename',$qFilename), @('notes',$qNotes), @('pub_date/URL',$URL))) {
+            try {
+              [void][System.Uri]::new($pair[1])
+              Write-Host "  [$($pair[0])] Uri.new OK"
+            } catch {
+              Write-Host "  [$($pair[0])] Uri.new BLAD: $($_.Exception.Message)"
+            }
+          }
+
           try {
             $resp = Invoke-RestMethod -Uri $URL -Method Post -Headers @{ 'X-Admin-Token' = $tok } -InFile $EXE_PATH -ContentType 'application/octet-stream'
             Write-Host "Publikacja OK: $($resp | ConvertTo-Json -Compress -Depth 5)"
