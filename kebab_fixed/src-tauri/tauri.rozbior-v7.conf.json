@@ -18,8 +18,7 @@
         "maximized": true,
         "skipTaskbar": false,
         "focus": true,
-        "center": true,
-        "visible": false
+        "center": true
       }
     ],
     "security": {
