@@ -32,7 +32,7 @@ type StatsSort = 'taken' | 'meat' | 'yield' | 'count'
 
 /** Paleta — biel + jeden akcent indygo. Kontrast zweryfikowany WCAG. */
 const VARS: CSSProperties = {
-  ['--bg' as string]:         '#F4F6F8',
+  ['--bg' as string]:         '#E7EAEE',
   ['--panel' as string]:      '#FFFFFF',
   ['--ink' as string]:        '#0F172A',
   ['--mut' as string]:        '#5B6472',
@@ -119,26 +119,26 @@ const BatchTileV10 = memo(function BatchTileV10({ batch, selected, first, onSele
     <button type="button" onClick={() => onSelect(batch)} disabled={expired}
       className={cn('flex flex-col justify-between text-left h-full flex-shrink-0 select-none transition-all', expired && 'opacity-50')}
       style={{
-        width: 196, padding: '12px 14px', borderRadius: 10,
+        width: 244, padding: '14px 18px', borderRadius: 12,
         background: selected ? 'var(--accent)' : 'var(--panel)',
         border: `1px solid ${selected ? 'var(--accent)' : 'var(--line)'}`,
         color: selected ? '#fff' : 'var(--ink)',
       }}>
       <div className="flex items-start justify-between gap-2">
-        <span className="hmi-v10-mono font-bold text-xl leading-none">{batch.internalBatchNo}</span>
+        <span className="hmi-v10-mono font-bold text-2xl leading-none">{batch.internalBatchNo}</span>
         {first && !selected && (
-          <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-full" style={{ letterSpacing: '.04em', background: 'var(--accentSoft)', color: 'var(--accent)' }}>
+          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full" style={{ letterSpacing: '.04em', background: 'var(--accentSoft)', color: 'var(--accent)' }}>
             najpierw
           </span>
         )}
       </div>
-      <div className="flex items-center justify-between mt-1.5">
-        <span className="hmi-v10-mono text-sm font-bold">{fmtKg(kg, 0)} kg</span>
-        <span className="text-[11px] font-bold uppercase" style={{ color: daysColor }}>
-          {expired ? 'przeterm.' : daysLeft === 0 ? 'dziś!' : `${daysLeft}d`}
+      <div className="flex items-center justify-between mt-2 leading-none">
+        <span className="hmi-v10-mono text-lg font-bold leading-none">{fmtKg(kg, 0)} kg</span>
+        <span className="text-[13px] font-bold uppercase leading-none" style={{ color: daysColor }}>
+          {expired ? 'przeterm.' : daysLeft === 0 ? 'dziś!' : `${daysLeft} dni`}
         </span>
       </div>
-      <div className="text-[11px] font-medium truncate mt-0.5" style={{ color: selected ? 'rgba(255,255,255,.7)' : 'var(--mut)' }}>
+      <div className="text-[13px] font-medium truncate mt-1.5 leading-none" style={{ color: selected ? 'rgba(255,255,255,.75)' : 'var(--mut)' }}>
         {batch.supplierDisplayName ?? batch.supplierName ?? '—'} · {Math.floor(kg / KG_PER_CONTAINER)} poj.
       </div>
     </button>
@@ -159,13 +159,13 @@ const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount
         border: `1px solid ${selected ? 'var(--accent)' : 'var(--line)'}`,
         color: selected ? '#fff' : 'var(--ink)',
       }}>
-      <span className="font-extrabold text-2xl leading-none">{initials}</span>
-      <span className="text-[11.5px] font-semibold leading-tight text-center truncate w-full">{worker.name}</span>
+      <span className="font-extrabold text-3xl leading-none">{initials}</span>
+      <span className="text-sm font-semibold leading-tight text-center truncate w-full">{worker.name}</span>
       {kgToday > 0 && (
-        <span className="hmi-v10-mono text-[10px] font-bold" style={{ color: selected ? 'rgba(255,255,255,.75)' : 'var(--mut)' }}>{fmtKg(kgToday, 0)} kg</span>
+        <span className="hmi-v10-mono text-[11px] font-bold" style={{ color: selected ? 'rgba(255,255,255,.75)' : 'var(--mut)' }}>{fmtKg(kgToday, 0)} kg</span>
       )}
       {entryCount > 0 && (
-        <span className="hmi-v10-mono absolute top-1.5 right-1.5 min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[11px] font-bold"
+        <span className="hmi-v10-mono absolute top-2 right-2 min-w-[22px] h-6 px-1.5 rounded-full flex items-center justify-center text-xs font-bold"
           style={{ background: selected ? 'rgba(255,255,255,.25)' : 'var(--accentSoft)', color: selected ? '#fff' : 'var(--accent)' }}>
           {entryCount}
         </span>
@@ -542,7 +542,7 @@ export function DeboningHmiV10Page() {
         </div>
       </header>
 
-      <div className="flex-shrink-0 h-[102px] px-4 py-3 flex items-center gap-2.5 overflow-x-auto">
+      <div className="flex-shrink-0 h-[144px] px-4 py-3 flex items-center gap-3 overflow-x-auto">
         {batchData.loading
           ? <div className="flex items-center justify-center w-full"><Spinner size={24} /></div>
           : batches.length === 0
@@ -554,12 +554,12 @@ export function DeboningHmiV10Page() {
       </div>
 
       <div className="flex-1 flex min-h-0 px-4 pb-4 gap-0">
-        <div className="flex-shrink-0 min-h-0 flex flex-col" style={{ width: '29%', paddingRight: 16, borderRight: '1px solid var(--lineSoft)' }}>
+        <div className="flex-shrink-0 min-h-0 flex flex-col" style={{ width: '34%', paddingRight: 16, borderRight: '1px solid var(--lineSoft)' }}>
           {workerData.loading
             ? <div className="flex items-center justify-center h-full"><Spinner size={32} /></div>
             : (
               <div className="flex-1 min-h-0 overflow-y-auto"
-                style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 8, alignContent: 'start' }}>
+                style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(126px, 1fr))', gap: 10, alignContent: 'start' }}>
                 {workers.map(w => {
                   const ws = perWorker.get(w.id)
                   return (

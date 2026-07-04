@@ -51,7 +51,7 @@ function KioskGuards() {
 }
 
 const LOGIN_VARS: CSSProperties = {
-  ['--bg' as string]: '#F4F6F8',
+  ['--bg' as string]: '#E7EAEE',
   ['--panel' as string]: '#FFFFFF',
   ['--ink' as string]: '#0F172A',
   ['--mut' as string]: '#5B6472',
@@ -168,7 +168,7 @@ function KioskGate() {
   const { user, loading } = useAuth()
   if (loading) {
     return (
-      <div className="h-full w-full flex items-center justify-center" style={{ background: '#F4F6F8' }}>
+      <div className="h-full w-full flex items-center justify-center" style={{ background: '#E7EAEE' }}>
         <Spinner size={48} />
       </div>
     )
