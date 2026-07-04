@@ -109,6 +109,13 @@ _DDL: list[str] = [
     "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_seasoned_ids TEXT[] DEFAULT '{}'",
     "ALTER TABLE finished_goods ADD COLUMN IF NOT EXISTS source_deboning_ids TEXT[] DEFAULT '{}'",
 
+    # ── Ważenie automatyczne RS232 (HMI rozbiór v10) — audyt brutto/tara/tryb ──
+    "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS kg_gross NUMERIC(10,3)",
+    "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS tare_cart_kg NUMERIC(10,3)",
+    "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS tare_e2_kg NUMERIC(10,3)",
+    "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS e2_count INTEGER",
+    "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS weigh_mode TEXT",
+
     # ── Stock reservation model ──
     "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS kg_reserved NUMERIC(10,3) DEFAULT 0",
     "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS kg_used NUMERIC(10,3) DEFAULT 0",

@@ -28,6 +28,13 @@ class DeboningEntryCreate(BaseModel):
     kg_meat: float = Field(..., alias="kgMeat", gt=0)
     kg_backs: float = Field(0, alias="kgBacks", ge=0)
     kg_bones: float = Field(0, alias="kgBones", ge=0)
+    # Ważenie automatyczne RS232 (HMI v10) — audyt brutto/tara; wszystkie
+    # opcjonalne, wpis ręczny wysyła tylko weigh_mode='manual' albo nic.
+    kg_gross: Optional[float] = Field(None, alias="kgGross", ge=0)
+    tare_cart_kg: Optional[float] = Field(None, alias="tareCartKg", ge=0)
+    tare_e2_kg: Optional[float] = Field(None, alias="tareE2Kg", ge=0)
+    e2_count: Optional[int] = Field(None, alias="e2Count", ge=0)
+    weigh_mode: Optional[str] = Field(None, alias="weighMode", pattern="^(auto|manual)$")
 
 
 class DeboningEntryUpdate(BaseModel):
