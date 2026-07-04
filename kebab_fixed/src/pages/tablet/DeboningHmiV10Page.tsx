@@ -231,7 +231,10 @@ const NumpadV10 = memo(function NumpadV10({ onKey, onBackStart, onBackEnd, disab
 interface HmiAlarm { id: string; level: 'red' | 'amb'; text: string }
 
 export function DeboningHmiV10Page() {
-  const { user: loggedInUser } = useAuth()
+  // useAuth() zwraca `null`, gdy komponent renderuje się bez <AuthProvider> w drzewie
+  // (standalone kiosk Tauri, rozbior-v10.tsx, celowo nie ma routera/loginu) — nie
+  // destrukturyzować bezpośrednio, tylko opcjonalnie odczytać `user`.
+  const loggedInUser = useAuth()?.user
   const batchData  = useApi(() => rawBatchesApi.list())
   const workerData = useApi(() => usersApi.list())
   const { session, timeWindow, loading: sessionLoading, startDay, startLoading, closeDay, closeLoading } = useProductionSession()
