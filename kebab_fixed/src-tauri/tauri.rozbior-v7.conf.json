@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Rozbiór HMI",
+  "productName": "Rozbior HMI",
   "version": "1.0.2",
   "identifier": "pl.kebabmes.rozbior-v7",
   "build": {
