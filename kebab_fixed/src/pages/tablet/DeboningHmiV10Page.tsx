@@ -104,9 +104,9 @@ function StepDot({ no, done }: { no: number; done: boolean }) {
 }
 function SectionStep({ no, done, children }: { no: number; done: boolean; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center gap-2 min-w-0 flex-1">
       <StepDot no={no} done={done} />
-      <span className="text-[12px] font-semibold uppercase" style={{ color: done ? 'var(--ink)' : 'var(--mut)', letterSpacing: '.04em' }}>
+      <span className="text-[12px] font-semibold uppercase truncate" style={{ color: done ? 'var(--ink)' : 'var(--mut)', letterSpacing: '.04em' }}>
         {children}
       </span>
     </div>
@@ -577,7 +577,7 @@ export function DeboningHmiV10Page() {
         </div>
 
         <div className="flex-shrink-0 flex flex-col gap-3 min-h-0" style={{ width: '34%', padding: '0 16px', borderRight: '1px solid var(--lineSoft)' }}>
-          <div className="flex flex-col gap-1.5 flex-shrink-0 pt-1">
+          <div className="flex items-center gap-3 flex-shrink-0 pt-1">
             <SectionStep no={1} done={!!selBatch}>Partia{selBatch ? ` — ${selBatch.internalBatchNo}` : ''}</SectionStep>
             <SectionStep no={2} done={!!selWorker}>Pracownik{selWorker ? ` — ${selWorker.name}` : ''}</SectionStep>
             <SectionStep no={3} done={taken > 0 && meat > 0 && !meatTooBig}>Waga</SectionStep>
@@ -609,15 +609,15 @@ export function DeboningHmiV10Page() {
           <NumpadV10 onKey={pressKey} onBackStart={handleBackStart} onBackEnd={handleBackEnd} disabled={!selBatch || !selWorker} />
 
           <button type="button" onClick={handleSave} disabled={!canSave || addLoading}
-            className={cn('flex-shrink-0 h-[60px] w-full text-base font-bold flex items-center justify-center gap-3 transition-all active:scale-[0.98]', saveFlash && 'scale-[1.01]')}
+            className={cn('flex-shrink-0 h-[100px] w-full text-xl font-bold flex items-center justify-center gap-3 transition-all active:scale-[0.98]', saveFlash && 'scale-[1.01]')}
             style={{
-              borderRadius: 10,
+              borderRadius: 12,
               background: canSave ? 'var(--accent)' : meatTooBig ? 'var(--redSoft)' : 'var(--panel)',
               color: canSave ? '#fff' : meatTooBig ? 'var(--red)' : 'var(--mut)',
               border: `1px solid ${canSave ? 'var(--accent)' : meatTooBig ? 'var(--redLine)' : 'var(--line)'}`,
-              boxShadow: canSave ? '0 8px 20px -8px rgba(79,70,229,.5)' : undefined,
+              boxShadow: canSave ? '0 10px 24px -10px rgba(79,70,229,.5)' : undefined,
             }}>
-            {addLoading ? <span className="w-6 h-6 border-4 border-white/30 border-t-white rounded-full animate-spin" /> : canSave ? <Save size={22} /> : null}
+            {addLoading ? <span className="w-7 h-7 border-4 border-white/30 border-t-white rounded-full animate-spin" /> : canSave ? <Save size={26} /> : null}
             {saveHint}
           </button>
         </div>
