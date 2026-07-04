@@ -63,12 +63,16 @@ jobs:
           $BUNDLE = "kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
           $EXE = Get-ChildItem "$BUNDLE/*.exe" | Select-Object -First 1
           $SIG = Get-ChildItem "$BUNDLE/*.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
-          $SIGNATURE = if ($SIG) { (Get-Content $SIG.FullName -Raw).Trim() } else { "" }
+          # UWAGA: nie przepuszczamy treści .sig (wieloliniowa) przez $GITHUB_OUTPUT —
+          # prosta składnia "key=value" psuje się na wartościach z osadzonymi
+          # nowymi liniami (GitHub Actions wymaga do tego osobnej składni z
+          # delimiterem). Zamiast tego przekazujemy tylko sig_path (bezpieczna,
+          # jednoliniowa ścieżka) i odczytujemy treść podpisu na nowo w kroku
+          # publikacji, na tym samym runnerze, gdzie plik nadal istnieje.
           "version=$VERSION"          >> $env:GITHUB_OUTPUT
           "exe_path=$($EXE.FullName)" >> $env:GITHUB_OUTPUT
           "exe_name=$($EXE.Name)"     >> $env:GITHUB_OUTPUT
           "sig_path=$(if ($SIG) { $SIG.FullName } else { '' })" >> $env:GITHUB_OUTPUT
-          "signature=$SIGNATURE"      >> $env:GITHUB_OUTPUT
           Write-Host "Version: $VERSION | EXE: $($EXE.Name) ($([math]::Round($EXE.Length/1MB, 1)) MB) | SIG: $(if ($SIG) { $SIG.Name } else { 'BRAK!' })"
 
       - name: Publish installer to VPS silent-updater (rozbior-v10 channel)
@@ -85,26 +89,41 @@ jobs:
             Write-Host "KEBAB_UPDATER_ADMIN_TOKEN brak; pomijam publikację cichej aktualizacji (artefakt i tak zostanie wgrany do GitHub Release)."
             exit 0
           }
-          if ([string]::IsNullOrWhiteSpace("${{ steps.meta.outputs.signature }}")) {
-            Write-Host "Brak podpisu .sig (sekrety TAURI_SIGNING_* nieustawione?) — pomijam publikację, kiosk nie zweryfikowałby niepodpisanej aktualizacji."
+
+          $sigPath = "${{ steps.meta.outputs.sig_path }}"
+          if ([string]::IsNullOrWhiteSpace($sigPath) -or -not (Test-Path $sigPath)) {
+            Write-Host "Brak pliku .sig (sekrety TAURI_SIGNING_* nieustawione?) — pomijam publikację, kiosk nie zweryfikowałby niepodpisanej aktualizacji."
             exit 0
           }
+          # Odczyt TREŚCI podpisu na nowo z pliku (nie z $GITHUB_OUTPUT) — patrz
+          # komentarz w kroku "Get artifact info" o wieloliniowych wartościach.
+          $SIGNATURE = (Get-Content $sigPath -Raw).Trim()
 
           $VERSION = "${{ steps.meta.outputs.version }}"
-          $SIGNATURE = "${{ steps.meta.outputs.signature }}"
           $FILENAME = "${{ steps.meta.outputs.exe_name }}"
+          $EXE_PATH = "${{ steps.meta.outputs.exe_path }}"
           $PUB_DATE = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
           $NOTES = "HMI v10 $VERSION"
           $URL = "$pub?version=$([uri]::EscapeDataString($VERSION))&signature=$([uri]::EscapeDataString($SIGNATURE))&filename=$([uri]::EscapeDataString($FILENAME))&notes=$([uri]::EscapeDataString($NOTES))&pub_date=$([uri]::EscapeDataString($PUB_DATE))"
-          Write-Host "Publikuję $FILENAME (v$VERSION) -> $pub"
 
-          curl.exe --fail --silent --show-error `
-            -k `
-            -X POST `
-            -H "X-Admin-Token: $tok" `
-            -H "Content-Type: application/octet-stream" `
-            --data-binary "@${{ steps.meta.outputs.exe_path }}" `
-            "$URL"
+          # Diagnostyka — jeśli to znowu zawiedzie, log pokaże DOKŁADNIE co poszło
+          # nie tak, zamiast zgadywać po raz trzeci.
+          Write-Host "Publikuję $FILENAME (v$VERSION) -> $pub"
+          Write-Host "Signature length: $($SIGNATURE.Length) chars, contains CR/LF: $($SIGNATURE -match '\r|\n')"
+          Write-Host "URL length: $($URL.Length) chars, contains CR/LF: $($URL -match '\r|\n')"
+
+          # Array-splatting zamiast długiej linii z backtickami — bardziej
+          # niezawodne przy wywoływaniu natywnych .exe z argumentami zawierającymi
+          # spacje/znaki specjalne na Windows (backtick-continuation bywa kruchy).
+          $curlArgs = @(
+            '--fail', '--silent', '--show-error', '-k',
+            '-X', 'POST',
+            '-H', "X-Admin-Token: $tok",
+            '-H', 'Content-Type: application/octet-stream',
+            '--data-binary', "@$EXE_PATH",
+            $URL
+          )
+          & curl.exe @curlArgs
 
       - name: Upload installer artifact (backup)
         uses: actions/upload-artifact@v4
