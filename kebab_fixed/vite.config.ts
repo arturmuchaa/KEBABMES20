@@ -1,9 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import fs from 'fs'
+
+// Wersja kiosku v10 z jedynego źródła prawdy (src-tauri/tauri.rozbior-v10.conf.json),
+// wstrzykiwana w czasie builda — żeby na ekranie dało się na oko zweryfikować,
+// że cichy auto-update faktycznie podmienił wersję (bez tego nie było jak
+// odróżnić starej instalacji od nowej patrząc tylko na panel).
+const rozbiorV10Version = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, 'src-tauri/tauri.rozbior-v10.conf.json'), 'utf-8')
+).version as string
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __ROZBIOR_V10_VERSION__: JSON.stringify(rozbiorV10Version),
+  },
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
   },

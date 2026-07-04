@@ -22,6 +22,11 @@ import { useProductionSession, useDeboningEntries } from '@/features/deboning/ho
 import { useAuth } from '@/features/auth/AuthContext'
 import './DeboningHmiV10Page.css'
 
+// Wstrzyknięte przez Vite (vite.config.ts) z tauri.rozbior-v10.conf.json —
+// widoczne na ekranie, żeby dało się na oko zweryfikować że cichy auto-update
+// faktycznie podmienił wersję.
+declare const __ROZBIOR_V10_VERSION__: string
+
 const KG_PER_CONTAINER = 15
 const YIELD_BAND_LO = 65   // % — dolna granica pasma celu
 const YIELD_BAND_HI = 80   // % — górna granica pasma celu
@@ -100,7 +105,7 @@ function SectionStep({ no, done, children }: { no: number; done: boolean; childr
   return (
     <div className="flex items-center gap-2.5">
       <StepDot no={no} done={done} />
-      <span className="text-[12px] font-semibold" style={{ color: done ? 'var(--ink)' : 'var(--mut)' }}>
+      <span className="text-[12px] font-semibold uppercase" style={{ color: done ? 'var(--ink)' : 'var(--mut)', letterSpacing: '.04em' }}>
         {children}
       </span>
     </div>
@@ -502,9 +507,9 @@ export function DeboningHmiV10Page() {
 
       <header className="flex-shrink-0 h-[64px] flex items-center gap-5 px-6" style={{ background: 'var(--panel)', borderBottom: '1px solid var(--lineSoft)' }}>
         <div>
-          <div className="font-extrabold text-xl leading-none" style={{ letterSpacing: '-.01em' }}>Rozbiór</div>
+          <div className="font-extrabold text-xl leading-none uppercase" style={{ letterSpacing: '-.01em' }}>Rozbiór</div>
           <div className="hmi-v10-mono text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.14em' }}>
-            {session.sessionDate} · HMI v10
+            {session.sessionDate} · HMI v10 · {__ROZBIOR_V10_VERSION__}
           </div>
         </div>
         {([
@@ -701,25 +706,23 @@ export function DeboningHmiV10Page() {
         </div>
       </div>
 
-      <div className="flex-shrink-0 h-[60px] grid grid-cols-8" style={{ background: 'var(--panel)', borderTop: '1px solid var(--lineSoft)' }}>
+      <div className="flex-shrink-0 h-[76px] grid grid-cols-6" style={{ background: 'var(--panel)', borderTop: '1px solid var(--lineSoft)' }}>
         {[
           { label: 'Ćwiartka dziś', val: `${fmtKg(shift.totTaken, 0)} kg` },
           { label: 'Mięso',         val: `${fmtKg(shift.totMeat, 0)} kg` },
-          { label: 'Wydajność',     val: shift.totMeat > 0 ? fmtPct(shift.yieldPct, 1) : '—', color: yieldInk(shift.yieldPct) },
           { label: 'Grzbiety',      val: `${fmtKg(shift.totBacks, 0)} kg` },
           { label: 'Kości',         val: `${fmtKg(shift.totBones, 0)} kg` },
           { label: 'Wpisy',         val: String(entries.length) },
-          { label: 'Tempo',         val: `${fmtKg(shift.tempo, 0)} kg/h` },
         ].map(c => (
           <div key={c.label} className="flex flex-col items-center justify-center" style={{ borderRight: '1px solid var(--lineSoft)' }}>
-            <span className="hmi-v10-mono text-lg font-bold leading-none" style={{ color: c.color ?? 'var(--ink)' }}>{c.val}</span>
-            <span className="text-[9px] font-bold uppercase mt-1" style={{ color: 'var(--mut)' }}>{c.label}</span>
+            <span className="hmi-v10-mono text-xl font-bold leading-none" style={{ color: 'var(--ink)' }}>{c.val}</span>
+            <span className="text-[10px] font-bold uppercase mt-1.5" style={{ color: 'var(--mut)' }}>{c.label}</span>
           </div>
         ))}
         <button type="button" onClick={() => setStatsModal(true)}
-          className="flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform" style={{ color: 'var(--accent)' }}>
-          <BarChart3 size={18} />
-          <span className="text-[9px] font-bold uppercase">Statystyki</span>
+          className="flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-transform" style={{ color: 'var(--accent)' }}>
+          <BarChart3 size={20} />
+          <span className="text-[10px] font-bold uppercase">Statystyki</span>
         </button>
       </div>
 
