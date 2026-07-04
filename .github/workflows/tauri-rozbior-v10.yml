@@ -111,23 +111,43 @@ jobs:
           Write-Host "URL length: $($URL.Length) chars, contains CR/LF: $($URL -match '\r|\n')"
           Write-Host "EXE_PATH: [$EXE_PATH] contains space: $($EXE_PATH -match ' ')"
 
-          # Test izolujący (3 nieudane próby pod rząd = zbieramy twarde dane
-          # zamiast zgadywać po raz czwarty): gołe wywołanie curl bez żadnych
-          # zmiennych/danych/plików — jeśli TO też da "Bad hostname", problem
-          # jest w środowisku runnera, nie w konstrukcji $URL/$EXE_PATH.
-          Write-Host "--- test izolujący: goły curl bez zmiennych ---"
-          curl.exe --fail --silent --show-error 'http://204.168.166.34:8080/api/health'
-          Write-Host "goly curl exit code: $LASTEXITCODE"
+          # Bisekcja w jednym biegu (4 nieudane próby fixa pod rząd = zbieramy
+          # twarde dane zamiast zgadywać po raz piąty): dokładamy po jednym
+          # elemencie na raz do gołego, już potwierdzonego jako działający
+          # wywołania, żeby namierzyć DOKŁADNIE który element psuje curl.
+          Write-Host "=== BISEKCJA ==="
 
+          Write-Host "--- V1: goly GET, bez zmiennych (baseline, juz potwierdzone OK) ---"
+          curl.exe --fail --silent --show-error -o NUL -w "V1 http:%{http_code}`n" 'http://204.168.166.34:8080/api/health'
+          Write-Host "V1 exit: $LASTEXITCODE"
+
+          Write-Host "--- V2: $URL jako literal string (query string, bez tablicy, bez naglowkow) ---"
+          curl.exe --fail --silent --show-error -o NUL -w "V2 http:%{http_code}`n" "$URL"
+          Write-Host "V2 exit: $LASTEXITCODE"
+
+          Write-Host "--- V3: V2 + -k -X POST -H -H, dalej bez tablicy/data-binary ---"
+          curl.exe --fail --silent --show-error -k -X POST -H "X-Admin-Token: $tok" -H "Content-Type: application/octet-stream" -o NUL -w "V3 http:%{http_code}`n" "$URL"
+          Write-Host "V3 exit: $LASTEXITCODE"
+
+          Write-Host "--- V4: V3 + --data-binary na pliku ze spacja w nazwie, dalej bez tablicy ---"
+          curl.exe --fail --silent --show-error -k -X POST -H "X-Admin-Token: $tok" -H "Content-Type: application/octet-stream" --data-binary "@$EXE_PATH" -o NUL -w "V4 http:%{http_code}`n" "$URL"
+          Write-Host "V4 exit: $LASTEXITCODE"
+
+          Write-Host "--- V5: to samo co V4, ale przez array-splatting (obecny, failujacy kod) ---"
           $curlArgs = @(
             '--fail', '--silent', '--show-error', '-k',
             '-X', 'POST',
             '-H', "X-Admin-Token: $tok",
             '-H', 'Content-Type: application/octet-stream',
             '--data-binary', "@$EXE_PATH",
+            '-o', 'NUL', '-w', 'V5 http:%{http_code}`n',
             $URL
           )
           & curl.exe @curlArgs
+          Write-Host "V5 exit: $LASTEXITCODE"
+
+          Write-Host "=== KONIEC BISEKCJI — publikacja realna (bez -o NUL) na podstawie tego co dzialalo ==="
+          curl.exe --fail --silent --show-error -k -X POST -H "X-Admin-Token: $tok" -H "Content-Type: application/octet-stream" --data-binary "@$EXE_PATH" "$URL"
 
       - name: Upload installer artifact (backup)
         uses: actions/upload-artifact@v4
