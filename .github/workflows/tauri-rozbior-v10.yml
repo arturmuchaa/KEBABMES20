@@ -106,15 +106,19 @@ jobs:
           $NOTES = "HMI v10 $VERSION"
           $URL = "$pub?version=$([uri]::EscapeDataString($VERSION))&signature=$([uri]::EscapeDataString($SIGNATURE))&filename=$([uri]::EscapeDataString($FILENAME))&notes=$([uri]::EscapeDataString($NOTES))&pub_date=$([uri]::EscapeDataString($PUB_DATE))"
 
-          # Diagnostyka — jeśli to znowu zawiedzie, log pokaże DOKŁADNIE co poszło
-          # nie tak, zamiast zgadywać po raz trzeci.
           Write-Host "Publikuję $FILENAME (v$VERSION) -> $pub"
           Write-Host "Signature length: $($SIGNATURE.Length) chars, contains CR/LF: $($SIGNATURE -match '\r|\n')"
           Write-Host "URL length: $($URL.Length) chars, contains CR/LF: $($URL -match '\r|\n')"
+          Write-Host "EXE_PATH: [$EXE_PATH] contains space: $($EXE_PATH -match ' ')"
 
-          # Array-splatting zamiast długiej linii z backtickami — bardziej
-          # niezawodne przy wywoływaniu natywnych .exe z argumentami zawierającymi
-          # spacje/znaki specjalne na Windows (backtick-continuation bywa kruchy).
+          # Test izolujący (3 nieudane próby pod rząd = zbieramy twarde dane
+          # zamiast zgadywać po raz czwarty): gołe wywołanie curl bez żadnych
+          # zmiennych/danych/plików — jeśli TO też da "Bad hostname", problem
+          # jest w środowisku runnera, nie w konstrukcji $URL/$EXE_PATH.
+          Write-Host "--- test izolujący: goły curl bez zmiennych ---"
+          curl.exe --fail --silent --show-error 'http://204.168.166.34:8080/api/health'
+          Write-Host "goly curl exit code: $LASTEXITCODE"
+
           $curlArgs = @(
             '--fail', '--silent', '--show-error', '-k',
             '-X', 'POST',
