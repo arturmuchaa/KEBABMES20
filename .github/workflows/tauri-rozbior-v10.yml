@@ -47,27 +47,72 @@ jobs:
         run: npx tauri icon src-tauri/app-icon.png
         working-directory: kebab_fixed
 
-      - name: Build Tauri Rozbiór v10 (Windows NSIS)
+      - name: Build Tauri Rozbiór v10 (Windows NSIS, signed for silent auto-update)
         run: npx tauri build --target x86_64-pc-windows-msvc --config src-tauri/tauri.rozbior-v10.conf.json --features kiosk
         working-directory: kebab_fixed
         env:
           VITE_API_URL: 'http://204.168.166.34:8080'
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Get artifact info
         id: meta
         shell: pwsh
         run: |
+          $VERSION = (Select-String -Path "kebab_fixed/src-tauri/tauri.rozbior-v10.conf.json" -Pattern '"version":\s*"(.+)"').Matches[0].Groups[1].Value
           $BUNDLE = "kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
           $EXE = Get-ChildItem "$BUNDLE/*.exe" | Select-Object -First 1
+          $SIG = Get-ChildItem "$BUNDLE/*.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $SIGNATURE = if ($SIG) { (Get-Content $SIG.FullName -Raw).Trim() } else { "" }
+          "version=$VERSION"          >> $env:GITHUB_OUTPUT
           "exe_path=$($EXE.FullName)" >> $env:GITHUB_OUTPUT
           "exe_name=$($EXE.Name)"     >> $env:GITHUB_OUTPUT
-          Write-Host "EXE: $($EXE.Name) ($([math]::Round($EXE.Length/1MB, 1)) MB)"
+          "sig_path=$(if ($SIG) { $SIG.FullName } else { '' })" >> $env:GITHUB_OUTPUT
+          "signature=$SIGNATURE"      >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $VERSION | EXE: $($EXE.Name) ($([math]::Round($EXE.Length/1MB, 1)) MB) | SIG: $(if ($SIG) { $SIG.Name } else { 'BRAK!' })"
 
-      - name: Upload installer
+      - name: Publish installer to VPS silent-updater (rozbior-v10 channel)
+        # continue-on-error: porażka publikacji (np. zły token w sekrecie) NIE może
+        # blokować uploadu artefaktu ani utworzenia GitHub Release poniżej.
+        continue-on-error: true
+        shell: pwsh
+        env:
+          KEBAB_UPDATER_ADMIN_TOKEN: ${{ secrets.KEBAB_UPDATER_ADMIN_TOKEN }}
+        run: |
+          $pub = 'http://204.168.166.34:8080/api/admin/desktop-updates/rozbior-v10/publish'
+          $tok = ("$env:KEBAB_UPDATER_ADMIN_TOKEN" -replace '[^\x21-\x7e]', '')
+          if ([string]::IsNullOrWhiteSpace($tok)) {
+            Write-Host "KEBAB_UPDATER_ADMIN_TOKEN brak; pomijam publikację cichej aktualizacji (artefakt i tak zostanie wgrany do GitHub Release)."
+            exit 0
+          }
+          if ([string]::IsNullOrWhiteSpace("${{ steps.meta.outputs.signature }}")) {
+            Write-Host "Brak podpisu .sig (sekrety TAURI_SIGNING_* nieustawione?) — pomijam publikację, kiosk nie zweryfikowałby niepodpisanej aktualizacji."
+            exit 0
+          }
+
+          $VERSION = "${{ steps.meta.outputs.version }}"
+          $SIGNATURE = "${{ steps.meta.outputs.signature }}"
+          $FILENAME = "${{ steps.meta.outputs.exe_name }}"
+          $PUB_DATE = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
+          $NOTES = "HMI v10 $VERSION"
+          $URL = "$pub?version=$([uri]::EscapeDataString($VERSION))&signature=$([uri]::EscapeDataString($SIGNATURE))&filename=$([uri]::EscapeDataString($FILENAME))&notes=$([uri]::EscapeDataString($NOTES))&pub_date=$([uri]::EscapeDataString($PUB_DATE))"
+          Write-Host "Publikuję $FILENAME (v$VERSION) -> $pub"
+
+          curl.exe --fail --silent --show-error `
+            -k `
+            -X POST `
+            -H "X-Admin-Token: $tok" `
+            -H "Content-Type: application/octet-stream" `
+            --data-binary "@${{ steps.meta.outputs.exe_path }}" `
+            "$URL"
+
+      - name: Upload installer artifact (backup)
         uses: actions/upload-artifact@v4
         with:
           name: RozborHMI-v10-Windows-Setup
-          path: ${{ steps.meta.outputs.exe_path }}
+          path: |
+            ${{ steps.meta.outputs.exe_path }}
+            ${{ steps.meta.outputs.sig_path }}
           retention-days: 90
 
       - name: Create GitHub Release
@@ -85,7 +130,14 @@ jobs:
             **Fullscreen** — startuje w pełnym ekranie bez paska Windows.
             **Blokady:** F5, F12, Alt+F4, menu kontekstowe zablokowane.
             **Backend:** łączy się z http://204.168.166.34:8080
+            **Auto-update:** kiosk sam sprawdza i instaluje nowe wersje w tle, co godzinę,
+            bez żadnego pytania — nie trzeba mieć fizycznego dostępu do komputera panelowego,
+            żeby zaktualizować (o ile ten build ma poprawny podpis — patrz krok "Publish"
+            w logu tego workflow).
 
-            **Instalacja:** uruchom `.exe` jako Administrator na komputerze panelowym.
-          files: ${{ steps.meta.outputs.exe_path }}
+            **Instalacja (tylko za pierwszym razem):** uruchom `.exe` jako Administrator
+            na komputerze panelowym. Kolejne wersje instalują się same.
+          files: |
+            ${{ steps.meta.outputs.exe_path }}
+            ${{ steps.meta.outputs.sig_path }}
           token: ${{ secrets.GITHUB_TOKEN }}

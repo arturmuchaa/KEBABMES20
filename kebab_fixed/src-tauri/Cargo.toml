@@ -11,7 +11,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
 default = []
-# Build kiosku rozbioru: wyłącza auto-updater i blokuje zamknięcie okna.
+# Build kiosku rozbioru: cichy auto-update w tle (bez dialogu — nikt nie ma
+# dostępu do Windowsa żeby kliknąć "zainstaluj") i blokuje zamknięcie okna.
 kiosk = []
 
 [build-dependencies]
@@ -25,3 +26,7 @@ tauri-plugin-process = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Tauri używa tokio wewnętrznie (tranzytywnie) — deklarujemy jawnie tylko po
+# to, żeby móc użyć tokio::time::sleep w pętli cichego sprawdzania aktualizacji
+# w kiosku; wersja "1" ujednolici się z tym, co i tak ciągnie Tauri.
+tokio = { version = "1", features = ["time"] }

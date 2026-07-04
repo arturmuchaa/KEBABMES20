@@ -1,19 +1,12 @@
-#[cfg(not(feature = "kiosk"))]
 use tauri_plugin_updater::UpdaterExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
+    tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_dialog::init());
-
-    // Updater tylko w pełnej aplikacji — kiosk rozbioru jest instalacją jednorazową
-    // (bez auto-update, żeby nie „przeszedł" w pełną aplikację).
-    #[cfg(not(feature = "kiosk"))]
-    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
-
-    builder
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|_window, _event| {
             // Kiosk: operator nie może zamknąć okna (Alt+F4 / żądania zamknięcia ignorowane).
             #[cfg(feature = "kiosk")]
@@ -22,6 +15,24 @@ pub fn run() {
             }
         })
         .setup(|_app| {
+            #[cfg(feature = "kiosk")]
+            {
+                // Kiosk: cichy auto-update w tle, BEZ dialogu — nikt nie ma dostępu
+                // do Windowsa żeby kliknąć "zainstaluj". Sprawdzenie od razu przy
+                // starcie, potem co godzinę; jeśli jest nowsza wersja, pobiera,
+                // instaluje i restartuje aplikację samodzielnie. Endpoint jest
+                // per-build (config kiosku wskazuje własny manifest, np.
+                // .../rozbior-v10/latest.json) — nigdy nie ściągnie pełnej appki.
+                let handle = _app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        if let Err(e) = silent_auto_update(handle.clone()).await {
+                            eprintln!("Kiosk silent update check failed: {e}");
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+                    }
+                });
+            }
             #[cfg(not(feature = "kiosk"))]
             {
                 let handle = _app.handle().clone();
@@ -41,6 +52,15 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(feature = "kiosk")]
+async fn silent_auto_update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
+    if let Some(update) = app.updater()?.check().await? {
+        update.download_and_install(|_, _| {}, || {}).await?;
+        app.restart();
+    }
+    Ok(())
 }
 
 #[cfg(not(feature = "kiosk"))]
