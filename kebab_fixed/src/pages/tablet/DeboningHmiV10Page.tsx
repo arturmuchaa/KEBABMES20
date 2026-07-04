@@ -273,6 +273,19 @@ export function DeboningHmiV10Page() {
     if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
   }, [])
 
+  // Auto-odświeżanie partii i pracowników co 5s — żeby nowa partia dodana
+  // z biura pojawiła się na hali bez ręcznego odświeżania. Ciche: useApi ma
+  // wbudowane porównanie głębokie (shallowEqualByJson), więc gdy dane się nie
+  // zmieniły, nie ma re-renderu — zero migania. batchData.refetch/workerData.
+  // refetch mają stabilną referencję (useCallback z pustymi deps w useApi).
+  useEffect(() => {
+    const t = setInterval(() => {
+      batchData.refetch()
+      workerData.refetch()
+    }, 5000)
+    return () => clearInterval(t)
+  }, [batchData.refetch, workerData.refetch])
+
   const allActiveBatches = useMemo(() =>
     (batchData.data?.data ?? [])
       .filter(b => Number(b.kgAvailable) > 0 && b.status !== 'used' && b.status !== 'expired' && b.status !== 'cancelled')
