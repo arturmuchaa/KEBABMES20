@@ -20,6 +20,7 @@ import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
 import { useAuth } from '@/features/auth/AuthContext'
+import { invoke } from '@tauri-apps/api/core'
 import './DeboningHmiV10Page.css'
 
 // Wstrzyknięte przez Vite (vite.config.ts) z tauri.rozbior-v10.conf.json —
@@ -31,6 +32,25 @@ const KG_PER_CONTAINER = 15
 const YIELD_BAND_LO = 65   // % — dolna granica pasma celu
 const YIELD_BAND_HI = 80   // % — górna granica pasma celu
 const TEMPO_TARGET  = 800  // kg/h — cel linii
+
+// Kod serwisowy: szybkie wpisanie "0099" na numpadzie wagi (przy zalogowanym
+// pracowniku) wylogowuje operatora z Windows — konto operatora ma jako
+// powłokę ten kiosk (per-user Shell w rejestrze), więc to jedyna droga
+// powrotu do pulpitu/logowania na konto Administrator bez fizycznego dostępu
+// do BIOS-u. "Szybko" = cała 4-cyfrowa sekwencja w max SERVICE_CODE_WINDOW_MS,
+// żeby zwykłe, powolne wpisywanie wagi zawierającej "0099" nigdy tego nie
+// wyzwoliło przez przypadek.
+const SERVICE_CODE = '0099'
+const SERVICE_CODE_WINDOW_MS = 1500
+
+async function triggerServiceLogoff() {
+  if (!('__TAURI_INTERNALS__' in window)) return // web (nie-kiosk) — brak Tauri, nic nie rób
+  try {
+    await invoke('windows_logoff')
+  } catch (e) {
+    console.error('windows_logoff failed', e)
+  }
+}
 
 type ActiveField = 'taken' | 'meat'
 type StatsSort = 'taken' | 'meat' | 'yield' | 'count'
@@ -261,6 +281,7 @@ export function DeboningHmiV10Page() {
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveFlashRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const serviceCodeStartRef = useRef(0)
 
   const showToast = useCallback((msg: string, type: 'ok' | 'err' = 'ok') => {
     setToastMsg(msg); setToastType(type); setToastVis(true)
@@ -376,17 +397,28 @@ export function DeboningHmiV10Page() {
     : 'ZAPISZ WPIS'
 
   const pressKey = useCallback((k: string) => {
+    const now = Date.now()
+    let matchedServiceCode = false
+    // Kod serwisowy: "0099" wpisane od PUSTEGO pola, szybko (SERVICE_CODE_WINDOW_MS),
+    // jako CAŁA zawartość pola — nie jako podciąg dłuższej, realnej wagi (np. "300.99"
+    // nigdy nie przejdzie przez stan "0099" jako całość, więc nie wyzwoli przypadkiem).
     const apply = (prev: string): string => {
+      if (prev === '' && k !== '⌫') serviceCodeStartRef.current = now
       if (k === '⌫') return prev.slice(0, -1)
       if (k === '.') return prev.includes('.') ? prev : (prev === '' ? '0.' : prev + '.')
       const next = prev + k
       if (next.replace('.', '').length > 6) return prev
       const dot = next.indexOf('.')
       if (dot >= 0 && next.length - dot - 1 > 2) return prev
+      if (next === SERVICE_CODE && now - serviceCodeStartRef.current <= SERVICE_CODE_WINDOW_MS) {
+        matchedServiceCode = true
+        return ''
+      }
       return next
     }
     if (active === 'taken') setKgTaken(apply)
     else setKgMeat(apply)
+    if (matchedServiceCode) void triggerServiceLogoff()
   }, [active])
 
   const clearActiveField = useCallback(() => {
