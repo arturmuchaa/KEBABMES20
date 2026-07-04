@@ -104,61 +104,22 @@ jobs:
           $EXE_PATH = "${{ steps.meta.outputs.exe_path }}"
           $PUB_DATE = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
           $NOTES = "HMI v10 $VERSION"
-          $URL = "$pub?version=$([uri]::EscapeDataString($VERSION))&signature=$([uri]::EscapeDataString($SIGNATURE))&filename=$([uri]::EscapeDataString($FILENAME))&notes=$([uri]::EscapeDataString($NOTES))&pub_date=$([uri]::EscapeDataString($PUB_DATE))"
+
+          # ROOT CAUSE (znaleziony po bisekcji w 1.0.11–1.0.14, potwierdzony
+          # zrzutem surowej wartości): "$pub?version=..." — goła zmienna $pub
+          # przylegająca BEZPOŚREDNIO do "?" (bez separatora) — PowerShell w
+          # interpolacji string-owej gubi wszystko od $pub aż do najbliższego
+          # "=" włącznie. Realny dowód: $qVersion miało wtedy wartość "=1.0.14"
+          # (7 znaków) zamiast oczekiwanych ~90 znaków zaczynających się od
+          # "http://...". Stąd błąd "hostname could not be parsed" — URL
+          # faktycznie zaczynał się od "=", nie od "http://". Fix: jawne
+          # ${pub} (nawiasy klamrowe) jednoznacznie kończą nazwę zmiennej
+          # PRZED znakiem specjalnym — standardowa, udokumentowana praktyka
+          # PowerShell dla tej dokładnie sytuacji (patrz about_Variables).
+          $URL = "${pub}?version=$([uri]::EscapeDataString($VERSION))&signature=$([uri]::EscapeDataString($SIGNATURE))&filename=$([uri]::EscapeDataString($FILENAME))&notes=$([uri]::EscapeDataString($NOTES))&pub_date=$([uri]::EscapeDataString($PUB_DATE))"
 
           Write-Host "Publikuję $FILENAME (v$VERSION) -> $pub"
-
-          # 1.0.12 obalił poprzednią hipotezę: [uri]::IsWellFormedUriString($URL)
-          # zwróciło False i Invoke-RestMethod (natywny .NET, nie curl.exe) padł
-          # z "Invalid URI: The hostname could not be parsed" — więc $URL jest
-          # NAPRAWDĘ źle sformowany, to nie kwestia przekazywania argv do curl.
-          # Bisekcja budowy query-stringu krok po kroku, żeby namierzyć KTÓRY
-          # parametr psuje parsowanie hosta (dziwne samo w sobie — host jest na
-          # samym początku stringa, więc coś dalej musi wpływać na to jak .NET
-          # go interpretuje, albo $pub nie jest tym, czym się wydaje).
-          $qVersion  = "$pub?version=$([uri]::EscapeDataString($VERSION))"
-          $qSig      = "$qVersion&signature=$([uri]::EscapeDataString($SIGNATURE))"
-          $qFilename = "$qSig&filename=$([uri]::EscapeDataString($FILENAME))"
-          $qNotes    = "$qFilename&notes=$([uri]::EscapeDataString($NOTES))"
-
-          Write-Host "=== BISEKCJA URI ==="
-          # 1.0.13 namierzył: $pub SAM jest wellformed=True, ALE $pub+"?version=..."
-          # juz jest False — mimo ze oczekiwana wartosc to zwykly, prosty ciag
-          # "http://204.168.166.34:8080/.../publish?version=1.0.13" ktory manualnie
-          # (Python urllib.parse.quote) wyglada calkowicie poprawnie. Wiec albo w
-          # $qVersion jest jakis niewidoczny znak, albo EscapeDataString($VERSION)
-          # nie zwraca tego czego sie spodziewamy. Zrzucamy SUROWA wartosc w
-          # jawnych znacznikach <<< >>> zeby to zobaczyc na wlasne oczy, plus
-          # dlugosc i evVersion (wynik samego EscapeDataString) osobno, PRZED
-          # konkatenacja z $pub.
-          $evVersion = [uri]::EscapeDataString($VERSION)
-          Write-Host "VERSION raw:    <<<$VERSION>>> (len=$($VERSION.Length))"
-          Write-Host "EscapeDataString(VERSION): <<<$evVersion>>> (len=$($evVersion.Length))"
-          Write-Host "qVersion raw:   <<<$qVersion>>> (len=$($qVersion.Length))"
-          Write-Host "pub sam:        [$pub] wellformed=$([uri]::IsWellFormedUriString($pub, [UriKind]::Absolute))"
-          Write-Host "pub+version:    wellformed=$([uri]::IsWellFormedUriString($qVersion, [UriKind]::Absolute))"
-          Write-Host "  +signature:   wellformed=$([uri]::IsWellFormedUriString($qSig, [UriKind]::Absolute)) (len=$($qSig.Length))"
-          Write-Host "  +filename:    wellformed=$([uri]::IsWellFormedUriString($qFilename, [UriKind]::Absolute))"
-          Write-Host "  +notes:       wellformed=$([uri]::IsWellFormedUriString($qNotes, [UriKind]::Absolute))"
-          Write-Host "  +pub_date(URL):wellformed=$([uri]::IsWellFormedUriString($URL, [UriKind]::Absolute))"
-          # Rzeczywista próba budowy System.Uri na każdym kroku, TERAZ z jawnym
-          # UriKind.Absolute (nie domyślnym RelativeOrAbsolute — "format nie mógł
-          # być określony" pasuje do porażki TEGO WŁAŚNIE heurystycznego
-          # rozpoznawania w konstruktorze 1-argumentowym).
-          foreach ($pair in @(@('pub',$pub), @('version',$qVersion), @('signature',$qSig), @('filename',$qFilename), @('notes',$qNotes), @('pub_date/URL',$URL))) {
-            try {
-              [void][System.Uri]::new($pair[1])
-              Write-Host "  [$($pair[0])] Uri.new(1-arg) OK"
-            } catch {
-              Write-Host "  [$($pair[0])] Uri.new(1-arg) BLAD: $($_.Exception.Message)"
-            }
-            try {
-              [void][System.Uri]::new($pair[1], [UriKind]::Absolute)
-              Write-Host "  [$($pair[0])] Uri.new(Absolute) OK"
-            } catch {
-              Write-Host "  [$($pair[0])] Uri.new(Absolute) BLAD: $($_.Exception.Message)"
-            }
-          }
+          Write-Host "URL well-formed: $([uri]::IsWellFormedUriString($URL, [UriKind]::Absolute))"
 
           try {
             $resp = Invoke-RestMethod -Uri $URL -Method Post -Headers @{ 'X-Admin-Token' = $tok } -InFile $EXE_PATH -ContentType 'application/octet-stream'
