@@ -49,6 +49,11 @@ def _map_deboning_entry(row: Dict) -> Dict:
         "kgRemainder": float(row.get("kg_remainder") or 0),
         "yieldPct": round(yield_pct, 2),
         "meatLotNo": row.get("meat_lot_no"),
+        "kgGross": float(row["kg_gross"]) if row.get("kg_gross") is not None else None,
+        "tareCartKg": float(row["tare_cart_kg"]) if row.get("tare_cart_kg") is not None else None,
+        "tareE2Kg": float(row["tare_e2_kg"]) if row.get("tare_e2_kg") is not None else None,
+        "e2Count": row.get("e2_count"),
+        "weighMode": row.get("weigh_mode"),
         "createdAt": str(row.get("created_at") or ""),
     }
 
@@ -77,6 +82,26 @@ def deboning_trace(batch_id: str) -> Dict[str, List[Dict]]:
     return {"data": [_map_deboning_entry(e) for e in entries]}
 
 
+def validate_weighing_consistency(
+    kg_gross, tare_cart_kg, tare_e2_kg, kg_meat, tolerance: float = 0.5
+):
+    """Ważenie auto: netto z wagi (brutto − tary) musi zgadzać się z kg_meat.
+
+    Zwraca komunikat błędu albo None. Czysta funkcja — testowana bez DB.
+    Brak kg_gross → brak walidacji (wpis ręczny / stara wersja HMI).
+    """
+    if kg_gross is None:
+        return None
+    net = float(kg_gross) - float(tare_cart_kg or 0) - float(tare_e2_kg or 0)
+    if abs(net - float(kg_meat)) > tolerance:
+        return (
+            f"Niespójne ważenie: brutto {kg_gross} kg − tara "
+            f"{float(tare_cart_kg or 0) + float(tare_e2_kg or 0):g} kg = {net:g} kg, "
+            f"a wysłano {kg_meat} kg mięsa"
+        )
+    return None
+
+
 def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
     raw_batch_id = dto.raw_batch_id
     worker_id = dto.worker_id
@@ -84,6 +109,13 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
     kg_taken = float(dto.kg_taken or dto.kg_quarter or 0)
     kg_meat = float(dto.kg_meat)
     session_id = dto.session_id
+
+    if dto.weigh_mode == "auto":
+        weighing_err = validate_weighing_consistency(
+            dto.kg_gross, dto.tare_cart_kg, dto.tare_e2_kg, kg_meat
+        )
+        if weighing_err:
+            raise HTTPException(400, weighing_err)
 
     if kg_taken <= 0:
         raise HTTPException(400, "Ilość pobranej ćwiartki musi być > 0")
@@ -162,8 +194,10 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
             INSERT INTO deboning_entries
                 (id, raw_batch_id, raw_batch_no, session_id, session_no,
                  kg_quarter, kg_meat, kg_remainder, yield_pct,
-                 worker_id, worker_name, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 worker_id, worker_name,
+                 kg_gross, tare_cart_kg, tare_e2_kg, e2_count, weigh_mode,
+                 created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING *
             """,
             (
@@ -178,6 +212,11 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
                 yield_pct,
                 worker_id,
                 worker_name,
+                dto.kg_gross,
+                dto.tare_cart_kg,
+                dto.tare_e2_kg,
+                dto.e2_count,
+                dto.weigh_mode,
                 now_iso(),
             ),
         )

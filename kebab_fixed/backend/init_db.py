@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS deboning_entries (
     kg_bones NUMERIC(10,3) DEFAULT 0, kg_remainder NUMERIC(10,3) DEFAULT 0,
     yield_pct NUMERIC(5,2) DEFAULT 0,
     worker_id TEXT, worker_name TEXT,
+    kg_gross NUMERIC(10,3), tare_cart_kg NUMERIC(10,3), tare_e2_kg NUMERIC(10,3),
+    e2_count INTEGER, weigh_mode TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS meat_stock (
