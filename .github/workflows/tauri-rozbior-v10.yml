@@ -122,21 +122,41 @@ jobs:
           $qNotes    = "$qFilename&notes=$([uri]::EscapeDataString($NOTES))"
 
           Write-Host "=== BISEKCJA URI ==="
+          # 1.0.13 namierzył: $pub SAM jest wellformed=True, ALE $pub+"?version=..."
+          # juz jest False — mimo ze oczekiwana wartosc to zwykly, prosty ciag
+          # "http://204.168.166.34:8080/.../publish?version=1.0.13" ktory manualnie
+          # (Python urllib.parse.quote) wyglada calkowicie poprawnie. Wiec albo w
+          # $qVersion jest jakis niewidoczny znak, albo EscapeDataString($VERSION)
+          # nie zwraca tego czego sie spodziewamy. Zrzucamy SUROWA wartosc w
+          # jawnych znacznikach <<< >>> zeby to zobaczyc na wlasne oczy, plus
+          # dlugosc i evVersion (wynik samego EscapeDataString) osobno, PRZED
+          # konkatenacja z $pub.
+          $evVersion = [uri]::EscapeDataString($VERSION)
+          Write-Host "VERSION raw:    <<<$VERSION>>> (len=$($VERSION.Length))"
+          Write-Host "EscapeDataString(VERSION): <<<$evVersion>>> (len=$($evVersion.Length))"
+          Write-Host "qVersion raw:   <<<$qVersion>>> (len=$($qVersion.Length))"
           Write-Host "pub sam:        [$pub] wellformed=$([uri]::IsWellFormedUriString($pub, [UriKind]::Absolute))"
           Write-Host "pub+version:    wellformed=$([uri]::IsWellFormedUriString($qVersion, [UriKind]::Absolute))"
           Write-Host "  +signature:   wellformed=$([uri]::IsWellFormedUriString($qSig, [UriKind]::Absolute)) (len=$($qSig.Length))"
           Write-Host "  +filename:    wellformed=$([uri]::IsWellFormedUriString($qFilename, [UriKind]::Absolute))"
           Write-Host "  +notes:       wellformed=$([uri]::IsWellFormedUriString($qNotes, [UriKind]::Absolute))"
           Write-Host "  +pub_date(URL):wellformed=$([uri]::IsWellFormedUriString($URL, [UriKind]::Absolute))"
-          # Rzeczywista próba budowy System.Uri na każdym kroku — komunikat
-          # wyjątku (jeśli jest) mówi WPROST co konkretnie nie gra, zamiast
-          # tylko True/False.
+          # Rzeczywista próba budowy System.Uri na każdym kroku, TERAZ z jawnym
+          # UriKind.Absolute (nie domyślnym RelativeOrAbsolute — "format nie mógł
+          # być określony" pasuje do porażki TEGO WŁAŚNIE heurystycznego
+          # rozpoznawania w konstruktorze 1-argumentowym).
           foreach ($pair in @(@('pub',$pub), @('version',$qVersion), @('signature',$qSig), @('filename',$qFilename), @('notes',$qNotes), @('pub_date/URL',$URL))) {
             try {
               [void][System.Uri]::new($pair[1])
-              Write-Host "  [$($pair[0])] Uri.new OK"
+              Write-Host "  [$($pair[0])] Uri.new(1-arg) OK"
             } catch {
-              Write-Host "  [$($pair[0])] Uri.new BLAD: $($_.Exception.Message)"
+              Write-Host "  [$($pair[0])] Uri.new(1-arg) BLAD: $($_.Exception.Message)"
+            }
+            try {
+              [void][System.Uri]::new($pair[1], [UriKind]::Absolute)
+              Write-Host "  [$($pair[0])] Uri.new(Absolute) OK"
+            } catch {
+              Write-Host "  [$($pair[0])] Uri.new(Absolute) BLAD: $($_.Exception.Message)"
             }
           }
 
