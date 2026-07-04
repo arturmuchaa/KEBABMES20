@@ -505,7 +505,7 @@ export function DeboningHmiV10Page() {
         {toastMsg}
       </div>
 
-      <header className="flex-shrink-0 h-[64px] flex items-center gap-5 px-6" style={{ background: 'var(--panel)', borderBottom: '1px solid var(--lineSoft)' }}>
+      <header className="flex-shrink-0 h-[72px] flex items-center gap-5 px-6" style={{ background: 'var(--accentSoft)', borderBottom: '1px solid var(--line)' }}>
         <div>
           <div className="font-extrabold text-xl leading-none uppercase" style={{ letterSpacing: '-.01em' }}>Rozbiór</div>
           <div className="hmi-v10-mono text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.14em' }}>
@@ -706,7 +706,7 @@ export function DeboningHmiV10Page() {
         </div>
       </div>
 
-      <div className="flex-shrink-0 h-[76px] grid grid-cols-6" style={{ background: 'var(--panel)', borderTop: '1px solid var(--lineSoft)' }}>
+      <div className="flex-shrink-0 h-[76px] grid grid-cols-6" style={{ background: 'var(--accentSoft)', borderTop: '1px solid var(--line)' }}>
         {[
           { label: 'Ćwiartka dziś', val: `${fmtKg(shift.totTaken, 0)} kg` },
           { label: 'Mięso',         val: `${fmtKg(shift.totMeat, 0)} kg` },
