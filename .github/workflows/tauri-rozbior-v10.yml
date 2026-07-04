@@ -109,45 +109,29 @@ jobs:
           Write-Host "Publikuję $FILENAME (v$VERSION) -> $pub"
           Write-Host "Signature length: $($SIGNATURE.Length) chars, contains CR/LF: $($SIGNATURE -match '\r|\n')"
           Write-Host "URL length: $($URL.Length) chars, contains CR/LF: $($URL -match '\r|\n')"
-          Write-Host "EXE_PATH: [$EXE_PATH] contains space: $($EXE_PATH -match ' ')"
+          Write-Host "URL well-formed (System.Uri): $([uri]::IsWellFormedUriString($URL, [UriKind]::Absolute))"
 
-          # Bisekcja w jednym biegu (4 nieudane próby fixa pod rząd = zbieramy
-          # twarde dane zamiast zgadywać po raz piąty): dokładamy po jednym
-          # elemencie na raz do gołego, już potwierdzonego jako działający
-          # wywołania, żeby namierzyć DOKŁADNIE który element psuje curl.
-          Write-Host "=== BISEKCJA ==="
-
-          Write-Host "--- V1: goly GET, bez zmiennych (baseline, juz potwierdzone OK) ---"
-          curl.exe --fail --silent --show-error -o NUL -w "V1 http:%{http_code}`n" 'http://204.168.166.34:8080/api/health'
-          Write-Host "V1 exit: $LASTEXITCODE"
-
-          Write-Host "--- V2: $URL jako literal string (query string, bez tablicy, bez naglowkow) ---"
-          curl.exe --fail --silent --show-error -o NUL -w "V2 http:%{http_code}`n" "$URL"
-          Write-Host "V2 exit: $LASTEXITCODE"
-
-          Write-Host "--- V3: V2 + -k -X POST -H -H, dalej bez tablicy/data-binary ---"
-          curl.exe --fail --silent --show-error -k -X POST -H "X-Admin-Token: $tok" -H "Content-Type: application/octet-stream" -o NUL -w "V3 http:%{http_code}`n" "$URL"
-          Write-Host "V3 exit: $LASTEXITCODE"
-
-          Write-Host "--- V4: V3 + --data-binary na pliku ze spacja w nazwie, dalej bez tablicy ---"
-          curl.exe --fail --silent --show-error -k -X POST -H "X-Admin-Token: $tok" -H "Content-Type: application/octet-stream" --data-binary "@$EXE_PATH" -o NUL -w "V4 http:%{http_code}`n" "$URL"
-          Write-Host "V4 exit: $LASTEXITCODE"
-
-          Write-Host "--- V5: to samo co V4, ale przez array-splatting (obecny, failujacy kod) ---"
-          $curlArgs = @(
-            '--fail', '--silent', '--show-error', '-k',
-            '-X', 'POST',
-            '-H', "X-Admin-Token: $tok",
-            '-H', 'Content-Type: application/octet-stream',
-            '--data-binary', "@$EXE_PATH",
-            '-o', 'NUL', '-w', 'V5 http:%{http_code}`n',
-            $URL
-          )
-          & curl.exe @curlArgs
-          Write-Host "V5 exit: $LASTEXITCODE"
-
-          Write-Host "=== KONIEC BISEKCJI — publikacja realna (bez -o NUL) na podstawie tego co dzialalo ==="
-          curl.exe --fail --silent --show-error -k -X POST -H "X-Admin-Token: $tok" -H "Content-Type: application/octet-stream" --data-binary "@$EXE_PATH" "$URL"
+          # Bisekcja (build 1.0.11) namierzyła problem do samego $URL jako
+          # argumentu przekazywanego do curl.exe: nawet goły "curl ... "$URL""
+          # bez żadnych nagłówków/POST/--data-binary/array-splattingu failował
+          # identycznie z "Bad hostname" — więc to NIE nagłówki, NIE POST, NIE
+          # --data-binary, NIE splatting. $URL sam w sobie jest poprawnym,
+          # dobrze sformowanym stringiem (długość, brak CR/LF, well-formed
+          # sprawdzone wyżej) — problem leży więc w tym, JAK PowerShell/curl.exe
+          # na tym konkretnym windows-latest runnerze przekazuje ten string
+          # jako argument procesu natywnego (marshaling argv), nie w samej
+          # treści URL-a. Rozwiązanie: ominąć curl.exe całkowicie i użyć
+          # naturalnego klienta HTTP PowerShell (Invoke-RestMethod) — URL i
+          # ścieżka pliku idą wtedy jako zwykłe parametry .NET, bez żadnego
+          # przekazywania przez wiersz poleceń procesu natywnego.
+          try {
+            $resp = Invoke-RestMethod -Uri $URL -Method Post -Headers @{ 'X-Admin-Token' = $tok } -InFile $EXE_PATH -ContentType 'application/octet-stream'
+            Write-Host "Publikacja OK: $($resp | ConvertTo-Json -Compress -Depth 5)"
+          } catch {
+            Write-Host "##[error]Publikacja nie powiodla sie: $($_.Exception.Message)"
+            if ($_.ErrorDetails) { Write-Host "Szczegoly: $($_.ErrorDetails.Message)" }
+            exit 1
+          }
 
       - name: Upload installer artifact (backup)
         uses: actions/upload-artifact@v4
