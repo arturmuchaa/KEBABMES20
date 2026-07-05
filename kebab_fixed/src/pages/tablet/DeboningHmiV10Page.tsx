@@ -15,10 +15,14 @@ import { rawBatchesApi, usersApi } from '@/lib/apiClient'
 import { Spinner } from '@/components/ui/widgets'
 import { fmtKg, fmtPct, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
-import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check } from 'lucide-react'
+import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus } from 'lucide-react'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
+import { useScale } from '@/features/deboning/useScale'
+import {
+  computeWeighing, CART_TARES_KG, E2_TARE_KG, KG_PER_E2_MIN, KG_PER_E2_MAX,
+} from '@/features/deboning/utils/weighing'
 import { useAuth } from '@/features/auth/AuthContext'
 import { invoke } from '@tauri-apps/api/core'
 import './DeboningHmiV10Page.css'
@@ -267,6 +271,11 @@ export function DeboningHmiV10Page() {
   const [kgMeat,    setKgMeat]    = useState('')
   const [active,    setActive]    = useState<ActiveField>('taken')
   const [takenMode, setTakenMode] = useState<'kg' | 'poj'>('kg')
+  const scale = useScale()
+  const [cartTare, setCartTare] = useState<number | null>(null)
+  const [e2Count,  setE2Count]  = useState(0)
+  // false = mięso z wagi (auto); true = operator przejął ręcznie (awaryjnie)
+  const [meatManual, setMeatManual] = useState(false)
   const [saveFlash, setSaveFlash] = useState(false)
   const [finishModal, setFinishModal] = useState(false)
   const [shiftModal,  setShiftModal]  = useState(false)
@@ -384,19 +393,35 @@ export function DeboningHmiV10Page() {
 
   const takenRaw = parseFloat(kgTaken) || 0
   const taken = takenMode === 'poj' ? takenRaw * KG_PER_CONTAINER : takenRaw
-  const meat  = parseFloat(kgMeat)  || 0
+
+  const weighing = useMemo(
+    () => computeWeighing({ gross: scale.gross, cartTareKg: cartTare, e2Count }),
+    [scale.gross, cartTare, e2Count],
+  )
+  const autoMode = scale.available && !meatManual
+  const autoNet  = autoMode && scale.connected && scale.stable ? weighing.netKg : 0
+
+  const meat = autoMode ? autoNet : (parseFloat(kgMeat) || 0)
   const meatTooBig = taken > 0 && meat > taken
   const yieldPct = taken > 0 && meat > 0 && !meatTooBig ? (meat / taken) * 100 : 0
   const canSave = !!selBatch && !!selWorker && taken > 0 && meat > 0 && !meatTooBig
+    && (!autoMode || (scale.stable && weighing.ready))
 
   const saveHint = !selBatch ? 'WYBIERZ PARTIĘ'
     : !selWorker ? 'WYBIERZ PRACOWNIKA'
+    : autoMode && cartTare == null ? 'WYBIERZ WÓZEK'
+    : autoMode && e2Count <= 0 ? 'DODAJ POJEMNIKI E2'
+    : autoMode && !scale.connected ? 'WAGA NIEPODŁĄCZONA'
+    : autoMode && weighing.netKg <= 0 ? 'WJEDŹ NA WAGĘ'
+    : autoMode && !scale.stable ? 'CZEKAM NA STABILNĄ WAGĘ…'
     : taken <= 0 ? 'PODAJ WAGĘ ZABRANĄ'
     : meat <= 0 ? 'PODAJ WAGĘ MIĘSA'
     : meatTooBig ? 'MIĘSO > ZABRANE!'
-    : 'ZAPISZ WPIS'
+    : autoMode ? `ZAPISZ — ${fmtKg(meat, 1)} KG MIĘSA` : 'ZAPISZ WPIS'
 
   const pressKey = useCallback((k: string) => {
+    // W trybie auto numpad pisze do mięsa tylko po świadomym przejęciu ręcznym.
+    if (active === 'meat' && scale.available && !meatManual) setMeatManual(true)
     const now = Date.now()
     let matchedServiceCode = false
     // Kod serwisowy: "0099" wpisane od PUSTEGO pola, szybko (SERVICE_CODE_WINDOW_MS),
@@ -419,7 +444,7 @@ export function DeboningHmiV10Page() {
     if (active === 'taken') setKgTaken(apply)
     else setKgMeat(apply)
     if (matchedServiceCode) void triggerServiceLogoff()
-  }, [active])
+  }, [active, scale.available, meatManual])
 
   const clearActiveField = useCallback(() => {
     if (active === 'taken') setKgTaken(''); else setKgMeat('')
@@ -445,7 +470,19 @@ export function DeboningHmiV10Page() {
   async function handleSave() {
     if (addLoading || !canSave || !selBatch || !selWorker || !session) return
     const err = await addEntry(
-      { sessionId: session.id, rawBatchId: selBatch.id, workerId: selWorker.id, kgTaken: taken, kgMeat: meat },
+      {
+        sessionId: session.id, rawBatchId: selBatch.id, workerId: selWorker.id,
+        kgTaken: taken, kgMeat: meat,
+        ...(scale.available ? {
+          weighMode: autoMode ? 'auto' as const : 'manual' as const,
+          ...(autoMode ? {
+            kgGross: scale.gross,
+            tareCartKg: cartTare ?? undefined,
+            tareE2Kg: weighing.tareE2Kg,
+            e2Count,
+          } : {}),
+        } : {}),
+      },
       session, Number(selBatch.kgAvailable), selBatch.expiryDate
     )
     if (err) { showToast(err, 'err'); return }
@@ -453,7 +490,8 @@ export function DeboningHmiV10Page() {
     setSaveFlash(true)
     if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
     saveFlashRef.current = setTimeout(() => setSaveFlash(false), 350)
-    setKgTaken(''); setKgMeat(''); setActive('taken')
+    // Wózek i e2Count celowo zostają — kolejny wózek zwykle taki sam.
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
     showToast(`Zapisano: ${fmtKg(meat)} kg mięsa`)
   }
 
@@ -612,7 +650,13 @@ export function DeboningHmiV10Page() {
           <div className="flex items-center gap-3 flex-shrink-0 pt-1">
             <SectionStep no={1} done={!!selBatch}>Partia{selBatch ? ` — ${selBatch.internalBatchNo}` : ''}</SectionStep>
             <SectionStep no={2} done={!!selWorker}>Pracownik{selWorker ? ` — ${selWorker.name}` : ''}</SectionStep>
-            <SectionStep no={3} done={taken > 0 && meat > 0 && !meatTooBig}>Waga</SectionStep>
+            {scale.available && (
+              <SectionStep no={3} done={cartTare != null && e2Count > 0}>Tara</SectionStep>
+            )}
+            <SectionStep no={scale.available ? 4 : 3}
+              done={taken > 0 && meat > 0 && !meatTooBig && (!autoMode || scale.stable)}>
+              Waga
+            </SectionStep>
           </div>
 
           <div className="flex gap-2 flex-shrink-0">
@@ -633,10 +677,84 @@ export function DeboningHmiV10Page() {
                 </span>
               }
             />
-            <ReadoutV10 label="Mięso Z/S" unit="kg" value={kgMeat} active={active === 'meat'} error={meatTooBig}
-              onActivate={() => setActive('meat')}
-              sub={meatTooBig ? `Mięso nie może przekraczać ${fmtKg(taken, 0)} kg!` : yieldPct > 0 ? `${fmtPct(yieldPct, 1)} wydajność` : ''} />
+            <ReadoutV10
+              label={autoMode ? 'Mięso Z/S — z wagi' : 'Mięso Z/S'}
+              unit="kg"
+              value={autoMode ? (autoNet > 0 ? fmtKg(autoNet, 1) : '') : kgMeat}
+              active={!autoMode && active === 'meat'}
+              error={meatTooBig}
+              onActivate={() => {
+                // tap w pole przy dostępnej wadze = świadome przejęcie ręczne
+                if (scale.available) setMeatManual(true)
+                setActive('meat')
+              }}
+              sub={meatTooBig ? `Mięso nie może przekraczać ${fmtKg(taken, 0)} kg!`
+                : autoMode ? (autoNet > 0
+                    ? `= ${fmtKg(scale.gross, 1)} − ${fmtKg(weighing.tareTotalKg, 1)} tara`
+                    : weighing.ready ? 'czekam na stabilną wagę…' : 'wybierz wózek i pojemniki')
+                : yieldPct > 0 ? `${fmtPct(yieldPct, 1)} wydajność` : ''}
+              extraHeader={scale.available ? (
+                <span role="button"
+                  onClick={e => { e.stopPropagation(); setMeatManual(m => !m) }}
+                  className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold uppercase cursor-pointer"
+                  style={{ borderRadius: 6, background: autoMode ? 'var(--accentSoft)' : 'var(--ambSoft)',
+                    color: autoMode ? 'var(--accent)' : 'var(--amb)',
+                    border: `1px solid ${autoMode ? 'var(--accentSoft)' : 'var(--ambLine)'}` }}>
+                  <Scale size={11} /> {autoMode ? 'AUTO' : 'RĘCZNIE'}
+                </span>
+              ) : undefined}
+            />
           </div>
+
+          {scale.available && (
+            <div className="flex-shrink-0 p-3 flex flex-col gap-2.5"
+              style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>
+                  Tara — wózek i pojemniki E2
+                </span>
+                <span className="hmi-v10-mono text-sm font-bold">
+                  {cartTare != null && e2Count > 0
+                    ? `${fmtKg(cartTare, 1)} + ${e2Count} × ${fmtKg(E2_TARE_KG, 1)} = ${fmtKg(weighing.tareTotalKg, 1)} kg`
+                    : '—'}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                {CART_TARES_KG.map(w => (
+                  <button key={w} type="button" onClick={() => setCartTare(w)}
+                    className="flex-1 flex flex-col items-center gap-0.5 py-2 transition-all active:scale-[0.97]"
+                    style={{
+                      borderRadius: 10,
+                      background: cartTare === w ? 'var(--accent)' : 'var(--panel)',
+                      border: `1.5px solid ${cartTare === w ? 'var(--accent)' : 'var(--line)'}`,
+                      color: cartTare === w ? '#fff' : 'var(--ink)',
+                    }}>
+                    <span className="hmi-v10-mono font-bold text-2xl leading-none">{fmtKg(w, 1)}</span>
+                    <span className="text-[10px] font-bold uppercase"
+                      style={{ color: cartTare === w ? 'rgba(255,255,255,.8)' : 'var(--mut)' }}>kg · wózek</span>
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={() => setE2Count(n => Math.max(0, n - 1))}
+                  className="w-16 h-14 flex items-center justify-center flex-shrink-0 active:bg-[var(--ink)] active:text-white"
+                  style={{ borderRadius: 10, border: '1px solid var(--line)', background: 'var(--panel)' }}>
+                  <Minus size={26} />
+                </button>
+                <div className="flex-1 text-center">
+                  <div className="hmi-v10-mono font-bold text-4xl leading-none">{e2Count}</div>
+                  <div className="text-xs font-semibold mt-1" style={{ color: 'var(--mut)' }}>
+                    pojemników E2 × {fmtKg(E2_TARE_KG, 1)} kg{e2Count > 0 ? ` = ${fmtKg(weighing.tareE2Kg, 1)} kg` : ''}
+                  </div>
+                </div>
+                <button type="button" onClick={() => setE2Count(n => Math.min(20, n + 1))}
+                  className="w-16 h-14 flex items-center justify-center flex-shrink-0 active:bg-[var(--ink)] active:text-white"
+                  style={{ borderRadius: 10, border: '1px solid var(--line)', background: 'var(--panel)' }}>
+                  <Plus size={26} />
+                </button>
+              </div>
+            </div>
+          )}
 
           <NumpadV10 onKey={pressKey} onBackStart={handleBackStart} onBackEnd={handleBackEnd} disabled={!selBatch || !selWorker} />
 
@@ -655,6 +773,60 @@ export function DeboningHmiV10Page() {
         </div>
 
         <div className="flex-1 flex flex-col gap-3 min-h-0" style={{ paddingLeft: 16 }}>
+          {scale.available && (
+            <div className="flex-shrink-0 p-3.5" style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
+              <div className="flex items-center gap-2">
+                <span className="w-[7px] h-[7px] rounded-full flex-shrink-0"
+                  style={{ background: scale.connected ? 'var(--success)' : 'var(--red)',
+                    boxShadow: scale.connected ? '0 0 0 3px rgba(22,163,74,.18)' : '0 0 0 3px rgba(220,38,38,.15)' }} />
+                <span className="text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>Waga najazdowa</span>
+                <span className="hmi-v10-mono text-[11px] font-bold ml-auto" style={{ color: 'var(--mut)' }}>
+                  {scale.connected ? 'RS232' : 'BRAK POŁĄCZENIA'}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-2 mt-1.5">
+                <span className="hmi-v10-mono font-bold leading-none" style={{ fontSize: 'clamp(44px, 3.6vw, 64px)' }}>
+                  {fmtKg(scale.gross, 1)}
+                </span>
+                <span className="text-lg font-bold" style={{ color: 'var(--mut)' }}>kg</span>
+                <span className="ml-auto flex items-center gap-2 px-3 h-8 text-[13px] font-bold self-center"
+                  style={scale.connected && scale.gross > 0
+                    ? scale.stable
+                      ? { borderRadius: 8, background: '#F0FDF4', border: '1px solid #BBF0D3', color: 'var(--success)' }
+                      : { borderRadius: 8, background: 'var(--ambSoft)', border: '1px solid var(--ambLine)', color: 'var(--amb)' }
+                    : { borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}>
+                  {scale.connected && scale.gross > 0 ? (scale.stable ? 'STABILNA' : 'WAŻENIE…') : 'PUSTA'}
+                </span>
+              </div>
+              <div className="mt-2 pt-2 flex flex-col gap-1" style={{ borderTop: '1px solid var(--lineSoft)' }}>
+                <div className="flex justify-between text-[13px] font-semibold" style={{ color: 'var(--mut)' }}>
+                  <span>− tara wózka</span>
+                  <span className="hmi-v10-mono" style={{ color: 'var(--ink)' }}>{cartTare != null ? `−${fmtKg(cartTare, 1)} kg` : '—'}</span>
+                </div>
+                <div className="flex justify-between text-[13px] font-semibold" style={{ color: 'var(--mut)' }}>
+                  <span>− pojemniki E2 ({e2Count} × {fmtKg(E2_TARE_KG, 1)})</span>
+                  <span className="hmi-v10-mono" style={{ color: 'var(--ink)' }}>{e2Count > 0 ? `−${fmtKg(weighing.tareE2Kg, 1)} kg` : '—'}</span>
+                </div>
+                <div className="flex items-baseline justify-between px-3 py-2 mt-1" style={{ borderRadius: 8, background: 'var(--accentSoft)' }}>
+                  <span className="text-[11px] font-bold uppercase" style={{ color: 'var(--accent)', letterSpacing: '.08em' }}>Netto mięso</span>
+                  <span className="hmi-v10-mono font-bold text-2xl" style={{ color: 'var(--accent)' }}>
+                    {weighing.netKg > 0 ? `${fmtKg(weighing.netKg, 1)} kg` : '—'}
+                  </span>
+                </div>
+                {weighing.netKg > 0 && (
+                  <div className="px-3 py-1.5 text-[12px] font-bold" style={weighing.plausible
+                    ? { borderRadius: 8, background: '#F0FDF4', border: '1px solid #BBF0D3', color: 'var(--success)' }
+                    : { borderRadius: 8, background: 'var(--ambSoft)', border: '1px solid var(--ambLine)', color: 'var(--amb)' }}>
+                    {weighing.plausible
+                      ? `✓ ${fmtKg(weighing.kgPerContainer, 1)} kg / pojemnik — w normie (${KG_PER_E2_MIN}–${KG_PER_E2_MAX} kg)`
+                      : `⚠ ${fmtKg(weighing.kgPerContainer, 1)} kg / pojemnik — poza normą ${KG_PER_E2_MIN}–${KG_PER_E2_MAX} kg. Sprawdź liczbę E2 i wózek!`}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!scale.available && (
           <div className="flex-shrink-0 p-3.5" style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
             <div className="text-[10px] font-bold uppercase mb-2.5" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>Wydajność i tempo</div>
             <div className="grid grid-cols-2 gap-3">
@@ -684,6 +856,7 @@ export function DeboningHmiV10Page() {
               </div>
             </div>
           </div>
+          )}
 
           <div className="flex-shrink-0 p-3.5" style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
             <div className="text-[10px] font-bold uppercase mb-2" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>Alarmy</div>

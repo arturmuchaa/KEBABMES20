@@ -48,6 +48,12 @@ export interface DeboningEntry {
   readonly tempRoom?:   number
   readonly notes?:      string
   readonly meatLotNo?:  string        // → MeatStock traceability
+  // Ważenie automatyczne RS232 — audyt (null dla wpisów ręcznych/starych)
+  readonly kgGross?:    number | null
+  readonly tareCartKg?: number | null
+  readonly tareE2Kg?:   number | null
+  readonly e2Count?:    number | null
+  readonly weighMode?:  'auto' | 'manual' | null
   readonly createdAt:   string
 }
 
@@ -60,6 +66,11 @@ export interface CreateDeboningEntryDto {
   tempInput?: number
   tempRoom?:  number
   notes?:     string
+  kgGross?:    number
+  tareCartKg?: number
+  tareE2Kg?:   number
+  e2Count?:    number
+  weighMode?:  'auto' | 'manual'
 }
 
 export interface UpdateDeboningEntryDto {
