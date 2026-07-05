@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { settingsApi, type CompanySettings } from '@/lib/apiClient'
-import { Save, Building2, Percent } from 'lucide-react'
+import { Save, Building2, Percent, Scale, Plus, Trash2 } from 'lucide-react'
 
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
@@ -37,6 +37,34 @@ export function CompanySettingsPage() {
   const [yieldErr, setYieldErr] = useState('')
 
   useEffect(() => { if (yieldData != null) setYieldPct(String(yieldData)) }, [yieldData])
+
+  // ── Wózki rozbioru (tary do ważenia RS232 na HMI) ──
+  const { data: taresData, refetch: refetchTares } = useApi(() => settingsApi.getCartTares())
+  const { mutate: putTares, loading: savingTares } = useMutation((t: number[]) => settingsApi.saveCartTares(t))
+  const [tares, setTares] = useState<string[]>([])
+  const [taresSaved, setTaresSaved] = useState(false)
+  const [taresErr, setTaresErr] = useState('')
+
+  useEffect(() => { if (taresData) setTares(taresData.map(t => String(t))) }, [taresData])
+
+  function setTare(i: number, v: string) {
+    setTares(p => p.map((t, j) => (j === i ? v : t)))
+    setTaresSaved(false); setTaresErr('')
+  }
+
+  async function handleSaveTares() {
+    const nums = tares.filter(t => t.trim() !== '').map(t => parseFloat(t.replace(',', '.')))
+    if (nums.length === 0) { setTaresErr('Dodaj przynajmniej jeden wózek'); return }
+    if (nums.some(n => !(n > 0 && n <= 50))) { setTaresErr('Każda tara musi być liczbą z zakresu 0–50 kg'); return }
+    setTaresErr('')
+    try {
+      await putTares(nums)
+      setTaresSaved(true)
+      refetchTares()
+    } catch (e: any) {
+      setTaresErr(e?.message || 'Nie udało się zapisać')
+    }
+  }
 
   async function handleSaveYield() {
     const v = parseFloat(yieldPct.replace(',', '.'))
@@ -180,6 +208,60 @@ export function CompanySettingsPage() {
           </div>
           <p className="text-[11px] text-muted-foreground">
             Tylko planowanie — nie wpływa na faktyczny rozbiór ani stany magazynowe.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex-row items-center gap-3 space-y-0">
+          <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+            <Scale size={18} />
+          </div>
+          <div>
+            <CardTitle>Wózki rozbioru — tary do ważenia</CardTitle>
+            <CardDescription>
+              Lista wag wózków (kg), którą panel rozbioru pokazuje jako kafle przy ważeniu
+              automatycznym. Panel sortuje je od najlżejszego; opcja „bez wózka" jest zawsze.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <Separator />
+        <CardContent className="pt-5 space-y-3">
+          <div className="flex flex-wrap items-end gap-2">
+            {tares.map((t, i) => (
+              <div key={i} className="flex items-center gap-1">
+                <Input
+                  type="number" min="0.1" max="50" step="0.1"
+                  className="w-24"
+                  value={t}
+                  onChange={e => setTare(i, e.target.value)}
+                  placeholder="5.5"
+                />
+                <Button variant="ghost" size="icon" className="text-slate-400 hover:text-destructive"
+                  onClick={() => { setTares(p => p.filter((_, j) => j !== i)); setTaresSaved(false) }}
+                  title="Usuń wózek">
+                  <Trash2 size={15} />
+                </Button>
+              </div>
+            ))}
+            <Button variant="outline" className="gap-1.5"
+              onClick={() => { setTares(p => [...p, '']); setTaresSaved(false) }}>
+              <Plus size={14} /> Dodaj wózek
+            </Button>
+          </div>
+          <div className="flex items-center gap-3 pt-1">
+            <Button onClick={handleSaveTares} disabled={savingTares} className="gap-2">
+              {savingTares
+                ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : <Save size={14} />
+              }
+              Zapisz wózki
+            </Button>
+            {taresSaved && <CardDescription className="text-green-700 text-sm">✓ Zapisano — panel zobaczy zmianę od razu</CardDescription>}
+            {taresErr && <CardDescription className="text-destructive text-sm">{taresErr}</CardDescription>}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Duplikaty i kolejność ogarnia system — zapisze posortowaną listę bez powtórzeń (zaokrągloną do 0,1 kg).
           </p>
         </CardContent>
       </Card>

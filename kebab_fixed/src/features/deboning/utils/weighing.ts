@@ -8,10 +8,24 @@
  */
 
 export const E2_TARE_KG = 2.0
-/** Cztery fizyczne typy wózków na hali — tary potwierdzone przez użytkownika. */
+/** Domyślne tary wózków (fallback, gdy backend i cache niedostępne) —
+ * realną listę edytuje biuro (GET /api/deboning/cart-tares). */
 export const CART_TARES_KG: readonly number[] = [5.5, 6.0, 6.5, 7.0]
 export const KG_PER_E2_MIN = 15
 export const KG_PER_E2_MAX = 25
+
+/** Czyści listę tar z backendu/cache: liczby 0<kg≤50, do 0,1, bez duplikatów,
+ * rosnąco (kafle zawsze od najlżejszego). Zwraca [] gdy nic sensownego —
+ * caller używa wtedy CART_TARES_KG. */
+export function sanitizeCartTares(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return []
+  const out = new Set<number>()
+  for (const v of raw) {
+    const n = typeof v === 'number' ? v : parseFloat(String(v).replace(',', '.'))
+    if (Number.isFinite(n) && n > 0 && n <= 50) out.add(Math.round(n * 10) / 10)
+  }
+  return [...out].sort((a, b) => a - b)
+}
 
 export interface WeighingInput {
   gross: number
