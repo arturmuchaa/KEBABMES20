@@ -132,9 +132,13 @@ export function useDeboningEntries(sessionId: string | null) {
   }, [sessionId, refetch])
 
   const createMutation = useMutation((dto: CreateDeboningEntryDto) => deboningApi.createEntry(dto))
+  // Ostatnio utworzony wpis — dla przycisku „Cofnij" (sygnatura addEntry
+  // zostaje string|null, bo używa jej 10 starszych stron HMI).
+  const [lastCreated, setLastCreated] = useState<DeboningEntry | null>(null)
   const updateMutation = useMutation(({ id, dto }: { id: string; dto: UpdateDeboningEntryDto }) =>
     deboningApi.updateEntry(id, dto)
   )
+  const removeMutation = useMutation((id: string) => deboningApi.deleteEntry(id))
 
   // Zapis wpisu — walidacja przed wysyłką
   const addEntry = useCallback(async (
@@ -158,7 +162,8 @@ export function useDeboningEntries(sessionId: string | null) {
     if (valError) return valError
 
     try {
-      await createMutation.mutate(dto)
+      const created = await createMutation.mutate(dto)
+      setLastCreated(created ?? null)
       refetch()
       return null
     } catch (e) {
@@ -184,14 +189,34 @@ export function useDeboningEntries(sessionId: string | null) {
     }
   }, [updateMutation, refetch])
 
+  // Storno wpisu (przycisk „Cofnij" na HMI) — backend odwraca stany magazynowe
+  const removeEntry = useCallback(async (
+    entryId: string,
+    session: ProductionSession | null,
+  ): Promise<string | null> => {
+    if (session?.status !== 'open') {
+      return 'Cofnięcie możliwe tylko przy otwartej sesji'
+    }
+    try {
+      await removeMutation.mutate(entryId)
+      refetch()
+      return null
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Błąd cofnięcia wpisu'
+    }
+  }, [removeMutation, refetch])
+
   return {
     entries: entries ?? [],
     loading,
     error,
     addEntry,
     editEntry,
-    addLoading:  createMutation.loading,
-    editLoading: updateMutation.loading,
+    removeEntry,
+    lastCreated,
+    addLoading:    createMutation.loading,
+    editLoading:   updateMutation.loading,
+    removeLoading: removeMutation.loading,
     refetch,
   }
 }

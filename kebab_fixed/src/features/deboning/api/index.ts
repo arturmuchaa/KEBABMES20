@@ -31,6 +31,7 @@ export interface DeboningApi {
   listEntries(sessionId: string): Promise<DeboningEntry[]>
   createEntry(dto: CreateDeboningEntryDto): Promise<DeboningEntry>
   updateEntry(entryId: string, dto: UpdateDeboningEntryDto): Promise<DeboningEntry>
+  deleteEntry(entryId: string): Promise<{ ok: boolean; id: string }>
 
   // Agregacje
   getSessionSummary(sessionId: string): Promise<SessionSummary>
@@ -75,6 +76,7 @@ export const deboningApi: DeboningApi = {
   listEntries: (sessionId) => entriesStore.list(sessionId),
   createEntry: (dto)       => entriesStore.create(dto),
   updateEntry: (id, dto)   => entriesStore.update(id, dto),
+  deleteEntry: (id)        => entriesStore.remove(id),
 
   getSessionSummary: async (sessionId) => {
     const session = await sessionsStore.byId(sessionId)

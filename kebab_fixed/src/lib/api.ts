@@ -282,6 +282,8 @@ export const deboningEntriesApi = {
     kgBacks: dto.kgBacks,
     kgBones: dto.kgBones,
   }),
+  // remove — storno wpisu (przycisk „Cofnij" na HMI); backend odwraca stany
+  remove: (id: string) => del<{ ok: boolean; id: string }>(`/deboning/entries/${id}`),
   traceability: (batchId: string) => get<any>(`/deboning/entries/trace/${batchId}`),
 }
 
