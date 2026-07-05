@@ -47,6 +47,11 @@ def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate):
     return svc.update_deboning_entry(entry_id, dto)
 
 
+@router.delete("/api/deboning/entries/{entry_id}")
+def delete_deboning_entry(entry_id: str):
+    return svc.delete_deboning_entry(entry_id)
+
+
 @router.get("/api/deboning")
 def list_deboning_sessions():
     return svc.list_deboning_sessions()

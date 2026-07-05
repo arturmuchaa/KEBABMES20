@@ -6,7 +6,7 @@ Safety guarantees:
   * SELECT ... FOR UPDATE on the raw_batches row before deduction
     prevents two concurrent entries from overdrawing the batch.
 """
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
@@ -102,6 +102,71 @@ def validate_weighing_consistency(
     return None
 
 
+# ── Twarde walidacje serwerowe (frontend to tylko pierwsza linia) ─────────
+
+
+def validate_batch_expiry(expiry_date, today: date | None = None):
+    """HACCP: partia przeterminowana (termin < dziś) nie wchodzi do rozbioru.
+
+    Termin upływający DZIŚ jeszcze przechodzi (spójne z kafelkami HMI,
+    które blokują dopiero daysLeft < 0). Czysta funkcja — testy bez DB.
+    """
+    if not expiry_date:
+        return None
+    today = today or date.today()
+    if str(expiry_date)[:10] < today.isoformat():
+        return (
+            f"Partia przeterminowana ({str(expiry_date)[:10]}) — "
+            "użycie zabronione (HACCP)"
+        )
+    return None
+
+
+def validate_session_writable(session_row):
+    """Wpisy tylko do istniejącej, OTWARTEJ sesji."""
+    if not session_row:
+        return "Sesja produkcyjna nie istnieje"
+    status = session_row.get("status")
+    if status == "closed":
+        return "Sesja zamknięta — nie można dodawać wpisów"
+    if status == "approved":
+        return "Sesja zatwierdzona — dane zablokowane"
+    if status != "open":
+        return f"Sesja w stanie '{status}' — zapis niemożliwy"
+    return None
+
+
+# Okno cofnięcia wpisu z HMI: frontend pokazuje przycisk 60 s, backend
+# przyjmuje trochę dłużej (opóźnienia sieci / zawahanie operatora).
+UNDO_MAX_AGE_MIN = 15
+
+
+def validate_entry_undo(entry, meat_available, now: datetime | None = None):
+    """Czy wpis rozbioru można bezpiecznie cofnąć (storno z HMI).
+
+    Blokady: wpis rozliczony (grzbiety/kości), mięso z lotu już zużyte
+    dalej (masowanie), wpis starszy niż UNDO_MAX_AGE_MIN.
+    meat_available=None → lot nie istnieje (stare dane) — nie blokuje.
+    """
+    if float(entry.get("kg_backs") or 0) > 0 or float(entry.get("kg_bones") or 0) > 0:
+        return "Wpis już rozliczony (grzbiety/kości) — cofnięcie niemożliwe"
+    kg_meat = float(entry.get("kg_meat") or 0)
+    if meat_available is not None and float(meat_available) < kg_meat - 0.001:
+        return "Mięso z tego wpisu zostało już zużyte — cofnięcie niemożliwe"
+    created = entry.get("created_at")
+    if created:
+        try:
+            created_dt = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+            now = now or datetime.now(timezone.utc)
+            if created_dt.tzinfo is None:
+                created_dt = created_dt.replace(tzinfo=timezone.utc)
+            if (now - created_dt) > timedelta(minutes=UNDO_MAX_AGE_MIN):
+                return f"Wpis starszy niż {UNDO_MAX_AGE_MIN} minut — cofnij przez biuro"
+        except ValueError:
+            pass
+    return None
+
+
 def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
     raw_batch_id = dto.raw_batch_id
     worker_id = dto.worker_id
@@ -141,6 +206,17 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
     entry_id = cuid()
 
     with transaction() as conn:
+        # Twarda walidacja sesji — frontend blokuje, ale API mogą wołać też
+        # inne klienty (biuro, stare wersje HMI). Bez session_id przepuszczamy
+        # (legacy ścieżka POST /api/deboning bez sesji).
+        if session_id:
+            session_row = cx_query_one(
+                conn, "SELECT status FROM production_sessions WHERE id=%s", (session_id,)
+            )
+            session_err = validate_session_writable(session_row)
+            if session_err:
+                raise HTTPException(400, session_err)
+
         # Numer zlecenia rozbioru = ROZ/dd/mm/rr (wspólny helper, jak produkcja PP).
         session_no = next_dated_no(conn, "ROZ")
         # Row lock the raw batch so two concurrent deboning entries
@@ -166,6 +242,10 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
                 f"Partia {batch.get('internal_batch_no')} ma status "
                 f"{batch.get('status')} — rozbiór niemożliwy",
             )
+
+        expiry_err = validate_batch_expiry(batch.get("expiry_date"))
+        if expiry_err:
+            raise HTTPException(400, expiry_err)
 
         kg_available = float(batch.get("kg_available") or batch.get("kg_received") or 0)
         if kg_taken > kg_available + 0.01:
@@ -365,3 +445,95 @@ def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate) -> Dict:
         raise HTTPException(404, "Wpis rozbioru nie znaleziony")
     logger.info("deboning.entry.updated", extra={"entry_id": entry_id})
     return _map_deboning_entry(row)
+
+
+def delete_deboning_entry(entry_id: str) -> Dict:
+    """Cofnięcie wpisu rozbioru (przycisk „Cofnij" na HMI).
+
+    Odwraca w JEDNEJ transakcji wszystko, co utworzył create_deboning_entry:
+    oddaje kg_taken do partii surowca, zdejmuje kg_meat z lotu mięsa
+    (lot współdzielony między wpisami tej samej partii — tylko odejmujemy;
+    pusty lot kasujemy), usuwa loty ABP i ruchy magazynowe wpisu.
+    Warunki bezpieczeństwa w validate_entry_undo (czysta funkcja).
+    """
+    with transaction() as conn:
+        entry = cx_query_one(
+            conn, "SELECT * FROM deboning_entries WHERE id=%s FOR UPDATE", (entry_id,)
+        )
+        if not entry:
+            raise HTTPException(404, "Wpis rozbioru nie znaleziony")
+
+        if entry.get("session_id"):
+            session_row = cx_query_one(
+                conn,
+                "SELECT status FROM production_sessions WHERE id=%s",
+                (entry["session_id"],),
+            )
+            session_err = validate_session_writable(session_row)
+            if session_err:
+                raise HTTPException(400, session_err)
+
+        meat_lot = cx_query_one(
+            conn,
+            "SELECT id, kg_initial, kg_available FROM meat_stock WHERE lot_no=%s FOR UPDATE",
+            (entry.get("raw_batch_no"),),
+        )
+        undo_err = validate_entry_undo(
+            entry,
+            float(meat_lot["kg_available"]) if meat_lot else None,
+        )
+        if undo_err:
+            raise HTTPException(400, undo_err)
+
+        processed_abp = cx_query_one(
+            conn,
+            "SELECT id FROM byproduct_lots WHERE deboning_entry_id=%s AND status <> 'open'",
+            (entry_id,),
+        )
+        if processed_abp:
+            raise HTTPException(
+                400, "Produkty uboczne wpisu już przetworzone — cofnięcie niemożliwe"
+            )
+        cx_execute(
+            conn, "DELETE FROM byproduct_lots WHERE deboning_entry_id=%s", (entry_id,)
+        )
+
+        kg_meat = float(entry.get("kg_meat") or 0)
+        if meat_lot:
+            if float(meat_lot["kg_initial"]) - kg_meat <= 0.001:
+                cx_execute(conn, "DELETE FROM meat_stock WHERE id=%s", (meat_lot["id"],))
+            else:
+                cx_execute(
+                    conn,
+                    """
+                    UPDATE meat_stock
+                    SET kg_initial = kg_initial - %s,
+                        kg_available = GREATEST(0, kg_available - %s)
+                    WHERE id=%s
+                    """,
+                    (kg_meat, kg_meat, meat_lot["id"]),
+                )
+
+        kg_taken = float(entry.get("kg_quarter") or 0)
+        cx_execute(
+            conn,
+            """
+            UPDATE raw_batches
+            SET kg_available = COALESCE(kg_available, 0) + %s
+            WHERE id=%s
+            """,
+            (kg_taken, entry.get("raw_batch_id")),
+        )
+
+        cx_execute(
+            conn,
+            "DELETE FROM stock_movements WHERE source_type='deboning' AND source_id=%s",
+            (entry_id,),
+        )
+        cx_execute(conn, "DELETE FROM deboning_entries WHERE id=%s", (entry_id,))
+
+    logger.info(
+        "deboning.entry.undone",
+        extra={"entry_id": entry_id, "kg_taken": kg_taken, "kg_meat": kg_meat},
+    )
+    return {"ok": True, "id": entry_id}
