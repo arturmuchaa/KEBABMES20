@@ -15,7 +15,7 @@ import { rawBatchesApi, usersApi, settingsApi } from '@/lib/apiClient'
 import { Spinner } from '@/components/ui/widgets'
 import { fmtKg, fmtPct, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
-import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus } from 'lucide-react'
+import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2 } from 'lucide-react'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
@@ -263,7 +263,7 @@ export function DeboningHmiV10Page() {
   const batchData  = useApi(() => rawBatchesApi.list())
   const workerData = useApi(() => usersApi.list())
   const { session, timeWindow, loading: sessionLoading, startDay, startLoading, closeDay, closeLoading } = useProductionSession()
-  const { entries, addEntry, editEntry, addLoading } = useDeboningEntries(session?.id ?? null)
+  const { entries, addEntry, editEntry, removeEntry, lastCreated, addLoading, removeLoading } = useDeboningEntries(session?.id ?? null)
 
   const [selBatch,  setSelBatch]  = useState<RawBatch | null>(null)
   const [selWorker, setSelWorker] = useState<User | null>(null)
@@ -303,6 +303,17 @@ export function DeboningHmiV10Page() {
   const [toastMsg,  setToastMsg]  = useState('')
   const [toastType, setToastType] = useState<'ok' | 'err'>('ok')
   const [toastVis,  setToastVis]  = useState(false)
+  // Okno „Cofnij ostatni wpis": 60 s od zapisu; countdown tyka co sekundę.
+  const [undoUntil, setUndoUntil] = useState(0)
+  const [undoNow,   setUndoNow]   = useState(() => Date.now())
+  useEffect(() => {
+    if (undoUntil <= Date.now()) return
+    const t = setInterval(() => setUndoNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [undoUntil])
+  const undoSecondsLeft = Math.max(0, Math.ceil((undoUntil - undoNow) / 1000))
+  const canUndo = undoSecondsLeft > 0 && !!lastCreated
+
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveFlashRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -508,7 +519,17 @@ export function DeboningHmiV10Page() {
     saveFlashRef.current = setTimeout(() => setSaveFlash(false), 350)
     // Wózek i e2Count celowo zostają — kolejny wózek zwykle taki sam.
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    setUndoUntil(Date.now() + 60_000); setUndoNow(Date.now())
     showToast(`Zapisano: ${fmtKg(meat)} kg mięsa`)
+  }
+
+  async function handleUndo() {
+    if (!canUndo || removeLoading || !lastCreated) return
+    const err = await removeEntry(lastCreated.id, session)
+    if (err) { showToast(err, 'err'); return }
+    setUndoUntil(0)
+    batchData.refetch()
+    showToast(`Cofnięto wpis — ${fmtKg(lastCreated.kgMeat, 1)} kg wróciło do partii`)
   }
 
   async function handleFinishBatchConfirm() {
@@ -915,6 +936,16 @@ export function DeboningHmiV10Page() {
             <div className="flex items-center gap-2 mb-2.5 flex-shrink-0">
               <span className="w-[7px] h-[7px] rounded-full flex-shrink-0" style={{ background: 'var(--success)', boxShadow: '0 0 0 3px rgba(22,163,74,.18)' }} />
               <span className="text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>Ostatnie wpisy</span>
+              {canUndo && (
+                <button type="button" onClick={handleUndo} disabled={removeLoading}
+                  className="flex items-center gap-1.5 px-3 h-8 text-[12px] font-bold uppercase active:scale-[0.97]"
+                  style={{ borderRadius: 8, background: 'var(--ambSoft)', border: '1px solid var(--ambLine)', color: 'var(--amb)', marginLeft: 8 }}>
+                  {removeLoading
+                    ? <span className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                    : <Undo2 size={14} />}
+                  Cofnij ({undoSecondsLeft}s)
+                </button>
+              )}
               <ListOrdered size={13} style={{ color: 'var(--mut)', marginLeft: 'auto' }} />
               <span className="hmi-v10-mono text-xs font-bold" style={{ color: 'var(--mut)' }}>{entries.length} dziś</span>
             </div>
