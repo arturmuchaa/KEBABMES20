@@ -7,6 +7,7 @@ wpinane w create_deboning_entry / delete_deboning_entry.
 from datetime import date, datetime, timedelta, timezone
 
 from app.services.deboning_service import (
+    validate_edit_deltas,
     UNDO_MAX_AGE_MIN,
     validate_batch_expiry,
     validate_entry_undo,
@@ -78,3 +79,26 @@ class TestValidateEntryUndo:
     def test_brak_lotu_miesa_nie_blokuje(self):
         # lot mógł nie powstać (stare dane) — cofnięcie samego wpisu OK
         assert validate_entry_undo(self._entry(), meat_available=None, now=self.NOW) is None
+
+
+class TestValidateEditDeltas:
+    def test_bez_zmian_ok(self):
+        assert validate_edit_deltas(0, 100, 0, 50) is None
+
+    def test_zwiekszenie_taken_ponad_dostepne_blokuje(self):
+        err = validate_edit_deltas(50, 30, 0, None)
+        assert err and "dostępne" in err
+
+    def test_zwiekszenie_taken_w_ramach_dostepnych_ok(self):
+        assert validate_edit_deltas(20, 30, 0, None) is None
+
+    def test_zmniejszenie_miesa_ponizej_zuzycia_blokuje(self):
+        # lot ma już tylko 10 kg wolnych, a edycja zabiera 20 kg
+        err = validate_edit_deltas(0, None, -20, 10)
+        assert err and "zużyte" in err
+
+    def test_zmniejszenie_miesa_w_ramach_wolnego_ok(self):
+        assert validate_edit_deltas(0, None, -5, 10) is None
+
+    def test_brak_lotu_nie_blokuje(self):
+        assert validate_edit_deltas(0, None, -5, None) is None
