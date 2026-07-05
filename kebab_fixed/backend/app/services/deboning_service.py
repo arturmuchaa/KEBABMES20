@@ -167,6 +167,29 @@ def validate_entry_undo(entry, meat_available, now: datetime | None = None):
     return None
 
 
+def validate_edit_deltas(delta_taken, raw_available, delta_meat, meat_available):
+    """Korekta wpisu (PATCH) musi zmieścić się w stanach magazynowych.
+
+    delta_taken > 0 → dobieramy z partii: musi być dostępne.
+    delta_meat < 0 → zdejmujemy z lotu mięsa: nie może być już zużyte.
+    raw_available/meat_available=None → odpowiedni stan nieznany (brak
+    wiersza) — nie blokuje. Czysta funkcja — testy bez DB.
+    """
+    if delta_taken > 0.001 and raw_available is not None:
+        if float(raw_available) < delta_taken - 0.001:
+            return (
+                f"Korekta wymaga dobrania {delta_taken:g} kg z partii, "
+                f"a dostępne tylko {float(raw_available):g} kg"
+            )
+    if delta_meat < -0.001 and meat_available is not None:
+        if float(meat_available) < -delta_meat - 0.001:
+            return (
+                "Nie można zmniejszyć mięsa — zostało już zużyte "
+                f"(wolne w locie: {float(meat_available):g} kg)"
+            )
+    return None
+
+
 def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
     raw_batch_id = dto.raw_batch_id
     worker_id = dto.worker_id
@@ -411,6 +434,17 @@ def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate) -> Dict:
         )
         if not existing:
             raise HTTPException(404, "Wpis rozbioru nie znaleziony")
+
+        if existing.get("session_id"):
+            session_row = cx_query_one(
+                conn,
+                "SELECT status FROM production_sessions WHERE id=%s",
+                (existing["session_id"],),
+            )
+            session_err = validate_session_writable(session_row)
+            if session_err:
+                raise HTTPException(400, session_err)
+
         kg_taken = float(
             dto.kg_taken
             if dto.kg_taken is not None
@@ -429,6 +463,50 @@ def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate) -> Dict:
             raise HTTPException(400, "kg mięsa nie może przekraczać pobranej ćwiartki")
         kg_remainder = max(0, kg_taken - kg_meat)
         yield_pct = round((kg_meat / kg_taken * 100) if kg_taken > 0 else 0, 2)
+
+        # Korekta stanów magazynowych przy zmianie kg (audyt 2026-07-05:
+        # wcześniej PATCH kgTaken/kgMeat rozjeżdżał partię i lot mięsa).
+        delta_taken = kg_taken - float(existing.get("kg_quarter") or 0)
+        delta_meat = kg_meat - float(existing.get("kg_meat") or 0)
+        raw_row = None
+        meat_lot = None
+        if abs(delta_taken) > 0.001:
+            raw_row = cx_query_one(
+                conn,
+                "SELECT id, kg_available FROM raw_batches WHERE id=%s FOR UPDATE",
+                (existing.get("raw_batch_id"),),
+            )
+        if abs(delta_meat) > 0.001:
+            meat_lot = cx_query_one(
+                conn,
+                "SELECT id, kg_initial, kg_available FROM meat_stock WHERE lot_no=%s FOR UPDATE",
+                (existing.get("raw_batch_no"),),
+            )
+        delta_err = validate_edit_deltas(
+            delta_taken,
+            float(raw_row["kg_available"]) if raw_row else None,
+            delta_meat,
+            float(meat_lot["kg_available"]) if meat_lot else None,
+        )
+        if delta_err:
+            raise HTTPException(400, delta_err)
+        if raw_row:
+            cx_execute(
+                conn,
+                "UPDATE raw_batches SET kg_available = GREATEST(0, COALESCE(kg_available,0) - %s) WHERE id=%s",
+                (delta_taken, raw_row["id"]),
+            )
+        if meat_lot:
+            cx_execute(
+                conn,
+                """
+                UPDATE meat_stock
+                SET kg_initial = GREATEST(0, kg_initial + %s),
+                    kg_available = GREATEST(0, kg_available + %s)
+                WHERE id=%s
+                """,
+                (delta_meat, delta_meat, meat_lot["id"]),
+            )
 
         row = cx_execute_returning(
             conn,
