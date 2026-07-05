@@ -65,6 +65,10 @@ def permission_for_path(path: str, method: str = "GET") -> str:
         if path == "/api/pallets/scan" or path == "/api/pallets/in-cold-storage":
             return "wydanie"
         return "pakowanie"
+    # Tary wózków rozbioru (ważenie RS232): panel hali tylko czyta listę,
+    # edycja wyłącznie z biura (strona Ustawienia firmy).
+    if _matches(path, "/api/deboning/cart-tares"):
+        return "rozbior" if method == "GET" else "office"
     for dept, prefixes in DEPARTMENT_PREFIXES.items():
         for p in prefixes:
             if _matches(path, p):
