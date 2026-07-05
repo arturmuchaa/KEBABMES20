@@ -15,7 +15,7 @@ import { rawBatchesApi, usersApi, settingsApi } from '@/lib/apiClient'
 import { Spinner } from '@/components/ui/widgets'
 import { fmtKg, fmtPct, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
-import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2 } from 'lucide-react'
+import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2, Wrench } from 'lucide-react'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
@@ -37,15 +37,17 @@ const YIELD_BAND_LO = 65   // % — dolna granica pasma celu
 const YIELD_BAND_HI = 80   // % — górna granica pasma celu
 const TEMPO_TARGET  = 800  // kg/h — cel linii
 
-// Kod serwisowy: szybkie wpisanie "0099" na numpadzie wagi (przy zalogowanym
-// pracowniku) wylogowuje operatora z Windows — konto operatora ma jako
-// powłokę ten kiosk (per-user Shell w rejestrze), więc to jedyna droga
-// powrotu do pulpitu/logowania na konto Administrator bez fizycznego dostępu
-// do BIOS-u. "Szybko" = cała 4-cyfrowa sekwencja w max SERVICE_CODE_WINDOW_MS,
-// żeby zwykłe, powolne wpisywanie wagi zawierającej "0099" nigdy tego nie
-// wyzwoliło przez przypadek.
+// Menu serwisowe: przytrzymanie klawisza "." na numpadzie (albo tytułu ekranu
+// startowego/zablokowanego) przez SERVICE_HOLD_MS otwiera panel serwisowy z
+// WŁASNYM polem kodu — dopiero tam wpisuje się SERVICE_CODE. Kod celowo NIE
+// jest wykrywany w polach wagi: wpisywane tam cyfry lądowały w ramce mięsa,
+// a detekcja przez side-effect w updaterze setState była zawodna (React nie
+// gwarantuje momentu wykonania updatera). Po poprawnym kodzie panel pokazuje
+// akcję wylogowania z Windows — konto operatora ma jako powłokę ten kiosk
+// (per-user Shell w rejestrze), więc to jedyna droga powrotu do pulpitu /
+// logowania na konto Administrator bez fizycznego dostępu do BIOS-u.
 const SERVICE_CODE = '0099'
-const SERVICE_CODE_WINDOW_MS = 1500
+const SERVICE_HOLD_MS = 3000
 
 async function triggerServiceLogoff() {
   if (!('__TAURI_INTERNALS__' in window)) return // web (nie-kiosk) — brak Tauri, nic nie rób
@@ -231,17 +233,23 @@ function ReadoutV10({ label, value, unit, active, error, sub, onActivate, extraH
 
 // ─── Numpad ────────────────────────────────────────────────────────
 const KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '⌫'] as const
-const NumpadV10 = memo(function NumpadV10({ onKey, onBackStart, onBackEnd, disabled }: {
-  onKey: (k: string) => void; onBackStart: () => void; onBackEnd: () => void; disabled: boolean
+const NumpadV10 = memo(function NumpadV10({ onKey, onBackStart, onBackEnd, onServiceStart, onServiceEnd, disabled }: {
+  onKey: (k: string) => void; onBackStart: () => void; onBackEnd: () => void
+  onServiceStart: () => void; onServiceEnd: () => void; disabled: boolean
 }) {
+  // Uwaga: przy disabled numpad jest tylko wyszarzony (bez pointer-events-none),
+  // żeby przytrzymanie "." nadal otwierało menu serwisowe — same klawisze
+  // ignorują wtedy onKey.
   return (
-    <div className={cn('grid grid-cols-3 gap-2 flex-1 min-h-0', disabled && 'opacity-40 pointer-events-none')}>
+    <div className={cn('grid grid-cols-3 gap-2 flex-1 min-h-0', disabled && 'opacity-40')}>
       {KEYS.map(k => (
-        <button key={k} type="button" onClick={() => onKey(k)}
-          onPointerDown={k === '⌫' ? onBackStart : undefined}
-          onPointerUp={k === '⌫' ? onBackEnd : undefined}
-          onPointerLeave={k === '⌫' ? onBackEnd : undefined}
-          className="hmi-v10-mono flex items-center justify-center font-bold select-none transition-colors active:bg-[var(--ink)] active:text-white active:border-[var(--ink)]"
+        <button key={k} type="button" onClick={() => { if (!disabled) onKey(k) }}
+          onPointerDown={k === '⌫' ? (disabled ? undefined : onBackStart) : k === '.' ? onServiceStart : undefined}
+          onPointerUp={k === '⌫' ? onBackEnd : k === '.' ? onServiceEnd : undefined}
+          onPointerLeave={k === '⌫' ? onBackEnd : k === '.' ? onServiceEnd : undefined}
+          onPointerCancel={k === '⌫' ? onBackEnd : k === '.' ? onServiceEnd : undefined}
+          className={cn('hmi-v10-mono flex items-center justify-center font-bold select-none transition-colors',
+            !disabled && 'active:bg-[var(--ink)] active:text-white active:border-[var(--ink)]')}
           style={{
             borderRadius: 10, fontSize: 'clamp(22px,2vw,28px)',
             background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)',
@@ -317,7 +325,35 @@ export function DeboningHmiV10Page() {
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveFlashRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const serviceCodeStartRef = useRef(0)
+
+  // ── Menu serwisowe ── przytrzymanie "." (lub tytułu ekranów bez numpada)
+  const serviceHoldRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [serviceModal, setServiceModal] = useState(false)
+  const [svcCode, setSvcCode] = useState('')
+  const [svcOk,   setSvcOk]   = useState(false)
+  const [svcErr,  setSvcErr]  = useState(false)
+  const serviceFiredAtRef = useRef(0)
+  const handleServiceStart = useCallback(() => {
+    if (serviceHoldRef.current) clearTimeout(serviceHoldRef.current)
+    serviceHoldRef.current = setTimeout(() => {
+      serviceFiredAtRef.current = Date.now()
+      setSvcCode(''); setSvcOk(false); setSvcErr(false); setServiceModal(true)
+    }, SERVICE_HOLD_MS)
+  }, [])
+  const handleServiceEnd = useCallback(() => {
+    if (serviceHoldRef.current) { clearTimeout(serviceHoldRef.current); serviceHoldRef.current = null }
+  }, [])
+  const pressServiceKey = useCallback((k: string) => {
+    setSvcErr(false)
+    setSvcCode(prev => k === '⌫' ? prev.slice(0, -1) : (prev + k).slice(0, 4))
+  }, [])
+  // Walidacja kodu w efekcie (nie w updaterze setState — patrz komentarz przy
+  // SERVICE_CODE: side-effect w updaterze był przyczyną zawodności starej wersji).
+  useEffect(() => {
+    if (svcCode.length < 4) return
+    if (svcCode === SERVICE_CODE) { setSvcOk(true); setSvcCode('') }
+    else { setSvcErr(true); setSvcCode('') }
+  }, [svcCode])
 
   const showToast = useCallback((msg: string, type: 'ok' | 'err' = 'ok') => {
     setToastMsg(msg); setToastType(type); setToastVis(true)
@@ -329,6 +365,7 @@ export function DeboningHmiV10Page() {
     if (toastRef.current) clearTimeout(toastRef.current)
     if (longPressRef.current) clearTimeout(longPressRef.current)
     if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
+    if (serviceHoldRef.current) clearTimeout(serviceHoldRef.current)
   }, [])
 
   // Auto-odświeżanie partii i pracowników co 5s — żeby nowa partia dodana
@@ -447,30 +484,22 @@ export function DeboningHmiV10Page() {
     : autoMode ? `ZAPISZ — ${fmtKg(meat, 1)} KG MIĘSA` : 'ZAPISZ WPIS'
 
   const pressKey = useCallback((k: string) => {
+    // Zwolnienie "." po długim przytrzymaniu (menu serwisowe) generuje jeszcze
+    // click — nie może dopisać kropki do pola wagi.
+    if (k === '.' && Date.now() - serviceFiredAtRef.current < 500) return
     // W trybie auto numpad pisze do mięsa tylko po świadomym przejęciu ręcznym.
     if (active === 'meat' && scale.available && !meatManual) setMeatManual(true)
-    const now = Date.now()
-    let matchedServiceCode = false
-    // Kod serwisowy: "0099" wpisane od PUSTEGO pola, szybko (SERVICE_CODE_WINDOW_MS),
-    // jako CAŁA zawartość pola — nie jako podciąg dłuższej, realnej wagi (np. "300.99"
-    // nigdy nie przejdzie przez stan "0099" jako całość, więc nie wyzwoli przypadkiem).
     const apply = (prev: string): string => {
-      if (prev === '' && k !== '⌫') serviceCodeStartRef.current = now
       if (k === '⌫') return prev.slice(0, -1)
       if (k === '.') return prev.includes('.') ? prev : (prev === '' ? '0.' : prev + '.')
       const next = prev + k
       if (next.replace('.', '').length > 6) return prev
       const dot = next.indexOf('.')
       if (dot >= 0 && next.length - dot - 1 > 2) return prev
-      if (next === SERVICE_CODE && now - serviceCodeStartRef.current <= SERVICE_CODE_WINDOW_MS) {
-        matchedServiceCode = true
-        return ''
-      }
       return next
     }
     if (active === 'taken') setKgTaken(apply)
     else setKgMeat(apply)
-    if (matchedServiceCode) void triggerServiceLogoff()
   }, [active, scale.available, meatManual])
 
   const clearActiveField = useCallback(() => {
@@ -560,9 +589,64 @@ export function DeboningHmiV10Page() {
     else { setShiftModal(false); showToast('Zmiana zakończona') }
   }
 
+  // Props do rozsmarowania na elemencie-„sekretnym przycisku": przytrzymanie
+  // SERVICE_HOLD_MS otwiera menu serwisowe (na numpadzie robi to klawisz ".").
+  const serviceHoldProps = {
+    onPointerDown: handleServiceStart,
+    onPointerUp: handleServiceEnd,
+    onPointerLeave: handleServiceEnd,
+    onPointerCancel: handleServiceEnd,
+  } as const
+
   const wrap = (children: React.ReactNode) => (
     <div className="h-full w-full overflow-hidden flex flex-col" style={{ ...VARS, background: 'var(--bg)', color: 'var(--ink)', fontFamily: '-apple-system, "Segoe UI", system-ui, sans-serif' }}>
       {children}
+      {serviceModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" style={VARS}>
+          <div className="w-[380px] p-8 flex flex-col gap-6" style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)' }}>
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 flex items-center justify-center flex-shrink-0" style={{ borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--line)', color: 'var(--mut)' }}><Wrench size={26} /></div>
+              <div>
+                <h3 className="font-extrabold text-xl">Menu serwisowe</h3>
+                <p className="text-sm" style={{ color: svcErr ? 'var(--red)' : 'var(--mut)' }}>
+                  {svcOk ? `HMI v10 · ${__ROZBIOR_V10_VERSION__}` : svcErr ? 'Błędny kod' : 'Podaj kod serwisowy'}
+                </p>
+              </div>
+            </div>
+            {!svcOk ? (
+              <>
+                <div className="flex justify-center gap-3">
+                  {[0, 1, 2, 3].map(i => (
+                    <div key={i} className="w-12 h-14 flex items-center justify-center hmi-v10-mono text-2xl font-bold"
+                      style={{ borderRadius: 10, background: 'var(--bg)', border: `1px solid ${svcErr ? 'var(--redLine)' : 'var(--line)'}` }}>
+                      {svcCode[i] ? '•' : ''}
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'].map((k, i) => k === ''
+                    ? <div key={i} />
+                    : <button key={i} type="button" onClick={() => pressServiceKey(k)}
+                        className="hmi-v10-mono h-14 flex items-center justify-center text-2xl font-bold select-none transition-colors active:bg-[var(--ink)] active:text-white"
+                        style={{ borderRadius: 10, background: 'var(--panel)', border: '1px solid var(--line)' }}>
+                        {k === '⌫' ? <Delete size={22} /> : k}
+                      </button>)}
+                </div>
+              </>
+            ) : (
+              <button type="button" onClick={() => void triggerServiceLogoff()}
+                className="h-14 text-base font-bold flex items-center justify-center gap-3"
+                style={{ borderRadius: 10, background: 'var(--red)', color: '#fff' }}>
+                <LogOut size={20} /> Wyjdź do Windows (wyloguj)
+              </button>
+            )}
+            <button type="button" onClick={() => setServiceModal(false)}
+              className="h-12 text-base font-bold" style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--mut)' }}>
+              Anuluj
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 
@@ -570,7 +654,7 @@ export function DeboningHmiV10Page() {
 
   if (!session) return wrap(
     <div className="flex flex-col items-center justify-center flex-1 gap-8">
-      <div className="text-center">
+      <div className="text-center select-none" {...serviceHoldProps}>
         <div className="hmi-v10-mono text-[13px] font-bold uppercase mb-3" style={{ color: 'var(--mut)', letterSpacing: '.3em' }}>
           Rozbiór · {timeWindow.productionDate}
         </div>
@@ -587,7 +671,8 @@ export function DeboningHmiV10Page() {
 
   if (session.status === 'closed' || session.status === 'approved') return wrap(
     <div className="flex flex-col items-center justify-center flex-1 gap-6">
-      <div className="w-28 h-28 flex items-center justify-center" style={{ borderRadius: 16, background: 'var(--ambSoft)', border: `1px solid ${'var(--ambLine)'}`, color: 'var(--amb)' }}>
+      <div className="w-28 h-28 flex items-center justify-center select-none" {...serviceHoldProps}
+        style={{ borderRadius: 16, background: 'var(--ambSoft)', border: `1px solid ${'var(--ambLine)'}`, color: 'var(--amb)' }}>
         <Lock size={56} />
       </div>
       <h2 className="font-extrabold text-4xl">{session.status === 'approved' ? 'Dzień zatwierdzony' : 'Sesja zamknięta'}</h2>
@@ -808,7 +893,8 @@ export function DeboningHmiV10Page() {
             </div>
           )}
 
-          <NumpadV10 onKey={pressKey} onBackStart={handleBackStart} onBackEnd={handleBackEnd} disabled={!selBatch || !selWorker} />
+          <NumpadV10 onKey={pressKey} onBackStart={handleBackStart} onBackEnd={handleBackEnd}
+            onServiceStart={handleServiceStart} onServiceEnd={handleServiceEnd} disabled={!selBatch || !selWorker} />
 
           <button type="button" onClick={handleSave} disabled={!canSave || addLoading}
             className={cn('flex-shrink-0 h-[100px] w-full text-xl font-bold flex items-center justify-center gap-3 transition-all active:scale-[0.98]', saveFlash && 'scale-[1.01]')}
