@@ -52,7 +52,21 @@ def create_app() -> FastAPI:
         lifespan=_lifespan,
     )
 
-    # CORS
+    from app.auth.middleware import auth_middleware
+    from app.auth.audit import audit_middleware
+    # Kolejność: audit rejestrowane po auth → jest „na zewnątrz", więc po
+    # await call_next subject (ustawiony przez auth) jest już dostępny.
+    app.middleware("http")(auth_middleware)
+    app.middleware("http")(audit_middleware)
+
+    # CORS — rejestrowane NA KOŃCU, żeby było najbardziej "na zewnątrz" ze
+    # wszystkich middleware (Starlette owija w odwrotnej kolejności rejestracji).
+    # Inaczej odpowiedzi 401/403 zwracane bezpośrednio przez auth_middleware
+    # (bez call_next) nigdy nie przechodzą przez CORSMiddleware, więc nie mają
+    # nagłówka Access-Control-Allow-Origin — przeglądarka blokuje je jako błąd
+    # CORS zamiast pokazać prawdziwy status/treść (potwierdzone na produkcji:
+    # klient bez tokenu/uprawnień widział "CORS error", nie 401/403).
+    #
     # Aplikacja nie używa uwierzytelniania cookie/sesją, więc allow_credentials
     # musi być False — inaczej w połączeniu z origin="*" przeglądarka i tak
     # odrzuca żądania (spec CORS), a włączone credentials niepotrzebnie
@@ -71,13 +85,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    from app.auth.middleware import auth_middleware
-    from app.auth.audit import audit_middleware
-    # Kolejność: audit rejestrowane po auth → jest „na zewnątrz", więc po
-    # await call_next subject (ustawiony przez auth) jest już dostępny.
-    app.middleware("http")(auth_middleware)
-    app.middleware("http")(audit_middleware)
 
     # ── Register route modules ────────────────────────────────────
     from app.routes import (  # noqa: E402
@@ -120,6 +127,8 @@ def create_app() -> FastAPI:
         stubs,
         cost,
         desktop_updates,
+        desktop_updates_rozbior_v7,
+        desktop_updates_rozbior_v10,
         byproducts,
         wz,
         stock_cartons,
@@ -168,6 +177,8 @@ def create_app() -> FastAPI:
         stubs,
         cost,
         desktop_updates,
+        desktop_updates_rozbior_v7,
+        desktop_updates_rozbior_v10,
         byproducts,
         wz,
         stock_cartons,
