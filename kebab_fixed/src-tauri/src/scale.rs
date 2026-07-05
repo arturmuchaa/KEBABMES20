@@ -2,9 +2,13 @@
 //!
 //! Protokół-agnostyczny: z każdej linii ASCII miernika wyciąga pierwszą
 //! liczbę (kropka LUB przecinek dziesiętny), a stabilność liczy softwarowo
-//! (okno odczytów o rozrzucie ≤ 0,1 kg przez ≥ 1,5 s) — działa więc z każdą
-//! wagą w trybie transmisji ciągłej, bez znajomości formatu ramki.
-//! Konfiguracja: `scale.json` obok exe albo w app_config_dir (port/baud).
+//! (okno odczytów o rozrzucie ≤ tolerancja przez ≥ 1,5 s) — działa więc z
+//! każdą wagą w trybie transmisji ciągłej, bez znajomości formatu ramki.
+//! Tolerancja domyślnie 0,5 kg = działka wagi najazdowej 1 t na hali; przy
+//! mniejszej odczyt migoczący między dwoma sąsiednimi krokami działki
+//! (169,5 ↔ 170,0) nigdy nie byłby „stabilny".
+//! Konfiguracja: `scale.json` obok exe albo w app_config_dir
+//! (port / baud / stabilityTolKg).
 
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -23,16 +27,19 @@ pub struct ScaleReading {
 }
 
 #[derive(Deserialize)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct ScaleConfig {
     pub enabled: bool,
     pub port: String,
     pub baud: u32,
+    /// Maks. rozrzut odczytów uznawany za stabilny (kg). Domyślnie działka
+    /// wagi (0,5 kg) — mniejsza wartość = wieczne „WAŻENIE…" przy migotaniu.
+    pub stability_tol_kg: f64,
 }
 
 impl Default for ScaleConfig {
     fn default() -> Self {
-        Self { enabled: true, port: "COM3".into(), baud: 9600 }
+        Self { enabled: true, port: "COM3".into(), baud: 9600, stability_tol_kg: 0.5 }
     }
 }
 
@@ -68,11 +75,11 @@ pub struct StabilityWindow {
 }
 
 impl StabilityWindow {
-    pub fn new() -> Self {
+    pub fn new(tol_kg: f64) -> Self {
         Self {
             readings: VecDeque::new(),
             span: Duration::from_millis(1500),
-            tol: 0.1,
+            tol: tol_kg,
             min_count: 5,
         }
     }
@@ -133,7 +140,7 @@ pub fn spawn_reader(app: tauri::AppHandle) {
                 .timeout(Duration::from_millis(500))
                 .open()
             {
-                Ok(port) => read_loop(&app, port),
+                Ok(port) => read_loop(&app, port, cfg.stability_tol_kg),
                 Err(_) => {
                     let _ = app.emit(
                         EVENT,
@@ -146,9 +153,9 @@ pub fn spawn_reader(app: tauri::AppHandle) {
     });
 }
 
-fn read_loop(app: &tauri::AppHandle, port: Box<dyn serialport::SerialPort>) {
+fn read_loop(app: &tauri::AppHandle, port: Box<dyn serialport::SerialPort>, tol_kg: f64) {
     let mut reader = BufReader::new(port);
-    let mut window = StabilityWindow::new();
+    let mut window = StabilityWindow::new(tol_kg);
     let mut line = String::new();
     let mut last_emit = Instant::now() - Duration::from_secs(1);
     loop {
@@ -201,28 +208,40 @@ mod tests {
 
     #[test]
     fn stabilnosc_wymaga_min_odczytow() {
-        let mut w = StabilityWindow::new();
+        let mut w = StabilityWindow::new(0.5);
         let t0 = Instant::now();
         assert!(!w.push(t0, 170.0));
         assert!(!w.push(t0 + Duration::from_millis(200), 170.0));
         assert!(!w.push(t0 + Duration::from_millis(400), 170.0));
         assert!(!w.push(t0 + Duration::from_millis(600), 170.05));
-        // 5. odczyt w oknie, rozrzut 0,05 ≤ 0,1 → stabilna
+        // 5. odczyt w oknie, rozrzut 0,05 ≤ 0,5 → stabilna
         assert!(w.push(t0 + Duration::from_millis(800), 170.0));
     }
 
     #[test]
-    fn stabilnosc_rozrzut_ponad_tolerancje() {
-        let mut w = StabilityWindow::new();
+    fn stabilnosc_migotanie_dzialki_05_jest_stabilne() {
+        // Waga z działką 0,5 kg na granicy kroku: 169,5 ↔ 170,0 w kółko.
+        let mut w = StabilityWindow::new(0.5);
         let t0 = Instant::now();
-        for (i, v) in [168.0, 169.5, 170.4, 169.9, 170.1].iter().enumerate() {
+        let vals = [169.5, 170.0, 169.5, 170.0];
+        for (i, v) in vals.iter().enumerate() {
+            w.push(t0 + Duration::from_millis(200 * i as u64), *v);
+        }
+        assert!(w.push(t0 + Duration::from_millis(800), 169.5));
+    }
+
+    #[test]
+    fn stabilnosc_rozrzut_ponad_tolerancje() {
+        let mut w = StabilityWindow::new(0.5);
+        let t0 = Instant::now();
+        for (i, v) in [168.0, 169.5, 170.5, 169.9, 170.1].iter().enumerate() {
             assert!(!w.push(t0 + Duration::from_millis(200 * i as u64), *v));
         }
     }
 
     #[test]
     fn stabilnosc_stare_odczyty_wypadaja_z_okna() {
-        let mut w = StabilityWindow::new();
+        let mut w = StabilityWindow::new(0.5);
         let t0 = Instant::now();
         // skok wagi dawno temu nie psuje stabilności teraz
         w.push(t0, 20.0);
@@ -238,5 +257,6 @@ mod tests {
         assert!(cfg.enabled);
         assert_eq!(cfg.port, "COM3");
         assert_eq!(cfg.baud, 9600);
+        assert_eq!(cfg.stability_tol_kg, 0.5);
     }
 }
