@@ -30,3 +30,7 @@ serde_json = "1"
 # to, żeby móc użyć tokio::time::sleep w pętli cichego sprawdzania aktualizacji
 # w kiosku; wersja "1" ujednolici się z tym, co i tak ciągnie Tauri.
 tokio = { version = "1", features = ["time"] }
+# Most wagowy RS232 (HMI rozbiór v10): odczyt wagi najazdowej z portu
+# szeregowego. default-features=false — bez enumeracji udev, port otwieramy
+# po nazwie z configu (COM3), co kompiluje się czysto na Linux/Windows.
+serialport = { version = "4", default-features = false }

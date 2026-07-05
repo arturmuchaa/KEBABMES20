@@ -1,5 +1,10 @@
 use tauri_plugin_updater::UpdaterExt;
 
+// Moduł wagi tylko dla kiosku (i testów) — build biurowy nie kompiluje
+// ścieżek dotykających portów szeregowych.
+#[cfg(any(feature = "kiosk", test))]
+mod scale;
+
 // Kod serwisowy kiosku (0099 na numpadzie wagi, wpisany szybko) wywołuje to
 // z JS — wylogowuje operatora z Windows (wraca do ekranu logowania Windows),
 // żeby technik mógł zalogować się na konto Administrator ze zwykłym
@@ -29,6 +34,11 @@ pub fn run() {
         .setup(|_app| {
             #[cfg(feature = "kiosk")]
             {
+                // Most wagowy RS232 (HMI rozbiór v10): wątek czyta wagę
+                // najazdową i emituje `scale://weight`. Tylko kiosk — appka
+                // biurowa nie ma prawa dotykać portów szeregowych.
+                scale::spawn_reader(_app.handle().clone());
+
                 // Kiosk: cichy auto-update w tle, BEZ dialogu — nikt nie ma dostępu
                 // do Windowsa żeby kliknąć "zainstaluj". Sprawdzenie od razu przy
                 // starcie, potem co godzinę; jeśli jest nowsza wersja, pobiera,
