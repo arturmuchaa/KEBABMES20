@@ -17,6 +17,16 @@ PUBLIC_PREFIXES = (
     "/api/auth/login-pin",
     "/api/auth/operators",
     "/api/health",
+    # Manifesty/pobieranie aktualizacji desktopowych (Tauri updater) — klient
+    # sprawdza/pobiera anonimowo, nie ma żadnego tokenu sesji. Publikacja
+    # (/api/admin/desktop-updates/...) ma WŁASNY, osobny gate (require_admin /
+    # nagłówek X-Admin-Token) — "public" tu oznacza tylko "pomiń system
+    # Bearer/działów z tej warstwy", NIE "bez żadnej ochrony". Potwierdzone na
+    # produkcji: oba te prefiksy dostawały 401 z tej warstwy PRZED dotarciem
+    # do require_admin, więc auto-update (główna appka i kiosk rozbioru v10)
+    # nigdy nie mógł zadziałać.
+    "/api/desktop-updates",
+    "/api/admin/desktop-updates",
 )
 
 # Endpointy dostępne każdemu zalogowanemu
@@ -24,6 +34,15 @@ ANY_PREFIXES = (
     "/api/auth/me",
     "/api/auth/logout",
     "/api/auth/change-password",
+    # Wspólne odczyty hali — używane przez kilka działów naraz (rozbiór,
+    # mieszanie, produkcja), więc nie da się ich przypisać do jednego działu
+    # przez sam prefiks ścieżki (np. production-sessions rozróżnia proces
+    # dopiero po ?processType=, którego permission_for_path nie widzi).
+    # Baza danych: 404/2xx per rekord to za mało uprawnień, więc nadal
+    # wymagane jest bycie zalogowanym (nie "public").
+    "/api/raw-batches",
+    "/api/workers",
+    "/api/production-sessions",
 )
 
 # Tylko admin (konta biura)
@@ -32,7 +51,7 @@ ADMIN_PREFIXES = ("/api/app-users", "/api/audit-log")
 # Działy hali → prefiksy
 DEPARTMENT_PREFIXES = {
     "rozbior": ("/api/deboning",),
-    "produkcja": ("/api/mixing", "/api/production_sessions", "/api/seasoned_meat"),
+    "produkcja": ("/api/mixing", "/api/seasoned_meat"),
     "pakowanie": ("/api/packaging", "/api/finished_units"),
     "wydanie": ("/api/dispatches",),
 }
