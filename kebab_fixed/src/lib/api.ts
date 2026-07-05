@@ -1465,6 +1465,12 @@ export const settingsApi = {
     get<any>('/settings/deboning-yield').then(r => Number(r.deboningYieldPct ?? 70)),
   saveDeboningYield: (pct: number) =>
     put<any>('/settings/deboning-yield', { pct }).then(r => Number(r.deboningYieldPct ?? pct)),
+  // Tary wózków rozbioru (ważenie RS232): GET dostępny dla panelu hali,
+  // PUT tylko biuro — ścieżka pod /deboning, nie /settings (RBAC).
+  getCartTares: () =>
+    get<any>('/deboning/cart-tares').then(r => (r?.cartTares ?? []) as number[]),
+  saveCartTares: (tares: number[]) =>
+    put<any>('/deboning/cart-tares', { cartTares: tares }).then(r => (r?.cartTares ?? []) as number[]),
 }
 
 // ─── Zapotrzebowanie na surowiec ──────────────────────────────

@@ -11,7 +11,7 @@
  */
 import { useState, useRef, useEffect, useMemo, useCallback, memo, type CSSProperties } from 'react'
 import { useApi } from '@/hooks/useApi'
-import { rawBatchesApi, usersApi } from '@/lib/apiClient'
+import { rawBatchesApi, usersApi, settingsApi } from '@/lib/apiClient'
 import { Spinner } from '@/components/ui/widgets'
 import { fmtKg, fmtPct, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
@@ -21,7 +21,7 @@ import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
 import { useScale } from '@/features/deboning/useScale'
 import {
-  computeWeighing, CART_TARES_KG, E2_TARE_KG, KG_PER_E2_MIN, KG_PER_E2_MAX,
+  computeWeighing, sanitizeCartTares, CART_TARES_KG, E2_TARE_KG, KG_PER_E2_MIN, KG_PER_E2_MAX,
 } from '@/features/deboning/utils/weighing'
 import { useAuth } from '@/features/auth/AuthContext'
 import { invoke } from '@tauri-apps/api/core'
@@ -276,6 +276,22 @@ export function DeboningHmiV10Page() {
   const [e2Count,  setE2Count]  = useState(0)
   // false = mięso z wagi (auto); true = operator przejął ręcznie (awaryjnie)
   const [meatManual, setMeatManual] = useState(false)
+
+  // Tary wózków: lista z biura (edytowalna w Ustawieniach firmy); cache w
+  // localStorage na wypadek braku sieci przy starcie, fallback = stała lista.
+  const cartTaresData = useApi(() => settingsApi.getCartTares())
+  const cartTares = useMemo(() => {
+    const fromApi = sanitizeCartTares(cartTaresData.data)
+    if (fromApi.length) {
+      try { localStorage.setItem('kebab.rozbior.cartTares', JSON.stringify(fromApi)) } catch { /* pełny storage nie może psuć HMI */ }
+      return fromApi
+    }
+    try {
+      const cached = sanitizeCartTares(JSON.parse(localStorage.getItem('kebab.rozbior.cartTares') ?? 'null'))
+      if (cached.length) return cached
+    } catch { /* uszkodzony cache → fallback */ }
+    return [...CART_TARES_KG]
+  }, [cartTaresData.data])
   const [saveFlash, setSaveFlash] = useState(false)
   const [finishModal, setFinishModal] = useState(false)
   const [shiftModal,  setShiftModal]  = useState(false)
@@ -719,11 +735,26 @@ export function DeboningHmiV10Page() {
                     : '—'}
                 </span>
               </div>
-              <div className="flex gap-2">
-                {CART_TARES_KG.map(w => (
+              <div className="flex flex-wrap gap-2">
+                {/* Tara 0 = ważenie bez wózka (same pojemniki E2 na wadze) */}
+                <button type="button" onClick={() => setCartTare(0)}
+                  className="flex flex-col items-center justify-center gap-0.5 py-2 transition-all active:scale-[0.97]"
+                  style={{
+                    flex: '1 1 0', minWidth: 92,
+                    borderRadius: 10,
+                    background: cartTare === 0 ? 'var(--accent)' : 'var(--panel)',
+                    border: `1.5px solid ${cartTare === 0 ? 'var(--accent)' : 'var(--line)'}`,
+                    color: cartTare === 0 ? '#fff' : 'var(--ink)',
+                  }}>
+                  <span className="font-extrabold text-lg leading-none uppercase">Bez</span>
+                  <span className="text-[10px] font-bold uppercase"
+                    style={{ color: cartTare === 0 ? 'rgba(255,255,255,.8)' : 'var(--mut)' }}>wózka · 0,0</span>
+                </button>
+                {cartTares.map(w => (
                   <button key={w} type="button" onClick={() => setCartTare(w)}
-                    className="flex-1 flex flex-col items-center gap-0.5 py-2 transition-all active:scale-[0.97]"
+                    className="flex flex-col items-center gap-0.5 py-2 transition-all active:scale-[0.97]"
                     style={{
+                      flex: '1 1 0', minWidth: 92,
                       borderRadius: 10,
                       background: cartTare === w ? 'var(--accent)' : 'var(--panel)',
                       border: `1.5px solid ${cartTare === w ? 'var(--accent)' : 'var(--line)'}`,

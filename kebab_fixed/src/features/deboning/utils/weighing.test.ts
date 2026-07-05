@@ -1,5 +1,27 @@
 import { describe, it, expect } from 'vitest'
-import { computeWeighing, E2_TARE_KG, CART_TARES_KG } from './weighing'
+import { computeWeighing, sanitizeCartTares, E2_TARE_KG, CART_TARES_KG } from './weighing'
+
+describe('sanitizeCartTares', () => {
+  it('sortuje rosnąco i usuwa duplikaty (kafle od najlżejszego)', () => {
+    expect(sanitizeCartTares([7, 5.5, 6.0, 5.5])).toEqual([5.5, 6.0, 7])
+  })
+
+  it('odfiltrowuje śmieci i wartości poza 0–50 kg', () => {
+    expect(sanitizeCartTares([5.5, 'xx', -1, 0, 51, '6,5'])).toEqual([5.5, 6.5])
+  })
+
+  it('nie-tablica lub pustka → [] (caller bierze CART_TARES_KG)', () => {
+    expect(sanitizeCartTares(null)).toEqual([])
+    expect(sanitizeCartTares([])).toEqual([])
+  })
+
+  it('ważenie bez wózka: tara 0 liczy netto (brutto − same E2)', () => {
+    const r = computeWeighing({ gross: 156.0, cartTareKg: 0, e2Count: 7 })
+    expect(r.tareTotalKg).toBe(14.0)
+    expect(r.netKg).toBe(142.0)
+    expect(r.ready).toBe(true)
+  })
+})
 
 describe('computeWeighing', () => {
   it('przykład z hali: 170,0 − wózek 5,5 − 7×E2 = 150,5 netto, 21,5 kg/poj (w normie)', () => {
