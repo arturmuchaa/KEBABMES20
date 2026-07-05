@@ -22,6 +22,7 @@ import { Spinner } from '@/components/ui/widgets'
 import { AuthProvider, useAuth } from '@/features/auth/AuthContext'
 import { BASE } from '@/lib/api'
 import { DeboningHmiV10Page } from '@/pages/tablet/DeboningHmiV10Page'
+import { useServiceHold, ServiceMenuModal } from '@/features/deboning/ServiceMenu'
 
 installGlobalErrorLogger()
 
@@ -73,6 +74,10 @@ function KioskLoginScreen() {
   const [pin, setPin] = useState('')
   const [err, setErr] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // Wejście serwisowe także z ekranu logowania — gdy kiosk utknie tu (np. brak
+  // backendu), serwisant musi móc wyjść do Windows bez fizycznego dostępu do BIOS-u.
+  const [serviceModal, setServiceModal] = useState(false)
+  const { holdProps: serviceHoldProps } = useServiceHold(() => setServiceModal(true))
 
   useEffect(() => {
     fetch(`${BASE}/auth/operators?department=rozbior`)
@@ -110,7 +115,7 @@ function KioskLoginScreen() {
   return (
     <div className="h-full w-full flex flex-col items-center justify-center gap-8"
       style={{ ...LOGIN_VARS, background: 'var(--bg)', color: 'var(--ink)', fontFamily: '-apple-system, "Segoe UI", system-ui, sans-serif' }}>
-      <div className="text-center">
+      <div className="text-center select-none" {...serviceHoldProps}>
         <div className="text-[13px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.3em' }}>Rozbiór</div>
         <h1 className="font-extrabold text-4xl mt-1" style={{ letterSpacing: '-.01em' }}>
           {selWorker ? `Cześć, ${selWorker.name.split(' ')[0]}` : 'Kto pracuje?'}
@@ -159,6 +164,7 @@ function KioskLoginScreen() {
           </button>
         </div>
       )}
+      <ServiceMenuModal open={serviceModal} onClose={() => setServiceModal(false)} />
     </div>
   )
 }

@@ -15,7 +15,7 @@ import { rawBatchesApi, usersApi, settingsApi } from '@/lib/apiClient'
 import { Spinner } from '@/components/ui/widgets'
 import { fmtKg, fmtPct, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
-import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2, Wrench } from 'lucide-react'
+import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2 } from 'lucide-react'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
@@ -24,7 +24,7 @@ import {
   computeWeighing, sanitizeCartTares, CART_TARES_KG, E2_TARE_KG, KG_PER_E2_MIN, KG_PER_E2_MAX,
 } from '@/features/deboning/utils/weighing'
 import { useAuth } from '@/features/auth/AuthContext'
-import { invoke } from '@tauri-apps/api/core'
+import { useServiceHold, ServiceMenuModal } from '@/features/deboning/ServiceMenu'
 import './DeboningHmiV10Page.css'
 
 // Wstrzyknięte przez Vite (vite.config.ts) z tauri.rozbior-v10.conf.json —
@@ -36,27 +36,6 @@ const KG_PER_CONTAINER = 15
 const YIELD_BAND_LO = 65   // % — dolna granica pasma celu
 const YIELD_BAND_HI = 80   // % — górna granica pasma celu
 const TEMPO_TARGET  = 800  // kg/h — cel linii
-
-// Menu serwisowe: przytrzymanie klawisza "." na numpadzie (albo tytułu ekranu
-// startowego/zablokowanego) przez SERVICE_HOLD_MS otwiera panel serwisowy z
-// WŁASNYM polem kodu — dopiero tam wpisuje się SERVICE_CODE. Kod celowo NIE
-// jest wykrywany w polach wagi: wpisywane tam cyfry lądowały w ramce mięsa,
-// a detekcja przez side-effect w updaterze setState była zawodna (React nie
-// gwarantuje momentu wykonania updatera). Po poprawnym kodzie panel pokazuje
-// akcję wylogowania z Windows — konto operatora ma jako powłokę ten kiosk
-// (per-user Shell w rejestrze), więc to jedyna droga powrotu do pulpitu /
-// logowania na konto Administrator bez fizycznego dostępu do BIOS-u.
-const SERVICE_CODE = '0099'
-const SERVICE_HOLD_MS = 3000
-
-async function triggerServiceLogoff() {
-  if (!('__TAURI_INTERNALS__' in window)) return // web (nie-kiosk) — brak Tauri, nic nie rób
-  try {
-    await invoke('windows_logoff')
-  } catch (e) {
-    console.error('windows_logoff failed', e)
-  }
-}
 
 type ActiveField = 'taken' | 'meat'
 type StatsSort = 'taken' | 'meat' | 'yield' | 'count'
@@ -327,33 +306,9 @@ export function DeboningHmiV10Page() {
   const saveFlashRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── Menu serwisowe ── przytrzymanie "." (lub tytułu ekranów bez numpada)
-  const serviceHoldRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [serviceModal, setServiceModal] = useState(false)
-  const [svcCode, setSvcCode] = useState('')
-  const [svcOk,   setSvcOk]   = useState(false)
-  const [svcErr,  setSvcErr]  = useState(false)
-  const serviceFiredAtRef = useRef(0)
-  const handleServiceStart = useCallback(() => {
-    if (serviceHoldRef.current) clearTimeout(serviceHoldRef.current)
-    serviceHoldRef.current = setTimeout(() => {
-      serviceFiredAtRef.current = Date.now()
-      setSvcCode(''); setSvcOk(false); setSvcErr(false); setServiceModal(true)
-    }, SERVICE_HOLD_MS)
-  }, [])
-  const handleServiceEnd = useCallback(() => {
-    if (serviceHoldRef.current) { clearTimeout(serviceHoldRef.current); serviceHoldRef.current = null }
-  }, [])
-  const pressServiceKey = useCallback((k: string) => {
-    setSvcErr(false)
-    setSvcCode(prev => k === '⌫' ? prev.slice(0, -1) : (prev + k).slice(0, 4))
-  }, [])
-  // Walidacja kodu w efekcie (nie w updaterze setState — patrz komentarz przy
-  // SERVICE_CODE: side-effect w updaterze był przyczyną zawodności starej wersji).
-  useEffect(() => {
-    if (svcCode.length < 4) return
-    if (svcCode === SERVICE_CODE) { setSvcOk(true); setSvcCode('') }
-    else { setSvcErr(true); setSvcCode('') }
-  }, [svcCode])
+  const openServiceModal = useCallback(() => setServiceModal(true), [])
+  const { holdProps: serviceHoldProps, onHoldStart: handleServiceStart, onHoldEnd: handleServiceEnd, firedAtRef: serviceFiredAtRef } = useServiceHold(openServiceModal)
 
   const showToast = useCallback((msg: string, type: 'ok' | 'err' = 'ok') => {
     setToastMsg(msg); setToastType(type); setToastVis(true)
@@ -365,7 +320,6 @@ export function DeboningHmiV10Page() {
     if (toastRef.current) clearTimeout(toastRef.current)
     if (longPressRef.current) clearTimeout(longPressRef.current)
     if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
-    if (serviceHoldRef.current) clearTimeout(serviceHoldRef.current)
   }, [])
 
   // Auto-odświeżanie partii i pracowników co 5s — żeby nowa partia dodana
@@ -589,64 +543,10 @@ export function DeboningHmiV10Page() {
     else { setShiftModal(false); showToast('Zmiana zakończona') }
   }
 
-  // Props do rozsmarowania na elemencie-„sekretnym przycisku": przytrzymanie
-  // SERVICE_HOLD_MS otwiera menu serwisowe (na numpadzie robi to klawisz ".").
-  const serviceHoldProps = {
-    onPointerDown: handleServiceStart,
-    onPointerUp: handleServiceEnd,
-    onPointerLeave: handleServiceEnd,
-    onPointerCancel: handleServiceEnd,
-  } as const
-
   const wrap = (children: React.ReactNode) => (
     <div className="h-full w-full overflow-hidden flex flex-col" style={{ ...VARS, background: 'var(--bg)', color: 'var(--ink)', fontFamily: '-apple-system, "Segoe UI", system-ui, sans-serif' }}>
       {children}
-      {serviceModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" style={VARS}>
-          <div className="w-[380px] p-8 flex flex-col gap-6" style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)' }}>
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 flex items-center justify-center flex-shrink-0" style={{ borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--line)', color: 'var(--mut)' }}><Wrench size={26} /></div>
-              <div>
-                <h3 className="font-extrabold text-xl">Menu serwisowe</h3>
-                <p className="text-sm" style={{ color: svcErr ? 'var(--red)' : 'var(--mut)' }}>
-                  {svcOk ? `HMI v10 · ${__ROZBIOR_V10_VERSION__}` : svcErr ? 'Błędny kod' : 'Podaj kod serwisowy'}
-                </p>
-              </div>
-            </div>
-            {!svcOk ? (
-              <>
-                <div className="flex justify-center gap-3">
-                  {[0, 1, 2, 3].map(i => (
-                    <div key={i} className="w-12 h-14 flex items-center justify-center hmi-v10-mono text-2xl font-bold"
-                      style={{ borderRadius: 10, background: 'var(--bg)', border: `1px solid ${svcErr ? 'var(--redLine)' : 'var(--line)'}` }}>
-                      {svcCode[i] ? '•' : ''}
-                    </div>
-                  ))}
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'].map((k, i) => k === ''
-                    ? <div key={i} />
-                    : <button key={i} type="button" onClick={() => pressServiceKey(k)}
-                        className="hmi-v10-mono h-14 flex items-center justify-center text-2xl font-bold select-none transition-colors active:bg-[var(--ink)] active:text-white"
-                        style={{ borderRadius: 10, background: 'var(--panel)', border: '1px solid var(--line)' }}>
-                        {k === '⌫' ? <Delete size={22} /> : k}
-                      </button>)}
-                </div>
-              </>
-            ) : (
-              <button type="button" onClick={() => void triggerServiceLogoff()}
-                className="h-14 text-base font-bold flex items-center justify-center gap-3"
-                style={{ borderRadius: 10, background: 'var(--red)', color: '#fff' }}>
-                <LogOut size={20} /> Wyjdź do Windows (wyloguj)
-              </button>
-            )}
-            <button type="button" onClick={() => setServiceModal(false)}
-              className="h-12 text-base font-bold" style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--mut)' }}>
-              Anuluj
-            </button>
-          </div>
-        </div>
-      )}
+      <ServiceMenuModal open={serviceModal} onClose={() => setServiceModal(false)} />
     </div>
   )
 
