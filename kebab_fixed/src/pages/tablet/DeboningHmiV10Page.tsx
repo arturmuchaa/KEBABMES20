@@ -242,11 +242,13 @@ const NumpadV10 = memo(function NumpadV10({ onKey, onBackStart, onBackEnd, onSer
 
 interface HmiAlarm { id: string; level: 'red' | 'amb'; text: string }
 
-export function DeboningHmiV10Page() {
-  // useAuth() zwraca `null`, gdy komponent renderuje się bez <AuthProvider> w drzewie
-  // (standalone kiosk Tauri, rozbior-v10.tsx, celowo nie ma routera/loginu) — nie
-  // destrukturyzować bezpośrednio, tylko opcjonalnie odczytać `user`.
-  const loggedInUser = useAuth()?.user
+export function DeboningHmiV10Page({ allowOperatorSwitch = false }: { allowOperatorSwitch?: boolean }) {
+  // useAuth() zwraca `null`, gdy komponent renderuje się bez <AuthProvider> w drzewie —
+  // nie destrukturyzować bezpośrednio. `allowOperatorSwitch` włącza przycisk zmiany
+  // operatora (wylogowanie do ekranu PIN) — ustawia go tylko kiosk (rozbior-v10.tsx),
+  // żeby w biurowej aplikacji ten sam przycisk nie wylogowywał z całego MES.
+  const auth = useAuth()
+  const loggedInUser = auth?.user
   const batchData  = useApi(() => rawBatchesApi.list())
   const workerData = useApi(() => usersApi.list())
   const { session, timeWindow, loading: sessionLoading, startDay, startLoading, closeDay, closeLoading } = useProductionSession()
@@ -283,6 +285,7 @@ export function DeboningHmiV10Page() {
   const [finishModal, setFinishModal] = useState(false)
   const [shiftModal,  setShiftModal]  = useState(false)
   const [statsModal,  setStatsModal]  = useState(false)
+  const [operatorModal, setOperatorModal] = useState(false)
   const [statsSort,   setStatsSort]   = useState<StatsSort>('meat')
   const [statsDir,    setStatsDir]    = useState<'asc' | 'desc'>('desc')
   const [inputBacks, setInputBacks] = useState('')
@@ -629,10 +632,23 @@ export function DeboningHmiV10Page() {
           style={{ border: '1px solid var(--ambLine)', color: 'var(--amb)', borderRadius: 8, background: 'var(--ambSoft)' }}>
           <Flag size={15} /> Zakończ partię
         </button>
-        <div className="flex flex-col justify-center items-end pl-5 flex-shrink-0" style={{ borderLeft: '1px solid var(--lineSoft)' }}>
-          <span className="text-[9px] font-bold uppercase leading-none mb-1" style={{ color: 'var(--mut)', letterSpacing: '.14em' }}>Operator</span>
-          <span className="text-sm font-bold leading-none truncate max-w-[140px]">{loggedInUser?.name ?? '—'}</span>
-        </div>
+        {allowOperatorSwitch && auth ? (
+          <button type="button" onClick={() => setOperatorModal(true)}
+            className="flex items-center gap-3 pl-5 flex-shrink-0 h-12" style={{ borderLeft: '1px solid var(--lineSoft)' }}>
+            <div className="flex flex-col justify-center items-end">
+              <span className="text-[9px] font-bold uppercase leading-none mb-1" style={{ color: 'var(--mut)', letterSpacing: '.14em' }}>Operator</span>
+              <span className="text-sm font-bold leading-none truncate max-w-[140px]">{loggedInUser?.name ?? '—'}</span>
+            </div>
+            <span className="w-8 h-8 flex items-center justify-center flex-shrink-0" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}>
+              <LogOut size={14} />
+            </span>
+          </button>
+        ) : (
+          <div className="flex flex-col justify-center items-end pl-5 flex-shrink-0" style={{ borderLeft: '1px solid var(--lineSoft)' }}>
+            <span className="text-[9px] font-bold uppercase leading-none mb-1" style={{ color: 'var(--mut)', letterSpacing: '.14em' }}>Operator</span>
+            <span className="text-sm font-bold leading-none truncate max-w-[140px]">{loggedInUser?.name ?? '—'}</span>
+          </div>
+        )}
       </header>
 
       <div className="flex-shrink-0 h-[144px] px-4 py-3 flex items-center gap-3 overflow-x-auto">
@@ -1053,6 +1069,27 @@ export function DeboningHmiV10Page() {
                 className="flex-[2] h-12 text-base font-bold flex items-center justify-center gap-3" style={{ borderRadius: 10, background: 'var(--red)', color: '#fff' }}>
                 {closeLoading ? <span className="w-5 h-5 border-4 border-white/30 border-t-white rounded-full animate-spin" /> : <LogOut size={18} />}
                 Zakończ zmianę
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {operatorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" style={VARS}>
+          <div className="w-[400px] p-8 flex flex-col gap-6" style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)' }}>
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 flex items-center justify-center" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1px solid var(--line)', color: 'var(--accent)' }}><LogOut size={26} /></div>
+              <div>
+                <h3 className="font-extrabold text-xl">Zmienić operatora?</h3>
+                <p className="text-sm" style={{ color: 'var(--mut)' }}>Wrócisz do ekranu logowania PIN. Sesja i wpisy zostają — zmiana nie jest kończona.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setOperatorModal(false)} className="flex-1 h-12 text-base font-bold" style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--mut)' }}>Anuluj</button>
+              <button type="button" onClick={() => { setOperatorModal(false); void auth?.logout() }}
+                className="flex-[2] h-12 text-base font-bold flex items-center justify-center gap-3" style={{ borderRadius: 10, background: 'var(--accent)', color: '#fff' }}>
+                <LogOut size={18} /> Zmień operatora
               </button>
             </div>
           </div>

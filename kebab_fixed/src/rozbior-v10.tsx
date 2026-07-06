@@ -180,7 +180,7 @@ function KioskGate() {
     )
   }
   if (!user) return <KioskLoginScreen />
-  return <DeboningHmiV10Page />
+  return <DeboningHmiV10Page allowOperatorSwitch />
 }
 
 // Ten sam wygląd co statyczny splash w rozbior-v10.html (logo + kółeczko) —
