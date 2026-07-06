@@ -72,8 +72,20 @@ export function ServiceMenuModal({ open, onClose }: { open: boolean; onClose: ()
   const [code, setCode] = useState('')
   const [ok,   setOk]   = useState(false)
   const [err,  setErr]  = useState(false)
+  const [scaleDiag, setScaleDiag] = useState<string | null>(null)
 
-  useEffect(() => { if (open) { setCode(''); setOk(false); setErr(false) } }, [open])
+  useEffect(() => { if (open) { setCode(''); setOk(false); setErr(false); setScaleDiag(null) } }, [open])
+
+  // Po poprawnym kodzie pobierz diagnostykę wagi (jaki port HMI otwiera, czy
+  // scale.json jest czytany) — najczęstszy problem serwisowy na hali.
+  useEffect(() => {
+    if (!ok) return
+    if (!('__TAURI_INTERNALS__' in window)) { setScaleDiag('Diagnostyka wagi tylko w kiosku.'); return }
+    setScaleDiag('Sprawdzam…')
+    invoke<string>('scale_diagnose')
+      .then(setScaleDiag)
+      .catch(e => setScaleDiag(`Błąd diagnostyki: ${e}`))
+  }, [ok])
 
   const pressKey = useCallback((k: string) => {
     setErr(false)
@@ -121,11 +133,20 @@ export function ServiceMenuModal({ open, onClose }: { open: boolean; onClose: ()
             </div>
           </>
         ) : (
-          <button type="button" onClick={() => void triggerServiceLogoff()}
-            className="h-14 text-base font-bold flex items-center justify-center gap-3"
-            style={{ borderRadius: 10, background: 'var(--svcRed)', color: '#fff' }}>
-            <LogOut size={20} /> Wyjdź do Windows (wyloguj)
-          </button>
+          <>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-bold uppercase" style={{ color: 'var(--svcMut)', letterSpacing: '.1em' }}>Diagnostyka wagi</span>
+              <pre className="text-xs whitespace-pre-wrap p-3 max-h-52 overflow-auto"
+                style={{ fontFamily: MONO, borderRadius: 10, background: 'var(--svcBg)', border: '1px solid var(--svcLine)', color: 'var(--svcInk)' }}>
+                {scaleDiag ?? '…'}
+              </pre>
+            </div>
+            <button type="button" onClick={() => void triggerServiceLogoff()}
+              className="h-14 text-base font-bold flex items-center justify-center gap-3"
+              style={{ borderRadius: 10, background: 'var(--svcRed)', color: '#fff' }}>
+              <LogOut size={20} /> Wyjdź do Windows (wyloguj)
+            </button>
+          </>
         )}
         <button type="button" onClick={onClose}
           className="h-12 text-base font-bold" style={{ borderRadius: 10, border: '1px solid var(--svcLine)', color: 'var(--svcMut)' }}>

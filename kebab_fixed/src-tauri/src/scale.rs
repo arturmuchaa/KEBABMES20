@@ -106,17 +106,31 @@ impl StabilityWindow {
     }
 }
 
-fn load_config(app: &tauri::AppHandle) -> ScaleConfig {
+fn config_paths(app: &tauri::AppHandle) -> Vec<std::path::PathBuf> {
     let mut paths = Vec::new();
+    // 1. Wspólny plik dla CAŁEGO komputera — widoczny ze WSZYSTKICH kont
+    //    (Admin ustawia raz, konto operatora go widzi). To rozwiązuje pułapkę
+    //    "działa na Adminie, nie działa na rozbior": AppData jest per-konto,
+    //    a instalacja per-user trzyma exe też w profilu, więc bez tej ścieżki
+    //    plik z jednego konta był niewidoczny dla drugiego.
+    if let Some(pd) = std::env::var_os("ProgramData") {
+        paths.push(std::path::Path::new(&pd).join("Rozbior HMI").join("scale.json"));
+    }
+    // 2. Obok exe (per-konto — zgodność wstecz).
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             paths.push(dir.join("scale.json"));
         }
     }
+    // 3. AppData bieżącego konta (per-konto — zgodność wstecz).
     if let Ok(dir) = app.path().app_config_dir() {
         paths.push(dir.join("scale.json"));
     }
-    for p in paths {
+    paths
+}
+
+fn load_config(app: &tauri::AppHandle) -> ScaleConfig {
+    for p in config_paths(app) {
         if let Ok(s) = std::fs::read_to_string(&p) {
             // Notatnik Windows potrafi zapisać UTF-8 z BOM — serde_json odrzuca
             // taki plik i konfiguracja po cichu wracała do domyślnej (COM3).
@@ -128,6 +142,50 @@ fn load_config(app: &tauri::AppHandle) -> ScaleConfig {
         }
     }
     ScaleConfig::default()
+}
+
+/// Diagnostyka wagi dla menu serwisowego: skąd wczytano config, jaki port,
+/// jakie porty COM widzi system i czy port konfiguracyjny da się otworzyć.
+/// Bez tego serwisant był ślepy — nie wiadomo, czy HMI w ogóle czyta plik.
+pub fn diagnose(app: &tauri::AppHandle) -> String {
+    let mut out = String::new();
+    let mut used_path: Option<String> = None;
+    for p in config_paths(app) {
+        let exists = p.exists();
+        out.push_str(&format!(
+            "{} {}\n",
+            if exists { "[jest]" } else { "[brak]" },
+            p.display()
+        ));
+        if exists && used_path.is_none() {
+            used_path = Some(p.display().to_string());
+        }
+    }
+    let cfg = load_config(app);
+    out.push_str(&format!(
+        "\nUżyty config: {}\n",
+        used_path.as_deref().unwrap_or("BRAK PLIKU → domyślny COM3")
+    ));
+    out.push_str(&format!("Port: {}  Baud: {}\n", cfg.port, cfg.baud));
+
+    let available = serialport::available_ports()
+        .map(|v| {
+            v.into_iter()
+                .map(|p| p.port_name)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_else(|_| "(błąd odczytu)".into());
+    out.push_str(&format!("Porty w systemie: {}\n", if available.is_empty() { "(żadnych)".into() } else { available }));
+
+    match serialport::new(&cfg.port, cfg.baud)
+        .timeout(Duration::from_millis(300))
+        .open()
+    {
+        Ok(_) => out.push_str(&format!("Otwarcie {}: OK (port istnieje i wolny)\n", cfg.port)),
+        Err(e) => out.push_str(&format!("Otwarcie {}: BŁĄD — {}\n", cfg.port, e)),
+    }
+    out
 }
 
 /// Wątek czytający wagę przez cały czas życia aplikacji; po błędzie portu

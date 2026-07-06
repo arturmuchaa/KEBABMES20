@@ -16,6 +16,20 @@ fn windows_logoff() {
     let _ = std::process::Command::new("shutdown").args(["/l"]).spawn();
 }
 
+// Diagnostyka wagi dla menu serwisowego (0099) — pokazuje jaki port HMI
+// otwiera i czy plik scale.json jest czytany. Poza kioskiem waga nie istnieje.
+#[tauri::command]
+fn scale_diagnose(_app: tauri::AppHandle) -> String {
+    #[cfg(feature = "kiosk")]
+    {
+        scale::diagnose(&_app)
+    }
+    #[cfg(not(feature = "kiosk"))]
+    {
+        "Waga dostępna tylko w kiosku.".into()
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -23,7 +37,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![windows_logoff])
+        .invoke_handler(tauri::generate_handler![windows_logoff, scale_diagnose])
         .on_window_event(|_window, _event| {
             // Kiosk: operator nie może zamknąć okna (Alt+F4 / żądania zamknięcia ignorowane).
             #[cfg(feature = "kiosk")]

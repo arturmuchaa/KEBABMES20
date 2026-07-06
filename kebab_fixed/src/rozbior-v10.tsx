@@ -79,12 +79,27 @@ function KioskLoginScreen() {
   const [serviceModal, setServiceModal] = useState(false)
   const { holdProps: serviceHoldProps } = useServiceHold(() => setServiceModal(true))
 
+  // Jako powłoka Windows HMI startuje ZANIM sieć/backend są gotowe — pierwszy
+  // fetch operatorów zwracał wtedy pusto ("brak operatora") i ekran się nie
+  // odblokowywał bez ręcznego restartu. Ponawiamy co 2 s aż do skutku.
   useEffect(() => {
-    fetch(`${BASE}/auth/operators?department=rozbior`)
-      .then(r => r.json())
-      .then(setOps)
-      .catch(() => setOps([]))
-      .finally(() => setOpsLoading(false))
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const load = () => {
+      fetch(`${BASE}/auth/operators?department=rozbior`)
+        .then(r => r.json())
+        .then((list: KioskOperator[]) => {
+          if (cancelled) return
+          if (Array.isArray(list) && list.length > 0) {
+            setOps(list); setOpsLoading(false)
+          } else {
+            timer = setTimeout(load, 2000) // backend jeszcze bez danych — ponów
+          }
+        })
+        .catch(() => { if (!cancelled) timer = setTimeout(load, 2000) }) // sieć nie wstała — ponów
+    }
+    load()
+    return () => { cancelled = true; if (timer) clearTimeout(timer) }
   }, [])
 
   const selWorker = ops.find(o => o.id === selId) ?? null
@@ -123,7 +138,12 @@ function KioskLoginScreen() {
       </div>
 
       {!selWorker ? (
-        opsLoading ? <Spinner size={40} /> : (
+        opsLoading ? (
+          <div className="flex flex-col items-center gap-4">
+            <Spinner size={40} />
+            <span className="text-sm font-semibold" style={{ color: 'var(--mut)' }}>Łączenie z serwerem…</span>
+          </div>
+        ) : (
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, 140px)', maxWidth: 760, justifyContent: 'center' }}>
             {ops.map(o => {
               const initials = o.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
