@@ -54,6 +54,10 @@ reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\PasswordLess\Device" 
 rem Bez ekranu blokady (od razu logowanie/autologon)
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Personalization" /v NoLockScreen /t REG_DWORD /d 1 /f >nul
 
+rem Skroc niebieski ekran "Witaj" przy logowaniu - przelacz na pulpit
+rem natychmiast, bez czekania az wszystko sie zaladuje
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v DelayedDesktopSwitchTimeout /t REG_DWORD /d 0 /f >nul
+
 rem Bez pytan o prywatnosc dla nowych kont (OOBE)
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\OOBE" /v DisablePrivacyExperience /t REG_DWORD /d 1 /f >nul
 
