@@ -1,10 +1,10 @@
 @echo off
 rem ============================================================
-rem  Zapisuje scale.json dla wagi RS232 — bez pulapek Notatnika
+rem  Zapisuje scale.json dla wagi RS232 - bez pulapek Notatnika
 rem  (zla nazwa .txt, kodowanie UTF-8 z BOM).
 rem
 rem  URUCHOM ZALOGOWANY NA KONCIE, NA KTORYM DZIALA HMI (np. rozbior)
-rem  — zapisuje do AppData TEGO konta. ZWYKLY dwuklik, bez administratora.
+rem  - zapisuje do AppData TEGO konta. ZWYKLY dwuklik, bez administratora.
 rem ============================================================
 
 net session >nul 2>&1
@@ -42,5 +42,5 @@ echo.
 echo Sciezka: %DIR%\scale.json
 echo.
 echo Teraz ZAMKNIJ i URUCHOM HMI PONOWNIE (plik czytany tylko przy starcie).
-echo Waga powinna sie pojawic — zniknie "WAGA NIEPODLACZONA".
+echo Waga powinna sie pojawic - zniknie "WAGA NIEPODLACZONA".
 pause
