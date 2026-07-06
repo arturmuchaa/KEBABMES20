@@ -5,6 +5,23 @@ rem  Uruchom ZALOGOWANY na koncie kioskowym (np. "rozbior").
 rem  NIE wymaga administratora. Dziala dla biezacego konta.
 rem ============================================================
 
+rem BLOKADA: skrypt NIE MOZE byc odpalony przez "Uruchom jako administrator" —
+rem wtedy dziala w kontekscie konta ADMINA (jego AppData i jego rejestr),
+rem a nie konta kioskowego, na ktorym siedzisz.
+net session >nul 2>&1
+if not errorlevel 1 (
+  echo [BLAD] Ten skrypt uruchomiono przez "Uruchom jako administrator".
+  echo Wtedy Windows wykonuje go NA KONCIE ADMINISTRATORA - powloka
+  echo ustawilaby sie adminowi, nie kontu kioskowemu.
+  echo.
+  echo Zamknij to okno i uruchom plik ZWYKLYM DWUKLIKIEM,
+  echo zalogowany jako konto kioskowe. Zadne uprawnienia nie sa potrzebne.
+  pause
+  exit /b 1
+)
+echo Konto, dla ktorego ustawiam powloke: %USERNAME%
+echo.
+
 rem UWAGA: binarka w instalatorze nazywa sie "kebab-mes.exe" (nazwa z Cargo),
 rem folder instalacji to "Rozbior HMI" (productName). Sprawdzamy obie nazwy.
 set "EXE="
