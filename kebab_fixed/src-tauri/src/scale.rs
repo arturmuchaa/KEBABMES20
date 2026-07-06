@@ -118,7 +118,10 @@ fn load_config(app: &tauri::AppHandle) -> ScaleConfig {
     }
     for p in paths {
         if let Ok(s) = std::fs::read_to_string(&p) {
-            match serde_json::from_str(&s) {
+            // Notatnik Windows potrafi zapisać UTF-8 z BOM — serde_json odrzuca
+            // taki plik i konfiguracja po cichu wracała do domyślnej (COM3).
+            let s = s.trim_start_matches('\u{feff}');
+            match serde_json::from_str(s) {
                 Ok(cfg) => return cfg,
                 Err(e) => eprintln!("scale.json niepoprawny ({}): {e}", p.display()),
             }
