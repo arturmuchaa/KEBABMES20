@@ -1,10 +1,10 @@
-# test-wagi.ps1 — skanuje porty COM i pokazuje, na ktorym nadaje waga.
+# test-wagi.ps1 - skanuje porty COM i pokazuje, na ktorym nadaje waga.
 # Uruchamiaj przez test-wagi.bat (zwykly dwuklik). PRZED testem zamknij HMI,
 # inaczej HMI trzyma port i test pokaze "zajety".
 
 $ErrorActionPreference = 'SilentlyContinue'
 Write-Host ""
-Write-Host "=== TEST WAGI RS232 — skan portow COM (9600, 8N1) ===" -ForegroundColor Cyan
+Write-Host "=== TEST WAGI RS232 - skan portow COM (9600, 8N1) ===" -ForegroundColor Cyan
 Write-Host ""
 
 $ports = [System.IO.Ports.SerialPort]::GetPortNames() | Sort-Object
@@ -27,7 +27,7 @@ foreach ($name in $ports) {
   try {
     $p.Open()
   } catch {
-    Write-Host "[$name] nie da sie otworzyc — port ZAJETY (dziala HMI?) albo uszkodzony" -ForegroundColor Yellow
+    Write-Host "[$name] nie da sie otworzyc - port ZAJETY (dziala HMI?) albo uszkodzony" -ForegroundColor Yellow
     continue
   }
   try {
@@ -36,7 +36,7 @@ foreach ($name in $ports) {
     Write-Host "[$name] ODBIERA DANE: >$line<" -ForegroundColor Green
     $found += @{ Port = $name; Line = $line }
   } catch {
-    Write-Host "[$name] cisza — 4 s bez danych"
+    Write-Host "[$name] cisza - 4 s bez danych"
   }
   $p.Close()
   $p.Dispose()
