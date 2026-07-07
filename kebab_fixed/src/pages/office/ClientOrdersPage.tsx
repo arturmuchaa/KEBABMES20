@@ -38,6 +38,7 @@ import { OrderLinesQuickAdd } from '@/features/orders/order-form/OrderLinesQuick
 import { emptyLine, type LineForm } from '@/features/orders/order-form/types'
 import { MaterialSummaryCard } from '@/features/orders/MaterialSummaryCard'
 import { OrderMaterialShortfall } from '@/features/orders/OrderMaterialShortfall'
+import { usePageHeaderActions } from '@/components/PageHeader'
 
 const STATUS_LABELS: Record<ClientOrder['status'], string> = {
   draft: 'Szkic', confirmed: 'Potwierdzone', in_production: 'W produkcji', done: 'Zrealizowane', cancelled: 'Anulowane',
@@ -300,67 +301,68 @@ export function ClientOrdersPage() {
     await clientOrdersApi.delete(id); refetch()
   }
 
+  // Licznik + akcje w nagłówku strony (wspólny PageHeader).
+  usePageHeaderActions(
+    <div className="flex items-center gap-3.5 text-xs tabular-nums">
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Zamówień:</span>
+        <span className="font-bold">{filtered.length}{filtered.length !== rawList.length && <span className="text-muted-foreground">/{rawList.length}</span>}</span>
+      </div>
+      <div className="w-px h-4 bg-surface-4" />
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Szt:</span>
+        <span className="font-bold">{totalUnits}</span>
+      </div>
+      <div className="w-px h-4 bg-surface-4" />
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Kg:</span>
+        <span className="font-bold text-emerald-700">{fmtKg(totalKg, 0)}</span>
+      </div>
+      <button onClick={() => exportCsv(filtered)} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-surface-4 hover:bg-surface-2 text-xs font-medium" title="Eksportuj CSV">
+        <Download size={13}/> CSV
+      </button>
+      <Button size="sm" className="gap-1.5" onClick={() => setModal(true)}>
+        <Plus size={14}/> Nowe zamówienie
+      </Button>
+    </div>,
+    [filtered.length, rawList.length, totalUnits, totalKg]
+  )
+
   return (
     <div className="space-y-3 animate-fade-in">
 
       {/* Zapotrzebowanie na surowiec dla wszystkich otwartych zamówień */}
       <MaterialSummaryCard />
 
-      {/* Toolbar */}
+      {/* Toolbar — tylko filtr/wyszukiwanie; licznik i akcje w nagłówku strony. */}
       <Card>
-        <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3 flex-1 min-w-[280px]">
-            <div className="relative flex-1 max-w-md">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="h-9 pl-9 pr-8 text-sm"
-                placeholder="Filtruj: nr zam., klient, receptura, tuleja, uwagi…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                autoFocus
-              />
-              {search && (
-                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-ink">
-                  <X size={14}/>
-                </button>
-              )}
-            </div>
-            <Select value={filterStatus || '__all'} onValueChange={v => setFilterStatus(v === '__all' ? '' : v)}>
-              <SelectTrigger className="h-9 w-48 text-sm">
-                <SelectValue placeholder="Wszystkie statusy" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all">Wszystkie statusy</SelectItem>
-                {(['draft','confirmed','in_production','done','cancelled'] as ClientOrder['status'][]).map(s => (
-                  <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <div className="px-4 py-2.5 flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 max-w-md min-w-[240px]">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="h-9 pl-9 pr-8 text-sm"
+              placeholder="Filtruj: nr zam., klient, receptura, tuleja, uwagi…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              autoFocus
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-ink">
+                <X size={14}/>
+              </button>
+            )}
           </div>
-
-          <div className="flex items-center gap-4 text-xs tabular-nums">
-            <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Zamówień:</CardDescription>
-              <span className="font-bold">{filtered.length}{filtered.length !== rawList.length && <span className="text-muted-foreground">/{rawList.length}</span>}</span>
-            </div>
-            <div className="w-px h-4 bg-surface-4" />
-            <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Szt:</CardDescription>
-              <span className="font-bold">{totalUnits}</span>
-            </div>
-            <div className="w-px h-4 bg-surface-4" />
-            <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Kg:</CardDescription>
-              <span className="font-bold text-emerald-700">{fmtKg(totalKg, 0)}</span>
-            </div>
-            <div className="w-px h-4 bg-surface-4" />
-            <button onClick={() => exportCsv(filtered)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-surface-4 hover:bg-surface-2 text-xs font-medium" title="Eksportuj CSV">
-              <Download size={12}/> CSV
-            </button>
-            <Button size="sm" className="h-7 px-2.5 text-xs gap-1" onClick={() => setModal(true)}>
-              <Plus size={12}/> Nowe
-            </Button>
-          </div>
+          <Select value={filterStatus || '__all'} onValueChange={v => setFilterStatus(v === '__all' ? '' : v)}>
+            <SelectTrigger className="h-9 w-48 text-sm">
+              <SelectValue placeholder="Wszystkie statusy" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all">Wszystkie statusy</SelectItem>
+              {(['draft','confirmed','in_production','done','cancelled'] as ClientOrder['status'][]).map(s => (
+                <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </Card>
 
