@@ -41,11 +41,12 @@ def create_ingredient(dto: IngredientCreate) -> Dict:
             conn,
             """
             INSERT INTO ingredients
-                (id, code, name, unit, is_unlimited, active, created_at)
-            VALUES (%s,%s,%s,%s,%s,true,%s)
+                (id, code, name, unit, is_unlimited, category, active, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,true,%s)
             RETURNING *
             """,
-            (cuid(), dto.code, dto.name, dto.unit, dto.is_unlimited, now_iso()),
+            (cuid(), dto.code, dto.name, dto.unit, dto.is_unlimited,
+             getattr(dto, "category", None) or "other", now_iso()),
         )
     logger.info("ingredient.created", extra={"ingredient_id": row["id"]})
     return row

@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS clients (
 CREATE TABLE IF NOT EXISTS ingredients (
     id TEXT PRIMARY KEY, code TEXT, name TEXT NOT NULL, unit TEXT NOT NULL,
     is_unlimited BOOLEAN DEFAULT false, active BOOLEAN DEFAULT true,
+    category TEXT DEFAULT 'other',
     created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS ingredient_stock (
@@ -387,6 +388,7 @@ if __name__ == "__main__":
                 ("raw_batches",        "invoice_no",    "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS invoice_no TEXT"),
                 ("raw_batches",        "kg_available",  "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS kg_available NUMERIC(10,3)"),
                 ("raw_batches",        "kg_available_sync", "UPDATE raw_batches SET kg_available = kg_received WHERE kg_available IS NULL"),
+                ("ingredients",        "category",      "ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'other'"),
                 ("deboning_entries",   "session_id",    "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS session_id TEXT"),
                 ("deboning_entries",   "kg_backs",      "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS kg_backs NUMERIC(10,3) DEFAULT 0"),
                 ("deboning_entries",   "kg_bones",      "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS kg_bones NUMERIC(10,3) DEFAULT 0"),
