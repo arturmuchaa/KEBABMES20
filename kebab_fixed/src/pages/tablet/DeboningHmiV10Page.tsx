@@ -530,6 +530,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     saveFlashRef.current = setTimeout(() => setSaveFlash(false), 350)
     // Wózek i e2Count celowo zostają — kolejny wózek zwykle taki sam.
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    // Tryb prowadzony (v11): po zapisie zostaje TYLKO partia, a pracownik się
+    // odznacza — operator świadomie wybiera, kto robił każdą sztukę, i cykl
+    // startuje od kroku „Wybierz pracownika". W v10 pracownik zostaje (dawne
+    // zachowanie — ten sam pracownik robi zwykle wiele sztuk pod rząd).
+    if (guided) setSelWorker(null)
     setUndoUntil(Date.now() + 60_000); setUndoNow(Date.now())
     showToast(`Zapisano: ${fmtKg(meat)} kg mięsa`)
   }
