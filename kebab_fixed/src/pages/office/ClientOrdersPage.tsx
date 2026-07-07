@@ -318,9 +318,6 @@ export function ClientOrdersPage() {
         <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Kg:</span>
         <span className="font-bold text-emerald-700">{fmtKg(totalKg, 0)}</span>
       </div>
-      <button onClick={() => exportCsv(filtered)} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-surface-4 hover:bg-surface-2 text-xs font-medium" title="Eksportuj CSV">
-        <Download size={13}/> CSV
-      </button>
       <Button size="sm" className="gap-1.5" onClick={() => setModal(true)}>
         <Plus size={14}/> Nowe zamówienie
       </Button>

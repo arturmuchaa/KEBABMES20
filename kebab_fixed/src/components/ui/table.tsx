@@ -8,7 +8,7 @@ const Table = React.forwardRef<
   <div className="relative w-full overflow-auto">
     <table
       ref={ref}
-      className={cn("w-full caption-bottom text-sm", className)}
+      className={cn("w-full caption-bottom text-[13px] [font-variant-numeric:tabular-nums]", className)}
       {...props}
     />
   </div>
@@ -57,7 +57,8 @@ const TableRow = React.forwardRef<
   <tr
     ref={ref}
     className={cn(
-      "border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted",
+      // „Subiekt pro": hairline wierszy, delikatna zebra, podświetlenie pod kursorem/zaznaczenia.
+      "border-b border-surface-3 transition-colors even:bg-[#F4F7FB] hover:bg-brand-light/70 data-[state=selected]:bg-brand-light",
       className
     )}
     {...props}
@@ -72,7 +73,8 @@ const TableHead = React.forwardRef<
   <th
     ref={ref}
     className={cn(
-      "h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0",
+      // Nagłówek: przyklejony, WIELKIE litery, mocny bold, jasne tło — jak grid Subiekta.
+      "sticky top-0 z-10 h-10 px-3 text-left align-middle bg-surface-2 border-b border-surface-4 text-[11px] font-bold uppercase tracking-wide text-ink-3 [&:has([role=checkbox])]:pr-0",
       className
     )}
     {...props}
@@ -86,7 +88,7 @@ const TableCell = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <td
     ref={ref}
-    className={cn("px-4 py-3 align-middle [&:has([role=checkbox])]:pr-0", className)}
+    className={cn("px-3 py-2 align-middle [&:has([role=checkbox])]:pr-0", className)}
     {...props}
   />
 ))

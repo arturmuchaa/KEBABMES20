@@ -233,9 +233,6 @@ export function SpiceStockPage() {
               <span className="font-bold text-emerald-700">{availCount}</span>
             </div>
             <div className="w-px h-4 bg-surface-4" />
-            <button onClick={() => exportCsv(list, stockMap, receiptMap)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-surface-4 hover:bg-surface-2 text-[11px] font-medium" title="Eksportuj CSV">
-              <Download size={11}/> CSV
-            </button>
             <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => setIngModal(true)}>
               Nowy składnik
             </Button>

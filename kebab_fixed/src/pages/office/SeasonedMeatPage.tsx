@@ -326,9 +326,6 @@ export function SeasonedMeatPage() {
               </>
             )}
             <div className="w-px h-4 bg-surface-4" />
-            <button onClick={() => exportCsv(list)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-surface-4 hover:bg-surface-2 text-[11px] font-medium" title="Eksportuj CSV">
-              <Download size={11}/> CSV
-            </button>
           </div>
         </div>
       </Card>

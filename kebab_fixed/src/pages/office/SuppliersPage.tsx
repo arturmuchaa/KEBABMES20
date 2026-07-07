@@ -393,9 +393,6 @@ export function SuppliersPage() {
               <span className="font-bold">{suppliers.length}{suppliers.length !== rawList.length && <span className="text-muted-foreground">/{rawList.length}</span>}</span>
             </div>
             <div className="w-px h-4 bg-surface-4" />
-            <button onClick={() => exportCsv(suppliers)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-surface-4 hover:bg-surface-2 text-xs font-medium" title="Eksportuj CSV">
-              <Download size={12}/> CSV
-            </button>
             <Button size="sm" className="h-7 px-2.5 text-xs gap-1" onClick={openAdd}>
               <Plus size={12}/> Dodaj
             </Button>
