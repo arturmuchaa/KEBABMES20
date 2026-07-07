@@ -16,6 +16,7 @@ const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
   '/office/faktury':               { title: 'Faktury i PZ',                description: 'Dokumenty zakupowe' },
   '/office/dostawcy':              { title: 'Dostawcy',                    description: 'Zarządzanie dostawcami' },
   '/office/kontrahenci':           { title: 'Kontrahenci',                 description: 'Klienci i partnerzy' },
+  '/office/przewoznicy':           { title: 'Przewoźnicy',                 description: 'Słownik przewoźników' },
   '/office/zamowienia':            { title: 'Zamówienia',                  description: 'Zamówienia klientów' },
   '/office/raw-batches':           { title: 'Przyjęcie ćwiartki',          description: 'Rejestracja dostaw surowca' },
   '/office/magazyn/surowiec':      { title: 'Magazyn — Surowiec',          description: 'Stan magazynu ćwiartki' },
