@@ -162,7 +162,7 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
               <div className="font-extrabold text-xl">Ręczne wpisanie — {FRAC_LABEL[frac]}</div>
               <button type="button" onClick={() => { setManualStr(''); setPhase('setup') }} className="text-sm font-bold px-3 py-1.5" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}>← Waga</button>
             </div>
-            <div className="text-sm font-bold" style={{ color: 'var(--mut)' }}>Awaria wagi? Wpisz łączną wagę {FRAC_LABEL[frac]} w kg.</div>
+            <div className="text-sm font-bold" style={{ color: 'var(--mut)' }}>Wpisz łączną wagę {FRAC_LABEL[frac]} w kg.</div>
             <div className="flex items-baseline gap-3 justify-center py-2">
               <span className="hmi-v10-mono font-extrabold" style={{ fontFamily: MONO, fontSize: 56 }}>{manualStr || '0'}</span>
               <span className="text-2xl font-bold" style={{ color: 'var(--mut)' }}>kg</span>
@@ -295,10 +295,10 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
                   {FRAC_LABEL[frac]} dotąd: <span className="hmi-v10-mono" style={{ color: 'var(--ink)' }}>{fmtKg(fracTotal, 1)} kg</span> ({pallets.length})
                 </div>
               )}
-              {/* Zawsze dostępne wyjście awaryjne — ręczne wpisanie kg (awaria wagi). */}
+              {/* Zawsze dostępne ręczne wpisanie kg. */}
               <button type="button" onClick={() => setPhase('manual')}
                 className="h-11 text-sm font-bold" style={{ borderRadius: 10, border: '1px dashed var(--mut)', color: 'var(--mut)' }}>
-                Awaria wagi? Wpisz ręcznie
+                Wpisz ręcznie
               </button>
             </div>
           </div>
