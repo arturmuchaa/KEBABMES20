@@ -16,11 +16,9 @@ import { E2_TARE_KG } from '@/features/deboning/utils/weighing'
 import type { ScaleState } from '@/features/deboning/useScale'
 import type { BatchByproducts } from '@/lib/api'
 
-// Tary palet (na start zaszyte; ekran w biurze dorobimy później).
+// Tary palet — tylko H1 18 kg (plus opcja „bez palety" w widoku).
 export const PALLET_TARES: { label: string; kg: number }[] = [
   { label: 'H1', kg: 18 },
-  { label: 'H7', kg: 20 },
-  { label: 'Euro', kg: 25 },
 ]
 
 type Frac = 'backs' | 'bones'
@@ -44,15 +42,15 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
   onWeigh: (kind: Frac, kg: number, pallets: Pallet[]) => Promise<void>
   onClose: () => void
 }) {
-  // Pierwsza niezważona frakcja: grzbiety, potem kości.
-  const firstFrac: Frac = !record.backsDone ? 'backs' : 'bones'
-  const [frac, setFrac] = useState<Frac>(firstFrac)
+  // Operator sam wybiera, którą frakcję waży (grzbiety/kości) — ekran wyboru.
+  const [frac, setFrac] = useState<Frac>('backs')
   const [pallets, setPallets] = useState<Pallet[]>([])
-  const [phase, setPhase] = useState<'setup' | 'ask' | 'saving'>('setup')
+  const [phase, setPhase] = useState<'choose' | 'setup' | 'ask' | 'manual' | 'saving'>('choose')
   const [tareKg, setTareKg] = useState<number | null>(null)
   const [tareLabel, setTareLabel] = useState<string>('')
   const [containersStr, setContainersStr] = useState<string>('')
   const [savedPct, setSavedPct] = useState<number | null>(null)
+  const [manualStr, setManualStr] = useState<string>('') // ręczne kg (awaria wagi)
 
   const containers = parseInt(containersStr || '0', 10) || 0
   const gross = scale.gross
@@ -76,16 +74,28 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
     await onWeigh(frac, total, pallets)
     const pct = record.quarterKg > 0 ? (total / record.quarterKg) * 100 : 0
     setSavedPct(pct)
-    // Kolejna frakcja (kości) jeśli jeszcze niezważona.
-    const needBones = frac === 'backs' && !record.bonesDone
-    if (needBones) {
-      setTimeout(() => {
-        setSavedPct(null); setFrac('bones'); setPallets([]); resetInputs(); setPhase('setup')
-      }, 1800)
-    } else {
-      setTimeout(onClose, 1800)
-    }
+    // Po zapisie wracamy do wyboru — operator sam decyduje o drugiej frakcji.
+    setTimeout(() => { setSavedPct(null); setPallets([]); resetInputs(); setPhase('choose') }, 1800)
   }
+
+  function chooseFraction(f: Frac) {
+    setFrac(f); setPallets([]); resetInputs(); setPhase('setup')
+  }
+
+  // Ręczne wpisanie kg całej frakcji (awaria wagi) — zapis bez palet.
+  async function saveManual() {
+    const kg = parseFloat((manualStr || '0').replace(',', '.')) || 0
+    if (kg <= 0) return
+    setPhase('saving')
+    await onWeigh(frac, Math.round(kg * 10) / 10, [{ tareLabel: 'ręcznie', tareKg: 0, containers: 0, gross: kg, net: kg }])
+    const pct = record.quarterKg > 0 ? (kg / record.quarterKg) * 100 : 0
+    setSavedPct(pct)
+    setTimeout(() => { setSavedPct(null); setManualStr(''); setPhase('choose') }, 1800)
+  }
+  const pressManual = (k: string) => setManualStr(prev =>
+    k === '⌫' ? prev.slice(0, -1)
+    : k === '.' ? (prev.includes('.') ? prev : (prev === '' ? '0.' : prev + '.'))
+    : (prev + k).replace(/^0+(?=\d)/, '').slice(0, 6))
 
   const pressKey = (k: string) => {
     setContainersStr(prev => {
@@ -118,6 +128,60 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
               <div className="hmi-v10-mono text-4xl font-extrabold mt-2" style={{ color: 'var(--success)' }}>{fmtPct(savedPct, 1)}</div>
               <div className="text-sm font-bold mt-1" style={{ color: 'var(--mut)' }}>{fmtKg(fracTotal, 1)} kg z ćwiartki {fmtKg(record.quarterKg, 0)} kg</div>
             </div>
+          </div>
+        ) : phase === 'choose' ? (
+          <div className="flex flex-col gap-5 p-8">
+            <div className="text-center font-extrabold text-2xl">Co ważysz?</div>
+            <div className="grid grid-cols-2 gap-4">
+              {(['backs', 'bones'] as Frac[]).map(f => {
+                const done = f === 'backs' ? record.backsDone : record.bonesDone
+                const pct = f === 'backs' ? record.backsPct : record.bonesPct
+                return (
+                  <button key={f} type="button" onClick={() => chooseFraction(f)}
+                    className="h-40 flex flex-col items-center justify-center gap-2 font-extrabold" style={{
+                      borderRadius: 14, background: done ? 'var(--successSoft)' : 'var(--panel)',
+                      border: `2px solid ${done ? 'var(--successLine)' : 'var(--accent)'}`,
+                      color: done ? 'var(--success)' : 'var(--accent)',
+                    }}>
+                    <Package size={40} />
+                    <span className="text-2xl" style={{ color: 'var(--ink)' }}>{FRAC_LABEL[f]}</span>
+                    {done
+                      ? <span className="text-sm font-bold flex items-center gap-1"><Check size={16} /> zważone {pct != null ? fmtPct(pct, 1) : ''} · zważ ponownie</span>
+                      : <span className="text-sm font-bold" style={{ color: 'var(--mut)' }}>dotknij, aby zważyć</span>}
+                  </button>
+                )
+              })}
+            </div>
+            <button type="button" onClick={onClose} className="h-12 font-bold" style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--mut)' }}>
+              Zamknij (dokończę później)
+            </button>
+          </div>
+        ) : phase === 'manual' ? (
+          <div className="flex flex-col gap-5 p-6">
+            <div className="flex items-center justify-between">
+              <div className="font-extrabold text-xl">Ręczne wpisanie — {FRAC_LABEL[frac]}</div>
+              <button type="button" onClick={() => { setManualStr(''); setPhase('setup') }} className="text-sm font-bold px-3 py-1.5" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}>← Waga</button>
+            </div>
+            <div className="text-sm font-bold" style={{ color: 'var(--mut)' }}>Awaria wagi? Wpisz łączną wagę {FRAC_LABEL[frac]} w kg.</div>
+            <div className="flex items-baseline gap-3 justify-center py-2">
+              <span className="hmi-v10-mono font-extrabold" style={{ fontFamily: MONO, fontSize: 56 }}>{manualStr || '0'}</span>
+              <span className="text-2xl font-bold" style={{ color: 'var(--mut)' }}>kg</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 max-w-[360px] mx-auto w-full">
+              {['7','8','9','4','5','6','1','2','3','.','0','⌫'].map(k => (
+                <button key={k} type="button" onClick={() => pressManual(k)}
+                  className="h-14 flex items-center justify-center text-2xl font-bold" style={{ fontFamily: MONO, borderRadius: 10, background: 'var(--panel)', border: '1px solid var(--line)' }}>
+                  {k === '⌫' ? <Delete size={22} /> : k}
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={saveManual} disabled={!(parseFloat((manualStr || '0').replace(',', '.')) > 0)}
+              className="h-16 font-extrabold text-lg flex items-center justify-center gap-2 mx-auto w-full max-w-[360px]" style={{
+                borderRadius: 12, background: parseFloat((manualStr || '0').replace(',', '.')) > 0 ? 'var(--accent)' : 'var(--panel)',
+                color: parseFloat((manualStr || '0').replace(',', '.')) > 0 ? '#fff' : 'var(--mut)', border: '1px solid var(--line)',
+              }}>
+              <Check size={22} /> Zapisz {FRAC_LABEL[frac]}
+            </button>
           </div>
         ) : phase === 'ask' ? (
           <div className="flex flex-col gap-5 p-6">
@@ -231,6 +295,11 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
                   {FRAC_LABEL[frac]} dotąd: <span className="hmi-v10-mono" style={{ color: 'var(--ink)' }}>{fmtKg(fracTotal, 1)} kg</span> ({pallets.length})
                 </div>
               )}
+              {/* Zawsze dostępne wyjście awaryjne — ręczne wpisanie kg (awaria wagi). */}
+              <button type="button" onClick={() => setPhase('manual')}
+                className="h-11 text-sm font-bold" style={{ borderRadius: 10, border: '1px dashed var(--mut)', color: 'var(--mut)' }}>
+                Awaria wagi? Wpisz ręcznie
+              </button>
             </div>
           </div>
         )}

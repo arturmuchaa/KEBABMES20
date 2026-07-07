@@ -846,21 +846,6 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               </div>
             )
           }
-          {/* Stopka: wydajność całego dnia (% mięsa z ćwiartki). */}
-          <div className="flex-shrink-0 mt-3 flex items-center gap-4 px-4 py-3"
-            style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
-            <div className="flex flex-col">
-              <span className="text-[10px] font-bold uppercase leading-none" style={{ color: 'var(--mut)', letterSpacing: '.12em' }}>Wydajność dnia</span>
-              <span className="hmi-v10-mono font-extrabold leading-none mt-1" style={{ fontSize: 40, color: yieldInk(shift.yieldPct) }}>
-                {shift.totMeat > 0 ? fmtPct(shift.yieldPct, 1) : '—'}
-              </span>
-            </div>
-            <div className="flex flex-col gap-1 ml-auto text-right">
-              <span className="hmi-v10-mono text-sm font-bold"><span style={{ color: 'var(--mut)' }}>mięso </span>{fmtKg(shift.totMeat, 0)} kg</span>
-              <span className="hmi-v10-mono text-sm font-bold"><span style={{ color: 'var(--mut)' }}>ćwiartka </span>{fmtKg(shift.totTaken, 0)} kg</span>
-              <span className="hmi-v10-mono text-[12px] font-bold" style={{ color: 'var(--mut)' }}>{entries.length} szt · {shift.activeWorkers} os.</span>
-            </div>
-          </div>
         </div>
 
         <div className="flex-shrink-0 flex flex-col gap-3 min-h-0" style={{ width: '34%', padding: '0 16px', borderRight: '1px solid var(--lineSoft)' }}>
@@ -1188,17 +1173,18 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         </div>
       </div>
 
-      <div className="flex-shrink-0 h-[76px] grid grid-cols-6" style={{ background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
+      <div className="flex-shrink-0 h-[76px] grid grid-cols-7" style={{ background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
         {[
-          { label: 'Ćwiartka dziś', val: `${fmtKg(shift.totTaken, 0)} kg` },
+          { label: 'Wydajność dnia', val: shift.totMeat > 0 ? fmtPct(shift.yieldPct, 1) : '—', color: yieldInk(shift.yieldPct) },
+          { label: 'Ćwiartka pobrana dzisiaj', val: `${fmtKg(shift.totTaken, 0)} kg` },
           { label: 'Mięso',         val: `${fmtKg(shift.totMeat, 0)} kg` },
           { label: 'Grzbiety',      val: `${fmtKg(shift.totBacks, 0)} kg` },
           { label: 'Kości',         val: `${fmtKg(shift.totBones, 0)} kg` },
           { label: 'Wpisy',         val: String(entries.length) },
         ].map(c => (
-          <div key={c.label} className="flex flex-col items-center justify-center" style={{ borderRight: '1px solid var(--lineSoft)' }}>
-            <span className="hmi-v10-mono text-xl font-bold leading-none" style={{ color: 'var(--ink)' }}>{c.val}</span>
-            <span className="text-[10px] font-bold uppercase mt-1.5" style={{ color: 'var(--mut)' }}>{c.label}</span>
+          <div key={c.label} className="flex flex-col items-center justify-center px-1 text-center" style={{ borderRight: '1px solid var(--lineSoft)' }}>
+            <span className="hmi-v10-mono text-xl font-bold leading-none" style={{ color: (c as any).color ?? 'var(--ink)' }}>{c.val}</span>
+            <span className="text-[10px] font-bold uppercase mt-1.5 leading-tight" style={{ color: 'var(--mut)' }}>{c.label}</span>
           </div>
         ))}
         <button type="button" onClick={() => setStatsModal(true)}
