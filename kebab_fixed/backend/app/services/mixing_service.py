@@ -435,14 +435,70 @@ def create_mixing_order(dto: MixingOrderCreate) -> Dict:
 
 # ── Status transitions ─────────────────────────────────────────────────
 
+def _ingredient_shortages_cx(conn, recipe_id, meat_kg: float) -> List[str]:
+    """Braki składników (przypraw) dla planowanej ilości mięsa. Pusta lista = OK.
+    Składniki nielimitowane (np. woda) pomijane. qty_per_100kg liczone od mięsa."""
+    rows = cx_query_all(
+        conn,
+        """
+        SELECT ri.qty_per_100kg, i.unit, i.is_unlimited, i.name, ri.ingredient_id
+        FROM recipe_ingredients ri JOIN ingredients i ON i.id = ri.ingredient_id
+        WHERE ri.recipe_id = %s
+        """,
+        (recipe_id,),
+    )
+    out: List[str] = []
+    for ing in rows:
+        if ing.get("is_unlimited"):
+            continue
+        need = round(float(ing.get("qty_per_100kg") or 0) / 100.0 * float(meat_kg or 0), 4)
+        if need <= 0:
+            continue
+        av = cx_query_one(
+            conn,
+            "SELECT COALESCE(SUM(qty_available),0) AS a FROM ingredient_stock "
+            "WHERE ingredient_id=%s AND qty_available > 0",
+            (ing["ingredient_id"],),
+        )
+        avail = float((av or {}).get("a") or 0)
+        if avail + 0.001 < need:
+            out.append(
+                f"{ing.get('name')}: potrzeba {round(need, 3)} {ing.get('unit') or ''}, "
+                f"na stanie {round(avail, 3)}"
+            )
+    return out
+
+
 def confirm_mixing_order(order_id: str) -> Dict:
     with transaction() as conn:
+        order = cx_query_one(
+            conn,
+            "SELECT recipe_id, planned_output_kg FROM mixing_orders "
+            "WHERE id=%s AND status='planned'",
+            (order_id,),
+        )
+        if not order:
+            raise HTTPException(404, "Zlecenie nie znalezione lub już potwierdzone")
+        # Planowana ilość mięsa = suma zaplanowanych lotów wsadu.
+        meat = cx_query_one(
+            conn,
+            "SELECT COALESCE(SUM(COALESCE(kg_planned, kg_allocated, 0)),0) AS kg "
+            "FROM mixing_order_lots WHERE mixing_order_id=%s",
+            (order_id,),
+        )
+        meat_kg = float((meat or {}).get("kg") or 0) or float(order.get("planned_output_kg") or 0)
+        # TWARDA BLOKADA: biuro nie może puścić do produkcji bez składników na stanie.
+        # Szkic (status 'planned') może istnieć wcześniej — blokada dopiero tu.
+        shortages = _ingredient_shortages_cx(conn, order.get("recipe_id"), meat_kg)
+        if shortages:
+            raise HTTPException(
+                400,
+                "Nie można puścić do produkcji — brak składników na stanie:\n"
+                + "\n".join(shortages),
+            )
         row = cx_execute_returning(
             conn,
-            """
-            UPDATE mixing_orders SET status='confirmed'
-            WHERE id=%s AND status='planned' RETURNING *
-            """,
+            "UPDATE mixing_orders SET status='confirmed' WHERE id=%s AND status='planned' RETURNING *",
             (order_id,),
         )
     if not row:
@@ -454,6 +510,29 @@ def confirm_mixing_order(order_id: str) -> Dict:
 def start_mixing_order(order_id: str, body: Dict[str, Any]) -> Dict:
     machine_id = body.get("machineId") or body.get("machine_id")
     with transaction() as conn:
+        # Zabezpieczenie: nie da się rozpocząć masowania bez składników na stanie
+        # (nawet przy pominięciu potwierdzenia). Sprawdzamy dla zlecen jeszcze
+        # nierozpoczętych — trwające/zamknięte pomijamy.
+        cur = cx_query_one(
+            conn,
+            "SELECT recipe_id, planned_output_kg, status FROM mixing_orders WHERE id=%s",
+            (order_id,),
+        )
+        if cur and cur.get("status") in ("planned", "confirmed"):
+            meat = cx_query_one(
+                conn,
+                "SELECT COALESCE(SUM(COALESCE(kg_planned, kg_allocated, 0)),0) AS kg "
+                "FROM mixing_order_lots WHERE mixing_order_id=%s",
+                (order_id,),
+            )
+            meat_kg = float((meat or {}).get("kg") or 0) or float(cur.get("planned_output_kg") or 0)
+            shortages = _ingredient_shortages_cx(conn, cur.get("recipe_id"), meat_kg)
+            if shortages:
+                raise HTTPException(
+                    400,
+                    "Nie można rozpocząć masowania — brak składników na stanie:\n"
+                    + "\n".join(shortages),
+                )
         row = cx_execute_returning(
             conn,
             """
