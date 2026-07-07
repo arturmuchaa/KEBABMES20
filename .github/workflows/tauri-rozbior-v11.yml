@@ -1,0 +1,103 @@
+name: Build Tauri — Rozbiór HMI v11 prowadzony (Windows)
+
+# Wariant „wzmocnione prowadzenie" — build EKSPERYMENTALNY do porównania obok
+# produkcji v10. BEZ auto-update (createUpdaterArtifacts=false w configu):
+# dostarczany wyłącznie jako GitHub Release asset do RĘCZNEJ instalacji na
+# maszynie testowej. Osobny identyfikator (pl.kebabmes.rozbior-v11) → instaluje
+# się obok v10, nie nadpisuje produkcji.
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - 'rozbior-v11-*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './kebab_fixed/src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm install
+        working-directory: kebab_fixed
+
+      - name: Install Tauri CLI
+        run: npm install --save-dev @tauri-apps/cli@^2
+        working-directory: kebab_fixed
+
+      - name: Generate icons
+        run: npx tauri icon src-tauri/app-icon.png
+        working-directory: kebab_fixed
+
+      - name: Build Tauri Rozbiór v11 (Windows NSIS, bez auto-update)
+        run: npx tauri build --target x86_64-pc-windows-msvc --config src-tauri/tauri.rozbior-v11.conf.json --features kiosk
+        working-directory: kebab_fixed
+        env:
+          VITE_API_URL: 'http://204.168.166.34:8080'
+
+      - name: Get artifact info
+        id: meta
+        shell: pwsh
+        run: |
+          $VERSION = (Select-String -Path "kebab_fixed/src-tauri/tauri.rozbior-v11.conf.json" -Pattern '"version":\s*"(.+)"').Matches[0].Groups[1].Value
+          $BUNDLE = "kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
+          $EXE = Get-ChildItem "$BUNDLE/*.exe" | Select-Object -First 1
+          "version=$VERSION"          >> $env:GITHUB_OUTPUT
+          "exe_path=$($EXE.FullName)" >> $env:GITHUB_OUTPUT
+          "exe_name=$($EXE.Name)"     >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $VERSION | EXE: $($EXE.Name) ($([math]::Round($EXE.Length/1MB, 1)) MB)"
+
+      - name: Upload installer artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: RozborHMI-v11-Windows-Setup
+          path: ${{ steps.meta.outputs.exe_path }}
+          retention-days: 90
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Rozbiór HMI v11 prowadzony — ${{ github.ref_name }}
+          body: |
+            ## Rozbiór HMI v11 — wariant „wzmocnione prowadzenie" (build testowy)
+
+            Ten sam ekran co produkcyjny v10, ale w środkowej kolumnie zamiast
+            dyskretnego rzędu kroków pojawia się wielki baner „KROK n/5 — co teraz
+            zrobić". Dane pozostają widoczne; celem jest łatwiejsza orientacja dla
+            operatora, bez spowalniania rutyny.
+
+            **Do czego:** wgraj OBOK produkcyjnego v10 na maszynę testową i porównaj
+            na żywo. Osobny identyfikator `pl.kebabmes.rozbior-v11` → instaluje się
+            równolegle, nie nadpisuje v10.
+
+            **BEZ auto-update** — to build eksperymentalny. Instalujesz raz, ręcznie.
+            **Instalacja:** pobierz `.exe` i uruchom na koncie, na którym ma działać
+            (zwykły dwuklik, bez administratora — instalacja per-user).
+            **Backend:** łączy się z http://204.168.166.34:8080
+          files: ${{ steps.meta.outputs.exe_path }}
+          token: ${{ secrets.GITHUB_TOKEN }}

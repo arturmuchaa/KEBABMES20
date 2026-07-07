@@ -68,7 +68,7 @@ const SVC_VARS: CSSProperties = {
 }
 const MONO = '"JetBrains Mono", "Cascadia Mono", Consolas, monospace'
 
-export function ServiceMenuModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function ServiceMenuModal({ open, onClose, buildLabel = `HMI v10 · ${__ROZBIOR_V10_VERSION__}` }: { open: boolean; onClose: () => void; buildLabel?: string }) {
   const [code, setCode] = useState('')
   const [ok,   setOk]   = useState(false)
   const [err,  setErr]  = useState(false)
@@ -108,7 +108,7 @@ export function ServiceMenuModal({ open, onClose }: { open: boolean; onClose: ()
           <div>
             <h3 className="font-extrabold text-xl">Menu serwisowe</h3>
             <p className="text-sm" style={{ color: err ? 'var(--svcRed)' : 'var(--svcMut)' }}>
-              {ok ? `HMI v10 · ${__ROZBIOR_V10_VERSION__}` : err ? 'Błędny kod' : 'Podaj kod serwisowy'}
+              {ok ? buildLabel : err ? 'Błędny kod' : 'Podaj kod serwisowy'}
             </p>
           </div>
         </div>

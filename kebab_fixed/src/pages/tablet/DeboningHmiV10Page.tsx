@@ -242,7 +242,7 @@ const NumpadV10 = memo(function NumpadV10({ onKey, onBackStart, onBackEnd, onSer
 
 interface HmiAlarm { id: string; level: 'red' | 'amb'; text: string }
 
-export function DeboningHmiV10Page({ allowOperatorSwitch = false }: { allowOperatorSwitch?: boolean }) {
+export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false, buildLabel = `HMI v10 · ${__ROZBIOR_V10_VERSION__}` }: { allowOperatorSwitch?: boolean; guided?: boolean; buildLabel?: string }) {
   // useAuth() zwraca `null`, gdy komponent renderuje się bez <AuthProvider> w drzewie —
   // nie destrukturyzować bezpośrednio. `allowOperatorSwitch` włącza przycisk zmiany
   // operatora (wylogowanie do ekranu PIN) — ustawia go tylko kiosk (rozbior-v10.tsx),
@@ -440,6 +440,31 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false }: { allowOpera
     : meatTooBig ? 'MIĘSO > ZABRANE!'
     : autoMode ? `ZAPISZ — ${fmtKg(meat, 1)} KG MIĘSA` : 'ZAPISZ WPIS'
 
+  // ── Tryb prowadzony (wariant „wzmocnione prowadzenie") ──
+  // Który krok cyklu jest teraz aktywny — steruje wielkim banerem u góry
+  // kolumny wpisu. Dane pozostają widoczne; zmienia się tylko prowadzenie.
+  const totalSteps = 5
+  const stepNo = !selBatch ? 1 : !selWorker ? 2 : taken <= 0 ? 3 : !canSave ? 4 : 5
+  const guideTitle = !selBatch ? 'Wybierz partię'
+    : !selWorker ? 'Wybierz pracownika'
+    : taken <= 0 ? 'Podaj ilość pobranej ćwiartki'
+    : canSave ? (autoMode ? `Gotowe — zapisz ${fmtKg(meat, 1)} kg mięsa` : 'Gotowe — zapisz wpis')
+    : meatTooBig ? 'Mięso większe niż zabrane — popraw!'
+    : autoMode && cartTare == null ? 'Wybierz wózek'
+    : autoMode && e2Count <= 0 ? 'Dodaj pojemniki E2'
+    : autoMode && !scale.connected ? 'Waga niepodłączona'
+    : autoMode && weighing.netKg <= 0 ? 'Wjedź wózkiem na wagę'
+    : autoMode && !scale.stable ? 'Czekaj na stabilną wagę…'
+    : 'Podaj wagę mięsa'
+  const guideHref = !selBatch ? 'wybór na górnym pasku'
+    : !selWorker ? 'kafle po lewej'
+    : taken <= 0 ? 'klawiatura poniżej'
+    : canSave ? 'duży przycisk na dole'
+    : meatTooBig ? 'popraw wagę'
+    : autoMode ? 'panel wagi po prawej'
+    : 'klawiatura poniżej'
+  const guideReady = canSave
+
   const pressKey = useCallback((k: string) => {
     // Zwolnienie "." po długim przytrzymaniu (menu serwisowe) generuje jeszcze
     // click — nie może dopisać kropki do pola wagi.
@@ -549,7 +574,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false }: { allowOpera
   const wrap = (children: React.ReactNode) => (
     <div className="h-full w-full overflow-hidden flex flex-col" style={{ ...VARS, background: 'var(--bg)', color: 'var(--ink)', fontFamily: '-apple-system, "Segoe UI", system-ui, sans-serif' }}>
       {children}
-      <ServiceMenuModal open={serviceModal} onClose={() => setServiceModal(false)} />
+      <ServiceMenuModal open={serviceModal} onClose={() => setServiceModal(false)} buildLabel={buildLabel} />
     </div>
   )
 
@@ -600,7 +625,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false }: { allowOpera
         <div>
           <div className="font-extrabold text-xl leading-none uppercase" style={{ letterSpacing: '-.01em' }}>Rozbiór</div>
           <div className="hmi-v10-mono text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.14em' }}>
-            {session.sessionDate} · HMI v10 · {__ROZBIOR_V10_VERSION__}
+            {session.sessionDate} · {buildLabel}
           </div>
         </div>
         {([
@@ -685,17 +710,48 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false }: { allowOpera
         </div>
 
         <div className="flex-shrink-0 flex flex-col gap-3 min-h-0" style={{ width: '34%', padding: '0 16px', borderRight: '1px solid var(--lineSoft)' }}>
-          <div className="flex items-center gap-3 flex-shrink-0 pt-1">
-            <SectionStep no={1} done={!!selBatch}>Partia{selBatch ? ` — ${selBatch.internalBatchNo}` : ''}</SectionStep>
-            <SectionStep no={2} done={!!selWorker}>Pracownik{selWorker ? ` — ${selWorker.name}` : ''}</SectionStep>
-            {scale.available && (
-              <SectionStep no={3} done={cartTare != null && e2Count > 0}>Tara</SectionStep>
-            )}
-            <SectionStep no={scale.available ? 4 : 3}
-              done={taken > 0 && meat > 0 && !meatTooBig && (!autoMode || scale.stable)}>
-              Waga
-            </SectionStep>
-          </div>
+          {guided ? (
+            <div className="flex-shrink-0 flex items-center gap-4 px-4 py-3"
+              style={{
+                borderRadius: 14,
+                background: guideReady ? '#F0FDF4' : meatTooBig ? 'var(--redSoft)' : 'var(--accentSoft)',
+                border: `1.5px solid ${guideReady ? '#BBF0D3' : meatTooBig ? 'var(--redLine)' : 'var(--accent)'}`,
+              }}>
+              <div className="flex flex-col items-center justify-center flex-shrink-0"
+                style={{ minWidth: 54 }}>
+                {guideReady ? (
+                  <span className="w-11 h-11 rounded-full flex items-center justify-center" style={{ background: 'var(--success)', color: '#fff' }}>
+                    <Check size={26} strokeWidth={3} />
+                  </span>
+                ) : (
+                  <>
+                    <span className="hmi-v10-mono font-extrabold leading-none" style={{ fontSize: 34, color: meatTooBig ? 'var(--red)' : 'var(--accent)' }}>{stepNo}</span>
+                    <span className="text-[10px] font-bold uppercase mt-0.5" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>z {totalSteps}</span>
+                  </>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-extrabold leading-tight" style={{ fontSize: 'clamp(18px,1.7vw,24px)', color: guideReady ? 'var(--success)' : meatTooBig ? 'var(--red)' : 'var(--ink)' }}>
+                  {guideTitle}
+                </div>
+                <div className="text-[12px] font-semibold uppercase truncate mt-0.5" style={{ color: 'var(--mut)', letterSpacing: '.04em' }}>
+                  {guideHref}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 flex-shrink-0 pt-1">
+              <SectionStep no={1} done={!!selBatch}>Partia{selBatch ? ` — ${selBatch.internalBatchNo}` : ''}</SectionStep>
+              <SectionStep no={2} done={!!selWorker}>Pracownik{selWorker ? ` — ${selWorker.name}` : ''}</SectionStep>
+              {scale.available && (
+                <SectionStep no={3} done={cartTare != null && e2Count > 0}>Tara</SectionStep>
+              )}
+              <SectionStep no={scale.available ? 4 : 3}
+                done={taken > 0 && meat > 0 && !meatTooBig && (!autoMode || scale.stable)}>
+                Waga
+              </SectionStep>
+            </div>
+          )}
 
           <div className="flex gap-2 flex-shrink-0">
             <ReadoutV10
