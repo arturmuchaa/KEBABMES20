@@ -14,59 +14,59 @@ interface NavSection { heading: string; items: NavItem[] }
 
 const NAV: NavSection[] = [
   { heading: 'Kontrahenci', items: [
-    { to: '/office/dostawcy',    label: 'Dostawcy',    icon: <Truck size={15} /> },
-    { to: '/office/kontrahenci', label: 'Kontrahenci', icon: <Building2 size={15} /> },
-    { to: '/office/zamowienia',  label: 'Zamówienia',  icon: <ShoppingCart size={15} /> },
-    { to: '/office/hdi',         label: 'Dokumenty HDI', icon: <FileText size={15} /> },
-    { to: '/office/wz',          label: 'Dokumenty WZ',  icon: <FileText size={15} /> },
-    { to: '/office/przewoznicy', label: 'Przewoźnicy',   icon: <Truck size={15} /> },
-    { to: '/office/cmr',              label: 'Dokumenty CMR',    icon: <FileText size={15} /> },
-    { to: '/office/cmr-konfigurator', label: 'Konfigurator CMR', icon: <Settings size={15} /> },
+    { to: '/office/dostawcy',    label: 'Dostawcy',    icon: <Truck size={16} /> },
+    { to: '/office/kontrahenci', label: 'Kontrahenci', icon: <Building2 size={16} /> },
+    { to: '/office/zamowienia',  label: 'Zamówienia',  icon: <ShoppingCart size={16} /> },
+    { to: '/office/hdi',         label: 'Dokumenty HDI', icon: <FileText size={16} /> },
+    { to: '/office/wz',          label: 'Dokumenty WZ',  icon: <FileText size={16} /> },
+    { to: '/office/przewoznicy', label: 'Przewoźnicy',   icon: <Truck size={16} /> },
+    { to: '/office/cmr',              label: 'Dokumenty CMR',    icon: <FileText size={16} /> },
+    { to: '/office/cmr-konfigurator', label: 'Konfigurator CMR', icon: <Settings size={16} /> },
   ]},
   { heading: 'Zakupy', items: [
-    { to: '/office/faktury', label: 'Faktury zakupowe', icon: <CreditCard size={15} /> },
+    { to: '/office/faktury', label: 'Faktury zakupowe', icon: <CreditCard size={16} /> },
   ]},
   { heading: 'Magazyny', items: [
-    { to: '/office/raw-batches',         label: 'Przyjęcie surowca',  icon: <Package size={15} /> },
-    { to: '/office/magazyn/surowiec',    label: 'Surowiec',            icon: <Beef size={15} /> },
-    { to: '/office/magazyn/przyprawy',   label: 'Przyprawy i dodatki', icon: <FlaskConical size={15} /> },
-    { to: '/office/magazyn/mieso-przyp', label: 'Mięso przyprawione',  icon: <Beef size={15} /> },
-    { to: '/office/magazyn/opakowania',  label: 'Opakowania/Tuleje',   icon: <Archive size={15} /> },
-    { to: '/office/magazyn/gotowe',      label: 'Wyrób gotowy',        icon: <ShoppingBag size={15} /> },
+    { to: '/office/raw-batches',         label: 'Przyjęcie surowca',  icon: <Package size={16} /> },
+    { to: '/office/magazyn/surowiec',    label: 'Surowiec',            icon: <Beef size={16} /> },
+    { to: '/office/magazyn/przyprawy',   label: 'Przyprawy i dodatki', icon: <FlaskConical size={16} /> },
+    { to: '/office/magazyn/mieso-przyp', label: 'Mięso przyprawione',  icon: <Beef size={16} /> },
+    { to: '/office/magazyn/opakowania',  label: 'Opakowania/Tuleje',   icon: <Archive size={16} /> },
+    { to: '/office/magazyn/gotowe',      label: 'Wyrób gotowy',        icon: <ShoppingBag size={16} /> },
   ]},
   { heading: 'Rozbiór', items: [
-    { to: '/office/deboning',     label: 'Raporty rozbioru', icon: <BarChart2 size={15} /> },
-    { to: '/office/haccp-report', label: 'Raport HACCP',     icon: <FileText size={15} /> },
+    { to: '/office/deboning',     label: 'Raporty rozbioru', icon: <BarChart2 size={16} /> },
+    { to: '/office/haccp-report', label: 'Raport HACCP',     icon: <FileText size={16} /> },
   ]},
   { heading: 'Produkcja', items: [
-    { to: '/office/rodzaje-produktow',    label: 'Rodzaje produktów', icon: <Package size={15} /> },
-    { to: '/office/receptury',            label: 'Receptury',         icon: <BookOpen size={15} /> },
-    { to: '/office/szablony-etykiet',     label: 'Szablony etykiet',  icon: <QrCode size={15} /> },
-    { to: '/office/planowanie-masowania', label: 'Plan. masowania',   icon: <Layers size={15} /> },
-    { to: '/office/historia-masowania',   label: 'Historia masowania', icon: <History size={15} /> },
-    { to: '/office/historia-produkcji',   label: 'Historia produkcji', icon: <History size={15} /> },
-    { to: '/office/analityka',            label: 'Analityka',          icon: <BarChart3 size={15} /> },
-    { to: '/office/planowanie-produkcji', label: 'Plan. produkcji',   icon: <Factory size={15} /> },
-    { to: '/office/kalkulacja-kosztow',   label: 'Kalkulacja cen', icon: <Calculator size={15} /> },
+    { to: '/office/rodzaje-produktow',    label: 'Rodzaje produktów', icon: <Package size={16} /> },
+    { to: '/office/receptury',            label: 'Receptury',         icon: <BookOpen size={16} /> },
+    { to: '/office/szablony-etykiet',     label: 'Szablony etykiet',  icon: <QrCode size={16} /> },
+    { to: '/office/planowanie-masowania', label: 'Plan. masowania',   icon: <Layers size={16} /> },
+    { to: '/office/historia-masowania',   label: 'Historia masowania', icon: <History size={16} /> },
+    { to: '/office/historia-produkcji',   label: 'Historia produkcji', icon: <History size={16} /> },
+    { to: '/office/analityka',            label: 'Analityka',          icon: <BarChart3 size={16} /> },
+    { to: '/office/planowanie-produkcji', label: 'Plan. produkcji',   icon: <Factory size={16} /> },
+    { to: '/office/kalkulacja-kosztow',   label: 'Kalkulacja cen', icon: <Calculator size={16} /> },
   ]},
   { heading: 'Jakość', items: [
-    { to: '/office/sledzenie', label: 'Śledzenie surowca', icon: <GitBranch size={15} /> },
+    { to: '/office/sledzenie', label: 'Śledzenie surowca', icon: <GitBranch size={16} /> },
   ]},
   { heading: 'Administracja', items: [
-    { to: '/office/pracownicy',  label: 'Pracownicy',    icon: <Users size={15} /> },
-    { to: '/office/rozliczenia', label: 'Rozliczenia',   icon: <Banknote size={15} /> },
-    { to: '/office/samochody',   label: 'Samochody',     icon: <Truck size={15} /> },
-    { to: '/office/uzytkownicy', label: 'Użytkownicy',   icon: <UserCog size={15} /> },
-    { to: '/office/audyt',       label: 'Dziennik audytu', icon: <ShieldCheck size={15} /> },
-    { to: '/office/ustawienia',  label: 'Ustawienia firmy', icon: <Settings size={15} /> },
+    { to: '/office/pracownicy',  label: 'Pracownicy',    icon: <Users size={16} /> },
+    { to: '/office/rozliczenia', label: 'Rozliczenia',   icon: <Banknote size={16} /> },
+    { to: '/office/samochody',   label: 'Samochody',     icon: <Truck size={16} /> },
+    { to: '/office/uzytkownicy', label: 'Użytkownicy',   icon: <UserCog size={16} /> },
+    { to: '/office/audyt',       label: 'Dziennik audytu', icon: <ShieldCheck size={16} /> },
+    { to: '/office/ustawienia',  label: 'Ustawienia firmy', icon: <Settings size={16} /> },
   ]},
 ]
 
 const TABLET_LINKS: NavItem[] = [
-  { to: '/tablet/rozbior',   label: 'Rozbiór',   icon: <Scissors size={14} /> },
-  { to: '/tablet/mieszanie', label: 'Masownia',  icon: <Layers size={14} /> },
-  { to: '/tablet/produkcja', label: 'Produkcja', icon: <Monitor size={14} /> },
-  { to: '/mobile',           label: 'Skan QR palet', icon: <QrCode size={14} /> },
+  { to: '/tablet/rozbior',   label: 'Rozbiór',   icon: <Scissors size={16} /> },
+  { to: '/tablet/mieszanie', label: 'Masownia',  icon: <Layers size={16} /> },
+  { to: '/tablet/produkcja', label: 'Produkcja', icon: <Monitor size={16} /> },
+  { to: '/mobile',           label: 'Skan QR palet', icon: <QrCode size={16} /> },
 ]
 
 // ─── Pozycja nawigacji z brandowym stanem aktywnym (pasek boczny) ───────
@@ -132,7 +132,7 @@ export function OfficeSidebar({ onClose }: { onClose?: () => void }) {
 
       {/* Dashboard */}
       <div className="px-3 pt-3">
-        <SideItem to="/office/dashboard" icon={<LayoutDashboard size={15} />} label="Dashboard" />
+        <SideItem to="/office/dashboard" icon={<LayoutDashboard size={16} />} label="Dashboard" />
       </div>
 
       {/* Nav sections */}
@@ -164,7 +164,7 @@ export function OfficeSidebar({ onClose }: { onClose?: () => void }) {
               className="group flex items-center gap-2.5 pl-3.5 pr-2.5 py-2 rounded-lg text-[12.5px] font-medium text-ink-3 hover:bg-surface-2 hover:text-ink transition-colors">
               <span className="text-ink-4 group-hover:text-ink-2 transition-colors flex-shrink-0">{item.icon}</span>
               <span className="flex-1 truncate">{item.label}</span>
-              <ChevronRight size={13} className="text-ink-5 group-hover:text-ink-3 transition-colors" />
+              <ChevronRight size={14} className="text-ink-5 group-hover:text-ink-3 transition-colors" />
             </a>
           ))}
         </div>
