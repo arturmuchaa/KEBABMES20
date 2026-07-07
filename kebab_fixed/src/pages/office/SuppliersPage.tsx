@@ -14,6 +14,8 @@ import {
 import { cn } from '@/lib/utils'
 import type { Supplier, CreateSupplierDto } from '@/types'
 import { toast } from 'sonner'
+import { DataTable } from '@/components/DataTable'
+import { usePageHeaderActions } from '@/components/PageHeader'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -292,51 +294,10 @@ export function SuppliersPage() {
   const { data: supplierList, loading, refetch } = useApi(() => suppliersApi.list())
   const [modal,        setModal]        = useState(false)
   const [edit,         setEdit]         = useState<Supplier | null>(null)
-  const [search,       setSearch]       = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Supplier | null>(null)
   const [deleting,     setDeleting]     = useState(false)
-  const [sortCol,      setSortCol]      = useState<SortCol>('name')
-  const [sortDir,      setSortDir]      = useState<'asc'|'desc'>('asc')
 
   const rawList = (supplierList ?? []).filter(s => s.active)
-
-  const suppliers = useMemo(() => {
-    const q = search.toLowerCase().trim()
-    let result = rawList
-    if (q) {
-      result = rawList.filter(s =>
-        s.name.toLowerCase().includes(q)
-        || (s.displayName ?? '').toLowerCase().includes(q)
-        || (s.nip ?? '').toLowerCase().includes(q)
-        || (s.city ?? '').toLowerCase().includes(q)
-        || (s.email ?? '').toLowerCase().includes(q)
-        || (s.phone ?? '').toLowerCase().includes(q)
-        || (s.vetNumber ?? '').toLowerCase().includes(q)
-      )
-    }
-    return [...result].sort((a, b) => {
-      let cmp = 0
-      const an = (a.displayName || a.name || '').toLowerCase()
-      const bn = (b.displayName || b.name || '').toLowerCase()
-      if (sortCol === 'name')      cmp = an.localeCompare(bn)
-      if (sortCol === 'nip')       cmp = (a.nip || '').localeCompare(b.nip || '')
-      if (sortCol === 'vetNumber') cmp = (a.vetNumber || '').localeCompare(b.vetNumber || '')
-      if (sortCol === 'city')      cmp = (a.city || '').localeCompare(b.city || '')
-      if (sortCol === 'phone')     cmp = (a.phone || '').localeCompare(b.phone || '')
-      if (sortCol === 'email')     cmp = (a.email || '').localeCompare(b.email || '')
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [rawList, search, sortCol, sortDir])
-
-  const toggleSort = (col: SortCol) => {
-    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortCol(col); setSortDir('asc') }
-  }
-
-  const SortIcon = ({ col }: { col: SortCol }) =>
-    sortCol === col
-      ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
-      : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60"/>
 
   async function handleSave(dto: CreateSupplierDto) {
     if (edit) await suppliersApi.update(edit.id, dto)
@@ -363,151 +324,64 @@ export function SuppliersPage() {
     }
   }
 
+  usePageHeaderActions(
+    <div className="flex items-center gap-3 text-xs tabular-nums">
+      <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Dostawców: <span className="text-ink font-bold">{rawList.length}</span></span>
+      <Button size="sm" className="gap-1.5" onClick={openAdd}><Plus size={14}/> Dodaj dostawcę</Button>
+    </div>,
+    [rawList.length]
+  )
+
   return (
-    <div className="space-y-3 animate-fade-in">
-
-      {/* Toolbar */}
-      <Card>
-        <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3 flex-1 min-w-[260px]">
-            <div className="relative flex-1 max-w-md">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="h-9 pl-9 pr-8 text-sm"
-                placeholder="Filtruj: nazwa, NIP, miasto, telefon, e-mail, nr wet…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                autoFocus
-              />
-              {search && (
-                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-ink">
-                  <X size={14}/>
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs tabular-nums">
-            <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Dostawców:</CardDescription>
-              <span className="font-bold">{suppliers.length}{suppliers.length !== rawList.length && <span className="text-muted-foreground">/{rawList.length}</span>}</span>
-            </div>
-            <div className="w-px h-4 bg-surface-4" />
-            <Button size="sm" className="h-7 px-2.5 text-xs gap-1" onClick={openAdd}>
-              <Plus size={12}/> Dodaj
-            </Button>
-          </div>
+    <div className="animate-fade-in">
+      {loading ? (
+        <div className="rounded-lg border border-surface-4 bg-white p-4 space-y-2">
+          {[0,1,2,3,4,5].map(i => <Skeleton key={i} className="h-8 w-full" />)}
         </div>
-      </Card>
-
-      {/* Tabela */}
-      <Card className="overflow-hidden">
-        {loading ? (
-          <div className="p-4 space-y-2">
-            {[0,1,2,3,4,5].map(i => <Skeleton key={i} className="h-8 w-full" />)}
-          </div>
-        ) : rawList.length === 0 ? (
-          <CardContent className="flex flex-col items-center justify-center py-16 gap-2">
-            <Truck size={36} className="text-muted-foreground opacity-20" />
-            <CardTitle className="text-sm font-medium text-muted-foreground">Brak dostawców</CardTitle>
-            <CardDescription>Dodaj pierwszego dostawcę przyciskiem powyżej</CardDescription>
-          </CardContent>
-        ) : suppliers.length === 0 ? (
-          <CardContent className="flex flex-col items-center justify-center py-10 gap-2">
-            <Search size={28} className="text-muted-foreground opacity-20" />
-            <CardDescription>Brak wyników dla „{search}"</CardDescription>
-          </CardContent>
-        ) : (
-          <div className="overflow-auto max-h-[calc(100vh-12rem)]">
-            <table className="w-full text-xs tabular-nums">
-              <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
-                <tr>
-                  {[
-                    { col: 'name'      as SortCol, label: 'Nazwa',     align: 'left' },
-                    { col: 'nip'       as SortCol, label: 'NIP',       align: 'left' },
-                    { col: 'vetNumber' as SortCol, label: 'Nr wet.',   align: 'left' },
-                    { col: 'city'      as SortCol, label: 'Miasto',    align: 'left' },
-                    { col: 'phone'     as SortCol, label: 'Telefon',   align: 'left' },
-                    { col: 'email'     as SortCol, label: 'E-mail',    align: 'left' },
-                  ].map(h => (
-                    <th
-                      key={h.col}
-                      onClick={() => toggleSort(h.col)}
-                      className="group cursor-pointer select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap text-left"
-                    >
-                      <span className="inline-flex items-center gap-1">
-                        {h.label}
-                        <SortIcon col={h.col} />
-                      </span>
-                    </th>
-                  ))}
-                  <th className="w-20 px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-right">Akcja</th>
-                </tr>
-              </thead>
-              <tbody>
-                {suppliers.map((s, idx) => (
-                  <tr
-                    key={s.id}
-                    onClick={() => openEdit(s)}
-                    className={cn(
-                      'cursor-pointer border-b border-surface-3 transition-colors',
-                      idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
-                      'hover:bg-blue-50/60'
-                    )}
-                  >
-                    <td className="px-2.5 py-2 whitespace-nowrap max-w-[260px]">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-ink truncate" title={s.displayName || s.name}>
-                          {s.displayName || s.name}
-                        </span>
-                        {s.code && <code className="font-mono text-[10px] font-bold text-muted-foreground">{s.code}</code>}
-                      </div>
-                      {s.displayName && s.displayName !== s.name && (
-                        <div className="text-[10px] text-muted-foreground italic truncate" title={s.name}>{s.name}</div>
-                      )}
-                    </td>
-                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
-                      {s.nip ? <code className="font-mono">{s.nip}</code> : <span className="text-muted-foreground">—</span>}
-                    </td>
-                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
-                      {s.vetNumber ? <code className="font-mono">{s.vetNumber}</code> : <span className="text-muted-foreground">—</span>}
-                    </td>
-                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[180px] truncate" title={[s.postalCode, s.city].filter(Boolean).join(' ')}>
-                      {(s.postalCode || s.city)
-                        ? [s.postalCode, s.city].filter(Boolean).join(' ')
-                        : <span className="text-muted-foreground">—</span>}
-                    </td>
-                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
-                      {s.phone || <span className="text-muted-foreground">—</span>}
-                    </td>
-                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[220px] truncate" title={s.email || ''}>
-                      {s.email || <span className="text-muted-foreground">—</span>}
-                    </td>
-                    <td className="px-2 py-2 whitespace-nowrap text-right">
-                      <div className="inline-flex items-center gap-0.5">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); openEdit(s) }}
-                          className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
-                          title="Edytuj"
-                        >
-                          <Pencil size={13} />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(s) }}
-                          className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                          title="Usuń"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+      ) : rawList.length === 0 ? (
+        <div className="rounded-lg border border-surface-4 bg-white flex flex-col items-center justify-center py-16 gap-2">
+          <Truck size={36} className="text-muted-foreground opacity-20" />
+          <div className="text-sm font-medium text-muted-foreground">Brak dostawców</div>
+          <div className="text-xs text-muted-foreground">Dodaj pierwszego dostawcę przyciskiem powyżej</div>
+        </div>
+      ) : (
+        <DataTable
+          rows={rawList} rowKey={s => s.id}
+          searchText={s => `${s.displayName || ''} ${s.name} ${s.nip || ''} ${s.city || ''} ${s.email || ''} ${s.phone || ''} ${s.vetNumber || ''}`}
+          searchPlaceholder="Filtruj: nazwa, NIP, miasto, telefon, e-mail, nr wet…"
+          initialSort={{ key: 'name' }}
+          onRowClick={s => openEdit(s)}
+          columns={[
+            { key: 'name', header: 'Nazwa', sortable: true, sortValue: s => (s.displayName || s.name || '').toLowerCase(),
+              cell: s => (
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-ink truncate" title={s.displayName || s.name}>{s.displayName || s.name}</span>
+                    {s.code && <code className="font-mono text-[10px] font-bold text-muted-foreground">{s.code}</code>}
+                  </div>
+                  {s.displayName && s.displayName !== s.name && <div className="text-[10px] text-muted-foreground italic truncate" title={s.name}>{s.name}</div>}
+                </div>
+              ) },
+            { key: 'nip', header: 'NIP', sortable: true, sortValue: s => s.nip || '',
+              cell: s => s.nip ? <code className="font-mono">{s.nip}</code> : <span className="text-muted-foreground">—</span> },
+            { key: 'vet', header: 'Nr wet.', sortable: true, sortValue: s => s.vetNumber || '',
+              cell: s => s.vetNumber ? <code className="font-mono">{s.vetNumber}</code> : <span className="text-muted-foreground">—</span> },
+            { key: 'city', header: 'Miasto', sortable: true, sortValue: s => s.city || '',
+              cell: s => (s.postalCode || s.city) ? [s.postalCode, s.city].filter(Boolean).join(' ') : <span className="text-muted-foreground">—</span> },
+            { key: 'phone', header: 'Telefon', sortable: true, sortValue: s => s.phone || '',
+              cell: s => s.phone || <span className="text-muted-foreground">—</span> },
+            { key: 'email', header: 'E-mail', sortable: true, sortValue: s => s.email || '',
+              cell: s => <span className="truncate block max-w-[220px]" title={s.email || ''}>{s.email || <span className="text-muted-foreground">—</span>}</span> },
+            { key: 'act', header: 'Akcja', align: 'right',
+              cell: s => (
+                <div className="inline-flex items-center gap-0.5">
+                  <button onClick={e => { e.stopPropagation(); openEdit(s) }} className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-primary hover:bg-primary/10" title="Edytuj"><Pencil size={13}/></button>
+                  <button onClick={e => { e.stopPropagation(); setDeleteTarget(s) }} className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10" title="Usuń"><Trash2 size={13}/></button>
+                </div>
+              ) },
+          ]}
+        />
+      )}
 
       {/* Modal */}
       <Dialog open={modal} onOpenChange={v => { if (!v) closeModal() }}>
