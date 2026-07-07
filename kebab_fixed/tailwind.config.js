@@ -56,7 +56,7 @@ export default {
       },
       boxShadow: {
         // Miękkie cienie w tonacji slate (16,24,40) — głębia premium zamiast płaskiej czerni
-        card:        '0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.10)',
+        card:        '0 1px 2px rgba(16,24,40,.05)',
         'card-hover':'0 6px 20px rgba(16,24,40,.10), 0 2px 6px rgba(16,24,40,.06)',
         md:          '0 4px 12px rgba(16,24,40,.08)',
         modal:       '0 24px 64px rgba(16,24,40,.20)',

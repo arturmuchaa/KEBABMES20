@@ -50,12 +50,14 @@ function KpiSkeleton() {
 }
 
 type Accent = 'blue' | 'green' | 'amber' | 'red' | 'purple'
-const ACCENT: Record<Accent, { icon: string; value: string; bar: string }> = {
-  blue:   { icon: 'bg-blue-50 text-blue-600 ring-1 ring-blue-100',         value: 'text-ink',     bar: 'from-blue-400 via-blue-500 to-blue-400' },
-  green:  { icon: 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100', value: 'text-ink',    bar: 'from-emerald-400 via-emerald-500 to-emerald-400' },
-  amber:  { icon: 'bg-amber-50 text-amber-600 ring-1 ring-amber-100',       value: 'text-ink',    bar: 'from-amber-400 via-amber-500 to-amber-400' },
-  red:    { icon: 'bg-red-50 text-red-600 ring-1 ring-red-100',             value: 'text-red-600', bar: 'from-red-400 via-red-500 to-red-400' },
-  purple: { icon: 'bg-purple-50 text-purple-600 ring-1 ring-purple-100',    value: 'text-ink',    bar: 'from-purple-400 via-purple-500 to-purple-400' },
+// Kolor chipu = tożsamość kategorii KPI (pomaga skanować). Dekoracyjny pasek
+// gradientowy usunięty — „industrial polish" zdejmuje ozdoby, nie informację.
+const ACCENT: Record<Accent, { icon: string; value: string }> = {
+  blue:   { icon: 'bg-blue-50 text-blue-600 ring-1 ring-blue-100',         value: 'text-ink' },
+  green:  { icon: 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100', value: 'text-ink' },
+  amber:  { icon: 'bg-amber-50 text-amber-600 ring-1 ring-amber-100',       value: 'text-ink' },
+  red:    { icon: 'bg-red-50 text-red-600 ring-1 ring-red-100',             value: 'text-red-600' },
+  purple: { icon: 'bg-purple-50 text-purple-600 ring-1 ring-purple-100',    value: 'text-ink' },
 }
 
 function KpiCard(props: {
@@ -64,9 +66,7 @@ function KpiCard(props: {
 }) {
   const s = ACCENT[props.accent]
   return (
-    <Card className="relative overflow-hidden hover:shadow-card-hover transition-shadow duration-200">
-      {/* premium top accent line */}
-      <div className={`absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r ${s.bar} opacity-70`} />
+    <Card className="relative overflow-hidden">
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex items-center gap-1.5 min-w-0">
