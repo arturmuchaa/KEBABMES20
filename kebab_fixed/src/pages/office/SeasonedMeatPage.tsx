@@ -10,6 +10,8 @@ import { useApi } from '@/hooks/useApi'
 import { seasonedMeatApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
+import { DataTable } from '@/components/DataTable'
+import { usePageHeaderActions } from '@/components/PageHeader'
 import {
   Beef, Eye, Search, X, ChevronDown, ChevronUp, ChevronsUpDown, Download, ChevronRight,
 } from 'lucide-react'
@@ -240,231 +242,78 @@ export function SeasonedMeatPage() {
   const { data,      loading }  = useApi(() => seasonedMeatApi.list())
   const { data: all }           = useApi(() => seasonedMeatApi.all())
   const [traceId,   setTraceId] = useState<string | null>(null)
-  const [filter,    setFilter]  = useState('')
-  const [sortCol,   setSortCol] = useState<SortCol>('expiryDate')
-  const [sortDir,   setSortDir] = useState<'asc'|'desc'>('asc')
   const [showHistory, setShowHistory] = useState(false)
 
-  const raw        = data ?? []
-  const allBatches = all  ?? []
+  const raw: any[]        = data ?? []
+  const allBatches: any[] = all  ?? []
 
-  const list = useMemo(() => {
-    const q = filter.toLowerCase().trim()
-    let result = raw
-    if (q) {
-      result = raw.filter(b =>
-        (b.batchNo || '').toLowerCase().includes(q) ||
-        (b.recipeName || '').toLowerCase().includes(q) ||
-        (b.productTypeName || '').toLowerCase().includes(q) ||
-        (b.mixingOrderNo || '').toLowerCase().includes(q) ||
-        (b.machineId || '').toLowerCase().includes(q) ||
-        (b.rawBatchNos || []).some((n: string) => n.toLowerCase().includes(q))
-      )
-    }
-    return [...result].sort((a, b) => {
-      const cmp = compareRows(sortCol, a, b)
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [raw, filter, sortCol, sortDir])
-
-  const totalFree     = list.reduce((s, b) => s + kgFreeOf(b), 0)
-  const totalReserved = list.reduce((s, b) => s + Number(b.kgReserved || 0), 0)
-
-  const toggleSort = (col: SortCol) => {
-    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortCol(col); setSortDir('asc') }
-  }
-
-  const SortIcon = ({ col }: { col: SortCol }) =>
-    sortCol === col
-      ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
-      : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60"/>
+  const totalFree     = raw.reduce((s, b) => s + kgFreeOf(b), 0)
+  const totalReserved = raw.reduce((s, b) => s + Number(b.kgReserved || 0), 0)
 
   const depleted = allBatches.filter(b => b.status === 'depleted')
 
+  usePageHeaderActions(
+    <div className="flex items-center gap-3 text-xs tabular-nums">
+      <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Partii: <span className="text-ink font-bold">{raw.length}</span></span>
+      <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Wolne kg: <span className="text-emerald-700 font-bold">{fmtKg(totalFree, 0)}</span></span>
+      {totalReserved > 0 && <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Rezerwacja: <span className="text-amber-700 font-bold">{fmtKg(totalReserved, 0)}</span></span>}
+    </div>,
+    [raw.length, totalFree, totalReserved]
+  )
+
   return (
     <div className="space-y-3 animate-fade-in">
-
-      {/* Toolbar */}
-      <Card>
-        <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3 flex-1 min-w-[260px]">
-            <div className="relative flex-1 max-w-md">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="h-9 pl-9 pr-8 text-sm"
-                placeholder="Filtruj: nr partii, receptura, rodzaj, masownica, partia surowca…"
-                value={filter}
-                onChange={e => setFilter(e.target.value)}
-                autoFocus
-              />
-              {filter && (
-                <button onClick={() => setFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-ink">
-                  <X size={13}/>
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs tabular-nums">
-            <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Partii:</CardDescription>
-              <span className="font-bold">{list.length}{list.length !== raw.length && <span className="text-muted-foreground">/{raw.length}</span>}</span>
-            </div>
-            <div className="w-px h-4 bg-surface-4" />
-            <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Wolne kg:</CardDescription>
-              <span className="font-bold text-emerald-700">{fmtKg(totalFree, 0)}</span>
-            </div>
-            {totalReserved > 0 && (
-              <>
-                <div className="w-px h-4 bg-surface-4" />
-                <div className="flex items-center gap-1.5">
-                  <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Rezerwacja:</CardDescription>
-                  <span className="font-bold text-amber-700">{fmtKg(totalReserved, 0)}</span>
-                </div>
-              </>
-            )}
-            <div className="w-px h-4 bg-surface-4" />
-          </div>
+      {loading ? (
+        <div className="rounded-lg border border-surface-4 bg-white p-4 space-y-2">
+          {[0,1,2,3,4,5].map(i => <Skeleton key={i} className="h-8 w-full" />)}
         </div>
-      </Card>
-
-      {/* Tabela */}
-      <Card className="overflow-hidden">
-        {loading ? (
-          <div className="p-4 space-y-2">
-            {[0,1,2,3,4,5].map(i => <Skeleton key={i} className="h-8 w-full" />)}
-          </div>
-        ) : raw.length === 0 ? (
-          <CardContent className="flex flex-col items-center justify-center py-16 gap-2">
-            <Beef size={36} className="text-muted-foreground opacity-20" />
-            <CardTitle className="text-sm font-medium text-muted-foreground">Brak mięsa przyprawionego</CardTitle>
-            <CardDescription>Partie pojawią się po zrealizowaniu zleceń masowania</CardDescription>
-          </CardContent>
-        ) : list.length === 0 ? (
-          <CardContent className="flex flex-col items-center justify-center py-10 gap-2">
-            <Search size={28} className="text-muted-foreground opacity-20" />
-            <CardDescription>Brak wyników dla „{filter}"</CardDescription>
-          </CardContent>
-        ) : (
-          <div className="overflow-auto max-h-[calc(100vh-12rem)]">
-            <table className="w-full text-xs tabular-nums">
-              <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
-                <tr>
-                  {[
-                    { col: 'batchNo'         as SortCol, label: 'Nr partii',  align: 'left'  },
-                    { col: 'recipeName'      as SortCol, label: 'Receptura',  align: 'left'  },
-                    { col: 'productTypeName' as SortCol, label: 'Rodzaj',     align: 'left'  },
-                    { col: 'kgAvailable'     as SortCol, label: 'Wolne kg',   align: 'right' },
-                    { col: 'kgReserved'      as SortCol, label: 'Rezerwacja', align: 'right' },
-                    { col: 'expiryDate'      as SortCol, label: 'Ważność',    align: 'left'  },
-                    { col: 'completedAt'     as SortCol, label: 'Ukończono',  align: 'left'  },
-                  ].map(h => (
-                    <th
-                      key={h.col}
-                      onClick={() => toggleSort(h.col)}
-                      className={cn(
-                        'group cursor-pointer select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
-                        h.align === 'right' && 'text-right',
-                      )}
-                    >
-                      <span className={cn('inline-flex items-center gap-1', h.align === 'right' && 'flex-row-reverse')}>
-                        {h.label}
-                        <SortIcon col={h.col} />
-                      </span>
-                    </th>
-                  ))}
-                  <th className="text-left px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 whitespace-nowrap">
-                    Łańcuch
-                  </th>
-                  <th className="w-8" />
-                </tr>
-              </thead>
-              <tbody>
-                {list.map((b, idx) => {
-                  const kgFree = kgFreeOf(b)
-                  const kgReserved = Number(b.kgReserved || 0)
-                  return (
-                    <tr
-                      key={b.id}
-                      onClick={() => setTraceId(b.id)}
-                      className={cn(
-                        'cursor-pointer border-b border-surface-3 transition-colors',
-                        idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
-                        'hover:bg-blue-50/60'
-                      )}
-                    >
-                      <td className="px-2.5 py-2 whitespace-nowrap">
-                        <code className="font-mono font-bold text-primary text-[12px]">{b.batchNo}</code>
-                      </td>
-                      <td className="px-2.5 py-2 whitespace-nowrap text-ink font-medium max-w-[200px] truncate" title={b.recipeName}>
-                        {b.recipeName || <span className="text-muted-foreground">—</span>}
-                      </td>
-                      <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
-                        {b.productTypeName || <span className="text-muted-foreground">—</span>}
-                      </td>
-                      <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold text-emerald-700">
-                        {fmtKg(kgFree, 1)}
-                      </td>
-                      <td className="px-2.5 py-2 whitespace-nowrap text-right">
-                        {kgReserved > 0
-                          ? <span className="font-bold text-amber-700">{fmtKg(kgReserved, 1)}</span>
-                          : <span className="text-muted-foreground">—</span>
-                        }
-                      </td>
-                      <td className="px-2.5 py-2 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-ink-2">{fmtDatePl(b.expiryDate)}</span>
-                          {b.expiryDate && <ExpiryBadge date={b.expiryDate} />}
-                        </div>
-                      </td>
-                      <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
-                        {b.completedAt ? fmtDatePl(b.completedAt.slice(0, 10)) : <span className="text-muted-foreground">—</span>}
-                      </td>
-                      <td className="px-2.5 py-2 whitespace-nowrap">
-                        <div className="flex items-center gap-1 flex-nowrap overflow-hidden max-w-[260px]">
-                          {(b.rawBatchNos || []).slice(0, 2).map((n: string) => (
-                            <code key={n} className="font-mono text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{n}</code>
-                          ))}
-                          {(b.rawBatchNos || []).length > 2 && (
-                            <span className="text-[10px] text-muted-foreground">+{(b.rawBatchNos || []).length - 2}</span>
-                          )}
-                          {(b.rawBatchNos || []).length > 0 && <ChevronRight size={10} className="text-muted-foreground flex-shrink-0" />}
-                          <code className="font-mono text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">{b.batchNo}</code>
-                        </div>
-                      </td>
-                      <td className="px-2 py-1.5 text-right">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setTraceId(b.id) }}
-                          className="inline-flex items-center justify-center w-6 h-6 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
-                          title="Łańcuch partii (traceability)"
-                        >
-                          <Eye size={12} />
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-              <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
-                <tr>
-                  <td colSpan={3} className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2">
-                    Suma · {list.length} partii
-                  </td>
-                  <td className="px-2.5 py-2 text-right font-bold tabular-nums text-emerald-700">
-                    {fmtKg(totalFree, 0)} kg
-                  </td>
-                  <td className="px-2.5 py-2 text-right font-bold tabular-nums text-amber-700">
-                    {totalReserved > 0 ? `${fmtKg(totalReserved, 0)} kg` : '—'}
-                  </td>
-                  <td colSpan={4} />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
-      </Card>
+      ) : raw.length === 0 ? (
+        <div className="rounded-lg border border-surface-4 bg-white flex flex-col items-center justify-center py-16 gap-2">
+          <Beef size={36} className="text-muted-foreground opacity-20" />
+          <div className="text-sm font-medium text-muted-foreground">Brak mięsa przyprawionego</div>
+          <div className="text-xs text-muted-foreground">Partie pojawią się po zrealizowaniu zleceń masowania</div>
+        </div>
+      ) : (
+        <DataTable
+          rows={raw} rowKey={b => b.id}
+          searchText={b => `${b.batchNo || ''} ${b.recipeName || ''} ${b.productTypeName || ''} ${b.mixingOrderNo || ''} ${b.machineId || ''} ${(b.rawBatchNos || []).join(' ')}`}
+          searchPlaceholder="Filtruj: nr partii, receptura, rodzaj, masownica, partia surowca…"
+          initialSort={{ key: 'expiryDate' }}
+          onRowClick={b => setTraceId(b.id)}
+          footer={rows => {
+            const tf = rows.reduce((s, b) => s + kgFreeOf(b), 0)
+            const tr = rows.reduce((s, b) => s + Number(b.kgReserved || 0), 0)
+            return <><span>Suma · {rows.length} partii</span><span className="ml-auto">Wolne: <span className="text-emerald-700 font-bold">{fmtKg(tf, 0)} kg</span></span>{tr > 0 && <span>Rezerwacja: <span className="text-amber-700 font-bold">{fmtKg(tr, 0)} kg</span></span>}</>
+          }}
+          columns={[
+            { key: 'batchNo', header: 'Nr partii', sortable: true, sortValue: b => b.batchNo || '',
+              cell: b => <code className="font-mono font-bold text-primary text-[12px]">{b.batchNo}</code> },
+            { key: 'recipeName', header: 'Receptura', sortable: true, sortValue: b => b.recipeName || '',
+              cell: b => <span className="text-ink font-medium truncate block max-w-[200px]" title={b.recipeName}>{b.recipeName || <span className="text-muted-foreground">—</span>}</span> },
+            { key: 'productTypeName', header: 'Rodzaj', sortable: true, sortValue: b => b.productTypeName || '',
+              cell: b => b.productTypeName || <span className="text-muted-foreground">—</span> },
+            { key: 'kgAvailable', header: 'Wolne kg', align: 'right', sortable: true, sortValue: b => kgFreeOf(b),
+              cell: b => <span className="font-bold text-emerald-700">{fmtKg(kgFreeOf(b), 1)}</span> },
+            { key: 'kgReserved', header: 'Rezerwacja', align: 'right', sortable: true, sortValue: b => Number(b.kgReserved || 0),
+              cell: b => Number(b.kgReserved || 0) > 0 ? <span className="font-bold text-amber-700">{fmtKg(Number(b.kgReserved || 0), 1)}</span> : <span className="text-muted-foreground">—</span> },
+            { key: 'expiryDate', header: 'Ważność', sortable: true, sortValue: b => b.expiryDate || '',
+              cell: b => <div className="flex items-center gap-1.5"><span className="text-ink-2">{fmtDatePl(b.expiryDate)}</span>{b.expiryDate && <ExpiryBadge date={b.expiryDate} />}</div> },
+            { key: 'completedAt', header: 'Ukończono', sortable: true, sortValue: b => b.completedAt || '',
+              cell: b => b.completedAt ? fmtDatePl(b.completedAt.slice(0, 10)) : <span className="text-muted-foreground">—</span> },
+            { key: 'source', header: 'Źródło',
+              cell: b => (
+                <div className="flex items-center gap-1 flex-nowrap overflow-hidden max-w-[260px]">
+                  {(b.rawBatchNos || []).slice(0, 2).map((n: string) => <code key={n} className="font-mono text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{n}</code>)}
+                  {(b.rawBatchNos || []).length > 2 && <span className="text-[10px] text-muted-foreground">+{(b.rawBatchNos || []).length - 2}</span>}
+                  {(b.rawBatchNos || []).length > 0 && <ChevronRight size={10} className="text-muted-foreground flex-shrink-0" />}
+                  <code className="font-mono text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">{b.batchNo}</code>
+                </div>
+              ) },
+            { key: 'act', header: '', align: 'right',
+              cell: b => <button onClick={e => { e.stopPropagation(); setTraceId(b.id) }} className="inline-flex items-center justify-center w-6 h-6 rounded text-muted-foreground hover:text-primary hover:bg-primary/10" title="Łańcuch partii (traceability)"><Eye size={12} /></button> },
+          ]}
+        />
+      )}
 
       {/* Historia — zużyte partie */}
       {depleted.length > 0 && (
