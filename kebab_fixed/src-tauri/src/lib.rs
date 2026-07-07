@@ -16,6 +16,16 @@ fn windows_logoff() {
     let _ = std::process::Command::new("shutdown").args(["/l"]).spawn();
 }
 
+// Tarowanie/zerowanie wagi z HMI — wysyła komendę do wagi przez RS232 (fizycznie).
+// Poza kioskiem waga nie istnieje.
+#[tauri::command]
+fn scale_tare() {
+    #[cfg(feature = "kiosk")]
+    {
+        scale::request_tare();
+    }
+}
+
 // Diagnostyka wagi dla menu serwisowego (0099) — pokazuje jaki port HMI
 // otwiera i czy plik scale.json jest czytany. Poza kioskiem waga nie istnieje.
 #[tauri::command]
@@ -37,7 +47,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![windows_logoff, scale_diagnose])
+        .invoke_handler(tauri::generate_handler![windows_logoff, scale_diagnose, scale_tare])
         .on_window_event(|_window, _event| {
             // Kiosk: operator nie może zamknąć okna (Alt+F4 / żądania zamknięcia ignorowane).
             #[cfg(feature = "kiosk")]

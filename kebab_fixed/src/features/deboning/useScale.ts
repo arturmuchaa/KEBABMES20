@@ -8,7 +8,7 @@
  *   window.__scaleSim(93.2, false)  // ważenie w toku
  *   window.__scaleSim(null)         // wyłącz symulator
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 export interface ScaleReading {
   gross: number
@@ -18,6 +18,8 @@ export interface ScaleReading {
 
 export interface ScaleState extends ScaleReading {
   available: boolean
+  /** Wyślij do wagi komendę tarowania/zerowania (fizycznie, przez RS232). */
+  tare: () => void
 }
 
 const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -34,6 +36,12 @@ export function useScale(): ScaleState {
   const [simActive, setSimActive] = useState(false)
   const simRef = useRef(false)
   const lastEventRef = useRef(0)
+  // Fizyczne tarowanie: wysyła komendę do wagi przez RS232 (most Rust). Gdy ktoś
+  // zostawił wagę wytarowaną, operator kładzie pustą wagę i taruje z HMI.
+  const tare = useCallback(() => {
+    if (!IS_TAURI) return
+    import('@tauri-apps/api/core').then(({ invoke }) => invoke('scale_tare')).catch(e => console.error('scale_tare', e))
+  }, [])
 
   useEffect(() => {
     ;(window as any).__scaleSim = (gross: number | null, stable = true) => {
@@ -79,5 +87,5 @@ export function useScale(): ScaleState {
     }
   }, [])
 
-  return { ...reading, available: IS_TAURI || simActive }
+  return { ...reading, available: IS_TAURI || simActive, tare }
 }

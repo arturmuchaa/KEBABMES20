@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager};
 
@@ -35,12 +35,28 @@ pub struct ScaleConfig {
     /// Maks. rozrzut odczytów uznawany za stabilny (kg). Domyślnie działka
     /// wagi (0,5 kg) — mniejsza wartość = wieczne „WAŻENIE…" przy migotaniu.
     pub stability_tol_kg: f64,
+    /// Komenda tarowania/zerowania wysyłana do wagi (LP7510: "Z" = zero).
+    /// Konfigurowalna w scale.json (`tareCmd`) na wypadek innego miernika.
+    pub tare_cmd: String,
 }
 
 impl Default for ScaleConfig {
     fn default() -> Self {
-        Self { enabled: true, port: "COM3".into(), baud: 9600, stability_tol_kg: 0.5 }
+        Self {
+            enabled: true, port: "COM3".into(), baud: 9600,
+            stability_tol_kg: 0.5, tare_cmd: "Z\r\n".into(),
+        }
     }
+}
+
+/// Żądanie tarowania wagi ustawiane przez komendę Tauri `scale_tare`; wątek
+/// czytający wysyła komendę między odczytami (port jest jego wyłączną własnością).
+pub static TARE_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Wywoływane z JS (przycisk „Taruj wagę" w HMI) — zgłasza żądanie tary.
+pub fn request_tare() {
+    TARE_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// Pierwsza liczba w ramce, np. "ST,GS,+  170.0kg" → 170.0, "0170,5" → 170.5.
@@ -201,7 +217,7 @@ pub fn spawn_reader(app: tauri::AppHandle) {
                 .timeout(Duration::from_millis(500))
                 .open()
             {
-                Ok(port) => read_loop(&app, port, cfg.stability_tol_kg),
+                Ok(port) => read_loop(&app, port, cfg.stability_tol_kg, &cfg.tare_cmd),
                 Err(_) => {
                     let _ = app.emit(
                         EVENT,
@@ -214,12 +230,18 @@ pub fn spawn_reader(app: tauri::AppHandle) {
     });
 }
 
-fn read_loop(app: &tauri::AppHandle, port: Box<dyn serialport::SerialPort>, tol_kg: f64) {
+fn read_loop(app: &tauri::AppHandle, port: Box<dyn serialport::SerialPort>, tol_kg: f64, tare_cmd: &str) {
     let mut reader = BufReader::new(port);
     let mut window = StabilityWindow::new(tol_kg);
     let mut line = String::new();
     let mut last_emit = Instant::now() - Duration::from_secs(1);
     loop {
+        // Żądanie tary z HMI — wyślij komendę do wagi (port jest nasz wyłącznie).
+        if TARE_REQUESTED.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            let p = reader.get_mut();
+            let _ = p.write_all(tare_cmd.as_bytes());
+            let _ = p.flush();
+        }
         line.clear();
         match reader.read_line(&mut line) {
             Ok(0) => return, // port zniknął (odpięty kabel/USB)

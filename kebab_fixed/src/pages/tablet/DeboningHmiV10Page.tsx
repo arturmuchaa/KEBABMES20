@@ -258,7 +258,7 @@ const NumpadV10 = memo(function NumpadV10({ onKey, onBackStart, onBackEnd, onSer
   // żeby przytrzymanie "." nadal otwierało menu serwisowe — same klawisze
   // ignorują wtedy onKey.
   return (
-    <div className={cn('grid grid-cols-3 gap-2.5 flex-1 min-h-0', disabled && 'opacity-40')}>
+    <div className={cn('grid grid-cols-3 gap-2 flex-1 min-h-0', disabled && 'opacity-40')}>
       {KEYS.map(k => (
         <button key={k} type="button" onClick={() => { if (!disabled) onKey(k) }}
           onPointerDown={k === '⌫' ? (disabled ? undefined : onBackStart) : k === '.' ? onServiceStart : undefined}
@@ -268,10 +268,10 @@ const NumpadV10 = memo(function NumpadV10({ onKey, onBackStart, onBackEnd, onSer
           className={cn('hmi-v10-mono flex items-center justify-center font-bold select-none transition-colors',
             !disabled && 'active:bg-[var(--ink)] active:text-white active:border-[var(--ink)]')}
           style={{
-            borderRadius: 12, fontSize: 'clamp(30px,3.2vw,44px)', minHeight: 64,
-            background: 'var(--panel)', border: '1.5px solid var(--line)', color: 'var(--ink)',
+            borderRadius: 11, fontSize: 'clamp(24px,2.5vw,34px)', minHeight: 50,
+            background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)',
           }}>
-          {k === '⌫' ? <Delete size={32} /> : k}
+          {k === '⌫' ? <Delete size={28} /> : k}
         </button>
       ))}
     </div>
@@ -1068,21 +1068,21 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 ))}
               </div>
               {/* Pojemniki E2 — osobny, wyraźny kafel (nie zlewa się z wózkami). */}
-              <div className="flex items-center gap-3 p-2.5" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
+              <div className="flex items-center gap-2 p-2" style={{ borderRadius: 10, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
                 <button type="button" onClick={() => setE2Count(n => Math.max(0, n - 1))}
-                  className="w-20 h-16 flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
-                  style={{ borderRadius: 12, background: 'var(--accent)', color: '#fff' }}>
-                  <Minus size={30} strokeWidth={3} />
+                  className="w-14 h-12 flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
+                  style={{ borderRadius: 10, background: 'var(--accent)', color: '#fff' }}>
+                  <Minus size={24} strokeWidth={3} />
                 </button>
-                <div className="flex-1 text-center">
-                  <div className="text-[10px] font-bold uppercase" style={{ color: 'var(--accent)', letterSpacing: '.1em' }}>Pojemniki E2</div>
-                  <div className="hmi-v10-mono font-extrabold leading-none" style={{ fontSize: 46, color: 'var(--ink)' }}>{e2Count}</div>
-                  <div className="text-[11px] font-bold" style={{ color: 'var(--mut)' }}>× {fmtKg(E2_TARE_KG, 1)} kg{e2Count > 0 ? ` = ${fmtKg(weighing.tareE2Kg, 1)} kg` : ''}</div>
+                <div className="flex-1 text-center leading-none">
+                  <div className="text-[9px] font-bold uppercase" style={{ color: 'var(--accent)', letterSpacing: '.1em' }}>Pojemniki E2</div>
+                  <div className="hmi-v10-mono font-extrabold leading-none" style={{ fontSize: 32, color: 'var(--ink)' }}>{e2Count}</div>
+                  <div className="text-[10px] font-bold" style={{ color: 'var(--mut)' }}>× {fmtKg(E2_TARE_KG, 1)} kg{e2Count > 0 ? ` = ${fmtKg(weighing.tareE2Kg, 1)} kg` : ''}</div>
                 </div>
                 <button type="button" onClick={() => setE2Count(n => Math.min(20, n + 1))}
-                  className="w-20 h-16 flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
-                  style={{ borderRadius: 12, background: 'var(--accent)', color: '#fff' }}>
-                  <Plus size={30} strokeWidth={3} />
+                  className="w-14 h-12 flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
+                  style={{ borderRadius: 10, background: 'var(--accent)', color: '#fff' }}>
+                  <Plus size={24} strokeWidth={3} />
                 </button>
               </div>
             </div>
@@ -1092,15 +1092,15 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             onServiceStart={handleServiceStart} onServiceEnd={handleServiceEnd} disabled={!selBatch || !selWorker} />
 
           <button type="button" onClick={handleSave} disabled={!canSave || addLoading}
-            className={cn('flex-shrink-0 h-[100px] w-full text-xl font-bold flex items-center justify-center gap-3 transition-all active:scale-[0.98]', saveFlash && 'scale-[1.01]')}
+            className={cn('flex-shrink-0 h-[72px] w-full text-lg font-bold flex items-center justify-center gap-3 transition-all active:scale-[0.98] mt-1', saveFlash && 'scale-[1.01]')}
             style={{
               borderRadius: 12,
-              background: canSave ? 'var(--accent)' : meatTooBig ? 'var(--redSoft)' : 'var(--panel)',
+              background: canSave ? 'var(--accent)' : meatTooBig ? 'var(--redSoft)' : 'var(--bg)',
               color: canSave ? '#fff' : meatTooBig ? 'var(--red)' : 'var(--mut)',
-              border: `1px solid ${canSave ? 'var(--accent)' : meatTooBig ? 'var(--redLine)' : 'var(--line)'}`,
+              border: `1.5px solid ${canSave ? 'var(--accent)' : meatTooBig ? 'var(--redLine)' : 'var(--line)'}`,
               boxShadow: canSave ? '0 10px 24px -10px rgba(79,70,229,.5)' : undefined,
             }}>
-            {addLoading ? <span className="w-7 h-7 border-4 border-white/30 border-t-white rounded-full animate-spin" /> : canSave ? <Save size={26} /> : null}
+            {addLoading ? <span className="w-7 h-7 border-4 border-white/30 border-t-white rounded-full animate-spin" /> : canSave ? <Save size={24} /> : null}
             {saveHint}
           </button>
         </div>
@@ -1113,8 +1113,17 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                   style={{ background: scale.connected ? 'var(--success)' : 'var(--red)',
                     boxShadow: scale.connected ? '0 0 0 3px rgba(22,163,74,.18)' : '0 0 0 3px rgba(220,38,38,.15)' }} />
                 <span className="text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>Waga najazdowa</span>
-                <span className="hmi-v10-mono text-[11px] font-bold ml-auto" style={{ color: 'var(--mut)' }}>
-                  {scale.connected ? 'RS232' : 'BRAK POŁĄCZENIA'}
+                <button type="button" onClick={() => { scale.tare(); showToast('Wysłano tarowanie do wagi') }}
+                  disabled={!scale.connected}
+                  className="ml-auto h-8 px-4 text-[12px] font-bold uppercase active:scale-95 transition-transform"
+                  style={{ borderRadius: 8, letterSpacing: '.04em',
+                    background: scale.connected ? 'var(--accent)' : 'var(--panel)',
+                    color: scale.connected ? '#fff' : 'var(--mut)',
+                    border: `1px solid ${scale.connected ? 'var(--accent)' : 'var(--line)'}` }}>
+                  Taruj 0
+                </button>
+                <span className="hmi-v10-mono text-[11px] font-bold" style={{ color: 'var(--mut)' }}>
+                  {scale.connected ? 'RS232' : 'BRAK'}
                 </span>
               </div>
               <div className="flex items-baseline gap-2 mt-1.5">
