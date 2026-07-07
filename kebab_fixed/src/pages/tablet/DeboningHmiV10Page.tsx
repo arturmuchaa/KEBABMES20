@@ -33,6 +33,8 @@ import './DeboningHmiV10Page.css'
 declare const __ROZBIOR_V10_VERSION__: string
 
 const KG_PER_CONTAINER = 15
+// Wariant prowadzony (v11): domyślna liczba pojemników E2 po starcie i po zapisie.
+const GUIDED_DEFAULT_E2 = 5
 const YIELD_BAND_LO = 65   // % — dolna granica pasma celu
 const YIELD_BAND_HI = 80   // % — górna granica pasma celu
 const TEMPO_TARGET  = 800  // kg/h — cel linii
@@ -262,7 +264,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [takenMode, setTakenMode] = useState<'kg' | 'poj'>('kg')
   const scale = useScale()
   const [cartTare, setCartTare] = useState<number | null>(null)
-  const [e2Count,  setE2Count]  = useState(0)
+  // v11: domyślnie 5 pojemników (typowo tyle), operator koryguje +/-. v10: 0 (jak było).
+  const [e2Count,  setE2Count]  = useState(guided ? GUIDED_DEFAULT_E2 : 0)
   // false = mięso z wagi (auto); true = operator przejął ręcznie (awaryjnie)
   const [meatManual, setMeatManual] = useState(false)
 
@@ -528,13 +531,20 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setSaveFlash(true)
     if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
     saveFlashRef.current = setTimeout(() => setSaveFlash(false), 350)
-    // Wózek i e2Count celowo zostają — kolejny wózek zwykle taki sam.
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
-    // Tryb prowadzony (v11): po zapisie zostaje TYLKO partia, a pracownik się
-    // odznacza — operator świadomie wybiera, kto robił każdą sztukę, i cykl
-    // startuje od kroku „Wybierz pracownika". W v10 pracownik zostaje (dawne
-    // zachowanie — ten sam pracownik robi zwykle wiele sztuk pod rząd).
-    if (guided) setSelWorker(null)
+    if (guided) {
+      // Tryb prowadzony (v11): po zapisie zostaje TYLKO partia, cała reszta się
+      // restartuje. Pracownik — bo świadomie wybieramy, kto robił każdą sztukę.
+      // Wózek — bo każdy pracownik ma inny (trzeba wskazać na nowo). Pojemniki
+      // wracają do typowych 5 szt (operator koryguje +/-). Cykl startuje od
+      // kroku „Wybierz pracownika".
+      setSelWorker(null)
+      setCartTare(null)
+      setE2Count(GUIDED_DEFAULT_E2)
+    } else {
+      // v10 (produkcja): wózek i e2Count celowo zostają — kolejny wózek zwykle
+      // taki sam, ten sam pracownik robi wiele sztuk pod rząd.
+    }
     setUndoUntil(Date.now() + 60_000); setUndoNow(Date.now())
     showToast(`Zapisano: ${fmtKg(meat)} kg mięsa`)
   }
