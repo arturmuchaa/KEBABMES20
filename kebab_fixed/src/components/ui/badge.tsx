@@ -96,15 +96,15 @@ const TONE: Record<StatusTone, string> = {
 }
 
 const STATUS_META: Record<string, { label: string; tone: StatusTone; Icon?: StatusIcon }> = {
-  // — magazyn / partie (etykiety zachowane krótkie dla gęstych tabel) —
-  active:          { label: 'OK',        tone: 'green' },
-  low_expiry:      { label: 'LOW',       tone: 'amber' },
-  expired:         { label: 'CRITICAL',  tone: 'red'   },
-  used:            { label: 'USED',      tone: 'gray'  },
-  AVAILABLE:       { label: 'OK',        tone: 'green' },
-  PARTIALLY_USED:  { label: 'LOW',       tone: 'amber' },
-  DEPLETED:        { label: 'USED',      tone: 'gray'  },
-  QUARANTINE:      { label: 'CRITICAL',  tone: 'red'   },
+  // — magazyn / partie (etykiety PL, krótkie dla gęstych tabel) —
+  active:          { label: 'DOSTĘPNA',  tone: 'green' },
+  low_expiry:      { label: 'KR. TERMIN', tone: 'amber' },
+  expired:         { label: 'PRZETERM.', tone: 'red'   },
+  used:            { label: 'ZUŻYTA',    tone: 'gray'  },
+  AVAILABLE:       { label: 'DOSTĘPNA',  tone: 'green' },
+  PARTIALLY_USED:  { label: 'CZĘŚCIOWO', tone: 'amber' },
+  DEPLETED:        { label: 'ZUŻYTA',    tone: 'gray'  },
+  QUARANTINE:      { label: 'KWARANTANNA', tone: 'red' },
   // — zlecenia masowania / linie produkcji (PL + ikona) —
   planned:      { label: 'Zaplanowane', tone: 'gray',  Icon: CircleDashed },
   in_progress:  { label: 'W toku',      tone: 'amber', Icon: Clock3 },
