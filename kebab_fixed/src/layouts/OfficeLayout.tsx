@@ -17,6 +17,8 @@ const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
   '/office/dostawcy':              { title: 'Dostawcy',                    description: 'Zarządzanie dostawcami' },
   '/office/kontrahenci':           { title: 'Kontrahenci',                 description: 'Klienci i partnerzy' },
   '/office/przewoznicy':           { title: 'Przewoźnicy',                 description: 'Słownik przewoźników' },
+  '/office/hdi':                   { title: 'Dokumenty HDI',               description: 'Handlowy dokument identyfikacyjny' },
+  '/office/cmr':                   { title: 'Dokumenty CMR',               description: 'Międzynarodowe listy przewozowe' },
   '/office/zamowienia':            { title: 'Zamówienia',                  description: 'Zamówienia klientów' },
   '/office/raw-batches':           { title: 'Przyjęcie ćwiartki',          description: 'Rejestracja dostaw surowca' },
   '/office/magazyn/surowiec':      { title: 'Magazyn — Surowiec',          description: 'Stan magazynu ćwiartki' },
