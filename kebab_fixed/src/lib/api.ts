@@ -279,6 +279,7 @@ export interface DeboningStats {
   byHour: { hour: string; quarters: number; kgMeat: number }[]
   byDay: { date: string; quarters: number; kgMeat: number; avgYield: number }[]
   recent: { id: string; workerName: string; rawBatchNo: string; kgQuarter: number; kgMeat: number; yield: number; at: string }[]
+  workerDaily: Record<string, { date: string; quarters: number; kgQuarter: number; kgMeat: number; avgYield: number }[]>
 }
 
 export const deboningEntriesApi = {

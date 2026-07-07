@@ -6,17 +6,18 @@
  * ranking pracowników (kto najwięcej, kto najlepszy %) i live-feed (gdy dziś).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { deboningApi, type DeboningStats } from '@/lib/api'
+import { deboningApi, type DeboningStats, type DeboningStatsWorker } from '@/lib/api'
 import { DataTable } from '@/components/DataTable'
 import { usePageHeaderActions } from '@/components/PageHeader'
 import { cn } from '@/lib/utils'
 import {
-  Scissors, Beef, Gauge, Percent, Users, Bone, Trophy, Radio, CalendarDays,
+  Scissors, Beef, Gauge, Percent, Users, Bone, Layers, Trophy, Radio, CalendarDays, X,
 } from 'lucide-react'
 import {
-  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip,
+  ResponsiveContainer, ComposedChart, BarChart, Bar, Line, XAxis, YAxis, Tooltip,
   CartesianGrid, Cell,
 } from 'recharts'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 // ─── Zakresy dat ─────────────────────────────────────────────
 type Preset = 'today' | 'yesterday' | '7d' | 'month' | 'year' | 'custom'
@@ -68,8 +69,8 @@ function timeAgo(iso: string): string {
 }
 
 // ─── KPI ─────────────────────────────────────────────────────
-function Kpi({ icon: Icon, label, value, unit, tone, accent }: {
-  icon: any; label: string; value: string; unit?: string; tone?: string; accent?: string
+function Kpi({ icon: Icon, label, value, unit, sub, tone, accent }: {
+  icon: any; label: string; value: string; unit?: string; sub?: string; tone?: string; accent?: string
 }) {
   return (
     <div className="relative rounded-xl border border-surface-4 bg-white px-4 py-3.5 overflow-hidden">
@@ -78,9 +79,21 @@ function Kpi({ icon: Icon, label, value, unit, tone, accent }: {
         <Icon size={13} />
         <span className="text-[10.5px] font-bold uppercase tracking-wide">{label}</span>
       </div>
-      <div className={cn('text-[26px] font-black leading-none [font-variant-numeric:tabular-nums]', tone ?? 'text-ink')}>
-        {value}{unit && <span className="text-[13px] font-bold text-ink-4 ml-1">{unit}</span>}
+      <div className="flex items-baseline gap-2">
+        <div className={cn('text-[26px] font-black leading-none [font-variant-numeric:tabular-nums]', tone ?? 'text-ink')}>
+          {value}{unit && <span className="text-[13px] font-bold text-ink-4 ml-1">{unit}</span>}
+        </div>
+        {sub && <div className="text-[14px] font-bold text-ink-4 [font-variant-numeric:tabular-nums]">{sub}</div>}
       </div>
+    </div>
+  )
+}
+
+function MiniStat({ label, value, unit, tone }: { label: string; value: string; unit?: string; tone?: string }) {
+  return (
+    <div className="rounded-lg bg-surface-2 border border-surface-3 px-3 py-2">
+      <div className="text-[10px] font-bold uppercase tracking-wide text-ink-4">{label}</div>
+      <div className={cn('text-lg font-black [font-variant-numeric:tabular-nums]', tone ?? 'text-ink')}>{value}{unit && <span className="text-[11px] text-ink-4 ml-0.5">{unit}</span>}</div>
     </div>
   )
 }
@@ -105,33 +118,42 @@ export function DeboningReportsPage() {
   const [cf, setCf] = useState('')
   const [ct, setCt] = useState('')
   const { from, to } = useMemo(() => resolveRange(preset, cf, ct), [preset, cf, ct])
-  const live = to === ymd(new Date())
+  const isTodayRange = to === ymd(new Date())
 
   const [data, setData] = useState<DeboningStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [drill, setDrill] = useState<DeboningStatsWorker | null>(null)
+
+  // LIVE = rozbiór FAKTYCZNIE trwa: ostatni wpis w ciągu 30 minut. Sam zakres
+  // „kończący się dziś" nie wystarcza (inaczej świeciło się zawsze).
+  const liveNow = useMemo(() => {
+    const r = data?.recent?.[0]
+    return !!r && (Date.now() - new Date(r.at).getTime()) < 30 * 60 * 1000
+  }, [data])
+  const showFeed = isTodayRange && (data?.recent?.length ?? 0) > 0
 
   const load = useCallback(() => {
     deboningApi.stats(from, to).then(setData).catch(() => setData(null)).finally(() => setLoading(false))
   }, [from, to])
 
   useEffect(() => { setLoading(true); load() }, [load])
-  // Live: gdy zakres kończy się dziś, odświeżaj co 15 s.
+  // Auto-odświeżanie gdy zakres kończy się dziś (żeby łapać nowe wpisy na żywo).
   useEffect(() => {
-    if (!live) return
+    if (!isTodayRange) return
     const id = setInterval(load, 15000)
     return () => clearInterval(id)
-  }, [live, load])
+  }, [isTodayRange, load])
 
   // ── Kontrola zakresu w nagłówku ──
   usePageHeaderActions(
     <div className="flex items-center gap-2 flex-wrap">
-      {live && (
+      {liveNow && (
         <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-bold uppercase tracking-wide">
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
           </span>
-          Live
+          Rozbiór trwa
         </span>
       )}
       <div className="inline-flex items-center rounded-lg border border-surface-4 bg-white p-0.5">
@@ -155,7 +177,7 @@ export function DeboningReportsPage() {
         </div>
       )}
     </div>,
-    [preset, cf, ct, live, from, to],
+    [preset, cf, ct, liveNow, from, to],
   )
 
   const s = data?.summary
@@ -172,13 +194,14 @@ export function DeboningReportsPage() {
   return (
     <div className="space-y-4 animate-fade-in">
       {/* ── KPI ── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <Kpi icon={Scissors} label="Ćwiartek" value={nf0.format(s?.quarters ?? 0)} accent="bg-brand" />
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
+        <Kpi icon={Scissors} label="Ćwiartka pobrana" value={nf0.format(s?.quarters ?? 0)} accent="bg-brand" />
         <Kpi icon={Beef} label="Kg mięsa" value={nf0.format(s?.kgMeat ?? 0)} unit="kg" accent="bg-brand" />
         <Kpi icon={Percent} label="Śr. rozbiór" value={nf1.format(s?.avgYield ?? 0)} unit="%" tone={yieldTone(s?.avgYield ?? 0)} accent="bg-emerald-500" />
         <Kpi icon={Gauge} label="Tempo" value={nf0.format(s?.kgPerHour ?? 0)} unit="kg/h" accent="bg-blue-500" />
         <Kpi icon={Users} label="Pracownicy" value={nf0.format(s?.workers ?? 0)} accent="bg-violet-500" />
-        <Kpi icon={Bone} label="Kości / grzbiety" value={`${nf1.format(s?.bonesPct ?? 0)}/${nf1.format(s?.backsPct ?? 0)}`} unit="%" tone="text-ink-2" accent="bg-amber-500" />
+        <Kpi icon={Bone} label="Kości" value={nf0.format(s?.kgBones ?? 0)} unit="kg" sub={`${nf1.format(s?.bonesPct ?? 0)}%`} tone="text-ink-2" accent="bg-amber-500" />
+        <Kpi icon={Layers} label="Grzbiety" value={nf0.format(s?.kgBacks ?? 0)} unit="kg" sub={`${nf1.format(s?.backsPct ?? 0)}%`} tone="text-ink-2" accent="bg-orange-500" />
       </div>
 
       {empty ? (
@@ -224,15 +247,16 @@ export function DeboningReportsPage() {
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             {/* ── Ranking pracowników ── */}
-            <div className={cn(live ? 'xl:col-span-2' : 'xl:col-span-3')}>
+            <div className={cn(showFeed ? 'xl:col-span-2' : 'xl:col-span-3')}>
               <div className="flex items-center gap-2 mb-2">
                 <Trophy size={15} className="text-amber-500" />
                 <h2 className="text-sm font-bold text-ink">Ranking pracowników</h2>
-                <span className="text-[11px] text-ink-4">({data?.workers.length ?? 0})</span>
+                <span className="text-[11px] text-ink-4">({data?.workers.length ?? 0}) · klik = szczegóły dzień po dniu</span>
               </div>
               <DataTable
                 rows={data?.workers ?? []} rowKey={w => w.workerId}
                 initialSort={{ key: 'kgQuarter', dir: 'desc' }}
+                onRowClick={w => setDrill(w)}
                 footer={rows => {
                   const q = rows.reduce((a, w) => a + w.quarters, 0)
                   const km = rows.reduce((a, w) => a + w.kgMeat, 0)
@@ -247,7 +271,7 @@ export function DeboningReportsPage() {
                     } },
                   { key: 'workerName', header: 'Pracownik', sortable: true, sortValue: w => w.workerName,
                     cell: w => <span className="font-semibold text-ink">{w.workerName}</span> },
-                  { key: 'quarters', header: 'Ćwiartek', align: 'right', sortable: true, sortValue: w => w.quarters,
+                  { key: 'quarters', header: 'Ćwiartka pobrana', align: 'right', sortable: true, sortValue: w => w.quarters,
                     cell: w => <span className="font-bold tabular-nums">{w.quarters}</span> },
                   { key: 'kgQuarter', header: 'Kg ćwiartki', align: 'right', sortable: true, sortValue: w => w.kgQuarter,
                     cell: w => <span className="tabular-nums text-ink-2">{nf1.format(w.kgQuarter)}</span> },
@@ -261,12 +285,12 @@ export function DeboningReportsPage() {
               />
             </div>
 
-            {/* ── Live feed (tylko dziś/aktualny) ── */}
-            {live && (
+            {/* ── Live feed (tylko dziś, gdy są wpisy) ── */}
+            {showFeed && (
               <div className="xl:col-span-1">
                 <div className="flex items-center gap-2 mb-2">
-                  <Radio size={15} className="text-emerald-500" />
-                  <h2 className="text-sm font-bold text-ink">Na żywo</h2>
+                  <Radio size={15} className={liveNow ? 'text-emerald-500' : 'text-ink-4'} />
+                  <h2 className="text-sm font-bold text-ink">{liveNow ? 'Na żywo' : 'Ostatnie wpisy'}</h2>
                 </div>
                 <div className="rounded-xl border border-surface-4 bg-white divide-y divide-surface-3 max-h-[420px] overflow-auto">
                   {(data?.recent ?? []).length === 0 ? (
@@ -296,6 +320,69 @@ export function DeboningReportsPage() {
       {loading && !data && (
         <div className="text-center text-sm text-ink-4 py-4">Ładowanie…</div>
       )}
+
+      {/* ── Drill-down: pracownik dzień po dniu ── */}
+      {drill && (() => {
+        const days = data?.workerDaily?.[drill.workerId] ?? []
+        const chart = days.map(d => ({ label: `${d.date.slice(8, 10)}.${d.date.slice(5, 7)}`, kgMeat: d.kgMeat }))
+        return (
+          <Dialog open onOpenChange={v => { if (!v) setDrill(null) }}>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-brand/10 text-brand"><Users size={15} /></span>
+                  {drill.workerName} — dzień po dniu
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="grid grid-cols-4 gap-2">
+                  <MiniStat label="Ćwiartka pobr." value={nf0.format(drill.quarters)} />
+                  <MiniStat label="Kg mięsa" value={nf0.format(drill.kgMeat)} unit="kg" />
+                  <MiniStat label="Śr. %" value={nf1.format(drill.avgYield)} tone={yieldTone(drill.avgYield)} />
+                  <MiniStat label="Kg/h" value={nf1.format(drill.kgPerHour)} />
+                </div>
+                {days.length > 1 && (
+                  <div style={{ height: 150 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chart} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#EEF1F5" vertical={false} />
+                        <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} minTickGap={12} />
+                        <YAxis tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} width={38} />
+                        <Tooltip cursor={{ fill: '#F4F7FB' }} />
+                        <Bar dataKey="kgMeat" radius={[3, 3, 0, 0]} fill="#1D4ED8" maxBarSize={38} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+                <div className="rounded-lg border border-surface-4 overflow-hidden">
+                  <table className="w-full text-[13px] [font-variant-numeric:tabular-nums]">
+                    <thead>
+                      <tr className="bg-surface-2 text-[11px] uppercase font-bold text-ink-3">
+                        <th className="text-left px-3 py-2">Dzień</th>
+                        <th className="text-right px-3 py-2">Ćwiartka pobr.</th>
+                        <th className="text-right px-3 py-2">Kg ćwiartki</th>
+                        <th className="text-right px-3 py-2">Kg mięsa</th>
+                        <th className="text-right px-3 py-2">Śr. %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {days.slice().reverse().map(d => (
+                        <tr key={d.date} className="border-t border-surface-3 even:bg-[#F4F7FB]">
+                          <td className="px-3 py-1.5">{d.date.slice(8, 10)}.{d.date.slice(5, 7)}.{d.date.slice(0, 4)}</td>
+                          <td className="px-3 py-1.5 text-right font-bold">{d.quarters}</td>
+                          <td className="px-3 py-1.5 text-right text-ink-2">{nf1.format(d.kgQuarter)}</td>
+                          <td className="px-3 py-1.5 text-right font-bold text-brand">{nf1.format(d.kgMeat)}</td>
+                          <td className={cn('px-3 py-1.5 text-right font-black', yieldTone(d.avgYield))}>{nf1.format(d.avgYield)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )
+      })()}
     </div>
   )
 }

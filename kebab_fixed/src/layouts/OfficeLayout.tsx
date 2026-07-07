@@ -26,7 +26,7 @@ const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
   '/office/magazyn/gotowe':        { title: 'Magazyn — Wyrób gotowy',      description: 'Gotowe produkty' },
   '/office/magazyn/mieso-przyp':   { title: 'Magazyn — Mięso przyprawione', description: 'Mięso po masowaniu' },
   '/office/magazyn/opakowania':    { title: 'Magazyn — Opakowania',        description: 'Tuleje i opakowania' },
-  '/office/deboning':              { title: 'Rozbiór — monitoring',        description: 'Wydajność, ranking i statystyki rozbioru' },
+  '/office/deboning':              { title: 'Statystyki rozbioru',         description: 'Wydajność, ranking i historia rozbioru' },
   '/office/haccp-report':          { title: 'Raport HACCP',                description: 'Dokumentacja HACCP' },
   '/office/rodzaje-produktow':     { title: 'Rodzaje produktów',           description: 'Katalog produktów' },
   '/office/receptury':             { title: 'Receptury',                   description: 'Składy i receptury' },

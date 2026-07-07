@@ -175,6 +175,27 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
         for r in rows[-50:]
     ][::-1]
 
+    # Rozkład dzienny per pracownik — do drill-downu „ile X rozebrał dnia Y".
+    wdaily: Dict[str, Dict[str, Dict]] = defaultdict(
+        lambda: defaultdict(lambda: {"quarters": 0, "kgQuarter": 0.0, "kgMeat": 0.0})
+    )
+    for r in rows:
+        wid = r["worker_id"] or r["worker_name"] or "—"
+        d = r["created_at"].strftime("%Y-%m-%d")
+        c = wdaily[wid][d]
+        c["quarters"] += 1
+        c["kgQuarter"] += f(r["kg_quarter"])
+        c["kgMeat"] += f(r["kg_meat"])
+    worker_daily = {
+        wid: [
+            {"date": d, "quarters": v["quarters"],
+             "kgQuarter": round(v["kgQuarter"], 1), "kgMeat": round(v["kgMeat"], 1),
+             "avgYield": round(v["kgMeat"] / v["kgQuarter"] * 100, 1) if v["kgQuarter"] else 0.0}
+            for d, v in sorted(days.items())
+        ]
+        for wid, days in wdaily.items()
+    }
+
     return {
         "summary": {
             "quarters": total_q,
@@ -192,6 +213,7 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
         "byHour": by_hour,
         "byDay": by_day,
         "recent": recent,
+        "workerDaily": worker_daily,
     }
 
 
