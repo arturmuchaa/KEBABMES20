@@ -260,6 +260,25 @@ export const deboningApi = {
   byId:   (id: string) => get<DeboningSession>(`/deboning/${id}`),
   create: (dto: any) => post<DeboningSession>('/deboning', toSnake(dto)),
   update: (id: string, dto: any) => patch<DeboningSession>(`/deboning/${id}`, toSnake(dto)),
+  // Agregaty biura (monitoring rozbioru) — zakres dat po created_at.
+  stats: (from: string, to: string) =>
+    get<DeboningStats>(`/deboning/stats?date_from=${from}&date_to=${to}`),
+}
+
+export interface DeboningStatsWorker {
+  workerId: string; workerName: string; quarters: number
+  kgQuarter: number; kgMeat: number; avgYield: number; kgPerHour: number
+}
+export interface DeboningStats {
+  summary: {
+    quarters: number; kgQuarter: number; kgMeat: number; kgBacks: number
+    kgBones: number; avgYield: number; workers: number; kgPerHour: number
+    backsPct: number; bonesPct: number
+  }
+  workers: DeboningStatsWorker[]
+  byHour: { hour: string; quarters: number; kgMeat: number }[]
+  byDay: { date: string; quarters: number; kgMeat: number; avgYield: number }[]
+  recent: { id: string; workerName: string; rawBatchNo: string; kgQuarter: number; kgMeat: number; yield: number; at: string }[]
 }
 
 export const deboningEntriesApi = {

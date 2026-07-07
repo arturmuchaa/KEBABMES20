@@ -35,7 +35,7 @@ const NAV: NavSection[] = [
     { to: '/office/magazyn/gotowe',      label: 'Wyrób gotowy',        icon: <ShoppingBag size={16} /> },
   ]},
   { heading: 'Rozbiór', items: [
-    { to: '/office/deboning',     label: 'Raporty rozbioru', icon: <BarChart2 size={16} /> },
+    { to: '/office/deboning',     label: 'Monitoring rozbioru', icon: <BarChart2 size={16} /> },
     { to: '/office/haccp-report', label: 'Raport HACCP',     icon: <FileText size={16} /> },
   ]},
   { heading: 'Produkcja', items: [

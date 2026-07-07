@@ -82,6 +82,119 @@ def deboning_trace(batch_id: str) -> Dict[str, List[Dict]]:
     return {"data": [_map_deboning_entry(e) for e in entries]}
 
 
+def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
+    """Agregaty rozbioru dla biura w zakresie dat (po created_at::date).
+
+    Zwraca: summary (KPI), workers (ranking), byHour (przepustowość dnia),
+    byDay (trend zakresu), recent (live feed). Godziny aktywne = liczba
+    unikalnych kubełków (dzień, godzina) z wpisami — daje intuicyjne kg/h.
+    """
+    from collections import defaultdict
+
+    rows = query_all(
+        """
+        SELECT id, worker_id, worker_name, kg_quarter, kg_meat, kg_backs,
+               kg_bones, yield_pct, raw_batch_no, created_at
+        FROM deboning_entries
+        WHERE created_at::date BETWEEN %s AND %s
+        ORDER BY created_at
+        """,
+        (date_from, date_to),
+    )
+
+    def f(v) -> float:
+        return float(v or 0)
+
+    def bucket(r):
+        d = r["created_at"]
+        return (d.date(), d.hour)
+
+    total_q = len(rows)
+    total_kgq = sum(f(r["kg_quarter"]) for r in rows)
+    total_meat = sum(f(r["kg_meat"]) for r in rows)
+    total_backs = sum(f(r["kg_backs"]) for r in rows)
+    total_bones = sum(f(r["kg_bones"]) for r in rows)
+    active_hours = max(1, len({bucket(r) for r in rows})) if rows else 1
+
+    wagg: Dict[str, Dict] = defaultdict(
+        lambda: {"quarters": 0, "kgQuarter": 0.0, "kgMeat": 0.0,
+                 "kgBacks": 0.0, "kgBones": 0.0, "buckets": set(), "name": "—"}
+    )
+    for r in rows:
+        wid = r["worker_id"] or r["worker_name"] or "—"
+        w = wagg[wid]
+        w["name"] = r["worker_name"] or "—"
+        w["quarters"] += 1
+        w["kgQuarter"] += f(r["kg_quarter"])
+        w["kgMeat"] += f(r["kg_meat"])
+        w["kgBacks"] += f(r["kg_backs"])
+        w["kgBones"] += f(r["kg_bones"])
+        w["buckets"].add(bucket(r))
+
+    workers = []
+    for wid, w in wagg.items():
+        ah = max(1, len(w["buckets"]))
+        workers.append({
+            "workerId": wid,
+            "workerName": w["name"],
+            "quarters": w["quarters"],
+            "kgQuarter": round(w["kgQuarter"], 1),
+            "kgMeat": round(w["kgMeat"], 1),
+            "avgYield": round(w["kgMeat"] / w["kgQuarter"] * 100, 1) if w["kgQuarter"] else 0.0,
+            "kgPerHour": round(w["kgMeat"] / ah, 1),
+        })
+    workers.sort(key=lambda x: -x["kgQuarter"])
+
+    hagg: Dict[str, Dict] = defaultdict(lambda: {"quarters": 0, "kgMeat": 0.0})
+    for r in rows:
+        h = r["created_at"].strftime("%Y-%m-%d %H:00")
+        hagg[h]["quarters"] += 1
+        hagg[h]["kgMeat"] += f(r["kg_meat"])
+    by_hour = [
+        {"hour": k, "quarters": v["quarters"], "kgMeat": round(v["kgMeat"], 1)}
+        for k, v in sorted(hagg.items())
+    ]
+
+    dagg: Dict[str, Dict] = defaultdict(lambda: {"quarters": 0, "kgMeat": 0.0, "kgQuarter": 0.0})
+    for r in rows:
+        d = r["created_at"].strftime("%Y-%m-%d")
+        dagg[d]["quarters"] += 1
+        dagg[d]["kgMeat"] += f(r["kg_meat"])
+        dagg[d]["kgQuarter"] += f(r["kg_quarter"])
+    by_day = [
+        {"date": k, "quarters": v["quarters"], "kgMeat": round(v["kgMeat"], 1),
+         "avgYield": round(v["kgMeat"] / v["kgQuarter"] * 100, 1) if v["kgQuarter"] else 0.0}
+        for k, v in sorted(dagg.items())
+    ]
+
+    recent = [
+        {"id": r["id"], "workerName": r["worker_name"] or "—",
+         "rawBatchNo": r["raw_batch_no"] or "—",
+         "kgQuarter": round(f(r["kg_quarter"]), 1), "kgMeat": round(f(r["kg_meat"]), 1),
+         "yield": round(f(r["yield_pct"]), 1), "at": r["created_at"].isoformat()}
+        for r in rows[-50:]
+    ][::-1]
+
+    return {
+        "summary": {
+            "quarters": total_q,
+            "kgQuarter": round(total_kgq, 1),
+            "kgMeat": round(total_meat, 1),
+            "kgBacks": round(total_backs, 1),
+            "kgBones": round(total_bones, 1),
+            "avgYield": round(total_meat / total_kgq * 100, 1) if total_kgq else 0.0,
+            "workers": len(wagg),
+            "kgPerHour": round(total_meat / active_hours, 1),
+            "backsPct": round(total_backs / total_kgq * 100, 1) if total_kgq else 0.0,
+            "bonesPct": round(total_bones / total_kgq * 100, 1) if total_kgq else 0.0,
+        },
+        "workers": workers,
+        "byHour": by_hour,
+        "byDay": by_day,
+        "recent": recent,
+    }
+
+
 def validate_weighing_consistency(
     kg_gross, tare_cart_kg, tare_e2_kg, kg_meat, tolerance: float = 0.5
 ):
