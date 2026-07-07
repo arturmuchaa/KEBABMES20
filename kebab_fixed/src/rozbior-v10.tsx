@@ -200,7 +200,9 @@ function KioskGate() {
     )
   }
   if (!user) return <KioskLoginScreen />
-  return <DeboningHmiV10Page allowOperatorSwitch />
+  // Wariant „wzmocnione prowadzenie" jest teraz produkcyjny (decyzja 2026-07-07):
+  // baner KROK n/5 + reset pracownika/wózka/E2 po zapisie. guided=true.
+  return <DeboningHmiV10Page allowOperatorSwitch guided />
 }
 
 // Ten sam wygląd co statyczny splash w rozbior-v10.html (logo + kółeczko) —

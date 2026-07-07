@@ -628,6 +628,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const redCount = alarms.filter(a => a.level === 'red').length
   const recent = entries.slice(-8).reverse()
 
+  // Wydajność wybranego pracownika „dziś" (do paska podczas ważenia).
+  const selWorkerStat = selWorker ? perWorker.get(selWorker.id) : undefined
+  const selWorkerYield = selWorkerStat && selWorkerStat.taken > 0
+    ? (selWorkerStat.meat / selWorkerStat.taken) * 100 : 0
+
   return wrap(
     <>
       <div className={cn('fixed top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3.5 text-base font-bold flex items-center gap-3 transition-opacity duration-150',
@@ -722,6 +727,21 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               </div>
             )
           }
+          {/* Stopka: wydajność całego dnia (% mięsa z ćwiartki). */}
+          <div className="flex-shrink-0 mt-3 flex items-center gap-4 px-4 py-3"
+            style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold uppercase leading-none" style={{ color: 'var(--mut)', letterSpacing: '.12em' }}>Wydajność dnia</span>
+              <span className="hmi-v10-mono font-extrabold leading-none mt-1" style={{ fontSize: 40, color: yieldInk(shift.yieldPct) }}>
+                {shift.totMeat > 0 ? fmtPct(shift.yieldPct, 1) : '—'}
+              </span>
+            </div>
+            <div className="flex flex-col gap-1 ml-auto text-right">
+              <span className="hmi-v10-mono text-sm font-bold"><span style={{ color: 'var(--mut)' }}>mięso </span>{fmtKg(shift.totMeat, 0)} kg</span>
+              <span className="hmi-v10-mono text-sm font-bold"><span style={{ color: 'var(--mut)' }}>ćwiartka </span>{fmtKg(shift.totTaken, 0)} kg</span>
+              <span className="hmi-v10-mono text-[12px] font-bold" style={{ color: 'var(--mut)' }}>{entries.length} szt · {shift.activeWorkers} os.</span>
+            </div>
+          </div>
         </div>
 
         <div className="flex-shrink-0 flex flex-col gap-3 min-h-0" style={{ width: '34%', padding: '0 16px', borderRight: '1px solid var(--lineSoft)' }}>
@@ -765,6 +785,29 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 done={taken > 0 && meat > 0 && !meatTooBig && (!autoMode || scale.stable)}>
                 Waga
               </SectionStep>
+            </div>
+          )}
+
+          {/* Pasek wybranego pracownika — jego wydajność „dziś" widoczna podczas ważenia. */}
+          {selWorker && (
+            <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2.5"
+              style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1px solid var(--line)' }}>
+              <span className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 font-extrabold text-sm"
+                style={{ background: 'var(--accent)', color: '#fff' }}>
+                {selWorker.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+              </span>
+              <div className="min-w-0">
+                <div className="text-sm font-bold truncate leading-tight">{selWorker.name}</div>
+                <div className="hmi-v10-mono text-[11px] font-bold" style={{ color: 'var(--mut)' }}>
+                  {selWorkerStat ? `${selWorkerStat.count} szt · ${fmtKg(selWorkerStat.meat, 0)} kg mięsa` : 'pierwsza sztuka dziś'}
+                </div>
+              </div>
+              <div className="ml-auto text-right flex-shrink-0">
+                <div className="text-[9px] font-bold uppercase leading-none" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>Wydajność</div>
+                <div className="hmi-v10-mono font-extrabold leading-none mt-0.5" style={{ fontSize: 28, color: yieldInk(selWorkerYield) }}>
+                  {selWorkerYield > 0 ? fmtPct(selWorkerYield, 1) : '—'}
+                </div>
+              </div>
             </div>
           )}
 
