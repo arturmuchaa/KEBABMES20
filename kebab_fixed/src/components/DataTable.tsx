@@ -50,6 +50,8 @@ interface Props<T> {
   empty?: ReactNode
   /** Kolumna Lp. */
   lp?: boolean
+  /** Pasek podsumowania pod tabelą (dostaje aktualnie przefiltrowane wiersze). */
+  footer?: (rows: T[]) => ReactNode
   className?: string
 }
 
@@ -62,7 +64,7 @@ function compareValues(a: unknown, b: unknown): number {
 
 export function DataTable<T>({
   columns, rows, rowKey, searchText, searchPlaceholder = 'Szukaj…',
-  initialSort, onRowClick, rowClassName, actions, toolbarLeft, empty, lp, className,
+  initialSort, onRowClick, rowClassName, actions, toolbarLeft, empty, lp, footer, className,
 }: Props<T>) {
   const [query, setQuery] = useState('')
   const [sortKey, setSortKey] = useState<string | null>(initialSort?.key ?? null)
@@ -167,6 +169,11 @@ export function DataTable<T>({
             </tbody>
           </table>
         </div>
+        {footer && processed.length > 0 && (
+          <div className="border-t border-surface-4 bg-surface-2 px-3 py-2 text-[12px] font-semibold text-ink-2 flex items-center gap-4 flex-wrap [font-variant-numeric:tabular-nums]">
+            {footer(processed)}
+          </div>
+        )}
       </div>
     </div>
   )

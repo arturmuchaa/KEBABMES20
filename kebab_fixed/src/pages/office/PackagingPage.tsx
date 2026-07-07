@@ -8,6 +8,8 @@ import { packagingApi, suppliersApi } from '@/lib/apiClient'
 import { Archive, Package, Plus, Search, X, ChevronDown, ChevronUp, ChevronsUpDown, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { CreatePackagingDto, PackagingType } from '@/lib/mockApi'
+import { DataTable } from '@/components/DataTable'
+import { usePageHeaderActions } from '@/components/PageHeader'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -136,185 +138,60 @@ function exportCsv(rows: any[]) {
 export function PackagingPage() {
   const { data: items, loading, refetch } = useApi(() => packagingApi.all())
   const [modal, setModal] = useState(false)
-  const [filter, setFilter] = useState('')
-  const [sortCol, setSortCol] = useState<SortCol>('name')
-  const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc')
 
   const rawList = items ?? []
-
-  const list = useMemo(() => {
-    const q = filter.toLowerCase().trim()
-    let result = rawList
-    if (q) {
-      result = rawList.filter(i =>
-        (i.name || '').toLowerCase().includes(q) ||
-        (i.code || '').toLowerCase().includes(q) ||
-        (i.supplierName || '').toLowerCase().includes(q) ||
-        TYPE_LABELS[i.type].toLowerCase().includes(q)
-      )
-    }
-    return [...result].sort((a, b) => {
-      let cmp = 0
-      if (sortCol === 'name')         cmp = (a.name || '').localeCompare(b.name || '')
-      if (sortCol === 'type')         cmp = TYPE_LABELS[a.type].localeCompare(TYPE_LABELS[b.type])
-      if (sortCol === 'available')    cmp = a.kgAvailable - b.kgAvailable
-      if (sortCol === 'used')         cmp = a.kgUsed - b.kgUsed
-      if (sortCol === 'supplierName') cmp = (a.supplierName || '').localeCompare(b.supplierName || '')
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [rawList, filter, sortCol, sortDir])
-
-  const totalAvail = list.reduce((s, i) => s + i.kgAvailable, 0)
-
-  const toggleSort = (col: SortCol) => {
-    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortCol(col); setSortDir('asc') }
-  }
-
-  const SortIcon = ({ col }: { col: SortCol }) =>
-    sortCol === col
-      ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
-      : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60"/>
+  const totalAvail = rawList.reduce((s, i) => s + i.kgAvailable, 0)
 
   async function handleReceive(dto: CreatePackagingDto) {
     await packagingApi.receive(dto)
     refetch()
   }
 
+  usePageHeaderActions(
+    <div className="flex items-center gap-3 text-xs tabular-nums">
+      <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Pozycji: <span className="text-ink font-bold">{rawList.length}</span></span>
+      <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Dostępne: <span className="text-emerald-700 font-bold">{totalAvail.toFixed(0)}</span></span>
+      <Button size="sm" className="gap-1.5" onClick={() => setModal(true)}><Plus size={14}/> Przyjmij</Button>
+    </div>,
+    [rawList.length, totalAvail]
+  )
+
   return (
-    <div className="space-y-3 animate-fade-in">
-
-      {/* Toolbar */}
-      <Card>
-        <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3 flex-1 min-w-[260px]">
-            <div className="relative flex-1 max-w-md">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="h-9 pl-9 pr-8 text-sm"
-                placeholder="Filtruj: nazwa, typ, dostawca…"
-                value={filter}
-                onChange={e => setFilter(e.target.value)}
-                autoFocus
-              />
-              {filter && (
-                <button onClick={() => setFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-ink">
-                  <X size={13}/>
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs tabular-nums">
-            <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Pozycji:</CardDescription>
-              <span className="font-bold">{list.length}{list.length !== rawList.length && <span className="text-muted-foreground">/{rawList.length}</span>}</span>
-            </div>
-            <div className="w-px h-4 bg-surface-4" />
-            <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Dostępne:</CardDescription>
-              <span className="font-bold text-emerald-700">{totalAvail.toFixed(0)}</span>
-            </div>
-            <div className="w-px h-4 bg-surface-4" />
-            <Button size="sm" className="h-7 px-2.5 text-xs gap-1" onClick={() => setModal(true)}>
-              <Plus size={12}/> Przyjmij
-            </Button>
-          </div>
+    <div className="animate-fade-in">
+      {loading ? (
+        <div className="rounded-lg border border-surface-4 bg-white p-4 space-y-2">
+          {[0,1,2,3,4,5].map(i => <Skeleton key={i} className="h-8 w-full" />)}
         </div>
-      </Card>
-
-      {/* Tabela */}
-      <Card className="overflow-hidden">
-        {loading ? (
-          <div className="p-4 space-y-2">
-            {[0,1,2,3,4,5].map(i => <Skeleton key={i} className="h-8 w-full" />)}
-          </div>
-        ) : rawList.length === 0 ? (
-          <CardContent className="flex flex-col items-center justify-center py-16 gap-2">
-            <Archive size={36} className="text-muted-foreground opacity-20" />
-            <CardTitle className="text-sm font-medium text-muted-foreground">Brak opakowań</CardTitle>
-            <CardDescription>Przyjmij opakowania przyciskiem „Przyjmij"</CardDescription>
-          </CardContent>
-        ) : list.length === 0 ? (
-          <CardContent className="flex flex-col items-center justify-center py-10 gap-2">
-            <Search size={28} className="text-muted-foreground opacity-20" />
-            <CardDescription>Brak wyników dla „{filter}"</CardDescription>
-          </CardContent>
-        ) : (
-          <div className="overflow-auto max-h-[calc(100vh-12rem)]">
-            <table className="w-full text-xs tabular-nums">
-              <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
-                <tr>
-                  {[
-                    { col: 'name'         as SortCol, label: 'Nazwa',     align: 'left'  },
-                    { col: 'type'         as SortCol, label: 'Typ',       align: 'left'  },
-                    { col: 'available'    as SortCol, label: 'Dostępne',  align: 'right' },
-                    { col: 'used'         as SortCol, label: 'Zużyte',    align: 'right' },
-                    { col: 'supplierName' as SortCol, label: 'Dostawca',  align: 'left'  },
-                  ].map(h => (
-                    <th
-                      key={h.col}
-                      onClick={() => toggleSort(h.col)}
-                      className={cn(
-                        'group cursor-pointer select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
-                        h.align === 'right' && 'text-right',
-                      )}
-                    >
-                      <span className={cn('inline-flex items-center gap-1', h.align === 'right' && 'flex-row-reverse')}>
-                        {h.label}
-                        <SortIcon col={h.col} />
-                      </span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {list.map((item, idx) => (
-                  <tr
-                    key={item.id}
-                    className={cn(
-                      'border-b border-surface-3 transition-colors',
-                      idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
-                      'hover:bg-blue-50/60'
-                    )}
-                  >
-                    <td className="px-2.5 py-2 whitespace-nowrap text-ink font-medium">
-                      {item.name}
-                    </td>
-                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
-                      {TYPE_LABELS[item.type]}
-                    </td>
-                    <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold">
-                      <span className={item.kgAvailable > 0 ? 'text-emerald-700' : 'text-muted-foreground'}>
-                        {item.kgAvailable}
-                      </span>
-                      <span className="text-muted-foreground font-normal text-[10px]"> {item.unit}</span>
-                    </td>
-                    <td className="px-2.5 py-2 whitespace-nowrap text-right text-ink-2">
-                      {item.kgUsed}
-                      <span className="text-muted-foreground font-normal text-[10px]"> {item.unit}</span>
-                    </td>
-                    <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[260px] truncate" title={item.supplierName || ''}>
-                      {item.supplierName || <span className="text-muted-foreground">—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
-                <tr>
-                  <td colSpan={2} className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2">
-                    Suma · {list.length} pozycji
-                  </td>
-                  <td className="px-2.5 py-2 text-right font-bold tabular-nums text-emerald-700">
-                    {totalAvail.toFixed(0)}
-                  </td>
-                  <td colSpan={2} />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
-      </Card>
+      ) : rawList.length === 0 ? (
+        <div className="rounded-lg border border-surface-4 bg-white flex flex-col items-center justify-center py-16 gap-2">
+          <Archive size={36} className="text-muted-foreground opacity-20" />
+          <div className="text-sm font-medium text-muted-foreground">Brak opakowań</div>
+          <div className="text-xs text-muted-foreground">Przyjmij opakowania przyciskiem „Przyjmij"</div>
+        </div>
+      ) : (
+        <DataTable
+          rows={rawList} rowKey={i => i.id}
+          searchText={i => `${i.name || ''} ${i.code || ''} ${i.supplierName || ''} ${TYPE_LABELS[i.type]}`}
+          searchPlaceholder="Filtruj: nazwa, typ, dostawca…"
+          initialSort={{ key: 'name' }}
+          footer={rows => {
+            const sum = rows.reduce((s, i) => s + i.kgAvailable, 0)
+            return <><span>Suma · {rows.length} pozycji</span><span className="ml-auto">Dostępne: <span className="text-emerald-700 font-bold">{sum.toFixed(0)}</span></span></>
+          }}
+          columns={[
+            { key: 'name', header: 'Nazwa', sortable: true, sortValue: i => i.name || '',
+              cell: i => <span className="text-ink font-medium">{i.name}</span> },
+            { key: 'type', header: 'Typ', sortable: true, sortValue: i => TYPE_LABELS[i.type],
+              cell: i => TYPE_LABELS[i.type] },
+            { key: 'available', header: 'Dostępne', align: 'right', sortable: true, sortValue: i => i.kgAvailable,
+              cell: i => <><span className={i.kgAvailable > 0 ? 'text-emerald-700 font-bold' : 'text-muted-foreground'}>{i.kgAvailable}</span><span className="text-muted-foreground font-normal text-[10px]"> {i.unit}</span></> },
+            { key: 'used', header: 'Zużyte', align: 'right', sortable: true, sortValue: i => i.kgUsed,
+              cell: i => <span className="text-ink-2">{i.kgUsed}<span className="text-muted-foreground font-normal text-[10px]"> {i.unit}</span></span> },
+            { key: 'supplierName', header: 'Dostawca', sortable: true, sortValue: i => i.supplierName || '',
+              cell: i => <span className="truncate block max-w-[260px]" title={i.supplierName || ''}>{i.supplierName || <span className="text-muted-foreground">—</span>}</span> },
+          ]}
+        />
+      )}
 
       <Dialog open={modal} onOpenChange={v => { if (!v) setModal(false) }}>
         <DialogContent className="max-w-md">
