@@ -234,8 +234,34 @@ def batch_history(batch_id: str) -> List[Dict]:
     )
 
 
+def _batch_used_reason_cx(conn, batch_id: str) -> str | None:
+    """Zwraca powód, dla którego partii NIE wolno edytować/usuwać (albo None).
+    Partia „ruszona": status used/cancelled, albo są wpisy rozbioru / mięso /
+    uboczne z tej partii. Chroni traceability przed edycją rozliczonej ćwiartki."""
+    st = cx_query_one(conn, "SELECT status FROM raw_batches WHERE id=%s", (batch_id,))
+    if not st:
+        return "not_found"
+    status = (st.get("status") or "").lower()
+    if status in ("used", "cancelled"):
+        return f"Partia ma status {status} — operacja niedozwolona"
+    for table, label in (
+        ("deboning_entries", "rozbiorze"),
+        ("meat_stock", "magazynie mięsa"),
+        ("batch_byproducts", "ważeniu ubocznych"),
+    ):
+        r = cx_query_one(conn, f"SELECT 1 FROM {table} WHERE raw_batch_id=%s LIMIT 1", (batch_id,))
+        if r:
+            return f"Partia jest już użyta w {label} — operacja niedozwolona"
+    return None
+
+
 def cancel_batch(batch_id: str) -> Dict:
     with transaction() as conn:
+        reason = _batch_used_reason_cx(conn, batch_id)
+        if reason == "not_found":
+            raise HTTPException(404, "Partia nie znaleziona")
+        if reason:
+            raise HTTPException(409, reason)
         row = cx_execute_returning(
             conn,
             "UPDATE raw_batches SET status='cancelled' WHERE id=%s RETURNING *",
@@ -249,15 +275,11 @@ def cancel_batch(batch_id: str) -> Dict:
 
 def update_batch(batch_id: str, dto: RawBatchUpdate) -> Dict:
     with transaction() as conn:
-        used = cx_query_one(
-            conn,
-            "SELECT COUNT(*) AS cnt FROM deboning_entries WHERE raw_batch_id=%s",
-            (batch_id,),
-        )
-        if used and int(used["cnt"]) > 0:
-            raise HTTPException(
-                409, "Partia jest już używana w rozbiorze — edycja niemożliwa"
-            )
+        reason = _batch_used_reason_cx(conn, batch_id)
+        if reason == "not_found":
+            raise HTTPException(404, "Partia nie znaleziona")
+        if reason:
+            raise HTTPException(409, reason)
         kg_received = float(dto.kg_received)
         row = cx_execute_returning(
             conn,
