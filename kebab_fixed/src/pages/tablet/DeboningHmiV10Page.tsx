@@ -587,6 +587,18 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     }
     setUndoUntil(Date.now() + 60_000); setUndoNow(Date.now())
     showToast(`Zapisano: ${fmtKg(meat)} kg mięsa`)
+
+    // Automatyczne zakończenie partii: gdy ta sztuka wyczerpała ćwiartkę
+    // (zostało mniej niż na kolejną sztukę), sam pokazuj komunikat o ważeniu
+    // ubocznych — bez klikania „Zakończ partię".
+    const remaining = Number(selBatch.kgAvailable) - taken
+    if (remaining <= 0.5 && !byproductsByBatch.has(selBatch.id)) {
+      const b = selBatch
+      setSelBatch(null) // partia wyczerpana — operator wybierze następną
+      byproductsApi.finish(b.id, loggedInUser?.name)
+        .then(rec => { byproductsData.refetch(); setFinishPrompt({ batch: b, record: rec }) })
+        .catch(() => {})
+    }
   }
 
   async function handleUndo() {

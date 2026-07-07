@@ -12,6 +12,7 @@ from fastapi import HTTPException
 
 from app.db import execute, query_all, query_one
 from app.logging_config import get_logger
+from app.utils.ids import cuid
 
 logger = get_logger(__name__)
 
@@ -78,7 +79,10 @@ def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = No
     """Zapisz zważoną frakcję (backs|bones): kg + wyliczony % + szczegóły palet."""
     if kind not in ("backs", "bones"):
         raise HTTPException(400, "kind musi być 'backs' albo 'bones'")
-    rec = query_one("SELECT quarter_kg FROM batch_byproducts WHERE raw_batch_id=%s", (raw_batch_id,))
+    rec = query_one(
+        "SELECT quarter_kg, raw_batch_no FROM batch_byproducts WHERE raw_batch_id=%s",
+        (raw_batch_id,),
+    )
     if not rec:
         raise HTTPException(404, "Partia nie została zakończona (brak rekordu ubocznych)")
     quarter = float(rec["quarter_kg"] or 0)
@@ -88,4 +92,20 @@ def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = No
         f"{kind}_at=now() WHERE raw_batch_id=%s",
         (round(kg, 3), pct, json.dumps(pallets or []), raw_batch_id),
     )
+    # Lot ABP w magazynie produktów ubocznych — żeby zważone zbiorczo grzbiety/
+    # kości trafiły do MES z traceability partii (partia→lot→utylizacja przez
+    # /api/byproducts). Lot zbiorczy: deboning_entry_id NULL, powiązany z partią.
+    # Idempotentne: nadpisujemy poprzedni otwarty lot tej partii+frakcji.
+    execute(
+        "DELETE FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
+        "AND deboning_entry_id IS NULL AND status='open'",
+        (raw_batch_id, kind),
+    )
+    if kg > 0:
+        execute(
+            "INSERT INTO byproduct_lots (id, deboning_entry_id, raw_batch_id, "
+            "raw_batch_no, kind, kg, status, created_at) "
+            "VALUES (%s, NULL, %s, %s, %s, %s, 'open', now())",
+            (cuid(), raw_batch_id, rec["raw_batch_no"], kind, round(kg, 3)),
+        )
     return get(raw_batch_id)
