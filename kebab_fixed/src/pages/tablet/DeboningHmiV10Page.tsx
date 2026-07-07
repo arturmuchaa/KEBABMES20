@@ -828,10 +828,16 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
 
       <div className="flex-1 flex min-h-0 px-4 pb-4 gap-0">
         <div className="flex-shrink-0 min-h-0 flex flex-col" style={{ width: '34%', paddingRight: 16, borderRight: '1px solid var(--lineSoft)' }}>
+          {/* Kolejność wymuszona (guided): pracownicy dostępni dopiero po wyborze partii. */}
+          {guided && !selBatch && (
+            <div className="flex-shrink-0 mb-2 px-3 py-2 text-[12px] font-bold uppercase text-center" style={{ borderRadius: 8, background: 'var(--accentSoft)', color: 'var(--accent)', letterSpacing: '.06em' }}>
+              Najpierw wybierz partię ↑
+            </div>
+          )}
           {workerData.loading
             ? <div className="flex items-center justify-center h-full"><Spinner size={32} /></div>
             : (
-              <div className="flex-1 min-h-0 overflow-y-auto"
+              <div className={cn('flex-1 min-h-0 overflow-y-auto', guided && !selBatch && 'opacity-40 pointer-events-none')}
                 style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(126px, 1fr))', gap: 10, alignContent: 'start' }}>
                 {workers.map(w => {
                   const ws = perWorker.get(w.id)
@@ -940,11 +946,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           </div>
 
           {scale.available && (
-            <div className="flex-shrink-0 p-3 flex flex-col gap-2.5"
+            <div className={cn('flex-shrink-0 p-3 flex flex-col gap-2.5', guided && taken <= 0 && 'opacity-40 pointer-events-none')}
               style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>
-                  Tara — wózek i pojemniki E2
+                  {guided && taken <= 0 ? 'Tara — najpierw podaj ćwiartkę' : 'Tara — wózek i pojemniki E2'}
                 </span>
                 <span className="hmi-v10-mono text-sm font-bold">
                   {cartTare != null && e2Count > 0
@@ -1175,9 +1181,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
 
       <div className="flex-shrink-0 h-[76px] grid grid-cols-7" style={{ background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
         {[
-          { label: 'Wydajność dnia', val: shift.totMeat > 0 ? fmtPct(shift.yieldPct, 1) : '—', color: yieldInk(shift.yieldPct) },
           { label: 'Ćwiartka pobrana dzisiaj', val: `${fmtKg(shift.totTaken, 0)} kg` },
           { label: 'Mięso',         val: `${fmtKg(shift.totMeat, 0)} kg` },
+          { label: 'Wydajność dnia', val: shift.totMeat > 0 ? fmtPct(shift.yieldPct, 1) : '—', color: yieldInk(shift.yieldPct) },
           { label: 'Grzbiety',      val: `${fmtKg(shift.totBacks, 0)} kg` },
           { label: 'Kości',         val: `${fmtKg(shift.totBones, 0)} kg` },
           { label: 'Wpisy',         val: String(entries.length) },

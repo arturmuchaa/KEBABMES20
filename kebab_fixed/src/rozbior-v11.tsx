@@ -116,7 +116,7 @@ function KioskLoginScreen() {
 
   const pressDigit = (d: string) => {
     setErr('')
-    setPin(prev => (prev.length >= 6 ? prev : prev + d))
+    setPin(prev => (prev.length >= 4 ? prev : prev + d))
   }
   const backspace = () => { setErr(''); setPin(prev => prev.slice(0, -1)) }
   const pickWorker = (o: KioskOperator) => { setSelId(o.id); setPin(''); setErr('') }
@@ -174,7 +174,7 @@ function KioskLoginScreen() {
       ) : (
         <div className="flex flex-col items-center gap-6">
           <div className="flex gap-3">
-            {Array.from({ length: 6 }).map((_, i) => (
+            {Array.from({ length: 4 }).map((_, i) => (
               <span key={i} style={{ width: 18, height: 18, borderRadius: '50%', background: i < pin.length ? 'var(--accent)' : 'var(--line)' }} />
             ))}
           </div>

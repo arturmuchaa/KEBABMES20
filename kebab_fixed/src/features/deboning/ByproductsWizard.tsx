@@ -144,7 +144,7 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
                       color: done ? 'var(--success)' : 'var(--accent)',
                     }}>
                     <Package size={40} />
-                    <span className="text-2xl" style={{ color: 'var(--ink)' }}>{FRAC_LABEL[f]}</span>
+                    <span className="text-3xl uppercase" style={{ color: 'var(--ink)', letterSpacing: '.02em' }}>{FRAC_LABEL[f]}</span>
                     {done
                       ? <span className="text-sm font-bold flex items-center gap-1"><Check size={16} /> zważone {pct != null ? fmtPct(pct, 1) : ''} · zważ ponownie</span>
                       : <span className="text-sm font-bold" style={{ color: 'var(--mut)' }}>dotknij, aby zważyć</span>}
