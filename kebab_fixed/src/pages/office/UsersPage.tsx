@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { tokenStore } from '@/features/auth/storage'
 import { RequireAdmin } from '@/features/auth/guards'
 import { BASE } from '@/lib/api'
+import { DataTable } from '@/components/DataTable'
 
 const authHeaders = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${tokenStore.get()}` })
 
@@ -26,35 +27,46 @@ function UsersInner() {
     load()
   }
 
+  const inputCls = 'h-9 rounded-md border border-surface-4 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand'
+
   return (
-    <div className="p-6 space-y-4">
-      <h1 className="text-xl font-bold">Konta biura</h1>
-      <div className="flex gap-2 items-end flex-wrap bg-white p-4 rounded shadow">
-        <input className="border rounded px-2 py-1" placeholder="Login" value={form.login}
+    <div className="space-y-4">
+      {/* Nowe konto */}
+      <div className="flex gap-2 items-end flex-wrap rounded-lg border border-surface-4 bg-white p-4">
+        <input className={inputCls} placeholder="Login" value={form.login}
                onChange={e => setForm({ ...form, login: e.target.value })} />
-        <input className="border rounded px-2 py-1" placeholder="Imię i nazwisko" value={form.display_name}
+        <input className={inputCls} placeholder="Imię i nazwisko" value={form.display_name}
                onChange={e => setForm({ ...form, display_name: e.target.value })} />
-        <input className="border rounded px-2 py-1" placeholder="Hasło (min.8)" type="password" value={form.password}
+        <input className={inputCls} placeholder="Hasło (min. 8)" type="password" value={form.password}
                onChange={e => setForm({ ...form, password: e.target.value })} />
-        <select className="border rounded px-2 py-1" value={form.role}
+        <select className={inputCls} value={form.role}
                 onChange={e => setForm({ ...form, role: e.target.value })}>
           <option value="office">Biuro</option><option value="admin">Admin</option>
         </select>
-        <button onClick={create} className="bg-blue-600 text-white rounded px-3 py-1">Dodaj</button>
+        <button onClick={create} className="h-9 px-4 rounded-md bg-brand text-white text-sm font-semibold hover:bg-brand-dark">Dodaj konto</button>
       </div>
-      {err && <div className="text-red-600">{err}</div>}
-      <table className="w-full bg-white rounded shadow text-sm">
-        <thead><tr className="text-left border-b"><th className="p-2">Login</th><th>Imię</th><th>Rola</th><th>Aktywne</th><th></th></tr></thead>
-        <tbody>
-          {users.map(u => (
-            <tr key={u.id} className="border-b">
-              <td className="p-2">{u.login}</td><td>{u.display_name}</td><td>{u.role}</td>
-              <td>{u.active ? '✓' : '—'}</td>
-              <td><button onClick={() => toggle(u)} className="text-blue-600">{u.active ? 'Dezaktywuj' : 'Aktywuj'}</button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {err && <div className="text-sm font-semibold text-red-600">{err}</div>}
+
+      <DataTable
+        rows={users} rowKey={u => u.id}
+        searchText={u => `${u.login} ${u.display_name} ${u.role}`}
+        searchPlaceholder="Szukaj: login, imię, rola…"
+        initialSort={{ key: 'login' }}
+        columns={[
+          { key: 'login', header: 'Login', sortable: true, sortValue: u => u.login,
+            cell: u => <span className="font-semibold text-ink">{u.login}</span> },
+          { key: 'name', header: 'Imię i nazwisko', sortable: true, sortValue: u => u.display_name,
+            cell: u => u.display_name || '—' },
+          { key: 'role', header: 'Rola', sortable: true, sortValue: u => u.role,
+            cell: u => u.role === 'admin' ? 'Administrator' : 'Biuro' },
+          { key: 'active', header: 'Status', sortable: true, sortValue: u => (u.active ? 1 : 0),
+            cell: u => u.active
+              ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">aktywne</span>
+              : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-surface-3 text-ink-4 border border-surface-4">nieaktywne</span> },
+          { key: 'act', header: '', align: 'right',
+            cell: u => <button onClick={() => toggle(u)} className="text-brand text-xs font-semibold hover:underline">{u.active ? 'Dezaktywuj' : 'Aktywuj'}</button> },
+        ]}
+      />
     </div>
   )
 }
