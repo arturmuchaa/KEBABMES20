@@ -1,3 +1,4 @@
+import re
 from typing import Dict, List
 
 from fastapi import HTTPException
@@ -5,7 +6,7 @@ from fastapi import HTTPException
 from app.db import cx_execute_returning, query_all, transaction
 from app.logging_config import get_logger
 from app.models.suppliers import SupplierCreate
-from app.utils.ids import cuid, next_seq, now_iso
+from app.utils.ids import cuid, now_iso
 
 logger = get_logger(__name__)
 
@@ -14,9 +15,21 @@ def list_suppliers() -> List[Dict]:
     return query_all("SELECT * FROM suppliers WHERE active = true ORDER BY name")
 
 
+def _next_supplier_code() -> str:
+    """Kolejny kod dostawcy: D{n} kontynuujący po najwyższym istniejącym numerze
+    (D1, D2 → D3). Liczy ze WSZYSTKICH kodów (też nieaktywnych), żeby nie
+    powielać numeru. Zastępuje rozjechany licznik + niespójny format „D-001"."""
+    rows = query_all("SELECT code FROM suppliers WHERE code IS NOT NULL")
+    max_n = 0
+    for r in rows:
+        m = re.search(r"(\d+)", r.get("code") or "")
+        if m:
+            max_n = max(max_n, int(m.group(1)))
+    return f"D{max_n + 1}"
+
+
 def create_supplier(dto: SupplierCreate) -> Dict:
-    seq = next_seq("supplier_seq")
-    code = dto.code or f"D-{str(seq).zfill(3)}"
+    code = dto.code or _next_supplier_code()
     with transaction() as conn:
         row = cx_execute_returning(
             conn,
