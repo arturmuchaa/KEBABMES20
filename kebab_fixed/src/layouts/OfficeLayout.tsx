@@ -7,6 +7,7 @@ import pkg from '../../package.json'
 import { ZoomControls } from '@/features/ui/ZoomControls'
 import { useZoomInit } from '@/features/ui/useZoom'
 import { useAuth } from '@/features/auth/AuthContext'
+import { PageHeader, PageHeaderProvider } from '@/components/PageHeader'
 
 const APP_VERSION = pkg.version
 
@@ -128,14 +129,18 @@ export function OfficeLayout() {
         {/* Page content */}
         <main className="flex-1 overflow-y-auto scrollbar-thin">
           <div className="p-5 md:p-6 max-w-screen-2xl mx-auto">
-            {/* Page title block */}
-            {page.description && (
-              <div className="mb-6">
-                <h1 className="text-xl font-semibold text-gray-900 leading-none">{page.title}</h1>
-                <p className="text-sm text-gray-500 mt-1">{page.description}</p>
-              </div>
-            )}
-            <Outlet />
+            {/* Jeden, spójny nagłówek strony (tytuł + podtytuł + slot akcji) dla
+                KAŻDEJ strony. Dashboard ma własny bogaty nagłówek — pomijamy. */}
+            <PageHeaderProvider>
+              {(actions) => (
+                <>
+                  {pathname !== '/office/dashboard' && PAGE_TITLES[pathname] && (
+                    <PageHeader title={page.title} subtitle={page.description} actions={actions} />
+                  )}
+                  <Outlet />
+                </>
+              )}
+            </PageHeaderProvider>
           </div>
         </main>
       </div>
