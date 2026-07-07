@@ -11,7 +11,7 @@
  */
 import { useState, useRef, useEffect, useMemo, useCallback, memo, type CSSProperties } from 'react'
 import { useApi } from '@/hooks/useApi'
-import { rawBatchesApi, usersApi, settingsApi } from '@/lib/apiClient'
+import { rawBatchesApi, usersApi, settingsApi, byproductsApi, type BatchByproducts } from '@/lib/apiClient'
 import { Spinner } from '@/components/ui/widgets'
 import { fmtKg, fmtPct, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
@@ -25,6 +25,7 @@ import {
 } from '@/features/deboning/utils/weighing'
 import { useAuth } from '@/features/auth/AuthContext'
 import { useServiceHold, ServiceMenuModal } from '@/features/deboning/ServiceMenu'
+import { ByproductsWizard } from '@/features/deboning/ByproductsWizard'
 import './DeboningHmiV10Page.css'
 
 // Wstrzyknięte przez Vite (vite.config.ts) z tauri.rozbior-v10.conf.json —
@@ -155,6 +156,31 @@ const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect }: {
   )
 })
 
+// ─── Kafel partii OCZEKUJĄCEJ na ważenie ubocznych (szary) ──────────
+const PendingBatchTile = memo(function PendingBatchTile({ rec, onOpen }: {
+  rec: BatchByproducts; onOpen: () => void
+}) {
+  const need: string[] = []
+  if (!rec.backsDone) need.push('grzbiety')
+  if (!rec.bonesDone) need.push('kości')
+  return (
+    <button type="button" onClick={onOpen}
+      className="flex flex-col justify-between text-left h-full flex-shrink-0 select-none"
+      style={{ width: 244, padding: '14px 18px', borderRadius: 12, background: '#EEF0F3', border: '1px dashed var(--mut)', color: 'var(--mut)' }}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="hmi-v10-mono font-bold text-2xl leading-none" style={{ color: 'var(--ink)' }}>{rec.rawBatchNo}</span>
+        <span className="text-[10px] font-bold uppercase px-2 py-0.5" style={{ borderRadius: 6, background: 'var(--ambSoft)', color: 'var(--amb)', border: '1px solid var(--ambLine)', letterSpacing: '.06em' }}>zakończona</span>
+      </div>
+      <div className="text-[13px] font-bold uppercase mt-1" style={{ color: 'var(--amb)', letterSpacing: '.03em' }}>
+        Doważyć: {need.join(' + ')}
+      </div>
+      <div className="text-[12px] font-semibold" style={{ color: 'var(--mut)' }}>
+        dotknij, aby zważyć · ćwiartka {fmtKg(rec.quarterKg, 0)} kg
+      </div>
+    </button>
+  )
+})
+
 // ─── Kafel pracownika ──────────────────────────────────────────────
 const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, onSelect }: {
   worker: User; selected: boolean; entryCount: number; kgToday: number; onSelect: (w: User) => void
@@ -255,6 +281,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const loggedInUser = auth?.user
   const batchData  = useApi(() => rawBatchesApi.list())
   const workerData = useApi(() => usersApi.list())
+  // Partie oczekujące na ważenie ubocznych (grzbiety/kości) — szare kafle,
+  // przechodzą między dniami. Odświeżane co 5 s razem z partiami (useEffect niżej).
+  const byproductsData = useApi(() => byproductsApi.pending())
   const { session, timeWindow, loading: sessionLoading, startDay, startLoading, closeDay, closeLoading } = useProductionSession()
   const { entries, addEntry, editEntry, removeEntry, lastCreated, addLoading, removeLoading } = useDeboningEntries(session?.id ?? null)
 
@@ -291,6 +320,14 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [shiftModal,  setShiftModal]  = useState(false)
   const [statsModal,  setStatsModal]  = useState(false)
   const [operatorModal, setOperatorModal] = useState(false)
+  // Ważenie ubocznych: prompt po zakończeniu partii + otwarty kreator.
+  const [finishPrompt, setFinishPrompt] = useState<{ batch: RawBatch; record: BatchByproducts } | null>(null)
+  const [wizard, setWizard] = useState<{ batch: RawBatch; record: BatchByproducts } | null>(null)
+  const byproductsByBatch = useMemo(() => {
+    const m = new Map<string, BatchByproducts>()
+    for (const p of byproductsData.data ?? []) m.set(p.rawBatchId, p)
+    return m
+  }, [byproductsData.data])
   const [statsSort,   setStatsSort]   = useState<StatsSort>('meat')
   const [statsDir,    setStatsDir]    = useState<'asc' | 'desc'>('desc')
   const [inputBacks, setInputBacks] = useState('')
@@ -339,9 +376,10 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     const t = setInterval(() => {
       batchData.refetch()
       workerData.refetch()
+      byproductsData.refetch()
     }, 5000)
     return () => clearInterval(t)
-  }, [batchData.refetch, workerData.refetch])
+  }, [batchData.refetch, workerData.refetch, byproductsData.refetch])
 
   const allActiveBatches = useMemo(() =>
     (batchData.data?.data ?? [])
@@ -560,6 +598,34 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     showToast(`Cofnięto wpis — ${fmtKg(lastCreated.kgMeat, 1)} kg wróciło do partii`)
   }
 
+  // Zakończenie partii → utworzenie rekordu ubocznych + prompt (teraz/później).
+  async function handleFinishBatch() {
+    if (!selBatch) { showToast('Najpierw wybierz partię do zakończenia', 'err'); return }
+    try {
+      const rec = await byproductsApi.finish(selBatch.id, loggedInUser?.name)
+      byproductsData.refetch()
+      setFinishPrompt({ batch: selBatch, record: rec })
+    } catch (e: any) {
+      showToast(e?.message || 'Nie udało się zakończyć partii', 'err')
+    }
+  }
+
+  // Otwórz kreator ważenia dla partii (z promptu albo z szarego kafla).
+  async function openWizard(batch: RawBatch) {
+    const rec = byproductsByBatch.get(batch.id) ?? await byproductsApi.finish(batch.id, loggedInUser?.name).catch(() => null)
+    if (!rec) { showToast('Nie udało się otworzyć ważenia', 'err'); return }
+    setFinishPrompt(null)
+    setWizard({ batch, record: rec })
+  }
+
+  async function handleWizardWeigh(kind: 'backs' | 'bones', kg: number, pallets: any[]) {
+    if (!wizard) return
+    const rec = await byproductsApi.weigh(wizard.batch.id, kind, kg, pallets)
+    setWizard(w => (w ? { ...w, record: rec } : null))
+    byproductsData.refetch()
+    showToast(`Zapisano ${kind === 'backs' ? 'grzbiety' : 'kości'}: ${fmtKg(kg, 1)} kg`)
+  }
+
   async function handleFinishBatchConfirm() {
     if (!session) return
     if (pendingFinalize.length === 0) { showToast('Brak wpisów do zakończenia', 'err'); return }
@@ -592,6 +658,42 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     <div className="h-full w-full overflow-hidden flex flex-col" style={{ ...VARS, background: 'var(--bg)', color: 'var(--ink)', fontFamily: '-apple-system, "Segoe UI", system-ui, sans-serif' }}>
       {children}
       <ServiceMenuModal open={serviceModal} onClose={() => setServiceModal(false)} buildLabel={buildLabel} />
+
+      {/* Prompt po zakończeniu partii — zważyć uboczne teraz czy później. */}
+      {finishPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-[440px] p-8 flex flex-col gap-6" style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)' }}>
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 flex items-center justify-center flex-shrink-0" style={{ borderRadius: 12, background: 'var(--successSoft)', border: '1px solid var(--successLine)', color: 'var(--success)' }}><Check size={26} /></div>
+              <div>
+                <h3 className="font-extrabold text-xl">Partia {finishPrompt.batch.internalBatchNo} zakończona</h3>
+                <p className="text-sm" style={{ color: 'var(--mut)' }}>Zważyć teraz grzbiety i kości, czy później?</p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-3">
+              <button type="button" onClick={() => openWizard(finishPrompt.batch)}
+                className="h-14 text-base font-bold flex items-center justify-center gap-3" style={{ borderRadius: 10, background: 'var(--accent)', color: '#fff' }}>
+                <Scale size={20} /> Zważ teraz
+              </button>
+              <button type="button" onClick={() => { setFinishPrompt(null); byproductsData.refetch() }}
+                className="h-12 text-base font-bold" style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--ink)' }}>
+                Później (kafel zostanie szary)
+              </button>
+              <button type="button" onClick={() => { setFinishPrompt(null); setFinishModal(true) }}
+                className="h-10 text-sm font-bold" style={{ borderRadius: 10, color: 'var(--mut)' }}>
+                Wpisz ręcznie (awaryjnie)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Kreator ważenia zbiorczego grzbietów i kości. */}
+      {wizard && (
+        <ByproductsWizard batch={wizard.batch} record={wizard.record} scale={scale}
+          onWeigh={handleWizardWeigh}
+          onClose={() => { setWizard(null); byproductsData.refetch() }} />
+      )}
     </div>
   )
 
@@ -669,7 +771,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           style={{ border: '1px solid var(--line)', color: 'var(--mut)', borderRadius: 8, background: 'var(--panel)' }}>
           <LogOut size={15} /> Zakończ zmianę
         </button>
-        <button type="button" onClick={() => setFinishModal(true)}
+        <button type="button" onClick={handleFinishBatch}
           className="h-9 px-4 text-[13px] font-bold flex items-center gap-2 flex-shrink-0"
           style={{ border: '1px solid var(--ambLine)', color: 'var(--amb)', borderRadius: 8, background: 'var(--ambSoft)' }}>
           <Flag size={15} /> Zakończ partię
@@ -702,6 +804,14 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 <BatchTileV10 key={b.id} batch={b} selected={selBatch?.id === b.id} onSelect={pickBatch} />
               ))
         }
+        {/* Szare kafle: partie zakończone, oczekujące na ważenie ubocznych
+            (przechodzą między dniami). Pomijamy te już widoczne jako aktywne. */}
+        {(byproductsData.data ?? [])
+          .filter(p => !batches.some(b => b.id === p.rawBatchId))
+          .map(p => (
+            <PendingBatchTile key={p.rawBatchId} rec={p}
+              onOpen={() => openWizard({ id: p.rawBatchId, internalBatchNo: p.rawBatchNo } as RawBatch)} />
+          ))}
       </div>
 
       <div className="flex-1 flex min-h-0 px-4 pb-4 gap-0">

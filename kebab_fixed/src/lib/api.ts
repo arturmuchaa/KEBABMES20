@@ -287,6 +287,22 @@ export const deboningEntriesApi = {
   traceability: (batchId: string) => get<any>(`/deboning/entries/trace/${batchId}`),
 }
 
+// Ważenie zbiorcze produktów ubocznych (grzbiety + kości) po zakończeniu partii.
+export interface BatchByproducts {
+  rawBatchId: string; rawBatchNo: string; quarterKg: number
+  backsKg: number | null; bonesKg: number | null
+  backsPct: number | null; bonesPct: number | null
+  backsDone: boolean; bonesDone: boolean; finishedAt: string | null
+}
+export const byproductsApi = {
+  pending: () => get<{ pending: BatchByproducts[] }>('/deboning/byproducts/pending').then(r => r?.pending ?? []),
+  get: (batchId: string) => get<BatchByproducts>(`/deboning/byproducts/${batchId}`),
+  finish: (batchId: string, operator?: string) =>
+    post<BatchByproducts>(`/deboning/byproducts/${batchId}/finish`, { operator: operator ?? '' }),
+  weigh: (batchId: string, kind: 'backs' | 'bones', kg: number, pallets: any[]) =>
+    post<BatchByproducts>(`/deboning/byproducts/${batchId}/weigh`, { kind, kg, pallets }),
+}
+
 // ─── Magazyn surowca ──────────────────────────────────────────
 // BUGFIX #2: Backend zwraca snake_case (kg_available, lot_no itp.)
 // ale MeatStock typ oczekuje camelCase → mapujemy pola

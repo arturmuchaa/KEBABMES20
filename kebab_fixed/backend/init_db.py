@@ -75,6 +75,21 @@ CREATE TABLE IF NOT EXISTS deboning_entries (
     e2_count INTEGER, weigh_mode TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
+-- Ważenie zbiorcze produktów ubocznych partii (grzbiety + kości) PO zakończeniu
+-- rozbioru. Niezależne flagi (grzbiety/kości mogą być zważone osobno), stan
+-- przeżywa zamknięcie dnia i przechodzi na kolejne dni aż do dokończenia.
+-- quarter_kg = snapshot sumy ćwiartki tej partii przy zakończeniu (baza %).
+CREATE TABLE IF NOT EXISTS batch_byproducts (
+    raw_batch_id TEXT PRIMARY KEY REFERENCES raw_batches(id),
+    raw_batch_no TEXT,
+    quarter_kg NUMERIC(10,3),
+    backs_kg NUMERIC(10,3), bones_kg NUMERIC(10,3),
+    backs_pct NUMERIC(5,2), bones_pct NUMERIC(5,2),
+    backs_pallets JSONB, bones_pallets JSONB,
+    finished_at TIMESTAMPTZ DEFAULT now(),
+    backs_at TIMESTAMPTZ, bones_at TIMESTAMPTZ,
+    operator TEXT
+);
 CREATE TABLE IF NOT EXISTS meat_stock (
     id TEXT PRIMARY KEY, lot_no TEXT UNIQUE NOT NULL,
     deboning_session_id TEXT, session_no TEXT,

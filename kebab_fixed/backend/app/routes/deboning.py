@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.models.deboning import DeboningEntryCreate, DeboningEntryUpdate
 from app.services import deboning_service as svc
+from app.services import batch_byproducts_service as byproducts_svc
 from app.services import settings_service
 
 router = APIRouter(tags=["deboning"])
@@ -30,6 +31,33 @@ def save_cart_tares(body: dict):
 @router.get("/api/deboning/entries/trace/{batch_id}")
 def deboning_trace(batch_id: str):
     return svc.deboning_trace(batch_id)
+
+
+# ── Ważenie zbiorcze produktów ubocznych (grzbiety + kości) po partii ──
+@router.get("/api/deboning/byproducts/pending")
+def byproducts_pending():
+    return {"pending": byproducts_svc.pending()}
+
+
+@router.get("/api/deboning/byproducts/{raw_batch_id}")
+def byproducts_get(raw_batch_id: str):
+    return byproducts_svc.get(raw_batch_id) or {}
+
+
+@router.post("/api/deboning/byproducts/{raw_batch_id}/finish")
+def byproducts_finish(raw_batch_id: str, body: dict = None):
+    body = body or {}
+    return byproducts_svc.finish_batch(raw_batch_id, (body.get("operator") or "").strip())
+
+
+@router.post("/api/deboning/byproducts/{raw_batch_id}/weigh")
+def byproducts_weigh(raw_batch_id: str, body: dict):
+    return byproducts_svc.record(
+        raw_batch_id,
+        (body.get("kind") or "").strip(),
+        float(body.get("kg") or 0),
+        body.get("pallets") or [],
+    )
 
 
 @router.get("/api/deboning/entries")
