@@ -182,12 +182,20 @@ const PendingBatchTile = memo(function PendingBatchTile({ rec, onOpen }: {
 })
 
 // ─── Kafel pracownika ──────────────────────────────────────────────
-const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, onSelect }: {
-  worker: User; selected: boolean; entryCount: number; kgToday: number; onSelect: (w: User) => void
+const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, onSelect, onLongPress }: {
+  worker: User; selected: boolean; entryCount: number; kgToday: number
+  onSelect: (w: User) => void; onLongPress: (w: User) => void
 }) {
   const initials = worker.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+  // Przytrzymanie (0,5 s) = szczegóły/edycja pracownika; krótkie dotknięcie = wybór.
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longRef = useRef(false)
+  const down = () => { longRef.current = false; timerRef.current = setTimeout(() => { longRef.current = true; onLongPress(worker) }, 500) }
+  const up = () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null } }
   return (
-    <button type="button" onClick={() => onSelect(worker)}
+    <button type="button"
+      onClick={() => { if (!longRef.current) onSelect(worker) }}
+      onPointerDown={down} onPointerUp={up} onPointerLeave={up} onPointerCancel={up}
       className="relative flex flex-col items-center justify-center gap-1 select-none active:scale-[0.98] transition-all px-2"
       style={{
         borderRadius: 10, aspectRatio: '1',
@@ -250,7 +258,7 @@ const NumpadV10 = memo(function NumpadV10({ onKey, onBackStart, onBackEnd, onSer
   // żeby przytrzymanie "." nadal otwierało menu serwisowe — same klawisze
   // ignorują wtedy onKey.
   return (
-    <div className={cn('grid grid-cols-3 gap-2 flex-1 min-h-0', disabled && 'opacity-40')}>
+    <div className={cn('grid grid-cols-3 gap-2.5 flex-1 min-h-0', disabled && 'opacity-40')}>
       {KEYS.map(k => (
         <button key={k} type="button" onClick={() => { if (!disabled) onKey(k) }}
           onPointerDown={k === '⌫' ? (disabled ? undefined : onBackStart) : k === '.' ? onServiceStart : undefined}
@@ -260,10 +268,10 @@ const NumpadV10 = memo(function NumpadV10({ onKey, onBackStart, onBackEnd, onSer
           className={cn('hmi-v10-mono flex items-center justify-center font-bold select-none transition-colors',
             !disabled && 'active:bg-[var(--ink)] active:text-white active:border-[var(--ink)]')}
           style={{
-            borderRadius: 10, fontSize: 'clamp(22px,2vw,28px)',
-            background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)',
+            borderRadius: 12, fontSize: 'clamp(30px,3.2vw,44px)', minHeight: 64,
+            background: 'var(--panel)', border: '1.5px solid var(--line)', color: 'var(--ink)',
           }}>
-          {k === '⌫' ? <Delete size={24} /> : k}
+          {k === '⌫' ? <Delete size={32} /> : k}
         </button>
       ))}
     </div>
@@ -299,6 +307,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [e2Count,  setE2Count]  = useState(guided ? GUIDED_DEFAULT_E2 : 0)
   // false = mięso z wagi (auto); true = operator przejął ręcznie (awaryjnie)
   const [meatManual, setMeatManual] = useState(false)
+  // Szczegóły/edycja pracownika (przytrzymanie kafla).
+  const [workerDetail, setWorkerDetail] = useState<User | null>(null)
+  const [editEntryId, setEditEntryId] = useState<string | null>(null)
+  const [editTaken, setEditTaken] = useState('')
+  const [editMeat,  setEditMeat]  = useState('')
 
   // Tary wózków: lista z biura (edytowalna w Ustawieniach firmy); cache w
   // localStorage na wypadek braku sieci przy starcie, fallback = stała lista.
@@ -630,6 +643,23 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setWizard({ batch, record: rec })
   }
 
+  function startEditEntry(e: DeboningEntry) {
+    setEditEntryId(e.id)
+    setEditTaken(String(e.kgTaken))
+    setEditMeat(String(e.kgMeat))
+  }
+  async function saveEditEntry() {
+    if (!editEntryId || !session) return
+    const kt = parseFloat(editTaken.replace(',', '.')) || 0
+    const km = parseFloat(editMeat.replace(',', '.')) || 0
+    if (kt <= 0 || km <= 0) { showToast('Ćwiartka i mięso muszą być > 0', 'err'); return }
+    if (km > kt) { showToast('Mięso nie może przekraczać ćwiartki', 'err'); return }
+    const err = await editEntry(editEntryId, { kgTaken: kt, kgMeat: km }, session)
+    if (err) { showToast(err, 'err'); return } // backend blokuje np. gdy mięso poszło dalej
+    setEditEntryId(null); batchData.refetch()
+    showToast('Wpis zaktualizowany')
+  }
+
   async function handleWizardWeigh(kind: 'backs' | 'bones', kg: number, pallets: any[]) {
     if (!wizard) return
     const rec = await byproductsApi.weigh(wizard.batch.id, kind, kg, pallets)
@@ -706,6 +736,60 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           onWeigh={handleWizardWeigh}
           onClose={() => { setWizard(null); byproductsData.refetch() }} />
       )}
+
+      {/* Szczegóły pracownika (przytrzymanie kafla): wpisy dnia + statystyki + edycja. */}
+      {workerDetail && (() => {
+        const wEntries = entries.filter(e => e.workerId === workerDetail.id).slice().reverse()
+        const wt = wEntries.reduce((s, e) => s + e.kgTaken, 0)
+        const wm = wEntries.reduce((s, e) => s + e.kgMeat, 0)
+        const wy = wt > 0 ? (wm / wt) * 100 : 0
+        return (
+          <div className="fixed inset-0 z-[56] flex items-center justify-center bg-black/45" style={VARS}>
+            <div className="w-[720px] max-w-[96vw] flex flex-col" style={{ maxHeight: '92vh', borderRadius: 16, background: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', boxShadow: '0 30px 80px -30px rgba(0,0,0,.5)' }}>
+              <div className="flex items-center gap-4 px-6 py-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--line)', background: 'var(--panel)', borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
+                <span className="w-12 h-12 rounded-full flex items-center justify-center font-extrabold" style={{ background: 'var(--accent)', color: '#fff' }}>
+                  {workerDetail.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-extrabold text-xl leading-tight truncate">{workerDetail.name}</div>
+                  <div className="hmi-v10-mono text-[12px] font-bold" style={{ color: 'var(--mut)' }}>
+                    {wEntries.length} szt · ćwiartka {fmtKg(wt, 0)} kg · mięso {fmtKg(wm, 0)} kg · <span style={{ color: yieldInk(wy) }}>{fmtPct(wy, 1)}</span>
+                  </div>
+                </div>
+                <button type="button" onClick={() => { setWorkerDetail(null); setEditEntryId(null) }} className="w-9 h-9 flex items-center justify-center" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}><X size={18} /></button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-2">
+                {wEntries.length === 0 && <div className="text-center py-8 text-sm font-semibold" style={{ color: 'var(--mut)' }}>Brak wpisów dziś</div>}
+                {wEntries.map(e => editEntryId === e.id ? (
+                  <div key={e.id} className="flex items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
+                    <span className="hmi-v10-mono text-xs" style={{ color: 'var(--mut)' }}>{new Date(e.createdAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <label className="flex flex-col"><span className="text-[9px] font-bold uppercase" style={{ color: 'var(--mut)' }}>Ćwiartka</span>
+                      <input type="number" inputMode="decimal" value={editTaken} onChange={ev => setEditTaken(ev.target.value)} className="hmi-v10-mono w-24 h-10 px-2 text-base font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', background: 'var(--panel)' }} /></label>
+                    <label className="flex flex-col"><span className="text-[9px] font-bold uppercase" style={{ color: 'var(--mut)' }}>Mięso</span>
+                      <input type="number" inputMode="decimal" value={editMeat} onChange={ev => setEditMeat(ev.target.value)} className="hmi-v10-mono w-24 h-10 px-2 text-base font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', background: 'var(--panel)' }} /></label>
+                    <div className="flex gap-2 ml-auto">
+                      <button type="button" onClick={() => setEditEntryId(null)} className="h-10 px-4 text-sm font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}>Anuluj</button>
+                      <button type="button" onClick={saveEditEntry} className="h-10 px-5 text-sm font-bold" style={{ borderRadius: 8, background: 'var(--accent)', color: '#fff' }}>Zapisz</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={e.id} className="grid grid-cols-[52px_56px_1fr_1fr_52px_90px] items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
+                    <span className="hmi-v10-mono text-xs" style={{ color: 'var(--mut)' }}>{new Date(e.createdAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="hmi-v10-mono text-xs font-bold" style={{ color: 'var(--accent)' }}>{e.rawBatchNo}</span>
+                    <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>ćw</span>{fmtKg(e.kgTaken, 1)}</span>
+                    <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>mię</span>{fmtKg(e.kgMeat, 1)}</span>
+                    <span className="hmi-v10-mono text-sm font-bold text-right" style={{ color: yieldInk(e.yieldPct) }}>{fmtPct(e.yieldPct, 0)}</span>
+                    <button type="button" onClick={() => startEditEntry(e)} className="h-9 text-xs font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--accent)' }}>Edytuj</button>
+                  </div>
+                ))}
+              </div>
+              <div className="px-4 py-3 flex-shrink-0 text-[11px] font-semibold" style={{ borderTop: '1px solid var(--line)', color: 'var(--mut)' }}>
+                Edycja możliwa, dopóki mięso nie poszło dalej (np. na masowanie). Jeśli poszło — system zablokuje zmianę.
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 
@@ -843,7 +927,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                   const ws = perWorker.get(w.id)
                   return (
                     <WorkerTileV10 key={w.id} worker={w} selected={selWorker?.id === w.id}
-                      entryCount={ws?.count ?? 0} kgToday={ws?.taken ?? 0} onSelect={pickWorker} />
+                      entryCount={ws?.count ?? 0} kgToday={ws?.taken ?? 0} onSelect={pickWorker}
+                      onLongPress={(wk) => { setWorkerDetail(wk); setEditEntryId(null) }} />
                   )
                 })}
                 {workers.length === 0 && (
@@ -1152,19 +1237,30 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               <ListOrdered size={13} style={{ color: 'var(--mut)', marginLeft: 'auto' }} />
               <span className="hmi-v10-mono text-xs font-bold" style={{ color: 'var(--mut)' }}>{entries.length} dziś</span>
             </div>
+            {/* Nagłówek kolumn — wszystko w jednej linii, osobne kolumny liczb. */}
+            <div className="grid grid-cols-[44px_1fr_46px_78px_78px_48px] items-center gap-2 px-2 pb-1.5 flex-shrink-0"
+              style={{ borderBottom: '1px solid var(--line)' }}>
+              <span className="text-[9px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.06em' }}>Godz.</span>
+              <span className="text-[9px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.06em' }}>Pracownik</span>
+              <span className="text-[9px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.06em' }}>Part.</span>
+              <span className="text-[9px] font-bold uppercase text-right" style={{ color: 'var(--mut)', letterSpacing: '.06em' }}>Ćwiartka</span>
+              <span className="text-[9px] font-bold uppercase text-right" style={{ color: 'var(--mut)', letterSpacing: '.06em' }}>Mięso Z/S</span>
+              <span className="text-[9px] font-bold uppercase text-right" style={{ color: 'var(--mut)', letterSpacing: '.06em' }}>%</span>
+            </div>
             <div className="flex-1 min-h-0 overflow-y-auto">
               {recent.length === 0 ? (
                 <div className="px-2 py-8 text-center text-sm font-semibold" style={{ color: 'var(--mut)' }}>Brak wpisów z dziś</div>
               ) : recent.map((e: DeboningEntry, i) => (
-                <div key={e.id} className={cn('grid grid-cols-[52px_1fr_64px_110px_60px] items-center gap-2 px-2 py-2.5', i > 0 && 'border-t')}
+                <div key={e.id} className={cn('grid grid-cols-[44px_1fr_46px_78px_78px_48px] items-center gap-2 px-2 py-2', i > 0 && 'border-t')}
                   style={{ borderColor: 'var(--lineSoft)' }}>
                   <span className="hmi-v10-mono text-xs" style={{ color: 'var(--mut)' }}>
                     {new Date(e.createdAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
                   </span>
-                  <span className="text-sm font-semibold truncate">{e.workerName}</span>
+                  <span className="text-[13px] font-semibold truncate">{e.workerName}</span>
                   <span className="hmi-v10-mono text-xs font-bold" style={{ color: 'var(--accent)' }}>{e.rawBatchNo}</span>
-                  <span className="hmi-v10-mono text-sm text-right">{fmtKg(e.kgTaken, 1)} → {fmtKg(e.kgMeat, 1)}</span>
-                  <span className="hmi-v10-mono text-sm font-bold text-right" style={{ color: yieldInk(e.yieldPct) }}>{fmtPct(e.yieldPct, 0)}</span>
+                  <span className="hmi-v10-mono text-[13px] text-right">{fmtKg(e.kgTaken, 1)}</span>
+                  <span className="hmi-v10-mono text-[13px] text-right">{fmtKg(e.kgMeat, 1)}</span>
+                  <span className="hmi-v10-mono text-[13px] font-bold text-right" style={{ color: yieldInk(e.yieldPct) }}>{fmtPct(e.yieldPct, 0)}</span>
                 </div>
               ))}
             </div>
