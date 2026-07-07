@@ -948,16 +948,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           {scale.available && (
             <div className={cn('flex-shrink-0 p-3 flex flex-col gap-2.5', guided && taken <= 0 && 'opacity-40 pointer-events-none')}
               style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>
-                  {guided && taken <= 0 ? 'Tara — najpierw podaj ćwiartkę' : 'Tara — wózek i pojemniki E2'}
-                </span>
-                <span className="hmi-v10-mono text-sm font-bold">
-                  {cartTare != null && e2Count > 0
-                    ? `${fmtKg(cartTare, 1)} + ${e2Count} × ${fmtKg(E2_TARE_KG, 1)} = ${fmtKg(weighing.tareTotalKg, 1)} kg`
-                    : '—'}
-                </span>
-              </div>
+              <span className="text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>
+                {guided && taken <= 0 ? 'Tara — najpierw podaj ćwiartkę' : 'Wózek'}
+              </span>
               <div className="flex flex-wrap gap-2">
                 {/* Tara 0 = ważenie bez wózka (same pojemniki E2 na wadze) */}
                 <button type="button" onClick={() => setCartTare(0)}
@@ -989,22 +982,22 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                   </button>
                 ))}
               </div>
-              <div className="flex items-center gap-3">
+              {/* Pojemniki E2 — osobny, wyraźny kafel (nie zlewa się z wózkami). */}
+              <div className="flex items-center gap-3 p-2.5" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
                 <button type="button" onClick={() => setE2Count(n => Math.max(0, n - 1))}
-                  className="w-16 h-14 flex items-center justify-center flex-shrink-0 active:bg-[var(--ink)] active:text-white"
-                  style={{ borderRadius: 10, border: '1px solid var(--line)', background: 'var(--panel)' }}>
-                  <Minus size={26} />
+                  className="w-20 h-16 flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
+                  style={{ borderRadius: 12, background: 'var(--accent)', color: '#fff' }}>
+                  <Minus size={30} strokeWidth={3} />
                 </button>
                 <div className="flex-1 text-center">
-                  <div className="hmi-v10-mono font-bold text-4xl leading-none">{e2Count}</div>
-                  <div className="text-xs font-semibold mt-1" style={{ color: 'var(--mut)' }}>
-                    pojemników E2 × {fmtKg(E2_TARE_KG, 1)} kg{e2Count > 0 ? ` = ${fmtKg(weighing.tareE2Kg, 1)} kg` : ''}
-                  </div>
+                  <div className="text-[10px] font-bold uppercase" style={{ color: 'var(--accent)', letterSpacing: '.1em' }}>Pojemniki E2</div>
+                  <div className="hmi-v10-mono font-extrabold leading-none" style={{ fontSize: 46, color: 'var(--ink)' }}>{e2Count}</div>
+                  <div className="text-[11px] font-bold" style={{ color: 'var(--mut)' }}>× {fmtKg(E2_TARE_KG, 1)} kg{e2Count > 0 ? ` = ${fmtKg(weighing.tareE2Kg, 1)} kg` : ''}</div>
                 </div>
                 <button type="button" onClick={() => setE2Count(n => Math.min(20, n + 1))}
-                  className="w-16 h-14 flex items-center justify-center flex-shrink-0 active:bg-[var(--ink)] active:text-white"
-                  style={{ borderRadius: 10, border: '1px solid var(--line)', background: 'var(--panel)' }}>
-                  <Plus size={26} />
+                  className="w-20 h-16 flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
+                  style={{ borderRadius: 12, background: 'var(--accent)', color: '#fff' }}>
+                  <Plus size={30} strokeWidth={3} />
                 </button>
               </div>
             </div>
