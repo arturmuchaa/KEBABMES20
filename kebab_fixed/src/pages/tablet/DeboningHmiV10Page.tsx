@@ -62,10 +62,12 @@ const VARS: CSSProperties = {
   ['--redLine' as string]:    '#F6C6C6',
 }
 
+// Progi wydajności (decyzja operatora 2026-07-07): >=66% dobra/super (zielona),
+// 65% „w miarę" (bursztyn), poniżej 65% słaba (czerwona).
 function yieldInk(pct: number): string {
   if (pct <= 0) return 'var(--mut)'
-  if (pct < 60) return 'var(--red)'
-  if (pct < YIELD_BAND_LO) return 'var(--amb)'
+  if (pct < 65) return 'var(--red)'
+  if (pct < 66) return 'var(--amb)'
   return 'var(--success)'
 }
 
@@ -628,11 +630,6 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const redCount = alarms.filter(a => a.level === 'red').length
   const recent = entries.slice(-8).reverse()
 
-  // Wydajność wybranego pracownika „dziś" (do paska podczas ważenia).
-  const selWorkerStat = selWorker ? perWorker.get(selWorker.id) : undefined
-  const selWorkerYield = selWorkerStat && selWorkerStat.taken > 0
-    ? (selWorkerStat.meat / selWorkerStat.taken) * 100 : 0
-
   return wrap(
     <>
       <div className={cn('fixed top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3.5 text-base font-bold flex items-center gap-3 transition-opacity duration-150',
@@ -785,29 +782,6 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 done={taken > 0 && meat > 0 && !meatTooBig && (!autoMode || scale.stable)}>
                 Waga
               </SectionStep>
-            </div>
-          )}
-
-          {/* Pasek wybranego pracownika — jego wydajność „dziś" widoczna podczas ważenia. */}
-          {selWorker && (
-            <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2.5"
-              style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1px solid var(--line)' }}>
-              <span className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 font-extrabold text-sm"
-                style={{ background: 'var(--accent)', color: '#fff' }}>
-                {selWorker.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-              </span>
-              <div className="min-w-0">
-                <div className="text-sm font-bold truncate leading-tight">{selWorker.name}</div>
-                <div className="hmi-v10-mono text-[11px] font-bold" style={{ color: 'var(--mut)' }}>
-                  {selWorkerStat ? `${selWorkerStat.count} szt · ${fmtKg(selWorkerStat.meat, 0)} kg mięsa` : 'pierwsza sztuka dziś'}
-                </div>
-              </div>
-              <div className="ml-auto text-right flex-shrink-0">
-                <div className="text-[9px] font-bold uppercase leading-none" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>Wydajność</div>
-                <div className="hmi-v10-mono font-extrabold leading-none mt-0.5" style={{ fontSize: 28, color: yieldInk(selWorkerYield) }}>
-                  {selWorkerYield > 0 ? fmtPct(selWorkerYield, 1) : '—'}
-                </div>
-              </div>
             </div>
           )}
 
@@ -979,6 +953,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                   <span className="text-[11px] font-bold uppercase" style={{ color: 'var(--accent)', letterSpacing: '.08em' }}>Netto mięso</span>
                   <span className="hmi-v10-mono font-bold text-2xl" style={{ color: 'var(--accent)' }}>
                     {weighing.netKg > 0 ? `${fmtKg(weighing.netKg, 1)} kg` : '—'}
+                  </span>
+                </div>
+                {/* Procent rozbioru TEJ ćwiartki (mięso z pobranej ćwiartki), nie dnia. */}
+                <div className="flex items-baseline justify-between px-3 py-2" style={{ borderRadius: 8, border: '1px solid var(--line)' }}>
+                  <span className="text-[11px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>Procent rozbioru</span>
+                  <span className="hmi-v10-mono font-extrabold text-3xl leading-none" style={{ color: yieldInk(yieldPct) }}>
+                    {yieldPct > 0 ? fmtPct(yieldPct, 1) : '—'}
                   </span>
                 </div>
                 {weighing.netKg > 0 && (
