@@ -44,7 +44,7 @@ impl Default for ScaleConfig {
     fn default() -> Self {
         Self {
             enabled: true, port: "COM3".into(), baud: 9600,
-            stability_tol_kg: 0.5, tare_cmd: "Z\r\n".into(),
+            stability_tol_kg: 0.5, tare_cmd: "T\r\n".into(),
         }
     }
 }

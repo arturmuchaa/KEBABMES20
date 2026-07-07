@@ -1113,14 +1113,14 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                   style={{ background: scale.connected ? 'var(--success)' : 'var(--red)',
                     boxShadow: scale.connected ? '0 0 0 3px rgba(22,163,74,.18)' : '0 0 0 3px rgba(220,38,38,.15)' }} />
                 <span className="text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>Waga najazdowa</span>
-                <button type="button" onClick={() => { scale.tare(); showToast('Wysłano tarowanie do wagi') }}
+                <button type="button" onClick={() => { scale.tare(); showToast('Wysłano tarę do wagi') }}
                   disabled={!scale.connected}
-                  className="ml-auto h-8 px-4 text-[12px] font-bold uppercase active:scale-95 transition-transform"
-                  style={{ borderRadius: 8, letterSpacing: '.04em',
+                  className="ml-auto h-8 px-5 text-[12px] font-bold uppercase active:scale-95 transition-transform"
+                  style={{ borderRadius: 8, letterSpacing: '.06em',
                     background: scale.connected ? 'var(--accent)' : 'var(--panel)',
                     color: scale.connected ? '#fff' : 'var(--mut)',
                     border: `1px solid ${scale.connected ? 'var(--accent)' : 'var(--line)'}` }}>
-                  Taruj 0
+                  Tara
                 </button>
                 <span className="hmi-v10-mono text-[11px] font-bold" style={{ color: 'var(--mut)' }}>
                   {scale.connected ? 'RS232' : 'BRAK'}
