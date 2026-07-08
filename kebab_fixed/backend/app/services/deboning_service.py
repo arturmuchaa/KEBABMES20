@@ -98,6 +98,7 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
                kg_bones, yield_pct, raw_batch_no, created_at
         FROM deboning_entries
         WHERE created_at::date BETWEEN %s AND %s
+          AND COALESCE(status, 'complete') = 'complete'
         ORDER BY created_at
         """,
         (date_from, date_to),
@@ -574,6 +575,197 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
     return _map_deboning_entry(entry)  # type: ignore[arg-type]
 
 
+def create_deboning_take(dto) -> Dict:
+    """Faza 1: pobranie ćwiartki. Wiersz pending, surowiec schodzi, ruch OUT.
+    Bez lotu mięsa i ABP — te powstają dopiero przy domknięciu."""
+    raw_batch_id = dto.raw_batch_id
+    worker_id = dto.worker_id
+    worker_name = dto.worker_name
+    kg_taken = float(dto.kg_taken or dto.kg_quarter or 0)
+    session_id = dto.session_id
+
+    if kg_taken <= 0:
+        raise HTTPException(400, "Ilość pobranej ćwiartki musi być > 0")
+
+    entry_id = cuid()
+    with transaction() as conn:
+        if session_id:
+            session_row = cx_query_one(
+                conn, "SELECT status FROM production_sessions WHERE id=%s", (session_id,)
+            )
+            session_err = validate_session_writable(session_row)
+            if session_err:
+                raise HTTPException(400, session_err)
+
+        session_no = next_dated_no(conn, "ROZ")
+        batch = cx_query_one(
+            conn, "SELECT * FROM raw_batches WHERE id=%s FOR UPDATE", (raw_batch_id,)
+        )
+        if not batch:
+            batch = cx_query_one(
+                conn, "SELECT * FROM raw_batches WHERE internal_batch_no=%s FOR UPDATE",
+                (raw_batch_id,),
+            )
+        if not batch:
+            raise HTTPException(404, f"Partia nie znaleziona (raw_batch_id={raw_batch_id!r})")
+        if batch.get("status") != "active":
+            raise HTTPException(
+                400,
+                f"Partia {batch.get('internal_batch_no')} ma status "
+                f"{batch.get('status')} — rozbiór niemożliwy",
+            )
+        expiry_err = validate_batch_expiry(batch.get("expiry_date"))
+        if expiry_err:
+            raise HTTPException(400, expiry_err)
+
+        kg_available = float(batch.get("kg_available") or batch.get("kg_received") or 0)
+        if kg_taken > kg_available + 0.01:
+            raise HTTPException(
+                400,
+                f"Nie można pobrać {kg_taken} kg — dostępne tylko "
+                f"{round(kg_available, 2)} kg w partii {batch.get('internal_batch_no', '')}",
+            )
+
+        if worker_id and not worker_name:
+            worker = cx_query_one(conn, "SELECT name FROM workers WHERE id=%s", (worker_id,))
+            if worker:
+                worker_name = worker["name"]
+
+        entry = cx_execute_returning(
+            conn,
+            """
+            INSERT INTO deboning_entries
+                (id, raw_batch_id, raw_batch_no, session_id, session_no,
+                 kg_quarter, kg_meat, kg_remainder, yield_pct,
+                 worker_id, worker_name, status, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,0,%s,0,%s,%s,'pending',%s)
+            RETURNING *
+            """,
+            (
+                entry_id, batch["id"], batch["internal_batch_no"], session_id, session_no,
+                kg_taken, kg_taken, worker_id, worker_name, now_iso(),
+            ),
+        )
+
+        cx_execute(
+            conn,
+            "UPDATE raw_batches SET kg_available = GREATEST(0, "
+            "COALESCE(kg_available, kg_received) - %s) WHERE id = %s",
+            (kg_taken, batch["id"]),
+        )
+        create_stock_movement(
+            conn, product_type="raw", batch_id=batch["id"], qty=kg_taken,
+            movement_type="OUT", source_type="deboning", source_id=entry_id,
+        )
+
+    logger.info("deboning.take.created", extra={"entry_id": entry_id, "kg_taken": kg_taken})
+    return _map_deboning_entry(entry)  # type: ignore[arg-type]
+
+
+def complete_deboning_take(entry_id: str, dto) -> Dict:
+    """Faza 2: domknięcie pobrania mięsem. Tworzy lot mięsa + ABP, status→complete.
+    Surowiec zszedł już w fazie 1 — tutaj nie ruszamy raw_batches."""
+    kg_meat = float(dto.kg_meat)
+
+    with transaction() as conn:
+        entry = cx_query_one(
+            conn, "SELECT * FROM deboning_entries WHERE id=%s FOR UPDATE", (entry_id,)
+        )
+        if not entry:
+            raise HTTPException(404, "Pobranie nie znalezione")
+        if (entry.get("status") or "complete") != "pending":
+            raise HTTPException(409, "Pobranie już domknięte lub nie jest pobraniem")
+
+        if entry.get("session_id"):
+            session_row = cx_query_one(
+                conn, "SELECT status FROM production_sessions WHERE id=%s",
+                (entry["session_id"],),
+            )
+            session_err = validate_session_writable(session_row)
+            if session_err:
+                raise HTTPException(400, session_err)
+
+        if dto.weigh_mode == "auto":
+            weighing_err = validate_weighing_consistency(
+                dto.kg_gross, dto.tare_cart_kg, dto.tare_e2_kg, kg_meat
+            )
+            if weighing_err:
+                raise HTTPException(400, weighing_err)
+
+        kg_taken = float(entry.get("kg_quarter") or 0)
+        yield_err = validate_meat_yield(kg_taken, kg_meat)
+        if yield_err:
+            raise HTTPException(400, yield_err)
+
+        kg_remainder = max(0, kg_taken - kg_meat)
+        yield_pct = round((kg_meat / kg_taken) * 100, 2)
+
+        row = cx_execute_returning(
+            conn,
+            """
+            UPDATE deboning_entries
+            SET kg_meat=%s, kg_remainder=%s, yield_pct=%s, status='complete',
+                kg_gross=%s, tare_cart_kg=%s, tare_e2_kg=%s, e2_count=%s, weigh_mode=%s
+            WHERE id=%s
+            RETURNING *
+            """,
+            (
+                kg_meat, kg_remainder, yield_pct,
+                dto.kg_gross, dto.tare_cart_kg, dto.tare_e2_kg, dto.e2_count, dto.weigh_mode,
+                entry_id,
+            ),
+        )
+
+        from app.services.byproducts_service import create_byproduct_lots_for_entry
+        create_byproduct_lots_for_entry(conn, row)
+
+        batch = cx_query_one(
+            conn, "SELECT * FROM raw_batches WHERE id=%s", (entry["raw_batch_id"],)
+        )
+        recv = batch.get("received_date") if batch else None
+        if recv:
+            try:
+                exp = (datetime.fromisoformat(str(recv)) + timedelta(days=7)).date().isoformat()
+            except Exception:
+                exp = batch.get("expiry_date") if batch else None
+        else:
+            exp = batch.get("expiry_date") if batch else None
+
+        meat_lot_no = entry["raw_batch_no"]
+        meat_stock_id = cuid()
+        cx_execute(
+            conn,
+            """
+            INSERT INTO meat_stock
+                (id, lot_no, deboning_session_id, session_no,
+                 raw_batch_id, raw_batch_no, kg_initial, kg_available,
+                 production_date, expiry_date, status,
+                 material_type_id, material_name, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_DATE,%s,'AVAILABLE',%s,%s,%s)
+            ON CONFLICT (lot_no) DO UPDATE
+            SET kg_initial  = meat_stock.kg_initial  + EXCLUDED.kg_initial,
+                kg_available = meat_stock.kg_available + EXCLUDED.kg_available
+            """,
+            (
+                meat_stock_id, meat_lot_no, entry_id, entry["session_no"],
+                entry["raw_batch_id"], meat_lot_no, kg_meat, kg_meat, exp,
+                "mat-mieso-zs", "Mięso z/s", now_iso(),
+            ),
+        )
+        ms_row = cx_query_one(conn, "SELECT id FROM meat_stock WHERE lot_no=%s", (meat_lot_no,))
+        real_ms_id = ms_row["id"] if ms_row else meat_stock_id
+        create_stock_movement(
+            conn, product_type="meat", batch_id=real_ms_id, qty=kg_meat,
+            movement_type="IN", source_type="deboning", source_id=entry_id,
+        )
+
+    logger.info(
+        "deboning.take.completed",
+        extra={"entry_id": entry_id, "kg_taken": kg_taken, "kg_meat": kg_meat},
+    )
+    return _map_deboning_entry(row)  # type: ignore[arg-type]
+
+
 def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate) -> Dict:
     with transaction() as conn:
         existing = cx_query_one(
@@ -697,6 +889,24 @@ def delete_deboning_entry(entry_id: str) -> Dict:
             session_err = validate_session_writable(session_row)
             if session_err:
                 raise HTTPException(400, session_err)
+
+        # Storno POBRANIA (pending): odwraca tylko fazę 1 — oddaje surowiec,
+        # kasuje ruch OUT i wiersz. Brak lotu mięsa i ABP do odwracania.
+        if (entry.get("status") or "complete") == "pending":
+            kg_taken = float(entry.get("kg_quarter") or 0)
+            cx_execute(
+                conn,
+                "UPDATE raw_batches SET kg_available = COALESCE(kg_available,0) + %s WHERE id=%s",
+                (kg_taken, entry.get("raw_batch_id")),
+            )
+            cx_execute(
+                conn,
+                "DELETE FROM stock_movements WHERE source_type='deboning' AND source_id=%s",
+                (entry_id,),
+            )
+            cx_execute(conn, "DELETE FROM deboning_entries WHERE id=%s", (entry_id,))
+            logger.info("deboning.take.undone", extra={"entry_id": entry_id, "kg_taken": kg_taken})
+            return {"ok": True, "id": entry_id}
 
         meat_lot = cx_query_one(
             conn,

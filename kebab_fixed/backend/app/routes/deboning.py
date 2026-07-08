@@ -1,7 +1,12 @@
 """Deboning endpoints."""
 from fastapi import APIRouter, HTTPException, Query
 
-from app.models.deboning import DeboningEntryCreate, DeboningEntryUpdate
+from app.models.deboning import (
+    DeboningEntryCreate,
+    DeboningEntryUpdate,
+    DeboningTakeCreate,
+    DeboningTakeComplete,
+)
 from app.services import deboning_service as svc
 from app.services import batch_byproducts_service as byproducts_svc
 from app.services import settings_service
@@ -76,6 +81,16 @@ def list_deboning_entries(session_id: str = Query(None, alias="session_id")):
 @router.post("/api/deboning/entries")
 def create_deboning_entry(dto: DeboningEntryCreate):
     return svc.create_deboning_entry(dto)
+
+
+@router.post("/api/deboning/takes")
+def create_deboning_take(dto: DeboningTakeCreate):
+    return svc.create_deboning_take(dto)
+
+
+@router.post("/api/deboning/takes/{entry_id}/complete")
+def complete_deboning_take(entry_id: str, dto: DeboningTakeComplete):
+    return svc.complete_deboning_take(entry_id, dto)
 
 
 @router.patch("/api/deboning/entries/{entry_id}")

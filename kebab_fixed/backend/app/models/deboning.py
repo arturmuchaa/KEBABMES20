@@ -37,6 +37,35 @@ class DeboningEntryCreate(BaseModel):
     weigh_mode: Optional[str] = Field(None, alias="weighMode", pattern="^(auto|manual)$")
 
 
+class DeboningTakeCreate(BaseModel):
+    """POST /api/deboning/takes — pobranie ćwiartki (mięso później).
+
+    Jak DeboningEntryCreate, ale BEZ kg_meat. Service waliduje kg_taken>0.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, validate_default=True)
+
+    raw_batch_id: str = Field(..., alias="rawBatchId", min_length=1)
+    session_id: Optional[str] = Field(None, alias="sessionId")
+    worker_id: Optional[str] = Field(None, alias="workerId")
+    worker_name: Optional[str] = Field(None, alias="workerName")
+    kg_taken: Optional[float] = Field(None, alias="kgTaken", ge=0)
+    kg_quarter: Optional[float] = Field(None, alias="kgQuarter", ge=0)
+
+
+class DeboningTakeComplete(BaseModel):
+    """POST /api/deboning/takes/{id}/complete — domknięcie pobrania mięsem."""
+
+    model_config = ConfigDict(populate_by_name=True, validate_default=True)
+
+    kg_meat: float = Field(..., alias="kgMeat", gt=0)
+    kg_gross: Optional[float] = Field(None, alias="kgGross", ge=0)
+    tare_cart_kg: Optional[float] = Field(None, alias="tareCartKg", ge=0)
+    tare_e2_kg: Optional[float] = Field(None, alias="tareE2Kg", ge=0)
+    e2_count: Optional[int] = Field(None, alias="e2Count", ge=0)
+    weigh_mode: Optional[str] = Field(None, alias="weighMode", pattern="^(auto|manual)$")
+
+
 class DeboningEntryUpdate(BaseModel):
     """PATCH /api/deboning/entries/{id} — korekta wpisu."""
 
