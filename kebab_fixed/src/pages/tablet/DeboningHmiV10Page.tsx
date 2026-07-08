@@ -15,10 +15,11 @@ import { rawBatchesApi, usersApi, settingsApi, byproductsApi, type BatchByproduc
 import { Spinner } from '@/components/ui/widgets'
 import { fmtKg, fmtPct, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
-import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2 } from 'lucide-react'
+import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2, Clock } from 'lucide-react'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
+import { splitEntriesByStatus } from '@/features/deboning/utils'
 import { useScale } from '@/features/deboning/useScale'
 import {
   computeWeighing, sanitizeCartTares, CART_TARES_KG, E2_TARE_KG, KG_PER_E2_MIN, KG_PER_E2_MAX,
@@ -293,7 +294,15 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // przechodzą między dniami. Odświeżane co 5 s razem z partiami (useEffect niżej).
   const byproductsData = useApi(() => byproductsApi.pending())
   const { session, timeWindow, loading: sessionLoading, startDay, startLoading, closeDay, closeLoading } = useProductionSession()
-  const { entries, addEntry, editEntry, removeEntry, lastCreated, addLoading, removeLoading } = useDeboningEntries(session?.id ?? null)
+  const { entries, addEntry, addTake, completeTake, editEntry, removeEntry, lastCreated, addLoading, addTakeLoading, completeTakeLoading, removeLoading } = useDeboningEntries(session?.id ?? null)
+
+  // Rozdział: pobrania czekające na mięso (pending) vs domknięte wpisy (complete).
+  // Agregaty, statystyki i lista „ostatnie” liczą tylko complete; pending mają
+  // osobną sekcję kafelków „Czeka na zważenie”.
+  const { pending: pendingTakes, complete: completeEntries } = useMemo(
+    () => splitEntriesByStatus(entries),
+    [entries],
+  )
 
   const [selBatch,  setSelBatch]  = useState<RawBatch | null>(null)
   const [selWorker, setSelWorker] = useState<User | null>(null)
@@ -312,6 +321,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [editEntryId, setEditEntryId] = useState<string | null>(null)
   const [editTaken, setEditTaken] = useState('')
   const [editMeat,  setEditMeat]  = useState('')
+  // Domykane pobranie (kliknięty kafelek „czeka na zważenie”). Gdy != null,
+  // ćwiartka/partia/pracownik są zablokowane, aktywne jest tylko pole mięsa.
+  const [resumeId, setResumeId] = useState<string | null>(null)
 
   // Tary wózków: lista z biura (edytowalna w Ustawieniach firmy); cache w
   // localStorage na wypadek braku sieci przy starcie, fallback = stała lista.
@@ -408,20 +420,20 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
 
   const perWorker = useMemo(() => {
     const m = new Map<string, { name: string; taken: number; meat: number; count: number; lastAt: number }>()
-    for (const e of entries) {
+    for (const e of completeEntries) {
       const cur = m.get(e.workerId) ?? { name: e.workerName, taken: 0, meat: 0, count: 0, lastAt: 0 }
       cur.taken += e.kgTaken; cur.meat += e.kgMeat; cur.count += 1
       cur.lastAt = Math.max(cur.lastAt, new Date(e.createdAt).getTime())
       m.set(e.workerId, cur)
     }
     return m
-  }, [entries])
+  }, [completeEntries])
 
   const shift = useMemo(() => {
-    const totTaken = entries.reduce((s, e) => s + e.kgTaken, 0)
-    const totMeat  = entries.reduce((s, e) => s + e.kgMeat, 0)
-    const totBacks = entries.reduce((s, e) => s + (e.kgBacks ?? 0), 0)
-    const totBones = entries.reduce((s, e) => s + (e.kgBones ?? 0), 0)
+    const totTaken = completeEntries.reduce((s, e) => s + e.kgTaken, 0)
+    const totMeat  = completeEntries.reduce((s, e) => s + e.kgMeat, 0)
+    const totBacks = completeEntries.reduce((s, e) => s + (e.kgBacks ?? 0), 0)
+    const totBones = completeEntries.reduce((s, e) => s + (e.kgBones ?? 0), 0)
     const yieldPct = totTaken > 0 ? (totMeat / totTaken) * 100 : 0
     const hours = session ? Math.max(0.25, (Date.now() - new Date(session.startedAt).getTime()) / 3_600_000) : 0
     const tempo = hours > 0 ? totTaken / hours : 0
@@ -431,7 +443,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       ? totTaken + tempo * (timeWindow.minutesToClose / 60)
       : null
     return { totTaken, totMeat, totBacks, totBones, yieldPct, tempo, activeWorkers, prognoza }
-  }, [entries, session, perWorker, timeWindow.minutesToClose])
+  }, [completeEntries, session, perWorker, timeWindow.minutesToClose])
 
   const alarms = useMemo<HmiAlarm[]>(() => {
     const out: HmiAlarm[] = []
@@ -441,7 +453,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       else if (daysLeft === 0) out.push({ id: `fefo0-${b.id}`, level: 'red', text: `Partia ${b.internalBatchNo} — termin upływa DZIŚ` })
       else if (daysLeft <= 3) out.push({ id: `fefo-${b.id}`, level: 'amb', text: `Partia ${b.internalBatchNo} — termin za ${daysLeft} dni` })
     }
-    const last3 = entries.slice(-3)
+    const last3 = completeEntries.slice(-3)
     if (last3.length === 3) {
       const avg = last3.reduce((s, e) => s + e.yieldPct, 0) / 3
       if (avg < 60) out.push({ id: 'low-yield', level: 'amb', text: `Niska wydajność ostatnich wpisów (śr. ${fmtPct(avg, 1)})` })
@@ -449,7 +461,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (timeWindow.minutesToClose != null && timeWindow.minutesToClose > 0 && timeWindow.minutesToClose <= 30)
       out.push({ id: 'window', level: 'amb', text: `Okno zapisu zamyka się za ${timeWindow.minutesToClose} min` })
     return out.sort((a, b) => (a.level === b.level ? 0 : a.level === 'red' ? -1 : 1))
-  }, [allActiveBatches, entries, timeWindow.minutesToClose])
+  }, [allActiveBatches, completeEntries, timeWindow.minutesToClose])
 
   const workerStats = useMemo(() => {
     const rows = Array.from(perWorker.values())
@@ -465,7 +477,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     })
   }, [])
 
-  const pendingFinalize = entries.filter(e => (e.kgBacks ?? 0) === 0 && (e.kgBones ?? 0) === 0)
+  const pendingFinalize = completeEntries.filter(e => (e.kgBacks ?? 0) === 0 && (e.kgBones ?? 0) === 0)
   const finalizeTotalTaken = pendingFinalize.reduce((s, e) => s + e.kgTaken, 0)
 
   const takenRaw = parseFloat(kgTaken) || 0
@@ -483,6 +495,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const yieldPct = taken > 0 && meat > 0 && !meatTooBig ? (meat / taken) * 100 : 0
   const canSave = !!selBatch && !!selWorker && taken > 0 && meat > 0 && !meatTooBig
     && (!autoMode || (scale.stable && weighing.ready))
+  // Pobranie (mięso później): wystarczy partia + pracownik + ćwiartka; waga nieistotna.
+  const canSaveTake = !resumeId && !!selBatch && !!selWorker && taken > 0
 
   const saveHint = !selBatch ? 'WYBIERZ PARTIĘ'
     : !selWorker ? 'WYBIERZ PRACOWNIKA'
@@ -552,9 +566,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setTakenMode(mode); setKgTaken(''); setActive('taken')
   }, [])
   const pickBatch = useCallback((b: RawBatch) => {
+    if (resumeId) return  // w trybie domykania pobrania partia jest zablokowana
     setSelBatch(b); setKgTaken(''); setKgMeat(''); setActive('taken')
-  }, [])
-  const pickWorker = useCallback((w: User) => { setSelWorker(w); setActive('taken') }, [])
+  }, [resumeId])
+  const pickWorker = useCallback((w: User) => {
+    if (resumeId) return  // pracownik zablokowany przy domykaniu pobrania
+    setSelWorker(w); setActive('taken')
+  }, [resumeId])
 
   async function handleStartDay() {
     const err = await startDay()
@@ -612,6 +630,64 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         .then(rec => { byproductsData.refetch(); setFinishPrompt({ batch: b, record: rec }) })
         .catch(() => {})
     }
+  }
+
+  // Zapis samego pobrania ćwiartki (mięso zważy się później).
+  async function handleSaveTake() {
+    if (addTakeLoading || !selBatch || !selWorker || taken <= 0 || !session) return
+    const err = await addTake(
+      { sessionId: session.id, rawBatchId: selBatch.id, workerId: selWorker.id, kgTaken: taken },
+      session, Number(selBatch.kgAvailable), selBatch.expiryDate,
+    )
+    if (err) { showToast(err, 'err'); return }
+    batchData.refetch()
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    showToast(`Pobrano ${fmtKg(taken, 1)} kg — czeka na zważenie`)
+  }
+
+  // Klik w kafelek „czeka na zważenie": wraca do formularza z wpisaną,
+  // zablokowaną ćwiartką; operator tylko wjeżdża na wagę i zapisuje mięso.
+  const resumeTake = useCallback((e: DeboningEntry) => {
+    const b = allActiveBatches.find(x => x.id === e.rawBatchId) ?? null
+    if (b) setSelBatch(b)
+    const w = workers.find(x => x.id === e.workerId) ?? null
+    if (w) setSelWorker(w)
+    setResumeId(e.id)
+    setTakenMode('kg')
+    setKgTaken(String(e.kgTaken))
+    setKgMeat('')
+    setMeatManual(false)
+    setActive('meat')
+  }, [allActiveBatches, workers])
+
+  const cancelResume = useCallback(() => {
+    setResumeId(null)
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+  }, [])
+
+  // Domknięcie pobrania zważonym mięsem.
+  async function handleCompleteTake() {
+    if (completeTakeLoading || !resumeId || meat <= 0 || meatTooBig || !session) return
+    const err = await completeTake(resumeId, {
+      kgMeat: meat,
+      ...(scale.available ? {
+        weighMode: autoMode ? 'auto' as const : 'manual' as const,
+        ...(autoMode ? {
+          kgGross: scale.gross,
+          tareCartKg: cartTare ?? undefined,
+          tareE2Kg: weighing.tareE2Kg,
+          e2Count,
+        } : {}),
+      } : {}),
+    }, session)
+    if (err) { showToast(err, 'err'); return }
+    batchData.refetch()
+    setSaveFlash(true)
+    if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
+    saveFlashRef.current = setTimeout(() => setSaveFlash(false), 350)
+    setResumeId(null)
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    showToast(`Zważono ${fmtKg(meat, 1)} kg mięsa`)
   }
 
   async function handleUndo() {
@@ -739,7 +815,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
 
       {/* Szczegóły pracownika (przytrzymanie kafla): wpisy dnia + statystyki + edycja. */}
       {workerDetail && (() => {
-        const wEntries = entries.filter(e => e.workerId === workerDetail.id).slice().reverse()
+        const wEntries = completeEntries.filter(e => e.workerId === workerDetail.id).slice().reverse()
         const wt = wEntries.reduce((s, e) => s + e.kgTaken, 0)
         const wm = wEntries.reduce((s, e) => s + e.kgMeat, 0)
         const wy = wt > 0 ? (wm / wt) * 100 : 0
@@ -826,7 +902,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   )
 
   const redCount = alarms.filter(a => a.level === 'red').length
-  const recent = entries.slice(-8).reverse()
+  const recent = completeEntries.slice(-8).reverse()
 
   return wrap(
     <>
@@ -985,11 +1061,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
 
           <div className="flex gap-2 flex-shrink-0">
             <ReadoutV10
-              label={takenMode === 'poj' ? 'Zabrano · poj.' : 'Zabrano z partii'} unit={takenMode === 'poj' ? 'poj' : 'kg'}
-              value={kgTaken} active={active === 'taken'}
-              onActivate={() => setActive('taken')}
-              sub={takenMode === 'poj' && takenRaw > 0 ? `= ${fmtKg(taken, 0)} kg` : ''}
-              extraHeader={
+              label={resumeId ? 'Pobrano (z pobrania)' : takenMode === 'poj' ? 'Zabrano · poj.' : 'Zabrano z partii'} unit={takenMode === 'poj' && !resumeId ? 'poj' : 'kg'}
+              value={kgTaken} active={active === 'taken' && !resumeId}
+              onActivate={() => { if (!resumeId) setActive('taken') }}
+              sub={resumeId ? 'zablokowane — zważ mięso' : takenMode === 'poj' && takenRaw > 0 ? `= ${fmtKg(taken, 0)} kg` : ''}
+              extraHeader={resumeId ? undefined : (
                 <span className="flex overflow-hidden" style={{ border: '1px solid var(--line)', borderRadius: 6 }}>
                   {(['kg', 'poj'] as const).map(m => (
                     <span key={m} role="button" onClick={e => { e.stopPropagation(); switchTakenMode(m) }}
@@ -999,7 +1075,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                     </span>
                   ))}
                 </span>
-              }
+              )}
             />
             <ReadoutV10
               label={autoMode ? 'Mięso Z/S — z wagi' : 'Mięso Z/S'}
@@ -1091,18 +1167,55 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           <NumpadV10 onKey={pressKey} onBackStart={handleBackStart} onBackEnd={handleBackEnd}
             onServiceStart={handleServiceStart} onServiceEnd={handleServiceEnd} disabled={!selBatch || !selWorker} />
 
-          <button type="button" onClick={handleSave} disabled={!canSave || addLoading}
-            className={cn('flex-shrink-0 h-[72px] w-full text-lg font-bold flex items-center justify-center gap-3 transition-all active:scale-[0.98] mt-1', saveFlash && 'scale-[1.01]')}
-            style={{
-              borderRadius: 12,
-              background: canSave ? 'var(--accent)' : meatTooBig ? 'var(--redSoft)' : 'var(--bg)',
-              color: canSave ? '#fff' : meatTooBig ? 'var(--red)' : 'var(--mut)',
-              border: `1.5px solid ${canSave ? 'var(--accent)' : meatTooBig ? 'var(--redLine)' : 'var(--line)'}`,
-              boxShadow: canSave ? '0 10px 24px -10px rgba(79,70,229,.5)' : undefined,
-            }}>
-            {addLoading ? <span className="w-7 h-7 border-4 border-white/30 border-t-white rounded-full animate-spin" /> : canSave ? <Save size={24} /> : null}
-            {saveHint}
-          </button>
+          {resumeId ? (
+            // ── Tryb domykania pobrania: „Zapisz mięso” + anuluj ──
+            <div className="flex-shrink-0 flex gap-2 w-full mt-1">
+              <button type="button" onClick={handleCompleteTake} disabled={!canSave || completeTakeLoading}
+                className={cn('h-[72px] flex-1 text-lg font-bold flex items-center justify-center gap-3 transition-all active:scale-[0.98]', saveFlash && 'scale-[1.01]')}
+                style={{
+                  borderRadius: 12,
+                  background: canSave ? 'var(--accent)' : meatTooBig ? 'var(--redSoft)' : 'var(--bg)',
+                  color: canSave ? '#fff' : meatTooBig ? 'var(--red)' : 'var(--mut)',
+                  border: `1.5px solid ${canSave ? 'var(--accent)' : meatTooBig ? 'var(--redLine)' : 'var(--line)'}`,
+                  boxShadow: canSave ? '0 10px 24px -10px rgba(79,70,229,.5)' : undefined,
+                }}>
+                {completeTakeLoading ? <span className="w-7 h-7 border-4 border-white/30 border-t-white rounded-full animate-spin" /> : canSave ? <Save size={24} /> : null}
+                {canSave ? `ZAPISZ MIĘSO — ${fmtKg(meat, 1)} KG` : meatTooBig ? 'MIĘSO > POBRANE!' : 'ZWAŻ MIĘSO'}
+              </button>
+              <button type="button" onClick={cancelResume}
+                className="h-[72px] px-5 text-sm font-bold uppercase"
+                style={{ borderRadius: 12, background: 'var(--bg)', color: 'var(--mut)', border: '1.5px solid var(--line)' }}>
+                Anuluj
+              </button>
+            </div>
+          ) : (
+            // ── Tryb normalny: „Zapisz wpis” (od razu) + „Zapisz pobranie” ──
+            <div className="flex-shrink-0 flex flex-col gap-2 w-full mt-1">
+              <button type="button" onClick={handleSave} disabled={!canSave || addLoading}
+                className={cn('h-[72px] w-full text-lg font-bold flex items-center justify-center gap-3 transition-all active:scale-[0.98]', saveFlash && 'scale-[1.01]')}
+                style={{
+                  borderRadius: 12,
+                  background: canSave ? 'var(--accent)' : meatTooBig ? 'var(--redSoft)' : 'var(--bg)',
+                  color: canSave ? '#fff' : meatTooBig ? 'var(--red)' : 'var(--mut)',
+                  border: `1.5px solid ${canSave ? 'var(--accent)' : meatTooBig ? 'var(--redLine)' : 'var(--line)'}`,
+                  boxShadow: canSave ? '0 10px 24px -10px rgba(79,70,229,.5)' : undefined,
+                }}>
+                {addLoading ? <span className="w-7 h-7 border-4 border-white/30 border-t-white rounded-full animate-spin" /> : canSave ? <Save size={24} /> : null}
+                {saveHint}
+              </button>
+              <button type="button" onClick={handleSaveTake} disabled={!canSaveTake || addTakeLoading}
+                className="h-[52px] w-full text-base font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                style={{
+                  borderRadius: 12,
+                  background: 'var(--bg)',
+                  color: canSaveTake ? 'var(--accent)' : 'var(--mut)',
+                  border: `1.5px solid ${canSaveTake ? 'var(--accent)' : 'var(--line)'}`,
+                }}>
+                {addTakeLoading ? <span className="w-5 h-5 border-4 border-current/30 border-t-current rounded-full animate-spin" /> : <Clock size={18} />}
+                {canSaveTake ? `ZAPISZ POBRANIE — ${fmtKg(taken, 1)} KG (MIĘSO PÓŹNIEJ)` : 'ZAPISZ POBRANIE (MIĘSO PÓŹNIEJ)'}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 flex flex-col gap-3 min-h-0" style={{ paddingLeft: 16 }}>
@@ -1229,6 +1342,35 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             )}
           </div>
 
+          {pendingTakes.length > 0 && (
+            <div className="flex-shrink-0 p-3.5" style={{ borderRadius: 12, background: 'var(--panel)', border: '1.5px solid var(--accent)' }}>
+              <div className="flex items-center gap-2 mb-2">
+                <Clock size={14} style={{ color: 'var(--accent)' }} />
+                <span className="text-[10px] font-bold uppercase" style={{ color: 'var(--accent)', letterSpacing: '.1em' }}>
+                  Czeka na zważenie ({pendingTakes.length})
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {pendingTakes.map((e: DeboningEntry) => (
+                  <button key={e.id} type="button" onClick={() => resumeTake(e)}
+                    className="text-left p-2.5 active:scale-[0.98] transition-all"
+                    style={{ borderRadius: 10, border: `1.5px solid ${resumeId === e.id ? 'var(--accent)' : 'var(--line)'}`,
+                      background: resumeId === e.id ? 'var(--accentSoft, var(--bg))' : 'var(--bg)' }}>
+                    <div className="hmi-v10-mono font-extrabold leading-none" style={{ fontSize: 24, color: 'var(--accent)' }}>
+                      {fmtKg(e.kgTaken, 1)} <span className="text-[12px]">kg</span>
+                    </div>
+                    <div className="text-[11px] font-semibold mt-1 truncate" style={{ color: 'var(--ink)' }}>
+                      {e.workerName}
+                    </div>
+                    <div className="text-[10px] font-bold uppercase mt-0.5" style={{ color: 'var(--mut)', letterSpacing: '.04em' }}>
+                      Part. {e.rawBatchNo} · ⏳ mięso
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex-1 min-h-0 p-3.5 flex flex-col" style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
             <div className="flex items-center gap-2 mb-2.5 flex-shrink-0">
               <span className="w-[7px] h-[7px] rounded-full flex-shrink-0" style={{ background: 'var(--success)', boxShadow: '0 0 0 3px rgba(22,163,74,.18)' }} />
@@ -1244,7 +1386,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 </button>
               )}
               <ListOrdered size={13} style={{ color: 'var(--mut)', marginLeft: 'auto' }} />
-              <span className="hmi-v10-mono text-xs font-bold" style={{ color: 'var(--mut)' }}>{entries.length} dziś</span>
+              <span className="hmi-v10-mono text-xs font-bold" style={{ color: 'var(--mut)' }}>{completeEntries.length} dziś</span>
             </div>
             {/* Nagłówek kolumn — wszystko w jednej linii, osobne kolumny liczb. */}
             <div className="grid grid-cols-[44px_1fr_46px_78px_78px_48px] items-center gap-2 px-2 pb-1.5 flex-shrink-0"
@@ -1284,7 +1426,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           { label: 'Wydajność dnia', val: shift.totMeat > 0 ? fmtPct(shift.yieldPct, 1) : '—', color: yieldInk(shift.yieldPct) },
           { label: 'Grzbiety',      val: `${fmtKg(shift.totBacks, 0)} kg` },
           { label: 'Kości',         val: `${fmtKg(shift.totBones, 0)} kg` },
-          { label: 'Wpisy',         val: String(entries.length) },
+          { label: 'Wpisy',         val: String(completeEntries.length) },
         ].map(c => (
           <div key={c.label} className="flex flex-col items-center justify-center px-1 text-center" style={{ borderRight: '1px solid var(--lineSoft)' }}>
             <span className="hmi-v10-mono text-xl font-bold leading-none" style={{ color: (c as any).color ?? 'var(--ink)' }}>{c.val}</span>
