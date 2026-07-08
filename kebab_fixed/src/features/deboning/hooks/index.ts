@@ -16,6 +16,7 @@ import { isExpired } from '@/lib/utils/fefo'
 import type {
   ProductionSession, DeboningEntry, TimeWindowStatus, WriteCheckResult,
   CreateDeboningEntryDto, UpdateDeboningEntryDto, SessionSummary,
+  CreateDeboningTakeDto, CompleteDeboningTakeDto,
 } from '../types'
 
 // ─── 1. useTimeWindow — stan okna czasowego, tick co minutę ──────────────────
@@ -171,6 +172,50 @@ export function useDeboningEntries(sessionId: string | null) {
     }
   }, [createMutation, refetch])
 
+  const createTakeMutation = useMutation((dto: CreateDeboningTakeDto) => deboningApi.createTake(dto))
+  const completeTakeMutation = useMutation(
+    ({ id, dto }: { id: string; dto: CompleteDeboningTakeDto }) => deboningApi.completeTake(id, dto)
+  )
+
+  // Pobranie ćwiartki (mięso później) — walidacja przed wysyłką
+  const addTake = useCallback(async (
+    dto: CreateDeboningTakeDto,
+    session: ProductionSession | null,
+    kgAvailable: number,
+    expiryDate: string,
+  ): Promise<string | null> => {
+    if (!session) return 'Brak aktywnej sesji. Rozpocznij dzień produkcyjny.'
+    if (session.status !== 'open') return 'Sesja niedostępna do zapisu.'
+    if (isExpired(expiryDate)) return 'Partia przeterminowana — użycie zabronione (HACCP)'
+    if (dto.kgTaken <= 0) return 'Ilość pobranej ćwiartki musi być > 0'
+    if (dto.kgTaken > kgAvailable + 0.01)
+      return `⛔ Nie można pobrać ${dto.kgTaken} kg — dostępne tylko ${kgAvailable.toFixed(2)} kg`
+    try {
+      await createTakeMutation.mutate(dto)
+      refetch()
+      return null
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Błąd zapisu pobrania'
+    }
+  }, [createTakeMutation, refetch])
+
+  // Domknięcie pobrania mięsem
+  const completeTake = useCallback(async (
+    entryId: string,
+    dto: CompleteDeboningTakeDto,
+    session: ProductionSession | null,
+  ): Promise<string | null> => {
+    if (session?.status !== 'open') return 'Domknięcie możliwe tylko przy otwartej sesji'
+    if (dto.kgMeat <= 0) return 'Ilość mięsa musi być > 0'
+    try {
+      await completeTakeMutation.mutate({ id: entryId, dto })
+      refetch()
+      return null
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Błąd domknięcia pobrania'
+    }
+  }, [completeTakeMutation, refetch])
+
   const editEntry = useCallback(async (
     entryId: string,
     dto: UpdateDeboningEntryDto,
@@ -211,10 +256,14 @@ export function useDeboningEntries(sessionId: string | null) {
     loading,
     error,
     addEntry,
+    addTake,
+    completeTake,
     editEntry,
     removeEntry,
     lastCreated,
     addLoading:    createMutation.loading,
+    addTakeLoading:      createTakeMutation.loading,
+    completeTakeLoading: completeTakeMutation.loading,
     editLoading:   updateMutation.loading,
     removeLoading: removeMutation.loading,
     refetch,

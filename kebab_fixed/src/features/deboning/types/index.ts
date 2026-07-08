@@ -54,6 +54,7 @@ export interface DeboningEntry {
   readonly tareE2Kg?:   number | null
   readonly e2Count?:    number | null
   readonly weighMode?:  'auto' | 'manual' | null
+  readonly status?:     'pending' | 'complete'
   readonly createdAt:   string
 }
 
@@ -66,6 +67,22 @@ export interface CreateDeboningEntryDto {
   tempInput?: number
   tempRoom?:  number
   notes?:     string
+  kgGross?:    number
+  tareCartKg?: number
+  tareE2Kg?:   number
+  e2Count?:    number
+  weighMode?:  'auto' | 'manual'
+}
+
+export interface CreateDeboningTakeDto {
+  sessionId:  string
+  rawBatchId: string
+  workerId:   string
+  kgTaken:    number
+}
+
+export interface CompleteDeboningTakeDto {
+  kgMeat:     number
   kgGross?:    number
   tareCartKg?: number
   tareE2Kg?:   number

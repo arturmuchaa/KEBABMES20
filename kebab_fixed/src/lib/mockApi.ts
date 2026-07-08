@@ -741,6 +741,7 @@ import type {
   ProductionSession, DeboningEntry, DeboningTraceability,
   StartSessionDto, CloseSessionDto, ApproveSessionDto,
   CreateDeboningEntryDto, UpdateDeboningEntryDto,
+  CreateDeboningTakeDto, CompleteDeboningTakeDto,
 } from '@/features/deboning/types'
 import {
   getProductionDate, checkWriteAccess, calcSessionSummary,
@@ -1001,6 +1002,105 @@ export const deboningEntriesApi = {
     }
 
     save('kebab_mes_deboning_entries', deboningEntries)
+    return updated
+  },
+
+  // createTake — pobranie ćwiartki (mięso później): wpis pending, surowiec schodzi
+  createTake: async (dto: CreateDeboningTakeDto): Promise<DeboningEntry> => {
+    await delay(300)
+    const session = sessions.find(s => s.id === dto.sessionId) ?? null
+    if (!session) throw new Error('Sesja nie znaleziona. Najpierw rozpocznij dzień.')
+    if (session.status !== 'open') throw new Error('Sesja niedostępna do zapisu.')
+    const batch  = batches.find(b => b.id === dto.rawBatchId)
+    const worker = users.find(u => u.id === dto.workerId)
+    if (!batch)  throw new Error('Partia nie znaleziona')
+    if (!worker) throw new Error('Pracownik nie znaleziony')
+    if (isExpired(batch.expiryDate))
+      throw new Error('Partia przeterminowana — użycie zabronione (HACCP)')
+    if (dto.kgTaken > Number(batch.kgAvailable))
+      throw new Error(`Nie można pobrać ${dto.kgTaken} kg — dostępne ${batch.kgAvailable} kg`)
+
+    entrySeq++
+    const entry: DeboningEntry = {
+      id:          cuid(),
+      sessionId:   dto.sessionId,
+      sessionDate: session.sessionDate,
+      rawBatchId:  dto.rawBatchId,
+      rawBatchNo:  batch.internalBatchNo,
+      workerId:    dto.workerId,
+      workerName:  worker.name,
+      kgTaken:     dto.kgTaken,
+      kgMeat:      0,
+      kgBones:     0,
+      kgBacks:     0,
+      kgRemainder: dto.kgTaken,
+      yieldPct:    0,
+      sessionNo:   datedNo('ROZ', entrySeq),
+      status:      'pending',
+      createdAt:   nowIso(),
+    }
+    deboningEntries = [entry, ...deboningEntries]
+    const newAvail = Number(batch.kgAvailable) - dto.kgTaken
+    batches = batches.map(b => b.id === dto.rawBatchId ? {
+      ...b,
+      kgAvailable:   newAvail,
+      kgUsed:        Number(b.kgUsed) + dto.kgTaken,
+      utilizationPct:(Number(b.kgUsed) + dto.kgTaken) / Number(b.kgReceived) * 100,
+      status:        newAvail <= 0 ? 'used' : 'active',
+    } : b)
+    save(KEYS.batches, batches)
+    save('kebab_mes_deboning_entries', deboningEntries)
+    saveCounters({ batchSeq, debSeq, meatSeq, logSeq })
+    return entry
+  },
+
+  // completeTake — domknięcie pobrania mięsem: lot mięsa + status complete
+  completeTake: async (entryId: string, dto: CompleteDeboningTakeDto): Promise<DeboningEntry> => {
+    await delay(300)
+    const idx = deboningEntries.findIndex(e => e.id === entryId)
+    if (idx === -1) throw new Error('Pobranie nie znalezione')
+    const old = deboningEntries[idx]
+    if ((old.status ?? 'complete') !== 'pending')
+      throw new Error('Pobranie już domknięte lub nie jest pobraniem')
+    if (dto.kgMeat > old.kgTaken)
+      throw new Error('Mięso nie może być większe niż pobrana ilość')
+    const batch = batches.find(b => b.id === old.rawBatchId)
+    const kgRemainder = old.kgTaken - dto.kgMeat
+    const meatLotNo = batch ? `M${batch.internalBatchSeq}` : old.rawBatchNo
+    const updated: DeboningEntry = {
+      ...old,
+      kgMeat:      dto.kgMeat,
+      kgBones:     kgRemainder * 0.6,
+      kgBacks:     kgRemainder * 0.4,
+      kgRemainder,
+      yieldPct:    old.kgTaken > 0 ? (dto.kgMeat / old.kgTaken) * 100 : 0,
+      meatLotNo,
+      status:      'complete',
+    }
+    deboningEntries = deboningEntries.map(e => e.id === entryId ? updated : e)
+    const ms: MeatStock = {
+      id:                cuid(),
+      lotNo:             meatLotNo,
+      deboningSessionId: updated.id,
+      sessionNo:         updated.sessionNo,
+      rawBatchId:        old.rawBatchId,
+      rawBatchNo:        old.rawBatchNo,
+      kgInitial:         dto.kgMeat,
+      kgAvailable:       dto.kgMeat,
+      kgReserved:        0,
+      kgInProcess:       0,
+      kgUsed:            0,
+      productionDate:    nowIso().slice(0, 10),
+      expiryDate:        batch?.expiryDate ?? nowIso().slice(0, 10),
+      expiryStatus:      'OK' as const,
+      status:            'AVAILABLE' as const,
+      machineAllocations:[],
+      createdAt:         nowIso(),
+    }
+    meat = [ms, ...meat]
+    save(KEYS.meat, meat)
+    save('kebab_mes_deboning_entries', deboningEntries)
+    saveCounters({ batchSeq, debSeq, meatSeq, logSeq })
     return updated
   },
 

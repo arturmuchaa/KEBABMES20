@@ -296,6 +296,19 @@ export const deboningEntriesApi = {
     kgTaken:    dto.kgTaken,
     kgMeat:     dto.kgMeat,
   }),
+  // createTake — pobranie ćwiartki (mięso później); wysyła oba formaty
+  createTake: (dto: any) => post<any>('/deboning/takes', {
+    ...toSnake(dto),
+    rawBatchId: dto.rawBatchId,
+    sessionId:  dto.sessionId,
+    workerId:   dto.workerId,
+    kgTaken:    dto.kgTaken,
+  }),
+  // completeTake — domknięcie pobrania mięsem
+  completeTake: (id: string, dto: any) => post<any>(`/deboning/takes/${id}/complete`, {
+    ...toSnake(dto),
+    kgMeat: dto.kgMeat,
+  }),
   // update — obsługuje kgBacks i kgBones
   update: (id: string, dto: any) => patch<any>(`/deboning/entries/${id}`, {
     ...toSnake(dto),

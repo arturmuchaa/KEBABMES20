@@ -14,6 +14,7 @@ import type {
   ProductionSession, DeboningEntry, SessionSummary, DeboningTraceability,
   StartSessionDto, CloseSessionDto, ApproveSessionDto,
   CreateDeboningEntryDto, UpdateDeboningEntryDto,
+  CreateDeboningTakeDto, CompleteDeboningTakeDto,
 } from '../types'
 import { calcSessionSummary } from '../utils'
 
@@ -30,6 +31,8 @@ export interface DeboningApi {
   // Wpisy rozbioru
   listEntries(sessionId: string): Promise<DeboningEntry[]>
   createEntry(dto: CreateDeboningEntryDto): Promise<DeboningEntry>
+  createTake(dto: CreateDeboningTakeDto): Promise<DeboningEntry>
+  completeTake(entryId: string, dto: CompleteDeboningTakeDto): Promise<DeboningEntry>
   updateEntry(entryId: string, dto: UpdateDeboningEntryDto): Promise<DeboningEntry>
   deleteEntry(entryId: string): Promise<{ ok: boolean; id: string }>
 
@@ -75,6 +78,8 @@ export const deboningApi: DeboningApi = {
   // BUGFIX: przekazuje sessionId jako parametr zapytania
   listEntries: (sessionId) => entriesStore.list(sessionId),
   createEntry: (dto)       => entriesStore.create(dto),
+  createTake:  (dto)       => entriesStore.createTake(dto),
+  completeTake:(id, dto)   => entriesStore.completeTake(id, dto),
   updateEntry: (id, dto)   => entriesStore.update(id, dto),
   deleteEntry: (id)        => entriesStore.remove(id),
 

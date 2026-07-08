@@ -145,23 +145,43 @@ export function shouldAutoApprove(session: ProductionSession, now: Date = new Da
 export function calcSessionSummary(entries: ReadonlyArray<{
   kgTaken: number; kgMeat: number; kgBones: number; kgBacks: number;
   workerId: string; rawBatchId: string; yieldPct: number;
+  status?: 'pending' | 'complete';
 }>) {
-  const totalKgTaken = entries.reduce((s, e) => s + e.kgTaken, 0)
-  const totalKgMeat  = entries.reduce((s, e) => s + e.kgMeat,  0)
-  const totalKgBones = entries.reduce((s, e) => s + e.kgBones, 0)
-  const totalKgBacks = entries.reduce((s, e) => s + e.kgBacks, 0)
+  // Pobrania (pending, kgMeat=0) nie wchodzą do podsumowania HACCP — inaczej
+  // zaniżyłyby wydajność i zawyżyły liczbę wpisów/partii.
+  const done = entries.filter(e => e.status !== 'pending')
+  const totalKgTaken = done.reduce((s, e) => s + e.kgTaken, 0)
+  const totalKgMeat  = done.reduce((s, e) => s + e.kgMeat,  0)
+  const totalKgBones = done.reduce((s, e) => s + e.kgBones, 0)
+  const totalKgBacks = done.reduce((s, e) => s + e.kgBacks, 0)
   const totalKgUppz  = Math.max(0, totalKgTaken - totalKgMeat - totalKgBones - totalKgBacks)
   const avgYieldPct  = totalKgTaken > 0 ? (totalKgMeat / totalKgTaken) * 100 : 0
-  const workerIds    = new Set(entries.map(e => e.workerId))
-  const batchIds     = new Set(entries.map(e => e.rawBatchId))
+  const workerIds    = new Set(done.map(e => e.workerId))
+  const batchIds     = new Set(done.map(e => e.rawBatchId))
 
   return {
     totalKgTaken, totalKgMeat, totalKgBones, totalKgBacks, totalKgUppz,
     avgYieldPct,
-    entryCount:  entries.length,
+    entryCount:  done.length,
     workerCount: workerIds.size,
     batchCount:  batchIds.size,
   }
+}
+
+/**
+ * splitEntriesByStatus — rozdziela wpisy na pending (pobrane, czeka na mięso)
+ * i complete. Brak status = complete (stare dane / zapis 'od razu').
+ */
+export function splitEntriesByStatus<T extends { status?: 'pending' | 'complete' }>(
+  entries: ReadonlyArray<T>,
+): { pending: T[]; complete: T[] } {
+  const pending: T[] = []
+  const complete: T[] = []
+  for (const e of entries) {
+    if (e.status === 'pending') pending.push(e)
+    else complete.push(e)
+  }
+  return { pending, complete }
 }
 
 // ─── 6. WALIDACJA WPISU ROZBIORU ─────────────────────────────────────────────
