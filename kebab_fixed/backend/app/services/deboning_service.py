@@ -54,6 +54,7 @@ def _map_deboning_entry(row: Dict) -> Dict:
         "tareE2Kg": float(row["tare_e2_kg"]) if row.get("tare_e2_kg") is not None else None,
         "e2Count": row.get("e2_count"),
         "weighMode": row.get("weigh_mode"),
+        "status": row.get("status") or "complete",
         "createdAt": str(row.get("created_at") or ""),
     }
 
@@ -257,6 +258,31 @@ def validate_batch_expiry(expiry_date, today: date | None = None):
     return None
 
 
+def validate_meat_yield(kg_taken: float, kg_meat: float) -> str | None:
+    """Sanity mięsa vs pobranej ćwiartki. Czysta funkcja — testy bez DB.
+
+    Wspólna dla zapisu 'od razu' i domknięcia pobrania. Reguły identyczne
+    jak dotąd inline w create_deboning_entry.
+    """
+    kg_taken = float(kg_taken or 0)
+    kg_meat = float(kg_meat or 0)
+    if kg_meat <= 0:
+        return "Ilość mięsa musi być > 0"
+    if kg_taken <= 0:
+        return "Ilość pobranej ćwiartki musi być > 0"
+    if kg_meat > kg_taken:
+        return (
+            f"Mięso ({kg_meat} kg) nie może przekraczać pobranej "
+            f"ćwiartki ({kg_taken} kg)"
+        )
+    yield_pct = (kg_meat / kg_taken) * 100
+    if yield_pct > 95:
+        return f"Wydajność {round(yield_pct, 1)}% jest nierealna — sprawdź dane"
+    if yield_pct < 30:
+        return f"Wydajność {round(yield_pct, 1)}% jest bardzo niska — sprawdź dane"
+    return None
+
+
 def validate_session_writable(session_row):
     """Wpisy tylko do istniejącej, OTWARTEJ sesji."""
     if not session_row:
@@ -342,24 +368,10 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
 
     if kg_taken <= 0:
         raise HTTPException(400, "Ilość pobranej ćwiartki musi być > 0")
-    if kg_meat <= 0:
-        raise HTTPException(400, "Ilość mięsa musi być > 0")
-    if kg_meat > kg_taken:
-        raise HTTPException(
-            400,
-            f"Mięso ({kg_meat} kg) nie może przekraczać pobranej "
-            f"ćwiartki ({kg_taken} kg)",
-        )
+    yield_err = validate_meat_yield(kg_taken, kg_meat)
+    if yield_err:
+        raise HTTPException(400, yield_err)
     yield_pct_val = (kg_meat / kg_taken) * 100
-    if yield_pct_val > 95:
-        raise HTTPException(
-            400, f"Wydajność {round(yield_pct_val,1)}% jest nierealna — sprawdź dane"
-        )
-    if yield_pct_val < 30:
-        raise HTTPException(
-            400,
-            f"Wydajność {round(yield_pct_val,1)}% jest bardzo niska — sprawdź dane",
-        )
 
     entry_id = cuid()
 
