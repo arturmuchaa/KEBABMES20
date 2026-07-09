@@ -112,11 +112,19 @@ def get_averages(window: Optional[str] = None) -> Dict:
              AND COALESCE(status, 'complete') = 'complete'
              {_window_sql("created_at::date", window_key)}"""
     )
+    # Zbiorcze ważenie ubocznych (batch_byproducts) — grzbiety/kości ważone
+    # NA PARTIĘ na wadze najazdowej, nie per wpis; bez tego %% wychodziły 0.
+    bp = query_one(
+        f"""SELECT COALESCE(SUM(backs_kg),0) AS backs, COALESCE(SUM(bones_kg),0) AS bones
+           FROM batch_byproducts
+           WHERE 1=1 {_window_sql("COALESCE(finished_at, backs_at, bones_at)::date", window_key)}"""
+    )
+
     quarter_sum = _f(d and d.get("quarter"))
     if quarter_sum > 0:
         yield_pct = round(_f(d.get("meat")) / quarter_sum * 100, 2)
-        backs_pct = round(_f(d.get("backs")) / quarter_sum * 100, 2)
-        bones_pct = round(_f(d.get("bones")) / quarter_sum * 100, 2)
+        backs_pct = round((_f(d.get("backs")) + _f(bp and bp.get("backs"))) / quarter_sum * 100, 2)
+        bones_pct = round((_f(d.get("bones")) + _f(bp and bp.get("bones"))) / quarter_sum * 100, 2)
     else:
         yield_pct = round(_f(d and d.get("avg_yield")), 2)
         backs_pct = 0.0

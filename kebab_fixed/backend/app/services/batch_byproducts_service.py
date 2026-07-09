@@ -31,6 +31,10 @@ def _row(r: Optional[Dict]) -> Optional[Dict[str, Any]]:
         "backsDone": r["backs_kg"] is not None,
         "bonesDone": r["bones_kg"] is not None,
         "finishedAt": r["finished_at"].isoformat() if r["finished_at"] else None,
+        # Palety poprzednich ważeń — kreator doładowuje je do sumy przy
+        # ważeniu w trakcie rozbioru (kolejna paleta dolicza, nie nadpisuje).
+        "backsPallets": r.get("backs_pallets") or [],
+        "bonesPallets": r.get("bones_pallets") or [],
     }
 
 
@@ -52,9 +56,25 @@ def finish_batch(raw_batch_id: str, operator: str = "") -> Dict[str, Any]:
     quarter = float(q["s"] or 0)
     existing = query_one("SELECT raw_batch_id FROM batch_byproducts WHERE raw_batch_id=%s", (raw_batch_id,))
     if existing:
+        # Rekord mógł powstać przy ważeniu W TRAKCIE rozbioru (finished_at
+        # NULL) — teraz partia się kończy: stempluj finished_at i przelicz
+        # procenty względem pełnej ćwiartki (baza z ważeń w trakcie była
+        # częściowa).
         execute(
-            "UPDATE batch_byproducts SET quarter_kg=GREATEST(COALESCE(quarter_kg,0), %s) WHERE raw_batch_id=%s",
+            "UPDATE batch_byproducts SET "
+            "  quarter_kg = GREATEST(COALESCE(quarter_kg,0), %s), "
+            "  finished_at = COALESCE(finished_at, now()) "
+            "WHERE raw_batch_id=%s",
             (quarter, raw_batch_id),
+        )
+        execute(
+            "UPDATE batch_byproducts SET "
+            "  backs_pct = CASE WHEN backs_kg IS NOT NULL AND quarter_kg > 0 "
+            "    THEN ROUND(backs_kg / quarter_kg * 100, 2) ELSE backs_pct END, "
+            "  bones_pct = CASE WHEN bones_kg IS NOT NULL AND quarter_kg > 0 "
+            "    THEN ROUND(bones_kg / quarter_kg * 100, 2) ELSE bones_pct END "
+            "WHERE raw_batch_id=%s",
+            (raw_batch_id,),
         )
     else:
         execute(
@@ -65,14 +85,54 @@ def finish_batch(raw_batch_id: str, operator: str = "") -> Dict[str, Any]:
     return get(raw_batch_id)
 
 
+def ensure_record(raw_batch_id: str, operator: str = "") -> Dict[str, Any]:
+    """Rekord ubocznych do ważenia W TRAKCIE rozbioru partii (przytrzymanie
+    kafelka na HMI). NIE oznacza partii jako zakończonej — finished_at zostaje
+    NULL aż do finish_batch, więc partia nie trafia na szare kafle pending()
+    i auto-zakończenie przy wyczerpaniu ćwiartki działa normalnie."""
+    existing = get(raw_batch_id)
+    if existing:
+        return existing
+    b = query_one("SELECT internal_batch_no FROM raw_batches WHERE id=%s", (raw_batch_id,))
+    if not b:
+        raise HTTPException(404, "Partia nie istnieje")
+    q = query_one(
+        "SELECT COALESCE(SUM(kg_quarter),0) AS s FROM deboning_entries WHERE raw_batch_id=%s",
+        (raw_batch_id,),
+    )
+    execute(
+        "INSERT INTO batch_byproducts (raw_batch_id, raw_batch_no, quarter_kg, operator, finished_at) "
+        "VALUES (%s,%s,%s,%s,NULL)",
+        (raw_batch_id, b["internal_batch_no"], float(q["s"] or 0), operator),
+    )
+    return get(raw_batch_id)
+
+
 def pending() -> List[Dict[str, Any]]:
-    """Partie z niedokończonym ważeniem ubocznych (grzbiety LUB kości brak).
-    Bez filtra daty — przechodzą na kolejne dni (szare kafle na hali)."""
+    """ZAKOŃCZONE partie z niedokończonym ważeniem ubocznych (grzbiety LUB
+    kości brak). Bez filtra daty — przechodzą na kolejne dni (szare kafle).
+    Rekordy ważenia w trakcie rozbioru (finished_at NULL) nie wchodzą —
+    partia jest wtedy nadal aktywnym kaflem."""
     rows = query_all(
-        "SELECT * FROM batch_byproducts WHERE backs_kg IS NULL OR bones_kg IS NULL "
+        "SELECT * FROM batch_byproducts "
+        "WHERE finished_at IS NOT NULL AND (backs_kg IS NULL OR bones_kg IS NULL) "
         "ORDER BY finished_at"
     )
     return [_row(r) for r in rows]
+
+
+def today_totals() -> Dict[str, float]:
+    """Suma zbiorczo zważonych grzbietów/kości z DZISIAJ (czas PL) — pasek
+    dolny HMI. Frakcja liczy się w dniu jej zważenia (backs_at/bones_at)."""
+    r = query_one(
+        "SELECT "
+        "  COALESCE(SUM(backs_kg) FILTER (WHERE (backs_at AT TIME ZONE 'Europe/Warsaw')::date "
+        "    = (now() AT TIME ZONE 'Europe/Warsaw')::date), 0) AS backs, "
+        "  COALESCE(SUM(bones_kg) FILTER (WHERE (bones_at AT TIME ZONE 'Europe/Warsaw')::date "
+        "    = (now() AT TIME ZONE 'Europe/Warsaw')::date), 0) AS bones "
+        "FROM batch_byproducts"
+    )
+    return {"backsKg": float(r["backs"] or 0), "bonesKg": float(r["bones"] or 0)}
 
 
 def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = None) -> Dict[str, Any]:

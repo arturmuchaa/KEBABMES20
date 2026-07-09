@@ -125,15 +125,27 @@ function SectionStep({ no, done, children }: { no: number; done: boolean; childr
 }
 
 // ─── Kafel partii ──────────────────────────────────────────────────
-const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect }: {
+const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onLongPress }: {
   batch: RawBatch; selected: boolean; onSelect: (b: RawBatch) => void
+  onLongPress?: (b: RawBatch) => void
 }) {
   const { daysLeft } = getExpiryStatus(batch.expiryDate)
   const kg = Number(batch.kgAvailable)
   const expired = daysLeft < 0
   const daysColor = selected ? 'rgba(255,255,255,.85)' : (expired || daysLeft === 0 ? 'var(--red)' : daysLeft <= 3 ? 'var(--amb)' : 'var(--mut)')
+  // Przytrzymanie (0,6 s) = ważenie kości/grzbietów w trakcie rozbioru;
+  // krótkie dotknięcie = wybór partii (jak dotychczas).
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longRef = useRef(false)
+  const down = () => {
+    if (!onLongPress) return
+    longRef.current = false
+    timerRef.current = setTimeout(() => { longRef.current = true; onLongPress(batch) }, 600)
+  }
+  const up = () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null } }
   return (
-    <button type="button" onClick={() => onSelect(batch)} disabled={expired}
+    <button type="button" onClick={() => { if (!longRef.current) onSelect(batch) }} disabled={expired}
+      onPointerDown={down} onPointerUp={up} onPointerLeave={up} onPointerCancel={up}
       className={cn('flex flex-col justify-between text-left h-full flex-shrink-0 select-none transition-all', expired && 'opacity-50')}
       style={{
         width: 244, padding: '14px 18px', borderRadius: 12,
@@ -293,6 +305,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Partie oczekujące na ważenie ubocznych (grzbiety/kości) — szare kafle,
   // przechodzą między dniami. Odświeżane co 5 s razem z partiami (useEffect niżej).
   const byproductsData = useApi(() => byproductsApi.pending())
+  // Zbiorczo zważone grzbiety/kości z dzisiaj — pasek dolny (kreator zapisuje
+  // je NA PARTIĘ, nie per wpis, więc suma wpisów ich nie widzi).
+  const byprodToday = useApi(() => byproductsApi.today())
   const { session, timeWindow, loading: sessionLoading, startDay, startLoading, closeDay, closeLoading } = useProductionSession()
   const { entries, addEntry, addTake, completeTake, editEntry, removeEntry, lastCreated, addLoading, addTakeLoading, completeTakeLoading, removeLoading } = useDeboningEntries(session?.id ?? null)
 
@@ -402,9 +417,10 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       batchData.refetch()
       workerData.refetch()
       byproductsData.refetch()
+      byprodToday.refetch()
     }, 5000)
     return () => clearInterval(t)
-  }, [batchData.refetch, workerData.refetch, byproductsData.refetch])
+  }, [batchData.refetch, workerData.refetch, byproductsData.refetch, byprodToday.refetch])
 
   const allActiveBatches = useMemo(() =>
     (batchData.data?.data ?? [])
@@ -719,6 +735,15 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setWizard({ batch, record: rec })
   }
 
+  // Ważenie kości/grzbietów W TRAKCIE rozbioru — przytrzymanie kafelka partii.
+  // ensure NIE oznacza partii jako zakończonej; kolejne ważenia doładowują
+  // palety do sumy, a % przelicza się przy zakończeniu partii.
+  async function openWizardInProgress(batch: RawBatch) {
+    const rec = await byproductsApi.ensure(batch.id, loggedInUser?.name).catch(() => null)
+    if (!rec) { showToast('Nie udało się otworzyć ważenia', 'err'); return }
+    setWizard({ batch, record: rec })
+  }
+
   function startEditEntry(e: DeboningEntry) {
     setEditEntryId(e.id)
     setEditTaken(String(e.kgTaken))
@@ -742,6 +767,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       const rec = await byproductsApi.weigh(wizard.batch.id, kind, kg, pallets)
       setWizard(w => (w ? { ...w, record: rec } : null))
       byproductsData.refetch()
+      byprodToday.refetch()
       showToast(`Zapisano ${kind === 'backs' ? 'grzbiety' : 'kości'}: ${fmtKg(kg, 1)} kg`)
     } catch (e: any) {
       // Bez tego wizard wisiał na „saving" bez żadnego komunikatu.
@@ -979,7 +1005,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           : batches.length === 0
             ? <div className="flex items-center justify-center w-full text-sm font-bold" style={{ color: 'var(--mut)' }}>Brak aktywnych partii</div>
             : batches.map(b => (
-                <BatchTileV10 key={b.id} batch={b} selected={selBatch?.id === b.id} onSelect={pickBatch} />
+                <BatchTileV10 key={b.id} batch={b} selected={selBatch?.id === b.id} onSelect={pickBatch}
+                  onLongPress={openWizardInProgress} />
               ))
         }
         {/* Szare kafle: partie zakończone, oczekujące na ważenie ubocznych
@@ -1432,8 +1459,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           { label: 'Ćwiartka pobrana dzisiaj', val: `${fmtKg(shift.totTaken, 0)} kg` },
           { label: 'Mięso',         val: `${fmtKg(shift.totMeat, 0)} kg` },
           { label: 'Wydajność dnia', val: shift.totMeat > 0 ? fmtPct(shift.yieldPct, 1) : '—', color: yieldInk(shift.yieldPct) },
-          { label: 'Grzbiety',      val: `${fmtKg(shift.totBacks, 0)} kg` },
-          { label: 'Kości',         val: `${fmtKg(shift.totBones, 0)} kg` },
+          { label: 'Grzbiety',      val: `${fmtKg(shift.totBacks + (byprodToday.data?.backsKg ?? 0), 0)} kg` },
+          { label: 'Kości',         val: `${fmtKg(shift.totBones + (byprodToday.data?.bonesKg ?? 0), 0)} kg` },
           { label: 'Wpisy',         val: String(completeEntries.length) },
         ].map(c => (
           <div key={c.label} className="flex flex-col items-center justify-center px-1 text-center" style={{ borderRight: '1px solid var(--lineSoft)' }}>

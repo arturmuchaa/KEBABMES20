@@ -17,6 +17,7 @@ from app.db import (
     cx_query_all,
     cx_query_one,
     query_all,
+    query_one,
     transaction,
 )
 from app.logging_config import get_logger
@@ -116,6 +117,21 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     total_meat = sum(f(r["kg_meat"]) for r in rows)
     total_backs = sum(f(r["kg_backs"]) for r in rows)
     total_bones = sum(f(r["kg_bones"]) for r in rows)
+
+    # Zbiorcze ważenie ubocznych partii (batch_byproducts) — kreator na HMI
+    # zapisuje grzbiety/kości NA PARTIĘ, nie per wpis, więc bez tego biuro
+    # widziało zero (prod 2026-07-08). Frakcja liczy się w dniu zakończenia
+    # partii (finished_at), zapasowo w dniu ważenia.
+    bp = query_one(
+        """
+        SELECT COALESCE(SUM(backs_kg), 0) AS backs, COALESCE(SUM(bones_kg), 0) AS bones
+        FROM batch_byproducts
+        WHERE COALESCE(finished_at, backs_at, bones_at)::date BETWEEN %s AND %s
+        """,
+        (date_from, date_to),
+    )
+    total_backs += f(bp and bp.get("backs"))
+    total_bones += f(bp and bp.get("bones"))
     active_hours = max(1, len({bucket(r) for r in rows})) if rows else 1
 
     wagg: Dict[str, Dict] = defaultdict(

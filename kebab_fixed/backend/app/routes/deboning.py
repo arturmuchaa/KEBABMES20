@@ -44,9 +44,21 @@ def byproducts_pending():
     return {"pending": byproducts_svc.pending()}
 
 
+@router.get("/api/deboning/byproducts/today")
+def byproducts_today():
+    return byproducts_svc.today_totals()
+
+
 @router.get("/api/deboning/byproducts/{raw_batch_id}")
 def byproducts_get(raw_batch_id: str):
     return byproducts_svc.get(raw_batch_id) or {}
+
+
+@router.post("/api/deboning/byproducts/{raw_batch_id}/ensure")
+def byproducts_ensure(raw_batch_id: str, body: dict = None):
+    """Ważenie ubocznych W TRAKCIE rozbioru — rekord bez finished_at."""
+    body = body or {}
+    return byproducts_svc.ensure_record(raw_batch_id, (body.get("operator") or "").strip())
 
 
 @router.post("/api/deboning/byproducts/{raw_batch_id}/finish")

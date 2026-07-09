@@ -320,16 +320,26 @@ export const deboningEntriesApi = {
   traceability: (batchId: string) => get<any>(`/deboning/entries/trace/${batchId}`),
 }
 
-// Ważenie zbiorcze produktów ubocznych (grzbiety + kości) po zakończeniu partii.
+// Ważenie zbiorcze produktów ubocznych (grzbiety + kości) — po zakończeniu
+// partii ALBO w trakcie rozbioru (przytrzymanie kafelka partii na HMI).
+export interface ByproductPallet {
+  tareLabel: string; tareKg: number; containers: number; gross: number; net: number
+}
 export interface BatchByproducts {
   rawBatchId: string; rawBatchNo: string; quarterKg: number
   backsKg: number | null; bonesKg: number | null
   backsPct: number | null; bonesPct: number | null
   backsDone: boolean; bonesDone: boolean; finishedAt: string | null
+  /** Palety poprzednich ważeń — kreator doładowuje do sumy (ważenie w trakcie). */
+  backsPallets?: ByproductPallet[]; bonesPallets?: ByproductPallet[]
 }
 export const byproductsApi = {
   pending: () => get<{ pending: BatchByproducts[] }>('/deboning/byproducts/pending').then(r => r?.pending ?? []),
+  today: () => get<{ backsKg: number; bonesKg: number }>('/deboning/byproducts/today'),
   get: (batchId: string) => get<BatchByproducts>(`/deboning/byproducts/${batchId}`),
+  // Ważenie w trakcie rozbioru — rekord BEZ oznaczania partii jako zakończonej.
+  ensure: (batchId: string, operator?: string) =>
+    post<BatchByproducts>(`/deboning/byproducts/${batchId}/ensure`, { operator: operator ?? '' }),
   finish: (batchId: string, operator?: string) =>
     post<BatchByproducts>(`/deboning/byproducts/${batchId}/finish`, { operator: operator ?? '' }),
   weigh: (batchId: string, kind: 'backs' | 'bones', kg: number, pallets: any[]) =>

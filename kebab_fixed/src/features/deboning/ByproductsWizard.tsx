@@ -84,7 +84,11 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
   }
 
   function chooseFraction(f: Frac) {
-    setFrac(f); setPallets([]); resetInputs(); setPhase('setup')
+    // Doładuj palety poprzednich ważeń tej frakcji (ważenie w trakcie
+    // rozbioru) — kolejna paleta DOLICZA się do sumy, zapis nadpisuje
+    // całość poprawnym totalem. „Wyczyść" w kroku ważenia zeruje sumę.
+    const prev = (f === 'backs' ? record.backsPallets : record.bonesPallets) ?? []
+    setFrac(f); setPallets(prev as Pallet[]); resetInputs(); setPhase('setup')
   }
 
   // Ręczne wpisanie kg całej frakcji (awaria wagi) — zapis bez palet.
@@ -145,7 +149,7 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
             <div className="grid grid-cols-2 gap-4">
               {(['backs', 'bones'] as Frac[]).map(f => {
                 const done = f === 'backs' ? record.backsDone : record.bonesDone
-                const pct = f === 'backs' ? record.backsPct : record.bonesPct
+                const kgSoFar = f === 'backs' ? record.backsKg : record.bonesKg
                 return (
                   <button key={f} type="button" onClick={() => chooseFraction(f)}
                     className="h-40 flex flex-col items-center justify-center gap-2 font-extrabold" style={{
@@ -156,7 +160,7 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
                     <Package size={40} />
                     <span className="text-3xl uppercase" style={{ color: 'var(--ink)', letterSpacing: '.02em' }}>{FRAC_LABEL[f]}</span>
                     {done
-                      ? <span className="text-sm font-bold flex items-center gap-1"><Check size={16} /> zważone {pct != null ? fmtPct(pct, 1) : ''} · zważ ponownie</span>
+                      ? <span className="text-sm font-bold flex items-center gap-1"><Check size={16} /> dotąd {fmtKg(kgSoFar ?? 0, 1)} kg · doważ / popraw</span>
                       : <span className="text-sm font-bold" style={{ color: 'var(--mut)' }}>dotknij, aby zważyć</span>}
                   </button>
                 )
@@ -225,7 +229,16 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
           <div className="flex gap-5 p-6 overflow-auto">
             {/* Lewa: kroki — paleta + pojemniki */}
             <div className="flex-1 flex flex-col gap-4 min-w-0">
-              <div className="font-extrabold text-xl">{FRAC_TITLE[frac]}</div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-extrabold text-xl">{FRAC_TITLE[frac]}</div>
+                {pallets.length > 0 && (
+                  <button type="button" onClick={() => setPallets([])}
+                    className="text-sm font-bold px-3 py-1.5 flex-shrink-0"
+                    style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}>
+                    Wyczyść sumę ({fmtKg(fracTotal, 1)} kg)
+                  </button>
+                )}
+              </div>
 
               <div>
                 <div className="text-xs font-bold uppercase mb-2" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>1. Wybierz paletę (tara)</div>
