@@ -75,7 +75,8 @@ def backfill_byproduct_lots() -> Dict[str, int]:
             conn,
             """
             SELECT * FROM deboning_entries de
-            WHERE NOT EXISTS (
+            WHERE COALESCE(de.status, 'complete') = 'complete'
+              AND NOT EXISTS (
                 SELECT 1 FROM byproduct_lots b WHERE b.deboning_entry_id = de.id
             )
             """,

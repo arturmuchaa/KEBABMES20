@@ -109,6 +109,7 @@ def get_averages(window: Optional[str] = None) -> Dict:
                   AVG(NULLIF(yield_pct, 0)) AS avg_yield
            FROM deboning_entries
            WHERE kg_quarter > 0
+             AND COALESCE(status, 'complete') = 'complete'
              {_window_sql("created_at::date", window_key)}"""
     )
     quarter_sum = _f(d and d.get("quarter"))

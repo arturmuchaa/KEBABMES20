@@ -124,3 +124,27 @@ def test_stats_pomija_pending(db):
     stats = deboning_stats(today, today)
     assert stats["summary"]["kgMeat"] == 0.0
     assert stats["summary"]["quarters"] == 0  # pending nie liczy się jako sztuka
+
+
+def test_backfill_abp_pomija_pending(db):
+    """Backfill ABP nie może wygenerować lotu 'other' z całej ćwiartki
+    pending — zablokowałoby to poprawne loty przy domknięciu (idempotencja)."""
+    from app.services.byproducts_service import backfill_byproduct_lots
+
+    _seed_cwiartka_batch(internal_no="730", kg=100.0)
+    take = create_deboning_take(DeboningTakeCreate(
+        raw_batch_id="rb1", worker_name="Jan", kg_taken=100.0,
+    ))
+    backfill_byproduct_lots()
+    lots = query_one(
+        "SELECT COUNT(*) AS c FROM byproduct_lots WHERE deboning_entry_id=%s",
+        (take["id"],),
+    )
+    assert int(lots["c"]) == 0  # pending nietknięty
+    # po domknięciu powstają właściwe loty ABP
+    complete_deboning_take(take["id"], DeboningTakeComplete(kg_meat=70.0))
+    lots = query_one(
+        "SELECT COUNT(*) AS c FROM byproduct_lots WHERE deboning_entry_id=%s",
+        (take["id"],),
+    )
+    assert int(lots["c"]) > 0

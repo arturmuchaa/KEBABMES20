@@ -338,6 +338,7 @@ def seasoned_trace(batch_id: str) -> Dict[str, Any]:
                 )
                 deb = query_one(
                     "SELECT * FROM deboning_entries WHERE raw_batch_id=%s "
+                    "AND COALESCE(status, 'complete') = 'complete' "
                     "ORDER BY created_at LIMIT 1",
                     (rb["id"],),
                 )

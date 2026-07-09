@@ -129,6 +129,7 @@ def get_worker_days(worker_id: str, date_from: str, date_to: str) -> List[Dict]:
                    COUNT(*)        AS entries_count
             FROM deboning_entries
             WHERE worker_id=%s
+              AND COALESCE(status, 'complete') = 'complete'
               AND DATE(created_at AT TIME ZONE 'Europe/Warsaw') BETWEEN %s AND %s
             GROUP BY DATE(created_at AT TIME ZONE 'Europe/Warsaw')
             ORDER BY work_date
