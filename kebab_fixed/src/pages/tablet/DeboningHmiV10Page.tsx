@@ -677,7 +677,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Klik w kafelek pracownika z otwartym pobraniem: wraca do formularza z
   // wpisaną, zablokowaną ćwiartką; operator tylko wjeżdża na wagę i zapisuje.
   const resumeTake = useCallback((e: DeboningEntry) => {
-    const b = allActiveBatches.find(x => x.id === e.rawBatchId) ?? null
+    // Partia pobrania mogła się już WYCZERPAĆ (0 kg = poza listą aktywnych) —
+    // domknięcie mięsem musi działać mimo to (prod 2026-07-09, Anatoli/407):
+    // szukamy w PEŁNEJ liście partii, nie tylko aktywnych.
+    const all = (batchData.data?.data ?? []) as RawBatch[]
+    const b = all.find(x => x.id === e.rawBatchId) ?? null
     if (b) setSelBatch(b)
     const w = workers.find(x => x.id === e.workerId) ?? null
     if (w) setSelWorker(w)
@@ -687,7 +691,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setKgMeat('')
     setMeatManual(false)
     setActive('meat')
-  }, [allActiveBatches, workers])
+  }, [batchData.data, workers])
 
   const cancelResume = useCallback(() => {
     setResumeId(null)
@@ -774,6 +778,18 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     batchData.refetch()
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
     showToast(`Pobrano ${fmtKg(taken, 1)} kg — czeka na zważenie`)
+
+    // Pobranie też potrafi wyczerpać partię — bez tego rekord ubocznych
+    // zostawał bez finished_at i szary kafelek znikał (prod 2026-07-09,
+    // partia 407). Ta sama logika co przy zwykłym zapisie.
+    const remaining = Number(selBatch.kgAvailable) - taken
+    if (remaining <= 0.5 && !byproductsByBatch.has(selBatch.id)) {
+      const b = selBatch
+      setSelBatch(null)
+      byproductsApi.finish(b.id, loggedInUser?.name)
+        .then(rec => { byproductsData.refetch(); setFinishPrompt({ batch: b, record: rec }) })
+        .catch(() => {})
+    }
   }
 
   // Domknięcie pobrania zważonym mięsem.
