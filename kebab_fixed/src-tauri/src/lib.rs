@@ -40,6 +40,23 @@ fn scale_diagnose(_app: tauri::AppHandle) -> String {
     }
 }
 
+// Natychmiastowe zastosowanie tego, co wskazuje manifest na serwerze —
+// menu serwisowe po przywróceniu wersji (rollback) nie czeka na godzinny cykl.
+#[tauri::command]
+async fn apply_update_now(_app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(feature = "kiosk")]
+    {
+        match silent_auto_update(_app).await {
+            Ok(()) => Ok("Brak zmiany wersji na serwerze.".into()),
+            Err(e) => Err(format!("Aktualizacja nie powiodła się: {e}")),
+        }
+    }
+    #[cfg(not(feature = "kiosk"))]
+    {
+        Ok("Dostępne tylko w kiosku.".into())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -47,7 +64,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![windows_logoff, scale_diagnose, scale_tare])
+        .invoke_handler(tauri::generate_handler![windows_logoff, scale_diagnose, scale_tare, apply_update_now])
         .on_window_event(|_window, _event| {
             // Kiosk: operator nie może zamknąć okna (Alt+F4 / żądania zamknięcia ignorowane).
             #[cfg(feature = "kiosk")]
@@ -102,7 +119,14 @@ pub fn run() {
 
 #[cfg(feature = "kiosk")]
 async fn silent_auto_update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
-    if let Some(update) = app.updater()?.check().await? {
+    // Komparator „INNA wersja = instaluj" (nie tylko nowsza): serwerowy
+    // rollback (menu serwisowe → przywróć poprzednią wersję) podmienia
+    // manifest na starszą wersję i flota kiosków ma ją zainstalować.
+    let updater = app
+        .updater_builder()
+        .version_comparator(|current, update| update.version.to_string() != current.to_string())
+        .build()?;
+    if let Some(update) = updater.check().await? {
         update.download_and_install(|_, _| {}, || {}).await?;
         app.restart();
     }

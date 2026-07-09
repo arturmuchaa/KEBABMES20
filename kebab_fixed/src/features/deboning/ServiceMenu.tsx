@@ -13,8 +13,9 @@
  * fizycznego dostępu do BIOS-u.
  */
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Delete, LogOut, Wrench } from 'lucide-react'
+import { Delete, History, LogOut, Wrench } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
+import { BASE } from '@/lib/api'
 
 export const SERVICE_CODE = '0099'
 export const SERVICE_HOLD_MS = 3000
@@ -73,8 +74,55 @@ export function ServiceMenuModal({ open, onClose, buildLabel = `HMI v10 · ${__R
   const [ok,   setOk]   = useState(false)
   const [err,  setErr]  = useState(false)
   const [scaleDiag, setScaleDiag] = useState<string | null>(null)
+  // Rollback wersji: poprzednia wersja z serwera + status operacji.
+  const [prevVersion, setPrevVersion] = useState<string | null>(null)
+  const [rollbackMsg, setRollbackMsg] = useState<string | null>(null)
+  const [rollbackBusy, setRollbackBusy] = useState(false)
 
-  useEffect(() => { if (open) { setCode(''); setOk(false); setErr(false); setScaleDiag(null) } }, [open])
+  useEffect(() => { if (open) { setCode(''); setOk(false); setErr(false); setScaleDiag(null); setRollbackMsg(null); setRollbackBusy(false) } }, [open])
+
+  // Po poprawnym kodzie pobierz listę wersji — „poprzednia" = pierwsza inna
+  // niż aktualnie uruchomiona (rollback po złej aktualizacji).
+  useEffect(() => {
+    if (!ok) return
+    setPrevVersion(null)
+    fetch(`${BASE}/api/desktop-updates/rozbior-v10/versions`)
+      .then(r => r.json())
+      .then((d: { versions?: { version: string }[] }) => {
+        const prev = (d.versions ?? []).find(v => v.version !== __ROZBIOR_V10_VERSION__)
+        setPrevVersion(prev?.version ?? null)
+      })
+      .catch(() => setPrevVersion(null))
+  }, [ok])
+
+  const doRollback = useCallback(async () => {
+    if (!prevVersion || rollbackBusy) return
+    setRollbackBusy(true)
+    setRollbackMsg(`Przywracam ${prevVersion}…`)
+    try {
+      const res = await fetch(`${BASE}/api/desktop-updates/rozbior-v10/rollback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: SERVICE_CODE, version: prevVersion }),
+      })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        throw new Error((e as any).detail || `HTTP ${res.status}`)
+      }
+      if ('__TAURI_INTERNALS__' in window) {
+        setRollbackMsg(`Serwer przywrócony na ${prevVersion}. Instaluję — kiosk zrestartuje się sam…`)
+        // Instalacja + restart robi się sama; jeśli wróci z komunikatem, pokaż go.
+        const msg = await invoke<string>('apply_update_now')
+        setRollbackMsg(String(msg))
+      } else {
+        setRollbackMsg(`Serwer przywrócony na ${prevVersion}. Kioski pobiorą ją przy najbliższym sprawdzeniu (do 1 h) lub po restarcie aplikacji.`)
+      }
+    } catch (e: any) {
+      setRollbackMsg(`Błąd: ${e?.message || e}`)
+    } finally {
+      setRollbackBusy(false)
+    }
+  }, [prevVersion, rollbackBusy])
 
   // Po poprawnym kodzie pobierz diagnostykę wagi (jaki port HMI otwiera, czy
   // scale.json jest czytany) — najczęstszy problem serwisowy na hali.
@@ -141,6 +189,20 @@ export function ServiceMenuModal({ open, onClose, buildLabel = `HMI v10 · ${__R
                 {scaleDiag ?? '…'}
               </pre>
             </div>
+            <button type="button" onClick={() => void doRollback()} disabled={!prevVersion || rollbackBusy}
+              className="h-14 text-base font-bold flex items-center justify-center gap-3"
+              style={{
+                borderRadius: 10, border: '1px solid var(--svcLine)',
+                background: 'var(--svcBg)', color: prevVersion && !rollbackBusy ? 'var(--svcInk)' : 'var(--svcMut)',
+              }}>
+              <History size={20} />
+              {prevVersion ? `Przywróć poprzednią wersję (${prevVersion})` : 'Brak wersji do przywrócenia'}
+            </button>
+            {rollbackMsg && (
+              <div className="text-xs font-semibold px-3 py-2" style={{ borderRadius: 8, background: 'var(--svcBg)', border: '1px solid var(--svcLine)', color: 'var(--svcInk)' }}>
+                {rollbackMsg}
+              </div>
+            )}
             <button type="button" onClick={() => void triggerServiceLogoff()}
               className="h-14 text-base font-bold flex items-center justify-center gap-3"
               style={{ borderRadius: 10, background: 'var(--svcRed)', color: '#fff' }}>

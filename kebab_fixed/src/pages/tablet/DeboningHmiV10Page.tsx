@@ -15,7 +15,8 @@ import { rawBatchesApi, usersApi, settingsApi, byproductsApi, type BatchByproduc
 import { Spinner } from '@/components/ui/widgets'
 import { fmtKg, fmtPct, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
-import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2, Clock } from 'lucide-react'
+import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2, Clock, Wifi, WifiOff } from 'lucide-react'
+import { BASE } from '@/lib/api'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
@@ -299,6 +300,37 @@ const NumpadV10 = memo(function NumpadV10({ onKey, onBackStart, onBackEnd, onSer
   )
 })
 
+// ─── Łączność z serwerem ────────────────────────────────────────────
+// Ping /api/health co 10 s + zdarzenia online/offline przeglądarki.
+// Bez tego utrata internetu wyglądała jak „brak sesji" i HMI mylnie
+// pokazywało ekran „Rozpocznij dzień".
+function useServerOnline(): boolean {
+  const [online, setOnline] = useState(true)
+  useEffect(() => {
+    let alive = true
+    const ping = async () => {
+      try {
+        const r = await fetch(`${BASE}/api/health`, { cache: 'no-store' })
+        if (alive) setOnline(r.ok)
+      } catch {
+        if (alive) setOnline(false)
+      }
+    }
+    ping()
+    const t = setInterval(ping, 10_000)
+    const on = () => { void ping() }
+    const off = () => setOnline(false)
+    window.addEventListener('online', on)
+    window.addEventListener('offline', off)
+    return () => {
+      alive = false; clearInterval(t)
+      window.removeEventListener('online', on)
+      window.removeEventListener('offline', off)
+    }
+  }, [])
+  return online
+}
+
 interface HmiAlarm { id: string; level: 'red' | 'amb'; text: string }
 
 export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false, buildLabel = `HMI v10 · ${__ROZBIOR_V10_VERSION__}` }: { allowOperatorSwitch?: boolean; guided?: boolean; buildLabel?: string }) {
@@ -307,6 +339,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // operatora (wylogowanie do ekranu PIN) — ustawia go tylko kiosk (rozbior-v10.tsx),
   // żeby w biurowej aplikacji ten sam przycisk nie wylogowywał z całego MES.
   const auth = useAuth()
+  const online = useServerOnline()
   const loggedInUser = auth?.user
   const batchData  = useApi(() => rawBatchesApi.list())
   const workerData = useApi(() => usersApi.list())
@@ -932,6 +965,22 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
 
   if (sessionLoading) return wrap(<div className="flex items-center justify-center flex-1"><Spinner size={48} /></div>)
 
+  // Brak łączności bez potwierdzonej sesji = NIE pokazuj „Rozpocznij dzień"
+  // (sesja może trwać, tylko serwer jest niedostępny) — czekaj na sieć.
+  if (!online && !session) return wrap(
+    <div className="flex flex-col items-center justify-center flex-1 gap-6">
+      <div className="w-28 h-28 flex items-center justify-center select-none" {...serviceHoldProps}
+        style={{ borderRadius: 16, background: 'var(--redSoft)', border: '1px solid var(--redLine)', color: 'var(--red)' }}>
+        <WifiOff size={56} />
+      </div>
+      <h2 className="font-extrabold text-4xl">Brak połączenia</h2>
+      <p className="text-xl max-w-lg text-center" style={{ color: 'var(--mut)' }}>
+        Czekam na połączenie z serwerem… HMI wróci samo, gdy sieć wróci.
+      </p>
+      <Spinner size={32} />
+    </div>
+  )
+
   if (!session) return wrap(
     <div className="flex flex-col items-center justify-center flex-1 gap-8">
       <div className="text-center select-none" {...serviceHoldProps}>
@@ -990,6 +1039,15 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             <span className="hmi-v10-mono text-sm font-bold truncate max-w-[140px] block" style={{ color: (c as any).color ?? 'var(--ink)', lineHeight: 1.3 }}>{c.val}</span>
           </div>
         ))}
+        <span className="flex items-center gap-1.5 px-2.5 h-8 flex-shrink-0 text-[10px] font-bold uppercase"
+          style={{ borderRadius: 8, letterSpacing: '.06em',
+            background: online ? 'transparent' : 'var(--redSoft)',
+            border: `1px solid ${online ? 'var(--lineSoft)' : 'var(--redLine)'}`,
+            color: online ? 'var(--mut)' : 'var(--red)' }}
+          title={online ? 'Połączono z serwerem' : 'Brak połączenia z serwerem'}>
+          {online ? <Wifi size={14} /> : <WifiOff size={14} />}
+          {online ? 'online' : 'BRAK SIECI'}
+        </span>
         <div className="flex-1" />
         <span className="flex items-center gap-2 px-3 h-9 text-sm font-bold flex-shrink-0"
           style={alarms.length === 0
@@ -1253,10 +1311,12 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               </button>
             </div>
           ) : (
-            // ── Tryb normalny: „Zapisz wpis” (od razu) + „Zapisz pobranie” ──
-            <div className="flex-shrink-0 flex flex-col gap-2 w-full mt-1">
+            // ── Tryb normalny: „Zapisz wpis” (od razu) + kompaktowe „Pobranie” ──
+            // JEDEN rząd 72 px (jak przed dwufazowym) — drugi rząd przycisków
+            // spychał numpad i przycisk nachodził na klawisz „0”.
+            <div className="flex-shrink-0 flex gap-2 w-full mt-1">
               <button type="button" onClick={handleSave} disabled={!canSave || addLoading}
-                className={cn('h-[72px] w-full text-lg font-bold flex items-center justify-center gap-3 transition-all active:scale-[0.98]', saveFlash && 'scale-[1.01]')}
+                className={cn('h-[72px] flex-1 min-w-0 text-lg font-bold flex items-center justify-center gap-3 transition-all active:scale-[0.98]', saveFlash && 'scale-[1.01]')}
                 style={{
                   borderRadius: 12,
                   background: canSave ? 'var(--accent)' : meatTooBig ? 'var(--redSoft)' : 'var(--bg)',
@@ -1268,15 +1328,21 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 {saveHint}
               </button>
               <button type="button" onClick={handleSaveTake} disabled={!canSaveTake || addTakeLoading}
-                className="h-[52px] w-full text-base font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                className="h-[72px] px-4 flex-shrink-0 flex flex-col items-center justify-center gap-0.5 transition-all active:scale-[0.98]"
                 style={{
                   borderRadius: 12,
                   background: 'var(--bg)',
                   color: canSaveTake ? 'var(--accent)' : 'var(--mut)',
                   border: `1.5px solid ${canSaveTake ? 'var(--accent)' : 'var(--line)'}`,
                 }}>
-                {addTakeLoading ? <span className="w-5 h-5 border-4 border-current/30 border-t-current rounded-full animate-spin" /> : <Clock size={18} />}
-                {canSaveTake ? `ZAPISZ POBRANIE — ${fmtKg(taken, 1)} KG (MIĘSO PÓŹNIEJ)` : 'ZAPISZ POBRANIE (MIĘSO PÓŹNIEJ)'}
+                <span className="flex items-center gap-1.5 text-sm font-bold uppercase leading-none">
+                  {addTakeLoading ? <span className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" /> : <Clock size={16} />}
+                  Pobranie
+                </span>
+                <span className="hmi-v10-mono text-[13px] font-bold leading-none">
+                  {canSaveTake ? `${fmtKg(taken, 1)} kg` : '—'}
+                </span>
+                <span className="text-[9px] font-bold uppercase leading-none" style={{ color: 'var(--mut)' }}>mięso później</span>
               </button>
             </div>
           )}

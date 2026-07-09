@@ -13,7 +13,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+import os
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, RedirectResponse
 
 from app.config import settings
@@ -26,6 +28,26 @@ router = APIRouter(tags=["desktop-updates-rozbior-v10"])
 
 _UPDATES_DIR = settings.desktop_updates_dir / "rozbior-v10"
 _META_FILE = _UPDATES_DIR / "latest-meta.json"
+
+# Kod serwisowy hali (ten sam, który otwiera menu serwisowe na kiosku) —
+# gate przywracania wersji. Endpoint jest w publicznym prefiksie desktop-updates
+# (kiosk nie ma konta admina), więc kod + audit-log to warstwa ochrony.
+_SERVICE_CODE = os.environ.get("KIOSK_SERVICE_CODE", "0099")
+
+
+def _version_meta_file(version: str) -> "Path":
+    safe = version.strip().replace("/", "").replace("\\", "").replace("..", "")
+    return _UPDATES_DIR / f"meta-{safe}.json"
+
+
+def _load_version_meta(version: str) -> dict | None:
+    f = _version_meta_file(version)
+    if not f.is_file():
+        return None
+    try:
+        return json.loads(f.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 def _safe_name(name: str) -> str:
@@ -116,9 +138,55 @@ async def publish_desktop_update_rozbior_v10(
         "pub_date": pub_date.strip(),
     }
     _META_FILE.write_text(json.dumps(meta, ensure_ascii=True, indent=2), encoding="utf-8")
+    # Manifest per wersja — umożliwia przywrócenie DOWOLNEJ wcześniejszej
+    # wersji (rollback z menu serwisowego kiosku) bez utraty podpisu.
+    _version_meta_file(meta["version"]).write_text(
+        json.dumps(meta, ensure_ascii=True, indent=2), encoding="utf-8"
+    )
     logger.info("desktop_updates_rozbior_v10.published", extra={"version": meta["version"], "installer": safe_name})
     return {
         "ok": True,
         "manifest": _manifest_payload(request, meta),
         "downloadUrl": str(request.url_for("desktop_update_rozbior_v10_latest_installer")),
     }
+
+
+@router.get("/api/desktop-updates/rozbior-v10/versions")
+def desktop_update_rozbior_v10_versions():
+    """Wersje możliwe do przywrócenia (mają manifest per wersja + plik exe)."""
+    current = (_load_meta() or {}).get("version")
+    out = []
+    for f in sorted(_UPDATES_DIR.glob("meta-*.json"), reverse=True):
+        try:
+            m = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if (_UPDATES_DIR / m.get("filename", "")).is_file():
+            out.append({"version": m["version"], "pubDate": m.get("pub_date", "")})
+    out.sort(key=lambda x: [int(p) for p in x["version"].split(".") if p.isdigit()], reverse=True)
+    return {"current": current, "versions": out}
+
+
+@router.post("/api/desktop-updates/rozbior-v10/rollback")
+def desktop_update_rozbior_v10_rollback(body: dict = Body(...)):
+    """Przywróć wskazaną (np. poprzednią) wersję jako `latest`.
+
+    Wywoływane z MENU SERWISOWEGO kiosku po złej aktualizacji — wymaga kodu
+    serwisowego hali. Kioski z komparatorem „inna wersja = instaluj"
+    (>=1.0.47) pobiorą przywróconą wersję przy najbliższym sprawdzeniu.
+    """
+    code = str(body.get("code") or "")
+    version = str(body.get("version") or "").strip()
+    if code != _SERVICE_CODE:
+        raise HTTPException(403, "Błędny kod serwisowy")
+    if not version:
+        raise HTTPException(400, "Brak wersji do przywrócenia")
+    meta = _load_version_meta(version)
+    if not meta:
+        raise HTTPException(404, f"Brak manifestu wersji {version} (rollback możliwy tylko do wersji publikowanych z historią)")
+    if not (_UPDATES_DIR / meta["filename"]).is_file():
+        raise HTTPException(404, f"Brak instalatora {meta['filename']} na serwerze")
+    meta = {**meta, "notes": f"PRZYWRÓCONA wersja {version} (rollback z menu serwisowego)"}
+    _META_FILE.write_text(json.dumps(meta, ensure_ascii=True, indent=2), encoding="utf-8")
+    logger.warning("desktop_updates_rozbior_v10.rollback", extra={"restored": version})
+    return {"ok": True, "version": version}
