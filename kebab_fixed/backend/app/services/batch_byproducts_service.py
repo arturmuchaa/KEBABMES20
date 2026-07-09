@@ -111,13 +111,18 @@ def ensure_record(raw_batch_id: str, operator: str = "") -> Dict[str, Any]:
 
 
 def pending() -> List[Dict[str, Any]]:
-    """ZAKOŃCZONE partie z niedokończonym ważeniem ubocznych — szare kafle,
-    bez filtra daty (przechodzą na kolejne dni). Kryterium = BILANS MASY:
-    kafelek zostaje, dopóki mięso + grzbiety + kości nie pokrywa ćwiartki
-    (z tolerancją 2%, min 5 kg) — samo „obie frakcje coś mają" nie wystarcza,
-    bo połowa grzbietów zważona w trakcie rozbioru znikała z kafla
-    (prod 2026-07-09). Rekordy ważenia w trakcie (finished_at NULL) nie
-    wchodzą — partia jest wtedy nadal aktywnym kaflem."""
+    """Szare kafle ważenia ubocznych. Dwie grupy:
+
+    1. NIEDOWAŻONE (bilans masy otwarty) — bez filtra daty, przechodzą na
+       kolejne dni: mięso + grzbiety + kości nie pokrywa ćwiartki
+       (tolerancja 1%, min 10 kg — 2% przy 7 t dawało 140 kg i kafel
+       znikał w trakcie ważenia kości, prod 2026-07-09).
+    2. ZAKOŃCZONE DZISIAJ (czas PL) — nawet z domkniętym bilansem: partia
+       z dzisiejszego dnia musi dać się przywrócić/doważyć (balanced=True,
+       kafel „zważona ✓ dotknij aby poprawić").
+
+    Rekordy ważenia w trakcie rozbioru (finished_at NULL) nie wchodzą —
+    partia jest wtedy nadal aktywnym kaflem."""
     rows = query_all(
         """
         SELECT b.*, COALESCE((
@@ -133,7 +138,15 @@ def pending() -> List[Dict[str, Any]]:
                 WHERE de.raw_batch_id = b.raw_batch_id
                   AND COALESCE(de.status, 'complete') = 'complete'
             ), 0) - COALESCE(b.backs_kg, 0) - COALESCE(b.bones_kg, 0))
-            > GREATEST(COALESCE(b.quarter_kg, 0) * 0.02, 5)
+            > GREATEST(COALESCE(b.quarter_kg, 0) * 0.01, 10)
+            -- JAKAKOLWIEK dzisiejsza aktywność trzyma kafel (nie znika
+            -- samoczynnie w dniu pracy nad partią):
+            OR (b.finished_at AT TIME ZONE 'Europe/Warsaw')::date
+               = (now() AT TIME ZONE 'Europe/Warsaw')::date
+            OR (b.backs_at AT TIME ZONE 'Europe/Warsaw')::date
+               = (now() AT TIME ZONE 'Europe/Warsaw')::date
+            OR (b.bones_at AT TIME ZONE 'Europe/Warsaw')::date
+               = (now() AT TIME ZONE 'Europe/Warsaw')::date
         )
         ORDER BY b.finished_at
         """
@@ -141,14 +154,20 @@ def pending() -> List[Dict[str, Any]]:
     out = []
     for r in rows:
         d = _row(r)
-        # Ile kg ubocznych jeszcze brakuje do bilansu — kafel to pokazuje.
+        quarter = float(r.get("quarter_kg") or 0)
         missing = (
-            float(r.get("quarter_kg") or 0)
+            quarter
             - float(r.get("meat_sum") or 0)
             - float(r.get("backs_kg") or 0)
             - float(r.get("bones_kg") or 0)
         )
         d["missingKg"] = round(max(0.0, missing), 1)
+        # Bilans domknięty = kafel tylko „do przywrócenia" (dzisiejsza partia).
+        d["balanced"] = (
+            r.get("backs_kg") is not None
+            and r.get("bones_kg") is not None
+            and missing <= max(quarter * 0.01, 10)
+        )
         out.append(d)
     return out
 

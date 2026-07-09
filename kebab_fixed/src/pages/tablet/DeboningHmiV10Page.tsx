@@ -179,7 +179,27 @@ const PendingBatchTile = memo(function PendingBatchTile({ rec, onOpen }: {
   if (!rec.bonesDone) need.push('kości')
   // Obie frakcje coś mają, ale bilans masy się nie domyka (połowa zważona
   // w trakcie rozbioru) — kafel mówi wprost, ile kg ubocznych brakuje.
-  if (need.length === 0) need.push(`resztę (~${fmtKg(rec.missingKg ?? 0, 0)} kg)`)
+  if (need.length === 0 && !rec.balanced) need.push(`resztę (~${fmtKg(rec.missingKg ?? 0, 0)} kg)`)
+  // Bilans domknięty: dzisiejsza partia NIE znika samoczynnie — zielony
+  // kafel „zważona ✓", klik pozwala poprawić/doważyć.
+  if (rec.balanced) {
+    return (
+      <button type="button" onClick={onOpen}
+        className="flex flex-col justify-between text-left h-full flex-shrink-0 select-none"
+        style={{ width: 244, padding: '14px 18px', borderRadius: 12, background: '#F0FDF4', border: '1px dashed #86EFAC', color: 'var(--mut)' }}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="hmi-v10-mono font-bold text-2xl leading-none" style={{ color: 'var(--ink)' }}>{rec.rawBatchNo}</span>
+          <span className="text-[10px] font-bold uppercase px-2 py-0.5" style={{ borderRadius: 6, background: '#DCFCE7', color: '#15803D', border: '1px solid #86EFAC', letterSpacing: '.06em' }}>zważona ✓</span>
+        </div>
+        <div className="text-[13px] font-bold uppercase mt-1" style={{ color: '#15803D', letterSpacing: '.03em' }}>
+          grzbiety {fmtKg(rec.backsKg ?? 0, 0)} · kości {fmtKg(rec.bonesKg ?? 0, 0)} kg
+        </div>
+        <div className="text-[12px] font-semibold" style={{ color: 'var(--mut)' }}>
+          dotknij, aby poprawić / doważyć
+        </div>
+      </button>
+    )
+  }
   return (
     <button type="button" onClick={onOpen}
       className="flex flex-col justify-between text-left h-full flex-shrink-0 select-none"

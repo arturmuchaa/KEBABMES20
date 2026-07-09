@@ -92,9 +92,20 @@ def test_kafelek_zostaje_dopoki_bilans_masy_sie_nie_domyka(db):
     p = [x for x in pending() if x["rawBatchId"] == "rb1"]
     assert p, "kafelek nie może zniknąć — brakuje ~33 kg ubocznych"
     assert p[0]["missingKg"] > 30
-    # doważenie reszty domyka bilans → kafelek znika (tolerancja 2%/5 kg)
+    assert p[0]["balanced"] is False
+    # doważenie reszty domyka bilans, ale partia z DZISIEJSZĄ aktywnością
+    # NIE znika samoczynnie — zostaje jako „zważona ✓" do przywrócenia
     record("rb1", "backs", 40.0, [])
     record("rb1", "bones", 27.0, [])
+    p = [x for x in pending() if x["rawBatchId"] == "rb1"]
+    assert p and p[0]["balanced"] is True
+    # dopiero po dniu (brak dzisiejszej aktywności) zbalansowana partia
+    # schodzi z kafli; niedoważona zostałaby (grupa 1 bez filtra daty)
+    execute(
+        "UPDATE batch_byproducts SET finished_at = finished_at - INTERVAL '1 day', "
+        "backs_at = backs_at - INTERVAL '1 day', bones_at = bones_at - INTERVAL '1 day' "
+        "WHERE raw_batch_id='rb1'"
+    )
     assert not [x for x in pending() if x["rawBatchId"] == "rb1"]
 
 

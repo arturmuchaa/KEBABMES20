@@ -347,6 +347,8 @@ export interface BatchByproducts {
   backsAt?: string | null; bonesAt?: string | null
   /** Ile kg ubocznych brakuje do bilansu masy partii (kafel pending). */
   missingKg?: number
+  /** Bilans domknięty — kafel tylko „do przywrócenia/poprawy" (dzisiejsza partia). */
+  balanced?: boolean
   /** Palety poprzednich ważeń — kreator doładowuje do sumy (ważenie w trakcie). */
   backsPallets?: ByproductPallet[]; bonesPallets?: ByproductPallet[]
 }
