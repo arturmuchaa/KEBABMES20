@@ -6,12 +6,13 @@ import pytest
 from fastapi import HTTPException
 
 from app.db import execute, query_one
-from app.models.deboning import DeboningTakeCreate, DeboningTakeComplete
+from app.models.deboning import DeboningTakeCreate, DeboningTakeComplete, DeboningTakeUpdate
 from app.services.deboning_service import (
     create_deboning_take,
     complete_deboning_take,
     delete_deboning_entry,
     deboning_stats,
+    update_deboning_take,
 )
 from app.utils.ids import now_iso
 
@@ -125,6 +126,52 @@ def test_stats_pomija_pending(db):
     assert stats["summary"]["kgMeat"] == 0.0
     assert stats["summary"]["quarters"] == 0  # pending nie liczy się jako sztuka
     assert stats["byBatch"] == []  # uzysk per partia też bez pending
+
+
+def test_dobranie_scala_sie_w_jedno_pobranie(db):
+    """Anatoli 135 + 300 ma być JEDNYM pobraniem 435 (prod 2026-07-09)."""
+    _seed_cwiartka_batch(internal_no="740", kg=500.0)
+    t1 = create_deboning_take(DeboningTakeCreate(
+        raw_batch_id="rb1", worker_id="w1", worker_name="Anatoli", kg_taken=135.0,
+    ))
+    t2 = create_deboning_take(DeboningTakeCreate(
+        raw_batch_id="rb1", worker_id="w1", worker_name="Anatoli", kg_taken=300.0,
+    ))
+    assert t2["id"] == t1["id"]
+    assert t2["kgTaken"] == 435.0
+    rb = query_one("SELECT kg_available FROM raw_batches WHERE id='rb1'")
+    assert float(rb["kg_available"]) == 65.0
+    # jeden ruch OUT o łącznej masie
+    mv = query_one(
+        "SELECT COUNT(*) AS c, COALESCE(SUM(qty),0) AS q FROM stock_movements "
+        "WHERE source_type='deboning' AND source_id=%s AND movement_type='OUT'",
+        (t1["id"],),
+    )
+    assert int(mv["c"]) == 1 and float(mv["q"]) == -435.0  # OUT = ujemne kg
+    # storno scalonego pobrania oddaje CAŁOŚĆ
+    delete_deboning_entry(t1["id"])
+    rb = query_one("SELECT kg_available FROM raw_batches WHERE id='rb1'")
+    assert float(rb["kg_available"]) == 500.0
+
+
+def test_edycja_pobrania_koryguje_partie(db):
+    _seed_cwiartka_batch(internal_no="741", kg=500.0)
+    t = create_deboning_take(DeboningTakeCreate(
+        raw_batch_id="rb1", worker_id="w1", worker_name="Jan", kg_taken=200.0,
+    ))
+    upd = update_deboning_take(t["id"], DeboningTakeUpdate(kg_taken=150.0))
+    assert upd["kgTaken"] == 150.0
+    rb = query_one("SELECT kg_available FROM raw_batches WHERE id='rb1'")
+    assert float(rb["kg_available"]) == 350.0  # 500 - 150
+    mv = query_one(
+        "SELECT qty FROM stock_movements WHERE source_type='deboning' AND source_id=%s "
+        "AND movement_type='OUT'", (t["id"],),
+    )
+    assert float(mv["qty"]) == -150.0  # OUT = ujemne kg
+    # edycja ponad dostępność blokuje
+    with pytest.raises(HTTPException) as ei:
+        update_deboning_take(t["id"], DeboningTakeUpdate(kg_taken=999.0))
+    assert ei.value.status_code == 400
 
 
 def test_backfill_abp_pomija_pending(db):

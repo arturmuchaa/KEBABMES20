@@ -81,6 +81,23 @@ def test_stats_biura_widza_zbiorcze_grzbiety_i_kosci(db):
     assert stats["summary"]["kgBones"] == 30.0
 
 
+def test_kafelek_zostaje_dopoki_bilans_masy_sie_nie_domyka(db):
+    """Zważona połowa grzbietów + kości NIE zdejmuje kafla — mięso+kości+
+    grzbiety musi pokryć ćwiartkę (prod 2026-07-09)."""
+    # 200 kg ćwiartki, 132 kg mięsa → uboczne ~68 kg
+    _seed_batch_with_entries(internal_no="805", quarter_each=100.0, n=2)
+    finish_batch("rb1")
+    record("rb1", "backs", 20.0, [])   # połowa grzbietów
+    record("rb1", "bones", 15.0, [])   # trochę kości — obie frakcje "done"
+    p = [x for x in pending() if x["rawBatchId"] == "rb1"]
+    assert p, "kafelek nie może zniknąć — brakuje ~33 kg ubocznych"
+    assert p[0]["missingKg"] > 30
+    # doważenie reszty domyka bilans → kafelek znika (tolerancja 2%/5 kg)
+    record("rb1", "backs", 40.0, [])
+    record("rb1", "bones", 27.0, [])
+    assert not [x for x in pending() if x["rawBatchId"] == "rb1"]
+
+
 def test_today_totals_sumuje_dzisiejsze_wazenia(db):
     _seed_batch_with_entries(internal_no="804")
     ensure_record("rb1")

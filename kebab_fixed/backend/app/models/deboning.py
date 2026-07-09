@@ -66,6 +66,14 @@ class DeboningTakeComplete(BaseModel):
     weigh_mode: Optional[str] = Field(None, alias="weighMode", pattern="^(auto|manual)$")
 
 
+class DeboningTakeUpdate(BaseModel):
+    """PATCH /api/deboning/takes/{id} — edycja otwartego pobrania (kg ćwiartki)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    kg_taken: float = Field(..., alias="kgTaken", gt=0)
+
+
 class DeboningEntryUpdate(BaseModel):
     """PATCH /api/deboning/entries/{id} — korekta wpisu."""
 

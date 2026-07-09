@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from app.db import (
     cx_execute,
     cx_execute_returning,
+    cx_execute_rowcount,
     cx_query_all,
     cx_query_one,
     query_all,
@@ -662,6 +663,46 @@ def create_deboning_take(dto) -> Dict:
             if worker:
                 worker_name = worker["name"]
 
+        # DOLICZANIE zamiast drugiego wiersza: ten sam pracownik dobiera z tej
+        # samej partii → jedno otwarte pobranie rośnie (prod 2026-07-09:
+        # Anatoli 135 + 300 zrobiło dwa niewidoczne wiersze zamiast 435).
+        existing = cx_query_one(
+            conn,
+            "SELECT * FROM deboning_entries WHERE raw_batch_id=%s AND worker_id=%s "
+            "AND status='pending' ORDER BY created_at LIMIT 1 FOR UPDATE",
+            (batch["id"], worker_id),
+        )
+        if existing:
+            entry = cx_execute_returning(
+                conn,
+                "UPDATE deboning_entries SET kg_quarter = kg_quarter + %s, "
+                "kg_remainder = kg_remainder + %s WHERE id=%s RETURNING *",
+                (kg_taken, kg_taken, existing["id"]),
+            )
+            cx_execute(
+                conn,
+                "UPDATE raw_batches SET kg_available = GREATEST(0, "
+                "COALESCE(kg_available, kg_received) - %s) WHERE id = %s",
+                (kg_taken, batch["id"]),
+            )
+            updated = cx_execute_rowcount(
+                conn,
+                # ruchy OUT są zapisywane jako ujemne kg — doliczenie = odjęcie
+                "UPDATE stock_movements SET qty = qty - %s "
+                "WHERE source_type='deboning' AND source_id=%s AND movement_type='OUT'",
+                (kg_taken, existing["id"]),
+            )
+            if not updated:
+                create_stock_movement(
+                    conn, product_type="raw", batch_id=batch["id"], qty=kg_taken,
+                    movement_type="OUT", source_type="deboning", source_id=existing["id"],
+                )
+            logger.info(
+                "deboning.take.merged",
+                extra={"entry_id": existing["id"], "kg_added": kg_taken},
+            )
+            return _map_deboning_entry(entry)  # type: ignore[arg-type]
+
         entry = cx_execute_returning(
             conn,
             """
@@ -691,6 +732,70 @@ def create_deboning_take(dto) -> Dict:
 
     logger.info("deboning.take.created", extra={"entry_id": entry_id, "kg_taken": kg_taken})
     return _map_deboning_entry(entry)  # type: ignore[arg-type]
+
+
+def update_deboning_take(entry_id: str, dto) -> Dict:
+    """Edycja OTWARTEGO pobrania (czeka na zważenie): zmiana kg pobranej
+    ćwiartki. Różnica koryguje stan partii i ruch magazynowy OUT."""
+    new_kg = float(dto.kg_taken)
+    if new_kg <= 0:
+        raise HTTPException(400, "Ilość pobranej ćwiartki musi być > 0")
+
+    with transaction() as conn:
+        entry = cx_query_one(
+            conn, "SELECT * FROM deboning_entries WHERE id=%s FOR UPDATE", (entry_id,)
+        )
+        if not entry:
+            raise HTTPException(404, "Pobranie nie znalezione")
+        if (entry.get("status") or "complete") != "pending":
+            raise HTTPException(409, "Edycja możliwa tylko dla pobrania czekającego na zważenie")
+
+        batch = cx_query_one(
+            conn, "SELECT * FROM raw_batches WHERE id=%s FOR UPDATE",
+            (entry["raw_batch_id"],),
+        )
+        if not batch:
+            raise HTTPException(404, "Partia pobrania nie istnieje")
+
+        old_kg = float(entry.get("kg_quarter") or 0)
+        diff = new_kg - old_kg
+        kg_available = float(batch.get("kg_available") or 0)
+        if diff > kg_available + 0.01:
+            raise HTTPException(
+                400,
+                f"Nie można zwiększyć do {new_kg} kg — w partii zostało tylko "
+                f"{round(kg_available, 2)} kg",
+            )
+
+        updated = cx_execute_returning(
+            conn,
+            "UPDATE deboning_entries SET kg_quarter=%s, kg_remainder=%s WHERE id=%s RETURNING *",
+            (new_kg, new_kg, entry_id),
+        )
+        cx_execute(
+            conn,
+            "UPDATE raw_batches SET kg_available = GREATEST(0, COALESCE(kg_available,0) - %s) "
+            "WHERE id=%s",
+            (diff, batch["id"]),
+        )
+        moved = cx_execute_rowcount(
+            conn,
+            # ruchy OUT są zapisywane jako ujemne kg
+            "UPDATE stock_movements SET qty=%s "
+            "WHERE source_type='deboning' AND source_id=%s AND movement_type='OUT'",
+            (-new_kg, entry_id),
+        )
+        if not moved:
+            create_stock_movement(
+                conn, product_type="raw", batch_id=batch["id"], qty=new_kg,
+                movement_type="OUT", source_type="deboning", source_id=entry_id,
+            )
+
+    logger.info(
+        "deboning.take.updated",
+        extra={"entry_id": entry_id, "old_kg": old_kg, "new_kg": new_kg},
+    )
+    return _map_deboning_entry(updated)  # type: ignore[arg-type]
 
 
 def complete_deboning_take(entry_id: str, dto) -> Dict:

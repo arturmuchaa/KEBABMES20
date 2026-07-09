@@ -111,16 +111,46 @@ def ensure_record(raw_batch_id: str, operator: str = "") -> Dict[str, Any]:
 
 
 def pending() -> List[Dict[str, Any]]:
-    """ZAKOŃCZONE partie z niedokończonym ważeniem ubocznych (grzbiety LUB
-    kości brak). Bez filtra daty — przechodzą na kolejne dni (szare kafle).
-    Rekordy ważenia w trakcie rozbioru (finished_at NULL) nie wchodzą —
-    partia jest wtedy nadal aktywnym kaflem."""
+    """ZAKOŃCZONE partie z niedokończonym ważeniem ubocznych — szare kafle,
+    bez filtra daty (przechodzą na kolejne dni). Kryterium = BILANS MASY:
+    kafelek zostaje, dopóki mięso + grzbiety + kości nie pokrywa ćwiartki
+    (z tolerancją 2%, min 5 kg) — samo „obie frakcje coś mają" nie wystarcza,
+    bo połowa grzbietów zważona w trakcie rozbioru znikała z kafla
+    (prod 2026-07-09). Rekordy ważenia w trakcie (finished_at NULL) nie
+    wchodzą — partia jest wtedy nadal aktywnym kaflem."""
     rows = query_all(
-        "SELECT * FROM batch_byproducts "
-        "WHERE finished_at IS NOT NULL AND (backs_kg IS NULL OR bones_kg IS NULL) "
-        "ORDER BY finished_at"
+        """
+        SELECT b.*, COALESCE((
+            SELECT SUM(kg_meat) FROM deboning_entries de
+            WHERE de.raw_batch_id = b.raw_batch_id
+              AND COALESCE(de.status, 'complete') = 'complete'
+        ), 0) AS meat_sum
+        FROM batch_byproducts b
+        WHERE b.finished_at IS NOT NULL AND (
+            b.backs_kg IS NULL OR b.bones_kg IS NULL OR
+            (COALESCE(b.quarter_kg, 0) - COALESCE((
+                SELECT SUM(kg_meat) FROM deboning_entries de
+                WHERE de.raw_batch_id = b.raw_batch_id
+                  AND COALESCE(de.status, 'complete') = 'complete'
+            ), 0) - COALESCE(b.backs_kg, 0) - COALESCE(b.bones_kg, 0))
+            > GREATEST(COALESCE(b.quarter_kg, 0) * 0.02, 5)
+        )
+        ORDER BY b.finished_at
+        """
     )
-    return [_row(r) for r in rows]
+    out = []
+    for r in rows:
+        d = _row(r)
+        # Ile kg ubocznych jeszcze brakuje do bilansu — kafel to pokazuje.
+        missing = (
+            float(r.get("quarter_kg") or 0)
+            - float(r.get("meat_sum") or 0)
+            - float(r.get("backs_kg") or 0)
+            - float(r.get("bones_kg") or 0)
+        )
+        d["missingKg"] = round(max(0.0, missing), 1)
+        out.append(d)
+    return out
 
 
 def list_all() -> List[Dict[str, Any]]:

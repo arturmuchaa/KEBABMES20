@@ -199,6 +199,27 @@ export function useDeboningEntries(sessionId: string | null) {
     }
   }, [createTakeMutation, refetch])
 
+  const updateTakeMutation = useMutation(
+    ({ id, kg }: { id: string; kg: number }) => deboningApi.updateTake(id, kg)
+  )
+
+  // Edycja otwartego pobrania (kg ćwiartki) — tylko przy otwartej sesji.
+  const editTake = useCallback(async (
+    entryId: string,
+    kgTaken: number,
+    session: ProductionSession | null,
+  ): Promise<string | null> => {
+    if (session?.status !== 'open') return 'Edycja możliwa tylko przy otwartej sesji'
+    if (kgTaken <= 0) return 'Ilość pobranej ćwiartki musi być > 0'
+    try {
+      await updateTakeMutation.mutate({ id: entryId, kg: kgTaken })
+      refetch()
+      return null
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Błąd edycji pobrania'
+    }
+  }, [updateTakeMutation, refetch])
+
   // Domknięcie pobrania mięsem
   const completeTake = useCallback(async (
     entryId: string,
@@ -258,6 +279,7 @@ export function useDeboningEntries(sessionId: string | null) {
     addEntry,
     addTake,
     completeTake,
+    editTake,
     editEntry,
     removeEntry,
     lastCreated,

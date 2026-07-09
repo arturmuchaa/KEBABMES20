@@ -313,6 +313,11 @@ export const deboningEntriesApi = {
     workerId:   dto.workerId,
     kgTaken:    dto.kgTaken,
   }),
+  // updateTake — edycja otwartego pobrania (kg ćwiartki); backend koryguje stan partii
+  updateTake: (id: string, dto: any) => patch<any>(`/deboning/takes/${id}`, {
+    ...toSnake(dto),
+    kgTaken: dto.kgTaken,
+  }),
   // completeTake — domknięcie pobrania mięsem
   completeTake: (id: string, dto: any) => post<any>(`/deboning/takes/${id}/complete`, {
     ...toSnake(dto),
@@ -340,6 +345,8 @@ export interface BatchByproducts {
   backsPct: number | null; bonesPct: number | null
   backsDone: boolean; bonesDone: boolean; finishedAt: string | null
   backsAt?: string | null; bonesAt?: string | null
+  /** Ile kg ubocznych brakuje do bilansu masy partii (kafel pending). */
+  missingKg?: number
   /** Palety poprzednich ważeń — kreator doładowuje do sumy (ważenie w trakcie). */
   backsPallets?: ByproductPallet[]; bonesPallets?: ByproductPallet[]
 }

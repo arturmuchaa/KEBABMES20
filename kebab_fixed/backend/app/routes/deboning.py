@@ -6,6 +6,7 @@ from app.models.deboning import (
     DeboningEntryUpdate,
     DeboningTakeCreate,
     DeboningTakeComplete,
+    DeboningTakeUpdate,
 )
 from app.services import deboning_service as svc
 from app.services import batch_byproducts_service as byproducts_svc
@@ -108,6 +109,11 @@ def create_deboning_take(dto: DeboningTakeCreate):
 @router.post("/api/deboning/takes/{entry_id}/complete")
 def complete_deboning_take(entry_id: str, dto: DeboningTakeComplete):
     return svc.complete_deboning_take(entry_id, dto)
+
+
+@router.patch("/api/deboning/takes/{entry_id}")
+def update_deboning_take(entry_id: str, dto: DeboningTakeUpdate):
+    return svc.update_deboning_take(entry_id, dto)
 
 
 @router.patch("/api/deboning/entries/{entry_id}")

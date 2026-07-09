@@ -1055,6 +1055,21 @@ export const deboningEntriesApi = {
   },
 
   // completeTake — domknięcie pobrania mięsem: lot mięsa + status complete
+  // updateTake — edycja otwartego pobrania (kg ćwiartki)
+  updateTake: async (entryId: string, dto: { kgTaken: number }): Promise<DeboningEntry> => {
+    await delay(200)
+    const idx = deboningEntries.findIndex(e => e.id === entryId)
+    if (idx === -1) throw new Error('Pobranie nie znalezione')
+    const prev = deboningEntries[idx]
+    if ((prev.status ?? 'complete') !== 'pending') throw new Error('Tylko otwarte pobranie')
+    const diff = dto.kgTaken - prev.kgTaken
+    const batch = batches.find(b => b.id === prev.rawBatchId)
+    if (batch) (batch as any).kgAvailable = Math.max(0, Number(batch.kgAvailable) - diff)
+    const updated: DeboningEntry = { ...prev, kgTaken: dto.kgTaken, kgRemainder: dto.kgTaken }
+    deboningEntries = deboningEntries.map(e => e.id === entryId ? updated : e)
+    return updated
+  },
+
   completeTake: async (entryId: string, dto: CompleteDeboningTakeDto): Promise<DeboningEntry> => {
     await delay(300)
     const idx = deboningEntries.findIndex(e => e.id === entryId)

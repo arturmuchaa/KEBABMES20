@@ -177,6 +177,9 @@ const PendingBatchTile = memo(function PendingBatchTile({ rec, onOpen }: {
   const need: string[] = []
   if (!rec.backsDone) need.push('grzbiety')
   if (!rec.bonesDone) need.push('kości')
+  // Obie frakcje coś mają, ale bilans masy się nie domyka (połowa zważona
+  // w trakcie rozbioru) — kafel mówi wprost, ile kg ubocznych brakuje.
+  if (need.length === 0) need.push(`resztę (~${fmtKg(rec.missingKg ?? 0, 0)} kg)`)
   return (
     <button type="button" onClick={onOpen}
       className="flex flex-col justify-between text-left h-full flex-shrink-0 select-none"
@@ -350,7 +353,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // je NA PARTIĘ, nie per wpis, więc suma wpisów ich nie widzi).
   const byprodToday = useApi(() => byproductsApi.today())
   const { session, timeWindow, loading: sessionLoading, startDay, startLoading, closeDay, closeLoading } = useProductionSession()
-  const { entries, addEntry, addTake, completeTake, editEntry, removeEntry, lastCreated, addLoading, addTakeLoading, completeTakeLoading, removeLoading } = useDeboningEntries(session?.id ?? null)
+  const { entries, addEntry, addTake, completeTake, editTake, editEntry, removeEntry, lastCreated, addLoading, addTakeLoading, completeTakeLoading, removeLoading } = useDeboningEntries(session?.id ?? null)
 
   // Rozdział: pobrania czekające na mięso (pending) vs domknięte wpisy (complete).
   // Agregaty, statystyki i lista „ostatnie” liczą tylko complete; pending mają
@@ -367,19 +370,26 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [active,    setActive]    = useState<ActiveField>('taken')
   const [takenMode, setTakenMode] = useState<'kg' | 'poj'>('kg')
   const scale = useScale()
-  const [cartTare, setCartTare] = useState<number | null>(null)
-  // Mięso przyjeżdża czasem na 2 wózkach: kolejne kliknięcie TEGO SAMEGO
-  // kafla zlicza wózki (1→2→3→1), tara = waga × liczba.
-  const [cartCount, setCartCount] = useState(1)
-  const cartTareTotal = cartTare != null ? cartTare * cartCount : null
+  // Mięso przyjeżdża na 1–3 wózkach, czasem RÓŻNYCH (np. 5,5 + 6,5):
+  // każdy kafel ma własny licznik (klik: 1→2→3→odznaczony), tara = suma.
+  const [cartCounts, setCartCounts] = useState<Record<string, number>>({})
+  const [noCart, setNoCart] = useState(false)
+  const cartTareTotal = useMemo(() => {
+    if (noCart) return 0
+    const entries = Object.entries(cartCounts)
+    if (entries.length === 0) return null
+    return entries.reduce((a, [w, c]) => a + Number(w) * c, 0)
+  }, [cartCounts, noCart])
   const pickCartTare = useCallback((w: number) => {
-    setCartTare(prev => {
-      if (prev === w && w > 0) {
-        setCartCount(c => (c >= 3 ? 1 : c + 1))
-        return prev
-      }
-      setCartCount(1)
-      return w
+    if (w === 0) { setNoCart(true); setCartCounts({}); return }
+    setNoCart(false)
+    setCartCounts(prev => {
+      const key = String(w)
+      const next = ((prev[key] ?? 0) + 1) % 4
+      const copy = { ...prev }
+      if (next === 0) delete copy[key]
+      else copy[key] = next
+      return copy
     })
   }, [])
   // v11: domyślnie 5 pojemników (typowo tyle), operator koryguje +/-. v10: 0 (jak było).
@@ -571,7 +581,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
 
   const saveHint = !selBatch ? 'WYBIERZ PARTIĘ'
     : !selWorker ? 'WYBIERZ PRACOWNIKA'
-    : autoMode && cartTare == null ? 'WYBIERZ WÓZEK'
+    : autoMode && cartTareTotal == null ? 'WYBIERZ WÓZEK'
     : autoMode && e2Count <= 0 ? 'DODAJ POJEMNIKI E2'
     : autoMode && !scale.connected ? 'WAGA NIEPODŁĄCZONA'
     : autoMode && weighing.netKg <= 0 ? 'WJEDŹ NA WAGĘ'
@@ -591,7 +601,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     : taken <= 0 ? 'Podaj ilość pobranej ćwiartki'
     : canSave ? (autoMode ? `Gotowe — zapisz ${fmtKg(meat, 1)} kg mięsa` : 'Gotowe — zapisz wpis')
     : meatTooBig ? 'Mięso większe niż zabrane — popraw!'
-    : autoMode && cartTare == null ? 'Wybierz wózek'
+    : autoMode && cartTareTotal == null ? 'Wybierz wózek'
     : autoMode && e2Count <= 0 ? 'Dodaj pojemniki E2'
     : autoMode && !scale.connected ? 'Waga niepodłączona'
     : autoMode && weighing.netKg <= 0 ? 'Wjedź wózkiem na wagę'
@@ -648,13 +658,21 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Otwarte pobrania per pracownik — info „czeka na zważenie" siedzi na
   // KAFELKU pracownika (decyzja z hali 2026-07-09), nie w osobnej sekcji.
   const pendingByWorker = useMemo(() => {
-    const m = new Map<string, DeboningEntry>()
+    // Najstarsze otwarte pobranie per pracownik + SUMA kg (backend scala
+    // dobierania z tej samej partii, ale różne partie mogą dać >1 wpis).
+    const m = new Map<string, { entry: DeboningEntry; totalKg: number }>()
     for (const e of pendingTakes) {
       const wid = (e as any).workerId
-      if (wid && !m.has(wid)) m.set(wid, e)
+      if (!wid) continue
+      const cur = m.get(wid)
+      if (cur) cur.totalKg += Number((e as any).kgTaken || 0)
+      else m.set(wid, { entry: e, totalKg: Number((e as any).kgTaken || 0) })
     }
     return m
   }, [pendingTakes])
+
+  // Edycja otwartego pobrania — przytrzymanie kafelka pracownika z „⏳ czeka".
+  const [takeEdit, setTakeEdit] = useState<{ entry: DeboningEntry; value: string } | null>(null)
 
   // Klik w kafelek pracownika z otwartym pobraniem: wraca do formularza z
   // wpisaną, zablokowaną ćwiartką; operator tylko wjeżdża na wagę i zapisuje.
@@ -681,7 +699,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     // z trybu domykania (pobranie zostaje na kafelku) i wybiera normalnie;
     // pracownik z otwartym pobraniem wchodzi w domknięcie mięsem.
     const pending = pendingByWorker.get(w.id)
-    if (pending) { resumeTake(pending); return }  // waga wskakuje od razu
+    if (pending) { resumeTake(pending.entry); return }  // waga wskakuje od razu
     if (resumeId) { setResumeId(null); setMeatManual(false) }
     setSelWorker(w); setKgTaken(''); setKgMeat(''); setActive('taken')
   }, [resumeId, pendingByWorker, resumeTake])
@@ -722,8 +740,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       // wracają do typowych 5 szt (operator koryguje +/-). Cykl startuje od
       // kroku „Wybierz pracownika".
       setSelWorker(null)
-      setCartTare(null)
-      setCartCount(1)
+      setCartCounts({})
+      setNoCart(false)
       setE2Count(GUIDED_DEFAULT_E2)
     } else {
       // v10 (produkcja): wózek i e2Count celowo zostają — kolejny wózek zwykle
@@ -923,6 +941,70 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       )}
 
       {/* Szczegóły pracownika (przytrzymanie kafla): wpisy dnia + statystyki + edycja. */}
+      {/* ── Edycja otwartego pobrania (przytrzymanie kafelka pracownika) ── */}
+      {takeEdit && (
+        <div className="fixed inset-0 z-[55] flex items-center justify-center bg-black/40" style={VARS}>
+          <div className="w-[400px] p-6 flex flex-col gap-4" style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)' }}>
+            <div>
+              <div className="font-extrabold text-xl leading-tight">Pobranie — {takeEdit.entry.workerName}</div>
+              <div className="text-sm font-semibold mt-0.5" style={{ color: 'var(--mut)' }}>
+                Partia {takeEdit.entry.rawBatchNo} · czeka na zważenie mięsa
+              </div>
+            </div>
+            <div className="flex items-baseline gap-2 justify-center py-1">
+              <span className="hmi-v10-mono font-extrabold" style={{ fontSize: 52 }}>{takeEdit.value || '0'}</span>
+              <span className="text-2xl font-bold" style={{ color: 'var(--mut)' }}>kg</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {['7','8','9','4','5','6','1','2','3','.','0','⌫'].map(k => (
+                <button key={k} type="button"
+                  onClick={() => setTakeEdit(te => te && ({ ...te, value:
+                    k === '⌫' ? te.value.slice(0, -1)
+                    : k === '.' ? (te.value.includes('.') ? te.value : (te.value === '' ? '0.' : te.value + '.'))
+                    : (te.value + k).replace(/^0+(?=\d)/, '').slice(0, 6) }))}
+                  className="hmi-v10-mono h-14 flex items-center justify-center text-2xl font-bold"
+                  style={{ borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--line)' }}>
+                  {k === '⌫' ? <Delete size={22} /> : k}
+                </button>
+              ))}
+            </div>
+            <button type="button"
+              disabled={!(parseFloat((takeEdit.value || '0').replace(',', '.')) > 0)}
+              onClick={async () => {
+                const kg = parseFloat((takeEdit.value || '0').replace(',', '.')) || 0
+                const err = await editTake(takeEdit.entry.id, kg, session)
+                if (err) { showToast(err, 'err'); return }
+                batchData.refetch()
+                setTakeEdit(null)
+                showToast(`Pobranie poprawione: ${fmtKg(kg, 1)} kg`)
+              }}
+              className="h-14 text-lg font-extrabold flex items-center justify-center gap-2"
+              style={{ borderRadius: 12, background: 'var(--accent)', color: '#fff' }}>
+              <Check size={22} /> Zapisz pobranie
+            </button>
+            <div className="flex gap-2">
+              <button type="button"
+                onClick={async () => {
+                  const err = await removeEntry(takeEdit.entry.id, session)
+                  if (err) { showToast(err, 'err'); return }
+                  batchData.refetch()
+                  setTakeEdit(null)
+                  showToast(`Pobranie usunięte — ${fmtKg(takeEdit.entry.kgTaken, 1)} kg wróciło do partii`)
+                }}
+                className="h-12 flex-1 text-sm font-bold uppercase"
+                style={{ borderRadius: 10, background: 'var(--redSoft)', color: 'var(--red)', border: '1px solid var(--redLine)' }}>
+                Usuń pobranie
+              </button>
+              <button type="button" onClick={() => setTakeEdit(null)}
+                className="h-12 flex-1 text-sm font-bold uppercase"
+                style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--mut)' }}>
+                Anuluj
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {workerDetail && (() => {
         const wEntries = completeEntries.filter(e => e.workerId === workerDetail.id).slice().reverse()
         const wt = wEntries.reduce((s, e) => s + e.kgTaken, 0)
@@ -1139,9 +1221,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                   return (
                     <WorkerTileV10 key={w.id} worker={w} selected={selWorker?.id === w.id}
                       entryCount={ws?.count ?? 0} kgToday={ws?.taken ?? 0}
-                      pendingKg={pendingByWorker.get(w.id) ? Number((pendingByWorker.get(w.id) as any).kgTaken) : undefined}
+                      pendingKg={pendingByWorker.get(w.id)?.totalKg}
                       onSelect={pickWorker}
-                      onLongPress={(wk) => { setWorkerDetail(wk); setEditEntryId(null) }} />
+                      onLongPress={(wk) => {
+                        const p = pendingByWorker.get(wk.id)
+                        if (p) { setTakeEdit({ entry: p.entry, value: String(p.entry.kgTaken) }) }
+                        else { setWorkerDetail(wk); setEditEntryId(null) }
+                      }} />
                   )
                 })}
                 {workers.length === 0 && (
@@ -1187,7 +1273,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               <SectionStep no={1} done={!!selBatch}>Partia{selBatch ? ` — ${selBatch.internalBatchNo}` : ''}</SectionStep>
               <SectionStep no={2} done={!!selWorker}>Pracownik{selWorker ? ` — ${selWorker.name}` : ''}</SectionStep>
               {scale.available && (
-                <SectionStep no={3} done={cartTare != null && e2Count > 0}>Tara</SectionStep>
+                <SectionStep no={3} done={cartTareTotal != null && e2Count > 0}>Tara</SectionStep>
               )}
               <SectionStep no={scale.available ? 4 : 3}
                 done={taken > 0 && meat > 0 && !meatTooBig && (!autoMode || scale.stable)}>
@@ -1256,16 +1342,17 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                   style={{
                     flex: '1 1 0', minWidth: 92,
                     borderRadius: 10,
-                    background: cartTare === 0 ? 'var(--accent)' : 'var(--panel)',
-                    border: `1.5px solid ${cartTare === 0 ? 'var(--accent)' : 'var(--line)'}`,
-                    color: cartTare === 0 ? '#fff' : 'var(--ink)',
+                    background: noCart ? 'var(--accent)' : 'var(--panel)',
+                    border: `1.5px solid ${noCart ? 'var(--accent)' : 'var(--line)'}`,
+                    color: noCart ? '#fff' : 'var(--ink)',
                   }}>
                   <span className="font-extrabold text-lg leading-none uppercase">Bez</span>
                   <span className="text-[10px] font-bold uppercase"
-                    style={{ color: cartTare === 0 ? 'rgba(255,255,255,.8)' : 'var(--mut)' }}>wózka · 0,0</span>
+                    style={{ color: noCart ? 'rgba(255,255,255,.8)' : 'var(--mut)' }}>wózka · 0,0</span>
                 </button>
                 {cartTares.map(w => {
-                  const sel = cartTare === w
+                  const cnt = cartCounts[String(w)] ?? 0
+                  const sel = cnt > 0
                   return (
                   <button key={w} type="button" onClick={() => pickCartTare(w)}
                     className="relative flex flex-col items-center gap-0.5 py-2 transition-all active:scale-[0.97]"
@@ -1276,16 +1363,16 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                       border: `1.5px solid ${sel ? 'var(--accent)' : 'var(--line)'}`,
                       color: sel ? '#fff' : 'var(--ink)',
                     }}>
-                    {sel && cartCount > 1 && (
+                    {cnt > 1 && (
                       <span className="hmi-v10-mono absolute -top-2 -right-2 w-7 h-7 rounded-full flex items-center justify-center text-sm font-extrabold"
                         style={{ background: 'var(--ink)', color: '#fff', border: '2px solid var(--panel)' }}>
-                        {cartCount}
+                        {cnt}
                       </span>
                     )}
                     <span className="hmi-v10-mono font-bold text-2xl leading-none">{fmtKg(w, 1)}</span>
                     <span className="text-[10px] font-bold uppercase"
                       style={{ color: sel ? 'rgba(255,255,255,.8)' : 'var(--mut)' }}>
-                      {sel && cartCount > 1 ? `${cartCount} wózki = ${fmtKg(w * cartCount, 1)} kg` : 'kg · wózek'}
+                      {cnt > 1 ? `${cnt} wózki = ${fmtKg(w * cnt, 1)} kg` : 'kg · wózek'}
                     </span>
                   </button>
                   )
@@ -1413,7 +1500,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               </div>
               <div className="mt-2 pt-2 flex flex-col gap-1" style={{ borderTop: '1px solid var(--lineSoft)' }}>
                 <div className="flex justify-between text-[13px] font-semibold" style={{ color: 'var(--mut)' }}>
-                  <span>− tara {cartCount > 1 ? `wózków (${cartCount} × ${fmtKg(cartTare ?? 0, 1)})` : 'wózka'}</span>
+                  <span>− tara {(() => {
+                    const parts = Object.entries(cartCounts).map(([w, c]) => c > 1 ? `${c}×${fmtKg(Number(w), 1)}` : fmtKg(Number(w), 1))
+                    return parts.length > 1 || Object.values(cartCounts).some(c => c > 1)
+                      ? `wózków (${parts.join(' + ')})` : 'wózka'
+                  })()}</span>
                   <span className="hmi-v10-mono" style={{ color: 'var(--ink)' }}>{cartTareTotal != null ? `−${fmtKg(cartTareTotal, 1)} kg` : '—'}</span>
                 </div>
                 <div className="flex justify-between text-[13px] font-semibold" style={{ color: 'var(--mut)' }}>
