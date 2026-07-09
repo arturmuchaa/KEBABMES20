@@ -33,6 +33,8 @@ const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
   '/office/szablony-etykiet':      { title: 'Szablony etykiet',            description: 'Konfiguracje etykiet per klient i receptura' },
   '/office/planowanie-masowania':  { title: 'Planowanie masowania',        description: 'Zlecenia masowania' },
   '/office/planowanie-produkcji':  { title: 'Planowanie produkcji',        description: 'Harmonogram produkcji' },
+  '/office/historia-masowania':    { title: 'Historia masowania',          description: 'Zlecenia masowania — produkt, kg, partia mięsa i uzysku' },
+  '/office/historia-produkcji':    { title: 'Historia produkcji',          description: 'Linie produkcji — produkt, sztuki/kg, partia przyprawionego i zamówienie' },
   '/office/pracownicy':            { title: 'Pracownicy',                  description: 'Zarządzanie personelem' },
   '/office/rozliczenia':           { title: 'Rozliczenia płac',            description: 'Akord · Tygodniówki · Paski wypłaty' },
   '/office/recall':                { title: 'Wycofanie (Recall)',          description: 'Śledzenie i wycofania' },

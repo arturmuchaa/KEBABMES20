@@ -1,25 +1,21 @@
 /**
  * ProductionHistoryPage — Historia produkcji.
  *
- * Bliźniacza do Historii masowania, dla produkcji wyrobu gotowego. Linie planów
- * produkcji pogrupowane po dniach: jaki produkt, ile sztuk/kg, z jakiej partii
- * przyprawionego, dla jakiego zamówienia, w jakim opakowaniu. Czysty odczyt
- * z productionPlansApi.list() (bez nowego backendu).
- *
- * Filtry: status (domyślnie Zakończone), data (wybór dnia), szukaj (produkt/
- * partia/klient). Dni domyślnie ZWINIĘTE — rozwijane klikiem w nagłówek dnia.
+ * Płaska, gęsta tabela linii produkcji (DataTable — wspólny standard list
+ * biura): każda linia planu = jeden wiersz z datą, produktem, partią
+ * przyprawionego, klientem i postępem szt/kg. Klik wiersza otwiera wpisy
+ * operatorów. Filtry: status (domyślnie Zakończone) + dzień; wyszukiwarka
+ * i sortowanie z DataTable. Czysty odczyt z productionPlansApi.list().
  */
 import { useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { productionPlansApi } from '@/lib/apiClient'
-import { fmtKg, cn } from '@/lib/utils'
-import {
-  Factory, Search, ArrowRight, Box, ChevronDown,
-  CalendarDays, Package, User, ShoppingCart,
-} from 'lucide-react'
+import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
+import { CalendarDays, User, X } from 'lucide-react'
 import { StatusBadge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { DataTable, type DataColumn } from '@/components/DataTable'
 
 type StatusFilter = 'done' | 'all' | 'cancelled'
 const STATUS_TABS: { key: StatusFilter; label: string }[] = [
@@ -28,21 +24,13 @@ const STATUS_TABS: { key: StatusFilter; label: string }[] = [
   { key: 'cancelled', label: 'Anulowane' },
 ]
 
-const DOW = ['niedziela', 'poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota']
-const MON = ['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'lipca', 'sierpnia', 'września', 'października', 'listopada', 'grudnia']
-
-function prettyDay(iso: string): { weekday: string; rest: string } {
-  if (!iso) return { weekday: '', rest: '' }
-  const d = new Date(iso + 'T00:00:00')
-  return { weekday: DOW[d.getDay()], rest: `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}` }
-}
+const DOW_SHORT = ['nd', 'pn', 'wt', 'śr', 'cz', 'pt', 'sb']
 function uniq<T>(xs: T[]): T[] { return Array.from(new Set(xs)) }
 // Status efektywny linii: anulowany plan ma priorytet nad statusem linii.
 function effStatus(line: any): string {
   return line.planStatus === 'cancelled' ? 'cancelled' : (line.lineStatus || 'PLANNED')
 }
 
-// ─── Segmentowany filtr statusu ─────────────────────────────────────────
 function SegFilter({ value, onChange }: { value: StatusFilter; onChange: (v: StatusFilter) => void }) {
   return (
     <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-surface-3 border border-surface-4">
@@ -57,93 +45,51 @@ function SegFilter({ value, onChange }: { value: StatusFilter; onChange: (v: Sta
   )
 }
 
-// ─── Karta linii produkcji ──────────────────────────────────────────────
-function LineCard({ line }: { line: any }) {
-  const [open, setOpen] = useState(false)
-  const qty = Number(line.qty || 0)
-  const qtyDone = Number(line.qtyDone || 0)
-  const pct = qty > 0 ? Math.min(100, (qtyDone / qty) * 100) : 0
-  const totalKg = Number(line.totalKg || 0)
-
-  const seasoned = uniq([...(line.seasonedBatchNos || []), line.seasonedBatchNo].filter(Boolean))
+// ─── Dialog: wpisy operatorów linii ─────────────────────────────────────
+function LineDetail({ line, onClose }: { line: any; onClose: () => void }) {
   const workers: any[] = line.workerEntries || []
   const productName = line.recipeName || line.productTypeName || 'Bez produktu'
-
   return (
-    <div className="rounded-xl border border-surface-4 bg-white overflow-hidden transition-shadow hover:shadow-md">
-      <button
-        onClick={() => workers.length > 0 && setOpen(v => !v)}
-        className={cn('w-full text-left px-4 py-3.5 flex items-start gap-4', workers.length > 0 && 'cursor-pointer')}
-      >
-        <div className="mt-0.5 shrink-0 w-9 h-9 rounded-lg bg-brand-light border border-brand-border flex items-center justify-center">
-          <Factory size={17} className="text-brand" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="w-[560px] max-w-[94vw] max-h-[80vh] flex flex-col rounded-xl border border-surface-4 bg-white shadow-xl"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-3 px-5 py-3.5 border-b border-surface-4">
+          <div className="min-w-0">
+            <div className="font-bold text-ink leading-tight truncate">{productName}</div>
+            <div className="font-mono text-[11px] text-ink-3">
+              {line.planNo} · {fmtDatePl(line.planDate)}{line.clientName ? ` · ${line.clientName}` : ''}
+            </div>
+          </div>
+          <StatusBadge status={effStatus(line)} />
+          <button onClick={onClose} className="ml-auto w-8 h-8 flex items-center justify-center rounded-md border border-surface-4 text-ink-3 hover:text-ink">
+            <X size={15} />
+          </button>
         </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[15px] font-bold text-ink leading-tight">{productName}</span>
-            <StatusBadge status={effStatus(line)} />
+        <div className="p-4 overflow-y-auto">
+          <div className="text-[10px] uppercase tracking-widest text-ink-4 font-bold mb-2">
+            Wpisy operatorów ({workers.length})
           </div>
-          <div className="mt-0.5 font-mono text-[11px] text-ink-3">
-            {line.planNo}{line.productTypeName && line.recipeName ? ` · ${line.productTypeName}` : ''}
-          </div>
-
-          <div className="mt-2.5 flex items-center gap-2 flex-wrap text-[12px]">
-            {seasoned.length > 0 && (
-              <span className="inline-flex items-center gap-1 text-ink-3">
-                <Package size={12} className="text-ink-4" />
-                {seasoned.map((b, i) => (
-                  <span key={i} className="font-mono font-semibold text-ink-2">{b}{i < seasoned.length - 1 ? ',' : ''}</span>
+          {workers.length === 0 ? (
+            <div className="text-[13px] text-ink-4 py-4 text-center">Brak wpisów operatorów</div>
+          ) : (
+            <table className="w-full text-[12px] tabular-nums">
+              <tbody>
+                {workers.map((w, i) => (
+                  <tr key={i} className="border-b border-surface-3 last:border-0">
+                    <td className="py-1.5 pr-3">
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-ink-2">
+                        <User size={12} className="text-ink-4" /> {w.workerName || w.worker_name || w.name || 'Operator'}
+                      </span>
+                    </td>
+                    <td className="py-1.5 pr-3 text-right font-semibold text-ink-2">{Number(w.qty ?? w.qtyDone ?? 0)} szt</td>
+                    <td className="py-1.5 text-right text-ink-4 w-14">{String(w.at || w.createdAt || '').slice(11, 16)}</td>
+                  </tr>
                 ))}
-                <ArrowRight size={13} className="text-ink-5" />
-                <span className="font-semibold text-ink-2">wyrób</span>
-              </span>
-            )}
-            {line.packagingName && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-surface-3 border border-surface-4 px-2 py-0.5 text-ink-3">
-                <Box size={11} /> {line.packagingName}
-              </span>
-            )}
-            {(line.clientName || line.clientOrderNo) && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-brand-light border border-brand-border px-2 py-0.5 text-brand-dark">
-                <ShoppingCart size={11} /> {line.clientName || line.clientOrderNo}
-              </span>
-            )}
-          </div>
+              </tbody>
+            </table>
+          )}
         </div>
-
-        <div className="shrink-0 w-36 text-right">
-          <div className="text-[19px] font-extrabold text-ink tabular-nums leading-none">
-            {qtyDone}<span className="text-[12px] font-semibold text-ink-4"> / {qty} szt</span>
-          </div>
-          <div className="mt-1.5 h-1.5 rounded-full bg-surface-4 overflow-hidden">
-            <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${pct}%` }} />
-          </div>
-          <div className="mt-1 text-[11px] text-ink-3">
-            <span className="font-semibold text-ink-2 tabular-nums">{fmtKg(totalKg, 0)} kg</span>
-            {workers.length > 0 && (
-              <ChevronDown size={13} className={cn('inline ml-1 transition-transform text-ink-4', open && 'rotate-180')} />
-            )}
-          </div>
-        </div>
-      </button>
-
-      {open && workers.length > 0 && (
-        <div className="border-t border-surface-3 bg-surface-2 px-4 py-3">
-          <div className="text-[10px] uppercase tracking-widest text-ink-4 font-bold mb-2">Wpisy operatorów ({workers.length})</div>
-          <div className="grid gap-1.5">
-            {workers.map((w, i) => (
-              <div key={i} className="flex items-center gap-3 text-[12px] rounded-lg bg-white border border-surface-4 px-3 py-2">
-                <span className="inline-flex items-center gap-1 font-semibold text-ink-2">
-                  <User size={12} className="text-ink-4" /> {w.workerName || w.worker_name || w.name || 'Operator'}
-                </span>
-                <span className="ml-auto font-semibold text-ink-2 tabular-nums">{Number(w.qty ?? w.qtyDone ?? 0)} szt</span>
-                <span className="text-[11px] text-ink-4 w-12 text-right tabular-nums">{String(w.at || w.createdAt || '').slice(11, 16)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -151,18 +97,11 @@ function LineCard({ line }: { line: any }) {
 // ─── Strona ─────────────────────────────────────────────────────────────
 export function ProductionHistoryPage() {
   const { data, loading } = useApi<any[]>(() => productionPlansApi.list())
-  const [q, setQ] = useState('')
   const [status, setStatus] = useState<StatusFilter>('done')
   const [date, setDate] = useState('')
-  const [openDays, setOpenDays] = useState<Set<string>>(new Set())
+  const [detail, setDetail] = useState<any | null>(null)
 
-  const toggleDay = (k: string) => setOpenDays(prev => {
-    const next = new Set(prev)
-    next.has(k) ? next.delete(k) : next.add(k)
-    return next
-  })
-
-  const days = useMemo(() => {
+  const rows = useMemo(() => {
     const lines: any[] = []
     for (const p of data || []) {
       const day = String(p.planDate || p.createdAt || '').slice(0, 10)
@@ -170,108 +109,136 @@ export function ProductionHistoryPage() {
         lines.push({ ...ln, planNo: p.planNo, planDate: day, planStatus: p.status })
       }
     }
-    const filtered = lines.filter(ln => {
+    return lines.filter(ln => {
       const es = effStatus(ln)
       if (status === 'done' && es !== 'DONE') return false
       if (status === 'cancelled' && es !== 'cancelled') return false
       if (date && ln.planDate !== date) return false
-      if (q.trim()) {
-        const hay = `${ln.recipeName} ${ln.productTypeName} ${ln.planNo} ${ln.clientName} ${ln.clientOrderNo} ${(ln.seasonedBatchNos || []).join(' ')}`.toLowerCase()
-        if (!hay.includes(q.trim().toLowerCase())) return false
-      }
       return true
     })
-    const groups = new Map<string, any[]>()
-    for (const ln of filtered) {
-      if (!groups.has(ln.planDate)) groups.set(ln.planDate, [])
-      groups.get(ln.planDate)!.push(ln)
-    }
-    return Array.from(groups.entries())
-      .sort((a, b) => (a[0] < b[0] ? 1 : -1))
-      .map(([k, ls]) => ({
-        key: k,
-        ...prettyDay(k),
-        lines: ls,
-        qtyDone: ls.reduce((s, l) => s + Number(l.qtyDone || 0), 0),
-        kg: ls.reduce((s, l) => s + Number(l.totalKg || 0), 0),
-      }))
-  }, [data, q, status, date])
+  }, [data, status, date])
 
-  const forceOpen = Boolean(q.trim() || date)
+  const columns: DataColumn<any>[] = [
+    {
+      key: 'planDate', header: 'Data', sortable: true, width: 110,
+      sortValue: r => `${r.planDate} ${r.planNo}`,
+      cell: r => {
+        const d = r.planDate ? new Date(r.planDate + 'T00:00:00') : null
+        return (
+          <span className="whitespace-nowrap text-ink-2">
+            {r.planDate ? fmtDatePl(r.planDate) : '—'}
+            {d && <span className="text-ink-4 text-[11px]"> · {DOW_SHORT[d.getDay()]}</span>}
+          </span>
+        )
+      },
+    },
+    {
+      key: 'planNo', header: 'Plan', sortable: true, width: 120, sortValue: r => r.planNo,
+      cell: r => <code className="font-mono font-semibold text-ink-3 text-[11px] whitespace-nowrap">{r.planNo}</code>,
+    },
+    {
+      key: 'product', header: 'Produkt', sortable: true,
+      sortValue: r => r.recipeName || r.productTypeName || '',
+      cell: r => (
+        <span className="font-semibold text-ink">
+          {r.recipeName || r.productTypeName || 'Bez produktu'}
+          {r.productTypeName && r.recipeName && (
+            <span className="font-normal text-ink-3 text-[11px]"> · {r.productTypeName}</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: 'seasoned', header: 'Partia przypr.', width: 130,
+      cell: r => {
+        const s = uniq([...(r.seasonedBatchNos || []), r.seasonedBatchNo].filter(Boolean))
+        return s.length
+          ? <code className="font-mono text-[11px] font-semibold text-ink-2">{s.join(', ')}</code>
+          : <span className="text-ink-4">—</span>
+      },
+    },
+    {
+      key: 'client', header: 'Klient', sortable: true, sortValue: r => r.clientName || r.clientOrderNo || '',
+      cell: r => (r.clientName || r.clientOrderNo)
+        ? <span className="text-ink-2 truncate block max-w-[180px]" title={r.clientName || r.clientOrderNo}>{r.clientName || r.clientOrderNo}</span>
+        : <span className="text-ink-4">—</span>,
+    },
+    {
+      key: 'packaging', header: 'Opak.', width: 110,
+      cell: r => r.packagingName
+        ? <span className="text-ink-3 text-[11px] truncate block max-w-[100px]" title={r.packagingName}>{r.packagingName}</span>
+        : <span className="text-ink-4">—</span>,
+    },
+    {
+      key: 'qty', header: 'Szt', align: 'right', sortable: true, width: 90,
+      sortValue: r => Number(r.qtyDone || 0),
+      cell: r => (
+        <span className="whitespace-nowrap">
+          <span className="font-bold">{Number(r.qtyDone || 0)}</span>
+          <span className="text-ink-4">/{Number(r.qty || 0)}</span>
+        </span>
+      ),
+    },
+    {
+      key: 'kg', header: 'Kg', align: 'right', sortable: true, width: 90,
+      sortValue: r => Number(r.totalKg || 0),
+      cell: r => <span className="font-bold text-emerald-700 whitespace-nowrap">{fmtKg(Number(r.totalKg || 0), 0)}</span>,
+    },
+    {
+      key: 'status', header: 'Status', width: 110,
+      cell: r => <StatusBadge status={effStatus(r)} />,
+    },
+  ]
+
+  if (loading) {
+    return (
+      <div className="space-y-2">
+        {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-9 rounded-lg" />)}
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-full bg-surface-2">
-      <div className="sticky top-0 z-10 bg-surface-2/90 backdrop-blur border-b border-surface-4 px-6 py-4">
-        <div className="max-w-5xl mx-auto space-y-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center shadow-sm">
-                <Factory size={20} className="text-white" />
-              </div>
-              <div>
-                <h1 className="text-xl font-extrabold text-ink leading-tight">Historia produkcji</h1>
-                <p className="text-[12px] text-ink-3">Produkcja wyrobu per dzień — produkt, sztuki/kg, partia przyprawionego i zamówienie</p>
-              </div>
-            </div>
-            <div className="relative w-64">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-4" />
-              <Input value={q} onChange={e => setQ(e.target.value)} aria-label="Szukaj w historii produkcji" placeholder="Szukaj: produkt, klient, partia…" className="pl-9 h-9 bg-white" />
-            </div>
-          </div>
-          <div className="flex items-center gap-3 flex-wrap">
+    <div className="animate-fade-in">
+      <DataTable
+        rows={rows}
+        rowKey={r => r.id}
+        columns={columns}
+        searchText={r => `${r.recipeName} ${r.productTypeName} ${r.planNo} ${r.clientName} ${r.clientOrderNo} ${(r.seasonedBatchNos || []).join(' ')}`}
+        searchPlaceholder="Szukaj: produkt, klient, partia, nr planu…"
+        initialSort={{ key: 'planDate', dir: 'desc' }}
+        onRowClick={r => setDetail(r)}
+        rowClassName={r => effStatus(r) === 'cancelled' ? 'opacity-60' : ''}
+        toolbarLeft={
+          <>
             <SegFilter value={status} onChange={setStatus} />
             <div className="flex items-center gap-1.5">
               <CalendarDays size={14} className="text-ink-4" />
-              <Input type="date" value={date} onChange={e => setDate(e.target.value)} aria-label="Filtruj po dacie" className="h-7 w-40 bg-white text-[12px]" />
-              {date && <button onClick={() => setDate('')} className="text-[12px] text-ink-3 hover:text-ink underline">wyczyść</button>}
+              <Input type="date" value={date} onChange={e => setDate(e.target.value)}
+                aria-label="Filtruj po dacie" className="h-9 w-40 bg-white text-[12px]" />
+              {date && (
+                <button onClick={() => setDate('')} className="text-[12px] text-ink-3 hover:text-ink underline">
+                  wyczyść
+                </button>
+              )}
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-5xl mx-auto px-6 py-6">
-        {loading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)}
-          </div>
-        ) : days.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-surface-3 flex items-center justify-center mb-3">
-              <Factory size={26} className="text-ink-4" />
-            </div>
-            <div className="text-lg font-bold text-ink-2">Brak wyników</div>
-            <div className="text-[13px] text-ink-4 mt-1">Zmień filtr statusu, datę lub wyszukiwanie.</div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {days.map(d => {
-              const isOpen = forceOpen || openDays.has(d.key)
-              return (
-                <section key={d.key} className="rounded-xl border border-surface-4 bg-white overflow-hidden">
-                  <button onClick={() => toggleDay(d.key)} aria-expanded={isOpen}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors cursor-pointer">
-                    <ChevronDown size={16} className={cn('text-ink-4 transition-transform', isOpen && 'rotate-180')} />
-                    <CalendarDays size={16} className="text-brand" />
-                    <span className="text-[15px] font-extrabold text-ink capitalize">{d.weekday}</span>
-                    <span className="text-[13px] text-ink-3">{d.rest}</span>
-                    <div className="h-px flex-1 bg-surface-4" />
-                    <div className="text-[12px] text-ink-3 flex items-center gap-3">
-                      <span>{d.lines.length} poz.</span>
-                      <span className="font-semibold text-ink-2 tabular-nums">{d.qtyDone} szt</span>
-                      <span className="text-emerald-700 font-semibold tabular-nums">{fmtKg(d.kg, 0)} kg</span>
-                    </div>
-                  </button>
-                  {isOpen && (
-                    <div className="space-y-2.5 px-3 pb-3 pt-1 bg-surface-2">
-                      {d.lines.map((ln: any) => <LineCard key={ln.id} line={ln} />)}
-                    </div>
-                  )}
-                </section>
-              )
-            })}
-          </div>
+          </>
+        }
+        empty="Brak linii produkcji — zmień filtr statusu, datę lub wyszukiwanie"
+        footer={list => (
+          <>
+            <span>{list.length} poz.</span>
+            <span className="ml-auto">
+              Razem: <span className="font-bold">{list.reduce((s, r) => s + Number(r.qtyDone || 0), 0)} szt</span>
+              {' · '}
+              <span className="font-bold text-emerald-700">
+                {fmtKg(list.reduce((s, r) => s + Number(r.totalKg || 0), 0), 0)} kg
+              </span>
+            </span>
+          </>
         )}
-      </div>
+      />
+      {detail && <LineDetail line={detail} onClose={() => setDetail(null)} />}
     </div>
   )
 }
