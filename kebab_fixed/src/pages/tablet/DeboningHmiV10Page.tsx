@@ -195,8 +195,11 @@ const PendingBatchTile = memo(function PendingBatchTile({ rec, onOpen }: {
 })
 
 // ─── Kafel pracownika ──────────────────────────────────────────────
-const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, onSelect, onLongPress }: {
+const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, pendingKg, onSelect, onLongPress }: {
   worker: User; selected: boolean; entryCount: number; kgToday: number
+  /** Otwarte pobranie ćwiartki (kg) — kafel pokazuje „czeka na zważenie",
+   *  a klik od razu wraca do domknięcia mięsem. */
+  pendingKg?: number
   onSelect: (w: User) => void; onLongPress: (w: User) => void
 }) {
   const initials = worker.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
@@ -218,7 +221,12 @@ const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount
       }}>
       <span className="font-extrabold text-3xl leading-none">{initials}</span>
       <span className="text-sm font-semibold leading-tight text-center truncate w-full">{worker.name}</span>
-      {kgToday > 0 && (
+      {pendingKg != null ? (
+        <span className="text-[10px] font-bold uppercase text-center leading-tight px-1 py-0.5 w-full"
+          style={{ borderRadius: 6, background: selected ? 'rgba(255,255,255,.2)' : 'var(--ambSoft)', color: selected ? '#fff' : 'var(--amb)', letterSpacing: '.02em' }}>
+          ⏳ czeka {fmtKg(pendingKg, 1)} kg
+        </span>
+      ) : kgToday > 0 && (
         <span className="hmi-v10-mono text-[11px] font-bold" style={{ color: selected ? 'rgba(255,255,255,.75)' : 'var(--mut)' }}>{fmtKg(kgToday, 0)} kg</span>
       )}
       {entryCount > 0 && (
@@ -585,10 +593,43 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (resumeId) return  // w trybie domykania pobrania partia jest zablokowana
     setSelBatch(b); setKgTaken(''); setKgMeat(''); setActive('taken')
   }, [resumeId])
+  // Otwarte pobrania per pracownik — info „czeka na zważenie" siedzi na
+  // KAFELKU pracownika (decyzja z hali 2026-07-09), nie w osobnej sekcji.
+  const pendingByWorker = useMemo(() => {
+    const m = new Map<string, DeboningEntry>()
+    for (const e of pendingTakes) {
+      const wid = (e as any).workerId
+      if (wid && !m.has(wid)) m.set(wid, e)
+    }
+    return m
+  }, [pendingTakes])
+
+  // Klik w kafelek pracownika z otwartym pobraniem: wraca do formularza z
+  // wpisaną, zablokowaną ćwiartką; operator tylko wjeżdża na wagę i zapisuje.
+  const resumeTake = useCallback((e: DeboningEntry) => {
+    const b = allActiveBatches.find(x => x.id === e.rawBatchId) ?? null
+    if (b) setSelBatch(b)
+    const w = workers.find(x => x.id === e.workerId) ?? null
+    if (w) setSelWorker(w)
+    setResumeId(e.id)
+    setTakenMode('kg')
+    setKgTaken(String(e.kgTaken))
+    setKgMeat('')
+    setMeatManual(false)
+    setActive('meat')
+  }, [allActiveBatches, workers])
+
+  const cancelResume = useCallback(() => {
+    setResumeId(null)
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+  }, [])
+
   const pickWorker = useCallback((w: User) => {
     if (resumeId) return  // pracownik zablokowany przy domykaniu pobrania
+    const pending = pendingByWorker.get(w.id)
+    if (pending) { resumeTake(pending); return }  // waga wskakuje od razu
     setSelWorker(w); setActive('taken')
-  }, [resumeId])
+  }, [resumeId, pendingByWorker, resumeTake])
 
   async function handleStartDay() {
     const err = await startDay()
@@ -660,26 +701,6 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
     showToast(`Pobrano ${fmtKg(taken, 1)} kg — czeka na zważenie`)
   }
-
-  // Klik w kafelek „czeka na zważenie": wraca do formularza z wpisaną,
-  // zablokowaną ćwiartką; operator tylko wjeżdża na wagę i zapisuje mięso.
-  const resumeTake = useCallback((e: DeboningEntry) => {
-    const b = allActiveBatches.find(x => x.id === e.rawBatchId) ?? null
-    if (b) setSelBatch(b)
-    const w = workers.find(x => x.id === e.workerId) ?? null
-    if (w) setSelWorker(w)
-    setResumeId(e.id)
-    setTakenMode('kg')
-    setKgTaken(String(e.kgTaken))
-    setKgMeat('')
-    setMeatManual(false)
-    setActive('meat')
-  }, [allActiveBatches, workers])
-
-  const cancelResume = useCallback(() => {
-    setResumeId(null)
-    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
-  }, [])
 
   // Domknięcie pobrania zważonym mięsem.
   async function handleCompleteTake() {
@@ -1036,7 +1057,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                   const ws = perWorker.get(w.id)
                   return (
                     <WorkerTileV10 key={w.id} worker={w} selected={selWorker?.id === w.id}
-                      entryCount={ws?.count ?? 0} kgToday={ws?.taken ?? 0} onSelect={pickWorker}
+                      entryCount={ws?.count ?? 0} kgToday={ws?.taken ?? 0}
+                      pendingKg={pendingByWorker.get(w.id) ? Number((pendingByWorker.get(w.id) as any).kgTaken) : undefined}
+                      onSelect={pickWorker}
                       onLongPress={(wk) => { setWorkerDetail(wk); setEditEntryId(null) }} />
                   )
                 })}
@@ -1377,34 +1400,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             )}
           </div>
 
-          {pendingTakes.length > 0 && (
-            <div className="flex-shrink-0 p-3.5" style={{ borderRadius: 12, background: 'var(--panel)', border: '1.5px solid var(--accent)' }}>
-              <div className="flex items-center gap-2 mb-2">
-                <Clock size={14} style={{ color: 'var(--accent)' }} />
-                <span className="text-[10px] font-bold uppercase" style={{ color: 'var(--accent)', letterSpacing: '.1em' }}>
-                  Czeka na zważenie ({pendingTakes.length})
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {pendingTakes.map((e: DeboningEntry) => (
-                  <button key={e.id} type="button" onClick={() => resumeTake(e)}
-                    className="text-left p-2.5 active:scale-[0.98] transition-all"
-                    style={{ borderRadius: 10, border: `1.5px solid ${resumeId === e.id ? 'var(--accent)' : 'var(--line)'}`,
-                      background: resumeId === e.id ? 'var(--accentSoft, var(--bg))' : 'var(--bg)' }}>
-                    <div className="hmi-v10-mono font-extrabold leading-none" style={{ fontSize: 24, color: 'var(--accent)' }}>
-                      {fmtKg(e.kgTaken, 1)} <span className="text-[12px]">kg</span>
-                    </div>
-                    <div className="text-[11px] font-semibold mt-1 truncate" style={{ color: 'var(--ink)' }}>
-                      {e.workerName}
-                    </div>
-                    <div className="text-[10px] font-bold uppercase mt-0.5" style={{ color: 'var(--mut)', letterSpacing: '.04em' }}>
-                      Part. {e.rawBatchNo} · ⏳ mięso
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Otwarte pobrania pokazują się na kafelkach pracowników
+              („⏳ czeka X kg") — klik w kafelek wraca do domknięcia mięsem. */}
 
           <div className="flex-1 min-h-0 p-3.5 flex flex-col" style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
             <div className="flex items-center gap-2 mb-2.5 flex-shrink-0">
