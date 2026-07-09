@@ -24,6 +24,10 @@ pub struct ScaleReading {
     pub gross: f64,
     pub stable: bool,
     pub connected: bool,
+    /// Waga nadaje, ale ramki nie zawierają liczby (typowo przeciążenie —
+    /// np. paleta grzbietów > 1 t na wadze 1 t; miernik śle "OL"/"ERR").
+    /// HMI pokazuje wtedy „POZA ZAKRESEM" zamiast mylącego „BRAK WAGI".
+    pub error: bool,
 }
 
 #[derive(Deserialize)]
@@ -221,7 +225,7 @@ pub fn spawn_reader(app: tauri::AppHandle) {
                 Err(_) => {
                     let _ = app.emit(
                         EVENT,
-                        ScaleReading { gross: 0.0, stable: false, connected: false },
+                        ScaleReading { gross: 0.0, stable: false, connected: false, error: false },
                     );
                 }
             }
@@ -235,6 +239,9 @@ fn read_loop(app: &tauri::AppHandle, port: Box<dyn serialport::SerialPort>, tol_
     let mut window = StabilityWindow::new(tol_kg);
     let mut line = String::new();
     let mut last_emit = Instant::now() - Duration::from_secs(1);
+    // Licznik kolejnych niepustych ramek bez liczby — ≥3 = miernik zgłasza
+    // błąd (przeciążenie/OL), nie pojedynczy śmieć transmisji.
+    let mut bad_frames: u32 = 0;
     loop {
         // Żądanie tary z HMI — wyślij komendę do wagi (port jest nasz wyłącznie).
         if TARE_REQUESTED.swap(false, std::sync::atomic::Ordering::SeqCst) {
@@ -247,12 +254,22 @@ fn read_loop(app: &tauri::AppHandle, port: Box<dyn serialport::SerialPort>, tol_
             Ok(0) => return, // port zniknął (odpięty kabel/USB)
             Ok(_) => {
                 if let Some(gross) = parse_weight(&line) {
+                    bad_frames = 0;
                     let stable = window.push(Instant::now(), gross);
                     if last_emit.elapsed() >= Duration::from_millis(120) {
                         last_emit = Instant::now();
                         let _ = app.emit(
                             EVENT,
-                            ScaleReading { gross, stable, connected: true },
+                            ScaleReading { gross, stable, connected: true, error: false },
+                        );
+                    }
+                } else if !line.trim().is_empty() {
+                    bad_frames = bad_frames.saturating_add(1);
+                    if bad_frames >= 3 && last_emit.elapsed() >= Duration::from_millis(120) {
+                        last_emit = Instant::now();
+                        let _ = app.emit(
+                            EVENT,
+                            ScaleReading { gross: 0.0, stable: false, connected: true, error: true },
                         );
                     }
                 }

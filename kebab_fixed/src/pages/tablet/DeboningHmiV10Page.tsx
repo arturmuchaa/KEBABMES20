@@ -1251,12 +1251,14 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 </span>
                 <span className="text-lg font-bold" style={{ color: 'var(--mut)' }}>kg</span>
                 <span className="ml-auto flex items-center gap-2 px-3 h-8 text-[13px] font-bold self-center"
-                  style={scale.connected && scale.gross > 0
+                  style={scale.connected && scale.error
+                    ? { borderRadius: 8, background: 'var(--redSoft)', border: '1px solid var(--redLine)', color: 'var(--red)' }
+                    : scale.connected && scale.gross > 0
                     ? scale.stable
                       ? { borderRadius: 8, background: '#F0FDF4', border: '1px solid #BBF0D3', color: 'var(--success)' }
                       : { borderRadius: 8, background: 'var(--ambSoft)', border: '1px solid var(--ambLine)', color: 'var(--amb)' }
                     : { borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}>
-                  {scale.connected && scale.gross > 0 ? (scale.stable ? 'STABILNA' : 'WAŻENIE…') : 'PUSTA'}
+                  {scale.connected && scale.error ? 'POZA ZAKRESEM (maks 1 t)' : scale.connected && scale.gross > 0 ? (scale.stable ? 'STABILNA' : 'WAŻENIE…') : 'PUSTA'}
                 </span>
               </div>
               <div className="mt-2 pt-2 flex flex-col gap-1" style={{ borderTop: '1px solid var(--lineSoft)' }}>

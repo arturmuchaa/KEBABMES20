@@ -281,9 +281,14 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
                   <span className="hmi-v10-mono font-extrabold leading-none" style={{ fontFamily: MONO, fontSize: 48 }}>{fmtKg(gross, 1)}</span>
                   <span className="text-base font-bold" style={{ color: 'var(--mut)' }}>kg</span>
                 </div>
-                <div className="text-[11px] font-bold uppercase mt-1" style={{ color: scale.stable ? 'var(--success)' : 'var(--mut)' }}>
-                  {!scale.connected ? 'BRAK WAGI' : gross <= 0 ? 'PUSTA' : scale.stable ? 'STABILNA' : 'WAŻENIE…'}
+                <div className="text-[11px] font-bold uppercase mt-1" style={{ color: scale.error ? '#DC2626' : scale.stable ? 'var(--success)' : 'var(--mut)' }}>
+                  {!scale.connected ? 'BRAK WAGI' : scale.error ? 'POZA ZAKRESEM WAGI' : gross <= 0 ? 'PUSTA' : scale.stable ? 'STABILNA' : 'WAŻENIE…'}
                 </div>
+                {scale.error && (
+                  <div className="text-[11px] font-bold mt-1" style={{ color: '#DC2626' }}>
+                    Za ciężko dla wagi (maks 1 t) — rozdziel na 2 palety albo „Wpisz ręcznie".
+                  </div>
+                )}
                 <div className="mt-3 pt-3 flex flex-col gap-1" style={{ borderTop: '1px solid var(--line)' }}>
                   <div className="flex justify-between text-[12px] font-bold" style={{ color: 'var(--mut)' }}><span>− tara palety {tareLabel ? `(${tareLabel})` : ''}</span><span className="hmi-v10-mono" style={{ color: 'var(--ink)' }}>{tareKg != null ? `−${fmtKg(tareKg, 0)}` : '—'}</span></div>
                   <div className="flex justify-between text-[12px] font-bold" style={{ color: 'var(--mut)' }}><span>− {containers} pojemn. × {fmtKg(E2_TARE_KG, 0)}</span><span className="hmi-v10-mono" style={{ color: 'var(--ink)' }}>{containers > 0 ? `−${fmtKg(containers * E2_TARE_KG, 0)}` : '—'}</span></div>

@@ -14,6 +14,8 @@ export interface ScaleReading {
   gross: number
   stable: boolean
   connected: boolean
+  /** Miernik nadaje, ale bez liczby (przeciążenie/OL — np. paleta > 1 t). */
+  error?: boolean
 }
 
 export interface ScaleState extends ScaleReading {
