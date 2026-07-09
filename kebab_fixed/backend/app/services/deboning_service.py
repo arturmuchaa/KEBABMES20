@@ -62,12 +62,23 @@ def _map_deboning_entry(row: Dict) -> Dict:
     }
 
 
-def list_deboning_entries(session_id: str | None) -> List[Dict]:
+def list_deboning_entries(session_id: str | None, with_open_takes: bool = False) -> List[Dict]:
     if session_id:
-        rows = query_all(
-            "SELECT * FROM deboning_entries WHERE session_id=%s ORDER BY created_at DESC",
-            (session_id,),
-        )
+        if with_open_takes:
+            # HMI: otwarte pobrania (status='pending') muszą być widoczne
+            # NIEZALEŻNIE od sesji — pobranie niezważone do końca dnia inaczej
+            # znika z kafelka pracownika następnego dnia i nie da się go
+            # domknąć (kg zeszło z partii, a na ekranie nic nie widać).
+            rows = query_all(
+                "SELECT * FROM deboning_entries WHERE session_id=%s "
+                "OR COALESCE(status, 'complete')='pending' ORDER BY created_at DESC",
+                (session_id,),
+            )
+        else:
+            rows = query_all(
+                "SELECT * FROM deboning_entries WHERE session_id=%s ORDER BY created_at DESC",
+                (session_id,),
+            )
     else:
         rows = query_all("SELECT * FROM deboning_entries ORDER BY created_at DESC")
     return [_map_deboning_entry(r) for r in rows]
@@ -384,6 +395,24 @@ def validate_edit_deltas(delta_taken, raw_available, delta_meat, meat_available)
     return None
 
 
+def _auto_finish_exhausted(raw_batch_id: str, kg_left) -> None:
+    """Serwerowa gwarancja: partia wyczerpana (≤0,5 kg) MUSI mieć rekord
+    ubocznych z finished_at — inaczej schodzi z kafli aktywnych bez szarego
+    kafla ważenia kości/grzbietów i „znika". Kiosk robi to samo po swojej
+    stronie, ale liczy z nieświeżego stanu partii (prod 2026-07-09, partia
+    407) — to tutaj jest jedyne pewne miejsce. Nigdy nie może wywalić wpisu,
+    który już się zapisał."""
+    try:
+        if kg_left is None or float(kg_left) > 0.5:
+            return
+        from app.services.batch_byproducts_service import finish_batch
+
+        finish_batch(raw_batch_id)
+        logger.info("deboning.batch.auto_finished", extra={"raw_batch_id": raw_batch_id})
+    except Exception:
+        logger.exception("deboning.batch.auto_finish_failed", extra={"raw_batch_id": raw_batch_id})
+
+
 def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
     raw_batch_id = dto.raw_batch_id
     worker_id = dto.worker_id
@@ -509,15 +538,17 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
 
         create_byproduct_lots_for_entry(conn, entry)
 
-        cx_execute(
+        after = cx_execute_returning(
             conn,
             """
             UPDATE raw_batches
             SET kg_available = GREATEST(0, COALESCE(kg_available, kg_received) - %s)
             WHERE id = %s
+            RETURNING kg_available
             """,
             (kg_taken, batch["id"]),
         )
+        kg_left_after = after["kg_available"] if after else None
 
         # Audit: rozbiór zdejmuje kg_taken z raw_batches → OUT movement.
         # Konsekwentne sumowanie ruchów po product_type="raw" daje rzeczywisty
@@ -604,6 +635,7 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
             "yield_pct": yield_pct,
         },
     )
+    _auto_finish_exhausted(batch["id"], kg_left_after)
     return _map_deboning_entry(entry)  # type: ignore[arg-type]
 
 
@@ -666,11 +698,15 @@ def create_deboning_take(dto) -> Dict:
         # DOLICZANIE zamiast drugiego wiersza: ten sam pracownik dobiera z tej
         # samej partii → jedno otwarte pobranie rośnie (prod 2026-07-09:
         # Anatoli 135 + 300 zrobiło dwa niewidoczne wiersze zamiast 435).
+        # Tylko w obrębie TEJ SAMEJ sesji — doliczenie do pobrania z innego
+        # dnia byłoby niewidoczne na dzisiejszym HMI (kg schodzi, ekran nic
+        # nie pokazuje).
         existing = cx_query_one(
             conn,
             "SELECT * FROM deboning_entries WHERE raw_batch_id=%s AND worker_id=%s "
-            "AND status='pending' ORDER BY created_at LIMIT 1 FOR UPDATE",
-            (batch["id"], worker_id),
+            "AND status='pending' AND session_id IS NOT DISTINCT FROM %s "
+            "ORDER BY created_at LIMIT 1 FOR UPDATE",
+            (batch["id"], worker_id, session_id),
         )
         if existing:
             entry = cx_execute_returning(
@@ -679,10 +715,11 @@ def create_deboning_take(dto) -> Dict:
                 "kg_remainder = kg_remainder + %s WHERE id=%s RETURNING *",
                 (kg_taken, kg_taken, existing["id"]),
             )
-            cx_execute(
+            after = cx_execute_returning(
                 conn,
                 "UPDATE raw_batches SET kg_available = GREATEST(0, "
-                "COALESCE(kg_available, kg_received) - %s) WHERE id = %s",
+                "COALESCE(kg_available, kg_received) - %s) WHERE id = %s "
+                "RETURNING kg_available",
                 (kg_taken, batch["id"]),
             )
             updated = cx_execute_rowcount(
@@ -701,36 +738,39 @@ def create_deboning_take(dto) -> Dict:
                 "deboning.take.merged",
                 extra={"entry_id": existing["id"], "kg_added": kg_taken},
             )
-            return _map_deboning_entry(entry)  # type: ignore[arg-type]
+        else:
+            entry = cx_execute_returning(
+                conn,
+                """
+                INSERT INTO deboning_entries
+                    (id, raw_batch_id, raw_batch_no, session_id, session_no,
+                     kg_quarter, kg_meat, kg_remainder, yield_pct,
+                     worker_id, worker_name, status, created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,0,%s,0,%s,%s,'pending',%s)
+                RETURNING *
+                """,
+                (
+                    entry_id, batch["id"], batch["internal_batch_no"], session_id, session_no,
+                    kg_taken, kg_taken, worker_id, worker_name, now_iso(),
+                ),
+            )
 
-        entry = cx_execute_returning(
-            conn,
-            """
-            INSERT INTO deboning_entries
-                (id, raw_batch_id, raw_batch_no, session_id, session_no,
-                 kg_quarter, kg_meat, kg_remainder, yield_pct,
-                 worker_id, worker_name, status, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,0,%s,0,%s,%s,'pending',%s)
-            RETURNING *
-            """,
-            (
-                entry_id, batch["id"], batch["internal_batch_no"], session_id, session_no,
-                kg_taken, kg_taken, worker_id, worker_name, now_iso(),
-            ),
-        )
+            after = cx_execute_returning(
+                conn,
+                "UPDATE raw_batches SET kg_available = GREATEST(0, "
+                "COALESCE(kg_available, kg_received) - %s) WHERE id = %s "
+                "RETURNING kg_available",
+                (kg_taken, batch["id"]),
+            )
+            create_stock_movement(
+                conn, product_type="raw", batch_id=batch["id"], qty=kg_taken,
+                movement_type="OUT", source_type="deboning", source_id=entry_id,
+            )
+            logger.info(
+                "deboning.take.created", extra={"entry_id": entry_id, "kg_taken": kg_taken}
+            )
 
-        cx_execute(
-            conn,
-            "UPDATE raw_batches SET kg_available = GREATEST(0, "
-            "COALESCE(kg_available, kg_received) - %s) WHERE id = %s",
-            (kg_taken, batch["id"]),
-        )
-        create_stock_movement(
-            conn, product_type="raw", batch_id=batch["id"], qty=kg_taken,
-            movement_type="OUT", source_type="deboning", source_id=entry_id,
-        )
-
-    logger.info("deboning.take.created", extra={"entry_id": entry_id, "kg_taken": kg_taken})
+    _auto_finish_exhausted(batch["id"], after["kg_available"] if after else None)
     return _map_deboning_entry(entry)  # type: ignore[arg-type]
 
 
@@ -772,10 +812,10 @@ def update_deboning_take(entry_id: str, dto) -> Dict:
             "UPDATE deboning_entries SET kg_quarter=%s, kg_remainder=%s WHERE id=%s RETURNING *",
             (new_kg, new_kg, entry_id),
         )
-        cx_execute(
+        after = cx_execute_returning(
             conn,
             "UPDATE raw_batches SET kg_available = GREATEST(0, COALESCE(kg_available,0) - %s) "
-            "WHERE id=%s",
+            "WHERE id=%s RETURNING kg_available",
             (diff, batch["id"]),
         )
         moved = cx_execute_rowcount(
@@ -795,6 +835,7 @@ def update_deboning_take(entry_id: str, dto) -> Dict:
         "deboning.take.updated",
         extra={"entry_id": entry_id, "old_kg": old_kg, "new_kg": new_kg},
     )
+    _auto_finish_exhausted(batch["id"], after["kg_available"] if after else None)
     return _map_deboning_entry(updated)  # type: ignore[arg-type]
 
 
@@ -819,7 +860,26 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
             )
             session_err = validate_session_writable(session_row)
             if session_err:
-                raise HTTPException(400, session_err)
+                # Pobranie „przeszło przez noc": sesja z dnia pobrania jest już
+                # zamknięta/zatwierdzona. Mięso waży się DZIŚ — przepinamy wpis
+                # do otwartej sesji rozbioru, zamiast blokować domknięcie na
+                # zawsze (kg zeszło z partii, musi dać się zważyć).
+                open_s = cx_query_one(
+                    conn,
+                    "SELECT id FROM production_sessions WHERE process_type='deboning' "
+                    "AND status='open' ORDER BY started_at DESC LIMIT 1",
+                )
+                if not open_s:
+                    raise HTTPException(400, session_err)
+                cx_execute(
+                    conn,
+                    "UPDATE deboning_entries SET session_id=%s WHERE id=%s",
+                    (open_s["id"], entry_id),
+                )
+                logger.info(
+                    "deboning.take.session_reassigned",
+                    extra={"entry_id": entry_id, "new_session_id": open_s["id"]},
+                )
 
         if dto.weigh_mode == "auto":
             weighing_err = validate_weighing_consistency(

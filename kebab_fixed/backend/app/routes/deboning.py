@@ -92,8 +92,11 @@ def deboning_stats(
 
 
 @router.get("/api/deboning/entries")
-def list_deboning_entries(session_id: str = Query(None, alias="session_id")):
-    return svc.list_deboning_entries(session_id)
+def list_deboning_entries(
+    session_id: str = Query(None, alias="session_id"),
+    with_open_takes: bool = Query(False, alias="with_open_takes"),
+):
+    return svc.list_deboning_entries(session_id, with_open_takes=with_open_takes)
 
 
 @router.post("/api/deboning/entries")

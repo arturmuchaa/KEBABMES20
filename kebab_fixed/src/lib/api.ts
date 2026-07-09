@@ -292,10 +292,17 @@ export interface DeboningStats {
 }
 
 export const deboningEntriesApi = {
-  // list — filtrowanie po session_id gdy podane
-  list: (sessionId?: string) =>
-    get<any[]>(`/deboning/entries${sessionId ? `?session_id=${sessionId}` : ''}`)
-      .then(r => Array.isArray(r) ? r : (r as any).data ?? []),
+  // list — filtrowanie po session_id gdy podane; withOpenTakes dołącza
+  // otwarte pobrania (status=pending) także z INNYCH sesji — HMI musi je
+  // widzieć następnego dnia (kafelek „⏳ czeka"), inaczej znikają na zawsze
+  list: (sessionId?: string, opts?: { withOpenTakes?: boolean }) => {
+    const qs = [
+      sessionId ? `session_id=${sessionId}` : '',
+      opts?.withOpenTakes ? 'with_open_takes=true' : '',
+    ].filter(Boolean).join('&')
+    return get<any[]>(`/deboning/entries${qs ? `?${qs}` : ''}`)
+      .then(r => Array.isArray(r) ? r : (r as any).data ?? [])
+  },
   // create — wysyła oba formaty (camelCase + snake_case) dla kompatybilności z backend
   create: (dto: any) => post<any>('/deboning/entries', {
     ...toSnake(dto),

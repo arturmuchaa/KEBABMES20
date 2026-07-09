@@ -196,3 +196,102 @@ def test_backfill_abp_pomija_pending(db):
         (take["id"],),
     )
     assert int(lots["c"]) > 0
+
+
+# ── Gwarancje „nic nie znika" (prod 2026-07-09) ───────────────────────
+def _seed_session(session_id: str, status: str = "open"):
+    execute(
+        "INSERT INTO production_sessions (id, session_date, process_type, status, started_at, created_at) "
+        "VALUES (%s, CURRENT_DATE, 'deboning', %s, now(), %s)",
+        (session_id, status, now_iso()),
+    )
+
+
+def test_pobranie_wyczerpujace_partie_auto_zakancza(db):
+    """Wyczerpanie partii MUSI zostawić rekord ubocznych (kafel ważenia
+    kości/grzbietów) — gwarancja serwerowa, nie kiosku."""
+    from app.services.batch_byproducts_service import get as get_byproducts, pending
+
+    _seed_cwiartka_batch(internal_no="750", kg=100.0)
+    create_deboning_take(DeboningTakeCreate(
+        raw_batch_id="rb1", worker_id="w1", worker_name="Jan", kg_taken=100.0,
+    ))
+    rec = get_byproducts("rb1")
+    assert rec and rec["finishedAt"] is not None
+    assert any(p["rawBatchId"] == "rb1" for p in pending())
+
+
+def test_wpis_wyczerpujacy_partie_auto_zakancza(db):
+    from app.models.deboning import DeboningEntryCreate
+    from app.services.deboning_service import create_deboning_entry
+    from app.services.batch_byproducts_service import get as get_byproducts
+
+    _seed_cwiartka_batch(internal_no="751", kg=100.0)
+    create_deboning_entry(DeboningEntryCreate(
+        raw_batch_id="rb1", worker_name="Jan", kg_taken=100.0, kg_meat=66.0,
+    ))
+    rec = get_byproducts("rb1")
+    assert rec and rec["finishedAt"] is not None
+
+
+def test_edycja_pobrania_do_wyczerpania_auto_zakancza(db):
+    from app.services.batch_byproducts_service import get as get_byproducts
+
+    _seed_cwiartka_batch(internal_no="752", kg=100.0)
+    t = create_deboning_take(DeboningTakeCreate(
+        raw_batch_id="rb1", worker_id="w1", worker_name="Jan", kg_taken=60.0,
+    ))
+    assert get_byproducts("rb1") is None  # 40 kg zostaje — partia żyje
+    update_deboning_take(t["id"], DeboningTakeUpdate(kg_taken=100.0))
+    rec = get_byproducts("rb1")
+    assert rec and rec["finishedAt"] is not None
+
+
+def test_dobranie_nie_scala_sie_miedzy_sesjami(db):
+    """Dobranie DZISIAJ nie może doliczyć się do niewidocznego pobrania z
+    wczorajszej sesji — kg schodziłoby z partii bez śladu na ekranie."""
+    from app.utils.ids import cuid as _cuid
+    from app.services.deboning_service import list_deboning_entries
+
+    s_old, s_new = _cuid(), _cuid()
+    _seed_session(s_old)
+    _seed_cwiartka_batch(internal_no="753", kg=500.0)
+    t1 = create_deboning_take(DeboningTakeCreate(
+        raw_batch_id="rb1", worker_id="w1", worker_name="Anatoli",
+        kg_taken=135.0, session_id=s_old,
+    ))
+    execute("UPDATE production_sessions SET status='closed' WHERE id=%s", (s_old,))
+    _seed_session(s_new)
+    t2 = create_deboning_take(DeboningTakeCreate(
+        raw_batch_id="rb1", worker_id="w1", worker_name="Anatoli",
+        kg_taken=300.0, session_id=s_new,
+    ))
+    assert t2["id"] != t1["id"]  # osobne pobrania per sesja
+    # HMI nowej sesji widzi OBA otwarte pobrania (with_open_takes)
+    ids = {e["id"] for e in list_deboning_entries(s_new, with_open_takes=True)}
+    assert {t1["id"], t2["id"]} <= ids
+    # bez flagi (biuro, podsumowania) — tylko wpisy tej sesji
+    ids_plain = {e["id"] for e in list_deboning_entries(s_new)}
+    assert t1["id"] not in ids_plain
+
+
+def test_domkniecie_pobrania_po_zamknieciu_sesji_przepina_do_otwartej(db):
+    """Pobranie „przez noc": sesja z dnia pobrania zamknięta → domknięcie
+    mięsem przepina wpis do dzisiejszej otwartej sesji zamiast blokować."""
+    from app.utils.ids import cuid as _cuid
+
+    s_old, s_new = _cuid(), _cuid()
+    _seed_session(s_old)
+    _seed_cwiartka_batch(internal_no="754", kg=200.0)
+    t = create_deboning_take(DeboningTakeCreate(
+        raw_batch_id="rb1", worker_id="w1", worker_name="Jan",
+        kg_taken=200.0, session_id=s_old,
+    ))
+    execute("UPDATE production_sessions SET status='closed' WHERE id=%s", (s_old,))
+    _seed_session(s_new)
+    done = complete_deboning_take(t["id"], DeboningTakeComplete(kg_meat=132.0))
+    assert done["status"] == "complete"
+    row = query_one("SELECT session_id FROM deboning_entries WHERE id=%s", (t["id"],))
+    assert row["session_id"] == s_new
+    # bez żadnej otwartej sesji — dalej blokada (nie zgadujemy dnia)
+    execute("UPDATE production_sessions SET status='closed' WHERE id=%s", (s_new,))

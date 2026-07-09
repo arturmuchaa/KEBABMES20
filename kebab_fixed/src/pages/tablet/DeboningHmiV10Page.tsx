@@ -512,7 +512,22 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       .filter(b => Number(b.kgAvailable) > 0 && b.status !== 'used' && b.status !== 'expired' && b.status !== 'cancelled')
       .sort((a, b) => a.expiryDate !== b.expiryDate ? (a.expiryDate < b.expiryDate ? -1 : 1) : (a.internalBatchSeq ?? 0) - (b.internalBatchSeq ?? 0)),
     [batchData.data])
-  const batches = useMemo(() => allActiveBatches.slice(0, 6), [allActiveBatches])
+  // Pasek partii przewija się w poziomie — limit tylko awaryjny (12, nie 6):
+  // przy 7+ aktywnych partiach siódma „znikała" mimo miejsca na scroll.
+  const batches = useMemo(() => allActiveBatches.slice(0, 12), [allActiveBatches])
+
+  // Świeży stan WYBRANEJ partii po każdym odświeżeniu listy. Bez tego
+  // selBatch był snapshotem z momentu kliknięcia kafla — przy kilku wpisach
+  // pod rząd „pozostało" liczyło się ze starych kg i auto-zakończenie partii
+  // nie odpalało (partia znikała bez kafla ubocznych — klasa błędu 407).
+  useEffect(() => {
+    const list = (batchData.data?.data ?? []) as RawBatch[]
+    setSelBatch(prev => {
+      if (!prev) return prev
+      const fresh = list.find(b => b.id === prev.id)
+      return fresh && Number(fresh.kgAvailable) !== Number(prev.kgAvailable) ? fresh : prev
+    })
+  }, [batchData.data])
   const totalKgMagazyn = useMemo(() => allActiveBatches.reduce((s, b) => s + Number(b.kgAvailable), 0), [allActiveBatches])
 
   const workers = useMemo(() =>
@@ -701,8 +716,12 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     // domknięcie mięsem musi działać mimo to (prod 2026-07-09, Anatoli/407):
     // szukamy w PEŁNEJ liście partii, nie tylko aktywnych.
     const all = (batchData.data?.data ?? []) as RawBatch[]
-    const b = all.find(x => x.id === e.rawBatchId) ?? null
-    if (b) setSelBatch(b)
+    // Fallback: partii może już nie być na liście (np. usunięta w biurze) —
+    // pseudo-partia z danych pobrania, żeby dało się DOMKNĄĆ ważenie
+    // (bez tego numpad zostawał zablokowany: „WYBIERZ PARTIĘ").
+    const b = all.find(x => x.id === e.rawBatchId)
+      ?? ({ id: e.rawBatchId, internalBatchNo: e.rawBatchNo, kgAvailable: 0, expiryDate: '' } as unknown as RawBatch)
+    setSelBatch(b)
     const w = workers.find(x => x.id === e.workerId) ?? null
     if (w) setSelWorker(w)
     setResumeId(e.id)
@@ -783,7 +802,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       setSelBatch(null) // partia wyczerpana — operator wybierze następną
       byproductsApi.finish(b.id, loggedInUser?.name)
         .then(rec => { byproductsData.refetch(); setFinishPrompt({ batch: b, record: rec }) })
-        .catch(() => {})
+        // Backend i tak sam zakańcza wyczerpaną partię (gwarancja serwerowa) —
+        // tu tylko informacja, że prompt ważenia nie wyskoczył.
+        .catch(() => showToast(`Partia ${b.internalBatchNo} wyczerpana — zważ uboczne z szarego kafla`, 'err'))
     }
   }
 
@@ -808,7 +829,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       setSelBatch(null)
       byproductsApi.finish(b.id, loggedInUser?.name)
         .then(rec => { byproductsData.refetch(); setFinishPrompt({ batch: b, record: rec }) })
-        .catch(() => {})
+        .catch(() => showToast(`Partia ${b.internalBatchNo} wyczerpana — zważ uboczne z szarego kafla`, 'err'))
     }
   }
 
@@ -1230,9 +1251,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               ))
         }
         {/* Szare kafle: partie zakończone, oczekujące na ważenie ubocznych
-            (przechodzą między dniami). Pomijamy te już widoczne jako aktywne. */}
+            (przechodzą między dniami). Pomijamy AKTYWNE (pełna lista, nie
+            ucięta — inaczej 13. partia miałaby i kafel aktywny „poza ekranem",
+            i szary). */}
         {(byproductsData.data ?? [])
-          .filter(p => !batches.some(b => b.id === p.rawBatchId))
+          .filter(p => !allActiveBatches.some(b => b.id === p.rawBatchId))
           .map(p => (
             <PendingBatchTile key={p.rawBatchId} rec={p}
               onOpen={() => openWizard({ id: p.rawBatchId, internalBatchNo: p.rawBatchNo } as RawBatch)} />

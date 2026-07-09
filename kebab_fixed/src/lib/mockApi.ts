@@ -854,7 +854,7 @@ export const productionSessionsApi = {
 // ─── DEBONING ENTRIES API ─────────────────────────────────────────────────────
 
 export const deboningEntriesApi = {
-  list: async (sessionId: string): Promise<DeboningEntry[]> => {
+  list: async (sessionId: string, _opts?: { withOpenTakes?: boolean }): Promise<DeboningEntry[]> => {
     await delay(200)
     return deboningEntries
       .filter(e => e.sessionId === sessionId)

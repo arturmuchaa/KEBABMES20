@@ -79,7 +79,9 @@ export const deboningApi: DeboningApi = {
   // BUGFIX: przekazuje sessionId jako parametr zapytania
   // BUGFIX 2026-07-09: backend zwraca DESC, HMI zakłada ASC (slice(-8)) —
   // normalizacja rosnąco, inaczej „Ostatnie wpisy" pokazują najstarsze.
-  listEntries: (sessionId) => entriesStore.list(sessionId).then(rows => sortEntriesByCreatedAt(rows)),
+  // withOpenTakes: pobrania niezważone do końca dnia muszą być widoczne
+  // też następnego dnia (kafelek pracownika „⏳ czeka").
+  listEntries: (sessionId) => entriesStore.list(sessionId, { withOpenTakes: true }).then(rows => sortEntriesByCreatedAt(rows)),
   createEntry: (dto)       => entriesStore.create(dto),
   createTake:  (dto)       => entriesStore.createTake(dto),
   completeTake:(id, dto)   => entriesStore.completeTake(id, dto),
