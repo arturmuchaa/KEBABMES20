@@ -285,6 +285,8 @@ export interface DeboningStats {
   workers: DeboningStatsWorker[]
   byHour: { hour: string; quarters: number; kgMeat: number }[]
   byDay: { date: string; quarters: number; kgMeat: number; avgYield: number }[]
+  /** Uzysk per partia surowca — najważniejszy wykres raportu (jakość partii/dostawcy). */
+  byBatch: { batchNo: string; kgQuarter: number; kgMeat: number; yieldPct: number }[]
   recent: { id: string; workerName: string; rawBatchNo: string; kgQuarter: number; kgMeat: number; yield: number; at: string }[]
   workerDaily: Record<string, { date: string; quarters: number; kgQuarter: number; kgMeat: number; avgYield: number }[]>
 }

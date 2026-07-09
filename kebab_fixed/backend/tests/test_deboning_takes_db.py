@@ -124,6 +124,7 @@ def test_stats_pomija_pending(db):
     stats = deboning_stats(today, today)
     assert stats["summary"]["kgMeat"] == 0.0
     assert stats["summary"]["quarters"] == 0  # pending nie liczy się jako sztuka
+    assert stats["byBatch"] == []  # uzysk per partia też bez pending
 
 
 def test_backfill_abp_pomija_pending(db):

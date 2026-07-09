@@ -186,6 +186,19 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
         for k, v in sorted(dagg.items())
     ]
 
+    # Uzysk per partia surowca — % mięsa z każdej partii w zakresie.
+    # Ważniejsze niż przepustowość: słaba partia = rozmowa z dostawcą.
+    bagg: Dict[str, Dict] = defaultdict(lambda: {"kgQuarter": 0.0, "kgMeat": 0.0})
+    for r in rows:
+        b = bagg[r["raw_batch_no"] or "—"]
+        b["kgQuarter"] += f(r["kg_quarter"])
+        b["kgMeat"] += f(r["kg_meat"])
+    by_batch = [
+        {"batchNo": no, "kgQuarter": round(v["kgQuarter"], 1), "kgMeat": round(v["kgMeat"], 1),
+         "yieldPct": round(v["kgMeat"] / v["kgQuarter"] * 100, 1) if v["kgQuarter"] else 0.0}
+        for no, v in sorted(bagg.items())
+    ]
+
     recent = [
         {"id": r["id"], "workerName": r["worker_name"] or "—",
          "rawBatchNo": r["raw_batch_no"] or "—",
@@ -231,6 +244,7 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
         "workers": workers,
         "byHour": by_hour,
         "byDay": by_day,
+        "byBatch": by_batch,
         "recent": recent,
         "workerDaily": worker_daily,
     }

@@ -11,11 +11,11 @@ import { DataTable } from '@/components/DataTable'
 import { usePageHeaderActions } from '@/components/PageHeader'
 import { cn } from '@/lib/utils'
 import {
-  Scissors, Beef, Gauge, Percent, Users, Bone, Layers, Trophy, Radio, CalendarDays, X,
+  Scissors, Beef, Gauge, Percent, Users, Bone, Layers, Radio, CalendarDays, X,
 } from 'lucide-react'
 import {
-  ResponsiveContainer, ComposedChart, BarChart, Bar, Line, XAxis, YAxis, Tooltip,
-  CartesianGrid, Cell,
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
+  CartesianGrid, ReferenceLine,
 } from 'recharts'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
@@ -98,21 +98,6 @@ function MiniStat({ label, value, unit, tone }: { label: string; value: string; 
   )
 }
 
-// ─── Tooltip wykresu ─────────────────────────────────────────
-function ChartTooltip({ active, payload, label, secondaryLabel }: any) {
-  if (!active || !payload?.length) return null
-  const p: Record<string, number> = {}
-  payload.forEach((x: any) => { p[x.dataKey] = x.value })
-  return (
-    <div className="rounded-lg border border-surface-4 bg-white shadow-lg px-3 py-2 text-xs">
-      <div className="font-bold text-ink mb-1">{label}</div>
-      <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-sm bg-brand" /> Kg mięsa: <b className="tabular-nums">{nf1.format(p.kgMeat ?? 0)}</b></div>
-      <div className="text-ink-3">Ćwiartek: <b className="tabular-nums text-ink">{p.quarters ?? 0}</b></div>
-      {p.secondary != null && <div className="text-ink-3">{secondaryLabel}: <b className="tabular-nums text-ink">{nf1.format(p.secondary)}</b></div>}
-    </div>
-  )
-}
-
 export function DeboningReportsPage() {
   const [preset, setPreset] = useState<Preset>('today')
   const [cf, setCf] = useState('')
@@ -181,13 +166,7 @@ export function DeboningReportsPage() {
   )
 
   const s = data?.summary
-  const useHours = preset === 'today' || preset === 'yesterday'
-  const chartData = useMemo(() => {
-    if (!data) return []
-    if (useHours) return data.byHour.map(d => ({ label: d.hour.slice(11, 16), kgMeat: d.kgMeat, quarters: d.quarters, secondary: d.quarters }))
-    return data.byDay.map(d => ({ label: `${d.date.slice(8, 10)}.${d.date.slice(5, 7)}`, kgMeat: d.kgMeat, quarters: d.quarters, secondary: d.avgYield }))
-  }, [data, useHours])
-  const secondaryLabel = useHours ? 'Ćwiartek' : 'Śr. rozbiór %'
+  const batchChart = useMemo(() => data?.byBatch ?? [], [data])
 
   const empty = !loading && (!s || s.quarters === 0)
 
@@ -195,7 +174,7 @@ export function DeboningReportsPage() {
     <div className="space-y-4 animate-fade-in">
       {/* ── KPI ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
-        <Kpi icon={Scissors} label="Ćwiartka pobrana" value={nf0.format(s?.quarters ?? 0)} accent="bg-brand" />
+        <Kpi icon={Scissors} label="Ćwiartka pobrana" value={nf0.format(s?.kgQuarter ?? 0)} unit="kg" sub={`${nf0.format(s?.quarters ?? 0)} wpisów`} accent="bg-brand" />
         <Kpi icon={Beef} label="Kg mięsa" value={nf0.format(s?.kgMeat ?? 0)} unit="kg" accent="bg-brand" />
         <Kpi icon={Percent} label="Śr. rozbiór" value={nf1.format(s?.avgYield ?? 0)} unit="%" tone={yieldTone(s?.avgYield ?? 0)} accent="bg-emerald-500" />
         <Kpi icon={Gauge} label="Tempo" value={nf0.format(s?.kgPerHour ?? 0)} unit="kg/h" accent="bg-blue-500" />
@@ -212,35 +191,42 @@ export function DeboningReportsPage() {
         </div>
       ) : (
         <>
-          {/* ── Wykres przepustowości ── */}
+          {/* ── Uzysk per partia surowca ── najważniejsze dane raportu:
+              % mięsa z każdej partii + kg; słaba partia = rozmowa z dostawcą. */}
           <div className="rounded-xl border border-surface-4 bg-white p-4">
             <div className="flex items-center justify-between mb-3">
               <div>
-                <div className="text-sm font-bold text-ink">Przepustowość rozbioru</div>
-                <div className="text-[11px] text-ink-4">{useHours ? 'Kg mięsa na godzinę' : 'Kg mięsa dziennie · linia = średni % rozbioru'}</div>
+                <div className="text-sm font-bold text-ink">Uzysk mięsa per partia surowca</div>
+                <div className="text-[11px] text-ink-4">
+                  % mięsa z ćwiartki każdej partii · linia = średnia zakresu ({nf1.format(s?.avgYield ?? 0)}%)
+                </div>
               </div>
+              <div className="text-[11px] text-ink-4">{batchChart.length} partii</div>
             </div>
             <div style={{ height: 240 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} margin={{ top: 6, right: 8, left: -12, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="barK" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#1D4ED8" stopOpacity={0.95} />
-                      <stop offset="100%" stopColor="#1D4ED8" stopOpacity={0.55} />
-                    </linearGradient>
-                  </defs>
+                <BarChart data={batchChart} margin={{ top: 18, right: 8, left: -16, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#EEF1F5" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={16} />
-                  <YAxis yAxisId="l" tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} width={44} />
-                  <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} width={34} domain={[50, 75]} hide={useHours} />
-                  <Tooltip content={<ChartTooltip secondaryLabel={secondaryLabel} />} cursor={{ fill: '#F4F7FB' }} />
-                  <Bar yAxisId="l" dataKey="kgMeat" radius={[4, 4, 0, 0]} fill="url(#barK)" maxBarSize={46}>
-                    {chartData.map((_, i) => <Cell key={i} />)}
-                  </Bar>
-                  {!useHours && (
-                    <Line yAxisId="r" type="monotone" dataKey="secondary" stroke="#059669" strokeWidth={2} dot={{ r: 2.5, fill: '#059669' }} />
-                  )}
-                </ComposedChart>
+                  <XAxis dataKey="batchNo" tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={12} />
+                  <YAxis tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} width={40}
+                    domain={[0, (max: number) => Math.max(75, Math.ceil(max + 4))]} unit="%" />
+                  <Tooltip cursor={{ fill: '#F4F7FB' }} content={({ active, payload, label }: any) => {
+                    if (!active || !payload?.length) return null
+                    const d = payload[0]?.payload
+                    return (
+                      <div className="rounded-lg border border-surface-4 bg-white shadow-lg px-3 py-2 text-xs">
+                        <div className="font-bold text-ink mb-1">Partia {label}</div>
+                        <div>Uzysk: <b className="tabular-nums">{nf1.format(d?.yieldPct ?? 0)}%</b></div>
+                        <div className="text-ink-3">Ćwiartka: <b className="tabular-nums text-ink">{nf0.format(d?.kgQuarter ?? 0)} kg</b></div>
+                        <div className="text-ink-3">Mięso: <b className="tabular-nums text-ink">{nf0.format(d?.kgMeat ?? 0)} kg</b></div>
+                      </div>
+                    )
+                  }} />
+                  <ReferenceLine y={s?.avgYield ?? 0} stroke="#94A3B8" strokeDasharray="5 4"
+                    label={{ value: `śr. ${nf1.format(s?.avgYield ?? 0)}%`, position: 'insideTopRight', fontSize: 10, fill: '#64748B' }} />
+                  <Bar dataKey="yieldPct" radius={[4, 4, 0, 0]} fill="#1D4ED8" maxBarSize={52}
+                    label={batchChart.length <= 14 ? { position: 'top', fontSize: 10.5, fill: '#475569', formatter: (v: number) => `${nf1.format(v)}%` } : false} />
+                </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
@@ -249,38 +235,32 @@ export function DeboningReportsPage() {
             {/* ── Ranking pracowników ── */}
             <div className={cn(showFeed ? 'xl:col-span-2' : 'xl:col-span-3')}>
               <div className="flex items-center gap-2 mb-2">
-                <Trophy size={15} className="text-amber-500" />
-                <h2 className="text-sm font-bold text-ink">Ranking pracowników</h2>
+                <Users size={15} className="text-ink-3" />
+                <h2 className="text-sm font-bold text-ink">Pracownicy</h2>
                 <span className="text-[11px] text-ink-4">({data?.workers.length ?? 0}) · klik = szczegóły dzień po dniu</span>
               </div>
               <DataTable
                 rows={data?.workers ?? []} rowKey={w => w.workerId}
-                initialSort={{ key: 'kgQuarter', dir: 'desc' }}
+                initialSort={{ key: 'workerName', dir: 'asc' }}
                 onRowClick={w => setDrill(w)}
                 footer={rows => {
-                  const q = rows.reduce((a, w) => a + w.quarters, 0)
+                  const kq = rows.reduce((a, w) => a + w.kgQuarter, 0)
                   const km = rows.reduce((a, w) => a + w.kgMeat, 0)
-                  return <><span>Razem · {rows.length} os.</span><span className="ml-auto">Ćwiartek: <b>{q}</b></span><span>Kg mięsa: <b className="text-brand">{nf0.format(km)}</b></span></>
+                  return <><span>Razem · {rows.length} os.</span><span className="ml-auto">Ćwiartka: <b>{nf0.format(kq)} kg</b></span><span>Mięso: <b className="text-brand">{nf0.format(km)} kg</b></span></>
                 }}
                 columns={[
-                  { key: 'pos', header: '#', width: 48,
-                    cell: (w) => {
-                      const i = (data?.workers ?? []).findIndex(x => x.workerId === w.workerId)
-                      const medal = ['bg-amber-100 text-amber-700 border-amber-300', 'bg-slate-100 text-slate-600 border-slate-300', 'bg-orange-100 text-orange-700 border-orange-300'][i]
-                      return <span className={cn('inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-black border', medal ?? 'border-transparent text-ink-4')}>{i + 1}</span>
-                    } },
                   { key: 'workerName', header: 'Pracownik', sortable: true, sortValue: w => w.workerName,
                     cell: w => <span className="font-semibold text-ink">{w.workerName}</span> },
-                  { key: 'quarters', header: 'Ćwiartka pobrana', align: 'right', sortable: true, sortValue: w => w.quarters,
-                    cell: w => <span className="font-bold tabular-nums">{w.quarters}</span> },
-                  { key: 'kgQuarter', header: 'Kg ćwiartki', align: 'right', sortable: true, sortValue: w => w.kgQuarter,
-                    cell: w => <span className="tabular-nums text-ink-2">{nf1.format(w.kgQuarter)}</span> },
-                  { key: 'kgMeat', header: 'Kg mięsa', align: 'right', sortable: true, sortValue: w => w.kgMeat,
+                  { key: 'kgQuarter', header: 'Ćwiartka pobrana [kg]', align: 'right', sortable: true, sortValue: w => w.kgQuarter,
+                    cell: w => <span className="font-bold tabular-nums">{nf1.format(w.kgQuarter)}</span> },
+                  { key: 'kgMeat', header: 'Mięso [kg]', align: 'right', sortable: true, sortValue: w => w.kgMeat,
                     cell: w => <span className="font-bold tabular-nums text-brand">{nf1.format(w.kgMeat)}</span> },
                   { key: 'avgYield', header: 'Śr. %', align: 'right', sortable: true, sortValue: w => w.avgYield,
                     cell: w => <span className={cn('font-black tabular-nums', yieldTone(w.avgYield))}>{nf1.format(w.avgYield)}</span> },
                   { key: 'kgPerHour', header: 'Kg/h', align: 'right', sortable: true, sortValue: w => w.kgPerHour,
                     cell: w => <span className="tabular-nums text-ink-2">{nf1.format(w.kgPerHour)}</span> },
+                  { key: 'quarters', header: 'Wpisy', align: 'right', sortable: true, sortValue: w => w.quarters,
+                    cell: w => <span className="tabular-nums text-ink-3">{w.quarters}</span> },
                 ]}
               />
             </div>
@@ -336,7 +316,7 @@ export function DeboningReportsPage() {
               </DialogHeader>
               <div className="space-y-3">
                 <div className="grid grid-cols-4 gap-2">
-                  <MiniStat label="Ćwiartka pobr." value={nf0.format(drill.quarters)} />
+                  <MiniStat label="Ćwiartka pobr." value={nf0.format(drill.kgQuarter)} unit="kg" />
                   <MiniStat label="Kg mięsa" value={nf0.format(drill.kgMeat)} unit="kg" />
                   <MiniStat label="Śr. %" value={nf1.format(drill.avgYield)} tone={yieldTone(drill.avgYield)} />
                   <MiniStat label="Kg/h" value={nf1.format(drill.kgPerHour)} />
@@ -359,9 +339,9 @@ export function DeboningReportsPage() {
                     <thead>
                       <tr className="bg-surface-2 text-[11px] uppercase font-bold text-ink-3">
                         <th className="text-left px-3 py-2">Dzień</th>
-                        <th className="text-right px-3 py-2">Ćwiartka pobr.</th>
-                        <th className="text-right px-3 py-2">Kg ćwiartki</th>
-                        <th className="text-right px-3 py-2">Kg mięsa</th>
+                        <th className="text-right px-3 py-2">Wpisy</th>
+                        <th className="text-right px-3 py-2">Ćwiartka [kg]</th>
+                        <th className="text-right px-3 py-2">Mięso [kg]</th>
                         <th className="text-right px-3 py-2">Śr. %</th>
                       </tr>
                     </thead>
