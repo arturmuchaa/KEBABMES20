@@ -738,10 +738,16 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
 
   async function handleWizardWeigh(kind: 'backs' | 'bones', kg: number, pallets: any[]) {
     if (!wizard) return
-    const rec = await byproductsApi.weigh(wizard.batch.id, kind, kg, pallets)
-    setWizard(w => (w ? { ...w, record: rec } : null))
-    byproductsData.refetch()
-    showToast(`Zapisano ${kind === 'backs' ? 'grzbiety' : 'kości'}: ${fmtKg(kg, 1)} kg`)
+    try {
+      const rec = await byproductsApi.weigh(wizard.batch.id, kind, kg, pallets)
+      setWizard(w => (w ? { ...w, record: rec } : null))
+      byproductsData.refetch()
+      showToast(`Zapisano ${kind === 'backs' ? 'grzbiety' : 'kości'}: ${fmtKg(kg, 1)} kg`)
+    } catch (e: any) {
+      // Bez tego wizard wisiał na „saving" bez żadnego komunikatu.
+      showToast(e?.message || `Nie udało się zapisać (${kind === 'backs' ? 'grzbiety' : 'kości'})`, 'err')
+      throw e // wizard cofa fazę, paleta/suma zostaje — operator ponawia
+    }
   }
 
   async function handleFinishBatchConfirm() {
@@ -854,7 +860,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                     <span className="hmi-v10-mono text-xs font-bold" style={{ color: 'var(--accent)' }}>{e.rawBatchNo}</span>
                     <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>ćw</span>{fmtKg(e.kgTaken, 1)}</span>
                     <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>mię</span>{fmtKg(e.kgMeat, 1)}</span>
-                    <span className="hmi-v10-mono text-sm font-bold text-right" style={{ color: yieldInk(e.yieldPct) }}>{fmtPct(e.yieldPct, 0)}</span>
+                    <span className="hmi-v10-mono text-sm font-bold text-right" style={{ color: yieldInk(e.yieldPct) }}>{fmtPct(e.yieldPct, 1)}</span>
                     <button type="button" onClick={() => startEditEntry(e)} className="h-9 text-xs font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--accent)' }}>Edytuj</button>
                   </div>
                 ))}
@@ -1295,7 +1301,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               <div className="flex items-center gap-3">
                 <CircleGauge value={shift.yieldPct} min={0} max={100} color="var(--accent)" />
                 <div>
-                  <div className="hmi-v10-mono font-extrabold text-2xl leading-none">{shift.totMeat > 0 ? fmtPct(shift.yieldPct, 0) : '—'}</div>
+                  <div className="hmi-v10-mono font-extrabold text-2xl leading-none">{shift.totMeat > 0 ? fmtPct(shift.yieldPct, 1) : '—'}</div>
                   <div className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--mut)' }}>Wydajność</div>
                 </div>
               </div>
@@ -1411,7 +1417,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                   <span className="hmi-v10-mono text-xs font-bold" style={{ color: 'var(--accent)' }}>{e.rawBatchNo}</span>
                   <span className="hmi-v10-mono text-[13px] text-right">{fmtKg(e.kgTaken, 1)}</span>
                   <span className="hmi-v10-mono text-[13px] text-right">{fmtKg(e.kgMeat, 1)}</span>
-                  <span className="hmi-v10-mono text-[13px] font-bold text-right" style={{ color: yieldInk(e.yieldPct) }}>{fmtPct(e.yieldPct, 0)}</span>
+                  <span className="hmi-v10-mono text-[13px] font-bold text-right" style={{ color: yieldInk(e.yieldPct) }}>{fmtPct(e.yieldPct, 1)}</span>
                 </div>
               ))}
             </div>

@@ -71,7 +71,12 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
   async function finishFraction() {
     setPhase('saving')
     const total = Math.round(fracTotal * 10) / 10
-    await onWeigh(frac, total, pallets)
+    try {
+      await onWeigh(frac, total, pallets)
+    } catch {
+      setPhase('ask') // zapis padł (toast pokazuje strona) — suma zostaje, operator ponawia
+      return
+    }
     const pct = record.quarterKg > 0 ? (total / record.quarterKg) * 100 : 0
     setSavedPct(pct)
     // Po zapisie wracamy do wyboru — operator sam decyduje o drugiej frakcji.
@@ -87,7 +92,12 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
     const kg = parseFloat((manualStr || '0').replace(',', '.')) || 0
     if (kg <= 0) return
     setPhase('saving')
-    await onWeigh(frac, Math.round(kg * 10) / 10, [{ tareLabel: 'ręcznie', tareKg: 0, containers: 0, gross: kg, net: kg }])
+    try {
+      await onWeigh(frac, Math.round(kg * 10) / 10, [{ tareLabel: 'ręcznie', tareKg: 0, containers: 0, gross: kg, net: kg }])
+    } catch {
+      setPhase('manual') // zapis padł — wpisane kg zostaje, operator ponawia
+      return
+    }
     const pct = record.quarterKg > 0 ? (kg / record.quarterKg) * 100 : 0
     setSavedPct(pct)
     setTimeout(() => { setSavedPct(null); setManualStr(''); setPhase('choose') }, 1800)

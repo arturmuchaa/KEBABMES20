@@ -184,6 +184,18 @@ export function splitEntriesByStatus<T extends { status?: 'pending' | 'complete'
   return { pending, complete }
 }
 
+/**
+ * sortEntriesByCreatedAt — normalizuje kolejność wpisów rosnąco po createdAt.
+ * Backend zwraca DESC, ale cały kod HMI (slice(-8), slice(-3)) zakłada ASC
+ * jak w mocku — bez normalizacji feed „Ostatnie wpisy" pokazywał najstarsze
+ * wpisy dnia (bug prod 2026-07-08, partie 404/405).
+ */
+export function sortEntriesByCreatedAt<T extends { createdAt?: string }>(
+  entries: ReadonlyArray<T>,
+): T[] {
+  return [...entries].sort((a, b) => String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')))
+}
+
 // ─── 6. WALIDACJA WPISU ROZBIORU ─────────────────────────────────────────────
 /**
  * validateDeboningEntry — walidacja wpisu przed zapisem.

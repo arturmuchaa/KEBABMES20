@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { splitEntriesByStatus, calcSessionSummary } from './index'
+import { splitEntriesByStatus, calcSessionSummary, sortEntriesByCreatedAt } from './index'
 
 const base = {
   kgBones: 0, kgBacks: 0, workerId: 'w1', rawBatchId: 'b1', yieldPct: 70,
@@ -19,6 +19,28 @@ describe('splitEntriesByStatus', () => {
   it('brak status traktuje jak complete', () => {
     const { complete } = splitEntriesByStatus([{ ...base, kgTaken: 100, kgMeat: 70 }] as any)
     expect(complete).toHaveLength(1)
+  })
+})
+
+describe('sortEntriesByCreatedAt', () => {
+  it('normalizuje kolejność rosnąco (backend zwraca DESC, HMI zakłada ASC)', () => {
+    // Bug prod 2026-07-08: „Ostatnie wpisy" pokazywały 8 NAJSTARSZYCH wpisów
+    // (partia 404), bo slice(-8) na liście DESC z backendu bierze koniec listy.
+    const sorted = sortEntriesByCreatedAt([
+      { id: 'c', createdAt: '2026-07-08T12:29:35' },
+      { id: 'b', createdAt: '2026-07-08T07:07:44' },
+      { id: 'a', createdAt: '2026-07-08T05:54:32' },
+    ] as any)
+    expect(sorted.map((e: any) => e.id)).toEqual(['a', 'b', 'c'])
+    // slice(-1) po normalizacji = najnowszy wpis
+    expect((sorted.slice(-1)[0] as any).id).toBe('c')
+  })
+
+  it('nie mutuje wejścia i toleruje brak createdAt', () => {
+    const input = [{ id: 'x' }, { id: 'y', createdAt: '2026-07-08T10:00:00' }] as any
+    const sorted = sortEntriesByCreatedAt(input)
+    expect(input[0].id).toBe('x')
+    expect(sorted).toHaveLength(2)
   })
 })
 

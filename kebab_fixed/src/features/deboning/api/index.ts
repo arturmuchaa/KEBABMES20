@@ -16,7 +16,7 @@ import type {
   CreateDeboningEntryDto, UpdateDeboningEntryDto,
   CreateDeboningTakeDto, CompleteDeboningTakeDto,
 } from '../types'
-import { calcSessionSummary } from '../utils'
+import { calcSessionSummary, sortEntriesByCreatedAt } from '../utils'
 
 // ─── Kontrakt API ─────────────────────────────────────────────────────────────
 
@@ -76,7 +76,9 @@ export const deboningApi: DeboningApi = {
   approveSession: (id, dto) => sessionsStore.approve(id, dto),
 
   // BUGFIX: przekazuje sessionId jako parametr zapytania
-  listEntries: (sessionId) => entriesStore.list(sessionId),
+  // BUGFIX 2026-07-09: backend zwraca DESC, HMI zakłada ASC (slice(-8)) —
+  // normalizacja rosnąco, inaczej „Ostatnie wpisy" pokazują najstarsze.
+  listEntries: (sessionId) => entriesStore.list(sessionId).then(rows => sortEntriesByCreatedAt(rows)),
   createEntry: (dto)       => entriesStore.create(dto),
   createTake:  (dto)       => entriesStore.createTake(dto),
   completeTake:(id, dto)   => entriesStore.completeTake(id, dto),
