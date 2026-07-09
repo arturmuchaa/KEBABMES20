@@ -310,7 +310,7 @@ function useServerOnline(): boolean {
     let alive = true
     const ping = async () => {
       try {
-        const r = await fetch(`${BASE}/api/health`, { cache: 'no-store' })
+        const r = await fetch(`${BASE}/health`, { cache: 'no-store' })
         if (alive) setOnline(r.ok)
       } catch {
         if (alive) setOnline(false)

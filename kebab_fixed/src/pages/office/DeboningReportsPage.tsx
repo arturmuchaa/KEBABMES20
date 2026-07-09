@@ -15,8 +15,9 @@ import {
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
-  CartesianGrid, ReferenceLine,
+  CartesianGrid,
 } from 'recharts'
+import { Card, CardContent, CardDescription } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 // ─── Zakresy dat ─────────────────────────────────────────────
@@ -68,24 +69,38 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })
 }
 
-// ─── KPI ─────────────────────────────────────────────────────
+// ─── KPI — styl dashboardu (industrial polish: chip ikony, bez pasków) ──
+type Accent = 'blue' | 'green' | 'amber' | 'purple'
+const ACCENT: Record<Accent, string> = {
+  blue:   'bg-blue-50 text-blue-600 ring-1 ring-blue-100',
+  green:  'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100',
+  amber:  'bg-amber-50 text-amber-600 ring-1 ring-amber-100',
+  purple: 'bg-purple-50 text-purple-600 ring-1 ring-purple-100',
+}
+
 function Kpi({ icon: Icon, label, value, unit, sub, tone, accent }: {
-  icon: any; label: string; value: string; unit?: string; sub?: string; tone?: string; accent?: string
+  icon: any; label: string; value: string; unit?: string; sub?: string; tone?: string; accent: Accent
 }) {
   return (
-    <div className="relative rounded-xl border border-surface-4 bg-white px-4 py-3.5 overflow-hidden">
-      <div className={cn('absolute inset-x-0 top-0 h-0.5', accent ?? 'bg-brand/70')} />
-      <div className="flex items-center gap-1.5 text-ink-4 mb-1.5">
-        <Icon size={13} />
-        <span className="text-[10.5px] font-bold uppercase tracking-wide">{label}</span>
-      </div>
-      <div className="flex items-baseline gap-2">
-        <div className={cn('text-[26px] font-black leading-none [font-variant-numeric:tabular-nums]', tone ?? 'text-ink')}>
-          {value}{unit && <span className="text-[13px] font-bold text-ink-4 ml-1">{unit}</span>}
+    <Card className="relative overflow-hidden">
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-3 min-w-0">
+            {label}
+          </CardDescription>
+          <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0', ACCENT[accent])}>
+            <Icon size={16} />
+          </div>
         </div>
-        {sub && <div className="text-[14px] font-bold text-ink-4 [font-variant-numeric:tabular-nums]">{sub}</div>}
-      </div>
-    </div>
+        <div className="flex items-baseline gap-1.5">
+          <span className={cn('font-mono text-[26px] font-semibold tabular-nums tracking-tight leading-none', tone ?? 'text-ink')}>
+            {value}
+          </span>
+          {unit && <span className="text-xs font-medium text-ink-3">{unit}</span>}
+        </div>
+        {sub && <div className="text-[11px] pt-2 text-ink-3">{sub}</div>}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -166,21 +181,19 @@ export function DeboningReportsPage() {
   )
 
   const s = data?.summary
-  const batchChart = useMemo(() => data?.byBatch ?? [], [data])
-
   const empty = !loading && (!s || s.quarters === 0)
 
   return (
     <div className="space-y-4 animate-fade-in">
       {/* ── KPI ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
-        <Kpi icon={Scissors} label="Ćwiartka pobrana" value={nf0.format(s?.kgQuarter ?? 0)} unit="kg" sub={`${nf0.format(s?.quarters ?? 0)} wpisów`} accent="bg-brand" />
-        <Kpi icon={Beef} label="Kg mięsa" value={nf0.format(s?.kgMeat ?? 0)} unit="kg" accent="bg-brand" />
-        <Kpi icon={Percent} label="Śr. rozbiór" value={nf1.format(s?.avgYield ?? 0)} unit="%" tone={yieldTone(s?.avgYield ?? 0)} accent="bg-emerald-500" />
-        <Kpi icon={Gauge} label="Tempo" value={nf0.format(s?.kgPerHour ?? 0)} unit="kg/h" accent="bg-blue-500" />
-        <Kpi icon={Users} label="Pracownicy" value={nf0.format(s?.workers ?? 0)} accent="bg-violet-500" />
-        <Kpi icon={Bone} label="Kości" value={nf0.format(s?.kgBones ?? 0)} unit="kg" sub={`${nf1.format(s?.bonesPct ?? 0)}%`} tone="text-ink-2" accent="bg-amber-500" />
-        <Kpi icon={Layers} label="Grzbiety" value={nf0.format(s?.kgBacks ?? 0)} unit="kg" sub={`${nf1.format(s?.backsPct ?? 0)}%`} tone="text-ink-2" accent="bg-orange-500" />
+        <Kpi icon={Scissors} label="Ćwiartka pobrana" value={nf0.format(s?.kgQuarter ?? 0)} unit="kg" sub={`${nf0.format(s?.quarters ?? 0)} wpisów`} accent="blue" />
+        <Kpi icon={Beef} label="Kg mięsa" value={nf0.format(s?.kgMeat ?? 0)} unit="kg" accent="blue" />
+        <Kpi icon={Percent} label="Śr. rozbiór" value={nf1.format(s?.avgYield ?? 0)} unit="%" tone={yieldTone(s?.avgYield ?? 0)} accent="green" />
+        <Kpi icon={Gauge} label="Tempo" value={nf0.format(s?.kgPerHour ?? 0)} unit="kg/h" accent="blue" />
+        <Kpi icon={Users} label="Pracownicy" value={nf0.format(s?.workers ?? 0)} accent="purple" />
+        <Kpi icon={Bone} label="Kości" value={nf0.format(s?.kgBones ?? 0)} unit="kg" sub={`${nf1.format(s?.bonesPct ?? 0)}%`} tone="text-ink-2" accent="amber" />
+        <Kpi icon={Layers} label="Grzbiety" value={nf0.format(s?.kgBacks ?? 0)} unit="kg" sub={`${nf1.format(s?.backsPct ?? 0)}%`} tone="text-ink-2" accent="amber" />
       </div>
 
       {empty ? (
@@ -191,46 +204,6 @@ export function DeboningReportsPage() {
         </div>
       ) : (
         <>
-          {/* ── Uzysk per partia surowca ── najważniejsze dane raportu:
-              % mięsa z każdej partii + kg; słaba partia = rozmowa z dostawcą. */}
-          <div className="rounded-xl border border-surface-4 bg-white p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <div className="text-sm font-bold text-ink">Uzysk mięsa per partia surowca</div>
-                <div className="text-[11px] text-ink-4">
-                  % mięsa z ćwiartki każdej partii · linia = średnia zakresu ({nf1.format(s?.avgYield ?? 0)}%)
-                </div>
-              </div>
-              <div className="text-[11px] text-ink-4">{batchChart.length} partii</div>
-            </div>
-            <div style={{ height: 240 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={batchChart} margin={{ top: 18, right: 8, left: -16, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#EEF1F5" vertical={false} />
-                  <XAxis dataKey="batchNo" tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={12} />
-                  <YAxis tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} width={40}
-                    domain={[0, (max: number) => Math.max(75, Math.ceil(max + 4))]} unit="%" />
-                  <Tooltip cursor={{ fill: '#F4F7FB' }} content={({ active, payload, label }: any) => {
-                    if (!active || !payload?.length) return null
-                    const d = payload[0]?.payload
-                    return (
-                      <div className="rounded-lg border border-surface-4 bg-white shadow-lg px-3 py-2 text-xs">
-                        <div className="font-bold text-ink mb-1">Partia {label}</div>
-                        <div>Uzysk: <b className="tabular-nums">{nf1.format(d?.yieldPct ?? 0)}%</b></div>
-                        <div className="text-ink-3">Ćwiartka: <b className="tabular-nums text-ink">{nf0.format(d?.kgQuarter ?? 0)} kg</b></div>
-                        <div className="text-ink-3">Mięso: <b className="tabular-nums text-ink">{nf0.format(d?.kgMeat ?? 0)} kg</b></div>
-                      </div>
-                    )
-                  }} />
-                  <ReferenceLine y={s?.avgYield ?? 0} stroke="#94A3B8" strokeDasharray="5 4"
-                    label={{ value: `śr. ${nf1.format(s?.avgYield ?? 0)}%`, position: 'insideTopRight', fontSize: 10, fill: '#64748B' }} />
-                  <Bar dataKey="yieldPct" radius={[4, 4, 0, 0]} fill="#1D4ED8" maxBarSize={52}
-                    label={batchChart.length <= 14 ? { position: 'top', fontSize: 10.5, fill: '#475569', formatter: (v: number) => `${nf1.format(v)}%` } : false} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             {/* ── Ranking pracowników ── */}
             <div className={cn(showFeed ? 'xl:col-span-2' : 'xl:col-span-3')}>

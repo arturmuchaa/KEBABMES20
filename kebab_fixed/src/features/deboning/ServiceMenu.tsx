@@ -86,7 +86,7 @@ export function ServiceMenuModal({ open, onClose, buildLabel = `HMI v10 · ${__R
   useEffect(() => {
     if (!ok) return
     setPrevVersion(null)
-    fetch(`${BASE}/api/desktop-updates/rozbior-v10/versions`)
+    fetch(`${BASE}/desktop-updates/rozbior-v10/versions`)
       .then(r => r.json())
       .then((d: { versions?: { version: string }[] }) => {
         const prev = (d.versions ?? []).find(v => v.version !== __ROZBIOR_V10_VERSION__)
@@ -100,7 +100,7 @@ export function ServiceMenuModal({ open, onClose, buildLabel = `HMI v10 · ${__R
     setRollbackBusy(true)
     setRollbackMsg(`Przywracam ${prevVersion}…`)
     try {
-      const res = await fetch(`${BASE}/api/desktop-updates/rozbior-v10/rollback`, {
+      const res = await fetch(`${BASE}/desktop-updates/rozbior-v10/rollback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: SERVICE_CODE, version: prevVersion }),
