@@ -6,7 +6,7 @@
  */
 import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
-import { meatStockApi, deboningApi, rawBatchesApi } from '@/lib/apiClient'
+import { meatStockApi, deboningApi, rawBatchesApi, byproductsApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
 import {
@@ -191,6 +191,9 @@ export function RawStockPage() {
   const { data: meatData, loading: meatLoading } = useApi(() => meatStockApi.list())
   const { data: debData,  loading: debLoading  } = useApi(() => deboningApi.list())
   const { data: batchData } = useApi<{ data: any[] }>(() => (rawBatchesApi as any).all())
+  // Zbiorcze ważenie ubocznych (kreator na HMI) zapisuje grzbiety/kości NA
+  // PARTIĘ (batch_byproducts), nie per wpis — bez tego zakładki widziały zero.
+  const { data: zbData } = useApi(() => byproductsApi.list())
 
   const [activeTab, setActiveTab] = useState<Tab>('meat')
   const [traceItem, setTraceItem] = useState<{
@@ -215,11 +218,28 @@ export function RawStockPage() {
   const batches  = batchData?.data ?? []
 
   const totalMeatAvailable = meatList.reduce((sum, m) => sum + Number(m.kgAvailable), 0)
-  const totalBacks = sessions.reduce((sum, s) => sum + Number(s.kgBacks || 0), 0)
-  const totalBones = sessions.reduce((sum, s) => sum + Number(s.kgBones || 0), 0)
 
-  const backsItems = sessions.filter(s => Number(s.kgBacks || 0) > 0)
-  const bonesItems = sessions.filter(s => Number(s.kgBones || 0) > 0)
+  // Wiersze ze zbiorczego ważenia partii — kształt jak wpis rozbioru,
+  // żeby tabela/CSV/śledzenie działały bez zmian.
+  const zbBacksRows = useMemo(() => (zbData ?? [])
+    .filter(r => Number(r.backsKg ?? 0) > 0)
+    .map(r => ({
+      id: `${r.rawBatchId}:zb-backs`, rawBatchId: r.rawBatchId, rawBatchNo: r.rawBatchNo,
+      kgBacks: Number(r.backsKg), createdAt: r.backsAt ?? r.finishedAt ?? '',
+      workerName: 'ważenie zbiorcze', sessionNo: '—',
+    }) as unknown as DeboningSession), [zbData])
+  const zbBonesRows = useMemo(() => (zbData ?? [])
+    .filter(r => Number(r.bonesKg ?? 0) > 0)
+    .map(r => ({
+      id: `${r.rawBatchId}:zb-bones`, rawBatchId: r.rawBatchId, rawBatchNo: r.rawBatchNo,
+      kgBones: Number(r.bonesKg), createdAt: r.bonesAt ?? r.finishedAt ?? '',
+      workerName: 'ważenie zbiorcze', sessionNo: '—',
+    }) as unknown as DeboningSession), [zbData])
+
+  const backsItems = [...sessions.filter(s => Number(s.kgBacks || 0) > 0), ...zbBacksRows]
+  const bonesItems = [...sessions.filter(s => Number(s.kgBones || 0) > 0), ...zbBonesRows]
+  const totalBacks = backsItems.reduce((sum, s) => sum + Number(s.kgBacks || 0), 0)
+  const totalBones = bonesItems.reduce((sum, s) => sum + Number(s.kgBones || 0), 0)
 
   // ── Filtered + sorted lists ──
   const filteredMeat = useMemo(() => {

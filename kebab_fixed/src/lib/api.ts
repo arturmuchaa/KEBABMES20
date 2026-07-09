@@ -330,10 +330,13 @@ export interface BatchByproducts {
   backsKg: number | null; bonesKg: number | null
   backsPct: number | null; bonesPct: number | null
   backsDone: boolean; bonesDone: boolean; finishedAt: string | null
+  backsAt?: string | null; bonesAt?: string | null
   /** Palety poprzednich ważeń — kreator doładowuje do sumy (ważenie w trakcie). */
   backsPallets?: ByproductPallet[]; bonesPallets?: ByproductPallet[]
 }
 export const byproductsApi = {
+  // Wszystkie rekordy zbiorczego ważenia — magazyn surowca (Grzbiety/Kości).
+  list: () => get<{ records: BatchByproducts[] }>('/deboning/byproducts').then(r => r?.records ?? []),
   pending: () => get<{ pending: BatchByproducts[] }>('/deboning/byproducts/pending').then(r => r?.pending ?? []),
   today: () => get<{ backsKg: number; bonesKg: number }>('/deboning/byproducts/today'),
   get: (batchId: string) => get<BatchByproducts>(`/deboning/byproducts/${batchId}`),

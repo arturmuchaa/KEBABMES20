@@ -31,6 +31,8 @@ def _row(r: Optional[Dict]) -> Optional[Dict[str, Any]]:
         "backsDone": r["backs_kg"] is not None,
         "bonesDone": r["bones_kg"] is not None,
         "finishedAt": r["finished_at"].isoformat() if r["finished_at"] else None,
+        "backsAt": r["backs_at"].isoformat() if r.get("backs_at") else None,
+        "bonesAt": r["bones_at"].isoformat() if r.get("bones_at") else None,
         # Palety poprzednich ważeń — kreator doładowuje je do sumy przy
         # ważeniu w trakcie rozbioru (kolejna paleta dolicza, nie nadpisuje).
         "backsPallets": r.get("backs_pallets") or [],
@@ -117,6 +119,16 @@ def pending() -> List[Dict[str, Any]]:
         "SELECT * FROM batch_byproducts "
         "WHERE finished_at IS NOT NULL AND (backs_kg IS NULL OR bones_kg IS NULL) "
         "ORDER BY finished_at"
+    )
+    return [_row(r) for r in rows]
+
+
+def list_all() -> List[Dict[str, Any]]:
+    """Wszystkie rekordy zbiorczego ważenia — magazyn surowca w biurze
+    (zakładki Grzbiety/Kości) scala je z per-wpisowymi kg_backs/kg_bones."""
+    rows = query_all(
+        "SELECT * FROM batch_byproducts "
+        "ORDER BY COALESCE(finished_at, backs_at, bones_at) DESC NULLS LAST"
     )
     return [_row(r) for r in rows]
 

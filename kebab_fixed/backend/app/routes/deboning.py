@@ -44,6 +44,11 @@ def byproducts_pending():
     return {"pending": byproducts_svc.pending()}
 
 
+@router.get("/api/deboning/byproducts")
+def byproducts_list():
+    return {"records": byproducts_svc.list_all()}
+
+
 @router.get("/api/deboning/byproducts/today")
 def byproducts_today():
     return byproducts_svc.today_totals()
