@@ -368,6 +368,20 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [takenMode, setTakenMode] = useState<'kg' | 'poj'>('kg')
   const scale = useScale()
   const [cartTare, setCartTare] = useState<number | null>(null)
+  // Mięso przyjeżdża czasem na 2 wózkach: kolejne kliknięcie TEGO SAMEGO
+  // kafla zlicza wózki (1→2→3→1), tara = waga × liczba.
+  const [cartCount, setCartCount] = useState(1)
+  const cartTareTotal = cartTare != null ? cartTare * cartCount : null
+  const pickCartTare = useCallback((w: number) => {
+    setCartTare(prev => {
+      if (prev === w && w > 0) {
+        setCartCount(c => (c >= 3 ? 1 : c + 1))
+        return prev
+      }
+      setCartCount(1)
+      return w
+    })
+  }, [])
   // v11: domyślnie 5 pojemników (typowo tyle), operator koryguje +/-. v10: 0 (jak było).
   const [e2Count,  setE2Count]  = useState(guided ? GUIDED_DEFAULT_E2 : 0)
   // false = mięso z wagi (auto); true = operator przejął ręcznie (awaryjnie)
@@ -541,8 +555,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const taken = takenMode === 'poj' ? takenRaw * KG_PER_CONTAINER : takenRaw
 
   const weighing = useMemo(
-    () => computeWeighing({ gross: scale.gross, cartTareKg: cartTare, e2Count }),
-    [scale.gross, cartTare, e2Count],
+    () => computeWeighing({ gross: scale.gross, cartTareKg: cartTareTotal, e2Count }),
+    [scale.gross, cartTareTotal, e2Count],
   )
   const autoMode = scale.available && !meatManual
   const autoNet  = autoMode && scale.connected && scale.stable ? weighing.netKg : 0
@@ -687,7 +701,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           weighMode: autoMode ? 'auto' as const : 'manual' as const,
           ...(autoMode ? {
             kgGross: scale.gross,
-            tareCartKg: cartTare ?? undefined,
+            tareCartKg: cartTareTotal ?? undefined,
             tareE2Kg: weighing.tareE2Kg,
             e2Count,
           } : {}),
@@ -709,6 +723,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       // kroku „Wybierz pracownika".
       setSelWorker(null)
       setCartTare(null)
+      setCartCount(1)
       setE2Count(GUIDED_DEFAULT_E2)
     } else {
       // v10 (produkcja): wózek i e2Count celowo zostają — kolejny wózek zwykle
@@ -752,7 +767,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         weighMode: autoMode ? 'auto' as const : 'manual' as const,
         ...(autoMode ? {
           kgGross: scale.gross,
-          tareCartKg: cartTare ?? undefined,
+          tareCartKg: cartTareTotal ?? undefined,
           tareE2Kg: weighing.tareE2Kg,
           e2Count,
         } : {}),
@@ -1236,7 +1251,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               </span>
               <div className="flex flex-wrap gap-2">
                 {/* Tara 0 = ważenie bez wózka (same pojemniki E2 na wadze) */}
-                <button type="button" onClick={() => setCartTare(0)}
+                <button type="button" onClick={() => pickCartTare(0)}
                   className="flex flex-col items-center justify-center gap-0.5 py-2 transition-all active:scale-[0.97]"
                   style={{
                     flex: '1 1 0', minWidth: 92,
@@ -1249,21 +1264,32 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                   <span className="text-[10px] font-bold uppercase"
                     style={{ color: cartTare === 0 ? 'rgba(255,255,255,.8)' : 'var(--mut)' }}>wózka · 0,0</span>
                 </button>
-                {cartTares.map(w => (
-                  <button key={w} type="button" onClick={() => setCartTare(w)}
-                    className="flex flex-col items-center gap-0.5 py-2 transition-all active:scale-[0.97]"
+                {cartTares.map(w => {
+                  const sel = cartTare === w
+                  return (
+                  <button key={w} type="button" onClick={() => pickCartTare(w)}
+                    className="relative flex flex-col items-center gap-0.5 py-2 transition-all active:scale-[0.97]"
                     style={{
                       flex: '1 1 0', minWidth: 92,
                       borderRadius: 10,
-                      background: cartTare === w ? 'var(--accent)' : 'var(--panel)',
-                      border: `1.5px solid ${cartTare === w ? 'var(--accent)' : 'var(--line)'}`,
-                      color: cartTare === w ? '#fff' : 'var(--ink)',
+                      background: sel ? 'var(--accent)' : 'var(--panel)',
+                      border: `1.5px solid ${sel ? 'var(--accent)' : 'var(--line)'}`,
+                      color: sel ? '#fff' : 'var(--ink)',
                     }}>
+                    {sel && cartCount > 1 && (
+                      <span className="hmi-v10-mono absolute -top-2 -right-2 w-7 h-7 rounded-full flex items-center justify-center text-sm font-extrabold"
+                        style={{ background: 'var(--ink)', color: '#fff', border: '2px solid var(--panel)' }}>
+                        {cartCount}
+                      </span>
+                    )}
                     <span className="hmi-v10-mono font-bold text-2xl leading-none">{fmtKg(w, 1)}</span>
                     <span className="text-[10px] font-bold uppercase"
-                      style={{ color: cartTare === w ? 'rgba(255,255,255,.8)' : 'var(--mut)' }}>kg · wózek</span>
+                      style={{ color: sel ? 'rgba(255,255,255,.8)' : 'var(--mut)' }}>
+                      {sel && cartCount > 1 ? `${cartCount} wózki = ${fmtKg(w * cartCount, 1)} kg` : 'kg · wózek'}
+                    </span>
                   </button>
-                ))}
+                  )
+                })}
               </div>
               {/* Pojemniki E2 — osobny, wyraźny kafel (nie zlewa się z wózkami). */}
               <div className="flex items-center gap-2 p-2" style={{ borderRadius: 10, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
@@ -1387,8 +1413,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               </div>
               <div className="mt-2 pt-2 flex flex-col gap-1" style={{ borderTop: '1px solid var(--lineSoft)' }}>
                 <div className="flex justify-between text-[13px] font-semibold" style={{ color: 'var(--mut)' }}>
-                  <span>− tara wózka</span>
-                  <span className="hmi-v10-mono" style={{ color: 'var(--ink)' }}>{cartTare != null ? `−${fmtKg(cartTare, 1)} kg` : '—'}</span>
+                  <span>− tara {cartCount > 1 ? `wózków (${cartCount} × ${fmtKg(cartTare ?? 0, 1)})` : 'wózka'}</span>
+                  <span className="hmi-v10-mono" style={{ color: 'var(--ink)' }}>{cartTareTotal != null ? `−${fmtKg(cartTareTotal, 1)} kg` : '—'}</span>
                 </div>
                 <div className="flex justify-between text-[13px] font-semibold" style={{ color: 'var(--mut)' }}>
                   <span>− pojemniki E2 ({e2Count} × {fmtKg(E2_TARE_KG, 1)})</span>
