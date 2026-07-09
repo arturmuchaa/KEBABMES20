@@ -1076,6 +1076,7 @@ export const deboningEntriesApi = {
       yieldPct:    old.kgTaken > 0 ? (dto.kgMeat / old.kgTaken) * 100 : 0,
       meatLotNo,
       status:      'complete',
+      completedAt: new Date().toISOString(),
     }
     deboningEntries = deboningEntries.map(e => e.id === entryId ? updated : e)
     const ms: MeatStock = {

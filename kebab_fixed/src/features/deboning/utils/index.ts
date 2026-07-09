@@ -185,15 +185,26 @@ export function splitEntriesByStatus<T extends { status?: 'pending' | 'complete'
 }
 
 /**
- * sortEntriesByCreatedAt — normalizuje kolejność wpisów rosnąco po createdAt.
- * Backend zwraca DESC, ale cały kod HMI (slice(-8), slice(-3)) zakłada ASC
- * jak w mocku — bez normalizacji feed „Ostatnie wpisy" pokazywał najstarsze
- * wpisy dnia (bug prod 2026-07-08, partie 404/405).
+ * entryTime — czas ZWAŻENIA wpisu: dla dwufazowego pobrania completedAt
+ * (domknięcie mięsem), dla wpisu „od razu" createdAt. Feed „Ostatnie wpisy"
+ * musi żyć po tym czasie — sortowanie po createdAt (czas POBRANIA) wybijało
+ * wpisy na górę wg tego, kto później pobrał, nie kto później zważył
+ * (bug prod 2026-07-09, „Adrian wskakuje na górę").
  */
-export function sortEntriesByCreatedAt<T extends { createdAt?: string }>(
+export function entryTime(e: { createdAt?: string; completedAt?: string | null }): string {
+  return String(e.completedAt || e.createdAt || '')
+}
+
+/**
+ * sortEntriesByCreatedAt — normalizuje kolejność wpisów rosnąco po czasie
+ * zważenia (entryTime). Backend zwraca DESC, ale cały kod HMI (slice(-8),
+ * slice(-3)) zakłada ASC jak w mocku — bez normalizacji feed „Ostatnie wpisy"
+ * pokazywał najstarsze wpisy dnia (bug prod 2026-07-08, partie 404/405).
+ */
+export function sortEntriesByCreatedAt<T extends { createdAt?: string; completedAt?: string | null }>(
   entries: ReadonlyArray<T>,
 ): T[] {
-  return [...entries].sort((a, b) => String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')))
+  return [...entries].sort((a, b) => entryTime(a).localeCompare(entryTime(b)))
 }
 
 // ─── 6. WALIDACJA WPISU ROZBIORU ─────────────────────────────────────────────

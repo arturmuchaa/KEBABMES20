@@ -36,6 +36,19 @@ const BUILD_LABEL = `HMI v11 prowadzony · ${__ROZBIOR_V11_VERSION__}`
 
 installGlobalErrorLogger()
 
+// Kiosk NIGDY nie używa service workera — SW pełnego MES (pakowanie offline)
+// raz zarejestrowany w tym WebView przechwytywał start kiosku i serwował
+// z cache dashboard MES zamiast tej strony (prod 2026-07-09). Sprzątamy
+// przy każdym starcie, żeby incydent nie mógł się utrwalić.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations()
+    .then(rs => { rs.forEach(r => r.unregister()) })
+    .catch(() => {})
+  if (typeof caches !== 'undefined') {
+    caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {})
+  }
+}
+
 // Blokady operatorskie: brak menu kontekstowego, brak F5/F11/F12/Alt+F4
 function KioskGuards() {
   useEffect(() => {

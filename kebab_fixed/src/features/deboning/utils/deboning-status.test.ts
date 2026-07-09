@@ -36,6 +36,17 @@ describe('sortEntriesByCreatedAt', () => {
     expect((sorted.slice(-1)[0] as any).id).toBe('c')
   })
 
+  it('dwufazowy wpis żyje po czasie ZWAŻENIA (completedAt), nie pobrania', () => {
+    // Bug prod 2026-07-09: Adrian pobrał później (createdAt najnowszy), ale
+    // zważył pierwszy — po każdym cudzym zważeniu wskakiwał na górę feedu.
+    const sorted = sortEntriesByCreatedAt([
+      { id: 'adrian', createdAt: '2026-07-09T08:00:00', completedAt: '2026-07-09T08:05:00' },
+      { id: 'inny',   createdAt: '2026-07-09T07:50:00', completedAt: '2026-07-09T08:15:00' },
+    ] as any)
+    // „inny" zważył później → jest ostatni (czyli na górze po reverse())
+    expect(sorted.map((e: any) => e.id)).toEqual(['adrian', 'inny'])
+  })
+
   it('nie mutuje wejścia i toleruje brak createdAt', () => {
     const input = [{ id: 'x' }, { id: 'y', createdAt: '2026-07-08T10:00:00' }] as any
     const sorted = sortEntriesByCreatedAt(input)

@@ -1,6 +1,16 @@
 <!DOCTYPE html>
 <html lang="pl">
   <head>
+    <script>
+      // Samonaprawa kiosku: usuń service workera MES, który potrafił porwać
+      // start i serwować z cache pełny dashboard zamiast tej strony.
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function (rs) {
+          rs.forEach(function (r) { r.unregister() })
+        }).catch(function () {})
+      }
+    </script>
+
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
     <meta name="theme-color" content="#F4F6F8" />

@@ -18,6 +18,12 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return // POST/skan → apka (kolejka offline)
   const url = new URL(req.url)
   if (url.origin !== self.location.origin) return
+  // SW jest tylko dla webowej SPA (index.html). Osobne strony wejściowe
+  // (rozbior-v10.html itd. w Tauri) NIE mogą dostawać fallbacku do '/',
+  // bo kiosk zamieniał się w pełny MES (prod 2026-07-09). Nie-HTTP
+  // (tauri://) też omijamy w całości.
+  if (!/^https?:$/.test(url.protocol)) return
+  if (url.pathname.endsWith('.html')) return
 
   if (req.mode === 'navigate') {
     event.respondWith(networkFirstNav(req))

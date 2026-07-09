@@ -19,7 +19,7 @@ import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, Li
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
-import { splitEntriesByStatus } from '@/features/deboning/utils'
+import { splitEntriesByStatus, entryTime } from '@/features/deboning/utils'
 import { useScale } from '@/features/deboning/useScale'
 import {
   computeWeighing, sanitizeCartTares, CART_TARES_KG, E2_TARE_KG, KG_PER_E2_MIN, KG_PER_E2_MAX,
@@ -447,7 +447,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     for (const e of completeEntries) {
       const cur = m.get(e.workerId) ?? { name: e.workerName, taken: 0, meat: 0, count: 0, lastAt: 0 }
       cur.taken += e.kgTaken; cur.meat += e.kgMeat; cur.count += 1
-      cur.lastAt = Math.max(cur.lastAt, new Date(e.createdAt).getTime())
+      cur.lastAt = Math.max(cur.lastAt, new Date(entryTime(e)).getTime())
       m.set(e.workerId, cur)
     }
     return m
@@ -590,7 +590,12 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setTakenMode(mode); setKgTaken(''); setActive('taken')
   }, [])
   const pickBatch = useCallback((b: RawBatch) => {
-    if (resumeId) return  // w trybie domykania pobrania partia jest zablokowana
+    // W trybie domykania pobrania klik w partię = wyjście z trybu (pomyłka
+    // operatora nie może blokować ekranu — pobranie zostaje na kafelku).
+    if (resumeId) {
+      setResumeId(null)
+      setMeatManual(false)
+    }
     setSelBatch(b); setKgTaken(''); setKgMeat(''); setActive('taken')
   }, [resumeId])
   // Otwarte pobrania per pracownik — info „czeka na zważenie" siedzi na
@@ -625,10 +630,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   }, [])
 
   const pickWorker = useCallback((w: User) => {
-    if (resumeId) return  // pracownik zablokowany przy domykaniu pobrania
+    // Pomyłka nie może blokować ekranu: klik w innego pracownika wychodzi
+    // z trybu domykania (pobranie zostaje na kafelku) i wybiera normalnie;
+    // pracownik z otwartym pobraniem wchodzi w domknięcie mięsem.
     const pending = pendingByWorker.get(w.id)
     if (pending) { resumeTake(pending); return }  // waga wskakuje od razu
-    setSelWorker(w); setActive('taken')
+    if (resumeId) { setResumeId(null); setMeatManual(false) }
+    setSelWorker(w); setKgTaken(''); setKgMeat(''); setActive('taken')
   }, [resumeId, pendingByWorker, resumeTake])
 
   async function handleStartDay() {
@@ -891,7 +899,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 {wEntries.length === 0 && <div className="text-center py-8 text-sm font-semibold" style={{ color: 'var(--mut)' }}>Brak wpisów dziś</div>}
                 {wEntries.map(e => editEntryId === e.id ? (
                   <div key={e.id} className="flex items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
-                    <span className="hmi-v10-mono text-xs" style={{ color: 'var(--mut)' }}>{new Date(e.createdAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="hmi-v10-mono text-xs" style={{ color: 'var(--mut)' }}>{new Date(entryTime(e)).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</span>
                     <label className="flex flex-col"><span className="text-[9px] font-bold uppercase" style={{ color: 'var(--mut)' }}>Ćwiartka</span>
                       <input type="number" inputMode="decimal" value={editTaken} onChange={ev => setEditTaken(ev.target.value)} className="hmi-v10-mono w-24 h-10 px-2 text-base font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', background: 'var(--panel)' }} /></label>
                     <label className="flex flex-col"><span className="text-[9px] font-bold uppercase" style={{ color: 'var(--mut)' }}>Mięso</span>
@@ -903,7 +911,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                   </div>
                 ) : (
                   <div key={e.id} className="grid grid-cols-[52px_56px_1fr_1fr_52px_90px] items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
-                    <span className="hmi-v10-mono text-xs" style={{ color: 'var(--mut)' }}>{new Date(e.createdAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="hmi-v10-mono text-xs" style={{ color: 'var(--mut)' }}>{new Date(entryTime(e)).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</span>
                     <span className="hmi-v10-mono text-xs font-bold" style={{ color: 'var(--accent)' }}>{e.rawBatchNo}</span>
                     <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>ćw</span>{fmtKg(e.kgTaken, 1)}</span>
                     <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>mię</span>{fmtKg(e.kgMeat, 1)}</span>
@@ -1437,7 +1445,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 <div key={e.id} className={cn('grid grid-cols-[44px_1fr_46px_78px_78px_48px] items-center gap-2 px-2 py-2', i > 0 && 'border-t')}
                   style={{ borderColor: 'var(--lineSoft)' }}>
                   <span className="hmi-v10-mono text-xs" style={{ color: 'var(--mut)' }}>
-                    {new Date(e.createdAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
+                    {new Date(entryTime(e)).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
                   </span>
                   <span className="text-[13px] font-semibold truncate">{e.workerName}</span>
                   <span className="hmi-v10-mono text-xs font-bold" style={{ color: 'var(--accent)' }}>{e.rawBatchNo}</span>

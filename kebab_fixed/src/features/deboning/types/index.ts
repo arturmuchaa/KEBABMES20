@@ -56,6 +56,9 @@ export interface DeboningEntry {
   readonly weighMode?:  'auto' | 'manual' | null
   readonly status?:     'pending' | 'complete'
   readonly createdAt:   string
+  /** Czas domknięcia pobrania mięsem (dwufazowy). Brak = wpis „od razu"
+   *  (wtedy czasem zważenia jest createdAt). */
+  readonly completedAt?: string | null
 }
 
 export interface CreateDeboningEntryDto {

@@ -21,11 +21,27 @@ import { AuthProvider } from '@/features/auth/AuthContext'
 
 installGlobalErrorLogger()
 
-// Service worker — offline shell (pakowanie na hali bez internetu).
+// Service worker — offline shell (pakowanie na hali bez internetu). TYLKO web.
+// W Tauri SW nie ma racji bytu, a raz zarejestrowany przechwytywał start
+// kiosku rozbioru i serwował z cache pełny MES zamiast rozbior-v10.html
+// (prod 2026-07-09) — w Tauri sprzątamy rejestracje i cache, a jeśli ten
+// bundle wyświetlił się pod adresem kiosku (porwany start), przeładowujemy.
+const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {})
-  })
+  if (IS_TAURI) {
+    navigator.serviceWorker.getRegistrations()
+      .then(rs => Promise.all(rs.map(r => r.unregister())))
+      .then(async (unregs) => {
+        try { for (const k of await caches.keys()) await caches.delete(k) } catch { /* brak Cache API */ }
+        const kioskPath = location.pathname.includes('rozbior-v') || location.pathname.includes('kiosk')
+        if (kioskPath && unregs.length > 0) location.reload()
+      })
+      .catch(() => {})
+  } else {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {})
+    })
+  }
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

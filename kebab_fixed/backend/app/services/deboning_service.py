@@ -56,6 +56,7 @@ def _map_deboning_entry(row: Dict) -> Dict:
         "e2Count": row.get("e2_count"),
         "weighMode": row.get("weigh_mode"),
         "status": row.get("status") or "complete",
+        "completedAt": str(row.get("completed_at") or "") or None,
         "createdAt": str(row.get("created_at") or ""),
     }
 
@@ -721,6 +722,7 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
             """
             UPDATE deboning_entries
             SET kg_meat=%s, kg_remainder=%s, yield_pct=%s, status='complete',
+                completed_at=now(),
                 kg_gross=%s, tare_cart_kg=%s, tare_e2_kg=%s, e2_count=%s, weigh_mode=%s
             WHERE id=%s
             RETURNING *

@@ -116,6 +116,9 @@ _DDL: list[str] = [
     "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS e2_count INTEGER",
     "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS weigh_mode TEXT",
     "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'complete'",
+    # Czas domknięcia pobrania mięsem (dwufazowy rozbiór) — „Ostatnie wpisy"
+    # sortują po nim, żeby wpis nie wskakiwał wg czasu POBRANIA (created_at).
+    "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ",
 
     # ── Stock reservation model ──
     "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS kg_reserved NUMERIC(10,3) DEFAULT 0",
