@@ -28,7 +28,7 @@ import {
 import {
   AlertTriangle, Package, Beef, Boxes, ArrowRight, Clock, Zap,
   Info, Factory, Soup, Truck, ChevronDown, ChevronRight,
-  Scissors, CheckCircle2, Cog,
+  Scissors, CheckCircle2,
 } from 'lucide-react'
 
 const POLL_MS  = 7000
@@ -125,7 +125,9 @@ function EmptyCard({ icon, title, description }: {
  * "Na żywo" świeci się tylko gdy zakład faktycznie pracuje
  * (przynajmniej jeden z procesów: rozbiór/masowanie/produkcja).
  */
-function DashboardStatusBar({ live }: { live: boolean }) {
+export interface StripSegment { label: string; value: string; to: string; alert?: boolean }
+
+function DashboardStatusBar({ live, segments }: { live: boolean; segments?: StripSegment[] }) {
   const [now, setNow] = useState(new Date())
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000)
@@ -136,8 +138,8 @@ function DashboardStatusBar({ live }: { live: boolean }) {
   const date = now.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
   return (
-    <div className="flex items-center justify-between gap-4 px-5 py-3 rounded-xl border border-surface-4 bg-white shadow-sm">
-      <div className="flex items-center gap-3 min-w-0">
+    <div className="flex items-center gap-0 px-4 py-2 rounded-xl border border-surface-4 bg-white shadow-sm overflow-x-auto">
+      <div className="flex items-center gap-2.5 min-w-0 flex-shrink-0 pr-4">
         {live ? (
           <span className="relative flex h-2 w-2 flex-shrink-0">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
@@ -153,16 +155,27 @@ function DashboardStatusBar({ live }: { live: boolean }) {
           {live ? 'Na żywo' : 'Oczekuje'}
         </span>
       </div>
-      <div className="flex items-center gap-3 text-xs">
-        <div className="flex items-center gap-0 divide-x divide-surface-4">
-          <div className="px-4 flex flex-col items-end gap-1">
-            <span className="text-[9px] uppercase tracking-[0.18em] font-semibold text-ink-4">Czas</span>
-            <span className="font-mono tabular-nums text-ink font-medium leading-none">{time}</span>
-          </div>
-          <div className="px-4 flex flex-col items-end gap-1">
-            <span className="text-[9px] uppercase tracking-[0.18em] font-semibold text-ink-4">Data</span>
-            <span className="font-mono tabular-nums text-ink font-medium leading-none">{date}</span>
-          </div>
+      {/* Dziś w zakładzie — liczniki-skróty do sekcji (gęsty pasek operacyjny). */}
+      {segments?.map(seg => (
+        <Link key={seg.label} to={seg.to}
+          className="flex flex-col items-start gap-1 px-4 py-0.5 border-l border-surface-4 flex-shrink-0 rounded-sm hover:bg-surface-2/70 transition-colors group">
+          <span className="text-[9px] uppercase tracking-[0.14em] font-semibold text-ink-4 leading-none group-hover:text-ink-2">
+            {seg.label}
+          </span>
+          <span className={cn('font-mono tabular-nums text-xs font-semibold leading-none whitespace-nowrap',
+            seg.alert ? 'text-amber-700' : 'text-ink')}>
+            {seg.value}
+          </span>
+        </Link>
+      ))}
+      <div className="ml-auto flex items-center gap-0 divide-x divide-surface-4 pl-4 flex-shrink-0">
+        <div className="px-4 flex flex-col items-end gap-1">
+          <span className="text-[9px] uppercase tracking-[0.18em] font-semibold text-ink-4 leading-none">Czas</span>
+          <span className="font-mono tabular-nums text-xs text-ink font-medium leading-none">{time}</span>
+        </div>
+        <div className="pl-4 flex flex-col items-end gap-1">
+          <span className="text-[9px] uppercase tracking-[0.18em] font-semibold text-ink-4 leading-none">Data</span>
+          <span className="font-mono tabular-nums text-xs text-ink font-medium leading-none">{date}</span>
         </div>
       </div>
     </div>
@@ -476,8 +489,6 @@ export function DashboardPage() {
     })
   }, [activePlans])
 
-  const currentlyProducing = productionTypes.filter(t => t.inProgress)
-
   // ── Live qty wyprodukowane (w trakcie) per zamówienie i per pozycja zamówienia ─
   // - inProgressByLine: tylko AKTYWNE plany — używane do badge "w produkcji"
   // - totalDoneByLine: WSZYSTKIE plany (incl. status='done') — używane w rozwinięciu
@@ -538,6 +549,14 @@ export function DashboardPage() {
       })
   }, [allOrders])
 
+  // ── Pasek „dziś w zakładzie" ────────────────────────────────────
+  const receivedToday = useMemo(
+    () => allBatches.filter(b => String((b as any).receivedDate ?? (b as any).createdAt ?? '').slice(0, 10) === today),
+    [allBatches, today],
+  )
+  const receivedTodayKg = receivedToday.reduce((s, b) => s + (Number(b.kgReceived) || 0), 0)
+  const shipsToday = visibleOrders.filter(o => (o.deliveryDate ?? '') === today).length
+
   // Loading state ─────────────────────────────────────────────────
   if (initialLoading) {
     return (
@@ -559,7 +578,13 @@ export function DashboardPage() {
         const mixLive  = activeMixing.some((o: any) => o.status === 'in_progress')
         const prodLive = activePlans.some((p: any) =>
           (p.lines ?? []).some((l: any) => (l.lineStatus ?? '') === 'IN_PROGRESS'))
-        return <DashboardStatusBar live={debLive || mixLive || prodLive} />
+        return <DashboardStatusBar live={debLive || mixLive || prodLive} segments={[
+          { label: 'Przyjęcia dziś', value: `${receivedToday.length} part. · ${fmtKg(receivedTodayKg, 0)} kg`, to: '/office/raw-batches' },
+          { label: 'Rozbiór dziś', value: `${fmtKg(debKgQuarter, 0)} kg${debKgQuarter > 0 ? ` · ${debYield.toFixed(1)}%` : ''}`, to: '/office/deboning' },
+          { label: 'Masowanie', value: mixPlanned > 0 ? `${fmtKg(mixDone, 0)} / ${fmtKg(mixPlanned, 0)} kg` : '—', to: '/office/historia-masowania' },
+          { label: 'Produkcja', value: prodPlanned > 0 ? `${fmtKg(prodProduced, 0)} / ${fmtKg(prodPlanned, 0)} kg` : '—', to: '/office/planowanie-produkcji' },
+          { label: 'Wysyłki dziś', value: shipsToday > 0 ? `${shipsToday} zam.` : '—', to: '/office/zamowienia', alert: shipsToday > 0 },
+        ]} />
       })()}
 
       {/* ── Do potwierdzenia przez biuro ──────────────────────────
@@ -816,57 +841,57 @@ export function DashboardPage() {
               <EmptyCard icon={<Scissors size={36} />} title="Brak partii w magazynie"
                 description="Po przyjęciu surowca partie pojawią się tutaj" />
             ) : (
-              <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
-                {activeBatches.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground">
-                      Partie w magazynie · {activeBatches.length}
-                    </div>
+              <div className="max-h-96 overflow-y-auto">
+                <table className="w-full text-xs tabular-nums">
+                  <thead className="sticky top-0 z-10 bg-white">
+                    <tr className="border-b-2 border-surface-4">
+                      <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 text-left">Partia</th>
+                      <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 text-left">Dostawca</th>
+                      <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 text-right">Zostało / przyj.</th>
+                      <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 text-right">%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
                     {[...activeBatches]
                       .sort((a, b) => {
                         if (a.expiryDate !== b.expiryDate) return a.expiryDate < b.expiryDate ? -1 : 1
                         return (a.internalBatchSeq ?? 0) - (b.internalBatchSeq ?? 0)
                       })
-                      .map(b => {
+                      .map((b, idx) => {
                         const received  = Number(b.kgReceived)  || 0
                         const available = Number(b.kgAvailable) || 0
-                        const used      = Math.max(0, received - available)
                         const pctLeft   = received > 0 ? (available / received) * 100 : 0
                         const supplier  = b.supplierDisplayName || b.supplierName || ''
                         return (
-                          <div key={b.id} className="p-2 rounded-lg hover:bg-muted/50">
-                            <div className="flex items-center justify-between gap-3 text-xs">
-                              <div className="min-w-0">
-                                <code className="font-mono font-bold text-primary">{b.internalBatchNo}</code>
-                                {supplier && (
-                                  <span className="text-muted-foreground"> · {supplier}</span>
-                                )}
-                              </div>
-                              <div className="tabular-nums flex-shrink-0 text-right">
-                                <div>
-                                  <span className="font-bold">{fmtKg(available, 0)} kg</span>
-                                  <span className="text-muted-foreground"> / {fmtKg(received, 0)} kg</span>
-                                  <span className={`ml-2 font-semibold ${
-                                    pctLeft >= 50 ? 'text-green-600' : pctLeft >= 20 ? 'text-amber-600' : 'text-red-600'
-                                  }`}>{pctLeft.toFixed(0)}%</span>
-                                </div>
-                                <div className="text-[10px] text-muted-foreground">
-                                  użyto {fmtKg(used, 0)} kg
-                                </div>
-                              </div>
-                            </div>
-                          </div>
+                          <tr key={b.id} className={cn('border-b border-surface-3 hover:bg-blue-50/50', idx % 2 === 1 && 'bg-surface-2/40')}>
+                            <td className="px-2 py-1.5 whitespace-nowrap">
+                              <code className="font-mono font-bold text-primary">{b.internalBatchNo}</code>
+                            </td>
+                            <td className="px-2 py-1.5 text-ink-3 max-w-[110px] truncate" title={supplier}>{supplier || '—'}</td>
+                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                              <span className="font-bold">{fmtKg(available, 0)}</span>
+                              <span className="text-muted-foreground"> / {fmtKg(received, 0)}</span>
+                            </td>
+                            <td className={`px-2 py-1.5 text-right font-semibold ${
+                              pctLeft >= 50 ? 'text-green-600' : pctLeft >= 20 ? 'text-amber-600' : 'text-red-600'
+                            }`}>{pctLeft.toFixed(0)}%</td>
+                          </tr>
                         )
                       })}
-                  </div>
-                )}
-
-                {finishedBatches.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground flex items-center gap-1.5">
-                      <CheckCircle2 size={11} className="text-green-600" />
-                      Zakończone · {finishedBatches.length}
-                    </div>
+                    {activeBatches.length > 0 && (
+                      <tr className="border-b border-surface-3 bg-surface-2/70">
+                        <td colSpan={2} className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-ink-3">Razem dostępne</td>
+                        <td className="px-2 py-1.5 text-right font-bold text-emerald-700 whitespace-nowrap">{fmtKg(totalKgRaw, 0)} kg</td>
+                        <td />
+                      </tr>
+                    )}
+                    {finishedBatches.length > 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-2 pt-2.5 pb-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                          Zakończone · {finishedBatches.length} — ćwiartka → mięso z/s
+                        </td>
+                      </tr>
+                    )}
                     {[...finishedBatches]
                       .sort((a, b) => (b.internalBatchSeq ?? 0) - (a.internalBatchSeq ?? 0))
                       .map(b => {
@@ -875,33 +900,23 @@ export function DashboardPage() {
                         const yieldP   = received > 0 ? (meat / received) * 100 : 0
                         const supplier = b.supplierDisplayName || b.supplierName || ''
                         return (
-                          <div key={b.id} className="p-2 rounded-lg hover:bg-muted/50 opacity-80">
-                            <div className="flex items-center justify-between gap-3 text-xs">
-                              <div className="min-w-0">
-                                <code className="font-mono font-bold text-muted-foreground">{b.internalBatchNo}</code>
-                                {supplier && (
-                                  <span className="text-muted-foreground"> · {supplier}</span>
-                                )}
-                              </div>
-                              <div className="tabular-nums flex-shrink-0 text-right">
-                                <div>
-                                  <span className="text-muted-foreground">{fmtKg(received, 0)} kg ćw. → </span>
-                                  <span className="font-bold text-green-600">{fmtKg(meat, 0)} kg z/s</span>
-                                </div>
-                                {meat > 0 && (
-                                  <div className="text-[10px] text-muted-foreground">
-                                    wydajność <span className={`font-semibold ${
-                                      yieldP >= 70 ? 'text-green-600' : yieldP >= 60 ? 'text-amber-600' : 'text-red-600'
-                                    }`}>{yieldP.toFixed(0)}%</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
+                          <tr key={b.id} className="border-b border-surface-3 opacity-75">
+                            <td className="px-2 py-1.5 whitespace-nowrap">
+                              <code className="font-mono font-bold text-muted-foreground">{b.internalBatchNo}</code>
+                            </td>
+                            <td className="px-2 py-1.5 text-muted-foreground max-w-[110px] truncate" title={supplier}>{supplier || '—'}</td>
+                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                              <span className="text-muted-foreground">{fmtKg(received, 0)} → </span>
+                              <span className="font-bold text-green-600">{fmtKg(meat, 0)} kg</span>
+                            </td>
+                            <td className={`px-2 py-1.5 text-right font-semibold ${
+                              yieldP >= 70 ? 'text-green-600' : yieldP >= 60 ? 'text-amber-600' : 'text-red-600'
+                            }`}>{meat > 0 ? `${yieldP.toFixed(0)}%` : '—'}</td>
+                          </tr>
                         )
                       })}
-                  </div>
-                )}
+                  </tbody>
+                </table>
               </div>
             )}
           </CardContent>
@@ -949,25 +964,38 @@ export function DashboardPage() {
             {activeMixing.length === 0 ? (
               <EmptyCard icon={<Soup size={36} />} title="Brak aktywnych zleceń masowania" />
             ) : (
-              <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-                {activeMixing.map(m => {
-                  const pct = Number(m.meatKg) > 0 ? (Number(m.kgDone) / Number(m.meatKg)) * 100 : 0
-                  return (
-                    <div key={m.id} className="space-y-1 p-2 rounded-lg hover:bg-muted/50">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <div className="text-xs tabular-nums">
-                          <span className="font-bold">{fmtKg(m.kgDone, 0)} kg</span>
-                          <span className="text-muted-foreground"> / {fmtKg(m.meatKg, 0)} kg</span>
-                        </div>
-                        <span className="text-xs font-semibold text-purple-600 tabular-nums">
-                          {pct.toFixed(0)}%
-                        </span>
-                      </div>
-                      <CardDescription className="text-xs truncate">{m.recipeName}</CardDescription>
-                      <ProgressBar value={pct} color="purple" height={6} />
-                    </div>
-                  )
-                })}
+              <div className="max-h-96 overflow-y-auto">
+                <table className="w-full text-xs tabular-nums">
+                  <thead className="sticky top-0 z-10 bg-white">
+                    <tr className="border-b-2 border-surface-4">
+                      <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 text-left">Receptura</th>
+                      <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 text-right">Zrobione / plan</th>
+                      <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 text-right">%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeMixing.map((m, idx) => {
+                      const pct = Number(m.meatKg) > 0 ? (Number(m.kgDone) / Number(m.meatKg)) * 100 : 0
+                      return (
+                        <tr key={m.id} className={cn('border-b border-surface-3 hover:bg-blue-50/50', idx % 2 === 1 && 'bg-surface-2/40')}>
+                          <td className="px-2 py-1.5 font-medium text-ink max-w-[170px] truncate" title={m.recipeName}>{m.recipeName}</td>
+                          <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                            <span className="font-bold">{fmtKg(m.kgDone, 0)}</span>
+                            <span className="text-muted-foreground"> / {fmtKg(m.meatKg, 0)} kg</span>
+                          </td>
+                          <td className={`px-2 py-1.5 text-right font-semibold ${pct >= 100 ? 'text-green-600' : 'text-purple-600'}`}>{pct.toFixed(0)}%</td>
+                        </tr>
+                      )
+                    })}
+                    <tr className="bg-surface-2/70">
+                      <td className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-ink-3">Razem</td>
+                      <td className="px-2 py-1.5 text-right font-bold whitespace-nowrap">
+                        {fmtKg(mixDone, 0)}<span className="text-muted-foreground font-normal"> / {fmtKg(mixPlanned, 0)} kg</span>
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-bold text-purple-600">{mixPct.toFixed(0)}%</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             )}
           </CardContent>
@@ -1038,103 +1066,58 @@ export function DashboardPage() {
               <EmptyCard icon={<Factory size={36} />} title="Brak aktywnych planów"
                 description="Aktywuj plan w sekcji „Planowanie produkcji”" />
             ) : (
-              <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
-                {currentlyProducing.length > 0 && (
-                  <div>
-                    <div className="text-[10px] uppercase tracking-wide font-bold text-amber-700 mb-1.5 flex items-center gap-1.5">
-                      <Zap size={11} className="text-amber-500" />
-                      Aktualnie produkowane
-                    </div>
-                    <div className="space-y-2">
-                      {currentlyProducing.map(t => {
-                        const pct = t.kgPlanned > 0 ? (t.kgDone / t.kgPlanned) * 100 : 0
-                        const clientsLive = Array.from(t.clientsInProgress)
-                        return (
-                          <div key={t.key} className="space-y-1 p-2 rounded-lg bg-amber-50/60 border border-amber-200/60">
-                            <div className="flex items-center justify-between gap-3 text-xs">
-                              <div className="min-w-0">
-                                <div className="font-semibold text-foreground truncate">
-                                  {t.recipeName} · {t.kgPerUnit}kg
-                                </div>
-                                {clientsLive.length > 0 && (
-                                  <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                                    <Cog size={10} className="text-amber-700 animate-spin [animation-duration:4s]" />
-                                    {clientsLive.map(c => (
-                                      <Badge key={c} variant="warning" className="text-[10px] px-1.5 py-0">
-                                        {c}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                )}
-                                {t.packagingName && (
-                                  <CardDescription className="text-[11px] truncate mt-0.5">{t.packagingName}</CardDescription>
-                                )}
-                              </div>
-                              <div className="tabular-nums flex-shrink-0 text-right">
-                                <div>
-                                  <span className="font-bold">{t.qtyDone} szt</span>
-                                  <span className="text-muted-foreground"> / {t.qtyPlanned} szt</span>
-                                </div>
-                                <div className="text-[10px] text-muted-foreground">
-                                  {fmtKg(t.kgDone, 0)} kg / {fmtKg(t.kgPlanned, 0)} kg · <span className="font-semibold text-amber-700">{pct.toFixed(0)}%</span>
-                                </div>
-                              </div>
-                            </div>
-                            <ProgressBar value={pct} color="amber" height={6} />
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <div className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground mb-1.5">
-                    Rodzaje · {productionTypes.length}
-                  </div>
-                  <div className="space-y-2">
-                    {productionTypes.map(t => {
+              <div className="max-h-96 overflow-y-auto">
+                <table className="w-full text-xs tabular-nums">
+                  <thead className="sticky top-0 z-10 bg-white">
+                    <tr className="border-b-2 border-surface-4">
+                      <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 text-left">Rodzaj</th>
+                      <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 text-right">Szt</th>
+                      <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 text-right">Kg</th>
+                      <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 text-right">%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* Produkowane TERAZ na górze (bursztynowy wiersz + ⚡) — sort z productionTypes. */}
+                    {productionTypes.map((t, idx) => {
                       const pct = t.kgPlanned > 0 ? (t.kgDone / t.kgPlanned) * 100 : 0
-                      const clients = Array.from(t.clientNames)
+                      const clients = Array.from(t.clientNames).map(n => clientDisplay(n)).join(', ')
+                      const title = `${t.recipeName} · ${t.kgPerUnit}kg${t.packagingName ? ` · ${t.packagingName}` : ''}${clients ? ` — ${clients}` : ''}`
                       return (
-                        <div key={t.key} className="space-y-1 p-2 rounded-lg hover:bg-muted/50">
-                          <div className="flex items-center justify-between gap-3 text-xs">
-                            <div className="min-w-0">
-                              <div className="font-medium text-foreground truncate">
-                                {t.recipeName} · {t.kgPerUnit}kg
-                                {clients.length > 0 && (
-                                  <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                                    · {clients.map(n => clientDisplay(n)).join(', ')}
-                                  </span>
-                                )}
-                              </div>
-                              {t.packagingName && (
-                                <CardDescription className="text-[11px] truncate">{t.packagingName}</CardDescription>
-                              )}
+                        <tr key={t.key} className={cn('border-b border-surface-3',
+                          t.inProgress ? 'bg-amber-50/70' : cn('hover:bg-blue-50/50', idx % 2 === 1 && 'bg-surface-2/40'))}>
+                          <td className="px-2 py-1.5 max-w-[190px]">
+                            <div className="flex items-center gap-1.5 min-w-0" title={title}>
+                              {t.inProgress && <Zap size={11} className="text-amber-500 flex-shrink-0" />}
+                              <span className="font-medium text-ink truncate">{t.recipeName} · {t.kgPerUnit}kg</span>
                             </div>
-                            <div className="tabular-nums flex-shrink-0 text-right">
-                              <div>
-                                <span className="font-bold">{t.qtyDone} szt</span>
-                                <span className="text-muted-foreground"> / {t.qtyPlanned} szt</span>
-                                <span className={`ml-2 font-semibold ${
-                                  t.done ? 'text-green-600' : t.inProgress ? 'text-amber-600' : 'text-blue-600'
-                                }`}>{pct.toFixed(0)}%</span>
-                              </div>
-                              <div className="text-[10px] text-muted-foreground">
-                                {fmtKg(t.kgDone, 0)} kg / {fmtKg(t.kgPlanned, 0)} kg
-                              </div>
-                            </div>
-                          </div>
-                          <ProgressBar
-                            value={pct}
-                            color={t.done ? 'green' : t.inProgress ? 'amber' : 'blue'}
-                            height={6}
-                          />
-                        </div>
+                            {clients && (
+                              <div className="text-[10px] text-muted-foreground truncate" title={clients}>{clients}</div>
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5 text-right whitespace-nowrap align-top">
+                            <span className="font-bold">{t.qtyDone}</span>
+                            <span className="text-muted-foreground">/{t.qtyPlanned}</span>
+                          </td>
+                          <td className="px-2 py-1.5 text-right whitespace-nowrap align-top">
+                            <span className="font-bold">{fmtKg(t.kgDone, 0)}</span>
+                            <span className="text-muted-foreground">/{fmtKg(t.kgPlanned, 0)}</span>
+                          </td>
+                          <td className={`px-2 py-1.5 text-right font-semibold align-top ${
+                            t.done ? 'text-green-600' : t.inProgress ? 'text-amber-600' : 'text-blue-600'
+                          }`}>{pct.toFixed(0)}%</td>
+                        </tr>
                       )
                     })}
-                  </div>
-                </div>
+                    <tr className="bg-surface-2/70">
+                      <td className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-ink-3">Razem</td>
+                      <td />
+                      <td className="px-2 py-1.5 text-right font-bold whitespace-nowrap">
+                        {fmtKg(prodProduced, 0)}<span className="text-muted-foreground font-normal"> / {fmtKg(prodPlanned, 0)} kg</span>
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-bold text-blue-600">{prodPct.toFixed(0)}%</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             )}
           </CardContent>
