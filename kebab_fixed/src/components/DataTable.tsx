@@ -40,6 +40,8 @@ interface Props<T> {
   /** Zwróć tekst do przeszukania; podanie tego włącza pole wyszukiwania. */
   searchText?: (row: T) => string
   searchPlaceholder?: string
+  /** Startowa wartość wyszukiwarki (np. z ?q= — globalne szukanie Ctrl+K). */
+  initialQuery?: string
   initialSort?: { key: string; dir?: 'asc' | 'desc' }
   onRowClick?: (row: T) => void
   rowClassName?: (row: T) => string
@@ -63,10 +65,10 @@ function compareValues(a: unknown, b: unknown): number {
 }
 
 export function DataTable<T>({
-  columns, rows, rowKey, searchText, searchPlaceholder = 'Szukaj…',
+  columns, rows, rowKey, searchText, searchPlaceholder = 'Szukaj…', initialQuery,
   initialSort, onRowClick, rowClassName, actions, toolbarLeft, empty, lp, footer, className,
 }: Props<T>) {
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialQuery ?? '')
   const [sortKey, setSortKey] = useState<string | null>(initialSort?.key ?? null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialSort?.dir ?? 'asc')
 

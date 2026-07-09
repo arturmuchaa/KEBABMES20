@@ -8,6 +8,7 @@ import { ZoomControls } from '@/features/ui/ZoomControls'
 import { useZoomInit } from '@/features/ui/useZoom'
 import { useAuth } from '@/features/auth/AuthContext'
 import { PageHeader, PageHeaderProvider } from '@/components/PageHeader'
+import { GlobalSearch } from '@/components/GlobalSearch'
 
 const APP_VERSION = pkg.version
 
@@ -103,6 +104,9 @@ export function OfficeLayout() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Globalne szukanie — Ctrl+K */}
+            <GlobalSearch />
+
             {/* Date */}
             <span className="hidden sm:block text-[12px] text-gray-400 capitalize">{dateStr}</span>
 

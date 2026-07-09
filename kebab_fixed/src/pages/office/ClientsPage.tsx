@@ -370,6 +370,7 @@ export function ClientsPage() {
           rows={rawList} rowKey={c => c.id}
           searchText={c => `${c.displayName || ''} ${c.name} ${c.nip || ''} ${c.city || ''} ${c.phone || ''} ${c.email || ''}`}
           searchPlaceholder="Filtruj: nazwa, NIP, miasto, telefon, e-mail…"
+          initialQuery={new URLSearchParams(window.location.search).get('q') ?? undefined}
           initialSort={{ key: 'name' }}
           onRowClick={c => openEdit(c)}
           columns={[

@@ -349,6 +349,7 @@ export function SuppliersPage() {
           rows={rawList} rowKey={s => s.id}
           searchText={s => `${s.displayName || ''} ${s.name} ${s.nip || ''} ${s.city || ''} ${s.email || ''} ${s.phone || ''} ${s.vetNumber || ''}`}
           searchPlaceholder="Filtruj: nazwa, NIP, miasto, telefon, e-mail, nr wet…"
+          initialQuery={new URLSearchParams(window.location.search).get('q') ?? undefined}
           initialSort={{ key: 'name' }}
           onRowClick={s => openEdit(s)}
           columns={[

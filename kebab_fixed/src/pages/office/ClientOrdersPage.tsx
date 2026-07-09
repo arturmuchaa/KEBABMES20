@@ -240,7 +240,8 @@ export function ClientOrdersPage() {
   const [wzOrderId,    setWzOrderId]    = useState<string | null>(null)
   const [expanded,     setExpanded]     = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState('')
-  const [search,       setSearch]       = useState('')
+  // Start z ?q= — globalne szukanie (Ctrl+K) kieruje tu z numerem zamówienia.
+  const [search,       setSearch]       = useState(() => new URLSearchParams(window.location.search).get('q') ?? '')
   const [sortCol,      setSortCol]      = useState<SortCol>('orderDate')
   const [sortDir,      setSortDir]      = useState<'asc'|'desc'>('desc')
 
