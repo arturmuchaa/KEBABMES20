@@ -228,11 +228,15 @@ const PendingBatchTile = memo(function PendingBatchTile({ rec, onOpen }: {
 })
 
 // ─── Kafel pracownika ──────────────────────────────────────────────
-const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, pendingKg, onSelect, onLongPress }: {
+const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, pendingKg, pendingBatchNo, blocked, onSelect, onLongPress }: {
   worker: User; selected: boolean; entryCount: number; kgToday: number
   /** Otwarte pobranie ćwiartki (kg) — kafel pokazuje „czeka na zważenie",
    *  a klik od razu wraca do domknięcia mięsem. */
   pendingKg?: number
+  /** Numer partii otwartego pobrania — mięso wraca pod TĘ partię. */
+  pendingBatchNo?: string
+  /** Wybrana jest INNA partia niż pobranie — kafel przygaszony (klik = toast). */
+  blocked?: boolean
   onSelect: (w: User) => void; onLongPress: (w: User) => void
 }) {
   const initials = worker.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
@@ -249,15 +253,16 @@ const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount
       style={{
         borderRadius: 10, aspectRatio: '1',
         background: selected ? 'var(--accent)' : 'var(--panel)',
-        border: `1px solid ${selected ? 'var(--accent)' : 'var(--line)'}`,
+        border: `1px solid ${blocked ? 'var(--ambLine)' : selected ? 'var(--accent)' : 'var(--line)'}`,
         color: selected ? '#fff' : 'var(--ink)',
+        opacity: blocked ? 0.55 : 1,
       }}>
       <span className="font-extrabold text-3xl leading-none">{initials}</span>
       <span className="text-sm font-semibold leading-tight text-center truncate w-full">{worker.name}</span>
       {pendingKg != null ? (
         <span className="text-[10px] font-bold uppercase text-center leading-tight px-1 py-0.5 w-full"
           style={{ borderRadius: 6, background: selected ? 'rgba(255,255,255,.2)' : 'var(--ambSoft)', color: selected ? '#fff' : 'var(--amb)', letterSpacing: '.02em' }}>
-          ⏳ czeka {fmtKg(pendingKg, 1)} kg
+          ⏳ {pendingBatchNo ? `${pendingBatchNo} · ` : 'czeka '}{fmtKg(pendingKg, 1)} kg
         </span>
       ) : kgToday > 0 && (
         <span className="hmi-v10-mono text-[11px] font-bold" style={{ color: selected ? 'rgba(255,255,255,.75)' : 'var(--mut)' }}>{fmtKg(kgToday, 0)} kg</span>
@@ -717,15 +722,26 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Otwarte pobrania per pracownik — info „czeka na zważenie" siedzi na
   // KAFELKU pracownika (decyzja z hali 2026-07-09), nie w osobnej sekcji.
   const pendingByWorker = useMemo(() => {
-    // Najstarsze otwarte pobranie per pracownik + SUMA kg (backend scala
-    // dobierania z tej samej partii, ale różne partie mogą dać >1 wpis).
-    const m = new Map<string, { entry: DeboningEntry; totalKg: number }>()
+    // Najstarsze otwarte pobranie per pracownik + SUMA kg + PARTIE pobrań
+    // (system musi pamiętać, z której partii wydano ćwiartkę — mięso wraca
+    // na wagę pod TĘ partię, nie pod aktualnie wybraną).
+    const m = new Map<string, { entry: DeboningEntry; totalKg: number; batchIds: Set<string>; batchNos: string[] }>()
     for (const e of pendingTakes) {
       const wid = (e as any).workerId
       if (!wid) continue
+      const bid = (e as any).rawBatchId as string
+      const bno = String((e as any).rawBatchNo ?? '')
       const cur = m.get(wid)
-      if (cur) cur.totalKg += Number((e as any).kgTaken || 0)
-      else m.set(wid, { entry: e, totalKg: Number((e as any).kgTaken || 0) })
+      if (cur) {
+        cur.totalKg += Number((e as any).kgTaken || 0)
+        if (bid) cur.batchIds.add(bid)
+        if (bno && !cur.batchNos.includes(bno)) cur.batchNos.push(bno)
+      } else {
+        m.set(wid, {
+          entry: e, totalKg: Number((e as any).kgTaken || 0),
+          batchIds: new Set(bid ? [bid] : []), batchNos: bno ? [bno] : [],
+        })
+      }
     }
     return m
   }, [pendingTakes])
@@ -766,10 +782,23 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     // z trybu domykania (pobranie zostaje na kafelku) i wybiera normalnie;
     // pracownik z otwartym pobraniem wchodzi w domknięcie mięsem.
     const pending = pendingByWorker.get(w.id)
-    if (pending) { resumeTake(pending.entry); return }  // waga wskakuje od razu
+    if (pending) {
+      // Mięso wraca pod partię POBRANIA. Przy wybranej INNEJ partii pracownik
+      // jest zablokowany — operator nie może omyłkowo zważyć mięsa z 408 pod
+      // 409 (prod 2026-07-10). Bez wybranej partii lub przy zgodnej: domknięcie.
+      if (selBatch && !pending.batchIds.has(selBatch.id)) {
+        showToast(`${w.name} czeka z mięsem z partii ${pending.batchNos.join(', ')} — wybierz partię ${pending.batchNos[0]}, żeby zważyć`, 'err')
+        return
+      }
+      const entryForBatch = selBatch
+        ? (pendingTakes.find(p => (p as any).workerId === w.id && (p as any).rawBatchId === selBatch.id) as DeboningEntry | undefined)
+        : undefined
+      resumeTake(entryForBatch ?? pending.entry)
+      return
+    }
     if (resumeId) { setResumeId(null); setMeatManual(false) }
     setSelWorker(w); setKgTaken(''); setKgMeat(''); setActive('taken')
-  }, [resumeId, pendingByWorker, resumeTake])
+  }, [resumeId, pendingByWorker, resumeTake, selBatch, pendingTakes, showToast])
 
   async function handleStartDay() {
     const err = await startDay()
@@ -1310,6 +1339,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                     <WorkerTileV10 key={w.id} worker={w} selected={selWorker?.id === w.id}
                       entryCount={ws?.count ?? 0} kgToday={ws?.taken ?? 0}
                       pendingKg={pendingByWorker.get(w.id)?.totalKg}
+                      pendingBatchNo={pendingByWorker.get(w.id)?.batchNos.join(', ')}
+                      blocked={(() => {
+                        const pnd = pendingByWorker.get(w.id)
+                        return !!pnd && !!selBatch && !pnd.batchIds.has(selBatch.id)
+                      })()}
                       onSelect={pickWorker}
                       onLongPress={(wk) => {
                         const p = pendingByWorker.get(wk.id)
