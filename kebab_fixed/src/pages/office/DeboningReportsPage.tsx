@@ -385,7 +385,9 @@ export function DeboningReportsPage() {
               pct: d.avgYield, kg: d.kgMeat,
             }))
             return (
-              <div className={cn('grid grid-cols-1 gap-4', days.length > 1 ? 'xl:grid-cols-3' : 'xl:grid-cols-2')}>
+              // Tabela dni i wykres ZAWSZE równej szerokości (para 50/50);
+              // Dostawcy wchodzą do siatki jako kolejny kafel pod spodem.
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                 {days.length > 1 && (
                   <div>
                     <div className="flex items-center gap-2 mb-2">
