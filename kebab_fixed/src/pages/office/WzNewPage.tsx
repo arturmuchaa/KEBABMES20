@@ -27,6 +27,7 @@ type Row = {
   containersStr?: string
   slaughterDate?: string | null
   expiryDate?: string | null
+  productionDate?: string | null
   qtyStr: string; priceStr: string; batchNo?: string; available: number
   kgPerUnit?: number   // FG: waga 1 szt — wycena za kg
 }
@@ -161,6 +162,7 @@ export function WzNewPage() {
     batchNo: b.internal_batch_no,
     slaughterDate: b.slaughter_date ?? null,
     expiryDate: b.expiry_date ?? null,
+    productionDate: b.production_date ?? null,
     available: Number(b.kg_available || 0),
   }])
   const upd = (i: number, k: 'qtyStr' | 'priceStr' | 'containersStr', v: string) =>
@@ -194,6 +196,7 @@ export function WzNewPage() {
       stock_type: r.stockType,
       slaughter_date: r.slaughterDate ?? null,
       expiry_date: r.expiryDate ?? null,
+      production_date: r.productionDate ?? null,
       kg_per_unit: r.kgPerUnit ?? null,
       total_kg: r.kgPerUnit ? Math.round(rowQty(r) * r.kgPerUnit * 1000) / 1000 : null,
       price: valued ? rowPrice(r) : null, value: valued ? Math.round(rowValue(r) * 100) / 100 : null,
@@ -222,6 +225,7 @@ export function WzNewPage() {
           stockType: r.stockType, stockId: r.stockId, name: r.name, unit: r.unit,
           qty: rowQty(r), price: rowPrice(r), batchNo: r.batchNo, kgPerUnit: r.kgPerUnit,
           containers: parseInt(r.containersStr || '') || undefined,
+          productionDate: r.productionDate ?? undefined,
         })),
         valued,
         currency,

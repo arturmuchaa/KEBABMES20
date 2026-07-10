@@ -90,6 +90,8 @@ def build_manual_wz_lines(selections: List[Dict[str, Any]], valued: bool) -> Tup
             cont = 0
         if cont > 0:
             line["containers"] = cont
+        if s.get("production_date"):
+            line["production_date"] = str(s["production_date"])[:10]
     return lines, total
 
 
@@ -779,7 +781,7 @@ def stock_raw() -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for r in query_all(
         """SELECT id, internal_batch_no, supplier_name, kg_available, material_name,
-                  slaughter_date, expiry_date
+                  slaughter_date, expiry_date, received_date
            FROM raw_batches WHERE COALESCE(kg_available,0) > 0
            ORDER BY received_date DESC NULLS LAST, internal_batch_no"""):
         kg = float(r["kg_available"] or 0)
@@ -792,9 +794,11 @@ def stock_raw() -> List[Dict[str, Any]]:
             "containers": int(-(-kg // 15)) if kg > 0 else None,  # 15 kg/poj.
             "slaughter_date": str(r.get("slaughter_date") or "")[:10] or None,
             "expiry_date": str(r.get("expiry_date") or "")[:10] or None,
+            "production_date": str(r.get("received_date") or "")[:10] or None,
         })
     for m in query_all(
         """SELECT m.id, m.lot_no, m.raw_batch_no, m.kg_available, m.material_name,
+                  m.production_date,
                   b.slaughter_date, b.expiry_date,
                   (SELECT COALESCE(SUM(de.e2_count), 0) FROM deboning_entries de
                    WHERE de.raw_batch_id = m.raw_batch_id
@@ -813,11 +817,12 @@ def stock_raw() -> List[Dict[str, Any]]:
             "containers": e2 or None,
             "slaughter_date": str(m.get("slaughter_date") or "")[:10] or None,
             "expiry_date": str(m.get("expiry_date") or "")[:10] or None,
+            "production_date": str(m.get("production_date") or "")[:10] or None,
         })
     lots = query_all(
-        """SELECT l.id, l.raw_batch_id, l.raw_batch_no, l.kind, l.kg,
+        """SELECT l.id, l.raw_batch_id, l.raw_batch_no, l.kind, l.kg, l.created_at,
                   b.slaughter_date, b.expiry_date,
-                  bb.backs_pallets, bb.bones_pallets
+                  bb.backs_pallets, bb.bones_pallets, bb.backs_at, bb.bones_at
            FROM byproduct_lots l
            LEFT JOIN raw_batches b ON b.id = l.raw_batch_id
            LEFT JOIN batch_byproducts bb ON bb.raw_batch_id = l.raw_batch_id
@@ -826,6 +831,8 @@ def stock_raw() -> List[Dict[str, Any]]:
     for b in lots:
         pallets = b.get("backs_pallets") if b["kind"] == "backs" else b.get("bones_pallets")
         cont = _pallet_containers(pallets)
+        weighed_at = b.get("backs_at") if b["kind"] == "backs" else b.get("bones_at")
+        prod_date = str(weighed_at or b.get("created_at") or "")[:10] or None
         out.append({
             "id": b["id"], "stock_type": "byproduct",
             "internal_batch_no": b.get("raw_batch_no"),
@@ -837,5 +844,6 @@ def stock_raw() -> List[Dict[str, Any]]:
             "containers": cont or None,
             "slaughter_date": str(b.get("slaughter_date") or "")[:10] or None,
             "expiry_date": str(b.get("expiry_date") or "")[:10] or None,
+            "production_date": prod_date,
         })
     return out

@@ -64,7 +64,8 @@ def manual(body: dict):
         {"stock_type": it.get("stockType"), "stock_id": it.get("stockId"),
          "name": it.get("name"), "unit": it.get("unit"), "qty": it.get("qty"),
          "price": it.get("price"), "batch_no": it.get("batchNo"),
-         "kg_per_unit": it.get("kgPerUnit"), "containers": it.get("containers")}
+         "kg_per_unit": it.get("kgPerUnit"), "containers": it.get("containers"),
+         "production_date": it.get("productionDate")}
         for it in (body.get("items") or [])
     ]
     return svc.create_manual_wz(

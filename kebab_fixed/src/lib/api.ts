@@ -1406,6 +1406,7 @@ export interface WzLine {
   stock_type?: string | null    // 'raw'|'meat'|'byproduct'|'fg' — surowcowe wchodzą do tabeli HDI
   slaughter_date?: string | null // data uboju partii (stempel przy wystawieniu)
   expiry_date?: string | null    // data ważności partii (stempel przy wystawieniu)
+  production_date?: string | null // data produkcji (rozbiór/ważenie/przyjęcie)
 }
 export interface WzLoadingDiff {
   name: string; batch_no: string | null
@@ -1449,7 +1450,7 @@ export const wzApi = {
   stockRaw: () => get<any[]>('/wz/stock/raw'),
   createManual: (body: {
     buyer: { name: string; address?: string; nip?: string };
-    items: { stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string; kgPerUnit?: number; containers?: number }[];
+    items: { stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string; kgPerUnit?: number; containers?: number; productionDate?: string | null }[];
     valued?: boolean; place?: string; issuedDate?: string; releaseDate?: string; notes?: string;
     currency?: string; eurRate?: number | null;
   }) => post<WzDoc>('/wz/manual', body),
