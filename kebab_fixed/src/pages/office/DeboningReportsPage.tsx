@@ -110,7 +110,7 @@ function DeltaVsPrev({ cur, prev, fmt, unit, invert }: {
 }
 
 function Kpi({ icon: Icon, label, value, unit, sub, tone, accent, delta }: {
-  icon: any; label: string; value: string; unit?: string; sub?: string; tone?: string; accent: Accent; delta?: ReactNode
+  icon: any; label: string; value: string; unit?: string; sub?: ReactNode; tone?: string; accent: Accent; delta?: ReactNode
 }) {
   return (
     <Card className="relative overflow-hidden">
@@ -157,6 +157,16 @@ export function DeboningReportsPage() {
   const [prevData, setPrevData] = useState<DeboningStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [drill, setDrill] = useState<DeboningStatsWorker | null>(null)
+
+  // Kurs EUR z NBP (tabela A) — do przeliczenia kosztu mięsa na €/kg.
+  // Ten sam wzorzec co WZ/faktury; brak kursu = po prostu bez linijki euro.
+  const [eurRate, setEurRate] = useState<number | null>(null)
+  useEffect(() => {
+    fetch('https://api.nbp.pl/api/exchangerates/rates/a/eur/?format=json')
+      .then(r => r.json())
+      .then(j => { const m = Number(j?.rates?.[0]?.mid); if (m > 0) setEurRate(m) })
+      .catch(() => setEurRate(null))
+  }, [])
 
   // LIVE = rozbiór FAKTYCZNIE trwa: ostatni wpis w ciągu 30 minut. Sam zakres
   // „kończący się dziś" nie wystarcza (inaczej świeciło się zawsze).
@@ -252,9 +262,17 @@ export function DeboningReportsPage() {
         {/* Rachunek rozbioru: (koszt ćwiartki + robocizna − sprzedane uboczne) / kg mięsa */}
         <Kpi icon={Banknote} label="Koszt mięsa"
           value={s?.meatCostPerKg != null ? nf2.format(s.meatCostPerKg) : '—'} unit="zł/kg"
-          sub={s?.quarterCost != null
-            ? 'surowiec + robocizna − uboczne'
-            : 'brak cen zakupu w zakresie'}
+          sub={s?.quarterCost != null ? (
+            <>
+              {s.meatCostPerKg != null && eurRate != null && (
+                <span className="block">
+                  <span className="font-bold text-ink-2">≈ {nf2.format(s.meatCostPerKg / eurRate)} €/kg</span>
+                  <span className="text-ink-4"> · kurs NBP {nf2.format(eurRate)}</span>
+                </span>
+              )}
+              surowiec + robocizna − uboczne
+            </>
+          ) : 'brak cen zakupu w zakresie'}
           accent="green"
           delta={<DeltaVsPrev cur={s?.meatCostPerKg} prev={ps?.meatCostPerKg} fmt={nf2} unit="zł" invert />} />
         {(() => {
