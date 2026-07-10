@@ -457,6 +457,18 @@ def _auto_finish_exhausted(raw_batch_id: str, kg_left) -> None:
     try:
         if kg_left is None or float(kg_left) > 0.5:
             return
+        # Partia NIE jest zakończona, dopóki ktokolwiek czeka z mięsem na wagę
+        # (otwarte pobrania) — pobrania potrafią wyczerpać kg_available na
+        # długo przed zważeniem mięsa (prod 2026-07-10, partia 408: wszyscy
+        # pobrali, system przeskoczył na 409). Zakończenie odpala się przy
+        # domknięciu OSTATNIEGO pobrania (complete_deboning_take).
+        pending = query_one(
+            "SELECT 1 FROM deboning_entries WHERE raw_batch_id=%s "
+            "AND COALESCE(status,'complete')='pending' LIMIT 1",
+            (raw_batch_id,),
+        )
+        if pending:
+            return
         from app.services.batch_byproducts_service import finish_batch
 
         finish_batch(raw_batch_id)
@@ -1011,6 +1023,13 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
     logger.info(
         "deboning.take.completed",
         extra={"entry_id": entry_id, "kg_taken": kg_taken, "kg_meat": kg_meat},
+    )
+    # Domknięcie OSTATNIEGO pobrania wyczerpanej partii = faktyczny koniec
+    # rozbioru → dopiero teraz rekord ubocznych (guard w środku sprawdza,
+    # czy nie zostały inne otwarte pobrania).
+    _auto_finish_exhausted(
+        entry["raw_batch_id"],
+        (batch or {}).get("kg_available"),
     )
     return _map_deboning_entry(row)  # type: ignore[arg-type]
 

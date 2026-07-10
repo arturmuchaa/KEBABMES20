@@ -207,17 +207,27 @@ def _seed_session(session_id: str, status: str = "open"):
     )
 
 
-def test_pobranie_wyczerpujace_partie_auto_zakancza(db):
-    """Wyczerpanie partii MUSI zostawić rekord ubocznych (kafel ważenia
-    kości/grzbietów) — gwarancja serwerowa, nie kiosku."""
+def test_pobranie_wyczerpujace_partie_konczy_dopiero_po_zwazeniu_miesa(db):
+    """Pobrania potrafią wyczerpać kg_available na długo przed zważeniem
+    mięsa — partia NIE jest zakończona, dopóki ktokolwiek czeka z mięsem
+    (prod 2026-07-10, partia 408). Zakończenie = domknięcie OSTATNIEGO
+    pobrania; wtedy rekord ubocznych (gwarancja serwerowa)."""
     from app.services.batch_byproducts_service import get as get_byproducts, pending
 
-    _seed_cwiartka_batch(internal_no="750", kg=100.0)
-    create_deboning_take(DeboningTakeCreate(
+    _seed_cwiartka_batch(internal_no="750", kg=200.0)
+    t1 = create_deboning_take(DeboningTakeCreate(
         raw_batch_id="rb1", worker_id="w1", worker_name="Jan", kg_taken=100.0,
     ))
+    t2 = create_deboning_take(DeboningTakeCreate(
+        raw_batch_id="rb1", worker_id="w2", worker_name="Adam", kg_taken=100.0,
+    ))
+    # kg_available = 0, ale dwa otwarte pobrania → partia wciąż AKTYWNA
+    assert get_byproducts("rb1") is None
+    complete_deboning_take(t1["id"], DeboningTakeComplete(kg_meat=66.0))
+    assert get_byproducts("rb1") is None  # Adam nadal czeka z mięsem
+    complete_deboning_take(t2["id"], DeboningTakeComplete(kg_meat=66.0))
     rec = get_byproducts("rb1")
-    assert rec and rec["finishedAt"] is not None
+    assert rec and rec["finishedAt"] is not None  # ostatni domknął → koniec
     assert any(p["rawBatchId"] == "rb1" for p in pending())
 
 
@@ -234,7 +244,7 @@ def test_wpis_wyczerpujacy_partie_auto_zakancza(db):
     assert rec and rec["finishedAt"] is not None
 
 
-def test_edycja_pobrania_do_wyczerpania_auto_zakancza(db):
+def test_edycja_pobrania_do_wyczerpania_nie_konczy_przed_zwazeniem(db):
     from app.services.batch_byproducts_service import get as get_byproducts
 
     _seed_cwiartka_batch(internal_no="752", kg=100.0)
@@ -243,6 +253,9 @@ def test_edycja_pobrania_do_wyczerpania_auto_zakancza(db):
     ))
     assert get_byproducts("rb1") is None  # 40 kg zostaje — partia żyje
     update_deboning_take(t["id"], DeboningTakeUpdate(kg_taken=100.0))
+    # wyczerpana, ale pobranie czeka na mięso → partia wciąż aktywna
+    assert get_byproducts("rb1") is None
+    complete_deboning_take(t["id"], DeboningTakeComplete(kg_meat=66.0))
     rec = get_byproducts("rb1")
     assert rec and rec["finishedAt"] is not None
 

@@ -126,9 +126,11 @@ function SectionStep({ no, done, children }: { no: number; done: boolean; childr
 }
 
 // ─── Kafel partii ──────────────────────────────────────────────────
-const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onLongPress }: {
+const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onLongPress, pendingMeatKg }: {
   batch: RawBatch; selected: boolean; onSelect: (b: RawBatch) => void
   onLongPress?: (b: RawBatch) => void
+  /** Suma kg otwartych pobrań — kafel pokazuje „czeka na mięso" i nie znika. */
+  pendingMeatKg?: number
 }) {
   const { daysLeft } = getExpiryStatus(batch.expiryDate)
   const kg = Number(batch.kgAvailable)
@@ -163,9 +165,16 @@ const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onL
           {expired ? 'przeterm.' : daysLeft === 0 ? 'dziś!' : `${daysLeft} dni`}
         </span>
       </div>
-      <div className="text-[13px] font-medium truncate mt-1.5 block" style={{ color: selected ? 'rgba(255,255,255,.75)' : 'var(--mut)', lineHeight: 1.3 }}>
-        {batch.supplierDisplayName ?? batch.supplierName ?? '—'} · {Math.floor(kg / KG_PER_CONTAINER)} poj.
-      </div>
+      {pendingMeatKg != null && pendingMeatKg > 0 ? (
+        <div className="text-[12px] font-bold uppercase truncate mt-1.5 block"
+          style={{ color: selected ? 'rgba(255,255,255,.9)' : 'var(--amb)', lineHeight: 1.3 }}>
+          ⏳ czeka na mięso · {fmtKg(pendingMeatKg, 0)} kg
+        </div>
+      ) : (
+        <div className="text-[13px] font-medium truncate mt-1.5 block" style={{ color: selected ? 'rgba(255,255,255,.75)' : 'var(--mut)', lineHeight: 1.3 }}>
+          {batch.supplierDisplayName ?? batch.supplierName ?? '—'} · {Math.floor(kg / KG_PER_CONTAINER)} poj.
+        </div>
+      )}
     </button>
   )
 })
@@ -364,7 +373,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const auth = useAuth()
   const online = useServerOnline()
   const loggedInUser = auth?.user
-  const batchData  = useApi(() => rawBatchesApi.list())
+  // limit 500: domyślne 25 (rosnąco po numerze!) ucinałoby NAJNOWSZE partie
+  const batchData  = useApi(() => rawBatchesApi.list({ limit: 500 }))
   const workerData = useApi(() => usersApi.list())
   // Partie oczekujące na ważenie ubocznych (grzbiety/kości) — szare kafle,
   // przechodzą między dniami. Odświeżane co 5 s razem z partiami (useEffect niżej).
@@ -507,11 +517,25 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     return () => clearInterval(t)
   }, [batchData.refetch, workerData.refetch, byproductsData.refetch, byprodToday.refetch])
 
+  // Suma kg otwartych pobrań per partia — partia z pobraniami czekającymi na
+  // wagę MUSI zostać aktywnym kaflem, nawet gdy kg_available spadło do zera
+  // (prod 2026-07-10: wszyscy pobrali z 408, system „przeskoczył" na 409).
+  const pendingKgByBatch = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const e of pendingTakes) {
+      const bid = (e as any).rawBatchId
+      if (!bid) continue
+      m.set(bid, (m.get(bid) ?? 0) + Number((e as any).kgTaken || 0))
+    }
+    return m
+  }, [pendingTakes])
+
   const allActiveBatches = useMemo(() =>
     (batchData.data?.data ?? [])
-      .filter(b => Number(b.kgAvailable) > 0 && b.status !== 'used' && b.status !== 'expired' && b.status !== 'cancelled')
+      .filter(b => (Number(b.kgAvailable) > 0 || pendingKgByBatch.has(b.id))
+        && b.status !== 'used' && b.status !== 'expired' && b.status !== 'cancelled')
       .sort((a, b) => a.expiryDate !== b.expiryDate ? (a.expiryDate < b.expiryDate ? -1 : 1) : (a.internalBatchSeq ?? 0) - (b.internalBatchSeq ?? 0)),
-    [batchData.data])
+    [batchData.data, pendingKgByBatch])
   // Pasek partii przewija się w poziomie — limit tylko awaryjny (12, nie 6):
   // przy 7+ aktywnych partiach siódma „znikała" mimo miejsca na scroll.
   const batches = useMemo(() => allActiveBatches.slice(0, 12), [allActiveBatches])
@@ -797,7 +821,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     // (zostało mniej niż na kolejną sztukę), sam pokazuj komunikat o ważeniu
     // ubocznych — bez klikania „Zakończ partię".
     const remaining = Number(selBatch.kgAvailable) - taken
-    if (remaining <= 0.5 && !byproductsByBatch.has(selBatch.id)) {
+    if (remaining <= 0.5 && !byproductsByBatch.has(selBatch.id)
+        && !pendingTakes.some(p => (p as any).rawBatchId === selBatch.id)) {
       const b = selBatch
       setSelBatch(null) // partia wyczerpana — operator wybierze następną
       byproductsApi.finish(b.id, loggedInUser?.name)
@@ -819,18 +844,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     batchData.refetch()
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
     showToast(`Pobrano ${fmtKg(taken, 1)} kg — czeka na zważenie`)
-
-    // Pobranie też potrafi wyczerpać partię — bez tego rekord ubocznych
-    // zostawał bez finished_at i szary kafelek znikał (prod 2026-07-09,
-    // partia 407). Ta sama logika co przy zwykłym zapisie.
-    const remaining = Number(selBatch.kgAvailable) - taken
-    if (remaining <= 0.5 && !byproductsByBatch.has(selBatch.id)) {
-      const b = selBatch
-      setSelBatch(null)
-      byproductsApi.finish(b.id, loggedInUser?.name)
-        .then(rec => { byproductsData.refetch(); setFinishPrompt({ batch: b, record: rec }) })
-        .catch(() => showToast(`Partia ${b.internalBatchNo} wyczerpana — zważ uboczne z szarego kafla`, 'err'))
-    }
+    // Pobranie NIE zakańcza partii, nawet gdy wyczerpało kg — mięso dopiero
+    // przyjdzie na wagę. Zakończenie odpala się przy domknięciu OSTATNIEGO
+    // pobrania (handleCompleteTake + gwarancja serwerowa).
   }
 
   // Domknięcie pobrania zważonym mięsem.
@@ -853,9 +869,22 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setSaveFlash(true)
     if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
     saveFlashRef.current = setTimeout(() => setSaveFlash(false), 350)
+    const completedId = resumeId
     setResumeId(null)
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
     showToast(`Zważono ${fmtKg(meat, 1)} kg mięsa`)
+
+    // Domknięcie OSTATNIEGO pobrania wyczerpanej partii = koniec rozbioru →
+    // prompt ważenia ubocznych. Backend i tak sam zakańcza (gwarancja) —
+    // tu tylko wygodny prompt dla operatora.
+    const b = selBatch
+    const others = pendingTakes.filter(p => (p as any).rawBatchId === b?.id && p.id !== completedId)
+    if (b && others.length === 0 && Number(b.kgAvailable) <= 0.5 && !byproductsByBatch.has(b.id)) {
+      setSelBatch(null)
+      byproductsApi.finish(b.id, loggedInUser?.name)
+        .then(rec => { byproductsData.refetch(); setFinishPrompt({ batch: b, record: rec }) })
+        .catch(() => {})
+    }
   }
 
   async function handleUndo() {
@@ -1247,7 +1276,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             ? <div className="flex items-center justify-center w-full text-sm font-bold" style={{ color: 'var(--mut)' }}>Brak aktywnych partii</div>
             : batches.map(b => (
                 <BatchTileV10 key={b.id} batch={b} selected={selBatch?.id === b.id} onSelect={pickBatch}
-                  onLongPress={openWizardInProgress} />
+                  onLongPress={openWizardInProgress} pendingMeatKg={pendingKgByBatch.get(b.id)} />
               ))
         }
         {/* Szare kafle: partie zakończone, oczekujące na ważenie ubocznych
