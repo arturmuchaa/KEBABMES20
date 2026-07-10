@@ -420,6 +420,125 @@ def update_wz_prices(wz_id: str, prices: List[Dict[str, Any]]) -> Dict[str, Any]
     return get_wz(wz_id)
 
 
+def update_wz_lines(wz_id: str, edits: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Edycja pozycji ręcznego WZ: cena/pojemniki swobodnie, ILOŚĆ z korektą
+    stanów magazynowych (różnica wraca/schodzi ze stanu + korekta ruchu OUT).
+
+    UWAGA (świadoma decyzja produktowa): edycja ilości po wystawieniu może
+    zaburzyć spójność z wydrukowanymi dokumentami/HDI — frontend ostrzega,
+    ale nie blokuje. Tylko WZ ręczne (source_type='manual'); WZ z zamówień
+    edytowałyby łańcuch zamówienie→produkcja→załadunek."""
+    if not edits:
+        raise HTTPException(400, "Brak zmian do zapisania")
+    with transaction() as conn:
+        row = cx_query_one(
+            conn, "SELECT id, status, source_type, valued, lines FROM wz_documents WHERE id=%s FOR UPDATE",
+            (wz_id,))
+        if not row:
+            raise HTTPException(404, "Dokument WZ nie istnieje")
+        if (row.get("source_type") or "") != "manual":
+            raise HTTPException(409, "Edytować można tylko ręczne WZ (sprzedaż z magazynu)")
+        lines = row.get("lines")
+        if not isinstance(lines, list):
+            lines = json.loads(lines or "[]")
+        valued = bool(row.get("valued"))
+
+        for e in edits:
+            try:
+                i = int(e.get("index"))
+            except (TypeError, ValueError):
+                continue
+            if not (0 <= i < len(lines)):
+                continue
+            line = lines[i]
+
+            # ── Cena ──
+            if e.get("price") is not None:
+                line["price"] = round(float(e["price"]), 2)
+                valued = True
+
+            # ── Pojemniki ──
+            if "containers" in e:
+                try:
+                    cont = int(e.get("containers") or 0)
+                except (TypeError, ValueError):
+                    cont = 0
+                if cont > 0:
+                    line["containers"] = cont
+                else:
+                    line.pop("containers", None)
+
+            # ── Ilość (korekta stanu magazynowego o różnicę) ──
+            if e.get("qty") is not None:
+                new_qty = float(e["qty"])
+                if new_qty <= 0:
+                    raise HTTPException(400, "Ilość pozycji musi być > 0")
+                old_qty = float(line.get("qty") or 0)
+                diff = new_qty - old_qty  # dodatnia = wydajemy WIĘCEJ
+                stype, sid = line.get("stock_type"), line.get("stock_id")
+                if abs(diff) > 1e-9:
+                    if not stype or not sid:
+                        raise HTTPException(
+                            400, f"Pozycja „{line.get('name')}” nie ma śladu magazynowego — ilości nie można zmienić")
+                    if stype == "fg":
+                        need = int(round(diff))
+                        fg = cx_query_one(conn, "SELECT qty_available, kg_per_unit, batch_no FROM finished_goods WHERE id=%s FOR UPDATE", (sid,))
+                        if not fg:
+                            raise HTTPException(400, "Pozycja magazynowa nie istnieje")
+                        if need > 0 and int(fg.get("qty_available") or 0) < need:
+                            raise HTTPException(400, f"Za mało wyrobu (partia {fg.get('batch_no')}) na zwiększenie o {need} szt")
+                        cx_execute(conn,
+                            "UPDATE finished_goods SET qty_available=qty_available-%s, qty_shipped=qty_shipped+%s WHERE id=%s",
+                            (need, need, sid))
+                        kgpu = float(fg.get("kg_per_unit") or 0)
+                        cx_execute(conn,
+                            "UPDATE stock_movements SET qty=%s WHERE source_type='wz' AND source_id=%s AND batch_id=%s",
+                            (-(new_qty * kgpu), wz_id, sid))
+                        line["qty"] = int(round(new_qty))
+                        if kgpu > 0:
+                            line["total_kg"] = round(new_qty * kgpu, 3)
+                    elif stype in ("raw", "meat", "byproduct"):
+                        table, col = {
+                            "raw": ("raw_batches", "kg_available"),
+                            "meat": ("meat_stock", "kg_available"),
+                            "byproduct": ("byproduct_lots", "kg"),
+                        }[stype]
+                        st = cx_query_one(conn, f"SELECT {col} AS avail FROM {table} WHERE id=%s FOR UPDATE", (sid,))
+                        if not st:
+                            raise HTTPException(400, "Pozycja magazynowa nie istnieje")
+                        if diff > 0 and float(st.get("avail") or 0) + 1e-6 < diff:
+                            raise HTTPException(
+                                400, f"Za mało na stanie (partia {line.get('batch_no')}): jest {float(st.get('avail') or 0)} kg, potrzeba +{round(diff, 2)} kg")
+                        cx_execute(conn, f"UPDATE {table} SET {col}=GREATEST(0, {col}-%s) WHERE id=%s", (diff, sid))
+                        if stype == "byproduct":
+                            # zwrot na lot > 0 → znowu otwarty; wyzerowany → shipped
+                            cx_execute(conn,
+                                "UPDATE byproduct_lots SET status=CASE WHEN kg <= 0.001 THEN 'shipped' ELSE 'open' END "
+                                "WHERE id=%s AND status IN ('open','shipped')", (sid,))
+                        cx_execute(conn,
+                            "UPDATE stock_movements SET qty=%s WHERE source_type='wz' AND source_id=%s AND batch_id=%s",
+                            (-new_qty, wz_id, sid))
+                        line["qty"] = new_qty
+                        if line.get("total_kg") is not None:
+                            line["total_kg"] = round(new_qty, 3)
+                    else:
+                        raise HTTPException(400, f"Nieznany typ magazynu: {stype}")
+                else:
+                    line["qty"] = new_qty if line.get("unit") == "kg" else int(round(new_qty))
+
+            # ── Przelicz wartość pozycji ──
+            if valued and line.get("price") is not None:
+                base = float(line.get("total_kg") or 0) or float(line.get("qty") or 0)
+                line["value"] = round(base * float(line["price"]), 2)
+
+        total = round(sum(float(l.get("value") or 0) for l in lines), 2) if valued else None
+        cx_execute(conn,
+                   "UPDATE wz_documents SET lines=%s, total_value=%s, valued=%s WHERE id=%s",
+                   (json.dumps(lines), total, valued, wz_id))
+    logger.info("wz.lines_updated", extra={"wz_id": wz_id, "edits": len(edits)})
+    return get_wz(wz_id)
+
+
 def wz_order_incomplete(produced: int, ordered: int) -> bool:
     """Flaga „może brakować": zamówiono więcej, niż wyprodukowano."""
     return ordered > 0 and produced < ordered

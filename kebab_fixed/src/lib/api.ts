@@ -1456,6 +1456,10 @@ export const wzApi = {
   }) => post<WzDoc>('/wz/manual', body),
   updatePrices: (id: string, prices: { index: number; price: number }[]) =>
     patch<WzDoc>(`/wz/${encodeURIComponent(id)}/prices`, { prices }),
+  // Edycja pozycji ręcznego WZ: cena/pojemniki swobodnie; ilość koryguje
+  // stany magazynowe (różnica) — UI ostrzega o wpływie na traceability.
+  updateLines: (id: string, edits: { index: number; qty?: number; price?: number; containers?: number | null }[]) =>
+    patch<WzDoc>(`/wz/${encodeURIComponent(id)}/lines`, { edits }),
   quantityChain: (orderId: string) =>
     get<QuantityChain>(`/client-orders/${encodeURIComponent(orderId)}/quantity-chain`),
   fromOrderPreview: (orderId: string) =>

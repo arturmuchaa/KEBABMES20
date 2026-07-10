@@ -149,6 +149,10 @@ export function WzDocumentsPage() {
   const [editId, setEditId]   = useState<string | null>(null)
   const [editLines, setEditLines] = useState<WzLine[]>([])
   const [priceStrs, setPriceStrs] = useState<string[]>([])
+  const [qtyStrs, setQtyStrs]     = useState<string[]>([])
+  const [contStrs, setContStrs]   = useState<string[]>([])
+  /** 'prices' = uzupełnianie cen (WZ z zamówień); 'full' = pełna edycja ręcznego WZ. */
+  const [editMode, setEditMode]   = useState<'prices' | 'full'>('prices')
   const [editErr, setEditErr] = useState('')
   const [saving, setSaving]   = useState(false)
   const [previewDoc, setPreviewDoc] = useState<WzDoc | null>(null)
@@ -169,12 +173,15 @@ export function WzDocumentsPage() {
     return cleaned.slice(0, firstSep + 1) + cleaned.slice(firstSep + 1).replace(/[.,]/g, '')
   }
 
-  const openEditor = async (id: string) => {
+  const openEditor = async (id: string, mode: 'prices' | 'full' = 'prices') => {
     setEditErr('')
     try {
       const doc = await wzApi.byId(id)
       setEditLines(doc.lines || [])
       setPriceStrs((doc.lines || []).map(l => l.price != null ? String(l.price) : ''))
+      setQtyStrs((doc.lines || []).map(l => String(l.qty ?? '')))
+      setContStrs((doc.lines || []).map(l => (l as any).containers ? String((l as any).containers) : ''))
+      setEditMode(mode)
       setEditId(id)
     } catch (e: any) { alert(e?.message || 'Błąd pobierania WZ') }
   }
@@ -200,6 +207,26 @@ export function WzDocumentsPage() {
       setEditId(null)
       await reload()
     } catch (e: any) { setEditErr(e?.message || 'Błąd zapisu cen') }
+    finally { setSaving(false) }
+  }
+
+  // Pełna edycja ręcznego WZ: ilości korygują stan magazynowy o różnicę.
+  const saveEdits = async () => {
+    if (!editId) return
+    setEditErr(''); setSaving(true)
+    try {
+      const edits = editLines.map((l, index) => ({
+        index,
+        qty: toNum(qtyStrs[index] ?? '') || undefined,
+        price: (priceStrs[index] ?? '').trim() !== '' ? toNum(priceStrs[index]) : undefined,
+        ...((l as any).stock_type && (l as any).stock_type !== 'fg'
+          ? { containers: parseInt(contStrs[index] || '') || 0 }
+          : {}),
+      }))
+      await wzApi.updateLines(editId, edits)
+      setEditId(null)
+      await reload()
+    } catch (e: any) { setEditErr(e?.message || 'Błąd zapisu zmian') }
     finally { setSaving(false) }
   }
 
@@ -286,10 +313,16 @@ export function WzDocumentsPage() {
                                 title="PDF" onClick={() => window.open(wzApi.pdfUrl(d.id), '_blank')}>
                           <FileText size={13} />
                         </Button>
-                        {!d.valued && d.status === 'wstepny' && (
+                        {(d as any).source_type === 'manual' ? (
                           <Button variant="outline" size="sm"
                                   className="h-7 text-[11px] gap-1 text-amber-700 border-amber-200 hover:bg-amber-50"
-                                  onClick={() => editId === d.id ? setEditId(null) : openEditor(d.id)}>
+                                  onClick={() => editId === d.id ? setEditId(null) : openEditor(d.id, 'full')}>
+                            {editId === d.id ? <><ChevronUp size={12} /> Zwiń</> : <><Pencil size={12} /> Edytuj</>}
+                          </Button>
+                        ) : !d.valued && d.status === 'wstepny' && (
+                          <Button variant="outline" size="sm"
+                                  className="h-7 text-[11px] gap-1 text-amber-700 border-amber-200 hover:bg-amber-50"
+                                  onClick={() => editId === d.id ? setEditId(null) : openEditor(d.id, 'prices')}>
                             {editId === d.id ? <><ChevronUp size={12} /> Zwiń</> : <><Pencil size={12} /> Uzupełnij ceny</>}
                           </Button>
                         )}
@@ -301,12 +334,22 @@ export function WzDocumentsPage() {
                       <TableCell colSpan={7} className="bg-muted/30 p-4">
                         <div className="max-w-2xl">
                           <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
-                            Uzupełnij ceny — {d.number}
+                            {editMode === 'full' ? 'Edycja dokumentu' : 'Uzupełnij ceny'} — {d.number}
                           </div>
+                          {editMode === 'full' && (
+                            <div className="flex items-start gap-2 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-2">
+                              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                              <span>
+                                Zmiana <b>ilości</b> koryguje stany magazynowe o różnicę, ale dokument mógł już
+                                trafić do odbiorcy — korekty mogą zaburzyć spójność traceability (HDI, raporty partii).
+                                Wpisuj stan faktyczny z załadunku.
+                              </span>
+                            </div>
+                          )}
                           <Table className="text-[12px] bg-background rounded-md border">
                             <TableHeader>
                               <TableRow>
-                                {['Towar', 'Partia', 'Ilość', 'j.m.', 'Waga', 'Cena/kg', 'Wartość'].map((h, i) => (
+                                {['Towar', 'Partia', 'Ilość', 'j.m.', ...(editMode === 'full' ? ['Pojemniki'] : ['Waga']), 'Cena/kg', 'Wartość'].map((h, i) => (
                                   <TableHead key={i} className="text-[9px] uppercase tracking-wider h-7 px-2">{h}</TableHead>
                                 ))}
                               </TableRow>
@@ -318,9 +361,29 @@ export function WzDocumentsPage() {
                                   <TableRow key={i}>
                                     <TableCell className="py-1.5 px-2 font-medium">{l.name}</TableCell>
                                     <TableCell className="py-1.5 px-2 font-mono text-green-700">{l.batch_no || '—'}</TableCell>
-                                    <TableCell className="py-1.5 px-2 font-mono">{l.qty}</TableCell>
+                                    <TableCell className="py-1.5 px-2 font-mono">
+                                      {editMode === 'full' ? (
+                                        <Input type="text" inputMode="decimal"
+                                               value={qtyStrs[i] ?? ''}
+                                               className="h-8 w-24 font-mono"
+                                               onFocus={e => e.target.select()}
+                                               onChange={e => setQtyStrs(qs => qs.map((q, j) => j === i ? sanitizeDecimal(e.target.value) : q))} />
+                                      ) : l.qty}
+                                    </TableCell>
                                     <TableCell className="py-1.5 px-2 text-muted-foreground">{l.unit}</TableCell>
-                                    <TableCell className="py-1.5 px-2 font-mono">{kg > 0 ? `${kg} kg` : '—'}</TableCell>
+                                    {editMode === 'full' ? (
+                                      <TableCell className="py-1.5 px-2">
+                                        {(l as any).stock_type && (l as any).stock_type !== 'fg' ? (
+                                          <Input type="text" inputMode="numeric" placeholder="—"
+                                                 value={contStrs[i] ?? ''}
+                                                 className="h-8 w-16 font-mono"
+                                                 onFocus={e => e.target.select()}
+                                                 onChange={e => setContStrs(cs => cs.map((c, j) => j === i ? e.target.value.replace(/\D/g, '') : c))} />
+                                        ) : <span className="text-muted-foreground">—</span>}
+                                      </TableCell>
+                                    ) : (
+                                      <TableCell className="py-1.5 px-2 font-mono">{kg > 0 ? `${kg} kg` : '—'}</TableCell>
+                                    )}
                                     <TableCell className="py-1.5 px-2">
                                       <Input type="text" inputMode="decimal" placeholder="0,00"
                                              value={priceStrs[i] ?? ''}
@@ -329,7 +392,10 @@ export function WzDocumentsPage() {
                                              onChange={e => setPriceStr(i, e.target.value)} />
                                     </TableCell>
                                     <TableCell className="py-1.5 px-2 text-right font-mono font-semibold">
-                                      {lineTotal(l, i).toFixed(2)}
+                                      {(editMode === 'full'
+                                        ? (Number(l.total_kg ?? 0) > 0 || l.unit === 'kg' ? toNum(qtyStrs[i] ?? '') : toNum(qtyStrs[i] ?? '')) * toNum(priceStrs[i] ?? '')
+                                        : lineTotal(l, i)
+                                      ).toFixed(2)}
                                     </TableCell>
                                   </TableRow>
                                 )
@@ -339,10 +405,15 @@ export function WzDocumentsPage() {
                           <div className="flex items-center justify-between mt-3">
                             <div className="text-[12px]">
                               <span className="text-muted-foreground uppercase tracking-wider text-[10px] mr-2">Razem</span>
-                              <span className="font-mono font-bold text-base">{editTotal.toFixed(2)} zł</span>
+                              <span className="font-mono font-bold text-base">
+                                {(editMode === 'full'
+                                  ? editLines.reduce((sum, l, i) => sum + toNum(qtyStrs[i] ?? '') * toNum(priceStrs[i] ?? ''), 0)
+                                  : editTotal
+                                ).toFixed(2)} zł
+                              </span>
                             </div>
-                            <Button size="sm" disabled={saving} onClick={savePrices} className="gap-1.5">
-                              {saving ? 'Zapisywanie…' : 'Zapisz ceny'}
+                            <Button size="sm" disabled={saving} onClick={editMode === 'full' ? saveEdits : savePrices} className="gap-1.5">
+                              {saving ? 'Zapisywanie…' : editMode === 'full' ? 'Zapisz zmiany' : 'Zapisz ceny'}
                             </Button>
                           </div>
                           {editErr && (

@@ -86,6 +86,11 @@ def update_prices(wz_id: str, body: dict):
     return svc.update_wz_prices(wz_id, body.get("prices") or [])
 
 
+@router.patch("/{wz_id}/lines")
+def update_lines(wz_id: str, body: dict):
+    return svc.update_wz_lines(wz_id, body.get("edits") or [])
+
+
 @router.get("/from-order/{order_id}/preview")
 def from_order_preview(order_id: str):
     """Pozycje przyszłego WZ z zamówienia (do okna cen) — bez tworzenia dokumentu."""

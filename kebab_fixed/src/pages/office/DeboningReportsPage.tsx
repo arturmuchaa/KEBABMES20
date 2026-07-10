@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
-  CartesianGrid,
+  CartesianGrid, LineChart, Line, ReferenceLine,
 } from 'recharts'
 import { Card, CardContent, CardDescription } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -380,8 +380,12 @@ export function DeboningReportsPage() {
               .map(([name, v]) => ({ name, ...v, avgYield: v.kgQuarter > 0 ? v.kgMeat / v.kgQuarter * 100 : 0 }))
               .sort((a, b) => b.kgQuarter - a.kgQuarter)
             if (days.length <= 1 && suppliers.length <= 1) return null
+            const chart = days.map(d => ({
+              label: `${d.date.slice(8, 10)}.${d.date.slice(5, 7)}`,
+              pct: d.avgYield, kg: d.kgMeat,
+            }))
             return (
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <div className={cn('grid grid-cols-1 gap-4', days.length > 1 ? 'xl:grid-cols-3' : 'xl:grid-cols-2')}>
                 {days.length > 1 && (
                   <div>
                     <div className="flex items-center gap-2 mb-2">
@@ -411,6 +415,32 @@ export function DeboningReportsPage() {
                           </tbody>
                         </table>
                       </div>
+                    </div>
+                  </div>
+                )}
+                {days.length > 1 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Percent size={15} className="text-ink-3" />
+                      <h2 className="text-sm font-bold text-ink">Wykres trendu — śr. % mięsa</h2>
+                    </div>
+                    <div className="rounded-lg border border-surface-4 bg-white p-3" style={{ height: 320 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chart} margin={{ top: 8, right: 12, left: -14, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#EEF1F5" vertical={false} />
+                          <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} minTickGap={14} />
+                          <YAxis tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} width={40}
+                            domain={['dataMin - 1', 'dataMax + 1']} tickFormatter={v => `${nf1.format(v)}%`} />
+                          <Tooltip
+                            formatter={(v: any, name: any) => name === 'pct' ? [`${nf1.format(v)}%`, 'śr. % mięsa'] : [`${nf0.format(v)} kg`, 'mięso']}
+                            labelStyle={{ fontSize: 11 }} contentStyle={{ fontSize: 12 }} cursor={{ stroke: '#CBD5E1' }} />
+                          {/* Punkt odniesienia: średnia zakładu w całym zakresie */}
+                          <ReferenceLine y={s?.avgYield ?? 0} stroke="#94A3B8" strokeDasharray="4 4"
+                            label={{ value: `śr. ${nf1.format(s?.avgYield ?? 0)}%`, fontSize: 10, fill: '#64748B', position: 'insideTopRight' }} />
+                          <Line type="monotone" dataKey="pct" stroke="#1D4ED8" strokeWidth={2}
+                            dot={{ r: 3, fill: '#1D4ED8' }} activeDot={{ r: 5 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
                     </div>
                   </div>
                 )}

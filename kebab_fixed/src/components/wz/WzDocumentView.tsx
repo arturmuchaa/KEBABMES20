@@ -109,8 +109,8 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
       <table className="w-full mt-5" style={{ borderCollapse: 'collapse' }}>
         <thead>
           <tr>
-            {head.map(h => (
-              <th key={h} className="border border-[#9a9a9a] bg-[#f0f0f0] px-2 py-1.5 text-[11px] uppercase tracking-wide text-left">
+            {head.map((h, hi) => (
+              <th key={h} className={`border border-[#9a9a9a] bg-[#f0f0f0] px-2 py-1.5 text-[11px] uppercase tracking-wide ${hi === 1 ? 'text-left' : 'text-center'}`}>
                 {h}
               </th>
             ))}
@@ -121,15 +121,15 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
             <tr key={i}>
               <td className="border border-[#9a9a9a] px-2 py-1.5 text-center w-9">{i + 1}</td>
               <td className="border border-[#9a9a9a] px-2 py-1.5 uppercase">{l.name}</td>
-              <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">{l.qty}</td>
-              <td className="border border-[#9a9a9a] px-2 py-1.5 w-12">{l.unit}</td>
+              <td className="border border-[#9a9a9a] px-2 py-1.5 text-center font-mono">{l.qty}</td>
+              <td className="border border-[#9a9a9a] px-2 py-1.5 w-12 text-center">{l.unit}</td>
               {hasKg && (
-                <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">
+                <td className="border border-[#9a9a9a] px-2 py-1.5 text-center font-mono">
                   {(l.total_kg ?? 0) > 0 ? `${fmtKg3(l.total_kg)} kg` : '—'}
                 </td>
               )}
-              {doc.valued && <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">{fmt(l.price)}</td>}
-              {doc.valued && <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">{fmt(lineValue(l))}</td>}
+              {doc.valued && <td className="border border-[#9a9a9a] px-2 py-1.5 text-center font-mono">{fmt(l.price)}</td>}
+              {doc.valued && <td className="border border-[#9a9a9a] px-2 py-1.5 text-center font-mono">{fmt(lineValue(l))}</td>}
             </tr>
           ))}
           {!mergedLines.length && (
@@ -141,11 +141,11 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
             <tr>
               <td colSpan={4} className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold">Razem</td>
               {hasKg && (
-                <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold font-mono">{fmtKg3(totalKg)} kg</td>
+                <td className="border border-[#9a9a9a] px-2 py-1.5 text-center font-bold font-mono">{fmtKg3(totalKg)} kg</td>
               )}
               {doc.valued && <td className="border border-[#9a9a9a] px-2 py-1.5" />}
               {doc.valued && (
-                <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold font-mono">
+                <td className="border border-[#9a9a9a] px-2 py-1.5 text-center font-bold font-mono">
                   {fmt(doc.total_value ?? doc.lines.reduce((s, l) => s + lineValue(l), 0))} {sym}
                 </td>
               )}
@@ -179,8 +179,8 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
             <table className="w-full" style={{ borderCollapse: 'collapse', fontSize: 10.5 }}>
               <thead>
                 <tr>
-                  {['Lp', 'Nazwa towaru', 'Partia', 'Masa netto [kg]', 'Data uboju', 'Data produkcji', 'Data ważności', 'Temp. przechowywania', 'Pojemniki*'].map(h => (
-                    <th key={h} className="border border-[#bfbfbf] bg-[#f7f7f7] px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide text-left">
+                  {['Lp', 'Nazwa towaru', 'Partia', 'Masa netto [kg]', 'Data uboju', 'Data produkcji', 'Data ważności', 'Temp. przechowywania', 'Pojemniki*'].map((h, hi) => (
+                    <th key={h} className={`border border-[#bfbfbf] bg-[#f7f7f7] px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide ${hi === 1 ? 'text-left' : 'text-center'}`}>
                       {h}
                     </th>
                   ))}
@@ -193,30 +193,30 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
                   <tr key={i}>
                     <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center w-8">{i + 1}</td>
                     <td className="border border-[#bfbfbf] px-1.5 py-0.5 uppercase">{l.name}</td>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 font-mono font-bold">{l.batch_no}</td>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-right font-mono">
+                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 font-mono font-bold text-center">{l.batch_no}</td>
+                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center font-mono">
                       {fmtKg3(l.total_kg ?? (l.unit === 'kg' ? l.qty : 0))}
                     </td>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5">
+                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center">
                       {(l as any).slaughter_date ? fmtDatePl((l as any).slaughter_date) : '—'}
                     </td>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5">
+                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center">
                       {(l as any).production_date ? fmtDatePl((l as any).production_date) : '—'}
                     </td>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5">
+                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center">
                       {(l as any).expiry_date ? fmtDatePl((l as any).expiry_date) : '—'}
                     </td>
                     <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center">0–4°C</td>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-right font-mono">
+                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center font-mono">
                       {((l as any).containers ?? 0) > 0 ? (l as any).containers : '—'}
                     </td>
                   </tr>
                 ))}
                 <tr>
                   <td colSpan={3} className="border border-[#bfbfbf] px-1.5 py-0.5 text-right font-bold">Razem</td>
-                  <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-right font-bold font-mono">{fmtKg3(sumKg)}</td>
+                  <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center font-bold font-mono">{fmtKg3(sumKg)}</td>
                   <td colSpan={4} className="border border-[#bfbfbf]" />
-                  <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-right font-bold font-mono">
+                  <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center font-bold font-mono">
                     {sumCont > 0 ? sumCont : '—'}
                   </td>
                 </tr>
