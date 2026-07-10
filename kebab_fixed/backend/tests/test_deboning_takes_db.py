@@ -308,3 +308,28 @@ def test_domkniecie_pobrania_po_zamknieciu_sesji_przepina_do_otwartej(db):
     assert row["session_id"] == s_new
     # bez żadnej otwartej sesji — dalej blokada (nie zgadujemy dnia)
     execute("UPDATE production_sessions SET status='closed' WHERE id=%s", (s_new,))
+
+
+def test_stats_licza_pobranie_w_dniu_zwazenia_miesa(db):
+    """Dwufazowe pobranie w statystykach liczy się w dniu/chwili ZWAŻENIA
+    (completed_at), nie pobrania — spójnie z HMI (prod 2026-07-10)."""
+    _seed_cwiartka_batch(internal_no="760", kg=200.0)
+    t = create_deboning_take(DeboningTakeCreate(
+        raw_batch_id="rb1", worker_id="w1", worker_name="Anatoli", kg_taken=200.0,
+    ))
+    # pobranie „wczoraj", mięso zważone dziś
+    execute(
+        "UPDATE deboning_entries SET created_at = created_at - INTERVAL '1 day' WHERE id=%s",
+        (t["id"],),
+    )
+    complete_deboning_take(t["id"], DeboningTakeComplete(kg_meat=132.0))
+    today = date.today().isoformat()
+    stats = deboning_stats(today, today)
+    assert stats["summary"]["kgMeat"] == 132.0  # w DZISIEJSZYM zakresie
+    assert stats["recent"] and stats["recent"][0]["workerName"] == "Anatoli"
+    # feed z czasem zważenia (dziś), nie pobrania (wczoraj)
+    assert stats["recent"][0]["at"][:10] == today
+    from datetime import timedelta
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    stats_y = deboning_stats(yesterday, yesterday)
+    assert stats_y["summary"]["kgMeat"] == 0.0  # nie dubluje się wczoraj

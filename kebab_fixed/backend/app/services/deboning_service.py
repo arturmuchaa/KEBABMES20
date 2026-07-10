@@ -98,7 +98,12 @@ def deboning_trace(batch_id: str) -> Dict[str, List[Dict]]:
 
 
 def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
-    """Agregaty rozbioru dla biura w zakresie dat (po created_at::date).
+    """Agregaty rozbioru dla biura w zakresie dat.
+
+    Czas wpisu = COALESCE(completed_at, created_at) — dwufazowe pobranie
+    liczy się w chwili ZWAŻENIA mięsa, nie pobrania (spójnie z „Ostatnimi
+    wpisami" na HMI; prod 2026-07-10: Anatoli ważył o 12, biuro pokazywało
+    wpis sprzed 2 h wg czasu pobrania).
 
     Zwraca: summary (KPI), workers (ranking), byHour (przepustowość dnia),
     byDay (trend zakresu), recent (live feed). Godziny aktywne = liczba
@@ -109,11 +114,12 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     rows = query_all(
         """
         SELECT id, worker_id, worker_name, kg_quarter, kg_meat, kg_backs,
-               kg_bones, yield_pct, raw_batch_no, created_at
+               kg_bones, yield_pct, raw_batch_no,
+               COALESCE(completed_at, created_at) AS at
         FROM deboning_entries
-        WHERE created_at::date BETWEEN %s AND %s
+        WHERE COALESCE(completed_at, created_at)::date BETWEEN %s AND %s
           AND COALESCE(status, 'complete') = 'complete'
-        ORDER BY created_at
+        ORDER BY COALESCE(completed_at, created_at)
         """,
         (date_from, date_to),
     )
@@ -122,7 +128,7 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
         return float(v or 0)
 
     def bucket(r):
-        d = r["created_at"]
+        d = r["at"]
         return (d.date(), d.hour)
 
     total_q = len(rows)
@@ -193,7 +199,7 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
 
     hagg: Dict[str, Dict] = defaultdict(lambda: {"quarters": 0, "kgMeat": 0.0})
     for r in rows:
-        h = r["created_at"].strftime("%Y-%m-%d %H:00")
+        h = r["at"].strftime("%Y-%m-%d %H:00")
         hagg[h]["quarters"] += 1
         hagg[h]["kgMeat"] += f(r["kg_meat"])
     by_hour = [
@@ -203,7 +209,7 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
 
     dagg: Dict[str, Dict] = defaultdict(lambda: {"quarters": 0, "kgMeat": 0.0, "kgQuarter": 0.0})
     for r in rows:
-        d = r["created_at"].strftime("%Y-%m-%d")
+        d = r["at"].strftime("%Y-%m-%d")
         dagg[d]["quarters"] += 1
         dagg[d]["kgMeat"] += f(r["kg_meat"])
         dagg[d]["kgQuarter"] += f(r["kg_quarter"])
@@ -260,7 +266,7 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
         {"id": r["id"], "workerName": r["worker_name"] or "—",
          "rawBatchNo": r["raw_batch_no"] or "—",
          "kgQuarter": round(f(r["kg_quarter"]), 1), "kgMeat": round(f(r["kg_meat"]), 1),
-         "yield": round(f(r["yield_pct"]), 1), "at": r["created_at"].isoformat()}
+         "yield": round(f(r["yield_pct"]), 1), "at": r["at"].isoformat()}
         for r in rows[-50:]
     ][::-1]
 
@@ -270,7 +276,7 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     )
     for r in rows:
         wid = r["worker_id"] or r["worker_name"] or "—"
-        d = r["created_at"].strftime("%Y-%m-%d")
+        d = r["at"].strftime("%Y-%m-%d")
         c = wdaily[wid][d]
         c["quarters"] += 1
         c["kgQuarter"] += f(r["kg_quarter"])

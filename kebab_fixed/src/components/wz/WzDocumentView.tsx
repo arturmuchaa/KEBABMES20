@@ -39,6 +39,28 @@ const lineValue = (l: WzLine) => {
  *  Pozycje z wagą (total_kg) mają kolumnę "Waga" i cenę ZA KG. */
 export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean }) {
   const hasKg = doc.lines.some(l => (l.total_kg ?? 0) > 0)
+  // Główna tabela SCALA pozycje o tej samej nazwie/jm/cenie (np. „Kości
+  // z kurczaka" z trzech partii = jedna pozycja z sumą kg) — rozbicie na
+  // partie daje sekcja HDI pod spodem. Dane dokumentu zostają per partia.
+  const mergedLines: WzLine[] = []
+  {
+    const byKey = new Map<string, WzLine>()
+    for (const l of doc.lines) {
+      const k = `${l.name}|${l.unit}|${l.price ?? ''}|${l.kg_per_unit ?? ''}`
+      const m = byKey.get(k)
+      if (m) {
+        m.qty = Number(m.qty) + Number(l.qty)
+        if ((l.total_kg ?? 0) > 0 || (m.total_kg ?? 0) > 0)
+          m.total_kg = Number(m.total_kg ?? 0) + Number(l.total_kg ?? 0)
+        if (l.value != null || m.value != null)
+          m.value = Number(m.value ?? 0) + Number(l.value ?? 0)
+      } else {
+        const c = { ...l }
+        byKey.set(k, c)
+        mergedLines.push(c)
+      }
+    }
+  }
   const sym = curSymbol(doc.currency)
   const isEur = (doc.currency || 'PLN').toUpperCase() === 'EUR'
   const totalKg = doc.lines.reduce((s, l) => s + Number(l.total_kg ?? 0), 0)
@@ -95,7 +117,7 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
           </tr>
         </thead>
         <tbody>
-          {doc.lines.map((l, i) => (
+          {mergedLines.map((l, i) => (
             <tr key={i}>
               <td className="border border-[#9a9a9a] px-2 py-1.5 text-center w-9">{i + 1}</td>
               <td className="border border-[#9a9a9a] px-2 py-1.5 uppercase">{l.name}</td>
@@ -110,7 +132,7 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
               {doc.valued && <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">{fmt(lineValue(l))}</td>}
             </tr>
           ))}
-          {!doc.lines.length && (
+          {!mergedLines.length && (
             <tr><td colSpan={cols} className="border border-[#9a9a9a] px-2 py-4 text-center text-[#888]">Brak pozycji</td></tr>
           )}
         </tbody>
