@@ -150,6 +150,65 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
         ) : null}
       </div>
 
+      {/* ── Identyfikacja partii surowca (HDI) — tylko pozycje surowcowe;
+             sprzedaż wyrobu (kebab) ma osobny, pełny HDI jak dotąd. ── */}
+      {(() => {
+        const hdiLines = doc.lines.filter(l =>
+          (l as any).stock_type && (l as any).stock_type !== 'fg' && l.batch_no)
+        if (!hdiLines.length) return null
+        const sumKg = hdiLines.reduce((s, l) => s + Number(l.total_kg ?? (l.unit === 'kg' ? l.qty : 0) ?? 0), 0)
+        const sumCont = hdiLines.reduce((s, l) => s + Number((l as any).containers ?? 0), 0)
+        return (
+          <div className="mt-6">
+            <div className="text-[11px] font-bold uppercase tracking-[0.18em] pb-1">
+              Identyfikacja partii surowca (HDI)
+            </div>
+            <table className="w-full" style={{ borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Lp', 'Nazwa towaru', 'Partia', 'Data uboju', 'Data ważności', 'Pojemniki', 'Waga [kg]'].map(h => (
+                    <th key={h} className="border border-[#9a9a9a] bg-[#f0f0f0] px-2 py-1.5 text-[11px] uppercase tracking-wide text-left">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {hdiLines.map((l, i) => (
+                  <tr key={i}>
+                    <td className="border border-[#9a9a9a] px-2 py-1.5 text-center w-9">{i + 1}</td>
+                    <td className="border border-[#9a9a9a] px-2 py-1.5 uppercase">{l.name}</td>
+                    <td className="border border-[#9a9a9a] px-2 py-1.5 font-mono font-bold">{l.batch_no}</td>
+                    <td className="border border-[#9a9a9a] px-2 py-1.5">
+                      {(l as any).slaughter_date ? fmtDatePl((l as any).slaughter_date) : '—'}
+                    </td>
+                    <td className="border border-[#9a9a9a] px-2 py-1.5">
+                      {(l as any).expiry_date ? fmtDatePl((l as any).expiry_date) : '—'}
+                    </td>
+                    <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">
+                      {((l as any).containers ?? 0) > 0 ? (l as any).containers : '—'}
+                    </td>
+                    <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">
+                      {fmtKg3(l.total_kg ?? (l.unit === 'kg' ? l.qty : 0))}
+                    </td>
+                  </tr>
+                ))}
+                <tr>
+                  <td colSpan={5} className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold">Razem</td>
+                  <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold font-mono">
+                    {sumCont > 0 ? sumCont : '—'}
+                  </td>
+                  <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold font-mono">{fmtKg3(sumKg)}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div className="mt-1 text-[10px] text-[#666]">
+              Zakład pod stałym nadzorem weterynaryjnym, posiada system HACCP. Dokument stanowi handlową identyfikację partii wydanego surowca.
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Podpisy */}
       <div className="flex justify-between mt-16">
         {['Wydał', 'Odebrał'].map(s => (

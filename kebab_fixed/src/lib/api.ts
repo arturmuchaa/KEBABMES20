@@ -1406,6 +1406,9 @@ export interface WzLine {
   kg_per_unit?: number | null   // waga 1 szt — pozycje FG wyceniane za kg
   total_kg?: number | null      // qty * kg_per_unit
   containers?: number | null    // pojemniki E2 (surowiec) — informacyjnie + HDI
+  stock_type?: string | null    // 'raw'|'meat'|'byproduct'|'fg' — surowcowe wchodzą do tabeli HDI
+  slaughter_date?: string | null // data uboju partii (stempel przy wystawieniu)
+  expiry_date?: string | null    // data ważności partii (stempel przy wystawieniu)
 }
 export interface WzLoadingDiff {
   name: string; batch_no: string | null

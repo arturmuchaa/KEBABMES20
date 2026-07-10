@@ -253,6 +253,19 @@ def create_manual_wz(
         raise HTTPException(400, "WZ wymaga co najmniej jednej pozycji")
 
     lines, total = build_manual_wz_lines(selections, valued)
+    # Tabela HDI na dokumencie (tylko surowiec): daty uboju/ważności partii
+    # stemplowane na liniach W CHWILI wystawienia — dokument to snapshot.
+    nos = sorted({str(l.get("batch_no") or "") for l in lines
+                  if l.get("batch_no") and l.get("stock_type") in ("raw", "meat", "byproduct")})
+    if nos:
+        dates = {r["internal_batch_no"]: r for r in query_all(
+            "SELECT internal_batch_no, slaughter_date, expiry_date FROM raw_batches "
+            "WHERE internal_batch_no = ANY(%s)", (nos,))}
+        for l in lines:
+            d = dates.get(str(l.get("batch_no") or ""))
+            if d and l.get("stock_type") in ("raw", "meat", "byproduct"):
+                l["slaughter_date"] = str(d.get("slaughter_date") or "")[:10] or None
+                l["expiry_date"] = str(d.get("expiry_date") or "")[:10] or None
     co = get_company()
     today = date.today()
     issued = issued_date or today.isoformat()
@@ -743,43 +756,86 @@ def stock_finished_goods() -> List[Dict[str, Any]]:
            ORDER BY produced_date DESC NULLS LAST, batch_no""")
 
 
+def _pallet_containers(pallets) -> int:
+    """Suma pojemników z palet ważenia zbiorczego (kreator HMI)."""
+    total = 0
+    for pal in pallets or []:
+        try:
+            total += int((pal or {}).get("containers") or 0)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
 def stock_raw() -> List[Dict[str, Any]]:
     """Pozycje surowcowe do ręcznego WZ — wszystko wydawalne w kg:
     ćwiartka (raw_batches), mięso z/s (meat_stock), grzbiety/kości
-    (byproduct_lots — loty otwarte). stock_type steruje rozchodem
-    w create_manual_wz."""
+    (byproduct_lots — loty otwarte). stock_type steruje rozchodem.
+
+    containers = pojemniki ZAPAMIĘTANE z ważenia na HMI (palety kreatora
+    dla ubocznych, e2_count wpisów dla mięsa; ćwiartka: kg/15). Trafiają
+    jako podpowiedź do formularza WZ (operator może poprawić).
+    Daty uboju/ważności partii — do tabeli HDI na dokumencie."""
     out: List[Dict[str, Any]] = []
     for r in query_all(
-        """SELECT id, internal_batch_no, supplier_name, kg_available, material_name
+        """SELECT id, internal_batch_no, supplier_name, kg_available, material_name,
+                  slaughter_date, expiry_date
            FROM raw_batches WHERE COALESCE(kg_available,0) > 0
            ORDER BY received_date DESC NULLS LAST, internal_batch_no"""):
+        kg = float(r["kg_available"] or 0)
         out.append({
             "id": r["id"], "stock_type": "raw",
             "internal_batch_no": r["internal_batch_no"],
             "supplier_name": r["supplier_name"],
             "name": r.get("material_name") or "Ćwiartka z kurczaka",
             "kg_available": r["kg_available"],
+            "containers": int(-(-kg // 15)) if kg > 0 else None,  # 15 kg/poj.
+            "slaughter_date": str(r.get("slaughter_date") or "")[:10] or None,
+            "expiry_date": str(r.get("expiry_date") or "")[:10] or None,
         })
     for m in query_all(
-        """SELECT id, lot_no, raw_batch_no, kg_available, material_name
-           FROM meat_stock WHERE status='AVAILABLE' AND COALESCE(kg_available,0) > 0
-           ORDER BY created_at DESC"""):
+        """SELECT m.id, m.lot_no, m.raw_batch_no, m.kg_available, m.material_name,
+                  b.slaughter_date, b.expiry_date,
+                  (SELECT COALESCE(SUM(de.e2_count), 0) FROM deboning_entries de
+                   WHERE de.raw_batch_id = m.raw_batch_id
+                     AND COALESCE(de.status,'complete')='complete') AS e2
+           FROM meat_stock m
+           LEFT JOIN raw_batches b ON b.id = m.raw_batch_id
+           WHERE m.status='AVAILABLE' AND COALESCE(m.kg_available,0) > 0
+           ORDER BY m.created_at DESC"""):
+        e2 = int(m.get("e2") or 0)
         out.append({
             "id": m["id"], "stock_type": "meat",
             "internal_batch_no": m.get("lot_no") or m.get("raw_batch_no"),
             "supplier_name": None,
             "name": m.get("material_name") or "Mięso z/s",
             "kg_available": m["kg_available"],
+            "containers": e2 or None,
+            "slaughter_date": str(m.get("slaughter_date") or "")[:10] or None,
+            "expiry_date": str(m.get("expiry_date") or "")[:10] or None,
         })
-    for b in query_all(
-        """SELECT id, raw_batch_no, kind, kg FROM byproduct_lots
-           WHERE status='open' AND COALESCE(kg,0) > 0 AND kind IN ('backs','bones')
-           ORDER BY created_at DESC"""):
+    lots = query_all(
+        """SELECT l.id, l.raw_batch_id, l.raw_batch_no, l.kind, l.kg,
+                  b.slaughter_date, b.expiry_date,
+                  bb.backs_pallets, bb.bones_pallets
+           FROM byproduct_lots l
+           LEFT JOIN raw_batches b ON b.id = l.raw_batch_id
+           LEFT JOIN batch_byproducts bb ON bb.raw_batch_id = l.raw_batch_id
+           WHERE l.status='open' AND COALESCE(l.kg,0) > 0 AND l.kind IN ('backs','bones')
+           ORDER BY l.created_at DESC""")
+    for b in lots:
+        pallets = b.get("backs_pallets") if b["kind"] == "backs" else b.get("bones_pallets")
+        cont = _pallet_containers(pallets)
         out.append({
             "id": b["id"], "stock_type": "byproduct",
             "internal_batch_no": b.get("raw_batch_no"),
             "supplier_name": None,
+            # Krótka nazwa do HMI/MES; pełna (doc_name) idzie na WZ i HDI.
             "name": "Grzbiety" if b["kind"] == "backs" else "Kości",
+            "doc_name": "Grzbiety z kurczaka" if b["kind"] == "backs" else "Kości z kurczaka",
             "kg_available": b["kg"],
+            "containers": cont or None,
+            "slaughter_date": str(b.get("slaughter_date") or "")[:10] or None,
+            "expiry_date": str(b.get("expiry_date") or "")[:10] or None,
         })
     return out

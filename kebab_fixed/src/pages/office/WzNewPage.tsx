@@ -25,6 +25,8 @@ import {
 type Row = {
   stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string
   containersStr?: string
+  slaughterDate?: string | null
+  expiryDate?: string | null
   qtyStr: string; priceStr: string; batchNo?: string; available: number
   kgPerUnit?: number   // FG: waga 1 szt — wycena za kg
 }
@@ -151,9 +153,14 @@ export function WzNewPage() {
   // w tabeli (np. „600 z 406, reszta nie weszła na samochód").
   const addRaw = (b: any) => setRows(r => [...r, {
     stockType: b.stock_type || 'raw', stockId: b.id,
-    name: b.name || `Surowiec ${b.internal_batch_no}`,
-    unit: 'kg', qtyStr: String(Number(b.kg_available || 0)), priceStr: '', containersStr: '',
+    // Pełna nazwa na dokument (doc_name); krótka zostaje w HMI/MES.
+    name: b.doc_name || b.name || `Surowiec ${b.internal_batch_no}`,
+    unit: 'kg', qtyStr: String(Number(b.kg_available || 0)), priceStr: '',
+    // Pojemniki ZAPAMIĘTANE z ważenia na HMI — podpowiedź, można poprawić.
+    containersStr: b.containers ? String(b.containers) : '',
     batchNo: b.internal_batch_no,
+    slaughterDate: b.slaughter_date ?? null,
+    expiryDate: b.expiry_date ?? null,
     available: Number(b.kg_available || 0),
   }])
   const upd = (i: number, k: 'qtyStr' | 'priceStr' | 'containersStr', v: string) =>
@@ -184,6 +191,9 @@ export function WzNewPage() {
     lines: rows.map(r => ({
       name: r.name, qty: rowQty(r), unit: r.unit, batch_no: r.batchNo ?? null,
       containers: parseInt(r.containersStr || '') || null,
+      stock_type: r.stockType,
+      slaughter_date: r.slaughterDate ?? null,
+      expiry_date: r.expiryDate ?? null,
       kg_per_unit: r.kgPerUnit ?? null,
       total_kg: r.kgPerUnit ? Math.round(rowQty(r) * r.kgPerUnit * 1000) / 1000 : null,
       price: valued ? rowPrice(r) : null, value: valued ? Math.round(rowValue(r) * 100) / 100 : null,
