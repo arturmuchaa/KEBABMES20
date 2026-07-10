@@ -428,10 +428,10 @@ export function DeboningReportsPage() {
                     </div>
                     <div className="rounded-lg border border-surface-4 bg-white p-3" style={{ height: 320 }}>
                       <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chart} margin={{ top: 8, right: 12, left: -14, bottom: 0 }}>
+                        <LineChart data={chart} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#EEF1F5" vertical={false} />
                           <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} minTickGap={14} />
-                          <YAxis tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} width={40}
+                          <YAxis tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} width={52}
                             domain={['dataMin - 1', 'dataMax + 1']} tickFormatter={v => `${nf1.format(v)}%`} />
                           <Tooltip
                             formatter={(v: any, name: any) => name === 'pct' ? [`${nf1.format(v)}%`, 'śr. % mięsa'] : [`${nf0.format(v)} kg`, 'mięso']}
