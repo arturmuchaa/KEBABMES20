@@ -160,13 +160,30 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
         b["raw_batch_no"] for b in bp_rows if b["raw_batch_no"]
     }
     supplier_by_no: Dict[str, str] = {}
+    price_by_no: Dict[str, float] = {}
+    rev_by_no: Dict[str, float] = {}
     if batch_nos:
         for sr in query_all(
-            "SELECT internal_batch_no, supplier_name FROM raw_batches "
+            "SELECT internal_batch_no, supplier_name, price_per_kg FROM raw_batches "
             "WHERE internal_batch_no = ANY(%s)",
             (list(batch_nos),),
         ):
             supplier_by_no[sr["internal_batch_no"]] = sr["supplier_name"] or ""
+            if sr.get("price_per_kg") is not None:
+                price_by_no[sr["internal_batch_no"]] = float(sr["price_per_kg"])
+        # Przychód ze SPRZEDANYCH ubocznych partii (linie WZ z cenami) —
+        # odejmuje się od kosztu ćwiartki → efektywny koszt 1 kg mięsa.
+        for rr in query_all(
+            """
+            SELECT l->>'batch_no' AS bno, SUM((l->>'value')::numeric) AS rev
+            FROM wz_documents w, jsonb_array_elements(w.lines) l
+            WHERE l->>'stock_type' = 'byproduct'
+              AND (l->>'value') IS NOT NULL AND l->>'batch_no' = ANY(%s)
+            GROUP BY 1
+            """,
+            (list(batch_nos),),
+        ):
+            rev_by_no[rr["bno"] or ""] = float(rr["rev"] or 0)
 
     wagg: Dict[str, Dict] = defaultdict(
         lambda: {"quarters": 0, "kgQuarter": 0.0, "kgMeat": 0.0,
@@ -260,7 +277,24 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
             "missingKg": round(missing, 1) if missing is not None else None,
             "missingPct": round(missing / quarter * 100, 1)
             if missing is not None and quarter else None,
+            # Rachunek partii: koszt ćwiartki − przychód z ubocznych = koszt
+            # mięsa. Jedyna liczba porównująca dostawców uczciwie (zł/kg mięsa).
+            "pricePerKg": price_by_no.get(no),
+            "quarterCost": round(quarter * price_by_no[no], 2)
+            if no in price_by_no and quarter else None,
+            "byproductRevenue": round(rev_by_no.get(no, 0.0), 2) or None,
+            "meatCostPerKg": round(
+                (quarter * price_by_no[no] - rev_by_no.get(no, 0.0)) / v["kgMeat"], 2
+            ) if no in price_by_no and quarter and has_entries and v["kgMeat"] > 0 else None,
         })
+
+    # Łączna ekonomia zakresu — tylko partie ze znaną ceną zakupu.
+    eco_cost = eco_rev = eco_meat = 0.0
+    for b in by_batch:
+        if b["quarterCost"] is not None and b["kgMeat"] > 0 and b["yieldPct"] is not None:
+            eco_cost += b["quarterCost"]
+            eco_rev += b["byproductRevenue"] or 0.0
+            eco_meat += b["kgMeat"]
 
     recent = [
         {"id": r["id"], "workerName": r["worker_name"] or "—",
@@ -310,6 +344,12 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
             "missingPct": round(
                 (total_kgq - total_meat - total_backs - total_bones) / total_kgq * 100, 1
             ) if total_kgq else 0.0,
+            # Efektywny koszt 1 kg mięsa (partie ze znaną ceną zakupu):
+            # (koszt ćwiartki − przychód z ubocznych) / kg mięsa.
+            "quarterCost": round(eco_cost, 2) if eco_cost else None,
+            "byproductRevenue": round(eco_rev, 2) if eco_rev else None,
+            "meatCostPerKg": round((eco_cost - eco_rev) / eco_meat, 2)
+            if eco_cost and eco_meat > 0 else None,
         },
         "workers": workers,
         "byHour": by_hour,

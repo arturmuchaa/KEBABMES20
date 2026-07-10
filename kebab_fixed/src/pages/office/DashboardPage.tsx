@@ -314,8 +314,12 @@ export function DashboardPage() {
     [allDeboning, today],
   )
   const debKgQuarter = todayDeb.reduce((s: number, d: any) => s + Number(d.kgTaken ?? d.kg_taken ?? 0), 0)
-  const debKgMeat    = todayDeb.reduce((s: number, d: any) => s + Number(d.kgMeat  ?? d.kg_meat  ?? 0), 0)
-  const debYield     = debKgQuarter > 0 ? (debKgMeat / debKgQuarter) * 100 : 0
+  // Procent TYLKO z domkniętych wpisów — otwarte pobrania (ćwiartka zeszła,
+  // mięso czeka na wagę) zaniżały wydajność (np. 39%, mylące).
+  const todayDebDone = todayDeb.filter((d: any) => (d.status ?? 'complete') === 'complete')
+  const debKgQuarterDone = todayDebDone.reduce((s: number, d: any) => s + Number(d.kgTaken ?? d.kg_taken ?? 0), 0)
+  const debKgMeat    = todayDebDone.reduce((s: number, d: any) => s + Number(d.kgMeat  ?? d.kg_meat  ?? 0), 0)
+  const debYield     = debKgQuarterDone > 0 ? (debKgMeat / debKgQuarterDone) * 100 : 0
 
   // ── KPI: ćwiartka + pojemniki ──────────────────────────────────
   const activeBatches = allBatches.filter(

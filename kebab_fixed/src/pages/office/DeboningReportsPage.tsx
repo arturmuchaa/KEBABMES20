@@ -5,7 +5,7 @@
  * (dziś/wczoraj/7 dni/miesiąc/rok/własny), KPI, wykres przepustowości,
  * ranking pracowników (kto najwięcej, kto najlepszy %) i live-feed (gdy dziś).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { deboningApi, type DeboningStats, type DeboningStatsWorker } from '@/lib/api'
 import { DataTable } from '@/components/DataTable'
 import { usePageHeaderActions } from '@/components/PageHeader'
@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils'
 import { useNavigate } from 'react-router-dom'
 import {
   Scissors, Beef, Gauge, Percent, Users, Bone, Layers, Radio, CalendarDays, X,
-  Package, Scale, Truck,
+  Package, Scale, Truck, Banknote, Printer,
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -53,9 +53,21 @@ function resolveRange(preset: Preset, cf: string, ct: string): { from: string; t
   }
 }
 
+/** Poprzedni okres o tej samej długości, bezpośrednio przed bieżącym
+ *  (dziś → wczoraj, 7 dni → poprzednie 7 dni itd.). */
+function prevRange(from: string, to: string): { from: string; to: string } {
+  const f = new Date(`${from}T00:00:00`)
+  const t = new Date(`${to}T00:00:00`)
+  const days = Math.max(1, Math.round((t.getTime() - f.getTime()) / 86400000) + 1)
+  const pt = new Date(f); pt.setDate(f.getDate() - 1)
+  const pf = new Date(pt); pf.setDate(pt.getDate() - (days - 1))
+  return { from: ymd(pf), to: ymd(pt) }
+}
+
 // ─── Formatery ───────────────────────────────────────────────
 const nf0 = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+const nf2 = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 function yieldTone(pct: number): string {
   if (pct >= 66) return 'text-emerald-600'
@@ -81,8 +93,24 @@ const ACCENT: Record<Accent, string> = {
   red:    'bg-red-50 text-red-600 ring-1 ring-red-100',
 }
 
-function Kpi({ icon: Icon, label, value, unit, sub, tone, accent }: {
-  icon: any; label: string; value: string; unit?: string; sub?: string; tone?: string; accent: Accent
+/** Delta vs poprzedni okres — mała linijka pod wartością KPI. */
+function DeltaVsPrev({ cur, prev, fmt, unit, invert }: {
+  cur?: number | null; prev?: number | null; fmt: Intl.NumberFormat; unit: string; invert?: boolean
+}) {
+  if (cur == null || prev == null) return null
+  const d = cur - prev
+  if (Math.abs(d) < 0.05) return <span className="text-ink-4">= jak w poprzednim okresie</span>
+  const up = d > 0
+  const good = invert ? !up : up
+  return (
+    <span className={cn('font-semibold tabular-nums', good ? 'text-emerald-600' : 'text-red-500')}>
+      {up ? '▲' : '▼'} {up ? '+' : '−'}{fmt.format(Math.abs(d))} {unit} vs poprz.
+    </span>
+  )
+}
+
+function Kpi({ icon: Icon, label, value, unit, sub, tone, accent, delta }: {
+  icon: any; label: string; value: string; unit?: string; sub?: string; tone?: string; accent: Accent; delta?: ReactNode
 }) {
   return (
     <Card className="relative overflow-hidden">
@@ -102,6 +130,7 @@ function Kpi({ icon: Icon, label, value, unit, sub, tone, accent }: {
           {unit && <span className="text-xs font-medium text-ink-3">{unit}</span>}
         </div>
         {sub && <div className="text-[11px] pt-2 text-ink-3">{sub}</div>}
+        {delta && <div className="text-[10.5px] pt-1.5">{delta}</div>}
       </CardContent>
     </Card>
   )
@@ -125,6 +154,7 @@ export function DeboningReportsPage() {
   const isTodayRange = to === ymd(new Date())
 
   const [data, setData] = useState<DeboningStats | null>(null)
+  const [prevData, setPrevData] = useState<DeboningStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [drill, setDrill] = useState<DeboningStatsWorker | null>(null)
 
@@ -140,6 +170,9 @@ export function DeboningReportsPage() {
 
   const load = useCallback(() => {
     deboningApi.stats(from, to).then(setData).catch(() => setData(null)).finally(() => setLoading(false))
+    // Poprzedni okres o tej samej długości — do delt na KPI (▲/▼ vs poprz.).
+    const p = prevRange(from, to)
+    deboningApi.stats(p.from, p.to).then(setPrevData).catch(() => setPrevData(null))
   }, [from, to])
 
   useEffect(() => { setLoading(true); load() }, [load])
@@ -182,27 +215,48 @@ export function DeboningReportsPage() {
             className="h-8 rounded-md border border-surface-4 px-2 text-xs" />
         </div>
       )}
+      <button
+        onClick={() => window.open(`/office/rozbior-raport/druk?from=${from}&to=${to}`, '_blank')}
+        className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-surface-4 bg-white text-xs font-semibold text-ink-2 hover:bg-surface-2 hover:text-ink transition-colors"
+        title="Raport okresowy do druku / PDF">
+        <Printer size={14} />
+        Drukuj raport
+      </button>
     </div>,
     [preset, cf, ct, liveNow, from, to],
   )
 
   const s = data?.summary
+  // Delty tylko gdy poprzedni okres miał rozbiór (inaczej porównanie z zerem myli).
+  const ps = (prevData?.summary?.quarters ?? 0) > 0 ? prevData!.summary : null
   const empty = !loading && (!s || s.quarters === 0)
 
   return (
     <div className="space-y-4 animate-fade-in">
       {/* ── KPI ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
-        <Kpi icon={Scissors} label="Ćwiartka pobrana" value={nf0.format(s?.kgQuarter ?? 0)} unit="kg" sub={`${nf0.format(s?.quarters ?? 0)} wpisów`} accent="blue" />
-        <Kpi icon={Beef} label="Kg mięsa" value={nf0.format(s?.kgMeat ?? 0)} unit="kg" accent="blue" />
-        <Kpi icon={Percent} label="Śr. rozbiór" value={nf1.format(s?.avgYield ?? 0)} unit="%" tone={yieldTone(s?.avgYield ?? 0)} accent="green" />
-        <Kpi icon={Gauge} label="Tempo" value={nf0.format(s?.kgPerHour ?? 0)} unit="kg/h" accent="blue" />
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-9 gap-3">
+        <Kpi icon={Scissors} label="Ćwiartka pobrana" value={nf0.format(s?.kgQuarter ?? 0)} unit="kg" sub={`${nf0.format(s?.quarters ?? 0)} wpisów`} accent="blue"
+          delta={<DeltaVsPrev cur={s?.kgQuarter} prev={ps?.kgQuarter} fmt={nf0} unit="kg" />} />
+        <Kpi icon={Beef} label="Kg mięsa" value={nf0.format(s?.kgMeat ?? 0)} unit="kg" accent="blue"
+          delta={<DeltaVsPrev cur={s?.kgMeat} prev={ps?.kgMeat} fmt={nf0} unit="kg" />} />
+        <Kpi icon={Percent} label="Śr. rozbiór" value={nf1.format(s?.avgYield ?? 0)} unit="%" tone={yieldTone(s?.avgYield ?? 0)} accent="green"
+          delta={<DeltaVsPrev cur={s?.avgYield} prev={ps?.avgYield} fmt={nf1} unit="p.p." />} />
+        <Kpi icon={Gauge} label="Tempo" value={nf0.format(s?.kgPerHour ?? 0)} unit="kg/h" accent="blue"
+          delta={<DeltaVsPrev cur={s?.kgPerHour} prev={ps?.kgPerHour} fmt={nf0} unit="kg/h" />} />
         <Kpi icon={Users} label="Pracownicy" value={nf0.format(s?.workers ?? 0)} accent="purple" />
         <Kpi icon={Bone} label="Kości" value={nf0.format(s?.kgBones ?? 0)} unit="kg" sub={`${nf1.format(s?.bonesPct ?? 0)}%`} tone="text-ink-2" accent="amber" />
         <Kpi icon={Layers} label="Grzbiety" value={nf0.format(s?.kgBacks ?? 0)} unit="kg" sub={`${nf1.format(s?.backsPct ?? 0)}%`} tone="text-ink-2" accent="amber" />
         {/* Bilans masy: ćwiartka − (mięso+kości+grzbiety). Dodatni = ubytek
             (coś niezważone, >3% czerwone); ujemny = NADWYŻKA nad wagę
             z dokumentu dostawcy (realny towar > deklaracja — zielone). */}
+        {/* Rachunek rozbioru: (koszt ćwiartki − sprzedane uboczne) / kg mięsa */}
+        <Kpi icon={Banknote} label="Koszt mięsa"
+          value={s?.meatCostPerKg != null ? nf2.format(s.meatCostPerKg) : '—'} unit="zł/kg"
+          sub={s?.quarterCost != null
+            ? `ćwiartka ${nf0.format(s.quarterCost)} zł − uboczne ${nf0.format(s.byproductRevenue ?? 0)} zł`
+            : 'brak cen zakupu w zakresie'}
+          accent="green"
+          delta={<DeltaVsPrev cur={s?.meatCostPerKg} prev={ps?.meatCostPerKg} fmt={nf2} unit="zł" invert />} />
         {(() => {
           const mk = s?.missingKg ?? 0
           const mp = s?.missingPct ?? 0
@@ -270,6 +324,10 @@ export function DeboningReportsPage() {
                   cell: b => <span className="tabular-nums text-ink-2">{nf1.format(b.kgBacks)}{b.backsPct != null && <span className="text-[10px] text-ink-4"> ({nf1.format(b.backsPct)}%)</span>}</span> },
                 { key: 'kgBones', header: 'Kości', align: 'right', sortable: true, sortValue: b => b.kgBones,
                   cell: b => <span className="tabular-nums text-ink-2">{nf1.format(b.kgBones)}{b.bonesPct != null && <span className="text-[10px] text-ink-4"> ({nf1.format(b.bonesPct)}%)</span>}</span> },
+                { key: 'meatCostPerKg', header: 'Koszt mięsa [zł/kg]', align: 'right', sortable: true, sortValue: b => b.meatCostPerKg ?? 999,
+                  cell: b => b.meatCostPerKg != null
+                    ? <span className="font-black tabular-nums text-ink" title={`ćwiartka ${nf0.format(b.quarterCost ?? 0)} zł − uboczne ${nf0.format(b.byproductRevenue ?? 0)} zł`}>{nf2.format(b.meatCostPerKg)}</span>
+                    : <span className="text-ink-4">—</span> },
                 { key: 'missingKg', header: 'Bilans ±', align: 'right', sortable: true, sortValue: b => b.missingKg ?? -999,
                   cell: b => {
                     if (b.missingKg == null) return <span className="text-ink-4">—</span>

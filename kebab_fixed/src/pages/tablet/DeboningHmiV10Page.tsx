@@ -1125,6 +1125,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         const wt = wEntries.reduce((s, e) => s + e.kgTaken, 0)
         const wm = wEntries.reduce((s, e) => s + e.kgMeat, 0)
         const wy = wt > 0 ? (wm / wt) * 100 : 0
+        // Otwarte pobranie pracownika — statystyki i zmiana pobrania w JEDNYM modalu
+        // (wcześniej long-press przy pending otwierał od razu edycję i statystyk nie było).
+        const pnd = pendingByWorker.get(workerDetail.id)
         return (
           <div className="fixed inset-0 z-[56] flex items-center justify-center bg-black/45" style={VARS}>
             <div className="w-[720px] max-w-[96vw] flex flex-col" style={{ maxHeight: '92vh', borderRadius: 16, background: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', boxShadow: '0 30px 80px -30px rgba(0,0,0,.5)' }}>
@@ -1141,7 +1144,26 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 <button type="button" onClick={() => { setWorkerDetail(null); setEditEntryId(null) }} className="w-9 h-9 flex items-center justify-center" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}><X size={18} /></button>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-2">
-                {wEntries.length === 0 && <div className="text-center py-8 text-sm font-semibold" style={{ color: 'var(--mut)' }}>Brak wpisów dziś</div>}
+                {pnd && (
+                  <div className="flex items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--ambSoft)', border: '1.5px solid var(--ambLine)' }}>
+                    <span className="text-2xl">⏳</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-extrabold" style={{ color: 'var(--amb)' }}>
+                        Otwarte pobranie — czeka na zważenie mięsa
+                      </div>
+                      <div className="hmi-v10-mono text-[12px] font-bold" style={{ color: 'var(--mut)' }}>
+                        {fmtKg(pnd.totalKg, 1)} kg ćwiartki · partia {pnd.batchNos.join(', ')}
+                      </div>
+                    </div>
+                    <button type="button"
+                      onClick={() => { setTakeEdit({ entry: pnd.entry, value: String(pnd.entry.kgTaken) }); setWorkerDetail(null); setEditEntryId(null) }}
+                      className="h-11 px-5 text-sm font-bold flex-shrink-0"
+                      style={{ borderRadius: 10, background: 'var(--amb)', color: '#fff' }}>
+                      Zmień pobranie
+                    </button>
+                  </div>
+                )}
+                {wEntries.length === 0 && !pnd && <div className="text-center py-8 text-sm font-semibold" style={{ color: 'var(--mut)' }}>Brak wpisów dziś</div>}
                 {wEntries.map(e => editEntryId === e.id ? (
                   <div key={e.id} className="flex items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
                     <span className="hmi-v10-mono text-xs" style={{ color: 'var(--mut)' }}>{new Date(entryTime(e)).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -1164,6 +1186,15 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                     <button type="button" onClick={() => startEditEntry(e)} className="h-9 text-xs font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--accent)' }}>Edytuj</button>
                   </div>
                 ))}
+                {wEntries.length > 0 && (
+                  <div className="grid grid-cols-[52px_56px_1fr_1fr_52px_90px] items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
+                    <span className="text-[11px] font-extrabold uppercase col-span-2" style={{ color: 'var(--accent)', letterSpacing: '.08em' }}>Razem</span>
+                    <span className="hmi-v10-mono text-sm font-extrabold text-right"><span className="text-[9px] uppercase mr-1 font-bold" style={{ color: 'var(--mut)' }}>ćw</span>{fmtKg(wt, 1)}</span>
+                    <span className="hmi-v10-mono text-sm font-extrabold text-right"><span className="text-[9px] uppercase mr-1 font-bold" style={{ color: 'var(--mut)' }}>mię</span>{fmtKg(wm, 1)}</span>
+                    <span className="hmi-v10-mono text-sm font-extrabold text-right" style={{ color: yieldInk(wy) }}>{fmtPct(wy, 1)}</span>
+                    <span className="hmi-v10-mono text-[11px] font-bold text-right" style={{ color: 'var(--mut)' }}>{wEntries.length} szt</span>
+                  </div>
+                )}
               </div>
               <div className="px-4 py-3 flex-shrink-0 text-[11px] font-semibold" style={{ borderTop: '1px solid var(--line)', color: 'var(--mut)' }}>
                 Edycja możliwa, dopóki mięso nie poszło dalej (np. na masowanie). Jeśli poszło — system zablokuje zmianę.
@@ -1345,11 +1376,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                         return !!pnd && !!selBatch && !pnd.batchIds.has(selBatch.id)
                       })()}
                       onSelect={pickWorker}
-                      onLongPress={(wk) => {
-                        const p = pendingByWorker.get(wk.id)
-                        if (p) { setTakeEdit({ entry: p.entry, value: String(p.entry.kgTaken) }) }
-                        else { setWorkerDetail(wk); setEditEntryId(null) }
-                      }} />
+                      onLongPress={(wk) => { setWorkerDetail(wk); setEditEntryId(null) }} />
                   )
                 })}
                 {workers.length === 0 && (

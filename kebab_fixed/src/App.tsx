@@ -34,6 +34,7 @@ import { BatchReportPage }      from '@/pages/office/BatchReportPage'
 import { HdiDocumentsPage }     from '@/pages/office/HdiDocumentsPage'
 import { CmrDocumentsPage }     from '@/pages/office/CmrDocumentsPage'
 import { WzPrintPage }          from '@/pages/office/WzPrintPage'
+import { DeboningReportPrintPage } from '@/pages/office/DeboningReportPrintPage'
 import { WzDocumentsPage }      from '@/pages/office/WzDocumentsPage'
 import { WzNewPage }            from '@/pages/office/WzNewPage'
 import { CmrLayoutConfigPage }  from '@/pages/office/CmrLayoutConfigPage'
@@ -107,6 +108,7 @@ export default function App() {
       <Route path="/office/hdi/:id/druk" element={<HdiPrintPage />} />
       <Route path="/office/cmr/:id/druk" element={<CmrPrintPage />} />
       <Route path="/office/wz/:id/druk" element={<WzPrintPage />} />
+      <Route path="/office/rozbior-raport/druk" element={<DeboningReportPrintPage />} />
       <Route path="/office/partia/:batchNo/raport" element={<BatchReportPage />} />
       <Route path="/etykiety/szablon" element={<LabelTemplateSetupPage />} />
 
