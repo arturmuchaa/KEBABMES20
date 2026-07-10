@@ -81,6 +81,24 @@ def test_stats_biura_widza_zbiorcze_grzbiety_i_kosci(db):
     assert stats["summary"]["kgBones"] == 30.0
 
 
+def test_stats_by_batch_z_dostawca_ubocznymi_i_ubytkiem(db):
+    """Tabela „uzysk per partia" w biurze: zbiorcze grzbiety/kości doliczone
+    per partia, dostawca z raw_batches, ubytek = bilans masy."""
+    _seed_batch_with_entries(internal_no="806")  # 200 kg ćw., 132 kg mięsa
+    finish_batch("rb1")
+    record("rb1", "backs", 40.0, [])
+    record("rb1", "bones", 20.0, [])
+    today = date.today().isoformat()
+    stats = deboning_stats(today, today)
+    row = next(b for b in stats["byBatch"] if b["batchNo"] == "806")
+    assert row["supplierName"] == "Dostawca"
+    assert row["kgBacks"] == 40.0 and row["kgBones"] == 20.0
+    assert row["backsPct"] == 20.0 and row["bonesPct"] == 10.0
+    # ubytek: 200 − 132 − 40 − 20 = 8 kg = 4%
+    assert row["missingKg"] == 8.0 and row["missingPct"] == 4.0
+    assert stats["summary"]["missingKg"] == 8.0
+
+
 def test_kafelek_zostaje_dopoki_bilans_masy_sie_nie_domyka(db):
     """Zważona połowa grzbietów + kości NIE zdejmuje kafla — mięso+kości+
     grzbiety musi pokryć ćwiartkę (prod 2026-07-09)."""

@@ -134,18 +134,33 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     # Zbiorcze ważenie ubocznych partii (batch_byproducts) — kreator na HMI
     # zapisuje grzbiety/kości NA PARTIĘ, nie per wpis, więc bez tego biuro
     # widziało zero (prod 2026-07-08). Frakcja liczy się w dniu zakończenia
-    # partii (finished_at), zapasowo w dniu ważenia.
-    bp = query_one(
+    # partii (finished_at), zapasowo w dniu ważenia. Wiersze per partia —
+    # doliczają się i do sum KPI, i do tabeli „uzysk per partia".
+    bp_rows = query_all(
         """
-        SELECT COALESCE(SUM(backs_kg), 0) AS backs, COALESCE(SUM(bones_kg), 0) AS bones
+        SELECT raw_batch_no, COALESCE(backs_kg, 0) AS backs,
+               COALESCE(bones_kg, 0) AS bones, COALESCE(quarter_kg, 0) AS quarter
         FROM batch_byproducts
         WHERE COALESCE(finished_at, backs_at, bones_at)::date BETWEEN %s AND %s
         """,
         (date_from, date_to),
     )
-    total_backs += f(bp and bp.get("backs"))
-    total_bones += f(bp and bp.get("bones"))
+    total_backs += sum(f(b["backs"]) for b in bp_rows)
+    total_bones += sum(f(b["bones"]) for b in bp_rows)
     active_hours = max(1, len({bucket(r) for r in rows})) if rows else 1
+
+    # Dostawca per numer partii — do tabeli uzysku (porównanie dostawców).
+    batch_nos = {r["raw_batch_no"] for r in rows if r["raw_batch_no"]} | {
+        b["raw_batch_no"] for b in bp_rows if b["raw_batch_no"]
+    }
+    supplier_by_no: Dict[str, str] = {}
+    if batch_nos:
+        for sr in query_all(
+            "SELECT internal_batch_no, supplier_name FROM raw_batches "
+            "WHERE internal_batch_no = ANY(%s)",
+            (list(batch_nos),),
+        ):
+            supplier_by_no[sr["internal_batch_no"]] = sr["supplier_name"] or ""
 
     wagg: Dict[str, Dict] = defaultdict(
         lambda: {"quarters": 0, "kgQuarter": 0.0, "kgMeat": 0.0,
@@ -198,18 +213,46 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
         for k, v in sorted(dagg.items())
     ]
 
-    # Uzysk per partia surowca — % mięsa z każdej partii w zakresie.
-    # Ważniejsze niż przepustowość: słaba partia = rozmowa z dostawcą.
-    bagg: Dict[str, Dict] = defaultdict(lambda: {"kgQuarter": 0.0, "kgMeat": 0.0})
+    # Uzysk per partia surowca — % mięsa/kości/grzbietów z każdej partii
+    # w zakresie + ubytek (bilans masy). Ważniejsze niż przepustowość:
+    # słaba partia = rozmowa z dostawcą.
+    bagg: Dict[str, Dict] = defaultdict(
+        lambda: {"kgQuarter": 0.0, "kgMeat": 0.0, "kgBacks": 0.0, "kgBones": 0.0,
+                 "bpQuarter": 0.0}
+    )
     for r in rows:
         b = bagg[r["raw_batch_no"] or "—"]
         b["kgQuarter"] += f(r["kg_quarter"])
         b["kgMeat"] += f(r["kg_meat"])
-    by_batch = [
-        {"batchNo": no, "kgQuarter": round(v["kgQuarter"], 1), "kgMeat": round(v["kgMeat"], 1),
-         "yieldPct": round(v["kgMeat"] / v["kgQuarter"] * 100, 1) if v["kgQuarter"] else 0.0}
-        for no, v in sorted(bagg.items())
-    ]
+        b["kgBacks"] += f(r["kg_backs"])
+        b["kgBones"] += f(r["kg_bones"])
+    for bpr in bp_rows:
+        b = bagg[bpr["raw_batch_no"] or "—"]
+        b["kgBacks"] += f(bpr["backs"])
+        b["kgBones"] += f(bpr["bones"])
+        b["bpQuarter"] = max(b["bpQuarter"], f(bpr["quarter"]))
+    by_batch = []
+    for no, v in sorted(bagg.items()):
+        # Partia ważona zbiorczo bez wpisów w zakresie (np. doważona następnego
+        # dnia): baza % = ćwiartka z rekordu ubocznych; uzysk mięsa wtedy bez
+        # sensu (mięso poszło w innym dniu) → None.
+        quarter = v["kgQuarter"] or v["bpQuarter"]
+        has_entries = v["kgQuarter"] > 0
+        missing = quarter - v["kgMeat"] - v["kgBacks"] - v["kgBones"] if has_entries else None
+        by_batch.append({
+            "batchNo": no,
+            "supplierName": supplier_by_no.get(no, ""),
+            "kgQuarter": round(quarter, 1),
+            "kgMeat": round(v["kgMeat"], 1),
+            "yieldPct": round(v["kgMeat"] / quarter * 100, 1) if has_entries and quarter else None,
+            "kgBacks": round(v["kgBacks"], 1),
+            "kgBones": round(v["kgBones"], 1),
+            "backsPct": round(v["kgBacks"] / quarter * 100, 1) if quarter else None,
+            "bonesPct": round(v["kgBones"] / quarter * 100, 1) if quarter else None,
+            "missingKg": round(max(0.0, missing), 1) if missing is not None else None,
+            "missingPct": round(max(0.0, missing) / quarter * 100, 1)
+            if missing is not None and quarter else None,
+        })
 
     recent = [
         {"id": r["id"], "workerName": r["worker_name"] or "—",
@@ -252,6 +295,12 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
             "kgPerHour": round(total_meat / active_hours, 1),
             "backsPct": round(total_backs / total_kgq * 100, 1) if total_kgq else 0.0,
             "bonesPct": round(total_bones / total_kgq * 100, 1) if total_kgq else 0.0,
+            # Bilans masy: ćwiartka − (mięso + kości + grzbiety). Duży ubytek =
+            # coś niezważone (ta sama logika co kafel bilansu na HMI).
+            "missingKg": round(max(0.0, total_kgq - total_meat - total_backs - total_bones), 1),
+            "missingPct": round(
+                max(0.0, total_kgq - total_meat - total_backs - total_bones) / total_kgq * 100, 1
+            ) if total_kgq else 0.0,
         },
         "workers": workers,
         "byHour": by_hour,

@@ -10,8 +10,10 @@ import { deboningApi, type DeboningStats, type DeboningStatsWorker } from '@/lib
 import { DataTable } from '@/components/DataTable'
 import { usePageHeaderActions } from '@/components/PageHeader'
 import { cn } from '@/lib/utils'
+import { useNavigate } from 'react-router-dom'
 import {
   Scissors, Beef, Gauge, Percent, Users, Bone, Layers, Radio, CalendarDays, X,
+  Package, Scale, Truck,
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -70,12 +72,13 @@ function timeAgo(iso: string): string {
 }
 
 // ─── KPI — styl dashboardu (industrial polish: chip ikony, bez pasków) ──
-type Accent = 'blue' | 'green' | 'amber' | 'purple'
+type Accent = 'blue' | 'green' | 'amber' | 'purple' | 'red'
 const ACCENT: Record<Accent, string> = {
   blue:   'bg-blue-50 text-blue-600 ring-1 ring-blue-100',
   green:  'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100',
   amber:  'bg-amber-50 text-amber-600 ring-1 ring-amber-100',
   purple: 'bg-purple-50 text-purple-600 ring-1 ring-purple-100',
+  red:    'bg-red-50 text-red-600 ring-1 ring-red-100',
 }
 
 function Kpi({ icon: Icon, label, value, unit, sub, tone, accent }: {
@@ -114,6 +117,7 @@ function MiniStat({ label, value, unit, tone }: { label: string; value: string; 
 }
 
 export function DeboningReportsPage() {
+  const navigate = useNavigate()
   const [preset, setPreset] = useState<Preset>('today')
   const [cf, setCf] = useState('')
   const [ct, setCt] = useState('')
@@ -186,7 +190,7 @@ export function DeboningReportsPage() {
   return (
     <div className="space-y-4 animate-fade-in">
       {/* ── KPI ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
         <Kpi icon={Scissors} label="Ćwiartka pobrana" value={nf0.format(s?.kgQuarter ?? 0)} unit="kg" sub={`${nf0.format(s?.quarters ?? 0)} wpisów`} accent="blue" />
         <Kpi icon={Beef} label="Kg mięsa" value={nf0.format(s?.kgMeat ?? 0)} unit="kg" accent="blue" />
         <Kpi icon={Percent} label="Śr. rozbiór" value={nf1.format(s?.avgYield ?? 0)} unit="%" tone={yieldTone(s?.avgYield ?? 0)} accent="green" />
@@ -194,6 +198,11 @@ export function DeboningReportsPage() {
         <Kpi icon={Users} label="Pracownicy" value={nf0.format(s?.workers ?? 0)} accent="purple" />
         <Kpi icon={Bone} label="Kości" value={nf0.format(s?.kgBones ?? 0)} unit="kg" sub={`${nf1.format(s?.bonesPct ?? 0)}%`} tone="text-ink-2" accent="amber" />
         <Kpi icon={Layers} label="Grzbiety" value={nf0.format(s?.kgBacks ?? 0)} unit="kg" sub={`${nf1.format(s?.backsPct ?? 0)}%`} tone="text-ink-2" accent="amber" />
+        {/* Bilans masy: ćwiartka − (mięso+kości+grzbiety). >3% = coś niezważone. */}
+        <Kpi icon={Scale} label="Ubytek (bilans)" value={nf0.format(s?.missingKg ?? 0)} unit="kg"
+          sub={`${nf1.format(s?.missingPct ?? 0)}% ćwiartki`}
+          tone={(s?.missingPct ?? 0) > 3 ? 'text-red-600' : 'text-ink-2'}
+          accent={(s?.missingPct ?? 0) > 3 ? 'red' : 'green'} />
       </div>
 
       {empty ? (
@@ -204,6 +213,59 @@ export function DeboningReportsPage() {
         </div>
       ) : (
         <>
+          {/* ── Uzysk per partia — jakość surowca / dostawcy ── */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Package size={15} className="text-ink-3" />
+              <h2 className="text-sm font-bold text-ink">Partie</h2>
+              <span className="text-[11px] text-ink-4">({data?.byBatch.length ?? 0}) · klik = raport traceability partii</span>
+            </div>
+            <DataTable
+              rows={data?.byBatch ?? []} rowKey={b => b.batchNo}
+              initialSort={{ key: 'batchNo', dir: 'desc' }}
+              onRowClick={b => { if (b.batchNo !== '—') navigate(`/office/partia/${encodeURIComponent(b.batchNo)}/raport`) }}
+              footer={rows => {
+                const kq = rows.reduce((a, b) => a + b.kgQuarter, 0)
+                const km = rows.reduce((a, b) => a + b.kgMeat, 0)
+                const kb = rows.reduce((a, b) => a + b.kgBacks, 0)
+                const kk = rows.reduce((a, b) => a + b.kgBones, 0)
+                return (
+                  <>
+                    <span>Razem · {rows.length} part.</span>
+                    <span className="ml-auto">Ćwiartka: <b>{nf0.format(kq)} kg</b></span>
+                    <span>Mięso: <b className="text-brand">{nf0.format(km)} kg</b>{kq > 0 && <b className={cn('ml-1', yieldTone(km / kq * 100))}>({nf1.format(km / kq * 100)}%)</b>}</span>
+                    <span>Grzbiety: <b>{nf0.format(kb)}</b></span>
+                    <span>Kości: <b>{nf0.format(kk)}</b></span>
+                  </>
+                )
+              }}
+              columns={[
+                { key: 'batchNo', header: 'Partia', sortable: true, sortValue: b => b.batchNo, width: 110,
+                  cell: b => <code className="font-mono font-bold text-brand">{b.batchNo}</code> },
+                { key: 'supplierName', header: 'Dostawca', sortable: true, sortValue: b => b.supplierName,
+                  cell: b => b.supplierName
+                    ? <span className="text-ink-2 truncate block max-w-[220px]" title={b.supplierName}>{b.supplierName}</span>
+                    : <span className="text-ink-4">—</span> },
+                { key: 'kgQuarter', header: 'Ćwiartka [kg]', align: 'right', sortable: true, sortValue: b => b.kgQuarter,
+                  cell: b => <span className="font-bold tabular-nums">{nf1.format(b.kgQuarter)}</span> },
+                { key: 'kgMeat', header: 'Mięso [kg]', align: 'right', sortable: true, sortValue: b => b.kgMeat,
+                  cell: b => <span className="font-bold tabular-nums text-brand">{nf1.format(b.kgMeat)}</span> },
+                { key: 'yieldPct', header: '% mięsa', align: 'right', sortable: true, sortValue: b => b.yieldPct ?? -1,
+                  cell: b => b.yieldPct != null
+                    ? <span className={cn('font-black tabular-nums', yieldTone(b.yieldPct))}>{nf1.format(b.yieldPct)}</span>
+                    : <span className="text-ink-4">—</span> },
+                { key: 'kgBacks', header: 'Grzbiety', align: 'right', sortable: true, sortValue: b => b.kgBacks,
+                  cell: b => <span className="tabular-nums text-ink-2">{nf1.format(b.kgBacks)}{b.backsPct != null && <span className="text-[10px] text-ink-4"> ({nf1.format(b.backsPct)}%)</span>}</span> },
+                { key: 'kgBones', header: 'Kości', align: 'right', sortable: true, sortValue: b => b.kgBones,
+                  cell: b => <span className="tabular-nums text-ink-2">{nf1.format(b.kgBones)}{b.bonesPct != null && <span className="text-[10px] text-ink-4"> ({nf1.format(b.bonesPct)}%)</span>}</span> },
+                { key: 'missingKg', header: 'Ubytek', align: 'right', sortable: true, sortValue: b => b.missingKg ?? -1,
+                  cell: b => b.missingKg != null
+                    ? <span className={cn('tabular-nums font-semibold', (b.missingPct ?? 0) > 3 ? 'text-red-600' : 'text-ink-3')}>{nf1.format(b.missingKg)}{b.missingPct != null && <span className="text-[10px]"> ({nf1.format(b.missingPct)}%)</span>}</span>
+                    : <span className="text-ink-4">—</span> },
+              ]}
+            />
+          </div>
+
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             {/* ── Ranking pracowników ── */}
             <div className={cn(showFeed ? 'xl:col-span-2' : 'xl:col-span-3')}>
@@ -230,6 +292,13 @@ export function DeboningReportsPage() {
                     cell: w => <span className="font-bold tabular-nums text-brand">{nf1.format(w.kgMeat)}</span> },
                   { key: 'avgYield', header: 'Śr. %', align: 'right', sortable: true, sortValue: w => w.avgYield,
                     cell: w => <span className={cn('font-black tabular-nums', yieldTone(w.avgYield))}>{nf1.format(w.avgYield)}</span> },
+                  { key: 'vsAvg', header: '± zakład', align: 'right', sortable: true,
+                    sortValue: w => w.avgYield - (s?.avgYield ?? 0),
+                    cell: w => {
+                      const d = w.avgYield - (s?.avgYield ?? 0)
+                      if (Math.abs(d) < 0.05) return <span className="text-ink-4 tabular-nums">0,0</span>
+                      return <span className={cn('tabular-nums font-semibold', d > 0 ? 'text-emerald-600' : 'text-red-500')}>{d > 0 ? '+' : '−'}{nf1.format(Math.abs(d))}</span>
+                    } },
                   { key: 'kgPerHour', header: 'Kg/h', align: 'right', sortable: true, sortValue: w => w.kgPerHour,
                     cell: w => <span className="tabular-nums text-ink-2">{nf1.format(w.kgPerHour)}</span> },
                   { key: 'quarters', header: 'Wpisy', align: 'right', sortable: true, sortValue: w => w.quarters,
@@ -267,6 +336,89 @@ export function DeboningReportsPage() {
               </div>
             )}
           </div>
+
+          {/* ── Trend dzienny + porównanie dostawców (zakresy wielodniowe) ── */}
+          {(() => {
+            const days = data?.byDay ?? []
+            const sup = new Map<string, { kgQuarter: number; kgMeat: number; batches: number }>()
+            for (const b of data?.byBatch ?? []) {
+              if (!b.supplierName || b.yieldPct == null) continue
+              const cur = sup.get(b.supplierName) ?? { kgQuarter: 0, kgMeat: 0, batches: 0 }
+              cur.kgQuarter += b.kgQuarter; cur.kgMeat += b.kgMeat; cur.batches += 1
+              sup.set(b.supplierName, cur)
+            }
+            const suppliers = Array.from(sup.entries())
+              .map(([name, v]) => ({ name, ...v, avgYield: v.kgQuarter > 0 ? v.kgMeat / v.kgQuarter * 100 : 0 }))
+              .sort((a, b) => b.kgQuarter - a.kgQuarter)
+            if (days.length <= 1 && suppliers.length <= 1) return null
+            return (
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {days.length > 1 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <CalendarDays size={15} className="text-ink-3" />
+                      <h2 className="text-sm font-bold text-ink">Trend dzienny</h2>
+                    </div>
+                    <div className="rounded-lg border border-surface-4 bg-white overflow-hidden">
+                      <div className="overflow-auto max-h-[320px]">
+                        <table className="w-full text-[13px] [font-variant-numeric:tabular-nums]">
+                          <thead>
+                            <tr className="sticky top-0 bg-surface-2 text-[11px] uppercase font-bold text-ink-3">
+                              <th className="text-left px-3 py-2">Dzień</th>
+                              <th className="text-right px-3 py-2">Wpisy</th>
+                              <th className="text-right px-3 py-2">Mięso [kg]</th>
+                              <th className="text-right px-3 py-2">Śr. %</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {days.slice().reverse().map(d => (
+                              <tr key={d.date} className="border-t border-surface-3 even:bg-[#F4F7FB]">
+                                <td className="px-3 py-1.5">{d.date.slice(8, 10)}.{d.date.slice(5, 7)}.{d.date.slice(0, 4)}</td>
+                                <td className="px-3 py-1.5 text-right text-ink-2">{d.quarters}</td>
+                                <td className="px-3 py-1.5 text-right font-bold text-brand">{nf1.format(d.kgMeat)}</td>
+                                <td className={cn('px-3 py-1.5 text-right font-black', yieldTone(d.avgYield))}>{nf1.format(d.avgYield)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {suppliers.length > 1 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Truck size={15} className="text-ink-3" />
+                      <h2 className="text-sm font-bold text-ink">Dostawcy</h2>
+                      <span className="text-[11px] text-ink-4">śr. uzysk z partii dostawcy w zakresie</span>
+                    </div>
+                    <div className="rounded-lg border border-surface-4 bg-white overflow-hidden">
+                      <table className="w-full text-[13px] [font-variant-numeric:tabular-nums]">
+                        <thead>
+                          <tr className="bg-surface-2 text-[11px] uppercase font-bold text-ink-3">
+                            <th className="text-left px-3 py-2">Dostawca</th>
+                            <th className="text-right px-3 py-2">Partie</th>
+                            <th className="text-right px-3 py-2">Ćwiartka [kg]</th>
+                            <th className="text-right px-3 py-2">Śr. % mięsa</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {suppliers.map(x => (
+                            <tr key={x.name} className="border-t border-surface-3 even:bg-[#F4F7FB]">
+                              <td className="px-3 py-1.5 font-semibold text-ink">{x.name}</td>
+                              <td className="px-3 py-1.5 text-right text-ink-2">{x.batches}</td>
+                              <td className="px-3 py-1.5 text-right font-bold">{nf0.format(x.kgQuarter)}</td>
+                              <td className={cn('px-3 py-1.5 text-right font-black', yieldTone(x.avgYield))}>{nf1.format(x.avgYield)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </>
       )}
 

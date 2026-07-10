@@ -281,12 +281,19 @@ export interface DeboningStats {
     quarters: number; kgQuarter: number; kgMeat: number; kgBacks: number
     kgBones: number; avgYield: number; workers: number; kgPerHour: number
     backsPct: number; bonesPct: number
+    /** Bilans masy: ćwiartka − (mięso+kości+grzbiety) — duży = coś niezważone. */
+    missingKg: number; missingPct: number
   }
   workers: DeboningStatsWorker[]
   byHour: { hour: string; quarters: number; kgMeat: number }[]
   byDay: { date: string; quarters: number; kgMeat: number; avgYield: number }[]
-  /** Uzysk per partia surowca — najważniejszy wykres raportu (jakość partii/dostawcy). */
-  byBatch: { batchNo: string; kgQuarter: number; kgMeat: number; yieldPct: number }[]
+  /** Uzysk per partia surowca — najważniejsza tabela raportu (jakość partii/dostawcy). */
+  byBatch: {
+    batchNo: string; supplierName: string; kgQuarter: number; kgMeat: number
+    yieldPct: number | null; kgBacks: number; kgBones: number
+    backsPct: number | null; bonesPct: number | null
+    missingKg: number | null; missingPct: number | null
+  }[]
   recent: { id: string; workerName: string; rawBatchNo: string; kgQuarter: number; kgMeat: number; yield: number; at: string }[]
   workerDaily: Record<string, { date: string; quarters: number; kgQuarter: number; kgMeat: number; avgYield: number }[]>
 }
