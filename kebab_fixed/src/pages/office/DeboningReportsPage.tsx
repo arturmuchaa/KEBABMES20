@@ -317,7 +317,16 @@ export function DeboningReportsPage() {
                     cell: w => {
                       const d = w.avgYield - (s?.avgYield ?? 0)
                       if (Math.abs(d) < 0.05) return <span className="text-ink-4 tabular-nums">0,0</span>
-                      return <span className={cn('tabular-nums font-semibold', d > 0 ? 'text-emerald-600' : 'text-red-500')}>{d > 0 ? '+' : '−'}{nf1.format(Math.abs(d))}</span>
+                      // Przełożenie na mięso: ile kg więcej/mniej niż gdyby
+                      // pracował na średniej zakładu (na SWOJEJ ćwiartce).
+                      const kg = (d / 100) * w.kgQuarter
+                      const sign = d > 0 ? '+' : '−'
+                      return (
+                        <span className={cn('tabular-nums font-semibold whitespace-nowrap', d > 0 ? 'text-emerald-600' : 'text-red-500')}>
+                          {sign}{nf1.format(Math.abs(d))}
+                          <span className="text-[10px] font-medium"> ({sign}{nf1.format(Math.abs(kg))} kg)</span>
+                        </span>
+                      )
                     } },
                   { key: 'kgPerHour', header: 'Kg/h', align: 'right', sortable: true, sortValue: w => w.kgPerHour,
                     cell: w => <span className="tabular-nums text-ink-2">{nf1.format(w.kgPerHour)}</span> },
