@@ -155,8 +155,10 @@ function mapRawBatchPage(raw: any): Paginated<RawBatch> {
 
 // ─── Partie ćwiartek ──────────────────────────────────────────
 export const rawBatchesApi = {
+  // Backend czyta alias `activeOnly` (samo `active_only` było ignorowane —
+  // bug do 2026-07-10); wysyłamy oba dla kompatybilności.
   list: (opts?: { limit?: number; active_only?: boolean }) =>
-    get<any>(`/raw-batches?limit=${opts?.limit ?? 25}&active_only=${opts?.active_only ?? true}`)
+    get<any>(`/raw-batches?limit=${opts?.limit ?? 25}&active_only=${opts?.active_only ?? true}&activeOnly=${opts?.active_only ?? true}`)
       .then(mapRawBatchPage),
 
   all: () =>

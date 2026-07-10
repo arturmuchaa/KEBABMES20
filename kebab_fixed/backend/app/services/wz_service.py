@@ -896,11 +896,15 @@ def stock_raw() -> List[Dict[str, Any]]:
     containers = pojemniki ZAPAMIĘTANE z ważenia na HMI (palety kreatora
     dla ubocznych, e2_count wpisów dla mięsa; ćwiartka: kg/15). Trafiają
     jako podpowiedź do formularza WZ (operator może poprawić).
-    Daty uboju/ważności partii — do tabeli HDI na dokumencie."""
+    Daty uboju/ważności partii — do tabeli HDI na dokumencie.
+
+    Z tego samego endpointu czyta też Magazyn surowca (biuro) — stąd
+    material_type_id (rozdział mięso z/s ≠ filet), supplier_name przy
+    mięsie/ubocznych i kg_reserved/kg_initial przy mięsie."""
     out: List[Dict[str, Any]] = []
     for r in query_all(
         """SELECT id, internal_batch_no, supplier_name, kg_available, material_name,
-                  slaughter_date, expiry_date, received_date
+                  material_type_id, slaughter_date, expiry_date, received_date
            FROM raw_batches WHERE COALESCE(kg_available,0) > 0
            ORDER BY received_date DESC NULLS LAST, internal_batch_no"""):
         kg = float(r["kg_available"] or 0)
@@ -909,6 +913,7 @@ def stock_raw() -> List[Dict[str, Any]]:
             "internal_batch_no": r["internal_batch_no"],
             "supplier_name": r["supplier_name"],
             "name": r.get("material_name") or "Ćwiartka z kurczaka",
+            "material_type_id": r.get("material_type_id") or "mat-cwiartka",
             "kg_available": r["kg_available"],
             "containers": int(-(-kg // 15)) if kg > 0 else None,  # 15 kg/poj.
             "slaughter_date": str(r.get("slaughter_date") or "")[:10] or None,
@@ -917,8 +922,9 @@ def stock_raw() -> List[Dict[str, Any]]:
         })
     for m in query_all(
         """SELECT m.id, m.lot_no, m.raw_batch_no, m.kg_available, m.material_name,
+                  m.material_type_id, m.kg_reserved, m.kg_initial,
                   m.production_date,
-                  b.slaughter_date, b.expiry_date,
+                  b.slaughter_date, b.expiry_date, b.supplier_name,
                   (SELECT COALESCE(SUM(de.e2_count), 0) FROM deboning_entries de
                    WHERE de.raw_batch_id = m.raw_batch_id
                      AND COALESCE(de.status,'complete')='complete') AS e2
@@ -930,9 +936,12 @@ def stock_raw() -> List[Dict[str, Any]]:
         out.append({
             "id": m["id"], "stock_type": "meat",
             "internal_batch_no": m.get("lot_no") or m.get("raw_batch_no"),
-            "supplier_name": None,
+            "supplier_name": m.get("supplier_name"),
             "name": m.get("material_name") or "Mięso z/s",
+            "material_type_id": m.get("material_type_id") or "mat-mieso-zs",
             "kg_available": m["kg_available"],
+            "kg_reserved": m.get("kg_reserved") or 0,
+            "kg_initial": m.get("kg_initial"),
             "containers": e2 or None,
             "slaughter_date": str(m.get("slaughter_date") or "")[:10] or None,
             "expiry_date": str(m.get("expiry_date") or "")[:10] or None,
@@ -940,7 +949,7 @@ def stock_raw() -> List[Dict[str, Any]]:
         })
     lots = query_all(
         """SELECT l.id, l.raw_batch_id, l.raw_batch_no, l.kind, l.kg, l.created_at,
-                  b.slaughter_date, b.expiry_date,
+                  b.slaughter_date, b.expiry_date, b.supplier_name,
                   bb.backs_pallets, bb.bones_pallets, bb.backs_at, bb.bones_at
            FROM byproduct_lots l
            LEFT JOIN raw_batches b ON b.id = l.raw_batch_id
@@ -955,7 +964,7 @@ def stock_raw() -> List[Dict[str, Any]]:
         out.append({
             "id": b["id"], "stock_type": "byproduct",
             "internal_batch_no": b.get("raw_batch_no"),
-            "supplier_name": None,
+            "supplier_name": b.get("supplier_name"),
             # Krótka nazwa do HMI/MES; pełna (doc_name) idzie na WZ i HDI.
             "name": "Grzbiety" if b["kind"] == "backs" else "Kości",
             "doc_name": "Grzbiety z kurczaka" if b["kind"] == "backs" else "Kości z kurczaka",

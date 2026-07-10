@@ -52,6 +52,16 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
 
   const totalAvail = pickerLots.reduce((s, l) => s + l.kgAvailable, 0)
 
+  // Rozdział składników: filet/indyk (przyjęte bez rozbioru) to INNY materiał
+  // niż mięso z/s — Auto-FEFO rozdziela TYLKO z/s, filet dobiera się ręcznie
+  // w pickerze (osobna sekcja). Inaczej automat mieszał filet do kebaba z/s.
+  const zsLots = useMemo(
+    () => pickerLots.filter(l => (l.materialTypeId ?? 'mat-mieso-zs') === 'mat-mieso-zs'),
+    [pickerLots],
+  )
+  const zsAvail = zsLots.reduce((s, l) => s + l.kgAvailable, 0)
+  const otherAvail = totalAvail - zsAvail
+
   async function load() {
     try {
       const r = await mixingOrdersApi.dayPlan()
@@ -118,7 +128,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
       if (i === idx) return
       r.lots.forEach(l => usedElsewhere.set(l.meatLotId, (usedElsewhere.get(l.meatLotId) ?? 0) + l.kgPlanned))
     })
-    const avail: AvailLot[] = pickerLots.map(l => ({
+    const avail: AvailLot[] = zsLots.map(l => ({
       id: l.id, expiryDate: l.expiryDate,
       kgFree: Math.max(0, l.kgAvailable - (usedElsewhere.get(l.id) ?? 0)),
     }))
@@ -131,7 +141,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
     const editable = rows
       .map((r, i) => ({ r, i }))
       .filter(({ r }) => r.status !== 'in_progress' && r.status !== 'done')
-    const avail: AvailLot[] = pickerLots.map(l => ({ id: l.id, expiryDate: l.expiryDate, kgFree: l.kgAvailable }))
+    const avail: AvailLot[] = zsLots.map(l => ({ id: l.id, expiryDate: l.expiryDate, kgFree: l.kgAvailable }))
     const needs = editable.map(({ r }) => ({ rowKey: r.rowKey, kg: parseFloat(r.meatKg) || 0 }))
     const dist = autoFefoDistribute(needs, avail)
     setRows(p => p.map(r =>
@@ -181,7 +191,9 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
           Σ {fmtKg(totalPlan, 0)} kg → {fmtKg(totalOutput, 0)} kg półprodukt
         </span>
         <span className={`text-[12px] font-semibold ${overBudget ? 'text-red-600' : 'text-muted-foreground'}`}>
-          Dostępne mięso: {fmtKg(totalAvail, 0)} kg{overBudget ? ' — za mało!' : ''}
+          Dostępne z/s: {fmtKg(zsAvail, 0)} kg
+          {otherAvail > 0.5 && <> · filet/inne: {fmtKg(otherAvail, 0)} kg (ręcznie)</>}
+          {overBudget ? ' — za mało!' : ''}
         </span>
         <div className="ml-auto flex items-center gap-2">
           <Button size="sm" variant="outline" className="h-8 gap-1 text-[12px]" onClick={autoFefoAll}>

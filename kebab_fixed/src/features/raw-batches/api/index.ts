@@ -25,8 +25,9 @@ import type {
 // ─── Kontrakt API ─────────────────────────────────────────────────────────────
 
 export interface RawBatchesApi {
-  /** Lista partii — backend sortuje FEFO, limit 25, tylko aktywne */
-  list(): Promise<RawBatchPage>
+  /** Lista partii; domyślnie backend daje aktywne FEFO — historia przyjęć
+   *  woła z { active_only: false } (wszystkie, także zużyte/anulowane). */
+  list(opts?: { active_only?: boolean; limit?: number }): Promise<RawBatchPage>
 
   byId(id: string): Promise<RawBatch>
 
@@ -58,7 +59,7 @@ import {
 } from '@/lib/apiClient'
 
 export const rawBatchesApi: RawBatchesApi = {
-  list: () => legacyApi.list(),
+  list: (opts) => legacyApi.list(opts),
   byId: (id) => legacyApi.byId(id),
 
   nextNumber: () => legacyApi.nextNumber().then(n => ({

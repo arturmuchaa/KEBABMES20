@@ -11,7 +11,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { suppliersApi }        from '@/lib/apiClient'
 import {
-  sortFefo, getExpiryStatus, checkUsability, isExpired,
+  getExpiryStatus, checkUsability, isExpired,
   isHighPriority,
 } from '@/lib/utils/fefo'
 import { todayIso }       from '@/lib/utils'
@@ -24,12 +24,15 @@ import type {
 
 // ─── Stałe operacyjne ─────────────────────────────────────────────────────────
 const POLL_INTERVAL_MS  = 5_000   // auto-refetch co 5s
-const OPERATIONAL_LIMIT = 25      // max partii w widoku operacyjnym
 
 // ─── useRawBatches ────────────────────────────────────────────────────────────
 
 export function useRawBatches() {
-  const { data, loading, error, refetch } = useApi(() => rawBatchesApi.list())
+  // Przyjęcie = HISTORIA dostaw (wszystkie partie, od najnowszej), nie widok
+  // stanu — żywy stan ćwiartki mieszka w Magazynie surowca (zakładka Ćwiartka).
+  const { data, loading, error, refetch } = useApi(
+    () => rawBatchesApi.list({ active_only: false, limit: 500 }),
+  )
   const suppliers = useApi(() => suppliersApi.list())
 
   // Polling co 5 sekund — real-time dla wielu użytkowników
@@ -39,12 +42,14 @@ export function useRawBatches() {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [refetch])
 
-  // Backend zwraca już posortowane i ograniczone dane (active_only, FEFO, limit 25)
-  // sortFefo() tutaj jako safety net gdy backend nie obsługuje jeszcze sortowania
-  const batches = sortFefo(data?.data ?? []).slice(0, OPERATIONAL_LIMIT)
+  const batches: RawBatch[] = [...((data as any)?.data ?? [])].sort((a: any, b: any) =>
+    String(b.receivedDate ?? b.createdAt ?? '').localeCompare(String(a.receivedDate ?? a.createdAt ?? ''))
+    || String(b.internalBatchNo ?? '').localeCompare(String(a.internalBatchNo ?? ''), 'pl', { numeric: true }),
+  )
 
-  // HACCP alerty — partie wygasające ≤ 2 dni (CRITICAL) lub ≤ 3 dni (WARNING)
+  // HACCP alerty — partie z ŻYWYM stanem wygasające (historyczne zużyte nie alarmują)
   const haccpAlerts = batches.filter(b => {
+    if (Number(b.kgAvailable) <= 0) return false
     const s = getExpiryStatus(b.expiryDate)
     return s.level === 'CRITICAL' || s.level === 'EXPIRED'
   })

@@ -29,6 +29,15 @@ export function MeatLotPicker({
   const selectedKg = value.reduce((s, l) => s + (l.kgPlanned || 0), 0)
   const idx = (id: string) => value.findIndex(v => v.meatLotId === id)
 
+  // Sekcje po materiale: mięso z/s (podstawa masowania, Auto-FEFO) najpierw,
+  // potem filet/indyk — inny składnik, dobierany wyłącznie ręcznie.
+  const isZs = (l: PickerLot) => (l.materialTypeId ?? 'mat-mieso-zs') === 'mat-mieso-zs'
+  const zs = lots.filter(isZs)
+  const others = lots.filter(l => !isZs(l))
+  const sections: { header: string | null; items: PickerLot[] }[] = others.length > 0
+    ? [{ header: 'Mięso z/s', items: zs }, { header: 'Filet i inne — tylko ręcznie', items: others }]
+    : [{ header: null, items: zs }]
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
@@ -40,7 +49,13 @@ export function MeatLotPicker({
         </Button>
       </div>
       <div className="border rounded max-h-48 overflow-y-auto divide-y">
-        {lots.map(lot => {
+        {sections.map(sec => [
+          sec.header != null && sec.items.length > 0 && (
+            <div key={`h-${sec.header}`} className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground bg-muted/60">
+              {sec.header}
+            </div>
+          ),
+          ...sec.items.map(lot => {
           const i = idx(lot.id)
           const isSel = i >= 0
           const free = lot.kgAvailable
@@ -60,7 +75,7 @@ export function MeatLotPicker({
                 }}
                 className="w-4 h-4 flex-shrink-0 accent-primary" />
               <span className="font-mono font-bold flex-shrink-0 w-24">{lot.lotNo}</span>
-              {lot.materialName && lot.materialTypeId !== 'mat-cwiartka' && (
+              {lot.materialName && !isZs(lot) && (
                 <span className="text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded flex-shrink-0">
                   {lot.materialName}
                 </span>
@@ -78,7 +93,8 @@ export function MeatLotPicker({
               )}
             </div>
           )
-        })}
+        }),
+        ])}
       </div>
       <div className="flex items-center gap-2 text-[12px]">
         <CheckCircle size={13} className={selectedKg >= targetKg - 0.5 ? 'text-green-600' : 'text-muted-foreground'} />

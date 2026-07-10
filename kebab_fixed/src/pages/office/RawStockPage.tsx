@@ -1,31 +1,47 @@
 /**
- * RawStockPage — Magazyn surowca (Mięso Z/S, Grzbiety, Kości).
+ * RawStockPage — Magazyn surowca: ŻYWY stan wszystkiego przed produkcją.
  *
- * Trzy zakładki — każda dense table w stylu Subiekt GT:
- * sticky header/footer, zebra rows, sortowanie, filtr, CSV, klik → traceability.
+ * Pięć zakładek na wspólnym DataTable (styl Subiekt):
+ *   Ćwiartka (raw_batches kg>0) · Mięso z/s · Filet i inne (meat_stock
+ *   rozdzielone po material_type_id — filet to INNY składnik, nie może się
+ *   mieszać z z/s) · Grzbiety · Kości (otwarte loty ABP).
+ * Jedno źródło danych: GET /wz/stock/raw (to samo co picker WZ — stan,
+ * pojemniki, daty, rezerwacje). Klik wiersza → śledzenie partii.
  */
-import { useCallback, useState, useMemo } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
-import { meatStockApi, deboningApi, rawBatchesApi, abpApi } from '@/lib/apiClient'
+import { wzApi, rawBatchesApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
-import {
-  Eye, ArrowRight, Beef, Layers, Package, ChevronDown, ChevronUp,
-  ChevronsUpDown, Search, X, Download,
-} from 'lucide-react'
-import type { MeatStock, DeboningSession, RawBatch } from '@/types'
+import { Drumstick, Beef, Layers, Package, Bone, FileOutput, ArrowRight } from 'lucide-react'
+import type { RawBatch } from '@/types'
 
-import { Button } from '@/components/ui/button'
+import { DataTable, type DataColumn } from '@/components/DataTable'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Separator } from '@/components/ui/separator'
-import {
-  Card, CardContent, CardDescription, CardTitle,
-} from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
+
+// ─── Wiersz z GET /wz/stock/raw ──────────────────────────────
+interface StockRow {
+  id: string
+  stock_type: 'raw' | 'meat' | 'byproduct'
+  internal_batch_no: string
+  supplier_name?: string | null
+  name: string
+  doc_name?: string
+  material_type_id?: string
+  kg_available: number | string
+  kg_reserved?: number | string
+  kg_initial?: number | string
+  containers?: number | null
+  slaughter_date?: string | null
+  expiry_date?: string | null
+  production_date?: string | null
+}
 
 // ─── ExpiryBadge ─────────────────────────────────────────────
 function ExpiryBadge({ date }: { date: string }) {
@@ -42,22 +58,24 @@ function ExpiryBadge({ date }: { date: string }) {
   return <Badge variant="outline" className={cn('text-[10px] font-medium', cls)}>{label}</Badge>
 }
 
-// ─── TraceabilityModal (bez zmian funkcjonalnych) ────────────
-interface TraceabilityModalProps {
-  type: 'meat' | 'backs' | 'bones'
-  item?: MeatStock
-  session?: DeboningSession
-  batch?: RawBatch
-  onClose: () => void
+function isExpiredRow(r: StockRow): boolean {
+  return !!r.expiry_date && getExpiryStatus(r.expiry_date).daysLeft < 0
 }
 
-function TraceabilityModal({ type, item, session, batch, onClose }: TraceabilityModalProps) {
-  const title = type === 'meat' ? 'Śledzenie mięsa Z/S' : type === 'backs' ? 'Śledzenie grzbietów' : 'Śledzenie kości'
+// ─── Śledzenie partii (klik wiersza) ─────────────────────────
+function TraceModal({ row, batch, onClose }: {
+  row: StockRow; batch?: RawBatch; onClose: () => void
+}) {
+  const steps = row.stock_type === 'raw'
+    ? ['DOSTAWCA', 'PRZYJĘCIE', 'MAGAZYN']
+    : ['DOSTAWCA', 'PRZYJĘCIE', 'ROZBIÓR', 'MAGAZYN']
+  const kgAvail = Number(row.kg_available)
+  const kgRes = Number(row.kg_reserved ?? 0)
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
+          <DialogTitle>Śledzenie — {row.doc_name ?? row.name}</DialogTitle>
           <DialogDescription>Pełna traceability partii od dostawcy do magazynu</DialogDescription>
         </DialogHeader>
 
@@ -66,73 +84,57 @@ function TraceabilityModal({ type, item, session, batch, onClose }: Traceability
             <CardContent className="p-4">
               <CardDescription className="text-[10px] font-bold text-primary uppercase mb-1">Nasza partia</CardDescription>
               <CardTitle className="text-3xl font-black font-mono text-primary">
-                {batch?.internalBatchNo || item?.rawBatchNo || '—'}
+                {row.internal_batch_no || '—'}
               </CardTitle>
             </CardContent>
           </Card>
 
           <div className="flex items-center gap-2 text-muted-foreground">
-            {['DOSTAWCA','PRZYJĘCIE','ROZBIÓR','MAGAZYN'].map((s, i, arr) => (
+            {steps.map((s, i) => (
               <span key={s} className="flex items-center gap-2">
                 <CardDescription className="text-xs font-semibold">{s}</CardDescription>
-                {i < arr.length - 1 && <ArrowRight size={12} />}
+                {i < steps.length - 1 && <ArrowRight size={12} />}
               </span>
             ))}
           </div>
 
-          <Separator />
-
           <div className="divide-y border rounded-xl overflow-hidden">
             {[
-              { label: 'Dostawca',            value: batch?.supplierName || '—' },
-              { label: 'Nr partii dostawcy',  value: <code className="font-mono font-bold">{batch?.supplierBatchNo || '—'}</code> },
-              { label: 'Data uboju',          value: batch?.slaughterDate ? fmtDatePl(batch.slaughterDate) : '—' },
-              { label: 'Data przyjęcia',      value: batch?.receivedDate  ? fmtDatePl(batch.receivedDate)  : '—' },
-              { label: 'Data ważności',       value: batch?.expiryDate ? (
-                <span className="flex items-center gap-2">{fmtDatePl(batch.expiryDate)}<ExpiryBadge date={batch.expiryDate} /></span>
+              { label: 'Dostawca',           value: row.supplier_name || batch?.supplierName || '—' },
+              { label: 'Nr partii dostawcy', value: <code className="font-mono font-bold">{batch?.supplierBatchNo || '—'}</code> },
+              { label: 'Data uboju',         value: row.slaughter_date ? fmtDatePl(row.slaughter_date) : '—' },
+              { label: 'Data przyjęcia',     value: batch?.receivedDate ? fmtDatePl(batch.receivedDate) : '—' },
+              { label: row.stock_type === 'raw' ? 'Data przyjęcia na stan' : 'Data produkcji',
+                value: row.production_date ? fmtDatePl(row.production_date) : '—' },
+              { label: 'Data ważności',      value: row.expiry_date ? (
+                <span className="flex items-center gap-2">{fmtDatePl(row.expiry_date)}<ExpiryBadge date={row.expiry_date} /></span>
               ) : '—' },
-            ].map(row => (
-              <div key={row.label} className="flex items-center justify-between px-4 py-2.5">
-                <CardDescription className="text-sm font-medium">{row.label}</CardDescription>
-                <div className="text-sm font-semibold">{row.value}</div>
+            ].map(r => (
+              <div key={r.label} className="flex items-center justify-between px-4 py-2.5">
+                <CardDescription className="text-sm font-medium">{r.label}</CardDescription>
+                <div className="text-sm font-semibold">{r.value}</div>
               </div>
             ))}
-
-            {session && (
-              <>
-                <div className="px-4 py-2 bg-muted/40">
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Sesja rozbioru</CardDescription>
-                </div>
-                {[
-                  { label: 'Nr sesji',       value: <code className="font-mono">{session.sessionNo}</code> },
-                  { label: 'Pracownik',      value: session.workerName },
-                  { label: 'Data rozbioru',  value: fmtDatePl(session.createdAt?.slice(0, 10) || '') },
-                ].map(row => (
-                  <div key={row.label} className="flex items-center justify-between px-4 py-2.5">
-                    <CardDescription className="text-sm font-medium">{row.label}</CardDescription>
-                    <div className="text-sm font-semibold">{row.value}</div>
-                  </div>
-                ))}
-              </>
-            )}
-
-            {item && (
-              <>
-                <div className="px-4 py-2 bg-muted/40">
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Stan magazynowy</CardDescription>
-                </div>
-                {[
-                  { label: 'Nr partii mięsa',   value: <code className="font-mono font-bold text-primary">{item.lotNo}</code> },
-                  { label: 'Ilość początkowa',  value: <span className="font-bold">{fmtKg(item.kgInitial, 1)} kg</span> },
-                  { label: 'Ilość dostępna',    value: <span className="font-bold text-emerald-700">{fmtKg(item.kgAvailable, 1)} kg</span> },
-                ].map(row => (
-                  <div key={row.label} className="flex items-center justify-between px-4 py-2.5">
-                    <CardDescription className="text-sm font-medium">{row.label}</CardDescription>
-                    <div className="text-sm">{row.value}</div>
-                  </div>
-                ))}
-              </>
-            )}
+            <div className="px-4 py-2 bg-muted/40">
+              <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Stan magazynowy</CardDescription>
+            </div>
+            {[
+              row.kg_initial != null
+                ? { label: 'Ilość początkowa', value: <span className="font-bold">{fmtKg(Number(row.kg_initial), 1)} kg</span> }
+                : null,
+              { label: 'Ilość dostępna', value: <span className="font-bold text-emerald-700">{fmtKg(kgAvail, 1)} kg</span> },
+              kgRes > 0
+                ? { label: 'W tym zarezerwowane (plan masowania)', value: <span className="font-bold text-amber-700">{fmtKg(kgRes, 1)} kg</span> }
+                : null,
+              row.containers
+                ? { label: 'Pojemniki (orientacyjnie)', value: <span className="font-semibold">{row.containers}</span> }
+                : null,
+            ].filter(Boolean).map(r => (
+              <div key={r!.label} className="flex items-center justify-between px-4 py-2.5">
+                <CardDescription className="text-sm font-medium">{r!.label}</CardDescription>
+                <div className="text-sm">{r!.value}</div>
+              </div>
+            ))}
           </div>
         </div>
       </DialogContent>
@@ -140,213 +142,139 @@ function TraceabilityModal({ type, item, session, batch, onClose }: Traceability
   )
 }
 
-// ─── CSV export ──────────────────────────────────────────────
-function exportCsv(rows: any[], tab: 'meat' | 'backs' | 'bones', batches: RawBatch[]) {
-  const getBatch = (it: any) => batches.find(b => b.id === (it.rawBatchId ?? '') || b.internalBatchNo === (it.rawBatchNo ?? ''))
-  let headers: string[] = []
-  let lines: string[][] = []
-  if (tab === 'meat') {
-    headers = ['Nr partii mięsa','Partia ćwiartki','Dostawca','Dostępne kg','Początkowe kg','Data produkcji','Data ważności']
-    lines = rows.map((m: MeatStock) => {
-      const b = getBatch(m)
-      return [
-        m.lotNo || '',
-        b?.internalBatchNo || m.rawBatchNo || '',
-        b?.supplierName || '',
-        String(m.kgAvailable).replace('.', ','),
-        String(m.kgInitial).replace('.', ','),
-        m.productionDate || '',
-        m.expiryDate || '',
-      ]
-    })
-  } else {
-    const fieldName = tab === 'backs' ? 'kgBacks' : 'kgBones'
-    const label    = tab === 'backs' ? 'Grzbiety kg' : 'Kości kg'
-    headers = ['Partia ćwiartki','Dostawca', label,'Data rozbioru']
-    lines = rows.map((s: DeboningSession) => {
-      const b = batches.find(x => x.id === s.rawBatchId)
-      return [
-        b?.internalBatchNo || s.rawBatchNo || '',
-        b?.supplierName || '',
-        String((s as any)[fieldName] || 0).replace('.', ','),
-        (s.createdAt || '').slice(0, 10),
-      ]
-    })
-  }
-  const csv = [headers.join(';')].concat(lines.map(r =>
-    r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(';')
-  )).join('\n')
-  const blob = new Blob([new TextEncoder().encode('﻿' + csv)], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  const name = tab === 'meat' ? 'mieso-zs' : tab === 'backs' ? 'grzbiety' : 'kosci'
-  a.href = url; a.download = `${name}-${new Date().toISOString().slice(0,10)}.csv`; a.click()
-  URL.revokeObjectURL(url)
-}
-
 // ─── Strona ─────────────────────────────────────────────────
-type Tab = 'meat' | 'backs' | 'bones'
+type Tab = 'raw' | 'meat' | 'other' | 'backs' | 'bones'
+
+const ZS = 'mat-mieso-zs'
 
 export function RawStockPage() {
-  const { data: meatData, loading: meatLoading } = useApi(() => meatStockApi.list())
-  const { data: debData,  loading: debLoading  } = useApi(() => deboningApi.list())
+  const navigate = useNavigate()
+  const { data: stockData, loading } = useApi<StockRow[]>(() => (wzApi as any).stockRaw())
   const { data: batchData } = useApi<{ data: any[] }>(() => (rawBatchesApi as any).all())
-  // ŻYWY stan grzbietów/kości = otwarte loty ABP (byproduct_lots): ważenie
-  // zbiorcze je tworzy, a WZ/utylizacja z nich SCHODZI. Rekordy ważenia
-  // (batch_byproducts) to historia — po sprzedaży pokazywałyby stary stan
-  // (prod 2026-07-10: „kości nie zeszły ze stanów").
-  const { data: lotsData } = useApi(() => abpApi.lots('open'))
+  const [activeTab, setActiveTab] = useState<Tab>('raw')
+  const [trace, setTrace] = useState<StockRow | null>(null)
 
-  const [activeTab, setActiveTab] = useState<Tab>('meat')
-  const [traceItem, setTraceItem] = useState<{
-    type: Tab; item?: MeatStock; session?: DeboningSession; batch?: RawBatch
-  } | null>(null)
-  const [filter,   setFilter]   = useState('')
-  const [sortCol,  setSortCol]  = useState<string>('expiryDate')
-  const [sortDir,  setSortDir]  = useState<'asc'|'desc'>('asc')
+  const stock = useMemo(() => (stockData ?? []) as StockRow[], [stockData])
+  const batches: RawBatch[] = batchData?.data ?? []
 
-  const toggleSort = (col: string) => {
-    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortCol(col); setSortDir('asc') }
+  const byTab = useMemo(() => ({
+    raw:   stock.filter(r => r.stock_type === 'raw'),
+    // Filet/indyk przyjęte bez rozbioru to INNE składniki niż mięso z/s
+    // z rozbioru — osobna zakładka, żeby się nie mieszały (magazyn i plan).
+    meat:  stock.filter(r => r.stock_type === 'meat' && (r.material_type_id ?? ZS) === ZS),
+    other: stock.filter(r => r.stock_type === 'meat' && (r.material_type_id ?? ZS) !== ZS),
+    backs: stock.filter(r => r.stock_type === 'byproduct' && r.name === 'Grzbiety'),
+    bones: stock.filter(r => r.stock_type === 'byproduct' && r.name === 'Kości'),
+  }), [stock])
+
+  const sumKg = (rows: StockRow[]) => rows.reduce((s, r) => s + Number(r.kg_available), 0)
+
+  const TABS: { key: Tab; label: string; icon: ReactNode }[] = [
+    { key: 'raw',   label: 'Ćwiartka',     icon: <Drumstick size={13} /> },
+    { key: 'meat',  label: 'Mięso z/s',    icon: <Beef size={13} /> },
+    { key: 'other', label: 'Filet i inne', icon: <Layers size={13} /> },
+    { key: 'backs', label: 'Grzbiety',     icon: <Package size={13} /> },
+    { key: 'bones', label: 'Kości',        icon: <Bone size={13} /> },
+  ]
+
+  const rows = byTab[activeTab]
+
+  // ── Kolumny per zakładka ──
+  const colPartia: DataColumn<StockRow> = {
+    key: 'batch', header: activeTab === 'backs' || activeTab === 'bones' ? 'Partia ćwiartki' : 'Partia',
+    sortable: true, sortValue: r => r.internal_batch_no, width: 130,
+    cell: r => <code className="font-mono font-bold text-primary text-[12px]">{r.internal_batch_no || '—'}</code>,
+  }
+  const colDostawca: DataColumn<StockRow> = {
+    key: 'supplier', header: 'Dostawca', sortable: true, sortValue: r => r.supplier_name ?? '',
+    cell: r => r.supplier_name
+      ? <span className="text-ink-2 truncate block max-w-[240px]" title={r.supplier_name}>{r.supplier_name}</span>
+      : <span className="text-muted-foreground">—</span>,
+  }
+  const colDostepne: DataColumn<StockRow> = {
+    key: 'kg', header: 'Dostępne [kg]', align: 'right', sortable: true, sortValue: r => Number(r.kg_available),
+    cell: r => <span className="font-bold tabular-nums text-emerald-700">{fmtKg(Number(r.kg_available), 1)}</span>,
+  }
+  const colZarezerwowane: DataColumn<StockRow> = {
+    key: 'reserved', header: 'Zarezerwowane [kg]', align: 'right', sortable: true, sortValue: r => Number(r.kg_reserved ?? 0),
+    cell: r => Number(r.kg_reserved ?? 0) > 0
+      ? <span className="font-semibold tabular-nums text-amber-700" title="Zarezerwowane przez plan masowania">{fmtKg(Number(r.kg_reserved), 1)}</span>
+      : <span className="text-muted-foreground tabular-nums">—</span>,
+  }
+  const colPoczatkowe: DataColumn<StockRow> = {
+    key: 'initial', header: 'Początkowe [kg]', align: 'right', sortable: true, sortValue: r => Number(r.kg_initial ?? 0),
+    cell: r => r.kg_initial != null
+      ? <span className="tabular-nums text-ink-2">{fmtKg(Number(r.kg_initial), 1)}</span>
+      : <span className="text-muted-foreground">—</span>,
+  }
+  const colPojemniki: DataColumn<StockRow> = {
+    key: 'containers', header: 'Pojemniki~', align: 'right', sortable: true, sortValue: r => r.containers ?? 0,
+    cell: r => r.containers
+      ? <span className="tabular-nums text-ink-2" title="Orientacyjnie, z ważenia na hali">{r.containers}</span>
+      : <span className="text-muted-foreground">—</span>,
+  }
+  const colUboj: DataColumn<StockRow> = {
+    key: 'slaughter', header: 'Ubój', sortable: true, sortValue: r => r.slaughter_date ?? '',
+    cell: r => r.slaughter_date ? <span className="text-ink-2">{fmtDatePl(r.slaughter_date)}</span> : <span className="text-muted-foreground">—</span>,
+  }
+  const colProdukcja = (header: string): DataColumn<StockRow> => ({
+    key: 'production', header, sortable: true, sortValue: r => r.production_date ?? '',
+    cell: r => r.production_date ? <span className="text-ink-2">{fmtDatePl(r.production_date)}</span> : <span className="text-muted-foreground">—</span>,
+  })
+  const colWaznosc: DataColumn<StockRow> = {
+    key: 'expiry', header: 'Ważność', sortable: true, sortValue: r => r.expiry_date ?? '',
+    cell: r => r.expiry_date
+      ? <span className="flex items-center gap-1.5"><span className="text-ink-2">{fmtDatePl(r.expiry_date)}</span><ExpiryBadge date={r.expiry_date} /></span>
+      : <span className="text-muted-foreground">—</span>,
+  }
+  const colRodzaj: DataColumn<StockRow> = {
+    key: 'material', header: 'Rodzaj', sortable: true, sortValue: r => r.name,
+    cell: r => <span className="font-semibold text-ink">{r.name}</span>,
   }
 
-  const SortIcon = ({ col }: { col: string }) =>
-    sortCol === col
-      ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
-      : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60"/>
+  const columns: DataColumn<StockRow>[] =
+    activeTab === 'raw'
+      ? [colPartia, colDostawca, colDostepne, colPojemniki, colUboj, colProdukcja('Przyjęcie'), colWaznosc]
+      : activeTab === 'meat'
+        ? [colPartia, colDostawca, colDostepne, colZarezerwowane, colPoczatkowe, colProdukcja('Produkcja'), colWaznosc]
+        : activeTab === 'other'
+          ? [colRodzaj, colPartia, colDostawca, colDostepne, colZarezerwowane, colPoczatkowe, colProdukcja('Przyjęcie'), colWaznosc]
+          : [colPartia, colDostawca, colDostepne, colPojemniki, colProdukcja('Ważenie'), colUboj, colWaznosc]
 
-  const meatList = meatData?.data ?? []
-  const sessions = debData?.data  ?? []
-  const batches  = batchData?.data ?? []
-
-  const totalMeatAvailable = meatList.reduce((sum, m) => sum + Number(m.kgAvailable), 0)
-
-  // Wiersze z OTWARTYCH lotów ABP — kształt jak wpis rozbioru, żeby
-  // tabela/CSV/śledzenie działały bez zmian. Lot pokrywa oba przepływy
-  // (per-wpis i zbiorczy), a stan maleje po WZ/utylizacji.
-  const lotRows = useCallback((kind: 'backs' | 'bones') => (lotsData ?? [])
-    .filter((l: any) => l.kind === kind && Number(l.kg) > 0)
-    .map((l: any) => ({
-      id: l.id, rawBatchId: l.raw_batch_id, rawBatchNo: l.raw_batch_no,
-      [kind === 'backs' ? 'kgBacks' : 'kgBones']: Number(l.kg),
-      createdAt: l.created_at ?? '',
-      workerName: 'lot magazynowy', sessionNo: '—',
-    }) as unknown as DeboningSession), [lotsData])
-
-  const backsItems = useMemo(() => lotRows('backs'), [lotRows])
-  const bonesItems = useMemo(() => lotRows('bones'), [lotRows])
-  const totalBacks = backsItems.reduce((sum, s) => sum + Number(s.kgBacks || 0), 0)
-  const totalBones = bonesItems.reduce((sum, s) => sum + Number(s.kgBones || 0), 0)
-
-  // ── Filtered + sorted lists ──
-  const filteredMeat = useMemo(() => {
-    const q = filter.toLowerCase().trim()
-    const getBatch = (m: MeatStock) => batches.find(b => b.id === m.rawBatchId || b.internalBatchNo === m.rawBatchNo)
-    let result = meatList
-    if (q) {
-      result = meatList.filter(m => {
-        const b = getBatch(m)
-        return (m.lotNo||'').toLowerCase().includes(q) ||
-               (m.rawBatchNo||'').toLowerCase().includes(q) ||
-               (b?.supplierName||'').toLowerCase().includes(q)
-      })
-    }
-    return [...result].sort((a, b) => {
-      const ba = getBatch(a), bb = getBatch(b)
-      let cmp = 0
-      if (sortCol === 'expiryDate')    cmp = (a.expiryDate||'').localeCompare(b.expiryDate||'')
-      if (sortCol === 'kgAvailable')   cmp = Number(a.kgAvailable) - Number(b.kgAvailable)
-      if (sortCol === 'kgInitial')     cmp = Number(a.kgInitial)   - Number(b.kgInitial)
-      if (sortCol === 'lotNo')         cmp = (a.lotNo||'').localeCompare(b.lotNo||'')
-      if (sortCol === 'rawBatchNo')    cmp = (a.rawBatchNo||'').localeCompare(b.rawBatchNo||'')
-      if (sortCol === 'supplierName')  cmp = (ba?.supplierName||'').localeCompare(bb?.supplierName||'')
-      if (sortCol === 'productionDate')cmp = (a.productionDate||'').localeCompare(b.productionDate||'')
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [meatList, batches, filter, sortCol, sortDir])
-
-  const filteredBacks = useMemo(() => {
-    const q = filter.toLowerCase().trim()
-    let result = backsItems
-    if (q) {
-      result = backsItems.filter(s => {
-        const b = batches.find(x => x.id === s.rawBatchId)
-        return (b?.internalBatchNo||'').toLowerCase().includes(q) ||
-               (b?.supplierName||'').toLowerCase().includes(q) ||
-               (s.rawBatchNo||'').toLowerCase().includes(q)
-      })
-    }
-    return [...result].sort((a, b) => {
-      const ba = batches.find(x => x.id === a.rawBatchId)
-      const bb = batches.find(x => x.id === b.rawBatchId)
-      let cmp = 0
-      if (sortCol === 'supplierName') cmp = (ba?.supplierName||'').localeCompare(bb?.supplierName||'')
-      if (sortCol === 'kgAvailable')  cmp = Number(a.kgBacks||0) - Number(b.kgBacks||0)
-      if (sortCol === 'rawBatchNo')   cmp = (ba?.internalBatchNo||'').localeCompare(bb?.internalBatchNo||'')
-      if (sortCol === 'expiryDate' || sortCol === 'createdAt') cmp = (a.createdAt||'').localeCompare(b.createdAt||'')
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [backsItems, batches, filter, sortCol, sortDir])
-
-  const filteredBones = useMemo(() => {
-    const q = filter.toLowerCase().trim()
-    let result = bonesItems
-    if (q) {
-      result = bonesItems.filter(s => {
-        const b = batches.find(x => x.id === s.rawBatchId)
-        return (b?.internalBatchNo||'').toLowerCase().includes(q) ||
-               (b?.supplierName||'').toLowerCase().includes(q) ||
-               (s.rawBatchNo||'').toLowerCase().includes(q)
-      })
-    }
-    return [...result].sort((a, b) => {
-      const ba = batches.find(x => x.id === a.rawBatchId)
-      const bb = batches.find(x => x.id === b.rawBatchId)
-      let cmp = 0
-      if (sortCol === 'supplierName') cmp = (ba?.supplierName||'').localeCompare(bb?.supplierName||'')
-      if (sortCol === 'kgAvailable')  cmp = Number(a.kgBones||0) - Number(b.kgBones||0)
-      if (sortCol === 'rawBatchNo')   cmp = (ba?.internalBatchNo||'').localeCompare(bb?.internalBatchNo||'')
-      if (sortCol === 'expiryDate' || sortCol === 'createdAt') cmp = (a.createdAt||'').localeCompare(b.createdAt||'')
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [bonesItems, batches, filter, sortCol, sortDir])
-
-  const loading = meatLoading || debLoading
-
-  const openTrace = (type: Tab, item?: MeatStock, session?: DeboningSession) => {
-    const s = session || (item ? sessions.find(x => x.id === item.deboningSessionId) : undefined)
-    const b = s
-      ? batches.find(x => x.id === s.rawBatchId)
-      : item
-        ? batches.find(x => x.id === item.rawBatchId || x.internalBatchNo === item.rawBatchNo)
-        : undefined
-    setTraceItem({ type, item, session: s, batch: b })
-  }
-
-  const currentRows = activeTab === 'meat' ? filteredMeat : activeTab === 'backs' ? filteredBacks : filteredBones
-  const currentCount = currentRows.length
-  const currentTotal = activeTab === 'meat'
-    ? filteredMeat.reduce((s, m) => s + Number(m.kgAvailable), 0)
-    : activeTab === 'backs'
-      ? filteredBacks.reduce((s, x) => s + Number(x.kgBacks || 0), 0)
-      : filteredBones.reduce((s, x) => s + Number(x.kgBones || 0), 0)
+  const traceBatch = trace
+    ? batches.find(b => b.internalBatchNo === trace.internal_batch_no || b.id === trace.id)
+    : undefined
 
   return (
     <div className="space-y-3 animate-fade-in">
-
-      {/* ── Toolbar: tabs + filtr + KPI inline + CSV ──────── */}
-      <Card>
-        <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-          {/* Tabs */}
-          <div className="flex items-center gap-1">
-            {[
-              { key: 'meat'  as Tab, label: 'Mięso Z/S', total: totalMeatAvailable, icon: <Beef size={13}/>,    color: 'text-emerald-700' },
-              { key: 'backs' as Tab, label: 'Grzbiety',  total: totalBacks,         icon: <Layers size={13}/>,  color: 'text-amber-700' },
-              { key: 'bones' as Tab, label: 'Kości',     total: totalBones,         icon: <Package size={13}/>, color: 'text-gray-700' },
-            ].map(t => (
+      <DataTable<StockRow>
+        key={activeTab}
+        rows={rows}
+        columns={columns}
+        rowKey={r => r.id}
+        initialSort={{ key: 'expiry', dir: 'asc' }}
+        searchText={r => `${r.internal_batch_no} ${r.supplier_name ?? ''} ${r.name}`}
+        searchPlaceholder="Filtruj: nr partii, dostawca…"
+        initialQuery={new URLSearchParams(window.location.search).get('q') ?? undefined}
+        onRowClick={r => setTrace(r)}
+        rowClassName={r => isExpiredRow(r) ? 'bg-red-50/60' : ''}
+        empty={loading ? 'Ładowanie…' : (
+          <div className="flex flex-col items-center gap-1 py-8">
+            <span className="text-sm font-semibold text-ink-3">Brak stanu w tej zakładce</span>
+            <span className="text-xs text-ink-4">
+              {activeTab === 'raw' ? 'Ćwiartka pojawia się po przyjęciu dostawy.'
+                : activeTab === 'meat' ? 'Mięso z/s pojawia się po ważeniu na rozbiorze.'
+                : activeTab === 'other' ? 'Filet/indyk pojawia się po przyjęciu surowca bez rozbioru.'
+                : 'Grzbiety i kości pojawiają się po ważeniu zbiorczym na rozbiorze.'}
+            </span>
+          </div>
+        )}
+        toolbarLeft={
+          <div className="flex items-center gap-1 flex-wrap">
+            {TABS.map(t => (
               <button
                 key={t.key}
-                onClick={() => { setActiveTab(t.key); setSortCol('expiryDate'); setSortDir('asc') }}
+                onClick={() => setActiveTab(t.key)}
                 className={cn(
                   'inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold border transition-colors',
                   activeTab === t.key
@@ -360,288 +288,32 @@ export function RawStockPage() {
                   'ml-1 text-[10px] tabular-nums',
                   activeTab === t.key ? 'text-primary-foreground/80' : 'text-muted-foreground',
                 )}>
-                  {fmtKg(t.total, 0)} kg
+                  {fmtKg(sumKg(byTab[t.key]), 0)} kg
                 </span>
               </button>
             ))}
           </div>
-
-          {/* Filtr */}
-          <div className="relative flex-1 min-w-[200px] max-w-sm">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="h-9 pl-9 pr-8 text-sm"
-              placeholder="Filtruj: nr partii, dostawca…"
-              value={filter}
-              onChange={e => setFilter(e.target.value)}
-            />
-            {filter && (
-              <button onClick={() => setFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-ink">
-                <X size={14}/>
-              </button>
-            )}
-          </div>
-
-          {/* Inline KPI + CSV */}
-          <div className="flex items-center gap-4 text-xs tabular-nums">
-            <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Pozycji:</CardDescription>
-              <span className="font-bold">{currentCount}</span>
-            </div>
-            <div className="w-px h-4 bg-surface-4" />
-            <div className="flex items-center gap-1.5">
-              <CardDescription className="text-[11px] font-bold uppercase tracking-wide">Razem:</CardDescription>
-              <span className="font-bold text-emerald-700">{fmtKg(currentTotal, 0)} kg</span>
-            </div>
-            <div className="w-px h-4 bg-surface-4" />
-          </div>
-        </div>
-      </Card>
-
-      {/* ── Tabela ──────────────────────────────────────────── */}
-      <Card className="overflow-hidden">
-        {loading ? (
-          <div className="p-4 space-y-2">
-            {[0,1,2,3,4,5].map(i => <Skeleton key={i} className="h-8 w-full" />)}
-          </div>
-        ) : activeTab === 'meat' ? (
-          meatList.length === 0 ? (
-            <CardContent className="flex flex-col items-center justify-center py-16 gap-2">
-              <Beef size={36} className="text-muted-foreground opacity-20" />
-              <CardTitle className="text-sm font-medium text-muted-foreground">Brak mięsa</CardTitle>
-              <CardDescription>Mięso pojawi się po rozbiorze</CardDescription>
-            </CardContent>
-          ) : filteredMeat.length === 0 ? (
-            <CardContent className="flex flex-col items-center justify-center py-10 gap-2">
-              <Search size={28} className="text-muted-foreground opacity-20" />
-              <CardDescription>Brak wyników dla „{filter}"</CardDescription>
-            </CardContent>
-          ) : (
-            <div className="overflow-auto max-h-[calc(100vh-12rem)]">
-              <table className="w-full text-xs tabular-nums">
-                <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
-                  <tr>
-                    {[
-                      { col: 'lotNo',          label: 'Nr partii mięsa', align: 'left'  },
-                      { col: 'rawBatchNo',     label: 'Partia ćwiartki', align: 'left'  },
-                      { col: 'supplierName',   label: 'Dostawca',        align: 'left'  },
-                      { col: 'kgAvailable',    label: 'Dostępne',        align: 'right' },
-                      { col: 'kgInitial',      label: 'Początkowe',      align: 'right' },
-                      { col: 'productionDate', label: 'Produkcja',       align: 'left'  },
-                      { col: 'expiryDate',     label: 'Ważność',         align: 'left'  },
-                    ].map(h => (
-                      <th
-                        key={h.col}
-                        onClick={() => toggleSort(h.col)}
-                        className={cn(
-                          'group cursor-pointer select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
-                          h.align === 'right' && 'text-right',
-                        )}
-                      >
-                        <span className={cn('inline-flex items-center gap-1', h.align === 'right' && 'flex-row-reverse')}>
-                          {h.label}
-                          <SortIcon col={h.col} />
-                        </span>
-                      </th>
-                    ))}
-                    <th className="w-8" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredMeat.map((m, idx) => {
-                    const batch = batches.find(b => b.id === m.rawBatchId || b.internalBatchNo === m.rawBatchNo)
-                    return (
-                      <tr
-                        key={m.id}
-                        onClick={() => openTrace('meat', m)}
-                        className={cn(
-                          'cursor-pointer border-b border-surface-3 transition-colors',
-                          idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
-                          'hover:bg-blue-50/60',
-                        )}
-                      >
-                        <td className="px-2.5 py-2 whitespace-nowrap">
-                          <code className="font-mono font-bold text-primary text-[12px]">{m.lotNo || '—'}</code>
-                        </td>
-                        <td className="px-2.5 py-2 whitespace-nowrap">
-                          <code className="font-mono font-bold text-foreground text-[12px] bg-muted px-1.5 py-0.5 rounded">
-                            {batch?.internalBatchNo || m.rawBatchNo}
-                          </code>
-                          {batch?.supplierBatchNo && (
-                            <span className="ml-1 text-[10px] text-muted-foreground">({batch.supplierBatchNo})</span>
-                          )}
-                        </td>
-                        <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[220px] truncate" title={batch?.supplierName || ''}>
-                          {batch?.supplierName || <span className="text-muted-foreground">—</span>}
-                        </td>
-                        <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold text-emerald-700">
-                          {fmtKg(m.kgAvailable, 2)}<span className="font-normal text-[11px]"> kg</span>
-                        </td>
-                        <td className="px-2.5 py-2 whitespace-nowrap text-right text-ink-2">
-                          {fmtKg(m.kgInitial, 2)}<span className="text-[11px]"> kg</span>
-                        </td>
-                        <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
-                          {m.productionDate ? fmtDatePl(m.productionDate) : <span className="text-muted-foreground">—</span>}
-                        </td>
-                        <td className="px-2.5 py-2 whitespace-nowrap">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-ink-2">{fmtDatePl(m.expiryDate)}</span>
-                            {m.expiryDate && <ExpiryBadge date={m.expiryDate} />}
-                          </div>
-                        </td>
-                        <td className="px-2 py-2 text-right">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); openTrace('meat', m) }}
-                            className="inline-flex items-center justify-center w-6 h-6 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
-                            title="Śledzenie partii"
-                          >
-                            <Eye size={13}/>
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-                <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
-                  <tr>
-                    <td colSpan={3} className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2">
-                      Suma · {filteredMeat.length} {filteredMeat.length === 1 ? 'partia' : 'partii'}
-                    </td>
-                    <td className="px-2.5 py-2 text-right font-bold tabular-nums text-emerald-700">
-                      {fmtKg(filteredMeat.reduce((s, m) => s + Number(m.kgAvailable), 0), 1)} kg
-                    </td>
-                    <td colSpan={4} />
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+        }
+        actions={
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate('/office/wz/nowy')}>
+            <FileOutput size={14} />
+            Wystaw WZ
+          </Button>
+        }
+        footer={filtered => {
+          const kg = sumKg(filtered)
+          const res = filtered.reduce((s, r) => s + Number(r.kg_reserved ?? 0), 0)
+          return (
+            <>
+              <span>Suma · {filtered.length} {filtered.length === 1 ? 'partia' : 'partii'}</span>
+              <span className="ml-auto">Dostępne: <b className="text-emerald-700">{fmtKg(kg, 1)} kg</b></span>
+              {res > 0 && <span>w tym zarezerwowane: <b className="text-amber-700">{fmtKg(res, 1)} kg</b></span>}
+            </>
           )
-        ) : (
-          // Grzbiety lub Kości
-          (() => {
-            const items = activeTab === 'backs' ? backsItems : bonesItems
-            const filtered = activeTab === 'backs' ? filteredBacks : filteredBones
-            const kgField  = activeTab === 'backs' ? 'kgBacks' : 'kgBones'
-            const colLabel = activeTab === 'backs' ? 'Grzbiety' : 'Kości'
-            const empty    = activeTab === 'backs' ? 'grzbietów' : 'kości'
-            const emptyIcon = activeTab === 'backs'
-              ? <Layers size={36} className="text-muted-foreground opacity-20"/>
-              : <Package size={36} className="text-muted-foreground opacity-20"/>
+        }}
+      />
 
-            if (items.length === 0) {
-              return (
-                <CardContent className="flex flex-col items-center justify-center py-16 gap-2">
-                  {emptyIcon}
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Brak {empty}</CardTitle>
-                  <CardDescription>{colLabel} pojawią się po zakończeniu partii rozbioru</CardDescription>
-                </CardContent>
-              )
-            }
-            if (filtered.length === 0) {
-              return (
-                <CardContent className="flex flex-col items-center justify-center py-10 gap-2">
-                  <Search size={28} className="text-muted-foreground opacity-20" />
-                  <CardDescription>Brak wyników dla „{filter}"</CardDescription>
-                </CardContent>
-              )
-            }
-            const totalKg = filtered.reduce((s, x) => s + Number((x as any)[kgField] || 0), 0)
-
-            return (
-              <div className="overflow-auto max-h-[calc(100vh-12rem)]">
-                <table className="w-full text-xs tabular-nums">
-                  <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
-                    <tr>
-                      {[
-                        { col: 'rawBatchNo',   label: 'Partia ćwiartki', align: 'left'  },
-                        { col: 'supplierName', label: 'Dostawca',        align: 'left'  },
-                        { col: 'kgAvailable',  label: colLabel + ' kg',  align: 'right' },
-                        { col: 'createdAt',    label: 'Data rozbioru',   align: 'left'  },
-                      ].map(h => (
-                        <th
-                          key={h.col}
-                          onClick={() => toggleSort(h.col)}
-                          className={cn(
-                            'group cursor-pointer select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
-                            h.align === 'right' && 'text-right',
-                          )}
-                        >
-                          <span className={cn('inline-flex items-center gap-1', h.align === 'right' && 'flex-row-reverse')}>
-                            {h.label}
-                            <SortIcon col={h.col} />
-                          </span>
-                        </th>
-                      ))}
-                      <th className="w-8" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((s, idx) => {
-                      const batch = batches.find(b => b.id === s.rawBatchId)
-                      return (
-                        <tr
-                          key={s.id ?? idx}
-                          onClick={() => openTrace(activeTab, undefined, s)}
-                          className={cn(
-                            'cursor-pointer border-b border-surface-3 transition-colors',
-                            idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
-                            'hover:bg-blue-50/60',
-                          )}
-                        >
-                          <td className="px-2.5 py-2 whitespace-nowrap">
-                            <code className="font-mono font-bold text-foreground text-[12px] bg-muted px-1.5 py-0.5 rounded">
-                              {batch?.internalBatchNo || s.rawBatchNo}
-                            </code>
-                          </td>
-                          <td className="px-2.5 py-2 whitespace-nowrap text-ink-2 max-w-[260px] truncate" title={batch?.supplierName || ''}>
-                            {batch?.supplierName || <span className="text-muted-foreground">—</span>}
-                          </td>
-                          <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold text-emerald-700">
-                            {fmtKg((s as any)[kgField], 2)}<span className="font-normal text-[11px]"> kg</span>
-                          </td>
-                          <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
-                            {s.createdAt ? fmtDatePl(s.createdAt.slice(0, 10)) : <span className="text-muted-foreground">—</span>}
-                          </td>
-                          <td className="px-2 py-2 text-right">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); openTrace(activeTab, undefined, s) }}
-                              className="inline-flex items-center justify-center w-6 h-6 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
-                              title="Śledzenie partii"
-                            >
-                              <Eye size={13}/>
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                  <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
-                    <tr>
-                      <td colSpan={2} className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2">
-                        Suma · {filtered.length} {filtered.length === 1 ? 'partia' : 'partii'}
-                      </td>
-                      <td className="px-2.5 py-2 text-right font-bold tabular-nums text-emerald-700">
-                        {fmtKg(totalKg, 1)} kg
-                      </td>
-                      <td colSpan={2} />
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            )
-          })()
-        )}
-      </Card>
-
-      {traceItem && (
-        <TraceabilityModal
-          type={traceItem.type}
-          item={traceItem.item}
-          session={traceItem.session}
-          batch={traceItem.batch}
-          onClose={() => setTraceItem(null)}
-        />
-      )}
+      {trace && <TraceModal row={trace} batch={traceBatch} onClose={() => setTrace(null)} />}
     </div>
   )
 }

@@ -154,9 +154,9 @@ export function RawBatchesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <CardTitle className="text-base">Przyjęcie surowca — widok operacyjny</CardTitle>
+          <CardTitle className="text-base">Przyjęcie surowca — historia dostaw</CardTitle>
           <CardDescription className="mt-0.5">
-            Tylko aktywne · sortowanie FEFO · odświeża co 5s
+            Wszystkie przyjęcia chronologicznie · żywy stan jest w Magazynie surowca
           </CardDescription>
         </div>
         <Button onClick={openModal}>
