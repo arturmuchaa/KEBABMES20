@@ -134,7 +134,9 @@ export function DeboningReportsPage() {
     const r = data?.recent?.[0]
     return !!r && (Date.now() - new Date(r.at).getTime()) < 30 * 60 * 1000
   }, [data])
-  const showFeed = isTodayRange && (data?.recent?.length ?? 0) > 0
+  // Live feed „Ostatnie wpisy" TYLKO na filtrze Dziś — przy Wczoraj/7 dni/
+  // Miesiąc to szum; tabela pracowników dostaje wtedy pełną szerokość.
+  const showFeed = preset === 'today' && (data?.recent?.length ?? 0) > 0
 
   const load = useCallback(() => {
     deboningApi.stats(from, to).then(setData).catch(() => setData(null)).finally(() => setLoading(false))
