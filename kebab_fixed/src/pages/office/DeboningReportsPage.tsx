@@ -263,15 +263,12 @@ export function DeboningReportsPage() {
         <Kpi icon={Banknote} label="Koszt mięsa"
           value={s?.meatCostPerKg != null ? nf2.format(s.meatCostPerKg) : '—'} unit="zł/kg"
           sub={s?.quarterCost != null ? (
-            <>
-              {s.meatCostPerKg != null && eurRate != null && (
-                <span className="block">
-                  <span className="font-bold text-ink-2">≈ {nf2.format(s.meatCostPerKg / eurRate)} €/kg</span>
-                  <span className="text-ink-4"> · kurs NBP {nf2.format(eurRate)}</span>
-                </span>
-              )}
-              surowiec + robocizna − uboczne
-            </>
+            s.meatCostPerKg != null && eurRate != null ? (
+              <span>
+                <span className="font-bold text-ink-2">≈ {nf2.format(s.meatCostPerKg / eurRate)} €/kg</span>
+                <span className="text-ink-4"> · kurs NBP {nf2.format(eurRate)}</span>
+              </span>
+            ) : undefined
           ) : 'brak cen zakupu w zakresie'}
           accent="green"
           delta={<DeltaVsPrev cur={s?.meatCostPerKg} prev={ps?.meatCostPerKg} fmt={nf2} unit="zł" invert />} />
