@@ -3,7 +3,7 @@
  */
 import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
-import { deboningApi, rawBatchesApi, suppliersApi } from '@/lib/apiClient'
+import { deboningApi, rawBatchesApi, suppliersApi, byproductsApi, type BatchByproducts } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl } from '@/lib/utils'
 import { Printer, FileText, Calendar, CheckSquare, Square } from 'lucide-react'
 import type { DeboningSession, RawBatch } from '@/types'
@@ -38,12 +38,18 @@ interface ReportData {
   date:     string
   sessions: DeboningSession[]
   batches:  RawBatch[]
+  /** Zbiorcze ważenie ubocznych (batch_byproducts) — grzbiety/kości NA PARTIĘ. */
+  zb:       BatchByproducts[]
 }
 
 function SingleReport({ data }: { data: ReportData }) {
-  const { date, sessions, batches } = data
+  const { date, sessions, batches, zb } = data
 
-  const sessionsByBatch = useMemo(() => {
+  // Grupy per partia + doliczenie ZBIORCZYCH grzbietów/kości z batch_byproducts
+  // (per-wpis kgBacks/kgBones są zerowe w tym flow — prod 2026-07-10, partia 407).
+  // Partia rozbierana w kilka dni: zbiorcza kwota dzielona proporcjonalnie do
+  // ćwiartki z TEGO dnia (jednodniowa partia = pełna kwota).
+  const rows = useMemo(() => {
     const map = new Map<string, { batch: RawBatch | undefined; sessions: DeboningSession[] }>()
     sessions.forEach(s => {
       const key = s.rawBatchId || s.rawBatchNo || 'unknown'
@@ -53,17 +59,32 @@ function SingleReport({ data }: { data: ReportData }) {
       }
       map.get(key)!.sessions.push(s)
     })
-    return Array.from(map.values())
-  }, [sessions, batches])
+    return Array.from(map.values()).map(({ batch, sessions: bs }) => {
+      const taken = bs.reduce((s, x) => s + Number(x.kgTaken), 0)
+      const meat  = bs.reduce((s, x) => s + Number(x.kgMeat), 0)
+      let backs = bs.reduce((s, x) => s + Number(x.kgBacks || 0), 0)
+      let bones = bs.reduce((s, x) => s + Number(x.kgBones || 0), 0)
+      const first = bs[0] as any
+      const rec = zb.find(z =>
+        (batch && z.rawBatchId === batch.id) || z.rawBatchNo === (batch?.internalBatchNo || first?.rawBatchNo))
+      if (rec) {
+        const share = rec.quarterKg > 0 ? Math.min(1, taken / rec.quarterKg) : 1
+        backs += (rec.backsKg ?? 0) * share
+        bones += (rec.bonesKg ?? 0) * share
+      }
+      const kat3 = Math.max(0, taken - meat - bones - backs)
+      return { batch, sessions: bs, taken, meat, backs, bones, kat3 }
+    })
+  }, [sessions, batches, zb])
 
   const summary = useMemo(() => {
-    const totalTaken = sessions.reduce((s, x) => s + Number(x.kgTaken), 0)
-    const totalMeat  = sessions.reduce((s, x) => s + Number(x.kgMeat), 0)
-    const totalBacks = sessions.reduce((s, x) => s + Number(x.kgBacks || 0), 0)
-    const totalBones = sessions.reduce((s, x) => s + Number(x.kgBones || 0), 0)
+    const totalTaken = rows.reduce((s, r) => s + r.taken, 0)
+    const totalMeat  = rows.reduce((s, r) => s + r.meat, 0)
+    const totalBacks = rows.reduce((s, r) => s + r.backs, 0)
+    const totalBones = rows.reduce((s, r) => s + r.bones, 0)
     const uppzKat3   = Math.max(0, totalTaken - totalMeat - totalBones - totalBacks)
     return { totalTaken, totalMeat, totalBacks, totalBones, uppzKat3, loss: 0 }
-  }, [sessions])
+  }, [rows])
 
   // Numer raportu = licznik dnia z numeru sesji ROZ/dd/mm/rr[/n]; brak sufiksu → 001.
   const reportNo = (() => {
@@ -133,12 +154,7 @@ function SingleReport({ data }: { data: ReportData }) {
           </tr>
         </thead>
         <tbody>
-          {sessionsByBatch.map(({ batch, sessions: bs }, idx) => {
-            const taken = bs.reduce((s, x) => s + Number(x.kgTaken), 0)
-            const meat  = bs.reduce((s, x) => s + Number(x.kgMeat), 0)
-            const backs = bs.reduce((s, x) => s + Number(x.kgBacks || 0), 0)
-            const bones = bs.reduce((s, x) => s + Number(x.kgBones || 0), 0)
-            const kat3  = Math.max(0, taken - meat - bones - backs)
+          {rows.map(({ batch, sessions: bs, taken, meat, backs, bones, kat3 }, idx) => {
             const firstSession  = bs[0] as any
             const internalBatchNo = batch?.internalBatchNo  || firstSession?.rawBatchNo  || '—'
             const supplierBatchNo = batch?.supplierBatchNo  || firstSession?.supplierBatchNo || '—'
@@ -198,6 +214,8 @@ export function HaccpReportPage() {
   const { data: debData,   loading: debLoading  } = useApi(() => deboningApi.list())
   const { data: batchData, loading: batchLoading } = useApi<{ data: any[] }>(() => (rawBatchesApi as any).all())
   const { data: supplierData }                     = useApi(() => suppliersApi.list())
+  // Zbiorcze grzbiety/kości NA PARTIĘ — raport musi je doliczać (per-wpis = 0).
+  const { data: zbData }                           = useApi(() => byproductsApi.list())
 
   const [dateFrom,       setDateFrom]       = useState('')
   const [dateTo,         setDateTo]         = useState('')
@@ -404,7 +422,7 @@ export function HaccpReportPage() {
               </div>
             </div>
           </Card>
-          <SingleReport data={{ date: previewDate, sessions: previewData[1], batches: allBatches }} />
+          <SingleReport data={{ date: previewDate, sessions: previewData[1], batches: allBatches, zb: zbData ?? [] }} />
         </div>
       )}
 
@@ -412,7 +430,7 @@ export function HaccpReportPage() {
       {selectedReports.length > 0 && (
         <div id="haccp-report" className="hidden print:block">
           {selectedReports.map(([date, daySessions]) => (
-            <SingleReport key={date} data={{ date, sessions: daySessions, batches: allBatches }} />
+            <SingleReport key={date} data={{ date, sessions: daySessions, batches: allBatches, zb: zbData ?? [] }} />
           ))}
         </div>
       )}
