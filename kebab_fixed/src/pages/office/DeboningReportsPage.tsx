@@ -249,11 +249,11 @@ export function DeboningReportsPage() {
         {/* Bilans masy: ćwiartka − (mięso+kości+grzbiety). Dodatni = ubytek
             (coś niezważone, >3% czerwone); ujemny = NADWYŻKA nad wagę
             z dokumentu dostawcy (realny towar > deklaracja — zielone). */}
-        {/* Rachunek rozbioru: (koszt ćwiartki − sprzedane uboczne) / kg mięsa */}
+        {/* Rachunek rozbioru: (koszt ćwiartki + robocizna − sprzedane uboczne) / kg mięsa */}
         <Kpi icon={Banknote} label="Koszt mięsa"
           value={s?.meatCostPerKg != null ? nf2.format(s.meatCostPerKg) : '—'} unit="zł/kg"
           sub={s?.quarterCost != null
-            ? `ćwiartka ${nf0.format(s.quarterCost)} zł − uboczne ${nf0.format(s.byproductRevenue ?? 0)} zł`
+            ? 'surowiec + robocizna − uboczne'
             : 'brak cen zakupu w zakresie'}
           accent="green"
           delta={<DeltaVsPrev cur={s?.meatCostPerKg} prev={ps?.meatCostPerKg} fmt={nf2} unit="zł" invert />} />
@@ -326,7 +326,7 @@ export function DeboningReportsPage() {
                   cell: b => <span className="tabular-nums text-ink-2">{nf1.format(b.kgBones)}{b.bonesPct != null && <span className="text-[10px] text-ink-4"> ({nf1.format(b.bonesPct)}%)</span>}</span> },
                 { key: 'meatCostPerKg', header: 'Koszt mięsa [zł/kg]', align: 'right', sortable: true, sortValue: b => b.meatCostPerKg ?? 999,
                   cell: b => b.meatCostPerKg != null
-                    ? <span className="font-black tabular-nums text-ink" title={`ćwiartka ${nf0.format(b.quarterCost ?? 0)} zł − uboczne ${nf0.format(b.byproductRevenue ?? 0)} zł`}>{nf2.format(b.meatCostPerKg)}</span>
+                    ? <span className="font-black tabular-nums text-ink" title={`ćwiartka ${nf0.format(b.quarterCost ?? 0)} zł + robocizna ${nf0.format(b.laborCost ?? 0)} zł − uboczne ${nf0.format(b.byproductRevenue ?? 0)} zł`}>{nf2.format(b.meatCostPerKg)}</span>
                     : <span className="text-ink-4">—</span> },
                 { key: 'missingKg', header: 'Bilans ±', align: 'right', sortable: true, sortValue: b => b.missingKg ?? -999,
                   cell: b => {

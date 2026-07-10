@@ -111,8 +111,10 @@ export function DeboningReportPrintPage() {
           { l: 'Tempo', v: `${nf0.format(s.kgPerHour)} kg/h`, sub: `${nf0.format(s.workers)} pracowników` },
           { l: surplus ? 'Nadwyżka rozbiorowa' : 'Bilans masy (ubytek)', v: `${signedKg(s.missingKg)} kg`,
             sub: surplus ? `+${nf1.format(-s.missingPct)}% nad deklarację dostawcy` : `${nf1.format(s.missingPct)}% ćwiartki` },
-          { l: 'Koszt mięsa', v: s.meatCostPerKg != null ? `${nf2.format(s.meatCostPerKg)} zł/kg` : '—',
-            sub: s.quarterCost != null ? `ćwiartka ${nf0.format(s.quarterCost)} zł − uboczne ${nf0.format(s.byproductRevenue ?? 0)} zł` : 'brak cen zakupu' },
+          { l: 'Koszt mięsa (z robocizną)', v: s.meatCostPerKg != null ? `${nf2.format(s.meatCostPerKg)} zł/kg` : '—',
+            sub: s.quarterCost != null
+              ? `ćwiartka ${nf0.format(s.quarterCost)} zł + robocizna ${nf0.format(s.laborCost ?? 0)} zł − uboczne ${nf0.format(s.byproductRevenue ?? 0)} zł`
+              : 'brak cen zakupu' },
           { l: 'Dni z rozbiorem', v: String(days.length || 1), sub: `${nf0.format(batches.length)} partii surowca` },
         ].map((k, i) => (
           <div key={i} style={{ ...S.kpiBox, borderWidth: 0, borderRight: (i % 4) < 3 ? '1px solid #bfbfbf' : 0, borderBottom: i < 4 ? '1px solid #bfbfbf' : 0, borderStyle: 'solid', borderColor: '#bfbfbf' }}>

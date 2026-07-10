@@ -283,8 +283,9 @@ export interface DeboningStats {
     backsPct: number; bonesPct: number
     /** Bilans masy: ćwiartka − (mięso+kości+grzbiety) — duży = coś niezważone. */
     missingKg: number; missingPct: number
-    /** Rachunek rozbioru (partie ze znaną ceną zakupu). */
-    quarterCost: number | null; byproductRevenue: number | null; meatCostPerKg: number | null
+    /** Rachunek rozbioru (partie ze znaną ceną zakupu); koszt mięsa Z robocizną. */
+    quarterCost: number | null; byproductRevenue: number | null
+    laborCost: number | null; meatCostPerKg: number | null
   }
   workers: DeboningStatsWorker[]
   byHour: { hour: string; quarters: number; kgMeat: number }[]
@@ -296,7 +297,7 @@ export interface DeboningStats {
     backsPct: number | null; bonesPct: number | null
     missingKg: number | null; missingPct: number | null
     pricePerKg: number | null; quarterCost: number | null
-    byproductRevenue: number | null; meatCostPerKg: number | null
+    byproductRevenue: number | null; laborCost: number | null; meatCostPerKg: number | null
   }[]
   recent: { id: string; workerName: string; rawBatchNo: string; kgQuarter: number; kgMeat: number; yield: number; at: string }[]
   workerDaily: Record<string, { date: string; quarters: number; kgQuarter: number; kgMeat: number; avgYield: number }[]>
