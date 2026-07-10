@@ -16,11 +16,6 @@ def generate(order_id: str = Query(...)):
     return svc.generate_hdi(order_id)
 
 
-@router.post("/generate-wz")
-def generate_wz(wz_id: str = Query(...)):
-    return svc.generate_hdi_for_wz(wz_id)
-
-
 @router.get("/{hdi_id}/pdf")
 def pdf(hdi_id: str):
     doc = svc.get_hdi(hdi_id)  # 404, gdy nie istnieje

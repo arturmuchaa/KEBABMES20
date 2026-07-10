@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { wzApi, clientsApi, settingsApi, hdiApi, WzDoc } from '@/lib/api'
+import { wzApi, clientsApi, settingsApi, WzDoc } from '@/lib/api'
 import { todayIso, cn } from '@/lib/utils'
 import { WzDocumentView, WzDocData } from '@/components/wz/WzDocumentView'
 import { Card, CardContent } from '@/components/ui/card'
@@ -273,17 +273,7 @@ export function WzNewPage() {
               <Button variant="outline" className="gap-1.5" onClick={() => setPreview(true)}>
                 <Eye size={14} /> Podgląd
               </Button>
-              <Button variant="outline" className="gap-1.5"
-                onClick={async () => {
-                  try {
-                    const h = await hdiApi.generateForWz(savedDoc.id)
-                    window.open(`/office/hdi/${h.id}/druk`, '_blank')
-                  } catch (e: any) { setErr(e?.message || 'Błąd generowania HDI') }
-                }}>
-                <FileText size={14} /> HDI (partie)
-              </Button>
             </div>
-            {err && <div className="text-[12px] text-red-600">{err}</div>}
             <div className="flex gap-2 mt-1">
               <Button variant="ghost" size="sm" onClick={resetForm} className="gap-1.5">
                 <Plus size={13} /> Wystaw kolejny

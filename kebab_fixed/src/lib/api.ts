@@ -1383,9 +1383,6 @@ export const abpApi = {
 export const hdiApi = {
   generate: (orderId: string) =>
     post<{ id: string; number: string; status: string; incomplete: boolean; totals: { qty: number; kg: number } }>(`/hdi/generate?order_id=${encodeURIComponent(orderId)}`, {}),
-  // HDI dla WZ surowcowego — pozycje/partie z linii WZ (idempotentne per WZ)
-  generateForWz: (wzId: string) =>
-    post<{ id: string; number: string; status: string; totals: { qty: number; kg: number } }>(`/hdi/generate-wz?wz_id=${encodeURIComponent(wzId)}`, {}),
   get: (id: string) => get<any>(`/hdi/${id}`).then((r: any): HdiDoc => ({
     id: r.id, number: r.number, clientName: r.client_name ?? '', language: r.language ?? 'pl',
     status: r.status ?? 'wstepny', incomplete: !!r.incomplete, issueDate: r.issue_date ?? '',

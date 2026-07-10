@@ -39,15 +39,12 @@ const lineValue = (l: WzLine) => {
  *  Pozycje z wagą (total_kg) mają kolumnę "Waga" i cenę ZA KG. */
 export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean }) {
   const hasKg = doc.lines.some(l => (l.total_kg ?? 0) > 0)
-  const hasCont = doc.lines.some(l => (l.containers ?? 0) > 0)
   const sym = curSymbol(doc.currency)
   const isEur = (doc.currency || 'PLN').toUpperCase() === 'EUR'
   const totalKg = doc.lines.reduce((s, l) => s + Number(l.total_kg ?? 0), 0)
-  const totalCont = doc.lines.reduce((s, l) => s + Number(l.containers ?? 0), 0)
-  // Bez kolumny "Partia" — numery partii podaje HDI dołączane do WZ.
+  // Bez kolumn "Partia" i "Pojemniki" — te podaje sekcja HDI pod spodem.
   const head = [
     'Lp', 'Nazwa towaru', 'Ilość', 'j.m.',
-    ...(hasCont ? ['Pojemniki'] : []),
     ...(hasKg ? ['Waga'] : []),
     ...(doc.valued ? [hasKg ? `Cena/kg [${sym}]` : `Cena jedn. [${sym}]`, `Wartość [${sym}]`] : []),
   ]
@@ -101,14 +98,9 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
           {doc.lines.map((l, i) => (
             <tr key={i}>
               <td className="border border-[#9a9a9a] px-2 py-1.5 text-center w-9">{i + 1}</td>
-              <td className="border border-[#9a9a9a] px-2 py-1.5">{l.name}</td>
+              <td className="border border-[#9a9a9a] px-2 py-1.5 uppercase">{l.name}</td>
               <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">{l.qty}</td>
               <td className="border border-[#9a9a9a] px-2 py-1.5 w-12">{l.unit}</td>
-              {hasCont && (
-                <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">
-                  {(l.containers ?? 0) > 0 ? l.containers : '—'}
-                </td>
-              )}
               {hasKg && (
                 <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">
                   {(l.total_kg ?? 0) > 0 ? `${fmtKg3(l.total_kg)} kg` : '—'}
@@ -126,9 +118,6 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
           <tfoot>
             <tr>
               <td colSpan={4} className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold">Razem</td>
-              {hasCont && (
-                <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold font-mono">{totalCont} poj.</td>
-              )}
               {hasKg && (
                 <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold font-mono">{fmtKg3(totalKg)} kg</td>
               )}
@@ -159,15 +148,17 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
         const sumKg = hdiLines.reduce((s, l) => s + Number(l.total_kg ?? (l.unit === 'kg' ? l.qty : 0) ?? 0), 0)
         const sumCont = hdiLines.reduce((s, l) => s + Number((l as any).containers ?? 0), 0)
         return (
-          <div className="mt-6">
-            <div className="text-[11px] font-bold uppercase tracking-[0.18em] pb-1">
+          // Węższa i lżejsza niż tabela WZ (cieńsze szarości, mniejszy druk),
+          // żeby sekcje nie zlewały się na wydruku.
+          <div className="mt-7" style={{ width: '86%' }}>
+            <div className="text-[11px] font-bold uppercase tracking-[0.18em] pb-1 border-b border-[#777] mb-1.5">
               Identyfikacja partii surowca (HDI)
             </div>
-            <table className="w-full" style={{ borderCollapse: 'collapse' }}>
+            <table className="w-full" style={{ borderCollapse: 'collapse', fontSize: 11 }}>
               <thead>
                 <tr>
-                  {['Lp', 'Nazwa towaru', 'Partia', 'Data uboju', 'Data ważności', 'Pojemniki', 'Waga [kg]'].map(h => (
-                    <th key={h} className="border border-[#9a9a9a] bg-[#f0f0f0] px-2 py-1.5 text-[11px] uppercase tracking-wide text-left">
+                  {['Lp', 'Nazwa towaru', 'Partia', 'Data uboju', 'Data ważności', 'Pojemniki*', 'Waga [kg]'].map(h => (
+                    <th key={h} className="border border-[#bfbfbf] bg-[#f7f7f7] px-1.5 py-1 text-[10px] uppercase tracking-wide text-left">
                       {h}
                     </th>
                   ))}
@@ -176,34 +167,35 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
               <tbody>
                 {hdiLines.map((l, i) => (
                   <tr key={i}>
-                    <td className="border border-[#9a9a9a] px-2 py-1.5 text-center w-9">{i + 1}</td>
-                    <td className="border border-[#9a9a9a] px-2 py-1.5 uppercase">{l.name}</td>
-                    <td className="border border-[#9a9a9a] px-2 py-1.5 font-mono font-bold">{l.batch_no}</td>
-                    <td className="border border-[#9a9a9a] px-2 py-1.5">
+                    <td className="border border-[#bfbfbf] px-1.5 py-1 text-center w-8">{i + 1}</td>
+                    <td className="border border-[#bfbfbf] px-1.5 py-1 uppercase">{l.name}</td>
+                    <td className="border border-[#bfbfbf] px-1.5 py-1 font-mono font-bold">{l.batch_no}</td>
+                    <td className="border border-[#bfbfbf] px-1.5 py-1">
                       {(l as any).slaughter_date ? fmtDatePl((l as any).slaughter_date) : '—'}
                     </td>
-                    <td className="border border-[#9a9a9a] px-2 py-1.5">
+                    <td className="border border-[#bfbfbf] px-1.5 py-1">
                       {(l as any).expiry_date ? fmtDatePl((l as any).expiry_date) : '—'}
                     </td>
-                    <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">
+                    <td className="border border-[#bfbfbf] px-1.5 py-1 text-right font-mono">
                       {((l as any).containers ?? 0) > 0 ? (l as any).containers : '—'}
                     </td>
-                    <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-mono">
+                    <td className="border border-[#bfbfbf] px-1.5 py-1 text-right font-mono">
                       {fmtKg3(l.total_kg ?? (l.unit === 'kg' ? l.qty : 0))}
                     </td>
                   </tr>
                 ))}
                 <tr>
-                  <td colSpan={5} className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold">Razem</td>
-                  <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold font-mono">
+                  <td colSpan={5} className="border border-[#bfbfbf] px-1.5 py-1 text-right font-bold">Razem</td>
+                  <td className="border border-[#bfbfbf] px-1.5 py-1 text-right font-bold font-mono">
                     {sumCont > 0 ? sumCont : '—'}
                   </td>
-                  <td className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold font-mono">{fmtKg3(sumKg)}</td>
+                  <td className="border border-[#bfbfbf] px-1.5 py-1 text-right font-bold font-mono">{fmtKg3(sumKg)}</td>
                 </tr>
               </tbody>
             </table>
-            <div className="mt-1 text-[10px] text-[#666]">
-              Zakład pod stałym nadzorem weterynaryjnym, posiada system HACCP. Dokument stanowi handlową identyfikację partii wydanego surowca.
+            <div className="mt-1 text-[10px] text-[#666] leading-snug">
+              * Liczba pojemników orientacyjna — przy załadunku towar bywa przekładany między pojemnikami; wiążąca jest waga [kg]. Prosimy o weryfikację przy odbiorze.
+              <br />Zakład pod stałym nadzorem weterynaryjnym, posiada system HACCP. Dokument stanowi handlową identyfikację partii wydanego surowca.
             </div>
           </div>
         )

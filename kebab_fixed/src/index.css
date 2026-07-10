@@ -58,3 +58,11 @@
   .scrollbar-thin::-webkit-scrollbar-thumb { @apply bg-surface-5 rounded-full; }
   .scrollbar-thin::-webkit-scrollbar-thumb:hover { @apply bg-ink-5; }
 }
+
+/* Wydruki: arkusz dokumentu na CZYSTEJ BIELI — szare tło aplikacji (body
+   bg-surface-2) nie może drukować się pod/obok dokumentu, gdy treść nie
+   wypełnia strony. Globalnie dla WSZYSTKICH dokumentów (WZ, HDI, CMR,
+   HACCP, etykiety…). height:auto — 100% potrafiło dokładać pustą stronę. */
+@media print {
+  html, body, #root { background: #fff !important; height: auto !important; }
+}
