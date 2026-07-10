@@ -306,6 +306,48 @@ def create_manual_wz(
                 create_stock_movement(
                     conn, product_type="raw", batch_id=sid, qty=qty,
                     movement_type="OUT", source_type="wz", source_id=wid)
+            elif stype == "meat":
+                row = cx_query_one(
+                    conn,
+                    "SELECT id, lot_no, kg_available FROM meat_stock WHERE id=%s FOR UPDATE",
+                    (sid,))
+                if not row:
+                    raise HTTPException(400, "Pozycja magazynowa nie istnieje")
+                avail = float(row.get("kg_available") or 0)
+                if avail + 1e-6 < qty:
+                    raise HTTPException(
+                        400, f"Za mało mięsa (partia {row.get('lot_no')}): jest {avail} kg, potrzeba {qty}")
+                cx_execute(
+                    conn,
+                    "UPDATE meat_stock SET kg_available=GREATEST(0, kg_available-%s) WHERE id=%s",
+                    (qty, sid))
+                create_stock_movement(
+                    conn, product_type="meat", batch_id=sid, qty=qty,
+                    movement_type="OUT", source_type="wz", source_id=wid)
+
+            elif stype == "byproduct":
+                row = cx_query_one(
+                    conn,
+                    "SELECT id, raw_batch_no, kind, kg FROM byproduct_lots WHERE id=%s FOR UPDATE",
+                    (sid,))
+                if not row:
+                    raise HTTPException(400, "Pozycja magazynowa nie istnieje")
+                avail = float(row.get("kg") or 0)
+                what = "grzbietów" if row.get("kind") == "backs" else "kości"
+                if avail + 1e-6 < qty:
+                    raise HTTPException(
+                        400, f"Za mało {what} (partia {row.get('raw_batch_no')}): jest {avail} kg, potrzeba {qty}")
+                # Lot wydany w całości → status 'shipped' (nie trafi do utylizacji).
+                cx_execute(
+                    conn,
+                    "UPDATE byproduct_lots SET kg=GREATEST(0, kg-%s), "
+                    "status=CASE WHEN kg-%s <= 0.001 THEN 'shipped' ELSE status END "
+                    "WHERE id=%s",
+                    (qty, qty, sid))
+                create_stock_movement(
+                    conn, product_type="byproduct", batch_id=sid, qty=qty,
+                    movement_type="OUT", source_type="wz", source_id=wid)
+
             else:
                 raise HTTPException(400, f"Nieznany typ magazynu: {stype}")
 
@@ -695,7 +737,42 @@ def stock_finished_goods() -> List[Dict[str, Any]]:
 
 
 def stock_raw() -> List[Dict[str, Any]]:
-    return query_all(
-        """SELECT id, internal_batch_no, supplier_name, kg_available
+    """Pozycje surowcowe do ręcznego WZ — wszystko wydawalne w kg:
+    ćwiartka (raw_batches), mięso z/s (meat_stock), grzbiety/kości
+    (byproduct_lots — loty otwarte). stock_type steruje rozchodem
+    w create_manual_wz."""
+    out: List[Dict[str, Any]] = []
+    for r in query_all(
+        """SELECT id, internal_batch_no, supplier_name, kg_available, material_name
            FROM raw_batches WHERE COALESCE(kg_available,0) > 0
-           ORDER BY received_date DESC NULLS LAST, internal_batch_no""")
+           ORDER BY received_date DESC NULLS LAST, internal_batch_no"""):
+        out.append({
+            "id": r["id"], "stock_type": "raw",
+            "internal_batch_no": r["internal_batch_no"],
+            "supplier_name": r["supplier_name"],
+            "name": r.get("material_name") or "Ćwiartka z kurczaka",
+            "kg_available": r["kg_available"],
+        })
+    for m in query_all(
+        """SELECT id, lot_no, raw_batch_no, kg_available, material_name
+           FROM meat_stock WHERE status='AVAILABLE' AND COALESCE(kg_available,0) > 0
+           ORDER BY created_at DESC"""):
+        out.append({
+            "id": m["id"], "stock_type": "meat",
+            "internal_batch_no": m.get("lot_no") or m.get("raw_batch_no"),
+            "supplier_name": None,
+            "name": m.get("material_name") or "Mięso z/s",
+            "kg_available": m["kg_available"],
+        })
+    for b in query_all(
+        """SELECT id, raw_batch_no, kind, kg FROM byproduct_lots
+           WHERE status='open' AND COALESCE(kg,0) > 0 AND kind IN ('backs','bones')
+           ORDER BY created_at DESC"""):
+        out.append({
+            "id": b["id"], "stock_type": "byproduct",
+            "internal_batch_no": b.get("raw_batch_no"),
+            "supplier_name": None,
+            "name": "Grzbiety" if b["kind"] == "backs" else "Kości",
+            "kg_available": b["kg"],
+        })
+    return out

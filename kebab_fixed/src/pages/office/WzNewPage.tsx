@@ -23,7 +23,7 @@ import {
 } from 'lucide-react'
 
 type Row = {
-  stockType: 'fg' | 'raw'; stockId: string; name: string; unit: string
+  stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string
   qtyStr: string; priceStr: string; batchNo?: string; available: number
   kgPerUnit?: number   // FG: waga 1 szt — wycena za kg
 }
@@ -147,7 +147,8 @@ export function WzNewPage() {
     kgPerUnit: Number(g.kg_per_unit || 0) || undefined,
   }])
   const addRaw = (b: any) => setRows(r => [...r, {
-    stockType: 'raw', stockId: b.id, name: `Surowiec ${b.internal_batch_no}`,
+    stockType: b.stock_type || 'raw', stockId: b.id,
+    name: b.name || `Surowiec ${b.internal_batch_no}`,
     unit: 'kg', qtyStr: '1', priceStr: '', batchNo: b.internal_batch_no,
     available: Number(b.kg_available || 0),
   }])
@@ -166,7 +167,7 @@ export function WzNewPage() {
     ? fg.filter(g => (g.client_name || '').trim().toLowerCase() === clientName.toLowerCase()).length
     : 0
   const rawFiltered = raw.filter(b =>
-    !q || `${b.internal_batch_no || ''} ${b.supplier_name || ''}`.toLowerCase().includes(q))
+    !q || `${b.internal_batch_no || ''} ${b.supplier_name || ''} ${b.name || ''}`.toLowerCase().includes(q))
 
   const draftDoc: WzDocData = {
     number: savedDoc?.number,
@@ -398,10 +399,11 @@ export function WzNewPage() {
                   return (
                     <div key={b.id} className="px-3 py-2 flex items-center gap-3 hover:bg-muted/50">
                       <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-medium truncate">{b.supplier_name || 'Surowiec'}</div>
+                        <div className="text-[13px] font-medium truncate">{b.name || b.supplier_name || 'Surowiec'}</div>
                         <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
                           <span className="font-mono text-green-700 bg-green-50 border border-green-200 rounded px-1">{b.internal_batch_no}</span>
                           <span>{b.kg_available} kg dostępne</span>
+                          {b.supplier_name && <span className="truncate">· {b.supplier_name}</span>}
                         </div>
                       </div>
                       <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1 shrink-0"

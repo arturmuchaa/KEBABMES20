@@ -1439,7 +1439,7 @@ export const wzApi = {
   stockRaw: () => get<any[]>('/wz/stock/raw'),
   createManual: (body: {
     buyer: { name: string; address?: string; nip?: string };
-    items: { stockType: 'fg' | 'raw'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string; kgPerUnit?: number }[];
+    items: { stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string; kgPerUnit?: number }[];
     valued?: boolean; place?: string; issuedDate?: string; releaseDate?: string; notes?: string;
     currency?: string; eurRate?: number | null;
   }) => post<WzDoc>('/wz/manual', body),
