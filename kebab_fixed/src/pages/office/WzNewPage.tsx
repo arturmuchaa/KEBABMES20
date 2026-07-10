@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { wzApi, clientsApi, settingsApi, WzDoc } from '@/lib/api'
+import { wzApi, clientsApi, settingsApi, hdiApi, WzDoc } from '@/lib/api'
 import { todayIso, cn } from '@/lib/utils'
 import { WzDocumentView, WzDocData } from '@/components/wz/WzDocumentView'
 import { Card, CardContent } from '@/components/ui/card'
@@ -24,6 +24,7 @@ import {
 
 type Row = {
   stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string
+  containersStr?: string
   qtyStr: string; priceStr: string; batchNo?: string; available: number
   kgPerUnit?: number   // FG: waga 1 szt — wycena za kg
 }
@@ -146,13 +147,16 @@ export function WzNewPage() {
     available: Number(g.qty_available || 0),
     kgPerUnit: Number(g.kg_per_unit || 0) || undefined,
   }])
+  // Domyślnie CAŁA partia (typowy przypadek); częściowe wydanie = edycja kg
+  // w tabeli (np. „600 z 406, reszta nie weszła na samochód").
   const addRaw = (b: any) => setRows(r => [...r, {
     stockType: b.stock_type || 'raw', stockId: b.id,
     name: b.name || `Surowiec ${b.internal_batch_no}`,
-    unit: 'kg', qtyStr: '1', priceStr: '', batchNo: b.internal_batch_no,
+    unit: 'kg', qtyStr: String(Number(b.kg_available || 0)), priceStr: '', containersStr: '',
+    batchNo: b.internal_batch_no,
     available: Number(b.kg_available || 0),
   }])
-  const upd = (i: number, k: 'qtyStr' | 'priceStr', v: string) =>
+  const upd = (i: number, k: 'qtyStr' | 'priceStr' | 'containersStr', v: string) =>
     setRows(r => r.map((x, j) => j === i ? { ...x, [k]: v } : x))
   const del = (i: number) => setRows(r => r.filter((_, j) => j !== i))
 
@@ -179,6 +183,7 @@ export function WzNewPage() {
     eur_rate: currency === 'EUR' && eurRate > 0 ? eurRate : null,
     lines: rows.map(r => ({
       name: r.name, qty: rowQty(r), unit: r.unit, batch_no: r.batchNo ?? null,
+      containers: parseInt(r.containersStr || '') || null,
       kg_per_unit: r.kgPerUnit ?? null,
       total_kg: r.kgPerUnit ? Math.round(rowQty(r) * r.kgPerUnit * 1000) / 1000 : null,
       price: valued ? rowPrice(r) : null, value: valued ? Math.round(rowValue(r) * 100) / 100 : null,
@@ -206,6 +211,7 @@ export function WzNewPage() {
         items: rows.map(r => ({
           stockType: r.stockType, stockId: r.stockId, name: r.name, unit: r.unit,
           qty: rowQty(r), price: rowPrice(r), batchNo: r.batchNo, kgPerUnit: r.kgPerUnit,
+          containers: parseInt(r.containersStr || '') || undefined,
         })),
         valued,
         currency,
@@ -257,7 +263,17 @@ export function WzNewPage() {
               <Button variant="outline" className="gap-1.5" onClick={() => setPreview(true)}>
                 <Eye size={14} /> Podgląd
               </Button>
+              <Button variant="outline" className="gap-1.5"
+                onClick={async () => {
+                  try {
+                    const h = await hdiApi.generateForWz(savedDoc.id)
+                    window.open(`/office/hdi/${h.id}/druk`, '_blank')
+                  } catch (e: any) { setErr(e?.message || 'Błąd generowania HDI') }
+                }}>
+                <FileText size={14} /> HDI (partie)
+              </Button>
             </div>
+            {err && <div className="text-[12px] text-red-600">{err}</div>}
             <div className="flex gap-2 mt-1">
               <Button variant="ghost" size="sm" onClick={resetForm} className="gap-1.5">
                 <Plus size={13} /> Wystaw kolejny
@@ -368,7 +384,7 @@ export function WzNewPage() {
                        value={query} onChange={e => setQuery(e.target.value)} />
               </div>
 
-              <div className="border rounded-md divide-y max-h-56 overflow-y-auto">
+              <div className="border rounded-md max-h-72 overflow-y-auto divide-y">
                 {tab === 'fg' && fgFiltered.map(g => {
                   const added = addedIds.has(g.id)
                   return (
@@ -394,25 +410,49 @@ export function WzNewPage() {
                     </div>
                   )
                 })}
-                {tab === 'raw' && rawFiltered.map(b => {
-                  const added = addedIds.has(b.id)
-                  return (
-                    <div key={b.id} className="px-3 py-2 flex items-center gap-3 hover:bg-muted/50">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-medium truncate">{b.name || b.supplier_name || 'Surowiec'}</div>
-                        <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
-                          <span className="font-mono text-green-700 bg-green-50 border border-green-200 rounded px-1">{b.internal_batch_no}</span>
-                          <span>{b.kg_available} kg dostępne</span>
-                          {b.supplier_name && <span className="truncate">· {b.supplier_name}</span>}
+                {tab === 'raw' && (() => {
+                  // Grupy per rodzaj — kości nie mieszają się z grzbietami i ćwiartką.
+                  const GROUPS: { key: string; label: string; chip: string; match: (b: any) => boolean }[] = [
+                    { key: 'raw',    label: 'Ćwiartka',   chip: 'bg-blue-50 text-blue-700 border-blue-200',       match: b => (b.stock_type || 'raw') === 'raw' },
+                    { key: 'meat',   label: 'Mięso z/s',  chip: 'bg-emerald-50 text-emerald-700 border-emerald-200', match: b => b.stock_type === 'meat' },
+                    { key: 'backs',  label: 'Grzbiety',   chip: 'bg-amber-50 text-amber-700 border-amber-200',    match: b => b.stock_type === 'byproduct' && b.name === 'Grzbiety' },
+                    { key: 'bones',  label: 'Kości',      chip: 'bg-gray-100 text-gray-700 border-gray-300',      match: b => b.stock_type === 'byproduct' && b.name !== 'Grzbiety' },
+                  ]
+                  return GROUPS.map(g => {
+                    const items = rawFiltered.filter(g.match)
+                    if (!items.length) return null
+                    const sumKg = items.reduce((a, b) => a + Number(b.kg_available || 0), 0)
+                    return (
+                      <div key={g.key}>
+                        <div className="px-3 py-1.5 bg-surface-2 border-y border-surface-3 flex items-center gap-2 sticky top-0 z-10">
+                          <span className={cn('text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border', g.chip)}>{g.label}</span>
+                          <span className="text-[11px] text-muted-foreground">{items.length} poz. · {fmtKg3(sumKg)} kg</span>
                         </div>
+                        {items.map(b => {
+                          const added = addedIds.has(b.id)
+                          return (
+                            <div key={b.id} className="px-3 py-2 flex items-center gap-3 hover:bg-muted/50 border-b border-surface-3 last:border-b-0">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[13px] font-medium truncate flex items-center gap-2">
+                                  <span className="font-mono font-bold text-green-700 bg-green-50 border border-green-200 rounded px-1.5">{b.internal_batch_no}</span>
+                                  <span className="truncate">{b.name || 'Surowiec'}</span>
+                                </div>
+                                <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                                  <span className="font-semibold text-ink-2">{fmtKg3(Number(b.kg_available || 0))} kg dostępne</span>
+                                  {b.supplier_name && <span className="truncate">· {b.supplier_name}</span>}
+                                </div>
+                              </div>
+                              <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1 shrink-0"
+                                      disabled={added} onClick={() => addRaw(b)}>
+                                {added ? 'Dodano' : <><Plus size={12} /> Dodaj</>}
+                              </Button>
+                            </div>
+                          )
+                        })}
                       </div>
-                      <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1 shrink-0"
-                              disabled={added} onClick={() => addRaw(b)}>
-                        {added ? 'Dodano' : <><Plus size={12} /> Dodaj</>}
-                      </Button>
-                    </div>
-                  )
-                })}
+                    )
+                  })
+                })()}
                 {((tab === 'fg' && !fgFiltered.length) || (tab === 'raw' && !rawFiltered.length)) && (
                   <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">
                     {q ? 'Brak wyników wyszukiwania'
@@ -427,7 +467,7 @@ export function WzNewPage() {
                 <Table className="text-[12px]">
                   <TableHeader>
                     <TableRow>
-                      {['Towar', 'Partia', 'Ilość', 'Waga', ...(valued ? [`Cena/kg [${sym}]`, `Wartość [${sym}]`] : []), ''].map((h, i) => (
+                      {['Towar', 'Partia', 'Ilość', 'Pojemniki', 'Waga', ...(valued ? [`Cena/kg [${sym}]`, `Wartość [${sym}]`] : []), ''].map((h, i) => (
                         <TableHead key={i} className="text-[9px] uppercase tracking-wider h-7 px-2">{h}</TableHead>
                       ))}
                     </TableRow>
@@ -456,6 +496,17 @@ export function WzNewPage() {
                             <div className={cn('text-[10px] mt-0.5', over ? 'text-red-600 font-semibold' : 'text-muted-foreground')}>
                               dostępne {r.available} {r.unit}
                             </div>
+                          </TableCell>
+                          <TableCell className="py-1.5 px-2">
+                            {r.stockType === 'fg' ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : (
+                              <Input type="text" inputMode="numeric" placeholder="—"
+                                     value={r.containersStr ?? ''}
+                                     className="h-8 w-16 font-mono"
+                                     onFocus={e => e.target.select()}
+                                     onChange={e => upd(i, 'containersStr', sanitizeInt(e.target.value))} />
+                            )}
                           </TableCell>
                           <TableCell className="py-1.5 px-2 font-mono font-semibold whitespace-nowrap">
                             {rowKg(r) > 0 ? `${fmtKg3(rowKg(r))} kg` : '—'}

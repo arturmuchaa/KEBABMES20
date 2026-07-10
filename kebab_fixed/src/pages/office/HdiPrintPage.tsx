@@ -455,11 +455,16 @@ export function HdiPrintPage() {
                 <tr key={`item-${i}`} className="body-row">
                   <td className="center">{i + 1}.</td>
                   <td style={{ fontWeight: 600 }}>{it.name}</td>
-                  <td className="center">{it.qty}szt.</td>
+                  <td className="center">{it.qty ? `${it.qty}${(it as any).unit ?? 'szt.'}` : '—'}</td>
                   <td className="center">{it.kg.toFixed(0)}kg</td>
-                  {/* Osobna kolumna: liczba sztuk z danej partii (jak na wzorze) */}
+                  {/* Osobna kolumna: sztuki/pojemniki (lub kg dla surowca) z danej partii */}
                   <td className="bqty-cell">
-                    {multi ? it.batches.map((b, j) => (<div key={j} className="bline">{b.qty}SZT</div>)) : null}
+                    {multi ? it.batches.map((b, j) => (
+                      <div key={j} className="bline">
+                        {b.qty ? `${b.qty}${(((it as any).unit ?? 'szt.') as string).replace('.', '').toUpperCase()}`
+                          : (b as any).kg ? `${Number((b as any).kg).toFixed(0)}KG` : ''}
+                      </div>
+                    )) : null}
                   </td>
                   <td className="bpartia-cell">
                     {it.batches.map((b, j) => (<div key={j} className="bline">{b.partia}</div>))}

@@ -19,3 +19,17 @@ def test_not_valued_no_prices():
     lines, total = build_manual_wz_lines(sel, valued=False)
     assert lines[0]["price"] is None and lines[0]["value"] is None
     assert total == 0.0
+
+
+def test_containers_przechodza_na_linie():
+    """Pojemniki (E2) z wyboru trafiają na linię WZ — informacyjnie na
+    dokumencie i jako 'sztuki' pozycji w HDI surowca."""
+    sel = [
+        {"stock_type": "byproduct", "stock_id": "b1", "name": "Kości", "unit": "kg",
+         "qty": 993, "price": 1, "batch_no": "404", "containers": 7},
+        {"stock_type": "raw", "stock_id": "r1", "name": "Ćwiartka", "unit": "kg",
+         "qty": 100, "price": 5, "batch_no": "409"},  # bez pojemników
+    ]
+    lines, _ = build_manual_wz_lines(sel, valued=True)
+    assert lines[0]["containers"] == 7
+    assert "containers" not in lines[1]

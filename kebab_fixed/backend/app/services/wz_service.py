@@ -83,6 +83,13 @@ def build_manual_wz_lines(selections: List[Dict[str, Any]], valued: bool) -> Tup
     for line, s in zip(lines, selections or []):
         line["stock_type"] = s.get("stock_type")
         line["stock_id"] = s.get("stock_id")
+        # Pojemniki (E2) — informacyjnie na dokumencie i do HDI surowca.
+        try:
+            cont = int(s.get("containers") or 0)
+        except (TypeError, ValueError):
+            cont = 0
+        if cont > 0:
+            line["containers"] = cont
     return lines, total
 
 

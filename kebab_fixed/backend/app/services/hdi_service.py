@@ -287,6 +287,119 @@ def generate_hdi(order_id: str) -> Dict[str, Any]:
             "incomplete": data["incomplete"], "totals": data["totals"]}
 
 
+def build_hdi_from_wz(wz_id: str) -> Dict[str, Any]:
+    """HDI dla WZ surowcowego: pozycje z linii WZ (nazwa, kg, pojemniki),
+    partie per linia + termin ważności z partii surowca. Zamyka projektowany
+    przepływ „WZ bez kolumny partii — numery partii podaje HDI"."""
+    wz = query_one("SELECT * FROM wz_documents WHERE id=%s", (wz_id,))
+    if not wz:
+        raise HTTPException(404, "Dokument WZ nie znaleziony")
+    lines = wz.get("lines") or []
+    buyer = wz.get("buyer") or {}
+    if isinstance(lines, str):
+        lines = json.loads(lines)
+    if isinstance(buyer, str):
+        buyer = json.loads(buyer)
+
+    nos = sorted({str(l.get("batch_no") or "") for l in lines if l.get("batch_no")})
+    exp_by_no: Dict[str, str] = {}
+    if nos:
+        for r in query_all(
+            "SELECT internal_batch_no, expiry_date FROM raw_batches "
+            "WHERE internal_batch_no = ANY(%s)", (nos,)):
+            exp_by_no[r["internal_batch_no"]] = str(r.get("expiry_date") or "")[:10]
+
+    by_name: Dict[str, Dict[str, Any]] = {}
+    for l in lines:
+        name = (l.get("name") or "").strip() or "Towar"
+        kg = float(l.get("total_kg") or 0)
+        if kg <= 0 and (l.get("unit") or "") == "kg":
+            kg = float(l.get("qty") or 0)
+        cont = int(l.get("containers") or 0)
+        grp = by_name.setdefault(
+            name, {"name": name, "qty": 0, "kg": 0.0, "unit": "poj.", "batches": []})
+        grp["qty"] += cont
+        grp["kg"] += kg
+        bno = str(l.get("batch_no") or "")
+        grp["batches"].append({
+            "partia": bno or "—",
+            "termin": _fmt_date(exp_by_no.get(bno, "")),
+            "qty": cont,
+            "kg": round(kg, 3),
+        })
+    items = sorted(by_name.values(), key=lambda g: g["name"])
+    for grp in items:
+        grp["kg"] = round(grp["kg"], 3)
+    if not items:
+        raise HTTPException(400, "Dokument WZ nie ma pozycji")
+    total_qty = sum(i["qty"] for i in items)
+    total_kg = round(sum(i["kg"] for i in items), 3)
+
+    co = get_company()
+    lang = lang_from_nip((buyer.get("nip") or ""))
+    company_addr = f"{co.get('address','')}, {co.get('postal_code','')} {co.get('city','')}".strip(", ")
+    recipient = ", ".join(x for x in [buyer.get("name"), buyer.get("address"), buyer.get("nip")] if x)
+    header = {
+        "producer_name": co.get("name", ""), "producer_addr": company_addr,
+        "producer_nip": co.get("nip", ""), "producer_email": co.get("email", ""),
+        "vet_number": co.get("vet_number", ""),
+        "market_domestic": bool(co.get("market_domestic", True)),
+        "market_eu": bool(co.get("market_eu", True)),
+        "recipient": recipient,
+        "unload": ", ".join(x for x in [buyer.get("name"), buyer.get("address")] if x),
+        "load": co.get("load_place") or company_addr,
+        "seller": f"{co.get('name', '')}, {company_addr}".strip(", "),
+        "reg_number": "",
+        "wz_number": wz.get("number") or "",
+    }
+    return {"order_id": wz_id, "client_name": buyer.get("name") or "", "language": lang,
+            "incomplete": False, "header": header, "items": items,
+            "totals": {"qty": total_qty, "kg": total_kg}}
+
+
+def generate_hdi_for_wz(wz_id: str) -> Dict[str, Any]:
+    """Idempotentne per WZ (order_id przechowuje id WZ): numer HDI stały,
+    treść odświeżana dopóki status 'wstepny' — jak generate_hdi."""
+    data = build_hdi_from_wz(wz_id)
+    existing = query_one(
+        "SELECT id, number, status FROM hdi_documents WHERE order_id=%s ORDER BY created_at LIMIT 1",
+        (wz_id,))
+    if existing:
+        if existing["status"] == "wstepny":
+            with transaction() as conn:
+                cx_execute(conn,
+                    """UPDATE hdi_documents
+                       SET client_name=%s, language=%s, incomplete=%s,
+                           header=%s::jsonb, items=%s::jsonb, totals=%s::jsonb
+                       WHERE id=%s""",
+                    (data["client_name"], data["language"], data["incomplete"],
+                     json.dumps(data["header"]), json.dumps(data["items"]),
+                     json.dumps(data["totals"]), existing["id"]))
+        logger.info("hdi.wz.reused", extra={"hdi_id": existing["id"], "number": existing["number"]})
+        return {"id": existing["id"], "number": existing["number"], "status": existing["status"],
+                "incomplete": False, "totals": data["totals"]}
+
+    today = datetime.now()
+    ym = today.strftime("%y%m")
+    hid = cuid()
+    with transaction() as conn:
+        row = cx_query_one(conn,
+            "SELECT COALESCE(MAX(seq),0)+1 AS n FROM hdi_documents WHERE year_month=%s", (ym,))
+        seq = int(row["n"])
+        number = format_hdi_number(seq, ym)
+        cx_execute(conn,
+            """INSERT INTO hdi_documents
+               (id, number, seq, year_month, order_id, client_name, language, status,
+                incomplete, header, items, totals, issue_date, created_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s)""",
+            (hid, number, seq, ym, wz_id, data["client_name"], data["language"],
+             data["incomplete"], json.dumps(data["header"]), json.dumps(data["items"]),
+             json.dumps(data["totals"]), today.strftime("%d.%m.%Y"), now_iso()))
+    logger.info("hdi.wz.generated", extra={"hdi_id": hid, "number": number})
+    return {"id": hid, "number": number, "status": "wstepny",
+            "incomplete": False, "totals": data["totals"]}
+
+
 def get_hdi(hdi_id: str) -> Dict[str, Any]:
     row = query_one("SELECT * FROM hdi_documents WHERE id=%s", (hdi_id,))
     if not row:

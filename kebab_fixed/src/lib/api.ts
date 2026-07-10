@@ -1374,9 +1374,18 @@ export interface HdiListRow {
   incomplete: boolean; issueDate: string; createdAt: string
 }
 
+// ─── Loty ABP (produkty uboczne — ŻYWY stan; utylizacja/sprzedaż) ───
+export const abpApi = {
+  lots: (status?: 'open' | 'disposed') =>
+    get<any[]>(`/byproducts${status ? `?status=${status}` : ''}`),
+}
+
 export const hdiApi = {
   generate: (orderId: string) =>
     post<{ id: string; number: string; status: string; incomplete: boolean; totals: { qty: number; kg: number } }>(`/hdi/generate?order_id=${encodeURIComponent(orderId)}`, {}),
+  // HDI dla WZ surowcowego — pozycje/partie z linii WZ (idempotentne per WZ)
+  generateForWz: (wzId: string) =>
+    post<{ id: string; number: string; status: string; totals: { qty: number; kg: number } }>(`/hdi/generate-wz?wz_id=${encodeURIComponent(wzId)}`, {}),
   get: (id: string) => get<any>(`/hdi/${id}`).then((r: any): HdiDoc => ({
     id: r.id, number: r.number, clientName: r.client_name ?? '', language: r.language ?? 'pl',
     status: r.status ?? 'wstepny', incomplete: !!r.incomplete, issueDate: r.issue_date ?? '',
@@ -1396,6 +1405,7 @@ export interface WzLine {
   batch_no?: string | null
   kg_per_unit?: number | null   // waga 1 szt — pozycje FG wyceniane za kg
   total_kg?: number | null      // qty * kg_per_unit
+  containers?: number | null    // pojemniki E2 (surowiec) — informacyjnie + HDI
 }
 export interface WzLoadingDiff {
   name: string; batch_no: string | null
@@ -1439,7 +1449,7 @@ export const wzApi = {
   stockRaw: () => get<any[]>('/wz/stock/raw'),
   createManual: (body: {
     buyer: { name: string; address?: string; nip?: string };
-    items: { stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string; kgPerUnit?: number }[];
+    items: { stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string; kgPerUnit?: number; containers?: number }[];
     valued?: boolean; place?: string; issuedDate?: string; releaseDate?: string; notes?: string;
     currency?: string; eurRate?: number | null;
   }) => post<WzDoc>('/wz/manual', body),

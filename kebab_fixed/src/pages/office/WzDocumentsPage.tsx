@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { wzApi, WzDoc, WzLine, QuantityChain } from '@/lib/api'
+import { wzApi, WzDoc, WzLine, QuantityChain, hdiApi } from '@/lib/api'
 import { cn, fmtDatePl } from '@/lib/utils'
 import { WzDocumentView } from '@/components/wz/WzDocumentView'
 import { Card, CardContent } from '@/components/ui/card'
@@ -285,6 +285,17 @@ export function WzDocumentsPage() {
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
                                 title="PDF" onClick={() => window.open(wzApi.pdfUrl(d.id), '_blank')}>
                           <FileText size={13} />
+                        </Button>
+                        <Button variant="ghost" size="sm"
+                                className="h-7 text-[11px] gap-1 text-muted-foreground hover:text-primary"
+                                title="HDI z partiami surowca do tego WZ"
+                                onClick={async () => {
+                                  try {
+                                    const h = await hdiApi.generateForWz(d.id)
+                                    window.open(`/office/hdi/${h.id}/druk`, '_blank')
+                                  } catch (e: any) { alert(e?.message || 'Błąd generowania HDI') }
+                                }}>
+                          HDI
                         </Button>
                         {!d.valued && d.status === 'wstepny' && (
                           <Button variant="outline" size="sm"

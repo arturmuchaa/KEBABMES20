@@ -4,9 +4,9 @@
  * Trzy zakładki — każda dense table w stylu Subiekt GT:
  * sticky header/footer, zebra rows, sortowanie, filtr, CSV, klik → traceability.
  */
-import { useState, useMemo } from 'react'
+import { useCallback, useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
-import { meatStockApi, deboningApi, rawBatchesApi, byproductsApi } from '@/lib/apiClient'
+import { meatStockApi, deboningApi, rawBatchesApi, abpApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
 import {
@@ -191,9 +191,11 @@ export function RawStockPage() {
   const { data: meatData, loading: meatLoading } = useApi(() => meatStockApi.list())
   const { data: debData,  loading: debLoading  } = useApi(() => deboningApi.list())
   const { data: batchData } = useApi<{ data: any[] }>(() => (rawBatchesApi as any).all())
-  // Zbiorcze ważenie ubocznych (kreator na HMI) zapisuje grzbiety/kości NA
-  // PARTIĘ (batch_byproducts), nie per wpis — bez tego zakładki widziały zero.
-  const { data: zbData } = useApi(() => byproductsApi.list())
+  // ŻYWY stan grzbietów/kości = otwarte loty ABP (byproduct_lots): ważenie
+  // zbiorcze je tworzy, a WZ/utylizacja z nich SCHODZI. Rekordy ważenia
+  // (batch_byproducts) to historia — po sprzedaży pokazywałyby stary stan
+  // (prod 2026-07-10: „kości nie zeszły ze stanów").
+  const { data: lotsData } = useApi(() => abpApi.lots('open'))
 
   const [activeTab, setActiveTab] = useState<Tab>('meat')
   const [traceItem, setTraceItem] = useState<{
@@ -219,25 +221,20 @@ export function RawStockPage() {
 
   const totalMeatAvailable = meatList.reduce((sum, m) => sum + Number(m.kgAvailable), 0)
 
-  // Wiersze ze zbiorczego ważenia partii — kształt jak wpis rozbioru,
-  // żeby tabela/CSV/śledzenie działały bez zmian.
-  const zbBacksRows = useMemo(() => (zbData ?? [])
-    .filter(r => Number(r.backsKg ?? 0) > 0)
-    .map(r => ({
-      id: `${r.rawBatchId}:zb-backs`, rawBatchId: r.rawBatchId, rawBatchNo: r.rawBatchNo,
-      kgBacks: Number(r.backsKg), createdAt: r.backsAt ?? r.finishedAt ?? '',
-      workerName: 'ważenie zbiorcze', sessionNo: '—',
-    }) as unknown as DeboningSession), [zbData])
-  const zbBonesRows = useMemo(() => (zbData ?? [])
-    .filter(r => Number(r.bonesKg ?? 0) > 0)
-    .map(r => ({
-      id: `${r.rawBatchId}:zb-bones`, rawBatchId: r.rawBatchId, rawBatchNo: r.rawBatchNo,
-      kgBones: Number(r.bonesKg), createdAt: r.bonesAt ?? r.finishedAt ?? '',
-      workerName: 'ważenie zbiorcze', sessionNo: '—',
-    }) as unknown as DeboningSession), [zbData])
+  // Wiersze z OTWARTYCH lotów ABP — kształt jak wpis rozbioru, żeby
+  // tabela/CSV/śledzenie działały bez zmian. Lot pokrywa oba przepływy
+  // (per-wpis i zbiorczy), a stan maleje po WZ/utylizacji.
+  const lotRows = useCallback((kind: 'backs' | 'bones') => (lotsData ?? [])
+    .filter((l: any) => l.kind === kind && Number(l.kg) > 0)
+    .map((l: any) => ({
+      id: l.id, rawBatchId: l.raw_batch_id, rawBatchNo: l.raw_batch_no,
+      [kind === 'backs' ? 'kgBacks' : 'kgBones']: Number(l.kg),
+      createdAt: l.created_at ?? '',
+      workerName: 'lot magazynowy', sessionNo: '—',
+    }) as unknown as DeboningSession), [lotsData])
 
-  const backsItems = [...sessions.filter(s => Number(s.kgBacks || 0) > 0), ...zbBacksRows]
-  const bonesItems = [...sessions.filter(s => Number(s.kgBones || 0) > 0), ...zbBonesRows]
+  const backsItems = useMemo(() => lotRows('backs'), [lotRows])
+  const bonesItems = useMemo(() => lotRows('bones'), [lotRows])
   const totalBacks = backsItems.reduce((sum, s) => sum + Number(s.kgBacks || 0), 0)
   const totalBones = bonesItems.reduce((sum, s) => sum + Number(s.kgBones || 0), 0)
 

@@ -139,3 +139,45 @@ def test_units_partial_production_grouped_to_hdi_items():
     by_name = {i["name"]: i for i in items}
     assert by_name["GOLD KEBAB 10KG"]["qty"] == 40
     assert by_name["GOLD KEBAB 50KG"]["qty"] == 12
+
+
+def test_build_hdi_from_wz_grupuje_partie_surowca(db):
+    """HDI z WZ surowcowego: pozycje per rodzaj, partie per linia z kg
+    i terminem ważności partii surowca (WZ celowo nie ma kolumny partii)."""
+    from app.db import execute
+    from app.services.wz_service import create_manual_wz
+    from app.services.hdi_service import build_hdi_from_wz, generate_hdi_for_wz
+    from app.utils.ids import now_iso
+
+    for bid, no, exp in [("rbA", "404", "2026-07-15"), ("rbB", "405", "2026-07-16")]:
+        execute(
+            "INSERT INTO raw_batches (id, internal_batch_no, internal_batch_seq, supplier_name, "
+            "kg_received, kg_available, status, material_type_id, material_name, expiry_date, created_at) "
+            "VALUES (%s,%s,%s,'Dostawca',2000,2000,'active','mat-cwiartka','Ćwiartka',%s,%s)",
+            (bid, no, int(no), exp, now_iso()),
+        )
+    execute(
+        "INSERT INTO byproduct_lots (id, deboning_entry_id, raw_batch_id, raw_batch_no, kind, kg, status, created_at) "
+        "VALUES ('lot1', NULL, 'rbA', '404', 'bones', 993, 'open', now()), "
+        "('lot2', NULL, 'rbB', '405', 'bones', 1077.5, 'open', now())"
+    )
+    wz = create_manual_wz(
+        buyer={"name": "Skup Kości Sp. z o.o.", "nip": "PL5252248481"},
+        selections=[
+            {"stock_type": "byproduct", "stock_id": "lot1", "name": "Kości", "unit": "kg",
+             "qty": 993, "price": 1, "batch_no": "404", "containers": 7},
+            {"stock_type": "byproduct", "stock_id": "lot2", "name": "Kości", "unit": "kg",
+             "qty": 1077.5, "price": 1, "batch_no": "405", "containers": 8},
+        ],
+    )
+    data = build_hdi_from_wz(wz["id"])
+    assert len(data["items"]) == 1
+    it = data["items"][0]
+    assert it["name"] == "Kości" and it["qty"] == 15 and it["kg"] == 2070.5
+    partie = {b["partia"]: b for b in it["batches"]}
+    assert partie["404"]["qty"] == 7 and partie["404"]["termin"] == "15.07.2026"
+    assert partie["405"]["kg"] == 1077.5
+    # idempotencja per WZ: drugi generate zwraca ten sam numer
+    h1 = generate_hdi_for_wz(wz["id"])
+    h2 = generate_hdi_for_wz(wz["id"])
+    assert h1["number"] == h2["number"] and h1["id"] == h2["id"]
