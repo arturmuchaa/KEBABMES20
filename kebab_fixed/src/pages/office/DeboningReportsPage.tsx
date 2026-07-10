@@ -198,11 +198,21 @@ export function DeboningReportsPage() {
         <Kpi icon={Users} label="Pracownicy" value={nf0.format(s?.workers ?? 0)} accent="purple" />
         <Kpi icon={Bone} label="Kości" value={nf0.format(s?.kgBones ?? 0)} unit="kg" sub={`${nf1.format(s?.bonesPct ?? 0)}%`} tone="text-ink-2" accent="amber" />
         <Kpi icon={Layers} label="Grzbiety" value={nf0.format(s?.kgBacks ?? 0)} unit="kg" sub={`${nf1.format(s?.backsPct ?? 0)}%`} tone="text-ink-2" accent="amber" />
-        {/* Bilans masy: ćwiartka − (mięso+kości+grzbiety). >3% = coś niezważone. */}
-        <Kpi icon={Scale} label="Ubytek (bilans)" value={nf0.format(s?.missingKg ?? 0)} unit="kg"
-          sub={`${nf1.format(s?.missingPct ?? 0)}% ćwiartki`}
-          tone={(s?.missingPct ?? 0) > 3 ? 'text-red-600' : 'text-ink-2'}
-          accent={(s?.missingPct ?? 0) > 3 ? 'red' : 'green'} />
+        {/* Bilans masy: ćwiartka − (mięso+kości+grzbiety). Dodatni = ubytek
+            (coś niezważone, >3% czerwone); ujemny = NADWYŻKA nad wagę
+            z dokumentu dostawcy (realny towar > deklaracja — zielone). */}
+        {(() => {
+          const mk = s?.missingKg ?? 0
+          const mp = s?.missingPct ?? 0
+          const surplus = mk < 0
+          return (
+            <Kpi icon={Scale} label="Bilans masy"
+              value={surplus ? `+${nf0.format(-mk)}` : nf0.format(mk)} unit="kg"
+              sub={surplus ? `nadwyżka ${nf1.format(-mp)}% nad deklarację` : `ubytek ${nf1.format(mp)}% ćwiartki`}
+              tone={surplus ? 'text-emerald-600' : mp > 3 ? 'text-red-600' : 'text-ink-2'}
+              accent={surplus ? 'green' : mp > 3 ? 'red' : 'green'} />
+          )
+        })()}
       </div>
 
       {empty ? (
@@ -258,10 +268,18 @@ export function DeboningReportsPage() {
                   cell: b => <span className="tabular-nums text-ink-2">{nf1.format(b.kgBacks)}{b.backsPct != null && <span className="text-[10px] text-ink-4"> ({nf1.format(b.backsPct)}%)</span>}</span> },
                 { key: 'kgBones', header: 'Kości', align: 'right', sortable: true, sortValue: b => b.kgBones,
                   cell: b => <span className="tabular-nums text-ink-2">{nf1.format(b.kgBones)}{b.bonesPct != null && <span className="text-[10px] text-ink-4"> ({nf1.format(b.bonesPct)}%)</span>}</span> },
-                { key: 'missingKg', header: 'Ubytek', align: 'right', sortable: true, sortValue: b => b.missingKg ?? -1,
-                  cell: b => b.missingKg != null
-                    ? <span className={cn('tabular-nums font-semibold', (b.missingPct ?? 0) > 3 ? 'text-red-600' : 'text-ink-3')}>{nf1.format(b.missingKg)}{b.missingPct != null && <span className="text-[10px]"> ({nf1.format(b.missingPct)}%)</span>}</span>
-                    : <span className="text-ink-4">—</span> },
+                { key: 'missingKg', header: 'Bilans ±', align: 'right', sortable: true, sortValue: b => b.missingKg ?? -999,
+                  cell: b => {
+                    if (b.missingKg == null) return <span className="text-ink-4">—</span>
+                    const surplus = b.missingKg < 0
+                    return (
+                      <span className={cn('tabular-nums font-semibold',
+                        surplus ? 'text-emerald-600' : (b.missingPct ?? 0) > 3 ? 'text-red-600' : 'text-ink-3')}>
+                        {surplus ? `+${nf1.format(-b.missingKg)}` : nf1.format(b.missingKg)}
+                        {b.missingPct != null && <span className="text-[10px]"> ({surplus ? `+${nf1.format(-b.missingPct)}` : nf1.format(b.missingPct)}%)</span>}
+                      </span>
+                    )
+                  } },
               ]}
             />
           </div>

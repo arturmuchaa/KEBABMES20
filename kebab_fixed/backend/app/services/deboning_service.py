@@ -249,8 +249,10 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
             "kgBones": round(v["kgBones"], 1),
             "backsPct": round(v["kgBacks"] / quarter * 100, 1) if quarter else None,
             "bonesPct": round(v["kgBones"] / quarter * 100, 1) if quarter else None,
-            "missingKg": round(max(0.0, missing), 1) if missing is not None else None,
-            "missingPct": round(max(0.0, missing) / quarter * 100, 1)
+            # Ze znakiem: dodatni = ubytek (coś niezważone), ujemny = NADWYŻKA
+            # nad wagę z dokumentu dostawcy (realny towar > deklaracja).
+            "missingKg": round(missing, 1) if missing is not None else None,
+            "missingPct": round(missing / quarter * 100, 1)
             if missing is not None and quarter else None,
         })
 
@@ -295,11 +297,12 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
             "kgPerHour": round(total_meat / active_hours, 1),
             "backsPct": round(total_backs / total_kgq * 100, 1) if total_kgq else 0.0,
             "bonesPct": round(total_bones / total_kgq * 100, 1) if total_kgq else 0.0,
-            # Bilans masy: ćwiartka − (mięso + kości + grzbiety). Duży ubytek =
-            # coś niezważone (ta sama logika co kafel bilansu na HMI).
-            "missingKg": round(max(0.0, total_kgq - total_meat - total_backs - total_bones), 1),
+            # Bilans masy: ćwiartka − (mięso + kości + grzbiety). Dodatni = ubytek
+            # (coś niezważone, logika kafla HMI); ujemny = NADWYŻKA nad wagę
+            # z dokumentu dostawcy (realny towar > deklaracja — częste).
+            "missingKg": round(total_kgq - total_meat - total_backs - total_bones, 1),
             "missingPct": round(
-                max(0.0, total_kgq - total_meat - total_backs - total_bones) / total_kgq * 100, 1
+                (total_kgq - total_meat - total_backs - total_bones) / total_kgq * 100, 1
             ) if total_kgq else 0.0,
         },
         "workers": workers,

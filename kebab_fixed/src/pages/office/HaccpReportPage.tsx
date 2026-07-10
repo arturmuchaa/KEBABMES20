@@ -72,8 +72,12 @@ function SingleReport({ data }: { data: ReportData }) {
         backs += (rec.backsKg ?? 0) * share
         bones += (rec.bonesKg ?? 0) * share
       }
-      const kat3 = Math.max(0, taken - meat - bones - backs)
-      return { batch, sessions: bs, taken, meat, backs, bones, kat3 }
+      const bilans = taken - meat - bones - backs
+      const kat3    = Math.max(0, bilans)
+      // Nadwyżka rozbiorowa: suma frakcji > waga z dokumentu dostawcy
+      // (woda z chłodzenia / niedoważenie dostawcy) — dokumentujemy, nie ukrywamy.
+      const surplus = Math.max(0, -bilans)
+      return { batch, sessions: bs, taken, meat, backs, bones, kat3, surplus }
     })
   }, [sessions, batches, zb])
 
@@ -82,8 +86,10 @@ function SingleReport({ data }: { data: ReportData }) {
     const totalMeat  = rows.reduce((s, r) => s + r.meat, 0)
     const totalBacks = rows.reduce((s, r) => s + r.backs, 0)
     const totalBones = rows.reduce((s, r) => s + r.bones, 0)
-    const uppzKat3   = Math.max(0, totalTaken - totalMeat - totalBones - totalBacks)
-    return { totalTaken, totalMeat, totalBacks, totalBones, uppzKat3, loss: 0 }
+    // Sumy per partia (bez nettowania: ubytek partii A nie znosi nadwyżki B).
+    const uppzKat3   = rows.reduce((s, r) => s + r.kat3, 0)
+    const surplus    = rows.reduce((s, r) => s + r.surplus, 0)
+    return { totalTaken, totalMeat, totalBacks, totalBones, uppzKat3, surplus, loss: 0 }
   }, [rows])
 
   // Numer raportu = licznik dnia z numeru sesji ROZ/dd/mm/rr[/n]; brak sufiksu → 001.
@@ -132,6 +138,7 @@ function SingleReport({ data }: { data: ReportData }) {
             { label: 'Grzbiety',                   val: summary.totalBacks },
             { label: 'Kości',                       val: summary.totalBones },
             { label: 'UPPZ kat. 3 lub/i Kat 2',    val: summary.uppzKat3   },
+            { label: 'Nadwyżka rozbiorowa (ponad wagę z dok. dostawcy)', val: summary.surplus },
             { label: 'Strata produkcyjna',           val: summary.loss       },
           ].map(row => (
             <tr key={row.label}>
@@ -148,13 +155,13 @@ function SingleReport({ data }: { data: ReportData }) {
       <table className="w-full text-[9px] mb-4" style={{ borderCollapse: 'collapse' }}>
         <thead>
           <tr className="bg-gray-200">
-            {['Nr partii','Nr partii dostawcy','Dostawca','Data uboju','Data ważności','Ćwiartka kg','Mięso Z/S kg','Grzbiety kg','Kości kg','UPPZ kat.3'].map(h => (
+            {['Nr partii','Nr partii dostawcy','Dostawca','Data uboju','Data ważności','Ćwiartka kg','Mięso Z/S kg','Grzbiety kg','Kości kg','UPPZ kat.3','Nadwyżka kg'].map(h => (
               <th key={h} className="border border-black p-1 text-left">{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ batch, sessions: bs, taken, meat, backs, bones, kat3 }, idx) => {
+          {rows.map(({ batch, sessions: bs, taken, meat, backs, bones, kat3, surplus }, idx) => {
             const firstSession  = bs[0] as any
             const internalBatchNo = batch?.internalBatchNo  || firstSession?.rawBatchNo  || '—'
             const supplierBatchNo = batch?.supplierBatchNo  || firstSession?.supplierBatchNo || '—'
@@ -173,6 +180,7 @@ function SingleReport({ data }: { data: ReportData }) {
                 <td className="border border-black p-1 text-right">{fmtKg(backs, 2)}</td>
                 <td className="border border-black p-1 text-right">{fmtKg(bones, 2)}</td>
                 <td className="border border-black p-1 text-right">{fmtKg(kat3, 2)}</td>
+                <td className="border border-black p-1 text-right">{surplus > 0 ? `+${fmtKg(surplus, 2)}` : '—'}</td>
               </tr>
             )
           })}
@@ -183,6 +191,7 @@ function SingleReport({ data }: { data: ReportData }) {
             <td className="border border-black p-1 text-right">{fmtKg(summary.totalBacks, 2)}</td>
             <td className="border border-black p-1 text-right">{fmtKg(summary.totalBones, 2)}</td>
             <td className="border border-black p-1 text-right">{fmtKg(summary.uppzKat3, 2)}</td>
+            <td className="border border-black p-1 text-right">{summary.surplus > 0 ? `+${fmtKg(summary.surplus, 2)}` : '—'}</td>
           </tr>
         </tbody>
       </table>

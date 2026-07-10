@@ -97,6 +97,13 @@ def test_stats_by_batch_z_dostawca_ubocznymi_i_ubytkiem(db):
     # ubytek: 200 − 132 − 40 − 20 = 8 kg = 4%
     assert row["missingKg"] == 8.0 and row["missingPct"] == 4.0
     assert stats["summary"]["missingKg"] == 8.0
+    # NADWYŻKA (realny towar > deklaracja dostawcy) nie jest przycinana do
+    # zera — doważenie kości ponad bilans robi missing ujemny
+    record("rb1", "bones", 40.0, [])  # 200 − 132 − 40 − 40 = −12
+    stats = deboning_stats(today, today)
+    row = next(b for b in stats["byBatch"] if b["batchNo"] == "806")
+    assert row["missingKg"] == -12.0
+    assert stats["summary"]["missingKg"] == -12.0
 
 
 def test_kafelek_zostaje_dopoki_bilans_masy_sie_nie_domyka(db):
