@@ -21,6 +21,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { mixingOrdersApi, recipesApi } from '@/lib/apiClient'
+import { buildLotRows } from '@/lib/mixingPlanPrint'
 
 const nf0 = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -49,6 +50,10 @@ const S = {
   tdL: { border: '1px solid #bfbfbf', padding: '2.5px 5px', textAlign: 'left' as const },
   tdR: { border: '1px solid #bfbfbf', padding: '2.5px 5px', textAlign: 'right' as const,
     fontVariantNumeric: 'tabular-nums' as const },
+  // Kg partii mięsa — jedyna liczba na wydruku, którą operator fizycznie odważa,
+  // ma dominować wizualnie nad numerem partii/rodzajem/dostawcą w tym samym wierszu.
+  kgBig: { border: '1px solid #bfbfbf', padding: '1px 5px', textAlign: 'right' as const,
+    fontVariantNumeric: 'tabular-nums' as const, fontSize: 16, fontWeight: 800, lineHeight: 1.15 },
 }
 
 const STATUS_PL: Record<string, string> = {
@@ -79,6 +84,7 @@ export function MixingPlanPrintPage() {
   }, [plan, isPdf])
 
   const recipeById = useMemo(() => new Map(recipes.map((r: any) => [r.id, r])), [recipes])
+  const lotRows = useMemo(() => buildLotRows(plan ?? []), [plan])
 
   // Przyprawy ŁĄCZNIE na cały plan (dawka/100 kg × kg mięsa pozycji).
   // Kolejność = kolejność składników w recepturach (backend: recipe_ingredients.seq),
@@ -144,36 +150,52 @@ export function MixingPlanPrintPage() {
       <table style={S.table}>
         <thead>
           <tr>
-            <th style={{ ...S.th, width: 22 }}>Lp</th>
+            <th style={{ ...S.th, width: 20 }}>Lp</th>
             <th style={S.th}>Receptura</th>
+            <th style={{ ...S.th, width: 74 }}>Nr partii</th>
+            <th style={{ ...S.th, width: 78 }}>Kg partii</th>
+            <th style={S.th}>Rodzaj</th>
+            <th style={S.th}>Dostawca</th>
             <th style={{ ...S.th, width: 62 }}>Mięso [kg]</th>
-            <th style={S.th}>Partie mięsa (nr · kg · rodzaj · dostawca)</th>
-            <th style={{ ...S.th, width: 70 }}>Status</th>
+            <th style={{ ...S.th, width: 68 }}>Status</th>
           </tr>
         </thead>
         <tbody>
-          {plan.map((o: any, i: number) => (
-            <tr key={o.id}>
-              <td style={S.td}><b>{i + 1}</b></td>
-              <td style={{ ...S.tdL, fontWeight: 700 }}>{o.recipeName || '—'}</td>
-              <td style={{ ...S.tdR, fontWeight: 700 }}>{nf0.format(o.meatKg)}</td>
-              <td style={S.tdL}>
-                {(o.meatLots ?? []).map((l: any, j: number) => {
-                  const parts = [
-                    `${l.meatLotNo || '?'} · ${nf0.format(l.kgPlanned)} kg`,
-                    l.materialName || 'Mięso z/s',
-                    l.supplierName,
-                  ].filter(Boolean)
-                  return <span key={j} style={{ whiteSpace: 'nowrap', display: 'inline-block', marginRight: 10 }}>{parts.join(' · ')}</span>
-                })}
-              </td>
-              <td style={S.td}>{STATUS_PL[o.status] ?? o.status}</td>
-            </tr>
-          ))}
+          {lotRows.map(row => {
+            const bg = row.zebra ? '#f2f2f2' : '#fff'
+            return (
+              <tr key={row.rowKey}>
+                {row.isFirstRow && (
+                  <>
+                    <td style={{ ...S.td, background: bg }} rowSpan={row.rowSpan}><b>{row.lp}</b></td>
+                    <td style={{ ...S.tdL, fontWeight: 700, background: bg }} rowSpan={row.rowSpan}>
+                      {row.recipeName}
+                    </td>
+                  </>
+                )}
+                <td style={{ ...S.tdL, background: bg }}>{row.lotNo}</td>
+                <td style={{ ...S.kgBig, background: bg }}>
+                  {row.lotKg == null ? '—' : `${nf0.format(row.lotKg)} kg`}
+                </td>
+                <td style={{ ...S.tdL, background: bg }}>{row.materialName || '—'}</td>
+                <td style={{ ...S.tdL, background: bg }}>{row.supplierName || '—'}</td>
+                {row.isFirstRow && (
+                  <>
+                    <td style={{ ...S.tdR, fontWeight: 800, background: bg }} rowSpan={row.rowSpan}>
+                      {nf0.format(row.meatKg)}
+                    </td>
+                    <td style={{ ...S.td, background: bg }} rowSpan={row.rowSpan}>
+                      {STATUS_PL[row.status] ?? row.status}
+                    </td>
+                  </>
+                )}
+              </tr>
+            )
+          })}
           <tr>
-            <td style={{ ...S.tdL, fontWeight: 800, background: '#efefef' }} colSpan={2}>RAZEM</td>
+            <td style={{ ...S.tdL, fontWeight: 800, background: '#efefef' }} colSpan={6}>RAZEM</td>
             <td style={{ ...S.tdR, fontWeight: 800, background: '#efefef' }}>{nf0.format(totalMeat)}</td>
-            <td style={{ ...S.td, background: '#efefef' }} colSpan={2} />
+            <td style={{ ...S.td, background: '#efefef' }} />
           </tr>
         </tbody>
       </table>
