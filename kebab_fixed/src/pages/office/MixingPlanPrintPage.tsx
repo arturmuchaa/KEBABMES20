@@ -3,16 +3,24 @@
  *
  * Na mieszaniu nie ma jeszcze monitora — planista drukuje kartkę:
  *   1. kolejka pozycji (receptura, kg mięsa, partie z kg, rodzaj, dostawca),
- *   2. przyprawy ŁĄCZNIE na cały plan (ile operator musi przygotować),
- *   3. przepis każdej receptury przeliczony na wsady 200 kg i 600 kg
- *      (rozmiary masownic) — bez liczenia na kartce.
+ *   2. przepis każdej receptury przeliczony na wsady 200 kg i 600 kg
+ *      (rozmiary masownic) — bez liczenia na kartce,
+ *   3. mała tabelka na końcu: przyprawy ŁĄCZNIE do przygotowania na cały plan.
+ * Layout kompaktowy — całość ma zmieścić się na jednej stronie A4.
+ *
+ * Partia i dostawca partii mięsa idą WPROST z /mixing-orders/day-plan
+ * (mixing_service.build_mixing_order robi własny JOIN meat_stock→raw_batches
+ * →suppliers). Świadomie NIE korzystamy z meatStockApi.list() — ta lista
+ * filtruje partie z wolnym stanem > 0, więc partia w pełni zarezerwowana
+ * pod dzisiejszy plan (częsty przypadek — np. cały wolny kg wykorzystany)
+ * znika z niej i dostawca/rodzaj by nie wyświetlił się na wydruku.
  *
  * Samodzielna strona (bez sidebara, wzór DeboningReportPrintPage):
  * /office/plan-masowania/druk — auto-print po załadowaniu (?pdf=1 wyłącza).
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { mixingOrdersApi, meatStockApi, recipesApi } from '@/lib/apiClient'
+import { mixingOrdersApi, recipesApi } from '@/lib/apiClient'
 
 const nf0 = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -26,19 +34,20 @@ function fmtD(iso: string): string {
 // Wsady masownic w zakładzie — kolumny przepisu na wydruku.
 const MACHINE_BATCHES_KG = [200, 600]
 
+// Layout ściśnięty celowo — cel: 1 strona A4 nawet przy 4-5 recepturach.
 const S = {
-  page: { maxWidth: 800, margin: '0 auto', padding: 24, background: '#fff', color: '#111',
-    fontFamily: "'Segoe UI', Arial, sans-serif", fontSize: 12 } as const,
-  h1: { fontSize: 20, fontWeight: 800, letterSpacing: 0.5, margin: 0 } as const,
-  section: { fontSize: 12.5, fontWeight: 700, textTransform: 'uppercase' as const,
-    letterSpacing: 0.6, margin: '18px 0 6px', borderBottom: '2px solid #111', paddingBottom: 3 },
-  table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 11.5 },
-  th: { border: '1px solid #bfbfbf', background: '#efefef', padding: '4px 6px',
-    fontSize: 10, textTransform: 'uppercase' as const, fontWeight: 700, textAlign: 'center' as const },
-  td: { border: '1px solid #bfbfbf', padding: '3.5px 6px', textAlign: 'center' as const,
+  page: { maxWidth: 800, margin: '0 auto', padding: '14px 20px', background: '#fff', color: '#111',
+    fontFamily: "'Segoe UI', Arial, sans-serif", fontSize: 11 } as const,
+  h1: { fontSize: 17, fontWeight: 800, letterSpacing: 0.4, margin: 0 } as const,
+  section: { fontSize: 11, fontWeight: 700, textTransform: 'uppercase' as const,
+    letterSpacing: 0.5, margin: '8px 0 3px', borderBottom: '1.5px solid #111', paddingBottom: 2 },
+  table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 10.5 },
+  th: { border: '1px solid #bfbfbf', background: '#efefef', padding: '2.5px 5px',
+    fontSize: 9, textTransform: 'uppercase' as const, fontWeight: 700, textAlign: 'center' as const },
+  td: { border: '1px solid #bfbfbf', padding: '2.5px 5px', textAlign: 'center' as const,
     fontVariantNumeric: 'tabular-nums' as const },
-  tdL: { border: '1px solid #bfbfbf', padding: '3.5px 6px', textAlign: 'left' as const },
-  tdR: { border: '1px solid #bfbfbf', padding: '3.5px 6px', textAlign: 'right' as const,
+  tdL: { border: '1px solid #bfbfbf', padding: '2.5px 5px', textAlign: 'left' as const },
+  tdR: { border: '1px solid #bfbfbf', padding: '2.5px 5px', textAlign: 'right' as const,
     fontVariantNumeric: 'tabular-nums' as const },
 }
 
@@ -52,17 +61,14 @@ export function MixingPlanPrintPage() {
   const isPdf = sp.get('pdf') === '1'
   const [plan, setPlan] = useState<any[] | null>(null)
   const [recipes, setRecipes] = useState<any[]>([])
-  const [meat, setMeat] = useState<any[]>([])
 
   useEffect(() => {
     Promise.all([
       mixingOrdersApi.dayPlan(),
       (recipesApi as any).list(),
-      meatStockApi.list(),
-    ]).then(([p, r, m]) => {
+    ]).then(([p, r]) => {
       setPlan(p.items ?? [])
       setRecipes(Array.isArray(r) ? r : (r as any)?.data ?? [])
-      setMeat((m as any)?.data ?? [])
     }).catch(() => setPlan([]))
   }, [])
 
@@ -70,7 +76,6 @@ export function MixingPlanPrintPage() {
     if (plan && plan.length > 0 && !isPdf) setTimeout(() => window.print(), 400)
   }, [plan, isPdf])
 
-  const meatById = useMemo(() => new Map(meat.map((m: any) => [m.id, m])), [meat])
   const recipeById = useMemo(() => new Map(recipes.map((r: any) => [r.id, r])), [recipes])
 
   // Przyprawy ŁĄCZNIE na cały plan (dawka/100 kg × kg mięsa pozycji).
@@ -112,18 +117,18 @@ export function MixingPlanPrintPage() {
 
   return (
     <div style={S.page}>
-      <style>{`@media print { @page { size: A4 portrait; margin: 10mm } }`}</style>
+      <style>{`@media print { @page { size: A4 portrait; margin: 8mm } }`}</style>
 
       {/* ── Nagłówek ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-        borderBottom: '3px solid #111', paddingBottom: 10, marginBottom: 6 }}>
+        borderBottom: '2px solid #111', paddingBottom: 6, marginBottom: 4 }}>
         <div>
           <h1 style={S.h1}>PLAN MASOWANIA</h1>
-          <div style={{ fontSize: 12, color: '#444' }}>dzień: <b>{fmtD(today)}</b></div>
+          <div style={{ fontSize: 11, color: '#444' }}>dzień: <b>{fmtD(today)}</b></div>
         </div>
-        <div style={{ textAlign: 'right', fontSize: 11, color: '#555' }}>
+        <div style={{ textAlign: 'right', fontSize: 10, color: '#555' }}>
           wydrukowano {new Date().toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' })}
-          <div style={{ fontSize: 13, color: '#111', marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: '#111', marginTop: 1 }}>
             mięso: <b>{nf0.format(totalMeat)} kg</b>
             {totalOutput > 0 && <> → półprodukt: <b>{nf0.format(totalOutput)} kg</b></>}
           </div>
@@ -135,11 +140,11 @@ export function MixingPlanPrintPage() {
       <table style={S.table}>
         <thead>
           <tr>
-            <th style={{ ...S.th, width: 26 }}>Lp</th>
+            <th style={{ ...S.th, width: 22 }}>Lp</th>
             <th style={S.th}>Receptura</th>
-            <th style={{ ...S.th, width: 70 }}>Mięso [kg]</th>
+            <th style={{ ...S.th, width: 62 }}>Mięso [kg]</th>
             <th style={S.th}>Partie mięsa (nr · kg · rodzaj · dostawca)</th>
-            <th style={{ ...S.th, width: 80 }}>Status</th>
+            <th style={{ ...S.th, width: 70 }}>Status</th>
           </tr>
         </thead>
         <tbody>
@@ -150,13 +155,12 @@ export function MixingPlanPrintPage() {
               <td style={{ ...S.tdR, fontWeight: 700 }}>{nf0.format(o.meatKg)}</td>
               <td style={S.tdL}>
                 {(o.meatLots ?? []).map((l: any, j: number) => {
-                  const ms: any = meatById.get(l.meatLotId)
                   const parts = [
-                    `${l.meatLotNo || ms?.lotNo || '?'} · ${nf0.format(l.kgPlanned)} kg`,
-                    ms?.materialName || 'Mięso z/s',
-                    ms?.supplierName,
+                    `${l.meatLotNo || '?'} · ${nf0.format(l.kgPlanned)} kg`,
+                    l.materialName || 'Mięso z/s',
+                    l.supplierName,
                   ].filter(Boolean)
-                  return <div key={j} style={{ whiteSpace: 'nowrap' }}>{parts.join(' · ')}</div>
+                  return <span key={j} style={{ whiteSpace: 'nowrap', display: 'inline-block', marginRight: 10 }}>{parts.join(' · ')}</span>
                 })}
               </td>
               <td style={S.td}>{STATUS_PL[o.status] ?? o.status}</td>
@@ -170,32 +174,7 @@ export function MixingPlanPrintPage() {
         </tbody>
       </table>
 
-      {/* ── 2. Przyprawy łącznie ── */}
-      <div style={S.section}>Przyprawy i dodatki — łącznie na cały plan</div>
-      {spiceTotals.length === 0 ? (
-        <div style={{ fontSize: 11, color: '#555' }}>Receptury planu nie mają składników.</div>
-      ) : (
-        <table style={{ ...S.table, maxWidth: 460 }}>
-          <thead>
-            <tr>
-              <th style={S.th}>Składnik</th>
-              <th style={{ ...S.th, width: 110 }}>Do przygotowania</th>
-            </tr>
-          </thead>
-          <tbody>
-            {spiceTotals.map(s => (
-              <tr key={s.name}>
-                <td style={{ ...S.tdL, color: s.isUnlimited ? '#666' : '#111' }}>
-                  {s.name}{s.isUnlimited ? ' (bez limitu)' : ''}
-                </td>
-                <td style={{ ...S.tdR, fontWeight: 700 }}>{nf2.format(s.qty)} {s.unit}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      {/* ── 3. Przepisy na wsady maszyn ── */}
+      {/* ── 2. Przepisy na wsady maszyn ── */}
       {usedRecipes.map(({ recipe, planKg }) => {
         const ings: any[] = recipe.ingredients ?? []
         const outFor = (kg: number) =>
@@ -215,7 +194,7 @@ export function MixingPlanPrintPage() {
                 <tr>
                   <th style={S.th}>Składnik</th>
                   {MACHINE_BATCHES_KG.map(kg => (
-                    <th key={kg} style={{ ...S.th, width: 120 }}>Wsad {kg} kg mięsa</th>
+                    <th key={kg} style={{ ...S.th, width: 100 }}>Wsad {kg} kg mięsa</th>
                   ))}
                 </tr>
               </thead>
@@ -244,7 +223,32 @@ export function MixingPlanPrintPage() {
         )
       })}
 
-      <div style={{ marginTop: 18, fontSize: 10, color: '#777', borderTop: '1px solid #bbb', paddingTop: 6 }}>
+      {/* ── 3. Mała tabelka na końcu: przyprawy do przygotowania łącznie ── */}
+      <div style={S.section}>Do przygotowania — przyprawy łącznie na cały plan</div>
+      {spiceTotals.length === 0 ? (
+        <div style={{ fontSize: 10, color: '#555' }}>Receptury planu nie mają składników.</div>
+      ) : (
+        <table style={{ ...S.table, maxWidth: 380 }}>
+          <thead>
+            <tr>
+              <th style={S.th}>Składnik</th>
+              <th style={{ ...S.th, width: 100 }}>Ilość</th>
+            </tr>
+          </thead>
+          <tbody>
+            {spiceTotals.map(s => (
+              <tr key={s.name}>
+                <td style={{ ...S.tdL, color: s.isUnlimited ? '#666' : '#111', padding: '2px 5px' }}>
+                  {s.name}{s.isUnlimited ? ' (bez limitu)' : ''}
+                </td>
+                <td style={{ ...S.tdR, fontWeight: 700, padding: '2px 5px' }}>{nf2.format(s.qty)} {s.unit}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <div style={{ marginTop: 8, fontSize: 9, color: '#777', borderTop: '1px solid #bbb', paddingTop: 4 }}>
         Kolejność pozycji = kolejność masowania. Dawki przepisów podane na wsad mięsa 200 / 600 kg —
         przy innym wsadzie licz proporcjonalnie. Wygenerowano z planu dnia w Kebab MES.
       </div>

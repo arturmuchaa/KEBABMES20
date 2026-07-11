@@ -41,10 +41,12 @@ def build_mixing_order(o: Dict) -> Dict:
         """
         SELECT mol.*, ms.lot_no AS meat_lot_no, ms.expiry_date,
                ms.material_type_id, ms.material_name,
-               rb.internal_batch_no AS raw_batch_no
+               rb.internal_batch_no AS raw_batch_no,
+               COALESCE(NULLIF(s.display_name, ''), rb.supplier_name) AS supplier_name
         FROM mixing_order_lots mol
         LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
         LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
+        LEFT JOIN suppliers s ON s.id = rb.supplier_id
         WHERE mol.order_id = %s
         """,
         (oid,),
@@ -127,6 +129,7 @@ def build_mixing_order(o: Dict) -> Dict:
                 "materialName": lot.get("material_name") or "",
                 "rawBatchId": lot.get("raw_batch_id") or "",
                 "rawBatchNo": lot.get("raw_batch_no") or "",
+                "supplierName": lot.get("supplier_name") or "",
                 "kgPlanned": float(lot.get("kg_planned") or lot.get("kg_allocated") or 0),
                 "kgActual": float(lot.get("kg_actual") or 0),
                 "expiryDate": str(lot["expiry_date"]) if lot.get("expiry_date") else "",
