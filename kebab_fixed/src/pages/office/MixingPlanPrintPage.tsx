@@ -151,7 +151,7 @@ export function MixingPlanPrintPage() {
           <tr>
             <th style={{ ...S.th, width: 20 }}>Lp</th>
             <th style={S.th}>Receptura</th>
-            <th style={{ ...S.th, width: 66 }}>Mięso [kg]</th>
+            <th style={{ ...S.th, width: 66 }}>Ilość (kg)</th>
             <th style={{ ...S.th, width: 74 }}>Nr partii</th>
             <th style={{ ...S.th, width: 74 }}>Kg partii</th>
             <th style={S.th}>Rodzaj</th>
