@@ -14,7 +14,10 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
-import { Plus, Printer, FileText, Eye, FileSpreadsheet, Pencil, ChevronUp, AlertTriangle, CheckCircle2, Truck } from 'lucide-react'
+import {
+  Plus, Printer, FileText, Eye, FileSpreadsheet, Pencil, ChevronUp, ChevronDown,
+  ChevronsUpDown, AlertTriangle, CheckCircle2, Truck, Search, X, Ban, Loader2,
+} from 'lucide-react'
 
 /** Raport rozjazdu: różnice dokument↔załadunek + łańcuch ilości per etap. */
 function LoadingReportDialog({ doc, onClose }: { doc: WzDoc; onClose: () => void }) {
@@ -143,6 +146,8 @@ function LoadingReportDialog({ doc, onClose }: { doc: WzDoc; onClose: () => void
   )
 }
 
+type SortCol = 'number' | 'date' | 'buyer' | 'value' | 'status'
+
 export function WzDocumentsPage() {
   const nav = useNavigate()
   const [docs, setDocs]       = useState<WzDoc[] | null>(null)
@@ -155,8 +160,12 @@ export function WzDocumentsPage() {
   const [editMode, setEditMode]   = useState<'prices' | 'full'>('prices')
   const [editErr, setEditErr] = useState('')
   const [saving, setSaving]   = useState(false)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [previewDoc, setPreviewDoc] = useState<WzDoc | null>(null)
   const [reportDoc, setReportDoc]   = useState<WzDoc | null>(null)
+  const [query,   setQuery]   = useState('')
+  const [sortCol, setSortCol] = useState<SortCol>('date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   const reload = () => wzApi.list().then(setDocs)
   useEffect(() => { reload() }, [])
@@ -230,6 +239,48 @@ export function WzDocumentsPage() {
     finally { setSaving(false) }
   }
 
+  const cancelWz = async (d: WzDoc) => {
+    if (!window.confirm(
+      `Anulować WZ ${d.number} (${d.buyer_name || 'brak odbiorcy'})?\n\nWszystkie pozycje wrócą na magazyn w całości (kg/szt i pojemniki). Dokument NIE zostanie usunięty — zmieni tylko status na „Anulowany".`
+    )) return
+    setCancellingId(d.id)
+    try {
+      await wzApi.cancel(d.id)
+      if (editId === d.id) setEditId(null)
+      await reload()
+    } catch (e: any) {
+      alert(e?.message || 'Błąd anulowania WZ')
+    } finally {
+      setCancellingId(null)
+    }
+  }
+
+  const toggleSort = (col: SortCol) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir(col === 'date' ? 'desc' : 'asc') }
+  }
+  const SortIcon = ({ col }: { col: SortCol }) =>
+    sortCol === col
+      ? (sortDir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />)
+      : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60" />
+
+  // Wyszukiwanie: numer, odbiorca, NIP. Sortowanie: klik nagłówka (Subiekt).
+  const visibleDocs = (docs ?? [])
+    .filter(d => {
+      const q = query.toLowerCase().trim()
+      if (!q) return true
+      return `${d.number} ${d.buyer_name ?? ''} ${d.buyer_nip ?? ''}`.toLowerCase().includes(q)
+    })
+    .sort((a, b) => {
+      let cmp = 0
+      if (sortCol === 'number') cmp = (a.number || '').localeCompare(b.number || '', 'pl', { numeric: true })
+      if (sortCol === 'date')   cmp = (a.issued_date || '').localeCompare(b.issued_date || '')
+      if (sortCol === 'buyer')  cmp = (a.buyer_name || '').localeCompare(b.buyer_name || '', 'pl')
+      if (sortCol === 'value')  cmp = (a.total_value ?? 0) - (b.total_value ?? 0)
+      if (sortCol === 'status') cmp = (a.status || '').localeCompare(b.status || '')
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+
   return (
     <div className="space-y-4 animate-fade-in">
       <div className="flex items-center justify-between gap-3">
@@ -243,8 +294,24 @@ export function WzDocumentsPage() {
       </div>
 
       <Card>
-        <div className="px-4 py-2.5 border-b">
-          <span className="text-[13px] font-semibold">{docs?.length ?? '…'} dokumentów</span>
+        <div className="px-4 py-2.5 border-b flex items-center gap-3 flex-wrap">
+          <span className="text-[13px] font-semibold whitespace-nowrap">
+            {visibleDocs.length}{docs && visibleDocs.length !== docs.length ? `/${docs.length}` : ''} dokumentów
+          </span>
+          <div className="relative flex-1 max-w-xs ml-auto">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="h-8 pl-8 pr-7 text-[12px]"
+              placeholder="Szukaj: numer, odbiorca, NIP…"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+            />
+            {query && (
+              <button onClick={() => setQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-ink">
+                <X size={12} />
+              </button>
+            )}
+          </div>
         </div>
         {!docs ? (
           <div className="p-4 space-y-2">
@@ -256,19 +323,43 @@ export function WzDocumentsPage() {
             <div className="font-semibold">Brak dokumentów WZ</div>
             <div className="text-sm">Wystaw pierwszy dokument przyciskiem „Nowy WZ"</div>
           </div>
+        ) : visibleDocs.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+            <Search size={28} className="opacity-40" />
+            <div className="text-sm">Brak wyników dla „{query}"</div>
+          </div>
         ) : (
           <Table className="text-[12px]">
             <TableHeader>
               <TableRow>
-                {['Numer', 'Data', 'Odbiorca', 'Wartość', 'Status', 'Załadunek', ''].map((h, i) => (
-                  <TableHead key={i} className={`text-[9px] uppercase tracking-wider h-8 px-3 ${h === 'Wartość' ? 'text-right' : ''}`}>{h}</TableHead>
+                {([
+                  { col: 'number' as SortCol, label: 'Numer' },
+                  { col: 'date'   as SortCol, label: 'Data' },
+                  { col: 'buyer'  as SortCol, label: 'Odbiorca' },
+                  { col: 'value'  as SortCol, label: 'Wartość', right: true },
+                  { col: 'status' as SortCol, label: 'Status' },
+                ]).map(h => (
+                  <TableHead key={h.col}
+                    onClick={() => toggleSort(h.col)}
+                    className={cn(
+                      'group cursor-pointer select-none text-[9px] uppercase tracking-wider h-8 px-3 hover:text-ink',
+                      h.right && 'text-right',
+                    )}>
+                    <span className={cn('inline-flex items-center gap-1', h.right && 'flex-row-reverse')}>
+                      {h.label}<SortIcon col={h.col} />
+                    </span>
+                  </TableHead>
                 ))}
+                <TableHead className="text-[9px] uppercase tracking-wider h-8 px-3">Załadunek</TableHead>
+                <TableHead className="text-[9px] uppercase tracking-wider h-8 px-3" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {docs.map(d => (
+              {visibleDocs.map(d => {
+                const cancelled = d.status === 'anulowany'
+                return (
                 <Fragment key={d.id}>
-                  <TableRow className="hover:bg-muted/50">
+                  <TableRow className={cn('hover:bg-muted/50', cancelled && 'opacity-50')}>
                     <TableCell className="py-2 px-3 font-mono font-bold text-primary">{d.number}</TableCell>
                     <TableCell className="py-2 px-3">{fmtDatePl(d.issued_date)}</TableCell>
                     <TableCell className="py-2 px-3 font-medium">{d.buyer_name}</TableCell>
@@ -278,7 +369,9 @@ export function WzDocumentsPage() {
                         : <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell className="py-2 px-3">
-                      {d.valued
+                      {cancelled
+                        ? <Badge variant="danger" className="text-[10px] gap-1"><Ban size={10} /> Anulowany</Badge>
+                        : d.valued
                         ? <Badge variant="success" className="text-[10px]">Wyceniony</Badge>
                         : <Badge variant="warning" className="text-[10px]">Do wyceny</Badge>}
                     </TableCell>
@@ -313,7 +406,7 @@ export function WzDocumentsPage() {
                                 title="PDF" onClick={() => window.open(wzApi.pdfUrl(d.id), '_blank')}>
                           <FileText size={13} />
                         </Button>
-                        {(d as any).source_type === 'manual' ? (
+                        {!cancelled && ((d as any).source_type === 'manual' ? (
                           <Button variant="outline" size="sm"
                                   className="h-7 text-[11px] gap-1 text-amber-700 border-amber-200 hover:bg-amber-50"
                                   onClick={() => editId === d.id ? setEditId(null) : openEditor(d.id, 'full')}>
@@ -324,6 +417,15 @@ export function WzDocumentsPage() {
                                   className="h-7 text-[11px] gap-1 text-amber-700 border-amber-200 hover:bg-amber-50"
                                   onClick={() => editId === d.id ? setEditId(null) : openEditor(d.id, 'prices')}>
                             {editId === d.id ? <><ChevronUp size={12} /> Zwiń</> : <><Pencil size={12} /> Uzupełnij ceny</>}
+                          </Button>
+                        ))}
+                        {!cancelled && (d as any).source_type === 'manual' && (
+                          <Button variant="outline" size="sm"
+                                  className="h-7 text-[11px] gap-1 text-red-700 border-red-200 hover:bg-red-50"
+                                  disabled={cancellingId === d.id}
+                                  onClick={() => cancelWz(d)}>
+                            {cancellingId === d.id ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />}
+                            Anuluj
                           </Button>
                         )}
                       </div>
@@ -426,7 +528,7 @@ export function WzDocumentsPage() {
                     </TableRow>
                   )}
                 </Fragment>
-              ))}
+              )})}
             </TableBody>
           </Table>
         )}

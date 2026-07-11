@@ -98,6 +98,13 @@ def update_lines(wz_id: str, body: dict):
     return svc.update_wz_lines(wz_id, body.get("edits") or [])
 
 
+@router.patch("/{wz_id}/cancel")
+def cancel(wz_id: str):
+    """Anuluj WZ: pełny zwrot wszystkich pozycji na magazyn, dokument
+    zostaje (status 'anulowany'), nie jest usuwany."""
+    return svc.cancel_wz(wz_id)
+
+
 @router.get("/from-order/{order_id}/preview")
 def from_order_preview(order_id: str):
     """Pozycje przyszłego WZ z zamówienia (do okna cen) — bez tworzenia dokumentu."""

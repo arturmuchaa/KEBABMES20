@@ -25,6 +25,7 @@ from app.services.order_stock_service import (
 )
 from app.services.settings_service import get_company
 from app.utils.ids import cuid, now_iso
+from app.utils.pallets import pallet_containers
 from app.utils.stock import create_stock_movement
 
 logger = get_logger(__name__)
@@ -353,7 +354,8 @@ def create_manual_wz(
             elif stype == "byproduct":
                 row = cx_query_one(
                     conn,
-                    "SELECT id, raw_batch_no, kind, kg FROM byproduct_lots WHERE id=%s FOR UPDATE",
+                    "SELECT id, raw_batch_no, kind, kg, containers_available "
+                    "FROM byproduct_lots WHERE id=%s FOR UPDATE",
                     (sid,))
                 if not row:
                     raise HTTPException(400, "Pozycja magazynowa nie istnieje")
@@ -369,6 +371,19 @@ def create_manual_wz(
                     "status=CASE WHEN kg-%s <= 0.001 THEN 'shipped' ELSE status END "
                     "WHERE id=%s",
                     (qty, qty, sid))
+                # Pojemniki fizycznie zabrane przez kierowcę — licznik na
+                # magazynie schodzi RAZEM z kg (kierowca bierze 1 pojemnik
+                # z partii 408 → 59 → 58), nie tylko kosmetycznie na WZ.
+                try:
+                    cont_taken = int(sel.get("containers") or 0)
+                except (TypeError, ValueError):
+                    cont_taken = 0
+                if cont_taken > 0 and row.get("containers_available") is not None:
+                    cx_execute(
+                        conn,
+                        "UPDATE byproduct_lots SET containers_available=GREATEST(0, containers_available-%s) "
+                        "WHERE id=%s",
+                        (cont_taken, sid))
                 create_stock_movement(
                     conn, product_type="byproduct", batch_id=sid, qty=qty,
                     movement_type="OUT", source_type="wz", source_id=wid)
@@ -454,18 +469,28 @@ def update_wz_lines(wz_id: str, edits: List[Dict[str, Any]]) -> Dict[str, Any]:
             if not (0 <= i < len(lines)):
                 continue
             line = lines[i]
+            stype, sid = line.get("stock_type"), line.get("stock_id")
 
             # ── Cena ──
             if e.get("price") is not None:
                 line["price"] = round(float(e["price"]), 2)
                 valued = True
 
-            # ── Pojemniki ──
+            # ── Pojemniki (dla grzbietów/kości: żywy licznik na magazynie,
+            # nie tylko wartość kosmetyczna na dokumencie) ──
             if "containers" in e:
                 try:
                     cont = int(e.get("containers") or 0)
                 except (TypeError, ValueError):
                     cont = 0
+                old_cont = int(line.get("containers") or 0)
+                cont_diff = cont - old_cont  # dodatnie = bierzemy WIĘCEJ pojemników
+                if stype == "byproduct" and sid and cont_diff != 0:
+                    cx_execute(
+                        conn,
+                        "UPDATE byproduct_lots SET containers_available=GREATEST(0, containers_available-%s) "
+                        "WHERE id=%s AND containers_available IS NOT NULL",
+                        (cont_diff, sid))
                 if cont > 0:
                     line["containers"] = cont
                 else:
@@ -478,7 +503,6 @@ def update_wz_lines(wz_id: str, edits: List[Dict[str, Any]]) -> Dict[str, Any]:
                     raise HTTPException(400, "Ilość pozycji musi być > 0")
                 old_qty = float(line.get("qty") or 0)
                 diff = new_qty - old_qty  # dodatnia = wydajemy WIĘCEJ
-                stype, sid = line.get("stock_type"), line.get("stock_id")
                 if abs(diff) > 1e-9:
                     if not stype or not sid:
                         raise HTTPException(
@@ -539,6 +563,76 @@ def update_wz_lines(wz_id: str, edits: List[Dict[str, Any]]) -> Dict[str, Any]:
                    "UPDATE wz_documents SET lines=%s, total_value=%s, valued=%s WHERE id=%s",
                    (json.dumps(lines), total, valued, wz_id))
     logger.info("wz.lines_updated", extra={"wz_id": wz_id, "edits": len(edits)})
+    return get_wz(wz_id)
+
+
+def cancel_wz(wz_id: str) -> Dict[str, Any]:
+    """Anuluj WZ: zwraca WSZYSTKIE pozycje na magazyn w całości (kg/szt +
+    pojemniki grzbietów/kości) i oznacza dokument jako 'anulowany' —
+    dokument NIE jest usuwany, zostaje ślad w dokumentacji.
+
+    Tylko ręczne WZ (jak w update_wz_lines) — WZ z zamówienia wiąże się
+    z całym łańcuchem zamówienie→produkcja→HDI, którego cofnięcie stąd
+    byłoby niebezpieczne (edytuj/anuluj przez samo zamówienie)."""
+    with transaction() as conn:
+        row = cx_query_one(
+            conn, "SELECT id, status, source_type, lines FROM wz_documents WHERE id=%s FOR UPDATE",
+            (wz_id,))
+        if not row:
+            raise HTTPException(404, "Dokument WZ nie istnieje")
+        if (row.get("source_type") or "") != "manual":
+            raise HTTPException(409, "Anulować można tylko ręczne WZ (sprzedaż z magazynu)")
+        if row.get("status") == "anulowany":
+            raise HTTPException(409, "WZ jest już anulowany")
+        lines = row.get("lines")
+        if not isinstance(lines, list):
+            lines = json.loads(lines or "[]")
+
+        for line in lines:
+            stype, sid = line.get("stock_type"), line.get("stock_id")
+            qty = float(line.get("qty") or 0)
+            if not stype or not sid or qty <= 0:
+                continue
+
+            if stype == "fg":
+                qty_i = int(round(qty))
+                fg = cx_query_one(conn, "SELECT kg_per_unit FROM finished_goods WHERE id=%s FOR UPDATE", (sid,))
+                if not fg:
+                    continue
+                cx_execute(
+                    conn,
+                    "UPDATE finished_goods SET qty_available=qty_available+%s, "
+                    "qty_shipped=GREATEST(0, qty_shipped-%s) WHERE id=%s",
+                    (qty_i, qty_i, sid))
+                create_stock_movement(
+                    conn, product_type="finished_goods", batch_id=sid,
+                    qty=qty_i * float(fg.get("kg_per_unit") or 0),
+                    movement_type="CANCEL", source_type="wz", source_id=wz_id)
+            elif stype == "raw":
+                cx_execute(conn, "UPDATE raw_batches SET kg_available=kg_available+%s WHERE id=%s", (qty, sid))
+                create_stock_movement(
+                    conn, product_type="raw", batch_id=sid, qty=qty,
+                    movement_type="CANCEL", source_type="wz", source_id=wz_id)
+            elif stype == "meat":
+                cx_execute(conn, "UPDATE meat_stock SET kg_available=kg_available+%s WHERE id=%s", (qty, sid))
+                create_stock_movement(
+                    conn, product_type="meat", batch_id=sid, qty=qty,
+                    movement_type="CANCEL", source_type="wz", source_id=wz_id)
+            elif stype == "byproduct":
+                cont = int(line.get("containers") or 0)
+                cx_execute(
+                    conn,
+                    "UPDATE byproduct_lots SET kg=kg+%s, status='open', "
+                    "containers_available=CASE WHEN containers_available IS NOT NULL "
+                    "THEN containers_available+%s ELSE containers_available END "
+                    "WHERE id=%s",
+                    (qty, cont, sid))
+                create_stock_movement(
+                    conn, product_type="byproduct", batch_id=sid, qty=qty,
+                    movement_type="CANCEL", source_type="wz", source_id=wz_id)
+
+        cx_execute(conn, "UPDATE wz_documents SET status='anulowany' WHERE id=%s", (wz_id,))
+    logger.info("wz.cancelled", extra={"wz_id": wz_id})
     return get_wz(wz_id)
 
 
@@ -880,17 +974,6 @@ def stock_finished_goods() -> List[Dict[str, Any]]:
            ORDER BY produced_date DESC NULLS LAST, batch_no""")
 
 
-def _pallet_containers(pallets) -> int:
-    """Suma pojemników z palet ważenia zbiorczego (kreator HMI)."""
-    total = 0
-    for pal in pallets or []:
-        try:
-            total += int((pal or {}).get("containers") or 0)
-        except (TypeError, ValueError):
-            continue
-    return total
-
-
 def stock_raw() -> List[Dict[str, Any]]:
     """Pozycje surowcowe do ręcznego WZ — wszystko wydawalne w kg:
     ćwiartka (raw_batches), mięso z/s (meat_stock), grzbiety/kości
@@ -952,6 +1035,7 @@ def stock_raw() -> List[Dict[str, Any]]:
         })
     lots = query_all(
         """SELECT l.id, l.raw_batch_id, l.raw_batch_no, l.kind, l.kg, l.created_at,
+                  l.containers_available,
                   b.slaughter_date, b.expiry_date, b.supplier_name,
                   bb.backs_pallets, bb.bones_pallets, bb.backs_at, bb.bones_at
            FROM byproduct_lots l
@@ -960,8 +1044,14 @@ def stock_raw() -> List[Dict[str, Any]]:
            WHERE l.status='open' AND COALESCE(l.kg,0) > 0 AND l.kind IN ('backs','bones')
            ORDER BY l.created_at DESC""")
     for b in lots:
-        pallets = b.get("backs_pallets") if b["kind"] == "backs" else b.get("bones_pallets")
-        cont = _pallet_containers(pallets)
+        # containers_available = ŻYWY licznik (maleje przy WZ, rośnie przy
+        # dodaniu kolejnych palet na wadze) — fallback na sumę z palet TYLKO
+        # dla lotów sprzed tej kolumny (nie powinno się zdarzać po migracji).
+        if b.get("containers_available") is not None:
+            cont = int(b["containers_available"])
+        else:
+            pallets = b.get("backs_pallets") if b["kind"] == "backs" else b.get("bones_pallets")
+            cont = pallet_containers(pallets)
         weighed_at = b.get("backs_at") if b["kind"] == "backs" else b.get("bones_at")
         prod_date = str(weighed_at or b.get("created_at") or "")[:10] or None
         out.append({

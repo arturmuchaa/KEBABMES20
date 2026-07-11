@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from app.db import execute, query_all, query_one
 from app.logging_config import get_logger
 from app.utils.ids import cuid
+from app.utils.pallets import pallet_containers
 
 logger = get_logger(__name__)
 
@@ -197,17 +198,37 @@ def today_totals() -> Dict[str, float]:
 
 
 def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = None) -> Dict[str, Any]:
-    """Zapisz zważoną frakcję (backs|bones): kg + wyliczony % + szczegóły palet."""
+    """Zapisz zważoną frakcję (backs|bones): kg + wyliczony % + szczegóły palet.
+
+    Pojemniki: byproduct_lots.containers_available to ŻYWY licznik (maleje
+    przy wydaniu WZ). Ta funkcja bywa wołana WIELOKROTNIE w ciągu dnia
+    (kolejne palety dokładane na wadze) i za każdym razem PODMIENIA lot
+    (DELETE+INSERT) — bez poniższego zabiegu ponowne ważenie resetowałoby
+    licznik do pełnej liczby palet, kasując już wydane pojemniki. Liczymy
+    więc, ile już skonsumowano (stara suma z palet − stary licznik) i
+    odejmujemy TĘ SAMĄ liczbę od nowej sumy z palet.
+    """
     if kind not in ("backs", "bones"):
         raise HTTPException(400, "kind musi być 'backs' albo 'bones'")
     rec = query_one(
-        "SELECT quarter_kg, raw_batch_no FROM batch_byproducts WHERE raw_batch_id=%s",
+        f"SELECT quarter_kg, raw_batch_no, {kind}_pallets AS old_pallets "
+        "FROM batch_byproducts WHERE raw_batch_id=%s",
         (raw_batch_id,),
     )
     if not rec:
         raise HTTPException(404, "Partia nie została zakończona (brak rekordu ubocznych)")
     quarter = float(rec["quarter_kg"] or 0)
     pct = round(kg / quarter * 100, 2) if quarter > 0 else 0.0
+
+    old_lot = query_one(
+        "SELECT containers_available FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
+        "AND deboning_entry_id IS NULL AND status='open'",
+        (raw_batch_id, kind),
+    )
+    consumed = 0
+    if old_lot is not None and old_lot.get("containers_available") is not None:
+        consumed = max(0, pallet_containers(rec.get("old_pallets")) - int(old_lot["containers_available"]))
+
     execute(
         f"UPDATE batch_byproducts SET {kind}_kg=%s, {kind}_pct=%s, {kind}_pallets=%s, "
         f"{kind}_at=now() WHERE raw_batch_id=%s",
@@ -223,10 +244,11 @@ def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = No
         (raw_batch_id, kind),
     )
     if kg > 0:
+        new_available = max(0, pallet_containers(pallets) - consumed)
         execute(
             "INSERT INTO byproduct_lots (id, deboning_entry_id, raw_batch_id, "
-            "raw_batch_no, kind, kg, status, created_at) "
-            "VALUES (%s, NULL, %s, %s, %s, %s, 'open', now())",
-            (cuid(), raw_batch_id, rec["raw_batch_no"], kind, round(kg, 3)),
+            "raw_batch_no, kind, kg, status, containers_available, created_at) "
+            "VALUES (%s, NULL, %s, %s, %s, %s, 'open', %s, now())",
+            (cuid(), raw_batch_id, rec["raw_batch_no"], kind, round(kg, 3), new_available),
         )
     return get(raw_batch_id)

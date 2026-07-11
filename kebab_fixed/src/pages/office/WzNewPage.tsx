@@ -8,9 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
+import { SearchSelect } from '@/components/ui/search-select'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
@@ -327,15 +325,18 @@ export function WzNewPage() {
             </div>
             <CardContent className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-1.5 md:col-span-2">
-                <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Klient z bazy</Label>
-                <Select value={clientId} onValueChange={pickClient}>
-                  <SelectTrigger className="h-9"><SelectValue placeholder="Wybierz klienta..." /></SelectTrigger>
-                  <SelectContent>
-                    {clients.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.name || c.displayName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  Klient z bazy <span className="font-normal normal-case text-ink-4">(wpisz, aby wyszukać)</span>
+                </Label>
+                <SearchSelect
+                  items={clients.map(c => ({
+                    id: c.id, label: c.name || c.displayName || '', sublabel: c.city || undefined,
+                    searchText: `${c.nip ?? ''} ${c.displayName ?? ''}`,
+                  }))}
+                  value={clientId}
+                  onSelect={pickClient}
+                  placeholder="Wpisz nazwę odbiorcy…"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Nazwa</Label>

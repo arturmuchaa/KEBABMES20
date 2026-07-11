@@ -7,6 +7,7 @@ import json
 
 from app.db import cx_execute, cx_query_all, execute, query_all, query_one, transaction
 from app.logging_config import get_logger
+from app.utils.pallets import pallet_containers
 
 logger = get_logger(__name__)
 
@@ -642,6 +643,18 @@ _DDL: list[str] = [
     # był zawsze created_at::date (tylko dziś).
     "ALTER TABLE mixing_orders ADD COLUMN IF NOT EXISTS plan_date DATE",
     "UPDATE mixing_orders SET plan_date = created_at::date WHERE plan_date IS NULL",
+    # Żywy licznik pojemników na locie ubocznych (grzbiety/kości) — do tej
+    # pory "containers" na WZ było tylko wyliczane z palet ważenia (zawsze
+    # PEŁNA liczba, nigdy nie malało przy wydaniu). Teraz WZ dekrementuje
+    # tę kolumnę, edycja/anulowanie WZ koryguje ją z powrotem.
+    "ALTER TABLE byproduct_lots ADD COLUMN IF NOT EXISTS containers_available INTEGER",
+    # CHECK w bazie nie nadążył za app/utils/stock.py: VALID_MOVEMENT_TYPES
+    # ma od dawna też ADJUST/CANCEL, ale baza znała tylko IN/OUT/TRANSFORM —
+    # każdy ruch tych dwóch typów (np. zwrot stanu po anulowaniu WZ) padał
+    # na CheckViolation. Poszerzamy CHECK do zgodności z kodem.
+    "ALTER TABLE stock_movements DROP CONSTRAINT IF EXISTS stock_movements_movement_type_check",
+    "ALTER TABLE stock_movements ADD CONSTRAINT stock_movements_movement_type_check "
+    "CHECK (movement_type = ANY (ARRAY['IN','OUT','TRANSFORM','ADJUST','CANCEL']))",
 ]
 
 
@@ -669,6 +682,7 @@ def run_migrations() -> None:
     _backfill_byproduct_lots()
     _backfill_stock_carton_lines()
     _backfill_recipe_ingredients_seq()
+    _backfill_byproduct_containers()
     logger.info("migrations.done")
 
 
@@ -1116,4 +1130,34 @@ def _backfill_recipe_ingredients_seq() -> None:
     except Exception as exc:
         logger.warning(
             "migrations.backfill_recipe_ingredients_seq.error", extra={"error": str(exc)}
+        )
+
+
+def _backfill_byproduct_containers() -> None:
+    """Nadaje containers_available lotom ubocznych sprzed tej kolumny —
+    z sumy palet ważenia zbiorczego (jedyne dostępne źródło; przed tą
+    migracją 'containers' na WZ było tylko kosmetyczne, więc pełna suma
+    z palet to najlepsze możliwe przybliżenie stanu bieżącego)."""
+    try:
+        rows = query_all(
+            """
+            SELECT l.id, l.kind, bb.backs_pallets, bb.bones_pallets
+            FROM byproduct_lots l
+            JOIN batch_byproducts bb ON bb.raw_batch_id = l.raw_batch_id
+            WHERE l.status='open' AND l.kind IN ('backs','bones')
+              AND l.deboning_entry_id IS NULL
+              AND l.containers_available IS NULL
+            """
+        )
+        for r in rows:
+            pallets = r.get("backs_pallets") if r["kind"] == "backs" else r.get("bones_pallets")
+            execute(
+                "UPDATE byproduct_lots SET containers_available=%s WHERE id=%s",
+                (pallet_containers(pallets), r["id"]),
+            )
+        if rows:
+            logger.info("migrations.backfill_byproduct_containers.done", extra={"count": len(rows)})
+    except Exception as exc:
+        logger.warning(
+            "migrations.backfill_byproduct_containers.error", extra={"error": str(exc)}
         )

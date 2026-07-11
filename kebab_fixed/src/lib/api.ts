@@ -1471,6 +1471,10 @@ export const wzApi = {
   // stany magazynowe (różnica) — UI ostrzega o wpływie na traceability.
   updateLines: (id: string, edits: { index: number; qty?: number; price?: number; containers?: number | null }[]) =>
     patch<WzDoc>(`/wz/${encodeURIComponent(id)}/lines`, { edits }),
+  // Anuluj WZ: pełny zwrot pozycji na magazyn (kg/szt + pojemniki), dokument
+  // zostaje w bazie ze statusem 'anulowany' (nie jest usuwany).
+  cancel: (id: string) =>
+    patch<WzDoc>(`/wz/${encodeURIComponent(id)}/cancel`, {}),
   quantityChain: (orderId: string) =>
     get<QuantityChain>(`/client-orders/${encodeURIComponent(orderId)}/quantity-chain`),
   fromOrderPreview: (orderId: string) =>
