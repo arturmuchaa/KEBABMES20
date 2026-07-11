@@ -43,17 +43,17 @@ const S = {
   section: { fontSize: 11, fontWeight: 700, textTransform: 'uppercase' as const,
     letterSpacing: 0.5, margin: '6px 0 2px', borderBottom: '1.5px solid #111', paddingBottom: 2 },
   table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 10 },
-  th: { border: '1px solid #bfbfbf', background: '#efefef', padding: '2px 4px',
+  th: { border: '1px solid #bfbfbf', background: '#efefef', padding: '1px 4px',
     fontSize: 8.5, textTransform: 'uppercase' as const, fontWeight: 700, textAlign: 'center' as const },
-  td: { border: '1px solid #bfbfbf', padding: '2px 4px', textAlign: 'center' as const,
+  td: { border: '1px solid #bfbfbf', padding: '1px 4px', textAlign: 'center' as const,
     fontVariantNumeric: 'tabular-nums' as const },
-  tdL: { border: '1px solid #bfbfbf', padding: '2px 4px', textAlign: 'left' as const },
-  tdR: { border: '1px solid #bfbfbf', padding: '2px 4px', textAlign: 'right' as const,
+  tdL: { border: '1px solid #bfbfbf', padding: '1px 4px', textAlign: 'left' as const },
+  tdR: { border: '1px solid #bfbfbf', padding: '1px 4px', textAlign: 'right' as const,
     fontVariantNumeric: 'tabular-nums' as const },
   // Kg partii mięsa — jedyna liczba na wydruku, którą operator fizycznie odważa,
-  // ma dominować wizualnie nad numerem partii/rodzajem/dostawcą w tym samym wierszu.
+  // pogrubiona i lekko większa, ale bez przesady (czytelne bez krzyku).
   kgBig: { border: '1px solid #bfbfbf', padding: '1px 5px', textAlign: 'right' as const,
-    fontVariantNumeric: 'tabular-nums' as const, fontSize: 16, fontWeight: 800, lineHeight: 1.15 },
+    fontVariantNumeric: 'tabular-nums' as const, fontSize: 12, fontWeight: 700 },
 }
 
 const STATUS_PL: Record<string, string> = {
@@ -133,7 +133,7 @@ export function MixingPlanPrintPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
         borderBottom: '2px solid #111', paddingBottom: 6, marginBottom: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img src="/logo-ksiezyc.png" alt="Księżyc" style={{ height: 30, width: 'auto' }} />
+          <img src="/logo-ksiezyc.png" alt="Księżyc" style={{ height: 46, width: 'auto' }} />
           <div>
             <h1 style={S.h1}>PLAN MASOWANIA</h1>
             <div style={{ fontSize: 11, color: '#444' }}>dzień: <b>{fmtD(planDate)}</b></div>
@@ -220,7 +220,7 @@ export function MixingPlanPrintPage() {
                 w planie: {nf0.format(planKg)} kg mięsa
               </span>
             </div>
-            <table style={{ ...S.table, maxWidth: 440 }}>
+            <table style={S.table}>
               <thead>
                 <tr>
                   <th style={S.th}>Składnik</th>
@@ -254,30 +254,34 @@ export function MixingPlanPrintPage() {
         )
       })}
 
-      {/* ── 3. Mała tabelka na końcu: przyprawy do przygotowania łącznie ── */}
-      <div style={S.section}>Do przygotowania — przyprawy łącznie na cały plan</div>
-      {spiceTotals.length === 0 ? (
-        <div style={{ fontSize: 10, color: '#555' }}>Receptury planu nie mają składników.</div>
-      ) : (
-        <table style={{ ...S.table, maxWidth: 380 }}>
-          <thead>
-            <tr>
-              <th style={S.th}>Składnik</th>
-              <th style={{ ...S.th, width: 100 }}>Ilość</th>
-            </tr>
-          </thead>
-          <tbody>
-            {spiceTotals.map(s => (
-              <tr key={s.name}>
-                <td style={{ ...S.tdL, color: s.isUnlimited ? '#666' : '#111', padding: '2px 5px' }}>
-                  {s.name}{s.isUnlimited ? ' (bez limitu)' : ''}
-                </td>
-                <td style={{ ...S.tdR, fontWeight: 700, padding: '2px 5px' }}>{nf2.format(s.qty)} {s.unit}</td>
+      {/* ── 3. Mała tabelka na końcu: przyprawy do przygotowania łącznie ──
+           pageBreakInside:avoid — przy gęstym planie cała sekcja schodzi na 2. stronę
+           w całości, zamiast rozrywać się w połowie tabeli. */}
+      <div style={{ pageBreakInside: 'avoid' as const }}>
+        <div style={S.section}>Do przygotowania — przyprawy łącznie na cały plan</div>
+        {spiceTotals.length === 0 ? (
+          <div style={{ fontSize: 10, color: '#555' }}>Receptury planu nie mają składników.</div>
+        ) : (
+          <table style={{ ...S.table, maxWidth: 380 }}>
+            <thead>
+              <tr>
+                <th style={S.th}>Składnik</th>
+                <th style={{ ...S.th, width: 100 }}>Ilość</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+            </thead>
+            <tbody>
+              {spiceTotals.map(s => (
+                <tr key={s.name}>
+                  <td style={{ ...S.tdL, color: s.isUnlimited ? '#666' : '#111' }}>
+                    {s.name}{s.isUnlimited ? ' (bez limitu)' : ''}
+                  </td>
+                  <td style={{ ...S.tdR, fontWeight: 700 }}>{nf2.format(s.qty)} {s.unit}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
 
       <div style={{ marginTop: 8, fontSize: 9, color: '#777', borderTop: '1px solid #bbb', paddingTop: 4 }}>
         Kolejność pozycji = kolejność masowania. Dawki przepisów podane na wsad mięsa 200 / 600 kg —
