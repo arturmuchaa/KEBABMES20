@@ -10,16 +10,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { mixingOrdersApi, meatStockApi } from '@/lib/apiClient'
 import { useRecipes } from '@/features/ingredients/hooks'
 import { useApi } from '@/hooks/useApi'
-import { fmtKg } from '@/lib/utils'
+import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { CalendarDays, Loader2, Plus, Save, Zap } from 'lucide-react'
 import { PlanRow, type PlanRowData } from './PlanRow'
 import type { PickerLot } from './MeatLotPicker'
+import { PlanStockSidebar, type SpiceNeed } from './PlanStockSidebar'
 import { autoFefoDistribute, type AvailLot } from '../lib/autoFefo'
 
 export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
-  const { recipes } = useRecipes()
+  const { recipes, stock: spiceStock } = useRecipes()
   const { data: meatData } = useApi(() => meatStockApi.list())
   const [rows, setRows] = useState<PlanRowData[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -60,7 +60,6 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
     [pickerLots],
   )
   const zsAvail = zsLots.reduce((s, l) => s + l.kgAvailable, 0)
-  const otherAvail = totalAvail - zsAvail
 
   async function load() {
     try {
@@ -154,6 +153,41 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   const totalOutput = rows.reduce((s, r) => s + recipeOutput(r.recipeId, parseFloat(r.meatKg) || 0), 0)
   const overBudget = totalPlan > totalAvail + 0.5
 
+  // Ile bieżący SZKIC planu bierze z każdego lotu — panel boczny pokazuje
+  // „wolne − plan = zostanie" na żywo, zanim plan trafi do operatora.
+  const plannedByLot = useMemo(() => {
+    const m = new Map<string, number>()
+    rows.forEach(r => r.lots.forEach(l =>
+      m.set(l.meatLotId, (m.get(l.meatLotId) ?? 0) + (l.kgPlanned || 0))))
+    return m
+  }, [rows])
+
+  const otherLots = useMemo(
+    () => pickerLots.filter(l => (l.materialTypeId ?? 'mat-mieso-zs') !== 'mat-mieso-zs'),
+    [pickerLots],
+  )
+
+  // Zbiorcze zapotrzebowanie przypraw wg planu vs stan magazynu przypraw.
+  const spiceNeeds: SpiceNeed[] = useMemo(() => {
+    const stockById = new Map((spiceStock ?? []).map((s: any) => [s.ingredientId, s.qtyAvailable ?? 0]))
+    const acc = new Map<string, SpiceNeed>()
+    rows.forEach(r => {
+      const kg = parseFloat(r.meatKg) || 0
+      const rec: any = recipes.find((x: any) => x.id === r.recipeId)
+      if (!rec || kg <= 0) return
+      ;(rec.ingredients ?? []).forEach((ri: any) => {
+        const cur = acc.get(ri.ingredientId) ?? {
+          ingredientId: ri.ingredientId, name: ri.ingredientName, unit: ri.unit,
+          need: 0, stock: Number(stockById.get(ri.ingredientId) ?? 0),
+          isUnlimited: !!ri.isUnlimited,
+        }
+        cur.need += (ri.qtyPer100kg * kg) / 100
+        acc.set(ri.ingredientId, cur)
+      })
+    })
+    return [...acc.values()].sort((a, b) => a.name.localeCompare(b.name))
+  }, [rows, recipes, spiceStock])
+
   // Gating zapisu: każda edytowalna pozycja musi mieć kompletne partie
   const allLotsComplete = rows.every(r => {
     if (r.status === 'in_progress' || r.status === 'done') return true
@@ -181,78 +215,116 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   }
 
   return (
-    <Card className="overflow-hidden border-violet-200">
-      <div className="px-4 py-2.5 bg-violet-50/60 border-b border-violet-200 flex flex-wrap items-center gap-x-4 gap-y-1">
-        <div className="flex items-center gap-2">
-          <CalendarDays size={14} className="text-violet-600" />
-          <span className="text-[12px] font-bold text-violet-800 uppercase tracking-wide">Plan dnia masowania</span>
+    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-3 items-start">
+      {/* ── Plan dnia (lewa kolumna) ── */}
+      <div className="bg-white border border-surface-4 rounded-lg overflow-hidden">
+        {/* Pasek tytułu — Subiekt: tytuł + sumy + akcje w jednej linii */}
+        <div className="px-4 py-2.5 bg-surface-2 border-b border-surface-4 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <div className="flex items-center gap-2">
+            <CalendarDays size={14} className="text-brand" />
+            <span className="text-[11px] font-bold uppercase tracking-widest text-ink-2">
+              Plan dnia masowania · {fmtDatePl(new Date().toISOString().slice(0, 10))}
+            </span>
+          </div>
+          <span className="text-[12px] font-bold text-ink [font-variant-numeric:tabular-nums]">
+            {fmtKg(totalPlan, 0)} kg mięsa → <span className="text-emerald-700">{fmtKg(totalOutput, 0)} kg półproduktu</span>
+          </span>
+          {overBudget && (
+            <span className="text-[11px] font-bold text-red-600 uppercase">
+              plan przekracza wolne z/s ({fmtKg(zsAvail, 0)} kg)!
+            </span>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            <Button size="sm" variant="outline" className="h-8 gap-1 text-[12px]" onClick={autoFefoAll}
+              title="Rozdziel wolne partie z/s po wszystkich pozycjach wg terminu ważności">
+              <Zap size={13} /> Auto-FEFO całość
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 gap-1 text-[12px]" onClick={addRow}>
+              <Plus size={13} /> Dodaj pozycję
+            </Button>
+            <Button size="sm" disabled={saving || !dirty || !allLotsComplete} onClick={save}
+              className="h-8 gap-1.5 text-[12px]">
+              {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+              {dirty ? 'Zapisz plan' : 'Plan zapisany'}
+            </Button>
+          </div>
         </div>
-        <span className="text-[12px] font-black text-violet-700">
-          Σ {fmtKg(totalPlan, 0)} kg → {fmtKg(totalOutput, 0)} kg półprodukt
-        </span>
-        <span className={`text-[12px] font-semibold ${overBudget ? 'text-red-600' : 'text-muted-foreground'}`}>
-          Dostępne z/s: {fmtKg(zsAvail, 0)} kg
-          {otherAvail > 0.5 && <> · filet/inne: {fmtKg(otherAvail, 0)} kg (ręcznie)</>}
-          {overBudget ? ' — za mało!' : ''}
-        </span>
-        <div className="ml-auto flex items-center gap-2">
-          <Button size="sm" variant="outline" className="h-8 gap-1 text-[12px]" onClick={autoFefoAll}>
-            <Zap size={13} /> Auto-FEFO całość
-          </Button>
+
+        {/* Nagłówek kolumn */}
+        <div className="hidden md:grid grid-cols-[28px_20px_minmax(180px,1.2fr)_120px_96px_minmax(140px,1fr)_110px_88px] items-center gap-2 px-2.5 h-8 bg-surface-2 border-b border-surface-4 text-[10px] font-bold uppercase tracking-wide text-ink-4">
+          <span />
+          <span className="text-center">Lp</span>
+          <span>Receptura</span>
+          <span className="text-right pr-1">Mięso [kg]</span>
+          <span className="text-right">Półprodukt</span>
+          <span>Partie mięsa</span>
+          <span>Status</span>
+          <span className="text-right pr-1">Akcje</span>
+        </div>
+
+        <div>
+          {!loaded ? (
+            <div className="text-[12px] text-ink-4 py-6 text-center">Wczytuję…</div>
+          ) : rows.length === 0 ? (
+            <div className="text-[12px] text-ink-4 py-8 text-center">
+              Brak planu na dziś — <button onClick={addRow} className="text-brand font-semibold hover:underline">dodaj pierwszą pozycję</button>
+            </div>
+          ) : (
+            rows.map((r, i) => (
+              <PlanRow
+                key={r.rowKey}
+                row={r}
+                index={i}
+                total={rows.length}
+                recipes={recipes ?? []}
+                lots={pickerLots}
+                output={recipeOutput(r.recipeId, parseFloat(r.meatKg) || 0)}
+                expanded={expandedKey === r.rowKey}
+                onUpdate={patch => update(i, patch)}
+                onMove={dir => move(i, dir)}
+                onDelete={() => remove(i)}
+                onToggle={() => setExpandedKey(k => k === r.rowKey ? null : r.rowKey)}
+                onAutoFefoRow={() => autoFefoRow(i)}
+                dragHandlers={{
+                  draggable: true,
+                  onDragStart: () => { dragIdx.current = i },
+                  onDragOver: e => e.preventDefault(),
+                  onDrop: () => { if (dragIdx.current !== null) reorder(dragIdx.current, i); dragIdx.current = null },
+                  onDragEnd: () => { dragIdx.current = null },
+                }}
+              />
+            ))
+          )}
+
+          {error && (
+            <div className="mx-3 my-2 text-[11px] text-destructive bg-destructive/10 border border-destructive/20 px-3 py-1.5 rounded">
+              {error}
+            </div>
+          )}
+
+          {/* Stopka sum — jak w tabelach Subiekta */}
+          {loaded && rows.length > 0 && (
+            <div className={cn(
+              'px-3 py-2 bg-surface-2 border-t border-surface-4 flex items-center gap-4 text-[12px] font-semibold text-ink-2 [font-variant-numeric:tabular-nums]',
+            )}>
+              <span>Pozycji: {rows.length}</span>
+              <span className="ml-auto">Mięso: <b className="text-ink">{fmtKg(totalPlan, 0)} kg</b></span>
+              <span>Półprodukt: <b className="text-emerald-700">{fmtKg(totalOutput, 0)} kg</b></span>
+              <span className={overBudget ? 'text-red-600 font-bold' : ''}>
+                Wolne z/s po planie: <b>{fmtKg(zsAvail - totalPlan, 0)} kg</b>
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="p-3 space-y-2">
-        {!loaded ? (
-          <div className="text-[12px] text-muted-foreground py-3 text-center">Wczytuję…</div>
-        ) : rows.length === 0 ? (
-          <div className="text-[12px] text-muted-foreground py-3 text-center border border-dashed rounded-lg">
-            Brak planu na dziś — dodaj pierwszą pozycję
-          </div>
-        ) : (
-          rows.map((r, i) => (
-            <PlanRow
-              key={r.rowKey}
-              row={r}
-              index={i}
-              total={rows.length}
-              recipes={recipes ?? []}
-              lots={pickerLots}
-              output={recipeOutput(r.recipeId, parseFloat(r.meatKg) || 0)}
-              expanded={expandedKey === r.rowKey}
-              onUpdate={patch => update(i, patch)}
-              onMove={dir => move(i, dir)}
-              onDelete={() => remove(i)}
-              onToggle={() => setExpandedKey(k => k === r.rowKey ? null : r.rowKey)}
-              onAutoFefoRow={() => autoFefoRow(i)}
-              dragHandlers={{
-                draggable: true,
-                onDragStart: () => { dragIdx.current = i },
-                onDragOver: e => e.preventDefault(),
-                onDrop: () => { if (dragIdx.current !== null) reorder(dragIdx.current, i); dragIdx.current = null },
-                onDragEnd: () => { dragIdx.current = null },
-              }}
-            />
-          ))
-        )}
-
-        {error && (
-          <div className="text-[11px] text-destructive bg-destructive/10 border border-destructive/20 px-3 py-1.5 rounded">
-            {error}
-          </div>
-        )}
-
-        <div className="flex items-center gap-2 pt-1">
-          <Button variant="outline" size="sm" className="h-8 gap-1 text-[12px]" onClick={addRow}>
-            <Plus size={13} /> Dodaj pozycję
-          </Button>
-          <Button size="sm" disabled={saving || !dirty || !allLotsComplete} onClick={save}
-            className="h-8 gap-1.5 text-[12px] ml-auto bg-violet-600 hover:bg-violet-700">
-            {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-            {dirty ? 'Zapisz plan (operator zobaczy zmianę)' : 'Plan zapisany'}
-          </Button>
-        </div>
-      </div>
-    </Card>
+      {/* ── Magazyn do rozplanowania (prawa kolumna) ── */}
+      <PlanStockSidebar
+        zsLots={zsLots}
+        otherLots={otherLots}
+        plannedByLot={plannedByLot}
+        spiceNeeds={spiceNeeds}
+      />
+    </div>
   )
 }

@@ -4,13 +4,13 @@
  * Gęsta lista składników z aktualnym stanem. Klik wiersza rozwija historię
  * przyjęć tego składnika. Przyciski Nowy składnik / Przyjęcie PZ w toolbar.
  */
-import { Fragment, useState, useMemo } from 'react'
+import { Fragment, useState, useMemo, useRef, useEffect } from 'react'
 import { useApi } from '@/hooks/useApi'
-import { ingredientReceiptsApi } from '@/lib/apiClient'
+import { ingredientReceiptsApi, ingredientsApi } from '@/lib/apiClient'
 import { fmtDatePl, todayIso, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
 import {
-  FlaskConical, Plus, ChevronDown, ChevronUp, ChevronsUpDown, Search, X, Download,
+  FlaskConical, Plus, ChevronDown, ChevronUp, ChevronsUpDown, Search, X,
 } from 'lucide-react'
 import type { IngredientCategory } from '@/features/ingredients/types'
 import { useIngredients } from '@/features/ingredients/hooks'
@@ -63,36 +63,96 @@ function ExpiryCell({ date }: { date?: string }) {
     <div className="flex items-center gap-1.5">
       <span className="text-ink-2">{fmtDatePl(date)}</span>
       <Badge variant="outline" className={cn('text-[10px]', cls)}>
-        {daysLeft < 0 ? 'wygasło' : daysLeft <= 30 ? `${daysLeft}d` : `${daysLeft}d`}
+        {daysLeft < 0 ? 'wygasło' : `${daysLeft}d`}
       </Badge>
     </div>
   )
 }
 
-function exportCsv(rows: any[], stockMap: Map<string, any>, receiptMap: Map<string, any[]>) {
-  const headers = ['Nazwa','Kategoria','Stan','Jedn.','Ost. przyjęcie','Ważność']
-  const csv = [headers.join(';')].concat(rows.map(ing => {
-    const s    = stockMap.get(ing.id)
-    const recs = (receiptMap.get(ing.id) ?? []).sort((a, b) => (b.receivedDate > a.receivedDate ? 1 : -1))
-    const last = recs[0]
-    return [
-      ing.name,
-      CATEGORY_LABEL[ing.category] || ing.category,
-      String(s?.qtyAvailable ?? 0).replace('.', ','),
-      ing.unit,
-      last ? fmtDatePl(last.receivedDate) : '',
-      getReceiptExpiry(last) || '',
-    ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(';')
-  })).join('\n')
-  const blob = new Blob([new TextEncoder().encode('﻿' + csv)], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = `magazyn-przypraw-${new Date().toISOString().slice(0,10)}.csv`; a.click()
-  URL.revokeObjectURL(url)
+/**
+ * IngredientPicker — pole "Składnik" z wyszukiwaniem po wpisaniu.
+ *
+ * Zastępuje rozwijany Select, w który nie dało się nic WPISAĆ (użytkownicy
+ * próbowali wpisać nazwę nowego dodatku i pole wyglądało na zablokowane).
+ * Wpisanie nazwy filtruje listę; gdy brak dopasowania — przycisk tworzy
+ * nowy składnik bezpośrednio z tego miejsca (onCreateNew).
+ */
+function IngredientPicker({ ingredients, stockMap, value, onSelect, onCreateNew }: {
+  ingredients: { id: string; name: string; unit: string; category: string }[]
+  stockMap: Map<string, any>
+  value: string
+  onSelect: (id: string) => void
+  onCreateNew: (name: string) => void
+}) {
+  const selected = ingredients.find(i => i.id === value)
+  const [query, setQuery] = useState('')
+  const [open, setOpen]   = useState(false)
+  const boxRef = useRef<HTMLDivElement>(null)
+
+  // Zamknij listę przy kliknięciu poza polem
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [])
+
+  const q = query.toLowerCase().trim()
+  const matches = q
+    ? ingredients.filter(i => i.name.toLowerCase().includes(q))
+    : ingredients
+  const exact = ingredients.some(i => i.name.toLowerCase() === q)
+
+  return (
+    <div ref={boxRef} className="relative">
+      <Input
+        placeholder="Wpisz nazwę, np. Papryka słodka…"
+        value={open ? query : (selected?.name ?? query)}
+        onFocus={() => { setOpen(true); setQuery(selected?.name ?? '') }}
+        onChange={e => { setQuery(e.target.value); setOpen(true); if (value) onSelect('') }}
+      />
+      {open && (
+        <div className="absolute z-50 mt-1 w-full bg-white border border-surface-4 rounded-lg shadow-md max-h-56 overflow-y-auto scrollbar-thin">
+          {matches.map(i => {
+            const qty = stockMap.get(i.id)?.qtyAvailable ?? 0
+            return (
+              <button
+                key={i.id}
+                type="button"
+                onClick={() => { onSelect(i.id); setQuery(''); setOpen(false) }}
+                className={cn(
+                  'w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-blue-50/70',
+                  i.id === value && 'bg-blue-50 font-semibold',
+                )}
+              >
+                <span className="truncate">{i.name}</span>
+                <span className={cn('text-[11px] tabular-nums flex-shrink-0', qty > 0 ? 'text-emerald-700' : 'text-ink-4')}>
+                  {qty.toFixed(1)} {i.unit}
+                </span>
+              </button>
+            )
+          })}
+          {matches.length === 0 && (
+            <div className="px-3 py-2 text-xs text-ink-4">Brak składnika o tej nazwie</div>
+          )}
+          {q && !exact && (
+            <button
+              type="button"
+              onClick={() => { onCreateNew(query.trim()); setOpen(false) }}
+              className="w-full flex items-center gap-1.5 px-3 py-2 text-left text-sm font-semibold text-brand border-t border-surface-3 hover:bg-blue-50/70"
+            >
+              <Plus size={13} /> Dodaj nowy składnik „{query.trim()}"
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function SpiceStockPage() {
-  const { ingredients, stock, loading, createIngredient, addReceipt, createLoading, receiptLoading } = useIngredients()
+  const { ingredients, stock, loading, refetch, createIngredient, addReceipt, createLoading, receiptLoading } = useIngredients()
   const { data: receipts, refetch: refetchReceipts } = useApi(() => ingredientReceiptsApi.list())
 
   const [expanded,     setExpanded]     = useState<string | null>(null)
@@ -114,6 +174,31 @@ export function SpiceStockPage() {
   const [recInvoice, setRecInvoice] = useState('')
   const [recDate,    setRecDate]    = useState(todayIso())
   const [recExpiry,  setRecExpiry]  = useState('')
+
+  // Tworzenie nowego składnika wprost z okna PZ (picker → „Dodaj nowy…")
+  const [pzNewName,    setPzNewName]    = useState<string | null>(null)
+  const [pzNewCat,     setPzNewCat]     = useState<IngredientCategory>('functional')
+  const [pzNewUnit,    setPzNewUnit]    = useState('kg')
+  const [pzNewSaving,  setPzNewSaving]  = useState(false)
+
+  async function handlePzCreateIngredient() {
+    const name = (pzNewName ?? '').trim()
+    if (!name) return
+    setPzNewSaving(true)
+    try {
+      const created = await (ingredientsApi as any).create({
+        name, category: pzNewCat, unit: pzNewUnit, isUnlimited: false,
+      })
+      refetch()
+      setSelIngId(created.id)
+      setPzNewName(null)
+      toast.success(`"${name}" dodany i wybrany`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Błąd zapisu składnika')
+    } finally {
+      setPzNewSaving(false)
+    }
+  }
 
   const displayIngredients = ingredients.filter(i => !i.isUnlimited)
 
@@ -452,16 +537,54 @@ export function SpiceStockPage() {
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label>Składnik *</Label>
-              <Select value={selIngId || '__none'} onValueChange={v => setSelIngId(v === '__none' ? '' : v)}>
-                <SelectTrigger><SelectValue placeholder="Wybierz..." /></SelectTrigger>
-                <SelectContent>
-                  {displayIngredients.map(i => (
-                    <SelectItem key={i.id} value={i.id}>{i.name} [{i.unit}]</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Składnik * <span className="font-normal text-muted-foreground">(wpisz, aby wyszukać lub dodać nowy)</span></Label>
+              <IngredientPicker
+                ingredients={displayIngredients}
+                stockMap={stockMap}
+                value={selIngId}
+                onSelect={setSelIngId}
+                onCreateNew={name => { setPzNewName(name); setPzNewCat('functional'); setPzNewUnit('kg') }}
+              />
             </div>
+
+            {/* Inline: nowy składnik prosto z PZ */}
+            {pzNewName !== null && (
+              <Card className="border-brand-border bg-brand-light/60">
+                <CardContent className="p-3 space-y-2.5">
+                  <CardDescription className="text-[11px] font-bold uppercase tracking-wide text-brand">
+                    Nowy składnik
+                  </CardDescription>
+                  <Input value={pzNewName} onChange={e => setPzNewName(e.target.value)} placeholder="Nazwa składnika" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Select value={pzNewCat} onValueChange={v => setPzNewCat(v as IngredientCategory)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="spice_mix">Mieszanka przyprawowa</SelectItem>
+                        <SelectItem value="functional">Dodatek funkcjonalny</SelectItem>
+                        <SelectItem value="other">Inne</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={pzNewUnit} onValueChange={setPzNewUnit}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="kg">kg</SelectItem>
+                        <SelectItem value="l">l</SelectItem>
+                        <SelectItem value="szt">szt</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <Button size="sm" variant="ghost" onClick={() => setPzNewName(null)} disabled={pzNewSaving}>Anuluj</Button>
+                    <Button size="sm" onClick={handlePzCreateIngredient} disabled={pzNewSaving || !(pzNewName ?? '').trim()} className="gap-1.5">
+                      {pzNewSaving
+                        ? <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        : <Plus size={13} />}
+                      Dodaj i wybierz
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Ilość *</Label>
