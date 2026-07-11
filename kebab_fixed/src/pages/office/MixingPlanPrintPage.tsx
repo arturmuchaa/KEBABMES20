@@ -35,6 +35,20 @@ function fmtD(iso: string): string {
 // Wsady masownic w zakładzie — kolumny przepisu na wydruku.
 const MACHINE_BATCHES_KG = [200, 600]
 
+// Kanoniczna kolejność masowania (spójna z recipe_ingredients.seq): dodatki
+// funkcjonalne → przyprawy → skrobia/mąka/transglutaminaza/papryka → WODA na końcu.
+// Używana do posortowania zbiorczej listy „do przygotowania" tak samo jak w przepisach.
+const INGREDIENT_ORDER = [
+  'VAN HESS SM BINDUNG', 'BERG SERHAT', 'MK DONERGOLD SCHEIBEN F',
+  'BERG CHIKEN BKS', 'MK HAHNCHENWURZER HELL MAREK OG', 'PRYMAT GYROS',
+  'SKROBIA ZIEMNIACZANA', 'MĄKA MUSZTARDOWA', 'TRANSGLUTAMINAZA', 'PAPRYKA W PŁYNIE',
+]
+const ingredientRank = (name: string): number => {
+  const i = INGREDIENT_ORDER.indexOf(name)
+  if (i >= 0) return i
+  return /woda/i.test(name) ? 999 : 500 // woda zawsze ostatnia; nieznane przed wodą
+}
+
 // Layout ściśnięty celowo — cel: 1 strona A4 nawet przy 4-5 recepturach.
 const S = {
   page: { maxWidth: 800, margin: '0 auto', padding: '10px 20px', background: '#fff', color: '#111',
@@ -99,7 +113,7 @@ export function MixingPlanPrintPage() {
         acc.set(ri.ingredientId, cur)
       }
     }
-    return [...acc.values()]
+    return [...acc.values()].sort((a, b) => ingredientRank(a.name) - ingredientRank(b.name))
   }, [plan, recipeById])
 
   // Receptury użyte w planie (w kolejności pierwszego wystąpienia) + suma kg.
@@ -226,7 +240,7 @@ export function MixingPlanPrintPage() {
               <tbody>
                 {ings.map((ri: any) => (
                   <tr key={ri.ingredientId}>
-                    <td style={S.tdL}>{ri.ingredientName}</td>
+                    <td style={{ ...S.tdL, textTransform: 'uppercase' as const }}>{ri.ingredientName}</td>
                     {MACHINE_BATCHES_KG.map(kg => (
                       <td key={kg} style={{ ...S.tdR, fontWeight: 700 }}>
                         {nf2.format((ri.qtyPer100kg * kg) / 100)} {ri.unit}
@@ -266,9 +280,7 @@ export function MixingPlanPrintPage() {
             <tbody>
               {spiceTotals.map(s => (
                 <tr key={s.name}>
-                  <td style={{ ...S.tdL, color: s.isUnlimited ? '#666' : '#111' }}>
-                    {s.name}{s.isUnlimited ? ' (bez limitu)' : ''}
-                  </td>
+                  <td style={{ ...S.tdL, textTransform: 'uppercase' as const }}>{s.name}</td>
                   <td style={{ ...S.tdR, fontWeight: 700 }}>{nf2.format(s.qty)} {s.unit}</td>
                 </tr>
               ))}
