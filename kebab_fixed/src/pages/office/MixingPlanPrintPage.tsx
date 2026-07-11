@@ -132,9 +132,12 @@ export function MixingPlanPrintPage() {
       {/* ── Nagłówek ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
         borderBottom: '2px solid #111', paddingBottom: 6, marginBottom: 4 }}>
-        <div>
-          <h1 style={S.h1}>PLAN MASOWANIA</h1>
-          <div style={{ fontSize: 11, color: '#444' }}>dzień: <b>{fmtD(planDate)}</b></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <img src="/logo-ksiezyc.png" alt="Księżyc" style={{ height: 30, width: 'auto' }} />
+          <div>
+            <h1 style={S.h1}>PLAN MASOWANIA</h1>
+            <div style={{ fontSize: 11, color: '#444' }}>dzień: <b>{fmtD(planDate)}</b></div>
+          </div>
         </div>
         <div style={{ textAlign: 'right', fontSize: 10, color: '#555' }}>
           wydrukowano {new Date().toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' })}
@@ -209,13 +212,15 @@ export function MixingPlanPrintPage() {
             .reduce((s, ri) => s + (ri.qtyPer100kg * kg) / 100, 0)
         return (
           <div key={recipe.id} style={{ pageBreakInside: 'avoid' as const }}>
-            <div style={S.section}>
-              Przepis — {recipe.name}
-              <span style={{ float: 'right', fontWeight: 700, textTransform: 'none' }}>
+            {/* flex zamiast float — długa nazwa nie zawija się pod „w planie", nagłówek zostaje 1-linijkowy */}
+            <div style={{ ...S.section, fontSize: 10, display: 'flex',
+              justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+              <span style={{ minWidth: 0 }}>Przepis — {recipe.name}</span>
+              <span style={{ fontWeight: 700, textTransform: 'none', whiteSpace: 'nowrap' }}>
                 w planie: {nf0.format(planKg)} kg mięsa
               </span>
             </div>
-            <table style={S.table}>
+            <table style={{ ...S.table, maxWidth: 440 }}>
               <thead>
                 <tr>
                   <th style={S.th}>Składnik</th>
