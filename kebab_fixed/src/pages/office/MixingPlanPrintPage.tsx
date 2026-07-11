@@ -79,6 +79,9 @@ export function MixingPlanPrintPage() {
   const recipeById = useMemo(() => new Map(recipes.map((r: any) => [r.id, r])), [recipes])
 
   // Przyprawy ŁĄCZNIE na cały plan (dawka/100 kg × kg mięsa pozycji).
+  // Kolejność = kolejność składników w recepturach (backend: recipe_ingredients.seq),
+  // NIE alfabetyczna — ma być spójna z tym, co operator widzi w przepisie,
+  // żeby nie musiał szukać składnika w innej kolejności niż go dodaje.
   const spiceTotals = useMemo(() => {
     const acc = new Map<string, { name: string; unit: string; qty: number; isUnlimited: boolean }>()
     for (const o of plan ?? []) {
@@ -92,7 +95,7 @@ export function MixingPlanPrintPage() {
         acc.set(ri.ingredientId, cur)
       }
     }
-    return [...acc.values()].sort((a, b) => a.name.localeCompare(b.name))
+    return [...acc.values()]
   }, [plan, recipeById])
 
   // Receptury użyte w planie (w kolejności pierwszego wystąpienia) + suma kg.

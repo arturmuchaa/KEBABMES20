@@ -11,6 +11,7 @@ import { mixingOrdersApi, meatStockApi } from '@/lib/apiClient'
 import { useRecipes } from '@/features/ingredients/hooks'
 import { useApi } from '@/hooks/useApi'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { CalendarDays, Loader2, Plus, Printer, Save, Zap } from 'lucide-react'
 import { PlanRow, type PlanRowData } from './PlanRow'
@@ -26,6 +27,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [confirmingKey, setConfirmingKey] = useState<string | null>(null)
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const dragIdx = useRef<number | null>(null)
   const dirtyRef = useRef(dirty)
@@ -169,6 +171,8 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   )
 
   // Zbiorcze zapotrzebowanie przypraw wg planu vs stan magazynu przypraw.
+  // Kolejność = kolejność w recepturach (nie alfabetyczna) — spójna z
+  // wydrukiem i z tym, jak planista dodaje składniki do receptury.
   const spiceNeeds: SpiceNeed[] = useMemo(() => {
     const stockById = new Map((spiceStock ?? []).map((s: any) => [s.ingredientId, s.qtyAvailable ?? 0]))
     const acc = new Map<string, SpiceNeed>()
@@ -186,7 +190,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
         acc.set(ri.ingredientId, cur)
       })
     })
-    return [...acc.values()].sort((a, b) => a.name.localeCompare(b.name))
+    return [...acc.values()]
   }, [rows, recipes, spiceStock])
 
   // Gating zapisu: każda edytowalna pozycja musi mieć kompletne partie
@@ -212,6 +216,29 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
       setError(e instanceof Error ? e.message : 'Błąd zapisu planu')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Potwierdzenie wykonania BEZ HMI na masownicy: biuro potwierdza, że pozycja
+  // została fizycznie wymieszana w całości (kgActual = zaplanowane kg) — to
+  // wywołuje TĘ SAMĄ ścieżkę co zakończenie sesji z tabletu (finish-session):
+  // mięso przyprawione trafia na magazyn, partie mięsa z planu są konsumowane,
+  // przyprawy schodzą z magazynu FIFO, zlecenie dostaje status 'done'.
+  async function confirmExecution(row: PlanRowData) {
+    if (!row.id) return
+    const kg = parseFloat(row.meatKg) || 0
+    if (!window.confirm(
+      `Potwierdzić wykonanie: ${row.recipeId ? recipes.find((r: any) => r.id === row.recipeId)?.name ?? '' : ''} — ${fmtKg(kg, 0)} kg mięsa?\n\nMięso przyprawione wejdzie na magazyn, partie mięsa i przyprawy zostaną rozchodowane. Tej operacji nie da się cofnąć z tego ekranu.`
+    )) return
+    setConfirmingKey(row.rowKey)
+    try {
+      await mixingOrdersApi.finishSession(row.id, kg, '', [])
+      await load()
+      toast.success('Wykonanie potwierdzone — mięso przyprawione trafiło na magazyn')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Błąd potwierdzenia wykonania')
+    } finally {
+      setConfirmingKey(null)
     }
   }
 
@@ -292,6 +319,9 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
                 onDelete={() => remove(i)}
                 onToggle={() => setExpandedKey(k => k === r.rowKey ? null : r.rowKey)}
                 onAutoFefoRow={() => autoFefoRow(i)}
+                onConfirmExecution={() => confirmExecution(r)}
+                confirmingExecution={confirmingKey === r.rowKey}
+                canConfirmExecution={!dirty && !!r.id}
                 dragHandlers={{
                   draggable: true,
                   onDragStart: () => { dragIdx.current = i },

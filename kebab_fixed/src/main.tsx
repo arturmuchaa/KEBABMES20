@@ -21,12 +21,16 @@ import { AuthProvider } from '@/features/auth/AuthContext'
 
 installGlobalErrorLogger()
 
-// Service worker — offline shell (pakowanie na hali bez internetu). TYLKO web.
-// W Tauri SW nie ma racji bytu, a raz zarejestrowany przechwytywał start
-// kiosku rozbioru i serwował z cache pełny MES zamiast rozbior-v10.html
-// (prod 2026-07-09) — w Tauri sprzątamy rejestracje i cache, a jeśli ten
-// bundle wyświetlił się pod adresem kiosku (porwany start), przeładowujemy.
+// Service worker — offline shell TYLKO dla /mobile/pakowanie (pakowanie na
+// hali bez internetu). Rejestracja musi być zawężona do tej ścieżki (scope) —
+// zarejestrowany na całej domenie chwytał WSZYSTKIE strony biura (w tym
+// Planowanie masowania) i przy niefortunnym odświeżeniu potrafił po tygodniach
+// oddać z cache stary bundle na już zmienionym backendzie ("krzaki" po
+// wyjściu/powrocie do apki, mimo że świeży deploy działał poprawnie).
+// Ten sam wzorzec co porwanie startu kiosku rozbioru w Tauri (prod
+// 2026-07-09) — tam SW też nie ma racji bytu i jest sprzątany bezwarunkowo.
 const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+const IS_PACKING = typeof window !== 'undefined' && location.pathname.startsWith('/mobile/pakowanie')
 if ('serviceWorker' in navigator) {
   if (IS_TAURI) {
     navigator.serviceWorker.getRegistrations()
@@ -37,10 +41,17 @@ if ('serviceWorker' in navigator) {
         if (kioskPath && unregs.length > 0) location.reload()
       })
       .catch(() => {})
-  } else {
+  } else if (IS_PACKING) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch(() => {})
+      navigator.serviceWorker.register('/sw.js', { scope: '/mobile/pakowanie/' }).catch(() => {})
     })
+  } else {
+    // Poza pakowaniem: sprzątamy rejestracje sprzed tej poprawki (były
+    // zawarte na całej domenie) — bez tego stare instalacje w biurze
+    // zostałyby z szeroką rejestracją na zawsze.
+    navigator.serviceWorker.getRegistrations()
+      .then(rs => Promise.all(rs.filter(r => !r.scope.includes('/mobile/pakowanie')).map(r => r.unregister())))
+      .catch(() => {})
   }
 }
 

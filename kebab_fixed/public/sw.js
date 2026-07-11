@@ -1,7 +1,9 @@
 /* Service worker — offline shell dla pakowania (Kebab MES).
  * Runtime caching (bez precache manifestu): pierwszy load online cache'uje shell,
  * offline serwuje z cache. POST/skan obsługuje apka (kolejka IndexedDB). */
-const CACHE = 'kebab-shell-v1'
+// v2: rejestracja zawężona do /mobile/pakowanie (main.tsx) — bump nazwy
+// czyści cache z okresu, gdy SW obejmował całą domenę biura.
+const CACHE = 'kebab-shell-v2'
 
 self.addEventListener('install', () => self.skipWaiting())
 

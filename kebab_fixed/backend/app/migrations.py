@@ -631,6 +631,11 @@ _DDL: list[str] = [
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_zebra_designs_client_recipe ON zebra_label_designs(client_id, recipe_id)",
     # Klient pod nadzorem HALAL → etykieta dostaje pole „kod nadzoru" (org_code).
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS halal_supervision BOOLEAN NOT NULL DEFAULT false",
+    # Kolejność składników receptury — bez niej Postgres nie gwarantuje kolejności
+    # wierszy (SELECT bez ORDER BY), więc operator widział przyprawy w innej
+    # kolejności niż planista je dodawał. seq ustawiany przy tworzeniu/edycji
+    # receptury wg kolejności w formularzu (recipes_service.py).
+    "ALTER TABLE recipe_ingredients ADD COLUMN IF NOT EXISTS seq INTEGER NOT NULL DEFAULT 0",
 ]
 
 
@@ -657,6 +662,7 @@ def run_migrations() -> None:
     _backfill_unit_goods_links()
     _backfill_byproduct_lots()
     _backfill_stock_carton_lines()
+    _backfill_recipe_ingredients_seq()
     logger.info("migrations.done")
 
 
@@ -1069,4 +1075,39 @@ def _backfill_lineage() -> None:
     except Exception as exc:
         logger.warning(
             "migrations.backfill_lineage.error", extra={"error": str(exc)}
+        )
+
+
+def _backfill_recipe_ingredients_seq() -> None:
+    """Nadaje seq recepturom sprzed kolumny — kolejność wg id (najlepsze
+    przybliżenie, prawdziwej kolejności dodawania nie da się odzyskać).
+    Celuje TYLKO w receptury, gdzie wszystkie wiersze mają jeszcze seq=0
+    (czyli nikt ich nie ustawił po tej migracji) i jest ich więcej niż
+    jedna — inaczej nadpisywałaby też świeżo utworzone, poprawne kolejności
+    złożone z samej pozycji 0 (receptura z jednym składnikiem)."""
+    try:
+        execute(
+            """
+            WITH multi AS (
+                SELECT recipe_id
+                FROM recipe_ingredients
+                GROUP BY recipe_id
+                HAVING COUNT(*) > 1 AND MAX(seq) = 0
+            ),
+            ordered AS (
+                SELECT ri.id, ROW_NUMBER() OVER (
+                    PARTITION BY ri.recipe_id ORDER BY ri.id
+                ) - 1 AS new_seq
+                FROM recipe_ingredients ri
+                JOIN multi m ON m.recipe_id = ri.recipe_id
+            )
+            UPDATE recipe_ingredients ri
+            SET seq = ordered.new_seq
+            FROM ordered
+            WHERE ordered.id = ri.id
+            """
+        )
+    except Exception as exc:
+        logger.warning(
+            "migrations.backfill_recipe_ingredients_seq.error", extra={"error": str(exc)}
         )

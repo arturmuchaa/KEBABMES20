@@ -12,6 +12,9 @@ logger = get_logger(__name__)
 
 
 def _load_ingredients(conn, recipe_id: str) -> List[Dict]:
+    # ORDER BY seq — bez tego Postgres nie gwarantuje kolejności wierszy;
+    # operator ma widzieć przyprawy w TEJ SAMEJ kolejności, w jakiej
+    # planista je dodał do receptury (spójność z wydrukiem planu).
     return cx_query_all(
         conn,
         """
@@ -19,6 +22,7 @@ def _load_ingredients(conn, recipe_id: str) -> List[Dict]:
         FROM recipe_ingredients ri
         LEFT JOIN ingredients i ON i.id = ri.ingredient_id
         WHERE ri.recipe_id = %s
+        ORDER BY ri.seq
         """,
         (recipe_id,),
     )
@@ -104,16 +108,16 @@ def create_recipe(dto: RecipeCreate) -> Dict:
                 now_iso(),
             ),
         )
-        for ing in dto.ingredients:
+        for seq, ing in enumerate(dto.ingredients):
             name, unit = _enrich_ingredient(conn, ing)
             cx_execute(
                 conn,
                 """
                 INSERT INTO recipe_ingredients
-                    (id, recipe_id, ingredient_id, ingredient_name, unit, qty_per_100kg)
-                VALUES (%s,%s,%s,%s,%s,%s)
+                    (id, recipe_id, ingredient_id, ingredient_name, unit, qty_per_100kg, seq)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
                 """,
-                (cuid(), row["id"], ing.ingredient_id, name, unit, ing.qty_per_100kg),
+                (cuid(), row["id"], ing.ingredient_id, name, unit, ing.qty_per_100kg, seq),
             )
         row["ingredients"] = _load_ingredients(conn, row["id"])
         logger.info("recipe.created", extra={"recipe_id": row["id"], "recipe_name": dto.name})
@@ -148,16 +152,16 @@ def update_recipe(recipe_id: str, dto: RecipeCreate) -> Dict:
             ),
         )
         cx_execute(conn, "DELETE FROM recipe_ingredients WHERE recipe_id=%s", (recipe_id,))
-        for ing in dto.ingredients:
+        for seq, ing in enumerate(dto.ingredients):
             name, unit = _enrich_ingredient(conn, ing)
             cx_execute(
                 conn,
                 """
                 INSERT INTO recipe_ingredients
-                    (id, recipe_id, ingredient_id, ingredient_name, unit, qty_per_100kg)
-                VALUES (%s,%s,%s,%s,%s,%s)
+                    (id, recipe_id, ingredient_id, ingredient_name, unit, qty_per_100kg, seq)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
                 """,
-                (cuid(), recipe_id, ing.ingredient_id, name, unit, ing.qty_per_100kg),
+                (cuid(), recipe_id, ing.ingredient_id, name, unit, ing.qty_per_100kg, seq),
             )
         row = cx_query_one(conn, "SELECT * FROM recipes WHERE id=%s", (recipe_id,))
         if not row:
@@ -178,7 +182,7 @@ def calculate_recipe(recipe_id: str, kg: float) -> Dict:
     if not recipe:
         raise HTTPException(404, "Receptura nie znaleziona")
     ingredients = query_all(
-        "SELECT * FROM recipe_ingredients WHERE recipe_id=%s", (recipe_id,)
+        "SELECT * FROM recipe_ingredients WHERE recipe_id=%s ORDER BY seq", (recipe_id,)
     )
     factor = kg / 100.0
     return {

@@ -13,7 +13,7 @@ import {
 import { fmtKg, cn } from '@/lib/utils'
 import {
   ArrowDown, ArrowUp, ChevronDown, ChevronRight, GripVertical, Trash2,
-  AlertTriangle,
+  AlertTriangle, CheckCheck, Loader2,
 } from 'lucide-react'
 import { MeatLotPicker, type PickerLot, type SelLot } from './MeatLotPicker'
 import { IngredientPreview } from './IngredientPreview'
@@ -43,6 +43,7 @@ const GRID = 'grid grid-cols-[28px_20px_minmax(180px,1.2fr)_120px_96px_minmax(14
 export function PlanRow({
   row, index, total, recipes, lots, output, expanded,
   onUpdate, onMove, onDelete, onToggle, onAutoFefoRow,
+  onConfirmExecution, confirmingExecution, canConfirmExecution,
   dragHandlers,
 }: {
   row: PlanRowData
@@ -57,6 +58,12 @@ export function PlanRow({
   onDelete: () => void
   onToggle: () => void
   onAutoFefoRow: () => void
+  /** Biuro potwierdza wykonanie (brak HMI na masownicy) — wywołuje finish-session. */
+  onConfirmExecution: () => void
+  confirmingExecution: boolean
+  /** Plan zapisany (ma id) i bez niezapisanych zmian — inaczej potwierdzenie
+   * mogłoby dotyczyć pozycji, która zaraz zniknie/zmieni się przy zapisie. */
+  canConfirmExecution: boolean
   dragHandlers: {
     draggable: boolean
     onDragStart: () => void
@@ -72,6 +79,7 @@ export function PlanRow({
   const lotsOk = lotKg >= kg - 0.5 && kg > 0
   const lotNo = (id: string) => lots.find(l => l.id === id)?.lotNo ?? '?'
   const shownLots = row.lots.slice(0, 3)
+  const canConfirmNow = !locked && lotsOk && canConfirmExecution
 
   return (
     <div className={cn('border-b border-surface-3 last:border-b-0', locked ? 'bg-surface-2/60' : 'bg-white')}
@@ -141,9 +149,30 @@ export function PlanRow({
           )}
         </button>
 
-        <span>
+        <span className="flex flex-col items-start gap-1">
           <StatusBadge tone={st.tone}
             label={row.status === 'in_progress' && row.kgDone ? `${st.label} · ${fmtKg(row.kgDone, 0)} kg` : st.label} />
+          {!locked && (
+            <button
+              onClick={onConfirmExecution}
+              disabled={!canConfirmNow || confirmingExecution}
+              title={
+                !canConfirmExecution ? 'Najpierw zapisz plan'
+                : !lotsOk ? 'Uzupełnij partie mięsa, żeby potwierdzić wykonanie'
+                : 'Brak HMI na masownicy — biuro potwierdza, że pozycja została wymieszana; mięso przyprawione wejdzie na magazyn'
+              }
+              className={cn(
+                'inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap',
+                canConfirmNow && !confirmingExecution
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                  : 'border-surface-4 text-ink-5 cursor-not-allowed',
+              )}>
+              {confirmingExecution
+                ? <Loader2 size={10} className="animate-spin" />
+                : <CheckCheck size={10} />}
+              Potwierdź
+            </button>
+          )}
         </span>
 
         <span className="flex items-center justify-end gap-0.5">
