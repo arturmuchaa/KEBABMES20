@@ -50,10 +50,6 @@ const S = {
   tdL: { border: '1px solid #bfbfbf', padding: '1px 4px', textAlign: 'left' as const },
   tdR: { border: '1px solid #bfbfbf', padding: '1px 4px', textAlign: 'right' as const,
     fontVariantNumeric: 'tabular-nums' as const },
-  // Kg partii mięsa — jedyna liczba na wydruku, którą operator fizycznie odważa,
-  // pogrubiona i lekko większa, ale bez przesady (czytelne bez krzyku).
-  kgBig: { border: '1px solid #bfbfbf', padding: '1px 5px', textAlign: 'right' as const,
-    fontVariantNumeric: 'tabular-nums' as const, fontSize: 12, fontWeight: 700 },
 }
 
 const STATUS_PL: Record<string, string> = {
@@ -155,11 +151,11 @@ export function MixingPlanPrintPage() {
           <tr>
             <th style={{ ...S.th, width: 20 }}>Lp</th>
             <th style={S.th}>Receptura</th>
+            <th style={{ ...S.th, width: 66 }}>Mięso [kg]</th>
             <th style={{ ...S.th, width: 74 }}>Nr partii</th>
-            <th style={{ ...S.th, width: 78 }}>Kg partii</th>
+            <th style={{ ...S.th, width: 74 }}>Kg partii</th>
             <th style={S.th}>Rodzaj</th>
             <th style={S.th}>Dostawca</th>
-            <th style={{ ...S.th, width: 62 }}>Mięso [kg]</th>
             <th style={{ ...S.th, width: 68 }}>Status</th>
           </tr>
         </thead>
@@ -174,31 +170,29 @@ export function MixingPlanPrintPage() {
                     <td style={{ ...S.tdL, fontWeight: 700, background: bg }} rowSpan={row.rowSpan}>
                       {row.recipeName}
                     </td>
+                    <td style={{ ...S.tdR, fontWeight: 700, background: bg }} rowSpan={row.rowSpan}>
+                      {nf0.format(row.meatKg)}
+                    </td>
                   </>
                 )}
                 <td style={{ ...S.tdL, background: bg }}>{row.lotNo}</td>
-                <td style={{ ...S.kgBig, background: bg }}>
+                <td style={{ ...S.tdR, background: bg }}>
                   {row.lotKg == null ? '—' : `${nf0.format(row.lotKg)} kg`}
                 </td>
                 <td style={{ ...S.tdL, background: bg }}>{row.materialName || '—'}</td>
                 <td style={{ ...S.tdL, background: bg }}>{row.supplierName || '—'}</td>
                 {row.isFirstRow && (
-                  <>
-                    <td style={{ ...S.tdR, fontWeight: 800, background: bg }} rowSpan={row.rowSpan}>
-                      {nf0.format(row.meatKg)}
-                    </td>
-                    <td style={{ ...S.td, background: bg }} rowSpan={row.rowSpan}>
-                      {STATUS_PL[row.status] ?? row.status}
-                    </td>
-                  </>
+                  <td style={{ ...S.td, background: bg }} rowSpan={row.rowSpan}>
+                    {STATUS_PL[row.status] ?? row.status}
+                  </td>
                 )}
               </tr>
             )
           })}
           <tr>
-            <td style={{ ...S.tdL, fontWeight: 800, background: '#efefef' }} colSpan={6}>RAZEM</td>
+            <td style={{ ...S.tdL, fontWeight: 800, background: '#efefef' }} colSpan={2}>RAZEM</td>
             <td style={{ ...S.tdR, fontWeight: 800, background: '#efefef' }}>{nf0.format(totalMeat)}</td>
-            <td style={{ ...S.td, background: '#efefef' }} />
+            <td style={{ ...S.td, background: '#efefef' }} colSpan={5} />
           </tr>
         </tbody>
       </table>
