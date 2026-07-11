@@ -1455,6 +1455,8 @@ export const wzApi = {
   byId: (id: string) => get<WzDoc>(`/wz/${id}`),
   stockFg: () => get<any[]>('/wz/stock/finished-goods'),
   stockRaw: () => get<any[]>('/wz/stock/raw'),
+  stockRawCard: (stockType: string, stockId: string) =>
+    get<any>(`/wz/stock/raw/card?stock_type=${encodeURIComponent(stockType)}&stock_id=${encodeURIComponent(stockId)}`),
   createManual: (body: {
     buyer: { name: string; address?: string; nip?: string };
     items: { stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string; kgPerUnit?: number; containers?: number; productionDate?: string | null }[];

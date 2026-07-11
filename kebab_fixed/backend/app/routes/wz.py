@@ -58,6 +58,13 @@ def stock_raw():
     return svc.stock_raw()
 
 
+@router.get("/stock/raw/card")
+def stock_raw_card(stock_type: str, stock_id: str):
+    """Kartoteka partii dla wiersza Magazynu surowca (klik wiersza)."""
+    from app.services import stock_card_service
+    return stock_card_service.stock_card(stock_type, stock_id)
+
+
 @router.post("/manual")
 def manual(body: dict):
     items = [
