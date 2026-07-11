@@ -53,6 +53,8 @@ export interface MeatStock {
   // kebaba w recepturze wybierają partie po rodzaju
   materialTypeId?: string
   materialName?:   string
+  /** Dostawca partii źródłowej (display_name dostawcy, fallback pełna nazwa) */
+  supplierName?:   string
   // Alokacje per maszyna (traceability IN_PROCESS)
   machineAllocations?: MeatMachineAllocation[]
 }

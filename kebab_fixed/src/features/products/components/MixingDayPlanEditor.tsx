@@ -12,7 +12,7 @@ import { useRecipes } from '@/features/ingredients/hooks'
 import { useApi } from '@/hooks/useApi'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { CalendarDays, Loader2, Plus, Save, Zap } from 'lucide-react'
+import { CalendarDays, Loader2, Plus, Printer, Save, Zap } from 'lucide-react'
 import { PlanRow, type PlanRowData } from './PlanRow'
 import type { PickerLot } from './MeatLotPicker'
 import { PlanStockSidebar, type SpiceNeed } from './PlanStockSidebar'
@@ -44,6 +44,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
         expiryDate: m.expiryDate,
         materialName: m.materialName,
         materialTypeId: m.materialTypeId,
+        supplierName: m.supplierName,
       }))
       .filter((l: PickerLot) => l.kgAvailable > 0)
       .sort((a: PickerLot, b: PickerLot) => (a.expiryDate < b.expiryDate ? -1 : 1)),
@@ -241,6 +242,12 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
             </Button>
             <Button size="sm" variant="outline" className="h-8 gap-1 text-[12px]" onClick={addRow}>
               <Plus size={13} /> Dodaj pozycję
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 gap-1 text-[12px]"
+              disabled={dirty || rows.length === 0}
+              title={dirty ? 'Najpierw zapisz plan — wydruk pokazuje ZAPISANY plan' : 'Wydruk planu dla operatora: kolejka + przyprawy łącznie + przepisy na wsady 200/600 kg'}
+              onClick={() => window.open('/office/plan-masowania/druk', '_blank')}>
+              <Printer size={13} /> Plan dla operatora
             </Button>
             <Button size="sm" disabled={saving || !dirty || !allLotsComplete} onClick={save}
               className="h-8 gap-1.5 text-[12px]">

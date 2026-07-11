@@ -410,6 +410,8 @@ function mapMeatStock(raw: any): MeatStock {
     status:             raw.status              ?? 'AVAILABLE',
     materialTypeId:     raw.material_type_id    ?? raw.materialTypeId    ?? '',
     materialName:       raw.material_name       ?? raw.materialName      ?? '',
+    // Dostawca partii źródłowej — krótka nazwa (display_name) ma pierwszeństwo
+    supplierName:       raw.supplier_display_name || raw.supplier_name || '',
     createdAt:          raw.created_at          ?? raw.createdAt         ?? '',
   } as MeatStock
 }

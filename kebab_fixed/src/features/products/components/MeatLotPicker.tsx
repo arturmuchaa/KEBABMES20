@@ -12,6 +12,8 @@ export interface PickerLot {
   expiryDate: string
   materialName?: string
   materialTypeId?: string
+  /** Krótka nazwa dostawcy (display_name) — planista rozpoznaje pochodzenie */
+  supplierName?: string
 }
 
 export interface SelLot { meatLotId: string; kgPlanned: number }
@@ -68,21 +70,32 @@ export function MeatLotPicker({
               <input type="checkbox" checked={isSel} disabled={fullyUsed}
                 onChange={e => {
                   if (e.target.checked) {
-                    onChange([...value, { meatLotId: lot.id, kgPlanned: Math.min(free, targetKg) }])
+                    // Dopełnij BRAKUJĄCE kg do celu (nie cały cel) — przy 2200 kg
+                    // i ręcznie wpisanych 854 kg z pierwszej partii kolejna ma
+                    // podpowiedzieć 1346, żeby nie liczyć tego w pamięci.
+                    const missing = Math.max(0, targetKg - selectedKg)
+                    onChange([...value, { meatLotId: lot.id, kgPlanned: Math.min(free, missing || targetKg) }])
                   } else {
                     onChange(value.filter(v => v.meatLotId !== lot.id))
                   }
                 }}
                 className="w-4 h-4 flex-shrink-0 accent-primary" />
-              <span className="font-mono font-bold flex-shrink-0 w-24">{lot.lotNo}</span>
-              {lot.materialName && !isZs(lot) && (
-                <span className="text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded flex-shrink-0">
-                  {lot.materialName}
+              <span className="font-mono font-bold flex-shrink-0 w-14">{lot.lotNo}</span>
+              <span className={cn(
+                'text-[10px] font-semibold px-1.5 py-0.5 rounded border flex-shrink-0',
+                isZs(lot)
+                  ? 'bg-surface-2 text-ink-3 border-surface-4'
+                  : 'bg-sky-50 text-sky-700 border-sky-200',
+              )}>
+                {lot.materialName || (isZs(lot) ? 'Mięso z/s' : '—')}
+              </span>
+              {lot.supplierName && (
+                <span className="text-[11px] text-ink-3 flex-shrink-0 max-w-[110px] truncate" title={lot.supplierName}>
+                  {lot.supplierName}
                 </span>
               )}
-              <span className="text-muted-foreground flex-shrink-0 w-16 truncate">{lot.rawBatchNo}</span>
-              <span className="font-semibold text-green-700 flex-shrink-0 w-20 tabular-nums">{fmtKg(free)} kg</span>
-              <span className="text-muted-foreground text-[11px] flex-1">do: {fmtDatePl(lot.expiryDate)}</span>
+              <span className="font-semibold text-green-700 flex-shrink-0 w-20 tabular-nums text-right ml-auto">{fmtKg(free)} kg</span>
+              <span className="text-muted-foreground text-[11px] flex-shrink-0 w-20">do {fmtDatePl(lot.expiryDate)}</span>
               {isSel && (
                 <Input type="number" min="0.1" step="0.1" value={value[i].kgPlanned}
                   onChange={e => {

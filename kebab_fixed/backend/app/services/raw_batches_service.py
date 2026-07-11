@@ -316,9 +316,11 @@ def list_meat_stock() -> Dict[str, Any]:
             SELECT m.*,
                    (m.kg_available - COALESCE(m.kg_reserved, 0)) AS kg_free,
                    b.internal_batch_no, b.supplier_name,
+                   s.display_name AS supplier_display_name,
                    b.slaughter_date as batch_slaughter_date
             FROM meat_stock m
             LEFT JOIN raw_batches b ON b.id = m.raw_batch_id
+            LEFT JOIN suppliers s ON s.id = b.supplier_id
             WHERE (m.kg_available - COALESCE(m.kg_reserved, 0)) > 0
             ORDER BY m.expiry_date ASC, m.lot_no ASC
             """
