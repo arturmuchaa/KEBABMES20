@@ -43,7 +43,7 @@ def create_stock_movement(
         if product_type == "meat" and batch_id:
             stock = cx_query_one(
                 conn,
-                "SELECT kg_available FROM meat_stock WHERE id = %s FOR UPDATE",
+                "SELECT kg_available, lot_no FROM meat_stock WHERE id = %s FOR UPDATE",
                 (batch_id,),
             )
             if stock is not None:
@@ -52,7 +52,7 @@ def create_stock_movement(
                     raise HTTPException(
                         400,
                         f"Ruch OUT {abs_qty} kg przekracza kg_available "
-                        f"{kg_available} kg dla partii {batch_id}",
+                        f"{kg_available} kg dla partii {stock.get('lot_no') or batch_id}",
                     )
         stored_qty = -abs_qty
     else:

@@ -339,13 +339,16 @@ def create_manual_wz(
                 if avail + 1e-6 < qty:
                     raise HTTPException(
                         400, f"Za mało mięsa (partia {row.get('lot_no')}): jest {avail} kg, potrzeba {qty}")
+                # Ruch PRZED zdjęciem stanu — walidacja OUT w create_stock_movement
+                # czyta kg_available z bazy; po dekremencie widziałaby stan już
+                # pomniejszony i odrzucała wydania > połowy lotu ("przekracza 0.0").
+                create_stock_movement(
+                    conn, product_type="meat", batch_id=sid, qty=qty,
+                    movement_type="OUT", source_type="wz", source_id=wid)
                 cx_execute(
                     conn,
                     "UPDATE meat_stock SET kg_available=GREATEST(0, kg_available-%s) WHERE id=%s",
                     (qty, sid))
-                create_stock_movement(
-                    conn, product_type="meat", batch_id=sid, qty=qty,
-                    movement_type="OUT", source_type="wz", source_id=wid)
 
             elif stype == "byproduct":
                 row = cx_query_one(
