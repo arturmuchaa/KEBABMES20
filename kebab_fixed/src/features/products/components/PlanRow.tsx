@@ -43,7 +43,7 @@ const GRID = 'grid grid-cols-[28px_20px_minmax(180px,1.2fr)_120px_96px_minmax(14
 export function PlanRow({
   row, index, total, recipes, lots, output, expanded,
   onUpdate, onMove, onDelete, onToggle, onAutoFefoRow,
-  onConfirmExecution, confirmingExecution, canConfirmExecution,
+  onConfirmExecution, confirmingExecution, canConfirmExecution, showConfirmExecution,
   dragHandlers,
 }: {
   row: PlanRowData
@@ -64,6 +64,9 @@ export function PlanRow({
   /** Plan zapisany (ma id) i bez niezapisanych zmian — inaczej potwierdzenie
    * mogłoby dotyczyć pozycji, która zaraz zniknie/zmieni się przy zapisie. */
   canConfirmExecution: boolean
+  /** Potwierdzenie ma sens TYLKO dla planu na dziś — przycisk w ogóle się
+   * nie pokazuje przy oglądaniu przyszłego dnia. */
+  showConfirmExecution: boolean
   dragHandlers: {
     draggable: boolean
     onDragStart: () => void
@@ -152,7 +155,7 @@ export function PlanRow({
         <span className="flex flex-col items-start gap-1">
           <StatusBadge tone={st.tone}
             label={row.status === 'in_progress' && row.kgDone ? `${st.label} · ${fmtKg(row.kgDone, 0)} kg` : st.label} />
-          {!locked && (
+          {!locked && showConfirmExecution && (
             <button
               onClick={onConfirmExecution}
               disabled={!canConfirmNow || confirmingExecution}

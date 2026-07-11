@@ -7,7 +7,7 @@ Every actual mass movement is recorded via :func:`create_stock_movement`.
 import hashlib
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
 
@@ -1129,11 +1129,17 @@ def cancel_mixing_order(order_id: str) -> Dict:
 # — ale tylko pozycje jeszcze w kolejce (planned/confirmed); to, co już
 # w masownicy (in_progress) lub gotowe (done), jest nietykalne.
 
-def validate_day_plan_item(item: Dict[str, Any], is_untouchable: bool) -> None:
-    """Waliduje pojedynczą pozycję planu dnia.
+def validate_day_plan_item(
+    item: Dict[str, Any], is_untouchable: bool, require_lots: bool = True,
+) -> None:
+    """Waliduje pojedynczą pozycję planu.
 
-    Partie mięsa są OBOWIĄZKOWE dla pozycji edytowalnych (nowa/w kolejce):
-    suma kgPlanned partii musi równać się meatKg (tolerancja 0.5 kg).
+    Partie mięsa są OBOWIĄZKOWE dla pozycji edytowalnych (nowa/w kolejce)
+    TYLKO gdy ``require_lots`` (plan na DZIŚ — ma iść od razu do wykonania).
+    Plan na przyszły dzień można zapisać bez partii — surowiec może jeszcze
+    nie być na magazynie; planista dogrywa Auto-FEFO, gdy się pojawi.
+    Jeśli partie już podano (nawet dla przyszłego dnia), suma musi się
+    zgadzać z meatKg — częściowe/błędne przypisanie to nadal błąd.
     Pozycje nietykalne (in_progress/done) pomijają sprawdzanie partii —
     ich loty są już zarezerwowane i nie wolno ich ruszać.
     """
@@ -1147,11 +1153,13 @@ def validate_day_plan_item(item: Dict[str, Any], is_untouchable: bool) -> None:
         raise HTTPException(400, "Kg mięsa musi być > 0")
     lots = item.get("meatLots") or item.get("meat_lots") or []
     if not lots:
-        raise HTTPException(
-            400,
-            "Każda pozycja planu wymaga przypisanych partii mięsa "
-            "(partie obowiązkowe przy planowaniu).",
-        )
+        if require_lots:
+            raise HTTPException(
+                400,
+                "Każda pozycja planu na dziś wymaga przypisanych partii mięsa "
+                "(partie obowiązkowe przy planowaniu na bieżący dzień).",
+            )
+        return
     total = sum(
         float(l.get("kgPlanned") or l.get("kg_planned") or 0) for l in lots
     )
@@ -1162,12 +1170,19 @@ def validate_day_plan_item(item: Dict[str, Any], is_untouchable: bool) -> None:
         )
 
 
-def get_day_plan() -> Dict[str, Any]:
+def _today_iso() -> str:
+    return now_iso()[:10]
+
+
+def get_day_plan(plan_date: Optional[str] = None) -> Dict[str, Any]:
+    """Kolejka masowania dla ``plan_date`` (domyślnie dziś)."""
+    pd = plan_date or _today_iso()
     rows = query_all(
         "SELECT * FROM mixing_orders "
-        "WHERE created_at::date = CURRENT_DATE AND status <> 'cancelled' "
+        "WHERE plan_date = %s AND status <> 'cancelled' "
         "ORDER BY CASE WHEN COALESCE(day_seq,0) > 0 THEN day_seq "
         "ELSE 999999 END, created_at",
+        (pd,),
     )
     items = [build_mixing_order(o) for o in rows]
     # rev = podpis planu; panel operatora wykrywa zmianę → baner "plan zmieniony"
@@ -1176,28 +1191,37 @@ def get_day_plan() -> Dict[str, Any]:
         for i in items
     )
     rev = hashlib.md5(sig.encode()).hexdigest()[:12]
-    return {"items": items, "rev": rev}
+    return {"items": items, "rev": rev, "planDate": pd}
 
 
-def save_day_plan(items: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Upsert dzisiejszej kolejki masowania.
+def save_day_plan(
+    items: List[Dict[str, Any]], plan_date: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Upsert kolejki masowania dla ``plan_date`` (domyślnie dziś).
 
     * pozycja z id w kolejce (planned/confirmed) → aktualizacja receptury/kg/kolejności
     * pozycja z id w masownicy/gotowa → tylko kolejność (reszta nietykalna)
-    * pozycja bez id → nowe zlecenie 'confirmed' (bez lotów — operator
-      wybiera partie mięsa przy maszynie)
+    * pozycja bez id → nowe zlecenie 'confirmed' na ten dzień (bez lotów,
+      jeśli surowca jeszcze nie ma na magazynie — patrz require_lots niżej)
     * pozycja w kolejce usunięta z planu → anulowanie (zwolnienie rezerwacji)
+
+    Partie mięsa obowiązkowe TYLKO dla planu na DZIŚ (ma iść od razu do
+    wykonania). Plan na przyszły dzień może być zapisany bez partii —
+    planista wraca i dogrywa Auto-FEFO, gdy surowiec się pojawi.
     """
+    pd = plan_date or _today_iso()
+    require_lots = pd <= _today_iso()
     to_cancel: List[str] = []
     with transaction() as conn:
-        today = cx_query_all(
+        existing_rows = cx_query_all(
             conn,
             "SELECT id, status FROM mixing_orders "
-            "WHERE created_at::date = CURRENT_DATE AND status <> 'cancelled' "
+            "WHERE plan_date = %s AND status <> 'cancelled' "
             "FOR UPDATE",
+            (pd,),
         )
-        editable = {r["id"] for r in today if r["status"] in ("planned", "confirmed")}
-        untouchable = {r["id"] for r in today if r["status"] in ("in_progress", "done")}
+        editable = {r["id"] for r in existing_rows if r["status"] in ("planned", "confirmed")}
+        untouchable = {r["id"] for r in existing_rows if r["status"] in ("in_progress", "done")}
         sent: set = set()
 
         for idx, it in enumerate(items):
@@ -1208,7 +1232,7 @@ def save_day_plan(items: List[Dict[str, Any]]) -> Dict[str, Any]:
             lots = it.get("meatLots") or it.get("meat_lots") or []
 
             is_untouchable = bool(oid and oid in untouchable)
-            validate_day_plan_item(it, is_untouchable)
+            validate_day_plan_item(it, is_untouchable, require_lots)
 
             if is_untouchable:
                 cx_execute(
@@ -1255,11 +1279,11 @@ def save_day_plan(items: List[Dict[str, Any]]) -> Dict[str, Any]:
                 INSERT INTO mixing_orders
                     (id, order_no, recipe_id, recipe_name, meat_kg,
                      planned_output_kg, kg_done, machine_id, status,
-                     day_seq, created_at)
-                VALUES (%s,%s,%s,%s,%s,%s,0,NULL,'confirmed',%s,%s)
+                     day_seq, plan_date, created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,0,NULL,'confirmed',%s,%s,%s)
                 """,
                 (new_oid, order_no, recipe["id"], recipe["name"], meat_kg,
-                 calc_kg_output(recipe["id"], meat_kg), seq, now_iso()),
+                 calc_kg_output(recipe["id"], meat_kg), seq, pd, now_iso()),
             )
             _reserve_order_lots_cx(conn, new_oid, lots)
 
@@ -1273,5 +1297,5 @@ def save_day_plan(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         except HTTPException:
             pass  # np. wyścig ze startem na panelu — pozycja zostaje
 
-    logger.info("mixing.day_plan.saved", extra={"items_count": len(items)})
-    return get_day_plan()
+    logger.info("mixing.day_plan.saved", extra={"items_count": len(items), "plan_date": pd})
+    return get_day_plan(pd)

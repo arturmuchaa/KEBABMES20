@@ -636,6 +636,12 @@ _DDL: list[str] = [
     # kolejności niż planista je dodawał. seq ustawiany przy tworzeniu/edycji
     # receptury wg kolejności w formularzu (recipes_service.py).
     "ALTER TABLE recipe_ingredients ADD COLUMN IF NOT EXISTS seq INTEGER NOT NULL DEFAULT 0",
+    # Dzień PLANOWANEJ produkcji, odróżniony od created_at (kiedy wiersz
+    # powstał w bazie) — pozwala zaplanować masowanie na przyszły dzień,
+    # zanim surowiec fizycznie trafi na magazyn. Bez tego "dzień planu"
+    # był zawsze created_at::date (tylko dziś).
+    "ALTER TABLE mixing_orders ADD COLUMN IF NOT EXISTS plan_date DATE",
+    "UPDATE mixing_orders SET plan_date = created_at::date WHERE plan_date IS NULL",
 ]
 
 

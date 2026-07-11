@@ -59,18 +59,20 @@ const STATUS_PL: Record<string, string> = {
 export function MixingPlanPrintPage() {
   const [sp] = useSearchParams()
   const isPdf = sp.get('pdf') === '1'
+  const planDate = sp.get('date') || new Date().toISOString().slice(0, 10)
   const [plan, setPlan] = useState<any[] | null>(null)
   const [recipes, setRecipes] = useState<any[]>([])
 
   useEffect(() => {
     Promise.all([
-      mixingOrdersApi.dayPlan(),
+      mixingOrdersApi.dayPlan(planDate),
       (recipesApi as any).list(),
     ]).then(([p, r]) => {
       setPlan(p.items ?? [])
       setRecipes(Array.isArray(r) ? r : (r as any)?.data ?? [])
     }).catch(() => setPlan([]))
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planDate])
 
   useEffect(() => {
     if (plan && plan.length > 0 && !isPdf) setTimeout(() => window.print(), 400)
@@ -112,9 +114,8 @@ export function MixingPlanPrintPage() {
   }, [plan, recipeById])
 
   if (!plan) return <div style={{ padding: 24 }}>Ładowanie…</div>
-  if (plan.length === 0) return <div style={{ padding: 24 }}>Brak planu masowania na dziś.</div>
+  if (plan.length === 0) return <div style={{ padding: 24 }}>Brak planu masowania na {fmtD(planDate)}.</div>
 
-  const today = new Date().toISOString().slice(0, 10)
   const totalMeat = plan.reduce((s, o) => s + (o.meatKg || 0), 0)
   const totalOutput = plan.reduce((s, o) => s + (o.plannedOutputKg || 0), 0)
 
@@ -127,7 +128,7 @@ export function MixingPlanPrintPage() {
         borderBottom: '2px solid #111', paddingBottom: 6, marginBottom: 4 }}>
         <div>
           <h1 style={S.h1}>PLAN MASOWANIA</h1>
-          <div style={{ fontSize: 11, color: '#444' }}>dzień: <b>{fmtD(today)}</b></div>
+          <div style={{ fontSize: 11, color: '#444' }}>dzień: <b>{fmtD(planDate)}</b></div>
         </div>
         <div style={{ textAlign: 'right', fontSize: 10, color: '#555' }}>
           wydrukowano {new Date().toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' })}

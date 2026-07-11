@@ -10,18 +10,29 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { mixingOrdersApi, meatStockApi } from '@/lib/apiClient'
 import { useRecipes } from '@/features/ingredients/hooks'
 import { useApi } from '@/hooks/useApi'
-import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
+import { fmtKg, todayIso, cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { CalendarDays, Loader2, Plus, Printer, Save, Zap } from 'lucide-react'
+import {
+  CalendarDays, ChevronLeft, ChevronRight, Loader2, Plus, Printer, Save, Zap,
+} from 'lucide-react'
 import { PlanRow, type PlanRowData } from './PlanRow'
 import type { PickerLot } from './MeatLotPicker'
 import { PlanStockSidebar, type SpiceNeed } from './PlanStockSidebar'
 import { autoFefoDistribute, type AvailLot } from '../lib/autoFefo'
 
+// Przesunięcie daty ISO (YYYY-MM-DD) o N dni — bez zależności od strefy,
+// liczymy na składnikach roku/miesiąca/dnia (Date lokalny o północy).
+function shiftIsoDate(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const dt = new Date(y, (m - 1), d + days)
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+}
+
 export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   const { recipes, stock: spiceStock } = useRecipes()
   const { data: meatData } = useApi(() => meatStockApi.list())
+  const [planDate, setPlanDate] = useState(todayIso())
   const [rows, setRows] = useState<PlanRowData[]>([])
   const [loaded, setLoaded] = useState(false)
   const [dirty, setDirty] = useState(false)
@@ -32,6 +43,11 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   const dragIdx = useRef<number | null>(null)
   const dirtyRef = useRef(dirty)
   useEffect(() => { dirtyRef.current = dirty }, [dirty])
+
+  const isToday = planDate === todayIso()
+  // Partie mięsa obowiązkowe tylko dla planu na dziś/przeszłość — na przyszły
+  // dzień surowiec może jeszcze nie być na magazynie (patrz save/allLotsComplete).
+  const requireLots = planDate <= todayIso()
 
   // Dostępne partie mięsa, FEFO. UWAGA: m.kgAvailable z mapMeatStock to już
   // kg_free (= available - reserved), NIE odejmować kgReserved drugi raz!
@@ -66,7 +82,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
 
   async function load() {
     try {
-      const r = await mixingOrdersApi.dayPlan()
+      const r = await mixingOrdersApi.dayPlan(planDate)
       setRows((r.items ?? []).map((o: any) => ({
         rowKey: o.id, id: o.id, recipeId: o.recipeId, meatKg: String(o.meatKg),
         status: o.status, orderNo: o.orderNo, kgDone: o.kgDone,
@@ -77,15 +93,17 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
     } catch { setLoaded(true) }
   }
 
-  // Wczytaj plan przy montażu; odświeżaj co 15 s, ale NIE nadpisuj edycji
-  // w toku (dirty czytane przez ref, by efekt nie restartował przy każdej
-  // zmianie dirty — inaczej dodanie wiersza natychmiast kasuje load()em).
+  // Wczytaj plan przy montażu I przy zmianie wybranego dnia; odświeżaj co
+  // 15 s (dla dnia bieżąco oglądanego), ale NIE nadpisuj edycji w toku
+  // (dirty czytane przez ref, by efekt nie restartował przy każdej zmianie
+  // dirty — inaczej dodanie wiersza natychmiast kasuje load()em).
   useEffect(() => {
+    setExpandedKey(null)
     load()
     const t = setInterval(() => { if (!dirtyRef.current) load() }, 15000)
     return () => clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [planDate])
 
   const recipeOutput = (recipeId: string, meatKg: number) => {
     const r = recipes.find((x: any) => x.id === recipeId)
@@ -193,23 +211,33 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
     return [...acc.values()]
   }, [rows, recipes, spiceStock])
 
-  // Gating zapisu: każda edytowalna pozycja musi mieć kompletne partie
+  // Gating zapisu: partie kompletne wymagane TYLKO na dziś/przeszłość
+  // (requireLots) — na przyszły dzień można zapisać bez partii, surowiec
+  // może jeszcze nie być na magazynie (dogrywka Auto-FEFO później). Jeśli
+  // partie JEDNAK podano, muszą się zgadzać z kg niezależnie od dnia.
   const allLotsComplete = rows.every(r => {
     if (r.status === 'in_progress' || r.status === 'done') return true
     const kg = parseFloat(r.meatKg) || 0
+    if (!r.recipeId || kg <= 0) return false
+    if (r.lots.length === 0) return !requireLots
     const lotKg = r.lots.reduce((s, l) => s + (l.kgPlanned || 0), 0)
-    return r.recipeId && kg > 0 && lotKg >= kg - 0.5
+    return lotKg >= kg - 0.5
   })
 
   async function save() {
     setError('')
-    if (!allLotsComplete) { setError('Każda pozycja musi mieć recepturę, kg > 0 i kompletne partie mięsa'); return }
+    if (!allLotsComplete) {
+      setError(requireLots
+        ? 'Każda pozycja musi mieć recepturę, kg > 0 i kompletne partie mięsa'
+        : 'Każda pozycja musi mieć recepturę i kg > 0 (partie mięsa — jeśli podane — muszą się zgadzać z kg)')
+      return
+    }
     setSaving(true)
     try {
       await mixingOrdersApi.saveDayPlan(rows.map((r, i) => ({
         id: r.id, recipeId: r.recipeId, meatKg: parseFloat(r.meatKg), seq: i + 1,
         meatLots: r.lots,
-      })))
+      })), planDate)
       await load()
       onSaved?.()
     } catch (e) {
@@ -225,7 +253,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   // mięso przyprawione trafia na magazyn, partie mięsa z planu są konsumowane,
   // przyprawy schodzą z magazynu FIFO, zlecenie dostaje status 'done'.
   async function confirmExecution(row: PlanRowData) {
-    if (!row.id) return
+    if (!row.id || !isToday) return
     const kg = parseFloat(row.meatKg) || 0
     if (!window.confirm(
       `Potwierdzić wykonanie: ${row.recipeId ? recipes.find((r: any) => r.id === row.recipeId)?.name ?? '' : ''} — ${fmtKg(kg, 0)} kg mięsa?\n\nMięso przyprawione wejdzie na magazyn, partie mięsa i przyprawy zostaną rozchodowane. Tej operacji nie da się cofnąć z tego ekranu.`
@@ -248,11 +276,36 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
       <div className="bg-white border border-surface-4 rounded-lg overflow-hidden">
         {/* Pasek tytułu — Subiekt: tytuł + sumy + akcje w jednej linii */}
         <div className="px-4 py-2.5 bg-surface-2 border-b border-surface-4 flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <div className="flex items-center gap-2">
-            <CalendarDays size={14} className="text-brand" />
-            <span className="text-[11px] font-bold uppercase tracking-widest text-ink-2">
-              Plan dnia masowania · {fmtDatePl(new Date().toISOString().slice(0, 10))}
+          <div className="flex items-center gap-1.5">
+            <CalendarDays size={14} className="text-brand flex-shrink-0" />
+            <span className="text-[11px] font-bold uppercase tracking-widest text-ink-2 whitespace-nowrap">
+              Plan masowania
             </span>
+            <div className="flex items-center gap-0.5 ml-1">
+              <button onClick={() => setPlanDate(d => shiftIsoDate(d, -1))}
+                className="w-6 h-6 rounded flex items-center justify-center text-ink-3 hover:bg-surface-3"
+                title="Dzień wcześniej">
+                <ChevronLeft size={14} />
+              </button>
+              <input type="date" value={planDate} onChange={e => e.target.value && setPlanDate(e.target.value)}
+                className="h-7 px-1.5 text-[12px] font-bold text-ink border border-surface-4 rounded bg-white" />
+              <button onClick={() => setPlanDate(d => shiftIsoDate(d, 1))}
+                className="w-6 h-6 rounded flex items-center justify-center text-ink-3 hover:bg-surface-3"
+                title="Dzień później">
+                <ChevronRight size={14} />
+              </button>
+              {!isToday && (
+                <button onClick={() => setPlanDate(todayIso())}
+                  className="ml-1 text-[11px] font-bold text-brand hover:underline whitespace-nowrap">
+                  Dziś
+                </button>
+              )}
+            </div>
+            {!isToday && (
+              <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 whitespace-nowrap">
+                plan na przyszłość — partie mięsa opcjonalne
+              </span>
+            )}
           </div>
           <span className="text-[12px] font-bold text-ink [font-variant-numeric:tabular-nums]">
             {fmtKg(totalPlan, 0)} kg mięsa → <span className="text-emerald-700">{fmtKg(totalOutput, 0)} kg półproduktu</span>
@@ -273,7 +326,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
             <Button size="sm" variant="outline" className="h-8 gap-1 text-[12px]"
               disabled={dirty || rows.length === 0}
               title={dirty ? 'Najpierw zapisz plan — wydruk pokazuje ZAPISANY plan' : 'Wydruk planu dla operatora: kolejka + przyprawy łącznie + przepisy na wsady 200/600 kg'}
-              onClick={() => window.open('/office/plan-masowania/druk', '_blank')}>
+              onClick={() => window.open(`/office/plan-masowania/druk?date=${planDate}`, '_blank')}>
               <Printer size={13} /> Plan dla operatora
             </Button>
             <Button size="sm" disabled={saving || !dirty || !allLotsComplete} onClick={save}
@@ -301,7 +354,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
             <div className="text-[12px] text-ink-4 py-6 text-center">Wczytuję…</div>
           ) : rows.length === 0 ? (
             <div className="text-[12px] text-ink-4 py-8 text-center">
-              Brak planu na dziś — <button onClick={addRow} className="text-brand font-semibold hover:underline">dodaj pierwszą pozycję</button>
+              Brak planu na {isToday ? 'dziś' : 'ten dzień'} — <button onClick={addRow} className="text-brand font-semibold hover:underline">dodaj pierwszą pozycję</button>
             </div>
           ) : (
             rows.map((r, i) => (
@@ -322,6 +375,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
                 onConfirmExecution={() => confirmExecution(r)}
                 confirmingExecution={confirmingKey === r.rowKey}
                 canConfirmExecution={!dirty && !!r.id}
+                showConfirmExecution={isToday}
                 dragHandlers={{
                   draggable: true,
                   onDragStart: () => { dragIdx.current = i },

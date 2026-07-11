@@ -15,15 +15,17 @@ def list_mixing_orders(status: str = Query("")):
 
 # IMPORTANT: /day-plan przed /{order_id}
 @router.get("/day-plan")
-def get_day_plan():
-    """Dzisiejsza kolejka masowania (1→n) + rev do wykrywania zmian planu."""
-    return svc.get_day_plan()
+def get_day_plan(date: str = Query("")):
+    """Kolejka masowania (1→n) dla danego dnia (domyślnie dziś) + rev do
+    wykrywania zmian planu."""
+    return svc.get_day_plan(date or None)
 
 
 @router.put("/day-plan")
 def save_day_plan(body: dict):
-    """Upsert planu dnia: edycja/kolejność/anulowanie pozycji w kolejce."""
-    return svc.save_day_plan(body.get("items") or [])
+    """Upsert planu dla danego dnia (domyślnie dziś): edycja/kolejność/
+    anulowanie pozycji w kolejce."""
+    return svc.save_day_plan(body.get("items") or [], body.get("date") or None)
 
 
 @router.get("/{order_id}")

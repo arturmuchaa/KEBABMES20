@@ -1918,11 +1918,13 @@ export const mixingOrdersApi = {
       .then(r => (Array.isArray(r) ? r : (r as any).data ?? []).map(mapMixingOrder)),
   byId:              (id: string) =>
     get<any>(`/mixing-orders/${id}`).then(mapMixingOrder),
-  // Plan dnia masowania: kolejka 1→n + rev (wykrywanie zmian planu na panelu)
-  dayPlan:           () =>
-    get<any>('/mixing-orders/day-plan').then(r => ({
+  // Plan masowania dla danego dnia (domyślnie dziś): kolejka 1→n + rev
+  // (wykrywanie zmian planu na panelu)
+  dayPlan:           (date?: string) =>
+    get<any>(`/mixing-orders/day-plan${date ? `?date=${date}` : ''}`).then(r => ({
       items: (r?.items ?? []).map(mapMixingOrder),
       rev:   r?.rev ?? '',
+      planDate: r?.plan_date ?? r?.planDate ?? date ?? '',
     })),
   saveDayPlan:       (items: {
     id?: string
@@ -1930,8 +1932,9 @@ export const mixingOrdersApi = {
     meatKg: number
     seq: number
     meatLots: { meatLotId: string; kgPlanned: number }[]
-  }[]) =>
+  }[], date?: string) =>
     put<any>('/mixing-orders/day-plan', {
+      date,
       items: items.map(i => ({
         id: i.id,
         recipeId: i.recipeId,
@@ -1945,6 +1948,7 @@ export const mixingOrdersApi = {
     }).then(r => ({
       items: (r?.items ?? []).map(mapMixingOrder),
       rev:   r?.rev ?? '',
+      planDate: r?.plan_date ?? r?.planDate ?? date ?? '',
     })),
   create:            (dto: CreateMixingOrderDto) =>
     post<any>('/mixing-orders', {
