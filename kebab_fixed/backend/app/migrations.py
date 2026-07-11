@@ -18,6 +18,14 @@ _DDL: list[str] = [
     # ── Clients: nazwa wyświetlana (skrócona/zakładowa) ──
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS display_name TEXT",
 
+    # ── Suppliers: kolumny dopisane na prod ręcznie — guard dla świeżych baz
+    # (init_db.py tworzy tabelę bez nich; serwis je INSERT/UPDATE-uje) ──
+    "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT ''",
+    "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS regon TEXT DEFAULT ''",
+    "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS address TEXT DEFAULT ''",
+    "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS city TEXT DEFAULT ''",
+    "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS postal_code TEXT DEFAULT ''",
+
     # ── App settings (klucz–wartość) ──
     """CREATE TABLE IF NOT EXISTS app_settings (
         key        TEXT PRIMARY KEY,
@@ -513,11 +521,13 @@ _DDL: list[str] = [
         created_at        TIMESTAMPTZ DEFAULT now()
     )""",
     # Rozróżnienie kontekstu rodzaju surowca:
-    #   receivable=true            → pokazuje się przy PRZYJĘCIU (ćwiartka, filet, indyk)
+    #   receivable=true            → pokazuje się przy PRZYJĘCIU (ćwiartka, filet, indyk,
+    #                                mięso z/s — od 2026-07 także dostawy zewnętrzne z/s)
     #   requires_deboning=false    → MASOWALNY wprost, pokazuje się w SKŁADZIE rodzaju
     #                                (mięso z/s, filet, indyk — NIE ćwiartka)
-    # 'Mięso z/s' = produkt rozbioru: receivable=false (nie przyjmuje się go),
-    # requires_deboning=false (gotowe do masowania).
+    # 'Mięso z/s' powstaje z rozbioru ORAZ bywa kupowane z zewnątrz: receivable=true,
+    # requires_deboning=false → przyjęcie od razu tworzy lot w meat_stock (ta sama
+    # ścieżka co filet), material_type_id=mat-mieso-zs włącza je w Auto-FEFO masowania.
     "ALTER TABLE raw_material_types ADD COLUMN IF NOT EXISTS receivable BOOLEAN NOT NULL DEFAULT true",
     "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS material_type_id TEXT",
     "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS material_name TEXT DEFAULT ''",
@@ -831,8 +841,9 @@ def _seed_raw_material_types() -> None:
         ("mat-cwiartka",      "Ćwiartka z kurczaka", True,  "drob", True),
         ("mat-filet-kurczak", "Filet z kurczaka",    False, "drob", True),
         ("mat-mieso-indyk",   "Mięso z indyka",      False, "drob", True),
-        # Produkt rozbioru — nie przyjmuje się go (receivable=False), masowalny.
-        ("mat-mieso-zs",      "Mięso z/s",           False, "drob", False),
+        # Produkt rozbioru, ale też przyjmowalny z zewnątrz (dostawy z/s) —
+        # przyjęcie idzie ścieżką "bez rozbioru" wprost do meat_stock.
+        ("mat-mieso-zs",      "Mięso z/s",           False, "drob", True),
     ]
     try:
         for rid, name, deb, cat, recv in rows:
@@ -842,9 +853,10 @@ def _seed_raw_material_types() -> None:
                 (rid, name, deb, cat, recv),
             )
         # Wymuś poprawne flagi dla 'Mięso z/s' także na istniejących bazach
-        # (gdyby wiersz powstał wcześniej / z domyślnym receivable=true).
+        # (starsze bazy mają receivable=false z czasów, gdy z/s nie było
+        # przyjmowalne z zewnątrz — od 2026-07 jest).
         execute(
-            "UPDATE raw_material_types SET requires_deboning=false, receivable=false "
+            "UPDATE raw_material_types SET requires_deboning=false, receivable=true "
             "WHERE id='mat-mieso-zs'"
         )
         # Istniejące partie bez rodzaju = ćwiartka (jedyny dotychczasowy surowiec)

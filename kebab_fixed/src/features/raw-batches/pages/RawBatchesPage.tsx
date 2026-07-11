@@ -40,8 +40,8 @@ export function RawBatchesPage() {
 
   // ── Rodzaje surowca (ćwiartka / filet / indyk…) — przełącznik ──────────────
   const { data: materialTypes } = useApi(() => (legacyRawBatchesApi as any).materialTypes())
-  // Przyjmuje się TYLKO surowce receivable=true — „Mięso z/s" (produkt rozbioru)
-  // nie jest surowcem do przyjęcia, więc nie pokazuje się na przyjęciu.
+  // Przyjmuje się TYLKO surowce receivable=true (od 2026-07 także „Mięso z/s"
+  // z dostaw zewnętrznych — ścieżką "bez rozbioru" wprost do magazynu mięsa).
   const matList: { id: string; name: string; requiresDeboning: boolean }[] =
     ((materialTypes as any) ?? [{ id: 'mat-cwiartka', name: 'Ćwiartka z kurczaka', requiresDeboning: true, receivable: true }])
       .filter((m: any) => m.receivable !== false)

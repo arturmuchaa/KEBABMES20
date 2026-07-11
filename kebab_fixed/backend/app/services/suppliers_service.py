@@ -35,16 +35,18 @@ def create_supplier(dto: SupplierCreate) -> Dict:
             conn,
             """
             INSERT INTO suppliers
-                (id, code, name, nip, vet_number, contact_name,
+                (id, code, name, display_name, nip, regon, vet_number, contact_name,
                  phone, email, address, city, postal_code, active, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
             RETURNING *
             """,
             (
                 cuid(),
                 code,
                 dto.name,
+                dto.display_name,
                 dto.nip,
+                dto.regon,
                 dto.vet_number,
                 dto.contact_name,
                 dto.phone,
@@ -65,7 +67,7 @@ def update_supplier(supplier_id: str, dto: SupplierCreate) -> Dict:
             conn,
             """
             UPDATE suppliers
-            SET name=%s, nip=%s, vet_number=%s,
+            SET name=%s, display_name=%s, nip=%s, regon=%s, vet_number=%s,
                 contact_name=%s, phone=%s, email=%s,
                 address=%s, city=%s, postal_code=%s
             WHERE id=%s
@@ -73,7 +75,9 @@ def update_supplier(supplier_id: str, dto: SupplierCreate) -> Dict:
             """,
             (
                 dto.name,
+                dto.display_name,
                 dto.nip,
+                dto.regon,
                 dto.vet_number,
                 dto.contact_name,
                 dto.phone,

@@ -189,7 +189,7 @@ export const rawBatchesApi = {
         id: r.id,
         name: r.name,
         requiresDeboning: !!(r.requires_deboning ?? r.requiresDeboning),
-        // receivable=true → przyjmowalny surowiec; mięso z/s = false (powstaje z rozbioru).
+        // receivable=true → przyjmowalny surowiec (w tym mięso z/s z dostaw zewnętrznych).
         // Domyślnie true gdy backend nie zwrócił pola (stare API).
         receivable: r.receivable === undefined ? true : !!r.receivable,
         category: r.category ?? 'drob',

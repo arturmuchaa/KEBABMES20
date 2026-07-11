@@ -78,7 +78,7 @@ const STAGE_ICON: Record<ChainStep['stage'], React.ReactNode> = {
 }
 
 const IDENTITY_LABELS: Record<string, string> = {
-  raw_batch_no:      'Partia surowca (ćwiartka)',
+  raw_batch_no:      'Partia przyjęcia surowca',
   supplier_batch_no: 'Nr partii dostawcy',
   invoice_no:        'Faktura zakupowa',
   slaughter_date:    'Data uboju',
@@ -90,8 +90,10 @@ const IDENTITY_LABELS: Record<string, string> = {
 }
 const DATE_KEYS = new Set(['slaughter_date', 'received_date', 'production_date', 'weighed_at', 'expiry_date'])
 
+// „meat" obejmuje mięso z rozbioru ORAZ przyjęte z zewnątrz (z/s, filet) —
+// etykieta neutralna, żeby nie kłamać przy dostawach zewnętrznych.
 const TYPE_LABEL: Record<StockCard['stock_type'], string> = {
-  raw: 'Surowiec — ćwiartka', meat: 'Mięso po rozbiorze', byproduct: 'Produkt uboczny',
+  raw: 'Surowiec — ćwiartka', meat: 'Magazyn mięsa', byproduct: 'Produkt uboczny',
 }
 
 // ─── Komórka etykieta/wartość (siatka Subiekt) ───────────────

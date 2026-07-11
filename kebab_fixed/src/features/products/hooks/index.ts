@@ -101,9 +101,12 @@ export function useProductTypeForm(initial?: ProductType) {
             ...c,
             materialTypeId: mat.id,
             name: mat.name,
-            // Źródło: surowiec nieprzyjmowalny (receivable=false) = produkt rozbioru
-            // → magazyn mięsa (Mięso z/s). Przyjmowalny gotowiec (filet, indyk) = zakup.
-            sourceType: mat.receivable === false ? 'meat_stock' : 'purchase',
+            // Źródło: mięso z/s zawsze z magazynu mięsa (powstaje z rozbioru,
+            // a dostawy zewnętrzne z/s też lądują w meat_stock — receivable
+            // przestało być wyróżnikiem). Pozostałe nieprzyjmowalne = rozbiór,
+            // przyjmowalne gotowce (filet, indyk) = zakup.
+            sourceType: mat.id === 'mat-mieso-zs' || mat.receivable === false
+              ? 'meat_stock' : 'purchase',
           }
         : c
     ))
