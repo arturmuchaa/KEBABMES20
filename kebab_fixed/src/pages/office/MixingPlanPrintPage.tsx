@@ -37,18 +37,18 @@ const MACHINE_BATCHES_KG = [200, 600]
 
 // Layout ściśnięty celowo — cel: 1 strona A4 nawet przy 4-5 recepturach.
 const S = {
-  page: { maxWidth: 800, margin: '0 auto', padding: '14px 20px', background: '#fff', color: '#111',
+  page: { maxWidth: 800, margin: '0 auto', padding: '10px 20px', background: '#fff', color: '#111',
     fontFamily: "'Segoe UI', Arial, sans-serif", fontSize: 11 } as const,
   h1: { fontSize: 17, fontWeight: 800, letterSpacing: 0.4, margin: 0 } as const,
   section: { fontSize: 11, fontWeight: 700, textTransform: 'uppercase' as const,
-    letterSpacing: 0.5, margin: '8px 0 3px', borderBottom: '1.5px solid #111', paddingBottom: 2 },
-  table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 10.5 },
-  th: { border: '1px solid #bfbfbf', background: '#efefef', padding: '2.5px 5px',
-    fontSize: 9, textTransform: 'uppercase' as const, fontWeight: 700, textAlign: 'center' as const },
-  td: { border: '1px solid #bfbfbf', padding: '2.5px 5px', textAlign: 'center' as const,
+    letterSpacing: 0.5, margin: '6px 0 2px', borderBottom: '1.5px solid #111', paddingBottom: 2 },
+  table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 10 },
+  th: { border: '1px solid #bfbfbf', background: '#efefef', padding: '2px 4px',
+    fontSize: 8.5, textTransform: 'uppercase' as const, fontWeight: 700, textAlign: 'center' as const },
+  td: { border: '1px solid #bfbfbf', padding: '2px 4px', textAlign: 'center' as const,
     fontVariantNumeric: 'tabular-nums' as const },
-  tdL: { border: '1px solid #bfbfbf', padding: '2.5px 5px', textAlign: 'left' as const },
-  tdR: { border: '1px solid #bfbfbf', padding: '2.5px 5px', textAlign: 'right' as const,
+  tdL: { border: '1px solid #bfbfbf', padding: '2px 4px', textAlign: 'left' as const },
+  tdR: { border: '1px solid #bfbfbf', padding: '2px 4px', textAlign: 'right' as const,
     fontVariantNumeric: 'tabular-nums' as const },
   // Kg partii mięsa — jedyna liczba na wydruku, którą operator fizycznie odważa,
   // ma dominować wizualnie nad numerem partii/rodzajem/dostawcą w tym samym wierszu.
