@@ -6,24 +6,20 @@
  *   rozdzielone po material_type_id — filet to INNY składnik, nie może się
  *   mieszać z z/s) · Grzbiety · Kości (otwarte loty ABP).
  * Jedno źródło danych: GET /wz/stock/raw (to samo co picker WZ — stan,
- * pojemniki, daty, rezerwacje). Klik wiersza → śledzenie partii.
+ * pojemniki, daty, rezerwacje). Klik wiersza → kartoteka partii
+ * (RawStockBatchCard: łańcuch śledzenia + historia ruchów).
  */
 import { useMemo, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
-import { wzApi, rawBatchesApi } from '@/lib/apiClient'
+import { wzApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
-import { Drumstick, Beef, Layers, Package, Bone, FileOutput, ArrowRight } from 'lucide-react'
-import type { RawBatch } from '@/types'
+import { Drumstick, Beef, Layers, Package, Bone, FileOutput } from 'lucide-react'
 
 import { DataTable, type DataColumn } from '@/components/DataTable'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
-} from '@/components/ui/dialog'
+import { RawStockBatchCard, ExpiryBadge } from './RawStockBatchCard'
 
 // ─── Wiersz z GET /wz/stock/raw ──────────────────────────────
 interface StockRow {
@@ -43,103 +39,8 @@ interface StockRow {
   production_date?: string | null
 }
 
-// ─── ExpiryBadge ─────────────────────────────────────────────
-function ExpiryBadge({ date }: { date: string }) {
-  const { daysLeft } = getExpiryStatus(date)
-  const cls =
-    daysLeft < 0    ? 'bg-red-50 text-red-700 border-red-200' :
-    daysLeft <= 1   ? 'bg-red-50 text-red-700 border-red-200' :
-    daysLeft <= 3   ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                      'bg-emerald-50 text-emerald-700 border-emerald-200'
-  const label =
-    daysLeft < 0    ? 'wygasło' :
-    daysLeft === 0  ? 'dziś' :
-                      `${daysLeft}d`
-  return <Badge variant="outline" className={cn('text-[10px] font-medium', cls)}>{label}</Badge>
-}
-
 function isExpiredRow(r: StockRow): boolean {
   return !!r.expiry_date && getExpiryStatus(r.expiry_date).daysLeft < 0
-}
-
-// ─── Śledzenie partii (klik wiersza) ─────────────────────────
-function TraceModal({ row, batch, onClose }: {
-  row: StockRow; batch?: RawBatch; onClose: () => void
-}) {
-  const steps = row.stock_type === 'raw'
-    ? ['DOSTAWCA', 'PRZYJĘCIE', 'MAGAZYN']
-    : ['DOSTAWCA', 'PRZYJĘCIE', 'ROZBIÓR', 'MAGAZYN']
-  const kgAvail = Number(row.kg_available)
-  const kgRes = Number(row.kg_reserved ?? 0)
-  return (
-    <Dialog open onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Śledzenie — {row.doc_name ?? row.name}</DialogTitle>
-          <DialogDescription>Pełna traceability partii od dostawcy do magazynu</DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <Card className="border-primary/30 bg-primary/5">
-            <CardContent className="p-4">
-              <CardDescription className="text-[10px] font-bold text-primary uppercase mb-1">Nasza partia</CardDescription>
-              <CardTitle className="text-3xl font-black font-mono text-primary">
-                {row.internal_batch_no || '—'}
-              </CardTitle>
-            </CardContent>
-          </Card>
-
-          <div className="flex items-center gap-2 text-muted-foreground">
-            {steps.map((s, i) => (
-              <span key={s} className="flex items-center gap-2">
-                <CardDescription className="text-xs font-semibold">{s}</CardDescription>
-                {i < steps.length - 1 && <ArrowRight size={12} />}
-              </span>
-            ))}
-          </div>
-
-          <div className="divide-y border rounded-xl overflow-hidden">
-            {[
-              { label: 'Dostawca',           value: row.supplier_name || batch?.supplierName || '—' },
-              { label: 'Nr partii dostawcy', value: <code className="font-mono font-bold">{batch?.supplierBatchNo || '—'}</code> },
-              { label: 'Data uboju',         value: row.slaughter_date ? fmtDatePl(row.slaughter_date) : '—' },
-              { label: 'Data przyjęcia',     value: batch?.receivedDate ? fmtDatePl(batch.receivedDate) : '—' },
-              { label: row.stock_type === 'raw' ? 'Data przyjęcia na stan' : 'Data produkcji',
-                value: row.production_date ? fmtDatePl(row.production_date) : '—' },
-              { label: 'Data ważności',      value: row.expiry_date ? (
-                <span className="flex items-center gap-2">{fmtDatePl(row.expiry_date)}<ExpiryBadge date={row.expiry_date} /></span>
-              ) : '—' },
-            ].map(r => (
-              <div key={r.label} className="flex items-center justify-between px-4 py-2.5">
-                <CardDescription className="text-sm font-medium">{r.label}</CardDescription>
-                <div className="text-sm font-semibold">{r.value}</div>
-              </div>
-            ))}
-            <div className="px-4 py-2 bg-muted/40">
-              <CardDescription className="text-[10px] font-bold uppercase tracking-wide">Stan magazynowy</CardDescription>
-            </div>
-            {[
-              row.kg_initial != null
-                ? { label: 'Ilość początkowa', value: <span className="font-bold">{fmtKg(Number(row.kg_initial), 1)} kg</span> }
-                : null,
-              { label: 'Ilość dostępna', value: <span className="font-bold text-emerald-700">{fmtKg(kgAvail, 1)} kg</span> },
-              kgRes > 0
-                ? { label: 'W tym zarezerwowane (plan masowania)', value: <span className="font-bold text-amber-700">{fmtKg(kgRes, 1)} kg</span> }
-                : null,
-              row.containers
-                ? { label: 'Pojemniki (orientacyjnie)', value: <span className="font-semibold">{row.containers}</span> }
-                : null,
-            ].filter(Boolean).map(r => (
-              <div key={r!.label} className="flex items-center justify-between px-4 py-2.5">
-                <CardDescription className="text-sm font-medium">{r!.label}</CardDescription>
-                <div className="text-sm">{r!.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
 }
 
 // ─── Strona ─────────────────────────────────────────────────
@@ -150,12 +51,10 @@ const ZS = 'mat-mieso-zs'
 export function RawStockPage() {
   const navigate = useNavigate()
   const { data: stockData, loading } = useApi<StockRow[]>(() => (wzApi as any).stockRaw())
-  const { data: batchData } = useApi<{ data: any[] }>(() => (rawBatchesApi as any).all())
   const [activeTab, setActiveTab] = useState<Tab>('raw')
   const [trace, setTrace] = useState<StockRow | null>(null)
 
   const stock = useMemo(() => (stockData ?? []) as StockRow[], [stockData])
-  const batches: RawBatch[] = batchData?.data ?? []
 
   const byTab = useMemo(() => ({
     raw:   stock.filter(r => r.stock_type === 'raw'),
@@ -241,10 +140,6 @@ export function RawStockPage() {
           ? [colRodzaj, colPartia, colDostawca, colDostepne, colZarezerwowane, colPoczatkowe, colProdukcja('Przyjęcie'), colWaznosc]
           : [colPartia, colDostawca, colDostepne, colPojemniki, colProdukcja('Ważenie'), colUboj, colWaznosc]
 
-  const traceBatch = trace
-    ? batches.find(b => b.internalBatchNo === trace.internal_batch_no || b.id === trace.id)
-    : undefined
-
   return (
     <div className="space-y-3 animate-fade-in">
       <DataTable<StockRow>
@@ -313,7 +208,13 @@ export function RawStockPage() {
         }}
       />
 
-      {trace && <TraceModal row={trace} batch={traceBatch} onClose={() => setTrace(null)} />}
+      {trace && (
+        <RawStockBatchCard
+          stockType={trace.stock_type}
+          stockId={trace.id}
+          onClose={() => setTrace(null)}
+        />
+      )}
     </div>
   )
 }
