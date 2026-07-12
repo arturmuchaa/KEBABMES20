@@ -317,7 +317,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   }
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-3 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-3 items-start">
       {/* ── Plan dnia (lewa kolumna) ── */}
       <div className="bg-white border border-surface-4 rounded-lg overflow-hidden">
         {/* Pasek tytułu — Subiekt: tytuł + sumy + akcje w jednej linii */}
@@ -384,7 +384,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
         </div>
 
         {/* Nagłówek kolumn */}
-        <div className="hidden md:grid grid-cols-[28px_20px_minmax(180px,1.2fr)_120px_96px_minmax(140px,1fr)_110px_88px] items-center gap-2 px-2.5 h-8 bg-surface-2 border-b border-surface-4 text-[10px] font-bold uppercase tracking-wide text-ink-4">
+        <div className="hidden lg:grid grid-cols-[28px_20px_minmax(180px,1.2fr)_120px_96px_minmax(140px,1fr)_110px_88px] items-center gap-2 px-2.5 h-8 bg-surface-2 border-b border-surface-4 text-[10px] font-bold uppercase tracking-wide text-ink-4">
           <span />
           <span className="text-center">Lp</span>
           <span>Receptura</span>

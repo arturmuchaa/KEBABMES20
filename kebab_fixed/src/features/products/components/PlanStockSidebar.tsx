@@ -6,9 +6,10 @@
  * oraz zbiorcze zapotrzebowanie przypraw wg planu vs stan magazynu
  * (braki podświetlone zanim plan trafi do operatora).
  */
+import { useState } from 'react'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { ExpiryBadge } from '@/components/ui/badge'
-import { Warehouse, FlaskConical } from 'lucide-react'
+import { Warehouse, FlaskConical, ChevronDown, ChevronRight } from 'lucide-react'
 import type { PickerLot } from './MeatLotPicker'
 
 export interface SpiceNeed {
@@ -79,13 +80,20 @@ export function PlanStockSidebar({ zsLots, otherLots, plannedByLot, spiceNeeds }
   const zsLeft = sum(zsLots) - plannedSum(zsLots)
   const needs = spiceNeeds.filter(n => n.need > 0.0005 && !n.isUnlimited)
   const shortages = needs.filter(n => n.need > n.stock + 0.0005)
+  const [open, setOpen] = useState(false)   // rozwinięcie na mobile; na lg+ zawsze widoczne
 
   return (
-    <div className="bg-white border border-surface-4 rounded-lg overflow-hidden sticky top-3">
-      <div className="px-3 py-2.5 bg-surface-2 border-b border-surface-4 flex items-center gap-2">
+    <div className="bg-white border border-surface-4 rounded-lg overflow-hidden lg:sticky lg:top-3">
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="w-full px-3 py-2.5 bg-surface-2 border-b border-surface-4 flex items-center gap-2 lg:cursor-default">
         <Warehouse size={14} className="text-brand" />
         <span className="text-[11px] font-bold uppercase tracking-widest text-ink-2">Magazyn do rozplanowania</span>
-      </div>
+        <span className="ml-auto lg:hidden text-ink-4">
+          {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+        </span>
+      </button>
+
+      <div className={cn(open ? 'block' : 'hidden', 'lg:block')}>
 
       <SectionHeader
         label="Mięso z/s (Auto-FEFO)"
@@ -126,6 +134,7 @@ export function PlanStockSidebar({ zsLots, otherLots, plannedByLot, spiceNeeds }
           )
         })
       )}
+      </div>
     </div>
   )
 }
