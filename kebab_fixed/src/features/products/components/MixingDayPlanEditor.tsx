@@ -20,6 +20,8 @@ import { PlanRow, type PlanRowData } from './PlanRow'
 import type { PickerLot } from './MeatLotPicker'
 import { PlanStockSidebar, type SpiceNeed } from './PlanStockSidebar'
 import { autoFefoDistribute, type AvailLot } from '../lib/autoFefo'
+import { ConfirmMixingSplitDialog } from './ConfirmMixingSplitDialog'
+import type { FinishBatch, SplitLotInput } from '../lib/mixingSplit'
 
 // Przesunięcie daty ISO (YYYY-MM-DD) o N dni — bez zależności od strefy,
 // liczymy na składnikach roku/miesiąca/dnia (Date lokalny o północy).
@@ -39,6 +41,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [confirmingKey, setConfirmingKey] = useState<string | null>(null)
+  const [splitRow, setSplitRow] = useState<PlanRowData | null>(null)
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const dragIdx = useRef<number | null>(null)
   const dirtyRef = useRef(dirty)
@@ -255,6 +258,13 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   async function confirmExecution(row: PlanRowData) {
     if (!row.id || !isToday) return
     const kg = parseFloat(row.meatKg) || 0
+    const lotsWithKg = row.lots.filter(l => (l.kgPlanned || 0) > 0)
+    // ≥2 partie → dialog podziału (czyste per partia + jedna mieszana PP).
+    if (lotsWithKg.length >= 2) {
+      setSplitRow(row)
+      return
+    }
+    // 0/1 partia → jak dotąd: jedno potwierdzenie całości (backend nada czysty numer).
     if (!window.confirm(
       `Potwierdzić wykonanie: ${row.recipeId ? recipes.find((r: any) => r.id === row.recipeId)?.name ?? '' : ''} — ${fmtKg(kg, 0)} kg mięsa?\n\nMięso przyprawione wejdzie na magazyn, partie mięsa i przyprawy zostaną rozchodowane. Tej operacji nie da się cofnąć z tego ekranu.`
     )) return
@@ -265,6 +275,24 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
       toast.success('Wykonanie potwierdzone — mięso przyprawione trafiło na magazyn')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Błąd potwierdzenia wykonania')
+    } finally {
+      setConfirmingKey(null)
+    }
+  }
+
+  // Potwierdzenie z podziałem: sekwencja finishSession (mieszana ostatnia domyka zlecenie).
+  async function runSplitConfirm(row: PlanRowData, batches: FinishBatch[]) {
+    setConfirmingKey(row.rowKey)
+    try {
+      for (const b of batches) {
+        await mixingOrdersApi.finishSession(row.id!, b.kg, '', b.lotAllocations)
+      }
+      toast.success('Potwierdzone — partie zapisane (czyste + ewentualna mieszana PP)')
+      setSplitRow(null)
+      await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Błąd — zlecenie mogło zostać potwierdzone częściowo')
+      await load()
     } finally {
       setConfirmingKey(null)
     }
@@ -416,6 +444,24 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
         plannedByLot={plannedByLot}
         spiceNeeds={spiceNeeds}
       />
+
+      {splitRow && (
+        <ConfirmMixingSplitDialog
+          open
+          recipeName={recipes.find((r: any) => r.id === splitRow.recipeId)?.name ?? ''}
+          meatKg={parseFloat(splitRow.meatKg) || 0}
+          lots={splitRow.lots
+            .filter(l => (l.kgPlanned || 0) > 0)
+            .map((l): SplitLotInput => ({
+              meatLotId: l.meatLotId,
+              lotNo: l.lotNo ?? '?',
+              kgPlanned: l.kgPlanned || 0,
+            }))}
+          loading={confirmingKey === splitRow.rowKey}
+          onCancel={() => { if (confirmingKey !== splitRow.rowKey) setSplitRow(null) }}
+          onConfirm={batches => runSplitConfirm(splitRow, batches)}
+        />
+      )}
     </div>
   )
 }
