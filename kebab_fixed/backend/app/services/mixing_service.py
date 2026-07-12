@@ -1122,6 +1122,137 @@ def cancel_mixing_order(order_id: str) -> Dict:
     return build_mixing_order(row)
 
 
+def undo_mixing_confirmation(order_id: str) -> Dict:
+    """Cofnij potwierdzenie (finish) zlecenia 'done' — czysto, jakby nie
+    potwierdzono. Dozwolone TYLKO gdy każda partia przyprawionego z tego
+    zlecenia jest niezużyta (kg_used=0). Odwraca w jednej transakcji ślad
+    finish_mixing_session: seasoned_meat, meat_stock, ingredient_stock,
+    stock_movements, mixing_sessions, status zlecenia + rezerwacje lotów.
+    Kwoty bierzemy ze stock_movements zlecenia (odporne na zaokrąglenia).
+    """
+    with transaction() as conn:
+        order = cx_query_one(
+            conn, "SELECT * FROM mixing_orders WHERE id=%s FOR UPDATE", (order_id,)
+        )
+        if not order:
+            raise HTTPException(404, "Zlecenie nie znalezione")
+        if order.get("status") != "done":
+            raise HTTPException(
+                400, "Cofnięcie dotyczy tylko potwierdzonych (gotowych) zleceń."
+            )
+
+        # Partie przyprawionego zlecenia (seasoned IN: batch_id = seasoned_meat.id)
+        seasoned = cx_query_all(
+            conn,
+            "SELECT batch_id AS sm_id, SUM(qty) AS kg FROM stock_movements "
+            "WHERE source_type='mixing' AND product_type='seasoned' AND source_id=%s "
+            "GROUP BY batch_id",
+            (order_id,),
+        )
+        # Guard + blokada wierszy: żadna partia nie może być częściowo zużyta.
+        for s in sorted(seasoned, key=lambda r: r.get("sm_id") or ""):
+            if not s.get("sm_id"):
+                continue
+            sm = cx_query_one(
+                conn,
+                "SELECT batch_no, kg_used FROM seasoned_meat WHERE id=%s FOR UPDATE",
+                (s["sm_id"],),
+            )
+            if sm and float(sm.get("kg_used") or 0) > 0.001:
+                raise HTTPException(
+                    400,
+                    f"Nie można cofnąć — partia {sm.get('batch_no')} jest już "
+                    f"częściowo zużyta w produkcji ({float(sm['kg_used']):.2f} kg).",
+                )
+
+        # Odejmij wkład zlecenia od partii przyprawionego; usuń gdy zejdzie do zera.
+        for s in seasoned:
+            if not s.get("sm_id"):
+                continue
+            kg = float(s.get("kg") or 0)
+            cx_execute(
+                conn,
+                "UPDATE seasoned_meat SET kg_produced = kg_produced - %s, "
+                "kg_available = kg_available - %s WHERE id=%s",
+                (kg, kg, s["sm_id"]),
+            )
+            cx_execute(
+                conn,
+                "DELETE FROM seasoned_meat WHERE id=%s AND kg_produced <= 0.001",
+                (s["sm_id"],),
+            )
+
+        # Przywróć mięso (meat OUT: qty ujemne). Lock rows deterministycznie.
+        meat = cx_query_all(
+            conn,
+            "SELECT batch_id, SUM(qty) AS qty FROM stock_movements "
+            "WHERE source_type='mixing' AND product_type='meat' AND source_id=%s "
+            "GROUP BY batch_id",
+            (order_id,),
+        )
+        for m in sorted(meat, key=lambda r: r.get("batch_id") or ""):
+            if m.get("batch_id"):
+                cx_query_one(
+                    conn, "SELECT id FROM meat_stock WHERE id=%s FOR UPDATE",
+                    (m["batch_id"],),
+                )
+        for m in meat:
+            x = -float(m.get("qty") or 0)  # OUT ujemne → x dodatnie
+            if x <= 0 or not m.get("batch_id"):
+                continue
+            cx_execute(
+                conn,
+                "UPDATE meat_stock SET kg_reserved = kg_reserved + %s, "
+                "kg_available = kg_available + %s, "
+                "kg_used = GREATEST(0, kg_used - %s) WHERE id=%s",
+                (x, x, x, m["batch_id"]),
+            )
+
+        # Przywróć przyprawy (ingredient OUT: qty ujemne).
+        ingr = cx_query_all(
+            conn,
+            "SELECT batch_id, SUM(qty) AS qty FROM stock_movements "
+            "WHERE source_type='mixing' AND product_type='ingredient' AND source_id=%s "
+            "GROUP BY batch_id",
+            (order_id,),
+        )
+        for g in ingr:
+            x = -float(g.get("qty") or 0)
+            if x <= 0 or not g.get("batch_id"):
+                continue
+            cx_execute(
+                conn,
+                "UPDATE ingredient_stock SET qty_available = qty_available + %s WHERE id=%s",
+                (x, g["batch_id"]),
+            )
+
+        # Usuń ślad ruchów i sesji tego zlecenia.
+        cx_execute(
+            conn,
+            "DELETE FROM stock_movements WHERE source_type='mixing' AND source_id=%s",
+            (order_id,),
+        )
+        cx_execute(conn, "DELETE FROM mixing_sessions WHERE order_id=%s", (order_id,))
+
+        # Rezerwacje lotów wracają (kg_planned z kg_actual).
+        cx_execute(
+            conn,
+            "UPDATE mixing_order_lots SET kg_planned = kg_actual, kg_actual = 0 "
+            "WHERE order_id=%s",
+            (order_id,),
+        )
+
+        # Zlecenie wraca do kolejki (jak przed potwierdzeniem).
+        updated = cx_execute_returning(
+            conn,
+            "UPDATE mixing_orders SET status='confirmed', kg_done=0, completed_at=NULL, "
+            "kg_in_machine=0, source_seasoned_batch_ids='{}' WHERE id=%s RETURNING *",
+            (order_id,),
+        )
+    logger.info("mixing.order.undo_confirm", extra={"order_id": order_id})
+    return build_mixing_order(updated)
+
+
 # ── Plan dnia masowania (kolejka 1→n, edycja na żywo z biura) ──────────
 # Biuro planuje dzień jednym zaleceniem: kilka receptur z kolejnością
 # (np. 1. Gold 2000 kg, 2. Gold2 2000, 3. Beyaz 3000). Operator widzi

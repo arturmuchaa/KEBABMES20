@@ -79,6 +79,11 @@ def cancel_mixing_order(order_id: str):
     return svc.cancel_mixing_order(order_id)
 
 
+@router.patch("/{order_id}/undo-confirm")
+def undo_mixing_confirmation(order_id: str):
+    return svc.undo_mixing_confirmation(order_id)
+
+
 @router.post("/cleanup-stale", dependencies=[Depends(require_admin)])
 def cleanup_stale():
     """Zamknij in_progress zlecenia bez aktywnej blokady maszyny.
