@@ -86,7 +86,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
       setRows((r.items ?? []).map((o: any) => ({
         rowKey: o.id, id: o.id, recipeId: o.recipeId, meatKg: String(o.meatKg),
         status: o.status, orderNo: o.orderNo, kgDone: o.kgDone,
-        lots: (o.meatLots ?? []).map((l: any) => ({ meatLotId: l.meatLotId, kgPlanned: l.kgPlanned })),
+        lots: (o.meatLots ?? []).map((l: any) => ({ meatLotId: l.meatLotId, kgPlanned: l.kgPlanned, lotNo: l.meatLotNo })),
       })))
       setLoaded(true)
       setDirty(false)

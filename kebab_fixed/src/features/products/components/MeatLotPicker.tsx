@@ -16,7 +16,13 @@ export interface PickerLot {
   supplierName?: string
 }
 
-export interface SelLot { meatLotId: string; kgPlanned: number }
+export interface SelLot {
+  meatLotId: string
+  kgPlanned: number
+  /** Numer partii zapamiętany z planu — fallback do wyświetlenia, gdy partia
+   * jest w całości zarezerwowana i znika z listy pickera (kgAvailable=0). */
+  lotNo?: string
+}
 
 /** Lista partii FEFO z zaznaczaniem + auto-FEFO dla tego wiersza. */
 export function MeatLotPicker({

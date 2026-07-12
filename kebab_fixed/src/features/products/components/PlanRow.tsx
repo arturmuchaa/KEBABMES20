@@ -80,7 +80,12 @@ export function PlanRow({
   const kg = parseFloat(row.meatKg) || 0
   const lotKg = row.lots.reduce((s, l) => s + (l.kgPlanned || 0), 0)
   const lotsOk = lotKg >= kg - 0.5 && kg > 0
-  const lotNo = (id: string) => lots.find(l => l.id === id)?.lotNo ?? '?'
+  // Numer partii: najpierw z listy pickera; gdy partia w całości zarezerwowana
+  // (znika z pickera), fallback na numer zapamiętany w wierszu planu z API.
+  const lotNo = (id: string) =>
+    lots.find(l => l.id === id)?.lotNo
+    ?? row.lots.find(l => l.meatLotId === id)?.lotNo
+    ?? '?'
   const shownLots = row.lots.slice(0, 3)
   const canConfirmNow = !locked && lotsOk && canConfirmExecution
 
