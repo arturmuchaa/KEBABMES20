@@ -361,7 +361,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
               plan przekracza wolne z/s ({fmtKg(zsAvail, 0)} kg)!
             </span>
           )}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-2">
             <Button size="sm" variant="outline" className="h-8 gap-1 text-[12px]" onClick={autoFefoAll}
               title="Rozdziel wolne partie z/s po wszystkich pozycjach wg terminu ważności">
               <Zap size={13} /> Auto-FEFO całość
