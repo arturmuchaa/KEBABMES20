@@ -16,6 +16,7 @@ Frontend = React + TypeScript + Vite + Tailwind (font Fira). Desktop = Tauri.
 - Backend tests: `cd backend && python3 -m pytest -q`
 - Frontend: `npm run dev` · build `npm run build` · types `npx tsc --noEmit` · unit `npx vitest run`
 - DB: PostgreSQL via `DATABASE_URL` (env / `/opt/kebab/config/.env`).
+- **`/verify`** — lokalne lustro CI (tsc + vitest + pytest + playwright). Odpalaj przed każdym push/PR.
 
 ---
 
@@ -41,7 +42,7 @@ Frontend = React + TypeScript + Vite + Tailwind (font Fira). Desktop = Tauri.
   diff -rq /opt/kebab/app/backend/app /opt/kebab/kebab_new/kebab_fixed/backend/app | grep -i differ
   ```
   If prod has content not in the repo → **commit it to git FIRST.** A full deploy silently overwrites prod-only changes (this broke label resolution on 2026-06-21).
-- Deploy with `deploy/deploy.sh [all|frontend|backend]` — it backs up, swaps `dist` atomically, health-checks (8010), and rolls back on failure. `frontend` does not restart the backend.
+- Deploy with **`/deploy [all|frontend|backend]`** (wymusza powyższy diff) lub bezpośrednio `deploy/deploy.sh` — backup, atomowa podmiana `dist`, health-check (8010), rollback przy porażce. `frontend` nie restartuje backendu.
 - **After deploy, smoke-test critical flows** (label print, WZ/HDI) before calling it done.
 
 ---
