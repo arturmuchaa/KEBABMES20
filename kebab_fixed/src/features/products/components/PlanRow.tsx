@@ -91,10 +91,143 @@ export function PlanRow({
   const shownLots = row.lots.slice(0, 3)
   const canConfirmNow = !locked && lotsOk && canConfirmExecution
 
+  // ── Wspólne kontrolki (używane w układzie desktop i mobile) ──
+  const recipeSelect = (
+    <Select value={row.recipeId || '__none'} disabled={locked}
+      onValueChange={v => onUpdate({ recipeId: v === '__none' ? '' : v })}>
+      <SelectTrigger className="h-8 text-[12px]"><SelectValue placeholder="Receptura..." /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__none">Receptura...</SelectItem>
+        {recipes.map(rc => <SelectItem key={rc.id} value={rc.id}>{rc.name}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  )
+
+  const kgInput = (
+    <span className="flex items-center gap-1 justify-end">
+      <Input type="number" min="1" step="10" value={row.meatKg} disabled={locked}
+        onChange={e => onUpdate({ meatKg: e.target.value })}
+        className="h-8 w-20 text-[13px] font-bold text-right tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+      <span className="text-[10px] text-ink-4">kg</span>
+    </span>
+  )
+
+  const outputEl = (
+    <span className="text-right text-[12px] text-emerald-700 font-bold tabular-nums whitespace-nowrap">
+      {output > 0 ? `${fmtKg(output, 0)} kg` : '—'}
+    </span>
+  )
+
+  const lotsBtn = (
+    <button onClick={onToggle} disabled={locked}
+      className="flex items-center gap-1 flex-wrap text-left disabled:cursor-default min-h-[26px]"
+      title={locked ? undefined : 'Kliknij, aby dobrać partie'}>
+      {row.lots.length === 0 ? (
+        !locked && (
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700">
+            <AlertTriangle size={12} /> przypisz partie
+          </span>
+        )
+      ) : (
+        <>
+          {shownLots.map(l => (
+            <span key={l.meatLotId}
+              className={cn(
+                'inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[11px] font-mono font-bold tabular-nums',
+                lotsOk ? 'bg-surface-2 border-surface-4 text-ink' : 'bg-amber-50 border-amber-200 text-amber-800',
+              )}>
+              {lotNo(l.meatLotId)}
+              <span className="font-sans font-semibold text-ink-3">{fmtKg(l.kgPlanned, 0)}</span>
+            </span>
+          ))}
+          {row.lots.length > 3 && (
+            <span className="text-[11px] font-semibold text-ink-4">+{row.lots.length - 3}</span>
+          )}
+          {!lotsOk && (
+            <span className="text-[10px] font-bold text-amber-700 whitespace-nowrap">
+              {fmtKg(lotKg, 0)}/{fmtKg(kg, 0)}
+            </span>
+          )}
+        </>
+      )}
+    </button>
+  )
+
+  const statusEl = (
+    <span className="flex flex-col items-start gap-1">
+      <StatusBadge tone={st.tone}
+        label={row.status === 'in_progress' && row.kgDone ? `${st.label} · ${fmtKg(row.kgDone, 0)} kg` : st.label} />
+      {!locked && showConfirmExecution && (
+        <button
+          onClick={onConfirmExecution}
+          disabled={!canConfirmNow || confirmingExecution}
+          title={
+            !canConfirmExecution ? 'Najpierw zapisz plan'
+            : !lotsOk ? 'Uzupełnij partie mięsa, żeby potwierdzić wykonanie'
+            : 'Brak HMI na masownicy — biuro potwierdza, że pozycja została wymieszana; mięso przyprawione wejdzie na magazyn'
+          }
+          className={cn(
+            'inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap',
+            canConfirmNow && !confirmingExecution
+              ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+              : 'border-surface-4 text-ink-5 cursor-not-allowed',
+          )}>
+          {confirmingExecution
+            ? <Loader2 size={10} className="animate-spin" />
+            : <CheckCheck size={10} />}
+          Potwierdź
+        </button>
+      )}
+      {row.status === 'done' && showConfirmExecution && (
+        <button
+          onClick={onUndoConfirm}
+          disabled={confirmingExecution}
+          title="Cofnij potwierdzenie — usuwa partię przyprawionego, przywraca mięso i przyprawy; działa tylko gdy nic nie zużyto na produkcji"
+          className={cn(
+            'inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap',
+            'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100',
+            confirmingExecution && 'opacity-60 cursor-wait',
+          )}>
+          {confirmingExecution
+            ? <Loader2 size={10} className="animate-spin" />
+            : <RotateCcw size={10} />}
+          Cofnij
+        </button>
+      )}
+    </span>
+  )
+
+  const moveActions = (
+    <span className="flex items-center justify-end gap-0.5">
+      <span className="flex flex-col">
+        <button onClick={() => onMove(-1)} disabled={index === 0}
+          className="h-3.5 w-6 flex items-center justify-center text-ink-4 hover:text-ink disabled:opacity-20">
+          <ArrowUp size={12} />
+        </button>
+        <button onClick={() => onMove(1)} disabled={index === total - 1}
+          className="h-3.5 w-6 flex items-center justify-center text-ink-4 hover:text-ink disabled:opacity-20">
+          <ArrowDown size={12} />
+        </button>
+      </span>
+      <button onClick={onToggle} disabled={locked}
+        className="w-6 h-6 rounded flex items-center justify-center text-ink-4 hover:bg-surface-2 disabled:opacity-20"
+        title="Partie i składniki">
+        {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+      </button>
+      <button onClick={onDelete} disabled={locked}
+        className="w-6 h-6 rounded flex items-center justify-center text-ink-4 hover:text-destructive hover:bg-destructive/10 disabled:opacity-20"
+        title={locked ? 'Pozycja w masownicy/gotowa' : 'Usuń z planu'}>
+        <Trash2 size={13} />
+      </button>
+    </span>
+  )
+
   return (
     <div className={cn('border-b border-surface-3 last:border-b-0', locked ? 'bg-surface-2/60' : 'bg-white')}
       onDragOver={dragHandlers.onDragOver} onDrop={dragHandlers.onDrop}>
-      <div className={cn(GRID, 'px-2.5 py-1.5')}>
+
+      {/* ── Układ DESKTOP (≥lg) — identyczny grid jak dotąd ── */}
+      <div className={cn(GRID, 'hidden lg:grid px-2.5 py-1.5')}>
         <span
           draggable={dragHandlers.draggable && !locked}
           onDragStart={dragHandlers.onDragStart}
@@ -104,125 +237,37 @@ export function PlanRow({
           <GripVertical size={15} />
         </span>
         <span className="text-center text-[13px] font-black text-brand tabular-nums">{index + 1}</span>
+        {recipeSelect}
+        {kgInput}
+        {outputEl}
+        {lotsBtn}
+        {statusEl}
+        {moveActions}
+      </div>
 
-        <Select value={row.recipeId || '__none'} disabled={locked}
-          onValueChange={v => onUpdate({ recipeId: v === '__none' ? '' : v })}>
-          <SelectTrigger className="h-8 text-[12px]"><SelectValue placeholder="Receptura..." /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__none">Receptura...</SelectItem>
-            {recipes.map(rc => <SelectItem key={rc.id} value={rc.id}>{rc.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
-
-        <span className="flex items-center gap-1 justify-end">
-          <Input type="number" min="1" step="10" value={row.meatKg} disabled={locked}
-            onChange={e => onUpdate({ meatKg: e.target.value })}
-            className="h-8 w-20 text-[13px] font-bold text-right tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-          <span className="text-[10px] text-ink-4">kg</span>
-        </span>
-
-        <span className="text-right text-[12px] text-emerald-700 font-bold tabular-nums whitespace-nowrap">
-          {output > 0 ? `${fmtKg(output, 0)} kg` : '—'}
-        </span>
-
-        {/* Partie — chipy z numerem lotu i kg; klik rozwija picker */}
-        <button onClick={onToggle} disabled={locked}
-          className="flex items-center gap-1 flex-wrap text-left disabled:cursor-default min-h-[26px]"
-          title={locked ? undefined : 'Kliknij, aby dobrać partie'}>
-          {row.lots.length === 0 ? (
-            !locked && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700">
-                <AlertTriangle size={12} /> przypisz partie
-              </span>
-            )
-          ) : (
-            <>
-              {shownLots.map(l => (
-                <span key={l.meatLotId}
-                  className={cn(
-                    'inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[11px] font-mono font-bold tabular-nums',
-                    lotsOk ? 'bg-surface-2 border-surface-4 text-ink' : 'bg-amber-50 border-amber-200 text-amber-800',
-                  )}>
-                  {lotNo(l.meatLotId)}
-                  <span className="font-sans font-semibold text-ink-3">{fmtKg(l.kgPlanned, 0)}</span>
-                </span>
-              ))}
-              {row.lots.length > 3 && (
-                <span className="text-[11px] font-semibold text-ink-4">+{row.lots.length - 3}</span>
-              )}
-              {!lotsOk && (
-                <span className="text-[10px] font-bold text-amber-700 whitespace-nowrap">
-                  {fmtKg(lotKg, 0)}/{fmtKg(kg, 0)}
-                </span>
-              )}
-            </>
-          )}
-        </button>
-
-        <span className="flex flex-col items-start gap-1">
-          <StatusBadge tone={st.tone}
-            label={row.status === 'in_progress' && row.kgDone ? `${st.label} · ${fmtKg(row.kgDone, 0)} kg` : st.label} />
-          {!locked && showConfirmExecution && (
-            <button
-              onClick={onConfirmExecution}
-              disabled={!canConfirmNow || confirmingExecution}
-              title={
-                !canConfirmExecution ? 'Najpierw zapisz plan'
-                : !lotsOk ? 'Uzupełnij partie mięsa, żeby potwierdzić wykonanie'
-                : 'Brak HMI na masownicy — biuro potwierdza, że pozycja została wymieszana; mięso przyprawione wejdzie na magazyn'
-              }
-              className={cn(
-                'inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap',
-                canConfirmNow && !confirmingExecution
-                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                  : 'border-surface-4 text-ink-5 cursor-not-allowed',
-              )}>
-              {confirmingExecution
-                ? <Loader2 size={10} className="animate-spin" />
-                : <CheckCheck size={10} />}
-              Potwierdź
-            </button>
-          )}
-          {row.status === 'done' && showConfirmExecution && (
-            <button
-              onClick={onUndoConfirm}
-              disabled={confirmingExecution}
-              title="Cofnij potwierdzenie — usuwa partię przyprawionego, przywraca mięso i przyprawy; działa tylko gdy nic nie zużyto na produkcji"
-              className={cn(
-                'inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap',
-                'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100',
-                confirmingExecution && 'opacity-60 cursor-wait',
-              )}>
-              {confirmingExecution
-                ? <Loader2 size={10} className="animate-spin" />
-                : <RotateCcw size={10} />}
-              Cofnij
-            </button>
-          )}
-        </span>
-
-        <span className="flex items-center justify-end gap-0.5">
-          <span className="flex flex-col">
-            <button onClick={() => onMove(-1)} disabled={index === 0}
-              className="h-3.5 w-6 flex items-center justify-center text-ink-4 hover:text-ink disabled:opacity-20">
-              <ArrowUp size={12} />
-            </button>
-            <button onClick={() => onMove(1)} disabled={index === total - 1}
-              className="h-3.5 w-6 flex items-center justify-center text-ink-4 hover:text-ink disabled:opacity-20">
-              <ArrowDown size={12} />
-            </button>
-          </span>
-          <button onClick={onToggle} disabled={locked}
-            className="w-6 h-6 rounded flex items-center justify-center text-ink-4 hover:bg-surface-2 disabled:opacity-20"
-            title="Partie i składniki">
-            {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-          </button>
-          <button onClick={onDelete} disabled={locked}
-            className="w-6 h-6 rounded flex items-center justify-center text-ink-4 hover:text-destructive hover:bg-destructive/10 disabled:opacity-20"
-            title={locked ? 'Pozycja w masownicy/gotowa' : 'Usuń z planu'}>
-            <Trash2 size={13} />
-          </button>
-        </span>
+      {/* ── Układ MOBILE (<lg) — karta ── */}
+      <div className="lg:hidden px-3 py-2.5 space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-black text-brand tabular-nums">{index + 1}.</span>
+          <div className="flex-1 min-w-0">{recipeSelect}</div>
+          {moveActions}
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-4">Mięso</span>
+          {kgInput}
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-4">Półprodukt</span>
+          {outputEl}
+        </div>
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-4 pt-1">Partie</span>
+          <div className="flex-1 flex justify-end">{lotsBtn}</div>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-4">Status</span>
+          {statusEl}
+        </div>
       </div>
 
       {expanded && !locked && (
