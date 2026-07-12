@@ -298,6 +298,24 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
     }
   }
 
+  // Cofnięcie potwierdzenia (undo): odwraca finish; działa tylko gdy partia niezużyta.
+  async function undoConfirmExecution(row: PlanRowData) {
+    if (!row.id || !isToday) return
+    if (!window.confirm(
+      `Cofnąć potwierdzenie: ${recipes.find((r: any) => r.id === row.recipeId)?.name ?? ''}?\n\nUsunie partię przyprawionego, przywróci mięso i przyprawy, zlecenie wróci do kolejki. Działa tylko gdy nic nie zużyto na produkcji.`
+    )) return
+    setConfirmingKey(row.rowKey)
+    try {
+      await mixingOrdersApi.undoConfirm(row.id)
+      await load()
+      toast.success('Cofnięto potwierdzenie — zlecenie wróciło do kolejki')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Nie można cofnąć potwierdzenia')
+    } finally {
+      setConfirmingKey(null)
+    }
+  }
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-3 items-start">
       {/* ── Plan dnia (lewa kolumna) ── */}
@@ -401,6 +419,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
                 onToggle={() => setExpandedKey(k => k === r.rowKey ? null : r.rowKey)}
                 onAutoFefoRow={() => autoFefoRow(i)}
                 onConfirmExecution={() => confirmExecution(r)}
+                onUndoConfirm={() => undoConfirmExecution(r)}
                 confirmingExecution={confirmingKey === r.rowKey}
                 canConfirmExecution={!dirty && !!r.id}
                 showConfirmExecution={isToday}

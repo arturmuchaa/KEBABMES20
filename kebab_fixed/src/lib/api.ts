@@ -1981,6 +1981,8 @@ export const mixingOrdersApi = {
       batch_no: batchNo || '',
       lot_allocations: lotAllocations ?? [],
     }).then(mapMixingOrder),
+  undoConfirm: (id: string) =>
+    patch<any>(`/mixing-orders/${id}/undo-confirm`, {}).then(mapMixingOrder),
   confirm:     (id: string) =>
     patch<any>(`/mixing-orders/${id}/confirm`, {}).then(mapMixingOrder),
   autoApprove: (id: string) =>

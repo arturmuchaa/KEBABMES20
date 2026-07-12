@@ -13,7 +13,7 @@ import {
 import { fmtKg, cn } from '@/lib/utils'
 import {
   ArrowDown, ArrowUp, ChevronDown, ChevronRight, GripVertical, Trash2,
-  AlertTriangle, CheckCheck, Loader2,
+  AlertTriangle, CheckCheck, Loader2, RotateCcw,
 } from 'lucide-react'
 import { MeatLotPicker, type PickerLot, type SelLot } from './MeatLotPicker'
 import { IngredientPreview } from './IngredientPreview'
@@ -43,7 +43,7 @@ const GRID = 'grid grid-cols-[28px_20px_minmax(180px,1.2fr)_120px_96px_minmax(14
 export function PlanRow({
   row, index, total, recipes, lots, output, expanded,
   onUpdate, onMove, onDelete, onToggle, onAutoFefoRow,
-  onConfirmExecution, confirmingExecution, canConfirmExecution, showConfirmExecution,
+  onConfirmExecution, onUndoConfirm, confirmingExecution, canConfirmExecution, showConfirmExecution,
   dragHandlers,
 }: {
   row: PlanRowData
@@ -60,6 +60,8 @@ export function PlanRow({
   onAutoFefoRow: () => void
   /** Biuro potwierdza wykonanie (brak HMI na masownicy) — wywołuje finish-session. */
   onConfirmExecution: () => void
+  /** Cofnięcie potwierdzenia zlecenia 'done' (undo-confirm) — gdy nic nie zużyto dalej. */
+  onUndoConfirm: () => void
   confirmingExecution: boolean
   /** Plan zapisany (ma id) i bez niezapisanych zmian — inaczej potwierdzenie
    * mogłoby dotyczyć pozycji, która zaraz zniknie/zmieni się przy zapisie. */
@@ -179,6 +181,22 @@ export function PlanRow({
                 ? <Loader2 size={10} className="animate-spin" />
                 : <CheckCheck size={10} />}
               Potwierdź
+            </button>
+          )}
+          {row.status === 'done' && showConfirmExecution && (
+            <button
+              onClick={onUndoConfirm}
+              disabled={confirmingExecution}
+              title="Cofnij potwierdzenie — usuwa partię przyprawionego, przywraca mięso i przyprawy; działa tylko gdy nic nie zużyto na produkcji"
+              className={cn(
+                'inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap',
+                'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100',
+                confirmingExecution && 'opacity-60 cursor-wait',
+              )}>
+              {confirmingExecution
+                ? <Loader2 size={10} className="animate-spin" />
+                : <RotateCcw size={10} />}
+              Cofnij
             </button>
           )}
         </span>
