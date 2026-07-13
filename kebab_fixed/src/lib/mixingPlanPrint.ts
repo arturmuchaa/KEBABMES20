@@ -36,6 +36,23 @@ export interface LotRow {
   supplierName: string
 }
 
+/**
+ * Zaokrąglenie dawki składnika na wydruku przepisu W GÓRĘ do 0,05 kg.
+ * Operator odmierza na wadze z działką 0,05 — surowe proporcje (np. 1,16/100 kg
+ * → na wsad 600 kg = 6,96) są nieodmierzalne, więc podnosimy do najbliższej
+ * odmierzalnej wartości: 6,96 → 7,00; 2,32 → 2,35. Zawsze w górę (nigdy mniej
+ * przyprawy niż wynika z receptury).
+ *
+ * Krok 0,05 = 1/20, więc liczymy w krokach 1/20. Epsilon 1e-9 pochłania błąd
+ * zmiennoprzecinkowy, żeby wartość już leżąca na siatce (2,35 → 47 kroków) nie
+ * przeskoczyła o jeden krok w górę.
+ */
+export function roundIngredientDose(kg: number): number {
+  if (!Number.isFinite(kg) || kg <= 0) return 0
+  const steps = Math.ceil(kg * 20 - 1e-9)
+  return steps / 20
+}
+
 export function buildLotRows(plan: PlanPositionInput[]): LotRow[] {
   const rows: LotRow[] = []
 

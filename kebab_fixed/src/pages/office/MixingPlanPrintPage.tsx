@@ -21,7 +21,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { mixingOrdersApi, recipesApi } from '@/lib/apiClient'
-import { buildLotRows } from '@/lib/mixingPlanPrint'
+import { buildLotRows, roundIngredientDose } from '@/lib/mixingPlanPrint'
 
 const nf0 = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -243,7 +243,7 @@ export function MixingPlanPrintPage() {
                     <td style={{ ...S.tdL, textTransform: 'uppercase' as const }}>{ri.ingredientName}</td>
                     {MACHINE_BATCHES_KG.map(kg => (
                       <td key={kg} style={{ ...S.tdR, fontWeight: 700 }}>
-                        {nf2.format((ri.qtyPer100kg * kg) / 100)} {ri.unit}
+                        {nf2.format(roundIngredientDose((ri.qtyPer100kg * kg) / 100))} {ri.unit}
                       </td>
                     ))}
                   </tr>
@@ -281,7 +281,7 @@ export function MixingPlanPrintPage() {
               {spiceTotals.map(s => (
                 <tr key={s.name}>
                   <td style={{ ...S.tdL, textTransform: 'uppercase' as const }}>{s.name}</td>
-                  <td style={{ ...S.tdR, fontWeight: 700 }}>{nf2.format(s.qty)} {s.unit}</td>
+                  <td style={{ ...S.tdR, fontWeight: 700 }}>{nf2.format(roundIngredientDose(s.qty))} {s.unit}</td>
                 </tr>
               ))}
             </tbody>

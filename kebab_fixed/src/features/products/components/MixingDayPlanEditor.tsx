@@ -48,9 +48,13 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   useEffect(() => { dirtyRef.current = dirty }, [dirty])
 
   const isToday = planDate === todayIso()
-  // Partie mięsa obowiązkowe tylko dla planu na dziś/przeszłość — na przyszły
-  // dzień surowiec może jeszcze nie być na magazynie (patrz save/allLotsComplete).
-  const requireLots = planDate <= todayIso()
+  // Partie mięsa NIE są wymagane do zapisu planu na dziś ani na przyszłość —
+  // rozbiór często pracuje jeszcze mięso w trakcie dnia, a biuro chce zapisać
+  // i przedstawić operatorowi WSTĘPNY plan; partie dogrywa się (Auto-FEFO),
+  // gdy surowiec zejdzie, przed potwierdzeniem wykonania. Wymagane tylko przy
+  // edycji planu wstecz (przeszłość). Jeśli partie JUŻ podano — muszą zgadzać
+  // się z kg (patrz save/allLotsComplete).
+  const requireLots = planDate < todayIso()
 
   // Dostępne partie mięsa, FEFO. UWAGA: m.kgAvailable z mapMeatStock to już
   // kg_free (= available - reserved), NIE odejmować kgReserved drugi raz!

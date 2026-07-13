@@ -1,5 +1,29 @@
 import { describe, it, expect } from 'vitest'
-import { buildLotRows } from './mixingPlanPrint'
+import { buildLotRows, roundIngredientDose } from './mixingPlanPrint'
+
+describe('roundIngredientDose — dawka składnika w górę do 0,05 kg', () => {
+  it('przypadki z hali: 6,96 → 7,00 (wsad 600), 2,32 → 2,35 (wsad 200)', () => {
+    expect(roundIngredientDose(6.96)).toBeCloseTo(7.0, 10)
+    expect(roundIngredientDose(2.32)).toBeCloseTo(2.35, 10)
+  })
+
+  it('zawsze w górę, nie do najbliższego (2,31 → 2,35, nie 2,30)', () => {
+    expect(roundIngredientDose(2.31)).toBeCloseTo(2.35, 10)
+    expect(roundIngredientDose(2.34)).toBeCloseTo(2.35, 10)
+  })
+
+  it('wartość już na siatce 0,05 zostaje bez zmian', () => {
+    expect(roundIngredientDose(2.35)).toBeCloseTo(2.35, 10)
+    expect(roundIngredientDose(2.3)).toBeCloseTo(2.3, 10)
+    expect(roundIngredientDose(7.0)).toBeCloseTo(7.0, 10)
+  })
+
+  it('zero / wartości niepoprawne → 0', () => {
+    expect(roundIngredientDose(0)).toBe(0)
+    expect(roundIngredientDose(-1)).toBe(0)
+    expect(roundIngredientDose(NaN)).toBe(0)
+  })
+})
 
 describe('buildLotRows — spłaszczenie planu masowania do wierszy partii', () => {
   it('pozycja z jedną partią → jeden wiersz, rowSpan=1, isFirstRow=true', () => {

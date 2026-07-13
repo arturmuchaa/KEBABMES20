@@ -1266,10 +1266,11 @@ def validate_day_plan_item(
     """Waliduje pojedynczą pozycję planu.
 
     Partie mięsa są OBOWIĄZKOWE dla pozycji edytowalnych (nowa/w kolejce)
-    TYLKO gdy ``require_lots`` (plan na DZIŚ — ma iść od razu do wykonania).
-    Plan na przyszły dzień można zapisać bez partii — surowiec może jeszcze
-    nie być na magazynie; planista dogrywa Auto-FEFO, gdy się pojawi.
-    Jeśli partie już podano (nawet dla przyszłego dnia), suma musi się
+    TYLKO gdy ``require_lots`` (edycja planu wstecz — przeszłość). Plan na
+    dziś i na przyszłość można zapisać bez partii — rozbiór bywa jeszcze w
+    toku i biuro przedstawia operatorowi wstępny plan; planista dogrywa
+    Auto-FEFO, gdy surowiec zejdzie, przed potwierdzeniem wykonania.
+    Jeśli partie już podano (nawet bez wymogu), suma musi się
     zgadzać z meatKg — częściowe/błędne przypisanie to nadal błąd.
     Pozycje nietykalne (in_progress/done) pomijają sprawdzanie partii —
     ich loty są już zarezerwowane i nie wolno ich ruszać.
@@ -1287,8 +1288,8 @@ def validate_day_plan_item(
         if require_lots:
             raise HTTPException(
                 400,
-                "Każda pozycja planu na dziś wymaga przypisanych partii mięsa "
-                "(partie obowiązkowe przy planowaniu na bieżący dzień).",
+                "Edycja planu wstecz wymaga przypisanych partii mięsa dla "
+                "każdej pozycji.",
             )
         return
     total = sum(
@@ -1336,12 +1337,16 @@ def save_day_plan(
       jeśli surowca jeszcze nie ma na magazynie — patrz require_lots niżej)
     * pozycja w kolejce usunięta z planu → anulowanie (zwolnienie rezerwacji)
 
-    Partie mięsa obowiązkowe TYLKO dla planu na DZIŚ (ma iść od razu do
-    wykonania). Plan na przyszły dzień może być zapisany bez partii —
-    planista wraca i dogrywa Auto-FEFO, gdy surowiec się pojawi.
+    Partie mięsa obowiązkowe TYLKO przy edycji planu wstecz (przeszłość).
+    Plan na dziś i na przyszłość może być zapisany bez partii (wstępny plan,
+    rozbiór w toku) — planista wraca i dogrywa Auto-FEFO, gdy surowiec zejdzie.
     """
     pd = plan_date or _today_iso()
-    require_lots = pd <= _today_iso()
+    # Partie NIE są wymagane do zapisu planu na dziś ani na przyszłość: rozbiór
+    # bywa jeszcze w toku, a biuro chce zapisać i przedstawić operatorowi
+    # WSTĘPNY plan. Partie dogrywa się (Auto-FEFO) przed potwierdzeniem
+    # wykonania. Wymagane tylko przy edycji planu wstecz (przeszłość).
+    require_lots = pd < _today_iso()
     to_cancel: List[str] = []
     with transaction() as conn:
         existing_rows = cx_query_all(
