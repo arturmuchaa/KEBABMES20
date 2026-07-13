@@ -519,6 +519,43 @@ def _check_plan_shortfalls(
     return shortfalls
 
 
+def validate_plan_edit(existing: list[dict], incoming: list[dict]) -> list[str]:
+    """Reguły nietykalności wyprodukowanych pozycji przy edycji planu.
+
+    Pozycja z qty_done>0 (część spakowana): nie można jej usunąć z planu,
+    zejść qty poniżej qty_done, ani zmienić receptury. Pozycje bez produkcji
+    (qty_done=0) są w pełni edytowalne/usuwalne. Nowe pozycje (id puste)
+    zawsze OK. Czysta funkcja — bez DB.
+
+    ``existing``: [{id, qty_done, recipe_id}] (żywy stan z bazy).
+    ``incoming``: [{id, qty, recipe_id}] (payload edycji; id puste = nowa).
+    """
+    incoming_by_id = {str(l.get("id") or ""): l for l in incoming if l.get("id")}
+    errors: list[str] = []
+    for ex in existing:
+        qd = int(ex.get("qty_done") or 0)
+        if qd <= 0:
+            continue
+        lid = str(ex.get("id") or "")
+        nl = incoming_by_id.get(lid)
+        if nl is None:
+            errors.append(
+                f"Pozycja częściowo/w całości wyprodukowana ({qd} szt.) — "
+                f"nie można jej usunąć z planu."
+            )
+            continue
+        if int(nl.get("qty") or 0) < qd:
+            errors.append(
+                f"Nie można zejść z ilości poniżej już wyprodukowanych {qd} szt."
+            )
+        if str(nl.get("recipe_id") or "") != str(ex.get("recipe_id") or ""):
+            errors.append(
+                "Nie można zmienić receptury pozycji, która jest już "
+                "częściowo wyprodukowana."
+            )
+    return errors
+
+
 def _restore_reservations(conn, plan_id: str) -> None:
     old_lines = cx_query_all(
         conn, "SELECT * FROM production_plan_lines WHERE plan_id=%s", (plan_id,)
