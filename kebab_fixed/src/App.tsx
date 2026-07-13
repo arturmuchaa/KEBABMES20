@@ -43,6 +43,7 @@ import { CarriersPage }         from '@/pages/office/CarriersPage'
 import { LabelTemplateSetupPage } from '@/pages/office/LabelTemplateSetupPage'
 import { CompanySettingsPage } from '@/pages/office/CompanySettingsPage'
 import { ProductionPlanningPage } from '@/pages/office/ProductionPlanningPage'
+import { ProductionPlanEditorPage } from '@/pages/office/ProductionPlanEditorPage'
 import { RecallPage }             from '@/pages/office/RecallPage'
 import { MixingHmiV2Page }        from '@/pages/tablet/MixingHmiV2Page'
 import { TracePage }              from '@/pages/office/TracePage'
@@ -156,6 +157,8 @@ export default function App() {
         <Route path="historia-produkcji"    element={<ProductionHistoryPage />} />
         <Route path="analityka"             element={<AnalitykaPage />} />
         <Route path="planowanie-produkcji"  element={<ProductionPlanningPage />} />
+        <Route path="planowanie-produkcji/nowy"       element={<ProductionPlanEditorPage />} />
+        <Route path="planowanie-produkcji/:id/edytuj" element={<ProductionPlanEditorPage />} />
         <Route path="pracownicy"            element={<WorkersPage />} />
         <Route path="rozliczenia"           element={<PayrollPage />} />
         <Route path="sledzenie"             element={<TracePage />} />

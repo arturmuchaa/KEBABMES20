@@ -5,6 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class PlanLineCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
+    # id istniejącej pozycji planu — dosyłane przy edycji, by dopasować pozycje
+    # i zachować qty_done. Puste = nowa pozycja.
+    id: str = Field("", alias="id")
     qty: int = 0
     kg_per_unit: float = Field(0, alias="kgPerUnit")
     product_type_id: str = Field("", alias="productTypeId")

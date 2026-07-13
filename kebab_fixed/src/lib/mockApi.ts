@@ -2387,6 +2387,7 @@ export interface ProductionPlan {
 }
 
 export interface CreatePlanLineDto {
+  id?: string        // id istniejącej pozycji (edycja) — puste/brak dla nowej
   qty: number; kgPerUnit: number
   productTypeId: string; recipeId: string
   packagingId?: string

@@ -519,13 +519,59 @@ def _check_plan_shortfalls(
     return shortfalls
 
 
-def _restore_reservations(conn, plan_id: str) -> None:
+def validate_plan_edit(existing: list[dict], incoming: list[dict]) -> list[str]:
+    """Wyprodukowane pozycje (qty_done>0) są ZAMROŻONE przy edycji planu.
+
+    Pozycja rozpoczęta ma już przypisaną alokację partii i (dla mieszanych)
+    numer PM na wyprodukowanych/oetykietowanych sztukach — przeliczenie jej
+    zepsułoby proweniencję i traceability. Dlatego produkcja jej NIE zmienia:
+    nie można usunąć, zmienić ilości, receptury ani partii. Pozycje bez
+    produkcji (qty_done=0) są w pełni edytowalne/usuwalne. Nowe (id puste)
+    zawsze OK. Czysta funkcja — bez DB.
+
+    ``existing``: [{id, qty_done, qty, recipe_id}] (żywy stan z bazy).
+    ``incoming``: [{id, qty, recipe_id}] (payload; id puste = nowa).
+
+    Partii NIE porównujemy: payload z formularza nie niesie wiarygodnie pełnego
+    zbioru partii pozycji wielopartyjnej/komponentowej (70/30), a alokacja
+    zamrożonej pozycji i tak jest brana z bazy (payload ignorowany). Blokujemy
+    tylko usunięcie oraz zmianę ilości/receptury — te front niesie wiernie.
+    """
+    incoming_by_id = {str(l.get("id") or ""): l for l in incoming if l.get("id")}
+    errors: list[str] = []
+    for ex in existing:
+        qd = int(ex.get("qty_done") or 0)
+        if qd <= 0:
+            continue
+        lid = str(ex.get("id") or "")
+        nl = incoming_by_id.get(lid)
+        if nl is None:
+            errors.append(
+                f"Pozycja rozpoczęta ({qd} szt. spakowane) — nie można jej "
+                f"usunąć z planu."
+            )
+            continue
+        if int(nl.get("qty") or 0) != int(ex.get("qty") or 0):
+            errors.append(
+                f"Pozycja rozpoczęta ({qd} szt.) — nie można zmienić ilości."
+            )
+        if str(nl.get("recipe_id") or "") != str(ex.get("recipe_id") or ""):
+            errors.append("Pozycja rozpoczęta — nie można zmienić receptury.")
+    return errors
+
+
+def _restore_reservations(conn, plan_id: str, skip_line_ids: set | None = None) -> None:
+    """Zwalnia rezerwacje (kg_reserved) pozycji planu. ``skip_line_ids`` —
+    pozycje ZAMROŻONE (wyprodukowane): ich rezerwacji nie ruszamy, bo zostają
+    w planie nietknięte."""
     old_lines = cx_query_all(
         conn, "SELECT * FROM production_plan_lines WHERE plan_id=%s", (plan_id,)
     )
     per_line_kg: list[Dict[str, float]] = []
     touched_ids: set[str] = set()
     for old in old_lines:
+        if skip_line_ids and old.get("id") in skip_line_ids:
+            continue
         ba = old.get("batch_allocation") or {}
         if isinstance(ba, str):
             try:
@@ -592,7 +638,9 @@ def _insert_line(
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s)
         """,
         (
-            cuid(),
+            # Zachowaj id pozycji z DTO (edycja planu — dopasowanie i qty_done);
+            # brak = nowa pozycja → nowy cuid.
+            str(getattr(line, "id", "") or "") or cuid(),
             plan_id,
             line.qty,
             line.kg_per_unit,
@@ -746,8 +794,6 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
     valid_lines = [
         l for l in dto.lines if l.recipe_id and l.qty > 0 and l.kg_per_unit > 0
     ]
-    total_kg = sum(l.qty * l.kg_per_unit for l in valid_lines)
-    total_units = sum(l.qty for l in valid_lines)
 
     with transaction() as conn:
         plan = cx_query_one(
@@ -755,12 +801,55 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
         )
         if not plan:
             raise HTTPException(404, "Plan nie znaleziony")
-        if plan["status"] != "draft":
-            raise HTTPException(400, "Można edytować tylko plan w statusie Szkic")
+        if plan["status"] not in ("draft", "active"):
+            raise HTTPException(
+                400, "Edytować można tylko plan w statusie Szkic lub Aktywny."
+            )
 
-        _restore_reservations(conn, plan_id)
+        # Żywy stan pozycji (FOR UPDATE) — blokady liczymy od realnego qty_done
+        # (nie z payloadu; tablet mógł spakować więcej między załadowaniem a zapisem).
+        old_lines = cx_query_all(
+            conn,
+            "SELECT id, qty_done, recipe_id, qty, total_kg "
+            "FROM production_plan_lines WHERE plan_id=%s FOR UPDATE",
+            (plan_id,),
+        )
+        produced_ids = {r["id"] for r in old_lines if int(r.get("qty_done") or 0) > 0}
+
+        edit_errs = validate_plan_edit(
+            [
+                {"id": r["id"], "qty_done": r.get("qty_done"),
+                 "qty": r.get("qty"), "recipe_id": r.get("recipe_id")}
+                for r in old_lines
+            ],
+            [{"id": l.id, "qty": l.qty, "recipe_id": l.recipe_id} for l in valid_lines],
+        )
+        if edit_errs:
+            raise HTTPException(
+                400, "Nie można zapisać zmian:\n• " + "\n• ".join(edit_errs)
+            )
+
+        # Pozycje ZAMROŻONE (qty_done>0) zostają w bazie NIETKNIĘTE (wiersz +
+        # alokacja + rezerwacja + PM na sztukach). Przebudowujemy i re-rezerwujemy
+        # WYŁĄCZNIE pozycje edytowalne (bez produkcji). Totale planu = edytowalne
+        # (payload) + zamrożone (z bazy — payload zamrożonych jest ignorowany).
+        editable_lines = [l for l in valid_lines if str(l.id or "") not in produced_ids]
+        frozen_rows = [r for r in old_lines if r["id"] in produced_ids]
+        total_kg = round(
+            sum(l.qty * l.kg_per_unit for l in editable_lines)
+            + sum(float(r.get("total_kg") or 0) for r in frozen_rows),
+            3,
+        )
+        total_units = (
+            sum(l.qty for l in editable_lines)
+            + sum(int(r.get("qty") or 0) for r in frozen_rows)
+        )
+
+        _restore_reservations(conn, plan_id, skip_line_ids=produced_ids)
         cx_execute(
-            conn, "DELETE FROM production_plan_lines WHERE plan_id=%s", (plan_id,)
+            conn,
+            "DELETE FROM production_plan_lines WHERE plan_id=%s AND COALESCE(qty_done,0)=0",
+            (plan_id,),
         )
 
         cx_execute(
@@ -775,7 +864,7 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
 
         new_ids = {
             bid
-            for line in valid_lines
+            for line in editable_lines
             for bid in (
                 line.seasoned_batch_ids
                 or ([line.seasoned_batch_id] if line.seasoned_batch_id else [])
@@ -784,8 +873,9 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
         }
         locked = _lock_seasoned_batches(conn, sorted(new_ids))
 
-        # Walidacja: czy zaznaczone partie mają wystarczająco kg?
-        shortfalls = _check_plan_shortfalls(conn, valid_lines, locked)
+        # Walidacja braków tylko dla pozycji edytowalnych — zamrożone mają
+        # rezerwacje utrzymane (nie zwalniamy ich), więc ich partie nie są tu liczone.
+        shortfalls = _check_plan_shortfalls(conn, editable_lines, locked)
         if shortfalls:
             raise HTTPException(
                 400,
@@ -793,7 +883,7 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
                 + "\n".join("• " + s for s in shortfalls),
             )
 
-        for line in valid_lines:
+        for line in editable_lines:
             line_kg = round(line.qty * line.kg_per_unit, 3)
             recipe_name, product_type_name, packaging_name = _resolve_line_names(
                 conn, line
@@ -963,7 +1053,7 @@ def update_line_progress(
         status = "PLANNED"
 
     with transaction() as conn:
-        cx_execute(
+        rowcount = cx_execute_rowcount(
             conn,
             """
             UPDATE production_plan_lines
@@ -975,6 +1065,15 @@ def update_line_progress(
             """,
             (qty_done, status, json.dumps(worker_entries or []), line_id),
         )
+        # Wąski wyścig: edycja planu mogła skasować/odtworzyć wiersz między
+        # odczytem a UPDATE (READ COMMITTED). Nie chowaj zgubionego skanu —
+        # zgłoś, żeby tablet ponowił, zamiast po cichu tracić qty_done.
+        if rowcount == 0:
+            raise HTTPException(
+                409,
+                "Linia planu zmieniła się w trakcie zapisu (plan był edytowany) "
+                "— odśwież i zapisz postęp ponownie.",
+            )
     logger.info(
         "plan.line_progress",
         extra={"plan_id": plan_id, "line_id": line_id, "qty_done": qty_done, "status": status},
