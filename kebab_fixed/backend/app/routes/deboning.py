@@ -129,6 +129,16 @@ def delete_deboning_entry(entry_id: str):
     return svc.delete_deboning_entry(entry_id)
 
 
+@router.post("/api/deboning/entries/{entry_id}/change-batch")
+def change_deboning_entry_batch(entry_id: str, body: dict):
+    """Korekta z biura: przenieś wpis rozbioru na inną partię surowca
+    (operator wybrał złą). Wpis zostaje identyczny — zmienia się tylko partia."""
+    raw_batch_id = str(body.get("rawBatchId") or body.get("raw_batch_id") or "")
+    if not raw_batch_id:
+        raise HTTPException(400, "rawBatchId wymagane")
+    return svc.change_deboning_entry_batch(entry_id, raw_batch_id)
+
+
 @router.get("/api/deboning")
 def list_deboning_sessions():
     return svc.list_deboning_sessions()

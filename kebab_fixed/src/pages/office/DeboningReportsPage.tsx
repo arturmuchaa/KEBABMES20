@@ -6,14 +6,14 @@
  * ranking pracowników (kto najwięcej, kto najlepszy %) i live-feed (gdy dziś).
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { deboningApi, type DeboningStats, type DeboningStatsWorker } from '@/lib/api'
+import { deboningApi, deboningEntriesApi, rawBatchesApi, type DeboningStats, type DeboningStatsWorker } from '@/lib/api'
 import { DataTable } from '@/components/DataTable'
 import { usePageHeaderActions } from '@/components/PageHeader'
 import { cn } from '@/lib/utils'
 import { useNavigate } from 'react-router-dom'
 import {
   Scissors, Beef, Gauge, Percent, Users, Bone, Layers, Radio, CalendarDays, X,
-  Package, Scale, Truck, Banknote, Printer,
+  Package, Scale, Truck, Banknote, Printer, ArrowLeftRight, Loader2,
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -157,6 +157,34 @@ export function DeboningReportsPage() {
   const [prevData, setPrevData] = useState<DeboningStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [drill, setDrill] = useState<DeboningStatsWorker | null>(null)
+
+  // Zmiana partii wpisu (korekta pomyłki operatora — z biura). Operator czasem
+  // wybierze złą partię; biuro przenosi wpis na właściwą bez ruszania HMI.
+  const [cbEntry, setCbEntry] = useState<any | null>(null)
+  const [cbBatches, setCbBatches] = useState<any[]>([])
+  const [cbTarget, setCbTarget] = useState('')
+  const [cbBusy, setCbBusy] = useState(false)
+  const [cbErr, setCbErr] = useState('')
+
+  useEffect(() => {
+    if (!cbEntry) return
+    setCbTarget(''); setCbErr('')
+    rawBatchesApi.all().then(p => setCbBatches(p.data ?? [])).catch(() => setCbBatches([]))
+  }, [cbEntry])
+
+  async function submitChangeBatch() {
+    if (!cbEntry || !cbTarget) return
+    setCbBusy(true); setCbErr('')
+    try {
+      await deboningEntriesApi.changeBatch(cbEntry.id, cbTarget)
+      setCbEntry(null)
+      load()
+    } catch (e) {
+      setCbErr(e instanceof Error ? e.message : 'Nie udało się zmienić partii')
+    } finally {
+      setCbBusy(false)
+    }
+  }
 
   // Kurs EUR z NBP (tabela A) — do przeliczenia kosztu mięsa na €/kg.
   // Ten sam wzorzec co WZ/faktury; brak kursu = po prostu bez linijki euro.
@@ -432,6 +460,11 @@ export function DeboningReportsPage() {
                         <div className="text-[13px] font-bold tabular-nums text-brand">{nf1.format(r.kgMeat)}<span className="text-[10px] text-ink-4"> kg</span></div>
                         <div className={cn('text-[11px] font-black tabular-nums', yieldTone(r.yield))}>{nf1.format(r.yield)}%</div>
                       </div>
+                      <button onClick={() => setCbEntry(r)}
+                        title="Zmień partię wpisu (korekta pomyłki operatora)"
+                        className="shrink-0 w-7 h-7 rounded flex items-center justify-center text-ink-4 hover:text-brand hover:bg-brand/10">
+                        <ArrowLeftRight size={14} />
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -622,6 +655,54 @@ export function DeboningReportsPage() {
           </Dialog>
         )
       })()}
+
+      {cbEntry && (
+        <Dialog open onOpenChange={v => { if (!v && !cbBusy) setCbEntry(null) }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-brand/10 text-brand"><ArrowLeftRight size={15} /></span>
+                Zmień partię wpisu
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 text-[13px]">
+              <div className="rounded-lg bg-surface-2 border border-surface-4 px-3 py-2 text-ink-2">
+                <b className="text-ink">{cbEntry.workerName}</b> · mięso {nf1.format(cbEntry.kgMeat)} kg · obecna partia{' '}
+                <code className="font-mono bg-brand/10 text-brand px-1 rounded">{cbEntry.rawBatchNo}</code>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wide text-ink-4 mb-1">Nowa partia surowca</label>
+                <select value={cbTarget} onChange={e => setCbTarget(e.target.value)}
+                  className="w-full h-9 px-2 text-[13px] border border-surface-4 rounded bg-white">
+                  <option value="">— wybierz partię —</option>
+                  {cbBatches
+                    .filter(b => b.internalBatchNo !== cbEntry.rawBatchNo)
+                    .map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.internalBatchNo}{(b.supplierDisplayName || b.supplierName) ? ` — ${b.supplierDisplayName || b.supplierName}` : ''} (wolne {nf0.format(b.kgAvailable)} kg)
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <p className="text-[11px] text-ink-4">
+                Ćwiartka wróci do obecnej partii i zejdzie z nowej; wyprodukowane mięso i produkty uboczne przejdą na nową partię. Wpis zostaje bez zmian (pracownik, kg, czas).
+              </p>
+              {cbErr && <div className="text-[12px] text-red-600 font-semibold">{cbErr}</div>}
+              <div className="flex justify-end gap-2 pt-1">
+                <button onClick={() => setCbEntry(null)} disabled={cbBusy}
+                  className="h-9 px-3 text-[13px] font-semibold rounded border border-surface-4 text-ink-2 hover:bg-surface-2">
+                  Anuluj
+                </button>
+                <button onClick={submitChangeBatch} disabled={cbBusy || !cbTarget}
+                  className="h-9 px-3 text-[13px] font-bold rounded bg-brand text-white hover:bg-brand/90 disabled:opacity-50 inline-flex items-center gap-1.5">
+                  {cbBusy ? <Loader2 size={14} className="animate-spin" /> : <ArrowLeftRight size={14} />}
+                  Zmień partię
+                </button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

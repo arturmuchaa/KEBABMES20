@@ -1298,3 +1298,205 @@ def delete_deboning_entry(entry_id: str) -> Dict:
         extra={"entry_id": entry_id, "kg_taken": kg_taken, "kg_meat": kg_meat},
     )
     return {"ok": True, "id": entry_id}
+
+
+def change_deboning_entry_batch(entry_id: str, new_raw_batch_id: str) -> Dict:
+    """Zmiana partii surowca wpisu rozbioru — korekta pomyłki operatora z biura.
+
+    Operator czasem wybierze złą partię. Ta operacja przenosi wpis na inną
+    partię, ale sam wpis zostaje IDENTYCZNY (pracownik, sesja, kg, czas) —
+    zmienia się tylko przypisanie partii. W jednej transakcji:
+      * ćwiartka wraca do starej partii (kg_available) i schodzi z nowej,
+      * wyprodukowane mięso przechodzi z lotu starej partii do lotu nowej
+        (lot per numer partii; pusty lot źródłowy kasujemy, docelowy tworzymy
+        gdy nie istnieje — jak w create_deboning_entry),
+      * loty ABP i ruchy magazynowe (IN mięso, OUT surowiec) przepinane.
+
+    Blokady (świadomie NIE ruszamy rezerwacji planu masowania — to robi się
+    przez aplikację): mięso zarezerwowane pod masowanie → najpierw zwolnij
+    plan. Dalej: brak wpisu/partii, ta sama partia, wpis rozliczony
+    (grzbiety/kości) lub nie 'complete', sesja zamknięta, ABP przetworzone,
+    mięso już zużyte, nowa partia bez wolnej ćwiartki.
+    """
+    with transaction() as conn:
+        entry = cx_query_one(
+            conn, "SELECT * FROM deboning_entries WHERE id=%s FOR UPDATE", (entry_id,)
+        )
+        if not entry:
+            raise HTTPException(404, "Wpis rozbioru nie znaleziony")
+        if (entry.get("status") or "complete") != "complete":
+            raise HTTPException(
+                400, "Zmiana partii możliwa tylko dla zakończonego wpisu"
+            )
+        if float(entry.get("kg_backs") or 0) > 0 or float(entry.get("kg_bones") or 0) > 0:
+            raise HTTPException(
+                400, "Wpis już rozliczony (grzbiety/kości) — zmiana partii niemożliwa"
+            )
+        if entry.get("session_id"):
+            srow = cx_query_one(
+                conn,
+                "SELECT status FROM production_sessions WHERE id=%s",
+                (entry["session_id"],),
+            )
+            serr = validate_session_writable(srow)
+            if serr:
+                raise HTTPException(400, serr)
+
+        old_batch_id = entry.get("raw_batch_id")
+        old_batch_no = entry.get("raw_batch_no")
+        if str(new_raw_batch_id) == str(old_batch_id):
+            raise HTTPException(400, "Wpis już jest na tej partii")
+
+        new_batch = cx_query_one(
+            conn, "SELECT * FROM raw_batches WHERE id=%s FOR UPDATE", (new_raw_batch_id,)
+        )
+        if not new_batch:
+            raise HTTPException(404, "Docelowa partia surowca nie znaleziona")
+        new_batch_no = new_batch.get("internal_batch_no")
+
+        kg_quarter = float(entry.get("kg_quarter") or 0)
+        kg_meat = float(entry.get("kg_meat") or 0)
+
+        new_avail = float(new_batch.get("kg_available") or 0)
+        if new_avail + 0.001 < kg_quarter:
+            raise HTTPException(
+                400,
+                f"Partia {new_batch_no}: wolne {new_avail:.1f} kg < ćwiartka "
+                f"wpisu {kg_quarter:.1f} kg — nie można przenieść.",
+            )
+
+        processed_abp = cx_query_one(
+            conn,
+            "SELECT id FROM byproduct_lots WHERE deboning_entry_id=%s AND status<>'open'",
+            (entry_id,),
+        )
+        if processed_abp:
+            raise HTTPException(
+                400, "Produkty uboczne wpisu już przetworzone — zmiana partii niemożliwa"
+            )
+
+        # Lot mięsa źródłowy (stara partia).
+        src_lot = cx_query_one(
+            conn, "SELECT * FROM meat_stock WHERE lot_no=%s FOR UPDATE", (old_batch_no,)
+        )
+        if src_lot is not None:
+            av = float(src_lot.get("kg_available") or 0)
+            res = float(src_lot.get("kg_reserved") or 0)
+            if av + 0.001 < kg_meat:
+                raise HTTPException(
+                    400, "Mięso z tego wpisu zostało już zużyte — zmiana partii niemożliwa"
+                )
+            # Nie osieroć rezerwacji: po zdjęciu kg_meat wolne musi pokryć rezerwacje.
+            if (av - kg_meat) + 0.001 < res:
+                raise HTTPException(
+                    400,
+                    "Mięso z tego wpisu jest zarezerwowane pod masowanie — najpierw "
+                    "usuń/zwolnij pozycję planu masowania, potem zmień partię.",
+                )
+
+        # Lot mięsa docelowy (nowa partia) — może nie istnieć.
+        dst_lot = cx_query_one(
+            conn, "SELECT * FROM meat_stock WHERE lot_no=%s FOR UPDATE", (new_batch_no,)
+        )
+
+        # ── Mięso: zdejmij z lotu źródłowego (pusty → skasuj), dołóż do docelowego ──
+        if src_lot is not None and kg_meat > 0:
+            if float(src_lot.get("kg_initial") or 0) - kg_meat <= 0.001:
+                cx_execute(conn, "DELETE FROM meat_stock WHERE id=%s", (src_lot["id"],))
+            else:
+                cx_execute(
+                    conn,
+                    "UPDATE meat_stock SET kg_initial=kg_initial-%s, "
+                    "kg_available=GREATEST(0,kg_available-%s) WHERE id=%s",
+                    (kg_meat, kg_meat, src_lot["id"]),
+                )
+
+        if dst_lot is not None:
+            dst_lot_id = dst_lot["id"]
+            if kg_meat > 0:
+                cx_execute(
+                    conn,
+                    "UPDATE meat_stock SET kg_initial=kg_initial+%s, "
+                    "kg_available=kg_available+%s WHERE id=%s",
+                    (kg_meat, kg_meat, dst_lot_id),
+                )
+        else:
+            new_ms_id = cuid()
+            cx_execute(
+                conn,
+                """
+                INSERT INTO meat_stock
+                    (id, lot_no, deboning_session_id, session_no,
+                     raw_batch_id, raw_batch_no, kg_initial, kg_available,
+                     production_date, expiry_date, status,
+                     material_type_id, material_name, created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_DATE,%s,'AVAILABLE',
+                        'mat-mieso-zs','Mięso z/s',%s)
+                ON CONFLICT (lot_no) DO UPDATE
+                SET kg_initial  = meat_stock.kg_initial  + EXCLUDED.kg_initial,
+                    kg_available = meat_stock.kg_available + EXCLUDED.kg_available
+                """,
+                (
+                    new_ms_id, new_batch_no, entry.get("session_id"),
+                    entry.get("session_no"), new_raw_batch_id, new_batch_no,
+                    kg_meat, kg_meat, new_batch.get("expiry_date"), now_iso(),
+                ),
+            )
+            row = cx_query_one(
+                conn, "SELECT id FROM meat_stock WHERE lot_no=%s", (new_batch_no,)
+            )
+            dst_lot_id = row["id"] if row else new_ms_id
+
+        # ── Ćwiartka: wróć do starej partii, zejdź z nowej ──
+        cx_execute(
+            conn,
+            "UPDATE raw_batches SET kg_available=COALESCE(kg_available,0)+%s WHERE id=%s",
+            (kg_quarter, old_batch_id),
+        )
+        cx_execute(
+            conn,
+            "UPDATE raw_batches SET kg_available=GREATEST(0,COALESCE(kg_available,0)-%s) WHERE id=%s",
+            (kg_quarter, new_raw_batch_id),
+        )
+
+        # ── ABP wpisu → nowa partia ──
+        cx_execute(
+            conn,
+            "UPDATE byproduct_lots SET raw_batch_id=%s, raw_batch_no=%s "
+            "WHERE deboning_entry_id=%s",
+            (new_raw_batch_id, new_batch_no, entry_id),
+        )
+
+        # ── Ruchy magazynowe: IN mięso → lot docelowy, OUT surowiec → nowa partia ──
+        cx_execute(
+            conn,
+            "UPDATE stock_movements SET batch_id=%s WHERE source_type='deboning' "
+            "AND source_id=%s AND product_type='meat'",
+            (dst_lot_id, entry_id),
+        )
+        cx_execute(
+            conn,
+            "UPDATE stock_movements SET batch_id=%s WHERE source_type='deboning' "
+            "AND source_id=%s AND product_type='raw'",
+            (new_raw_batch_id, entry_id),
+        )
+
+        # ── Sam wpis: tylko partia ──
+        row = cx_execute_returning(
+            conn,
+            "UPDATE deboning_entries SET raw_batch_id=%s, raw_batch_no=%s "
+            "WHERE id=%s RETURNING *",
+            (new_raw_batch_id, new_batch_no, entry_id),
+        )
+
+    logger.info(
+        "deboning.entry.batch_changed",
+        extra={
+            "entry_id": entry_id,
+            "from_batch": old_batch_no,
+            "to_batch": new_batch_no,
+            "kg_quarter": kg_quarter,
+            "kg_meat": kg_meat,
+        },
+    )
+    return _map_deboning_entry(row) if row else {"ok": True, "id": entry_id}

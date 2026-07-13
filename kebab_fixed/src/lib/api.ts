@@ -352,6 +352,10 @@ export const deboningEntriesApi = {
   }),
   // remove — storno wpisu (przycisk „Cofnij" na HMI); backend odwraca stany
   remove: (id: string) => del<{ ok: boolean; id: string }>(`/deboning/entries/${id}`),
+  // changeBatch — korekta z biura: przenieś wpis na inną partię surowca
+  // (operator wybrał złą). Backend przenosi surowiec/mięso/ABP/ruchy atomowo.
+  changeBatch: (id: string, rawBatchId: string) =>
+    post<any>(`/deboning/entries/${id}/change-batch`, { rawBatchId }),
   traceability: (batchId: string) => get<any>(`/deboning/entries/trace/${batchId}`),
 }
 
