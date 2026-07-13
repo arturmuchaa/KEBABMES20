@@ -1137,7 +1137,7 @@ interface PlanFormProps {
   existingPlans?: ProductionPlan[] // do ostrzeżenia "jeden dzień = jeden plan"
 }
 
-function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFormProps) {
+export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFormProps) {
   const clientDisplay = useClientNames()
   const { data: orders }      = useApi(() => clientOrdersApi.list('confirmed'))
   const { data: seasonedRaw } = useApi(() => seasonedMeatApi.list())
@@ -1611,7 +1611,7 @@ export function ProductionPlanningPage() {
           ))}
         </div>
         <div className="flex items-start">
-          <Button onClick={()=>setModal(true)} className="gap-1.5"><Plus size={14}/>Nowy plan</Button>
+          <Button onClick={()=>navigate('/office/planowanie-produkcji/nowy')} className="gap-1.5"><Plus size={14}/>Nowy plan</Button>
         </div>
       </div>
 
@@ -1692,7 +1692,7 @@ export function ProductionPlanningPage() {
                         <Button variant="ghost" size="icon"
                           className="h-7 w-7 text-muted-foreground hover:text-primary"
                           title={plan.status==='active' ? 'Edytuj plan (aktywny — wyprodukowane pozycje są zablokowane)' : 'Edytuj plan'}
-                          onClick={e=>{e.stopPropagation();setEditPlan(plan)}}>
+                          onClick={e=>{e.stopPropagation();navigate(`/office/planowanie-produkcji/${plan.id}/edytuj`)}}>
                           <Pencil size={13}/>
                         </Button>
                       )}
