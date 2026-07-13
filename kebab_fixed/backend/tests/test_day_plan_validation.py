@@ -56,19 +56,28 @@ def test_lots_sum_within_tolerance_passes():
 
 
 def test_missing_lots_allowed_when_not_required():
-    # Plan na przyszły dzień: surowiec może jeszcze nie być na magazynie —
-    # require_lots=False pozwala zapisać pozycję bez partii.
+    # Plan wstępny (dziś/przyszłość): surowiec może jeszcze nie być na
+    # magazynie — require_lots=False pozwala zapisać pozycję bez partii.
     validate_day_plan_item(
         _item(meatLots=[]), is_untouchable=False, require_lots=False,
     )
 
 
-def test_lots_sum_mismatch_raises_even_when_not_required():
-    # Jeśli partie JEDNAK podano (choćby częściowo), suma nadal musi się
-    # zgadzać — require_lots=False zwalnia tylko z obowiązku, nie z poprawności.
+def test_partial_lots_allowed_when_not_required():
+    # Plan wstępny: rozbiór wciąż pracuje mięso — przypisujesz partie na tyle
+    # ile masz (60 z 100), resztę dogrywasz Auto-FEFO. Częściowe = OK.
+    validate_day_plan_item(
+        _item(meatKg=100, meatLots=[{"meatLotId": "L1", "kgPlanned": 60}]),
+        is_untouchable=False, require_lots=False,
+    )
+
+
+def test_over_allocation_raises_even_when_not_required():
+    # Nadmiar to błąd nawet w planie wstępnym — nie wolno zarezerwować więcej
+    # kg niż pozycja potrzebuje (100), choćby przez pomyłkę (150).
     with pytest.raises(HTTPException) as e:
         validate_day_plan_item(
-            _item(meatKg=100, meatLots=[{"meatLotId": "L1", "kgPlanned": 60}]),
+            _item(meatKg=100, meatLots=[{"meatLotId": "L1", "kgPlanned": 150}]),
             is_untouchable=False, require_lots=False,
         )
     assert e.value.status_code == 400

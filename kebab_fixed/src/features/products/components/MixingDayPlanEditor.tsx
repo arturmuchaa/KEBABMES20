@@ -218,16 +218,18 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
     return [...acc.values()]
   }, [rows, recipes, spiceStock])
 
-  // Gating zapisu: partie kompletne wymagane TYLKO na dziś/przeszłość
-  // (requireLots) — na przyszły dzień można zapisać bez partii, surowiec
-  // może jeszcze nie być na magazynie (dogrywka Auto-FEFO później). Jeśli
-  // partie JEDNAK podano, muszą się zgadzać z kg niezależnie od dnia.
+  // Gating zapisu. Plan wstępny (dziś/przyszłość, !requireLots): partie mogą być
+  // BRAKUJĄCE albo CZĘŚCIOWE — rozbiór wciąż pracuje mięso, więc przypisujesz
+  // partie na tyle ile masz, resztę dogrywasz Auto-FEFO. Blokujemy tylko NADMIAR
+  // (nie wolno zarezerwować więcej kg niż pozycja potrzebuje). Edycja wstecz
+  // (requireLots): pełne pokrycie partiami nadal obowiązkowe.
   const allLotsComplete = rows.every(r => {
     if (r.status === 'in_progress' || r.status === 'done') return true
     const kg = parseFloat(r.meatKg) || 0
     if (!r.recipeId || kg <= 0) return false
-    if (r.lots.length === 0) return !requireLots
     const lotKg = r.lots.reduce((s, l) => s + (l.kgPlanned || 0), 0)
+    if (!requireLots) return lotKg <= kg + 0.5
+    if (r.lots.length === 0) return false
     return lotKg >= kg - 0.5
   })
 
@@ -236,7 +238,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
     if (!allLotsComplete) {
       setError(requireLots
         ? 'Każda pozycja musi mieć recepturę, kg > 0 i kompletne partie mięsa'
-        : 'Każda pozycja musi mieć recepturę i kg > 0 (partie mięsa — jeśli podane — muszą się zgadzać z kg)')
+        : 'Każda pozycja musi mieć recepturę i kg > 0 (partie mogą być częściowe, ale nie mogą przekraczać kg pozycji)')
       return
     }
     setSaving(true)

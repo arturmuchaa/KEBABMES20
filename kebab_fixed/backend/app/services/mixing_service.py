@@ -1270,8 +1270,9 @@ def validate_day_plan_item(
     dziś i na przyszłość można zapisać bez partii — rozbiór bywa jeszcze w
     toku i biuro przedstawia operatorowi wstępny plan; planista dogrywa
     Auto-FEFO, gdy surowiec zejdzie, przed potwierdzeniem wykonania.
-    Jeśli partie już podano (nawet bez wymogu), suma musi się
-    zgadzać z meatKg — częściowe/błędne przypisanie to nadal błąd.
+    Bez wymogu partie mogą być CZĘŚCIOWE (mięso wciąż schodzi z rozbioru) —
+    błędem jest tylko NADMIAR (suma partii > kg pozycji). Z wymogiem (edycja
+    wstecz) suma musi dokładnie pokryć kg pozycji.
     Pozycje nietykalne (in_progress/done) pomijają sprawdzanie partii —
     ich loty są już zarezerwowane i nie wolno ich ruszać.
     """
@@ -1295,11 +1296,23 @@ def validate_day_plan_item(
     total = sum(
         float(l.get("kgPlanned") or l.get("kg_planned") or 0) for l in lots
     )
-    if abs(total - meat_kg) > 0.5:
-        raise HTTPException(
-            400,
-            f"Suma partii ({total:.2f} kg) ≠ kg pozycji ({meat_kg:.2f} kg).",
-        )
+    if require_lots:
+        # Edycja wstecz: partie muszą dokładnie pokryć kg pozycji.
+        if abs(total - meat_kg) > 0.5:
+            raise HTTPException(
+                400,
+                f"Suma partii ({total:.2f} kg) ≠ kg pozycji ({meat_kg:.2f} kg).",
+            )
+    else:
+        # Plan wstępny: partie mogą być CZĘŚCIOWE (rozbiór wciąż pracuje mięso —
+        # przypisujesz ile masz, resztę dogrywasz Auto-FEFO). Błędem jest tylko
+        # NADMIAR — nie wolno zarezerwować więcej kg niż pozycja potrzebuje.
+        if total > meat_kg + 0.5:
+            raise HTTPException(
+                400,
+                f"Suma partii ({total:.2f} kg) przekracza kg pozycji "
+                f"({meat_kg:.2f} kg).",
+            )
 
 
 def _today_iso() -> str:
