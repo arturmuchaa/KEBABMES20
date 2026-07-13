@@ -47,6 +47,7 @@ import { useRecipes } from '@/features/ingredients/hooks'
 import type { ProductionPlan, ProductionPlanLine, CreatePlanLineDto, ClientOrder } from '@/lib/mockApi'
 
 interface PlanLineForm {
+  id?:              string   // id istniejącej pozycji (edycja) — puste dla nowej
   qty:              string
   kgPerUnit:        string
   productTypeId:    string
@@ -63,7 +64,7 @@ interface PlanLineForm {
 }
 
 const emptyLine = (): PlanLineForm => ({
-  qty:'', kgPerUnit:'', productTypeId:'', recipeId:'', packagingId:'',
+  id:'', qty:'', kgPerUnit:'', productTypeId:'', recipeId:'', packagingId:'',
   clientId:'', clientName:'',
   seasonedBatchIds:[], seasonedBatchId:'',
   clientOrderId:'', clientOrderNo:'', clientOrderLineId:'',
@@ -1148,6 +1149,7 @@ function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFormProps
   const [planDate,    setPlanDate]    = useState(initialPlan?.planDate ?? todayIso())
   const [lines,       setLines]       = useState<PlanLineForm[]>(
     initialPlan?.lines.map(l => ({
+      id:               (l as any).id ?? '',
       qty:              String(l.qty),
       kgPerUnit:        String(l.kgPerUnit),
       productTypeId:    l.productTypeId ?? '',
@@ -1301,6 +1303,7 @@ function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFormProps
     setSaving(true)
     try {
       const planId = await onSave(valid.map(l=>({
+        id:            l.id || undefined,
         qty:           parseFloat(l.qty),
         kgPerUnit:     parseFloat(l.kgPerUnit),
         productTypeId: l.productTypeId||'',
@@ -1685,27 +1688,28 @@ export function ProductionPlanningPage() {
                       </div>
                     </div>
                     <div className="flex gap-1 items-center">
+                      {(plan.status==='draft'||plan.status==='active')&&(
+                        <Button variant="ghost" size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-primary"
+                          title={plan.status==='active' ? 'Edytuj plan (aktywny — wyprodukowane pozycje są zablokowane)' : 'Edytuj plan'}
+                          onClick={e=>{e.stopPropagation();setEditPlan(plan)}}>
+                          <Pencil size={13}/>
+                        </Button>
+                      )}
                       {plan.status==='draft'&&(
-                        <>
-                          <Button variant="ghost" size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-primary"
-                            onClick={e=>{e.stopPropagation();setEditPlan(plan)}}>
-                            <Pencil size={13}/>
-                          </Button>
-                          <Button variant="outline" size="sm"
-                            className="h-7 text-[11px] text-amber-700 border-amber-200 hover:bg-amber-50"
-                            onClick={async e=>{
-                              e.stopPropagation()
-                              try {
-                                await productionPlansApi.updateStatus(plan.id,'active')
-                                refetch()
-                              } catch(err) {
-                                alert(err instanceof Error ? err.message : 'Niewystarczająca ilość mięsa — dostosuj plan przed aktywacją')
-                              }
-                            }}>
-                            Aktywuj
-                          </Button>
-                        </>
+                        <Button variant="outline" size="sm"
+                          className="h-7 text-[11px] text-amber-700 border-amber-200 hover:bg-amber-50"
+                          onClick={async e=>{
+                            e.stopPropagation()
+                            try {
+                              await productionPlansApi.updateStatus(plan.id,'active')
+                              refetch()
+                            } catch(err) {
+                              alert(err instanceof Error ? err.message : 'Niewystarczająca ilość mięsa — dostosuj plan przed aktywacją')
+                            }
+                          }}>
+                          Aktywuj
+                        </Button>
                       )}
                       {plan.status==='active' && (plan as any).tabletFinishedAt && !(plan as any).officeConfirmedAt && (
                         <>
