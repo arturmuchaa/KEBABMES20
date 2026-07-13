@@ -529,8 +529,13 @@ def validate_plan_edit(existing: list[dict], incoming: list[dict]) -> list[str]:
     produkcji (qty_done=0) są w pełni edytowalne/usuwalne. Nowe (id puste)
     zawsze OK. Czysta funkcja — bez DB.
 
-    ``existing``: [{id, qty_done, qty, recipe_id, batch_ids}] (żywy stan z bazy).
-    ``incoming``: [{id, qty, recipe_id, batch_ids}] (payload; id puste = nowa).
+    ``existing``: [{id, qty_done, qty, recipe_id}] (żywy stan z bazy).
+    ``incoming``: [{id, qty, recipe_id}] (payload; id puste = nowa).
+
+    Partii NIE porównujemy: payload z formularza nie niesie wiarygodnie pełnego
+    zbioru partii pozycji wielopartyjnej/komponentowej (70/30), a alokacja
+    zamrożonej pozycji i tak jest brana z bazy (payload ignorowany). Blokujemy
+    tylko usunięcie oraz zmianę ilości/receptury — te front niesie wiernie.
     """
     incoming_by_id = {str(l.get("id") or ""): l for l in incoming if l.get("id")}
     errors: list[str] = []
@@ -552,8 +557,6 @@ def validate_plan_edit(existing: list[dict], incoming: list[dict]) -> list[str]:
             )
         if str(nl.get("recipe_id") or "") != str(ex.get("recipe_id") or ""):
             errors.append("Pozycja rozpoczęta — nie można zmienić receptury.")
-        if set(nl.get("batch_ids") or []) != set(ex.get("batch_ids") or []):
-            errors.append("Pozycja rozpoczęta — nie można zmienić partii mięsa.")
     return errors
 
 
@@ -791,8 +794,6 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
     valid_lines = [
         l for l in dto.lines if l.recipe_id and l.qty > 0 and l.kg_per_unit > 0
     ]
-    total_kg = sum(l.qty * l.kg_per_unit for l in valid_lines)
-    total_units = sum(l.qty for l in valid_lines)
 
     with transaction() as conn:
         plan = cx_query_one(
@@ -805,46 +806,23 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
                 400, "Edytować można tylko plan w statusie Szkic lub Aktywny."
             )
 
-        # Żywy stan pozycji (FOR UPDATE) — z alokacją, by znać partie pozycji
-        # rozpoczętej i liczyć blokady od realnego qty_done (nie z payloadu;
-        # tablet mógł spakować więcej między załadowaniem a zapisem).
+        # Żywy stan pozycji (FOR UPDATE) — blokady liczymy od realnego qty_done
+        # (nie z payloadu; tablet mógł spakować więcej między załadowaniem a zapisem).
         old_lines = cx_query_all(
             conn,
-            "SELECT id, qty_done, recipe_id, qty, batch_allocation "
+            "SELECT id, qty_done, recipe_id, qty, total_kg "
             "FROM production_plan_lines WHERE plan_id=%s FOR UPDATE",
             (plan_id,),
         )
-
-        def _old_batch_ids(row) -> list:
-            ba = row.get("batch_allocation") or {}
-            if isinstance(ba, str):
-                try:
-                    ba = json.loads(ba)
-                except Exception:
-                    ba = {}
-            return list(_allocation_kg_per_batch(ba if isinstance(ba, dict) else {}).keys())
-
-        def _in_batch_ids(l) -> list:
-            return list(
-                l.seasoned_batch_ids
-                or ([l.seasoned_batch_id] if l.seasoned_batch_id else [])
-            )
-
         produced_ids = {r["id"] for r in old_lines if int(r.get("qty_done") or 0) > 0}
 
         edit_errs = validate_plan_edit(
             [
-                {
-                    "id": r["id"], "qty_done": r.get("qty_done"), "qty": r.get("qty"),
-                    "recipe_id": r.get("recipe_id"), "batch_ids": _old_batch_ids(r),
-                }
+                {"id": r["id"], "qty_done": r.get("qty_done"),
+                 "qty": r.get("qty"), "recipe_id": r.get("recipe_id")}
                 for r in old_lines
             ],
-            [
-                {"id": l.id, "qty": l.qty, "recipe_id": l.recipe_id,
-                 "batch_ids": _in_batch_ids(l)}
-                for l in valid_lines
-            ],
+            [{"id": l.id, "qty": l.qty, "recipe_id": l.recipe_id} for l in valid_lines],
         )
         if edit_errs:
             raise HTTPException(
@@ -853,8 +831,19 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
 
         # Pozycje ZAMROŻONE (qty_done>0) zostają w bazie NIETKNIĘTE (wiersz +
         # alokacja + rezerwacja + PM na sztukach). Przebudowujemy i re-rezerwujemy
-        # WYŁĄCZNIE pozycje edytowalne (bez produkcji).
+        # WYŁĄCZNIE pozycje edytowalne (bez produkcji). Totale planu = edytowalne
+        # (payload) + zamrożone (z bazy — payload zamrożonych jest ignorowany).
         editable_lines = [l for l in valid_lines if str(l.id or "") not in produced_ids]
+        frozen_rows = [r for r in old_lines if r["id"] in produced_ids]
+        total_kg = round(
+            sum(l.qty * l.kg_per_unit for l in editable_lines)
+            + sum(float(r.get("total_kg") or 0) for r in frozen_rows),
+            3,
+        )
+        total_units = (
+            sum(l.qty for l in editable_lines)
+            + sum(int(r.get("qty") or 0) for r in frozen_rows)
+        )
 
         _restore_reservations(conn, plan_id, skip_line_ids=produced_ids)
         cx_execute(
