@@ -63,6 +63,94 @@ def list_all_seasoned_with_reservations() -> List[Dict]:
     )
 
 
+def reconcile_seasoned_batch(
+    seasoned_id: str,
+    target_kg: float,
+    reason: str = "",
+    close: bool = False,
+) -> Dict[str, Any]:
+    """Ręczna korekta partii przyprawionej — uzgodnienie teoria↔fizyka.
+
+    kg_produced jest WYLICZONE z receptury (mięso × %), więc realna waga
+    zawsze różni się o 1–3 kg (dozowanie, chłonność wody, wagi). Biuro ustawia
+    tu REALNĄ dostępną wagę:
+      * teoria zaniżona (np. 119, a fizycznie 120) → podnieś, plan przejdzie,
+      * resztka po produkcji (za dużo) → zamknij (``close``) do 0.
+    Różnica idzie ruchem magazynowym (IN gdy +, OUT gdy −; product_type
+    'seasoned', source 'reconcile') — udokumentowany ślad dla kosztu i
+    dokumentów weterynaryjnych. kg_produced podąża za korektą (produced =
+    used + available + reserved). Koszt/kg liczy się z receptury, więc korekta
+    go nie rusza — patrz cost_service.
+
+    Blokady: partia zamknięta; waga < kg zarezerwowanych pod plan (najpierw
+    zwolnij plan); brak zmiany.
+    """
+    with transaction() as conn:
+        b = cx_query_one(
+            conn, "SELECT * FROM seasoned_meat WHERE id=%s FOR UPDATE", (seasoned_id,)
+        )
+        if not b:
+            raise HTTPException(404, "Partia przyprawiona nie znaleziona")
+        if (b.get("status") or "") == "closed":
+            raise HTTPException(400, "Partia jest już zamknięta")
+
+        old_avail = float(b.get("kg_available") or 0)
+        reserved = float(b.get("kg_reserved") or 0)
+        target = 0.0 if close else round(float(target_kg or 0), 3)
+        if target < 0:
+            raise HTTPException(400, "Waga nie może być ujemna")
+        if target + 0.001 < reserved:
+            raise HTTPException(
+                400,
+                f"W partii jest {reserved:.1f} kg zarezerwowane pod plan — nie "
+                f"można zejść poniżej. Najpierw zwolnij/usuń pozycję planu.",
+            )
+
+        delta = round(target - old_avail, 3)
+        if abs(delta) < 0.001 and not close:
+            raise HTTPException(400, "Brak zmiany wagi — podaj inną wartość.")
+
+        new_produced = round(float(b.get("kg_produced") or 0) + delta, 3)
+        new_status = "closed" if close else (b.get("status") or "available")
+        cx_execute(
+            conn,
+            """
+            UPDATE seasoned_meat
+            SET kg_available=%s, kg_produced=%s, status=%s,
+                reconciled_at=%s, reconcile_reason=%s
+            WHERE id=%s
+            """,
+            (target, new_produced, new_status, now_iso(), (reason or None), seasoned_id),
+        )
+        if delta > 0.001:
+            create_stock_movement(
+                conn, product_type="seasoned", batch_id=seasoned_id,
+                qty=delta, movement_type="IN",
+                source_type="reconcile", source_id=seasoned_id,
+            )
+        elif delta < -0.001:
+            create_stock_movement(
+                conn, product_type="seasoned", batch_id=seasoned_id,
+                qty=-delta, movement_type="OUT",
+                source_type="reconcile", source_id=seasoned_id,
+            )
+
+        row = cx_query_one(
+            conn,
+            "SELECT *, (kg_available - COALESCE(kg_reserved,0)) AS kg_free "
+            "FROM seasoned_meat WHERE id=%s",
+            (seasoned_id,),
+        )
+    logger.info(
+        "seasoned.reconciled",
+        extra={
+            "seasoned_id": seasoned_id, "delta": delta,
+            "close": close, "reason": reason or "",
+        },
+    )
+    return row
+
+
 def populate_lineage(conn, batch_no: str, order_id: str) -> None:
     """Forward + backward lineage links for a seasoned_meat row.
 

@@ -1847,6 +1847,10 @@ export const seasonedMeatApi = {
   // createFromOrder usunięty — backend zwraca 410, właściwy flow to
   // mixingOrdersApi.finishSession (PATCH /api/mixing-orders/{id}/finish-session).
   getFullTrace: (id: string) => get<any>(`/seasoned-meat/${id}/trace`),
+  // Ręczna korekta/zamknięcie partii (uzgodnienie teoria↔fizyka). close=true
+  // zamyka do 0 (spisanie resztki); inaczej ustawia realną wagę (np. 119→120).
+  reconcile: (id: string, opts: { targetKg?: number; reason?: string; close?: boolean }) =>
+    post<any>(`/seasoned-meat/${id}/reconcile`, opts).then(mapSeasonedMeat),
 }
 
 // ─── Zlecenia masowania ───────────────────────────────────────

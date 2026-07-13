@@ -26,6 +26,13 @@ from app.utils.ids import cuid, next_dated_no, next_seq, now_iso
 
 logger = get_logger(__name__)
 
+# Tolerancja uzgodnienia teoria↔fizyka przy sprawdzaniu braków mięsa
+# przyprawionego. kg_produced partii jest WYLICZONE z receptury, więc realnie
+# potrafi brakować ~1 kg mimo że fizycznie mięso jest (np. 119 papierowo,
+# 120 zważone). Do tego progu plan NIE blokuje — partia schodzi do 0. Większe
+# różnice = biuro koryguje partię ręcznie (reconcile_seasoned_batch).
+SEASONED_SHORTFALL_TOL_KG = 1.0
+
 
 def _lock_seasoned_batches(conn, batch_ids: List[str]) -> Dict[str, Dict]:
     """Row-lock every requested seasoned_meat in a deterministic order."""
@@ -501,7 +508,7 @@ def _check_plan_shortfalls(
             allocated += take
             remaining[bid] = free - take
             still_needed -= take
-        if allocated < line_kg - 0.1:
+        if allocated < line_kg - SEASONED_SHORTFALL_TOL_KG:
             recipe_name, _, _ = _resolve_line_names(conn, line)
             recipe_name = recipe_name or line.recipe_id or "pozycja"
             shortage = round(line_kg - allocated, 3)
@@ -895,7 +902,7 @@ def update_plan_status(plan_id: str, status: str) -> Dict[str, bool]:
                     if isinstance(ba, dict)
                     else 0
                 )
-                if allocated_kg < total_kg - 0.1:
+                if allocated_kg < total_kg - SEASONED_SHORTFALL_TOL_KG:
                     name = (
                         line.get("recipe_name")
                         or line.get("product_type_name")

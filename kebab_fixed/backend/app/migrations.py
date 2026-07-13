@@ -655,6 +655,10 @@ _DDL: list[str] = [
     "ALTER TABLE stock_movements DROP CONSTRAINT IF EXISTS stock_movements_movement_type_check",
     "ALTER TABLE stock_movements ADD CONSTRAINT stock_movements_movement_type_check "
     "CHECK (movement_type = ANY (ARRAY['IN','OUT','TRANSFORM','ADJUST','CANCEL']))",
+    # Ręczna korekta/zamknięcie partii przyprawionej (uzgodnienie teoria↔fizyka):
+    # ślad audytowy (kto/kiedy/dlaczego) dla kosztu i dokumentów weterynaryjnych.
+    "ALTER TABLE seasoned_meat ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ",
+    "ALTER TABLE seasoned_meat ADD COLUMN IF NOT EXISTS reconcile_reason TEXT",
 ]
 
 

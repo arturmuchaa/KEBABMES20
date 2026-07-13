@@ -14,6 +14,7 @@ import { DataTable } from '@/components/DataTable'
 import { usePageHeaderActions } from '@/components/PageHeader'
 import {
   Beef, Eye, Search, X, ChevronDown, ChevronUp, ChevronsUpDown, Download, ChevronRight,
+  SlidersHorizontal, Loader2,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -239,10 +240,42 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
 
 // ─── Strona ─────────────────────────────────────────────────
 export function SeasonedMeatPage() {
-  const { data,      loading }  = useApi(() => seasonedMeatApi.list())
-  const { data: all }           = useApi(() => seasonedMeatApi.all())
+  const { data,      loading, refetch }  = useApi(() => seasonedMeatApi.list())
+  const { data: all, refetch: refetchAll } = useApi(() => seasonedMeatApi.all())
   const [traceId,   setTraceId] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
+
+  // Ręczna korekta/zamknięcie partii (uzgodnienie teoria↔fizyka).
+  const [rec, setRec] = useState<any | null>(null)   // partia korygowana
+  const [recKg, setRecKg] = useState('')
+  const [recReason, setRecReason] = useState('zaniżona teoria (fizycznie więcej)')
+  const [recBusy, setRecBusy] = useState(false)
+  const [recErr, setRecErr] = useState('')
+
+  function openReconcile(b: any) {
+    setRec(b)
+    setRecKg(String(Number(b.kgAvailable ?? 0)))
+    setRecReason('zaniżona teoria (fizycznie więcej)')
+    setRecErr('')
+  }
+
+  async function submitReconcile(close: boolean) {
+    if (!rec) return
+    setRecBusy(true); setRecErr('')
+    try {
+      await (seasonedMeatApi as any).reconcile(rec.id, {
+        targetKg: close ? 0 : Number(recKg.replace(',', '.')) || 0,
+        reason: recReason,
+        close,
+      })
+      setRec(null)
+      refetch(); refetchAll()
+    } catch (e) {
+      setRecErr(e instanceof Error ? e.message : 'Nie udało się zapisać korekty')
+    } finally {
+      setRecBusy(false)
+    }
+  }
 
   const raw: any[]        = data ?? []
   const allBatches: any[] = all  ?? []
@@ -310,7 +343,16 @@ export function SeasonedMeatPage() {
                 </div>
               ) },
             { key: 'act', header: '', align: 'right',
-              cell: b => <button onClick={e => { e.stopPropagation(); setTraceId(b.id) }} className="inline-flex items-center justify-center w-6 h-6 rounded text-muted-foreground hover:text-primary hover:bg-primary/10" title="Łańcuch partii (traceability)"><Eye size={12} /></button> },
+              cell: b => (
+                <div className="flex items-center justify-end gap-0.5">
+                  <button onClick={e => { e.stopPropagation(); openReconcile(b) }}
+                    className="inline-flex items-center justify-center w-6 h-6 rounded text-muted-foreground hover:text-amber-600 hover:bg-amber-50"
+                    title="Koryguj / zamknij partię (uzgodnienie wagi)"><SlidersHorizontal size={12} /></button>
+                  <button onClick={e => { e.stopPropagation(); setTraceId(b.id) }}
+                    className="inline-flex items-center justify-center w-6 h-6 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
+                    title="Łańcuch partii (traceability)"><Eye size={12} /></button>
+                </div>
+              ) },
           ]}
         />
       )}
@@ -376,6 +418,74 @@ export function SeasonedMeatPage() {
       )}
 
       {traceId && <TracePanel batchId={traceId} onClose={() => setTraceId(null)} />}
+
+      {rec && (
+        <Dialog open onOpenChange={v => { if (!v && !recBusy) setRec(null) }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <SlidersHorizontal size={16} className="text-amber-600" />
+                Koryguj partię {rec.batchNo}
+              </DialogTitle>
+              <DialogDescription>
+                Uzgodnij realną wagę z teorią. Podbij gdy fizycznie jest więcej niż papierowo
+                (np. 119→120, żeby plan przeszedł) albo zamknij do 0, spisując resztkę.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 text-[13px]">
+              <div className="grid grid-cols-4 gap-2 text-center">
+                {[
+                  { l: 'Wyprodukowano', v: fmtKg(rec.kgProduced ?? 0, 1) },
+                  { l: 'Zużyto', v: fmtKg(rec.kgUsed ?? 0, 1) },
+                  { l: 'Dostępne', v: fmtKg(rec.kgAvailable ?? 0, 1) },
+                  { l: 'Rezerwacja', v: fmtKg(rec.kgReserved ?? 0, 1) },
+                ].map(k => (
+                  <div key={k.l} className="rounded-lg bg-surface-2 border border-surface-4 px-2 py-1.5">
+                    <div className="text-[10px] uppercase tracking-wide text-ink-4">{k.l}</div>
+                    <div className="font-bold tabular-nums text-ink">{k.v}</div>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wide text-ink-4 mb-1">Realna dostępna waga [kg]</label>
+                <Input type="number" step="0.1" min="0" value={recKg}
+                  onChange={e => setRecKg(e.target.value)}
+                  className="h-9 tabular-nums font-bold" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wide text-ink-4 mb-1">Powód (dla audytu / weterynarii)</label>
+                <select value={recReason} onChange={e => setRecReason(e.target.value)}
+                  className="w-full h-9 px-2 text-[13px] border border-surface-4 rounded bg-white">
+                  <option>zaniżona teoria (fizycznie więcej)</option>
+                  <option>resztka technologiczna</option>
+                  <option>strata / odpad</option>
+                  <option>korekta ważenia</option>
+                  <option>inne</option>
+                </select>
+              </div>
+              {recErr && <div className="text-[12px] text-red-600 font-semibold">{recErr}</div>}
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <button onClick={() => submitReconcile(true)} disabled={recBusy}
+                  className="h-9 px-3 text-[12px] font-bold rounded border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                  title="Spisz resztkę i zamknij partię (stan → 0, znika z planu)">
+                  Zamknij partię → 0
+                </button>
+                <div className="flex gap-2">
+                  <button onClick={() => setRec(null)} disabled={recBusy}
+                    className="h-9 px-3 text-[13px] font-semibold rounded border border-surface-4 text-ink-2 hover:bg-surface-2">
+                    Anuluj
+                  </button>
+                  <button onClick={() => submitReconcile(false)} disabled={recBusy}
+                    className="h-9 px-3 text-[13px] font-bold rounded bg-brand text-white hover:bg-brand/90 disabled:opacity-50 inline-flex items-center gap-1.5">
+                    {recBusy ? <Loader2 size={14} className="animate-spin" /> : <SlidersHorizontal size={14} />}
+                    Zapisz korektę
+                  </button>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
