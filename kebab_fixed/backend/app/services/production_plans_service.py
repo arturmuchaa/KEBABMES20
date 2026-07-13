@@ -629,7 +629,9 @@ def _insert_line(
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s)
         """,
         (
-            cuid(),
+            # Zachowaj id pozycji z DTO (edycja planu — dopasowanie i qty_done);
+            # brak = nowa pozycja → nowy cuid.
+            str(getattr(line, "id", "") or "") or cuid(),
             plan_id,
             line.qty,
             line.kg_per_unit,
