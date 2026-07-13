@@ -794,8 +794,28 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
         )
         if not plan:
             raise HTTPException(404, "Plan nie znaleziony")
-        if plan["status"] != "draft":
-            raise HTTPException(400, "Można edytować tylko plan w statusie Szkic")
+        if plan["status"] not in ("draft", "active"):
+            raise HTTPException(
+                400, "Edytować można tylko plan w statusie Szkic lub Aktywny."
+            )
+
+        # Żywy stan pozycji (FOR UPDATE) — blokady liczymy od realnego qty_done,
+        # nie z payloadu (tablet mógł spakować więcej między załadowaniem a zapisem).
+        old_lines = cx_query_all(
+            conn,
+            "SELECT id, qty_done, recipe_id, worker_entries, line_status "
+            "FROM production_plan_lines WHERE plan_id=%s FOR UPDATE",
+            (plan_id,),
+        )
+        old_by_id = {r["id"]: r for r in old_lines}
+        edit_errs = validate_plan_edit(
+            [dict(r) for r in old_lines],
+            [{"id": l.id, "qty": l.qty, "recipe_id": l.recipe_id} for l in valid_lines],
+        )
+        if edit_errs:
+            raise HTTPException(
+                400, "Nie można zapisać zmian:\n• " + "\n• ".join(edit_errs)
+            )
 
         _restore_reservations(conn, plan_id)
         cx_execute(
@@ -860,6 +880,27 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
                 allocation,
             )
             _apply_reservations(conn, allocation)
+
+        # Przywróć postęp produkcji dla pozycji dopasowanych po id (edycja
+        # aktywnego planu nie może zgubić już spakowanych sztuk).
+        for line in valid_lines:
+            lid = str(line.id or "")
+            old = old_by_id.get(lid)
+            if not old:
+                continue
+            qd = int(old.get("qty_done") or 0)
+            if qd <= 0:
+                continue
+            new_qty = int(line.qty or 0)
+            ls = "done" if (new_qty > 0 and qd >= new_qty) else "in_progress"
+            we = old.get("worker_entries")
+            we_json = we if isinstance(we, str) else json.dumps(we or [])
+            cx_execute(
+                conn,
+                "UPDATE production_plan_lines SET qty_done=%s, worker_entries=%s::jsonb, "
+                "line_status=%s WHERE id=%s",
+                (qd, we_json, ls, lid),
+            )
 
         updated = cx_query_one(
             conn, "SELECT * FROM production_plans WHERE id=%s", (plan_id,)
