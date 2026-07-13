@@ -86,6 +86,25 @@ describe('buildLotRows — spłaszczenie planu masowania do wierszy partii', () 
     expect(rows.filter(r => r.positionId === 'p2').every(r => r.lp === 2)).toBe(true)
   })
 
+  it('plan historyczny (gotowy): kg_planned=0, mięso z kg_actual → lotKg pokazuje zużyte', () => {
+    const rows = buildLotRows([
+      { id: 'p1', recipeName: 'Klasyczna', meatKg: 600, status: 'done',
+        meatLots: [
+          { meatLotNo: 'LOT-1', kgPlanned: 0, kgActual: 400 },
+          { meatLotNo: 'LOT-2', kgPlanned: 0, kgActual: 200 },
+        ] },
+    ])
+    expect(rows.map(r => r.lotKg)).toEqual([400, 200])
+  })
+
+  it('plan w toku: część zużyta (kg_actual) + reszta zarezerwowana (kg_planned) → suma = przydzielone', () => {
+    const rows = buildLotRows([
+      { id: 'p1', recipeName: 'Klasyczna', meatKg: 300, status: 'in_progress',
+        meatLots: [{ meatLotNo: 'LOT-1', kgPlanned: 100, kgActual: 200 }] },
+    ])
+    expect(rows[0].lotKg).toBe(300)
+  })
+
   it('brakujące pola partii → fallback jak w dotychczasowym wydruku (lotNo „?", materialName „Mięso z/s")', () => {
     const rows = buildLotRows([
       { id: 'p1', recipeName: 'A', meatKg: 50, status: 'planned', meatLots: [{ kgPlanned: 50 }] },

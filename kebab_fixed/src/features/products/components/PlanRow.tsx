@@ -44,6 +44,7 @@ export function PlanRow({
   row, index, total, recipes, lots, output, expanded,
   onUpdate, onMove, onDelete, onToggle, onAutoFefoRow,
   onConfirmExecution, onUndoConfirm, confirmingExecution, canConfirmExecution, showConfirmExecution,
+  readOnly = false,
   dragHandlers,
 }: {
   row: PlanRowData
@@ -69,6 +70,9 @@ export function PlanRow({
   /** Potwierdzenie ma sens TYLKO dla planu na dziś — przycisk w ogóle się
    * nie pokazuje przy oglądaniu przyszłego dnia. */
   showConfirmExecution: boolean
+  /** Plan historyczny (miniony dzień) — tylko podgląd: żadnej edycji, ale
+   * partie i ilość mięsa nadal widoczne (do wydruku planu wstecz). */
+  readOnly?: boolean
   dragHandlers: {
     draggable: boolean
     onDragStart: () => void
@@ -78,9 +82,14 @@ export function PlanRow({
   }
 }) {
   const st = ROW_STATUS[row.status] ?? ROW_STATUS.new
-  const locked = row.status === 'in_progress' || row.status === 'done'
+  // readOnly (plan historyczny) blokuje edycję tak jak status w masownicy/gotowy.
+  const locked = row.status === 'in_progress' || row.status === 'done' || readOnly
   const kg = parseFloat(row.meatKg) || 0
-  const lotKg = row.lots.reduce((s, l) => s + (l.kgPlanned || 0), 0)
+  // Efektywne kg partii: kg_planned zanim wykonano, kg_actual po wykonaniu
+  // (wtedy planned=0). Dzięki temu plan gotowy/historyczny pokazuje mięso,
+  // które faktycznie zeszło, zamiast 0.
+  const lotEffKg = (l: SelLot) => (l.kgPlanned || 0) || (l.kgActual || 0)
+  const lotKg = row.lots.reduce((s, l) => s + lotEffKg(l), 0)
   const lotsOk = lotKg >= kg - 0.5 && kg > 0
   // Numer partii: najpierw z listy pickera; gdy partia w całości zarezerwowana
   // (znika z pickera), fallback na numer zapamiętany w wierszu planu z API.
@@ -137,7 +146,7 @@ export function PlanRow({
                 lotsOk ? 'bg-surface-2 border-surface-4 text-ink' : 'bg-amber-50 border-amber-200 text-amber-800',
               )}>
               {lotNo(l.meatLotId)}
-              <span className="font-sans font-semibold text-ink-3">{fmtKg(l.kgPlanned, 0)}</span>
+              <span className="font-sans font-semibold text-ink-3">{fmtKg(lotEffKg(l), 0)}</span>
             </span>
           ))}
           {row.lots.length > 3 && (

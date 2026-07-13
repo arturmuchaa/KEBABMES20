@@ -48,6 +48,10 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   useEffect(() => { dirtyRef.current = dirty }, [dirty])
 
   const isToday = planDate === todayIso()
+  // Plan z minionego dnia = tylko podgląd (część mięsa już zeszła, partie
+  // skonsumowane). Edycja wstecz mogłaby zepsuć historię/rezerwacje — blokujemy
+  // ją, ale partie i ilość mięsa nadal widać (do wydruku planu historycznego).
+  const isPast = planDate < todayIso()
   // Partie mięsa NIE są wymagane do zapisu planu na dziś ani na przyszłość —
   // rozbiór często pracuje jeszcze mięso w trakcie dnia, a biuro chce zapisać
   // i przedstawić operatorowi WSTĘPNY plan; partie dogrywa się (Auto-FEFO),
@@ -93,7 +97,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
       setRows((r.items ?? []).map((o: any) => ({
         rowKey: o.id, id: o.id, recipeId: o.recipeId, meatKg: String(o.meatKg),
         status: o.status, orderNo: o.orderNo, kgDone: o.kgDone,
-        lots: (o.meatLots ?? []).map((l: any) => ({ meatLotId: l.meatLotId, kgPlanned: l.kgPlanned, lotNo: l.meatLotNo })),
+        lots: (o.meatLots ?? []).map((l: any) => ({ meatLotId: l.meatLotId, kgPlanned: l.kgPlanned, kgActual: l.kgActual, lotNo: l.meatLotNo })),
       })))
       setLoaded(true)
       setDirty(false)
@@ -353,7 +357,12 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
                 </button>
               )}
             </div>
-            {!isToday && (
+            {isPast && (
+              <span className="text-[10px] font-bold text-ink-2 bg-surface-3 border border-surface-4 rounded px-1.5 py-0.5 whitespace-nowrap">
+                plan historyczny — tylko podgląd
+              </span>
+            )}
+            {!isToday && !isPast && (
               <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 whitespace-nowrap">
                 plan na przyszłość — partie mięsa opcjonalne
               </span>
@@ -368,24 +377,30 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
             </span>
           )}
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="outline" className="h-8 gap-1 text-[12px]" onClick={autoFefoAll}
-              title="Rozdziel wolne partie z/s po wszystkich pozycjach wg terminu ważności">
-              <Zap size={13} /> Auto-FEFO całość
-            </Button>
-            <Button size="sm" variant="outline" className="h-8 gap-1 text-[12px]" onClick={addRow}>
-              <Plus size={13} /> Dodaj pozycję
-            </Button>
+            {!isPast && (
+              <>
+                <Button size="sm" variant="outline" className="h-8 gap-1 text-[12px]" onClick={autoFefoAll}
+                  title="Rozdziel wolne partie z/s po wszystkich pozycjach wg terminu ważności">
+                  <Zap size={13} /> Auto-FEFO całość
+                </Button>
+                <Button size="sm" variant="outline" className="h-8 gap-1 text-[12px]" onClick={addRow}>
+                  <Plus size={13} /> Dodaj pozycję
+                </Button>
+              </>
+            )}
             <Button size="sm" variant="outline" className="h-8 gap-1 text-[12px]"
               disabled={dirty || rows.length === 0}
               title={dirty ? 'Najpierw zapisz plan — wydruk pokazuje ZAPISANY plan' : 'Wydruk planu dla operatora: kolejka + przyprawy łącznie + przepisy na wsady 200/600 kg'}
               onClick={() => window.open(`/office/plan-masowania/druk?date=${planDate}`, '_blank')}>
               <Printer size={13} /> Plan dla operatora
             </Button>
-            <Button size="sm" disabled={saving || !dirty || !allLotsComplete} onClick={save}
-              className="h-8 gap-1.5 text-[12px]">
-              {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-              {dirty ? 'Zapisz plan' : 'Plan zapisany'}
-            </Button>
+            {!isPast && (
+              <Button size="sm" disabled={saving || !dirty || !allLotsComplete} onClick={save}
+                className="h-8 gap-1.5 text-[12px]">
+                {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                {dirty ? 'Zapisz plan' : 'Plan zapisany'}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -406,7 +421,9 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
             <div className="text-[12px] text-ink-4 py-6 text-center">Wczytuję…</div>
           ) : rows.length === 0 ? (
             <div className="text-[12px] text-ink-4 py-8 text-center">
-              Brak planu na {isToday ? 'dziś' : 'ten dzień'} — <button onClick={addRow} className="text-brand font-semibold hover:underline">dodaj pierwszą pozycję</button>
+              {isPast
+                ? `Brak planu na ten dzień.`
+                : <>Brak planu na {isToday ? 'dziś' : 'ten dzień'} — <button onClick={addRow} className="text-brand font-semibold hover:underline">dodaj pierwszą pozycję</button></>}
             </div>
           ) : (
             rows.map((r, i) => (
@@ -429,6 +446,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
                 confirmingExecution={confirmingKey === r.rowKey}
                 canConfirmExecution={!dirty && !!r.id}
                 showConfirmExecution={isToday}
+                readOnly={isPast}
                 dragHandlers={{
                   draggable: true,
                   onDragStart: () => { dragIdx.current = i },

@@ -1350,15 +1350,27 @@ def save_day_plan(
       jeśli surowca jeszcze nie ma na magazynie — patrz require_lots niżej)
     * pozycja w kolejce usunięta z planu → anulowanie (zwolnienie rezerwacji)
 
-    Partie mięsa obowiązkowe TYLKO przy edycji planu wstecz (przeszłość).
+    Plan z MINIONEGO dnia jest tylko do podglądu — edycja wstecz jest
+    zablokowana (partie już skonsumowane, ruszanie ich psułoby historię).
     Plan na dziś i na przyszłość może być zapisany bez partii (wstępny plan,
     rozbiór w toku) — planista wraca i dogrywa Auto-FEFO, gdy surowiec zejdzie.
     """
     pd = plan_date or _today_iso()
+    # Blokada edycji historycznej: plan z minionego dnia = tylko podgląd.
+    # Partie mięsa są już skonsumowane (finish-session), a re-rezerwacja/anulowanie
+    # rozjechałaby stany i traceability. Biuro może taki plan oglądać i drukować,
+    # ale nie zapisywać zmian.
+    if pd < _today_iso():
+        raise HTTPException(
+            400,
+            "Plan z minionego dnia jest tylko do podglądu — nie można edytować "
+            "planu historycznego.",
+        )
     # Partie NIE są wymagane do zapisu planu na dziś ani na przyszłość: rozbiór
-    # bywa jeszcze w toku, a biuro chce zapisać i przedstawić operatorowi
-    # WSTĘPNY plan. Partie dogrywa się (Auto-FEFO) przed potwierdzeniem
-    # wykonania. Wymagane tylko przy edycji planu wstecz (przeszłość).
+    # bywa jeszcze w toku, a biuro przedstawia operatorowi WSTĘPNY plan. Partie
+    # dogrywa się (Auto-FEFO) przed potwierdzeniem wykonania. (Po blokadzie
+    # powyżej pd >= dziś, więc require_lots zawsze False — trzymane dla jasności
+    # kontraktu validate_day_plan_item.)
     require_lots = pd < _today_iso()
     to_cancel: List[str] = []
     with transaction() as conn:

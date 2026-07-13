@@ -10,6 +10,9 @@ export interface MeatLotInput {
   materialName?: string
   supplierName?: string
   kgPlanned?: number
+  /** Faktycznie zużyte kg. Dla pozycji GOTOWYCH kg_planned=0, a przydzielone
+   * mięso zostaje tu — plan historyczny musi pokazać to, co zeszło. */
+  kgActual?: number
 }
 
 export interface PlanPositionInput {
@@ -79,7 +82,10 @@ export function buildLotRows(plan: PlanPositionInput[]): LotRow[] {
         positionId: position.id, rowKey: `${position.id}-${lotIndex}`,
         isFirstRow: lotIndex === 0, rowSpan, zebra, lp, recipeName, meatKg, status,
         lotNo: lot.meatLotNo || '?',
-        lotKg: lot.kgPlanned ?? 0,
+        // Przydzielone mięso = kg_planned (przed wykonaniem) + kg_actual (po
+        // wykonaniu — wtedy planned=0). Suma jest stabilna: plan bieżący pokazuje
+        // rezerwację, plan historyczny (gotowy) pokazuje faktyczne zużycie.
+        lotKg: (lot.kgPlanned ?? 0) + (lot.kgActual ?? 0),
         materialName: lot.materialName || 'Mięso z/s',
         supplierName: lot.supplierName || '',
       })

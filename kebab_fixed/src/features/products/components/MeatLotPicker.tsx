@@ -19,6 +19,10 @@ export interface PickerLot {
 export interface SelLot {
   meatLotId: string
   kgPlanned: number
+  /** Faktycznie zużyte kg (z finish-session). Dla pozycji GOTOWYCH kg_planned
+   * schodzi do 0, a przydzielone mięso zostaje tu — do wyświetlenia planu
+   * historycznego. Nie używane w gatingu/pickerze (tam liczy się kg_planned). */
+  kgActual?: number
   /** Numer partii zapamiętany z planu — fallback do wyświetlenia, gdy partia
    * jest w całości zarezerwowana i znika z listy pickera (kgAvailable=0). */
   lotNo?: string
