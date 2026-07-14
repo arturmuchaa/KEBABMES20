@@ -993,6 +993,12 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     const knTotal = parseFloat(inputBones) || 0
     if (kbTotal <= 0 && knTotal <= 0) { showToast('Wpisz kości lub grzbiety > 0', 'err'); return }
     const sumTaken = finalizeTotalTaken || 1
+    // Rozdziel łączne grzbiety/kości na wpisy wg udziału ćwiartki (per-wpis =
+    // raport kosztów + pasek zmiany) ORAZ zsumuj per partia surowca, bo żywy
+    // magazyn ubocznych (kafle, pasek „dziś", strona ubocznych, loty, WZ)
+    // czyta batch_byproducts — bez tego ręcznie wpisane grzbiety „nie wchodzą
+    // do systemu" i nie da się z nich zrobić WZ.
+    const perBatch = new Map<string, { kb: number; kn: number }>()
     let rb = 0, rn = 0
     for (let i = 0; i < pendingFinalize.length; i++) {
       const e = pendingFinalize[i]
@@ -1002,10 +1008,31 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       const kn = isLast ? Math.round((knTotal - rn) * 100) / 100 : Math.round(knTotal * share * 100) / 100
       rb += kb; rn += kn
       await editEntry(e.id, { kgBacks: kb, kgBones: kn }, session)
+      const acc = perBatch.get(e.rawBatchId) ?? { kb: 0, kn: 0 }
+      acc.kb += kb; acc.kn += kn
+      perBatch.set(e.rawBatchId, acc)
     }
+    // Zaksięguj zbiorczo do batch_byproducts per partia (ensure NIE finalizuje
+    // partii — finished_at zostaje NULL, więc auto-zakończenie działa dalej).
+    // Ręczna paleta = jeden „pojemnik" bez tary, żeby zapis był identyczny jak
+    // przez kreator. Błąd tu nie blokuje finalizacji wpisów — tylko ostrzega.
+    const manualPallet = (kg: number) => [{ tareLabel: 'ręcznie', tareKg: 0, containers: 0, gross: kg, net: kg }]
+    let byprodErr = false
+    for (const [rawBatchId, { kb, kn }] of perBatch) {
+      if (kb <= 0 && kn <= 0) continue
+      try {
+        await byproductsApi.ensure(rawBatchId, loggedInUser?.name)
+        if (kb > 0) await byproductsApi.weigh(rawBatchId, 'backs', Math.round(kb * 100) / 100, manualPallet(kb))
+        if (kn > 0) await byproductsApi.weigh(rawBatchId, 'bones', Math.round(kn * 100) / 100, manualPallet(kn))
+      } catch { byprodErr = true }
+    }
+    byproductsData.refetch()
+    byprodToday.refetch()
     setFinishModal(false)
     setInputBacks(''); setInputBones('')
-    showToast(`Zakończono ${pendingFinalize.length} wpisów`)
+    showToast(byprodErr
+      ? `Zakończono ${pendingFinalize.length} wpisów — uboczne zapisano częściowo (sprawdź magazyn)`
+      : `Zakończono ${pendingFinalize.length} wpisów`, byprodErr ? 'err' : undefined)
   }
 
   async function handleCloseShift() {
