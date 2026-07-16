@@ -659,6 +659,21 @@ _DDL: list[str] = [
     # ślad audytowy (kto/kiedy/dlaczego) dla kosztu i dokumentów weterynaryjnych.
     "ALTER TABLE seasoned_meat ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ",
     "ALTER TABLE seasoned_meat ADD COLUMN IF NOT EXISTS reconcile_reason TEXT",
+    # Historia korekt wpisów rozbioru z biura (zmiana pracownika/kg PO
+    # zatwierdzeniu zmiany). Powód jest WYMAGANY — wsteczna zmiana akordu
+    # musi mieć ślad. Diff PRZED/PO w JSONB: to czysty zapis audytowy,
+    # nikt po nim nie filtruje ani nie liczy.
+    """
+    CREATE TABLE IF NOT EXISTS deboning_entry_corrections (
+        id         TEXT PRIMARY KEY,
+        entry_id   TEXT NOT NULL,
+        at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+        by_subject TEXT,
+        reason     TEXT NOT NULL,
+        changes    JSONB NOT NULL DEFAULT '{}'::jsonb
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_dec_entry ON deboning_entry_corrections(entry_id)",
 ]
 
 
