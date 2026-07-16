@@ -9,10 +9,12 @@
  * Dotyczy wyłącznie ZAKOŃCZONEJ partii. Stan trwały (backsDone/bonesDone) jest
  * w backendzie — wizard startuje od pierwszej niezważonej frakcji.
  */
-import { useMemo, useState, type CSSProperties } from 'react'
-import { Check, Delete, Package, ArrowRight, X } from 'lucide-react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { AlertTriangle, Check, Delete, Package, ArrowRight, X } from 'lucide-react'
 import { fmtKg, fmtPct } from '@/lib/utils'
-import { E2_TARE_KG } from '@/features/deboning/utils/weighing'
+import {
+  E2_TARE_KG, DRIVE_OFF_IDLE, driveOffStep, type DriveOffTracker,
+} from '@/features/deboning/utils/weighing'
 import type { ScaleState } from '@/features/deboning/useScale'
 import type { BatchByproducts } from '@/lib/api'
 
@@ -57,6 +59,11 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
   const [containersStr, setContainersStr] = useState<string>('')
   const [savedPct, setSavedPct] = useState<number | null>(null)
   const [manualStr, setManualStr] = useState<string>('') // ręczne kg (awaria wagi)
+  // Suma lokalna ≠ zapisana na serwerze (padnięty zapis / „Wyczyść sumę").
+  const [dirty, setDirty] = useState(false)
+  const [confirmClose, setConfirmClose] = useState(false)
+  // Ostatni stabilny odczyt palety + prompt po zjeździe z wagi bez „Dodaj".
+  const [driveOff, setDriveOff] = useState<DriveOffTracker>(DRIVE_OFF_IDLE)
 
   const containers = parseInt(containersStr || '0', 10) || 0
   const manualKg = parseFloat((manualStr || '0').replace(',', '.')) || 0
@@ -68,21 +75,66 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
 
   const resetInputs = () => { setTareKg(null); setTareLabel(''); setContainersStr('') }
 
-  function addPallet() {
-    if (!canAdd || tareKg == null) return
-    setPallets(prev => [...prev, { tareLabel, tareKg, containers, gross, net: Math.round(net * 10) / 10 }])
-    resetInputs()
+  // Śledź odczyt palety na wadze; zjazd bez „Dodaj do sumy" → driveOff.prompt
+  // (pytanie o dodanie). Ratuje najczęstszy błąd: zważył, policzył i zjechał.
+  useEffect(() => {
+    if (phase !== 'setup') return
+    setDriveOff(s => driveOffStep(
+      s,
+      { connected: scale.connected, stable: scale.stable, gross },
+      { tareKg, tareLabel, containers, net },
+    ))
+  }, [phase, scale.connected, scale.stable, gross, tareKg, tareLabel, containers, net])
+
+  /** Zapis frakcji na serwer po KAŻDEJ dodanej palecie — zamknięcie/reload
+   * kiosku nie gubi już zważonych palet (kości 417: 783 kg przepadło, bo
+   * zapis szedł dopiero przy „To wszystko", prod 2026-07-16). Backend
+   * nadpisuje frakcję całą listą palet, więc kolejne zapisy są bezpieczne. */
+  async function persist(next: Pallet[]) {
+    setPhase('saving')
+    const total = Math.round(next.reduce((s, p) => s + p.net, 0) * 10) / 10
+    try {
+      await onWeigh(frac, total, next)
+      setDirty(false)
+    } catch {
+      setDirty(true) // toast pokazuje strona — suma zostaje, zapis ponowi „To wszystko"
+    }
     setPhase('ask')
   }
 
+  function addPallet() {
+    if (!canAdd || tareKg == null) return
+    const next = [...pallets, { tareLabel, tareKg, containers, gross, net: Math.round(net * 10) / 10 }]
+    setPallets(next)
+    setDriveOff(DRIVE_OFF_IDLE)
+    resetInputs()
+    void persist(next)
+  }
+
+  // Operator zjechał z wagi bez „Dodaj do sumy" — potwierdził dodanie odczytu.
+  function acceptDriveOff() {
+    const c = driveOff.prompt
+    if (!c) return
+    const next = [...pallets, { tareLabel: c.tareLabel, tareKg: c.tareKg, containers: c.containers, gross: c.gross, net: c.net }]
+    setPallets(next)
+    setDriveOff(DRIVE_OFF_IDLE)
+    resetInputs()
+    void persist(next)
+  }
+
   async function finishFraction() {
-    setPhase('saving')
     const total = Math.round(fracTotal * 10) / 10
-    try {
-      await onWeigh(frac, total, pallets)
-    } catch {
-      setPhase('ask') // zapis padł (toast pokazuje strona) — suma zostaje, operator ponawia
-      return
+    // Palety schodzą na serwer na bieżąco (persist) — ponowny zapis tylko,
+    // gdy coś się nie zapisało (dirty).
+    if (dirty) {
+      setPhase('saving')
+      try {
+        await onWeigh(frac, total, pallets)
+        setDirty(false)
+      } catch {
+        setPhase('ask') // zapis padł (toast pokazuje strona) — suma zostaje, operator ponawia
+        return
+      }
     }
     const pct = record.quarterKg > 0 ? (total / record.quarterKg) * 100 : 0
     setSavedPct(pct)
@@ -95,7 +147,16 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
     // rozbioru) — kolejna paleta DOLICZA się do sumy, zapis nadpisuje
     // całość poprawnym totalem. „Wyczyść" w kroku ważenia zeruje sumę.
     const prev = (f === 'backs' ? record.backsPallets : record.bonesPallets) ?? []
-    setFrac(f); setPallets(prev as Pallet[]); resetInputs(); setPhase('setup')
+    setFrac(f); setPallets(prev as Pallet[]); resetInputs(); setDirty(false); setDriveOff(DRIVE_OFF_IDLE); setPhase('setup')
+  }
+
+  // Zamknięcie z niezapisanym ważeniem (padnięty zapis, wyczyszczona suma,
+  // paleta na wadze / prompt bez decyzji) wymaga potwierdzenia — dotąd X
+  // zamykał bez słowa i suma przepadała.
+  const hasUnsaved = dirty || driveOff.prompt != null || driveOff.armed != null
+  function requestClose() {
+    if (hasUnsaved) { setConfirmClose(true); return }
+    onClose()
   }
 
   // Ręczne wpisanie ŁĄCZNYCH kg frakcji (awaria wagi).
@@ -113,6 +174,8 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
     setPhase('saving')
     try {
       await onWeigh(frac, Math.round(kg * 10) / 10, next)
+      setDirty(false)
+      setDriveOff(DRIVE_OFF_IDLE)
     } catch {
       setPhase('manual') // zapis padł — wpisane kg zostaje, operator ponawia
       return
@@ -146,7 +209,7 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
               ćwiartka {fmtKg(record.quarterKg, 0)} kg · teraz: {FRAC_LABEL[frac]}
             </div>
           </div>
-          <button type="button" onClick={onClose} className="w-9 h-9 flex items-center justify-center" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}><X size={18} /></button>
+          <button type="button" onClick={requestClose} className="w-9 h-9 flex items-center justify-center" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}><X size={18} /></button>
         </div>
 
         {savedPct != null ? (
@@ -181,7 +244,7 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
                 )
               })}
             </div>
-            <button type="button" onClick={onClose} className="h-12 font-bold" style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--mut)' }}>
+            <button type="button" onClick={requestClose} className="h-12 font-bold" style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--mut)' }}>
               Zamknij (dokończę później)
             </button>
           </div>
@@ -242,7 +305,12 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
                 <div className="text-xs font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>{FRAC_LABEL[frac]} — suma dotąd</div>
                 <div className="hmi-v10-mono font-extrabold text-3xl mt-1">{fmtKg(fracTotal, 1)} kg</div>
               </div>
-              <div className="text-right text-sm font-bold" style={{ color: 'var(--mut)' }}>{pallets.length} {pallets.length === 1 ? 'paleta' : 'palet'}</div>
+              <div className="text-right text-sm font-bold" style={{ color: 'var(--mut)' }}>
+                <div>{pallets.length} {pallets.length === 1 ? 'paleta' : 'palet'}</div>
+                <div className="text-[11px] font-bold mt-1" style={{ color: dirty ? '#DC2626' : 'var(--success)' }}>
+                  {dirty ? 'niezapisane — dotknij „To wszystko"' : '✓ zapisane w systemie'}
+                </div>
+              </div>
             </div>
             <div className="text-center font-extrabold text-xl">To wszystko, czy dokładamy?</div>
             <div className="grid grid-cols-3 gap-3">
@@ -270,7 +338,7 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
               <div className="flex items-center justify-between gap-3">
                 <div className="font-extrabold text-xl">{FRAC_TITLE[frac]}</div>
                 {pallets.length > 0 && (
-                  <button type="button" onClick={() => setPallets([])}
+                  <button type="button" onClick={() => { setPallets([]); setDirty(true) }}
                     className="text-sm font-bold px-3 py-1.5 flex-shrink-0"
                     style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}>
                     Wyczyść sumę ({fmtKg(fracTotal, 1)} kg)
@@ -370,6 +438,70 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
           </div>
         )}
       </div>
+
+      {/* Zjazd z wagi bez „Dodaj do sumy" — odczyt uratowany, operator decyduje. */}
+      {driveOff.prompt && savedPct == null && !confirmClose && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
+          <div className="w-[560px] max-w-[92vw] p-7 flex flex-col gap-5" style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.4)' }}>
+            <div className="flex items-center gap-3">
+              <span className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: '#FEF3C7', color: '#B45309' }}><AlertTriangle size={24} /></span>
+              <div>
+                <div className="font-extrabold text-xl leading-tight">Zjechano z wagi bez „Dodaj do sumy"</div>
+                <div className="text-sm font-bold mt-0.5" style={{ color: 'var(--mut)' }}>Odczyt zapamiętany — dodać tę paletę do sumy {FRAC_LABEL[frac]}?</div>
+              </div>
+            </div>
+            <div className="px-5 py-4 flex items-center justify-between" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1px solid var(--accent)' }}>
+              <div className="text-sm font-bold" style={{ color: 'var(--mut)' }}>
+                {driveOff.prompt.tareLabel || 'bez palety'} · {driveOff.prompt.containers} pojemn. · brutto {fmtKg(driveOff.prompt.gross, 1)} kg
+              </div>
+              <div className="hmi-v10-mono font-extrabold text-3xl" style={{ color: 'var(--accent)' }}>{fmtKg(driveOff.prompt.net, 1)} kg</div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button type="button" onClick={acceptDriveOff}
+                className="h-16 font-extrabold text-lg flex items-center justify-center gap-2"
+                style={{ borderRadius: 12, background: 'var(--success)', color: '#fff' }}>
+                <Check size={22} /> Dodaj do sumy
+              </button>
+              <button type="button" onClick={() => setDriveOff(DRIVE_OFF_IDLE)}
+                className="h-16 font-bold text-base"
+                style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--mut)' }}>
+                Odrzuć odczyt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Zamknięcie z niezapisanym ważeniem — dotąd X gubił sumę bez słowa. */}
+      {confirmClose && (
+        <div className="fixed inset-0 z-[61] flex items-center justify-center bg-black/50">
+          <div className="w-[520px] max-w-[92vw] p-7 flex flex-col gap-5" style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.4)' }}>
+            <div className="flex items-center gap-3">
+              <span className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: '#FEE2E2', color: '#DC2626' }}><AlertTriangle size={24} /></span>
+              <div>
+                <div className="font-extrabold text-xl leading-tight">Niezapisane ważenie</div>
+                <div className="text-sm font-bold mt-0.5" style={{ color: 'var(--mut)' }}>
+                  {driveOff.prompt || driveOff.armed
+                    ? `Odczyt ${fmtKg((driveOff.prompt ?? driveOff.armed)!.net, 1)} kg nie został dodany do sumy.`
+                    : `Suma ${FRAC_LABEL[frac]} (${fmtKg(fracTotal, 1)} kg) nie jest zapisana w systemie.`}
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button type="button" onClick={() => setConfirmClose(false)}
+                className="h-16 font-extrabold text-lg"
+                style={{ borderRadius: 12, background: 'var(--accent)', color: '#fff' }}>
+                Wróć do ważenia
+              </button>
+              <button type="button" onClick={onClose}
+                className="h-16 font-bold text-base"
+                style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid #DC2626', color: '#DC2626' }}>
+                Zamknij bez zapisu
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

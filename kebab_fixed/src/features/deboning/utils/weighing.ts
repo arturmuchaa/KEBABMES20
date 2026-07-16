@@ -54,3 +54,59 @@ export function computeWeighing({ gross, cartTareKg, e2Count }: WeighingInput): 
   const plausible = kgPerContainer >= KG_PER_E2_MIN && kgPerContainer <= KG_PER_E2_MAX
   return { tareE2Kg, tareTotalKg, netKg, kgPerContainer, plausible, ready: netKg > 0 }
 }
+
+// ── Zjazd z wagi bez „Dodaj do sumy" (kreator ważenia ubocznych) ─────────────
+//
+// Operator wjeżdża paletą, system liczy netto — a potem zjeżdża z wagi bez
+// dodania palety do sumy. Tracker pamięta ostatni KOMPLETNY stabilny odczyt
+// (tara wybrana, netto > 0); gdy waga schodzi do ~zera, odczyt przechodzi do
+// `prompt` — kreator pyta operatora, czy dodać zważoną paletę do sumy.
+
+/** Poniżej tego brutto uznajemy wagę za opuszczoną (najlżejsza tara to
+ * pojedynczy pojemnik E2 2 kg; paleta H1 sama waży 18 kg). */
+export const SCALE_EMPTY_KG = 10
+
+export interface PalletSnapshot {
+  tareLabel: string
+  tareKg: number
+  containers: number
+  gross: number
+  net: number
+}
+
+export interface DriveOffTracker {
+  /** Ostatni kompletny stabilny odczyt — kandydat na paletę. */
+  armed: PalletSnapshot | null
+  /** Zjazd z wagi z niedodaną paletą — odczyt czeka na decyzję operatora. */
+  prompt: PalletSnapshot | null
+}
+
+export const DRIVE_OFF_IDLE: DriveOffTracker = { armed: null, prompt: null }
+
+export function driveOffStep(
+  state: DriveOffTracker,
+  reading: { connected: boolean; stable: boolean; gross: number },
+  snap: { tareKg: number | null; tareLabel: string; containers: number; net: number },
+): DriveOffTracker {
+  // Prompt czeka na decyzję operatora — kolejne odczyty go nie ruszają,
+  // inaczej następna paleta wjeżdżająca na wagę skasowałaby pytanie.
+  if (state.prompt) return state
+  const complete = snap.tareKg != null && snap.net > 0
+  if (reading.connected && reading.stable && reading.gross > SCALE_EMPTY_KG && complete) {
+    return {
+      armed: {
+        tareLabel: snap.tareLabel,
+        tareKg: snap.tareKg as number,
+        containers: snap.containers,
+        gross: reading.gross,
+        net: round1(snap.net),
+      },
+      prompt: null,
+    }
+  }
+  if (state.armed && reading.gross <= SCALE_EMPTY_KG) {
+    return { armed: null, prompt: state.armed }
+  }
+  // Niestabilne odczyty nad progiem (drganie przy zjeżdżaniu) — armed zostaje.
+  return state
+}
