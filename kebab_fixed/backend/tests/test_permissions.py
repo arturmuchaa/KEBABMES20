@@ -90,3 +90,18 @@ def test_pallet_loading_scan_is_wydanie():
 
 def test_carton_dispatch_is_wydanie():
     assert permission_for_path("/api/dispatches/abc/scan-carton", "POST") == "wydanie"
+
+
+def test_korekta_wpisu_tylko_dla_biura():
+    """/correct omija blokadę zatwierdzonej zmiany, więc operator hali NIE
+    może go wywołać — inaczej przepisywałby zatwierdzone dane i cudzy akord."""
+    p = permission_for_path("/api/deboning/entries/abc123/correct", "POST")
+    assert p == "office"
+    # operator działu rozbior — mimo że /api/deboning to jego dział
+    operator = {"kind": "operator", "departments": ["rozbior"]}
+    assert can_access(operator, p) is False
+    # biuro przechodzi
+    assert can_access({"kind": "office", "role": "office"}, p) is True
+    assert can_access({"kind": "office", "role": "admin"}, p) is True
+    # zwykłe ścieżki rozbioru dalej działają dla operatora
+    assert permission_for_path("/api/deboning/entries/abc123", "PATCH") == "rozbior"

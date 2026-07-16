@@ -1,7 +1,8 @@
 """Deboning endpoints."""
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.models.deboning import (
+    DeboningEntryCorrect,
     DeboningEntryCreate,
     DeboningEntryUpdate,
     DeboningTakeCreate,
@@ -137,6 +138,23 @@ def change_deboning_entry_batch(entry_id: str, body: dict):
     if not raw_batch_id:
         raise HTTPException(400, "rawBatchId wymagane")
     return svc.change_deboning_entry_batch(entry_id, raw_batch_id)
+
+
+@router.post("/api/deboning/entries/{entry_id}/correct")
+def correct_deboning_entry(entry_id: str, dto: DeboningEntryCorrect, request: Request):
+    """Korekta z biura: pracownik i/lub kg — działa TAKŻE na zatwierdzonej
+    zmianie (to jest jej cel). Dostęp: wyłącznie biuro (permissions.py)."""
+    subject = getattr(request.state, "subject", None) or {}
+    by = str(subject.get("username") or subject.get("id") or "")
+    return svc.correct_deboning_entry(
+        entry_id, dto.worker_id, dto.kg_quarter, dto.kg_meat, dto.reason, by
+    )
+
+
+@router.get("/api/deboning/entries/{entry_id}/corrections")
+def list_deboning_entry_corrections(entry_id: str):
+    """Historia korekt wpisu — kto, kiedy, co na co i dlaczego."""
+    return {"corrections": svc.list_entry_corrections(entry_id)}
 
 
 @router.get("/api/deboning")

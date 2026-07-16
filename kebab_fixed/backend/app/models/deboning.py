@@ -84,3 +84,15 @@ class DeboningEntryUpdate(BaseModel):
     kg_meat: Optional[float] = Field(None, alias="kgMeat", ge=0)
     kg_backs: Optional[float] = Field(None, alias="kgBacks", ge=0)
     kg_bones: Optional[float] = Field(None, alias="kgBones", ge=0)
+
+
+class DeboningEntryCorrect(BaseModel):
+    """POST /api/deboning/entries/{id}/correct — korekta z biura.
+    Powód WYMAGANY: korekta zmienia wstecz akord i statystyki."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    worker_id: Optional[str] = Field(None, alias="workerId")
+    kg_quarter: Optional[float] = Field(None, alias="kgQuarter", ge=0)
+    kg_meat: Optional[float] = Field(None, alias="kgMeat", ge=0)
+    reason: str = Field(..., min_length=3)

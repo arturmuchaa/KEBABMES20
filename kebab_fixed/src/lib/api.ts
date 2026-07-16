@@ -305,6 +305,15 @@ export interface DeboningStats {
   workerDaily: Record<string, { date: string; quarters: number; kgQuarter: number; kgMeat: number; avgYield: number }[]>
 }
 
+/** Wpis historii korekt z biura: co na co i dlaczego (audyt zmiany akordu). */
+export interface EntryCorrection {
+  id: string
+  at: string | null
+  bySubject: string
+  reason: string
+  changes: Record<string, { from: unknown; to: unknown }>
+}
+
 export const deboningEntriesApi = {
   // list — filtrowanie po session_id gdy podane; withOpenTakes dołącza
   // otwarte pobrania (status=pending) także z INNYCH sesji — HMI musi je
@@ -356,6 +365,15 @@ export const deboningEntriesApi = {
   // (operator wybrał złą). Backend przenosi surowiec/mięso/ABP/ruchy atomowo.
   changeBatch: (id: string, rawBatchId: string) =>
     post<any>(`/deboning/entries/${id}/change-batch`, { rawBatchId }),
+  // correct — korekta z biura: pracownik i/lub kg. Osobny endpoint od PATCH
+  // (tego używa HMI), bo ŚWIADOMIE działa też na ZATWIERDZONEJ zmianie —
+  // wpisy starsze niż dziś są zawsze w sesji 'approved'. Powód wymagany:
+  // korekta zmienia wstecz akord i statystyki.
+  correct: (id: string, body: { workerId?: string; kgQuarter?: number; kgMeat?: number; reason: string }) =>
+    post<any>(`/deboning/entries/${id}/correct`, body),
+  corrections: (id: string) =>
+    get<{ corrections: EntryCorrection[] }>(`/deboning/entries/${id}/corrections`)
+      .then(r => r?.corrections ?? []),
   traceability: (batchId: string) => get<any>(`/deboning/entries/trace/${batchId}`),
 }
 

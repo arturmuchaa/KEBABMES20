@@ -6,8 +6,9 @@ Safety guarantees:
   * SELECT ... FOR UPDATE on the raw_batches row before deduction
     prevents two concurrent entries from overdrawing the batch.
 """
+import json
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
@@ -1550,3 +1551,142 @@ def change_deboning_entry_batch(entry_id: str, new_raw_batch_id: str) -> Dict:
         },
     )
     return _map_deboning_entry(row) if row else {"ok": True, "id": entry_id}
+
+
+def correct_deboning_entry(
+    entry_id: str,
+    worker_id: Optional[str],
+    kg_quarter: Optional[float],
+    kg_meat: Optional[float],
+    reason: str,
+    by_subject: str = "",
+) -> Dict:
+    """Korekta wpisu rozbioru Z BIURA: pracownik i/lub kg.
+
+    ŚWIADOMIE NIE woła validate_session_writable — to jedyna ścieżka, którą
+    biuro prostuje pomyłki operatora PO zatwierdzeniu zmiany (wpisy starsze
+    niż dziś są zawsze w sesji 'approved', więc PATCH/change-batch/undo
+    odmawiają). Dostęp zawęża RBAC: permission_for_path zwraca dla /correct
+    "office", więc operator hali tu nie wejdzie.
+
+    Powód jest wymagany i razem z diffem PRZED/PO ląduje w
+    deboning_entry_corrections — wsteczna zmiana akordu musi mieć ślad.
+    """
+    reason = (reason or "").strip()
+    if len(reason) < 3:
+        raise HTTPException(400, "Powód korekty jest wymagany (min. 3 znaki)")
+
+    with transaction() as conn:
+        entry = cx_query_one(
+            conn, "SELECT * FROM deboning_entries WHERE id=%s FOR UPDATE", (entry_id,)
+        )
+        if not entry:
+            raise HTTPException(404, "Wpis rozbioru nie znaleziony")
+
+        changes: Dict[str, Any] = {}
+
+        new_worker_id = entry.get("worker_id")
+        new_worker_name = entry.get("worker_name")
+        if worker_id and worker_id != entry.get("worker_id"):
+            w = cx_query_one(conn, "SELECT id, name FROM workers WHERE id=%s", (worker_id,))
+            if not w:
+                raise HTTPException(400, "Pracownik nie istnieje")
+            changes["worker"] = {"from": entry.get("worker_name") or "", "to": w["name"]}
+            new_worker_id, new_worker_name = w["id"], w["name"]
+
+        old_taken = float(entry.get("kg_quarter") or 0)
+        old_meat = float(entry.get("kg_meat") or 0)
+        new_taken = float(kg_quarter) if kg_quarter is not None else old_taken
+        new_meat = float(kg_meat) if kg_meat is not None else old_meat
+        if new_meat > new_taken:
+            raise HTTPException(400, "kg mięsa nie może przekraczać pobranej ćwiartki")
+        if abs(new_taken - old_taken) > 0.001:
+            changes["kgQuarter"] = {"from": old_taken, "to": new_taken}
+        if abs(new_meat - old_meat) > 0.001:
+            changes["kgMeat"] = {"from": old_meat, "to": new_meat}
+
+        if not changes:
+            raise HTTPException(400, "Brak zmian do zapisania")
+
+        # Korekta stanów — te same reguły co update_deboning_entry.
+        delta_taken = new_taken - old_taken
+        delta_meat = new_meat - old_meat
+        raw_row = None
+        meat_lot = None
+        if abs(delta_taken) > 0.001:
+            raw_row = cx_query_one(
+                conn,
+                "SELECT id, kg_available FROM raw_batches WHERE id=%s FOR UPDATE",
+                (entry.get("raw_batch_id"),),
+            )
+        if abs(delta_meat) > 0.001:
+            meat_lot = cx_query_one(
+                conn,
+                "SELECT id, kg_initial, kg_available FROM meat_stock WHERE lot_no=%s FOR UPDATE",
+                (entry.get("raw_batch_no"),),
+            )
+        delta_err = validate_edit_deltas(
+            delta_taken,
+            float(raw_row["kg_available"]) if raw_row else None,
+            delta_meat,
+            float(meat_lot["kg_available"]) if meat_lot else None,
+        )
+        if delta_err:
+            raise HTTPException(400, delta_err)
+        if raw_row:
+            cx_execute(
+                conn,
+                "UPDATE raw_batches SET kg_available = GREATEST(0, COALESCE(kg_available,0) - %s) "
+                "WHERE id=%s",
+                (delta_taken, raw_row["id"]),
+            )
+        if meat_lot:
+            cx_execute(
+                conn,
+                "UPDATE meat_stock SET kg_initial = GREATEST(0, kg_initial + %s), "
+                "kg_available = GREATEST(0, kg_available + %s) WHERE id=%s",
+                (delta_meat, delta_meat, meat_lot["id"]),
+            )
+
+        kg_remainder = max(0, new_taken - new_meat)
+        yield_pct = round((new_meat / new_taken * 100) if new_taken > 0 else 0, 2)
+        row = cx_execute_returning(
+            conn,
+            """
+            UPDATE deboning_entries
+            SET worker_id=%s, worker_name=%s, kg_quarter=%s, kg_meat=%s,
+                kg_remainder=%s, yield_pct=%s
+            WHERE id=%s
+            RETURNING *
+            """,
+            (new_worker_id, new_worker_name, new_taken, new_meat,
+             kg_remainder, yield_pct, entry_id),
+        )
+        cx_execute(
+            conn,
+            "INSERT INTO deboning_entry_corrections (id, entry_id, by_subject, reason, changes) "
+            "VALUES (%s,%s,%s,%s,%s)",
+            (cuid(), entry_id, by_subject or "", reason,
+             json.dumps(changes, ensure_ascii=False)),
+        )
+    logger.info("deboning.entry.corrected", extra={"entry_id": entry_id})
+    return _map_deboning_entry(row)
+
+
+def list_entry_corrections(entry_id: str) -> List[Dict]:
+    """Historia korekt wpisu — biuro widzi kto, kiedy, co na co i dlaczego."""
+    rows = query_all(
+        "SELECT id, at, by_subject, reason, changes FROM deboning_entry_corrections "
+        "WHERE entry_id=%s ORDER BY at DESC",
+        (entry_id,),
+    )
+    return [
+        {
+            "id": r["id"],
+            "at": r["at"].isoformat() if r.get("at") else None,
+            "bySubject": r.get("by_subject") or "",
+            "reason": r.get("reason") or "",
+            "changes": r.get("changes") or {},
+        }
+        for r in rows
+    ]
