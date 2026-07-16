@@ -194,6 +194,82 @@ def test_zbiorcze_wazenie_wyklucza_per_wpisowe_z_raportu(db):
     assert row["kgBacks"] == 40.0 and row["kgBones"] == 30.0
 
 
+# ── Loty ABP a doważanie po wydaniu WZ (prod 411/kości, 13–14.07.2026) ──
+def _open_lot_stan(kind="bones"):
+    return query_one(
+        "SELECT COALESCE(SUM(kg),0) AS kg, COALESCE(SUM(containers_available),0) AS c "
+        "FROM byproduct_lots WHERE raw_batch_id='rb1' AND kind=%s AND status='open'",
+        (kind,),
+    )
+
+
+def test_wazenie_po_wydaniu_calego_lotu_nie_odtwarza_wydanych_kg(db):
+    """Partia 411/kości: 13.07 zważono 1027,5 kg → lot; WZ wydała go w całości
+    (kg=0, 'shipped'). 14.07 doważono paletę, a kreator wysłał SUMĘ NARASTAJĄCĄ
+    1225 kg → record() wstawiał NOWY lot na pełne 1225 kg, mimo że 1027,5 kg
+    fizycznie wyjechało. Magazyn ABP zawyżał, a po anulowaniu starej WZ (lot
+    wraca na stan) partia miała 2252,5 kg przy realnych 1225 kg."""
+    _seed_batch_with_entries(internal_no="813", quarter_each=3500.0, n=2)
+    ensure_record("rb1")
+    p1 = {"tareLabel": "H1", "tareKg": 18, "containers": 74, "gross": 1045.5, "net": 1027.5}
+    record("rb1", "bones", 1027.5, [p1])
+    lot = query_one(
+        "SELECT id FROM byproduct_lots WHERE raw_batch_id='rb1' AND kind='bones' AND status='open'"
+    )
+    assert float(_open_lot_stan()["kg"]) == 1027.5
+    # WZ wydaje cały lot — dokładnie to robi wz_service (kg→0, status 'shipped')
+    execute(
+        "UPDATE byproduct_lots SET kg=0, containers_available=0, status='shipped' WHERE id=%s",
+        (lot["id"],),
+    )
+    # 14.07: kolejna paleta — kreator wysyła sumę narastającą całej frakcji
+    p2 = {"tareLabel": "H1", "tareKg": 18, "containers": 14, "gross": 243.5, "net": 197.5}
+    record("rb1", "bones", 1225.0, [p1, p2])
+
+    stan = _open_lot_stan()
+    assert float(stan["kg"]) == 197.5   # na magazynie tylko to, co dowieziono
+    assert int(stan["c"]) == 14
+    # rekord ważenia nadal zna PEŁNĄ wagę frakcji (raport, procenty, bilans)
+    assert get("rb1")["bonesKg"] == 1225.0
+
+
+def test_wazenie_po_czesciowym_wydaniu_zostawia_reszte(db):
+    """WZ zabrała część lotu — doważenie dokłada tylko nadwyżkę ponad wydane."""
+    _seed_batch_with_entries(internal_no="814", quarter_each=500.0, n=2)
+    ensure_record("rb1")
+    p1 = {"tareLabel": "H1", "tareKg": 18, "containers": 10, "gross": 138, "net": 100}
+    record("rb1", "bones", 100.0, [p1])
+    lot = query_one(
+        "SELECT id FROM byproduct_lots WHERE raw_batch_id='rb1' AND kind='bones' AND status='open'"
+    )
+    # WZ wydaje 30 kg / 3 pojemniki — lot zostaje OTWARTY z resztą
+    execute("UPDATE byproduct_lots SET kg=70, containers_available=7 WHERE id=%s", (lot["id"],))
+    p2 = {"tareLabel": "H1", "tareKg": 18, "containers": 2, "gross": 38, "net": 20}
+    record("rb1", "bones", 120.0, [p1, p2])
+
+    stan = _open_lot_stan()
+    assert float(stan["kg"]) == 90.0  # 120 zważone − 30 wydane
+    assert int(stan["c"]) == 9        # 12 pojemników − 3 wydane
+
+
+def test_kolejne_wazenie_bez_wydania_zastepuje_lot_pelna_suma(db):
+    """Zabezpieczenie odwrotnej strony: bez żadnego wydania doważenie ma dać
+    lot na PEŁNĄ sumę narastającą (nie wolno niczego odjąć)."""
+    _seed_batch_with_entries(internal_no="815", quarter_each=500.0, n=2)
+    ensure_record("rb1")
+    p1 = {"tareLabel": "H1", "tareKg": 18, "containers": 10, "gross": 138, "net": 100}
+    record("rb1", "bones", 100.0, [p1])
+    p2 = {"tareLabel": "H1", "tareKg": 18, "containers": 2, "gross": 38, "net": 20}
+    record("rb1", "bones", 120.0, [p1, p2])
+
+    stan = _open_lot_stan()
+    assert float(stan["kg"]) == 120.0
+    assert int(stan["c"]) == 12
+    assert query_one(
+        "SELECT COUNT(*) AS n FROM byproduct_lots WHERE raw_batch_id='rb1' AND kind='bones'"
+    )["n"] == 1  # stary lot podmieniony, nie zdublowany
+
+
 def test_per_wpisowe_uboczne_bez_zbiorczego_wazenia_nadal_licza_sie(db):
     """Odwrotna strona reguły: partia BEZ zbiorczego ważenia (stare HMI /
     tablet) musi nadal pokazywać uboczne z wpisów — nie wolno ich zgubić."""

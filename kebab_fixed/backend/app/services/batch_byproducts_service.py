@@ -232,7 +232,8 @@ def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = No
     if kind not in ("backs", "bones"):
         raise HTTPException(400, "kind musi być 'backs' albo 'bones'")
     rec = query_one(
-        f"SELECT quarter_kg, raw_batch_no, {kind}_pallets AS old_pallets "
+        f"SELECT quarter_kg, raw_batch_no, {kind}_pallets AS old_pallets, "
+        f"       {kind}_kg AS old_kg "
         "FROM batch_byproducts WHERE raw_batch_id=%s",
         (raw_batch_id,),
     )
@@ -242,14 +243,30 @@ def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = No
     pct = round(kg / quarter * 100, 2) if quarter > 0 else 0.0
     pallets = _stamp_pallets(pallets)
 
-    old_lot = query_one(
-        "SELECT containers_available FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
-        "AND deboning_entry_id IS NULL AND status='open'",
+    # Ile z poprzednio zważonej frakcji JUŻ WYJECHAŁO (WZ / utylizacja).
+    # Loty tej partii+frakcji są ŻYWYM stanem — wydanie zdejmuje z lotu kg
+    # i pojemniki (0 kg → 'shipped'). Kreator przysyła sumę NARASTAJĄCĄ całej
+    # frakcji, więc na magazyn wolno wstawić tylko to, czego jeszcze nie
+    # wydano. Bez tego wydane kg wracały na stan drugi raz: 411/kości —
+    # 1027,5 kg wyjechało 13.07 (lot 'shipped'), a doważenie 14.07 wstawiało
+    # lot na PEŁNE 1225 kg; po anulowaniu tamtej WZ (lot wraca) partia miała
+    # 2252,5 kg przy realnych 1225 kg (WZ/9 + WZ/10, prod 2026-07-14).
+    # Liczymy po WSZYSTKICH lotach frakcji (też 'shipped'), bo DELETE niżej
+    # zdejmuje wyłącznie otwarte — wydane zostają jako ślad dla WZ.
+    live = query_one(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(kg),0) AS kg, "
+        "       COUNT(containers_available) AS n_cont, "
+        "       COALESCE(SUM(containers_available),0) AS cont "
+        "FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
+        "AND deboning_entry_id IS NULL",
         (raw_batch_id, kind),
     )
+    consumed_kg = 0.0
     consumed = 0
-    if old_lot is not None and old_lot.get("containers_available") is not None:
-        consumed = max(0, pallet_containers(rec.get("old_pallets")) - int(old_lot["containers_available"]))
+    if live is not None and int(live["n"] or 0) > 0:
+        consumed_kg = max(0.0, float(rec.get("old_kg") or 0) - float(live["kg"] or 0))
+        if int(live["n_cont"] or 0) > 0:
+            consumed = max(0, pallet_containers(rec.get("old_pallets")) - int(live["cont"] or 0))
 
     execute(
         f"UPDATE batch_byproducts SET {kind}_kg=%s, {kind}_pct=%s, {kind}_pallets=%s, "
@@ -265,12 +282,16 @@ def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = No
         "AND deboning_entry_id IS NULL AND status='open'",
         (raw_batch_id, kind),
     )
-    if kg > 0:
+    # Na stan idzie zważona suma MINUS to, co już wyjechało. batch_byproducts
+    # (wyżej) trzyma PEŁNĄ wagę frakcji — to rekord ważenia i baza procentów,
+    # nie stan magazynowy.
+    new_kg = round(max(0.0, kg - consumed_kg), 3)
+    if new_kg > 0:
         new_available = max(0, pallet_containers(pallets) - consumed)
         execute(
             "INSERT INTO byproduct_lots (id, deboning_entry_id, raw_batch_id, "
             "raw_batch_no, kind, kg, status, containers_available, created_at) "
             "VALUES (%s, NULL, %s, %s, %s, %s, 'open', %s, now())",
-            (cuid(), raw_batch_id, rec["raw_batch_no"], kind, round(kg, 3), new_available),
+            (cuid(), raw_batch_id, rec["raw_batch_no"], kind, new_kg, new_available),
         )
     return get(raw_batch_id)
