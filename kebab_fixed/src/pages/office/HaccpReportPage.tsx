@@ -92,40 +92,45 @@ function SingleReport({ data }: { data: ReportData }) {
     return { totalTaken, totalMeat, totalBacks, totalBones, uppzKat3, surplus, loss: 0 }
   }, [rows])
 
-  // Numer raportu = licznik dnia z numeru sesji ROZ/dd/mm/rr[/n]; brak sufiksu → 001.
-  const reportNo = (() => {
-    const sn = sessions[0]?.sessionNo
-    if (!sn) return '001'
-    const parts = sn.split('/')
-    return parts.length >= 5 ? parts[4] : '001'
-  })()
+  // Numer raportu: R/dzień/MM/RR — JEDEN dzień = JEDEN numer (numer = dzień
+  // miesiąca: 16.07.2026 → R/16/07/26), kolejny dzień = kolejny numer, reset
+  // z nowym miesiącem. Decyzja właściciela 2026-07-16 (wcześniej licznik
+  // sesji dnia, mylony z liczbą wpisów).
+  const reportNo = `R/${parseInt(date.slice(8, 10), 10)}/${date.slice(5, 7)}/${date.slice(2, 4)}`
 
   return (
     <div className="bg-white p-6 mb-4" style={{ pageBreakAfter: 'always' }}>
-      <table className="w-full text-xs mb-4" style={{ borderCollapse: 'collapse' }}>
-        <tbody>
-          <tr>
-            <td className="border border-black p-2" rowSpan={2} style={{ width: '40%' }}>
-              <div className="font-bold text-sm">FHUP Marek Księżyc</div>
-              <div className="text-[10px]">ul. Dunajewskiego 83, 32-064 Rudawa</div>
-            </td>
-            <td className="border border-black p-2 text-center font-bold" rowSpan={2}>Raport rozbioru</td>
-            <td className="border border-black p-1 text-center" style={{ width: '15%' }}>
-              <div className="text-[9px] text-gray-600">Numer</div>
-              <div className="font-bold">R/{reportNo}</div>
-            </td>
-            <td className="border border-black p-1 text-center" style={{ width: '15%' }}>
-              <div className="text-[9px] text-gray-600">Data</div>
-              <div className="font-bold">{fmtDatePl(date)}</div>
-            </td>
-          </tr>
-          <tr>
-            <td className="border border-black p-1 text-center" colSpan={2}>
-              <span className="text-[9px] text-gray-600">Edycja 2</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      {/* Nagłówek: tabela danych + logo Księżyc w prawym górnym rogu.
+          Plik 3667×1267 px (poziome ze sloganem) — 52 px wysokości daje
+          ~150 px szerokości: czytelne w druku, nie dominuje nagłówka. */}
+      <div className="flex items-center gap-3 mb-4">
+        <table className="flex-1 text-xs" style={{ borderCollapse: 'collapse' }}>
+          <tbody>
+            <tr>
+              <td className="border border-black p-2" rowSpan={2} style={{ width: '40%' }}>
+                <div className="font-bold text-sm">FHUP Marek Księżyc</div>
+                <div className="text-[10px]">ul. Dunajewskiego 83, 32-064 Rudawa</div>
+              </td>
+              <td className="border border-black p-2 text-center font-bold" rowSpan={2}>Raport rozbioru</td>
+              <td className="border border-black p-1 text-center" style={{ width: '15%' }}>
+                <div className="text-[9px] text-gray-600">Numer</div>
+                <div className="font-bold">{reportNo}</div>
+              </td>
+              <td className="border border-black p-1 text-center" style={{ width: '15%' }}>
+                <div className="text-[9px] text-gray-600">Data</div>
+                <div className="font-bold">{fmtDatePl(date)}</div>
+              </td>
+            </tr>
+            <tr>
+              <td className="border border-black p-1 text-center" colSpan={2}>
+                <span className="text-[9px] text-gray-600">Edycja 2</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <img src="/logo-ksiezyc.png" alt="Księżyc"
+          style={{ height: 52, width: 'auto', flexShrink: 0 }} />
+      </div>
 
       <div className="font-bold text-[10px] mb-1 bg-gray-200 p-1 border border-black">
         PODSUMOWANIE DNIA — {fmtDatePl(date)}
@@ -155,7 +160,11 @@ function SingleReport({ data }: { data: ReportData }) {
       <table className="w-full text-[9px] mb-4" style={{ borderCollapse: 'collapse' }}>
         <thead>
           <tr className="bg-gray-200">
-            {['Nr partii','Nr partii dostawcy','Dostawca','Data uboju','Data ważności','Ćwiartka kg','Mięso Z/S kg','Grzbiety kg','Kości kg','UPPZ kat.3','Nadwyżka kg'].map(h => (
+            {/* „Numer porządkowy" (dawniej „Nr partii"): docelowo cały proces
+                (przyjęcie→rozbiór) będzie miał numer porządkowy, a numer partii
+                dostanie tylko wyrób gotowy i sprzedane uboczne/mięso. Na razie
+                zmiana TYLKO opisu na dokumencie (decyzja 2026-07-16). */}
+            {['Numer porządkowy','Nr partii dostawcy','Dostawca','Data uboju','Data ważności','Ćwiartka kg','Mięso Z/S kg','Grzbiety kg','Kości kg','UPPZ kat.3','Nadwyżka kg'].map(h => (
               <th key={h} className="border border-black p-1 text-left">{h}</th>
             ))}
           </tr>
@@ -211,9 +220,8 @@ function SingleReport({ data }: { data: ReportData }) {
         </tbody>
       </table>
 
-      <div className="mt-2 flex justify-between text-[8px] text-gray-500 border-t pt-1">
+      <div className="mt-2 text-[8px] text-gray-500 border-t pt-1">
         <span>2.1.1 Raport z rozbioru</span>
-        <span>Edycja 2 · {new Date().toLocaleDateString('pl-PL')}</span>
       </div>
     </div>
   )
