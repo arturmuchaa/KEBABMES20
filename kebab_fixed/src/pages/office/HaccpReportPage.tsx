@@ -100,10 +100,12 @@ function SingleReport({ data }: { data: ReportData }) {
 
   return (
     <div className="bg-white p-6 mb-4" style={{ pageBreakAfter: 'always' }}>
-      {/* Nagłówek: tabela danych + logo Księżyc w prawym górnym rogu.
+      {/* Nagłówek: logo Księżyc w LEWYM górnym rogu + tabela danych.
           Plik 3667×1267 px (poziome ze sloganem) — 52 px wysokości daje
           ~150 px szerokości: czytelne w druku, nie dominuje nagłówka. */}
       <div className="flex items-center gap-3 mb-4">
+        <img src="/logo-ksiezyc.png" alt="Księżyc"
+          style={{ height: 52, width: 'auto', flexShrink: 0 }} />
         <table className="flex-1 text-xs" style={{ borderCollapse: 'collapse' }}>
           <tbody>
             <tr>
@@ -128,8 +130,6 @@ function SingleReport({ data }: { data: ReportData }) {
             </tr>
           </tbody>
         </table>
-        <img src="/logo-ksiezyc.png" alt="Księżyc"
-          style={{ height: 52, width: 'auto', flexShrink: 0 }} />
       </div>
 
       <div className="font-bold text-[10px] mb-1 bg-gray-200 p-1 border border-black">

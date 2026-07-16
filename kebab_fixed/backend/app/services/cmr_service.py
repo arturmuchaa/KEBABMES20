@@ -75,6 +75,34 @@ def _carrier_snapshot(carrier_id: str, plate: str) -> Dict[str, Any]:
     }
 
 
+def _client_snapshot(order: Dict[str, Any]) -> Dict[str, Any]:
+    """Dane kontrahenta z ŻYWEJ kartoteki klientów: consignee + miejsce dostawy.
+
+    Wołane przy generowaniu ORAZ przy każdym zapisie edycji CMR — zmiana
+    danych klienta w kartotece ma wchodzić na dokument (prod 2026-07-16:
+    poprawiony adres BULLI nie trafiał na CMR, bo payload był snapshotem
+    z chwili utworzenia i nic go nie odświeżało).
+    """
+    cols = "name, address, city, nip, dest_name, dest_address, dest_city"
+    client = None
+    if order.get("client_id"):
+        client = query_one(f"SELECT {cols} FROM clients WHERE id=%s", (order.get("client_id"),))
+    if not client:
+        client = query_one(f"SELECT {cols} FROM clients WHERE name=%s", (order.get("client_name"),))
+    client = client or {}
+    client_name = client.get("name") or order.get("client_name", "")
+    client_addr = ", ".join(x for x in [client.get("address", ""), client.get("city", "")] if x)
+    dest = " ".join(x for x in [client.get("dest_name", ""), client.get("dest_address", ""),
+                                client.get("dest_city", "")] if x).strip()
+    return {
+        "consignee": {"name": client_name, "address": client.get("address", ""),
+                      "city": client.get("city", ""),
+                      "country": country_from_nip(client.get("nip", ""), ""),
+                      "nip": client.get("nip", "")},
+        "delivery_place": dest or ", ".join(x for x in [client_name, client_addr] if x),
+    }
+
+
 def build_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
     order = query_one("SELECT * FROM client_orders WHERE id=%s", (order_id,))
     if not order:
@@ -102,17 +130,7 @@ def build_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(400, "Brak towaru do umieszczenia na CMR")
     totals = cmr_totals(goods)
 
-    cols = "name, address, city, nip, dest_name, dest_address, dest_city"
-    client = None
-    if order.get("client_id"):
-        client = query_one(f"SELECT {cols} FROM clients WHERE id=%s", (order.get("client_id"),))
-    if not client:
-        client = query_one(f"SELECT {cols} FROM clients WHERE name=%s", (order.get("client_name"),))
-    client = client or {}
-    client_name = client.get("name") or order.get("client_name", "")
-    client_addr = ", ".join(x for x in [client.get("address", ""), client.get("city", "")] if x)
-    dest = " ".join(x for x in [client.get("dest_name", ""), client.get("dest_address", ""),
-                                client.get("dest_city", "")] if x).strip()
+    consignee_part = _client_snapshot(order)
 
     co = get_company()
     company_addr = f"{co.get('address','')}".strip()
@@ -127,11 +145,8 @@ def build_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
                    "postal_code": co.get("postal_code", ""), "city": load_city,
                    "country": country_from_nip(co.get("nip", ""), "Poland"),
                    "nip": co.get("nip", "")},
-        "consignee": {"name": client_name, "address": client.get("address", ""),
-                      "city": client.get("city", ""),
-                      "country": country_from_nip(client.get("nip", ""), ""),
-                      "nip": client.get("nip", "")},
-        "delivery_place": dest or ", ".join(x for x in [client_name, client_addr] if x),
+        "consignee": consignee_part["consignee"],
+        "delivery_place": consignee_part["delivery_place"],
         "load_place": co.get("load_place") or f"{company_addr}, {load_city}".strip(", "),
         "load_date": today,
         "attachments": {"hdi_number": (hdi or {}).get("number", ""),
@@ -185,6 +200,16 @@ def update_cmr(cmr_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
     if not row:
         raise HTTPException(404, "CMR nie znaleziony")
     payload = row.get("payload") or {}
+    # Odśwież kontrahenta z żywej kartoteki przy KAŻDYM zapisie — payload to
+    # snapshot z chwili utworzenia i zmiana danych klienta nie wchodziła na
+    # dokument (prod 2026-07-16, BULLI). Formularz edycji CMR nie pozwala
+    # ręcznie zmieniać consignee/delivery, więc nadpisanie nic nie gubi.
+    if row.get("order_id"):
+        order = query_one("SELECT * FROM client_orders WHERE id=%s", (row.get("order_id"),))
+        if order:
+            snap = _client_snapshot(order)
+            payload["consignee"] = snap["consignee"]
+            payload["delivery_place"] = snap["delivery_place"]
     carrier_id = form.get("carrier_id") or row.get("carrier_id") or ""
     carrier = _carrier_snapshot(carrier_id, form.get("plate") or payload.get("carrier", {}).get("plate", ""))
     payload["carrier"] = carrier
