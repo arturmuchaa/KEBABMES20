@@ -88,6 +88,11 @@ def permission_for_path(path: str, method: str = "GET") -> str:
     # edycja wyłącznie z biura (strona Ustawienia firmy).
     if _matches(path, "/api/deboning/cart-tares"):
         return "rozbior" if method == "GET" else "office"
+    # Korekta wpisu z biura (pracownik/kg) ŚWIADOMIE omija blokadę
+    # zatwierdzonej zmiany, więc wpuszczamy tu WYŁĄCZNIE biuro — operator
+    # hali nie może przepisywać zatwierdzonych danych ani cudzego akordu.
+    if path.startswith("/api/deboning/entries/") and path.endswith("/correct"):
+        return "office"
     for dept, prefixes in DEPARTMENT_PREFIXES.items():
         for p in prefixes:
             if _matches(path, p):
