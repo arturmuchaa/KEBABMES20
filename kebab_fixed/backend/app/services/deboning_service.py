@@ -63,7 +63,19 @@ def _map_deboning_entry(row: Dict) -> Dict:
     }
 
 
-def list_deboning_entries(session_id: str | None, with_open_takes: bool = False) -> List[Dict]:
+def list_deboning_entries(
+    session_id: str | None,
+    with_open_takes: bool = False,
+    raw_batch_id: str | None = None,
+) -> List[Dict]:
+    # Panel rozbioru w biurze: wszystkie wpisy JEDNEJ partii niezależnie od
+    # dnia/sesji (partia 411 szła 2 dni — feed dzienny je gubił).
+    if raw_batch_id:
+        rows = query_all(
+            "SELECT * FROM deboning_entries WHERE raw_batch_id=%s ORDER BY created_at DESC",
+            (raw_batch_id,),
+        )
+        return [_map_deboning_entry(r) for r in rows]
     if session_id:
         if with_open_takes:
             # HMI: otwarte pobrania (status='pending') muszą być widoczne
@@ -1690,3 +1702,66 @@ def list_entry_corrections(entry_id: str) -> List[Dict]:
         }
         for r in rows
     ]
+
+
+def deboning_panel(limit: int = 60) -> List[Dict]:
+    """Panel rozbioru (biuro): partie z aktywnością rozbioru + agregaty.
+
+    Myśli PARTIAMI, nie dniami — partia wielodniowa (411: 13–14.07) to jeden
+    wiersz z sumami z obu dni. Sumy kg tylko z wpisów 'complete' (otwarte
+    pobrania liczą się w pendingCount, ale ich kg nie zawyża bilansu w trakcie
+    dnia). Uboczne zbiorcze z batch_byproducts — tylko do wglądu.
+    """
+    rows = query_all(
+        """
+        SELECT rb.id, rb.internal_batch_no, rb.supplier_name, rb.material_name,
+               rb.status, rb.kg_received, rb.kg_available,
+               agg.entries_count, agg.pending_count, agg.kg_quarter, agg.kg_meat,
+               agg.first_at, agg.last_at,
+               bb.backs_kg, bb.bones_kg
+        FROM raw_batches rb
+        JOIN LATERAL (
+            SELECT COUNT(*) FILTER (WHERE COALESCE(status,'complete')='complete') AS entries_count,
+                   COUNT(*) FILTER (WHERE COALESCE(status,'complete')='pending')  AS pending_count,
+                   COALESCE(SUM(kg_quarter) FILTER (WHERE COALESCE(status,'complete')='complete'),0) AS kg_quarter,
+                   COALESCE(SUM(kg_meat)    FILTER (WHERE COALESCE(status,'complete')='complete'),0) AS kg_meat,
+                   MIN(COALESCE(completed_at, created_at)) AS first_at,
+                   MAX(COALESCE(completed_at, created_at)) AS last_at
+            FROM deboning_entries de WHERE de.raw_batch_id = rb.id
+        ) agg ON true
+        LEFT JOIN batch_byproducts bb ON bb.raw_batch_id = rb.id
+        WHERE agg.entries_count > 0 OR agg.pending_count > 0
+        ORDER BY agg.last_at DESC
+        LIMIT %s
+        """,
+        (limit,),
+    )
+
+    def f(v) -> float:
+        return float(v or 0)
+
+    out: List[Dict] = []
+    for r in rows:
+        quarter = f(r["kg_quarter"])
+        meat = f(r["kg_meat"])
+        backs = f(r["backs_kg"])
+        bones = f(r["bones_kg"])
+        out.append({
+            "rawBatchId": r["id"],
+            "batchNo": r["internal_batch_no"],
+            "supplierName": r["supplier_name"] or "",
+            "materialName": r["material_name"] or "",
+            "status": r["status"] or "",
+            "kgReceived": f(r["kg_received"]),
+            "kgAvailable": f(r["kg_available"]),
+            "entriesCount": int(r["entries_count"] or 0),
+            "pendingCount": int(r["pending_count"] or 0),
+            "kgQuarter": round(quarter, 1),
+            "kgMeat": round(meat, 1),
+            "backsKg": round(backs, 1),
+            "bonesKg": round(bones, 1),
+            "balancePct": round((meat + backs + bones) / quarter * 100, 1) if quarter > 0 else None,
+            "firstAt": r["first_at"].isoformat() if r.get("first_at") else None,
+            "lastAt": r["last_at"].isoformat() if r.get("last_at") else None,
+        })
+    return out

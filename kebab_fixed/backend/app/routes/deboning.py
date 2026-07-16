@@ -96,8 +96,18 @@ def deboning_stats(
 def list_deboning_entries(
     session_id: str = Query(None, alias="session_id"),
     with_open_takes: bool = Query(False, alias="with_open_takes"),
+    raw_batch_id: str = Query(None, alias="raw_batch_id"),
 ):
-    return svc.list_deboning_entries(session_id, with_open_takes=with_open_takes)
+    return svc.list_deboning_entries(
+        session_id, with_open_takes=with_open_takes, raw_batch_id=raw_batch_id
+    )
+
+
+@router.get("/api/deboning/panel")
+def deboning_panel(limit: int = Query(60, ge=1, le=200)):
+    """Panel rozbioru (biuro): partie z aktywnością rozbioru + agregaty
+    do kontroli i korekt. Myśli partiami, nie dniami."""
+    return {"batches": svc.deboning_panel(limit)}
 
 
 @router.post("/api/deboning/entries")
