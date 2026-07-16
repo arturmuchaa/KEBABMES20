@@ -1,12 +1,13 @@
 """Zbiorcze ważenie ubocznych: ważenie w trakcie rozbioru (ensure_record),
 domknięcie partii z przeliczeniem %, widoczność w statystykach biura.
 Testy DB — wymagają TEST_DATABASE_URL (patrz conftest), inaczej skip."""
-from datetime import date
+from datetime import date, timedelta
 
 from app.db import execute, query_one
 from app.services.batch_byproducts_service import (
     ensure_record,
     finish_batch,
+    get,
     pending,
     record,
     today_totals,
@@ -141,3 +142,64 @@ def test_today_totals_sumuje_dzisiejsze_wazenia(db):
     t = today_totals()
     assert t["backsKg"] == 55.5
     assert t["bonesKg"] == 0.0
+
+
+# ── Partia rozbierana i ważona przez KILKA DNI (prod 411, 13–14.07.2026) ──
+def test_uboczne_licza_sie_w_dniu_wazenia_palety_a_nie_zakonczenia_partii(db):
+    """Rekord ubocznych jest JEDEN na partię i ma JEDEN znacznik czasu, więc
+    raport wrzucał całe grzbiety/kości do dnia zakończenia partii. Partia 411
+    (rozbiór 13.07 + 14.07, kości ważone w obu dniach) dała 13.07 bez kości,
+    a 14.07 bilans masy 137% wejścia — biuro widziało „zdublowane kości".
+    Każda paleta niesie własny weighedAt i liczy się w SWOIM dniu."""
+    _seed_batch_with_entries(internal_no="810", quarter_each=350.0, n=2)  # 700 kg
+    ensure_record("rb1")
+    pal1 = {"tareLabel": "H1", "tareKg": 18, "containers": 7, "gross": 118, "net": 100}
+    record("rb1", "bones", 100.0, [pal1])
+    # cofnij ważenie o dobę — tak wyglądała partia po pierwszym dniu rozbioru
+    execute(
+        "UPDATE batch_byproducts SET bones_at = bones_at - INTERVAL '1 day', "
+        "bones_pallets = jsonb_set(bones_pallets, '{0,weighedAt}', "
+        "  to_jsonb(((now() - INTERVAL '1 day') AT TIME ZONE 'UTC')::text)) "
+        "WHERE raw_batch_id='rb1'"
+    )
+    # dzień 2: kreator doładowuje palety z rekordu i wysyła SUMĘ narastającą
+    prev = get("rb1")["bonesPallets"]
+    pal2 = {"tareLabel": "H1", "tareKg": 18, "containers": 2, "gross": 38, "net": 20}
+    record("rb1", "bones", 120.0, prev + [pal2])
+    finish_batch("rb1")
+
+    today = date.today()
+    yday = (today - timedelta(days=1)).isoformat()
+    assert deboning_stats(yday, yday)["summary"]["kgBones"] == 100.0
+    assert deboning_stats(today.isoformat(), today.isoformat())["summary"]["kgBones"] == 20.0
+    # zakres obejmujący oba dni nadal daje pełną partię (nic nie ginie)
+    assert deboning_stats(yday, today.isoformat())["summary"]["kgBones"] == 120.0
+
+
+def test_zbiorcze_wazenie_wyklucza_per_wpisowe_z_raportu(db):
+    """Jedno źródło prawdy na (partia, frakcja). Ręczne „Zakończenie partii"
+    na HMI zapisywało grzbiety/kości i do deboning_entries, i do
+    batch_byproducts — raport SUMOWAŁ oba źródła, więc pokazywał 2× tyle."""
+    _seed_batch_with_entries(internal_no="811")  # 200 kg ćwiartki, 2 wpisy
+    execute("UPDATE deboning_entries SET kg_backs=20, kg_bones=15 WHERE raw_batch_id='rb1'")
+    finish_batch("rb1")
+    record("rb1", "backs", 40.0, [])  # ta sama waga, zbiorczo na partię
+    record("rb1", "bones", 30.0, [])
+
+    today = date.today().isoformat()
+    s = deboning_stats(today, today)
+    assert s["summary"]["kgBacks"] == 40.0  # nie 80
+    assert s["summary"]["kgBones"] == 30.0  # nie 60
+    row = next(b for b in s["byBatch"] if b["batchNo"] == "811")
+    assert row["kgBacks"] == 40.0 and row["kgBones"] == 30.0
+
+
+def test_per_wpisowe_uboczne_bez_zbiorczego_wazenia_nadal_licza_sie(db):
+    """Odwrotna strona reguły: partia BEZ zbiorczego ważenia (stare HMI /
+    tablet) musi nadal pokazywać uboczne z wpisów — nie wolno ich zgubić."""
+    _seed_batch_with_entries(internal_no="812")
+    execute("UPDATE deboning_entries SET kg_backs=20, kg_bones=15 WHERE raw_batch_id='rb1'")
+    today = date.today().isoformat()
+    s = deboning_stats(today, today)
+    assert s["summary"]["kgBacks"] == 40.0
+    assert s["summary"]["kgBones"] == 30.0

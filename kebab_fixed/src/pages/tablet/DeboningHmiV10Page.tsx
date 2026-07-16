@@ -1014,16 +1014,26 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     }
     // Zaksięguj zbiorczo do batch_byproducts per partia (ensure NIE finalizuje
     // partii — finished_at zostaje NULL, więc auto-zakończenie działa dalej).
-    // Ręczna paleta = jeden „pojemnik" bez tary, żeby zapis był identyczny jak
-    // przez kreator. Błąd tu nie blokuje finalizacji wpisów — tylko ostrzega.
-    const manualPallet = (kg: number) => [{ tareLabel: 'ręcznie', tareKg: 0, containers: 0, gross: kg, net: kg }]
+    // weigh NADPISUJE frakcję w całości, więc doliczamy wpisane kg do palet
+    // już zważonych (ensure zwraca rekord) — inaczej ręczne zakończenie
+    // kasowało wcześniejsze ważenia partii razem z ich podziałem na dni.
+    // Błąd tu nie blokuje finalizacji wpisów — tylko ostrzega.
+    const r2 = (n: number) => Math.round(n * 100) / 100
+    const mk = (kg: number) => ({ tareLabel: 'ręcznie', tareKg: 0, containers: 0, gross: kg, net: kg })
+    const sumNet = (ps?: { net: number }[]) => (ps ?? []).reduce((s, p) => s + (p.net || 0), 0)
     let byprodErr = false
     for (const [rawBatchId, { kb, kn }] of perBatch) {
       if (kb <= 0 && kn <= 0) continue
       try {
-        await byproductsApi.ensure(rawBatchId, loggedInUser?.name)
-        if (kb > 0) await byproductsApi.weigh(rawBatchId, 'backs', Math.round(kb * 100) / 100, manualPallet(kb))
-        if (kn > 0) await byproductsApi.weigh(rawBatchId, 'bones', Math.round(kn * 100) / 100, manualPallet(kn))
+        const rec = await byproductsApi.ensure(rawBatchId, loggedInUser?.name)
+        if (kb > 0) {
+          const prev = rec?.backsPallets ?? []
+          await byproductsApi.weigh(rawBatchId, 'backs', r2(sumNet(prev) + kb), [...prev, mk(r2(kb))])
+        }
+        if (kn > 0) {
+          const prev = rec?.bonesPallets ?? []
+          await byproductsApi.weigh(rawBatchId, 'bones', r2(sumNet(prev) + kn), [...prev, mk(r2(kn))])
+        }
       } catch { byprodErr = true }
     }
     byproductsData.refetch()

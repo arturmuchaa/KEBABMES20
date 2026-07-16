@@ -6,6 +6,7 @@ ZBIORCZO grzbiety i kości zakończonej partii — paletami na wadze najazdowej
 Stan przeżywa zamknięcie dnia i przechodzi na kolejne dni aż do dokończenia.
 """
 import json
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -16,6 +17,26 @@ from app.utils.ids import cuid
 from app.utils.pallets import pallet_containers
 
 logger = get_logger(__name__)
+
+
+def _stamp_pallets(pallets: Optional[list]) -> List[Dict[str, Any]]:
+    """Ostempluj czasem ważenia palety, które go jeszcze nie mają.
+
+    Kreator odsyła przy każdym zapisie CAŁĄ listę palet frakcji (sumę
+    narastającą), więc palety z poprzednich ważeń przychodzą ze swoim
+    stemplem i zostają nietknięte — tylko nowa paleta dostaje „teraz".
+    Dzięki temu partia rozbierana i ważona przez kilka dni (411: 13–14.07)
+    rozlicza każdą paletę w JEJ dniu, zamiast wrzucać całe uboczne do dnia
+    zakończenia partii (raport pokazywał wtedy 137% bilansu masy).
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    out: List[Dict[str, Any]] = []
+    for p in pallets or []:
+        q = dict(p)
+        if not q.get("weighedAt"):
+            q["weighedAt"] = now
+        out.append(q)
+    return out
 
 
 def _row(r: Optional[Dict]) -> Optional[Dict[str, Any]]:
@@ -219,6 +240,7 @@ def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = No
         raise HTTPException(404, "Partia nie została zakończona (brak rekordu ubocznych)")
     quarter = float(rec["quarter_kg"] or 0)
     pct = round(kg / quarter * 100, 2) if quarter > 0 else 0.0
+    pallets = _stamp_pallets(pallets)
 
     old_lot = query_one(
         "SELECT containers_available FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "

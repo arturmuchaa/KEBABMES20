@@ -363,6 +363,10 @@ export const deboningEntriesApi = {
 // partii ALBO w trakcie rozbioru (przytrzymanie kafelka partii na HMI).
 export interface ByproductPallet {
   tareLabel: string; tareKg: number; containers: number; gross: number; net: number
+  /** Czas ważenia TEJ palety — stempluje backend przy zapisie. Kreator odsyła
+   *  paletę razem ze stemplem, dzięki czemu partia ważona przez kilka dni
+   *  rozlicza każdą paletę w JEJ dniu (raport per dzień). */
+  weighedAt?: string
 }
 export interface BatchByproducts {
   rawBatchId: string; rawBatchNo: string; quarterKg: number

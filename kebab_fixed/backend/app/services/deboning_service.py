@@ -134,25 +134,75 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     total_q = len(rows)
     total_kgq = sum(f(r["kg_quarter"]) for r in rows)
     total_meat = sum(f(r["kg_meat"]) for r in rows)
-    total_backs = sum(f(r["kg_backs"]) for r in rows)
-    total_bones = sum(f(r["kg_bones"]) for r in rows)
-
     # Zbiorcze ważenie ubocznych partii (batch_byproducts) — kreator na HMI
     # zapisuje grzbiety/kości NA PARTIĘ, nie per wpis, więc bez tego biuro
-    # widziało zero (prod 2026-07-08). Frakcja liczy się w dniu zakończenia
-    # partii (finished_at), zapasowo w dniu ważenia. Wiersze per partia —
-    # doliczają się i do sum KPI, i do tabeli „uzysk per partia".
+    # widziało zero (prod 2026-07-08). Każda PALETA niesie własny weighedAt i
+    # liczy się w swoim dniu: partia rozbierana przez kilka dni (411: 13–14.07)
+    # wrzucała wcześniej całe uboczne do dnia zakończenia — 13.07 wychodziło
+    # 0 kg kości, a 14.07 bilans masy 137% wejścia („zdublowane kości").
+    # Frakcje bez palet (ważenie ręczne przy awarii wagi, stare rekordy) idą
+    # w dniu znacznika frakcji.
     bp_rows = query_all(
         """
-        SELECT raw_batch_no, COALESCE(backs_kg, 0) AS backs,
-               COALESCE(bones_kg, 0) AS bones, COALESCE(quarter_kg, 0) AS quarter
-        FROM batch_byproducts
-        WHERE COALESCE(finished_at, backs_at, bones_at)::date BETWEEN %s AND %s
+        WITH pal AS (
+            SELECT b.raw_batch_no AS bno, 'backs' AS kind,
+                   COALESCE(b.quarter_kg, 0) AS quarter,
+                   COALESCE((p->>'weighedAt')::timestamptz, b.backs_at, b.finished_at) AS at,
+                   COALESCE((p->>'net')::numeric, 0) AS kg
+              FROM batch_byproducts b
+              CROSS JOIN LATERAL jsonb_array_elements(b.backs_pallets) p
+             WHERE jsonb_array_length(COALESCE(b.backs_pallets, '[]'::jsonb)) > 0
+            UNION ALL
+            SELECT b.raw_batch_no, 'bones', COALESCE(b.quarter_kg, 0),
+                   COALESCE((p->>'weighedAt')::timestamptz, b.bones_at, b.finished_at),
+                   COALESCE((p->>'net')::numeric, 0)
+              FROM batch_byproducts b
+              CROSS JOIN LATERAL jsonb_array_elements(b.bones_pallets) p
+             WHERE jsonb_array_length(COALESCE(b.bones_pallets, '[]'::jsonb)) > 0
+            UNION ALL
+            SELECT b.raw_batch_no, 'backs', COALESCE(b.quarter_kg, 0),
+                   COALESCE(b.backs_at, b.finished_at), COALESCE(b.backs_kg, 0)
+              FROM batch_byproducts b
+             WHERE jsonb_array_length(COALESCE(b.backs_pallets, '[]'::jsonb)) = 0
+               AND b.backs_kg IS NOT NULL
+            UNION ALL
+            SELECT b.raw_batch_no, 'bones', COALESCE(b.quarter_kg, 0),
+                   COALESCE(b.bones_at, b.finished_at), COALESCE(b.bones_kg, 0)
+              FROM batch_byproducts b
+             WHERE jsonb_array_length(COALESCE(b.bones_pallets, '[]'::jsonb)) = 0
+               AND b.bones_kg IS NOT NULL
+        )
+        SELECT bno AS raw_batch_no,
+               COALESCE(SUM(kg) FILTER (WHERE kind = 'backs'), 0) AS backs,
+               COALESCE(SUM(kg) FILTER (WHERE kind = 'bones'), 0) AS bones,
+               MAX(quarter) AS quarter
+          FROM pal
+         WHERE at IS NOT NULL AND at::date BETWEEN %s AND %s
+         GROUP BY bno
         """,
         (date_from, date_to),
     )
-    total_backs += sum(f(b["backs"]) for b in bp_rows)
-    total_bones += sum(f(b["bones"]) for b in bp_rows)
+
+    # JEDNO ŹRÓDŁO na (partia, frakcja): partia zważona zbiorczo ma uboczne
+    # WYŁĄCZNIE z batch_byproducts — per-wpisowe kg_backs/kg_bones są wtedy
+    # tą samą wagą zapisaną drugi raz (ręczne „Zakończenie partii" na HMI
+    # pisało w oba miejsca), a raport sumował oba źródła → 2× uboczne.
+    # Partie bez zbiorczego ważenia (stare HMI/tablet) nadal liczą per wpis.
+    cov = query_all(
+        "SELECT raw_batch_no, (backs_kg IS NOT NULL) AS has_backs, "
+        "       (bones_kg IS NOT NULL) AS has_bones FROM batch_byproducts"
+    )
+    backs_covered = {c["raw_batch_no"] for c in cov if c["has_backs"]}
+    bones_covered = {c["raw_batch_no"] for c in cov if c["has_bones"]}
+
+    def entry_backs(r) -> float:
+        return 0.0 if r["raw_batch_no"] in backs_covered else f(r["kg_backs"])
+
+    def entry_bones(r) -> float:
+        return 0.0 if r["raw_batch_no"] in bones_covered else f(r["kg_bones"])
+
+    total_backs = sum(entry_backs(r) for r in rows) + sum(f(b["backs"]) for b in bp_rows)
+    total_bones = sum(entry_bones(r) for r in rows) + sum(f(b["bones"]) for b in bp_rows)
     active_hours = max(1, len({bucket(r) for r in rows})) if rows else 1
 
     # Dostawca per numer partii — do tabeli uzysku (porównanie dostawców).
@@ -202,8 +252,8 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
         w["quarters"] += 1
         w["kgQuarter"] += f(r["kg_quarter"])
         w["kgMeat"] += f(r["kg_meat"])
-        w["kgBacks"] += f(r["kg_backs"])
-        w["kgBones"] += f(r["kg_bones"])
+        w["kgBacks"] += entry_backs(r)
+        w["kgBones"] += entry_bones(r)
         w["buckets"].add(bucket(r))
 
     workers = []
@@ -253,8 +303,8 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
         b = bagg[r["raw_batch_no"] or "—"]
         b["kgQuarter"] += f(r["kg_quarter"])
         b["kgMeat"] += f(r["kg_meat"])
-        b["kgBacks"] += f(r["kg_backs"])
-        b["kgBones"] += f(r["kg_bones"])
+        b["kgBacks"] += entry_backs(r)
+        b["kgBones"] += entry_bones(r)
         b["labor"] += f(r["kg_quarter"]) * rate_by_worker.get(r["worker_id"] or "", 0.0)
     for bpr in bp_rows:
         b = bagg[bpr["raw_batch_no"] or "—"]

@@ -22,7 +22,13 @@ export const PALLET_TARES: { label: string; kg: number }[] = [
 ]
 
 type Frac = 'backs' | 'bones'
-interface Pallet { tareLabel: string; tareKg: number; containers: number; gross: number; net: number }
+// weighedAt stempluje backend przy zapisie; kreator doładowuje palety
+// poprzednich ważeń i odsyła je ZE stemplem, żeby partia ważona przez kilka
+// dni rozliczała każdą paletę w jej dniu (raport per dzień).
+interface Pallet {
+  tareLabel: string; tareKg: number; containers: number; gross: number; net: number
+  weighedAt?: string
+}
 
 const FRAC_LABEL: Record<Frac, string> = { backs: 'grzbiety', bones: 'kości' }
 const FRAC_TITLE: Record<Frac, string> = { backs: 'Zważ grzbiety', bones: 'Zważ kości' }
@@ -53,6 +59,7 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
   const [manualStr, setManualStr] = useState<string>('') // ręczne kg (awaria wagi)
 
   const containers = parseInt(containersStr || '0', 10) || 0
+  const manualKg = parseFloat((manualStr || '0').replace(',', '.')) || 0
   const gross = scale.gross
   const tareTotal = (tareKg ?? 0) + containers * E2_TARE_KG
   const net = Math.max(0, gross - tareTotal)
@@ -91,13 +98,21 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
     setFrac(f); setPallets(prev as Pallet[]); resetInputs(); setPhase('setup')
   }
 
-  // Ręczne wpisanie kg całej frakcji (awaria wagi) — zapis bez palet.
+  // Ręczne wpisanie ŁĄCZNYCH kg frakcji (awaria wagi).
+  // Palety z poprzednich ważeń ZOSTAJĄ — dopisujemy tylko RÓŻNICĘ jako paletę
+  // „ręcznie". Wcześniej ręczny wpis zastępował całą listę palet: partia 411
+  // straciła tak realne palety grzbietów (13–14.07) i ich podział na dni —
+  // operator widział „ważenie się nie zapisało". Korekta W DÓŁ (mniej niż już
+  // zważono) to świadome zastąpienie sumy, więc czyści palety.
   async function saveManual() {
     const kg = parseFloat((manualStr || '0').replace(',', '.')) || 0
     if (kg <= 0) return
+    const mk = (net: number) => ({ tareLabel: 'ręcznie', tareKg: 0, containers: 0, gross: net, net })
+    const delta = Math.round((kg - fracTotal) * 10) / 10
+    const next = delta > 0 ? [...pallets, mk(delta)] : [mk(Math.round(kg * 10) / 10)]
     setPhase('saving')
     try {
-      await onWeigh(frac, Math.round(kg * 10) / 10, [{ tareLabel: 'ręcznie', tareKg: 0, containers: 0, gross: kg, net: kg }])
+      await onWeigh(frac, Math.round(kg * 10) / 10, next)
     } catch {
       setPhase('manual') // zapis padł — wpisane kg zostaje, operator ponawia
       return
@@ -176,7 +191,30 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
               <div className="font-extrabold text-xl">Ręczne wpisanie — {FRAC_LABEL[frac]}</div>
               <button type="button" onClick={() => { setManualStr(''); setPhase('setup') }} className="text-sm font-bold px-3 py-1.5" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}>← Waga</button>
             </div>
-            <div className="text-sm font-bold" style={{ color: 'var(--mut)' }}>Wpisz łączną wagę {FRAC_LABEL[frac]} w kg.</div>
+            <div className="text-sm font-bold" style={{ color: 'var(--mut)' }}>
+              Wpisz ŁĄCZNĄ wagę {FRAC_LABEL[frac]} w kg — razem z tym, co już zważone.
+            </div>
+            {/* Co jest już zapisane w systemie: bez tego operator wpisywał sumę
+                „na pamięć" i kasował realne palety (partia 411). */}
+            {fracTotal > 0 && (
+              <div className="px-5 py-3 flex items-center justify-between" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1px solid var(--accent)' }}>
+                <div>
+                  <div className="text-[11px] font-bold uppercase" style={{ color: 'var(--accent)', letterSpacing: '.08em' }}>
+                    Już zważone — {pallets.length} {pallets.length === 1 ? 'paleta' : 'palet'}
+                  </div>
+                  <div className="hmi-v10-mono font-extrabold text-2xl mt-0.5">{fmtKg(fracTotal, 1)} kg</div>
+                </div>
+                {manualKg > 0 && (
+                  <div className="text-right text-sm font-bold" style={{ color: 'var(--mut)' }}>
+                    {manualKg - fracTotal > 0.05 ? (
+                      <>dopiszemy <span className="hmi-v10-mono font-extrabold" style={{ color: 'var(--success)' }}>+{fmtKg(manualKg - fracTotal, 1)} kg</span></>
+                    ) : (
+                      <span style={{ color: '#DC2626' }}>mniej niż zważono —<br />zastąpi całą sumę</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex items-baseline gap-3 justify-center py-2">
               <span className="hmi-v10-mono font-extrabold" style={{ fontFamily: MONO, fontSize: 56 }}>{manualStr || '0'}</span>
               <span className="text-2xl font-bold" style={{ color: 'var(--mut)' }}>kg</span>
