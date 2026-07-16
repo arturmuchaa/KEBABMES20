@@ -23,10 +23,13 @@ import {
 
 const printStyles = `
 @media print {
-  @page { size: A4 portrait; margin: 10mm; }
+  /* Wąskie marginesy (prośba właściciela 2026-07-16) — 5 mm zamiast 10 mm;
+     ekranowy padding p-6 dokumentu zerowany w druku, żeby nie dublował ramki. */
+  @page { size: A4 portrait; margin: 5mm; }
   body * { visibility: hidden; }
   #haccp-report, #haccp-report * { visibility: visible; }
   #haccp-report { position: absolute; left: 0; top: 0; width: 100%; font-size: 10px; }
+  #haccp-report .p-6 { padding: 0 !important; }
   .no-print { display: none !important; }
   table { border-collapse: collapse; width: 100%; }
   th, td { border: 1px solid #000; padding: 3px 6px; }
