@@ -100,13 +100,12 @@ function SingleReport({ data }: { data: ReportData }) {
 
   return (
     <div className="bg-white p-6 mb-4" style={{ pageBreakAfter: 'always' }}>
-      {/* Nagłówek: logo Księżyc w LEWYM górnym rogu + tabela danych.
-          Plik 3667×1267 px (poziome ze sloganem) — 52 px wysokości daje
-          ~150 px szerokości: czytelne w druku, nie dominuje nagłówka. */}
-      <div className="flex items-center gap-3 mb-4">
-        <img src="/logo-ksiezyc.png" alt="Księżyc"
-          style={{ height: 52, width: 'auto', flexShrink: 0 }} />
-        <table className="flex-1 text-xs" style={{ borderCollapse: 'collapse' }}>
+      {/* Logo Księżyc NAD ramkami nagłówka (poza tabelą) — tabela zostaje
+          w pełnej szerokości jak pierwotnie. Plik 3667×1267 px (poziome ze
+          sloganem) — 52 px wysokości = ~150 px szerokości, czytelne w druku. */}
+      <img src="/logo-ksiezyc.png" alt="Księżyc" className="mb-2"
+        style={{ height: 52, width: 'auto' }} />
+      <table className="w-full text-xs mb-4" style={{ borderCollapse: 'collapse' }}>
           <tbody>
             <tr>
               <td className="border border-black p-2" rowSpan={2} style={{ width: '40%' }}>
@@ -129,8 +128,7 @@ function SingleReport({ data }: { data: ReportData }) {
               </td>
             </tr>
           </tbody>
-        </table>
-      </div>
+      </table>
 
       <div className="font-bold text-[10px] mb-1 bg-gray-200 p-1 border border-black">
         PODSUMOWANIE DNIA — {fmtDatePl(date)}
