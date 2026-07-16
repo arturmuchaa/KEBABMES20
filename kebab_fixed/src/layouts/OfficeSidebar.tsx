@@ -35,8 +35,9 @@ const NAV: NavSection[] = [
     { to: '/office/magazyn/gotowe',      label: 'Wyrób gotowy',        icon: <ShoppingBag size={16} /> },
   ]},
   { heading: 'Rozbiór', items: [
-    { to: '/office/deboning',     label: 'Statystyki rozbioru', icon: <BarChart2 size={16} /> },
-    { to: '/office/haccp-report', label: 'Raport HACCP',     icon: <FileText size={16} /> },
+    { to: '/office/deboning',      label: 'Statystyki rozbioru', icon: <BarChart2 size={16} /> },
+    { to: '/office/rozbior-panel', label: 'Panel rozbioru',      icon: <Scissors size={16} /> },
+    { to: '/office/haccp-report',  label: 'Raport HACCP',        icon: <FileText size={16} /> },
   ]},
   { heading: 'Produkcja', items: [
     { to: '/office/rodzaje-produktow',    label: 'Rodzaje produktów', icon: <Package size={16} /> },

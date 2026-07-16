@@ -305,6 +305,26 @@ export interface DeboningStats {
   workerDaily: Record<string, { date: string; quarters: number; kgQuarter: number; kgMeat: number; avgYield: number }[]>
 }
 
+/** Wiersz Panelu rozbioru: partia z aktywnością rozbioru + agregaty. */
+export interface DeboningPanelBatch {
+  rawBatchId: string
+  batchNo: string
+  supplierName: string
+  materialName: string
+  status: string
+  kgReceived: number
+  kgAvailable: number
+  entriesCount: number
+  pendingCount: number
+  kgQuarter: number
+  kgMeat: number
+  backsKg: number
+  bonesKg: number
+  balancePct: number | null
+  firstAt: string | null
+  lastAt: string | null
+}
+
 /** Wpis historii korekt z biura: co na co i dlaczego (audyt zmiany akordu). */
 export interface EntryCorrection {
   id: string
@@ -374,6 +394,15 @@ export const deboningEntriesApi = {
   corrections: (id: string) =>
     get<{ corrections: EntryCorrection[] }>(`/deboning/entries/${id}/corrections`)
       .then(r => r?.corrections ?? []),
+  // Panel rozbioru (biuro): partie z aktywnością rozbioru + agregaty —
+  // myśli partiami, nie dniami (partia wielodniowa = jeden wiersz).
+  panel: (limit = 60) =>
+    get<{ batches: DeboningPanelBatch[] }>(`/deboning/panel?limit=${limit}`)
+      .then(r => r?.batches ?? []),
+  // Wszystkie wpisy JEDNEJ partii niezależnie od dnia/sesji (rozwinięcie w panelu).
+  listByBatch: (rawBatchId: string) =>
+    get<any[]>(`/deboning/entries?raw_batch_id=${encodeURIComponent(rawBatchId)}`)
+      .then(r => r ?? []),
   traceability: (batchId: string) => get<any>(`/deboning/entries/trace/${batchId}`),
 }
 

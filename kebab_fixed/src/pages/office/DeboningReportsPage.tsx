@@ -6,18 +6,15 @@
  * ranking pracowników (kto najwięcej, kto najlepszy %) i live-feed (gdy dziś).
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import {
-  deboningApi, deboningEntriesApi, rawBatchesApi, usersApi,
-  type DeboningStats, type DeboningStatsWorker, type EntryCorrection,
-} from '@/lib/api'
+import { deboningApi, type DeboningStats, type DeboningStatsWorker } from '@/lib/api'
+import { ChangeBatchDialog, EntryCorrectionDialog } from '@/features/deboning/EntryFixDialogs'
 import { DataTable } from '@/components/DataTable'
 import { usePageHeaderActions } from '@/components/PageHeader'
 import { cn } from '@/lib/utils'
 import { useNavigate } from 'react-router-dom'
 import {
   Scissors, Beef, Gauge, Percent, Users, Bone, Layers, Radio, CalendarDays, X,
-  Package, Scale, Truck, Banknote, Printer, ArrowLeftRight, Loader2, PencilLine,
-  History, AlertTriangle,
+  Package, Scale, Truck, Banknote, Printer, ArrowLeftRight, PencilLine,
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -162,83 +159,10 @@ export function DeboningReportsPage() {
   const [loading, setLoading] = useState(true)
   const [drill, setDrill] = useState<DeboningStatsWorker | null>(null)
 
-  // Zmiana partii wpisu (korekta pomyłki operatora — z biura). Operator czasem
-  // wybierze złą partię; biuro przenosi wpis na właściwą bez ruszania HMI.
+  // Korekty wpisu z biura — wspólne modale (EntryFixDialogs) używane też
+  // przez Panel rozbioru: „Popraw" (pracownik/kg + powód) i „Zmień partię".
   const [cbEntry, setCbEntry] = useState<any | null>(null)
-  const [cbBatches, setCbBatches] = useState<any[]>([])
-  const [cbTarget, setCbTarget] = useState('')
-  const [cbBusy, setCbBusy] = useState(false)
-  const [cbErr, setCbErr] = useState('')
-
-  // Korekta wpisu z biura: pracownik i/lub kg. Działa też na ZATWIERDZONEJ
-  // zmianie (wpisy starsze niż dziś zawsze w niej są), dlatego powód jest
-  // wymagany i ląduje w historii wpisu.
   const [fixEntry, setFixEntry] = useState<any | null>(null)
-  const [fixWorker, setFixWorker] = useState('')
-  const [fixQuarter, setFixQuarter] = useState('')
-  const [fixMeat, setFixMeat] = useState('')
-  const [fixReason, setFixReason] = useState('')
-  const [fixBusy, setFixBusy] = useState(false)
-  const [fixErr, setFixErr] = useState('')
-  const [fixHistory, setFixHistory] = useState<EntryCorrection[]>([])
-  const [workers, setWorkers] = useState<{ id: string; name: string }[]>([])
-
-  // Lista pracowników do wyboru — obiekt nazywa się usersApi (czyta /workers).
-  useEffect(() => { usersApi.list().then(w => setWorkers(w as any)).catch(() => setWorkers([])) }, [])
-
-  useEffect(() => {
-    if (!fixEntry) return
-    setFixErr('')
-    setFixWorker(fixEntry.workerId ?? '')
-    setFixQuarter(String(fixEntry.kgQuarter ?? ''))
-    setFixMeat(String(fixEntry.kgMeat ?? ''))
-    setFixReason('')
-    deboningEntriesApi.corrections(fixEntry.id).then(setFixHistory).catch(() => setFixHistory([]))
-  }, [fixEntry])
-
-  const fixQ = parseFloat((fixQuarter || '0').replace(',', '.')) || 0
-  const fixM = parseFloat((fixMeat || '0').replace(',', '.')) || 0
-  const fixYield = fixQ > 0 ? (fixM / fixQ) * 100 : 0
-  const fixValid = fixReason.trim().length >= 3 && fixQ > 0 && fixM > 0 && fixM <= fixQ
-
-  async function submitFix() {
-    if (!fixEntry || !fixValid) return
-    setFixBusy(true); setFixErr('')
-    try {
-      await deboningEntriesApi.correct(fixEntry.id, {
-        workerId: fixWorker || undefined,
-        kgQuarter: fixQ,
-        kgMeat: fixM,
-        reason: fixReason.trim(),
-      })
-      setFixEntry(null)
-      load()
-    } catch (e) {
-      setFixErr(e instanceof Error ? e.message : 'Nie udało się zapisać korekty')
-    } finally {
-      setFixBusy(false)
-    }
-  }
-
-  useEffect(() => {
-    if (!cbEntry) return
-    setCbTarget(''); setCbErr('')
-    rawBatchesApi.all().then(p => setCbBatches(p.data ?? [])).catch(() => setCbBatches([]))
-  }, [cbEntry])
-
-  async function submitChangeBatch() {
-    if (!cbEntry || !cbTarget) return
-    setCbBusy(true); setCbErr('')
-    try {
-      await deboningEntriesApi.changeBatch(cbEntry.id, cbTarget)
-      setCbEntry(null)
-      load()
-    } catch (e) {
-      setCbErr(e instanceof Error ? e.message : 'Nie udało się zmienić partii')
-    } finally {
-      setCbBusy(false)
-    }
-  }
 
   // Kurs EUR z NBP (tabela A) — do przeliczenia kosztu mięsa na €/kg.
   // Ten sam wzorzec co WZ/faktury; brak kursu = po prostu bez linijki euro.
@@ -716,145 +640,10 @@ export function DeboningReportsPage() {
       })()}
 
       {cbEntry && (
-        <Dialog open onOpenChange={v => { if (!v && !cbBusy) setCbEntry(null) }}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-brand/10 text-brand"><ArrowLeftRight size={15} /></span>
-                Zmień partię wpisu
-              </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3 text-[13px]">
-              <div className="rounded-lg bg-surface-2 border border-surface-4 px-3 py-2 text-ink-2">
-                <b className="text-ink">{cbEntry.workerName}</b> · mięso {nf1.format(cbEntry.kgMeat)} kg · obecna partia{' '}
-                <code className="font-mono bg-brand/10 text-brand px-1 rounded">{cbEntry.rawBatchNo}</code>
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wide text-ink-4 mb-1">Nowa partia surowca</label>
-                <select value={cbTarget} onChange={e => setCbTarget(e.target.value)}
-                  className="w-full h-9 px-2 text-[13px] border border-surface-4 rounded bg-white">
-                  <option value="">— wybierz partię —</option>
-                  {cbBatches
-                    .filter(b => b.internalBatchNo !== cbEntry.rawBatchNo)
-                    .map(b => (
-                      <option key={b.id} value={b.id}>
-                        {b.internalBatchNo}{(b.supplierDisplayName || b.supplierName) ? ` — ${b.supplierDisplayName || b.supplierName}` : ''} (wolne {nf0.format(b.kgAvailable)} kg)
-                      </option>
-                    ))}
-                </select>
-              </div>
-              <p className="text-[11px] text-ink-4">
-                Ćwiartka wróci do obecnej partii i zejdzie z nowej; wyprodukowane mięso i produkty uboczne przejdą na nową partię. Wpis zostaje bez zmian (pracownik, kg, czas).
-              </p>
-              {cbErr && <div className="text-[12px] text-red-600 font-semibold">{cbErr}</div>}
-              <div className="flex justify-end gap-2 pt-1">
-                <button onClick={() => setCbEntry(null)} disabled={cbBusy}
-                  className="h-9 px-3 text-[13px] font-semibold rounded border border-surface-4 text-ink-2 hover:bg-surface-2">
-                  Anuluj
-                </button>
-                <button onClick={submitChangeBatch} disabled={cbBusy || !cbTarget}
-                  className="h-9 px-3 text-[13px] font-bold rounded bg-brand text-white hover:bg-brand/90 disabled:opacity-50 inline-flex items-center gap-1.5">
-                  {cbBusy ? <Loader2 size={14} className="animate-spin" /> : <ArrowLeftRight size={14} />}
-                  Zmień partię
-                </button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <ChangeBatchDialog entry={cbEntry} onClose={() => setCbEntry(null)} onSaved={load} />
       )}
-
-      {/* Korekta wpisu: pracownik i/lub kg. Działa też na zatwierdzonej zmianie
-          (wpisy starsze niż dziś zawsze w niej są), dlatego powód jest wymagany. */}
       {fixEntry && (
-        <Dialog open onOpenChange={o => { if (!o) setFixEntry(null) }}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <PencilLine size={16} className="text-brand" />
-                Popraw wpis
-              </DialogTitle>
-            </DialogHeader>
-            <div className="flex flex-col gap-3">
-              <div className="text-[12px] text-ink-3">
-                Partia <code className="font-mono bg-brand/10 text-brand px-1 rounded">{fixEntry.rawBatchNo}</code>
-                {' · '}{timeAgo(fixEntry.at)}
-              </div>
-
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px] font-bold uppercase text-ink-4">Pracownik</span>
-                <select value={fixWorker} onChange={e => setFixWorker(e.target.value)}
-                  className="h-9 px-2 text-[13px] rounded border border-surface-4 bg-surface-1">
-                  {!workers.some(w => w.id === fixWorker) && (
-                    <option value={fixWorker}>{fixEntry.workerName ?? '—'}</option>
-                  )}
-                  {workers.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                </select>
-              </label>
-
-              <div className="grid grid-cols-2 gap-3">
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-bold uppercase text-ink-4">Ćwiartka [kg]</span>
-                  <input value={fixQuarter} onChange={e => setFixQuarter(e.target.value)} inputMode="decimal"
-                    className="h-9 px-2 text-[13px] tabular-nums rounded border border-surface-4 bg-surface-1" />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-bold uppercase text-ink-4">Mięso [kg]</span>
-                  <input value={fixMeat} onChange={e => setFixMeat(e.target.value)} inputMode="decimal"
-                    className="h-9 px-2 text-[13px] tabular-nums rounded border border-surface-4 bg-surface-1" />
-                </label>
-              </div>
-              <div className="text-[12px] text-ink-3">
-                Uzysk po korekcie:{' '}
-                <span className={cn('font-black tabular-nums', yieldTone(fixYield))}>{nf1.format(fixYield)}%</span>
-                {fixM > fixQ && <span className="text-red-600 font-semibold"> — mięso nie może przekraczać ćwiartki</span>}
-              </div>
-
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px] font-bold uppercase text-ink-4">Powód korekty *</span>
-                <input value={fixReason} onChange={e => setFixReason(e.target.value)}
-                  placeholder="np. pomyłka operatora — Adrian zamiast Raschada"
-                  className="h-9 px-2 text-[13px] rounded border border-surface-4 bg-surface-1" />
-              </label>
-
-              <div className="flex items-start gap-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-                <AlertTriangle size={14} className="shrink-0 mt-px" />
-                <span>Korekta zmieni wstecz akord pracownika i statystyki. Powód trafi do historii wpisu.</span>
-              </div>
-
-              {fixHistory.length > 0 && (
-                <div className="flex flex-col gap-1.5 pt-1 border-t border-surface-3">
-                  <span className="text-[11px] font-bold uppercase text-ink-4 flex items-center gap-1">
-                    <History size={12} /> Historia korekt
-                  </span>
-                  {fixHistory.map(h => (
-                    <div key={h.id} className="text-[11px] text-ink-3 leading-snug">
-                      <span className="text-ink-4">{h.at ? new Date(h.at).toLocaleString('pl-PL') : '—'}</span>
-                      {h.bySubject && <span className="text-ink-4"> · {h.bySubject}</span>}
-                      {' — '}
-                      {Object.entries(h.changes).map(([k, v]) => (
-                        <span key={k} className="font-semibold">{k}: {String(v.from)} → {String(v.to)}; </span>
-                      ))}
-                      <span className="italic">„{h.reason}"</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {fixErr && <div className="text-[12px] text-red-600 font-semibold">{fixErr}</div>}
-              <div className="flex justify-end gap-2 pt-1">
-                <button onClick={() => setFixEntry(null)} disabled={fixBusy}
-                  className="h-9 px-3 text-[13px] font-semibold rounded border border-surface-4 text-ink-2 hover:bg-surface-2">
-                  Anuluj
-                </button>
-                <button onClick={submitFix} disabled={fixBusy || !fixValid}
-                  className="h-9 px-3 text-[13px] font-bold rounded bg-brand text-white hover:bg-brand/90 disabled:opacity-50 inline-flex items-center gap-1.5">
-                  {fixBusy ? <Loader2 size={14} className="animate-spin" /> : <PencilLine size={14} />}
-                  Zapisz korektę
-                </button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <EntryCorrectionDialog entry={fixEntry} onClose={() => setFixEntry(null)} onSaved={load} />
       )}
     </div>
   )

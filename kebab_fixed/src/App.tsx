@@ -16,6 +16,7 @@ import { AnalitykaPage } from '@/pages/office/AnalitykaPage'
 import { AuditLogPage } from '@/pages/office/AuditLogPage'
 import { PackagingPage } from '@/pages/office/PackagingPage'
 import { DeboningReportsPage } from '@/pages/office/DeboningReportsPage'
+import { DeboningControlPage } from '@/pages/office/DeboningControlPage'
 import { HaccpReportPage } from '@/pages/office/HaccpReportPage'
 import { PlaceholderPage }     from '@/pages/office/PlaceholderPage'
 import { FinishedGoodsPage }   from '@/pages/office/FinishedGoodsPage'
@@ -147,6 +148,7 @@ export default function App() {
         <Route path="magazyn/opakowania"    element={<PackagingPage />} />
         <Route path="magazyn/gotowe"        element={<FinishedGoodsPage />} />
         <Route path="deboning"              element={<DeboningReportsPage />} />
+        <Route path="rozbior-panel"         element={<DeboningControlPage />} />
         <Route path="haccp-report"          element={<HaccpReportPage />} />
         <Route path="rodzaje-produktow"     element={<ProductTypesPage />} />
         <Route path="receptury"             element={<RecipesPage />} />
