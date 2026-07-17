@@ -21,7 +21,9 @@ export type WzDocData = {
 
 export function asWzDocData(doc: WzDoc): WzDocData { return doc }
 
-const fmt = (n: number | null | undefined) => (n ?? 0).toFixed(2)
+// Kwoty po polsku: 2 128,00 (jak na fakturze Subiekt), nie 2128.00.
+const fmt = (n: number | null | undefined) =>
+  (n ?? 0).toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtKg3 = (n: number | null | undefined) => {
   const v = Number(n ?? 0)
   return Number.isInteger(v) ? String(v) : v.toFixed(3).replace(/\.?0+$/, '')
@@ -208,7 +210,8 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
             </div>
             {isEur && doc.eur_rate ? (
               <div className="text-right text-[10.5px] mt-0.5 text-[#333]">
-                Dokument wystawiony w walucie EUR — kurs NBP (tab. A): <b>{Number(doc.eur_rate).toFixed(4)}</b> PLN
+                Dokument wystawiony w walucie EUR — kurs NBP (tab. A):{' '}
+                <b style={{ whiteSpace: 'nowrap' }}>{Number(doc.eur_rate).toFixed(4)} PLN</b>
               </div>
             ) : null}
           </div>

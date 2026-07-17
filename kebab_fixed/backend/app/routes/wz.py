@@ -50,7 +50,9 @@ def pdf(wz_id: str):
         row = query_one("SELECT name FROM clients WHERE name=%s OR display_name=%s", (buyer, buyer))
         if row and row.get("name"):
             client_name = row["name"]
-    filename = doc_pdf_filename("WZ", client_name, doc.get("number") or wz_id)
+    # Numer WZ ma już prefiks "WZ/" — zdejmij go, żeby plik nie był "WZ_..._WZ-...".
+    number = (doc.get("number") or wz_id).removeprefix("WZ/")
+    filename = doc_pdf_filename("WZ", client_name, number)
     return Response(
         content=data,
         media_type="application/pdf",
