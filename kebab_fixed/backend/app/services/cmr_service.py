@@ -165,6 +165,7 @@ def build_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
                    "country": country_from_nip(co.get("nip", ""), "Poland"),
                    "nip": co.get("nip", "")},
         "consignee": consignee_part["consignee"],
+        "delivery": consignee_part["delivery"],
         "delivery_place": consignee_part["delivery_place"],
         "load_place": co.get("load_place") or f"{company_addr}, {load_city}".strip(", "),
         "load_date": today,
@@ -228,6 +229,7 @@ def update_cmr(cmr_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
         if order:
             snap = _client_snapshot(order)
             payload["consignee"] = snap["consignee"]
+            payload["delivery"] = snap["delivery"]
             payload["delivery_place"] = snap["delivery_place"]
     carrier_id = form.get("carrier_id") or row.get("carrier_id") or ""
     carrier = _carrier_snapshot(carrier_id, form.get("plate") or payload.get("carrier", {}).get("plate", ""))
