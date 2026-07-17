@@ -49,13 +49,15 @@ def test_deboning_leaves_raw_batch_as_cwiartka(db):
 
 
 # ── Słownik rodzajów surowca ───────────────────────────────────────────
-def test_mieso_zs_seeded_as_seasonable_not_receivable(db):
+def test_mieso_zs_seeded_as_seasonable_and_receivable(db):
+    # receivable=true od przyjęć zewnętrznych z/s (migracja 891/904):
+    # powstaje z rozbioru ORAZ bywa kupowane z zewnątrz → meat_stock.
     mz = query_one(
         "SELECT requires_deboning, receivable FROM raw_material_types WHERE id='mat-mieso-zs'"
     )
     assert mz is not None, "mat-mieso-zs musi być zaseedowany"
     assert mz["requires_deboning"] is False   # masowalny wprost
-    assert mz["receivable"] is False          # nie przyjmuje się go (powstaje z rozbioru)
+    assert mz["receivable"] is True           # przyjęcie zewnętrzne z/s → meat_stock
 
 
 def test_cwiartka_is_receivable_but_not_seasonable(db):

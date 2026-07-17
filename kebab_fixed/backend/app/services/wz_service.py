@@ -992,6 +992,7 @@ def stock_raw() -> List[Dict[str, Any]]:
         """SELECT id, internal_batch_no, supplier_name, kg_available, material_name,
                   material_type_id, slaughter_date, expiry_date, received_date
            FROM raw_batches WHERE COALESCE(kg_available,0) > 0
+             AND COALESCE(status,'active') <> 'cancelled'
            ORDER BY received_date DESC NULLS LAST, internal_batch_no"""):
         kg = float(r["kg_available"] or 0)
         out.append({

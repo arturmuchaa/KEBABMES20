@@ -262,9 +262,11 @@ def cancel_batch(batch_id: str) -> Dict:
             raise HTTPException(404, "Partia nie znaleziona")
         if reason:
             raise HTTPException(409, reason)
+        # Zerowanie stanu: anulowana dostawa nie może trzymać kg — duch 415
+        # (2026-07-16) wisiał z 5010 kg na magazynie surowca i w pickerze WZ.
         row = cx_execute_returning(
             conn,
-            "UPDATE raw_batches SET status='cancelled' WHERE id=%s RETURNING *",
+            "UPDATE raw_batches SET status='cancelled', kg_available=0 WHERE id=%s RETURNING *",
             (batch_id,),
         )
     if not row:
