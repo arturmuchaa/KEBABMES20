@@ -71,7 +71,13 @@ function CmrSheet({ doc, bg, pos, rowH }: { doc: any; bg: string; pos: CmrPositi
       <AddrBlock d={p.consignee} p={P('consignee')} gap={CMR_LINE_GAP} />
       <F l={P('consigneeNip').x} t={P('consigneeNip').y} w={15} s={P('consigneeNip').size} {...ff('consigneeNip')}>{p.consignee?.nip}</F>
 
-      <AddrBlock d={p.consignee} p={P('delivery')} gap={CMR_LINE_GAP} />
+      {/* Pole 3: MIEJSCE PRZEZNACZENIA z dokumentu (kartoteka klienta:
+          nazwa/adres/miasto docelowe) — render consignee ukrywał poprawki
+          adresu przeznaczenia (prod 2026-07-17, ISSA→FARMEX). Stare dokumenty
+          bez delivery_place: jak dotąd adres odbiorcy. */}
+      {p.delivery_place
+        ? <F l={P('delivery').x} t={P('delivery').y} w={26} s={P('delivery').size} {...ff('delivery')}>{p.delivery_place}</F>
+        : <AddrBlock d={p.consignee} p={P('delivery')} gap={CMR_LINE_GAP} />}
 
       <F l={P('loadPlace').x} t={P('loadPlace').y} w={26} s={P('loadPlace').size} {...ff('loadPlace')}>{p.load_place}</F>
       <F l={P('loadDate').x} t={P('loadDate').y} w={14} s={P('loadDate').size} {...ff('loadDate')}>{fmt(p.load_date)}</F>
