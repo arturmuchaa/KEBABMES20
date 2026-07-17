@@ -1,7 +1,7 @@
 """Język klienta dla HDI na podstawie prefiksu NIP."""
 
 # Mapowanie 2-literowego prefiksu kraju (z NIP) → kod języka HDI.
-_CC_TO_LANG = {"PL": "pl", "DE": "de", "AT": "de", "SK": "sk", "CZ": "cs", "SI": "sl"}
+_CC_TO_LANG = {"PL": "pl", "DE": "de", "AT": "de", "SK": "sk", "CZ": "cs", "SI": "sl", "FR": "fr"}
 
 
 def lang_from_nip(nip: str) -> str:

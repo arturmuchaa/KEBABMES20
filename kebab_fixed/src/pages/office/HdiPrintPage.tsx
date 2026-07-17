@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft, Printer, Download } from 'lucide-react'
-import { hdiApi, type HdiDoc } from '@/lib/api'
+import { hdiApi, downloadDocPdf, type HdiDoc } from '@/lib/api'
 
 const L: Record<string, Record<string, string>> = {
   pl: { title: 'HANDLOWY DOKUMENT IDENTYFIKACYJNY', number: 'Numer HDI', issue: 'Data wystawienia', producer: 'Producent', qual: 'Zakład zakwalifikowany do prowadzenia sprzedaży na rynek', vet: 'Weterynaryjny numer identyfikacyjny', dom: 'Krajowy /domestic market/ National', eu: 'Unii Europejskiej /UE / Europäische Union', superv: 'Zakład posiada stały nadzór weterynaryjny i wprowadzony system HACCP.', lp: 'L.P', cName: 'NAZWA TOWARU', cQty: 'L.B SZT.', cNet: 'MASA NETTO', cBatch: 'NR PARTII', cExp: 'TERMIN PRZYDATNOŚCI', total: 'RAZEM', recip: 'ODBIORCA', unload: 'MIEJSCE ROZŁADUNKU', regno: 'NUMER REJESTRACYJNY / TYP SAMOCHODU', fridge: 'Samochód z zabudową mroźniczą -18°C', load: 'MIEJSCE ZAŁADUNKU', seller: 'SPRZEDAWCA', remarks: 'UWAGI / WARUNKI REKLAMACJI / COMMENTS/CONDITIONS REGARDING COMPLAINTS/ ANMERKUNGEN/VORAUSSETZUNGEN FÜR BESCHWERDEN/', ship: 'Data wysyłki', sign: 'Podpis Wystawiającego', stamp: 'Podpis i pieczęć wystawiającego',
@@ -39,6 +39,18 @@ const L: Record<string, Record<string, string>> = {
     c4: '*Does not apply in the case of abnormal results of tests performed by State institutions controlling the establishments.',
     c5pl: 'Podpisując dokumenty towarzyszących dostawie (faktura, WZ, CMR) zgadzasz się z powyższymi i akceptujesz warunki reklamacji przyjętymi w firmie i udostępnianych na życzenie klienta.',
     c5: 'By signing the documents accompanying the delivery, you agree with the above and accept the terms and conditions regarding complaints.',
+  },
+  fr: { title: "DOCUMENT COMMERCIAL D'IDENTIFICATION", number: 'Numéro HDI', issue: "Date d'émission", producer: 'Producteur', qual: 'Établissement agréé pour la vente sur le marché', vet: "Numéro d'identification vétérinaire", dom: 'Marché national', eu: 'Union européenne', superv: "L'établissement est sous surveillance vétérinaire permanente et dispose d'un système HACCP.", lp: 'N°', cName: 'DÉSIGNATION DE LA MARCHANDISE', cQty: 'QTÉ (PCS)', cNet: 'POIDS NET', cBatch: 'N° DE LOT', cExp: 'À CONSOMMER AVANT', total: 'TOTAL', recip: 'DESTINATAIRE', unload: 'LIEU DE DÉCHARGEMENT', regno: "NUMÉRO D'IMMATRICULATION / TYPE DE VÉHICULE", fridge: 'Camion frigorifique -18°C', load: 'LIEU DE CHARGEMENT', seller: 'VENDEUR', remarks: 'REMARQUES / CONDITIONS DE RÉCLAMATION', ship: "Date d'expédition", sign: "Signature de l'émetteur", stamp: "Signature et cachet de l'émetteur",
+    c1pl: 'Wszelkie zastrzeżenia co do jakości i ilości towaru (reklamacje) należy zgłaszać w trakcie rozładunku i/lub do czasu podpisania dokumentów towarzyszących dostawie (faktura, WZ, CMR).',
+    c1: 'Toute réserve concernant la qualité ou la quantité des marchandises (réclamations) doit être signalée pendant le déchargement et/ou avant la signature des documents accompagnant la livraison (facture, bon de livraison, CMR).',
+    c2pl: 'Braki wagowe należy udokumentować w obecności osoby dostarczającej towar (kierowcy), na przyjętym w firmie formularzu, podpisanym przez obie strony. Następnie oryginał lub ksero załączyć do dokumentów zwrotnych.',
+    c2: "Les manquants de poids doivent être constatés en présence de la personne livrant la marchandise (chauffeur), sur un formulaire accepté par l'entreprise et signé par les deux parties. Joindre ensuite l'original ou une copie aux documents de retour.",
+    c3pl: 'Reklamacje nie będą rozpatrywane po akceptacji dostawy (podpisanie dokumentów towarzyszących dostawie: faktura, WZ, CMR), bez wcześniejszego zgłoszenia zastrzeżeń co do dostawy*.',
+    c3: "Les réclamations ne seront pas prises en compte après l'acceptation de la livraison (signature des documents accompagnant la livraison : facture, bon de livraison, CMR) sans réserve préalable concernant la livraison*.",
+    c4pl: '*nie dotyczy sytuacji otrzymania nieprawidłowych wyników badań wykonywanych przez instytucje Państwowe sprawujące kontrolę nad zakładami',
+    c4: "*ne s'applique pas en cas de résultats non conformes des analyses effectuées par les institutions d'État contrôlant les établissements.",
+    c5pl: 'Podpisując dokumenty towarzyszących dostawie (faktura, WZ, CMR) zgadzasz się z powyższymi i akceptujesz warunki reklamacji przyjętymi w firmie i udostępnianych na życzenie klienta.',
+    c5: "En signant les documents accompagnant la livraison (facture, bon de livraison, CMR), vous acceptez ce qui précède ainsi que les conditions de réclamation adoptées par l'entreprise, disponibles à la demande du client.",
   },
   sk: { title: 'OBCHODNÝ IDENTIFIKAČNÝ DOKLAD', number: 'Číslo HDI', issue: 'Dátum vystavenia', producer: 'Výrobca', qual: 'Prevádzka kvalifikovaná na predaj na trhu', vet: 'Veterinárne identifikačné číslo', dom: 'Domáci trh', eu: 'Európska únia', superv: 'Prevádzka je pod stálym veterinárnym dozorom a má zavedený systém HACCP.', lp: 'Č.', cName: 'NÁZOV TOVARU', cQty: 'KS', cNet: 'ČISTÁ HMOTNOSŤ', cBatch: 'ČÍSLO ŠARŽE', cExp: 'DÁTUM SPOTREBY', total: 'SPOLU', recip: 'PRÍJEMCA', unload: 'MIESTO VYKLÁDKY', regno: 'EVIDENČNÉ ČÍSLO / TYP VOZIDLA', fridge: 'Auto s mraziarenskou nadstavbou -18°C', load: 'MIESTO NAKLÁDKY', seller: 'PREDÁVAJÚCI', remarks: 'POZNÁMKY / PODMIENKY REKLAMÁCIE', ship: 'Dátum odoslania', sign: 'Podpis vystaviteľa', stamp: 'Podpis a pečiatka vystaviteľa',
     c1pl: 'Wszelkie zastrzeżenia co do jakości i ilości towaru (reklamacje) należy zgłaszać w trakcie rozładunku i/lub do czasu podpisania dokumentów towarzyszących dostawie (faktura, WZ, CMR).',
@@ -78,23 +90,24 @@ const L: Record<string, Record<string, string>> = {
   },
 }
 
-// Zadrukowana część A4 przy marginesie 8mm (96dpi) ≈ 1062px. NIE wypełniamy do
-// samej krawędzi — przeglądarka przy „drukuj" często dokłada własne marginesy
-// i nagłówki/stopki, które zjadają miejsce i wypychały dokument na 2. stronę.
-// Dlatego: wypełniamy wiersze tylko do A4_FILL_PX (z zapasem na dole), a gdy
-// treść przekracza A4_MAX_PX — skalujemy w dół. To gwarantuje jedną stronę
-// także przy domyślnych ustawieniach druku.
-const A4_FILL_PX = 1000   // cel wypełnienia (zapas ~16mm względem 1062)
-const A4_MAX_PX = 1030    // powyżej tego skalujemy dokument w dół
+// Zadrukowana część A4 przy wąskim marginesie 5mm (96dpi) ≈ 1085px — marginesy
+// jak w raporcie HACCP. NIE wypełniamy do samej krawędzi — przeglądarka przy
+// „drukuj" często dokłada własne marginesy i nagłówki/stopki, które zjadają
+// miejsce i wypychały dokument na 2. stronę. Dlatego: wypełniamy wiersze tylko
+// do A4_FILL_PX (z zapasem na dole), a gdy treść przekracza A4_MAX_PX —
+// skalujemy w dół. To gwarantuje jedną stronę także przy domyślnych
+// ustawieniach druku.
+const A4_FILL_PX = 1020   // cel wypełnienia (zapas ~17mm względem 1085)
+const A4_MAX_PX = 1050    // powyżej tego skalujemy dokument w dół
 // Maksymalna liczba wierszy tabeli (pozycje + puste dopełniające).
-const MAX_ROWS = 20
+const MAX_ROWS = 15
 
 export function HdiPrintPage() {
   const { id = '' } = useParams<{ id: string }>()
   const [doc, setDoc] = useState<HdiDoc | null>(null)
   const [err, setErr] = useState('')
-  // Dopasowanie do pełnej strony A4: tabela ma MAKS. 20 wierszy (pozycje +
-  // ewentualne puste do 20), a wolną przestrzeń rozkładamy równo, podwyższając
+  // Dopasowanie do pełnej strony A4: tabela ma MAKS. 15 wierszy (pozycje +
+  // ewentualne puste do 15), a wolną przestrzeń rozkładamy równo, podwyższając
   // wiersze (rowExtra), aż wypełnią A4. Gdy pozycji jest tyle, że dokument
   // przelewałby się na drugą stronę — skalujemy w dół. Zawsze jedna A4.
   const sheetRef = useRef<HTMLDivElement>(null)
@@ -150,7 +163,7 @@ export function HdiPrintPage() {
   const bi = (k: string) => mono ? pl[k] : `${pl[k]} / ${cl[k]}`
 
   const items = doc.items || []
-  // Maks. 20 wierszy: dopełniamy pustymi tylko gdy pozycji ≤ 20.
+  // Maks. 15 wierszy: dopełniamy pustymi tylko gdy pozycji ≤ 15.
   const padCount = Math.max(0, MAX_ROWS - items.length)
 
   return (
@@ -158,7 +171,7 @@ export function HdiPrintPage() {
       <style>{`
         @media print {
           .no-print { display: none !important; }
-          @page { size: A4 portrait; margin: 8mm; }
+          @page { size: A4 portrait; margin: 5mm; }
           /* Tło aplikacji (jasnoszare) wychodziło jako jasny pasek na dole strony —
              wymuś biel całej strony przy druku. */
           html, body { margin: 0; background: #fff !important; }
@@ -225,7 +238,7 @@ export function HdiPrintPage() {
         .hdi .prod-table tr.empty-row td {
           height: 1.3em;
         }
-        /* Równomierne podwyższenie wierszy (pozycje + puste), by ≤20 wierszy
+        /* Równomierne podwyższenie wierszy (pozycje + puste), by ≤15 wierszy
            wypełniało pełną A4. --rowpad wyliczany w JS i dzielony na górę/dół. */
         .hdi .prod-table tr.body-row td {
           padding-top: calc(2px + var(--rowpad, 0px));
@@ -346,12 +359,13 @@ export function HdiPrintPage() {
         >
           <Printer size={14} /> Drukuj
         </button>
-        <a
-          href={hdiApi.pdfUrl(id)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#fff', color: '#be123c', border: '1px solid #fecdd3', borderRadius: '4px', padding: '5px 12px', fontSize: '13px', cursor: 'pointer', textDecoration: 'none' }}
+        <button
+          type="button"
+          onClick={() => void downloadDocPdf(hdiApi.pdfUrl(id)).catch(e => alert(e?.message || 'Nie udało się pobrać PDF'))}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#fff', color: '#be123c', border: '1px solid #fecdd3', borderRadius: '4px', padding: '5px 12px', fontSize: '13px', cursor: 'pointer' }}
         >
           <Download size={14} /> Pobierz PDF
-        </a>
+        </button>
       </div>
 
       <div
@@ -366,6 +380,11 @@ export function HdiPrintPage() {
           ...(scale !== 1 ? { transform: `scale(${scale})`, transformOrigin: 'top center' } : {}),
         }}
       >
+
+        {/* Logo Księżyc NAD tytułem (jak w raporcie HACCP) — plik 3667×1267 px
+            (poziome ze sloganem), 48 px wysokości jest czytelne w druku. */}
+        <img src="/logo-ksiezyc.png" alt="Księżyc"
+          style={{ height: 48, width: 'auto', marginBottom: 4 }} />
 
         {/* ── Tytuł ── */}
         <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '11.5px', lineHeight: 1.3, marginBottom: '4px' }}>

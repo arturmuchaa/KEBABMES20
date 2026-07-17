@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { wzApi, WzDoc, WzLine, QuantityChain } from '@/lib/api'
+import { wzApi, downloadDocPdf, WzDoc, WzLine, QuantityChain } from '@/lib/api'
 import { cn, fmtDatePl } from '@/lib/utils'
 import { WzDocumentView } from '@/components/wz/WzDocumentView'
 import { Card, CardContent } from '@/components/ui/card'
@@ -403,7 +403,7 @@ export function WzDocumentsPage() {
                           <Printer size={13} />
                         </Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
-                                title="PDF" onClick={() => window.open(wzApi.pdfUrl(d.id), '_blank')}>
+                                title="PDF" onClick={() => void downloadDocPdf(wzApi.pdfUrl(d.id)).catch(e => alert(e?.message || 'Nie udało się pobrać PDF'))}>
                           <FileText size={13} />
                         </Button>
                         {!cancelled && ((d as any).source_type === 'manual' ? (
@@ -546,7 +546,7 @@ export function WzDocumentsPage() {
                     <Printer size={12} /> Drukuj
                   </Button>
                   <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1"
-                          onClick={() => window.open(wzApi.pdfUrl(previewDoc.id), '_blank')}>
+                          onClick={() => void downloadDocPdf(wzApi.pdfUrl(previewDoc.id)).catch(e => alert(e?.message || 'Nie udało się pobrać PDF'))}>
                     <FileText size={12} /> PDF
                   </Button>
                 </span>

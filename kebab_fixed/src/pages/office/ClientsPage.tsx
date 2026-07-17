@@ -27,7 +27,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 
-const _CC_LANG: Record<string, string> = { PL: 'pl', DE: 'de', AT: 'de', SK: 'sk', CZ: 'cs' }
+const _CC_LANG: Record<string, string> = { PL: 'pl', DE: 'de', AT: 'de', SK: 'sk', CZ: 'cs', SI: 'sl', FR: 'fr' }
 function langFromNip(nip?: string): string {
   const s = (nip || '').trim().toUpperCase()
   const cc = s.length >= 2 && /^[A-Z]{2}/.test(s) ? s.slice(0, 2) : ''
@@ -244,6 +244,8 @@ function ClientForm({ initial, onSave, onClose }: {
                 <option value="de">Niemiecki</option>
                 <option value="sk">Słowacki</option>
                 <option value="cs">Czeski</option>
+                <option value="sl">Słoweński</option>
+                <option value="fr">Francuski</option>
                 <option value="en">Angielski</option>
               </select>
             </div>

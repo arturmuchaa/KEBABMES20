@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { wzApi, clientsApi, settingsApi, WzDoc } from '@/lib/api'
+import { wzApi, clientsApi, settingsApi, downloadDocPdf, WzDoc } from '@/lib/api'
 import { todayIso, cn } from '@/lib/utils'
 import { WzDocumentView, WzDocData } from '@/components/wz/WzDocumentView'
 import { Card, CardContent } from '@/components/ui/card'
@@ -269,7 +269,7 @@ export function WzNewPage() {
               <Button className="gap-1.5" onClick={() => window.open(`/office/wz/${savedDoc.id}/druk`, '_blank')}>
                 <Printer size={14} /> Drukuj
               </Button>
-              <Button variant="outline" className="gap-1.5" onClick={() => window.open(wzApi.pdfUrl(savedDoc.id), '_blank')}>
+              <Button variant="outline" className="gap-1.5" onClick={() => void downloadDocPdf(wzApi.pdfUrl(savedDoc.id)).catch(e => alert(e?.message || 'Nie udało się pobrać PDF'))}>
                 <FileText size={14} /> PDF
               </Button>
               <Button variant="outline" className="gap-1.5" onClick={() => setPreview(true)}>

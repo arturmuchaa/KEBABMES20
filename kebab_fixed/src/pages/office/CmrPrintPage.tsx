@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft, Printer, Download } from 'lucide-react'
-import { cmrApi } from '@/lib/api'
+import { cmrApi, downloadDocPdf } from '@/lib/api'
 import { mergeCmrPositions, CMR_LINE_GAP, getGoodsRowH, fontCss, customFieldKeys,
          type CmrPositions, type FieldPos } from '@/lib/cmrLayout'
 
@@ -188,12 +188,13 @@ export function CmrPrintPage() {
         >
           <Printer size={14} /> Drukuj
         </button>
-        <a
-          href={cmrApi.pdfUrl(id)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#fff', color: '#be123c', border: '1px solid #fecdd3', borderRadius: '4px', padding: '5px 12px', fontSize: '13px', cursor: 'pointer', textDecoration: 'none' }}
+        <button
+          type="button"
+          onClick={() => void downloadDocPdf(cmrApi.pdfUrl(id)).catch(e => alert(e?.message || 'Nie udało się pobrać PDF'))}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#fff', color: '#be123c', border: '1px solid #fecdd3', borderRadius: '4px', padding: '5px 12px', fontSize: '13px', cursor: 'pointer' }}
         >
           <Download size={14} /> Pobierz PDF
-        </a>
+        </button>
       </div>
 
       {COPY_BG.map((bg, i) => (

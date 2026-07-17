@@ -47,17 +47,29 @@ export const BASE = (() => {
   return '/api'  // przeglądarka — nginx proxy
 })()
 
+// Token renderowania PDF: headless Chrome (render_url_to_pdf) otwiera stronę
+// druku z ?render_token=... — bez przekazania go do API strona druku dostaje
+// 401 i renderer zrzucał do PDF stronę logowania zamiast dokumentu.
+const renderToken = () =>
+  typeof location !== 'undefined'
+    ? new URLSearchParams(location.search).get('render_token') || ''
+    : ''
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = tokenStore.get()
+  const rtok = renderToken()
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(rtok ? { 'x-render-token': rtok } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
   if (res.status === 401) {
+    // Render headless: brak sesji to norma — bez redirectu, sam błąd.
+    if (rtok) throw new Error('Nieważny token renderowania')
     tokenStore.clear()
     // Samodzielne kioski (rozbior-v10.html itd.) mają WŁASNY ekran PIN —
     // twardy skok do /login załadowałby index.html, czyli PEŁNY MES na
@@ -84,6 +96,33 @@ const post  = <T>(p: string, b: unknown) => req<T>('POST',   p, b)
 const put   = <T>(p: string, b: unknown) => req<T>('PUT',    p, b)
 const patch = <T>(p: string, b: unknown) => req<T>('PATCH',  p, b)
 const del   = <T>(p: string)             => req<T>('DELETE', p)
+
+/** Pobierz PDF endpointu dokumentów (HDI/WZ/CMR) Z SESJĄ. Zwykły <a href> /
+ * window.open idzie bez nagłówka Authorization i dostaje 401 (prod
+ * 2026-07-16: przycisk PDF przy CMR). Nazwa pliku z Content-Disposition. */
+export async function downloadDocPdf(url: string, fallbackName = 'dokument.pdf'): Promise<void> {
+  const token = tokenStore.get()
+  const res = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    const msg = err.detail || err.message || `HTTP ${res.status}`
+    throw new Error(String(msg))
+  }
+  const cd = res.headers.get('content-disposition') || ''
+  const m = /filename\*=UTF-8''([^;]+)/i.exec(cd) || /filename="?([^";]+)"?/i.exec(cd)
+  const name = m ? decodeURIComponent(m[1]) : fallbackName
+  const blob = await res.blob()
+  const obj = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = obj
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(obj)
+}
 
 // ─── camelCase → snake_case dla wszystkich DTO wysyłanych do backendu ─────────
 // Backend Python oczekuje snake_case. Bez konwersji pola są ignorowane → "Field required".

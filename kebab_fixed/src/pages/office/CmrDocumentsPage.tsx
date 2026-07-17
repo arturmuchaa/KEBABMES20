@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
-import { cmrApi, type CmrListRow } from '@/lib/api'
+import { cmrApi, downloadDocPdf, type CmrListRow } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { DataTable } from '@/components/DataTable'
 import { usePageHeaderActions } from '@/components/PageHeader'
@@ -57,13 +57,8 @@ function openPrint(id: string) {
 }
 
 function downloadPdf(id: string) {
-  // Endpoint zwraca PDF jako attachment → przeglądarka pobiera plik.
-  const a = document.createElement('a')
-  a.href = cmrApi.pdfUrl(id)
-  a.rel = 'noopener'
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
+  // Pobranie z sesją (fetch+blob) — goły <a href> szedł bez Authorization → 401.
+  void downloadDocPdf(cmrApi.pdfUrl(id)).catch(e => alert(e?.message || 'Nie udało się pobrać PDF'))
 }
 
 // ─── Strona ─────────────────────────────────────────────────
