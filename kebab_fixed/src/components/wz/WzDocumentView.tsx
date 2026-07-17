@@ -34,9 +34,20 @@ const lineValue = (l: WzLine) => {
   return base * (l.price ?? 0)
 }
 
+/** Szary pasek sekcji jak na fakturze Subiekt GT (wzorzec 2026-07-17). */
+function Bar({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-center font-bold" style={{
+      background: '#d4d4d4', border: '1px solid #6b6b6b', borderBottom: 'none',
+      fontSize: 11, padding: '2px 8px', letterSpacing: '.02em',
+    }}>{children}</div>
+  )
+}
+
 /** Arkusz dokumentu WZ — wspólny dla podglądu (modal), strony wydruku i PDF.
- *  Klasyczny układ dokumentu magazynowego: nagłówek, strony, tabela, podpisy.
- *  Pozycje z wagą (total_kg) mają kolumnę "Waga" i cenę ZA KG. */
+ *  Układ w stylu faktury Subiekt GT (logo + boksy dat po prawej, sekcje
+ *  z szarym paskiem, tabela z szarym nagłówkiem, boksy podpisów) — spójny
+ *  z HDI/HACCP. Pozycje z wagą (total_kg) mają kolumnę "Waga" i cenę ZA KG. */
 export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean }) {
   const hasKg = doc.lines.some(l => (l.total_kg ?? 0) > 0)
   // Główna tabela SCALA pozycje o tej samej nazwie/jm/cenie (np. „Kości
@@ -71,46 +82,78 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
     ...(doc.valued ? [hasKg ? `Cena/kg [${sym}]` : `Cena jedn. [${sym}]`, `Wartość [${sym}]`] : []),
   ]
   const cols = head.length
+  const totalValue = doc.total_value ?? doc.lines.reduce((s, l) => s + lineValue(l), 0)
   return (
-    <div className="wz bg-white text-[#111] mx-auto" style={{ width: 794, padding: 40, fontSize: 13 }}>
-      {/* Nagłówek dokumentu */}
-      <div className="flex justify-between items-start pb-4 border-b-2 border-[#111]">
+    <div className="wz bg-white text-[#111] mx-auto"
+      style={{ width: 756, padding: '18px 20px', fontSize: 12.5, fontFamily: 'Arial, Helvetica, sans-serif' }}>
+      <style>{`
+        @media print {
+          @page { size: A4 portrait; margin: 5mm; }
+          html, body { margin: 0; background: #fff !important; }
+        }
+        .wz, .wz * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+      `}</style>
+
+      {/* ── Nagłówek: logo + firma po lewej, boksy dat po prawej (Subiekt) ── */}
+      <div className="flex justify-between items-start">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.2em] text-[#666]">Dokument magazynowy</div>
-          <h1 className="text-[26px] font-bold leading-tight mt-0.5">WZ — Wydanie zewnętrzne</h1>
+          <img src="/logo-ksiezyc.png" alt="Księżyc" style={{ height: 64, width: 'auto' }} />
+          <div className="mt-2 leading-snug">
+            <div className="font-bold text-[13px]">{doc.seller?.name || (draft ? '—' : '')}</div>
+            <div className="text-[11.5px] text-[#222] whitespace-pre-line">{doc.seller?.address}</div>
+            {doc.seller?.nip && <div className="text-[11.5px]">NIP: {doc.seller.nip}</div>}
+          </div>
         </div>
-        <div className="text-right">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-[#666]">Numer</div>
-          <div className="font-mono font-bold text-[18px]">
-            {doc.number || (draft ? '— / —— / ————' : '')}
-          </div>
-          <div className="text-[12px] mt-1 text-[#444]">
-            {doc.place}{doc.place ? ', ' : ''}{fmtDatePl(doc.issued_date)}
-          </div>
+        <div style={{ width: 250 }}>
+          {[
+            ['Miejsce wystawienia:', doc.place || (draft ? '—' : '')],
+            ['Data wystawienia:', fmtDatePl(doc.issued_date)],
+            ['Data wydania:', fmtDatePl(doc.release_date)],
+          ].map(([label, val]) => (
+            <div key={label} className="mb-1.5">
+              <Bar>{label}</Bar>
+              <div className="text-center text-[12px] py-0.5" style={{ border: '1px solid #6b6b6b', borderTop: 'none' }}>
+                {val || ' '}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Strony */}
-      <div className="flex gap-5 mt-5">
+      {/* ── Sprzedawca / Nabywca ── */}
+      <div className="flex gap-6 mt-3">
         {[
-          { label: 'Sprzedający / Wystawca', name: doc.seller?.name, address: doc.seller?.address, nip: doc.seller?.nip },
-          { label: 'Odbiorca / Nabywca',     name: doc.buyer_name,   address: doc.buyer_address,   nip: doc.buyer_nip },
+          { label: 'Sprzedawca:', name: doc.seller?.name, address: doc.seller?.address, nip: doc.seller?.nip },
+          { label: 'Nabywca:',    name: doc.buyer_name,   address: doc.buyer_address,   nip: doc.buyer_nip },
         ].map(p => (
-          <div key={p.label} className="flex-1 border border-[#9a9a9a] p-3">
-            <div className="text-[10px] uppercase tracking-[0.15em] text-[#666] mb-1.5">{p.label}</div>
-            <div className="font-bold">{p.name || (draft ? '—' : '')}</div>
-            <div className="text-[12px] text-[#333] whitespace-pre-line">{p.address}</div>
-            {p.nip && <div className="text-[12px] mt-0.5">NIP: <span className="font-mono">{p.nip}</span></div>}
+          <div key={p.label} className="flex-1">
+            <Bar>{p.label}</Bar>
+            <div className="px-2.5 py-1.5 leading-snug" style={{ border: '1px solid #6b6b6b', borderTop: 'none', minHeight: 74 }}>
+              <div className="font-bold uppercase">{p.name || (draft ? '—' : '')}</div>
+              <div className="text-[12px] text-[#222] whitespace-pre-line uppercase">{p.address}</div>
+              {p.nip && <div className="text-[12px] mt-0.5">NIP: {p.nip}</div>}
+            </div>
           </div>
         ))}
       </div>
 
-      {/* Pozycje */}
-      <table className="w-full mt-5" style={{ borderCollapse: 'collapse' }}>
+      {/* ── Tytuł dokumentu (jak „Faktura VAT 47/07/2026") ── */}
+      <div className="text-center mt-4 mb-2">
+        <span className="font-bold" style={{ fontSize: 19 }}>
+          WZ — Wydanie zewnętrzne&nbsp;&nbsp;{doc.number || (draft ? '— / —— / ——' : '')}
+        </span>
+      </div>
+
+      {/* ── Pozycje ── */}
+      <table className="w-full" style={{ borderCollapse: 'collapse' }}>
         <thead>
           <tr>
             {head.map((h, hi) => (
-              <th key={h} className={`border border-[#9a9a9a] bg-[#f0f0f0] px-2 py-1.5 text-[11px] uppercase tracking-wide ${hi === 1 ? 'text-left' : 'text-center'}`}>
+              <th key={h} className={`px-2 py-1 text-[10.5px] ${hi === 1 ? 'text-left' : 'text-center'}`}
+                style={{ border: '1px solid #444', background: '#d7d7d7' }}>
                 {h}
               </th>
             ))}
@@ -119,34 +162,34 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
         <tbody>
           {mergedLines.map((l, i) => (
             <tr key={i}>
-              <td className="border border-[#9a9a9a] px-2 py-1.5 text-center w-9">{i + 1}</td>
-              <td className="border border-[#9a9a9a] px-2 py-1.5 uppercase">{l.name}</td>
-              <td className="border border-[#9a9a9a] px-2 py-1.5 text-center font-mono">{l.qty}</td>
-              <td className="border border-[#9a9a9a] px-2 py-1.5 w-12 text-center">{l.unit}</td>
+              <td className="px-2 py-1 text-center w-9" style={{ border: '1px solid #444' }}>{i + 1}</td>
+              <td className="px-2 py-1 uppercase font-semibold" style={{ border: '1px solid #444' }}>{l.name}</td>
+              <td className="px-2 py-1 text-right" style={{ border: '1px solid #444' }}>{l.qty}</td>
+              <td className="px-2 py-1 w-12 text-center" style={{ border: '1px solid #444' }}>{l.unit}</td>
               {hasKg && (
-                <td className="border border-[#9a9a9a] px-2 py-1.5 text-center font-mono">
+                <td className="px-2 py-1 text-right" style={{ border: '1px solid #444' }}>
                   {(l.total_kg ?? 0) > 0 ? `${fmtKg3(l.total_kg)} kg` : '—'}
                 </td>
               )}
-              {doc.valued && <td className="border border-[#9a9a9a] px-2 py-1.5 text-center font-mono">{fmt(l.price)}</td>}
-              {doc.valued && <td className="border border-[#9a9a9a] px-2 py-1.5 text-center font-mono">{fmt(lineValue(l))}</td>}
+              {doc.valued && <td className="px-2 py-1 text-right" style={{ border: '1px solid #444' }}>{fmt(l.price)}</td>}
+              {doc.valued && <td className="px-2 py-1 text-right" style={{ border: '1px solid #444' }}>{fmt(lineValue(l))}</td>}
             </tr>
           ))}
           {!mergedLines.length && (
-            <tr><td colSpan={cols} className="border border-[#9a9a9a] px-2 py-4 text-center text-[#888]">Brak pozycji</td></tr>
+            <tr><td colSpan={cols} className="px-2 py-4 text-center text-[#888]" style={{ border: '1px solid #444' }}>Brak pozycji</td></tr>
           )}
         </tbody>
         {doc.lines.length > 0 && (hasKg || doc.valued) && (
           <tfoot>
             <tr>
-              <td colSpan={4} className="border border-[#9a9a9a] px-2 py-1.5 text-right font-bold">Razem</td>
+              <td colSpan={4} className="px-2 py-1 text-right font-bold" style={{ border: '1px solid #444', background: '#efefef' }}>Razem</td>
               {hasKg && (
-                <td className="border border-[#9a9a9a] px-2 py-1.5 text-center font-bold font-mono">{fmtKg3(totalKg)} kg</td>
+                <td className="px-2 py-1 text-right font-bold" style={{ border: '1px solid #444', background: '#efefef' }}>{fmtKg3(totalKg)} kg</td>
               )}
-              {doc.valued && <td className="border border-[#9a9a9a] px-2 py-1.5" />}
+              {doc.valued && <td style={{ border: '1px solid #444', background: '#efefef' }} />}
               {doc.valued && (
-                <td className="border border-[#9a9a9a] px-2 py-1.5 text-center font-bold font-mono">
-                  {fmt(doc.total_value ?? doc.lines.reduce((s, l) => s + lineValue(l), 0))} {sym}
+                <td className="px-2 py-1 text-right font-bold" style={{ border: '1px solid #444', background: '#efefef' }}>
+                  {fmt(totalValue)}
                 </td>
               )}
             </tr>
@@ -154,12 +197,23 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
         )}
       </table>
 
-      <div className="mt-3 flex justify-between text-[12px]">
-        <div>Data wydania: <b>{fmtDatePl(doc.release_date)}</b></div>
-        {isEur && doc.eur_rate ? (
-          <div className="text-[#444]">Kurs EUR/PLN (NBP, tab. A): <b className="font-mono">{Number(doc.eur_rate).toFixed(4)}</b></div>
-        ) : null}
-      </div>
+      {/* ── Podsumowanie po prawej (Subiekt: „Razem do zapłaty") ── */}
+      {doc.valued && (
+        <div className="flex justify-end mt-2.5">
+          <div style={{ width: 320 }}>
+            <div className="flex items-center justify-between font-bold px-2.5 py-1"
+              style={{ background: '#d4d4d4', border: '1px solid #444', fontSize: 13.5 }}>
+              <span>Razem do zapłaty:</span>
+              <span>{fmt(totalValue)} {sym}</span>
+            </div>
+            {isEur && doc.eur_rate ? (
+              <div className="text-right text-[10.5px] mt-0.5 text-[#333]">
+                Dokument wystawiony w walucie EUR — kurs NBP (tab. A): <b>{Number(doc.eur_rate).toFixed(4)}</b> PLN
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
 
       {/* ── Identyfikacja partii surowca (HDI) — tylko pozycje surowcowe;
              sprzedaż wyrobu (kebab) ma osobny, pełny HDI jak dotąd. ── */}
@@ -172,10 +226,9 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
         return (
           // Pełna szerokość jak tabela WZ, ale drobniejszy druk i cieńsze
           // szarości — sekcja identyfikacji nie zlewa się z dokumentem.
-          <div className="mt-7">
-            <div className="text-[11px] font-bold uppercase tracking-[0.18em] pb-1 border-b border-[#777] mb-1.5">
-              Identyfikacja partii surowca (HDI)
-            </div>
+          <div className="mt-6">
+            <Bar>Identyfikacja partii surowca (HDI)</Bar>
+            <div style={{ borderBottom: '1px solid #6b6b6b', marginBottom: 6 }} />
             <table className="w-full" style={{ borderCollapse: 'collapse', fontSize: 10.5 }}>
               <thead>
                 <tr>
@@ -230,10 +283,17 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
         )
       })()}
 
-      {/* Podpisy */}
-      <div className="flex justify-between mt-16">
-        {['Wydał', 'Odebrał'].map(s => (
-          <div key={s} className="border-t border-[#111] w-[220px] text-center pt-1 text-[12px] text-[#444]">{s}</div>
+      {/* ── Boksy podpisów (Subiekt: Wystawił(a) / Odebrał(a)) ── */}
+      <div className="flex justify-between gap-8 mt-8">
+        {[
+          { label: 'Wystawił(a):', caption: 'Podpis osoby upoważnionej do wystawienia dokumentu WZ' },
+          { label: 'Odebrał(a):',  caption: 'Podpis osoby upoważnionej do odbioru towaru' },
+        ].map(s => (
+          <div key={s.label} className="flex-1" style={{ maxWidth: 330 }}>
+            <Bar>{s.label}</Bar>
+            <div style={{ border: '1px solid #6b6b6b', borderTop: 'none', height: 72 }} />
+            <div className="text-center text-[10px] text-[#555] mt-0.5">{s.caption}</div>
+          </div>
         ))}
       </div>
     </div>

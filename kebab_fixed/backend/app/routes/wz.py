@@ -5,8 +5,10 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
 from app.config import settings
+from app.db import query_one
 from app.services import wz_service as svc
 from app.services.pdf_render import render_url_to_pdf
+from app.utils.doc_pdf import doc_pdf_filename, full_client_name
 
 router = APIRouter(prefix="/api/wz", tags=["wz"])
 
@@ -39,8 +41,16 @@ def pdf(wz_id: str):
         data = render_url_to_pdf(url)
     except RuntimeError as exc:
         raise HTTPException(500, str(exc))
-    number = (doc.get("number") or wz_id).replace("/", "-")
-    filename = f"WZ_{number}.pdf"
+    # WZ_<PEŁNA nazwa klienta>_<nr>.pdf — jak HDI/CMR. WZ ręczny nie ma
+    # zamówienia → nazwa nabywcy z dokumentu (dociągnięta z kartoteki po nazwie).
+    order_id = doc.get("source_id") if (doc.get("source_type") or "") == "order" else None
+    buyer = doc.get("buyer_name") or ""
+    client_name = full_client_name(order_id, buyer)
+    if client_name == buyer and buyer:
+        row = query_one("SELECT name FROM clients WHERE name=%s OR display_name=%s", (buyer, buyer))
+        if row and row.get("name"):
+            client_name = row["name"]
+    filename = doc_pdf_filename("WZ", client_name, doc.get("number") or wz_id)
     return Response(
         content=data,
         media_type="application/pdf",
