@@ -168,14 +168,21 @@ export function WzNewPage() {
   const del = (i: number) => setRows(r => r.filter((_, j) => j !== i))
 
   const q = query.trim().toLowerCase()
+  // Magazyn stempluje klienta raz pełną nazwą, raz skróconą ("SAS ISSA
+  // DISTRIB" vs "ISSA DISTRIB") — filtr łapie OBIE, inaczej "Brak wyrobów
+  // przypisanych do klienta" mimo towaru na stanie (prod 2026-07-17).
+  const clientAliases = useMemo(() => new Set(
+    [selectedClient?.name, selectedClient?.displayName]
+      .filter(Boolean).map(s => String(s).trim().toLowerCase())
+  ), [selectedClient])
   const matchesClient = (g: any) =>
-    stockView === 'all' || !clientName ||
-    (g.client_name || '').trim().toLowerCase() === clientName.toLowerCase()
+    stockView === 'all' || clientAliases.size === 0 ||
+    clientAliases.has((g.client_name || '').trim().toLowerCase())
   const fgFiltered = fg.filter(g =>
     matchesClient(g) &&
     (!q || `${g.recipe_name || ''} ${g.product_type_name || ''} ${g.batch_no || ''}`.toLowerCase().includes(q)))
-  const fgClientCount = clientName
-    ? fg.filter(g => (g.client_name || '').trim().toLowerCase() === clientName.toLowerCase()).length
+  const fgClientCount = clientAliases.size
+    ? fg.filter(g => clientAliases.has((g.client_name || '').trim().toLowerCase())).length
     : 0
   const rawFiltered = raw.filter(b =>
     !q || `${b.internal_batch_no || ''} ${b.supplier_name || ''} ${b.name || ''}`.toLowerCase().includes(q))

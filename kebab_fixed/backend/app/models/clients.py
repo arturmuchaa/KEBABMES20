@@ -7,6 +7,10 @@ class ClientCreate(BaseModel):
     nip: str = ""
     regon: str = ""
     address: str = ""
+    # Kod pocztowy OSOBNO od adresu — dokumenty (CMR pole 2) drukują
+    # "kod, miasto, kraj" w linii pod adresem; bez tego pola operatorzy
+    # doklejali kod do adresu i wychodził w złej linii.
+    postal_code: str = ""
     city: str = ""
     contact_name: str = ""
     phone: str = ""

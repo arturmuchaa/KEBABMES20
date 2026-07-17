@@ -34,10 +34,10 @@ def create_client(dto: ClientCreate) -> Dict:
             conn,
             """
             INSERT INTO clients
-                (id, code, name, display_name, nip, regon, address, city,
+                (id, code, name, display_name, nip, regon, address, postal_code, city,
                  contact_name, phone, email, language, dest_name, dest_address, dest_city,
                  dest_for_hdi, dest_for_cmr, halal_supervision, active, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
             RETURNING *
             """,
             (
@@ -48,6 +48,7 @@ def create_client(dto: ClientCreate) -> Dict:
                 dto.nip,
                 dto.regon,
                 dto.address,
+                dto.postal_code,
                 dto.city,
                 dto.contact_name,
                 dto.phone,
@@ -72,7 +73,7 @@ def update_client(client_id: str, dto: ClientCreate) -> Dict:
             conn,
             """
             UPDATE clients
-            SET name=%s, display_name=%s, nip=%s, regon=%s, address=%s, city=%s,
+            SET name=%s, display_name=%s, nip=%s, regon=%s, address=%s, postal_code=%s, city=%s,
                 contact_name=%s, phone=%s, email=%s,
                 language=%s, dest_name=%s, dest_address=%s, dest_city=%s,
                 dest_for_hdi=%s, dest_for_cmr=%s, halal_supervision=%s
@@ -85,6 +86,7 @@ def update_client(client_id: str, dto: ClientCreate) -> Dict:
                 dto.nip,
                 dto.regon,
                 dto.address,
+                dto.postal_code,
                 dto.city,
                 dto.contact_name,
                 dto.phone,

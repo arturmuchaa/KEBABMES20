@@ -83,7 +83,7 @@ def _client_snapshot(order: Dict[str, Any]) -> Dict[str, Any]:
     poprawiony adres BULLI nie trafiał na CMR, bo payload był snapshotem
     z chwili utworzenia i nic go nie odświeżało).
     """
-    cols = "name, address, city, nip, dest_name, dest_address, dest_city, dest_for_cmr"
+    cols = "name, address, postal_code, city, nip, dest_name, dest_address, dest_city, dest_for_cmr"
     client = None
     if order.get("client_id"):
         client = query_one(f"SELECT {cols} FROM clients WHERE id=%s", (order.get("client_id"),))
@@ -98,7 +98,10 @@ def _client_snapshot(order: Dict[str, Any]) -> Dict[str, Any]:
         x for x in [client.get("dest_name", ""), client.get("dest_address", ""),
                     client.get("dest_city", "")] if x).strip()
     return {
+        # postal_code osobno — blok adresowy na druku (AddrBlock) renderuje
+        # "kod, miasto, kraj" w linii POD adresem, jak u przewoźnika.
         "consignee": {"name": client_name, "address": client.get("address", ""),
+                      "postal_code": client.get("postal_code", "") or "",
                       "city": client.get("city", ""),
                       "country": country_from_nip(client.get("nip", ""), ""),
                       "nip": client.get("nip", "")},
