@@ -182,6 +182,13 @@ def build_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
             "carrier_id": form.get("carrier_id") or None, "payload": payload, "totals": totals}
 
 
+def format_cmr_number(seq: int, year_month: str) -> str:
+    # year_month = "RRMM" (np. "2607"); numer = NN/MM/RR — jak HDI,
+    # numeracja od 1 w każdym nowym miesiącu (feedback 2026-07-17).
+    yy, mm = year_month[:2], year_month[2:]
+    return f"{seq}/{mm}/{yy}"
+
+
 def generate_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
     data = build_cmr(order_id, form)
     existing = query_one(
@@ -199,17 +206,18 @@ def generate_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
         return {"id": existing["id"], "number": existing["number"], "status": "wystawiony"}
 
     cid = cuid()
+    ym = today.strftime("%y%m")  # RRMM
     with transaction() as conn:
         row = cx_query_one(conn,
-            "SELECT COALESCE(MAX(seq),0)+1 AS n FROM cmr_documents")
+            "SELECT COALESCE(MAX(seq),0)+1 AS n FROM cmr_documents WHERE year_month=%s", (ym,))
         seq = int(row["n"])
-        number = str(seq)
+        number = format_cmr_number(seq, ym)
         cx_execute(conn,
             """INSERT INTO cmr_documents
-               (id, number, seq, order_id, client_name, carrier_id, status, payload,
+               (id, number, seq, year_month, order_id, client_name, carrier_id, status, payload,
                 issue_date, created_at)
-               VALUES (%s,%s,%s,%s,%s,%s,'wystawiony',%s::jsonb,%s,%s)""",
-            (cid, number, seq, order_id, data["client_name"], data["carrier_id"],
+               VALUES (%s,%s,%s,%s,%s,%s,%s,'wystawiony',%s::jsonb,%s,%s)""",
+            (cid, number, seq, ym, order_id, data["client_name"], data["carrier_id"],
              json.dumps(data["payload"]), today.strftime("%d.%m.%Y"), now_iso()))
     logger.info("cmr.generated", extra={"cmr_id": cid, "number": number})
     return {"id": cid, "number": number, "status": "wystawiony"}

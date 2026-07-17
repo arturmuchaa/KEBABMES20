@@ -8,6 +8,7 @@ from app.config import settings
 from app.models.cmr import CmrForm
 from app.services import cmr_service as svc
 from app.services.pdf_render import render_url_to_pdf
+from app.utils.doc_pdf import doc_pdf_filename, full_client_name
 
 router = APIRouter(prefix="/api/cmr", tags=["cmr"])
 
@@ -36,8 +37,11 @@ def pdf(cmr_id: str):
         data = render_url_to_pdf(url)
     except RuntimeError as exc:
         raise HTTPException(500, str(exc))
-    number = (doc.get("number") or cmr_id).replace("/", "-")
-    filename = f"CMR_{number}.pdf"
+    # CMR_<PEŁNA nazwa klienta>_<nr>.pdf — jak HDI (feedback 2026-07-17).
+    filename = doc_pdf_filename(
+        "CMR",
+        full_client_name(doc.get("order_id"), doc.get("client_name") or ""),
+        doc.get("number") or cmr_id)
     return Response(content=data, media_type="application/pdf",
                     headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"})
 

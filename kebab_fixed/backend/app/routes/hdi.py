@@ -5,9 +5,9 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
 from app.config import settings
-from app.db import query_one
 from app.services import hdi_service as svc
 from app.services.pdf_render import render_url_to_pdf
+from app.utils.doc_pdf import doc_pdf_filename, full_client_name
 
 router = APIRouter(prefix="/api/hdi", tags=["hdi"])
 
@@ -25,23 +25,11 @@ def pdf(hdi_id: str):
         data = render_url_to_pdf(url)
     except RuntimeError as exc:
         raise HTTPException(500, str(exc))
-    number = (doc.get("number") or hdi_id).replace("/", "-")
-    # Nazwa pliku: hdi_<PEŁNA nazwa klienta>_<nr>.pdf. hdi_documents.client_name
-    # bywa nazwą skróconą z zamówienia — dociągnij oficjalną z kartoteki.
-    client_name = doc.get("client_name") or ""
-    order = query_one("SELECT client_id, client_name FROM client_orders WHERE id=%s",
-                      (doc.get("order_id"),)) if doc.get("order_id") else None
-    if order:
-        client = None
-        if order.get("client_id"):
-            client = query_one("SELECT name FROM clients WHERE id=%s", (order.get("client_id"),))
-        if not client and order.get("client_name"):
-            client = query_one("SELECT name FROM clients WHERE name=%s OR display_name=%s",
-                               (order.get("client_name"), order.get("client_name")))
-        if client and client.get("name"):
-            client_name = client["name"]
-    safe_client = "_".join((client_name or "klient").split()).replace("/", "-")
-    filename = f"hdi_{safe_client}_{number}.pdf"
+    # HDI_<PEŁNA nazwa klienta>_<nr>.pdf (wielkimi — feedback 2026-07-17).
+    filename = doc_pdf_filename(
+        "HDI",
+        full_client_name(doc.get("order_id"), doc.get("client_name") or ""),
+        doc.get("number") or hdi_id)
     return Response(
         content=data,
         media_type="application/pdf",

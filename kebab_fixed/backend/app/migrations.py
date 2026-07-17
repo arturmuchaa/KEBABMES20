@@ -462,6 +462,14 @@ _DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_cmr_order ON cmr_documents(order_id)",
     "CREATE INDEX IF NOT EXISTS idx_cmr_created ON cmr_documents(created_at)",
 
+    # ── Numeracja CMR jak HDI: NN/MM/RR, od 1 w każdym miesiącu ──
+    "ALTER TABLE cmr_documents ADD COLUMN IF NOT EXISTS year_month TEXT",
+    # Backfill starych dokumentów: year_month z created_at, a płaskie numery
+    # ('1', '2') na format NN/MM/RR — porządkowa część zostaje ta sama.
+    "UPDATE cmr_documents SET year_month = to_char(created_at, 'YYMM') WHERE year_month IS NULL",
+    "UPDATE cmr_documents SET number = seq::text || '/' || to_char(created_at, 'MM/YY') "
+    "WHERE position('/' in number) = 0",
+
     # ── Konfiguracja układu druku CMR (pozycje pól nakładanych na druk) ──
     """CREATE TABLE IF NOT EXISTS cmr_layout (
         id          TEXT PRIMARY KEY,
