@@ -73,11 +73,17 @@ function CmrSheet({ doc, bg, pos, rowH }: { doc: any; bg: string; pos: CmrPositi
 
       {/* Pole 3: MIEJSCE PRZEZNACZENIA z dokumentu (kartoteka klienta:
           nazwa/adres/miasto docelowe) — render consignee ukrywał poprawki
-          adresu przeznaczenia (prod 2026-07-17, ISSA→FARMEX). Stare dokumenty
-          bez delivery_place: jak dotąd adres odbiorcy. */}
-      {p.delivery_place
-        ? <F l={P('delivery').x} t={P('delivery').y} w={26} s={P('delivery').size} {...ff('delivery')}>{p.delivery_place}</F>
-        : <AddrBlock d={p.consignee} p={P('delivery')} gap={CMR_LINE_GAP} />}
+          adresu przeznaczenia (prod 2026-07-17, ISSA→FARMEX). Nowe dokumenty:
+          strukturalnie 3 linie (nazwa / adres / „kod miasto"); starsze z samym
+          delivery_place: płaski string; najstarsze: adres odbiorcy. */}
+      {p.delivery
+        ? [p.delivery.name, p.delivery.address, p.delivery.city].filter(Boolean).map((ln: string, i: number) => (
+            <F key={i} l={P('delivery').x} t={P('delivery').y + i * CMR_LINE_GAP} w={26}
+               s={P('delivery').size} {...ff('delivery')}>{ln}</F>
+          ))
+        : p.delivery_place
+          ? <F l={P('delivery').x} t={P('delivery').y} w={26} s={P('delivery').size} {...ff('delivery')}>{p.delivery_place}</F>
+          : <AddrBlock d={p.consignee} p={P('delivery')} gap={CMR_LINE_GAP} />}
 
       <F l={P('loadPlace').x} t={P('loadPlace').y} w={26} s={P('loadPlace').size} {...ff('loadPlace')}>{p.load_place}</F>
       <F l={P('loadDate').x} t={P('loadDate').y} w={14} s={P('loadDate').size} {...ff('loadDate')}>{fmt(p.load_date)}</F>

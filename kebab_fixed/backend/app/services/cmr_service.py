@@ -97,6 +97,17 @@ def _client_snapshot(order: Dict[str, Any]) -> Dict[str, Any]:
     dest = "" if use_dest is False else " ".join(
         x for x in [client.get("dest_name", ""), client.get("dest_address", ""),
                     client.get("dest_city", "")] if x).strip()
+    # Pole 3 STRUKTURALNIE (3 linie: nazwa / adres / „kod miasto") — płaski
+    # string łamał się w środku linii i kod pocztowy lądował za adresem
+    # (feedback 2026-07-17: „97-200 w jednej linii jak 32-064 Rudawa").
+    if dest:
+        delivery = {"name": (client.get("dest_name") or "").strip(),
+                    "address": (client.get("dest_address") or "").strip(),
+                    "city": (client.get("dest_city") or "").strip()}
+    else:
+        delivery = {"name": client_name, "address": client.get("address", ""),
+                    "city": " ".join(x for x in [client.get("postal_code", "") or "",
+                                                 client.get("city", "")] if x)}
     return {
         # postal_code osobno — blok adresowy na druku (AddrBlock) renderuje
         # "kod, miasto, kraj" w linii POD adresem, jak u przewoźnika.
@@ -105,6 +116,8 @@ def _client_snapshot(order: Dict[str, Any]) -> Dict[str, Any]:
                       "city": client.get("city", ""),
                       "country": country_from_nip(client.get("nip", ""), ""),
                       "nip": client.get("nip", "")},
+        "delivery": delivery,
+        # Płaski string zostaje dla starych dokumentów/HDI na WZ (fallback).
         "delivery_place": dest or ", ".join(x for x in [client_name, client_addr] if x),
     }
 
