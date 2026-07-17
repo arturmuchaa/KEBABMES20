@@ -15,4 +15,7 @@ class ClientCreate(BaseModel):
     dest_name: str = ""
     dest_address: str = ""
     dest_city: str = ""
+    # Na których dokumentach stosować miejsce przeznaczenia (ptaszki w kartotece).
+    dest_for_hdi: bool = True
+    dest_for_cmr: bool = True
     halal_supervision: bool = False

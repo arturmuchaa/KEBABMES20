@@ -36,8 +36,8 @@ def create_client(dto: ClientCreate) -> Dict:
             INSERT INTO clients
                 (id, code, name, display_name, nip, regon, address, city,
                  contact_name, phone, email, language, dest_name, dest_address, dest_city,
-                 halal_supervision, active, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
+                 dest_for_hdi, dest_for_cmr, halal_supervision, active, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
             RETURNING *
             """,
             (
@@ -56,6 +56,8 @@ def create_client(dto: ClientCreate) -> Dict:
                 dto.dest_name,
                 dto.dest_address,
                 dto.dest_city,
+                bool(dto.dest_for_hdi),
+                bool(dto.dest_for_cmr),
                 bool(dto.halal_supervision),
                 now_iso(),
             ),
@@ -73,7 +75,7 @@ def update_client(client_id: str, dto: ClientCreate) -> Dict:
             SET name=%s, display_name=%s, nip=%s, regon=%s, address=%s, city=%s,
                 contact_name=%s, phone=%s, email=%s,
                 language=%s, dest_name=%s, dest_address=%s, dest_city=%s,
-                halal_supervision=%s
+                dest_for_hdi=%s, dest_for_cmr=%s, halal_supervision=%s
             WHERE id=%s
             RETURNING *
             """,
@@ -91,6 +93,8 @@ def update_client(client_id: str, dto: ClientCreate) -> Dict:
                 dto.dest_name,
                 dto.dest_address,
                 dto.dest_city,
+                bool(dto.dest_for_hdi),
+                bool(dto.dest_for_cmr),
                 bool(dto.halal_supervision),
                 client_id,
             ),

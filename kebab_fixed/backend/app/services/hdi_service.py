@@ -207,7 +207,7 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
     # Klient: najpierw po client_id (pewny klucz obcy zamówienia), dopiero potem
     # po nazwie. Bez tego zamówienia, gdzie client_name jest wolnym tekstem
     # niepasującym do słownika, gubiły pełne dane odbiorcy (NIP, adres, język).
-    cols = "name, address, city, nip, language, dest_name, dest_address, dest_city"
+    cols = "name, address, city, nip, language, dest_name, dest_address, dest_city, dest_for_hdi"
     client = None
     if order.get("client_id"):
         client = query_one(f"SELECT {cols} FROM clients WHERE id=%s", (order.get("client_id"),))
@@ -219,7 +219,12 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
 
     company_addr = f"{co.get('address','')}, {co.get('postal_code','')} {co.get('city','')}".strip(", ")
     client_addr = f"{client.get('address','')}, {client.get('city','')}".strip(", ")
-    dest = " ".join(x for x in [client.get('dest_name', ''), client.get('dest_address', ''), client.get('dest_city', '')] if x).strip()
+    # Ptaszek „stosuj na HDI" w kartotece: wyłączony → rozładunek = adres
+    # odbiorcy, nawet gdy miejsce przeznaczenia jest wypełnione (np. ISSA:
+    # CMR jedzie na Farmex, HDI na adres klienta). Brak kolumny (None) = true.
+    use_dest = client.get("dest_for_hdi")
+    dest = "" if use_dest is False else " ".join(
+        x for x in [client.get('dest_name', ''), client.get('dest_address', ''), client.get('dest_city', '')] if x).strip()
     # Fallback na nazwę z zamówienia, gdy brak rekordu klienta w słowniku.
     client_name = client.get('name') or order.get('client_name', '')
     recipient = ", ".join(x for x in [client_name, client_addr, client.get('nip', '')] if x)

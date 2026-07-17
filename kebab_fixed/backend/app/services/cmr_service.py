@@ -83,7 +83,7 @@ def _client_snapshot(order: Dict[str, Any]) -> Dict[str, Any]:
     poprawiony adres BULLI nie trafiał na CMR, bo payload był snapshotem
     z chwili utworzenia i nic go nie odświeżało).
     """
-    cols = "name, address, city, nip, dest_name, dest_address, dest_city"
+    cols = "name, address, city, nip, dest_name, dest_address, dest_city, dest_for_cmr"
     client = None
     if order.get("client_id"):
         client = query_one(f"SELECT {cols} FROM clients WHERE id=%s", (order.get("client_id"),))
@@ -92,8 +92,11 @@ def _client_snapshot(order: Dict[str, Any]) -> Dict[str, Any]:
     client = client or {}
     client_name = client.get("name") or order.get("client_name", "")
     client_addr = ", ".join(x for x in [client.get("address", ""), client.get("city", "")] if x)
-    dest = " ".join(x for x in [client.get("dest_name", ""), client.get("dest_address", ""),
-                                client.get("dest_city", "")] if x).strip()
+    # Ptaszek „stosuj na CMR" w kartotece: wyłączony → pole 3 = adres odbiorcy.
+    use_dest = client.get("dest_for_cmr")
+    dest = "" if use_dest is False else " ".join(
+        x for x in [client.get("dest_name", ""), client.get("dest_address", ""),
+                    client.get("dest_city", "")] if x).strip()
     return {
         "consignee": {"name": client_name, "address": client.get("address", ""),
                       "city": client.get("city", ""),

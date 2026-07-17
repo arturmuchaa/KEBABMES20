@@ -402,6 +402,11 @@ _DDL: list[str] = [
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_name TEXT DEFAULT ''",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_address TEXT DEFAULT ''",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_city TEXT DEFAULT ''",
+    # Ptaszki per dokument: na których dokumentach stosować miejsce
+    # przeznaczenia (np. ISSA: CMR → Farmex, HDI → adres odbiorcy).
+    # Default true = dotychczasowe zachowanie (przeznaczenie wszędzie).
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_for_hdi BOOLEAN NOT NULL DEFAULT true",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_for_cmr BOOLEAN NOT NULL DEFAULT true",
 
     # ── HDI dokumenty ──
     """CREATE TABLE IF NOT EXISTS hdi_documents (

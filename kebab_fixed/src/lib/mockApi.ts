@@ -2112,10 +2112,12 @@ export interface Client {
   contactName?: string
   phone?:       string
   email?:       string
-  language?:    string       // pl/de/sk/cs/en — język HDI
+  language?:    string       // pl/de/sk/cs/sl/fr/en — język HDI
   destName?:    string       // miejsce przeznaczenia (puste = adres klienta)
   destAddress?: string
   destCity?:    string
+  destForHdi?:  boolean      // stosuj miejsce przeznaczenia na HDI (rozładunek)
+  destForCmr?:  boolean      // stosuj miejsce przeznaczenia na CMR (pole 3)
   halalSupervision?: boolean  // klient pod nadzorem HALAL → etykieta z kodem nadzoru
   active:       boolean
   createdAt:    string
@@ -2125,6 +2127,7 @@ export interface CreateClientDto {
   name: string; displayName?: string; nip?: string; regon?: string; address?: string
   postalCode?: string; city?: string; contactName?: string; phone?: string; email?: string
   language?: string; destName?: string; destAddress?: string; destCity?: string
+  destForHdi?: boolean; destForCmr?: boolean
   halalSupervision?: boolean
 }
 

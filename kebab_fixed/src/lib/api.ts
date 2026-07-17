@@ -539,6 +539,8 @@ function mapClient(raw: any): Client {
     destName:    raw.dest_name ?? raw.destName ?? '',
     destAddress: raw.dest_address ?? raw.destAddress ?? '',
     destCity:    raw.dest_city ?? raw.destCity ?? '',
+    destForHdi:  !!(raw.dest_for_hdi ?? raw.destForHdi ?? true),
+    destForCmr:  !!(raw.dest_for_cmr ?? raw.destForCmr ?? true),
     halalSupervision: !!(raw.halal_supervision ?? raw.halalSupervision ?? false),
     active:      raw.active ?? true,
     createdAt:   raw.created_at ?? raw.createdAt ?? '',

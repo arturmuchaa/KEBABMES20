@@ -252,9 +252,10 @@ export function HdiPrintPage() {
           font-size: 8px;
           text-align: center;
         }
+        /* Numer partii TĄ SAMĄ czcionką co reszta tabeli — Courier 8px był
+           słabo widoczny na wydruku (feedback 2026-07-17). */
         .hdi .prod-table td.bpartia-cell {
-          font-family: 'Courier New', monospace;
-          font-size: 8px;
+          font-size: 9px;
           text-align: center;
           white-space: nowrap;
         }
@@ -382,9 +383,10 @@ export function HdiPrintPage() {
       >
 
         {/* Logo Księżyc NAD tytułem (jak w raporcie HACCP) — plik 3667×1267 px
-            (poziome ze sloganem), 48 px wysokości jest czytelne w druku. */}
+            (poziome ze sloganem). 76 px ≈ 20 mm w druku — 48 px wychodziło
+            „malutkie i prawie nie widać" (feedback 2026-07-17). */}
         <img src="/logo-ksiezyc.png" alt="Księżyc"
-          style={{ height: 48, width: 'auto', marginBottom: 4 }} />
+          style={{ height: 76, width: 'auto', marginBottom: 5 }} />
 
         {/* ── Tytuł ── */}
         <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '11.5px', lineHeight: 1.3, marginBottom: '4px' }}>

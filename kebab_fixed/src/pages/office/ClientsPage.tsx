@@ -36,7 +36,7 @@ function langFromNip(nip?: string): string {
 }
 
 function emptyForm(): CreateClientDto {
-  return { name: '', displayName: '', nip: '', regon: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '', language: '', destName: '', destAddress: '', destCity: '', halalSupervision: false }
+  return { name: '', displayName: '', nip: '', regon: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '', language: '', destName: '', destAddress: '', destCity: '', destForHdi: true, destForCmr: true, halalSupervision: false }
 }
 
 interface AddressParts { address: string; postalCode: string; city: string }
@@ -111,7 +111,7 @@ function ClientForm({ initial, onSave, onClose }: {
 }) {
   const [form, setForm] = useState<CreateClientDto>(
     initial
-      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email, language: initial.language, destName: initial.destName, destAddress: initial.destAddress, destCity: initial.destCity, halalSupervision: initial.halalSupervision }
+      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email, language: initial.language, destName: initial.destName, destAddress: initial.destAddress, destCity: initial.destCity, destForHdi: initial.destForHdi ?? true, destForCmr: initial.destForCmr ?? true, halalSupervision: initial.halalSupervision }
       : emptyForm()
   )
   const [saving,   setSaving]   = useState(false)
@@ -259,6 +259,21 @@ function ClientForm({ initial, onSave, onClose }: {
               <div className="space-y-1.5"><Label>Nazwa</Label><Input value={form.destName ?? ''} onChange={e => set('destName', e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Adres</Label><Input value={form.destAddress ?? ''} onChange={e => set('destAddress', e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Miasto</Label><Input value={form.destCity ?? ''} onChange={e => set('destCity', e.target.value)} /></div>
+            </div>
+            {/* Na których dokumentach stosować przeznaczenie — odznaczony
+                dokument bierze adres odbiorcy (np. ISSA: CMR→Farmex, HDI→klient). */}
+            <div className="flex items-center gap-4 pt-1">
+              <span className="text-xs font-semibold text-slate-600">Stosuj na:</span>
+              <label className="flex items-center gap-1.5 text-sm">
+                <input type="checkbox" checked={form.destForHdi ?? true}
+                  onChange={e => setForm(p => ({ ...p, destForHdi: e.target.checked }))} />
+                HDI <span className="text-xs text-slate-500">(miejsce rozładunku)</span>
+              </label>
+              <label className="flex items-center gap-1.5 text-sm">
+                <input type="checkbox" checked={form.destForCmr ?? true}
+                  onChange={e => setForm(p => ({ ...p, destForCmr: e.target.checked }))} />
+                CMR <span className="text-xs text-slate-500">(miejsce przeznaczenia)</span>
+              </label>
             </div>
           </div>
           <label className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm">
