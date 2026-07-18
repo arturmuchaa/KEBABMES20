@@ -1,0 +1,77 @@
+"""Częściowe ważenia mięsa z otwartego pobrania (weigh-part): porcja od razu
+wchodzi na lot mięsa, pobranie zostaje pending; complete sumuje porcje.
+Testy DB — wymagają TEST_DATABASE_URL (patrz conftest), inaczej skip."""
+from types import SimpleNamespace
+
+import pytest
+from fastapi import HTTPException
+
+from app.db import execute, query_one
+from app.services.deboning_service import (
+    complete_deboning_take,
+    create_deboning_take,
+    delete_deboning_entry,
+    list_deboning_entries,
+    update_deboning_take,
+    weigh_part_deboning_take,
+)
+from app.utils.ids import now_iso
+
+
+def _seed_batch(batch_id="rb1", internal_no="800", kg=300.0):
+    execute(
+        "INSERT INTO raw_batches "
+        "(id, internal_batch_no, internal_batch_seq, supplier_name, kg_received, "
+        " kg_available, status, material_type_id, material_name, created_at) "
+        "VALUES (%s,%s,%s,'Dostawca',%s,%s,'active','mat-cwiartka','Ćwiartka z kurczaka',%s)",
+        (batch_id, internal_no, int(internal_no), kg, kg, now_iso()),
+    )
+
+
+def _take_dto(**kw):
+    base = dict(raw_batch_id="rb1", worker_id="w1", worker_name="Jan",
+                kg_taken=300.0, kg_quarter=None, session_id=None)
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+def _meat_dto(kg, mode=None):
+    return SimpleNamespace(kg_meat=kg, kg_gross=None, tare_cart_kg=None,
+                           tare_e2_kg=None, e2_count=None, weigh_mode=mode)
+
+
+def test_weigh_part_dopisuje_na_magazyn_a_wpis_zostaje_pending(db):
+    _seed_batch()
+    entry = create_deboning_take(_take_dto())
+    weigh_part_deboning_take(entry["id"], _meat_dto(100.0))
+    row = query_one("SELECT status, kg_meat FROM deboning_entries WHERE id=%s", (entry["id"],))
+    assert row["status"] == "pending"
+    assert float(row["kg_meat"] or 0) == 0.0  # suma dopiero przy domknięciu
+    lot = query_one("SELECT kg_initial, kg_available FROM meat_stock WHERE lot_no='800'")
+    assert float(lot["kg_available"]) == 100.0
+    w = query_one("SELECT COUNT(*) AS n, COALESCE(SUM(kg_meat),0) AS s FROM deboning_take_weighings")
+    assert w["n"] == 1 and float(w["s"]) == 100.0
+    mv = query_one(
+        "SELECT COALESCE(SUM(qty),0) AS q FROM stock_movements "
+        "WHERE source_type='deboning' AND source_id=%s AND movement_type='IN'",
+        (entry["id"],),
+    )
+    assert float(mv["q"]) == 100.0
+
+
+def test_weigh_part_suma_nie_moze_przekroczyc_pobrania(db):
+    _seed_batch()
+    entry = create_deboning_take(_take_dto())
+    weigh_part_deboning_take(entry["id"], _meat_dto(100.0))
+    with pytest.raises(HTTPException) as e:
+        weigh_part_deboning_take(entry["id"], _meat_dto(250.0))
+    assert e.value.status_code == 400
+
+
+def test_weigh_part_na_domknietym_wpisie_409(db):
+    _seed_batch()
+    entry = create_deboning_take(_take_dto(kg_taken=300.0))
+    complete_deboning_take(entry["id"], _meat_dto(195.0))
+    with pytest.raises(HTTPException) as e:
+        weigh_part_deboning_take(entry["id"], _meat_dto(10.0))
+    assert e.value.status_code == 409

@@ -125,6 +125,12 @@ def complete_deboning_take(entry_id: str, dto: DeboningTakeComplete):
     return svc.complete_deboning_take(entry_id, dto)
 
 
+@router.post("/api/deboning/takes/{entry_id}/weigh-part")
+def weigh_part_deboning_take(entry_id: str, dto: DeboningTakeComplete):
+    """Częściowe ważenie mięsa — porcja na magazyn, pobranie zostaje otwarte."""
+    return svc.weigh_part_deboning_take(entry_id, dto)
+
+
 @router.patch("/api/deboning/takes/{entry_id}")
 def update_deboning_take(entry_id: str, dto: DeboningTakeUpdate):
     return svc.update_deboning_take(entry_id, dto)

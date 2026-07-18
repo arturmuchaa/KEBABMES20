@@ -824,6 +824,153 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
     return _map_deboning_entry(entry)  # type: ignore[arg-type]
 
 
+def _sum_take_weighings(conn, entry_id: str) -> float:
+    r = cx_query_one(
+        conn,
+        "SELECT COALESCE(SUM(kg_meat),0) AS kg FROM deboning_take_weighings WHERE entry_id=%s",
+        (entry_id,),
+    )
+    return float(r["kg"] or 0)
+
+
+def _insert_take_weighing(conn, entry_id: str, kg: float, dto) -> None:
+    """Jedna porcja mięsa z pobrania = jeden wiersz (pełny audyt wagi per porcja)."""
+    cx_execute(
+        conn,
+        "INSERT INTO deboning_take_weighings "
+        "(id, entry_id, kg_meat, kg_gross, tare_cart_kg, tare_e2_kg, e2_count, weigh_mode) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        (cuid(), entry_id, kg, dto.kg_gross, dto.tare_cart_kg,
+         dto.tare_e2_kg, dto.e2_count, dto.weigh_mode),
+    )
+
+
+def _reattach_overnight_session(conn, entry: Dict, entry_id: str) -> None:
+    """Pobranie „przeszło przez noc": sesja z dnia pobrania jest już
+    zamknięta/zatwierdzona. Mięso waży się DZIŚ — przepinamy wpis do otwartej
+    sesji rozbioru, zamiast blokować na zawsze (kg zeszło z partii, musi dać
+    się zważyć). Wyniesione z complete_deboning_take — weigh-part potrzebuje
+    identycznego zachowania."""
+    if not entry.get("session_id"):
+        return
+    session_row = cx_query_one(
+        conn, "SELECT status FROM production_sessions WHERE id=%s", (entry["session_id"],)
+    )
+    session_err = validate_session_writable(session_row)
+    if not session_err:
+        return
+    open_s = cx_query_one(
+        conn,
+        "SELECT id FROM production_sessions WHERE process_type='deboning' "
+        "AND status='open' ORDER BY started_at DESC LIMIT 1",
+    )
+    if not open_s:
+        raise HTTPException(400, session_err)
+    cx_execute(
+        conn, "UPDATE deboning_entries SET session_id=%s WHERE id=%s",
+        (open_s["id"], entry_id),
+    )
+    logger.info(
+        "deboning.take.session_reassigned",
+        extra={"entry_id": entry_id, "new_session_id": open_s["id"]},
+    )
+
+
+def _add_meat_to_lot(conn, entry: Dict, kg_meat: float, entry_id: str) -> None:
+    """Dopisz kg mięsa do lotu partii (lot per numer partii, ON CONFLICT
+    dolicza) + ruch IN. Wyniesione z complete_deboning_take, bo częściowe
+    ważenie wpuszcza porcję na magazyn OD RAZU (mięso jedzie np. do
+    masowania zanim pracownik dowiezie resztę)."""
+    batch = cx_query_one(
+        conn, "SELECT * FROM raw_batches WHERE id=%s", (entry["raw_batch_id"],)
+    )
+    recv = batch.get("received_date") if batch else None
+    if recv:
+        try:
+            exp = (datetime.fromisoformat(str(recv)) + timedelta(days=7)).date().isoformat()
+        except Exception:
+            exp = batch.get("expiry_date") if batch else None
+    else:
+        exp = batch.get("expiry_date") if batch else None
+
+    meat_lot_no = entry["raw_batch_no"]
+    meat_stock_id = cuid()
+    cx_execute(
+        conn,
+        """
+        INSERT INTO meat_stock
+            (id, lot_no, deboning_session_id, session_no,
+             raw_batch_id, raw_batch_no, kg_initial, kg_available,
+             production_date, expiry_date, status,
+             material_type_id, material_name, created_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_DATE,%s,'AVAILABLE',%s,%s,%s)
+        ON CONFLICT (lot_no) DO UPDATE
+        SET kg_initial  = meat_stock.kg_initial  + EXCLUDED.kg_initial,
+            kg_available = meat_stock.kg_available + EXCLUDED.kg_available
+        """,
+        (
+            meat_stock_id, meat_lot_no, entry_id, entry["session_no"],
+            entry["raw_batch_id"], meat_lot_no, kg_meat, kg_meat, exp,
+            "mat-mieso-zs", "Mięso z/s", now_iso(),
+        ),
+    )
+    ms_row = cx_query_one(conn, "SELECT id FROM meat_stock WHERE lot_no=%s", (meat_lot_no,))
+    real_ms_id = ms_row["id"] if ms_row else meat_stock_id
+    create_stock_movement(
+        conn, product_type="meat", batch_id=real_ms_id, qty=kg_meat,
+        movement_type="IN", source_type="deboning", source_id=entry_id,
+    )
+
+
+def weigh_part_deboning_take(entry_id: str, dto) -> Dict:
+    """Częściowe ważenie mięsa z OTWARTEGO pobrania: porcja od razu wchodzi
+    na lot mięsa, pobranie zostaje pending do dowiezienia reszty. Porcji
+    może być dowolnie wiele; suma nie może przekroczyć pobranej ćwiartki.
+    Surowca i ubocznych nie ruszamy — to robi faza 1 / domknięcie."""
+    kg_part = float(dto.kg_meat)
+    if kg_part <= 0:
+        raise HTTPException(400, "Ilość mięsa musi być > 0")
+
+    with transaction() as conn:
+        entry = cx_query_one(
+            conn, "SELECT * FROM deboning_entries WHERE id=%s FOR UPDATE", (entry_id,)
+        )
+        if not entry:
+            raise HTTPException(404, "Pobranie nie znalezione")
+        if (entry.get("status") or "complete") != "pending":
+            raise HTTPException(409, "Pobranie już domknięte lub nie jest pobraniem")
+
+        _reattach_overnight_session(conn, entry, entry_id)
+
+        if dto.weigh_mode == "auto":
+            weighing_err = validate_weighing_consistency(
+                dto.kg_gross, dto.tare_cart_kg, dto.tare_e2_kg, kg_part
+            )
+            if weighing_err:
+                raise HTTPException(400, weighing_err)
+
+        kg_taken = float(entry.get("kg_quarter") or 0)
+        weighed = _sum_take_weighings(conn, entry_id)
+        if weighed + kg_part > kg_taken + 0.01:
+            raise HTTPException(
+                400,
+                f"Mięso łącznie ({round(weighed + kg_part, 2)} kg) nie może "
+                f"przekraczać pobranej ćwiartki ({kg_taken} kg)",
+            )
+
+        _insert_take_weighing(conn, entry_id, kg_part, dto)
+        _add_meat_to_lot(conn, entry, kg_part, entry_id)
+
+    logger.info(
+        "deboning.take.part_weighed",
+        extra={"entry_id": entry_id, "kg_part": kg_part,
+               "kg_weighed_total": round(weighed + kg_part, 2)},
+    )
+    out = _map_deboning_entry(query_one("SELECT * FROM deboning_entries WHERE id=%s", (entry_id,)))
+    out["kgMeatWeighed"] = round(weighed + kg_part, 2)
+    return out
+
+
 def create_deboning_take(dto) -> Dict:
     """Faza 1: pobranie ćwiartki. Wiersz pending, surowiec schodzi, ruch OUT.
     Bez lotu mięsa i ABP — te powstają dopiero przy domknięciu."""
@@ -1038,33 +1185,7 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
         if (entry.get("status") or "complete") != "pending":
             raise HTTPException(409, "Pobranie już domknięte lub nie jest pobraniem")
 
-        if entry.get("session_id"):
-            session_row = cx_query_one(
-                conn, "SELECT status FROM production_sessions WHERE id=%s",
-                (entry["session_id"],),
-            )
-            session_err = validate_session_writable(session_row)
-            if session_err:
-                # Pobranie „przeszło przez noc": sesja z dnia pobrania jest już
-                # zamknięta/zatwierdzona. Mięso waży się DZIŚ — przepinamy wpis
-                # do otwartej sesji rozbioru, zamiast blokować domknięcie na
-                # zawsze (kg zeszło z partii, musi dać się zważyć).
-                open_s = cx_query_one(
-                    conn,
-                    "SELECT id FROM production_sessions WHERE process_type='deboning' "
-                    "AND status='open' ORDER BY started_at DESC LIMIT 1",
-                )
-                if not open_s:
-                    raise HTTPException(400, session_err)
-                cx_execute(
-                    conn,
-                    "UPDATE deboning_entries SET session_id=%s WHERE id=%s",
-                    (open_s["id"], entry_id),
-                )
-                logger.info(
-                    "deboning.take.session_reassigned",
-                    extra={"entry_id": entry_id, "new_session_id": open_s["id"]},
-                )
+        _reattach_overnight_session(conn, entry, entry_id)
 
         if dto.weigh_mode == "auto":
             weighing_err = validate_weighing_consistency(
@@ -1101,44 +1222,9 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
         from app.services.byproducts_service import create_byproduct_lots_for_entry
         create_byproduct_lots_for_entry(conn, row)
 
+        _add_meat_to_lot(conn, entry, kg_meat, entry_id)
         batch = cx_query_one(
             conn, "SELECT * FROM raw_batches WHERE id=%s", (entry["raw_batch_id"],)
-        )
-        recv = batch.get("received_date") if batch else None
-        if recv:
-            try:
-                exp = (datetime.fromisoformat(str(recv)) + timedelta(days=7)).date().isoformat()
-            except Exception:
-                exp = batch.get("expiry_date") if batch else None
-        else:
-            exp = batch.get("expiry_date") if batch else None
-
-        meat_lot_no = entry["raw_batch_no"]
-        meat_stock_id = cuid()
-        cx_execute(
-            conn,
-            """
-            INSERT INTO meat_stock
-                (id, lot_no, deboning_session_id, session_no,
-                 raw_batch_id, raw_batch_no, kg_initial, kg_available,
-                 production_date, expiry_date, status,
-                 material_type_id, material_name, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_DATE,%s,'AVAILABLE',%s,%s,%s)
-            ON CONFLICT (lot_no) DO UPDATE
-            SET kg_initial  = meat_stock.kg_initial  + EXCLUDED.kg_initial,
-                kg_available = meat_stock.kg_available + EXCLUDED.kg_available
-            """,
-            (
-                meat_stock_id, meat_lot_no, entry_id, entry["session_no"],
-                entry["raw_batch_id"], meat_lot_no, kg_meat, kg_meat, exp,
-                "mat-mieso-zs", "Mięso z/s", now_iso(),
-            ),
-        )
-        ms_row = cx_query_one(conn, "SELECT id FROM meat_stock WHERE lot_no=%s", (meat_lot_no,))
-        real_ms_id = ms_row["id"] if ms_row else meat_stock_id
-        create_stock_movement(
-            conn, product_type="meat", batch_id=real_ms_id, qty=kg_meat,
-            movement_type="IN", source_type="deboning", source_id=entry_id,
         )
 
     logger.info(
