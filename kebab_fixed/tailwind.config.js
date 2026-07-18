@@ -4,16 +4,19 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans:  ['"Fira Sans"', 'Inter', 'system-ui', 'sans-serif'],
-        mono:  ['"Fira Code"', '"JetBrains Mono"', 'monospace'],
-        serif: ['"Instrument Serif"', '"Times New Roman"', 'serif'],
+        sans:    ['"Fira Sans"', 'system-ui', 'sans-serif'],
+        mono:    ['"Fira Code"', '"JetBrains Mono"', 'monospace'],
+        serif:   ['"Instrument Serif"', '"Times New Roman"', 'serif'],
+        display: ['"Archivo"', '"Fira Sans"', 'system-ui', 'sans-serif'],
       },
       colors: {
         // ── Legacy custom tokens (preserved for existing pages) ──
-        // ink-4 podbity z #9CA3AF (≈2.8:1) do #6F7787 (≈4.3:1) — czytelność WCAG AA
-        ink: { DEFAULT:'#111827', 2:'#374151', 3:'#6B7280', 4:'#6F7787', 5:'#B6BCC6' },
-        surface: { DEFAULT:'#FFFFFF', 2:'#F9FAFB', 3:'#F3F4F6', 4:'#E5E7EB', 5:'#D1D5DB' },
-        brand:   { DEFAULT:'#1D4ED8', dark:'#1E40AF', light:'#EFF6FF', border:'#BFDBFE' },
+        // Ciepłe neutrale (stone) — zdejmują „niebieskawy szablon" Tailwinda.
+        // ink-4 trzyma kontrast ≥4.3:1 na bieli (WCAG AA) jak poprzednik #6F7787.
+        ink: { DEFAULT:'#1C1917', 2:'#44403C', 3:'#78716C', 4:'#736D66', 5:'#BDB7AF' },
+        surface: { DEFAULT:'#FFFFFF', 2:'#FAFAF9', 3:'#F5F5F4', 4:'#E7E5E4', 5:'#D6D3D1' },
+        // Jeden akcent marki: papryka — interakcje, aktywna nawigacja, logo.
+        brand:   { DEFAULT:'#B4380D', dark:'#8A2B0A', light:'#FAEEE8', border:'#EFCDBB' },
         success: { DEFAULT:'#059669', light:'#ECFDF5', border:'#A7F3D0' },
         warn:    { DEFAULT:'#D97706', light:'#FFFBEB', border:'#FDE68A' },
         danger:  { DEFAULT:'#DC2626', light:'#FEF2F2', border:'#FECACA' },
@@ -55,12 +58,13 @@ export default {
         },
       },
       boxShadow: {
-        // Miękkie cienie w tonacji slate (16,24,40) — głębia premium zamiast płaskiej czerni
-        card:        '0 1px 2px rgba(16,24,40,.05)',
-        'card-hover':'0 6px 20px rgba(16,24,40,.10), 0 2px 6px rgba(16,24,40,.06)',
-        md:          '0 4px 12px rgba(16,24,40,.08)',
-        modal:       '0 24px 64px rgba(16,24,40,.20)',
-        sm:          '0 1px 2px rgba(16,24,40,.06)',
+        // Płasko, dokumentowo: hairline zamiast „unoszących się" kart.
+        // Głębię zostawiamy tylko warstwom naprawdę pływającym (modal, popover).
+        card:        '0 1px 2px rgba(28,25,23,.04)',
+        'card-hover':'0 2px 8px rgba(28,25,23,.08)',
+        md:          '0 2px 8px rgba(28,25,23,.06)',
+        modal:       '0 24px 64px rgba(28,25,23,.18)',
+        sm:          '0 1px 2px rgba(28,25,23,.05)',
       },
       borderRadius: {
         DEFAULT: '4px', lg:'8px', xl:'10px', '2xl':'12px', '3xl':'16px',

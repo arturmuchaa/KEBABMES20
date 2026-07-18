@@ -55,7 +55,7 @@ export function OfficeLayout() {
   const dateStr = today.toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' })
 
   return (
-    <div className="flex h-full bg-[#F8FAFC]">
+    <div className="flex h-full bg-surface-2">
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
@@ -77,10 +77,10 @@ export function OfficeLayout() {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
         {/* Top bar */}
-        <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-5 flex-shrink-0">
+        <header className="h-14 bg-white border-b border-surface-4 flex items-center justify-between px-5 flex-shrink-0">
           <div className="flex items-center gap-3">
             <button
-              className="md:hidden p-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+              className="md:hidden p-2 rounded text-ink-3 hover:text-ink-2 hover:bg-surface-3 transition-colors"
               onClick={() => setMobileOpen(v => !v)}
             >
               {mobileOpen ? <X size={18} /> : <Menu size={18} />}
@@ -88,17 +88,17 @@ export function OfficeLayout() {
 
             {/* Breadcrumb */}
             <div className="flex items-center gap-1.5 text-sm">
-              <NavLink to="/office/dashboard" className="text-gray-400 hover:text-gray-600 transition-colors">
+              <NavLink to="/office/dashboard" className="text-ink-4 hover:text-ink-2 transition-colors">
                 <LayoutDashboard size={14} />
               </NavLink>
               {pathname !== '/office/dashboard' && (
                 <>
-                  <ChevronRight size={13} className="text-gray-300" />
-                  <span className="text-gray-900 font-semibold">{page.title}</span>
+                  <ChevronRight size={13} className="text-ink-5" />
+                  <span className="text-ink font-semibold">{page.title}</span>
                 </>
               )}
               {pathname === '/office/dashboard' && (
-                <span className="text-gray-900 font-semibold">{page.title}</span>
+                <span className="text-ink font-semibold">{page.title}</span>
               )}
             </div>
           </div>
@@ -108,27 +108,27 @@ export function OfficeLayout() {
             <GlobalSearch />
 
             {/* Date */}
-            <span className="hidden sm:block text-[12px] text-gray-400 capitalize">{dateStr}</span>
+            <span className="hidden sm:block text-[12px] text-ink-4 capitalize">{dateStr}</span>
 
             {/* Zoom controls */}
             <ZoomControls />
 
             {/* App version */}
             <span
-              className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md text-[10.5px] font-mono font-semibold tracking-wide bg-gray-100 text-gray-600 border border-gray-200"
+              className="hidden sm:inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-mono font-semibold tracking-wide bg-surface-3 text-ink-3 border border-surface-4"
               title="Wersja aplikacji"
             >
               v{APP_VERSION}
             </span>
 
             {/* Notification bell */}
-            <button className="relative p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+            <button className="relative p-2 rounded text-ink-4 hover:text-ink-2 hover:bg-surface-3 transition-colors">
               <Bell size={16} />
             </button>
 
             {/* User avatar */}
-            <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
-              <span className="text-sm text-gray-600">{user?.name}</span>
+            <div className="flex items-center gap-2 pl-2 border-l border-surface-4">
+              <span className="text-sm text-ink-3">{user?.name}</span>
               <button onClick={() => { logout(); location.href = '/login' }}
                       className="text-sm text-red-600">Wyloguj</button>
             </div>

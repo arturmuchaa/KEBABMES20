@@ -16,7 +16,7 @@ export function PageHeader({ title, subtitle, actions }: {
   return (
     <div className="flex items-start gap-4 mb-5">
       <div className="min-w-0">
-        <h1 className="text-[19px] font-bold text-ink leading-tight tracking-[-0.01em] truncate">{title}</h1>
+        <h1 className="font-display text-[19px] font-bold text-ink leading-tight tracking-[-0.01em] truncate">{title}</h1>
         {subtitle && <p className="text-[13px] text-ink-3 mt-1 leading-snug">{subtitle}</p>}
       </div>
       {actions && <div className="ml-auto flex items-center gap-2 flex-shrink-0 pt-0.5">{actions}</div>}

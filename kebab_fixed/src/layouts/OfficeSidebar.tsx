@@ -76,7 +76,7 @@ function SideItem({ to, icon, label }: NavItem) {
     <NavLink
       to={to}
       className={({ isActive }) => cn(
-        'group relative flex items-center gap-2.5 pl-3.5 pr-2.5 py-2 rounded-lg text-[13px] transition-colors duration-150',
+        'group relative flex items-center gap-2.5 pl-3.5 pr-2.5 py-2 rounded text-[13px] transition-colors duration-150',
         isActive
           ? 'bg-brand-light text-brand-dark font-semibold'
           : 'text-ink-3 font-medium hover:bg-surface-2 hover:text-ink',
@@ -113,11 +113,11 @@ export function OfficeSidebar({ onClose }: { onClose?: () => void }) {
       {/* Brand */}
       <div className="h-14 px-4 flex items-center justify-between border-b border-surface-4 flex-shrink-0 sticky top-0 bg-white z-10">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-brand flex items-center justify-center flex-shrink-0 shadow-sm">
+          <div className="w-8 h-8 rounded bg-brand flex items-center justify-center flex-shrink-0">
             <Beef size={16} className="text-white" />
           </div>
           <div>
-            <div className="text-[14px] font-extrabold text-ink leading-none tracking-tight">
+            <div className="font-display text-[14px] font-extrabold text-ink leading-none tracking-tight uppercase">
               Kebab <span className="text-brand">MES</span>
             </div>
             <div className="text-[10px] font-medium text-ink-4 leading-none mt-1">System produkcji</div>

@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/tooltip'
 
 import {
-  AlertTriangle, Package, Beef, Boxes, ArrowRight, Clock, Zap,
+  AlertTriangle, Package, Boxes, ArrowRight, Clock, Zap,
   Info, Factory, Soup, Truck, ChevronDown, ChevronRight,
   Scissors, CheckCircle2,
 } from 'lucide-react'
@@ -39,70 +39,63 @@ const KG_PER_CONTAINER = 15
 // ─────────────────────────────────────────────────────────────────
 function KpiSkeleton() {
   return (
-    <Card>
-      <CardContent className="p-6">
-        <Skeleton className="h-4 w-28 mb-4" />
-        <Skeleton className="h-8 w-36 mb-3" />
-        <Skeleton className="h-3 w-24" />
-      </CardContent>
-    </Card>
+    <div className="p-5">
+      <Skeleton className="h-4 w-28 mb-4" />
+      <Skeleton className="h-8 w-36 mb-3" />
+      <Skeleton className="h-3 w-24" />
+    </div>
   )
 }
 
-type Accent = 'blue' | 'green' | 'amber' | 'red' | 'purple'
-// Kolor chipu = tożsamość kategorii KPI (pomaga skanować). Dekoracyjny pasek
-// gradientowy usunięty — „industrial polish" zdejmuje ozdoby, nie informację.
-const ACCENT: Record<Accent, { icon: string; value: string }> = {
-  blue:   { icon: 'bg-blue-50 text-blue-600 ring-1 ring-blue-100',         value: 'text-ink' },
-  green:  { icon: 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100', value: 'text-ink' },
-  amber:  { icon: 'bg-amber-50 text-amber-600 ring-1 ring-amber-100',       value: 'text-ink' },
-  red:    { icon: 'bg-red-50 text-red-600 ring-1 ring-red-100',             value: 'text-red-600' },
-  purple: { icon: 'bg-purple-50 text-purple-600 ring-1 ring-purple-100',    value: 'text-ink' },
+type KpiTone = 'default' | 'warn' | 'danger'
+// Bez ikon i pastelowych chipów — liczba jest bohaterem (jak wyświetlacz wagi).
+// Kolor pojawia się TYLKO gdy niesie informację: termin/zaległość.
+const TONE_VALUE: Record<KpiTone, string> = {
+  default: 'text-ink', warn: 'text-warn', danger: 'text-danger',
 }
 
-function KpiCard(props: {
+function KpiCell(props: {
   label: string; value: React.ReactNode; unit?: string; sub?: string
-  tooltip?: string; icon: React.ReactNode; accent: Accent
+  tooltip?: string; tone?: KpiTone; idx: number
 }) {
-  const s = ACCENT[props.accent]
+  const tone = props.tone ?? 'default'
   return (
-    <Card className="relative overflow-hidden">
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-3">
-              {props.label}
-            </CardDescription>
-            {props.tooltip && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button className="text-ink-4 hover:text-ink-2 transition-colors">
-                    <Info size={10} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-[220px] text-xs">
-                  {props.tooltip}
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${s.icon}`}>
-            {props.icon}
-          </div>
-        </div>
-        <div className="flex items-baseline gap-1.5">
-          <span className={`font-mono text-[26px] font-semibold tabular-nums tracking-tight leading-none ${s.value}`}>
-            {props.value}
-          </span>
-          {props.unit && (
-            <span className="text-xs font-medium text-ink-3">{props.unit}</span>
-          )}
-        </div>
-        {props.sub && (
-          <div className="text-[11px] pt-2 text-ink-3">{props.sub}</div>
+    <div className={cn(
+      'p-5',
+      // przedziałki 1px wewnątrz jednego bloku: 2 kolumny wąsko, 4 na xl
+      props.idx % 2 === 1 && 'border-l border-surface-4',
+      props.idx >= 2 && 'border-t xl:border-t-0 border-surface-4',
+      props.idx > 0 && 'xl:border-l xl:border-surface-4',
+    )}>
+      <div className="flex items-center gap-1.5 min-w-0 mb-3">
+        <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+          {props.label}
+        </CardDescription>
+        {props.tooltip && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button className="text-ink-4 hover:text-ink-2 transition-colors">
+                <Info size={10} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[220px] text-xs">
+              {props.tooltip}
+            </TooltipContent>
+          </Tooltip>
         )}
-      </CardContent>
-    </Card>
+      </div>
+      <div className="flex items-baseline gap-1.5">
+        <span className={`font-mono text-[30px] font-semibold tabular-nums tracking-tight leading-none ${TONE_VALUE[tone]}`}>
+          {props.value}
+        </span>
+        {props.unit && (
+          <span className="text-xs font-medium text-ink-3">{props.unit}</span>
+        )}
+      </div>
+      {props.sub && (
+        <div className="text-[11px] pt-2 text-ink-3">{props.sub}</div>
+      )}
+    </div>
   )
 }
 
@@ -121,13 +114,17 @@ function EmptyCard({ icon, title, description }: {
 }
 
 /**
- * Status bar — wskaźnik live + zegar + data.
- * "Na żywo" świeci się tylko gdy zakład faktycznie pracuje
- * (przynajmniej jeden z procesów: rozbiór/masowanie/produkcja).
+ * Linia procesu — przepływ surowca przez zakład z żywymi kg na każdym etapie:
+ * Surowiec → Rozbiór → Mięso z/s → Masowanie → Przyprawione → Produkcja →
+ * Wyrób gotowy (+ Wysyłki dziś). To mentalny model szefa i planisty
+ * („gdzie w rurze stoi mięso"). Etapy klikalne, kropka = proces pracuje TERAZ.
  */
-export interface StripSegment { label: string; value: string; to: string; alert?: boolean }
+export interface FlowStage {
+  label: string; value: string; sub?: string; to: string
+  live?: boolean; alert?: boolean
+}
 
-function DashboardStatusBar({ live, segments }: { live: boolean; segments?: StripSegment[] }) {
+function ProductionFlowStrip({ live, stages }: { live: boolean; stages: FlowStage[] }) {
   const [now, setNow] = useState(new Date())
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000)
@@ -138,42 +135,55 @@ function DashboardStatusBar({ live, segments }: { live: boolean; segments?: Stri
   const date = now.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
   return (
-    <div className="flex items-center gap-0 px-4 py-2 rounded-xl border border-surface-4 bg-white shadow-sm overflow-x-auto">
-      <div className="flex items-center gap-2.5 min-w-0 flex-shrink-0 pr-4">
+    <div className="flex items-stretch rounded border border-surface-4 bg-white shadow-card overflow-x-auto">
+      <div className="flex items-center gap-2.5 px-4 border-r border-surface-4 flex-shrink-0">
         {live ? (
           <span className="relative flex h-2 w-2 flex-shrink-0">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
           </span>
         ) : (
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-slate-300 flex-shrink-0" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-surface-5 flex-shrink-0" />
         )}
         <span className={cn(
           'text-[10px] font-semibold uppercase tracking-[0.18em] leading-none',
-          live ? 'text-ink-2' : 'text-slate-500',
+          live ? 'text-ink-2' : 'text-ink-4',
         )}>
           {live ? 'Na żywo' : 'Oczekuje'}
         </span>
       </div>
-      {/* Dziś w zakładzie — liczniki-skróty do sekcji (gęsty pasek operacyjny). */}
-      {segments?.map(seg => (
-        <Link key={seg.label} to={seg.to}
-          className="flex flex-col items-start gap-1 px-4 py-0.5 border-l border-surface-4 flex-shrink-0 rounded-sm hover:bg-surface-2/70 transition-colors group">
-          <span className="text-[9px] uppercase tracking-[0.14em] font-semibold text-ink-4 leading-none group-hover:text-ink-2">
-            {seg.label}
-          </span>
-          <span className={cn('font-mono tabular-nums text-xs font-semibold leading-none whitespace-nowrap',
-            seg.alert ? 'text-amber-700' : 'text-ink')}>
-            {seg.value}
-          </span>
-        </Link>
-      ))}
-      <div className="ml-auto flex items-center gap-0 divide-x divide-surface-4 pl-4 flex-shrink-0">
-        <div className="px-4 flex flex-col items-end gap-1">
+      <div className="flex items-stretch flex-1">
+        {stages.map((s, i) => (
+          <Fragment key={s.label}>
+            {i > 0 && (
+              <div className="flex items-center text-ink-5 flex-shrink-0 select-none" aria-hidden>
+                <ArrowRight size={11} strokeWidth={2.5} />
+              </div>
+            )}
+            <Link to={s.to}
+              className="flex flex-col justify-center gap-1.5 px-3 py-2 min-w-0 flex-shrink-0 hover:bg-surface-2 transition-colors group">
+              <span className="flex items-center gap-1.5 leading-none">
+                {s.live && <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse-dot flex-shrink-0" />}
+                <span className={cn('text-[9px] uppercase tracking-[0.14em] font-semibold leading-none group-hover:text-ink-2',
+                  s.alert ? 'text-warn' : 'text-ink-4')}>
+                  {s.label}
+                </span>
+              </span>
+              <span className={cn('font-mono tabular-nums text-xs font-semibold leading-none whitespace-nowrap',
+                s.alert ? 'text-warn' : 'text-ink')}>
+                {s.value}
+                {s.sub && <span className="font-normal text-ink-4"> {s.sub}</span>}
+              </span>
+            </Link>
+          </Fragment>
+        ))}
+      </div>
+      <div className="ml-auto flex items-stretch divide-x divide-surface-4 flex-shrink-0 border-l border-surface-4">
+        <div className="px-4 flex flex-col justify-center items-end gap-1">
           <span className="text-[9px] uppercase tracking-[0.18em] font-semibold text-ink-4 leading-none">Czas</span>
           <span className="font-mono tabular-nums text-xs text-ink font-medium leading-none">{time}</span>
         </div>
-        <div className="pl-4 flex flex-col items-end gap-1">
+        <div className="px-4 flex flex-col justify-center items-end gap-1">
           <span className="text-[9px] uppercase tracking-[0.18em] font-semibold text-ink-4 leading-none">Data</span>
           <span className="font-mono tabular-nums text-xs text-ink font-medium leading-none">{date}</span>
         </div>
@@ -183,7 +193,7 @@ function DashboardStatusBar({ live, segments }: { live: boolean; segments?: Stri
 }
 
 function ProgressBar({ value, color = 'blue', height = 8 }: {
-  value: number; color?: 'blue' | 'green' | 'amber' | 'red' | 'purple'; height?: number
+  value: number; color?: 'blue' | 'green' | 'amber' | 'red' | 'purple' | 'brand'; height?: number
 }) {
   const pct = Math.max(0, Math.min(100, value))
   const colors: Record<string, string> = {
@@ -192,6 +202,7 @@ function ProgressBar({ value, color = 'blue', height = 8 }: {
     amber:  'bg-amber-500',
     red:    'bg-red-500',
     purple: 'bg-purple-500',
+    brand:  'bg-brand',
   }
   return (
     <div className="w-full bg-muted rounded-full overflow-hidden" style={{ height }}>
@@ -400,7 +411,7 @@ export function DashboardPage() {
     return d >= 2 && d <= 3
   })
   const shortTermCount = expired.length + critical.length + warnings.length
-  const shortTermAccent: Accent =
+  const shortTermAccent =
     expired.length > 0 ? 'red'
     : (critical.length + warnings.length) > 0 ? 'amber'
     : 'green'
@@ -565,9 +576,9 @@ export function DashboardPage() {
   if (initialLoading) {
     return (
       <div className="space-y-6 animate-fade-in">
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <Card className="grid grid-cols-2 xl:grid-cols-4 overflow-hidden">
           {[0, 1, 2, 3].map(i => <KpiSkeleton key={i} />)}
-        </div>
+        </Card>
       </div>
     )
   }
@@ -575,19 +586,30 @@ export function DashboardPage() {
   return (
     <div className="space-y-6 animate-fade-in">
 
-      {/* ── Status bar ────────────────────────────────────────── */}
+      {/* ── Linia procesu (hero) ──────────────────────────────── */}
       {/* Czy zakład pracuje? — przynajmniej jeden proces aktywny. */}
       {(() => {
         const debLive  = todayDeb.length > 0
         const mixLive  = activeMixing.some((o: any) => o.status === 'in_progress')
         const prodLive = activePlans.some((p: any) =>
           (p.lines ?? []).some((l: any) => (l.lineStatus ?? '') === 'IN_PROGRESS'))
-        return <DashboardStatusBar live={debLive || mixLive || prodLive} segments={[
-          { label: 'Przyjęcia dziś', value: `${receivedToday.length} part. · ${fmtKg(receivedTodayKg, 0)} kg`, to: '/office/raw-batches' },
-          { label: 'Rozbiór dziś', value: `${fmtKg(debKgQuarter, 0)} kg${debKgQuarter > 0 ? ` · ${debYield.toFixed(1)}%` : ''}`, to: '/office/deboning' },
-          { label: 'Masowanie', value: mixPlanned > 0 ? `${fmtKg(mixDone, 0)} / ${fmtKg(mixPlanned, 0)} kg` : '—', to: '/office/historia-masowania' },
-          { label: 'Produkcja', value: prodPlanned > 0 ? `${fmtKg(prodProduced, 0)} / ${fmtKg(prodPlanned, 0)} kg` : '—', to: '/office/planowanie-produkcji' },
-          { label: 'Wysyłki dziś', value: shipsToday > 0 ? `${shipsToday} zam.` : '—', to: '/office/zamowienia', alert: shipsToday > 0 },
+        const finishedStockKg = allFinished.reduce((s: number, f: any) => s + Number(f.totalKg ?? 0), 0)
+        return <ProductionFlowStrip live={debLive || mixLive || prodLive} stages={[
+          { label: 'Surowiec', value: `${fmtKg(totalKgRaw, 0)} kg`,
+            sub: receivedToday.length > 0 ? `· dziś +${fmtKg(receivedTodayKg, 0)}` : `· ${activeBatches.length} part.`,
+            to: '/office/magazyn/surowiec' },
+          { label: 'Rozbiór dziś', value: debKgQuarter > 0 ? `${fmtKg(debKgQuarter, 0)} kg` : '—',
+            sub: debKgQuarter > 0 && debYield > 0 ? `· ${debYield.toFixed(0)}%` : undefined,
+            to: '/office/deboning', live: debLive },
+          { label: 'Mięso z/s', value: `${fmtKg(totalKgMeat, 0)} kg`, to: '/office/magazyn/surowiec' },
+          { label: 'Masowanie', value: mixPlanned > 0 ? `${fmtKg(mixDone, 0)} / ${fmtKg(mixPlanned, 0)} kg` : '—',
+            to: '/office/historia-masowania', live: mixLive },
+          { label: 'Przyprawione', value: `${fmtKg(totalKgSeasoned, 0)} kg`, to: '/office/magazyn/mieso-przyp' },
+          { label: 'Produkcja', value: prodPlanned > 0 ? `${fmtKg(prodProduced, 0)} / ${fmtKg(prodPlanned, 0)} kg` : '—',
+            to: '/office/planowanie-produkcji', live: prodLive },
+          { label: 'Wyrób gotowy', value: `${fmtKg(finishedStockKg, 0)} kg`, to: '/office/magazyn/gotowe' },
+          { label: 'Wysyłki dziś', value: shipsToday > 0 ? `${shipsToday} zam.` : '—',
+            to: '/office/zamowienia', alert: shipsToday > 0 },
         ]} />
       })()}
 
@@ -657,36 +679,34 @@ export function DashboardPage() {
         </Card>
       )}
 
-      {/* ── KPI row ───────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <KpiCard
+      {/* ── KPI — jeden blok z przedziałkami (dokument, nie kafelki) ── */}
+      <Card className="grid grid-cols-2 xl:grid-cols-4 overflow-hidden">
+        <KpiCell
+          idx={0}
           label="Ćwiartka dostępna"
           value={fmtKg(totalKgRaw, 0)}
           unit="kg"
           sub={`${totalContainers} poj. · ${activeBatches.length} partii`}
           tooltip={`Łączna kg ćwiartki we wszystkich aktywnych partiach. Pojemnik = ${KG_PER_CONTAINER} kg.`}
-          icon={<Beef size={18} />}
-          accent="blue"
         />
-        <KpiCard
+        <KpiCell
+          idx={1}
           label="Mięso z/s po rozbiorze"
           value={fmtKg(totalKgMeat, 0)}
           unit="kg"
           sub={`${meatByBatch.length} partii`}
           tooltip="Mięso po rozbiorze gotowe do masowania (status AVAILABLE)"
-          icon={<Package size={18} />}
-          accent="green"
         />
-        <KpiCard
+        <KpiCell
+          idx={2}
           label="Mięso przyprawione"
           value={fmtKg(totalKgSeasoned, 0)}
           unit="kg"
           sub={`${seasonedByRecipe.length} receptur`}
           tooltip="Mięso po masowaniu, gotowe do produkcji (kg dostępne)"
-          icon={<Boxes size={18} />}
-          accent="purple"
         />
-        <KpiCard
+        <KpiCell
+          idx={3}
           label="Krótki termin"
           value={shortTermCount}
           unit="partii"
@@ -697,11 +717,10 @@ export function DashboardPage() {
                 ? `${critical.length + warnings.length} kończy się ≤3 dni`
                 : 'Brak — wszystko OK'
           }
-          tooltip="Partie ćwiartki: po terminie (czerwony), kończą się ≤3 dni (żółty), brak alertów (zielony)"
-          icon={shortTermAccent === 'green' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
-          accent={shortTermAccent}
+          tooltip="Partie ćwiartki: po terminie (czerwony), kończą się ≤3 dni (żółty), brak alertów"
+          tone={shortTermAccent === 'red' ? 'danger' : shortTermAccent === 'amber' ? 'warn' : 'default'}
         />
-      </div>
+      </Card>
 
       {/* ── Krótki termin — alerty ──────────────────────────────── */}
       {(expired.length > 0 || critical.length > 0 || warnings.length > 0) && (
@@ -807,7 +826,7 @@ export function DashboardPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <Scissors size={15} className={dataActive ? "text-amber-500 animate-pulse" : "text-gray-400"} />
+                  <Scissors size={15} className={dataActive ? "text-brand animate-pulse" : "text-ink-5"} />
                   Rozbiór
                 </CardTitle>
                 <CardDescription className="mt-0.5">
@@ -831,10 +850,10 @@ export function DashboardPage() {
                     <div className="text-xs tabular-nums">
                       <span className="font-bold text-foreground">{fmtKg(debKgQuarter, 0)} kg</span>
                       <span className="text-muted-foreground"> / {fmtKg(totalToday, 0)} kg</span>
-                      <span className="ml-2 font-bold text-amber-600">{pct.toFixed(0)}%</span>
+                      <span className="ml-2 font-bold text-ink-2">{pct.toFixed(0)}%</span>
                     </div>
                   </div>
-                  <ProgressBar value={pct} color="amber" height={10} />
+                  <ProgressBar value={pct} color="brand" height={10} />
                 </div>
               )
             })()}
@@ -867,7 +886,7 @@ export function DashboardPage() {
                         const pctLeft   = received > 0 ? (available / received) * 100 : 0
                         const supplier  = b.supplierDisplayName || b.supplierName || ''
                         return (
-                          <tr key={b.id} className={cn('border-b border-surface-3 hover:bg-blue-50/50', idx % 2 === 1 && 'bg-surface-2/40')}>
+                          <tr key={b.id} className={cn('border-b border-surface-3 hover:bg-surface-3/60', idx % 2 === 1 && 'bg-surface-2/40')}>
                             <td className="px-2 py-1.5 whitespace-nowrap">
                               <code className="font-mono font-bold text-primary">{b.internalBatchNo}</code>
                             </td>
@@ -937,7 +956,7 @@ export function DashboardPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <Soup size={15} className={dataActive ? "text-purple-500 animate-pulse" : "text-gray-400"} />
+                  <Soup size={15} className={dataActive ? "text-brand animate-pulse" : "text-ink-5"} />
                   Masowanie
                 </CardTitle>
                 <CardDescription className="mt-0.5">
@@ -957,10 +976,10 @@ export function DashboardPage() {
                 <div className="text-xs tabular-nums">
                   <span className="font-bold text-foreground">{fmtKg(mixDone, 0)} kg</span>
                   <span className="text-muted-foreground"> / {fmtKg(mixPlanned, 0)} kg</span>
-                  <span className="ml-2 font-bold text-purple-600">{mixPct.toFixed(0)}%</span>
+                  <span className="ml-2 font-bold text-ink-2">{mixPct.toFixed(0)}%</span>
                 </div>
               </div>
-              <ProgressBar value={mixPct} color="purple" height={10} />
+              <ProgressBar value={mixPct} color="brand" height={10} />
             </div>
 
             <Separator />
@@ -981,13 +1000,13 @@ export function DashboardPage() {
                     {activeMixing.map((m, idx) => {
                       const pct = Number(m.meatKg) > 0 ? (Number(m.kgDone) / Number(m.meatKg)) * 100 : 0
                       return (
-                        <tr key={m.id} className={cn('border-b border-surface-3 hover:bg-blue-50/50', idx % 2 === 1 && 'bg-surface-2/40')}>
+                        <tr key={m.id} className={cn('border-b border-surface-3 hover:bg-surface-3/60', idx % 2 === 1 && 'bg-surface-2/40')}>
                           <td className="px-2 py-1.5 font-medium text-ink max-w-[170px] truncate" title={m.recipeName}>{m.recipeName}</td>
                           <td className="px-2 py-1.5 text-right whitespace-nowrap">
                             <span className="font-bold">{fmtKg(m.kgDone, 0)}</span>
                             <span className="text-muted-foreground"> / {fmtKg(m.meatKg, 0)} kg</span>
                           </td>
-                          <td className={`px-2 py-1.5 text-right font-semibold ${pct >= 100 ? 'text-green-600' : 'text-purple-600'}`}>{pct.toFixed(0)}%</td>
+                          <td className={`px-2 py-1.5 text-right font-semibold ${pct >= 100 ? 'text-green-600' : 'text-ink-2'}`}>{pct.toFixed(0)}%</td>
                         </tr>
                       )
                     })}
@@ -996,7 +1015,7 @@ export function DashboardPage() {
                       <td className="px-2 py-1.5 text-right font-bold whitespace-nowrap">
                         {fmtKg(mixDone, 0)}<span className="text-muted-foreground font-normal"> / {fmtKg(mixPlanned, 0)} kg</span>
                       </td>
-                      <td className="px-2 py-1.5 text-right font-bold text-purple-600">{mixPct.toFixed(0)}%</td>
+                      <td className="px-2 py-1.5 text-right font-bold text-ink-2">{mixPct.toFixed(0)}%</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1022,7 +1041,7 @@ export function DashboardPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <Factory size={15} className={dataActive ? "text-blue-500 animate-pulse" : "text-gray-400"} />
+                  <Factory size={15} className={dataActive ? "text-brand animate-pulse" : "text-ink-5"} />
                   Produkcja
                 </CardTitle>
                 <CardDescription className="mt-0.5">
@@ -1058,10 +1077,10 @@ export function DashboardPage() {
                 <div className="text-xs tabular-nums">
                   <span className="font-bold text-foreground">{fmtKg(prodProduced, 0)} kg</span>
                   <span className="text-muted-foreground"> / {fmtKg(prodPlanned, 0)} kg</span>
-                  <span className="ml-2 font-bold text-blue-600">{prodPct.toFixed(0)}%</span>
+                  <span className="ml-2 font-bold text-ink-2">{prodPct.toFixed(0)}%</span>
                 </div>
               </div>
-              <ProgressBar value={prodPct} color="blue" height={10} />
+              <ProgressBar value={prodPct} color="brand" height={10} />
             </div>
 
             <Separator />
@@ -1088,7 +1107,7 @@ export function DashboardPage() {
                       const title = `${t.recipeName} · ${t.kgPerUnit}kg${t.packagingName ? ` · ${t.packagingName}` : ''}${clients ? ` — ${clients}` : ''}`
                       return (
                         <tr key={t.key} className={cn('border-b border-surface-3',
-                          t.inProgress ? 'bg-amber-50/70' : cn('hover:bg-blue-50/50', idx % 2 === 1 && 'bg-surface-2/40'))}>
+                          t.inProgress ? 'bg-amber-50/70' : cn('hover:bg-surface-3/60', idx % 2 === 1 && 'bg-surface-2/40'))}>
                           <td className="px-2 py-1.5 max-w-[190px]">
                             <div className="flex items-center gap-1.5 min-w-0" title={title}>
                               {t.inProgress && <Zap size={11} className="text-amber-500 flex-shrink-0" />}
@@ -1107,7 +1126,7 @@ export function DashboardPage() {
                             <span className="text-muted-foreground">/{fmtKg(t.kgPlanned, 0)}</span>
                           </td>
                           <td className={`px-2 py-1.5 text-right font-semibold align-top ${
-                            t.done ? 'text-green-600' : t.inProgress ? 'text-amber-600' : 'text-blue-600'
+                            t.done ? 'text-green-600' : t.inProgress ? 'text-amber-600' : 'text-ink-2'
                           }`}>{pct.toFixed(0)}%</td>
                         </tr>
                       )
@@ -1118,7 +1137,7 @@ export function DashboardPage() {
                       <td className="px-2 py-1.5 text-right font-bold whitespace-nowrap">
                         {fmtKg(prodProduced, 0)}<span className="text-muted-foreground font-normal"> / {fmtKg(prodPlanned, 0)} kg</span>
                       </td>
-                      <td className="px-2 py-1.5 text-right font-bold text-blue-600">{prodPct.toFixed(0)}%</td>
+                      <td className="px-2 py-1.5 text-right font-bold text-ink-2">{prodPct.toFixed(0)}%</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1170,7 +1189,7 @@ export function DashboardPage() {
                   </thead>
                   <tbody>
                     {meatByBatch.map((g, idx) => (
-                      <tr key={g.rawBatchNo} className={cn('border-b border-surface-3', idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40', 'hover:bg-blue-50/60')}>
+                      <tr key={g.rawBatchNo} className={cn('border-b border-surface-3', idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40', 'hover:bg-surface-3/60')}>
                         <td className="px-2.5 py-2 whitespace-nowrap">
                           <code className="font-mono font-bold text-foreground text-[12px] bg-muted px-1.5 py-0.5 rounded">{g.rawBatchNo}</code>
                         </td>
@@ -1195,7 +1214,7 @@ export function DashboardPage() {
           <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
             <div>
               <CardTitle className="text-sm flex items-center gap-2">
-                <Boxes size={13} className="text-purple-500" />
+                <Boxes size={13} className="text-ink-4" />
                 Mięso przyprawione — magazyn
               </CardTitle>
               <CardDescription className="text-[11px] mt-0.5">
@@ -1225,7 +1244,7 @@ export function DashboardPage() {
                   </thead>
                   <tbody>
                     {seasonedByRecipe.map((g, idx) => (
-                      <tr key={g.recipeName} className={cn('border-b border-surface-3', idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40', 'hover:bg-blue-50/60')}>
+                      <tr key={g.recipeName} className={cn('border-b border-surface-3', idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40', 'hover:bg-surface-3/60')}>
                         <td className="px-2.5 py-2 font-semibold text-ink">{g.recipeName}</td>
                         <td className="px-2.5 py-2 text-center text-ink-2">{g.batches}</td>
                         <td className="px-2.5 py-2 text-right whitespace-nowrap font-bold text-emerald-700">
@@ -1336,7 +1355,7 @@ function OrdersTable({ orders, finishedQtyByOrderNo, inProgressQtyByOrderId, inP
                   className={cn(
                     'cursor-pointer border-b border-surface-3 transition-colors',
                     idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
-                    isExp ? 'bg-blue-50/40' : 'hover:bg-blue-50/60',
+                    isExp ? 'bg-surface-3/50' : 'hover:bg-surface-3/60',
                   )}
                 >
                   <td className="px-1 py-2 text-center text-muted-foreground">
@@ -1398,7 +1417,7 @@ function OrdersTable({ orders, finishedQtyByOrderNo, inProgressQtyByOrderId, inP
 
                 {isExp && (
                   <tr>
-                    <td colSpan={8} className="bg-blue-50/20 border-b border-surface-3 px-4 py-3">
+                    <td colSpan={8} className="bg-surface-2/60 border-b border-surface-3 px-4 py-3">
                       <CardDescription className="text-[11px] font-bold uppercase tracking-wide mb-1.5">
                         Pozycje ({(o.lines ?? []).length})
                       </CardDescription>
