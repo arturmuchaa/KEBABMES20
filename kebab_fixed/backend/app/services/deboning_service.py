@@ -1130,6 +1130,13 @@ def update_deboning_take(entry_id: str, dto) -> Dict:
             raise HTTPException(404, "Partia pobrania nie istnieje")
 
         old_kg = float(entry.get("kg_quarter") or 0)
+        weighed = _sum_take_weighings(conn, entry_id)
+        if new_kg + 0.01 < weighed:
+            raise HTTPException(
+                400,
+                f"Nie można zmniejszyć do {new_kg} kg — zważono już "
+                f"{round(weighed, 2)} kg mięsa z tego pobrania",
+            )
         diff = new_kg - old_kg
         kg_available = float(batch.get("kg_available") or 0)
         if diff > kg_available + 0.01:
@@ -1372,9 +1379,31 @@ def delete_deboning_entry(entry_id: str) -> Dict:
             if session_err:
                 raise HTTPException(400, session_err)
 
-        # Storno POBRANIA (pending): odwraca tylko fazę 1 — oddaje surowiec,
-        # kasuje ruch OUT i wiersz. Brak lotu mięsa i ABP do odwracania.
+        # Storno POBRANIA (pending): odwraca fazę 1 — oddaje surowiec, kasuje
+        # ruch OUT i wiersz. Brak ABP do odwracania, ALE częściowe ważenia
+        # (weigh-part) mogły już wpuścić porcje na lot mięsa — trzeba je zdjąć
+        # (guard: mięso mogło pójść do masowania).
         if (entry.get("status") or "complete") == "pending":
+            weighed = _sum_take_weighings(conn, entry_id)
+            if weighed > 0:
+                meat_lot = cx_query_one(
+                    conn,
+                    "SELECT id, kg_initial, kg_available FROM meat_stock WHERE lot_no=%s FOR UPDATE",
+                    (entry.get("raw_batch_no"),),
+                )
+                if not meat_lot or float(meat_lot["kg_available"]) + 0.001 < weighed:
+                    raise HTTPException(
+                        400, "Mięso z częściowych ważeń już zużyte — cofnięcie niemożliwe"
+                    )
+                if float(meat_lot["kg_initial"]) - weighed <= 0.001:
+                    cx_execute(conn, "DELETE FROM meat_stock WHERE id=%s", (meat_lot["id"],))
+                else:
+                    cx_execute(
+                        conn,
+                        "UPDATE meat_stock SET kg_initial = kg_initial - %s, "
+                        "kg_available = GREATEST(0, kg_available - %s) WHERE id=%s",
+                        (weighed, weighed, meat_lot["id"]),
+                    )
             kg_taken = float(entry.get("kg_quarter") or 0)
             cx_execute(
                 conn,

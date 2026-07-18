@@ -103,3 +103,41 @@ def test_complete_z_czesciami_waliduje_sume(db):
     with pytest.raises(HTTPException) as e:
         complete_deboning_take(entry["id"], _meat_dto(150.0))  # 350 > 300
     assert e.value.status_code == 400
+
+
+def test_storno_pendingu_z_wazeniami_cofa_magazyn(db):
+    _seed_batch()
+    entry = create_deboning_take(_take_dto())
+    weigh_part_deboning_take(entry["id"], _meat_dto(100.0))
+    delete_deboning_entry(entry["id"])
+    assert query_one("SELECT id FROM deboning_entries WHERE id=%s", (entry["id"],)) is None
+    assert query_one("SELECT id FROM meat_stock WHERE lot_no='800'") is None  # pusty lot znika
+    b = query_one("SELECT kg_available FROM raw_batches WHERE id='rb1'")
+    assert float(b["kg_available"]) == 300.0
+    assert query_one("SELECT id FROM deboning_take_weighings LIMIT 1") is None  # CASCADE
+    assert query_one(
+        "SELECT id FROM stock_movements WHERE source_type='deboning' AND source_id=%s LIMIT 1",
+        (entry["id"],),
+    ) is None
+
+
+def test_storno_pendingu_blokada_gdy_mieso_zuzyte(db):
+    _seed_batch()
+    entry = create_deboning_take(_take_dto())
+    weigh_part_deboning_take(entry["id"], _meat_dto(100.0))
+    # masowanie zabrało 60 kg z lotu — cofnięcie oddałoby mięso, którego nie ma
+    execute("UPDATE meat_stock SET kg_available = 40 WHERE lot_no='800'")
+    with pytest.raises(HTTPException) as e:
+        delete_deboning_entry(entry["id"])
+    assert e.value.status_code == 400
+
+
+def test_edycja_pobrania_nie_zejdzie_ponizej_zwazonych(db):
+    _seed_batch()
+    entry = create_deboning_take(_take_dto())
+    weigh_part_deboning_take(entry["id"], _meat_dto(100.0))
+    with pytest.raises(HTTPException) as e:
+        update_deboning_take(entry["id"], SimpleNamespace(kg_taken=80.0))
+    assert e.value.status_code == 400
+    updated = update_deboning_take(entry["id"], SimpleNamespace(kg_taken=150.0))
+    assert updated["kgTaken"] == 150.0
