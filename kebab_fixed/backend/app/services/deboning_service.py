@@ -75,8 +75,7 @@ def list_deboning_entries(
             "SELECT * FROM deboning_entries WHERE raw_batch_id=%s ORDER BY created_at DESC",
             (raw_batch_id,),
         )
-        return [_map_deboning_entry(r) for r in rows]
-    if session_id:
+    elif session_id:
         if with_open_takes:
             # HMI: otwarte pobrania (status='pending') muszą być widoczne
             # NIEZALEŻNIE od sesji — pobranie niezważone do końca dnia inaczej
@@ -94,7 +93,22 @@ def list_deboning_entries(
             )
     else:
         rows = query_all("SELECT * FROM deboning_entries ORDER BY created_at DESC")
-    return [_map_deboning_entry(r) for r in rows]
+
+    mapped = [_map_deboning_entry(r) for r in rows]
+    # HMI pokazuje na kafelku „zważono X/Y kg" — suma porcji per OTWARTE
+    # pobranie, jednym zapytaniem (bez N+1).
+    pending_ids = [m["id"] for m in mapped if m.get("status") == "pending"]
+    if pending_ids:
+        sums = query_all(
+            "SELECT entry_id, COALESCE(SUM(kg_meat),0) AS kg "
+            "FROM deboning_take_weighings WHERE entry_id = ANY(%s) GROUP BY entry_id",
+            (pending_ids,),
+        )
+        by_id = {s["entry_id"]: float(s["kg"]) for s in sums}
+        for m in mapped:
+            if m.get("status") == "pending":
+                m["kgMeatWeighed"] = round(by_id.get(m["id"], 0.0), 2)
+    return mapped
 
 
 def list_deboning_sessions() -> Dict[str, List[Dict]]:

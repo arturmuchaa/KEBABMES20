@@ -141,3 +141,12 @@ def test_edycja_pobrania_nie_zejdzie_ponizej_zwazonych(db):
     assert e.value.status_code == 400
     updated = update_deboning_take(entry["id"], SimpleNamespace(kg_taken=150.0))
     assert updated["kgTaken"] == 150.0
+
+
+def test_lista_wpisow_ma_kg_meat_weighed_dla_pending(db):
+    _seed_batch()
+    entry = create_deboning_take(_take_dto())
+    weigh_part_deboning_take(entry["id"], _meat_dto(100.0))
+    rows = list_deboning_entries(None)
+    mine = next(r for r in rows if r["id"] == entry["id"])
+    assert mine["kgMeatWeighed"] == 100.0
