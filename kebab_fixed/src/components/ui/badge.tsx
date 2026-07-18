@@ -5,7 +5,7 @@ import { getExpiryStatus, getExpiryUi, deriveRawBatchStatus } from '@/lib/utils'
 
 // ─── shadcn Badge (CVA) ───────────────────────────────────────
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  "inline-flex items-center rounded-[3px] border px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
   {
     variants: {
       variant: {
@@ -45,8 +45,8 @@ const V: Record<BadgeVariant, string> = {
   green:  'bg-green-100 text-green-700',
   amber:  'bg-amber-100 text-amber-700',
   red:    'bg-red-100 text-red-700',
-  gray:   'bg-gray-100 text-gray-600',
-  purple: 'bg-purple-100 text-purple-700',
+  gray:   'bg-surface-3 text-ink-3',
+  purple: 'bg-surface-3 text-ink-2',
   orange: 'bg-orange-100 text-orange-700',
 }
 
@@ -78,7 +78,7 @@ export function ExpiryBadge({ dateStr, compact }: { dateStr: string; compact?: b
 
 // ─── StatusBadge (KANONICZNY system statusów całej aplikacji) ─────────────
 // Jedno źródło prawdy dla statusów zleceń, produkcji, dokumentów i magazynu.
-// Miękkie tony (50/200) + ikona = spójny, dopracowany wygląd wszędzie.
+// Znacznik dokumentowy (prostokąt 3 px, mikro-uppercase) — jak stempel na WZ.
 import {
   CheckCircle2, Clock3, CircleDashed, XCircle, FileEdit, FileCheck2, Send,
   type LucideIcon,
@@ -91,7 +91,7 @@ const TONE: Record<StatusTone, string> = {
   green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   amber: 'bg-amber-50 text-amber-700 border-amber-200',
   red:   'bg-rose-50 text-rose-600 border-rose-200',
-  gray:  'bg-slate-100 text-slate-600 border-slate-200',
+  gray:  'bg-surface-3 text-ink-3 border-surface-5',
   blue:  'bg-blue-50 text-blue-700 border-blue-200',
 }
 
@@ -136,7 +136,7 @@ export function StatusBadge({ status, tone, label, icon: IconOverride, className
   const text = label ?? meta?.label ?? status ?? '—'
   return (
     <span className={cn(
-      'inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold whitespace-nowrap',
+      'inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] border text-[10.5px] font-semibold uppercase tracking-[0.05em] whitespace-nowrap',
       TONE[t], className,
     )}>
       {Icon && <Icon size={11} />}

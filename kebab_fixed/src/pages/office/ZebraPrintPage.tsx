@@ -86,7 +86,7 @@ export function ZebraPrintPage() {
           <div className="rounded-lg border border-red-200 bg-white p-4 text-sm">
             <div className="font-bold text-red-700">{render.reason}</div>
             <Link to={`/etykiety/zebra-designer?clientId=${encodeURIComponent(clientId)}&recipeId=${encodeURIComponent(recipeId)}`}
-              className="mt-2 inline-block text-blue-700 underline">Otwórz Projektant Zebra</Link>
+              className="mt-2 inline-block text-ink underline">Otwórz Projektant Zebra</Link>
           </div>
         )}
 
@@ -105,7 +105,7 @@ export function ZebraPrintPage() {
 
             <div className="flex gap-2">
               <button disabled={busy || !render?.ok} onClick={() => render?.zpl && print(render.zpl, `Druk ${render.count} szt`)}
-                className="flex-1 rounded-lg bg-blue-600 px-4 py-3 text-base font-bold text-white hover:bg-blue-700 disabled:opacity-50">
+                className="flex-1 rounded-lg bg-brand px-4 py-3 text-base font-bold text-white hover:bg-brand-dark disabled:opacity-50">
                 Drukuj {render?.ok ? `(${render.count})` : ''}
               </button>
               <button disabled={busy} onClick={() => print(TEST_ZPL, 'Test druku')}

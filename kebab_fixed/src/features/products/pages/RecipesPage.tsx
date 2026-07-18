@@ -131,7 +131,7 @@ export function RecipesPage() {
                     <span className="font-semibold text-green-700">{r.totalOutputPer100kg} kg</span>
                     {' '}/ 100 kg mięsa
                     {r.productTypeId && (
-                      <span className="ml-2 text-blue-600">
+                      <span className="ml-2 text-ink-2">
                         · {productTypes.find(p => p.id === r.productTypeId)?.name}
                       </span>
                     )}
@@ -165,7 +165,7 @@ export function RecipesPage() {
                         <TableRow key={ri.id}>
                           <TableCell className="py-1.5 font-medium px-3">
                             {ri.ingredientName}
-                            {ri.isUnlimited && <span className="ml-1 text-[10px] text-blue-500">(woda)</span>}
+                            {ri.isUnlimited && <span className="ml-1 text-[10px] text-ink-3">(woda)</span>}
                           </TableCell>
                           <TableCell className="py-1.5 text-right font-bold px-3">{ri.qtyPer100kg}</TableCell>
                           <TableCell className="py-1.5 text-right text-muted-foreground px-3">{ri.unit}</TableCell>
@@ -403,7 +403,7 @@ export function RecipesPage() {
                     <TableRow key={ri.id}>
                       <TableCell className="py-2 font-medium px-3">
                         {ri.ingredientName}
-                        {ri.isUnlimited && <span className="ml-1 text-[10px] text-blue-500">∞</span>}
+                        {ri.isUnlimited && <span className="ml-1 text-[10px] text-ink-3">∞</span>}
                       </TableCell>
                       <TableCell className="py-2 text-right font-bold px-3">{ri.qtyPer100kg}</TableCell>
                       <TableCell className="py-2 text-right text-muted-foreground px-3">{ri.unit}</TableCell>

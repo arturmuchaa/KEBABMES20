@@ -208,7 +208,7 @@ function FieldRow({
     <div
       className={`flex flex-col gap-1 p-2 rounded-lg border cursor-pointer transition-all ${
         isSelected
-          ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-300'
+          ? 'border-ink-4 bg-surface-3 ring-1 ring-ink-5'
           : 'border-border hover:bg-muted/50'
       }`}
       onClick={onSelect}
@@ -670,7 +670,7 @@ export function LabelTemplateSetupPage() {
       {/* Nagłówek */}
       <Card>
         <CardHeader className="flex-row items-center gap-3 space-y-0">
-          <div className="w-10 h-10 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-surface-3 text-ink-2 flex items-center justify-center">
             <Tag size={18} />
           </div>
           <div>
@@ -821,7 +821,7 @@ export function LabelTemplateSetupPage() {
                 <Tag size={15} className="text-muted-foreground" />
                 <span className="text-[13px] font-semibold">Pozycje pól</span>
                 {selectedField && (
-                  <span className="ml-auto text-[11px] text-blue-600 font-semibold bg-blue-50 border border-blue-200 rounded-full px-3 py-0.5">
+                  <span className="ml-auto text-[11px] text-ink-2 font-semibold bg-surface-3 border border-surface-4 rounded-full px-3 py-0.5">
                     Wybrano: {FIELDS.find(f => f.key === selectedField)?.label} — kliknij na podgląd
                   </span>
                 )}
@@ -844,7 +844,7 @@ export function LabelTemplateSetupPage() {
                             onClick={() => setEditingSlot(s)}
                             className={`rounded px-2.5 py-1 text-[11px] font-semibold border ${
                               editingSlot === s
-                                ? 'bg-blue-600 text-white border-blue-600'
+                                ? 'bg-brand text-white border-brand'
                                 : 'bg-background text-slate-700 border-border hover:bg-muted'
                             }`}
                           >
@@ -1064,7 +1064,7 @@ export function LabelTemplateSetupPage() {
                   <Tag size={15} className="text-muted-foreground" />
                   <span className="text-[13px] font-semibold">Korekta położenia etykiet 2+</span>
                 </div>
-                <div className="text-[11px] text-muted-foreground bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5 mb-3">
+                <div className="text-[11px] text-muted-foreground bg-surface-3 border border-surface-4 rounded-lg px-3 py-1.5 mb-3">
                   Domyślnie kolejna etykieta jest auto-przesunięta; tu możesz delikatnie skorygować jeśli tło nie jest idealnie symetryczne.
                 </div>
                 <div className="space-y-3">
@@ -1079,7 +1079,7 @@ export function LabelTemplateSetupPage() {
                           <span className="text-[12px] font-semibold">Etykieta {slotIdx + 1}</span>
                           {isDirty && (
                             <button
-                              className="text-[10px] text-blue-600 hover:underline ml-1"
+                              className="text-[10px] text-ink-2 hover:underline ml-1"
                               onClick={() => {
                                 setSlotOffsets(prev => {
                                   const next = [...prev]
@@ -1225,7 +1225,7 @@ export function LabelTemplateSetupPage() {
                 </div>
                 {(printCalib.dxMm || printCalib.dyMm || (printCalib.scale ?? 100) !== 100) ? (
                   <button
-                    className="text-[10px] text-blue-600 hover:underline"
+                    className="text-[10px] text-ink-2 hover:underline"
                     onClick={() => setPrintCalib(p => ({ dxMm: 0, dyMm: 0, scale: 100, fit: p.fit, fitStretch: p.fitStretch }))}
                   >resetuj</button>
                 ) : null}

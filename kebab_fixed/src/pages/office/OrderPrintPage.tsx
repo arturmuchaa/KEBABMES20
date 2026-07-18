@@ -112,7 +112,7 @@ export function OrderPrintPage() {
         </Link>
         <button
           onClick={() => window.print()}
-          className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-1.5 rounded"
+          className="flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white text-sm font-semibold px-4 py-1.5 rounded"
         >
           <Printer size={14} /> Drukuj
         </button>

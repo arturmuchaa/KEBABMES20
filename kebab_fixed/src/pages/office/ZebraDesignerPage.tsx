@@ -222,7 +222,7 @@ export function ZebraDesignerPage() {
           <option value={300}>300 dpi</option>
         </select>
         <select value="" onChange={e => e.target.value && loadPreset(e.target.value)}
-          className="flex items-center rounded border border-violet-300 bg-violet-50 px-2 py-1 text-sm font-semibold text-violet-700"
+          className="flex items-center rounded border border-surface-5 bg-surface-3 px-2 py-1 text-sm font-semibold text-ink"
           title="Wczytaj gotowy wzór całej etykiety">
           <option value="">📋 Wczytaj wzór…</option>
           {LABEL_PRESETS.map(p => <option key={p.key} value={p.key}>{p.name}</option>)}
@@ -233,7 +233,7 @@ export function ZebraDesignerPage() {
         <button onClick={() => fileRef.current?.click()} className="flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-sm" title="Wgraj obraz (HALAL, znak WE, logo)"><ImageIcon size={14} /> Obraz</button>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickImage} />
         <button onClick={() => { setPasteText(backgroundZpl); setPasteOpen(o => !o) }} className="flex items-center gap-1 rounded bg-amber-200 px-2 py-1 text-sm font-semibold text-amber-900" title="Wklej ZPL z Zebra Designer — podgląd 1:1"><ClipboardPaste size={14} /> Wklej ZPL (tło)</button>
-        <button onClick={save} className="flex items-center gap-1 rounded bg-blue-600 px-3 py-1 text-sm font-semibold text-white"><Save size={14} /> Zapisz</button>
+        <button onClick={save} className="flex items-center gap-1 rounded bg-brand px-3 py-1 text-sm font-semibold text-white"><Save size={14} /> Zapisz</button>
         <button onClick={downloadZpl} className="flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-sm" title="Pobierz złożony ZPL do pliku (druk USB przez Zebra Setup Utilities)"><FileDown size={14} /> Pobierz ZPL</button>
         <select value={deviceUid} onChange={e => setDeviceUid(e.target.value)} className="rounded border px-2 py-1 text-sm">
           {devices.length === 0 && <option value="">— brak drukarki —</option>}
@@ -330,7 +330,7 @@ export function ZebraDesignerPage() {
         <div className="w-72 shrink-0 rounded-lg border bg-white p-3 text-sm">
           {!selEl ? (
             <div className="space-y-2 text-slate-500">
-              <div className="flex items-center gap-1.5 font-semibold text-violet-700"><LayoutTemplate size={15} /> Wskazówka</div>
+              <div className="flex items-center gap-1.5 font-semibold text-ink"><LayoutTemplate size={15} /> Wskazówka</div>
               <div>Wczytaj gotowy wzór całej etykiety („Wczytaj wzór…" u góry), a potem poprawiaj elementy. Albo dodawaj Tekst / QR / Ramkę i przeciągaj po płótnie.</div>
             </div>
           ) : (

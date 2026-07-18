@@ -88,7 +88,7 @@ export function CartonLabel(props: CartonLabelProps) {
         <Link to={backTo} className="flex items-center gap-1.5 text-sm text-slate-700 hover:text-slate-900">
           <ArrowLeft size={14} /> {backLabel}
         </Link>
-        <button onClick={() => window.print()} className="flex items-center gap-1.5 rounded bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-blue-700">
+        <button onClick={() => window.print()} className="flex items-center gap-1.5 rounded bg-brand px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand-dark">
           <Printer size={14} /> Drukuj etykietę
         </button>
       </div>

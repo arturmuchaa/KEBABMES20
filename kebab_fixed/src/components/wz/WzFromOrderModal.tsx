@@ -115,7 +115,7 @@ export function WzFromOrderModal({ orderId, onClose }: { orderId: string; onClos
 
         {data && data.existing && (
           <div className="space-y-3">
-            <div className="text-[13px] bg-blue-50 border border-blue-200 text-blue-800 rounded-md px-3 py-2">
+            <div className="text-[13px] bg-surface-3 border border-surface-4 text-ink rounded-md px-3 py-2">
               Dla tego zamówienia istnieje już dokument <b className="font-mono">{data.existing.number}</b>
               {data.existing.valued ? ' (wyceniony)' : ' (bez cen — uzupełnisz je na liście Dokumenty WZ)'}.
             </div>

@@ -75,7 +75,7 @@ export function MeatLotPicker({
           return (
             <div key={lot.id} className={cn(
               'flex items-center gap-2 px-3 py-2 text-[12px] transition-colors',
-              isSel ? 'bg-blue-50' : fullyUsed ? 'bg-muted/40 opacity-60' : 'hover:bg-muted/50',
+              isSel ? 'bg-surface-3' : fullyUsed ? 'bg-muted/40 opacity-60' : 'hover:bg-muted/50',
             )}>
               <input type="checkbox" checked={isSel} disabled={fullyUsed}
                 onChange={e => {

@@ -322,12 +322,12 @@ function MeatStockOverview() {
     <Card className="overflow-hidden">
       <button
         onClick={() => setCollapsed(c => !c)}
-        className="w-full px-4 py-2.5 flex items-center gap-2 border-b bg-blue-50/60 hover:bg-blue-50 transition-colors"
+        className="w-full px-4 py-2.5 flex items-center gap-2 border-b bg-surface-3/60 hover:bg-surface-3 transition-colors"
       >
-        <BarChart2 size={14} className="text-blue-600"/>
-        <span className="text-[12px] font-bold text-blue-800 uppercase tracking-wide">Mięso do dyspozycji</span>
+        <BarChart2 size={14} className="text-ink-2"/>
+        <span className="text-[12px] font-bold text-ink uppercase tracking-wide">Mięso do dyspozycji</span>
         {!loading && (
-          <span className="text-[12px] font-black text-blue-700 ml-1">{fmtKg(totalFree, 0)} kg</span>
+          <span className="text-[12px] font-black text-ink ml-1">{fmtKg(totalFree, 0)} kg</span>
         )}
         <span className="ml-auto text-muted-foreground">
           {collapsed ? <ChevronDown size={15}/> : <ChevronUp size={15}/>}
@@ -350,7 +350,7 @@ function MeatStockOverview() {
               const pctFree  = r.totalKg > 0 ? (r.freeKg / r.totalKg) * 100 : 0
               const isEmpty  = r.freeKg < 0.1
               return (
-                <div key={r.recipeName} className={`rounded-lg border p-3 ${isEmpty ? 'bg-muted/40 border-muted' : 'bg-white border-blue-100'}`}>
+                <div key={r.recipeName} className={`rounded-lg border p-3 ${isEmpty ? 'bg-muted/40 border-muted' : 'bg-white border-surface-3'}`}>
                   <div className="text-[11px] font-bold truncate mb-1" title={r.recipeName}>{r.recipeName}</div>
                   <div className="flex items-baseline gap-1.5">
                     <span className={`text-2xl font-black leading-none ${isEmpty ? 'text-muted-foreground' : 'text-green-700'}`}>
@@ -485,14 +485,14 @@ function ImportOrderModal({ orders, meatFreeByRecipe, onImport, onClose }: {
             <div key={o.id}>
               <button
                 onClick={() => toggleOrder(o)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/50 ${isExp ? 'bg-blue-50/50' : ''}`}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/50 ${isExp ? 'bg-surface-3/50' : ''}`}
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[12px] font-bold truncate">{clientDisplay(o.clientName)}</span>
                     <span className="font-mono text-[10px] text-muted-foreground">{o.orderNo}</span>
                     {selInOrder > 0 && (
-                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-semibold">
+                      <span className="text-[10px] bg-surface-3 text-ink px-1.5 py-0.5 rounded font-semibold">
                         {selInOrder} zazn.
                       </span>
                     )}
@@ -502,7 +502,7 @@ function ImportOrderModal({ orders, meatFreeByRecipe, onImport, onClose }: {
                     {o.lines.length} poz. · {o.totalUnits} szt
                   </div>
                 </div>
-                <div className="text-sm font-black text-blue-700 flex-shrink-0">{fmtKg(o.totalKg,0)} kg</div>
+                <div className="text-sm font-black text-ink flex-shrink-0">{fmtKg(o.totalKg,0)} kg</div>
                 {isExp
                   ? <ChevronUp size={15} className="text-muted-foreground flex-shrink-0"/>
                   : <ChevronDown size={15} className="text-muted-foreground flex-shrink-0"/>}
@@ -543,7 +543,7 @@ function ImportOrderModal({ orders, meatFreeByRecipe, onImport, onClose }: {
                               className={`flex items-start gap-3 px-3 py-2.5 transition-colors ${
                                 isFull
                                   ? 'bg-green-50/50 opacity-70 cursor-not-allowed'
-                                  : `cursor-pointer hover:bg-muted/50 ${isSel?'bg-blue-50/60':''}`
+                                  : `cursor-pointer hover:bg-muted/50 ${isSel?'bg-surface-3/60':''}`
                               }`}
                             >
                               <input
@@ -570,7 +570,7 @@ function ImportOrderModal({ orders, meatFreeByRecipe, onImport, onClose }: {
                                   {qtyRemain < l.qty
                                     ? <><strong className="text-amber-700">{qtyRemain} szt do produkcji</strong> (z {l.qty})</>
                                     : <>{l.qty} szt</>
-                                  } × {l.kgPerUnit} kg = <strong className="text-blue-700">{fmtKg(needKg,0)} kg</strong>
+                                  } × {l.kgPerUnit} kg = <strong className="text-ink">{fmtKg(needKg,0)} kg</strong>
                                   {l.packagingName ? <span> · {l.packagingName}</span> : null}
                                 </div>
                                 {/* Pasek postępu produkcji: zielone = wyprodukowane, bursztyn = w toku/planie */}
@@ -612,11 +612,11 @@ function ImportOrderModal({ orders, meatFreeByRecipe, onImport, onClose }: {
       </div>
 
       {summary.count > 0 && (
-        <div className="flex items-center justify-between rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
-          <span className="text-[11px] font-semibold text-blue-700">
+        <div className="flex items-center justify-between rounded-lg bg-surface-3 border border-surface-4 px-3 py-2">
+          <span className="text-[11px] font-semibold text-ink">
             Wybrano {summary.count} poz. do zaplanowania
           </span>
-          <span className="text-sm font-black text-blue-700">{fmtKg(summary.kg,0)} kg</span>
+          <span className="text-sm font-black text-ink">{fmtKg(summary.kg,0)} kg</span>
         </div>
       )}
 
@@ -658,12 +658,12 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
   Object.values(byRecipe).forEach(r => { r.remainingKg = r.totalKg - r.usedKg })
 
   return (
-    <div className="border border-blue-200 rounded-xl overflow-hidden">
-      <div className="bg-blue-50 px-3 py-2 flex items-center gap-2 border-b border-blue-200">
-        <BarChart2 size={13} className="text-blue-600"/>
-        <span className="text-[11px] font-bold text-blue-700 uppercase tracking-wide">Stan mięsa przyprawionego</span>
+    <div className="border border-surface-4 rounded-xl overflow-hidden">
+      <div className="bg-surface-3 px-3 py-2 flex items-center gap-2 border-b border-surface-4">
+        <BarChart2 size={13} className="text-ink-2"/>
+        <span className="text-[11px] font-bold text-ink uppercase tracking-wide">Stan mięsa przyprawionego</span>
       </div>
-      <div className="divide-y divide-blue-100">
+      <div className="divide-y divide-surface-3">
         {Object.values(byRecipe).map(r => {
           const pct        = r.totalKg > 0 ? Math.min(100, (r.usedKg/r.totalKg)*100) : 0
           const isExpanded = expandedRecipe === r.recipeId
@@ -681,7 +681,7 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
                   {/* Pasek + liczniki w jednym wierszu */}
                   <div className="flex items-center gap-2">
                     <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${isFull?'bg-green-500':pct>80?'bg-amber-400':'bg-blue-500'}`}
+                      <div className={`h-full rounded-full ${isFull?'bg-green-500':pct>80?'bg-amber-400':'bg-brand'}`}
                         style={{width:`${pct}%`}}/>
                     </div>
                     <div className="flex items-center gap-2 text-[10px] whitespace-nowrap flex-shrink-0 text-muted-foreground">
@@ -692,7 +692,7 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
                 </div>
                 {/* Wolne kg — główna liczba dla planisty */}
                 <div className="text-right flex-shrink-0 min-w-[72px]">
-                  <div className={`text-lg font-black leading-none ${isFull?'text-green-600':'text-blue-700'}`}>
+                  <div className={`text-lg font-black leading-none ${isFull?'text-green-600':'text-ink'}`}>
                     {fmtKg(r.remainingKg,0)} kg
                   </div>
                   <div className="text-[9px] text-muted-foreground uppercase tracking-wide mt-0.5">do dyspozycji</div>
@@ -700,7 +700,7 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   <Button variant="outline" size="sm"
                     onClick={()=>onAutoAssign(r.recipeId)}
-                    className="h-7 text-[11px] text-blue-700 border-blue-200 bg-blue-50 hover:bg-blue-100 px-2">
+                    className="h-7 text-[11px] text-ink border-surface-4 bg-surface-3 hover:bg-surface-4/70 px-2">
                     ⚡ Auto
                   </Button>
                   <Button variant="ghost" size="icon"
@@ -712,12 +712,12 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
               </div>
               {/* Szczegóły partii — rozwinięte */}
               {isExpanded && (
-                <div className="px-3 pb-2.5 border-t border-blue-100 bg-blue-50/30">
+                <div className="px-3 pb-2.5 border-t border-surface-3 bg-surface-2/60">
                   <div className="grid grid-cols-2 gap-1 mt-2">
                     {r.batches.map((s:any) => {
                       const used = seasonedUsed[s.id]??0
                       return (
-                        <div key={s.id} className={`flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded border ${s.kgAvailLive<0.1&&s.kgAvailable>0?'bg-red-50 border-red-200':'bg-white border-blue-100'}`}>
+                        <div key={s.id} className={`flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded border ${s.kgAvailLive<0.1&&s.kgAvailable>0?'bg-red-50 border-red-200':'bg-white border-surface-3'}`}>
                           <span className="font-mono font-bold text-primary text-[10px]">{s.batchNo}</span>
                           <span className={`font-bold ml-2 ${s.kgAvailLive<0.1?'text-red-600':'text-green-700'}`}>
                             {fmtKg(s.kgAvailLive)} kg
@@ -937,7 +937,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-bold text-muted-foreground">Pozycja {idx+1}</span>
           {line.clientName && (
-            <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-semibold">
+            <span className="text-[10px] bg-surface-3 text-ink px-1.5 py-0.5 rounded font-semibold">
               {clientDisplay(line.clientName)}{line.clientOrderNo?` · ${line.clientOrderNo}`:''}
             </span>
           )}
@@ -1067,7 +1067,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
                     const isEmpty  = s.kgAvailLive<=0.01
                     return (
                       <label key={s.id}
-                        className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors ${isSel?'bg-blue-50':''} ${isEmpty&&!isSel?'opacity-40':''}`}>
+                        className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors ${isSel?'bg-surface-3':''} ${isEmpty&&!isSel?'opacity-40':''}`}>
                         <input type="checkbox" checked={isSel} onChange={()=>toggleBatch(s.id)}
                           disabled={isEmpty&&!isSel}
                           className="w-4 h-4 accent-primary flex-shrink-0"/>
@@ -1078,14 +1078,14 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
                               <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${
                                 s.materialTypeId==='mat-filet-kurczak'
                                   ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-blue-50 text-blue-700'}`}>
+                                  : 'bg-surface-3 text-ink'}`}>
                                 {s.materialName}
                               </span>
                             )}
                             <span className="text-[10px] text-muted-foreground">{s.recipeName}</span>
                           </div>
                           <div className="flex items-center gap-3 text-[11px] mt-0.5">
-                            <span className={`font-bold ${isEmpty?'text-red-500':isSel?'text-blue-700':'text-green-700'}`}>
+                            <span className={`font-bold ${isEmpty?'text-red-500':isSel?'text-ink':'text-green-700'}`}>
                               {fmtKg(s.kgAvailLive)} kg dostępne
                             </span>
                             {kgPerUnit>0&&!isEmpty&&(
@@ -1096,7 +1096,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
                             <span className="text-muted-foreground text-[10px]">do: {fmtDatePl(s.expiryDate)}</span>
                           </div>
                         </div>
-                        {isSel&&<span className="text-blue-600 font-bold text-[11px] flex-shrink-0">✓</span>}
+                        {isSel&&<span className="text-ink-2 font-bold text-[11px] flex-shrink-0">✓</span>}
                       </label>
                     )
                   })}
@@ -1119,7 +1119,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
         {/* Suma pozycji */}
         {totalKgLine>0&&(
           <div className="mt-2 flex justify-end">
-            <span className="text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded">
+            <span className="text-[11px] font-bold text-ink bg-surface-3 border border-surface-4 px-2 py-1 rounded">
               = {fmtKg(totalKgLine,0)} kg
             </span>
           </div>
@@ -1408,7 +1408,7 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
                       {ptName ? <>{ptName} <span className="text-muted-foreground">/</span> </> : null}{rcName}
                       {pkName && <span className="text-muted-foreground"> · {pkName}</span>}
                       {line.clientName && (
-                        <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-semibold ml-1.5">
+                        <span className="text-[10px] bg-surface-3 text-ink px-1.5 py-0.5 rounded font-semibold ml-1.5">
                           {clientDisplay(line.clientName)}{line.clientOrderNo?` · ${line.clientOrderNo}`:''}
                         </span>
                       )}
@@ -1439,7 +1439,7 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
                             : `brak ${fmtKg(tkg-avail,0)} kg`}
                       </span>
                     )}
-                    <span className="font-bold text-blue-700 tabular-nums whitespace-nowrap">{fmtKg(tkg,0)} kg</span>
+                    <span className="font-bold text-ink tabular-nums whitespace-nowrap">{fmtKg(tkg,0)} kg</span>
                     <span className="text-muted-foreground flex-shrink-0">
                       {isExp ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                     </span>

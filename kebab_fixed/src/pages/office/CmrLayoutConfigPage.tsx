@@ -346,7 +346,7 @@ export function CmrLayoutConfigPage() {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="flex-1 px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50"
+              className="flex-1 px-3 py-1.5 text-xs font-medium bg-brand hover:bg-brand-dark text-white rounded disabled:opacity-50"
             >
               {saving ? 'Zapisywanie…' : 'Zapisz'}
             </button>
@@ -383,8 +383,8 @@ export function CmrLayoutConfigPage() {
 
           {/* Szczegóły wybranego pola */}
           {selectedKey && selPos && (
-            <div className="border border-blue-200 rounded-lg p-3 bg-blue-50 text-xs space-y-2">
-              <div className="font-semibold text-blue-800 truncate">
+            <div className="border border-surface-4 rounded-lg p-3 bg-surface-3 text-xs space-y-2">
+              <div className="font-semibold text-ink truncate">
                 {selMeta?.label ?? selectedKey}
               </div>
 
@@ -454,7 +454,7 @@ export function CmrLayoutConfigPage() {
                   onClick={() => patch(selectedKey, { bold: !selPos.bold })}
                   className={[
                     'w-7 h-7 flex items-center justify-center rounded border text-gray-700',
-                    selPos.bold ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-300 hover:bg-gray-100',
+                    selPos.bold ? 'bg-brand text-white border-brand' : 'bg-white border-gray-300 hover:bg-gray-100',
                   ].join(' ')}
                   title="Pogrubienie"
                 ><Bold size={14} /></button>
@@ -462,7 +462,7 @@ export function CmrLayoutConfigPage() {
                   onClick={() => patch(selectedKey, { italic: !selPos.italic })}
                   className={[
                     'w-7 h-7 flex items-center justify-center rounded border text-gray-700',
-                    selPos.italic ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-300 hover:bg-gray-100',
+                    selPos.italic ? 'bg-brand text-white border-brand' : 'bg-white border-gray-300 hover:bg-gray-100',
                   ].join(' ')}
                   title="Kursywa"
                 ><Italic size={14} /></button>
@@ -499,14 +499,14 @@ export function CmrLayoutConfigPage() {
                   data-field={field.key}
                   className={[
                     'flex items-center border-b border-gray-50 last:border-0',
-                    isSelected ? 'bg-blue-50' : 'hover:bg-gray-50',
+                    isSelected ? 'bg-surface-3' : 'hover:bg-gray-50',
                   ].join(' ')}
                 >
                   <button
                     onClick={() => setSelectedKey(field.key)}
                     className={[
                       'flex-1 text-left px-3 py-1.5 text-xs',
-                      isSelected ? 'text-blue-800 font-medium' : 'text-gray-700',
+                      isSelected ? 'text-ink font-medium' : 'text-gray-700',
                       hidden ? 'opacity-40' : '',
                     ].join(' ')}
                   >
@@ -542,14 +542,14 @@ export function CmrLayoutConfigPage() {
                   data-field={key}
                   className={[
                     'flex items-center border-b border-gray-50 last:border-0',
-                    isSelected ? 'bg-blue-50' : 'hover:bg-gray-50',
+                    isSelected ? 'bg-surface-3' : 'hover:bg-gray-50',
                   ].join(' ')}
                 >
                   <button
                     onClick={() => setSelectedKey(key)}
                     className={[
                       'flex-1 text-left px-3 py-1.5 text-xs',
-                      isSelected ? 'text-blue-800 font-medium' : 'text-gray-700',
+                      isSelected ? 'text-ink font-medium' : 'text-gray-700',
                     ].join(' ')}
                   >
                     <div className="truncate">{pos?.label || 'Pole własne'}</div>

@@ -66,7 +66,7 @@ export function ViesLookup({ onFound }: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700 font-medium">
+      <div className="bg-surface-3 border border-surface-4 rounded-xl px-4 py-3 text-xs text-ink font-medium">
         <strong>Zagraniczna firma</strong> — wybierz kraj UE i wpisz numer VAT-UE bez prefiksu w polu obok.
       </div>
 
@@ -74,7 +74,7 @@ export function ViesLookup({ onFound }: Props) {
         <select
           value={countryCode}
           onChange={e => { setCountryCode(e.target.value); setResult(null); setError('') }}
-          className="h-10 px-2 text-sm font-bold border border-slate-200 focus:outline-none focus:border-blue-400 bg-white rounded-lg w-28"
+          className="h-10 px-2 text-sm font-bold border border-slate-200 focus:outline-none focus:border-ink-4 bg-white rounded-lg w-28"
         >
           <option value="">Kraj...</option>
           {Object.entries(EU_COUNTRIES).filter(([c]) => c !== 'PL').map(([code, name]) => (
@@ -87,12 +87,12 @@ export function ViesLookup({ onFound }: Props) {
           value={vatBody}
           onChange={e => { setVatBody(e.target.value.toUpperCase().replace(/\s/g, '')); setResult(null); setError('') }}
           onKeyDown={e => e.key === 'Enter' && handleViesSearch()}
-          className="flex-1 h-10 pl-3 text-sm font-mono border border-slate-200 focus:outline-none focus:border-blue-400 bg-white rounded-lg"
+          className="flex-1 h-10 pl-3 text-sm font-mono border border-slate-200 focus:outline-none focus:border-ink-4 bg-white rounded-lg"
         />
         <button
           onClick={handleViesSearch}
           disabled={loading || !countryCode || vatBody.trim().length < 2}
-          className="h-10 px-4 bg-blue-600 text-white rounded-lg font-semibold text-sm flex items-center gap-2 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          className="h-10 px-4 bg-brand text-white rounded-lg font-semibold text-sm flex items-center gap-2 hover:bg-brand-dark disabled:opacity-50 transition-colors"
         >
           {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
           Szukaj

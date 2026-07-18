@@ -245,8 +245,8 @@ export function RecallPage() {
           <Section
             title="Partie zamarynowane"
             count={result.seasoned.length}
-            icon={<FlaskConical size={14} className="text-blue-700"/>}
-            color="bg-blue-100"
+            icon={<FlaskConical size={14} className="text-ink"/>}
+            color="bg-surface-3"
             defaultOpen={result.seasoned.length > 0}
           >
             <DataTable
@@ -312,8 +312,8 @@ export function RecallPage() {
           <Section
             title="Klienci"
             count={result.clients.length}
-            icon={<Users size={14} className="text-purple-700"/>}
-            color="bg-purple-100"
+            icon={<Users size={14} className="text-ink"/>}
+            color="bg-surface-3"
             defaultOpen={result.clients.length > 0}
           >
             {result.clients.length === 0 ? (

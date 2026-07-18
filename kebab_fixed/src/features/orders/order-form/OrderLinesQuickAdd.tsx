@@ -115,7 +115,7 @@ export function OrderLinesQuickAdd({ lines, setLines, removeLine, productTypes, 
                 {ptName(l.productTypeId)} <span className="text-muted-foreground">/</span> {rcName(l.recipeId)}
                 {l.packagingId && <span className="text-muted-foreground"> · {pkName(l.packagingId)}</span>}
               </span>
-              <span className="font-bold text-blue-700 tabular-nums whitespace-nowrap">{fmtKg(lineKg(l), 0)} kg</span>
+              <span className="font-bold text-ink tabular-nums whitespace-nowrap">{fmtKg(lineKg(l), 0)} kg</span>
               <button onClick={() => removeLine(idx)} title="Usuń pozycję"
                 className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10">
                 <Trash2 size={13} />

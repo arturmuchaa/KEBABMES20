@@ -259,18 +259,18 @@ function InvoiceForm({ initial, onSave, onClose }: {
 
       {/* SUROWIEC */}
       {cat === 'SUROWIEC' && (
-        <Card className="border-blue-200 bg-blue-50/50">
+        <Card className="border-surface-4 bg-surface-3/50">
           <CardContent className="p-3 space-y-3">
-            <CardDescription className="text-[10px] font-bold text-blue-700 uppercase tracking-wide flex items-center gap-1.5">
+            <CardDescription className="text-[10px] font-bold text-ink uppercase tracking-wide flex items-center gap-1.5">
               <Package size={11} /> Powiązane partie surowca (można zaznaczyć wiele)
             </CardDescription>
-            <div className="max-h-44 overflow-y-auto border border-blue-200 bg-white divide-y rounded-lg">
+            <div className="max-h-44 overflow-y-auto border border-surface-4 bg-white divide-y rounded-lg">
               {batchOptions.length === 0
                 ? <CardDescription className="px-3 py-2 text-xs">Brak partii</CardDescription>
                 : batchOptions.map(o => {
                     const sel = form.rawBatchIds.includes(o.value)
                     return (
-                      <label key={o.value} className={`flex items-center gap-2 px-3 py-2 cursor-pointer text-xs hover:bg-blue-50 ${sel ? 'bg-blue-50' : ''}`}>
+                      <label key={o.value} className={`flex items-center gap-2 px-3 py-2 cursor-pointer text-xs hover:bg-surface-3 ${sel ? 'bg-surface-3' : ''}`}>
                         <input type="checkbox" checked={sel} onChange={() => handleBatchToggle(o.value)} className="w-4 h-4 accent-blue-600" />
                         <span className={sel ? 'font-bold text-primary' : o.status === 'used' ? 'text-muted-foreground' : ''}>{o.label}</span>
                         {o.status === 'used' && <CardDescription className="ml-auto text-[10px]">zużyta</CardDescription>}
@@ -280,8 +280,8 @@ function InvoiceForm({ initial, onSave, onClose }: {
               }
             </div>
             {selectedBatches.length > 0 && (
-              <CardDescription className="text-xs bg-white border border-blue-200 rounded px-3 py-2">
-                <span className="font-bold text-blue-700">{selectedBatches.length} partii · </span>
+              <CardDescription className="text-xs bg-white border border-surface-4 rounded px-3 py-2">
+                <span className="font-bold text-ink">{selectedBatches.length} partii · </span>
                 Suma: <strong>{fmtKg(totalSelectedKg)} kg</strong> → ilość na FV ustawiona automatycznie
               </CardDescription>
             )}
@@ -334,9 +334,9 @@ function InvoiceForm({ initial, onSave, onClose }: {
 
       {/* OPAKOWANIA */}
       {cat === 'OPAKOWANIA_TULEJE' && (
-        <Card className="border-purple-200 bg-purple-50/50">
+        <Card className="border-surface-4 bg-surface-2">
           <CardContent className="p-3 space-y-3">
-            <CardDescription className="text-[10px] font-bold text-purple-700 uppercase tracking-wide flex items-center gap-1.5">
+            <CardDescription className="text-[10px] font-bold text-ink uppercase tracking-wide flex items-center gap-1.5">
               <Archive size={11} /> Powiązanie z magazynem opakowań / tulei
             </CardDescription>
             <div className="space-y-1.5">
@@ -351,10 +351,10 @@ function InvoiceForm({ initial, onSave, onClose }: {
             </div>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={form.createWZ} onChange={e => set('createWZ', e.target.checked)} className="w-4 h-4 accent-purple-600" />
-              <CardDescription className="text-xs text-purple-700 font-semibold">Utwórz PZ — zasil magazyn opakowań</CardDescription>
+              <CardDescription className="text-xs text-ink font-semibold">Utwórz PZ — zasil magazyn opakowań</CardDescription>
             </label>
             {form.createWZ && form.packagingId && (
-              <CardDescription className="text-xs text-purple-700 bg-white border border-purple-200 rounded px-3 py-2">
+              <CardDescription className="text-xs text-ink bg-white border border-surface-4 rounded px-3 py-2">
                 ✓ Po zapisaniu faktura doda <strong>{qty} szt</strong> do wybranego opakowania/tulei
               </CardDescription>
             )}
@@ -581,7 +581,7 @@ export function PurchaseInvoicesPage() {
                           {CATEGORY_ICON[cat]} {CAT_LABELS[cat]}
                         </Badge>
                         {inv.rawBatchNo && <code className="block text-[10px] font-mono text-muted-foreground mt-0.5">{inv.rawBatchNo}</code>}
-                        {(inv as any).packagingName && <CardDescription className="text-[10px] text-purple-700 mt-0.5">{(inv as any).packagingName}</CardDescription>}
+                        {(inv as any).packagingName && <CardDescription className="text-[10px] text-ink mt-0.5">{(inv as any).packagingName}</CardDescription>}
                       </TableCell>
                       <TableCell>
                         <CardTitle className="text-sm tabular-nums">{inv.qty} {cat === 'OPAKOWANIA_TULEJE' ? 'szt' : 'kg'}</CardTitle>
@@ -590,7 +590,7 @@ export function PurchaseInvoicesPage() {
                       <TableCell>
                         <CardTitle className="text-sm font-bold tabular-nums">{fmtPln((inv as any).totalGross ?? inv.grossTotal ?? 0)}</CardTitle>
                         {(inv as any).currency === 'EUR' && (inv as any).amountEur && (
-                          <CardDescription className="text-xs text-blue-600 font-semibold tabular-nums">
+                          <CardDescription className="text-xs text-ink-2 font-semibold tabular-nums">
                             {Number((inv as any).amountEur).toFixed(2)} EUR
                           </CardDescription>
                         )}

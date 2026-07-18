@@ -168,7 +168,7 @@ export function PalletsEditor({ orderId, lines }: Props) {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-6 w-6 text-muted-foreground hover:text-blue-700"
+                      className="h-6 w-6 text-muted-foreground hover:text-ink"
                       onClick={() => {
                         const url = `/office/zamowienia/${orderId}/palety/${p.palletNo}/druk`
                         const win = window.open(url, '_blank')

@@ -63,8 +63,8 @@ export function SearchSelect({
               type="button"
               onClick={() => { onSelect(i.id); setQuery(''); setOpen(false) }}
               className={cn(
-                'w-full flex flex-col items-start px-3 py-2 text-left text-sm hover:bg-blue-50/70',
-                i.id === value && 'bg-blue-50 font-semibold',
+                'w-full flex flex-col items-start px-3 py-2 text-left text-sm hover:bg-surface-3/70',
+                i.id === value && 'bg-surface-3 font-semibold',
               )}>
               <span className="truncate w-full">{i.label}</span>
               {i.sublabel && <span className="text-[11px] text-ink-4 truncate w-full">{i.sublabel}</span>}

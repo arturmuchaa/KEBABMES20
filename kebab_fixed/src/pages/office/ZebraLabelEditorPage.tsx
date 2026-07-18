@@ -151,7 +151,7 @@ export function ZebraLabelEditorPage() {
                 <div key={f.id}
                      onPointerDown={e => { setSelId(f.id); onDrag(f.id, e) }}
                      className={`absolute cursor-move whitespace-nowrap rounded px-1 text-[10px] font-bold ${
-                       f.id === selId ? 'bg-blue-600 text-white' : 'bg-blue-500/80 text-white'}`}
+                       f.id === selId ? 'bg-brand text-white' : 'bg-brand/80 text-white'}`}
                      style={{ left: f.xMm * scale, top: f.yMm * scale }}>
                   {f.type === 'qr' ? 'QR' : f.value}
                 </div>
@@ -173,7 +173,7 @@ export function ZebraLabelEditorPage() {
               <span className="font-semibold text-slate-600">Rozmiar:</span>
               {[[100, 150], [100, 300]].map(([w, h]) => (
                 <button key={`${w}x${h}`} onClick={() => { setWidthMm(w); setHeightMm(h) }}
-                  className={`rounded px-2 py-0.5 ${widthMm === w && heightMm === h ? 'bg-blue-600 text-white' : 'bg-slate-200 hover:bg-slate-300'}`}>
+                  className={`rounded px-2 py-0.5 ${widthMm === w && heightMm === h ? 'bg-brand text-white' : 'bg-slate-200 hover:bg-slate-300'}`}>
                   {w}×{h} mm
                 </button>
               ))}
@@ -204,7 +204,7 @@ export function ZebraLabelEditorPage() {
                 {fields.length === 0 && <div className="px-2 py-3 text-center text-xs text-slate-400">Brak pól — dodaj powyżej</div>}
                 {fields.map(f => (
                   <div key={f.id} onClick={() => setSelId(f.id)}
-                       className={`flex items-center gap-2 px-2 py-1.5 text-xs ${f.id === selId ? 'bg-blue-50' : ''}`}>
+                       className={`flex items-center gap-2 px-2 py-1.5 text-xs ${f.id === selId ? 'bg-surface-3' : ''}`}>
                     {f.type === 'qr' ? <QrCode size={13} /> : <Type size={13} />}
                     <input value={f.value} onChange={e => patch(f.id, { value: e.target.value })}
                            className="min-w-0 flex-1 rounded border border-slate-200 px-1 py-0.5 font-mono text-[11px]" />

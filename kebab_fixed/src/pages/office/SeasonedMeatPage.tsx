@@ -110,7 +110,7 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
             <div className="grid grid-cols-3 gap-3">
               {[
                 { label: 'Surowiec (ćwiartka)', val: `${fmtKg(data.summary.totalRawKg ?? 0)} kg`, accent: '' },
-                { label: 'Mięso Z/S',           val: `${fmtKg(data.summary.totalMeatKg ?? 0)} kg`, accent: 'text-blue-700' },
+                { label: 'Mięso Z/S',           val: `${fmtKg(data.summary.totalMeatKg ?? 0)} kg`, accent: 'text-ink' },
                 { label: 'Dostępne',             val: `${fmtKg(data.seasoned.kgAvailable ?? 0)} kg`, accent: 'text-emerald-700' },
               ].map(k => (
                 <Card key={k.label} className="bg-muted/40 border-transparent text-center">
@@ -128,7 +128,7 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
                 <CardDescription className="text-[11px] font-bold uppercase tracking-wide mb-2">Łańcuch partii</CardDescription>
                 <div className="flex items-center gap-1 flex-wrap">
                   {rawBatchNos.map(n => (
-                    <code key={n} className="font-mono font-black text-blue-700 bg-blue-50 px-2 py-1 rounded text-xs">{n}</code>
+                    <code key={n} className="font-mono font-black text-ink bg-surface-3 px-2 py-1 rounded text-xs">{n}</code>
                   ))}
                   {rawBatchNos.length > 0 && <ChevronRight size={12} className="text-muted-foreground" />}
                   {(data.meatLots ?? []).map((l: any) => (
@@ -175,7 +175,7 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
                       <CardDescription className="text-xs font-semibold">Ćwiartka</CardDescription>
                       {t.rawBatch ? (
                         <div className="flex items-center gap-3 text-xs flex-wrap">
-                          <code className="font-mono font-bold text-blue-700">
+                          <code className="font-mono font-bold text-ink">
                             {t.rawBatch.internal_batch_no ?? t.rawBatch.internalBatchNo ?? '—'}
                           </code>
                           <CardDescription className="text-xs">
@@ -336,7 +336,7 @@ export function SeasonedMeatPage() {
             { key: 'source', header: 'Źródło',
               cell: b => (
                 <div className="flex items-center gap-1 flex-nowrap overflow-hidden max-w-[260px]">
-                  {(b.rawBatchNos || []).slice(0, 2).map((n: string) => <code key={n} className="font-mono text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{n}</code>)}
+                  {(b.rawBatchNos || []).slice(0, 2).map((n: string) => <code key={n} className="font-mono text-[10px] bg-surface-3 text-ink px-1.5 py-0.5 rounded">{n}</code>)}
                   {(b.rawBatchNos || []).length > 2 && <span className="text-[10px] text-muted-foreground">+{(b.rawBatchNos || []).length - 2}</span>}
                   {(b.rawBatchNos || []).length > 0 && <ChevronRight size={10} className="text-muted-foreground flex-shrink-0" />}
                   <code className="font-mono text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">{b.batchNo}</code>
@@ -389,7 +389,7 @@ export function SeasonedMeatPage() {
                       className={cn(
                         'cursor-pointer border-b border-surface-3 opacity-70',
                         idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
-                        'hover:bg-blue-50/60 hover:opacity-100'
+                        'hover:bg-surface-3/60 hover:opacity-100'
                       )}
                     >
                       <td className="px-2.5 py-2 whitespace-nowrap">

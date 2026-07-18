@@ -31,15 +31,15 @@ export function IngredientPreview({ recipe, meatKg }: { recipe?: Recipe; meatKg:
 
   return (
     <div className="border rounded text-[12px] overflow-hidden">
-      <div className="px-3 py-2 bg-blue-50/50 border-b grid grid-cols-[1fr_100px_50px] gap-2">
-        <span className="font-semibold text-blue-700">Mięso (baza)</span>
-        <span className="font-bold text-blue-700 text-right">{fmtKg(meatKg, 2)}</span>
+      <div className="px-3 py-2 bg-surface-3/50 border-b grid grid-cols-[1fr_100px_50px] gap-2">
+        <span className="font-semibold text-ink">Mięso (baza)</span>
+        <span className="font-bold text-ink text-right">{fmtKg(meatKg, 2)}</span>
         <span className="text-muted-foreground">kg</span>
       </div>
       {steps.map((s, i) => (
         <div key={i} className="px-3 py-1.5 border-b last:border-0 grid grid-cols-[1fr_100px_50px] gap-2">
           <span className="font-medium">
-            {s.name}{s.isUnlimited && <span className="ml-1 text-[10px] text-blue-600">(woda)</span>}
+            {s.name}{s.isUnlimited && <span className="ml-1 text-[10px] text-ink-2">(woda)</span>}
           </span>
           <span className="font-bold text-right">{s.qty}</span>
           <span className="text-muted-foreground">{s.unit}</span>

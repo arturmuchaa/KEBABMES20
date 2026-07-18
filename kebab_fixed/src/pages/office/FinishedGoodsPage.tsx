@@ -274,7 +274,7 @@ export function FinishedGoodsPage() {
                     className={cn(
                       'cursor-pointer border-b border-surface-3 transition-colors',
                       idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
-                      'hover:bg-blue-50/60'
+                      'hover:bg-surface-3/60'
                     )}
                   >
                     <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold">

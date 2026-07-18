@@ -87,10 +87,10 @@ function timeAgo(iso: string): string {
 // ─── KPI — styl dashboardu (industrial polish: chip ikony, bez pasków) ──
 type Accent = 'blue' | 'green' | 'amber' | 'purple' | 'red'
 const ACCENT: Record<Accent, string> = {
-  blue:   'bg-blue-50 text-blue-600 ring-1 ring-blue-100',
+  blue:   'bg-surface-3 text-ink-2 ring-1 ring-surface-4',
   green:  'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100',
   amber:  'bg-amber-50 text-amber-600 ring-1 ring-amber-100',
-  purple: 'bg-purple-50 text-purple-600 ring-1 ring-purple-100',
+  purple: 'bg-surface-3 text-ink-2 ring-1 ring-surface-4',
   red:    'bg-red-50 text-red-600 ring-1 ring-red-100',
 }
 

@@ -146,7 +146,7 @@ export function WorkersPage() {
         {[
           { label: 'Wszyscy',  value: allUsers.length, icon: <Users size={18} />,       accent: 'bg-muted' },
           { label: 'Rozbiór',  value: allUsers.filter(u => u.role === 'WORKER_DEBONING').length,   icon: <Scissors size={18} className="text-green-600" />, accent: 'bg-green-50' },
-          { label: 'Produkcja',value: allUsers.filter(u => u.role === 'WORKER_PRODUCTION').length, icon: <Factory size={18} className="text-blue-600" />,  accent: 'bg-blue-50' },
+          { label: 'Produkcja',value: allUsers.filter(u => u.role === 'WORKER_PRODUCTION').length, icon: <Factory size={18} className="text-ink-2" />,  accent: 'bg-surface-3' },
           { label: 'System',   value: system.length,   icon: <ShieldCheck size={18} className="text-amber-600" />, accent: 'bg-amber-50' },
         ].map(s => (
           <Card key={s.label}>

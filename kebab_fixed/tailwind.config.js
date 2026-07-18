@@ -11,12 +11,12 @@ export default {
       },
       colors: {
         // ── Legacy custom tokens (preserved for existing pages) ──
-        // Ciepłe neutrale (stone) — zdejmują „niebieskawy szablon" Tailwinda.
-        // ink-4 trzyma kontrast ≥4.3:1 na bieli (WCAG AA) jak poprzednik #6F7787.
-        ink: { DEFAULT:'#1C1917', 2:'#44403C', 3:'#78716C', 4:'#736D66', 5:'#BDB7AF' },
-        surface: { DEFAULT:'#FFFFFF', 2:'#FAFAF9', 3:'#F5F5F4', 4:'#E7E5E4', 5:'#D6D3D1' },
-        // Jeden akcent marki: papryka — interakcje, aktywna nawigacja, logo.
-        brand:   { DEFAULT:'#B4380D', dark:'#8A2B0A', light:'#FAEEE8', border:'#EFCDBB' },
+        // Monochrom „tusz na papierze": NEUTRALNE szarości (zero podbarwienia —
+        // ani niebieskiego slate, ani ciepłego stone). ink-4 kontrast ≥4.3:1 (AA).
+        ink: { DEFAULT:'#171717', 2:'#404040', 3:'#6B6B6B', 4:'#757575', 5:'#B8B8B8' },
+        surface: { DEFAULT:'#FFFFFF', 2:'#FAFAFA', 3:'#F5F5F5', 4:'#E5E5E5', 5:'#D4D4D4' },
+        // Akcent marki = czerń: interakcje, aktywna nawigacja, paski postępu.
+        brand:   { DEFAULT:'#171717', dark:'#000000', light:'#F5F5F5', border:'#D4D4D4' },
         success: { DEFAULT:'#059669', light:'#ECFDF5', border:'#A7F3D0' },
         warn:    { DEFAULT:'#D97706', light:'#FFFBEB', border:'#FDE68A' },
         danger:  { DEFAULT:'#DC2626', light:'#FEF2F2', border:'#FECACA' },
@@ -60,11 +60,11 @@ export default {
       boxShadow: {
         // Płasko, dokumentowo: hairline zamiast „unoszących się" kart.
         // Głębię zostawiamy tylko warstwom naprawdę pływającym (modal, popover).
-        card:        '0 1px 2px rgba(28,25,23,.04)',
-        'card-hover':'0 2px 8px rgba(28,25,23,.08)',
-        md:          '0 2px 8px rgba(28,25,23,.06)',
-        modal:       '0 24px 64px rgba(28,25,23,.18)',
-        sm:          '0 1px 2px rgba(28,25,23,.05)',
+        card:        '0 1px 2px rgba(0,0,0,.04)',
+        'card-hover':'0 2px 8px rgba(0,0,0,.08)',
+        md:          '0 2px 8px rgba(0,0,0,.06)',
+        modal:       '0 24px 64px rgba(0,0,0,.18)',
+        sm:          '0 1px 2px rgba(0,0,0,.05)',
       },
       borderRadius: {
         DEFAULT: '4px', lg:'8px', xl:'10px', '2xl':'12px', '3xl':'16px',

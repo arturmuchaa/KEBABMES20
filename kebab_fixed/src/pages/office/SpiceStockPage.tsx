@@ -122,8 +122,8 @@ function IngredientPicker({ ingredients, stockMap, value, onSelect, onCreateNew 
                 type="button"
                 onClick={() => { onSelect(i.id); setQuery(''); setOpen(false) }}
                 className={cn(
-                  'w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-blue-50/70',
-                  i.id === value && 'bg-blue-50 font-semibold',
+                  'w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-surface-3/70',
+                  i.id === value && 'bg-surface-3 font-semibold',
                 )}
               >
                 <span className="truncate">{i.name}</span>
@@ -140,7 +140,7 @@ function IngredientPicker({ ingredients, stockMap, value, onSelect, onCreateNew 
             <button
               type="button"
               onClick={() => { onCreateNew(query.trim()); setOpen(false) }}
-              className="w-full flex items-center gap-1.5 px-3 py-2 text-left text-sm font-semibold text-brand border-t border-surface-3 hover:bg-blue-50/70"
+              className="w-full flex items-center gap-1.5 px-3 py-2 text-left text-sm font-semibold text-brand border-t border-surface-3 hover:bg-surface-3/70"
             >
               <Plus size={13} /> Dodaj nowy składnik „{query.trim()}"
             </button>
@@ -389,7 +389,7 @@ export function SpiceStockPage() {
                         className={cn(
                           'cursor-pointer border-b border-surface-3 transition-colors',
                           idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
-                          'hover:bg-blue-50/60'
+                          'hover:bg-surface-3/60'
                         )}
                       >
                         <td className="px-2.5 py-2 whitespace-nowrap text-ink font-medium">

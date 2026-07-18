@@ -94,7 +94,7 @@ export function CompanySettingsPage() {
     <div className="space-y-5 animate-fade-in max-w-3xl">
       <Card>
         <CardHeader className="flex-row items-center gap-3 space-y-0">
-          <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-surface-3 text-ink-2 flex items-center justify-center">
             <Building2 size={18} />
           </div>
           <div>
@@ -214,7 +214,7 @@ export function CompanySettingsPage() {
 
       <Card>
         <CardHeader className="flex-row items-center gap-3 space-y-0">
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-surface-3 text-ink-2 flex items-center justify-center">
             <Scale size={18} />
           </div>
           <div>

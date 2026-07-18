@@ -431,7 +431,7 @@ export function ClientOrdersPage() {
                         className={cn(
                           'cursor-pointer border-b border-surface-3 transition-colors',
                           idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
-                          isExp ? 'bg-blue-50/40' : 'hover:bg-blue-50/60',
+                          isExp ? 'bg-surface-3/50' : 'hover:bg-surface-3/60',
                         )}
                       >
                         <td className="px-1 py-2 text-center text-muted-foreground">
@@ -575,7 +575,7 @@ export function ClientOrdersPage() {
                       {/* Rozwinięcie: pozycje + palety */}
                       {isExp && (
                         <tr>
-                          <td colSpan={10} className="bg-blue-50/20 border-b border-surface-3 px-4 py-3">
+                          <td colSpan={10} className="bg-surface-2/60 border-b border-surface-3 px-4 py-3">
                             {o.notes && (
                               <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs">
                                 <span className="font-bold text-amber-700">Uwagi: </span>
