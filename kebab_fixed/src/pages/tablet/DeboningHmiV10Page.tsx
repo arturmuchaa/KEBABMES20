@@ -469,6 +469,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [operatorModal, setOperatorModal] = useState(false)
   // Ważenie ubocznych: prompt po zakończeniu partii + otwarty kreator.
   const [finishPrompt, setFinishPrompt] = useState<{ batch: RawBatch; record: BatchByproducts } | null>(null)
+  // Modal listy dzisiejszych ważeń frakcji (klik w kafelek dolnego paska).
+  const [byprodModal, setByprodModal] = useState<'backs' | 'bones' | null>(null)
   const [wizard, setWizard] = useState<{ batch: RawBatch; record: BatchByproducts } | null>(null)
   const byproductsByBatch = useMemo(() => {
     const m = new Map<string, BatchByproducts>()
@@ -1921,16 +1923,27 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       </div>
 
       <div className="flex-shrink-0 h-[76px] grid grid-cols-7" style={{ background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
-        {[
+        {/* Grzbiety/Kości: JEDNO źródło = batch_byproducts (byprodToday) — ręczne
+            zakończenie partii zapisuje te same kg jako paletę „ręcznie", więc
+            dodawanie shift.totBacks/totBones liczyłoby je podwójnie. Klik = modal
+            z listą dzisiejszych ważeń. */}
+        {([
           { label: 'Ćwiartka pobrana dzisiaj', val: `${fmtKg(shift.totTaken, 0)} kg` },
           { label: 'Mięso',         val: `${fmtKg(shift.totMeat, 0)} kg` },
           { label: 'Wydajność dnia', val: shift.totMeat > 0 ? fmtPct(shift.yieldPct, 1) : '—', color: yieldInk(shift.yieldPct) },
-          { label: 'Grzbiety',      val: `${fmtKg(shift.totBacks + (byprodToday.data?.backsKg ?? 0), 0)} kg` },
-          { label: 'Kości',         val: `${fmtKg(shift.totBones + (byprodToday.data?.bonesKg ?? 0), 0)} kg` },
+          { label: 'Grzbiety',      val: `${fmtKg(byprodToday.data?.backsKg ?? 0, 0)} kg`, onTap: () => setByprodModal('backs') },
+          { label: 'Kości',         val: `${fmtKg(byprodToday.data?.bonesKg ?? 0, 0)} kg`, onTap: () => setByprodModal('bones') },
           { label: 'Wpisy',         val: String(completeEntries.length) },
-        ].map(c => (
+        ] as { label: string; val: string; color?: string; onTap?: () => void }[]).map(c => c.onTap ? (
+          <button key={c.label} type="button" onClick={c.onTap}
+            className="flex flex-col items-center justify-center px-1 text-center active:scale-95 transition-transform"
+            style={{ borderRight: '1px solid var(--lineSoft)' }}>
+            <span className="hmi-v10-mono text-xl font-bold leading-none" style={{ color: c.color ?? 'var(--ink)' }}>{c.val}</span>
+            <span className="text-[10px] font-bold uppercase mt-1.5 leading-tight" style={{ color: 'var(--accent)' }}>{c.label} ▸</span>
+          </button>
+        ) : (
           <div key={c.label} className="flex flex-col items-center justify-center px-1 text-center" style={{ borderRight: '1px solid var(--lineSoft)' }}>
-            <span className="hmi-v10-mono text-xl font-bold leading-none" style={{ color: (c as any).color ?? 'var(--ink)' }}>{c.val}</span>
+            <span className="hmi-v10-mono text-xl font-bold leading-none" style={{ color: c.color ?? 'var(--ink)' }}>{c.val}</span>
             <span className="text-[10px] font-bold uppercase mt-1.5 leading-tight" style={{ color: 'var(--mut)' }}>{c.label}</span>
           </div>
         ))}
@@ -1940,6 +1953,45 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           <span className="text-[10px] font-bold uppercase">Statystyki</span>
         </button>
       </div>
+
+      {/* Lista dzisiejszych ważeń frakcji — wiersz = paleta z kreatora,
+          suma stopki = liczba na kafelku paska (to samo źródło). */}
+      {byprodModal && (() => {
+        const rows = (byprodToday.data?.weighings ?? []).filter(w => w.kind === byprodModal)
+        const sumKg = rows.reduce((s, w) => s + w.netKg, 0)
+        const sumCont = rows.reduce((s, w) => s + (w.containers || 0), 0)
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" style={VARS}>
+            <div className="w-[720px] max-h-[80vh] flex flex-col" style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)' }}>
+              <div className="flex items-center gap-4 px-6 py-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--lineSoft)' }}>
+                <Scale size={22} style={{ color: 'var(--accent)' }} />
+                <h3 className="font-extrabold text-xl flex-1">{byprodModal === 'backs' ? 'Grzbiety' : 'Kości'} — ważenia dzisiaj</h3>
+                <button type="button" onClick={() => setByprodModal(null)} className="w-9 h-9 flex items-center justify-center" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}><X size={18} /></button>
+              </div>
+              <div className="overflow-y-auto flex-1">
+                {rows.length === 0 ? (
+                  <div className="px-6 py-10 text-center text-sm" style={{ color: 'var(--mut)' }}>Brak ważeń dzisiaj</div>
+                ) : rows.map((w, i) => (
+                  <div key={`${w.weighedAt}-${i}`} className="grid grid-cols-[100px_64px_1fr_110px_90px_110px] items-center px-6 py-3.5" style={{ borderTop: i > 0 ? '1px solid var(--lineSoft)' : undefined }}>
+                    <span className="text-sm font-bold" style={{ color: 'var(--mut)' }}>Ważenie {i + 1}</span>
+                    <span className="hmi-v10-mono text-sm">{new Date(w.weighedAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="hmi-v10-mono text-sm font-bold" style={{ color: 'var(--accent)' }}>{w.rawBatchNo}</span>
+                    <span className="text-sm font-semibold truncate">{w.tareLabel || '—'}</span>
+                    <span className="hmi-v10-mono text-sm text-right">{w.containers > 0 ? `${w.containers} poj.` : '—'}</span>
+                    <span className="hmi-v10-mono text-base font-bold text-right">{fmtKg(w.netKg, 1)} kg</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between px-6 py-4 flex-shrink-0" style={{ borderTop: '1px solid var(--line)', background: 'var(--bg)' }}>
+                <span className="text-sm font-bold uppercase" style={{ color: 'var(--mut)' }}>
+                  Suma dnia · {rows.length} ważeń{sumCont > 0 ? ` · ${sumCont} poj.` : ''}
+                </span>
+                <span className="hmi-v10-mono text-2xl font-extrabold">{fmtKg(sumKg, 1)} kg</span>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {statsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" style={VARS}>
