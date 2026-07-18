@@ -33,6 +33,7 @@ export interface DeboningApi {
   createEntry(dto: CreateDeboningEntryDto): Promise<DeboningEntry>
   createTake(dto: CreateDeboningTakeDto): Promise<DeboningEntry>
   completeTake(entryId: string, dto: CompleteDeboningTakeDto): Promise<DeboningEntry>
+  weighPart(entryId: string, dto: CompleteDeboningTakeDto): Promise<DeboningEntry>
   updateTake(entryId: string, kgTaken: number): Promise<DeboningEntry>
   updateEntry(entryId: string, dto: UpdateDeboningEntryDto): Promise<DeboningEntry>
   deleteEntry(entryId: string): Promise<{ ok: boolean; id: string }>
@@ -85,6 +86,7 @@ export const deboningApi: DeboningApi = {
   createEntry: (dto)       => entriesStore.create(dto),
   createTake:  (dto)       => entriesStore.createTake(dto),
   completeTake:(id, dto)   => entriesStore.completeTake(id, dto),
+  weighPart:   (id, dto)   => entriesStore.weighPart(id, dto),
   updateTake:  (id, kg)    => entriesStore.updateTake(id, { kgTaken: kg }),
   updateEntry: (id, dto)   => entriesStore.update(id, dto),
   deleteEntry: (id)        => entriesStore.remove(id),

@@ -7,6 +7,7 @@
  *
  * Zasada: każda funkcja = deterministyczny wynik dla tych samych wejść.
  */
+export * from './partialWeighing'
 
 import type {
   ProductionSession, SessionStatus,

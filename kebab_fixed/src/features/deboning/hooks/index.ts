@@ -16,7 +16,7 @@ import { isExpired } from '@/lib/utils/fefo'
 import type {
   ProductionSession, DeboningEntry, TimeWindowStatus, WriteCheckResult,
   CreateDeboningEntryDto, UpdateDeboningEntryDto, SessionSummary,
-  CreateDeboningTakeDto, CompleteDeboningTakeDto,
+  CreateDeboningTakeDto, CompleteDeboningTakeDto, WeighPartTakeDto,
 } from '../types'
 
 // ─── 1. useTimeWindow — stan okna czasowego, tick co minutę ──────────────────
@@ -220,6 +220,27 @@ export function useDeboningEntries(sessionId: string | null) {
     }
   }, [updateTakeMutation, refetch])
 
+  const weighPartMutation = useMutation(
+    ({ id, dto }: { id: string; dto: WeighPartTakeDto }) => deboningApi.weighPart(id, dto)
+  )
+
+  // Częściowe ważenie mięsa — porcja na magazyn, pobranie zostaje otwarte
+  const weighPart = useCallback(async (
+    entryId: string,
+    dto: WeighPartTakeDto,
+    session: ProductionSession | null,
+  ): Promise<string | null> => {
+    if (session?.status !== 'open') return 'Ważenie możliwe tylko przy otwartej sesji'
+    if (dto.kgMeat <= 0) return 'Ilość mięsa musi być > 0'
+    try {
+      await weighPartMutation.mutate({ id: entryId, dto })
+      refetch()
+      return null
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Błąd częściowego ważenia'
+    }
+  }, [weighPartMutation, refetch])
+
   // Domknięcie pobrania mięsem
   const completeTake = useCallback(async (
     entryId: string,
@@ -279,6 +300,7 @@ export function useDeboningEntries(sessionId: string | null) {
     addEntry,
     addTake,
     completeTake,
+    weighPart,
     editTake,
     editEntry,
     removeEntry,
@@ -286,6 +308,7 @@ export function useDeboningEntries(sessionId: string | null) {
     addLoading:    createMutation.loading,
     addTakeLoading:      createTakeMutation.loading,
     completeTakeLoading: completeTakeMutation.loading,
+    weighPartLoading:    weighPartMutation.loading,
     editLoading:   updateMutation.loading,
     removeLoading: removeMutation.loading,
     refetch,

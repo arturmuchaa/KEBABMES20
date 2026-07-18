@@ -59,6 +59,8 @@ export interface DeboningEntry {
   /** Czas domknięcia pobrania mięsem (dwufazowy). Brak = wpis „od razu"
    *  (wtedy czasem zważenia jest createdAt). */
   readonly completedAt?: string | null
+  /** Suma porcji z częściowych ważeń (tylko pending; complete ma sumę w kgMeat). */
+  readonly kgMeatWeighed?: number
 }
 
 export interface CreateDeboningEntryDto {
@@ -92,6 +94,9 @@ export interface CompleteDeboningTakeDto {
   e2Count?:    number
   weighMode?:  'auto' | 'manual'
 }
+
+/** Częściowe ważenie mięsa — te same pola co domknięcie (porcja + audyt wagi). */
+export type WeighPartTakeDto = CompleteDeboningTakeDto
 
 export interface UpdateDeboningEntryDto {
   kgTaken?:   number

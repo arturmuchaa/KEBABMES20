@@ -412,6 +412,11 @@ export const deboningEntriesApi = {
     ...toSnake(dto),
     kgMeat: dto.kgMeat,
   }),
+  // weighPart — częściowe ważenie mięsa: porcja na magazyn, pobranie zostaje otwarte
+  weighPart: (id: string, dto: any) => post<any>(`/deboning/takes/${id}/weigh-part`, {
+    ...toSnake(dto),
+    kgMeat: dto.kgMeat,
+  }),
   // update — obsługuje kgBacks i kgBones
   update: (id: string, dto: any) => patch<any>(`/deboning/entries/${id}`, {
     ...toSnake(dto),
@@ -454,6 +459,11 @@ export interface ByproductPallet {
    *  rozlicza każdą paletę w JEJ dniu (raport per dzień). */
   weighedAt?: string
 }
+/** Jedno dzisiejsze ważenie frakcji (paleta z kreatora) — modal dolnego paska HMI. */
+export interface ByproductTodayWeighing {
+  kind: 'backs' | 'bones'; rawBatchNo: string; weighedAt: string
+  tareLabel: string; containers: number; netKg: number
+}
 export interface BatchByproducts {
   rawBatchId: string; rawBatchNo: string; quarterKg: number
   backsKg: number | null; bonesKg: number | null
@@ -471,7 +481,7 @@ export const byproductsApi = {
   // Wszystkie rekordy zbiorczego ważenia — magazyn surowca (Grzbiety/Kości).
   list: () => get<{ records: BatchByproducts[] }>('/deboning/byproducts').then(r => r?.records ?? []),
   pending: () => get<{ pending: BatchByproducts[] }>('/deboning/byproducts/pending').then(r => r?.pending ?? []),
-  today: () => get<{ backsKg: number; bonesKg: number }>('/deboning/byproducts/today'),
+  today: () => get<{ backsKg: number; bonesKg: number; weighings: ByproductTodayWeighing[] }>('/deboning/byproducts/today'),
   get: (batchId: string) => get<BatchByproducts>(`/deboning/byproducts/${batchId}`),
   // Ważenie w trakcie rozbioru — rekord BEZ oznaczania partii jako zakończonej.
   ensure: (batchId: string, operator?: string) =>
