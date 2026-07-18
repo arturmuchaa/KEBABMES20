@@ -1194,10 +1194,16 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
             if weighing_err:
                 raise HTTPException(400, weighing_err)
 
+        # dto.kg_meat = OSTATNIA porcja. Wcześniejsze częściowe ważenia
+        # (weigh-part) weszły już na magazyn — wpis dostaje SUMĘ, magazyn
+        # tylko porcję. Bez części: suma == porcja, zachowanie jak dotąd.
         kg_taken = float(entry.get("kg_quarter") or 0)
+        kg_part = kg_meat
+        kg_meat = round(_sum_take_weighings(conn, entry_id) + kg_part, 2)
         yield_err = validate_meat_yield(kg_taken, kg_meat)
         if yield_err:
             raise HTTPException(400, yield_err)
+        _insert_take_weighing(conn, entry_id, kg_part, dto)
 
         kg_remainder = max(0, kg_taken - kg_meat)
         yield_pct = round((kg_meat / kg_taken) * 100, 2)
@@ -1222,14 +1228,15 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
         from app.services.byproducts_service import create_byproduct_lots_for_entry
         create_byproduct_lots_for_entry(conn, row)
 
-        _add_meat_to_lot(conn, entry, kg_meat, entry_id)
+        _add_meat_to_lot(conn, entry, kg_part, entry_id)
         batch = cx_query_one(
             conn, "SELECT * FROM raw_batches WHERE id=%s", (entry["raw_batch_id"],)
         )
 
     logger.info(
         "deboning.take.completed",
-        extra={"entry_id": entry_id, "kg_taken": kg_taken, "kg_meat": kg_meat},
+        extra={"entry_id": entry_id, "kg_taken": kg_taken, "kg_meat": kg_meat,
+               "kg_part": kg_part},
     )
     # Domknięcie OSTATNIEGO pobrania wyczerpanej partii = faktyczny koniec
     # rozbioru → dopiero teraz rekord ubocznych (guard w środku sprawdza,

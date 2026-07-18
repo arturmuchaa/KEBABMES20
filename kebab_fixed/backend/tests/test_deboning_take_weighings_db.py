@@ -75,3 +75,31 @@ def test_weigh_part_na_domknietym_wpisie_409(db):
     with pytest.raises(HTTPException) as e:
         weigh_part_deboning_take(entry["id"], _meat_dto(10.0))
     assert e.value.status_code == 409
+
+
+def test_complete_po_czesciach_sumuje_i_nie_dubluje_magazynu(db):
+    _seed_batch()
+    entry = create_deboning_take(_take_dto())
+    weigh_part_deboning_take(entry["id"], _meat_dto(100.0))
+    complete_deboning_take(entry["id"], _meat_dto(95.0))  # ostatnia porcja
+    row = query_one(
+        "SELECT status, kg_meat, yield_pct, kg_remainder FROM deboning_entries WHERE id=%s",
+        (entry["id"],),
+    )
+    assert row["status"] == "complete"
+    assert float(row["kg_meat"]) == 195.0          # 100 + 95
+    assert float(row["yield_pct"]) == 65.0          # 195/300
+    assert float(row["kg_remainder"]) == 105.0
+    lot = query_one("SELECT kg_initial, kg_available FROM meat_stock WHERE lot_no='800'")
+    assert float(lot["kg_available"]) == 195.0      # nie 100+195
+    w = query_one("SELECT COUNT(*) AS n FROM deboning_take_weighings WHERE entry_id=%s", (entry["id"],))
+    assert w["n"] == 2                              # obie porcje w historii
+
+
+def test_complete_z_czesciami_waliduje_sume(db):
+    _seed_batch()
+    entry = create_deboning_take(_take_dto())
+    weigh_part_deboning_take(entry["id"], _meat_dto(200.0))
+    with pytest.raises(HTTPException) as e:
+        complete_deboning_take(entry["id"], _meat_dto(150.0))  # 350 > 300
+    assert e.value.status_code == 400
