@@ -1,7 +1,7 @@
 """Zbiorcze ważenie ubocznych: ważenie w trakcie rozbioru (ensure_record),
 domknięcie partii z przeliczeniem %, widoczność w statystykach biura.
 Testy DB — wymagają TEST_DATABASE_URL (patrz conftest), inaczej skip."""
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from app.db import execute, query_one
 from app.services.batch_byproducts_service import (
@@ -138,10 +138,34 @@ def test_kafelek_zostaje_dopoki_bilans_masy_sie_nie_domyka(db):
 def test_today_totals_sumuje_dzisiejsze_wazenia(db):
     _seed_batch_with_entries(internal_no="804")
     ensure_record("rb1")
-    record("rb1", "backs", 55.5, [])
+    # suma liczy się z PALET (żywy kreator zawsze je wysyła) — frakcja
+    # zapisana bez palet nie ma dnia, więc do „dziś" nie wchodzi
+    record("rb1", "backs", 55.5, [
+        {"tareLabel": "H1", "tareKg": 18, "containers": 4, "gross": 73.5, "net": 55.5},
+    ])
     t = today_totals()
     assert t["backsKg"] == 55.5
     assert t["bonesKg"] == 0.0
+    assert len(t["weighings"]) == 1
+    w = t["weighings"][0]
+    assert (w["kind"], w["rawBatchNo"], w["containers"], w["netKg"]) == ("backs", "804", 4, 55.5)
+    assert w["tareLabel"] == "H1" and w["weighedAt"]
+
+
+def test_today_totals_partia_wazona_przez_dwa_dni_liczy_tylko_dzis(db):
+    _seed_batch_with_entries(internal_no="811")
+    ensure_record("rb1")
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    # paleta z wczoraj przychodzi ze SWOIM stemplem (kreator odsyła całą
+    # listę narastająco), nowa dostaje „teraz" w _stamp_pallets
+    record("rb1", "bones", 700.0, [
+        {"tareLabel": "H1", "tareKg": 18, "containers": 36, "gross": 518, "net": 500,
+         "weighedAt": yesterday},
+        {"tareLabel": "H1", "tareKg": 18, "containers": 14, "gross": 218, "net": 200},
+    ])
+    t = today_totals()
+    assert t["bonesKg"] == 200.0  # stary kod dawał 700 (całe bones_kg po bones_at)
+    assert [w["netKg"] for w in t["weighings"] if w["kind"] == "bones"] == [200.0]
 
 
 # ── Partia rozbierana i ważona przez KILKA DNI (prod 411, 13–14.07.2026) ──

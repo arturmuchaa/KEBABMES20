@@ -204,18 +204,44 @@ def list_all() -> List[Dict[str, Any]]:
     return [_row(r) for r in rows]
 
 
-def today_totals() -> Dict[str, float]:
-    """Suma zbiorczo zważonych grzbietów/kości z DZISIAJ (czas PL) — pasek
-    dolny HMI. Frakcja liczy się w dniu jej zważenia (backs_at/bones_at)."""
-    r = query_one(
-        "SELECT "
-        "  COALESCE(SUM(backs_kg) FILTER (WHERE (backs_at AT TIME ZONE 'Europe/Warsaw')::date "
-        "    = (now() AT TIME ZONE 'Europe/Warsaw')::date), 0) AS backs, "
-        "  COALESCE(SUM(bones_kg) FILTER (WHERE (bones_at AT TIME ZONE 'Europe/Warsaw')::date "
-        "    = (now() AT TIME ZONE 'Europe/Warsaw')::date), 0) AS bones "
-        "FROM batch_byproducts"
+def today_totals() -> Dict[str, Any]:
+    """Dzisiejsze ważenia grzbietów/kości (czas PL) — pasek dolny HMI + modal
+    listy ważeń. Suma i lista liczone z PALET po ich weighedAt — partia
+    ważona przez kilka dni rozlicza każdą paletę w JEJ dniu. Poprzednia
+    wersja sumowała narastające backs_kg/bones_kg po backs_at/bones_at,
+    przez co CAŁA frakcja wpadała do dnia OSTATNIEGO ważenia. Palety sprzed
+    stemplowania (bez weighedAt) nie mogą być dzisiejsze — odpadają w WHERE."""
+    rows = query_all(
+        """
+        SELECT bb.raw_batch_no, k.kind, p.pallet
+        FROM batch_byproducts bb
+        CROSS JOIN LATERAL (VALUES
+            ('backs', bb.backs_pallets), ('bones', bb.bones_pallets)
+        ) AS k(kind, pallets)
+        CROSS JOIN LATERAL jsonb_array_elements(COALESCE(k.pallets, '[]'::jsonb)) AS p(pallet)
+        WHERE ((p.pallet->>'weighedAt')::timestamptz AT TIME ZONE 'Europe/Warsaw')::date
+              = (now() AT TIME ZONE 'Europe/Warsaw')::date
+        ORDER BY (p.pallet->>'weighedAt')::timestamptz
+        """
     )
-    return {"backsKg": float(r["backs"] or 0), "bonesKg": float(r["bones"] or 0)}
+    weighings: List[Dict[str, Any]] = []
+    backs = bones = 0.0
+    for r in rows:
+        p = r["pallet"] or {}
+        net = float(p.get("net") or 0)
+        if r["kind"] == "backs":
+            backs += net
+        else:
+            bones += net
+        weighings.append({
+            "kind": r["kind"],
+            "rawBatchNo": r["raw_batch_no"],
+            "weighedAt": p.get("weighedAt"),
+            "tareLabel": p.get("tareLabel") or "",
+            "containers": int(p.get("containers") or 0),
+            "netKg": round(net, 2),
+        })
+    return {"backsKg": round(backs, 2), "bonesKg": round(bones, 2), "weighings": weighings}
 
 
 def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = None) -> Dict[str, Any]:
