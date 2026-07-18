@@ -20,7 +20,7 @@ import { BASE } from '@/lib/api'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
-import { splitEntriesByStatus, entryTime } from '@/features/deboning/utils'
+import { splitEntriesByStatus, entryTime, decideTakeSave } from '@/features/deboning/utils'
 import { useScale } from '@/features/deboning/useScale'
 import {
   computeWeighing, sanitizeCartTares, CART_TARES_KG, E2_TARE_KG, KG_PER_E2_MIN, KG_PER_E2_MAX,
@@ -228,11 +228,13 @@ const PendingBatchTile = memo(function PendingBatchTile({ rec, onOpen }: {
 })
 
 // ─── Kafel pracownika ──────────────────────────────────────────────
-const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, pendingKg, pendingBatchNo, blocked, onSelect, onLongPress }: {
+const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, pendingKg, pendingWeighedKg, pendingBatchNo, blocked, onSelect, onLongPress }: {
   worker: User; selected: boolean; entryCount: number; kgToday: number
   /** Otwarte pobranie ćwiartki (kg) — kafel pokazuje „czeka na zważenie",
    *  a klik od razu wraca do domknięcia mięsem. */
   pendingKg?: number
+  /** Suma porcji z częściowych ważeń — kafel pokazuje „zważono X/Y kg". */
+  pendingWeighedKg?: number
   /** Numer partii otwartego pobrania — mięso wraca pod TĘ partię. */
   pendingBatchNo?: string
   /** Wybrana jest INNA partia niż pobranie — kafel przygaszony (klik = toast). */
@@ -262,7 +264,10 @@ const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount
       {pendingKg != null ? (
         <span className="text-[10px] font-bold uppercase text-center leading-tight px-1 py-0.5 w-full"
           style={{ borderRadius: 6, background: selected ? 'rgba(255,255,255,.2)' : 'var(--ambSoft)', color: selected ? '#fff' : 'var(--amb)', letterSpacing: '.02em' }}>
-          ⏳ {pendingBatchNo ? `${pendingBatchNo} · ` : 'czeka '}{fmtKg(pendingKg, 1)} kg
+          ⏳ {pendingBatchNo ? `${pendingBatchNo} · ` : 'czeka '}
+          {(pendingWeighedKg ?? 0) > 0
+            ? `zważono ${fmtKg(pendingWeighedKg ?? 0, 0)}/${fmtKg(pendingKg ?? 0, 0)} kg`
+            : `${fmtKg(pendingKg, 1)} kg`}
         </span>
       ) : kgToday > 0 && (
         <span className="hmi-v10-mono text-[11px] font-bold" style={{ color: selected ? 'rgba(255,255,255,.75)' : 'var(--mut)' }}>{fmtKg(kgToday, 0)} kg</span>
@@ -388,7 +393,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // je NA PARTIĘ, nie per wpis, więc suma wpisów ich nie widzi).
   const byprodToday = useApi(() => byproductsApi.today())
   const { session, timeWindow, loading: sessionLoading, startDay, startLoading, closeDay, closeLoading } = useProductionSession()
-  const { entries, addEntry, addTake, completeTake, editTake, editEntry, removeEntry, lastCreated, addLoading, addTakeLoading, completeTakeLoading, removeLoading } = useDeboningEntries(session?.id ?? null)
+  const { entries, addEntry, addTake, completeTake, weighPart, editTake, editEntry, removeEntry, lastCreated, addLoading, addTakeLoading, completeTakeLoading, weighPartLoading, removeLoading } = useDeboningEntries(session?.id ?? null)
 
   // Rozdział: pobrania czekające na mięso (pending) vs domknięte wpisy (complete).
   // Agregaty, statystyki i lista „ostatnie” liczą tylko complete; pending mają
@@ -439,6 +444,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Domykane pobranie (kliknięty kafelek „czeka na zważenie”). Gdy != null,
   // ćwiartka/partia/pracownik są zablokowane, aktywne jest tylko pole mięsa.
   const [resumeId, setResumeId] = useState<string | null>(null)
+  // Dialog „część czy całość?" — łączny % poniżej normy (63) po ZAPISZ.
+  const [partialPrompt, setPartialPrompt] = useState<{ portionKg: number; weighedKg: number; takenKg: number } | null>(null)
 
   // Tary wózków: lista z biura (edytowalna w Ustawieniach firmy); cache w
   // localStorage na wypadek braku sieci przy starcie, fallback = stała lista.
@@ -530,10 +537,19 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     for (const e of pendingTakes) {
       const bid = (e as any).rawBatchId
       if (!bid) continue
-      m.set(bid, (m.get(bid) ?? 0) + Number((e as any).kgTaken || 0))
+      // Minus zważone porcje — kafel „czeka na mięso" pokazuje to, co
+      // FAKTYCZNIE jeszcze wróci na wagę (część mogła już zjechać).
+      m.set(bid, (m.get(bid) ?? 0) + Number((e as any).kgTaken || 0) - Number((e as any).kgMeatWeighed || 0))
     }
     return m
   }, [pendingTakes])
+
+  // Domykane pobranie + suma już zważonych porcji (kgMeatWeighed z listy).
+  const resumeEntry = useMemo(
+    () => (resumeId ? (pendingTakes.find(p => p.id === resumeId) as DeboningEntry | undefined) ?? null : null),
+    [resumeId, pendingTakes],
+  )
+  const resumeWeighedKg = Number(resumeEntry?.kgMeatWeighed ?? 0)
 
   const allActiveBatches = useMemo(() =>
     (batchData.data?.data ?? [])
@@ -636,7 +652,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const autoNet  = autoMode && scale.connected && scale.stable ? weighing.netKg : 0
 
   const meat = autoMode ? autoNet : (parseFloat(kgMeat) || 0)
-  const meatTooBig = taken > 0 && meat > taken
+  // Suma z już zważonymi porcjami — w trybie zwykłym resumeWeighedKg = 0.
+  const meatTooBig = taken > 0 && resumeWeighedKg + meat > taken
   const yieldPct = taken > 0 && meat > 0 && !meatTooBig ? (meat / taken) * 100 : 0
   const canSave = !!selBatch && !!selWorker && taken > 0 && meat > 0 && !meatTooBig
     && (!autoMode || (scale.stable && weighing.ready))
@@ -725,7 +742,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     // Najstarsze otwarte pobranie per pracownik + SUMA kg + PARTIE pobrań
     // (system musi pamiętać, z której partii wydano ćwiartkę — mięso wraca
     // na wagę pod TĘ partię, nie pod aktualnie wybraną).
-    const m = new Map<string, { entry: DeboningEntry; totalKg: number; batchIds: Set<string>; batchNos: string[] }>()
+    const m = new Map<string, { entry: DeboningEntry; totalKg: number; weighedKg: number; batchIds: Set<string>; batchNos: string[] }>()
     for (const e of pendingTakes) {
       const wid = (e as any).workerId
       if (!wid) continue
@@ -734,11 +751,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       const cur = m.get(wid)
       if (cur) {
         cur.totalKg += Number((e as any).kgTaken || 0)
+        cur.weighedKg += Number((e as any).kgMeatWeighed || 0)
         if (bid) cur.batchIds.add(bid)
         if (bno && !cur.batchNos.includes(bno)) cur.batchNos.push(bno)
       } else {
         m.set(wid, {
           entry: e, totalKg: Number((e as any).kgTaken || 0),
+          weighedKg: Number((e as any).kgMeatWeighed || 0),
           batchIds: new Set(bid ? [bid] : []), batchNos: bno ? [bno] : [],
         })
       }
@@ -878,9 +897,45 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     // pobrania (handleCompleteTake + gwarancja serwerowa).
   }
 
-  // Domknięcie pobrania zważonym mięsem.
+  // ZAPISZ w trybie domykania: jeden przycisk — o „część czy całość" decyduje
+  // łączny % (wariant wybrany 2026-07-18; szczegóły w utils/partialWeighing).
   async function handleCompleteTake() {
-    if (completeTakeLoading || !resumeId || meat <= 0 || meatTooBig || !session) return
+    if (completeTakeLoading || weighPartLoading || !resumeId || meat <= 0 || meatTooBig || !session) return
+    if (decideTakeSave(resumeWeighedKg, meat, taken) === 'ask') {
+      setPartialPrompt({ portionKg: meat, weighedKg: resumeWeighedKg, takenKg: taken })
+      return
+    }
+    await doCompleteTake()
+  }
+
+  // Porcja zapisana, pobranie zostaje otwarte — mięso od razu na magazynie.
+  async function handleWeighPart() {
+    if (weighPartLoading || !resumeId || meat <= 0 || !session) return
+    const portion = meat
+    const takenNow = taken
+    const err = await weighPart(resumeId, {
+      kgMeat: portion,
+      ...(scale.available ? {
+        weighMode: autoMode ? 'auto' as const : 'manual' as const,
+        ...(autoMode ? {
+          kgGross: scale.gross,
+          tareCartKg: cartTareTotal ?? undefined,
+          tareE2Kg: weighing.tareE2Kg,
+          e2Count,
+        } : {}),
+      } : {}),
+    }, session)
+    if (err) { showToast(err, 'err'); return }
+    setPartialPrompt(null)
+    setResumeId(null)
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    showToast(`Zapisano ${fmtKg(portion, 1)} kg — razem ${fmtKg(resumeWeighedKg + portion, 1)}/${fmtKg(takenNow, 1)} kg, pobranie otwarte`)
+  }
+
+  // Domknięcie pobrania zważonym mięsem (całość — po decyzji z handleCompleteTake).
+  async function doCompleteTake() {
+    if (!resumeId || !session) return
+    setPartialPrompt(null)
     const err = await completeTake(resumeId, {
       kgMeat: meat,
       ...(scale.available ? {
@@ -1079,6 +1134,40 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               <button type="button" onClick={() => { setFinishPrompt(null); setFinishModal(true) }}
                 className="h-10 text-sm font-bold" style={{ borderRadius: 10, color: 'var(--mut)' }}>
                 Wpisz ręcznie (awaryjnie)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Częściowe ważenie: łączny % poniżej normy — część czy całość? */}
+      {partialPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-[480px] p-8 flex flex-col gap-6" style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)' }}>
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 flex items-center justify-center flex-shrink-0" style={{ borderRadius: 12, background: 'var(--ambSoft)', border: '1px solid var(--ambLine)', color: 'var(--amb)' }}><Scale size={26} /></div>
+              <div>
+                <h3 className="font-extrabold text-xl">
+                  Zważono łącznie {fmtKg(partialPrompt.weighedKg + partialPrompt.portionKg, 1)} z {fmtKg(partialPrompt.takenKg, 1)} kg
+                </h3>
+                <p className="text-sm" style={{ color: 'var(--mut)' }}>
+                  To {fmtPct((partialPrompt.weighedKg + partialPrompt.portionKg) / partialPrompt.takenKg * 100, 0)} pobrania — czy to już całość?
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-3">
+              <button type="button" onClick={handleWeighPart} disabled={weighPartLoading}
+                className="h-14 text-base font-bold flex items-center justify-center gap-3" style={{ borderRadius: 10, background: 'var(--accent)', color: '#fff' }}>
+                {weighPartLoading ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Clock size={20} />}
+                DOWIOZĄ RESZTĘ — zapisz część
+              </button>
+              <button type="button" onClick={() => { void doCompleteTake() }} disabled={completeTakeLoading}
+                className="h-12 text-base font-bold" style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--ink)' }}>
+                TO CAŁOŚĆ — zamknij pobranie
+              </button>
+              <button type="button" onClick={() => setPartialPrompt(null)}
+                className="h-10 text-sm font-bold" style={{ borderRadius: 10, color: 'var(--mut)' }}>
+                Wróć
               </button>
             </div>
           </div>
@@ -1407,6 +1496,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                     <WorkerTileV10 key={w.id} worker={w} selected={selWorker?.id === w.id}
                       entryCount={ws?.count ?? 0} kgToday={ws?.taken ?? 0}
                       pendingKg={pendingByWorker.get(w.id)?.totalKg}
+                      pendingWeighedKg={pendingByWorker.get(w.id)?.weighedKg}
                       pendingBatchNo={pendingByWorker.get(w.id)?.batchNos.join(', ')}
                       blocked={(() => {
                         const pnd = pendingByWorker.get(w.id)
@@ -1473,7 +1563,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               label={resumeId ? 'Pobrano (z pobrania)' : takenMode === 'poj' ? 'Zabrano · poj.' : 'Zabrano z partii'} unit={takenMode === 'poj' && !resumeId ? 'poj' : 'kg'}
               value={kgTaken} active={active === 'taken' && !resumeId}
               onActivate={() => { if (!resumeId) setActive('taken') }}
-              sub={resumeId ? 'zablokowane — zważ mięso' : takenMode === 'poj' && takenRaw > 0 ? `= ${fmtKg(taken, 0)} kg` : ''}
+              sub={resumeId
+                ? (resumeWeighedKg > 0 ? `zważono już ${fmtKg(resumeWeighedKg, 1)} kg — waż resztę` : 'zablokowane — zważ mięso')
+                : takenMode === 'poj' && takenRaw > 0 ? `= ${fmtKg(taken, 0)} kg` : ''}
               extraHeader={resumeId ? undefined : (
                 <span className="flex overflow-hidden" style={{ border: '1px solid var(--line)', borderRadius: 6 }}>
                   {(['kg', 'poj'] as const).map(m => (
