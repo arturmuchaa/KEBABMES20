@@ -687,6 +687,24 @@ _DDL: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_dec_entry ON deboning_entry_corrections(entry_id)",
+    # Częściowe ważenia mięsa z otwartego pobrania — porcja = wiersz (2026-07-18).
+    # Mięso schodzi z hali porcjami zanim pracownik wykroi całość; każda porcja
+    # od razu wchodzi na lot mięsa, wpis zostaje 'pending' aż do domknięcia.
+    """
+    CREATE TABLE IF NOT EXISTS deboning_take_weighings (
+        id TEXT PRIMARY KEY,
+        entry_id TEXT NOT NULL REFERENCES deboning_entries(id) ON DELETE CASCADE,
+        kg_meat NUMERIC NOT NULL CHECK (kg_meat > 0),
+        kg_gross NUMERIC,
+        tare_cart_kg NUMERIC,
+        tare_e2_kg NUMERIC,
+        e2_count INTEGER,
+        weigh_mode TEXT,
+        weighed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_dtw_entry ON deboning_take_weighings(entry_id)",
 ]
 
 

@@ -75,6 +75,23 @@ CREATE TABLE IF NOT EXISTS deboning_entries (
     e2_count INTEGER, weigh_mode TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
+-- Częściowe ważenia mięsa z OTWARTEGO pobrania (porcja = wiersz): mięso
+-- schodzi z hali porcjami zanim pracownik wykroi całość, każda porcja od
+-- razu wchodzi na lot mięsa. Wpis deboning_entries zostaje 'pending' aż do
+-- domknięcia (wtedy kg_meat = suma porcji).
+CREATE TABLE IF NOT EXISTS deboning_take_weighings (
+    id TEXT PRIMARY KEY,
+    entry_id TEXT NOT NULL REFERENCES deboning_entries(id) ON DELETE CASCADE,
+    kg_meat NUMERIC NOT NULL CHECK (kg_meat > 0),
+    kg_gross NUMERIC,
+    tare_cart_kg NUMERIC,
+    tare_e2_kg NUMERIC,
+    e2_count INTEGER,
+    weigh_mode TEXT,
+    weighed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_dtw_entry ON deboning_take_weighings(entry_id);
 -- Ważenie zbiorcze produktów ubocznych partii (grzbiety + kości) PO zakończeniu
 -- rozbioru. Niezależne flagi (grzbiety/kości mogą być zważone osobno), stan
 -- przeżywa zamknięcie dnia i przechodzi na kolejne dni aż do dokończenia.
