@@ -32,6 +32,20 @@ from app.utils.stock import create_stock_movement
 logger = get_logger(__name__)
 
 
+def _production_day(plan_date: Any, today: str) -> str:
+    """Dzień produkcji partii przyprawionego: data planu, a gdy jej brak lub
+    leży w przyszłości — dzisiaj.
+
+    Biuro potwierdza masowanie po fakcie („biuro potwierdza" bez HMI), więc
+    chwila zapisu ≠ dzień produkcji. Data z przyszłości nie może wejść na
+    etykietę, stąd ograniczenie do dzisiaj.
+    """
+    if not plan_date:
+        return today
+    pd = str(plan_date)[:10]
+    return pd if pd <= today else today
+
+
 # ── Serialization helpers ─────────────────────────────────────────────
 
 def build_mixing_order(o: Dict) -> Dict:
@@ -741,7 +755,15 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
             ),
         )
 
-        expiry = (datetime.utcnow() + timedelta(days=5)).date().isoformat()
+        # Dzień produkcji = data planu, nie moment potwierdzenia: biuro
+        # potwierdza masowanie po fakcie (prod 2026-07-20: niedzielny wsad
+        # zatwierdzany w poniedziałek trafiłby na poniedziałek, z ważnością
+        # o dzień za długą). Nigdy w przyszłość — plan zrobiony z wyprzedzeniem
+        # i domknięty wcześniej dostaje dzisiejszą datę.
+        production_day = _production_day(order.get("plan_date"), now_iso()[:10])
+        expiry = (
+            datetime.fromisoformat(production_day) + timedelta(days=5)
+        ).date().isoformat()
         # Rodzaj surowca partii przyprawionej = rodzaj lotów wsadu (w beczce
         # nie mieszamy surowców). Komponenty kebaba wybierają po rodzaju.
         mat_row = cx_query_one(
@@ -772,10 +794,9 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
         mat_name = (mat_row or {}).get("material_name") or "Mięso z/s"
         # Tożsamość partii przyprawionego = (recipe_id, batch_no, dzień produkcji).
         # Różne receptury z tej samej partii surowca = osobne partie (nie zlewamy).
-        # production_day liczony z now_iso() — spójny z created_at (bez dryfu TZ).
+        # production_day policzony wyżej — z daty planu, nie z chwili zapisu.
         recipe_id_val = order.get("recipe_id", "")
         prod_iso = now_iso()
-        production_day = prod_iso[:10]  # 'YYYY-MM-DD'
         existing = cx_query_one(
             conn,
             """

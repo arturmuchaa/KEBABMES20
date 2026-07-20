@@ -109,3 +109,21 @@ def test_same_recipe_same_batch_same_day_merges(db):
     assert len(rows) == 1, "ten sam recept+wsad+dzień ma się scalić w jedną partię"
     assert float(rows[0]["kg_produced"]) == 400.0
     assert float(rows[0]["kg_available"]) == 400.0
+
+
+def test_finish_zaleglego_planu_datuje_partie_na_dzien_planu(db):
+    """Biuro potwierdza niedzielne masowanie w poniedziałek (prod 2026-07-20):
+    partia i termin ważności muszą iść od DNIA PLANU, nie od chwili zapisu."""
+    from datetime import date, timedelta
+
+    plan_day = date.today() - timedelta(days=1)
+    _seed_raw_batch("rb419", 419)
+    _seed_stock("msPast", "419", 5000, "rb419")
+    _seed_order("oPast", "r-past", "BEYAZ", meat_kg=400)
+    execute("UPDATE mixing_orders SET plan_date=%s WHERE id='oPast'", (plan_day,))
+
+    _finish("oPast", "msPast", 400)
+
+    sm = query_one("SELECT * FROM seasoned_meat WHERE recipe_id='r-past'")
+    assert str(sm["production_day"]) == plan_day.isoformat()
+    assert str(sm["expiry_date"]) == (plan_day + timedelta(days=5)).isoformat()
