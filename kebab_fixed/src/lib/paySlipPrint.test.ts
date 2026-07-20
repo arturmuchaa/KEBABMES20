@@ -1,5 +1,22 @@
 import { describe, it, expect } from 'vitest'
-import { settlementOverlapsRange, chunkIntoPages, pageCount } from './paySlipPrint'
+import {
+  settlementOverlapsRange, chunkIntoPages, pageCount, buildPaySlipsDocument,
+} from './paySlipPrint'
+
+const sample = (over: Record<string, unknown> = {}) => ({
+  id: 'x',
+  worker_name: 'Jan Kowalski',
+  worker_role: 'WORKER_DEBONING',
+  date_from: '2026-07-13',
+  date_to: '2026-07-19',
+  kg_total: 820,
+  rate_per_kg: 2,
+  gross_amount: 1640,
+  net_amount: 1440,
+  deductions: [{ id: 'd1', description: 'zaliczka', amount: 200 }],
+  work_dates_detail: [{ work_date: '2026-07-13', kg: 120.5 }],
+  ...over,
+})
 
 describe('settlementOverlapsRange — filtr zakresu dat druku zbiorczego', () => {
   const s = { date_from: '2026-07-13', date_to: '2026-07-19' }
@@ -63,6 +80,67 @@ describe('chunkIntoPages — podział pasków na strony A4 po 4 (2×2)', () => {
     const pages = chunkIntoPages(items(6))
     expect(pages[0].map(x => (x ? x.id : null))).toEqual(['0', '1', '2', '3'])
     expect(pages[1].map(x => (x ? x.id : null))).toEqual(['4', '5', null, null])
+  })
+})
+
+describe('buildPaySlipsDocument — dokument do druku', () => {
+  it('kartka A4 POZIOMO, siatka 2×2 (297×210 mm)', () => {
+    const html = buildPaySlipsDocument([sample()])
+    expect(html).toContain('size: A4 landscape')
+    expect(html).toContain('width:297mm')
+    expect(html).toContain('height:210mm')
+  })
+
+  it('12 pasków → 3 kartki', () => {
+    const html = buildPaySlipsDocument(Array.from({ length: 12 }, () => sample()))
+    expect(html.match(/class="sheet"/g)).toHaveLength(3)
+  })
+
+  it('niepełna kartka ma puste komórki na dalsze paski', () => {
+    const html = buildPaySlipsDocument([sample(), sample()])
+    expect(html.match(/class="cell empty"/g)).toHaveLength(2)
+  })
+
+  it('dane pracownika i kwoty w formacie polskim', () => {
+    const html = buildPaySlipsDocument([sample()])
+    expect(html).toContain('Jan Kowalski')
+    expect(html).toContain('Rozbiór')
+    expect(html).toContain('1440,00 zł')    // do wypłaty (pl-PL nie grupuje 4 cyfr)
+    expect(html).toContain('820,00 kg')     // suma kg
+    expect(html).toContain('241,00 zł')     // zarobek dnia: 120,5 kg × 2 zł
+    expect(html).toContain('zaliczka')      // potrącenie
+  })
+
+  it('kwoty 5-cyfrowe grupowane po polsku (spacja nierozdzielająca)', () => {
+    const html = buildPaySlipsDocument([sample({ net_amount: 14400 })])
+    expect(html).toContain('14 400,00 zł')
+  })
+
+  it('nazwiska ze znakami HTML nie rozbijają wydruku', () => {
+    const html = buildPaySlipsDocument([sample({ worker_name: 'Jan <b>&</b> Syn' })])
+    expect(html).not.toContain('<b>&</b> Syn')
+    expect(html).toContain('Jan &lt;b&gt;&amp;&lt;/b&gt; Syn')
+  })
+
+  it('długie rozliczenie (>8 dni) łamie listę dni na dwie kolumny', () => {
+    const days = Array.from({ length: 14 }, (_, i) => ({ work_date: `2026-07-${String(6 + i).padStart(2, '0')}`, kg: 100 }))
+    const html = buildPaySlipsDocument([sample({ work_dates_detail: days })])
+    expect(html).toContain('days-wrap split')
+    expect(html.match(/<table class="days">/g)).toHaveLength(2)
+    days.forEach(d => expect(html).toContain(d.work_date.slice(8) + '.07'))
+  })
+
+  it('krótkie rozliczenie zostaje w jednej kolumnie', () => {
+    const days = Array.from({ length: 6 }, (_, i) => ({ work_date: `2026-07-1${i + 3}`, kg: 100 }))
+    const html = buildPaySlipsDocument([sample({ work_dates_detail: days })])
+    expect(html).not.toContain('days-wrap split')
+    expect(html.match(/<table class="days">/g)).toHaveLength(1)
+  })
+
+  it('pasek bez rozpisanych dni i bez potrąceń nadal się generuje', () => {
+    const html = buildPaySlipsDocument([sample({ work_dates_detail: [], deductions: [] })])
+    expect(html).toContain('Jan Kowalski')
+    expect(html).toContain('1440,00 zł')
   })
 })
 

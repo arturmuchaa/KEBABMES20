@@ -51,9 +51,30 @@ Wzorem `mixingPlanPrint.ts`: czyste funkcje
 - `settlementOverlapsRange(s, from, to)` — filtr zakresu,
 - `chunkIntoPages(items)` — podział na strony po 4 z dopełnieniem `null`
   (przeniesione z `printPaySlips`),
-- `pageCount(n)` — ⌈n/4⌉ (min 1).
+- `pageCount(n)` — ⌈n/4⌉ (min 1),
+- `buildPaySlipsDocument(items)` — całe HTML wydruku (dawne `paySlipHtml`
+  + CSS z `PayrollPage.tsx`).
 
 Testy vitest: `src/lib/paySlipPrint.test.ts`.
+
+## Iteracja 2 (2026-07-20): pasek poziomy
+
+Feedback po pierwszym wdrożeniu: „czy możemy zrobić pasek nie w pionie a
+w poziomie i bardziej czytelnie". Siatka 2×2 zostaje, zmienia się
+orientacja kartki:
+
+- `@page: A4 landscape` → arkusz 297×210 mm, komórka **148,5×105 mm**
+  (pasek szeroki zamiast wąskiego i wysokiego).
+- Układ paska: nagłówek (nazwisko + rola | okres) nad kreską, poniżej
+  dwie kolumny — **dni pracy** po lewej, **rozliczenie** po prawej
+  (kg, wynagrodzenie, potrącenia, ramka „Do wypłaty"), podpisy na dole.
+- Czytelność: większa typografia (11→12 px baza, nazwisko 19 px, kwota
+  netto 21 px), kwoty w formacie pl-PL (`1440,00` / `14 400,00`).
+- Potrącenia **bez czerwieni** — na drukarce mono czerwień wychodzi
+  bladym szarym; zamiast tego czerń + pogrubiony minus `−`.
+- Nazwiska i opisy potrąceń **escapowane** (znaki `<`, `&` rozbijały HTML).
+- Rozliczenia > 8 dni: lista dni łamie się na dwie kolumny (wtedy data +
+  kg, bez kolumny „Zarobek", która by się nie zmieściła czytelnie).
 
 ## Odrzucone alternatywy
 
