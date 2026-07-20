@@ -709,8 +709,10 @@ _DDL: list[str] = [
     # ponownie pod tym samym numerem — prod 2026-07-20: „Partia 423 już istnieje".
     # Anulowana dostawa jest z definicji nieruszona (bez rozbioru/mięsa/ubocznych),
     # więc numer wraca do puli; pierwotny numer zostaje w internal_batch_seq.
+    # left() zamiast LIKE 'ANUL-%': psycopg2 czyta % w SQL jako placeholder
+    # parametru (IndexError przy starcie), a runner połyka błąd instrukcji.
     "UPDATE raw_batches SET internal_batch_no = 'ANUL-' || id "
-    "WHERE status='cancelled' AND internal_batch_no NOT LIKE 'ANUL-%'",
+    "WHERE status='cancelled' AND left(internal_batch_no, 5) <> 'ANUL-'",
 ]
 
 
