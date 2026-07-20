@@ -4,6 +4,7 @@
 import { useState, useMemo } from 'react'
 import { ExpiryBadge, StatusBadge, computeDisplayStatus } from '@/components/ui/badge'
 import { fmtKg, fmtDatePl, fmtPln } from '@/lib/utils'
+import { batchDisplayNo } from '../batchDisplayNo'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -42,14 +43,14 @@ export function RawBatchesTable({ batches, loading, onEdit, onCancel }: RawBatch
     const q = filter.toLowerCase()
     const filtered = q
       ? batches.filter(b =>
-          (b.internalBatchNo||'').toLowerCase().includes(q) ||
+          batchDisplayNo(b).toLowerCase().includes(q) ||
           (b.supplierName||'').toLowerCase().includes(q) ||
           (b.supplierBatchNo||'').toLowerCase().includes(q)
         )
       : batches
     return [...filtered].sort((a, b) => {
       let cmp = 0
-      if (sortCol === 'internalBatchNo') cmp = (a.internalBatchNo||'').localeCompare(b.internalBatchNo||'')
+      if (sortCol === 'internalBatchNo') cmp = batchDisplayNo(a).localeCompare(batchDisplayNo(b), undefined, { numeric: true })
       if (sortCol === 'supplierName')    cmp = (a.supplierName||'').localeCompare(b.supplierName||'')
       if (sortCol === 'slaughterDate')   cmp = (a.slaughterDate||'').localeCompare(b.slaughterDate||'')
       if (sortCol === 'expiryDate')      cmp = (a.expiryDate||'').localeCompare(b.expiryDate||'')
@@ -168,7 +169,7 @@ export function RawBatchesTable({ batches, loading, onEdit, onCancel }: RawBatch
                 <TableRow key={b.id}>
                   <TableCell>
                     <code className="font-mono font-bold text-foreground text-xs bg-muted px-1.5 py-0.5 rounded">
-                      {b.internalBatchNo}
+                      {batchDisplayNo(b)}
                     </code>
                   </TableCell>
                   <TableCell>

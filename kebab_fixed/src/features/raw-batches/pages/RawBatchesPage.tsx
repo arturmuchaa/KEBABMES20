@@ -233,7 +233,9 @@ export function RawBatchesPage() {
             <DialogDescription>
               Czy na pewno usunąć partię <code className="font-mono font-bold text-primary">{cancelBatch?.internalBatchNo}</code>?
               Ćwiartka jeszcze nie została wykorzystana, więc usunięcie jest bezpieczne.
-              Partia zostanie oznaczona jako anulowana (status w historii pozostanie).
+              Dostawa zostanie oznaczona jako anulowana (zostaje w historii), a numer{' '}
+              <strong>{cancelBatch?.internalBatchNo}</strong> wróci do puli — będzie można
+              przyjąć pod nim ponownie.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">

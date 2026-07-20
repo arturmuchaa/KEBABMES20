@@ -705,6 +705,12 @@ _DDL: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_dtw_entry ON deboning_take_weighings(entry_id)",
+    # Usunięte przyjęcia trzymały swój numer (UNIQUE), więc nie dało się przyjąć
+    # ponownie pod tym samym numerem — prod 2026-07-20: „Partia 423 już istnieje".
+    # Anulowana dostawa jest z definicji nieruszona (bez rozbioru/mięsa/ubocznych),
+    # więc numer wraca do puli; pierwotny numer zostaje w internal_batch_seq.
+    "UPDATE raw_batches SET internal_batch_no = 'ANUL-' || id "
+    "WHERE status='cancelled' AND internal_batch_no NOT LIKE 'ANUL-%'",
 ]
 
 

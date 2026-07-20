@@ -264,9 +264,18 @@ def cancel_batch(batch_id: str) -> Dict:
             raise HTTPException(409, reason)
         # Zerowanie stanu: anulowana dostawa nie może trzymać kg — duch 415
         # (2026-07-16) wisiał z 5010 kg na magazynie surowca i w pickerze WZ.
+        #
+        # Numer WRACA DO PULI (prod 2026-07-20: usunięto 423 i nie dało się
+        # przyjąć pod tym numerem — „Partia 423 już istnieje"). Kolumna ma
+        # UNIQUE, a numer jest w systemie kluczem ludzkim (traceability i WZ
+        # szukają dostawy po nim), więc zamiast dopuszczać duplikaty
+        # zwalniamy numer: wiersz zostaje do historii ze znacznikiem ANUL-<id>
+        # (nigdy nie koliduje z gołym numerem), a pierwotny numer czyta się
+        # z internal_batch_seq.
         row = cx_execute_returning(
             conn,
-            "UPDATE raw_batches SET status='cancelled', kg_available=0 WHERE id=%s RETURNING *",
+            "UPDATE raw_batches SET status='cancelled', kg_available=0, "
+            "internal_batch_no='ANUL-' || id WHERE id=%s RETURNING *",
             (batch_id,),
         )
     if not row:
