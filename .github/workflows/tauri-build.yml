@@ -109,8 +109,9 @@ jobs:
           $FILENAME = "${{ steps.meta.outputs.exe_name }}"
           $PUB_DATE = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
           $NOTES = "Nowa wersja Kebab MES $VERSION"
-          $URL = "$pub?version=$([uri]::EscapeDataString($VERSION))&signature=$([uri]::EscapeDataString($SIGNATURE))&filename=$([uri]::EscapeDataString($FILENAME))&notes=$([uri]::EscapeDataString($NOTES))&pub_date=$([uri]::EscapeDataString($PUB_DATE))"
+          $URL = "${pub}?version=$([uri]::EscapeDataString($VERSION))&signature=$([uri]::EscapeDataString($SIGNATURE))&filename=$([uri]::EscapeDataString($FILENAME))&notes=$([uri]::EscapeDataString($NOTES))&pub_date=$([uri]::EscapeDataString($PUB_DATE))"
           Write-Host "Publikuję $FILENAME (v$VERSION) -> $pub"
+          Write-Host "URL well-formed: $([uri]::IsWellFormedUriString($URL, [UriKind]::Absolute))"
 
           curl.exe --fail --silent --show-error `
             -k `
