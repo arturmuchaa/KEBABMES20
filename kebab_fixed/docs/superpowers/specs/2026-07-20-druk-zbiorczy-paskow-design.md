@@ -70,8 +70,14 @@ orientacja kartki:
   (kg, wynagrodzenie, potrącenia, ramka „Do wypłaty"), podpisy na dole.
 - Czytelność: większa typografia (11→12 px baza, nazwisko 19 px, kwota
   netto 21 px), kwoty w formacie pl-PL (`1440,00` / `14 400,00`).
-- Potrącenia **bez czerwieni** — na drukarce mono czerwień wychodzi
-  bladym szarym; zamiast tego czerń + pogrubiony minus `−`.
+- Kolory (decyzja użytkownika, iteracja 3): potrącenia **czerwone**
+  (`#c00000`), kwota do wypłaty **zielona** (`#166534`, tekst + ramka) —
+  jak na ekranie. Wymaga `print-color-adjust:exact`, inaczej przeglądarka
+  wycina kolory z wydruku.
+- Kwoty nigdy nie łamią się do nowej linii: `nowrap` na liczbach +
+  `td.r{width:1%}` (kolumna z liczbą kurczy się do treści, więc przy
+  ciasnocie łamie się etykieta, nie kwota). Bug zgłoszony z hali:
+  „kg zjeżdża na dół" przy długiej etykiecie i 5-cyfrowej wartości.
 - Nazwiska i opisy potrąceń **escapowane** (znaki `<`, `&` rozbijały HTML).
 - Rozliczenia > 8 dni: lista dni łamie się na dwie kolumny (wtedy data +
   kg, bez kolumny „Zarobek", która by się nie zmieściła czytelnie).

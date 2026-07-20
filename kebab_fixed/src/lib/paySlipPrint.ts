@@ -91,10 +91,10 @@ function paySlipHtml(s: any | null): string {
   // Przy dwóch kolumnach dni kolumna „Zarobek" nie zmieściłaby się czytelnie
   // — dla długich okresów zostają data i kg, kwoty są w podsumowaniu.
   const dayRow = (d: any) => split
-    ? `<tr><td class="nw">${esc(fmtDate(d.work_date, dateFmt))}</td><td class="r">${num(d.kg)}</td></tr>`
+    ? `<tr><td class="nw">${esc(fmtDate(d.work_date, dateFmt))}</td><td class="r nw">${num(d.kg)}</td></tr>`
     : `<tr>
       <td class="nw">${esc(fmtDate(d.work_date, dateFmt))}</td>
-      <td class="r">${num(d.kg)}</td>
+      <td class="r nw">${num(d.kg)}</td>
       <td class="r nw">${num(Number(d.kg) * Number(s.rate_per_kg))} zł</td>
     </tr>`
   const daysHead = split
@@ -134,8 +134,8 @@ function paySlipHtml(s: any | null): string {
       <div class="col-days">${daysBlock}</div>
       <div class="col-sum">
         <table class="sum">
-          <tr><td class="lbl">${esc(label)}</td><td class="r bold">${num(s.kg_total)} kg</td></tr>
-          <tr><td class="lbl">Wynagrodzenie</td><td class="r bold">${num(s.gross_amount)} zł</td></tr>
+          <tr><td class="lbl">${esc(label)}</td><td class="r bold nw">${num(s.kg_total)} kg</td></tr>
+          <tr><td class="lbl">Wynagrodzenie</td><td class="r bold nw">${num(s.gross_amount)} zł</td></tr>
           ${deductRows}
         </table>
         <div class="net">
@@ -197,10 +197,12 @@ export function buildPaySlipsDocument(items: any[]): string {
   td+td,th+th{padding-left:3mm}   /* kolumny nie mogą się sklejać */
   .r{text-align:right;font-variant-numeric:tabular-nums}
   .nw{white-space:nowrap}
+  /* Kwota trzyma się w jednej linii — przy ciasnocie łamie się etykieta,
+     nigdy liczba (dlatego kolumna z liczbą kurczy się do treści). */
+  td.r{width:1%}
   .lbl{color:#555}
   .bold{font-weight:700}
-  /* Bez czerwieni — na drukarce mono wychodzi bladym szarym */
-  .minus{font-weight:700;white-space:nowrap}
+  .minus{color:#c00000;font-weight:700;white-space:nowrap}
 
   .days th{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#666;
     text-align:left;border-bottom:1px solid #bbb;padding-bottom:1.2mm}
@@ -212,7 +214,7 @@ export function buildPaySlipsDocument(items: any[]): string {
   .sum td{font-size:12.5px;border-bottom:1px solid #e8e8e8}
 
   /* Kwota do wypłaty — najważniejsza liczba na pasku */
-  .net{margin-top:4mm;border:2.5px solid #171717;padding:3mm 3.5mm;
+  .net{margin-top:4mm;border:2.5px solid #166534;padding:3mm 3.5mm;color:#166534;
     display:flex;justify-content:space-between;align-items:baseline;gap:3mm}
   .net-lbl{font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;white-space:nowrap}
   .net-val{font-size:21px;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}

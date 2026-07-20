@@ -137,6 +137,20 @@ describe('buildPaySlipsDocument — dokument do druku', () => {
     expect(html.match(/<table class="days">/g)).toHaveLength(1)
   })
 
+  it('potrącenia na czerwono, kwota do wypłaty na zielono', () => {
+    const html = buildPaySlipsDocument([sample()])
+    expect(html).toContain('.minus{color:#c00000')
+    expect(html).toContain('color:#166534')
+    expect(html).toContain('print-color-adjust:exact')  // inaczej druk zignoruje kolory
+  })
+
+  it('kwoty nie łamią się do nowej linii (nowrap na liczbach)', () => {
+    const html = buildPaySlipsDocument([sample()])
+    expect(html).toContain('class="r bold nw">820,00 kg')
+    expect(html).toContain('class="r bold nw">1640,00 zł')
+    expect(html).toContain('td.r{width:1%}')
+  })
+
   it('pasek bez rozpisanych dni i bez potrąceń nadal się generuje', () => {
     const html = buildPaySlipsDocument([sample({ work_dates_detail: [], deductions: [] })])
     expect(html).toContain('Jan Kowalski')
