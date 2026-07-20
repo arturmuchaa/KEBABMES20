@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { usersApi, payrollApi } from '@/lib/apiClient'
+import { chunkIntoPages, pageCount, settlementOverlapsRange } from '@/lib/paySlipPrint'
 import { toast } from 'sonner'
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
@@ -54,6 +55,7 @@ export function PayrollPage() {
   const [deductions, setDeductions] = useState<{ id: string; description: string; amount: string }[]>([])
   const [showSettlement, setShowSettlement] = useState<any>(null)
   const [selectedSlips, setSelectedSlips] = useState<Set<string>>(new Set())
+  const [showBatchPrint, setShowBatchPrint] = useState(false)
 
   const { data: workerDays, loading: daysLoading, refetch: refetchDays } = useApi(
     () => selWorker ? payrollApi.getWorkerDays(selWorker.id, range.from, range.to) : Promise.resolve([]),
@@ -120,6 +122,11 @@ export function PayrollPage() {
 
   return (
     <div className="space-y-5 animate-fade-in">
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" onClick={() => setShowBatchPrint(true)}>
+          <Printer size={14} className="mr-2" /> Drukuj paski
+        </Button>
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
         {/* Lewa kolumna — lista pracowników (dwie grupy) */}
@@ -381,14 +388,14 @@ export function PayrollPage() {
                   {selectedSlips.size > 0 && (
                     <button
                       onClick={async () => {
-                        const ids = Array.from(selectedSlips).slice(0, 4)
+                        const ids = Array.from(selectedSlips)
                         const full = await Promise.all(ids.map(id => payrollApi.getSettlement(id)))
                         printPaySlips(full)
                         setSelectedSlips(new Set())
                       }}
                       className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
                     >
-                      <Printer size={12} /> Drukuj zaznaczone ({Math.min(selectedSlips.size, 4)})
+                      <Printer size={12} /> Drukuj zaznaczone ({selectedSlips.size})
                     </button>
                   )}
                 </div>
@@ -402,22 +409,20 @@ export function PayrollPage() {
                   <div className="divide-y">
                     {(settlements ?? []).map((s: any) => {
                       const checked = selectedSlips.has(s.id)
-                      const disabledByLimit = !checked && selectedSlips.size >= 4
                       return (
                         <div key={s.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30">
                           <input
                             type="checkbox"
                             checked={checked}
-                            disabled={disabledByLimit}
                             onChange={() => {
                               setSelectedSlips(prev => {
                                 const next = new Set(prev)
                                 if (next.has(s.id)) next.delete(s.id)
-                                else if (next.size < 4) next.add(s.id)
+                                else next.add(s.id)
                                 return next
                               })
                             }}
-                            className="w-4 h-4 rounded cursor-pointer disabled:cursor-not-allowed disabled:opacity-30"
+                            className="w-4 h-4 rounded cursor-pointer"
                           />
                           <div className="flex-1">
                             <div className="text-sm font-semibold">
@@ -474,7 +479,137 @@ export function PayrollPage() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Dialog druku zbiorczego */}
+      {showBatchPrint && <BatchPrintDialog onClose={() => setShowBatchPrint(false)} />}
     </div>
+  )
+}
+
+// ─── Dialog druku zbiorczego (paski wielu pracowników naraz) ──
+function plural(n: number, one: string, few: string, many: string) {
+  if (n === 1) return one
+  const d = n % 10, h = n % 100
+  return d >= 2 && d <= 4 && !(h >= 12 && h <= 14) ? few : many
+}
+
+function BatchPrintDialog({ onClose }: { onClose: () => void }) {
+  const [range, setRange] = useState(() => getDefaultRange())
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [printing, setPrinting] = useState(false)
+  const { data: all, loading } = useApi(() => payrollApi.listSettlements(), [])
+
+  const filtered = (all ?? [])
+    .filter((s: any) => settlementOverlapsRange(s, range.from, range.to))
+    .sort((a: any, b: any) =>
+      (a.worker_name ?? '').localeCompare(b.worker_name ?? '', 'pl') ||
+      String(a.date_from).localeCompare(String(b.date_from)))
+
+  // Zmiana zakresu / dociągnięcie danych → domyślnie wszystko zaznaczone
+  const filteredKey = filtered.map((s: any) => s.id).join(',')
+  useEffect(() => {
+    setSelected(new Set(filtered.map((s: any) => s.id)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredKey])
+
+  const allChecked = filtered.length > 0 && selected.size === filtered.length
+  const nSel = selected.size
+  const nPages = nSel === 0 ? 0 : pageCount(nSel)
+
+  async function handlePrint() {
+    const ids = filtered.filter((s: any) => selected.has(s.id)).map((s: any) => s.id)
+    if (ids.length === 0) return
+    setPrinting(true)
+    try {
+      const full = await Promise.all(ids.map((id: string) => payrollApi.getSettlement(id)))
+      printPaySlips(full)
+      onClose()
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Błąd pobierania pasków')
+    } finally {
+      setPrinting(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Druk zbiorczy pasków</DialogTitle>
+          <DialogDescription>Wybierz rozliczenia do wydruku — 4 paski na kartkę A4</DialogDescription>
+        </DialogHeader>
+
+        <div className="flex gap-3 items-end">
+          <div className="space-y-1 flex-1">
+            <Label className="text-xs">Od</Label>
+            <Input type="date" value={range.from}
+              onChange={e => setRange(r => ({ ...r, from: e.target.value }))} />
+          </div>
+          <div className="space-y-1 flex-1">
+            <Label className="text-xs">Do</Label>
+            <Input type="date" value={range.to}
+              onChange={e => setRange(r => ({ ...r, to: e.target.value }))} />
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="space-y-2">{[0, 1, 2].map(i => <Skeleton key={i} className="h-10 rounded-xl" />)}</div>
+        ) : filtered.length === 0 ? (
+          <div className="text-sm text-muted-foreground text-center py-6">Brak rozliczeń w wybranym okresie</div>
+        ) : (
+          <>
+            <button
+              onClick={() => setSelected(allChecked ? new Set() : new Set(filtered.map((s: any) => s.id)))}
+              className="text-xs font-semibold text-primary hover:underline self-start">
+              {allChecked ? 'Odznacz wszystkich' : 'Zaznacz wszystkich'}
+            </button>
+            <div className="max-h-72 overflow-y-auto divide-y border rounded-xl">
+              {filtered.map((s: any) => (
+                <label key={s.id} className="flex items-center gap-3 px-3 py-2 hover:bg-muted/30 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(s.id)}
+                    onChange={() => {
+                      setSelected(prev => {
+                        const next = new Set(prev)
+                        if (next.has(s.id)) next.delete(s.id)
+                        else next.add(s.id)
+                        return next
+                      })
+                    }}
+                    className="w-4 h-4 rounded cursor-pointer"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold truncate">{s.worker_name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(s.date_from + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })} –{' '}
+                      {new Date(s.date_to + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {' · '}{fmtKg(s.kg_total)} kg
+                    </div>
+                  </div>
+                  <div className="text-sm font-black text-green-700 tabular-nums">{fmtPln(s.net_amount)} zł</div>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+
+        <div className="flex items-center justify-between pt-1">
+          <div className="text-sm text-muted-foreground">
+            <strong className="text-foreground">{nSel}</strong> {plural(nSel, 'pasek', 'paski', 'pasków')}
+            {' → '}
+            <strong className="text-foreground">{nPages}</strong> {plural(nPages, 'kartka', 'kartki', 'kartek')} A4
+          </div>
+          <Button onClick={handlePrint} disabled={printing || nSel === 0}>
+            {printing
+              ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
+              : <Printer size={14} className="mr-2" />
+            }
+            Drukuj
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -582,12 +717,7 @@ function paySlipHtml(s: any | null): string {
 // ─── Druk 4 pasków na 1 stronie A4 (2×2) ──────────────────────
 function printPaySlips(items: any[]) {
   // pad do 4 (1, 2, 3 → reszta puste); dla 5+ kolejne strony A4
-  const pages: (any | null)[][] = []
-  for (let i = 0; i < Math.max(1, items.length); i += 4) {
-    const chunk = items.slice(i, i + 4)
-    while (chunk.length < 4) chunk.push(null as any)
-    pages.push(chunk)
-  }
+  const pages = chunkIntoPages(items)
   const sheets = pages.map(p => `
     <div class="sheet">
       ${p.map(paySlipHtml).join('')}
