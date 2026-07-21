@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { splitEntriesByStatus, calcSessionSummary, sortEntriesByCreatedAt } from './index'
+import { splitEntriesByStatus, calcSessionSummary, sortEntriesByCreatedAt, takenOnProductionDay } from './index'
 
 const base = {
   kgBones: 0, kgBacks: 0, workerId: 'w1', rawBatchId: 'b1', yieldPct: 70,
@@ -64,5 +64,41 @@ describe('calcSessionSummary pomija pending', () => {
     expect(s.entryCount).toBe(1)
     expect(s.totalKgTaken).toBe(100)
     expect(Math.round(s.avgYieldPct)).toBe(70)
+  })
+})
+
+describe('takenOnProductionDay', () => {
+  // Prod 2026-07-21: wpis Ryszarda pobrany 20.07 11:45, domknięty 21.07 06:10.
+  // _reattach_overnight_session przepięło go do dzisiejszej sesji, więc HMI —
+  // które pobiera wpisy PO SESJI, nie po dacie — doliczyło jego 240 kg do
+  // dzisiejszego kafelka: 240 + 150 = 390 kg zamiast 150 kg.
+  const dzis = new Date('2026-07-21T09:00:00')
+
+  it('pomija wpis pobrany wczoraj, a domknięty dziś', () => {
+    const out = takenOnProductionDay([
+      { createdAt: '2026-07-20T11:45:00', completedAt: '2026-07-21T06:10:00', kgTaken: 240 },
+      { createdAt: '2026-07-21T08:43:00', completedAt: '2026-07-21T08:43:00', kgTaken: 150 },
+    ] as any, dzis)
+    expect(out).toHaveLength(1)
+    expect((out[0] as any).kgTaken).toBe(150)
+  })
+
+  it('zostawia wpis pobrany dziś, jeszcze niedomknięty', () => {
+    const out = takenOnProductionDay([
+      { createdAt: '2026-07-21T07:10:00', completedAt: null, kgTaken: 135 },
+    ] as any, dzis)
+    expect(out).toHaveLength(1)
+  })
+
+  it('nocna zmiana przed 04:00 liczy się do poprzedniego dnia produkcyjnego', () => {
+    const przedSwitem = new Date('2026-07-21T02:30:00')
+    const out = takenOnProductionDay([
+      { createdAt: '2026-07-20T22:00:00', completedAt: null, kgTaken: 90 },
+    ] as any, przedSwitem)
+    expect(out).toHaveLength(1)
+  })
+
+  it('bez createdAt nie wywala się i nie zgaduje dnia', () => {
+    expect(takenOnProductionDay([{ kgTaken: 10 } as any], dzis)).toHaveLength(0)
   })
 })

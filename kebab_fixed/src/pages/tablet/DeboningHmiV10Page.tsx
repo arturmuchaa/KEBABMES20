@@ -20,7 +20,7 @@ import { BASE } from '@/lib/api'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
-import { splitEntriesByStatus, entryTime, decideTakeSave } from '@/features/deboning/utils'
+import { splitEntriesByStatus, entryTime, decideTakeSave, takenOnProductionDay } from '@/features/deboning/utils'
 import { useScale } from '@/features/deboning/useScale'
 import {
   computeWeighing, sanitizeCartTares, CART_TARES_KG, E2_TARE_KG, KG_PER_E2_MIN, KG_PER_E2_MAX,
@@ -581,22 +581,28 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     (workerData.data ?? []).filter(u => u.role === 'WORKER_DEBONING'),
     [workerData.data])
 
+  // Liczniki zmiany i kafelki pracowników liczą kg POBRANIA, więc biorą tylko
+  // wpisy z DZISIEJSZEGO dnia produkcyjnego. Pobrania przeniesione przez noc
+  // siedzą w dzisiejszej sesji (żeby dało się je zważyć), ale ich kilogramy
+  // należą do wczoraj — inaczej Ryszard pokazywał 390 zamiast 150 kg.
+  const takenToday = useMemo(() => takenOnProductionDay(completeEntries), [completeEntries])
+
   const perWorker = useMemo(() => {
     const m = new Map<string, { name: string; taken: number; meat: number; count: number; lastAt: number }>()
-    for (const e of completeEntries) {
+    for (const e of takenToday) {
       const cur = m.get(e.workerId) ?? { name: e.workerName, taken: 0, meat: 0, count: 0, lastAt: 0 }
       cur.taken += e.kgTaken; cur.meat += e.kgMeat; cur.count += 1
       cur.lastAt = Math.max(cur.lastAt, new Date(entryTime(e)).getTime())
       m.set(e.workerId, cur)
     }
     return m
-  }, [completeEntries])
+  }, [takenToday])
 
   const shift = useMemo(() => {
-    const totTaken = completeEntries.reduce((s, e) => s + e.kgTaken, 0)
-    const totMeat  = completeEntries.reduce((s, e) => s + e.kgMeat, 0)
-    const totBacks = completeEntries.reduce((s, e) => s + (e.kgBacks ?? 0), 0)
-    const totBones = completeEntries.reduce((s, e) => s + (e.kgBones ?? 0), 0)
+    const totTaken = takenToday.reduce((s, e) => s + e.kgTaken, 0)
+    const totMeat  = takenToday.reduce((s, e) => s + e.kgMeat, 0)
+    const totBacks = takenToday.reduce((s, e) => s + (e.kgBacks ?? 0), 0)
+    const totBones = takenToday.reduce((s, e) => s + (e.kgBones ?? 0), 0)
     const yieldPct = totTaken > 0 ? (totMeat / totTaken) * 100 : 0
     const hours = session ? Math.max(0.25, (Date.now() - new Date(session.startedAt).getTime()) / 3_600_000) : 0
     const tempo = hours > 0 ? totTaken / hours : 0
@@ -606,7 +612,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       ? totTaken + tempo * (timeWindow.minutesToClose / 60)
       : null
     return { totTaken, totMeat, totBacks, totBones, yieldPct, tempo, activeWorkers, prognoza }
-  }, [completeEntries, session, perWorker, timeWindow.minutesToClose])
+  }, [takenToday, session, perWorker, timeWindow.minutesToClose])
 
   const alarms = useMemo<HmiAlarm[]>(() => {
     const out: HmiAlarm[] = []

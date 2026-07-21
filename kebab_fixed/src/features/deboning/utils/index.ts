@@ -197,6 +197,31 @@ export function entryTime(e: { createdAt?: string; completedAt?: string | null }
 }
 
 /**
+ * takenOnProductionDay — wpisy POBRANE w danym dniu produkcyjnym.
+ *
+ * HMI pobiera wpisy PO SESJI, nie po dacie. Pobranie, które przeszło przez noc,
+ * jest przy domykaniu przepinane do dzisiejszej otwartej sesji (backendowe
+ * `_reattach_overnight_session`) — inaczej nie dałoby się go zważyć, bo sesja
+ * z dnia pobrania jest już zatwierdzona. Skutek uboczny: kilogramy z wczoraj
+ * wchodziły do DZISIEJSZEGO licznika pracownika (prod 2026-07-21: Ryszard
+ * pobrał 20.07 240 kg, domknął 21.07 o 06:10 — kafelek pokazywał 390 kg
+ * zamiast 150).
+ *
+ * Kafelek liczy kg POBRANIA (od tego jest akord), więc decyduje dzień wzięcia
+ * ćwiartki, nie zważenia mięsa. Wpisy przepięte z poprzedniego dnia nie znikają
+ * z ekranu — nadal widać je jako oczekujące (pendingKg) i w feedzie.
+ */
+export function takenOnProductionDay<T extends { createdAt?: string }>(
+  entries: ReadonlyArray<T>,
+  now: Date = new Date(),
+): T[] {
+  const day = getProductionDate(now)
+  return entries.filter(
+    e => e.createdAt && getProductionDate(new Date(e.createdAt)) === day,
+  )
+}
+
+/**
  * sortEntriesByCreatedAt — normalizuje kolejność wpisów rosnąco po czasie
  * zważenia (entryTime). Backend zwraca DESC, ale cały kod HMI (slice(-8),
  * slice(-3)) zakłada ASC jak w mocku — bez normalizacji feed „Ostatnie wpisy"

@@ -310,9 +310,19 @@ def test_domkniecie_pobrania_po_zamknieciu_sesji_przepina_do_otwartej(db):
     execute("UPDATE production_sessions SET status='closed' WHERE id=%s", (s_new,))
 
 
-def test_stats_licza_pobranie_w_dniu_zwazenia_miesa(db):
-    """Dwufazowe pobranie w statystykach liczy się w dniu/chwili ZWAŻENIA
-    (completed_at), nie pobrania — spójnie z HMI (prod 2026-07-10)."""
+def test_stats_licza_pobranie_w_dniu_POBRANIA_nie_zwazenia(db):
+    """Pobranie należy do dnia, w którym pracownik WZIĄŁ ćwiartkę — nawet gdy
+    mięso zważył nazajutrz.
+
+    ZMIANA KONTRAKTU wobec prod 2026-07-10 (wcześniej liczyło się w dniu
+    ZWAŻENIA). Powód: akord płaci się za kg POBRANEJ ćwiartki, więc dzień
+    pobrania decyduje o tym, na czyj dzień spada wypłata. Prod 2026-07-21:
+    wpis Ryszarda z 20.07 (240 kg, domknięty 21.07 o 06:10) doliczał się do
+    21.07 — kafelek HMI pokazywał 390 kg zamiast 150 kg.
+
+    Feed „Ostatnie wpisy" NADAL niesie czas ZWAŻENIA — poprawka po incydencie
+    z Anatolim dotyczyła kolejności w obrębie dnia, nie przypisania do dnia.
+    """
     _seed_cwiartka_batch(internal_no="760", kg=200.0)
     t = create_deboning_take(DeboningTakeCreate(
         raw_batch_id="rb1", worker_id="w1", worker_name="Anatoli", kg_taken=200.0,
@@ -324,12 +334,18 @@ def test_stats_licza_pobranie_w_dniu_zwazenia_miesa(db):
     )
     complete_deboning_take(t["id"], DeboningTakeComplete(kg_meat=132.0))
     today = date.today().isoformat()
-    stats = deboning_stats(today, today)
-    assert stats["summary"]["kgMeat"] == 132.0  # w DZISIEJSZYM zakresie
-    assert stats["recent"] and stats["recent"][0]["workerName"] == "Anatoli"
-    # feed z czasem zważenia (dziś), nie pobrania (wczoraj)
-    assert stats["recent"][0]["at"][:10] == today
     from datetime import timedelta
     yesterday = (date.today() - timedelta(days=1)).isoformat()
+
+    stats_t = deboning_stats(today, today)
+    assert stats_t["summary"]["kgQuarter"] == 0.0  # NIE dolicza się do dziś
+    assert stats_t["summary"]["kgMeat"] == 0.0
+
     stats_y = deboning_stats(yesterday, yesterday)
-    assert stats_y["summary"]["kgMeat"] == 0.0  # nie dubluje się wczoraj
+    assert stats_y["summary"]["kgQuarter"] == 200.0  # dzień POBRANIA
+    assert stats_y["summary"]["kgMeat"] == 132.0
+    assert stats_y["byDay"][0]["date"] == yesterday
+    assert stats_y["workers"][0]["kgQuarter"] == 200.0  # akord na właściwy dzień
+    # feed nadal ze znacznikiem ZWAŻENIA, mimo że wpis należy do wczoraj
+    assert stats_y["recent"] and stats_y["recent"][0]["workerName"] == "Anatoli"
+    assert stats_y["recent"][0]["at"][:10] == today
