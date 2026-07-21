@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react'
 import {
-  deboningEntriesApi, rawBatchesApi, usersApi, type EntryCorrection,
+  deboningEntriesApi, errStatus, rawBatchesApi, usersApi, type EntryCorrection,
 } from '@/lib/api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
@@ -56,6 +56,7 @@ export function EntryCorrectionDialog({ entry, onClose, onSaved }: {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [conflict, setConflict] = useState('')
   const [history, setHistory] = useState<EntryCorrection[]>([])
   const [workers, setWorkers] = useState<{ id: string; name: string }[]>([])
 
@@ -69,20 +70,26 @@ export function EntryCorrectionDialog({ entry, onClose, onSaved }: {
   const yieldPct = q > 0 ? (m / q) * 100 : 0
   const valid = reason.trim().length >= 3 && q > 0 && m > 0 && m <= q
 
-  async function submit() {
+  // 409 = korekta przeczy pomiarowi z wagi. Nie błąd — pytanie do biura.
+  // Dopiero druga próba (overrideWeighings) nadpisuje pomiar (incydent
+  // 2026-07-21: 154,5 kg z dwóch ważeń zniknęło pod 97,0 kg bez ostrzeżenia).
+  async function submit(overrideWeighings = false) {
     if (!valid) return
-    setBusy(true); setErr('')
+    setBusy(true); setErr(''); if (!overrideWeighings) setConflict('')
     try {
       await deboningEntriesApi.correct(entry.id, {
         workerId: worker || undefined,
         kgQuarter: q,
         kgMeat: m,
         reason: reason.trim(),
+        ...(overrideWeighings ? { overrideWeighings: true } : {}),
       })
       onSaved()
       onClose()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Nie udało się zapisać korekty')
+      const msg = e instanceof Error ? e.message : 'Nie udało się zapisać korekty'
+      if (errStatus(e) === 409) setConflict(msg)
+      else setErr(msg)
     } finally {
       setBusy(false)
     }
@@ -165,12 +172,30 @@ export function EntryCorrectionDialog({ entry, onClose, onSaved }: {
           )}
 
           {err && <div className="text-[12px] text-red-600 font-semibold">{err}</div>}
+
+          {conflict && (
+            <div className="flex flex-col gap-2 text-[12px] text-red-700 bg-red-50 border border-red-300 rounded p-2.5">
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={14} className="shrink-0 mt-px" />
+                <span className="font-semibold leading-snug">{conflict}</span>
+              </div>
+              <span className="text-[11px] text-red-600 leading-snug">
+                Waga jest twardszym dowodem niż liczba z pamięci. Nadpisuj tylko, gdy
+                masz pewność, że pomiar był błędny — zmiana trafi do historii wpisu.
+              </span>
+              <button onClick={() => submit(true)} disabled={busy}
+                className="h-8 px-3 self-start text-[12px] font-bold rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">
+                Nadpisz pomiar mimo to
+              </button>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={onClose} disabled={busy}
               className="h-9 px-3 text-[13px] font-semibold rounded border border-surface-4 text-ink-2 hover:bg-surface-2">
               Anuluj
             </button>
-            <button onClick={submit} disabled={busy || !valid}
+            <button onClick={() => submit()} disabled={busy || !valid}
               className="h-9 px-3 text-[13px] font-bold rounded bg-brand text-white hover:bg-brand/90 disabled:opacity-50 inline-flex items-center gap-1.5">
               {busy ? <Loader2 size={14} className="animate-spin" /> : <PencilLine size={14} />}
               Zapisz korektę

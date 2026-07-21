@@ -163,7 +163,8 @@ def correct_deboning_entry(entry_id: str, dto: DeboningEntryCorrect, request: Re
     subject = getattr(request.state, "subject", None) or {}
     by = str(subject.get("username") or subject.get("id") or "")
     return svc.correct_deboning_entry(
-        entry_id, dto.worker_id, dto.kg_quarter, dto.kg_meat, dto.reason, by
+        entry_id, dto.worker_id, dto.kg_quarter, dto.kg_meat, dto.reason, by,
+        override_weighings=dto.override_weighings,
     )
 
 

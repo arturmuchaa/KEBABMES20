@@ -96,3 +96,5 @@ class DeboningEntryCorrect(BaseModel):
     kg_quarter: Optional[float] = Field(None, alias="kgQuarter", ge=0)
     kg_meat: Optional[float] = Field(None, alias="kgMeat", ge=0)
     reason: str = Field(..., min_length=3)
+    # Biuro potwierdziło w oknie, że świadomie nadpisuje pomiar z wagi.
+    override_weighings: bool = Field(False, alias="overrideWeighings")

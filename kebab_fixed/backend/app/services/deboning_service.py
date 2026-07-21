@@ -514,6 +514,38 @@ def validate_meat_yield(kg_taken: float, kg_meat: float) -> str | None:
     return None
 
 
+def _kg(v) -> str:
+    """Kilogramy po polsku — przecinek dziesiętny, jedno miejsce."""
+    return f"{float(v):.1f}".replace(".", ",")
+
+
+def validate_correction_vs_weighings(
+    kg_meat_new, weighed_sum, n_weighings, override: bool = False
+) -> str | None:
+    """Korekta mięsa z biura kontra to, co zmierzyła waga.
+
+    Incydent prod 2026-07-21: wpis miał 154,5 kg zmierzone w dwóch ważeniach
+    (59,0 + 95,5), biuro nadpisało go na 97,0 kg z powodem „pomyłka" i nic
+    nie pisnęło. Zgubiony pomiar rozjechał bilans partii 424 na pół dnia.
+    Liczba z wagi jest twardszym dowodem niż liczba z pamięci, więc jej
+    nadpisanie musi być świadome — stąd `override` zamiast twardej blokady.
+
+    Brak ważeń (stare wpisy, tryb ręczny) → nie ma z czym porównywać.
+    Czysta funkcja — testy bez DB.
+    """
+    if override:
+        return None
+    if not n_weighings or weighed_sum is None:
+        return None
+    if abs(float(kg_meat_new) - float(weighed_sum)) <= 0.01:
+        return None
+    return (
+        f"Korekta na {_kg(kg_meat_new)} kg przeczy pomiarowi: waga "
+        f"zarejestrowała {_kg(weighed_sum)} kg w {int(n_weighings)} ważeniach. "
+        "Potwierdź, że świadomie nadpisujesz pomiar."
+    )
+
+
 def validate_session_writable(session_row):
     """Wpisy tylko do istniejącej, OTWARTEJ sesji."""
     if not session_row:
@@ -1708,6 +1740,7 @@ def correct_deboning_entry(
     kg_meat: Optional[float],
     reason: str,
     by_subject: str = "",
+    override_weighings: bool = False,
 ) -> Dict:
     """Korekta wpisu rozbioru Z BIURA: pracownik i/lub kg.
 
@@ -1719,6 +1752,9 @@ def correct_deboning_entry(
 
     Powód jest wymagany i razem z diffem PRZED/PO ląduje w
     deboning_entry_corrections — wsteczna zmiana akordu musi mieć ślad.
+
+    `override_weighings=True` = biuro potwierdziło, że świadomie nadpisuje
+    pomiar z wagi (patrz validate_correction_vs_weighings).
     """
     reason = (reason or "").strip()
     if len(reason) < 3:
@@ -1748,6 +1784,27 @@ def correct_deboning_entry(
         new_meat = float(kg_meat) if kg_meat is not None else old_meat
         if new_meat > new_taken:
             raise HTTPException(400, "kg mięsa nie może przekraczać pobranej ćwiartki")
+
+        # Biuro dostaje te same twarde walidacje co HMI (incydent 2026-07-21:
+        # tędy wjechało 97,0 kg na wpis z 154,5 kg zmierzonymi na wadze).
+        yield_err = validate_meat_yield(new_taken, new_meat)
+        if yield_err:
+            raise HTTPException(400, yield_err)
+        if abs(new_meat - old_meat) > 0.001:
+            w = cx_query_one(
+                conn,
+                "SELECT COUNT(*) AS n, COALESCE(SUM(kg_meat), 0) AS s "
+                "FROM deboning_take_weighings WHERE entry_id=%s",
+                (entry_id,),
+            ) or {}
+            weigh_err = validate_correction_vs_weighings(
+                new_meat, w.get("s"), w.get("n") or 0, override_weighings
+            )
+            if weigh_err:
+                # 409, nie 400 — to nie jest błąd danych, tylko konflikt z
+                # pomiarem; UI po tym kodzie pokazuje okno potwierdzenia.
+                raise HTTPException(409, weigh_err)
+
         if abs(new_taken - old_taken) > 0.001:
             changes["kgQuarter"] = {"from": old_taken, "to": new_taken}
         if abs(new_meat - old_meat) > 0.001:

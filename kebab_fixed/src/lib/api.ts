@@ -86,10 +86,18 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     const msg = err.detail || err.message || `HTTP ${res.status}`
-    throw new Error(Array.isArray(msg) ? msg.map((e: any) => e.msg || e).join(', ') : String(msg))
+    const e = new Error(Array.isArray(msg) ? msg.map((x: any) => x.msg || x).join(', ') : String(msg))
+    // Kod HTTP na błędzie — wołający musi umieć odróżnić konflikt wymagający
+    // potwierdzenia (409) od zwykłego błędu walidacji. Message bez zmian.
+    ;(e as Error & { status?: number }).status = res.status
+    throw e
   }
   return res.json()
 }
+
+/** Kod HTTP z błędu rzuconego przez klienta API (0 gdy to nie błąd sieci). */
+export const errStatus = (e: unknown): number =>
+  (e as { status?: number } | null)?.status ?? 0
 
 const get   = <T>(p: string)             => req<T>('GET',    p)
 const post  = <T>(p: string, b: unknown) => req<T>('POST',   p, b)
@@ -433,7 +441,9 @@ export const deboningEntriesApi = {
   // (tego używa HMI), bo ŚWIADOMIE działa też na ZATWIERDZONEJ zmianie —
   // wpisy starsze niż dziś są zawsze w sesji 'approved'. Powód wymagany:
   // korekta zmienia wstecz akord i statystyki.
-  correct: (id: string, body: { workerId?: string; kgQuarter?: number; kgMeat?: number; reason: string }) =>
+  // overrideWeighings: biuro potwierdziło w oknie, że świadomie nadpisuje
+  // pomiar z wagi (bez tego backend odbija 409 — incydent 2026-07-21).
+  correct: (id: string, body: { workerId?: string; kgQuarter?: number; kgMeat?: number; reason: string; overrideWeighings?: boolean }) =>
     post<any>(`/deboning/entries/${id}/correct`, body),
   corrections: (id: string) =>
     get<{ corrections: EntryCorrection[] }>(`/deboning/entries/${id}/corrections`)

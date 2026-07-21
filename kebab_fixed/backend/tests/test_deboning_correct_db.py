@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.db import execute, query_one
+from app.models.deboning import DeboningEntryCorrect
 from app.services.deboning_service import (
     correct_deboning_entry,
     deboning_stats,
@@ -129,3 +130,15 @@ def test_historia_zapisuje_powod_i_diff(db):
     assert h[0]["bySubject"] == "am"
     assert h[0]["changes"]["worker"] == {"from": "Adrian", "to": "Raschad"}
     assert h[0]["changes"]["kgQuarter"] == {"from": 200.0, "to": 180.0}
+
+
+def test_dto_przyjmuje_potwierdzenie_nadpisania_pomiaru():
+    """UI wysyła camelCase — bez tego aliasu potwierdzenie z okna nie dojdzie
+    do serwisu i korekta wpisu z ważeniami byłaby nie do wykonania."""
+    dto = DeboningEntryCorrect.model_validate(
+        {"kgMeat": 97.0, "reason": "pomyłka", "overrideWeighings": True}
+    )
+    assert dto.override_weighings is True
+    assert DeboningEntryCorrect.model_validate(
+        {"kgMeat": 97.0, "reason": "pomyłka"}
+    ).override_weighings is False

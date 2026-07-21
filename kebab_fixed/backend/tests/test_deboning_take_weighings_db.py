@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from app.db import execute, query_one
 from app.services.deboning_service import (
     complete_deboning_take,
+    correct_deboning_entry,
     create_deboning_take,
     delete_deboning_entry,
     list_deboning_entries,
@@ -150,3 +151,51 @@ def test_lista_wpisow_ma_kg_meat_weighed_dla_pending(db):
     rows = list_deboning_entries(None)
     mine = next(r for r in rows if r["id"] == entry["id"])
     assert mine["kgMeatWeighed"] == 100.0
+
+
+def _wpis_ryszarda():
+    """Odtworzenie wpisu z incydentu prod 2026-07-21: 240 kg pobrania,
+    mięso ważone na dwa razy (59,0 + 95,5 = 154,5 kg)."""
+    _seed_batch(kg=400.0)
+    entry = create_deboning_take(_take_dto(kg_taken=240.0))
+    weigh_part_deboning_take(entry["id"], _meat_dto(59.0))
+    complete_deboning_take(entry["id"], _meat_dto(95.5))
+    return entry["id"]
+
+
+def test_korekta_przeczaca_wazeniom_blokuje(db):
+    entry_id = _wpis_ryszarda()
+    assert float(query_one(
+        "SELECT kg_meat FROM deboning_entries WHERE id=%s", (entry_id,)
+    )["kg_meat"]) == 154.5
+
+    with pytest.raises(HTTPException) as e:
+        correct_deboning_entry(entry_id, None, 150.0, 97.0, "pomyłka", "biuro")
+    # 409, nie 400 — UI musi odróżnić „potwierdź nadpisanie pomiaru" od
+    # zwykłego błędu walidacji, żeby pokazać okno potwierdzenia
+    assert e.value.status_code == 409
+    assert "154,5" in e.value.detail and "2 ważeniach" in e.value.detail
+
+    # wpis nietknięty — transakcja odrzucona w całości
+    row = query_one("SELECT kg_quarter, kg_meat FROM deboning_entries WHERE id=%s", (entry_id,))
+    assert float(row["kg_quarter"]) == 240.0 and float(row["kg_meat"]) == 154.5
+
+
+def test_korekta_z_potwierdzeniem_nadpisuje_pomiar(db):
+    entry_id = _wpis_ryszarda()
+    correct_deboning_entry(
+        entry_id, None, 150.0, 97.0, "pomyłka", "biuro", override_weighings=True
+    )
+    row = query_one("SELECT kg_quarter, kg_meat FROM deboning_entries WHERE id=%s", (entry_id,))
+    assert float(row["kg_quarter"]) == 150.0 and float(row["kg_meat"]) == 97.0
+
+
+def test_korekta_do_nierealnej_wydajnosci_blokuje(db):
+    """Biuro nie miało żadnej walidacji wydajności — HMI ma ją od dawna."""
+    entry_id = _wpis_ryszarda()
+    # mięso bez zmian (zgodne z ważeniami), ale ćwiartka ścięta do 160 kg
+    # → 154,5/160 = 96,6%, wydajność nierealna
+    with pytest.raises(HTTPException) as e:
+        correct_deboning_entry(entry_id, None, 160.0, None, "korekta ćwiartki", "biuro")
+    assert e.value.status_code == 400
+    assert "nierealna" in e.value.detail
