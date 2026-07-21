@@ -44,6 +44,7 @@ import {
 } from 'lucide-react'
 import { useProductTypes } from '@/features/products/hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
+import { withOwnReservations } from '@/features/production-plan/planOwnReservations'
 import type { ProductionPlan, ProductionPlanLine, CreatePlanLineDto, ClientOrder } from '@/lib/mockApi'
 
 interface PlanLineForm {
@@ -1140,7 +1141,7 @@ interface PlanFormProps {
 export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFormProps) {
   const clientDisplay = useClientNames()
   const { data: orders }      = useApi(() => clientOrdersApi.list('confirmed'))
-  const { data: seasonedRaw } = useApi(() => seasonedMeatApi.list())
+  const { data: seasonedApi } = useApi(() => seasonedMeatApi.list())
   const { data: pkgList }     = useApi(() => packagingApi.list())
   const { data: clientList }  = useApi(() => clientsApi.list())
   const { productTypes }      = useProductTypes()
@@ -1174,6 +1175,15 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
   const confirmed = (orders??[]).filter(o=>o.status==='confirmed')
   const packaging = pkgList??[]
   const clients   = (clientList??[]).filter((c:any)=>c.active)
+
+  // Edycja planu: mięso trzymane przez JEGO WŁASNE pozycje wraca do puli —
+  // backend przy zapisie i tak zwolni te rezerwacje (_restore_reservations),
+  // więc bez tego formularz blokowałby zapis („brakuje kg") na własnym mięsie.
+  // Pozycje rozpoczęte (qtyDone>0) są zamrożone — ich kg NIE wracają.
+  const seasonedRaw = useMemo(
+    () => withOwnReservations(seasonedApi as any[], (initialPlan?.lines ?? []) as any[]),
+    [seasonedApi, initialPlan],
+  )
 
   // ── Żywe zużycie mięsa — zachłannie, partia po partii (FEFO) ──
   const seasonedUsed = useMemo(() => computeUsage(lines, seasonedRaw??[]), [lines, seasonedRaw])
