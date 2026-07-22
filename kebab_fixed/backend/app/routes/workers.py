@@ -1,7 +1,12 @@
 """Worker and payroll endpoints."""
 from fastapi import APIRouter, Query
 
-from app.models.workers import WorkerCreate, WorkerUpdate, CreateSettlementDto
+from app.models.workers import (
+    WorkerCreate,
+    WorkerUpdate,
+    CreateSettlementDto,
+    KgAdjustmentDto,
+)
 from app.services import workers_service as svc
 
 router = APIRouter(tags=["workers"])
@@ -33,6 +38,20 @@ def get_worker_days(
     date_to: str = Query("", alias="dateTo"),
 ):
     return svc.get_worker_days(worker_id, date_from, date_to)
+
+
+@router.get("/api/payroll/kg-adjustments")
+def list_kg_adjustments(
+    worker_id: str = Query(..., alias="workerId"),
+    date_from: str = Query("", alias="dateFrom"),
+    date_to: str = Query("", alias="dateTo"),
+):
+    return svc.list_kg_adjustments(worker_id, date_from, date_to)
+
+
+@router.post("/api/payroll/kg-adjustments")
+def create_kg_adjustment(dto: KgAdjustmentDto):
+    return svc.create_kg_adjustment(dto)
 
 
 @router.post("/api/payroll/settlements")

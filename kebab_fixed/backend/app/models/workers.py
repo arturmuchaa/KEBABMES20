@@ -29,6 +29,16 @@ class SettlementDeductionDto(BaseModel):
     amount: float
 
 
+class KgAdjustmentDto(BaseModel):
+    """Korekta kg liczona wyłącznie do płacy — bez wpływu na magazyn."""
+
+    worker_id: str
+    work_date: str
+    kg_delta: float
+    reason: str
+    created_by: str = ""
+
+
 class CreateSettlementDto(BaseModel):
     worker_id: str
     date_from: str

@@ -188,6 +188,19 @@ _DDL: list[str] = [
         settlement_id TEXT NOT NULL,
         PRIMARY KEY (worker_id, work_date)
     )""",
+    # Korekty kilogramów liczone WYŁĄCZNIE do płacy — nie ruszają
+    # deboning_entries ani stanów magazynowych (praca nieujęta w ważeniu).
+    """CREATE TABLE IF NOT EXISTS payroll_kg_adjustments (
+        id TEXT PRIMARY KEY,
+        worker_id TEXT NOT NULL,
+        work_date DATE NOT NULL,
+        kg_delta NUMERIC(10,3) NOT NULL,
+        reason TEXT NOT NULL,
+        created_by TEXT,
+        created_at TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_pka_worker_date "
+    "ON payroll_kg_adjustments (worker_id, work_date)",
 
     # ── Postęp produkcji per linia (live update z tabletu) ──
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS qty_done INTEGER NOT NULL DEFAULT 0",

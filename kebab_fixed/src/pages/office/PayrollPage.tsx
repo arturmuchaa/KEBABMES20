@@ -66,6 +66,31 @@ export function PayrollPage() {
   )
 
   const createMut = useMutation((dto: any) => payrollApi.createSettlement(dto))
+  const adjustMut = useMutation((dto: any) => payrollApi.createKgAdjustment(dto))
+
+  // Korekta kg doliczana wyłącznie do płacy — nie rusza wpisów rozbioru.
+  const [adjustDay, setAdjustDay] = useState<any>(null)
+  const [adjustKg, setAdjustKg]   = useState('')
+  const [adjustReason, setAdjustReason] = useState('')
+
+  async function handleAdjust() {
+    const delta = parseFloat(adjustKg.replace(',', '.'))
+    if (!selWorker || !adjustDay || !delta) return
+    if (!adjustReason.trim()) { toast.error('Podaj powód korekty'); return }
+    try {
+      await adjustMut.mutate({
+        workerId: selWorker.id,
+        workDate: adjustDay.workDate,
+        kgDelta: delta,
+        reason: adjustReason.trim(),
+      })
+      setAdjustDay(null); setAdjustKg(''); setAdjustReason('')
+      refetchDays()
+      toast.success('Korekta dopisana do rozliczenia')
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Błąd korekty')
+    }
+  }
 
   const hallWorkers = (workers ?? []).filter(w => w.role?.startsWith('WORKER'))
 
@@ -285,7 +310,19 @@ export function PayrollPage() {
                               {d.entriesCount ? `${d.entriesCount} wpisów` : d.sessionCount ? `${d.sessionCount} sesji` : ''}
                               {d.settled && ' · Rozliczone'}
                             </div>
+                            {d.kgAdjustment ? (
+                              <div className="text-xs text-amber-700 font-medium mt-0.5">
+                                zważone {fmtKg(d.kgMeasured ?? 0)} kg
+                                {' '}· korekta {d.kgAdjustment > 0 ? '+' : ''}{fmtKg(d.kgAdjustment)} kg
+                              </div>
+                            ) : null}
                           </div>
+                          {!d.settled && (
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs"
+                              onClick={() => { setAdjustDay(d); setAdjustKg(''); setAdjustReason('') }}>
+                              Korekta
+                            </Button>
+                          )}
                           <div className="text-right">
                             <div className="text-sm font-bold tabular-nums">{fmtKg(kg)} kg</div>
                             {!d.settled && sel && (
@@ -481,6 +518,51 @@ export function PayrollPage() {
 
       {/* Dialog druku zbiorczego */}
       {showBatchPrint && <BatchPrintDialog onClose={() => setShowBatchPrint(false)} />}
+
+      {/* Korekta kg — liczona wyłącznie do płacy */}
+      {adjustDay && (
+        <Dialog open onOpenChange={() => setAdjustDay(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Korekta kilogramów</DialogTitle>
+              <DialogDescription>
+                {selWorker?.name} ·{' '}
+                {new Date(adjustDay.workDate + 'T12:00:00').toLocaleDateString('pl-PL', {
+                  weekday: 'long', day: 'numeric', month: 'long',
+                })}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="rounded-lg bg-muted px-3 py-2 text-sm">
+                Zważone w rozbiorze:{' '}
+                <span className="font-semibold tabular-nums">
+                  {fmtKg(adjustDay.kgMeasured ?? adjustDay.kgTotal ?? 0)} kg
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="adj-kg">Korekta (kg)</Label>
+                <Input id="adj-kg" inputMode="decimal" placeholder="np. 150 lub -20"
+                  value={adjustKg} onChange={e => setAdjustKg(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="adj-reason">Powód</Label>
+                <Input id="adj-reason" placeholder="np. praca nieujęta w ważeniu"
+                  value={adjustReason} onChange={e => setAdjustReason(e.target.value)} />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Korekta wchodzi tylko do rozliczenia pracownika. Nie zmienia wpisów
+                rozbioru, partii ani stanów magazynowych.
+              </p>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setAdjustDay(null)}>Anuluj</Button>
+                <Button onClick={handleAdjust} disabled={adjustMut.loading}>
+                  Dopisz do rozliczenia
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

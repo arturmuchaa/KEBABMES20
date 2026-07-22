@@ -14,7 +14,12 @@ from app.db import (
     transaction,
 )
 from app.logging_config import get_logger
-from app.models.workers import CreateSettlementDto, WorkerCreate, WorkerUpdate
+from app.models.workers import (
+    CreateSettlementDto,
+    KgAdjustmentDto,
+    WorkerCreate,
+    WorkerUpdate,
+)
 from app.utils.ids import cuid, now_iso
 from app.utils.passwords import hash_secret
 
@@ -107,6 +112,53 @@ def update_worker(worker_id: str, dto: WorkerUpdate) -> Dict:
 
 # ── Worker days (payroll basis) ───────────────────────────────────────
 
+def _apply_kg_adjustments(
+    worker_id: str,
+    date_from: str,
+    date_to: str,
+    days: List[Dict],
+    settled_dates: set,
+) -> List[Dict]:
+    """Dolicza korekty kg liczone WYŁĄCZNIE do płacy (praca nieujęta
+    w ważeniu). Zmierzone wagi zostają nietknięte — korekta jest osobną,
+    jawną pozycją, więc podstawa rozliczenia rozjeżdża się z produkcją
+    tylko tam, gdzie biuro świadomie tak zdecydowało."""
+    rows = query_all(
+        """
+        SELECT work_date::text AS work_date, SUM(kg_delta) AS kg_delta
+        FROM payroll_kg_adjustments
+        WHERE worker_id=%s AND work_date BETWEEN %s AND %s
+        GROUP BY work_date
+        """,
+        (worker_id, date_from, date_to),
+    )
+    adj = {r["work_date"]: float(r["kg_delta"] or 0) for r in rows}
+    if not adj:
+        return days
+
+    for d in days:
+        delta = adj.pop(d["workDate"], 0.0)
+        if delta:
+            d["kgMeasured"] = d["kgTotal"]
+            d["kgAdjustment"] = delta
+            d["kgTotal"] = round(d["kgTotal"] + delta, 3)
+
+    # korekta na dzień bez wpisów produkcyjnych — też musi trafić do płacy
+    for date, delta in adj.items():
+        days.append(
+            {
+                "workDate": date,
+                "kgTotal": round(delta, 3),
+                "kgMeasured": 0.0,
+                "kgAdjustment": delta,
+                "entriesCount": 0,
+                "settled": date in settled_dates,
+            }
+        )
+
+    return sorted(days, key=lambda d: d["workDate"])
+
+
 def get_worker_days(worker_id: str, date_from: str, date_to: str) -> List[Dict]:
     worker = query_one("SELECT * FROM workers WHERE id=%s", (worker_id,))
     if not worker:
@@ -136,7 +188,7 @@ def get_worker_days(worker_id: str, date_from: str, date_to: str) -> List[Dict]:
             """,
             (worker_id, date_from, date_to),
         )
-        return [
+        days = [
             {
                 "workDate": str(r["work_date"]),
                 "kgTotal": float(r["kg_total"] or 0),
@@ -146,6 +198,9 @@ def get_worker_days(worker_id: str, date_from: str, date_to: str) -> List[Dict]:
             }
             for r in rows
         ]
+        return _apply_kg_adjustments(
+            worker_id, date_from, date_to, days, settled_dates
+        )
 
     if "PRODUCTION" in role:
         worker_name = worker.get("name", "") or ""
@@ -162,7 +217,7 @@ def get_worker_days(worker_id: str, date_from: str, date_to: str) -> List[Dict]:
             """,
             (worker_name, date_from, date_to),
         )
-        return [
+        days = [
             {
                 "workDate": str(r["work_date"]),
                 "kgTotal": float(r["kg_total"] or 0),
@@ -171,8 +226,95 @@ def get_worker_days(worker_id: str, date_from: str, date_to: str) -> List[Dict]:
             }
             for r in rows
         ]
+        return _apply_kg_adjustments(
+            worker_id, date_from, date_to, days, settled_dates
+        )
 
     return []
+
+
+# ── Korekty kg do płacy ───────────────────────────────────────────────
+
+def list_kg_adjustments(worker_id: str, date_from: str, date_to: str) -> List[Dict]:
+    rows = query_all(
+        """
+        SELECT id, work_date::text AS work_date, kg_delta, reason,
+               created_by, created_at
+        FROM payroll_kg_adjustments
+        WHERE worker_id=%s AND work_date BETWEEN %s AND %s
+        ORDER BY work_date, created_at
+        """,
+        (worker_id, date_from, date_to),
+    )
+    return [
+        {
+            "id": r["id"],
+            "workDate": r["work_date"],
+            "kgDelta": float(r["kg_delta"] or 0),
+            "reason": r["reason"],
+            "createdBy": r.get("created_by") or "",
+            "createdAt": str(r["created_at"]),
+        }
+        for r in rows
+    ]
+
+
+def create_kg_adjustment(dto: KgAdjustmentDto) -> Dict:
+    """Korekta kilogramów doliczana tylko do rozliczenia pracownika.
+    Nie tworzy żadnego ruchu magazynowego i nie zmienia wpisów rozbioru."""
+    if not dto.reason.strip():
+        raise HTTPException(400, "Podaj powód korekty")
+    if dto.kg_delta == 0:
+        raise HTTPException(400, "Korekta nie może być zerowa")
+
+    worker = query_one("SELECT * FROM workers WHERE id=%s", (dto.worker_id,))
+    if not worker:
+        raise HTTPException(404, "Pracownik nie istnieje")
+
+    settled = query_one(
+        "SELECT settlement_id FROM settled_days WHERE worker_id=%s AND work_date=%s",
+        (dto.worker_id, dto.work_date),
+    )
+    if settled:
+        raise HTTPException(
+            400, f"Dzień {dto.work_date} jest już rozliczony — korekta nic nie zmieni"
+        )
+
+    aid = cuid()
+    execute_sql = (
+        "INSERT INTO payroll_kg_adjustments "
+        "(id, worker_id, work_date, kg_delta, reason, created_by, created_at) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s)"
+    )
+    with transaction() as conn:
+        cx_execute(
+            conn,
+            execute_sql,
+            (
+                aid,
+                dto.worker_id,
+                dto.work_date,
+                dto.kg_delta,
+                dto.reason.strip(),
+                dto.created_by or "",
+                now_iso(),
+            ),
+        )
+    logger.info(
+        "payroll.kg_adjustment.created",
+        extra={
+            "adjustment_id": aid,
+            "worker_id": dto.worker_id,
+            "work_date": dto.work_date,
+            "kg_delta": dto.kg_delta,
+        },
+    )
+    return {
+        "id": aid,
+        "workDate": dto.work_date,
+        "kgDelta": dto.kg_delta,
+        "reason": dto.reason.strip(),
+    }
 
 
 # ── Settlements ───────────────────────────────────────────────────────
