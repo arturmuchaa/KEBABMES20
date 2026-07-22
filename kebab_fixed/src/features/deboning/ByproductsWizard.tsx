@@ -13,7 +13,8 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { AlertTriangle, Check, Delete, Package, ArrowRight, X } from 'lucide-react'
 import { fmtKg, fmtPct } from '@/lib/utils'
 import {
-  E2_TARE_KG, DRIVE_OFF_IDLE, driveOffStep, type DriveOffTracker,
+  E2_TARE_KG, DRIVE_OFF_IDLE, driveOffStep,
+  type DriveOffTracker, type PalletSnapshot,
 } from '@/features/deboning/utils/weighing'
 import type { ScaleState } from '@/features/deboning/useScale'
 import type { BatchByproducts } from '@/lib/api'
@@ -63,7 +64,7 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
   const [dirty, setDirty] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
   // Ostatni stabilny odczyt palety + prompt po zjeździe z wagi bez „Dodaj".
-  const [driveOff, setDriveOff] = useState<DriveOffTracker>(DRIVE_OFF_IDLE)
+  const [driveOff, setDriveOff] = useState<DriveOffTracker<PalletSnapshot>>(DRIVE_OFF_IDLE)
 
   const containers = parseInt(containersStr || '0', 10) || 0
   const manualKg = parseFloat((manualStr || '0').replace(',', '.')) || 0
@@ -79,10 +80,13 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
   // (pytanie o dodanie). Ratuje najczęstszy błąd: zważył, policzył i zjechał.
   useEffect(() => {
     if (phase !== 'setup') return
+    const snap: PalletSnapshot | null = tareKg != null && net > 0
+      ? { tareLabel, tareKg, containers, gross, net: Math.round(net * 10) / 10 }
+      : null
     setDriveOff(s => driveOffStep(
       s,
       { connected: scale.connected, stable: scale.stable, gross },
-      { tareKg, tareLabel, containers, net },
+      snap,
     ))
   }, [phase, scale.connected, scale.stable, gross, tareKg, tareLabel, containers, net])
 
