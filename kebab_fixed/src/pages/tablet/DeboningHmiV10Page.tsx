@@ -24,7 +24,12 @@ import { splitEntriesByStatus, entryTime, decideTakeSave, takenOnProductionDay }
 import { useScale } from '@/features/deboning/useScale'
 import {
   computeWeighing, sanitizeCartTares, CART_TARES_KG, E2_TARE_KG, KG_PER_E2_MIN, KG_PER_E2_MAX,
+  DRIVE_OFF_IDLE, driveOffStep, type DriveOffTracker,
 } from '@/features/deboning/utils/weighing'
+import {
+  buildMeatSnapshot, meatPromptVariant,
+  type MeatSnapshot, type MeatPromptAction,
+} from '@/features/deboning/utils/meatDriveOff'
 import { useAuth } from '@/features/auth/AuthContext'
 import { useServiceHold, ServiceMenuModal } from '@/features/deboning/ServiceMenu'
 import { ByproductsWizard } from '@/features/deboning/ByproductsWizard'
@@ -393,7 +398,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // je NA PARTIĘ, nie per wpis, więc suma wpisów ich nie widzi).
   const byprodToday = useApi(() => byproductsApi.today())
   const { session, timeWindow, loading: sessionLoading, startDay, startLoading, closeDay, closeLoading } = useProductionSession()
-  const { entries, addEntry, addTake, completeTake, weighPart, editTake, editEntry, removeEntry, lastCreated, addLoading, addTakeLoading, completeTakeLoading, weighPartLoading, removeLoading } = useDeboningEntries(session?.id ?? null)
+  const { entries, addEntry, addTake, completeTake, weighPart, editTake, editEntry, removeEntry, lastCreated, lastTakeRef, addLoading, addTakeLoading, completeTakeLoading, weighPartLoading, removeLoading } = useDeboningEntries(session?.id ?? null)
 
   // Rozdział: pobrania czekające na mięso (pending) vs domknięte wpisy (complete).
   // Agregaty, statystyki i lista „ostatnie” liczą tylko complete; pending mają
@@ -446,6 +451,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [resumeId, setResumeId] = useState<string | null>(null)
   // Dialog „część czy całość?" — łączny % poniżej normy (63) po ZAPISZ.
   const [partialPrompt, setPartialPrompt] = useState<{ portionKg: number; weighedKg: number; takenKg: number } | null>(null)
+  // Zjazd z wagi bez ZAPISZ — zamrożony odczyt czeka na decyzję operatora.
+  const [meatDriveOff, setMeatDriveOff] = useState<DriveOffTracker<MeatSnapshot>>(DRIVE_OFF_IDLE)
 
   // Tary wózków: lista z biura (edytowalna w Ustawieniach firmy); cache w
   // localStorage na wypadek braku sieci przy starcie, fallback = stała lista.
@@ -668,6 +675,33 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Pobranie (mięso później): wystarczy partia + pracownik + ćwiartka; waga nieistotna.
   const canSaveTake = !resumeId && !!selBatch && !!selWorker && taken > 0
 
+  // Strażnik zjazdu z wagi: zapamiętaj ostatni kompletny stabilny odczyt mięsa,
+  // a gdy wózek zjedzie bez ZAPISZ — pokaż okno z zamrożonymi kilogramami.
+  useEffect(() => {
+    const snap = buildMeatSnapshot({
+      autoMode,
+      connected: scale.connected,
+      ready: weighing.ready,
+      blocked: wizard != null || finishPrompt != null,
+      netKg: weighing.netKg,
+      gross: scale.gross,
+      cartTareKg: cartTareTotal,
+      e2Count,
+      worker: selWorker,
+      batch: selBatch,
+      takenKg: taken,
+      weighedSoFarKg: resumeWeighedKg,
+      resumeId,
+    })
+    setMeatDriveOff(s => driveOffStep(
+      s,
+      { connected: scale.connected, stable: scale.stable, gross: scale.gross },
+      snap,
+    ))
+  }, [autoMode, scale.connected, scale.stable, scale.gross, weighing.ready, weighing.netKg,
+      cartTareTotal, e2Count, selWorker, selBatch, taken, resumeWeighedKg, resumeId,
+      wizard, finishPrompt])
+
   const saveHint = !selBatch ? 'WYBIERZ PARTIĘ'
     : !selWorker ? 'WYBIERZ PRACOWNIKA'
     : autoMode && cartTareTotal == null ? 'WYBIERZ WÓZEK'
@@ -801,6 +835,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
 
   const cancelResume = useCallback(() => {
     setResumeId(null)
+    setMeatDriveOff(DRIVE_OFF_IDLE)
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
   }, [])
 
@@ -856,6 +891,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
     saveFlashRef.current = setTimeout(() => setSaveFlash(false), 350)
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    setMeatDriveOff(DRIVE_OFF_IDLE)
     if (guided) {
       // Tryb prowadzony (v11): po zapisie zostaje TYLKO partia, cała reszta się
       // restartuje. Pracownik — bo świadomie wybieramy, kto robił każdą sztukę.
@@ -873,20 +909,23 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setUndoUntil(Date.now() + 60_000); setUndoNow(Date.now())
     showToast(`Zapisano: ${fmtKg(meat)} kg mięsa`)
 
-    // Automatyczne zakończenie partii: gdy ta sztuka wyczerpała ćwiartkę
-    // (zostało mniej niż na kolejną sztukę), sam pokazuj komunikat o ważeniu
-    // ubocznych — bez klikania „Zakończ partię".
-    const remaining = Number(selBatch.kgAvailable) - taken
-    if (remaining <= 0.5 && !byproductsByBatch.has(selBatch.id)
-        && !pendingTakes.some(p => (p as any).rawBatchId === selBatch.id)) {
-      const b = selBatch
-      setSelBatch(null) // partia wyczerpana — operator wybierze następną
-      byproductsApi.finish(b.id, loggedInUser?.name)
-        .then(rec => { byproductsData.refetch(); setFinishPrompt({ batch: b, record: rec }) })
-        // Backend i tak sam zakańcza wyczerpaną partię (gwarancja serwerowa) —
-        // tu tylko informacja, że prompt ważenia nie wyskoczył.
-        .catch(() => showToast(`Partia ${b.internalBatchNo} wyczerpana — zważ uboczne z szarego kafla`, 'err'))
-    }
+    maybeFinishBatch(selBatch, taken)
+  }
+
+  // Automatyczne zakończenie partii: gdy sztuka wyczerpała ćwiartkę (zostało
+  // mniej niż na kolejną), sam pokazuj komunikat o ważeniu ubocznych — bez
+  // klikania „Zakończ partię". Wołane z ZAPISZ i z okna zjazdu z wagi.
+  function maybeFinishBatch(b: RawBatch, takenKg: number) {
+    const remaining = Number(b.kgAvailable) - takenKg
+    if (remaining > 0.5) return
+    if (byproductsByBatch.has(b.id)) return
+    if (pendingTakes.some(p => (p as any).rawBatchId === b.id)) return
+    setSelBatch(prev => (prev?.id === b.id ? null : prev)) // wyczerpana — operator wybierze następną
+    byproductsApi.finish(b.id, loggedInUser?.name)
+      .then(rec => { byproductsData.refetch(); setFinishPrompt({ batch: b, record: rec }) })
+      // Backend i tak sam zakańcza wyczerpaną partię (gwarancja serwerowa) —
+      // tu tylko informacja, że prompt ważenia nie wyskoczył.
+      .catch(() => showToast(`Partia ${b.internalBatchNo} wyczerpana — zważ uboczne z szarego kafla`, 'err'))
   }
 
   // Zapis samego pobrania ćwiartki (mięso zważy się później).
@@ -899,6 +938,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (err) { showToast(err, 'err'); return }
     batchData.refetch()
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    setMeatDriveOff(DRIVE_OFF_IDLE)
     showToast(`Pobrano ${fmtKg(taken, 1)} kg — czeka na zważenie`)
     // Pobranie NIE zakańcza partii, nawet gdy wyczerpało kg — mięso dopiero
     // przyjdzie na wagę. Zakończenie odpala się przy domknięciu OSTATNIEGO
@@ -936,6 +976,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (err) { showToast(err, 'err'); return }
     setPartialPrompt(null)
     setResumeId(null)
+    setMeatDriveOff(DRIVE_OFF_IDLE)
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
     showToast(`Zapisano ${fmtKg(portion, 1)} kg — razem ${fmtKg(resumeWeighedKg + portion, 1)}/${fmtKg(takenNow, 1)} kg, pobranie otwarte`)
   }
@@ -963,20 +1004,27 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     saveFlashRef.current = setTimeout(() => setSaveFlash(false), 350)
     const completedId = resumeId
     setResumeId(null)
+    setMeatDriveOff(DRIVE_OFF_IDLE)
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
     showToast(`Zważono ${fmtKg(meat, 1)} kg mięsa`)
 
-    // Domknięcie OSTATNIEGO pobrania wyczerpanej partii = koniec rozbioru →
-    // prompt ważenia ubocznych. Backend i tak sam zakańcza (gwarancja) —
-    // tu tylko wygodny prompt dla operatora.
-    const b = selBatch
-    const others = pendingTakes.filter(p => (p as any).rawBatchId === b?.id && p.id !== completedId)
-    if (b && others.length === 0 && Number(b.kgAvailable) <= 0.5 && !byproductsByBatch.has(b.id)) {
-      setSelBatch(null)
-      byproductsApi.finish(b.id, loggedInUser?.name)
-        .then(rec => { byproductsData.refetch(); setFinishPrompt({ batch: b, record: rec }) })
-        .catch(() => {})
-    }
+    maybeFinishAfterComplete(selBatch?.id ?? '', completedId)
+  }
+
+  // Domknięcie OSTATNIEGO pobrania wyczerpanej partii = koniec rozbioru →
+  // prompt ważenia ubocznych. Backend i tak sam zakańcza (gwarancja serwerowa).
+  function maybeFinishAfterComplete(batchId: string, completedId: string) {
+    if (!batchId) return
+    const all = (batchData.data?.data ?? []) as RawBatch[]
+    const b = all.find(x => x.id === batchId) ?? (selBatch?.id === batchId ? selBatch : null)
+    if (!b) return
+    const others = pendingTakes.filter(p => (p as any).rawBatchId === batchId && p.id !== completedId)
+    if (others.length > 0) return
+    if (Number(b.kgAvailable) > 0.5 || byproductsByBatch.has(b.id)) return
+    setSelBatch(prev => (prev?.id === b.id ? null : prev))
+    byproductsApi.finish(b.id, loggedInUser?.name)
+      .then(rec => { byproductsData.refetch(); setFinishPrompt({ batch: b, record: rec }) })
+      .catch(() => {})
   }
 
   async function handleUndo() {
