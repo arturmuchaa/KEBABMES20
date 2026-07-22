@@ -6,10 +6,16 @@
  * wypełnia; to dokument papierowy dla osoby kontrolującej i dla inspekcji
  * weterynaryjnej. Stąd brak jakiegokolwiek pobierania danych z API.
  *
- * Zakres pomieszczeń pochodzi wprost z zakładowego „wykazu pomieszczeń"
- * (19 pozycji, w tej kolejności) + sekcja MEDIA (prąd, woda) przeniesiona
- * ze starego arkusza. Kolor wyłącznie w logo — reszta czarno-biała, żeby
- * arkusz dobrze się kserował i faksował.
+ * Zakres pomieszczeń pochodzi z zakładowego „wykazu pomieszczeń" + sekcja
+ * MEDIA (prąd, woda) przeniesiona ze starego arkusza. Pozycje zbiorcze
+ * z wykazu są ROZBITE na pojedyncze pomieszczenia (produkcja 14/15/8,
+ * komory mrożenia 26/29, mroźnie składowe 6/30/38) — każde kontroluje się
+ * i kwituje osobno. Kolor wyłącznie w logo — reszta czarno-biała, żeby
+ * arkusz dobrze się kserował; pole „Wynik" czysto białe, żeby znaczek
+ * długopisem był dobrze widoczny.
+ *
+ * Nr karty i data: wypełnia system. Jedna karta na dzień, więc numer
+ * wyprowadzamy z daty (D/MM/RR) — bez licznika w bazie.
  *
  * Samodzielna strona (wzór MixingPlanPrintPage):
  * /office/arkusz-kontroli/druk — auto-print po załadowaniu (?pdf=1 wyłącza).
@@ -28,16 +34,22 @@ const SECTIONS: [string, string[]][] = [
   ['MAGAZYN POROZBIOROWY', STD],
   ['MAGAZYN SUROWCA MROŻONEGO', STD],
   ['HALA ROZBIORU I PRZEPAKOWANIA', STER],
-  ['POMIESZCZENIA PRODUKCJI 3× (nr 14, 15, 8)', STER],
+  // Każde pomieszczenie produkcji osobno — kontroluje się je niezależnie.
+  ['POMIESZCZENIE PRODUKCJI NR 14', STER],
+  ['POMIESZCZENIE PRODUKCJI NR 15', STER],
+  ['POMIESZCZENIE PRODUKCJI NR 8', STER],
   ['POMIESZCZENIA SOCJALNE', STD],
   ['HALA MASOWNIA I LEŻAKOWANIA', STD],
   ['ŚLUZA HIGIENY', STD],
   ['KORYTARZE', STD],
-  ['KOMORA MROŻENIA 2× (nr 26, 29)', STD],
+  ['KOMORA MROŻENIA NR 26', STD],
+  ['KOMORA MROŻENIA NR 29', STD],
   ['STREFY MANIPULACYJNE', STD],
   ['MAGAZYN PRZYPRAW I OPAKOWAŃ: folie, etykiety', STD],
   ['MROŹNIE', STD],
-  ['MROŹNIA SKŁADOWA 3× (nr 6, 30, 38)', STD],
+  ['MROŹNIA SKŁADOWA NR 6', STD],
+  ['MROŹNIA SKŁADOWA NR 30', STD],
+  ['MROŹNIA SKŁADOWA NR 38', STD],
   ['MYJNIA I MAGAZYNY POJEMNIKÓW', STD],
   ['MAGAZYN UPPZ', STD],
   ['EKSPEDYCJA', STD],
@@ -89,6 +101,12 @@ export function SanitaryCheckPrintPage() {
 
   const cols = splitColumns(buildBlocks(), 3)
 
+  // Numer karty i data wypełniane przez system — jedna karta na dzień, więc
+  // numer wyprowadzamy z daty (dzień/miesiąc/rok). 1 lipca 2026 → „1/07/26".
+  const now = new Date()
+  const cardNo = `${now.getDate()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getFullYear()).slice(-2)}`
+  const dateStr = now.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+
   return (
     <div className="ark">
       <style>{CSS}</style>
@@ -99,19 +117,15 @@ export function SanitaryCheckPrintPage() {
           <div className="nm">F.H.U.P. MAREK KSIĘŻYC — ZAKŁAD ROZBIORU DROBIU</div>
           <div className="ad">ul. Księdza Kardynała Albina Dunajewskiego 83, 32-064 Rudawa</div>
         </div>
-        <div className="doc"><b>FIH 06/1/1</b><br />wyd. 07.2026<br />str. 1 z 1</div>
       </div>
       <div className="rule" />
 
       <h1>Arkusz kontroli techniczno-sanitarnej przed rozpoczęciem pracy zakładu</h1>
 
       <div className="meta">
-        <div className="fld"><div className="lb">Nr karty</div></div>
-        <div className="fld"><div className="lb">Data kontroli</div></div>
-        <div className="fld"><div className="lb">Godzina</div></div>
-        <div className="fld"><div className="lb">Zmiana</div></div>
-        <div className="fld w2"><div className="lb">Osoba kontrolująca — imię i nazwisko</div></div>
-        <div className="fld w2"><div className="lb">Podpis osoby kontrolującej</div></div>
+        <div className="fld"><div className="lb">Nr karty</div><div className="vl">{cardNo}</div></div>
+        <div className="fld"><div className="lb">Data kontroli</div><div className="vl">{dateStr}</div></div>
+        <div className="fld w3"><div className="lb">Podpis osoby kontrolującej</div></div>
       </div>
 
       <div className="grid">
@@ -179,8 +193,7 @@ export function SanitaryCheckPrintPage() {
       </div>
 
       <div className="foot">
-        <span>Arkusz wypełnia się przed rozpoczęciem pracy zakładu — jedna karta na jeden dzień roboczy.</span>
-        <span>FIH 06/1/1 · wyd. 07.2026</span>
+        <span>FIH 06/1/1</span>
       </div>
     </div>
   )
@@ -201,7 +214,9 @@ const CSS = `
 @font-face { font-family:'RCArk'; font-weight:700; font-display:swap;
   src:url('/fonts/robotocondensed-700-latin.woff2') format('woff2'); }
 
-@page { size:A4 portrait; margin:5mm; }
+/* Boki 7 mm, nie 5 — przy 5 mm drukarki biurowe (strefa niedrukowalna
+   ok. 6,4 mm) ucinały skrajną ramkę tabeli. */
+@page { size:A4 portrait; margin:5mm 7mm; }
 .ark, .ark * { box-sizing:border-box; }
 .ark { font-family:'RCArk',Arial,sans-serif; color:#111; font-size:7pt; line-height:1.15;
   background:#fff; width:200mm; margin:0 auto; padding:5mm;
@@ -213,36 +228,39 @@ const CSS = `
 .ark .plant { flex:1; text-align:center; padding-top:1mm; }
 .ark .plant .nm { font-weight:700; font-size:9pt; letter-spacing:.02em; }
 .ark .plant .ad { font-size:7pt; color:#333; }
-.ark .doc { text-align:right; font-size:6.2pt; color:#333; line-height:1.5; padding-top:1mm; }
-.ark .doc b { font-size:7pt; color:#111; }
 
 /* Kolor wyłącznie w logo — reszta arkusza czarno-biała (dobrze kseruje). */
 .ark .rule { height:1.4mm; margin:2mm 0 0; background:#111; }
-.ark h1 { font-size:11pt; font-weight:700; text-align:center; letter-spacing:.04em;
-  margin:2.2mm 0 2mm; text-transform:uppercase; }
+.ark h1 { font-size:10.5pt; font-weight:700; text-align:center; letter-spacing:.04em;
+  margin:1.8mm 0 1.6mm; text-transform:uppercase; }
 
 .ark .meta { display:flex; gap:2mm; margin-bottom:2mm; }
 .ark .fld { flex:1; border:.35mm solid #111; padding:.8mm 1.4mm; min-height:8mm; }
 .ark .fld .lb { font-size:5.8pt; font-weight:700; text-transform:uppercase;
   letter-spacing:.04em; color:#444; }
-.ark .fld.w2 { flex:2; }
+/* wartość wstawiana przez system (nr karty, data) — nie do wypełniania ręcznie */
+.ark .fld .vl { font-size:9pt; font-weight:700; margin-top:.6mm;
+  font-variant-numeric:tabular-nums; }
+.ark .fld.w3 { flex:3; }
 
 .ark .grid { display:flex; gap:2.4mm; }
 .ark table.chk { flex:1; border-collapse:collapse; table-layout:fixed; }
 .ark table.chk th { background:#111; color:#fff; font-size:6pt; font-weight:700;
   text-transform:uppercase; letter-spacing:.03em; padding:.9mm .8mm; text-align:left; }
-.ark table.chk td { border:.28mm solid #999; padding:.55mm .8mm; height:5.3mm;
+.ark table.chk td { border:.28mm solid #999; padding:.3mm .7mm; height:4.0mm;
   vertical-align:middle; }
-.ark table.chk .lp { width:8mm; text-align:right; font-size:6.2pt; color:#444;
+.ark table.chk .lp { width:7.5mm; text-align:right; font-size:6pt; color:#444;
   font-variant-numeric:tabular-nums; }
-.ark table.chk td.res { width:11mm; background:#fbfbfb; }
+/* CZYSTA biel — znaczek długopisem ma być dobrze widoczny */
+.ark table.chk td.res { width:11mm; background:#fff; }
 /* nagłówki muszą wygrać z kolorem klasy .lp/.res, inaczej znikają na czerni */
 .ark table.chk th.lp, .ark table.chk th.res { color:#fff; background:#111; }
 .ark table.chk th.res { text-align:center; width:11mm; }
 .ark table.chk tr.sec .lp { font-weight:700; color:#111; font-size:7pt; }
-.ark table.chk tr.sec .txt { font-weight:700; font-size:6.6pt; text-transform:uppercase; }
+.ark table.chk tr.sec .txt { font-weight:700; font-size:6.1pt; text-transform:uppercase;
+  line-height:1.05; }
 .ark table.chk tr.sec td { background:#e9e9e9; border-top:.5mm solid #111; }
-.ark table.chk .txt { font-size:6.6pt; }
+.ark table.chk .txt { font-size:6.3pt; }
 
 .ark .legend { display:flex; align-items:center; gap:4mm; margin-top:2.2mm;
   border:.35mm solid #111; padding:1.2mm 2mm; }
@@ -269,6 +287,7 @@ const CSS = `
 .ark .sg .lb { font-size:5.8pt; font-weight:700; text-transform:uppercase;
   letter-spacing:.04em; color:#444; }
 .ark .sg .ln { border-bottom:.3mm dotted #666; height:6mm; }
-.ark .foot { display:flex; justify-content:space-between; margin-top:1.6mm;
-  font-size:5.6pt; color:#555; }
+.ark .foot { display:flex; justify-content:flex-end; margin-top:1.6mm;
+  font-size:6.4pt; font-weight:700; color:#222;
+  letter-spacing:.04em; }
 `
