@@ -74,35 +74,35 @@ export interface PalletSnapshot {
   net: number
 }
 
-export interface DriveOffTracker {
-  /** Ostatni kompletny stabilny odczyt — kandydat na paletę. */
-  armed: PalletSnapshot | null
-  /** Zjazd z wagi z niedodaną paletą — odczyt czeka na decyzję operatora. */
-  prompt: PalletSnapshot | null
+/** Ładunek jest parametrem: paleta ubocznych (PalletSnapshot) albo ważenie
+ * mięsa (MeatSnapshot z meatDriveOff.ts). Tracker zna tylko wagę. */
+export interface DriveOffTracker<T> {
+  /** Ostatni kompletny stabilny odczyt — kandydat do zapisu. */
+  armed: T | null
+  /** Zjazd z wagi z niezapisanym odczytem — czeka na decyzję operatora. */
+  prompt: T | null
 }
 
-export const DRIVE_OFF_IDLE: DriveOffTracker = { armed: null, prompt: null }
+/** Stan pusty pasujący do trackera o dowolnym ładunku. `any`, nie `never`,
+ * bo repo ma strict:false — przy wyłączonym strictNullChecks `T | null`
+ * zapada się do `T` i `never` nie przyjąłby nulli. */
+export const DRIVE_OFF_IDLE: DriveOffTracker<any> = { armed: null, prompt: null }
 
-export function driveOffStep(
-  state: DriveOffTracker,
+/**
+ * @param snap gotowy snapshot do zapamiętania albo `null`, gdy dane są
+ *   niekompletne (brak tary, brak pracownika, netto 0 …) — wtedy nie uzbrajamy.
+ *   Zaokrąglanie kilogramów należy do wywołującego; tracker zapamiętuje 1:1.
+ */
+export function driveOffStep<T>(
+  state: DriveOffTracker<T>,
   reading: { connected: boolean; stable: boolean; gross: number },
-  snap: { tareKg: number | null; tareLabel: string; containers: number; net: number },
-): DriveOffTracker {
+  snap: T | null,
+): DriveOffTracker<T> {
   // Prompt czeka na decyzję operatora — kolejne odczyty go nie ruszają,
-  // inaczej następna paleta wjeżdżająca na wagę skasowałaby pytanie.
+  // inaczej następny wózek wjeżdżający na wagę skasowałby pytanie.
   if (state.prompt) return state
-  const complete = snap.tareKg != null && snap.net > 0
-  if (reading.connected && reading.stable && reading.gross > SCALE_EMPTY_KG && complete) {
-    return {
-      armed: {
-        tareLabel: snap.tareLabel,
-        tareKg: snap.tareKg as number,
-        containers: snap.containers,
-        gross: reading.gross,
-        net: round1(snap.net),
-      },
-      prompt: null,
-    }
+  if (reading.connected && reading.stable && reading.gross > SCALE_EMPTY_KG && snap != null) {
+    return { armed: snap, prompt: null }
   }
   if (state.armed && reading.gross <= SCALE_EMPTY_KG) {
     return { armed: null, prompt: state.armed }

@@ -71,62 +71,74 @@ describe('computeWeighing', () => {
   })
 })
 
-describe('driveOffStep (kreator ubocznych: zjazd z wagi bez „Dodaj do sumy")', () => {
-  const snap = { tareKg: 18, tareLabel: 'H1', containers: 12, net: 496.0 }
+describe('driveOffStep (strażnik zjazdu z wagi)', () => {
+  const pallet = { tareLabel: 'H1', tareKg: 18, containers: 12, gross: 538.0, net: 496.0 }
   const onScale = { connected: true, stable: true, gross: 538.0 }
   const offScale = { connected: true, stable: false, gross: 0 }
 
-  it('stabilny kompletny odczyt uzbraja tracker (kandydat na paletę)', () => {
-    const s = driveOffStep(DRIVE_OFF_IDLE, onScale, snap)
-    expect(s.armed).toEqual({ tareLabel: 'H1', tareKg: 18, containers: 12, gross: 538.0, net: 496.0 })
+  it('stabilny kompletny odczyt uzbraja tracker (kandydat do zapisu)', () => {
+    const s = driveOffStep(DRIVE_OFF_IDLE, onScale, pallet)
+    expect(s.armed).toEqual(pallet)
     expect(s.prompt).toBeNull()
   })
 
   it('zjazd z wagi → prompt z ostatnim odczytem, armed się czyści', () => {
-    const armed = driveOffStep(DRIVE_OFF_IDLE, onScale, snap)
-    const s = driveOffStep(armed, offScale, { ...snap, net: 0 })
-    expect(s.prompt).toEqual(armed.armed)
+    const armed = driveOffStep(DRIVE_OFF_IDLE, onScale, pallet)
+    const s = driveOffStep(armed, offScale, null)
+    expect(s.prompt).toEqual(pallet)
     expect(s.armed).toBeNull()
   })
 
   it('drganie przy zjeżdżaniu (niestabilne odczyty nad progiem) nie gubi odczytu', () => {
-    const armed = driveOffStep(DRIVE_OFF_IDLE, onScale, snap)
-    const mid = driveOffStep(armed, { connected: true, stable: false, gross: 214.0 }, snap)
-    expect(mid.armed).toEqual(armed.armed)
-    const s = driveOffStep(mid, offScale, { ...snap, net: 0 })
-    expect(s.prompt).toEqual(armed.armed)
+    const armed = driveOffStep(DRIVE_OFF_IDLE, onScale, pallet)
+    const mid = driveOffStep(armed, { connected: true, stable: false, gross: 214.0 }, pallet)
+    expect(mid.armed).toEqual(pallet)
+    const s = driveOffStep(mid, offScale, null)
+    expect(s.prompt).toEqual(pallet)
   })
 
-  it('bez wybranej tary nie uzbraja (odczyt niekompletny)', () => {
-    const s = driveOffStep(DRIVE_OFF_IDLE, onScale, { ...snap, tareKg: null })
-    expect(s).toEqual(DRIVE_OFF_IDLE)
+  it('snap = null (dane niekompletne) nie uzbraja', () => {
+    expect(driveOffStep(DRIVE_OFF_IDLE, onScale, null)).toEqual(DRIVE_OFF_IDLE)
   })
 
   it('prompt czeka na decyzję — kolejne odczyty go nie nadpisują', () => {
-    const armed = driveOffStep(DRIVE_OFF_IDLE, onScale, snap)
-    const prompted = driveOffStep(armed, offScale, { ...snap, net: 0 })
-    const next = driveOffStep(prompted, { connected: true, stable: true, gross: 320.0 }, { ...snap, net: 287.0 })
+    const armed = driveOffStep(DRIVE_OFF_IDLE, onScale, pallet)
+    const prompted = driveOffStep(armed, offScale, null)
+    const next = driveOffStep(prompted, { connected: true, stable: true, gross: 320.0 },
+      { ...pallet, gross: 320.0, net: 287.0 })
     expect(next).toEqual(prompted)
   })
 
+  it('waga rozłączona nie uzbraja', () => {
+    const s = driveOffStep(DRIVE_OFF_IDLE, { connected: false, stable: true, gross: 538.0 }, pallet)
+    expect(s).toEqual(DRIVE_OFF_IDLE)
+  })
+
   it('utrata połączenia z wagą (watchdog → OFF) też ratuje odczyt promptem', () => {
-    const armed = driveOffStep(DRIVE_OFF_IDLE, onScale, snap)
-    const s = driveOffStep(armed, { connected: false, stable: false, gross: 0 }, { ...snap, net: 0 })
-    expect(s.prompt).toEqual(armed.armed)
+    const armed = driveOffStep(DRIVE_OFF_IDLE, onScale, pallet)
+    const s = driveOffStep(armed, { connected: false, stable: false, gross: 0 }, null)
+    expect(s.prompt).toEqual(pallet)
   })
 
   it('nowszy stabilny odczyt nadpisuje armed (operator poprawia pojemniki na wadze)', () => {
-    const first = driveOffStep(DRIVE_OFF_IDLE, onScale, snap)
-    const s = driveOffStep(first, { connected: true, stable: true, gross: 534.0 }, { ...snap, containers: 10, net: 500.0 })
+    const first = driveOffStep(DRIVE_OFF_IDLE, onScale, pallet)
+    const s = driveOffStep(first, { connected: true, stable: true, gross: 534.0 },
+      { ...pallet, containers: 10, gross: 534.0, net: 500.0 })
     expect(s.armed).toEqual({ tareLabel: 'H1', tareKg: 18, containers: 10, gross: 534.0, net: 500.0 })
   })
 
-  it('netto zaokrągla do 0,1 kg przy uzbrajaniu', () => {
-    const s = driveOffStep(DRIVE_OFF_IDLE, onScale, { ...snap, net: 495.9499999 })
+  it('zapamiętuje snapshot 1:1 — zaokrąglanie należy do wywołującego', () => {
+    const s = driveOffStep(DRIVE_OFF_IDLE, onScale, { ...pallet, net: 495.9 })
     expect(s.armed?.net).toBe(495.9)
   })
 
   it('pusta waga bez armed → nic (spokój na starcie kreatora)', () => {
-    expect(driveOffStep(DRIVE_OFF_IDLE, offScale, { ...snap, net: 0 })).toEqual(DRIVE_OFF_IDLE)
+    expect(driveOffStep(DRIVE_OFF_IDLE, offScale, null)).toEqual(DRIVE_OFF_IDLE)
+  })
+
+  it('działa dla dowolnego ładunku — nie tylko palety', () => {
+    const meat = { netKg: 100.0, workerName: 'Anatoli' }
+    const armed = driveOffStep(DRIVE_OFF_IDLE, onScale, meat)
+    expect(driveOffStep(armed, offScale, null).prompt).toEqual(meat)
   })
 })

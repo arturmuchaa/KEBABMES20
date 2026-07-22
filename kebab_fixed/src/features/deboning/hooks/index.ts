@@ -172,6 +172,10 @@ export function useDeboningEntries(sessionId: string | null) {
     }
   }, [createMutation, refetch])
 
+  // Utworzone pobranie z ostatniego addTake. Ref, nie stan: ścieżka „to dopiero
+  // część" (HMI: zjazd z wagi) potrzebuje id od razu, żeby dopiąć weighPart.
+  const lastTakeRef = useRef<DeboningEntry | null>(null)
+
   const createTakeMutation = useMutation((dto: CreateDeboningTakeDto) => deboningApi.createTake(dto))
   const completeTakeMutation = useMutation(
     ({ id, dto }: { id: string; dto: CompleteDeboningTakeDto }) => deboningApi.completeTake(id, dto)
@@ -191,10 +195,12 @@ export function useDeboningEntries(sessionId: string | null) {
     if (dto.kgTaken > kgAvailable + 0.01)
       return `⛔ Nie można pobrać ${dto.kgTaken} kg — dostępne tylko ${kgAvailable.toFixed(2)} kg`
     try {
-      await createTakeMutation.mutate(dto)
+      const created = await createTakeMutation.mutate(dto)
+      lastTakeRef.current = created ?? null
       refetch()
       return null
     } catch (e) {
+      lastTakeRef.current = null
       return e instanceof Error ? e.message : 'Błąd zapisu pobrania'
     }
   }, [createTakeMutation, refetch])
@@ -305,6 +311,7 @@ export function useDeboningEntries(sessionId: string | null) {
     editEntry,
     removeEntry,
     lastCreated,
+    lastTakeRef,
     addLoading:    createMutation.loading,
     addTakeLoading:      createTakeMutation.loading,
     completeTakeLoading: completeTakeMutation.loading,
