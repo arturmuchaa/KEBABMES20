@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { buildMeatSnapshot, meatPromptVariant, type MeatSnapshotInput } from './meatDriveOff'
+import { buildMeatSnapshot, meatPromptVariant, meatSaveDto, type MeatSnapshotInput } from './meatDriveOff'
+import { computeWeighing } from './weighing'
 
 const base: MeatSnapshotInput = {
   autoMode: true,
@@ -109,5 +110,43 @@ describe('meatPromptVariant', () => {
   it('zaokrągla sumę do 0,1 kg (bez artefaktów float)', () => {
     const v = meatPromptVariant({ ...snap, netKg: 100.15, weighedSoFarKg: 0.1 })
     expect(v.totalWeighedKg).toBe(100.3)
+  })
+})
+
+// Backend odrzuca zapis, gdy |brutto − tary − kgMeat| > 0,5 kg
+// (validate_weighing_consistency w deboning_service.py). DTO musi trzymać ten
+// niezmiennik dla KAŻDEGO odczytu, inaczej okno po zjeździe z wagi wyrzuca
+// „Niespójne ważenie" — albo zapisuje 0 kg.
+describe('meatSaveDto — spójność z walidacją backendu', () => {
+  const SERVER_TOLERANCE_KG = 0.5
+
+  const check = (gross: number, cartTareKg: number, e2Count: number) => {
+    const w = computeWeighing({ gross, cartTareKg, e2Count })
+    const s = buildMeatSnapshot({ ...base, netKg: w.netKg, gross, cartTareKg, e2Count, takenKg: 1000 })!
+    const dto = meatSaveDto(s)
+    const net = dto.kgGross - (dto.tareCartKg ?? 0) - dto.tareE2Kg
+    return Math.abs(net - dto.kgMeat)
+  }
+
+  it('typowy wózek z hali (170,0 − 5,5 − 7×E2)', () => {
+    expect(check(170.0, 5.5, 7)).toBeLessThanOrEqual(SERVER_TOLERANCE_KG)
+  })
+
+  it('ważenie bez wózka (tara 0) — 0 nie może zniknąć jako undefined', () => {
+    const s = buildMeatSnapshot({ ...base, cartTareKg: 0, netKg: 142.0, gross: 156.0, e2Count: 7 })!
+    expect(meatSaveDto(s).tareCartKg).toBe(0)
+    expect(check(156.0, 0, 7)).toBeLessThanOrEqual(SERVER_TOLERANCE_KG)
+  })
+
+  it('brutto z groszami (artefakt wagi) mieści się w tolerancji', () => {
+    expect(check(170.05, 6.5, 3)).toBeLessThanOrEqual(SERVER_TOLERANCE_KG)
+  })
+
+  it('przenosi liczbę pojemników i tryb auto', () => {
+    const dto = meatSaveDto(buildMeatSnapshot(base)!)
+    expect(dto.e2Count).toBe(10)
+    expect(dto.tareE2Kg).toBe(20.0)
+    expect(dto.weighMode).toBe('auto')
+    expect(dto.kgMeat).toBe(100.0)
   })
 })

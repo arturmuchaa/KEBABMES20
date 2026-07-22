@@ -9,6 +9,7 @@
  * Sam tracker (uzbrojenie/zjazd) siedzi w weighing.ts — tu tylko ładunek.
  */
 import { decideTakeSave } from './partialWeighing'
+import { E2_TARE_KG } from './weighing'
 
 /** Zamrożony odczyt ważenia mięsa — wszystko, czego potrzeba do zapisu PO
  * zjeździe z wagi (scale.gross jest wtedy zerem, więc żywych danych nie ma). */
@@ -69,6 +70,23 @@ export function buildMeatSnapshot(i: MeatSnapshotInput): MeatSnapshot | null {
     takenKg: i.takenKg,
     weighedSoFarKg: i.weighedSoFarKg,
     resumeId: i.resumeId,
+  }
+}
+
+/** Pola ważenia do DTO — z ZAMROŻONEGO snapshotu, nigdy z żywej wagi.
+ *
+ * Backend waliduje spójność (`validate_weighing_consistency`): brutto minus
+ * tary musi się zgadzać z kgMeat w granicy 0,5 kg. Po zjeździe z wagi
+ * `scale.gross` to zero, więc zapis z żywych odczytów poleciałby błędem
+ * „Niespójne ważenie" — albo, gorzej, wpisem 0 kg. */
+export function meatSaveDto(s: MeatSnapshot) {
+  return {
+    kgMeat: s.netKg,
+    weighMode: 'auto' as const,
+    kgGross: s.gross,
+    tareCartKg: s.cartTareKg ?? undefined,
+    tareE2Kg: Math.round(s.e2Count * E2_TARE_KG * 10) / 10,
+    e2Count: s.e2Count,
   }
 }
 

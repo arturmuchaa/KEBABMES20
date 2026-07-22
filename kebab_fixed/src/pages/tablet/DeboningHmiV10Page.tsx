@@ -27,7 +27,7 @@ import {
   DRIVE_OFF_IDLE, driveOffStep, type DriveOffTracker,
 } from '@/features/deboning/utils/weighing'
 import {
-  buildMeatSnapshot, meatPromptVariant,
+  buildMeatSnapshot, meatPromptVariant, meatSaveDto,
   type MeatSnapshot, type MeatPromptAction,
 } from '@/features/deboning/utils/meatDriveOff'
 import { useAuth } from '@/features/auth/AuthContext'
@@ -990,18 +990,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   }
 
   // ── Zjazd z wagi bez ZAPISZ: zapis z ZAMROŻONEGO odczytu ──────────────────
-  // Wózek już zjechał, więc scale.gross to zero — wszystkie liczby muszą iść
-  // ze snapshotu, inaczej wpis wyląduje z 0 kg i bezsensowną tarą.
-  function driveOffDto(s: MeatSnapshot) {
-    return {
-      kgMeat: s.netKg,
-      weighMode: 'auto' as const,
-      kgGross: s.gross,
-      tareCartKg: s.cartTareKg ?? undefined,
-      tareE2Kg: Math.round(s.e2Count * E2_TARE_KG * 10) / 10,
-      e2Count: s.e2Count,
-    }
-  }
+  // Pola ważenia buduje meatSaveDto (utils/meatDriveOff) — tam też mieszka test
+  // niezmiennika, którego pilnuje backend: brutto − tary = kgMeat ±0,5 kg.
 
   // Partia ze snapshotu (operator mógł w międzyczasie nic nie zmienić — modal
   // przykrywa ekran — ale partia bywa już poza listą aktywnych, gdy zeszła do 0).
@@ -1022,7 +1012,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Porcja — pobranie zostaje otwarte, mięso od razu na magazyn.
   async function driveOffSavePart(s: MeatSnapshot) {
     if (!session || !s.resumeId) return
-    const err = await weighPart(s.resumeId, driveOffDto(s), session)
+    const err = await weighPart(s.resumeId, meatSaveDto(s), session)
     if (err) { showToast(err, 'err'); return } // okno zostaje — operator ponawia
     clearAfterDriveOff()
     showToast(`Zapisano ${fmtKg(s.netKg, 1)} kg — razem ${fmtKg(s.weighedSoFarKg + s.netKg, 1)}/${fmtKg(s.takenKg, 1)} kg, pobranie otwarte`)
@@ -1031,7 +1021,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Całość — domknięcie otwartego pobrania.
   async function driveOffComplete(s: MeatSnapshot) {
     if (!session || !s.resumeId) return
-    const err = await completeTake(s.resumeId, driveOffDto(s), session)
+    const err = await completeTake(s.resumeId, meatSaveDto(s), session)
     if (err) { showToast(err, 'err'); return }
     clearAfterDriveOff()
     batchData.refetch()
@@ -1045,7 +1035,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     const b = driveOffBatch(s)
     if (!b) { showToast('Partia zniknęła z listy — zapisz wpis ręcznie', 'err'); return }
     const err = await addEntry(
-      { sessionId: session.id, rawBatchId: s.batchId, workerId: s.workerId, kgTaken: s.takenKg, ...driveOffDto(s) },
+      { sessionId: session.id, rawBatchId: s.batchId, workerId: s.workerId, kgTaken: s.takenKg, ...meatSaveDto(s) },
       session, Number(b.kgAvailable), b.expiryDate,
     )
     if (err) { showToast(err, 'err'); return }
@@ -1069,7 +1059,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (takeErr) { showToast(takeErr, 'err'); return }
     const created = lastTakeRef.current
     if (!created) { showToast('Pobranie zapisane — zważ porcję z kafelka pracownika', 'err'); setMeatDriveOff(DRIVE_OFF_IDLE); return }
-    const err = await weighPart(created.id, driveOffDto(s), session)
+    const err = await weighPart(created.id, meatSaveDto(s), session)
     if (err) { showToast(err, 'err'); setMeatDriveOff(DRIVE_OFF_IDLE); return }
     clearAfterDriveOff()
     batchData.refetch()
