@@ -43,6 +43,14 @@ declare const __ROZBIOR_V10_VERSION__: string
 const KG_PER_CONTAINER = 15
 // Wariant prowadzony (v11): domyślna liczba pojemników E2 po starcie i po zapisie.
 const GUIDED_DEFAULT_E2 = 5
+
+// Wyjścia z okna „zważone — nie zapisano" (zjazd z wagi bez ZAPISZ).
+const DRIVE_OFF_LABEL: Record<MeatPromptAction, string> = {
+  part: 'ZAPISZ PORCJĘ — RESZTA DOJEDZIE',
+  complete: 'TO CAŁOŚĆ — ZAMKNIJ POBRANIE',
+  entry: 'ZAPISZ WPIS',
+  'entry-part': 'TO DOPIERO CZĘŚĆ — POBRANIE ZOSTAJE OTWARTE',
+}
 const YIELD_BAND_LO = 65   // % — dolna granica pasma celu
 const YIELD_BAND_HI = 80   // % — górna granica pasma celu
 const TEMPO_TARGET  = 800  // kg/h — cel linii
@@ -981,6 +989,100 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     showToast(`Zapisano ${fmtKg(portion, 1)} kg — razem ${fmtKg(resumeWeighedKg + portion, 1)}/${fmtKg(takenNow, 1)} kg, pobranie otwarte`)
   }
 
+  // ── Zjazd z wagi bez ZAPISZ: zapis z ZAMROŻONEGO odczytu ──────────────────
+  // Wózek już zjechał, więc scale.gross to zero — wszystkie liczby muszą iść
+  // ze snapshotu, inaczej wpis wyląduje z 0 kg i bezsensowną tarą.
+  function driveOffDto(s: MeatSnapshot) {
+    return {
+      kgMeat: s.netKg,
+      weighMode: 'auto' as const,
+      kgGross: s.gross,
+      tareCartKg: s.cartTareKg ?? undefined,
+      tareE2Kg: Math.round(s.e2Count * E2_TARE_KG * 10) / 10,
+      e2Count: s.e2Count,
+    }
+  }
+
+  // Partia ze snapshotu (operator mógł w międzyczasie nic nie zmienić — modal
+  // przykrywa ekran — ale partia bywa już poza listą aktywnych, gdy zeszła do 0).
+  function driveOffBatch(s: MeatSnapshot): RawBatch | null {
+    const all = (batchData.data?.data ?? []) as RawBatch[]
+    return all.find(x => x.id === s.batchId) ?? (selBatch?.id === s.batchId ? selBatch : null)
+  }
+
+  function clearAfterDriveOff() {
+    setMeatDriveOff(DRIVE_OFF_IDLE)
+    setResumeId(null)
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    setSaveFlash(true)
+    if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
+    saveFlashRef.current = setTimeout(() => setSaveFlash(false), 350)
+  }
+
+  // Porcja — pobranie zostaje otwarte, mięso od razu na magazyn.
+  async function driveOffSavePart(s: MeatSnapshot) {
+    if (!session || !s.resumeId) return
+    const err = await weighPart(s.resumeId, driveOffDto(s), session)
+    if (err) { showToast(err, 'err'); return } // okno zostaje — operator ponawia
+    clearAfterDriveOff()
+    showToast(`Zapisano ${fmtKg(s.netKg, 1)} kg — razem ${fmtKg(s.weighedSoFarKg + s.netKg, 1)}/${fmtKg(s.takenKg, 1)} kg, pobranie otwarte`)
+  }
+
+  // Całość — domknięcie otwartego pobrania.
+  async function driveOffComplete(s: MeatSnapshot) {
+    if (!session || !s.resumeId) return
+    const err = await completeTake(s.resumeId, driveOffDto(s), session)
+    if (err) { showToast(err, 'err'); return }
+    clearAfterDriveOff()
+    batchData.refetch()
+    showToast(`Zważono ${fmtKg(s.netKg, 1)} kg mięsa`)
+    maybeFinishAfterComplete(s.batchId, s.resumeId)
+  }
+
+  // Zwykły wpis: ćwiartka + mięso w jednym rekordzie (jak ZAPISZ).
+  async function driveOffSaveEntry(s: MeatSnapshot) {
+    if (!session) return
+    const b = driveOffBatch(s)
+    if (!b) { showToast('Partia zniknęła z listy — zapisz wpis ręcznie', 'err'); return }
+    const err = await addEntry(
+      { sessionId: session.id, rawBatchId: s.batchId, workerId: s.workerId, kgTaken: s.takenKg, ...driveOffDto(s) },
+      session, Number(b.kgAvailable), b.expiryDate,
+    )
+    if (err) { showToast(err, 'err'); return }
+    clearAfterDriveOff()
+    batchData.refetch()
+    setUndoUntil(Date.now() + 60_000); setUndoNow(Date.now())
+    showToast(`Zapisano: ${fmtKg(s.netKg)} kg mięsa`)
+    maybeFinishBatch(b, s.takenKg)
+  }
+
+  // „To dopiero część" w trybie zwykłym: zamiast wpisu z fałszywym uzyskiem
+  // zakładamy POBRANIE na całą ćwiartkę i dopinamy zważoną porcję.
+  async function driveOffSaveEntryPart(s: MeatSnapshot) {
+    if (!session) return
+    const b = driveOffBatch(s)
+    if (!b) { showToast('Partia zniknęła z listy — zapisz wpis ręcznie', 'err'); return }
+    const takeErr = await addTake(
+      { sessionId: session.id, rawBatchId: s.batchId, workerId: s.workerId, kgTaken: s.takenKg },
+      session, Number(b.kgAvailable), b.expiryDate,
+    )
+    if (takeErr) { showToast(takeErr, 'err'); return }
+    const created = lastTakeRef.current
+    if (!created) { showToast('Pobranie zapisane — zważ porcję z kafelka pracownika', 'err'); setMeatDriveOff(DRIVE_OFF_IDLE); return }
+    const err = await weighPart(created.id, driveOffDto(s), session)
+    if (err) { showToast(err, 'err'); setMeatDriveOff(DRIVE_OFF_IDLE); return }
+    clearAfterDriveOff()
+    batchData.refetch()
+    showToast(`Zapisano ${fmtKg(s.netKg, 1)} kg z ${fmtKg(s.takenKg, 1)} kg — pobranie zostaje otwarte`)
+  }
+
+  function runDriveOffAction(action: MeatPromptAction, s: MeatSnapshot) {
+    if (action === 'part') { void driveOffSavePart(s); return }
+    if (action === 'complete') { void driveOffComplete(s); return }
+    if (action === 'entry') { void driveOffSaveEntry(s); return }
+    void driveOffSaveEntryPart(s)
+  }
+
   // Domknięcie pobrania zważonym mięsem (całość — po decyzji z handleCompleteTake).
   async function doCompleteTake() {
     if (!resumeId || !session) return
@@ -1195,6 +1297,64 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           </div>
         </div>
       )}
+
+      {/* Zjazd z wagi bez ZAPISZ — zamrożony odczyt czeka na decyzję. */}
+      {meatDriveOff.prompt && (() => {
+        const s = meatDriveOff.prompt
+        const v = meatPromptVariant(s)
+        const busy = addLoading || addTakeLoading || weighPartLoading || completeTakeLoading
+        return (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" style={VARS}>
+            <div className="w-[520px] p-8 flex flex-col gap-6" style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)' }}>
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 flex items-center justify-center flex-shrink-0" style={{ borderRadius: 12, background: 'var(--ambSoft)', border: '1px solid var(--ambLine)', color: 'var(--amb)' }}><Scale size={26} /></div>
+                <div className="min-w-0">
+                  <h3 className="font-extrabold text-xl leading-tight">Zważone — nie zapisano</h3>
+                  <p className="text-sm" style={{ color: 'var(--mut)' }}>
+                    {s.workerName} · partia {s.batchNo}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <div className="hmi-v10-mono font-extrabold text-5xl text-center" style={{ color: 'var(--accent)' }}>
+                  {fmtKg(s.netKg, 1)} kg
+                </div>
+                <div className="text-sm font-bold text-center" style={{ color: 'var(--mut)' }}>
+                  pobrano {fmtKg(s.takenKg, 1)} kg · zważono {fmtKg(v.totalWeighedKg, 1)} kg
+                </div>
+                <div className="w-full h-3 overflow-hidden" style={{ borderRadius: 999, background: 'var(--bg)', border: '1px solid var(--line)' }}>
+                  <div style={{ width: `${Math.min(100, Math.max(0, v.pct))}%`, height: '100%', background: 'var(--accent)' }} />
+                </div>
+                <div className="text-sm font-bold text-center">{fmtPct(v.pct, 0)} pobrania</div>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <button type="button" disabled={busy} onClick={() => runDriveOffAction(v.primary, s)}
+                  className="h-14 text-base font-bold flex items-center justify-center gap-3"
+                  style={{ borderRadius: 10, background: 'var(--accent)', color: '#fff' }}>
+                  {busy ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={20} />}
+                  {DRIVE_OFF_LABEL[v.primary]}
+                </button>
+                {v.secondary && (
+                  <button type="button" disabled={busy} onClick={() => runDriveOffAction(v.secondary as MeatPromptAction, s)}
+                    className="h-14 text-base font-bold"
+                    style={{ borderRadius: 10, border: '1.5px solid var(--line)', color: 'var(--ink)' }}>
+                    {DRIVE_OFF_LABEL[v.secondary]}
+                  </button>
+                )}
+                {/* Anuluj: nisko, szaro, pod kreską — palec nie może go pomylić z zapisem. */}
+                <div style={{ height: 1, background: 'var(--line)', marginTop: 4 }} />
+                <button type="button" disabled={busy} onClick={() => setMeatDriveOff(DRIVE_OFF_IDLE)}
+                  className="h-10 text-sm font-bold self-center px-8"
+                  style={{ borderRadius: 10, color: 'var(--mut)', background: 'transparent' }}>
+                  anuluj
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Częściowe ważenie: łączny % poniżej normy — część czy całość? */}
       {partialPrompt && (
