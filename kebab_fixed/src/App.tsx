@@ -37,6 +37,7 @@ import { CmrDocumentsPage }     from '@/pages/office/CmrDocumentsPage'
 import { WzPrintPage }          from '@/pages/office/WzPrintPage'
 import { DeboningReportPrintPage } from '@/pages/office/DeboningReportPrintPage'
 import { MixingPlanPrintPage }    from '@/pages/office/MixingPlanPrintPage'
+import { SanitaryCheckPrintPage } from '@/pages/office/SanitaryCheckPrintPage'
 import { WzDocumentsPage }      from '@/pages/office/WzDocumentsPage'
 import { WzNewPage }            from '@/pages/office/WzNewPage'
 import { CmrLayoutConfigPage }  from '@/pages/office/CmrLayoutConfigPage'
@@ -113,6 +114,7 @@ export default function App() {
       <Route path="/office/wz/:id/druk" element={<WzPrintPage />} />
       <Route path="/office/rozbior-raport/druk" element={<DeboningReportPrintPage />} />
       <Route path="/office/plan-masowania/druk" element={<MixingPlanPrintPage />} />
+      <Route path="/office/arkusz-kontroli/druk" element={<SanitaryCheckPrintPage />} />
       <Route path="/office/partia/:batchNo/raport" element={<BatchReportPage />} />
       <Route path="/etykiety/szablon" element={<LabelTemplateSetupPage />} />
 
