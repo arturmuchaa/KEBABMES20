@@ -150,10 +150,14 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
         """
         SELECT id, worker_id, worker_name, kg_quarter, kg_meat, kg_backs,
                kg_bones, yield_pct, raw_batch_no,
-               created_at AS taken_at,
+               -- Dzień/godzina POBRANIA w strefie PL: baza w UTC, a payroll
+               -- (get_worker_days) liczy już po Europe/Warsaw — statystyki
+               -- muszą mierzyć identycznie, inaczej wpis z wieczora ląduje
+               -- w biurze na innym dniu niż w płacy i na HMI.
+               (created_at AT TIME ZONE 'Europe/Warsaw') AS taken_at,
                COALESCE(completed_at, created_at) AS at
         FROM deboning_entries
-        WHERE created_at::date BETWEEN %s AND %s
+        WHERE (created_at AT TIME ZONE 'Europe/Warsaw')::date BETWEEN %s AND %s
           AND COALESCE(status, 'complete') = 'complete'
         ORDER BY COALESCE(completed_at, created_at)
         """,
@@ -213,7 +217,8 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
                COALESCE(SUM(kg) FILTER (WHERE kind = 'bones'), 0) AS bones,
                MAX(quarter) AS quarter
           FROM pal
-         WHERE at IS NOT NULL AND at::date BETWEEN %s AND %s
+         WHERE at IS NOT NULL
+           AND (at AT TIME ZONE 'Europe/Warsaw')::date BETWEEN %s AND %s
          GROUP BY bno
         """,
         (date_from, date_to),
@@ -1169,20 +1174,31 @@ def update_deboning_take(entry_id: str, dto) -> Dict:
         raise HTTPException(400, "Ilość pobranej ćwiartki musi być > 0")
 
     with transaction() as conn:
+        # Kolejność locków SPÓJNA z create_deboning_take: NAJPIERW partia,
+        # potem wpis. Odwrotna kolejność (wpis→partia) potrafiła się zakleszczyć
+        # z równoległym pobraniem tego samego pracownika z tej samej partii
+        # (create trzyma partię i czeka na wpis, edycja trzyma wpis i czeka
+        # na partię) — Postgres ubijał jedną transakcją 500-tką na HMI.
+        peek = cx_query_one(
+            conn, "SELECT raw_batch_id FROM deboning_entries WHERE id=%s", (entry_id,)
+        )
+        if not peek:
+            raise HTTPException(404, "Pobranie nie znalezione")
+        batch = cx_query_one(
+            conn, "SELECT * FROM raw_batches WHERE id=%s FOR UPDATE",
+            (peek["raw_batch_id"],),
+        )
+        if not batch:
+            raise HTTPException(404, "Partia pobrania nie istnieje")
         entry = cx_query_one(
             conn, "SELECT * FROM deboning_entries WHERE id=%s FOR UPDATE", (entry_id,)
         )
         if not entry:
             raise HTTPException(404, "Pobranie nie znalezione")
+        if entry.get("raw_batch_id") != batch.get("id"):
+            raise HTTPException(409, "Wpis zmienił partię w trakcie — spróbuj ponownie")
         if (entry.get("status") or "complete") != "pending":
             raise HTTPException(409, "Edycja możliwa tylko dla pobrania czekającego na zważenie")
-
-        batch = cx_query_one(
-            conn, "SELECT * FROM raw_batches WHERE id=%s FOR UPDATE",
-            (entry["raw_batch_id"],),
-        )
-        if not batch:
-            raise HTTPException(404, "Partia pobrania nie istnieje")
 
         old_kg = float(entry.get("kg_quarter") or 0)
         weighed = _sum_take_weighings(conn, entry_id)
@@ -1261,7 +1277,13 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
         # tylko porcję. Bez części: suma == porcja, zachowanie jak dotąd.
         kg_taken = float(entry.get("kg_quarter") or 0)
         kg_part = kg_meat
-        kg_meat = round(_sum_take_weighings(conn, entry_id) + kg_part, 2)
+        prior = cx_query_one(
+            conn,
+            "SELECT COUNT(*) AS n, COALESCE(SUM(kg_meat),0) AS s "
+            "FROM deboning_take_weighings WHERE entry_id=%s",
+            (entry_id,),
+        ) or {}
+        kg_meat = round(float(prior.get("s") or 0) + kg_part, 2)
         yield_err = validate_meat_yield(kg_taken, kg_meat)
         if yield_err:
             raise HTTPException(400, yield_err)
@@ -1270,6 +1292,11 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
         kg_remainder = max(0, kg_taken - kg_meat)
         yield_pct = round((kg_meat / kg_taken) * 100, 2)
 
+        # Przy >1 porcji kg_meat encji = SUMA, a brutto/tary opisują tylko
+        # OSTATNIĄ porcję — zapisane razem kłamią (audyt 2026-07-22:
+        # brutto−tara−mięso do −101 kg). Pola wagi encji → NULL; audyt
+        # per porcja mieszka w deboning_take_weighings.
+        multi = int(prior.get("n") or 0) > 0
         row = cx_execute_returning(
             conn,
             """
@@ -1282,7 +1309,11 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
             """,
             (
                 kg_meat, kg_remainder, yield_pct,
-                dto.kg_gross, dto.tare_cart_kg, dto.tare_e2_kg, dto.e2_count, dto.weigh_mode,
+                None if multi else dto.kg_gross,
+                None if multi else dto.tare_cart_kg,
+                None if multi else dto.tare_e2_kg,
+                None if multi else dto.e2_count,
+                dto.weigh_mode,
                 entry_id,
             ),
         )
@@ -1310,7 +1341,36 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
     return _map_deboning_entry(row)  # type: ignore[arg-type]
 
 
-def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate) -> Dict:
+def _record_correction_movements(
+    conn, entry: Dict, delta_taken: float, delta_meat: float,
+    meat_lot_id: Optional[str],
+) -> None:
+    """Księga (stock_movements) idzie w parze ze stanem przy KAŻDEJ korekcie.
+
+    Audyt 2026-07-22: korekty zmieniały raw_batches/meat_stock bez ruchu —
+    kartoteka partii liczyła salda wstecz od stanu i pokazywała przesunięte
+    wartości historyczne (prod: partia 404 +75 kg, lot 412 +10 kg). Osobny
+    source_type='deboning_correction', żeby korekta była widoczna w kartotece
+    jako korekta, a UPDATE-y ruchu pobrania (merge/edycja) jej nie ruszały.
+    Wołać PRZED zmianą meat_stock — walidacja OUT czyta żywy stan.
+    """
+    if abs(delta_taken) > 0.001:
+        create_stock_movement(
+            conn, product_type="raw", batch_id=entry.get("raw_batch_id"),
+            qty=abs(delta_taken),
+            movement_type="OUT" if delta_taken > 0 else "IN",
+            source_type="deboning_correction", source_id=entry["id"],
+        )
+    if abs(delta_meat) > 0.001 and meat_lot_id:
+        create_stock_movement(
+            conn, product_type="meat", batch_id=meat_lot_id,
+            qty=abs(delta_meat),
+            movement_type="IN" if delta_meat > 0 else "OUT",
+            source_type="deboning_correction", source_id=entry["id"],
+        )
+
+
+def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate, by_subject: str = "") -> Dict:
     with transaction() as conn:
         existing = cx_query_one(
             conn, "SELECT * FROM deboning_entries WHERE id=%s FOR UPDATE", (entry_id,)
@@ -1351,6 +1411,23 @@ def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate) -> Dict:
         # wcześniej PATCH kgTaken/kgMeat rozjeżdżał partię i lot mięsa).
         delta_taken = kg_taken - float(existing.get("kg_quarter") or 0)
         delta_meat = kg_meat - float(existing.get("kg_meat") or 0)
+
+        # Ten sam strażnik pomiaru co korekta biurowa — PATCH z HMI nie może
+        # po cichu nadpisać kg zmierzonych przez wagę (mechanizm incydentu
+        # 2026-07-21, tylko od strony hali). Bez override — świadome
+        # nadpisanie pomiaru robi się wyłącznie przez /correct w biurze.
+        if abs(delta_meat) > 0.001:
+            w = cx_query_one(
+                conn,
+                "SELECT COUNT(*) AS n, COALESCE(SUM(kg_meat), 0) AS s "
+                "FROM deboning_take_weighings WHERE entry_id=%s",
+                (entry_id,),
+            ) or {}
+            weigh_err = validate_correction_vs_weighings(
+                kg_meat, w.get("s"), w.get("n") or 0, override=False
+            )
+            if weigh_err:
+                raise HTTPException(409, weigh_err)
         raw_row = None
         meat_lot = None
         if abs(delta_taken) > 0.001:
@@ -1373,6 +1450,11 @@ def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate) -> Dict:
         )
         if delta_err:
             raise HTTPException(400, delta_err)
+        _record_correction_movements(
+            conn, existing, delta_taken if raw_row else 0.0,
+            delta_meat if meat_lot else 0.0,
+            meat_lot["id"] if meat_lot else None,
+        )
         if raw_row:
             cx_execute(
                 conn,
@@ -1402,6 +1484,23 @@ def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate) -> Dict:
             """,
             (kg_taken, kg_meat, kg_backs, kg_bones, kg_remainder, yield_pct, entry_id),
         )
+
+        # Zmiana kg = wsteczna zmiana akordu i statystyk — musi mieć ślad,
+        # dokładnie jak korekta biurowa (grzbiety/kości przy zakończeniu
+        # partii to rutyna, nie korekta — bez wpisu).
+        changes: Dict[str, Any] = {}
+        if abs(delta_taken) > 0.001:
+            changes["kgQuarter"] = {"from": float(existing.get("kg_quarter") or 0), "to": kg_taken}
+        if abs(delta_meat) > 0.001:
+            changes["kgMeat"] = {"from": float(existing.get("kg_meat") or 0), "to": kg_meat}
+        if changes:
+            cx_execute(
+                conn,
+                "INSERT INTO deboning_entry_corrections (id, entry_id, by_subject, reason, changes) "
+                "VALUES (%s,%s,%s,%s,%s)",
+                (cuid(), entry_id, by_subject or "", "Edycja wpisu (PATCH)",
+                 json.dumps(changes, ensure_ascii=False)),
+            )
     if not row:
         raise HTTPException(404, "Wpis rozbioru nie znaleziony")
     logger.info("deboning.entry.updated", extra={"entry_id": entry_id})
@@ -1418,11 +1517,26 @@ def delete_deboning_entry(entry_id: str) -> Dict:
     Warunki bezpieczeństwa w validate_entry_undo (czysta funkcja).
     """
     with transaction() as conn:
+        # Lock partii PRZED wpisem — ta sama kolejność co create_deboning_take
+        # (odwrotna zakleszczała się z równoległym pobraniem; patrz
+        # update_deboning_take). UPDATE raw_batches niżej korzysta z już
+        # trzymanego locka.
+        peek = cx_query_one(
+            conn, "SELECT raw_batch_id FROM deboning_entries WHERE id=%s", (entry_id,)
+        )
+        if not peek:
+            raise HTTPException(404, "Wpis rozbioru nie znaleziony")
+        cx_query_one(
+            conn, "SELECT id FROM raw_batches WHERE id=%s FOR UPDATE",
+            (peek["raw_batch_id"],),
+        )
         entry = cx_query_one(
             conn, "SELECT * FROM deboning_entries WHERE id=%s FOR UPDATE", (entry_id,)
         )
         if not entry:
             raise HTTPException(404, "Wpis rozbioru nie znaleziony")
+        if entry.get("raw_batch_id") != peek.get("raw_batch_id"):
+            raise HTTPException(409, "Wpis zmienił partię w trakcie — spróbuj ponownie")
 
         if entry.get("session_id"):
             session_row = cx_query_one(
@@ -1467,7 +1581,7 @@ def delete_deboning_entry(entry_id: str) -> Dict:
             )
             cx_execute(
                 conn,
-                "DELETE FROM stock_movements WHERE source_type='deboning' AND source_id=%s",
+                "DELETE FROM stock_movements WHERE source_type IN ('deboning','deboning_correction') AND source_id=%s",
                 (entry_id,),
             )
             cx_execute(conn, "DELETE FROM deboning_entries WHERE id=%s", (entry_id,))
@@ -1528,7 +1642,7 @@ def delete_deboning_entry(entry_id: str) -> Dict:
 
         cx_execute(
             conn,
-            "DELETE FROM stock_movements WHERE source_type='deboning' AND source_id=%s",
+            "DELETE FROM stock_movements WHERE source_type IN ('deboning','deboning_correction') AND source_id=%s",
             (entry_id,),
         )
         cx_execute(conn, "DELETE FROM deboning_entries WHERE id=%s", (entry_id,))
@@ -1710,13 +1824,13 @@ def change_deboning_entry_batch(entry_id: str, new_raw_batch_id: str) -> Dict:
         # ── Ruchy magazynowe: IN mięso → lot docelowy, OUT surowiec → nowa partia ──
         cx_execute(
             conn,
-            "UPDATE stock_movements SET batch_id=%s WHERE source_type='deboning' "
+            "UPDATE stock_movements SET batch_id=%s WHERE source_type IN ('deboning','deboning_correction') "
             "AND source_id=%s AND product_type='meat'",
             (dst_lot_id, entry_id),
         )
         cx_execute(
             conn,
-            "UPDATE stock_movements SET batch_id=%s WHERE source_type='deboning' "
+            "UPDATE stock_movements SET batch_id=%s WHERE source_type IN ('deboning','deboning_correction') "
             "AND source_id=%s AND product_type='raw'",
             (new_raw_batch_id, entry_id),
         )
@@ -1847,6 +1961,11 @@ def correct_deboning_entry(
         )
         if delta_err:
             raise HTTPException(400, delta_err)
+        _record_correction_movements(
+            conn, entry, delta_taken if raw_row else 0.0,
+            delta_meat if meat_lot else 0.0,
+            meat_lot["id"] if meat_lot else None,
+        )
         if raw_row:
             cx_execute(
                 conn,

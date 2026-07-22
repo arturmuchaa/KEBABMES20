@@ -106,6 +106,45 @@ def test_complete_z_czesciami_waliduje_sume(db):
     assert e.value.status_code == 400
 
 
+def _auto_dto(kg, gross, cart=6.0, e2=2.0, n=1):
+    return SimpleNamespace(kg_meat=kg, kg_gross=gross, tare_cart_kg=cart,
+                           tare_e2_kg=e2, e2_count=n, weigh_mode="auto")
+
+
+def test_complete_po_czesciach_zeruje_pola_wagi_encji(db):
+    """kg_meat encji = SUMA porcji, więc brutto/tary OSTATNIEJ porcji na encji
+    kłamią (audyt 2026-07-22: brutto−tara−mięso do −101 kg na 423/424/425).
+    Przy >1 ważeniu pola wagi encji → NULL; prawda porcji zostaje w
+    deboning_take_weighings."""
+    _seed_batch()
+    entry = create_deboning_take(_take_dto())
+    weigh_part_deboning_take(entry["id"], _auto_dto(100.0, gross=108.0))
+    complete_deboning_take(entry["id"], _auto_dto(95.0, gross=103.0))
+    row = query_one(
+        "SELECT kg_gross, tare_cart_kg, tare_e2_kg, e2_count, kg_meat "
+        "FROM deboning_entries WHERE id=%s", (entry["id"],),
+    )
+    assert float(row["kg_meat"]) == 195.0
+    assert row["kg_gross"] is None and row["tare_cart_kg"] is None
+    assert row["tare_e2_kg"] is None and row["e2_count"] is None
+    w = query_one(
+        "SELECT COUNT(*) AS n FROM deboning_take_weighings "
+        "WHERE entry_id=%s AND kg_gross IS NOT NULL", (entry["id"],),
+    )
+    assert w["n"] == 2  # audyt wagi per porcja nietknięty
+
+
+def test_complete_jednym_wazeniem_zachowuje_pola_wagi(db):
+    _seed_batch()
+    entry = create_deboning_take(_take_dto())
+    complete_deboning_take(entry["id"], _auto_dto(195.0, gross=203.0))
+    row = query_one(
+        "SELECT kg_gross, tare_cart_kg FROM deboning_entries WHERE id=%s",
+        (entry["id"],),
+    )
+    assert float(row["kg_gross"]) == 203.0 and float(row["tare_cart_kg"]) == 6.0
+
+
 def test_storno_pendingu_z_wazeniami_cofa_magazyn(db):
     _seed_batch()
     entry = create_deboning_take(_take_dto())

@@ -137,8 +137,10 @@ def update_deboning_take(entry_id: str, dto: DeboningTakeUpdate):
 
 
 @router.patch("/api/deboning/entries/{entry_id}")
-def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate):
-    return svc.update_deboning_entry(entry_id, dto)
+def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate, request: Request):
+    subject = getattr(request.state, "subject", None) or {}
+    by = str(subject.get("username") or subject.get("id") or "")
+    return svc.update_deboning_entry(entry_id, dto, by)
 
 
 @router.delete("/api/deboning/entries/{entry_id}")

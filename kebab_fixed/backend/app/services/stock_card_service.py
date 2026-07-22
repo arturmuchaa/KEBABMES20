@@ -23,6 +23,8 @@ _SOURCE_LABELS = {
     "reception": "Przyjęcie surowca (bez rozbioru)",
     "reception_transfer": "Transfer na magazyn mięsa",
     "deboning": "Rozbiór",
+    "deboning_correction": "Korekta rozbioru",
+    "cancellation": "Anulowanie przyjęcia",
     "mixing": "Masowanie",
     "wz": "WZ",
     "invoice": "Faktura",
@@ -51,10 +53,11 @@ def _movements(product_type: str, batch_id: str) -> List[Dict[str, Any]]:
             "SELECT id, number, buyer_name, issued_date FROM wz_documents "
             "WHERE id = ANY(%s::text[])", (by_src["wz"],))}
     deb_by_id: Dict[str, Dict] = {}
-    if by_src.get("deboning"):
+    deb_ids = (by_src.get("deboning") or []) + (by_src.get("deboning_correction") or [])
+    if deb_ids:
         deb_by_id = {d["id"]: d for d in query_all(
             "SELECT id, session_no, worker_name, created_at FROM deboning_entries "
-            "WHERE id = ANY(%s::text[])", (by_src["deboning"],))}
+            "WHERE id = ANY(%s::text[])", (deb_ids,))}
     mix_by_id: Dict[str, Dict] = {}
     if by_src.get("mixing"):
         mix_by_id = {m["id"]: m for m in query_all(
@@ -74,7 +77,7 @@ def _movements(product_type: str, batch_id: str) -> List[Dict[str, Any]]:
             number = w.get("number")
             detail = w.get("buyer_name")
             ref_kind, ref_id = "wz", sid
-        elif st == "deboning" and sid in deb_by_id:
+        elif st in ("deboning", "deboning_correction") and sid in deb_by_id:
             d = deb_by_id[sid]
             number = d.get("session_no")
             detail = d.get("worker_name")
