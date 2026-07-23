@@ -531,8 +531,10 @@ function mapMeatStock(raw: any): MeatStock {
 }
 
 export const meatStockApi = {
-  list: () =>
-    get<any>('/meat-stock').then(r => {
+  // includeReserved: planer dnia masowania potrzebuje też partii w całości
+  // zarezerwowanych (kg_free=0) — edycja planu oddaje własne rezerwacje do puli
+  list: (includeReserved = false) =>
+    get<any>(`/meat-stock${includeReserved ? '?include_reserved=1' : ''}`).then(r => {
       const items = Array.isArray(r) ? r : (Array.isArray(r?.data) ? r.data : [])
       return { data: items.map(mapMeatStock) } as { data: MeatStock[] }
     }),

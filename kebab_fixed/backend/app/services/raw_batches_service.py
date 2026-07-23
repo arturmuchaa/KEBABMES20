@@ -333,10 +333,19 @@ def update_batch(batch_id: str, dto: RawBatchUpdate) -> Dict:
     return row
 
 
-def list_meat_stock() -> Dict[str, Any]:
+def list_meat_stock(include_reserved: bool = False) -> Dict[str, Any]:
+    # include_reserved: planer dnia masowania potrzebuje TAKŻE partii w całości
+    # zarezerwowanych (kg_free=0) — edycja planu oddaje własne rezerwacje do
+    # puli (front liczy pulę dnia = kg_free + rezerwacje wczytanego planu).
+    cond = (
+        "((m.kg_available - COALESCE(m.kg_reserved, 0)) > 0 "
+        "OR COALESCE(m.kg_reserved, 0) > 0)"
+        if include_reserved
+        else "(m.kg_available - COALESCE(m.kg_reserved, 0)) > 0"
+    )
     return {
         "data": query_all(
-            """
+            f"""
             SELECT m.*,
                    (m.kg_available - COALESCE(m.kg_reserved, 0)) AS kg_free,
                    b.internal_batch_no, b.supplier_name,
@@ -345,7 +354,7 @@ def list_meat_stock() -> Dict[str, Any]:
             FROM meat_stock m
             LEFT JOIN raw_batches b ON b.id = m.raw_batch_id
             LEFT JOIN suppliers s ON s.id = b.supplier_id
-            WHERE (m.kg_available - COALESCE(m.kg_reserved, 0)) > 0
+            WHERE {cond}
             ORDER BY m.expiry_date ASC, m.lot_no ASC
             """
         )

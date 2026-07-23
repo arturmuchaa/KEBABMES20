@@ -9,7 +9,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { mixingOrdersApi, meatStockApi } from '@/lib/apiClient'
 import { useRecipes } from '@/features/ingredients/hooks'
-import { useApi } from '@/hooks/useApi'
 import { fmtKg, todayIso, cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -20,6 +19,7 @@ import { PlanRow, type PlanRowData } from './PlanRow'
 import type { PickerLot } from './MeatLotPicker'
 import { PlanStockSidebar, type SpiceNeed } from './PlanStockSidebar'
 import { autoFefoDistribute, type AvailLot } from '../lib/autoFefo'
+import { reservedByLot, withDayPool, liveFreeByLot } from '../lib/planLiveBalance'
 import { ConfirmMixingSplitDialog } from './ConfirmMixingSplitDialog'
 import type { FinishBatch, SplitLotInput } from '../lib/mixingSplit'
 
@@ -33,9 +33,13 @@ function shiftIsoDate(iso: string, days: number): string {
 
 export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   const { recipes, stock: spiceStock } = useRecipes()
-  const { data: meatData } = useApi(() => meatStockApi.list())
   const [planDate, setPlanDate] = useState(todayIso())
   const [rows, setRows] = useState<PlanRowData[]>([])
+  const [meatLots, setMeatLots] = useState<any[]>([])
+  // Rezerwacje mięsa trzymane przez ZAPISANY plan tego dnia (stan z serwera).
+  // kg_free z API już je odjęło — edytor oddaje je do puli dnia (withDayPool),
+  // bo zapis planu najpierw zwalnia stare loty, potem rezerwuje nowe.
+  const [savedByLot, setSavedByLot] = useState<Map<string, number>>(new Map())
   const [loaded, setLoaded] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -60,27 +64,28 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
   // się z kg (patrz save/allLotsComplete).
   const requireLots = planDate < todayIso()
 
-  // Dostępne partie mięsa, FEFO. UWAGA: m.kgAvailable z mapMeatStock to już
-  // kg_free (= available - reserved), NIE odejmować kgReserved drugi raz!
+  // Partie mięsa do dyspozycji TEGO planu, FEFO. kgAvailable = PULA DNIA:
+  // kg_free z API (available − reserved; NIE odejmować kgReserved drugi raz!)
+  // + własne rezerwacje wczytanego planu (withDayPool) — po zapisie planu
+  // saldo nie znika i nie jest odejmowane podwójnie.
   const pickerLots: PickerLot[] = useMemo(() =>
-    (meatData?.data ?? [])
-      .filter((m: any) => m.status !== 'DEPLETED' && m.status !== 'IN_PRODUCTION')
-      .map((m: any) => ({
-        id: m.id,
-        lotNo: m.lotNo,
-        rawBatchNo: m.rawBatchNo,
-        kgAvailable: Math.max(0, Number(m.kgAvailable)),
-        expiryDate: m.expiryDate,
-        materialName: m.materialName,
-        materialTypeId: m.materialTypeId,
-        supplierName: m.supplierName,
-      }))
-      .filter((l: PickerLot) => l.kgAvailable > 0)
-      .sort((a: PickerLot, b: PickerLot) => (a.expiryDate < b.expiryDate ? -1 : 1)),
-    [meatData],
+    withDayPool(
+      (meatLots ?? [])
+        .filter((m: any) => m.status !== 'DEPLETED' && m.status !== 'IN_PRODUCTION')
+        .map((m: any) => ({
+          id: m.id,
+          lotNo: m.lotNo,
+          rawBatchNo: m.rawBatchNo,
+          kgAvailable: Math.max(0, Number(m.kgAvailable)),
+          expiryDate: m.expiryDate,
+          materialName: m.materialName,
+          materialTypeId: m.materialTypeId,
+          supplierName: m.supplierName,
+        })),
+      savedByLot,
+    ).sort((a: PickerLot, b: PickerLot) => (a.expiryDate < b.expiryDate ? -1 : 1)),
+    [meatLots, savedByLot],
   )
-
-  const totalAvail = pickerLots.reduce((s, l) => s + l.kgAvailable, 0)
 
   // Rozdział składników: filet/indyk (przyjęte bez rozbioru) to INNY materiał
   // niż mięso z/s — Auto-FEFO rozdziela TYLKO z/s, filet dobiera się ręcznie
@@ -89,16 +94,38 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
     () => pickerLots.filter(l => (l.materialTypeId ?? 'mat-mieso-zs') === 'mat-mieso-zs'),
     [pickerLots],
   )
-  const zsAvail = zsLots.reduce((s, l) => s + l.kgAvailable, 0)
+  const otherLots = useMemo(
+    () => pickerLots.filter(l => (l.materialTypeId ?? 'mat-mieso-zs') !== 'mat-mieso-zs'),
+    [pickerLots],
+  )
+  const zsPool = zsLots.reduce((s, l) => s + l.kgAvailable, 0)
+
+  // Ile bieżący SZKIC planu bierze z każdej partii — żywe saldo: zaznaczenie
+  // partii w pickerze od razu schodzi z puli we wszystkich widokach,
+  // odznaczenie wraca.
+  const plannedByLot = useMemo(() => reservedByLot(rows), [rows])
+  const liveFree = useMemo(
+    () => liveFreeByLot(pickerLots, plannedByLot),
+    [pickerLots, plannedByLot],
+  )
 
   async function load() {
     try {
-      const r = await mixingOrdersApi.dayPlan(planDate)
-      setRows((r.items ?? []).map((o: any) => ({
+      // Plan i magazyn w PARZE (z tej samej chwili) — pula dnia to
+      // kg_free + rezerwacje planu; mieszanie odczytów z różnych momentów
+      // dawałoby fałszywe saldo tuż po zapisie.
+      const [r, ms] = await Promise.all([
+        mixingOrdersApi.dayPlan(planDate),
+        meatStockApi.list(true),
+      ])
+      const mapped = (r.items ?? []).map((o: any) => ({
         rowKey: o.id, id: o.id, recipeId: o.recipeId, meatKg: String(o.meatKg),
         status: o.status, orderNo: o.orderNo, kgDone: o.kgDone,
         lots: (o.meatLots ?? []).map((l: any) => ({ meatLotId: l.meatLotId, kgPlanned: l.kgPlanned, kgActual: l.kgActual, lotNo: l.meatLotNo })),
-      })))
+      }))
+      setRows(mapped)
+      setSavedByLot(reservedByLot(mapped))
+      setMeatLots(ms.data ?? [])
       setLoaded(true)
       setDirty(false)
     } catch { setLoaded(true) }
@@ -167,12 +194,23 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
     update(idx, { lots: dist[row.rowKey] ?? [] })
   }
 
-  // Auto-FEFO całość: rozdziela pulę po wierszach edytowalnych w kolejności
+  // Auto-FEFO całość: rozdziela pulę po wierszach edytowalnych w kolejności.
+  // Pozycje zablokowane (w masownicy) trzymają swoje loty — ich kg schodzą
+  // z puli przed rozdziałem.
   function autoFefoAll() {
     const editable = rows
       .map((r, i) => ({ r, i }))
       .filter(({ r }) => r.status !== 'in_progress' && r.status !== 'done')
-    const avail: AvailLot[] = zsLots.map(l => ({ id: l.id, expiryDate: l.expiryDate, kgFree: l.kgAvailable }))
+    const lockedUsed = new Map<string, number>()
+    rows.forEach(r => {
+      if (r.status !== 'in_progress' && r.status !== 'done') return
+      r.lots.forEach(l =>
+        lockedUsed.set(l.meatLotId, (lockedUsed.get(l.meatLotId) ?? 0) + (l.kgPlanned || 0)))
+    })
+    const avail: AvailLot[] = zsLots.map(l => ({
+      id: l.id, expiryDate: l.expiryDate,
+      kgFree: Math.max(0, l.kgAvailable - (lockedUsed.get(l.id) ?? 0)),
+    }))
     const needs = editable.map(({ r }) => ({ rowKey: r.rowKey, kg: parseFloat(r.meatKg) || 0 }))
     const dist = autoFefoDistribute(needs, avail)
     setRows(p => p.map(r =>
@@ -183,21 +221,13 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
 
   const totalPlan = rows.reduce((s, r) => s + (parseFloat(r.meatKg) || 0), 0)
   const totalOutput = rows.reduce((s, r) => s + recipeOutput(r.recipeId, parseFloat(r.meatKg) || 0), 0)
-  const overBudget = totalPlan > totalAvail + 0.5
-
-  // Ile bieżący SZKIC planu bierze z każdego lotu — panel boczny pokazuje
-  // „wolne − plan = zostanie" na żywo, zanim plan trafi do operatora.
-  const plannedByLot = useMemo(() => {
-    const m = new Map<string, number>()
-    rows.forEach(r => r.lots.forEach(l =>
-      m.set(l.meatLotId, (m.get(l.meatLotId) ?? 0) + (l.kgPlanned || 0))))
-    return m
-  }, [rows])
-
-  const otherLots = useMemo(
-    () => pickerLots.filter(l => (l.materialTypeId ?? 'mat-mieso-zs') !== 'mat-mieso-zs'),
-    [pickerLots],
-  )
+  // Zapotrzebowanie planu na z/s: cały plan minus kg przypisane do fileta/innych
+  // — kg bez przypisanej partii liczą się jako z/s (tak rozdziela Auto-FEFO),
+  // więc saldo schodzi już przy wpisaniu kg pozycji, nie dopiero po dobraniu partii.
+  const assignedOtherKg = otherLots.reduce((s, l) => s + (plannedByLot.get(l.id) ?? 0), 0)
+  const zsDemand = Math.max(0, totalPlan - assignedOtherKg)
+  const zsLeft = zsPool - zsDemand
+  const overBudget = zsDemand > zsPool + 0.5
 
   // Zbiorcze zapotrzebowanie przypraw wg planu vs stan magazynu przypraw.
   // Kolejność = kolejność w recepturach (nie alfabetyczna) — spójna z
@@ -373,7 +403,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
           </span>
           {overBudget && (
             <span className="text-[11px] font-bold text-red-600 uppercase">
-              plan przekracza wolne z/s ({fmtKg(zsAvail, 0)} kg)!
+              plan przekracza wolne z/s ({fmtKg(zsPool, 0)} kg)!
             </span>
           )}
           <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -434,6 +464,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
                 total={rows.length}
                 recipes={recipes ?? []}
                 lots={pickerLots}
+                liveFree={liveFree}
                 output={recipeOutput(r.recipeId, parseFloat(r.meatKg) || 0)}
                 expanded={expandedKey === r.rowKey}
                 onUpdate={patch => update(i, patch)}
@@ -473,7 +504,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
               <span className="ml-auto">Mięso: <b className="text-ink">{fmtKg(totalPlan, 0)} kg</b></span>
               <span>Półprodukt: <b className="text-emerald-700">{fmtKg(totalOutput, 0)} kg</b></span>
               <span className={overBudget ? 'text-red-600 font-bold' : ''}>
-                Wolne z/s po planie: <b>{fmtKg(zsAvail - totalPlan, 0)} kg</b>
+                Wolne z/s po planie: <b>{fmtKg(zsLeft, 0)} kg</b>
               </span>
             </div>
           )}
@@ -486,6 +517,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
         otherLots={otherLots}
         plannedByLot={plannedByLot}
         spiceNeeds={spiceNeeds}
+        planTotalKg={totalPlan}
       />
 
       {splitRow && (

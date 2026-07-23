@@ -7,5 +7,5 @@ router = APIRouter(prefix="/api/meat-stock", tags=["meat-stock"])
 
 
 @router.get("")
-def list_meat_stock():
-    return svc.list_meat_stock()
+def list_meat_stock(include_reserved: bool = False):
+    return svc.list_meat_stock(include_reserved=include_reserved)

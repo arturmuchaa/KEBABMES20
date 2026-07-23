@@ -69,15 +69,23 @@ function SectionHeader({ label, sumLabel }: { label: string; sumLabel: string })
   )
 }
 
-export function PlanStockSidebar({ zsLots, otherLots, plannedByLot, spiceNeeds }: {
+export function PlanStockSidebar({ zsLots, otherLots, plannedByLot, spiceNeeds, planTotalKg }: {
   zsLots: PickerLot[]
   otherLots: PickerLot[]
   plannedByLot: Map<string, number>
   spiceNeeds: SpiceNeed[]
+  /** Suma kg mięsa CAŁEGO szkicu planu (też pozycje bez przypisanych partii). */
+  planTotalKg: number
 }) {
   const sum = (ls: PickerLot[]) => ls.reduce((s, l) => s + l.kgAvailable, 0)
   const plannedSum = (ls: PickerLot[]) => ls.reduce((s, l) => s + (plannedByLot.get(l.id) ?? 0), 0)
-  const zsLeft = sum(zsLots) - plannedSum(zsLots)
+  const zsPool = sum(zsLots)
+  // Zapotrzebowanie na z/s = cały plan − kg przypisane do fileta/innych;
+  // kg bez partii liczą się jako z/s (tak rozdziela Auto-FEFO) — saldo
+  // schodzi na żywo już przy wpisaniu kg pozycji.
+  const zsDemand = Math.max(0, planTotalKg - plannedSum(otherLots))
+  const zsLeft = zsPool - zsDemand
+  const unassigned = Math.max(0, planTotalKg - plannedSum(zsLots) - plannedSum(otherLots))
   const needs = spiceNeeds.filter(n => n.need > 0.0005 && !n.isUnlimited)
   const shortages = needs.filter(n => n.need > n.stock + 0.0005)
   const [open, setOpen] = useState(false)   // rozwinięcie na mobile; na lg+ zawsze widoczne
@@ -95,9 +103,34 @@ export function PlanStockSidebar({ zsLots, otherLots, plannedByLot, spiceNeeds }
 
       <div className={cn(open ? 'block' : 'hidden', 'lg:block')}>
 
+      {/* Żywy bilans z/s: schodzi przy zaznaczaniu partii / wpisywaniu kg, wraca przy odznaczeniu */}
+      <div className="grid grid-cols-3 divide-x divide-surface-3 border-b border-surface-3 text-center [font-variant-numeric:tabular-nums]">
+        <div className="px-2 py-2">
+          <div className="text-[9px] font-bold uppercase tracking-widest text-ink-4">Wolne z/s</div>
+          <div className="text-[15px] font-black text-ink leading-tight">{fmtKg(zsPool, 0)}</div>
+        </div>
+        <div className="px-2 py-2">
+          <div className="text-[9px] font-bold uppercase tracking-widest text-ink-4">W planie</div>
+          <div className={cn('text-[15px] font-black leading-tight', zsDemand > 0 ? 'text-amber-700' : 'text-ink-3')}>
+            {fmtKg(zsDemand, 0)}
+          </div>
+        </div>
+        <div className="px-2 py-2">
+          <div className="text-[9px] font-bold uppercase tracking-widest text-ink-4">Zostanie</div>
+          <div className={cn('text-[15px] font-black leading-tight', zsLeft < -0.01 ? 'text-red-600' : 'text-emerald-700')}>
+            {fmtKg(zsLeft, 0)}
+          </div>
+        </div>
+      </div>
+      {unassigned > 0.5 && (
+        <div className="px-3 py-1.5 text-[10px] font-semibold text-amber-700 bg-amber-50 border-b border-amber-100">
+          w planie {fmtKg(unassigned, 0)} kg bez przypisanej partii — dograj Auto-FEFO przed potwierdzeniem
+        </div>
+      )}
+
       <SectionHeader
         label="Mięso z/s (Auto-FEFO)"
-        sumLabel={`wolne ${fmtKg(sum(zsLots), 0)} kg · zostanie ${fmtKg(zsLeft, 0)} kg`}
+        sumLabel={`${zsLots.length} partii · ${fmtKg(zsPool, 0)} kg`}
       />
       {zsLots.length === 0
         ? <div className="px-3 py-2 text-[11px] text-ink-4">Brak wolnych partii z/s</div>

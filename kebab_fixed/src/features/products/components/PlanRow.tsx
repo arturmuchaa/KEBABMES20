@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select'
 import { fmtKg, cn } from '@/lib/utils'
 import {
-  ArrowDown, ArrowUp, ChevronDown, ChevronRight, GripVertical, Trash2,
+  ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, GripVertical, Trash2,
   AlertTriangle, CheckCheck, Loader2, RotateCcw,
 } from 'lucide-react'
 import { MeatLotPicker, type PickerLot, type SelLot } from './MeatLotPicker'
@@ -41,7 +41,7 @@ const ROW_STATUS: Record<string, { label: string; tone: 'blue' | 'gray' | 'amber
 const GRID = 'grid grid-cols-[28px_20px_minmax(180px,1.2fr)_120px_96px_minmax(140px,1fr)_110px_88px] items-center gap-2'
 
 export function PlanRow({
-  row, index, total, recipes, lots, output, expanded,
+  row, index, total, recipes, lots, liveFree, output, expanded,
   onUpdate, onMove, onDelete, onToggle, onAutoFefoRow,
   onConfirmExecution, onUndoConfirm, confirmingExecution, canConfirmExecution, showConfirmExecution,
   readOnly = false,
@@ -52,6 +52,8 @@ export function PlanRow({
   total: number
   recipes: any[]
   lots: PickerLot[]
+  /** Wolne kg NA ŻYWO per partia (pula dnia − cały szkic planu) — do pickera. */
+  liveFree: Map<string, number>
   output: number
   expanded: boolean
   onUpdate: (patch: Partial<PlanRowData>) => void
@@ -152,7 +154,12 @@ export function PlanRow({
           {row.lots.length > 3 && (
             <span className="text-[11px] font-semibold text-ink-4">+{row.lots.length - 3}</span>
           )}
-          {!lotsOk && (
+          {lotsOk ? (
+            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 whitespace-nowrap"
+              title="Partie pokrywają całą pozycję">
+              <Check size={11} /> {fmtKg(lotKg, 0)} kg
+            </span>
+          ) : (
             <span className="text-[10px] font-bold text-amber-700 whitespace-nowrap">
               {fmtKg(lotKg, 0)}/{fmtKg(kg, 0)}
             </span>
@@ -282,7 +289,7 @@ export function PlanRow({
       {expanded && !locked && (
         <div className="px-3 pb-3 pt-2 border-t border-surface-3 bg-surface-2/50 grid grid-cols-1 lg:grid-cols-2 gap-3">
           <MeatLotPicker
-            lots={lots} value={row.lots} targetKg={kg}
+            lots={lots} value={row.lots} targetKg={kg} liveFree={liveFree}
             onChange={next => onUpdate({ lots: next })}
             onAutoFefo={onAutoFefoRow} />
           <IngredientPreview

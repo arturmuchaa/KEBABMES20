@@ -8,7 +8,8 @@ export interface PickerLot {
   id: string
   lotNo: string
   rawBatchNo?: string
-  kgAvailable: number     // wolne kg (po odjęciu rezerwacji spoza tego wiersza)
+  /** PULA DNIA: kg_free z API + rezerwacje wczytanego planu tego dnia */
+  kgAvailable: number
   expiryDate: string
   materialName?: string
   materialTypeId?: string
@@ -28,18 +29,27 @@ export interface SelLot {
   lotNo?: string
 }
 
-/** Lista partii FEFO z zaznaczaniem + auto-FEFO dla tego wiersza. */
+/**
+ * Lista partii FEFO z zaznaczaniem + auto-FEFO dla tego wiersza.
+ *
+ * Saldo NA ŻYWO: `liveFree` = pula dnia − kg wzięte przez CAŁY szkic planu
+ * (wszystkie wiersze, łącznie z tym). Zaznaczenie partii natychmiast schodzi
+ * z wolnego, odznaczenie wraca — spójnie z panelem „Magazyn do rozplanowania".
+ */
 export function MeatLotPicker({
-  lots, value, targetKg, onChange, onAutoFefo,
+  lots, value, targetKg, liveFree, onChange, onAutoFefo,
 }: {
   lots: PickerLot[]
   value: SelLot[]
   targetKg: number
+  liveFree: Map<string, number>
   onChange: (next: SelLot[]) => void
   onAutoFefo: () => void
 }) {
   const selectedKg = value.reduce((s, l) => s + (l.kgPlanned || 0), 0)
   const idx = (id: string) => value.findIndex(v => v.meatLotId === id)
+  const pct = targetKg > 0 ? Math.min(100, (selectedKg / targetKg) * 100) : 0
+  const covered = selectedKg >= targetKg - 0.5 && targetKg > 0
 
   // Sekcje po materiale: mięso z/s (podstawa masowania, Auto-FEFO) najpierw,
   // potem filet/indyk — inny składnik, dobierany wyłącznie ręcznie.
@@ -60,7 +70,7 @@ export function MeatLotPicker({
           Auto-FEFO ten wiersz
         </Button>
       </div>
-      <div className="border rounded max-h-48 overflow-y-auto divide-y">
+      <div className="border rounded max-h-56 overflow-y-auto divide-y">
         {sections.map(sec => [
           sec.header != null && sec.items.length > 0 && (
             <div key={`h-${sec.header}`} className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground bg-muted/60">
@@ -70,8 +80,12 @@ export function MeatLotPicker({
           ...sec.items.map(lot => {
           const i = idx(lot.id)
           const isSel = i >= 0
-          const free = lot.kgAvailable
-          const fullyUsed = free <= 0 && !isSel
+          const own = isSel ? (value[i].kgPlanned || 0) : 0
+          // Wolne NA ŻYWO (po całym szkicu); ten wiersz może wziąć live + własne
+          const live = liveFree.get(lot.id) ?? lot.kgAvailable
+          const rowCap = Math.max(0, live + own)
+          const plannedHere = Math.max(0, lot.kgAvailable - live)
+          const fullyUsed = rowCap <= 0.001 && !isSel
           return (
             <div key={lot.id} className={cn(
               'flex items-center gap-2 px-3 py-2 text-[12px] transition-colors',
@@ -84,7 +98,7 @@ export function MeatLotPicker({
                     // i ręcznie wpisanych 854 kg z pierwszej partii kolejna ma
                     // podpowiedzieć 1346, żeby nie liczyć tego w pamięci.
                     const missing = Math.max(0, targetKg - selectedKg)
-                    onChange([...value, { meatLotId: lot.id, kgPlanned: Math.min(free, missing || targetKg) }])
+                    onChange([...value, { meatLotId: lot.id, kgPlanned: Math.min(rowCap, missing || targetKg) }])
                   } else {
                     onChange(value.filter(v => v.meatLotId !== lot.id))
                   }
@@ -104,12 +118,24 @@ export function MeatLotPicker({
                   {lot.supplierName}
                 </span>
               )}
-              <span className="font-semibold text-green-700 flex-shrink-0 w-20 tabular-nums text-right ml-auto">{fmtKg(free)} kg</span>
+              {/* Saldo na żywo: pula − wzięte przez plan = zostaje */}
+              <span className="flex-shrink-0 tabular-nums text-right ml-auto whitespace-nowrap"
+                title={plannedHere > 0.001
+                  ? `Pula ${fmtKg(lot.kgAvailable)} kg − w planie ${fmtKg(plannedHere)} kg = zostaje ${fmtKg(live)} kg`
+                  : `Wolne ${fmtKg(live)} kg`}>
+                {plannedHere > 0.001 && (
+                  <span className="text-[11px] text-ink-4">{fmtKg(lot.kgAvailable, 0)}−{fmtKg(plannedHere, 0)}=</span>
+                )}
+                <b className={cn(
+                  live > 0.001 ? 'text-emerald-700' : live < -0.001 ? 'text-red-600' : 'text-ink-4',
+                )}>{fmtKg(live)}</b>
+                <span className="text-[10px] text-ink-4"> kg</span>
+              </span>
               <span className="text-muted-foreground text-[11px] flex-shrink-0 w-20">do {fmtDatePl(lot.expiryDate)}</span>
               {isSel && (
                 <Input type="number" min="0.1" step="0.1" value={value[i].kgPlanned}
                   onChange={e => {
-                    const v = Math.min(parseFloat(e.target.value) || 0, free)
+                    const v = Math.min(parseFloat(e.target.value) || 0, rowCap)
                     onChange(value.map((l, j) => j === i ? { ...l, kgPlanned: v } : l))
                   }}
                   className="w-20 h-7 text-sm font-bold text-right flex-shrink-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
@@ -119,11 +145,19 @@ export function MeatLotPicker({
         }),
         ])}
       </div>
-      <div className="flex items-center gap-2 text-[12px]">
-        <CheckCircle size={13} className={selectedKg >= targetKg - 0.5 ? 'text-green-600' : 'text-muted-foreground'} />
-        <span className={selectedKg >= targetKg - 0.5 ? 'text-green-700 font-semibold' : 'text-amber-700 font-semibold'}>
-          Wybrano {fmtKg(selectedKg)} / {fmtKg(targetKg)} kg
-        </span>
+      <div className="space-y-1">
+        <div className="flex items-center gap-2 text-[12px]">
+          <CheckCircle size={13} className={covered ? 'text-green-600' : 'text-muted-foreground'} />
+          <span className={covered ? 'text-green-700 font-semibold' : 'text-amber-700 font-semibold'}>
+            Wybrano {fmtKg(selectedKg)} / {fmtKg(targetKg)} kg
+          </span>
+        </div>
+        <div className="h-1.5 rounded bg-surface-3 overflow-hidden">
+          <div
+            className={cn('h-full rounded transition-all', covered ? 'bg-emerald-500' : 'bg-amber-400')}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
       </div>
     </div>
   )
