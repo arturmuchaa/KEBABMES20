@@ -114,3 +114,10 @@ def test_classify_pm_as_production():
     assert classify_batch_type("PM2") == "production"
     # legacy PPP nadal rozpoznawane
     assert classify_batch_type("060626 PPP1") == "production"
+
+
+# --- scrap_pool_batch_no (pula ścinków z dnia produkcji) -------------------
+def test_scrap_pool_batch_no_format():
+    from app.utils.batch_numbers import scrap_pool_batch_no
+    assert scrap_pool_batch_no(1) == "SC1"
+    assert scrap_pool_batch_no(12) == "SC12"

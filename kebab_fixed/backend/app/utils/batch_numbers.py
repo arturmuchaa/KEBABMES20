@@ -7,6 +7,9 @@ Jedyne źródło prawdy dla formatów numerów partii w całym systemie:
   * mieszanie przyprawionego mięsa NA PRODUKCJI → "PM{n}", np. "PM1"
     (resztka jednej partii dołożona do sztuki z innej partii;
      historycznie używano prefiksu "PPP{n}" — nadal rozpoznawany)
+  * pula ścinków z dnia produkcji         → "SC{n}", np. "SC1"
+    (fizyczna nadwyżka/domknięcie dnia, gdy żadna partia przyprawionego
+     z tego dnia nie jest już żywa — patrz reconcile_production_day)
   * kebab                                     → "ddmmrr <numer wsadu>",
                                                 np. "020626 344" / "020626 PM1"
 """
@@ -77,6 +80,12 @@ def production_mixed_batch_no(n: int) -> str:
 def is_production_mixed(batch_no: Optional[str]) -> bool:
     """Czy numer to partia mieszana na produkcji (prefiks PM + cyfry, np. PM1)."""
     return bool(batch_no) and bool(_PROD_MIXED_NO_RE.match(batch_no))
+
+
+def scrap_pool_batch_no(n: int) -> str:
+    """Numer puli ścinków z dnia produkcji (fizyczna nadwyżka bez żywej
+    partii do skorygowania — patrz reconcile_production_day)."""
+    return f"SC{n}"
 
 
 def classify_batch_type(batch_no: Optional[str]) -> str:
