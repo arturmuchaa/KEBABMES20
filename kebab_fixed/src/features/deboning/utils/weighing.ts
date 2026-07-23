@@ -14,6 +14,32 @@ export const CART_TARES_KG: readonly number[] = [5.5, 6.0, 6.5, 7.0]
 export const KG_PER_E2_MIN = 15
 export const KG_PER_E2_MAX = 25
 
+/** Typowe pasmo % ubocznych (grzbiety/kości) względem ćwiartki — z historii
+ * ~18 zakończonych partii >1 t: grzbiety śr. 19,3% ±1,0 p.p., kości śr.
+ * 15,7% ±1,7 p.p. Dolna granica = średnia − 1,5 SD, z marginesem nad
+ * zaobserwowanym minimum "normalnej" partii (żeby nie fałszować alarmu na
+ * niższych, ale realnych wynikach).
+ *
+ * Poniżej granicy najczęściej oznacza NIEZWAŻONĄ paletę — zapomnianą albo
+ * fizycznie pomieszaną z inną partią przy wadze (audyt partii 428,
+ * 2026-07-23: grzbiety 15,8%, kości 9,9%, obie poniżej normy, brakowało
+ * łącznie ~430 kg — wykryte dopiero retrospektywnie, po fakcie). */
+export const TYPICAL_BYPRODUCT_PCT_MIN: Record<'backs' | 'bones', number> = {
+  backs: 17.5,
+  bones: 13.0,
+}
+
+/** Czy zważona ilość frakcji jest podejrzanie niska względem typowej normy?
+ * `kg<=0` (nic jeszcze nie zważone) nigdy nie alarmuje — czekamy na dane. */
+export function isByproductBelowNorm(
+  kind: 'backs' | 'bones',
+  kg: number,
+  quarterKg: number,
+): boolean {
+  if (quarterKg <= 0 || kg <= 0) return false
+  return (kg / quarterKg) * 100 < TYPICAL_BYPRODUCT_PCT_MIN[kind]
+}
+
 /** Czyści listę tar z backendu/cache: liczby 0<kg≤50, do 0,1, bez duplikatów,
  * rosnąco (kafle zawsze od najlżejszego). Zwraca [] gdy nic sensownego —
  * caller używa wtedy CART_TARES_KG. */

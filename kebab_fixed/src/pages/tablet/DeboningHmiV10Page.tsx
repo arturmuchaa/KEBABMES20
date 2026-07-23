@@ -412,8 +412,7 @@ const SaveSummaryCard = memo(function SaveSummaryCard({ s, onClose }: { s: SaveS
     : s.kind === 'partial' ? 'Zapisano porcję — pobranie otwarte'
     : 'Zapisano'
   return (
-    <button type="button" onClick={onClose}
-      className="fixed top-[100px] left-1/2 -translate-x-1/2 z-40 flex items-stretch gap-0 text-left transition-all"
+    <div className="fixed top-[100px] left-1/2 -translate-x-1/2 z-40 flex items-stretch gap-0 transition-all"
       style={{ borderRadius: 14, background: 'var(--panel)', border: '1.5px solid var(--accent)', boxShadow: '0 14px 36px -12px rgba(79,70,229,.35)', overflow: 'hidden' }}>
       <div className="flex items-center justify-center flex-shrink-0 px-5" style={{ background: 'var(--accent)', color: '#fff' }}>
         <Check size={30} strokeWidth={3} />
@@ -444,8 +443,15 @@ const SaveSummaryCard = memo(function SaveSummaryCard({ s, onClose }: { s: SaveS
             <div className="text-[9px] font-bold uppercase mt-1" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>Procent</div>
           </div>
         </div>
+        {/* Zostaje na ekranie aż operator sam potwierdzi — kolejny zapis i tak
+            nadpisze treść na bieżąco, więc nic nie ginie, gdy zapomni kliknąć. */}
+        <button type="button" onClick={onClose}
+          className="flex-shrink-0 flex items-center gap-1.5 h-10 px-4 text-sm font-bold active:scale-95 transition-transform"
+          style={{ borderRadius: 9, background: 'var(--accent)', color: '#fff', marginLeft: 8 }}>
+          <Check size={16} strokeWidth={3} /> OK
+        </button>
       </div>
-    </button>
+    </div>
   )
 })
 
@@ -540,7 +546,6 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   }, [cartTaresData.data])
   const [saveFlash, setSaveFlash] = useState(false)
   const [saveSummary, setSaveSummary] = useState<SaveSummary | null>(null)
-  const saveSummaryRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [finishModal, setFinishModal] = useState(false)
   const [shiftModal,  setShiftModal]  = useState(false)
   const [statsModal,  setStatsModal]  = useState(false)
@@ -588,15 +593,14 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     toastRef.current = setTimeout(() => setToastVis(false), 3000)
   }, [])
 
-  // Kafelek podsumowania zapisu — 6 s to dosyć, żeby przeczytać kg/%, za mało,
-  // żeby zasłaniać ekran na dłużej; klik zamyka wcześniej.
+  // Kafelek podsumowania zapisu — zostaje na ekranie BEZ limitu czasu, aż
+  // operator sam kliknie „OK" (poprzednio znikał po 6 s — za krótko, część
+  // operatorów nie zdążyła przeczytać). Kolejny zapis i tak podmienia treść
+  // na bieżąco, więc nic się nie gubi, gdy ktoś zapomni kliknąć.
   const flashSaveSummary = useCallback((s: SaveSummary) => {
     setSaveSummary(s)
-    if (saveSummaryRef.current) clearTimeout(saveSummaryRef.current)
-    saveSummaryRef.current = setTimeout(() => setSaveSummary(null), 6000)
   }, [])
   const dismissSaveSummary = useCallback(() => {
-    if (saveSummaryRef.current) clearTimeout(saveSummaryRef.current)
     setSaveSummary(null)
   }, [])
 
@@ -604,7 +608,6 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (toastRef.current) clearTimeout(toastRef.current)
     if (longPressRef.current) clearTimeout(longPressRef.current)
     if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
-    if (saveSummaryRef.current) clearTimeout(saveSummaryRef.current)
   }, [])
 
   // Auto-odświeżanie partii i pracowników co 5s — żeby nowa partia dodana

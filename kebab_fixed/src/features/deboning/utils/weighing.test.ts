@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   computeWeighing, sanitizeCartTares, driveOffStep, DRIVE_OFF_IDLE,
-  E2_TARE_KG, CART_TARES_KG,
+  E2_TARE_KG, CART_TARES_KG, isByproductBelowNorm, TYPICAL_BYPRODUCT_PCT_MIN,
 } from './weighing'
 
 describe('sanitizeCartTares', () => {
@@ -140,5 +140,39 @@ describe('driveOffStep (strażnik zjazdu z wagi)', () => {
     const meat = { netKg: 100.0, workerName: 'Anatoli' }
     const armed = driveOffStep(DRIVE_OFF_IDLE, onScale, meat)
     expect(driveOffStep(armed, offScale, null).prompt).toEqual(meat)
+  })
+})
+
+describe('isByproductBelowNorm — alarm odchylenia od typowej normy (audyt partii 428)', () => {
+  it('partia 428 realna: grzbiety 15,80% (poniżej normy 17,5%) → true', () => {
+    expect(isByproductBelowNorm('backs', 727.5, 4605)).toBe(true)
+  })
+
+  it('partia 428 realna: kości 9,89% (poniżej normy 13,0%) → true, wyraźnie gorzej niż grzbiety', () => {
+    expect(isByproductBelowNorm('bones', 455.5, 4605)).toBe(true)
+  })
+
+  it('partia w normie (427: grzbiety 21,27%, kości 17,75%) → false dla obu', () => {
+    expect(isByproductBelowNorm('backs', 510.5, 2400)).toBe(false)
+    expect(isByproductBelowNorm('bones', 426, 2400)).toBe(false)
+  })
+
+  it('nic jeszcze nie zważone (kg<=0) nigdy nie alarmuje — czekamy na dane', () => {
+    expect(isByproductBelowNorm('backs', 0, 4605)).toBe(false)
+    expect(isByproductBelowNorm('bones', -5, 4605)).toBe(false)
+  })
+
+  it('brak ćwiartki (quarterKg<=0) nie alarmuje — nie ma bazy do %', () => {
+    expect(isByproductBelowNorm('backs', 500, 0)).toBe(false)
+  })
+
+  it('dokładnie na granicy → false (>= min, nie <)', () => {
+    const kg = (TYPICAL_BYPRODUCT_PCT_MIN.backs / 100) * 1000
+    expect(isByproductBelowNorm('backs', kg, 1000)).toBe(false)
+  })
+
+  it('tuż poniżej granicy → true', () => {
+    const kg = (TYPICAL_BYPRODUCT_PCT_MIN.bones / 100) * 1000 - 0.1
+    expect(isByproductBelowNorm('bones', kg, 1000)).toBe(true)
   })
 })

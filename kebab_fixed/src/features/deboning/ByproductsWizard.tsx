@@ -13,7 +13,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { AlertTriangle, Check, Delete, Package, ArrowRight, X } from 'lucide-react'
 import { fmtKg, fmtPct } from '@/lib/utils'
 import {
-  E2_TARE_KG, DRIVE_OFF_IDLE, driveOffStep,
+  E2_TARE_KG, DRIVE_OFF_IDLE, driveOffStep, isByproductBelowNorm, TYPICAL_BYPRODUCT_PCT_MIN,
   type DriveOffTracker, type PalletSnapshot,
 } from '@/features/deboning/utils/weighing'
 import type { ScaleState } from '@/features/deboning/useScale'
@@ -35,6 +35,9 @@ interface Pallet {
 
 const FRAC_LABEL: Record<Frac, string> = { backs: 'grzbiety', bones: 'kości' }
 const FRAC_TITLE: Record<Frac, string> = { backs: 'Zważ grzbiety', bones: 'Zważ kości' }
+
+// Pasmo normy i sprawdzenie odchylenia: isByproductBelowNorm / TYPICAL_BYPRODUCT_PCT_MIN
+// (utils/weighing.ts) — patrz tam komentarz o audycie partii 428, 2026-07-23.
 
 const V: CSSProperties = {
   ['--bg' as string]: '#E7EAEE', ['--panel' as string]: '#FFFFFF', ['--ink' as string]: '#0F172A',
@@ -73,6 +76,11 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
   const net = Math.max(0, gross - tareTotal)
   const fracTotal = useMemo(() => pallets.reduce((s, p) => s + p.net, 0), [pallets])
   const canAdd = tareKg != null && scale.connected && scale.stable && gross > 0 && net > 0
+
+  // Alarm odchylenia od normy — liczony na bieżąco z sumy dotychczasowych
+  // palet, więc ostrzega PRZED „To wszystko", nie po fakcie.
+  const fracPct = record.quarterKg > 0 ? (fracTotal / record.quarterKg) * 100 : 0
+  const belowNorm = isByproductBelowNorm(frac, fracTotal, record.quarterKg)
 
   const resetInputs = () => { setTareKg(null); setTareLabel(''); setContainersStr('') }
 
@@ -232,18 +240,24 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
               {(['backs', 'bones'] as Frac[]).map(f => {
                 const done = f === 'backs' ? record.backsDone : record.bonesDone
                 const kgSoFar = f === 'backs' ? record.backsKg : record.bonesKg
+                const pctSoFar = record.quarterKg > 0 ? ((kgSoFar ?? 0) / record.quarterKg) * 100 : 0
+                const tileLow = done && isByproductBelowNorm(f, kgSoFar ?? 0, record.quarterKg)
                 return (
                   <button key={f} type="button" onClick={() => chooseFraction(f)}
                     className="h-40 flex flex-col items-center justify-center gap-2 font-extrabold" style={{
-                      borderRadius: 14, background: done ? 'var(--successSoft)' : 'var(--panel)',
-                      border: `2px solid ${done ? 'var(--successLine)' : 'var(--accent)'}`,
-                      color: done ? 'var(--success)' : 'var(--accent)',
+                      borderRadius: 14, background: tileLow ? '#FEF3C7' : done ? 'var(--successSoft)' : 'var(--panel)',
+                      border: `2px solid ${tileLow ? '#F3D9AE' : done ? 'var(--successLine)' : 'var(--accent)'}`,
+                      color: tileLow ? '#B45309' : done ? 'var(--success)' : 'var(--accent)',
                     }}>
                     <Package size={40} />
                     <span className="text-3xl uppercase" style={{ color: 'var(--ink)', letterSpacing: '.02em' }}>{FRAC_LABEL[f]}</span>
-                    {done
-                      ? <span className="text-sm font-bold flex items-center gap-1"><Check size={16} /> dotąd {fmtKg(kgSoFar ?? 0, 1)} kg · doważ / popraw</span>
-                      : <span className="text-sm font-bold" style={{ color: 'var(--mut)' }}>dotknij, aby zważyć</span>}
+                    {tileLow ? (
+                      <span className="text-sm font-bold flex items-center gap-1"><AlertTriangle size={16} /> {fmtKg(kgSoFar ?? 0, 1)} kg ({fmtPct(pctSoFar, 1)}) — poniżej normy, sprawdź paletę</span>
+                    ) : done ? (
+                      <span className="text-sm font-bold flex items-center gap-1"><Check size={16} /> dotąd {fmtKg(kgSoFar ?? 0, 1)} kg · doważ / popraw</span>
+                    ) : (
+                      <span className="text-sm font-bold" style={{ color: 'var(--mut)' }}>dotknij, aby zważyć</span>
+                    )}
                   </button>
                 )
               })}
@@ -316,6 +330,19 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
                 </div>
               </div>
             </div>
+            {/* Alarm odchylenia od normy — złapać brakującą/pomieszaną paletę
+                TERAZ, zanim operator zamknie frakcję i pójdzie dalej (patrz
+                TYPICAL_PCT: audyt partii 428, 2026-07-23). */}
+            {belowNorm && (
+              <div className="flex items-center gap-3 px-5 py-3.5" style={{ borderRadius: 12, background: '#FEF3C7', border: '1.5px solid #F3D9AE' }}>
+                <AlertTriangle size={22} style={{ color: '#B45309', flexShrink: 0 }} />
+                <div className="text-sm font-bold" style={{ color: '#B45309' }}>
+                  {FRAC_LABEL[frac] === 'kości' ? 'Kości' : 'Grzbiety'} — {fmtPct(fracPct, 1)} ćwiartki, poniżej typowej normy
+                  (~{fmtPct(TYPICAL_BYPRODUCT_PCT_MIN[frac], 0)}+). Sprawdź, czy w hali nie stoi jeszcze niezważona
+                  paleta {FRAC_LABEL[frac]} — także z INNEJ partii pomieszana z tą.
+                </div>
+              </div>
+            )}
             <div className="text-center font-extrabold text-xl">To wszystko, czy dokładamy?</div>
             <div className="grid grid-cols-3 gap-3">
               <button type="button" onClick={finishFraction}
