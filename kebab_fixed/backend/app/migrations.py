@@ -730,8 +730,23 @@ _DDL: list[str] = [
 
 
 def run_migrations() -> None:
-    """Execute all idempotent DDL statements, then seed data."""
+    """Execute all idempotent DDL statements, then seed data.
+
+    Całość pod globalnym advisory lockiem: każdy worker gunicorna odpala
+    migracje przy starcie RÓWNOLEGLE — pary zależne od kolejności (DROP+ADD
+    constraintu) ścigały się między workerami i sypały fałszywym
+    ``statement_failed`` przy każdym boocie, a backfille INSERT-ujące dane
+    (np. _reconcile_deboning_ledger) mogłyby wstawić korektę dwa razy.
+    Lock trzyma osobne połączenie z puli (min 2) — statementy w środku
+    biorą własne, więc nic się nie klinuje; kolejny worker wchodzi po
+    zwolnieniu i zastaje wszystko zrobione (idempotencja)."""
     logger.info("migrations.start", extra={"count": len(_DDL)})
+    with transaction() as guard:
+        cx_execute(guard, "SELECT pg_advisory_xact_lock(202607220000)")
+        _run_migrations_locked()
+
+
+def _run_migrations_locked() -> None:
     for sql in _DDL:
         try:
             execute(sql)
@@ -773,26 +788,28 @@ def _reconcile_deboning_ledger() -> None:
        dopisz OUT 'cancellation' domykający do zera.
     4. Loty „other" per wpis vs zważone frakcje zbiorcze: skurcz do realnej
        reszty (dublowanie masy ABP ~2×).
+
+    Każdy blok pod pg_advisory_xact_lock (dodatkowo do globalnego locka
+    run_migrations): funkcja wstawia WIERSZE, więc dwa równoległe przebiegi
+    policzyłyby ten sam dryf i wstawiły korektę dwa razy — lock trzyma też
+    przy wywołaniu ręcznym, poza migracjami.
     """
     from app.utils.ids import cuid
 
     try:
-        execute(
-            """
-            UPDATE deboning_entries de
-            SET kg_gross=NULL, tare_cart_kg=NULL, tare_e2_kg=NULL, e2_count=NULL
-            WHERE COALESCE(de.status,'complete')='complete'
-              AND de.kg_gross IS NOT NULL
-              AND (SELECT COUNT(*) FROM deboning_take_weighings tw
-                   WHERE tw.entry_id=de.id) > 1
-            """
-        )
-    except Exception as exc:
-        logger.warning("migrations.reconcile.entry_weighing_fields.failed",
-                       extra={"error": str(exc)})
-
-    try:
         with transaction() as conn:
+            cx_execute(conn, "SELECT pg_advisory_xact_lock(202607220001)")
+            cx_execute(
+                conn,
+                """
+                UPDATE deboning_entries de
+                SET kg_gross=NULL, tare_cart_kg=NULL, tare_e2_kg=NULL, e2_count=NULL
+                WHERE COALESCE(de.status,'complete')='complete'
+                  AND de.kg_gross IS NOT NULL
+                  AND (SELECT COUNT(*) FROM deboning_take_weighings tw
+                       WHERE tw.entry_id=de.id) > 1
+                """,
+            )
             raw_drift = cx_query_all(
                 conn,
                 """
@@ -855,6 +872,7 @@ def _reconcile_deboning_ledger() -> None:
 
     try:
         with transaction() as conn:
+            cx_execute(conn, "SELECT pg_advisory_xact_lock(202607220001)")
             ghosts = cx_query_all(
                 conn,
                 """
@@ -891,6 +909,7 @@ def _reconcile_deboning_ledger() -> None:
             "WHERE backs_kg IS NOT NULL OR bones_kg IS NOT NULL"
         )
         with transaction() as conn:
+            cx_execute(conn, "SELECT pg_advisory_xact_lock(202607220001)")
             for r in rows:
                 _rescale_other_lots(conn, r["raw_batch_id"])
     except Exception as exc:
