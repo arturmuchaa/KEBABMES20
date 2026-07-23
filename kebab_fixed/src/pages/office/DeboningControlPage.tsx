@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { deboningEntriesApi, type DeboningPanelBatch } from '@/lib/api'
 import { ChangeBatchDialog, EntryCorrectionDialog, type FixableEntry } from '@/features/deboning/EntryFixDialogs'
+import { DeboningWeighingsLog } from '@/features/deboning/DeboningWeighingsLog'
 import { StatusBadge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import {
@@ -18,6 +19,31 @@ import {
   PencilLine, Search, Scissors,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
+
+// ─── Zakres dat dla dziennika ważeń (lekki, bez KPI — to ma Panel Statystyk) ──
+type WeighPreset = 'today' | 'yesterday' | '7d' | 'custom'
+const WEIGH_PRESETS: { key: WeighPreset; label: string }[] = [
+  { key: 'today',     label: 'Dziś' },
+  { key: 'yesterday', label: 'Wczoraj' },
+  { key: '7d',        label: '7 dni' },
+  { key: 'custom',    label: 'Zakres' },
+]
+function ymdLocal(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function resolveWeighRange(preset: WeighPreset, cf: string, ct: string): { from: string; to: string } {
+  const today = ymdLocal(new Date())
+  if (preset === 'custom' && cf && ct) return { from: cf, to: ct }
+  if (preset === 'yesterday') {
+    const d = new Date(); d.setDate(d.getDate() - 1)
+    return { from: ymdLocal(d), to: ymdLocal(d) }
+  }
+  if (preset === '7d') {
+    const d = new Date(); d.setDate(d.getDate() - 6)
+    return { from: ymdLocal(d), to: today }
+  }
+  return { from: today, to: today }
+}
 
 const nf0 = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -61,6 +87,14 @@ export function DeboningControlPage() {
 
   const [fixEntry, setFixEntry] = useState<FixableEntry | null>(null)
   const [cbEntry, setCbEntry] = useState<FixableEntry | null>(null)
+
+  const [weighPreset, setWeighPreset] = useState<WeighPreset>('today')
+  const [weighCf, setWeighCf] = useState('')
+  const [weighCt, setWeighCt] = useState('')
+  const weighRange = useMemo(
+    () => resolveWeighRange(weighPreset, weighCf, weighCt),
+    [weighPreset, weighCf, weighCt],
+  )
 
   const load = useCallback(() => {
     deboningEntriesApi.panel().then(setBatches).catch(() => setBatches([])).finally(() => setLoading(false))
@@ -240,6 +274,33 @@ export function DeboningControlPage() {
           })}
         </div>
       )}
+
+      {/* ── Dziennik ważeń — każda porcja mięsa zważona, z pełnym audytem wagi ── */}
+      <div className="pt-2">
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div className="inline-flex items-center rounded-lg border border-surface-4 bg-white p-0.5">
+            {WEIGH_PRESETS.map(p => (
+              <button key={p.key} onClick={() => setWeighPreset(p.key)}
+                className={cn(
+                  'px-2.5 py-1 rounded-md text-xs font-semibold transition-colors',
+                  weighPreset === p.key ? 'bg-brand text-white shadow-sm' : 'text-ink-3 hover:text-ink hover:bg-surface-2',
+                )}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {weighPreset === 'custom' && (
+            <div className="inline-flex items-center gap-1">
+              <input type="date" value={weighCf} max={weighCt || undefined} onChange={e => setWeighCf(e.target.value)}
+                className="h-8 rounded-md border border-surface-4 px-2 text-xs" />
+              <span className="text-ink-4">–</span>
+              <input type="date" value={weighCt} onChange={e => setWeighCt(e.target.value)}
+                className="h-8 rounded-md border border-surface-4 px-2 text-xs" />
+            </div>
+          )}
+        </div>
+        <DeboningWeighingsLog from={weighRange.from} to={weighRange.to} />
+      </div>
 
       {fixEntry && (
         <EntryCorrectionDialog entry={fixEntry} onClose={() => setFixEntry(null)} onSaved={onSaved} />
