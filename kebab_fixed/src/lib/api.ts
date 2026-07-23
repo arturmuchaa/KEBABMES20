@@ -319,6 +319,9 @@ export const deboningApi = {
   // Agregaty biura (monitoring rozbioru) — zakres dat po created_at.
   stats: (from: string, to: string) =>
     get<DeboningStats>(`/deboning/stats?date_from=${from}&date_to=${to}`),
+  // Dziennik ważeń mięsa — porcje pobrań z pełnym audytem wagi (brutto/tary/netto)
+  weighings: (from: string, to: string) =>
+    get<{ data: any[] }>(`/deboning/weighings?date_from=${from}&date_to=${to}`),
 }
 
 export interface DeboningStatsWorker {

@@ -124,6 +124,36 @@ def deboning_trace(batch_id: str) -> Dict[str, List[Dict]]:
     return {"data": [_map_deboning_entry(e) for e in entries]}
 
 
+def list_take_weighings(date_from: str, date_to: str) -> Dict[str, Any]:
+    """Dziennik ważeń mięsa — każda porcja pobrania z pełnym audytem wagi
+    (brutto, tara wózka, pojemniki E2, netto, tryb auto/ręczny). Dzień
+    liczony po Europe/Warsaw, spójnie z deboning_stats."""
+    rows = query_all(
+        """
+        SELECT w.id,
+               w.entry_id                                        AS "entryId",
+               w.kg_meat                                         AS "kgMeat",
+               w.kg_gross                                        AS "kgGross",
+               w.tare_cart_kg                                    AS "tareCartKg",
+               w.tare_e2_kg                                      AS "tareE2Kg",
+               w.e2_count                                        AS "e2Count",
+               w.weigh_mode                                      AS "weighMode",
+               (w.weighed_at AT TIME ZONE 'Europe/Warsaw')       AS "weighedAtLocal",
+               (w.weighed_at AT TIME ZONE 'Europe/Warsaw')::date AS "dayLocal",
+               e.worker_name                                     AS "workerName",
+               e.raw_batch_no                                    AS "rawBatchNo",
+               e.kg_quarter                                      AS "kgQuarter",
+               e.status                                          AS "entryStatus"
+        FROM deboning_take_weighings w
+        JOIN deboning_entries e ON e.id = w.entry_id
+        WHERE (w.weighed_at AT TIME ZONE 'Europe/Warsaw')::date BETWEEN %s AND %s
+        ORDER BY w.weighed_at
+        """,
+        (date_from, date_to),
+    )
+    return {"data": rows}
+
+
 def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     """Agregaty rozbioru dla biura w zakresie dat.
 

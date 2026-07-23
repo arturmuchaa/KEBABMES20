@@ -92,6 +92,14 @@ def deboning_stats(
     return svc.deboning_stats(date_from, date_to)
 
 
+@router.get("/api/deboning/weighings")
+def list_take_weighings(
+    date_from: str = Query(..., alias="date_from"),
+    date_to: str = Query(..., alias="date_to"),
+):
+    return svc.list_take_weighings(date_from, date_to)
+
+
 @router.get("/api/deboning/entries")
 def list_deboning_entries(
     session_id: str = Query(None, alias="session_id"),

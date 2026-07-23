@@ -1,6 +1,7 @@
 """Częściowe ważenia mięsa z otwartego pobrania (weigh-part): porcja od razu
 wchodzi na lot mięsa, pobranie zostaje pending; complete sumuje porcje.
 Testy DB — wymagają TEST_DATABASE_URL (patrz conftest), inaczej skip."""
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +14,7 @@ from app.services.deboning_service import (
     create_deboning_take,
     delete_deboning_entry,
     list_deboning_entries,
+    list_take_weighings,
     update_deboning_take,
     weigh_part_deboning_take,
 )
@@ -227,6 +229,33 @@ def test_korekta_z_potwierdzeniem_nadpisuje_pomiar(db):
     )
     row = query_one("SELECT kg_quarter, kg_meat FROM deboning_entries WHERE id=%s", (entry_id,))
     assert float(row["kg_quarter"]) == 150.0 and float(row["kg_meat"]) == 97.0
+
+
+def test_dziennik_wazen_zwraca_kazda_porcje_z_audytem_wagi(db):
+    """list_take_weighings — dziennik zdarzeń dla biura: jeden wiersz na
+    porcję, z brutto/tarą/E2/netto/pracownikiem/partią (nie zsumowane)."""
+    _seed_batch()
+    entry = create_deboning_take(_take_dto())
+    # net = brutto − tara wózka − tara E2 (walidacja auto): 118−8−10=100, 104.5−5.5−4=95
+    weigh_part_deboning_take(entry["id"], _auto_dto(100.0, gross=118.0, cart=8.0, e2=10.0, n=5))
+    complete_deboning_take(entry["id"], _auto_dto(95.0, gross=104.5, cart=5.5, e2=4.0, n=2))
+
+    today = date.today().isoformat()
+    rows = list_take_weighings(today, today)
+    mine = [r for r in rows["data"] if r["entryId"] == entry["id"]]
+    assert len(mine) == 2  # obie porcje, nie zsumowane
+
+    first = next(r for r in mine if float(r["kgMeat"]) == 100.0)
+    assert float(first["kgGross"]) == 118.0
+    assert float(first["tareCartKg"]) == 8.0
+    assert float(first["tareE2Kg"]) == 10.0
+    assert first["e2Count"] == 5
+    assert first["weighMode"] == "auto"
+    assert first["workerName"] == "Jan"
+    assert first["rawBatchNo"] == "800"
+
+    # poza zakresem dat — nic nie wraca
+    assert list_take_weighings("2000-01-01", "2000-01-02")["data"] == []
 
 
 def test_korekta_do_nierealnej_wydajnosci_blokuje(db):
