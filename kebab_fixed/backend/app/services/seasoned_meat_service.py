@@ -15,7 +15,7 @@ from app.db import (
 )
 from app.logging_config import get_logger
 from app.services.recipes_service import calc_kg_output
-from app.utils.batch_numbers import combined_batch_no
+from app.utils.batch_numbers import combined_batch_no, scrap_pool_batch_no
 from app.utils.ids import cuid, next_seq, now_iso
 from app.utils.stock import create_stock_movement
 
@@ -63,76 +63,104 @@ def list_all_seasoned_with_reservations() -> List[Dict]:
     )
 
 
+def _reconcile_row(
+    conn,
+    row: Dict[str, Any],
+    target_kg: float,
+    reason: str = "",
+    close: bool = False,
+) -> float:
+    """Rdzeń korekty jednej partii przyprawionej — współdzielony przez
+    `reconcile_seasoned_batch` (pojedyncza partia) i `reconcile_production_day`
+    (grupa partii jednego dnia produkcji). Zakłada, że `row` jest już pobrany
+    z `FOR UPDATE` w bieżącej transakcji `conn`. Zwraca zastosowaną deltę
+    (target - stara dostępna waga); 0.0 gdy brak zmiany i `close=False`.
+
+    kg_produced jest WYLICZONE z receptury (mięso × %), więc realna waga
+    zawsze różni się o 1–3 kg (dozowanie, chłonność wody, wagi). Ustawia
+    REALNĄ dostępną wagę: teoria zaniżona (np. 119, a fizycznie 120) → podnieś,
+    resztka po produkcji (za dużo) → zamknij (``close``) do 0. Różnica idzie
+    ruchem magazynowym (IN gdy +, OUT gdy −; product_type 'seasoned', source
+    'reconcile') — udokumentowany ślad dla kosztu i dokumentów weterynaryjnych.
+    kg_produced podąża za korektą (produced = used + available + reserved).
+    Koszt/kg liczy się z receptury, więc korekta go nie rusza — patrz
+    cost_service.
+
+    Blokady: partia zamknięta; waga < kg zarezerwowanych pod plan (najpierw
+    zwolnij plan); waga ujemna.
+    """
+    seasoned_id = row["id"]
+    if (row.get("status") or "") == "closed":
+        raise HTTPException(400, "Partia jest już zamknięta")
+
+    old_avail = float(row.get("kg_available") or 0)
+    reserved = float(row.get("kg_reserved") or 0)
+    target = 0.0 if close else round(float(target_kg or 0), 3)
+    if target < 0:
+        raise HTTPException(400, "Waga nie może być ujemna")
+    if target + 0.001 < reserved:
+        raise HTTPException(
+            400,
+            f"W partii jest {reserved:.1f} kg zarezerwowane pod plan — nie "
+            f"można zejść poniżej. Najpierw zwolnij/usuń pozycję planu.",
+        )
+
+    delta = round(target - old_avail, 3)
+    if abs(delta) < 0.001 and not close:
+        return 0.0
+
+    new_produced = round(float(row.get("kg_produced") or 0) + delta, 3)
+    new_status = "closed" if close else (row.get("status") or "available")
+    cx_execute(
+        conn,
+        """
+        UPDATE seasoned_meat
+        SET kg_available=%s, kg_produced=%s, status=%s,
+            reconciled_at=%s, reconcile_reason=%s
+        WHERE id=%s
+        """,
+        (target, new_produced, new_status, now_iso(), (reason or None), seasoned_id),
+    )
+    if delta > 0.001:
+        create_stock_movement(
+            conn, product_type="seasoned", batch_id=seasoned_id,
+            qty=delta, movement_type="IN",
+            source_type="reconcile", source_id=seasoned_id,
+        )
+    elif delta < -0.001:
+        create_stock_movement(
+            conn, product_type="seasoned", batch_id=seasoned_id,
+            qty=-delta, movement_type="OUT",
+            source_type="reconcile", source_id=seasoned_id,
+        )
+    return delta
+
+
 def reconcile_seasoned_batch(
     seasoned_id: str,
     target_kg: float,
     reason: str = "",
     close: bool = False,
 ) -> Dict[str, Any]:
-    """Ręczna korekta partii przyprawionej — uzgodnienie teoria↔fizyka.
-
-    kg_produced jest WYLICZONE z receptury (mięso × %), więc realna waga
-    zawsze różni się o 1–3 kg (dozowanie, chłonność wody, wagi). Biuro ustawia
-    tu REALNĄ dostępną wagę:
-      * teoria zaniżona (np. 119, a fizycznie 120) → podnieś, plan przejdzie,
-      * resztka po produkcji (za dużo) → zamknij (``close``) do 0.
-    Różnica idzie ruchem magazynowym (IN gdy +, OUT gdy −; product_type
-    'seasoned', source 'reconcile') — udokumentowany ślad dla kosztu i
-    dokumentów weterynaryjnych. kg_produced podąża za korektą (produced =
-    used + available + reserved). Koszt/kg liczy się z receptury, więc korekta
-    go nie rusza — patrz cost_service.
-
-    Blokady: partia zamknięta; waga < kg zarezerwowanych pod plan (najpierw
-    zwolnij plan); brak zmiany.
-    """
+    """Ręczna korekta/zamknięcie POJEDYNCZEJ partii przyprawionej — wrapper
+    nad `_reconcile_row` dla API `/seasoned-meat/{id}/reconcile`. Logika
+    opisana w `_reconcile_row`."""
     with transaction() as conn:
         b = cx_query_one(
             conn, "SELECT * FROM seasoned_meat WHERE id=%s FOR UPDATE", (seasoned_id,)
         )
         if not b:
             raise HTTPException(404, "Partia przyprawiona nie znaleziona")
-        if (b.get("status") or "") == "closed":
-            raise HTTPException(400, "Partia jest już zamknięta")
 
-        old_avail = float(b.get("kg_available") or 0)
-        reserved = float(b.get("kg_reserved") or 0)
-        target = 0.0 if close else round(float(target_kg or 0), 3)
-        if target < 0:
-            raise HTTPException(400, "Waga nie może być ujemna")
-        if target + 0.001 < reserved:
-            raise HTTPException(
-                400,
-                f"W partii jest {reserved:.1f} kg zarezerwowane pod plan — nie "
-                f"można zejść poniżej. Najpierw zwolnij/usuń pozycję planu.",
-            )
-
-        delta = round(target - old_avail, 3)
-        if abs(delta) < 0.001 and not close:
+        delta = _reconcile_row(conn, b, target_kg, reason, close)
+        if delta == 0.0 and not close:
             raise HTTPException(400, "Brak zmiany wagi — podaj inną wartość.")
 
-        new_produced = round(float(b.get("kg_produced") or 0) + delta, 3)
-        new_status = "closed" if close else (b.get("status") or "available")
-        cx_execute(
+        row = cx_query_one(
             conn,
-            """
-            UPDATE seasoned_meat
-            SET kg_available=%s, kg_produced=%s, status=%s,
-                reconciled_at=%s, reconcile_reason=%s
-            WHERE id=%s
-            """,
-            (target, new_produced, new_status, now_iso(), (reason or None), seasoned_id),
-        )
-        if delta > 0.001:
-            create_stock_movement(
-                conn, product_type="seasoned", batch_id=seasoned_id,
-                qty=delta, movement_type="IN",
-                source_type="reconcile", source_id=seasoned_id,
-            )
-        elif delta < -0.001:
-            create_stock_movement(
-                conn, product_type="seasoned", batch_id=seasoned_id,
-                qty=-delta, movement_type="OUT",
-                source_type="reconcile", source_id=seasoned_id,
+            "SELECT *, (kg_available - COALESCE(kg_reserved,0)) AS kg_free "
+            "FROM seasoned_meat WHERE id=%s",
+            (seasoned_id,),
             )
 
         row = cx_query_one(
@@ -496,3 +524,210 @@ def split_seasoned_sessions(sessions, kg_used_total):
         g["kg_produced"] = round(g["kg_produced"], 3)
         remaining -= take
     return ordered
+
+
+def reconcile_production_day(
+    recipe_id: str,
+    production_day: str,
+    actual_kg: float,
+    reason: str = "",
+) -> Dict[str, Any]:
+    """Zbiorcza korekta teoria↔fizyka dla WSZYSTKICH żywych partii jednej
+    receptury z jednego dnia produkcji ("zamknięcie dnia"). Reużywa
+    `_reconcile_row` per partia — patrz jej docstring dla mechaniki korekty
+    pojedynczego wiersza.
+
+    Różnica (`actual_kg` minus suma teoretycznych `kg_available`) trafia na
+    partie w kolejności FEFO (`expiry_date`, potem `created_at` — najstarsza
+    pierwsza): dodatnia w całości na najstarszą, ujemna rozkłada się po
+    partiach, ile każda może oddać bez zejścia poniżej WŁASNEJ rezerwacji.
+    Wstępna walidacja (`actual_kg >= suma rezerwacji`) gwarantuje matematycznie,
+    że pętla rozłoży całą ujemną deltę bez wyjątków w trakcie.
+
+    Brak żywych partii w grupie:
+      * actual_kg > 0  → tworzy nową partię 'SC{n}' (pula ścinków z dnia,
+        wchodzi do FEFO jak każda inna).
+      * actual_kg == 0 → no-op.
+    """
+    actual_kg = round(float(actual_kg or 0), 3)
+    if actual_kg < 0:
+        raise HTTPException(400, "Waga nie może być ujemna")
+
+    with transaction() as conn:
+        rows = cx_query_all(
+            conn,
+            """
+            SELECT * FROM seasoned_meat
+            WHERE recipe_id = %s AND production_day = %s AND status != 'closed'
+            ORDER BY expiry_date ASC NULLS LAST, created_at ASC
+            FOR UPDATE
+            """,
+            (recipe_id, production_day),
+        )
+
+        theoretical = round(sum(float(r.get("kg_available") or 0) for r in rows), 3)
+        reserved_total = round(sum(float(r.get("kg_reserved") or 0) for r in rows), 3)
+
+        if actual_kg + 0.001 < reserved_total:
+            raise HTTPException(
+                400,
+                f"W partiach tego dnia jest {reserved_total:.1f} kg zarezerwowane "
+                f"pod plan — nie można zejść poniżej. Najpierw zwolnij/usuń "
+                f"pozycje planu.",
+            )
+
+        if not rows:
+            if actual_kg < 0.001:
+                return {
+                    "theoreticalKg": 0.0, "actualKg": 0.0,
+                    "delta": 0.0, "affectedBatches": [],
+                }
+            recipe = cx_query_one(conn, "SELECT name FROM recipes WHERE id=%s", (recipe_id,))
+            recipe_name = (recipe or {}).get("name", "")
+            new_id = cuid()
+            batch_no = scrap_pool_batch_no(next_seq("sc_seq"))
+            expiry = (
+                datetime.fromisoformat(production_day) + timedelta(days=5)
+            ).date().isoformat()
+            cx_execute(
+                conn,
+                """
+                INSERT INTO seasoned_meat
+                    (id, batch_no, recipe_id, recipe_name, kg_produced,
+                     kg_available, kg_used, status, production_day, expiry_date,
+                     reconciled_at, reconcile_reason, created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,0,'available',%s,%s,%s,%s,%s)
+                """,
+                (new_id, batch_no, recipe_id, recipe_name, actual_kg,
+                 actual_kg, production_day, expiry, now_iso(),
+                 (reason or None), now_iso()),
+            )
+            create_stock_movement(
+                conn, product_type="seasoned", batch_id=new_id,
+                qty=actual_kg, movement_type="IN",
+                source_type="reconcile", source_id=new_id,
+            )
+            logger.info(
+                "seasoned.production_day_scrap_pool_created",
+                extra={
+                    "recipe_id": recipe_id, "production_day": production_day,
+                    "batch_no": batch_no, "kg": actual_kg,
+                },
+            )
+            return {
+                "theoreticalKg": 0.0, "actualKg": actual_kg,
+                "delta": actual_kg,
+                "affectedBatches": [{"id": new_id, "batchNo": batch_no, "deltaApplied": actual_kg}],
+            }
+
+        delta = round(actual_kg - theoretical, 3)
+        if abs(delta) < 0.001:
+            raise HTTPException(400, "Brak zmiany wagi — podaj inną wartość.")
+
+        affected: List[Dict[str, Any]] = []
+        remaining = delta
+        for row in rows:
+            row_avail = float(row.get("kg_available") or 0)
+            row_reserved = float(row.get("kg_reserved") or 0)
+            if remaining >= 0:
+                apply = remaining
+            else:
+                max_giveable = row_avail - row_reserved
+                apply = max(remaining, -max_giveable)
+            if abs(apply) < 0.0005:
+                continue
+            target = round(row_avail + apply, 3)
+            applied = _reconcile_row(conn, row, target, reason)
+            affected.append({
+                "id": row["id"], "batchNo": row["batch_no"], "deltaApplied": applied,
+            })
+            remaining = round(remaining - apply, 3)
+            if abs(remaining) < 0.0005:
+                break
+
+        logger.info(
+            "seasoned.production_day_reconciled",
+            extra={
+                "recipe_id": recipe_id, "production_day": production_day,
+                "theoretical_kg": theoretical, "actual_kg": actual_kg,
+                "delta": delta, "reason": reason or "",
+                "affected_count": len(affected),
+            },
+        )
+        return {
+            "theoreticalKg": theoretical,
+            "actualKg": actual_kg,
+            "delta": delta,
+            "affectedBatches": affected,
+        }
+
+
+def _group_production_day_rows(rows: List[Dict[str, Any]], production_day: str) -> List[Dict[str, Any]]:
+    """Czyste grupowanie wierszy seasoned_meat (dowolnego statusu) po
+    recipe_id, dla widoku 'Zamknięcie dnia'. theoreticalKg sumuje TYLKO
+    wiersze status != 'closed' (0, gdy wszystkie zamknięte — poprawny stan
+    przy domykaniu dnia, nie błąd)."""
+    groups: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        key = r["recipe_id"]
+        g = groups.setdefault(key, {
+            "recipeId": r["recipe_id"],
+            "recipeName": r["recipe_name"],
+            "productionDay": production_day,
+            "theoreticalKg": 0.0,
+            "batchCount": 0,
+            "lastReconciledAt": None,
+            "lastReconcileReason": None,
+        })
+        g["batchCount"] += 1
+        if (r.get("status") or "") != "closed":
+            g["theoreticalKg"] += float(r.get("kg_available") or 0)
+        ra = r.get("reconciled_at")
+        if ra and (g["lastReconciledAt"] is None or str(ra) > str(g["lastReconciledAt"])):
+            g["lastReconciledAt"] = ra
+            g["lastReconcileReason"] = r.get("reconcile_reason")
+    for g in groups.values():
+        g["theoreticalKg"] = round(g["theoreticalKg"], 3)
+    return sorted(groups.values(), key=lambda g: g["recipeName"])
+
+
+def list_production_days(production_day: str) -> List[Dict[str, Any]]:
+    """DB wrapper nad `_group_production_day_rows` — patrz jej docstring."""
+    rows = query_all(
+        "SELECT recipe_id, recipe_name, status, kg_available, reconciled_at, reconcile_reason "
+        "FROM seasoned_meat WHERE production_day = %s",
+        (production_day,),
+    )
+    return _group_production_day_rows(rows, production_day)
+
+
+def list_day_reconciliation_history(limit: int = 100) -> List[Dict[str, Any]]:
+    """Historia korekt 'Zamknięcia dnia' i pojedynczych partii — czytana
+    wprost z istniejącego rejestru `stock_movements` (source_type='reconcile'),
+    bez żadnej nowej tabeli audytowej."""
+    rows = query_all(
+        """
+        SELECT sm.qty, sm.movement_type, sm.created_at,
+               s.batch_no, s.recipe_name, s.production_day, s.reconcile_reason
+        FROM stock_movements sm
+        JOIN seasoned_meat s ON s.id = sm.batch_id
+        WHERE sm.source_type = 'reconcile' AND sm.product_type = 'seasoned'
+        ORDER BY sm.created_at DESC
+        LIMIT %s
+        """,
+        (limit,),
+    )
+    return [
+        {
+            "batchNo": r["batch_no"],
+            "recipeName": r["recipe_name"],
+            "productionDay": str(r["production_day"]),
+            "movementType": r["movement_type"],
+            # qty jest wartością bezwzględną — kierunek niesie movementType
+            # (OUT jest w stock_movements zapisany jako ujemny, IN dodatni).
+            "qty": abs(float(r["qty"])),
+            "reason": r["reconcile_reason"] or "",
+            "createdAt": str(r["created_at"]),
+        }
+        for r in rows
+    ]
