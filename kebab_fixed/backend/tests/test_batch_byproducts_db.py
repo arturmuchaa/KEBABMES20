@@ -3,6 +3,8 @@ domknięcie partii z przeliczeniem %, widoczność w statystykach biura.
 Testy DB — wymagają TEST_DATABASE_URL (patrz conftest), inaczej skip."""
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
+
 from app.db import execute, query_one
 from app.services.batch_byproducts_service import (
     ensure_record,
@@ -303,3 +305,76 @@ def test_per_wpisowe_uboczne_bez_zbiorczego_wazenia_nadal_licza_sie(db):
     s = deboning_stats(today, today)
     assert s["summary"]["kgBacks"] == 40.0
     assert s["summary"]["kgBones"] == 30.0
+
+
+# ── Zakończenie partii vs otwarte pobrania ────────────────────────────
+def test_finish_blokuje_przy_otwartych_pobraniach(db):
+    """Ręczne „Zakończ partię" z HMI nie może ostemplować finished_at, gdy
+    ktoś czeka z mięsem na wagę — partia z otwartym pobraniem NIE jest
+    zakończona (automat _auto_finish_exhausted już to sprawdza; ręczna
+    ścieżka nie sprawdzała wcale)."""
+    from fastapi import HTTPException
+
+    _seed_batch_with_entries(internal_no="807")
+    execute(
+        "INSERT INTO deboning_entries "
+        "(id, raw_batch_id, raw_batch_no, worker_name, kg_quarter, kg_meat, "
+        " yield_pct, status, created_at) "
+        "VALUES (%s,'rb1','807','Jan',100,0,0,'pending', now())",
+        (cuid(),),
+    )
+    with pytest.raises(HTTPException) as e:
+        finish_batch("rb1")
+    assert e.value.status_code == 400
+    assert get("rb1") is None  # rekord ubocznych nie powstał
+
+
+# ── Dublowanie masy ABP: loty „other" kurczą się o zważone frakcje ────
+def _seed_other_lots(batch_id="rb1", per_entry_kg=34.0):
+    """Loty „other" per wpis, jak po create/complete (remainder bez rozbicia)."""
+    rows = query_one(
+        "SELECT COUNT(*) AS n FROM deboning_entries WHERE raw_batch_id=%s",
+        (batch_id,),
+    )
+    execute(
+        "INSERT INTO byproduct_lots (id, deboning_entry_id, raw_batch_id, raw_batch_no,"
+        " kind, kg, status, created_at) "
+        "SELECT %s || de.id, de.id, de.raw_batch_id, de.raw_batch_no, 'other', %s,"
+        " 'open', now() FROM deboning_entries de WHERE de.raw_batch_id=%s",
+        ("lot-", per_entry_kg, batch_id),
+    )
+    return int(rows["n"])
+
+
+def _other_lots_sum(batch_id="rb1"):
+    r = query_one(
+        "SELECT COALESCE(SUM(kg),0) AS s FROM byproduct_lots"
+        " WHERE raw_batch_id=%s AND kind='other' AND deboning_entry_id IS NOT NULL",
+        (batch_id,),
+    )
+    return float(r["s"])
+
+
+def test_zwazone_frakcje_kurcza_loty_other(db):
+    """Audyt 2026-07-22: lot „other" per wpis = CAŁY remainder, a obok loty
+    zbiorcze grzbietów/kości → masa ABP liczona ~2× (partia 426: 1040+581+469
+    przy ~1050 kg realnej części niemięsnej). Po zważeniu frakcji loty „other"
+    muszą zejść do realnej reszty: ćwiartka − mięso − grzbiety − kości."""
+    _seed_batch_with_entries(internal_no="808")  # 200 ćw., 132 mięsa
+    _seed_other_lots(per_entry_kg=34.0)          # 2 × 34 = 68 (pełny remainder)
+    finish_batch("rb1")
+    record("rb1", "backs", 40.0, [])
+    # target: 200 − 132 − 40 = 28
+    assert _other_lots_sum() == pytest.approx(28.0, abs=0.01)
+    record("rb1", "bones", 20.0, [])
+    # target: 200 − 132 − 40 − 20 = 8
+    assert _other_lots_sum() == pytest.approx(8.0, abs=0.01)
+
+
+def test_frakcje_ponad_bilans_zeruja_loty_other(db):
+    _seed_batch_with_entries(internal_no="809")
+    _seed_other_lots(per_entry_kg=34.0)
+    finish_batch("rb1")
+    record("rb1", "backs", 50.0, [])
+    record("rb1", "bones", 30.0, [])  # 132+50+30 > 200 → other = 0
+    assert _other_lots_sum() == pytest.approx(0.0, abs=0.01)

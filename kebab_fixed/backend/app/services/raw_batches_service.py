@@ -272,6 +272,19 @@ def cancel_batch(batch_id: str) -> Dict:
         # zwalniamy numer: wiersz zostaje do historii ze znacznikiem ANUL-<id>
         # (nigdy nie koliduje z gołym numerem), a pierwotny numer czyta się
         # z internal_batch_seq.
+        # Ruch domykający księgę: bez niego anulowana partia miała w
+        # stock_movements samo przyjęcie IN i kartoteka pokazywała ducha
+        # (audyt 2026-07-22: ANUL-* z +5010/+7005 kg w księdze przy stanie 0).
+        cur = cx_query_one(
+            conn, "SELECT kg_available FROM raw_batches WHERE id=%s FOR UPDATE",
+            (batch_id,),
+        )
+        kg_left = float((cur or {}).get("kg_available") or 0)
+        if kg_left > 0:
+            create_stock_movement(
+                conn, product_type="raw", batch_id=batch_id, qty=kg_left,
+                movement_type="OUT", source_type="cancellation", source_id=batch_id,
+            )
         row = cx_execute_returning(
             conn,
             "UPDATE raw_batches SET status='cancelled', kg_available=0, "

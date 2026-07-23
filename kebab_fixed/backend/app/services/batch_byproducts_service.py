@@ -11,12 +11,76 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.db import execute, query_all, query_one
+from app.db import (
+    cx_execute,
+    cx_query_all,
+    cx_query_one,
+    execute,
+    query_all,
+    query_one,
+    transaction,
+)
 from app.logging_config import get_logger
 from app.utils.ids import cuid
 from app.utils.pallets import pallet_containers
 
 logger = get_logger(__name__)
+
+
+def _rescale_other_lots(conn, raw_batch_id: str) -> None:
+    """Zważone zbiorczo frakcje kurczą loty „other" do realnej reszty.
+
+    Lot „other" per wpis powstaje przy domknięciu wpisu jako CAŁY remainder
+    (grzbiety/kości nieznane w tym momencie). Po zważeniu frakcji zbiorczych
+    ta sama masa siedziała w lotach dwa razy (audyt 2026-07-22: partia 426 —
+    1040 „other" + 581,5 grzbietów + 469 kości przy ~1050 kg realnej części
+    niemięsnej) i zawyżała rejestr ABP ~2×. Cel: Σ other(open) =
+    ćwiartka − mięso − grzbiety − kości − other już wydane/utylizowane.
+    Idempotentne (drugi przebieg: factor=1)."""
+    bb = cx_query_one(
+        conn,
+        "SELECT backs_kg, bones_kg FROM batch_byproducts WHERE raw_batch_id=%s",
+        (raw_batch_id,),
+    )
+    if not bb or (bb.get("backs_kg") is None and bb.get("bones_kg") is None):
+        return
+    sums = cx_query_one(
+        conn,
+        "SELECT COALESCE(SUM(kg_quarter) FILTER (WHERE COALESCE(status,'complete')='complete'),0) AS q, "
+        "       COALESCE(SUM(kg_meat)    FILTER (WHERE COALESCE(status,'complete')='complete'),0) AS m "
+        "FROM deboning_entries WHERE raw_batch_id=%s",
+        (raw_batch_id,),
+    ) or {}
+    lots = cx_query_all(
+        conn,
+        "SELECT id, kg, status FROM byproduct_lots "
+        "WHERE raw_batch_id=%s AND kind='other' AND deboning_entry_id IS NOT NULL "
+        "FOR UPDATE",
+        (raw_batch_id,),
+    )
+    open_lots = [l for l in lots if l.get("status") == "open"]
+    if not open_lots:
+        return
+    closed = sum(float(l.get("kg") or 0) for l in lots if l.get("status") != "open")
+    cur = sum(float(l.get("kg") or 0) for l in open_lots)
+    if cur <= 0.0005:
+        return
+    target = max(
+        0.0,
+        float(sums.get("q") or 0) - float(sums.get("m") or 0)
+        - float(bb.get("backs_kg") or 0) - float(bb.get("bones_kg") or 0)
+        - closed,
+    )
+    factor = target / cur
+    if abs(factor - 1.0) < 1e-9:
+        return
+    left = round(target, 3)
+    for i, lot in enumerate(open_lots):
+        kg = round(float(lot["kg"]) * factor, 3)
+        if i == len(open_lots) - 1:
+            kg = max(0.0, left)  # ostatni lot domyka sumę (bez dryfu zaokrągleń)
+        left = round(left - kg, 3)
+        cx_execute(conn, "UPDATE byproduct_lots SET kg=%s WHERE id=%s", (kg, lot["id"]))
 
 
 def _stamp_pallets(pallets: Optional[list]) -> List[Dict[str, Any]]:
@@ -70,42 +134,70 @@ def finish_batch(raw_batch_id: str, operator: str = "") -> Dict[str, Any]:
     """Zakończ rozbiór partii → rekord oczekujący na ważenie ubocznych.
     quarter_kg = suma ćwiartki tej partii (baza procentu). Idempotentne —
     ponowne wywołanie nie kasuje już zważonych frakcji."""
-    b = query_one("SELECT internal_batch_no FROM raw_batches WHERE id=%s", (raw_batch_id,))
-    if not b:
-        raise HTTPException(404, "Partia nie istnieje")
-    q = query_one(
-        "SELECT COALESCE(SUM(kg_quarter),0) AS s FROM deboning_entries WHERE raw_batch_id=%s",
-        (raw_batch_id,),
-    )
-    quarter = float(q["s"] or 0)
-    existing = query_one("SELECT raw_batch_id FROM batch_byproducts WHERE raw_batch_id=%s", (raw_batch_id,))
-    if existing:
-        # Rekord mógł powstać przy ważeniu W TRAKCIE rozbioru (finished_at
-        # NULL) — teraz partia się kończy: stempluj finished_at i przelicz
-        # procenty względem pełnej ćwiartki (baza z ważeń w trakcie była
-        # częściowa).
-        execute(
-            "UPDATE batch_byproducts SET "
-            "  quarter_kg = GREATEST(COALESCE(quarter_kg,0), %s), "
-            "  finished_at = COALESCE(finished_at, now()) "
-            "WHERE raw_batch_id=%s",
-            (quarter, raw_batch_id),
-        )
-        execute(
-            "UPDATE batch_byproducts SET "
-            "  backs_pct = CASE WHEN backs_kg IS NOT NULL AND quarter_kg > 0 "
-            "    THEN ROUND(backs_kg / quarter_kg * 100, 2) ELSE backs_pct END, "
-            "  bones_pct = CASE WHEN bones_kg IS NOT NULL AND quarter_kg > 0 "
-            "    THEN ROUND(bones_kg / quarter_kg * 100, 2) ELSE bones_pct END "
-            "WHERE raw_batch_id=%s",
+    with transaction() as conn:
+        b = cx_query_one(
+            conn, "SELECT internal_batch_no FROM raw_batches WHERE id=%s FOR UPDATE",
             (raw_batch_id,),
         )
-    else:
-        execute(
-            "INSERT INTO batch_byproducts (raw_batch_id, raw_batch_no, quarter_kg, operator) "
-            "VALUES (%s,%s,%s,%s)",
-            (raw_batch_id, b["internal_batch_no"], quarter, operator),
+        if not b:
+            raise HTTPException(404, "Partia nie istnieje")
+        # Partia z otwartym pobraniem NIE jest zakończona — ktoś czeka z mięsem
+        # na wagę. Automat (_auto_finish_exhausted) sprawdzał to od dawna;
+        # ręczne „Zakończ partię" z HMI mogło ostemplować finished_at mimo to.
+        pending_take = cx_query_one(
+            conn,
+            "SELECT 1 FROM deboning_entries WHERE raw_batch_id=%s "
+            "AND COALESCE(status,'complete')='pending' LIMIT 1",
+            (raw_batch_id,),
         )
+        if pending_take:
+            raise HTTPException(
+                400,
+                "Partia ma otwarte pobrania (mięso czeka na wagę) — "
+                "domknij je przed zakończeniem partii",
+            )
+        q = cx_query_one(
+            conn,
+            "SELECT COALESCE(SUM(kg_quarter),0) AS s FROM deboning_entries WHERE raw_batch_id=%s",
+            (raw_batch_id,),
+        )
+        quarter = float(q["s"] or 0)
+        existing = cx_query_one(
+            conn,
+            "SELECT raw_batch_id FROM batch_byproducts WHERE raw_batch_id=%s FOR UPDATE",
+            (raw_batch_id,),
+        )
+        if existing:
+            # Rekord mógł powstać przy ważeniu W TRAKCIE rozbioru (finished_at
+            # NULL) — teraz partia się kończy: stempluj finished_at i przelicz
+            # procenty względem pełnej ćwiartki (baza z ważeń w trakcie była
+            # częściowa).
+            cx_execute(
+                conn,
+                "UPDATE batch_byproducts SET "
+                "  quarter_kg = GREATEST(COALESCE(quarter_kg,0), %s), "
+                "  finished_at = COALESCE(finished_at, now()) "
+                "WHERE raw_batch_id=%s",
+                (quarter, raw_batch_id),
+            )
+            cx_execute(
+                conn,
+                "UPDATE batch_byproducts SET "
+                "  backs_pct = CASE WHEN backs_kg IS NOT NULL AND quarter_kg > 0 "
+                "    THEN ROUND(backs_kg / quarter_kg * 100, 2) ELSE backs_pct END, "
+                "  bones_pct = CASE WHEN bones_kg IS NOT NULL AND quarter_kg > 0 "
+                "    THEN ROUND(bones_kg / quarter_kg * 100, 2) ELSE bones_pct END "
+                "WHERE raw_batch_id=%s",
+                (raw_batch_id,),
+            )
+        else:
+            cx_execute(
+                conn,
+                "INSERT INTO batch_byproducts (raw_batch_id, raw_batch_no, quarter_kg, operator) "
+                "VALUES (%s,%s,%s,%s)",
+                (raw_batch_id, b["internal_batch_no"], quarter, operator),
+            )
+        _rescale_other_lots(conn, raw_batch_id)
     return get(raw_batch_id)
 
 
@@ -117,18 +209,23 @@ def ensure_record(raw_batch_id: str, operator: str = "") -> Dict[str, Any]:
     existing = get(raw_batch_id)
     if existing:
         return existing
-    b = query_one("SELECT internal_batch_no FROM raw_batches WHERE id=%s", (raw_batch_id,))
-    if not b:
-        raise HTTPException(404, "Partia nie istnieje")
-    q = query_one(
-        "SELECT COALESCE(SUM(kg_quarter),0) AS s FROM deboning_entries WHERE raw_batch_id=%s",
-        (raw_batch_id,),
-    )
-    execute(
-        "INSERT INTO batch_byproducts (raw_batch_id, raw_batch_no, quarter_kg, operator, finished_at) "
-        "VALUES (%s,%s,%s,%s,NULL)",
-        (raw_batch_id, b["internal_batch_no"], float(q["s"] or 0), operator),
-    )
+    with transaction() as conn:
+        b = cx_query_one(
+            conn, "SELECT internal_batch_no FROM raw_batches WHERE id=%s", (raw_batch_id,)
+        )
+        if not b:
+            raise HTTPException(404, "Partia nie istnieje")
+        q = cx_query_one(
+            conn,
+            "SELECT COALESCE(SUM(kg_quarter),0) AS s FROM deboning_entries WHERE raw_batch_id=%s",
+            (raw_batch_id,),
+        )
+        cx_execute(
+            conn,
+            "INSERT INTO batch_byproducts (raw_batch_id, raw_batch_no, quarter_kg, operator, finished_at) "
+            "VALUES (%s,%s,%s,%s,NULL) ON CONFLICT (raw_batch_id) DO NOTHING",
+            (raw_batch_id, b["internal_batch_no"], float(q["s"] or 0), operator),
+        )
     return get(raw_batch_id)
 
 
@@ -257,67 +354,86 @@ def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = No
     """
     if kind not in ("backs", "bones"):
         raise HTTPException(400, "kind musi być 'backs' albo 'bones'")
-    rec = query_one(
-        f"SELECT quarter_kg, raw_batch_no, {kind}_pallets AS old_pallets, "
-        f"       {kind}_kg AS old_kg "
-        "FROM batch_byproducts WHERE raw_batch_id=%s",
-        (raw_batch_id,),
-    )
-    if not rec:
-        raise HTTPException(404, "Partia nie została zakończona (brak rekordu ubocznych)")
-    quarter = float(rec["quarter_kg"] or 0)
-    pct = round(kg / quarter * 100, 2) if quarter > 0 else 0.0
-    pallets = _stamp_pallets(pallets)
-
-    # Ile z poprzednio zważonej frakcji JUŻ WYJECHAŁO (WZ / utylizacja).
-    # Loty tej partii+frakcji są ŻYWYM stanem — wydanie zdejmuje z lotu kg
-    # i pojemniki (0 kg → 'shipped'). Kreator przysyła sumę NARASTAJĄCĄ całej
-    # frakcji, więc na magazyn wolno wstawić tylko to, czego jeszcze nie
-    # wydano. Bez tego wydane kg wracały na stan drugi raz: 411/kości —
-    # 1027,5 kg wyjechało 13.07 (lot 'shipped'), a doważenie 14.07 wstawiało
-    # lot na PEŁNE 1225 kg; po anulowaniu tamtej WZ (lot wraca) partia miała
-    # 2252,5 kg przy realnych 1225 kg (WZ/9 + WZ/10, prod 2026-07-14).
-    # Liczymy po WSZYSTKICH lotach frakcji (też 'shipped'), bo DELETE niżej
-    # zdejmuje wyłącznie otwarte — wydane zostają jako ślad dla WZ.
-    live = query_one(
-        "SELECT COUNT(*) AS n, COALESCE(SUM(kg),0) AS kg, "
-        "       COUNT(containers_available) AS n_cont, "
-        "       COALESCE(SUM(containers_available),0) AS cont "
-        "FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
-        "AND deboning_entry_id IS NULL",
-        (raw_batch_id, kind),
-    )
-    consumed_kg = 0.0
-    consumed = 0
-    if live is not None and int(live["n"] or 0) > 0:
-        consumed_kg = max(0.0, float(rec.get("old_kg") or 0) - float(live["kg"] or 0))
-        if int(live["n_cont"] or 0) > 0:
-            consumed = max(0, pallet_containers(rec.get("old_pallets")) - int(live["cont"] or 0))
-
-    execute(
-        f"UPDATE batch_byproducts SET {kind}_kg=%s, {kind}_pct=%s, {kind}_pallets=%s, "
-        f"{kind}_at=now() WHERE raw_batch_id=%s",
-        (round(kg, 3), pct, json.dumps(pallets or []), raw_batch_id),
-    )
-    # Lot ABP w magazynie produktów ubocznych — żeby zważone zbiorczo grzbiety/
-    # kości trafiły do MES z traceability partii (partia→lot→utylizacja przez
-    # /api/byproducts). Lot zbiorczy: deboning_entry_id NULL, powiązany z partią.
-    # Idempotentne: nadpisujemy poprzedni otwarty lot tej partii+frakcji.
-    execute(
-        "DELETE FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
-        "AND deboning_entry_id IS NULL AND status='open'",
-        (raw_batch_id, kind),
-    )
-    # Na stan idzie zważona suma MINUS to, co już wyjechało. batch_byproducts
-    # (wyżej) trzyma PEŁNĄ wagę frakcji — to rekord ważenia i baza procentów,
-    # nie stan magazynowy.
-    new_kg = round(max(0.0, kg - consumed_kg), 3)
-    if new_kg > 0:
-        new_available = max(0, pallet_containers(pallets) - consumed)
-        execute(
-            "INSERT INTO byproduct_lots (id, deboning_entry_id, raw_batch_id, "
-            "raw_batch_no, kind, kg, status, containers_available, created_at) "
-            "VALUES (%s, NULL, %s, %s, %s, %s, 'open', %s, now())",
-            (cuid(), raw_batch_id, rec["raw_batch_no"], kind, new_kg, new_available),
+    # JEDNA transakcja + lock rekordu partii i lotów frakcji. Wcześniej trzy
+    # auto-commity (UPDATE frakcji, DELETE lotu, INSERT lotu) — crash w środku
+    # albo wyścig z równoległym wydaniem WZ (konsumuje loty) zostawiał
+    # niespójność frakcja↔lot (ta sama klasa co incydent 411: 2252,5 kg).
+    with transaction() as conn:
+        rec = cx_query_one(
+            conn,
+            f"SELECT quarter_kg, raw_batch_no, {kind}_pallets AS old_pallets, "
+            f"       {kind}_kg AS old_kg "
+            "FROM batch_byproducts WHERE raw_batch_id=%s FOR UPDATE",
+            (raw_batch_id,),
         )
+        if not rec:
+            raise HTTPException(404, "Partia nie została zakończona (brak rekordu ubocznych)")
+        quarter = float(rec["quarter_kg"] or 0)
+        pct = round(kg / quarter * 100, 2) if quarter > 0 else 0.0
+        pallets = _stamp_pallets(pallets)
+
+        # Ile z poprzednio zważonej frakcji JUŻ WYJECHAŁO (WZ / utylizacja).
+        # Loty tej partii+frakcji są ŻYWYM stanem — wydanie zdejmuje z lotu kg
+        # i pojemniki (0 kg → 'shipped'). Kreator przysyła sumę NARASTAJĄCĄ całej
+        # frakcji, więc na magazyn wolno wstawić tylko to, czego jeszcze nie
+        # wydano. Bez tego wydane kg wracały na stan drugi raz: 411/kości —
+        # 1027,5 kg wyjechało 13.07 (lot 'shipped'), a doważenie 14.07 wstawiało
+        # lot na PEŁNE 1225 kg; po anulowaniu tamtej WZ (lot wraca) partia miała
+        # 2252,5 kg przy realnych 1225 kg (WZ/9 + WZ/10, prod 2026-07-14).
+        # Liczymy po WSZYSTKICH lotach frakcji (też 'shipped'), bo DELETE niżej
+        # zdejmuje wyłącznie otwarte — wydane zostają jako ślad dla WZ.
+        # FOR UPDATE na lotach: WZ w locie nie może zmienić stanu między
+        # naszym odczytem a podmianą lotu.
+        cx_query_all(
+            conn,
+            "SELECT id FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
+            "AND deboning_entry_id IS NULL FOR UPDATE",
+            (raw_batch_id, kind),
+        )
+        live = cx_query_one(
+            conn,
+            "SELECT COUNT(*) AS n, COALESCE(SUM(kg),0) AS kg, "
+            "       COUNT(containers_available) AS n_cont, "
+            "       COALESCE(SUM(containers_available),0) AS cont "
+            "FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
+            "AND deboning_entry_id IS NULL",
+            (raw_batch_id, kind),
+        )
+        consumed_kg = 0.0
+        consumed = 0
+        if live is not None and int(live["n"] or 0) > 0:
+            consumed_kg = max(0.0, float(rec.get("old_kg") or 0) - float(live["kg"] or 0))
+            if int(live["n_cont"] or 0) > 0:
+                consumed = max(0, pallet_containers(rec.get("old_pallets")) - int(live["cont"] or 0))
+
+        cx_execute(
+            conn,
+            f"UPDATE batch_byproducts SET {kind}_kg=%s, {kind}_pct=%s, {kind}_pallets=%s, "
+            f"{kind}_at=now() WHERE raw_batch_id=%s",
+            (round(kg, 3), pct, json.dumps(pallets or []), raw_batch_id),
+        )
+        # Lot ABP w magazynie produktów ubocznych — żeby zważone zbiorczo grzbiety/
+        # kości trafiły do MES z traceability partii (partia→lot→utylizacja przez
+        # /api/byproducts). Lot zbiorczy: deboning_entry_id NULL, powiązany z partią.
+        # Idempotentne: nadpisujemy poprzedni otwarty lot tej partii+frakcji.
+        cx_execute(
+            conn,
+            "DELETE FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
+            "AND deboning_entry_id IS NULL AND status='open'",
+            (raw_batch_id, kind),
+        )
+        # Na stan idzie zważona suma MINUS to, co już wyjechało. batch_byproducts
+        # (wyżej) trzyma PEŁNĄ wagę frakcji — to rekord ważenia i baza procentów,
+        # nie stan magazynowy.
+        new_kg = round(max(0.0, kg - consumed_kg), 3)
+        if new_kg > 0:
+            new_available = max(0, pallet_containers(pallets) - consumed)
+            cx_execute(
+                conn,
+                "INSERT INTO byproduct_lots (id, deboning_entry_id, raw_batch_id, "
+                "raw_batch_no, kind, kg, status, containers_available, created_at) "
+                "VALUES (%s, NULL, %s, %s, %s, %s, 'open', %s, now())",
+                (cuid(), raw_batch_id, rec["raw_batch_no"], kind, new_kg, new_available),
+            )
+        _rescale_other_lots(conn, raw_batch_id)
     return get(raw_batch_id)

@@ -78,3 +78,25 @@ def test_stock_raw_pomija_cancelled_nawet_ze_stanem(db):
     execute("UPDATE raw_batches SET status='cancelled' WHERE id='rbc2'")
 
     assert not any(r["internal_batch_no"] == "416" for r in stock_raw())
+
+
+def test_cancel_domyka_ksiege_ruchow(db):
+    """Audyt 2026-07-22: anulowanie zerowało kg_available bez ruchu — księga
+    partii ANUL-* pokazywała duchy (+5010/+7005 kg). Po anulowaniu suma
+    ruchów partii musi wynosić 0 (przyjęcie IN − anulowanie OUT)."""
+    sid = _seed_supplier("sup-anul")
+    created = create_batch(RawBatchCreate(
+        internalBatchNo="430", supplierId=sid, kgReceived=5010, pricePerKg=5,
+    ))
+    cancel_batch(created["id"])
+    ledger = query_one(
+        "SELECT COALESCE(SUM(qty),0) AS q FROM stock_movements "
+        "WHERE product_type='raw' AND batch_id=%s", (created["id"],),
+    )
+    assert float(ledger["q"]) == 0.0
+    mv = query_one(
+        "SELECT movement_type, qty FROM stock_movements "
+        "WHERE product_type='raw' AND batch_id=%s AND source_type='cancellation'",
+        (created["id"],),
+    )
+    assert mv is not None and float(mv["qty"]) == -5010.0

@@ -754,7 +754,148 @@ def run_migrations() -> None:
     _backfill_stock_carton_lines()
     _backfill_recipe_ingredients_seq()
     _backfill_byproduct_containers()
+    _reconcile_deboning_ledger()
     logger.info("migrations.done")
+
+
+def _reconcile_deboning_ledger() -> None:
+    """Naprawa danych po audycie 2026-07-22 (wszystko idempotentne — po
+    pierwszym przebiegu różnice są zerowe):
+
+    1. Wpisy złożone z >1 ważenia: pola wagi encji (brutto/tary) opisywały
+       tylko OSTATNIĄ porcję przy kg_meat=SUMA → NULL (prawda porcji w
+       deboning_take_weighings).
+    2. Księga ruchów vs wpisy: korekty (biuro/PATCH) zmieniały stany bez
+       ruchu — dopisz ruch 'deboning_correction' domykający różnicę
+       (surowiec i mięso; tylko wpisy, które mają już ruchy — historyczne
+       sprzed rejestru zostawiamy w spokoju).
+    3. Anulowane przyjęcia: księga partii ANUL-* zostawała z samym IN —
+       dopisz OUT 'cancellation' domykający do zera.
+    4. Loty „other" per wpis vs zważone frakcje zbiorcze: skurcz do realnej
+       reszty (dublowanie masy ABP ~2×).
+    """
+    from app.utils.ids import cuid
+
+    try:
+        execute(
+            """
+            UPDATE deboning_entries de
+            SET kg_gross=NULL, tare_cart_kg=NULL, tare_e2_kg=NULL, e2_count=NULL
+            WHERE COALESCE(de.status,'complete')='complete'
+              AND de.kg_gross IS NOT NULL
+              AND (SELECT COUNT(*) FROM deboning_take_weighings tw
+                   WHERE tw.entry_id=de.id) > 1
+            """
+        )
+    except Exception as exc:
+        logger.warning("migrations.reconcile.entry_weighing_fields.failed",
+                       extra={"error": str(exc)})
+
+    try:
+        with transaction() as conn:
+            raw_drift = cx_query_all(
+                conn,
+                """
+                SELECT de.id, de.raw_batch_id,
+                       (-de.kg_quarter) - mv.s AS diff
+                FROM deboning_entries de
+                JOIN LATERAL (
+                    SELECT COALESCE(SUM(qty),0) AS s FROM stock_movements sm
+                    WHERE sm.product_type='raw' AND sm.source_id=de.id
+                      AND sm.source_type IN ('deboning','deboning_correction')
+                ) mv ON true
+                WHERE COALESCE(de.status,'complete')='complete'
+                  AND EXISTS (SELECT 1 FROM stock_movements s2
+                              WHERE s2.product_type='raw' AND s2.source_id=de.id
+                                AND s2.source_type='deboning')
+                  AND abs((-de.kg_quarter) - mv.s) > 0.005
+                """,
+            )
+            for r in raw_drift:
+                cx_execute(
+                    conn,
+                    "INSERT INTO stock_movements (id, product_type, batch_id, qty,"
+                    " movement_type, source_type, source_id, created_at)"
+                    " VALUES (%s,'raw',%s,%s,%s,'deboning_correction',%s,now())",
+                    (cuid(), r["raw_batch_id"], round(float(r["diff"]), 3),
+                     "OUT" if float(r["diff"]) < 0 else "IN", r["id"]),
+                )
+            meat_drift = cx_query_all(
+                conn,
+                """
+                SELECT de.id, mv.batch_id, de.kg_meat - mv.s AS diff
+                FROM deboning_entries de
+                JOIN LATERAL (
+                    SELECT COALESCE(SUM(qty),0) AS s,
+                           MAX(batch_id) AS batch_id
+                    FROM stock_movements sm
+                    WHERE sm.product_type='meat' AND sm.source_id=de.id
+                      AND sm.source_type IN ('deboning','deboning_correction')
+                ) mv ON true
+                WHERE COALESCE(de.status,'complete')='complete'
+                  AND mv.batch_id IS NOT NULL
+                  AND abs(de.kg_meat - mv.s) > 0.005
+                """,
+            )
+            for r in meat_drift:
+                cx_execute(
+                    conn,
+                    "INSERT INTO stock_movements (id, product_type, batch_id, qty,"
+                    " movement_type, source_type, source_id, created_at)"
+                    " VALUES (%s,'meat',%s,%s,%s,'deboning_correction',%s,now())",
+                    (cuid(), r["batch_id"], round(float(r["diff"]), 3),
+                     "IN" if float(r["diff"]) > 0 else "OUT", r["id"]),
+                )
+            if raw_drift or meat_drift:
+                logger.info("migrations.reconcile.movements",
+                            extra={"raw": len(raw_drift), "meat": len(meat_drift)})
+    except Exception as exc:
+        logger.warning("migrations.reconcile.movements.failed",
+                       extra={"error": str(exc)})
+
+    try:
+        with transaction() as conn:
+            ghosts = cx_query_all(
+                conn,
+                """
+                SELECT rb.id, led.s
+                FROM raw_batches rb
+                JOIN LATERAL (
+                    SELECT COALESCE(SUM(qty),0) AS s FROM stock_movements sm
+                    WHERE sm.product_type='raw' AND sm.batch_id=rb.id
+                ) led ON true
+                WHERE rb.status='cancelled' AND abs(led.s) > 0.005
+                """,
+            )
+            for g in ghosts:
+                cx_execute(
+                    conn,
+                    "INSERT INTO stock_movements (id, product_type, batch_id, qty,"
+                    " movement_type, source_type, source_id, created_at)"
+                    " VALUES (%s,'raw',%s,%s,%s,'cancellation',%s,now())",
+                    (cuid(), g["id"], round(-float(g["s"]), 3),
+                     "OUT" if float(g["s"]) > 0 else "IN", g["id"]),
+                )
+            if ghosts:
+                logger.info("migrations.reconcile.cancelled",
+                            extra={"count": len(ghosts)})
+    except Exception as exc:
+        logger.warning("migrations.reconcile.cancelled.failed",
+                       extra={"error": str(exc)})
+
+    try:
+        from app.services.batch_byproducts_service import _rescale_other_lots
+
+        rows = query_all(
+            "SELECT raw_batch_id FROM batch_byproducts "
+            "WHERE backs_kg IS NOT NULL OR bones_kg IS NOT NULL"
+        )
+        with transaction() as conn:
+            for r in rows:
+                _rescale_other_lots(conn, r["raw_batch_id"])
+    except Exception as exc:
+        logger.warning("migrations.reconcile.other_lots.failed",
+                       extra={"error": str(exc)})
 
 
 def _backfill_stock_carton_lines() -> None:
