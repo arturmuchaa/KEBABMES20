@@ -35,7 +35,7 @@ function LotRows({ lots, plannedByLot }: {
             <span className="font-mono font-bold text-ink">{l.lotNo}</span>
             <span className="flex items-center gap-1.5 min-w-0">
               {l.materialName && (l.materialTypeId ?? 'mat-mieso-zs') !== 'mat-mieso-zs' && (
-                <span className="text-[10px] text-ink-3 truncate">{l.materialName}</span>
+                <span className="text-[10px] text-ink-3 uppercase truncate">{l.materialName}</span>
               )}
               <span className="text-[10px] text-ink-4 whitespace-nowrap">do {fmtDatePl(l.expiryDate)}</span>
               <ExpiryBadge dateStr={l.expiryDate} compact />

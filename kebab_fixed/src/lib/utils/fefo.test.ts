@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   sortFefo,
+  fefoLotCompare,
   getExpiryStatus,
   checkUsability,
   deriveRawBatchStatus,
@@ -157,5 +158,36 @@ describe('twarde guardy HACCP', () => {
     expect(isHighPriority('2026-06-17')).toBe(true)
     expect(isHighPriority('2026-06-15')).toBe(false)
     expect(isHighPriority('2026-07-01')).toBe(false)
+  })
+})
+
+describe('fefoLotCompare — loty bez internalBatchSeq', () => {
+  it('sortuje po dacie ważności rosnąco (najstarsza pierwsza)', () => {
+    const arr = [
+      { expiryDate: '2026-07-20', no: '430', id: 'c' },
+      { expiryDate: '2026-07-18', no: '428', id: 'a' },
+      { expiryDate: '2026-07-19', no: '429', id: 'b' },
+    ].sort(fefoLotCompare)
+    expect(arr.map(x => x.no)).toEqual(['428', '429', '430'])
+  })
+
+  it('przy tej samej dacie numer partii NUMERYCZNIE ("428" < "1024")', () => {
+    const arr = [
+      { expiryDate: '2026-07-20', no: '1024', id: 'x' },
+      { expiryDate: '2026-07-20', no: '428', id: 'y' },
+      { expiryDate: '2026-07-20', no: '52', id: 'z' },
+    ].sort(fefoLotCompare)
+    expect(arr.map(x => x.no)).toEqual(['52', '428', '1024'])
+  })
+
+  it('deterministyczny fallback po id przy równych dacie i numerze', () => {
+    const a = { expiryDate: '2026-07-20', no: '428', id: 'aaa' }
+    const b = { expiryDate: '2026-07-20', no: '428', id: 'bbb' }
+    expect(fefoLotCompare(a, b)).toBeLessThan(0)
+    expect(fefoLotCompare(b, a)).toBeGreaterThan(0)
+  })
+
+  it('znosi braki pól (undefined puste najpierw)', () => {
+    expect(fefoLotCompare({}, { expiryDate: '2026-07-20' })).toBeLessThan(0)
   })
 })

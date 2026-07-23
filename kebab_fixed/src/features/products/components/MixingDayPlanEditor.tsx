@@ -20,6 +20,7 @@ import type { PickerLot } from './MeatLotPicker'
 import { PlanStockSidebar, type SpiceNeed } from './PlanStockSidebar'
 import { autoFefoDistribute, type AvailLot } from '../lib/autoFefo'
 import { reservedByLot, withDayPool, liveFreeByLot } from '../lib/planLiveBalance'
+import { fefoLotCompare } from '@/lib/utils/fefo'
 import { ConfirmMixingSplitDialog } from './ConfirmMixingSplitDialog'
 import type { FinishBatch, SplitLotInput } from '../lib/mixingSplit'
 
@@ -83,7 +84,10 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
           supplierName: m.supplierName,
         })),
       savedByLot,
-    ).sort((a: PickerLot, b: PickerLot) => (a.expiryDate < b.expiryDate ? -1 : 1)),
+    ).sort((a: PickerLot, b: PickerLot) => fefoLotCompare(
+      { expiryDate: a.expiryDate, no: a.lotNo, id: a.id },
+      { expiryDate: b.expiryDate, no: b.lotNo, id: b.id },
+    )),
     [meatLots, savedByLot],
   )
 

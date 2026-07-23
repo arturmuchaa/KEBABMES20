@@ -106,7 +106,7 @@ export function MeatLotPicker({
                 className="w-4 h-4 flex-shrink-0 accent-primary" />
               <span className="font-mono font-bold flex-shrink-0 w-14">{lot.lotNo}</span>
               <span className={cn(
-                'text-[10px] font-semibold px-1.5 py-0.5 rounded border flex-shrink-0',
+                'text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border flex-shrink-0',
                 isZs(lot)
                   ? 'bg-surface-2 text-ink-3 border-surface-4'
                   : 'bg-sky-50 text-sky-700 border-sky-200',

@@ -56,6 +56,29 @@ export function sortFefo<T extends FefoSortable>(items: T[]): T[] {
   })
 }
 
+/**
+ * Minimalny wariant dla lotów/partii BEZ internalBatchSeq (meat_stock,
+ * seasoned_meat): expiryDate ASC, potem numer partii NATURALNIE
+ * ("428" < "1024" — localeCompare numeric), na końcu id dla determinizmu.
+ * Najstarsza partia zawsze pierwsza — bez tego równe daty ważności dają
+ * "pomieszaną" kolejność zależną od silnika JS.
+ */
+export interface FefoLotLike {
+  expiryDate?: string   // ISO 'YYYY-MM-DD'
+  no?:         string   // lot_no / batch_no
+  id?:         string
+}
+
+export function fefoLotCompare(a: FefoLotLike, b: FefoLotLike): number {
+  const ae = a.expiryDate ?? ''
+  const be = b.expiryDate ?? ''
+  if (ae < be) return -1
+  if (ae > be) return 1
+  const byNo = String(a.no ?? '').localeCompare(String(b.no ?? ''), 'pl', { numeric: true })
+  if (byNo !== 0) return byNo
+  return String(a.id ?? '').localeCompare(String(b.id ?? ''))
+}
+
 // ─── 2. HACCP EXPIRY STATUS ───────────────────────────────────────────────────
 
 /**

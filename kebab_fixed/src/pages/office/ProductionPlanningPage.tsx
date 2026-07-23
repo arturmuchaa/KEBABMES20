@@ -27,6 +27,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { fmtKg, fmtDatePl, todayIso } from '@/lib/utils'
+import { fefoLotCompare } from '@/lib/utils/fefo'
 import {
   AlertTriangle,
   BarChart2,
@@ -224,10 +225,13 @@ function autoAssignNewLines(newLines: PlanLineForm[], existing: PlanLineForm[], 
   const used = computeUsage(existing, seasonedRaw)
   const pool = seasonedRaw
     .map((s:any) => ({
-      id: s.id, recipeId: s.recipeId, expiryDate: s.expiryDate,
+      id: s.id, recipeId: s.recipeId, expiryDate: s.expiryDate, batchNo: s.batchNo,
       rem: Math.max(0, (s.kgFree ?? s.kgAvailable) - (used[s.id]??0)),
     }))
-    .sort((a,b)=>a.expiryDate>b.expiryDate?1:-1)
+    .sort((a,b)=>fefoLotCompare(
+      { expiryDate: a.expiryDate, no: a.batchNo, id: a.id },
+      { expiryDate: b.expiryDate, no: b.batchNo, id: b.id },
+    ))
   return newLines.map(line => {
     if (line.seasonedBatchIds?.length>0 || line.seasonedBatchId) return line
     const needed = (parseFloat(line.qty)||0)*(parseFloat(line.kgPerUnit)||0)
@@ -635,28 +639,42 @@ function ImportOrderModal({ orders, meatFreeByRecipe, onImport, onClose }: {
 interface MeatPanelProps {
   seasonedAvail: any[]
   seasonedUsed:  Record<string, number>
+  /** Żywe zapotrzebowanie kg per receptura — WSZYSTKIE linie szkicu, także
+   * BEZ przypisanych partii (saldo schodzi już przy wpisaniu szt × kg).
+   * Receptury komponentowe (70/30) rozlicza backend per komponent — poza mapą. */
+  demandByRecipe: Record<string, { name: string; kg: number }>
   onAutoAssign:  (recipeId: string) => void
 }
 
-function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps) {
+function MeatPanel({ seasonedAvail, seasonedUsed, demandByRecipe, onAutoAssign }: MeatPanelProps) {
   const [expandedRecipe, setExpandedRecipe] = useState<string|null>(null)
-  if (seasonedAvail.length === 0) return null
 
-  // Grupuj po recepturze
+  // Grupuj po recepturze; receptury z zapotrzebowaniem BEZ mięsa też widoczne
   const byRecipe: Record<string, {
     recipeId: string; recipeName: string
-    totalKg: number; usedKg: number; remainingKg: number
+    totalKg: number; plannedKg: number; remainingKg: number
     batches: any[]
   }> = {}
   seasonedAvail.forEach(s => {
     if (!byRecipe[s.recipeId]) {
-      byRecipe[s.recipeId] = { recipeId:s.recipeId, recipeName:s.recipeName, totalKg:0, usedKg:0, remainingKg:0, batches:[] }
+      byRecipe[s.recipeId] = { recipeId:s.recipeId, recipeName:s.recipeName, totalKg:0, plannedKg:0, remainingKg:0, batches:[] }
     }
-    byRecipe[s.recipeId].totalKg    += (s.kgFree ?? s.kgAvailable)
-    byRecipe[s.recipeId].usedKg     += seasonedUsed[s.id]??0
+    byRecipe[s.recipeId].totalKg += (s.kgFree ?? s.kgAvailable)
     byRecipe[s.recipeId].batches.push(s)
   })
-  Object.values(byRecipe).forEach(r => { r.remainingKg = r.totalKg - r.usedKg })
+  Object.entries(demandByRecipe).forEach(([rid, d]) => {
+    if (!byRecipe[rid]) {
+      byRecipe[rid] = { recipeId:rid, recipeName:d.name, totalKg:0, plannedKg:0, remainingKg:0, batches:[] }
+    }
+    byRecipe[rid].plannedKg = d.kg
+  })
+  Object.values(byRecipe).forEach(r => { r.remainingKg = r.totalKg - r.plannedKg })
+  const groups = Object.values(byRecipe).sort((a, b) => b.totalKg - a.totalKg)
+  if (groups.length === 0) return null
+
+  const sumTotal     = groups.reduce((s, r) => s + r.totalKg, 0)
+  const sumPlanned   = groups.reduce((s, r) => s + r.plannedKg, 0)
+  const sumRemaining = sumTotal - sumPlanned
 
   return (
     <div className="border border-surface-4 rounded-xl overflow-hidden">
@@ -664,39 +682,68 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
         <BarChart2 size={13} className="text-ink-2"/>
         <span className="text-[11px] font-bold text-ink uppercase tracking-wide">Stan mięsa przyprawionego</span>
       </div>
+      {/* Żywy bilans całości: schodzi przy wpisywaniu pozycji, wraca po usunięciu */}
+      <div className="grid grid-cols-3 divide-x divide-surface-3 border-b border-surface-3 text-center [font-variant-numeric:tabular-nums]">
+        <div className="px-2 py-2">
+          <div className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Wolne</div>
+          <div className="text-[15px] font-black text-ink leading-tight">{fmtKg(sumTotal, 0)}</div>
+        </div>
+        <div className="px-2 py-2">
+          <div className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">W planie</div>
+          <div className={`text-[15px] font-black leading-tight ${sumPlanned > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>
+            {fmtKg(sumPlanned, 0)}
+          </div>
+        </div>
+        <div className="px-2 py-2">
+          <div className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Zostanie</div>
+          <div className={`text-[15px] font-black leading-tight ${sumRemaining < -0.1 ? 'text-red-600' : 'text-green-700'}`}>
+            {fmtKg(sumRemaining, 0)}
+          </div>
+        </div>
+      </div>
       <div className="divide-y divide-surface-3">
-        {Object.values(byRecipe).map(r => {
-          const pct        = r.totalKg > 0 ? Math.min(100, (r.usedKg/r.totalKg)*100) : 0
+        {groups.map(r => {
+          const pct        = r.totalKg > 0 ? Math.min(100, (r.plannedKg/r.totalKg)*100) : (r.plannedKg > 0 ? 100 : 0)
           const isExpanded = expandedRecipe === r.recipeId
-          const isFull     = r.remainingKg < 0.1 && r.totalKg > 0
+          const shortage   = r.remainingKg < -0.1
+          const isFull     = !shortage && r.remainingKg < 0.1 && r.plannedKg > 0
+          const sortedBatches = [...r.batches].sort((a:any,b:any)=>fefoLotCompare(
+            { expiryDate: a.expiryDate, no: a.batchNo, id: a.id },
+            { expiryDate: b.expiryDate, no: b.batchNo, id: b.id },
+          ))
           return (
             <div key={r.recipeId} className="bg-white">
               {/* Nagłówek receptury — zwinięty */}
               <div className="flex items-center gap-3 px-3 py-2.5">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[12px] font-bold truncate">{r.recipeName}</span>
-                    <span className="text-[10px] text-muted-foreground">{r.batches.length} parti{r.batches.length===1?'a':r.batches.length<5?'e':'i'}</span>
+                    <span className="text-[12px] font-bold uppercase truncate">{r.recipeName}</span>
+                    <span className="text-[10px] text-muted-foreground">{r.batches.length} parti{r.batches.length===1?'a':r.batches.length<5&&r.batches.length>0?'e':'i'}</span>
                     {isFull && <span className="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded font-semibold">Wszystko zaplanowane</span>}
+                    {shortage && (
+                      <span className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded font-bold">
+                        brakuje {fmtKg(-r.remainingKg, 0)} kg
+                      </span>
+                    )}
                   </div>
                   {/* Pasek + liczniki w jednym wierszu */}
                   <div className="flex items-center gap-2">
                     <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${isFull?'bg-green-500':pct>80?'bg-amber-400':'bg-brand'}`}
+                      <div className={`h-full rounded-full ${shortage?'bg-red-500':isFull?'bg-green-500':pct>80?'bg-amber-400':'bg-brand'}`}
                         style={{width:`${pct}%`}}/>
                     </div>
                     <div className="flex items-center gap-2 text-[10px] whitespace-nowrap flex-shrink-0 text-muted-foreground">
-                      <span>w planie: <strong className="text-amber-600">{fmtKg(r.usedKg,0)}</strong></span>
+                      <span>w planie: <strong className={r.plannedKg>0?'text-amber-600':''}>{fmtKg(r.plannedKg,0)}</strong></span>
                       <span>z <strong>{fmtKg(r.totalKg,0)} kg</strong></span>
                     </div>
                   </div>
                 </div>
-                {/* Wolne kg — główna liczba dla planisty */}
+                {/* Zostanie po planie — główna liczba dla planisty (na żywo) */}
                 <div className="text-right flex-shrink-0 min-w-[72px]">
-                  <div className={`text-lg font-black leading-none ${isFull?'text-green-600':'text-ink'}`}>
+                  <div className={`text-lg font-black leading-none ${shortage?'text-red-600':isFull?'text-green-600':'text-ink'}`}>
                     {fmtKg(r.remainingKg,0)} kg
                   </div>
-                  <div className="text-[9px] text-muted-foreground uppercase tracking-wide mt-0.5">do dyspozycji</div>
+                  <div className="text-[9px] text-muted-foreground uppercase tracking-wide mt-0.5">zostanie</div>
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   <Button variant="outline" size="sm"
@@ -711,19 +758,20 @@ function MeatPanel({ seasonedAvail, seasonedUsed, onAutoAssign }: MeatPanelProps
                   </Button>
                 </div>
               </div>
-              {/* Szczegóły partii — rozwinięte */}
-              {isExpanded && (
+              {/* Szczegóły partii — rozwinięte, FEFO od najstarszej */}
+              {isExpanded && r.batches.length > 0 && (
                 <div className="px-3 pb-2.5 border-t border-surface-3 bg-surface-2/60">
                   <div className="grid grid-cols-2 gap-1 mt-2">
-                    {r.batches.map((s:any) => {
+                    {sortedBatches.map((s:any) => {
                       const used = seasonedUsed[s.id]??0
                       return (
-                        <div key={s.id} className={`flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded border ${s.kgAvailLive<0.1&&s.kgAvailable>0?'bg-red-50 border-red-200':'bg-white border-surface-3'}`}>
-                          <span className="font-mono font-bold text-primary text-[10px]">{s.batchNo}</span>
-                          <span className={`font-bold ml-2 ${s.kgAvailLive<0.1?'text-red-600':'text-green-700'}`}>
+                        <div key={s.id} className={`flex items-center justify-between gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${s.kgAvailLive<0.1&&s.kgAvailable>0?'bg-red-50 border-red-200':'bg-white border-surface-3'}`}>
+                          <span className="font-mono font-bold text-primary text-[10px] flex-shrink-0">{s.batchNo}</span>
+                          <span className="text-[9px] text-muted-foreground truncate">do {fmtDatePl(s.expiryDate)}</span>
+                          <span className={`font-bold ml-auto whitespace-nowrap ${s.kgAvailLive<0.1?'text-red-600':'text-green-700'}`}>
                             {fmtKg(s.kgAvailLive)} kg
                           </span>
-                          {used>0 && <span className="text-amber-500 text-[10px] ml-1">−{fmtKg(used,0)}</span>}
+                          {used>0 && <span className="text-amber-500 text-[10px] flex-shrink-0">−{fmtKg(used,0)}</span>}
                         </div>
                       )
                     })}
@@ -922,14 +970,17 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
     onChange('seasonedBatchId',  next[0]??'')
   }
 
-  // Partie tej samej receptury co wybrana, FEFO
+  // Partie tej samej receptury co wybrana, FEFO — najstarsza zawsze pierwsza
   const relevantBatches = seasonedAvail
     .filter((s:any) => {
       if (s.kgAvailLive <= 0 && !selIds.includes(s.id)) return false
       if (line.recipeId && s.recipeId !== line.recipeId) return false
       return true
     })
-    .sort((a:any,b:any)=>a.expiryDate>b.expiryDate?1:-1)
+    .sort((a:any,b:any)=>fefoLotCompare(
+      { expiryDate: a.expiryDate, no: a.batchNo, id: a.id },
+      { expiryDate: b.expiryDate, no: b.batchNo, id: b.id },
+    ))
 
   return (
     <div className="border rounded-xl bg-background overflow-hidden">
@@ -1076,7 +1127,7 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
                           <div className="flex items-center gap-2">
                             <span className="font-mono font-bold text-primary text-[12px]">{s.batchNo}</span>
                             {s.materialName && (
-                              <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${
+                              <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded ${
                                 s.materialTypeId==='mat-filet-kurczak'
                                   ? 'bg-amber-100 text-amber-800'
                                   : 'bg-surface-3 text-ink'}`}>
@@ -1197,6 +1248,25 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
 
   const totalKg = lines.reduce((s,l)=>s+(parseFloat(l.qty)||0)*(parseFloat(l.kgPerUnit)||0), 0)
 
+  // Żywe zapotrzebowanie per receptura — WSZYSTKIE linie szkicu, także bez
+  // przypisanych partii: saldo w panelu mięsa schodzi już przy wpisaniu
+  // szt × kg, wraca po usunięciu linii. Receptury komponentowe (70/30)
+  // pomijamy — ich partie dobiera backend per komponent (walidacja osobno).
+  const demandByRecipe = useMemo(() => {
+    const m: Record<string, { name: string; kg: number }> = {}
+    lines.forEach(l => {
+      if (!l.recipeId) return
+      if (recipeComponents(recipes??[], l.recipeId).length > 0) return
+      const kg = (parseFloat(l.qty)||0) * (parseFloat(l.kgPerUnit)||0)
+      if (kg <= 0) return
+      const name = (recipes??[]).find((r:any)=>r.id===l.recipeId)?.name ?? l.recipeId
+      const cur = m[l.recipeId] ?? { name, kg: 0 }
+      cur.kg += kg
+      m[l.recipeId] = cur
+    })
+    return m
+  }, [lines, recipes])
+
   // Wolne kg per receptura (po odjęciu rezerwacji bieżącego formularza) —
   // dla wskaźnika "czy starczy mięsa" w modalu importu zamówień
   const meatFreeByRecipe = useMemo(() => {
@@ -1211,7 +1281,10 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
   function autoAssignRecipe(recipeId: string) {
     const available = seasonedAvail
       .filter((s:any) => s.recipeId===recipeId && s.kgAvailLive>0)
-      .sort((a:any,b:any) => a.expiryDate>b.expiryDate?1:-1)
+      .sort((a:any,b:any) => fefoLotCompare(
+        { expiryDate: a.expiryDate, no: a.batchNo, id: a.id },
+        { expiryDate: b.expiryDate, no: b.batchNo, id: b.id },
+      ))
     if (available.length===0) return
 
     setLines(prev => {
@@ -1373,7 +1446,8 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
       })()}
 
       {/* Panel mięsa */}
-      <MeatPanel seasonedAvail={seasonedAvail} seasonedUsed={seasonedUsed} onAutoAssign={autoAssignRecipe}/>
+      <MeatPanel seasonedAvail={seasonedAvail} seasonedUsed={seasonedUsed}
+        demandByRecipe={demandByRecipe} onAutoAssign={autoAssignRecipe}/>
 
       {/* Pozycje — pasek szybkiego dodawania + zwarta lista */}
       <div>
