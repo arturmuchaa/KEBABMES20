@@ -241,7 +241,7 @@ const PendingBatchTile = memo(function PendingBatchTile({ rec, onOpen }: {
 })
 
 // ─── Kafel pracownika ──────────────────────────────────────────────
-const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, pendingKg, pendingWeighedKg, pendingBatchNo, blocked, onSelect, onLongPress }: {
+const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, pendingKg, pendingWeighedKg, pendingBatchNo, blocked, disabled, onSelect, onLongPress }: {
   worker: User; selected: boolean; entryCount: number; kgToday: number
   /** Otwarte pobranie ćwiartki (kg) — kafel pokazuje „czeka na zważenie",
    *  a klik od razu wraca do domknięcia mięsem. */
@@ -252,25 +252,30 @@ const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount
   pendingBatchNo?: string
   /** Wybrana jest INNA partia niż pobranie — kafel przygaszony (klik = toast). */
   blocked?: boolean
+  /** Partia wybrana jest w całości rozdana (czeka tylko na mięso) i TEN
+   *  pracownik nie ma tu nic w toku — kafel szary i całkiem nieklikalny
+   *  (nie ma czego wybrać: brak ćwiartki do wzięcia, brak mięsa do zważenia). */
+  disabled?: boolean
   onSelect: (w: User) => void; onLongPress: (w: User) => void
 }) {
   const initials = worker.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
   // Przytrzymanie (0,5 s) = szczegóły/edycja pracownika; krótkie dotknięcie = wybór.
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longRef = useRef(false)
-  const down = () => { longRef.current = false; timerRef.current = setTimeout(() => { longRef.current = true; onLongPress(worker) }, 500) }
+  const down = () => { if (disabled) return; longRef.current = false; timerRef.current = setTimeout(() => { longRef.current = true; onLongPress(worker) }, 500) }
   const up = () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null } }
   return (
-    <button type="button"
-      onClick={() => { if (!longRef.current) onSelect(worker) }}
+    <button type="button" disabled={disabled}
+      onClick={() => { if (!disabled && !longRef.current) onSelect(worker) }}
       onPointerDown={down} onPointerUp={up} onPointerLeave={up} onPointerCancel={up}
-      className="relative flex flex-col items-center justify-center gap-1 select-none active:scale-[0.98] transition-all px-2"
+      className={cn('relative flex flex-col items-center justify-center gap-1 select-none transition-all px-2',
+        disabled ? 'cursor-not-allowed grayscale' : 'active:scale-[0.98]')}
       style={{
         borderRadius: 10, aspectRatio: '1',
-        background: selected ? 'var(--accent)' : 'var(--panel)',
+        background: selected ? 'var(--accent)' : disabled ? 'var(--bg)' : 'var(--panel)',
         border: `1px solid ${blocked ? 'var(--ambLine)' : selected ? 'var(--accent)' : 'var(--line)'}`,
-        color: selected ? '#fff' : 'var(--ink)',
-        opacity: blocked ? 0.55 : 1,
+        color: selected ? '#fff' : disabled ? 'var(--mut)' : 'var(--ink)',
+        opacity: disabled ? 0.5 : blocked ? 0.55 : 1,
       }}>
       <span className="font-extrabold text-3xl leading-none">{initials}</span>
       <span className="text-sm font-semibold leading-tight text-center truncate w-full">{worker.name}</span>
@@ -388,6 +393,62 @@ function useServerOnline(): boolean {
 
 interface HmiAlarm { id: string; level: 'red' | 'amb'; text: string }
 
+/** Kafelek podsumowania po zapisie — operator widzi na oko CO zapisał, bez
+ * szukania w gęstej tabeli „Ostatnie wpisy". `meatKg: null` = tylko pobranie
+ * (mięso czeka na zważenie); `kind: 'partial'` = porcja zapisana, pobranie
+ * ZOSTAJE otwarte (operator wraca po resztę). */
+interface SaveSummary {
+  batchNo: string
+  workerName: string
+  takenKg: number
+  meatKg: number | null
+  kind: 'saved' | 'partial' | 'taken'
+}
+
+// ─── Kafelek podsumowania zapisu ─────────────────────────────────────
+const SaveSummaryCard = memo(function SaveSummaryCard({ s, onClose }: { s: SaveSummary; onClose: () => void }) {
+  const pct = s.meatKg != null && s.takenKg > 0 ? (s.meatKg / s.takenKg) * 100 : null
+  const title = s.kind === 'taken' ? 'Pobrano — czeka na zważenie'
+    : s.kind === 'partial' ? 'Zapisano porcję — pobranie otwarte'
+    : 'Zapisano'
+  return (
+    <button type="button" onClick={onClose}
+      className="fixed top-[100px] left-1/2 -translate-x-1/2 z-40 flex items-stretch gap-0 text-left transition-all"
+      style={{ borderRadius: 14, background: 'var(--panel)', border: '1.5px solid var(--accent)', boxShadow: '0 14px 36px -12px rgba(79,70,229,.35)', overflow: 'hidden' }}>
+      <div className="flex items-center justify-center flex-shrink-0 px-5" style={{ background: 'var(--accent)', color: '#fff' }}>
+        <Check size={30} strokeWidth={3} />
+      </div>
+      <div className="flex items-center gap-6 px-6 py-3.5">
+        <div>
+          <div className="text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>{title}</div>
+          <div className="flex items-baseline gap-2 mt-0.5">
+            <span className="hmi-v10-mono font-extrabold text-xl" style={{ color: 'var(--accent)' }}>{s.batchNo}</span>
+            <span className="font-bold text-lg" style={{ color: 'var(--ink)' }}>{s.workerName}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-5" style={{ borderLeft: '1px solid var(--lineSoft)', paddingLeft: 24 }}>
+          <div className="text-center">
+            <div className="hmi-v10-mono font-bold text-2xl leading-none" style={{ color: 'var(--ink)' }}>{fmtKg(s.takenKg, 1)}</div>
+            <div className="text-[9px] font-bold uppercase mt-1" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>Pobrano kg</div>
+          </div>
+          <div className="text-center">
+            <div className="hmi-v10-mono font-bold text-2xl leading-none" style={{ color: s.meatKg != null ? 'var(--ink)' : 'var(--mut)' }}>
+              {s.meatKg != null ? fmtKg(s.meatKg, 1) : '—'}
+            </div>
+            <div className="text-[9px] font-bold uppercase mt-1" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>Mięso kg</div>
+          </div>
+          <div className="text-center">
+            <div className="hmi-v10-mono font-extrabold text-2xl leading-none" style={{ color: pct != null ? yieldInk(pct) : 'var(--mut)' }}>
+              {pct != null ? fmtPct(pct, 1) : '—'}
+            </div>
+            <div className="text-[9px] font-bold uppercase mt-1" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>Procent</div>
+          </div>
+        </div>
+      </div>
+    </button>
+  )
+})
+
 export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false, buildLabel = `HMI v10 · ${__ROZBIOR_V10_VERSION__}` }: { allowOperatorSwitch?: boolean; guided?: boolean; buildLabel?: string }) {
   // useAuth() zwraca `null`, gdy komponent renderuje się bez <AuthProvider> w drzewie —
   // nie destrukturyzować bezpośrednio. `allowOperatorSwitch` włącza przycisk zmiany
@@ -478,6 +539,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     return [...CART_TARES_KG]
   }, [cartTaresData.data])
   const [saveFlash, setSaveFlash] = useState(false)
+  const [saveSummary, setSaveSummary] = useState<SaveSummary | null>(null)
+  const saveSummaryRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [finishModal, setFinishModal] = useState(false)
   const [shiftModal,  setShiftModal]  = useState(false)
   const [statsModal,  setStatsModal]  = useState(false)
@@ -525,10 +588,23 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     toastRef.current = setTimeout(() => setToastVis(false), 3000)
   }, [])
 
+  // Kafelek podsumowania zapisu — 6 s to dosyć, żeby przeczytać kg/%, za mało,
+  // żeby zasłaniać ekran na dłużej; klik zamyka wcześniej.
+  const flashSaveSummary = useCallback((s: SaveSummary) => {
+    setSaveSummary(s)
+    if (saveSummaryRef.current) clearTimeout(saveSummaryRef.current)
+    saveSummaryRef.current = setTimeout(() => setSaveSummary(null), 6000)
+  }, [])
+  const dismissSaveSummary = useCallback(() => {
+    if (saveSummaryRef.current) clearTimeout(saveSummaryRef.current)
+    setSaveSummary(null)
+  }, [])
+
   useEffect(() => () => {
     if (toastRef.current) clearTimeout(toastRef.current)
     if (longPressRef.current) clearTimeout(longPressRef.current)
     if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
+    if (saveSummaryRef.current) clearTimeout(saveSummaryRef.current)
   }, [])
 
   // Auto-odświeżanie partii i pracowników co 5s — żeby nowa partia dodana
@@ -567,6 +643,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     [resumeId, pendingTakes],
   )
   const resumeWeighedKg = Number(resumeEntry?.kgMeatWeighed ?? 0)
+
+  // Wybrana partia jest w CAŁOŚCI rozdana (ćwiartka = 0) i żyje na liście
+  // tylko dzięki otwartym pobraniom (patrz filtr allActiveBatches niżej) —
+  // czeka WYŁĄCZNIE na mięso. Pracownicy bez otwartego pobrania dla TEJ
+  // partii nie mają tu nic do zrobienia (brak ćwiartki do wzięcia, nic do
+  // zważenia) — ich kafle idą na szaro i przestają być klikalne.
+  const batchWaitingOnlyForMeat = !!selBatch && Number(selBatch.kgAvailable) <= 0.5
 
   const allActiveBatches = useMemo(() =>
     (batchData.data?.data ?? [])
@@ -916,6 +999,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     }
     setUndoUntil(Date.now() + 60_000); setUndoNow(Date.now())
     showToast(`Zapisano: ${fmtKg(meat)} kg mięsa`)
+    flashSaveSummary({ batchNo: selBatch.internalBatchNo, workerName: selWorker.name, takenKg: taken, meatKg: meat, kind: 'saved' })
 
     maybeFinishBatch(selBatch, taken)
   }
@@ -948,6 +1032,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
     setMeatDriveOff(DRIVE_OFF_IDLE)
     showToast(`Pobrano ${fmtKg(taken, 1)} kg — czeka na zważenie`)
+    flashSaveSummary({ batchNo: selBatch.internalBatchNo, workerName: selWorker.name, takenKg: taken, meatKg: null, kind: 'taken' })
     // Pobranie NIE zakańcza partii, nawet gdy wyczerpało kg — mięso dopiero
     // przyjdzie na wagę. Zakończenie odpala się przy domknięciu OSTATNIEGO
     // pobrania (handleCompleteTake + gwarancja serwerowa).
@@ -987,6 +1072,10 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setMeatDriveOff(DRIVE_OFF_IDLE)
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
     showToast(`Zapisano ${fmtKg(portion, 1)} kg — razem ${fmtKg(resumeWeighedKg + portion, 1)}/${fmtKg(takenNow, 1)} kg, pobranie otwarte`)
+    flashSaveSummary({
+      batchNo: selBatch?.internalBatchNo ?? '', workerName: selWorker?.name ?? '',
+      takenKg: takenNow, meatKg: resumeWeighedKg + portion, kind: 'partial',
+    })
   }
 
   // ── Zjazd z wagi bez ZAPISZ: zapis z ZAMROŻONEGO odczytu ──────────────────
@@ -1016,6 +1105,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (err) { showToast(err, 'err'); return } // okno zostaje — operator ponawia
     clearAfterDriveOff()
     showToast(`Zapisano ${fmtKg(s.netKg, 1)} kg — razem ${fmtKg(s.weighedSoFarKg + s.netKg, 1)}/${fmtKg(s.takenKg, 1)} kg, pobranie otwarte`)
+    flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.weighedSoFarKg + s.netKg, kind: 'partial' })
   }
 
   // Całość — domknięcie otwartego pobrania.
@@ -1026,6 +1116,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     clearAfterDriveOff()
     batchData.refetch()
     showToast(`Zważono ${fmtKg(s.netKg, 1)} kg mięsa`)
+    flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.weighedSoFarKg + s.netKg, kind: 'saved' })
     maybeFinishAfterComplete(s.batchId, s.resumeId)
   }
 
@@ -1043,6 +1134,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     batchData.refetch()
     setUndoUntil(Date.now() + 60_000); setUndoNow(Date.now())
     showToast(`Zapisano: ${fmtKg(s.netKg)} kg mięsa`)
+    flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.netKg, kind: 'saved' })
     maybeFinishBatch(b, s.takenKg)
   }
 
@@ -1064,6 +1156,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     clearAfterDriveOff()
     batchData.refetch()
     showToast(`Zapisano ${fmtKg(s.netKg, 1)} kg z ${fmtKg(s.takenKg, 1)} kg — pobranie zostaje otwarte`)
+    flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.netKg, kind: 'partial' })
   }
 
   function runDriveOffAction(action: MeatPromptAction, s: MeatSnapshot) {
@@ -1076,6 +1169,10 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Domknięcie pobrania zważonym mięsem (całość — po decyzji z handleCompleteTake).
   async function doCompleteTake() {
     if (!resumeId || !session) return
+    const summaryBatchNo = selBatch?.internalBatchNo ?? resumeEntry?.rawBatchNo ?? ''
+    const summaryWorkerName = selWorker?.name ?? resumeEntry?.workerName ?? ''
+    const summaryTaken = taken
+    const summaryMeat = resumeWeighedKg + meat
     setPartialPrompt(null)
     const err = await completeTake(resumeId, {
       kgMeat: meat,
@@ -1099,6 +1196,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setMeatDriveOff(DRIVE_OFF_IDLE)
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
     showToast(`Zważono ${fmtKg(meat, 1)} kg mięsa`)
+    flashSaveSummary({ batchNo: summaryBatchNo, workerName: summaryWorkerName, takenKg: summaryTaken, meatKg: summaryMeat, kind: 'saved' })
 
     maybeFinishAfterComplete(selBatch?.id ?? '', completedId)
   }
@@ -1597,6 +1695,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         {toastMsg}
       </div>
 
+      {saveSummary && <SaveSummaryCard s={saveSummary} onClose={dismissSaveSummary} />}
+
       <header className="flex-shrink-0 h-[76px] flex items-center gap-5 px-6" style={{ background: 'var(--barBg)', borderBottom: '1px solid var(--line)' }}>
         <div>
           <div className="font-extrabold text-xl leading-none uppercase" style={{ letterSpacing: '-.01em' }}>Rozbiór</div>
@@ -1708,6 +1808,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                         const pnd = pendingByWorker.get(w.id)
                         return !!pnd && !!selBatch && !pnd.batchIds.has(selBatch.id)
                       })()}
+                      disabled={batchWaitingOnlyForMeat && !pendingByWorker.get(w.id)?.batchIds.has(selBatch!.id)}
                       onSelect={pickWorker}
                       onLongPress={(wk) => { setWorkerDetail(wk); setEditEntryId(null) }} />
                   )
