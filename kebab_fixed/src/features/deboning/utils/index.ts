@@ -28,15 +28,24 @@ export const WORK_END_HOUR   = 18   // 18:00 — zamknięcie okna + auto-approve
  * @param now  opcjonalny Date (domyślnie new Date()) — ułatwia testy
  * @returns ISO date string 'YYYY-MM-DD'
  */
+/** Data LOKALNA kiosku jako 'YYYY-MM-DD'. toISOString() to pułapka: daje
+ *  datę UTC, więc między 00:00 a 01:59 czasu PL (lato) cofała dzień o jeden
+ *  za dużo (audyt 2026-07-22). */
+function ymdLocal(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
 export function getProductionDate(now: Date = new Date()): string {
   const h = now.getHours()
   if (h < WORK_START_HOUR) {
     // Przed 04:00 → poprzedni dzień
     const prev = new Date(now)
     prev.setDate(prev.getDate() - 1)
-    return prev.toISOString().slice(0, 10)
+    return ymdLocal(prev)
   }
-  return now.toISOString().slice(0, 10)
+  return ymdLocal(now)
 }
 
 // ─── 2. OKNO CZASOWE ─────────────────────────────────────────────────────────
