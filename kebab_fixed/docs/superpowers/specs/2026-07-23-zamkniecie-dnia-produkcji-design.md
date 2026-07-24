@@ -78,10 +78,15 @@ magazynowy IN/OUT). `reconcile_seasoned_batch` staje się cienkim wrapperem nad
    - `actual_kg == 0` → no-op, zwróć `{theoreticalKg: 0, actualKg: 0, delta: 0, affectedBatches: []}`.
 7. Zwraca `{theoreticalKg, actualKg, delta, affectedBatches: [{id, batchNo, deltaApplied}]}`.
 
-**Nowa funkcja `list_production_days(date_from=None)`** — grupuje niezamknięte
-(i opcjonalnie ostatnio uzgodnione) partie po `(recipe_id, production_day)`:
-zwraca `recipeId, recipeName, productionDay, theoreticalKg, batchCount,
-lastReconciledAt, lastReconcileReason`. Czyste query, bez zmian schematu.
+**Nowa funkcja `list_production_days(production_day)`** — dla **konkretnego
+dnia** zwraca DISTINCT `(recipe_id, recipe_name)` ze wszystkich `seasoned_meat`
+z tym `production_day`, **niezależnie od statusu** (żeby grupa z partiami już
+w 100% `closed` też była widoczna — inaczej nie dałoby się kliknąć, żeby
+dopisać `SC{n}` w przypadku z części 2). `theoreticalKg` liczone tylko z
+wierszy `status != 'closed'` (0, gdy wszystkie zamknięte — to prawidłowy,
+oczekiwany stan przy "domykaniu" dnia). Zwraca też `batchCount` (wszystkich,
+nie tylko żywych), `lastReconciledAt`, `lastReconcileReason`. Czyste query,
+bez zmian schematu.
 
 **Nowa funkcja `list_day_reconciliation_history(limit=100)`** — czyta
 `stock_movements` z `source_type='reconcile'` i `product_type='seasoned'`,

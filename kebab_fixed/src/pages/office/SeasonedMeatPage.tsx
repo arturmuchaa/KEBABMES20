@@ -5,7 +5,7 @@
  * najstarsza ważność na górze. Klik wiersza → modal ze szczegółami i
  * pełnym łańcuchem partii (RAW → ROZBIÓR → MASOWANIE → MPP).
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { seasonedMeatApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
@@ -246,6 +246,13 @@ export function SeasonedMeatPage() {
   const { data: all, refetch: refetchAll } = useApi(() => seasonedMeatApi.all())
   const [traceId,   setTraceId] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
+
+  // Korekta w zakładce "Zamknięcie dnia" zmienia kg_available partii, ale
+  // żyje we własnym useApi tego komponentu — odśwież widok Partii przy
+  // powrocie, żeby nie pokazywał sprzed korekty.
+  useEffect(() => {
+    if (pageTab === 'partie') { refetch(); refetchAll() }
+  }, [pageTab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ręczna korekta/zamknięcie partii (uzgodnienie teoria↔fizyka).
   const [rec, setRec] = useState<any | null>(null)   // partia korygowana

@@ -19,21 +19,6 @@ def list_seasoned():
     return svc.list_seasoned()
 
 
-@router.get("/{batch_id}/trace")
-def seasoned_trace(batch_id: str):
-    return svc.seasoned_trace(batch_id)
-
-
-@router.post("/{seasoned_id}/reconcile")
-def reconcile_seasoned(seasoned_id: str, body: dict):
-    """Ręczna korekta/zamknięcie partii przyprawionej (uzgodnienie teoria↔fizyka).
-    body: { targetKg?: number, reason?: str, close?: bool }."""
-    close = bool(body.get("close"))
-    target_kg = float(body.get("targetKg") or body.get("target_kg") or 0)
-    reason = str(body.get("reason") or "")
-    return svc.reconcile_seasoned_batch(seasoned_id, target_kg, reason, close)
-
-
 @router.get("/production-days")
 def production_days(day: str):
     """dzień w formacie YYYY-MM-DD."""
@@ -56,6 +41,27 @@ def production_days_reconcile(body: dict):
 @router.get("/production-days/history")
 def production_days_history(limit: int = 100):
     return svc.list_day_reconciliation_history(limit)
+
+
+# UWAGA: poniższe trasy z parametrem ścieżki ({batch_id}, {seasoned_id}) MUSZĄ
+# być zarejestrowane PO wszystkich statycznych trasach /production-days*
+# powyżej — FastAPI dopasowuje trasy w kolejności rejestracji, więc
+# /{seasoned_id}/reconcile zarejestrowane wcześniej przechwyciłoby
+# POST /production-days/reconcile (seasoned_id="production-days") i zwracało
+# 404 "Partia przyprawiona nie znaleziona" (wykryte w E2E, patrz git blame).
+@router.get("/{batch_id}/trace")
+def seasoned_trace(batch_id: str):
+    return svc.seasoned_trace(batch_id)
+
+
+@router.post("/{seasoned_id}/reconcile")
+def reconcile_seasoned(seasoned_id: str, body: dict):
+    """Ręczna korekta/zamknięcie partii przyprawionej (uzgodnienie teoria↔fizyka).
+    body: { targetKg?: number, reason?: str, close?: bool }."""
+    close = bool(body.get("close"))
+    target_kg = float(body.get("targetKg") or body.get("target_kg") or 0)
+    reason = str(body.get("reason") or "")
+    return svc.reconcile_seasoned_batch(seasoned_id, target_kg, reason, close)
 
 
 @router.post("/from-order/{order_id}", deprecated=True)
