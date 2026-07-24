@@ -109,7 +109,7 @@ export interface MeatPromptVariant {
 export function meatPromptVariant(s: MeatSnapshot): MeatPromptVariant {
   const totalWeighedKg = Math.round((s.weighedSoFarKg + s.netKg) * 10) / 10
   const pct = s.takenKg > 0 ? (totalWeighedKg / s.takenKg) * 100 : 0
-  // Ta sama reguła co po ręcznym ZAPISZ: ≥63% uzysku = pewnie całość.
+  // Ta sama reguła co po ręcznym ZAPISZ: ≥62% uzysku = pewnie całość.
   const decision = decideTakeSave(s.weighedSoFarKg, s.netKg, s.takenKg)
   if (s.resumeId) {
     return decision === 'complete'

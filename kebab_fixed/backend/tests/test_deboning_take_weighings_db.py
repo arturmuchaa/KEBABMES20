@@ -108,6 +108,25 @@ def test_complete_z_czesciami_waliduje_sume(db):
     assert e.value.status_code == 400
 
 
+def test_complete_wysoki_uzysk_domyka_nie_blokuje(db):
+    """Reszta dowieziona: suma porcji 96,8% pobrania (290,5/300) MUSI domknąć
+    pobranie, a nie odbić się o pasmo uzysku 95%. Incydent 2026-07-24
+    (Anatolii): complete pięć razy zwracał 400 „nierealna", pobranie zawisło
+    w 'pending' — mięso było FIZYCZNIE zważone i już na magazynie."""
+    _seed_batch()
+    entry = create_deboning_take(_take_dto(kg_taken=300.0))
+    weigh_part_deboning_take(entry["id"], _meat_dto(97.5))
+    complete_deboning_take(entry["id"], _meat_dto(193.0))  # 290,5/300 = 96,8%
+    row = query_one(
+        "SELECT status, kg_meat, yield_pct, kg_remainder FROM deboning_entries WHERE id=%s",
+        (entry["id"],),
+    )
+    assert row["status"] == "complete"
+    assert float(row["kg_meat"]) == 290.5
+    assert round(float(row["yield_pct"]), 1) == 96.8
+    assert float(row["kg_remainder"]) == 9.5
+
+
 def _auto_dto(kg, gross, cart=6.0, e2=2.0, n=1):
     return SimpleNamespace(kg_meat=kg, kg_gross=gross, tare_cart_kg=cart,
                            tare_e2_kg=e2, e2_count=n, weigh_mode="auto")

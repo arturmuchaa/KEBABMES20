@@ -558,6 +558,36 @@ def validate_meat_yield(kg_taken: float, kg_meat: float) -> str | None:
     return None
 
 
+def validate_take_completion(kg_taken: float, kg_meat: float, tol: float = 0.01) -> str | None:
+    """Domknięcie pobrania mięsem — jak validate_meat_yield, ale BEZ górnego
+    pułapu uzysku (95%).
+
+    Górny pułap „nierealna wydajność" ma sens przy zapisie 'od razu' (literówka
+    w jednym polu), ale domknięcie to JAWNA decyzja operatora, a porcje z
+    weigh-part są już FIZYCZNIE zważone i na magazynie. Realnie wysoki uzysk
+    dowiezionej reszty (incydent 2026-07-24, Anatolii: 290,5/300 = 96,8% > 95%
+    → pięć razy 400) tylko zakleszczał pobranie w 'pending' — domknąć się nie
+    da, a mięsa i tak nie „odważymy". Dolny próg 30% ZOSTAJE: zbyt mało mięsa to
+    wciąż sygnał „sprawdź dane" (zapomniany wózek), nie normalny przypadek.
+    Regułę „powyżej ~62% domykaj bez pytania" trzyma HMI (partialWeighing.ts).
+    """
+    kg_taken = float(kg_taken or 0)
+    kg_meat = float(kg_meat or 0)
+    if kg_meat <= 0:
+        return "Ilość mięsa musi być > 0"
+    if kg_taken <= 0:
+        return "Ilość pobranej ćwiartki musi być > 0"
+    if kg_meat > kg_taken + tol:
+        return (
+            f"Mięso ({kg_meat} kg) nie może przekraczać pobranej "
+            f"ćwiartki ({kg_taken} kg)"
+        )
+    yield_pct = (kg_meat / kg_taken) * 100
+    if yield_pct < 30:
+        return f"Wydajność {round(yield_pct, 1)}% jest bardzo niska — sprawdź dane"
+    return None
+
+
 def _kg(v) -> str:
     """Kilogramy po polsku — przecinek dziesiętny, jedno miejsce."""
     return f"{float(v):.1f}".replace(".", ",")
@@ -1314,7 +1344,10 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
             (entry_id,),
         ) or {}
         kg_meat = round(float(prior.get("s") or 0) + kg_part, 2)
-        yield_err = validate_meat_yield(kg_taken, kg_meat)
+        # Domknięcie: tylko granice fizyczne (mięso już zważone i na magazynie).
+        # Pasmo uzysku 30–95% zakleszczało 'pending' przy realnie wysokim
+        # uzysku dowiezionej reszty (2026-07-24) — patrz validate_take_completion.
+        yield_err = validate_take_completion(kg_taken, kg_meat)
         if yield_err:
             raise HTTPException(400, yield_err)
         _insert_take_weighing(conn, entry_id, kg_part, dto)
