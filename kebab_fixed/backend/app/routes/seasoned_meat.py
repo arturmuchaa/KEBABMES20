@@ -34,6 +34,30 @@ def reconcile_seasoned(seasoned_id: str, body: dict):
     return svc.reconcile_seasoned_batch(seasoned_id, target_kg, reason, close)
 
 
+@router.get("/production-days")
+def production_days(day: str):
+    """dzień w formacie YYYY-MM-DD."""
+    return svc.list_production_days(day)
+
+
+@router.post("/production-days/reconcile")
+def production_days_reconcile(body: dict):
+    """Zbiorcza korekta dnia produkcji ('Zamknięcie dnia').
+    body: { recipeId, productionDay, actualKg, reason? }."""
+    recipe_id = str(body.get("recipeId") or "")
+    production_day = str(body.get("productionDay") or "")
+    if not recipe_id or not production_day:
+        raise HTTPException(400, "recipeId i productionDay są wymagane")
+    actual_kg = float(body.get("actualKg") or 0)
+    reason = str(body.get("reason") or "")
+    return svc.reconcile_production_day(recipe_id, production_day, actual_kg, reason)
+
+
+@router.get("/production-days/history")
+def production_days_history(limit: int = 100):
+    return svc.list_day_reconciliation_history(limit)
+
+
 @router.post("/from-order/{order_id}", deprecated=True)
 def seasoned_from_order(order_id: str, body: dict):
     # Endpoint zwracał IN na seasoned_meat bez OUT na meat_stock —
