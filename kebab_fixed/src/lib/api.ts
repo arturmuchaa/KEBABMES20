@@ -1971,6 +1971,14 @@ export const seasonedMeatApi = {
   // zamyka do 0 (spisanie resztki); inaczej ustawia realną wagę (np. 119→120).
   reconcile: (id: string, opts: { targetKg?: number; reason?: string; close?: boolean }) =>
     post<any>(`/seasoned-meat/${id}/reconcile`, opts).then(mapSeasonedMeat),
+
+  // ── Zamknięcie dnia produkcji (grupa receptura+dzień, ścinki/straty) ──
+  productionDays: (day: string) =>
+    get<any[]>(`/seasoned-meat/production-days?day=${encodeURIComponent(day)}`),
+  reconcileDay: (opts: { recipeId: string; productionDay: string; actualKg: number; reason?: string }) =>
+    post<any>('/seasoned-meat/production-days/reconcile', opts),
+  productionDayHistory: (limit = 100) =>
+    get<any[]>(`/seasoned-meat/production-days/history?limit=${limit}`),
 }
 
 // ─── Zlecenia masowania ───────────────────────────────────────
