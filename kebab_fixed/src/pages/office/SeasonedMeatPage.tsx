@@ -28,6 +28,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
+import { SeasonedProductionDayTab } from './SeasonedProductionDayTab'
 
 // ─── Sort ────────────────────────────────────────────────────
 type SortCol = 'batchNo' | 'recipeName' | 'productTypeName' | 'kgAvailable' | 'kgReserved' | 'expiryDate' | 'completedAt'
@@ -240,6 +241,7 @@ function TracePanel({ batchId, onClose }: { batchId: string; onClose: () => void
 
 // ─── Strona ─────────────────────────────────────────────────
 export function SeasonedMeatPage() {
+  const [pageTab, setPageTab] = useState<'partie' | 'zamkniecie'>('partie')
   const { data,      loading, refetch }  = useApi(() => seasonedMeatApi.list())
   const { data: all, refetch: refetchAll } = useApi(() => seasonedMeatApi.all())
   const [traceId,   setTraceId] = useState<string | null>(null)
@@ -296,7 +298,31 @@ export function SeasonedMeatPage() {
 
   return (
     <div className="space-y-3 animate-fade-in">
-      {loading ? (
+      <div className="flex items-center gap-1">
+        {([
+          { key: 'partie', label: 'Partie' },
+          { key: 'zamkniecie', label: 'Zamknięcie dnia' },
+        ] as const).map(t => (
+          <button
+            key={t.key}
+            onClick={() => setPageTab(t.key)}
+            className={cn(
+              'inline-flex items-center px-3 py-1.5 rounded text-xs font-semibold border transition-colors',
+              pageTab === t.key
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-white text-ink-2 border-surface-4 hover:bg-surface-2',
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {pageTab === 'zamkniecie' ? (
+        <SeasonedProductionDayTab />
+      ) : (
+        <>
+        {loading ? (
         <div className="rounded-lg border border-surface-4 bg-white p-4 space-y-2">
           {[0,1,2,3,4,5].map(i => <Skeleton key={i} className="h-8 w-full" />)}
         </div>
@@ -415,6 +441,8 @@ export function SeasonedMeatPage() {
             </div>
           )}
         </Card>
+      )}
+        </>
       )}
 
       {traceId && <TracePanel batchId={traceId} onClose={() => setTraceId(null)} />}
