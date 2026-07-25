@@ -137,6 +137,43 @@ def test_kafelek_zostaje_dopoki_bilans_masy_sie_nie_domyka(db):
     assert not [x for x in pending() if x["rawBatchId"] == "rb1"]
 
 
+def test_normalny_ubytek_procesowy_nie_trzyma_kafla(db):
+    """Naturalny ubytek procesowy (skóra/tłuszcz/ociek, ~1–3% ćwiartki) NIE
+    może trzymać zbalansowanej partii na kaflu „niedoważona" — inaczej operator
+    zamyka ją fantomową paletą ubocznych, często pod ZAMKNIĘTĄ/wysłaną partią
+    (incydent 428, 2026-07-24: 84 kg kości podpięte pod wysłaną partię, bo jej
+    luka = dokładnie ubytek 84 kg). Próg podniesiony 1% → 3%."""
+    # 2000 kg ćwiartki, 1320 kg mięsa; próg 3% = 60 kg (ponad floor 10 kg)
+    _seed_batch_with_entries(internal_no="820", quarter_each=1000.0, n=2)
+    finish_batch("rb1")
+    record("rb1", "backs", 400.0, [])
+    record("rb1", "bones", 240.0, [])   # luka = 2000−1320−400−240 = 40 kg = 2%
+    # postarz partię, żeby klauzule „dzisiejsza aktywność" nie trzymały kafla
+    execute(
+        "UPDATE batch_byproducts SET finished_at = finished_at - INTERVAL '1 day', "
+        "backs_at = backs_at - INTERVAL '1 day', bones_at = bones_at - INTERVAL '1 day' "
+        "WHERE raw_batch_id='rb1'"
+    )
+    # 2% < próg 3% → zbalansowana partia schodzi z kafli (dawniej 1% → wisiała)
+    assert not [x for x in pending() if x["rawBatchId"] == "rb1"]
+
+
+def test_realne_niedowazenie_ponad_prog_zostaje(db):
+    """Strażnik drugiej strony: realny brak ubocznych (>3%, np. zapomniany
+    wózek) MUSI dalej trzymać kafel — podniesiony próg nie chowa prawdziwych luk."""
+    _seed_batch_with_entries(internal_no="821", quarter_each=1000.0, n=2)  # 2000 kg, 1320 mięsa
+    finish_batch("rb1")
+    record("rb1", "backs", 300.0, [])
+    record("rb1", "bones", 180.0, [])   # luka = 2000−1320−300−180 = 200 kg = 10%
+    execute(
+        "UPDATE batch_byproducts SET finished_at = finished_at - INTERVAL '1 day', "
+        "backs_at = backs_at - INTERVAL '1 day', bones_at = bones_at - INTERVAL '1 day' "
+        "WHERE raw_batch_id='rb1'"
+    )
+    p = [x for x in pending() if x["rawBatchId"] == "rb1"]
+    assert p and p[0]["missingKg"] == 200.0
+
+
 def test_today_totals_sumuje_dzisiejsze_wazenia(db):
     _seed_batch_with_entries(internal_no="804")
     ensure_record("rb1")

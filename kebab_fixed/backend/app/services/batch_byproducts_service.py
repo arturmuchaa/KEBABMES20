@@ -26,6 +26,18 @@ from app.utils.pallets import pallet_containers
 
 logger = get_logger(__name__)
 
+# Tolerancja bilansu masy ubocznych. Luka bilansu (ćwiartka − mięso − grzbiety
+# − kości) POWYŻEJ tego progu trzyma partię na kaflu „niedoważona". Próg musi
+# pokrywać NORMALNY ubytek procesowy (skóra/tłuszcz/ociek/ociek na wadze),
+# który u tego klienta sięga ~1–3% ćwiartki. Dawny próg 1% flagował
+# zbalansowane partie jako niedoważone i kusił operatora do doważenia
+# FANTOMOWEJ palety ubocznych — często pod ZAMKNIĘTĄ/wysłaną partią, bo jej
+# luka = dokładnie ubytek (incydent 428, 2026-07-24: 84 kg kości podpięte pod
+# wysłaną partię). Floor w kg zabezpiecza małe partie. Realne niedoważenie
+# (zapomniany wózek, zwykle >3%) nadal trzyma kafel.
+BYPRODUCT_LOSS_TOL_PCT = 0.03
+BYPRODUCT_LOSS_TOL_MIN_KG = 10.0
+
 
 def _rescale_other_lots(conn, raw_batch_id: str) -> None:
     """Zważone zbiorczo frakcje kurczą loty „other" do realnej reszty.
@@ -234,8 +246,12 @@ def pending() -> List[Dict[str, Any]]:
 
     1. NIEDOWAŻONE (bilans masy otwarty) — bez filtra daty, przechodzą na
        kolejne dni: mięso + grzbiety + kości nie pokrywa ćwiartki
-       (tolerancja 1%, min 10 kg — 2% przy 7 t dawało 140 kg i kafel
-       znikał w trakcie ważenia kości, prod 2026-07-09).
+       (tolerancja BYPRODUCT_LOSS_TOL_PCT=3%, floor 10 kg — pokrywa NORMALNY
+       ubytek procesowy 1–3%; dawny próg 1% flagował zbalansowane partie jako
+       niedoważone i kusił do fantomowej palety, incydent 428 2026-07-24).
+       Przedwczesne znikanie kafla w trakcie ważenia (2% na 7 t = 140 kg,
+       prod 2026-07-09) blokuje teraz grupa 2 — dzisiejsza aktywność trzyma
+       kafel niezależnie od bilansu, więc luźniejszy próg jest bezpieczny.
     2. ZAKOŃCZONE DZISIAJ (czas PL) — nawet z domkniętym bilansem: partia
        z dzisiejszego dnia musi dać się przywrócić/doważyć (balanced=True,
        kafel „zważona ✓ dotknij aby poprawić").
@@ -243,7 +259,7 @@ def pending() -> List[Dict[str, Any]]:
     Rekordy ważenia w trakcie rozbioru (finished_at NULL) nie wchodzą —
     partia jest wtedy nadal aktywnym kaflem."""
     rows = query_all(
-        """
+        f"""
         SELECT b.*, COALESCE((
             SELECT SUM(kg_meat) FROM deboning_entries de
             WHERE de.raw_batch_id = b.raw_batch_id
@@ -257,7 +273,7 @@ def pending() -> List[Dict[str, Any]]:
                 WHERE de.raw_batch_id = b.raw_batch_id
                   AND COALESCE(de.status, 'complete') = 'complete'
             ), 0) - COALESCE(b.backs_kg, 0) - COALESCE(b.bones_kg, 0))
-            > GREATEST(COALESCE(b.quarter_kg, 0) * 0.01, 10)
+            > GREATEST(COALESCE(b.quarter_kg, 0) * {BYPRODUCT_LOSS_TOL_PCT}, {BYPRODUCT_LOSS_TOL_MIN_KG})
             -- JAKAKOLWIEK dzisiejsza aktywność trzyma kafel (nie znika
             -- samoczynnie w dniu pracy nad partią):
             OR (b.finished_at AT TIME ZONE 'Europe/Warsaw')::date
@@ -285,7 +301,7 @@ def pending() -> List[Dict[str, Any]]:
         d["balanced"] = (
             r.get("backs_kg") is not None
             and r.get("bones_kg") is not None
-            and missing <= max(quarter * 0.01, 10)
+            and missing <= max(quarter * BYPRODUCT_LOSS_TOL_PCT, BYPRODUCT_LOSS_TOL_MIN_KG)
         )
         out.append(d)
     return out
