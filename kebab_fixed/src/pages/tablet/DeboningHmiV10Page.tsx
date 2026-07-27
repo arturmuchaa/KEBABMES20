@@ -20,7 +20,10 @@ import { BASE } from '@/lib/api'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
-import { splitEntriesByStatus, entryTime, decideTakeSave, takenOnProductionDay } from '@/features/deboning/utils'
+import {
+  splitEntriesByStatus, entryTime, decideTakeSave, takenOnProductionDay,
+  takeProgress, YIELD_NORM_PCT, type TakeProgress,
+} from '@/features/deboning/utils'
 import { useScale } from '@/features/deboning/useScale'
 import {
   computeWeighing, sanitizeCartTares, CART_TARES_KG, E2_TARE_KG, KG_PER_E2_MIN, KG_PER_E2_MAX,
@@ -393,6 +396,60 @@ function useServerOnline(): boolean {
 
 interface HmiAlarm { id: string; level: 'red' | 'amb'; text: string }
 
+/** Pasek postępu ważenia DZIELONEGO jednego pobrania.
+ *
+ * Operator waży 300 kg pobrania na raty (wózek po wózku) i między porcjami
+ * gubi rachubę: ile już zważył, ile to procent, ile brakuje do normy. Pasek
+ * pokazuje sumę narastającą (ciemna część = zapisane porcje, jasna = porcja
+ * stojąca właśnie na wadze, więc rośnie JESZCZE PRZED zapisem) i pasmo normy
+ * 64–68% jako cel na osi. Skala paska to zawsze CAŁE pobranie, żeby „ile
+ * jeszcze" dało się ocenić okiem, bez czytania liczb. */
+const TakeProgressBarV10 = memo(function TakeProgressBarV10({ p, compact = false }: {
+  p: TakeProgress
+  compact?: boolean
+}) {
+  const clamp = (v: number) => Math.max(0, Math.min(100, v))
+  const weighedW = clamp(p.weighedPct)
+  const portionW = clamp(p.pct) - weighedW
+  const tone = p.status === 'below' ? 'var(--amb)' : p.status === 'above' ? 'var(--red)' : 'var(--success)'
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[11px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>
+          Zważono {fmtKg(p.totalKg, 1)} z {fmtKg(p.takenKg, 1)} kg
+          {p.portionKg > 0 && <span style={{ color: 'var(--accent)' }}> · na wadze {fmtKg(p.portionKg, 1)}</span>}
+        </span>
+        <span className="hmi-v10-mono font-extrabold" style={{ color: tone, fontSize: compact ? 18 : 22 }}>
+          {fmtPct(p.pct, 1)}
+        </span>
+      </div>
+      <div className="relative w-full overflow-hidden" style={{ height: compact ? 10 : 16, borderRadius: 8, background: 'var(--lineSoft)' }}>
+        {/* pasmo normy na osi pobrania — cel, w który operator ma trafić */}
+        <div className="absolute inset-y-0" style={{
+          left: `${YIELD_NORM_PCT.lo}%`, width: `${YIELD_NORM_PCT.hi - YIELD_NORM_PCT.lo}%`,
+          background: 'var(--barBg)', borderLeft: '2px solid var(--accent)', borderRight: '2px solid var(--accent)',
+        }} />
+        <div className="absolute inset-y-0 left-0" style={{ width: `${weighedW}%`, background: 'var(--accent)' }} />
+        {portionW > 0 && (
+          <div className="absolute inset-y-0" style={{
+            left: `${weighedW}%`, width: `${portionW}%`, background: 'var(--accent)', opacity: 0.45,
+          }} />
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-3 text-[11px] font-bold">
+        <span style={{ color: 'var(--mut)' }}>
+          norma {YIELD_NORM_PCT.lo}–{YIELD_NORM_PCT.hi}% = {fmtKg(p.normLoKg, 1)}–{fmtKg(p.normHiKg, 1)} kg
+        </span>
+        <span style={{ color: tone }}>
+          {p.status === 'below'
+            ? `do normy brakuje ${fmtKg(p.missingToNormKg, 1)} kg (${fmtPct(p.missingToNormPct, 1)})`
+            : p.status === 'above' ? 'powyżej normy — sprawdź pobranie' : 'w normie ✓'}
+        </span>
+      </div>
+    </div>
+  )
+})
+
 /** Kafelek podsumowania po zapisie — operator widzi na oko CO zapisał, bez
  * szukania w gęstej tabeli „Ostatnie wpisy". `meatKg: null` = tylko pobranie
  * (mięso czeka na zważenie); `kind: 'partial'` = porcja zapisana, pobranie
@@ -405,9 +462,17 @@ interface SaveSummary {
   kind: 'saved' | 'partial' | 'taken'
 }
 
+/** Pobranie zostało otwarte po zapisie porcji → w kafelku podsumowania pokaż
+ * pasek, żeby operator odchodząc od wagi wiedział, ile jeszcze przed nim. */
+function summaryProgress(s: SaveSummary): TakeProgress | null {
+  if (s.kind !== 'partial' || s.meatKg == null) return null
+  return takeProgress(s.meatKg, 0, s.takenKg)
+}
+
 // ─── Kafelek podsumowania zapisu ─────────────────────────────────────
 const SaveSummaryCard = memo(function SaveSummaryCard({ s, onClose }: { s: SaveSummary; onClose: () => void }) {
   const pct = s.meatKg != null && s.takenKg > 0 ? (s.meatKg / s.takenKg) * 100 : null
+  const prog = summaryProgress(s)
   const title = s.kind === 'taken' ? 'Pobrano — czeka na zważenie'
     : s.kind === 'partial' ? 'Zapisano porcję — pobranie otwarte'
     : 'Zapisano'
@@ -417,7 +482,8 @@ const SaveSummaryCard = memo(function SaveSummaryCard({ s, onClose }: { s: SaveS
       <div className="flex items-center justify-center flex-shrink-0 px-5" style={{ background: 'var(--accent)', color: '#fff' }}>
         <Check size={30} strokeWidth={3} />
       </div>
-      <div className="flex items-center gap-6 px-6 py-3.5">
+      <div className="flex flex-col gap-2.5 px-6 py-3.5">
+      <div className="flex items-center gap-6">
         <div>
           <div className="text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>{title}</div>
           <div className="flex items-baseline gap-2 mt-0.5">
@@ -450,6 +516,10 @@ const SaveSummaryCard = memo(function SaveSummaryCard({ s, onClose }: { s: SaveS
           style={{ borderRadius: 9, background: 'var(--accent)', color: '#fff', marginLeft: 8 }}>
           <Check size={16} strokeWidth={3} /> OK
         </button>
+      </div>
+      {/* Porcja zapisana, pobranie otwarte — pokaż od razu, ile jeszcze przed
+          operatorem, zanim odejdzie od wagi. */}
+      {prog && <div style={{ minWidth: 560 }}><TakeProgressBarV10 p={prog} compact /></div>}
       </div>
     </div>
   )
@@ -764,6 +834,12 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Suma z już zważonymi porcjami — w trybie zwykłym resumeWeighedKg = 0.
   const meatTooBig = taken > 0 && resumeWeighedKg + meat > taken
   const yieldPct = taken > 0 && meat > 0 && !meatTooBig ? (meat / taken) * 100 : 0
+  // Pasek postępu tylko przy ważeniu DZIELONYM (domykanie pobrania) — przy
+  // zwykłym wpisie mięso i ćwiartka są na jednym ekranie, pasek nic nie wnosi.
+  const splitProgress = useMemo(
+    () => (resumeId ? takeProgress(resumeWeighedKg, meatTooBig ? 0 : meat, taken) : null),
+    [resumeId, resumeWeighedKg, meat, meatTooBig, taken],
+  )
   const canSave = !!selBatch && !!selWorker && taken > 0 && meat > 0 && !meatTooBig
     && (!autoMode || (scale.stable && weighing.ready))
   // Pobranie (mięso później): wystarczy partia + pracownik + ćwiartka; waga nieistotna.
@@ -1917,6 +1993,17 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               ) : undefined}
             />
           </div>
+
+          {/* Ważenie dzielone: suma narastająca + ile brakuje do normy. Bez tego
+              operator po drugiej-trzeciej porcji nie wie, gdzie jest (zgłoszenie
+              z hali 2026-07-27: „gubię się w trakcie ważenia podzielonego"). */}
+          {/* compact: numpad niżej jest flex-1, więc każdy piksel tego bloku
+              zjada wysokość klawiszy — pasek ma informować, nie dominować. */}
+          {splitProgress && (
+            <div className="flex-shrink-0 px-4 py-2.5" style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
+              <TakeProgressBarV10 p={splitProgress} compact />
+            </div>
+          )}
 
           {scale.available && (
             <div className={cn('flex-shrink-0 p-3 flex flex-col gap-2.5', guided && taken <= 0 && 'opacity-40 pointer-events-none')}
