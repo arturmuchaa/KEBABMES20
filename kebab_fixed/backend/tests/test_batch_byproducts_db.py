@@ -10,6 +10,7 @@ from app.services.batch_byproducts_service import (
     ensure_record,
     finish_batch,
     get,
+    list_weighings,
     pending,
     record,
     today_totals,
@@ -205,6 +206,57 @@ def test_today_totals_partia_wazona_przez_dwa_dni_liczy_tylko_dzis(db):
     t = today_totals()
     assert t["bonesKg"] == 200.0  # stary kod dawał 700 (całe bones_kg po bones_at)
     assert [w["netKg"] for w in t["weighings"] if w["kind"] == "bones"] == [200.0]
+
+
+# ── Dziennik ważeń ubocznych (biuro, zakres dat) ──────────────────────
+def test_dziennik_wazen_ubocznych_zwraca_kazda_palete(db):
+    """Zakładki Grzbiety/Kości w dzienniku ważeń: JEDEN wiersz = JEDNA paleta
+    z pełnym audytem wagi (brutto − tara palety − pojemniki = netto)."""
+    _seed_batch_with_entries(internal_no="830", quarter_each=500.0, n=2)
+    ensure_record("rb1")
+    record("rb1", "backs", 100.0, [
+        {"tareLabel": "H1", "tareKg": 18, "containers": 10, "gross": 138, "net": 100},
+    ])
+    record("rb1", "bones", 60.0, [
+        {"tareLabel": "H2", "tareKg": 20, "containers": 5, "gross": 90, "net": 60},
+    ])
+    today = date.today().isoformat()
+    rows = list_weighings(today, today)["data"]
+    assert [r["kind"] for r in rows] == ["backs", "bones"]
+    b = rows[0]
+    assert b["rawBatchNo"] == "830" and b["rawBatchId"] == "rb1"
+    assert (b["tareLabel"], b["tareKg"], b["containers"]) == ("H1", 18.0, 10)
+    assert (b["kgGross"], b["netKg"]) == (138.0, 100.0)
+    assert b["dayLocal"].isoformat() == today
+    assert b["id"]  # stabilny klucz wiersza dla tabeli
+
+
+def test_dziennik_wazen_ubocznych_liczy_palete_w_dniu_jej_wazenia(db):
+    """Ta sama reguła co today_totals/statystyki: paleta należy do dnia SWOJEGO
+    ważenia, nie dnia zakończenia partii (partia 411, 13–14.07)."""
+    _seed_batch_with_entries(internal_no="831", quarter_each=500.0, n=2)
+    ensure_record("rb1")
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    record("rb1", "bones", 700.0, [
+        {"tareLabel": "H1", "tareKg": 18, "containers": 36, "gross": 518, "net": 500,
+         "weighedAt": yesterday},
+        {"tareLabel": "H1", "tareKg": 18, "containers": 14, "gross": 218, "net": 200},
+    ])
+    today = date.today()
+    yday = (today - timedelta(days=1)).isoformat()
+    assert [r["netKg"] for r in list_weighings(yday, yday)["data"]] == [500.0]
+    assert [r["netKg"] for r in list_weighings(today.isoformat(), today.isoformat())["data"]] == [200.0]
+    assert len(list_weighings(yday, today.isoformat())["data"]) == 2
+
+
+def test_dziennik_wazen_ubocznych_pomija_frakcje_bez_palet(db):
+    """Frakcja zapisana bez palet (korekta biurowa / stary zapis) nie ma dnia
+    ważenia — nie da się jej rzetelnie umieścić w dzienniku."""
+    _seed_batch_with_entries(internal_no="832")
+    ensure_record("rb1")
+    record("rb1", "backs", 40.0, [])
+    today = date.today().isoformat()
+    assert list_weighings(today, today)["data"] == []
 
 
 # ── Partia rozbierana i ważona przez KILKA DNI (prod 411, 13–14.07.2026) ──

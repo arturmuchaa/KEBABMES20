@@ -56,6 +56,16 @@ def byproducts_today():
     return byproducts_svc.today_totals()
 
 
+@router.get("/api/deboning/byproducts/weighings")
+def byproducts_weighings(
+    date_from: str = Query(..., alias="date_from"),
+    date_to: str = Query(..., alias="date_to"),
+):
+    """Dziennik ważeń ubocznych (zakładki Grzbiety/Kości w biurze).
+    MUSI stać przed /{raw_batch_id} — inaczej „weighings" wpadnie w parametr."""
+    return byproducts_svc.list_weighings(date_from, date_to)
+
+
 @router.get("/api/deboning/byproducts/{raw_batch_id}")
 def byproducts_get(raw_batch_id: str):
     return byproducts_svc.get(raw_batch_id) or {}

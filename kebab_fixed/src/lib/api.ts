@@ -477,6 +477,16 @@ export interface ByproductTodayWeighing {
   kind: 'backs' | 'bones'; rawBatchNo: string; weighedAt: string
   tareLabel: string; containers: number; netKg: number
 }
+/** Jedno ważenie frakcji w dzienniku biura (zakładki Grzbiety/Kości) — paleta
+ *  z pełnym audytem wagi. Dzień = dzień ważenia TEJ palety, nie zakończenia partii. */
+export interface ByproductWeighing {
+  id: string; kind: 'backs' | 'bones'
+  rawBatchId: string; rawBatchNo: string
+  weighedAtLocal: string   // naive local (Europe/Warsaw)
+  dayLocal: string         // 'YYYY-MM-DD' lokalnie
+  tareLabel: string; tareKg: number; containers: number
+  kgGross: number; netKg: number
+}
 export interface BatchByproducts {
   rawBatchId: string; rawBatchNo: string; quarterKg: number
   backsKg: number | null; bonesKg: number | null
@@ -495,6 +505,9 @@ export const byproductsApi = {
   list: () => get<{ records: BatchByproducts[] }>('/deboning/byproducts').then(r => r?.records ?? []),
   pending: () => get<{ pending: BatchByproducts[] }>('/deboning/byproducts/pending').then(r => r?.pending ?? []),
   today: () => get<{ backsKg: number; bonesKg: number; weighings: ByproductTodayWeighing[] }>('/deboning/byproducts/today'),
+  // Dziennik ważeń grzbietów/kości w zakresie dat (biuro) — paleta po palecie.
+  weighings: (from: string, to: string) =>
+    get<{ data: ByproductWeighing[] }>(`/deboning/byproducts/weighings?date_from=${from}&date_to=${to}`),
   get: (batchId: string) => get<BatchByproducts>(`/deboning/byproducts/${batchId}`),
   // Ważenie w trakcie rozbioru — rekord BEZ oznaczania partii jako zakończonej.
   ensure: (batchId: string, operator?: string) =>

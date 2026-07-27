@@ -317,26 +317,70 @@ def list_all() -> List[Dict[str, Any]]:
     return [_row(r) for r in rows]
 
 
-def today_totals() -> Dict[str, Any]:
-    """Dzisiejsze ważenia grzbietów/kości (czas PL) — pasek dolny HMI + modal
-    listy ważeń. Suma i lista liczone z PALET po ich weighedAt — partia
-    ważona przez kilka dni rozlicza każdą paletę w JEJ dniu. Poprzednia
-    wersja sumowała narastające backs_kg/bones_kg po backs_at/bones_at,
-    przez co CAŁA frakcja wpadała do dnia OSTATNIEGO ważenia. Palety sprzed
-    stemplowania (bez weighedAt) nie mogą być dzisiejsze — odpadają w WHERE."""
-    rows = query_all(
+def _pallet_rows(
+    date_from: Optional[str] = None, date_to: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """Palety grzbietów/kości zważone w zakresie dni (czas PL), po jednym
+    wierszu na paletę; None = dzisiaj. JEDNO źródło dnia ważenia dla paska HMI
+    (today_totals) i dziennika ważeń w biurze (list_weighings): paleta należy
+    do dnia SWOJEGO ważenia, nie do dnia zakończenia partii — partia
+    rozbierana przez kilka dni (411: 13–14.07) rozlicza każdą paletę osobno.
+    Palety sprzed stemplowania (bez weighedAt) nie mają dnia — odpadają
+    w WHERE."""
+    return query_all(
         """
-        SELECT bb.raw_batch_no, k.kind, p.pallet
+        SELECT bb.raw_batch_id, bb.raw_batch_no, k.kind, p.pallet, p.idx,
+               ((p.pallet->>'weighedAt')::timestamptz AT TIME ZONE 'Europe/Warsaw')       AS "weighedAtLocal",
+               ((p.pallet->>'weighedAt')::timestamptz AT TIME ZONE 'Europe/Warsaw')::date AS "dayLocal"
         FROM batch_byproducts bb
         CROSS JOIN LATERAL (VALUES
             ('backs', bb.backs_pallets), ('bones', bb.bones_pallets)
         ) AS k(kind, pallets)
-        CROSS JOIN LATERAL jsonb_array_elements(COALESCE(k.pallets, '[]'::jsonb)) AS p(pallet)
+        CROSS JOIN LATERAL jsonb_array_elements(COALESCE(k.pallets, '[]'::jsonb))
+             WITH ORDINALITY AS p(pallet, idx)
         WHERE ((p.pallet->>'weighedAt')::timestamptz AT TIME ZONE 'Europe/Warsaw')::date
-              = (now() AT TIME ZONE 'Europe/Warsaw')::date
+              BETWEEN COALESCE(%s::date, (now() AT TIME ZONE 'Europe/Warsaw')::date)
+                  AND COALESCE(%s::date, (now() AT TIME ZONE 'Europe/Warsaw')::date)
         ORDER BY (p.pallet->>'weighedAt')::timestamptz
-        """
+        """,
+        (date_from, date_to),
     )
+
+
+def list_weighings(date_from: str, date_to: str) -> Dict[str, Any]:
+    """Dziennik ważeń ubocznych dla biura — każda zważona PALETA grzbietów
+    i kości z audytem wagi (brutto − tara palety − pojemniki E2 = netto).
+    Odpowiednik deboning_service.list_take_weighings dla mięsa; biuro ma trzy
+    zakładki jednego dziennika: Mięso / Grzbiety / Kości."""
+    data: List[Dict[str, Any]] = []
+    for r in _pallet_rows(date_from, date_to):
+        p = r["pallet"] or {}
+        data.append({
+            # klucz wiersza: rekord ubocznych jest JEDEN na (partia, frakcja),
+            # więc pozycja palety w tablicy identyfikuje ważenie jednoznacznie
+            "id":             f"{r['raw_batch_id']}:{r['kind']}:{r['idx']}",
+            "rawBatchId":     r["raw_batch_id"],
+            "rawBatchNo":     r["raw_batch_no"],
+            "kind":           r["kind"],
+            "weighedAtLocal": r["weighedAtLocal"],
+            "dayLocal":       r["dayLocal"],
+            "tareLabel":      p.get("tareLabel") or "",
+            "tareKg":         float(p.get("tareKg") or 0),
+            "containers":     int(p.get("containers") or 0),
+            "kgGross":        round(float(p.get("gross") or 0), 2),
+            "netKg":          round(float(p.get("net") or 0), 2),
+        })
+    return {"data": data}
+
+
+def today_totals() -> Dict[str, Any]:
+    """Dzisiejsze ważenia grzbietów/kości (czas PL) — pasek dolny HMI + modal
+    listy ważeń. Suma i lista liczone z PALET po ich weighedAt (patrz
+    _pallet_rows) — partia ważona przez kilka dni rozlicza każdą paletę w JEJ
+    dniu. Poprzednia wersja sumowała narastające backs_kg/bones_kg po
+    backs_at/bones_at, przez co CAŁA frakcja wpadała do dnia OSTATNIEGO
+    ważenia."""
+    rows = _pallet_rows()
     weighings: List[Dict[str, Any]] = []
     backs = bones = 0.0
     for r in rows:
