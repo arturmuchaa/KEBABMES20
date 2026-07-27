@@ -462,10 +462,15 @@ interface SaveSummary {
   kind: 'saved' | 'partial' | 'taken'
 }
 
-/** Pobranie zostało otwarte po zapisie porcji → w kafelku podsumowania pokaż
- * pasek, żeby operator odchodząc od wagi wiedział, ile jeszcze przed nim. */
+/** Pasek w kafelku podsumowania — jedyne miejsce, gdzie pokazujemy postęp
+ * (w kolumnie ważenia zabierałby wysokość klawiaturze).
+ *
+ * `partial`: porcja zapisana, pobranie otwarte → ile jeszcze przed operatorem.
+ * `saved`: ważenie OSTATNIE, domykające → gdzie ostatecznie wylądował względem
+ * normy, z dokładną sumą (o to prosiła hala: „na końcowym wpisie też pokazane
+ * dokładnie"). `taken` (samo pobranie, mięso później) nie ma czego pokazywać. */
 function summaryProgress(s: SaveSummary): TakeProgress | null {
-  if (s.kind !== 'partial' || s.meatKg == null) return null
+  if (s.meatKg == null || s.kind === 'taken') return null
   return takeProgress(s.meatKg, 0, s.takenKg)
 }
 
@@ -834,12 +839,6 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Suma z już zważonymi porcjami — w trybie zwykłym resumeWeighedKg = 0.
   const meatTooBig = taken > 0 && resumeWeighedKg + meat > taken
   const yieldPct = taken > 0 && meat > 0 && !meatTooBig ? (meat / taken) * 100 : 0
-  // Pasek postępu tylko przy ważeniu DZIELONYM (domykanie pobrania) — przy
-  // zwykłym wpisie mięso i ćwiartka są na jednym ekranie, pasek nic nie wnosi.
-  const splitProgress = useMemo(
-    () => (resumeId ? takeProgress(resumeWeighedKg, meatTooBig ? 0 : meat, taken) : null),
-    [resumeId, resumeWeighedKg, meat, meatTooBig, taken],
-  )
   const canSave = !!selBatch && !!selWorker && taken > 0 && meat > 0 && !meatTooBig
     && (!autoMode || (scale.stable && weighing.ready))
   // Pobranie (mięso później): wystarczy partia + pracownik + ćwiartka; waga nieistotna.
@@ -1994,16 +1993,10 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             />
           </div>
 
-          {/* Ważenie dzielone: suma narastająca + ile brakuje do normy. Bez tego
-              operator po drugiej-trzeciej porcji nie wie, gdzie jest (zgłoszenie
-              z hali 2026-07-27: „gubię się w trakcie ważenia podzielonego"). */}
-          {/* compact: numpad niżej jest flex-1, więc każdy piksel tego bloku
-              zjada wysokość klawiszy — pasek ma informować, nie dominować. */}
-          {splitProgress && (
-            <div className="flex-shrink-0 px-4 py-2.5" style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
-              <TakeProgressBarV10 p={splitProgress} compact />
-            </div>
-          )}
+          {/* Postęp ważenia dzielonego NIE wchodzi tutaj: numpad niżej jest
+              flex-1, więc każdy blok w tej kolumnie obniża klawisze i operator
+              traci na nie miejsce (decyzja z hali 2026-07-27). Pasek żyje
+              wyłącznie w kafelku po zapisie — patrz SaveSummaryCard. */}
 
           {scale.available && (
             <div className={cn('flex-shrink-0 p-3 flex flex-col gap-2.5', guided && taken <= 0 && 'opacity-40 pointer-events-none')}
