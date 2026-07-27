@@ -2,7 +2,39 @@ import { describe, it, expect } from 'vitest'
 import {
   computeWeighing, sanitizeCartTares, driveOffStep, DRIVE_OFF_IDLE,
   E2_TARE_KG, CART_TARES_KG, isByproductBelowNorm, TYPICAL_BYPRODUCT_PCT_MIN,
+  byproductTareOptions, PALLET_TARES,
 } from './weighing'
+
+describe('byproductTareOptions — nośniki do ważenia ubocznych', () => {
+  it('paleta, potem wózki z systemu (rosnąco), na końcu „bez"', () => {
+    const opts = byproductTareOptions([6.5, 5.5])
+    expect(opts.map(o => o.tareLabel)).toEqual(['H1', 'wózek 5,5', 'wózek 6,5', 'bez palety'])
+    expect(opts.map(o => o.kg)).toEqual([18, 5.5, 6.5, 0])
+  })
+
+  it('etykieta wózka niesie tarę — w dzienniku widać, na czym ważono', () => {
+    const cart = byproductTareOptions([6])[1]
+    expect(cart.tareLabel).toBe('wózek 6,0')
+    expect(cart.title).toBe('6,0')
+    expect(cart.sub).toBe('kg · wózek')
+  })
+
+  it('brak wózków (stara konfiguracja) → sama paleta + „bez", bez pustych kafli', () => {
+    expect(byproductTareOptions([]).map(o => o.tareLabel)).toEqual(['H1', 'bez palety'])
+  })
+
+  it('śmieci z backendu/cache nie tworzą kafli-widm', () => {
+    expect(byproductTareOptions(undefined as unknown as number[]).map(o => o.tareLabel))
+      .toEqual(['H1', 'bez palety'])
+  })
+
+  it('„bez palety" zostaje etykietą historyczną (tara 0) — nie psuje starych ważeń', () => {
+    const opts = byproductTareOptions([5.5])
+    const none = opts[opts.length - 1]
+    expect(none).toMatchObject({ tareLabel: 'bez palety', kg: 0 })
+    expect(PALLET_TARES[0]).toMatchObject({ label: 'H1', kg: 18 })
+  })
+})
 
 describe('sanitizeCartTares', () => {
   it('sortuje rosnąco i usuwa duplikaty (kafle od najlżejszego)', () => {

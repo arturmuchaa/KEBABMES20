@@ -40,6 +40,55 @@ export function isByproductBelowNorm(
   return (kg / quarterKg) * 100 < TYPICAL_BYPRODUCT_PCT_MIN[kind]
 }
 
+/** Tary palet pod uboczne — u tego klienta jedna, H1 18 kg. */
+export const PALLET_TARES: { label: string; kg: number }[] = [
+  { label: 'H1', kg: 18 },
+]
+
+export interface ByproductTareOption {
+  /** Klucz kafla (stabilny w liście). */
+  key: string
+  /** Duży napis na kaflu. */
+  title: string
+  /** Podpis pod napisem. */
+  sub: string
+  /** Tara w kg odejmowana od brutto. */
+  kg: number
+  /** Co ląduje w palecie jako `tareLabel` — czytelne w dzienniku ważeń biura. */
+  tareLabel: string
+}
+
+/** Kafle nośników w kreatorze ważenia ubocznych: paleta H1, WSZYSTKIE wózki
+ * z systemu (ta sama lista co przy ważeniu mięsa, edytowana w biurze) i „bez".
+ * Uboczne jadą na wagę raz na palecie, raz na wózku — operator musi mieć obie
+ * tary pod ręką, inaczej waży „bez palety" i zawyża frakcję o tarę wózka.
+ * Etykieta wózka niesie jego tarę („wózek 6,5"), więc dziennik ważeń pokazuje,
+ * na czym realnie ważono. „bez palety" zostaje etykietą historyczną (tara 0),
+ * żeby stare ważenia i filtry biura dalej się zgadzały. */
+export function byproductTareOptions(cartTares: number[]): ByproductTareOption[] {
+  const carts = sanitizeCartTares(cartTares)
+  return [
+    ...PALLET_TARES.map(p => ({
+      key: `pallet:${p.label}`, title: p.label, sub: `${fmtTareKg(p.kg)} kg`,
+      kg: p.kg, tareLabel: p.label,
+    })),
+    ...carts.map(kg => ({
+      key: `cart:${kg}`, title: fmtTareKg(kg), sub: 'kg · wózek',
+      kg, tareLabel: `wózek ${fmtTareKg(kg)}`,
+    })),
+    { key: 'none', title: 'Bez', sub: '0 kg', kg: 0, tareLabel: 'bez palety' },
+  ]
+}
+
+/** Tara na kaflu: paleta całkowita („18"), wózek z jednym miejscem po
+ * przecinku i przecinkiem po polsku („6,5", „6,0" — nie „6"), żeby kafle
+ * wózków czytały się identycznie jak przy ważeniu mięsa. */
+function fmtTareKg(kg: number): string {
+  return Number.isInteger(kg) && kg >= 10
+    ? String(kg)
+    : kg.toFixed(1).replace('.', ',')
+}
+
 /** Czyści listę tar z backendu/cache: liczby 0<kg≤50, do 0,1, bez duplikatów,
  * rosnąco (kafle zawsze od najlżejszego). Zwraca [] gdy nic sensownego —
  * caller używa wtedy CART_TARES_KG. */

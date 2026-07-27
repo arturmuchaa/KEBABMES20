@@ -1,9 +1,12 @@
 /**
  * ByproductsWizard — prowadzone ważenie zbiorcze produktów ubocznych partii:
- * najpierw GRZBIETY, potem KOŚCI. Dla każdej frakcji operator dokłada palety:
- *   wybierz paletę (tara) → wpisz liczbę pojemników → wjedź na wagę →
- *   system liczy netto = brutto − tara palety − pojemniki×2 kg →
- *   „To wszystko / Kolejna paleta / Tylko pojemniki".
+ * najpierw GRZBIETY, potem KOŚCI. Dla każdej frakcji operator dokłada kolejne
+ * ważenia:
+ *   wybierz nośnik — paleta H1 / wózek z systemu / bez (tara) → wpisz liczbę
+ *   pojemników → wjedź na wagę → system liczy netto = brutto − tara nośnika −
+ *   pojemniki×2 kg → „To wszystko / Kolejna paleta / Tylko pojemniki".
+ * Wózki to TA SAMA lista co przy ważeniu mięsa (biuro edytuje ją w
+ * Ustawieniach firmy) — uboczne jeżdżą na wagę i na palecie, i na wózku.
  * Na końcu frakcji zapis (onWeigh) + % względem ćwiartki tej partii.
  *
  * Dotyczy wyłącznie ZAKOŃCZONEJ partii. Stan trwały (backsDone/bonesDone) jest
@@ -14,15 +17,11 @@ import { AlertTriangle, Check, Delete, Package, ArrowRight, X } from 'lucide-rea
 import { fmtKg, fmtPct } from '@/lib/utils'
 import {
   E2_TARE_KG, DRIVE_OFF_IDLE, driveOffStep, isByproductBelowNorm, TYPICAL_BYPRODUCT_PCT_MIN,
+  byproductTareOptions,
   type DriveOffTracker, type PalletSnapshot,
 } from '@/features/deboning/utils/weighing'
 import type { ScaleState } from '@/features/deboning/useScale'
 import type { BatchByproducts } from '@/lib/api'
-
-// Tary palet — tylko H1 18 kg (plus opcja „bez palety" w widoku).
-export const PALLET_TARES: { label: string; kg: number }[] = [
-  { label: 'H1', kg: 18 },
-]
 
 type Frac = 'backs' | 'bones'
 // weighedAt stempluje backend przy zapisie; kreator doładowuje palety
@@ -47,10 +46,13 @@ const V: CSSProperties = {
 }
 const MONO = '"SFMono-Regular",ui-monospace,"Cascadia Mono",Consolas,monospace'
 
-export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
+export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onClose }: {
   batch: { id: string; internalBatchNo: string }
   record: BatchByproducts
   scale: ScaleState
+  /** Tary wózków z systemu (ta sama lista co przy ważeniu mięsa) — uboczne
+   *  jadą na wagę i na palecie, i na wózku. */
+  cartTares: number[]
   onWeigh: (kind: Frac, kg: number, pallets: Pallet[]) => Promise<void>
   onClose: () => void
 }) {
@@ -69,6 +71,7 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
   // Ostatni stabilny odczyt palety + prompt po zjeździe z wagi bez „Dodaj".
   const [driveOff, setDriveOff] = useState<DriveOffTracker<PalletSnapshot>>(DRIVE_OFF_IDLE)
 
+  const tareOptions = useMemo(() => byproductTareOptions(cartTares), [cartTares])
   const containers = parseInt(containersStr || '0', 10) || 0
   const manualKg = parseFloat((manualStr || '0').replace(',', '.')) || 0
   const gross = scale.gross
@@ -378,30 +381,24 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
               </div>
 
               <div>
-                <div className="text-xs font-bold uppercase mb-2" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>1. Wybierz paletę (tara)</div>
+                <div className="text-xs font-bold uppercase mb-2" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>1. Na czym ważysz (tara)</div>
                 <div className="flex flex-wrap gap-2">
-                  {PALLET_TARES.map(p => (
-                    <button key={p.label} type="button" onClick={() => { setTareKg(p.kg); setTareLabel(p.label) }}
-                      className="flex flex-col items-center justify-center px-4 py-2.5 flex-1" style={{
-                        minWidth: 92, borderRadius: 10,
-                        background: tareLabel === p.label ? 'var(--accent)' : 'var(--panel)',
-                        border: `1.5px solid ${tareLabel === p.label ? 'var(--accent)' : 'var(--line)'}`,
-                        color: tareLabel === p.label ? '#fff' : 'var(--ink)',
-                      }}>
-                      <span className="font-extrabold text-lg leading-none">{p.label}</span>
-                      <span className="text-[11px] font-bold uppercase" style={{ color: tareLabel === p.label ? 'rgba(255,255,255,.8)' : 'var(--mut)' }}>{fmtKg(p.kg, 0)} kg</span>
-                    </button>
-                  ))}
-                  <button type="button" onClick={() => { setTareKg(0); setTareLabel('bez palety') }}
-                    className="flex flex-col items-center justify-center px-4 py-2.5 flex-1" style={{
-                      minWidth: 92, borderRadius: 10,
-                      background: tareLabel === 'bez palety' ? 'var(--accent)' : 'var(--panel)',
-                      border: `1.5px solid ${tareLabel === 'bez palety' ? 'var(--accent)' : 'var(--line)'}`,
-                      color: tareLabel === 'bez palety' ? '#fff' : 'var(--ink)',
-                    }}>
-                    <span className="font-extrabold text-base leading-none">Bez</span>
-                    <span className="text-[11px] font-bold uppercase" style={{ color: tareLabel === 'bez palety' ? 'rgba(255,255,255,.8)' : 'var(--mut)' }}>0 kg</span>
-                  </button>
+                  {tareOptions.map(o => {
+                    const sel = tareLabel === o.tareLabel
+                    return (
+                      <button key={o.key} type="button" onClick={() => { setTareKg(o.kg); setTareLabel(o.tareLabel) }}
+                        className="flex flex-col items-center justify-center px-4 py-2.5" style={{
+                          flex: '1 1 0', minWidth: 92, borderRadius: 10,
+                          background: sel ? 'var(--accent)' : 'var(--panel)',
+                          border: `1.5px solid ${sel ? 'var(--accent)' : 'var(--line)'}`,
+                          color: sel ? '#fff' : 'var(--ink)',
+                        }}>
+                        <span className="hmi-v10-mono font-extrabold text-lg leading-none">{o.title}</span>
+                        <span className="text-[11px] font-bold uppercase whitespace-nowrap"
+                          style={{ color: sel ? 'rgba(255,255,255,.8)' : 'var(--mut)' }}>{o.sub}</span>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 
@@ -440,7 +437,7 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
                   </div>
                 )}
                 <div className="mt-3 pt-3 flex flex-col gap-1" style={{ borderTop: '1px solid var(--line)' }}>
-                  <div className="flex justify-between text-[12px] font-bold" style={{ color: 'var(--mut)' }}><span>− tara palety {tareLabel ? `(${tareLabel})` : ''}</span><span className="hmi-v10-mono" style={{ color: 'var(--ink)' }}>{tareKg != null ? `−${fmtKg(tareKg, 0)}` : '—'}</span></div>
+                  <div className="flex justify-between text-[12px] font-bold" style={{ color: 'var(--mut)' }}><span>− tara {tareLabel ? `(${tareLabel})` : 'nośnika'}</span><span className="hmi-v10-mono" style={{ color: 'var(--ink)' }}>{tareKg != null ? `−${fmtKg(tareKg, 1)}` : '—'}</span></div>
                   <div className="flex justify-between text-[12px] font-bold" style={{ color: 'var(--mut)' }}><span>− {containers} pojemn. × {fmtKg(E2_TARE_KG, 0)}</span><span className="hmi-v10-mono" style={{ color: 'var(--ink)' }}>{containers > 0 ? `−${fmtKg(containers * E2_TARE_KG, 0)}` : '—'}</span></div>
                   <div className="flex items-baseline justify-between px-3 py-2 mt-1" style={{ borderRadius: 8, background: 'var(--accentSoft)' }}>
                     <span className="text-[11px] font-bold uppercase" style={{ color: 'var(--accent)' }}>Netto</span>
@@ -453,7 +450,7 @@ export function ByproductsWizard({ batch, record, scale, onWeigh, onClose }: {
                   borderRadius: 12, background: canAdd ? 'var(--accent)' : 'var(--panel)',
                   color: canAdd ? '#fff' : 'var(--mut)', border: `1px solid ${canAdd ? 'var(--accent)' : 'var(--line)'}`,
                 }}>
-                {canAdd ? <><Check size={22} /> Dodaj do sumy</> : tareKg == null ? 'Wybierz paletę' : !scale.stable ? 'Czekam na wagę…' : 'Wjedź na wagę'}
+                {canAdd ? <><Check size={22} /> Dodaj do sumy</> : tareKg == null ? 'Wybierz paletę / wózek' : !scale.stable ? 'Czekam na wagę…' : 'Wjedź na wagę'}
               </button>
               {pallets.length > 0 && (
                 <div className="text-center text-sm font-bold" style={{ color: 'var(--mut)' }}>

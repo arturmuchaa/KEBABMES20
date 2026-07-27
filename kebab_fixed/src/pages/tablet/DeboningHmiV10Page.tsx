@@ -1484,6 +1484,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       {/* Kreator ważenia zbiorczego grzbietów i kości. */}
       {wizard && (
         <ByproductsWizard batch={wizard.batch} record={wizard.record} scale={scale}
+          cartTares={cartTares}
           onWeigh={handleWizardWeigh}
           onClose={() => { setWizard(null); byproductsData.refetch() }} />
       )}

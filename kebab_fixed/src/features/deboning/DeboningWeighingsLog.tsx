@@ -226,7 +226,7 @@ function ByproductTable({ rows, sameDay, kind }: {
     <DataTable
       rows={rows} rowKey={w => w.id}
       searchText={w => `${w.rawBatchNo} ${w.tareLabel}`}
-      searchPlaceholder="Szukaj partii lub palety…"
+      searchPlaceholder="Szukaj partii, palety lub wózka…"
       initialSort={{ key: 'weighedAtLocal', dir: 'desc' }}
       empty={<div className="py-8 text-center text-xs text-ink-4">Brak ważeń {label} w tym zakresie</div>}
       footer={rows => {
@@ -252,7 +252,9 @@ function ByproductTable({ rows, sameDay, kind }: {
           ) },
         { key: 'rawBatchNo', header: 'Partia', sortable: true, sortValue: w => w.rawBatchNo, width: 90,
           cell: w => <code className="font-mono font-bold text-brand">{w.rawBatchNo}</code> },
-        { key: 'tareLabel', header: 'Paleta', sortable: true, sortValue: w => w.tareLabel,
+        // Nośnik: paleta H1, wózek z systemu („wózek 6,5") albo bez tary —
+        // operator wybiera go w kreatorze na HMI, tu widać, na czym ważono.
+        { key: 'tareLabel', header: 'Paleta / wózek', sortable: true, sortValue: w => w.tareLabel,
           cell: w => w.tareLabel
             ? <span className="font-semibold text-ink">{w.tareLabel}</span>
             : <span className="text-ink-4">bez palety</span> },
@@ -260,7 +262,7 @@ function ByproductTable({ rows, sameDay, kind }: {
           cell: w => w.kgGross > 0
             ? <span className="tabular-nums text-ink-2">{nf1.format(w.kgGross)}</span>
             : <span className="text-ink-4">—</span> },
-        { key: 'tareKg', header: 'Tara palety [kg]', align: 'right', sortable: true, sortValue: w => w.tareKg,
+        { key: 'tareKg', header: 'Tara nośnika [kg]', align: 'right', sortable: true, sortValue: w => w.tareKg,
           cell: w => w.tareKg > 0
             ? <span className="tabular-nums text-ink-3">{nf1.format(w.tareKg)}</span>
             : <span className="text-ink-4">—</span> },
