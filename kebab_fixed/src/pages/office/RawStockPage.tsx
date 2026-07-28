@@ -54,6 +54,16 @@ export function RawStockPage() {
   const [activeTab, setActiveTab] = useState<Tab>('raw')
   const [trace, setTrace] = useState<StockRow | null>(null)
 
+  // Zaznaczenie do zbiorczej WZ. Trzymane PONAD zakładkami (klucz = id
+  // pozycji magazynowej), bo jeden dokument bierze i kości, i grzbiety —
+  // przełączenie zakładki nie może gubić tego, co już zaznaczone.
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const togglePick = (id: string) => setPicked(prev => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+
   const stock = useMemo(() => (stockData ?? []) as StockRow[], [stockData])
 
   const byTab = useMemo(() => ({
@@ -79,6 +89,34 @@ export function RawStockPage() {
   const rows = byTab[activeTab]
 
   // ── Kolumny per zakładka ──
+  const allPicked = rows.length > 0 && rows.every(r => picked.has(r.id))
+  const colZaznacz: DataColumn<StockRow> = {
+    key: 'pick', width: 40,
+    headClassName: 'text-center', className: 'text-center',
+    header: (
+      <input type="checkbox" aria-label="Zaznacz wszystkie w zakładce"
+        className="h-3.5 w-3.5 cursor-pointer align-middle accent-[var(--brand,#171717)]"
+        checked={allPicked}
+        onChange={() => setPicked(prev => {
+          const next = new Set(prev)
+          // Działa na CAŁEJ zakładce (nie na przefiltrowanym widoku) — licznik
+          // przy przycisku WZ zawsze pokazuje, ile realnie jest zaznaczone.
+          if (allPicked) rows.forEach(r => next.delete(r.id))
+          else rows.forEach(r => next.add(r.id))
+          return next
+        })}
+      />
+    ),
+    // stopPropagation: klik w checkbox nie może otwierać kartoteki partii
+    cell: r => (
+      <input type="checkbox" aria-label={`Zaznacz partię ${r.internal_batch_no}`}
+        className="h-3.5 w-3.5 cursor-pointer align-middle accent-[var(--brand,#171717)]"
+        checked={picked.has(r.id)}
+        onClick={e => e.stopPropagation()}
+        onChange={() => togglePick(r.id)}
+      />
+    ),
+  }
   const colPartia: DataColumn<StockRow> = {
     key: 'batch', header: activeTab === 'backs' || activeTab === 'bones' ? 'Partia ćwiartki' : 'Partia',
     sortable: true, sortValue: r => r.internal_batch_no, width: 130,
@@ -131,14 +169,19 @@ export function RawStockPage() {
     cell: r => <span className="font-semibold text-ink">{r.name}</span>,
   }
 
-  const columns: DataColumn<StockRow>[] =
-    activeTab === 'raw'
+  const columns: DataColumn<StockRow>[] = [
+    colZaznacz,
+    ...(activeTab === 'raw'
       ? [colPartia, colDostawca, colDostepne, colPojemniki, colUboj, colProdukcja('Przyjęcie'), colWaznosc]
       : activeTab === 'meat'
         ? [colPartia, colDostawca, colDostepne, colZarezerwowane, colPoczatkowe, colProdukcja('Produkcja'), colWaznosc]
         : activeTab === 'other'
           ? [colRodzaj, colPartia, colDostawca, colDostepne, colZarezerwowane, colPoczatkowe, colProdukcja('Przyjęcie'), colWaznosc]
-          : [colPartia, colDostawca, colDostepne, colPojemniki, colProdukcja('Ważenie'), colUboj, colWaznosc]
+          : [colPartia, colDostawca, colDostepne, colPojemniki, colProdukcja('Ważenie'), colUboj, colWaznosc]),
+  ]
+
+  const pickedRows = stock.filter(r => picked.has(r.id))
+  const pickedKg = sumKg(pickedRows)
 
   return (
     <div className="space-y-3 animate-fade-in">
@@ -190,10 +233,26 @@ export function RawStockPage() {
           </div>
         }
         actions={
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate('/office/wz/nowy')}>
-            <FileOutput size={14} />
-            Wystaw WZ
-          </Button>
+          pickedRows.length > 0 ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-ink-3 whitespace-nowrap">
+                zaznaczone: <b className="text-ink">{pickedRows.length}</b> · {fmtKg(pickedKg, 1)} kg
+              </span>
+              <Button size="sm" variant="ghost" className="text-xs" onClick={() => setPicked(new Set())}>
+                Wyczyść
+              </Button>
+              <Button size="sm" className="gap-1.5"
+                onClick={() => navigate(`/office/wz/nowy?stock=${pickedRows.map(r => r.id).join(',')}`)}>
+                <FileOutput size={14} />
+                Wystaw WZ z zaznaczonych
+              </Button>
+            </div>
+          ) : (
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate('/office/wz/nowy')}>
+              <FileOutput size={14} />
+              Wystaw WZ
+            </Button>
+          )
         }
         footer={filtered => {
           const kg = sumKg(filtered)

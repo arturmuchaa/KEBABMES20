@@ -90,7 +90,20 @@ export function WzNewPage() {
   useEffect(() => {
     clientsApi.list().then(setClients)
     wzApi.stockFg().then(setFg)
-    wzApi.stockRaw().then(setRaw)
+    wzApi.stockRaw().then(list => {
+      setRaw(list)
+      // Pozycje zaznaczone checkboxami w Magazynie surowca („Wystaw WZ
+      // z zaznaczonych") przyjeżdżają w ?stock=id1,id2 — dokument otwiera się
+      // od razu z nimi, bez przeklikiwania pickera.
+      const ids = new URLSearchParams(window.location.search).get('stock')
+      if (!ids) return
+      const want = new Set(ids.split(',').filter(Boolean))
+      const picked = (list as any[]).filter(b => want.has(b.id))
+      if (picked.length) {
+        addRawMany(picked)   // dedupe w środku — efekt może odpalić dwa razy
+        setTab('raw')
+      }
+    })
     settingsApi.getCompany().then(c => {
       setSeller({
         name: c.name,
@@ -150,7 +163,7 @@ export function WzNewPage() {
   }])
   // Domyślnie CAŁA partia (typowy przypadek); częściowe wydanie = edycja kg
   // w tabeli (np. „600 z 406, reszta nie weszła na samochód").
-  const addRaw = (b: any) => setRows(r => [...r, {
+  const mkRawRow = (b: any): Row => ({
     stockType: b.stock_type || 'raw', stockId: b.id,
     // Pełna nazwa na dokument (doc_name); krótka zostaje w HMI/MES.
     name: b.doc_name || b.name || `Surowiec ${b.internal_batch_no}`,
@@ -162,7 +175,18 @@ export function WzNewPage() {
     expiryDate: b.expiry_date ?? null,
     productionDate: b.production_date ?? null,
     available: Number(b.kg_available || 0),
-  }])
+  })
+  const addRaw = (b: any) => setRows(r => [...r, mkRawRow(b)])
+  /** „Dodaj wszystkie" z grupy (kości/grzbiety/ćwiartka…) — typowe wydanie
+   *  ubocznych bierze CAŁY stan frakcji, klikanie partia po partii to strata
+   *  czasu. Filtr „już dodane" liczony WEWNĄTRZ aktualizacji stanu, więc ani
+   *  podwójny klik, ani dwukrotne wywołanie efektu (StrictMode) nie zdublują
+   *  pozycji na dokumencie. */
+  const addRawMany = (items: any[]) => setRows(r => {
+    const have = new Set(r.map(x => x.stockId))
+    const fresh = items.filter(b => !have.has(b.id))
+    return fresh.length ? [...r, ...fresh.map(mkRawRow)] : r
+  })
   const upd = (i: number, k: 'qtyStr' | 'priceStr' | 'containersStr', v: string) =>
     setRows(r => r.map((x, j) => j === i ? { ...x, [k]: v } : x))
   const del = (i: number) => setRows(r => r.filter((_, j) => j !== i))
@@ -439,6 +463,16 @@ export function WzNewPage() {
                         <div className="px-3 py-1.5 bg-surface-2 border-y border-surface-3 flex items-center gap-2 sticky top-0 z-10">
                           <span className={cn('text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border', g.chip)}>{g.label}</span>
                           <span className="text-[11px] text-muted-foreground">{items.length} poz. · {fmtKg3(sumKg)} kg</span>
+                          {(() => {
+                            const left = items.filter(b => !addedIds.has(b.id))
+                            if (!left.length) return null
+                            return (
+                              <Button variant="outline" size="sm" className="h-6 ml-auto text-[11px] gap-1 shrink-0"
+                                      onClick={() => addRawMany(items)}>
+                                <Plus size={11} /> Dodaj wszystkie ({left.length})
+                              </Button>
+                            )
+                          })()}
                         </div>
                         {items.map(b => {
                           const added = addedIds.has(b.id)
