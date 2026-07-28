@@ -358,6 +358,15 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     total_backs = sum(entry_backs(r) for r in rows) + sum(f(b["backs"]) for b in bp_rows)
     total_bones = sum(entry_bones(r) for r in rows) + sum(f(b["bones"]) for b in bp_rows)
     active_hours = max(1, len({bucket(r) for r in rows})) if rows else 1
+    # Tempo zakładu też po GŁOWACH, nie po stanowiskach — inaczej KPI rosłoby
+    # od samego przepisania kogoś na parę.
+    headcount = sum(
+        max(1, int(c["crew"] or 1))
+        for c in query_all(
+            "SELECT COALESCE(crew_size, 1) AS crew FROM workers WHERE id = ANY(%s)",
+            (list({r["worker_id"] for r in rows if r["worker_id"]}) or [""],),
+        )
+    ) or len({r["worker_id"] for r in rows})
 
     # Dostawca per numer partii — do tabeli uzysku (porównanie dostawców).
     batch_nos = {r["raw_batch_no"] for r in rows if r["raw_batch_no"]} | {
@@ -398,8 +407,16 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     # Robocizna rozbioru: stawka akordowa pracownika za kg POBRANEJ ćwiartki
     # (workers.rate_per_kg — ta sama baza co rozliczenia w płacach).
     rate_by_worker: Dict[str, float] = {}
-    for wr in query_all("SELECT id, COALESCE(rate_per_kg, 0) AS rate FROM workers"):
+    # Obsada stanowiska: część brygady rozbiera we DWOJE, a wpisy idą na jedno
+    # nazwisko — bez tego kg/h takiego stanowiska jest dwukrotnie zawyżone
+    # (lipiec 2026: Anatolii „214 kg/h" to w rzeczywistości 107 na osobę).
+    # Dotyczy WYŁĄCZNIE tempa; kilogramy i uzysk zostają nietknięte.
+    crew_by_worker: Dict[str, int] = {}
+    for wr in query_all(
+        "SELECT id, COALESCE(rate_per_kg, 0) AS rate, COALESCE(crew_size, 1) AS crew FROM workers"
+    ):
         rate_by_worker[wr["id"]] = float(wr["rate"] or 0)
+        crew_by_worker[wr["id"]] = max(1, int(wr["crew"] or 1))
 
     # Średni uzysk KAŻDEJ partii — punkt odniesienia dla oceny pracownika.
     # Bez tego ranking karałby za surowiec, którego nikt nie wybierał: kto
@@ -445,6 +462,7 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     workers = []
     for wid, w in wagg.items():
         ah = max(1, len(w["buckets"]))
+        crew = crew_by_worker.get(wid, 1)
         # Powtarzalność jako NAJSŁABSZY i NAJLEPSZY dzień, nie odchylenie
         # standardowe: „± 0,56 p.p." nie mówi nic ani hali, ani zarządowi,
         # a „od 63,6% do 67,3%" da się sprawdzić palcem w dzienniku ważeń.
@@ -461,7 +479,8 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
             "kgQuarter": round(w["kgQuarter"], 1),
             "kgMeat": round(w["kgMeat"], 1),
             "avgYield": round(w["kgMeat"] / w["kgQuarter"] * 100, 1) if w["kgQuarter"] else 0.0,
-            "kgPerHour": round(w["kgMeat"] / ah, 1),
+            "kgPerHour": round(w["kgMeat"] / ah / crew, 1),
+            "crewSize": crew,
             # Obecność liczona z dni, w których pracownik cokolwiek pobrał —
             # system nie zna grafiku, więc NIE odróżnia urlopu od nieobecności.
             "days": len(w["days"]),
@@ -598,7 +617,10 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
             "kgBones": round(total_bones, 1),
             "avgYield": round(total_meat / total_kgq * 100, 1) if total_kgq else 0.0,
             "workers": len(wagg),
-            "kgPerHour": round(total_meat / active_hours, 1),
+            # Liczba RĄK (para liczy się podwójnie) — mianownik tempa zakładu.
+            "headcount": headcount,
+            "kgPerHour": round(total_meat / active_hours / max(1, headcount), 1)
+            if headcount else round(total_meat / active_hours, 1),
             "backsPct": round(total_backs / total_kgq * 100, 1) if total_kgq else 0.0,
             "bonesPct": round(total_bones / total_kgq * 100, 1) if total_kgq else 0.0,
             # Bilans masy: ćwiartka − (mięso + kości + grzbiety). Dodatni = ubytek

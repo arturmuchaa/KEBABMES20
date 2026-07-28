@@ -23,6 +23,9 @@ import {
 import { batchBiasNotes, potentialPln, workerScorecard } from '@/features/reports/workerScorecard'
 import { executiveBrief, type BriefKind } from '@/features/reports/executiveBrief'
 import { TrendChart } from '@/features/reports/TrendChart'
+import {
+  BONUS_SHARE, individualBonus, standoutWorker, teamBonusLadder,
+} from '@/features/reports/yieldBonus'
 
 const nf0 = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -173,6 +176,10 @@ export function DeboningReportPrintPage() {
   // Dni odstające — wykres pokazuje kształt, ta lista nazywa konkretne dni,
   // żeby dało się je sprawdzić bez czytania wykresu przez lupę.
   const offDays = days.filter(d => Math.abs(d.avgYield - s.avgYield) > 1)
+  const bonusRows = individualBonus(scorecard, s.avgYield, s.meatCostPerKg)
+  const bonusTotal = bonusRows.reduce((a, r) => a + r.bonusPln, 0)
+  const teamLadder = teamBonusLadder(s.kgQuarter, s.avgYield, s.meatCostPerKg)
+  const standout = standoutWorker(scorecard, s.avgYield)
   // Udziały składników kosztu (tylko dodatnie — uboczne pomniejszają cenę,
   // więc nie mają udziału w „z czego się składa").
   const costPlus = (cost?.steps ?? []).filter(x => x.sign === '+')
@@ -601,7 +608,9 @@ export function DeboningReportPrintPage() {
                   : w.yieldRangePp == null ? nf1.format(w.yieldMinDay)
                   : `${nf1.format(w.yieldMinDay)}–${nf1.format(w.yieldMaxDay as number)}`}
               </td>
-              <td style={S.td}>{nf1.format(w.kgPerHour)}</td>
+              <td style={S.td}>
+                {nf1.format(w.kgPerHour)}{w.crewSize > 1 && <span style={{ color: '#777' }}> · para</span>}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -639,7 +648,197 @@ export function DeboningReportPrintPage() {
         <b>Obecność</b> liczona z dni, w których pracownik miał pobranie —
         system nie zna grafiku, więc nie odróżnia urlopu i zwolnienia od nieobecności.
       </p>
+      <p style={S.note}>
+        <b>Kg/h</b> podane NA OSOBĘ. Stanowiska oznaczone „para" rozbierają we dwoje na jedno
+        nazwisko — bez tego podziału ich tempo wyglądałoby na dwukrotnie wyższe. Obsadę ustawia
+        się w panelu pracowników; nie wpływa ani na kilogramy, ani na uzysk, ani na akord.
+      </p>
       </Blok>
+
+      {/* ── Premia za uzysk: dwa warianty do decyzji zarządu ── */}
+      {bonusRows.length > 0 && s.meatCostPerKg != null && (
+        <Blok title="Premia za uzysk — warianty do decyzji" newPage>
+          <p style={S.lead}>
+            Akord płaci za <b>kilogramy pobranej ćwiartki</b>, czyli za tempo. Uzysk — jedyna
+            rzecz, która realnie zmienia koszt kilograma mięsa — nie jest wynagradzany wcale.
+            W tym okresie oznaczało to, że osoba o najwyższym uzysku zarabiała mniej niż osoba
+            o najniższym. Poniżej dwa sposoby, żeby to zmienić, wraz z ceną każdego z nich.
+            Wybór progu i udziału jest decyzją zarządu — system pokazuje skutki, nie rozstrzyga.
+          </p>
+          <p style={S.note}>
+            Obie wersje liczą się od tej samej podstawy: (uzysk − próg) × kg ćwiartki ×{' '}
+            {nf2.format(s.meatCostPerKg)} zł/kg mięsa × udział pracownika{' '}
+            {nf0.format(BONUS_SHARE * 100)}%. Wynik poniżej progu nie jest karany.
+          </p>
+
+          <div style={{ ...S.section, fontSize: 11, borderBottomWidth: 1, marginTop: 14 }}>
+            Wariant A — premia indywidualna (próg: średnia zakładu {nf1.format(s.avgYield)}%)
+          </div>
+          <table style={S.table}>
+            <thead>
+              <tr>
+                <th style={{ ...S.th, textAlign: 'left' }}>Pracownik</th>
+                <th style={S.th}>Ćwiartka [kg]</th>
+                <th style={S.th}>Uzysk [%]</th>
+                <th style={S.th}>± próg [p.p.]</th>
+                <th style={S.th}>Wartość dla firmy [zł]</th>
+                <th style={S.th}>Premia [zł]</th>
+                <th style={S.th}>Zostaje firmie [zł]</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bonusRows.map(r => (
+                <tr key={r.workerId} style={r.excluded ? { color: '#777' } : undefined}>
+                  <td style={{ ...S.tdL, fontWeight: 600 }}>
+                    {r.workerName}
+                    {r.excluded && <span style={{ fontWeight: 400 }}> · próba za mała</span>}
+                  </td>
+                  <td style={S.td}>{nf0.format(r.kgQuarter)}</td>
+                  <td style={{ ...S.td, fontWeight: 700 }}>{nf1.format(r.avgYield)}</td>
+                  <td style={S.td}>
+                    {`${r.deltaPp > 0 ? '+' : r.deltaPp < 0 ? '−' : ''}${nf2.format(Math.abs(r.deltaPp))}`}
+                  </td>
+                  <td style={S.td}>{r.valuePln > 0 ? nfPln.format(r.valuePln) : '—'}</td>
+                  <td style={{ ...S.td, fontWeight: 800 }}>
+                    {r.bonusPln > 0 ? nfPln.format(r.bonusPln) : '—'}
+                  </td>
+                  <td style={S.td}>{r.bonusPln > 0 ? nfPln.format(r.companyPln) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ fontWeight: 800, background: '#efefef' }}>
+                <td style={S.tdL} colSpan={5}>
+                  Razem miesięcznie ({bonusRows.filter(r => r.bonusPln > 0).length} z{' '}
+                  {bonusRows.length} osób)
+                </td>
+                <td style={S.td}>{nfPln.format(bonusTotal)}</td>
+                <td style={S.td}>
+                  {nfPln.format(bonusRows.reduce((a, r) => a + (r.bonusPln > 0 ? r.companyPln : 0), 0))}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+          <p style={S.note}>
+            <b>Do rozważenia:</b> przy tak wąskim rozrzucie brygady premia koncentruje się
+            na jednej osobie
+            {bonusTotal > 0 && bonusRows[0]?.bonusPln > 0 && (
+              <> — {bonusRows[0].workerName} bierze {nf0.format(bonusRows[0].bonusPln / bonusTotal * 100)}%
+              całej puli</>
+            )}, a pozostali dostają kwoty, których nie widać na pasku wypłaty. Próg równy
+            średniej oznacza też, że połowa brygady zawsze jest na zerze, łącznie z osobami
+            0,1 p.p. pod kreską.
+          </p>
+
+          <div style={{ ...S.section, fontSize: 11, borderBottomWidth: 1, marginTop: 14 }}>
+            Wariant B — premia zespołowa (pula dzielona proporcjonalnie do kilogramów)
+          </div>
+          <table style={S.table}>
+            <thead>
+              <tr>
+                <th style={{ ...S.th, textAlign: 'left' }}>Uzysk zakładu</th>
+                <th style={S.th}>Dodatkowe mięso [kg]</th>
+                <th style={S.th}>Korzyść [zł]</th>
+                <th style={S.th}>Pula na brygadę [zł]</th>
+                <th style={S.th}>Zostaje firmie [zł]</th>
+              </tr>
+            </thead>
+            <tbody>
+              {teamLadder.map(step => (
+                <tr key={step.yieldPct}>
+                  <td style={{ ...S.tdL, fontWeight: 700 }}>{nf1.format(step.yieldPct)}%</td>
+                  <td style={S.td}>
+                    +{nf0.format((step.yieldPct - s.avgYield) / 100 * s.kgQuarter)}
+                  </td>
+                  <td style={S.td}>{nfPln.format(step.gainPln)}</td>
+                  <td style={{ ...S.td, fontWeight: 800 }}>{nfPln.format(step.poolPln)}</td>
+                  <td style={S.td}>{nfPln.format(step.companyPln)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p style={S.note}>
+            <b>Do rozważenia:</b> płaci dopiero, gdy CAŁY zakład przekroczy próg, więc każdy ma
+            interes w podciągnięciu sąsiada zamiast w sporze o to, kto dostał lepszą partię.
+            Tu leżą większe pieniądze — ale wynik jednostki rozmywa się w wyniku zespołu.
+          </p>
+
+          {standout && (
+            <>
+              <div style={{ ...S.section, fontSize: 11, borderBottomWidth: 1, marginTop: 14 }}>
+                Wyróżnienie indywidualne — {standout.workerName}
+              </div>
+              <table style={S.table}>
+                <tbody>
+                  <tr>
+                    <td style={{ ...S.tdL, width: '38%' }}>Uzysk / średnia zakładu</td>
+                    <td style={{ ...S.td, fontWeight: 800 }}>
+                      {nf1.format(standout.avgYield)}% / {nf1.format(s.avgYield)}%
+                    </td>
+                    <td style={S.tdL}>
+                      +{nf2.format(standout.deltaPp)} p.p. ponad zakład
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={S.tdL}>Wartość tej przewagi</td>
+                    <td style={{ ...S.td, fontWeight: 800 }}>
+                      {nfPln.format(Math.max(0, standout.deltaPp) / 100 * standout.kgQuarter * s.meatCostPerKg)}
+                    </td>
+                    <td style={S.tdL}>
+                      na jej/jego wolumenie {nf0.format(standout.kgQuarter)} kg
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={S.tdL}>Obecność</td>
+                    <td style={{ ...S.td, fontWeight: 800 }}>
+                      {standout.days}/{prodDays} · {nf0.format(standout.attendancePct)}%
+                    </td>
+                    <td style={S.tdL}>
+                      {standout.fullAttendance ? 'pełna obecność w okresie' : ''}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={S.tdL}>Dni od–do</td>
+                    <td style={{ ...S.td, fontWeight: 800 }}>
+                      {standout.yieldMinDay != null && standout.yieldMaxDay != null
+                        ? `${nf1.format(standout.yieldMinDay)}–${nf1.format(standout.yieldMaxDay)}%`
+                        : '—'}
+                    </td>
+                    <td style={S.tdL}>
+                      {standout.worstDayAbovePlant
+                        ? 'nawet w najsłabszym dniu powyżej średniej zakładu'
+                        : 'wynik powtarzalny, choć nie każdy dzień powyżej średniej'}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={S.tdL}>Potencjał zakładu na tym poziomie</td>
+                    <td style={{ ...S.td, fontWeight: 800 }}>
+                      {nfPln.format(Math.max(0, standout.deltaPp) / 100 * s.kgQuarter * s.meatCostPerKg)}
+                    </td>
+                    <td style={S.tdL}>
+                      miesięcznie, gdyby cała brygada osiągnęła {nf1.format(standout.avgYield)}%
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <p style={S.note}>
+                Wynik potwierdzony na {nf0.format(standout.kgQuarter)} kg ćwiartki
+                w ciągu {standout.days} dni — to nie jest pojedynczy dobry dzień. Najwyższą
+                wartość ma tu nie sama premia, lecz przekazanie techniki reszcie brygady:
+                stawką jest kwota z ostatniego wiersza, wielokrotnie wyższa niż koszt
+                jakiegokolwiek wyróżnienia.
+              </p>
+            </>
+          )}
+          <p style={S.note}>
+            <b>Zanim wejdzie w życie:</b> premia wpisana do regulaminu staje się roszczeniem,
+            także w słabym miesiącu — warto zapisać okres próbny i prawo do zmiany progu.
+            Premia liczona od uzysku tworzy motyw do zaniżania zapisanej ćwiartki; bilans masy
+            partii i dziennik ważeń już to wychwytują (każda porcja ma brutto, tarę i netto),
+            ale zasadę należy ogłosić razem z informacją o tej kontroli.
+          </p>
+        </Blok>
+      )}
 
       {/* ── Dostawcy (gdy więcej niż jeden) ── */}
       {suppliers.length > 1 && (

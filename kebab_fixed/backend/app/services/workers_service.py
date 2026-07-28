@@ -41,8 +41,8 @@ def create_worker(dto: WorkerCreate) -> Dict:
             """
             INSERT INTO workers
                 (id, name, role, pin, pin_hash, departments, active, rate_per_kg,
-                 contract_type, employer_cost_amount, created_at)
-            VALUES (%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s)
+                 contract_type, employer_cost_amount, crew_size, created_at)
+            VALUES (%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s,%s)
             RETURNING *
             """,
             (
@@ -54,6 +54,7 @@ def create_worker(dto: WorkerCreate) -> Dict:
                 dto.rate_per_kg,
                 dto.contract_type,
                 dto.employer_cost_amount,
+                max(1, int(dto.crew_size or 1)),
                 now_iso(),
             ),
         )
@@ -85,6 +86,9 @@ def update_worker(worker_id: str, dto: WorkerUpdate) -> Dict:
         if dto.rate_per_kg is not None:
             fields.append("rate_per_kg=%s")
             vals.append(dto.rate_per_kg)
+        if dto.crew_size is not None:
+            fields.append("crew_size=%s")
+            vals.append(max(1, int(dto.crew_size)))
         if dto.contract_type is not None:
             fields.append("contract_type=%s")
             vals.append(dto.contract_type)

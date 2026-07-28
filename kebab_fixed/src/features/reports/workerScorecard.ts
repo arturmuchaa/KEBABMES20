@@ -35,6 +35,8 @@ export interface ScorecardWorker {
   kgPerHour: number
   days: number
   attendancePct: number
+  /** 2 = para rozbierająca na jedno nazwisko (kg/h już znormalizowane). */
+  crewSize: number
   yieldVsBatchPp: number | null
   /** Najsłabszy i najlepszy dzień pracownika — powtarzalność po ludzku. */
   yieldMinDay: number | null

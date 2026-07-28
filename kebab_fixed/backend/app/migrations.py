@@ -697,6 +697,12 @@ _DDL: list[str] = [
     # więc to ona decyduje, dokąd idzie mięso). Domyślnie 'zs' — przełącznik
     # na HMI nie może zmieniać zachowania zwykłej ścieżki.
     "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS meat_type TEXT NOT NULL DEFAULT 'zs'",
+    # Obsada stanowiska rozbioru: część brygady pracuje we DWOJE, a wpisy idą
+    # na jedno nazwisko. Bez tego surowe kg/h takiego stanowiska jest dwa razy
+    # zawyżone (Anatolii 214 kg/h vs Olha 104 — w rzeczywistości 107 vs 104,
+    # lipiec 2026). Wpływa WYŁĄCZNIE na tempo: kilogramy i uzysk zostają, bo
+    # akord płaci się za kg i zmiana ustawienia w biurze nie może ruszyć płac.
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS crew_size INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE deboning_take_weighings ADD COLUMN IF NOT EXISTS meat_type TEXT NOT NULL DEFAULT 'zs'",
     "ALTER TABLE batch_byproducts ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ",
     "ALTER TABLE batch_byproducts ADD COLUMN IF NOT EXISTS closed_by TEXT",

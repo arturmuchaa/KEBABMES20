@@ -60,7 +60,7 @@ function initials(name: string) {
 
 const ALL_DEPTS = ['rozbior', 'produkcja', 'pakowanie', 'wydanie'] as const
 
-const BLANK_FORM = { login: '', name: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', contractType: 'zlecenie', employerCostAmount: '0', pin: '', departments: [] as string[] }
+const BLANK_FORM = { login: '', name: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', contractType: 'zlecenie', employerCostAmount: '0', pin: '', departments: [] as string[], crewSize: '1' }
 
 export function WorkersPage() {
   const { data, loading, refetch } = useApi(() => usersApi.list())
@@ -76,6 +76,7 @@ export function WorkersPage() {
     ratePerKg: parseFloat(d.ratePerKg) || 0,
     contractType: d.contractType,
     employerCostAmount: parseFloat(d.employerCostAmount) || 0,
+    crewSize: parseInt(d.crewSize, 10) || 1,
   }))
   const updateMut = useMutation((d: { id: string } & typeof editForm) =>
     usersApi.update(d.id, {
@@ -85,6 +86,7 @@ export function WorkersPage() {
       ratePerKg: parseFloat(d.ratePerKg) || 0,
       contractType: d.contractType,
       employerCostAmount: parseFloat(d.employerCostAmount) || 0,
+      crewSize: parseInt(d.crewSize, 10) || 1,
     })
   )
 
@@ -120,6 +122,7 @@ export function WorkersPage() {
       name: u.name,
       role: u.role,
       ratePerKg: String((u as any).ratePerKg ?? (u as any).rate_per_kg ?? 0),
+      crewSize: String((u as any).crewSize ?? (u as any).crew_size ?? 1),
       contractType: (u as any).contractType ?? (u as any).contract_type ?? 'zlecenie',
       employerCostAmount: String((u as any).employerCostAmount ?? (u as any).employer_cost_amount ?? 0),
       pin: '',
@@ -335,7 +338,7 @@ export function WorkersPage() {
 
 // ─── Reusable form component ──────────────────────────────────
 function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles }: {
-  form: { login: string; name: string; role: string; ratePerKg: string; contractType: string; employerCostAmount: string; pin: string; departments: string[] }
+  form: { login: string; name: string; role: string; ratePerKg: string; contractType: string; employerCostAmount: string; pin: string; departments: string[]; crewSize: string }
   setForm: React.Dispatch<React.SetStateAction<any>>
   onRoleChange: (role: string) => void
   onNameChange: (name: string) => void
@@ -407,6 +410,25 @@ function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles
               <Input type="number" step="0.01" min="0"
                 value={form.ratePerKg}
                 onChange={e => setForm((f: any) => ({ ...f, ratePerKg: e.target.value }))} />
+            </div>
+            {/* Obsada stanowiska — część brygady rozbiera we dwoje na jedno
+                nazwisko. Bez tego kg/h takiego stanowiska w raporcie jest
+                dwukrotnie zawyżone. Nie dotyka akordu ani uzysku. */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Obsada stanowiska</Label>
+              <div className="flex gap-2">
+                {[{ v: '1', l: 'Pracuje sam' }, { v: '2', l: 'Pracuje w parze' }].map(opt => (
+                  <button key={opt.v} type="button"
+                    onClick={() => setForm((f: any) => ({ ...f, crewSize: opt.v }))}
+                    className={`flex-1 py-2 rounded-xl border-2 text-sm font-semibold transition-all ${form.crewSize === opt.v ? 'border-primary bg-primary text-white' : 'border-border text-muted-foreground hover:border-primary/40'}`}>
+                    {opt.l}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                „W parze" = dwie osoby rozbierają, a wpisy idą na to jedno nazwisko.
+                Dzieli tempo kg/h w raporcie przez dwa; kilogramy, uzysk i akord bez zmian.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Rodzaj umowy</Label>

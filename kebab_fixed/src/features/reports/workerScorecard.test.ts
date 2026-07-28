@@ -7,7 +7,7 @@ const PLANT = 65.75
 
 const w = (over: Partial<ScorecardWorker> = {}): ScorecardWorker => ({
   workerId: 'w1', workerName: 'OLHA', quarters: 40, kgQuarter: 9825, kgMeat: 6553,
-  avgYield: 66.7, kgPerHour: 210, days: 17, attendancePct: 100,
+  avgYield: 66.7, kgPerHour: 210, days: 17, attendancePct: 100, crewSize: 1,
   yieldVsBatchPp: 0.97, yieldMinDay: 65.2, yieldMaxDay: 68.0, yieldRangePp: 2.8, ...over,
 })
 

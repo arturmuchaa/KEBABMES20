@@ -363,6 +363,9 @@ export const deboningApi = {
 export interface DeboningStatsWorker {
   workerId: string; workerName: string; quarters: number
   kgQuarter: number; kgMeat: number; avgYield: number; kgPerHour: number
+  /** Ile osób pracuje na tym stanowisku (2 = para na jedno nazwisko).
+   *  Normalizuje kg/h — nie dotyka kilogramów ani uzysku. */
+  crewSize: number
   /** Dni z pobraniem. System nie zna grafiku — NIE odróżnia urlopu od nieobecności. */
   days: number
   attendancePct: number
@@ -404,6 +407,8 @@ export interface DeboningStats {
     missingKg: number; missingPct: number
     /** Dni, w których cokolwiek rozbierano — mianownik obecności pracownika. */
     prodDays: number
+    /** Liczba RĄK (para liczy się podwójnie) — mianownik tempa zakładu. */
+    headcount: number
     /** Rachunek rozbioru (partie ze znaną ceną zakupu); koszt mięsa Z robocizną. */
     quarterCost: number | null; byproductRevenue: number | null
     laborCost: number | null; meatCostPerKg: number | null
@@ -672,9 +677,9 @@ export const clientsApi = {
 // ─── Pracownicy ───────────────────────────────────────────────
 export const usersApi = {
   list:   () => get<User[]>('/workers'),
-  create: (dto: { name: string; role: string; pin?: string; departments?: string[]; ratePerKg?: number; contractType?: string; employerCostAmount?: number }) =>
+  create: (dto: { name: string; role: string; pin?: string; departments?: string[]; ratePerKg?: number; contractType?: string; employerCostAmount?: number; crewSize?: number }) =>
     post<User>('/workers', toSnake(dto)),
-  update: (id: string, dto: { name?: string; role?: string; pin?: string; departments?: string[]; ratePerKg?: number; contractType?: string; employerCostAmount?: number; active?: boolean }) =>
+  update: (id: string, dto: { name?: string; role?: string; pin?: string; departments?: string[]; ratePerKg?: number; contractType?: string; employerCostAmount?: number; active?: boolean; crewSize?: number }) =>
     put<User>(`/workers/${id}`, toSnake(dto)),
 }
 

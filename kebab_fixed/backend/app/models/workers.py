@@ -11,6 +11,9 @@ class WorkerCreate(BaseModel):
     contract_type: str = "zlecenie"
     employer_cost_amount: float = 0.0
     departments: List[str] = []
+    #: Ile osób pracuje na tym stanowisku (2 = para rozbierająca na jedno
+    #: nazwisko). Wpływa WYŁĄCZNIE na tempo kg/h w raporcie — nie na akord.
+    crew_size: int = 1
 
 
 class WorkerUpdate(BaseModel):
@@ -22,6 +25,7 @@ class WorkerUpdate(BaseModel):
     employer_cost_amount: Optional[float] = None
     active: Optional[bool] = None
     departments: Optional[List[str]] = None
+    crew_size: Optional[int] = None
 
 
 class SettlementDeductionDto(BaseModel):
