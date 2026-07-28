@@ -82,6 +82,10 @@ export function WzNewPage() {
   const [place, setPlace]             = useState('')
   const [notes, setNotes]             = useState('')
 
+  // Odbiorca zajmował pół ekranu przez cały czas wystawiania, a wypełnia się
+  // raz — po wybraniu klienta zwija się do jednej linii, żeby lista magazynu
+  // (w niej się pracuje) dostała tę wysokość.
+  const [buyerEdit, setBuyerEdit] = useState(false)
   const [preview, setPreview] = useState(false)
   const [saving, setSaving]   = useState(false)
   const [err, setErr]         = useState('')
@@ -128,6 +132,9 @@ export function WzNewPage() {
   }
   useEffect(() => { if (currency === 'EUR' && !eurRateStr) fetchNbpRate() }, [currency])  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Formularz odbiorcy widoczny, dopóki nie ma nazwy (nowy dokument) albo gdy
+  // użytkownik świadomie go rozwinął.
+  const buyerFormOpen = buyerEdit || !buyer.name.trim()
   const selectedClient = useMemo(() => clients.find(c => c.id === clientId), [clients, clientId])
   const clientName = (selectedClient?.name || selectedClient?.displayName || '').trim()
 
@@ -141,11 +148,14 @@ export function WzNewPage() {
     setClientId(id)
     setStockView('client')
     const c = clients.find(x => x.id === id)
-    if (c) setBuyer({
-      name: c.name || c.displayName || '',
-      address: `${c.address || ''} ${c.city || ''}`.trim(),
-      nip: c.nip || '',
-    })
+    if (c) {
+      setBuyer({
+        name: c.name || c.displayName || '',
+        address: `${c.address || ''} ${c.city || ''}`.trim(),
+        nip: c.nip || '',
+      })
+      setBuyerEdit(false)   // dane kompletne → zwiń, miejsce idzie na magazyn
+    }
   }
 
   const fgName = (g: any) => {
@@ -346,14 +356,28 @@ export function WzNewPage() {
         {/* ── Lewa kolumna: odbiorca + pozycje ── */}
         <div className="space-y-4 min-w-0">
           <Card>
-            <div className="px-4 py-2.5 border-b flex items-center justify-between">
+            <div className="px-4 py-2.5 border-b flex items-center gap-3 flex-wrap">
               <span className="text-[13px] font-semibold">Odbiorca</span>
               {buyer.nip && (
                 foreign
                   ? <Badge variant="warning" className="text-[10px]">Zagraniczny — wymagany CMR (SP-2c) + HDI</Badge>
                   : <Badge variant="info" className="text-[10px]">Krajowy — wymagany WZ + HDI</Badge>
               )}
+              {!buyerFormOpen && (
+                <Button variant="ghost" size="sm" className="h-7 text-[11px] ml-auto"
+                        onClick={() => setBuyerEdit(true)}>
+                  Zmień odbiorcę
+                </Button>
+              )}
             </div>
+            {!buyerFormOpen ? (
+              // Zwinięty odbiorca: wszystko, co idzie na dokument, w jednej linii.
+              <CardContent className="px-4 py-2.5 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                <span className="text-[13px] font-semibold text-ink">{buyer.name}</span>
+                {buyer.nip && <span className="text-[12px] font-mono text-ink-3">{buyer.nip}</span>}
+                {buyer.address && <span className="text-[12px] text-ink-3">{buyer.address}</span>}
+              </CardContent>
+            ) : (
             <CardContent className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-1.5 md:col-span-2">
                 <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -384,7 +408,15 @@ export function WzNewPage() {
                 <Input className="h-9" placeholder="Ulica, kod, miasto" value={buyer.address}
                        onChange={e => setBuyer({ ...buyer, address: e.target.value })} />
               </div>
+              {buyer.name.trim() && (
+                <div className="md:col-span-2 flex justify-end">
+                  <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => setBuyerEdit(false)}>
+                    Zwiń dane odbiorcy
+                  </Button>
+                </div>
+              )}
             </CardContent>
+            )}
           </Card>
 
           <Card>
@@ -420,7 +452,10 @@ export function WzNewPage() {
                        value={query} onChange={e => setQuery(e.target.value)} />
               </div>
 
-              <div className="border rounded-md max-h-72 overflow-y-auto divide-y">
+              {/* Lista magazynu to główne pole pracy przy wystawianiu — rośnie
+                  z ekranem (dawne sztywne max-h-72 = 288 px zmuszało do
+                  ciągłego przewijania przy 7 partiach kości i 3 grzbietów). */}
+              <div className="border rounded-md min-h-[320px] max-h-[52vh] overflow-y-auto divide-y">
                 {tab === 'fg' && fgFiltered.map(g => {
                   const added = addedIds.has(g.id)
                   return (
@@ -477,20 +512,21 @@ export function WzNewPage() {
                         {items.map(b => {
                           const added = addedIds.has(b.id)
                           return (
-                            <div key={b.id} className="px-3 py-2 flex items-center gap-3 hover:bg-muted/50 border-b border-surface-3 last:border-b-0">
+                            <div key={b.id} className="px-3 py-2.5 flex items-center gap-3 hover:bg-muted/50 border-b border-surface-3 last:border-b-0">
                               <div className="flex-1 min-w-0">
-                                <div className="text-[13px] font-medium truncate flex items-center gap-2">
+                                <div className="text-[14px] font-medium truncate flex items-center gap-2">
                                   <span className="font-mono font-bold text-green-700 bg-green-50 border border-green-200 rounded px-1.5">{b.internal_batch_no}</span>
                                   <span className="truncate">{b.name || 'Surowiec'}</span>
                                 </div>
-                                <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                                <div className="text-[12px] text-muted-foreground flex items-center gap-2 mt-0.5">
                                   <span className="font-semibold text-ink-2">{fmtKg3(Number(b.kg_available || 0))} kg dostępne</span>
+                                  {b.containers ? <span>· {b.containers} poj.</span> : null}
                                   {b.supplier_name && <span className="truncate">· {b.supplier_name}</span>}
                                 </div>
                               </div>
-                              <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1 shrink-0"
+                              <Button variant="outline" size="sm" className="h-8 text-[12px] gap-1 shrink-0"
                                       disabled={added} onClick={() => addRaw(b)}>
-                                {added ? 'Dodano' : <><Plus size={12} /> Dodaj</>}
+                                {added ? 'Dodano' : <><Plus size={13} /> Dodaj</>}
                               </Button>
                             </div>
                           )
