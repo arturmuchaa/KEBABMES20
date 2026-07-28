@@ -24,6 +24,7 @@ import {
   splitEntriesByStatus, entryTime, decideTakeSave, takenOnProductionDay,
   takeProgress, YIELD_NORM_PCT, yieldNorm, type TakeProgress, type MeatType,
 } from '@/features/deboning/utils'
+import { workerTakeState, type QueuedTake, type WorkerTakeState } from '@/features/deboning/utils/workerTakeQueue'
 import { useScale } from '@/features/deboning/useScale'
 import {
   computeWeighing, sanitizeCartTares, CART_TARES_KG, E2_TARE_KG, KG_PER_E2_MIN, KG_PER_E2_MAX,
@@ -244,18 +245,22 @@ const PendingBatchTile = memo(function PendingBatchTile({ rec, onOpen }: {
 })
 
 // ─── Kafel pracownika ──────────────────────────────────────────────
-const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, pendingKg, pendingWeighedKg, pendingBatchNo, pendingBs, blocked, disabled, onSelect, onLongPress }: {
+const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, pendingKg, pendingWeighedKg, pendingBatchNo, pendingKind, otherKindKg, otherKind, blocked, disabled, onSelect, onLongPress }: {
   worker: User; selected: boolean; entryCount: number; kgToday: number
-  /** Otwarte pobranie ćwiartki (kg) — kafel pokazuje „czeka na zważenie",
-   *  a klik od razu wraca do domknięcia mięsem. */
+  /** Otwarte pobranie ćwiartki (kg) RODZAJU ustawionego na suwaku — kafel
+   *  pokazuje „czeka na zważenie", a klik wraca do domknięcia mięsem. */
   pendingKg?: number
   /** Suma porcji z częściowych ważeń — kafel pokazuje „zważono X/Y kg". */
   pendingWeighedKg?: number
   /** Numer partii otwartego pobrania — mięso wraca pod TĘ partię. */
   pendingBatchNo?: string
-  /** W kolejce pracownika jest też pobranie b/s — kafel to pokazuje, żeby
-   *  operator wiedział, że wiszą dwie różne rzeczy do zważenia. */
-  pendingBs?: boolean
+  /** Rodzaj pokazywanego pobrania — przy b/s kafel woła to głośno, bo to
+   *  rzadkość i operator musi widzieć, że suwak zmienia, co ma przed sobą. */
+  pendingKind?: MeatType
+  /** Ile kg czeka w DRUGIM rodzaju — znacznik, żeby o nim nie zapomnieć
+   *  (Anatoli może mieć naraz 150 kg z/s i 15 kg b/s). */
+  otherKindKg?: number
+  otherKind?: MeatType
   /** Wybrana jest INNA partia niż pobranie — kafel przygaszony (klik = toast). */
   blocked?: boolean
   /** Partia wybrana jest w całości rozdana (czeka tylko na mięso) i TEN
@@ -288,14 +293,19 @@ const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount
       {pendingKg != null ? (
         <span className="text-[10px] font-bold uppercase text-center leading-tight px-1 py-0.5 w-full"
           style={{ borderRadius: 6, background: selected ? 'rgba(255,255,255,.2)' : 'var(--ambSoft)', color: selected ? '#fff' : 'var(--amb)', letterSpacing: '.02em' }}>
-          ⏳ {pendingBatchNo ? `${pendingBatchNo} · ` : 'czeka '}
+          ⏳ {pendingKind === 'bs' ? 'B/S · ' : ''}{pendingBatchNo ? `${pendingBatchNo} · ` : 'czeka '}
           {(pendingWeighedKg ?? 0) > 0
             ? `zważono ${fmtKg(pendingWeighedKg ?? 0, 0)}/${fmtKg(pendingKg ?? 0, 0)} kg`
             : `${fmtKg(pendingKg, 1)} kg`}
-          {pendingBs && <span className="ml-1">+ B/S</span>}
         </span>
       ) : kgToday > 0 && (
         <span className="hmi-v10-mono text-[11px] font-bold" style={{ color: selected ? 'rgba(255,255,255,.75)' : 'var(--mut)' }}>{fmtKg(kgToday, 0)} kg</span>
+      )}
+      {otherKindKg != null && otherKindKg > 0 && (
+        <span className="hmi-v10-mono absolute top-2 left-2 h-5 px-1.5 rounded-full flex items-center justify-center text-[9px] font-bold"
+          style={{ background: selected ? 'rgba(255,255,255,.25)' : 'var(--ambSoft)', color: selected ? '#fff' : 'var(--amb)' }}>
+          +{fmtKg(otherKindKg, 0)} {otherKind === 'bs' ? 'B/S' : 'Z/S'}
+        </span>
       )}
       {entryCount > 0 && (
         <span className="hmi-v10-mono absolute top-2 right-2 min-w-[22px] h-6 px-1.5 rounded-full flex items-center justify-center text-xs font-bold"
@@ -958,34 +968,26 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     }
     setSelBatch(b); setKgTaken(''); setKgMeat(''); setActive('taken')
   }, [resumeId])
-  // Otwarte pobrania per pracownik — info „czeka na zważenie" siedzi na
-  // KAFELKU pracownika (decyzja z hali 2026-07-09), nie w osobnej sekcji.
-  const pendingByWorker = useMemo(() => {
-    // Najstarsze otwarte pobranie per pracownik + SUMA kg + PARTIE pobrań
-    // (system musi pamiętać, z której partii wydano ćwiartkę — mięso wraca
-    // na wagę pod TĘ partię, nie pod aktualnie wybraną).
-    const m = new Map<string, { entry: DeboningEntry; totalKg: number; weighedKg: number; batchIds: Set<string>; batchNos: string[] }>()
-    for (const e of pendingTakes) {
-      const wid = (e as any).workerId
-      if (!wid) continue
-      const bid = (e as any).rawBatchId as string
-      const bno = String((e as any).rawBatchNo ?? '')
-      const cur = m.get(wid)
-      if (cur) {
-        cur.totalKg += Number((e as any).kgTaken || 0)
-        cur.weighedKg += Number((e as any).kgMeatWeighed || 0)
-        if (bid) cur.batchIds.add(bid)
-        if (bno && !cur.batchNos.includes(bno)) cur.batchNos.push(bno)
-      } else {
-        m.set(wid, {
-          entry: e, totalKg: Number((e as any).kgTaken || 0),
-          weighedKg: Number((e as any).kgMeatWeighed || 0),
-          batchIds: new Set(bid ? [bid] : []), batchNos: bno ? [bno] : [],
-        })
-      }
-    }
+  // Kolejka pobrań widziana przez pryzmat suwaka Z/S↔B/S: przy B/S kafelek
+  // pokazuje pobranie b/s (np. 15 kg), a otwarte 150 kg z/s tego samego
+  // pracownika NIE blokuje dołożenia b/s (zgłoszenie z hali 28.07).
+  const queuedTakes = useMemo<QueuedTake[]>(
+    () => pendingTakes.map(p => ({
+      id: p.id,
+      workerId: String((p as any).workerId ?? ''),
+      rawBatchId: String((p as any).rawBatchId ?? ''),
+      rawBatchNo: String((p as any).rawBatchNo ?? ''),
+      kgTaken: Number((p as any).kgTaken || 0),
+      kgMeatWeighed: Number((p as any).kgMeatWeighed || 0),
+      meatType: (p as any).meatType ?? 'zs',
+    })),
+    [pendingTakes])
+
+  const takeStateByWorker = useMemo(() => {
+    const m = new Map<string, WorkerTakeState>()
+    for (const w of workers) m.set(w.id, workerTakeState(queuedTakes, w.id, meatType, selBatch?.id ?? null))
     return m
-  }, [pendingTakes])
+  }, [queuedTakes, workers, meatType, selBatch])
 
   // Edycja otwartego pobrania — przytrzymanie kafelka pracownika z „⏳ czeka".
   const [takeEdit, setTakeEdit] = useState<{ entry: DeboningEntry; value: string } | null>(null)
@@ -1026,30 +1028,27 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     // Pomyłka nie może blokować ekranu: klik w innego pracownika wychodzi
     // z trybu domykania (pobranie zostaje na kafelku) i wybiera normalnie;
     // pracownik z otwartym pobraniem wchodzi w domknięcie mięsem.
-    // Pilne zamówienie na b/s wchodzi MIMO otwartego z/s: szukamy pobrania
-    // w rodzaju, który jest teraz ustawiony na przełączniku. Brak takiego =
-    // normalne nowe pobranie, więc pracownik ma w kolejce dwie pozycje
-    // (z/s + b/s), zamiast blokady kafla (zgłoszenie z hali 28.07).
-    const sameKind = pendingTakes.filter(p =>
-      (p as any).workerId === w.id && (((p as any).meatType ?? 'zs') === meatType))
-    const pending = sameKind.length ? pendingByWorker.get(w.id) : undefined
-    if (pending) {
-      // Mięso wraca pod partię POBRANIA. Przy wybranej INNEJ partii pracownik
-      // jest zablokowany — operator nie może omyłkowo zważyć mięsa z 408 pod
-      // 409 (prod 2026-07-10). Bez wybranej partii lub przy zgodnej: domknięcie.
-      if (selBatch && !pending.batchIds.has(selBatch.id)) {
-        showToast(`${w.name} czeka z mięsem z partii ${pending.batchNos.join(', ')} — wybierz partię ${pending.batchNos[0]}, żeby zważyć`, 'err')
-        return
-      }
-      const entryForBatch = selBatch
-        ? (sameKind.find(p => (p as any).rawBatchId === selBatch.id) as DeboningEntry | undefined)
-        : undefined
-      resumeTake(entryForBatch ?? (sameKind[0] as DeboningEntry) ?? pending.entry)
+    // O tym, KTÓRE pobranie widzi operator, decyduje suwak Z/S↔B/S — patrz
+    // utils/workerTakeQueue (ta sama funkcja maluje kafelek).
+    const st = takeStateByWorker.get(w.id)
+    if (st?.action === 'wrong-batch') {
+      showToast(`${w.name} czeka z mięsem z partii ${(st.wrongBatchNos ?? []).join(', ')} — wybierz partię ${(st.wrongBatchNos ?? [])[0]}, żeby zważyć`, 'err')
+      return
+    }
+    if (st?.action === 'resume' && st.resumeEntryId) {
+      const e = pendingTakes.find(p => p.id === st.resumeEntryId) as DeboningEntry | undefined
+      if (e) { resumeTake(e); return }
+    }
+    // Nowe pobranie. Na WYCZERPANEJ partii nie ma z czego pobrać — bez tego
+    // komunikatu operator w trybie B/S klikałby w szary kafel bez reakcji.
+    if (batchWaitingOnlyForMeat && selBatch) {
+      showToast(`Partia ${selBatch.internalBatchNo} jest już cała rozdana — wybierz inną partię, żeby pobrać ${meatType === 'bs' ? 'b/s' : 'ćwiartkę'}`, 'err')
       return
     }
     if (resumeId) { setResumeId(null); setMeatManual(false) }
     setSelWorker(w); setKgTaken(''); setKgMeat(''); setActive('taken')
-  }, [resumeId, pendingByWorker, resumeTake, selBatch, pendingTakes, meatType, showToast])
+  }, [resumeId, takeStateByWorker, resumeTake, selBatch, pendingTakes, meatType,
+      batchWaitingOnlyForMeat, showToast])
 
   async function handleStartDay() {
     const err = await startDay()
@@ -1168,7 +1167,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setPartialPrompt(null)
     setResumeId(null)
     setMeatDriveOff(DRIVE_OFF_IDLE)
-    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false); setMeatType('zs')
+    // Pobranie ZOSTAJE otwarte — suwak musi zostać na jego rodzaju, inaczej
+    // powrót do Z/S zdejmuje to pobranie z kafelka i wygląda, jakby zniknęło.
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
     showToast(`Zapisano ${fmtKg(portion, 1)} kg — razem ${fmtKg(resumeWeighedKg + portion, 1)}/${fmtKg(takenNow, 1)} kg, pobranie otwarte`)
     flashSaveSummary({
       batchNo: selBatch?.internalBatchNo ?? '', workerName: selWorker?.name ?? '',
@@ -1187,10 +1188,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     return all.find(x => x.id === s.batchId) ?? (selBatch?.id === s.batchId ? selBatch : null)
   }
 
-  function clearAfterDriveOff() {
+  /** keepKind: pobranie zostaje OTWARTE (porcja) — suwak zostaje na jego
+   *  rodzaju, żeby pobranie nie zniknęło z kafelka po powrocie do Z/S. */
+  function clearAfterDriveOff(keepKind = false) {
     setMeatDriveOff(DRIVE_OFF_IDLE)
     setResumeId(null)
-    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false); setMeatType('zs')
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    if (!keepKind) setMeatType('zs')
     setSaveFlash(true)
     if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
     saveFlashRef.current = setTimeout(() => setSaveFlash(false), 350)
@@ -1201,7 +1205,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (!session || !s.resumeId) return
     const err = await weighPart(s.resumeId, meatSaveDto(s), session)
     if (err) { showToast(err, 'err'); return } // okno zostaje — operator ponawia
-    clearAfterDriveOff()
+    clearAfterDriveOff(true)
     showToast(`Zapisano ${fmtKg(s.netKg, 1)} kg — razem ${fmtKg(s.weighedSoFarKg + s.netKg, 1)}/${fmtKg(s.takenKg, 1)} kg, pobranie otwarte`)
     flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.weighedSoFarKg + s.netKg, kind: 'partial', meatType })
   }
@@ -1251,7 +1255,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (!created) { showToast('Pobranie zapisane — zważ porcję z kafelka pracownika', 'err'); setMeatDriveOff(DRIVE_OFF_IDLE); return }
     const err = await weighPart(created.id, meatSaveDto(s), session)
     if (err) { showToast(err, 'err'); setMeatDriveOff(DRIVE_OFF_IDLE); return }
-    clearAfterDriveOff()
+    clearAfterDriveOff(true)
     batchData.refetch()
     showToast(`Zapisano ${fmtKg(s.netKg, 1)} kg z ${fmtKg(s.takenKg, 1)} kg — pobranie zostaje otwarte`)
     flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.netKg, kind: 'partial', meatType })
@@ -1654,9 +1658,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         const wt = wEntries.reduce((s, e) => s + e.kgTaken, 0)
         const wm = wEntries.reduce((s, e) => s + e.kgMeat, 0)
         const wy = wt > 0 ? (wm / wt) * 100 : 0
-        // Otwarte pobranie pracownika — statystyki i zmiana pobrania w JEDNYM modalu
+        // Otwarte pobrania pracownika — statystyki i zmiana pobrania w JEDNYM modalu
         // (wcześniej long-press przy pending otwierał od razu edycję i statystyk nie było).
-        const pnd = pendingByWorker.get(workerDetail.id)
+        // KAŻDE osobno, bo pracownik może mieć naraz z/s i b/s — jedna zbiorcza
+        // linia pokazywałaby sumę i edytowała nie to pobranie, co trzeba.
+        const wPending = pendingTakes.filter(p => (p as any).workerId === workerDetail.id) as DeboningEntry[]
         return (
           <div className="fixed inset-0 z-[56] flex items-center justify-center bg-black/45" style={VARS}>
             <div className="w-[720px] max-w-[96vw] flex flex-col" style={{ maxHeight: '92vh', borderRadius: 16, background: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', boxShadow: '0 30px 80px -30px rgba(0,0,0,.5)' }}>
@@ -1673,26 +1679,27 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 <button type="button" onClick={() => { setWorkerDetail(null); setEditEntryId(null) }} className="w-9 h-9 flex items-center justify-center" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}><X size={18} /></button>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-2">
-                {pnd && (
-                  <div className="flex items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--ambSoft)', border: '1.5px solid var(--ambLine)' }}>
+                {wPending.map(p => (
+                  <div key={p.id} className="flex items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--ambSoft)', border: '1.5px solid var(--ambLine)' }}>
                     <span className="text-2xl">⏳</span>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-extrabold" style={{ color: 'var(--amb)' }}>
-                        Otwarte pobranie — czeka na zważenie mięsa
+                        Otwarte pobranie {((p as any).meatType ?? 'zs') === 'bs' ? 'B/S' : 'Z/S'} — czeka na zważenie mięsa
                       </div>
                       <div className="hmi-v10-mono text-[12px] font-bold" style={{ color: 'var(--mut)' }}>
-                        {fmtKg(pnd.totalKg, 1)} kg ćwiartki · partia {pnd.batchNos.join(', ')}
+                        {fmtKg(p.kgTaken, 1)} kg ćwiartki · partia {p.rawBatchNo}
+                        {Number((p as any).kgMeatWeighed || 0) > 0 && ` · zważono ${fmtKg(Number((p as any).kgMeatWeighed), 1)} kg`}
                       </div>
                     </div>
                     <button type="button"
-                      onClick={() => { setTakeEdit({ entry: pnd.entry, value: String(pnd.entry.kgTaken) }); setWorkerDetail(null); setEditEntryId(null) }}
+                      onClick={() => { setTakeEdit({ entry: p, value: String(p.kgTaken) }); setWorkerDetail(null); setEditEntryId(null) }}
                       className="h-11 px-5 text-sm font-bold flex-shrink-0"
                       style={{ borderRadius: 10, background: 'var(--amb)', color: '#fff' }}>
                       Zmień pobranie
                     </button>
                   </div>
-                )}
-                {wEntries.length === 0 && !pnd && <div className="text-center py-8 text-sm font-semibold" style={{ color: 'var(--mut)' }}>Brak wpisów dziś</div>}
+                ))}
+                {wEntries.length === 0 && wPending.length === 0 && <div className="text-center py-8 text-sm font-semibold" style={{ color: 'var(--mut)' }}>Brak wpisów dziś</div>}
                 {wEntries.map(e => editEntryId === e.id ? (
                   <div key={e.id} className="flex items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
                     <span className="hmi-v10-mono text-xs" style={{ color: 'var(--mut)' }}>{new Date(entryTime(e)).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -1890,6 +1897,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               Najpierw wybierz partię ↑
             </div>
           )}
+          {/* Suwak na B/S zmienia, CO pokazują kafelki (pobrania b/s zamiast
+              z/s) — bez tego paska operator widzi „zniknięte" pobrania. */}
+          {meatType === 'bs' && (
+            <div className="flex-shrink-0 mb-2 px-3 py-2 text-[12px] font-bold uppercase text-center" style={{ borderRadius: 8, background: 'var(--ambSoft)', color: 'var(--amb)', border: '1px solid var(--ambLine)', letterSpacing: '.04em' }}>
+              Tryb B/S — kafelki pokazują pobrania bez skóry
+            </div>
+          )}
           {workerData.loading
             ? <div className="flex items-center justify-center h-full"><Spinner size={32} /></div>
             : (
@@ -1897,18 +1911,20 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(126px, 1fr))', gap: 10, alignContent: 'start' }}>
                 {workers.map(w => {
                   const ws = perWorker.get(w.id)
+                  // Kafelek pokazuje pobranie RODZAJU z suwaka; drugi rodzaj
+                  // zostaje jako mały znacznik, żeby operator o nim pamiętał.
+                  const st = takeStateByWorker.get(w.id)
                   return (
                     <WorkerTileV10 key={w.id} worker={w} selected={selWorker?.id === w.id}
                       entryCount={ws?.count ?? 0} kgToday={ws?.taken ?? 0}
-                      pendingKg={pendingByWorker.get(w.id)?.totalKg}
-                      pendingWeighedKg={pendingByWorker.get(w.id)?.weighedKg}
-                      pendingBatchNo={pendingByWorker.get(w.id)?.batchNos.join(', ')}
-                      pendingBs={pendingTakes.some(p => (p as any).workerId === w.id && ((p as any).meatType ?? 'zs') === 'bs')}
-                      blocked={(() => {
-                        const pnd = pendingByWorker.get(w.id)
-                        return !!pnd && !!selBatch && !pnd.batchIds.has(selBatch.id)
-                      })()}
-                      disabled={batchWaitingOnlyForMeat && !pendingByWorker.get(w.id)?.batchIds.has(selBatch!.id)}
+                      pendingKg={st?.pendingKg}
+                      pendingWeighedKg={st?.pendingWeighedKg}
+                      pendingBatchNo={(st?.pendingBatchNos ?? []).join(', ')}
+                      pendingKind={st?.pendingKg != null ? meatType : undefined}
+                      otherKindKg={st?.otherKindKg}
+                      otherKind={meatType === 'bs' ? 'zs' : 'bs'}
+                      blocked={st?.blocked}
+                      disabled={batchWaitingOnlyForMeat && st?.action === 'new'}
                       onSelect={pickWorker}
                       onLongPress={(wk) => { setWorkerDetail(wk); setEditEntryId(null) }} />
                   )
@@ -1986,7 +2002,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               )}
             />
             <ReadoutV10
-              label={autoMode ? 'Mięso Z/S — z wagi' : 'Mięso Z/S'}
+              label={`${meatType === 'bs' ? 'Mięso B/S' : 'Mięso Z/S'}${autoMode ? ' — z wagi' : ''}`}
               unit="kg"
               value={autoMode ? (autoNet > 0 ? fmtKg(autoNet, 1) : '') : kgMeat}
               active={!autoMode && active === 'meat'}
@@ -2005,12 +2021,15 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 <span className="flex items-center gap-1.5">
                   {/* Z/S ↔ B/S — b/s robi się rzadko (~30 kg/tyg.), więc to
                       mały przełącznik przy odczycie, a nie osobny tryb ekranu.
-                      Wraca do Z/S po każdym zapisie. */}
-                  <span className="flex overflow-hidden" style={{ border: '1px solid var(--line)', borderRadius: 6 }}>
+                      Wraca do Z/S po każdym zapisie.
+                      W trybie domykania NIEklikalny: rodzaj należy do POBRANIA,
+                      a przełączenie go tutaj wysłałoby mięso na zły lot (DTO
+                      wygrywa z rodzajem pobrania — meat_type_of w backendzie). */}
+                  <span className="flex overflow-hidden" style={{ border: '1px solid var(--line)', borderRadius: 6, opacity: resumeId ? 0.75 : 1 }}>
                     {(['zs', 'bs'] as MeatType[]).map(t => (
                       <span key={t} role="button"
-                        onClick={e => { e.stopPropagation(); setMeatType(t) }}
-                        className="px-2 py-0.5 text-[11px] font-bold uppercase cursor-pointer"
+                        onClick={e => { e.stopPropagation(); if (!resumeId) setMeatType(t) }}
+                        className={cn('px-2 py-0.5 text-[11px] font-bold uppercase', resumeId ? 'cursor-default' : 'cursor-pointer')}
                         style={meatType === t
                           ? { background: t === 'bs' ? 'var(--amb)' : 'var(--ink)', color: '#fff' }
                           : { color: 'var(--mut)' }}>
