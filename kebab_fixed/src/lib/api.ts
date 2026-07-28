@@ -344,6 +344,8 @@ export interface WorkerEntry {
   id: string; rawBatchNo: string
   kgQuarter: number; kgMeat: number; yieldPct: number | null
   status: string; corrected: boolean; portions: number
+  /** 'bs' = mięso bez skóry (uzysk ~50–55%, inna norma niż z/s). */
+  meatType: 'zs' | 'bs'
   takenAtLocal: string; dayLocal: string; completedAtLocal: string | null
   weighings: WorkerEntryWeighing[]
 }

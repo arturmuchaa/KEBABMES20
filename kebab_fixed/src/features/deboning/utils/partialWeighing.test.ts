@@ -1,5 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { decideTakeSave, takeProgress, YIELD_NORM_PCT } from './partialWeighing'
+import { decideTakeSave, takeProgress, YIELD_NORM_PCT, yieldNorm } from './partialWeighing'
+
+describe('mięso b/s — inna norma uzysku niż z/s', () => {
+  it('pasmo b/s to 50–55%, z/s zostaje 64–68%', () => {
+    expect(yieldNorm('bs')).toEqual({ lo: 50, hi: 55 })
+    expect(yieldNorm('zs')).toEqual(YIELD_NORM_PCT)
+  })
+
+  it('50% z pobrania b/s jest W NORMIE (dla z/s byłoby alarmem)', () => {
+    const bs = takeProgress(0, 7.5, 15, 'bs')!
+    expect(bs.pct).toBe(50)
+    expect(bs.status).toBe('norm')
+    expect(bs.missingToNormKg).toBe(0)
+    expect(takeProgress(0, 7.5, 15)!.status).toBe('below')   // to samo jako z/s
+  })
+
+  it('domknięcie pobrania b/s nie pyta „część czy całość?" przy 50%', () => {
+    // 7,5 z 15 kg = 50% — dla z/s to za mało (próg 62), dla b/s norma
+    expect(decideTakeSave(0, 7.5, 15, 'bs')).toBe('complete')
+    expect(decideTakeSave(0, 7.5, 15)).toBe('ask')
+  })
+
+  it('realnie niedoważone b/s nadal pyta (poniżej 48%)', () => {
+    expect(decideTakeSave(0, 6.0, 15, 'bs')).toBe('ask')     // 40%
+  })
+})
 
 describe('takeProgress — pasek postępu ważenia dzielonego', () => {
   // Scenariusz z hali (2026-07-27): pobranie 300 kg, operator waży porcjami

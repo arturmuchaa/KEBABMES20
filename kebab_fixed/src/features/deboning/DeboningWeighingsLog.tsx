@@ -34,6 +34,7 @@ export interface TakeWeighing {
   weighedAtLocal: string   // naive local (Europe/Warsaw) datetime z backendu
   dayLocal:       string   // 'YYYY-MM-DD' lokalnie
   workerName:     string
+  meatType:       'zs' | 'bs'
   rawBatchNo:     string
   kgQuarter:      number
   entryStatus:    string
@@ -166,7 +167,15 @@ function MeatTable({ rows, sameDay }: { rows: TakeWeighing[] | null; sameDay: bo
         { key: 'rawBatchNo', header: 'Partia', sortable: true, sortValue: w => w.rawBatchNo, width: 90,
           cell: w => <code className="font-mono font-bold text-brand">{w.rawBatchNo}</code> },
         { key: 'workerName', header: 'Pracownik', sortable: true, sortValue: w => w.workerName,
-          cell: w => <span className="font-semibold text-ink">{w.workerName}</span> },
+          cell: w => (
+            <span className="flex items-center gap-1.5">
+              <span className="font-semibold text-ink">{w.workerName}</span>
+              {w.meatType === 'bs' && (
+                <span title="Mięso bez skóry — inna norma uzysku"
+                  className="text-[10px] font-bold uppercase px-1 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-200">B/S</span>
+              )}
+            </span>
+          ) },
         { key: 'kgGross', header: 'Brutto [kg]', align: 'right', sortable: true, sortValue: w => w.kgGross ?? -1,
           cell: w => w.kgGross != null
             ? <span className="tabular-nums text-ink-2">{nf1.format(w.kgGross)}</span>

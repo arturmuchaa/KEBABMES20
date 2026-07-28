@@ -46,10 +46,13 @@ function presetRange(k: PresetKey): { from?: string; to?: string } {
 function fmtTime(s: string | null): string {
   return s ? s.slice(11, 16) : '—'
 }
-function yieldTone(pct: number | null): string {
+/** Progi zależą od rodzaju mięsa: b/s ma normę ~50–55%, więc 52% to dobry
+ *  wynik, a nie alarm (dla z/s byłby to czerwony). */
+function yieldTone(pct: number | null, meatType: 'zs' | 'bs' = 'zs'): string {
   if (pct == null || pct <= 0) return 'text-ink-4'
-  if (pct < 63) return 'text-red-600'
-  if (pct < 65) return 'text-amber-600'
+  const [red, amber] = meatType === 'bs' ? [48, 50] : [63, 65]
+  if (pct < red) return 'text-red-600'
+  if (pct < amber) return 'text-amber-600'
   return 'text-emerald-700'
 }
 
@@ -187,6 +190,10 @@ export function WorkerCardPage() {
               { key: 'flags', header: '', width: 120,
                 cell: e => (
                   <span className="flex items-center gap-1">
+                    {e.meatType === 'bs' && (
+                      <span title="Mięso bez skóry — norma uzysku 50–55%"
+                        className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-200">B/S</span>
+                    )}
                     {e.status === 'pending' && (
                       <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-200">Trwa</span>
                     )}
@@ -215,7 +222,7 @@ export function WorkerCardPage() {
               <div className="flex flex-wrap gap-4 text-sm">
                 <span>Ćwiartka: <b className="tabular-nums">{nf1.format(detail.kgQuarter)} kg</b></span>
                 <span>Mięso: <b className="tabular-nums text-brand">{nf1.format(detail.kgMeat)} kg</b></span>
-                <span>Uzysk: <b className={cn('tabular-nums', yieldTone(detail.yieldPct))}>
+                <span>Uzysk: <b className={cn('tabular-nums', yieldTone(detail.yieldPct, detail.meatType))}>
                   {detail.yieldPct != null ? `${nf1.format(detail.yieldPct)}%` : '—'}</b></span>
               </div>
               {detail.corrected && (

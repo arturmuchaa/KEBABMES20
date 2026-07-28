@@ -35,6 +35,9 @@ class DeboningEntryCreate(BaseModel):
     tare_e2_kg: Optional[float] = Field(None, alias="tareE2Kg", ge=0)
     e2_count: Optional[int] = Field(None, alias="e2Count", ge=0)
     weigh_mode: Optional[str] = Field(None, alias="weighMode", pattern="^(auto|manual)$")
+    # Rodzaj mięsa z tej porcji: 'zs' (domyślnie) albo 'bs' (bez skóry —
+    # rzadkie, ~30 kg/tydzień, uzysk ~50–55%). Decyduje, na który lot idzie.
+    meat_type: Optional[str] = Field(None, alias="meatType", pattern="^(zs|bs)$")
 
 
 class DeboningTakeCreate(BaseModel):
@@ -64,6 +67,9 @@ class DeboningTakeComplete(BaseModel):
     tare_e2_kg: Optional[float] = Field(None, alias="tareE2Kg", ge=0)
     e2_count: Optional[int] = Field(None, alias="e2Count", ge=0)
     weigh_mode: Optional[str] = Field(None, alias="weighMode", pattern="^(auto|manual)$")
+    # Rodzaj mięsa z tej porcji: 'zs' (domyślnie) albo 'bs' (bez skóry —
+    # rzadkie, ~30 kg/tydzień, uzysk ~50–55%). Decyduje, na który lot idzie.
+    meat_type: Optional[str] = Field(None, alias="meatType", pattern="^(zs|bs)$")
 
 
 class DeboningTakeUpdate(BaseModel):

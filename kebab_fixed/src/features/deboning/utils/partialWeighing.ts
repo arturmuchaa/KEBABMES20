@@ -10,6 +10,21 @@
  */
 export const PARTIAL_ASK_BELOW_PCT = 62
 
+/** Rodzaj mięsa robionego z ćwiartki. `bs` (bez skóry) to rzadkość
+ *  (~30 kg/tydzień) o CAŁKIEM innym uzysku — bez tego rozróżnienia każde
+ *  ważenie b/s wyglądałoby jak niedoważone i pytało „część czy całość?". */
+export type MeatType = 'zs' | 'bs'
+
+/** Pasmo normy uzysku per rodzaj mięsa (patrz YIELD_NORM_PCT). */
+export function yieldNorm(meatType: MeatType = 'zs'): { lo: number; hi: number } {
+  return meatType === 'bs' ? { lo: 50, hi: 55 } : YIELD_NORM_PCT
+}
+
+/** Próg pytania „część czy całość?" per rodzaj: tuż pod dolną granicą normy. */
+function askBelowPct(meatType: MeatType): number {
+  return meatType === 'bs' ? 48 : PARTIAL_ASK_BELOW_PCT
+}
+
 /** Pasmo normy uzysku, względem którego operator rozlicza POBRANIE (nie to samo
  * co progi kolorów wydajności dnia na HMI). Steruje wyłącznie paskiem postępu:
  * ile jeszcze mięsa „powinno" wyjść z tej ćwiartki. Próg pytania „część czy
@@ -37,6 +52,10 @@ export interface TakeProgress {
   /** To samo w punktach procentowych. */
   missingToNormPct: number
   status: 'below' | 'norm' | 'above'
+  /** Rodzaj mięsa, względem którego liczone jest pasmo normy. */
+  meatType: MeatType
+  normLoPct: number
+  normHiPct: number
 }
 
 /** Postęp ważenia dzielonego jednego pobrania — operator waży mięso porcjami
@@ -44,17 +63,21 @@ export interface TakeProgress {
  * jeszcze „powinno" wyjść. Liczy sumę narastającą razem z porcją stojącą na
  * wadze, żeby pasek reagował JESZCZE PRZED zapisem. */
 export function takeProgress(
-  weighedKg: number, portionKg: number, takenKg: number,
+  weighedKg: number, portionKg: number, takenKg: number, meatType: MeatType = 'zs',
 ): TakeProgress | null {
   if (!(takenKg > 0)) return null
+  const norm = yieldNorm(meatType)
   const weighed = Math.max(0, weighedKg || 0)
   const portion = Math.max(0, portionKg || 0)
   const total = weighed + portion
-  const normLoKg = round1(takenKg * YIELD_NORM_PCT.lo / 100)
-  const normHiKg = round1(takenKg * YIELD_NORM_PCT.hi / 100)
+  const normLoKg = round1(takenKg * norm.lo / 100)
+  const normHiKg = round1(takenKg * norm.hi / 100)
   const pct = (total / takenKg) * 100
   return {
     takenKg,
+    meatType,
+    normLoPct: norm.lo,
+    normHiPct: norm.hi,
     weighedKg: weighed,
     portionKg: portion,
     totalKg: round1(total),
@@ -63,8 +86,8 @@ export function takeProgress(
     normLoKg,
     normHiKg,
     missingToNormKg: Math.max(0, round1(normLoKg - total)),
-    missingToNormPct: Math.max(0, YIELD_NORM_PCT.lo - pct),
-    status: pct < YIELD_NORM_PCT.lo ? 'below' : pct > YIELD_NORM_PCT.hi ? 'above' : 'norm',
+    missingToNormPct: Math.max(0, norm.lo - pct),
+    status: pct < norm.lo ? 'below' : pct > norm.hi ? 'above' : 'norm',
   }
 }
 
@@ -74,9 +97,11 @@ function round1(kg: number): number {
 
 export type TakeSaveDecision = 'block' | 'ask' | 'complete'
 
-export function decideTakeSave(weighedKg: number, portionKg: number, takenKg: number): TakeSaveDecision {
+export function decideTakeSave(
+  weighedKg: number, portionKg: number, takenKg: number, meatType: MeatType = 'zs',
+): TakeSaveDecision {
   if (takenKg <= 0 || portionKg <= 0) return 'block'
   if (weighedKg + portionKg > takenKg) return 'block'
   const pct = ((weighedKg + portionKg) / takenKg) * 100
-  return pct >= PARTIAL_ASK_BELOW_PCT ? 'complete' : 'ask'
+  return pct >= askBelowPct(meatType) ? 'complete' : 'ask'
 }

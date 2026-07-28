@@ -44,9 +44,10 @@ function isExpiredRow(r: StockRow): boolean {
 }
 
 // ─── Strona ─────────────────────────────────────────────────
-type Tab = 'raw' | 'meat' | 'other' | 'backs' | 'bones'
+type Tab = 'raw' | 'meat' | 'bs' | 'other' | 'backs' | 'bones'
 
 const ZS = 'mat-mieso-zs'
+const BS = 'mat-mieso-bs'
 
 export function RawStockPage() {
   const navigate = useNavigate()
@@ -71,7 +72,11 @@ export function RawStockPage() {
     // Filet/indyk przyjęte bez rozbioru to INNE składniki niż mięso z/s
     // z rozbioru — osobna zakładka, żeby się nie mieszały (magazyn i plan).
     meat:  stock.filter(r => r.stock_type === 'meat' && (r.material_type_id ?? ZS) === ZS),
-    other: stock.filter(r => r.stock_type === 'meat' && (r.material_type_id ?? ZS) !== ZS),
+    // Mięso b/s (bez skóry) z rozbioru — robione rzadko, ale MUSI stać osobno:
+    // inny uzysk, inna receptura, Auto-FEFO masowania bierze tylko z/s.
+    bs:    stock.filter(r => r.stock_type === 'meat' && r.material_type_id === BS),
+    other: stock.filter(r => r.stock_type === 'meat'
+      && (r.material_type_id ?? ZS) !== ZS && r.material_type_id !== BS),
     backs: stock.filter(r => r.stock_type === 'byproduct' && r.name === 'Grzbiety'),
     bones: stock.filter(r => r.stock_type === 'byproduct' && r.name === 'Kości'),
   }), [stock])
@@ -81,6 +86,7 @@ export function RawStockPage() {
   const TABS: { key: Tab; label: string; icon: ReactNode }[] = [
     { key: 'raw',   label: 'Ćwiartka',     icon: <Drumstick size={13} /> },
     { key: 'meat',  label: 'Mięso z/s',    icon: <Beef size={13} /> },
+    { key: 'bs',    label: 'Mięso b/s',    icon: <Beef size={13} /> },
     { key: 'other', label: 'Filet i inne', icon: <Layers size={13} /> },
     { key: 'backs', label: 'Grzbiety',     icon: <Package size={13} /> },
     { key: 'bones', label: 'Kości',        icon: <Bone size={13} /> },
@@ -173,7 +179,7 @@ export function RawStockPage() {
     colZaznacz,
     ...(activeTab === 'raw'
       ? [colPartia, colDostawca, colDostepne, colPojemniki, colUboj, colProdukcja('Przyjęcie'), colWaznosc]
-      : activeTab === 'meat'
+      : activeTab === 'meat' || activeTab === 'bs'
         ? [colPartia, colDostawca, colDostepne, colZarezerwowane, colPoczatkowe, colProdukcja('Produkcja'), colWaznosc]
         : activeTab === 'other'
           ? [colRodzaj, colPartia, colDostawca, colDostepne, colZarezerwowane, colPoczatkowe, colProdukcja('Przyjęcie'), colWaznosc]
@@ -202,6 +208,7 @@ export function RawStockPage() {
             <span className="text-xs text-ink-4">
               {activeTab === 'raw' ? 'Ćwiartka pojawia się po przyjęciu dostawy.'
                 : activeTab === 'meat' ? 'Mięso z/s pojawia się po ważeniu na rozbiorze.'
+                : activeTab === 'bs' ? 'Mięso b/s pojawia się, gdy operator przełączy wagę na B/S przy rozbiorze.'
                 : activeTab === 'other' ? 'Filet/indyk pojawia się po przyjęciu surowca bez rozbioru.'
                 : 'Grzbiety i kości pojawiają się po ważeniu zbiorczym na rozbiorze.'}
             </span>

@@ -145,6 +145,7 @@ def worker_entries(
                e.kg_meat                                             AS "kgMeat",
                e.yield_pct                                           AS "yieldPct",
                COALESCE(e.status, 'complete')                        AS status,
+               COALESCE(e.meat_type, 'zs')                           AS "meatType",
                (e.created_at AT TIME ZONE 'Europe/Warsaw')           AS "takenAtLocal",
                (e.created_at AT TIME ZONE 'Europe/Warsaw')::date     AS "dayLocal",
                (e.completed_at AT TIME ZONE 'Europe/Warsaw')         AS "completedAtLocal",
@@ -217,6 +218,7 @@ def list_take_weighings(date_from: str, date_to: str) -> Dict[str, Any]:
                w.tare_e2_kg                                      AS "tareE2Kg",
                w.e2_count                                        AS "e2Count",
                w.weigh_mode                                      AS "weighMode",
+               COALESCE(w.meat_type, 'zs')                        AS "meatType",
                (w.weighed_at AT TIME ZONE 'Europe/Warsaw')       AS "weighedAtLocal",
                (w.weighed_at AT TIME ZONE 'Europe/Warsaw')::date AS "dayLocal",
                e.worker_name                                     AS "workerName",
@@ -881,8 +883,11 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
 
         kg_remainder = max(0, kg_taken - kg_meat)
         yield_pct = round(yield_pct_val, 2)
-        # Numer mięsa po rozbiorze = ten sam numer co partia surowca (bez litery).
-        meat_lot_no = batch["internal_batch_no"]
+        # Numer mięsa po rozbiorze = ten sam numer co partia surowca (bez litery);
+        # b/s dostaje sufiks, bo lot_no jest unikatowy i ON CONFLICT dolicza kg.
+        meat_type = meat_type_of(dto)
+        mat_id, mat_name, lot_suffix = MEAT_TYPES[meat_type]
+        meat_lot_no = f"{batch['internal_batch_no']}{lot_suffix}"
 
         entry = cx_execute_returning(
             conn,
@@ -892,8 +897,8 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
                  kg_quarter, kg_meat, kg_remainder, yield_pct,
                  worker_id, worker_name,
                  kg_gross, tare_cart_kg, tare_e2_kg, e2_count, weigh_mode,
-                 created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 meat_type, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING *
             """,
             (
@@ -913,6 +918,7 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
                 dto.tare_e2_kg,
                 dto.e2_count,
                 dto.weigh_mode,
+                meat_type,
                 now_iso(),
             ),
         )
@@ -983,12 +989,12 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
                 kg_meat,
                 kg_meat,
                 exp,
-                # Rozbiór wytwarza NOWY surowiec — „Mięso z/s" — odrębny od
-                # ćwiartki (surowca wejściowego). Dzięki temu w całym dalszym
-                # łańcuchu (masowanie, planowanie, etykieta) mięso z rozbioru
-                # jest czytelnie odróżnialne od fileta i nie myli się z surowcem.
-                "mat-mieso-zs",
-                "Mięso z/s",
+                # Rozbiór wytwarza NOWY surowiec — „Mięso z/s" albo „Mięso b/s"
+                # — odrębny od ćwiartki (surowca wejściowego). Dzięki temu w
+                # całym dalszym łańcuchu (masowanie, planowanie, etykieta) mięso
+                # z rozbioru jest odróżnialne od fileta i nie myli się z surowcem.
+                mat_id,
+                mat_name,
                 now_iso(),
             ),
         )
@@ -1033,14 +1039,15 @@ def _sum_take_weighings(conn, entry_id: str) -> float:
 
 
 def _insert_take_weighing(conn, entry_id: str, kg: float, dto) -> None:
-    """Jedna porcja mięsa z pobrania = jeden wiersz (pełny audyt wagi per porcja)."""
+    """Jedna porcja mięsa z pobrania = jeden wiersz (pełny audyt wagi per porcja).
+    Rodzaj mięsa (z/s vs b/s) leży NA PORCJI, bo to ona trafia na lot."""
     cx_execute(
         conn,
         "INSERT INTO deboning_take_weighings "
-        "(id, entry_id, kg_meat, kg_gross, tare_cart_kg, tare_e2_kg, e2_count, weigh_mode) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        "(id, entry_id, kg_meat, kg_gross, tare_cart_kg, tare_e2_kg, e2_count, weigh_mode, meat_type) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (cuid(), entry_id, kg, dto.kg_gross, dto.tare_cart_kg,
-         dto.tare_e2_kg, dto.e2_count, dto.weigh_mode),
+         dto.tare_e2_kg, dto.e2_count, dto.weigh_mode, meat_type_of(dto)),
     )
 
 
@@ -1075,7 +1082,24 @@ def _reattach_overnight_session(conn, entry: Dict, entry_id: str) -> None:
     )
 
 
-def _add_meat_to_lot(conn, entry: Dict, kg_meat: float, entry_id: str) -> None:
+#: Rodzaje mięsa z rozbioru → (material_type_id, nazwa, sufiks numeru lotu).
+#: Sufiks jest KLUCZOWY: meat_stock.lot_no ma unikat i ON CONFLICT dolicza kg,
+#: więc bez własnego numeru b/s wpadłoby do lotu z/s tej samej partii i
+#: pojechało do masowania jako z/s.
+MEAT_TYPES: Dict[str, tuple] = {
+    "zs": ("mat-mieso-zs", "Mięso z/s", ""),
+    "bs": ("mat-mieso-bs", "Mięso b/s", "-BS"),
+}
+
+
+def meat_type_of(dto) -> str:
+    """Rodzaj mięsa z DTO ważenia; brak pola / śmieci = 'zs' (stary kiosk)."""
+    v = str(getattr(dto, "meat_type", None) or "zs").strip().lower()
+    return v if v in MEAT_TYPES else "zs"
+
+
+def _add_meat_to_lot(conn, entry: Dict, kg_meat: float, entry_id: str,
+                     meat_type: str = "zs") -> None:
     """Dopisz kg mięsa do lotu partii (lot per numer partii, ON CONFLICT
     dolicza) + ruch IN. Wyniesione z complete_deboning_take, bo częściowe
     ważenie wpuszcza porcję na magazyn OD RAZU (mięso jedzie np. do
@@ -1092,7 +1116,8 @@ def _add_meat_to_lot(conn, entry: Dict, kg_meat: float, entry_id: str) -> None:
     else:
         exp = batch.get("expiry_date") if batch else None
 
-    meat_lot_no = entry["raw_batch_no"]
+    mat_id, mat_name, suffix = MEAT_TYPES[meat_type]
+    meat_lot_no = f"{entry['raw_batch_no']}{suffix}"
     meat_stock_id = cuid()
     cx_execute(
         conn,
@@ -1109,8 +1134,8 @@ def _add_meat_to_lot(conn, entry: Dict, kg_meat: float, entry_id: str) -> None:
         """,
         (
             meat_stock_id, meat_lot_no, entry_id, entry["session_no"],
-            entry["raw_batch_id"], meat_lot_no, kg_meat, kg_meat, exp,
-            "mat-mieso-zs", "Mięso z/s", now_iso(),
+            entry["raw_batch_id"], entry["raw_batch_no"], kg_meat, kg_meat, exp,
+            mat_id, mat_name, now_iso(),
         ),
     )
     ms_row = cx_query_one(conn, "SELECT id FROM meat_stock WHERE lot_no=%s", (meat_lot_no,))
@@ -1157,8 +1182,11 @@ def weigh_part_deboning_take(entry_id: str, dto) -> Dict:
                 f"przekraczać pobranej ćwiartki ({kg_taken} kg)",
             )
 
+        meat_type = meat_type_of(dto)
+        cx_execute(conn, "UPDATE deboning_entries SET meat_type=%s WHERE id=%s",
+                   (meat_type, entry_id))
         _insert_take_weighing(conn, entry_id, kg_part, dto)
-        _add_meat_to_lot(conn, entry, kg_part, entry_id)
+        _add_meat_to_lot(conn, entry, kg_part, entry_id, meat_type)
 
     logger.info(
         "deboning.take.part_weighed",
@@ -1416,6 +1444,7 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
         # tylko porcję. Bez części: suma == porcja, zachowanie jak dotąd.
         kg_taken = float(entry.get("kg_quarter") or 0)
         kg_part = kg_meat
+        meat_type = meat_type_of(dto)
         prior = cx_query_one(
             conn,
             "SELECT COUNT(*) AS n, COALESCE(SUM(kg_meat),0) AS s "
@@ -1444,13 +1473,13 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
             """
             UPDATE deboning_entries
             SET kg_meat=%s, kg_remainder=%s, yield_pct=%s, status='complete',
-                completed_at=now(),
+                completed_at=now(), meat_type=%s,
                 kg_gross=%s, tare_cart_kg=%s, tare_e2_kg=%s, e2_count=%s, weigh_mode=%s
             WHERE id=%s
             RETURNING *
             """,
             (
-                kg_meat, kg_remainder, yield_pct,
+                kg_meat, kg_remainder, yield_pct, meat_type,
                 None if multi else dto.kg_gross,
                 None if multi else dto.tare_cart_kg,
                 None if multi else dto.tare_e2_kg,
@@ -1463,7 +1492,7 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
         from app.services.byproducts_service import create_byproduct_lots_for_entry
         create_byproduct_lots_for_entry(conn, row)
 
-        _add_meat_to_lot(conn, entry, kg_part, entry_id)
+        _add_meat_to_lot(conn, entry, kg_part, entry_id, meat_type)
         batch = cx_query_one(
             conn, "SELECT * FROM raw_batches WHERE id=%s", (entry["raw_batch_id"],)
         )

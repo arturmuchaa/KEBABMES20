@@ -691,6 +691,13 @@ _DDL: list[str] = [
     # operatorowi w nieskończoność jako „niedoważona". Zamknięcie to decyzja
     # biura ze śladem kto/kiedy/dlaczego — nie zmienia ani kilogramów, ani
     # procentów, wyłącznie zdejmuje kafel.
+    # Mięso b/s (bez skóry) z rozbioru — rzadka ścieżka (~30 kg/tydzień) obok
+    # z/s. Rodzaj zapisujemy i na wpisie (raport/uzysk: b/s ma normę ~50–55%,
+    # nie 63–68%), i na KAŻDEJ porcji ważenia (porcja trafia na lot od razu,
+    # więc to ona decyduje, dokąd idzie mięso). Domyślnie 'zs' — przełącznik
+    # na HMI nie może zmieniać zachowania zwykłej ścieżki.
+    "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS meat_type TEXT NOT NULL DEFAULT 'zs'",
+    "ALTER TABLE deboning_take_weighings ADD COLUMN IF NOT EXISTS meat_type TEXT NOT NULL DEFAULT 'zs'",
     "ALTER TABLE batch_byproducts ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ",
     "ALTER TABLE batch_byproducts ADD COLUMN IF NOT EXISTS closed_by TEXT",
     "ALTER TABLE batch_byproducts ADD COLUMN IF NOT EXISTS closed_reason TEXT",
@@ -1110,6 +1117,10 @@ def _seed_raw_material_types() -> None:
         # Produkt rozbioru, ale też przyjmowalny z zewnątrz (dostawy z/s) —
         # przyjęcie idzie ścieżką "bez rozbioru" wprost do meat_stock.
         ("mat-mieso-zs",      "Mięso z/s",           False, "drob", True),
+        # Produkt rozbioru, robiony rzadko (~30 kg/tydzień). Osobny rodzaj, bo
+        # nie może mieszać się z z/s ani w magazynie, ani w planie masowania
+        # (Auto-FEFO bierze wyłącznie z/s). Z zewnątrz nieprzyjmowany.
+        ("mat-mieso-bs",      "Mięso b/s",           False, "drob", False),
     ]
     try:
         for rid, name, deb, cat, recv in rows:

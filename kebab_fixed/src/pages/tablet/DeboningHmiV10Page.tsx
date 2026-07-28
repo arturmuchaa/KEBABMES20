@@ -22,7 +22,7 @@ import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
 import {
   splitEntriesByStatus, entryTime, decideTakeSave, takenOnProductionDay,
-  takeProgress, YIELD_NORM_PCT, type TakeProgress,
+  takeProgress, YIELD_NORM_PCT, yieldNorm, type TakeProgress, type MeatType,
 } from '@/features/deboning/utils'
 import { useScale } from '@/features/deboning/useScale'
 import {
@@ -460,6 +460,8 @@ interface SaveSummary {
   takenKg: number
   meatKg: number | null
   kind: 'saved' | 'partial' | 'taken'
+  /** Rodzaj mięsa — pasek postępu ma pokazać normę b/s (50–55), nie z/s. */
+  meatType?: MeatType
 }
 
 /** Pasek w kafelku podsumowania — jedyne miejsce, gdzie pokazujemy postęp
@@ -471,7 +473,7 @@ interface SaveSummary {
  * dokładnie"). `taken` (samo pobranie, mięso później) nie ma czego pokazywać. */
 function summaryProgress(s: SaveSummary): TakeProgress | null {
   if (s.meatKg == null || s.kind === 'taken') return null
-  return takeProgress(s.meatKg, 0, s.takenKg)
+  return takeProgress(s.meatKg, 0, s.takenKg, s.meatType ?? 'zs')
 }
 
 // ─── Kafelek podsumowania zapisu ─────────────────────────────────────
@@ -591,6 +593,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [e2Count,  setE2Count]  = useState(guided ? GUIDED_DEFAULT_E2 : 0)
   // false = mięso z wagi (auto); true = operator przejął ręcznie (awaryjnie)
   const [meatManual, setMeatManual] = useState(false)
+  // Rodzaj mięsa robionego z ćwiartki. b/s (bez skóry) to rzadkość — ~30 kg
+  // tygodniowo, uzysk ~50–55% zamiast 64–68 — więc przełącznik startuje
+  // ZAWSZE od z/s i wraca do z/s po każdym zapisie, żeby nikt nie zostawił
+  // go włączonego na kolejną zmianę.
+  const [meatType, setMeatType] = useState<MeatType>('zs')
   // Szczegóły/edycja pracownika (przytrzymanie kafla).
   const [workerDetail, setWorkerDetail] = useState<User | null>(null)
   const [editEntryId, setEditEntryId] = useState<string | null>(null)
@@ -1005,7 +1012,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const cancelResume = useCallback(() => {
     setResumeId(null)
     setMeatDriveOff(DRIVE_OFF_IDLE)
-    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false); setMeatType('zs')
   }, [])
 
   const pickWorker = useCallback((w: User) => {
@@ -1041,7 +1048,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     const err = await addEntry(
       {
         sessionId: session.id, rawBatchId: selBatch.id, workerId: selWorker.id,
-        kgTaken: taken, kgMeat: meat,
+        kgTaken: taken, kgMeat: meat, meatType,
         ...(scale.available ? {
           weighMode: autoMode ? 'auto' as const : 'manual' as const,
           ...(autoMode ? {
@@ -1059,7 +1066,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setSaveFlash(true)
     if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
     saveFlashRef.current = setTimeout(() => setSaveFlash(false), 350)
-    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false); setMeatType('zs')
     setMeatDriveOff(DRIVE_OFF_IDLE)
     if (guided) {
       // Tryb prowadzony (v11): po zapisie zostaje TYLKO partia, cała reszta się
@@ -1077,7 +1084,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     }
     setUndoUntil(Date.now() + 60_000); setUndoNow(Date.now())
     showToast(`Zapisano: ${fmtKg(meat)} kg mięsa`)
-    flashSaveSummary({ batchNo: selBatch.internalBatchNo, workerName: selWorker.name, takenKg: taken, meatKg: meat, kind: 'saved' })
+    flashSaveSummary({ batchNo: selBatch.internalBatchNo, workerName: selWorker.name, takenKg: taken, meatKg: meat, kind: 'saved', meatType })
 
     maybeFinishBatch(selBatch, taken)
   }
@@ -1107,7 +1114,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     )
     if (err) { showToast(err, 'err'); return }
     batchData.refetch()
-    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false); setMeatType('zs')
     setMeatDriveOff(DRIVE_OFF_IDLE)
     showToast(`Pobrano ${fmtKg(taken, 1)} kg — czeka na zważenie`)
     flashSaveSummary({ batchNo: selBatch.internalBatchNo, workerName: selWorker.name, takenKg: taken, meatKg: null, kind: 'taken' })
@@ -1120,7 +1127,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // łączny % (wariant wybrany 2026-07-18; szczegóły w utils/partialWeighing).
   async function handleCompleteTake() {
     if (completeTakeLoading || weighPartLoading || !resumeId || meat <= 0 || meatTooBig || !session) return
-    if (decideTakeSave(resumeWeighedKg, meat, taken) === 'ask') {
+    if (decideTakeSave(resumeWeighedKg, meat, taken, meatType) === 'ask') {
       setPartialPrompt({ portionKg: meat, weighedKg: resumeWeighedKg, takenKg: taken })
       return
     }
@@ -1133,7 +1140,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     const portion = meat
     const takenNow = taken
     const err = await weighPart(resumeId, {
-      kgMeat: portion,
+      kgMeat: portion, meatType,
       ...(scale.available ? {
         weighMode: autoMode ? 'auto' as const : 'manual' as const,
         ...(autoMode ? {
@@ -1148,11 +1155,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setPartialPrompt(null)
     setResumeId(null)
     setMeatDriveOff(DRIVE_OFF_IDLE)
-    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false); setMeatType('zs')
     showToast(`Zapisano ${fmtKg(portion, 1)} kg — razem ${fmtKg(resumeWeighedKg + portion, 1)}/${fmtKg(takenNow, 1)} kg, pobranie otwarte`)
     flashSaveSummary({
       batchNo: selBatch?.internalBatchNo ?? '', workerName: selWorker?.name ?? '',
-      takenKg: takenNow, meatKg: resumeWeighedKg + portion, kind: 'partial',
+      takenKg: takenNow, meatKg: resumeWeighedKg + portion, kind: 'partial', meatType,
     })
   }
 
@@ -1170,7 +1177,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   function clearAfterDriveOff() {
     setMeatDriveOff(DRIVE_OFF_IDLE)
     setResumeId(null)
-    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false); setMeatType('zs')
     setSaveFlash(true)
     if (saveFlashRef.current) clearTimeout(saveFlashRef.current)
     saveFlashRef.current = setTimeout(() => setSaveFlash(false), 350)
@@ -1183,7 +1190,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (err) { showToast(err, 'err'); return } // okno zostaje — operator ponawia
     clearAfterDriveOff()
     showToast(`Zapisano ${fmtKg(s.netKg, 1)} kg — razem ${fmtKg(s.weighedSoFarKg + s.netKg, 1)}/${fmtKg(s.takenKg, 1)} kg, pobranie otwarte`)
-    flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.weighedSoFarKg + s.netKg, kind: 'partial' })
+    flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.weighedSoFarKg + s.netKg, kind: 'partial', meatType })
   }
 
   // Całość — domknięcie otwartego pobrania.
@@ -1194,7 +1201,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     clearAfterDriveOff()
     batchData.refetch()
     showToast(`Zważono ${fmtKg(s.netKg, 1)} kg mięsa`)
-    flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.weighedSoFarKg + s.netKg, kind: 'saved' })
+    flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.weighedSoFarKg + s.netKg, kind: 'saved', meatType })
     maybeFinishAfterComplete(s.batchId, s.resumeId)
   }
 
@@ -1212,7 +1219,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     batchData.refetch()
     setUndoUntil(Date.now() + 60_000); setUndoNow(Date.now())
     showToast(`Zapisano: ${fmtKg(s.netKg)} kg mięsa`)
-    flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.netKg, kind: 'saved' })
+    flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.netKg, kind: 'saved', meatType })
     maybeFinishBatch(b, s.takenKg)
   }
 
@@ -1234,7 +1241,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     clearAfterDriveOff()
     batchData.refetch()
     showToast(`Zapisano ${fmtKg(s.netKg, 1)} kg z ${fmtKg(s.takenKg, 1)} kg — pobranie zostaje otwarte`)
-    flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.netKg, kind: 'partial' })
+    flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.netKg, kind: 'partial', meatType })
   }
 
   function runDriveOffAction(action: MeatPromptAction, s: MeatSnapshot) {
@@ -1253,7 +1260,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     const summaryMeat = resumeWeighedKg + meat
     setPartialPrompt(null)
     const err = await completeTake(resumeId, {
-      kgMeat: meat,
+      kgMeat: meat, meatType,
       ...(scale.available ? {
         weighMode: autoMode ? 'auto' as const : 'manual' as const,
         ...(autoMode ? {
@@ -1272,9 +1279,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     const completedId = resumeId
     setResumeId(null)
     setMeatDriveOff(DRIVE_OFF_IDLE)
-    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false)
+    setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false); setMeatType('zs')
     showToast(`Zważono ${fmtKg(meat, 1)} kg mięsa`)
-    flashSaveSummary({ batchNo: summaryBatchNo, workerName: summaryWorkerName, takenKg: summaryTaken, meatKg: summaryMeat, kind: 'saved' })
+    flashSaveSummary({ batchNo: summaryBatchNo, workerName: summaryWorkerName, takenKg: summaryTaken, meatKg: summaryMeat, kind: 'saved', meatType })
 
     maybeFinishAfterComplete(selBatch?.id ?? '', completedId)
   }
@@ -1980,16 +1987,35 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                     ? `= ${fmtKg(scale.gross, 1)} − ${fmtKg(weighing.tareTotalKg, 1)} tara`
                     : weighing.ready ? 'czekam na stabilną wagę…' : 'wybierz wózek i pojemniki')
                 : yieldPct > 0 ? `${fmtPct(yieldPct, 1)} wydajność` : ''}
-              extraHeader={scale.available ? (
-                <span role="button"
-                  onClick={e => { e.stopPropagation(); setMeatManual(m => !m) }}
-                  className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold uppercase cursor-pointer"
-                  style={{ borderRadius: 6, background: autoMode ? 'var(--accentSoft)' : 'var(--ambSoft)',
-                    color: autoMode ? 'var(--accent)' : 'var(--amb)',
-                    border: `1px solid ${autoMode ? 'var(--accentSoft)' : 'var(--ambLine)'}` }}>
-                  <Scale size={11} /> {autoMode ? 'AUTO' : 'RĘCZNIE'}
+              extraHeader={(
+                <span className="flex items-center gap-1.5">
+                  {/* Z/S ↔ B/S — b/s robi się rzadko (~30 kg/tyg.), więc to
+                      mały przełącznik przy odczycie, a nie osobny tryb ekranu.
+                      Wraca do Z/S po każdym zapisie. */}
+                  <span className="flex overflow-hidden" style={{ border: '1px solid var(--line)', borderRadius: 6 }}>
+                    {(['zs', 'bs'] as MeatType[]).map(t => (
+                      <span key={t} role="button"
+                        onClick={e => { e.stopPropagation(); setMeatType(t) }}
+                        className="px-2 py-0.5 text-[11px] font-bold uppercase cursor-pointer"
+                        style={meatType === t
+                          ? { background: t === 'bs' ? 'var(--amb)' : 'var(--ink)', color: '#fff' }
+                          : { color: 'var(--mut)' }}>
+                        {t === 'zs' ? 'Z/S' : 'B/S'}
+                      </span>
+                    ))}
+                  </span>
+                  {scale.available && (
+                    <span role="button"
+                      onClick={e => { e.stopPropagation(); setMeatManual(m => !m) }}
+                      className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold uppercase cursor-pointer"
+                      style={{ borderRadius: 6, background: autoMode ? 'var(--accentSoft)' : 'var(--ambSoft)',
+                        color: autoMode ? 'var(--accent)' : 'var(--amb)',
+                        border: `1px solid ${autoMode ? 'var(--accentSoft)' : 'var(--ambLine)'}` }}>
+                      <Scale size={11} /> {autoMode ? 'AUTO' : 'RĘCZNIE'}
+                    </span>
+                  )}
                 </span>
-              ) : undefined}
+              )}
             />
           </div>
 

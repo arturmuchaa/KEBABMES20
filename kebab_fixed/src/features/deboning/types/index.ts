@@ -69,6 +69,7 @@ export interface CreateDeboningEntryDto {
   workerId:   string
   kgTaken:    number
   kgMeat:     number
+  meatType?:  'zs' | 'bs'
   tempInput?: number
   tempRoom?:  number
   notes?:     string
@@ -88,6 +89,8 @@ export interface CreateDeboningTakeDto {
 
 export interface CompleteDeboningTakeDto {
   kgMeat:     number
+  /** 'zs' (domyślnie) albo 'bs' — decyduje, na który lot magazynu idzie mięso. */
+  meatType?:  'zs' | 'bs'
   kgGross?:    number
   tareCartKg?: number
   tareE2Kg?:   number
