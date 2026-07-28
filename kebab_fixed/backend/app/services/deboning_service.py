@@ -395,24 +395,58 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     for wr in query_all("SELECT id, COALESCE(rate_per_kg, 0) AS rate FROM workers"):
         rate_by_worker[wr["id"]] = float(wr["rate"] or 0)
 
+    # Średni uzysk KAŻDEJ partii — punkt odniesienia dla oceny pracownika.
+    # Bez tego ranking karałby za surowiec, którego nikt nie wybierał: kto
+    # dostał słabszą ćwiartkę, wypadał gorzej niezależnie od swojej roboty.
+    b_tot: Dict[str, list] = defaultdict(lambda: [0.0, 0.0])
+    for r in rows:
+        t = b_tot[r["raw_batch_no"] or "—"]
+        t[0] += f(r["kg_quarter"])
+        t[1] += f(r["kg_meat"])
+    batch_yield = {no: (t[1] / t[0] * 100) for no, t in b_tot.items() if t[0] > 0}
+
     wagg: Dict[str, Dict] = defaultdict(
         lambda: {"quarters": 0, "kgQuarter": 0.0, "kgMeat": 0.0,
-                 "kgBacks": 0.0, "kgBones": 0.0, "buckets": set(), "name": "—"}
+                 "kgBacks": 0.0, "kgBones": 0.0, "buckets": set(), "name": "—",
+                 "days": set(), "devKg": 0.0,
+                 "daily": defaultdict(lambda: [0.0, 0.0])}
     )
     for r in rows:
         wid = r["worker_id"] or r["worker_name"] or "—"
         w = wagg[wid]
         w["name"] = r["worker_name"] or "—"
         w["quarters"] += 1
-        w["kgQuarter"] += f(r["kg_quarter"])
-        w["kgMeat"] += f(r["kg_meat"])
+        q = f(r["kg_quarter"])
+        m = f(r["kg_meat"])
+        w["kgQuarter"] += q
+        w["kgMeat"] += m
         w["kgBacks"] += entry_backs(r)
         w["kgBones"] += entry_bones(r)
         w["buckets"].add(bucket(r))
+        day = r["taken_at"].date()
+        w["days"].add(day)
+        d = w["daily"][day]
+        d[0] += q
+        d[1] += m
+        # Odchylenie od średniej WŁASNEJ partii, ważone kilogramami — duże
+        # pobranie waży w ocenie więcej niż mała sztuka.
+        by = batch_yield.get(r["raw_batch_no"] or "—")
+        if by is not None and q > 0:
+            w["devKg"] += (m / q * 100 - by) * q
+
+    prod_days = len({r["taken_at"].date() for r in rows}) or 1
 
     workers = []
     for wid, w in wagg.items():
         ah = max(1, len(w["buckets"]))
+        # Powtarzalność: rozrzut DZIENNEGO uzysku. Stały 65,5% jest wart
+        # więcej niż średnia 65,5% skacząca 63–68 — to sygnał o procesie
+        # (nóż, tempo, rodzaj cięcia), nie o pechu z partią.
+        daily_y = [d[1] / d[0] * 100 for d in w["daily"].values() if d[0] > 0]
+        std = None
+        if len(daily_y) > 1:
+            mean = sum(daily_y) / len(daily_y)
+            std = (sum((y - mean) ** 2 for y in daily_y) / (len(daily_y) - 1)) ** 0.5
         workers.append({
             "workerId": wid,
             "workerName": w["name"],
@@ -421,6 +455,12 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
             "kgMeat": round(w["kgMeat"], 1),
             "avgYield": round(w["kgMeat"] / w["kgQuarter"] * 100, 1) if w["kgQuarter"] else 0.0,
             "kgPerHour": round(w["kgMeat"] / ah, 1),
+            # Obecność liczona z dni, w których pracownik cokolwiek pobrał —
+            # system nie zna grafiku, więc NIE odróżnia urlopu od nieobecności.
+            "days": len(w["days"]),
+            "attendancePct": round(len(w["days"]) / prod_days * 100, 1),
+            "yieldVsBatchPp": round(w["devKg"] / w["kgQuarter"], 2) if w["kgQuarter"] else None,
+            "yieldStdDev": round(std, 2) if std is not None else None,
         })
     workers.sort(key=lambda x: -x["kgQuarter"])
 
@@ -559,6 +599,8 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
             "missingPct": round(
                 (total_kgq - total_meat - total_backs - total_bones) / total_kgq * 100, 1
             ) if total_kgq else 0.0,
+            # Dni, w których cokolwiek rozbierano — mianownik obecności.
+            "prodDays": len(by_day),
             # Efektywny koszt 1 kg mięsa (partie ze znaną ceną zakupu):
             # (koszt ćwiartki − przychód z ubocznych) / kg mięsa.
             "quarterCost": round(eco_cost, 2) if eco_cost else None,

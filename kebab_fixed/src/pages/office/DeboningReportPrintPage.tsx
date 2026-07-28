@@ -20,6 +20,8 @@ import { analyticsApi, deboningApi, settingsApi, type DeboningStats, type Compan
 import {
   batchDeviations, costWaterfall, execNarrative, massBalance, reportGaps, yieldValue,
 } from '@/features/reports/executiveSummary'
+import { potentialPln, workerScorecard } from '@/features/reports/workerScorecard'
+import { TrendChart } from '@/features/reports/TrendChart'
 
 const nf0 = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -115,7 +117,12 @@ export function DeboningReportPrintPage() {
   // pisze wtedy „pierwszy miesiąc", zamiast zmyślić strzałkę.
   const trendDelta = trend[trend.length - 1]?.deltaYieldPp ?? null
   const days = data.byDay ?? []
-  const workers = [...data.workers].sort((a, b) => b.kgMeat - a.kgMeat)
+  const prodDays = s.prodDays || days.length || 1
+  const scorecard = workerScorecard(data.workers, s.meatCostPerKg)
+  const potential = potentialPln(scorecard, s.kgQuarter, s.meatCostPerKg)
+  // Dni odstające — wykres pokazuje kształt, ta lista nazywa konkretne dni,
+  // żeby dało się je sprawdzić bez czytania wykresu przez lupę.
+  const offDays = days.filter(d => Math.abs(d.avgYield - s.avgYield) > 1)
   const batches = [...data.byBatch].sort((a, b) => a.batchNo.localeCompare(b.batchNo, 'pl', { numeric: true }))
 
   return (
@@ -422,31 +429,61 @@ export function DeboningReportPrintPage() {
         <thead>
           <tr>
             <th style={{ ...S.th, textAlign: 'left' }}>Pracownik</th>
+            <th style={S.th}>Obecność</th>
             <th style={S.th}>Ćwiartka [kg]</th>
-            <th style={S.th}>Mięso [kg]</th>
+            <th style={S.th}>Udział [%]</th>
             <th style={S.th}>Śr. %</th>
-            <th style={S.th}>± zakład [p.p.]</th>
+            <th style={S.th}>± partia [p.p.]</th>
+            <th style={S.th}>Skutek [zł]</th>
+            <th style={S.th}>Powtarzalność</th>
             <th style={S.th}>Kg/h</th>
-            <th style={S.th}>Wpisy</th>
           </tr>
         </thead>
         <tbody>
-          {workers.map(w => {
-            const d = w.avgYield - s.avgYield
-            return (
-              <tr key={w.workerId}>
-                <td style={{ ...S.tdL, fontWeight: 600 }}>{w.workerName}</td>
-                <td style={S.td}>{nf1.format(w.kgQuarter)}</td>
-                <td style={{ ...S.td, fontWeight: 700 }}>{nf1.format(w.kgMeat)}</td>
-                <td style={{ ...S.td, fontWeight: 700 }}>{nf1.format(w.avgYield)}</td>
-                <td style={S.td}>{Math.abs(d) < 0.05 ? '0,0' : `${d > 0 ? '+' : '−'}${nf1.format(Math.abs(d))}`}</td>
-                <td style={S.td}>{nf1.format(w.kgPerHour)}</td>
-                <td style={S.td}>{w.quarters}</td>
-              </tr>
-            )
-          })}
+          {scorecard.map(w => (
+            <tr key={w.workerId} style={w.smallSample ? { color: '#777' } : undefined}>
+              <td style={{ ...S.tdL, fontWeight: 600 }}>
+                {w.workerName}{w.smallSample && <span style={{ fontWeight: 400 }}> · próba za mała</span>}
+              </td>
+              <td style={S.td}>{w.days}/{prodDays} · {nf0.format(w.attendancePct)}%</td>
+              <td style={S.td}>{nf0.format(w.kgQuarter)}</td>
+              <td style={S.td}>{nf1.format(w.volumeSharePct)}</td>
+              <td style={{ ...S.td, fontWeight: 700 }}>{nf1.format(w.avgYield)}</td>
+              <td style={S.td}>
+                {w.yieldVsBatchPp == null ? '—'
+                  : `${w.yieldVsBatchPp > 0 ? '+' : w.yieldVsBatchPp < 0 ? '−' : ''}${nf2.format(Math.abs(w.yieldVsBatchPp))}`}
+              </td>
+              <td style={{ ...S.td, fontWeight: 800 }}>
+                {w.deltaPln == null || w.smallSample ? '—' : signedPln(w.deltaPln)}
+              </td>
+              <td style={S.td}>{w.yieldStdDev == null ? '—' : `± ${nf2.format(w.yieldStdDev)} p.p.`}</td>
+              <td style={S.td}>{nf1.format(w.kgPerHour)}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
+      {potential && (
+        <p style={{ ...S.lead, marginTop: 6 }}>
+          <b>Stawka:</b> suma kolumny „Skutek" jest bliska zeru, bo to porównanie pracowników
+          między sobą — nie dodatkowy zysk. Realna kwota to poziom najlepszego rozciągnięty na
+          cały zakład: gdyby wszyscy pracowali jak {potential.workerName}{' '}
+          (+{nf2.format(potential.pp)} p.p. względem własnych partii), miesiąc dałby{' '}
+          <b>{nfPln.format(potential.pln)} zł</b> więcej.
+        </p>
+      )}
+      <p style={S.note}>
+        <b>± partia</b> — uzysk względem średniej WŁASNYCH partii, ważony kilogramami.
+        Zdejmuje wpływ jakości surowca, żeby ranking nie karał za partię, której nikt nie wybierał;
+        <b> Skutek</b> to ta różnica przeliczona na złotówki (koszt {s.meatCostPerKg != null ? nf2.format(s.meatCostPerKg) : '—'} zł/kg mięsa).
+      </p>
+      <p style={S.note}>
+        <b>Powtarzalność</b> — rozrzut uzysku między dniami. Stały wynik jest wart więcej niż
+        taka sama średnia skacząca w górę i w dół: to sygnał o technice i tempie, nie o pechu z partią.
+      </p>
+      <p style={S.note}>
+        <b>Obecność</b> liczona z dni, w których pracownik miał pobranie —
+        system nie zna grafiku, więc nie odróżnia urlopu i zwolnienia od nieobecności.
+      </p>
 
       {/* ── Dostawcy (gdy więcej niż jeden) ── */}
       {suppliers.length > 1 && (
@@ -477,30 +514,21 @@ export function DeboningReportPrintPage() {
         </>
       )}
 
-      {/* ── Trend dzienny (zakresy wielodniowe) ── */}
+      {/* ── Trend dzienny ── */}
+      {/* Wykres zamiast tabeli: 17 wierszy liczb nikt nie czyta, kształt
+          widać w sekundę. Dni odstające i tak wypisujemy pod spodem. */}
       {days.length > 1 && (
         <>
           <div style={S.section}>Trend dzienny</div>
-          <table style={S.table}>
-            <thead>
-              <tr>
-                <th style={{ ...S.th, textAlign: 'left' }}>Dzień</th>
-                <th style={S.th}>Wpisy</th>
-                <th style={S.th}>Mięso [kg]</th>
-                <th style={S.th}>Śr. % mięsa</th>
-              </tr>
-            </thead>
-            <tbody>
-              {days.map(d => (
-                <tr key={d.date}>
-                  <td style={S.tdL}>{fmtD(d.date)}</td>
-                  <td style={S.td}>{d.quarters}</td>
-                  <td style={{ ...S.td, fontWeight: 700 }}>{nf1.format(d.kgMeat)}</td>
-                  <td style={{ ...S.td, fontWeight: 700 }}>{nf1.format(d.avgYield)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <TrendChart points={days} avgYield={s.avgYield} />
+          {offDays.length > 0 && (
+            <p style={S.note}>
+              Dni odstające od średniej o ponad 1 p.p.:{' '}
+              {offDays.map(d =>
+                `${fmtD(d.date)} — ${nf1.format(d.avgYield)}% (${d.avgYield > s.avgYield ? '+' : '−'}${nf1.format(Math.abs(d.avgYield - s.avgYield))} p.p., ${nf0.format(d.kgMeat)} kg)`
+              ).join('; ')}.
+            </p>
+          )}
         </>
       )}
 

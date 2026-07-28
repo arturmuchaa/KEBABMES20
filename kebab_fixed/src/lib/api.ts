@@ -356,6 +356,14 @@ export const deboningApi = {
 export interface DeboningStatsWorker {
   workerId: string; workerName: string; quarters: number
   kgQuarter: number; kgMeat: number; avgYield: number; kgPerHour: number
+  /** Dni z pobraniem. System nie zna grafiku — NIE odróżnia urlopu od nieobecności. */
+  days: number
+  attendancePct: number
+  /** Uzysk względem średniej WŁASNYCH partii, ważony kg — zdejmuje wpływ
+   *  jakości surowca, żeby ranking nie karał za partię, której nikt nie wybierał. */
+  yieldVsBatchPp: number | null
+  /** Rozrzut dziennego uzysku (odch. std.); null przy jednym dniu pracy. */
+  yieldStdDev: number | null
 }
 /** Jedna porcja ważenia pobrania (pobranie ważone na raty ma ich kilka). */
 export interface WorkerEntryWeighing {
@@ -384,6 +392,8 @@ export interface DeboningStats {
     backsPct: number; bonesPct: number
     /** Bilans masy: ćwiartka − (mięso+kości+grzbiety) — duży = coś niezważone. */
     missingKg: number; missingPct: number
+    /** Dni, w których cokolwiek rozbierano — mianownik obecności pracownika. */
+    prodDays: number
     /** Rachunek rozbioru (partie ze znaną ceną zakupu); koszt mięsa Z robocizną. */
     quarterCost: number | null; byproductRevenue: number | null
     laborCost: number | null; meatCostPerKg: number | null
