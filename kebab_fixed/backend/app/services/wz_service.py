@@ -24,6 +24,7 @@ from app.services.order_stock_service import (
     stock_portions_for_order,
 )
 from app.services.settings_service import get_company
+from app.utils.meat_lots import raw_batch_no_from_lot
 from app.utils.ids import cuid, now_iso
 from app.utils.pallets import pallet_containers
 from app.utils.stock import create_stock_movement
@@ -258,14 +259,17 @@ def create_manual_wz(
     lines, total = build_manual_wz_lines(selections, valued)
     # Tabela HDI na dokumencie (tylko surowiec): daty uboju/ważności partii
     # stemplowane na liniach W CHWILI wystawienia — dokument to snapshot.
-    nos = sorted({str(l.get("batch_no") or "") for l in lines
+    # Numer LOTU mięsa b/s ma sufiks rodzaju („440-BS"), a partia ćwiartki
+    # nazywa się „440" — bez normalizacji dokument wychodził bez daty uboju
+    # i ważności (prod 2026-07-28, WZ/38 z mięsem b/s).
+    nos = sorted({raw_batch_no_from_lot(str(l.get("batch_no") or "")) for l in lines
                   if l.get("batch_no") and l.get("stock_type") in ("raw", "meat", "byproduct")})
     if nos:
         dates = {r["internal_batch_no"]: r for r in query_all(
             "SELECT internal_batch_no, slaughter_date, expiry_date FROM raw_batches "
             "WHERE internal_batch_no = ANY(%s)", (nos,))}
         for l in lines:
-            d = dates.get(str(l.get("batch_no") or ""))
+            d = dates.get(raw_batch_no_from_lot(str(l.get("batch_no") or "")))
             if d and l.get("stock_type") in ("raw", "meat", "byproduct"):
                 l["slaughter_date"] = str(d.get("slaughter_date") or "")[:10] or None
                 l["expiry_date"] = str(d.get("expiry_date") or "")[:10] or None

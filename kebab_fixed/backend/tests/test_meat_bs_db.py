@@ -151,3 +151,29 @@ def test_domyslnie_zs_gdy_operator_nie_przelaczyl(db):
     assert lot["material_type_id"] == "mat-mieso-zs"
     assert lot["lot_no"] == "441"
     assert query_one("SELECT meat_type FROM deboning_entries WHERE id=%s", (e["id"],))["meat_type"] == "zs"
+
+
+def test_wz_stempluje_daty_uboju_i_waznosci_takze_dla_lotu_bs(db):
+    """Lot b/s ma numer z sufiksem („440-BS"), a partia ćwiartki nazywa się
+    „440" — stemplowanie dat na WZ musi to znormalizować, inaczej dokument
+    wychodzi bez daty uboju i ważności (prod 2026-07-28, WZ/38)."""
+    from app.db import execute
+    from app.services.wz_service import create_manual_wz
+
+    _seed_batch()
+    execute("UPDATE raw_batches SET slaughter_date='2026-07-24', expiry_date='2026-07-31' "
+            "WHERE id='rb1'")
+    e = _take(15.0)
+    complete_deboning_take(e["id"], _meat(7.5, "bs"))
+    lot = query_one("SELECT id, lot_no FROM meat_stock WHERE material_type_id='mat-mieso-bs'")
+
+    wz = create_manual_wz(
+        buyer={"name": "Klient", "address": "", "nip": ""},
+        selections=[{"stock_type": "meat", "stock_id": lot["id"], "name": "Mięso b/s",
+                     "unit": "kg", "qty": 7.5, "price": 1.0, "batch_no": lot["lot_no"]}],
+        valued=True,
+    )
+    line = wz["lines"][0]
+    assert line["batch_no"] == "441-BS"
+    assert line["slaughter_date"] == "2026-07-24", "brak daty uboju na pozycji b/s"
+    assert line["expiry_date"] == "2026-07-31", "brak daty ważności na pozycji b/s"

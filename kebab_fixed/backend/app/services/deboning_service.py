@@ -25,6 +25,7 @@ from app.db import (
 from app.logging_config import get_logger
 from app.models.deboning import DeboningEntryCreate, DeboningEntryUpdate
 from app.utils.ids import cuid, next_dated_no, now_iso
+from app.utils.meat_lots import MEAT_TYPES
 from app.utils.stock import create_stock_movement
 
 logger = get_logger(__name__)
@@ -1083,14 +1084,6 @@ def _reattach_overnight_session(conn, entry: Dict, entry_id: str) -> None:
     )
 
 
-#: Rodzaje mięsa z rozbioru → (material_type_id, nazwa, sufiks numeru lotu).
-#: Sufiks jest KLUCZOWY: meat_stock.lot_no ma unikat i ON CONFLICT dolicza kg,
-#: więc bez własnego numeru b/s wpadłoby do lotu z/s tej samej partii i
-#: pojechało do masowania jako z/s.
-MEAT_TYPES: Dict[str, tuple] = {
-    "zs": ("mat-mieso-zs", "Mięso z/s", ""),
-    "bs": ("mat-mieso-bs", "Mięso b/s", "-BS"),
-}
 
 
 def meat_type_of(dto, entry: Optional[Dict] = None) -> str:
