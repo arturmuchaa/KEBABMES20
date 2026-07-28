@@ -2,12 +2,24 @@
  * DeboningReportPrintPage — raport rozbioru za okres, jednym klikiem do druku/PDF.
  *
  * Samodzielna strona (bez sidebara, jak WzPrintPage): /office/rozbior-raport/druk?from=&to=
- * Renderuje A4 z danymi z /deboning/stats: KPI + ekonomia, partie, pracownicy,
- * dostawcy, trend dzienny. Auto-print po załadowaniu (?pdf=1 wyłącza).
+ * Auto-print po załadowaniu (?pdf=1 wyłącza).
+ *
+ * Dwa poziomy, świadomie:
+ * * STRONA 1 — dla zarządu: podsumowanie słowne, bilans masy domknięty do
+ *   100%, z czego składa się koszt 1 kg mięsa, ile warty jest uzysk w
+ *   złotówkach, które partie kosztowały pieniądze, trend miesięczny i JAWNA
+ *   lista tego, czego raport nie obejmuje. Cała arytmetyka i cały tekst
+ *   pochodzą z features/reports/executiveSummary — raport zarządczy musi być
+ *   powtarzalny co do słowa.
+ * * STRONY DALSZE — operacyjne: pełne tabele partii, pracowników, dostawców
+ *   i trendu dziennego (to, co było tu od początku).
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { deboningApi, settingsApi, type DeboningStats, type CompanySettings } from '@/lib/api'
+import { analyticsApi, deboningApi, settingsApi, type DeboningStats, type CompanySettings, type KpiMonth } from '@/lib/api'
+import {
+  batchDeviations, costWaterfall, execNarrative, massBalance, reportGaps, yieldValue,
+} from '@/features/reports/executiveSummary'
 
 const nf0 = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -33,7 +45,18 @@ const S = {
   kpiBox: { border: '1px solid #bfbfbf', padding: '6px 10px' } as const,
   kpiLabel: { fontSize: 9.5, textTransform: 'uppercase' as const, fontWeight: 700, color: '#555', letterSpacing: 0.4 },
   kpiValue: { fontSize: 17, fontWeight: 800, fontVariantNumeric: 'tabular-nums' as const },
+  lead: { fontSize: 12, lineHeight: 1.55, margin: '0 0 4px' } as const,
+  note: { fontSize: 10.5, lineHeight: 1.5, color: '#444', margin: '2px 0 0 14px' } as const,
 }
+
+// Szarości słupka bilansu — dokument jest czarno-biały (drukarka biurowa),
+// więc frakcje rozróżnia jasność, nie kolor.
+const TONE: Record<string, string> = {
+  meat: '#2b2b2b', backs: '#7a7a7a', bones: '#b4b4b4', gap: '#e2e2e2',
+}
+
+const nfPln = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
+const signedPln = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${nfPln.format(Math.abs(v))} zł`
 
 function signedKg(v: number | null | undefined): string {
   if (v == null) return '—'
@@ -47,16 +70,20 @@ export function DeboningReportPrintPage() {
   const isPdf = sp.get('pdf') === '1'
   const [data, setData] = useState<DeboningStats | null>(null)
   const [company, setCompany] = useState<CompanySettings | null>(null)
+  // Trend miesięczny z migawek. Nie blokuje wydruku: gdy padnie, strona 1
+  // po prostu napisze, że porównania nie ma — lepsze niż pusty raport.
+  const [months, setMonths] = useState<KpiMonth[] | null>(null)
 
   useEffect(() => {
     if (!from || !to) return
     deboningApi.stats(from, to).then(setData).catch(() => setData(null))
     settingsApi.getCompany().then(setCompany).catch(() => setCompany(null))
+    analyticsApi.kpiMonths(12).then(setMonths).catch(() => setMonths([]))
   }, [from, to])
 
   useEffect(() => {
-    if (data && !isPdf) setTimeout(() => window.print(), 400)
-  }, [data, isPdf])
+    if (data && months && !isPdf) setTimeout(() => window.print(), 400)
+  }, [data, months, isPdf])
 
   const suppliers = useMemo(() => {
     const sup = new Map<string, { kgQuarter: number; kgMeat: number; batches: number }>()
@@ -76,6 +103,17 @@ export function DeboningReportPrintPage() {
 
   const s = data.summary
   const surplus = s.missingKg < 0
+  const trend = months ?? []
+  const exec = { ...s, quarters: s.quarters, workers: s.workers }
+  const bal = massBalance(exec)
+  const cost = costWaterfall(exec)
+  const yv = yieldValue(exec)
+  const dev = batchDeviations(data.byBatch, s.avgYield, s.meatCostPerKg)
+  const narrative = execNarrative(exec, data.byBatch, trend)
+  const gaps = reportGaps(exec, data.byBatch, trend)
+  // Zmiana uzysku m/m — null, gdy nie ma SĄSIEDNIEGO poprzednika. Kafelek
+  // pisze wtedy „pierwszy miesiąc", zamiast zmyślić strzałkę.
+  const trendDelta = trend[trend.length - 1]?.deltaYieldPp ?? null
   const days = data.byDay ?? []
   const workers = [...data.workers].sort((a, b) => b.kgMeat - a.kgMeat)
   const batches = [...data.byBatch].sort((a, b) => a.batchNo.localeCompare(b.batchNo, 'pl', { numeric: true }))
@@ -104,10 +142,16 @@ export function DeboningReportPrintPage() {
       {/* ── KPI ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0, border: '1px solid #bfbfbf' }}>
         {[
+          // Grzbiety i kości zeszły z kafelków do „Bilansu masy" — tam mają
+          // kontekst (domknięcie do 100%), tutaj były tylko dwiema liczbami.
           { l: 'Ćwiartka pobrana', v: `${nf0.format(s.kgQuarter)} kg`, sub: `${nf0.format(s.quarters)} wpisów` },
-          { l: 'Mięso', v: `${nf0.format(s.kgMeat)} kg`, sub: `śr. rozbiór ${nf1.format(s.avgYield)}%` },
-          { l: 'Grzbiety', v: `${nf0.format(s.kgBacks)} kg`, sub: `${nf1.format(s.backsPct)}% ćwiartki` },
-          { l: 'Kości', v: `${nf0.format(s.kgBones)} kg`, sub: `${nf1.format(s.bonesPct)}% ćwiartki` },
+          { l: 'Mięso', v: `${nf0.format(s.kgMeat)} kg`, sub: `${nf0.format(batches.length)} partii · ${days.length || 1} dni` },
+          { l: 'Średni uzysk', v: `${nf1.format(s.avgYield)}%`,
+            sub: trendDelta == null
+              ? 'pierwszy miesiąc — brak porównania'
+              : `${trendDelta > 0 ? '↑ +' : trendDelta < 0 ? '↓ −' : '→ '}${nf1.format(Math.abs(trendDelta))} p.p. vs poprzedni mies.` },
+          { l: 'Wartość 0,1 p.p. uzysku', v: yv ? `${nfPln.format(yv.pointPln)} zł` : '—',
+            sub: yv ? `${nf0.format(yv.pointKg)} kg mięsa` : 'brak cen zakupu' },
           { l: 'Tempo', v: `${nf0.format(s.kgPerHour)} kg/h`, sub: `${nf0.format(s.workers)} pracowników` },
           { l: surplus ? 'Nadwyżka rozbiorowa' : 'Bilans masy (ubytek)', v: `${signedKg(s.missingKg)} kg`,
             sub: surplus ? `+${nf1.format(-s.missingPct)}% nad deklarację dostawcy` : `${nf1.format(s.missingPct)}% ćwiartki` },
@@ -125,8 +169,210 @@ export function DeboningReportPrintPage() {
         ))}
       </div>
 
+      {/* ══ STRONA 1 — dla zarządu ═══════════════════════════════════════ */}
+
+      <div style={S.section}>Podsumowanie okresu</div>
+      {narrative.map((p, i) => <p key={i} style={S.lead}>{p}</p>)}
+
+      {/* ── Bilans masy: wejście = wyjście, domknięte do 100% ── */}
+      <div style={S.section}>Bilans masy</div>
+      <div style={{ display: 'flex', height: 26, border: '1px solid #111', marginBottom: 6 }}>
+        {bal.parts.map((p, i) => (
+          <div key={i} style={{ width: `${p.barPct}%`, background: TONE[p.tone],
+            color: p.tone === 'meat' || p.tone === 'backs' ? '#fff' : '#111',
+            fontSize: 9.5, fontWeight: 800, display: 'flex', alignItems: 'center',
+            justifyContent: 'center', borderRight: i < bal.parts.length - 1 ? '1px solid #fff' : 0 }}>
+            {p.pct >= 6 ? `${nf1.format(p.pct)}%` : ''}
+          </div>
+        ))}
+      </div>
+      <table style={S.table}>
+        <tbody>
+          <tr>
+            <td style={{ ...S.tdL, fontWeight: 700, width: '32%' }}>Ćwiartka pobrana (wejście)</td>
+            <td style={{ ...S.td, fontWeight: 800 }}>{nf0.format(s.kgQuarter)} kg</td>
+            <td style={S.td}>100,0%</td>
+            <td style={{ ...S.tdL, width: '36%' }}>{s.quarters} pobrań · {batches.length} partii</td>
+          </tr>
+          {bal.parts.map((p, i) => (
+            <tr key={i}>
+              <td style={S.tdL}>{p.label}</td>
+              <td style={S.td}>{nf0.format(p.kg)} kg</td>
+              <td style={{ ...S.td, fontWeight: 700 }}>{nf1.format(p.pct)}%</td>
+              <td style={S.tdL}>
+                {p.tone === 'gap' ? 'towar nieujęty w ważeniu — do wyjaśnienia' : ''}
+              </td>
+            </tr>
+          ))}
+          {bal.gap.surplus && (
+            <tr style={{ fontWeight: 700, background: '#efefef' }}>
+              <td style={S.tdL}>Razem zważono (wyjście)</td>
+              <td style={S.td}>{nf0.format(bal.outputKg)} kg</td>
+              <td style={S.td}>{nf1.format(bal.outputPct)}%</td>
+              <td style={S.tdL}>
+                nadwyżka {nf0.format(bal.gap.kg)} kg ({nf1.format(bal.gap.pct)}%) —
+                towaru było więcej, niż deklarował dostawca
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      {/* ── Z czego składa się koszt 1 kg mięsa ── */}
+      {cost && (
+        <>
+          <div style={S.section}>Koszt 1 kg mięsa</div>
+          <table style={S.table}>
+            <thead>
+              <tr>
+                <th style={{ ...S.th, textAlign: 'left' }}>Składnik</th>
+                <th style={S.th}>Kwota [zł]</th>
+                <th style={S.th}>Na 1 kg mięsa [zł]</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cost.steps.map((st, i) => (
+                <tr key={i}>
+                  <td style={S.tdL}>{st.sign} {st.label}</td>
+                  <td style={S.td}>{st.sign === '−' ? '−' : ''}{nfPln.format(st.pln)}</td>
+                  <td style={S.td}>{st.sign === '−' ? '−' : ''}{nf2.format(st.perKgMeat)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ fontWeight: 800, background: '#efefef' }}>
+                <td style={S.tdL}>Koszt netto · {nf0.format(s.kgMeat)} kg mięsa</td>
+                <td style={S.td}>{nfPln.format(cost.netPln)}</td>
+                <td style={{ ...S.td, fontSize: 13 }}>{nf2.format(cost.netPerKg)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </>
+      )}
+
+      {/* ── Uzysk przeliczony na pieniądze ── */}
+      {yv && (
+        <>
+          <div style={S.section}>Ile jest wart uzysk</div>
+          <table style={S.table}>
+            <tbody>
+              <tr>
+                <td style={{ ...S.tdL, fontWeight: 700, width: '32%' }}>Wartość 0,1 p.p. uzysku</td>
+                <td style={{ ...S.td, fontWeight: 800, fontSize: 13 }}>{nfPln.format(yv.pointPln)} zł</td>
+                <td style={S.tdL}>= {nf0.format(yv.pointKg)} kg mięsa więcej z tej samej ćwiartki</td>
+              </tr>
+              {yv.scenarios.map(sc => (
+                <tr key={sc.yieldPct}>
+                  <td style={S.tdL}>Gdyby uzysk wyniósł {nf1.format(sc.yieldPct)}%</td>
+                  <td style={{ ...S.td, fontWeight: 700 }}>{signedPln(sc.deltaPln)}</td>
+                  <td style={S.tdL}>{sc.deltaKg > 0 ? '+' : '−'}{nf0.format(Math.abs(sc.deltaKg))} kg mięsa</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {/* ── Gdzie uciekają pieniądze: odchylenia partii w złotówkach ── */}
+      {dev && dev.all.length > 1 && (
+        <>
+          <div style={S.section}>Gdzie uciekają pieniądze — partie względem średniej</div>
+          <table style={S.table}>
+            <thead>
+              <tr>
+                <th style={{ ...S.th, textAlign: 'left' }}>Partia</th>
+                <th style={S.th}>% mięsa</th>
+                <th style={S.th}>Ćwiartka [kg]</th>
+                <th style={S.th}>± p.p.</th>
+                <th style={S.th}>Skutek [zł]</th>
+                <th style={{ ...S.th, textAlign: 'left' }}>Dostawca</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...dev.worst, ...dev.best.slice().reverse()].map((b, i) => (
+                <tr key={b.batchNo} style={i === dev.worst.length ? { borderTop: '2px solid #111' } : undefined}>
+                  <td style={{ ...S.tdL, fontWeight: 700 }}>{b.batchNo}</td>
+                  <td style={{ ...S.td, fontWeight: 700 }}>{nf1.format(b.yieldPct)}</td>
+                  <td style={S.td}>{nf0.format(b.kgQuarter)}</td>
+                  <td style={S.td}>{b.deltaPp > 0 ? '+' : '−'}{nf1.format(Math.abs(b.deltaPp))}</td>
+                  <td style={{ ...S.td, fontWeight: 800 }}>{signedPln(b.deltaPln)}</td>
+                  <td style={S.tdL}>{b.supplierName || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ fontWeight: 800, background: '#efefef' }}>
+                <td style={S.tdL} colSpan={4}>
+                  Razem partie poniżej średniej ({dev.all.filter(b => b.deltaPln < 0).length} z {dev.all.length})
+                </td>
+                <td style={S.td}>{signedPln(dev.lossPln)}</td>
+                <td style={S.tdL}></td>
+              </tr>
+            </tfoot>
+          </table>
+          {suppliers.length > 1 && (
+            <p style={S.note}>Porównanie dostawców — patrz tabela „Dostawcy" na dalszych stronach.</p>
+          )}
+          {suppliers.length === 1 && (
+            <p style={S.note}>
+              Cały surowiec rozebrany w okresie pochodzi od jednego dostawcy
+              ({suppliers[0].name}) — porównanie dostawców niemożliwe.
+            </p>
+          )}
+        </>
+      )}
+
+      {/* ── Trend miesięczny z migawek (rośnie z każdym zamkniętym miesiącem) ── */}
+      <div style={S.section}>Trend miesięczny</div>
+      {trend.length > 1 ? (
+        <table style={S.table}>
+          <thead>
+            <tr>
+              <th style={{ ...S.th, textAlign: 'left' }}>Miesiąc</th>
+              <th style={S.th}>Ćwiartka [kg]</th>
+              <th style={S.th}>Mięso [kg]</th>
+              <th style={S.th}>Uzysk [%]</th>
+              <th style={S.th}>± p.p.</th>
+              <th style={S.th}>Koszt [zł/kg]</th>
+              <th style={S.th}>Tempo [kg/h]</th>
+            </tr>
+          </thead>
+          <tbody>
+            {trend.map(m => (
+              <tr key={m.yearMonth}>
+                <td style={{ ...S.tdL, fontWeight: 700 }}>
+                  {m.yearMonth}{!m.closed && ' (w toku)'}
+                </td>
+                <td style={S.td}>{nf0.format(m.kgQuarter)}</td>
+                <td style={S.td}>{nf0.format(m.kgMeat)}</td>
+                <td style={{ ...S.td, fontWeight: 700 }}>{m.avgYield != null ? nf1.format(m.avgYield) : '—'}</td>
+                <td style={S.td}>
+                  {m.deltaYieldPp == null ? '—'
+                    : `${m.deltaYieldPp > 0 ? '+' : m.deltaYieldPp < 0 ? '−' : ''}${nf1.format(Math.abs(m.deltaYieldPp))}`}
+                </td>
+                <td style={S.td}>{m.meatCostPerKg != null ? nf2.format(m.meatCostPerKg) : '—'}</td>
+                <td style={S.td}>{m.kgPerHour != null ? nf0.format(m.kgPerHour) : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p style={S.lead}>
+          Brak danych porównawczych — rozbiór jest rejestrowany w systemie
+          {trend.length === 1 ? ` od ${trend[0].yearMonth}` : ''} i nie ma jeszcze
+          zamkniętego pełnego miesiąca. Trend uzysku, kosztu i tempa pojawi się
+          automatycznie po zamknięciu kolejnych okresów.
+        </p>
+      )}
+
+      {/* ── Jawna lista dziur: raport, który je zakleja, traci wiarygodność ── */}
+      <div style={S.section}>Czego raport nie obejmuje</div>
+      {gaps.map((g, i) => <p key={i} style={S.note}>• {g}</p>)}
+
+      {/* ══ STRONY DALSZE — operacyjne ════════════════════════════════════ */}
+
       {/* ── Partie ── */}
-      <div style={S.section}>Partie surowca</div>
+      <div style={{ ...S.section, breakBefore: 'page' }}>Partie surowca</div>
       <table style={S.table}>
         <thead>
           <tr>

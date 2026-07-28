@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Query
 
 from app.services import analytics_service as svc
+from app.services import kpi_snapshot_service as kpi
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -43,3 +44,23 @@ def cost_trend(
 ):
     frm, t = _default_range(from_, to)
     return svc.cost_trend(frm, t, granularity)
+
+
+@router.get("/kpi-months")
+def kpi_months(limit: int = Query(12, ge=1, le=60)):
+    """Trend miesięczny do raportu zarządczego: zamknięte miesiące z migawek
+    + bieżący na żywo. Domyka po drodze zaległe miesiące (idempotentnie),
+    więc nikt nie musi pamiętać o „zamknięciu miesiąca"."""
+    return {"data": kpi.list_kpi_months(limit)}
+
+
+@router.get("/kpi-months/{year_month}")
+def kpi_month(year_month: str):
+    return kpi.get_month_kpi(year_month)
+
+
+@router.post("/kpi-months/{year_month}/close")
+def kpi_month_close(year_month: str, force: bool = Query(False), by: str = Query("")):
+    """Zamknięcie miesiąca. `force=1` przelicza już zamknięty — świadoma
+    decyzja biura po korekcie wstecznej, ze śladem kto/kiedy."""
+    return kpi.close_month(year_month, closed_by=by, force=force)

@@ -281,6 +281,30 @@ export const analyticsApi = {
     get<any[]>(`/analytics/volume?from=${from}&to=${to}&granularity=${g}`),
   costTrend: (from: string, to: string, g: string) =>
     get<any[]>(`/analytics/cost-trend?from=${from}&to=${to}&granularity=${g}`),
+  /** Trend miesięczny do raportu zarządczego: miesiące zamknięte czytane
+   *  z migawek (zamrożone — korekty nie zmieniają historii), bieżący na żywo. */
+  kpiMonths: (limit = 12) =>
+    get<{ data: KpiMonth[] }>(`/analytics/kpi-months?limit=${limit}`).then(r => r.data ?? []),
+}
+
+/** Migawka KPI miesiąca. `delta*` = None gdy brak SĄSIEDNIEGO poprzednika —
+ *  raport ma wtedy napisać „brak danych porównawczych", a nie zmyślić zmianę. */
+export interface KpiMonth {
+  yearMonth: string
+  closed: boolean
+  closedAt: string | null
+  kgQuarter: number; kgMeat: number; kgBacks: number; kgBones: number; missingKg: number
+  avgYield: number | null; kgPerHour: number | null
+  quarterCost: number | null; laborCost: number | null; byproductRevenue: number | null
+  meatCostPerKg: number | null
+  /** Ile złotych warte jest 0,1 p.p. uzysku w tym miesiącu. */
+  yieldPointValuePln: number | null
+  entries: number; batches: number; workers: number; prodDays: number
+  suppliers: { name: string; batches: number; kgQuarter: number; kgMeat: number
+    avgYield: number; deltaPp: number; deltaPln: number | null }[]
+  deltaYieldPp: number | null
+  deltaMeatCostPerKg: number | null
+  deltaKgPerHour: number | null
 }
 
 export const suppliersApi = {

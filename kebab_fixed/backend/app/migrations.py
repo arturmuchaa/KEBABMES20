@@ -734,6 +734,39 @@ _DDL: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_dtw_entry ON deboning_take_weighings(entry_id)",
+    # Miesięczne migawki KPI — fundament trendu w raporcie dla zarządu.
+    # Korekty rozbioru wchodzą WSTECZ (storno, zmiana partii, korekty biurowe),
+    # więc liczony na żywo trend zmieniałby historię pod prezesem: lipiec
+    # wydrukowany 1 sierpnia i ten sam lipiec we wrześniu podawałyby inne
+    # liczby. Zamknięty miesiąc jest zamrożony; przeliczenie po korekcie to
+    # świadoma decyzja biura (force) ze śladem kto/kiedy.
+    # Dane rozbioru zaczynają się 7.07.2026 — tabela startuje pusta i zapełnia
+    # się z każdym domkniętym miesiącem.
+    """
+    CREATE TABLE IF NOT EXISTS kpi_monthly_snapshots (
+        id                 TEXT PRIMARY KEY,
+        year_month         TEXT NOT NULL UNIQUE,
+        closed_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        closed_by          TEXT,
+        kg_quarter         NUMERIC NOT NULL DEFAULT 0,
+        kg_meat            NUMERIC NOT NULL DEFAULT 0,
+        kg_backs           NUMERIC NOT NULL DEFAULT 0,
+        kg_bones           NUMERIC NOT NULL DEFAULT 0,
+        missing_kg         NUMERIC NOT NULL DEFAULT 0,
+        avg_yield          NUMERIC,
+        kg_per_hour        NUMERIC,
+        quarter_cost       NUMERIC,
+        labor_cost         NUMERIC,
+        byproduct_revenue  NUMERIC,
+        meat_cost_per_kg   NUMERIC,
+        yield_point_value  NUMERIC,
+        entries            INTEGER NOT NULL DEFAULT 0,
+        batches            INTEGER NOT NULL DEFAULT 0,
+        workers            INTEGER NOT NULL DEFAULT 0,
+        prod_days          INTEGER NOT NULL DEFAULT 0,
+        suppliers          JSONB NOT NULL DEFAULT '[]'::jsonb
+    )
+    """,
     # Usunięte przyjęcia trzymały swój numer (UNIQUE), więc nie dało się przyjąć
     # ponownie pod tym samym numerem — prod 2026-07-20: „Partia 423 już istnieje".
     # Anulowana dostawa jest z definicji nieruszona (bez rozbioru/mięsa/ubocznych),
