@@ -51,6 +51,20 @@ const S = {
   note: { fontSize: 10.5, lineHeight: 1.5, color: '#444', margin: '2px 0 0 14px' } as const,
 }
 
+// Wariant zwarty dla tabel długich (28 partii): niższy wiersz i mniejszy
+// font, żeby cała lista weszła na JEDNĄ stronę — przewracanie kartki w
+// połowie zestawienia psuje porównywanie partii między sobą.
+const C = {
+  // breakInside: tabela ma zostać w całości — rozdzielona w połowie traci
+  // sens, bo partie porównuje się między sobą wzrokiem.
+  table: { ...S.table, fontSize: 9.5, tableLayout: 'fixed' as const,
+    breakInside: 'avoid' as const },
+  th: { ...S.th, padding: '2px 3px', fontSize: 8 },
+  td: { ...S.td, padding: '1px 3px', lineHeight: 1.25 },
+  tdL: { ...S.tdL, padding: '1px 4px', lineHeight: 1.25,
+    whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' },
+}
+
 // Szarości słupka bilansu — dokument jest czarno-biały (drukarka biurowa),
 // więc frakcje rozróżnia jasność, nie kolor.
 const TONE: Record<string, string> = {
@@ -380,45 +394,52 @@ export function DeboningReportPrintPage() {
 
       {/* ── Partie ── */}
       <div style={{ ...S.section, breakBefore: 'page' }}>Partie surowca</div>
-      <table style={S.table}>
+      <table style={C.table}>
+        <colgroup>
+          <col style={{ width: '7%' }} /><col style={{ width: '16%' }} />
+          <col style={{ width: '11%' }} /><col style={{ width: '11%' }} />
+          <col style={{ width: '9%' }} /><col style={{ width: '11%' }} />
+          <col style={{ width: '11%' }} /><col style={{ width: '11%' }} />
+          <col style={{ width: '13%' }} />
+        </colgroup>
         <thead>
           <tr>
-            <th style={{ ...S.th, textAlign: 'left' }}>Partia</th>
-            <th style={{ ...S.th, textAlign: 'left' }}>Dostawca</th>
-            <th style={S.th}>Ćwiartka [kg]</th>
-            <th style={S.th}>Mięso [kg]</th>
-            <th style={S.th}>% mięsa</th>
-            <th style={S.th}>Grzbiety [kg]</th>
-            <th style={S.th}>Kości [kg]</th>
-            <th style={S.th}>Bilans ± [kg]</th>
-            <th style={S.th}>Koszt mięsa [zł/kg]</th>
+            <th style={{ ...C.th, textAlign: 'left' }}>Partia</th>
+            <th style={{ ...C.th, textAlign: 'left' }}>Dostawca</th>
+            <th style={C.th}>Ćwiartka [kg]</th>
+            <th style={C.th}>Mięso [kg]</th>
+            <th style={C.th}>% mięsa</th>
+            <th style={C.th}>Grzbiety [kg]</th>
+            <th style={C.th}>Kości [kg]</th>
+            <th style={C.th}>Bilans ± [kg]</th>
+            <th style={C.th}>Koszt mięsa [zł/kg]</th>
           </tr>
         </thead>
         <tbody>
           {batches.map(b => (
             <tr key={b.batchNo}>
-              <td style={{ ...S.tdL, fontWeight: 700 }}>{b.batchNo}</td>
-              <td style={S.tdL}>{b.supplierName || '—'}</td>
-              <td style={S.td}>{nf1.format(b.kgQuarter)}</td>
-              <td style={{ ...S.td, fontWeight: 700 }}>{nf1.format(b.kgMeat)}</td>
-              <td style={{ ...S.td, fontWeight: 700 }}>{b.yieldPct != null ? nf1.format(b.yieldPct) : '—'}</td>
-              <td style={S.td}>{nf1.format(b.kgBacks)}</td>
-              <td style={S.td}>{nf1.format(b.kgBones)}</td>
-              <td style={S.td}>{signedKg(b.missingKg)}</td>
-              <td style={S.td}>{b.meatCostPerKg != null ? nf2.format(b.meatCostPerKg) : '—'}</td>
+              <td style={{ ...C.tdL, fontWeight: 700 }}>{b.batchNo}</td>
+              <td style={C.tdL} title={b.supplierName || ''}>{b.supplierName || '—'}</td>
+              <td style={C.td}>{nf0.format(b.kgQuarter)}</td>
+              <td style={{ ...C.td, fontWeight: 700 }}>{nf0.format(b.kgMeat)}</td>
+              <td style={{ ...C.td, fontWeight: 700 }}>{b.yieldPct != null ? nf1.format(b.yieldPct) : '—'}</td>
+              <td style={C.td}>{nf0.format(b.kgBacks)}</td>
+              <td style={C.td}>{nf0.format(b.kgBones)}</td>
+              <td style={C.td}>{signedKg(b.missingKg)}</td>
+              <td style={C.td}>{b.meatCostPerKg != null ? nf2.format(b.meatCostPerKg) : '—'}</td>
             </tr>
           ))}
         </tbody>
         <tfoot>
           <tr style={{ fontWeight: 800, background: '#efefef' }}>
-            <td style={S.tdL} colSpan={2}>Razem · {batches.length} part.</td>
-            <td style={S.td}>{nf1.format(s.kgQuarter)}</td>
-            <td style={S.td}>{nf1.format(s.kgMeat)}</td>
-            <td style={S.td}>{nf1.format(s.avgYield)}</td>
-            <td style={S.td}>{nf1.format(s.kgBacks)}</td>
-            <td style={S.td}>{nf1.format(s.kgBones)}</td>
-            <td style={S.td}>{signedKg(s.missingKg)}</td>
-            <td style={S.td}>{s.meatCostPerKg != null ? nf2.format(s.meatCostPerKg) : '—'}</td>
+            <td style={C.tdL} colSpan={2}>Razem · {batches.length} part.</td>
+            <td style={C.td}>{nf0.format(s.kgQuarter)}</td>
+            <td style={C.td}>{nf0.format(s.kgMeat)}</td>
+            <td style={C.td}>{nf1.format(s.avgYield)}</td>
+            <td style={C.td}>{nf0.format(s.kgBacks)}</td>
+            <td style={C.td}>{nf0.format(s.kgBones)}</td>
+            <td style={C.td}>{signedKg(s.missingKg)}</td>
+            <td style={C.td}>{s.meatCostPerKg != null ? nf2.format(s.meatCostPerKg) : '—'}</td>
           </tr>
         </tfoot>
       </table>

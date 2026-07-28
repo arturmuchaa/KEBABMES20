@@ -367,9 +367,15 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     price_by_no: Dict[str, float] = {}
     rev_by_no: Dict[str, float] = {}
     if batch_nos:
+        # Nazwa WYŚWIETLANA dostawcy („KOKO"), nie rejestrowa („KOKO SPÓŁKA
+        # Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ") — w tabeli 28 partii pełna nazwa
+        # zawijała się na dwie linie i rozpychała raport na drugą stronę.
+        # Fallback do nazwy z partii: stare przyjęcia nie mają supplier_id.
         for sr in query_all(
-            "SELECT internal_batch_no, supplier_name, price_per_kg FROM raw_batches "
-            "WHERE internal_batch_no = ANY(%s)",
+            "SELECT rb.internal_batch_no, rb.price_per_kg, "
+            "       COALESCE(NULLIF(s.display_name, ''), rb.supplier_name) AS supplier_name "
+            "FROM raw_batches rb LEFT JOIN suppliers s ON s.id = rb.supplier_id "
+            "WHERE rb.internal_batch_no = ANY(%s)",
             (list(batch_nos),),
         ):
             supplier_by_no[sr["internal_batch_no"]] = sr["supplier_name"] or ""
