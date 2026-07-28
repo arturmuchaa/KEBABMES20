@@ -322,11 +322,34 @@ export const deboningApi = {
   // Dziennik ważeń mięsa — porcje pobrań z pełnym audytem wagi (brutto/tary/netto)
   weighings: (from: string, to: string) =>
     get<{ data: any[] }>(`/deboning/weighings?date_from=${from}&date_to=${to}`),
+  /** Kartoteka pracownika — pobrania z porcjami ważeń; bez dat = całość. */
+  workerEntries: (workerId: string, from?: string, to?: string) =>
+    get<{ data: WorkerEntry[]; summary: WorkerEntriesSummary }>(
+      `/deboning/worker-entries?worker_id=${encodeURIComponent(workerId)}`
+      + (from && to ? `&date_from=${from}&date_to=${to}` : '')),
 }
 
 export interface DeboningStatsWorker {
   workerId: string; workerName: string; quarters: number
   kgQuarter: number; kgMeat: number; avgYield: number; kgPerHour: number
+}
+/** Jedna porcja ważenia pobrania (pobranie ważone na raty ma ich kilka). */
+export interface WorkerEntryWeighing {
+  kgMeat: number; kgGross: number | null
+  tareCartKg: number | null; tareE2Kg: number | null; e2Count: number | null
+  weighMode: string | null; weighedAtLocal: string
+}
+/** Pobranie w kartotece pracownika. */
+export interface WorkerEntry {
+  id: string; rawBatchNo: string
+  kgQuarter: number; kgMeat: number; yieldPct: number | null
+  status: string; corrected: boolean; portions: number
+  takenAtLocal: string; dayLocal: string; completedAtLocal: string | null
+  weighings: WorkerEntryWeighing[]
+}
+export interface WorkerEntriesSummary {
+  entries: number; days: number
+  kgQuarter: number; kgMeat: number; avgYield: number; portions: number
 }
 export interface DeboningStats {
   summary: {

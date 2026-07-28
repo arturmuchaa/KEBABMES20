@@ -591,6 +591,13 @@ export function DeboningReportsPage() {
                 <DialogTitle className="flex items-center gap-2">
                   <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-brand/10 text-brand"><Users size={15} /></span>
                   {drill.workerName} — dzień po dniu
+                  {/* Reklamacja („pobrałem więcej") potrzebuje pojedynczych
+                      pobrań i odczytów wagi — te są w kartotece. */}
+                  <button type="button"
+                    onClick={() => navigate(`/office/kartoteka-pracownika?worker=${drill.workerId}`)}
+                    className="ml-auto mr-6 text-xs font-semibold text-brand hover:underline">
+                    Kartoteka — pobranie po pobraniu →
+                  </button>
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-3">

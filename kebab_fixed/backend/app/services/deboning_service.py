@@ -124,6 +124,85 @@ def deboning_trace(batch_id: str) -> Dict[str, List[Dict]]:
     return {"data": [_map_deboning_entry(e) for e in entries]}
 
 
+def worker_entries(
+    worker_id: str, date_from: Optional[str] = None, date_to: Optional[str] = None
+) -> Dict[str, Any]:
+    """Kartoteka pracownika — WSZYSTKIE jego pobrania z porcjami ważeń.
+
+    Bez dat = całość (kartoteka od zawsze); z datami — zakres po dniu POBRANIA
+    w czasie PL, spójnie z płacą i statystykami (patrz deboning_stats: akord
+    płaci się za dzień, w którym pracownik wziął ćwiartkę, nawet gdy mięso
+    zważył nazajutrz).
+
+    Powód istnienia: reklamacja z hali (DENYS, 22.07.2026) wymagała rozbicia
+    dnia na pojedyncze pobrania i KAŻDĄ porcję ważenia z audytem wagi —
+    dotąd biuro musiało do tego wchodzić w SQL."""
+    rows = query_all(
+        """
+        SELECT e.id,
+               e.raw_batch_no                                        AS "rawBatchNo",
+               e.kg_quarter                                          AS "kgQuarter",
+               e.kg_meat                                             AS "kgMeat",
+               e.yield_pct                                           AS "yieldPct",
+               COALESCE(e.status, 'complete')                        AS status,
+               (e.created_at AT TIME ZONE 'Europe/Warsaw')           AS "takenAtLocal",
+               (e.created_at AT TIME ZONE 'Europe/Warsaw')::date     AS "dayLocal",
+               (e.completed_at AT TIME ZONE 'Europe/Warsaw')         AS "completedAtLocal",
+               EXISTS (SELECT 1 FROM deboning_entry_corrections c
+                        WHERE c.entry_id = e.id)                     AS corrected
+        FROM deboning_entries e
+        WHERE e.worker_id = %s
+          AND (%s::date IS NULL OR (e.created_at AT TIME ZONE 'Europe/Warsaw')::date >= %s::date)
+          AND (%s::date IS NULL OR (e.created_at AT TIME ZONE 'Europe/Warsaw')::date <= %s::date)
+        ORDER BY e.created_at DESC
+        """,
+        (worker_id, date_from, date_from, date_to, date_to),
+    )
+    # Porcje jednym zapytaniem (bez N+1) — pobranie ważone na raty ma ich kilka.
+    by_entry: Dict[str, List[Dict[str, Any]]] = {}
+    if rows:
+        for w in query_all(
+            """
+            SELECT entry_id                                     AS "entryId",
+                   kg_meat                                      AS "kgMeat",
+                   kg_gross                                     AS "kgGross",
+                   tare_cart_kg                                 AS "tareCartKg",
+                   tare_e2_kg                                   AS "tareE2Kg",
+                   e2_count                                     AS "e2Count",
+                   weigh_mode                                   AS "weighMode",
+                   (weighed_at AT TIME ZONE 'Europe/Warsaw')    AS "weighedAtLocal"
+            FROM deboning_take_weighings
+            WHERE entry_id = ANY(%s)
+            ORDER BY weighed_at
+            """,
+            ([r["id"] for r in rows],),
+        ):
+            by_entry.setdefault(w.pop("entryId"), []).append(w)
+
+    kg_quarter = kg_meat = 0.0
+    days = set()
+    for r in rows:
+        r["weighings"] = by_entry.get(r["id"], [])
+        r["portions"] = len(r["weighings"])
+        kg_quarter += float(r["kgQuarter"] or 0)
+        kg_meat += float(r["kgMeat"] or 0)
+        days.add(r["dayLocal"])
+
+    return {
+        "data": rows,
+        "summary": {
+            "entries": len(rows),
+            "days": len(days),
+            "kgQuarter": round(kg_quarter, 2),
+            "kgMeat": round(kg_meat, 2),
+            # Uzysk z SUM, nie średnia ze średnich — jeden duży wpis nie może
+            # ważyć tyle samo co dopełnienie 20 kg.
+            "avgYield": round(kg_meat / kg_quarter * 100, 2) if kg_quarter > 0 else 0.0,
+            "portions": sum(r["portions"] for r in rows),
+        },
+    }
+
+
 def list_take_weighings(date_from: str, date_to: str) -> Dict[str, Any]:
     """Dziennik ważeń mięsa — każda porcja pobrania z pełnym audytem wagi
     (brutto, tara wózka, pojemniki E2, netto, tryb auto/ręczny). Dzień

@@ -110,6 +110,16 @@ def list_take_weighings(
     return svc.list_take_weighings(date_from, date_to)
 
 
+@router.get("/api/deboning/worker-entries")
+def worker_entries(
+    worker_id: str = Query(..., alias="worker_id"),
+    date_from: str = Query(None, alias="date_from"),
+    date_to: str = Query(None, alias="date_to"),
+):
+    """Kartoteka pracownika: pobrania + porcje ważeń. Bez dat = całość."""
+    return svc.worker_entries(worker_id, date_from or None, date_to or None)
+
+
 @router.get("/api/deboning/entries")
 def list_deboning_entries(
     session_id: str = Query(None, alias="session_id"),
