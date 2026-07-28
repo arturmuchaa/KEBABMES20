@@ -26,9 +26,12 @@ export interface BriefWorker {
   workerId: string
   workerName: string
   kgQuarter: number
-  yieldVsBatchPp: number | null
+  /** Odchylenie od średniej ZAKŁADU [p.p.] — ta sama miara co w tabeli. */
+  deltaPp: number
   attendancePct: number
-  yieldStdDev: number | null
+  yieldMinDay: number | null
+  yieldMaxDay: number | null
+  yieldRangePp: number | null
   smallSample: boolean
   deltaPln: number | null
 }
@@ -75,8 +78,8 @@ export function executiveBrief(i: BriefInput): BriefItem[] {
 
   // Małe próby nie mogą zostać ani wzorcem, ani „największym ryzykiem" —
   // jeden dzień pracy to nie poziom, tylko pojedynczy pomiar.
-  const solid = i.workers.filter(w => !w.smallSample && w.yieldVsBatchPp != null)
-  const bestWorker = [...solid].sort((a, b) => (b.yieldVsBatchPp ?? 0) - (a.yieldVsBatchPp ?? 0))[0]
+  const solid = i.workers.filter(w => !w.smallSample)
+  const bestWorker = [...solid].sort((a, b) => b.deltaPp - a.deltaPp)[0]
   const worstWorker = [...solid].sort((a, b) => (a.deltaPln ?? 0) - (b.deltaPln ?? 0))[0]
   const surplus = i.missingKg < 0
   const gapKg = Math.abs(i.missingKg)
@@ -98,9 +101,9 @@ export function executiveBrief(i: BriefInput): BriefItem[] {
       parts.push(`najlepsza partia ${bestBatch.batchNo} osiągnęła ` +
         `${nf1.format(bestBatch.yieldPct)}%${cost != null ? ` (+${pln(bestBatch.deltaPln)})` : ''}`)
     }
-    if (bestWorker && (bestWorker.yieldVsBatchPp ?? 0) > 0) {
+    if (bestWorker && bestWorker.deltaPp > 0) {
       parts.push(`${bestWorker.workerName} utrzymał ` +
-        `+${nf2.format(bestWorker.yieldVsBatchPp as number)} p.p. ponad średnią swoich partii`)
+        `+${nf2.format(bestWorker.deltaPp)} p.p. ponad średnią zakładu`)
     }
     return parts.length
       ? cap(parts.join('; ')) + '.'
@@ -123,10 +126,13 @@ export function executiveBrief(i: BriefInput): BriefItem[] {
       parts.push(`${i.offDays.length} ${i.offDays.length === 1 ? 'dzień odstający' : 'dni odstających'} ` +
         `od średniej, najmocniej ${fmtD(d.date)} (${nf1.format(d.avgYield)}%)`)
     }
-    const unstable = [...solid].sort((a, b) => (b.yieldStdDev ?? 0) - (a.yieldStdDev ?? 0))[0]
-    if (unstable && (unstable.yieldStdDev ?? 0) >= 1) {
-      parts.push(`najmniej powtarzalny wynik: ${unstable.workerName} ` +
-        `(± ${nf2.format(unstable.yieldStdDev as number)} p.p. między dniami)`)
+    // Najbardziej rozstrzelony wynik nazwany po ludzku: „od–do", a nie
+    // odchylenie standardowe, którego nikt w hali ani w zarządzie nie czyta.
+    const unstable = [...solid].sort((a, b) => (b.yieldRangePp ?? 0) - (a.yieldRangePp ?? 0))[0]
+    if (unstable && (unstable.yieldRangePp ?? 0) >= 2) {
+      parts.push(`najbardziej nierówna praca: ${unstable.workerName} ` +
+        `(od ${nf1.format(unstable.yieldMinDay as number)}% do ` +
+        `${nf1.format(unstable.yieldMaxDay as number)}% w zależności od dnia)`)
     }
     return parts.length ? cap(parts.join('; ')) + '.'
       : 'Brak odchyleń przekraczających progi kontrolne w tym okresie.'
@@ -144,7 +150,7 @@ export function executiveBrief(i: BriefInput): BriefItem[] {
     }
     if (worstWorker && (worstWorker.deltaPln ?? 0) < 0) {
       return `${worstWorker.workerName}: ${pln(worstWorker.deltaPln as number)} poniżej średniej ` +
-        `własnych partii przy ${nf0.format(worstWorker.attendancePct)}% obecności.`
+        `zakładu przy ${nf0.format(worstWorker.attendancePct)}% obecności.`
     }
     if (i.monthsInSystem <= 1) {
       return 'Brak porównania z poprzednim okresem — to jeden miesiąc rozliczony ' +
@@ -155,12 +161,12 @@ export function executiveBrief(i: BriefInput): BriefItem[] {
 
   function decision(): string {
     const levers: { text: string; pln: number }[] = []
-    if (cost != null && bestWorker && (bestWorker.yieldVsBatchPp ?? 0) > 0) {
-      const v = (bestWorker.yieldVsBatchPp as number) / 100 * i.kgQuarter * cost
+    if (cost != null && bestWorker && bestWorker.deltaPp > 0) {
+      const v = bestWorker.deltaPp / 100 * i.kgQuarter * cost
       levers.push({
         pln: v,
         text: `wyrównanie zespołu do poziomu ${bestWorker.workerName} ` +
-          `(+${nf2.format(bestWorker.yieldVsBatchPp as number)} p.p.) daje ${pln(v)} miesięcznie`,
+          `(+${nf2.format(bestWorker.deltaPp)} p.p.) daje ${pln(v)} miesięcznie`,
       })
     }
     if (cost != null && lossPln < 0) {

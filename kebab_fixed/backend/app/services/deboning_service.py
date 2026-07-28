@@ -445,14 +445,15 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     workers = []
     for wid, w in wagg.items():
         ah = max(1, len(w["buckets"]))
-        # Powtarzalność: rozrzut DZIENNEGO uzysku. Stały 65,5% jest wart
-        # więcej niż średnia 65,5% skacząca 63–68 — to sygnał o procesie
-        # (nóż, tempo, rodzaj cięcia), nie o pechu z partią.
+        # Powtarzalność jako NAJSŁABSZY i NAJLEPSZY dzień, nie odchylenie
+        # standardowe: „± 0,56 p.p." nie mówi nic ani hali, ani zarządowi,
+        # a „od 63,6% do 67,3%" da się sprawdzić palcem w dzienniku ważeń.
         daily_y = [d[1] / d[0] * 100 for d in w["daily"].values() if d[0] > 0]
-        std = None
-        if len(daily_y) > 1:
-            mean = sum(daily_y) / len(daily_y)
-            std = (sum((y - mean) ** 2 for y in daily_y) / (len(daily_y) - 1)) ** 0.5
+        y_min = round(min(daily_y), 1) if daily_y else None
+        y_max = round(max(daily_y), 1) if daily_y else None
+        # Przy jednym dniu rozstęp nie niesie informacji — None, żeby zero
+        # nie czytało się jako „idealnie równa praca".
+        y_range = round(y_max - y_min, 1) if len(daily_y) > 1 else None
         workers.append({
             "workerId": wid,
             "workerName": w["name"],
@@ -466,7 +467,9 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
             "days": len(w["days"]),
             "attendancePct": round(len(w["days"]) / prod_days * 100, 1),
             "yieldVsBatchPp": round(w["devKg"] / w["kgQuarter"], 2) if w["kgQuarter"] else None,
-            "yieldStdDev": round(std, 2) if std is not None else None,
+            "yieldMinDay": y_min,
+            "yieldMaxDay": y_max,
+            "yieldRangePp": y_range,
         })
     workers.sort(key=lambda x: -x["kgQuarter"])
 

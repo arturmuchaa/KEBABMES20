@@ -85,9 +85,10 @@ def test_korekta_o_partie_wazona_kilogramami(db):
     assert _w(st, "IVAN")["yieldVsBatchPp"] == -0.4
 
 
-def test_powtarzalnosc_to_rozrzut_dziennego_uzysku(db):
-    """Stały 65,5% jest wart więcej niż średnia 65,5% skacząca 63–68 —
-    rozrzut to sygnał o procesie, nie o pechu."""
+def test_najslabszy_i_najlepszy_dzien_pracownika(db):
+    """Zamiast odchylenia standardowego („± 0,56 p.p.", czego nikt w hali
+    ani w zarządzie nie czyta) raport pokazuje NAJSŁABSZY i NAJLEPSZY dzień.
+    Tę liczbę da się sprawdzić w dzienniku ważeń palcem po ekranie."""
     _batch("rb1", "604")
     for d, m in (("2026-07-06", 655), ("2026-07-07", 655), ("2026-07-08", 655)):
         _entry("rb1", "604", "STABILNY", d, 1000, m)
@@ -95,13 +96,17 @@ def test_powtarzalnosc_to_rozrzut_dziennego_uzysku(db):
         _entry("rb1", "604", "SKACZACY", d, 1000, m)
 
     st = deboning_stats("2026-07-01", "2026-07-31")
-    assert _w(st, "STABILNY")["yieldStdDev"] == 0.0
-    assert _w(st, "SKACZACY")["yieldStdDev"] > 2.0
+    stab = _w(st, "STABILNY")
+    assert (stab["yieldMinDay"], stab["yieldMaxDay"], stab["yieldRangePp"]) == (65.5, 65.5, 0.0)
+    skok = _w(st, "SKACZACY")
+    assert (skok["yieldMinDay"], skok["yieldMaxDay"], skok["yieldRangePp"]) == (63.0, 68.0, 5.0)
 
 
-def test_jeden_dzien_pracy_nie_ma_powtarzalnosci(db):
-    """Odchylenie z jednej próbki nie istnieje — None, nie zero (zero
-    czytałoby się jako „idealnie stabilny")."""
+def test_jeden_dzien_pracy_ma_zerowy_rozstep_ale_znany_wynik(db):
+    """Przy jednym dniu rozstęp nie niesie informacji — jest None, żeby
+    nie czytało się jako „idealnie równa praca"."""
     _batch("rb1", "605")
     _entry("rb1", "605", "DAWID", "2026-07-06", 500, 325)
-    assert _w(deboning_stats("2026-07-01", "2026-07-31"), "DAWID")["yieldStdDev"] is None
+    w = _w(deboning_stats("2026-07-01", "2026-07-31"), "DAWID")
+    assert w["yieldRangePp"] is None
+    assert w["yieldMinDay"] == w["yieldMaxDay"] == 65.0

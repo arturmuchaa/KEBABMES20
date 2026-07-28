@@ -20,7 +20,7 @@ import { analyticsApi, deboningApi, settingsApi, type DeboningStats, type Compan
 import {
   batchDeviations, costWaterfall, execNarrative, massBalance, reportGaps, yieldValue,
 } from '@/features/reports/executiveSummary'
-import { potentialPln, workerScorecard } from '@/features/reports/workerScorecard'
+import { batchBiasNotes, potentialPln, workerScorecard } from '@/features/reports/workerScorecard'
 import { executiveBrief, type BriefKind } from '@/features/reports/executiveBrief'
 import { TrendChart } from '@/features/reports/TrendChart'
 
@@ -167,7 +167,8 @@ export function DeboningReportPrintPage() {
   const trendDelta = trend[trend.length - 1]?.deltaYieldPp ?? null
   const days = data.byDay ?? []
   const prodDays = s.prodDays || days.length || 1
-  const scorecard = workerScorecard(data.workers, s.meatCostPerKg)
+  const scorecard = workerScorecard(data.workers, s.meatCostPerKg, s.avgYield)
+  const biasNotes = batchBiasNotes(scorecard)
   const potential = potentialPln(scorecard, s.kgQuarter, s.meatCostPerKg)
   // Dni odstające — wykres pokazuje kształt, ta lista nazywa konkretne dni,
   // żeby dało się je sprawdzić bez czytania wykresu przez lupę.
@@ -573,9 +574,9 @@ export function DeboningReportPrintPage() {
             <th style={S.th}>Ćwiartka [kg]</th>
             <th style={S.th}>Udział [%]</th>
             <th style={S.th}>Śr. %</th>
-            <th style={S.th}>± partia [p.p.]</th>
+            <th style={S.th}>± zakład [p.p.]</th>
             <th style={S.th}>Skutek [zł]</th>
-            <th style={S.th}>Powtarzalność</th>
+            <th style={S.th}>Dni od–do [%]</th>
             <th style={S.th}>Kg/h</th>
           </tr>
         </thead>
@@ -590,13 +591,16 @@ export function DeboningReportPrintPage() {
               <td style={S.td}>{nf1.format(w.volumeSharePct)}</td>
               <td style={{ ...S.td, fontWeight: 700 }}>{nf1.format(w.avgYield)}</td>
               <td style={S.td}>
-                {w.yieldVsBatchPp == null ? '—'
-                  : `${w.yieldVsBatchPp > 0 ? '+' : w.yieldVsBatchPp < 0 ? '−' : ''}${nf2.format(Math.abs(w.yieldVsBatchPp))}`}
+                {`${w.deltaPp > 0 ? '+' : w.deltaPp < 0 ? '−' : ''}${nf2.format(Math.abs(w.deltaPp))}`}
               </td>
               <td style={{ ...S.td, fontWeight: 800 }}>
                 {w.deltaPln == null || w.smallSample ? '—' : signedPln(w.deltaPln)}
               </td>
-              <td style={S.td}>{w.yieldStdDev == null ? '—' : `± ${nf2.format(w.yieldStdDev)} p.p.`}</td>
+              <td style={S.td}>
+                {w.yieldMinDay == null ? '—'
+                  : w.yieldRangePp == null ? nf1.format(w.yieldMinDay)
+                  : `${nf1.format(w.yieldMinDay)}–${nf1.format(w.yieldMaxDay as number)}`}
+              </td>
               <td style={S.td}>{nf1.format(w.kgPerHour)}</td>
             </tr>
           ))}
@@ -607,19 +611,30 @@ export function DeboningReportPrintPage() {
           <b>Stawka:</b> suma kolumny „Skutek" jest bliska zeru, bo to porównanie pracowników
           między sobą — nie dodatkowy zysk. Realna kwota to poziom najlepszego rozciągnięty na
           cały zakład: gdyby wszyscy pracowali jak {potential.workerName}{' '}
-          (+{nf2.format(potential.pp)} p.p. względem własnych partii), miesiąc dałby{' '}
+          (+{nf2.format(potential.pp)} p.p. ponad średnią zakładu), miesiąc dałby{' '}
           <b>{nfPln.format(potential.pln)} zł</b> więcej.
         </p>
       )}
       <p style={S.note}>
-        <b>± partia</b> — uzysk względem średniej WŁASNYCH partii, ważony kilogramami.
-        Zdejmuje wpływ jakości surowca, żeby ranking nie karał za partię, której nikt nie wybierał;
-        <b> Skutek</b> to ta różnica przeliczona na złotówki (koszt {s.meatCostPerKg != null ? nf2.format(s.meatCostPerKg) : '—'} zł/kg mięsa).
+        <b>± zakład</b> — o ile uzysk pracownika różni się od średniej zakładu
+        ({nf1.format(s.avgYield)}%); <b>Skutek</b> to ta różnica przeliczona na złotówki
+        (koszt {s.meatCostPerKg != null ? nf2.format(s.meatCostPerKg) : '—'} zł/kg mięsa).
       </p>
       <p style={S.note}>
-        <b>Powtarzalność</b> — rozrzut uzysku między dniami. Stały wynik jest wart więcej niż
-        taka sama średnia skacząca w górę i w dół: to sygnał o technice i tempie, nie o pechu z partią.
+        <b>Dni od–do</b> — uzysk w najsłabszym i najlepszym dniu pracownika. Im węższy
+        przedział, tym równiejsza praca: 65,2–66,8% to człowiek, który codziennie robi tak
+        samo, a 63,6–67,3% to ktoś, u kogo wynik zależy od dnia. Każdą z tych liczb da się
+        sprawdzić w dzienniku ważeń.
       </p>
+      {biasNotes.length > 0 && (
+        <p style={S.note}>
+          <b>Jakość surowca</b> — po odjęciu wpływu partii (porównanie do średniej WŁASNYCH
+          partii, a nie całego zakładu) ocena zmienia się istotnie u:{' '}
+          {biasNotes.map(b =>
+            `${b.workerName} ${(b.batchBiasPp as number) > 0 ? 'lepiej' : 'gorzej'} o ${nf2.format(Math.abs(b.batchBiasPp as number))} p.p.`
+          ).join(', ')}. Partii nikt sobie nie wybiera — tę różnicę warto wziąć pod uwagę.
+        </p>
+      )}
       <p style={S.note}>
         <b>Obecność</b> liczona z dni, w których pracownik miał pobranie —
         system nie zna grafiku, więc nie odróżnia urlopu i zwolnienia od nieobecności.

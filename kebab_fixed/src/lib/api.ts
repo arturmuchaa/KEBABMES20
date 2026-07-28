@@ -369,8 +369,11 @@ export interface DeboningStatsWorker {
   /** Uzysk względem średniej WŁASNYCH partii, ważony kg — zdejmuje wpływ
    *  jakości surowca, żeby ranking nie karał za partię, której nikt nie wybierał. */
   yieldVsBatchPp: number | null
-  /** Rozrzut dziennego uzysku (odch. std.); null przy jednym dniu pracy. */
-  yieldStdDev: number | null
+  /** Najsłabszy i najlepszy DZIEŃ pracownika — powtarzalność po ludzku,
+   *  do sprawdzenia palcem w dzienniku ważeń. Rozstęp null przy 1 dniu. */
+  yieldMinDay: number | null
+  yieldMaxDay: number | null
+  yieldRangePp: number | null
 }
 /** Jedna porcja ważenia pobrania (pobranie ważone na raty ma ich kilka). */
 export interface WorkerEntryWeighing {

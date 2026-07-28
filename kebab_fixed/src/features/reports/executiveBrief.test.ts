@@ -12,10 +12,12 @@ const BASE: BriefInput = {
     { batchNo: '428', yieldPct: 64.9, kgQuarter: 4605, supplierName: 'KOKO' },
   ],
   workers: [
-    { workerId: 'o', workerName: 'OLHA', kgQuarter: 9825, yieldVsBatchPp: 0.97,
-      attendancePct: 100, yieldStdDev: 0.56, smallSample: false, deltaPln: 1225 },
-    { workerId: 'a', workerName: 'ANATOLII', kgQuarter: 12495, yieldVsBatchPp: -0.54,
-      attendancePct: 65, yieldStdDev: 0.77, smallSample: false, deltaPln: -867 },
+    { workerId: 'o', workerName: 'OLHA', kgQuarter: 9825, deltaPp: 0.95,
+      attendancePct: 100, yieldMinDay: 65.2, yieldMaxDay: 68.0, yieldRangePp: 2.8,
+      smallSample: false, deltaPln: 1225 },
+    { workerId: 'a', workerName: 'ANATOLII', kgQuarter: 12495, deltaPp: -0.6,
+      attendancePct: 65, yieldMinDay: 63.8, yieldMaxDay: 66.8, yieldRangePp: 3.0,
+      smallSample: false, deltaPln: -867 },
   ],
   offDays: [{ date: '2026-07-13', avgYield: 64.1, kgMeat: 3868 }],
   monthsInSystem: 1,
@@ -92,8 +94,9 @@ describe('executiveBrief — cztery zdania na górze raportu', () => {
     const b = executiveBrief({
       ...BASE,
       workers: [...BASE.workers,
-        { workerId: 'd', workerName: 'DAWID', kgQuarter: 525, yieldVsBatchPp: -5,
-          attendancePct: 6, yieldStdDev: null, smallSample: true, deltaPln: -337 }],
+        { workerId: 'd', workerName: 'DAWID', kgQuarter: 525, deltaPp: -5,
+          attendancePct: 6, yieldMinDay: 64.9, yieldMaxDay: 64.9, yieldRangePp: null,
+          smallSample: true, deltaPln: -337 }],
     })
     expect(b.find(x => x.kind === 'risk')!.text).not.toMatch(/DAWID/)
   })
