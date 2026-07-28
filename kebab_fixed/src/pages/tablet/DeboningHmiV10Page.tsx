@@ -244,7 +244,7 @@ const PendingBatchTile = memo(function PendingBatchTile({ rec, onOpen }: {
 })
 
 // ─── Kafel pracownika ──────────────────────────────────────────────
-const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, pendingKg, pendingWeighedKg, pendingBatchNo, blocked, disabled, onSelect, onLongPress }: {
+const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, pendingKg, pendingWeighedKg, pendingBatchNo, pendingBs, blocked, disabled, onSelect, onLongPress }: {
   worker: User; selected: boolean; entryCount: number; kgToday: number
   /** Otwarte pobranie ćwiartki (kg) — kafel pokazuje „czeka na zważenie",
    *  a klik od razu wraca do domknięcia mięsem. */
@@ -253,6 +253,9 @@ const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount
   pendingWeighedKg?: number
   /** Numer partii otwartego pobrania — mięso wraca pod TĘ partię. */
   pendingBatchNo?: string
+  /** W kolejce pracownika jest też pobranie b/s — kafel to pokazuje, żeby
+   *  operator wiedział, że wiszą dwie różne rzeczy do zważenia. */
+  pendingBs?: boolean
   /** Wybrana jest INNA partia niż pobranie — kafel przygaszony (klik = toast). */
   blocked?: boolean
   /** Partia wybrana jest w całości rozdana (czeka tylko na mięso) i TEN
@@ -289,6 +292,7 @@ const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount
           {(pendingWeighedKg ?? 0) > 0
             ? `zważono ${fmtKg(pendingWeighedKg ?? 0, 0)}/${fmtKg(pendingKg ?? 0, 0)} kg`
             : `${fmtKg(pendingKg, 1)} kg`}
+          {pendingBs && <span className="ml-1">+ B/S</span>}
         </span>
       ) : kgToday > 0 && (
         <span className="hmi-v10-mono text-[11px] font-bold" style={{ color: selected ? 'rgba(255,255,255,.75)' : 'var(--mut)' }}>{fmtKg(kgToday, 0)} kg</span>
@@ -1006,6 +1010,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     setKgTaken(String(e.kgTaken))
     setKgMeat('')
     setMeatManual(false)
+    // Przełącznik pokazuje rodzaj TEGO pobrania — operator domyka b/s jako b/s,
+    // nawet jeśli w międzyczasie ekran wrócił do Z/S.
+    setMeatType((e.meatType as MeatType | undefined) ?? 'zs')
     setActive('meat')
   }, [batchData.data, workers])
 
@@ -1019,7 +1026,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     // Pomyłka nie może blokować ekranu: klik w innego pracownika wychodzi
     // z trybu domykania (pobranie zostaje na kafelku) i wybiera normalnie;
     // pracownik z otwartym pobraniem wchodzi w domknięcie mięsem.
-    const pending = pendingByWorker.get(w.id)
+    // Pilne zamówienie na b/s wchodzi MIMO otwartego z/s: szukamy pobrania
+    // w rodzaju, który jest teraz ustawiony na przełączniku. Brak takiego =
+    // normalne nowe pobranie, więc pracownik ma w kolejce dwie pozycje
+    // (z/s + b/s), zamiast blokady kafla (zgłoszenie z hali 28.07).
+    const sameKind = pendingTakes.filter(p =>
+      (p as any).workerId === w.id && (((p as any).meatType ?? 'zs') === meatType))
+    const pending = sameKind.length ? pendingByWorker.get(w.id) : undefined
     if (pending) {
       // Mięso wraca pod partię POBRANIA. Przy wybranej INNEJ partii pracownik
       // jest zablokowany — operator nie może omyłkowo zważyć mięsa z 408 pod
@@ -1029,14 +1042,14 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         return
       }
       const entryForBatch = selBatch
-        ? (pendingTakes.find(p => (p as any).workerId === w.id && (p as any).rawBatchId === selBatch.id) as DeboningEntry | undefined)
+        ? (sameKind.find(p => (p as any).rawBatchId === selBatch.id) as DeboningEntry | undefined)
         : undefined
-      resumeTake(entryForBatch ?? pending.entry)
+      resumeTake(entryForBatch ?? (sameKind[0] as DeboningEntry) ?? pending.entry)
       return
     }
     if (resumeId) { setResumeId(null); setMeatManual(false) }
     setSelWorker(w); setKgTaken(''); setKgMeat(''); setActive('taken')
-  }, [resumeId, pendingByWorker, resumeTake, selBatch, pendingTakes, showToast])
+  }, [resumeId, pendingByWorker, resumeTake, selBatch, pendingTakes, meatType, showToast])
 
   async function handleStartDay() {
     const err = await startDay()
@@ -1109,7 +1122,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   async function handleSaveTake() {
     if (addTakeLoading || !selBatch || !selWorker || taken <= 0 || !session) return
     const err = await addTake(
-      { sessionId: session.id, rawBatchId: selBatch.id, workerId: selWorker.id, kgTaken: taken },
+      { sessionId: session.id, rawBatchId: selBatch.id, workerId: selWorker.id, kgTaken: taken, meatType },
       session, Number(selBatch.kgAvailable), selBatch.expiryDate,
     )
     if (err) { showToast(err, 'err'); return }
@@ -1230,7 +1243,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     const b = driveOffBatch(s)
     if (!b) { showToast('Partia zniknęła z listy — zapisz wpis ręcznie', 'err'); return }
     const takeErr = await addTake(
-      { sessionId: session.id, rawBatchId: s.batchId, workerId: s.workerId, kgTaken: s.takenKg },
+      { sessionId: session.id, rawBatchId: s.batchId, workerId: s.workerId, kgTaken: s.takenKg, meatType },
       session, Number(b.kgAvailable), b.expiryDate,
     )
     if (takeErr) { showToast(takeErr, 'err'); return }
@@ -1890,6 +1903,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                       pendingKg={pendingByWorker.get(w.id)?.totalKg}
                       pendingWeighedKg={pendingByWorker.get(w.id)?.weighedKg}
                       pendingBatchNo={pendingByWorker.get(w.id)?.batchNos.join(', ')}
+                      pendingBs={pendingTakes.some(p => (p as any).workerId === w.id && ((p as any).meatType ?? 'zs') === 'bs')}
                       blocked={(() => {
                         const pnd = pendingByWorker.get(w.id)
                         return !!pnd && !!selBatch && !pnd.batchIds.has(selBatch.id)

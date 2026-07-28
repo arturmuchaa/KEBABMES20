@@ -52,6 +52,7 @@ def _map_deboning_entry(row: Dict) -> Dict:
         "kgRemainder": float(row.get("kg_remainder") or 0),
         "yieldPct": round(yield_pct, 2),
         "meatLotNo": row.get("meat_lot_no"),
+        "meatType": row.get("meat_type") or "zs",
         "kgGross": float(row["kg_gross"]) if row.get("kg_gross") is not None else None,
         "tareCartKg": float(row["tare_cart_kg"]) if row.get("tare_cart_kg") is not None else None,
         "tareE2Kg": float(row["tare_e2_kg"]) if row.get("tare_e2_kg") is not None else None,
@@ -1038,7 +1039,7 @@ def _sum_take_weighings(conn, entry_id: str) -> float:
     return float(r["kg"] or 0)
 
 
-def _insert_take_weighing(conn, entry_id: str, kg: float, dto) -> None:
+def _insert_take_weighing(conn, entry_id: str, kg: float, dto, meat_type: str = "zs") -> None:
     """Jedna porcja mięsa z pobrania = jeden wiersz (pełny audyt wagi per porcja).
     Rodzaj mięsa (z/s vs b/s) leży NA PORCJI, bo to ona trafia na lot."""
     cx_execute(
@@ -1047,7 +1048,7 @@ def _insert_take_weighing(conn, entry_id: str, kg: float, dto) -> None:
         "(id, entry_id, kg_meat, kg_gross, tare_cart_kg, tare_e2_kg, e2_count, weigh_mode, meat_type) "
         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (cuid(), entry_id, kg, dto.kg_gross, dto.tare_cart_kg,
-         dto.tare_e2_kg, dto.e2_count, dto.weigh_mode, meat_type_of(dto)),
+         dto.tare_e2_kg, dto.e2_count, dto.weigh_mode, meat_type),
     )
 
 
@@ -1092,9 +1093,14 @@ MEAT_TYPES: Dict[str, tuple] = {
 }
 
 
-def meat_type_of(dto) -> str:
-    """Rodzaj mięsa z DTO ważenia; brak pola / śmieci = 'zs' (stary kiosk)."""
-    v = str(getattr(dto, "meat_type", None) or "zs").strip().lower()
+def meat_type_of(dto, entry: Optional[Dict] = None) -> str:
+    """Rodzaj mięsa: z DTO, a gdy kiosk go nie podał — z POBRANIA (operator
+    mógł przełączyć B/S przy pobraniu i nie pamiętać o tym przy domykaniu).
+    Dopiero na końcu 'zs' (stary kiosk)."""
+    raw = getattr(dto, "meat_type", None)
+    if not raw and entry is not None:
+        raw = entry.get("meat_type")
+    v = str(raw or "zs").strip().lower()
     return v if v in MEAT_TYPES else "zs"
 
 
@@ -1182,10 +1188,10 @@ def weigh_part_deboning_take(entry_id: str, dto) -> Dict:
                 f"przekraczać pobranej ćwiartki ({kg_taken} kg)",
             )
 
-        meat_type = meat_type_of(dto)
+        meat_type = meat_type_of(dto, entry)
         cx_execute(conn, "UPDATE deboning_entries SET meat_type=%s WHERE id=%s",
                    (meat_type, entry_id))
-        _insert_take_weighing(conn, entry_id, kg_part, dto)
+        _insert_take_weighing(conn, entry_id, kg_part, dto, meat_type)
         _add_meat_to_lot(conn, entry, kg_part, entry_id, meat_type)
 
     logger.info(
@@ -1260,12 +1266,18 @@ def create_deboning_take(dto) -> Dict:
         # Tylko w obrębie TEJ SAMEJ sesji — doliczenie do pobrania z innego
         # dnia byłoby niewidoczne na dzisiejszym HMI (kg schodzi, ekran nic
         # nie pokazuje).
+        # Scalanie działa TYLKO w obrębie tego samego rodzaju mięsa: b/s to
+        # inny produkt (inny lot, inna norma uzysku), więc pilne zamówienie na
+        # b/s ma stanąć jako DRUGIE pobranie w kolejce pracownika, a nie
+        # powiększyć jego otwarte z/s.
+        meat_type = meat_type_of(dto)
         existing = cx_query_one(
             conn,
             "SELECT * FROM deboning_entries WHERE raw_batch_id=%s AND worker_id=%s "
             "AND status='pending' AND session_id IS NOT DISTINCT FROM %s "
+            "AND COALESCE(meat_type,'zs') = %s "
             "ORDER BY created_at LIMIT 1 FOR UPDATE",
-            (batch["id"], worker_id, session_id),
+            (batch["id"], worker_id, session_id, meat_type),
         )
         if existing:
             entry = cx_execute_returning(
@@ -1304,13 +1316,13 @@ def create_deboning_take(dto) -> Dict:
                 INSERT INTO deboning_entries
                     (id, raw_batch_id, raw_batch_no, session_id, session_no,
                      kg_quarter, kg_meat, kg_remainder, yield_pct,
-                     worker_id, worker_name, status, created_at)
-                VALUES (%s,%s,%s,%s,%s,%s,0,%s,0,%s,%s,'pending',%s)
+                     worker_id, worker_name, status, meat_type, created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,0,%s,0,%s,%s,'pending',%s,%s)
                 RETURNING *
                 """,
                 (
                     entry_id, batch["id"], batch["internal_batch_no"], session_id, session_no,
-                    kg_taken, kg_taken, worker_id, worker_name, now_iso(),
+                    kg_taken, kg_taken, worker_id, worker_name, meat_type, now_iso(),
                 ),
             )
 
@@ -1444,7 +1456,7 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
         # tylko porcję. Bez części: suma == porcja, zachowanie jak dotąd.
         kg_taken = float(entry.get("kg_quarter") or 0)
         kg_part = kg_meat
-        meat_type = meat_type_of(dto)
+        meat_type = meat_type_of(dto, entry)
         prior = cx_query_one(
             conn,
             "SELECT COUNT(*) AS n, COALESCE(SUM(kg_meat),0) AS s "
@@ -1458,7 +1470,7 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
         yield_err = validate_take_completion(kg_taken, kg_meat)
         if yield_err:
             raise HTTPException(400, yield_err)
-        _insert_take_weighing(conn, entry_id, kg_part, dto)
+        _insert_take_weighing(conn, entry_id, kg_part, dto, meat_type)
 
         kg_remainder = max(0, kg_taken - kg_meat)
         yield_pct = round((kg_meat / kg_taken) * 100, 2)

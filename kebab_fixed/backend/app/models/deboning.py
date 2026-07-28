@@ -54,7 +54,9 @@ class DeboningTakeCreate(BaseModel):
     worker_name: Optional[str] = Field(None, alias="workerName")
     kg_taken: Optional[float] = Field(None, alias="kgTaken", ge=0)
     kg_quarter: Optional[float] = Field(None, alias="kgQuarter", ge=0)
-
+    # Rodzaj mięsa robionego z tego pobrania. b/s stoi w kolejce OBOK
+    # otwartego z/s (inny produkt), zamiast doliczać się do niego.
+    meat_type: Optional[str] = Field(None, alias="meatType", pattern="^(zs|bs)$")
 
 class DeboningTakeComplete(BaseModel):
     """POST /api/deboning/takes/{id}/complete — domknięcie pobrania mięsem."""

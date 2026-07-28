@@ -39,6 +39,8 @@ export interface DeboningEntry {
   readonly workerName:  string
   readonly kgTaken:     number
   readonly kgMeat:      number
+  /** 'bs' = pobranie na mięso bez skóry (osobna pozycja w kolejce). */
+  readonly meatType?:   'zs' | 'bs'
   readonly kgBones:     number
   readonly kgBacks:     number
   readonly kgRemainder: number
@@ -81,6 +83,8 @@ export interface CreateDeboningEntryDto {
 }
 
 export interface CreateDeboningTakeDto {
+  /** 'bs' stoi w kolejce OBOK otwartego z/s, zamiast doliczać się do niego. */
+  meatType?:  'zs' | 'bs'
   sessionId:  string
   rawBatchId: string
   workerId:   string

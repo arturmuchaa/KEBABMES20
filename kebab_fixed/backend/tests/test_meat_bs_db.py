@@ -84,6 +84,46 @@ def test_rodzaj_zapisany_na_wpisie_i_na_porcji(db):
     assert kinds == ["bs", "bs"]
 
 
+def test_bs_stoi_w_kolejce_OBOK_otwartego_zs_a_nie_dolicza_sie(db):
+    """Zamówienie na b/s wpada nagle, gdy ludzie mają już pobrane z/s.
+    Drugie pobranie tego samego pracownika z tej samej partii normalnie
+    DOLICZA się do otwartego (żeby nie robić niewidocznych wierszy), ale
+    b/s to inny produkt — musi stanąć jako OSOBNE pobranie w kolejce."""
+    _seed_batch()
+    zs = _take(150.0)
+    bs = create_deboning_take(SimpleNamespace(
+        raw_batch_id="rb1", worker_id="w1", worker_name="DENYS",
+        kg_taken=15.0, kg_quarter=None, session_id=None, meat_type="bs"))
+
+    assert bs["id"] != zs["id"], "b/s doliczyło się do pobrania z/s zamiast stanąć obok"
+    rows = query_all("SELECT meat_type, kg_quarter FROM deboning_entries "
+                     "WHERE status='pending' ORDER BY meat_type")
+    assert [(r["meat_type"], float(r["kg_quarter"])) for r in rows] == [("bs", 15.0), ("zs", 150.0)]
+
+
+def test_dobranie_tego_samego_rodzaju_nadal_dolicza(db):
+    """Odwrotna strona reguły: dobranie z/s do otwartego z/s ma nadal
+    powiększać jedno pobranie, nie mnożyć wierszy."""
+    _seed_batch()
+    a = _take(150.0)
+    b = _take(60.0)
+    assert a["id"] == b["id"]
+    assert float(query_one("SELECT kg_quarter FROM deboning_entries WHERE id=%s",
+                           (a["id"],))["kg_quarter"]) == 210.0
+
+
+def test_wazenie_bierze_rodzaj_z_pobrania_gdy_kiosk_go_nie_poda(db):
+    """Operator przełącza rodzaj przy POBRANIU; przy domykaniu może już o tym
+    nie pamiętać — rodzaj pobrania musi wygrać z domyślnym 'zs'."""
+    _seed_batch()
+    e = create_deboning_take(SimpleNamespace(
+        raw_batch_id="rb1", worker_id="w1", worker_name="DENYS",
+        kg_taken=15.0, kg_quarter=None, session_id=None, meat_type="bs"))
+    complete_deboning_take(e["id"], _meat(7.5))          # DTO bez meat_type
+    lot = query_one("SELECT material_type_id FROM meat_stock WHERE raw_batch_no='441'")
+    assert lot["material_type_id"] == "mat-mieso-bs"
+
+
 def test_bs_dziala_takze_przy_wpisie_jednorazowym(db):
     """Druga ścieżka HMI: pobranie i mięso zapisane JEDNYM wpisem
     (POST /deboning/entries), nie przez pobranie+domknięcie."""
