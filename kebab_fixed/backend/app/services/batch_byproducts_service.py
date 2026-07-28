@@ -135,7 +135,48 @@ def _row(r: Optional[Dict]) -> Optional[Dict[str, Any]]:
         # ważeniu w trakcie rozbioru (kolejna paleta dolicza, nie nadpisuje).
         "backsPallets": r.get("backs_pallets") or [],
         "bonesPallets": r.get("bones_pallets") or [],
+        # Ręczne zamknięcie z biura — kafel zdjęty mimo otwartego bilansu.
+        "closedAt": r["closed_at"].isoformat() if r.get("closed_at") else None,
+        "closedBy": r.get("closed_by"),
+        "closedReason": r.get("closed_reason"),
     }
+
+
+def close_weighing(raw_batch_id: str, by: str = "", reason: str = "") -> Dict[str, Any]:
+    """Zamknij ważenie ubocznych partii — kafel znika z HMI, kilogramy zostają.
+
+    Potrzebne, gdy bilans masy zostaje otwarty ŚWIADOMIE: biuro skorygowało
+    partię (np. usunęło paletę, której fizycznie nie było — 437, 28.07.2026)
+    i wie, że nikt już nic nie doważy. Bez tego pending() trzyma kafel bez
+    końca i operator widzi partię sprzed tygodni. Powód jest wymagany —
+    zdjęcie kafla musi zostawiać ślad, kto uznał partię za rozliczoną."""
+    if not (reason or "").strip():
+        raise HTTPException(400, "Podaj powód zamknięcia — to ślad audytowy")
+    with transaction() as conn:
+        rec = cx_query_one(
+            conn, "SELECT raw_batch_id FROM batch_byproducts WHERE raw_batch_id=%s FOR UPDATE",
+            (raw_batch_id,),
+        )
+        if not rec:
+            raise HTTPException(404, "Partia nie ma rekordu ubocznych")
+        cx_execute(
+            conn,
+            "UPDATE batch_byproducts SET closed_at=now(), closed_by=%s, closed_reason=%s "
+            "WHERE raw_batch_id=%s",
+            (by or "", reason.strip(), raw_batch_id),
+        )
+    logger.info("byproducts.closed", extra={"raw_batch_id": raw_batch_id, "by": by})
+    return get(raw_batch_id)
+
+
+def reopen_weighing(raw_batch_id: str) -> Dict[str, Any]:
+    """Cofnij zamknięcie — partia wraca na kafle (np. znalazła się paleta)."""
+    execute(
+        "UPDATE batch_byproducts SET closed_at=NULL, closed_by=NULL, closed_reason=NULL "
+        "WHERE raw_batch_id=%s",
+        (raw_batch_id,),
+    )
+    return get(raw_batch_id)
 
 
 def get(raw_batch_id: str) -> Optional[Dict[str, Any]]:
@@ -266,7 +307,7 @@ def pending() -> List[Dict[str, Any]]:
               AND COALESCE(de.status, 'complete') = 'complete'
         ), 0) AS meat_sum
         FROM batch_byproducts b
-        WHERE b.finished_at IS NOT NULL AND (
+        WHERE b.finished_at IS NOT NULL AND b.closed_at IS NULL AND (
             b.backs_kg IS NULL OR b.bones_kg IS NULL OR
             (COALESCE(b.quarter_kg, 0) - COALESCE((
                 SELECT SUM(kg_meat) FROM deboning_entries de
@@ -466,10 +507,14 @@ def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = No
             if int(live["n_cont"] or 0) > 0:
                 consumed = max(0, pallet_containers(rec.get("old_pallets")) - int(live["cont"] or 0))
 
+        # Doważenie po zamknięciu (znalazła się paleta) OTWIERA partię z
+        # powrotem — inaczej zamknięcie na zawsze chowałoby realne
+        # niedoważenie, a operator nie miałby jak wrócić do kafla.
         cx_execute(
             conn,
             f"UPDATE batch_byproducts SET {kind}_kg=%s, {kind}_pct=%s, {kind}_pallets=%s, "
-            f"{kind}_at=now() WHERE raw_batch_id=%s",
+            f"{kind}_at=now(), closed_at=NULL, closed_by=NULL, closed_reason=NULL "
+            "WHERE raw_batch_id=%s",
             (round(kg, 3), pct, json.dumps(pallets or []), raw_batch_id),
         )
         # Lot ABP w magazynie produktów ubocznych — żeby zważone zbiorczo grzbiety/

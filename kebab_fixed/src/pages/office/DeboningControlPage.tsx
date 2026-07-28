@@ -9,7 +9,7 @@
  * Uboczne zbiorcze (grzbiety/kości) tylko do wglądu w podsumowaniu.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { deboningEntriesApi, type DeboningPanelBatch } from '@/lib/api'
+import { byproductsApi, deboningEntriesApi, type BatchByproducts, type DeboningPanelBatch } from '@/lib/api'
 import { ChangeBatchDialog, EntryCorrectionDialog, type FixableEntry } from '@/features/deboning/EntryFixDialogs'
 import { DeboningWeighingsLog } from '@/features/deboning/DeboningWeighingsLog'
 import { StatusBadge } from '@/components/ui/badge'
@@ -73,6 +73,62 @@ function SummaryChip({ label, value, unit, tone }: {
       <div className={cn('text-[15px] font-black tabular-nums leading-tight', tone ?? 'text-ink')}>
         {value}{unit && <span className="text-[10px] text-ink-4 ml-0.5">{unit}</span>}
       </div>
+    </div>
+  )
+}
+
+/** Zamknięcie/otwarcie ważenia ubocznych partii — steruje kaflem na HMI.
+ *  Powód jest wymagany: zdjęcie kafla to decyzja biura, musi mieć ślad. */
+function ByproductsCloseRow({ batch, onDone }: { batch: DeboningPanelBatch; onDone: () => void }) {
+  const [rec, setRec] = useState<BatchByproducts | null>(null)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    byproductsApi.get(batch.rawBatchId).then(r => setRec(r?.rawBatchId ? r : null)).catch(() => setRec(null))
+  }, [batch.rawBatchId])
+
+  if (!rec) return null
+  const closed = !!rec.closedAt
+
+  const run = async (fn: () => Promise<BatchByproducts>) => {
+    setBusy(true); setErr('')
+    try { setRec(await fn()); setReason(''); onDone() }
+    catch (e: any) { setErr(e?.message || 'Nie udało się zapisać') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="rounded-lg border border-surface-3 bg-surface-2/60 px-3 py-2 flex items-center gap-2 flex-wrap">
+      <Bone size={14} className="text-ink-4 shrink-0" />
+      <span className="text-[12px] font-semibold text-ink-2">Ważenie ubocznych</span>
+      {closed ? (
+        <>
+          <span className="text-[11px] text-ink-3">
+            zamknięte{rec.closedBy ? ` przez ${rec.closedBy}` : ''} — {rec.closedReason}
+          </span>
+          <button type="button" disabled={busy} onClick={() => run(() => byproductsApi.reopen(batch.rawBatchId))}
+            className="ml-auto text-[12px] font-semibold text-brand hover:underline disabled:opacity-50">
+            Otwórz z powrotem
+          </button>
+        </>
+      ) : (
+        <>
+          <span className="text-[11px] text-ink-4">
+            partia wisi operatorowi na HMI, dopóki bilans masy się nie domknie
+          </span>
+          <input value={reason} onChange={e => setReason(e.target.value)}
+            placeholder="Powód zamknięcia (wymagany)"
+            className="ml-auto h-7 min-w-[220px] flex-1 max-w-[340px] rounded border border-surface-4 px-2 text-[12px]" />
+          <button type="button" disabled={busy || !reason.trim()}
+            onClick={() => run(() => byproductsApi.close(batch.rawBatchId, reason.trim()))}
+            className="h-7 px-3 rounded text-[12px] font-semibold bg-brand text-white disabled:opacity-40">
+            Zamknij — zdejmij z HMI
+          </button>
+        </>
+      )}
+      {err && <span className="text-[11px] text-red-600 w-full">{err}</span>}
     </div>
   )
 }
@@ -192,6 +248,12 @@ export function DeboningControlPage() {
                         <SummaryChip label="Na stanie" value={nf0.format(b.kgAvailable)} unit="kg" />
                         <SummaryChip label="Przyjęto" value={nf0.format(b.kgReceived)} unit="kg" />
                       </div>
+
+                      {/* Kafel ubocznych na HMI trzyma się bilansu masy, więc partia
+                          po świadomej korekcie z biura wisiałaby operatorowi bez
+                          końca. Zamknięcie zdejmuje kafel, nie ruszając kilogramów;
+                          doważenie (gdyby paleta się znalazła) otwiera ją z powrotem. */}
+                      <ByproductsCloseRow batch={b} onDone={load} />
 
                       {entriesLoading === b.rawBatchId ? (
                         <div className="flex items-center gap-2 py-4 text-ink-4 text-[13px]">

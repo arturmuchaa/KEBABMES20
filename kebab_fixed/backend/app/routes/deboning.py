@@ -66,6 +66,21 @@ def byproducts_weighings(
     return byproducts_svc.list_weighings(date_from, date_to)
 
 
+@router.post("/api/deboning/byproducts/{raw_batch_id}/close")
+def byproducts_close(raw_batch_id: str, body: dict = None):
+    """Zamknij ważenie ubocznych — kafel znika z HMI, kilogramy zostają.
+    Powód wymagany (ślad audytowy). Doważenie otwiera partię z powrotem."""
+    body = body or {}
+    return byproducts_svc.close_weighing(
+        raw_batch_id, (body.get("by") or "").strip(), (body.get("reason") or "").strip()
+    )
+
+
+@router.post("/api/deboning/byproducts/{raw_batch_id}/reopen")
+def byproducts_reopen(raw_batch_id: str):
+    return byproducts_svc.reopen_weighing(raw_batch_id)
+
+
 @router.get("/api/deboning/byproducts/{raw_batch_id}")
 def byproducts_get(raw_batch_id: str):
     return byproducts_svc.get(raw_batch_id) or {}

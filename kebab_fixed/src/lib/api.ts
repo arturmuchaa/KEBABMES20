@@ -522,6 +522,8 @@ export interface BatchByproducts {
   balanced?: boolean
   /** Palety poprzednich ważeń — kreator doładowuje do sumy (ważenie w trakcie). */
   backsPallets?: ByproductPallet[]; bonesPallets?: ByproductPallet[]
+  /** Ważenie zamknięte ręcznie z biura — kafel zdjęty mimo otwartego bilansu. */
+  closedAt?: string | null; closedBy?: string | null; closedReason?: string | null
 }
 export const byproductsApi = {
   // Wszystkie rekordy zbiorczego ważenia — magazyn surowca (Grzbiety/Kości).
@@ -539,6 +541,11 @@ export const byproductsApi = {
     post<BatchByproducts>(`/deboning/byproducts/${batchId}/finish`, { operator: operator ?? '' }),
   weigh: (batchId: string, kind: 'backs' | 'bones', kg: number, pallets: any[]) =>
     post<BatchByproducts>(`/deboning/byproducts/${batchId}/weigh`, { kind, kg, pallets }),
+  // Zamknięcie ważenia z biura — zdejmuje kafel z HMI, nie rusza kilogramów.
+  close: (batchId: string, reason: string, by?: string) =>
+    post<BatchByproducts>(`/deboning/byproducts/${batchId}/close`, { reason, by: by ?? 'biuro' }),
+  reopen: (batchId: string) =>
+    post<BatchByproducts>(`/deboning/byproducts/${batchId}/reopen`, {}),
 }
 
 // ─── Magazyn surowca ──────────────────────────────────────────

@@ -7,6 +7,7 @@ import pytest
 
 from app.db import execute, query_one
 from app.services.batch_byproducts_service import (
+    close_weighing,
     ensure_record,
     finish_batch,
     get,
@@ -206,6 +207,39 @@ def test_today_totals_partia_wazona_przez_dwa_dni_liczy_tylko_dzis(db):
     t = today_totals()
     assert t["bonesKg"] == 200.0  # stary kod dawał 700 (całe bones_kg po bones_at)
     assert [w["netKg"] for w in t["weighings"] if w["kind"] == "bones"] == [200.0]
+
+
+# ── Ręczne zamknięcie ważenia (kafel znika z HMI) ─────────────────────
+def test_zamkniecie_zdejmuje_kafel_mimo_otwartego_bilansu(db):
+    """Partia po świadomej korekcie z biura (usunięta paleta, której nie było)
+    zostaje z luką w bilansie i wisi operatorowi jako „niedoważona".
+    Zamknięcie z biura zdejmuje kafel, NIE ruszając kilogramów."""
+    _seed_batch_with_entries(internal_no="840", quarter_each=1000.0, n=2)  # 2000 kg, 1320 mięsa
+    finish_batch("rb1")
+    record("rb1", "backs", 200.0, [])
+    record("rb1", "bones", 150.0, [])   # luka 330 kg = 16,5% — kafel trzyma
+    assert [p for p in pending() if p["rawBatchNo"] == "840"]
+
+    rec = close_weighing("rb1", by="biuro", reason="korekta: paleta nie istniała")
+    assert rec["closedAt"] is not None and rec["closedReason"]
+    assert not [p for p in pending() if p["rawBatchNo"] == "840"]
+    # kilogramy i procenty NIETKNIĘTE — zamknięcie to tylko decyzja o kaflu
+    assert rec["backsKg"] == 200.0 and rec["bonesKg"] == 150.0
+
+
+def test_ponowne_wazenie_otwiera_partie_z_powrotem(db):
+    """Doważenie po zamknięciu (znalazła się paleta) musi wrócić na kafle —
+    inaczej zamknięcie na zawsze chowałoby realne niedoważenie."""
+    _seed_batch_with_entries(internal_no="841", quarter_each=1000.0, n=2)
+    finish_batch("rb1")
+    record("rb1", "backs", 200.0, [])
+    record("rb1", "bones", 150.0, [])
+    close_weighing("rb1", by="biuro", reason="korekta")
+    assert not [p for p in pending() if p["rawBatchNo"] == "841"]
+
+    record("rb1", "bones", 250.0, [])   # operator doważył kolejną paletę
+    assert get("rb1")["closedAt"] is None
+    assert [p for p in pending() if p["rawBatchNo"] == "841"]
 
 
 # ── Dziennik ważeń ubocznych (biuro, zakres dat) ──────────────────────

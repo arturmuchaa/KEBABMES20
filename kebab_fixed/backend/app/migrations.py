@@ -685,6 +685,15 @@ _DDL: list[str] = [
     # ślad audytowy (kto/kiedy/dlaczego) dla kosztu i dokumentów weterynaryjnych.
     "ALTER TABLE seasoned_meat ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ",
     "ALTER TABLE seasoned_meat ADD COLUMN IF NOT EXISTS reconcile_reason TEXT",
+    # Ręczne zamknięcie ważenia ubocznych partii. Kafel na HMI trzyma się
+    # bilansu masy, więc partia z ŚWIADOMĄ korektą z biura (np. usunięta
+    # paleta, której fizycznie nie było — 437, 28.07.2026) wisiałaby
+    # operatorowi w nieskończoność jako „niedoważona". Zamknięcie to decyzja
+    # biura ze śladem kto/kiedy/dlaczego — nie zmienia ani kilogramów, ani
+    # procentów, wyłącznie zdejmuje kafel.
+    "ALTER TABLE batch_byproducts ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ",
+    "ALTER TABLE batch_byproducts ADD COLUMN IF NOT EXISTS closed_by TEXT",
+    "ALTER TABLE batch_byproducts ADD COLUMN IF NOT EXISTS closed_reason TEXT",
     # Historia korekt wpisów rozbioru z biura (zmiana pracownika/kg PO
     # zatwierdzeniu zmiany). Powód jest WYMAGANY — wsteczna zmiana akordu
     # musi mieć ślad. Diff PRZED/PO w JSONB: to czysty zapis audytowy,
