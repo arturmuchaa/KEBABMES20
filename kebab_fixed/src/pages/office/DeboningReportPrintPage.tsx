@@ -95,6 +95,21 @@ function signedKg(v: number | null | undefined): string {
   return v < 0 ? `+${nf1.format(-v)}` : nf1.format(v)
 }
 
+/** Sekcja raportu, która NIE pęka między stronami: gdy nie mieści się na
+ *  resztce kartki, przechodzi na następną w całości. Rozdzielony wodospad
+ *  kosztu albo bilans masy ucięty w połowie jest gorszy niż pusty dół
+ *  strony — czytelnik traci wątek dokładnie tam, gdzie ma wyciągnąć wniosek. */
+function Blok({ title, newPage, children }: {
+  title: string; newPage?: boolean; children: React.ReactNode
+}) {
+  return (
+    <section style={{ breakInside: 'avoid', ...(newPage ? { breakBefore: 'page' as const } : null) }}>
+      <div style={S.section}>{title}</div>
+      {children}
+    </section>
+  )
+}
+
 export function DeboningReportPrintPage() {
   const [sp] = useSearchParams()
   const from = sp.get('from') ?? ''
@@ -157,6 +172,11 @@ export function DeboningReportPrintPage() {
   // Dni odstające — wykres pokazuje kształt, ta lista nazywa konkretne dni,
   // żeby dało się je sprawdzić bez czytania wykresu przez lupę.
   const offDays = days.filter(d => Math.abs(d.avgYield - s.avgYield) > 1)
+  // Udziały składników kosztu (tylko dodatnie — uboczne pomniejszają cenę,
+  // więc nie mają udziału w „z czego się składa").
+  const costPlus = (cost?.steps ?? []).filter(x => x.sign === '+')
+  const costPlusTotal = costPlus.reduce((a, x) => a + x.pln, 0) || 1
+  const costShares = costPlus.map(st => ({ ...st, share: st.pln / costPlusTotal * 100 }))
   const brief = executiveBrief({
     avgYield: s.avgYield, meatCostPerKg: s.meatCostPerKg, kgQuarter: s.kgQuarter,
     missingKg: s.missingKg, batches: data.byBatch, workers: scorecard,
@@ -225,7 +245,7 @@ export function DeboningReportPrintPage() {
       {/* Cztery zdania na wejście. Bez kolorowych kropek — dokument idzie na
           czarno-białą drukarkę, gdzie 🟢🟡🔴 drukują się identycznie; rolę
           rozróżnienia niesie podpis pozycji i grubość lewej krawędzi. */}
-      <div style={S.section}>Podsumowanie dla zarządu</div>
+      <Blok title="Podsumowanie dla zarządu">
       <div style={{ border: '1px solid #bfbfbf', borderTop: '2px solid #111' }}>
         {brief.map((b, i) => (
           <div key={b.kind} style={{
@@ -241,12 +261,14 @@ export function DeboningReportPrintPage() {
           </div>
         ))}
       </div>
+      </Blok>
 
-      <div style={S.section}>Podsumowanie okresu</div>
+      <Blok title="Podsumowanie okresu">
       {narrative.map((p, i) => <p key={i} style={S.lead}>{p}</p>)}
+      </Blok>
 
       {/* ── Bilans masy: wejście = wyjście, domknięte do 100% ── */}
-      <div style={S.section}>Bilans masy</div>
+      <Blok title="Bilans masy">
       <div style={{ display: 'flex', height: 26, border: '1px solid #111', marginBottom: 6 }}>
         {bal.parts.map((p, i) => (
           <div key={i} style={{ width: `${p.barPct}%`, background: TONE[p.tone],
@@ -289,26 +311,36 @@ export function DeboningReportPrintPage() {
         </tbody>
       </table>
 
+      </Blok>
       {/* ── Z czego składa się koszt 1 kg mięsa ── */}
       {cost && (
         <>
-          <div style={S.section}>Z czego składa się koszt 1 kg mięsa</div>
+          <Blok title="Z czego składa się koszt 1 kg mięsa">
           {/* Pasek udziałów: od razu widać, że o cenie decyduje zakup
               ćwiartki (94%), a nie robicizna — bez tego rozmowa o kosztach
               schodzi na płace, gdzie stawki są i tak jednolite. */}
-          <div style={{ display: 'flex', height: 22, border: '1px solid #111', marginBottom: 6 }}>
-            {cost.steps.filter(x => x.sign === '+').map((st, i, arr) => {
-              const share = st.pln / arr.reduce((a, x) => a + x.pln, 0) * 100
-              return (
-                <div key={st.label} style={{
-                  width: `${share}%`, background: i === 0 ? '#2b2b2b' : '#8a8a8a', color: '#fff',
-                  fontSize: 9, fontWeight: 800, display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', borderRight: i < arr.length - 1 ? '1px solid #fff' : 0,
-                }}>
-                  {share >= 5 ? `${st.label} ${nf1.format(share)}%` : ''}
-                </div>
-              )
-            })}
+          <div style={{ display: 'flex', height: 22, border: '1px solid #111', marginBottom: 4 }}>
+            {costShares.map((st, i, arr) => (
+              <div key={st.label} style={{
+                width: `${st.share}%`, background: i === 0 ? '#2b2b2b' : '#8a8a8a', color: '#fff',
+                fontSize: 9, fontWeight: 800, display: 'flex', alignItems: 'center',
+                justifyContent: 'center', borderRight: i < arr.length - 1 ? '1px solid #fff' : 0,
+                overflow: 'hidden', whiteSpace: 'nowrap',
+              }}>
+                {st.share >= 6 ? `${nf1.format(st.share)}%` : ''}
+              </div>
+            ))}
+          </div>
+          {/* Legenda pod paskiem, nie w segmentach: „Robocizna rozbioru" nie
+              mieści się w 6,4% szerokości i wylewała się poza słupek. */}
+          <div style={{ display: 'flex', gap: 16, marginBottom: 6, fontSize: 10, color: '#333' }}>
+            {costShares.map((st, i) => (
+              <span key={st.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 10, height: 10, background: i === 0 ? '#2b2b2b' : '#8a8a8a',
+                  display: 'inline-block' }} />
+                {st.label} — {nf1.format(st.share)}% ceny
+              </span>
+            ))}
           </div>
           <table style={S.table}>
             <thead>
@@ -349,13 +381,14 @@ export function DeboningReportPrintPage() {
               ? <>Przeliczenie na EUR po kursie średnim NBP (tab. {eur.table}) z dnia {fmtD(eur.date)}: 1 EUR = {nf2.format(eur.rate)} zł.</>
               : <>Kurs EUR niedostępny (brak odpowiedzi NBP) — kwoty wyłącznie w złotych.</>}
           </p>
+          </Blok>
         </>
       )}
 
       {/* ── Uzysk przeliczony na pieniądze ── */}
       {yv && (
         <>
-          <div style={S.section}>Ile jest wart uzysk</div>
+          <Blok title="Ile jest wart uzysk">
           <table style={S.table}>
             <tbody>
               <tr>
@@ -372,13 +405,14 @@ export function DeboningReportPrintPage() {
               ))}
             </tbody>
           </table>
+          </Blok>
         </>
       )}
 
       {/* ── Gdzie uciekają pieniądze: odchylenia partii w złotówkach ── */}
       {dev && dev.all.length > 1 && (
         <>
-          <div style={S.section}>Gdzie uciekają pieniądze — partie względem średniej</div>
+          <Blok title="Gdzie uciekają pieniądze — partie względem średniej">
           <table style={S.table}>
             <thead>
               <tr>
@@ -421,11 +455,12 @@ export function DeboningReportPrintPage() {
               ({suppliers[0].name}) — porównanie dostawców niemożliwe.
             </p>
           )}
+          </Blok>
         </>
       )}
 
       {/* ── Trend miesięczny z migawek (rośnie z każdym zamkniętym miesiącem) ── */}
-      <div style={S.section}>Trend miesięczny</div>
+      <Blok title="Trend miesięczny">
       {trend.length > 1 ? (
         <table style={S.table}>
           <thead>
@@ -466,15 +501,17 @@ export function DeboningReportPrintPage() {
           automatycznie po zamknięciu kolejnych okresów.
         </p>
       )}
+      </Blok>
 
       {/* ── Jawna lista dziur: raport, który je zakleja, traci wiarygodność ── */}
-      <div style={S.section}>Czego raport nie obejmuje</div>
+      <Blok title="Czego raport nie obejmuje">
       {gaps.map((g, i) => <p key={i} style={S.note}>• {g}</p>)}
+      </Blok>
 
       {/* ══ STRONY DALSZE — operacyjne ════════════════════════════════════ */}
 
       {/* ── Partie ── */}
-      <div style={{ ...S.section, breakBefore: 'page' }}>Partie surowca</div>
+      <Blok title="Partie surowca" newPage>
       <table style={C.table}>
         <colgroup>
           <col style={{ width: '7%' }} /><col style={{ width: '16%' }} />
@@ -524,9 +561,10 @@ export function DeboningReportPrintPage() {
           </tr>
         </tfoot>
       </table>
+      </Blok>
 
       {/* ── Pracownicy ── */}
-      <div style={S.section}>Pracownicy</div>
+      <Blok title="Pracownicy">
       <table style={S.table}>
         <thead>
           <tr>
@@ -586,11 +624,12 @@ export function DeboningReportPrintPage() {
         <b>Obecność</b> liczona z dni, w których pracownik miał pobranie —
         system nie zna grafiku, więc nie odróżnia urlopu i zwolnienia od nieobecności.
       </p>
+      </Blok>
 
       {/* ── Dostawcy (gdy więcej niż jeden) ── */}
       {suppliers.length > 1 && (
         <>
-          <div style={S.section}>Dostawcy — jakość surowca</div>
+          <Blok title="Dostawcy — jakość surowca">
           <table style={S.table}>
             <thead>
               <tr>
@@ -613,6 +652,7 @@ export function DeboningReportPrintPage() {
               ))}
             </tbody>
           </table>
+          </Blok>
         </>
       )}
 
@@ -621,7 +661,7 @@ export function DeboningReportPrintPage() {
           widać w sekundę. Dni odstające i tak wypisujemy pod spodem. */}
       {days.length > 1 && (
         <>
-          <div style={S.section}>Trend dzienny</div>
+          <Blok title="Trend dzienny">
           <TrendChart points={days} avgYield={s.avgYield} />
           {offDays.length > 0 && (
             <p style={S.note}>
@@ -631,6 +671,7 @@ export function DeboningReportPrintPage() {
               ).join('; ')}.
             </p>
           )}
+          </Blok>
         </>
       )}
 
