@@ -285,7 +285,14 @@ export const analyticsApi = {
    *  z migawek (zamrożone — korekty nie zmieniają historii), bieżący na żywo. */
   kpiMonths: (limit = 12) =>
     get<{ data: KpiMonth[] }>(`/analytics/kpi-months?limit=${limit}`).then(r => r.data ?? []),
+  /** Kurs średni EUR (NBP tab. A) na dany dzień; null gdy NBP nie odpowiada —
+   *  raport drukuje wtedy same złotówki zamiast zmyślonego kursu. */
+  eurRate: (on: string) =>
+    get<EurRate | Record<string, never>>(`/analytics/eur-rate?on=${on}`)
+      .then(r => ('rate' in r && r.rate ? (r as EurRate) : null)),
 }
+
+export interface EurRate { rate: number; date: string; table: string }
 
 /** Migawka KPI miesiąca. `delta*` = None gdy brak SĄSIEDNIEGO poprzednika —
  *  raport ma wtedy napisać „brak danych porównawczych", a nie zmyślić zmianę. */

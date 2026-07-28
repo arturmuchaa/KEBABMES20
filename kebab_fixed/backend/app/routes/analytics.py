@@ -59,6 +59,15 @@ def kpi_month(year_month: str):
     return kpi.get_month_kpi(year_month)
 
 
+@router.get("/eur-rate")
+def eur_rate(on: str = Query("")):
+    """Kurs średni EUR (NBP tab. A) obowiązujący w dniu `on` — do raportu
+    zarządczego. Brak odpowiedzi NBP → `null`, raport drukuje same złotówki
+    (zmyślony kurs cicho zafałszowałby dokument)."""
+    from app.services.fx_service import nbp_eur_rate
+    return nbp_eur_rate(on or None) or {}
+
+
 @router.post("/kpi-months/{year_month}/close")
 def kpi_month_close(year_month: str, force: bool = Query(False), by: str = Query("")):
     """Zamknięcie miesiąca. `force=1` przelicza już zamknięty — świadoma

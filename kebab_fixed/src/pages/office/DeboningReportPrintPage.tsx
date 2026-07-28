@@ -16,11 +16,12 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { analyticsApi, deboningApi, settingsApi, type DeboningStats, type CompanySettings, type KpiMonth } from '@/lib/api'
+import { analyticsApi, deboningApi, settingsApi, type DeboningStats, type CompanySettings, type EurRate, type KpiMonth } from '@/lib/api'
 import {
   batchDeviations, costWaterfall, execNarrative, massBalance, reportGaps, yieldValue,
 } from '@/features/reports/executiveSummary'
 import { potentialPln, workerScorecard } from '@/features/reports/workerScorecard'
+import { executiveBrief, type BriefKind } from '@/features/reports/executiveBrief'
 import { TrendChart } from '@/features/reports/TrendChart'
 
 const nf0 = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
@@ -71,6 +72,21 @@ const TONE: Record<string, string> = {
   meat: '#2b2b2b', backs: '#7a7a7a', bones: '#b4b4b4', gap: '#e2e2e2',
 }
 
+// Lewa krawędź pozycji podsumowania: szarości zamiast 🟢🟡🔴 — na czarno-
+// białej drukarce kolory i tak schodzą do jednej plamki, a grubość i jasność
+// krawędzi przeżywa druk.
+const BRIEF_TONE: Record<BriefKind, string> = {
+  good: '#b4b4b4', watch: '#7a7a7a', risk: '#111', decision: '#2b2b2b',
+}
+
+// Co realnie kryje się pod składnikiem ceny — bez tego „robocizna 65 420 zł"
+// jest liczbą, o którą nie da się zapytać.
+const COST_HINT: Record<string, string> = {
+  'Zakup ćwiartki': 'faktury dostawców za ćwiartkę w rozebranych partiach',
+  'Robocizna rozbioru': 'akord pracowników za kg pobranej ćwiartki',
+  'Sprzedaż ubocznych': 'wystawione WZ na grzbiety i kości (pomniejszają koszt)',
+}
+
 const nfPln = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
 const signedPln = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${nfPln.format(Math.abs(v))} zł`
 
@@ -89,17 +105,21 @@ export function DeboningReportPrintPage() {
   // Trend miesięczny z migawek. Nie blokuje wydruku: gdy padnie, strona 1
   // po prostu napisze, że porównania nie ma — lepsze niż pusty raport.
   const [months, setMonths] = useState<KpiMonth[] | null>(null)
+  // Kurs EUR z NBP na dzień końca okresu. `null` = nie udało się pobrać →
+  // raport drukuje same złotówki, zamiast zaszytego w kodzie kursu.
+  const [eur, setEur] = useState<EurRate | null | undefined>(undefined)
 
   useEffect(() => {
     if (!from || !to) return
     deboningApi.stats(from, to).then(setData).catch(() => setData(null))
     settingsApi.getCompany().then(setCompany).catch(() => setCompany(null))
     analyticsApi.kpiMonths(12).then(setMonths).catch(() => setMonths([]))
+    analyticsApi.eurRate(to).then(setEur).catch(() => setEur(null))
   }, [from, to])
 
   useEffect(() => {
-    if (data && months && !isPdf) setTimeout(() => window.print(), 400)
-  }, [data, months, isPdf])
+    if (data && months && eur !== undefined && !isPdf) setTimeout(() => window.print(), 400)
+  }, [data, months, eur, isPdf])
 
   const suppliers = useMemo(() => {
     const sup = new Map<string, { kgQuarter: number; kgMeat: number; batches: number }>()
@@ -137,6 +157,11 @@ export function DeboningReportPrintPage() {
   // Dni odstające — wykres pokazuje kształt, ta lista nazywa konkretne dni,
   // żeby dało się je sprawdzić bez czytania wykresu przez lupę.
   const offDays = days.filter(d => Math.abs(d.avgYield - s.avgYield) > 1)
+  const brief = executiveBrief({
+    avgYield: s.avgYield, meatCostPerKg: s.meatCostPerKg, kgQuarter: s.kgQuarter,
+    missingKg: s.missingKg, batches: data.byBatch, workers: scorecard,
+    offDays, monthsInSystem: trend.length,
+  })
   const batches = [...data.byBatch].sort((a, b) => a.batchNo.localeCompare(b.batchNo, 'pl', { numeric: true }))
 
   return (
@@ -146,6 +171,11 @@ export function DeboningReportPrintPage() {
       {/* ── Nagłówek ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '3px solid #111', paddingBottom: 10, marginBottom: 14 }}>
         <div>
+          {/* Plik poziomy ze sloganem (2779×379) — 44 px wysokości daje
+              ~320 px szerokości, czytelne w druku i nie zabiera miejsca
+              nagłówkowi. Ten sam zasób co na WZ i arkuszu HACCP. */}
+          <img src="/logo-ksiezyc-print.png" alt="Księżyc"
+            style={{ height: 44, width: 'auto', display: 'block', marginBottom: 8 }} />
           <h1 style={S.h1}>RAPORT ROZBIORU</h1>
           <div style={{ fontSize: 13, fontWeight: 600, marginTop: 3 }}>
             Okres: {fmtD(from)}{from !== to ? ` – ${fmtD(to)}` : ''}
@@ -191,6 +221,26 @@ export function DeboningReportPrintPage() {
       </div>
 
       {/* ══ STRONA 1 — dla zarządu ═══════════════════════════════════════ */}
+
+      {/* Cztery zdania na wejście. Bez kolorowych kropek — dokument idzie na
+          czarno-białą drukarkę, gdzie 🟢🟡🔴 drukują się identycznie; rolę
+          rozróżnienia niesie podpis pozycji i grubość lewej krawędzi. */}
+      <div style={S.section}>Podsumowanie dla zarządu</div>
+      <div style={{ border: '1px solid #bfbfbf', borderTop: '2px solid #111' }}>
+        {brief.map((b, i) => (
+          <div key={b.kind} style={{
+            display: 'flex', gap: 12, padding: '7px 10px',
+            borderTop: i > 0 ? '1px solid #dcdcdc' : undefined,
+            borderLeft: `4px solid ${BRIEF_TONE[b.kind]}`,
+          }}>
+            <div style={{ width: 118, flexShrink: 0, fontSize: 9.5, fontWeight: 800,
+              textTransform: 'uppercase', letterSpacing: 0.5, color: '#333', paddingTop: 1 }}>
+              {b.label}
+            </div>
+            <div style={{ fontSize: 11.5, lineHeight: 1.5 }}>{b.text}</div>
+          </div>
+        ))}
+      </div>
 
       <div style={S.section}>Podsumowanie okresu</div>
       {narrative.map((p, i) => <p key={i} style={S.lead}>{p}</p>)}
@@ -242,32 +292,63 @@ export function DeboningReportPrintPage() {
       {/* ── Z czego składa się koszt 1 kg mięsa ── */}
       {cost && (
         <>
-          <div style={S.section}>Koszt 1 kg mięsa</div>
+          <div style={S.section}>Z czego składa się koszt 1 kg mięsa</div>
+          {/* Pasek udziałów: od razu widać, że o cenie decyduje zakup
+              ćwiartki (94%), a nie robicizna — bez tego rozmowa o kosztach
+              schodzi na płace, gdzie stawki są i tak jednolite. */}
+          <div style={{ display: 'flex', height: 22, border: '1px solid #111', marginBottom: 6 }}>
+            {cost.steps.filter(x => x.sign === '+').map((st, i, arr) => {
+              const share = st.pln / arr.reduce((a, x) => a + x.pln, 0) * 100
+              return (
+                <div key={st.label} style={{
+                  width: `${share}%`, background: i === 0 ? '#2b2b2b' : '#8a8a8a', color: '#fff',
+                  fontSize: 9, fontWeight: 800, display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', borderRight: i < arr.length - 1 ? '1px solid #fff' : 0,
+                }}>
+                  {share >= 5 ? `${st.label} ${nf1.format(share)}%` : ''}
+                </div>
+              )
+            })}
+          </div>
           <table style={S.table}>
             <thead>
               <tr>
                 <th style={{ ...S.th, textAlign: 'left' }}>Składnik</th>
+                <th style={{ ...S.th, textAlign: 'left' }}>Co to jest</th>
                 <th style={S.th}>Kwota [zł]</th>
-                <th style={S.th}>Na 1 kg mięsa [zł]</th>
+                <th style={S.th}>Na 1 kg [zł]</th>
+                <th style={S.th}>Na 1 kg [EUR]</th>
               </tr>
             </thead>
             <tbody>
               {cost.steps.map((st, i) => (
                 <tr key={i}>
-                  <td style={S.tdL}>{st.sign} {st.label}</td>
+                  <td style={{ ...S.tdL, fontWeight: 600 }}>{st.sign} {st.label}</td>
+                  <td style={{ ...S.tdL, fontSize: 10, color: '#555' }}>{COST_HINT[st.label] ?? ''}</td>
                   <td style={S.td}>{st.sign === '−' ? '−' : ''}{nfPln.format(st.pln)}</td>
                   <td style={S.td}>{st.sign === '−' ? '−' : ''}{nf2.format(st.perKgMeat)}</td>
+                  <td style={S.td}>
+                    {eur ? `${st.sign === '−' ? '−' : ''}${nf2.format(st.perKgMeat / eur.rate)}` : '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ fontWeight: 800, background: '#efefef' }}>
-                <td style={S.tdL}>Koszt netto · {nf0.format(s.kgMeat)} kg mięsa</td>
+                <td style={S.tdL} colSpan={2}>Koszt netto · {nf0.format(s.kgMeat)} kg mięsa</td>
                 <td style={S.td}>{nfPln.format(cost.netPln)}</td>
                 <td style={{ ...S.td, fontSize: 13 }}>{nf2.format(cost.netPerKg)}</td>
+                <td style={{ ...S.td, fontSize: 13 }}>
+                  {eur ? nf2.format(cost.netPerKg / eur.rate) : '—'}
+                </td>
               </tr>
             </tfoot>
           </table>
+          <p style={S.note}>
+            {eur
+              ? <>Przeliczenie na EUR po kursie średnim NBP (tab. {eur.table}) z dnia {fmtD(eur.date)}: 1 EUR = {nf2.format(eur.rate)} zł.</>
+              : <>Kurs EUR niedostępny (brak odpowiedzi NBP) — kwoty wyłącznie w złotych.</>}
+          </p>
         </>
       )}
 
