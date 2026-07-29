@@ -19,11 +19,14 @@ from app.db import (
     transaction,
 )
 from app.logging_config import get_logger
+from app.services.container_ledger_service import book_assets
+from app.services.container_partners_service import resolve_partner, resolve_partner_by_nip
 from app.services.order_stock_service import (
     produced_by_key_from_plan_lines,
     stock_portions_for_order,
 )
 from app.services.settings_service import get_company
+from app.utils.containers import containers_for_kg, normalize_nip, prorate_containers
 from app.utils.meat_lots import raw_batch_no_from_lot
 from app.utils.ids import cuid, now_iso
 from app.utils.pallets import pallet_containers
@@ -156,10 +159,75 @@ def _seller_block() -> Dict[str, Any]:
     }
 
 
+def _container_partner_for_buyer(conn, buyer: Dict[str, Any]) -> Optional[str]:
+    """Partner pojemnikowy dla odbiorcy WZ: po kartotece klienta, gdy WZ
+    wystawiono z listy, inaczej po NIP z nagłówka dokumentu (ręczne WZ
+    podaje samego kupującego, bez id)."""
+    cid = buyer.get("clientId") or buyer.get("client_id")
+    if cid:
+        return resolve_partner(conn, "client", str(cid))
+    nip = normalize_nip(buyer.get("nip"))
+    name = (buyer.get("name") or "").strip()
+    if not nip and not name:
+        return None
+    return resolve_partner_by_nip(conn, nip, name, buyer.get("address") or "")
+
+
+def _wz_container_targets(lines: List[Dict[str, Any]], pallets_h1, pallets_other) -> Dict[str, int]:
+    """Nośniki wydane tym WZ-etem, ze znakiem UJEMNYM — jadą OD NAS."""
+    e2 = 0
+    for line in lines or []:
+        try:
+            e2 += int(line.get("containers") or 0)
+        except (TypeError, ValueError):
+            continue
+    return {"e2": -e2, "pallet_h1": -int(pallets_h1 or 0),
+            "pallet_other": -int(pallets_other or 0)}
+
+
+def _rebook_wz_containers(conn, wz_id: str, *, zero: bool = False) -> None:
+    """Przelicza ruchy nośników dokumentu z jego AKTUALNYCH pozycji.
+    zero=True → doprowadza wszystkie nośniki do 0 (anulowanie).
+
+    Wołane po każdej zmianie pozycji, bo księgowanie jest różnicowe —
+    ustawiamy stan docelowy, a book_assets dopisuje samą różnicę.
+
+    TYLKO WZ ręczne: update_wz_lines i cancel_wz odrzucają dokumenty
+    niereczne, więc ruch z WZ zamówieniowego nie dałby się ani skorygować,
+    ani cofnąć.
+    """
+    row = cx_query_one(
+        conn,
+        "SELECT buyer_name, buyer_address, buyer_nip, lines, pallets_h1, pallets_other, "
+        "       release_date, issued_date, number "
+        "FROM wz_documents WHERE id=%s", (wz_id,))
+    if not row:
+        return
+    partner_id = _container_partner_for_buyer(conn, {
+        "name": row.get("buyer_name"), "address": row.get("buyer_address"),
+        "nip": row.get("buyer_nip")})
+    if not partner_id:
+        return
+    lines = row.get("lines")
+    if not isinstance(lines, list):
+        lines = json.loads(lines or "[]")
+    targets = ({} if zero
+               else _wz_container_targets(lines, row.get("pallets_h1"), row.get("pallets_other")))
+    book_assets(
+        conn, partner_id=partner_id, source_type="wz", source_id=wz_id, targets=targets,
+        movement_date=str(row.get("release_date") or row.get("issued_date") or date.today())[:10],
+        note=f"WZ {row.get('number') or ''}".strip())
+
+
 def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
                total, place, issued, released, notes,
-               currency: str = "PLN", eur_rate: Optional[float] = None) -> str:
-    """Wstaw dokument WZ w trwającej transakcji, nadaj numer WZ/NN/MM/RR. Zwraca id."""
+               currency: str = "PLN", eur_rate: Optional[float] = None,
+               pallets_h1: int = 0, pallets_other: int = 0) -> str:
+    """Wstaw dokument WZ w trwającej transakcji, nadaj numer WZ/NN/MM/RR. Zwraca id.
+
+    pallets_h1/pallets_other są na POZIOMIE DOKUMENTU — transport wiezie N palet
+    łącznie, nie N palet na każdą pozycję (pojemniki zostają na pozycjach).
+    """
     today = date.today()
     ym = today.strftime("%y%m")  # RRMM
     seq_row = cx_query_one(
@@ -173,13 +241,14 @@ def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
            (id, number, seq, year_month, source_type, source_id, seller,
             buyer_name, buyer_address, buyer_nip, valued, lines, total_value,
             place, issued_date, release_date, status, notes, currency, eur_rate,
-            created_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s,%s,%s)
+            pallets_h1, pallets_other, created_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s,%s,%s,%s,%s)
            RETURNING id""",
         (wid, number, seq, ym, source_type, source_id, json.dumps(seller),
          buyer.get("name"), buyer.get("address"), buyer.get("nip"), valued,
          json.dumps(lines), total, place, issued, released, notes,
-         (currency or "PLN").upper(), eur_rate, now_iso()),
+         (currency or "PLN").upper(), eur_rate,
+         int(pallets_h1 or 0), int(pallets_other or 0), now_iso()),
     )
     logger.info("wz.generated", extra={"wz_id": wid, "number": number})
     return wid
@@ -247,6 +316,8 @@ def create_manual_wz(
     notes: str = "",
     currency: str = "PLN",
     eur_rate: Optional[float] = None,
+    pallets_h1: int = 0,
+    pallets_other: int = 0,
 ) -> Dict[str, Any]:
     """Ręczny WZ ze sprzedaży z magazynu. Atomowo: dokument WZ + rozchód
     (FG: szt, surowiec: kg). Brak stanu → 400 + rollback całości.
@@ -285,7 +356,8 @@ def create_manual_wz(
             conn, source_type="manual", source_id=None, seller=seller,
             buyer=buyer, valued=valued, lines=lines, total=total, place=place_val,
             issued=issued, released=released, notes=notes,
-            currency=currency, eur_rate=eur_rate)
+            currency=currency, eur_rate=eur_rate,
+            pallets_h1=pallets_h1, pallets_other=pallets_other)
 
         for sel in selections:
             stype = sel.get("stock_type")
@@ -394,6 +466,9 @@ def create_manual_wz(
 
             else:
                 raise HTTPException(400, f"Nieznany typ magazynu: {stype}")
+
+        # Saldo pojemników: nośniki jadą OD NAS (znak ujemny).
+        _rebook_wz_containers(conn, wid)
 
     logger.info("wz.manual.created", extra={"wz_id": wid, "items": len(selections)})
     return get_wz(wid)
@@ -566,6 +641,8 @@ def update_wz_lines(wz_id: str, edits: List[Dict[str, Any]]) -> Dict[str, Any]:
         cx_execute(conn,
                    "UPDATE wz_documents SET lines=%s, total_value=%s, valued=%s WHERE id=%s",
                    (json.dumps(lines), total, valued, wz_id))
+        # Pozycje zmienione → przelicz nośniki z NOWEGO stanu dokumentu.
+        _rebook_wz_containers(conn, wz_id)
     logger.info("wz.lines_updated", extra={"wz_id": wz_id, "edits": len(edits)})
     return get_wz(wz_id)
 
@@ -636,6 +713,8 @@ def cancel_wz(wz_id: str) -> Dict[str, Any]:
                     movement_type="CANCEL", source_type="wz", source_id=wz_id)
 
         cx_execute(conn, "UPDATE wz_documents SET status='anulowany' WHERE id=%s", (wz_id,))
+        # Nośniki wracają na saldo odbiorcy — dokument już nic nie wydaje.
+        _rebook_wz_containers(conn, wz_id, zero=True)
     logger.info("wz.cancelled", extra={"wz_id": wz_id})
     return get_wz(wz_id)
 
@@ -994,11 +1073,20 @@ def stock_raw() -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for r in query_all(
         """SELECT id, internal_batch_no, supplier_name, kg_available, material_name,
-                  material_type_id, slaughter_date, expiry_date, received_date
+                  material_type_id, slaughter_date, expiry_date, received_date,
+                  container_kg, containers_count, kg_received
            FROM raw_batches WHERE COALESCE(kg_available,0) > 0
              AND COALESCE(status,'active') <> 'cancelled'
            ORDER BY received_date DESC NULLS LAST, internal_batch_no"""):
         kg = float(r["kg_available"] or 0)
+        # Pojemniki z KALIBRU partii (15/20 kg), nie z twardych 15 kg. Partia
+        # niekalibrowana nie ma wzoru — skalujemy policzoną sumę proporcjonalnie
+        # do wydawanej masy.
+        ck = r.get("container_kg")
+        cont = containers_for_kg(kg, float(ck) if ck is not None else None)
+        if cont is None:
+            cont = prorate_containers(r.get("containers_count"), kg,
+                                      float(r.get("kg_received") or 0))
         out.append({
             "id": r["id"], "stock_type": "raw",
             "internal_batch_no": r["internal_batch_no"],
@@ -1006,7 +1094,7 @@ def stock_raw() -> List[Dict[str, Any]]:
             "name": r.get("material_name") or "Ćwiartka z kurczaka",
             "material_type_id": r.get("material_type_id") or "mat-cwiartka",
             "kg_available": r["kg_available"],
-            "containers": int(-(-kg // 15)) if kg > 0 else None,  # 15 kg/poj.
+            "containers": cont,
             "slaughter_date": str(r.get("slaughter_date") or "")[:10] or None,
             "expiry_date": str(r.get("expiry_date") or "")[:10] or None,
             "production_date": str(r.get("received_date") or "")[:10] or None,
@@ -1052,11 +1140,11 @@ def stock_raw() -> List[Dict[str, Any]]:
         # containers_available = ŻYWY licznik (maleje przy WZ, rośnie przy
         # dodaniu kolejnych palet na wadze) — fallback na sumę z palet TYLKO
         # dla lotów sprzed tej kolumny (nie powinno się zdarzać po migracji).
+        pallets_list = b.get("backs_pallets") if b["kind"] == "backs" else b.get("bones_pallets")
         if b.get("containers_available") is not None:
             cont = int(b["containers_available"])
         else:
-            pallets = b.get("backs_pallets") if b["kind"] == "backs" else b.get("bones_pallets")
-            cont = pallet_containers(pallets)
+            cont = pallet_containers(pallets_list)
         weighed_at = b.get("backs_at") if b["kind"] == "backs" else b.get("bones_at")
         prod_date = str(weighed_at or b.get("created_at") or "")[:10] or None
         out.append({
@@ -1068,6 +1156,9 @@ def stock_raw() -> List[Dict[str, Any]]:
             "doc_name": "Grzbiety z kurczaka" if b["kind"] == "backs" else "Kości z kurczaka",
             "kg_available": b["kg"],
             "containers": cont or None,
+            # Jedna pozycja kreatora HMI = jedna paleta. Podpowiedź palet
+            # dokumentu, żeby operator nie liczył ich drugi raz.
+            "pallets": len(pallets_list or []) or None,
             "slaughter_date": str(b.get("slaughter_date") or "")[:10] or None,
             "expiry_date": str(b.get("expiry_date") or "")[:10] or None,
             "production_date": prod_date,
