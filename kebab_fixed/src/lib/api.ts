@@ -1741,10 +1741,17 @@ export interface ContainerDocLine {
   assetType: ContainerAsset; label: string; inQty: number; outQty: number; balance: number
 }
 
+export interface ContainerDelivery {
+  sourceType: string; sourceId: string; date: string; label: string
+  settled: boolean
+  assets: Record<ContainerAsset, number>
+}
+
 export interface ContainerDoc {
   id: string; number: string; status: string
   partner: { id: string; name: string; nip: string; address: string }
   partnerId: string
+  linkedSourceType: string | null; linkedSourceId: string | null
   seller: { name: string; address: string; postal_code: string; city: string; nip: string; phone: string }
   docDate: string; driver: string; vehicle: string; notes: string
   balanceAfter: Record<ContainerAsset, number>
@@ -1789,9 +1796,14 @@ export const containersApi = {
   docs: (partnerId?: string) =>
     get<ContainerDoc[]>(`/containers/docs?partnerId=${encodeURIComponent(partnerId ?? '')}`),
   doc: (id: string) => get<ContainerDoc>(`/containers/docs/${encodeURIComponent(id)}`),
+  deliveries: (partnerId: string) =>
+    get<ContainerDelivery[]>(`/containers/partners/${encodeURIComponent(partnerId)}/deliveries`),
   createDoc: (body: {
     partnerId?: string; refType?: string; refId?: string
     docDate: string; driver?: string; vehicle?: string; notes?: string
+    // Powiązanie z dostawą: kolumna „Dostawa/odbiór" jest wtedy samą
+    // referencją na druku — księguje się wyłącznie zwrot.
+    linkedSourceType?: string; linkedSourceId?: string
     lines: { assetType: ContainerAsset; inQty: number; outQty: number }[]
   }) => post<ContainerDoc>('/containers/docs', body),
   cancelDoc: (id: string) =>
