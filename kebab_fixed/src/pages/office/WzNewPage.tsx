@@ -19,10 +19,12 @@ import {
   ArrowLeft, Plus, Trash2, Search, Eye, Printer, FileText,
   FileCheck2, CheckCircle2, Package, Beef, AlertTriangle, RefreshCw,
 } from 'lucide-react'
+import { CALIBER_OPTIONS, caliberKg, containersForKg, type CaliberValue } from '@/lib/containers'
 
 type Row = {
   stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string
   containersStr?: string
+  caliberStr?: CaliberValue   // steruje podpowiedzią liczby pojemników z kg
   slaughterDate?: string | null
   expiryDate?: string | null
   productionDate?: string | null
@@ -81,6 +83,11 @@ export function WzNewPage() {
   const [releaseDate, setReleaseDate] = useState(todayIso())
   const [place, setPlace]             = useState('')
   const [notes, setNotes]             = useState('')
+  // Palety są na POZIOMIE DOKUMENTU — transport wiezie N palet łącznie,
+  // nie N palet na każdą partię (pojemniki zostają na pozycjach).
+  const [palletsH1, setPalletsH1]         = useState(0)
+  const [palletsOther, setPalletsOther]   = useState(0)
+  const [palletsTouched, setPalletsTouched] = useState(false)
 
   // Odbiorca zajmował pół ekranu przez cały czas wystawiania, a wypełnia się
   // raz — po wybraniu klienta zwija się do jednej linii, żeby lista magazynu
@@ -180,6 +187,7 @@ export function WzNewPage() {
     unit: 'kg', qtyStr: String(Number(b.kg_available || 0)), priceStr: '',
     // Pojemniki ZAPAMIĘTANE z ważenia na HMI — podpowiedź, można poprawić.
     containersStr: b.containers ? String(b.containers) : '',
+    caliberStr: '15',
     batchNo: b.internal_batch_no,
     slaughterDate: b.slaughter_date ?? null,
     expiryDate: b.expiry_date ?? null,
@@ -199,6 +207,15 @@ export function WzNewPage() {
   })
   const upd = (i: number, k: 'qtyStr' | 'priceStr' | 'containersStr', v: string) =>
     setRows(r => r.map((x, j) => j === i ? { ...x, [k]: v } : x))
+  /** Zmiana kalibru przelicza podpowiedź pojemników z kg tej pozycji.
+   *  Operator może ją potem nadpisać ręcznie — wpisana wartość zostaje
+   *  do następnej zmiany kalibru. */
+  const setCaliber = (i: number, v: CaliberValue) =>
+    setRows(rs => rs.map((r, j) => {
+      if (j !== i) return r
+      const auto = containersForKg(rowQty(r), caliberKg(v))
+      return { ...r, caliberStr: v, containersStr: auto === null ? '' : String(auto) }
+    }))
   const del = (i: number) => setRows(r => r.filter((_, j) => j !== i))
 
   const q = query.trim().toLowerCase()
@@ -220,6 +237,18 @@ export function WzNewPage() {
     : 0
   const rawFiltered = raw.filter(b =>
     !q || `${b.internal_batch_no || ''} ${b.supplier_name || ''} ${b.name || ''}`.toLowerCase().includes(q))
+
+  // Kości i grzbiety jadą na paletach policzonych już na wadze (kreator HMI
+  // zapisuje jedną pozycję na paletę). Podpowiadamy ich sumę, żeby operator
+  // nie liczył ich drugi raz — ale gdy ruszy pole, jego wartość jest nadrzędna.
+  const byproductPallets = useMemo(
+    () => rows.reduce((s, r) => s + (r.stockType === 'byproduct'
+      ? Number(raw.find(b => b.id === r.stockId)?.pallets ?? 0) : 0), 0),
+    [rows, raw])
+
+  useEffect(() => {
+    if (!palletsTouched) setPalletsH1(byproductPallets)
+  }, [byproductPallets, palletsTouched])
 
   const draftDoc: WzDocData = {
     number: savedDoc?.number,
@@ -273,6 +302,8 @@ export function WzNewPage() {
         issuedDate: issuedDate || undefined,
         releaseDate: releaseDate || undefined,
         notes: notes || undefined,
+        palletsH1,
+        palletsOther,
       })
       setSavedDoc(doc)
     } catch (e: any) {
@@ -583,11 +614,22 @@ export function WzNewPage() {
                             {r.stockType === 'fg' ? (
                               <span className="text-muted-foreground">—</span>
                             ) : (
-                              <Input type="text" inputMode="numeric" placeholder="—"
-                                     value={r.containersStr ?? ''}
-                                     className="h-8 w-16 font-mono"
-                                     onFocus={e => e.target.select()}
-                                     onChange={e => upd(i, 'containersStr', sanitizeInt(e.target.value))} />
+                              <div className="flex items-center gap-1">
+                                <select
+                                  value={r.caliberStr ?? '15'}
+                                  onChange={e => setCaliber(i, e.target.value as CaliberValue)}
+                                  title="Kaliber pojemnika — przelicza liczbę pojemników z kg"
+                                  className="h-8 rounded border border-surface-4 bg-surface px-1 text-[11px]">
+                                  {CALIBER_OPTIONS.map(o => (
+                                    <option key={o.value} value={o.value}>{o.label}</option>
+                                  ))}
+                                </select>
+                                <Input type="text" inputMode="numeric" placeholder="—"
+                                       value={r.containersStr ?? ''}
+                                       className="h-8 w-16 font-mono"
+                                       onFocus={e => e.target.select()}
+                                       onChange={e => upd(i, 'containersStr', sanitizeInt(e.target.value))} />
+                              </div>
                             )}
                           </TableCell>
                           <TableCell className="py-1.5 px-2 font-mono font-semibold whitespace-nowrap">
@@ -699,6 +741,30 @@ export function WzNewPage() {
               <div className="space-y-1.5">
                 <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Miejsce wystawienia</Label>
                 <Input className="h-9" placeholder="Miejscowość" value={place} onChange={e => setPlace(e.target.value)} />
+              </div>
+              {/* Palety na poziomie dokumentu — transport wiezie N palet
+                  łącznie. H1 podpowiadane z ważeń ubocznych, do poprawienia. */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Palety H1</Label>
+                  <Input type="text" inputMode="numeric" className="h-9 font-mono"
+                         value={String(palletsH1)}
+                         onFocus={e => e.target.select()}
+                         onChange={e => {
+                           setPalletsTouched(true)
+                           setPalletsH1(parseInt(sanitizeInt(e.target.value) || '0') || 0)
+                         }} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Palety inne</Label>
+                  <Input type="text" inputMode="numeric" className="h-9 font-mono"
+                         value={String(palletsOther)}
+                         onFocus={e => e.target.select()}
+                         onChange={e => {
+                           setPalletsTouched(true)
+                           setPalletsOther(parseInt(sanitizeInt(e.target.value) || '0') || 0)
+                         }} />
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Uwagi</Label>
