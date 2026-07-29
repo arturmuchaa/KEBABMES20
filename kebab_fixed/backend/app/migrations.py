@@ -781,6 +781,84 @@ _DDL: list[str] = [
     # parametru (IndexError przy starcie), a runner połyka błąd instrukcji.
     "UPDATE raw_batches SET internal_batch_no = 'ANUL-' || id "
     "WHERE status='cancelled' AND left(internal_batch_no, 5) <> 'ANUL-'",
+
+    # ── Saldo pojemników (2026-07-29) ────────────────────────────────
+    # Kartoteka tożsamości: dostawca i odbiorca o TYM SAMYM NIP-ie to jeden
+    # partner, więc mają jedno saldo. `suppliers`/`clients` zostają nietknięte
+    # — to warstwa wyłącznie na potrzeby nośników zwrotnych.
+    """CREATE TABLE IF NOT EXISTS container_partners (
+        id         TEXT PRIMARY KEY,
+        nip        TEXT,
+        name       TEXT NOT NULL,
+        address    TEXT DEFAULT '',
+        active     BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_container_partners_nip "
+    "ON container_partners(nip) WHERE nip IS NOT NULL AND nip <> ''",
+    """CREATE TABLE IF NOT EXISTS container_partner_links (
+        partner_id TEXT NOT NULL REFERENCES container_partners(id),
+        ref_type   TEXT NOT NULL,
+        ref_id     TEXT NOT NULL,
+        PRIMARY KEY (ref_type, ref_id)
+    )""",
+    # UWAGA KOLEJNOŚCI: container_docs MUSI powstać przed container_movements
+    # (FK doc_id). Migracje wykonują się po kolei, a błąd pojedynczej
+    # instrukcji jest tylko logowany — odwrotna kolejność dałaby CICHĄ awarię
+    # widoczną dopiero przy pierwszym zapisie.
+    """CREATE TABLE IF NOT EXISTS container_docs (
+        id               TEXT PRIMARY KEY,
+        number           TEXT NOT NULL,
+        seq              INTEGER NOT NULL DEFAULT 0,
+        year_month       TEXT NOT NULL DEFAULT '',
+        partner_id       TEXT NOT NULL REFERENCES container_partners(id),
+        partner_snapshot JSONB DEFAULT '{}',
+        seller           JSONB DEFAULT '{}',
+        doc_date         DATE NOT NULL,
+        driver           TEXT DEFAULT '',
+        vehicle          TEXT DEFAULT '',
+        lines            JSONB DEFAULT '[]',
+        balance_after    JSONB DEFAULT '{}',
+        status           TEXT NOT NULL DEFAULT 'wystawiony',
+        notes            TEXT DEFAULT '',
+        created_by       TEXT,
+        created_at       TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_container_docs_partner ON container_docs(partner_id)",
+    "CREATE INDEX IF NOT EXISTS idx_container_docs_ym ON container_docs(year_month)",
+    # Księga nośników. qty ZE ZNAKIEM: dodatnie = przyjechało do nas (my
+    # winni), ujemne = wyjechało od nas (oni winni). Saldo = SUM(qty).
+    """CREATE TABLE IF NOT EXISTS container_movements (
+        id            TEXT PRIMARY KEY,
+        partner_id    TEXT NOT NULL REFERENCES container_partners(id),
+        asset_type    TEXT NOT NULL,
+        qty           INTEGER NOT NULL,
+        source_type   TEXT NOT NULL,
+        source_id     TEXT,
+        doc_id        TEXT REFERENCES container_docs(id),
+        movement_date DATE NOT NULL,
+        confirmed     BOOLEAN NOT NULL DEFAULT false,
+        note          TEXT DEFAULT '',
+        created_by    TEXT,
+        created_at    TIMESTAMPTZ DEFAULT now(),
+        CONSTRAINT container_movements_asset_ck
+            CHECK (asset_type = ANY (ARRAY['e2','pallet_h1','pallet_other']))
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_container_mov_partner "
+    "ON container_movements(partner_id, asset_type)",
+    "CREATE INDEX IF NOT EXISTS idx_container_mov_source "
+    "ON container_movements(source_type, source_id)",
+    "CREATE INDEX IF NOT EXISTS idx_container_mov_date ON container_movements(movement_date)",
+    # Kaliber i nośniki na przyjęciu surowca. container_kg NULL = niekalibrowany
+    # (containers_count wpisuje wtedy operator).
+    "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS container_kg NUMERIC(6,2)",
+    "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS containers_count INTEGER",
+    "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS pallets_h1 INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS pallets_other INTEGER NOT NULL DEFAULT 0",
+    # Palety na dokumencie WZ. Palety są na POZIOMIE DOKUMENTU (transport wiezie
+    # N palet łącznie), pojemniki zostają na pozycjach (wynikają z masy partii).
+    "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS pallets_h1 INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS pallets_other INTEGER NOT NULL DEFAULT 0",
 ]
 
 
