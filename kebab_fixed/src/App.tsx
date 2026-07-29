@@ -42,6 +42,7 @@ import { SanitaryCheckPrintPage } from '@/pages/office/SanitaryCheckPrintPage'
 import { WzDocumentsPage }      from '@/pages/office/WzDocumentsPage'
 import { WzNewPage }            from '@/pages/office/WzNewPage'
 import { ContainerBalancePage } from '@/pages/office/ContainerBalancePage'
+import { ContainerPartnerPage } from '@/pages/office/ContainerPartnerPage'
 import { CmrLayoutConfigPage }  from '@/pages/office/CmrLayoutConfigPage'
 import { CarriersPage }         from '@/pages/office/CarriersPage'
 import { LabelTemplateSetupPage } from '@/pages/office/LabelTemplateSetupPage'
@@ -142,6 +143,7 @@ export default function App() {
         <Route path="wz"                    element={<WzDocumentsPage />} />
         <Route path="wz/nowy"               element={<WzNewPage />} />
         <Route path="saldo-pojemnikow"      element={<ContainerBalancePage />} />
+        <Route path="saldo-pojemnikow/:partnerId" element={<ContainerPartnerPage />} />
         <Route path="przewoznicy"           element={<CarriersPage />} />
         <Route path="cmr"                   element={<CmrDocumentsPage />} />
         <Route path="cmr-konfigurator"      element={<CmrLayoutConfigPage />} />
