@@ -22,9 +22,16 @@ function fmtD(iso: string): string {
   return `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`
 }
 
+// A4 poziomo = 210 mm wysokości na dwie kopie po 104 mm (2 mm zapasu).
+// Tabela NIE MOŻE przerosnąć pola treści (104 − 2×2 mm paddingu = 100 mm):
+// tabela nie kurczy się poniżej naturalnej wysokości swojej treści, więc
+// nadmiar wylewa się poza kopię i spycha drugą na kolejną stronę — tak było
+// przy paddingu 5 mm (tabela 104,3 mm w polu 94 mm → PDF na 2 strony).
+// Naturalna wysokość tej tabeli to ~98,7 mm. Zmieniając czcionki, paddingi
+// komórek albo wiersze, ZWERYFIKUJ wydruk: PDF musi mieć JEDNĄ stronę.
 const S = {
   copy: {
-    height: '104mm', boxSizing: 'border-box' as const, padding: '5mm 6mm',
+    height: '104mm', boxSizing: 'border-box' as const, padding: '2mm 5mm',
     background: '#fff', color: '#111',
     fontFamily: "'Segoe UI', Arial, sans-serif", fontSize: 10,
     breakInside: 'avoid' as const,
@@ -33,7 +40,7 @@ const S = {
     width: '100%', height: '100%', borderCollapse: 'collapse' as const,
     tableLayout: 'fixed' as const,
   },
-  cell: { border: '1px solid #111', padding: '2mm 2.5mm', verticalAlign: 'top' as const },
+  cell: { border: '1px solid #111', padding: '1.5mm 2.5mm', verticalAlign: 'top' as const },
   lbl: { fontSize: 9, fontWeight: 700, textDecoration: 'underline' as const },
   val: { fontSize: 12, fontWeight: 700, marginTop: 2 },
   head: {
@@ -118,7 +125,7 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
               <td style={S.num}>{l.balance}</td>
             </tr>
           ))}
-          <tr style={{ height: '18mm' }}>
+          <tr style={{ height: '12mm' }}>
             <td style={S.cell}><div style={S.lbl}>Podpis dostawcy:</div></td>
             <td style={S.cell} colSpan={2}>
               <div style={S.lbl}>Uwagi:</div>
