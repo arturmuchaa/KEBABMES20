@@ -83,6 +83,9 @@ export function WzNewPage() {
   const [notes, setNotes]             = useState('')
   // Palety są na POZIOMIE DOKUMENTU — transport wiezie N palet łącznie,
   // nie N palet na każdą partię (pojemniki zostają na pozycjach).
+  // Pojemniki na druk pojemnikowy: podpowiedź = suma z ważeń (pozycje WZ),
+  // ale operator może ją poprawić, bo tylko on widzi, co wjechało na auto.
+  const [contOverride, setContOverride] = useState<string>('')
   const [palletsH1, setPalletsH1]         = useState(0)
   const [palletsOther, setPalletsOther]   = useState(0)
 
@@ -357,7 +360,7 @@ export function WzNewPage() {
                   <div className="text-[12.5px] text-ink-2">
                     Wystawić <b>druk na pojemniki</b> do tego WZ?
                     <span className="block text-[11px] text-ink-4">
-                      {totalContainers} poj. · {palletsH1} pal. H1 · {palletsOther} pal. inne —
+                      {parseInt(contOverride || '') || totalContainers} poj. · {palletsH1} pal. H1 · {palletsOther} pal. inne —
                       zwrot wpiszesz po powrocie kierowcy.
                     </span>
                   </div>
@@ -367,6 +370,7 @@ export function WzNewPage() {
                       try {
                         setContDoc(await containersApi.docFromWz({
                           wzId: savedDoc.id, palletsH1, palletsOther,
+                          containers: parseInt(contOverride || '') || totalContainers,
                         }))
                       } catch (e: any) {
                         setContErr(e?.message || 'Nie udało się wystawić druku')
@@ -772,8 +776,19 @@ export function WzNewPage() {
                 <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Miejsce wystawienia</Label>
                 <Input className="h-9" placeholder="Miejscowość" value={place} onChange={e => setPlace(e.target.value)} />
               </div>
-              {/* Palety na poziomie dokumentu — transport wiezie N palet
-                  łącznie. H1 podpowiadane z ważeń ubocznych, do poprawienia. */}
+              {/* Nośniki na druk pojemnikowy. Pojemniki podpowiadamy z ważeń
+                  (suma z pozycji WZ), palety wpisuje operator — tylko on widzi
+                  samochód. Wszystko do poprawienia przed wystawieniem druku. */}
+              <div className="space-y-1.5">
+                <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  Pojemniki na druk <span className="normal-case">(z ważeń: {totalContainers})</span>
+                </Label>
+                <Input type="text" inputMode="numeric" className="h-9 font-mono"
+                       placeholder={String(totalContainers)}
+                       value={contOverride}
+                       onFocus={e => e.target.select()}
+                       onChange={e => setContOverride(sanitizeInt(e.target.value))} />
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1.5">
                   <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Palety H1</Label>

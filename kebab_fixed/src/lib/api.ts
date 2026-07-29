@@ -1812,7 +1812,7 @@ export const containersApi = {
   // wypełnia ją odbiorca długopisem.
   docFromWz: (body: {
     wzId: string; driver?: string; vehicle?: string
-    palletsH1?: number; palletsOther?: number; notes?: string
+    containers?: number; palletsH1?: number; palletsOther?: number; notes?: string
   }) => post<ContainerDoc>('/containers/docs/from-wz', body),
   // Zwrot wpisany po powrocie kierowcy. Zamyka dokument także przy zwrocie
   // częściowym — reszta zostaje na saldzie.

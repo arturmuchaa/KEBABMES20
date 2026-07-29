@@ -22,16 +22,19 @@ function fmtD(iso: string): string {
   return `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`
 }
 
-// A4 poziomo = 210 mm wysokości na dwie kopie po 104 mm (2 mm zapasu).
-// Tabela NIE MOŻE przerosnąć pola treści (104 − 2×2 mm paddingu = 100 mm):
-// tabela nie kurczy się poniżej naturalnej wysokości swojej treści, więc
-// nadmiar wylewa się poza kopię i spycha drugą na kolejną stronę — tak było
-// przy paddingu 5 mm (tabela 104,3 mm w polu 94 mm → PDF na 2 strony).
-// Naturalna wysokość tej tabeli to ~98,7 mm. Zmieniając czcionki, paddingi
-// komórek albo wiersze, ZWERYFIKUJ wydruk: PDF musi mieć JEDNĄ stronę.
+// A4 poziomo (210 mm) dzielone DOKŁADNIE NA POŁOWĘ: 105 mm na kopię.
+// Marginesy wąskie (2/3 mm), żeby ramka zajęła jak najwięcej kartki.
+//
+// Tabela NIE MOŻE przerosnąć pola treści (105 − 2×2 mm = 101 mm): nie kurczy
+// się poniżej naturalnej wysokości treści, więc nadmiar wylewa się poza kopię
+// i spycha drugą na kolejną stronę (tak było przy paddingu 5 mm — tabela
+// 104,3 mm w polu 94 mm → PDF na 2 strony). Naturalna wysokość to ~98,7 mm,
+// a height:100% rozciąga ją do pełnych 101 mm.
+// Zmieniając czcionki, paddingi lub wiersze ZWERYFIKUJ wydruk renderem do
+// PDF — musi wyjść JEDNA strona.
 const S = {
   copy: {
-    height: '104mm', boxSizing: 'border-box' as const, padding: '2mm 5mm',
+    height: '105mm', boxSizing: 'border-box' as const, padding: '2mm 3mm',
     background: '#fff', color: '#111',
     fontFamily: "'Segoe UI', Arial, sans-serif", fontSize: 10,
     breakInside: 'avoid' as const,
@@ -170,10 +173,14 @@ export function ContainerDocPrintPage() {
     <>
       <style>{`
         @page { size: A4 landscape; margin: 0; }
-        html, body { margin: 0; padding: 0; background: #fff; }
+        html, body { margin: 0; padding: 0; background: #fff; position: relative; }
         @media screen { body { background: #eee; } }
       `}</style>
       <Copy doc={doc} mark="ORYGINAŁ" />
+      {/* Linia cięcia dokładnie w połowie kartki — kierowca zabiera jedną
+          połówkę, druga zostaje u kontrahenta. */}
+      <div style={{ position: 'absolute', top: '105mm', left: 0, right: 0,
+                    borderTop: '1px dashed #999', height: 0 }} />
       <Copy doc={doc} mark="KOPIA" />
     </>
   )
