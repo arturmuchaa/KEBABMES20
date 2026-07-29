@@ -18,6 +18,12 @@ class RawBatchCreate(BaseModel):
     invoice_no: str = Field("", alias="invoiceNo")
     notes: str = ""
     supplier_batches: List[Any] = Field(default_factory=list, alias="supplierBatches")
+    # Nośniki zwrotne — kaliber pojemnika (None = niekalibrowany, wtedy
+    # containers_count wpisuje operator) i palety liczone ręcznie.
+    container_kg: Optional[float] = Field(None, alias="containerKg", ge=0)
+    containers_count: Optional[int] = Field(None, alias="containersCount", ge=0)
+    pallets_h1: int = Field(0, alias="palletsH1", ge=0)
+    pallets_other: int = Field(0, alias="palletsOther", ge=0)
 
 
 class RawBatchUpdate(BaseModel):
@@ -32,6 +38,13 @@ class RawBatchUpdate(BaseModel):
     price_per_kg: float = Field(0, alias="pricePerKg", ge=0)
     expiry_date: Optional[str] = Field(None, alias="expiryDate")
     notes: Optional[str] = None
+    # Nośniki zwrotne. WSZYSTKIE opcjonalne z None: formularz edycji partii
+    # nie wysyła tych pól, a gdyby brak pola znaczył „zero", każda edycja
+    # ceny kasowałaby saldo pojemników dostawcy. None = „nie ruszaj".
+    container_kg: Optional[float] = Field(None, alias="containerKg", ge=0)
+    containers_count: Optional[int] = Field(None, alias="containersCount", ge=0)
+    pallets_h1: Optional[int] = Field(None, alias="palletsH1", ge=0)
+    pallets_other: Optional[int] = Field(None, alias="palletsOther", ge=0)
 
     @classmethod
     def model_validate(cls, obj, **kw):  # type: ignore[override]
@@ -47,6 +60,10 @@ class RawBatchUpdate(BaseModel):
                 "expiryDate": "expiry_date",
                 "invoiceNo": "invoice_no",
                 "supplierBatches": "supplier_batches",
+                "containerKg": "container_kg",
+                "containersCount": "containers_count",
+                "palletsH1": "pallets_h1",
+                "palletsOther": "pallets_other",
             }
             normalized = {mapping.get(k, k): v for k, v in obj.items()}
             return super().model_validate(normalized, **kw)

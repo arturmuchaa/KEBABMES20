@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -5,15 +6,75 @@ from fastapi import HTTPException
 from app.db import cx_execute, cx_execute_returning, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.models.raw_batches import RawBatchCreate, RawBatchUpdate
+from app.services.container_ledger_service import book_assets
+from app.services.container_partners_service import resolve_partner
 from app.utils.batch_numbers import (
     format_reception_no,
     parse_reception_no,
 )
 from app.utils.body import body_get
+from app.utils.containers import containers_for_kg
 from app.utils.ids import cuid, next_seq, now_iso
 from app.utils.stock import create_stock_movement
 
 logger = get_logger(__name__)
+
+
+def _book_batch_containers(
+    conn,
+    batch_row: Dict,
+    *,
+    container_kg: Optional[float],
+    containers_count: Optional[int],
+    pallets_h1: int,
+    pallets_other: int,
+) -> Optional[int]:
+    """Zapisuje nośniki na partii i księguje je na saldzie DOSTAWCY.
+
+    Dostawa przyjeżdża w pojemnikach dostawcy → znak DODATNI (my winni).
+    Liczba wpisana ręcznie ma pierwszeństwo przed wyliczeniem z kalibru —
+    operator, który fizycznie policzył pojemniki, wie lepiej niż wzór.
+    Ruch startuje jako NIEPOTWIERDZONY: liczy się do salda, ale trafia
+    do sekcji „Do rozliczenia" na przegląd biura.
+    """
+    kg = float(batch_row.get("kg_received") or 0)
+    containers = containers_count
+    if containers is None:
+        containers = containers_for_kg(kg, container_kg)
+    h1 = int(pallets_h1 or 0)
+    other = int(pallets_other or 0)
+
+    cx_execute(
+        conn,
+        "UPDATE raw_batches SET container_kg=%s, containers_count=%s, "
+        "pallets_h1=%s, pallets_other=%s WHERE id=%s",
+        (container_kg, containers, h1, other, batch_row["id"]))
+    batch_row.update(container_kg=container_kg, containers_count=containers,
+                     pallets_h1=h1, pallets_other=other)
+
+    supplier_id = batch_row.get("supplier_id")
+    if not supplier_id or not (containers or h1 or other):
+        return containers
+    partner_id = resolve_partner(conn, "supplier", supplier_id)
+    book_assets(
+        conn, partner_id=partner_id, source_type="raw_batch", source_id=batch_row["id"],
+        targets={"e2": containers or 0, "pallet_h1": h1, "pallet_other": other},
+        movement_date=str(batch_row.get("received_date") or date.today())[:10],
+        note=f"Przyjęcie {batch_row.get('internal_batch_no') or ''}".strip())
+    return containers
+
+
+def _unbook_batch_containers(conn, batch_row: Dict) -> None:
+    """Anulowana partia nie może wisieć na saldzie pojemników dostawcy —
+    doprowadza wszystkie nośniki tego przyjęcia do zera (append-only)."""
+    supplier_id = batch_row.get("supplier_id")
+    if not supplier_id:
+        return
+    partner_id = resolve_partner(conn, "supplier", supplier_id)
+    book_assets(
+        conn, partner_id=partner_id, source_type="raw_batch", source_id=batch_row["id"],
+        targets={}, movement_date=str(batch_row.get("received_date") or date.today())[:10],
+        note="Anulowanie przyjęcia")
 
 
 def next_batch_number() -> Dict[str, Any]:
@@ -158,6 +219,15 @@ def create_batch(dto: RawBatchCreate) -> Dict:
                 source_id=dto.supplier_id or row["id"],
             )
 
+        # Saldo pojemników: dostawa przyjeżdża w nośnikach dostawcy.
+        _book_batch_containers(
+            conn, row,
+            container_kg=dto.container_kg,
+            containers_count=dto.containers_count,
+            pallets_h1=dto.pallets_h1,
+            pallets_other=dto.pallets_other,
+        )
+
         # Surowiec bez rozbioru (filet, indyk…): od razu trafia na magazyn
         # mięsa jako lot do masowania — odpowiednik "natychmiastowego rozbioru
         # 1:1". Partia przyjęcia zostaje zapisem traceability (kg_available=0,
@@ -291,6 +361,8 @@ def cancel_batch(batch_id: str) -> Dict:
             "internal_batch_no='ANUL-' || id WHERE id=%s RETURNING *",
             (batch_id,),
         )
+        if row:
+            _unbook_batch_containers(conn, row)
     if not row:
         raise HTTPException(404, "Partia nie znaleziona")
     logger.info("raw_batch.cancelled", extra={"batch_id": batch_id})
@@ -305,6 +377,10 @@ def update_batch(batch_id: str, dto: RawBatchUpdate) -> Dict:
         if reason:
             raise HTTPException(409, reason)
         kg_received = float(dto.kg_received)
+        before = cx_query_one(
+            conn,
+            "SELECT container_kg, containers_count, pallets_h1, pallets_other "
+            "FROM raw_batches WHERE id=%s", (batch_id,)) or {}
         row = cx_execute_returning(
             conn,
             """
@@ -327,6 +403,29 @@ def update_batch(batch_id: str, dto: RawBatchUpdate) -> Dict:
                 batch_id,
             ),
         )
+        if row:
+            # Pola nośników nieprzysłane (None) zachowują wartość z bazy —
+            # formularz edycji partii ich nie wysyła, a „brak pola = zero"
+            # kasowałby saldo dostawcy przy zwykłej korekcie ceny.
+            #
+            # Liczba pojemników jest wyjątkiem: gdy operator jej nie nadpisał,
+            # zeruje się ją, żeby zmiana kg przeliczyła ją z kalibru na nowo
+            # (inaczej stara liczba zamroziłaby się mimo innej masy).
+            prev_kg = before.get("container_kg")
+            container_kg = dto.container_kg if dto.container_kg is not None else (
+                float(prev_kg) if prev_kg is not None else None)
+            containers_count = dto.containers_count
+            if containers_count is None and container_kg is None:
+                containers_count = before.get("containers_count")
+            _book_batch_containers(
+                conn, row,
+                container_kg=container_kg,
+                containers_count=containers_count,
+                pallets_h1=(dto.pallets_h1 if dto.pallets_h1 is not None
+                            else int(before.get("pallets_h1") or 0)),
+                pallets_other=(dto.pallets_other if dto.pallets_other is not None
+                               else int(before.get("pallets_other") or 0)),
+            )
     if not row:
         raise HTTPException(404, "Partia nie znaleziona")
     logger.info("raw_batch.updated", extra={"batch_id": batch_id})
