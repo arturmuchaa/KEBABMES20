@@ -335,3 +335,15 @@ def test_picker_laczy_dostawy_i_wydania(db):
     rows = partner_deliveries(pid)
     assert {r["sourceType"] for r in rows} == {"raw_batch", "wz"}
     assert next(r for r in rows if r["sourceType"] == "raw_batch")["direction"] == "in"
+
+
+def test_anulowane_zrodlo_nie_zasmieca_pickera(db):
+    """Anulowany WZ zostawia parę −225/+225 — netto 0, nie ma czego
+    rozliczać, więc znika z listy do powiązania."""
+    pid = _partner()
+    _wz_out(pid, "wzA", e2=225, h1=7)
+    with transaction() as conn:   # anulowanie
+        book_assets(conn, partner_id=pid, source_type="wz", source_id="wzA",
+                    targets={}, movement_date="2026-07-29")
+    _wz_out(pid, "wzB", e2=100, h1=3)
+    assert [r["sourceId"] for r in partner_deliveries(pid)] == ["wzB"]

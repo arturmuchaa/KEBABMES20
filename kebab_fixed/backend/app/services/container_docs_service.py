@@ -353,7 +353,9 @@ def partner_deliveries(partner_id: str) -> List[Dict[str, Any]]:
              FROM container_movements m
             WHERE m.partner_id = %s AND m.source_type IN ('raw_batch','wz')
             GROUP BY m.source_type, m.source_id
-           HAVING SUM(ABS(m.qty)) > 0
+           -- Netto 0 = źródło w całości odwrócone (anulowany WZ zostawia parę
+           -- −225/+225). Nie ma czego rozliczać, więc nie zaśmieca pickera.
+           HAVING SUM(m.qty) <> 0
             ORDER BY MIN(m.movement_date) DESC""",
         (partner_id,))
     out = []
