@@ -101,3 +101,38 @@ def test_tempo_zakladu_liczy_sie_po_glowach_a_nie_po_stanowiskach(db):
     assert st["summary"]["kgPerHour"] == 200.0
     assert st["summary"]["headcount"] == 3
     assert st["summary"]["workers"] == 2, "stanowisk nadal dwa"
+
+
+def test_tempo_zakladu_liczy_osobogodziny_a_nie_dlugosc_zmiany(db):
+    """Zgłoszenie z 29.07.2026: raport tygodniowy pokazywał 51 kg/h, gdy
+    KAŻDY pracownik w tabeli miał 87–161 kg/h.
+
+    Stary mianownik brał godziny, w których pracował KTOKOLWIEK, i mnożył je
+    przez pełną załogę — czyli zakładał, że wszyscy stoją przy stole przez
+    całą zmianę. Kto przyszedł na godzinę, obciążał tym całą resztę.
+    Poprawny mianownik to OSOBOGODZINY: suma godzin każdego pracownika.
+    """
+    _worker("w-dlugi", "VADYM", crew_size=1)
+    _worker("w-krotki", "INNA", crew_size=1)
+    _batch("rb1", "704")
+    for h in (8, 9, 10, 11):
+        _entry("rb1", "704", "w-dlugi", "VADYM", f"2026-07-06T{h:02d}:00:00+00:00", 150, 100)
+    _entry("rb1", "704", "w-krotki", "INNA", "2026-07-06T08:00:00+00:00", 150, 100)
+
+    st = deboning_stats("2026-07-01", "2026-07-31")
+    # 500 kg mięsa na 5 osobogodzin = 100 kg/h na osobę — dokładnie tyle,
+    # ile pokazuje tabela pracowników (oboje po 100 kg/h).
+    assert _w(st, "VADYM")["kgPerHour"] == 100.0
+    assert _w(st, "INNA")["kgPerHour"] == 100.0
+    assert st["summary"]["kgPerHour"] == 100.0, "stary wzór dawał 62,5 (4 h × 2 osoby)"
+
+
+def test_tempo_zakladu_wazy_pare_podwojnie(db):
+    """Para to dwie pary rąk także w osobogodzinach — godzina pracy stanowiska
+    dwuosobowego kosztuje zakład dwie osobogodziny."""
+    _worker("w-para", "ANATOLII", crew_size=2)
+    _batch("rb1", "705")
+    _entry("rb1", "705", "w-para", "ANATOLII", "2026-07-06T08:00:00+00:00", 600, 400)
+
+    st = deboning_stats("2026-07-01", "2026-07-31")
+    assert st["summary"]["kgPerHour"] == 200.0, "400 kg / (1 h × 2 osoby)"

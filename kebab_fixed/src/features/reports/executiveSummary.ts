@@ -268,7 +268,7 @@ export function execNarrativeDay(s: ExecSummary, batchCount: number): string[] {
   out.push(
     `Średni uzysk wyniósł ${nf1.format(s.avgYield)}% — ${vsNorm} ` +
     `(${nf1.format(lo)}–${nf1.format(hi)}%). Tempo: ${nf0.format(s.kgPerHour)} kg/h ` +
-    `przy ${s.workers} pracujących.`)
+    `na osobę przy ${s.workers} stanowiskach.`)
 
   if (s.meatCostPerKg != null) {
     out.push(`Koszt wytworzenia 1 kg mięsa w tym dniu to ${nf2.format(s.meatCostPerKg)} zł/kg.`)

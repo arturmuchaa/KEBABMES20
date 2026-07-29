@@ -492,6 +492,18 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
         })
     workers.sort(key=lambda x: -x["kgQuarter"])
 
+    # Tempo ZAKŁADU = kg mięsa na OSOBOGODZINĘ: suma godzin każdego stanowiska
+    # przemnożona przez jego obsadę. Poprzedni mianownik brał godziny, w
+    # których pracował KTOKOLWIEK, i mnożył je przez całą załogę — czyli
+    # zakładał, że wszyscy stoją przy stole przez całą zmianę. Raport
+    # tygodniowy pokazywał wtedy 51 kg/h, choć każdy w tabeli miał 87–161
+    # (zgłoszone 29.07.2026). Teraz KPI jest średnią ważoną tego, co widać
+    # w tabeli pracowników — te dwie liczby muszą się zgadzać.
+    person_hours = sum(
+        max(1, len(w["buckets"])) * crew_by_worker.get(wid, 1)
+        for wid, w in wagg.items()
+    ) or 1
+
     hagg: Dict[str, Dict] = defaultdict(lambda: {"quarters": 0, "kgMeat": 0.0})
     for r in rows:
         h = r["taken_at"].strftime("%Y-%m-%d %H:00")
@@ -619,8 +631,10 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
             "workers": len(wagg),
             # Liczba RĄK (para liczy się podwójnie) — mianownik tempa zakładu.
             "headcount": headcount,
-            "kgPerHour": round(total_meat / active_hours / max(1, headcount), 1)
-            if headcount else round(total_meat / active_hours, 1),
+            "kgPerHour": round(total_meat / person_hours, 1),
+            # Godziny, w których hala w ogóle pracowała (długość zmian) —
+            # NIE mianownik tempa, patrz person_hours.
+            "activeHours": active_hours,
             "backsPct": round(total_backs / total_kgq * 100, 1) if total_kgq else 0.0,
             "bonesPct": round(total_bones / total_kgq * 100, 1) if total_kgq else 0.0,
             # Bilans masy: ćwiartka − (mięso + kości + grzbiety). Dodatni = ubytek

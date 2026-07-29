@@ -18,8 +18,19 @@
  * miesiąc, którego dotyczy.
  */
 
-/** Próg wiarygodności próby [kg ćwiartki] — poniżej niego liczby są szumem. */
-export const SMALL_SAMPLE_KG = 2000
+/** Próg wiarygodności próby NA DZIEŃ ROZBIOROWY okresu [kg ćwiartki].
+ *
+ *  Próg musi skalować się z długością okresu: stała 2000 kg, dobrana dla
+ *  miesiąca, w raporcie tygodniowym oznaczała „próbę za małą" komuś, kto
+ *  przepracował komplet dni (Inna: 6/6 dni, 1860 kg — zgłoszone 29.07.2026).
+ *  110 kg × 18 dni rozbiorowych ≈ 2000 kg, czyli miesiąc zostaje tam, gdzie
+ *  był, a tydzień dostaje próg tygodniowy. */
+export const SMALL_SAMPLE_KG_PER_DAY = 110
+
+/** Próg małej próby dla okresu o tylu dniach rozbiorowych [kg ćwiartki]. */
+export function smallSampleKg(prodDays: number): number {
+  return SMALL_SAMPLE_KG_PER_DAY * Math.max(1, prodDays)
+}
 
 /** Od jakiej różnicy między „vs zakład" a „vs własne partie" warto o niej
  *  mówić [p.p.]. Poniżej progu to szum arytmetyczny, nie krzywda. */
@@ -54,7 +65,7 @@ export interface ScorecardRow extends ScorecardWorker {
   batchBiasPp: number | null
   /** Udział w ćwiartce zakładu — kontekst dla kwoty. */
   volumeSharePct: number
-  /** Za mało danych, żeby oceniać (patrz SMALL_SAMPLE_KG). */
+  /** Za mało kilogramów, żeby oceniać (patrz `smallSampleKg`). */
   smallSample: boolean
 }
 
@@ -89,8 +100,11 @@ function round2(v: number): number {
 
 export function workerScorecard(
   workers: ScorecardWorker[], meatCostPerKg: number | null, plantAvgYield: number,
+  /** Dni rozbiorowe okresu — skalują próg małej próby. */
+  prodDays = 18,
 ): ScorecardRow[] {
   const totalKg = workers.reduce((a, w) => a + w.kgQuarter, 0) || 1
+  const minKg = smallSampleKg(prodDays)
   const rows: ScorecardRow[] = workers.map(w => {
     const pp = round2(w.avgYield - plantAvgYield)
     const bias = w.yieldVsBatchPp == null ? null : round2(w.yieldVsBatchPp - pp)
@@ -100,7 +114,7 @@ export function workerScorecard(
       deltaPln: meatCostPerKg == null ? null : (pp / 100) * w.kgQuarter * meatCostPerKg,
       batchBiasPp: bias,
       volumeSharePct: (w.kgQuarter / totalKg) * 100,
-      smallSample: w.kgQuarter < SMALL_SAMPLE_KG,
+      smallSample: w.kgQuarter < minKg,
     }
   })
   const key = (r: ScorecardRow) => (r.deltaPln ?? r.deltaPp)

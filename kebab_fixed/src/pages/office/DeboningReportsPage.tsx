@@ -269,7 +269,7 @@ export function DeboningReportsPage() {
           delta={<DeltaVsPrev cur={s?.kgMeat} prev={ps?.kgMeat} fmt={nf0} unit="kg" />} />
         <Kpi icon={Percent} label="Śr. rozbiór" value={nf1.format(s?.avgYield ?? 0)} unit="%" tone={yieldTone(s?.avgYield ?? 0)} accent="green"
           delta={<DeltaVsPrev cur={s?.avgYield} prev={ps?.avgYield} fmt={nf1} unit="p.p." />} />
-        <Kpi icon={Gauge} label="Tempo" value={nf0.format(s?.kgPerHour ?? 0)} unit="kg/h" accent="blue"
+        <Kpi icon={Gauge} label="Tempo" value={nf0.format(s?.kgPerHour ?? 0)} unit="kg/h" sub="na osobę" accent="blue"
           delta={<DeltaVsPrev cur={s?.kgPerHour} prev={ps?.kgPerHour} fmt={nf0} unit="kg/h" />} />
         <Kpi icon={Users} label="Pracownicy" value={nf0.format(s?.workers ?? 0)} accent="purple" />
         <Kpi icon={Bone} label="Kości" value={nf0.format(s?.kgBones ?? 0)} unit="kg" sub={`${nf1.format(s?.bonesPct ?? 0)}%`} tone="text-ink-2" accent="amber" />

@@ -21,7 +21,9 @@ import {
   batchDeviations, costWaterfall, execNarrative, execNarrativeDay, massBalance,
   reportGaps, yieldValue,
 } from '@/features/reports/executiveSummary'
-import { batchBiasNotes, potentialPln, workerScorecard } from '@/features/reports/workerScorecard'
+import {
+  batchBiasNotes, potentialPln, smallSampleKg, workerScorecard,
+} from '@/features/reports/workerScorecard'
 import { executiveBrief, type BriefKind } from '@/features/reports/executiveBrief'
 import { TrendChart } from '@/features/reports/TrendChart'
 import {
@@ -185,7 +187,10 @@ export function DeboningReportPrintPage() {
   const trendDelta = trend[trend.length - 1]?.deltaYieldPp ?? null
   const days = data.byDay ?? []
   const prodDays = s.prodDays || days.length || 1
-  const scorecard = workerScorecard(data.workers, s.meatCostPerKg, s.avgYield)
+  // Próg małej próby skaluje się z długością okresu — w tygodniu 6 dni
+  // rozbiorowych daje inny próg niż 18 dni miesiąca.
+  const scorecard = workerScorecard(data.workers, s.meatCostPerKg, s.avgYield, prodDays)
+  const minSampleKg = smallSampleKg(prodDays)
   const biasNotes = batchBiasNotes(scorecard)
   const potential = potentialPln(scorecard, s.kgQuarter, s.meatCostPerKg)
   // Dni odstające — wykres pokazuje kształt, ta lista nazywa konkretne dni,
@@ -269,7 +274,8 @@ export function DeboningReportPrintPage() {
                 : `${trendDelta > 0 ? '↑ +' : trendDelta < 0 ? '↓ −' : '→ '}${nf1.format(Math.abs(trendDelta))} p.p. vs poprzedni mies.` },
           { l: 'Wartość 0,1 p.p. uzysku', v: yv ? `${nfPln.format(yv.pointPln)} zł` : '—',
             sub: yv ? `${nf0.format(yv.pointKg)} kg mięsa` : 'brak cen zakupu' },
-          { l: 'Tempo', v: `${nf0.format(s.kgPerHour)} kg/h`, sub: `${nf0.format(s.workers)} pracowników` },
+          { l: 'Tempo', v: `${nf0.format(s.kgPerHour)} kg/h`,
+            sub: `na osobę · ${nf0.format(s.workers)} stanowisk` },
           { l: surplus ? 'Nadwyżka rozbiorowa' : 'Bilans masy (ubytek)', v: `${signedKg(s.missingKg)} kg`,
             sub: surplus ? `+${nf1.format(-s.missingPct)}% nad deklarację dostawcy` : `${nf1.format(s.missingPct)}% ćwiartki` },
           { l: 'Koszt mięsa (z robocizną)', v: s.meatCostPerKg != null ? `${nf2.format(s.meatCostPerKg)} zł/kg` : '—',
@@ -640,7 +646,7 @@ export function DeboningReportPrintPage() {
               <td style={{ ...S.tdL, fontWeight: 600 }}>
                 {/* „Próba za mała" kalibrowana jest na wolumen okresu — w raporcie
                     z jednego dnia dotyczyłaby wszystkich i nic by nie mówiła. */}
-                {w.workerName}{w.smallSample && !dayView && <span style={{ fontWeight: 400 }}> · próba za mała</span>}
+                {w.workerName}{w.smallSample && !dayView && <span style={{ fontWeight: 400 }}> · mało kilogramów</span>}
               </td>
               {!dayView && <td style={S.td}>{w.days}/{prodDays} · {nf0.format(w.attendancePct)}%</td>}
               <td style={S.td}>{nf0.format(w.kgQuarter)}</td>
@@ -708,10 +714,19 @@ export function DeboningReportPrintPage() {
         </p>
       )}
       {!dayView && (
-        <p style={S.note}>
-          <b>Obecność</b> liczona z dni, w których pracownik miał pobranie —
-          system nie zna grafiku, więc nie odróżnia urlopu i zwolnienia od nieobecności.
-        </p>
+        <>
+          <p style={S.note}>
+            <b>Obecność</b> liczona z dni, w których pracownik miał pobranie —
+            system nie zna grafiku, więc nie odróżnia urlopu i zwolnienia od nieobecności.
+          </p>
+          <p style={S.note}>
+            <b>Mało kilogramów</b> — poniżej {nf0.format(minSampleKg)} kg ćwiartki w tym
+            okresie ({nf0.format(prodDays)} {prodDays === 1 ? 'dzień rozbiorowy' : 'dni rozbiorowych'}).
+            Chodzi o WOLUMEN, nie o obecność: na takiej ilości różnica uzysku mieści się
+            w wahaniach pojedynczej partii, więc nie przeliczamy jej na złotówki i nie
+            stawiamy takiej osoby na czele ani na końcu rankingu.
+          </p>
+        </>
       )}
       <p style={S.note}>
         <b>Kg/h</b> podane NA OSOBĘ. Stanowiska oznaczone „para" rozbierają we dwoje na jedno
@@ -756,7 +771,7 @@ export function DeboningReportPrintPage() {
                 <tr key={r.workerId} style={r.excluded ? { color: '#777' } : undefined}>
                   <td style={{ ...S.tdL, fontWeight: 600 }}>
                     {r.workerName}
-                    {r.excluded && <span style={{ fontWeight: 400 }}> · próba za mała</span>}
+                    {r.excluded && <span style={{ fontWeight: 400 }}> · mało kilogramów</span>}
                   </td>
                   <td style={S.td}>{nf0.format(r.kgQuarter)}</td>
                   <td style={{ ...S.td, fontWeight: 700 }}>{nf1.format(r.avgYield)}</td>

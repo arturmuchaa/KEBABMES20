@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  batchBiasNotes, potentialPln, SMALL_SAMPLE_KG, workerScorecard, type ScorecardWorker,
+  batchBiasNotes, potentialPln, smallSampleKg, SMALL_SAMPLE_KG_PER_DAY,
+  workerScorecard, type ScorecardWorker,
 } from './workerScorecard'
 
 const PLANT = 65.75
@@ -38,13 +39,33 @@ describe('workerScorecard — ranking pracowników w złotówkach', () => {
 
   // DAWID z lipca: 1 dzień, 525 kg. Ocenianie go obok kogoś z 17 t to nonsens.
   it('mała próba jest oznaczona, żeby nikt jej nie oceniał', () => {
-    const [r] = workerScorecard([w({ kgQuarter: 525, days: 1, yieldRangePp: null })], 12.85, PLANT)
+    const [r] = workerScorecard([w({ kgQuarter: 525, days: 1, yieldRangePp: null })], 12.85, PLANT, 18)
     expect(r.smallSample).toBe(true)
-    expect(SMALL_SAMPLE_KG).toBeGreaterThan(525)
+    expect(smallSampleKg(18)).toBeGreaterThan(525)
   })
 
   it('pełny miesiąc pracy nie jest małą próbą', () => {
-    expect(workerScorecard([w()], 12.85, PLANT)[0].smallSample).toBe(false)
+    expect(workerScorecard([w()], 12.85, PLANT, 18)[0].smallSample).toBe(false)
+  })
+
+  // Zgłoszenie z 29.07.2026: w raporcie TYGODNIOWYM Inna miała komplet dni
+  // (6/6) i 1860 kg, a mimo to dostawała „próbę za małą" — bo próg 2000 kg
+  // był kalibrowany na miesiąc. Próg musi skalować się z długością okresu.
+  it('próg rośnie z liczbą dni rozbiorowych okresu', () => {
+    const inna = w({ kgQuarter: 1860, days: 6, quarters: 14 })
+    expect(workerScorecard([inna], 12.85, PLANT, 6)[0].smallSample).toBe(false)
+    expect(workerScorecard([inna], 12.85, PLANT, 18)[0].smallSample).toBe(true)
+    expect(smallSampleKg(6)).toBeCloseTo(SMALL_SAMPLE_KG_PER_DAY * 6, 6)
+  })
+
+  it('próg miesięczny zostaje tam, gdzie był (~2000 kg)', () => {
+    expect(smallSampleKg(18)).toBeGreaterThan(1800)
+    expect(smallSampleKg(18)).toBeLessThan(2200)
+  })
+
+  it('jeden dzień pracownika w długim okresie dalej jest małą próbą', () => {
+    const dawid = w({ kgQuarter: 525, days: 1, yieldRangePp: null })
+    expect(workerScorecard([dawid], 12.85, PLANT, 18)[0].smallSample).toBe(true)
   })
 
   it('mała próba nie trafia na czoło ani na koniec rankingu', () => {
