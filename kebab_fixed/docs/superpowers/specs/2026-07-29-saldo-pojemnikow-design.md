@@ -171,10 +171,15 @@ Wołający:
 |---|---|
 | `raw_batches_service.create_raw_batch` (po INSERT, w tej samej transakcji) | `+containers_count`, `+pallets_h1`, `+pallets_other` |
 | `raw_batches_service` — edycja/anulowanie partii | przeliczone lub 0 |
-| `wz_service._insert_wz` (po INSERT) | `−Σ containers` z pozycji, `−pallets_h1`, `−pallets_other` |
+| `wz_service.create_manual_wz` (po INSERT) | `−Σ containers` z pozycji, `−pallets_h1`, `−pallets_other` |
 | `wz_service.update_wz_lines` | przeliczone z nowych pozycji |
 | `wz_service.cancel_wz` | 0 |
 | `container_docs_service` (zapis dokumentu pojemnikowego) | `in_qty − out_qty` per asset, `confirmed=true` |
+
+**Tylko WZ ręczne.** WZ z zamówienia (`create_wz_from_order`) nie księguje
+nośników: `update_wz_lines` i `cancel_wz` odrzucają dokumenty niereczne, więc
+zaksięgowany stamtąd ruch nie dałby się skorygować ani cofnąć. Palety pod
+wyrób gotowy z zamówień to osobna iteracja.
 
 Ruchy automatyczne startują z `confirmed = false` i **liczą się do salda**
 (to najlepsze oszacowanie, jakie system ma). Flaga oznacza tylko „biuro tego
