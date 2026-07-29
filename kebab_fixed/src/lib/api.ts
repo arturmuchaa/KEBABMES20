@@ -1682,6 +1682,9 @@ export const wzApi = {
     items: { stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string; kgPerUnit?: number; containers?: number; productionDate?: string | null }[];
     valued?: boolean; place?: string; issuedDate?: string; releaseDate?: string; notes?: string;
     currency?: string; eurRate?: number | null;
+    // Palety są na POZIOMIE DOKUMENTU (transport wiezie N palet łącznie);
+    // pojemniki zostają na pozycjach, bo wynikają z masy partii.
+    palletsH1?: number; palletsOther?: number;
   }) => post<WzDoc>('/wz/manual', body),
   updatePrices: (id: string, prices: { index: number; price: number }[]) =>
     patch<WzDoc>(`/wz/${encodeURIComponent(id)}/prices`, { prices }),
@@ -1708,6 +1711,94 @@ export const wzApi = {
   }) =>
     post<WzDoc & { incomplete?: boolean }>('/wz/from-order', { orderId, ...(opts || {}) }),
   pdfUrl: (id: string) => `${BASE}/wz/${encodeURIComponent(id)}/pdf`,
+}
+
+// ─── Saldo pojemników ───────────────────────────────────────────
+// Znak qty: dodatnie = nośniki przyjechały DO NAS (my winni),
+// ujemne = wyjechały OD NAS (oni winni). Saldo = suma qty.
+export type ContainerAsset = 'e2' | 'pallet_h1' | 'pallet_other'
+
+export interface ContainerBalanceRow {
+  id: string; nip: string; name: string; address: string
+  e2: number; pallet_h1: number; pallet_other: number
+  unconfirmed: number; last_movement: string | null; roles: string[]
+}
+
+export interface ContainerMovement {
+  id: string; partnerId: string; assetType: ContainerAsset; qty: number
+  sourceType: string; sourceId: string | null; sourceLabel: string
+  docId: string | null; docNumber: string | null
+  movementDate: string; confirmed: boolean; note: string
+}
+
+export interface ContainerPendingGroup {
+  partnerId: string; sourceType: string; sourceId: string; sourceLabel: string
+  date: string; note: string
+  assets: Record<ContainerAsset, number>
+}
+
+export interface ContainerDocLine {
+  assetType: ContainerAsset; label: string; inQty: number; outQty: number; balance: number
+}
+
+export interface ContainerDoc {
+  id: string; number: string; status: string
+  partner: { id: string; name: string; nip: string; address: string }
+  partnerId: string
+  seller: { name: string; address: string; postal_code: string; city: string; nip: string; phone: string }
+  docDate: string; driver: string; vehicle: string; notes: string
+  balanceAfter: Record<ContainerAsset, number>
+  lines: ContainerDocLine[]
+}
+
+export interface ContainerStatement {
+  partner: { id: string; name: string; nip: string; address: string }
+  from: string; to: string
+  opening: Record<ContainerAsset, number>
+  closing: Record<ContainerAsset, number>
+  movements: (ContainerMovement & { balanceAfter: Record<ContainerAsset, number> })[]
+}
+
+export interface ContainerPartnerCard {
+  partner: { id: string; name: string; nip: string; address: string; roles: string[] }
+  balance: Record<ContainerAsset, number>
+  movements: ContainerMovement[]
+  pending: ContainerPendingGroup[]
+  docs: ContainerDoc[]
+}
+
+export const containersApi = {
+  calibers: () => get<{ value: string; label: string; kg: number | null }[]>('/containers/calibers'),
+  balances: (opts?: { q?: string; nonzero?: boolean }) =>
+    get<ContainerBalanceRow[]>(
+      `/containers/balances?q=${encodeURIComponent(opts?.q ?? '')}&nonzero=${opts?.nonzero ? 'true' : 'false'}`),
+  partner: (id: string) =>
+    get<ContainerPartnerCard>(`/containers/partners/${encodeURIComponent(id)}`),
+  movements: (opts?: { partnerId?: string; from?: string; to?: string; unconfirmed?: boolean }) =>
+    get<ContainerMovement[]>(
+      `/containers/movements?partnerId=${encodeURIComponent(opts?.partnerId ?? '')}` +
+      `&from=${opts?.from ?? ''}&to=${opts?.to ?? ''}&unconfirmed=${opts?.unconfirmed ? 'true' : 'false'}`),
+  createMovement: (body: {
+    partnerId: string; assetType: ContainerAsset; qty: number; movementDate?: string; note?: string
+  }) => post<{ id: string; balance: Record<ContainerAsset, number> }>('/containers/movements', body),
+  // Korekta z biura: NIE nadpisuje ruchu — backend dopisuje różnicę.
+  correctGroup: (body: {
+    partnerId: string; sourceType: string; sourceId: string
+    targets: Partial<Record<ContainerAsset, number>>; confirm: boolean
+  }) => patch<{ balance: Record<ContainerAsset, number> }>('/containers/groups', body),
+  docs: (partnerId?: string) =>
+    get<ContainerDoc[]>(`/containers/docs?partnerId=${encodeURIComponent(partnerId ?? '')}`),
+  doc: (id: string) => get<ContainerDoc>(`/containers/docs/${encodeURIComponent(id)}`),
+  createDoc: (body: {
+    partnerId?: string; refType?: string; refId?: string
+    docDate: string; driver?: string; vehicle?: string; notes?: string
+    lines: { assetType: ContainerAsset; inQty: number; outQty: number }[]
+  }) => post<ContainerDoc>('/containers/docs', body),
+  cancelDoc: (id: string) =>
+    patch<ContainerDoc>(`/containers/docs/${encodeURIComponent(id)}/cancel`, {}),
+  statement: (partnerId: string, from: string, to: string) =>
+    get<ContainerStatement>(
+      `/containers/statement?partnerId=${encodeURIComponent(partnerId)}&from=${from}&to=${to}`),
 }
 
 // ─── Przewoźnicy + CMR ──────────────────────────────────────────
