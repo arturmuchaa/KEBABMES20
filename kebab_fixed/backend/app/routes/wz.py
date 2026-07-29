@@ -97,6 +97,11 @@ def manual(body: dict):
         currency=(body.get("currency") or "PLN"),
         eur_rate=body.get("eurRate"),
         notes=body.get("notes", ""),
+        # Palety na poziomie dokumentu — bez tego przepisania nigdy nie
+        # docierały do bazy i saldo pojemników nie widziało palet (prod
+        # 2026-07-29: serwis i front je miały, route je gubił).
+        pallets_h1=int(body.get("palletsH1") or 0),
+        pallets_other=int(body.get("palletsOther") or 0),
     )
 
 
