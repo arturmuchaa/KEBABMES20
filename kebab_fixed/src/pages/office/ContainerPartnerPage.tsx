@@ -11,9 +11,10 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, FileText, Check, Printer, Plus } from 'lucide-react'
+import { ArrowLeft, FileText, Check, Printer, Plus, CornerDownLeft } from 'lucide-react'
 import {
-  containersApi, type ContainerAsset, type ContainerPartnerCard, type ContainerPendingGroup,
+  containersApi, type ContainerAsset, type ContainerDoc,
+  type ContainerPartnerCard, type ContainerPendingGroup,
 } from '@/lib/api'
 import { ASSET_SHORT, ASSET_TYPES, balanceTone } from '@/lib/containers'
 import { ContainerDocModal } from '@/components/containers/ContainerDocModal'
@@ -84,12 +85,71 @@ function PendingRow({ g, onSaved }: { g: ContainerPendingGroup; onSaved: () => v
   )
 }
 
+/** Zwrot po powrocie kierowcy. Dokument zamyka się przy KAŻDEJ wpisanej
+ *  liczbie — także zerowej i częściowej; reszta zostaje na saldzie. */
+function SettleModal({ doc, onClose, onSaved }: {
+  doc: ContainerDoc; onClose: () => void; onSaved: () => void
+}) {
+  const [vals, setVals] = useState<Record<ContainerAsset, string>>(
+    () => Object.fromEntries(ASSET_TYPES.map(a => [a, ''])) as Record<ContainerAsset, string>)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+  const wydane = Object.fromEntries(doc.lines.map(l => [l.assetType, l.inQty])) as
+    Record<ContainerAsset, number>
+
+  const save = async () => {
+    setSaving(true); setErr('')
+    try {
+      await containersApi.settleDoc(doc.id, Object.fromEntries(
+        ASSET_TYPES.map(a => [a, parseInt(vals[a] || '0') || 0])) as Record<ContainerAsset, number>)
+      onSaved()
+    } catch (e: any) { setErr(String(e?.message || e)) } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
+      <div className="w-full max-w-md rounded-lg border border-surface-4 bg-surface shadow-xl">
+        <header className="border-b border-surface-3 px-5 py-3">
+          <h2 className="text-[15px] font-bold text-ink">Zwrot do dokumentu {doc.number}</h2>
+          <p className="text-[11.5px] text-ink-4">
+            Wpisz, ile faktycznie oddali. Dokument zamknie się także przy zwrocie
+            częściowym — reszta zostanie na saldzie.
+          </p>
+        </header>
+        <div className="p-5 space-y-3">
+          {ASSET_TYPES.filter(a => wydane[a]).map(a => (
+            <label key={a} className="flex items-center justify-between gap-3">
+              <span className="text-[13px] text-ink">
+                {ASSET_SHORT[a]}
+                <span className="ml-2 text-[11.5px] text-ink-4">wydano {wydane[a]}</span>
+              </span>
+              <input type="number" min="0" step="1" value={vals[a]} placeholder="0"
+                onChange={e => setVals(v => ({ ...v, [a]: e.target.value }))}
+                className="w-28 h-9 rounded border border-surface-4 bg-surface px-2 text-right text-[13px] tabular-nums" />
+            </label>
+          ))}
+          {err && <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-[12.5px] text-red-700">{err}</div>}
+        </div>
+        <footer className="flex justify-end gap-2 border-t border-surface-3 px-5 py-3">
+          <button onClick={onClose} disabled={saving}
+            className="rounded border border-surface-4 px-3 py-2 text-[12.5px] font-medium text-ink hover:bg-surface-2">Anuluj</button>
+          <button onClick={save} disabled={saving}
+            className="rounded bg-ink px-4 py-2 text-[12.5px] font-medium text-surface hover:bg-ink-2 disabled:opacity-50">
+            {saving ? 'Zapisywanie…' : 'Zapisz zwrot'}
+          </button>
+        </footer>
+      </div>
+    </div>
+  )
+}
+
 export function ContainerPartnerPage() {
   const { partnerId = '' } = useParams()
   const nav = useNavigate()
   const [data, setData] = useState<ContainerPartnerCard | null>(null)
   const [err, setErr] = useState('')
   const [docOpen, setDocOpen] = useState(false)
+  const [settling, setSettling] = useState<ContainerDoc | null>(null)
 
   const load = useCallback(() => {
     containersApi.partner(partnerId).then(setData).catch(e => setErr(String(e?.message || e)))
@@ -199,8 +259,10 @@ export function ContainerPartnerPage() {
                   <td className="px-3 py-2 text-[12.5px] text-ink-3">{d.driver || '—'}</td>
                   <td className="px-3 py-2 text-[12.5px] text-ink-3">{d.vehicle || '—'}</td>
                   <td className="px-3 py-2 text-[12px]">
-                    <span className={d.status === 'anulowany' ? 'text-red-600' : 'text-emerald-600'}>
-                      {d.status}
+                    <span className={
+                      d.status === 'anulowany' ? 'text-red-600'
+                      : d.status === 'oczekuje' ? 'text-amber-600' : 'text-emerald-600'}>
+                      {d.status === 'oczekuje' ? 'czeka na zwrot' : d.status}
                     </span>
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -208,6 +270,12 @@ export function ContainerPartnerPage() {
                        className="inline-flex items-center gap-1 text-[12px] text-ink-2 hover:text-ink">
                       <FileText size={12} /> Druk
                     </a>
+                    {d.status === 'oczekuje' && (
+                      <button onClick={() => setSettling(d)}
+                        className="ml-3 inline-flex items-center gap-1 text-[12px] font-medium text-ink hover:underline">
+                        <CornerDownLeft size={12} /> Wpisz zwrot
+                      </button>
+                    )}
                     {d.status !== 'anulowany' && (
                       <button
                         onClick={async () => {
@@ -260,6 +328,11 @@ export function ContainerPartnerPage() {
           </table>
         </div>
       </section>
+
+      {settling && (
+        <SettleModal doc={settling} onClose={() => setSettling(null)}
+          onSaved={() => { setSettling(null); load() }} />
+      )}
 
       {docOpen && (
         <ContainerDocModal

@@ -58,6 +58,7 @@ const S = {
 }
 
 function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
+  const pending = doc.status === 'oczekuje'
   const s = doc.seller || ({} as ContainerDoc['seller'])
   const sellerAddr = [s.address, [s.postal_code, s.city].filter(Boolean).join(' ')]
     .filter(Boolean).join(', ')
@@ -84,6 +85,11 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
               <span style={{ float: 'right', fontSize: 8, letterSpacing: 1 }}>{mark}</span>
               {doc.status === 'anulowany' && (
                 <div style={{ fontSize: 11, fontWeight: 800, color: '#b00' }}>ANULOWANY</div>
+              )}
+              {pending && (
+                <div style={{ fontSize: 8.5 }}>
+                  Prosimy wpisać liczbę zwróconych nośników w kolumnie „Zwrot".
+                </div>
               )}
             </td>
             <td style={S.cell} rowSpan={2}>
@@ -121,8 +127,11 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
                 )}
               </td>
               <td style={S.num}>{l.inQty || ''}</td>
-              <td style={S.num}>{l.outQty || ''}</td>
-              <td style={S.num}>{l.balance}</td>
+              {/* Dokument czekający na zwrot jedzie do kontrahenta z PUSTYMI
+                  polami — wpisuje je długopisem przy odbiorze. Saldo też
+                  zostaje puste, bo jeszcze go nie znamy. */}
+              <td style={S.num}>{pending ? '' : (l.outQty || '')}</td>
+              <td style={S.num}>{pending ? '' : l.balance}</td>
             </tr>
           ))}
           <tr style={{ height: '12mm' }}>

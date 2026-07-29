@@ -54,3 +54,24 @@ class ContainerMovementCreate(BaseModel):
     qty: int
     movement_date: str = Field("", alias="movementDate")
     note: str = ""
+
+
+class ContainerSettle(BaseModel):
+    """Zwrot wpisany po powrocie kierowcy: {assetType: sztuki}."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    returns: Dict[str, int] = Field(default_factory=dict)
+
+
+class ContainerDocFromWz(BaseModel):
+    """Druk na pojemniki wystawiany od razu po WZ towaru."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    wz_id: str = Field(..., alias="wzId", min_length=1)
+    driver: str = ""
+    vehicle: str = ""
+    pallets_h1: int = Field(0, alias="palletsH1", ge=0)
+    pallets_other: int = Field(0, alias="palletsOther", ge=0)
+    notes: str = ""

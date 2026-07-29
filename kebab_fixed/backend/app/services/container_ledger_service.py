@@ -175,8 +175,12 @@ def _movement_dto(r: Dict[str, Any]) -> Dict[str, Any]:
 
 def movements(
     partner_id: str = "", date_from: str = "", date_to: str = "",
-    unconfirmed_only: bool = False,
+    unconfirmed_only: bool = False, include_reversed: bool = False,
 ) -> List[Dict[str, Any]]:
+    """Ruchy nośników. Domyślnie POMIJA źródła w całości odwrócone —
+    anulowany WZ zostawia parę −225/+225, która nic nie wnosi do salda,
+    a zaśmieca kartotekę. Wierszy NIE kasujemy (ślad audytowy zostaje);
+    `include_reversed=True` pokazuje je z powrotem."""
     where, params = ["1=1"], []
     if partner_id:
         where.append("m.partner_id=%s")
@@ -190,11 +194,20 @@ def movements(
     if unconfirmed_only:
         where.append("NOT m.confirmed")
     rows = query_all(
-        "SELECT m.*, d.number AS doc_number FROM container_movements m "
-        "LEFT JOIN container_docs d ON d.id = m.doc_id "
-        f"WHERE {' AND '.join(where)} "
-        "ORDER BY m.movement_date, m.created_at", params)
-    return [_movement_dto(r) for r in rows]
+        "SELECT m.*, d.number AS doc_number, "
+        "       SUM(m.qty) OVER (PARTITION BY m.source_type, m.source_id) AS src_total, "
+        "       COUNT(*)   OVER (PARTITION BY m.source_type, m.source_id) AS src_count "
+        "  FROM container_movements m "
+        "  LEFT JOIN container_docs d ON d.id = m.doc_id "
+        f" WHERE {' AND '.join(where)} "
+        " ORDER BY m.movement_date, m.created_at", params)
+    out = []
+    for r in rows:
+        is_reversed = int(r["src_total"] or 0) == 0 and int(r["src_count"] or 0) > 1
+        if is_reversed and not include_reversed:
+            continue
+        out.append({**_movement_dto(r), "reversed": is_reversed})
+    return out
 
 
 def pending_groups(partner_id: str = "") -> List[Dict[str, Any]]:
