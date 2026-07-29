@@ -33,7 +33,10 @@ _TRUNCATE = [
     "seasoned_meat", "mixing_sessions", "mixing_order_lots", "mixing_orders",
     "meat_stock", "raw_batches", "recipe_ingredients", "recipes",
     "order_pallet_items", "order_pallets", "client_order_lines", "client_orders",
-    "product_types", "machine_locks", "sequences", "suppliers", "ingredients",
+    # `clients` dopisane 2026-07-29: kartoteka odbiorców przeciekała między
+    # testami (suppliers czyszczono, clients nie), więc test seedujący tego
+    # samego klienta co poprzedni padał na duplicate key.
+    "product_types", "machine_locks", "sequences", "suppliers", "clients", "ingredients",
 ]
 
 
