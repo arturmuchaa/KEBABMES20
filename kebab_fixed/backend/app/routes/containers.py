@@ -81,7 +81,8 @@ def create_doc(dto: ContainerDocCreate):
     return docs.create_doc(
         partner_id=dto.partner_id, ref_type=dto.ref_type, ref_id=dto.ref_id,
         doc_date=dto.doc_date, driver=dto.driver, vehicle=dto.vehicle,
-        lines=[line.model_dump(by_alias=True) for line in dto.lines], notes=dto.notes)
+        lines=[line.model_dump(by_alias=True) for line in dto.lines], notes=dto.notes,
+        linked_source_type=dto.linked_source_type, linked_source_id=dto.linked_source_id)
 
 
 @router.get("/docs/{doc_id}")
@@ -92,6 +93,12 @@ def get_doc(doc_id: str):
 @router.patch("/docs/{doc_id}/cancel")
 def cancel_doc(doc_id: str):
     return docs.cancel_doc(doc_id)
+
+
+@router.get("/partners/{partner_id}/deliveries")
+def list_partner_deliveries(partner_id: str):
+    """Dostawy do wskazania na dokumencie pojemnikowym (picker w oknie)."""
+    return docs.partner_deliveries(partner_id)
 
 
 @router.get("/partners/{partner_id}")

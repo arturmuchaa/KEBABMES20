@@ -26,6 +26,10 @@ class ContainerDocCreate(BaseModel):
     vehicle: str = ""
     lines: List[ContainerDocLine] = Field(default_factory=list)
     notes: str = ""
+    # Powiązanie z dostawą: kolumna „Dostawa/odbiór" staje się wtedy samą
+    # REFERENCJĄ na druku — nośniki zaksięgowało już przyjęcie surowca.
+    linked_source_type: str = Field("", alias="linkedSourceType")
+    linked_source_id: str = Field("", alias="linkedSourceId")
 
 
 class ContainerGroupCorrect(BaseModel):

@@ -3,7 +3,9 @@ import pytest
 from fastapi import HTTPException
 
 from app.db import execute, query_one, transaction
-from app.services.container_docs_service import cancel_doc, create_doc, get_doc, list_docs
+from app.services.container_docs_service import (
+    cancel_doc, create_doc, get_doc, list_docs, partner_deliveries,
+)
 from app.services.container_ledger_service import book_assets, partner_balance_cx
 from app.utils.ids import cuid, now_iso
 
@@ -102,3 +104,87 @@ def test_lista_dokumentow_partnera(db):
     create_doc(partner_id=pid, doc_date="2026-07-29", lines=_lines(e2_out=1))
     create_doc(partner_id=pid, doc_date="2026-07-30", lines=_lines(e2_out=2))
     assert len(list_docs(pid)) == 2
+
+
+# ── Powiązanie dokumentu z konkretną dostawą (2026-07-29) ────────────
+# Przyjęcie surowca JUŻ księguje nośniki na saldzie. Dokument powiązany
+# z dostawą pokazuje jej liczby na papierze („600 dostawa / 600 zwrot"),
+# ale księguje WYŁĄCZNIE zwrot — inaczej jedna fizyczna dostawa 600 sztuk
+# podbiłaby saldo o 1200.
+def _delivery(pid, source_id="rb1", e2=600, h1=13):
+    with transaction() as conn:
+        book_assets(conn, partner_id=pid, source_type="raw_batch", source_id=source_id,
+                    targets={"e2": e2, "pallet_h1": h1}, movement_date="2026-07-29",
+                    note="Przyjęcie 900")
+
+
+def test_dokument_powiazany_ksieguje_TYLKO_zwrot(db):
+    pid = _partner()
+    _delivery(pid)                       # saldo: +600 / +13
+    doc = create_doc(partner_id=pid, doc_date="2026-07-30",
+                     linked_source_type="raw_batch", linked_source_id="rb1",
+                     lines=_lines(e2_in=600, e2_out=600, h1_in=13, h1_out=13))
+    # gdyby kolumna "dostawa" też księgowała, wyszłoby +600/+13
+    assert doc["balanceAfter"] == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
+    with transaction() as conn:
+        assert partner_balance_cx(conn, pid)["e2"] == 0
+
+
+def test_powiazany_dokument_zachowuje_liczby_dostawy_na_druku(db):
+    pid = _partner()
+    _delivery(pid)
+    doc = create_doc(partner_id=pid, doc_date="2026-07-30",
+                     linked_source_type="raw_batch", linked_source_id="rb1",
+                     lines=_lines(e2_in=600, e2_out=600, h1_in=13, h1_out=13))
+    line = next(l for l in doc["lines"] if l["assetType"] == "e2")
+    assert (line["inQty"], line["outQty"]) == (600, 600), "druk musi pokazać obie kolumny"
+    assert doc["linkedSourceId"] == "rb1"
+
+
+def test_zwrot_czesciowy_z_powiazaniem_zostawia_reszte(db):
+    pid = _partner()
+    _delivery(pid)
+    doc = create_doc(partner_id=pid, doc_date="2026-07-30",
+                     linked_source_type="raw_batch", linked_source_id="rb1",
+                     lines=_lines(e2_in=600, e2_out=400, h1_in=13, h1_out=13))
+    assert doc["balanceAfter"]["e2"] == 200
+    assert doc["balanceAfter"]["pallet_h1"] == 0
+
+
+def test_dokument_BEZ_powiazania_ksieguje_obie_kolumny(db):
+    """Regresja: nośniki przywiezione poza dostawą towaru (puste pojemniki
+    podrzucone do napełnienia) nadal muszą wchodzić na saldo."""
+    pid = _partner()
+    doc = create_doc(partner_id=pid, doc_date="2026-07-30",
+                     lines=_lines(e2_in=600, e2_out=400))
+    assert doc["balanceAfter"]["e2"] == 200
+
+
+def test_anulowanie_powiazanego_dokumentu_cofa_tylko_zwrot(db):
+    pid = _partner()
+    _delivery(pid)
+    doc = create_doc(partner_id=pid, doc_date="2026-07-30",
+                     linked_source_type="raw_batch", linked_source_id="rb1",
+                     lines=_lines(e2_in=600, e2_out=600, h1_in=13, h1_out=13))
+    cancel_doc(doc["id"])
+    with transaction() as conn:
+        # wraca do stanu po samej dostawie, nie do zera i nie do 1200
+        assert partner_balance_cx(conn, pid) == {"e2": 600, "pallet_h1": 13, "pallet_other": 0}
+
+
+def test_lista_dostaw_do_rozliczenia(db):
+    pid = _partner()
+    _delivery(pid, "rb1", e2=600, h1=13)
+    _delivery(pid, "rb2", e2=200, h1=4)
+    rows = partner_deliveries(pid)
+    assert [r["sourceId"] for r in rows] == ["rb2", "rb1"] or \
+           [r["sourceId"] for r in rows] == ["rb1", "rb2"]
+    r1 = next(r for r in rows if r["sourceId"] == "rb1")
+    assert r1["assets"] == {"e2": 600, "pallet_h1": 13, "pallet_other": 0}
+    assert r1["settled"] is False
+
+    create_doc(partner_id=pid, doc_date="2026-07-30",
+               linked_source_type="raw_batch", linked_source_id="rb1",
+               lines=_lines(e2_in=600, e2_out=600, h1_in=13, h1_out=13))
+    r1b = next(r for r in partner_deliveries(pid) if r["sourceId"] == "rb1")
+    assert r1b["settled"] is True, "dostawa z wystawionym dokumentem jest oznaczona"

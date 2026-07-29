@@ -5,9 +5,9 @@
  * i zabiera puste w tym samym kursie. Podgląd salda pokazuje, gdzie
  * wyjdzie saldo po zapisie — celem zwykle jest zero.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
-import { containersApi, type ContainerAsset } from '@/lib/api'
+import { containersApi, type ContainerAsset, type ContainerDelivery } from '@/lib/api'
 import { ASSET_SHORT, ASSET_TYPES, balanceTone } from '@/lib/containers'
 
 const TONE_CLS = {
@@ -33,16 +33,41 @@ export function ContainerDocModal({ partnerId, balance, onClose, onSaved }: Prop
   const [notes, setNotes] = useState('')
   const [inQ, setInQ] = useState<Qty>(emptyQty)
   const [outQ, setOutQ] = useState<Qty>(emptyQty)
+  const [deliveries, setDeliveries] = useState<ContainerDelivery[]>([])
+  const [linkedId, setLinkedId] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
   const n = (s: string) => parseInt(s || '0') || 0
 
+  useEffect(() => {
+    containersApi.deliveries(partnerId).then(setDeliveries).catch(() => setDeliveries([]))
+  }, [partnerId])
+
+  const linked = deliveries.find(d => d.sourceId === linkedId) || null
+
+  /** Wybór dostawy wypełnia kolumnę „Dostawa/odbiór" i podpowiada zwrot
+   *  w tej samej wysokości — typowy kurs to oddanie tylu, ile przyjechało. */
+  const pickDelivery = (id: string) => {
+    setLinkedId(id)
+    const d = deliveries.find(x => x.sourceId === id)
+    if (!d) { setInQ(emptyQty()); return }
+    setInQ(Object.fromEntries(
+      ASSET_TYPES.map(a => [a, String(d.assets[a] || 0)])) as Qty)
+    setOutQ(Object.fromEntries(
+      ASSET_TYPES.map(a => [a, String(d.assets[a] || 0)])) as Qty)
+  }
+
+  // Przy powiązanej dostawie kolumna „Dostawa/odbiór" NIE księguje —
+  // te nośniki wniosło już przyjęcie surowca. Podgląd salda musi to
+  // odwzorować, inaczej pokazywałby wynik inny niż faktyczny zapis.
   const preview = useMemo(
     () => Object.fromEntries(
-      ASSET_TYPES.map(a => [a, (balance[a] ?? 0) + n(inQ[a]) - n(outQ[a])]),
+      ASSET_TYPES.map(a => [
+        a, (balance[a] ?? 0) + (linked ? 0 : n(inQ[a])) - n(outQ[a]),
+      ]),
     ) as Record<ContainerAsset, number>,
-    [balance, inQ, outQ])
+    [balance, inQ, outQ, linked])
 
   const anyQty = ASSET_TYPES.some(a => n(inQ[a]) || n(outQ[a]))
 
@@ -51,6 +76,7 @@ export function ContainerDocModal({ partnerId, balance, onClose, onSaved }: Prop
     try {
       await containersApi.createDoc({
         partnerId, docDate, driver, vehicle, notes,
+        ...(linked ? { linkedSourceType: linked.sourceType, linkedSourceId: linked.sourceId } : {}),
         lines: ASSET_TYPES.map(a => ({ assetType: a, inQty: n(inQ[a]), outQty: n(outQ[a]) })),
       })
       onSaved()
@@ -93,11 +119,34 @@ export function ContainerDocModal({ partnerId, balance, onClose, onSaved }: Prop
             </label>
           </div>
 
+          <label className="block space-y-1">
+            <span className="text-[11px] font-bold uppercase text-ink-4">Rozliczana dostawa</span>
+            <select
+              value={linkedId} onChange={e => pickDelivery(e.target.value)}
+              className="w-full h-9 rounded border border-surface-4 bg-surface px-2 text-[13px]">
+              <option value="">— bez powiązania (sam zwrot lub nośniki spoza dostawy) —</option>
+              {deliveries.map(d => (
+                <option key={d.sourceId} value={d.sourceId}>
+                  {d.date} · {d.label} · {d.assets.e2} poj. / {d.assets.pallet_h1} pal. H1
+                  {d.settled ? ' · rozliczona' : ''}
+                </option>
+              ))}
+            </select>
+            {linked && (
+              <span className="block text-[11px] text-ink-4">
+                Kolumna „Dostawa / odbiór" pochodzi z tej dostawy i jest tylko zapisem na
+                druku — te nośniki weszły już na saldo przy przyjęciu. Księgowany jest sam zwrot.
+              </span>
+            )}
+          </label>
+
           <table className="w-full">
             <thead>
               <tr className="border-b border-surface-3">
                 <th className="py-2 text-left text-[11px] font-bold uppercase text-ink-3">Nośnik</th>
-                <th className="py-2 text-right text-[11px] font-bold uppercase text-ink-3">Dostawa / odbiór</th>
+                <th className="py-2 text-right text-[11px] font-bold uppercase text-ink-3">
+                  Dostawa / odbiór{linked && <span className="font-normal normal-case"> (z dostawy)</span>}
+                </th>
                 <th className="py-2 text-right text-[11px] font-bold uppercase text-ink-3">Zwrot</th>
                 <th className="py-2 text-right text-[11px] font-bold uppercase text-ink-3">Saldo po</th>
               </tr>
@@ -106,7 +155,13 @@ export function ContainerDocModal({ partnerId, balance, onClose, onSaved }: Prop
               {ASSET_TYPES.map(a => (
                 <tr key={a}>
                   <td className="py-2 text-[13px] text-ink">{ASSET_SHORT[a]}</td>
-                  <td className="py-1.5 text-right">{qtyInput(inQ[a], v => setInQ(q => ({ ...q, [a]: v })))}</td>
+                  <td className="py-1.5 text-right">
+                    {linked ? (
+                      <span className="inline-block w-24 pr-2 text-[13px] tabular-nums text-ink-3">
+                        {n(inQ[a]) || '—'}
+                      </span>
+                    ) : qtyInput(inQ[a], v => setInQ(q => ({ ...q, [a]: v })))}
+                  </td>
                   <td className="py-1.5 text-right">{qtyInput(outQ[a], v => setOutQ(q => ({ ...q, [a]: v })))}</td>
                   <td className={`py-2 text-right text-[15px] font-black tabular-nums ${TONE_CLS[balanceTone(preview[a])]}`}>
                     {preview[a] > 0 ? `+${preview[a]}` : preview[a]}

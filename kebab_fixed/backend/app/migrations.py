@@ -859,6 +859,12 @@ _DDL: list[str] = [
     # N palet łącznie), pojemniki zostają na pozycjach (wynikają z masy partii).
     "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS pallets_h1 INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS pallets_other INTEGER NOT NULL DEFAULT 0",
+    # Powiązanie dokumentu pojemnikowego z konkretną dostawą. Przyjęcie surowca
+    # JUŻ zaksięgowało nośniki, więc przy powiązaniu kolumna „Dostawa/odbiór"
+    # jest tylko REFERENCJĄ na papierze — księguje się wyłącznie zwrot.
+    # Bez tego jedna fizyczna dostawa 600 sztuk podbiłaby saldo o 1200.
+    "ALTER TABLE container_docs ADD COLUMN IF NOT EXISTS linked_source_type TEXT",
+    "ALTER TABLE container_docs ADD COLUMN IF NOT EXISTS linked_source_id TEXT",
 ]
 
 

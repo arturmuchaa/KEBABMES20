@@ -73,10 +73,22 @@ def create_doc(
     vehicle: str = "",
     lines: Optional[List[Dict[str, Any]]] = None,
     notes: str = "",
+    linked_source_type: str = "",
+    linked_source_id: str = "",
     created_by: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Wystawia dokument i księguje ruchy (in − out per nośnik)."""
+    """Wystawia dokument i księguje ruchy.
+
+    BEZ powiązania: księguje `in − out` (nośniki przyjechały poza dostawą
+    towaru, np. puste pojemniki podrzucone do napełnienia).
+
+    Z powiązaniem (`linked_source_id`): kolumna „Dostawa / odbiór" jest tylko
+    REFERENCJĄ — te nośniki zaksięgowało już przyjęcie surowca. Księgujemy
+    WYŁĄCZNIE zwrot (`−out`), inaczej jedna fizyczna dostawa 600 sztuk
+    podbiłaby saldo o 1200. Na druku obie kolumny widnieją normalnie.
+    """
     norm = _normalize_lines(lines or [])
+    linked = bool(linked_source_id)
     day = (doc_date or date.today().isoformat())[:10]
     ym = f"{day[2:4]}{day[5:7]}"  # 'RRMM' z daty dokumentu
 
@@ -96,18 +108,26 @@ def create_doc(
             conn,
             "INSERT INTO container_docs "
             "(id, number, seq, year_month, partner_id, partner_snapshot, seller, doc_date, "
-            " driver, vehicle, lines, balance_after, status, notes, created_by, created_at) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'{}','wystawiony',%s,%s,%s)",
+            " driver, vehicle, lines, balance_after, status, notes, "
+            " linked_source_type, linked_source_id, created_by, created_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'{}','wystawiony',%s,%s,%s,%s,%s)",
             (did, format_container_doc_number(seq, ym), seq, ym, pid,
              json.dumps(snapshot), json.dumps(_seller_block()), day,
              driver or "", vehicle or "", json.dumps(norm), notes or "",
-             created_by, now_iso()))
+             (linked_source_type or "raw_batch") if linked else None,
+             linked_source_id or None, created_by, now_iso()))
 
+        # Powiązana dostawa jest już zaksięgowana przez przyjęcie — z tego
+        # dokumentu księgujemy wtedy sam zwrot.
+        targets = {
+            line["asset_type"]: (-line["out_qty"] if linked
+                                 else line["in_qty"] - line["out_qty"])
+            for line in norm
+        }
         book_assets(
             conn, partner_id=pid, source_type="container_doc", source_id=did,
-            targets={line["asset_type"]: line["in_qty"] - line["out_qty"] for line in norm},
-            movement_date=day, doc_id=did, note="WZ na pojemniki", confirmed=True,
-            created_by=created_by)
+            targets=targets, movement_date=day, doc_id=did,
+            note="WZ na pojemniki", confirmed=True, created_by=created_by)
 
         # Saldo liczone PO zaksięgowaniu i zamrożone na dokumencie.
         bal = partner_balance_cx(conn, pid)
@@ -134,6 +154,8 @@ def _doc_dto(row: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": row["id"], "number": row["number"], "status": row["status"],
         "partner": snapshot, "partnerId": row["partner_id"], "seller": seller,
+        "linkedSourceType": row.get("linked_source_type"),
+        "linkedSourceId": row.get("linked_source_id"),
         "docDate": str(row["doc_date"])[:10],
         "driver": row.get("driver") or "", "vehicle": row.get("vehicle") or "",
         "notes": row.get("notes") or "",
@@ -160,6 +182,40 @@ def list_docs(partner_id: str = "") -> List[Dict[str, Any]]:
     else:
         rows = query_all("SELECT * FROM container_docs ORDER BY doc_date DESC, created_at DESC")
     return [_doc_dto(r) for r in rows]
+
+
+def partner_deliveries(partner_id: str) -> List[Dict[str, Any]]:
+    """Dostawy tego kontrahenta do wskazania na dokumencie pojemnikowym.
+
+    Źródłem są ruchy z przyjęć surowca (`source_type='raw_batch'`), bo to one
+    wnoszą nośniki na saldo. `settled` oznacza, że do tej dostawy wystawiono
+    już dokument — nie blokujemy wyboru (bywają zwroty w kilku turach),
+    tylko oznaczamy w UI.
+    """
+    rows = query_all(
+        """SELECT m.source_id,
+                  MIN(m.movement_date) AS first_date,
+                  MIN(m.note)          AS note,
+                  COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='e2'),0)           AS e2,
+                  COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='pallet_h1'),0)    AS pallet_h1,
+                  COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='pallet_other'),0) AS pallet_other,
+                  EXISTS (SELECT 1 FROM container_docs d
+                           WHERE d.linked_source_id = m.source_id
+                             AND d.status <> 'anulowany')                           AS settled
+             FROM container_movements m
+            WHERE m.partner_id = %s AND m.source_type = 'raw_batch'
+            GROUP BY m.source_id
+            ORDER BY MIN(m.movement_date) DESC""",
+        (partner_id,))
+    return [{
+        "sourceType": "raw_batch",
+        "sourceId": r["source_id"] or "",
+        "date": str(r["first_date"])[:10],
+        "label": r["note"] or "Przyjęcie surowca",
+        "settled": bool(r["settled"]),
+        "assets": {"e2": int(r["e2"]), "pallet_h1": int(r["pallet_h1"]),
+                   "pallet_other": int(r["pallet_other"])},
+    } for r in rows]
 
 
 def cancel_doc(doc_id: str) -> Dict[str, Any]:
