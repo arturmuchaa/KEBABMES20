@@ -1743,6 +1743,8 @@ export interface ContainerDocLine {
 
 export interface ContainerDelivery {
   sourceType: string; sourceId: string; date: string; label: string
+  /** 'in' = przyjechało do nas (przyjęcie), 'out' = wyjechało (WZ towaru) */
+  direction: 'in' | 'out'
   settled: boolean
   assets: Record<ContainerAsset, number>
 }
@@ -1804,6 +1806,8 @@ export const containersApi = {
     // Powiązanie z dostawą: kolumna „Dostawa/odbiór" jest wtedy samą
     // referencją na druku — księguje się wyłącznie zwrot.
     linkedSourceType?: string; linkedSourceId?: string
+    /** true = druk z PUSTĄ kolumną zwrotu; wpiszesz go po powrocie kierowcy */
+    pendingReturn?: boolean
     lines: { assetType: ContainerAsset; inQty: number; outQty: number }[]
   }) => post<ContainerDoc>('/containers/docs', body),
   cancelDoc: (id: string) =>
