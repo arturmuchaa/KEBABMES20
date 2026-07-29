@@ -130,6 +130,7 @@ def create_app() -> FastAPI:
         desktop_updates_rozbior_v7,
         desktop_updates_rozbior_v10,
         byproducts,
+        containers,
         wz,
         stock_cartons,
     )
@@ -180,6 +181,7 @@ def create_app() -> FastAPI:
         desktop_updates_rozbior_v7,
         desktop_updates_rozbior_v10,
         byproducts,
+        containers,
         wz,
         stock_cartons,
         settings_route,

@@ -7,7 +7,7 @@ import {
   BarChart2, CreditCard, Scissors, Monitor, Truck, Building2,
   FileText, X, Factory, ShoppingCart, Archive,
   Banknote, Settings, QrCode, Calculator, GitBranch, History, ChevronRight, ShieldCheck, BarChart3,
-  ClipboardCheck, UserSearch,
+  ClipboardCheck, UserSearch, Boxes,
 } from 'lucide-react'
 
 interface NavItem { to: string; label: string; icon: React.ReactNode }
@@ -20,6 +20,7 @@ const NAV: NavSection[] = [
     { to: '/office/zamowienia',  label: 'Zamówienia',  icon: <ShoppingCart size={16} /> },
     { to: '/office/hdi',         label: 'Dokumenty HDI', icon: <FileText size={16} /> },
     { to: '/office/wz',          label: 'Dokumenty WZ',  icon: <FileText size={16} /> },
+    { to: '/office/saldo-pojemnikow', label: 'Saldo pojemników', icon: <Boxes size={16} /> },
     { to: '/office/przewoznicy', label: 'Przewoźnicy',   icon: <Truck size={16} /> },
     { to: '/office/cmr',              label: 'Dokumenty CMR',    icon: <FileText size={16} /> },
     { to: '/office/cmr-konfigurator', label: 'Konfigurator CMR', icon: <Settings size={16} /> },

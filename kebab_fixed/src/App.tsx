@@ -41,6 +41,10 @@ import { MixingPlanPrintPage }    from '@/pages/office/MixingPlanPrintPage'
 import { SanitaryCheckPrintPage } from '@/pages/office/SanitaryCheckPrintPage'
 import { WzDocumentsPage }      from '@/pages/office/WzDocumentsPage'
 import { WzNewPage }            from '@/pages/office/WzNewPage'
+import { ContainerBalancePage } from '@/pages/office/ContainerBalancePage'
+import { ContainerPartnerPage } from '@/pages/office/ContainerPartnerPage'
+import { ContainerDocPrintPage }       from '@/pages/office/ContainerDocPrintPage'
+import { ContainerStatementPrintPage } from '@/pages/office/ContainerStatementPrintPage'
 import { CmrLayoutConfigPage }  from '@/pages/office/CmrLayoutConfigPage'
 import { CarriersPage }         from '@/pages/office/CarriersPage'
 import { LabelTemplateSetupPage } from '@/pages/office/LabelTemplateSetupPage'
@@ -116,6 +120,9 @@ export default function App() {
       <Route path="/office/rozbior-raport/druk" element={<DeboningReportPrintPage />} />
       <Route path="/office/plan-masowania/druk" element={<MixingPlanPrintPage />} />
       <Route path="/office/arkusz-kontroli/druk" element={<SanitaryCheckPrintPage />} />
+      {/* Statyczna ścieżka PRZED parametryczną — 'raport' nie może wpaść jako :id */}
+      <Route path="/office/pojemniki/raport/druk" element={<ContainerStatementPrintPage />} />
+      <Route path="/office/pojemniki/:id/druk" element={<ContainerDocPrintPage />} />
       <Route path="/office/partia/:batchNo/raport" element={<BatchReportPage />} />
       <Route path="/etykiety/szablon" element={<LabelTemplateSetupPage />} />
 
@@ -140,6 +147,8 @@ export default function App() {
         <Route path="hdi"                   element={<HdiDocumentsPage />} />
         <Route path="wz"                    element={<WzDocumentsPage />} />
         <Route path="wz/nowy"               element={<WzNewPage />} />
+        <Route path="saldo-pojemnikow"      element={<ContainerBalancePage />} />
+        <Route path="saldo-pojemnikow/:partnerId" element={<ContainerPartnerPage />} />
         <Route path="przewoznicy"           element={<CarriersPage />} />
         <Route path="cmr"                   element={<CmrDocumentsPage />} />
         <Route path="cmr-konfigurator"      element={<CmrLayoutConfigPage />} />
