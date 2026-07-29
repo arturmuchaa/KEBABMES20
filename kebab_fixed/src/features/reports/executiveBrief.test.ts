@@ -101,3 +101,17 @@ describe('executiveBrief — cztery zdania na górze raportu', () => {
     expect(b.find(x => x.kind === 'risk')!.text).not.toMatch(/DAWID/)
   })
 })
+
+describe('executiveBrief — kwoty opisane słowem właściwego okresu', () => {
+  // Ta sama kwota policzona z tygodnia i z miesiąca ma inną wagę dla decyzji
+  // — „6576 zł miesięcznie" pod raportem tygodniowym zawyżałoby ją 4×.
+  it('domyślnie mówi miesięcznie, ale przyjmuje słowa okresu', () => {
+    const base = { ...BASE }
+    expect(executiveBrief(base).find(b => b.kind === 'decision')!.text).toMatch(/miesięcznie/)
+    const wk = executiveBrief({
+      ...base, words: { adverb: 'tygodniowo', noun: 'tydzień', next: 'kolejny tydzień' },
+    }).find(b => b.kind === 'decision')!.text
+    expect(wk).toMatch(/tygodniowo/)
+    expect(wk).not.toMatch(/miesięcznie|kolejny miesiąc/)
+  })
+})

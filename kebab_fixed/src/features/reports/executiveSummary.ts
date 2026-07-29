@@ -14,6 +14,8 @@
  * „pierwszy miesiąc w systemie", a nie „+0,3 p.p. vs czerwiec".
  */
 
+import { YIELD_NORM_PCT } from '@/features/deboning/utils'
+
 export interface ExecSummary {
   kgQuarter: number
   kgMeat: number
@@ -198,6 +200,9 @@ const t = (kg: number) => nf1.format(kg / 1000)
 
 export function execNarrative(
   s: ExecSummary, batches: ExecBatch[], months: TrendMonth[],
+  // Kwota policzona z tygodnia nie może być opisana jako miesięczna —
+  // przysłówek podaje wywołujący (`scopeWords`), domyślnie miesiąc.
+  periodAdverb = 'miesięcznie',
 ): string[] {
   const out: string[] = []
   out.push(
@@ -213,15 +218,15 @@ export function execNarrative(
       `${dir} niż w poprzednim miesiącu.`)
   } else {
     out.push(
-      `Średni uzysk wyniósł ${nf1.format(s.avgYield)}%. To pierwszy miesiąc rozliczony ` +
-      `w systemie — brak danych porównawczych z poprzednim okresem.`)
+      `Średni uzysk wyniósł ${nf1.format(s.avgYield)}%. Brak danych porównawczych: ` +
+      `w systemie jest dopiero jeden zamknięty miesiąc.`)
   }
 
   if (s.meatCostPerKg != null) {
     const v = yieldValue(s)
     out.push(
       `Koszt wytworzenia 1 kg mięsa to ${nf2.format(s.meatCostPerKg)} zł` +
-      (v ? ` — każde 0,1 p.p. uzysku jest warte ${nf0.format(v.pointPln)} zł miesięcznie.` : '.'))
+      (v ? ` — każde 0,1 p.p. uzysku jest warte ${nf0.format(v.pointPln)} zł ${periodAdverb}.` : '.'))
   }
 
   const dev = batchDeviations(batches, s.avgYield, s.meatCostPerKg)
@@ -233,6 +238,40 @@ export function execNarrative(
       `${nf0.format(Math.abs(w.deltaPln))} zł względem średniej, najlepsza ${b.batchNo} ` +
       `(${nf1.format(b.yieldPct)}%) dała ${nf0.format(b.deltaPln)} zł ponad nią; ` +
       `łącznie partie poniżej średniej to ${nf0.format(Math.abs(dev.lossPln))} zł.`)
+  }
+
+  const bal = massBalance(s)
+  out.push(
+    bal.gap.surplus
+      ? `Bilans masy zamknął się nadwyżką ${nf0.format(bal.gap.kg)} kg ` +
+        `(${nf1.format(bal.gap.pct)}%) — surowca było więcej, niż deklarował dostawca.`
+      : `Bilans masy wykazał ${nf0.format(bal.gap.kg)} kg ubytku ` +
+        `(${nf1.format(bal.gap.pct)}%) — towar nieujęty w ważeniu.`)
+  return out
+}
+
+/** Podsumowanie raportu DZIENNEGO — operacyjne, bez warstwy zarządczej.
+ *
+ *  Jedna zmiana nie daje trendu ani wniosków kadrowych, więc odniesieniem
+ *  jest norma uzysku, a nie poprzedni okres. Żadnego słowa „miesiąc": kwoty
+ *  miesięczne w dokumencie z jednego dnia byłyby po prostu nieprawdziwe. */
+export function execNarrativeDay(s: ExecSummary, batchCount: number): string[] {
+  const out: string[] = []
+  out.push(
+    // „z 1 partii" i „z 3 partii" — dopełniacz jest ten sam, bez odmiany.
+    `Rozebrano ${t(s.kgQuarter)} t ćwiartki w ${s.quarters} pobraniach ` +
+    `z ${batchCount} partii surowca; uzyskano ${t(s.kgMeat)} t mięsa, ` +
+    `${t(s.kgBacks)} t grzbietów i ${t(s.kgBones)} t kości.`)
+
+  const { lo, hi } = YIELD_NORM_PCT
+  const vsNorm = s.avgYield < lo ? 'poniżej normy' : s.avgYield > hi ? 'powyżej normy' : 'w normie'
+  out.push(
+    `Średni uzysk wyniósł ${nf1.format(s.avgYield)}% — ${vsNorm} ` +
+    `(${nf1.format(lo)}–${nf1.format(hi)}%). Tempo: ${nf0.format(s.kgPerHour)} kg/h ` +
+    `przy ${s.workers} pracujących.`)
+
+  if (s.meatCostPerKg != null) {
+    out.push(`Koszt wytworzenia 1 kg mięsa w tym dniu to ${nf2.format(s.meatCostPerKg)} zł/kg.`)
   }
 
   const bal = massBalance(s)

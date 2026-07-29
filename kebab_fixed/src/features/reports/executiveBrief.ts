@@ -46,6 +46,9 @@ export interface BriefInput {
   workers: BriefWorker[]
   offDays: { date: string; avgYield: number; kgMeat: number }[]
   monthsInSystem: number
+  /** Słowa okresu (`scopeWords`) — kwotę z tygodnia opisujemy „tygodniowo",
+   *  nie „miesięcznie". Domyślnie miesiąc, bo taki jest raport podstawowy. */
+  words?: { adverb: string; noun: string; next: string }
 }
 
 export type BriefKind = 'good' | 'watch' | 'risk' | 'decision'
@@ -62,6 +65,7 @@ const fmtD = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`
 
 export function executiveBrief(i: BriefInput): BriefItem[] {
   const cost = i.meatCostPerKg
+  const w = i.words ?? { adverb: 'miesięcznie', noun: 'miesiąc', next: 'kolejny miesiąc' }
   const scored = i.batches.filter(b => b.yieldPct != null && b.kgQuarter > 0)
     .map(b => ({
       ...b,
@@ -166,14 +170,14 @@ export function executiveBrief(i: BriefInput): BriefItem[] {
       levers.push({
         pln: v,
         text: `wyrównanie zespołu do poziomu ${bestWorker.workerName} ` +
-          `(+${nf2.format(bestWorker.deltaPp)} p.p.) daje ${pln(v)} miesięcznie`,
+          `(+${nf2.format(bestWorker.deltaPp)} p.p.) daje ${pln(v)} ${w.adverb}`,
       })
     }
     if (cost != null && lossPln < 0) {
       levers.push({
         pln: Math.abs(lossPln),
         text: `podciągnięcie partii poniżej średniej do ${nf1.format(i.avgYield)}% ` +
-          `daje ${pln(lossPln)} miesięcznie`,
+          `daje ${pln(lossPln)} ${w.adverb}`,
       })
     }
     if (!levers.length) {
@@ -184,7 +188,7 @@ export function executiveBrief(i: BriefInput): BriefItem[] {
     }
     levers.sort((a, b) => b.pln - a.pln)
     const cel = cost != null
-      ? ` Cel na kolejny miesiąc: uzysk ${nf1.format(i.avgYield + 0.2)}% ` +
+      ? ` Cel na ${w.next}: uzysk ${nf1.format(i.avgYield + 0.2)}% ` +
         `(+${pln(0.2 / 100 * i.kgQuarter * cost)}).`
       : ''
     return cap(levers.map(l => l.text).join('; ')) + '.' + cel

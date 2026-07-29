@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  batchDeviations, costWaterfall, execNarrative, massBalance, reportGaps, yieldValue,
-  type ExecSummary,
+  batchDeviations, costWaterfall, execNarrative, execNarrativeDay, massBalance,
+  reportGaps, yieldValue, type ExecSummary,
 } from './executiveSummary'
 
 // Realne proporcje lipca 2026 (118 945 kg ćwiartki), zaokrąglone.
@@ -119,7 +119,7 @@ describe('execNarrative — podsumowanie regułowe, nie AI', () => {
   // Sedno: bez poprzedniego miesiąca raport nie ma prawa napisać „+0,3 p.p.".
   it('bez poprzedniego miesiąca mówi wprost, że nie ma porównania', () => {
     const t = execNarrative(S, BATCHES, months).join(' ')
-    expect(t).toMatch(/pierwszy miesiąc|brak.*porównani/i)
+    expect(t).toMatch(/brak danych porównawczych/i)
     expect(t).not.toMatch(/p\.p\. (więcej|mniej|vs)/i)
   })
 
@@ -134,6 +134,39 @@ describe('execNarrative — podsumowanie regułowe, nie AI', () => {
 
   it('wskazuje najsłabszą partię z kwotą', () => {
     expect(execNarrative(S, BATCHES, months).join(' ')).toMatch(/411/)
+  })
+})
+
+describe('execNarrativeDay — podsumowanie raportu dziennego', () => {
+  // Raport z jednej zmiany nie ma prawa mówić o miesiącach: ani „pierwszy
+  // miesiąc w systemie", ani „warte X zł miesięcznie" — to zdania z raportu
+  // zarządczego, które w dokumencie dziennym są po prostu nieprawdziwe.
+  it('nie mówi o miesiącach ani o porównaniach okres do okresu', () => {
+    const t = execNarrativeDay(S, 3).join(' ')
+    expect(t).not.toMatch(/miesi|mies\./i)
+    expect(t).not.toMatch(/p\.p\./i)
+  })
+
+  it('podaje wsad, wynik i uzysk odniesiony do normy', () => {
+    const t = execNarrativeDay(S, 3).join(' ')
+    expect(t).toMatch(/65,8%/)
+    expect(t).toMatch(/norm/i)
+    expect(t).toMatch(/3 parti/)
+  })
+
+  it('uzysk poniżej i powyżej normy nazywa wprost', () => {
+    expect(execNarrativeDay({ ...S, avgYield: 61.0 }, 1).join(' ')).toMatch(/poniżej normy/i)
+    expect(execNarrativeDay({ ...S, avgYield: 70.0 }, 1).join(' ')).toMatch(/powyżej normy/i)
+  })
+
+  it('bez cen zakupu pomija koszt zamiast drukować zero', () => {
+    const t = execNarrativeDay({ ...S, quarterCost: null, meatCostPerKg: null }, 2).join(' ')
+    expect(t).not.toMatch(/zł\/kg/)
+  })
+
+  it('domyka się bilansem masy — tak samo jak raport zarządczy', () => {
+    expect(execNarrativeDay(S, 3).join(' ')).toMatch(/ubytk/i)
+    expect(execNarrativeDay({ ...S, missingKg: -400 }, 3).join(' ')).toMatch(/nadwyżk/i)
   })
 })
 

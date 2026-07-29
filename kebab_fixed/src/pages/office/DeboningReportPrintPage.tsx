@@ -18,7 +18,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { analyticsApi, deboningApi, settingsApi, type DeboningStats, type CompanySettings, type EurRate, type KpiMonth } from '@/lib/api'
 import {
-  batchDeviations, costWaterfall, execNarrative, massBalance, reportGaps, yieldValue,
+  batchDeviations, costWaterfall, execNarrative, execNarrativeDay, massBalance,
+  reportGaps, yieldValue,
 } from '@/features/reports/executiveSummary'
 import { batchBiasNotes, potentialPln, workerScorecard } from '@/features/reports/workerScorecard'
 import { executiveBrief, type BriefKind } from '@/features/reports/executiveBrief'
@@ -26,6 +27,10 @@ import { TrendChart } from '@/features/reports/TrendChart'
 import {
   BONUS_SHARE, individualBonus, standoutWorker, teamBonusLadder,
 } from '@/features/reports/yieldBonus'
+import {
+  detectScope, periodLabel, scopeSections, scopeTitle, scopeWords,
+} from '@/features/reports/reportPeriod'
+import { YIELD_NORM_PCT } from '@/features/deboning/utils'
 
 const nf0 = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -92,6 +97,17 @@ const COST_HINT: Record<string, string> = {
 
 const nfPln = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
 const signedPln = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${nfPln.format(Math.abs(v))} zł`
+
+/** Polska odmiana po liczbie: 1 partia, 2–4 partie, 5+ partii (i tak samo dni).
+ *  W raporcie dziennym „1 dni · 3 partii" rzucało się w oczy od razu. */
+function plural(n: number, one: string, few: string, many: string): string {
+  const d10 = n % 10, d100 = n % 100
+  if (n === 1) return `${n} ${one}`
+  if (d10 >= 2 && d10 <= 4 && (d100 < 12 || d100 > 14)) return `${n} ${few}`
+  return `${n} ${many}`
+}
+const plPartie = (n: number) => plural(n, 'partia', 'partie', 'partii')
+const plDni = (n: number) => plural(n, 'dzień', 'dni', 'dni')
 
 function signedKg(v: number | null | undefined): string {
   if (v == null) return '—'
@@ -163,7 +179,6 @@ export function DeboningReportPrintPage() {
   const cost = costWaterfall(exec)
   const yv = yieldValue(exec)
   const dev = batchDeviations(data.byBatch, s.avgYield, s.meatCostPerKg)
-  const narrative = execNarrative(exec, data.byBatch, trend)
   const gaps = reportGaps(exec, data.byBatch, trend)
   // Zmiana uzysku m/m — null, gdy nie ma SĄSIEDNIEGO poprzednika. Kafelek
   // pisze wtedy „pierwszy miesiąc", zamiast zmyślić strzałkę.
@@ -180,6 +195,19 @@ export function DeboningReportPrintPage() {
   const bonusTotal = bonusRows.reduce((a, r) => a + r.bonusPln, 0)
   const teamLadder = teamBonusLadder(s.kgQuarter, s.avgYield, s.meatCostPerKg)
   const standout = standoutWorker(scorecard, s.avgYield)
+  // Zakres decyduje o zawartości: raport dzienny jest operacyjny (bez
+  // warstwy zarządczej), miesięczny i wyższy — materiałem dla zarządu.
+  const scope = detectScope(from, to)
+  const show = scopeSections(scope)
+  const dayView = scope === 'day'
+  // Kwoty w tekstach opisujemy słowem TEGO okresu — „tygodniowo" dla tygodnia,
+  // „kwartalnie" dla kwartału. Inaczej suma z tygodnia brzmi jak miesięczna.
+  const words = scopeWords(scope)
+  // Raport dzienny dostaje własne podsumowanie: bez trendu m/m i bez kwot
+  // miesięcznych, których jeden dzień nie uzasadnia.
+  const narrative = scope === 'day'
+    ? execNarrativeDay(exec, data.byBatch.length)
+    : execNarrative(exec, data.byBatch, trend, words.adverb)
   // Udziały składników kosztu (tylko dodatnie — uboczne pomniejszają cenę,
   // więc nie mają udziału w „z czego się składa").
   const costPlus = (cost?.steps ?? []).filter(x => x.sign === '+')
@@ -188,7 +216,7 @@ export function DeboningReportPrintPage() {
   const brief = executiveBrief({
     avgYield: s.avgYield, meatCostPerKg: s.meatCostPerKg, kgQuarter: s.kgQuarter,
     missingKg: s.missingKg, batches: data.byBatch, workers: scorecard,
-    offDays, monthsInSystem: trend.length,
+    offDays, monthsInSystem: trend.length, words,
   })
   const batches = [...data.byBatch].sort((a, b) => a.batchNo.localeCompare(b.batchNo, 'pl', { numeric: true }))
 
@@ -204,9 +232,16 @@ export function DeboningReportPrintPage() {
               nagłówkowi. Ten sam zasób co na WZ i arkuszu HACCP. */}
           <img src="/logo-ksiezyc-print.png" alt="Księżyc"
             style={{ height: 44, width: 'auto', display: 'block', marginBottom: 8 }} />
-          <h1 style={S.h1}>RAPORT ROZBIORU</h1>
+          <h1 style={S.h1}>{scopeTitle(scope)}</h1>
           <div style={{ fontSize: 13, fontWeight: 600, marginTop: 3 }}>
-            Okres: {fmtD(from)}{from !== to ? ` – ${fmtD(to)}` : ''}
+            Okres: {periodLabel(scope, from, to)}
+            {/* Miesiąc/kwartał/rok mają podpis słowny — dopiero wtedy warto
+                dopisać daty. Tydzień i zakres własny już je pokazują. */}
+            {(scope === 'month' || scope === 'quarter' || scope === 'year') && (
+              <span style={{ fontWeight: 400, color: '#555' }}>
+                {' '}({fmtD(from)} – {fmtD(to)})
+              </span>
+            )}
           </div>
         </div>
         <div style={{ textAlign: 'right', fontSize: 11, lineHeight: 1.45 }}>
@@ -224,11 +259,14 @@ export function DeboningReportPrintPage() {
           // Grzbiety i kości zeszły z kafelków do „Bilansu masy" — tam mają
           // kontekst (domknięcie do 100%), tutaj były tylko dwiema liczbami.
           { l: 'Ćwiartka pobrana', v: `${nf0.format(s.kgQuarter)} kg`, sub: `${nf0.format(s.quarters)} wpisów` },
-          { l: 'Mięso', v: `${nf0.format(s.kgMeat)} kg`, sub: `${nf0.format(batches.length)} partii · ${days.length || 1} dni` },
+          { l: 'Mięso', v: `${nf0.format(s.kgMeat)} kg`, sub: `${plPartie(batches.length)} · ${plDni(days.length || 1)}` },
           { l: 'Średni uzysk', v: `${nf1.format(s.avgYield)}%`,
-            sub: trendDelta == null
-              ? 'pierwszy miesiąc — brak porównania'
-              : `${trendDelta > 0 ? '↑ +' : trendDelta < 0 ? '↓ −' : '→ '}${nf1.format(Math.abs(trendDelta))} p.p. vs poprzedni mies.` },
+            sub: scope === 'day'
+              // Jeden dzień porównuje się do normy, nie do poprzedniego miesiąca.
+              ? `norma ${nf1.format(YIELD_NORM_PCT.lo)}–${nf1.format(YIELD_NORM_PCT.hi)}%`
+              : trendDelta == null
+                ? 'pierwszy miesiąc — brak porównania'
+                : `${trendDelta > 0 ? '↑ +' : trendDelta < 0 ? '↓ −' : '→ '}${nf1.format(Math.abs(trendDelta))} p.p. vs poprzedni mies.` },
           { l: 'Wartość 0,1 p.p. uzysku', v: yv ? `${nfPln.format(yv.pointPln)} zł` : '—',
             sub: yv ? `${nf0.format(yv.pointKg)} kg mięsa` : 'brak cen zakupu' },
           { l: 'Tempo', v: `${nf0.format(s.kgPerHour)} kg/h`, sub: `${nf0.format(s.workers)} pracowników` },
@@ -238,7 +276,10 @@ export function DeboningReportPrintPage() {
             sub: s.quarterCost != null
               ? `ćwiartka ${nf0.format(s.quarterCost)} zł + robocizna ${nf0.format(s.laborCost ?? 0)} zł − uboczne ${nf0.format(s.byproductRevenue ?? 0)} zł`
               : 'brak cen zakupu' },
-          { l: 'Dni z rozbiorem', v: String(days.length || 1), sub: `${nf0.format(batches.length)} partii surowca` },
+          dayView
+            ? { l: 'Partie surowca', v: String(batches.length),
+                sub: suppliers.length ? suppliers.map(x => x.name).slice(0, 2).join(', ') : '—' }
+            : { l: 'Dni z rozbiorem', v: String(days.length || 1), sub: `${plPartie(batches.length)} surowca` },
         ].map((k, i) => (
           <div key={i} style={{ ...S.kpiBox, borderWidth: 0, borderRight: (i % 4) < 3 ? '1px solid #bfbfbf' : 0, borderBottom: i < 4 ? '1px solid #bfbfbf' : 0, borderStyle: 'solid', borderColor: '#bfbfbf' }}>
             <div style={S.kpiLabel}>{k.l}</div>
@@ -253,6 +294,7 @@ export function DeboningReportPrintPage() {
       {/* Cztery zdania na wejście. Bez kolorowych kropek — dokument idzie na
           czarno-białą drukarkę, gdzie 🟢🟡🔴 drukują się identycznie; rolę
           rozróżnienia niesie podpis pozycji i grubość lewej krawędzi. */}
+      {show.brief && (
       <Blok title="Podsumowanie dla zarządu">
       <div style={{ border: '1px solid #bfbfbf', borderTop: '2px solid #111' }}>
         {brief.map((b, i) => (
@@ -270,8 +312,9 @@ export function DeboningReportPrintPage() {
         ))}
       </div>
       </Blok>
+      )}
 
-      <Blok title="Podsumowanie okresu">
+      <Blok title={scope === 'day' ? 'Podsumowanie dnia' : 'Podsumowanie okresu'}>
       {narrative.map((p, i) => <p key={i} style={S.lead}>{p}</p>)}
       </Blok>
 
@@ -293,7 +336,7 @@ export function DeboningReportPrintPage() {
             <td style={{ ...S.tdL, fontWeight: 700, width: '32%' }}>Ćwiartka pobrana (wejście)</td>
             <td style={{ ...S.td, fontWeight: 800 }}>{nf0.format(s.kgQuarter)} kg</td>
             <td style={S.td}>100,0%</td>
-            <td style={{ ...S.tdL, width: '36%' }}>{s.quarters} pobrań · {batches.length} partii</td>
+            <td style={{ ...S.tdL, width: '36%' }}>{s.quarters} pobrań · {plPartie(batches.length)}</td>
           </tr>
           {bal.parts.map((p, i) => (
             <tr key={i}>
@@ -394,7 +437,7 @@ export function DeboningReportPrintPage() {
       )}
 
       {/* ── Uzysk przeliczony na pieniądze ── */}
-      {yv && (
+      {yv && show.yieldValue && (
         <>
           <Blok title="Ile jest wart uzysk">
           <table style={S.table}>
@@ -418,7 +461,7 @@ export function DeboningReportPrintPage() {
       )}
 
       {/* ── Gdzie uciekają pieniądze: odchylenia partii w złotówkach ── */}
-      {dev && dev.all.length > 1 && (
+      {dev && dev.all.length > 1 && show.deviations && (
         <>
           <Blok title="Gdzie uciekają pieniądze — partie względem średniej">
           <table style={S.table}>
@@ -468,6 +511,7 @@ export function DeboningReportPrintPage() {
       )}
 
       {/* ── Trend miesięczny z migawek (rośnie z każdym zamkniętym miesiącem) ── */}
+      {show.trend && (
       <Blok title="Trend miesięczny">
       {trend.length > 1 ? (
         <table style={S.table}>
@@ -510,11 +554,14 @@ export function DeboningReportPrintPage() {
         </p>
       )}
       </Blok>
+      )}
 
       {/* ── Jawna lista dziur: raport, który je zakleja, traci wiarygodność ── */}
+      {show.gaps && (
       <Blok title="Czego raport nie obejmuje">
       {gaps.map((g, i) => <p key={i} style={S.note}>• {g}</p>)}
       </Blok>
+      )}
 
       {/* ══ STRONY DALSZE — operacyjne ════════════════════════════════════ */}
 
@@ -577,37 +624,43 @@ export function DeboningReportPrintPage() {
         <thead>
           <tr>
             <th style={{ ...S.th, textAlign: 'left' }}>Pracownik</th>
-            <th style={S.th}>Obecność</th>
+            {!dayView && <th style={S.th}>Obecność</th>}
             <th style={S.th}>Ćwiartka [kg]</th>
             <th style={S.th}>Udział [%]</th>
             <th style={S.th}>Śr. %</th>
             <th style={S.th}>± zakład [p.p.]</th>
-            <th style={S.th}>Skutek [zł]</th>
-            <th style={S.th}>Dni od–do [%]</th>
+            {!dayView && <th style={S.th}>Skutek [zł]</th>}
+            {!dayView && <th style={S.th}>Dni od–do [%]</th>}
             <th style={S.th}>Kg/h</th>
           </tr>
         </thead>
         <tbody>
           {scorecard.map(w => (
-            <tr key={w.workerId} style={w.smallSample ? { color: '#777' } : undefined}>
+            <tr key={w.workerId} style={w.smallSample && !dayView ? { color: '#777' } : undefined}>
               <td style={{ ...S.tdL, fontWeight: 600 }}>
-                {w.workerName}{w.smallSample && <span style={{ fontWeight: 400 }}> · próba za mała</span>}
+                {/* „Próba za mała" kalibrowana jest na wolumen okresu — w raporcie
+                    z jednego dnia dotyczyłaby wszystkich i nic by nie mówiła. */}
+                {w.workerName}{w.smallSample && !dayView && <span style={{ fontWeight: 400 }}> · próba za mała</span>}
               </td>
-              <td style={S.td}>{w.days}/{prodDays} · {nf0.format(w.attendancePct)}%</td>
+              {!dayView && <td style={S.td}>{w.days}/{prodDays} · {nf0.format(w.attendancePct)}%</td>}
               <td style={S.td}>{nf0.format(w.kgQuarter)}</td>
               <td style={S.td}>{nf1.format(w.volumeSharePct)}</td>
               <td style={{ ...S.td, fontWeight: 700 }}>{nf1.format(w.avgYield)}</td>
               <td style={S.td}>
                 {`${w.deltaPp > 0 ? '+' : w.deltaPp < 0 ? '−' : ''}${nf2.format(Math.abs(w.deltaPp))}`}
               </td>
-              <td style={{ ...S.td, fontWeight: 800 }}>
-                {w.deltaPln == null || w.smallSample ? '—' : signedPln(w.deltaPln)}
-              </td>
-              <td style={S.td}>
-                {w.yieldMinDay == null ? '—'
-                  : w.yieldRangePp == null ? nf1.format(w.yieldMinDay)
-                  : `${nf1.format(w.yieldMinDay)}–${nf1.format(w.yieldMaxDay as number)}`}
-              </td>
+              {!dayView && (
+                <td style={{ ...S.td, fontWeight: 800 }}>
+                  {w.deltaPln == null || w.smallSample ? '—' : signedPln(w.deltaPln)}
+                </td>
+              )}
+              {!dayView && (
+                <td style={S.td}>
+                  {w.yieldMinDay == null ? '—'
+                    : w.yieldRangePp == null ? nf1.format(w.yieldMinDay)
+                    : `${nf1.format(w.yieldMinDay)}–${nf1.format(w.yieldMaxDay as number)}`}
+                </td>
+              )}
               <td style={S.td}>
                 {nf1.format(w.kgPerHour)}{w.crewSize > 1 && <span style={{ color: '#777' }}> · para</span>}
               </td>
@@ -615,26 +668,36 @@ export function DeboningReportPrintPage() {
           ))}
         </tbody>
       </table>
-      {potential && (
+      {potential && !dayView && (
         <p style={{ ...S.lead, marginTop: 6 }}>
           <b>Stawka:</b> suma kolumny „Skutek" jest bliska zeru, bo to porównanie pracowników
           między sobą — nie dodatkowy zysk. Realna kwota to poziom najlepszego rozciągnięty na
           cały zakład: gdyby wszyscy pracowali jak {potential.workerName}{' '}
-          (+{nf2.format(potential.pp)} p.p. ponad średnią zakładu), miesiąc dałby{' '}
+          (+{nf2.format(potential.pp)} p.p. ponad średnią zakładu), {words.noun} dałby{' '}
           <b>{nfPln.format(potential.pln)} zł</b> więcej.
         </p>
       )}
-      <p style={S.note}>
-        <b>± zakład</b> — o ile uzysk pracownika różni się od średniej zakładu
-        ({nf1.format(s.avgYield)}%); <b>Skutek</b> to ta różnica przeliczona na złotówki
-        (koszt {s.meatCostPerKg != null ? nf2.format(s.meatCostPerKg) : '—'} zł/kg mięsa).
-      </p>
-      <p style={S.note}>
-        <b>Dni od–do</b> — uzysk w najsłabszym i najlepszym dniu pracownika. Im węższy
-        przedział, tym równiejsza praca: 65,2–66,8% to człowiek, który codziennie robi tak
-        samo, a 63,6–67,3% to ktoś, u kogo wynik zależy od dnia. Każdą z tych liczb da się
-        sprawdzić w dzienniku ważeń.
-      </p>
+      {dayView ? (
+        <p style={S.note}>
+          <b>± zakład</b> — o ile uzysk pracownika różni się od średniej dnia
+          ({nf1.format(s.avgYield)}%). Z jednej zmiany nie przeliczamy tej różnicy na
+          złotówki: przy takim wolumenie mieści się ona w wahaniach pojedynczej partii.
+        </p>
+      ) : (
+        <>
+          <p style={S.note}>
+            <b>± zakład</b> — o ile uzysk pracownika różni się od średniej zakładu
+            ({nf1.format(s.avgYield)}%); <b>Skutek</b> to ta różnica przeliczona na złotówki
+            (koszt {s.meatCostPerKg != null ? nf2.format(s.meatCostPerKg) : '—'} zł/kg mięsa).
+          </p>
+          <p style={S.note}>
+            <b>Dni od–do</b> — uzysk w najsłabszym i najlepszym dniu pracownika. Im węższy
+            przedział, tym równiejsza praca: 65,2–66,8% to człowiek, który codziennie robi tak
+            samo, a 63,6–67,3% to ktoś, u kogo wynik zależy od dnia. Każdą z tych liczb da się
+            sprawdzić w dzienniku ważeń.
+          </p>
+        </>
+      )}
       {biasNotes.length > 0 && (
         <p style={S.note}>
           <b>Jakość surowca</b> — po odjęciu wpływu partii (porównanie do średniej WŁASNYCH
@@ -644,10 +707,12 @@ export function DeboningReportPrintPage() {
           ).join(', ')}. Partii nikt sobie nie wybiera — tę różnicę warto wziąć pod uwagę.
         </p>
       )}
-      <p style={S.note}>
-        <b>Obecność</b> liczona z dni, w których pracownik miał pobranie —
-        system nie zna grafiku, więc nie odróżnia urlopu i zwolnienia od nieobecności.
-      </p>
+      {!dayView && (
+        <p style={S.note}>
+          <b>Obecność</b> liczona z dni, w których pracownik miał pobranie —
+          system nie zna grafiku, więc nie odróżnia urlopu i zwolnienia od nieobecności.
+        </p>
+      )}
       <p style={S.note}>
         <b>Kg/h</b> podane NA OSOBĘ. Stanowiska oznaczone „para" rozbierają we dwoje na jedno
         nazwisko — bez tego podziału ich tempo wyglądałoby na dwukrotnie wyższe. Obsadę ustawia
@@ -656,7 +721,7 @@ export function DeboningReportPrintPage() {
       </Blok>
 
       {/* ── Premia za uzysk: dwa warianty do decyzji zarządu ── */}
-      {bonusRows.length > 0 && s.meatCostPerKg != null && (
+      {show.bonus && bonusRows.length > 0 && s.meatCostPerKg != null && (
         <Blok title="Premia za uzysk — warianty do decyzji" newPage>
           <p style={S.lead}>
             Akord płaci za <b>kilogramy pobranej ćwiartki</b>, czyli za tempo. Uzysk — jedyna
@@ -709,7 +774,7 @@ export function DeboningReportPrintPage() {
             <tfoot>
               <tr style={{ fontWeight: 800, background: '#efefef' }}>
                 <td style={S.tdL} colSpan={5}>
-                  Razem miesięcznie ({bonusRows.filter(r => r.bonusPln > 0).length} z{' '}
+                  Razem {words.adverb} ({bonusRows.filter(r => r.bonusPln > 0).length} z{' '}
                   {bonusRows.length} osób)
                 </td>
                 <td style={S.td}>{nfPln.format(bonusTotal)}</td>
@@ -816,7 +881,7 @@ export function DeboningReportPrintPage() {
                       {nfPln.format(Math.max(0, standout.deltaPp) / 100 * s.kgQuarter * s.meatCostPerKg)}
                     </td>
                     <td style={S.tdL}>
-                      miesięcznie, gdyby cała brygada osiągnęła {nf1.format(standout.avgYield)}%
+                      {words.adverb}, gdyby cała brygada osiągnęła {nf1.format(standout.avgYield)}%
                     </td>
                   </tr>
                 </tbody>
@@ -873,7 +938,7 @@ export function DeboningReportPrintPage() {
       {/* ── Trend dzienny ── */}
       {/* Wykres zamiast tabeli: 17 wierszy liczb nikt nie czyta, kształt
           widać w sekundę. Dni odstające i tak wypisujemy pod spodem. */}
-      {days.length > 1 && (
+      {days.length > 1 && show.dailyChart && (
         <>
           <Blok title="Trend dzienny">
           <TrendChart points={days} avgYield={s.avgYield} />

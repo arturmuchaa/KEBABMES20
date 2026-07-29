@@ -23,6 +23,8 @@ import {
 } from 'recharts'
 import { Card, CardContent, CardDescription } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { PrintReportDialog } from '@/features/reports/PrintReportDialog'
+import type { PeriodKind } from '@/features/reports/reportPeriod'
 
 // ─── Zakresy dat ─────────────────────────────────────────────
 type Preset = 'today' | 'yesterday' | '7d' | 'month' | 'year' | 'custom'
@@ -165,6 +167,15 @@ export function DeboningReportsPage() {
   const [cbEntry, setCbEntry] = useState<any | null>(null)
   const [fixEntry, setFixEntry] = useState<any | null>(null)
 
+  // Druk raportu ma własny okres (pełny tydzień/miesiąc/kwartał/rok), bo
+  // filtr ekranu prawie nigdy nie pokrywa się z granicami kalendarza.
+  // Podpowiadamy to, na co biuro właśnie patrzy.
+  const [printOpen, setPrintOpen] = useState(false)
+  const printKind: PeriodKind = preset === 'today' || preset === 'yesterday' ? 'day'
+    : preset === '7d' ? 'week'
+    : preset === 'year' ? 'year'
+    : 'month'
+
   // Kurs EUR z NBP (tabela A) — do przeliczenia kosztu mięsa na €/kg.
   // Ten sam wzorzec co WZ/faktury; brak kursu = po prostu bez linijki euro.
   const [eurRate, setEurRate] = useState<number | null>(null)
@@ -233,9 +244,9 @@ export function DeboningReportsPage() {
         </div>
       )}
       <button
-        onClick={() => window.open(`/office/rozbior-raport/druk?from=${from}&to=${to}`, '_blank')}
+        onClick={() => setPrintOpen(true)}
         className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-surface-4 bg-white text-xs font-semibold text-ink-2 hover:bg-surface-2 hover:text-ink transition-colors"
-        title="Raport okresowy do druku / PDF">
+        title="Raport dzienny / tygodniowy / miesięczny / kwartalny / roczny do druku">
         <Printer size={14} />
         Drukuj raport
       </button>
@@ -656,6 +667,9 @@ export function DeboningReportsPage() {
       {fixEntry && (
         <EntryCorrectionDialog entry={fixEntry} onClose={() => setFixEntry(null)} onSaved={load} />
       )}
+
+      <PrintReportDialog open={printOpen} onClose={() => setPrintOpen(false)}
+        initialKind={printKind} initialRef={to} />
     </div>
   )
 }
