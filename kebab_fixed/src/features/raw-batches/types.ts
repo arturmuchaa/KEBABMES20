@@ -83,6 +83,11 @@ export interface CreateRawBatchDto {
   pricePerKg:       number
   invoiceNo?:       string
   supplierBatches?: SupplierBatchItem[]
+  // Nośniki zwrotne — zasilają saldo pojemników dostawcy.
+  containerKg?:     number | null   // null = niekalibrowany
+  containersCount?: number | null   // ręczna liczba; wygrywa z wyliczeniem z kalibru
+  palletsH1?:       number
+  palletsOther?:    number
 }
 
 export interface EditRawBatchDto {

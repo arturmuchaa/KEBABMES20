@@ -5,6 +5,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { fmtPln, fmtKg } from '@/lib/utils'
 import { Plus, Package, Edit2, Check, X, Link2 } from 'lucide-react'
+import {
+  CALIBER_OPTIONS, caliberKg, caliberValue, containersForKg, type CaliberValue,
+} from '@/lib/containers'
 import type { CreateRawBatchDto, SupplierBatchItem } from '@/features/raw-batches/types'
 
 import {
@@ -21,8 +24,6 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-
-const KG_PER_CONTAINER = 15
 
 interface SupplierOption { value: string; label: string }
 
@@ -76,8 +77,15 @@ export function CreateRawBatchModal({
   }, [customBatchNo, suggestedBatchNo])
 
   const totalKg       = useMemo(() => batchItems.reduce((s, i) => s + (i.kgReceived || 0), 0), [batchItems])
-  const containers    = useMemo(() => Math.floor(totalKg / KG_PER_CONTAINER), [totalKg])
-  const remainderKg   = useMemo(() => totalKg % KG_PER_CONTAINER, [totalKg])
+  const caliber       = caliberValue(form.containerKg)
+  // ceil, nie floor: niepełny pojemnik to nadal jeden fizyczny pojemnik.
+  // Do 2026-07-29 modal liczył floor i gubił go na każdej niepełnej dostawie.
+  const autoContainers = useMemo(
+    () => containersForKg(totalKg, form.containerKg ?? null),
+    [totalKg, form.containerKg])
+  // Ręcznie wpisana liczba ma pierwszeństwo: operator, który fizycznie
+  // policzył pojemniki, wie lepiej niż wzór z kalibru.
+  const containers    = form.containersCount ?? autoContainers
   const calcValue     = useMemo(() => totalKg * (form.pricePerKg || 0), [totalKg, form.pricePerKg])
   const earliestExpiry   = useMemo(() => {
     const ds = batchItems.filter(b => b.expiryDate).map(b => b.expiryDate)
@@ -258,14 +266,35 @@ export function CreateRawBatchModal({
             </Card>
 
             <Card>
-              <CardContent className="p-3 text-center">
-                <CardTitle className="text-2xl font-black tabular-nums">{containers}</CardTitle>
-                <CardDescription className="text-[10px] uppercase font-bold">pojemników</CardDescription>
-                {remainderKg > 0 && (
-                  <CardDescription className="text-[10px] text-amber-600 font-bold">
-                    +{fmtKg(remainderKg, 1)} reszty
-                  </CardDescription>
-                )}
+              <CardContent className="p-3 space-y-2">
+                <Label className="text-[10px] font-bold uppercase tracking-wide block">
+                  Kaliber pojemnika
+                </Label>
+                <Select
+                  value={caliber}
+                  onValueChange={(v: CaliberValue) => {
+                    onFieldChange('containerKg', caliberKg(v))
+                    // Zmiana kalibru unieważnia ręczną liczbę — przy
+                    // niekalibrowanym operator wpisuje ją od nowa.
+                    onFieldChange('containersCount', null)
+                  }}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {CALIBER_OPTIONS.map(o => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="number" min="0" step="1"
+                  placeholder={autoContainers !== null ? String(autoContainers) : 'wpisz liczbę'}
+                  value={form.containersCount ?? (autoContainers ?? '')}
+                  onChange={e => onFieldChange(
+                    'containersCount', e.target.value === '' ? null : parseInt(e.target.value) || 0)}
+                  className="h-9 text-center text-lg font-black tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                <CardDescription className="text-[10px] uppercase font-bold text-center">
+                  pojemników
+                </CardDescription>
               </CardContent>
             </Card>
 
@@ -293,7 +322,7 @@ export function CreateRawBatchModal({
           </div>
 
           {/* Dodatkowe dane */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-4 gap-4">
             <div className="space-y-1.5">
               <Label>Data przyjęcia</Label>
               <Input
@@ -309,6 +338,25 @@ export function CreateRawBatchModal({
                 placeholder="np. PZ 739/MDU/03/2026"
                 value={form.invoiceNo ?? ''}
                 onChange={e => onFieldChange('invoiceNo', e.target.value)}
+              />
+            </div>
+            {/* Palety liczone ręcznie — system nie ma skąd ich znać. */}
+            <div className="space-y-1.5">
+              <Label>Palety H1</Label>
+              <Input
+                type="number" min="0" step="1"
+                value={form.palletsH1 ?? 0}
+                onChange={e => onFieldChange('palletsH1', parseInt(e.target.value) || 0)}
+                className="tabular-nums"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Palety inne</Label>
+              <Input
+                type="number" min="0" step="1"
+                value={form.palletsOther ?? 0}
+                onChange={e => onFieldChange('palletsOther', parseInt(e.target.value) || 0)}
+                className="tabular-nums"
               />
             </div>
           </div>

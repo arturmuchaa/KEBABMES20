@@ -162,6 +162,8 @@ function emptyForm(): CreateRawBatchDto {
   return {
     supplierId: '', supplierBatchNo: '', slaughterDate: '',
     receivedDate: todayIso(), expiryDate: '', kgReceived: 0, pricePerKg: 0, invoiceNo: '',
+    // Domyślny kaliber zakładu to pojemnik 15 kg — 20 kg zdarza się przy filecie.
+    containerKg: 15, containersCount: null, palletsH1: 0, palletsOther: 0,
   }
 }
 
