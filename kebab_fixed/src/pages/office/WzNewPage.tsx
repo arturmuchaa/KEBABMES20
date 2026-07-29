@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { wzApi, clientsApi, settingsApi, downloadDocPdf, WzDoc } from '@/lib/api'
+import { wzApi, clientsApi, settingsApi, downloadDocPdf, containersApi, WzDoc } from '@/lib/api'
 import { todayIso, cn } from '@/lib/utils'
 import { WzDocumentView, WzDocData } from '@/components/wz/WzDocumentView'
 import { Card, CardContent } from '@/components/ui/card'
@@ -19,12 +19,10 @@ import {
   ArrowLeft, Plus, Trash2, Search, Eye, Printer, FileText,
   FileCheck2, CheckCircle2, Package, Beef, AlertTriangle, RefreshCw,
 } from 'lucide-react'
-import { CALIBER_OPTIONS, caliberKg, containersForKg, type CaliberValue } from '@/lib/containers'
 
 type Row = {
   stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string
   containersStr?: string
-  caliberStr?: CaliberValue   // steruje podpowiedzią liczby pojemników z kg
   slaughterDate?: string | null
   expiryDate?: string | null
   productionDate?: string | null
@@ -87,7 +85,6 @@ export function WzNewPage() {
   // nie N palet na każdą partię (pojemniki zostają na pozycjach).
   const [palletsH1, setPalletsH1]         = useState(0)
   const [palletsOther, setPalletsOther]   = useState(0)
-  const [palletsTouched, setPalletsTouched] = useState(false)
 
   // Odbiorca zajmował pół ekranu przez cały czas wystawiania, a wypełnia się
   // raz — po wybraniu klienta zwija się do jednej linii, żeby lista magazynu
@@ -95,6 +92,11 @@ export function WzNewPage() {
   const [buyerEdit, setBuyerEdit] = useState(false)
   const [preview, setPreview] = useState(false)
   const [saving, setSaving]   = useState(false)
+  // Druk na pojemniki wystawiany po WZ — kolumna „Zwrot" wychodzi PUSTA,
+  // odbiorca wpisuje ją długopisem, biuro uzupełnia po powrocie kierowcy.
+  const [contDoc, setContDoc] = useState<any>(null)
+  const [contBusy, setContBusy] = useState(false)
+  const [contErr, setContErr] = useState('')
   const [err, setErr]         = useState('')
   const [savedDoc, setSavedDoc] = useState<WzDoc | null>(null)
 
@@ -187,7 +189,6 @@ export function WzNewPage() {
     unit: 'kg', qtyStr: String(Number(b.kg_available || 0)), priceStr: '',
     // Pojemniki ZAPAMIĘTANE z ważenia na HMI — podpowiedź, można poprawić.
     containersStr: b.containers ? String(b.containers) : '',
-    caliberStr: '15',
     batchNo: b.internal_batch_no,
     slaughterDate: b.slaughter_date ?? null,
     expiryDate: b.expiry_date ?? null,
@@ -207,15 +208,10 @@ export function WzNewPage() {
   })
   const upd = (i: number, k: 'qtyStr' | 'priceStr' | 'containersStr', v: string) =>
     setRows(r => r.map((x, j) => j === i ? { ...x, [k]: v } : x))
-  /** Zmiana kalibru przelicza podpowiedź pojemników z kg tej pozycji.
-   *  Operator może ją potem nadpisać ręcznie — wpisana wartość zostaje
-   *  do następnej zmiany kalibru. */
-  const setCaliber = (i: number, v: CaliberValue) =>
-    setRows(rs => rs.map((r, j) => {
-      if (j !== i) return r
-      const auto = containersForKg(rowQty(r), caliberKg(v))
-      return { ...r, caliberStr: v, containersStr: auto === null ? '' : String(auto) }
-    }))
+  /** Jedna cena wpisana u góry trafia do WSZYSTKICH pozycji (kości idą po
+   *  tej samej stawce). Każdy wiersz da się potem poprawić osobno. */
+  const applyPriceToAll = (v: string) =>
+    setRows(rs => rs.map(r => ({ ...r, priceStr: v })))
   const del = (i: number) => setRows(r => r.filter((_, j) => j !== i))
 
   const q = query.trim().toLowerCase()
@@ -238,17 +234,11 @@ export function WzNewPage() {
   const rawFiltered = raw.filter(b =>
     !q || `${b.internal_batch_no || ''} ${b.supplier_name || ''} ${b.name || ''}`.toLowerCase().includes(q))
 
-  // Kości i grzbiety jadą na paletach policzonych już na wadze (kreator HMI
-  // zapisuje jedną pozycję na paletę). Podpowiadamy ich sumę, żeby operator
-  // nie liczył ich drugi raz — ale gdy ruszy pole, jego wartość jest nadrzędna.
-  const byproductPallets = useMemo(
-    () => rows.reduce((s, r) => s + (r.stockType === 'byproduct'
-      ? Number(raw.find(b => b.id === r.stockId)?.pallets ?? 0) : 0), 0),
-    [rows, raw])
-
-  useEffect(() => {
-    if (!palletsTouched) setPalletsH1(byproductPallets)
-  }, [byproductPallets, palletsTouched])
+  // Palety wpisuje operator — jako jedyny widzi samochód. Liczba palet
+  // WAŻENIA ubocznych (kreator HMI) to co innego niż palety w transporcie,
+  // więc świadomie nic tu nie podpowiadamy.
+  const totalContainers = useMemo(
+    () => rows.reduce((s, r) => s + (parseInt(r.containersStr || '') || 0), 0), [rows])
 
   const draftDoc: WzDocData = {
     number: savedDoc?.number,
@@ -348,6 +338,47 @@ export function WzNewPage() {
                 <Eye size={14} /> Podgląd
               </Button>
             </div>
+            {/* Druk na pojemniki — osobny papier, który kierowca wozi
+                do odbiorcy po wpisanie faktycznego zwrotu. */}
+            <div className="w-full mt-4 rounded border border-surface-4 bg-surface-2 p-3 text-left">
+              {contDoc ? (
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[12.5px]">
+                    Druk na pojemniki <b className="font-mono">{contDoc.number}</b> wystawiony —
+                    kolumna „Zwrot" jest pusta, wypełnia ją odbiorca.
+                  </div>
+                  <Button size="sm" className="gap-1.5"
+                    onClick={() => window.open(`/office/pojemniki/${contDoc.id}/druk`, '_blank')}>
+                    <Printer size={13} /> Drukuj
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-[12.5px] text-ink-2">
+                    Wystawić <b>druk na pojemniki</b> do tego WZ?
+                    <span className="block text-[11px] text-ink-4">
+                      {totalContainers} poj. · {palletsH1} pal. H1 · {palletsOther} pal. inne —
+                      zwrot wpiszesz po powrocie kierowcy.
+                    </span>
+                  </div>
+                  <Button size="sm" variant="outline" className="gap-1.5" disabled={contBusy}
+                    onClick={async () => {
+                      setContBusy(true); setContErr('')
+                      try {
+                        setContDoc(await containersApi.docFromWz({
+                          wzId: savedDoc.id, palletsH1, palletsOther,
+                        }))
+                      } catch (e: any) {
+                        setContErr(e?.message || 'Nie udało się wystawić druku')
+                      } finally { setContBusy(false) }
+                    }}>
+                    <Package size={13} /> {contBusy ? 'Wystawianie…' : 'Wystaw druk'}
+                  </Button>
+                </div>
+              )}
+              {contErr && <div className="mt-2 text-[12px] text-red-600">{contErr}</div>}
+            </div>
+
             <div className="flex gap-2 mt-1">
               <Button variant="ghost" size="sm" onClick={resetForm} className="gap-1.5">
                 <Plus size={13} /> Wystaw kolejny
@@ -581,7 +612,17 @@ export function WzNewPage() {
                   <TableHeader>
                     <TableRow>
                       {['Towar', 'Partia', 'Ilość', 'Pojemniki', 'Waga', ...(valued ? [`Cena/kg [${sym}]`, `Wartość [${sym}]`] : []), ''].map((h, i) => (
-                        <TableHead key={i} className="text-[9px] uppercase tracking-wider h-7 px-2">{h}</TableHead>
+                        <TableHead key={i} className="text-[9px] uppercase tracking-wider h-7 px-2">
+                          {h}
+                          {valued && h.startsWith('Cena') && (
+                            <Input
+                              type="text" inputMode="decimal" placeholder="wszystkim"
+                              title="Wpisz jedną cenę — trafi do wszystkich pozycji; każdą można potem poprawić"
+                              className="h-6 w-20 mt-1 font-mono text-[11px] normal-case"
+                              onFocus={e => e.target.select()}
+                              onChange={e => applyPriceToAll(sanitizeDecimal(e.target.value))} />
+                          )}
+                        </TableHead>
                       ))}
                     </TableRow>
                   </TableHeader>
@@ -614,22 +655,11 @@ export function WzNewPage() {
                             {r.stockType === 'fg' ? (
                               <span className="text-muted-foreground">—</span>
                             ) : (
-                              <div className="flex items-center gap-1">
-                                <select
-                                  value={r.caliberStr ?? '15'}
-                                  onChange={e => setCaliber(i, e.target.value as CaliberValue)}
-                                  title="Kaliber pojemnika — przelicza liczbę pojemników z kg"
-                                  className="h-8 rounded border border-surface-4 bg-surface px-1 text-[11px]">
-                                  {CALIBER_OPTIONS.map(o => (
-                                    <option key={o.value} value={o.value}>{o.label}</option>
-                                  ))}
-                                </select>
-                                <Input type="text" inputMode="numeric" placeholder="—"
-                                       value={r.containersStr ?? ''}
-                                       className="h-8 w-16 font-mono"
-                                       onFocus={e => e.target.select()}
-                                       onChange={e => upd(i, 'containersStr', sanitizeInt(e.target.value))} />
-                              </div>
+                              <Input type="text" inputMode="numeric" placeholder="—"
+                                     value={r.containersStr ?? ''}
+                                     className="h-8 w-16 font-mono"
+                                     onFocus={e => e.target.select()}
+                                     onChange={e => upd(i, 'containersStr', sanitizeInt(e.target.value))} />
                             )}
                           </TableCell>
                           <TableCell className="py-1.5 px-2 font-mono font-semibold whitespace-nowrap">
@@ -751,7 +781,6 @@ export function WzNewPage() {
                          value={String(palletsH1)}
                          onFocus={e => e.target.select()}
                          onChange={e => {
-                           setPalletsTouched(true)
                            setPalletsH1(parseInt(sanitizeInt(e.target.value) || '0') || 0)
                          }} />
                 </div>
@@ -761,7 +790,6 @@ export function WzNewPage() {
                          value={String(palletsOther)}
                          onFocus={e => e.target.select()}
                          onChange={e => {
-                           setPalletsTouched(true)
                            setPalletsOther(parseInt(sanitizeInt(e.target.value) || '0') || 0)
                          }} />
                 </div>

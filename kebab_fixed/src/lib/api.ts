@@ -1808,6 +1808,16 @@ export const containersApi = {
   }) => post<ContainerDoc>('/containers/docs', body),
   cancelDoc: (id: string) =>
     patch<ContainerDoc>(`/containers/docs/${encodeURIComponent(id)}/cancel`, {}),
+  // Druk na pojemniki wprost z WZ towaru — kolumna „Zwrot" wychodzi PUSTA,
+  // wypełnia ją odbiorca długopisem.
+  docFromWz: (body: {
+    wzId: string; driver?: string; vehicle?: string
+    palletsH1?: number; palletsOther?: number; notes?: string
+  }) => post<ContainerDoc>('/containers/docs/from-wz', body),
+  // Zwrot wpisany po powrocie kierowcy. Zamyka dokument także przy zwrocie
+  // częściowym — reszta zostaje na saldzie.
+  settleDoc: (id: string, returns: Partial<Record<ContainerAsset, number>>) =>
+    patch<ContainerDoc>(`/containers/docs/${encodeURIComponent(id)}/settle`, { returns }),
   statement: (partnerId: string, from: string, to: string) =>
     get<ContainerStatement>(
       `/containers/statement?partnerId=${encodeURIComponent(partnerId)}&from=${from}&to=${to}`),

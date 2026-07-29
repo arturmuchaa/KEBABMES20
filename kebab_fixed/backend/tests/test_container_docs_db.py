@@ -4,7 +4,7 @@ from fastapi import HTTPException
 
 from app.db import execute, query_one, transaction
 from app.services.container_docs_service import (
-    cancel_doc, create_doc, get_doc, list_docs, partner_deliveries,
+    cancel_doc, create_doc, get_doc, list_docs, partner_deliveries, settle_doc,
 )
 from app.services.container_ledger_service import book_assets, partner_balance_cx
 from app.utils.ids import cuid, now_iso
@@ -188,3 +188,88 @@ def test_lista_dostaw_do_rozliczenia(db):
                lines=_lines(e2_in=600, e2_out=600, h1_in=13, h1_out=13))
     r1b = next(r for r in partner_deliveries(pid) if r["sourceId"] == "rb1")
     assert r1b["settled"] is True, "dostawa z wystawionym dokumentem jest oznaczona"
+
+
+# ── Dwufazowy zwrot: druk z pustą kolumną, zwrot wpisany po powrocie ──
+# Odbiorca (WZ) to LUSTRO dostawcy (przyjęcie): nasze pojemniki jadą do
+# niego (−225), więc jego zwrot ma znak DODATNI. Znak zwrotu jest zawsze
+# przeciwny do tego, co zaksięgowało źródło.
+def _wz_out(pid, source_id="wz1", e2=225, h1=7):
+    with transaction() as conn:
+        book_assets(conn, partner_id=pid, source_type="wz", source_id=source_id,
+                    targets={"e2": -e2, "pallet_h1": -h1}, movement_date="2026-07-29",
+                    note="WZ WZ/41/07/26")
+
+
+def test_druk_dla_odbiorcy_ma_pusta_kolumne_zwrotu(db):
+    pid = _partner()
+    _wz_out(pid)                                  # saldo: -225 / -7
+    doc = create_doc(partner_id=pid, doc_date="2026-07-29",
+                     linked_source_type="wz", linked_source_id="wz1",
+                     pending_return=True,
+                     lines=_lines(e2_in=225, h1_in=7))
+    assert doc["status"] == "oczekuje"
+    e2 = next(l for l in doc["lines"] if l["assetType"] == "e2")
+    assert (e2["inQty"], e2["outQty"]) == (225, 0), "zwrot pusty — wypełnia go odbiorca"
+    with transaction() as conn:  # samo wystawienie druku nie rusza salda
+        assert partner_balance_cx(conn, pid) == {"e2": -225, "pallet_h1": -7, "pallet_other": 0}
+
+
+def test_zwrot_odbiorcy_ma_znak_DODATNI(db):
+    pid = _partner()
+    _wz_out(pid)
+    doc = create_doc(partner_id=pid, doc_date="2026-07-29",
+                     linked_source_type="wz", linked_source_id="wz1",
+                     pending_return=True, lines=_lines(e2_in=225, h1_in=7))
+    settle_doc(doc["id"], {"e2": 225, "pallet_h1": 7})
+    with transaction() as conn:
+        # oddali wszystko → saldo zeruje się (a NIE schodzi do -450)
+        assert partner_balance_cx(conn, pid) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
+
+
+def test_zwrot_czesciowy_zamyka_dokument_reszta_na_saldzie(db):
+    pid = _partner()
+    _wz_out(pid)
+    doc = create_doc(partner_id=pid, doc_date="2026-07-29",
+                     linked_source_type="wz", linked_source_id="wz1",
+                     pending_return=True, lines=_lines(e2_in=225, h1_in=7))
+    after = settle_doc(doc["id"], {"e2": 100, "pallet_h1": 7})
+    assert after["status"] == "rozliczony"
+    with transaction() as conn:
+        assert partner_balance_cx(conn, pid)["e2"] == -125, "reszta zostaje na saldzie"
+
+
+def test_zwrot_zerowy_tez_zamyka_dokument(db):
+    pid = _partner()
+    _wz_out(pid)
+    doc = create_doc(partner_id=pid, doc_date="2026-07-29",
+                     linked_source_type="wz", linked_source_id="wz1",
+                     pending_return=True, lines=_lines(e2_in=225, h1_in=7))
+    after = settle_doc(doc["id"], {"e2": 0, "pallet_h1": 0})
+    assert after["status"] == "rozliczony"
+    with transaction() as conn:
+        assert partner_balance_cx(conn, pid)["e2"] == -225, "nic nie oddali — saldo bez zmian"
+
+
+def test_zwrot_u_DOSTAWCY_ma_znak_UJEMNY(db):
+    """Lustro: dostawa przyjęciem (+600), więc zwrot musi odejmować."""
+    pid = _partner()
+    _delivery(pid, "rb1", e2=600, h1=13)
+    doc = create_doc(partner_id=pid, doc_date="2026-07-30",
+                     linked_source_type="raw_batch", linked_source_id="rb1",
+                     pending_return=True, lines=_lines(e2_in=600, h1_in=13))
+    settle_doc(doc["id"], {"e2": 600, "pallet_h1": 13})
+    with transaction() as conn:
+        assert partner_balance_cx(conn, pid) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
+
+
+def test_nie_da_sie_rozliczyc_dwa_razy(db):
+    pid = _partner()
+    _wz_out(pid)
+    doc = create_doc(partner_id=pid, doc_date="2026-07-29",
+                     linked_source_type="wz", linked_source_id="wz1",
+                     pending_return=True, lines=_lines(e2_in=225, h1_in=7))
+    settle_doc(doc["id"], {"e2": 225})
+    with pytest.raises(HTTPException) as e:
+        settle_doc(doc["id"], {"e2": 225})
+    assert e.value.status_code == 409

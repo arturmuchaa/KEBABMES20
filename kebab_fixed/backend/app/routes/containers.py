@@ -3,6 +3,8 @@ from fastapi import APIRouter, Query
 
 from app.models.containers import (
     ContainerDocCreate,
+    ContainerDocFromWz,
+    ContainerSettle,
     ContainerGroupCorrect,
     ContainerMovementCreate,
 )
@@ -93,6 +95,21 @@ def get_doc(doc_id: str):
 @router.patch("/docs/{doc_id}/cancel")
 def cancel_doc(doc_id: str):
     return docs.cancel_doc(doc_id)
+
+
+@router.patch("/docs/{doc_id}/settle")
+def settle_doc(doc_id: str, dto: ContainerSettle):
+    """Zwrot wpisany po powrocie kierowcy. Zamyka dokument także przy
+    zwrocie częściowym — reszta zostaje na saldzie."""
+    return docs.settle_doc(doc_id, dto.returns)
+
+
+@router.post("/docs/from-wz")
+def create_doc_from_wz(dto: ContainerDocFromWz):
+    """Druk na pojemniki wystawiony wprost z WZ towaru (pusta kolumna zwrotu)."""
+    return docs.create_doc_from_wz(
+        wz_id=dto.wz_id, driver=dto.driver, vehicle=dto.vehicle,
+        pallets_h1=dto.pallets_h1, pallets_other=dto.pallets_other, notes=dto.notes)
 
 
 @router.get("/partners/{partner_id}/deliveries")

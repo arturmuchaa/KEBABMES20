@@ -4,6 +4,7 @@ from fastapi import HTTPException
 
 from app.db import execute, query_all, query_one, transaction
 from app.services.container_ledger_service import (
+    movements,
     balances,
     book_assets,
     book_target,
@@ -183,3 +184,21 @@ def test_statement_saldo_otwarcia_plus_ruchy_rowna_sie_zamknieciu(db):
     assert st["closing"]["e2"] == 150
     assert len(st["movements"]) == 2
     assert [m["balanceAfter"]["e2"] for m in st["movements"]] == [500, 150]
+
+
+def test_odwrocone_zrodlo_znika_z_historii_ale_zostaje_w_bazie(db):
+    """Anulowany WZ zostawia parę −225/+225. Do salda nie wnosi nic, więc
+    kartoteka jej nie pokazuje — ale wiersze ZOSTAJĄ (ślad audytowy)."""
+    pid = _partner()
+    with transaction() as conn:
+        book_assets(conn, partner_id=pid, source_type="wz", source_id="wz1",
+                    targets={"e2": -225}, movement_date="2026-07-29")
+        book_assets(conn, partner_id=pid, source_type="wz", source_id="wz1",
+                    targets={}, movement_date="2026-07-29")          # anulowanie
+        book_assets(conn, partner_id=pid, source_type="raw_batch", source_id="rb1",
+                    targets={"e2": 100}, movement_date="2026-07-30")  # żywy ruch
+    widoczne = movements(pid)
+    assert [m["qty"] for m in widoczne] == [100], "para z anulowanego WZ ukryta"
+    wszystkie = movements(pid, include_reversed=True)
+    assert sorted(m["qty"] for m in wszystkie) == [-225, 100, 225]
+    assert query_one("SELECT COUNT(*) AS n FROM container_movements")["n"] == 3
