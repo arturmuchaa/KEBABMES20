@@ -4,7 +4,8 @@ from fastapi import HTTPException
 
 from app.db import execute, query_one, transaction
 from app.services.container_docs_service import (
-    cancel_doc, create_doc, get_doc, list_docs, partner_deliveries, settle_doc,
+    cancel_doc, create_doc, create_doc_from_wz, get_doc, list_docs,
+    partner_deliveries, settle_doc,
 )
 from app.services.container_ledger_service import book_assets, partner_balance_cx
 from app.utils.ids import cuid, now_iso
@@ -273,3 +274,64 @@ def test_nie_da_sie_rozliczyc_dwa_razy(db):
     with pytest.raises(HTTPException) as e:
         settle_doc(doc["id"], {"e2": 225})
     assert e.value.status_code == 409
+
+
+# ── Anulowanie WZ musi domknąć powiązany druk pojemnikowy ────────────
+def test_anulowanie_WZ_anuluje_czekajacy_druk_pojemnikow(db):
+    """Druk wisiał ze statusem „czeka na zwrot" mimo anulowanego WZ —
+    kierowca nie ma czego oddawać, bo towar nie wyjechał."""
+    from app.services.wz_service import cancel_wz, create_manual_wz
+    execute("INSERT INTO raw_batches (id,internal_batch_no,supplier_name,kg_received,"
+            "kg_available,status,material_type_id,material_name,created_at) VALUES "
+            "('rbW','900','KOKO',3000,3000,'active','mat-cwiartka','Ćwiartka',%s)", (now_iso(),))
+    buyer = {"name": "GRASO SP. Z O.O.", "address": "Gdańsk", "nip": "6443579858"}
+    wz = create_manual_wz(buyer=buyer, selections=[{
+        "stock_type": "raw", "stock_id": "rbW", "name": "Ćwiartka", "unit": "kg",
+        "qty": 3000.0, "price": 1.0, "batch_no": "900", "containers": 225}],
+        valued=True, pallets_h1=7)
+    doc = create_doc_from_wz(wz_id=wz["id"], pallets_h1=7)
+    assert doc["status"] == "oczekuje"
+
+    cancel_wz(wz["id"])
+    assert get_doc(doc["id"])["status"] == "anulowany", "druk nie może wisieć po anulowanym WZ"
+    pid = get_doc(doc["id"])["partnerId"]
+    with transaction() as conn:
+        assert partner_balance_cx(conn, pid) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
+
+
+def test_anulowanie_WZ_cofa_takze_JUZ_wpisany_zwrot(db):
+    from app.services.wz_service import cancel_wz, create_manual_wz
+    execute("INSERT INTO raw_batches (id,internal_batch_no,supplier_name,kg_received,"
+            "kg_available,status,material_type_id,material_name,created_at) VALUES "
+            "('rbW2','901','KOKO',3000,3000,'active','mat-cwiartka','Ćwiartka',%s)", (now_iso(),))
+    buyer = {"name": "GRASO SP. Z O.O.", "address": "Gdańsk", "nip": "6443579858"}
+    wz = create_manual_wz(buyer=buyer, selections=[{
+        "stock_type": "raw", "stock_id": "rbW2", "name": "Ćwiartka", "unit": "kg",
+        "qty": 3000.0, "price": 1.0, "batch_no": "901", "containers": 225}], valued=True)
+    doc = create_doc_from_wz(wz_id=wz["id"])
+    settle_doc(doc["id"], {"e2": 225})
+    cancel_wz(wz["id"])
+    pid = get_doc(doc["id"])["partnerId"]
+    with transaction() as conn:
+        assert partner_balance_cx(conn, pid)["e2"] == 0
+
+
+# ── Druk pojemnikowy da się wystawić PÓŹNIEJ, nie tylko przy WZ ──────
+def test_wydane_WZ_widac_w_liscie_do_powiazania(db):
+    pid = _partner()
+    _wz_out(pid, "wz1", e2=225, h1=7)
+    rows = partner_deliveries(pid)
+    wz = next(r for r in rows if r["sourceType"] == "wz")
+    assert wz["assets"] == {"e2": 225, "pallet_h1": 7, "pallet_other": 0}, \
+        "w pickerze pokazujemy ILOŚCI, nie znak księgowy"
+    assert wz["direction"] == "out"
+    assert wz["settled"] is False
+
+
+def test_picker_laczy_dostawy_i_wydania(db):
+    pid = _partner()
+    _delivery(pid, "rb1", e2=600, h1=13)
+    _wz_out(pid, "wz1", e2=225, h1=7)
+    rows = partner_deliveries(pid)
+    assert {r["sourceType"] for r in rows} == {"raw_batch", "wz"}
+    assert next(r for r in rows if r["sourceType"] == "raw_batch")["direction"] == "in"

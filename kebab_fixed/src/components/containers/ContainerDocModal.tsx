@@ -35,6 +35,9 @@ export function ContainerDocModal({ partnerId, balance, onClose, onSaved }: Prop
   const [outQ, setOutQ] = useState<Qty>(emptyQty)
   const [deliveries, setDeliveries] = useState<ContainerDelivery[]>([])
   const [linkedId, setLinkedId] = useState('')
+  // Druk z pustą kolumną zwrotu: kontrahent wpisuje ją długopisem, my
+  // uzupełniamy po powrocie kierowcy. Domyślny dla WYDAŃ (WZ towaru).
+  const [pending, setPending] = useState(false)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
@@ -51,23 +54,29 @@ export function ContainerDocModal({ partnerId, balance, onClose, onSaved }: Prop
   const pickDelivery = (id: string) => {
     setLinkedId(id)
     const d = deliveries.find(x => x.sourceId === id)
-    if (!d) { setInQ(emptyQty()); return }
+    if (!d) { setInQ(emptyQty()); setOutQ(emptyQty()); setPending(false); return }
     setInQ(Object.fromEntries(
       ASSET_TYPES.map(a => [a, String(d.assets[a] || 0)])) as Qty)
-    setOutQ(Object.fromEntries(
+    // Wydanie (WZ) → kontrahent dopiero odda, więc domyślnie pusty zwrot.
+    // Dostawa (przyjęcie) → zwykle oddajemy od razu tyle, ile przyjechało.
+    const isOut = d.direction === 'out'
+    setPending(isOut)
+    setOutQ(isOut ? emptyQty() : Object.fromEntries(
       ASSET_TYPES.map(a => [a, String(d.assets[a] || 0)])) as Qty)
   }
 
-  // Przy powiązanej dostawie kolumna „Dostawa/odbiór" NIE księguje —
-  // te nośniki wniosło już przyjęcie surowca. Podgląd salda musi to
-  // odwzorować, inaczej pokazywałby wynik inny niż faktyczny zapis.
+  // Przy powiązanym źródle kolumna „Dostawa/odbiór" NIE księguje — te
+  // nośniki wniosło już przyjęcie albo WZ. Znak zwrotu jest przeciwny do
+  // kierunku źródła: wydanie oddają NAM (+), dostawę oddajemy MY (−).
+  const retSign = linked?.direction === 'out' ? 1 : -1
   const preview = useMemo(
     () => Object.fromEntries(
       ASSET_TYPES.map(a => [
-        a, (balance[a] ?? 0) + (linked ? 0 : n(inQ[a])) - n(outQ[a]),
+        a, (balance[a] ?? 0) + (linked ? 0 : n(inQ[a])) +
+           (pending ? 0 : retSign * n(outQ[a])),
       ]),
     ) as Record<ContainerAsset, number>,
-    [balance, inQ, outQ, linked])
+    [balance, inQ, outQ, linked, pending, retSign])
 
   const anyQty = ASSET_TYPES.some(a => n(inQ[a]) || n(outQ[a]))
 
@@ -75,7 +84,7 @@ export function ContainerDocModal({ partnerId, balance, onClose, onSaved }: Prop
     setSaving(true); setErr('')
     try {
       await containersApi.createDoc({
-        partnerId, docDate, driver, vehicle, notes,
+        partnerId, docDate, driver, vehicle, notes, pendingReturn: pending,
         ...(linked ? { linkedSourceType: linked.sourceType, linkedSourceId: linked.sourceId } : {}),
         lines: ASSET_TYPES.map(a => ({ assetType: a, inQty: n(inQ[a]), outQty: n(outQ[a]) })),
       })
@@ -126,19 +135,34 @@ export function ContainerDocModal({ partnerId, balance, onClose, onSaved }: Prop
               className="w-full h-9 rounded border border-surface-4 bg-surface px-2 text-[13px]">
               <option value="">— bez powiązania (sam zwrot lub nośniki spoza dostawy) —</option>
               {deliveries.map(d => (
-                <option key={d.sourceId} value={d.sourceId}>
-                  {d.date} · {d.label} · {d.assets.e2} poj. / {d.assets.pallet_h1} pal. H1
-                  {d.settled ? ' · rozliczona' : ''}
+                <option key={`${d.sourceType}:${d.sourceId}`} value={d.sourceId}>
+                  {d.date} · {d.direction === 'out' ? 'WYDANIE' : 'DOSTAWA'} · {d.label} ·
+                  {' '}{d.assets.e2} poj. / {d.assets.pallet_h1} pal. H1
+                  {d.settled ? ' · ma już druk' : ''}
                 </option>
               ))}
             </select>
             {linked && (
               <span className="block text-[11px] text-ink-4">
-                Kolumna „Dostawa / odbiór" pochodzi z tej dostawy i jest tylko zapisem na
-                druku — te nośniki weszły już na saldo przy przyjęciu. Księgowany jest sam zwrot.
+                Kolumna „Dostawa / odbiór" pochodzi z tego {linked.direction === 'out'
+                  ? 'wydania' : 'przyjęcia'} i jest tylko zapisem na druku — te nośniki
+                są już na saldzie. Księgowany jest sam zwrot.
               </span>
             )}
           </label>
+
+          {linked && (
+            <label className="flex items-start gap-2 text-[12.5px] text-ink-2">
+              <input type="checkbox" checked={pending} className="mt-0.5"
+                onChange={e => { setPending(e.target.checked); if (e.target.checked) setOutQ(emptyQty()) }} />
+              <span>
+                Druk z <b>pustą kolumną zwrotu</b> — kontrahent wpisze ją długopisem
+                <span className="block text-[11px] text-ink-4">
+                  Zwrot uzupełnisz w kartotece po powrocie kierowcy („Wpisz zwrot").
+                </span>
+              </span>
+            </label>
+          )}
 
           <table className="w-full">
             <thead>
@@ -162,7 +186,11 @@ export function ContainerDocModal({ partnerId, balance, onClose, onSaved }: Prop
                       </span>
                     ) : qtyInput(inQ[a], v => setInQ(q => ({ ...q, [a]: v })))}
                   </td>
-                  <td className="py-1.5 text-right">{qtyInput(outQ[a], v => setOutQ(q => ({ ...q, [a]: v })))}</td>
+                  <td className="py-1.5 text-right">
+                    {pending
+                      ? <span className="inline-block w-24 pr-2 text-[12px] text-ink-4">do wpisania</span>
+                      : qtyInput(outQ[a], v => setOutQ(q => ({ ...q, [a]: v })))}
+                  </td>
                   <td className={`py-2 text-right text-[15px] font-black tabular-nums ${TONE_CLS[balanceTone(preview[a])]}`}>
                     {preview[a] > 0 ? `+${preview[a]}` : preview[a]}
                   </td>

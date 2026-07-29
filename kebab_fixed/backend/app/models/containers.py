@@ -30,6 +30,9 @@ class ContainerDocCreate(BaseModel):
     # REFERENCJĄ na druku — nośniki zaksięgowało już przyjęcie surowca.
     linked_source_type: str = Field("", alias="linkedSourceType")
     linked_source_id: str = Field("", alias="linkedSourceId")
+    # Druk z PUSTĄ kolumną zwrotu — wypełnia ją kontrahent, my wpisujemy
+    # faktyczną liczbę po powrocie kierowcy (settle_doc).
+    pending_return: bool = Field(False, alias="pendingReturn")
 
 
 class ContainerGroupCorrect(BaseModel):

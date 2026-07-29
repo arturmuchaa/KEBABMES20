@@ -316,6 +316,22 @@ def settle_doc(
     return get_doc(doc_id)
 
 
+def cancel_docs_for_source(source_type: str, source_id: str) -> int:
+    """Anuluje druki pojemnikowe powiązane ze źródłem (np. anulowanym WZ).
+
+    Bez tego druk wisiał ze statusem „czeka na zwrot" mimo że towar nigdy
+    nie wyjechał — kierowca nie ma czego oddawać. Anulowanie cofa też
+    ewentualnie wpisany już zwrot (cancel_doc zeruje ruchy dokumentu).
+    """
+    rows = query_all(
+        "SELECT id FROM container_docs "
+        "WHERE linked_source_type=%s AND linked_source_id=%s AND status <> 'anulowany'",
+        (source_type, source_id))
+    for r in rows:
+        cancel_doc(r["id"])
+    return len(rows)
+
+
 def partner_deliveries(partner_id: str) -> List[Dict[str, Any]]:
     """Dostawy tego kontrahenta do wskazania na dokumencie pojemnikowym.
 
@@ -325,7 +341,7 @@ def partner_deliveries(partner_id: str) -> List[Dict[str, Any]]:
     tylko oznaczamy w UI.
     """
     rows = query_all(
-        """SELECT m.source_id,
+        """SELECT m.source_type, m.source_id,
                   MIN(m.movement_date) AS first_date,
                   MIN(m.note)          AS note,
                   COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='e2'),0)           AS e2,
@@ -335,19 +351,29 @@ def partner_deliveries(partner_id: str) -> List[Dict[str, Any]]:
                            WHERE d.linked_source_id = m.source_id
                              AND d.status <> 'anulowany')                           AS settled
              FROM container_movements m
-            WHERE m.partner_id = %s AND m.source_type = 'raw_batch'
-            GROUP BY m.source_id
+            WHERE m.partner_id = %s AND m.source_type IN ('raw_batch','wz')
+            GROUP BY m.source_type, m.source_id
+           HAVING SUM(ABS(m.qty)) > 0
             ORDER BY MIN(m.movement_date) DESC""",
         (partner_id,))
-    return [{
-        "sourceType": "raw_batch",
-        "sourceId": r["source_id"] or "",
-        "date": str(r["first_date"])[:10],
-        "label": r["note"] or "Przyjęcie surowca",
-        "settled": bool(r["settled"]),
-        "assets": {"e2": int(r["e2"]), "pallet_h1": int(r["pallet_h1"]),
-                   "pallet_other": int(r["pallet_other"])},
-    } for r in rows]
+    out = []
+    for r in rows:
+        e2, h1, other = int(r["e2"]), int(r["pallet_h1"]), int(r["pallet_other"])
+        total = e2 + h1 + other
+        # Kierunek bierzemy ze ZNAKU księgowania; w pickerze pokazujemy same
+        # ilości, bo operator myśli „225 pojemników", nie „−225".
+        direction = "out" if total < 0 else "in"
+        out.append({
+            "sourceType": r["source_type"],
+            "sourceId": r["source_id"] or "",
+            "date": str(r["first_date"])[:10],
+            "label": r["note"] or ("WZ towaru" if r["source_type"] == "wz"
+                                   else "Przyjęcie surowca"),
+            "direction": direction,
+            "settled": bool(r["settled"]),
+            "assets": {"e2": abs(e2), "pallet_h1": abs(h1), "pallet_other": abs(other)},
+        })
+    return out
 
 
 def cancel_doc(doc_id: str) -> Dict[str, Any]:

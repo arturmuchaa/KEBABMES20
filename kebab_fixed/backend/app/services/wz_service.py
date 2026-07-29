@@ -715,6 +715,10 @@ def cancel_wz(wz_id: str) -> Dict[str, Any]:
         cx_execute(conn, "UPDATE wz_documents SET status='anulowany' WHERE id=%s", (wz_id,))
         # Nośniki wracają na saldo odbiorcy — dokument już nic nie wydaje.
         _rebook_wz_containers(conn, wz_id, zero=True)
+    # Druk pojemnikowy tego WZ nie ma już czego dotyczyć — poza transakcją,
+    # bo cancel_doc otwiera własną (import lokalny: unika cyklu przy starcie).
+    from app.services.container_docs_service import cancel_docs_for_source
+    cancel_docs_for_source("wz", wz_id)
     logger.info("wz.cancelled", extra={"wz_id": wz_id})
     return get_wz(wz_id)
 
