@@ -1,5 +1,5 @@
 """DTO salda pojemników. Front wysyła camelCase, backend trzyma snake_case."""
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -72,6 +72,8 @@ class ContainerDocFromWz(BaseModel):
     wz_id: str = Field(..., alias="wzId", min_length=1)
     driver: str = ""
     vehicle: str = ""
+    # None = weź sumę z pozycji WZ (ważenia); liczba = korekta operatora.
+    containers: Optional[int] = Field(None, ge=0)
     pallets_h1: int = Field(0, alias="palletsH1", ge=0)
     pallets_other: int = Field(0, alias="palletsOther", ge=0)
     notes: str = ""

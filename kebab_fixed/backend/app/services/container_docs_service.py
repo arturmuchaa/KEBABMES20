@@ -209,6 +209,7 @@ def list_docs(partner_id: str = "") -> List[Dict[str, Any]]:
 
 def create_doc_from_wz(
     *, wz_id: str, driver: str = "", vehicle: str = "",
+    containers: Optional[int] = None,
     pallets_h1: int = 0, pallets_other: int = 0, notes: str = "",
     created_by: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -230,12 +231,17 @@ def create_doc_from_wz(
     lines = wz["lines"]
     if not isinstance(lines, list):
         lines = json.loads(lines or "[]")
-    e2 = 0
-    for line in lines:
-        try:
-            e2 += int(line.get("containers") or 0)
-        except (TypeError, ValueError):
-            continue
+    # Domyślnie suma pojemników z ważeń (pozycje WZ); operator mógł ją
+    # poprawić w formularzu, bo tylko on widzi, co faktycznie wjechało na auto.
+    if containers is not None:
+        e2 = int(containers)
+    else:
+        e2 = 0
+        for line in lines:
+            try:
+                e2 += int(line.get("containers") or 0)
+            except (TypeError, ValueError):
+                continue
     if not (e2 or pallets_h1 or pallets_other):
         raise HTTPException(400, "To WZ nie ma pojemników ani palet do rozliczenia")
 

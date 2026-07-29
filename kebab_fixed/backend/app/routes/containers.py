@@ -109,6 +109,7 @@ def create_doc_from_wz(dto: ContainerDocFromWz):
     """Druk na pojemniki wystawiony wprost z WZ towaru (pusta kolumna zwrotu)."""
     return docs.create_doc_from_wz(
         wz_id=dto.wz_id, driver=dto.driver, vehicle=dto.vehicle,
+        containers=dto.containers,
         pallets_h1=dto.pallets_h1, pallets_other=dto.pallets_other, notes=dto.notes)
 
 
