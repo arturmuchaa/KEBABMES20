@@ -2106,6 +2106,14 @@ def change_deboning_entry_batch(entry_id: str, new_raw_batch_id: str) -> Dict:
             (new_raw_batch_id, new_batch_no, entry_id),
         )
 
+    # Przeniesienie wpisu zmienia stan OBU partii: docelowa może się wyczerpać
+    # i wtedy musi dostać kafel ważenia ubocznych — tak jak przy ostatnim
+    # pobraniu z HMI. Bez tego partia znikała z obu list: nieaktywna (0 kg)
+    # i bez finished_at (prod 2026-07-30, partia 444).
+    for _bid in (new_raw_batch_id, old_batch_id):
+        _left = query_one("SELECT kg_available FROM raw_batches WHERE id=%s", (_bid,))
+        _auto_finish_exhausted(_bid, _left.get("kg_available") if _left else None)
+
     logger.info(
         "deboning.entry.batch_changed",
         extra={
@@ -2265,9 +2273,16 @@ def correct_deboning_entry(
             (cuid(), entry_id, by_subject or "", reason,
              json.dumps(changes, ensure_ascii=False)),
         )
+    # Korekta potrafi zbić kg_available do zera — wtedy partia musi dostać
+    # kafel ważenia ubocznych, tak samo jak przy ostatnim pobraniu z HMI.
+    # Bez tego znikała z obu list: nieaktywna (0 kg) i bez finished_at
+    # (prod 2026-07-30, partia 444).
+    left = query_one("SELECT kg_available FROM raw_batches WHERE id=%s",
+                     (entry.get("raw_batch_id"),))
+    _auto_finish_exhausted(entry.get("raw_batch_id"),
+                           left.get("kg_available") if left else None)
     logger.info("deboning.entry.corrected", extra={"entry_id": entry_id})
     return _map_deboning_entry(row)
-
 
 def list_entry_corrections(entry_id: str) -> List[Dict]:
     """Historia korekt wpisu — biuro widzi kto, kiedy, co na co i dlaczego."""
