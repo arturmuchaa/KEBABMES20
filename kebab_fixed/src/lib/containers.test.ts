@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { ASSET_LABELS, CALIBER_OPTIONS, caliberKg, containersForKg } from './containers'
+import {
+  ASSET_LABELS, ASSET_SHORT, ASSET_TYPES, CALIBER_OPTIONS, OTHER_CARRIER_KINDS,
+  caliberKg, containersForKg,
+} from './containers'
 
 describe('containersForKg', () => {
   it('dzieli bez reszty', () => {
@@ -44,6 +47,20 @@ describe('słowniki', () => {
   it('etykiety nośników zgodne z drukiem', () => {
     expect(ASSET_LABELS.e2).toBe('Ilość pojemników EURO2')
     expect(ASSET_LABELS.pallet_h1).toBe('Ilość palet H1')
+    expect(ASSET_LABELS.net_e1).toBe('Ilość siatek E1')
     expect(ASSET_LABELS.pallet_other).toBe('Ilość palet innych')
+  })
+
+  it('lista innych opakowań w kolejności podanej przez zakład', () => {
+    expect(OTHER_CARRIER_KINDS.map(k => k.value))
+      .toEqual(['net_e1', 'pallet_plastic', 'pallet_euro', 'pallet_wood'])
+    expect(OTHER_CARRIER_KINDS[0].label).toBe('Siatka E1')
+  })
+
+  it('każdy typ ma obie etykiety', () => {
+    for (const a of ASSET_TYPES) {
+      expect(ASSET_LABELS[a]).toBeTruthy()
+      expect(ASSET_SHORT[a]).toBeTruthy()
+    }
   })
 })

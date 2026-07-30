@@ -5,6 +5,14 @@ from app.services.container_partners_service import resolve_partner, resolve_par
 from app.services.wz_service import cancel_wz, create_manual_wz, stock_raw, update_wz_lines
 from app.utils.ids import now_iso
 
+
+def _bal(d, *keys):
+    """Saldo zawężone do sprawdzanych nośników — od 2026-07-30 rodzajów jest
+    siedem (siatka E1, europaleta…), więc porównywanie całego słownika
+    psułoby testy przy każdym dodaniu rodzaju."""
+    return {k: d[k] for k in (keys or ("e2", "pallet_h1", "pallet_other"))}
+
+
 BUYER = {"name": "ODBIORCA SP. Z O.O.", "address": "Kraków", "nip": "1111111111"}
 
 
@@ -35,7 +43,7 @@ def test_wz_zdejmuje_nosniki_ze_znakiem_ujemnym(db):
     _seed_raw_batch()
     _wz(containers=20, h1=2)
     with transaction() as conn:
-        assert partner_balance_cx(conn, _partner()) == {
+        assert _bal(partner_balance_cx(conn, _partner())) == {
             "e2": -20, "pallet_h1": -2, "pallet_other": 0}
 
 
@@ -55,7 +63,7 @@ def test_anulowanie_wz_zwraca_nosniki_na_saldo(db):
     doc = _wz(containers=20, h1=2)
     cancel_wz(doc["id"])
     with transaction() as conn:
-        assert partner_balance_cx(conn, _partner()) == {
+        assert _bal(partner_balance_cx(conn, _partner())) == {
             "e2": 0, "pallet_h1": 0, "pallet_other": 0}
 
 

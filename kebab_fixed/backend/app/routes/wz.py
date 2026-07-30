@@ -105,6 +105,7 @@ def manual(body: dict):
         # None = brak wpisu (weź sumę z pozycji); 0 to ŚWIADOME zero.
         containers_total=(None if body.get("containersTotal") is None
                           else int(body["containersTotal"])),
+        pallets_other_kind=body.get("palletsOtherKind") or None,
     )
 
 

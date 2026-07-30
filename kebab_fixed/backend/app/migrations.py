@@ -877,6 +877,16 @@ _DDL: list[str] = [
     # kebab na jego zlecenie. Osobna seria numerów (48U, 49U…), bo towar jest
     # cudzy — mimo że leży w tym samym magazynie i normalnie się go masuje.
     "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS is_service BOOLEAN NOT NULL DEFAULT false",
+    # Rodzaje nośników rozbite na osobne salda (siatka E1, europaleta,
+    # plastik, drewno) — siatki nie zwraca się europaletą. CHECK musi je
+    # znać, inaczej każdy taki ruch padłby na CheckViolation.
+    "ALTER TABLE container_movements DROP CONSTRAINT IF EXISTS container_movements_asset_ck",
+    "ALTER TABLE container_movements ADD CONSTRAINT container_movements_asset_ck "
+    "CHECK (asset_type = ANY (ARRAY['e2','net_e1','pallet_h1','pallet_euro',"
+    "'pallet_plastic','pallet_wood','pallet_other']))",
+    # Rodzaj wybrany w polu „inne opakowania / palety" na przyjęciu i WZ.
+    "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS pallets_other_kind TEXT",
+    "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS pallets_other_kind TEXT",
     # Pierwszy numer usługowy ma być 48U — sekwencja startuje z 47.
     "INSERT INTO sequences (key, value) VALUES ('service_batch_seq', 47) "
     "ON CONFLICT (key) DO NOTHING",

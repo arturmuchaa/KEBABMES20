@@ -6,7 +6,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { fmtPln, fmtKg } from '@/lib/utils'
 import { Plus, Package, Edit2, Check, X, Link2 } from 'lucide-react'
 import {
-  CALIBER_OPTIONS, caliberKg, caliberValue, containersForKg, type CaliberValue,
+  CALIBER_OPTIONS, OTHER_CARRIER_KINDS, caliberKg, caliberValue, containersForKg,
+  type CaliberValue,
 } from '@/lib/containers'
 import type { CreateRawBatchDto, SupplierBatchItem } from '@/features/raw-batches/types'
 
@@ -378,14 +379,28 @@ export function CreateRawBatchModal({
                 className="tabular-nums"
               />
             </div>
+            {/* Inne opakowania: rodzaj z listy ma WŁASNE saldo — siatki E1
+                nie zwraca się europaletą, więc nie wolno ich sumować. */}
             <div className="space-y-1.5">
-              <Label>Palety inne</Label>
-              <Input
-                type="number" min="0" step="1"
-                value={form.palletsOther ?? 0}
-                onChange={e => onFieldChange('palletsOther', parseInt(e.target.value) || 0)}
-                className="tabular-nums"
-              />
+              <Label>Inne opakowania / palety</Label>
+              <div className="flex gap-1.5">
+                <Select
+                  value={form.palletsOtherKind ?? 'net_e1'}
+                  onValueChange={v => onFieldChange('palletsOtherKind', v)}>
+                  <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {OTHER_CARRIER_KINDS.map(k => (
+                      <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="number" min="0" step="1"
+                  value={form.palletsOther ?? 0}
+                  onChange={e => onFieldChange('palletsOther', parseInt(e.target.value) || 0)}
+                  className="w-20 tabular-nums"
+                />
+              </div>
             </div>
           </div>
 

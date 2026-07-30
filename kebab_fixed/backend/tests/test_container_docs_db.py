@@ -11,6 +11,14 @@ from app.services.container_ledger_service import book_assets, partner_balance_c
 from app.utils.ids import cuid, now_iso
 
 
+def _bal(d, *keys):
+    """Saldo zawężone do sprawdzanych nośników — od 2026-07-30 rodzajów jest
+    siedem (siatka E1, europaleta…), więc porównywanie całego słownika
+    psułoby testy przy każdym dodaniu rodzaju."""
+    return {k: d[k] for k in (keys or ("e2", "pallet_h1", "pallet_other"))}
+
+
+
 def _partner(name="KOKO", nip="5130064478") -> str:
     pid = cuid()
     execute("INSERT INTO container_partners (id, nip, name, created_at) VALUES (%s,%s,%s,%s)",
@@ -33,7 +41,7 @@ def test_wydanie_domyka_dostawe_do_zera(db):
                     targets={"e2": 400, "pallet_h1": 10}, movement_date="2026-07-28")
     doc = create_doc(partner_id=pid, doc_date="2026-07-29", driver="Jan Kowalski",
                      vehicle="KR 12345", lines=_lines(e2_out=400, h1_out=10))
-    assert doc["balanceAfter"] == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
+    assert _bal(doc["balanceAfter"]) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
     with transaction() as conn:
         assert partner_balance_cx(conn, pid)["e2"] == 0
 
@@ -126,7 +134,7 @@ def test_dokument_powiazany_ksieguje_TYLKO_zwrot(db):
                      linked_source_type="raw_batch", linked_source_id="rb1",
                      lines=_lines(e2_in=600, e2_out=600, h1_in=13, h1_out=13))
     # gdyby kolumna "dostawa" też księgowała, wyszłoby +600/+13
-    assert doc["balanceAfter"] == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
+    assert _bal(doc["balanceAfter"]) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
     with transaction() as conn:
         assert partner_balance_cx(conn, pid)["e2"] == 0
 
@@ -170,7 +178,7 @@ def test_anulowanie_powiazanego_dokumentu_cofa_tylko_zwrot(db):
     cancel_doc(doc["id"])
     with transaction() as conn:
         # wraca do stanu po samej dostawie, nie do zera i nie do 1200
-        assert partner_balance_cx(conn, pid) == {"e2": 600, "pallet_h1": 13, "pallet_other": 0}
+        assert _bal(partner_balance_cx(conn, pid)) == {"e2": 600, "pallet_h1": 13, "pallet_other": 0}
 
 
 def test_lista_dostaw_do_rozliczenia(db):
@@ -213,7 +221,7 @@ def test_druk_dla_odbiorcy_ma_pusta_kolumne_zwrotu(db):
     e2 = next(l for l in doc["lines"] if l["assetType"] == "e2")
     assert (e2["inQty"], e2["outQty"]) == (225, 0), "zwrot pusty — wypełnia go odbiorca"
     with transaction() as conn:  # samo wystawienie druku nie rusza salda
-        assert partner_balance_cx(conn, pid) == {"e2": -225, "pallet_h1": -7, "pallet_other": 0}
+        assert _bal(partner_balance_cx(conn, pid)) == {"e2": -225, "pallet_h1": -7, "pallet_other": 0}
 
 
 def test_zwrot_odbiorcy_ma_znak_DODATNI(db):
@@ -225,7 +233,7 @@ def test_zwrot_odbiorcy_ma_znak_DODATNI(db):
     settle_doc(doc["id"], {"e2": 225, "pallet_h1": 7})
     with transaction() as conn:
         # oddali wszystko → saldo zeruje się (a NIE schodzi do -450)
-        assert partner_balance_cx(conn, pid) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
+        assert _bal(partner_balance_cx(conn, pid)) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
 
 
 def test_zwrot_czesciowy_zamyka_dokument_reszta_na_saldzie(db):
@@ -261,7 +269,7 @@ def test_zwrot_u_DOSTAWCY_ma_znak_UJEMNY(db):
                      pending_return=True, lines=_lines(e2_in=600, h1_in=13))
     settle_doc(doc["id"], {"e2": 600, "pallet_h1": 13})
     with transaction() as conn:
-        assert partner_balance_cx(conn, pid) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
+        assert _bal(partner_balance_cx(conn, pid)) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
 
 
 def test_nie_da_sie_rozliczyc_dwa_razy(db):
@@ -296,7 +304,7 @@ def test_anulowanie_WZ_anuluje_czekajacy_druk_pojemnikow(db):
     assert get_doc(doc["id"])["status"] == "anulowany", "druk nie może wisieć po anulowanym WZ"
     pid = get_doc(doc["id"])["partnerId"]
     with transaction() as conn:
-        assert partner_balance_cx(conn, pid) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
+        assert _bal(partner_balance_cx(conn, pid)) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
 
 
 def test_anulowanie_WZ_cofa_takze_JUZ_wpisany_zwrot(db):
@@ -361,7 +369,7 @@ def test_druk_obejmuje_dwie_partie_jednej_dostawy(db):
         linked_sources=[{"sourceType": "raw_batch", "sourceId": "rb1"},
                         {"sourceType": "raw_batch", "sourceId": "rb2"}],
         lines=_lines(e2_in=667, e2_out=667, h1_in=17, h1_out=17))
-    assert doc["balanceAfter"] == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
+    assert _bal(doc["balanceAfter"]) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
     assert {s["sourceId"] for s in doc["linkedSources"]} == {"rb1", "rb2"}
 
 
@@ -400,7 +408,7 @@ def test_zwrot_na_wielu_partiach_ma_poprawny_znak(db):
                      pending_return=True, lines=_lines(e2_in=667, h1_in=17))
     settle_doc(doc["id"], {"e2": 667, "pallet_h1": 17})
     with transaction() as conn:
-        assert partner_balance_cx(conn, pid) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
+        assert _bal(partner_balance_cx(conn, pid)) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
 
 
 def test_nie_wolno_mieszac_dostaw_z_wydaniami(db):

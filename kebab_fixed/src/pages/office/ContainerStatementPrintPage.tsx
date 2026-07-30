@@ -136,6 +136,7 @@ export function ContainerStatementPrintPage() {
   if (!st) return <div style={{ padding: 24, fontFamily: 'Arial' }}>Ładowanie…</div>
 
   const cols = assets.length
+  const colW = cols <= 2 ? '17mm' : cols === 3 ? '13mm' : '11mm'
   const num = (v: number) => (v ? String(v) : '—')
 
   return (
@@ -171,9 +172,11 @@ export function ContainerStatementPrintPage() {
             <col style={{ width: '18mm' }} />
             <col />
             <col style={{ width: '34mm' }} />
-            {assets.map(a => <col key={`i${a}`} style={{ width: '17mm' }} />)}
-            {assets.map(a => <col key={`o${a}`} style={{ width: '17mm' }} />)}
-            {assets.map(a => <col key={`b${a}`} style={{ width: '17mm' }} />)}
+            {/* Rodzajów bywa więcej niż dwa (siatka E1, europaleta…), więc
+                kolumny zwężają się, gdy zestawienie ich potrzebuje. */}
+            {assets.map(a => <col key={`i${a}`} style={{ width: colW }} />)}
+            {assets.map(a => <col key={`o${a}`} style={{ width: colW }} />)}
+            {assets.map(a => <col key={`b${a}`} style={{ width: colW }} />)}
           </colgroup>
           <thead>
             <tr>
