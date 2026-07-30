@@ -121,6 +121,7 @@ export function RawBatchesPage() {
     form, suggestedBatchNo, suggestedNote, open, expiryPreview,
     confirmOpen, validationResult, mutationLoading, mutationError,
     openModal, closeModal, requestSubmit, confirmSubmit, cancelConfirm, updateField,
+    setServiceMode,
   } = useCreateRawBatch(
     useCallback((batchNo: string, kg: number) => {
       refetch()
@@ -135,6 +136,9 @@ export function RawBatchesPage() {
   // otwarcie modala ustawia materialTypeId w dto)
   useEffect(() => {
     updateField('materialTypeId' as any, matId as any)
+    // Usługa dotyczy tylko mięsa z/s — przy innym surowcu tryb musi zgasnąć,
+    // inaczej backend odrzuciłby zapis (400) mimo ukrytego przełącznika.
+    if (matId !== 'mat-mieso-zs') updateField('isService' as any, false as any)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matId, open])
 
@@ -213,6 +217,7 @@ export function RawBatchesPage() {
         loading={mutationLoading}
         error={mutationError}
         onFieldChange={updateField}
+        onServiceChange={setServiceMode}
       />
 
       {/* Modal edycji */}

@@ -10,7 +10,8 @@ from app.services.container_ledger_service import book_assets
 from app.services.container_partners_service import resolve_partner
 from app.utils.batch_numbers import (
     format_reception_no,
-    parse_reception_no,
+    format_service_reception_no,
+    parse_any_reception_no,
 )
 from app.utils.body import body_get
 from app.utils.containers import containers_for_kg
@@ -77,10 +78,21 @@ def _unbook_batch_containers(conn, batch_row: Dict) -> None:
         note="Anulowanie przyjęcia")
 
 
-def next_batch_number() -> Dict[str, Any]:
-    row = query_one("SELECT value FROM sequences WHERE key='batch_seq'")
-    next_val = (int(row["value"]) if row else 171) + 1
-    no = format_reception_no(next_val)
+#: Materiał, dla którego usługa ma sens — mięso powierzone przez klienta.
+SERVICE_MATERIAL_ID = "mat-mieso-zs"
+#: Sekwencje numerów przyjęcia: podstawowa i usługowa (rozłączne).
+_SEQ_KEY = {False: "batch_seq", True: "service_batch_seq"}
+_SEQ_START = {False: 171, True: 47}
+#: Numer nadawany, gdy sekwencji jeszcze nie ma w bazie. Seria usługowa
+#: startuje z 48U (ustalone z zakładem); podstawowa zachowuje się jak dotąd.
+_SEQ_FIRST = {False: 1, True: 48}
+
+
+def next_batch_number(is_service: bool = False) -> Dict[str, Any]:
+    svc = bool(is_service)
+    row = query_one("SELECT value FROM sequences WHERE key=%s", (_SEQ_KEY[svc],))
+    next_val = int(row["value"]) + 1 if row else _SEQ_FIRST[svc]
+    no = format_service_reception_no(next_val) if is_service else format_reception_no(next_val)
     return {
         "nextNo": no,
         "seq": next_val,
@@ -111,17 +123,32 @@ def list_batches(active_only: bool, limit: int) -> Dict[str, Any]:
 def create_batch(dto: RawBatchCreate) -> Dict:
     """Tworzy nową partię surowca.
 
-    Numer partii (`internal_batch_no`) — goły numer, bez litery:
-      - jeżeli dto.internal_batch_no jest podane i jest liczbą (np. 344),
-        używa tego numeru. `batch_seq` jest synchronizowane do max(seq, podana)
-        żeby kolejne auto-numery były wyższe.
-      - jeżeli brak — pobiera kolejny z `batch_seq` (N+1).
+    Numer partii (`internal_batch_no`) — dwie ROZŁĄCZNE serie:
+      - podstawowa: goły numer, np. „344" (`batch_seq`),
+      - usługowa:   numer z sufiksem U, np. „48U" (`service_batch_seq`) —
+        mięso powierzone przez klienta, z którego robimy kebab na jego
+        zlecenie. Towar jest cudzy, więc idzie własną numeracją, ale leży
+        w tym samym magazynie i normalnie się go masuje.
+
+    Numer podany ręcznie (np. „344" albo „48U") wygrywa i synchronizuje
+    SWOJĄ sekwencję do max(dotychczasowa, podana), żeby kolejne auto-numery
+    były wyższe. Brak numeru = kolejny z właściwej sekwencji.
     """
     try:
-        custom_seq = parse_reception_no(dto.internal_batch_no)
+        custom_seq, no_is_service = parse_any_reception_no(dto.internal_batch_no)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    custom_no = format_reception_no(custom_seq) if custom_seq is not None else ""
+
+    # Sufiks U we wpisanym numerze też włącza usługę — operator nie musi
+    # pamiętać o przełączniku, gdy przepisuje numer z kartki.
+    is_service = bool(dto.is_service or no_is_service)
+    if is_service and (dto.material_type_id or "") != SERVICE_MATERIAL_ID:
+        raise HTTPException(
+            400, "Przyjęcie na usługę dotyczy wyłącznie mięsa z/s")
+
+    seq_key = _SEQ_KEY[is_service]
+    fmt = format_service_reception_no if is_service else format_reception_no
+    custom_no = fmt(custom_seq) if custom_seq is not None else ""
 
     with transaction() as conn:
         if custom_seq is not None:
@@ -139,23 +166,26 @@ def create_batch(dto: RawBatchCreate) -> Dict:
             cx_execute(
                 conn,
                 """
-                INSERT INTO sequences (key, value) VALUES ('batch_seq', %s)
+                INSERT INTO sequences (key, value) VALUES (%s, %s)
                 ON CONFLICT (key) DO UPDATE SET value = GREATEST(sequences.value, EXCLUDED.value)
                 """,
-                (custom_seq,),
+                (seq_key, custom_seq),
             )
         else:
-            # auto-numerowanie: kolejny z batch_seq
+            # auto-numerowanie: kolejny z właściwej sekwencji. Wartość przy
+            # pierwszym użyciu bierzemy z _SEQ_FIRST, bo seed z migracji może
+            # nie istnieć (świeża baza, baza testowa po TRUNCATE sequences).
             row = cx_query_one(
                 conn,
                 """
-                INSERT INTO sequences (key, value) VALUES ('batch_seq', 1)
+                INSERT INTO sequences (key, value) VALUES (%s, %s)
                 ON CONFLICT (key) DO UPDATE SET value = sequences.value + 1
                 RETURNING value
                 """,
+                (seq_key, _SEQ_FIRST[is_service]),
             )
             seq = int(row["value"])
-            internal_no = format_reception_no(seq)
+            internal_no = fmt(seq)
 
         sup = cx_query_one(
             conn, "SELECT * FROM suppliers WHERE id = %s", (dto.supplier_id,)
@@ -182,8 +212,8 @@ def create_batch(dto: RawBatchCreate) -> Dict:
             (id, internal_batch_no, internal_batch_seq, supplier_id, supplier_name,
              supplier_batch_no, slaughter_date, received_date, kg_received,
              kg_available, price_per_kg, expiry_date, status, notes,
-             invoice_no, material_type_id, material_name, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s,%s,%s,%s)
+             invoice_no, material_type_id, material_name, is_service, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s,%s,%s,%s,%s)
             RETURNING *
             """,
             (
@@ -203,6 +233,7 @@ def create_batch(dto: RawBatchCreate) -> Dict:
                 dto.invoice_no or None,
                 mat_id,
                 mat_name,
+                is_service,
                 now_iso(),
             ),
         )

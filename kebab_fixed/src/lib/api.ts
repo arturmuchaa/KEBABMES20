@@ -214,8 +214,8 @@ export const rawBatchesApi = {
   byId: (id: string) =>
     get<any>(`/raw-batches/${id}`).then(mapRawBatch),
 
-  nextNumber: () =>
-    get<any>('/raw-batches/next-number').then((raw: any) => ({
+  nextNumber: (isService = false) =>
+    get<any>(`/raw-batches/next-number?isService=${isService ? 'true' : 'false'}`).then((raw: any) => ({
       nextNo:           raw.nextNo           ?? raw.next_no           ?? '',
       seq:              raw.seq              ?? 0,
       suggestedBatchNo: raw.suggestedBatchNo ?? raw.suggested_batch_no ?? raw.nextNo ?? raw.next_no ?? '',

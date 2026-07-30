@@ -31,8 +31,9 @@ export interface RawBatchesApi {
 
   byId(id: string): Promise<RawBatch>
 
-  /** Propozycja numeru — backend nada finalny przy POST */
-  nextNumber(): Promise<NextBatchNumberResponse>
+  /** Propozycja numeru — backend nada finalny przy POST.
+   *  isService=true → seria usługowa (48U, 49U…). */
+  nextNumber(isService?: boolean): Promise<NextBatchNumberResponse>
 
   /** Utwórz partię + zapisz historię CREATE + log */
   create(dto: CreateRawBatchDto): Promise<RawBatch>
@@ -62,7 +63,7 @@ export const rawBatchesApi: RawBatchesApi = {
   list: (opts) => legacyApi.list(opts),
   byId: (id) => legacyApi.byId(id),
 
-  nextNumber: () => legacyApi.nextNumber().then(n => ({
+  nextNumber: (isService) => legacyApi.nextNumber(isService).then(n => ({
     suggestedBatchNo: (n as any).suggestedBatchNo ?? (n as any).nextBatchNo ?? '',
     suggestedSeq:     (n as any).suggestedSeq     ?? (n as any).nextSeq     ?? 0,
     note:             (n as any).note ?? 'Numer zostanie potwierdzony przy zapisie',

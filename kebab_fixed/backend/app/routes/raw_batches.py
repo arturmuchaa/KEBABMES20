@@ -10,8 +10,9 @@ router = APIRouter(prefix="/api/raw-batches", tags=["raw-batches"])
 
 # IMPORTANT: /next-number and /all MUST be before /{id} routes
 @router.get("/next-number")
-def next_batch_number():
-    return svc.next_batch_number()
+def next_batch_number(is_service: bool = Query(False, alias="isService")):
+    """Podpowiedź numeru. isService=1 → seria usługowa (48U, 49U…)."""
+    return svc.next_batch_number(is_service=is_service)
 
 
 @router.get("/material-types")
