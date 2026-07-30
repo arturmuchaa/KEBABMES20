@@ -22,19 +22,25 @@ function fmtD(iso: string): string {
   return `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`
 }
 
-// A4 poziomo (210 mm) dzielone DOKŁADNIE NA POŁOWĘ: 105 mm na kopię.
-// Marginesy wąskie (2/3 mm), żeby ramka zajęła jak najwięcej kartki.
+// A4 PIONOWO, dwie kopie: oryginał u góry, kopia pod spodem.
 //
-// Tabela NIE MOŻE przerosnąć pola treści (105 − 2×2 mm = 101 mm): nie kurczy
-// się poniżej naturalnej wysokości treści, więc nadmiar wylewa się poza kopię
-// i spycha drugą na kolejną stronę (tak było przy paddingu 5 mm — tabela
-// 104,3 mm w polu 94 mm → PDF na 2 strony). Naturalna wysokość to ~98,7 mm,
-// a height:100% rozciąga ją do pełnych 101 mm.
+// @page ma margines 5 mm, NIE zero: drukarki mają fizyczną strefę
+// niezadrukowywalną przy krawędzi (~4-5 mm) i przy margin:0 ucinały logo
+// oraz brzeg ramki. Pole zadruku to więc 200 × 287 mm, czyli 143,5 mm
+// na kopię. Bierzemy 142 mm — 3 mm luzu, żeby zaokrąglenia sterownika
+// drukarki nie wypchnęły dolnej ramki poza stronę.
+// Padding kopii jest mały, bo margines strony już daje zapas.
+//
+// Tabela NIE MOŻE przerosnąć pola treści: nie kurczy się poniżej naturalnej
+// wysokości treści, więc nadmiar wylewa się poza kopię i spycha drugą na
+// kolejną stronę (tak było przy poziomie z paddingiem 5 mm — tabela 104,3 mm
+// w polu 94 mm → PDF na 2 strony). W pionie zapasu jest dużo (~138 mm pola
+// na ~99 mm treści), a height rozciąga wiersze na całą wysokość.
 // Zmieniając czcionki, paddingi lub wiersze ZWERYFIKUJ wydruk renderem do
 // PDF — musi wyjść JEDNA strona.
 const S = {
   copy: {
-    height: '105mm', boxSizing: 'border-box' as const, padding: '2mm 3mm',
+    height: '142mm', boxSizing: 'border-box' as const, padding: '1.5mm 2mm',
     background: '#fff', color: '#111',
     fontFamily: "'Segoe UI', Arial, sans-serif", fontSize: 10,
     breakInside: 'avoid' as const,
@@ -78,8 +84,8 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
       </div>
       <table style={S.table}>
         <colgroup>
-          <col style={{ width: '26%' }} /><col style={{ width: '25%' }} />
-          <col style={{ width: '25%' }} /><col style={{ width: '24%' }} />
+          <col style={{ width: '28%' }} /><col style={{ width: '24%' }} />
+          <col style={{ width: '24%' }} /><col style={{ width: '24%' }} />
         </colgroup>
         <tbody>
           <tr>
@@ -179,14 +185,14 @@ export function ContainerDocPrintPage() {
   return (
     <>
       <style>{`
-        @page { size: A4 landscape; margin: 0; }
+        @page { size: A4 portrait; margin: 5mm; }
         html, body { margin: 0; padding: 0; background: #fff; position: relative; }
         @media screen { body { background: #eee; } }
       `}</style>
       <Copy doc={doc} mark="ORYGINAŁ" />
       {/* Linia cięcia dokładnie w połowie kartki — kierowca zabiera jedną
           połówkę, druga zostaje u kontrahenta. */}
-      <div style={{ position: 'absolute', top: '105mm', left: 0, right: 0,
+      <div style={{ position: 'absolute', top: '142.5mm', left: 0, right: 0,
                     borderTop: '1px dashed #999', height: 0 }} />
       <Copy doc={doc} mark="KOPIA" />
     </>
