@@ -88,6 +88,8 @@ export interface CreateRawBatchDto {
   containersCount?: number | null   // ręczna liczba; wygrywa z wyliczeniem z kalibru
   palletsH1?:       number
   palletsOther?:    number
+  /** Przyjęcie NA USŁUGĘ (mięso z/s klienta) — osobna seria numerów 48U. */
+  isService?:       boolean
 }
 
 export interface EditRawBatchDto {

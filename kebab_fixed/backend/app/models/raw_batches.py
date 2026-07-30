@@ -24,6 +24,8 @@ class RawBatchCreate(BaseModel):
     containers_count: Optional[int] = Field(None, alias="containersCount", ge=0)
     pallets_h1: int = Field(0, alias="palletsH1", ge=0)
     pallets_other: int = Field(0, alias="palletsOther", ge=0)
+    # Przyjęcie na usługę (mięso z/s klienta) — osobna seria numerów „48U".
+    is_service: bool = Field(False, alias="isService")
 
 
 class RawBatchUpdate(BaseModel):

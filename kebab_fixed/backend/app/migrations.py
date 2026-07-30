@@ -873,6 +873,13 @@ _DDL: list[str] = [
     # tylko drukiem, a saldo księgowało po cichu sumę z pozycji — operator
     # wpisywał 0, a saldo schodziło o 1741 (prod 2026-07-30).
     "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS containers_total INTEGER",
+    # Przyjęcie NA USŁUGĘ: mięso powierzone przez klienta, z którego robimy
+    # kebab na jego zlecenie. Osobna seria numerów (48U, 49U…), bo towar jest
+    # cudzy — mimo że leży w tym samym magazynie i normalnie się go masuje.
+    "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS is_service BOOLEAN NOT NULL DEFAULT false",
+    # Pierwszy numer usługowy ma być 48U — sekwencja startuje z 47.
+    "INSERT INTO sequences (key, value) VALUES ('service_batch_seq', 47) "
+    "ON CONFLICT (key) DO NOTHING",
     "ALTER TABLE container_docs ADD COLUMN IF NOT EXISTS linked_sources JSONB DEFAULT '[]'",
     "UPDATE container_docs SET linked_sources = "
     "  jsonb_build_array(jsonb_build_object('sourceType', linked_source_type, "

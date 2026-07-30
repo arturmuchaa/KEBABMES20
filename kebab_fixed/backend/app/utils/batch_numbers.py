@@ -3,6 +3,9 @@
 Jedyne źródło prawdy dla formatów numerów partii w całym systemie:
 
   * przyjęcie / rozbiór / mieszanie pojedyncze → goły numer, np. "344"
+  * przyjęcie NA USŁUGĘ (mięso z/s klienta)   → "{n}U", np. "48U"
+    (osobna seria: towar jest cudzy, choć leży w tym samym magazynie
+     i normalnie się go masuje)
   * łączenie partii w masownicy               → "PP{n}", np. "PP1"
   * mieszanie przyprawionego mięsa NA PRODUKCJI → "PM{n}", np. "PM1"
     (resztka jednej partii dołożona do sztuki z innej partii;
@@ -20,6 +23,7 @@ from datetime import date, datetime
 from typing import Optional, Union
 
 _BARE_NO_RE = re.compile(r"^\d+$")
+_SERVICE_NO_RE = re.compile(r"^(\d+)[Uu]$")
 _COMBINED_NO_RE = re.compile(r"^PP\d+$")
 _PROD_COMBINED_NO_RE = re.compile(r"^PPP\d+$")
 _PROD_MIXED_NO_RE = re.compile(r"^PM\d+$")
@@ -47,6 +51,41 @@ def parse_reception_no(raw: Optional[str]) -> Optional[int]:
 def format_reception_no(seq: int) -> str:
     """Numer partii przyjęcia = goły numer sekwencji."""
     return str(seq)
+
+
+def format_service_reception_no(seq: int) -> str:
+    """Numer partii przyjętej NA USŁUGĘ — osobna seria z sufiksem U."""
+    return f"{seq}U"
+
+
+def is_service_no(batch_no: Optional[str]) -> bool:
+    """Czy numer należy do serii usługowej (np. „48U")."""
+    return bool(batch_no) and bool(_SERVICE_NO_RE.match(str(batch_no).strip()))
+
+
+def parse_any_reception_no(raw: Optional[str]) -> tuple[Optional[int], bool]:
+    """Numer przyjęcia z DOWOLNEJ serii → (numer, czy_usługa).
+
+    Puste = auto-numerowanie: (None, False). Zły format → ValueError.
+    Rozpoznaje też małe „u", bo operator wpisze „48u" równie chętnie.
+    """
+    if raw is None:
+        return (None, False)
+    s = str(raw).strip()
+    if not s:
+        return (None, False)
+    m = _SERVICE_NO_RE.match(s)
+    if m:
+        val = int(m.group(1))
+        if val < 1:
+            raise ValueError("Numer partii musi być >= 1")
+        return (val, True)
+    if not _BARE_NO_RE.match(s):
+        raise ValueError("Numer partii musi być liczbą (np. 344) lub numerem usługi (np. 48U)")
+    val = int(s)
+    if val < 1:
+        raise ValueError("Numer partii musi być >= 1")
+    return (val, False)
 
 
 def combined_batch_no(n: int) -> str:

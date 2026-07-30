@@ -121,7 +121,8 @@ function validateCreate(f: CreateRawBatchDto): ValidationResult {
   if (f.kgReceived > 10_000)
     return { ok: false, warnings, error: { type: 'error', message: 'Ilość kg przekracza 10 000 — sprawdź wartość' } }
 
-  if (!f.pricePerKg || f.pricePerKg <= 0)
+  // Na usłudze mięso jest KLIENTA — nie kupujemy go, więc cena nie obowiązuje.
+  if (!f.isService && (!f.pricePerKg || f.pricePerKg <= 0))
     return { ok: false, warnings, error: { type: 'error', message: 'Podaj cenę za kg (> 0)' } }
 
   // WARNING — informuje, nie blokuje
@@ -164,6 +165,7 @@ function emptyForm(): CreateRawBatchDto {
     receivedDate: todayIso(), expiryDate: '', kgReceived: 0, pricePerKg: 0, invoiceNo: '',
     // Domyślny kaliber zakładu to pojemnik 15 kg — 20 kg zdarza się przy filecie.
     containerKg: 15, containersCount: null, palletsH1: 0, palletsOther: 0,
+    isService: false,
   }
 }
 
@@ -193,7 +195,7 @@ export function useCreateRawBatch(
     setValidationResult(null)
     mutation.clearError()
     try {
-      const res = await rawBatchesApi.nextNumber()
+      const res = await rawBatchesApi.nextNumber(false)
       setSuggested(res.suggestedBatchNo)
       setNote(res.note)
     } catch {
@@ -202,6 +204,19 @@ export function useCreateRawBatch(
     }
     setOpen(true)
   }, []) // eslint-disable-line
+
+  /** Przełączenie trybu „usługa" zmienia SERIĘ numerów (48U zamiast 344),
+   *  więc podpowiedź trzeba pobrać na nowo. */
+  const setServiceMode = useCallback(async (on: boolean) => {
+    setForm(f => ({ ...f, isService: on }))
+    try {
+      const res = await rawBatchesApi.nextNumber(on)
+      setSuggested(res.suggestedBatchNo)
+      setNote(res.note)
+    } catch {
+      setSuggested('')
+    }
+  }, [])
 
   const closeModal = useCallback(() => {
     setOpen(false)
@@ -258,6 +273,7 @@ export function useCreateRawBatch(
     form,
     suggestedBatchNo,
     suggestedNote,
+    setServiceMode,
     open,
     confirmOpen,
     validationResult,

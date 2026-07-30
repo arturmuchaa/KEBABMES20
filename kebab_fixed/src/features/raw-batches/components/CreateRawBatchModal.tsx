@@ -27,6 +27,9 @@ import {
 
 interface SupplierOption { value: string; label: string }
 
+/** Usługa dotyczy WYŁĄCZNIE mięsa z/s — tylko ono bywa powierzone przez klienta. */
+const SERVICE_MATERIAL_ID = 'mat-mieso-zs'
+
 interface CreateRawBatchModalProps {
   open:              boolean
   onClose:           () => void
@@ -40,6 +43,9 @@ interface CreateRawBatchModalProps {
   loading:           boolean
   error:             string | null
   onFieldChange:     <K extends keyof CreateRawBatchDto>(key: K, value: CreateRawBatchDto[K]) => void
+  /** Zmiana trybu usługi przełącza SERIĘ numerów, więc podpowiedź numeru
+   *  pobiera się na nowo — stąd osobny handler zamiast onFieldChange. */
+  onServiceChange?:  (on: boolean) => void
 }
 
 function emptyBatchItem(): SupplierBatchItem {
@@ -51,8 +57,10 @@ function emptyBatchItem(): SupplierBatchItem {
 
 export function CreateRawBatchModal({
   open, onClose, onSubmit, form, suggestedBatchNo, expiryPreview,
-  supplierOptions, loading, error, onFieldChange,
+  supplierOptions, loading, error, onFieldChange, onServiceChange,
 }: CreateRawBatchModalProps) {
+  const canBeService = (form.materialTypeId ?? '') === SERVICE_MATERIAL_ID
+  const isService = Boolean(form.isService) && canBeService
   const [customBatchNo, setCustomBatchNo] = useState('')
   const [isEditingBatchNo, setIsEditingBatchNo] = useState(false)
   const [batchItems, setBatchItems] = useState<SupplierBatchItem[]>([emptyBatchItem()])
@@ -120,6 +128,26 @@ export function CreateRawBatchModal({
         </DialogHeader>
 
         <div className="space-y-5">
+
+          {/* Usługa — tylko mięso z/s bywa powierzone przez klienta */}
+          {canBeService && (
+            <Card className={isService ? 'border-amber-300 bg-amber-50' : ''}>
+              <CardContent className="p-3 flex items-start gap-3">
+                <input
+                  id="rb-usluga" type="checkbox" className="mt-1"
+                  checked={isService}
+                  onChange={e => onServiceChange?.(e.target.checked)} />
+                <label htmlFor="rb-usluga" className="cursor-pointer">
+                  <div className="text-sm font-semibold">Przyjęcie na usługę</div>
+                  <CardDescription className="text-[12px]">
+                    Mięso powierzone przez klienta — robimy z niego kebab na jego
+                    zlecenie. Partia dostaje osobny numer z literą U (48U, 49U…)
+                    i wchodzi na zwykły magazyn mięsa, gotowa do masowania.
+                  </CardDescription>
+                </label>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Numer partii + Dostawca */}
           <div className="grid grid-cols-2 gap-4">
@@ -299,7 +327,7 @@ export function CreateRawBatchModal({
             </Card>
 
             <div className="space-y-1.5">
-              <Label>Cena / kg (zł)</Label>
+              <Label>Cena / kg (zł){isService && <span className="font-normal text-muted-foreground"> — mięso klienta</span>}</Label>
               <Input
                 type="number"
                 placeholder="0.00"
