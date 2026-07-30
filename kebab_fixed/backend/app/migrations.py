@@ -865,6 +865,17 @@ _DDL: list[str] = [
     # Bez tego jedna fizyczna dostawa 600 sztuk podbiłaby saldo o 1200.
     "ALTER TABLE container_docs ADD COLUMN IF NOT EXISTS linked_source_type TEXT",
     "ALTER TABLE container_docs ADD COLUMN IF NOT EXISTS linked_source_id TEXT",
+    # Jedna dostawa bywa rozbita na KILKA partii przyjęcia (jedna ciężarówka
+    # Koko → dwie partie), a druk pojemnikowy ma objąć je razem. Stąd lista
+    # źródeł; kolumny pojedyncze zostają dla zgodności i prostych odczytów.
+    "ALTER TABLE container_docs ADD COLUMN IF NOT EXISTS linked_sources JSONB DEFAULT '[]'",
+    "UPDATE container_docs SET linked_sources = "
+    "  jsonb_build_array(jsonb_build_object('sourceType', linked_source_type, "
+    "                                       'sourceId',   linked_source_id)) "
+    "WHERE linked_source_id IS NOT NULL "
+    "  AND COALESCE(jsonb_array_length(linked_sources), 0) = 0",
+    "CREATE INDEX IF NOT EXISTS idx_container_docs_sources "
+    "ON container_docs USING gin (linked_sources)",
 ]
 
 

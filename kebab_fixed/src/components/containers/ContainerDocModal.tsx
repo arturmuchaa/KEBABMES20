@@ -34,7 +34,9 @@ export function ContainerDocModal({ partnerId, balance, onClose, onSaved }: Prop
   const [inQ, setInQ] = useState<Qty>(emptyQty)
   const [outQ, setOutQ] = useState<Qty>(emptyQty)
   const [deliveries, setDeliveries] = useState<ContainerDelivery[]>([])
-  const [linkedId, setLinkedId] = useState('')
+  // Jedna dostawa bywa rozbita na kilka partii — zaznaczasz wszystkie,
+  // druk obejmuje je razem (np. 667 poj. / 17 palet z dwóch partii).
+  const [linkedIds, setLinkedIds] = useState<string[]>([])
   // Druk z pustą kolumną zwrotu: kontrahent wpisuje ją długopisem, my
   // uzupełniamy po powrocie kierowcy. Domyślny dla WYDAŃ (WZ towaru).
   const [pending, setPending] = useState(false)
@@ -47,23 +49,30 @@ export function ContainerDocModal({ partnerId, balance, onClose, onSaved }: Prop
     containersApi.deliveries(partnerId).then(setDeliveries).catch(() => setDeliveries([]))
   }, [partnerId])
 
-  const linked = deliveries.find(d => d.sourceId === linkedId) || null
+  const picked = deliveries.filter(d => linkedIds.includes(d.sourceId))
+  const linked = picked[0] || null
 
-  /** Wybór dostawy wypełnia kolumnę „Dostawa/odbiór" i podpowiada zwrot
-   *  w tej samej wysokości — typowy kurs to oddanie tylu, ile przyjechało. */
-  const pickDelivery = (id: string) => {
-    setLinkedId(id)
-    const d = deliveries.find(x => x.sourceId === id)
-    if (!d) { setInQ(emptyQty()); setOutQ(emptyQty()); setPending(false); return }
-    setInQ(Object.fromEntries(
-      ASSET_TYPES.map(a => [a, String(d.assets[a] || 0)])) as Qty)
+  /** Zaznaczenie partii sumuje ich nośniki w kolumnie „Dostawa/odbiór"
+   *  i podpowiada zwrot w tej samej wysokości — typowy kurs to oddanie
+   *  tylu, ile przyjechało. */
+  const toggleDelivery = (id: string) => {
+    const next = linkedIds.includes(id)
+      ? linkedIds.filter(x => x !== id)
+      : [...linkedIds, id]
+    setLinkedIds(next)
+    const sel = deliveries.filter(d => next.includes(d.sourceId))
+    if (!sel.length) { setInQ(emptyQty()); setOutQ(emptyQty()); setPending(false); return }
+    const sum = Object.fromEntries(ASSET_TYPES.map(a =>
+      [a, String(sel.reduce((s, d) => s + (d.assets[a] || 0), 0))])) as Qty
+    setInQ(sum)
     // Wydanie (WZ) → kontrahent dopiero odda, więc domyślnie pusty zwrot.
-    // Dostawa (przyjęcie) → zwykle oddajemy od razu tyle, ile przyjechało.
-    const isOut = d.direction === 'out'
+    const isOut = sel[0].direction === 'out'
     setPending(isOut)
-    setOutQ(isOut ? emptyQty() : Object.fromEntries(
-      ASSET_TYPES.map(a => [a, String(d.assets[a] || 0)])) as Qty)
+    setOutQ(isOut ? emptyQty() : sum)
   }
+
+  // Dostawa i wydanie mają przeciwne znaki — jeden zwrot nie może mieć obu.
+  const mixedDirections = new Set(picked.map(d => d.direction)).size > 1
 
   // Przy powiązanym źródle kolumna „Dostawa/odbiór" NIE księguje — te
   // nośniki wniosło już przyjęcie albo WZ. Znak zwrotu jest przeciwny do
@@ -85,7 +94,9 @@ export function ContainerDocModal({ partnerId, balance, onClose, onSaved }: Prop
     try {
       await containersApi.createDoc({
         partnerId, docDate, driver, vehicle, notes, pendingReturn: pending,
-        ...(linked ? { linkedSourceType: linked.sourceType, linkedSourceId: linked.sourceId } : {}),
+        ...(picked.length
+          ? { linkedSources: picked.map(d => ({ sourceType: d.sourceType, sourceId: d.sourceId })) }
+          : {}),
         lines: ASSET_TYPES.map(a => ({ assetType: a, inQty: n(inQ[a]), outQty: n(outQ[a]) })),
       })
       onSaved()
@@ -128,28 +139,50 @@ export function ContainerDocModal({ partnerId, balance, onClose, onSaved }: Prop
             </label>
           </div>
 
-          <label className="block space-y-1">
-            <span className="text-[11px] font-bold uppercase text-ink-4">Rozliczana dostawa</span>
-            <select
-              value={linkedId} onChange={e => pickDelivery(e.target.value)}
-              className="w-full h-9 rounded border border-surface-4 bg-surface px-2 text-[13px]">
-              <option value="">— bez powiązania (sam zwrot lub nośniki spoza dostawy) —</option>
+          <div className="space-y-1">
+            <span className="text-[11px] font-bold uppercase text-ink-4">
+              Rozliczane dostawy / wydania
+              <span className="ml-2 font-normal normal-case text-ink-4">
+                zaznacz kilka, jeśli jedna dostawa poszła na kilka partii
+              </span>
+            </span>
+            <div className="max-h-32 overflow-y-auto rounded border border-surface-4 divide-y divide-surface-3">
+              {deliveries.length === 0 && (
+                <div className="px-2 py-2 text-[12px] text-ink-4">
+                  Brak dostaw i wydań do rozliczenia — możesz wystawić sam zwrot.
+                </div>
+              )}
               {deliveries.map(d => (
-                <option key={`${d.sourceType}:${d.sourceId}`} value={d.sourceId}>
-                  {d.date} · {d.direction === 'out' ? 'WYDANIE' : 'DOSTAWA'} · {d.label} ·
-                  {' '}{d.assets.e2} poj. / {d.assets.pallet_h1} pal. H1
-                  {d.settled ? ' · ma już druk' : ''}
-                </option>
+                <label key={`${d.sourceType}:${d.sourceId}`}
+                       className="flex items-center gap-2 px-2 py-1.5 text-[12.5px] hover:bg-surface-2 cursor-pointer">
+                  <input type="checkbox" checked={linkedIds.includes(d.sourceId)}
+                         onChange={() => toggleDelivery(d.sourceId)} />
+                  <span className={`font-bold ${d.direction === 'out' ? 'text-red-600' : 'text-amber-600'}`}>
+                    {d.direction === 'out' ? 'WYDANIE' : 'DOSTAWA'}
+                  </span>
+                  <span className="text-ink-3">{d.date}</span>
+                  <span className="flex-1 truncate text-ink">{d.label}</span>
+                  <span className="tabular-nums text-ink-2">
+                    {d.assets.e2} poj. / {d.assets.pallet_h1} pal.
+                  </span>
+                  {d.settled && <span className="text-[10.5px] text-ink-4">ma druk</span>}
+                </label>
               ))}
-            </select>
-            {linked && (
-              <span className="block text-[11px] text-ink-4">
-                Kolumna „Dostawa / odbiór" pochodzi z tego {linked.direction === 'out'
-                  ? 'wydania' : 'przyjęcia'} i jest tylko zapisem na druku — te nośniki
-                są już na saldzie. Księgowany jest sam zwrot.
+            </div>
+            {mixedDirections && (
+              <span className="block text-[11px] text-red-600">
+                Nie mieszaj dostaw z wydaniami — zwrot miałby dwa przeciwne kierunki.
               </span>
             )}
-          </label>
+            {linked && !mixedDirections && (
+              <span className="block text-[11px] text-ink-4">
+                Kolumna „Dostawa / odbiór" to suma z {picked.length === 1
+                  ? (linked.direction === 'out' ? 'tego wydania' : 'tego przyjęcia')
+                  : `${picked.length} zaznaczonych pozycji`} i jest tylko zapisem na
+                druku — te nośniki są już na saldzie. Księgowany jest sam zwrot.
+              </span>
+            )}
+          </div>
 
           {linked && (
             <label className="flex items-start gap-2 text-[12.5px] text-ink-2">
@@ -217,7 +250,7 @@ export function ContainerDocModal({ partnerId, balance, onClose, onSaved }: Prop
             className="rounded border border-surface-4 px-3 py-2 text-[12.5px] font-medium text-ink hover:bg-surface-2">
             Anuluj
           </button>
-          <button onClick={save} disabled={saving || !anyQty}
+          <button onClick={save} disabled={saving || !anyQty || mixedDirections}
             className="rounded bg-ink px-4 py-2 text-[12.5px] font-medium text-surface hover:bg-ink-2 disabled:opacity-50">
             {saving ? 'Zapisywanie…' : 'Wystaw dokument'}
           </button>
