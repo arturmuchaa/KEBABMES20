@@ -38,6 +38,20 @@ function fmtD(iso: string): string {
 // na ~99 mm treści), a height rozciąga wiersze na całą wysokość.
 // Zmieniając czcionki, paddingi lub wiersze ZWERYFIKUJ wydruk renderem do
 // PDF — musi wyjść JEDNA strona.
+// Udziały wysokości wierszy zmierzone na ORYGINALNYM druku zakładowym
+// (skan saldo pojmenikow.pdf, linie ramki: 40/107/182/246/296/344/402/551 px).
+// Blok podpisów jest tam NAJWIĘKSZY (29%) — trzeba na nim pisać ręcznie —
+// a nagłówek z kierowcą i datą zajmuje mniej, niż sugerowałby jego zawartość.
+const ROW_H = {
+  head1: '13%',   // Dostawca | WZ na POJEMNIKI NR | Odbiorca
+  head2: '15%',   // Data dostawy / odbioru | Kierowca
+  cols:  '12.5%', // Środek transportu | nagłówki kolumn
+  e2:    '10%',
+  h1:    '9.5%',
+  other: '11%',
+  sign:  '29%',   // Podpis dostawcy | Uwagi | Podpis odbiorcy
+} as const
+
 const S = {
   copy: {
     height: '142mm', boxSizing: 'border-box' as const, padding: '1.5mm 2mm',
@@ -70,8 +84,30 @@ const S = {
   },
 }
 
+/** „Kto komu zalega" liczone z salda ZAMROŻONEGO na dokumencie.
+ *  Dodatnie = nośniki kontrahenta stoją u wystawcy (to my zalegamy),
+ *  ujemne = nasze stoją u kontrahenta. Zero = nic nie piszemy. */
+function debtLine(doc: ContainerDoc): string {
+  const bal = doc.balanceAfter || ({} as ContainerDoc['balanceAfter'])
+  const label: Record<string, string> = {
+    e2: 'poj. E2', pallet_h1: 'pal. H1', pallet_other: 'pal. innych',
+  }
+  const fmt = (sign: number) => (['e2', 'pallet_h1', 'pallet_other'] as const)
+    .filter(a => Math.sign(bal[a] ?? 0) === sign)
+    .map(a => `${Math.abs(bal[a] ?? 0)} ${label[a]}`)
+    .join(', ')
+  const owedByUs = fmt(1)
+  const owedToUs = fmt(-1)
+  const who = (n: string, what: string) => `Zalega ${n}: ${what}`
+  const parts: string[] = []
+  if (owedByUs) parts.push(who(doc.seller?.name || 'wystawca', owedByUs))
+  if (owedToUs) parts.push(who(doc.partner?.name || 'odbiorca', owedToUs))
+  return parts.join(' · ')
+}
+
 function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
   const pending = doc.status === 'oczekuje'
+  const debt = debtLine(doc)
   const s = doc.seller || ({} as ContainerDoc['seller'])
   const sellerAddr = [s.address, [s.postal_code, s.city].filter(Boolean).join(' ')]
     .filter(Boolean).join(', ')
@@ -88,7 +124,7 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
           <col style={{ width: '24%' }} /><col style={{ width: '24%' }} />
         </colgroup>
         <tbody>
-          <tr>
+          <tr style={{ height: ROW_H.head1 }}>
             <td style={{ ...S.cell, textAlign: 'center' }} rowSpan={2}>
               <div style={S.lbl}>Dostawca:</div>
               <div style={{ fontSize: 11, fontWeight: 700, marginTop: 1 }}>{s.name || ''}</div>
@@ -115,7 +151,7 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
               <div style={{ fontSize: 9 }}>{doc.partner?.nip ? `NIP ${doc.partner.nip}` : ''}</div>
             </td>
           </tr>
-          <tr>
+          <tr style={{ height: ROW_H.head2 }}>
             <td style={S.cell}>
               <div style={S.lbl}>Data dostawy / odbioru:</div>
               <div style={S.val}>{fmtD(doc.docDate)}</div>
@@ -125,7 +161,7 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
               <div style={S.val}>{doc.driver || ''}</div>
             </td>
           </tr>
-          <tr>
+          <tr style={{ height: ROW_H.cols }}>
             <td style={S.cell}>
               <div style={S.lbl}>Środek transportu:</div>
               <div style={S.val}>{doc.vehicle || ''}</div>
@@ -135,7 +171,9 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
             <td style={S.head}>Saldo</td>
           </tr>
           {doc.lines.map(l => (
-            <tr key={l.assetType}>
+            <tr key={l.assetType} style={{
+              height: l.assetType === 'e2' ? ROW_H.e2
+                    : l.assetType === 'pallet_h1' ? ROW_H.h1 : ROW_H.other }}>
               <td style={S.rowLbl}>
                 {l.label}
                 {l.assetType === 'pallet_other' && (
@@ -150,11 +188,14 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
               <td style={S.num}>{pending ? '' : l.balance}</td>
             </tr>
           ))}
-          <tr style={{ height: '10mm' }}>
+          <tr style={{ height: ROW_H.sign }}>
             <td style={S.cell}><div style={S.lbl}>Podpis dostawcy:</div></td>
             <td style={S.cell} colSpan={2}>
               <div style={S.lbl}>Uwagi:</div>
-              <div style={{ fontSize: 9, marginTop: 2 }}>{doc.notes || ''}</div>
+              {doc.notes && <div style={{ fontSize: 9, marginTop: 2 }}>{doc.notes}</div>}
+              {debt && (
+                <div style={{ fontSize: 9.5, marginTop: 2, fontWeight: 700 }}>{debt}</div>
+              )}
             </td>
             <td style={S.cell}><div style={S.lbl}>Podpis odbiorcy:</div></td>
           </tr>
