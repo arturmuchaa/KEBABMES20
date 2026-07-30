@@ -30,6 +30,8 @@ class ContainerDocCreate(BaseModel):
     # REFERENCJĄ na druku — nośniki zaksięgowało już przyjęcie surowca.
     linked_source_type: str = Field("", alias="linkedSourceType")
     linked_source_id: str = Field("", alias="linkedSourceId")
+    # Jedna dostawa bywa rozbita na kilka partii — druk obejmuje je razem.
+    linked_sources: List[Dict[str, str]] = Field(default_factory=list, alias="linkedSources")
     # Druk z PUSTĄ kolumną zwrotu — wypełnia ją kontrahent, my wpisujemy
     # faktyczną liczbę po powrocie kierowcy (settle_doc).
     pending_return: bool = Field(False, alias="pendingReturn")

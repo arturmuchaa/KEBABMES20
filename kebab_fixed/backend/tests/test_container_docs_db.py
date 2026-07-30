@@ -347,3 +347,82 @@ def test_anulowane_zrodlo_nie_zasmieca_pickera(db):
                     targets={}, movement_date="2026-07-29")
     _wz_out(pid, "wzB", e2=100, h1=3)
     assert [r["sourceId"] for r in partner_deliveries(pid)] == ["wzB"]
+
+
+# ── Jeden druk na KILKA partii jednej dostawy ────────────────────────
+# Koko przywozi jedną ciężarówkę, a biuro rozbija ją na dwie partie
+# przyjęcia. Dokument pojemnikowy musi objąć obie naraz (667 E2 / 17 H1).
+def test_druk_obejmuje_dwie_partie_jednej_dostawy(db):
+    pid = _partner()
+    _delivery(pid, "rb1", e2=400, h1=10)
+    _delivery(pid, "rb2", e2=267, h1=7)
+    doc = create_doc(
+        partner_id=pid, doc_date="2026-07-30",
+        linked_sources=[{"sourceType": "raw_batch", "sourceId": "rb1"},
+                        {"sourceType": "raw_batch", "sourceId": "rb2"}],
+        lines=_lines(e2_in=667, e2_out=667, h1_in=17, h1_out=17))
+    assert doc["balanceAfter"] == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
+    assert {s["sourceId"] for s in doc["linkedSources"]} == {"rb1", "rb2"}
+
+
+def test_obie_partie_oznaczone_jako_rozliczone(db):
+    pid = _partner()
+    _delivery(pid, "rb1", e2=400, h1=10)
+    _delivery(pid, "rb2", e2=267, h1=7)
+    create_doc(partner_id=pid, doc_date="2026-07-30",
+               linked_sources=[{"sourceType": "raw_batch", "sourceId": "rb1"},
+                               {"sourceType": "raw_batch", "sourceId": "rb2"}],
+               lines=_lines(e2_in=667, e2_out=667, h1_in=17, h1_out=17))
+    rows = {r["sourceId"]: r["settled"] for r in partner_deliveries(pid)}
+    assert rows == {"rb1": True, "rb2": True}
+
+
+def test_anulowanie_jednej_z_partii_domyka_wspolny_druk(db):
+    pid = _partner()
+    _delivery(pid, "rb1", e2=400, h1=10)
+    _delivery(pid, "rb2", e2=267, h1=7)
+    doc = create_doc(partner_id=pid, doc_date="2026-07-30",
+                     linked_sources=[{"sourceType": "raw_batch", "sourceId": "rb1"},
+                                     {"sourceType": "raw_batch", "sourceId": "rb2"}],
+                     pending_return=True, lines=_lines(e2_in=667, h1_in=17))
+    from app.services.container_docs_service import cancel_docs_for_source
+    assert cancel_docs_for_source("raw_batch", "rb2") == 1
+    assert get_doc(doc["id"])["status"] == "anulowany"
+
+
+def test_zwrot_na_wielu_partiach_ma_poprawny_znak(db):
+    pid = _partner()
+    _delivery(pid, "rb1", e2=400, h1=10)
+    _delivery(pid, "rb2", e2=267, h1=7)
+    doc = create_doc(partner_id=pid, doc_date="2026-07-30",
+                     linked_sources=[{"sourceType": "raw_batch", "sourceId": "rb1"},
+                                     {"sourceType": "raw_batch", "sourceId": "rb2"}],
+                     pending_return=True, lines=_lines(e2_in=667, h1_in=17))
+    settle_doc(doc["id"], {"e2": 667, "pallet_h1": 17})
+    with transaction() as conn:
+        assert partner_balance_cx(conn, pid) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
+
+
+def test_nie_wolno_mieszac_dostaw_z_wydaniami(db):
+    """Dostawa księguje się na plus, wydanie na minus — jeden zwrot nie
+    może mieć naraz dwóch znaków."""
+    pid = _partner()
+    _delivery(pid, "rb1", e2=400, h1=10)
+    _wz_out(pid, "wz1", e2=225, h1=7)
+    with pytest.raises(HTTPException) as e:
+        create_doc(partner_id=pid, doc_date="2026-07-30",
+                   linked_sources=[{"sourceType": "raw_batch", "sourceId": "rb1"},
+                                   {"sourceType": "wz", "sourceId": "wz1"}],
+                   lines=_lines(e2_in=625, e2_out=625))
+    assert e.value.status_code == 400
+
+
+def test_pojedyncze_powiazanie_dziala_jak_dotad(db):
+    """Regresja: stary kontrakt (linked_source_id) nadal działa."""
+    pid = _partner()
+    _delivery(pid, "rb1", e2=600, h1=13)
+    doc = create_doc(partner_id=pid, doc_date="2026-07-30",
+                     linked_source_type="raw_batch", linked_source_id="rb1",
+                     lines=_lines(e2_in=600, e2_out=600, h1_in=13, h1_out=13))
+    assert doc["balanceAfter"]["e2"] == 0
+    assert [s["sourceId"] for s in doc["linkedSources"]] == ["rb1"]

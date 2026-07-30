@@ -1754,6 +1754,7 @@ export interface ContainerDoc {
   partner: { id: string; name: string; nip: string; address: string }
   partnerId: string
   linkedSourceType: string | null; linkedSourceId: string | null
+  linkedSources: { sourceType: string; sourceId: string }[]
   seller: { name: string; address: string; postal_code: string; city: string; nip: string; phone: string }
   docDate: string; driver: string; vehicle: string; notes: string
   balanceAfter: Record<ContainerAsset, number>
@@ -1806,6 +1807,8 @@ export const containersApi = {
     // Powiązanie z dostawą: kolumna „Dostawa/odbiór" jest wtedy samą
     // referencją na druku — księguje się wyłącznie zwrot.
     linkedSourceType?: string; linkedSourceId?: string
+    /** Kilka partii jednej dostawy na wspólnym druku */
+    linkedSources?: { sourceType: string; sourceId: string }[]
     /** true = druk z PUSTĄ kolumną zwrotu; wpiszesz go po powrocie kierowcy */
     pendingReturn?: boolean
     lines: { assetType: ContainerAsset; inQty: number; outQty: number }[]

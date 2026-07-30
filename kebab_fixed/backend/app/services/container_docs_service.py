@@ -63,20 +63,54 @@ def _normalize_lines(lines: List[Dict[str, Any]], allow_empty: bool = False) -> 
     return out
 
 
-def _return_sign(conn, source_type: str, source_id: str) -> int:
-    """Znak zwrotu = PRZECIWNY do tego, co zaksięgowało źródło.
+def _normalize_sources(
+    linked_sources: Optional[List[Dict[str, Any]]],
+    linked_source_type: str = "",
+    linked_source_id: str = "",
+) -> List[Dict[str, str]]:
+    """Lista powiązanych źródeł. Przyjmuje też stary, pojedynczy kontrakt."""
+    raw = list(linked_sources or [])
+    if not raw and linked_source_id:
+        raw = [{"sourceType": linked_source_type or "raw_batch",
+                "sourceId": linked_source_id}]
+    out, seen = [], set()
+    for item in raw:
+        sid = (item.get("sourceId") or item.get("source_id") or "").strip()
+        if not sid or sid in seen:
+            continue
+        seen.add(sid)
+        out.append({
+            "sourceType": item.get("sourceType") or item.get("source_type") or "raw_batch",
+            "sourceId": sid,
+        })
+    return out
+
+
+def _sources_sign(conn, sources: List[Dict[str, str]]) -> int:
+    """Znak zwrotu = PRZECIWNY do tego, co zaksięgowały źródła.
 
     Dostawca (przyjęcie) wniósł nośniki na saldo (+), więc jego zwrot je
     zdejmuje (−). Odbiorca (WZ) zabrał nasze (−), więc jego zwrot je
     przywraca (+). Bez tej reguły „oddali 225" u odbiorcy zrobiłoby saldo
     −450 zamiast zera.
+
+    Wszystkie źródła jednego druku muszą mieć TEN SAM kierunek — jeden zwrot
+    nie może księgować się naraz na plus i na minus.
     """
-    row = cx_query_one(
-        conn,
-        "SELECT COALESCE(SUM(qty),0) AS s FROM container_movements "
-        "WHERE source_type=%s AND source_id=%s",
-        (source_type, source_id))
-    return -1 if int(row["s"] or 0) > 0 else 1
+    signs = set()
+    for src in sources:
+        row = cx_query_one(
+            conn,
+            "SELECT COALESCE(SUM(qty),0) AS s FROM container_movements "
+            "WHERE source_type=%s AND source_id=%s",
+            (src["sourceType"], src["sourceId"]))
+        total = int(row["s"] or 0)
+        if total:
+            signs.add(-1 if total > 0 else 1)
+    if len(signs) > 1:
+        raise HTTPException(
+            400, "Jeden druk nie może łączyć dostaw z wydaniami — zwrot miałby dwa kierunki")
+    return signs.pop() if signs else -1
 
 
 def create_doc(
@@ -91,6 +125,7 @@ def create_doc(
     notes: str = "",
     linked_source_type: str = "",
     linked_source_id: str = "",
+    linked_sources: Optional[List[Dict[str, Any]]] = None,
     pending_return: bool = False,
     created_by: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -105,7 +140,8 @@ def create_doc(
     podbiłaby saldo o 1200. Na druku obie kolumny widnieją normalnie.
     """
     norm = _normalize_lines(lines or [], allow_empty=pending_return)
-    linked = bool(linked_source_id)
+    sources = _normalize_sources(linked_sources, linked_source_type, linked_source_id)
+    linked = bool(sources)
     if pending_return:
         # Druk jedzie do kontrahenta z PUSTĄ kolumną zwrotu — wypełnia ją
         # on ręcznie, my wpisujemy faktyczną liczbę po powrocie kierowcy.
@@ -116,6 +152,8 @@ def create_doc(
 
     with transaction() as conn:
         pid = partner_id or resolve_partner(conn, ref_type, ref_id)
+        if sources:
+            _sources_sign(conn, sources)   # waliduje spójność kierunku
         partner = cx_query_one(conn, "SELECT * FROM container_partners WHERE id=%s", (pid,))
         if not partner:
             raise HTTPException(404, "Kontrahent pojemnikowy nie istnieje")
@@ -131,14 +169,16 @@ def create_doc(
             "INSERT INTO container_docs "
             "(id, number, seq, year_month, partner_id, partner_snapshot, seller, doc_date, "
             " driver, vehicle, lines, balance_after, status, notes, "
-            " linked_source_type, linked_source_id, created_by, created_at) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'{}',%s,%s,%s,%s,%s,%s)",
+            " linked_source_type, linked_source_id, linked_sources, "
+            " created_by, created_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'{}',%s,%s,%s,%s,%s,%s,%s)",
             (did, format_container_doc_number(seq, ym), seq, ym, pid,
              json.dumps(snapshot), json.dumps(_seller_block()), day,
              driver or "", vehicle or "", json.dumps(norm),
              "oczekuje" if pending_return else "wystawiony", notes or "",
-             (linked_source_type or "raw_batch") if linked else None,
-             linked_source_id or None, created_by, now_iso()))
+             sources[0]["sourceType"] if sources else None,
+             sources[0]["sourceId"] if sources else None,
+             json.dumps(sources), created_by, now_iso()))
 
         # Powiązana dostawa jest już zaksięgowana przez przyjęcie — z tego
         # dokumentu księgujemy wtedy sam zwrot.
@@ -179,6 +219,8 @@ def _doc_dto(row: Dict[str, Any]) -> Dict[str, Any]:
         "partner": snapshot, "partnerId": row["partner_id"], "seller": seller,
         "linkedSourceType": row.get("linked_source_type"),
         "linkedSourceId": row.get("linked_source_id"),
+        "linkedSources": (row.get("linked_sources") if isinstance(row.get("linked_sources"), list)
+                          else json.loads(row.get("linked_sources") or "[]")),
         "docDate": str(row["doc_date"])[:10],
         "driver": row.get("driver") or "", "vehicle": row.get("vehicle") or "",
         "notes": row.get("notes") or "",
@@ -273,8 +315,7 @@ def settle_doc(
     with transaction() as conn:
         row = cx_query_one(
             conn,
-            "SELECT id, partner_id, status, doc_date, lines, "
-            "       linked_source_type, linked_source_id "
+            "SELECT id, partner_id, status, doc_date, lines, linked_sources "
             "FROM container_docs WHERE id=%s FOR UPDATE", (doc_id,))
         if not row:
             raise HTTPException(404, "Dokument pojemnikowy nie istnieje")
@@ -285,8 +326,10 @@ def settle_doc(
         if not isinstance(lines, list):
             lines = json.loads(lines or "[]")
 
-        sign = (_return_sign(conn, row["linked_source_type"], row["linked_source_id"])
-                if row["linked_source_id"] else -1)
+        srcs = row["linked_sources"]
+        if not isinstance(srcs, list):
+            srcs = json.loads(srcs or "[]")
+        sign = _sources_sign(conn, srcs) if srcs else -1
 
         targets: Dict[str, int] = {}
         for line in lines:
@@ -325,8 +368,8 @@ def cancel_docs_for_source(source_type: str, source_id: str) -> int:
     """
     rows = query_all(
         "SELECT id FROM container_docs "
-        "WHERE linked_source_type=%s AND linked_source_id=%s AND status <> 'anulowany'",
-        (source_type, source_id))
+        "WHERE status <> 'anulowany' AND linked_sources @> %s::jsonb",
+        (json.dumps([{"sourceId": source_id}]),))
     for r in rows:
         cancel_doc(r["id"])
     return len(rows)
@@ -348,8 +391,9 @@ def partner_deliveries(partner_id: str) -> List[Dict[str, Any]]:
                   COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='pallet_h1'),0)    AS pallet_h1,
                   COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='pallet_other'),0) AS pallet_other,
                   EXISTS (SELECT 1 FROM container_docs d
-                           WHERE d.linked_source_id = m.source_id
-                             AND d.status <> 'anulowany')                           AS settled
+                           WHERE d.status <> 'anulowany'
+                             AND d.linked_sources @> jsonb_build_array(
+                                   jsonb_build_object('sourceId', m.source_id)))    AS settled
              FROM container_movements m
             WHERE m.partner_id = %s AND m.source_type IN ('raw_batch','wz')
             GROUP BY m.source_type, m.source_id

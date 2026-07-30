@@ -85,7 +85,7 @@ def create_doc(dto: ContainerDocCreate):
         doc_date=dto.doc_date, driver=dto.driver, vehicle=dto.vehicle,
         lines=[line.model_dump(by_alias=True) for line in dto.lines], notes=dto.notes,
         linked_source_type=dto.linked_source_type, linked_source_id=dto.linked_source_id,
-        pending_return=dto.pending_return)
+        linked_sources=dto.linked_sources, pending_return=dto.pending_return)
 
 
 @router.get("/docs/{doc_id}")
