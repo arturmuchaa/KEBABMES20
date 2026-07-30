@@ -501,3 +501,76 @@ def test_frakcje_ponad_bilans_zeruja_loty_other(db):
     record("rb1", "backs", 50.0, [])
     record("rb1", "bones", 30.0, [])  # 132+50+30 > 200 → other = 0
     assert _other_lots_sum() == pytest.approx(0.0, abs=0.01)
+
+
+# ── Poprawka frakcji: ta sama paleta nie może zostać w obu ────────────
+def _pallet(containers=36, gross=543.0, tare=18.0, weighed_at=None):
+    """Paleta jak z kreatora: netto = brutto − tara nośnika − pojemniki×2 kg."""
+    p = {
+        "tareLabel": "Paleta H1", "tareKg": tare, "containers": containers,
+        "gross": gross, "net": round(gross - tare - containers * 2, 1),
+    }
+    if weighed_at:
+        p["weighedAt"] = weighed_at
+    return p
+
+
+def test_poprawka_frakcji_zdejmuje_palete_z_poprzedniej(db):
+    """Operator zapisał paletę jako kości, po 86 s poprawił na grzbiety.
+
+    record() nadpisuje WYŁĄCZNIE swoją frakcję, więc paleta zostawała w obu —
+    partia 445 (30.07.2026) miała przez to 452 kg za dużo i bilans masy
+    108,3% przy normie 101%. Rozpoznanie: ta sama liczba pojemników, brutto
+    w granicach działki wagi, zapis w ciągu kilku minut."""
+    _seed_batch_with_entries(internal_no="801", quarter_each=2700.0, n=2)
+    ensure_record("rb1")
+
+    bones = _pallet(containers=36, gross=543.0)      # 453,0 kg
+    record("rb1", "bones", bones["net"], [bones])
+    assert get("rb1")["bonesKg"] == 453.0
+
+    backs = _pallet(containers=36, gross=542.0)      # 452,0 kg — ta sama paleta
+    record("rb1", "backs", backs["net"], [backs])
+
+    rec = get("rb1")
+    assert rec["backsKg"] == 452.0
+    assert rec["bonesKg"] is None, "paleta została w kościach — dubel jak w 445"
+    assert rec["bonesPallets"] == []
+    # Frakcja wraca na kafel jako NIEZWAŻONA — zważone 0 kg zdejmowałoby
+    # partię z listy do doważenia, choć kości nikt jeszcze nie zważył.
+    assert rec["bonesDone"] is False
+
+
+def test_poprawka_frakcji_nie_rusza_innej_palety(db):
+    """Dwie RÓŻNE palety w obu frakcjach zostają — inaczej strażnik kasowałby
+    prawdziwe ważenia. Grzbiety 445 (brutto 587,5 i 591) dzieli 3,5 kg, więc
+    tolerancja musi być ciasna."""
+    _seed_batch_with_entries(internal_no="802", quarter_each=2700.0, n=2)
+    ensure_record("rb1")
+
+    bones = _pallet(containers=36, gross=543.0)      # 453,0 kg
+    record("rb1", "bones", bones["net"], [bones])
+
+    backs = _pallet(containers=36, gross=587.5)      # 497,5 kg — inna paleta
+    record("rb1", "backs", backs["net"], [backs])
+
+    rec = get("rb1")
+    assert rec["backsKg"] == 497.5
+    assert rec["bonesKg"] == 453.0, "skasowano prawdziwą paletę kości"
+
+
+def test_poprawka_frakcji_nie_rusza_starych_palet(db):
+    """Dokładanie kolejnej palety nie może zdejmować ważeń sprzed godzin —
+    ze stemplem weighedAt paleta jest 'stara' i nie podlega rozpoznaniu."""
+    _seed_batch_with_entries(internal_no="803", quarter_each=2700.0, n=2)
+    ensure_record("rb1")
+
+    old = datetime.now(timezone.utc) - timedelta(hours=3)
+    bones = _pallet(containers=36, gross=543.0, weighed_at=old.isoformat())
+    record("rb1", "bones", bones["net"], [bones])
+
+    backs = _pallet(containers=36, gross=542.0)      # dubel, ale sprzed 3 h
+    record("rb1", "backs", backs["net"], [backs])
+
+    rec = get("rb1")
+    assert rec["bonesKg"] == 453.0, "zdjęto paletę sprzed 3 godzin"
