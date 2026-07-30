@@ -13,9 +13,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Boxes, Search, AlertTriangle } from 'lucide-react'
 import { containersApi, type ContainerBalanceRow } from '@/lib/api'
-import { ASSET_SHORT, balanceTone } from '@/lib/containers'
+import { ASSET_SHORT, ASSET_TYPES, balanceTone, type AssetType } from '@/lib/containers'
 
-type SortKey = 'name' | 'e2' | 'pallet_h1' | 'pallet_other' | 'last_movement'
+type SortKey = 'name' | 'last_movement' | AssetType
 
 const TONE_CLS: Record<ReturnType<typeof balanceTone>, string> = {
   'owed-by-us': 'text-amber-600',
@@ -62,9 +62,16 @@ export function ContainerBalancePage() {
       if (sort === 'last_movement') {
         return dir * String(a.last_movement || '').localeCompare(String(b.last_movement || ''))
       }
-      return dir * (a[sort] - b[sort])
+      return dir * (((a as any)[sort] ?? 0) - ((b as any)[sort] ?? 0))
     })
   }, [rows, q, sort, asc])
+
+  // Kolumny tylko dla rodzajów, które gdziekolwiek mają saldo — siedem
+  // rubryk naraz (siatki, europalety, plastik, drewno) byłoby nieczytelne.
+  // E2 i palety H1 zostają zawsze: to podstawa obrotu.
+  const cols = useMemo<AssetType[]>(() => ASSET_TYPES.filter(
+    a => a === 'e2' || a === 'pallet_h1' || rows.some(r => ((r as any)[a] ?? 0) !== 0),
+  ), [rows])
 
   const th = (key: SortKey, label: string, right = false) => (
     <th
@@ -112,18 +119,16 @@ export function ContainerBalancePage() {
               {th('name', 'Kontrahent')}
               <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-ink-3">NIP</th>
               <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-ink-3">Rola</th>
-              {th('e2', ASSET_SHORT.e2, true)}
-              {th('pallet_h1', ASSET_SHORT.pallet_h1, true)}
-              {th('pallet_other', ASSET_SHORT.pallet_other, true)}
+              {cols.map(a => th(a, ASSET_SHORT[a], true))}
               {th('last_movement', 'Ostatni ruch', true)}
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-3">
             {loading && (
-              <tr><td colSpan={7} className="px-3 py-6 text-center text-[13px] text-ink-4">Ładowanie…</td></tr>
+              <tr><td colSpan={4 + cols.length} className="px-3 py-6 text-center text-[13px] text-ink-4">Ładowanie…</td></tr>
             )}
             {!loading && view.length === 0 && (
-              <tr><td colSpan={7} className="px-3 py-6 text-center text-[13px] text-ink-4">
+              <tr><td colSpan={4 + cols.length} className="px-3 py-6 text-center text-[13px] text-ink-4">
                 Brak kontrahentów z saldem nośników.
               </td></tr>
             )}
@@ -144,9 +149,11 @@ export function ContainerBalancePage() {
                 <td className="px-3 py-2 text-[12px] text-ink-3">
                   {r.roles.map(x => ROLE_LABEL[x] || x).join(' + ') || '—'}
                 </td>
-                <td className="px-3 py-2 text-right"><Saldo value={r.e2} /></td>
-                <td className="px-3 py-2 text-right"><Saldo value={r.pallet_h1} /></td>
-                <td className="px-3 py-2 text-right"><Saldo value={r.pallet_other} /></td>
+                {cols.map(a => (
+                  <td key={a} className="px-3 py-2 text-right">
+                    <Saldo value={(r as any)[a] ?? 0} />
+                  </td>
+                ))}
                 <td className="px-3 py-2 text-right text-[12.5px] text-ink-3 tabular-nums">
                   {r.last_movement || '—'}
                 </td>
