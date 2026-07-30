@@ -34,3 +34,21 @@ def test_route_przepisuje_pojemniki_pozycji(monkeypatch):
     route.manual({"buyer": {"name": "X"},
                   "items": [{"stockType": "raw", "stockId": "rb1", "containers": 225}]})
     assert seen["selections"][0]["containers"] == 225
+
+
+def test_route_przepisuje_liczbe_pojemnikow(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(route.svc, "create_manual_wz", lambda **kw: seen.update(kw) or {})
+    route.manual({"buyer": {"name": "X"}, "items": [], "containersTotal": 20})
+    assert seen["containers_total"] == 20
+
+
+def test_route_odroznia_zero_od_braku_wpisu(monkeypatch):
+    """0 to ŚWIADOME zero (saldo stoi), brak pola = weź sumę z pozycji."""
+    seen = {}
+    monkeypatch.setattr(route.svc, "create_manual_wz", lambda **kw: seen.update(kw) or {})
+    route.manual({"buyer": {"name": "X"}, "items": [], "containersTotal": 0})
+    assert seen["containers_total"] == 0
+    seen.clear()
+    route.manual({"buyer": {"name": "X"}, "items": []})
+    assert seen["containers_total"] is None

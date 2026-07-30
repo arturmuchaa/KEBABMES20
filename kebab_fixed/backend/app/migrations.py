@@ -868,6 +868,11 @@ _DDL: list[str] = [
     # Jedna dostawa bywa rozbita na KILKA partii przyjęcia (jedna ciężarówka
     # Koko → dwie partie), a druk pojemnikowy ma objąć je razem. Stąd lista
     # źródeł; kolumny pojedyncze zostają dla zgodności i prostych odczytów.
+    # Liczba pojemników wpisana na WZ przez operatora. NULL = weź sumę
+    # z pozycji. Bez tej kolumny pole „Pojemniki" na dokumencie sterowało
+    # tylko drukiem, a saldo księgowało po cichu sumę z pozycji — operator
+    # wpisywał 0, a saldo schodziło o 1741 (prod 2026-07-30).
+    "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS containers_total INTEGER",
     "ALTER TABLE container_docs ADD COLUMN IF NOT EXISTS linked_sources JSONB DEFAULT '[]'",
     "UPDATE container_docs SET linked_sources = "
     "  jsonb_build_array(jsonb_build_object('sourceType', linked_source_type, "

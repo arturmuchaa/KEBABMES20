@@ -102,6 +102,9 @@ def manual(body: dict):
         # 2026-07-29: serwis i front je miały, route je gubił).
         pallets_h1=int(body.get("palletsH1") or 0),
         pallets_other=int(body.get("palletsOther") or 0),
+        # None = brak wpisu (weź sumę z pozycji); 0 to ŚWIADOME zero.
+        containers_total=(None if body.get("containersTotal") is None
+                          else int(body["containersTotal"])),
     )
 
 
