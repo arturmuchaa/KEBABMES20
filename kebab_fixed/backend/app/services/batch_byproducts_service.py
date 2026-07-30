@@ -442,16 +442,168 @@ def today_totals() -> Dict[str, Any]:
     return {"backsKg": round(backs, 2), "bonesKg": round(bones, 2), "weighings": weighings}
 
 
+# Poprawka frakcji na HMI. Kreator ładuje palety WYŁĄCZNIE wybranej frakcji, a
+# record() nadpisuje wyłącznie ją — gdy operator zapisał paletę pod złą frakcją
+# i zważył ją ponownie pod właściwą, oryginał zostawał w poprzedniej i partia
+# liczyła tę samą paletę dwa razy (445, 30.07.2026: kości 453 kg o 14:58 i
+# grzbiety 452 kg o 15:00 — jedna paleta, bilans masy 108,3% przy normie 101%).
+# Rozpoznajemy po tym, co przy poprawce się NIE zmienia: liczbie pojemników i
+# brutto. Tolerancja jest ciasna celowo — dwie SĄSIEDNIE, prawdziwe palety
+# grzbietów tej samej partii dzieliło 3,5 kg, a szerszy próg kasowałby realne
+# ważenia (nadpisywanie zmierzonych wag = incydent 424).
+DUP_FRACTION_GROSS_TOL_KG = 2.0
+DUP_FRACTION_WINDOW_MIN = 15.0
+
+
+def _parse_stamp(value: Any) -> Optional[datetime]:
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _is_same_weighing(fresh: Dict[str, Any], old: Dict[str, Any], now: datetime) -> bool:
+    """Czy paleta z drugiej frakcji to TO SAMO ważenie, tylko źle podpięte?"""
+    if int(fresh.get("containers") or 0) != int(old.get("containers") or 0):
+        return False
+    delta = abs(float(fresh.get("gross") or 0) - float(old.get("gross") or 0))
+    if delta > DUP_FRACTION_GROSS_TOL_KG:
+        return False
+    stamp = _parse_stamp(old.get("weighedAt"))
+    if stamp is None:  # bez stempla nie wiadomo kiedy — nie ruszamy
+        return False
+    return abs((now - stamp).total_seconds()) <= DUP_FRACTION_WINDOW_MIN * 60
+
+
+def _write_fraction(conn, raw_batch_id: str, raw_batch_no: str, kind: str,
+                    kg: Optional[float], pallets: List[Dict[str, Any]],
+                    quarter: float, *, reopen: bool) -> None:
+    """Zapis frakcji: kg + % + palety + podmiana zbiorczego lotu ABP.
+
+    kg=None kasuje ważenie frakcji — poprawka zdjęła jej JEDYNĄ paletę, więc
+    frakcja wraca na kafel jako niezważona zamiast udawać zważone 0 kg.
+
+    Pojemniki: byproduct_lots.containers_available to ŻYWY licznik (maleje przy
+    wydaniu WZ). Funkcja bywa wołana WIELOKROTNIE w ciągu dnia (kolejne palety
+    na wadze) i za każdym razem PODMIENIA lot (DELETE+INSERT) — bez poniższego
+    zabiegu ponowne ważenie resetowałoby licznik do pełnej liczby palet,
+    kasując już wydane pojemniki. Liczymy więc, ile już skonsumowano (stara
+    suma z palet − stary licznik) i odejmujemy TĘ SAMĄ liczbę od nowej sumy.
+    """
+    old = cx_query_one(
+        conn,
+        f"SELECT {kind}_pallets AS old_pallets, {kind}_kg AS old_kg "
+        "FROM batch_byproducts WHERE raw_batch_id=%s",
+        (raw_batch_id,),
+    ) or {}
+
+    # Ile z poprzednio zważonej frakcji JUŻ WYJECHAŁO (WZ / utylizacja). Loty
+    # tej partii+frakcji są ŻYWYM stanem — wydanie zdejmuje z lotu kg i
+    # pojemniki (0 kg → 'shipped'). Kreator przysyła sumę NARASTAJĄCĄ całej
+    # frakcji, więc na magazyn wolno wstawić tylko to, czego jeszcze nie
+    # wydano. Bez tego wydane kg wracały na stan drugi raz: 411/kości —
+    # 1027,5 kg wyjechało 13.07 (lot 'shipped'), a doważenie 14.07 wstawiało
+    # lot na PEŁNE 1225 kg; po anulowaniu tamtej WZ (lot wraca) partia miała
+    # 2252,5 kg przy realnych 1225 kg (WZ/9 + WZ/10, prod 2026-07-14).
+    # Liczymy po WSZYSTKICH lotach frakcji (też 'shipped'), bo DELETE niżej
+    # zdejmuje wyłącznie otwarte — wydane zostają jako ślad dla WZ.
+    # FOR UPDATE na lotach: WZ w locie nie może zmienić stanu między naszym
+    # odczytem a podmianą lotu.
+    cx_query_all(
+        conn,
+        "SELECT id FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
+        "AND deboning_entry_id IS NULL FOR UPDATE",
+        (raw_batch_id, kind),
+    )
+    live = cx_query_one(
+        conn,
+        "SELECT COUNT(*) AS n, COALESCE(SUM(kg),0) AS kg, "
+        "       COUNT(containers_available) AS n_cont, "
+        "       COALESCE(SUM(containers_available),0) AS cont "
+        "FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
+        "AND deboning_entry_id IS NULL",
+        (raw_batch_id, kind),
+    )
+    consumed_kg = 0.0
+    consumed = 0
+    if live is not None and int(live["n"] or 0) > 0:
+        consumed_kg = max(0.0, float(old.get("old_kg") or 0) - float(live["kg"] or 0))
+        if int(live["n_cont"] or 0) > 0:
+            consumed = max(0, pallet_containers(old.get("old_pallets")) - int(live["cont"] or 0))
+
+    pct = None if kg is None else (round(kg / quarter * 100, 2) if quarter > 0 else 0.0)
+    # Doważenie po zamknięciu (znalazła się paleta) OTWIERA partię z powrotem —
+    # inaczej zamknięcie na zawsze chowałoby realne niedoważenie, a operator nie
+    # miałby jak wrócić do kafla. Przy zdejmowaniu dubla (reopen=False) nie
+    # ruszamy zamknięcia: to nie jest nowe ważenie.
+    reopen_sql = ", closed_at=NULL, closed_by=NULL, closed_reason=NULL" if reopen else ""
+    cx_execute(
+        conn,
+        f"UPDATE batch_byproducts SET {kind}_kg=%s, {kind}_pct=%s, {kind}_pallets=%s, "
+        f"{kind}_at=now(){reopen_sql} WHERE raw_batch_id=%s",
+        (None if kg is None else round(kg, 3), pct, json.dumps(pallets or []), raw_batch_id),
+    )
+    # Lot ABP w magazynie produktów ubocznych — żeby zważone zbiorczo grzbiety/
+    # kości trafiły do MES z traceability partii (partia→lot→utylizacja przez
+    # /api/byproducts). Lot zbiorczy: deboning_entry_id NULL, powiązany z partią.
+    # Idempotentne: nadpisujemy poprzedni otwarty lot tej partii+frakcji.
+    cx_execute(
+        conn,
+        "DELETE FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
+        "AND deboning_entry_id IS NULL AND status='open'",
+        (raw_batch_id, kind),
+    )
+    # Na stan idzie zważona suma MINUS to, co już wyjechało. batch_byproducts
+    # (wyżej) trzyma PEŁNĄ wagę frakcji — to rekord ważenia i baza procentów,
+    # nie stan magazynowy.
+    new_kg = round(max(0.0, float(kg or 0.0) - consumed_kg), 3)
+    if new_kg > 0:
+        new_available = max(0, pallet_containers(pallets) - consumed)
+        cx_execute(
+            conn,
+            "INSERT INTO byproduct_lots (id, deboning_entry_id, raw_batch_id, "
+            "raw_batch_no, kind, kg, status, containers_available, created_at) "
+            "VALUES (%s, NULL, %s, %s, %s, %s, 'open', %s, now())",
+            (cuid(), raw_batch_id, raw_batch_no, kind, new_kg, new_available),
+        )
+
+
+def _drop_moved_pallets(conn, raw_batch_id: str, raw_batch_no: str, kind: str,
+                        fresh: List[Dict[str, Any]], quarter: float) -> None:
+    """Zdejmij z DRUGIEJ frakcji palety, które operator właśnie tu przeniósł."""
+    if not fresh:
+        return
+    other = "bones" if kind == "backs" else "backs"
+    row = cx_query_one(
+        conn,
+        f"SELECT {other}_pallets AS pallets FROM batch_byproducts WHERE raw_batch_id=%s",
+        (raw_batch_id,),
+    )
+    current = list((row or {}).get("pallets") or [])
+    if not current:
+        return
+    now = datetime.now(timezone.utc)
+    keep = [p for p in current if not any(_is_same_weighing(f, p, now) for f in fresh)]
+    if len(keep) == len(current):
+        return
+    total = round(sum(float(p.get("net") or 0) for p in keep), 1)
+    logger.warning(
+        "byproducts.fraction_corrected",
+        extra={
+            "batch_no": raw_batch_no, "moved_to": kind, "moved_from": other,
+            "dropped_pallets": len(current) - len(keep), "other_kg_after": total,
+        },
+    )
+    _write_fraction(conn, raw_batch_id, raw_batch_no, other,
+                    total if keep else None, keep, quarter, reopen=False)
+
+
 def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = None) -> Dict[str, Any]:
     """Zapisz zważoną frakcję (backs|bones): kg + wyliczony % + szczegóły palet.
 
-    Pojemniki: byproduct_lots.containers_available to ŻYWY licznik (maleje
-    przy wydaniu WZ). Ta funkcja bywa wołana WIELOKROTNIE w ciągu dnia
-    (kolejne palety dokładane na wadze) i za każdym razem PODMIENIA lot
-    (DELETE+INSERT) — bez poniższego zabiegu ponowne ważenie resetowałoby
-    licznik do pełnej liczby palet, kasując już wydane pojemniki. Liczymy
-    więc, ile już skonsumowano (stara suma z palet − stary licznik) i
-    odejmujemy TĘ SAMĄ liczbę od nowej sumy z palet.
+    Zapis pod drugą frakcją PRZENOSI paletę, a nie kopiuje — patrz
+    _drop_moved_pallets (dubel z partii 445).
     """
     if kind not in ("backs", "bones"):
         raise HTTPException(400, "kind musi być 'backs' albo 'bones'")
@@ -462,83 +614,20 @@ def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = No
     with transaction() as conn:
         rec = cx_query_one(
             conn,
-            f"SELECT quarter_kg, raw_batch_no, {kind}_pallets AS old_pallets, "
-            f"       {kind}_kg AS old_kg "
-            "FROM batch_byproducts WHERE raw_batch_id=%s FOR UPDATE",
+            "SELECT quarter_kg, raw_batch_no FROM batch_byproducts "
+            "WHERE raw_batch_id=%s FOR UPDATE",
             (raw_batch_id,),
         )
         if not rec:
             raise HTTPException(404, "Partia nie została zakończona (brak rekordu ubocznych)")
         quarter = float(rec["quarter_kg"] or 0)
-        pct = round(kg / quarter * 100, 2) if quarter > 0 else 0.0
+        # Palety BEZ stempla na WEJŚCIU to te dokładane teraz — kreator odsyła
+        # sumę narastającą, więc poprzednie przychodzą ze swoim weighedAt.
+        fresh_idx = [i for i, p in enumerate(pallets or []) if not (p or {}).get("weighedAt")]
         pallets = _stamp_pallets(pallets)
-
-        # Ile z poprzednio zważonej frakcji JUŻ WYJECHAŁO (WZ / utylizacja).
-        # Loty tej partii+frakcji są ŻYWYM stanem — wydanie zdejmuje z lotu kg
-        # i pojemniki (0 kg → 'shipped'). Kreator przysyła sumę NARASTAJĄCĄ całej
-        # frakcji, więc na magazyn wolno wstawić tylko to, czego jeszcze nie
-        # wydano. Bez tego wydane kg wracały na stan drugi raz: 411/kości —
-        # 1027,5 kg wyjechało 13.07 (lot 'shipped'), a doważenie 14.07 wstawiało
-        # lot na PEŁNE 1225 kg; po anulowaniu tamtej WZ (lot wraca) partia miała
-        # 2252,5 kg przy realnych 1225 kg (WZ/9 + WZ/10, prod 2026-07-14).
-        # Liczymy po WSZYSTKICH lotach frakcji (też 'shipped'), bo DELETE niżej
-        # zdejmuje wyłącznie otwarte — wydane zostają jako ślad dla WZ.
-        # FOR UPDATE na lotach: WZ w locie nie może zmienić stanu między
-        # naszym odczytem a podmianą lotu.
-        cx_query_all(
-            conn,
-            "SELECT id FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
-            "AND deboning_entry_id IS NULL FOR UPDATE",
-            (raw_batch_id, kind),
-        )
-        live = cx_query_one(
-            conn,
-            "SELECT COUNT(*) AS n, COALESCE(SUM(kg),0) AS kg, "
-            "       COUNT(containers_available) AS n_cont, "
-            "       COALESCE(SUM(containers_available),0) AS cont "
-            "FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
-            "AND deboning_entry_id IS NULL",
-            (raw_batch_id, kind),
-        )
-        consumed_kg = 0.0
-        consumed = 0
-        if live is not None and int(live["n"] or 0) > 0:
-            consumed_kg = max(0.0, float(rec.get("old_kg") or 0) - float(live["kg"] or 0))
-            if int(live["n_cont"] or 0) > 0:
-                consumed = max(0, pallet_containers(rec.get("old_pallets")) - int(live["cont"] or 0))
-
-        # Doważenie po zamknięciu (znalazła się paleta) OTWIERA partię z
-        # powrotem — inaczej zamknięcie na zawsze chowałoby realne
-        # niedoważenie, a operator nie miałby jak wrócić do kafla.
-        cx_execute(
-            conn,
-            f"UPDATE batch_byproducts SET {kind}_kg=%s, {kind}_pct=%s, {kind}_pallets=%s, "
-            f"{kind}_at=now(), closed_at=NULL, closed_by=NULL, closed_reason=NULL "
-            "WHERE raw_batch_id=%s",
-            (round(kg, 3), pct, json.dumps(pallets or []), raw_batch_id),
-        )
-        # Lot ABP w magazynie produktów ubocznych — żeby zważone zbiorczo grzbiety/
-        # kości trafiły do MES z traceability partii (partia→lot→utylizacja przez
-        # /api/byproducts). Lot zbiorczy: deboning_entry_id NULL, powiązany z partią.
-        # Idempotentne: nadpisujemy poprzedni otwarty lot tej partii+frakcji.
-        cx_execute(
-            conn,
-            "DELETE FROM byproduct_lots WHERE raw_batch_id=%s AND kind=%s "
-            "AND deboning_entry_id IS NULL AND status='open'",
-            (raw_batch_id, kind),
-        )
-        # Na stan idzie zważona suma MINUS to, co już wyjechało. batch_byproducts
-        # (wyżej) trzyma PEŁNĄ wagę frakcji — to rekord ważenia i baza procentów,
-        # nie stan magazynowy.
-        new_kg = round(max(0.0, kg - consumed_kg), 3)
-        if new_kg > 0:
-            new_available = max(0, pallet_containers(pallets) - consumed)
-            cx_execute(
-                conn,
-                "INSERT INTO byproduct_lots (id, deboning_entry_id, raw_batch_id, "
-                "raw_batch_no, kind, kg, status, containers_available, created_at) "
-                "VALUES (%s, NULL, %s, %s, %s, %s, 'open', %s, now())",
-                (cuid(), raw_batch_id, rec["raw_batch_no"], kind, new_kg, new_available),
-            )
+        _write_fraction(conn, raw_batch_id, rec["raw_batch_no"], kind, kg, pallets,
+                        quarter, reopen=True)
+        _drop_moved_pallets(conn, raw_batch_id, rec["raw_batch_no"], kind,
+                            [pallets[i] for i in fresh_idx], quarter)
         _rescale_other_lots(conn, raw_batch_id)
     return get(raw_batch_id)
