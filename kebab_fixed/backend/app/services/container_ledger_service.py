@@ -39,6 +39,19 @@ def _zero_balance() -> Dict[str, int]:
     return {a: 0 for a in ASSET_TYPES}
 
 
+def _asset_sum_cols(alias: str = "m") -> str:
+    """Kolumny SUM per rodzaj nośnika, generowane z ASSET_TYPES.
+
+    Wcześniej były wpisane na sztywno (e2/pallet_h1/pallet_other), więc po
+    dodaniu siatek E1 nie pojawiały się nigdzie w odczytach — picker
+    pokazywał „—" mimo zaksięgowanego ruchu (prod 2026-07-30).
+    Nazwy rodzajów pochodzą ze stałej w kodzie, nie z wejścia użytkownika.
+    """
+    return ", ".join(
+        f"COALESCE(SUM({alias}.qty) FILTER (WHERE {alias}.asset_type='{a}'), 0) AS {a}"
+        for a in ASSET_TYPES)
+
+
 # ── Księgowanie ──────────────────────────────────────────────────────
 def book_target(
     conn,
@@ -129,10 +142,8 @@ def balances(q: str = "", nonzero: bool = False) -> List[Dict[str, Any]]:
     i odbiorcą zwielokrotniłby wiersze i podwoił SUM(qty).
     """
     rows = query_all(
-        """SELECT p.id, p.nip, p.name, p.address,
-                  COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='e2'), 0)           AS e2,
-                  COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='pallet_h1'), 0)    AS pallet_h1,
-                  COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='pallet_other'), 0) AS pallet_other,
+        f"""SELECT p.id, p.nip, p.name, p.address,
+                  {_asset_sum_cols()},
                   COUNT(m.id) FILTER (WHERE NOT m.confirmed)                         AS unconfirmed,
                   MAX(m.movement_date)                                               AS last_movement,
                   (SELECT ARRAY_AGG(DISTINCT l.ref_type)
@@ -148,13 +159,12 @@ def balances(q: str = "", nonzero: bool = False) -> List[Dict[str, Any]]:
         rec = {
             "id": r["id"], "nip": r["nip"] or "", "name": r["name"],
             "address": r["address"] or "",
-            "e2": int(r["e2"]), "pallet_h1": int(r["pallet_h1"]),
-            "pallet_other": int(r["pallet_other"]),
+            **{a: int(r[a]) for a in ASSET_TYPES},
             "unconfirmed": int(r["unconfirmed"] or 0),
             "last_movement": str(r["last_movement"] or "")[:10] or None,
             "roles": sorted(r["roles"] or []),
         }
-        if nonzero and not (rec["e2"] or rec["pallet_h1"] or rec["pallet_other"]):
+        if nonzero and not any(rec[a] for a in ASSET_TYPES):
             continue
         if needle and needle not in f"{rec['name']} {rec['nip']}".lower():
             continue
@@ -231,10 +241,10 @@ def pending_groups(partner_id: str = "") -> List[Dict[str, Any]]:
     rows = query_all(
         "SELECT m.partner_id, m.source_type, m.source_id, "
         "       MIN(m.movement_date) AS first_date, "
-        "       COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='e2'),0) AS e2, "
-        "       COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='pallet_h1'),0) AS pallet_h1, "
-        "       COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='pallet_other'),0) AS pallet_other, "
-        "       MIN(m.note) AS note "
+        f"      {_asset_sum_cols()}, "
+        # Opis z PIERWSZEGO ruchu źródła, nie MIN() alfabetycznie — po korekcie
+        # biura dostawa nazywała się „Korekta biura" zamiast „Przyjęcie 453".
+        "       (array_agg(m.note ORDER BY m.created_at))[1] AS note "
         f"  FROM container_movements m WHERE {where} "
         " GROUP BY m.partner_id, m.source_type, m.source_id "
         " ORDER BY MIN(m.movement_date) DESC", params)
@@ -243,8 +253,7 @@ def pending_groups(partner_id: str = "") -> List[Dict[str, Any]]:
         "sourceId": r["source_id"] or "",
         "sourceLabel": SOURCE_LABELS.get(r["source_type"], r["source_type"]),
         "date": str(r["first_date"])[:10], "note": r["note"] or "",
-        "assets": {"e2": int(r["e2"]), "pallet_h1": int(r["pallet_h1"]),
-                   "pallet_other": int(r["pallet_other"])},
+        "assets": {a: int(r[a]) for a in ASSET_TYPES},
     } for r in rows]
 
 

@@ -189,14 +189,17 @@ def test_lista_dostaw_do_rozliczenia(db):
     assert [r["sourceId"] for r in rows] == ["rb2", "rb1"] or \
            [r["sourceId"] for r in rows] == ["rb1", "rb2"]
     r1 = next(r for r in rows if r["sourceId"] == "rb1")
-    assert r1["assets"] == {"e2": 600, "pallet_h1": 13, "pallet_other": 0}
+    assert _bal(r1["assets"]) == {"e2": 600, "pallet_h1": 13, "pallet_other": 0}
     assert r1["settled"] is False
 
     create_doc(partner_id=pid, doc_date="2026-07-30",
                linked_source_type="raw_batch", linked_source_id="rb1",
                lines=_lines(e2_in=600, e2_out=600, h1_in=13, h1_out=13))
-    r1b = next(r for r in partner_deliveries(pid) if r["sourceId"] == "rb1")
-    assert r1b["settled"] is True, "dostawa z wystawionym dokumentem jest oznaczona"
+    # Rozliczona dostawa znika z domyślnej listy; widać ją z include_settled.
+    assert [r["sourceId"] for r in partner_deliveries(pid)] == ["rb2"]
+    r1b = next(r for r in partner_deliveries(pid, include_settled=True)
+               if r["sourceId"] == "rb1")
+    assert r1b["settled"] is True
 
 
 # ── Dwufazowy zwrot: druk z pustą kolumną, zwrot wpisany po powrocie ──
@@ -330,7 +333,7 @@ def test_wydane_WZ_widac_w_liscie_do_powiazania(db):
     _wz_out(pid, "wz1", e2=225, h1=7)
     rows = partner_deliveries(pid)
     wz = next(r for r in rows if r["sourceType"] == "wz")
-    assert wz["assets"] == {"e2": 225, "pallet_h1": 7, "pallet_other": 0}, \
+    assert _bal(wz["assets"]) == {"e2": 225, "pallet_h1": 7, "pallet_other": 0}, \
         "w pickerze pokazujemy ILOŚCI, nie znak księgowy"
     assert wz["direction"] == "out"
     assert wz["settled"] is False
@@ -381,7 +384,9 @@ def test_obie_partie_oznaczone_jako_rozliczone(db):
                linked_sources=[{"sourceType": "raw_batch", "sourceId": "rb1"},
                                {"sourceType": "raw_batch", "sourceId": "rb2"}],
                lines=_lines(e2_in=667, e2_out=667, h1_in=17, h1_out=17))
-    rows = {r["sourceId"]: r["settled"] for r in partner_deliveries(pid)}
+    assert partner_deliveries(pid) == [], "obie partie zeszły z listy"
+    rows = {r["sourceId"]: r["settled"]
+            for r in partner_deliveries(pid, include_settled=True)}
     assert rows == {"rb1": True, "rb2": True}
 
 
@@ -434,3 +439,52 @@ def test_pojedyncze_powiazanie_dziala_jak_dotad(db):
                      lines=_lines(e2_in=600, e2_out=600, h1_in=13, h1_out=13))
     assert doc["balanceAfter"]["e2"] == 0
     assert [s["sourceId"] for s in doc["linkedSources"]] == ["rb1"]
+
+
+# ── Picker: rodzaje, opis i znikanie rozliczonych (2026-07-30) ───────
+def test_picker_pokazuje_wszystkie_rodzaje_nosnikow(db):
+    """Siatki E1 wpadały do pickera jako „—", bo SQL miał zaszyte na sztywno
+    trzy stare kolumny."""
+    pid = _partner()
+    with transaction() as conn:
+        book_assets(conn, partner_id=pid, source_type="raw_batch", source_id="rbS",
+                    targets={"e2": 91, "net_e1": 30}, movement_date="2026-07-30",
+                    note="Przyjęcie 453")
+    d = partner_deliveries(pid)[0]
+    assert d["assets"]["e2"] == 91
+    assert d["assets"]["net_e1"] == 30
+
+
+def test_opis_dostawy_bierze_PIERWOTNY_wpis_nie_korekte(db):
+    """MIN(note) wybierał alfabetycznie — po korekcie biura dostawa
+    nazywała się „Korekta biura" zamiast „Przyjęcie 453"."""
+    pid = _partner()
+    with transaction() as conn:
+        book_assets(conn, partner_id=pid, source_type="raw_batch", source_id="rbK",
+                    targets={"e2": 91}, movement_date="2026-07-30", note="Przyjęcie 453")
+        book_assets(conn, partner_id=pid, source_type="raw_batch", source_id="rbK",
+                    targets={"e2": 90}, movement_date="2026-07-30", note="Korekta biura")
+    assert partner_deliveries(pid)[0]["label"] == "Przyjęcie 453"
+
+
+def test_rozliczona_dostawa_znika_z_listy(db):
+    """Po wystawieniu druku dostawa ma zejść z listy — inaczej zaśmieca
+    wybór przy kolejnych kursach."""
+    pid = _partner()
+    _delivery(pid, "rb1", e2=600, h1=13)
+    _delivery(pid, "rb2", e2=200, h1=4)
+    create_doc(partner_id=pid, doc_date="2026-07-30",
+               linked_sources=[{"sourceType": "raw_batch", "sourceId": "rb1"}],
+               lines=_lines(e2_in=600, e2_out=600, h1_in=13, h1_out=13))
+    assert [r["sourceId"] for r in partner_deliveries(pid)] == ["rb2"]
+
+
+def test_anulowanie_druku_przywraca_dostawe_na_liste(db):
+    pid = _partner()
+    _delivery(pid, "rb1", e2=600, h1=13)
+    doc = create_doc(partner_id=pid, doc_date="2026-07-30",
+                     linked_sources=[{"sourceType": "raw_batch", "sourceId": "rb1"}],
+                     lines=_lines(e2_in=600, e2_out=600, h1_in=13, h1_out=13))
+    assert partner_deliveries(pid) == []
+    cancel_doc(doc["id"])
+    assert [r["sourceId"] for r in partner_deliveries(pid)] == ["rb1"]

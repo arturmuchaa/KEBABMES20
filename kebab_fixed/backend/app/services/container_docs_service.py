@@ -17,7 +17,9 @@ from fastapi import HTTPException
 
 from app.db import cx_execute, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
-from app.services.container_ledger_service import book_assets, partner_balance_cx
+from app.services.container_ledger_service import (
+    _asset_sum_cols, book_assets, partner_balance_cx,
+)
 from app.services.container_partners_service import resolve_partner, resolve_partner_by_nip
 from app.services.settings_service import get_company
 from app.utils.containers import ASSET_LABELS, ASSET_TYPES, format_container_doc_number
@@ -376,7 +378,7 @@ def cancel_docs_for_source(source_type: str, source_id: str) -> int:
     return len(rows)
 
 
-def partner_deliveries(partner_id: str) -> List[Dict[str, Any]]:
+def partner_deliveries(partner_id: str, include_settled: bool = False) -> List[Dict[str, Any]]:
     """Dostawy tego kontrahenta do wskazania na dokumencie pojemnikowym.
 
     Źródłem są ruchy z przyjęć surowca (`source_type='raw_batch'`), bo to one
@@ -385,12 +387,12 @@ def partner_deliveries(partner_id: str) -> List[Dict[str, Any]]:
     tylko oznaczamy w UI.
     """
     rows = query_all(
-        """SELECT m.source_type, m.source_id,
+        f"""SELECT m.source_type, m.source_id,
                   MIN(m.movement_date) AS first_date,
-                  MIN(m.note)          AS note,
-                  COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='e2'),0)           AS e2,
-                  COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='pallet_h1'),0)    AS pallet_h1,
-                  COALESCE(SUM(m.qty) FILTER (WHERE m.asset_type='pallet_other'),0) AS pallet_other,
+                  -- Opis z PIERWSZEGO ruchu, nie MIN() alfabetycznie: po korekcie
+                  -- biura dostawa nazywała się „Korekta biura" zamiast „Przyjęcie 453".
+                  (array_agg(m.note ORDER BY m.created_at))[1] AS note,
+                  {_asset_sum_cols()},
                   EXISTS (SELECT 1 FROM container_docs d
                            WHERE d.status <> 'anulowany'
                              AND d.linked_sources @> jsonb_build_array(
@@ -405,11 +407,13 @@ def partner_deliveries(partner_id: str) -> List[Dict[str, Any]]:
         (partner_id,))
     out = []
     for r in rows:
-        e2, h1, other = int(r["e2"]), int(r["pallet_h1"]), int(r["pallet_other"])
-        total = e2 + h1 + other
+        qty = {a: int(r[a]) for a in ASSET_TYPES}
+        total = sum(qty.values())
         # Kierunek bierzemy ze ZNAKU księgowania; w pickerze pokazujemy same
         # ilości, bo operator myśli „225 pojemników", nie „−225".
         direction = "out" if total < 0 else "in"
+        if bool(r["settled"]) and not include_settled:
+            continue
         out.append({
             "sourceType": r["source_type"],
             "sourceId": r["source_id"] or "",
@@ -418,7 +422,7 @@ def partner_deliveries(partner_id: str) -> List[Dict[str, Any]]:
                                    else "Przyjęcie surowca"),
             "direction": direction,
             "settled": bool(r["settled"]),
-            "assets": {"e2": abs(e2), "pallet_h1": abs(h1), "pallet_other": abs(other)},
+            "assets": {a: abs(v) for a, v in qty.items()},
         })
     return out
 
