@@ -40,22 +40,26 @@ const S = {
     breakInside: 'avoid' as const,
   },
   table: {
-    width: '100%', height: '100%', borderCollapse: 'collapse' as const,
+    width: '100%', height: 'calc(100% - 7.5mm)', borderCollapse: 'collapse' as const,
     tableLayout: 'fixed' as const,
   },
-  cell: { border: '1px solid #111', padding: '1.5mm 2.5mm', verticalAlign: 'top' as const },
+  brand: {
+    display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
+    height: '7.5mm', paddingBottom: '1mm',
+  } as const,
+  cell: { border: '1px solid #111', padding: '1.2mm 2.5mm', verticalAlign: 'top' as const },
   lbl: { fontSize: 9, fontWeight: 700, textDecoration: 'underline' as const },
   val: { fontSize: 12, fontWeight: 700, marginTop: 2 },
   head: {
-    border: '1px solid #111', padding: '1.5mm', textAlign: 'center' as const,
+    border: '1px solid #111', padding: '1.2mm', textAlign: 'center' as const,
     fontWeight: 700, fontSize: 10, background: '#e8e8e8',
   },
   rowLbl: {
-    border: '1px solid #111', padding: '1.5mm 2.5mm', fontWeight: 700,
+    border: '1px solid #111', padding: '1.2mm 2.5mm', fontWeight: 700,
     fontSize: 10, background: '#f2f2f2',
   },
   num: {
-    border: '1px solid #111', padding: '1.5mm', textAlign: 'center' as const,
+    border: '1px solid #111', padding: '1.2mm', textAlign: 'center' as const,
     fontSize: 14, fontWeight: 700,
   },
 }
@@ -67,6 +71,11 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
     .filter(Boolean).join(', ')
   return (
     <div style={S.copy}>
+      {/* Logo POZA ramką dokumentu — papier firmowy, nie element formularza. */}
+      <div style={S.brand}>
+        <img src="/logo-ksiezyc-znak.png" alt="" style={{ height: '6.5mm' }} />
+        <span style={{ fontSize: 8, letterSpacing: 1, color: '#666' }}>{mark}</span>
+      </div>
       <table style={S.table}>
         <colgroup>
           <col style={{ width: '26%' }} /><col style={{ width: '25%' }} />
@@ -76,8 +85,7 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
           <tr>
             <td style={{ ...S.cell, textAlign: 'center' }} rowSpan={2}>
               <div style={S.lbl}>Dostawca:</div>
-              <img src="/logo-ksiezyc-print.png" alt="" style={{ height: '7mm', margin: '1mm auto' }} />
-              <div style={{ fontSize: 11, fontWeight: 700 }}>{s.name || ''}</div>
+              <div style={{ fontSize: 11, fontWeight: 700, marginTop: 1 }}>{s.name || ''}</div>
               <div style={{ fontSize: 9 }}>{sellerAddr}</div>
               <div style={{ fontSize: 9 }}>{s.nip ? `NIP ${s.nip}` : ''}</div>
               <div style={{ fontSize: 9 }}>{s.phone ? `tel.: ${s.phone}` : ''}</div>
@@ -85,7 +93,6 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
             <td style={S.cell} colSpan={2}>
               <span style={{ fontSize: 11, fontWeight: 700 }}>WZ na POJEMNIKI NR: </span>
               <span style={{ fontSize: 13, fontWeight: 800 }}>{doc.number}</span>
-              <span style={{ float: 'right', fontSize: 8, letterSpacing: 1 }}>{mark}</span>
               {doc.status === 'anulowany' && (
                 <div style={{ fontSize: 11, fontWeight: 800, color: '#b00' }}>ANULOWANY</div>
               )}
@@ -137,7 +144,7 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
               <td style={S.num}>{pending ? '' : l.balance}</td>
             </tr>
           ))}
-          <tr style={{ height: '12mm' }}>
+          <tr style={{ height: '10mm' }}>
             <td style={S.cell}><div style={S.lbl}>Podpis dostawcy:</div></td>
             <td style={S.cell} colSpan={2}>
               <div style={S.lbl}>Uwagi:</div>
