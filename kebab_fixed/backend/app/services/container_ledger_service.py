@@ -168,6 +168,7 @@ def _movement_dto(r: Dict[str, Any]) -> Dict[str, Any]:
         "qty": int(r["qty"]), "sourceType": r["source_type"], "sourceId": r["source_id"],
         "sourceLabel": SOURCE_LABELS.get(r["source_type"], r["source_type"]),
         "docId": r.get("doc_id"), "docNumber": r.get("doc_number"),
+        "partnerRef": r.get("partner_ref") or "",
         "movementDate": str(r["movement_date"])[:10],
         "confirmed": bool(r["confirmed"]), "note": r.get("note") or "",
     }
@@ -194,11 +195,15 @@ def movements(
     if unconfirmed_only:
         where.append("NOT m.confirmed")
     rows = query_all(
-        "SELECT m.*, d.number AS doc_number, "
+        # invoice_no = numer faktury/WZ DOSTAWCY wpisany przy przyjęciu.
+        # Na potwierdzeniu salda kontrahent szuka własnego dokumentu, nie
+        # naszego numeru partii.
+        "SELECT m.*, d.number AS doc_number, rb.invoice_no AS partner_ref, "
         "       SUM(m.qty) OVER (PARTITION BY m.source_type, m.source_id) AS src_total, "
         "       COUNT(*)   OVER (PARTITION BY m.source_type, m.source_id) AS src_count "
         "  FROM container_movements m "
         "  LEFT JOIN container_docs d ON d.id = m.doc_id "
+        "  LEFT JOIN raw_batches rb ON m.source_type='raw_batch' AND rb.id = m.source_id "
         f" WHERE {' AND '.join(where)} "
         " ORDER BY m.movement_date, m.created_at", params)
     out = []

@@ -42,7 +42,8 @@ const S = {
   } as const,
   td: { border: '1px solid #bfbfbf', padding: '3px 5px', textAlign: 'center' as const,
         fontVariantNumeric: 'tabular-nums' as const } as const,
-  tdL: { border: '1px solid #bfbfbf', padding: '3px 6px', textAlign: 'left' as const } as const,
+  tdL: { border: '1px solid #bfbfbf', padding: '3px 6px', textAlign: 'left' as const,
+         lineHeight: 1.3 } as const,
   sum: {
     border: '1px solid #999', padding: '4px 6px', fontWeight: 800,
     background: '#f4f4f4', textAlign: 'center' as const,
@@ -58,9 +59,22 @@ const S = {
 interface DayRow {
   date: string
   labels: string[]
+  refs: string[]
   in: Record<ContainerAsset, number>
   out: Record<ContainerAsset, number>
   balance: Record<ContainerAsset, number>
+}
+
+/** „Przyjęcie 444, Przyjęcie 445" → „Przyjęcie 444, 445".
+ *  Dwie partie tej samej dostawy nie mają powtarzać słowa w kółko —
+ *  kolumna łamała się wtedy na cztery linie. */
+function collapseLabels(labels: string[]): string {
+  if (labels.length < 2) return labels.join(', ') || '—'
+  const firstWord = (t: string) => t.split(' ')[0]
+  const head = firstWord(labels[0])
+  if (!labels.every(l => firstWord(l) === head)) return labels.join(', ')
+  const rest = labels.map(l => l.slice(head.length).trim()).filter(Boolean)
+  return rest.length ? `${head} ${rest.join(', ')}` : head
 }
 
 const zero = () =>
@@ -72,7 +86,7 @@ function buildRows(st: ContainerStatement): DayRow[] {
   for (const m of st.movements) {
     let row = byDate.get(m.movementDate)
     if (!row) {
-      row = { date: m.movementDate, labels: [], in: zero(), out: zero(), balance: zero() }
+      row = { date: m.movementDate, labels: [], refs: [], in: zero(), out: zero(), balance: zero() }
       byDate.set(m.movementDate, row)
     }
     if (m.qty > 0) row.in[m.assetType] += m.qty
@@ -81,6 +95,7 @@ function buildRows(st: ContainerStatement): DayRow[] {
     // dwie partie tej samej dostawy dają jeden wpis, nie dwa.
     const label = m.docNumber || m.note || m.sourceLabel
     if (label && !row.labels.includes(label)) row.labels.push(label)
+    if (m.partnerRef && !row.refs.includes(m.partnerRef)) row.refs.push(m.partnerRef)
   }
   const rows = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
   const running = { ...st.opening }
@@ -153,8 +168,9 @@ export function ContainerStatementPrintPage() {
       ) : (
         <table style={{ ...S.table, marginTop: 10 }}>
           <colgroup>
-            <col style={{ width: '20mm' }} />
+            <col style={{ width: '18mm' }} />
             <col />
+            <col style={{ width: '34mm' }} />
             {assets.map(a => <col key={`i${a}`} style={{ width: '17mm' }} />)}
             {assets.map(a => <col key={`o${a}`} style={{ width: '17mm' }} />)}
             {assets.map(a => <col key={`b${a}`} style={{ width: '17mm' }} />)}
@@ -162,7 +178,8 @@ export function ContainerStatementPrintPage() {
           <thead>
             <tr>
               <th style={S.th} rowSpan={2}>Data</th>
-              <th style={S.th} rowSpan={2}>Dokument / opis</th>
+              <th style={S.th} rowSpan={2}>Nasz dokument</th>
+              <th style={S.th} rowSpan={2}>Dokument kontrahenta</th>
               <th style={S.th} colSpan={cols}>Przyjęto od kontrahenta</th>
               <th style={S.th} colSpan={cols}>Wydano kontrahentowi</th>
               <th style={S.th} colSpan={cols}>Saldo</th>
@@ -175,13 +192,14 @@ export function ContainerStatementPrintPage() {
           </thead>
           <tbody>
             <tr>
-              <td style={S.sumL} colSpan={2 + cols * 2}>Saldo otwarcia</td>
+              <td style={S.sumL} colSpan={3 + cols * 2}>Saldo otwarcia</td>
               {assets.map(a => <td key={a} style={S.sum}>{st.opening[a]}</td>)}
             </tr>
             {rows.map(r => (
               <tr key={r.date}>
                 <td style={S.td}>{fmtD(r.date)}</td>
-                <td style={S.tdL}>{r.labels.join(', ') || '—'}</td>
+                <td style={S.tdL}>{collapseLabels(r.labels)}</td>
+                <td style={S.tdL}>{r.refs.join(', ') || '—'}</td>
                 {assets.map(a => <td key={`i${a}`} style={S.td}>{num(r.in[a])}</td>)}
                 {assets.map(a => <td key={`o${a}`} style={S.td}>{num(r.out[a])}</td>)}
                 {assets.map(a => (
@@ -190,10 +208,10 @@ export function ContainerStatementPrintPage() {
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td style={S.tdL} colSpan={2 + cols * 3}>Brak ruchów w wybranym okresie.</td></tr>
+              <tr><td style={S.tdL} colSpan={3 + cols * 3}>Brak ruchów w wybranym okresie.</td></tr>
             )}
             <tr>
-              <td style={S.sumL} colSpan={2 + cols * 2}>Saldo zamknięcia</td>
+              <td style={S.sumL} colSpan={3 + cols * 2}>Saldo zamknięcia</td>
               {assets.map(a => (
                 <td key={a} style={{ ...S.sum, fontSize: 12 }}>{st.closing[a]}</td>
               ))}

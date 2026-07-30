@@ -1731,6 +1731,9 @@ export interface ContainerMovement {
   id: string; partnerId: string; assetType: ContainerAsset; qty: number
   sourceType: string; sourceId: string | null; sourceLabel: string
   docId: string | null; docNumber: string | null
+  /** Numer faktury/WZ DOSTAWCY wpisany przy przyjęciu — kontrahent szuka
+   *  na potwierdzeniu własnego dokumentu, nie naszego numeru partii. */
+  partnerRef: string
   movementDate: string; confirmed: boolean; note: string
 }
 

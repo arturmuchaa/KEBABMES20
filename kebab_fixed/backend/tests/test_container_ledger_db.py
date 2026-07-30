@@ -202,3 +202,26 @@ def test_odwrocone_zrodlo_znika_z_historii_ale_zostaje_w_bazie(db):
     wszystkie = movements(pid, include_reversed=True)
     assert sorted(m["qty"] for m in wszystkie) == [-225, 100, 225]
     assert query_one("SELECT COUNT(*) AS n FROM container_movements")["n"] == 3
+
+
+def test_ruch_z_przyjecia_niesie_numer_dokumentu_dostawcy(db):
+    """Na potwierdzeniu salda kontrahent musi rozpoznać SWÓJ dokument —
+    numer faktury/WZ wpisany przy przyjęciu surowca."""
+    from app.utils.ids import cuid as _cuid
+    pid = _partner()
+    execute("INSERT INTO raw_batches (id, internal_batch_no, kg_received, kg_available, "
+            "invoice_no, status, created_at) "
+            "VALUES ('rbF','444',6000,6000,'FV 739/MDU/07/2026','active',%s)", (now_iso(),))
+    with transaction() as conn:
+        book_assets(conn, partner_id=pid, source_type="raw_batch", source_id="rbF",
+                    targets={"e2": 400}, movement_date="2026-07-10", note="Przyjęcie 444")
+    m = movements(pid)[0]
+    assert m["partnerRef"] == "FV 739/MDU/07/2026"
+
+
+def test_ruch_bez_dokumentu_dostawcy_ma_puste_pole(db):
+    pid = _partner()
+    with transaction() as conn:
+        book_assets(conn, partner_id=pid, source_type="wz", source_id="wz9",
+                    targets={"e2": -10}, movement_date="2026-07-10", note="WZ WZ/9/07/26")
+    assert movements(pid)[0]["partnerRef"] == ""
