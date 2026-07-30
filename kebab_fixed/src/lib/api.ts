@@ -1685,6 +1685,9 @@ export const wzApi = {
     // Palety są na POZIOMIE DOKUMENTU (transport wiezie N palet łącznie);
     // pojemniki zostają na pozycjach, bo wynikają z masy partii.
     palletsH1?: number; palletsOther?: number;
+    /** Liczba pojemników na dokumencie. null = weź sumę z pozycji;
+     *  0 to ŚWIADOME zero i saldo wtedy stoi w miejscu. */
+    containersTotal?: number | null;
   }) => post<WzDoc>('/wz/manual', body),
   updatePrices: (id: string, prices: { index: number; price: number }[]) =>
     patch<WzDoc>(`/wz/${encodeURIComponent(id)}/prices`, { prices }),

@@ -83,8 +83,10 @@ export function WzNewPage() {
   const [notes, setNotes]             = useState('')
   // Palety są na POZIOMIE DOKUMENTU — transport wiezie N palet łącznie,
   // nie N palet na każdą partię (pojemniki zostają na pozycjach).
-  // Pojemniki na druk pojemnikowy: podpowiedź = suma z ważeń (pozycje WZ),
-  // ale operator może ją poprawić, bo tylko on widzi, co wjechało na auto.
+  // Pojemniki na dokumencie: podpowiedź = suma z ważeń (pozycje WZ), ale
+  // operator może ją poprawić — i ta liczba rządzi SALDEM, nie tylko drukiem.
+  // Pusto = weź sumę z pozycji. Wpisane 0 to świadome zero (prod 2026-07-30:
+  // operator wpisał 0, a saldo i tak zeszło o 1741, bo liczyła się suma).
   const [contOverride, setContOverride] = useState<string>('')
   const [palletsH1, setPalletsH1]         = useState(0)
   const [palletsOther, setPalletsOther]   = useState(0)
@@ -242,6 +244,9 @@ export function WzNewPage() {
   // więc świadomie nic tu nie podpowiadamy.
   const totalContainers = useMemo(
     () => rows.reduce((s, r) => s + (parseInt(r.containersStr || '') || 0), 0), [rows])
+  // '' → null (auto z pozycji). '0' → 0, a NIE fallback na sumę.
+  const containersTotal = contOverride.trim() === '' ? null : (parseInt(contOverride) || 0)
+  const effectiveContainers = containersTotal ?? totalContainers
 
   const draftDoc: WzDocData = {
     number: savedDoc?.number,
@@ -297,6 +302,7 @@ export function WzNewPage() {
         notes: notes || undefined,
         palletsH1,
         palletsOther,
+        containersTotal,
       })
       setSavedDoc(doc)
     } catch (e: any) {
@@ -360,7 +366,7 @@ export function WzNewPage() {
                   <div className="text-[12.5px] text-ink-2">
                     Wystawić <b>druk na pojemniki</b> do tego WZ?
                     <span className="block text-[11px] text-ink-4">
-                      {parseInt(contOverride || '') || totalContainers} poj. · {palletsH1} pal. H1 · {palletsOther} pal. inne —
+                      {effectiveContainers} poj. · {palletsH1} pal. H1 · {palletsOther} pal. inne —
                       zwrot wpiszesz po powrocie kierowcy.
                     </span>
                   </div>
@@ -370,7 +376,7 @@ export function WzNewPage() {
                       try {
                         setContDoc(await containersApi.docFromWz({
                           wzId: savedDoc.id, palletsH1, palletsOther,
-                          containers: parseInt(contOverride || '') || totalContainers,
+                          containers: effectiveContainers,
                         }))
                       } catch (e: any) {
                         setContErr(e?.message || 'Nie udało się wystawić druku')
@@ -781,7 +787,8 @@ export function WzNewPage() {
                   samochód. Wszystko do poprawienia przed wystawieniem druku. */}
               <div className="space-y-1.5">
                 <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                  Pojemniki na druk <span className="normal-case">(z ważeń: {totalContainers})</span>
+                  Pojemniki na saldo i druk
+                  <span className="normal-case"> (z ważeń: {totalContainers}; wpisz 0, żeby nie ruszać salda)</span>
                 </Label>
                 <Input type="text" inputMode="numeric" className="h-9 font-mono"
                        placeholder={String(totalContainers)}

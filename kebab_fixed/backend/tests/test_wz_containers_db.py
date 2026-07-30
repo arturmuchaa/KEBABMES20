@@ -106,3 +106,47 @@ def test_stock_raw_uboczne_maja_liczbe_palet(db):
     row = next(r for r in stock_raw() if r["id"] == "lot1")
     assert row["containers"] == 12
     assert row["pallets"] == 2
+
+
+# ── Liczba pojemników wpisana na WZ rządzi SALDEM, nie tylko drukiem ──
+# Prod 2026-07-30: operator wpisał 0 pojemników w polu dokumentu, a saldo
+# i tak zeszło o −1741, bo księgowała się suma z POZYCJI. Dwa pola, jedno
+# widoczne — drugie po cichu decydowało.
+def _wz_total(containers_total, line_containers=111):
+    return create_manual_wz(
+        buyer=BUYER,
+        selections=[{"stock_type": "raw", "stock_id": "rb1", "name": "Ćwiartka",
+                     "unit": "kg", "qty": 300.0, "price": 1.0, "batch_no": "900",
+                     "containers": line_containers}],
+        valued=True, containers_total=containers_total)
+
+
+def test_zero_pojemnikow_na_dokumencie_NIE_rusza_salda(db):
+    _seed_raw_batch()
+    _wz_total(0)
+    with transaction() as conn:
+        assert partner_balance_cx(conn, _partner())["e2"] == 0, \
+            "operator wpisał 0 — saldo ma stać w miejscu"
+
+
+def test_reczna_liczba_wygrywa_z_suma_pozycji(db):
+    _seed_raw_batch()
+    _wz_total(20, line_containers=111)
+    with transaction() as conn:
+        assert partner_balance_cx(conn, _partner())["e2"] == -20
+
+
+def test_brak_wpisu_bierze_sume_z_pozycji(db):
+    _seed_raw_batch()
+    _wz_total(None, line_containers=111)
+    with transaction() as conn:
+        assert partner_balance_cx(conn, _partner())["e2"] == -111
+
+
+def test_edycja_pozycji_nie_nadpisuje_recznej_liczby(db):
+    """Po korekcie pozycji ręczna liczba z dokumentu ma zostać."""
+    _seed_raw_batch()
+    doc = _wz_total(20, line_containers=111)
+    update_wz_lines(doc["id"], [{"index": 0, "containers": 90}])
+    with transaction() as conn:
+        assert partner_balance_cx(conn, _partner())["e2"] == -20

@@ -173,14 +173,26 @@ def _container_partner_for_buyer(conn, buyer: Dict[str, Any]) -> Optional[str]:
     return resolve_partner_by_nip(conn, nip, name, buyer.get("address") or "")
 
 
-def _wz_container_targets(lines: List[Dict[str, Any]], pallets_h1, pallets_other) -> Dict[str, int]:
-    """Nośniki wydane tym WZ-etem, ze znakiem UJEMNYM — jadą OD NAS."""
-    e2 = 0
-    for line in lines or []:
-        try:
-            e2 += int(line.get("containers") or 0)
-        except (TypeError, ValueError):
-            continue
+def _wz_container_targets(
+    lines: List[Dict[str, Any]], pallets_h1, pallets_other,
+    containers_total: Optional[int] = None,
+) -> Dict[str, int]:
+    """Nośniki wydane tym WZ-etem, ze znakiem UJEMNYM — jadą OD NAS.
+
+    `containers_total` to liczba wpisana przez operatora na dokumencie i ma
+    PIERWSZEŃSTWO przed sumą z pozycji — także gdy wynosi 0. Wcześniej pole
+    sterowało tylko drukiem, a saldo brało sumę z pozycji: operator wpisywał
+    0, a saldo i tak schodziło o 1741 (prod 2026-07-30).
+    """
+    if containers_total is not None:
+        e2 = int(containers_total)
+    else:
+        e2 = 0
+        for line in lines or []:
+            try:
+                e2 += int(line.get("containers") or 0)
+            except (TypeError, ValueError):
+                continue
     return {"e2": -e2, "pallet_h1": -int(pallets_h1 or 0),
             "pallet_other": -int(pallets_other or 0)}
 
@@ -199,7 +211,7 @@ def _rebook_wz_containers(conn, wz_id: str, *, zero: bool = False) -> None:
     row = cx_query_one(
         conn,
         "SELECT buyer_name, buyer_address, buyer_nip, lines, pallets_h1, pallets_other, "
-        "       release_date, issued_date, number "
+        "       containers_total, release_date, issued_date, number "
         "FROM wz_documents WHERE id=%s", (wz_id,))
     if not row:
         return
@@ -212,7 +224,9 @@ def _rebook_wz_containers(conn, wz_id: str, *, zero: bool = False) -> None:
     if not isinstance(lines, list):
         lines = json.loads(lines or "[]")
     targets = ({} if zero
-               else _wz_container_targets(lines, row.get("pallets_h1"), row.get("pallets_other")))
+               else _wz_container_targets(lines, row.get("pallets_h1"),
+                                          row.get("pallets_other"),
+                                          row.get("containers_total")))
     book_assets(
         conn, partner_id=partner_id, source_type="wz", source_id=wz_id, targets=targets,
         movement_date=str(row.get("release_date") or row.get("issued_date") or date.today())[:10],
@@ -222,7 +236,8 @@ def _rebook_wz_containers(conn, wz_id: str, *, zero: bool = False) -> None:
 def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
                total, place, issued, released, notes,
                currency: str = "PLN", eur_rate: Optional[float] = None,
-               pallets_h1: int = 0, pallets_other: int = 0) -> str:
+               pallets_h1: int = 0, pallets_other: int = 0,
+               containers_total: Optional[int] = None) -> str:
     """Wstaw dokument WZ w trwającej transakcji, nadaj numer WZ/NN/MM/RR. Zwraca id.
 
     pallets_h1/pallets_other są na POZIOMIE DOKUMENTU — transport wiezie N palet
@@ -241,14 +256,15 @@ def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
            (id, number, seq, year_month, source_type, source_id, seller,
             buyer_name, buyer_address, buyer_nip, valued, lines, total_value,
             place, issued_date, release_date, status, notes, currency, eur_rate,
-            pallets_h1, pallets_other, created_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s,%s,%s,%s,%s)
+            pallets_h1, pallets_other, containers_total, created_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s,%s,%s,%s,%s,%s)
            RETURNING id""",
         (wid, number, seq, ym, source_type, source_id, json.dumps(seller),
          buyer.get("name"), buyer.get("address"), buyer.get("nip"), valued,
          json.dumps(lines), total, place, issued, released, notes,
          (currency or "PLN").upper(), eur_rate,
-         int(pallets_h1 or 0), int(pallets_other or 0), now_iso()),
+         int(pallets_h1 or 0), int(pallets_other or 0),
+         None if containers_total is None else int(containers_total), now_iso()),
     )
     logger.info("wz.generated", extra={"wz_id": wid, "number": number})
     return wid
@@ -318,6 +334,7 @@ def create_manual_wz(
     eur_rate: Optional[float] = None,
     pallets_h1: int = 0,
     pallets_other: int = 0,
+    containers_total: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Ręczny WZ ze sprzedaży z magazynu. Atomowo: dokument WZ + rozchód
     (FG: szt, surowiec: kg). Brak stanu → 400 + rollback całości.
@@ -357,7 +374,8 @@ def create_manual_wz(
             buyer=buyer, valued=valued, lines=lines, total=total, place=place_val,
             issued=issued, released=released, notes=notes,
             currency=currency, eur_rate=eur_rate,
-            pallets_h1=pallets_h1, pallets_other=pallets_other)
+            pallets_h1=pallets_h1, pallets_other=pallets_other,
+            containers_total=containers_total)
 
         for sel in selections:
             stype = sel.get("stock_type")
