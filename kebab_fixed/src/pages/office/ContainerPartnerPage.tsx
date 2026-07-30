@@ -29,10 +29,12 @@ const TONE_CLS = {
 function PendingRow({ g, onSaved }: { g: ContainerPendingGroup; onSaved: () => void }) {
   // Wartości bezwzględne w polach — znak wynika z kierunku ruchu i nie jest
   // rzeczą operatora. Przy zapisie odtwarzamy go z pierwotnej wartości.
-  const [vals, setVals] = useState<Record<ContainerAsset, string>>(
-    () => Object.fromEntries(
-      ASSET_TYPES.map(a => [a, String(Math.abs(g.assets[a] ?? 0))]),
-    ) as Record<ContainerAsset, string>)
+  // Korygujemy TYLKO rodzaje obecne w tej grupie. Wysłanie pozostałych
+  // z zerem skasowałoby je z salda — tak zniknęło 30 siatek E1 (prod
+  // 2026-07-30), zanim backend przestał zerować nieprzysłane rodzaje.
+  const groupAssets = ASSET_TYPES.filter(a => (g.assets[a] ?? 0) !== 0)
+  const [vals, setVals] = useState<Record<string, string>>(
+    () => Object.fromEntries(groupAssets.map(a => [a, String(Math.abs(g.assets[a] ?? 0))])))
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
@@ -40,7 +42,7 @@ function PendingRow({ g, onSaved }: { g: ContainerPendingGroup; onSaved: () => v
     setSaving(true); setErr('')
     try {
       const targets: Partial<Record<ContainerAsset, number>> = {}
-      for (const a of ASSET_TYPES) {
+      for (const a of groupAssets) {
         const qty = parseInt(vals[a] || '0') || 0
         // Kierunek bierzemy z oryginału; gdy oryginał był zerowy, zakładamy
         // ten sam kierunek co reszta grupy (WZ wydaje, przyjęcie przyjmuje).
@@ -64,12 +66,15 @@ function PendingRow({ g, onSaved }: { g: ContainerPendingGroup; onSaved: () => v
       <td className="px-3 py-2 text-[12.5px] text-ink-3 tabular-nums">{g.date}</td>
       <td className="px-3 py-2 text-[13px] text-ink">
         {g.sourceLabel}
+        <span className="ml-2 text-[11px] text-ink-4">
+          {groupAssets.map(a => `${Math.abs(g.assets[a] ?? 0)} ${ASSET_SHORT[a]}`).join(' · ')}
+        </span>
         {g.note && <span className="ml-2 text-[11.5px] text-ink-4">{g.note}</span>}
       </td>
-      {ASSET_TYPES.map(a => (
+      {groupAssets.map(a => (
         <td key={a} className="px-2 py-1.5">
           <input
-            type="number" min="0" step="1" value={vals[a]}
+            type="number" min="0" step="1" value={vals[a] ?? '0'}
             onChange={e => setVals(v => ({ ...v, [a]: e.target.value }))}
             className="w-20 h-8 rounded border border-surface-4 bg-surface px-2 text-right text-[13px] tabular-nums" />
         </td>
@@ -190,7 +195,8 @@ export function ContainerPartnerPage() {
 
       {/* Salda */}
       <div className="grid grid-cols-3 gap-3">
-        {ASSET_TYPES.map(a => {
+        {ASSET_TYPES.filter(a => a === 'e2' || a === 'pallet_h1'
+                                  || (data.balance[a] ?? 0) !== 0).map(a => {
           const v = data.balance[a] ?? 0
           return (
             <div key={a} className="rounded border border-surface-4 bg-surface p-4">
@@ -218,11 +224,9 @@ export function ContainerPartnerPage() {
                 <tr className="border-b border-amber-200">
                   <th className="px-3 py-2 text-left text-[11px] font-bold uppercase text-ink-3">Data</th>
                   <th className="px-3 py-2 text-left text-[11px] font-bold uppercase text-ink-3">Źródło</th>
-                  {ASSET_TYPES.map(a => (
-                    <th key={a} className="px-2 py-2 text-right text-[11px] font-bold uppercase text-ink-3">
-                      {ASSET_SHORT[a]}
-                    </th>
-                  ))}
+                  <th className="px-2 py-2 text-right text-[11px] font-bold uppercase text-ink-3">
+                    Ilości do potwierdzenia
+                  </th>
                   <th />
                 </tr>
               </thead>

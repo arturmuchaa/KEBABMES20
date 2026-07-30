@@ -262,13 +262,26 @@ def correct_group(
     partner_id: str, source_type: str, source_id: str,
     targets: Dict[str, int], confirm: bool = False,
 ) -> Dict[str, Any]:
-    """Korekta liczb z biura: ustawia sumy nośników dla źródła (append-only
-    delta) i opcjonalnie potwierdza całą grupę."""
+    """Korekta liczb z biura: ustawia sumy WSKAZANYCH nośników (append-only
+    delta) i opcjonalnie potwierdza całą grupę.
+
+    Rusza WYŁĄCZNIE rodzaje przekazane w `targets` — w odróżnieniu od
+    `book_assets`, gdzie brak klucza znaczy zero. Formularz zna tyle rodzajów,
+    ile akurat wyświetla, więc zerowanie reszty kasowało dane: potwierdzenie
+    dostawy wyzerowało 30 siatek E1, bo UI przysłał tylko trzy typy
+    (prod 2026-07-30). Zero trzeba podać JAWNIE.
+    """
     sid = source_id or None
+    unknown = [a for a in targets if a not in ASSET_TYPES]
+    if unknown:
+        raise HTTPException(400, f"Nieznany rodzaj nośnika: {', '.join(unknown)}")
     with transaction() as conn:
-        book_assets(conn, partner_id=partner_id, source_type=source_type, source_id=sid,
-                    targets=targets, movement_date=date.today().isoformat(),
-                    note="Korekta biura", confirmed=confirm)
+        for asset, qty in targets.items():
+            book_target(conn, partner_id=partner_id, asset_type=asset,
+                        source_type=source_type, source_id=sid,
+                        target_qty=int(qty or 0),
+                        movement_date=date.today().isoformat(),
+                        note="Korekta biura", confirmed=confirm)
         if confirm:
             cx_execute(
                 conn,

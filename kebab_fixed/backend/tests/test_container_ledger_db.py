@@ -233,3 +233,38 @@ def test_ruch_bez_dokumentu_dostawcy_ma_puste_pole(db):
         book_assets(conn, partner_id=pid, source_type="wz", source_id="wz9",
                     targets={"e2": -10}, movement_date="2026-07-10", note="WZ WZ/9/07/26")
     assert movements(pid)[0]["partnerRef"] == ""
+
+
+def test_korekta_NIE_zeruje_nosnikow_spoza_przekazanych(db):
+    """Prod 2026-07-30: potwierdzenie dostawy w „Do rozliczenia" wyzerowało
+    30 siatek E1, bo formularz przysłał tylko trzy znane mu rodzaje, a
+    book_assets traktuje brakujący klucz jak zero. Korekta ma ruszać
+    WYŁĄCZNIE to, co dostała."""
+    pid = _partner()
+    with transaction() as conn:
+        book_assets(conn, partner_id=pid, source_type="raw_batch", source_id="rbX",
+                    targets={"e2": 91, "net_e1": 30, "pallet_h1": 4},
+                    movement_date="2026-07-30", note="Przyjęcie 48U")
+    correct_group(pid, "raw_batch", "rbX", {"e2": 91, "pallet_h1": 4}, confirm=True)
+    with transaction() as conn:
+        bal = partner_balance_cx(conn, pid)
+    assert bal["net_e1"] == 30, "siatki nie były korygowane — muszą zostać"
+    assert bal["e2"] == 91 and bal["pallet_h1"] == 4
+
+
+def test_korekta_zeruje_gdy_jawnie_podano_zero(db):
+    pid = _partner()
+    with transaction() as conn:
+        book_assets(conn, partner_id=pid, source_type="raw_batch", source_id="rbY",
+                    targets={"e2": 91, "net_e1": 30}, movement_date="2026-07-30")
+    correct_group(pid, "raw_batch", "rbY", {"net_e1": 0}, confirm=True)
+    with transaction() as conn:
+        bal = partner_balance_cx(conn, pid)
+    assert bal["net_e1"] == 0 and bal["e2"] == 91
+
+
+def test_korekta_odrzuca_nieznany_rodzaj(db):
+    pid = _partner()
+    with pytest.raises(HTTPException) as e:
+        correct_group(pid, "raw_batch", "rbZ", {"krasnoludek": 5})
+    assert e.value.status_code == 400
