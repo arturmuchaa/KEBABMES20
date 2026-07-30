@@ -69,6 +69,11 @@ const S = {
   } as const,
   cell: { border: '1px solid #111', padding: '1.2mm 2.5mm', verticalAlign: 'top' as const },
   lbl: { fontSize: 9, fontWeight: 700, textDecoration: 'underline' as const },
+  // Dostawca i Odbiorca formatowane IDENTYCZNIE: do lewej krawędzi,
+  // czcionki o oczko większe niż reszta ramki (to najważniejsze dane
+  // na dokumencie — muszą być czytelne z ręki kierowcy).
+  partyName: { fontSize: 12, fontWeight: 700, marginTop: 1 } as const,
+  partyLine: { fontSize: 10, lineHeight: 1.35 } as const,
   val: { fontSize: 12, fontWeight: 700, marginTop: 2 },
   head: {
     border: '1px solid #111', padding: '1.2mm', textAlign: 'center' as const,
@@ -125,16 +130,16 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
         </colgroup>
         <tbody>
           <tr style={{ height: ROW_H.head1 }}>
-            <td style={{ ...S.cell, textAlign: 'center' }} rowSpan={2}>
+            <td style={S.cell} rowSpan={2}>
               <div style={S.lbl}>Dostawca:</div>
-              <div style={{ fontSize: 11, fontWeight: 700, marginTop: 1 }}>{s.name || ''}</div>
-              <div style={{ fontSize: 9 }}>{sellerAddr}</div>
-              <div style={{ fontSize: 9 }}>{s.nip ? `NIP ${s.nip}` : ''}</div>
-              <div style={{ fontSize: 9 }}>{s.phone ? `tel.: ${s.phone}` : ''}</div>
+              <div style={S.partyName}>{s.name || ''}</div>
+              <div style={S.partyLine}>{sellerAddr}</div>
+              <div style={S.partyLine}>{s.nip ? `NIP ${s.nip}` : ''}</div>
+              <div style={S.partyLine}>{s.phone ? `tel.: ${s.phone}` : ''}</div>
             </td>
-            <td style={S.cell} colSpan={2}>
-              <span style={{ fontSize: 11, fontWeight: 700 }}>WZ na POJEMNIKI NR: </span>
-              <span style={{ fontSize: 13, fontWeight: 800 }}>{doc.number}</span>
+            <td style={{ ...S.cell, verticalAlign: 'middle' }} colSpan={2}>
+              <span style={{ fontSize: 12, fontWeight: 700 }}>WZ na POJEMNIKI NR: </span>
+              <span style={{ fontSize: 14, fontWeight: 800 }}>{doc.number}</span>
               {doc.status === 'anulowany' && (
                 <div style={{ fontSize: 11, fontWeight: 800, color: '#b00' }}>ANULOWANY</div>
               )}
@@ -146,9 +151,9 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
             </td>
             <td style={S.cell} rowSpan={2}>
               <div style={S.lbl}>Odbiorca:</div>
-              <div style={{ ...S.val, fontSize: 11 }}>{doc.partner?.name || ''}</div>
-              <div style={{ fontSize: 9 }}>{doc.partner?.address || ''}</div>
-              <div style={{ fontSize: 9 }}>{doc.partner?.nip ? `NIP ${doc.partner.nip}` : ''}</div>
+              <div style={S.partyName}>{doc.partner?.name || ''}</div>
+              <div style={S.partyLine}>{doc.partner?.address || ''}</div>
+              <div style={S.partyLine}>{doc.partner?.nip ? `NIP ${doc.partner.nip}` : ''}</div>
             </td>
           </tr>
           <tr style={{ height: ROW_H.head2 }}>
