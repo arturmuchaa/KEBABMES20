@@ -24,6 +24,8 @@ class RawBatchCreate(BaseModel):
     containers_count: Optional[int] = Field(None, alias="containersCount", ge=0)
     pallets_h1: int = Field(0, alias="palletsH1", ge=0)
     pallets_other: int = Field(0, alias="palletsOther", ge=0)
+    # Rodzaj z listy „inne opakowania / palety" (siatka E1, europaleta…).
+    pallets_other_kind: Optional[str] = Field(None, alias="palletsOtherKind")
     # Przyjęcie na usługę (mięso z/s klienta) — osobna seria numerów „48U".
     is_service: bool = Field(False, alias="isService")
 
@@ -47,6 +49,7 @@ class RawBatchUpdate(BaseModel):
     containers_count: Optional[int] = Field(None, alias="containersCount", ge=0)
     pallets_h1: Optional[int] = Field(None, alias="palletsH1", ge=0)
     pallets_other: Optional[int] = Field(None, alias="palletsOther", ge=0)
+    pallets_other_kind: Optional[str] = Field(None, alias="palletsOtherKind")
 
     @classmethod
     def model_validate(cls, obj, **kw):  # type: ignore[override]
@@ -66,6 +69,7 @@ class RawBatchUpdate(BaseModel):
                 "containersCount": "containers_count",
                 "palletsH1": "pallets_h1",
                 "palletsOther": "pallets_other",
+                "palletsOtherKind": "pallets_other_kind",
             }
             normalized = {mapping.get(k, k): v for k, v in obj.items()}
             return super().model_validate(normalized, **kw)

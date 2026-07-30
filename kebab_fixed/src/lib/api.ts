@@ -1684,7 +1684,7 @@ export const wzApi = {
     currency?: string; eurRate?: number | null;
     // Palety są na POZIOMIE DOKUMENTU (transport wiezie N palet łącznie);
     // pojemniki zostają na pozycjach, bo wynikają z masy partii.
-    palletsH1?: number; palletsOther?: number;
+    palletsH1?: number; palletsOther?: number; palletsOtherKind?: string;
     /** Liczba pojemników na dokumencie. null = weź sumę z pozycji;
      *  0 to ŚWIADOME zero i saldo wtedy stoi w miejscu. */
     containersTotal?: number | null;
@@ -1719,7 +1719,10 @@ export const wzApi = {
 // ─── Saldo pojemników ───────────────────────────────────────────
 // Znak qty: dodatnie = nośniki przyjechały DO NAS (my winni),
 // ujemne = wyjechały OD NAS (oni winni). Saldo = suma qty.
-export type ContainerAsset = 'e2' | 'pallet_h1' | 'pallet_other'
+// Rodzaje nośników — jedno źródło prawdy w @/lib/containers (lustro
+// backendowego ASSET_TYPES). Alias, żeby nie utrzymywać dwóch unii.
+import type { AssetType } from '@/lib/containers'
+export type ContainerAsset = AssetType
 
 export interface ContainerBalanceRow {
   id: string; nip: string; name: string; address: string

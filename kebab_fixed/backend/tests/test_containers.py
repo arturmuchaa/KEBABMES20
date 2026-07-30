@@ -40,7 +40,8 @@ def test_kaliber_zerowy_traktowany_jak_niekalibrowany():
 
 def test_dostepne_kalibry():
     assert CALIBERS == (15.0, 20.0, None)
-    assert ASSET_TYPES == ("e2", "pallet_h1", "pallet_other")
+    # E2 pierwsze — to główny nośnik; reszta rodzajów w test_kazdy_rodzaj_*.
+    assert ASSET_TYPES[0] == "e2"
 
 
 # ── Proporcja dla partii niekalibrowanej ─────────────────────────────
@@ -79,3 +80,31 @@ def test_normalize_name_scala_biale_znaki_i_wielkosc():
 def test_format_numeru_dokumentu():
     assert format_container_doc_number(7, "2607") == "POJ/7/07/26"
     assert format_container_doc_number(112, "2612") == "POJ/112/12/26"
+
+
+# ── Rodzaje nośników (2026-07-30) ────────────────────────────────────
+# Siatki E1 nie zwraca się europaletą, więc każdy rodzaj ma własne saldo.
+def test_kazdy_rodzaj_nosnika_ma_wlasny_typ():
+    from app.utils.containers import ASSET_TYPES
+    for a in ("e2", "net_e1", "pallet_h1", "pallet_euro", "pallet_plastic", "pallet_wood"):
+        assert a in ASSET_TYPES, f"brak typu {a}"
+
+
+def test_stary_typ_zostaje_dla_danych_historycznych():
+    from app.utils.containers import ASSET_TYPES
+    assert "pallet_other" in ASSET_TYPES
+
+
+def test_kazdy_typ_ma_etykiete_na_druk_i_do_tabel():
+    from app.utils.containers import ASSET_LABELS, ASSET_SHORT, ASSET_TYPES
+    for a in ASSET_TYPES:
+        assert ASSET_LABELS.get(a), f"brak etykiety druku dla {a}"
+        assert ASSET_SHORT.get(a), f"brak krótkiej etykiety dla {a}"
+
+
+def test_lista_rozwijana_innych_opakowan():
+    """Kolejność jak podał zakład: siatka E1, plastik, europaleta, drewniana."""
+    from app.utils.containers import OTHER_CARRIER_KINDS
+    assert [k["value"] for k in OTHER_CARRIER_KINDS] == [
+        "net_e1", "pallet_plastic", "pallet_euro", "pallet_wood"]
+    assert OTHER_CARRIER_KINDS[0]["label"] == "Siatka E1"

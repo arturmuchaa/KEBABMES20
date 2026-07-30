@@ -14,7 +14,7 @@ from app.utils.batch_numbers import (
     parse_any_reception_no,
 )
 from app.utils.body import body_get
-from app.utils.containers import containers_for_kg
+from app.utils.containers import ASSET_TYPES, containers_for_kg
 from app.utils.ids import cuid, next_seq, now_iso
 from app.utils.stock import create_stock_movement
 
@@ -29,6 +29,7 @@ def _book_batch_containers(
     containers_count: Optional[int],
     pallets_h1: int,
     pallets_other: int,
+    pallets_other_kind: Optional[str] = None,
 ) -> Optional[int]:
     """Zapisuje nośniki na partii i księguje je na saldzie DOSTAWCY.
 
@@ -44,14 +45,19 @@ def _book_batch_containers(
         containers = containers_for_kg(kg, container_kg)
     h1 = int(pallets_h1 or 0)
     other = int(pallets_other or 0)
+    # Rodzaj wybrany z listy („siatka E1", „europaleta"…) ma WŁASNE saldo —
+    # bez wyboru ląduje w koszu „palety inne".
+    other_asset = pallets_other_kind if pallets_other_kind in ASSET_TYPES else "pallet_other"
 
     cx_execute(
         conn,
         "UPDATE raw_batches SET container_kg=%s, containers_count=%s, "
-        "pallets_h1=%s, pallets_other=%s WHERE id=%s",
-        (container_kg, containers, h1, other, batch_row["id"]))
+        "pallets_h1=%s, pallets_other=%s, pallets_other_kind=%s WHERE id=%s",
+        (container_kg, containers, h1, other, other_asset if other else None,
+         batch_row["id"]))
     batch_row.update(container_kg=container_kg, containers_count=containers,
-                     pallets_h1=h1, pallets_other=other)
+                     pallets_h1=h1, pallets_other=other,
+                     pallets_other_kind=other_asset if other else None)
 
     supplier_id = batch_row.get("supplier_id")
     if not supplier_id or not (containers or h1 or other):
@@ -59,7 +65,7 @@ def _book_batch_containers(
     partner_id = resolve_partner(conn, "supplier", supplier_id)
     book_assets(
         conn, partner_id=partner_id, source_type="raw_batch", source_id=batch_row["id"],
-        targets={"e2": containers or 0, "pallet_h1": h1, "pallet_other": other},
+        targets={"e2": containers or 0, "pallet_h1": h1, other_asset: other},
         movement_date=str(batch_row.get("received_date") or date.today())[:10],
         note=f"Przyjęcie {batch_row.get('internal_batch_no') or ''}".strip())
     return containers
@@ -257,6 +263,7 @@ def create_batch(dto: RawBatchCreate) -> Dict:
             containers_count=dto.containers_count,
             pallets_h1=dto.pallets_h1,
             pallets_other=dto.pallets_other,
+            pallets_other_kind=dto.pallets_other_kind,
         )
 
         # Surowiec bez rozbioru (filet, indyk…): od razu trafia na magazyn
@@ -456,6 +463,8 @@ def update_batch(batch_id: str, dto: RawBatchUpdate) -> Dict:
                             else int(before.get("pallets_h1") or 0)),
                 pallets_other=(dto.pallets_other if dto.pallets_other is not None
                                else int(before.get("pallets_other") or 0)),
+                pallets_other_kind=(dto.pallets_other_kind
+                                    or before.get("pallets_other_kind")),
             )
     if not row:
         raise HTTPException(404, "Partia nie znaleziona")

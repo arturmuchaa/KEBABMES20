@@ -14,13 +14,46 @@ import re
 from typing import Optional
 
 # Rodzaje rozliczanych nośników. Kolejność = kolejność wierszy na druku.
-ASSET_TYPES = ("e2", "pallet_h1", "pallet_other")
+#
+# KAŻDY rodzaj ma własne saldo — siatki E1 nie zwraca się europaletą, więc
+# wrzucenie ich do wspólnego worka „palety inne" ukrywałoby, czego brakuje
+# (decyzja zakładu 2026-07-30). „pallet_other" zostaje dla danych sprzed
+# tego rozbicia i jako awaryjny kosz.
+ASSET_TYPES = (
+    "e2", "net_e1", "pallet_h1",
+    "pallet_euro", "pallet_plastic", "pallet_wood", "pallet_other",
+)
 
+#: Pełne etykiety — idą na druk „WZ na POJEMNIKI" (styl zakładowego wzoru).
 ASSET_LABELS = {
     "e2": "Ilość pojemników EURO2",
+    "net_e1": "Ilość siatek E1",
     "pallet_h1": "Ilość palet H1",
+    "pallet_euro": "Ilość europalet",
+    "pallet_plastic": "Ilość palet plastikowych",
+    "pallet_wood": "Ilość palet drewnianych",
     "pallet_other": "Ilość palet innych",
 }
+
+#: Krótkie etykiety — nagłówki tabel na ekranie i w zestawieniach.
+ASSET_SHORT = {
+    "e2": "Pojemniki E2",
+    "net_e1": "Siatki E1",
+    "pallet_h1": "Palety H1",
+    "pallet_euro": "Europalety",
+    "pallet_plastic": "Palety plastik",
+    "pallet_wood": "Palety drewno",
+    "pallet_other": "Palety inne",
+}
+
+#: Lista rozwijana „inne opakowania / palety" na przyjęciu i WZ. H1 i E2 mają
+#: własne pola, więc tutaj ich nie ma.
+OTHER_CARRIER_KINDS = [
+    {"value": "net_e1", "label": "Siatka E1"},
+    {"value": "pallet_plastic", "label": "Plastik"},
+    {"value": "pallet_euro", "label": "Europaleta"},
+    {"value": "pallet_wood", "label": "Paleta drewniana"},
+]
 
 # Dozwolone kalibry pojemnika. None = niekalibrowany (operator wpisuje sztuki
 # ręcznie — dostawa nie ma jednolitego napełnienia).

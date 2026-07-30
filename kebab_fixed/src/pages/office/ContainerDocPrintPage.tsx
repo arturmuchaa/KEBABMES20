@@ -16,6 +16,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { containersApi, type ContainerDoc } from '@/lib/api'
+import { ASSET_SHORT, ASSET_TYPES } from '@/lib/containers'
 
 function fmtD(iso: string): string {
   if (!iso) return ''
@@ -46,9 +47,7 @@ const ROW_H = {
   head1: '13%',   // Dostawca | WZ na POJEMNIKI NR | Odbiorca
   head2: '15%',   // Data dostawy / odbioru | Kierowca
   cols:  '12.5%', // Środek transportu | nagłówki kolumn
-  e2:    '10%',
-  h1:    '9.5%',
-  other: '11%',
+  // Wiersze nośników dzielą 30,5% wzoru po równo — patrz printedLines.
   sign:  '29%',   // Podpis dostawcy | Uwagi | Podpis odbiorcy
 } as const
 
@@ -94,12 +93,11 @@ const S = {
  *  ujemne = nasze stoją u kontrahenta. Zero = nic nie piszemy. */
 function debtLine(doc: ContainerDoc): string {
   const bal = doc.balanceAfter || ({} as ContainerDoc['balanceAfter'])
-  const label: Record<string, string> = {
-    e2: 'poj. E2', pallet_h1: 'pal. H1', pallet_other: 'pal. innych',
-  }
-  const fmt = (sign: number) => (['e2', 'pallet_h1', 'pallet_other'] as const)
+  // Wszystkie rodzaje, nie tylko trzy pierwsze — siatki E1 i europalety też
+  // bywają zaległością i muszą wyjść na papierze.
+  const fmt = (sign: number) => ASSET_TYPES
     .filter(a => Math.sign(bal[a] ?? 0) === sign)
-    .map(a => `${Math.abs(bal[a] ?? 0)} ${label[a]}`)
+    .map(a => `${Math.abs(bal[a] ?? 0)} × ${ASSET_SHORT[a]}`)
     .join(', ')
   const owedByUs = fmt(1)
   const owedToUs = fmt(-1)
@@ -110,9 +108,19 @@ function debtLine(doc: ContainerDoc): string {
   return parts.join(' · ')
 }
 
+/** Wiersze nośników na druku: tylko te faktycznie użyte, uzupełnione do
+ *  trzech, żeby ramka zachowała proporcje zakładowego wzoru. Rodzajów jest
+ *  siedem (siatka E1, europaleta…), ale na jednym kursie jadą zwykle 2-3. */
+function printedLines(doc: ContainerDoc) {
+  const used = doc.lines.filter(l => l.inQty || l.outQty)
+  const filler = doc.lines.filter(l => !used.includes(l))
+  return [...used, ...filler].slice(0, Math.max(3, used.length))
+}
+
 function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
   const pending = doc.status === 'oczekuje'
   const debt = debtLine(doc)
+  const rows = printedLines(doc)
   const s = doc.seller || ({} as ContainerDoc['seller'])
   const sellerAddr = [s.address, [s.postal_code, s.city].filter(Boolean).join(' ')]
     .filter(Boolean).join(', ')
@@ -175,15 +183,12 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
             <td style={S.head}>Zwrot [szt.]</td>
             <td style={S.head}>Saldo</td>
           </tr>
-          {doc.lines.map(l => (
+          {rows.map(l => (
             <tr key={l.assetType} style={{
-              height: l.assetType === 'e2' ? ROW_H.e2
-                    : l.assetType === 'pallet_h1' ? ROW_H.h1 : ROW_H.other }}>
+              // 30,5% wzoru dzielone równo między wiersze nośników.
+              height: `${30.5 / rows.length}%` }}>
               <td style={S.rowLbl}>
                 {l.label}
-                {l.assetType === 'pallet_other' && (
-                  <div style={{ fontWeight: 400, fontSize: 8 }}>PCV/plastik/europaleta/drewno</div>
-                )}
               </td>
               <td style={S.num}>{l.inQty || ''}</td>
               {/* Dokument czekający na zwrot jedzie do kontrahenta z PUSTYMI

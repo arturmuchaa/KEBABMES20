@@ -17,6 +17,14 @@ from app.services.container_ledger_service import (
 from app.utils.ids import cuid, now_iso
 
 
+def _bal(d, *keys):
+    """Saldo zawężone do sprawdzanych nośników — od 2026-07-30 rodzajów jest
+    siedem (siatka E1, europaleta…), więc porównywanie całego słownika
+    psułoby testy przy każdym dodaniu rodzaju."""
+    return {k: d[k] for k in (keys or ("e2", "pallet_h1", "pallet_other"))}
+
+
+
 def _partner(name="KOKO", nip="5130064478") -> str:
     pid = cuid()
     execute("INSERT INTO container_partners (id, nip, name, created_at) VALUES (%s,%s,%s,%s)",
@@ -99,7 +107,7 @@ def test_dostawa_plus_zwrot_daje_zero(db):
                     targets={"e2": -400, "pallet_h1": -10}, movement_date="2026-07-30",
                     confirmed=True)
         bal = partner_balance_cx(conn, pid)
-    assert bal == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
+    assert _bal(bal) == {"e2": 0, "pallet_h1": 0, "pallet_other": 0}
 
 
 def test_book_assets_traktuje_brakujacy_klucz_jak_zero(db):
@@ -107,7 +115,7 @@ def test_book_assets_traktuje_brakujacy_klucz_jak_zero(db):
     with transaction() as conn:
         book_assets(conn, partner_id=pid, source_type="raw_batch", source_id="rb1",
                     targets={"e2": 400}, movement_date="2026-07-29")
-        assert partner_balance_cx(conn, pid) == {"e2": 400, "pallet_h1": 0, "pallet_other": 0}
+        assert _bal(partner_balance_cx(conn, pid)) == {"e2": 400, "pallet_h1": 0, "pallet_other": 0}
 
 
 def test_balances_nie_zwielokrotnia_sum_przy_wielu_rolach(db):
@@ -155,7 +163,7 @@ def test_correct_group_koryguje_i_potwierdza(db):
                     targets={"e2": -60}, movement_date="2026-07-29")
     correct_group(pid, "wz", "wz1", {"e2": -58, "pallet_h1": -2}, confirm=True)
     with transaction() as conn:
-        assert partner_balance_cx(conn, pid) == {"e2": -58, "pallet_h1": -2, "pallet_other": 0}
+        assert _bal(partner_balance_cx(conn, pid)) == {"e2": -58, "pallet_h1": -2, "pallet_other": 0}
     assert pending_groups(pid) == []
     assert query_one("SELECT COUNT(*) AS n FROM container_movements WHERE asset_type='e2'")["n"] == 2
 

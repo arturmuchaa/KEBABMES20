@@ -263,7 +263,7 @@ def create_doc_from_wz(
     """
     wz = query_one(
         "SELECT id, number, buyer_name, buyer_address, buyer_nip, lines, "
-        "       release_date, issued_date, status "
+        "       pallets_other_kind, release_date, issued_date, status "
         "FROM wz_documents WHERE id=%s", (wz_id,))
     if not wz:
         raise HTTPException(404, "Dokument WZ nie istnieje")
@@ -299,7 +299,8 @@ def create_doc_from_wz(
         linked_source_type="wz", linked_source_id=wz_id, pending_return=True,
         lines=[{"assetType": "e2", "inQty": e2, "outQty": 0},
                {"assetType": "pallet_h1", "inQty": int(pallets_h1 or 0), "outQty": 0},
-               {"assetType": "pallet_other", "inQty": int(pallets_other or 0), "outQty": 0}],
+               {"assetType": (wz.get("pallets_other_kind") or "pallet_other"),
+                "inQty": int(pallets_other or 0), "outQty": 0}],
         created_by=created_by)
 
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { wzApi, clientsApi, settingsApi, downloadDocPdf, containersApi, WzDoc } from '@/lib/api'
 import { todayIso, cn } from '@/lib/utils'
+import { OTHER_CARRIER_KINDS } from '@/lib/containers'
 import { WzDocumentView, WzDocData } from '@/components/wz/WzDocumentView'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -90,6 +91,7 @@ export function WzNewPage() {
   const [contOverride, setContOverride] = useState<string>('')
   const [palletsH1, setPalletsH1]         = useState(0)
   const [palletsOther, setPalletsOther]   = useState(0)
+  const [palletsOtherKind, setPalletsOtherKind] = useState<string>('net_e1')
 
   // Odbiorca zajmował pół ekranu przez cały czas wystawiania, a wypełnia się
   // raz — po wybraniu klienta zwija się do jednej linii, żeby lista magazynu
@@ -302,6 +304,7 @@ export function WzNewPage() {
         notes: notes || undefined,
         palletsH1,
         palletsOther,
+        palletsOtherKind,
         containersTotal,
       })
       setSavedDoc(doc)
@@ -807,13 +810,25 @@ export function WzNewPage() {
                          }} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Palety inne</Label>
-                  <Input type="text" inputMode="numeric" className="h-9 font-mono"
-                         value={String(palletsOther)}
-                         onFocus={e => e.target.select()}
-                         onChange={e => {
-                           setPalletsOther(parseInt(sanitizeInt(e.target.value) || '0') || 0)
-                         }} />
+                  <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                    Inne opakowania
+                  </Label>
+                  <div className="flex gap-1">
+                    {/* Rodzaj ma własne saldo — siatek E1 nie zwraca się europaletą. */}
+                    <select value={palletsOtherKind}
+                            onChange={e => setPalletsOtherKind(e.target.value)}
+                            className="h-9 flex-1 rounded border border-surface-4 bg-surface px-1 text-[11px]">
+                      {OTHER_CARRIER_KINDS.map(k => (
+                        <option key={k.value} value={k.value}>{k.label}</option>
+                      ))}
+                    </select>
+                    <Input type="text" inputMode="numeric" className="h-9 w-14 font-mono"
+                           value={String(palletsOther)}
+                           onFocus={e => e.target.select()}
+                           onChange={e => {
+                             setPalletsOther(parseInt(sanitizeInt(e.target.value) || '0') || 0)
+                           }} />
+                  </div>
                 </div>
               </div>
               <div className="space-y-1.5">
