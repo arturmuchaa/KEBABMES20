@@ -773,17 +773,28 @@ def _pct(v) -> str:
 # się w 62,5–69,5%. Blokada 60–71% zatrzymałaby 1 z 676 wpisów (0,15%).
 # Łapie klasę błędu „zła/brak tary wózka": mięso rośnie o wagę wózka
 # (87–110 kg), a wydajność skacze do 96–100% — patrz 431, 442, 443, 444.
-YIELD_BAND_MIN_PCT = 60.0
-YIELD_BAND_MAX_PCT = 71.0
+#
+# Osobne pasmo dla b/s (bez skóry, ~30 kg/tydzień — patrz meat_type w
+# app/models/deboning.py): naturalny uzysk b/s to ~50–55%, wyraźnie niższy
+# niż z/s. Cztery dotychczasowe wpisy b/s to 56,7% ×3 i 60,0% — górna
+# granica 60,0% jest domknięta specjalnie, żeby je przepuścić; jedno
+# wspólne pasmo z/s zablokowałoby prawdziwy towar b/s.
+YIELD_BANDS = {"zs": (60.0, 71.0), "bs": (45.0, 60.0)}
 # Małe pobrania zwolnione: przy 15 kg zaokrąglenie 0,5 kg to ponad 3 pp.
 YIELD_GUARD_MIN_TAKE_KG = 30.0
 
 
-def validate_yield_band(kg_taken: float, kg_meat: float, override: bool = False) -> str | None:
+def validate_yield_band(
+    kg_taken: float, kg_meat: float, meat_type: str = "zs", override: bool = False
+) -> str | None:
     """Twardy próg wydajności dla ŚCIEŻEK KIOSKU. None = wolno zapisać.
 
     Granice fizyczne (mięso > ćwiartka, wartości ≤ 0) sprawdzają
     validate_meat_yield / validate_take_completion — tu tylko pasmo.
+
+    Pasmo zależy od rodzaju mięsa (`meat_type`, patrz YIELD_BANDS). Nieznany
+    rodzaj lub brak (None) leci po paśmie z/s — to jest domyślny, dominujący
+    rodzaj, więc brak informacji nie powinien nagle otwierać szerszej furtki.
 
     Furtka (override) jest częścią projektu, nie luką: pułap 95% usunięto
     2026-07-24, bo bez furtki zakleszczał pobranie w 'pending'. Próg bez
@@ -796,14 +807,15 @@ def validate_yield_band(kg_taken: float, kg_meat: float, override: bool = False)
     kg_meat = float(kg_meat or 0)
     if kg_taken <= 0 or kg_meat <= 0 or kg_taken < YIELD_GUARD_MIN_TAKE_KG:
         return None
+    lo, hi = YIELD_BANDS.get(meat_type or "zs", YIELD_BANDS["zs"])
     pct = kg_meat / kg_taken * 100
-    if pct > YIELD_BAND_MAX_PCT:
+    if pct > hi:
         return (
             f"Wydajność {_pct(pct)} — mięso {_kg(kg_meat)} kg z {_kg(kg_taken)} kg "
             "ćwiartki. Sprawdź, czy wybrałeś właściwy wózek (tara). "
             "Zapis wymaga kodu serwisowego."
         )
-    if pct < YIELD_BAND_MIN_PCT:
+    if pct < lo:
         return (
             f"Wydajność {_pct(pct)} — mięso {_kg(kg_meat)} kg z {_kg(kg_taken)} kg "
             "ćwiartki. Sprawdź, czy całe mięso z pobrania zostało zważone. "

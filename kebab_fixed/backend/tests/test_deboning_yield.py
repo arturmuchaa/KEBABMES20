@@ -1,6 +1,10 @@
 """Czysta walidacja wydajności rozbioru — wspólna dla zapisu 'od razu'
 i domknięcia pobrania mięsem. Bez bazy."""
-from app.services.deboning_service import validate_meat_yield
+from app.services.deboning_service import (
+    YIELD_BANDS,
+    validate_meat_yield,
+    validate_yield_band,
+)
 
 
 def test_prawidlowa_wydajnosc_przechodzi():
@@ -53,14 +57,7 @@ def test_domkniecie_mieso_wieksze_niz_cwiartka_blokuje():
     assert err and "ćwiartk" in err
 
 
-from app.services.deboning_service import (
-    YIELD_BAND_MAX_PCT,
-    YIELD_BAND_MIN_PCT,
-    validate_yield_band,
-)
-
-
-# ── Twarde pasmo wydajności (60–71%) ──────────────────────────────────
+# ── Twarde pasmo wydajności (60–71% z/s, 45–60% b/s) ──────────────────
 def test_pasmo_przepuszcza_typowa_wydajnosc():
     assert validate_yield_band(300.0, 198.0) is None  # 66,0%
 
@@ -86,8 +83,9 @@ def test_pasmo_blokuje_zbyt_niska_wydajnosc():
 
 
 def test_granice_pasma_sa_domkniete():
-    assert validate_yield_band(100.0, YIELD_BAND_MIN_PCT) is None   # dokładnie 60,0%
-    assert validate_yield_band(100.0, YIELD_BAND_MAX_PCT) is None   # dokładnie 71,0%
+    lo, hi = YIELD_BANDS["zs"]
+    assert validate_yield_band(100.0, lo) is None   # dokładnie 60,0%
+    assert validate_yield_band(100.0, hi) is None   # dokładnie 71,0%
     assert validate_yield_band(100.0, 59.9) is not None
     assert validate_yield_band(100.0, 71.1) is not None
 
@@ -99,6 +97,11 @@ def test_male_pobranie_zwolnione_z_pasma():
     assert validate_yield_band(29.9, 29.9) is None     # 100%, ale < 30 kg
 
 
+def test_dokladnie_30kg_juz_podlega_kontroli():
+    """Próg zwolnienia to `<`, nie `<=` — 30,0 kg to już pełna kontrola."""
+    assert validate_yield_band(30.0, 30.0) is not None  # 100% przy 30 kg — łapane
+
+
 def test_duze_pobranie_z_ta_sama_wydajnoscia_juz_nie():
     assert validate_yield_band(150.0, 85.0) is not None  # 56,7% przy 150 kg
 
@@ -106,3 +109,17 @@ def test_duze_pobranie_z_ta_sama_wydajnoscia_juz_nie():
 def test_furtka_przepuszcza_wszystko():
     assert validate_yield_band(300.0, 298.5, override=True) is None
     assert validate_yield_band(150.0, 82.5, override=True) is None
+
+
+# ── Pasmo b/s (bez skóry) — inne, też domknięte ───────────────────────
+def test_pasmo_bs_jest_inne_i_tez_domkniete():
+    assert validate_yield_band(150.0, 85.0, "bs") is None      # 56,7%
+    assert validate_yield_band(100.0, 60.0, "bs") is None      # dokładnie 60,0%
+    assert validate_yield_band(100.0, 45.0, "bs") is None      # dokładnie 45,0%
+    assert validate_yield_band(100.0, 66.0, "bs") is not None  # norma z/s, nie b/s
+    assert validate_yield_band(100.0, 44.9, "bs") is not None
+
+
+def test_nieznany_rodzaj_miesa_leci_po_pasmie_zs():
+    assert validate_yield_band(100.0, 66.0, "cokolwiek") is None
+    assert validate_yield_band(100.0, 55.0, None) is not None
