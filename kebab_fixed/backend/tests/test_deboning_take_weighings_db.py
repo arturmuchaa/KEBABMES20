@@ -38,9 +38,10 @@ def _take_dto(**kw):
     return SimpleNamespace(**base)
 
 
-def _meat_dto(kg, mode=None):
+def _meat_dto(kg, mode=None, override_yield=False):
     return SimpleNamespace(kg_meat=kg, kg_gross=None, tare_cart_kg=None,
-                           tare_e2_kg=None, e2_count=None, weigh_mode=mode)
+                           tare_e2_kg=None, e2_count=None, weigh_mode=mode,
+                           override_yield=override_yield)
 
 
 def test_weigh_part_dopisuje_na_magazyn_a_wpis_zostaje_pending(db):
@@ -108,23 +109,52 @@ def test_complete_z_czesciami_waliduje_sume(db):
     assert e.value.status_code == 400
 
 
-def test_complete_wysoki_uzysk_domyka_nie_blokuje(db):
-    """Reszta dowieziona: suma porcji 96,8% pobrania (290,5/300) MUSI domknąć
-    pobranie, a nie odbić się o pasmo uzysku 95%. Incydent 2026-07-24
-    (Anatolii): complete pięć razy zwracał 400 „nierealna", pobranie zawisło
-    w 'pending' — mięso było FIZYCZNIE zważone i już na magazynie."""
+def test_complete_wysoki_uzysk_wymaga_kodu_serwisowego(db):
+    """Wpis 431/ANATOLII (24.07): suma porcji 96,8% pobrania (290,5/300)
+    wygląda jak wysoki, ale prawdziwy uzysk — jednak tego samego dnia biuro
+    skorygowało DOKŁADNIE ten wpis z 290,5 na 197,0 kg (powód „blad"; różnica
+    93,5 kg to waga wózka, patrz log korekt 07-24 09:48). 96,8% nie było
+    prawdziwym pomiarem mięsa, tylko niedoważoną tarą — dokładnie klasa
+    błędu, którą pasmo wydajności ma łapać. Bez kodu serwisowego zapis ma się
+    odbić; z override_yield przechodzi i zostawia ślad audytowy."""
     _seed_batch()
     entry = create_deboning_take(_take_dto(kg_taken=300.0))
     weigh_part_deboning_take(entry["id"], _meat_dto(97.5))
-    complete_deboning_take(entry["id"], _meat_dto(193.0))  # 290,5/300 = 96,8%
-    row = query_one(
-        "SELECT status, kg_meat, yield_pct, kg_remainder FROM deboning_entries WHERE id=%s",
-        (entry["id"],),
-    )
+    with pytest.raises(HTTPException) as e:
+        complete_deboning_take(entry["id"], _meat_dto(193.0))  # 290,5/300 = 96,8%
+    assert e.value.status_code == 400
+
+    entry2 = create_deboning_take(_take_dto(kg_taken=300.0))
+    weigh_part_deboning_take(entry2["id"], _meat_dto(97.5))
+    row = complete_deboning_take(entry2["id"], _meat_dto(193.0, override_yield=True))
     assert row["status"] == "complete"
-    assert float(row["kg_meat"]) == 290.5
-    assert round(float(row["yield_pct"]), 1) == 96.8
-    assert float(row["kg_remainder"]) == 9.5
+    assert query_one(
+        "SELECT id FROM deboning_entry_corrections WHERE entry_id=%s", (entry2["id"],)
+    ) is not None
+
+
+def test_wieloporcjowe_domkniecie_liczy_sume_nie_porcje(db):
+    """300 kg pobrania w trzech ważeniach 50+100+50 = 200 kg (66,7%).
+    Porcje pośrednie (16,7% po pierwszej) NIE mogą blokować — pasmo
+    obowiązuje dopiero przy zamknięciu, od sumy."""
+    _seed_batch()
+    entry = create_deboning_take(_take_dto(kg_taken=300.0))
+    weigh_part_deboning_take(entry["id"], _meat_dto(50.0))    # 16,7% — przechodzi
+    weigh_part_deboning_take(entry["id"], _meat_dto(100.0))   # 50,0% — przechodzi
+    complete_deboning_take(entry["id"], _meat_dto(50.0))      # suma 200/300 = 66,7%
+    row = query_one("SELECT status, kg_meat FROM deboning_entries WHERE id=%s", (entry["id"],))
+    assert row["status"] == "complete"
+    assert float(row["kg_meat"]) == 200.0
+
+
+def test_domkniecie_po_samej_pierwszej_porcji_blokuje(db):
+    """Zamknięcie pobrania 300 kg po samych 50 kg (16,7%) to sygnał
+    'nie zważono całego mięsa' — ma się odbić."""
+    _seed_batch()
+    entry = create_deboning_take(_take_dto(kg_taken=300.0))
+    with pytest.raises(HTTPException) as e:
+        complete_deboning_take(entry["id"], _meat_dto(50.0))
+    assert e.value.status_code == 400
 
 
 def _auto_dto(kg, gross, cart=6.0, e2=2.0, n=1):

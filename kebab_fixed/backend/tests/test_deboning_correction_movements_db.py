@@ -125,7 +125,12 @@ def _meat_dto(kg):
 
 def test_patch_hmi_blokuje_nadpisanie_pomiaru_z_wagi(db):
     """PATCH z HMI nie może po cichu nadpisać kg zmierzonych przez wagę —
-    dokładnie mechanizm incydentu 424, tylko od strony hali."""
+    dokładnie mechanizm incydentu 424, tylko od strony hali.
+
+    Kg dobrane w paśmie wydajności 60–71% (190/300 = 63,3%) celowo — od
+    Task 2 domknięcie sprawdza pasmo (patrz test_deboning_take_weighings_db);
+    ten test dotyczy PATCH-a, więc wartości mają NIE trafiać w próg pasma,
+    żeby nie mieszać dwóch niezależnych mechanizmów."""
     execute(
         "INSERT INTO raw_batches (id, internal_batch_no, internal_batch_seq, supplier_name,"
         " kg_received, kg_available, status, material_type_id, material_name, created_at)"
@@ -133,13 +138,13 @@ def test_patch_hmi_blokuje_nadpisanie_pomiaru_z_wagi(db):
         (now_iso(),),
     )
     entry = create_deboning_take(_take_dto())
-    weigh_part_deboning_take(entry["id"], _meat_dto(59.0))
-    complete_deboning_take(entry["id"], _meat_dto(95.5))
+    weigh_part_deboning_take(entry["id"], _meat_dto(90.0))
+    complete_deboning_take(entry["id"], _meat_dto(100.0))
     with pytest.raises(HTTPException) as e:
-        update_deboning_entry(entry["id"], DeboningEntryUpdate(kgMeat=97.0))
+        update_deboning_entry(entry["id"], DeboningEntryUpdate(kgMeat=210.0))
     assert e.value.status_code == 409
     row = query_one("SELECT kg_meat FROM deboning_entries WHERE id=%s", (entry["id"],))
-    assert float(row["kg_meat"]) == 154.5  # pomiar nietknięty
+    assert float(row["kg_meat"]) == 190.0  # pomiar nietknięty
 
 
 def test_storno_sprzata_takze_ruchy_korekcyjne(db):

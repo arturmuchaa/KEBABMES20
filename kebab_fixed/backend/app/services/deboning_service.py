@@ -703,11 +703,16 @@ def validate_batch_expiry(expiry_date, today: date | None = None):
     return None
 
 
-def validate_meat_yield(kg_taken: float, kg_meat: float) -> str | None:
+def validate_meat_yield(kg_taken: float, kg_meat: float, override: bool = False) -> str | None:
     """Sanity mięsa vs pobranej ćwiartki. Czysta funkcja — testy bez DB.
 
     Wspólna dla zapisu 'od razu' i domknięcia pobrania. Reguły identyczne
     jak dotąd inline w create_deboning_entry.
+
+    `override` (furtka serwisowa, kod 0099 — Task 2) pomija TYLKO próg
+    wydajności (>95% / <30%). Fizyczna niemożliwość (mięso <= 0, ćwiartka
+    <= 0, mięso > ćwiartka) zostaje twarda zawsze — furtka omija pasmo
+    wydajności, nie prawa fizyki.
     """
     kg_taken = float(kg_taken or 0)
     kg_meat = float(kg_meat or 0)
@@ -720,6 +725,8 @@ def validate_meat_yield(kg_taken: float, kg_meat: float) -> str | None:
             f"Mięso ({kg_meat} kg) nie może przekraczać pobranej "
             f"ćwiartki ({kg_taken} kg)"
         )
+    if override:
+        return None
     yield_pct = (kg_meat / kg_taken) * 100
     if yield_pct > 95:
         return f"Wydajność {round(yield_pct, 1)}% jest nierealna — sprawdź dane"
@@ -822,6 +829,23 @@ def validate_yield_band(
             "Zapis wymaga kodu serwisowego."
         )
     return None
+
+
+def _log_yield_override(conn, entry_id: str, kg_taken: float, kg_meat: float,
+                        meat_type: str = "zs", by_subject: str = "") -> None:
+    """Ślad ominięcia pasma wydajności — bez tego furtka byłaby dziurą."""
+    pct = (kg_meat / kg_taken * 100) if kg_taken else 0
+    cx_execute(
+        conn,
+        "INSERT INTO deboning_entry_corrections (id, entry_id, by_subject, reason, changes) "
+        "VALUES (%s,%s,%s,%s,%s)",
+        (cuid(), entry_id, by_subject or "kiosk",
+         "Ominięcie progu wydajności (kod serwisowy)",
+         json.dumps({"yieldPct": round(pct, 2), "kgQuarter": kg_taken,
+                     "kgMeat": kg_meat, "meatType": meat_type,
+                     "band": list(YIELD_BANDS.get(meat_type or "zs", YIELD_BANDS["zs"]))},
+                    ensure_ascii=False)),
+    )
 
 
 def validate_correction_vs_weighings(
@@ -966,9 +990,18 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
 
     if kg_taken <= 0:
         raise HTTPException(400, "Ilość pobranej ćwiartki musi być > 0")
-    yield_err = validate_meat_yield(kg_taken, kg_meat)
+    yield_err = validate_meat_yield(
+        kg_taken, kg_meat, override=getattr(dto, "override_yield", False)
+    )
     if yield_err:
         raise HTTPException(400, yield_err)
+    band_err = validate_yield_band(
+        kg_taken, kg_meat,
+        meat_type=meat_type_of(dto),
+        override=getattr(dto, "override_yield", False),
+    )
+    if band_err:
+        raise HTTPException(400, band_err)
     yield_pct_val = (kg_meat / kg_taken) * 100
 
     entry_id = cuid()
@@ -1072,6 +1105,13 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
                 now_iso(),
             ),
         )
+
+        if dto.override_yield:
+            _log_yield_override(
+                conn, entry_id, kg_taken, kg_meat,
+                meat_type=meat_type,
+                by_subject=getattr(dto, "operator", ""),
+            )
 
         # Produkty uboczne (ABP) — część niemięsna jako śledzony lot do utylizacji.
         from app.services.byproducts_service import create_byproduct_lots_for_entry
@@ -1605,22 +1645,36 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
             (entry_id,),
         ) or {}
         kg_meat = round(float(prior.get("s") or 0) + kg_part, 2)
+        # Przy >1 porcji kg_meat encji = SUMA, a brutto/tary opisują tylko
+        # OSTATNIĄ porcję — zapisane razem kłamią (audyt 2026-07-22:
+        # brutto−tara−mięso do −101 kg). Pola wagi encji → NULL; audyt
+        # per porcja mieszka w deboning_take_weighings.
+        multi = int(prior.get("n") or 0) > 0
         # Domknięcie: tylko granice fizyczne (mięso już zważone i na magazynie).
         # Pasmo uzysku 30–95% zakleszczało 'pending' przy realnie wysokim
         # uzysku dowiezionej reszty (2026-07-24) — patrz validate_take_completion.
         yield_err = validate_take_completion(kg_taken, kg_meat)
         if yield_err:
             raise HTTPException(400, yield_err)
+        # Pasmo wydajności (Task 2) obowiązuje przy KAŻDYM domknięciu, także
+        # wieloporcjowym — liczone od SUMY porcji (kg_meat wyżej), nie od
+        # ostatniej. Operator nigdy nie utyka w 'pending': albo poprawi wagę,
+        # albo wpisze kod serwisowy (override_yield) i przejdzie ze śladem w
+        # deboning_entry_corrections. Porcje pośrednie z weigh-part NIE są
+        # tu sprawdzane (ta funkcja w ogóle nie liczy wydajności) — strażnik
+        # patrzy tylko na moment, gdy operator deklaruje koniec pobrania.
+        band_err = validate_yield_band(
+            kg_taken, kg_meat,
+            meat_type=meat_type,
+            override=getattr(dto, "override_yield", False),
+        )
+        if band_err:
+            raise HTTPException(400, band_err)
         _insert_take_weighing(conn, entry_id, kg_part, dto, meat_type)
 
         kg_remainder = max(0, kg_taken - kg_meat)
         yield_pct = round((kg_meat / kg_taken) * 100, 2)
 
-        # Przy >1 porcji kg_meat encji = SUMA, a brutto/tary opisują tylko
-        # OSTATNIĄ porcję — zapisane razem kłamią (audyt 2026-07-22:
-        # brutto−tara−mięso do −101 kg). Pola wagi encji → NULL; audyt
-        # per porcja mieszka w deboning_take_weighings.
-        multi = int(prior.get("n") or 0) > 0
         row = cx_execute_returning(
             conn,
             """
@@ -1641,6 +1695,13 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
                 entry_id,
             ),
         )
+
+        if getattr(dto, "override_yield", False):
+            _log_yield_override(
+                conn, entry_id, kg_taken, kg_meat,
+                meat_type=meat_type,
+                by_subject=getattr(dto, "operator", ""),
+            )
 
         from app.services.byproducts_service import create_byproduct_lots_for_entry
         create_byproduct_lots_for_entry(conn, row)
