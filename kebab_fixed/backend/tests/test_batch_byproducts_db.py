@@ -574,3 +574,40 @@ def test_poprawka_frakcji_nie_rusza_starych_palet(db):
 
     rec = get("rb1")
     assert rec["bonesKg"] == 453.0, "zdjęto paletę sprzed 3 godzin"
+
+
+# ── Bilans masy partii dla kreatora ───────────────────────────────────
+def test_get_zwraca_bilans_masy_partii(db):
+    """Kreator musi znać bilans, żeby ostrzec PRZED zapisem kolejnej palety —
+    dziś ostrzega WYŁĄCZNIE o frakcji ZA MAŁEJ (isByproductBelowNorm)."""
+    _seed_batch_with_entries(internal_no="850", quarter_each=2700.0, n=2)
+    ensure_record("rb1")
+    p = _pallet(containers=36, gross=543.0)          # netto 453,0
+    record("rb1", "bones", p["net"], [p])
+    rec = get("rb1")
+    # mięso z wpisów = 66% z 5400 = 3564; + kości 453 → (3564+453)/5400
+    assert rec["massBalancePct"] == pytest.approx(74.39, abs=0.05)
+    assert rec["balanceWarnPct"] == 103.0
+
+
+def test_bilans_powyzej_progu_przy_duplikacie_palety(db):
+    """Odtworzenie partii 445 (30.07): ta sama paleta zapisana pod obiema
+    frakcjami wypchnęła bilans na 108,3% przy normie ~101%. Nic tego wtedy
+    nie zauważyło — teraz wskaźnik przekracza próg i kreator ma czym ostrzec."""
+    _seed_batch_with_entries(internal_no="851", quarter_each=2700.0, n=2)
+    ensure_record("rb1")
+    backs = _pallet(containers=72, gross=1160.5)     # netto 998,5
+    record("rb1", "backs", backs["net"], [backs])
+    bones = _pallet(containers=90, gross=1271.0)     # netto 1073,0 — z duplikatem
+    record("rb1", "bones", bones["net"], [bones])
+    rec = get("rb1")
+    # (3564 + 998,5 + 1073) / 5400 = 104,4%
+    assert rec["massBalancePct"] > rec["balanceWarnPct"]
+
+
+def test_bilans_bez_cwiartki_jest_pusty_a_nie_zerowy(db):
+    """Partia bez wpisów rozbioru nie ma bazy procentu. None, nie 0 — zero
+    wyglądałoby jak realny bilans i nauczyłoby operatora ignorować wskaźnik."""
+    _seed_batch_with_entries(internal_no="852", n=0)
+    ensure_record("rb1")
+    assert get("rb1")["massBalancePct"] is None
