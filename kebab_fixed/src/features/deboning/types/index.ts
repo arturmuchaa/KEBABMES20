@@ -80,6 +80,9 @@ export interface CreateDeboningEntryDto {
   tareE2Kg?:   number
   e2Count?:    number
   weighMode?:  'auto' | 'manual'
+  /** Furtka serwisowa (kod 0099) — świadome ominięcie pasma wydajności.
+   *  Backend zostawia ślad w deboning_entry_corrections. */
+  overrideYield?: boolean
 }
 
 export interface CreateDeboningTakeDto {
@@ -100,6 +103,8 @@ export interface CompleteDeboningTakeDto {
   tareE2Kg?:   number
   e2Count?:    number
   weighMode?:  'auto' | 'manual'
+  /** Furtka serwisowa (kod 0099) — świadome ominięcie pasma wydajności. */
+  overrideYield?: boolean
 }
 
 /** Częściowe ważenie mięsa — te same pola co domknięcie (porcja + audyt wagi). */

@@ -158,8 +158,10 @@ export function useDeboningEntries(sessionId: string | null) {
       return 'Partia przeterminowana — użycie zabronione (HACCP)'
     }
 
-    // Walidacja domenowa
-    const valError = validateDeboningEntry(dto.kgTaken, dto.kgMeat, kgAvailable)
+    // Walidacja domenowa. Kod serwisowy (overrideYield) omija progi
+    // wydajności też tutaj — inaczej wpis odbiłby się przed wysyłką i
+    // furtka nigdy nie dotarłaby do backendu.
+    const valError = validateDeboningEntry(dto.kgTaken, dto.kgMeat, kgAvailable, dto.overrideYield)
     if (valError) return valError
 
     try {
