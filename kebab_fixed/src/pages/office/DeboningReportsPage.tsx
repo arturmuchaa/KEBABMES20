@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { deboningApi, type DeboningStats, type DeboningStatsWorker } from '@/lib/api'
 import { ChangeBatchDialog, EntryCorrectionDialog } from '@/features/deboning/EntryFixDialogs'
 import { DeboningWeighingsLog } from '@/features/deboning/DeboningWeighingsLog'
+import { YieldOverridesLog } from '@/features/deboning/YieldOverridesLog'
 import { DataTable } from '@/components/DataTable'
 import { usePageHeaderActions } from '@/components/PageHeader'
 import { cn } from '@/lib/utils'
@@ -379,6 +380,9 @@ export function DeboningReportsPage() {
 
           {/* ── Dziennik ważeń — każda porcja mięsa zważona, z pełnym audytem wagi ── */}
           <DeboningWeighingsLog from={from} to={to} />
+
+          {/* ── Odchylenia — co przeszło przez furtkę serwisową ── */}
+          <YieldOverridesLog from={from} to={to} />
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             {/* ── Ranking pracowników ── */}

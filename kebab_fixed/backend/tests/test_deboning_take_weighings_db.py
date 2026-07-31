@@ -16,6 +16,7 @@ from app.services.deboning_service import (
     list_deboning_entries,
     list_take_weighings,
     update_deboning_take,
+    yield_overrides,
     weigh_part_deboning_take,
 )
 from app.utils.ids import now_iso
@@ -331,3 +332,40 @@ def test_korekta_do_nierealnej_wydajnosci_blokuje(db):
         correct_deboning_entry(entry_id, None, 160.0, None, "korekta ćwiartki", "biuro")
     assert e.value.status_code == 400
     assert "nierealna" in e.value.detail
+
+
+def test_raport_odchylen_pokazuje_ominiecia_progu(db):
+    """Skoro furtka jest możliwa, biuro musi widzieć KAŻDE jej użycie —
+    inaczej kod serwisowy po cichu zastąpiłby strażnika."""
+    _seed_batch(kg=1000.0)
+    entry = create_deboning_take(_take_dto(kg_taken=300.0))
+    complete_deboning_take(entry["id"], _meat_dto(298.5, override_yield=True))
+
+    out = yield_overrides("2020-01-01", "2100-01-01")
+    assert len(out["data"]) == 1
+    row = out["data"][0]
+    assert row["yieldPct"] == pytest.approx(99.5, abs=0.05)
+    assert row["kgQuarter"] == 300.0
+    assert row["kgMeat"] == 298.5
+    assert row["batchNo"] == "800"
+    assert row["workerName"] == "Jan"
+
+
+def test_raport_odchylen_pomija_zwykle_korekty_biura(db):
+    """W tej samej tabeli siedzą korekty z biura — raport ma pokazywać
+    WYŁĄCZNIE ominięcia progu, inaczej utonie w szumie."""
+    _seed_batch(kg=1000.0)
+    entry = create_deboning_take(_take_dto(kg_taken=300.0))
+    complete_deboning_take(entry["id"], _meat_dto(198.0))          # 66% — bez furtki
+    correct_deboning_entry(entry["id"], None, 300.0, 197.0, "blad", "biuro",
+                           override_weighings=True)
+
+    assert yield_overrides("2020-01-01", "2100-01-01")["data"] == []
+
+
+def test_raport_odchylen_respektuje_zakres_dat(db):
+    _seed_batch(kg=1000.0)
+    entry = create_deboning_take(_take_dto(kg_taken=300.0))
+    complete_deboning_take(entry["id"], _meat_dto(298.5, override_yield=True))
+
+    assert yield_overrides("2020-01-01", "2020-01-31")["data"] == []

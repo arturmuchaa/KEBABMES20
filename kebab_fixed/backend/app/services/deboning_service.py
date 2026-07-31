@@ -237,6 +237,41 @@ def list_take_weighings(date_from: str, date_to: str) -> Dict[str, Any]:
     return {"data": rows}
 
 
+def yield_overrides(date_from: str, date_to: str) -> Dict[str, Any]:
+    """Wpisy, które przeszły przez furtkę serwisową (kod 0099).
+
+    Siatka bezpieczeństwa nad twardym progiem: skoro obejście jest możliwe,
+    biuro musi widzieć KAŻDE użycie — inaczej furtka po cichu zastąpiłaby
+    strażnika. Częste ominięcia na jednym pracowniku albo jednej partii to
+    sygnał, że progi są źle ustawione ALBO że ktoś obchodzi kontrolę.
+
+    Filtr po `left(reason, 9)`, nie LIKE — `%` w psycopg2 to placeholder
+    i wysypuje zapytanie IndexError.
+    """
+    rows = query_all(
+        """
+        SELECT c.entry_id                                  AS "entryId",
+               (c.at AT TIME ZONE 'Europe/Warsaw')         AS "atLocal",
+               (c.at AT TIME ZONE 'Europe/Warsaw')::date   AS "dayLocal",
+               c.by_subject                                AS "bySubject",
+               (c.changes->>'yieldPct')::float             AS "yieldPct",
+               (c.changes->>'kgQuarter')::float            AS "kgQuarter",
+               (c.changes->>'kgMeat')::float               AS "kgMeat",
+               COALESCE(c.changes->>'meatType', 'zs')      AS "meatType",
+               e.raw_batch_no                              AS "batchNo",
+               e.worker_name                               AS "workerName",
+               e.status                                    AS "entryStatus"
+          FROM deboning_entry_corrections c
+          LEFT JOIN deboning_entries e ON e.id = c.entry_id
+         WHERE left(c.reason, 9) = 'Ominięcie'
+           AND (c.at AT TIME ZONE 'Europe/Warsaw')::date BETWEEN %s AND %s
+         ORDER BY c.at DESC
+        """,
+        (date_from, date_to),
+    )
+    return {"data": rows}
+
+
 def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     """Agregaty rozbioru dla biura w zakresie dat.
 

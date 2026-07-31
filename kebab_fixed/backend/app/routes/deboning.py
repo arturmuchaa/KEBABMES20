@@ -130,6 +130,15 @@ def list_take_weighings(
     return svc.list_take_weighings(date_from, date_to)
 
 
+@router.get("/api/deboning/yield-overrides")
+def yield_overrides(
+    date_from: str = Query(..., alias="date_from"),
+    date_to: str = Query(..., alias="date_to"),
+):
+    """Wpisy zapisane mimo przekroczenia pasma wydajności (kod serwisowy)."""
+    return svc.yield_overrides(date_from, date_to)
+
+
 @router.get("/api/deboning/worker-entries")
 def worker_entries(
     worker_id: str = Query(..., alias="worker_id"),

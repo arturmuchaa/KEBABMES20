@@ -342,6 +342,21 @@ export const productionSessionsApi = {
 }
 
 // ─── Rozbiór — wpisy i sesje ──────────────────────────────────
+/** Ominięcie pasma wydajności kodem serwisowym — jeden wiersz raportu odchyleń. */
+export interface YieldOverride {
+  entryId:     string
+  atLocal:     string   // naive local (Europe/Warsaw) datetime z backendu
+  dayLocal:    string   // 'YYYY-MM-DD' lokalnie
+  bySubject:   string | null
+  yieldPct:    number | null
+  kgQuarter:   number | null
+  kgMeat:      number | null
+  meatType:    'zs' | 'bs'
+  batchNo:     string | null
+  workerName:  string | null
+  entryStatus: string | null
+}
+
 export const deboningApi = {
   list:   () => get<{ data: DeboningSession[] }>('/deboning'),
   byId:   (id: string) => get<DeboningSession>(`/deboning/${id}`),
@@ -353,6 +368,10 @@ export const deboningApi = {
   // Dziennik ważeń mięsa — porcje pobrań z pełnym audytem wagi (brutto/tary/netto)
   weighings: (from: string, to: string) =>
     get<{ data: any[] }>(`/deboning/weighings?date_from=${from}&date_to=${to}`),
+  /** Wpisy zapisane mimo przekroczenia pasma wydajności (kod serwisowy 0099).
+   *  Siatka bezpieczeństwa nad twardym progiem — biuro widzi każde obejście. */
+  yieldOverrides: (from: string, to: string) =>
+    get<{ data: YieldOverride[] }>(`/deboning/yield-overrides?date_from=${from}&date_to=${to}`),
   /** Kartoteka pracownika — pobrania z porcjami ważeń; bez dat = całość. */
   workerEntries: (workerId: string, from?: string, to?: string) =>
     get<{ data: WorkerEntry[]; summary: WorkerEntriesSummary }>(
