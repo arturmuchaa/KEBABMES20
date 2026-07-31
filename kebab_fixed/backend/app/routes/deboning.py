@@ -153,9 +153,16 @@ def deboning_panel(limit: int = Query(60, ge=1, le=200)):
     return {"batches": svc.deboning_panel(limit)}
 
 
+def _subject_of(request: Request) -> str:
+    """Kto wykonał akcję — do śladu audytowego. Pusty string = usługa
+    dopisze 'kiosk' (stacja hali bywa nieuwierzytelniona per człowiek)."""
+    subject = getattr(request.state, "subject", None) or {}
+    return str(subject.get("username") or subject.get("id") or "")
+
+
 @router.post("/api/deboning/entries")
-def create_deboning_entry(dto: DeboningEntryCreate):
-    return svc.create_deboning_entry(dto)
+def create_deboning_entry(dto: DeboningEntryCreate, request: Request):
+    return svc.create_deboning_entry(dto, _subject_of(request))
 
 
 @router.post("/api/deboning/takes")
@@ -164,8 +171,8 @@ def create_deboning_take(dto: DeboningTakeCreate):
 
 
 @router.post("/api/deboning/takes/{entry_id}/complete")
-def complete_deboning_take(entry_id: str, dto: DeboningTakeComplete):
-    return svc.complete_deboning_take(entry_id, dto)
+def complete_deboning_take(entry_id: str, dto: DeboningTakeComplete, request: Request):
+    return svc.complete_deboning_take(entry_id, dto, _subject_of(request))
 
 
 @router.post("/api/deboning/takes/{entry_id}/weigh-part")

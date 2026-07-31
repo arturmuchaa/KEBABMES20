@@ -34,9 +34,13 @@ def test_wydajnosc_ponizej_30_blokuje():
 # Domknięcie to jawna decyzja operatora, a mięso z porcji weigh-part jest już
 # fizycznie na magazynie — pasmo 30–95% tu tylko zakleszczało 'pending'.
 
-def test_domkniecie_wysoki_uzysk_przechodzi():
+def test_domkniecie_wysoki_uzysk_przechodzi_przez_te_funkcje():
+    """96,8% (431/ANATOLII) NIE odbija się tutaj — górny pułap trzyma teraz
+    validate_yield_band, nie ta funkcja. Sam wpis był błędem (poprawiony tego
+    samego dnia na 197,0 z powodem „blad"), więc domknięcie z taką wydajnością
+    i tak nie przejdzie całej ścieżki — patrz testy DB."""
     from app.services.deboning_service import validate_take_completion
-    assert validate_take_completion(300.0, 290.5) is None  # 96,8% — realny przypadek
+    assert validate_take_completion(300.0, 290.5) is None
 
 
 def test_domkniecie_zbyt_niski_uzysk_nadal_blokuje():
@@ -44,6 +48,23 @@ def test_domkniecie_zbyt_niski_uzysk_nadal_blokuje():
     from app.services.deboning_service import validate_take_completion
     err = validate_take_completion(300.0, 60.0)  # 20%
     assert err and "niska" in err
+
+
+def test_furtka_omija_dolny_prog_domkniecia():
+    """Furtka musi działać w OBIE strony. Gdyby kod serwisowy przepuszczał
+    tylko zawyżoną wydajność, pobranie z realnie niskim uzyskiem zostałoby
+    zakleszczone w 'pending' bez wyjścia — czyli ta sama pułapka, przez którą
+    usunięto pułap 95% (2026-07-24)."""
+    from app.services.deboning_service import validate_take_completion
+    assert validate_take_completion(300.0, 60.0, override=True) is None  # 20%
+
+
+def test_furtka_nie_omija_granic_fizycznych_przy_domknieciu():
+    """Kod serwisowy omija pasmo wydajności, nie prawa fizyki."""
+    from app.services.deboning_service import validate_take_completion
+    assert validate_take_completion(300.0, 320.0, override=True) is not None
+    assert validate_take_completion(300.0, 0.0, override=True) is not None
+    assert validate_take_completion(0.0, 100.0, override=True) is not None
 
 
 def test_domkniecie_mieso_zero_blokuje():

@@ -735,7 +735,8 @@ def validate_meat_yield(kg_taken: float, kg_meat: float, override: bool = False)
     return None
 
 
-def validate_take_completion(kg_taken: float, kg_meat: float, tol: float = 0.01) -> str | None:
+def validate_take_completion(kg_taken: float, kg_meat: float, tol: float = 0.01,
+                             override: bool = False) -> str | None:
     """Domknięcie pobrania mięsem — jak validate_meat_yield, ale BEZ górnego
     pułapu uzysku (95%).
 
@@ -747,6 +748,13 @@ def validate_take_completion(kg_taken: float, kg_meat: float, tol: float = 0.01)
     da, a mięsa i tak nie „odważymy". Dolny próg 30% ZOSTAJE: zbyt mało mięsa to
     wciąż sygnał „sprawdź dane" (zapomniany wózek), nie normalny przypadek.
     Regułę „powyżej ~62% domykaj bez pytania" trzyma HMI (partialWeighing.ts).
+
+    `override` (furtka serwisowa, kod 0099) pomija TYLKO próg 30% — dokładnie
+    tak jak w validate_meat_yield na ścieżce zapisu 'od razu'. Bez tego furtka
+    działałaby w jedną stronę: kod serwisowy przepuszczałby zawyżoną wydajność,
+    ale pobranie z realnie niskim uzyskiem nadal zakleszczałoby się w 'pending'
+    bez żadnego wyjścia — czyli ta sama pułapka, przez którą usunięto pułap 95%
+    (2026-07-24). Granice fizyczne zostają twarde także z kodem.
     """
     kg_taken = float(kg_taken or 0)
     kg_meat = float(kg_meat or 0)
@@ -760,7 +768,7 @@ def validate_take_completion(kg_taken: float, kg_meat: float, tol: float = 0.01)
             f"ćwiartki ({kg_taken} kg)"
         )
     yield_pct = (kg_meat / kg_taken) * 100
-    if yield_pct < 30:
+    if yield_pct < 30 and not override:
         return f"Wydajność {round(yield_pct, 1)}% jest bardzo niska — sprawdź dane"
     return None
 
@@ -973,7 +981,7 @@ def _auto_finish_exhausted(raw_batch_id: str, kg_left) -> None:
         logger.exception("deboning.batch.auto_finish_failed", extra={"raw_batch_id": raw_batch_id})
 
 
-def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
+def create_deboning_entry(dto: DeboningEntryCreate, by: str = "") -> Dict:
     raw_batch_id = dto.raw_batch_id
     worker_id = dto.worker_id
     worker_name = dto.worker_name
@@ -1106,11 +1114,11 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
             ),
         )
 
-        if dto.override_yield:
+        if getattr(dto, "override_yield", False):
             _log_yield_override(
                 conn, entry_id, kg_taken, kg_meat,
                 meat_type=meat_type,
-                by_subject=getattr(dto, "operator", ""),
+                by_subject=by,
             )
 
         # Produkty uboczne (ABP) — część niemięsna jako śledzony lot do utylizacji.
@@ -1609,7 +1617,7 @@ def update_deboning_take(entry_id: str, dto) -> Dict:
     return _map_deboning_entry(updated)  # type: ignore[arg-type]
 
 
-def complete_deboning_take(entry_id: str, dto) -> Dict:
+def complete_deboning_take(entry_id: str, dto, by: str = "") -> Dict:
     """Faza 2: domknięcie pobrania mięsem. Tworzy lot mięsa + ABP, status→complete.
     Surowiec zszedł już w fazie 1 — tutaj nie ruszamy raw_batches."""
     kg_meat = float(dto.kg_meat)
@@ -1653,7 +1661,9 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
         # Domknięcie: tylko granice fizyczne (mięso już zważone i na magazynie).
         # Pasmo uzysku 30–95% zakleszczało 'pending' przy realnie wysokim
         # uzysku dowiezionej reszty (2026-07-24) — patrz validate_take_completion.
-        yield_err = validate_take_completion(kg_taken, kg_meat)
+        yield_err = validate_take_completion(
+            kg_taken, kg_meat, override=getattr(dto, "override_yield", False)
+        )
         if yield_err:
             raise HTTPException(400, yield_err)
         # Pasmo wydajności (Task 2) obowiązuje przy KAŻDYM domknięciu, także
@@ -1700,7 +1710,7 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
             _log_yield_override(
                 conn, entry_id, kg_taken, kg_meat,
                 meat_type=meat_type,
-                by_subject=getattr(dto, "operator", ""),
+                by_subject=by,
             )
 
         from app.services.byproducts_service import create_byproduct_lots_for_entry

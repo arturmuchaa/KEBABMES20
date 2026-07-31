@@ -157,6 +157,21 @@ def test_domkniecie_po_samej_pierwszej_porcji_blokuje(db):
     assert e.value.status_code == 400
 
 
+def test_furtka_domyka_takze_zbyt_niski_uzysk(db):
+    """Furtka musi wypuszczać pobranie w OBIE strony. 16,7% wpada nie tylko
+    poza pasmo, ale i pod stary próg 30% z validate_take_completion — gdyby
+    kod serwisowy omijał tylko pasmo, pobranie zostałoby zakleszczone w
+    'pending' bez wyjścia (dokładnie powód usunięcia pułapu 95% w 2026-07-24).
+    Zapis przechodzi i zostawia ślad."""
+    _seed_batch()
+    entry = create_deboning_take(_take_dto(kg_taken=300.0))
+    row = complete_deboning_take(entry["id"], _meat_dto(50.0, override_yield=True))
+    assert row["status"] == "complete"
+    assert query_one(
+        "SELECT id FROM deboning_entry_corrections WHERE entry_id=%s", (entry["id"],)
+    ) is not None
+
+
 def _auto_dto(kg, gross, cart=6.0, e2=2.0, n=1):
     return SimpleNamespace(kg_meat=kg, kg_gross=gross, tare_cart_kg=cart,
                            tare_e2_kg=e2, e2_count=n, weigh_mode="auto")
