@@ -763,6 +763,55 @@ def _kg(v) -> str:
     return f"{float(v):.1f}".replace(".", ",")
 
 
+def _pct(v) -> str:
+    """Procent po polsku — przecinek dziesiętny, jedno miejsce."""
+    return f"{float(v):.1f}".replace(".", ",") + "%"
+
+
+# Twarde pasmo wydajności pobrania. Rozkład 676 wpisów z 25 dni: mediana
+# 66,0%, p1 60,0%, p99 68,4%, max 69,5%; prawdziwe pobrania ≥30 kg mieszczą
+# się w 62,5–69,5%. Blokada 60–71% zatrzymałaby 1 z 676 wpisów (0,15%).
+# Łapie klasę błędu „zła/brak tary wózka": mięso rośnie o wagę wózka
+# (87–110 kg), a wydajność skacze do 96–100% — patrz 431, 442, 443, 444.
+YIELD_BAND_MIN_PCT = 60.0
+YIELD_BAND_MAX_PCT = 71.0
+# Małe pobrania zwolnione: przy 15 kg zaokrąglenie 0,5 kg to ponad 3 pp.
+YIELD_GUARD_MIN_TAKE_KG = 30.0
+
+
+def validate_yield_band(kg_taken: float, kg_meat: float, override: bool = False) -> str | None:
+    """Twardy próg wydajności dla ŚCIEŻEK KIOSKU. None = wolno zapisać.
+
+    Granice fizyczne (mięso > ćwiartka, wartości ≤ 0) sprawdzają
+    validate_meat_yield / validate_take_completion — tu tylko pasmo.
+
+    Furtka (override) jest częścią projektu, nie luką: pułap 95% usunięto
+    2026-07-24, bo bez furtki zakleszczał pobranie w 'pending'. Próg bez
+    furtki zostanie usunięty tak samo — albo operator zacznie wpisywać
+    zmyśloną ćwiartkę, żeby przejść, i błąd zrobi się niewidzialny.
+    """
+    if override:
+        return None
+    kg_taken = float(kg_taken or 0)
+    kg_meat = float(kg_meat or 0)
+    if kg_taken <= 0 or kg_meat <= 0 or kg_taken < YIELD_GUARD_MIN_TAKE_KG:
+        return None
+    pct = kg_meat / kg_taken * 100
+    if pct > YIELD_BAND_MAX_PCT:
+        return (
+            f"Wydajność {_pct(pct)} — mięso {_kg(kg_meat)} kg z {_kg(kg_taken)} kg "
+            "ćwiartki. Sprawdź, czy wybrałeś właściwy wózek (tara). "
+            "Zapis wymaga kodu serwisowego."
+        )
+    if pct < YIELD_BAND_MIN_PCT:
+        return (
+            f"Wydajność {_pct(pct)} — mięso {_kg(kg_meat)} kg z {_kg(kg_taken)} kg "
+            "ćwiartki. Sprawdź, czy całe mięso z pobrania zostało zważone. "
+            "Zapis wymaga kodu serwisowego."
+        )
+    return None
+
+
 def validate_correction_vs_weighings(
     kg_meat_new, weighed_sum, n_weighings, override: bool = False
 ) -> str | None:
