@@ -611,3 +611,42 @@ def test_bilans_bez_cwiartki_jest_pusty_a_nie_zerowy(db):
     _seed_batch_with_entries(internal_no="852", n=0)
     ensure_record("rb1")
     assert get("rb1")["massBalancePct"] is None
+
+
+def test_zdjecie_jedynej_palety_wraca_frakcje_na_kafel(db):
+    """Kreator dostał kosz przy palecie. Zdjęcie ostatniej musi wrócić frakcję
+    do stanu NIEZWAŻONEJ — zapisane „0 kg" udawałoby zważoną i zdjęłoby partię
+    z ważenia, a operator nigdy by do niej nie wrócił."""
+    _seed_batch_with_entries(internal_no="853", quarter_each=2700.0, n=2)
+    ensure_record("rb1")
+    p = _pallet(containers=36, gross=543.0)
+    record("rb1", "bones", p["net"], [p])
+    assert get("rb1")["bonesDone"] is True
+
+    record("rb1", "bones", None, [])
+    rec = get("rb1")
+    assert rec["bonesDone"] is False
+    assert rec["bonesKg"] is None
+    # Lot ABP tej frakcji też znika — inaczej kilogramy zostałyby na magazynie.
+    lot = query_one(
+        "SELECT COALESCE(SUM(kg),0) AS kg FROM byproduct_lots "
+        "WHERE raw_batch_id='rb1' AND kind='bones' AND deboning_entry_id IS NULL",
+    )
+    assert float(lot["kg"]) == 0.0
+
+
+def test_zdjecie_jednej_z_dwoch_palet_zostawia_reszte(db):
+    """Usunięcie pomyłkowej palety nie może kasować pozostałych — dotąd był
+    tylko „Wyczyść sumę" na całą frakcję i operator musiałby przeważyć wszystko."""
+    _seed_batch_with_entries(internal_no="854", quarter_each=2700.0, n=2)
+    ensure_record("rb1")
+    p1 = _pallet(containers=36, gross=543.0)   # 453,0
+    p2 = _pallet(containers=14, gross=218.0)   # 172,0
+    record("rb1", "bones", p1["net"] + p2["net"], [p1, p2])
+    saved = get("rb1")["bonesPallets"]
+    assert len(saved) == 2
+
+    record("rb1", "bones", saved[0]["net"], [saved[0]])
+    rec = get("rb1")
+    assert rec["bonesKg"] == 453.0
+    assert len(rec["bonesPallets"]) == 1

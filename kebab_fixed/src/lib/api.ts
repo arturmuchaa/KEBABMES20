@@ -575,6 +575,12 @@ export interface BatchByproducts {
   backsPallets?: ByproductPallet[]; bonesPallets?: ByproductPallet[]
   /** Ważenie zamknięte ręcznie z biura — kafel zdjęty mimo otwartego bilansu. */
   closedAt?: string | null; closedBy?: string | null; closedReason?: string | null
+  /** Bilans masy partii: (mięso + grzbiety + kości) ÷ ćwiartka × 100.
+   *  null, gdy partia nie ma jeszcze bazy ćwiartki. */
+  massBalancePct?: number | null
+  /** Próg ostrzeżenia bilansu z backendu — żeby hala i biuro liczyły od tej
+   *  samej liczby (kiosk bywa starszej wersji niż API). */
+  balanceWarnPct?: number
 }
 export const byproductsApi = {
   // Wszystkie rekordy zbiorczego ważenia — magazyn surowca (Grzbiety/Kości).

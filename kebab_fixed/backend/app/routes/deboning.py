@@ -101,11 +101,16 @@ def byproducts_finish(raw_batch_id: str, body: dict = None):
 
 @router.post("/api/deboning/byproducts/{raw_batch_id}/weigh")
 def byproducts_weigh(raw_batch_id: str, body: dict):
+    pallets = body.get("pallets") or []
+    kg = float(body.get("kg") or 0)
+    # Pusta lista palet = operator zdjął ostatnią. Wtedy kg=None, żeby frakcja
+    # wróciła na kafel jako NIEZWAŻONA — zapisane „0 kg" udawałoby zważoną i
+    # zdejmowało partię z ważenia (patrz _write_fraction).
     return byproducts_svc.record(
         raw_batch_id,
         (body.get("kind") or "").strip(),
-        float(body.get("kg") or 0),
-        body.get("pallets") or [],
+        None if (not pallets and kg <= 0) else kg,
+        pallets,
     )
 
 

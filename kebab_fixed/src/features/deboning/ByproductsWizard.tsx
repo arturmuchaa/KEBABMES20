@@ -13,11 +13,11 @@
  * w backendzie — wizard startuje od pierwszej niezważonej frakcji.
  */
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { AlertTriangle, Check, Delete, Package, ArrowRight, X } from 'lucide-react'
+import { AlertTriangle, Check, Delete, Package, ArrowRight, Trash2, X } from 'lucide-react'
 import { fmtKg, fmtPct } from '@/lib/utils'
 import {
   E2_TARE_KG, DRIVE_OFF_IDLE, driveOffStep, isByproductBelowNorm, TYPICAL_BYPRODUCT_PCT_MIN,
-  byproductTareOptions,
+  byproductTareOptions, BALANCE_WARN_PCT,
   type DriveOffTracker, type PalletSnapshot,
 } from '@/features/deboning/utils/weighing'
 import type { ScaleState } from '@/features/deboning/useScale'
@@ -68,6 +68,10 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
   // Suma lokalna ≠ zapisana na serwerze (padnięty zapis / „Wyczyść sumę").
   const [dirty, setDirty] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
+  // Paleta czekająca na potwierdzenie „mimo nadmiaru" (ostrzeżenie, NIE
+  // blokada — uboczne waży się po fakcie i nadmiar bywa prawdziwy: ociek,
+  // mokre grzbiety).
+  const [balancePrompt, setBalancePrompt] = useState<{ pallet: Pallet; pct: number } | null>(null)
   // Ostatni stabilny odczyt palety + prompt po zjeździe z wagi bez „Dodaj".
   const [driveOff, setDriveOff] = useState<DriveOffTracker<PalletSnapshot>>(DRIVE_OFF_IDLE)
 
@@ -84,6 +88,29 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
   // palet, więc ostrzega PRZED „To wszystko", nie po fakcie.
   const fracPct = record.quarterKg > 0 ? (fracTotal / record.quarterKg) * 100 : 0
   const belowNorm = isByproductBelowNorm(frac, fracTotal, record.quarterKg)
+
+  // ── Bilans masy partii (górna granica) ────────────────────────────────────
+  //
+  // Dotąd kreator ostrzegał WYŁĄCZNIE o frakcji za małej. Partia 445 (30.07)
+  // doszła do 108,3% przy normie ~101%, bo ta sama paleta trafiła pod obie
+  // frakcje — i nic tego nie zauważyło aż do audytu.
+  //
+  // Samo mięso wyliczamy z bilansu serwera minus obie frakcje: dzięki temu
+  // liczba jest poprawna niezależnie od tego, czy `record` zdążył się odświeżyć
+  // po ostatnim zapisie (persist odsyła całą frakcję, więc podwójne liczenie
+  // byłoby łatwe do przeoczenia).
+  const warnPct = record.balanceWarnPct ?? BALANCE_WARN_PCT
+  const meatKg = record.massBalancePct != null && record.quarterKg > 0
+    ? (record.massBalancePct / 100) * record.quarterKg - (record.backsKg ?? 0) - (record.bonesKg ?? 0)
+    : null
+  const otherFracKg = (frac === 'backs' ? record.bonesKg : record.backsKg) ?? 0
+  /** Bilans po doliczeniu `extraKg` — do pytania PRZED zapisem palety. */
+  const balanceWith = (extraKg: number): number | null =>
+    meatKg == null || record.quarterKg <= 0
+      ? null
+      : ((meatKg + otherFracKg + fracTotal + extraKg) / record.quarterKg) * 100
+  const liveBalance = balanceWith(0)
+  const aboveBalance = liveBalance != null && liveBalance > warnPct
 
   const resetInputs = () => { setTareKg(null); setTareLabel(''); setContainersStr('') }
 
@@ -117,12 +144,42 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
     setPhase('ask')
   }
 
-  function addPallet() {
-    if (!canAdd || tareKg == null) return
-    const next = [...pallets, { tareLabel, tareKg, containers, gross, net: Math.round(net * 10) / 10 }]
+  /** Wspólne dołożenie palety: przy przekroczeniu bilansu masy pytamy, zamiast
+   *  zapisywać po cichu. Najczęstsza przyczyna nadmiaru to ta sama paleta pod
+   *  drugą frakcją (445) — pytanie łapie ją, zanim wejdzie do lotu ABP. */
+  function commitPallet(p: Pallet) {
+    const next = [...pallets, p]
     setPallets(next)
     setDriveOff(DRIVE_OFF_IDLE)
     resetInputs()
+    void persist(next)
+  }
+
+  function tryAddPallet(p: Pallet) {
+    const pct = balanceWith(p.net)
+    if (pct != null && pct > warnPct) {
+      // Pytanie o bilans zastępuje pytanie o zjazd z wagi — dwa okna naraz
+      // przykrywałyby się nawzajem.
+      setDriveOff(DRIVE_OFF_IDLE)
+      setBalancePrompt({ pallet: p, pct })
+      return
+    }
+    commitPallet(p)
+  }
+
+  function addPallet() {
+    if (!canAdd || tareKg == null) return
+    tryAddPallet({ tareLabel, tareKg, containers, gross, net: Math.round(net * 10) / 10 })
+  }
+
+  /** Zdejmij pojedynczą paletę z frakcji. Dotąd był tylko „Wyczyść sumę" na
+   *  całość — operator, który pomylił frakcję, musiałby przeważyć wszystko od
+   *  nowa, więc tego nie robił i zostawał dubel. Backend nadpisuje frakcję
+   *  całą listą, więc zapis nowej listy wystarczy; pusta lista wraca frakcję
+   *  na kafel jako niezważoną. */
+  function removePallet(idx: number) {
+    const next = pallets.filter((_, i) => i !== idx)
+    setPallets(next)
     void persist(next)
   }
 
@@ -130,11 +187,7 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
   function acceptDriveOff() {
     const c = driveOff.prompt
     if (!c) return
-    const next = [...pallets, { tareLabel: c.tareLabel, tareKg: c.tareKg, containers: c.containers, gross: c.gross, net: c.net }]
-    setPallets(next)
-    setDriveOff(DRIVE_OFF_IDLE)
-    resetInputs()
-    void persist(next)
+    tryAddPallet({ tareLabel: c.tareLabel, tareKg: c.tareKg, containers: c.containers, gross: c.gross, net: c.net })
   }
 
   async function finishFraction() {
@@ -346,6 +399,38 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
                 </div>
               </div>
             )}
+            {/* Nadmiar bilansu masy — druga strona tego samego pytania co
+                belowNorm. 445 (30.07): 108,3% przy normie ~101%, bo ta sama
+                paleta poszła pod obie frakcje. */}
+            {aboveBalance && (
+              <div className="flex items-center gap-3 px-5 py-3.5" style={{ borderRadius: 12, background: '#FEF3C7', border: '1.5px solid #F3D9AE' }}>
+                <AlertTriangle size={22} style={{ color: '#B45309', flexShrink: 0 }} />
+                <div className="text-sm font-bold" style={{ color: '#B45309' }}>
+                  Bilans masy partii {fmtPct(liveBalance!, 1)} — powyżej normy (~101%).
+                  Sprawdź, czy któraś paleta nie jest zapisana także pod drugą frakcją.
+                </div>
+              </div>
+            )}
+
+            {/* Lista palet z możliwością zdjęcia pojedynczej. */}
+            {pallets.length > 0 && (
+              <div className="flex flex-col gap-2 max-h-52 overflow-auto">
+                {pallets.map((p, i) => (
+                  <div key={i} className="flex items-center gap-3 px-4 py-2.5" style={{ borderRadius: 10, background: 'var(--panel)', border: '1px solid var(--line)' }}>
+                    <span className="hmi-v10-mono font-extrabold text-lg" style={{ fontFamily: MONO, minWidth: 86 }}>{fmtKg(p.net, 1)} kg</span>
+                    <span className="text-xs font-bold uppercase flex-1 min-w-0 truncate" style={{ color: 'var(--mut)', letterSpacing: '.06em' }}>
+                      {p.tareLabel} · {p.containers} poj. · brutto {fmtKg(p.gross, 1)} kg
+                    </span>
+                    <button type="button" onClick={() => removePallet(i)} aria-label="Usuń paletę"
+                      className="w-10 h-10 flex items-center justify-center flex-shrink-0"
+                      style={{ borderRadius: 8, border: '1px solid var(--line)', color: '#B45309' }}>
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="text-center font-extrabold text-xl">To wszystko, czy dokładamy?</div>
             <div className="grid grid-cols-3 gap-3">
               <button type="button" onClick={finishFraction}
@@ -501,6 +586,43 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
       )}
 
       {/* Zamknięcie z niezapisanym ważeniem — dotąd X gubił sumę bez słowa. */}
+      {/* Paleta wypycha partię ponad próg bilansu — pytamy PRZED zapisem.
+          Ostrzeżenie, nie blokada: nadmiar bywa prawdziwy (ociek, mokre
+          grzbiety), a nadpisywanie zmierzonych wag to incydent 424. */}
+      {balancePrompt && (
+        <div className="fixed inset-0 z-[62] flex items-center justify-center bg-black/50">
+          <div className="w-[560px] max-w-[92vw] p-7 flex flex-col gap-5" style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.4)' }}>
+            <div className="flex items-center gap-3">
+              <span className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: '#FEF3C7', color: '#B45309' }}><AlertTriangle size={24} /></span>
+              <div>
+                <div className="font-extrabold text-xl leading-tight">Ta partia wyjdzie na {fmtPct(balancePrompt.pct, 1)} bilansu</div>
+                <div className="text-sm font-bold mt-0.5" style={{ color: 'var(--mut)' }}>
+                  Norma to ~101%. Sprawdź, czy ta paleta nie jest już zapisana pod drugą frakcją.
+                </div>
+              </div>
+            </div>
+            <div className="px-5 py-4 flex items-center justify-between" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1px solid var(--accent)' }}>
+              <div className="text-sm font-bold" style={{ color: 'var(--mut)' }}>
+                {balancePrompt.pallet.tareLabel || 'bez palety'} · {balancePrompt.pallet.containers} pojemn. · brutto {fmtKg(balancePrompt.pallet.gross, 1)} kg
+              </div>
+              <div className="hmi-v10-mono font-extrabold text-3xl" style={{ color: 'var(--accent)' }}>{fmtKg(balancePrompt.pallet.net, 1)} kg</div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button type="button" onClick={() => { const p = balancePrompt.pallet; setBalancePrompt(null); commitPallet(p) }}
+                className="h-16 font-extrabold text-lg flex items-center justify-center gap-2"
+                style={{ borderRadius: 12, background: 'var(--success)', color: '#fff' }}>
+                <Check size={22} /> Zapisz mimo to
+              </button>
+              <button type="button" onClick={() => setBalancePrompt(null)}
+                className="h-16 font-bold text-base"
+                style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--mut)' }}>
+                Anuluj
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmClose && (
         <div className="fixed inset-0 z-[61] flex items-center justify-center bg-black/50">
           <div className="w-[520px] max-w-[92vw] p-7 flex flex-col gap-5" style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.4)' }}>

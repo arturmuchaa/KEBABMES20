@@ -643,11 +643,15 @@ def _drop_moved_pallets(conn, raw_batch_id: str, raw_batch_no: str, kind: str,
                     total if keep else None, keep, quarter, reopen=False)
 
 
-def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = None) -> Dict[str, Any]:
+def record(raw_batch_id: str, kind: str, kg: Optional[float],
+           pallets: Optional[list] = None) -> Dict[str, Any]:
     """Zapisz zważoną frakcję (backs|bones): kg + wyliczony % + szczegóły palet.
 
     Zapis pod drugą frakcją PRZENOSI paletę, a nie kopiuje — patrz
     _drop_moved_pallets (dubel z partii 445).
+
+    `kg=None` (kreator zdjął ostatnią paletę) kasuje ważenie frakcji — wraca
+    ona na kafel jako niezważona zamiast udawać zważone 0 kg.
     """
     if kind not in ("backs", "bones"):
         raise HTTPException(400, "kind musi być 'backs' albo 'bones'")
