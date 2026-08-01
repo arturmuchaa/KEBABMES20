@@ -38,6 +38,14 @@ logger = get_logger(__name__)
 BYPRODUCT_LOSS_TOL_PCT = 0.03
 BYPRODUCT_LOSS_TOL_MIN_KG = 10.0
 
+# Górna granica bilansu masy. Norma to ~101%, bo ćwiartkę liczymy NOMINALNIE
+# (pojemniki × 15 kg), a pojemniki bywają lekko przepełnione — zakres 30 partii
+# to 95,7–103,4%. Powyżej 103% kreator PYTA, nie blokuje: uboczne waży się po
+# fakcie i nadmiar bywa prawdziwy (ociek, mokre grzbiety). Partia 445 doszła do
+# 108,3% (ta sama paleta zapisana pod obiema frakcjami) bez jednego sygnału —
+# dziś ostrzega WYŁĄCZNIE isByproductBelowNorm, czyli tylko o frakcji ZA MAŁEJ.
+BALANCE_WARN_PCT = 103.0
+
 
 def _rescale_other_lots(conn, raw_batch_id: str) -> None:
     """Zważone zbiorczo frakcje kurczą loty „other" do realnej reszty.
@@ -115,6 +123,26 @@ def _stamp_pallets(pallets: Optional[list]) -> List[Dict[str, Any]]:
     return out
 
 
+def _mass_balance_pct(r: Dict) -> Optional[float]:
+    """Bilans masy partii: (mięso + grzbiety + kości) ÷ ćwiartka × 100.
+
+    None, gdy zapytanie nie dociągnęło mięsa (listy zbiorcze wołają _row na
+    gołym SELECT *) albo gdy brak bazy ćwiartki — lepiej nic nie pokazać niż
+    pokazać zero i nauczyć operatora ignorować ten wskaźnik.
+    """
+    if "meat_kg" not in r:
+        return None
+    quarter = float(r.get("quarter_kg") or 0)
+    if quarter <= 0:
+        return None
+    total = (
+        float(r.get("meat_kg") or 0)
+        + float(r.get("backs_kg") or 0)
+        + float(r.get("bones_kg") or 0)
+    )
+    return round(total / quarter * 100, 2)
+
+
 def _row(r: Optional[Dict]) -> Optional[Dict[str, Any]]:
     if not r:
         return None
@@ -135,6 +163,10 @@ def _row(r: Optional[Dict]) -> Optional[Dict[str, Any]]:
         # ważeniu w trakcie rozbioru (kolejna paleta dolicza, nie nadpisuje).
         "backsPallets": r.get("backs_pallets") or [],
         "bonesPallets": r.get("bones_pallets") or [],
+        # Bilans masy partii + próg ostrzeżenia. Próg jedzie z backendu, żeby
+        # kiosk na starszej wersji nie porównywał do innej liczby niż biuro.
+        "massBalancePct": _mass_balance_pct(r),
+        "balanceWarnPct": BALANCE_WARN_PCT,
         # Ręczne zamknięcie z biura — kafel zdjęty mimo otwartego bilansu.
         "closedAt": r["closed_at"].isoformat() if r.get("closed_at") else None,
         "closedBy": r.get("closed_by"),
@@ -180,7 +212,19 @@ def reopen_weighing(raw_batch_id: str) -> Dict[str, Any]:
 
 
 def get(raw_batch_id: str) -> Optional[Dict[str, Any]]:
-    return _row(query_one("SELECT * FROM batch_byproducts WHERE raw_batch_id=%s", (raw_batch_id,)))
+    """Rekord ubocznych partii + bilans masy. Mięso dociągane tutaj, bo
+    kreator musi ostrzec PRZED zapisem kolejnej palety — po zapisie nadmiar
+    jest już w locie ABP i sprząta go biuro (445: 108,3%)."""
+    return _row(query_one(
+        """
+        SELECT b.*, COALESCE(
+                   (SELECT SUM(e.kg_meat) FROM deboning_entries e
+                     WHERE e.raw_batch_id = b.raw_batch_id), 0) AS meat_kg
+          FROM batch_byproducts b
+         WHERE b.raw_batch_id = %s
+        """,
+        (raw_batch_id,),
+    ))
 
 
 def finish_batch(raw_batch_id: str, operator: str = "") -> Dict[str, Any]:
@@ -599,11 +643,15 @@ def _drop_moved_pallets(conn, raw_batch_id: str, raw_batch_no: str, kind: str,
                     total if keep else None, keep, quarter, reopen=False)
 
 
-def record(raw_batch_id: str, kind: str, kg: float, pallets: Optional[list] = None) -> Dict[str, Any]:
+def record(raw_batch_id: str, kind: str, kg: Optional[float],
+           pallets: Optional[list] = None) -> Dict[str, Any]:
     """Zapisz zważoną frakcję (backs|bones): kg + wyliczony % + szczegóły palet.
 
     Zapis pod drugą frakcją PRZENOSI paletę, a nie kopiuje — patrz
     _drop_moved_pallets (dubel z partii 445).
+
+    `kg=None` (kreator zdjął ostatnią paletę) kasuje ważenie frakcji — wraca
+    ona na kafel jako niezważona zamiast udawać zważone 0 kg.
     """
     if kind not in ("backs", "bones"):
         raise HTTPException(400, "kind musi być 'backs' albo 'bones'")

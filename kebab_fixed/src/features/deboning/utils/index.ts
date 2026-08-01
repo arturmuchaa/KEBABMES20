@@ -251,6 +251,7 @@ export function validateDeboningEntry(
   kgTaken: number,
   kgMeat: number,
   kgAvailable: number,
+  override = false,
 ): string | null {
   if (kgTaken <= 0)           return 'Ilość pobranej ćwiartki musi być > 0'
   if (kgMeat <= 0)            return 'Ilość mięsa musi być > 0'
@@ -259,6 +260,11 @@ export function validateDeboningEntry(
   // Backend dodatkowo waliduje ten sam warunek — double-check
   if (kgTaken > kgAvailable + 0.01)
     return `⛔ Nie można pobrać ${kgTaken} kg — w partii dostępne tylko ${kgAvailable.toFixed(2)} kg`
+  // Furtka serwisowa (kod 0099) omija progi wydajności — dokładnie tak jak
+  // validate_meat_yield(override=True) po stronie API. Bez tego kod serwisowy
+  // byłby fikcją: wpis 99,5% odbiłby się tutaj, nie dochodząc do backendu.
+  // Granice fizyczne wyżej zostają twarde także z kodem.
+  if (override) return null
   const yieldPct = (kgMeat / kgTaken) * 100
   if (yieldPct > 95)          return `Wydajność ${yieldPct.toFixed(1)}% jest nierealna — sprawdź dane`
   if (yieldPct < 30)          return `Wydajność ${yieldPct.toFixed(1)}% jest bardzo niska — sprawdź dane`

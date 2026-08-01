@@ -16,6 +16,7 @@ from app.services.deboning_service import (
     list_deboning_entries,
     list_take_weighings,
     update_deboning_take,
+    yield_overrides,
     weigh_part_deboning_take,
 )
 from app.utils.ids import now_iso
@@ -38,9 +39,10 @@ def _take_dto(**kw):
     return SimpleNamespace(**base)
 
 
-def _meat_dto(kg, mode=None):
+def _meat_dto(kg, mode=None, override_yield=False):
     return SimpleNamespace(kg_meat=kg, kg_gross=None, tare_cart_kg=None,
-                           tare_e2_kg=None, e2_count=None, weigh_mode=mode)
+                           tare_e2_kg=None, e2_count=None, weigh_mode=mode,
+                           override_yield=override_yield)
 
 
 def test_weigh_part_dopisuje_na_magazyn_a_wpis_zostaje_pending(db):
@@ -108,23 +110,67 @@ def test_complete_z_czesciami_waliduje_sume(db):
     assert e.value.status_code == 400
 
 
-def test_complete_wysoki_uzysk_domyka_nie_blokuje(db):
-    """Reszta dowieziona: suma porcji 96,8% pobrania (290,5/300) MUSI domknąć
-    pobranie, a nie odbić się o pasmo uzysku 95%. Incydent 2026-07-24
-    (Anatolii): complete pięć razy zwracał 400 „nierealna", pobranie zawisło
-    w 'pending' — mięso było FIZYCZNIE zważone i już na magazynie."""
+def test_complete_wysoki_uzysk_wymaga_kodu_serwisowego(db):
+    """Wpis 431/ANATOLII (24.07): suma porcji 96,8% pobrania (290,5/300)
+    wygląda jak wysoki, ale prawdziwy uzysk — jednak tego samego dnia biuro
+    skorygowało DOKŁADNIE ten wpis z 290,5 na 197,0 kg (powód „blad"; różnica
+    93,5 kg to waga wózka, patrz log korekt 07-24 09:48). 96,8% nie było
+    prawdziwym pomiarem mięsa, tylko niedoważoną tarą — dokładnie klasa
+    błędu, którą pasmo wydajności ma łapać. Bez kodu serwisowego zapis ma się
+    odbić; z override_yield przechodzi i zostawia ślad audytowy."""
     _seed_batch()
     entry = create_deboning_take(_take_dto(kg_taken=300.0))
     weigh_part_deboning_take(entry["id"], _meat_dto(97.5))
-    complete_deboning_take(entry["id"], _meat_dto(193.0))  # 290,5/300 = 96,8%
-    row = query_one(
-        "SELECT status, kg_meat, yield_pct, kg_remainder FROM deboning_entries WHERE id=%s",
-        (entry["id"],),
-    )
+    with pytest.raises(HTTPException) as e:
+        complete_deboning_take(entry["id"], _meat_dto(193.0))  # 290,5/300 = 96,8%
+    assert e.value.status_code == 400
+
+    entry2 = create_deboning_take(_take_dto(kg_taken=300.0))
+    weigh_part_deboning_take(entry2["id"], _meat_dto(97.5))
+    row = complete_deboning_take(entry2["id"], _meat_dto(193.0, override_yield=True))
     assert row["status"] == "complete"
-    assert float(row["kg_meat"]) == 290.5
-    assert round(float(row["yield_pct"]), 1) == 96.8
-    assert float(row["kg_remainder"]) == 9.5
+    assert query_one(
+        "SELECT id FROM deboning_entry_corrections WHERE entry_id=%s", (entry2["id"],)
+    ) is not None
+
+
+def test_wieloporcjowe_domkniecie_liczy_sume_nie_porcje(db):
+    """300 kg pobrania w trzech ważeniach 50+100+50 = 200 kg (66,7%).
+    Porcje pośrednie (16,7% po pierwszej) NIE mogą blokować — pasmo
+    obowiązuje dopiero przy zamknięciu, od sumy."""
+    _seed_batch()
+    entry = create_deboning_take(_take_dto(kg_taken=300.0))
+    weigh_part_deboning_take(entry["id"], _meat_dto(50.0))    # 16,7% — przechodzi
+    weigh_part_deboning_take(entry["id"], _meat_dto(100.0))   # 50,0% — przechodzi
+    complete_deboning_take(entry["id"], _meat_dto(50.0))      # suma 200/300 = 66,7%
+    row = query_one("SELECT status, kg_meat FROM deboning_entries WHERE id=%s", (entry["id"],))
+    assert row["status"] == "complete"
+    assert float(row["kg_meat"]) == 200.0
+
+
+def test_domkniecie_po_samej_pierwszej_porcji_blokuje(db):
+    """Zamknięcie pobrania 300 kg po samych 50 kg (16,7%) to sygnał
+    'nie zważono całego mięsa' — ma się odbić."""
+    _seed_batch()
+    entry = create_deboning_take(_take_dto(kg_taken=300.0))
+    with pytest.raises(HTTPException) as e:
+        complete_deboning_take(entry["id"], _meat_dto(50.0))
+    assert e.value.status_code == 400
+
+
+def test_furtka_domyka_takze_zbyt_niski_uzysk(db):
+    """Furtka musi wypuszczać pobranie w OBIE strony. 16,7% wpada nie tylko
+    poza pasmo, ale i pod stary próg 30% z validate_take_completion — gdyby
+    kod serwisowy omijał tylko pasmo, pobranie zostałoby zakleszczone w
+    'pending' bez wyjścia (dokładnie powód usunięcia pułapu 95% w 2026-07-24).
+    Zapis przechodzi i zostawia ślad."""
+    _seed_batch()
+    entry = create_deboning_take(_take_dto(kg_taken=300.0))
+    row = complete_deboning_take(entry["id"], _meat_dto(50.0, override_yield=True))
+    assert row["status"] == "complete"
+    assert query_one(
+        "SELECT id FROM deboning_entry_corrections WHERE entry_id=%s", (entry["id"],)
+    ) is not None
 
 
 def _auto_dto(kg, gross, cart=6.0, e2=2.0, n=1):
@@ -286,3 +332,40 @@ def test_korekta_do_nierealnej_wydajnosci_blokuje(db):
         correct_deboning_entry(entry_id, None, 160.0, None, "korekta ćwiartki", "biuro")
     assert e.value.status_code == 400
     assert "nierealna" in e.value.detail
+
+
+def test_raport_odchylen_pokazuje_ominiecia_progu(db):
+    """Skoro furtka jest możliwa, biuro musi widzieć KAŻDE jej użycie —
+    inaczej kod serwisowy po cichu zastąpiłby strażnika."""
+    _seed_batch(kg=1000.0)
+    entry = create_deboning_take(_take_dto(kg_taken=300.0))
+    complete_deboning_take(entry["id"], _meat_dto(298.5, override_yield=True))
+
+    out = yield_overrides("2020-01-01", "2100-01-01")
+    assert len(out["data"]) == 1
+    row = out["data"][0]
+    assert row["yieldPct"] == pytest.approx(99.5, abs=0.05)
+    assert row["kgQuarter"] == 300.0
+    assert row["kgMeat"] == 298.5
+    assert row["batchNo"] == "800"
+    assert row["workerName"] == "Jan"
+
+
+def test_raport_odchylen_pomija_zwykle_korekty_biura(db):
+    """W tej samej tabeli siedzą korekty z biura — raport ma pokazywać
+    WYŁĄCZNIE ominięcia progu, inaczej utonie w szumie."""
+    _seed_batch(kg=1000.0)
+    entry = create_deboning_take(_take_dto(kg_taken=300.0))
+    complete_deboning_take(entry["id"], _meat_dto(198.0))          # 66% — bez furtki
+    correct_deboning_entry(entry["id"], None, 300.0, 197.0, "blad", "biuro",
+                           override_weighings=True)
+
+    assert yield_overrides("2020-01-01", "2100-01-01")["data"] == []
+
+
+def test_raport_odchylen_respektuje_zakres_dat(db):
+    _seed_batch(kg=1000.0)
+    entry = create_deboning_take(_take_dto(kg_taken=300.0))
+    complete_deboning_take(entry["id"], _meat_dto(298.5, override_yield=True))
+
+    assert yield_overrides("2020-01-01", "2020-01-31")["data"] == []

@@ -26,6 +26,9 @@ class DeboningEntryCreate(BaseModel):
     kg_taken: Optional[float] = Field(None, alias="kgTaken", ge=0)
     kg_quarter: Optional[float] = Field(None, alias="kgQuarter", ge=0)
     kg_meat: float = Field(..., alias="kgMeat", gt=0)
+    # Furtka serwisowa (kod 0099 na kiosku) — świadome ominięcie pasma
+    # wydajności. Zostawia ślad w deboning_entry_corrections.
+    override_yield: bool = Field(False, alias="overrideYield")
     kg_backs: float = Field(0, alias="kgBacks", ge=0)
     kg_bones: float = Field(0, alias="kgBones", ge=0)
     # Ważenie automatyczne RS232 (HMI v10) — audyt brutto/tara; wszystkie
@@ -64,6 +67,9 @@ class DeboningTakeComplete(BaseModel):
     model_config = ConfigDict(populate_by_name=True, validate_default=True)
 
     kg_meat: float = Field(..., alias="kgMeat", gt=0)
+    # Furtka serwisowa (kod 0099 na kiosku) — świadome ominięcie pasma
+    # wydajności. Zostawia ślad w deboning_entry_corrections.
+    override_yield: bool = Field(False, alias="overrideYield")
     kg_gross: Optional[float] = Field(None, alias="kgGross", ge=0)
     tare_cart_kg: Optional[float] = Field(None, alias="tareCartKg", ge=0)
     tare_e2_kg: Optional[float] = Field(None, alias="tareE2Kg", ge=0)

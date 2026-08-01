@@ -237,6 +237,41 @@ def list_take_weighings(date_from: str, date_to: str) -> Dict[str, Any]:
     return {"data": rows}
 
 
+def yield_overrides(date_from: str, date_to: str) -> Dict[str, Any]:
+    """Wpisy, które przeszły przez furtkę serwisową (kod 0099).
+
+    Siatka bezpieczeństwa nad twardym progiem: skoro obejście jest możliwe,
+    biuro musi widzieć KAŻDE użycie — inaczej furtka po cichu zastąpiłaby
+    strażnika. Częste ominięcia na jednym pracowniku albo jednej partii to
+    sygnał, że progi są źle ustawione ALBO że ktoś obchodzi kontrolę.
+
+    Filtr po `left(reason, 9)`, nie LIKE — `%` w psycopg2 to placeholder
+    i wysypuje zapytanie IndexError.
+    """
+    rows = query_all(
+        """
+        SELECT c.entry_id                                  AS "entryId",
+               (c.at AT TIME ZONE 'Europe/Warsaw')         AS "atLocal",
+               (c.at AT TIME ZONE 'Europe/Warsaw')::date   AS "dayLocal",
+               c.by_subject                                AS "bySubject",
+               (c.changes->>'yieldPct')::float             AS "yieldPct",
+               (c.changes->>'kgQuarter')::float            AS "kgQuarter",
+               (c.changes->>'kgMeat')::float               AS "kgMeat",
+               COALESCE(c.changes->>'meatType', 'zs')      AS "meatType",
+               e.raw_batch_no                              AS "batchNo",
+               e.worker_name                               AS "workerName",
+               e.status                                    AS "entryStatus"
+          FROM deboning_entry_corrections c
+          LEFT JOIN deboning_entries e ON e.id = c.entry_id
+         WHERE left(c.reason, 9) = 'Ominięcie'
+           AND (c.at AT TIME ZONE 'Europe/Warsaw')::date BETWEEN %s AND %s
+         ORDER BY c.at DESC
+        """,
+        (date_from, date_to),
+    )
+    return {"data": rows}
+
+
 def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     """Agregaty rozbioru dla biura w zakresie dat.
 
@@ -703,11 +738,16 @@ def validate_batch_expiry(expiry_date, today: date | None = None):
     return None
 
 
-def validate_meat_yield(kg_taken: float, kg_meat: float) -> str | None:
+def validate_meat_yield(kg_taken: float, kg_meat: float, override: bool = False) -> str | None:
     """Sanity mięsa vs pobranej ćwiartki. Czysta funkcja — testy bez DB.
 
     Wspólna dla zapisu 'od razu' i domknięcia pobrania. Reguły identyczne
     jak dotąd inline w create_deboning_entry.
+
+    `override` (furtka serwisowa, kod 0099 — Task 2) pomija TYLKO próg
+    wydajności (>95% / <30%). Fizyczna niemożliwość (mięso <= 0, ćwiartka
+    <= 0, mięso > ćwiartka) zostaje twarda zawsze — furtka omija pasmo
+    wydajności, nie prawa fizyki.
     """
     kg_taken = float(kg_taken or 0)
     kg_meat = float(kg_meat or 0)
@@ -720,6 +760,8 @@ def validate_meat_yield(kg_taken: float, kg_meat: float) -> str | None:
             f"Mięso ({kg_meat} kg) nie może przekraczać pobranej "
             f"ćwiartki ({kg_taken} kg)"
         )
+    if override:
+        return None
     yield_pct = (kg_meat / kg_taken) * 100
     if yield_pct > 95:
         return f"Wydajność {round(yield_pct, 1)}% jest nierealna — sprawdź dane"
@@ -728,7 +770,8 @@ def validate_meat_yield(kg_taken: float, kg_meat: float) -> str | None:
     return None
 
 
-def validate_take_completion(kg_taken: float, kg_meat: float, tol: float = 0.01) -> str | None:
+def validate_take_completion(kg_taken: float, kg_meat: float, tol: float = 0.01,
+                             override: bool = False) -> str | None:
     """Domknięcie pobrania mięsem — jak validate_meat_yield, ale BEZ górnego
     pułapu uzysku (95%).
 
@@ -740,6 +783,13 @@ def validate_take_completion(kg_taken: float, kg_meat: float, tol: float = 0.01)
     da, a mięsa i tak nie „odważymy". Dolny próg 30% ZOSTAJE: zbyt mało mięsa to
     wciąż sygnał „sprawdź dane" (zapomniany wózek), nie normalny przypadek.
     Regułę „powyżej ~62% domykaj bez pytania" trzyma HMI (partialWeighing.ts).
+
+    `override` (furtka serwisowa, kod 0099) pomija TYLKO próg 30% — dokładnie
+    tak jak w validate_meat_yield na ścieżce zapisu 'od razu'. Bez tego furtka
+    działałaby w jedną stronę: kod serwisowy przepuszczałby zawyżoną wydajność,
+    ale pobranie z realnie niskim uzyskiem nadal zakleszczałoby się w 'pending'
+    bez żadnego wyjścia — czyli ta sama pułapka, przez którą usunięto pułap 95%
+    (2026-07-24). Granice fizyczne zostają twarde także z kodem.
     """
     kg_taken = float(kg_taken or 0)
     kg_meat = float(kg_meat or 0)
@@ -753,7 +803,7 @@ def validate_take_completion(kg_taken: float, kg_meat: float, tol: float = 0.01)
             f"ćwiartki ({kg_taken} kg)"
         )
     yield_pct = (kg_meat / kg_taken) * 100
-    if yield_pct < 30:
+    if yield_pct < 30 and not override:
         return f"Wydajność {round(yield_pct, 1)}% jest bardzo niska — sprawdź dane"
     return None
 
@@ -761,6 +811,84 @@ def validate_take_completion(kg_taken: float, kg_meat: float, tol: float = 0.01)
 def _kg(v) -> str:
     """Kilogramy po polsku — przecinek dziesiętny, jedno miejsce."""
     return f"{float(v):.1f}".replace(".", ",")
+
+
+def _pct(v) -> str:
+    """Procent po polsku — przecinek dziesiętny, jedno miejsce."""
+    return f"{float(v):.1f}".replace(".", ",") + "%"
+
+
+# Twarde pasmo wydajności pobrania. Rozkład 676 wpisów z 25 dni: mediana
+# 66,0%, p1 60,0%, p99 68,4%, max 69,5%; prawdziwe pobrania ≥30 kg mieszczą
+# się w 62,5–69,5%. Blokada 60–71% zatrzymałaby 1 z 676 wpisów (0,15%).
+# Łapie klasę błędu „zła/brak tary wózka": mięso rośnie o wagę wózka
+# (87–110 kg), a wydajność skacze do 96–100% — patrz 431, 442, 443, 444.
+#
+# Osobne pasmo dla b/s (bez skóry, ~30 kg/tydzień — patrz meat_type w
+# app/models/deboning.py): naturalny uzysk b/s to ~50–55%, wyraźnie niższy
+# niż z/s. Cztery dotychczasowe wpisy b/s to 56,7% ×3 i 60,0% — górna
+# granica 60,0% jest domknięta specjalnie, żeby je przepuścić; jedno
+# wspólne pasmo z/s zablokowałoby prawdziwy towar b/s.
+YIELD_BANDS = {"zs": (60.0, 71.0), "bs": (45.0, 60.0)}
+# Małe pobrania zwolnione: przy 15 kg zaokrąglenie 0,5 kg to ponad 3 pp.
+YIELD_GUARD_MIN_TAKE_KG = 30.0
+
+
+def validate_yield_band(
+    kg_taken: float, kg_meat: float, meat_type: str = "zs", override: bool = False
+) -> str | None:
+    """Twardy próg wydajności dla ŚCIEŻEK KIOSKU. None = wolno zapisać.
+
+    Granice fizyczne (mięso > ćwiartka, wartości ≤ 0) sprawdzają
+    validate_meat_yield / validate_take_completion — tu tylko pasmo.
+
+    Pasmo zależy od rodzaju mięsa (`meat_type`, patrz YIELD_BANDS). Nieznany
+    rodzaj lub brak (None) leci po paśmie z/s — to jest domyślny, dominujący
+    rodzaj, więc brak informacji nie powinien nagle otwierać szerszej furtki.
+
+    Furtka (override) jest częścią projektu, nie luką: pułap 95% usunięto
+    2026-07-24, bo bez furtki zakleszczał pobranie w 'pending'. Próg bez
+    furtki zostanie usunięty tak samo — albo operator zacznie wpisywać
+    zmyśloną ćwiartkę, żeby przejść, i błąd zrobi się niewidzialny.
+    """
+    if override:
+        return None
+    kg_taken = float(kg_taken or 0)
+    kg_meat = float(kg_meat or 0)
+    if kg_taken <= 0 or kg_meat <= 0 or kg_taken < YIELD_GUARD_MIN_TAKE_KG:
+        return None
+    lo, hi = YIELD_BANDS.get(meat_type or "zs", YIELD_BANDS["zs"])
+    pct = kg_meat / kg_taken * 100
+    if pct > hi:
+        return (
+            f"Wydajność {_pct(pct)} — mięso {_kg(kg_meat)} kg z {_kg(kg_taken)} kg "
+            "ćwiartki. Sprawdź, czy wybrałeś właściwy wózek (tara). "
+            "Zapis wymaga kodu serwisowego."
+        )
+    if pct < lo:
+        return (
+            f"Wydajność {_pct(pct)} — mięso {_kg(kg_meat)} kg z {_kg(kg_taken)} kg "
+            "ćwiartki. Sprawdź, czy całe mięso z pobrania zostało zważone. "
+            "Zapis wymaga kodu serwisowego."
+        )
+    return None
+
+
+def _log_yield_override(conn, entry_id: str, kg_taken: float, kg_meat: float,
+                        meat_type: str = "zs", by_subject: str = "") -> None:
+    """Ślad ominięcia pasma wydajności — bez tego furtka byłaby dziurą."""
+    pct = (kg_meat / kg_taken * 100) if kg_taken else 0
+    cx_execute(
+        conn,
+        "INSERT INTO deboning_entry_corrections (id, entry_id, by_subject, reason, changes) "
+        "VALUES (%s,%s,%s,%s,%s)",
+        (cuid(), entry_id, by_subject or "kiosk",
+         "Ominięcie progu wydajności (kod serwisowy)",
+         json.dumps({"yieldPct": round(pct, 2), "kgQuarter": kg_taken,
+                     "kgMeat": kg_meat, "meatType": meat_type,
+                     "band": list(YIELD_BANDS.get(meat_type or "zs", YIELD_BANDS["zs"]))},
+                    ensure_ascii=False)),
+    )
 
 
 def validate_correction_vs_weighings(
@@ -888,7 +1016,7 @@ def _auto_finish_exhausted(raw_batch_id: str, kg_left) -> None:
         logger.exception("deboning.batch.auto_finish_failed", extra={"raw_batch_id": raw_batch_id})
 
 
-def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
+def create_deboning_entry(dto: DeboningEntryCreate, by: str = "") -> Dict:
     raw_batch_id = dto.raw_batch_id
     worker_id = dto.worker_id
     worker_name = dto.worker_name
@@ -905,9 +1033,18 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
 
     if kg_taken <= 0:
         raise HTTPException(400, "Ilość pobranej ćwiartki musi być > 0")
-    yield_err = validate_meat_yield(kg_taken, kg_meat)
+    yield_err = validate_meat_yield(
+        kg_taken, kg_meat, override=getattr(dto, "override_yield", False)
+    )
     if yield_err:
         raise HTTPException(400, yield_err)
+    band_err = validate_yield_band(
+        kg_taken, kg_meat,
+        meat_type=meat_type_of(dto),
+        override=getattr(dto, "override_yield", False),
+    )
+    if band_err:
+        raise HTTPException(400, band_err)
     yield_pct_val = (kg_meat / kg_taken) * 100
 
     entry_id = cuid()
@@ -1011,6 +1148,13 @@ def create_deboning_entry(dto: DeboningEntryCreate) -> Dict:
                 now_iso(),
             ),
         )
+
+        if getattr(dto, "override_yield", False):
+            _log_yield_override(
+                conn, entry_id, kg_taken, kg_meat,
+                meat_type=meat_type,
+                by_subject=by,
+            )
 
         # Produkty uboczne (ABP) — część niemięsna jako śledzony lot do utylizacji.
         from app.services.byproducts_service import create_byproduct_lots_for_entry
@@ -1508,7 +1652,7 @@ def update_deboning_take(entry_id: str, dto) -> Dict:
     return _map_deboning_entry(updated)  # type: ignore[arg-type]
 
 
-def complete_deboning_take(entry_id: str, dto) -> Dict:
+def complete_deboning_take(entry_id: str, dto, by: str = "") -> Dict:
     """Faza 2: domknięcie pobrania mięsem. Tworzy lot mięsa + ABP, status→complete.
     Surowiec zszedł już w fazie 1 — tutaj nie ruszamy raw_batches."""
     kg_meat = float(dto.kg_meat)
@@ -1544,22 +1688,38 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
             (entry_id,),
         ) or {}
         kg_meat = round(float(prior.get("s") or 0) + kg_part, 2)
-        # Domknięcie: tylko granice fizyczne (mięso już zważone i na magazynie).
-        # Pasmo uzysku 30–95% zakleszczało 'pending' przy realnie wysokim
-        # uzysku dowiezionej reszty (2026-07-24) — patrz validate_take_completion.
-        yield_err = validate_take_completion(kg_taken, kg_meat)
-        if yield_err:
-            raise HTTPException(400, yield_err)
-        _insert_take_weighing(conn, entry_id, kg_part, dto, meat_type)
-
-        kg_remainder = max(0, kg_taken - kg_meat)
-        yield_pct = round((kg_meat / kg_taken) * 100, 2)
-
         # Przy >1 porcji kg_meat encji = SUMA, a brutto/tary opisują tylko
         # OSTATNIĄ porcję — zapisane razem kłamią (audyt 2026-07-22:
         # brutto−tara−mięso do −101 kg). Pola wagi encji → NULL; audyt
         # per porcja mieszka w deboning_take_weighings.
         multi = int(prior.get("n") or 0) > 0
+        # Domknięcie: tylko granice fizyczne (mięso już zważone i na magazynie).
+        # Pasmo uzysku 30–95% zakleszczało 'pending' przy realnie wysokim
+        # uzysku dowiezionej reszty (2026-07-24) — patrz validate_take_completion.
+        yield_err = validate_take_completion(
+            kg_taken, kg_meat, override=getattr(dto, "override_yield", False)
+        )
+        if yield_err:
+            raise HTTPException(400, yield_err)
+        # Pasmo wydajności (Task 2) obowiązuje przy KAŻDYM domknięciu, także
+        # wieloporcjowym — liczone od SUMY porcji (kg_meat wyżej), nie od
+        # ostatniej. Operator nigdy nie utyka w 'pending': albo poprawi wagę,
+        # albo wpisze kod serwisowy (override_yield) i przejdzie ze śladem w
+        # deboning_entry_corrections. Porcje pośrednie z weigh-part NIE są
+        # tu sprawdzane (ta funkcja w ogóle nie liczy wydajności) — strażnik
+        # patrzy tylko na moment, gdy operator deklaruje koniec pobrania.
+        band_err = validate_yield_band(
+            kg_taken, kg_meat,
+            meat_type=meat_type,
+            override=getattr(dto, "override_yield", False),
+        )
+        if band_err:
+            raise HTTPException(400, band_err)
+        _insert_take_weighing(conn, entry_id, kg_part, dto, meat_type)
+
+        kg_remainder = max(0, kg_taken - kg_meat)
+        yield_pct = round((kg_meat / kg_taken) * 100, 2)
+
         row = cx_execute_returning(
             conn,
             """
@@ -1580,6 +1740,13 @@ def complete_deboning_take(entry_id: str, dto) -> Dict:
                 entry_id,
             ),
         )
+
+        if getattr(dto, "override_yield", False):
+            _log_yield_override(
+                conn, entry_id, kg_taken, kg_meat,
+                meat_type=meat_type,
+                by_subject=by,
+            )
 
         from app.services.byproducts_service import create_byproduct_lots_for_entry
         create_byproduct_lots_for_entry(conn, row)

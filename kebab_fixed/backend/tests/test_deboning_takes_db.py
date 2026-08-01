@@ -6,8 +6,14 @@ import pytest
 from fastapi import HTTPException
 
 from app.db import execute, query_one
-from app.models.deboning import DeboningTakeCreate, DeboningTakeComplete, DeboningTakeUpdate
+from app.models.deboning import (
+    DeboningEntryCreate,
+    DeboningTakeCreate,
+    DeboningTakeComplete,
+    DeboningTakeUpdate,
+)
 from app.services.deboning_service import (
+    create_deboning_entry,
     create_deboning_take,
     complete_deboning_take,
     delete_deboning_entry,
@@ -349,3 +355,71 @@ def test_stats_licza_pobranie_w_dniu_POBRANIA_nie_zwazenia(db):
     # feed nadal ze znacznikiem ZWAŻENIA, mimo że wpis należy do wczoraj
     assert stats_y["recent"] and stats_y["recent"][0]["workerName"] == "Anatoli"
     assert stats_y["recent"][0]["at"][:10] == today
+
+
+# ── Pasmo wydajności (strażnik) + furtka serwisowa ──────────────────────
+
+
+def test_zapis_od_razu_odrzuca_wpis_poza_pasmem(db):
+    """Klasa błędu 442/443: waga wózka wchodzi w mięso."""
+    _seed_cwiartka_batch(internal_no="720", kg=1000.0)
+    with pytest.raises(HTTPException) as e:
+        create_deboning_entry(DeboningEntryCreate(
+            raw_batch_id="rb1", worker_name="ANATOLII",
+            kg_quarter=300.0, kg_meat=298.5,
+        ))
+    assert e.value.status_code == 400
+    assert "Wydajność" in e.value.detail
+
+
+def test_furtka_przepuszcza_i_zostawia_slad(db):
+    _seed_cwiartka_batch(internal_no="721", kg=1000.0)
+    entry = create_deboning_entry(DeboningEntryCreate(
+        raw_batch_id="rb1", worker_name="ANATOLII",
+        kg_quarter=300.0, kg_meat=298.5, override_yield=True,
+    ))
+    row = query_one(
+        "SELECT reason, changes FROM deboning_entry_corrections WHERE entry_id=%s",
+        (entry["id"],),
+    )
+    assert row is not None, "ominięcie progu musi zostawić ślad audytowy"
+    assert "wydajno" in row["reason"].lower()
+
+
+def test_mieso_bs_ma_wlasne_pasmo(db):
+    """Mięso bez skóry ma uzysk ~50–55% (patrz komentarz przy meat_type w
+    models/deboning.py), więc pasmo 60–71% blokowałoby prawdziwy towar.
+    Dla 'bs' obowiązuje 45–60%."""
+    _seed_cwiartka_batch(internal_no="722", kg=1000.0)
+    entry = create_deboning_entry(DeboningEntryCreate(
+        raw_batch_id="rb1", worker_name="OLEH",
+        kg_quarter=60.0, kg_meat=33.0, meat_type="bs",   # 55,0% — w paśmie b/s
+    ))
+    assert entry["kgMeat"] == 33.0
+    # to zwykły zapis, nie ominięcie — żadnego śladu furtki
+    assert query_one(
+        "SELECT id FROM deboning_entry_corrections WHERE entry_id=%s", (entry["id"],)
+    ) is None
+
+
+def test_mieso_bs_powyzej_swojego_pasma_odrzucone(db):
+    """66% to norma dla z/s, ale dla b/s oznacza pomyłkę rodzaju mięsa."""
+    _seed_cwiartka_batch(internal_no="724", kg=1000.0)
+    with pytest.raises(HTTPException) as e:
+        create_deboning_entry(DeboningEntryCreate(
+            raw_batch_id="rb1", worker_name="OLEH",
+            kg_quarter=100.0, kg_meat=66.0, meat_type="bs",
+        ))
+    assert e.value.status_code == 400
+
+
+def test_domkniecie_pobrania_tez_sprawdza_pasmo(db):
+    """complete liczy SUMĘ porcji (weigh-part), nie ostatnią porcję —
+    pasmo musi widzieć sumę."""
+    _seed_cwiartka_batch(internal_no="723", kg=1000.0)
+    take = create_deboning_take(DeboningTakeCreate(
+        raw_batch_id="rb1", worker_name="ANATOLII", kg_taken=300.0,
+    ))
+    with pytest.raises(HTTPException) as e:
+        complete_deboning_take(take["id"], DeboningTakeComplete(kg_meat=298.5))
+    assert e.value.status_code == 400

@@ -10,7 +10,9 @@
 
 ## Global Constraints
 
-- Pasmo wydajności: **60,0%–71,0% włącznie**. Poza nim zapis odrzucony (HTTP 400).
+- Pasmo wydajności zależy od rodzaju mięsa, obie granice **włącznie**; poza pasmem zapis odrzucony (HTTP 400):
+  - `meat_type` = `zs` (domyślne, skóra na) → **60,0%–71,0%**
+  - `meat_type` = `bs` (bez skóry) → **45,0%–60,0%**
 - Zwolnienie: pobrania **< 30 kg ćwiartki** nie podlegają sprawdzeniu.
 - Furtka: flaga `overrideYield` (alias `override_yield`), na kiosku odblokowana kodem **0099** (`SERVICE_CODE` w `src/features/deboning/ServiceMenu.tsx`).
 - Próg ostrzeżenia bilansu ubocznych: **103%**.
@@ -50,21 +52,17 @@ Dlatego Task 2 dodaje furtkę **razem** z progiem. Nie wolno wdrożyć progu bez
 - Test: `backend/tests/test_deboning_yield.py`
 
 **Interfaces:**
-- Produces: `validate_yield_band(kg_taken: float, kg_meat: float, override: bool = False) -> str | None`, stałe `YIELD_BAND_MIN_PCT = 60.0`, `YIELD_BAND_MAX_PCT = 71.0`, `YIELD_GUARD_MIN_TAKE_KG = 30.0`
+- Produces: `validate_yield_band(kg_taken: float, kg_meat: float, meat_type: str = "zs", override: bool = False) -> str | None`, stałe `YIELD_BANDS = {"zs": (60.0, 71.0), "bs": (45.0, 60.0)}`, `YIELD_GUARD_MIN_TAKE_KG = 30.0`. Nieznany `meat_type` traktuj jak `zs`.
 
 - [ ] **Step 1: Write the failing test**
 
 Dopisz na końcu `backend/tests/test_deboning_yield.py`:
 
 ```python
-from app.services.deboning_service import (
-    YIELD_BAND_MAX_PCT,
-    YIELD_BAND_MIN_PCT,
-    validate_yield_band,
-)
+from app.services.deboning_service import YIELD_BANDS, validate_yield_band
 
 
-# ── Twarde pasmo wydajności (60–71%) ──────────────────────────────────
+# ── Twarde pasmo wydajności (z/s 60–71%, b/s 45–60%) ──────────────────
 def test_pasmo_przepuszcza_typowa_wydajnosc():
     assert validate_yield_band(300.0, 198.0) is None  # 66,0%
 
@@ -90,10 +88,26 @@ def test_pasmo_blokuje_zbyt_niska_wydajnosc():
 
 
 def test_granice_pasma_sa_domkniete():
-    assert validate_yield_band(100.0, YIELD_BAND_MIN_PCT) is None   # dokładnie 60,0%
-    assert validate_yield_band(100.0, YIELD_BAND_MAX_PCT) is None   # dokładnie 71,0%
+    lo, hi = YIELD_BANDS["zs"]
+    assert validate_yield_band(100.0, lo) is None   # dokładnie 60,0%
+    assert validate_yield_band(100.0, hi) is None   # dokładnie 71,0%
     assert validate_yield_band(100.0, 59.9) is not None
     assert validate_yield_band(100.0, 71.1) is not None
+
+
+def test_pasmo_bs_jest_inne_i_tez_domkniete():
+    """Mięso bez skóry: uzysk ~50–55%, więc 45–60%. Wpisy z 28.07 (56,7%
+    i 60,0%) muszą przechodzić, a 66% — norma dla z/s — już nie."""
+    assert validate_yield_band(150.0, 85.0, "bs") is None     # 56,7%
+    assert validate_yield_band(100.0, 60.0, "bs") is None     # dokładnie 60,0%
+    assert validate_yield_band(100.0, 45.0, "bs") is None     # dokładnie 45,0%
+    assert validate_yield_band(100.0, 66.0, "bs") is not None # norma z/s, nie b/s
+    assert validate_yield_band(100.0, 44.9, "bs") is not None
+
+
+def test_nieznany_rodzaj_miesa_leci_po_paśmie_zs():
+    assert validate_yield_band(100.0, 66.0, "cokolwiek") is None
+    assert validate_yield_band(100.0, 55.0, None) is not None
 
 
 def test_male_pobranie_zwolnione_z_pasma():
@@ -131,13 +145,16 @@ W `backend/app/services/deboning_service.py`, bezpośrednio po funkcji `_kg` (li
 # się w 62,5–69,5%. Blokada 60–71% zatrzymałaby 1 z 676 wpisów (0,15%).
 # Łapie klasę błędu „zła/brak tary wózka": mięso rośnie o wagę wózka
 # (87–110 kg), a wydajność skacze do 96–100% — patrz 431, 442, 443, 444.
-YIELD_BAND_MIN_PCT = 60.0
-YIELD_BAND_MAX_PCT = 71.0
+# Mięso bez skóry ('bs') ma INNY uzysk — ~50–55%, patrz komentarz przy
+# meat_type w models/deboning.py. Wspólne pasmo blokowałoby prawdziwy towar
+# (~30 kg/tydzień), więc każdy rodzaj ma swoje.
+YIELD_BANDS = {"zs": (60.0, 71.0), "bs": (45.0, 60.0)}
 # Małe pobrania zwolnione: przy 15 kg zaokrąglenie 0,5 kg to ponad 3 pp.
 YIELD_GUARD_MIN_TAKE_KG = 30.0
 
 
-def validate_yield_band(kg_taken: float, kg_meat: float, override: bool = False) -> str | None:
+def validate_yield_band(kg_taken: float, kg_meat: float, meat_type: str = "zs",
+                        override: bool = False) -> str | None:
     """Twardy próg wydajności dla ŚCIEŻEK KIOSKU. None = wolno zapisać.
 
     Granice fizyczne (mięso > ćwiartka, wartości ≤ 0) sprawdzają
@@ -154,14 +171,15 @@ def validate_yield_band(kg_taken: float, kg_meat: float, override: bool = False)
     kg_meat = float(kg_meat or 0)
     if kg_taken <= 0 or kg_meat <= 0 or kg_taken < YIELD_GUARD_MIN_TAKE_KG:
         return None
+    lo, hi = YIELD_BANDS.get(meat_type or "zs", YIELD_BANDS["zs"])
     pct = kg_meat / kg_taken * 100
-    if pct > YIELD_BAND_MAX_PCT:
+    if pct > hi:
         return (
             f"Wydajność {_pct(pct)} — mięso {_kg(kg_meat)} kg z {_kg(kg_taken)} kg "
             "ćwiartki. Sprawdź, czy wybrałeś właściwy wózek (tara). "
             "Zapis wymaga kodu serwisowego."
         )
-    if pct < YIELD_BAND_MIN_PCT:
+    if pct < lo:
         return (
             f"Wydajność {_pct(pct)} — mięso {_kg(kg_meat)} kg z {_kg(kg_taken)} kg "
             "ćwiartki. Sprawdź, czy całe mięso z pobrania zostało zważone. "
@@ -210,24 +228,29 @@ git commit -m "feat(rozbior): pasmo wydajnosci 60-71% jako czysta funkcja"
 
 Dopisz na końcu `backend/tests/test_deboning_takes_db.py`:
 
+Helper w tym pliku nazywa się `_seed_cwiartka_batch(batch_id="rb1", internal_no="700", kg=100.0)`
+— nie twórz nowego. DTO buduje się nazwami pól (snake_case), bo modele mają
+`populate_by_name=True`. `create_deboning_entry` trzeba dopisać do importu
+z `app.services.deboning_service` na górze pliku.
+
 ```python
 def test_zapis_od_razu_odrzuca_wpis_poza_pasmem(db):
     """Klasa błędu 442/443: waga wózka wchodzi w mięso."""
-    _seed_batch(kg=1000.0)
+    _seed_cwiartka_batch(internal_no="720", kg=1000.0)
     with pytest.raises(HTTPException) as e:
         create_deboning_entry(DeboningEntryCreate(
-            rawBatchId="rb1", workerId="w1", workerName="ANATOLII",
-            kgQuarter=300.0, kgMeat=298.5,
+            raw_batch_id="rb1", worker_name="ANATOLII",
+            kg_quarter=300.0, kg_meat=298.5,
         ))
     assert e.value.status_code == 400
     assert "Wydajność" in e.value.detail
 
 
 def test_furtka_przepuszcza_i_zostawia_slad(db):
-    _seed_batch(kg=1000.0)
+    _seed_cwiartka_batch(internal_no="721", kg=1000.0)
     entry = create_deboning_entry(DeboningEntryCreate(
-        rawBatchId="rb1", workerId="w1", workerName="ANATOLII",
-        kgQuarter=300.0, kgMeat=298.5, overrideYield=True,
+        raw_batch_id="rb1", worker_name="ANATOLII",
+        kg_quarter=300.0, kg_meat=298.5, override_yield=True,
     ))
     row = query_one(
         "SELECT reason, changes FROM deboning_entry_corrections WHERE entry_id=%s",
@@ -237,17 +260,44 @@ def test_furtka_przepuszcza_i_zostawia_slad(db):
     assert "wydajno" in row["reason"].lower()
 
 
+def test_mieso_bs_ma_wlasne_pasmo(db):
+    """Mięso bez skóry ma uzysk ~50–55% (patrz komentarz przy meat_type w
+    models/deboning.py), więc pasmo 60–71% blokowałoby prawdziwy towar.
+    Dla 'bs' obowiązuje 45–60%."""
+    _seed_cwiartka_batch(internal_no="722", kg=1000.0)
+    entry = create_deboning_entry(DeboningEntryCreate(
+        raw_batch_id="rb1", worker_name="OLEH",
+        kg_quarter=60.0, kg_meat=33.0, meat_type="bs",   # 55,0% — w paśmie b/s
+    ))
+    assert entry["kgMeat"] == 33.0
+    # to zwykły zapis, nie ominięcie — żadnego śladu furtki
+    assert query_one(
+        "SELECT id FROM deboning_entry_corrections WHERE entry_id=%s", (entry["id"],)
+    ) is None
+
+
+def test_mieso_bs_powyzej_swojego_pasma_odrzucone(db):
+    """66% to norma dla z/s, ale dla b/s oznacza pomyłkę rodzaju mięsa."""
+    _seed_cwiartka_batch(internal_no="724", kg=1000.0)
+    with pytest.raises(HTTPException) as e:
+        create_deboning_entry(DeboningEntryCreate(
+            raw_batch_id="rb1", worker_name="OLEH",
+            kg_quarter=100.0, kg_meat=66.0, meat_type="bs",
+        ))
+    assert e.value.status_code == 400
+
+
 def test_domkniecie_pobrania_tez_sprawdza_pasmo(db):
     """complete liczy SUMĘ porcji (weigh-part), nie ostatnią porcję —
     pasmo musi widzieć sumę."""
-    _seed_batch(kg=1000.0)
-    take = create_deboning_take(_take_dto(kg_quarter=300.0))
+    _seed_cwiartka_batch(internal_no="723", kg=1000.0)
+    take = create_deboning_take(DeboningTakeCreate(
+        raw_batch_id="rb1", worker_name="ANATOLII", kg_taken=300.0,
+    ))
     with pytest.raises(HTTPException) as e:
-        complete_deboning_take(take["id"], _complete_dto(kg_meat=298.5))
+        complete_deboning_take(take["id"], DeboningTakeComplete(kg_meat=298.5))
     assert e.value.status_code == 400
 ```
-
-Jeśli w pliku nie ma helperów `_seed_batch`, `_take_dto`, `_complete_dto`, użyj tych, które już są w tym pliku — sprawdź jego górę przed pisaniem testu i dostosuj nazwy zamiast tworzyć nowe.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -272,7 +322,7 @@ W `backend/app/services/deboning_service.py` dodaj helper obok `_kg`:
 
 ```python
 def _log_yield_override(conn, entry_id: str, kg_taken: float, kg_meat: float,
-                        by_subject: str = "") -> None:
+                        meat_type: str = "zs", by_subject: str = "") -> None:
     """Ślad ominięcia pasma wydajności — bez tego furtka byłaby dziurą."""
     pct = (kg_meat / kg_taken * 100) if kg_taken else 0
     cx_execute(
@@ -282,7 +332,8 @@ def _log_yield_override(conn, entry_id: str, kg_taken: float, kg_meat: float,
         (cuid(), entry_id, by_subject or "kiosk",
          "Ominięcie progu wydajności (kod serwisowy)",
          json.dumps({"yieldPct": round(pct, 2), "kgQuarter": kg_taken,
-                     "kgMeat": kg_meat, "band": [YIELD_BAND_MIN_PCT, YIELD_BAND_MAX_PCT]},
+                     "kgMeat": kg_meat, "meatType": meat_type,
+                     "band": list(YIELD_BANDS.get(meat_type or "zs", YIELD_BANDS["zs"]))},
                     ensure_ascii=False)),
     )
 ```
@@ -290,7 +341,8 @@ def _log_yield_override(conn, entry_id: str, kg_taken: float, kg_meat: float,
 W `create_deboning_entry` tuż po istniejącym `yield_err = validate_meat_yield(...)` (linia ~908):
 
 ```python
-        band_err = validate_yield_band(kg_taken, kg_meat, getattr(dto, "override_yield", False))
+        band_err = validate_yield_band(kg_taken, kg_meat, meat_type_of(dto),
+                                       getattr(dto, "override_yield", False))
         if band_err:
             raise HTTPException(400, band_err)
 ```
@@ -300,7 +352,8 @@ a po utworzeniu wpisu, wewnątrz tej samej transakcji, gdy `dto.override_yield` 
 W `complete_deboning_take` tuż po `yield_err = validate_take_completion(kg_taken, kg_meat)` (linia ~1550) — **po** przeliczeniu `kg_meat` na sumę porcji:
 
 ```python
-        band_err = validate_yield_band(kg_taken, kg_meat, getattr(dto, "override_yield", False))
+        band_err = validate_yield_band(kg_taken, kg_meat, meat_type,
+                                       getattr(dto, "override_yield", False))
         if band_err:
             raise HTTPException(400, band_err)
 ```
@@ -398,7 +451,7 @@ git commit -m "feat(uboczne): get() wystawia bilans masy partii dla kreatora"
 - Test: `src/features/deboning/utils/weighing.test.ts`
 
 **Interfaces:**
-- Produces: `YIELD_BAND_MIN_PCT = 60`, `YIELD_BAND_MAX_PCT = 71`, `YIELD_GUARD_MIN_TAKE_KG = 30`, `yieldBandError(kgTaken: number, kgMeat: number): string | null`, `BALANCE_WARN_PCT = 103`
+- Produces: `YIELD_BANDS = { zs: [60, 71], bs: [45, 60] }`, `YIELD_GUARD_MIN_TAKE_KG = 30`, `yieldBandError(kgTaken: number, kgMeat: number, meatType?: string): string | null`, `BALANCE_WARN_PCT = 103`
 
 - [ ] **Step 1: Write the failing test**
 

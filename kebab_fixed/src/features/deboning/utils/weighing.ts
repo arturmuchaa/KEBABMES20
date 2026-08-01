@@ -185,3 +185,60 @@ export function driveOffStep<T>(
   // Niestabilne odczyty nad progiem (drganie przy zjeżdżaniu) — armed zostaje.
   return state
 }
+
+// ── Twarde pasmo wydajności pobrania (lustro backendu) ───────────────────────
+//
+// Źródłem prawdy jest backend (deboning_service.validate_yield_band) — kiosk
+// może być starszej wersji, więc walidacja MUSI zostać po tamtej stronie.
+// To lustro istnieje wyłącznie po to, żeby operator dostał komunikat od razu,
+// bez rundy po sieci, i żeby treść była identyczna z tą z API.
+//
+// Pasma: mięso ze skórą 60–71% (mediana 66,0% z 676 wpisów), bez skóry 45–60%
+// (uzysk b/s jest z natury niższy). Poza pasmem najczęściej oznacza tarę wózka
+// wliczoną w mięso — partie 431, 442, 443, 444 (różnice 87–110 kg).
+
+export const YIELD_BANDS: Record<'zs' | 'bs', readonly [number, number]> = {
+  zs: [60, 71],
+  bs: [45, 60],
+}
+/** Poniżej tego pobrania procent jest z natury rozchwiany (przy 15 kg
+ * zaokrąglenie 0,5 kg to ponad 3 p.p.) — nie sprawdzamy. */
+export const YIELD_GUARD_MIN_TAKE_KG = 30
+
+/** Próg ostrzeżenia bilansu masy partii. Fallback — backend podaje własny
+ * (`balanceWarnPct` w rekordzie ubocznych), żeby progi nie rozjechały się
+ * między halą a biurem. */
+export const BALANCE_WARN_PCT = 103
+
+/** Kilogramy po polsku — przecinek dziesiętny, jedno miejsce (jak _kg w API). */
+const fmtKg1 = (v: number) => v.toFixed(1).replace('.', ',')
+
+/**
+ * Komunikat błędu pasma wydajności albo `null`, gdy wolno zapisać.
+ * Treść MUSI odpowiadać komunikatom z backendu — operator nie może zobaczyć
+ * dwóch różnych tekstów dla tego samego błędu.
+ *
+ * Granice fizyczne (mięso > ćwiartka) sprawdza osobna walidacja — tu tylko
+ * pasmo. Nieznany rodzaj mięsa leci po paśmie z/s: brak informacji nie może
+ * otwierać szerszej furtki niż domyślny, dominujący rodzaj.
+ */
+export function yieldBandError(
+  kgTaken: number,
+  kgMeat: number,
+  meatType?: string | null,
+): string | null {
+  const taken = Number(kgTaken) || 0
+  const meat = Number(kgMeat) || 0
+  if (taken <= 0 || meat <= 0 || taken < YIELD_GUARD_MIN_TAKE_KG) return null
+  const [lo, hi] = YIELD_BANDS[meatType === 'bs' ? 'bs' : 'zs']
+  const pct = (meat / taken) * 100
+  const head =
+    `Wydajność ${fmtKg1(pct)}% — mięso ${fmtKg1(meat)} kg z ${fmtKg1(taken)} kg ćwiartki. `
+  if (pct > hi) {
+    return head + 'Sprawdź, czy wybrałeś właściwy wózek (tara). Zapis wymaga kodu serwisowego.'
+  }
+  if (pct < lo) {
+    return head + 'Sprawdź, czy całe mięso z pobrania zostało zważone. Zapis wymaga kodu serwisowego.'
+  }
+  return null
+}

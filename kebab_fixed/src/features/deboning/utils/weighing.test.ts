@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   computeWeighing, sanitizeCartTares, driveOffStep, DRIVE_OFF_IDLE,
   E2_TARE_KG, CART_TARES_KG, isByproductBelowNorm, TYPICAL_BYPRODUCT_PCT_MIN,
-  byproductTareOptions, PALLET_TARES,
+  byproductTareOptions, PALLET_TARES, yieldBandError,
 } from './weighing'
 
 describe('byproductTareOptions — nośniki do ważenia ubocznych', () => {
@@ -206,5 +206,68 @@ describe('isByproductBelowNorm — alarm odchylenia od typowej normy (audyt part
   it('tuż poniżej granicy → true', () => {
     const kg = (TYPICAL_BYPRODUCT_PCT_MIN.bones / 100) * 1000 - 0.1
     expect(isByproductBelowNorm('bones', kg, 1000)).toBe(true)
+  })
+})
+
+describe('yieldBandError — lustro pasma wydajności', () => {
+  it('przepuszcza typową wydajność', () => {
+    expect(yieldBandError(300, 198)).toBeNull()   // 66,0%
+  })
+
+  it('łapie wagę wózka w mięsie (442/ANATOLII: 298,5 z 300)', () => {
+    expect(yieldBandError(300, 298.5)).toMatch(/wózek/)
+  })
+
+  it('łapie równe 100% (443/SERHII: 150 z 150)', () => {
+    // Stary warunek kgMeat > kgQuarter tego NIE łapał.
+    expect(yieldBandError(150, 150)).not.toBeNull()
+  })
+
+  it('podpowiada niezważoną resztę przy zbyt niskiej wydajności', () => {
+    expect(yieldBandError(150, 82.5)).toMatch(/zważone/)  // 55,0%
+  })
+
+  it('domyka obie granice pasma z/s', () => {
+    expect(yieldBandError(100, 60)).toBeNull()
+    expect(yieldBandError(100, 71)).toBeNull()
+    expect(yieldBandError(100, 59.9)).not.toBeNull()
+    expect(yieldBandError(100, 71.1)).not.toBeNull()
+  })
+
+  it('ma osobne pasmo dla mięsa bez skóry', () => {
+    // b/s ma uzysk ~50–55%; wspólne pasmo blokowałoby prawdziwy towar.
+    expect(yieldBandError(150, 85, 'bs')).toBeNull()      // 56,7%
+    expect(yieldBandError(100, 45, 'bs')).toBeNull()      // dokładnie 45,0%
+    expect(yieldBandError(100, 60, 'bs')).toBeNull()      // dokładnie 60,0%
+    expect(yieldBandError(100, 66, 'bs')).not.toBeNull()  // norma z/s, nie b/s
+  })
+
+  it('nieznany rodzaj mięsa leci po paśmie z/s', () => {
+    expect(yieldBandError(100, 66, 'cokolwiek')).toBeNull()
+    expect(yieldBandError(100, 55, null)).not.toBeNull()
+  })
+
+  it('zwalnia pobrania poniżej 30 kg', () => {
+    expect(yieldBandError(15, 8.5)).toBeNull()    // 56,7%, ale małe pobranie
+    expect(yieldBandError(29.9, 29.9)).toBeNull() // 100%, ale < 30 kg
+  })
+
+  it('formatuje liczby po polsku', () => {
+    expect(yieldBandError(300, 298.5)).toContain('99,5%')
+    expect(yieldBandError(300, 298.5)).toContain('298,5 kg')
+  })
+
+  it('mówi DOKŁADNIE to samo co backend', () => {
+    // Skopiowane z odpowiedzi validate_yield_band (deboning_service.py).
+    // Operator nie może zobaczyć dwóch różnych tekstów dla tego samego błędu
+    // zależnie od tego, czy zdążył zadziałać kiosk, czy odpowiedź z API.
+    expect(yieldBandError(300, 298.5)).toBe(
+      'Wydajność 99,5% — mięso 298,5 kg z 300,0 kg ćwiartki. ' +
+      'Sprawdź, czy wybrałeś właściwy wózek (tara). Zapis wymaga kodu serwisowego.',
+    )
+    expect(yieldBandError(150, 82.5)).toBe(
+      'Wydajność 55,0% — mięso 82,5 kg z 150,0 kg ćwiartki. ' +
+      'Sprawdź, czy całe mięso z pobrania zostało zważone. Zapis wymaga kodu serwisowego.',
+    )
   })
 })

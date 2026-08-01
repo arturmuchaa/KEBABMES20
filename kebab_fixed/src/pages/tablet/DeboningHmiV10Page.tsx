@@ -28,8 +28,9 @@ import { workerTakeState, type QueuedTake, type WorkerTakeState } from '@/featur
 import { useScale } from '@/features/deboning/useScale'
 import {
   computeWeighing, sanitizeCartTares, CART_TARES_KG, E2_TARE_KG, KG_PER_E2_MIN, KG_PER_E2_MAX,
-  DRIVE_OFF_IDLE, driveOffStep, type DriveOffTracker,
+  DRIVE_OFF_IDLE, driveOffStep, yieldBandError, type DriveOffTracker,
 } from '@/features/deboning/utils/weighing'
+import { YieldGuardModal } from '@/features/deboning/YieldGuardModal'
 import {
   buildMeatSnapshot, meatPromptVariant, meatSaveDto,
   type MeatSnapshot, type MeatPromptAction,
@@ -622,6 +623,10 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [resumeId, setResumeId] = useState<string | null>(null)
   // Dialog „część czy całość?" — łączny % poniżej normy (63) po ZAPISZ.
   const [partialPrompt, setPartialPrompt] = useState<{ portionKg: number; weighedKg: number; takenKg: number } | null>(null)
+  // Zapis zatrzymany przez pasmo wydajności. `decide` wraca do guardYield —
+  // dzięki temu ścieżki zapisu zostają liniowe: czekają na decyzję operatora
+  // i dopiero potem robią swoje (toast, czyszczenie pól, odświeżenie partii).
+  const [yieldBlock, setYieldBlock] = useState<{ message: string; decide: (override: boolean) => void } | null>(null)
   // Zjazd z wagi bez ZAPISZ — zamrożony odczyt czeka na decyzję operatora.
   const [meatDriveOff, setMeatDriveOff] = useState<DriveOffTracker<MeatSnapshot>>(DRIVE_OFF_IDLE)
 
@@ -1055,12 +1060,51 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (err) showToast(err, 'err'); else showToast('Dzień produkcyjny rozpoczęty')
   }
 
+  // ── Strażnik wydajności: pasmo z/s 60–71%, b/s 45–60% ────────────────────
+  //
+  // Poza pasmem najczęściej oznacza tarę wózka wliczoną w mięso (431, 442,
+  // 443, 444 — różnice 87–110 kg). Zapis czeka na decyzję operatora: poprawia
+  // wpis albo wpisuje kod serwisowy. Źródłem prawdy zostaje backend — lustro
+  // tylko oszczędza rundę po sieci, a jego 400 też otwiera to okno (kiosk może
+  // być starszej wersji niż API).
+  //
+  // Ważenie CZĘŚCIOWE (weighPart) celowo NIE przechodzi przez strażnika:
+  // 50 kg z pobrania 300 kg to 16,7%, a pasmo dotyczy dopiero SUMY porcji
+  // w chwili domknięcia.
+
+  function askYieldOverride(message: string): Promise<boolean> {
+    return new Promise(resolve => setYieldBlock({
+      message,
+      decide: (override: boolean) => { setYieldBlock(null); resolve(override) },
+    }))
+  }
+
+  /** `cancelled` = operator wybrał „Popraw wpis" — nic nie zapisano i nie ma
+   *  o czym krzyczeć toastem; wywołujący ma po prostu wrócić do edycji. */
+  async function guardYield(
+    kgTaken: number, kgMeat: number, kind: MeatType,
+    run: (override: boolean) => Promise<string | null>,
+  ): Promise<{ cancelled: boolean; error: string | null }> {
+    const local = yieldBandError(kgTaken, kgMeat, kind)
+    if (local) {
+      if (!await askYieldOverride(local)) return { cancelled: true, error: null }
+      return { cancelled: false, error: await run(true) }
+    }
+    const err = await run(false)
+    if (err && err.includes('kodu serwisowego')) {
+      if (!await askYieldOverride(err)) return { cancelled: true, error: null }
+      return { cancelled: false, error: await run(true) }
+    }
+    return { cancelled: false, error: err }
+  }
+
   async function handleSave() {
     if (addLoading || !canSave || !selBatch || !selWorker || !session) return
-    const err = await addEntry(
+    const { cancelled, error: err } = await guardYield(taken, meat, meatType, override => addEntry(
       {
         sessionId: session.id, rawBatchId: selBatch.id, workerId: selWorker.id,
         kgTaken: taken, kgMeat: meat, meatType,
+        ...(override ? { overrideYield: true } : {}),
         ...(scale.available ? {
           weighMode: autoMode ? 'auto' as const : 'manual' as const,
           ...(autoMode ? {
@@ -1071,8 +1115,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           } : {}),
         } : {}),
       },
-      session, Number(selBatch.kgAvailable), selBatch.expiryDate
-    )
+      session, Number(selBatch.kgAvailable), selBatch.expiryDate,
+    ))
+    if (cancelled) return
     if (err) { showToast(err, 'err'); return }
     batchData.refetch()
     setSaveFlash(true)
@@ -1213,7 +1258,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Całość — domknięcie otwartego pobrania.
   async function driveOffComplete(s: MeatSnapshot) {
     if (!session || !s.resumeId) return
-    const err = await completeTake(s.resumeId, meatSaveDto(s), session)
+    const { cancelled, error: err } = await guardYield(
+      s.takenKg, s.weighedSoFarKg + s.netKg, meatType,
+      override => completeTake(s.resumeId!, { ...meatSaveDto(s), ...(override ? { overrideYield: true } : {}) }, session),
+    )
+    if (cancelled) return   // okno zostaje zamknięte, operator poprawia wpis
     if (err) { showToast(err, 'err'); return }
     clearAfterDriveOff()
     batchData.refetch()
@@ -1227,10 +1276,14 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (!session) return
     const b = driveOffBatch(s)
     if (!b) { showToast('Partia zniknęła z listy — zapisz wpis ręcznie', 'err'); return }
-    const err = await addEntry(
-      { sessionId: session.id, rawBatchId: s.batchId, workerId: s.workerId, kgTaken: s.takenKg, ...meatSaveDto(s) },
+    const { cancelled, error: err } = await guardYield(s.takenKg, s.netKg, meatType, override => addEntry(
+      {
+        sessionId: session.id, rawBatchId: s.batchId, workerId: s.workerId, kgTaken: s.takenKg,
+        ...meatSaveDto(s), ...(override ? { overrideYield: true } : {}),
+      },
       session, Number(b.kgAvailable), b.expiryDate,
-    )
+    ))
+    if (cancelled) return
     if (err) { showToast(err, 'err'); return }
     clearAfterDriveOff()
     batchData.refetch()
@@ -1276,18 +1329,22 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     const summaryTaken = taken
     const summaryMeat = resumeWeighedKg + meat
     setPartialPrompt(null)
-    const err = await completeTake(resumeId, {
-      kgMeat: meat, meatType,
-      ...(scale.available ? {
-        weighMode: autoMode ? 'auto' as const : 'manual' as const,
-        ...(autoMode ? {
-          kgGross: scale.gross,
-          tareCartKg: cartTareTotal ?? undefined,
-          tareE2Kg: weighing.tareE2Kg,
-          e2Count,
+    // Pasmo liczy się od SUMY porcji (tak jak backend), nie od tej jednej.
+    const { cancelled, error: err } = await guardYield(taken, summaryMeat, meatType, override =>
+      completeTake(resumeId, {
+        kgMeat: meat, meatType,
+        ...(override ? { overrideYield: true } : {}),
+        ...(scale.available ? {
+          weighMode: autoMode ? 'auto' as const : 'manual' as const,
+          ...(autoMode ? {
+            kgGross: scale.gross,
+            tareCartKg: cartTareTotal ?? undefined,
+            tareE2Kg: weighing.tareE2Kg,
+            e2Count,
+          } : {}),
         } : {}),
-      } : {}),
-    }, session)
+      }, session))
+    if (cancelled) return
     if (err) { showToast(err, 'err'); return }
     batchData.refetch()
     setSaveFlash(true)
@@ -1578,6 +1635,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             </div>
           </div>
         </div>
+      )}
+
+      {/* Wydajność poza pasmem — popraw wpis albo kod serwisowy (ze śladem). */}
+      {yieldBlock && (
+        <YieldGuardModal message={yieldBlock.message} vars={VARS}
+          onFix={() => yieldBlock.decide(false)}
+          onOverride={() => yieldBlock.decide(true)} />
       )}
 
       {/* Kreator ważenia zbiorczego grzbietów i kości. */}

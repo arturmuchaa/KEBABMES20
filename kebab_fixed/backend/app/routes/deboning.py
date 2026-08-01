@@ -101,11 +101,16 @@ def byproducts_finish(raw_batch_id: str, body: dict = None):
 
 @router.post("/api/deboning/byproducts/{raw_batch_id}/weigh")
 def byproducts_weigh(raw_batch_id: str, body: dict):
+    pallets = body.get("pallets") or []
+    kg = float(body.get("kg") or 0)
+    # Pusta lista palet = operator zdjął ostatnią. Wtedy kg=None, żeby frakcja
+    # wróciła na kafel jako NIEZWAŻONA — zapisane „0 kg" udawałoby zważoną i
+    # zdejmowało partię z ważenia (patrz _write_fraction).
     return byproducts_svc.record(
         raw_batch_id,
         (body.get("kind") or "").strip(),
-        float(body.get("kg") or 0),
-        body.get("pallets") or [],
+        None if (not pallets and kg <= 0) else kg,
+        pallets,
     )
 
 
@@ -123,6 +128,15 @@ def list_take_weighings(
     date_to: str = Query(..., alias="date_to"),
 ):
     return svc.list_take_weighings(date_from, date_to)
+
+
+@router.get("/api/deboning/yield-overrides")
+def yield_overrides(
+    date_from: str = Query(..., alias="date_from"),
+    date_to: str = Query(..., alias="date_to"),
+):
+    """Wpisy zapisane mimo przekroczenia pasma wydajności (kod serwisowy)."""
+    return svc.yield_overrides(date_from, date_to)
 
 
 @router.get("/api/deboning/worker-entries")
@@ -153,9 +167,16 @@ def deboning_panel(limit: int = Query(60, ge=1, le=200)):
     return {"batches": svc.deboning_panel(limit)}
 
 
+def _subject_of(request: Request) -> str:
+    """Kto wykonał akcję — do śladu audytowego. Pusty string = usługa
+    dopisze 'kiosk' (stacja hali bywa nieuwierzytelniona per człowiek)."""
+    subject = getattr(request.state, "subject", None) or {}
+    return str(subject.get("username") or subject.get("id") or "")
+
+
 @router.post("/api/deboning/entries")
-def create_deboning_entry(dto: DeboningEntryCreate):
-    return svc.create_deboning_entry(dto)
+def create_deboning_entry(dto: DeboningEntryCreate, request: Request):
+    return svc.create_deboning_entry(dto, _subject_of(request))
 
 
 @router.post("/api/deboning/takes")
@@ -164,8 +185,8 @@ def create_deboning_take(dto: DeboningTakeCreate):
 
 
 @router.post("/api/deboning/takes/{entry_id}/complete")
-def complete_deboning_take(entry_id: str, dto: DeboningTakeComplete):
-    return svc.complete_deboning_take(entry_id, dto)
+def complete_deboning_take(entry_id: str, dto: DeboningTakeComplete, request: Request):
+    return svc.complete_deboning_take(entry_id, dto, _subject_of(request))
 
 
 @router.post("/api/deboning/takes/{entry_id}/weigh-part")
