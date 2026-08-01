@@ -4,6 +4,7 @@ Operator przełącza rodzaj na wadze; mięso musi trafić na OSOBNY lot i osobny
 rodzaj surowca, żeby nie mieszało się z z/s w magazynie ani w planie
 masowania (ta sama zasada co filet). Uzysk b/s to ~50–55%, nie 63–68%.
 Testy DB — wymagają TEST_DATABASE_URL (patrz conftest), inaczej skip."""
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 from app.db import query_all, query_one
@@ -161,8 +162,13 @@ def test_wz_stempluje_daty_uboju_i_waznosci_takze_dla_lotu_bs(db):
     from app.services.wz_service import create_manual_wz
 
     _seed_batch()
-    execute("UPDATE raw_batches SET slaughter_date='2026-07-24', expiry_date='2026-07-31' "
-            "WHERE id='rb1'")
+    # Daty WZGLĘDEM DZIŚ, nie zaszyte: rozbiór ma strażnika przeterminowania
+    # (HACCP), więc stała data ważności psuje ten test w dniu, w którym mija
+    # (2026-08-01: expiry '2026-07-31' → 400 „Partia przeterminowana").
+    slaughter = (date.today() - timedelta(days=7)).isoformat()
+    expiry = (date.today() + timedelta(days=2)).isoformat()
+    execute("UPDATE raw_batches SET slaughter_date=%s, expiry_date=%s WHERE id='rb1'",
+            (slaughter, expiry))
     e = _take(15.0)
     complete_deboning_take(e["id"], _meat(7.5, "bs"))
     lot = query_one("SELECT id, lot_no FROM meat_stock WHERE material_type_id='mat-mieso-bs'")
@@ -175,5 +181,5 @@ def test_wz_stempluje_daty_uboju_i_waznosci_takze_dla_lotu_bs(db):
     )
     line = wz["lines"][0]
     assert line["batch_no"] == "441-BS"
-    assert line["slaughter_date"] == "2026-07-24", "brak daty uboju na pozycji b/s"
-    assert line["expiry_date"] == "2026-07-31", "brak daty ważności na pozycji b/s"
+    assert line["slaughter_date"] == slaughter, "brak daty uboju na pozycji b/s"
+    assert line["expiry_date"] == expiry, "brak daty ważności na pozycji b/s"
