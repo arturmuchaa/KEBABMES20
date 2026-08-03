@@ -213,13 +213,33 @@ def delete_deboning_entry(entry_id: str):
 
 
 @router.post("/api/deboning/entries/{entry_id}/change-batch")
-def change_deboning_entry_batch(entry_id: str, body: dict):
+def change_deboning_entry_batch(entry_id: str, body: dict, request: Request):
     """Korekta z biura: przenieś wpis rozbioru na inną partię surowca
-    (operator wybrał złą). Wpis zostaje identyczny — zmienia się tylko partia."""
+    (operator wybrał złą). Wpis zostaje identyczny — zmienia się tylko partia.
+    Działa TAKŻE na zmianie zatwierdzonej; zostawia ślad w historii korekt."""
     raw_batch_id = str(body.get("rawBatchId") or body.get("raw_batch_id") or "")
     if not raw_batch_id:
         raise HTTPException(400, "rawBatchId wymagane")
-    return svc.change_deboning_entry_batch(entry_id, raw_batch_id)
+    subject = getattr(request.state, "subject", None) or {}
+    by = str(subject.get("username") or subject.get("id") or "")
+    return svc.change_deboning_entry_batch(
+        entry_id, raw_batch_id, by, str(body.get("reason") or "")
+    )
+
+
+@router.post("/api/deboning/entries/office-add")
+def office_add_deboning_entry(dto: DeboningEntryCreate, request: Request):
+    """Dopisanie brakującego wpisu rozbioru Z BIURA — także do zmiany
+    zatwierdzonej (operator zapomniał zważyć, biuro prostuje po fakcie).
+
+    Osobny endpoint, a nie flaga na POST /entries, żeby ścieżka HMI została
+    twardo zablokowana na zatwierdzonej zmianie. Powód obowiązkowy — wpis
+    dopisany wstecz rusza akord i bilans partii.
+    """
+    subject = getattr(request.state, "subject", None) or {}
+    by = str(subject.get("username") or subject.get("id") or "")
+    reason = str(getattr(dto, "reason", "") or "")
+    return svc.create_deboning_entry(dto, by, office_correction=True, reason=reason)
 
 
 @router.post("/api/deboning/entries/{entry_id}/correct")

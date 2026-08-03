@@ -41,6 +41,9 @@ class DeboningEntryCreate(BaseModel):
     # Rodzaj mięsa z tej porcji: 'zs' (domyślnie) albo 'bs' (bez skóry —
     # rzadkie, ~30 kg/tydzień, uzysk ~50–55%). Decyduje, na który lot idzie.
     meat_type: Optional[str] = Field(None, alias="meatType", pattern="^(zs|bs)$")
+    # Powód — wymagany TYLKO na ścieżce biurowej (POST /entries/office-add),
+    # bo wpis dopisany wstecz rusza akord i bilans partii. HMI go nie wysyła.
+    reason: Optional[str] = Field(None, alias="reason")
 
 
 class DeboningTakeCreate(BaseModel):

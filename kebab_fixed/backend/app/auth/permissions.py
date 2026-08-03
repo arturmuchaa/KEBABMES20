@@ -93,6 +93,12 @@ def permission_for_path(path: str, method: str = "GET") -> str:
     # hali nie może przepisywać zatwierdzonych danych ani cudzego akordu.
     if path.startswith("/api/deboning/entries/") and path.endswith("/correct"):
         return "office"
+    # Te same względy: przeniesienie wpisu na inną partię i dopisanie wpisu
+    # wstecz omijają blokadę zatwierdzonej zmiany → wyłącznie biuro.
+    if path.startswith("/api/deboning/entries/") and path.endswith("/change-batch"):
+        return "office"
+    if _matches(path, "/api/deboning/entries/office-add"):
+        return "office"
     for dept, prefixes in DEPARTMENT_PREFIXES.items():
         for p in prefixes:
             if _matches(path, p):

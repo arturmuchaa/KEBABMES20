@@ -18,6 +18,7 @@ from app.db import (
     cx_execute_rowcount,
     cx_query_all,
     cx_query_one,
+    execute,
     query_all,
     query_one,
     transaction,
@@ -918,11 +919,21 @@ def validate_correction_vs_weighings(
     )
 
 
-def validate_session_writable(session_row):
-    """Wpisy tylko do istniejącej, OTWARTEJ sesji."""
+def validate_session_writable(session_row, office_correction: bool = False):
+    """Wpisy tylko do istniejącej, OTWARTEJ sesji.
+
+    `office_correction=True` = ścieżka KOREKTY Z BIURA, która świadomie
+    przechodzi przez zmianę zamkniętą i zatwierdzoną — biuro musi móc
+    prostować pomyłki operatora także po zatwierdzeniu dnia (inaczej jedyną
+    opcją zostaje ręczny SQL, a to już raz skończyło się nadpisanymi
+    pomiarami). Dostęp zawęża RBAC: te endpointy są office-only, a każda
+    taka zmiana zostawia ślad w deboning_entry_corrections.
+    """
     if not session_row:
         return "Sesja produkcyjna nie istnieje"
     status = session_row.get("status")
+    if office_correction and status in ("open", "closed", "approved"):
+        return None
     if status == "closed":
         return "Sesja zamknięta — nie można dodawać wpisów"
     if status == "approved":
@@ -1016,7 +1027,15 @@ def _auto_finish_exhausted(raw_batch_id: str, kg_left) -> None:
         logger.exception("deboning.batch.auto_finish_failed", extra={"raw_batch_id": raw_batch_id})
 
 
-def create_deboning_entry(dto: DeboningEntryCreate, by: str = "") -> Dict:
+def create_deboning_entry(
+    dto: DeboningEntryCreate, by: str = "", office_correction: bool = False,
+    reason: str = "",
+) -> Dict:
+    """Wpis rozbioru. `office_correction=True` = dopisanie brakującego wpisu
+    Z BIURA, także do zatwierdzonej zmiany (wymaga powodu, zostawia ślad
+    w deboning_entry_corrections). Ścieżka HMI zostaje bez zmian."""
+    if office_correction and len((reason or "").strip()) < 3:
+        raise HTTPException(400, "Powód dopisania wpisu jest wymagany (min. 3 znaki)")
     raw_batch_id = dto.raw_batch_id
     worker_id = dto.worker_id
     worker_name = dto.worker_name
@@ -1057,7 +1076,9 @@ def create_deboning_entry(dto: DeboningEntryCreate, by: str = "") -> Dict:
             session_row = cx_query_one(
                 conn, "SELECT status FROM production_sessions WHERE id=%s", (session_id,)
             )
-            session_err = validate_session_writable(session_row)
+            session_err = validate_session_writable(
+                session_row, office_correction=office_correction
+            )
             if session_err:
                 raise HTTPException(400, session_err)
 
@@ -1256,8 +1277,20 @@ def create_deboning_entry(dto: DeboningEntryCreate, by: str = "") -> Dict:
             "kg_taken": kg_taken,
             "kg_meat": kg_meat,
             "yield_pct": yield_pct,
+            "office_correction": office_correction,
         },
     )
+    if office_correction:
+        # Wpis dopisany wstecz musi być odróżnialny od wpisu z hali.
+        execute(
+            "INSERT INTO deboning_entry_corrections (id, entry_id, by_subject, reason, changes) "
+            "VALUES (%s,%s,%s,%s,%s)",
+            (cuid(), entry_id, by or "office", (reason or "").strip(),
+             json.dumps({"created": {"kgQuarter": kg_taken, "kgMeat": kg_meat,
+                                     "batch": batch.get("internal_batch_no"),
+                                     "worker": worker_name}},
+                        ensure_ascii=False)),
+        )
     _auto_finish_exhausted(batch["id"], kg_left_after)
     return _map_deboning_entry(entry)  # type: ignore[arg-type]
 
@@ -2084,7 +2117,9 @@ def delete_deboning_entry(entry_id: str) -> Dict:
     return {"ok": True, "id": entry_id}
 
 
-def change_deboning_entry_batch(entry_id: str, new_raw_batch_id: str) -> Dict:
+def change_deboning_entry_batch(
+    entry_id: str, new_raw_batch_id: str, by_subject: str = "", reason: str = "",
+) -> Dict:
     """Zmiana partii surowca wpisu rozbioru — korekta pomyłki operatora z biura.
 
     Operator czasem wybierze złą partię. Ta operacja przenosi wpis na inną
@@ -2122,7 +2157,8 @@ def change_deboning_entry_batch(entry_id: str, new_raw_batch_id: str) -> Dict:
                 "SELECT status FROM production_sessions WHERE id=%s",
                 (entry["session_id"],),
             )
-            serr = validate_session_writable(srow)
+            # Korekta z biura — przechodzi też przez zmianę zatwierdzoną.
+            serr = validate_session_writable(srow, office_correction=True)
             if serr:
                 raise HTTPException(400, serr)
 
@@ -2271,6 +2307,19 @@ def change_deboning_entry_batch(entry_id: str, new_raw_batch_id: str) -> Dict:
             "UPDATE deboning_entries SET raw_batch_id=%s, raw_batch_no=%s "
             "WHERE id=%s RETURNING *",
             (new_raw_batch_id, new_batch_no, entry_id),
+        )
+
+        # Ślad korekty — przeniesienie wpisu rusza akord i traceability partii,
+        # więc musi być widoczne w historii korekt, nie tylko w logu.
+        cx_execute(
+            conn,
+            "INSERT INTO deboning_entry_corrections (id, entry_id, by_subject, reason, changes) "
+            "VALUES (%s,%s,%s,%s,%s)",
+            (cuid(), entry_id, by_subject or "office",
+             (reason or "").strip() or "Zmiana partii wpisu",
+             json.dumps({"batch": {"from": old_batch_no, "to": new_batch_no},
+                         "kgQuarter": kg_quarter, "kgMeat": kg_meat},
+                        ensure_ascii=False)),
         )
 
     # Przeniesienie wpisu zmienia stan OBU partii: docelowa może się wyczerpać

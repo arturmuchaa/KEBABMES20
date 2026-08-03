@@ -47,6 +47,25 @@ class TestValidateSessionWritable:
     def test_brak_sesji_blokuje(self):
         assert validate_session_writable(None)
 
+    # Biuro musi móc prostować pomyłki także po zatwierdzeniu dnia — inaczej
+    # jedyną opcją zostaje ręczny SQL (patrz incydent korekt 424).
+    def test_korekta_biurowa_przechodzi_przez_zatwierdzona(self):
+        assert validate_session_writable(
+            {"status": "approved"}, office_correction=True
+        ) is None
+
+    def test_korekta_biurowa_przechodzi_przez_zamknieta(self):
+        assert validate_session_writable(
+            {"status": "closed"}, office_correction=True
+        ) is None
+
+    def test_korekta_biurowa_nie_wskrzesza_nieistniejacej_sesji(self):
+        assert validate_session_writable(None, office_correction=True)
+
+    def test_korekta_biurowa_odrzuca_nieznany_status(self):
+        err = validate_session_writable({"status": "anulowana"}, office_correction=True)
+        assert err and "anulowana" in err
+
 
 class TestValidateEntryUndo:
     NOW = datetime(2026, 7, 5, 10, 0, 0, tzinfo=timezone.utc)
