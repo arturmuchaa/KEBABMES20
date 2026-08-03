@@ -1908,6 +1908,16 @@ export const cmrApi = {
   saveLayout: (positions: Record<string, any>) => put<Record<string, any>>('/cmr/layout', positions),
 }
 
+// ─── Karty HACCP (puste formularze do druku) ────────────────────
+// Backend renderuje stronę wydruku do PDF; MES nie przechowuje wypełnionych
+// kart — to dokumenty papierowe, tu tylko je numerujemy i wydajemy.
+export const haccpFormsApi = {
+  sanitaryPdfUrl: (day: string) =>
+    `${BASE}/karty-haccp/arkusz-kontroli/pdf?data=${encodeURIComponent(day)}`,
+  temperaturePdfUrl: (day: string) =>
+    `${BASE}/karty-haccp/kontrola-temperatury/pdf?od=${encodeURIComponent(day)}`,
+}
+
 // ─── Ustawienia firmy (do wydruków) ─────────────────────────────
 export interface CompanySettings {
   name:       string
