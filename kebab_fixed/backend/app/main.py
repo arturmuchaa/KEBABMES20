@@ -133,6 +133,7 @@ def create_app() -> FastAPI:
         containers,
         wz,
         stock_cartons,
+        haccp_forms,
     )
     # Aliasujemy: app.routes.settings koliduje z app.config.settings używanym wyżej
     from app.routes import settings as settings_route  # noqa: E402
@@ -184,6 +185,7 @@ def create_app() -> FastAPI:
         containers,
         wz,
         stock_cartons,
+        haccp_forms,
         settings_route,
     ):
         app.include_router(getattr(mod, "router", mod))

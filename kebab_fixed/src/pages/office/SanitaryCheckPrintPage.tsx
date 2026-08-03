@@ -18,10 +18,13 @@
  * wyprowadzamy z daty (D/MM/RR) — bez licznika w bazie.
  *
  * Samodzielna strona (wzór MixingPlanPrintPage):
- * /office/arkusz-kontroli/druk — auto-print po załadowaniu (?pdf=1 wyłącza).
+ * /office/arkusz-kontroli/druk — auto-print po załadowaniu.
+ *   ?data=YYYY-MM-DD  dzień karty (domyślnie dziś) — używa go historia kart
+ *   ?pdf=1            wyłącza auto-print (podgląd i render do PDF)
  */
 import { useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { sanitaryCardNo } from '@/lib/haccpCardHistory'
 
 const STD = ['posadzka', 'ściany, drzwi', 'sufit, osłony lamp + lampy', 'wyposażenie']
 const STER = [...STD, 'sterylizacja narzędzi i wyposażenia']
@@ -102,9 +105,11 @@ export function SanitaryCheckPrintPage() {
   const cols = splitColumns(buildBlocks(), 3)
 
   // Numer karty i data wypełniane przez system — jedna karta na dzień, więc
-  // numer wyprowadzamy z daty (dzień/miesiąc/rok). 1 lipca 2026 → „1/07/26".
-  const now = new Date()
-  const cardNo = `${now.getDate()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getFullYear()).slice(-2)}`
+  // numer wyprowadzamy z daty (sanitaryCardNo, wspólne z historią kart).
+  const dayParam = params.get('data')
+  const parsed = dayParam && /^\d{4}-\d{2}-\d{2}$/.test(dayParam) ? new Date(`${dayParam}T00:00:00`) : null
+  const now = parsed && !isNaN(+parsed) ? parsed : new Date()
+  const cardNo = sanitaryCardNo(now)
   const dateStr = now.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
   return (
