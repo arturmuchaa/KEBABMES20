@@ -5,6 +5,7 @@ import { useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { deboningApi, rawBatchesApi, suppliersApi, byproductsApi, type BatchByproducts } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl } from '@/lib/utils'
+import { haccpReportNo } from '@/lib/haccpReportNo'
 import { Printer, FileText, Calendar, CheckSquare, Square } from 'lucide-react'
 import type { DeboningSession, RawBatch } from '@/types'
 
@@ -43,10 +44,12 @@ interface ReportData {
   batches:  RawBatch[]
   /** Zbiorcze ważenie ubocznych (batch_byproducts) — grzbiety/kości NA PARTIĘ. */
   zb:       BatchByproducts[]
+  /** Wszystkie dni z produkcją — z nich liczony jest porządkowy numer karty. */
+  productionDates: string[]
 }
 
 function SingleReport({ data }: { data: ReportData }) {
-  const { date, sessions, batches, zb } = data
+  const { date, sessions, batches, zb, productionDates } = data
 
   // Grupy per partia + doliczenie ZBIORCZYCH grzbietów/kości z batch_byproducts
   // (per-wpis kgBacks/kgBones są zerowe w tym flow — prod 2026-07-10, partia 407).
@@ -95,11 +98,10 @@ function SingleReport({ data }: { data: ReportData }) {
     return { totalTaken, totalMeat, totalBacks, totalBones, uppzKat3, surplus, loss: 0 }
   }, [rows])
 
-  // Numer raportu: R/dzień/MM/RR — JEDEN dzień = JEDEN numer (numer = dzień
-  // miesiąca: 16.07.2026 → R/16/07/26), kolejny dzień = kolejny numer, reset
-  // z nowym miesiącem. Decyzja właściciela 2026-07-16 (wcześniej licznik
-  // sesji dnia, mylony z liczbą wpisów).
-  const reportNo = `R/${parseInt(date.slice(8, 10), 10)}/${date.slice(5, 7)}/${date.slice(2, 4)}`
+  // Numer raportu: R/nr/MM/RR — JEDEN dzień produkcyjny = JEDEN numer, liczony
+  // PORZĄDKOWO (dzień bez produkcji nie robi dziury), reset z nowym miesiącem.
+  // Decyzja właściciela 2026-07-16, poprawka numeracji 2026-08-04.
+  const reportNo = haccpReportNo(date, productionDates)
 
   return (
     <div className="bg-white p-6 mb-4" style={{ pageBreakAfter: 'always' }}>
@@ -255,6 +257,10 @@ export function HaccpReportPage() {
     })
     return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]))
   }, [allSessions])
+
+  // Numer karty liczymy z PEŁNEJ listy dni produkcyjnych — gdyby brać
+  // filteredDates, ustawienie filtra partii zmieniałoby numery na wydruku.
+  const productionDates = useMemo(() => sessionsByDate.map(([d]) => d), [sessionsByDate])
 
   const filteredDates = useMemo(() => {
     return sessionsByDate.filter(([date, daySessions]) => {
@@ -440,7 +446,7 @@ export function HaccpReportPage() {
               </div>
             </div>
           </Card>
-          <SingleReport data={{ date: previewDate, sessions: previewData[1], batches: allBatches, zb: zbData ?? [] }} />
+          <SingleReport data={{ date: previewDate, sessions: previewData[1], batches: allBatches, zb: zbData ?? [], productionDates }} />
         </div>
       )}
 
@@ -448,7 +454,7 @@ export function HaccpReportPage() {
       {selectedReports.length > 0 && (
         <div id="haccp-report" className="hidden print:block">
           {selectedReports.map(([date, daySessions]) => (
-            <SingleReport key={date} data={{ date, sessions: daySessions, batches: allBatches, zb: zbData ?? [] }} />
+            <SingleReport key={date} data={{ date, sessions: daySessions, batches: allBatches, zb: zbData ?? [], productionDates }} />
           ))}
         </div>
       )}
