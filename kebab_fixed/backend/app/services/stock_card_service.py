@@ -24,6 +24,7 @@ _SOURCE_LABELS = {
     "reception_transfer": "Transfer na magazyn mięsa",
     "deboning": "Rozbiór",
     "deboning_correction": "Korekta rozbioru",
+    "batch_transfer": "Przesypanie między partiami",
     "cancellation": "Anulowanie przyjęcia",
     "mixing": "Masowanie",
     "wz": "WZ",
@@ -58,6 +59,13 @@ def _movements(product_type: str, batch_id: str) -> List[Dict[str, Any]]:
         deb_by_id = {d["id"]: d for d in query_all(
             "SELECT id, session_no, worker_name, created_at FROM deboning_entries "
             "WHERE id = ANY(%s::text[])", (deb_ids,))}
+    # Przesypanie resztki między partiami — source_id wskazuje partię po
+    # DRUGIEJ stronie transferu, więc kartoteka nazywa ją po numerze.
+    xfer_by_id: Dict[str, Dict] = {}
+    if by_src.get("batch_transfer"):
+        xfer_by_id = {b["id"]: b for b in query_all(
+            "SELECT id, internal_batch_no FROM raw_batches WHERE id = ANY(%s::text[])",
+            (by_src["batch_transfer"],))}
     mix_by_id: Dict[str, Dict] = {}
     if by_src.get("mixing"):
         mix_by_id = {m["id"]: m for m in query_all(
@@ -81,6 +89,9 @@ def _movements(product_type: str, batch_id: str) -> List[Dict[str, Any]]:
             d = deb_by_id[sid]
             number = d.get("session_no")
             detail = d.get("worker_name")
+        elif st == "batch_transfer" and sid in xfer_by_id:
+            label = "Przesypane do partii" if r["movement_type"] == "OUT" else "Przesypane z partii"
+            number = xfer_by_id[sid].get("internal_batch_no")
         elif st == "mixing" and sid in mix_by_id:
             number = mix_by_id[sid].get("order_no")
         out.append({
