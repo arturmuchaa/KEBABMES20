@@ -25,6 +25,7 @@ _SOURCE_LABELS = {
     "deboning": "Rozbiór",
     "deboning_correction": "Korekta rozbioru",
     "batch_transfer": "Przesypanie między partiami",
+    "inventory": "Korekta stanu (przeliczenie)",
     "cancellation": "Anulowanie przyjęcia",
     "mixing": "Masowanie",
     "wz": "WZ",

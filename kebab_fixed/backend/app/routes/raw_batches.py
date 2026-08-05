@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Query
 
 from app.db import query_all
-from app.models.raw_batches import RawBatchCreate, RawBatchUpdate
+from app.models.raw_batches import RawBatchAdjust, RawBatchCreate, RawBatchUpdate
 from app.services import raw_batches_service as svc
 
 router = APIRouter(prefix="/api/raw-batches", tags=["raw-batches"])
@@ -49,6 +49,12 @@ def batch_history(batch_id: str):
 @router.patch("/{batch_id}/cancel")
 def cancel_batch(batch_id: str):
     return svc.cancel_batch(batch_id)
+
+
+@router.post("/{batch_id}/adjust")
+def adjust_batch_stock(batch_id: str, dto: RawBatchAdjust):
+    """Korekta stanu po przeliczeniu fizycznym — działa też w trakcie rozbioru."""
+    return svc.adjust_batch_stock(batch_id, dto)
 
 
 @router.put("/{batch_id}")

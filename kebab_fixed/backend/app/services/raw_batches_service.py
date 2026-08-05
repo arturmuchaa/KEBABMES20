@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from app.db import cx_execute, cx_execute_returning, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
-from app.models.raw_batches import RawBatchCreate, RawBatchUpdate
+from app.models.raw_batches import RawBatchAdjust, RawBatchCreate, RawBatchUpdate
 from app.services.container_ledger_service import book_assets
 from app.services.container_partners_service import resolve_partner
 from app.utils.batch_numbers import (
@@ -405,6 +405,62 @@ def cancel_batch(batch_id: str) -> Dict:
         raise HTTPException(404, "Partia nie znaleziona")
     logger.info("raw_batch.cancelled", extra={"batch_id": batch_id})
     return row
+
+
+def adjust_batch_stock(batch_id: str, dto: RawBatchAdjust) -> Dict:
+    """Korekta stanu partii po przeliczeniu fizycznym (inwentaryzacja).
+
+    Liczba pojemników ćwiartki nigdzie nie jest liczona — wychodzi z kg/kaliber
+    (`containers_for_kg`, HMI dzieli tak samo). Gdy hala przeliczy stos i wyjdzie
+    inaczej, to hala ma rację: kilogramy są wyliczone, pojemniki policzone.
+
+    Rusza tylko `kg_available`. `kg_received` zostaje przy dostawie z faktury —
+    nadwyżkę/niedobór rozlicza się z dostawcą osobno, a nie przez ciche
+    przepisanie przyjęcia.
+    """
+    with transaction() as conn:
+        row = cx_query_one(
+            conn,
+            "SELECT id, internal_batch_no, kg_available, container_kg "
+            "FROM raw_batches WHERE id=%s FOR UPDATE", (batch_id,))
+        if not row:
+            raise HTTPException(404, "Partia nie znaleziona")
+
+        if dto.containers is not None:
+            container_kg = float(row.get("container_kg") or 0)
+            if container_kg <= 0:
+                raise HTTPException(
+                    400, "Partia niekalibrowana — korektę podaj w kilogramach")
+            delta = float(dto.containers) * container_kg
+        else:
+            delta = float(dto.kg or 0)
+
+        if abs(delta) < 0.001:
+            raise HTTPException(400, "Korekta zerowa")
+
+        before = float(row.get("kg_available") or 0)
+        after = before + delta
+        if after < -0.001:
+            raise HTTPException(
+                400, f"Korekta {delta:+.3f} kg zeszłaby poniżej zera "
+                     f"(stan {before:.3f} kg)")
+
+        # Ruch PRZED zmianą stanu — kolejność jak w całym module, żeby rejestr
+        # ruchów nigdy nie był „za" stanem partii.
+        create_stock_movement(
+            conn, product_type="raw", batch_id=batch_id, qty=abs(delta),
+            movement_type="ADJUST", source_type="inventory", source_id=batch_id)
+        cx_execute(
+            conn,
+            "UPDATE raw_batches SET kg_available=%s WHERE id=%s", (after, batch_id))
+
+    logger.info("raw_batch.stock_adjusted", extra={
+        "batch_id": batch_id, "batch_no": row.get("internal_batch_no"),
+        "delta_kg": delta, "kg_before": before, "kg_after": after,
+        "adjust_reason": dto.reason,
+    })
+    return {"id": batch_id, "kgAvailable": after, "deltaKg": delta,
+            "reason": dto.reason}
 
 
 def update_batch(batch_id: str, dto: RawBatchUpdate) -> Dict:

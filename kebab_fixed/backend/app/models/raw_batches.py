@@ -1,6 +1,6 @@
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class RawBatchCreate(BaseModel):
@@ -28,6 +28,33 @@ class RawBatchCreate(BaseModel):
     pallets_other_kind: Optional[str] = Field(None, alias="palletsOtherKind")
     # Przyjęcie na usługę (mięso z/s klienta) — osobna seria numerów „48U".
     is_service: bool = Field(False, alias="isService")
+
+
+class RawBatchAdjust(BaseModel):
+    """POST /api/raw-batches/{id}/adjust — korekta stanu po przeliczeniu hali.
+
+    Osobna ścieżka od PUT, bo PUT jest (słusznie) blokowany na partii, która
+    poszła już do rozbioru — a przeliczenie fizyczne wychodzi właśnie w trakcie.
+    Korekta rusza WYŁĄCZNIE `kg_available`: `kg_received` to dostawa z faktury
+    i nadwyżka/niedobór z przeliczenia nie ma prawa jej przepisać.
+
+    Podaje się ALBO pojemniki (przeliczane po kalibrze partii), ALBO kilogramy;
+    obie wartości ze znakiem — ujemna zdejmuje ze stanu.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, validate_default=True)
+
+    kg: Optional[float] = None
+    containers: Optional[int] = None
+    reason: str = Field(..., min_length=1)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_not_blank(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("Powód korekty jest wymagany")
+        return v
 
 
 class RawBatchUpdate(BaseModel):

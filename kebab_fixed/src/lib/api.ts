@@ -248,6 +248,12 @@ export const rawBatchesApi = {
 
   cancel: (id: string) =>
     patch<any>(`/raw-batches/${id}/cancel`, {}).then(mapRawBatch),
+
+  // Korekta stanu po przeliczeniu fizycznym. Osobna od `edit`, bo edycja
+  // przyjęcia jest blokowana (409), gdy partia poszła już do rozbioru —
+  // a przeliczenie stosu wychodzi właśnie wtedy. Rusza tylko stan dostępny.
+  adjustStock: (id: string, dto: { containers?: number; kg?: number; reason: string }) =>
+    post<any>(`/raw-batches/${id}/adjust`, dto),
 }
 
 // ─── Dostawcy ─────────────────────────────────────────────────

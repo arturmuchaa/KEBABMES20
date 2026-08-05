@@ -95,6 +95,9 @@ export function CreateRawBatchModal({
   // Ręcznie wpisana liczba ma pierwszeństwo: operator, który fizycznie
   // policzył pojemniki, wie lepiej niż wzór z kalibru.
   const containers    = form.containersCount ?? autoContainers
+  // Różnica policzone − wyliczone z wagi (0 = zgodne lub brak danych).
+  const containersMismatch = (form.containersCount != null && autoContainers != null)
+    ? form.containersCount - autoContainers : 0
   const calcValue     = useMemo(() => totalKg * (form.pricePerKg || 0), [totalKg, form.pricePerKg])
   const earliestExpiry   = useMemo(() => {
     const ds = batchItems.filter(b => b.expiryDate).map(b => b.expiryDate)
@@ -324,6 +327,18 @@ export function CreateRawBatchModal({
                 <CardDescription className="text-[10px] uppercase font-bold text-center">
                   pojemników
                 </CardDescription>
+                {/* Rozjazd policzonych pojemników vs waga z dokumentu. Cała
+                    ścieżka ćwiartki jest nominalna (kg = poj. × kaliber), więc
+                    bez tego ostrzeżenia różnica wychodzi dopiero na hali —
+                    5.08.2026 partia 459: 199 poj. na stosie vs 193 w systemie. */}
+                {containersMismatch !== 0 && (
+                  <div className="text-[10px] font-bold text-center leading-tight px-1 text-amber-700">
+                    {containersMismatch > 0 ? '+' : ''}{containersMismatch} poj. wobec wagi
+                    <span className="block font-semibold text-ink-4">
+                      ({fmtKg(totalKg, 0)} kg ÷ {form.containerKg} = {autoContainers})
+                    </span>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

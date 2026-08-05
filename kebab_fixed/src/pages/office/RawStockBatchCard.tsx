@@ -14,10 +14,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  ArrowDownToLine, ArrowUpFromLine, FileText, GitBranch, Loader2,
+  ArrowDownToLine, ArrowUpFromLine, Calculator, FileText, GitBranch, Loader2,
   Truck, Inbox, Scissors, Warehouse, FileOutput, ChevronRight,
 } from 'lucide-react'
 import { wzApi } from '@/lib/apiClient'
+import { rawBatchesApi } from '@/lib/api'
 import { cn, fmtKg, fmtDatePl } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
 import { Badge } from '@/components/ui/badge'
@@ -113,6 +114,12 @@ export function RawStockBatchCard({ stockType, stockId, onClose }: {
   const navigate = useNavigate()
   const [card, setCard] = useState<StockCard | null>(null)
   const [error, setError] = useState('')
+  // Korekta stanu: hala podaje POLICZONE pojemniki, my liczymy różnicę wobec
+  // stanu systemowego — biuro nie ma wpisywać delty w pamięci.
+  const [adjustOpen, setAdjustOpen] = useState(false)
+  const [counted, setCounted] = useState('')
+  const [adjustReason, setAdjustReason] = useState('')
+  const [adjustBusy, setAdjustBusy] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -139,6 +146,11 @@ export function RawStockBatchCard({ stockType, stockId, onClose }: {
 
   const batchNo = card?.header.batch_no ?? ''
   const expiry = card?.identity.expiry_date
+
+  // Kaliber 15 kg jak wszędzie w ścieżce ćwiartki (HMI, przyjęcie, magazyn).
+  const systemContainers = card ? Math.round(card.stock.kg_available / 15) : 0
+  const deltaContainers = counted.trim() === ''
+    ? 0 : Math.round(Number(counted)) - systemContainers
 
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
@@ -330,12 +342,70 @@ export function RawStockBatchCard({ stockType, stockId, onClose }: {
           </div>
         )}
 
+        {/* ── Korekta stanu (przeliczenie hali) ── */}
+        {card && card.stock_type === 'raw' && adjustOpen && (
+          <div className="px-5 py-3 bg-amber-50/60 border-t border-amber-200">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-amber-800 mb-2">
+              Korekta stanu — przeliczenie fizyczne
+            </div>
+            <div className="flex items-end gap-3 flex-wrap">
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-semibold text-ink-3">Policzone pojemniki</span>
+                <input
+                  type="number" inputMode="numeric" value={counted}
+                  onChange={e => setCounted(e.target.value)}
+                  placeholder={String(Math.round(card.stock.kg_available / 15))}
+                  className="h-9 w-36 px-2.5 rounded-md border border-surface-5 text-sm font-semibold [font-variant-numeric:tabular-nums]" />
+              </label>
+              <label className="flex flex-col gap-1 flex-1 min-w-[220px]">
+                <span className="text-[11px] font-semibold text-ink-3">Powód (trafia do rejestru)</span>
+                <input
+                  value={adjustReason} onChange={e => setAdjustReason(e.target.value)}
+                  placeholder="np. przeliczenie stosu przed zmianą"
+                  className="h-9 px-2.5 rounded-md border border-surface-5 text-sm" />
+              </label>
+              <Button size="sm" disabled={adjustBusy || !deltaContainers || !adjustReason.trim()}
+                onClick={async () => {
+                  setAdjustBusy(true); setError('')
+                  try {
+                    await rawBatchesApi.adjustStock(stockId, {
+                      containers: deltaContainers, reason: adjustReason.trim(),
+                    })
+                    const fresh = await (wzApi as any).stockRawCard(stockType, stockId)
+                    setCard(fresh); setAdjustOpen(false); setCounted(''); setAdjustReason('')
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : 'Nie udało się zapisać korekty')
+                  } finally { setAdjustBusy(false) }
+                }}>
+                {adjustBusy ? <Loader2 size={13} className="animate-spin" /> : null}
+                Zapisz korektę
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setAdjustOpen(false)}>Anuluj</Button>
+            </div>
+            <div className="text-[11px] text-ink-3 mt-2">
+              System liczy <b>{fmtKg(card.stock.kg_available, 1)} kg</b> = {Math.round(card.stock.kg_available / 15)} poj.
+              {deltaContainers !== 0 && (
+                <> · korekta <b className={deltaContainers > 0 ? 'text-emerald-700' : 'text-red-700'}>
+                  {deltaContainers > 0 ? '+' : ''}{deltaContainers} poj. ({deltaContainers * 15 > 0 ? '+' : ''}{deltaContainers * 15} kg)
+                </b></>
+              )}
+              {' '}· przyjęcie i faktura zostają bez zmian
+            </div>
+          </div>
+        )}
+
         {/* ── Stopka akcji ── */}
         <div className="px-5 py-3 bg-surface-2 border-t border-surface-4 flex items-center justify-between gap-2 mt-auto">
           <div className="text-[11px] text-ink-4">
             Rejestr ruchów: stock_movements · saldo liczone od stanu bieżącego
           </div>
           <div className="flex items-center gap-2">
+            {card?.stock_type === 'raw' && !adjustOpen && (
+              <Button size="sm" variant="outline" className="gap-1.5"
+                onClick={() => setAdjustOpen(true)}>
+                <Calculator size={13} /> Korekta stanu
+              </Button>
+            )}
             {batchNo && (
               <Button size="sm" variant="outline" className="gap-1.5"
                 onClick={() => window.open(`/office/partia/${encodeURIComponent(batchNo)}/raport`, '_blank')}>
