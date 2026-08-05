@@ -46,8 +46,9 @@ import { cardPeriod } from '@/lib/temperatureLogCard'
 type Col = { label?: string; req: string; w: number }
 type Room = { group: string; no: number; name: string; cols: Col[] }
 
-/** Magazyny chłodzone mierzy się dwukrotnie, więc ich kolumny są węższe. */
-const SPLIT_W = 4.6
+/** Magazyny chłodzone mierzy się dwukrotnie, więc ich kolumny są węższe.
+ *  Wartości są WAGAMI, nie procentami — realną szerokość liczy `colPct`. */
+const SPLIT_W = 5.0
 const PLAIN_W = 6.25
 
 /**
@@ -65,24 +66,50 @@ const withMeat = (req: string, meat: string): Col[] => [
   { label: 'w mięsie', req: meat, w: SPLIT_W },
 ]
 
+/**
+ * Miękki dywiz (U+00AD) w długich nazwach: przy 15 pomieszczeniach kolumna ma
+ * ~14 mm i słowa typu „przepakowania" muszą się złamać. Bez podpowiedzi
+ * przeglądarka łamie je w losowym miejscu („PRZEPAKOWAN|IA") — z dywizem
+ * łamie po sylabie i stawia kreskę, jak w składzie. Znak jest niewidoczny,
+ * dopóki łamanie nie nastąpi.
+ */
+const SHY = '­'
+
 const ROOMS: Room[] = [
   { group: 'Magazyny chłodzone',      no: 3,  name: 'Magazyn surowców',                        cols: withMeat('do +3 °C', 'do +4 °C') },
-  { group: 'Magazyny chłodzone',      no: 4,  name: 'Magazyn porozbiorowy',                    cols: withMeat('do +3 °C', 'do +4 °C') },
-  { group: 'Hale produkcyjne',        no: 7,  name: 'Hala rozbioru i przepakowania',           cols: plain('do +12 °C') },
-  { group: 'Hale produkcyjne',        no: 12, name: 'Hala masownia i leżakowania',             cols: plain('+4 do +6 °C') },
-  { group: 'Mroźnie i komory mrożenia', no: 6,  name: 'Magazyn surowca mrożonego',             cols: plain('-18 °C') },
+  { group: 'Magazyny chłodzone',      no: 4,  name: `Magazyn poroz${SHY}biorowy`,              cols: withMeat('do +3 °C', 'do +4 °C') },
+  { group: 'Hale produkcyjne',        no: 7,  name: `Hala rozbioru i przepako${SHY}wania`,     cols: plain('do +12 °C') },
+  // Pomieszczenia produkcji 14/15/8 — ten sam zestaw i ta sama kolejność co
+  // w arkuszu dopuszczenia zakładu do pracy (SanitaryCheckPrintPage), żeby
+  // obchód SSZiZ szedł oboma kartami w tej samej kolejności pomieszczeń.
+  { group: 'Hale produkcyjne',        no: 14, name: `Pomieszcze${SHY}nie produkcji`,               cols: plain('do +12 °C') },
+  { group: 'Hale produkcyjne',        no: 15, name: `Pomieszcze${SHY}nie produkcji`,               cols: plain('do +12 °C') },
+  { group: 'Hale produkcyjne',        no: 8,  name: `Pomieszcze${SHY}nie produkcji`,               cols: plain('do +12 °C') },
+  { group: 'Hale produkcyjne',        no: 12, name: `Hala masownia i leżako${SHY}wania`,           cols: plain('+4 do +6 °C') },
+  { group: 'Mroźnie i komory mrożenia', no: 6,  name: `Magazyn surowca mrożo${SHY}nego`,           cols: plain('-18 °C') },
   { group: 'Mroźnie i komory mrożenia', no: 26, name: 'Komora mrożenia',                       cols: plain('-24 °C') },
   { group: 'Mroźnie i komory mrożenia', no: 29, name: 'Mroźnia',                               cols: plain('-18 °C') },
   { group: 'Mroźnie i komory mrożenia', no: 30, name: 'Komora mrożenia',                       cols: plain('-24 °C') },
   { group: 'Mroźnie i komory mrożenia', no: 38, name: 'Mroźnia',                               cols: plain('-18 °C') },
-  { group: 'Ekspedycja',              no: 35, name: 'Rampa ekspedycyjna',                      cols: plain('do +12 °C') },
-  { group: 'Ekspedycja',              no: 37, name: 'Pomieszczenie kompletacji przed wysyłką', cols: plain('do +12 °C') },
+  { group: 'Ekspedycja',              no: 35, name: `Rampa ekspedy${SHY}cyjna`,                    cols: plain('do +12 °C') },
+  { group: 'Ekspedycja',              no: 37, name: `Pomieszcze${SHY}nie komple${SHY}tacji przed wysyłką`, cols: plain('do +12 °C') },
   // grupa krótko „UPPZ" — „Magazyn UPPZ" zawijało belkę grup do dwóch linii
   { group: 'UPPZ',                    no: 32, name: 'Magazyn UPPZ',                            cols: plain('do +7 °C') },
 ]
 
 /** Wszystkie kratki pomiarowe po kolei — do szerokości kolumn i numeracji. */
 const ALL_COLS = ROOMS.flatMap(r => r.cols)
+
+/**
+ * Kolumny opisowe mają stałą szerokość, całą resztę strony dzielą kratki
+ * pomiarowe PROPORCJONALNIE do swoich wag (SPLIT_W/PLAIN_W). Wcześniej były to
+ * sztywne procenty sumujące się do 100 — dopisanie pomieszczenia rozjeżdżało
+ * tabelę poza stronę i nikt by tego nie zauważył przed wydrukiem.
+ */
+const W_DATE = 6, W_HOUR = 5.3, W_SIGN = 7.8
+const W_MEAS = 100 - W_DATE - W_HOUR - W_SIGN
+const W_UNITS = ALL_COLS.reduce((s, c) => s + c.w, 0)
+const colPct = (c: Col) => (c.w / W_UNITS) * W_MEAS
 
 /** Grupy do nagłówka scalonego (colspan liczony w kratkach, nie w pokojach). */
 function groupSpans(): { name: string; span: number }[] {
@@ -149,10 +176,10 @@ export function TemperatureLogPrintPage() {
         {/* szerokości procentowe — kratki par „chłodnia + mięso" są węższe,
             żeby nie zjadły miejsca pozostałym pomieszczeniom */}
         <colgroup>
-          <col style={{ width: '6%' }} />
-          <col style={{ width: '5.3%' }} />
-          {ALL_COLS.map((c, i) => <col key={i} style={{ width: `${c.w}%` }} />)}
-          <col style={{ width: '7.8%' }} />
+          <col style={{ width: `${W_DATE}%` }} />
+          <col style={{ width: `${W_HOUR}%` }} />
+          {ALL_COLS.map((c, i) => <col key={i} style={{ width: `${colPct(c).toFixed(3)}%` }} />)}
+          <col style={{ width: `${W_SIGN}%` }} />
         </colgroup>
         <thead>
           <tr>
@@ -334,19 +361,29 @@ const CSS = `
 /* belka grup — o ton ciemniejsza od nagłówków pomieszczeń, bo jest nadrzędna */
 .tmp table.log th.grp { background:#dcdcdc; font-size:7pt; text-transform:uppercase;
   letter-spacing:.06em; padding:.7mm .5mm; }
-.tmp table.log th.rm { padding:.6mm .5mm; }
+/* Nazwy pomieszczeń MUSZĄ zostać w swojej kratce: przy 15 pomieszczeniach
+   kolumna ma ~14 mm, a „PRZEPAKOWANIA" jest od niej szersze. Bez łamania
+   długich słów napis wychodzi na sąsiednią kolumnę i karta robi się nieczytelna. */
+.tmp table.log th.rm { padding:.6mm .4mm; overflow:hidden; }
 .tmp table.log th.rm .rn { display:block; font-size:9pt; font-variant-numeric:tabular-nums;
   border-bottom:.25mm solid #999; margin:0 auto .5mm; width:7mm; }
-.tmp table.log th.rm .rl { display:block; font-size:6.2pt; font-weight:400; line-height:1.12;
-  text-transform:uppercase; letter-spacing:.01em; }
+/* BEZ overflow-wrap: awaryjne łamanie „gdziekolwiek" wygrywa z miękkim dywizem
+   (łamacz bierze ostatnią możliwą pozycję), więc nazwy dzieliły się w losowym
+   miejscu. Bez niego jedynymi punktami podziału są dywizy z SHY, a overflow
+   hidden na komórce jest siatką bezpieczeństwa, gdyby ktoś dopisał długą
+   nazwę bez dywizu — przytnie ją zamiast wypuścić na sąsiednią kolumnę. */
+.tmp table.log th.rm .rl { display:block; font-size:5.5pt; font-weight:400; line-height:1.1;
+  text-transform:uppercase; letter-spacing:0; hyphens:manual; }
 /* temperatura wymagana — jedyny biały pas w szapce, żeby zakres rzucał się w oczy */
 .tmp table.log th.rq { background:#fff; color:#111; font-size:7pt;
-  border:.28mm solid #8c8c8c; padding:.5mm .3mm; white-space:nowrap;
+  border:.28mm solid #8c8c8c; padding:.5mm .2mm;
   font-variant-numeric:tabular-nums; }
-/* para „na chłodni / w mięsie" — podpis nad zakresem, jak w starej karcie */
-.tmp table.log th.rq .sc { display:block; font-size:5.6pt; font-weight:400; color:#444;
-  text-transform:uppercase; letter-spacing:.02em; line-height:1.1; }
-.tmp table.log th.rq .rt { display:block; line-height:1.15; }
+/* para „na chłodni / w mięsie" — podpis nad zakresem, jak w starej karcie.
+   Podpis może się zawinąć, ale sam zakres („do +3 °C") nigdy — złamana
+   temperatura byłaby myląca w dokumencie kontrolnym. */
+.tmp table.log th.rq .sc { display:block; font-size:5.1pt; font-weight:400; color:#444;
+  text-transform:uppercase; letter-spacing:0; line-height:1.05; }
+.tmp table.log th.rq .rt { display:block; line-height:1.15; white-space:nowrap; }
 /* pasek numeracji kolumn — jak w starej karcie, ułatwia opis odchylenia
    („odczyt w kol. 9"), więc cyfry muszą być czytelne, nie mikroskopijne */
 .tmp table.log tr.numr th { background:#f2f2f2; color:#444; font-size:6.8pt; font-weight:400;

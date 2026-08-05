@@ -17,7 +17,9 @@ export function SanitaryCheckHistoryPage() {
 
   return (
     <div className="animate-fade-in">
-      <RangePicker ranges={RANGES} value={range} onChange={setRange} unit="dni" />
+      {/* „kart", nie „dni": lista pomija niedziele, więc 30 kart obejmuje
+          ok. 35 dni kalendarza — liczba w przycisku to liczba kart. */}
+      <RangePicker ranges={RANGES} value={range} onChange={setRange} unit="kart" />
       <CardHistoryTable
         rows={rows}
         pdfUrl={haccpFormsApi.sanitaryPdfUrl}
