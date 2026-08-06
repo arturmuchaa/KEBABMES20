@@ -9,6 +9,7 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   # Bramka frontendu: typy + testy jednostkowe + build produkcyjny.
