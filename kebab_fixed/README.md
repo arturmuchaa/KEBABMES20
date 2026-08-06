@@ -1,5 +1,7 @@
 # KEBAB MES — System zarządzania produkcją
 
+[![CI](https://github.com/arturmuchaa/KEBABMES20/actions/workflows/ci.yml/badge.svg)](https://github.com/arturmuchaa/KEBABMES20/actions/workflows/ci.yml)
+
 System MES do zarządzania produkcją kebaba: rozbiór, masowanie, receptury, magazyn, produkcja, HACCP.
 
 ## Architektura
