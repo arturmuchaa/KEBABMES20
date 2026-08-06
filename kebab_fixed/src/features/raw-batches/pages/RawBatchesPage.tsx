@@ -18,7 +18,8 @@ import { useRawBatches, useCreateRawBatch } from '../hooks/useRawBatches'
 import { RawBatchesTable }    from '../components/RawBatchesTable'
 import { CreateRawBatchModal } from '../components/CreateRawBatchModal'
 import { EditRawBatchModal, type EditRawBatchFormData } from '../components/EditRawBatchModal'
-import { splitDeliveries, liveSummary, pluralDostawy } from '../deliveryView'
+import { splitDeliveries, liveSummary, pluralDostawy, type MeatStockMap } from '../deliveryView'
+import { wzApi } from '@/lib/apiClient'
 import { rawBatchesApi } from '../api'
 import { fmtKg, fmtDatePl, fmtPln } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -55,10 +56,42 @@ export function RawBatchesPage() {
     [batches, matId],
   )
 
+  // Żywy stan magazynu mięsa — jedyne miejsce, gdzie widać, ile zostało
+  // z dostawy przyjętej BEZ rozbioru (filet, mięso z/s). Backend zeruje
+  // kg_available takiej partii już przy przyjęciu i przerzuca całość do
+  // meat_stock pod tym samym numerem, więc bez tego świeży filet wyglądałby
+  // na zużyty. To samo źródło co picker WZ i Magazyn surowca.
+  const { data: stockData } = useApi(() => (wzApi as any).stockRaw())
+  const meatStock = useMemo(() => {
+    const map: MeatStockMap = {}
+    for (const r of ((stockData as any[]) ?? [])) {
+      if (r?.stock_type !== 'meat') continue
+      const no = String(r.internal_batch_no ?? '')
+      if (!no) continue
+      // Jedna partia może mieć kilka lotów (rozbiór na sesje) — sumujemy,
+      // bo pytanie brzmi „ile z tej dostawy jeszcze leży".
+      const prev = map[no]
+      const kgAvailable = Number(r.kg_available ?? 0)
+      const kgReserved  = Number(r.kg_reserved ?? 0)
+      const kgInitial   = Number(r.kg_initial ?? r.kg_available ?? 0)
+      map[no] = prev
+        ? { kgAvailable: prev.kgAvailable + kgAvailable,
+            kgReserved:  prev.kgReserved  + kgReserved,
+            kgInitial:   prev.kgInitial   + kgInitial }
+        : { kgAvailable, kgReserved, kgInitial }
+    }
+    return map
+  }, [stockData])
+
   // Dwie perspektywy tej samej listy: co jeszcze leży w chłodni (W obiegu)
   // i co już rozliczone (Historia). Alarmy terminów żyją tylko w pierwszej.
-  const { live, history } = useMemo(() => splitDeliveries(matBatches), [matBatches])
-  const summary = useMemo(() => liveSummary(live), [live])
+  const resolveOpts = useMemo(
+    () => ({ requiresDeboning: selMat?.requiresDeboning ?? true, meatStock }),
+    [selMat?.requiresDeboning, meatStock],
+  )
+  const { live, history } = useMemo(
+    () => splitDeliveries(matBatches, resolveOpts), [matBatches, resolveOpts])
+  const summary = useMemo(() => liveSummary(live, resolveOpts), [live, resolveOpts])
 
   // ── Edit state ─────────────────────────────────────────────────────────────
   const [editBatch,   setEditBatch]   = useState<RawBatch | null>(null)
@@ -164,9 +197,9 @@ export function RawBatchesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <CardTitle className="text-base">Przyjęcie surowca — historia dostaw</CardTitle>
+          <CardTitle className="text-base">Przyjęcie surowca</CardTitle>
           <CardDescription className="mt-0.5">
-            Wszystkie przyjęcia chronologicznie · żywy stan jest w Magazynie surowca
+            Dostawy w obiegu i zamknięta historia · pełny stan magazynowy jest w Magazynie surowca
           </CardDescription>
         </div>
         <Button onClick={openModal}>
@@ -213,10 +246,12 @@ export function RawBatchesPage() {
         <Card>
           <CardContent className="p-0">
             <RawBatchesTable
+              key={matId}
               batches={live}
               loading={loading}
               variant="live"
               requiresDeboning={selMat?.requiresDeboning ?? true}
+              meatStock={meatStock}
               emptyTitle="Brak surowca w obiegu"
               emptyHint={`Wszystkie dostawy (${selMat?.name ?? 'surowiec'}) są rozliczone — historia poniżej.`}
               onEdit={handleEditOpen}
@@ -237,10 +272,12 @@ export function RawBatchesPage() {
         <Card>
           <CardContent className="p-0">
             <RawBatchesTable
+              key={matId}
               batches={history}
               loading={loading}
               variant="history"
               requiresDeboning={selMat?.requiresDeboning ?? true}
+              meatStock={meatStock}
               emptyTitle="Brak zamkniętych dostaw"
               emptyHint="Rozliczone i anulowane przyjęcia pojawią się tutaj."
             />

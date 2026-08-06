@@ -15,11 +15,10 @@
 import { useState, useMemo } from 'react'
 import { ExpiryBadge, StatusBadge } from '@/components/ui/badge'
 import { fmtKg, fmtDatePl, fmtPln } from '@/lib/utils'
-import { deriveDeliveryStatus } from '@/lib/utils/fefo'
 import { batchDisplayNo } from '../batchDisplayNo'
 import {
-  sortDeliveries, filterHistory, deliveryStatusBadgeKey,
-  type DeliverySortCol, type SortDir, type HistoryPeriod,
+  sortDeliveries, filterHistory, deliveryStatusBadgeKey, resolveDelivery,
+  type DeliverySortCol, type SortDir, type HistoryPeriod, type MeatStockMap,
 } from '../deliveryView'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
@@ -38,6 +37,8 @@ interface RawBatchesTableProps {
   variant?:          'live' | 'history'
   /** Ćwiartka idzie na rozbiór; filet i mięso z/s prosto na magazyn — inne etykiety statusów */
   requiresDeboning?: boolean
+  /** Żywy stan lotów mięsa — dla surowca bez rozbioru to JEDYNE źródło „ile zostało" */
+  meatStock?:        MeatStockMap
   emptyTitle?:       string
   emptyHint?:        string
   onEdit?:           (batch: RawBatch) => void
@@ -54,10 +55,12 @@ export function RawBatchesTable({
   batches, loading,
   variant = 'live',
   requiresDeboning = true,
+  meatStock,
   emptyTitle, emptyHint,
   onEdit, onCancel,
 }: RawBatchesTableProps) {
   const isLive = variant === 'live'
+  const resolveOpts = { requiresDeboning, meatStock }
 
   const [filter,  setFilter]  = useState('')
   const [period,  setPeriod]  = useState<HistoryPeriod>(30)
@@ -81,8 +84,11 @@ export function RawBatchesTable({
     const base = isLive
       ? batches
       : filterHistory(batches, { query: filter, period, showCancelled })
-    return sortDeliveries(base, sortCol, sortDir)
-  }, [batches, isLive, filter, period, showCancelled, sortCol, sortDir])
+    return sortDeliveries(base, sortCol, sortDir, resolveOpts)
+    // resolveOpts to nowy obiekt co render — rozkładamy go na pola, żeby memo
+    // faktycznie memoizowało.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batches, isLive, filter, period, showCancelled, sortCol, sortDir, requiresDeboning, meatStock])
 
   const HEADERS: { col: DeliverySortCol | null; label: string; right?: boolean }[] = [
     { col: 'internalBatchNo', label: 'Nr partii' },
@@ -218,14 +224,15 @@ export function RawBatchesTable({
           </TableHeader>
           <TableBody>
             {displayed.map(b => {
-              const kgLeft = Number(b.kgAvailable)
-              const status = deriveDeliveryStatus(b)
+              // Gdzie leży stan, zależy od rodzaju surowca — ćwiartka trzyma go
+              // w dostawie, filet i mięso z/s w lotach magazynu mięsa.
+              const { status, kgLeft, kgReserved, untouched } = resolveDelivery(b, resolveOpts)
               // Alarm terminu ma sens tylko dla surowca, który jeszcze leży.
               // Data ważności zostaje widoczna zawsze — audyt HACCP jej potrzebuje.
               const showExpiryAlarm = kgLeft > 0 && status !== 'cancelled'
-              // Backend nie ma kolumny kg_used (mapper ustawia 0 dla wszystkich),
-              // więc zużycie liczymy z różnicy. Edytować wolno tylko dostawę nietkniętą.
-              const untouched = kgLeft >= Number(b.kgReceived)
+              // Backend odrzuca edycję każdej ruszonej partii (409), a partia
+              // bez rozbioru jest „ruszona" od chwili przyjęcia — ma wpis
+              // w meat_stock. untouched już to uwzględnia.
               const canEdit = untouched && b.status !== 'cancelled' && !b.isInUse
 
               return (
@@ -262,11 +269,22 @@ export function RawBatchesTable({
                   </TableCell>
                   <TableCell className="text-right">
                     {kgLeft > 0 ? (
-                      <span className={`font-bold tabular-nums text-sm ${
-                        status === 'cancelled' ? 'text-muted-foreground' : 'text-foreground'
-                      }`}>
-                        {fmtKg(kgLeft)} kg
-                      </span>
+                      <div className="flex flex-col items-end leading-tight">
+                        <span className={`font-bold tabular-nums text-sm ${
+                          status === 'cancelled' ? 'text-muted-foreground' : 'text-foreground'
+                        }`}>
+                          {fmtKg(kgLeft)} kg
+                        </span>
+                        {/* Rezerwacja planu masowania nie jest odjęta od stanu —
+                            bez tej informacji operator planuje z kg, które już
+                            ktoś zaklepał na dziś. */}
+                        {kgReserved > 0 && (
+                          <span className="text-[10px] font-semibold tabular-nums text-amber-700"
+                            title="Zarezerwowane przez plan masowania">
+                            {fmtKg(kgReserved)} zarez.
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}

@@ -8,10 +8,19 @@ import {
   sortDeliveries,
   filterHistory,
   deliveryStatusBadgeKey,
+  resolveDelivery,
   liveSummary,
   pluralDostawy,
   type DeliveryLike,
+  type MeatStockMap,
 } from './deliveryView'
+
+/** Ćwiartka — stan żyje w raw_batches. */
+const CWIARTKA = { requiresDeboning: true }
+
+/** Anulowana dostawa tak wygląda w bazie: numer podmieniony na ANUL-<id>,
+ *  pierwotny numer zostaje wyłącznie w internal_batch_seq. */
+const ANUL = 'ANUL-370da2b718c2490fb080'
 
 function batch(over: Partial<DeliveryLike> = {}): DeliveryLike {
   return {
@@ -31,13 +40,13 @@ function batch(over: Partial<DeliveryLike> = {}): DeliveryLike {
 
 describe('splitDeliveries', () => {
   it('dostawa z resztą surowca trafia do obiegu', () => {
-    const { live, history } = splitDeliveries([batch({ kgAvailable: 250 })])
+    const { live, history } = splitDeliveries([batch({ kgAvailable: 250 })], CWIARTKA)
     expect(live).toHaveLength(1)
     expect(history).toHaveLength(0)
   })
 
   it('dostawa rozliczona trafia do historii', () => {
-    const { live, history } = splitDeliveries([batch({ kgAvailable: 0 })])
+    const { live, history } = splitDeliveries([batch({ kgAvailable: 0 })], CWIARTKA)
     expect(live).toHaveLength(0)
     expect(history).toHaveLength(1)
   })
@@ -45,7 +54,7 @@ describe('splitDeliveries', () => {
   it('anulowana trafia do historii nawet z resztą kg', () => {
     const { live, history } = splitDeliveries([
       batch({ status: 'cancelled', kgAvailable: 800 }),
-    ])
+    ], CWIARTKA)
     expect(live).toHaveLength(0)
     expect(history).toHaveLength(1)
   })
@@ -56,7 +65,7 @@ describe('splitDeliveries', () => {
       batch({ internalBatchNo: '2', kgAvailable: 0 }),
       batch({ internalBatchNo: '3', kgAvailable: 20 }),
       batch({ internalBatchNo: '4', kgAvailable: 0 }),
-    ])
+    ], CWIARTKA)
     expect(live.map(b => b.internalBatchNo)).toEqual(['1', '3'])
     expect(history.map(b => b.internalBatchNo)).toEqual(['2', '4'])
   })
@@ -196,12 +205,12 @@ describe('liveSummary', () => {
     const out = liveSummary([
       batch({ kgAvailable: '1485.000' }),
       batch({ kgAvailable: 515 }),
-    ])
+    ], CWIARTKA)
     expect(out).toEqual({ count: 2, kg: 2000 })
   })
 
   it('pusty obieg to zero, nie NaN', () => {
-    expect(liveSummary([])).toEqual({ count: 0, kg: 0 })
+    expect(liveSummary([], CWIARTKA)).toEqual({ count: 0, kg: 0 })
   })
 })
 
@@ -216,5 +225,153 @@ describe('pluralDostawy', () => {
     expect(pluralDostawy(22)).toBe('dostawy')
     expect(pluralDostawy(21)).toBe('dostaw')
     expect(pluralDostawy(101)).toBe('dostaw')
+  })
+})
+
+// ─── Anulowana dostawa: numer w bazie ≠ numer na ekranie ──────────────────────
+
+describe('anulowana dostawa (ANUL-<id>)', () => {
+  const anul = batch({ internalBatchNo: ANUL, internalBatchSeq: 432, status: 'cancelled' })
+
+  it('szukajka znajduje ją po numerze POKAZANYM w tabeli', () => {
+    const out = filterHistory([anul], { period: 0, showCancelled: true, query: '432', today: '2026-08-06' })
+    expect(out).toHaveLength(1)
+  })
+
+  it('nie wywraca sortowania po numerze partii', () => {
+    const out = sortDeliveries([
+      anul,
+      batch({ internalBatchNo: '464', internalBatchSeq: 464 }),
+      batch({ internalBatchNo: '463', internalBatchSeq: 463 }),
+    ], 'internalBatchNo', 'desc')
+    expect(out.map(b => b.internalBatchSeq)).toEqual([464, 463, 432])
+  })
+
+  it('nie zatruwa tie-breaku przy równej dacie przyjęcia', () => {
+    const day = '2026-08-06'
+    const out = sortDeliveries([
+      { ...anul, receivedDate: day },
+      batch({ internalBatchNo: '464', internalBatchSeq: 464, receivedDate: day }),
+      batch({ internalBatchNo: '463', internalBatchSeq: 463, receivedDate: day }),
+    ], 'receivedDate', 'desc')
+    expect(out.map(b => b.internalBatchSeq)).toEqual([464, 463, 432])
+  })
+})
+
+describe('sortDeliveries — kierunek rosnący', () => {
+  it('puste daty lądują na końcu TAKŻE przy sortowaniu rosnącym', () => {
+    const out = sortDeliveries([
+      batch({ internalBatchNo: 'A', receivedDate: '' }),
+      batch({ internalBatchNo: 'B', receivedDate: '2026-08-06' }),
+      batch({ internalBatchNo: 'C', receivedDate: '2026-08-01' }),
+    ], 'receivedDate', 'asc')
+    expect(out.map(b => b.internalBatchNo)).toEqual(['C', 'B', 'A'])
+  })
+
+  it('przy równej dacie rosnąco pierwszy jest niższy numer', () => {
+    const out = sortDeliveries([
+      batch({ internalBatchNo: '464', internalBatchSeq: 464, receivedDate: '2026-08-06' }),
+      batch({ internalBatchNo: '463', internalBatchSeq: 463, receivedDate: '2026-08-06' }),
+    ], 'receivedDate', 'asc')
+    expect(out.map(b => b.internalBatchNo)).toEqual(['463', '464'])
+  })
+})
+
+// ─── Surowiec BEZ rozbioru: stan mieszka w meat_stock ─────────────────────────
+
+describe('resolveDelivery — filet i mięso z/s (bez rozbioru)', () => {
+  const BS = { requiresDeboning: false }
+  // Realny obraz z produkcji: 465 przyjęty dziś i nietknięty, 446 napoczęty
+  // z rezerwacją planu, 435 zszedł do masowania (lot wypada z /wz/stock/raw).
+  const meatStock: MeatStockMap = {
+    '465': { kgAvailable: 816, kgReserved: 0,   kgInitial: 816 },
+    '446': { kgAvailable: 140, kgReserved: 160, kgInitial: 300 },
+  }
+
+  it('świeży filet jest NA MAGAZYNIE, nie zużyty — mimo kg_available=0 na dostawie', () => {
+    const r = resolveDelivery(
+      batch({ internalBatchNo: '465', internalBatchSeq: 465, kgReceived: 816, kgAvailable: 0 }),
+      { ...BS, meatStock })
+    expect(r.status).toBe('awaiting')
+    expect(r.kgLeft).toBe(816)
+  })
+
+  it('napoczęty lot pokazuje wolne kg i rezerwację planu', () => {
+    const r = resolveDelivery(
+      batch({ internalBatchNo: '446', internalBatchSeq: 446, kgReceived: 300, kgAvailable: 0 }),
+      { ...BS, meatStock })
+    expect(r.status).toBe('in_progress')
+    expect(r.kgLeft).toBe(140)
+    expect(r.kgReserved).toBe(160)
+  })
+
+  it('brak lotu w magazynie = wszystko zeszło do masowania', () => {
+    const r = resolveDelivery(
+      batch({ internalBatchNo: '435', internalBatchSeq: 435, kgReceived: 210, kgAvailable: 0 }),
+      { ...BS, meatStock })
+    expect(r.status).toBe('processed')
+    expect(r.kgLeft).toBe(0)
+  })
+
+  it('nigdy nie jest „nietknięta" — backend i tak blokuje edycję (jest wpis w meat_stock)', () => {
+    const r = resolveDelivery(
+      batch({ internalBatchNo: '465', internalBatchSeq: 465, kgReceived: 816, kgAvailable: 0 }),
+      { ...BS, meatStock })
+    expect(r.untouched).toBe(false)
+  })
+
+  it('sekcja W obiegu zawiera filet, który jeszcze leży', () => {
+    const { live, history } = splitDeliveries([
+      batch({ internalBatchNo: '465', internalBatchSeq: 465, kgReceived: 816, kgAvailable: 0 }),
+      batch({ internalBatchNo: '435', internalBatchSeq: 435, kgReceived: 210, kgAvailable: 0 }),
+    ], { ...BS, meatStock })
+    expect(live.map(b => b.internalBatchNo)).toEqual(['465'])
+    expect(history.map(b => b.internalBatchNo)).toEqual(['435'])
+  })
+
+  it('podsumowanie obiegu liczy kg z magazynu mięsa, nie z dostawy', () => {
+    const out = liveSummary([
+      batch({ internalBatchNo: '465', internalBatchSeq: 465, kgReceived: 816, kgAvailable: 0 }),
+      batch({ internalBatchNo: '446', internalBatchSeq: 446, kgReceived: 300, kgAvailable: 0 }),
+    ], { ...BS, meatStock })
+    expect(out).toEqual({ count: 2, kg: 956 })
+  })
+
+  it('anulowana bez rozbioru nadal jest anulowana', () => {
+    const r = resolveDelivery(
+      batch({ internalBatchNo: ANUL, internalBatchSeq: 432, status: 'cancelled' }),
+      { ...BS, meatStock })
+    expect(r.status).toBe('cancelled')
+  })
+})
+
+describe('resolveDelivery — ćwiartka (z rozbiorem)', () => {
+  it('czyta stan wprost z dostawy i nie zagląda do magazynu mięsa', () => {
+    const r = resolveDelivery(
+      batch({ internalBatchNo: '464', internalBatchSeq: 464, kgReceived: 4305, kgAvailable: 1485 }),
+      { requiresDeboning: true, meatStock: { '464': { kgAvailable: 999, kgReserved: 0, kgInitial: 999 } } })
+    expect(r.kgLeft).toBe(1485)
+    expect(r.status).toBe('in_progress')
+  })
+
+  it('nietknięta ćwiartka jest edytowalna', () => {
+    const r = resolveDelivery(batch({ kgReceived: 1000, kgAvailable: 1000 }), CWIARTKA)
+    expect(r.untouched).toBe(true)
+    expect(r.status).toBe('awaiting')
+  })
+})
+
+describe('sortDeliveries — kolumna „Zostało kg" bez rozbioru', () => {
+  it('sortuje po stanie z magazynu mięsa, nie po zerze z dostawy', () => {
+    const meatStock: MeatStockMap = {
+      '465': { kgAvailable: 816, kgReserved: 0, kgInitial: 816 },
+      '446': { kgAvailable: 140, kgReserved: 0, kgInitial: 300 },
+    }
+    const rows = [
+      batch({ internalBatchNo: '446', internalBatchSeq: 446, kgAvailable: 0 }),
+      batch({ internalBatchNo: '465', internalBatchSeq: 465, kgAvailable: 0 }),
+    ]
+    const out = sortDeliveries(rows, 'kgAvailable', 'desc', { requiresDeboning: false, meatStock })
+    expect(out.map(b => b.internalBatchNo)).toEqual(['465', '446'])
   })
 })

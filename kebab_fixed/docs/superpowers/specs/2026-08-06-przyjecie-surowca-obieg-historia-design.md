@@ -66,11 +66,42 @@ wszystkich frakcji w perspektywie produkcji. Sekcja „W obiegu" pokazuje
 niedomkniętą **dostawę** — z ceną, fakturą i numerem partii dostawcy, czyli
 w perspektywie zakupowej.
 
+### Gdzie naprawdę leży stan dostawy
+
+**Korekta z 2026-08-06 (po przeglądzie kodu).** Pierwotna wersja tego spec
+zakładała, że `raw_batches.kg_available` opisuje stan każdej dostawy. To jest
+prawdą tylko dla ćwiartki.
+
+Dla surowca przyjmowanego **bez rozbioru** (filet, mięso z/s z dostawy
+zewnętrznej) `create_batch` w `raw_batches_service.py` zeruje `kg_available`
+**już przy przyjęciu** i przerzuca całość do `meat_stock` pod tym samym
+numerem partii. Czytanie stanu z dostawy pokazywałoby więc filet przyjęty
+przed godziną jako ZUŻYTY, a sekcja „W obiegu" dla tych rodzajów byłaby
+pusta z definicji (potwierdzone na produkcji: filet 465, 816 kg, przyjęty
+2026-08-06, `kg_available = 0`, całość leży w `meat_stock`).
+
+Stan rozwiązuje `resolveDelivery(batch, { requiresDeboning, meatStock })`:
+
+| Rodzaj | Źródło „ile zostało" |
+|---|---|
+| Ćwiartka | `raw_batches.kg_available` (maleje przy rozbiorze) |
+| Filet, mięso z/s | `meat_stock.kg_available` po numerze partii; brak lotu = 0 |
+
+Mapa lotów pochodzi z `GET /wz/stock/raw` (to samo źródło co Magazyn surowca
+i picker WZ) — zero zmian w backendzie. Endpoint zwraca tylko loty z dodatnim
+stanem, więc brak klucza w mapie znaczy „wszystko zeszło do masowania".
+`meat_stock.kg_reserved` NIE jest odjęte od stanu — pokazujemy je osobno,
+inaczej planista liczyłby kilogramy już zaklepane przez czyjś plan.
+
+Dostawa bez rozbioru nigdy nie jest edytowalna: `_batch_used_reason_cx`
+odrzuca (409) każdą partię mającą wiersz w `meat_stock`, a ten powstaje przy
+przyjęciu. Przyciski edycji i usunięcia nie mogą się tam pokazywać.
+
 ### Podział wierszy
 
 | Sekcja | Warunek |
 |---|---|
-| W obiegu | `status !== 'cancelled'` **i** `kgAvailable > 0` |
+| W obiegu | `status !== 'cancelled'` **i** `resolveDelivery(...).kgLeft > 0` |
 | Historia dostaw | wszystko pozostałe (zużyte + anulowane) |
 
 Sekcja „W obiegu" przy pustym zbiorze pokazuje stan pusty: „Wszystkie dostawy
@@ -109,6 +140,10 @@ z istniejącym systemem znaczników.
 Świadomie **nie** rozróżniamy, czy partia zeszła na rozbiór, czy została
 sprzedana WZ jako ćwiartka. Wymagałoby to zapytania o ruchy magazynowe dla
 każdego wiersza; ta informacja jest w kartotece partii po kliknięciu.
+
+Statusy kończą się na „zeszło z magazynu". Dalszy los surowca (zamasowane →
+w produkcji → wyrób gotowy) to osobny łańcuch, opisany w kartotece partii —
+patrz „Poza zakresem".
 
 ### Znacznik ważności
 
@@ -192,6 +227,10 @@ Bez testów E2E — zmiana jest prezentacyjna i nie dotyka ścieżek zapisu.
 
 - Rozróżnienie „rozebrana" vs „sprzedana WZ" (wymaga ruchów magazynowych
   per wiersz; jest w kartotece partii).
+- Status dalszego łańcucha per dostawa („zamasowane", „w produkcji",
+  „wyprodukowane" z kilogramami na każdym etapie). Wymaga złączenia
+  `mixing_orders` / `seasoned_batches` / `production_sessions` po numerze
+  partii, czyli nowego endpointu — osobna iteracja.
 - Sumy miesięczne / porównania okresów — to widok raportowy, miejsce
   w Analityce.
 - Zmiany w Magazynie surowca i na innych stronach używających

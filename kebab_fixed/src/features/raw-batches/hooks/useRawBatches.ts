@@ -145,7 +145,10 @@ export function checkEditLock(batch: RawBatch): EditLockResult {
   if (batch.status === 'cancelled') return {
     locked: true, reason: 'cancelled', message: 'Partia anulowana — nie można edytować',
   }
-  if (Number(batch.kgUsed) > 0) return {
+  // NIE po kgUsed: backend nie ma kolumny kg_used, więc mapper w lib/api.ts
+  // ustawia tam 0 dla KAŻDEJ partii i ten warunek nigdy by nie zadziałał.
+  // Zużycie liczymy z różnicy — tak samo jak tabela dostaw.
+  if (Number(batch.kgAvailable) < Number(batch.kgReceived)) return {
     locked: true, reason: 'used', message: 'Partia jest lub była używana w rozbiorze',
   }
   if (batch.isInUse) return {
