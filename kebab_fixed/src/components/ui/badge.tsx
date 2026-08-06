@@ -105,6 +105,16 @@ const STATUS_META: Record<string, { label: string; tone: StatusTone; Icon?: Stat
   PARTIALLY_USED:  { label: 'CZĘŚCIOWO', tone: 'amber' },
   DEPLETED:        { label: 'ZUŻYTA',    tone: 'gray'  },
   QUARANTINE:      { label: 'KWARANTANNA', tone: 'red' },
+  // — cykl życia DOSTAWY (Przyjęcie surowca) —
+  // Ten sam status ma inną nazwę zależnie od tego, czy surowiec idzie na
+  // rozbiór (ćwiartka), czy prosto na magazyn mięsa (filet, mięso z/s).
+  delivery_awaiting_deboning:    { label: 'DO ROZBIORU',      tone: 'blue'  },
+  delivery_awaiting_stock:       { label: 'NA MAGAZYNIE',     tone: 'blue'  },
+  delivery_in_progress_deboning: { label: 'W ROZBIORZE',      tone: 'amber' },
+  delivery_in_progress_stock:    { label: 'CZĘŚCIOWO ZUŻYTA', tone: 'amber' },
+  delivery_processed_deboning:   { label: 'ROZEBRANA',        tone: 'gray'  },
+  delivery_processed_stock:      { label: 'ZUŻYTA',           tone: 'gray'  },
+  delivery_cancelled:            { label: 'ANULOWANA',        tone: 'red'   },
   // — zlecenia masowania / linie produkcji (PL + ikona) —
   planned:      { label: 'Zaplanowane', tone: 'gray',  Icon: CircleDashed },
   in_progress:  { label: 'W toku',      tone: 'amber', Icon: Clock3 },
