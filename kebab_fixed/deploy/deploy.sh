@@ -61,11 +61,14 @@ guard() {
   fi
 
   # 3. CI zielone dla TEGO commita.
+  #    Przez API, nie `gh run list --commit` — tej flagi nie ma w gh 2.4.0
+  #    (wersja z repo Ubuntu), a wtedy bramka blokowałaby KAŻDY deploy.
   command -v gh >/dev/null 2>&1 || { echo "✗ Brak gh CLI — nie mogę sprawdzić CI" >&2; exit 1; }
-  local concl
-  concl="$(gh run list --commit "$sha" --limit 20 \
-             --json conclusion,status --jq \
-             '[.[] | select(.status=="completed")] | if length==0 then "brak" else ([.[].conclusion] | unique | join(",")) end' \
+  local slug concl
+  slug="$(git remote get-url origin | sed -E 's#(git@|https://)github\.com[:/]##; s#\.git$##')"
+  concl="$(gh api "repos/$slug/commits/$sha/check-runs" --jq \
+             '[.check_runs[] | select(.status=="completed")]
+              | if length==0 then "brak" else ([.[].conclusion] | unique | join(",")) end' \
            2>/dev/null || echo "blad")"
   case "$concl" in
     success)
