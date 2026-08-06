@@ -18,6 +18,7 @@ import { useRawBatches, useCreateRawBatch } from '../hooks/useRawBatches'
 import { RawBatchesTable }    from '../components/RawBatchesTable'
 import { CreateRawBatchModal } from '../components/CreateRawBatchModal'
 import { EditRawBatchModal, type EditRawBatchFormData } from '../components/EditRawBatchModal'
+import { splitDeliveries, liveSummary, pluralDostawy } from '../deliveryView'
 import { rawBatchesApi } from '../api'
 import { fmtKg, fmtDatePl, fmtPln } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -53,6 +54,11 @@ export function RawBatchesPage() {
     () => batches.filter((b: any) => (b.materialTypeId || 'mat-cwiartka') === matId),
     [batches, matId],
   )
+
+  // Dwie perspektywy tej samej listy: co jeszcze leży w chłodni (W obiegu)
+  // i co już rozliczone (Historia). Alarmy terminów żyją tylko w pierwszej.
+  const { live, history } = useMemo(() => splitDeliveries(matBatches), [matBatches])
+  const summary = useMemo(() => liveSummary(live), [live])
 
   // ── Edit state ─────────────────────────────────────────────────────────────
   const [editBatch,   setEditBatch]   = useState<RawBatch | null>(null)
@@ -196,12 +202,51 @@ export function RawBatchesPage() {
 
       <Separator />
 
-      {/* Tabela */}
-      <Card>
-        <CardContent className="p-0">
-          <RawBatchesTable batches={matBatches} loading={loading} onEdit={handleEditOpen} onCancel={handleCancelOpen} />
-        </CardContent>
-      </Card>
+      {/* Sekcja 1 — dostawy z resztą surowca */}
+      <div className="space-y-2">
+        <div className="flex items-baseline justify-between gap-3">
+          <CardTitle className="text-xs uppercase tracking-[0.08em] text-ink-2">W obiegu</CardTitle>
+          <CardDescription className="text-xs tabular-nums">
+            {summary.count} {pluralDostawy(summary.count)} · {fmtKg(summary.kg)} kg
+          </CardDescription>
+        </div>
+        <Card>
+          <CardContent className="p-0">
+            <RawBatchesTable
+              batches={live}
+              loading={loading}
+              variant="live"
+              requiresDeboning={selMat?.requiresDeboning ?? true}
+              emptyTitle="Brak surowca w obiegu"
+              emptyHint={`Wszystkie dostawy (${selMat?.name ?? 'surowiec'}) są rozliczone — historia poniżej.`}
+              onEdit={handleEditOpen}
+              onCancel={handleCancelOpen}
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Sekcja 2 — zamknięta historia, bez alarmów terminów */}
+      <div className="space-y-2">
+        <div className="flex items-baseline justify-between gap-3">
+          <CardTitle className="text-xs uppercase tracking-[0.08em] text-ink-2">Historia dostaw</CardTitle>
+          <CardDescription className="text-xs tabular-nums">
+            {history.length} {pluralDostawy(history.length)}
+          </CardDescription>
+        </div>
+        <Card>
+          <CardContent className="p-0">
+            <RawBatchesTable
+              batches={history}
+              loading={loading}
+              variant="history"
+              requiresDeboning={selMat?.requiresDeboning ?? true}
+              emptyTitle="Brak zamkniętych dostaw"
+              emptyHint="Rozliczone i anulowane przyjęcia pojawią się tutaj."
+            />
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Modal formularza */}
       <CreateRawBatchModal
