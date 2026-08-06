@@ -2,10 +2,31 @@ name: CI
 
 on:
   push:
-    branches: [main, "audyt-fix-**"]
+    # Wszystkie gałęzie — wcześniej CI startowało tylko na main i audyt-fix-**,
+    # więc praca na feat/* nie była sprawdzana ani razu przed wdrożeniem.
+    branches: ["**"]
   pull_request:
 
 jobs:
+  # Bramka frontendu: typy + testy jednostkowe + build produkcyjny.
+  # To są dokładnie te komendy, na których opiera się weryfikacja przy pracy
+  # lokalnej — do 2026-08-06 nie było ich w CI w ogóle.
+  frontend-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Typy (tsc --noEmit)
+        run: npx tsc --noEmit
+      - name: Testy jednostkowe (vitest)
+        run: npm test
+      - name: Build produkcyjny
+        run: npm run build
+
   backend-tests:
     runs-on: ubuntu-latest
     defaults:
