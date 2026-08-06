@@ -240,6 +240,44 @@ export function deriveRawBatchStatus(
   return 'active'
 }
 
+/**
+ * DeliveryStatus — status CYKLU ŻYCIA DOSTAWY (nie stanu HACCP).
+ *
+ * Odpowiada na pytanie „co się stało z tą dostawą", a nie „czy nadaje się
+ * do produkcji" (od tego jest deriveRawBatchStatus, którego NIE zastępuje —
+ * używa go Dashboard i widoki magazynowe).
+ *
+ *   awaiting    — nietknięta, czeka (ćwiartka: na rozbiór; reszta: leży na magazynie)
+ *   in_progress — napoczęta, część już zeszła
+ *   processed   — rozliczona, stan zerowy
+ *   cancelled   — anulowane przyjęcie (soft-delete)
+ */
+export type DeliveryStatus = 'cancelled' | 'awaiting' | 'in_progress' | 'processed'
+
+/**
+ * deriveDeliveryStatus — status dostawy wyliczony z danych, bez pola w bazie.
+ *
+ * Kolejność rozstrzygania jest istotna: anulowanie wygrywa ze wszystkim
+ * (anulowana dostawa z resztą kg to sytuacja do wyjaśnienia, nie „w obiegu"),
+ * potem stan zerowy, potem napoczęcie.
+ *
+ * Kilogramy przychodzą z backendu jako stringi (psycopg2 numeric) — stąd Number().
+ */
+export function deriveDeliveryStatus(batch: {
+  status?:     string
+  kgReceived:  number | string
+  kgAvailable: number | string
+}): DeliveryStatus {
+  if (batch.status === 'cancelled') return 'cancelled'
+
+  const available = Number(batch.kgAvailable)
+  const received  = Number(batch.kgReceived)
+
+  if (available <= 0)       return 'processed'
+  if (available < received) return 'in_progress'
+  return 'awaiting'
+}
+
 // ─── 5. HACCP GUARDS — reusable, backend-ready ───────────────────────────────
 //
 // Te funkcje są projektowane tak, żeby można je było 1:1 przenieść na backend

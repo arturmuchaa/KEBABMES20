@@ -11,6 +11,7 @@ import {
   getExpiryStatus,
   checkUsability,
   deriveRawBatchStatus,
+  deriveDeliveryStatus,
   isExpired,
   isActiveForProduction,
   isHighPriority,
@@ -189,5 +190,47 @@ describe('fefoLotCompare — loty bez internalBatchSeq', () => {
 
   it('znosi braki pól (undefined puste najpierw)', () => {
     expect(fefoLotCompare({}, { expiryDate: '2026-07-20' })).toBeLessThan(0)
+  })
+})
+
+describe('deriveDeliveryStatus', () => {
+  const d = (over: Partial<{ status: string; kgReceived: number; kgAvailable: number }>) =>
+    ({ kgReceived: 1000, kgAvailable: 1000, ...over })
+
+  it('nietknieta dostawa czeka na przetworzenie', () => {
+    expect(deriveDeliveryStatus(d({}))).toBe('awaiting')
+  })
+
+  it('napoczeta dostawa jest w toku', () => {
+    expect(deriveDeliveryStatus(d({ kgAvailable: 400 }))).toBe('in_progress')
+  })
+
+  it('zerowy stan = przetworzona', () => {
+    expect(deriveDeliveryStatus(d({ kgAvailable: 0 }))).toBe('processed')
+  })
+
+  it('ujemny stan (korekta w dol) tez liczy sie jako przetworzona', () => {
+    expect(deriveDeliveryStatus(d({ kgAvailable: -5 }))).toBe('processed')
+  })
+
+  it('stan wyzszy niz przyjeto (korekta w gore) to nadal awaiting', () => {
+    expect(deriveDeliveryStatus(d({ kgAvailable: 1200 }))).toBe('awaiting')
+  })
+
+  it('anulowana wygrywa nawet gdy zostal surowiec', () => {
+    expect(deriveDeliveryStatus(d({ status: 'cancelled', kgAvailable: 800 }))).toBe('cancelled')
+  })
+
+  it('anulowana wygrywa nawet gdy stan zerowy', () => {
+    expect(deriveDeliveryStatus(d({ status: 'cancelled', kgAvailable: 0 }))).toBe('cancelled')
+  })
+
+  it('przyjmuje stringi z backendu (numeric psycopg2)', () => {
+    expect(deriveDeliveryStatus({ kgReceived: '1000.000', kgAvailable: '0.000' })).toBe('processed')
+    expect(deriveDeliveryStatus({ kgReceived: '1000.000', kgAvailable: '250.500' })).toBe('in_progress')
+  })
+
+  it('status inny niz cancelled nie zmienia wyniku', () => {
+    expect(deriveDeliveryStatus(d({ status: 'active', kgAvailable: 0 }))).toBe('processed')
   })
 })
