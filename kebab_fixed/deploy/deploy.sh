@@ -75,14 +75,14 @@ guard() {
       echo "✓ CI zielone dla $(git rev-parse --short "$sha")" ;;
     brak)
       echo "✗ CI jeszcze nie zakończone dla $sha — poczekaj na wynik" >&2
-      echo "  podgląd: gh run list --commit $sha" >&2
+      echo "  podgląd: https://github.com/$slug/commit/$sha/checks" >&2
       exit 1 ;;
     blad)
       echo "✗ Nie udało się odpytać GitHub Actions (gh auth status?)" >&2
       exit 1 ;;
     *)
       echo "✗ CI NIE jest zielone dla $sha (wynik: $concl)" >&2
-      echo "  podgląd: gh run list --commit $sha" >&2
+      echo "  podgląd: https://github.com/$slug/commit/$sha/checks" >&2
       echo "  (awaryjnie: KEBAB_FORCE_DEPLOY=1 $0 $TARGET)" >&2
       exit 1 ;;
   esac
