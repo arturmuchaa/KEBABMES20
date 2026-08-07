@@ -950,6 +950,17 @@ _DDL: list[str] = [
     "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS hours_total NUMERIC(10,2) DEFAULT 0",
     "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS rate_per_hour NUMERIC(10,2) DEFAULT 0",
     "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS basis TEXT DEFAULT 'kg'",
+
+    # ── Premia niedzielna (godzinowi) ──
+    # Dodatek do stawki liczony WYŁĄCZNIE za godziny przepracowane
+    # w niedzielę. Osobny przełącznik, bo kwotę chcemy zachować także wtedy,
+    # gdy premia jest chwilowo wyłączona.
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS sunday_bonus_enabled BOOLEAN DEFAULT false",
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS sunday_bonus_per_hour NUMERIC(10,2) DEFAULT 0",
+    # Na rozliczeniu zapisujemy migawkę — pasek ma pokazać, ile godzin
+    # niedzielnych i po jakim dodatku poszło, nawet gdy stawka się potem zmieni.
+    "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS sunday_hours NUMERIC(10,2) DEFAULT 0",
+    "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS sunday_bonus_per_hour NUMERIC(10,2) DEFAULT 0",
 ]
 
 

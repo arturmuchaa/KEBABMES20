@@ -8,6 +8,11 @@ class WorkerCreate(BaseModel):
     role: str = "WORKER_PRODUCTION"
     pin: str = ""
     rate_per_kg: float = 0.0
+    #: Podstawa pracowników ogólnych — rozliczają się z godzin, nie z kg.
+    rate_per_hour: float = 0.0
+    #: Dodatek do stawki za godziny przepracowane w NIEDZIELĘ.
+    sunday_bonus_enabled: bool = False
+    sunday_bonus_per_hour: float = 0.0
     contract_type: str = "zlecenie"
     employer_cost_amount: float = 0.0
     departments: List[str] = []
@@ -21,6 +26,9 @@ class WorkerUpdate(BaseModel):
     role: Optional[str] = None
     pin: Optional[str] = None
     rate_per_kg: Optional[float] = None
+    rate_per_hour: Optional[float] = None
+    sunday_bonus_enabled: Optional[bool] = None
+    sunday_bonus_per_hour: Optional[float] = None
     contract_type: Optional[str] = None
     employer_cost_amount: Optional[float] = None
     active: Optional[bool] = None

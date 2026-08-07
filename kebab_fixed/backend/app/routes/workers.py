@@ -1,12 +1,14 @@
 """Worker and payroll endpoints."""
 from fastapi import APIRouter, Query
 
+from app.models.work_hours import StampDto, WorkHoursDto
 from app.models.workers import (
     WorkerCreate,
     WorkerUpdate,
     CreateSettlementDto,
     KgAdjustmentDto,
 )
+from app.services import work_hours_service as hours_svc
 from app.services import workers_service as svc
 
 router = APIRouter(tags=["workers"])
@@ -67,3 +69,40 @@ def list_settlements(worker_id: str = Query("", alias="workerId")):
 @router.get("/api/payroll/settlements/{sid}")
 def get_settlement(sid: str):
     return svc.get_settlement(sid)
+
+
+# --- Godziny pracowników ogólnych ---
+
+@router.get("/api/payroll/hours")
+def list_hours(
+    date_from: str = Query("", alias="dateFrom"),
+    date_to: str = Query("", alias="dateTo"),
+):
+    return hours_svc.list_hours(date_from, date_to)
+
+
+@router.put("/api/payroll/hours")
+def upsert_hours(dto: WorkHoursDto):
+    return hours_svc.upsert_hours(dto)
+
+
+@router.delete("/api/payroll/hours")
+def delete_hours(
+    worker_id: str = Query(..., alias="workerId"),
+    work_date: str = Query(..., alias="workDate"),
+):
+    return hours_svc.delete_hours(worker_id, work_date)
+
+
+@router.post("/api/payroll/hours/stamp")
+def stamp_hours(dto: StampDto):
+    return hours_svc.stamp_hours(dto)
+
+
+@router.get("/api/payroll/pending-kg-days")
+def pending_kg_days(
+    worker_id: str = Query(..., alias="workerId"),
+    date_from: str = Query("", alias="dateFrom"),
+    date_to: str = Query("", alias="dateTo"),
+):
+    return svc.pending_kg_days(worker_id, date_from, date_to)

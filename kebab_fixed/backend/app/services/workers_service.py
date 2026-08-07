@@ -46,8 +46,9 @@ def create_worker(dto: WorkerCreate) -> Dict:
             """
             INSERT INTO workers
                 (id, name, role, pin, pin_hash, departments, active, rate_per_kg,
+                 rate_per_hour, sunday_bonus_enabled, sunday_bonus_per_hour,
                  contract_type, employer_cost_amount, crew_size, created_at)
-            VALUES (%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING *
             """,
             (
@@ -57,6 +58,9 @@ def create_worker(dto: WorkerCreate) -> Dict:
                 pin_hash,
                 departments_json,
                 dto.rate_per_kg,
+                dto.rate_per_hour,
+                dto.sunday_bonus_enabled,
+                dto.sunday_bonus_per_hour,
                 dto.contract_type,
                 dto.employer_cost_amount,
                 max(1, int(dto.crew_size or 1)),
@@ -91,6 +95,15 @@ def update_worker(worker_id: str, dto: WorkerUpdate) -> Dict:
         if dto.rate_per_kg is not None:
             fields.append("rate_per_kg=%s")
             vals.append(dto.rate_per_kg)
+        if dto.rate_per_hour is not None:
+            fields.append("rate_per_hour=%s")
+            vals.append(dto.rate_per_hour)
+        if dto.sunday_bonus_enabled is not None:
+            fields.append("sunday_bonus_enabled=%s")
+            vals.append(dto.sunday_bonus_enabled)
+        if dto.sunday_bonus_per_hour is not None:
+            fields.append("sunday_bonus_per_hour=%s")
+            vals.append(dto.sunday_bonus_per_hour)
         if dto.crew_size is not None:
             fields.append("crew_size=%s")
             vals.append(max(1, int(dto.crew_size)))
@@ -239,7 +252,60 @@ def get_worker_days(worker_id: str, date_from: str, date_to: str) -> List[Dict]:
             worker_id, date_from, date_to, days, settled_dates
         )
 
+    if "GENERAL" in role:
+        # Podstawą jest czas pracy, nie kilogramy — korekt kg tu nie ma
+        # z definicji (_apply_kg_adjustments dotyczy akordu).
+        rows = query_all(
+            """
+            SELECT work_date::text AS work_date, status, time_from, time_to, hours
+            FROM worker_hours
+            WHERE worker_id=%s AND work_date BETWEEN %s AND %s
+            ORDER BY work_date
+            """,
+            (worker_id, date_from, date_to),
+        )
+        return [
+            {
+                "workDate": r["work_date"],
+                "status": r["status"],
+                "timeFrom": r["time_from"] or "",
+                "timeTo": r["time_to"] or "",
+                "hours": float(r["hours"]) if r["hours"] is not None else 0.0,
+                # Zmiana bez godziny końca — do rozliczenia NIE wolno jej brać,
+                # bo weszłaby jako 0 h.
+                "open": r["status"] == "work" and not r["time_to"],
+                "settled": r["work_date"] in settled_dates,
+            }
+            for r in rows
+        ]
+
     return []
+
+
+def pending_kg_days(worker_id: str, date_from: str, date_to: str) -> Dict:
+    """Nierozliczone dni AKORDOWE pracownika — dla ogólnych to sygnał, że
+    ktoś przeszedł z rozbioru na godziny i zostawił niezapłacone kilogramy.
+    Podstawa rozliczenia idzie za bieżącą rolą, więc bez tej informacji
+    takie dni zniknęłyby z ekranu bez śladu."""
+    row = query_one(
+        """
+        SELECT COUNT(*) AS days, COALESCE(SUM(d.kg), 0) AS kg
+        FROM (
+            SELECT DATE(created_at AT TIME ZONE 'Europe/Warsaw') AS work_date,
+                   SUM(kg_quarter) AS kg
+            FROM deboning_entries
+            WHERE worker_id=%s
+              AND COALESCE(status, 'complete') = 'complete'
+              AND DATE(created_at AT TIME ZONE 'Europe/Warsaw') BETWEEN %s AND %s
+            GROUP BY 1
+        ) d
+        LEFT JOIN settled_days s
+               ON s.worker_id = %s AND s.work_date = d.work_date
+        WHERE s.settlement_id IS NULL
+        """,
+        (worker_id, date_from, date_to, worker_id),
+    )
+    return {"days": int(row["days"] or 0), "kg": float(row["kg"] or 0)}
 
 
 # ── Korekty kg do płacy ───────────────────────────────────────────────
