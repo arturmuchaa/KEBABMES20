@@ -18,6 +18,26 @@ describe('parseTime — biuro wpisuje w pośpiechu', () => {
   it('odrzuca śmieci', () => {
     for (const bad of ['', '25:00', '6:61', 'abc']) expect(parseTime(bad)).toBeNull()
   })
+
+  // Dwukropek wymaga Shift, więc połówki wpisuje się przecinkiem.
+  it('jedna cyfra po przecinku to UŁAMEK godziny', () => {
+    expect(parseTime('8,5')).toBe(8 * 60 + 30)
+    expect(parseTime('8.5')).toBe(8 * 60 + 30)
+    expect(parseTime('6,5')).toBe(6 * 60 + 30)
+  })
+
+  // „8,30" to naturalny zapis godziny 8:30 — potraktowanie tego jako 0,30 h
+  // (8:18) cicho zaniżyłoby wypłatę, więc dwie cyfry czytamy jako MINUTY.
+  it('dwie cyfry po przecinku to MINUTY', () => {
+    expect(parseTime('8,30')).toBe(8 * 60 + 30)
+    expect(parseTime('14,45')).toBe(14 * 60 + 45)
+    expect(parseTime('6,05')).toBe(6 * 60 + 5)
+  })
+
+  it('minuty poza zakresem odrzucone', () => {
+    expect(parseTime('8,60')).toBeNull()
+    expect(parseTime('8,99')).toBeNull()
+  })
 })
 
 describe('computeHours', () => {
