@@ -39,6 +39,7 @@ const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
   '/office/historia-masowania':    { title: 'Historia masowania',          description: 'Zlecenia masowania — produkt, kg, partia mięsa i uzysku' },
   '/office/historia-produkcji':    { title: 'Historia produkcji',          description: 'Linie produkcji — produkt, sztuki/kg, partia przyprawionego i zamówienie' },
   '/office/pracownicy':            { title: 'Pracownicy',                  description: 'Zarządzanie personelem' },
+  '/office/godziny':               { title: 'Godziny pracy',               description: 'Pracownicy ogólni · Tydzień · Stemple zbiorcze' },
   '/office/rozliczenia':           { title: 'Rozliczenia płac',            description: 'Akord · Tygodniówki · Paski wypłaty' },
   '/office/recall':                { title: 'Wycofanie (Recall)',          description: 'Śledzenie i wycofania' },
   '/office/uzytkownicy':           { title: 'Użytkownicy systemu',         description: 'Konta i uprawnienia' },

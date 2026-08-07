@@ -6,7 +6,7 @@ import {
   Layers, Users, UserCog, FlaskConical, ShoppingBag,
   BarChart2, CreditCard, Scissors, Monitor, Truck, Building2,
   FileText, X, Factory, ShoppingCart, Archive,
-  Banknote, Settings, QrCode, Calculator, GitBranch, History, ChevronRight, ShieldCheck, BarChart3,
+  Banknote, Clock, Settings, QrCode, Calculator, GitBranch, History, ChevronRight, ShieldCheck, BarChart3,
   ClipboardCheck, UserSearch, Boxes, Thermometer,
 } from 'lucide-react'
 
@@ -60,6 +60,7 @@ const NAV: NavSection[] = [
   ]},
   { heading: 'Administracja', items: [
     { to: '/office/pracownicy',  label: 'Pracownicy',    icon: <Users size={16} /> },
+    { to: '/office/godziny',     label: 'Godziny pracy', icon: <Clock size={16} /> },
     { to: '/office/rozliczenia', label: 'Rozliczenia',   icon: <Banknote size={16} /> },
     { to: '/office/samochody',   label: 'Samochody',     icon: <Truck size={16} /> },
     { to: '/office/uzytkownicy', label: 'Użytkownicy',   icon: <UserCog size={16} /> },

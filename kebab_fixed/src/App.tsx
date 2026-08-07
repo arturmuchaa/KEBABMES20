@@ -5,6 +5,7 @@ import { TabletLayout }  from '@/layouts/TabletLayout'
 import { DashboardPage } from '@/pages/office/DashboardPage'
 import { RawBatchesPage }from '@/pages/office/RawBatchesPage'
 import { WorkersPage }   from '@/pages/office/WorkersPage'
+import { WorkHoursPage } from '@/pages/office/WorkHoursPage'
 import { SuppliersPage } from '@/pages/office/SuppliersPage'
 import { ClientsPage }   from '@/pages/office/ClientsPage'
 import { RawStockPage }  from '@/pages/office/RawStockPage'
@@ -182,6 +183,7 @@ export default function App() {
         <Route path="planowanie-produkcji/nowy"       element={<ProductionPlanEditorPage />} />
         <Route path="planowanie-produkcji/:id/edytuj" element={<ProductionPlanEditorPage />} />
         <Route path="pracownicy"            element={<WorkersPage />} />
+        <Route path="godziny"               element={<WorkHoursPage />} />
         <Route path="rozliczenia"           element={<PayrollPage />} />
         <Route path="sledzenie"             element={<TracePage />} />
         <Route path="recall"                element={<RecallPage />} />

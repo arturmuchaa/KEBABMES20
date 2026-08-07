@@ -68,6 +68,44 @@ export function kgLabel(role: string): string {
   return 'Przepracowane kg'
 }
 
+/** Podstawa rozliczenia: kilogramy (akord) albo godziny (pracownicy ogólni). */
+export function basisOf(s: any): 'kg' | 'hours' {
+  return (s?.basis ?? 'kg') === 'hours' ? 'hours' : 'kg'
+}
+
+export function basisLabel(s: any): string {
+  return basisOf(s) === 'hours'
+    ? 'Przepracowane godziny'
+    : kgLabel(s?.worker_role ?? '')
+}
+
+export function basisUnit(s: any): string {
+  return basisOf(s) === 'hours' ? 'h' : 'kg'
+}
+
+export function basisTotal(s: any): number {
+  return basisOf(s) === 'hours' ? Number(s?.hours_total ?? 0) : Number(s?.kg_total ?? 0)
+}
+
+export function dayAmount(d: any, s: any): number {
+  return basisOf(s) === 'hours' ? Number(d?.hours ?? 0) : Number(d?.kg ?? 0)
+}
+
+/** Premia niedzielna dolicza się WYŁĄCZNIE do godzin z niedzieli. */
+export function dayEarning(d: any, s: any): number {
+  if (basisOf(s) !== 'hours') {
+    return Number(d?.kg ?? 0) * Number(s?.rate_per_kg ?? 0)
+  }
+  const bonus = d?.sunday ? Number(s?.sunday_bonus_per_hour ?? 0) : 0
+  return Number(d?.hours ?? 0) * (Number(s?.rate_per_hour ?? 0) + bonus)
+}
+
+/** Kwota samej premii niedzielnej na całym rozliczeniu (0 gdy nie dotyczy). */
+export function sundayBonusTotal(s: any): number {
+  if (basisOf(s) !== 'hours') return 0
+  return Number(s?.sunday_hours ?? 0) * Number(s?.sunday_bonus_per_hour ?? 0)
+}
+
 // ─── Pojedynczy pasek (komórka siatki 2×2, 148,5×105 mm) ──────
 
 function paySlipHtml(s: any | null): string {
@@ -75,7 +113,8 @@ function paySlipHtml(s: any | null): string {
     return `<div class="cell empty"><div class="empty-mark">— miejsce na kolejny pasek —</div></div>`
   }
   const role = s.worker_role ?? ''
-  const label = kgLabel(role)
+  const label = basisLabel(s)
+  const unit = basisUnit(s)
   const days: any[] = s.work_dates_detail ?? []
   const deducts: any[] = s.deductions ?? []
 
@@ -91,15 +130,15 @@ function paySlipHtml(s: any | null): string {
   // Przy dwóch kolumnach dni kolumna „Zarobek" nie zmieściłaby się czytelnie
   // — dla długich okresów zostają data i kg, kwoty są w podsumowaniu.
   const dayRow = (d: any) => split
-    ? `<tr><td class="nw">${esc(fmtDate(d.work_date, dateFmt))}</td><td class="r nw">${num(d.kg)}</td></tr>`
+    ? `<tr><td class="nw">${esc(fmtDate(d.work_date, dateFmt))}</td><td class="r nw">${num(dayAmount(d, s))}</td></tr>`
     : `<tr>
-      <td class="nw">${esc(fmtDate(d.work_date, dateFmt))}</td>
-      <td class="r nw">${num(d.kg)}</td>
-      <td class="r nw">${num(Number(d.kg) * Number(s.rate_per_kg))} zł</td>
+      <td class="nw">${esc(fmtDate(d.work_date, dateFmt))}${d.sunday ? ' *' : ''}</td>
+      <td class="r nw">${num(dayAmount(d, s))}</td>
+      <td class="r nw">${num(dayEarning(d, s))} zł</td>
     </tr>`
   const daysHead = split
-    ? `<tr><th>Dzień</th><th class="r">kg</th></tr>`
-    : `<tr><th>Dzień</th><th class="r">kg</th><th class="r">Zarobek</th></tr>`
+    ? `<tr><th>Dzień</th><th class="r">${esc(unit)}</th></tr>`
+    : `<tr><th>Dzień</th><th class="r">${esc(unit)}</th><th class="r">Zarobek</th></tr>`
   const daysTable = (rows: any[]) => `<table class="days">
       <thead>${daysHead}</thead>
       <tbody>${rows.map(dayRow).join('')}</tbody>
@@ -134,7 +173,8 @@ function paySlipHtml(s: any | null): string {
       <div class="col-days">${daysBlock}</div>
       <div class="col-sum">
         <table class="sum">
-          <tr><td class="lbl">${esc(label)}</td><td class="r bold nw">${num(s.kg_total)} kg</td></tr>
+          <tr><td class="lbl">${esc(label)}</td><td class="r bold nw">${num(basisTotal(s))} ${esc(unit)}</td></tr>
+          ${sundayBonusTotal(s) > 0 ? `<tr><td class="lbl">w tym niedziela ${num(s.sunday_hours)} h \u00d7 ${num(s.sunday_bonus_per_hour)} zł</td><td class="r nw">+ ${num(sundayBonusTotal(s))} zł</td></tr>` : ''}
           <tr><td class="lbl">Wynagrodzenie</td><td class="r bold nw">${num(s.gross_amount)} zł</td></tr>
           ${deductRows}
         </table>

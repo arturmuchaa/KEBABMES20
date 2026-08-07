@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { wzApi, clientsApi, settingsApi, downloadDocPdf, containersApi, WzDoc } from '@/lib/api'
+import { wzApi, clientsApi, settingsApi, downloadDocPdf, containersApi, payrollApi, WzDoc } from '@/lib/api'
 import { todayIso, cn } from '@/lib/utils'
 import { OTHER_CARRIER_KINDS } from '@/lib/containers'
 import { WzDocumentView, WzDocData } from '@/components/wz/WzDocumentView'
@@ -104,6 +104,12 @@ export function WzNewPage() {
   const [contDoc, setContDoc] = useState<any>(null)
   const [contBusy, setContBusy] = useState(false)
   const [contErr, setContErr] = useState('')
+  // Pracownicy kupują ćwiartkę/mięso na własny użytek; WZ zdejmuje to ze
+  // stanów, a potrącenie ma trafić prosto do ich rozliczenia. Dopasowanie
+  // robi backend: tylko pusty NIP i DOKŁADNA nazwa aktywnego pracownika.
+  const [empMatch, setEmpMatch]   = useState<{ workerId: string; name: string } | null>(null)
+  const [empDeduct, setEmpDeduct] = useState(true)
+  const [empAmount, setEmpAmount] = useState('')
   const [err, setErr]         = useState('')
   const [savedDoc, setSavedDoc] = useState<WzDoc | null>(null)
 
@@ -158,6 +164,30 @@ export function WzNewPage() {
   const totalValue = rows.reduce((s, r) => s + rowValue(r), 0)
   const totalKg = rows.reduce((s, r) => s + rowKg(r), 0)
   const overdrawn = rows.filter(r => rowQty(r) > r.available)
+
+  // Wykrycie pracownika po nazwie odbiorcy — tylko przy pustym NIP.
+  useEffect(() => {
+    const name = buyer.name.trim()
+    if (!name || buyer.nip.trim()) { setEmpMatch(null); return }
+    const t = setTimeout(() => {
+      payrollApi.matchWorker(name, buyer.nip)
+        .then(m => setEmpMatch(m ?? null))
+        .catch(() => setEmpMatch(null))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [buyer.name, buyer.nip])
+
+  // Kwota potrącenia = wartość dokumentu; przy EUR przeliczona kursem NBP,
+  // bo pracownikowi potrąca się złotówki.
+  const deductionDefault = useMemo(() => {
+    if (!valued) return 0
+    const v = currency === 'EUR' && eurRate > 0 ? totalValue * eurRate : totalValue
+    return Math.round(v * 100) / 100
+  }, [valued, currency, eurRate, totalValue])
+
+  useEffect(() => {
+    setEmpAmount(deductionDefault ? deductionDefault.toFixed(2) : '')
+  }, [deductionDefault])
   const sym = currency === 'EUR' ? '€' : 'zł'
 
   const pickClient = (id: string) => {
@@ -298,6 +328,9 @@ export function WzNewPage() {
         valued,
         currency,
         eurRate: currency === 'EUR' && eurRate > 0 ? eurRate : null,
+        payrollDeduction: empMatch && empDeduct && (parseFloat(empAmount) || 0) > 0
+          ? { workerId: empMatch.workerId, amount: parseFloat(empAmount) }
+          : null,
         place: place || undefined,
         issuedDate: issuedDate || undefined,
         releaseDate: releaseDate || undefined,
@@ -860,6 +893,31 @@ export function WzNewPage() {
               {valued && currency === 'EUR' && eurRate > 0 && totalValue > 0 && (
                 <div className="text-right text-[11px] text-muted-foreground -mt-2">
                   ≈ {(totalValue * eurRate).toFixed(2)} zł (kurs {eurRate.toFixed(4)})
+                </div>
+              )}
+              {/* Odbiorca rozpoznany jako pracownik: WZ zdejmuje towar ze
+                  stanu, a potrącenie idzie prosto do jego rozliczenia. */}
+              {empMatch && (
+                <div className={cn('rounded-md border px-3 py-2.5 text-[12px]',
+                  deductionDefault > 0
+                    ? 'border-primary/40 bg-primary/5'
+                    : 'border-amber-300 bg-amber-50 text-amber-900')}>
+                  {deductionDefault > 0 ? (
+                    <div className="flex items-center gap-2">
+                      <input type="checkbox" className="w-4 h-4 rounded cursor-pointer"
+                        checked={empDeduct} onChange={e => setEmpDeduct(e.target.checked)} />
+                      <span className="flex-1">
+                        Odbiorca to pracownik <strong>{empMatch.name}</strong> — dopisz potrącenie
+                      </span>
+                      <Input className="w-24 h-8 text-right" type="number" step="0.01" min="0"
+                        value={empAmount} onChange={e => setEmpAmount(e.target.value)}
+                        disabled={!empDeduct} />
+                      <span className="text-muted-foreground">zł</span>
+                    </div>
+                  ) : (
+                    <>Odbiorca to pracownik <strong>{empMatch.name}</strong>, ale WZ jest bez
+                    wyceny — uzupełnij ceny, żeby powstało potrącenie.</>
+                  )}
                 </div>
               )}
               {err && (
