@@ -176,6 +176,29 @@ def test_premia_niedzielna_tylko_za_niedziele(db):
     assert float(s["gross_amount"]) == 465.0
 
 
+def test_pasek_niesie_godziny_od_do(db):
+    """Pracownik ma widzieć na pasku, od której do której pracował —
+    sama suma godzin nie pozwala mu sprawdzić dnia."""
+    import json as _json
+    _gen(rate=25.0)
+    upsert_hours(WorkHoursDto(worker_id="wg", work_date="2026-08-03",
+                              time_from="6:00", time_to="14:30"))
+    upsert_hours(WorkHoursDto(worker_id="wg", work_date="2026-08-04",
+                              time_from="6,5", time_to="15:00"))
+    s = create_settlement(CreateSettlementDto(
+        worker_id="wg", date_from="2026-08-03", date_to="2026-08-09",
+        work_dates=["2026-08-03", "2026-08-04"],
+        hours_per_date={"2026-08-03": 8.5, "2026-08-04": 8.5},
+        rate_per_kg=0, rate_per_hour=25.0))
+
+    detail = s["work_dates_detail"]
+    if isinstance(detail, str):
+        detail = _json.loads(detail)
+    assert [d["time_from"] for d in detail] == ["6:00", "6:30"]
+    assert [d["time_to"] for d in detail] == ["14:30", "15:00"]
+    assert [d["hours"] for d in detail] == [8.5, 8.5]
+
+
 def test_premia_wylaczona_nie_dolicza_nic(db):
     """Kwota zostaje na kartotece, ale przełącznik rządzi."""
     _gen(rate=25.0, bonus=5.0, bonus_on=False)

@@ -157,7 +157,6 @@ export function WorkHoursPage() {
                       <th key={d} className={`px-2 py-2 text-xs font-semibold ${d === todayIso() ? 'bg-primary/5 text-primary' : ''}`}>
                         <div className="uppercase">{h.dow}</div>
                         <div className="text-muted-foreground font-normal">{h.day}</div>
-                        {isSunday(d) && <div className="text-[9px] text-amber-700 font-semibold">premia</div>}
                       </th>
                     )
                   })}
@@ -255,7 +254,9 @@ function HourCellEditor({ cell, onSave }: {
           bad ? 'text-red-600' : open ? 'text-amber-700' : 'text-muted-foreground'}`}>
           {bad ? 'błędna godzina' : open ? 'otwarty' : hours !== null ? `${nf.format(hours)} h` : ''}
         </span>
-        <button onClick={() => setMenu(m => !m)}
+        {/* tabIndex=-1: Tab z pola „do" ma iść wprost na następny dzień,
+            a nie zahaczać o menu znaczników (urlop itp.). */}
+        <button type="button" tabIndex={-1} onClick={() => setMenu(m => !m)}
           className="text-[10px] text-muted-foreground hover:text-primary px-1">•••</button>
       </div>
       {menu && (

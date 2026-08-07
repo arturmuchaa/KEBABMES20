@@ -214,6 +214,31 @@ describe('pasek godzinowy', () => {
   })
 })
 
+describe('godziny od-do na pasku', () => {
+  const zGodzinami = () => hourly({
+    hours_total: 17,
+    gross_amount: 425,
+    net_amount: 425,
+    work_dates_detail: [
+      { work_date: '2026-08-03', hours: 8.5, sunday: false, time_from: '6:00', time_to: '14:30' },
+      { work_date: '2026-08-04', hours: 8.5, sunday: false, time_from: '6:30', time_to: '15:00' },
+    ],
+  })
+
+  it('pasek pokazuje od ktorej do ktorej i ile godzin', () => {
+    const html = buildPaySlipsDocument([zGodzinami()])
+    expect(html).toContain('6:00–14:30')
+    expect(html).toContain('6:30–15:00')
+    expect(html).toContain('8,50')
+    expect(html).toContain('Godziny')
+  })
+
+  it('akord nie dostaje kolumny godzin', () => {
+    const html = buildPaySlipsDocument([sample()])
+    expect(html).not.toContain('Godziny')
+  })
+})
+
 describe('premia niedzielna na pasku', () => {
   const zBonusem = () => hourly({
     sunday_hours: 8,

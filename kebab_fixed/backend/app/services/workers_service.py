@@ -537,9 +537,23 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
             gross_amount = round(
                 hours_total * dto.rate_per_hour + sunday_hours * sunday_bonus, 2
             )
+            # Godziny od–do idą na pasek: pracownik musi móc sprawdzić dzień,
+            # a sama suma mu tego nie daje. Źródłem jest worker_hours, nie
+            # front — dokument ma odbijać to, co faktycznie zapisano.
+            shifts = {
+                str(r["work_date"]): r
+                for r in cx_query_all(
+                    conn,
+                    "SELECT work_date, time_from, time_to FROM worker_hours "
+                    "WHERE worker_id=%s AND work_date::text = ANY(%s)",
+                    (dto.worker_id, list(dto.work_dates)),
+                )
+            }
             work_dates_detail = json.dumps(
                 [{"work_date": d, "hours": dto.hours_per_date.get(d, 0),
-                  "sunday": _is_sunday(d)}
+                  "sunday": _is_sunday(d),
+                  "time_from": (shifts.get(d) or {}).get("time_from") or "",
+                  "time_to": (shifts.get(d) or {}).get("time_to") or ""}
                  for d in sorted(dto.work_dates)]
             )
         else:

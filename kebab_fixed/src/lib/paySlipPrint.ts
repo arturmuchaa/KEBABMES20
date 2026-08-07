@@ -129,16 +129,23 @@ function paySlipHtml(s: any | null): string {
 
   // Przy dwóch kolumnach dni kolumna „Zarobek" nie zmieściłaby się czytelnie
   // — dla długich okresów zostają data i kg, kwoty są w podsumowaniu.
+  // Przy podstawie godzinowej pracownik musi widzieć, OD KTÓREJ DO KTÓREJ
+  // pracował — sama suma nie pozwala mu sprawdzić dnia. Kolumna dochodzi
+  // tylko tam, gdzie ma sens (akord jej nie ma).
+  const withShift = basisOf(s) === 'hours' && days.some((d: any) => d.time_from)
+  const shift = (d: any) => d.time_from ? `${d.time_from}–${d.time_to || '…'}` : '—'
+
   const dayRow = (d: any) => split
     ? `<tr><td class="nw">${esc(fmtDate(d.work_date, dateFmt))}</td><td class="r nw">${num(dayAmount(d, s))}</td></tr>`
     : `<tr>
       <td class="nw">${esc(fmtDate(d.work_date, dateFmt))}${d.sunday ? ' *' : ''}</td>
+      ${withShift ? `<td class="nw">${esc(shift(d))}</td>` : ''}
       <td class="r nw">${num(dayAmount(d, s))}</td>
       <td class="r nw">${num(dayEarning(d, s))} zł</td>
     </tr>`
   const daysHead = split
     ? `<tr><th>Dzień</th><th class="r">${esc(unit)}</th></tr>`
-    : `<tr><th>Dzień</th><th class="r">${esc(unit)}</th><th class="r">Zarobek</th></tr>`
+    : `<tr><th>Dzień</th>${withShift ? '<th>Godziny</th>' : ''}<th class="r">${esc(unit)}</th><th class="r">Zarobek</th></tr>`
   const daysTable = (rows: any[]) => `<table class="days">
       <thead>${daysHead}</thead>
       <tbody>${rows.map(dayRow).join('')}</tbody>

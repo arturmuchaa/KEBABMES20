@@ -30,14 +30,34 @@ export const STATUS_LABEL: Record<HourStatus, string> = {
   absent: 'Nieobecność',
 }
 
-/** '6' → 360, '6:30' → 390. null gdy to nie jest godzina. */
+/**
+ * '6' → 360, '6:30' → 390, '8,5' → 510, '8,30' → 510.
+ *
+ * Dwukropek wymaga Shift, więc połówki wpisuje się przecinkiem. Cyfry po
+ * przecinku czytamy zależnie od ich liczby, bo oba zapisy są w użyciu:
+ *   1 cyfra  → ułamek godziny  ('8,5'  = pół do dziewiątej = 8:30)
+ *   2 cyfry  → minuty          ('8,30' = 8:30, nie 8:18)
+ * Bez tego rozróżnienia „8,30" wyszłoby 8:18 i po cichu zaniżyło wypłatę.
+ *
+ * null gdy to nie jest godzina.
+ */
 export function parseTime(v: string): number | null {
-  const m = /^(\d{1,2})(?::(\d{2}))?$/.exec((v ?? '').trim())
-  if (!m) return null
-  const hh = Number(m[1])
-  const mm = Number(m[2] ?? 0)
-  if (hh > 23 || mm > 59) return null
-  return hh * 60 + mm
+  const s = (v ?? '').trim()
+  const colon = /^(\d{1,2}):(\d{2})$/.exec(s)
+  if (colon) {
+    const hh = Number(colon[1]); const mm = Number(colon[2])
+    return hh > 23 || mm > 59 ? null : hh * 60 + mm
+  }
+  const dec = /^(\d{1,2})(?:[.,](\d{1,2}))?$/.exec(s)
+  if (!dec) return null
+  const hh = Number(dec[1])
+  if (hh > 23) return null
+  const frac = dec[2]
+  if (frac === undefined) return hh * 60
+  const mm = frac.length === 1
+    ? Math.round(Number(frac) / 10 * 60)   // '8,5' → 30 min
+    : Number(frac)                          // '8,30' → 30 min
+  return mm > 59 ? null : hh * 60 + mm
 }
 
 export function formatTime(min: number): string {

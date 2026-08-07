@@ -22,16 +22,39 @@ logger = get_logger(__name__)
 #: Kolejność ma znaczenie tylko dla czytelności — CHECK w bazie zna te same.
 HOUR_STATUSES = ("work", "off", "vacation", "sick", "absent")
 
-_HHMM = re.compile(r"^(\d{1,2})(?::(\d{2}))?$")
+_HHMM = re.compile(r"^(\d{1,2}):(\d{2})$")
+_DEC = re.compile(r"^(\d{1,2})(?:[.,](\d{1,2}))?$")
 
 
 def parse_hhmm(value: str) -> int:
-    """'6' → 360, '6:05' → 365. Minuty od północy."""
-    m = _HHMM.match((value or "").strip())
-    if not m:
+    """'6' → 360, '6:05' → 365, '8,5' → 510, '8,30' → 510. Minuty od północy.
+
+    Dwukropek wymaga Shift, więc biuro wpisuje połówki przecinkiem. Cyfry po
+    przecinku czytamy zależnie od ich liczby, bo oba zapisy są w użyciu:
+      1 cyfra → ułamek godziny ('8,5'  = 8:30)
+      2 cyfry → minuty         ('8,30' = 8:30, NIE 8:18)
+    Bez tego rozróżnienia „8,30" wyszłoby 8:18 i po cichu zaniżyło wypłatę.
+    Reguła MUSI być identyczna z parseTime() w src/lib/workHours.ts.
+    """
+    s = (value or "").strip()
+    m = _HHMM.match(s)
+    if m:
+        hh, mm = int(m.group(1)), int(m.group(2))
+        if hh > 23 or mm > 59:
+            raise HTTPException(400, f"Zła godzina: {value!r} — poza dobą")
+        return hh * 60 + mm
+
+    d = _DEC.match(s)
+    if not d:
         raise HTTPException(400, f"Zła godzina: {value!r} — użyj formatu 6:00")
-    hh = int(m.group(1))
-    mm = int(m.group(2) or 0)
+    hh = int(d.group(1))
+    frac = d.group(2)
+    if frac is None:
+        mm = 0
+    elif len(frac) == 1:
+        mm = round(int(frac) / 10 * 60)
+    else:
+        mm = int(frac)
     if hh > 23 or mm > 59:
         raise HTTPException(400, f"Zła godzina: {value!r} — poza dobą")
     return hh * 60 + mm
