@@ -61,14 +61,16 @@ guard() {
   fi
 
   # 3. CI zielone dla TEGO commita.
-  #    Przez API, nie `gh run list --commit` — tej flagi nie ma w gh 2.4.0
-  #    (wersja z repo Ubuntu), a wtedy bramka blokowałaby KAŻDY deploy.
+  #    Pytamy o wynik WORKFLOW ci.yml, nie o pojedyncze check-runy: tamte
+  #    raportują `failure` także dla jobów z continue-on-error (e2e) i mieszają
+  #    się z check-suitami zewnętrznych aplikacji (Claude, Cursor).
+  #    Przez API, bo `gh run list --commit` nie istnieje w gh 2.4.0.
   command -v gh >/dev/null 2>&1 || { echo "✗ Brak gh CLI — nie mogę sprawdzić CI" >&2; exit 1; }
   local slug concl
   slug="$(git remote get-url origin | sed -E 's#(git@|https://)github\.com[:/]##; s#\.git$##')"
-  concl="$(gh api "repos/$slug/commits/$sha/check-runs" --jq \
-             '[.check_runs[] | select(.status=="completed")]
-              | if length==0 then "brak" else ([.[].conclusion] | unique | join(",")) end' \
+  concl="$(gh api "repos/$slug/actions/workflows/ci.yml/runs?head_sha=$sha&per_page=10" --jq \
+             '[.workflow_runs[] | select(.status=="completed")]
+              | if length==0 then "brak" else (sort_by(.created_at) | last | .conclusion) end' \
            2>/dev/null || echo "blad")"
   case "$concl" in
     success)
