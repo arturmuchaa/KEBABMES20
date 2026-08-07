@@ -17,7 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
-import { Scissors, Factory, Users, Plus, Trash2, Printer, ChevronRight, CheckCircle, Lock } from 'lucide-react'
+import { Scissors, Factory, Users, Plus, Trash2, Printer, ChevronRight, CheckCircle, Lock, Archive } from 'lucide-react'
 
 const ROLE_ICON: Record<string, React.ReactNode> = {
   WORKER_DEBONING: <Scissors size={14} />,
@@ -47,7 +47,7 @@ function getDefaultRange() {
 }
 
 export function PayrollPage() {
-  const { data: workers, loading: wLoading } = useApi(() => usersApi.list())
+  const { data: workers, loading: wLoading } = useApi(() => usersApi.list(true))
   const [selWorker, setSelWorker]   = useState<any>(null)
   const [range, setRange]           = useState(() => getDefaultRange())
   const [selectedDays, setSelectedDays] = useState<Set<string>>(new Set())
@@ -92,7 +92,10 @@ export function PayrollPage() {
     }
   }
 
-  const hallWorkers = (workers ?? []).filter(w => w.role?.startsWith('WORKER'))
+  const hallWorkers = (workers ?? []).filter(w => w.role?.startsWith('WORKER') && w.active)
+  // Zarchiwizowani zostają na liście — inaczej po zwolnieniu kogoś nie dałoby
+  // się domknąć jego ostatniego tygodnia.
+  const archivedWorkers = (workers ?? []).filter(w => w.role?.startsWith('WORKER') && !w.active)
 
   function selectWorker(w: any) {
     setSelWorker(w)
@@ -219,7 +222,35 @@ export function PayrollPage() {
                   </CardContent>
                 </Card>
               )}
-              {hallWorkers.length === 0 && (
+              {archivedWorkers.length > 0 && (
+                <Card className="border-dashed">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-1.5 text-muted-foreground">
+                      <Archive size={14} /> Archiwum
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Zwolnieni — zostają tu, żeby domknąć ostatnie rozliczenie
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-0 pb-2">
+                    <div className="px-3 space-y-1.5">
+                      {archivedWorkers.map(w => (
+                        <button key={w.id} onClick={() => selectWorker(w)}
+                          className={`w-full text-left rounded-xl border-2 px-3 py-2.5 transition-all ${selWorker?.id === w.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}>
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-sm">{w.name}</span>
+                            <ChevronRight size={14} className="text-muted-foreground" />
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {ROLE_LABEL[w.role] ?? w.role} · zarchiwizowany
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+              {hallWorkers.length === 0 && archivedWorkers.length === 0 && (
                 <Card><CardContent className="p-6 text-center text-sm text-muted-foreground">Brak pracowników hali</CardContent></Card>
               )}
             </>

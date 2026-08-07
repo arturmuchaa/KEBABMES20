@@ -28,7 +28,12 @@ logger = get_logger(__name__)
 
 # ── CRUD ──────────────────────────────────────────────────────────────
 
-def list_workers() -> List[Dict]:
+def list_workers(include_inactive: bool = False) -> List[Dict]:
+    """Domyślnie tylko aktywni — z tej listy żyją panele hali i kioski
+    rozbioru, więc zarchiwizowany ma z nich zniknąć natychmiast.
+    `include_inactive` używa wyłącznie biuro (Pracownicy, Rozliczenia)."""
+    if include_inactive:
+        return query_all("SELECT * FROM workers ORDER BY active DESC, name")
     return query_all("SELECT * FROM workers WHERE active = true ORDER BY name")
 
 

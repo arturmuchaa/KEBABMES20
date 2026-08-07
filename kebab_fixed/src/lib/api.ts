@@ -707,11 +707,17 @@ export const clientsApi = {
 
 // ─── Pracownicy ───────────────────────────────────────────────
 export const usersApi = {
-  list:   () => get<User[]>('/workers'),
-  create: (dto: { name: string; role: string; pin?: string; departments?: string[]; ratePerKg?: number; contractType?: string; employerCostAmount?: number; crewSize?: number }) =>
+  /** Bez `includeInactive` zwraca tylko aktywnych — tak korzystają z tego
+   *  panele hali i kioski rozbioru. Biuro (Pracownicy, Rozliczenia) prosi
+   *  jawnie o archiwum. */
+  list:   (includeInactive = false) =>
+    get<User[]>(`/workers${includeInactive ? '?includeInactive=1' : ''}`),
+  create: (dto: { name: string; role: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; contractType?: string; employerCostAmount?: number; crewSize?: number }) =>
     post<User>('/workers', toSnake(dto)),
-  update: (id: string, dto: { name?: string; role?: string; pin?: string; departments?: string[]; ratePerKg?: number; contractType?: string; employerCostAmount?: number; active?: boolean; crewSize?: number }) =>
+  update: (id: string, dto: { name?: string; role?: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; contractType?: string; employerCostAmount?: number; active?: boolean; crewSize?: number }) =>
     put<User>(`/workers/${id}`, toSnake(dto)),
+  setActive: (id: string, active: boolean) =>
+    put<User>(`/workers/${id}`, { active }),
 }
 
 // ─── Płace ────────────────────────────────────────────────────

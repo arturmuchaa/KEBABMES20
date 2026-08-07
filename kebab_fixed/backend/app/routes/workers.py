@@ -15,8 +15,8 @@ router = APIRouter(tags=["workers"])
 # --- Workers ---
 
 @router.get("/api/workers")
-def list_workers():
-    return svc.list_workers()
+def list_workers(include_inactive: int = Query(0, alias="includeInactive")):
+    return svc.list_workers(include_inactive=bool(include_inactive))
 
 
 @router.post("/api/workers")

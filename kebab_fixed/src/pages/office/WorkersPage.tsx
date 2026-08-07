@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/dialog'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 
-import { Plus, Scissors, Factory, Users, ShieldCheck, Pencil } from 'lucide-react'
+import { Plus, Scissors, Factory, Users, ShieldCheck, Pencil, Archive, RotateCcw } from 'lucide-react'
 import type { User as UserType } from '@/types'
 
 const WORKER_ROLES = [
@@ -63,11 +63,18 @@ const ALL_DEPTS = ['rozbior', 'produkcja', 'pakowanie', 'wydanie'] as const
 const BLANK_FORM = { login: '', name: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', contractType: 'zlecenie', employerCostAmount: '0', pin: '', departments: [] as string[], crewSize: '1' }
 
 export function WorkersPage() {
-  const { data, loading, refetch } = useApi(() => usersApi.list())
+  const { data, loading, refetch } = useApi(() => usersApi.list(true))
   const [open, setOpen]         = useState(false)
   const [editTarget, setEditTarget] = useState<UserType | null>(null)
   const [form, setForm]         = useState({ ...BLANK_FORM })
   const [editForm, setEditForm] = useState({ ...BLANK_FORM })
+  // Archiwizacja zamiast kasowania: rekord trzymają deboning_entries,
+  // payroll_settlements i traceability. Zwolniony znika z hali (default
+  // /api/workers = tylko aktywni), a biuro widzi go w zakładce Archiwum.
+  const [view, setView] = useState<'active' | 'archive'>('active')
+  const [archiveTarget, setArchiveTarget] = useState<UserType | null>(null)
+  const activeMut = useMutation((d: { id: string; active: boolean }) =>
+    usersApi.setActive(d.id, d.active))
 
   const createMut = useMutation((d: typeof form) => usersApi.create({
     name: d.name, role: d.role,
@@ -90,9 +97,10 @@ export function WorkersPage() {
     })
   )
 
-  const allUsers = data ?? []
+  const allUsers = (data ?? []).filter(u => (view === 'archive' ? !u.active : u.active))
   const workers  = allUsers.filter(u => u.role.startsWith('WORKER'))
   const system   = allUsers.filter(u => !u.role.startsWith('WORKER'))
+  const archivedCount = (data ?? []).filter(u => !u.active).length
 
   function handleRoleChange(role: string) {
     const def = WORKER_ROLES.find(r => r.value === role)?.defaultRate ?? 0
@@ -141,6 +149,16 @@ export function WorkersPage() {
     }
   }
 
+  async function handleSetActive(u: UserType, active: boolean) {
+    try {
+      await activeMut.mutate({ id: u.id, active })
+      setArchiveTarget(null); refetch()
+      toast.success(active ? `Przywrócono: ${u.name}` : `Zarchiwizowano: ${u.name}`)
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Błąd zapisu')
+    }
+  }
+
   return (
     <div className="space-y-5 animate-fade-in">
 
@@ -175,9 +193,22 @@ export function WorkersPage() {
             <CardTitle>Pracownicy</CardTitle>
             <CardDescription className="mt-0.5">Hala produkcyjna · Biuro · Administratorzy</CardDescription>
           </div>
-          <Button onClick={() => { setForm({ ...BLANK_FORM }); createMut.clearError?.(); setOpen(true) }}>
-            <Plus size={14} className="mr-1.5" /> Dodaj pracownika
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-xl border-2 border-border overflow-hidden">
+              {([
+                { v: 'active'  as const, l: 'Aktywni' },
+                { v: 'archive' as const, l: `Archiwum${archivedCount ? ` (${archivedCount})` : ''}` },
+              ]).map(o => (
+                <button key={o.v} type="button" onClick={() => setView(o.v)}
+                  className={`px-3 py-1.5 text-sm font-semibold transition-all ${view === o.v ? 'bg-primary text-white' : 'text-muted-foreground hover:bg-muted'}`}>
+                  {o.l}
+                </button>
+              ))}
+            </div>
+            <Button onClick={() => { setForm({ ...BLANK_FORM }); createMut.clearError?.(); setOpen(true) }}>
+              <Plus size={14} className="mr-1.5" /> Dodaj pracownika
+            </Button>
+          </div>
         </CardHeader>
         <Separator />
         <CardContent className="p-0">
@@ -205,8 +236,14 @@ export function WorkersPage() {
           ) : allUsers.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-2">
               <Users size={36} className="text-muted-foreground opacity-20" />
-              <CardTitle className="text-sm font-medium text-muted-foreground">Brak pracowników</CardTitle>
-              <CardDescription>Dodaj pierwszego pracownika klikając przycisk powyżej</CardDescription>
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                {view === 'archive' ? 'Archiwum jest puste' : 'Brak pracowników'}
+              </CardTitle>
+              <CardDescription>
+                {view === 'archive'
+                  ? 'Zarchiwizowani pracownicy pojawią się tutaj'
+                  : 'Dodaj pierwszego pracownika klikając przycisk powyżej'}
+              </CardDescription>
             </div>
           ) : (
             <Table>
@@ -261,10 +298,19 @@ export function WorkersPage() {
                           {u.active ? 'Aktywny' : 'Nieaktywny'}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right whitespace-nowrap">
                         <Button variant="ghost" size="sm" onClick={() => openEdit(u)}>
                           <Pencil size={13} className="mr-1" /> Edytuj
                         </Button>
+                        {u.active ? (
+                          <Button variant="ghost" size="sm" onClick={() => setArchiveTarget(u)}>
+                            <Archive size={13} className="mr-1" /> Archiwizuj
+                          </Button>
+                        ) : (
+                          <Button variant="ghost" size="sm" onClick={() => handleSetActive(u, true)}>
+                            <RotateCcw size={13} className="mr-1" /> Przywróć
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   )
@@ -328,6 +374,28 @@ export function WorkersPage() {
             <Button onClick={handleUpdate} disabled={updateMut.loading} className="gap-2">
               {updateMut.loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Pencil size={14} />}
               Zapisz zmiany
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Archiwizacja — rekord zostaje, znika tylko z list i paneli hali */}
+      <Dialog open={!!archiveTarget} onOpenChange={v => { if (!v) setArchiveTarget(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Zarchiwizować pracownika?</DialogTitle>
+            <DialogDescription>{archiveTarget?.name}</DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Zniknie z paneli hali i z list wyboru. Wpisy rozbioru, godziny,
+            historia i rozliczenia zostają nietknięte — możesz go przywrócić
+            w każdej chwili z zakładki Archiwum.
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setArchiveTarget(null)}>Anuluj</Button>
+            <Button onClick={() => archiveTarget && handleSetActive(archiveTarget, false)}
+              disabled={activeMut.loading}>
+              <Archive size={14} className="mr-1.5" /> Archiwizuj
             </Button>
           </DialogFooter>
         </DialogContent>
