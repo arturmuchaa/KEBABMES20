@@ -22,7 +22,7 @@ rozbioru trafia na złą partię, a odkręcanie tego wymaga korekty biurowej
 
 Pozwolić hali ułożyć pasek w kolejności, w jakiej realnie pracuje.
 
-### Sterowanie — tryb układania ze strzałkami
+### Sterowanie — tryb układania i przeciąganie palcem
 
 **Pierwotny pomysł (przytrzymanie kafla + przeciągnięcie) odpadł: ten gest
 jest już zajęty.** Przytrzymanie kafla partii przez 600 ms otwiera kreator
@@ -35,8 +35,8 @@ Zamiast tego (decyzje użytkownika z 2026-08-07):
 - **trzy szybkie dotknięcia kafla partii** włączają tryb układania — licznik
   zeruje się po 600 ms przerwy, więc zwykłe klikanie w partie go nie uzbiera;
   wejściu towarzyszy komunikat, bo gest jest niewidoczny,
-- w tym trybie każdy kafel dostaje dwie duże strzałki **‹ ›** przesuwające go
-  o jedno miejsce,
+- w tym trybie kafle **przeciąga się palcem** — kolejność zmienia się na żywo
+  pod palcem, a puszczenie zapisuje,
 - **„Gotowe"** wychodzi z trybu, **„FEFO"** przywraca kolejność domyślną.
 
 Pierwsza wersja (1.0.72) miała przycisk „Ułóż" na pasku; użytkownik uznał go
@@ -48,16 +48,25 @@ przy KAŻDYM dotknięciu kafla, więc trzykrotne dotknięcie partii, na której
 operator już pracuje, kasowałoby mu wagę. Od 1.0.73 ponowne dotknięcie tej
 samej partii nie rusza pól — to naprawia też zwykłe omyłkowe dotknięcia.
 
-Strzałki zamiast przeciągania, bo operator pracuje w rękawicach roboczych,
-a pasek przewija się w poziomie — przeciąganie na przewijanym pasku jest
-zawodne. Przy typowych 3 partiach przestawienie to jedno dotknięcie.
+Przeciąganie jest bezpieczne właśnie dlatego, że działa w osobnym trybie:
+wybór partii i przytrzymanie (ważenie ubocznych) są tam wyłączone, więc palec
+nie ma z czym kolidować. Na czas przeciągania `touchAction: 'none'` wyłącza
+natywne przewijanie paska, a pointer capture utrzymuje zdarzenia na kaflu,
+gdy palec z niego zjedzie. Cel wyliczany jest z ŻYWYCH prostokątów kafli
+(`getBoundingClientRect`), nie z arytmetyki na szerokościach — kafle
+przestawiają się w trakcie ruchu i tylko rect mówi prawdę o tym, co widzi
+operator.
+
+W trakcie prac 1.0.73 miała najpierw strzałki ‹ ›; użytkownik wolał
+przeciąganie palcem i tak zostało wydane.
 
 W trybie układania kliknięcie w kafel **nie zmienia wybranej partii**
 i przytrzymanie **nie otwiera ważenia** — inaczej układanie kolejności
 wpadałoby w te same pomyłki, które ma likwidować.
 
-Kolejność zapisuje się po **każdym** przesunięciu (optymistycznie, PUT w tle),
-więc odejście od ekranu bez kliknięcia „Gotowe" niczego nie gubi.
+Kolejność zapisuje się po **każdym** puszczeniu kafla (optymistycznie, PUT
+w tle), więc odejście od ekranu bez kliknięcia „Gotowe" niczego nie gubi.
+Dotknięcie bez przesunięcia nie generuje zapisu.
 
 ### Trwałość
 
@@ -111,7 +120,7 @@ przywrócenie FEFO jest działaniem bezpiecznym, a ukrycie go sprawiłoby, że
 | `src/pages/tablet/batchOrder.ts` (nowy) | czysty `mergeBatchOrder` + typy |
 | `src/pages/tablet/batchOrder.test.ts` (nowy) | testy scalania |
 | `backend/tests/test_hmi_batch_order.py` (nowy) | walidacja konfiguracji, bez bazy |
-| `src/pages/tablet/DeboningHmiV10Page.tsx` | kolejność w `allActiveBatches`, tryb układania, strzałki na kaflu |
+| `src/pages/tablet/DeboningHmiV10Page.tsx` | kolejność w `allActiveBatches`, tryb układania, przeciąganie kafli |
 
 Trasa siedzi pod `/api/deboning`, a nie `/api/settings`: RBAC
 (`app/auth/permissions.py`) daje kioskowi dostęp do prefiksu `/api/deboning`
@@ -135,8 +144,8 @@ Logika scalania jest wydzielona celowo: da się ją przetestować w vitest
 `backend/tests/test_hmi_batch_order.py` (pytest, bez bazy): duplikaty, puste
 wpisy, wartość niebędąca listą, zbyt długi numer, limit pozycji.
 
-Na kiosku: trzy szybkie dotknięcia włączają tryb (z komunikatem), strzałki
-przestawiają kafel, „Gotowe" wychodzi, przytrzymanie kafla POZA trybem nadal
+Na kiosku: trzy szybkie dotknięcia włączają tryb (z komunikatem), kafel
+przeciąga się palcem, „Gotowe" wychodzi, przytrzymanie kafla POZA trybem nadal
 otwiera ważenie ubocznych, wpisane kilogramy przeżywają ponowne dotknięcie
 tej samej partii, a kolejność przeżywa odświeżenie strony i jest widoczna
 na drugim stanowisku.

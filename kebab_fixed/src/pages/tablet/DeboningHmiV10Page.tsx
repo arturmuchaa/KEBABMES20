@@ -145,16 +145,20 @@ function SectionStep({ no, done, children }: { no: number; done: boolean; childr
 }
 
 // ─── Kafel partii ──────────────────────────────────────────────────
-const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onLongPress, pendingMeatKg, arranging, canLeft, canRight, onMove, onTripleTap }: {
+const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onLongPress, pendingMeatKg, arranging, index, dragging, onDragStart, onDragMove, onDragEnd, onTripleTap }: {
   batch: RawBatch; selected: boolean; onSelect: (b: RawBatch) => void
   onLongPress?: (b: RawBatch) => void
   /** Suma kg otwartych pobrań — kafel pokazuje „czeka na mięso" i nie znika. */
   pendingMeatKg?: number
   /** Tryb układania kolejności: kafel pokazuje strzałki i nie wybiera partii. */
   arranging?: boolean
-  canLeft?: boolean
-  canRight?: boolean
-  onMove?: (batchNo: string, delta: -1 | 1) => void
+  /** Pozycja kafla — potrzebna, żeby strona wyliczyła cel przeciągnięcia. */
+  index?: number
+  /** Ten kafel jest właśnie ciągnięty palcem. */
+  dragging?: boolean
+  onDragStart?: (batchNo: string) => void
+  onDragMove?: (batchNo: string, clientX: number) => void
+  onDragEnd?: () => void
   /** Trzy szybkie dotknięcia kafla → tryb układania kolejności. */
   onTripleTap?: () => void
 }) {
@@ -194,11 +198,28 @@ const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onL
   }
 
   if (arranging) {
+    // Przeciąganie palcem. Pointer capture sprawia, że kafel dostaje zdarzenia
+    // także wtedy, gdy palec zjedzie poza niego, a touchAction:'none' wyłącza
+    // natywne przewijanie paska — bez tego pasek ucieka pod palcem.
     return (
-      <div className="flex flex-col justify-between h-full flex-shrink-0 select-none"
+      <div data-batch-idx={index}
+        onPointerDown={e => {
+          e.currentTarget.setPointerCapture?.(e.pointerId)
+          onDragStart?.(batch.internalBatchNo)
+        }}
+        onPointerMove={e => { if (dragging) onDragMove?.(batch.internalBatchNo, e.clientX) }}
+        onPointerUp={() => onDragEnd?.()}
+        onPointerCancel={() => onDragEnd?.()}
+        className="flex flex-col justify-between h-full flex-shrink-0 select-none"
         style={{
           width: 244, padding: '14px 18px', borderRadius: 12,
-          background: 'var(--panel)', border: '1px dashed var(--accent)', color: 'var(--ink)',
+          background: 'var(--panel)', color: 'var(--ink)',
+          border: `2px dashed ${dragging ? 'var(--accent)' : 'var(--line)'}`,
+          touchAction: 'none', cursor: 'grab',
+          transform: dragging ? 'scale(1.04)' : undefined,
+          boxShadow: dragging ? '0 12px 28px rgba(0,0,0,.35)' : undefined,
+          opacity: dragging ? .92 : 1,
+          transition: 'transform .12s, box-shadow .12s',
         }}>
         <div className="flex items-start justify-between gap-2">
           <span className="hmi-v10-mono font-bold text-2xl leading-none">{batch.internalBatchNo}</span>
@@ -207,23 +228,9 @@ const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onL
           </span>
         </div>
         <div className="hmi-v10-mono text-lg font-bold leading-none mt-2">{fmtKg(kg, 0)} kg</div>
-        <div className="flex items-stretch gap-2 mt-2">
-          <button type="button" aria-label={`Przesuń partię ${batch.internalBatchNo} w lewo`}
-            disabled={!canLeft} onClick={() => onMove?.(batch.internalBatchNo, -1)}
-            className="flex-1 flex items-center justify-center text-2xl font-bold"
-            style={{
-              height: 44, borderRadius: 8, border: '1px solid var(--line)',
-              background: canLeft ? 'var(--panel)' : 'transparent',
-              color: canLeft ? 'var(--ink)' : 'var(--mut)', opacity: canLeft ? 1 : .35,
-            }}>‹</button>
-          <button type="button" aria-label={`Przesuń partię ${batch.internalBatchNo} w prawo`}
-            disabled={!canRight} onClick={() => onMove?.(batch.internalBatchNo, 1)}
-            className="flex-1 flex items-center justify-center text-2xl font-bold"
-            style={{
-              height: 44, borderRadius: 8, border: '1px solid var(--line)',
-              background: canRight ? 'var(--panel)' : 'transparent',
-              color: canRight ? 'var(--ink)' : 'var(--mut)', opacity: canRight ? 1 : .35,
-            }}>›</button>
+        <div className="flex items-center justify-center gap-3 mt-2 text-2xl font-bold leading-none"
+          style={{ color: 'var(--mut)', height: 44 }} aria-hidden>
+          ‹ ⣿ ›
         </div>
       </div>
     )
@@ -845,18 +852,53 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // przy 7+ aktywnych partiach siódma „znikała" mimo miejsca na scroll.
   const batches = useMemo(() => allActiveBatches.slice(0, 12), [allActiveBatches])
 
-  // Przesunięcie kafla o jedno miejsce w trybie układania. Zapisujemy CAŁĄ
-  // widoczną kolejność, nie samą zmianę — dzięki temu konfiguracja na serwerze
-  // zawsze odpowiada temu, co hala widzi na pasku, także gdy część partii
-  // dołączyła później i szła dotąd po FEFO.
-  const moveBatchBy = useCallback((batchNo: string, delta: -1 | 1) => {
+  // ── Przeciąganie kafli palcem (tryb układania) ─────────────────────────
+  const stripRef = useRef<HTMLDivElement | null>(null)
+  const [dragNo, setDragNo] = useState<string | null>(null)
+  /** Kolejność z chwili chwycenia kafla — do porównania przy puszczeniu. */
+  const dragStartOrderRef = useRef<string[] | null>(null)
+
+  const handleDragStart = useCallback((batchNo: string) => {
+    dragStartOrderRef.current = allActiveBatches.map(b => b.internalBatchNo)
+    setDragNo(batchNo)
+  }, [allActiveBatches])
+
+  /** Pod którym kaflem jest teraz palec. Liczymy z ŻYWEGO układu DOM, a nie
+   *  z arytmetyki na szerokościach — kafle przestawiają się w trakcie
+   *  przeciągania, a rect zawsze mówi prawdę o tym, co widzi operator. */
+  const indexAtX = useCallback((clientX: number): number | null => {
+    const nodes = stripRef.current?.querySelectorAll('[data-batch-idx]')
+    if (!nodes || nodes.length === 0) return null
+    let best: number | null = null
+    let bestDist = Infinity
+    nodes.forEach(n => {
+      const r = (n as HTMLElement).getBoundingClientRect()
+      const środek = r.left + r.width / 2
+      const d = Math.abs(clientX - środek)
+      if (d < bestDist) { bestDist = d; best = Number((n as HTMLElement).dataset.batchIdx) }
+    })
+    return best
+  }, [])
+
+  const handleDragMove = useCallback((batchNo: string, clientX: number) => {
+    const to = indexAtX(clientX)
+    if (to == null) return
     const current = allActiveBatches.map(b => b.internalBatchNo)
     const from = current.indexOf(batchNo)
-    if (from < 0) return
-    const to = from + delta
-    if (to < 0 || to >= current.length) return
-    const next = moveBatch(current, from, to)
-    setOrderOverride(next)
+    if (from < 0 || from === to) return
+    setOrderOverride(moveBatch(current, from, to))
+  }, [allActiveBatches, indexAtX])
+
+  // Zapisujemy CAŁĄ widoczną kolejność, nie samą zmianę — konfiguracja na
+  // serwerze ma odpowiadać temu, co hala widzi na pasku, także gdy część
+  // partii dołączyła później i szła dotąd po FEFO.
+  const handleDragEnd = useCallback(() => {
+    if (!dragNo) return
+    setDragNo(null)
+    const next = allActiveBatches.map(b => b.internalBatchNo)
+    // Samo dotknięcie kafla bez przesunięcia nie może generować zapisu —
+    // pasek jest dotykany często, a każdy PUT to ruch po sieci na hali.
+    if (dragStartOrderRef.current?.join('|') === next.join('|')) return
     settingsApi.saveBatchOrder(next)
       .then(() => { setOrderOverride(null); batchOrderData.refetch?.() })
       .catch(() => {
@@ -865,14 +907,14 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         setOrderOverride(null)
         showToast('Nie udało się zapisać kolejności')
       })
-  }, [allActiveBatches, batchOrderData, showToast])
+  }, [dragNo, allActiveBatches, batchOrderData, showToast])
 
   // Wejście w tryb układania: gest jest niewidoczny, więc komunikat mówi
   // wprost, co się stało i jak wyjść — inaczej operator nie wie, czemu kafle
   // nagle wyglądają inaczej.
   const enterArrange = useCallback(() => {
     setArranging(true)
-    showToast('Układanie kolejności — przesuń kafle strzałkami')
+    showToast('Układanie kolejności — przeciągnij kafle palcem')
   }, [showToast])
 
   const resetBatchOrder = useCallback(() => {
@@ -2052,7 +2094,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         )}
       </header>
 
-      <div className="flex-shrink-0 h-[144px] px-4 py-3 flex items-center gap-3 overflow-x-auto">
+      <div ref={stripRef} className="flex-shrink-0 h-[144px] px-4 py-3 flex items-center gap-3 overflow-x-auto">
         {/* Układanie kolejności paska. Osobny tryb, bo przytrzymanie kafla jest
             już zajęte przez ważenie ubocznych, a operator pracuje w rękawicach —
             jawny przycisk jest pewniejszy od ukrytego gestu. */}
@@ -2077,8 +2119,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             : batches.map((b, i) => (
                 <BatchTileV10 key={b.id} batch={b} selected={selBatch?.id === b.id} onSelect={pickBatch}
                   onLongPress={openWizardInProgress} pendingMeatKg={pendingKgByBatch.get(b.id)}
-                  arranging={arranging} canLeft={i > 0} canRight={i < batches.length - 1}
-                  onMove={moveBatchBy}
+                  arranging={arranging} index={i} dragging={dragNo === b.internalBatchNo}
+                  onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd}
                   onTripleTap={batches.length > 1 ? enterArrange : undefined} />
               ))
         }
