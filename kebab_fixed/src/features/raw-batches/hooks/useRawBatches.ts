@@ -118,14 +118,19 @@ function validateCreate(f: CreateRawBatchDto): ValidationResult {
   if (!f.kgReceived || f.kgReceived <= 0)
     return { ok: false, warnings, error: { type: 'error', message: 'Podaj ilość kg (> 0)' } }
 
-  if (f.kgReceived > 10_000)
-    return { ok: false, warnings, error: { type: 'error', message: 'Ilość kg przekracza 10 000 — sprawdź wartość' } }
+  // Twarda blokada dopiero przy wartości niemożliwej dla jednej dostawy —
+  // łapie literówkę z dodatkowym zerem (15 000 → 150 000), a nie duży transport.
+  if (f.kgReceived > 30_000)
+    return { ok: false, warnings, error: { type: 'error', message: 'Ilość kg przekracza 30 000 — sprawdź, czy nie ma dodatkowego zera' } }
 
   // Na usłudze mięso jest KLIENTA — nie kupujemy go, więc cena nie obowiązuje.
   if (!f.isService && (!f.pricePerKg || f.pricePerKg <= 0))
     return { ok: false, warnings, error: { type: 'error', message: 'Podaj cenę za kg (> 0)' } }
 
   // WARNING — informuje, nie blokuje
+  if (f.kgReceived > 10_000)
+    warnings.push({ type: 'warning' as const, message: `Duża dostawa: ${f.kgReceived.toLocaleString('pl-PL')} kg — potwierdź, że się zgadza` })
+
   if (shelfDays > 30)
     warnings.push({ type: 'warning' as const, message: `Termin ważności ${shelfDays} dni od uboju — sprawdź datę` })
 
