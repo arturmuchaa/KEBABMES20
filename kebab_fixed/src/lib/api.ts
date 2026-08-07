@@ -727,8 +727,11 @@ export const payrollApi = {
     get<any[]>(`/payroll/worker-days?workerId=${encodeURIComponent(workerId)}&dateFrom=${encodeURIComponent(dateFrom)}&dateTo=${encodeURIComponent(dateTo)}`),
   createSettlement: (dto: {
     workerId: string; dateFrom: string; dateTo: string;
-    workDates: string[]; kgPerDate: Record<string, number>;
-    ratePerKg: number; deductions: { description: string; amount: number }[];
+    workDates: string[]; kgPerDate?: Record<string, number>;
+    hoursPerDate?: Record<string, number>;
+    ratePerKg: number; ratePerHour?: number;
+    deductions: { description: string; amount: number }[];
+    deductionIds?: string[];
     notes?: string;
   }) => post<any>('/payroll/settlements', toSnake(dto)),
   listSettlements: (workerId?: string) =>
@@ -737,6 +740,32 @@ export const payrollApi = {
   createKgAdjustment: (dto: {
     workerId: string; workDate: string; kgDelta: number; reason: string;
   }) => post<any>('/payroll/kg-adjustments', toSnake(dto)),
+  listDeductions: (workerId: string, status = 'pending') =>
+    get<any[]>(`/payroll/deductions?workerId=${encodeURIComponent(workerId)}&status=${encodeURIComponent(status)}`),
+  createDeduction: (dto: {
+    workerId: string; deductionDate: string; description: string; amount: number;
+  }) => post<any>('/payroll/deductions', toSnake(dto)),
+  cancelDeduction: (id: string) => del<{ ok: boolean }>(`/payroll/deductions/${id}`),
+  matchWorker: (name: string, nip: string) =>
+    get<{ workerId: string; name: string; role: string } | null>(
+      `/payroll/match-worker?name=${encodeURIComponent(name)}&nip=${encodeURIComponent(nip)}`),
+  pendingKgDays: (workerId: string, dateFrom: string, dateTo: string) =>
+    get<{ days: number; kg: number }>(
+      `/payroll/pending-kg-days?workerId=${encodeURIComponent(workerId)}&dateFrom=${encodeURIComponent(dateFrom)}&dateTo=${encodeURIComponent(dateTo)}`),
+}
+
+// ─── Godziny pracowników ogólnych ─────────────────────────────
+export const workHoursApi = {
+  list: (dateFrom: string, dateTo: string) =>
+    get<any[]>(`/payroll/hours?dateFrom=${encodeURIComponent(dateFrom)}&dateTo=${encodeURIComponent(dateTo)}`),
+  save: (dto: {
+    workerId: string; workDate: string; status: string;
+    timeFrom?: string | null; timeTo?: string | null; note?: string;
+  }) => put<any>('/payroll/hours', toSnake(dto)),
+  clear: (workerId: string, workDate: string) =>
+    del<{ ok: boolean }>(`/payroll/hours?workerId=${encodeURIComponent(workerId)}&workDate=${encodeURIComponent(workDate)}`),
+  stamp: (dto: { workDate: string; mode: 'start' | 'end'; time: string }) =>
+    post<{ changed: number }>('/payroll/hours/stamp', toSnake(dto)),
 }
 
 // ─── Składniki ────────────────────────────────────────────────
