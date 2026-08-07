@@ -106,6 +106,9 @@ def manual(body: dict):
         containers_total=(None if body.get("containersTotal") is None
                           else int(body["containersTotal"])),
         pallets_other_kind=body.get("palletsOtherKind") or None,
+        # Zakup pracownika: {"workerId", "amount"} — WZ używa camelCase
+        # w body (bez toSnake), więc czytamy klucz tak, jak przyszedł.
+        payroll_deduction=body.get("payrollDeduction") or None,
     )
 
 

@@ -345,12 +345,17 @@ def create_manual_wz(
     pallets_other: int = 0,
     containers_total: Optional[int] = None,
     pallets_other_kind: Optional[str] = None,
+    payroll_deduction: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Ręczny WZ ze sprzedaży z magazynu. Atomowo: dokument WZ + rozchód
     (FG: szt, surowiec: kg). Brak stanu → 400 + rollback całości.
 
     currency: 'PLN' lub 'EUR'; przy EUR eur_rate = kurs średni NBP użyty
-    do wyceny (zapisywany na dokumencie dla rozliczeń)."""
+    do wyceny (zapisywany na dokumencie dla rozliczeń).
+
+    payroll_deduction: {"workerId", "amount"} — zakup pracownika na własny
+    użytek. Potrącenie powstaje W TEJ SAMEJ transakcji co rozchód, więc
+    nieudany WZ nie zostawia po sobie długu na pasku."""
     if not selections:
         raise HTTPException(400, "WZ wymaga co najmniej jednej pozycji")
 
@@ -499,6 +504,32 @@ def create_manual_wz(
         # Saldo pojemników: nośniki jadą OD NAS (znak ujemny).
         _rebook_wz_containers(conn, wid)
 
+        # Zakup pracownika na własny użytek: potrącenie powstaje W TEJ SAMEJ
+        # transakcji co rozchód, więc nieudany WZ nie zostawia po sobie długu
+        # na pasku wypłaty.
+        if payroll_deduction and payroll_deduction.get("workerId"):
+            amount = round(float(payroll_deduction.get("amount") or 0), 2)
+            if amount > 0:
+                worker = cx_query_one(
+                    conn,
+                    "SELECT id, name FROM workers WHERE id=%s AND active=true",
+                    (payroll_deduction["workerId"],))
+                if not worker:
+                    raise HTTPException(400, "Pracownik do potrącenia nie istnieje")
+                number = cx_query_one(
+                    conn, "SELECT number FROM wz_documents WHERE id=%s", (wid,)
+                )["number"]
+                cx_execute(
+                    conn,
+                    """
+                    INSERT INTO worker_deductions
+                        (id, worker_id, deduction_date, description, amount,
+                         source_type, source_id, status, created_at)
+                    VALUES (%s,%s,%s,%s,%s,'wz',%s,'pending',%s)
+                    """,
+                    (cuid(), worker["id"], issued, f"Zakup — {number}",
+                     amount, wid, now_iso()))
+
     logger.info("wz.manual.created", extra={"wz_id": wid, "items": len(selections)})
     return get_wz(wid)
 
@@ -542,6 +573,14 @@ def update_wz_prices(wz_id: str, prices: List[Dict[str, Any]]) -> Dict[str, Any]
         cx_execute(conn,
                    "UPDATE wz_documents SET lines=%s, total_value=%s, valued=TRUE WHERE id=%s",
                    (json.dumps(new_lines), total, wz_id))
+        # Potrącenie pracownika idzie za wartością dokumentu, dopóki jest
+        # oczekujące — ceny bywają dopisywane po wystawieniu. Rozliczonego
+        # nie ruszamy, bo jego kwota jest już na pasku.
+        cx_execute(
+            conn,
+            "UPDATE worker_deductions SET amount=%s "
+            "WHERE source_type='wz' AND source_id=%s AND status='pending'",
+            (round(float(total), 2), wz_id))
     logger.info("wz.prices_updated", extra={"wz_id": wz_id, "total": total})
     return get_wz(wz_id)
 
@@ -744,12 +783,34 @@ def cancel_wz(wz_id: str) -> Dict[str, Any]:
         cx_execute(conn, "UPDATE wz_documents SET status='anulowany' WHERE id=%s", (wz_id,))
         # Nośniki wracają na saldo odbiorcy — dokument już nic nie wydaje.
         _rebook_wz_containers(conn, wz_id, zero=True)
+
+        # Potrącenie z tego WZ: oczekujące anulujemy razem z dokumentem,
+        # ROZLICZONEGO nie ruszamy — pieniądze są już na pasku, więc cicha
+        # zmiana zostawiłaby rozjazd między paskiem a magazynem.
+        deduction_warning = None
+        ded = cx_query_one(
+            conn,
+            "SELECT id, status, amount FROM worker_deductions "
+            "WHERE source_type='wz' AND source_id=%s FOR UPDATE",
+            (wz_id,))
+        if ded:
+            if ded["status"] == "pending":
+                cx_execute(
+                    conn,
+                    "UPDATE worker_deductions SET status='cancelled' WHERE id=%s",
+                    (ded["id"],))
+            elif ded["status"] == "settled":
+                deduction_warning = (
+                    f"Potrącenie {float(ded['amount']):.2f} zł jest już rozliczone "
+                    f"na pasku — skoryguj ręcznie.")
     # Druk pojemnikowy tego WZ nie ma już czego dotyczyć — poza transakcją,
     # bo cancel_doc otwiera własną (import lokalny: unika cyklu przy starcie).
     from app.services.container_docs_service import cancel_docs_for_source
     cancel_docs_for_source("wz", wz_id)
     logger.info("wz.cancelled", extra={"wz_id": wz_id})
-    return get_wz(wz_id)
+    doc = get_wz(wz_id)
+    doc["deductionWarning"] = deduction_warning
+    return doc
 
 
 def wz_order_incomplete(produced: int, ordered: int) -> bool:
