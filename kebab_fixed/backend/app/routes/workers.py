@@ -4,6 +4,7 @@ from fastapi import APIRouter, Query
 from app.models.work_hours import StampDto, WorkHoursDto
 from app.models.workers import (
     WorkerCreate,
+    WorkerDeductionDto,
     WorkerUpdate,
     CreateSettlementDto,
     KgAdjustmentDto,
@@ -69,6 +70,31 @@ def list_settlements(worker_id: str = Query("", alias="workerId")):
 @router.get("/api/payroll/settlements/{sid}")
 def get_settlement(sid: str):
     return svc.get_settlement(sid)
+
+
+# --- Potrącenia oczekujące ---
+
+@router.get("/api/payroll/deductions")
+def list_deductions(
+    worker_id: str = Query(..., alias="workerId"),
+    status: str = Query("pending"),
+):
+    return svc.list_worker_deductions(worker_id, status)
+
+
+@router.post("/api/payroll/deductions")
+def create_deduction(dto: WorkerDeductionDto):
+    return svc.create_worker_deduction(dto)
+
+
+@router.delete("/api/payroll/deductions/{deduction_id}")
+def cancel_deduction(deduction_id: str):
+    return svc.cancel_worker_deduction(deduction_id)
+
+
+@router.get("/api/payroll/match-worker")
+def match_worker(name: str = Query(""), nip: str = Query("")):
+    return svc.match_worker_by_name(name, nip)
 
 
 # --- Godziny pracowników ogólnych ---

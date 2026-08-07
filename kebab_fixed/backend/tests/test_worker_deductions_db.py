@@ -1,0 +1,239 @@
+"""Potrącenia oczekujące — dopisywane w dowolnym momencie, czekają na
+rozliczenie. Do rozliczenia wchodzą TYLKO te z datą w jego zakresie.
+
+Testy DB — bez TEST_DATABASE_URL skip."""
+import pytest
+from fastapi import HTTPException
+
+from app.db import execute, query_all, query_one
+from app.models.work_hours import WorkHoursDto
+from app.models.workers import CreateSettlementDto, WorkerDeductionDto
+from app.services.work_hours_service import upsert_hours
+from app.services.workers_service import (
+    cancel_worker_deduction,
+    create_settlement,
+    create_worker_deduction,
+    list_worker_deductions,
+    match_worker_by_name,
+)
+
+
+def _worker(wid="w1", name="VADYM"):
+    execute(
+        "INSERT INTO workers (id, name, role, rate_per_kg, active) "
+        "VALUES (%s,%s,'WORKER_DEBONING',0.55,true) "
+        "ON CONFLICT (id) DO UPDATE SET role='WORKER_DEBONING', active=true",
+        (wid, name),
+    )
+
+
+def _ded(**kw):
+    base = dict(worker_id="w1", deduction_date="2026-08-03",
+                description="Zaliczka", amount=100.0)
+    base.update(kw)
+    return create_worker_deduction(WorkerDeductionDto(**base))
+
+
+def _settle(**kw):
+    base = dict(worker_id="w1", date_from="2026-08-03", date_to="2026-08-09",
+                work_dates=["2026-08-03"], kg_per_date={"2026-08-03": 1000.0},
+                rate_per_kg=0.55)
+    base.update(kw)
+    return create_settlement(CreateSettlementDto(**base))
+
+
+# ── Rejestr ───────────────────────────────────────────────────────────
+
+def test_potracenie_powstaje_jako_oczekujace(db):
+    _worker()
+    row = _ded()
+    assert row["status"] == "pending"
+    assert row["amount"] == 100.0
+    assert row["sourceType"] == "manual"
+
+
+def test_lista_zwraca_oczekujace_po_dacie(db):
+    _worker()
+    _ded(deduction_date="2026-08-05", description="Druga")
+    _ded(deduction_date="2026-08-03", description="Pierwsza")
+    rows = list_worker_deductions("w1")
+    assert [r["description"] for r in rows] == ["Pierwsza", "Druga"]
+
+
+def test_zerowa_kwota_i_pusty_opis_odrzucone(db):
+    _worker()
+    with pytest.raises(HTTPException):
+        _ded(amount=0)
+    with pytest.raises(HTTPException):
+        _ded(description="   ")
+
+
+def test_anulowanie_znika_z_oczekujacych(db):
+    _worker()
+    row = _ded()
+    cancel_worker_deduction(row["id"])
+    assert list_worker_deductions("w1") == []
+    assert len(list_worker_deductions("w1", status="cancelled")) == 1
+
+
+# ── Konsumpcja przy rozliczeniu ───────────────────────────────────────
+
+def test_potracenie_w_zakresie_trafia_na_pasek(db):
+    _worker()
+    d = _ded(deduction_date="2026-08-03", description="Zakup ćwiartki", amount=56.0)
+    s = _settle(deduction_ids=[d["id"]])
+
+    assert float(s["gross_amount"]) == 550.0
+    assert float(s["deductions_total"]) == 56.0
+    assert float(s["net_amount"]) == 494.0
+    rows = query_all(
+        "SELECT description, amount FROM settlement_deductions WHERE settlement_id=%s",
+        (s["id"],),
+    )
+    assert [(r["description"], float(r["amount"])) for r in rows] == [("Zakup ćwiartki", 56.0)]
+    after = query_one("SELECT status, settlement_id FROM worker_deductions WHERE id=%s", (d["id"],))
+    assert after["status"] == "settled" and after["settlement_id"] == s["id"]
+
+
+def test_potracenie_spoza_zakresu_odrzucone(db):
+    _worker()
+    d = _ded(deduction_date="2026-07-30")
+    with pytest.raises(HTTPException) as exc:
+        _settle(deduction_ids=[d["id"]])
+    assert exc.value.status_code == 400
+    assert query_one("SELECT status FROM worker_deductions WHERE id=%s", (d["id"],))["status"] == "pending"
+
+
+def test_cudze_i_juz_rozliczone_potracenie_odrzucone(db):
+    _worker("w1", "VADYM")
+    _worker("w2", "DENYS")
+    obce = create_worker_deduction(WorkerDeductionDto(
+        worker_id="w2", deduction_date="2026-08-03", description="Obce", amount=10))
+    with pytest.raises(HTTPException):
+        _settle(deduction_ids=[obce["id"]])
+
+    moje = _ded()
+    _settle(deduction_ids=[moje["id"]])
+    with pytest.raises(HTTPException):
+        _settle(work_dates=["2026-08-04"], kg_per_date={"2026-08-04": 500.0},
+                deduction_ids=[moje["id"]])
+
+
+# ── Podstawa godzinowa ────────────────────────────────────────────────
+
+def _gen(wid="wg", name="ADRIAN", rate=25.0, bonus=0.0, bonus_on=False):
+    execute(
+        "INSERT INTO workers (id, name, role, rate_per_hour, sunday_bonus_enabled,"
+        " sunday_bonus_per_hour, active) VALUES (%s,%s,'WORKER_GENERAL',%s,%s,%s,true) "
+        "ON CONFLICT (id) DO UPDATE SET role='WORKER_GENERAL', active=true,"
+        " rate_per_hour=EXCLUDED.rate_per_hour,"
+        " sunday_bonus_enabled=EXCLUDED.sunday_bonus_enabled,"
+        " sunday_bonus_per_hour=EXCLUDED.sunday_bonus_per_hour",
+        (wid, name, rate, bonus_on, bonus),
+    )
+
+
+def test_rozliczenie_godzinowe_liczy_z_godzin(db):
+    _gen()
+    upsert_hours(WorkHoursDto(worker_id="wg", work_date="2026-08-03",
+                              time_from="6:00", time_to="15:00"))
+    s = create_settlement(CreateSettlementDto(
+        worker_id="wg", date_from="2026-08-03", date_to="2026-08-09",
+        work_dates=["2026-08-03"], hours_per_date={"2026-08-03": 9.0},
+        rate_per_kg=0, rate_per_hour=25.0))
+
+    assert s["basis"] == "hours"
+    assert float(s["hours_total"]) == 9.0
+    assert float(s["gross_amount"]) == 225.0
+    assert float(s["kg_total"]) == 0
+
+
+def test_akord_dziala_jak_dotad(db):
+    """Regresja: ścieżka kilogramowa bez potrąceń nie zmienia zachowania."""
+    _worker()
+    s = _settle()
+    assert s["basis"] == "kg"
+    assert float(s["kg_total"]) == 1000.0
+    assert float(s["gross_amount"]) == 550.0
+    assert float(s["net_amount"]) == 550.0
+
+
+# ── Premia niedzielna ─────────────────────────────────────────────────
+
+def test_premia_niedzielna_tylko_za_niedziele(db):
+    """9.08.2026 to niedziela, 3.08 poniedziałek. Dodatek +5 zł/h dotyka
+    wyłącznie godzin niedzielnych: 9×25 + 8×25 + 8×5 = 465."""
+    _gen(rate=25.0, bonus=5.0, bonus_on=True)
+    s = create_settlement(CreateSettlementDto(
+        worker_id="wg", date_from="2026-08-03", date_to="2026-08-09",
+        work_dates=["2026-08-03", "2026-08-09"],
+        hours_per_date={"2026-08-03": 9.0, "2026-08-09": 8.0},
+        rate_per_kg=0, rate_per_hour=25.0))
+
+    assert float(s["hours_total"]) == 17.0
+    assert float(s["sunday_hours"]) == 8.0
+    assert float(s["sunday_bonus_per_hour"]) == 5.0
+    assert float(s["gross_amount"]) == 465.0
+
+
+def test_premia_wylaczona_nie_dolicza_nic(db):
+    """Kwota zostaje na kartotece, ale przełącznik rządzi."""
+    _gen(rate=25.0, bonus=5.0, bonus_on=False)
+    s = create_settlement(CreateSettlementDto(
+        worker_id="wg", date_from="2026-08-03", date_to="2026-08-09",
+        work_dates=["2026-08-09"], hours_per_date={"2026-08-09": 8.0},
+        rate_per_kg=0, rate_per_hour=25.0))
+
+    assert float(s["sunday_bonus_per_hour"]) == 0
+    assert float(s["gross_amount"]) == 200.0
+
+
+def test_premia_nie_dotyczy_akordu(db):
+    """Rozbiór płaci się od kilogramów — niedziela nic tu nie zmienia."""
+    _worker()
+    execute("UPDATE workers SET sunday_bonus_enabled=true, sunday_bonus_per_hour=5 "
+            "WHERE id='w1'")
+    s = _settle(work_dates=["2026-08-09"], kg_per_date={"2026-08-09": 1000.0})
+    assert float(s["gross_amount"]) == 550.0
+    assert float(s["sunday_hours"]) == 0
+
+
+# ── Dopasowanie odbiorcy WZ ───────────────────────────────────────────
+
+def _czysta_kartoteka():
+    """`workers` nie jest w _TRUNCATE (inne testy seedują je przez ON CONFLICT
+    i na tym polegają), a dopasowanie po nazwie patrzy na WSZYSTKICH aktywnych.
+    Bez czystego startu cudzy „VADYM" z sąsiedniego pliku robi z jednego
+    trafienia dwa i test kłamie."""
+    execute("DELETE FROM workers")
+
+
+def test_dopasowanie_po_nazwie_bez_nipu(db):
+    _czysta_kartoteka()
+    _worker("w1", "VADYM")
+    assert match_worker_by_name("vadym", "")["workerId"] == "w1"
+    assert match_worker_by_name("  VADYM ", "")["workerId"] == "w1"
+
+
+def test_nip_wyklucza_dopasowanie(db):
+    """Firma ma NIP — nawet gdy nazywa się jak pracownik, to nie on."""
+    _czysta_kartoteka()
+    _worker("w1", "VADYM")
+    assert match_worker_by_name("VADYM", "5130201509") is None
+
+
+def test_zarchiwizowany_nie_lapie_sie(db):
+    _czysta_kartoteka()
+    _worker("w1", "VADYM")
+    execute("UPDATE workers SET active=false WHERE id='w1'")
+    assert match_worker_by_name("VADYM", "") is None
+
+
+def test_dwoch_o_tej_samej_nazwie_to_brak_dopasowania(db):
+    _czysta_kartoteka()
+    _worker("w1", "VADYM")
+    execute(
+        "INSERT INTO workers (id, name, role, active) "
+        "VALUES ('w2','VADYM','WORKER_GENERAL',true)"
+    )
+    assert match_worker_by_name("VADYM", "") is None

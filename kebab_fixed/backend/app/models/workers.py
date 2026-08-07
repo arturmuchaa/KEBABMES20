@@ -51,12 +51,31 @@ class KgAdjustmentDto(BaseModel):
     created_by: str = ""
 
 
+class WorkerDeductionDto(BaseModel):
+    """Potrącenie zapisane z wyprzedzeniem — czeka na rozliczenie."""
+
+    worker_id: str
+    deduction_date: str
+    description: str
+    amount: float
+    #: 'manual' (biuro) albo 'wz' (zakup pracownika udokumentowany WZ)
+    source_type: str = "manual"
+    source_id: Optional[str] = None
+    created_by: str = ""
+
+
 class CreateSettlementDto(BaseModel):
     worker_id: str
     date_from: str
     date_to: str
     work_dates: List[str]
+    #: Podstawa kilogramowa (rozbiór, produkcja).
     kg_per_date: Dict[str, float] = {}
     rate_per_kg: float
+    #: Podstawa godzinowa (pracownicy ogólni) — wypełniona zamiast kg.
+    hours_per_date: Dict[str, float] = {}
+    rate_per_hour: float = 0.0
     deductions: List[SettlementDeductionDto] = []
+    #: Potrącenia oczekujące z rejestru, wskazane do konsumpcji.
+    deduction_ids: List[str] = []
     notes: str = ""

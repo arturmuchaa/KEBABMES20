@@ -1,5 +1,6 @@
 """Workers + payroll (worker days, settlements)."""
 import json
+from datetime import date as _date
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -18,6 +19,7 @@ from app.models.workers import (
     CreateSettlementDto,
     KgAdjustmentDto,
     WorkerCreate,
+    WorkerDeductionDto,
     WorkerUpdate,
 )
 from app.utils.ids import cuid, now_iso
@@ -392,22 +394,119 @@ def create_kg_adjustment(dto: KgAdjustmentDto) -> Dict:
     }
 
 
+# ── Potrącenia oczekujące ─────────────────────────────────────────────
+
+def _deduction_out(r: Dict) -> Dict:
+    return {
+        "id": r["id"],
+        "workerId": r["worker_id"],
+        "deductionDate": str(r["deduction_date"]),
+        "description": r["description"],
+        "amount": float(r["amount"] or 0),
+        "sourceType": r.get("source_type") or "manual",
+        "sourceId": r.get("source_id"),
+        "status": r.get("status") or "pending",
+        "settlementId": r.get("settlement_id"),
+    }
+
+
+def create_worker_deduction(dto: WorkerDeductionDto) -> Dict:
+    """Potrącenie znane np. w poniedziałek nie musi już czekać na kartce
+    do piątku — leży w rejestrze i wchodzi do rozliczenia obejmującego
+    jego datę."""
+    if not dto.description.strip():
+        raise HTTPException(400, "Podaj opis potrącenia")
+    if not dto.amount or dto.amount <= 0:
+        raise HTTPException(400, "Kwota potrącenia musi być większa od zera")
+    worker = query_one("SELECT id FROM workers WHERE id=%s", (dto.worker_id,))
+    if not worker:
+        raise HTTPException(404, "Pracownik nie istnieje")
+
+    did = cuid()
+    with transaction() as conn:
+        cx_execute(
+            conn,
+            """
+            INSERT INTO worker_deductions
+                (id, worker_id, deduction_date, description, amount,
+                 source_type, source_id, status, created_by, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s)
+            """,
+            (did, dto.worker_id, dto.deduction_date, dto.description.strip(),
+             round(dto.amount, 2), dto.source_type, dto.source_id,
+             dto.created_by or "", now_iso()),
+        )
+        row = cx_query_one(
+            conn, "SELECT * FROM worker_deductions WHERE id=%s", (did,)
+        )
+    assert row is not None
+    logger.info(
+        "payroll.deduction.created",
+        extra={"deduction_id": did, "worker_id": dto.worker_id,
+               "amount": dto.amount, "source_type": dto.source_type},
+    )
+    return _deduction_out(row)
+
+
+def list_worker_deductions(worker_id: str, status: str = "pending") -> List[Dict]:
+    rows = query_all(
+        "SELECT * FROM worker_deductions WHERE worker_id=%s AND status=%s "
+        "ORDER BY deduction_date, created_at",
+        (worker_id, status),
+    )
+    return [_deduction_out(r) for r in rows]
+
+
+def cancel_worker_deduction(deduction_id: str) -> Dict:
+    """Anulowanie zostawia ślad (status), nie kasuje wiersza."""
+    with transaction() as conn:
+        row = cx_query_one(
+            conn,
+            "SELECT status FROM worker_deductions WHERE id=%s FOR UPDATE",
+            (deduction_id,),
+        )
+        if not row:
+            raise HTTPException(404, "Potrącenie nie istnieje")
+        if row["status"] == "settled":
+            raise HTTPException(400, "Potrącenie jest już rozliczone")
+        cx_execute(
+            conn,
+            "UPDATE worker_deductions SET status='cancelled' WHERE id=%s",
+            (deduction_id,),
+        )
+    return {"ok": True}
+
+
+# ── Dopasowanie odbiorcy WZ do pracownika ─────────────────────────────
+
+def normalize_worker_name(value: Optional[str]) -> str:
+    return " ".join((value or "").split()).casefold()
+
+
+def match_worker_by_name(name: str, nip: str = "") -> Optional[Dict]:
+    """Zwraca pracownika TYLKO gdy NIP jest pusty (firma ma NIP, pracownik
+    nie) i nazwa pasuje DOKŁADNIE do jednego aktywnego pracownika.
+    Zero dopasowania rozmytego — pomyłka kosztowałaby kogoś pieniądze."""
+    if (nip or "").strip():
+        return None
+    needle = normalize_worker_name(name)
+    if not needle:
+        return None
+    rows = query_all("SELECT id, name, role FROM workers WHERE active = true")
+    hits = [r for r in rows if normalize_worker_name(r["name"]) == needle]
+    if len(hits) != 1:
+        return None
+    return {"workerId": hits[0]["id"], "name": hits[0]["name"], "role": hits[0]["role"]}
+
+
 # ── Settlements ───────────────────────────────────────────────────────
 
+def _is_sunday(iso_date: str) -> bool:
+    return _date.fromisoformat(iso_date).weekday() == 6
+
+
 def create_settlement(dto: CreateSettlementDto) -> Dict:
-    kg_total = round(
-        sum(dto.kg_per_date.get(d, 0) for d in dto.work_dates), 3
-    )
-    gross_amount = round(kg_total * dto.rate_per_kg, 2)
-    deductions_total = round(sum(d.amount for d in dto.deductions), 2)
-    net_amount = round(gross_amount - deductions_total, 2)
     sid = cuid()
-    work_dates_detail = json.dumps(
-        [
-            {"work_date": d, "kg": dto.kg_per_date.get(d, 0)}
-            for d in sorted(dto.work_dates)
-        ]
-    )
 
     with transaction() as conn:
         worker = cx_query_one(
@@ -415,6 +514,46 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
         )
         if not worker:
             raise HTTPException(404, "Pracownik nie istnieje")
+
+        # Podstawa idzie za BIEŻĄCĄ rolą: ogólny płaci się od godzin,
+        # rozbiór i produkcja od kilogramów.
+        basis = "hours" if "GENERAL" in (worker.get("role") or "") else "kg"
+        sunday_bonus = (
+            float(worker.get("sunday_bonus_per_hour") or 0)
+            if worker.get("sunday_bonus_enabled") else 0.0
+        )
+        if basis == "hours":
+            hours_total = round(
+                sum(dto.hours_per_date.get(d, 0) for d in dto.work_dates), 2
+            )
+            # Premia liczy się WYŁĄCZNIE od godzin niedzielnych — reszta
+            # tygodnia idzie po stawce podstawowej.
+            sunday_hours = round(
+                sum(dto.hours_per_date.get(d, 0)
+                    for d in dto.work_dates if _is_sunday(d)),
+                2,
+            )
+            kg_total = 0.0
+            gross_amount = round(
+                hours_total * dto.rate_per_hour + sunday_hours * sunday_bonus, 2
+            )
+            work_dates_detail = json.dumps(
+                [{"work_date": d, "hours": dto.hours_per_date.get(d, 0),
+                  "sunday": _is_sunday(d)}
+                 for d in sorted(dto.work_dates)]
+            )
+        else:
+            hours_total = 0.0
+            sunday_hours = 0.0
+            sunday_bonus = 0.0
+            kg_total = round(
+                sum(dto.kg_per_date.get(d, 0) for d in dto.work_dates), 3
+            )
+            gross_amount = round(kg_total * dto.rate_per_kg, 2)
+            work_dates_detail = json.dumps(
+                [{"work_date": d, "kg": dto.kg_per_date.get(d, 0)}
+                 for d in sorted(dto.work_dates)]
+            )
 
         for d in dto.work_dates:
             already = cx_query_one(
@@ -425,6 +564,38 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
             if already:
                 raise HTTPException(400, f"Dzień {d} jest już rozliczony")
 
+        # Potrącenia oczekujące: blokada wierszy, żeby dwa równoległe
+        # rozliczenia nie zjadły tego samego potrącenia dwa razy.
+        pending: List[Dict] = []
+        for did in dto.deduction_ids:
+            row = cx_query_one(
+                conn,
+                "SELECT * FROM worker_deductions WHERE id=%s FOR UPDATE",
+                (did,),
+            )
+            if not row:
+                raise HTTPException(404, f"Potrącenie {did} nie istnieje")
+            if row["worker_id"] != dto.worker_id:
+                raise HTTPException(400, "Potrącenie należy do innego pracownika")
+            if row["status"] != "pending":
+                raise HTTPException(
+                    400, f"Potrącenie „{row['description']}” nie jest już oczekujące"
+                )
+            dd = str(row["deduction_date"])
+            if not (dto.date_from <= dd <= dto.date_to):
+                raise HTTPException(
+                    400,
+                    f"Potrącenie „{row['description']}” z {dd} jest poza zakresem "
+                    f"{dto.date_from}–{dto.date_to}",
+                )
+            pending.append(row)
+
+        deductions_total = round(
+            sum(d.amount for d in dto.deductions)
+            + sum(float(r["amount"] or 0) for r in pending),
+            2,
+        )
+        net_amount = round(gross_amount - deductions_total, 2)
         employer_cost_amount = float(worker.get("employer_cost_amount") or 0)
         cx_execute(
             conn,
@@ -432,10 +603,12 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
             INSERT INTO payroll_settlements
                 (id, worker_id, worker_name, worker_role,
                  date_from, date_to, kg_total, rate_per_kg,
+                 hours_total, rate_per_hour, basis,
+                 sunday_hours, sunday_bonus_per_hour,
                  gross_amount, employer_cost_pct, employer_cost_amount,
                  deductions_total, net_amount, contract_type,
                  work_dates_detail, notes, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 sid,
@@ -446,6 +619,11 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
                 dto.date_to,
                 kg_total,
                 dto.rate_per_kg,
+                hours_total,
+                dto.rate_per_hour,
+                basis,
+                sunday_hours,
+                sunday_bonus,
                 gross_amount,
                 0,
                 employer_cost_amount,
@@ -466,6 +644,20 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
                 VALUES (%s,%s,%s,%s)
                 """,
                 (cuid(), sid, ded.description, ded.amount),
+            )
+        # Rejestr przepisuje się do settlement_deductions, które zostaje
+        # JEDYNYM źródłem dla paska wypłaty i druku zbiorczego.
+        for row in pending:
+            cx_execute(
+                conn,
+                "INSERT INTO settlement_deductions (id, settlement_id, description, amount) "
+                "VALUES (%s,%s,%s,%s)",
+                (cuid(), sid, row["description"], row["amount"]),
+            )
+            cx_execute(
+                conn,
+                "UPDATE worker_deductions SET status='settled', settlement_id=%s WHERE id=%s",
+                (sid, row["id"]),
             )
         for d in dto.work_dates:
             cx_execute(
