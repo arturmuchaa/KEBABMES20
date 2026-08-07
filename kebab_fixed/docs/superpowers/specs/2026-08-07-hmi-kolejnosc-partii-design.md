@@ -23,25 +23,31 @@ rozbioru trafia na złą partię, a odkręcanie tego wymaga korekty biurowej
 Pozwolić hali ułożyć pasek w kolejności, w jakiej realnie pracuje: przytrzymanie
 kafla wprowadza go w tryb przenoszenia, przeciągnięcie zmienia pozycję.
 
-### Gest
+### Sterowanie — tryb układania ze strzałkami
 
-- Przytrzymanie **600 ms** na kaflu partii → kafel unosi się (cień,
-  powiększenie ~1,05) i pasek wchodzi w tryb przenoszenia.
-- Przeciągnięcie w lewo/prawo przestawia kafel między sąsiadami.
-- Puszczenie palca upuszcza kafel i zapisuje kolejność.
+**Pierwotny pomysł (przytrzymanie kafla + przeciągnięcie) odpadł: ten gest
+jest już zajęty.** Przytrzymanie kafla partii przez 600 ms otwiera kreator
+ważenia kości i grzbietów w trakcie rozbioru
+(`onLongPress={openWizardInProgress}` w `DeboningHmiV10Page.tsx`). Podpięcie
+pod niego przenoszenia zabrałoby hali ważenie ubocznych.
 
-600 ms, bo tyle ma już przytrzymanie backspace w tym samym kiosku
-(`handleBackStart`) — próg sprawdzony w rękawicach roboczych.
+Zamiast tego jawny tryb, wybrany przez użytkownika 2026-08-07:
 
-**Zwykłe kliknięcie nadal wybiera partię.** Po przekroczeniu progu
-przytrzymania kliknięcie jest blokowane, żeby puszczenie palca po
-przeniesieniu nie zmieniło wybranej partii przy okazji.
+- przycisk **„Ułóż"** w nagłówku paska partii przełącza pasek w tryb układania,
+- w tym trybie każdy kafel dostaje dwie duże strzałki **‹ ›** przesuwające go
+  o jedno miejsce,
+- **„Gotowe"** wychodzi z trybu, **„FEFO"** przywraca kolejność domyślną.
 
-**Przewijanie:** pasek przewija się w poziomie (limit 12 kafli). Na czas
-przenoszenia natywne przewijanie jest wyłączone (`touch-action: none`),
-a gdy palec zbliży się do krawędzi paska, pasek przewija się sam. Przy
-typowych 3 partiach ta ścieżka nie uruchomi się nigdy, ale przy 12 jest
-konieczna — bez niej pasek ucieka pod palcem.
+Strzałki zamiast przeciągania, bo operator pracuje w rękawicach roboczych,
+a pasek przewija się w poziomie — przeciąganie na przewijanym pasku jest
+zawodne. Przy typowych 3 partiach przestawienie to jedno dotknięcie.
+
+W trybie układania kliknięcie w kafel **nie zmienia wybranej partii**
+i przytrzymanie **nie otwiera ważenia** — inaczej układanie kolejności
+wpadałoby w te same pomyłki, które ma likwidować.
+
+Kolejność zapisuje się po **każdym** przesunięciu (optymistycznie, PUT w tle),
+więc odejście od ekranu bez kliknięcia „Gotowe" niczego nie gubi.
 
 ### Trwałość
 
@@ -81,8 +87,10 @@ zmienia **wyłącznie układ kafli**:
   HACCP") nadal liczą się z dat, nie z kolejności paska,
 - limit 12 kafli i filtr aktywnych partii bez zmian.
 
-W menu serwisowym (kod 0099) dochodzi **„Przywróć kolejność FEFO"** —
-kasuje `hmi_batch_order`, gdyby ktoś ułożył pasek na opak.
+Przycisk **„FEFO"** w trybie układania kasuje `hmi_batch_order` i przywraca
+kolejność domyślną. Świadomie NIE chowamy go za kodem serwisowym 0099 —
+przywrócenie FEFO jest działaniem bezpiecznym, a ukrycie go sprawiłoby, że
+źle ułożony pasek zostaje na cały dzień.
 
 ## Architektura
 
@@ -92,11 +100,16 @@ kasuje `hmi_batch_order`, gdyby ktoś ułożył pasek na opak.
 | `backend/app/routes/settings.py` | `GET`/`PUT /settings/hmi-batch-order` |
 | `src/pages/tablet/batchOrder.ts` (nowy) | czysty `mergeBatchOrder` + typy |
 | `src/pages/tablet/batchOrder.test.ts` (nowy) | testy scalania |
-| `src/pages/tablet/useBatchDrag.ts` (nowy) | hook gestu: próg 600 ms, przenoszenie, auto-przewijanie |
-| `src/pages/tablet/DeboningHmiV10Page.tsx` | użycie kolejności w `allActiveBatches`, podpięcie hooka, pozycja w menu serwisowym |
+| `backend/tests/test_hmi_batch_order.py` (nowy) | walidacja konfiguracji, bez bazy |
+| `src/pages/tablet/DeboningHmiV10Page.tsx` | kolejność w `allActiveBatches`, tryb układania, strzałki na kaflu |
 
-Logika scalania i gest są rozdzielone celowo: scalanie da się przetestować
-w vitest (środowisko `node`, bez DOM), gest wymaga urządzenia.
+Trasa siedzi pod `/api/deboning`, a nie `/api/settings`: RBAC
+(`app/auth/permissions.py`) daje kioskowi dostęp do prefiksu `/api/deboning`
+przez rolę `rozbior`, natomiast `/api/settings` jest zarezerwowane dla biura.
+Ten sam wzorzec zastosowano wcześniej dla tar wózków.
+
+Logika scalania jest wydzielona celowo: da się ją przetestować w vitest
+(środowisko `node`, bez DOM), a sam tryb układania sprawdza się na kiosku.
 
 ## Testy
 
@@ -109,9 +122,12 @@ w vitest (środowisko `node`, bez DOM), gest wymaga urządzenia.
 - pusta konfiguracja = czyste FEFO (zachowanie dzisiejsze),
 - funkcja nie mutuje wejścia.
 
-Gest sprawdzany na kiosku: przytrzymanie unosi kafel, zwykłe kliknięcie nadal
-wybiera partię, po przeniesieniu kolejność przeżywa odświeżenie strony i jest
-widoczna na drugim stanowisku.
+`backend/tests/test_hmi_batch_order.py` (pytest, bez bazy): duplikaty, puste
+wpisy, wartość niebędąca listą, zbyt długi numer, limit pozycji.
+
+Na kiosku: „Ułóż" włącza tryb, strzałki przestawiają kafel, „Gotowe" wychodzi,
+przytrzymanie kafla POZA trybem nadal otwiera ważenie ubocznych, a kolejność
+przeżywa odświeżenie strony i jest widoczna na drugim stanowisku.
 
 ## Wydanie
 
