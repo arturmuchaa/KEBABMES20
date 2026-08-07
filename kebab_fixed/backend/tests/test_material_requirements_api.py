@@ -127,5 +127,10 @@ def test_summary_skips_done_and_cancelled_orders(monkeypatch):
     monkeypatch.setattr(os_, "get_order", lambda oid: (_ for _ in ()).throw(
         AssertionError("nie powinno czytać zamkniętych zamówień")))
     monkeypatch.setattr(mrs, "_stock_by_type", lambda: {})
+    # Bez tych dwóch podmian test schodził do prawdziwej bazy i padał na
+    # maszynie bez PostgreSQL (CI). Dla tej asercji ich wynik jest obojętny —
+    # wszystkie zamówienia są zamknięte, więc i tak nie ma czego bilansować.
+    monkeypatch.setattr(mrs, "seasoned_free_by_recipe", lambda: {})
+    monkeypatch.setattr(mrs, "active_plan_output_by_recipe", lambda: {})
     data = mrs.requirements_summary()
     assert data["total"] == [] and data["remaining"] == [] and data["net_shortage"] == []
