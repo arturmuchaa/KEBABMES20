@@ -145,7 +145,7 @@ function SectionStep({ no, done, children }: { no: number; done: boolean; childr
 }
 
 // ─── Kafel partii ──────────────────────────────────────────────────
-const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onLongPress, pendingMeatKg, arranging, canLeft, canRight, onMove }: {
+const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onLongPress, pendingMeatKg, arranging, canLeft, canRight, onMove, onTripleTap }: {
   batch: RawBatch; selected: boolean; onSelect: (b: RawBatch) => void
   onLongPress?: (b: RawBatch) => void
   /** Suma kg otwartych pobrań — kafel pokazuje „czeka na mięso" i nie znika. */
@@ -155,6 +155,8 @@ const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onL
   canLeft?: boolean
   canRight?: boolean
   onMove?: (batchNo: string, delta: -1 | 1) => void
+  /** Trzy szybkie dotknięcia kafla → tryb układania kolejności. */
+  onTripleTap?: () => void
 }) {
   const { daysLeft } = getExpiryStatus(batch.expiryDate)
   const kg = Number(batch.kgAvailable)
@@ -172,6 +174,24 @@ const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onL
     timerRef.current = setTimeout(() => { longRef.current = true; onLongPress(batch) }, 600)
   }
   const up = () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null } }
+
+  // Trzy szybkie dotknięcia = tryb układania kolejności paska. Licznik zeruje
+  // się po 600 ms przerwy, więc zwykłe klikanie w partie go nie uzbiera.
+  // Wybór partii zostaje przy pierwszym dotknięciu — kolejne trafiają w tę
+  // samą partię, a pickBatch nie czyści już wtedy wpisanych kilogramów.
+  const tapsRef = useRef(0)
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const registerTap = () => {
+    if (!onTripleTap) return
+    tapsRef.current += 1
+    if (tapTimerRef.current) clearTimeout(tapTimerRef.current)
+    if (tapsRef.current >= 3) {
+      tapsRef.current = 0
+      onTripleTap()
+      return
+    }
+    tapTimerRef.current = setTimeout(() => { tapsRef.current = 0 }, 600)
+  }
 
   if (arranging) {
     return (
@@ -210,7 +230,7 @@ const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onL
   }
 
   return (
-    <button type="button" onClick={() => { if (!longRef.current) onSelect(batch) }} disabled={expired}
+    <button type="button" onClick={() => { if (!longRef.current) { onSelect(batch); registerTap() } }} disabled={expired}
       onPointerDown={down} onPointerUp={up} onPointerLeave={up} onPointerCancel={up}
       className={cn('flex flex-col justify-between text-left h-full flex-shrink-0 select-none transition-all', expired && 'opacity-50')}
       style={{
@@ -847,6 +867,14 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       })
   }, [allActiveBatches, batchOrderData, showToast])
 
+  // Wejście w tryb układania: gest jest niewidoczny, więc komunikat mówi
+  // wprost, co się stało i jak wyjść — inaczej operator nie wie, czemu kafle
+  // nagle wyglądają inaczej.
+  const enterArrange = useCallback(() => {
+    setArranging(true)
+    showToast('Układanie kolejności — przesuń kafle strzałkami')
+  }, [showToast])
+
   const resetBatchOrder = useCallback(() => {
     setOrderOverride([])
     settingsApi.saveBatchOrder([])
@@ -1060,8 +1088,12 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       setResumeId(null)
       setMeatManual(false)
     }
+    // Ponowne dotknięcie TEJ SAMEJ partii nie może kasować wpisanych kg —
+    // operator traciłby wagę przy każdym omyłkowym dotknięciu kafla, a od
+    // 1.0.73 trzykrotne dotknięcie jest gestem włączającym układanie paska.
+    if (selBatch?.id === b.id) { setSelBatch(b); return }
     setSelBatch(b); setKgTaken(''); setKgMeat(''); setActive('taken')
-  }, [resumeId])
+  }, [resumeId, selBatch?.id])
   // Kolejka pobrań widziana przez pryzmat suwaka Z/S↔B/S: przy B/S kafelek
   // pokazuje pobranie b/s (np. 15 kg), a otwarte 150 kg z/s tego samego
   // pracownika NIE blokuje dołożenia b/s (zgłoszenie z hali 28.07).
@@ -2024,28 +2056,18 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         {/* Układanie kolejności paska. Osobny tryb, bo przytrzymanie kafla jest
             już zajęte przez ważenie ubocznych, a operator pracuje w rękawicach —
             jawny przycisk jest pewniejszy od ukrytego gestu. */}
-        {batches.length > 1 && (
+        {arranging && (
           <div className="flex flex-col gap-2 flex-shrink-0" style={{ width: 92 }}>
-            {arranging ? (
-              <>
-                <button type="button" onClick={() => setArranging(false)}
-                  className="text-[12px] font-bold uppercase flex items-center justify-center gap-1"
-                  style={{ height: 44, borderRadius: 8, background: 'var(--accent)', color: '#fff', letterSpacing: '.06em' }}>
-                  <Check size={14} /> Gotowe
-                </button>
-                <button type="button" onClick={resetBatchOrder}
-                  className="text-[12px] font-bold uppercase"
-                  style={{ height: 40, borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)', letterSpacing: '.06em' }}>
-                  FEFO
-                </button>
-              </>
-            ) : (
-              <button type="button" onClick={() => setArranging(true)}
-                className="text-[12px] font-bold uppercase flex flex-col items-center justify-center gap-1"
-                style={{ height: 88, borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)', letterSpacing: '.06em' }}>
-                <ListOrdered size={18} /> Ułóż
-              </button>
-            )}
+            <button type="button" onClick={() => setArranging(false)}
+              className="text-[12px] font-bold uppercase flex items-center justify-center gap-1"
+              style={{ height: 44, borderRadius: 8, background: 'var(--accent)', color: '#fff', letterSpacing: '.06em' }}>
+              <Check size={14} /> Gotowe
+            </button>
+            <button type="button" onClick={resetBatchOrder}
+              className="text-[12px] font-bold uppercase"
+              style={{ height: 40, borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)', letterSpacing: '.06em' }}>
+              FEFO
+            </button>
           </div>
         )}
         {batchData.loading
@@ -2056,7 +2078,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 <BatchTileV10 key={b.id} batch={b} selected={selBatch?.id === b.id} onSelect={pickBatch}
                   onLongPress={openWizardInProgress} pendingMeatKg={pendingKgByBatch.get(b.id)}
                   arranging={arranging} canLeft={i > 0} canRight={i < batches.length - 1}
-                  onMove={moveBatchBy} />
+                  onMove={moveBatchBy}
+                  onTripleTap={batches.length > 1 ? enterArrange : undefined} />
               ))
         }
         {/* Szare kafle: partie zakończone, oczekujące na ważenie ubocznych

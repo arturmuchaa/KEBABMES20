@@ -30,12 +30,23 @@ ważenia kości i grzbietów w trakcie rozbioru
 (`onLongPress={openWizardInProgress}` w `DeboningHmiV10Page.tsx`). Podpięcie
 pod niego przenoszenia zabrałoby hali ważenie ubocznych.
 
-Zamiast tego jawny tryb, wybrany przez użytkownika 2026-08-07:
+Zamiast tego (decyzje użytkownika z 2026-08-07):
 
-- przycisk **„Ułóż"** w nagłówku paska partii przełącza pasek w tryb układania,
+- **trzy szybkie dotknięcia kafla partii** włączają tryb układania — licznik
+  zeruje się po 600 ms przerwy, więc zwykłe klikanie w partie go nie uzbiera;
+  wejściu towarzyszy komunikat, bo gest jest niewidoczny,
 - w tym trybie każdy kafel dostaje dwie duże strzałki **‹ ›** przesuwające go
   o jedno miejsce,
 - **„Gotowe"** wychodzi z trybu, **„FEFO"** przywraca kolejność domyślną.
+
+Pierwsza wersja (1.0.72) miała przycisk „Ułóż" na pasku; użytkownik uznał go
+za zbędny element na ekranie i w 1.0.73 zastąpił gestem. Przyciski „Gotowe"
+i „FEFO" pojawiają się wyłącznie w trybie układania.
+
+**Skutek uboczny wymagający naprawy:** `pickBatch` czyścił wpisane kilogramy
+przy KAŻDYM dotknięciu kafla, więc trzykrotne dotknięcie partii, na której
+operator już pracuje, kasowałoby mu wagę. Od 1.0.73 ponowne dotknięcie tej
+samej partii nie rusza pól — to naprawia też zwykłe omyłkowe dotknięcia.
 
 Strzałki zamiast przeciągania, bo operator pracuje w rękawicach roboczych,
 a pasek przewija się w poziomie — przeciąganie na przewijanym pasku jest
@@ -124,9 +135,11 @@ Logika scalania jest wydzielona celowo: da się ją przetestować w vitest
 `backend/tests/test_hmi_batch_order.py` (pytest, bez bazy): duplikaty, puste
 wpisy, wartość niebędąca listą, zbyt długi numer, limit pozycji.
 
-Na kiosku: „Ułóż" włącza tryb, strzałki przestawiają kafel, „Gotowe" wychodzi,
-przytrzymanie kafla POZA trybem nadal otwiera ważenie ubocznych, a kolejność
-przeżywa odświeżenie strony i jest widoczna na drugim stanowisku.
+Na kiosku: trzy szybkie dotknięcia włączają tryb (z komunikatem), strzałki
+przestawiają kafel, „Gotowe" wychodzi, przytrzymanie kafla POZA trybem nadal
+otwiera ważenie ubocznych, wpisane kilogramy przeżywają ponowne dotknięcie
+tej samej partii, a kolejność przeżywa odświeżenie strony i jest widoczna
+na drugim stanowisku.
 
 ## Wydanie
 
