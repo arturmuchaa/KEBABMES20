@@ -20,8 +20,7 @@ rozbioru trafia na złą partię, a odkręcanie tego wymaga korekty biurowej
 
 ## Rozwiązanie
 
-Pozwolić hali ułożyć pasek w kolejności, w jakiej realnie pracuje: przytrzymanie
-kafla wprowadza go w tryb przenoszenia, przeciągnięcie zmienia pozycję.
+Pozwolić hali ułożyć pasek w kolejności, w jakiej realnie pracuje.
 
 ### Sterowanie — tryb układania ze strzałkami
 
@@ -55,14 +54,14 @@ Kolejność jest **wspólna dla całej hali**, bo odzwierciedla fakt (ustawienie
 palet, plan dnia), a nie preferencję operatora.
 
 - Klucz `hmi_batch_order` w istniejącej tabeli `app_settings` — bez migracji.
-- Wartość: JSON `{"order": ["467","468","466"], "updatedAt": "<ISO>"}`.
-- Endpoint `GET /api/settings/hmi-batch-order` i `PUT` z tym samym kształtem.
+- Wartość: JSON `{"order": ["467","468","466"]}`; znacznik czasu trzyma
+  kolumna `updated_at` tabeli, więc nie dublujemy go w treści.
+- Endpoint `GET /api/deboning/batch-order` i `PUT` z tym samym kształtem.
 - Kluczem jest **numer partii** (`internal_batch_no`), nie id — czytelny przy
   diagnozie w bazie i unikalny (kolumna ma UNIQUE). Anulowanie partii zmienia
   numer na `ANUL-<id>`, ale anulowana partia i tak znika z paska.
 
-Kiosk czyta kolejność razem z cyklicznym odświeżaniem listy partii. Zapis
-idzie natychmiast po upuszczeniu, interfejs aktualizuje się optymistycznie.
+Kiosk czyta kolejność razem z cyklicznym odświeżaniem listy partii.
 
 ### Scalanie z FEFO
 
@@ -97,7 +96,7 @@ przywrócenie FEFO jest działaniem bezpiecznym, a ukrycie go sprawiłoby, że
 | Warstwa | Zmiana |
 |---|---|
 | `backend/app/services/settings_service.py` | `get_hmi_batch_order()` / `save_hmi_batch_order(order)` na `app_settings` |
-| `backend/app/routes/settings.py` | `GET`/`PUT /settings/hmi-batch-order` |
+| `backend/app/routes/deboning.py` | `GET`/`PUT /api/deboning/batch-order` |
 | `src/pages/tablet/batchOrder.ts` (nowy) | czysty `mergeBatchOrder` + typy |
 | `src/pages/tablet/batchOrder.test.ts` (nowy) | testy scalania |
 | `backend/tests/test_hmi_batch_order.py` (nowy) | walidacja konfiguracji, bez bazy |

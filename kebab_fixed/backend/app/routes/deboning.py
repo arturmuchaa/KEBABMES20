@@ -35,6 +35,25 @@ def save_cart_tares(body: dict):
         raise HTTPException(400, str(e))
     return {"cartTares": tares}
 
+
+# Kolejność partii na pasku HMI: hala i czyta, i ustawia (przytrzymanie kafla
+# + przeciągnięcie). Trasa siedzi pod /api/deboning, bo /api/settings jest
+# zarezerwowane dla biura, a to ustawienie należy do stanowiska rozbioru.
+
+@router.get("/api/deboning/batch-order")
+def get_batch_order():
+    return {"order": settings_service.get_hmi_batch_order()}
+
+
+@router.put("/api/deboning/batch-order")
+def save_batch_order(body: dict):
+    try:
+        order = settings_service.save_hmi_batch_order(body.get("order"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"order": order}
+
+
 @router.get("/api/deboning/entries/trace/{batch_id}")
 def deboning_trace(batch_id: str):
     return svc.deboning_trace(batch_id)

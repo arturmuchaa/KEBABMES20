@@ -163,3 +163,74 @@ def save_cart_tares(values) -> list:
     )
     logger.info("settings.cart_tares.saved", extra={"count": len(tares)})
     return tares
+
+
+# ── Kolejność partii na pasku HMI rozbioru ───────────────────────────────
+# WSPÓLNA dla całej hali: opisuje plan dnia i ustawienie palet w chłodni,
+# a nie preferencję jednego operatora. Powód powstania: gdy na stanie są
+# 466, 467 i 468, a zakład zaczyna 466 dopiero jutro, FEFO stawia ją skrajnie
+# z lewej — najbliżej ręki — i operator klika w nią przez pomyłkę.
+#
+# To zmienia WYŁĄCZNIE układ kafli. FEFO zostaje regułą magazynową: znaczniki
+# terminów, blokada partii przeterminowanej i ostrzeżenia HACCP liczą się dalej
+# z dat, niezależnie od kolejności na ekranie.
+BATCH_ORDER_KEY = "hmi_batch_order"
+
+# Pasek pokazuje maksymalnie 12 kafli, ale konfiguracja może pamiętać więcej
+# (partie schodzą i wracają w ciągu dnia). Limit chroni przed zaśmieceniem.
+MAX_BATCH_ORDER = 100
+
+
+def normalize_batch_order(values) -> list:
+    """Lista numerów partii → oczyszczona lista bez duplikatów i pustych."""
+    if values is None:
+        return []
+    if not isinstance(values, (list, tuple)):
+        raise ValueError("Kolejność partii musi być listą numerów")
+    out: list = []
+    for v in values:
+        no = str(v).strip()
+        if not no:
+            continue
+        if len(no) > 32:
+            raise ValueError("Numer partii jest za długi")
+        # Duplikat znaczyłby ten sam kafel dwa razy na pasku.
+        if no not in out:
+            out.append(no)
+    if len(out) > MAX_BATCH_ORDER:
+        raise ValueError(f"Kolejność partii ograniczona do {MAX_BATCH_ORDER} pozycji")
+    return out
+
+
+def get_hmi_batch_order() -> list:
+    row = query_one("SELECT value FROM app_settings WHERE key = %s", (BATCH_ORDER_KEY,))
+    if not row:
+        return []
+    val = row["value"]
+    if isinstance(val, str):
+        try:
+            val = json.loads(val)
+        except Exception:
+            return []
+    order = val.get("order") if isinstance(val, dict) else val
+    try:
+        return normalize_batch_order(order)
+    except ValueError:
+        # Uszkodzona konfiguracja nie może wywalić paska partii na hali —
+        # spadamy na czyste FEFO.
+        return []
+
+
+def save_hmi_batch_order(values) -> list:
+    order = normalize_batch_order(values)
+    execute(
+        """
+        INSERT INTO app_settings (key, value, updated_at)
+        VALUES (%s, %s::jsonb, now())
+        ON CONFLICT (key) DO UPDATE
+        SET value = EXCLUDED.value, updated_at = now()
+        """,
+        (BATCH_ORDER_KEY, json.dumps({"order": order})),
+    )
+    logger.info("settings.hmi_batch_order.saved", extra={"positions": len(order)})
+    return order

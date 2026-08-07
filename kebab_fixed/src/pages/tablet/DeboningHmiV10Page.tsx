@@ -15,6 +15,7 @@ import { rawBatchesApi, usersApi, settingsApi, byproductsApi, type BatchByproduc
 import { Spinner } from '@/components/ui/widgets'
 import { fmtKg, fmtPct, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
+import { mergeBatchOrder, moveBatch } from './batchOrder'
 import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2, Clock, Wifi, WifiOff } from 'lucide-react'
 import { BASE } from '@/lib/api'
 import type { RawBatch, User } from '@/types'
@@ -144,11 +145,16 @@ function SectionStep({ no, done, children }: { no: number; done: boolean; childr
 }
 
 // ─── Kafel partii ──────────────────────────────────────────────────
-const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onLongPress, pendingMeatKg }: {
+const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onLongPress, pendingMeatKg, arranging, canLeft, canRight, onMove }: {
   batch: RawBatch; selected: boolean; onSelect: (b: RawBatch) => void
   onLongPress?: (b: RawBatch) => void
   /** Suma kg otwartych pobrań — kafel pokazuje „czeka na mięso" i nie znika. */
   pendingMeatKg?: number
+  /** Tryb układania kolejności: kafel pokazuje strzałki i nie wybiera partii. */
+  arranging?: boolean
+  canLeft?: boolean
+  canRight?: boolean
+  onMove?: (batchNo: string, delta: -1 | 1) => void
 }) {
   const { daysLeft } = getExpiryStatus(batch.expiryDate)
   const kg = Number(batch.kgAvailable)
@@ -159,11 +165,50 @@ const BatchTileV10 = memo(function BatchTileV10({ batch, selected, onSelect, onL
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longRef = useRef(false)
   const down = () => {
-    if (!onLongPress) return
+    // W trybie układania przytrzymanie NIE otwiera ważenia ubocznych —
+    // operator celuje wtedy w strzałki i łatwo o przypadkowe przytrzymanie.
+    if (!onLongPress || arranging) return
     longRef.current = false
     timerRef.current = setTimeout(() => { longRef.current = true; onLongPress(batch) }, 600)
   }
   const up = () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null } }
+
+  if (arranging) {
+    return (
+      <div className="flex flex-col justify-between h-full flex-shrink-0 select-none"
+        style={{
+          width: 244, padding: '14px 18px', borderRadius: 12,
+          background: 'var(--panel)', border: '1px dashed var(--accent)', color: 'var(--ink)',
+        }}>
+        <div className="flex items-start justify-between gap-2">
+          <span className="hmi-v10-mono font-bold text-2xl leading-none">{batch.internalBatchNo}</span>
+          <span className="text-[13px] font-bold uppercase leading-none" style={{ color: daysColor }}>
+            {expired ? 'przeterm.' : daysLeft === 0 ? 'dziś!' : `${daysLeft} dni`}
+          </span>
+        </div>
+        <div className="hmi-v10-mono text-lg font-bold leading-none mt-2">{fmtKg(kg, 0)} kg</div>
+        <div className="flex items-stretch gap-2 mt-2">
+          <button type="button" aria-label={`Przesuń partię ${batch.internalBatchNo} w lewo`}
+            disabled={!canLeft} onClick={() => onMove?.(batch.internalBatchNo, -1)}
+            className="flex-1 flex items-center justify-center text-2xl font-bold"
+            style={{
+              height: 44, borderRadius: 8, border: '1px solid var(--line)',
+              background: canLeft ? 'var(--panel)' : 'transparent',
+              color: canLeft ? 'var(--ink)' : 'var(--mut)', opacity: canLeft ? 1 : .35,
+            }}>‹</button>
+          <button type="button" aria-label={`Przesuń partię ${batch.internalBatchNo} w prawo`}
+            disabled={!canRight} onClick={() => onMove?.(batch.internalBatchNo, 1)}
+            className="flex-1 flex items-center justify-center text-2xl font-bold"
+            style={{
+              height: 44, borderRadius: 8, border: '1px solid var(--line)',
+              background: canRight ? 'var(--panel)' : 'transparent',
+              color: canRight ? 'var(--ink)' : 'var(--mut)', opacity: canRight ? 1 : .35,
+            }}>›</button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <button type="button" onClick={() => { if (!longRef.current) onSelect(batch) }} disabled={expired}
       onPointerDown={down} onPointerUp={up} onPointerLeave={up} onPointerCancel={up}
@@ -633,6 +678,14 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Tary wózków: lista z biura (edytowalna w Ustawieniach firmy); cache w
   // localStorage na wypadek braku sieci przy starcie, fallback = stała lista.
   const cartTaresData = useApi(() => settingsApi.getCartTares())
+
+  // ── Własna kolejność partii (wspólna dla hali) ──────────────────────────
+  const batchOrderData = useApi(() => settingsApi.getBatchOrder())
+  // Kopia lokalna: po przestawieniu kafel ma się ruszyć NATYCHMIAST, bez
+  // czekania na odpowiedź serwera — hala nie może patrzeć na zamrożony pasek.
+  const [orderOverride, setOrderOverride] = useState<string[] | null>(null)
+  const batchOrder = orderOverride ?? (batchOrderData.data ?? [])
+  const [arranging, setArranging] = useState(false)
   const cartTares = useMemo(() => {
     const fromApi = sanitizeCartTares(cartTaresData.data)
     if (fromApi.length) {
@@ -755,15 +808,51 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // zważenia) — ich kafle idą na szaro i przestają być klikalne.
   const batchWaitingOnlyForMeat = !!selBatch && Number(selBatch.kgAvailable) <= 0.5
 
+  // Kolejność paska: domyślnie FEFO, ale hala może ułożyć go po swojemu
+  // (przycisk „Ułóż"). Powód: gdy 466 zaczynamy dopiero jutro, a pracujemy na
+  // 467 i 468, FEFO stawia 466 skrajnie z lewej i operator klika w nią przez
+  // pomyłkę. mergeBatchOrder dokleja partie spoza konfiguracji na koniec, więc
+  // nowa dostawa nie rozbija ustawienia. Terminy i blokady HACCP bez zmian.
   const allActiveBatches = useMemo(() =>
-    (batchData.data?.data ?? [])
-      .filter(b => (Number(b.kgAvailable) > 0 || pendingKgByBatch.has(b.id))
-        && b.status !== 'used' && b.status !== 'expired' && b.status !== 'cancelled')
-      .sort((a, b) => a.expiryDate !== b.expiryDate ? (a.expiryDate < b.expiryDate ? -1 : 1) : (a.internalBatchSeq ?? 0) - (b.internalBatchSeq ?? 0)),
-    [batchData.data, pendingKgByBatch])
+    mergeBatchOrder(
+      (batchData.data?.data ?? [])
+        .filter(b => (Number(b.kgAvailable) > 0 || pendingKgByBatch.has(b.id))
+          && b.status !== 'used' && b.status !== 'expired' && b.status !== 'cancelled'),
+      batchOrder,
+    ),
+    [batchData.data, pendingKgByBatch, batchOrder])
   // Pasek partii przewija się w poziomie — limit tylko awaryjny (12, nie 6):
   // przy 7+ aktywnych partiach siódma „znikała" mimo miejsca na scroll.
   const batches = useMemo(() => allActiveBatches.slice(0, 12), [allActiveBatches])
+
+  // Przesunięcie kafla o jedno miejsce w trybie układania. Zapisujemy CAŁĄ
+  // widoczną kolejność, nie samą zmianę — dzięki temu konfiguracja na serwerze
+  // zawsze odpowiada temu, co hala widzi na pasku, także gdy część partii
+  // dołączyła później i szła dotąd po FEFO.
+  const moveBatchBy = useCallback((batchNo: string, delta: -1 | 1) => {
+    const current = allActiveBatches.map(b => b.internalBatchNo)
+    const from = current.indexOf(batchNo)
+    if (from < 0) return
+    const to = from + delta
+    if (to < 0 || to >= current.length) return
+    const next = moveBatch(current, from, to)
+    setOrderOverride(next)
+    settingsApi.saveBatchOrder(next)
+      .then(() => { setOrderOverride(null); batchOrderData.refetch?.() })
+      .catch(() => {
+        // Zapis padł (np. chwilowy brak sieci) — cofamy podgląd do stanu
+        // z serwera, żeby pasek nie kłamał o zapisanej kolejności.
+        setOrderOverride(null)
+        showToast('Nie udało się zapisać kolejności')
+      })
+  }, [allActiveBatches, batchOrderData, showToast])
+
+  const resetBatchOrder = useCallback(() => {
+    setOrderOverride([])
+    settingsApi.saveBatchOrder([])
+      .then(() => { setOrderOverride(null); batchOrderData.refetch?.() })
+      .catch(() => { setOrderOverride(null); showToast('Nie udało się przywrócić FEFO') })
+  }, [batchOrderData, showToast])
 
   // Świeży stan WYBRANEJ partii po każdym odświeżeniu listy. Bez tego
   // selBatch był snapshotem z momentu kliknięcia kafla — przy kilku wpisach
@@ -1932,13 +2021,42 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       </header>
 
       <div className="flex-shrink-0 h-[144px] px-4 py-3 flex items-center gap-3 overflow-x-auto">
+        {/* Układanie kolejności paska. Osobny tryb, bo przytrzymanie kafla jest
+            już zajęte przez ważenie ubocznych, a operator pracuje w rękawicach —
+            jawny przycisk jest pewniejszy od ukrytego gestu. */}
+        {batches.length > 1 && (
+          <div className="flex flex-col gap-2 flex-shrink-0" style={{ width: 92 }}>
+            {arranging ? (
+              <>
+                <button type="button" onClick={() => setArranging(false)}
+                  className="text-[12px] font-bold uppercase flex items-center justify-center gap-1"
+                  style={{ height: 44, borderRadius: 8, background: 'var(--accent)', color: '#fff', letterSpacing: '.06em' }}>
+                  <Check size={14} /> Gotowe
+                </button>
+                <button type="button" onClick={resetBatchOrder}
+                  className="text-[12px] font-bold uppercase"
+                  style={{ height: 40, borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)', letterSpacing: '.06em' }}>
+                  FEFO
+                </button>
+              </>
+            ) : (
+              <button type="button" onClick={() => setArranging(true)}
+                className="text-[12px] font-bold uppercase flex flex-col items-center justify-center gap-1"
+                style={{ height: 88, borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)', letterSpacing: '.06em' }}>
+                <ListOrdered size={18} /> Ułóż
+              </button>
+            )}
+          </div>
+        )}
         {batchData.loading
           ? <div className="flex items-center justify-center w-full"><Spinner size={24} /></div>
           : batches.length === 0
             ? <div className="flex items-center justify-center w-full text-sm font-bold" style={{ color: 'var(--mut)' }}>Brak aktywnych partii</div>
-            : batches.map(b => (
+            : batches.map((b, i) => (
                 <BatchTileV10 key={b.id} batch={b} selected={selBatch?.id === b.id} onSelect={pickBatch}
-                  onLongPress={openWizardInProgress} pendingMeatKg={pendingKgByBatch.get(b.id)} />
+                  onLongPress={openWizardInProgress} pendingMeatKg={pendingKgByBatch.get(b.id)}
+                  arranging={arranging} canLeft={i > 0} canRight={i < batches.length - 1}
+                  onMove={moveBatchBy} />
               ))
         }
         {/* Szare kafle: partie zakończone, oczekujące na ważenie ubocznych

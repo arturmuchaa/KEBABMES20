@@ -1985,6 +1985,13 @@ export const settingsApi = {
     get<any>('/deboning/cart-tares').then(r => (r?.cartTares ?? []) as number[]),
   saveCartTares: (tares: number[]) =>
     put<any>('/deboning/cart-tares', { cartTares: tares }).then(r => (r?.cartTares ?? []) as number[]),
+  // Własna kolejność partii na pasku HMI — wspólna dla całej hali.
+  // Też pod /deboning, bo /settings jest zarezerwowane dla biura (RBAC),
+  // a tę kolejność ustawia operator na kiosku.
+  getBatchOrder: () =>
+    get<any>('/deboning/batch-order').then(r => (r?.order ?? []) as string[]),
+  saveBatchOrder: (order: string[]) =>
+    put<any>('/deboning/batch-order', { order }).then(r => (r?.order ?? []) as string[]),
 }
 
 // ─── Zapotrzebowanie na surowiec ──────────────────────────────
