@@ -898,6 +898,58 @@ _DDL: list[str] = [
     "  AND COALESCE(jsonb_array_length(linked_sources), 0) = 0",
     "CREATE INDEX IF NOT EXISTS idx_container_docs_sources "
     "ON container_docs USING gin (linked_sources)",
+
+    # ── Godziny pracowników ogólnych ──
+    # Jeden wiersz na (pracownik, dzień). `time_to` NULL = zmiana OTWARTA:
+    # biuro zapisuje rano sam start (6:00) i domyka po południu, czasem
+    # dopiero po dwóch dniach. `status` jest osobno, bo BRAK WIERSZA znaczy
+    # „jeszcze nie wpisane", a to zupełnie co innego niż „wolne".
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS rate_per_hour NUMERIC(10,2) DEFAULT 0",
+    """CREATE TABLE IF NOT EXISTS worker_hours (
+        id          TEXT PRIMARY KEY,
+        worker_id   TEXT NOT NULL,
+        work_date   DATE NOT NULL,
+        status      TEXT NOT NULL DEFAULT 'work',
+        time_from   TEXT,
+        time_to     TEXT,
+        hours       NUMERIC(5,2),
+        note        TEXT DEFAULT '',
+        created_by  TEXT,
+        created_at  TIMESTAMPTZ DEFAULT now(),
+        updated_at  TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (worker_id, work_date)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_worker_hours_date ON worker_hours (work_date)",
+    "ALTER TABLE worker_hours DROP CONSTRAINT IF EXISTS worker_hours_status_ck",
+    "ALTER TABLE worker_hours ADD CONSTRAINT worker_hours_status_ck "
+    "CHECK (status = ANY (ARRAY['work','off','vacation','sick','absent']))",
+
+    # ── Potrącenia oczekujące ──
+    # Dopisywane w dowolnym momencie (np. w poniedziałek) i czekające na
+    # rozliczenie. Przy rozliczeniu przepisywane do settlement_deductions,
+    # które pozostaje JEDYNYM źródłem dla paska wypłaty i druku zbiorczego.
+    """CREATE TABLE IF NOT EXISTS worker_deductions (
+        id             TEXT PRIMARY KEY,
+        worker_id      TEXT NOT NULL,
+        deduction_date DATE NOT NULL,
+        description    TEXT NOT NULL,
+        amount         NUMERIC(10,2) NOT NULL,
+        source_type    TEXT DEFAULT 'manual',
+        source_id      TEXT,
+        status         TEXT DEFAULT 'pending',
+        settlement_id  TEXT,
+        created_by     TEXT,
+        created_at     TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_worker_deductions_worker "
+    "ON worker_deductions (worker_id, status, deduction_date)",
+    "CREATE INDEX IF NOT EXISTS idx_worker_deductions_source "
+    "ON worker_deductions (source_type, source_id)",
+
+    # ── Rozliczenie na podstawie godzin ──
+    "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS hours_total NUMERIC(10,2) DEFAULT 0",
+    "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS rate_per_hour NUMERIC(10,2) DEFAULT 0",
+    "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS basis TEXT DEFAULT 'kg'",
 ]
 
 
