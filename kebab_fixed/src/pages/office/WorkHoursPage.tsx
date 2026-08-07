@@ -10,7 +10,7 @@ import { useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { usersApi, workHoursApi } from '@/lib/apiClient'
 import {
-  computeHours, isSunday, mondayOf, parseTime, weekDays, weekGaps,
+  computeHours, mondayOf, parseTime, weekDays, weekGaps,
   STATUS_LABEL, type HourCell, type HourStatus,
 } from '@/lib/workHours'
 import { toast } from 'sonner'
