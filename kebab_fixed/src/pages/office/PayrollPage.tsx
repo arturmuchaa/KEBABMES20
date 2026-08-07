@@ -2,8 +2,11 @@ import { useEffect, useState } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { usersApi, payrollApi } from '@/lib/apiClient'
 import {
-  ROLE_LABEL, buildPaySlipsDocument, kgLabel, pageCount, settlementOverlapsRange,
+  ROLE_LABEL, buildPaySlipsDocument, basisLabel, basisTotal, basisUnit,
+  dayAmount, dayEarning, pageCount, settlementOverlapsRange, sundayBonusTotal,
 } from '@/lib/paySlipPrint'
+import { splitDeductions, sumDeductions } from '@/lib/payrollDeductions'
+import { isSunday } from '@/lib/workHours'
 import { toast } from 'sonner'
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
@@ -65,6 +68,13 @@ export function PayrollPage() {
     [selWorker?.id]
   )
 
+  const { data: pendingDeductions, refetch: refetchDeductions } = useApi(
+    () => selWorker ? payrollApi.listDeductions(selWorker.id) : Promise.resolve([]),
+    [selWorker?.id]
+  )
+  const [pickedDeductions, setPickedDeductions] = useState<Set<string>>(new Set())
+  const [newDed, setNewDed] = useState({ open: false, date: '', description: '', amount: '' })
+
   const createMut = useMutation((dto: any) => payrollApi.createSettlement(dto))
   const adjustMut = useMutation((dto: any) => payrollApi.createKgAdjustment(dto))
 
@@ -111,36 +121,73 @@ export function PayrollPage() {
     })
   }
 
-  const kgPerDay: Record<string, number> = Object.fromEntries(
-    (workerDays ?? []).map((d: any) => [d.workDate, d.kgTotal ?? 0])
+  // Podstawa idzie za rolą: ogólny płaci się od godzin, reszta od kilogramów.
+  const isHourly  = selWorker?.role === 'WORKER_GENERAL'
+  const rate      = parseFloat(String((selWorker as any)?.ratePerKg ?? (selWorker as any)?.rate_per_kg ?? 0)) || 0
+  const rateHour  = parseFloat(String((selWorker as any)?.ratePerHour ?? (selWorker as any)?.rate_per_hour ?? 0)) || 0
+  const effRate   = isHourly ? rateHour : rate
+  const sundayOn  = !!((selWorker as any)?.sundayBonusEnabled ?? (selWorker as any)?.sunday_bonus_enabled)
+  const sundayAdd = sundayOn
+    ? parseFloat(String((selWorker as any)?.sundayBonusPerHour ?? (selWorker as any)?.sunday_bonus_per_hour ?? 0)) || 0
+    : 0
+
+  const unitPerDay: Record<string, number> = Object.fromEntries(
+    (workerDays ?? []).map((d: any) => [d.workDate, (isHourly ? d.hours : d.kgTotal) ?? 0])
+  )
+  const totalUnits = Array.from(selectedDays).reduce((s, d) => s + (unitPerDay[d] ?? 0), 0)
+  // Premia niedzielna dolicza się WYŁĄCZNIE do godzin z niedzieli.
+  const sundayUnits = isHourly
+    ? Array.from(selectedDays).filter(isSunday).reduce((s, d) => s + (unitPerDay[d] ?? 0), 0)
+    : 0
+  const gross = totalUnits * effRate + sundayUnits * sundayAdd
+
+  const dedSplit = splitDeductions(((pendingDeductions ?? []) as any[]), range.from, range.to)
+  const pickedTotal = sumDeductions(dedSplit.inRange.filter(d => pickedDeductions.has(d.id)))
+  const deductTotal = deductions.reduce((s, d) => s + (parseFloat(d.amount) || 0), 0) + pickedTotal
+  const net = gross - deductTotal
+  const employerCost = parseFloat(String((selWorker as any)?.employerCostAmount ?? (selWorker as any)?.employer_cost_amount ?? 0)) || 0
+
+  // Pracownik przeniesiony na godziny mógł zostawić nierozliczone kilogramy
+  // (prod: ADRIAN przestawiony na rolę ogólną tylko po to, żeby zniknąć z HMI).
+  const { data: pendingKg } = useApi(
+    () => (selWorker && isHourly)
+      ? payrollApi.pendingKgDays(selWorker.id, range.from, range.to)
+      : Promise.resolve({ days: 0, kg: 0 }),
+    [selWorker?.id, isHourly, range.from, range.to]
   )
 
-  const totalKg      = Array.from(selectedDays).reduce((s, d) => s + (kgPerDay[d] ?? 0), 0)
-  const rate         = parseFloat(String((selWorker as any)?.ratePerKg ?? (selWorker as any)?.rate_per_kg ?? 0)) || 0
-  const gross        = totalKg * rate
-  const deductTotal  = deductions.reduce((s, d) => s + (parseFloat(d.amount) || 0), 0)
-  const net          = gross - deductTotal
-  const employerCost = parseFloat(String((selWorker as any)?.employerCostAmount ?? (selWorker as any)?.employer_cost_amount ?? 0)) || 0
+  // Oczekujące z zakresu wchodzą domyślnie zaznaczone.
+  const inRangeKey = dedSplit.inRange.map(d => d.id).join(',')
+  useEffect(() => {
+    setPickedDeductions(new Set(dedSplit.inRange.map(d => d.id)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inRangeKey])
 
   async function handleSettle() {
     if (!selWorker || selectedDays.size === 0) return
     try {
+      const perDate = Object.fromEntries(Array.from(selectedDays).map(d => [d, unitPerDay[d] ?? 0]))
       const dto = {
         workerId: selWorker.id,
         dateFrom: range.from,
         dateTo: range.to,
         workDates: Array.from(selectedDays),
-        kgPerDate: Object.fromEntries(Array.from(selectedDays).map(d => [d, kgPerDay[d] ?? 0])),
-        ratePerKg: rate,
+        kgPerDate: isHourly ? {} : perDate,
+        hoursPerDate: isHourly ? perDate : {},
+        ratePerKg: isHourly ? 0 : rate,
+        ratePerHour: isHourly ? rateHour : 0,
         deductions: deductions.map(d => ({ description: d.description, amount: parseFloat(d.amount) || 0 })),
+        deductionIds: Array.from(pickedDeductions),
         notes: '',
       }
       const result = await createMut.mutate(dto)
       setShowSettlement(result)
       setSelectedDays(new Set())
       setDeductions([])
+      setPickedDeductions(new Set())
       refetchDays()
       refetchSettlements()
+      refetchDeductions()
       toast.success('Rozliczenie zapisane!')
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Błąd rozliczenia')
@@ -267,7 +314,9 @@ export function PayrollPage() {
                 <div>
                   <div className="text-lg font-black">{selWorker.name}</div>
                   <div className="text-sm text-muted-foreground">
-                    {ROLE_LABEL[selWorker.role]} · Stawka: <strong>{rate.toFixed(2)} zł/kg</strong>
+                    {ROLE_LABEL[selWorker.role]} · Stawka:{' '}
+                    <strong>{effRate.toFixed(2)} {isHourly ? 'zł/h' : 'zł/kg'}</strong>
+                    {isHourly && sundayAdd > 0 && <> · Niedziela: <strong className="text-amber-700">+{sundayAdd.toFixed(2)} zł/h</strong></>}
                     {employerCost > 0 && <> · Koszty: <strong>{fmtPln(employerCost)} zł/mies.</strong></>}
                     {' · '}{(selWorker.contractType ?? selWorker.contract_type ?? 'zlecenie') === 'praca' ? 'Umowa o pracę' : 'Umowa zlecenie'}
                   </div>
@@ -296,14 +345,24 @@ export function PayrollPage() {
               </CardContent>
             </Card>
 
+            {/* Osierocony akord: rola sie zmienila, kilogramy zostaly */}
+            {isHourly && (pendingKg?.days ?? 0) > 0 && (
+              <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+                <strong>{selWorker.name}</strong> ma {pendingKg!.days} nierozliczonych dni
+                rozbioru ({fmtKg(pendingKg!.kg)} kg) w tym zakresie. Rozliczenie idzie za
+                bieżącą rolą — żeby je zapłacić, przestaw rolę na „Pracownik rozbioru"
+                w zakładce Pracownicy.
+              </div>
+            )}
+
             {/* Dni pracy */}
             <Card>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm">Dni pracy</CardTitle>
-                  {(workerDays ?? []).filter(d => !d.settled).length > 0 && (
+                  {(workerDays ?? []).filter(d => !d.settled && !d.open).length > 0 && (
                     <button className="text-xs text-primary underline"
-                      onClick={() => setSelectedDays(new Set((workerDays ?? []).filter(d => !d.settled).map(d => d.workDate)))}>
+                      onClick={() => setSelectedDays(new Set((workerDays ?? []).filter(d => !d.settled && !d.open).map(d => d.workDate)))}>
                       Zaznacz wszystkie
                     </button>
                   )}
@@ -319,16 +378,20 @@ export function PayrollPage() {
                 ) : (
                   <div className="space-y-2">
                     {(workerDays ?? []).map((d: any) => {
-                      const kg   = d.kgTotal ?? 0
-                      const earn = kg * rate
+                      const unit = (isHourly ? d.hours : d.kgTotal) ?? 0
+                      const sunday = isHourly && isSunday(d.workDate)
+                      const earn = unit * (effRate + (sunday ? sundayAdd : 0))
                       const sel  = selectedDays.has(d.workDate)
+                      // Dzień otwarty (bez godziny końca) wpadłby jako 0 h —
+                      // pracownik dostałby za mało, więc go nie zaznaczamy.
+                      const blocked = d.settled || d.open
                       return (
                         <div key={d.workDate}
                           className={`flex items-center gap-3 rounded-xl border-2 px-3 py-2.5 transition-all ${
-                            d.settled ? 'bg-muted border-muted opacity-60' :
+                            blocked ? 'bg-muted border-muted opacity-60' :
                             sel ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'
                           }`}>
-                          {!d.settled && (
+                          {!blocked && (
                             <input type="checkbox" checked={sel} onChange={() => toggleDay(d.workDate)}
                               className="w-4 h-4 rounded cursor-pointer" />
                           )}
@@ -336,9 +399,17 @@ export function PayrollPage() {
                           <div className="flex-1">
                             <div className="text-sm font-semibold">
                               {new Date(d.workDate + 'T12:00:00').toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' })}
+                              {sunday && sundayAdd > 0 && (
+                                <span className="ml-2 text-[10px] font-bold uppercase text-amber-700">premia</span>
+                              )}
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              {d.entriesCount ? `${d.entriesCount} wpisów` : d.sessionCount ? `${d.sessionCount} sesji` : ''}
+                              {isHourly
+                                ? (d.status && d.status !== 'work'
+                                    ? ({ off: 'Wolne', vacation: 'Urlop', sick: 'Chorobowe', absent: 'Nieobecność' } as Record<string, string>)[d.status]
+                                    : `${d.timeFrom || '—'}–${d.timeTo || '…'}`)
+                                : (d.entriesCount ? `${d.entriesCount} wpisów` : d.sessionCount ? `${d.sessionCount} sesji` : '')}
+                              {d.open && ' · brak godziny końca'}
                               {d.settled && ' · Rozliczone'}
                             </div>
                             {d.kgAdjustment ? (
@@ -348,15 +419,17 @@ export function PayrollPage() {
                               </div>
                             ) : null}
                           </div>
-                          {!d.settled && (
+                          {!blocked && !isHourly && (
                             <Button variant="ghost" size="sm" className="h-7 px-2 text-xs"
                               onClick={() => { setAdjustDay(d); setAdjustKg(''); setAdjustReason('') }}>
                               Korekta
                             </Button>
                           )}
                           <div className="text-right">
-                            <div className="text-sm font-bold tabular-nums">{fmtKg(kg)} kg</div>
-                            {!d.settled && sel && (
+                            <div className="text-sm font-bold tabular-nums">
+                              {fmtKg(unit)} {isHourly ? 'h' : 'kg'}
+                            </div>
+                            {!blocked && sel && (
                               <div className="text-xs text-green-700 font-semibold">{fmtPln(earn)} zł</div>
                             )}
                             {d.settled && <Lock size={11} className="text-muted-foreground ml-auto mt-0.5" />}
@@ -369,36 +442,76 @@ export function PayrollPage() {
               </CardContent>
             </Card>
 
-            {/* Potrącenia */}
-            {selectedDays.size > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Potrącenia</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {deductions.map(d => (
-                      <div key={d.id} className="flex gap-2 items-center">
-                        <Input placeholder="Opis (np. zaliczka, czynsz)" value={d.description}
-                          onChange={e => setDeductions(prev => prev.map(x => x.id === d.id ? { ...x, description: e.target.value } : x))} />
-                        <Input type="number" step="0.01" placeholder="0.00" className="w-28"
-                          value={d.amount}
-                          onChange={e => setDeductions(prev => prev.map(x => x.id === d.id ? { ...x, amount: e.target.value } : x))} />
-                        <span className="text-muted-foreground text-sm">zł</span>
-                        <button onClick={() => setDeductions(prev => prev.filter(x => x.id !== d.id))}
-                          className="text-destructive hover:text-destructive/70">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    ))}
-                    <button onClick={() => setDeductions(prev => [...prev, { id: Math.random().toString(), description: '', amount: '' }])}
-                      className="flex items-center gap-1.5 text-sm text-primary hover:underline">
-                      <Plus size={13} /> Dodaj potrącenie
-                    </button>
+            {/* Potrącenia — karta widoczna ZAWSZE: potrącenie dopisuje się
+                w poniedziałek, a rozlicza w piątek. */}
+            <Card>
+              <CardHeader className="pb-2 flex-row items-center justify-between space-y-0">
+                <CardTitle className="text-sm">Potrącenia</CardTitle>
+                <button className="text-xs text-primary hover:underline flex items-center gap-1"
+                  onClick={() => setNewDed({ open: true, date: new Date().toISOString().slice(0, 10), description: '', amount: '' })}>
+                  <Plus size={12} /> Dodaj potrącenie
+                </button>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {dedSplit.overdue.length > 0 && (
+                  <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <strong>Zaległe potrącenia:</strong>{' '}
+                    {dedSplit.overdue.length} poz. · {fmtPln(sumDeductions(dedSplit.overdue))} zł
+                    {' — '}cofnij datę „Od", żeby weszły do tego rozliczenia.
                   </div>
-                </CardContent>
-              </Card>
-            )}
+                )}
+                {dedSplit.inRange.length > 0 && (
+                  <div className="space-y-1.5">
+                    {dedSplit.inRange.map(d => (
+                      <label key={d.id} className="flex items-center gap-2 rounded-xl border-2 border-border px-3 py-2 cursor-pointer">
+                        <input type="checkbox" className="w-4 h-4 rounded cursor-pointer"
+                          checked={pickedDeductions.has(d.id)}
+                          onChange={() => setPickedDeductions(prev => {
+                            const next = new Set(prev)
+                            if (next.has(d.id)) next.delete(d.id); else next.add(d.id)
+                            return next
+                          })} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold truncate">{d.description}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {new Date(d.deductionDate + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })}
+                            {d.sourceType === 'wz' && ' · z WZ'}
+                          </div>
+                        </div>
+                        <span className="text-sm font-bold text-red-600 tabular-nums">− {fmtPln(Number(d.amount))} zł</span>
+                        <button onClick={async e => {
+                          e.preventDefault()
+                          try {
+                            await payrollApi.cancelDeduction(d.id)
+                            refetchDeductions()
+                          } catch (err: unknown) {
+                            toast.error(err instanceof Error ? err.message : 'Błąd usuwania')
+                          }
+                        }} className="text-destructive hover:text-destructive/70"><Trash2 size={14} /></button>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {deductions.map(d => (
+                  <div key={d.id} className="flex gap-2 items-center">
+                    <Input placeholder="Opis (np. zaliczka, czynsz)" value={d.description}
+                      onChange={e => setDeductions(prev => prev.map(x => x.id === d.id ? { ...x, description: e.target.value } : x))} />
+                    <Input type="number" step="0.01" placeholder="0.00" className="w-28" value={d.amount}
+                      onChange={e => setDeductions(prev => prev.map(x => x.id === d.id ? { ...x, amount: e.target.value } : x))} />
+                    <span className="text-muted-foreground text-sm">zł</span>
+                    <button onClick={() => setDeductions(prev => prev.filter(x => x.id !== d.id))}
+                      className="text-destructive hover:text-destructive/70"><Trash2 size={15} /></button>
+                  </div>
+                ))}
+                {dedSplit.inRange.length === 0 && dedSplit.overdue.length === 0 && deductions.length === 0 && (
+                  <div className="text-xs text-muted-foreground">Brak potrąceń w tym okresie</div>
+                )}
+                <button onClick={() => setDeductions(prev => [...prev, { id: Math.random().toString(), description: '', amount: '' }])}
+                  className="flex items-center gap-1.5 text-sm text-primary hover:underline">
+                  <Plus size={13} /> Pozycja doraźna (tylko to rozliczenie)
+                </button>
+              </CardContent>
+            </Card>
 
             {/* Podsumowanie + rozlicz */}
             {selectedDays.size > 0 && (
@@ -411,11 +524,21 @@ export function PayrollPage() {
                       <span className="font-semibold">{selectedDays.size}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Łącznie kg</span>
-                      <span className="font-semibold">{fmtKg(totalKg)} kg</span>
+                      <span className="text-muted-foreground">{isHourly ? 'Łącznie godzin' : 'Łącznie kg'}</span>
+                      <span className="font-semibold">{fmtKg(totalUnits)} {isHourly ? 'h' : 'kg'}</span>
                     </div>
+                    {isHourly && sundayUnits > 0 && sundayAdd > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">
+                          w tym niedziela ({fmtKg(sundayUnits)} h × +{sundayAdd.toFixed(2)} zł/h)
+                        </span>
+                        <span className="font-semibold text-amber-700">+ {fmtPln(sundayUnits * sundayAdd)} zł</span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Wynagrodzenie brutto ({rate.toFixed(2)} zł/kg)</span>
+                      <span className="text-muted-foreground">
+                        Wynagrodzenie brutto ({effRate.toFixed(2)} {isHourly ? 'zł/h' : 'zł/kg'})
+                      </span>
                       <span className="font-semibold">{fmtPln(gross)} zł</span>
                     </div>
                     {employerCost > 0 && (
@@ -549,6 +672,53 @@ export function PayrollPage() {
 
       {/* Dialog druku zbiorczego */}
       {showBatchPrint && <BatchPrintDialog onClose={() => setShowBatchPrint(false)} />}
+
+      {/* Potrącenie dopisywane z wyprzedzeniem — czeka na rozliczenie */}
+      {newDed.open && (
+        <Dialog open onOpenChange={() => setNewDed(d => ({ ...d, open: false }))}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Dodaj potrącenie</DialogTitle>
+              <DialogDescription>
+                {selWorker?.name} — czeka do rozliczenia obejmującego tę datę
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label>Data</Label>
+                <Input type="date" value={newDed.date}
+                  onChange={e => setNewDed(d => ({ ...d, date: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Opis</Label>
+                <Input placeholder="np. zaliczka, zakup mięsa" value={newDed.description}
+                  onChange={e => setNewDed(d => ({ ...d, description: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Kwota (zł)</Label>
+                <Input type="number" step="0.01" min="0" value={newDed.amount}
+                  onChange={e => setNewDed(d => ({ ...d, amount: e.target.value }))} />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setNewDed(d => ({ ...d, open: false }))}>Anuluj</Button>
+                <Button onClick={async () => {
+                  try {
+                    await payrollApi.createDeduction({
+                      workerId: selWorker.id, deductionDate: newDed.date,
+                      description: newDed.description, amount: parseFloat(newDed.amount) || 0,
+                    })
+                    setNewDed({ open: false, date: '', description: '', amount: '' })
+                    refetchDeductions()
+                    toast.success('Potrącenie zapisane — wejdzie do rozliczenia')
+                  } catch (e: unknown) {
+                    toast.error(e instanceof Error ? e.message : 'Błąd zapisu')
+                  }
+                }}>Zapisz</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Korekta kg — liczona wyłącznie do płacy */}
       {adjustDay && (
@@ -751,14 +921,22 @@ function PaySlipPreview({ settlement: s }: { settlement: any }) {
               <span className="text-muted-foreground">
                 {new Date(d.work_date + 'T12:00:00').toLocaleDateString('pl-PL', { weekday: 'short', day: 'numeric', month: 'short' })}
               </span>
-              <span className="font-semibold tabular-nums">{Number(d.kg).toFixed(2)} kg</span>
+              <span className="font-semibold tabular-nums">
+                {dayAmount(d, s).toFixed(2)} {basisUnit(s)}
+              </span>
             </div>
           ))}
           <Separator className="my-1" />
         </div>
       )}
       <div className="space-y-1">
-        <div className="flex justify-between"><span className="text-muted-foreground">{kgLabel(s.worker_role)}</span><span className="font-semibold">{Number(s.kg_total).toFixed(2)} kg</span></div>
+        <div className="flex justify-between"><span className="text-muted-foreground">{basisLabel(s)}</span><span className="font-semibold">{basisTotal(s).toFixed(2)} {basisUnit(s)}</span></div>
+        {sundayBonusTotal(s) > 0 && (
+          <div className="flex justify-between text-amber-700">
+            <span className="text-xs">w tym niedziela {Number(s.sunday_hours).toFixed(2)} h × {Number(s.sunday_bonus_per_hour).toFixed(2)} zł</span>
+            <span>+ {sundayBonusTotal(s).toFixed(2)} zł</span>
+          </div>
+        )}
         <div className="flex justify-between font-bold"><span>Wynagrodzenie</span><span>{Number(s.gross_amount).toFixed(2)} zł</span></div>
         {(s.deductions ?? []).map((d: any) => (
           <div key={d.id} className="flex justify-between text-red-600">

@@ -712,9 +712,9 @@ export const usersApi = {
    *  jawnie o archiwum. */
   list:   (includeInactive = false) =>
     get<User[]>(`/workers${includeInactive ? '?includeInactive=1' : ''}`),
-  create: (dto: { name: string; role: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; contractType?: string; employerCostAmount?: number; crewSize?: number }) =>
+  create: (dto: { name: string; role: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; sundayBonusEnabled?: boolean; sundayBonusPerHour?: number; contractType?: string; employerCostAmount?: number; crewSize?: number }) =>
     post<User>('/workers', toSnake(dto)),
-  update: (id: string, dto: { name?: string; role?: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; contractType?: string; employerCostAmount?: number; active?: boolean; crewSize?: number }) =>
+  update: (id: string, dto: { name?: string; role?: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; sundayBonusEnabled?: boolean; sundayBonusPerHour?: number; contractType?: string; employerCostAmount?: number; active?: boolean; crewSize?: number }) =>
     put<User>(`/workers/${id}`, toSnake(dto)),
   setActive: (id: string, active: boolean) =>
     put<User>(`/workers/${id}`, { active }),
@@ -1754,6 +1754,8 @@ export const wzApi = {
     /** Liczba pojemników na dokumencie. null = weź sumę z pozycji;
      *  0 to ŚWIADOME zero i saldo wtedy stoi w miejscu. */
     containersTotal?: number | null;
+    /** Zakup pracownika na własny użytek — potrącenie powstaje razem z WZ. */
+    payrollDeduction?: { workerId: string; amount: number } | null;
   }) => post<WzDoc>('/wz/manual', body),
   updatePrices: (id: string, prices: { index: number; price: number }[]) =>
     patch<WzDoc>(`/wz/${encodeURIComponent(id)}/prices`, { prices }),

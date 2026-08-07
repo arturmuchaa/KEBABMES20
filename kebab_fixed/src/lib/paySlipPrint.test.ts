@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   settlementOverlapsRange, chunkIntoPages, pageCount, buildPaySlipsDocument,
+  basisLabel, basisTotal, basisUnit, dayEarning, sundayBonusTotal,
 } from './paySlipPrint'
 
 const sample = (over: Record<string, unknown> = {}) => ({
@@ -166,5 +167,77 @@ describe('pageCount — licznik kartek w stopce dialogu', () => {
     expect(pageCount(5)).toBe(2)
     expect(pageCount(12)).toBe(3)
     expect(pageCount(13)).toBe(4)
+  })
+})
+
+
+// ─── Podstawa godzinowa i premia niedzielna ───────────────────
+
+const hourly = (over: Record<string, unknown> = {}) => sample({
+  worker_role: 'WORKER_GENERAL',
+  basis: 'hours',
+  kg_total: 0,
+  rate_per_kg: 0,
+  hours_total: 44,
+  rate_per_hour: 25,
+  sunday_hours: 0,
+  sunday_bonus_per_hour: 0,
+  gross_amount: 1100,
+  net_amount: 1100,
+  deductions: [],
+  work_dates_detail: [{ work_date: '2026-08-03', hours: 9, sunday: false }],
+  ...over,
+})
+
+describe('pasek godzinowy', () => {
+  it('etykieta i jednostka idą za podstawą', () => {
+    expect(basisLabel(hourly())).toBe('Przepracowane godziny')
+    expect(basisUnit(hourly())).toBe('h')
+    expect(basisTotal(hourly())).toBe(44)
+  })
+
+  it('zarobek dnia liczy się ze stawki godzinowej', () => {
+    expect(dayEarning({ work_date: '2026-08-03', hours: 9 }, hourly())).toBe(225)
+  })
+
+  it('akord zostaje przy kilogramach', () => {
+    const s = sample()
+    expect(basisUnit(s)).toBe('kg')
+    expect(basisTotal(s)).toBe(820)
+    expect(dayEarning({ work_date: '2026-07-13', kg: 120.5 }, s)).toBe(241)
+  })
+
+  it('pasek godzinowy renderuje się z jednostką h', () => {
+    const html = buildPaySlipsDocument([hourly()])
+    expect(html).toContain('44,00 h')
+    expect(html).toContain('Przepracowane godziny')
+  })
+})
+
+describe('premia niedzielna na pasku', () => {
+  const zBonusem = () => hourly({
+    sunday_hours: 8,
+    sunday_bonus_per_hour: 5,
+    work_dates_detail: [
+      { work_date: '2026-08-03', hours: 9, sunday: false },
+      { work_date: '2026-08-09', hours: 8, sunday: true },
+    ],
+  })
+
+  it('dodatek liczy się tylko za godziny niedzielne', () => {
+    const s = zBonusem()
+    expect(dayEarning({ work_date: '2026-08-03', hours: 9, sunday: false }, s)).toBe(225)
+    expect(dayEarning({ work_date: '2026-08-09', hours: 8, sunday: true }, s)).toBe(240)
+  })
+
+  it('suma premii to godziny niedzielne razy dodatek', () => {
+    expect(sundayBonusTotal(zBonusem())).toBe(40)
+    expect(sundayBonusTotal(hourly())).toBe(0)
+    expect(sundayBonusTotal(sample())).toBe(0)
+  })
+
+  it('pasek pokazuje wiersz premii tylko gdy jest', () => {
+    expect(buildPaySlipsDocument([zBonusem()])).toContain('w tym niedziela')
+    expect(buildPaySlipsDocument([hourly()])).not.toContain('w tym niedziela')
   })
 })
