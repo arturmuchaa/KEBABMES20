@@ -14,6 +14,8 @@ export type HourStatus = 'work' | 'off' | 'vacation' | 'sick' | 'absent'
 export interface HourCell {
   workerId: string
   workDate: string
+  /** Numer zmiany w dniu: 1 = zwykła, 2+ = powrót po południu (sporadycznie). */
+  seq?: number
   status: HourStatus
   timeFrom: string
   timeTo: string
@@ -108,15 +110,22 @@ export function weekGaps(
   days: string[],
   todayIso: string,
 ): { open: number; missing: number } {
-  const byKey = new Map(cells.map(c => [`${c.workerId}|${c.workDate}`, c]))
+  // Dzień może mieć kilka zmian — wystarczy JEDNA otwarta, żeby dzień czekał
+  // na domknięcie. Mapowanie po pojedynczej komórce gubiło poranną zmianę,
+  // gdy popołudniowa była już zamknięta.
+  const byKey = new Map<string, HourCell[]>()
+  for (const c of cells) {
+    const k = `${c.workerId}|${c.workDate}`
+    byKey.set(k, [...(byKey.get(k) ?? []), c])
+  }
   let open = 0
   let missing = 0
   for (const day of days) {
     if (day > todayIso) continue
     for (const w of workerIds) {
-      const c = byKey.get(`${w}|${day}`)
-      if (!c) { missing += 1; continue }
-      if (isOpenCell(c)) open += 1
+      const list = byKey.get(`${w}|${day}`)
+      if (!list || list.length === 0) { missing += 1; continue }
+      if (list.some(isOpenCell)) open += 1
     }
   }
   return { open, missing }

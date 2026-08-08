@@ -14,7 +14,7 @@ from fastapi import HTTPException
 
 from app.db import cx_execute, cx_query_all, cx_query_one, query_all, transaction
 from app.logging_config import get_logger
-from app.models.work_hours import StampDto, WorkHoursDto
+from app.models.work_hours import WorkHoursDto
 from app.utils.ids import cuid, now_iso
 
 logger = get_logger(__name__)
@@ -87,6 +87,7 @@ def _row_out(r: Dict) -> Dict:
         "id": r["id"],
         "workerId": r["worker_id"],
         "workDate": str(r["work_date"]),
+        "seq": int(r.get("seq") or 1),
         "status": r["status"],
         "timeFrom": r["time_from"] or "",
         "timeTo": r["time_to"] or "",
@@ -140,22 +141,22 @@ def upsert_hours(dto: WorkHoursDto) -> Dict:
             conn,
             """
             INSERT INTO worker_hours
-                (id, worker_id, work_date, status, time_from, time_to, hours,
+                (id, worker_id, work_date, seq, status, time_from, time_to, hours,
                  note, created_by, created_at, updated_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT (worker_id, work_date) DO UPDATE SET
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (worker_id, work_date, seq) DO UPDATE SET
                 status=EXCLUDED.status, time_from=EXCLUDED.time_from,
                 time_to=EXCLUDED.time_to, hours=EXCLUDED.hours,
                 note=EXCLUDED.note, updated_at=EXCLUDED.updated_at
             """,
-            (cuid(), dto.worker_id, dto.work_date, dto.status, time_from,
-             time_to, hours, dto.note or "", dto.created_by or "",
-             now_iso(), now_iso()),
+            (cuid(), dto.worker_id, dto.work_date, max(1, int(dto.seq or 1)),
+             dto.status, time_from, time_to, hours, dto.note or "",
+             dto.created_by or "", now_iso(), now_iso()),
         )
         row = cx_query_one(
             conn,
-            "SELECT * FROM worker_hours WHERE worker_id=%s AND work_date=%s",
-            (dto.worker_id, dto.work_date),
+            "SELECT * FROM worker_hours WHERE worker_id=%s AND work_date=%s AND seq=%s",
+            (dto.worker_id, dto.work_date, max(1, int(dto.seq or 1))),
         )
     assert row is not None
     return _row_out(row)
@@ -172,90 +173,28 @@ def list_hours(date_from: str, date_to: str) -> List[Dict]:
                ON sd.worker_id = h.worker_id AND sd.work_date = h.work_date
         WHERE w.active = true AND w.role = 'WORKER_GENERAL'
           AND h.work_date BETWEEN %s AND %s
-        ORDER BY h.work_date, w.name
+        ORDER BY h.work_date, w.name, h.seq
         """,
         (date_from, date_to),
     )
     return [_row_out(r) for r in rows]
 
 
-def delete_hours(worker_id: str, work_date: str) -> Dict:
+def delete_hours(worker_id: str, work_date: str, seq: Optional[int] = None) -> Dict:
+    """seq=None czyści cały dzień; podany seq kasuje jedną zmianę — inaczej
+    skasowanie drugiej zmiany zabierałoby też tę pierwszą."""
     with transaction() as conn:
         _assert_not_settled(conn, worker_id, work_date)
-        cx_execute(
-            conn,
-            "DELETE FROM worker_hours WHERE worker_id=%s AND work_date=%s",
-            (worker_id, work_date),
-        )
+        if seq is None:
+            cx_execute(
+                conn,
+                "DELETE FROM worker_hours WHERE worker_id=%s AND work_date=%s",
+                (worker_id, work_date),
+            )
+        else:
+            cx_execute(
+                conn,
+                "DELETE FROM worker_hours WHERE worker_id=%s AND work_date=%s AND seq=%s",
+                (worker_id, work_date, int(seq)),
+            )
     return {"ok": True}
-
-
-# ── Stempel zbiorczy ──────────────────────────────────────────────────
-
-def stamp_hours(dto: StampDto) -> Dict:
-    """Stempel zbiorczy dnia. 'start' zakłada OTWARTE wpisy tam, gdzie
-    jeszcze nic nie ma; 'end' domyka wpisy otwarte. Nigdy nie nadpisuje
-    tego, co biuro wpisało ręcznie, i nie rusza dni rozliczonych."""
-    if dto.mode not in ("start", "end"):
-        raise HTTPException(400, "Tryb stempla: 'start' albo 'end'")
-    time = _fmt(parse_hhmm(dto.time))
-    changed = 0
-
-    with transaction() as conn:
-        settled = {
-            r["worker_id"]
-            for r in cx_query_all(
-                conn,
-                "SELECT worker_id FROM settled_days WHERE work_date=%s",
-                (dto.work_date,),
-            )
-        }
-        workers = cx_query_all(
-            conn,
-            "SELECT id FROM workers WHERE active=true AND role='WORKER_GENERAL'",
-        )
-        existing = {
-            r["worker_id"]: r
-            for r in cx_query_all(
-                conn,
-                "SELECT * FROM worker_hours WHERE work_date=%s",
-                (dto.work_date,),
-            )
-        }
-
-        for w in workers:
-            wid = w["id"]
-            if wid in settled:
-                continue
-            row = existing.get(wid)
-            if dto.mode == "start":
-                if row is not None:
-                    continue
-                cx_execute(
-                    conn,
-                    """
-                    INSERT INTO worker_hours
-                        (id, worker_id, work_date, status, time_from, time_to,
-                         hours, note, created_at, updated_at)
-                    VALUES (%s,%s,%s,'work',%s,NULL,NULL,'',%s,%s)
-                    """,
-                    (cuid(), wid, dto.work_date, time, now_iso(), now_iso()),
-                )
-                changed += 1
-            else:
-                if row is None or row["status"] != "work" or row["time_to"]:
-                    continue
-                hours = compute_hours(row["time_from"], time)
-                cx_execute(
-                    conn,
-                    "UPDATE worker_hours SET time_to=%s, hours=%s, updated_at=%s "
-                    "WHERE worker_id=%s AND work_date=%s",
-                    (time, hours, now_iso(), wid, dto.work_date),
-                )
-                changed += 1
-
-    logger.info(
-        "payroll.hours.stamp",
-        extra={"work_date": dto.work_date, "mode": dto.mode, "changed": changed},
-    )
-    return {"changed": changed}

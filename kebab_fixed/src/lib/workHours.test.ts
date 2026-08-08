@@ -107,6 +107,15 @@ describe('weekGaps — ściągawka przy nadrabianiu', () => {
     expect(weekGaps([], workers, days, '2026-08-03')).toEqual({ open: 0, missing: 2 })
   })
 
+  it('dzień z dwiema zmianami: otwarta pierwsza liczy się jako otwarty', () => {
+    const cells = [
+      cell({ workerId: 'w1', workDate: '2026-08-03', seq: 1, timeTo: '', hours: null }),
+      cell({ workerId: 'w1', workDate: '2026-08-03', seq: 2, timeFrom: '18:00', timeTo: '20:00', hours: 2 }),
+      cell({ workerId: 'w2', workDate: '2026-08-03' }),
+    ]
+    expect(weekGaps(cells, workers, days, '2026-08-03')).toEqual({ open: 1, missing: 0 })
+  })
+
   it('znacznik zamyka dzień — to nie brak', () => {
     const cells = workers.map(w => cell({
       workerId: w, workDate: '2026-08-03', status: 'off',

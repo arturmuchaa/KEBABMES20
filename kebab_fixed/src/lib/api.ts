@@ -738,6 +738,12 @@ export const payrollApi = {
     get<any[]>(`/payroll/settlements${workerId ? `?workerId=${encodeURIComponent(workerId)}` : ''}`),
   getSettlement: (id: string) => get<any>(`/payroll/settlements/${id}`),
   /** Cofa rozliczenie: dni wracają do rozliczenia, potrącenia do kolejki. */
+  bulkSettle: (dto: { role: string; dateFrom: string; dateTo: string; dryRun: boolean }) =>
+    post<{
+      workers: { workerId: string; workerName: string; days: number; units: number;
+                 unit: string; gross: number; deductions: number; net: number }[]
+      totalNet: number; settled: number; failed: { workerName: string; error: string }[]
+    }>('/payroll/settlements/bulk', toSnake(dto)),
   undoSettlement: (id: string) =>
     del<{ ok: boolean; workerName: string; unlockedDays: number; restoredDeductions: number }>(
       `/payroll/settlements/${id}`),
@@ -763,13 +769,12 @@ export const workHoursApi = {
   list: (dateFrom: string, dateTo: string) =>
     get<any[]>(`/payroll/hours?dateFrom=${encodeURIComponent(dateFrom)}&dateTo=${encodeURIComponent(dateTo)}`),
   save: (dto: {
-    workerId: string; workDate: string; status: string;
+    workerId: string; workDate: string; status: string; seq?: number;
     timeFrom?: string | null; timeTo?: string | null; note?: string;
   }) => put<any>('/payroll/hours', toSnake(dto)),
-  clear: (workerId: string, workDate: string) =>
-    del<{ ok: boolean }>(`/payroll/hours?workerId=${encodeURIComponent(workerId)}&workDate=${encodeURIComponent(workDate)}`),
-  stamp: (dto: { workDate: string; mode: 'start' | 'end'; time: string }) =>
-    post<{ changed: number }>('/payroll/hours/stamp', toSnake(dto)),
+  /** seq pominięty = cały dzień; podany = jedna zmiana. */
+  clear: (workerId: string, workDate: string, seq?: number) =>
+    del<{ ok: boolean }>(`/payroll/hours?workerId=${encodeURIComponent(workerId)}&workDate=${encodeURIComponent(workDate)}${seq ? `&seq=${seq}` : ''}`),
 }
 
 // ─── Składniki ────────────────────────────────────────────────

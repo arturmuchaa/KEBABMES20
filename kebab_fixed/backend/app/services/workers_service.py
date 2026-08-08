@@ -260,27 +260,43 @@ def get_worker_days(worker_id: str, date_from: str, date_to: str) -> List[Dict]:
         # z definicji (_apply_kg_adjustments dotyczy akordu).
         rows = query_all(
             """
-            SELECT work_date::text AS work_date, status, time_from, time_to, hours
+            SELECT work_date::text AS work_date, seq, status, time_from, time_to, hours
             FROM worker_hours
             WHERE worker_id=%s AND work_date BETWEEN %s AND %s
-            ORDER BY work_date
+            ORDER BY work_date, seq
             """,
             (worker_id, date_from, date_to),
         )
-        return [
-            {
-                "workDate": r["work_date"],
-                "status": r["status"],
+        # Dzień może mieć kilka zmian (6-15, potem powrót 18-20), więc
+        # godziny SUMUJEMY, a poszczególne zmiany oddajemy osobno do
+        # pokazania i na pasek.
+        days: Dict[str, Dict] = {}
+        for r in rows:
+            d = days.setdefault(
+                r["work_date"],
+                {
+                    "workDate": r["work_date"],
+                    "status": r["status"],
+                    "timeFrom": r["time_from"] or "",
+                    "timeTo": r["time_to"] or "",
+                    "hours": 0.0,
+                    "shifts": [],
+                    "open": False,
+                    "settled": r["work_date"] in settled_dates,
+                },
+            )
+            d["hours"] = round(d["hours"] + float(r["hours"] or 0), 2)
+            d["shifts"].append({
+                "seq": int(r["seq"] or 1),
                 "timeFrom": r["time_from"] or "",
                 "timeTo": r["time_to"] or "",
                 "hours": float(r["hours"]) if r["hours"] is not None else 0.0,
-                # Zmiana bez godziny końca — do rozliczenia NIE wolno jej brać,
-                # bo weszłaby jako 0 h.
-                "open": r["status"] == "work" and not r["time_to"],
-                "settled": r["work_date"] in settled_dates,
-            }
-            for r in rows
-        ]
+            })
+            # Zmiana bez godziny końca — dnia NIE wolno rozliczyć, bo
+            # niedomknięta zmiana weszłaby jako 0 h.
+            if r["status"] == "work" and not r["time_to"]:
+                d["open"] = True
+        return list(days.values())
 
     return []
 
@@ -541,20 +557,27 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
             # Godziny od–do idą na pasek: pracownik musi móc sprawdzić dzień,
             # a sama suma mu tego nie daje. Źródłem jest worker_hours, nie
             # front — dokument ma odbijać to, co faktycznie zapisano.
-            shifts = {
-                str(r["work_date"]): r
-                for r in cx_query_all(
-                    conn,
-                    "SELECT work_date, time_from, time_to FROM worker_hours "
-                    "WHERE worker_id=%s AND work_date::text = ANY(%s)",
-                    (dto.worker_id, list(dto.work_dates)),
-                )
-            }
+            shifts: Dict[str, List[Dict]] = {}
+            for r in cx_query_all(
+                conn,
+                "SELECT work_date, seq, time_from, time_to FROM worker_hours "
+                "WHERE worker_id=%s AND work_date::text = ANY(%s) ORDER BY seq",
+                (dto.worker_id, list(dto.work_dates)),
+            ):
+                shifts.setdefault(str(r["work_date"]), []).append(r)
+
+            def _ranges(d: str) -> List[str]:
+                return [f"{r['time_from']}–{r['time_to'] or '…'}"
+                        for r in shifts.get(d, []) if r["time_from"]]
+
             work_dates_detail = json.dumps(
                 [{"work_date": d, "hours": dto.hours_per_date.get(d, 0),
                   "sunday": _is_sunday(d),
-                  "time_from": (shifts.get(d) or {}).get("time_from") or "",
-                  "time_to": (shifts.get(d) or {}).get("time_to") or ""}
+                  # Pierwsza zmiana osobno (zgodność), pełna lista w `shifts`
+                  # — dzień z powrotem po południu ma pokazać oba przedziały.
+                  "time_from": (shifts.get(d, [{}])[0] or {}).get("time_from") or "",
+                  "time_to": (shifts.get(d, [{}])[0] or {}).get("time_to") or "",
+                  "shifts": _ranges(d)}
                  for d in sorted(dto.work_dates)]
             )
         else:
@@ -706,6 +729,109 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
         },
     )
     return row
+
+
+def bulk_settle(
+    role: str, date_from: str, date_to: str, dry_run: bool = True
+) -> Dict:
+    """Rozlicz jednym kliknięciem całą grupę (rozbiór / produkcja / ogólni).
+
+    `dry_run=True` zwraca sam PLAN — biuro musi zobaczyć, komu i ile wypłaci,
+    zanim to zatwierdzi. Pomijamy pracowników bez dni oraz dni niedomknięte
+    (otwarta zmiana weszłaby jako 0 h). Każdy pasek powstaje w osobnej
+    transakcji, więc jeden problematyczny pracownik nie blokuje reszty.
+    """
+    plan: List[Dict] = []
+    for w in list_workers():
+        if (w.get("role") or "") != role:
+            continue
+        wid = w["id"]
+        hourly = "GENERAL" in role
+        rate_kg = float(w.get("rate_per_kg") or 0)
+        rate_hour = float(w.get("rate_per_hour") or 0)
+        bonus = (
+            float(w.get("sunday_bonus_per_hour") or 0)
+            if w.get("sunday_bonus_enabled") else 0.0
+        )
+
+        days = [
+            d for d in get_worker_days(wid, date_from, date_to)
+            if not d.get("settled") and not d.get("open")
+        ]
+        per_date = {
+            d["workDate"]: float((d.get("hours") if hourly else d.get("kgTotal")) or 0)
+            for d in days
+        }
+        per_date = {k: v for k, v in per_date.items() if v > 0}
+        if not per_date:
+            continue
+
+        units = round(sum(per_date.values()), 2 if hourly else 3)
+        sunday_units = round(
+            sum(v for k, v in per_date.items() if hourly and _is_sunday(k)), 2
+        )
+        gross = round(
+            units * (rate_hour if hourly else rate_kg) + sunday_units * bonus, 2
+        )
+        deds = [
+            d for d in list_worker_deductions(wid)
+            if date_from <= d["deductionDate"] <= date_to
+        ]
+        ded_total = round(sum(d["amount"] for d in deds), 2)
+
+        plan.append({
+            "workerId": wid,
+            "workerName": w.get("name") or "",
+            "days": len(per_date),
+            "units": units,
+            "unit": "h" if hourly else "kg",
+            "gross": gross,
+            "deductions": ded_total,
+            "net": round(gross - ded_total, 2),
+            "_perDate": per_date,
+            "_dedIds": [d["id"] for d in deds],
+            "_hourly": hourly,
+            "_rateKg": rate_kg,
+            "_rateHour": rate_hour,
+        })
+
+    result = {
+        "workers": [{k: v for k, v in p.items() if not k.startswith("_")} for p in plan],
+        "totalNet": round(sum(p["net"] for p in plan), 2),
+        "settled": 0,
+        "failed": [],
+    }
+    if dry_run:
+        return result
+
+    # Po wykonaniu suma musi opisywać to, co FAKTYCZNIE poszło na paski —
+    # nieudany pracownik nie może zawyżać raportowanej kwoty.
+    settled_net = 0.0
+    for p in plan:
+        try:
+            create_settlement(CreateSettlementDto(
+                worker_id=p["workerId"], date_from=date_from, date_to=date_to,
+                work_dates=sorted(p["_perDate"].keys()),
+                kg_per_date={} if p["_hourly"] else p["_perDate"],
+                hours_per_date=p["_perDate"] if p["_hourly"] else {},
+                rate_per_kg=0 if p["_hourly"] else p["_rateKg"],
+                rate_per_hour=p["_rateHour"] if p["_hourly"] else 0,
+                deduction_ids=p["_dedIds"],
+            ))
+            result["settled"] += 1
+            settled_net += p["net"]
+        except HTTPException as exc:
+            # Jeden pracownik nie może zablokować wypłaty reszcie brygady.
+            result["failed"].append(
+                {"workerName": p["workerName"], "error": str(exc.detail)}
+            )
+    result["totalNet"] = round(settled_net, 2)
+    logger.info(
+        "payroll.bulk_settle",
+        extra={"worker_role": role, "settled": result["settled"],
+               "failed": len(result["failed"])},
+    )
+    return result
 
 
 def undo_settlement(sid: str) -> Dict:

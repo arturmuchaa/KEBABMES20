@@ -1,7 +1,7 @@
 """Worker and payroll endpoints."""
 from fastapi import APIRouter, Query
 
-from app.models.work_hours import StampDto, WorkHoursDto
+from app.models.work_hours import WorkHoursDto
 from app.models.workers import (
     WorkerCreate,
     WorkerDeductionDto,
@@ -72,6 +72,17 @@ def get_settlement(sid: str):
     return svc.get_settlement(sid)
 
 
+@router.post("/api/payroll/settlements/bulk")
+def bulk_settle(body: dict):
+    """Rozlicz całą grupę. dryRun=true zwraca sam plan (bez zapisu)."""
+    return svc.bulk_settle(
+        role=body.get("role") or "",
+        date_from=body.get("dateFrom") or "",
+        date_to=body.get("dateTo") or "",
+        dry_run=bool(body.get("dryRun", True)),
+    )
+
+
 @router.delete("/api/payroll/settlements/{sid}")
 def undo_settlement(sid: str):
     """Cofnij rozliczenie: dni wracają do rozliczenia, potrącenia do kolejki."""
@@ -122,13 +133,10 @@ def upsert_hours(dto: WorkHoursDto):
 def delete_hours(
     worker_id: str = Query(..., alias="workerId"),
     work_date: str = Query(..., alias="workDate"),
+    seq: int = Query(0),
 ):
-    return hours_svc.delete_hours(worker_id, work_date)
-
-
-@router.post("/api/payroll/hours/stamp")
-def stamp_hours(dto: StampDto):
-    return hours_svc.stamp_hours(dto)
+    """seq=0 czyści cały dzień; podany numer kasuje jedną zmianę."""
+    return hours_svc.delete_hours(worker_id, work_date, seq or None)
 
 
 @router.get("/api/payroll/pending-kg-days")

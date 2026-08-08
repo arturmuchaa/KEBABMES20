@@ -961,6 +961,16 @@ _DDL: list[str] = [
     # niedzielnych i po jakim dodatku poszło, nawet gdy stawka się potem zmieni.
     "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS sunday_hours NUMERIC(10,2) DEFAULT 0",
     "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS sunday_bonus_per_hour NUMERIC(10,2) DEFAULT 0",
+
+    # ── Druga zmiana w tym samym dniu (sporadycznie: 6-15, potem 18-20) ──
+    # Unikalność schodzi z (pracownik, dzień) na (pracownik, dzień, nr) —
+    # samo zdjęcie constraintu wpuściłoby przypadkowe duplikaty tej samej
+    # zmiany. Istniejące wiersze dostają seq=1, więc nic nie ginie.
+    "ALTER TABLE worker_hours ADD COLUMN IF NOT EXISTS seq INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE worker_hours DROP CONSTRAINT IF EXISTS worker_hours_worker_id_work_date_key",
+    "ALTER TABLE worker_hours DROP CONSTRAINT IF EXISTS worker_hours_worker_date_seq_key",
+    "ALTER TABLE worker_hours ADD CONSTRAINT worker_hours_worker_date_seq_key "
+    "UNIQUE (worker_id, work_date, seq)",
 ]
 
 

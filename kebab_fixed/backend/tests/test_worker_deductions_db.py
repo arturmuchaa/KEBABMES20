@@ -15,6 +15,7 @@ from app.services.workers_service import (
     create_worker_deduction,
     list_worker_deductions,
     match_worker_by_name,
+    bulk_settle,
     undo_settlement,
 )
 
@@ -33,6 +34,24 @@ def _ded(**kw):
                 description="Zaliczka", amount=100.0)
     base.update(kw)
     return create_worker_deduction(WorkerDeductionDto(**base))
+
+
+def _deb_day(wid, day, kg):
+    """Dzień rozbioru — podstawa akordowa dla testów zbiorczych."""
+    execute(
+        "INSERT INTO raw_batches (id, internal_batch_no, internal_batch_seq,"
+        " supplier_name, kg_received, kg_available, status, material_type_id,"
+        " material_name, price_per_kg, created_at)"
+        " VALUES ('rb-b','800',800,'D',10000,0,'used','mat-cwiartka','C',10,now())"
+        " ON CONFLICT (id) DO NOTHING"
+    )
+    execute(
+        "INSERT INTO deboning_entries (id, raw_batch_id, raw_batch_no, worker_id,"
+        " worker_name, kg_quarter, kg_meat, yield_pct, status, created_at, completed_at)"
+        " VALUES (%s,'rb-b','800',%s,'X',%s,%s,65,'complete',%s,%s)",
+        (__import__('app.utils.ids', fromlist=['cuid']).cuid(), wid, kg, kg * 0.65,
+         day + "T08:00:00+00:00", day + "T08:00:00+00:00"),
+    )
 
 
 def _settle(**kw):
@@ -316,3 +335,70 @@ def test_dwoch_o_tej_samej_nazwie_to_brak_dopasowania(db):
         "VALUES ('w2','VADYM','WORKER_GENERAL',true)"
     )
     assert match_worker_by_name("VADYM", "") is None
+
+
+# ── Rozliczenie zbiorcze ──────────────────────────────────────────────
+
+def test_podglad_zbiorczy_nie_zapisuje_nic(db):
+    """Zanim biuro rozliczy całą brygadę jednym kliknięciem, musi zobaczyć,
+    co się wydarzy — podgląd nie może niczego zapisać."""
+    execute("DELETE FROM workers")
+    _worker("w1", "VADYM")
+    _deb_day("w1", "2026-08-03", 1000)
+
+    plan = bulk_settle("WORKER_DEBONING", "2026-08-03", "2026-08-09", dry_run=True)
+    assert plan["workers"][0]["workerName"] == "VADYM"
+    assert plan["workers"][0]["days"] == 1
+    assert plan["totalNet"] == 550.0
+    assert query_all("SELECT 1 FROM payroll_settlements") == []
+
+
+def test_rozliczenie_zbiorcze_tworzy_paski_calej_grupie(db):
+    execute("DELETE FROM workers")
+    _worker("w1", "VADYM")
+    _worker("w2", "DENYS")
+    _deb_day("w1", "2026-08-03", 1000)
+    _deb_day("w2", "2026-08-03", 2000)
+
+    res = bulk_settle("WORKER_DEBONING", "2026-08-03", "2026-08-09", dry_run=False)
+    assert res["settled"] == 2
+    assert res["totalNet"] == 550.0 + 1100.0
+    assert len(query_all("SELECT 1 FROM payroll_settlements")) == 2
+
+
+def test_zbiorcze_pomija_bez_dni_i_juz_rozliczonych(db):
+    execute("DELETE FROM workers")
+    _worker("w1", "VADYM")
+    _worker("w2", "DENYS")          # bez wpisów
+    _deb_day("w1", "2026-08-03", 1000)
+    bulk_settle("WORKER_DEBONING", "2026-08-03", "2026-08-09", dry_run=False)
+
+    drugi = bulk_settle("WORKER_DEBONING", "2026-08-03", "2026-08-09", dry_run=False)
+    assert drugi["settled"] == 0, "drugie kliknięcie nie może zdublować wypłat"
+    assert len(query_all("SELECT 1 FROM payroll_settlements")) == 1
+
+
+def test_zbiorcze_zabiera_potracenia_z_zakresu(db):
+    execute("DELETE FROM workers")
+    _worker("w1", "VADYM")
+    _deb_day("w1", "2026-08-03", 1000)
+    _ded(deduction_date="2026-08-04", description="Zakup", amount=56.0)
+
+    res = bulk_settle("WORKER_DEBONING", "2026-08-03", "2026-08-09", dry_run=False)
+    assert res["totalNet"] == 494.0
+    assert list_worker_deductions("w1") == []
+
+
+def test_zbiorcze_pomija_dzien_otwarty(db):
+    """Niedomknięta zmiana weszłaby jako 0 h — pracownik dostałby za mało."""
+    execute("DELETE FROM workers")
+    _gen(wid="wg", name="ADRIAN", rate=25.0)
+    upsert_hours(WorkHoursDto(worker_id="wg", work_date="2026-08-03",
+                              time_from="6:00", time_to="15:00"))
+    upsert_hours(WorkHoursDto(worker_id="wg", work_date="2026-08-04",
+                              time_from="6:00"))          # otwarta
+
+    res = bulk_settle("WORKER_GENERAL", "2026-08-03", "2026-08-09", dry_run=False)
+    assert res["settled"] == 1
+    assert res["workers"][0]["days"] == 1, "dzień otwarty zostaje na później"
+    assert res["totalNet"] == 225.0

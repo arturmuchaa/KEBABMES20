@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { ChevronLeft, ChevronRight, Clock, Eye, Lock, Sunrise, Sunset } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Clock, Eye, Lock, Plus, X } from 'lucide-react'
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const nf = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -35,9 +35,6 @@ function dayHead(iso: string) {
 
 export function WorkHoursPage() {
   const [monday, setMonday] = useState(() => mondayOf(todayIso()))
-  const [startTime, setStartTime] = useState('6:00')
-  const [endTime, setEndTime]     = useState('15:00')
-  const [busy, setBusy] = useState(false)
   // Pracownicy pytają o swoje godziny, a nie chcemy pokazywać im całej
   // załogi — podgląd wycina jedną osobę na osobne okno.
   const [peek, setPeek] = useState<{ id: string; name: string } | null>(null)
@@ -51,14 +48,24 @@ export function WorkHoursPage() {
 
   const general = (workers ?? []).filter(w => w.role === 'WORKER_GENERAL')
   const cells: HourCell[] = (rows ?? []) as HourCell[]
-  const byKey = useMemo(
-    () => new Map(cells.map(c => [`${c.workerId}|${c.workDate}`, c])),
-    [cells])
+  // Dzień może mieć kilka zmian (6-15, potem powrót 18-20), więc pod kluczem
+  // trzymamy LISTĘ, a nie pojedynczy wpis.
+  const byKey = useMemo(() => {
+    const m = new Map<string, HourCell[]>()
+    for (const c of cells) {
+      const k = `${c.workerId}|${c.workDate}`
+      m.set(k, [...(m.get(k) ?? []), c].sort((a, b) => (a.seq ?? 1) - (b.seq ?? 1)))
+    }
+    return m
+  }, [cells])
+  const cellsOf = (wid: string, d: string) => byKey.get(`${wid}|${d}`) ?? []
+  const dayHours = (wid: string, d: string) =>
+    cellsOf(wid, d).reduce((sum, c) => sum + (c.hours ?? 0), 0)
 
   const gaps = weekGaps(cells, general.map(w => w.id), days, todayIso())
 
-  async function save(workerId: string, workDate: string, patch: Partial<HourCell>) {
-    const cur = byKey.get(`${workerId}|${workDate}`)
+  async function save(workerId: string, workDate: string, seq: number, patch: Partial<HourCell>) {
+    const cur = cellsOf(workerId, workDate).find(c => (c.seq ?? 1) === seq)
     const next = {
       status: (patch.status ?? cur?.status ?? 'work') as HourStatus,
       timeFrom: patch.timeFrom ?? cur?.timeFrom ?? '',
@@ -66,35 +73,18 @@ export function WorkHoursPage() {
     }
     try {
       if (next.status === 'work' && !next.timeFrom) {
-        // Wyczyszczony start = wyczyszczona komórka (brak wpisu ≠ wolne).
-        if (cur) { await workHoursApi.clear(workerId, workDate); refetch() }
+        // Wyczyszczony start = wyczyszczona zmiana (brak wpisu ≠ wolne).
+        if (cur) { await workHoursApi.clear(workerId, workDate, seq); refetch() }
         return
       }
       await workHoursApi.save({
-        workerId, workDate, status: next.status,
+        workerId, workDate, seq, status: next.status,
         timeFrom: next.status === 'work' ? next.timeFrom : null,
         timeTo:   next.status === 'work' ? (next.timeTo || null) : null,
       })
       refetch()
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Błąd zapisu godzin')
-    }
-  }
-
-  async function stamp(mode: 'start' | 'end') {
-    const time = mode === 'start' ? startTime : endTime
-    if (parseTime(time) === null) { toast.error('Zła godzina stempla'); return }
-    setBusy(true)
-    try {
-      const res = await workHoursApi.stamp({ workDate: todayIso(), mode, time })
-      toast.success(res.changed === 0
-        ? 'Nic do ostemplowania — wszystko już wpisane'
-        : `Ostemplowano ${res.changed} ${res.changed === 1 ? 'osobę' : 'osób'}`)
-      refetch()
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Błąd stempla')
-    } finally {
-      setBusy(false)
     }
   }
 
@@ -126,16 +116,6 @@ export function WorkHoursPage() {
               </CardDescription>
             </div>
             <Button variant="outline" size="sm" onClick={() => shiftWeek(1)}><ChevronRight size={15} /></Button>
-          </div>
-          <div className="flex items-center gap-2">
-            <Input className="w-20 h-9" value={startTime} onChange={e => setStartTime(e.target.value)} />
-            <Button variant="outline" size="sm" disabled={busy} onClick={() => stamp('start')}>
-              <Sunrise size={14} className="mr-1.5" /> Start wszystkim
-            </Button>
-            <Input className="w-20 h-9" value={endTime} onChange={e => setEndTime(e.target.value)} />
-            <Button variant="outline" size="sm" disabled={busy} onClick={() => stamp('end')}>
-              <Sunset size={14} className="mr-1.5" /> Koniec otwartym
-            </Button>
           </div>
         </CardHeader>
       </Card>
@@ -169,7 +149,7 @@ export function WorkHoursPage() {
               </thead>
               <tbody>
                 {general.map(w => {
-                  const total = days.reduce((s, d) => s + (byKey.get(`${w.id}|${d}`)?.hours ?? 0), 0)
+                  const total = days.reduce((s, d) => s + dayHours(w.id, d), 0)
                   return (
                     <tr key={w.id} className="border-b last:border-0">
                       <td className="px-3 py-2 font-semibold whitespace-nowrap sticky left-0 bg-background">
@@ -184,7 +164,9 @@ export function WorkHoursPage() {
                       </td>
                       {days.map(d => (
                         <td key={d} className={`px-1.5 py-2 align-top ${d === todayIso() ? 'bg-primary/5' : ''}`}>
-                          <HourCellEditor cell={byKey.get(`${w.id}|${d}`)} onSave={p => save(w.id, d, p)} />
+                          <HourDayCell
+                            cells={cellsOf(w.id, d)}
+                            onSave={(seq, p) => save(w.id, d, seq, p)} />
                         </td>
                       ))}
                       <td className="px-3 py-2 text-right font-bold tabular-nums whitespace-nowrap">
@@ -196,7 +178,7 @@ export function WorkHoursPage() {
                 <tr className="bg-muted/40 font-bold">
                   <td className="px-3 py-2 sticky left-0 bg-muted/40">Razem</td>
                   {days.map(d => {
-                    const t = general.reduce((s, w) => s + (byKey.get(`${w.id}|${d}`)?.hours ?? 0), 0)
+                    const t = general.reduce((s, w) => s + dayHours(w.id, d), 0)
                     return <td key={d} className="px-2 py-2 text-center tabular-nums">{nf.format(t)}</td>
                   })}
                   <td className="px-3 py-2 text-right tabular-nums">{nf.format(weekTotal)} h</td>
@@ -219,13 +201,16 @@ export function WorkHoursPage() {
 function WorkerHoursPeek({ worker, days, byKey, from, to, onClose }: {
   worker: { id: string; name: string }
   days: string[]
-  byKey: Map<string, HourCell>
+  byKey: Map<string, HourCell[]>
   from: string
   to: string
   onClose: () => void
 }) {
-  const rows = days.map(d => ({ date: d, cell: byKey.get(`${worker.id}|${d}`) }))
-  const total = rows.reduce((s, r) => s + (r.cell?.hours ?? 0), 0)
+  const rows = days.map(d => {
+    const list = (byKey.get(`${worker.id}|${d}`) ?? [])
+    return { date: d, list, cell: list[0], hours: list.reduce((s, c) => s + (c.hours ?? 0), 0) }
+  })
+  const total = rows.reduce((s, r) => s + r.hours, 0)
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -247,7 +232,7 @@ function WorkerHoursPeek({ worker, days, byKey, from, to, onClose }: {
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ date, cell }) => {
+            {rows.map(({ date, cell, list, hours }) => {
               const d = new Date(date + 'T12:00:00')
               const marker = cell && cell.status !== 'work' ? STATUS_LABEL[cell.status] : null
               const open = cell?.status === 'work' && !cell.timeTo
@@ -262,14 +247,18 @@ function WorkerHoursPeek({ worker, days, byKey, from, to, onClose }: {
                   <td className="py-1.5 tabular-nums">
                     {marker
                       ? <span className="text-muted-foreground">{marker}</span>
-                      : cell?.timeFrom
-                        ? <>{cell.timeFrom}–{cell.timeTo || '…'}</>
+                      : list.length
+                        ? <div className="space-y-0.5">
+                            {list.map(c => (
+                              <div key={c.seq ?? 1}>{c.timeFrom}–{c.timeTo || '…'}</div>
+                            ))}
+                          </div>
                         : <span className="text-muted-foreground">—</span>}
                   </td>
                   <td className="py-1.5 text-right tabular-nums font-semibold">
                     {open
                       ? <span className="text-amber-700 text-xs font-normal">w toku</span>
-                      : cell?.hours ? `${nf.format(cell.hours)} h` : '—'}
+                      : hours ? `${nf.format(hours)} h` : '—'}
                   </td>
                 </tr>
               )
@@ -287,10 +276,50 @@ function WorkerHoursPeek({ worker, days, byKey, from, to, onClose }: {
   )
 }
 
-// ─── Komórka: dwa pola czasu albo znacznik ────────────────────
-function HourCellEditor({ cell, onSave }: {
+// ─── Komórka dnia: jedna zmiana, sporadycznie druga pod spodem ─
+function HourDayCell({ cells, onSave }: {
+  cells: HourCell[]
+  onSave: (seq: number, patch: Partial<HourCell>) => void
+}) {
+  // Druga zmiana zdarza się rzadko, więc nie zajmuje miejsca domyślnie —
+  // pojawia się dopiero, gdy istnieje albo gdy biuro ją doda z menu.
+  const [extra, setExtra] = useState(false)
+  const first = cells.find(c => (c.seq ?? 1) === 1)
+  const rest = cells.filter(c => (c.seq ?? 1) > 1)
+  const showExtra = extra || rest.length > 0
+  const nextSeq = Math.max(1, ...cells.map(c => c.seq ?? 1)) + 1
+  const marker = first && first.status !== 'work'
+
+  return (
+    <div className="space-y-1">
+      <HourShiftEditor
+        cell={first} seq={1}
+        onSave={p => onSave(1, p)}
+        onAddShift={!marker && !showExtra ? () => setExtra(true) : undefined}
+      />
+      {showExtra && !marker && (
+        <>
+          {rest.map(c => (
+            <HourShiftEditor key={c.seq} cell={c} seq={c.seq ?? 2}
+              onSave={p => onSave(c.seq ?? 2, p)} extra />
+          ))}
+          {extra && rest.length === 0 && (
+            <HourShiftEditor seq={nextSeq} onSave={p => onSave(nextSeq, p)}
+              extra onCancel={() => setExtra(false)} />
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function HourShiftEditor({ cell, seq, onSave, onAddShift, onCancel, extra }: {
   cell?: HourCell
+  seq: number
   onSave: (patch: Partial<HourCell>) => void
+  onAddShift?: () => void
+  onCancel?: () => void
+  extra?: boolean
 }) {
   const [from, setFrom] = useState(cell?.timeFrom ?? '')
   const [to, setTo]     = useState(cell?.timeTo ?? '')
@@ -346,8 +375,14 @@ function HourCellEditor({ cell, onSave }: {
         </span>
         {/* tabIndex=-1: Tab z pola „do" ma iść wprost na następny dzień,
             a nie zahaczać o menu znaczników (urlop itp.). */}
-        <button type="button" tabIndex={-1} onClick={() => setMenu(m => !m)}
-          className="text-[10px] text-muted-foreground hover:text-primary px-1">•••</button>
+        {extra ? (
+          <button type="button" tabIndex={-1} title="Usuń drugą zmianę"
+            onClick={() => { if (cell) onSave({ timeFrom: '', timeTo: '' }); onCancel?.() }}
+            className="text-muted-foreground hover:text-destructive px-0.5"><X size={11} /></button>
+        ) : (
+          <button type="button" tabIndex={-1} onClick={() => setMenu(m => !m)}
+            className="text-[10px] text-muted-foreground hover:text-primary px-1">•••</button>
+        )}
       </div>
       {menu && (
         <div className="rounded-lg border border-border bg-background shadow-sm p-1 space-y-0.5">
@@ -357,6 +392,12 @@ function HourCellEditor({ cell, onSave }: {
               {STATUS_LABEL[s]}
             </button>
           ))}
+          {onAddShift && (
+            <button onClick={() => { setMenu(false); onAddShift() }}
+              className="flex items-center gap-1 w-full text-left text-[11px] px-2 py-1 rounded hover:bg-muted text-primary">
+              <Plus size={10} /> Druga zmiana
+            </button>
+          )}
           <button onClick={() => { setMenu(false); setFrom(''); setTo(''); onSave({ status: 'work', timeFrom: '', timeTo: '' }) }}
             className="block w-full text-left text-[11px] px-2 py-1 rounded hover:bg-muted text-muted-foreground">
             Wyczyść

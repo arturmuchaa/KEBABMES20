@@ -20,7 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
-import { Scissors, Factory, Users, Plus, Trash2, Printer, ChevronRight, CheckCircle, Lock, Archive, Undo2 } from 'lucide-react'
+import { Scissors, Factory, Users, Plus, Trash2, Printer, ChevronRight, CheckCircle, Lock, Archive, Undo2, Wallet } from 'lucide-react'
 
 const ROLE_ICON: Record<string, React.ReactNode> = {
   WORKER_DEBONING: <Scissors size={14} />,
@@ -58,6 +58,7 @@ export function PayrollPage() {
   const [showSettlement, setShowSettlement] = useState<any>(null)
   const [selectedSlips, setSelectedSlips] = useState<Set<string>>(new Set())
   const [showBatchPrint, setShowBatchPrint] = useState(false)
+  const [bulkRole, setBulkRole] = useState<string | null>(null)
 
   const { data: workerDays, loading: daysLoading, refetch: refetchDays } = useApi(
     () => selWorker ? payrollApi.getWorkerDays(selWorker.id, range.from, range.to) : Promise.resolve([]),
@@ -199,7 +200,16 @@ export function PayrollPage() {
 
   return (
     <div className="space-y-5 animate-fade-in">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2 flex-wrap">
+        {([
+          { role: 'WORKER_DEBONING',   label: 'Rozlicz rozbiór' },
+          { role: 'WORKER_PRODUCTION', label: 'Rozlicz produkcję' },
+          { role: 'WORKER_GENERAL',    label: 'Rozlicz ogólnych' },
+        ]).map(b => (
+          <Button key={b.role} variant="outline" size="sm" onClick={() => setBulkRole(b.role)}>
+            <Wallet size={14} className="mr-2" /> {b.label}
+          </Button>
+        ))}
         <Button variant="outline" size="sm" onClick={() => setShowBatchPrint(true)}>
           <Printer size={14} className="mr-2" /> Drukuj paski
         </Button>
@@ -682,6 +692,15 @@ export function PayrollPage() {
       {/* Dialog druku zbiorczego */}
       {showBatchPrint && <BatchPrintDialog onClose={() => setShowBatchPrint(false)} />}
 
+      {/* Rozliczenie całej grupy jednym kliknięciem */}
+      {bulkRole && (
+        <BulkSettleDialog
+          role={bulkRole}
+          onClose={() => setBulkRole(null)}
+          onDone={() => { refetchDays(); refetchSettlements(); refetchDeductions() }}
+        />
+      )}
+
       {/* Cofnięcie rozliczenia — stan jak przed nim */}
       {undoTarget && (
         <Dialog open onOpenChange={() => setUndoTarget(null)}>
@@ -822,6 +841,108 @@ export function PayrollPage() {
         </Dialog>
       )}
     </div>
+  )
+}
+
+// ─── Rozliczenie całej grupy ──────────────────────────────────
+// Biuro rozlicza całą brygadę naraz, ale NIE w ciemno: najpierw plan
+// (kto, ile dni, ile netto), dopiero po nim zapis.
+function BulkSettleDialog({ role, onClose, onDone }: {
+  role: string
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [range, setRange] = useState(() => getDefaultRange())
+  const [busy, setBusy] = useState(false)
+  const { data: plan, loading } = useApi(
+    () => payrollApi.bulkSettle({ role, dateFrom: range.from, dateTo: range.to, dryRun: true }),
+    [role, range.from, range.to])
+
+  const rows = plan?.workers ?? []
+
+  async function run() {
+    setBusy(true)
+    try {
+      const res = await payrollApi.bulkSettle({
+        role, dateFrom: range.from, dateTo: range.to, dryRun: false })
+      onDone(); onClose()
+      if (res.failed.length) {
+        toast.warning(
+          `Rozliczono ${res.settled}, nie udało się ${res.failed.length}: ` +
+          res.failed.map(f => f.workerName).join(', '))
+      } else {
+        toast.success(`Rozliczono ${res.settled} — razem ${fmtPln(res.totalNet)} zł netto`)
+      }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Błąd rozliczenia zbiorczego')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Rozlicz: {ROLE_LABEL[role] ?? role}</DialogTitle>
+          <DialogDescription>
+            Powstanie jeden pasek na pracownika. Dni niedomknięte i już rozliczone są pomijane.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex gap-3 items-end">
+          <div className="space-y-1 flex-1">
+            <Label className="text-xs">Od</Label>
+            <Input type="date" value={range.from}
+              onChange={e => setRange(r => ({ ...r, from: e.target.value }))} />
+          </div>
+          <div className="space-y-1 flex-1">
+            <Label className="text-xs">Do</Label>
+            <Input type="date" value={range.to}
+              onChange={e => setRange(r => ({ ...r, to: e.target.value }))} />
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="space-y-2">{[0, 1, 2].map(i => <Skeleton key={i} className="h-10 rounded-xl" />)}</div>
+        ) : rows.length === 0 ? (
+          <div className="text-sm text-muted-foreground text-center py-6">
+            Nikt z tej grupy nie ma w tym okresie dni do rozliczenia
+          </div>
+        ) : (
+          <div className="max-h-72 overflow-y-auto divide-y border rounded-xl">
+            {rows.map(r => (
+              <div key={r.workerId} className="flex items-center gap-3 px-3 py-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold truncate">{r.workerName}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {r.days} dni · {fmtKg(r.units)} {r.unit} · {fmtPln(r.gross)} zł brutto
+                    {r.deductions > 0 && <span className="text-red-600"> − {fmtPln(r.deductions)} zł</span>}
+                  </div>
+                </div>
+                <div className="text-sm font-black text-green-700 tabular-nums">{fmtPln(r.net)} zł</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between pt-1">
+          <div className="text-sm text-muted-foreground">
+            Razem do wypłaty:{' '}
+            <strong className="text-foreground">{fmtPln(plan?.totalNet ?? 0)} zł</strong>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} disabled={busy}>Anuluj</Button>
+            <Button onClick={run} disabled={busy || rows.length === 0}>
+              {busy
+                ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
+                : <CheckCircle size={14} className="mr-2" />}
+              Rozlicz {rows.length}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

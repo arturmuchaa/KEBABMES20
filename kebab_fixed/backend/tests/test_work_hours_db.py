@@ -38,9 +38,9 @@ import pytest
 from fastapi import HTTPException
 
 from app.db import execute
-from app.models.work_hours import StampDto, WorkHoursDto
+from app.models.work_hours import WorkHoursDto
 from app.services.work_hours_service import (
-    delete_hours, list_hours, stamp_hours, upsert_hours,
+    delete_hours, list_hours, upsert_hours,
 )
 
 
@@ -57,7 +57,7 @@ def _gen(wid="w-gen", name="ADRIAN", rate=25.0, active=True):
 
 def _dto(**kw):
     base = dict(worker_id="w-gen", work_date="2026-08-03", status="work",
-                time_from="6:00", time_to=None, note="")
+                time_from="6:00", time_to=None, note="", seq=1)
     base.update(kw)
     return WorkHoursDto(**base)
 
@@ -132,8 +132,6 @@ def test_czyszczenie_komorki(db):
     assert list_hours("2026-08-03", "2026-08-03") == []
 
 
-# ── Stempel zbiorczy ──────────────────────────────────────────────────
-
 def _tylko_ci_aktywni():
     """`workers` nie jest w _TRUNCATE (inne testy seedują je przez ON CONFLICT),
     więc pracownicy z poprzednich testów zostają w bazie. Stempel działa na
@@ -142,47 +140,43 @@ def _tylko_ci_aktywni():
     execute("UPDATE workers SET active=false")
 
 
-def test_stempel_startu_zaklada_otwarte_tylko_bez_wpisu(db):
-    """Kto ma już wpis (np. przyszedł później), zostaje nietknięty."""
-    _tylko_ci_aktywni()
-    _gen("w-a", "ADRIAN")
-    _gen("w-b", "ARAZ")
-    upsert_hours(_dto(worker_id="w-b", time_from="7:30"))
-
-    res = stamp_hours(StampDto(work_date="2026-08-03", mode="start", time="6:00"))
-    assert res["changed"] == 1
-
-    rows = {r["workerId"]: r for r in list_hours("2026-08-03", "2026-08-03")}
-    assert rows["w-a"]["timeFrom"] == "6:00" and rows["w-a"]["hours"] is None
-    assert rows["w-b"]["timeFrom"] == "7:30", "istniejący wpis nie może zostać nadpisany"
 
 
-def test_stempel_konca_domyka_tylko_otwarte(db):
-    _tylko_ci_aktywni()
-    _gen("w-a", "ADRIAN")
-    _gen("w-b", "ARAZ")
-    upsert_hours(_dto(worker_id="w-a", time_from="6:00"))
-    upsert_hours(_dto(worker_id="w-b", time_from="6:00", time_to="12:00"))
 
-    res = stamp_hours(StampDto(work_date="2026-08-03", mode="end", time="15:00"))
-    assert res["changed"] == 1
+# ── Druga zmiana w tym samym dniu ─────────────────────────────────────
 
-    rows = {r["workerId"]: r for r in list_hours("2026-08-03", "2026-08-03")}
-    assert rows["w-a"]["hours"] == 9.0
-    assert rows["w-b"]["hours"] == 6.0, "dzień już domknięty zostaje bez zmian"
+def test_druga_zmiana_nie_nadpisuje_pierwszej(db):
+    """6:00-15:00, potem powrót 18:00-20:00. Sporadyczne, ale musi wejść
+    jako OSOBNA zmiana, a nie podmienić tej pierwszej."""
+    _gen()
+    upsert_hours(_dto(time_to="15:00"))
+    upsert_hours(_dto(seq=2, time_from="18:00", time_to="20:00"))
+
+    rows = sorted(list_hours("2026-08-03", "2026-08-03"), key=lambda r: r["seq"])
+    assert [r["seq"] for r in rows] == [1, 2]
+    assert [(r["timeFrom"], r["timeTo"]) for r in rows] == [("6:00", "15:00"), ("18:00", "20:00")]
+    assert [r["hours"] for r in rows] == [9.0, 2.0]
 
 
-def test_stempel_omija_znaczniki_i_dni_rozliczone(db):
-    _tylko_ci_aktywni()
-    _gen("w-a", "ADRIAN")
-    _gen("w-b", "ARAZ")
-    _gen("w-c", "MARCIN")
-    upsert_hours(_dto(worker_id="w-a", status="vacation"))
-    upsert_hours(_dto(worker_id="w-b", time_from="6:00"))
-    execute(
-        "INSERT INTO settled_days (worker_id, work_date, settlement_id) "
-        "VALUES ('w-c','2026-08-03','s1')"
-    )
+def test_dzien_z_dwiema_zmianami_sumuje_godziny(db):
+    _gen()
+    upsert_hours(_dto(time_to="15:00"))
+    upsert_hours(_dto(seq=2, time_from="18:00", time_to="20:00"))
 
-    res = stamp_hours(StampDto(work_date="2026-08-03", mode="start", time="6:00"))
-    assert res["changed"] == 0, "urlop, otwarty wpis i dzień rozliczony — nic do zrobienia"
+    from app.services.workers_service import get_worker_days
+    day = get_worker_days("w-gen", "2026-08-03", "2026-08-03")[0]
+    assert day["hours"] == 11.0
+    assert [s["timeFrom"] for s in day["shifts"]] == ["6:00", "18:00"]
+
+
+def test_kasowanie_drugiej_zmiany_zostawia_pierwsza(db):
+    _gen()
+    upsert_hours(_dto(time_to="15:00"))
+    upsert_hours(_dto(seq=2, time_from="18:00", time_to="20:00"))
+    delete_hours("w-gen", "2026-08-03", seq=2)
+
+    rows = list_hours("2026-08-03", "2026-08-03")
+    assert [r["seq"] for r in rows] == [1]
+
+
+
