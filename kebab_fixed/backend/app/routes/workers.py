@@ -3,6 +3,7 @@ from fastapi import APIRouter, Query
 
 from app.models.work_hours import WorkHoursDto
 from app.models.workers import (
+    BulkSettleDto,
     WorkerCreate,
     WorkerDeductionDto,
     WorkerUpdate,
@@ -73,13 +74,13 @@ def get_settlement(sid: str):
 
 
 @router.post("/api/payroll/settlements/bulk")
-def bulk_settle(body: dict):
-    """Rozlicz całą grupę. dryRun=true zwraca sam plan (bez zapisu)."""
+def bulk_settle(dto: BulkSettleDto):
+    """Rozlicz całą grupę. dry_run=true zwraca sam plan (bez zapisu)."""
     return svc.bulk_settle(
-        role=body.get("role") or "",
-        date_from=body.get("dateFrom") or "",
-        date_to=body.get("dateTo") or "",
-        dry_run=bool(body.get("dryRun", True)),
+        role=dto.role,
+        date_from=dto.date_from,
+        date_to=dto.date_to,
+        dry_run=dto.dry_run,
     )
 
 

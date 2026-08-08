@@ -51,6 +51,17 @@ class KgAdjustmentDto(BaseModel):
     created_by: str = ""
 
 
+class BulkSettleDto(BaseModel):
+    """Rozliczenie całej grupy. Pola w snake_case, bo payrollApi przepuszcza
+    DTO przez toSnake() — trasa czytająca camelCase dostawała puste daty
+    i dry_run=True, więc zatwierdzenie nie zapisywało NICZEGO."""
+
+    role: str
+    date_from: str
+    date_to: str
+    dry_run: bool = True
+
+
 class WorkerDeductionDto(BaseModel):
     """Potrącenie zapisane z wyprzedzeniem — czeka na rozliczenie."""
 
