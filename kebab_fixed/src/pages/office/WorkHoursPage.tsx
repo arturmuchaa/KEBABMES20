@@ -10,7 +10,7 @@ import { useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { usersApi, workHoursApi } from '@/lib/apiClient'
 import {
-  computeHours, mondayOf, parseTime, weekDays, weekGaps,
+  computeHours, isMissingEntry, mondayOf, parseTime, weekDays, weekGaps,
   STATUS_LABEL, type HourCell, type HourStatus,
 } from '@/lib/workHours'
 import { toast } from 'sonner'
@@ -166,6 +166,7 @@ export function WorkHoursPage() {
                         <td key={d} className={`px-1.5 py-2 align-top ${d === todayIso() ? 'bg-primary/5' : ''}`}>
                           <HourDayCell
                             cells={cellsOf(w.id, d)}
+                            missing={isMissingEntry(cellsOf(w.id, d), d, todayIso())}
                             onSave={(seq, p) => save(w.id, d, seq, p)} />
                         </td>
                       ))}
@@ -277,8 +278,10 @@ function WorkerHoursPeek({ worker, days, byKey, from, to, onClose }: {
 }
 
 // ─── Komórka dnia: jedna zmiana, sporadycznie druga pod spodem ─
-function HourDayCell({ cells, onSave }: {
+function HourDayCell({ cells, missing, onSave }: {
   cells: HourCell[]
+  /** Dzień minął bez wpisu — do uzupełnienia (czerwona ramka). */
+  missing?: boolean
   onSave: (seq: number, patch: Partial<HourCell>) => void
 }) {
   // Druga zmiana zdarza się rzadko, więc nie zajmuje miejsca domyślnie —
@@ -293,7 +296,7 @@ function HourDayCell({ cells, onSave }: {
   return (
     <div className="space-y-1">
       <HourShiftEditor
-        cell={first} seq={1}
+        cell={first} seq={1} missing={missing}
         onSave={p => onSave(1, p)}
         onAddShift={!marker && !showExtra ? () => setExtra(true) : undefined}
       />
@@ -313,9 +316,10 @@ function HourDayCell({ cells, onSave }: {
   )
 }
 
-function HourShiftEditor({ cell, seq, onSave, onAddShift, onCancel, extra }: {
+function HourShiftEditor({ cell, seq, missing, onSave, onAddShift, onCancel, extra }: {
   cell?: HourCell
   seq: number
+  missing?: boolean
   onSave: (patch: Partial<HourCell>) => void
   onAddShift?: () => void
   onCancel?: () => void
@@ -357,21 +361,27 @@ function HourShiftEditor({ cell, seq, onSave, onAddShift, onCancel, extra }: {
   const hours = computeHours(from, to)
   const open = !!from && !to
   const bad = !!from && !!to && hours === null
+  const miss = missing && !from ? 'border-red-500 bg-red-50' : ''
 
   return (
     <div className="space-y-1 min-w-[92px]">
       <div className="flex items-center gap-0.5">
-        <Input className="h-7 px-1 text-center text-xs" placeholder="—"
+        {/* Dzień minął, a nikt nic nie wpisał — ramka na czerwono, żeby
+            zaległość rzucała się w oczy przy nadrabianiu. */}
+        <Input className={`h-7 px-1 text-center text-xs ${miss}`} placeholder="—"
           value={from} onChange={e => setFrom(e.target.value)}
           onBlur={() => { if (from !== (cell?.timeFrom ?? '')) onSave({ timeFrom: from }) }} />
-        <Input className="h-7 px-1 text-center text-xs" placeholder="—"
+        <Input className={`h-7 px-1 text-center text-xs ${miss}`} placeholder="—"
           value={to} onChange={e => setTo(e.target.value)}
           onBlur={() => { if (to !== (cell?.timeTo ?? '')) onSave({ timeTo: to }) }} />
       </div>
       <div className="flex items-center justify-between gap-1">
         <span className={`text-[10px] font-semibold ${
           bad ? 'text-red-600' : open ? 'text-amber-700' : 'text-muted-foreground'}`}>
-          {bad ? 'błędna godzina' : open ? 'otwarty' : hours !== null ? `${nf.format(hours)} h` : ''}
+          {bad ? 'błędna godzina'
+            : open ? 'otwarty'
+            : hours !== null ? `${nf.format(hours)} h`
+            : missing ? <span className="text-red-600">brak wpisu</span> : ''}
         </span>
         {/* tabIndex=-1: Tab z pola „do" ma iść wprost na następny dzień,
             a nie zahaczać o menu znaczników (urlop itp.). */}

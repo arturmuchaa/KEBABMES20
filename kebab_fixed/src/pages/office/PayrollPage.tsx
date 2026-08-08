@@ -59,6 +59,7 @@ export function PayrollPage() {
   const [selectedSlips, setSelectedSlips] = useState<Set<string>>(new Set())
   const [showBatchPrint, setShowBatchPrint] = useState(false)
   const [bulkRole, setBulkRole] = useState<string | null>(null)
+  const [printRole, setPrintRole] = useState<string | null>(null)
 
   const { data: workerDays, loading: daysLoading, refetch: refetchDays } = useApi(
     () => selWorker ? payrollApi.getWorkerDays(selWorker.id, range.from, range.to) : Promise.resolve([]),
@@ -200,18 +201,9 @@ export function PayrollPage() {
 
   return (
     <div className="space-y-5 animate-fade-in">
-      <div className="flex justify-end gap-2 flex-wrap">
-        {([
-          { role: 'WORKER_DEBONING',   label: 'Rozlicz rozbiór' },
-          { role: 'WORKER_PRODUCTION', label: 'Rozlicz produkcję' },
-          { role: 'WORKER_GENERAL',    label: 'Rozlicz ogólnych' },
-        ]).map(b => (
-          <Button key={b.role} variant="outline" size="sm" onClick={() => setBulkRole(b.role)}>
-            <Wallet size={14} className="mr-2" /> {b.label}
-          </Button>
-        ))}
+      <div className="flex justify-end">
         <Button variant="outline" size="sm" onClick={() => setShowBatchPrint(true)}>
-          <Printer size={14} className="mr-2" /> Drukuj paski
+          <Printer size={14} className="mr-2" /> Drukuj paski (wszyscy)
         </Button>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -222,21 +214,38 @@ export function PayrollPage() {
             <Card><CardContent className="p-4 space-y-2">{[0,1,2].map(i => <Skeleton key={i} className="h-14 rounded-xl" />)}</CardContent></Card>
           ) : (
             <>
-              {(['WORKER_DEBONING', 'WORKER_PRODUCTION'] as const).map(roleKey => {
+              {(['WORKER_DEBONING', 'WORKER_PRODUCTION', 'WORKER_GENERAL'] as const).map(roleKey => {
                 const group = hallWorkers.filter(w => w.role === roleKey)
                 if (group.length === 0) return null
+                const hourlyGroup = roleKey === 'WORKER_GENERAL'
                 return (
                   <Card key={roleKey}>
-                    <CardHeader className="pb-2">
+                    <CardHeader className="pb-2 space-y-2">
                       <CardTitle className="text-sm flex items-center gap-1.5">
                         {ROLE_ICON[roleKey]} {ROLE_LABEL[roleKey]}
                       </CardTitle>
+                      {/* Akcje przy SWOJEJ tabeli — rozliczenie i paski dotyczą
+                          tej grupy, nie całej hali. */}
+                      <div className="flex gap-1.5">
+                        <Button variant="outline" size="sm" className="h-7 px-2 text-xs flex-1"
+                          onClick={() => setBulkRole(roleKey)}>
+                          <Wallet size={12} className="mr-1" /> Rozlicz
+                        </Button>
+                        <Button variant="outline" size="sm" className="h-7 px-2 text-xs flex-1"
+                          onClick={() => setPrintRole(roleKey)}>
+                          <Printer size={12} className="mr-1" /> Paski
+                        </Button>
+                      </div>
                     </CardHeader>
                     <CardContent className="p-0 pb-2">
                       <div className="px-3 space-y-1.5">
                         {group.map(w => {
-                          const wRate = parseFloat(String((w as any).ratePerKg ?? (w as any).rate_per_kg ?? 0))
-                          const ct    = (w as any).contractType ?? (w as any).contract_type ?? 'zlecenie'
+                          // Ogólni rozliczają się z godzin — pokazanie im zł/kg
+                          // sugerowałoby akord, którego nie mają.
+                          const wRate = hourlyGroup
+                            ? parseFloat(String((w as any).ratePerHour ?? (w as any).rate_per_hour ?? 0))
+                            : parseFloat(String((w as any).ratePerKg ?? (w as any).rate_per_kg ?? 0))
+                          const ct = (w as any).contractType ?? (w as any).contract_type ?? 'zlecenie'
                           return (
                             <button key={w.id} onClick={() => selectWorker(w)}
                               className={`w-full text-left rounded-xl border-2 px-3 py-2.5 transition-all ${selWorker?.id === w.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}>
@@ -245,43 +254,16 @@ export function PayrollPage() {
                                 <ChevronRight size={14} className="text-muted-foreground" />
                               </div>
                               <div className="text-xs text-muted-foreground mt-0.5">
-                                {wRate.toFixed(2)} zł/kg · {ct === 'praca' ? 'UoP' : 'Zlecenie'}
+                                {wRate.toFixed(2)} {hourlyGroup ? 'zł/h' : 'zł/kg'} · {ct === 'praca' ? 'UoP' : 'Zlecenie'}
                               </div>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            })}
-              {hallWorkers.filter(w => w.role === 'WORKER_GENERAL').length > 0 && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm flex items-center gap-1.5"><Users size={14} /> Ogólny</CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-0 pb-2">
-                    <div className="px-3 space-y-1.5">
-                      {hallWorkers.filter(w => w.role === 'WORKER_GENERAL').map(w => {
-                        const wRate = parseFloat(String((w as any).ratePerKg ?? (w as any).rate_per_kg ?? 0))
-                        const ct    = (w as any).contractType ?? (w as any).contract_type ?? 'zlecenie'
-                        return (
-                          <button key={w.id} onClick={() => selectWorker(w)}
-                            className={`w-full text-left rounded-xl border-2 px-3 py-2.5 transition-all ${selWorker?.id === w.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}>
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold text-sm">{w.name}</span>
-                              <ChevronRight size={14} className="text-muted-foreground" />
-                            </div>
-                            <div className="text-xs text-muted-foreground mt-0.5">
-                              {wRate.toFixed(2)} zł/kg · {ct === 'praca' ? 'UoP' : 'Zlecenie'}
-                            </div>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
               {archivedWorkers.length > 0 && (
                 <Card className="border-dashed">
                   <CardHeader className="pb-2">
@@ -691,6 +673,7 @@ export function PayrollPage() {
 
       {/* Dialog druku zbiorczego */}
       {showBatchPrint && <BatchPrintDialog onClose={() => setShowBatchPrint(false)} />}
+      {printRole && <BatchPrintDialog role={printRole} onClose={() => setPrintRole(null)} />}
 
       {/* Rozliczenie całej grupy jednym kliknięciem */}
       {bulkRole && (
@@ -953,7 +936,7 @@ function plural(n: number, one: string, few: string, many: string) {
   return d >= 2 && d <= 4 && !(h >= 12 && h <= 14) ? few : many
 }
 
-function BatchPrintDialog({ onClose }: { onClose: () => void }) {
+function BatchPrintDialog({ onClose, role }: { onClose: () => void; role?: string }) {
   const [range, setRange] = useState(() => getDefaultRange())
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [printing, setPrinting] = useState(false)
@@ -961,6 +944,7 @@ function BatchPrintDialog({ onClose }: { onClose: () => void }) {
 
   const filtered = (all ?? [])
     .filter((s: any) => settlementOverlapsRange(s, range.from, range.to))
+    .filter((s: any) => !role || s.worker_role === role)
     .sort((a: any, b: any) =>
       (a.worker_name ?? '').localeCompare(b.worker_name ?? '', 'pl') ||
       String(a.date_from).localeCompare(String(b.date_from)))
@@ -996,7 +980,9 @@ function BatchPrintDialog({ onClose }: { onClose: () => void }) {
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Druk zbiorczy pasków</DialogTitle>
-          <DialogDescription>Wybierz rozliczenia do wydruku — 4 paski na kartkę A4</DialogDescription>
+          <DialogDescription>
+            {role ? `${ROLE_LABEL[role] ?? role} — ` : ''}wybierz rozliczenia do wydruku, 4 paski na kartkę A4
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex gap-3 items-end">

@@ -101,6 +101,19 @@ export function isOpenCell(c: HourCell): boolean {
 }
 
 /**
+ * Dzień MINĄŁ, a nie ma w nim ani godzin, ani znacznika — zaległość, którą
+ * trzeba uzupełnić (siatka podświetla ją na czerwono).
+ *
+ * Dzisiejszy pusty dzień zaległością NIE jest: ludzie jeszcze pracują,
+ * a wpis powstaje dopiero po zmianie.
+ */
+export function isMissingEntry(
+  cells: HourCell[], day: string, todayIso: string,
+): boolean {
+  return day < todayIso && cells.length === 0
+}
+
+/**
  * Ile dni czeka na domknięcie, a ile na jakikolwiek wpis — liczone do
  * dnia dzisiejszego włącznie (dni przyszłe nie są brakiem).
  */

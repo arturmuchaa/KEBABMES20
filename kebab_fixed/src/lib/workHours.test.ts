@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  computeHours, formatTime, isOpenCell, isSunday, mondayOf, parseTime,
+  computeHours, formatTime, isMissingEntry, isOpenCell, isSunday, mondayOf, parseTime,
   weekDays, weekGaps, type HourCell,
 } from './workHours'
 
@@ -86,6 +86,30 @@ describe('isOpenCell', () => {
   })
   it('znacznik nie jest otwarty', () => {
     expect(isOpenCell(cell({ status: 'off', timeFrom: '', timeTo: '', hours: null }))).toBe(false)
+  })
+})
+
+describe('isMissingEntry — czerwona ramka na zaległym dniu', () => {
+  it('miniony dzień bez żadnego wpisu', () => {
+    expect(isMissingEntry([], '2026-08-07', '2026-08-08')).toBe(true)
+  })
+
+  it('dzisiejszy pusty dzień NIE jest zaległy — ludzie jeszcze pracują', () => {
+    expect(isMissingEntry([], '2026-08-08', '2026-08-08')).toBe(false)
+  })
+
+  it('dzień przyszły nie jest zaległy', () => {
+    expect(isMissingEntry([], '2026-08-09', '2026-08-08')).toBe(false)
+  })
+
+  it('znacznik zamyka sprawę — wolne to nie brak', () => {
+    const c = cell({ workDate: '2026-08-07', status: 'off', timeFrom: '', timeTo: '', hours: null })
+    expect(isMissingEntry([c], '2026-08-07', '2026-08-08')).toBe(false)
+  })
+
+  it('rozpoczęta zmiana to nie brak — ma wlasny stan „otwarty”', () => {
+    const c = cell({ workDate: '2026-08-07', timeTo: '', hours: null })
+    expect(isMissingEntry([c], '2026-08-07', '2026-08-08')).toBe(false)
   })
 })
 
