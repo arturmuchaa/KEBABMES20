@@ -75,7 +75,10 @@ export function PayrollPage() {
     [selWorker?.id]
   )
   const [pickedDeductions, setPickedDeductions] = useState<Set<string>>(new Set())
-  const [newDed, setNewDed] = useState({ open: false, date: '', description: '', amount: '' })
+  const [newDed, setNewDed] = useState({
+    open: false, date: '', description: '', amount: '',
+    kind: 'deduction' as 'deduction' | 'credit',
+  })
   // Cofnięcie rozliczenia — bez tego pomyłkę trzeba było prostować w bazie.
   const [undoTarget, setUndoTarget] = useState<any>(null)
   const [undoBusy, setUndoBusy] = useState(false)
@@ -441,17 +444,17 @@ export function PayrollPage() {
                 w poniedziałek, a rozlicza w piątek. */}
             <Card>
               <CardHeader className="pb-2 flex-row items-center justify-between space-y-0">
-                <CardTitle className="text-sm">Potrącenia</CardTitle>
+                <CardTitle className="text-sm">Potrącenia i uznania</CardTitle>
                 <button className="text-xs text-primary hover:underline flex items-center gap-1"
-                  onClick={() => setNewDed({ open: true, date: new Date().toISOString().slice(0, 10), description: '', amount: '' })}>
-                  <Plus size={12} /> Dodaj potrącenie
+                  onClick={() => setNewDed({ open: true, date: new Date().toISOString().slice(0, 10), description: '', amount: '', kind: 'deduction' })}>
+                  <Plus size={12} /> Dodaj pozycję
                 </button>
               </CardHeader>
               <CardContent className="space-y-3">
                 {dedSplit.overdue.length > 0 && (
                   <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                    <strong>Zaległe potrącenia:</strong>{' '}
-                    {dedSplit.overdue.length} poz. · {fmtPln(sumDeductions(dedSplit.overdue))} zł
+                    <strong>Zaległe pozycje:</strong>{' '}
+                    {dedSplit.overdue.length} poz. · {fmtPln(Math.abs(sumDeductions(dedSplit.overdue)))} zł
                     {' — '}cofnij datę „Od", żeby weszły do tego rozliczenia.
                   </div>
                 )}
@@ -470,10 +473,13 @@ export function PayrollPage() {
                           <div className="text-sm font-semibold truncate">{d.description}</div>
                           <div className="text-xs text-muted-foreground">
                             {new Date(d.deductionDate + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })}
+                            {d.kind === 'credit' && ' · uznanie'}
                             {d.sourceType === 'wz' && ' · z WZ'}
                           </div>
                         </div>
-                        <span className="text-sm font-bold text-red-600 tabular-nums">− {fmtPln(Number(d.amount))} zł</span>
+                        <span className={`text-sm font-bold tabular-nums ${d.kind === 'credit' ? 'text-green-700' : 'text-red-600'}`}>
+                          {d.kind === 'credit' ? '+' : '−'} {fmtPln(Number(d.amount))} zł
+                        </span>
                         <button onClick={async e => {
                           e.preventDefault()
                           try {
@@ -542,10 +548,14 @@ export function PayrollPage() {
                         <span className="font-semibold text-orange-700">{fmtPln(employerCost)} zł</span>
                       </div>
                     )}
-                    {deductTotal > 0 && (
+                    {deductTotal !== 0 && (
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Potrącenia</span>
-                        <span className="font-semibold text-red-600">- {fmtPln(deductTotal)} zł</span>
+                        <span className="text-muted-foreground">
+                          {deductTotal > 0 ? 'Potrącenia' : 'Uznania'}
+                        </span>
+                        <span className={`font-semibold ${deductTotal > 0 ? 'text-red-600' : 'text-green-700'}`}>
+                          {deductTotal > 0 ? '−' : '+'} {fmtPln(Math.abs(deductTotal))} zł
+                        </span>
                       </div>
                     )}
                     <Separator />
@@ -737,12 +747,31 @@ export function PayrollPage() {
         <Dialog open onOpenChange={() => setNewDed(d => ({ ...d, open: false }))}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Dodaj potrącenie</DialogTitle>
+              <DialogTitle>Dodaj pozycję</DialogTitle>
               <DialogDescription>
                 {selWorker?.name} — czeka do rozliczenia obejmującego tę datę
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
+              {/* Uznanie to odwrotność potrącenia — dodatek, zwrot, premia
+                  uznaniowa. Ta sama kolejka, przeciwny znak. */}
+              <div className="flex gap-2">
+                {([
+                  { v: 'deduction' as const, l: 'Potrącenie', d: 'zabiera z wypłaty' },
+                  { v: 'credit'    as const, l: 'Uznanie',    d: 'dokłada do wypłaty' },
+                ]).map(o => (
+                  <button key={o.v} type="button"
+                    onClick={() => setNewDed(d => ({ ...d, kind: o.v }))}
+                    className={`flex-1 py-2 rounded-xl border-2 text-sm font-semibold transition-all ${
+                      newDed.kind === o.v
+                        ? (o.v === 'credit' ? 'border-green-600 bg-green-50 text-green-800'
+                                            : 'border-primary bg-primary text-white')
+                        : 'border-border text-muted-foreground hover:border-primary/40'}`}>
+                    {o.l}
+                    <div className="text-[10px] font-normal opacity-80">{o.d}</div>
+                  </button>
+                ))}
+              </div>
               <div className="space-y-1.5">
                 <Label>Data</Label>
                 <Input type="date" value={newDed.date}
@@ -765,10 +794,13 @@ export function PayrollPage() {
                     await payrollApi.createDeduction({
                       workerId: selWorker.id, deductionDate: newDed.date,
                       description: newDed.description, amount: parseFloat(newDed.amount) || 0,
+                      kind: newDed.kind,
                     })
-                    setNewDed({ open: false, date: '', description: '', amount: '' })
+                    setNewDed({ open: false, date: '', description: '', amount: '', kind: 'deduction' })
                     refetchDeductions()
-                    toast.success('Potrącenie zapisane — wejdzie do rozliczenia')
+                    toast.success(newDed.kind === 'credit'
+                      ? 'Uznanie zapisane — wejdzie do rozliczenia'
+                      : 'Potrącenie zapisane — wejdzie do rozliczenia')
                   } catch (e: unknown) {
                     toast.error(e instanceof Error ? e.message : 'Błąd zapisu')
                   }
@@ -1106,8 +1138,9 @@ function PaySlipPreview({ settlement: s }: { settlement: any }) {
         )}
         <div className="flex justify-between font-bold"><span>Wynagrodzenie</span><span>{Number(s.gross_amount).toFixed(2)} zł</span></div>
         {(s.deductions ?? []).map((d: any) => (
-          <div key={d.id} className="flex justify-between text-red-600">
-            <span className="text-xs">{d.description}</span><span>- {Number(d.amount).toFixed(2)} zł</span>
+          <div key={d.id} className={`flex justify-between ${d.kind === 'credit' ? 'text-green-700' : 'text-red-600'}`}>
+            <span className="text-xs">{d.description}</span>
+            <span>{d.kind === 'credit' ? '+' : '−'} {Number(d.amount).toFixed(2)} zł</span>
           </div>
         ))}
       </div>

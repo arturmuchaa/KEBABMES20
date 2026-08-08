@@ -754,6 +754,8 @@ export const payrollApi = {
     get<any[]>(`/payroll/deductions?workerId=${encodeURIComponent(workerId)}&status=${encodeURIComponent(status)}`),
   createDeduction: (dto: {
     workerId: string; deductionDate: string; description: string; amount: number;
+    /** 'deduction' zabiera z wypłaty, 'credit' dokłada. */
+    kind?: 'deduction' | 'credit';
   }) => post<any>('/payroll/deductions', toSnake(dto)),
   cancelDeduction: (id: string) => del<{ ok: boolean }>(`/payroll/deductions/${id}`),
   matchWorker: (name: string, nip: string) =>

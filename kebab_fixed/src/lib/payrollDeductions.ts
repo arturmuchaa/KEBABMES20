@@ -11,6 +11,8 @@ export interface Deduction {
   deductionDate: string
   description: string
   amount: number
+  /** 'deduction' zabiera z wypłaty, 'credit' dokłada. */
+  kind?: string
   sourceType: string
   sourceId: string | null
   status: string
@@ -29,6 +31,13 @@ export function splitDeductions(
   return { inRange, overdue }
 }
 
+/**
+ * Netto efekt pozycji: potrącenia na plus (będą odjęte), uznania na minus.
+ * Kwoty zostają dodatnie — o kierunku decyduje `kind`.
+ */
 export function sumDeductions(items: Deduction[]): number {
-  return items.reduce((s, d) => s + Number(d.amount || 0), 0)
+  return items.reduce(
+    (s, d) => s + (d.kind === 'credit' ? -Number(d.amount || 0) : Number(d.amount || 0)),
+    0,
+  )
 }

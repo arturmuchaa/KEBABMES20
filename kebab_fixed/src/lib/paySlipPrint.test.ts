@@ -266,3 +266,30 @@ describe('premia niedzielna na pasku', () => {
     expect(buildPaySlipsDocument([hourly()])).not.toContain('w tym niedziela')
   })
 })
+
+
+describe('uznanie na pasku', () => {
+  it('uznanie ma plus, potrącenie minus', () => {
+    const html = buildPaySlipsDocument([sample({
+      deductions: [
+        { id: 'd1', description: 'zaliczka', amount: 100, kind: 'deduction' },
+        { id: 'c1', description: 'dodatek', amount: 50, kind: 'credit' },
+      ],
+    })])
+    expect(html).toContain('− 100,00 zł')
+    expect(html).toContain('+ 50,00 zł')
+  })
+
+  it('uznanie ma własny kolor w druku', () => {
+    const html = buildPaySlipsDocument([sample()])
+    expect(html).toContain('.plus{color:#166534')
+  })
+
+  it('brak kind czyta się jako potrącenie (stare paski)', () => {
+    const html = buildPaySlipsDocument([sample({
+      deductions: [{ id: 'd1', description: 'zaliczka', amount: 100 }],
+    })])
+    expect(html).toContain('− 100,00 zł')
+    expect(html).not.toContain('+ 100,00 zł')
+  })
+})

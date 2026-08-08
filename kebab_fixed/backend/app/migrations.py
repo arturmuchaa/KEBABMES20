@@ -971,6 +971,16 @@ _DDL: list[str] = [
     "ALTER TABLE worker_hours DROP CONSTRAINT IF EXISTS worker_hours_worker_date_seq_key",
     "ALTER TABLE worker_hours ADD CONSTRAINT worker_hours_worker_date_seq_key "
     "UNIQUE (worker_id, work_date, seq)",
+
+    # ── Uznania (odwrotność potrącenia: dodatek, zwrot, premia uznaniowa) ──
+    # Ta sama kolejka co potrącenia, tylko znak przeciwny. `amount` zostaje
+    # DODATNIA, o kierunku decyduje `kind` — ujemne kwoty w tabeli pieniędzy
+    # to proszenie się o pomyłkę przy sumowaniu.
+    "ALTER TABLE worker_deductions ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'deduction'",
+    "ALTER TABLE worker_deductions DROP CONSTRAINT IF EXISTS worker_deductions_kind_ck",
+    "ALTER TABLE worker_deductions ADD CONSTRAINT worker_deductions_kind_ck "
+    "CHECK (kind = ANY (ARRAY['deduction','credit']))",
+    "ALTER TABLE settlement_deductions ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'deduction'",
 ]
 
 

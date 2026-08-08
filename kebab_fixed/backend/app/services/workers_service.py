@@ -420,6 +420,7 @@ def _deduction_out(r: Dict) -> Dict:
         "deductionDate": str(r["deduction_date"]),
         "description": r["description"],
         "amount": float(r["amount"] or 0),
+        "kind": r.get("kind") or "deduction",
         "sourceType": r.get("source_type") or "manual",
         "sourceId": r.get("source_id"),
         "status": r.get("status") or "pending",
@@ -445,12 +446,14 @@ def create_worker_deduction(dto: WorkerDeductionDto) -> Dict:
             conn,
             """
             INSERT INTO worker_deductions
-                (id, worker_id, deduction_date, description, amount,
+                (id, worker_id, deduction_date, description, amount, kind,
                  source_type, source_id, status, created_by, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s)
             """,
             (did, dto.worker_id, dto.deduction_date, dto.description.strip(),
-             round(dto.amount, 2), dto.source_type, dto.source_id,
+             round(dto.amount, 2),
+             "credit" if dto.kind == "credit" else "deduction",
+             dto.source_type, dto.source_id,
              dto.created_by or "", now_iso()),
         )
         row = cx_query_one(
@@ -628,9 +631,16 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
                 )
             pending.append(row)
 
+        # `deductions_total` to NETTO EFEKT odejmowany od brutto: potrącenia
+        # na plus, uznania na minus. Kwoty w bazie zostają dodatnie —
+        # o kierunku decyduje `kind`.
+        def _signed(r: Dict) -> float:
+            amt = float(r["amount"] or 0)
+            return -amt if (r.get("kind") or "deduction") == "credit" else amt
+
         deductions_total = round(
             sum(d.amount for d in dto.deductions)
-            + sum(float(r["amount"] or 0) for r in pending),
+            + sum(_signed(r) for r in pending),
             2,
         )
         net_amount = round(gross_amount - deductions_total, 2)
@@ -688,9 +698,11 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
         for row in pending:
             cx_execute(
                 conn,
-                "INSERT INTO settlement_deductions (id, settlement_id, description, amount) "
-                "VALUES (%s,%s,%s,%s)",
-                (cuid(), sid, row["description"], row["amount"]),
+                "INSERT INTO settlement_deductions "
+                "(id, settlement_id, description, amount, kind) "
+                "VALUES (%s,%s,%s,%s,%s)",
+                (cuid(), sid, row["description"], row["amount"],
+                 row.get("kind") or "deduction"),
             )
             cx_execute(
                 conn,
@@ -766,6 +778,9 @@ def bulk_settle(
         if not per_date:
             continue
 
+        # Stawka 0 jest DOZWOLONA i celowa: wypłatę zna tylko szef, a pasek
+        # ma pokazać pracownikowi przepracowane godziny. Nie blokujemy.
+
         units = round(sum(per_date.values()), 2 if hourly else 3)
         sunday_units = round(
             sum(v for k, v in per_date.items() if hourly and _is_sunday(k)), 2
@@ -777,7 +792,10 @@ def bulk_settle(
             d for d in list_worker_deductions(wid)
             if date_from <= d["deductionDate"] <= date_to
         ]
-        ded_total = round(sum(d["amount"] for d in deds), 2)
+        ded_total = round(sum(
+            -d["amount"] if d.get("kind") == "credit" else d["amount"]
+            for d in deds
+        ), 2)
 
         plan.append({
             "workerId": wid,

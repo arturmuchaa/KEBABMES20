@@ -28,8 +28,18 @@ describe('splitDeductions — reguła zakresu jest ścisła, ale nic nie ginie',
   })
 })
 
-describe('sumDeductions', () => {
-  it('sumuje kwoty', () => {
+describe('sumDeductions — netto efekt na wypłacie', () => {
+  it('sumuje potrącenia', () => {
     expect(sumDeductions([d('a', '2026-08-04', 56), d('b', '2026-08-05', 14)])).toBe(70)
+  })
+
+  it('uznanie odejmuje się od sumy potrąceń', () => {
+    const credit = { ...d('c', '2026-08-04', 30), kind: 'credit' }
+    expect(sumDeductions([d('a', '2026-08-04', 56), credit])).toBe(26)
+  })
+
+  it('same uznania dają wartość ujemną (dopłata)', () => {
+    const credit = { ...d('c', '2026-08-04', 30), kind: 'credit' }
+    expect(sumDeductions([credit])).toBe(-30)
   })
 })

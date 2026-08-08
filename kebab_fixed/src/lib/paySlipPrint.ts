@@ -158,7 +158,14 @@ function paySlipHtml(s: any | null): string {
       ? `<div class="days-wrap split">${daysTable(days.slice(0, half))}${daysTable(days.slice(half))}</div>`
       : `<div class="days-wrap">${daysTable(days)}</div>`
 
-  const deductRows = deducts.map(d => `<tr>
+  // Uznanie to odwrotność potrącenia — na pasku musi być widać kierunek,
+  // inaczej pracownik czyta dodatek jako kolejne obcięcie.
+  const deductRows = deducts.map(d => d.kind === 'credit'
+    ? `<tr>
+      <td class="lbl">${esc(d.description)}</td>
+      <td class="r plus">+ ${num(d.amount)} zł</td>
+    </tr>`
+    : `<tr>
       <td class="lbl">${esc(d.description)}</td>
       <td class="r minus">− ${num(d.amount)} zł</td>
     </tr>`).join('')
@@ -250,6 +257,7 @@ export function buildPaySlipsDocument(items: any[]): string {
   .lbl{color:#555}
   .bold{font-weight:700}
   .minus{color:#c00000;font-weight:700;white-space:nowrap}
+  .plus{color:#166534;font-weight:700;white-space:nowrap}
 
   .days th{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#666;
     text-align:left;border-bottom:1px solid #bbb;padding-bottom:1.2mm}

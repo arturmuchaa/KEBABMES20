@@ -402,3 +402,75 @@ def test_zbiorcze_pomija_dzien_otwarty(db):
     assert res["settled"] == 1
     assert res["workers"][0]["days"] == 1, "dzień otwarty zostaje na później"
     assert res["totalNet"] == 225.0
+
+
+# ── Uznania (odwrotność potrącenia) ───────────────────────────────────
+
+def _credit(**kw):
+    base = dict(worker_id="w1", deduction_date="2026-08-03",
+                description="Dodatek", amount=200.0, kind="credit")
+    base.update(kw)
+    return create_worker_deduction(WorkerDeductionDto(**base))
+
+
+def test_uznanie_dokłada_do_wyplaty(db):
+    """Uznanie działa jak potrącenie, tylko w drugą stronę."""
+    _worker()
+    c = _credit(amount=200.0)
+    s = _settle(deduction_ids=[c["id"]])
+
+    assert float(s["gross_amount"]) == 550.0
+    assert float(s["net_amount"]) == 750.0, "uznanie ma DODAĆ, nie odjąć"
+    assert float(s["deductions_total"]) == -200.0
+
+
+def test_uznanie_i_potracenie_razem(db):
+    _worker()
+    d = _ded(description="Zaliczka", amount=100.0)
+    c = _credit(description="Zwrot za paliwo", amount=30.0)
+    s = _settle(deduction_ids=[d["id"], c["id"]])
+
+    assert float(s["net_amount"]) == 550.0 - 100.0 + 30.0
+
+
+def test_uznanie_wraca_do_kolejki_po_cofnieciu(db):
+    _worker()
+    c = _credit()
+    s = _settle(deduction_ids=[c["id"]])
+    undo_settlement(s["id"])
+
+    rows = list_worker_deductions("w1")
+    assert [r["kind"] for r in rows] == ["credit"]
+
+
+def test_zbiorcze_uwzglednia_uznania(db):
+    execute("DELETE FROM workers")
+    _worker("w1", "VADYM")
+    _deb_day("w1", "2026-08-03", 1000)
+    _credit(amount=200.0)
+
+    res = bulk_settle("WORKER_DEBONING", "2026-08-03", "2026-08-09", dry_run=False)
+    assert res["totalNet"] == 750.0
+
+
+# ── Zerowa stawka jest dozwolona ──────────────────────────────────────
+
+def test_zbiorcze_rozlicza_takze_przy_zerowej_stawce(db):
+    """Decyzja produktowa: stawkę zna tylko szef, a pasek ma pokazać
+    pracownikowi PRZEPRACOWANE GODZINY. Zerowa stawka nie może blokować
+    rozliczenia ani chować pracownika z listy."""
+    execute("DELETE FROM workers")
+    _gen(wid="wg", name="IWONA", rate=0.0)
+    upsert_hours(WorkHoursDto(worker_id="wg", work_date="2026-08-03",
+                              time_from="6:00", time_to="15:00"))
+
+    plan = bulk_settle("WORKER_GENERAL", "2026-08-03", "2026-08-09", dry_run=True)
+    assert [w["workerName"] for w in plan["workers"]] == ["IWONA"]
+    assert plan["workers"][0]["units"] == 9.0
+
+    done = bulk_settle("WORKER_GENERAL", "2026-08-03", "2026-08-09", dry_run=False)
+    assert done["settled"] == 1
+    s = query_one("SELECT hours_total, gross_amount FROM payroll_settlements "
+                  "WHERE worker_id='wg'")
+    assert float(s["hours_total"]) == 9.0, "godziny na pasku muszą być"
+    assert float(s["gross_amount"]) == 0.0

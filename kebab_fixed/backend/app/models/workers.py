@@ -68,7 +68,10 @@ class WorkerDeductionDto(BaseModel):
     worker_id: str
     deduction_date: str
     description: str
+    #: Zawsze DODATNIA — kierunek niesie `kind`.
     amount: float
+    #: 'deduction' zabiera z wypłaty, 'credit' dokłada (dodatek, zwrot).
+    kind: str = "deduction"
     #: 'manual' (biuro) albo 'wz' (zakup pracownika udokumentowany WZ)
     source_type: str = "manual"
     source_id: Optional[str] = None
