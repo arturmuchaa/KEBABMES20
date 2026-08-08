@@ -72,6 +72,12 @@ def get_settlement(sid: str):
     return svc.get_settlement(sid)
 
 
+@router.delete("/api/payroll/settlements/{sid}")
+def undo_settlement(sid: str):
+    """Cofnij rozliczenie: dni wracają do rozliczenia, potrącenia do kolejki."""
+    return svc.undo_settlement(sid)
+
+
 # --- Potrącenia oczekujące ---
 
 @router.get("/api/payroll/deductions")

@@ -20,7 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
-import { Scissors, Factory, Users, Plus, Trash2, Printer, ChevronRight, CheckCircle, Lock, Archive } from 'lucide-react'
+import { Scissors, Factory, Users, Plus, Trash2, Printer, ChevronRight, CheckCircle, Lock, Archive, Undo2 } from 'lucide-react'
 
 const ROLE_ICON: Record<string, React.ReactNode> = {
   WORKER_DEBONING: <Scissors size={14} />,
@@ -74,6 +74,9 @@ export function PayrollPage() {
   )
   const [pickedDeductions, setPickedDeductions] = useState<Set<string>>(new Set())
   const [newDed, setNewDed] = useState({ open: false, date: '', description: '', amount: '' })
+  // Cofnięcie rozliczenia — bez tego pomyłkę trzeba było prostować w bazie.
+  const [undoTarget, setUndoTarget] = useState<any>(null)
+  const [undoBusy, setUndoBusy] = useState(false)
 
   const createMut = useMutation((dto: any) => payrollApi.createSettlement(dto))
   const adjustMut = useMutation((dto: any) => payrollApi.createKgAdjustment(dto))
@@ -625,12 +628,18 @@ export function PayrollPage() {
                           </div>
                           <div className="text-right">
                             <div className="text-base font-black text-green-700">{fmtPln(s.net_amount)} zł</div>
-                            <button onClick={async () => {
-                              const full = await payrollApi.getSettlement(s.id)
-                              printPaySlips([full])
-                            }} className="text-xs text-primary hover:underline flex items-center gap-1 ml-auto">
-                              <Printer size={11} /> Drukuj
-                            </button>
+                            <div className="flex items-center gap-2 justify-end">
+                              <button onClick={async () => {
+                                const full = await payrollApi.getSettlement(s.id)
+                                printPaySlips([full])
+                              }} className="text-xs text-primary hover:underline flex items-center gap-1">
+                                <Printer size={11} /> Drukuj
+                              </button>
+                              <button onClick={() => setUndoTarget(s)}
+                                className="text-xs text-muted-foreground hover:text-destructive flex items-center gap-1">
+                                <Undo2 size={11} /> Cofnij
+                              </button>
+                            </div>
                           </div>
                         </div>
                       )
@@ -672,6 +681,54 @@ export function PayrollPage() {
 
       {/* Dialog druku zbiorczego */}
       {showBatchPrint && <BatchPrintDialog onClose={() => setShowBatchPrint(false)} />}
+
+      {/* Cofnięcie rozliczenia — stan jak przed nim */}
+      {undoTarget && (
+        <Dialog open onOpenChange={() => setUndoTarget(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Cofnąć rozliczenie?</DialogTitle>
+              <DialogDescription>
+                {undoTarget.worker_name} ·{' '}
+                {new Date(undoTarget.date_from + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })}
+                {' – '}
+                {new Date(undoTarget.date_to + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'short', year: 'numeric' })}
+                {' · '}{fmtPln(Number(undoTarget.net_amount))} zł netto
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>Dni wrócą do rozliczenia, a pasek zniknie z historii.</p>
+              <p>
+                Potrącenia z tego paska wrócą do kolejki jako <strong>oczekujące</strong> —
+                to realny dług pracownika, więc nie znikają razem z rozliczeniem.
+              </p>
+              <p className="text-amber-800">
+                Jeśli pasek został już wydrukowany i wypłacony, cofnięcie tego nie odwróci.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={() => setUndoTarget(null)} disabled={undoBusy}>Anuluj</Button>
+              <Button variant="destructive" disabled={undoBusy} onClick={async () => {
+                setUndoBusy(true)
+                try {
+                  const r = await payrollApi.undoSettlement(undoTarget.id)
+                  setUndoTarget(null)
+                  refetchDays(); refetchSettlements(); refetchDeductions()
+                  toast.success(
+                    `Cofnięto rozliczenie — ${r.unlockedDays} dni wróciło` +
+                    (r.restoredDeductions ? `, ${r.restoredDeductions} potrąceń do kolejki` : ''))
+                } catch (e: unknown) {
+                  toast.error(e instanceof Error ? e.message : 'Błąd cofania')
+                } finally {
+                  setUndoBusy(false)
+                }
+              }}>
+                <Undo2 size={14} className="mr-1.5" /> Cofnij rozliczenie
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Potrącenie dopisywane z wyprzedzeniem — czeka na rozliczenie */}
       {newDed.open && (

@@ -15,6 +15,7 @@ from app.services.workers_service import (
     create_worker_deduction,
     list_worker_deductions,
     match_worker_by_name,
+    undo_settlement,
 )
 
 
@@ -219,6 +220,61 @@ def test_premia_nie_dotyczy_akordu(db):
     s = _settle(work_dates=["2026-08-09"], kg_per_date={"2026-08-09": 1000.0})
     assert float(s["gross_amount"]) == 550.0
     assert float(s["sunday_hours"]) == 0
+
+
+# ── Cofnięcie rozliczenia ─────────────────────────────────────────────
+
+def test_cofniecie_odblokowuje_dni_i_kasuje_pasek(db):
+    """Cofnięcie ma zostawić stan taki, jakby rozliczenia nie było —
+    inaczej biuro musi wchodzić do bazy (tak było z testem Marcina)."""
+    _worker()
+    s = _settle()
+    res = undo_settlement(s["id"])
+
+    assert res["unlockedDays"] == 1
+    assert query_all("SELECT 1 FROM payroll_settlements WHERE id=%s", (s["id"],)) == []
+    assert query_all("SELECT 1 FROM settled_days WHERE settlement_id=%s", (s["id"],)) == []
+    assert query_all("SELECT 1 FROM settlement_deductions WHERE settlement_id=%s", (s["id"],)) == []
+
+
+def test_cofniecie_zwraca_potracenia_do_oczekujacych(db):
+    """Potrącenie to realny dług — po cofnięciu ma wrócić do kolejki,
+    a nie zniknąć razem z paskiem."""
+    _worker()
+    d = _ded(description="Zakup ćwiartki", amount=56.0)
+    s = _settle(deduction_ids=[d["id"]])
+    res = undo_settlement(s["id"])
+
+    assert res["restoredDeductions"] == 1
+    row = query_one("SELECT status, settlement_id FROM worker_deductions WHERE id=%s", (d["id"],))
+    assert row["status"] == "pending"
+    assert row["settlement_id"] is None
+    assert [x["id"] for x in list_worker_deductions("w1")] == [d["id"]]
+
+
+def test_po_cofnieciu_dzien_da_sie_rozliczyc_ponownie(db):
+    _worker()
+    s1 = _settle()
+    undo_settlement(s1["id"])
+    s2 = _settle()   # ten sam dzień — bez cofnięcia poleciałoby 400
+    assert float(s2["gross_amount"]) == 550.0
+
+
+def test_pozycja_dorazna_znika_razem_z_paskiem(db):
+    """Pozycja wpisana ręcznie przy rozliczeniu nie ma wpisu w rejestrze,
+    więc nie ma czego przywracać — nie może zostać sierotą."""
+    from app.models.workers import SettlementDeductionDto
+    _worker()
+    s = _settle(deductions=[SettlementDeductionDto(description="zaliczka", amount=20)])
+    res = undo_settlement(s["id"])
+    assert res["restoredDeductions"] == 0
+    assert query_all("SELECT 1 FROM settlement_deductions WHERE settlement_id=%s", (s["id"],)) == []
+
+
+def test_cofniecie_nieistniejacego_to_404(db):
+    with pytest.raises(HTTPException) as exc:
+        undo_settlement("nie-ma-takiego")
+    assert exc.value.status_code == 404
 
 
 # ── Dopasowanie odbiorcy WZ ───────────────────────────────────────────

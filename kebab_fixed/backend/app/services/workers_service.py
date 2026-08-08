@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.db import (
     cx_execute,
     cx_execute_returning,
+    cx_execute_rowcount,
     cx_query_all,
     cx_query_one,
     query_all,
@@ -705,6 +706,49 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
         },
     )
     return row
+
+
+def undo_settlement(sid: str) -> Dict:
+    """Cofnij rozliczenie — stan taki, jakby go nie było (wzorem
+    undo_mixing_confirmation). Dni wracają do rozliczenia, pozycje paska
+    znikają, a potrącenia z rejestru wracają do stanu „oczekujące": to realny
+    dług pracownika, więc nie może zniknąć razem z paskiem.
+
+    Rozliczenia nic dalej nie konsumuje, więc nie ma czego strzec po stronie
+    danych — potwierdzenie należy do UI. Ślad kto i kiedy cofnął zostaje
+    w audit_log (loguje każde żądanie)."""
+    with transaction() as conn:
+        s = cx_query_one(
+            conn, "SELECT * FROM payroll_settlements WHERE id=%s FOR UPDATE", (sid,)
+        )
+        if not s:
+            raise HTTPException(404, "Rozliczenie nie istnieje")
+
+        restored = cx_execute_rowcount(
+            conn,
+            "UPDATE worker_deductions SET status='pending', settlement_id=NULL "
+            "WHERE settlement_id=%s AND status='settled'",
+            (sid,),
+        )
+        unlocked = cx_execute_rowcount(
+            conn, "DELETE FROM settled_days WHERE settlement_id=%s", (sid,)
+        )
+        cx_execute(
+            conn, "DELETE FROM settlement_deductions WHERE settlement_id=%s", (sid,)
+        )
+        cx_execute(conn, "DELETE FROM payroll_settlements WHERE id=%s", (sid,))
+
+    logger.info(
+        "payroll.settlement.undone",
+        extra={"settlement_id": sid, "worker_id": s["worker_id"],
+               "unlocked_days": unlocked, "restored_deductions": restored},
+    )
+    return {
+        "ok": True,
+        "workerName": s.get("worker_name") or "",
+        "unlockedDays": unlocked,
+        "restoredDeductions": restored,
+    }
 
 
 def list_settlements(worker_id: Optional[str]) -> List[Dict]:

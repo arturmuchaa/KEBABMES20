@@ -18,7 +18,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ChevronLeft, ChevronRight, Clock, Lock, Sunrise, Sunset } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { ChevronLeft, ChevronRight, Clock, Eye, Lock, Sunrise, Sunset } from 'lucide-react'
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const nf = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -37,6 +38,9 @@ export function WorkHoursPage() {
   const [startTime, setStartTime] = useState('6:00')
   const [endTime, setEndTime]     = useState('15:00')
   const [busy, setBusy] = useState(false)
+  // Pracownicy pytają o swoje godziny, a nie chcemy pokazywać im całej
+  // załogi — podgląd wycina jedną osobę na osobne okno.
+  const [peek, setPeek] = useState<{ id: string; name: string } | null>(null)
 
   const days = useMemo(() => weekDays(monday), [monday])
   const from = days[0], to = days[6]
@@ -168,7 +172,16 @@ export function WorkHoursPage() {
                   const total = days.reduce((s, d) => s + (byKey.get(`${w.id}|${d}`)?.hours ?? 0), 0)
                   return (
                     <tr key={w.id} className="border-b last:border-0">
-                      <td className="px-3 py-2 font-semibold whitespace-nowrap sticky left-0 bg-background">{w.name}</td>
+                      <td className="px-3 py-2 font-semibold whitespace-nowrap sticky left-0 bg-background">
+                        <div className="flex items-center gap-1.5">
+                          {w.name}
+                          <button type="button" tabIndex={-1} title="Podgląd godzin pracownika"
+                            onClick={() => setPeek({ id: w.id, name: w.name })}
+                            className="text-muted-foreground hover:text-primary">
+                            <Eye size={14} />
+                          </button>
+                        </div>
+                      </td>
                       {days.map(d => (
                         <td key={d} className={`px-1.5 py-2 align-top ${d === todayIso() ? 'bg-primary/5' : ''}`}>
                           <HourCellEditor cell={byKey.get(`${w.id}|${d}`)} onSave={p => save(w.id, d, p)} />
@@ -193,7 +206,84 @@ export function WorkHoursPage() {
           )}
         </CardContent>
       </Card>
+      {peek && (
+        <WorkerHoursPeek
+          worker={peek} days={days} byKey={byKey}
+          from={from} to={to} onClose={() => setPeek(null)} />
+      )}
     </div>
+  )
+}
+
+// ─── Podgląd jednej osoby (pokazywany pracownikowi) ───────────
+function WorkerHoursPeek({ worker, days, byKey, from, to, onClose }: {
+  worker: { id: string; name: string }
+  days: string[]
+  byKey: Map<string, HourCell>
+  from: string
+  to: string
+  onClose: () => void
+}) {
+  const rows = days.map(d => ({ date: d, cell: byKey.get(`${worker.id}|${d}`) }))
+  const total = rows.reduce((s, r) => s + (r.cell?.hours ?? 0), 0)
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-xl">{worker.name}</DialogTitle>
+          <DialogDescription>
+            {new Date(from + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'long' })}
+            {' – '}
+            {new Date(to + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'long', year: 'numeric' })}
+          </DialogDescription>
+        </DialogHeader>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+              <th className="text-left py-1.5">Dzień</th>
+              <th className="text-left py-1.5">Od–do</th>
+              <th className="text-right py-1.5">Godziny</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ date, cell }) => {
+              const d = new Date(date + 'T12:00:00')
+              const marker = cell && cell.status !== 'work' ? STATUS_LABEL[cell.status] : null
+              const open = cell?.status === 'work' && !cell.timeTo
+              return (
+                <tr key={date} className="border-b last:border-0">
+                  <td className="py-1.5">
+                    <span className="font-medium">{d.toLocaleDateString('pl-PL', { weekday: 'short' })}</span>
+                    <span className="text-muted-foreground ml-1.5">
+                      {d.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })}
+                    </span>
+                  </td>
+                  <td className="py-1.5 tabular-nums">
+                    {marker
+                      ? <span className="text-muted-foreground">{marker}</span>
+                      : cell?.timeFrom
+                        ? <>{cell.timeFrom}–{cell.timeTo || '…'}</>
+                        : <span className="text-muted-foreground">—</span>}
+                  </td>
+                  <td className="py-1.5 text-right tabular-nums font-semibold">
+                    {open
+                      ? <span className="text-amber-700 text-xs font-normal">w toku</span>
+                      : cell?.hours ? `${nf.format(cell.hours)} h` : '—'}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="font-black">
+              <td className="py-2" colSpan={2}>Razem</td>
+              <td className="py-2 text-right tabular-nums">{nf.format(total)} h</td>
+            </tr>
+          </tfoot>
+        </table>
+      </DialogContent>
+    </Dialog>
   )
 }
 

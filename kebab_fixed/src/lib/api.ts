@@ -737,6 +737,10 @@ export const payrollApi = {
   listSettlements: (workerId?: string) =>
     get<any[]>(`/payroll/settlements${workerId ? `?workerId=${encodeURIComponent(workerId)}` : ''}`),
   getSettlement: (id: string) => get<any>(`/payroll/settlements/${id}`),
+  /** Cofa rozliczenie: dni wracają do rozliczenia, potrącenia do kolejki. */
+  undoSettlement: (id: string) =>
+    del<{ ok: boolean; workerName: string; unlockedDays: number; restoredDeductions: number }>(
+      `/payroll/settlements/${id}`),
   createKgAdjustment: (dto: {
     workerId: string; workDate: string; kgDelta: number; reason: string;
   }) => post<any>('/payroll/kg-adjustments', toSnake(dto)),
