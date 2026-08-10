@@ -44,6 +44,10 @@ def create_worker(dto: WorkerCreate) -> Dict:
     pin_hash = hash_secret(dto.pin) if dto.pin else None
     departments_json = json.dumps(dto.departments or [])
     with transaction() as conn:
+        # UWAGA: liczba placeholderów musi zgadzać się z listą kolumn minus
+        # te wpisane na sztywno (pin NULL, active true). Dopisanie kolumny bez
+        # placeholdera wywala KAŻDE dodanie pracownika na 500. Nie umieszczaj
+        # tej uwagi w komentarzu SQL — psycopg2 policzyłby tam %s jako parametr.
         row = cx_execute_returning(
             conn,
             """
@@ -53,7 +57,7 @@ def create_worker(dto: WorkerCreate) -> Dict:
                  saturday_bonus_enabled, saturday_bonus_per_hour,
                  pay_mode, rate_per_day,
                  contract_type, employer_cost_amount, crew_size, created_at)
-            VALUES (%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING *
             """,
             (
