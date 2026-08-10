@@ -86,11 +86,13 @@ const ROOMS: Room[] = [
   { group: 'Hale produkcyjne',        no: 15, name: `Pomieszcze${SHY}nie produkcji`,               cols: plain('do +12 °C') },
   { group: 'Hale produkcyjne',        no: 8,  name: `Pomieszcze${SHY}nie produkcji`,               cols: plain('do +12 °C') },
   { group: 'Hale produkcyjne',        no: 12, name: `Hala masownia i leżako${SHY}wania`,           cols: plain('+4 do +6 °C') },
-  { group: 'Mroźnie i komory mrożenia', no: 6,  name: `Magazyn surowca mrożo${SHY}nego`,           cols: plain('-18 °C') },
-  { group: 'Mroźnie i komory mrożenia', no: 26, name: 'Komora mrożenia',                       cols: plain('-24 °C') },
-  { group: 'Mroźnie i komory mrożenia', no: 29, name: 'Mroźnia',                               cols: plain('-18 °C') },
+  // Nazwy i podział ściśle wg arkusza dopuszczenia (SanitaryCheckPrintPage):
+  // szokowe 6/26 mrożą (-24 °C), składowe 29/38 przechowują (-18 °C).
+  { group: 'Mroźnie i komory mrożenia', no: 6,  name: `Mroźnia szoko${SHY}wa`,                  cols: plain('-24 °C') },
+  { group: 'Mroźnie i komory mrożenia', no: 26, name: `Mroźnia szoko${SHY}wa`,                  cols: plain('-24 °C') },
+  { group: 'Mroźnie i komory mrożenia', no: 29, name: `Mroźnia skła${SHY}dowa`,                 cols: plain('-18 °C') },
   { group: 'Mroźnie i komory mrożenia', no: 30, name: 'Komora mrożenia',                       cols: plain('-24 °C') },
-  { group: 'Mroźnie i komory mrożenia', no: 38, name: 'Mroźnia',                               cols: plain('-18 °C') },
+  { group: 'Mroźnie i komory mrożenia', no: 38, name: `Mroźnia skła${SHY}dowa`,                 cols: plain('-18 °C') },
   { group: 'Ekspedycja',              no: 35, name: `Rampa ekspedy${SHY}cyjna`,                    cols: plain('do +12 °C') },
   { group: 'Ekspedycja',              no: 37, name: `Pomieszcze${SHY}nie komple${SHY}tacji przed wysyłką`, cols: plain('do +12 °C') },
   // grupa krótko „UPPZ" — „Magazyn UPPZ" zawijało belkę grup do dwóch linii
