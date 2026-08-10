@@ -330,3 +330,37 @@ describe('premia sobotnia i dniówka na pasku', () => {
     expect(html).toContain('3,00 dni')
   })
 })
+
+
+describe('pasek godzinowy: bez zarobku, obie zmiany widoczne', () => {
+  const dwieZmiany = () => hourly({
+    hours_total: 11,
+    work_dates_detail: [{
+      work_date: '2026-08-09', hours: 11, sunday: true,
+      time_from: '6:00', time_to: '15:00',
+      shifts: ['6:00–15:00', '18:00–20:00'],
+    }],
+  })
+
+  it('nie drukuje kolumny Zarobek przy godzinach', () => {
+    const html = buildPaySlipsDocument([hourly({
+      work_dates_detail: [{ work_date: '2026-08-03', hours: 9, time_from: '6:00', time_to: '15:00' }],
+    })])
+    expect(html).not.toContain('Zarobek')
+  })
+
+  it('akord dalej pokazuje zarobek dnia', () => {
+    expect(buildPaySlipsDocument([sample()])).toContain('Zarobek')
+  })
+
+  it('obie zmiany dnia jedna pod drugą', () => {
+    const html = buildPaySlipsDocument([dwieZmiany()])
+    expect(html).toContain('6:00–15:00')
+    expect(html).toContain('18:00–20:00')
+  })
+
+  it('suma godzin dnia liczy obie zmiany', () => {
+    const html = buildPaySlipsDocument([dwieZmiany()])
+    expect(html).toContain('11,00')
+  })
+})

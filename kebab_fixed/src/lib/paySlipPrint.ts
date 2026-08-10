@@ -149,20 +149,37 @@ function paySlipHtml(s: any | null): string {
   // Przy podstawie godzinowej pracownik musi widzieć, OD KTÓREJ DO KTÓREJ
   // pracował — sama suma nie pozwala mu sprawdzić dnia. Kolumna dochodzi
   // tylko tam, gdzie ma sens (akord jej nie ma).
-  const withShift = basisOf(s) === 'hours' && days.some((d: any) => d.time_from)
-  const shift = (d: any) => d.time_from ? `${d.time_from}–${d.time_to || '…'}` : '—'
+  const hourly = basisOf(s) === 'hours'
+  const withShift = hourly && days.some((d: any) => d.time_from || (d.shifts ?? []).length)
 
+  /** Wszystkie zmiany dnia, jedna pod drugą — powrót po południu (6-15,
+   *  potem 18-20) to dwa osobne wiersze, nie jeden. */
+  const shiftLines = (d: any): string[] => {
+    const list: string[] = d.shifts ?? []
+    if (list.length) return list
+    return d.time_from ? [`${d.time_from}–${d.time_to || '…'}`] : []
+  }
+  const shiftCell = (d: any) => {
+    const lines = shiftLines(d)
+    return lines.length
+      ? lines.map(l => `<div class="nw">${esc(l)}</div>`).join('')
+      : '—'
+  }
+
+  // Przy godzinach kolumna „Zarobek" wypada: stawkę zna tylko szef, a pasek
+  // ma pokazać pracownikowi czas pracy. Trzy kolumny zamiast czterech dają
+  // też miejsce na drugą zmianę bez obcinania.
   const dayRow = (d: any) => split
     ? `<tr><td class="nw">${esc(fmtDate(d.work_date, dateFmt))}</td><td class="r nw">${num(dayAmount(d, s))}</td></tr>`
     : `<tr>
       <td class="nw">${esc(fmtDate(d.work_date, dateFmt))}${d.sunday ? ' *' : ''}</td>
-      ${withShift ? `<td class="nw">${esc(shift(d))}</td>` : ''}
+      ${withShift ? `<td>${shiftCell(d)}</td>` : ''}
       <td class="r nw">${num(dayAmount(d, s))}</td>
-      <td class="r nw">${num(dayEarning(d, s))} zł</td>
+      ${hourly ? '' : `<td class="r nw">${num(dayEarning(d, s))} zł</td>`}
     </tr>`
   const daysHead = split
     ? `<tr><th>Dzień</th><th class="r">${esc(unit)}</th></tr>`
-    : `<tr><th>Dzień</th>${withShift ? '<th>Godziny</th>' : ''}<th class="r">${esc(unit)}</th><th class="r">Zarobek</th></tr>`
+    : `<tr><th>Dzień</th>${withShift ? '<th>Godziny</th>' : ''}<th class="r">${esc(unit)}</th>${hourly ? '' : '<th class="r">Zarobek</th>'}</tr>`
   const daysTable = (rows: any[]) => `<table class="days">
       <thead>${daysHead}</thead>
       <tbody>${rows.map(dayRow).join('')}</tbody>

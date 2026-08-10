@@ -1183,9 +1183,11 @@ function PaySlipPreview({ settlement: s }: { settlement: any }) {
             <div key={d.work_date} className="flex justify-between text-xs">
               <span className="text-muted-foreground">
                 {new Date(d.work_date + 'T12:00:00').toLocaleDateString('pl-PL', { weekday: 'short', day: 'numeric', month: 'short' })}
-                {d.time_from && (
-                  <span className="ml-1.5 tabular-nums">{d.time_from}–{d.time_to || '…'}</span>
-                )}
+                {/* Dzień z powrotem po południu ma dwie zmiany — obie widoczne. */}
+                {((d.shifts ?? (d.time_from ? [`${d.time_from}–${d.time_to || '…'}`] : [])) as string[])
+                  .map((r: string) => (
+                    <span key={r} className="ml-1.5 tabular-nums">{r}</span>
+                  ))}
               </span>
               <span className="font-semibold tabular-nums">
                 {dayAmount(d, s).toFixed(2)} {basisUnit(s)}
