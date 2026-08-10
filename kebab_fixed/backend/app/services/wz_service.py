@@ -133,6 +133,54 @@ def build_goods_wz_lines(goods_with_counts: List[Dict[str, Any]]) -> List[Dict[s
     return lines
 
 
+def _fmt_qty(v: float) -> str:
+    """5.0 → '5', 2.5 → '2,5'. Bez zbędnych zer — to idzie na pasek."""
+    return f"{float(v):.3f}".rstrip("0").rstrip(".").replace(".", ",") or "0"
+
+
+def _fmt_price(v: float) -> str:
+    """Kwoty całkowite bez groszy ('7 zł'), ułamkowe z dwoma ('11,20 zł')."""
+    f = float(v)
+    s = f"{f:.0f}" if abs(f - round(f)) < 0.005 else f"{f:.2f}"
+    return s.replace(".", ",")
+
+
+#: Ile pozycji zmieści się w opisie, zanim pasek zacznie się rozjeżdżać.
+_DEDUCTION_DESC_MAX_LINES = 2
+
+
+def deduction_description_from_lines(lines: List[Dict[str, Any]]) -> str:
+    """Opis potrącenia dla pracownika: asortyment, ilość i cena.
+
+    Numer WZ nic pracownikowi nie mówi — na pasku ma zobaczyć, za co
+    potrącono („Ćwiartka z kurczaka 5 kg × 7 zł"). Podstawa ilości musi
+    zgadzać się z tą, po której policzono kwotę: wyroby gotowe idą
+    w sztukach, ale wyceniane są ZA KG (total_kg), więc pokazujemy kg.
+    """
+    parts: List[str] = []
+    for l in lines or []:
+        name = (l.get("name") or "").strip()
+        if not name:
+            continue
+        total_kg = l.get("total_kg")
+        if total_kg:
+            qty, unit = float(total_kg), "kg"
+        else:
+            qty, unit = float(l.get("qty") or 0), (l.get("unit") or "szt")
+        price = l.get("price")
+        piece = f"{name} {_fmt_qty(qty)} {unit}"
+        if price:
+            piece += f" × {_fmt_price(price)} zł"
+        parts.append(piece)
+
+    if not parts:
+        return ""
+    if len(parts) > _DEDUCTION_DESC_MAX_LINES:
+        shown = parts[:_DEDUCTION_DESC_MAX_LINES]
+        return ", ".join(shown) + f" +{len(parts) - len(shown)} poz."
+    return ", ".join(parts)
+
+
 def is_foreign_nip(nip: Optional[str]) -> bool:
     """Klient zagraniczny, gdy NIP zaczyna się od dwóch liter różnych od 'PL'
     (np. DE, SK, AT). Czyste cyfry lub 'PL…' = krajowy. Puste = krajowy."""
@@ -519,6 +567,9 @@ def create_manual_wz(
                 number = cx_query_one(
                     conn, "SELECT number FROM wz_documents WHERE id=%s", (wid,)
                 )["number"]
+                # Na pasku ma stać asortyment, nie numer dokumentu —
+                # pracownik czyta pasek, nie ewidencję WZ.
+                descr = deduction_description_from_lines(lines) or f"Zakup — {number}"
                 cx_execute(
                     conn,
                     """
@@ -527,7 +578,7 @@ def create_manual_wz(
                          source_type, source_id, status, created_at)
                     VALUES (%s,%s,%s,%s,%s,'wz',%s,'pending',%s)
                     """,
-                    (cuid(), worker["id"], issued, f"Zakup — {number}",
+                    (cuid(), worker["id"], issued, descr,
                      amount, wid, now_iso()))
 
     logger.info("wz.manual.created", extra={"wz_id": wid, "items": len(selections)})
@@ -576,11 +627,14 @@ def update_wz_prices(wz_id: str, prices: List[Dict[str, Any]]) -> Dict[str, Any]
         # Potrącenie pracownika idzie za wartością dokumentu, dopóki jest
         # oczekujące — ceny bywają dopisywane po wystawieniu. Rozliczonego
         # nie ruszamy, bo jego kwota jest już na pasku.
+        # Opis idzie za cenami razem z kwotą — inaczej pasek pokazywałby
+        # starą cenę przy nowej kwocie i pracownik słusznie by to zakwestionował.
         cx_execute(
             conn,
-            "UPDATE worker_deductions SET amount=%s "
+            "UPDATE worker_deductions SET amount=%s, description=%s "
             "WHERE source_type='wz' AND source_id=%s AND status='pending'",
-            (round(float(total), 2), wz_id))
+            (round(float(total), 2),
+             deduction_description_from_lines(new_lines), wz_id))
     logger.info("wz.prices_updated", extra={"wz_id": wz_id, "total": total})
     return get_wz(wz_id)
 

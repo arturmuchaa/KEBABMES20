@@ -58,7 +58,9 @@ def test_wz_zaklada_potracenie_oczekujace(db):
     assert d["source_type"] == "wz"
     assert d["source_id"] == doc["id"]
     assert str(d["deduction_date"]) == "2026-08-04"
-    assert doc["number"] in d["description"]
+    # Na pasku ma stać asortyment, nie numer dokumentu.
+    assert d["description"] == "Ćwiartka 5 kg × 11,20 zł"
+    assert doc["number"] not in d["description"]
 
 
 def test_bez_wskazania_pracownika_nie_ma_potracenia(db):
@@ -115,5 +117,8 @@ def test_zmiana_cen_aktualizuje_oczekujace_potracenie(db):
     doc = _wz({"workerId": "w1", "amount": 56.0})
     update_wz_prices(doc["id"], [{"index": 0, "price": 20.0}])
 
-    d = query_one("SELECT amount FROM worker_deductions WHERE source_id=%s", (doc["id"],))
+    d = query_one("SELECT amount, description FROM worker_deductions WHERE source_id=%s",
+                  (doc["id"],))
     assert float(d["amount"]) == 100.0  # 5 kg × 20,00
+    # Opis MUSI iść za ceną — inaczej pasek pokazuje 11,20 zł przy kwocie 100 zł.
+    assert d["description"] == "Ćwiartka 5 kg × 20 zł"
