@@ -8,8 +8,53 @@
 
 export const SLIPS_PER_PAGE = 4
 
-/** Powyżej tylu dni pracy lista dni łamie się na dwie kolumny. */
-const DAYS_SPLIT_THRESHOLD = 8
+/**
+ * Gęstość listy dni liczy się w LINIACH WYDRUKU, nie w dniach: dzień
+ * z powrotem po południu (7:30–15:00, potem 18:00–20:00) zajmuje dwa wiersze.
+ * Tydzień z sześcioma takimi dniami to 7 dni, ale 13 linii — po dniach mieścił
+ * się w progu, a po wydrukowaniu wychodził poza komórkę 148,5×105 mm i był
+ * ucinany przez overflow:hidden (pasek ARTUR-a za 3–9.08.2026).
+ */
+const COMPACT_THRESHOLD_LINES = 8
+const SPLIT_THRESHOLD_LINES = 14
+
+/** Wszystkie zmiany dnia, jedna pod drugą — powrót po południu (6–15,
+ *  potem 18–20) to dwa osobne wiersze, nie jeden. */
+function shiftLines(d: any): string[] {
+  const list: string[] = d?.shifts ?? []
+  if (list.length) return list
+  return d?.time_from ? [`${d.time_from}–${d.time_to || '…'}`] : []
+}
+
+/** Ile wierszy wydruku zajmie ten dzień. Bez kolumny godzin zawsze jeden. */
+export function dayLines(d: any, withShift: boolean): number {
+  return withShift ? Math.max(1, shiftLines(d).length) : 1
+}
+
+export function totalDayLines(days: any[], withShift: boolean): number {
+  return days.reduce((n, d) => n + dayLines(d, withShift), 0)
+}
+
+/**
+ * Który wariant listy dni zmieści się w komórce paska:
+ *  • plain   — luźny, do 8 linii;
+ *  • compact — jedna kolumna drobniejszym pismem, do 14 linii. Godziny ZOSTAJĄ:
+ *              pracownik z dwiema zmianami dziennie właśnie po to bierze pasek,
+ *              żeby sprawdzić, od której do której pracował;
+ *  • split   — dwie kolumny (data + wartość), dla rozliczeń wielotygodniowych,
+ *              gdzie żadne zagęszczenie już nie wystarczy.
+ *
+ * Bez kolumny godzin trybu zagęszczonego NIE MA: wiersz jest jednolinijkowy,
+ * więc długa lista czyta się lepiej w dwóch kolumnach niż drobnym pismem
+ * w jednej — i tak ta ścieżka działała dotąd na produkcji dla akordu.
+ */
+export function daysLayout(days: any[], withShift: boolean): 'plain' | 'compact' | 'split' {
+  const lines = totalDayLines(days, withShift)
+  if (!withShift) return lines > COMPACT_THRESHOLD_LINES ? 'split' : 'plain'
+  if (lines > SPLIT_THRESHOLD_LINES) return 'split'
+  if (lines > COMPACT_THRESHOLD_LINES) return 'compact'
+  return 'plain'
+}
 
 export const ROLE_LABEL: Record<string, string> = {
   WORKER_DEBONING: 'Rozbiór', WORKER_PRODUCTION: 'Produkcja', WORKER_GENERAL: 'Ogólny',
@@ -141,17 +186,6 @@ function paySlipHtml(s: any | null): string {
   const days: any[] = s.work_dates_detail ?? []
   const deducts: any[] = s.deductions ?? []
 
-  // Stawka ukryta na pasku, ale używamy jej do policzenia zarobku per dzień.
-  // Powyżej 8 dni (np. rozliczenie 2-tygodniowe) lista nie mieści się na
-  // wysokość komórki — szeroki pasek pozwala rozbić ją na dwie kolumny.
-  // W dwóch kolumnach brakuje miejsca na nazwę dnia tygodnia — sama data.
-  const split = days.length > DAYS_SPLIT_THRESHOLD
-  const dateFmt: Intl.DateTimeFormatOptions = split
-    ? { day: '2-digit', month: '2-digit' }
-    : { weekday: 'short', day: '2-digit', month: '2-digit' }
-
-  // Przy dwóch kolumnach dni kolumna „Zarobek" nie zmieściłaby się czytelnie
-  // — dla długich okresów zostają data i kg, kwoty są w podsumowaniu.
   // Przy podstawie godzinowej pracownik musi widzieć, OD KTÓREJ DO KTÓREJ
   // pracował — sama suma nie pozwala mu sprawdzić dnia. Kolumna dochodzi
   // tylko tam, gdzie ma sens (akord jej nie ma).
@@ -159,13 +193,17 @@ function paySlipHtml(s: any | null): string {
   const daily = basisOf(s) === 'daily'
   const withShift = hourly && days.some((d: any) => d.time_from || (d.shifts ?? []).length)
 
-  /** Wszystkie zmiany dnia, jedna pod drugą — powrót po południu (6-15,
-   *  potem 18-20) to dwa osobne wiersze, nie jeden. */
-  const shiftLines = (d: any): string[] => {
-    const list: string[] = d.shifts ?? []
-    if (list.length) return list
-    return d.time_from ? [`${d.time_from}–${d.time_to || '…'}`] : []
-  }
+  // Stawka ukryta na pasku, ale używamy jej do policzenia zarobku per dzień.
+  // Wariant listy dni MUSI być wybrany po withShift — bez kolumny godzin dzień
+  // z dwiema zmianami zajmuje jedną linię, a nie dwie.
+  const layout = daysLayout(days, withShift)
+  const split = layout === 'split'
+  const compact = layout === 'compact'
+  // W dwóch kolumnach brakuje miejsca na nazwę dnia tygodnia — sama data.
+  const dateFmt: Intl.DateTimeFormatOptions = split
+    ? { day: '2-digit', month: '2-digit' }
+    : { weekday: 'short', day: '2-digit', month: '2-digit' }
+
   const shiftCell = (d: any) => {
     const lines = shiftLines(d)
     return lines.length
@@ -194,12 +232,14 @@ function paySlipHtml(s: any | null): string {
       <tbody>${rows.map(dayRow).join('')}</tbody>
     </table>`
 
+  // W trybie dwukolumnowym godzin nie ma, więc każdy dzień to jedna linia
+  // i podział po połowie dni daje kolumny równej wysokości.
   const half = Math.ceil(days.length / 2)
   const daysBlock = days.length === 0
     ? `<div class="no-days">Rozliczenie zbiorcze za okres</div>`
     : split
       ? `<div class="days-wrap split">${daysTable(days.slice(0, half))}${daysTable(days.slice(half))}</div>`
-      : `<div class="days-wrap">${daysTable(days)}</div>`
+      : `<div class="days-wrap${compact ? ' compact' : ''}">${daysTable(days)}</div>`
 
   // Uznanie to odwrotność potrącenia — na pasku musi być widać kierunek,
   // inaczej pracownik czyta dodatek jako kolejne obcięcie.
@@ -308,6 +348,12 @@ export function buildPaySlipsDocument(items: any[]): string {
   .days th.r{text-align:right}
   .days td{font-size:12px;border-bottom:1px solid #e8e8e8}
   .days.split td,.days-wrap.split .days td{font-size:11px}
+  /* Tryb zagęszczony: tydzień z drugimi zmianami to ~13 linii i przy luźnym
+     kroju wychodził poza komórkę. Zbite interlinie na SAMYCH zmianach —
+     data i liczba godzin zostają czytelne. */
+  .days-wrap.compact .days th{font-size:8.5px;padding-bottom:.7mm}
+  .days-wrap.compact .days td{font-size:10.5px;padding:.7mm 0;line-height:1.15}
+  .days-wrap.compact .days td .nw+.nw{margin-top:.2mm}
   .no-days{font-size:11px;color:#888;font-style:italic;padding-top:2mm}
 
   .sum td{font-size:12.5px;border-bottom:1px solid #e8e8e8}

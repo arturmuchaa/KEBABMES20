@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   settlementOverlapsRange, chunkIntoPages, pageCount, buildPaySlipsDocument,
   basisLabel, basisTotal, basisUnit, dayEarning, sundayBonusTotal, saturdayBonusTotal,
+  dayLines, totalDayLines, daysLayout,
 } from './paySlipPrint'
 
 const sample = (over: Record<string, unknown> = {}) => ({
@@ -416,5 +417,66 @@ describe('wiersz premii mieści się w jednej linii', () => {
       saturday_hours: 7.5, saturday_bonus_per_hour: 4.5,
     })])
     expect(html).toContain('sobota 7,5 h × 4,5 zł')
+  })
+})
+
+describe('gęstość listy dni liczona w LINIACH, nie w dniach', () => {
+  /** Tydzień Artura 3–9.08.2026 (prod): 7 dni, z czego 6 po dwie zmiany.
+   *  Dni jest 7, ale wierszy na wydruku 13 — po tym pasek przestawał się
+   *  mieścić w komórce 148,5×105 mm i był ucinany przez overflow:hidden. */
+  const arturDni = [
+    { work_date: '2026-08-03', hours: 10,  shifts: ['7:30–15:00', '16:30–19:00'] },
+    { work_date: '2026-08-04', hours: 9.5, shifts: ['7:30–15:00', '18:00–20:00'] },
+    { work_date: '2026-08-05', hours: 9.5, shifts: ['7:30–15:00', '19:00–21:00'] },
+    { work_date: '2026-08-06', hours: 8.5, shifts: ['7:30–15:00', '21:00–22:00'] },
+    { work_date: '2026-08-07', hours: 8.5, shifts: ['7:30–15:00', '21:00–22:00'] },
+    { work_date: '2026-08-08', hours: 8,   shifts: ['7:00–15:00'], saturday: true },
+    { work_date: '2026-08-09', hours: 8,   shifts: ['6:00–11:00', '19:30–22:30'], sunday: true },
+  ]
+  const artur = () => hourly({ hours_total: 62, work_dates_detail: arturDni })
+
+  it('dzień z dwiema zmianami to dwie linie', () => {
+    expect(dayLines({ shifts: ['7:30–15:00', '16:30–19:00'] }, true)).toBe(2)
+    expect(dayLines({ shifts: ['7:00–15:00'] }, true)).toBe(1)
+    expect(totalDayLines(arturDni, true)).toBe(13)
+  })
+
+  it('bez kolumny godzin dzień zawsze zajmuje jedną linię', () => {
+    expect(dayLines({ shifts: ['7:30–15:00', '16:30–19:00'] }, false)).toBe(1)
+    expect(totalDayLines(arturDni, false)).toBe(7)
+  })
+
+  it('tydzień z dwiema zmianami wchodzi w tryb zagęszczony, nie dwukolumnowy', () => {
+    expect(daysLayout(arturDni, true)).toBe('compact')
+    const html = buildPaySlipsDocument([artur()])
+    expect(html).toContain('days-wrap compact')
+    expect(html).not.toContain('days-wrap split')
+  })
+
+  it('tryb zagęszczony NIE gubi godzin — po to jest pasek', () => {
+    const html = buildPaySlipsDocument([artur()])
+    expect(html).toContain('16:30–19:00')
+    expect(html).toContain('19:30–22:30')
+    expect(html).toContain('Godziny')
+  })
+
+  it('zwykły tydzień bez drugich zmian zostaje w trybie luźnym', () => {
+    const dni = arturDni.map(d => ({ ...d, shifts: [d.shifts[0]] }))
+    expect(daysLayout(dni, true)).toBe('plain')
+    expect(buildPaySlipsDocument([hourly({ work_dates_detail: dni })]))
+      .not.toContain('days-wrap compact')
+  })
+
+  it('dopiero rozliczenie dwutygodniowe idzie na dwie kolumny', () => {
+    const dwaTygodnie = [...arturDni, ...arturDni.map(d => ({ ...d, work_date: '2026-08-1' + d.work_date.slice(-1) }))]
+    expect(totalDayLines(dwaTygodnie, true)).toBe(26)
+    expect(daysLayout(dwaTygodnie, true)).toBe('split')
+    expect(buildPaySlipsDocument([hourly({ work_dates_detail: dwaTygodnie })]))
+      .toContain('days-wrap split')
+  })
+
+  it('akord z 12 dniami (bez zmian) dalej dzieli się na dwie kolumny', () => {
+    const dni = Array.from({ length: 12 }, (_, i) => ({ work_date: `2026-07-${13 + i}`, kg: 100 }))
+    expect(daysLayout(dni, false)).toBe('split')
   })
 })
