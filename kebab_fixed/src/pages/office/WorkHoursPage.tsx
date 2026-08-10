@@ -64,6 +64,11 @@ export function WorkHoursPage() {
 
   const gaps = weekGaps(cells, general.map(w => w.id), days, todayIso())
 
+  const isDailyWorker = (wid: string) => {
+    const w: any = general.find(x => x.id === wid)
+    return (w?.payMode ?? w?.pay_mode) === 'daily'
+  }
+
   async function save(workerId: string, workDate: string, seq: number, patch: Partial<HourCell>) {
     const cur = cellsOf(workerId, workDate).find(c => (c.seq ?? 1) === seq)
     const next = {
@@ -72,7 +77,9 @@ export function WorkHoursPage() {
       timeTo:   patch.timeTo   ?? cur?.timeTo   ?? '',
     }
     try {
-      if (next.status === 'work' && !next.timeFrom) {
+      // Dniówka: obecność Z DEFINICJI nie ma godzin, więc reguła „pusty start
+      // = wyczyszczona komórka" kasowałaby ją zamiast zapisać.
+      if (next.status === 'work' && !next.timeFrom && !isDailyWorker(workerId)) {
         // Wyczyszczony start = wyczyszczona zmiana (brak wpisu ≠ wolne).
         if (cur) { await workHoursApi.clear(workerId, workDate, seq); refetch() }
         return
@@ -350,13 +357,13 @@ function PresenceCell({ cell, missing, onSave }: {
   return (
     <div className="space-y-1 min-w-[92px]">
       <button type="button"
-        onClick={() => onSave(present ? { status: 'off' } : { status: 'work' })}
+        onClick={() => onSave(present ? { status: 'absent' } : { status: 'work' })}
         className={`w-full rounded-lg border-2 px-1 py-2 text-[11px] font-bold uppercase transition-all ${
           present ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
           : marker ? 'border-border border-dashed text-muted-foreground'
           : missing ? 'border-red-500 bg-red-50 text-red-600'
           : 'border-border text-muted-foreground hover:border-primary/40'}`}>
-        {present ? 'Obecny' : marker ?? (missing ? 'Brak wpisu' : '—')}
+        {present ? 'Obecny' : marker ?? (missing ? 'Brak wpisu' : 'Nieobecny')}
       </button>
       <div className="flex items-center justify-end">
         <button type="button" tabIndex={-1} onClick={() => setMenu(m => !m)}
