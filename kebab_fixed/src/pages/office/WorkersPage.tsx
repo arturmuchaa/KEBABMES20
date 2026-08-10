@@ -60,7 +60,7 @@ function initials(name: string) {
 
 const ALL_DEPTS = ['rozbior', 'produkcja', 'pakowanie', 'wydanie'] as const
 
-const BLANK_FORM = { login: '', name: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', ratePerHour: '0', sundayBonusEnabled: false, sundayBonusPerHour: '5', contractType: 'zlecenie', employerCostAmount: '0', pin: '', departments: [] as string[], crewSize: '1' }
+const BLANK_FORM = { login: '', name: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', ratePerHour: '0', sundayBonusEnabled: false, sundayBonusPerHour: '5', saturdayBonusEnabled: false, saturdayBonusPerHour: '5', payMode: 'hourly', ratePerDay: '150', contractType: 'zlecenie', employerCostAmount: '0', pin: '', departments: [] as string[], crewSize: '1' }
 
 export function WorkersPage() {
   const { data, loading, refetch } = useApi(() => usersApi.list(true))
@@ -84,6 +84,10 @@ export function WorkersPage() {
     ratePerHour: parseFloat(d.ratePerHour) || 0,
     sundayBonusEnabled: d.sundayBonusEnabled,
     sundayBonusPerHour: parseFloat(d.sundayBonusPerHour) || 0,
+    saturdayBonusEnabled: d.saturdayBonusEnabled,
+    saturdayBonusPerHour: parseFloat(d.saturdayBonusPerHour) || 0,
+    payMode: d.payMode,
+    ratePerDay: parseFloat(d.ratePerDay) || 0,
     contractType: d.contractType,
     employerCostAmount: parseFloat(d.employerCostAmount) || 0,
     crewSize: parseInt(d.crewSize, 10) || 1,
@@ -97,6 +101,10 @@ export function WorkersPage() {
       ratePerHour: parseFloat(d.ratePerHour) || 0,
       sundayBonusEnabled: d.sundayBonusEnabled,
       sundayBonusPerHour: parseFloat(d.sundayBonusPerHour) || 0,
+      saturdayBonusEnabled: d.saturdayBonusEnabled,
+      saturdayBonusPerHour: parseFloat(d.saturdayBonusPerHour) || 0,
+      payMode: d.payMode,
+      ratePerDay: parseFloat(d.ratePerDay) || 0,
       contractType: d.contractType,
       employerCostAmount: parseFloat(d.employerCostAmount) || 0,
       crewSize: parseInt(d.crewSize, 10) || 1,
@@ -139,6 +147,10 @@ export function WorkersPage() {
       ratePerHour: String((u as any).ratePerHour ?? (u as any).rate_per_hour ?? 0),
       sundayBonusEnabled: !!((u as any).sundayBonusEnabled ?? (u as any).sunday_bonus_enabled ?? false),
       sundayBonusPerHour: String((u as any).sundayBonusPerHour ?? (u as any).sunday_bonus_per_hour ?? 0),
+      saturdayBonusEnabled: !!((u as any).saturdayBonusEnabled ?? (u as any).saturday_bonus_enabled ?? false),
+      saturdayBonusPerHour: String((u as any).saturdayBonusPerHour ?? (u as any).saturday_bonus_per_hour ?? 0),
+      payMode: (u as any).payMode ?? (u as any).pay_mode ?? 'hourly',
+      ratePerDay: String((u as any).ratePerDay ?? (u as any).rate_per_day ?? 0),
       crewSize: String((u as any).crewSize ?? (u as any).crew_size ?? 1),
       contractType: (u as any).contractType ?? (u as any).contract_type ?? 'zlecenie',
       employerCostAmount: String((u as any).employerCostAmount ?? (u as any).employer_cost_amount ?? 0),
@@ -292,9 +304,11 @@ export function WorkersPage() {
                         {isWorkerRole(u.role) ? (
                           <div className="text-sm">
                             <span className="font-semibold text-green-700">
-                              {u.role === 'WORKER_GENERAL'
-                                ? `${Number((u as any).ratePerHour ?? (u as any).rate_per_hour ?? 0).toFixed(2)} zł/h`
-                                : `${Number(rate).toFixed(2)} zł/kg`}
+                              {u.role !== 'WORKER_GENERAL'
+                                ? `${Number(rate).toFixed(2)} zł/kg`
+                                : ((u as any).payMode ?? (u as any).pay_mode) === 'daily'
+                                  ? `${Number((u as any).ratePerDay ?? (u as any).rate_per_day ?? 0).toFixed(2)} zł/dzień`
+                                  : `${Number((u as any).ratePerHour ?? (u as any).rate_per_hour ?? 0).toFixed(2)} zł/h`}
                             </span>
                             {u.role === 'WORKER_GENERAL'
                               && ((u as any).sundayBonusEnabled ?? (u as any).sunday_bonus_enabled)
@@ -424,7 +438,7 @@ export function WorkersPage() {
 
 // ─── Reusable form component ──────────────────────────────────
 function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles }: {
-  form: { login: string; name: string; role: string; ratePerKg: string; ratePerHour: string; sundayBonusEnabled: boolean; sundayBonusPerHour: string; contractType: string; employerCostAmount: string; pin: string; departments: string[]; crewSize: string }
+  form: { login: string; name: string; role: string; ratePerKg: string; ratePerHour: string; sundayBonusEnabled: boolean; sundayBonusPerHour: string; saturdayBonusEnabled: boolean; saturdayBonusPerHour: string; payMode: string; ratePerDay: string; contractType: string; employerCostAmount: string; pin: string; departments: string[]; crewSize: string }
   setForm: React.Dispatch<React.SetStateAction<any>>
   onRoleChange: (role: string) => void
   onNameChange: (name: string) => void
@@ -493,6 +507,32 @@ function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles
             <Label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Wynagrodzenie</Label>
             {form.role === 'WORKER_GENERAL' ? (
               <>
+                {/* Myjący dostaje stawkę ZA DZIEŃ obecności — godziny nie mają
+                    dla niego znaczenia, więc w grafiku wybiera się tylko
+                    obecny/nieobecny. */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Sposób rozliczenia</Label>
+                  <div className="flex gap-2">
+                    {[{ v: 'hourly', l: 'Za godziny' }, { v: 'daily', l: 'Za dzień obecności' }].map(opt => (
+                      <button key={opt.v} type="button"
+                        onClick={() => setForm((f: any) => ({ ...f, payMode: opt.v }))}
+                        className={`flex-1 py-2 rounded-xl border-2 text-sm font-semibold transition-all ${form.payMode === opt.v ? 'border-primary bg-primary text-white' : 'border-border text-muted-foreground hover:border-primary/40'}`}>
+                        {opt.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {form.payMode === 'daily' ? (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Stawka dzienna (zł/dzień)</Label>
+                    <Input type="number" step="0.01" min="0"
+                      value={form.ratePerDay}
+                      onChange={e => setForm((f: any) => ({ ...f, ratePerDay: e.target.value }))} />
+                    <p className="text-[10px] text-muted-foreground">
+                      W grafiku zaznacza się tylko obecność — bez godzin
+                    </p>
+                  </div>
+                ) : (
                 <div className="space-y-1.5">
                   <Label className="text-xs">Stawka godzinowa (zł/h)</Label>
                   <Input type="number" step="0.01" min="0"
@@ -502,28 +542,36 @@ function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles
                     Pracownicy ogólni rozliczają się z godzin wpisywanych w zakładce „Godziny pracy"
                   </p>
                 </div>
+                )}
                 {/* Premia niedzielna: dodatek do stawki naliczany WYŁĄCZNIE
                     za godziny przepracowane w niedzielę. Przełącznik osobno
                     od kwoty, żeby dało się ją wyłączyć bez kasowania wartości. */}
-                <div className="space-y-1.5">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="checkbox" className="w-4 h-4 rounded cursor-pointer"
-                      checked={form.sundayBonusEnabled}
-                      onChange={e => setForm((f: any) => ({ ...f, sundayBonusEnabled: e.target.checked }))} />
-                    <span className="font-medium">Premia za niedzielę</span>
-                  </label>
-                  {form.sundayBonusEnabled && (
-                    <div className="pl-6 space-y-1">
-                      <Label className="text-xs">Dodatek do stawki (zł/h)</Label>
-                      <Input type="number" step="0.01" min="0"
-                        value={form.sundayBonusPerHour}
-                        onChange={e => setForm((f: any) => ({ ...f, sundayBonusPerHour: e.target.value }))} />
-                      <p className="text-[10px] text-muted-foreground">
-                        Doliczane tylko do godzin z niedzieli — reszta tygodnia po stawce podstawowej
-                      </p>
-                    </div>
-                  )}
-                </div>
+                {/* Premie liczą się ZA GODZINĘ, więc przy dniówce nie mają
+                    zastosowania. */}
+                {form.payMode !== 'daily' && ([
+                  { key: 'saturday', on: 'saturdayBonusEnabled', amt: 'saturdayBonusPerHour', label: 'Premia za sobotę', day: 'soboty' },
+                  { key: 'sunday',   on: 'sundayBonusEnabled',   amt: 'sundayBonusPerHour',   label: 'Premia za niedzielę', day: 'niedzieli' },
+                ]).map(b => (
+                  <div key={b.key} className="space-y-1.5">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="checkbox" className="w-4 h-4 rounded cursor-pointer"
+                        checked={(form as any)[b.on]}
+                        onChange={e => setForm((f: any) => ({ ...f, [b.on]: e.target.checked }))} />
+                      <span className="font-medium">{b.label}</span>
+                    </label>
+                    {(form as any)[b.on] && (
+                      <div className="pl-6 space-y-1">
+                        <Label className="text-xs">Dodatek do stawki (zł/h)</Label>
+                        <Input type="number" step="0.01" min="0"
+                          value={(form as any)[b.amt]}
+                          onChange={e => setForm((f: any) => ({ ...f, [b.amt]: e.target.value }))} />
+                        <p className="text-[10px] text-muted-foreground">
+                          Doliczane tylko do godzin z {b.day} — reszta tygodnia po stawce podstawowej
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </>
             ) : (
               <div className="space-y-1.5">

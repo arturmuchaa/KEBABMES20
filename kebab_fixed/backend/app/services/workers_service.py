@@ -50,8 +50,10 @@ def create_worker(dto: WorkerCreate) -> Dict:
             INSERT INTO workers
                 (id, name, role, pin, pin_hash, departments, active, rate_per_kg,
                  rate_per_hour, sunday_bonus_enabled, sunday_bonus_per_hour,
+                 saturday_bonus_enabled, saturday_bonus_per_hour,
+                 pay_mode, rate_per_day,
                  contract_type, employer_cost_amount, crew_size, created_at)
-            VALUES (%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING *
             """,
             (
@@ -64,6 +66,10 @@ def create_worker(dto: WorkerCreate) -> Dict:
                 dto.rate_per_hour,
                 dto.sunday_bonus_enabled,
                 dto.sunday_bonus_per_hour,
+                dto.saturday_bonus_enabled,
+                dto.saturday_bonus_per_hour,
+                "daily" if dto.pay_mode == "daily" else "hourly",
+                dto.rate_per_day,
                 dto.contract_type,
                 dto.employer_cost_amount,
                 max(1, int(dto.crew_size or 1)),
@@ -107,6 +113,18 @@ def update_worker(worker_id: str, dto: WorkerUpdate) -> Dict:
         if dto.sunday_bonus_per_hour is not None:
             fields.append("sunday_bonus_per_hour=%s")
             vals.append(dto.sunday_bonus_per_hour)
+        if dto.saturday_bonus_enabled is not None:
+            fields.append("saturday_bonus_enabled=%s")
+            vals.append(dto.saturday_bonus_enabled)
+        if dto.saturday_bonus_per_hour is not None:
+            fields.append("saturday_bonus_per_hour=%s")
+            vals.append(dto.saturday_bonus_per_hour)
+        if dto.pay_mode is not None:
+            fields.append("pay_mode=%s")
+            vals.append("daily" if dto.pay_mode == "daily" else "hourly")
+        if dto.rate_per_day is not None:
+            fields.append("rate_per_day=%s")
+            vals.append(dto.rate_per_day)
         if dto.crew_size is not None:
             fields.append("crew_size=%s")
             vals.append(max(1, int(dto.crew_size)))
@@ -256,6 +274,10 @@ def get_worker_days(worker_id: str, date_from: str, date_to: str) -> List[Dict]:
         )
 
     if "GENERAL" in role:
+        # Dniówka (myjący): płacimy za OBECNOŚĆ, nie za godziny. Wpis bez
+        # czasów jest wtedy kompletny — gdyby liczył się jako „otwarty",
+        # nigdy nie dałoby się go rozliczyć.
+        daily = (worker.get("pay_mode") or "hourly") == "daily"
         # Podstawą jest czas pracy, nie kilogramy — korekt kg tu nie ma
         # z definicji (_apply_kg_adjustments dotyczy akordu).
         rows = query_all(
@@ -293,9 +315,12 @@ def get_worker_days(worker_id: str, date_from: str, date_to: str) -> List[Dict]:
                 "hours": float(r["hours"]) if r["hours"] is not None else 0.0,
             })
             # Zmiana bez godziny końca — dnia NIE wolno rozliczyć, bo
-            # niedomknięta zmiana weszłaby jako 0 h.
-            if r["status"] == "work" and not r["time_to"]:
+            # niedomknięta zmiana weszłaby jako 0 h. Dniówki to nie dotyczy:
+            # tam godzin się nie wpisuje.
+            if not daily and r["status"] == "work" and not r["time_to"]:
                 d["open"] = True
+            if daily:
+                d["present"] = r["status"] == "work"
         return list(days.values())
 
     return []
@@ -525,6 +550,10 @@ def _is_sunday(iso_date: str) -> bool:
     return _date.fromisoformat(iso_date).weekday() == 6
 
 
+def _is_saturday(iso_date: str) -> bool:
+    return _date.fromisoformat(iso_date).weekday() == 5
+
+
 def create_settlement(dto: CreateSettlementDto) -> Dict:
     sid = cuid()
 
@@ -537,12 +566,33 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
 
         # Podstawa idzie za BIEŻĄCĄ rolą: ogólny płaci się od godzin,
         # rozbiór i produkcja od kilogramów.
-        basis = "hours" if "GENERAL" in (worker.get("role") or "") else "kg"
+        is_general = "GENERAL" in (worker.get("role") or "")
+        daily = is_general and (worker.get("pay_mode") or "hourly") == "daily"
+        basis = "daily" if daily else ("hours" if is_general else "kg")
         sunday_bonus = (
             float(worker.get("sunday_bonus_per_hour") or 0)
             if worker.get("sunday_bonus_enabled") else 0.0
         )
-        if basis == "hours":
+        saturday_bonus = (
+            float(worker.get("saturday_bonus_per_hour") or 0)
+            if worker.get("saturday_bonus_enabled") else 0.0
+        )
+        days_total = 0.0
+        if basis == "daily":
+            # Dzień obecności = 1. Dodatki weekendowe są „za godzinę",
+            # więc dniówki nie dotyczą.
+            days_total = round(
+                sum(dto.days_per_date.get(d, 0) for d in dto.work_dates), 2
+            )
+            hours_total = sunday_hours = saturday_hours = 0.0
+            sunday_bonus = saturday_bonus = 0.0
+            kg_total = 0.0
+            gross_amount = round(days_total * dto.rate_per_day, 2)
+            work_dates_detail = json.dumps(
+                [{"work_date": d, "days": dto.days_per_date.get(d, 0)}
+                 for d in sorted(dto.work_dates)]
+            )
+        elif basis == "hours":
             hours_total = round(
                 sum(dto.hours_per_date.get(d, 0) for d in dto.work_dates), 2
             )
@@ -553,9 +603,16 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
                     for d in dto.work_dates if _is_sunday(d)),
                 2,
             )
+            saturday_hours = round(
+                sum(dto.hours_per_date.get(d, 0)
+                    for d in dto.work_dates if _is_saturday(d)),
+                2,
+            )
             kg_total = 0.0
             gross_amount = round(
-                hours_total * dto.rate_per_hour + sunday_hours * sunday_bonus, 2
+                hours_total * dto.rate_per_hour
+                + sunday_hours * sunday_bonus
+                + saturday_hours * saturday_bonus, 2
             )
             # Godziny od–do idą na pasek: pracownik musi móc sprawdzić dzień,
             # a sama suma mu tego nie daje. Źródłem jest worker_hours, nie
@@ -576,6 +633,7 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
             work_dates_detail = json.dumps(
                 [{"work_date": d, "hours": dto.hours_per_date.get(d, 0),
                   "sunday": _is_sunday(d),
+                  "saturday": _is_saturday(d),
                   # Pierwsza zmiana osobno (zgodność), pełna lista w `shifts`
                   # — dzień z powrotem po południu ma pokazać oba przedziały.
                   "time_from": (shifts.get(d, [{}])[0] or {}).get("time_from") or "",
@@ -585,8 +643,8 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
             )
         else:
             hours_total = 0.0
-            sunday_hours = 0.0
-            sunday_bonus = 0.0
+            sunday_hours = saturday_hours = 0.0
+            sunday_bonus = saturday_bonus = 0.0
             kg_total = round(
                 sum(dto.kg_per_date.get(d, 0) for d in dto.work_dates), 3
             )
@@ -653,10 +711,12 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
                  date_from, date_to, kg_total, rate_per_kg,
                  hours_total, rate_per_hour, basis,
                  sunday_hours, sunday_bonus_per_hour,
+                 saturday_hours, saturday_bonus_per_hour,
+                 days_total, rate_per_day,
                  gross_amount, employer_cost_pct, employer_cost_amount,
                  deductions_total, net_amount, contract_type,
                  work_dates_detail, notes, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 sid,
@@ -672,6 +732,10 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
                 basis,
                 sunday_hours,
                 sunday_bonus,
+                saturday_hours,
+                saturday_bonus,
+                days_total,
+                dto.rate_per_day,
                 gross_amount,
                 0,
                 employer_cost_amount,
@@ -758,22 +822,33 @@ def bulk_settle(
         if (w.get("role") or "") != role:
             continue
         wid = w["id"]
-        hourly = "GENERAL" in role
+        is_general = "GENERAL" in role
+        daily = is_general and (w.get("pay_mode") or "hourly") == "daily"
+        hourly = is_general and not daily
         rate_kg = float(w.get("rate_per_kg") or 0)
         rate_hour = float(w.get("rate_per_hour") or 0)
+        rate_day = float(w.get("rate_per_day") or 0)
         bonus = (
             float(w.get("sunday_bonus_per_hour") or 0)
             if w.get("sunday_bonus_enabled") else 0.0
+        )
+        sat_bonus = (
+            float(w.get("saturday_bonus_per_hour") or 0)
+            if w.get("saturday_bonus_enabled") else 0.0
         )
 
         days = [
             d for d in get_worker_days(wid, date_from, date_to)
             if not d.get("settled") and not d.get("open")
         ]
-        per_date = {
-            d["workDate"]: float((d.get("hours") if hourly else d.get("kgTotal")) or 0)
-            for d in days
-        }
+        if daily:
+            # Dzień obecności = 1; nieobecność (znacznik) nie płaci.
+            per_date = {d["workDate"]: 1.0 for d in days if d.get("present")}
+        else:
+            per_date = {
+                d["workDate"]: float((d.get("hours") if hourly else d.get("kgTotal")) or 0)
+                for d in days
+            }
         per_date = {k: v for k, v in per_date.items() if v > 0}
         if not per_date:
             continue
@@ -781,12 +856,16 @@ def bulk_settle(
         # Stawka 0 jest DOZWOLONA i celowa: wypłatę zna tylko szef, a pasek
         # ma pokazać pracownikowi przepracowane godziny. Nie blokujemy.
 
-        units = round(sum(per_date.values()), 2 if hourly else 3)
+        units = round(sum(per_date.values()), 2 if (hourly or daily) else 3)
         sunday_units = round(
             sum(v for k, v in per_date.items() if hourly and _is_sunday(k)), 2
         )
+        saturday_units = round(
+            sum(v for k, v in per_date.items() if hourly and _is_saturday(k)), 2
+        )
+        base_rate = rate_day if daily else (rate_hour if hourly else rate_kg)
         gross = round(
-            units * (rate_hour if hourly else rate_kg) + sunday_units * bonus, 2
+            units * base_rate + sunday_units * bonus + saturday_units * sat_bonus, 2
         )
         deds = [
             d for d in list_worker_deductions(wid)
@@ -802,15 +881,17 @@ def bulk_settle(
             "workerName": w.get("name") or "",
             "days": len(per_date),
             "units": units,
-            "unit": "h" if hourly else "kg",
+            "unit": "dni" if daily else ("h" if hourly else "kg"),
             "gross": gross,
             "deductions": ded_total,
             "net": round(gross - ded_total, 2),
             "_perDate": per_date,
             "_dedIds": [d["id"] for d in deds],
             "_hourly": hourly,
+            "_daily": daily,
             "_rateKg": rate_kg,
             "_rateHour": rate_hour,
+            "_rateDay": rate_day,
         })
 
     result = {
@@ -830,10 +911,12 @@ def bulk_settle(
             create_settlement(CreateSettlementDto(
                 worker_id=p["workerId"], date_from=date_from, date_to=date_to,
                 work_dates=sorted(p["_perDate"].keys()),
-                kg_per_date={} if p["_hourly"] else p["_perDate"],
+                kg_per_date={} if (p["_hourly"] or p["_daily"]) else p["_perDate"],
                 hours_per_date=p["_perDate"] if p["_hourly"] else {},
-                rate_per_kg=0 if p["_hourly"] else p["_rateKg"],
+                days_per_date=p["_perDate"] if p["_daily"] else {},
+                rate_per_kg=0 if (p["_hourly"] or p["_daily"]) else p["_rateKg"],
                 rate_per_hour=p["_rateHour"] if p["_hourly"] else 0,
+                rate_per_day=p["_rateDay"] if p["_daily"] else 0,
                 deduction_ids=p["_dedIds"],
             ))
             result["settled"] += 1

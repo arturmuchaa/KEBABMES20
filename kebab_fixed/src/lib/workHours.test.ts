@@ -84,6 +84,9 @@ describe('isOpenCell', () => {
   it('praca bez godziny końca', () => {
     expect(isOpenCell(cell({ timeTo: '', hours: null }))).toBe(true)
   })
+  it('dzień obecności (dniówka) nie jest otwarty — nie ma godzin z definicji', () => {
+    expect(isOpenCell(cell({ timeFrom: '', timeTo: '', hours: null }))).toBe(false)
+  })
   it('znacznik nie jest otwarty', () => {
     expect(isOpenCell(cell({ status: 'off', timeFrom: '', timeTo: '', hours: null }))).toBe(false)
   })

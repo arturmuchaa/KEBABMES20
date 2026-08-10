@@ -69,34 +69,45 @@ export function kgLabel(role: string): string {
 }
 
 /** Podstawa rozliczenia: kilogramy (akord) albo godziny (pracownicy ogólni). */
-export function basisOf(s: any): 'kg' | 'hours' {
-  return (s?.basis ?? 'kg') === 'hours' ? 'hours' : 'kg'
+export function basisOf(s: any): 'kg' | 'hours' | 'daily' {
+  const b = s?.basis ?? 'kg'
+  return b === 'hours' ? 'hours' : b === 'daily' ? 'daily' : 'kg'
 }
 
 export function basisLabel(s: any): string {
-  return basisOf(s) === 'hours'
-    ? 'Przepracowane godziny'
-    : kgLabel(s?.worker_role ?? '')
+  const b = basisOf(s)
+  if (b === 'hours') return 'Przepracowane godziny'
+  if (b === 'daily') return 'Dni obecności'
+  return kgLabel(s?.worker_role ?? '')
 }
 
 export function basisUnit(s: any): string {
-  return basisOf(s) === 'hours' ? 'h' : 'kg'
+  const b = basisOf(s)
+  return b === 'hours' ? 'h' : b === 'daily' ? 'dni' : 'kg'
 }
 
 export function basisTotal(s: any): number {
-  return basisOf(s) === 'hours' ? Number(s?.hours_total ?? 0) : Number(s?.kg_total ?? 0)
+  const b = basisOf(s)
+  if (b === 'hours') return Number(s?.hours_total ?? 0)
+  if (b === 'daily') return Number(s?.days_total ?? 0)
+  return Number(s?.kg_total ?? 0)
 }
 
 export function dayAmount(d: any, s: any): number {
-  return basisOf(s) === 'hours' ? Number(d?.hours ?? 0) : Number(d?.kg ?? 0)
+  const b = basisOf(s)
+  if (b === 'hours') return Number(d?.hours ?? 0)
+  if (b === 'daily') return Number(d?.days ?? 0)
+  return Number(d?.kg ?? 0)
 }
 
-/** Premia niedzielna dolicza się WYŁĄCZNIE do godzin z niedzieli. */
+/** Premie weekendowe doliczają się WYŁĄCZNIE do godzin z danego dnia. */
 export function dayEarning(d: any, s: any): number {
-  if (basisOf(s) !== 'hours') {
-    return Number(d?.kg ?? 0) * Number(s?.rate_per_kg ?? 0)
-  }
-  const bonus = d?.sunday ? Number(s?.sunday_bonus_per_hour ?? 0) : 0
+  const b = basisOf(s)
+  if (b === 'daily') return Number(d?.days ?? 0) * Number(s?.rate_per_day ?? 0)
+  if (b !== 'hours') return Number(d?.kg ?? 0) * Number(s?.rate_per_kg ?? 0)
+  const bonus = d?.sunday
+    ? Number(s?.sunday_bonus_per_hour ?? 0)
+    : d?.saturday ? Number(s?.saturday_bonus_per_hour ?? 0) : 0
   return Number(d?.hours ?? 0) * (Number(s?.rate_per_hour ?? 0) + bonus)
 }
 
@@ -104,6 +115,12 @@ export function dayEarning(d: any, s: any): number {
 export function sundayBonusTotal(s: any): number {
   if (basisOf(s) !== 'hours') return 0
   return Number(s?.sunday_hours ?? 0) * Number(s?.sunday_bonus_per_hour ?? 0)
+}
+
+/** Kwota samej premii sobotniej (0 gdy nie dotyczy). */
+export function saturdayBonusTotal(s: any): number {
+  if (basisOf(s) !== 'hours') return 0
+  return Number(s?.saturday_hours ?? 0) * Number(s?.saturday_bonus_per_hour ?? 0)
 }
 
 // ─── Pojedynczy pasek (komórka siatki 2×2, 148,5×105 mm) ──────
@@ -188,6 +205,7 @@ function paySlipHtml(s: any | null): string {
       <div class="col-sum">
         <table class="sum">
           <tr><td class="lbl">${esc(label)}</td><td class="r bold nw">${num(basisTotal(s))} ${esc(unit)}</td></tr>
+          ${saturdayBonusTotal(s) > 0 ? `<tr><td class="lbl">w tym sobota ${num(s.saturday_hours)} h \u00d7 ${num(s.saturday_bonus_per_hour)} zł</td><td class="r nw">+ ${num(saturdayBonusTotal(s))} zł</td></tr>` : ''}
           ${sundayBonusTotal(s) > 0 ? `<tr><td class="lbl">w tym niedziela ${num(s.sunday_hours)} h \u00d7 ${num(s.sunday_bonus_per_hour)} zł</td><td class="r nw">+ ${num(sundayBonusTotal(s))} zł</td></tr>` : ''}
           <tr><td class="lbl">Wynagrodzenie</td><td class="r bold nw">${num(s.gross_amount)} zł</td></tr>
           ${deductRows}

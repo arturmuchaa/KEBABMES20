@@ -96,8 +96,19 @@ export function isSunday(iso: string): boolean {
   return new Date(iso + 'T12:00:00').getDay() === 0
 }
 
+/**
+ * Zmiana OTWARTA = zaczęta, ale niedomknięta (jest start, nie ma końca).
+ *
+ * Dzień obecności dniówkowca ma OBIE godziny puste i otwarty NIE jest —
+ * inaczej myjący zawsze wisiałby w liczniku „dni otwartych".
+ */
+/** Sobota — podstawa premii sobotniej. */
+export function isSaturday(iso: string): boolean {
+  return new Date(iso + 'T12:00:00').getDay() === 6
+}
+
 export function isOpenCell(c: HourCell): boolean {
-  return c.status === 'work' && !c.timeTo
+  return c.status === 'work' && !!c.timeFrom && !c.timeTo
 }
 
 /**

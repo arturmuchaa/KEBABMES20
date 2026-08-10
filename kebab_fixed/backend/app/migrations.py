@@ -981,6 +981,23 @@ _DDL: list[str] = [
     "ALTER TABLE worker_deductions ADD CONSTRAINT worker_deductions_kind_ck "
     "CHECK (kind = ANY (ARRAY['deduction','credit']))",
     "ALTER TABLE settlement_deductions ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'deduction'",
+
+    # ── Premia sobotnia (bliźniacza do niedzielnej) ──
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS saturday_bonus_enabled BOOLEAN DEFAULT false",
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS saturday_bonus_per_hour NUMERIC(10,2) DEFAULT 0",
+    "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS saturday_hours NUMERIC(10,2) DEFAULT 0",
+    "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS saturday_bonus_per_hour NUMERIC(10,2) DEFAULT 0",
+
+    # ── Dniówka: płatne za OBECNOŚĆ, nie za godziny ──
+    # Myjący dostaje 150 zł za dzień, w którym był — godziny nie mają dla
+    # niego znaczenia, więc w grafiku wybiera się tylko obecny/nieobecny.
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS pay_mode TEXT DEFAULT 'hourly'",
+    "ALTER TABLE workers DROP CONSTRAINT IF EXISTS workers_pay_mode_ck",
+    "ALTER TABLE workers ADD CONSTRAINT workers_pay_mode_ck "
+    "CHECK (pay_mode = ANY (ARRAY['hourly','daily']))",
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS rate_per_day NUMERIC(10,2) DEFAULT 0",
+    "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS days_total NUMERIC(10,2) DEFAULT 0",
+    "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS rate_per_day NUMERIC(10,2) DEFAULT 0",
 ]
 
 

@@ -113,29 +113,34 @@ def upsert_hours(dto: WorkHoursDto) -> Dict:
     if dto.status not in HOUR_STATUSES:
         raise HTTPException(400, f"Nieznany status dnia: {dto.status!r}")
 
-    if dto.status == "work":
-        time_from = (dto.time_from or "").strip() or None
-        time_to = (dto.time_to or "").strip() or None
-        if not time_from:
-            raise HTTPException(400, "Podaj godzinę rozpoczęcia")
-        # Normalizacja: '6' wpisane w pośpiechu ma wylądować jako '6:00'.
-        time_from = _fmt(parse_hhmm(time_from))
-        time_to = _fmt(parse_hhmm(time_to)) if time_to else None
-        hours = compute_hours(time_from, time_to)
-    else:
-        # Znacznik nieobecności nie niesie godzin — czyścimy, żeby nie
-        # zostały po wcześniejszym wpisie roboczym.
-        time_from = time_to = hours = None
-
     with transaction() as conn:
         worker = cx_query_one(
-            conn, "SELECT id, role, active FROM workers WHERE id=%s", (dto.worker_id,)
+            conn,
+            "SELECT id, role, active, pay_mode FROM workers WHERE id=%s",
+            (dto.worker_id,),
         )
         if not worker:
             raise HTTPException(404, "Pracownik nie istnieje")
         if "GENERAL" not in (worker.get("role") or ""):
             raise HTTPException(400, "Godziny wpisuje się tylko pracownikom ogólnym")
         _assert_not_settled(conn, dto.worker_id, dto.work_date)
+
+        # Dniówka (myjący): płacimy za OBECNOŚĆ. Wpis roboczy nie niesie
+        # godzin, więc wymaganie godziny startu blokowałoby go całkowicie.
+        daily = (worker.get("pay_mode") or "hourly") == "daily"
+
+        if dto.status == "work" and not daily:
+            time_from = (dto.time_from or "").strip() or None
+            time_to = (dto.time_to or "").strip() or None
+            if not time_from:
+                raise HTTPException(400, "Podaj godzinę rozpoczęcia")
+            # Normalizacja: '6' wpisane w pośpiechu ma wylądować jako '6:00'.
+            time_from = _fmt(parse_hhmm(time_from))
+            time_to = _fmt(parse_hhmm(time_to)) if time_to else None
+            hours = compute_hours(time_from, time_to)
+        else:
+            # Znacznik nieobecności ani dzień obecności nie niosą godzin.
+            time_from = time_to = hours = None
 
         cx_execute(
             conn,

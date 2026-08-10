@@ -10,9 +10,14 @@ class WorkerCreate(BaseModel):
     rate_per_kg: float = 0.0
     #: Podstawa pracowników ogólnych — rozliczają się z godzin, nie z kg.
     rate_per_hour: float = 0.0
-    #: Dodatek do stawki za godziny przepracowane w NIEDZIELĘ.
+    #: Dodatek do stawki za godziny przepracowane w NIEDZIELĘ / SOBOTĘ.
     sunday_bonus_enabled: bool = False
     sunday_bonus_per_hour: float = 0.0
+    saturday_bonus_enabled: bool = False
+    saturday_bonus_per_hour: float = 0.0
+    #: 'hourly' = płatne za godziny, 'daily' = za dzień obecności (myjący).
+    pay_mode: str = "hourly"
+    rate_per_day: float = 0.0
     contract_type: str = "zlecenie"
     employer_cost_amount: float = 0.0
     departments: List[str] = []
@@ -29,6 +34,10 @@ class WorkerUpdate(BaseModel):
     rate_per_hour: Optional[float] = None
     sunday_bonus_enabled: Optional[bool] = None
     sunday_bonus_per_hour: Optional[float] = None
+    saturday_bonus_enabled: Optional[bool] = None
+    saturday_bonus_per_hour: Optional[float] = None
+    pay_mode: Optional[str] = None
+    rate_per_day: Optional[float] = None
     contract_type: Optional[str] = None
     employer_cost_amount: Optional[float] = None
     active: Optional[bool] = None
@@ -89,6 +98,9 @@ class CreateSettlementDto(BaseModel):
     #: Podstawa godzinowa (pracownicy ogólni) — wypełniona zamiast kg.
     hours_per_date: Dict[str, float] = {}
     rate_per_hour: float = 0.0
+    #: Podstawa dniówkowa — dzień obecności liczy się jako 1.
+    days_per_date: Dict[str, float] = {}
+    rate_per_day: float = 0.0
     deductions: List[SettlementDeductionDto] = []
     #: Potrącenia oczekujące z rejestru, wskazane do konsumpcji.
     deduction_ids: List[str] = []

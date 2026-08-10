@@ -6,7 +6,7 @@ import {
   dayAmount, dayEarning, pageCount, settlementOverlapsRange, sundayBonusTotal,
 } from '@/lib/paySlipPrint'
 import { splitDeductions, sumDeductions } from '@/lib/payrollDeductions'
-import { isSunday } from '@/lib/workHours'
+import { isSaturday, isSunday } from '@/lib/workHours'
 import { toast } from 'sonner'
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
@@ -129,25 +129,39 @@ export function PayrollPage() {
     })
   }
 
-  // Podstawa idzie za rolą: ogólny płaci się od godzin, reszta od kilogramów.
-  const isHourly  = selWorker?.role === 'WORKER_GENERAL'
+  // Podstawa idzie za rolą, a u ogólnych dodatkowo za trybem: myjący ma
+  // stawkę ZA DZIEŃ obecności, nie za godziny.
+  const isDaily   = selWorker?.role === 'WORKER_GENERAL'
+    && ((selWorker as any)?.payMode ?? (selWorker as any)?.pay_mode) === 'daily'
+  const isHourly  = selWorker?.role === 'WORKER_GENERAL' && !isDaily
+  const rateDay   = parseFloat(String((selWorker as any)?.ratePerDay ?? (selWorker as any)?.rate_per_day ?? 0)) || 0
   const rate      = parseFloat(String((selWorker as any)?.ratePerKg ?? (selWorker as any)?.rate_per_kg ?? 0)) || 0
   const rateHour  = parseFloat(String((selWorker as any)?.ratePerHour ?? (selWorker as any)?.rate_per_hour ?? 0)) || 0
-  const effRate   = isHourly ? rateHour : rate
+  const effRate   = isDaily ? rateDay : isHourly ? rateHour : rate
   const sundayOn  = !!((selWorker as any)?.sundayBonusEnabled ?? (selWorker as any)?.sunday_bonus_enabled)
   const sundayAdd = sundayOn
     ? parseFloat(String((selWorker as any)?.sundayBonusPerHour ?? (selWorker as any)?.sunday_bonus_per_hour ?? 0)) || 0
     : 0
 
   const unitPerDay: Record<string, number> = Object.fromEntries(
-    (workerDays ?? []).map((d: any) => [d.workDate, (isHourly ? d.hours : d.kgTotal) ?? 0])
+    (workerDays ?? []).map((d: any) => [
+      d.workDate,
+      isDaily ? (d.present ? 1 : 0) : ((isHourly ? d.hours : d.kgTotal) ?? 0),
+    ])
   )
   const totalUnits = Array.from(selectedDays).reduce((s, d) => s + (unitPerDay[d] ?? 0), 0)
   // Premia niedzielna dolicza się WYŁĄCZNIE do godzin z niedzieli.
+  const saturdayOn  = !!((selWorker as any)?.saturdayBonusEnabled ?? (selWorker as any)?.saturday_bonus_enabled)
+  const saturdayAdd = saturdayOn
+    ? parseFloat(String((selWorker as any)?.saturdayBonusPerHour ?? (selWorker as any)?.saturday_bonus_per_hour ?? 0)) || 0
+    : 0
   const sundayUnits = isHourly
     ? Array.from(selectedDays).filter(isSunday).reduce((s, d) => s + (unitPerDay[d] ?? 0), 0)
     : 0
-  const gross = totalUnits * effRate + sundayUnits * sundayAdd
+  const saturdayUnits = isHourly
+    ? Array.from(selectedDays).filter(isSaturday).reduce((s, d) => s + (unitPerDay[d] ?? 0), 0)
+    : 0
+  const gross = totalUnits * effRate + sundayUnits * sundayAdd + saturdayUnits * saturdayAdd
 
   const dedSplit = splitDeductions(((pendingDeductions ?? []) as any[]), range.from, range.to)
   const pickedTotal = sumDeductions(dedSplit.inRange.filter(d => pickedDeductions.has(d.id)))
@@ -180,10 +194,12 @@ export function PayrollPage() {
         dateFrom: range.from,
         dateTo: range.to,
         workDates: Array.from(selectedDays),
-        kgPerDate: isHourly ? {} : perDate,
+        kgPerDate: (isHourly || isDaily) ? {} : perDate,
         hoursPerDate: isHourly ? perDate : {},
-        ratePerKg: isHourly ? 0 : rate,
+        daysPerDate: isDaily ? perDate : {},
+        ratePerKg: (isHourly || isDaily) ? 0 : rate,
         ratePerHour: isHourly ? rateHour : 0,
+        ratePerDay: isDaily ? rateDay : 0,
         deductions: deductions.map(d => ({ description: d.description, amount: parseFloat(d.amount) || 0 })),
         deductionIds: Array.from(pickedDeductions),
         notes: '',
@@ -313,7 +329,7 @@ export function PayrollPage() {
                   <div className="text-lg font-black">{selWorker.name}</div>
                   <div className="text-sm text-muted-foreground">
                     {ROLE_LABEL[selWorker.role]} · Stawka:{' '}
-                    <strong>{effRate.toFixed(2)} {isHourly ? 'zł/h' : 'zł/kg'}</strong>
+                    <strong>{effRate.toFixed(2)} {isDaily ? 'zł/dzień' : isHourly ? 'zł/h' : 'zł/kg'}</strong>
                     {isHourly && sundayAdd > 0 && <> · Niedziela: <strong className="text-amber-700">+{sundayAdd.toFixed(2)} zł/h</strong></>}
                     {employerCost > 0 && <> · Koszty: <strong>{fmtPln(employerCost)} zł/mies.</strong></>}
                     {' · '}{(selWorker.contractType ?? selWorker.contract_type ?? 'zlecenie') === 'praca' ? 'Umowa o pracę' : 'Umowa zlecenie'}
@@ -397,6 +413,9 @@ export function PayrollPage() {
                           <div className="flex-1">
                             <div className="text-sm font-semibold">
                               {new Date(d.workDate + 'T12:00:00').toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' })}
+                              {isHourly && isSaturday(d.workDate) && saturdayAdd > 0 && (
+                                <span className="ml-2 text-[10px] font-bold uppercase text-amber-700">premia</span>
+                              )}
                               {sunday && sundayAdd > 0 && (
                                 <span className="ml-2 text-[10px] font-bold uppercase text-amber-700">premia</span>
                               )}
@@ -425,7 +444,7 @@ export function PayrollPage() {
                           )}
                           <div className="text-right">
                             <div className="text-sm font-bold tabular-nums">
-                              {fmtKg(unit)} {isHourly ? 'h' : 'kg'}
+                              {isDaily ? (unit ? 'obecny' : '—') : `${fmtKg(unit)} ${isHourly ? 'h' : 'kg'}`}
                             </div>
                             {!blocked && sel && (
                               <div className="text-xs text-green-700 font-semibold">{fmtPln(earn)} zł</div>
@@ -528,6 +547,14 @@ export function PayrollPage() {
                       <span className="text-muted-foreground">{isHourly ? 'Łącznie godzin' : 'Łącznie kg'}</span>
                       <span className="font-semibold">{fmtKg(totalUnits)} {isHourly ? 'h' : 'kg'}</span>
                     </div>
+                    {isHourly && saturdayUnits > 0 && saturdayAdd > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">
+                          w tym sobota ({fmtKg(saturdayUnits)} h × +{saturdayAdd.toFixed(2)} zł/h)
+                        </span>
+                        <span className="font-semibold text-amber-700">+ {fmtPln(saturdayUnits * saturdayAdd)} zł</span>
+                      </div>
+                    )}
                     {isHourly && sundayUnits > 0 && sundayAdd > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">
@@ -538,7 +565,7 @@ export function PayrollPage() {
                     )}
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">
-                        Wynagrodzenie brutto ({effRate.toFixed(2)} {isHourly ? 'zł/h' : 'zł/kg'})
+                        Wynagrodzenie brutto ({effRate.toFixed(2)} {isDaily ? 'zł/dzień' : isHourly ? 'zł/h' : 'zł/kg'})
                       </span>
                       <span className="font-semibold">{fmtPln(gross)} zł</span>
                     </div>

@@ -16,6 +16,7 @@ from app.services.workers_service import (
     list_worker_deductions,
     match_worker_by_name,
     bulk_settle,
+    get_worker_days,
     undo_settlement,
 )
 
@@ -474,3 +475,114 @@ def test_zbiorcze_rozlicza_takze_przy_zerowej_stawce(db):
                   "WHERE worker_id='wg'")
     assert float(s["hours_total"]) == 9.0, "godziny na pasku muszą być"
     assert float(s["gross_amount"]) == 0.0
+
+
+# ── Premia sobotnia ───────────────────────────────────────────────────
+
+def _gen2(wid="wg", name="ADRIAN", rate=25.0, sat=0.0, sun=0.0,
+          pay_mode="hourly", rate_day=0.0):
+    execute(
+        "INSERT INTO workers (id, name, role, rate_per_hour, pay_mode, rate_per_day,"
+        " sunday_bonus_enabled, sunday_bonus_per_hour,"
+        " saturday_bonus_enabled, saturday_bonus_per_hour, active)"
+        " VALUES (%s,%s,'WORKER_GENERAL',%s,%s,%s,%s,%s,%s,%s,true)"
+        " ON CONFLICT (id) DO UPDATE SET role='WORKER_GENERAL', active=true,"
+        " rate_per_hour=EXCLUDED.rate_per_hour, pay_mode=EXCLUDED.pay_mode,"
+        " rate_per_day=EXCLUDED.rate_per_day,"
+        " sunday_bonus_enabled=EXCLUDED.sunday_bonus_enabled,"
+        " sunday_bonus_per_hour=EXCLUDED.sunday_bonus_per_hour,"
+        " saturday_bonus_enabled=EXCLUDED.saturday_bonus_enabled,"
+        " saturday_bonus_per_hour=EXCLUDED.saturday_bonus_per_hour",
+        (wid, name, rate, pay_mode, rate_day, sun > 0, sun, sat > 0, sat),
+    )
+
+
+def test_premia_sobotnia_tylko_za_sobote(db):
+    """8.08.2026 to sobota, 9.08 niedziela, 3.08 poniedziałek.
+    8×25 + 8×25+8×4 (sob) + 8×25+8×6 (nd) = 600 + 32 + 48 = 680."""
+    _gen2(rate=25.0, sat=4.0, sun=6.0)
+    s = create_settlement(CreateSettlementDto(
+        worker_id="wg", date_from="2026-08-03", date_to="2026-08-09",
+        work_dates=["2026-08-03", "2026-08-08", "2026-08-09"],
+        hours_per_date={"2026-08-03": 8.0, "2026-08-08": 8.0, "2026-08-09": 8.0},
+        rate_per_kg=0, rate_per_hour=25.0))
+
+    assert float(s["saturday_hours"]) == 8.0
+    assert float(s["sunday_hours"]) == 8.0
+    assert float(s["gross_amount"]) == 680.0
+    import json as _j
+    det = s["work_dates_detail"]
+    det = _j.loads(det) if isinstance(det, str) else det
+    flags = {d["work_date"]: (d["saturday"], d["sunday"]) for d in det}
+    assert flags["2026-08-08"] == (True, False)
+    assert flags["2026-08-09"] == (False, True)
+    assert flags["2026-08-03"] == (False, False)
+
+
+def test_premia_sobotnia_niezalezna_od_niedzielnej(db):
+    """Sama sobota włączona — niedziela ma iść po stawce podstawowej."""
+    _gen2(rate=25.0, sat=5.0, sun=0.0)
+    s = create_settlement(CreateSettlementDto(
+        worker_id="wg", date_from="2026-08-03", date_to="2026-08-09",
+        work_dates=["2026-08-08", "2026-08-09"],
+        hours_per_date={"2026-08-08": 10.0, "2026-08-09": 10.0},
+        rate_per_kg=0, rate_per_hour=25.0))
+
+    assert float(s["saturday_hours"]) == 10.0
+    assert float(s["sunday_bonus_per_hour"]) == 0
+    assert float(s["gross_amount"]) == 20 * 25 + 10 * 5
+
+
+# ── Dniówka (myjący: 150 zł za dzień obecności) ───────────────────────
+
+def test_dniowka_placi_za_dni_obecnosci(db):
+    _gen2(wid="wd", name="MYJACY", rate=0.0, pay_mode="daily", rate_day=150.0)
+    for d in ("2026-08-03", "2026-08-04", "2026-08-05"):
+        upsert_hours(WorkHoursDto(worker_id="wd", work_date=d, status="work"))
+
+    days = get_worker_days("wd", "2026-08-03", "2026-08-09")
+    assert len(days) == 3
+    assert all(d["present"] is True and d["open"] is False for d in days)
+
+    s = create_settlement(CreateSettlementDto(
+        worker_id="wd", date_from="2026-08-03", date_to="2026-08-09",
+        work_dates=["2026-08-03", "2026-08-04", "2026-08-05"],
+        days_per_date={"2026-08-03": 1, "2026-08-04": 1, "2026-08-05": 1},
+        rate_per_kg=0, rate_per_day=150.0))
+
+    assert s["basis"] == "daily"
+    assert float(s["days_total"]) == 3
+    assert float(s["gross_amount"]) == 450.0
+    assert float(s["hours_total"]) == 0
+
+
+def test_dniowka_nie_wymaga_godzin(db):
+    """Myjący nie ma godzin — wpis bez czasów NIE może być 'otwarty',
+    bo wtedy nigdy nie dałoby się go rozliczyć."""
+    _gen2(wid="wd", name="MYJACY", pay_mode="daily", rate_day=150.0)
+    upsert_hours(WorkHoursDto(worker_id="wd", work_date="2026-08-03", status="work"))
+    day = get_worker_days("wd", "2026-08-03", "2026-08-09")[0]
+    assert day["open"] is False
+
+
+def test_dniowka_nieobecnosc_nie_placi(db):
+    _gen2(wid="wd", name="MYJACY", pay_mode="daily", rate_day=150.0)
+    upsert_hours(WorkHoursDto(worker_id="wd", work_date="2026-08-03", status="work"))
+    upsert_hours(WorkHoursDto(worker_id="wd", work_date="2026-08-04", status="off"))
+
+    res = bulk_settle("WORKER_GENERAL", "2026-08-03", "2026-08-09", dry_run=True)
+    mine = [w for w in res["workers"] if w["workerName"] == "MYJACY"][0]
+    assert mine["days"] == 1
+    assert mine["unit"] == "dni"
+    assert mine["gross"] == 150.0
+
+
+def test_zbiorcze_rozlicza_dniowkowca(db):
+    execute("DELETE FROM workers")
+    _gen2(wid="wd", name="MYJACY", pay_mode="daily", rate_day=150.0)
+    for d in ("2026-08-03", "2026-08-04"):
+        upsert_hours(WorkHoursDto(worker_id="wd", work_date=d, status="work"))
+
+    res = bulk_settle("WORKER_GENERAL", "2026-08-03", "2026-08-09", dry_run=False)
+    assert res["settled"] == 1
+    assert res["totalNet"] == 300.0

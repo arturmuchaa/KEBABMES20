@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   settlementOverlapsRange, chunkIntoPages, pageCount, buildPaySlipsDocument,
-  basisLabel, basisTotal, basisUnit, dayEarning, sundayBonusTotal,
+  basisLabel, basisTotal, basisUnit, dayEarning, sundayBonusTotal, saturdayBonusTotal,
 } from './paySlipPrint'
 
 const sample = (over: Record<string, unknown> = {}) => ({
@@ -291,5 +291,42 @@ describe('uznanie na pasku', () => {
     })])
     expect(html).toContain('− 100,00 zł')
     expect(html).not.toContain('+ 100,00 zł')
+  })
+})
+
+
+describe('premia sobotnia i dniówka na pasku', () => {
+  it('sobota liczy się osobno od niedzieli', () => {
+    const s = hourly({
+      saturday_hours: 8, saturday_bonus_per_hour: 4,
+      sunday_hours: 8, sunday_bonus_per_hour: 6,
+    })
+    expect(saturdayBonusTotal(s)).toBe(32)
+    expect(sundayBonusTotal(s)).toBe(48)
+    expect(dayEarning({ hours: 8, saturday: true }, s)).toBe(8 * (25 + 4))
+    expect(dayEarning({ hours: 8, sunday: true }, s)).toBe(8 * (25 + 6))
+    expect(dayEarning({ hours: 8 }, s)).toBe(8 * 25)
+  })
+
+  it('pasek pokazuje osobny wiersz soboty', () => {
+    const html = buildPaySlipsDocument([hourly({
+      saturday_hours: 8, saturday_bonus_per_hour: 4,
+    })])
+    expect(html).toContain('w tym sobota')
+  })
+
+  it('dniówka: jednostka „dni", zarobek z rate_per_day', () => {
+    const s = sample({
+      worker_role: 'WORKER_GENERAL', basis: 'daily',
+      kg_total: 0, rate_per_kg: 0, days_total: 3, rate_per_day: 150,
+      gross_amount: 450, net_amount: 450, deductions: [],
+      work_dates_detail: [{ work_date: '2026-08-03', days: 1 }],
+    })
+    expect(basisLabel(s)).toBe('Dni obecności')
+    expect(basisUnit(s)).toBe('dni')
+    expect(basisTotal(s)).toBe(3)
+    expect(dayEarning({ days: 1 }, s)).toBe(150)
+    const html = buildPaySlipsDocument([s])
+    expect(html).toContain('3,00 dni')
   })
 })

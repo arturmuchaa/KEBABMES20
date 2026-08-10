@@ -149,7 +149,11 @@ export function WorkHoursPage() {
               </thead>
               <tbody>
                 {general.map(w => {
-                  const total = days.reduce((s, d) => s + dayHours(w.id, d), 0)
+                  const isDaily = ((w as any).payMode ?? (w as any).pay_mode) === 'daily'
+                  // Myjący liczy się w dniach obecności, nie w godzinach.
+                  const total = isDaily
+                    ? days.filter(d => cellsOf(w.id, d)[0]?.status === 'work').length
+                    : days.reduce((s, d) => s + dayHours(w.id, d), 0)
                   return (
                     <tr key={w.id} className="border-b last:border-0">
                       <td className="px-3 py-2 font-semibold whitespace-nowrap sticky left-0 bg-background">
@@ -164,14 +168,21 @@ export function WorkHoursPage() {
                       </td>
                       {days.map(d => (
                         <td key={d} className={`px-1.5 py-2 align-top ${d === todayIso() ? 'bg-primary/5' : ''}`}>
-                          <HourDayCell
-                            cells={cellsOf(w.id, d)}
-                            missing={isMissingEntry(cellsOf(w.id, d), d, todayIso())}
-                            onSave={(seq, p) => save(w.id, d, seq, p)} />
+                          {((w as any).payMode ?? (w as any).pay_mode) === 'daily' ? (
+                            <PresenceCell
+                              cell={cellsOf(w.id, d)[0]}
+                              missing={isMissingEntry(cellsOf(w.id, d), d, todayIso())}
+                              onSave={p => save(w.id, d, 1, p)} />
+                          ) : (
+                            <HourDayCell
+                              cells={cellsOf(w.id, d)}
+                              missing={isMissingEntry(cellsOf(w.id, d), d, todayIso())}
+                              onSave={(seq, p) => save(w.id, d, seq, p)} />
+                          )}
                         </td>
                       ))}
                       <td className="px-3 py-2 text-right font-bold tabular-nums whitespace-nowrap">
-                        {nf.format(total)} h
+                        {isDaily ? `${total} dni` : `${nf.format(total)} h`}
                       </td>
                     </tr>
                   )
@@ -311,6 +322,55 @@ function HourDayCell({ cells, missing, onSave }: {
               extra onCancel={() => setExtra(false)} />
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+// ─── Dniówka: tylko obecny / nieobecny ────────────────────────
+// Myjący dostaje stawkę za dzień, więc godziny są dla niego bez znaczenia —
+// wpisywanie ich byłoby udawaną precyzją.
+function PresenceCell({ cell, missing, onSave }: {
+  cell?: HourCell
+  missing?: boolean
+  onSave: (patch: Partial<HourCell>) => void
+}) {
+  const [menu, setMenu] = useState(false)
+  const present = cell?.status === 'work'
+  const marker = cell && cell.status !== 'work' ? STATUS_LABEL[cell.status] : null
+
+  if (cell?.settled) {
+    return (
+      <div className="flex items-center justify-center gap-1 rounded-lg bg-muted px-1 py-2 text-[11px] text-muted-foreground">
+        <Lock size={11} /> {present ? 'obecny' : marker}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-1 min-w-[92px]">
+      <button type="button"
+        onClick={() => onSave(present ? { status: 'off' } : { status: 'work' })}
+        className={`w-full rounded-lg border-2 px-1 py-2 text-[11px] font-bold uppercase transition-all ${
+          present ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+          : marker ? 'border-border border-dashed text-muted-foreground'
+          : missing ? 'border-red-500 bg-red-50 text-red-600'
+          : 'border-border text-muted-foreground hover:border-primary/40'}`}>
+        {present ? 'Obecny' : marker ?? (missing ? 'Brak wpisu' : '—')}
+      </button>
+      <div className="flex items-center justify-end">
+        <button type="button" tabIndex={-1} onClick={() => setMenu(m => !m)}
+          className="text-[10px] text-muted-foreground hover:text-primary px-1">•••</button>
+      </div>
+      {menu && (
+        <div className="rounded-lg border border-border bg-background shadow-sm p-1 space-y-0.5">
+          {MARKERS.map(m => (
+            <button key={m} onClick={() => { setMenu(false); onSave({ status: m }) }}
+              className="block w-full text-left text-[11px] px-2 py-1 rounded hover:bg-muted">
+              {STATUS_LABEL[m]}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   )
