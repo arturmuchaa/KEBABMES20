@@ -1970,6 +1970,10 @@ export const haccpFormsApi = {
     `${BASE}/karty-haccp/arkusz-kontroli/pdf?data=${encodeURIComponent(day)}`,
   temperaturePdfUrl: (day: string) =>
     `${BASE}/karty-haccp/kontrola-temperatury/pdf?od=${encodeURIComponent(day)}`,
+  receptionPdfUrl: (day: string) =>
+    `${BASE}/karty-haccp/rejestr-przyjecia/pdf?od=${encodeURIComponent(day)}`,
+  receptionDetailPdfUrl: (day: string) =>
+    `${BASE}/karty-haccp/rejestr-przyjecia-szczegolowy/pdf?od=${encodeURIComponent(day)}`,
 }
 
 // ─── Ustawienia firmy (do wydruków) ─────────────────────────────

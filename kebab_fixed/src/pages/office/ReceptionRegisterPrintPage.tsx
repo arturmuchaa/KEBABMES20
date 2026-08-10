@@ -1,0 +1,297 @@
+/**
+ * Rejestr przyjęcia artykułów pochodzenia zwierzęcego — karty 1.1.1 i 1.1.1/2
+ * (oPRP), PUSTE druki do wypełnienia długopisem.
+ *
+ * MES ich nie wypełnia: przyjęcia biuro prowadzi ręcznie, poza systemem. MES
+ * daje kartę ponumerowaną i w tym samym stylu co reszta księgi HACCP, żeby
+ * segregator nie był zlepkiem druków z trzech epok. Ten sam mechanizm co
+ * arkusz dopuszczenia i karta temperatur (routes/haccp_forms.py → PDF).
+ *
+ * Karta = MIESIĄC (lib/haccpCardHistory). Jeden wiersz to jedna dostawa, więc
+ * karta dzienna byłaby w większości pusta; gdy miesiąc nie mieści się na
+ * kartce, biuro dodrukowuje kolejną i wpisuje „Strona" ręcznie.
+ *
+ * WYGLĄD = karta 5.1.1.1 (TemperatureLogPrintPage): ta sama typografia, belka,
+ * pola meta, paski nagłówków i stopka. Kolor wyłącznie w logo — reszta w skali
+ * szarości, żeby karta dobrze się kserowała.
+ *
+ * Wobec starego druku (Edycja 2) zmienia się WYŁĄCZNIE forma:
+ *  • czerwone nazwy pól → czarne (czerwień znikała na kserokopii),
+ *  • nagłówki pisane pionowo → poziomo drobnym pismem (pionowe były
+ *    nieczytelne po zeskanowaniu),
+ *  • „Oceniane parametry" rozdzielone na ocenę (f–k) i potwierdzenie (l–m) —
+ *    wykonał/sprawdził nigdy nie były parametrem oceny.
+ * Zestaw, kolejność i LITERY kolumn bez zmian: opisy niezgodności powołują się
+ * na litery, więc nie wolno ich przenumerować.
+ *
+ * Samodzielne strony (wzór SanitaryCheckPrintPage) — auto-print po załadowaniu:
+ *   /office/rejestr-przyjecia/druk              (1.1.1)
+ *   /office/rejestr-przyjecia-szczegolowy/druk  (1.1.1/2)
+ *     ?od=YYYY-MM-DD  dowolny dzień z miesiąca karty (domyślnie dziś)
+ *     ?pdf=1          wyłącza auto-print (render do PDF)
+ */
+import { useEffect, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { receptionCardNo } from '@/lib/haccpCardHistory'
+
+/** Pusty wiersz do wypełnienia — tyle, ile mieści się na jednej kartce. */
+const ROWS_MAIN = 12
+const ROWS_DETAIL = 13
+
+/** Szerokości w mm; muszą sumować się do szerokości kolumny tekstu (283 mm). */
+const SHEET_MM = 283
+
+type Col = { letter: string; w: number; label: string }
+
+const COLS_MAIN: Col[] = [
+  { letter: 'a', w: 16, label: 'Numer przyjęcia' },
+  { letter: 'b', w: 27, label: 'Skrócona nazwa dostawcy' },
+  { letter: 'c', w: 34, label: 'Asortyment' },
+  { letter: 'd', w: 16, label: 'Data dostawy' },
+  { letter: 'e', w: 30, label: 'HDI lub numer faktury, WZ lub inny dokument przywozowy' },
+  { letter: 'f', w: 24, label: 'Ocena wizualna dostawy. Książka mycia pojazdu' },
+  { letter: 'g', w: 15, label: 'Komora [°C]' },
+  { letter: 'h', w: 15, label: 'Mięso [°C]' },
+  { letter: 'i', w: 22, label: 'Zgodność kg z zamówieniem i dokumentami' },
+  { letter: 'j', w: 30, label: 'Uwagi' },
+  { letter: 'k', w: 18, label: 'Ocena całej dostawy' },
+  { letter: 'l', w: 18, label: 'Wykonał' },
+  { letter: 'm', w: 18, label: 'Sprawdził' },
+]
+
+const COLS_DETAIL: Col[] = [
+  { letter: 'a', w: 26, label: 'Numer przyjęcia' },
+  { letter: 'b', w: 30, label: 'Numer porządkowy' },
+  { letter: 'c', w: 24, label: 'Waga [kg]' },
+  { letter: 'd', w: 26, label: 'Data uboju' },
+  { letter: 'e', w: 30, label: 'Termin ważności' },
+  { letter: 'f', w: 22, label: 'Cena [zł/kg]' },
+  { letter: 'g', w: 24, label: 'Mięso [kg]' },
+  { letter: 'h', w: 65, label: 'Uwagi' },
+  // Ostatnia kolumna oryginału była bez opisu — i tak służyła za podpis.
+  { letter: 'i', w: 36, label: 'Podpis' },
+]
+
+const pct = (mm: number) => `${((mm / SHEET_MM) * 100).toFixed(3)}%`
+
+/** Miesiąc karty z `?od=` (dowolny dzień miesiąca) — domyślnie bieżący. */
+function cardMonth(od: string | null): Date {
+  const seed = od && /^\d{4}-\d{2}-\d{2}$/.test(od) ? new Date(`${od}T00:00:00`) : new Date()
+  const d = isNaN(+seed) ? new Date() : seed
+  return new Date(d.getFullYear(), d.getMonth(), 1)
+}
+
+/** Wspólna oprawa obu kart: nagłówek → belka → tytuł → pola meta → tabela. */
+function RegisterSheet({ od, isPdf, title, subtitle, cols, rows, card, legend, children }: {
+  od: string | null; isPdf: boolean; title: string; subtitle: string
+  cols: Col[]; rows: number; card: string; legend: ReactNode; children?: ReactNode
+}) {
+  useEffect(() => {
+    document.title = title
+    if (isPdf) return
+    const t = setTimeout(() => window.print(), 600)
+    return () => clearTimeout(t)
+  }, [isPdf, title])
+
+  const month = cardMonth(od)
+  const monthLabel = month.toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' })
+
+  return (
+    <div className="reg">
+      <style>{CSS}</style>
+
+      <div className="top">
+        <img src="/logo-ksiezyc-print.png" alt="Księżyc" />
+        <div className="plant">
+          <div className="nm">F.H.U.P. MAREK KSIĘŻYC — ZAKŁAD ROZBIORU DROBIU</div>
+          <div className="ad">ul. Księdza Kardynała Albina Dunajewskiego 83, 32-064 Rudawa</div>
+        </div>
+      </div>
+      <div className="rule" />
+
+      <h1>{title}</h1>
+      <div className="sub">{subtitle}</div>
+
+      <div className="meta">
+        <div className="fld"><div className="lb">Nr karty</div><div className="vl">{receptionCardNo(month)}</div></div>
+        <div className="fld"><div className="lb">Miesiąc</div><div className="vl">{monthLabel}</div></div>
+        <div className="fld sm"><div className="lb">Strona</div><div className="vl" /></div>
+        <div className="fld w2"><div className="lb">Osoba odpowiedzialna za przyjęcia</div><div className="vl" /></div>
+      </div>
+
+      <table className="reg-t">
+        <colgroup>
+          {cols.map(c => <col key={c.letter} style={{ width: pct(c.w) }} />)}
+        </colgroup>
+        {children ?? (
+          <thead>
+            <tr>{cols.map(c => <th key={c.letter} className="hd">{c.label}</th>)}</tr>
+            <tr className="ltr">{cols.map(c => <th key={c.letter}>{c.letter}</th>)}</tr>
+          </thead>
+        )}
+        <tbody>
+          {Array.from({ length: rows }, (_, r) => (
+            <tr key={r}>{cols.map(c => <td key={c.letter} />)}</tr>
+          ))}
+        </tbody>
+      </table>
+
+      {legend}
+
+      <div className="foot">
+        <span className="l">Przechowywanie zapisu: min. 1 rok</span>
+        <span>{card}</span>
+      </div>
+    </div>
+  )
+}
+
+function Legend({ items }: { items: string[] }) {
+  return (
+    <div className="legend">
+      <span className="ti">Zasady wypełniania</span>
+      {items.map((t, i) => <span key={i} className="it">{t}</span>)}
+    </div>
+  )
+}
+
+/** Karta 1.1.1 — zbiorczy rejestr dostaw. */
+export function ReceptionRegisterPrintPage() {
+  const [params] = useSearchParams()
+  const cols = COLS_MAIN
+  return (
+    <RegisterSheet
+      od={params.get('od')}
+      isPdf={params.get('pdf') === '1'}
+      title="Rejestr przyjęcia artykułów pochodzenia zwierzęcego"
+      subtitle="Kontrola dostawy przy przyjęciu — wpis ręczny dla każdej dostawy, w dniu jej przyjęcia"
+      cols={cols}
+      rows={ROWS_MAIN}
+      card="Karta 1.1.1 do instrukcji 1.1 — operacyjne programy warunków wstępnych (oPRP)"
+      legend={<Legend items={[
+        'ocena (kol. f, i, k): ✓ zgodne — dostawa przyjęta',
+        '✗ niezgodne — opisać w kol. „Uwagi” i podjąć działanie korygujące',
+        'ND nie dotyczy',
+        'temperatura w °C, z dokładnością do 0,1',
+        'dostawa niezgodna nie może zostać rozładowana bez decyzji osoby upoważnionej',
+      ]} />}
+    >
+      {/* Szapka trójpoziomowa: para „Komora / Mięso” siedzi pod wspólnym
+          nagłówkiem „Temperatura”, jak para „na chłodni / w mięsie” w karcie
+          temperatur. Grupy są SZARE (nie białe) — biel czytała się jak dziura
+          w tabeli, a nie jak akcent. */}
+      <thead>
+        <tr>
+          {cols.slice(0, 5).map(c => <th key={c.letter} className="hd" rowSpan={3}>{c.label}</th>)}
+          <th className="grp" colSpan={6}>Oceniane parametry</th>
+          <th className="grp" colSpan={2}>Potwierdzenie</th>
+        </tr>
+        <tr>
+          <th className="hd" rowSpan={2}>{cols[5].label}</th>
+          <th className="hd" colSpan={2}>Temperatura</th>
+          {cols.slice(8, 13).map(c => <th key={c.letter} className="hd" rowSpan={2}>{c.label}</th>)}
+        </tr>
+        <tr>
+          <th className="hd sub2">{cols[6].label}</th>
+          <th className="hd sub2">{cols[7].label}</th>
+        </tr>
+        <tr className="ltr">{cols.map(c => <th key={c.letter}>{c.letter}</th>)}</tr>
+      </thead>
+    </RegisterSheet>
+  )
+}
+
+/** Karta 1.1.1/2 — rozbicie dostawy na numery porządkowe (partie). */
+export function ReceptionRegisterDetailPrintPage() {
+  const [params] = useSearchParams()
+  return (
+    <RegisterSheet
+      od={params.get('od')}
+      isPdf={params.get('pdf') === '1'}
+      title="Rejestr przyjęcia artykułów pochodzenia zwierzęcego — część szczegółowa"
+      subtitle="Jeden wiersz na numer porządkowy z dostawy zarejestrowanej w karcie 1.1.1"
+      cols={COLS_DETAIL}
+      rows={ROWS_DETAIL}
+      card="Karta 1.1.1/2 do instrukcji 1.1 — operacyjne programy warunków wstępnych (oPRP)"
+      legend={<Legend items={[
+        'numer przyjęcia — ten sam, co w karcie 1.1.1 (np. 1/08)',
+        'numer porządkowy — kolejny numer nadawany partii surowca',
+        'waga — z dokumentu dostawy; różnicę po ważeniu opisać w kol. „Uwagi”',
+        '„Mięso [kg]” uzupełnia się po rozbiorze partii',
+      ]} />}
+    />
+  )
+}
+
+const CSS = `
+/* UWAGA: pliki -latin-ext zawierają WYŁĄCZNIE glify latin-ext. Bez wariantu
+   -latin (i bez unicode-range) ASCII spada na Arial — tekst robi się szerszy
+   i karta przestaje mieścić się na jednej stronie. */
+@font-face { font-family:'RCReg'; font-weight:400; font-display:swap;
+  src:url('/fonts/robotocondensed-400-latin-ext.woff2') format('woff2');
+  unicode-range:U+0100-024F,U+0259,U+1E00-1EFF,U+2020,U+20A0-20AB,U+20AD-20CF,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family:'RCReg'; font-weight:400; font-display:swap;
+  src:url('/fonts/robotocondensed-400-latin.woff2') format('woff2'); }
+@font-face { font-family:'RCReg'; font-weight:700; font-display:swap;
+  src:url('/fonts/robotocondensed-700-latin-ext.woff2') format('woff2');
+  unicode-range:U+0100-024F,U+0259,U+1E00-1EFF,U+2020,U+20A0-20AB,U+20AD-20CF,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family:'RCReg'; font-weight:700; font-display:swap;
+  src:url('/fonts/robotocondensed-700-latin.woff2') format('woff2'); }
+
+/* Boki 7 mm — przy 5 mm drukarki biurowe ucinały skrajną ramkę tabeli. */
+@page { size:A4 landscape; margin:5mm 7mm; }
+.reg, .reg * { box-sizing:border-box; }
+.reg { font-family:'RCReg',Arial,sans-serif; color:#111; font-size:7pt; line-height:1.15;
+  background:#fff; width:283mm; margin:0 auto; padding:5mm;
+  -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+@media print { .reg { width:auto; margin:0; padding:0; } }
+
+.reg .top { display:flex; align-items:flex-start; gap:6mm; }
+.reg .top img { height:10mm; }
+.reg .plant { flex:1; text-align:center; padding-top:.8mm; }
+.reg .plant .nm { font-weight:700; font-size:9pt; letter-spacing:.02em; }
+.reg .plant .ad { font-size:7pt; color:#333; }
+
+/* Belka odsunięta od logo — dosunięta zlewała się ze sloganem w znaku. */
+.reg .rule { height:1.4mm; margin:2.6mm 0 0; background:#9a9a9a; }
+.reg h1 { font-size:11.5pt; font-weight:700; text-align:center; letter-spacing:.04em;
+  margin:1.4mm 0 .5mm; text-transform:uppercase; }
+.reg .sub { text-align:center; font-size:6.8pt; color:#444; margin-bottom:1.4mm; }
+
+.reg .meta { display:flex; gap:2mm; margin-bottom:1.4mm; }
+.reg .fld { flex:1; border:.35mm solid #777; padding:.9mm 1.6mm; min-height:8.5mm; }
+.reg .fld.w2 { flex:2; }
+.reg .fld.sm { flex:.5; }
+.reg .fld .lb { font-size:6.4pt; font-weight:700; text-transform:uppercase;
+  letter-spacing:.04em; color:#555; }
+.reg .fld .vl { font-size:10pt; font-weight:700; margin-top:.7mm; min-height:4mm; }
+
+.reg table.reg-t { width:100%; border-collapse:collapse; table-layout:fixed; }
+.reg table.reg-t th { border:.28mm solid #8c8c8c; padding:.8mm .5mm;
+  text-align:center; vertical-align:middle; color:#1a1a1a; font-weight:700; }
+/* Trzy szarości i tylko trzy: belka grup, nagłówek kolumny, pasek liter.
+   Żadnych białych kafli w szapce — po wydruku wyglądały na braki w tabeli. */
+.reg table.reg-t th.grp { background:#dcdcdc; font-size:7pt; text-transform:uppercase;
+  letter-spacing:.06em; padding:.7mm .5mm; }
+.reg table.reg-t th.hd { background:#ededed; font-size:6.2pt; text-transform:uppercase;
+  letter-spacing:.02em; line-height:1.12; }
+.reg table.reg-t th.hd.sub2 { font-size:6.6pt; letter-spacing:.03em; }
+.reg table.reg-t tr.ltr th { background:#e6e6e6; color:#444; font-size:6.8pt;
+  font-weight:400; padding:.6mm 0; letter-spacing:.06em; }
+/* CZYSTA biel w polach do wpisania — litery długopisem mają być widoczne */
+.reg table.reg-t td { border:.28mm solid #8c8c8c; height:9.5mm; padding:.2mm .5mm;
+  background:#fff; }
+
+/* Legenda leci CIĄGIEM z kropkami, nie flexem: przy pięciu pozycjach flex
+   robił z niej pięć nierównych kolumn łamanych w losowych miejscach. */
+.reg .legend { margin-top:1.4mm; border:.35mm solid #777; padding:.9mm 2mm;
+  line-height:1.45; }
+.reg .legend .ti { font-weight:700; font-size:6.8pt; text-transform:uppercase;
+  letter-spacing:.04em; margin-right:3mm; }
+.reg .legend .it { font-size:6.8pt; }
+.reg .legend .it + .it::before { content:'•'; color:#888; margin:0 2.5mm; }
+
+.reg .foot { display:flex; justify-content:space-between; margin-top:1.6mm;
+  font-size:6.8pt; font-weight:700; color:#333; letter-spacing:.04em; }
+.reg .foot .l { font-weight:400; color:#555; }
+`

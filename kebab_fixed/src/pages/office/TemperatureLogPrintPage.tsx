@@ -332,7 +332,7 @@ const CSS = `
 /* Kolor wyłącznie w logo — reszta karty w skali szarości (dobrze kseruje).
    Trzy poziomy szarości i tylko trzy: belka nadrzędna, belka nagłówka,
    ramka. Więcej odcieni robi z karty papkę. */
-.tmp .rule { height:1.4mm; margin:1.6mm 0 0; background:#9a9a9a; }
+.tmp .rule { height:1.4mm; margin:2.6mm 0 0; background:#9a9a9a; }
 .tmp h1 { font-size:11.5pt; font-weight:700; text-align:center; letter-spacing:.04em;
   margin:1.1mm 0 .5mm; text-transform:uppercase; }
 .tmp .sub { text-align:center; font-size:6.8pt; color:#444; margin-bottom:1.2mm; }

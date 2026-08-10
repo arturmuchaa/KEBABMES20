@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { sanitaryCards, temperatureCards, sanitaryCardNo } from './haccpCardHistory'
+import {
+  sanitaryCards, temperatureCards, sanitaryCardNo, receptionCards, receptionCardNo,
+} from './haccpCardHistory'
 
 const d = (s: string) => new Date(`${s}T00:00:00`)
 
@@ -82,5 +84,34 @@ describe('temperatureCards', () => {
       expect(k.no).toBe('01/08/2026')
       expect(k.day).toBe('2026-07-27')
     }
+  })
+})
+
+describe('receptionCards — rejestr przyjęcia 1.1.1 i 1.1.1/2', () => {
+  it('idzie miesiąc po miesiącu wstecz, bieżący pierwszy', () => {
+    const rows = receptionCards(3, d('2026-08-10'))
+    expect(rows.map(r => r.no)).toEqual(['08/2026', '07/2026', '06/2026'])
+    // dzień w wierszu to zawsze 1. dnia miesiąca — z niego budujemy URL wydruku
+    expect(rows.map(r => r.day)).toEqual(['2026-08-01', '2026-07-01', '2026-06-01'])
+    expect(rows[0].current).toBe(true)
+  })
+
+  it('każdy dzień miesiąca trafia w tę samą kartę', () => {
+    const karty = ['2026-08-01', '2026-08-17', '2026-08-31'].map(x => receptionCards(1, d(x))[0])
+    for (const k of karty) {
+      expect(k.no).toBe('08/2026')
+      expect(k.day).toBe('2026-08-01')
+    }
+  })
+
+  it('przeskok przez początek roku nie gubi grudnia', () => {
+    const rows = receptionCards(2, d('2027-01-05'))
+    expect(rows.map(r => r.no)).toEqual(['01/2027', '12/2026'])
+    expect(rows[1].day).toBe('2026-12-01')
+  })
+
+  it('numer karty to miesiąc i rok', () => {
+    expect(receptionCardNo(d('2026-08-03'))).toBe('08/2026')
+    expect(receptionCardNo(d('2026-12-31'))).toBe('12/2026')
   })
 })

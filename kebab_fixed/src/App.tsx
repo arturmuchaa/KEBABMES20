@@ -43,6 +43,10 @@ import { SanitaryCheckPrintPage } from '@/pages/office/SanitaryCheckPrintPage'
 import { TemperatureLogPrintPage } from '@/pages/office/TemperatureLogPrintPage'
 import { SanitaryCheckHistoryPage } from '@/pages/office/SanitaryCheckHistoryPage'
 import { TemperatureLogHistoryPage } from '@/pages/office/TemperatureLogHistoryPage'
+import {
+  ReceptionRegisterPrintPage, ReceptionRegisterDetailPrintPage,
+} from '@/pages/office/ReceptionRegisterPrintPage'
+import { ReceptionRegisterHistoryPage } from '@/pages/office/ReceptionRegisterHistoryPage'
 import { WzDocumentsPage }      from '@/pages/office/WzDocumentsPage'
 import { WzNewPage }            from '@/pages/office/WzNewPage'
 import { ContainerBalancePage } from '@/pages/office/ContainerBalancePage'
@@ -125,6 +129,8 @@ export default function App() {
       <Route path="/office/plan-masowania/druk" element={<MixingPlanPrintPage />} />
       <Route path="/office/arkusz-kontroli/druk" element={<SanitaryCheckPrintPage />} />
       <Route path="/office/kontrola-temperatury/druk" element={<TemperatureLogPrintPage />} />
+      <Route path="/office/rejestr-przyjecia/druk" element={<ReceptionRegisterPrintPage />} />
+      <Route path="/office/rejestr-przyjecia-szczegolowy/druk" element={<ReceptionRegisterDetailPrintPage />} />
       {/* Statyczna ścieżka PRZED parametryczną — 'raport' nie może wpaść jako :id */}
       <Route path="/office/pojemniki/raport/druk" element={<ContainerStatementPrintPage />} />
       <Route path="/office/pojemniki/:id/druk" element={<ContainerDocPrintPage />} />
@@ -171,6 +177,7 @@ export default function App() {
         {/* Historie kart HACCP — menu prowadzi TU, nie prosto do druku */}
         <Route path="arkusz-kontroli"       element={<SanitaryCheckHistoryPage />} />
         <Route path="kontrola-temperatury"  element={<TemperatureLogHistoryPage />} />
+        <Route path="rejestr-przyjecia"     element={<ReceptionRegisterHistoryPage />} />
         <Route path="rodzaje-produktow"     element={<ProductTypesPage />} />
         <Route path="receptury"             element={<RecipesPage />} />
         <Route path="szablony-etykiet"      element={<LabelTemplatesPage />} />

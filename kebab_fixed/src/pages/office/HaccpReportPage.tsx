@@ -24,18 +24,96 @@ import {
 
 const printStyles = `
 @media print {
-  /* Wąskie marginesy (prośba właściciela 2026-07-16) — 5 mm zamiast 10 mm;
-     ekranowy padding p-6 dokumentu zerowany w druku, żeby nie dublował ramki. */
-  @page { size: A4 portrait; margin: 5mm; }
+  /* Wąskie marginesy (prośba właściciela 2026-07-16) — 5 mm zamiast 10 mm.
+     Boki 7 mm jak w karcie temperatur: przy 5 mm drukarki biurowe ucinały
+     skrajną ramkę tabeli. */
+  @page { size: A4 portrait; margin: 5mm 7mm; }
   body * { visibility: hidden; }
   #haccp-report, #haccp-report * { visibility: visible; }
-  #haccp-report { position: absolute; left: 0; top: 0; width: 100%; font-size: 10px; }
-  #haccp-report .p-6 { padding: 0 !important; }
+  #haccp-report { position: absolute; left: 0; top: 0; width: 100%; }
   .no-print { display: none !important; }
   table { border-collapse: collapse; width: 100%; }
   th, td { border: 1px solid #000; padding: 3px 6px; }
   th { background: #e5e5e5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+`
+
+/**
+ * Styl dokumentu = karta 5.1.1.1 (kontrola temperatury, TemperatureLogPrintPage).
+ * Raport rozbioru trafia do tej samej księgi HACCP co karty wypełniane ręcznie,
+ * więc musi mieć ten sam nagłówek z logo, tę samą belkę, te same trzy szarości
+ * (belka sekcji #dcdcdc → nagłówek tabeli #ededed → ramka #8c8c8c) i tę samą
+ * stopkę z numerem karty. Kolor wyłącznie w logo — reszta w skali szarości,
+ * żeby dokument dobrze się kserował.
+ *
+ * Klasy są scope'owane pod `.rap`, bo ta strona renderuje się WEWNĄTRZ layoutu
+ * biura (inaczej niż samodzielne strony druku) i nie może przemalować UI wokół.
+ * Z tego samego powodu nie ma tu @page — rozmiar strony ustawia printStyles
+ * dopinany dopiero na czas druku.
+ */
+const DOC_CSS = `
+/* Pliki -latin-ext mają WYŁĄCZNIE glify latin-ext. Bez wariantu -latin (i bez
+   unicode-range) ASCII spadłby na Arial i dokument zrobiłby się szerszy. */
+@font-face { font-family:'RCRap'; font-weight:400; font-display:swap;
+  src:url('/fonts/robotocondensed-400-latin-ext.woff2') format('woff2');
+  unicode-range:U+0100-024F,U+0259,U+1E00-1EFF,U+2020,U+20A0-20AB,U+20AD-20CF,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family:'RCRap'; font-weight:400; font-display:swap;
+  src:url('/fonts/robotocondensed-400-latin.woff2') format('woff2'); }
+@font-face { font-family:'RCRap'; font-weight:700; font-display:swap;
+  src:url('/fonts/robotocondensed-700-latin-ext.woff2') format('woff2');
+  unicode-range:U+0100-024F,U+0259,U+1E00-1EFF,U+2020,U+20A0-20AB,U+20AD-20CF,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family:'RCRap'; font-weight:700; font-display:swap;
+  src:url('/fonts/robotocondensed-700-latin.woff2') format('woff2'); }
+
+.rap, .rap * { box-sizing:border-box; }
+.rap { font-family:'RCRap',Arial,sans-serif; color:#111; font-size:8pt; line-height:1.2;
+  background:#fff; width:196mm; margin:0 auto 6mm; padding:0;
+  -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+@media print { .rap { width:auto; margin:0; } }
+
+.rap .top { display:flex; align-items:flex-start; gap:6mm; }
+.rap .top img { height:10mm; }
+.rap .plant { flex:1; text-align:center; padding-top:.8mm; }
+.rap .plant .nm { font-weight:700; font-size:9pt; letter-spacing:.02em; }
+.rap .plant .ad { font-size:7pt; color:#333; }
+.rap .rule { height:1.4mm; margin:2.6mm 0 0; background:#9a9a9a; }
+.rap h1 { font-size:13pt; font-weight:700; text-align:center; letter-spacing:.04em;
+  margin:1.6mm 0 .5mm; text-transform:uppercase; }
+.rap .sub { text-align:center; font-size:7.2pt; color:#444; margin-bottom:2mm; }
+
+.rap .meta { display:flex; gap:2mm; margin-bottom:2mm; }
+.rap .fld { flex:1; border:.35mm solid #777; padding:.9mm 1.6mm; min-height:9mm; }
+.rap .fld.w2 { flex:2; }
+.rap .fld .lb { font-size:6.6pt; font-weight:700; text-transform:uppercase;
+  letter-spacing:.04em; color:#555; }
+.rap .fld .vl { font-size:11pt; font-weight:700; margin-top:.7mm;
+  font-variant-numeric:tabular-nums; }
+
+/* belka sekcji — nadrzędna, więc o ton ciemniejsza od nagłówka tabeli */
+.rap .cap { font-size:7.2pt; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+  background:#dcdcdc; border:.28mm solid #8c8c8c; border-bottom:0; padding:1mm 1.6mm; }
+.rap .blk { margin-top:2.4mm; }
+.rap table { width:100%; border-collapse:collapse; }
+.rap th { background:#ededed; color:#1a1a1a; font-size:6.8pt; font-weight:700;
+  text-transform:uppercase; letter-spacing:.03em; border:.28mm solid #8c8c8c;
+  padding:1mm .8mm; text-align:center; vertical-align:middle; }
+.rap td { border:.28mm solid #8c8c8c; padding:1mm .8mm; text-align:center;
+  font-size:8pt; font-variant-numeric:tabular-nums; }
+.rap td.l { text-align:left; }
+.rap td.r { text-align:right; }
+.rap td.lab { background:#f2f2f2; font-weight:700; text-align:left; }
+.rap tr.tot td { background:#ededed; font-weight:700; }
+
+/* pola podpisu — puste, czysto białe, jak kratki do wypełnienia w kartach */
+.rap .sg { display:flex; gap:3mm; margin-top:2.4mm; }
+.rap .sgbox { flex:1; border:.35mm solid #777; padding:1.2mm 2mm; min-height:14mm; background:#fff; }
+.rap .sgbox.w2 { flex:2; }
+.rap .sgbox .lb { font-size:6.6pt; font-weight:700; text-transform:uppercase;
+  letter-spacing:.04em; color:#555; }
+
+.rap .foot { display:flex; justify-content:space-between; margin-top:2.4mm;
+  font-size:6.8pt; font-weight:700; color:#333; letter-spacing:.04em; }
+.rap .foot .l { font-weight:400; color:#555; }
 `
 
 interface ReportData {
@@ -104,41 +182,35 @@ function SingleReport({ data }: { data: ReportData }) {
   const reportNo = haccpReportNo(date, productionDates)
 
   return (
-    <div className="bg-white p-6 mb-4" style={{ pageBreakAfter: 'always' }}>
-      {/* Logo Księżyc NAD ramkami nagłówka (poza tabelą) — tabela zostaje
-          w pełnej szerokości jak pierwotnie. Plik 3667×1267 px (poziome ze
-          sloganem) — 52 px wysokości = ~150 px szerokości, czytelne w druku. */}
-      <img src="/logo-ksiezyc.png" alt="Księżyc" className="mb-2"
-        style={{ height: 52, width: 'auto' }} />
-      <table className="w-full text-xs mb-4" style={{ borderCollapse: 'collapse' }}>
-          <tbody>
-            <tr>
-              <td className="border border-black p-2" rowSpan={2} style={{ width: '40%' }}>
-                <div className="font-bold text-sm">FHUP Marek Księżyc</div>
-                <div className="text-[10px]">ul. Dunajewskiego 83, 32-064 Rudawa</div>
-              </td>
-              <td className="border border-black p-2 text-center font-bold" rowSpan={2}>Raport rozbioru</td>
-              <td className="border border-black p-1 text-center" style={{ width: '15%' }}>
-                <div className="text-[9px] text-gray-600">Numer</div>
-                <div className="font-bold">{reportNo}</div>
-              </td>
-              <td className="border border-black p-1 text-center" style={{ width: '15%' }}>
-                <div className="text-[9px] text-gray-600">Data</div>
-                <div className="font-bold">{fmtDatePl(date)}</div>
-              </td>
-            </tr>
-            <tr>
-              <td className="border border-black p-1 text-center" colSpan={2}>
-                <span className="text-[9px] text-gray-600">Edycja 2</span>
-              </td>
-            </tr>
-          </tbody>
-      </table>
+    <div className="rap" style={{ pageBreakAfter: 'always' }}>
+      <style>{DOC_CSS}</style>
 
-      <div className="font-bold text-[10px] mb-1 bg-gray-200 p-1 border border-black">
-        PODSUMOWANIE DNIA — {fmtDatePl(date)}
+      {/* logo-ksiezyc-print.png, nie logo-ksiezyc.png: wariant do druku jest
+          poziomy (2779×379) i przy 10 mm wysokości mieści się w pasku nagłówka
+          — ten sam plik i ta sama wysokość co w karcie temperatur. */}
+      <div className="top">
+        <img src="/logo-ksiezyc-print.png" alt="Księżyc" />
+        <div className="plant">
+          <div className="nm">F.H.U.P. MAREK KSIĘŻYC — ZAKŁAD ROZBIORU DROBIU</div>
+          <div className="ad">ul. Księdza Kardynała Albina Dunajewskiego 83, 32-064 Rudawa</div>
+        </div>
       </div>
-      <table className="w-full text-[10px] mb-4" style={{ borderCollapse: 'collapse' }}>
+      <div className="rule" />
+
+      <h1>Raport rozbioru</h1>
+      <div className="sub">
+        Zapis dnia produkcyjnego — masa surowca, uzysk i rozliczenie partii
+      </div>
+
+      <div className="meta">
+        <div className="fld"><div className="lb">Nr raportu</div><div className="vl">{reportNo}</div></div>
+        <div className="fld"><div className="lb">Data produkcji</div><div className="vl">{fmtDatePl(date)}</div></div>
+        <div className="fld"><div className="lb">Edycja</div><div className="vl">2</div></div>
+      </div>
+
+      <div className="blk">
+        <div className="cap">Podsumowanie dnia — {fmtDatePl(date)}</div>
+      <table>
         <tbody>
           {[
             { label: 'Masa surowców do rozbioru', val: summary.totalTaken },
@@ -150,25 +222,25 @@ function SingleReport({ data }: { data: ReportData }) {
             { label: 'Strata produkcyjna',           val: summary.loss       },
           ].map(row => (
             <tr key={row.label}>
-              <td className="border border-black p-1 bg-gray-100 font-semibold" style={{ width: '50%' }}>{row.label}</td>
-              <td className="border border-black p-1 text-right font-bold">{fmtKg(row.val, 2)} kg</td>
+              <td className="lab" style={{ width: '55%' }}>{row.label}</td>
+              <td className="r" style={{ fontWeight: 700, fontSize: '9pt' }}>{fmtKg(row.val, 2)} kg</td>
             </tr>
           ))}
         </tbody>
       </table>
-
-      <div className="font-bold text-[10px] mb-1 bg-gray-200 p-1 border border-black">
-        SZCZEGÓŁY ROZBIORU WG PARTII
       </div>
-      <table className="w-full text-[9px] mb-4" style={{ borderCollapse: 'collapse' }}>
+
+      <div className="blk">
+        <div className="cap">Szczegóły rozbioru wg partii</div>
+      <table>
         <thead>
-          <tr className="bg-gray-200">
+          <tr>
             {/* „Numer porządkowy" (dawniej „Nr partii"): docelowo cały proces
                 (przyjęcie→rozbiór) będzie miał numer porządkowy, a numer partii
                 dostanie tylko wyrób gotowy i sprzedane uboczne/mięso. Na razie
                 zmiana TYLKO opisu na dokumencie (decyzja 2026-07-16). */}
             {['Numer porządkowy','Nr partii dostawcy','Dostawca','Data uboju','Data ważności','Ćwiartka kg','Mięso Z/S kg','Grzbiety kg','Kości kg','UPPZ kat.3','Nadwyżka kg'].map(h => (
-              <th key={h} className="border border-black p-1 text-left">{h}</th>
+              <th key={h}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -181,49 +253,42 @@ function SingleReport({ data }: { data: ReportData }) {
             const slaughterDate   = batch?.slaughterDate    || firstSession?.slaughterDate   || ''
             const expiryDate      = batch?.expiryDate       || firstSession?.expiryDate      || ''
             return (
-              <tr key={idx} className={idx % 2 === 0 ? '' : 'bg-gray-50'}>
-                <td className="border border-black p-1 font-bold text-[10px]">{internalBatchNo}</td>
-                <td className="border border-black p-1 font-mono">{supplierBatchNo}</td>
-                <td className="border border-black p-1">{supplierName}</td>
-                <td className="border border-black p-1">{slaughterDate ? fmtDatePl(slaughterDate) : '—'}</td>
-                <td className="border border-black p-1">{expiryDate ? fmtDatePl(expiryDate) : '—'}</td>
-                <td className="border border-black p-1 text-right font-semibold">{fmtKg(taken, 2)}</td>
-                <td className="border border-black p-1 text-right font-bold">{fmtKg(meat, 2)}</td>
-                <td className="border border-black p-1 text-right">{fmtKg(backs, 2)}</td>
-                <td className="border border-black p-1 text-right">{fmtKg(bones, 2)}</td>
-                <td className="border border-black p-1 text-right">{fmtKg(kat3, 2)}</td>
-                <td className="border border-black p-1 text-right">{surplus > 0 ? `+${fmtKg(surplus, 2)}` : '—'}</td>
+              <tr key={idx}>
+                <td style={{ fontWeight: 700, fontSize: '9pt' }}>{internalBatchNo}</td>
+                <td>{supplierBatchNo}</td>
+                <td className="l">{supplierName}</td>
+                <td>{slaughterDate ? fmtDatePl(slaughterDate) : '—'}</td>
+                <td>{expiryDate ? fmtDatePl(expiryDate) : '—'}</td>
+                <td className="r" style={{ fontWeight: 600 }}>{fmtKg(taken, 2)}</td>
+                <td className="r" style={{ fontWeight: 700 }}>{fmtKg(meat, 2)}</td>
+                <td className="r">{fmtKg(backs, 2)}</td>
+                <td className="r">{fmtKg(bones, 2)}</td>
+                <td className="r">{fmtKg(kat3, 2)}</td>
+                <td className="r">{surplus > 0 ? `+${fmtKg(surplus, 2)}` : '—'}</td>
               </tr>
             )
           })}
-          <tr className="bg-gray-100 font-bold">
-            <td className="border border-black p-1" colSpan={5}>SUMA</td>
-            <td className="border border-black p-1 text-right">{fmtKg(summary.totalTaken, 2)}</td>
-            <td className="border border-black p-1 text-right">{fmtKg(summary.totalMeat, 2)}</td>
-            <td className="border border-black p-1 text-right">{fmtKg(summary.totalBacks, 2)}</td>
-            <td className="border border-black p-1 text-right">{fmtKg(summary.totalBones, 2)}</td>
-            <td className="border border-black p-1 text-right">{fmtKg(summary.uppzKat3, 2)}</td>
-            <td className="border border-black p-1 text-right">{summary.surplus > 0 ? `+${fmtKg(summary.surplus, 2)}` : '—'}</td>
+          <tr className="tot">
+            <td className="l" colSpan={5}>SUMA</td>
+            <td className="r">{fmtKg(summary.totalTaken, 2)}</td>
+            <td className="r">{fmtKg(summary.totalMeat, 2)}</td>
+            <td className="r">{fmtKg(summary.totalBacks, 2)}</td>
+            <td className="r">{fmtKg(summary.totalBones, 2)}</td>
+            <td className="r">{fmtKg(summary.uppzKat3, 2)}</td>
+            <td className="r">{summary.surplus > 0 ? `+${fmtKg(summary.surplus, 2)}` : '—'}</td>
           </tr>
         </tbody>
       </table>
+      </div>
 
-      <table className="w-full text-[10px]" style={{ borderCollapse: 'collapse' }}>
-        <tbody>
-          <tr>
-            <td className="border border-black p-1 bg-gray-100 font-semibold" style={{ width: '12%' }}>Wykonał:</td>
-            <td className="border border-black p-1 h-8" style={{ width: '38%' }}></td>
-            <td className="border border-black p-1 bg-gray-100 font-semibold" style={{ width: '12%' }}>Sprawdził:</td>
-            <td className="border border-black p-1 h-8" style={{ width: '38%' }}></td>
-          </tr>
-          <tr>
-            <td className="border border-black p-1 bg-gray-100 font-semibold">Uwagi:</td>
-            <td className="border border-black p-1 h-10" colSpan={3}></td>
-          </tr>
-        </tbody>
-      </table>
+      <div className="sg">
+        <div className="sgbox"><div className="lb">Wykonał — data i podpis</div></div>
+        <div className="sgbox"><div className="lb">Sprawdził — data i podpis</div></div>
+        <div className="sgbox w2"><div className="lb">Uwagi</div></div>
+      </div>
 
-      <div className="mt-2 text-[8px] text-gray-500 border-t pt-1">
+      <div className="foot">
+        <span className="l">Przechowywanie zapisu: min. 1 rok</span>
         <span>Karta 2.1.1 do instrukcji 2.1 — operacyjne programy warunków wstępnych (oPRP)</span>
       </div>
     </div>

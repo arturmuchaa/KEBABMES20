@@ -71,3 +71,24 @@ def test_blad_renderu_to_500(monkeypatch):
         assert getattr(exc, "status_code", None) == 500
     else:
         raise AssertionError("Błąd renderu powinien dać 500")
+
+
+def test_rejestr_przyjecia_normalizuje_do_pierwszego_dnia_miesiaca(monkeypatch):
+    seen = _capture(monkeypatch)
+    # rejestr idzie miesiącami: 17.08 i 3.08 muszą dać tę samą kartę
+    resp = hf.reception_register_pdf(od="2026-08-17")
+
+    assert "/office/rejestr-przyjecia/druk" in seen[0]
+    assert "od=2026-08-01" in seen[0]
+    assert "pdf=1" in seen[0]
+    assert "Rejestr-przyjecia_2026-08.pdf" in resp.headers["Content-Disposition"]
+    assert resp.media_type == "application/pdf"
+
+
+def test_rejestr_szczegolowy_ma_wlasna_strone_i_nazwe(monkeypatch):
+    seen = _capture(monkeypatch)
+    resp = hf.reception_register_detail_pdf(od="2026-08-17")
+
+    assert "/office/rejestr-przyjecia-szczegolowy/druk" in seen[0]
+    assert "od=2026-08-01" in seen[0]
+    assert "Rejestr-przyjecia-szczegolowy_2026-08.pdf" in resp.headers["Content-Disposition"]

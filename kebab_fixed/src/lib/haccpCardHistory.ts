@@ -85,6 +85,32 @@ export function sanitaryCards(count: number, today = new Date()): HaccpCardRow[]
   return rows
 }
 
+/**
+ * Numer karty rejestru przyjęcia (1.1.1 i 1.1.1/2) — `MM/RRRR`.
+ *
+ * Rejestr idzie MIESIĄCAMI, nie dniami ani tygodniami: jeden wiersz to jedna
+ * dostawa, a tych bywa kilka na tydzień — karta dzienna byłaby w większości
+ * pusta. Gdy miesiąc nie mieści się na jednej kartce, biuro dodrukowuje kolejną
+ * i wpisuje ręcznie „Strona" (na karcie jest na to pole) — dlatego numer karty
+ * NIE zawiera numeru strony.
+ */
+export const receptionCardNo = (d: Date) =>
+  `${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
+
+/** Kolejne miesiące wstecz od `today` — po jednej karcie rejestru na miesiąc. */
+export function receptionCards(count: number, today = new Date()): HaccpCardRow[] {
+  return Array.from({ length: count }, (_, i) => {
+    const first = new Date(today.getFullYear(), today.getMonth() - i, 1)
+    return {
+      day: iso(first),
+      no: receptionCardNo(first),
+      when: first.toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' }),
+      note: 'miesiąc',
+      current: i === 0,
+    }
+  })
+}
+
 /** Kolejne tygodnie wstecz od `today` — po jednej karcie temperatur na tydzień. */
 export function temperatureCards(count: number, today = new Date()): HaccpCardRow[] {
   const start = midnight(today)

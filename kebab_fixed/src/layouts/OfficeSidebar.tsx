@@ -7,7 +7,7 @@ import {
   BarChart2, CreditCard, Scissors, Monitor, Truck, Building2,
   FileText, X, Factory, ShoppingCart, Archive,
   Banknote, Clock, Settings, QrCode, Calculator, GitBranch, History, ChevronRight, ShieldCheck, BarChart3,
-  ClipboardCheck, UserSearch, Boxes, Thermometer,
+  ClipboardCheck, UserSearch, Boxes, Thermometer, ClipboardList,
 } from 'lucide-react'
 
 interface NavItem { to: string; label: string; icon: React.ReactNode }
@@ -57,6 +57,7 @@ const NAV: NavSection[] = [
     { to: '/office/sledzenie', label: 'Śledzenie surowca', icon: <GitBranch size={16} /> },
     { to: '/office/arkusz-kontroli', label: 'Arkusz kontroli sanitarnej', icon: <ClipboardCheck size={16} /> },
     { to: '/office/kontrola-temperatury', label: 'Kontrola temperatury', icon: <Thermometer size={16} /> },
+    { to: '/office/rejestr-przyjecia', label: 'Rejestr przyjęcia', icon: <ClipboardList size={16} /> },
   ]},
   { heading: 'Administracja', items: [
     { to: '/office/pracownicy',  label: 'Pracownicy',    icon: <Users size={16} /> },

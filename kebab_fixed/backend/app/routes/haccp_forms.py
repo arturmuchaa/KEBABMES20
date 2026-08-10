@@ -59,3 +59,30 @@ def temperature_log_pdf(od: str = Query(..., description="dowolny dzień tygodni
     sunday = monday + timedelta(days=6)
     url = f"{settings.self_base_url}/office/kontrola-temperatury/druk?pdf=1&od={monday.isoformat()}"
     return _render(url, f"Kontrola-temperatury_{monday.isoformat()}_{sunday.isoformat()}.pdf")
+
+
+def _first_of_month(value: str) -> date:
+    """Rejestr przyjęcia idzie miesiącami — normalizujemy do 1. dnia, żeby
+    3.08 i 17.08 dały ten sam plik (jak poniedziałek w karcie temperatur)."""
+    day = _parse_day(value)
+    return day.replace(day=1)
+
+
+@router.get("/rejestr-przyjecia/pdf")
+def reception_register_pdf(od: str = Query(..., description="dowolny dzień miesiąca karty, RRRR-MM-DD")):
+    """Karta 1.1.1 — rejestr przyjęcia artykułów pochodzenia zwierzęcego.
+
+    PUSTY druk: przyjęcia biuro prowadzi ręcznie, poza MES. System nadaje tylko
+    numer karty (MM/RRRR) i renderuje ją w stylu reszty księgi HACCP.
+    """
+    first = _first_of_month(od)
+    url = f"{settings.self_base_url}/office/rejestr-przyjecia/druk?pdf=1&od={first.isoformat()}"
+    return _render(url, f"Rejestr-przyjecia_{first.strftime('%Y-%m')}.pdf")
+
+
+@router.get("/rejestr-przyjecia-szczegolowy/pdf")
+def reception_register_detail_pdf(od: str = Query(..., description="dowolny dzień miesiąca karty, RRRR-MM-DD")):
+    """Karta 1.1.1/2 — rozbicie dostawy na numery porządkowe. Też pusty druk."""
+    first = _first_of_month(od)
+    url = f"{settings.self_base_url}/office/rejestr-przyjecia-szczegolowy/druk?pdf=1&od={first.isoformat()}"
+    return _render(url, f"Rejestr-przyjecia-szczegolowy_{first.strftime('%Y-%m')}.pdf")

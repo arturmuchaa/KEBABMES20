@@ -231,13 +231,13 @@ const CSS = `
 @media print { .ark { width:auto; margin:0; padding:0; } }
 
 .ark .top { display:flex; align-items:flex-start; gap:6mm; }
-.ark .top img { height:12mm; }
-.ark .plant { flex:1; text-align:center; padding-top:1mm; }
+.ark .top img { height:10mm; }
+.ark .plant { flex:1; text-align:center; padding-top:.8mm; }
 .ark .plant .nm { font-weight:700; font-size:9pt; letter-spacing:.02em; }
 .ark .plant .ad { font-size:7pt; color:#333; }
 
 /* Kolor wyłącznie w logo — reszta arkusza czarno-biała (dobrze kseruje). */
-.ark .rule { height:1.4mm; margin:2mm 0 0; background:#111; }
+.ark .rule { height:1.4mm; margin:2.6mm 0 0; background:#9a9a9a; }
 .ark h1 { font-size:10.5pt; font-weight:700; text-align:center; letter-spacing:.04em;
   margin:1.8mm 0 1.6mm; text-transform:uppercase; }
 
