@@ -1,13 +1,14 @@
 /**
  * TemperatureLogPrintPage — karta odczytu temperatur pomieszczeń zakładu,
- * do druku i wypełnienia długopisem. Bez numeru formularza w stopce: stary
- * numer FIH 09/2/1 należał do poprzedniej księgi HACCP i nie przenosimy go.
+ * do druku i wypełnienia długopisem. W stopce numer karty 5.1.1.1 do
+ * instrukcji 5.1 (PRPs); stary numer FIH 09/2/1 należał do poprzedniej
+ * księgi HACCP i nie jest przenoszony.
  *
  * ZAKRES = nowy HACCP: dokładnie te pomieszczenia, które w karcie 5.1.1.1
  * (Ocena SSZiZ) mają „lokalny wpis temperatury", z ich numerami i temperaturą
- * wymaganą (Infom_Temp). Temperatura jest odczytywana LOKALNIE z wyświetlacza
- * centralnego systemu rejestracji — zapisy systemu centralnego są narzędziem
- * analitycznym używanym dopiero przy odchyleniu (instrukcja 5.1 PRPs).
+ * wymaganą (Infom_Temp). Temperaturę odczytuje się RĘCZNIE podczas obchodu
+ * i wpisuje długopisem — karta jest zapisem tego odczytu, nie wydrukiem
+ * z systemu (instrukcja 5.1 PRPs).
  *
  * FORMA = stara karta kontroli temperatury: szeroka siatka dat × punktów
  * pomiarowych, podpis w każdym wierszu, a dla magazynów chłodzonych PARA
@@ -163,8 +164,7 @@ export function TemperatureLogPrintPage() {
 
       <h1>Karta kontroli temperatury pomieszczeń zakładu</h1>
       <div className="sub">
-        Odczyt lokalny z wyświetlacza centralnego systemu rejestracji temperatury · zakres pomieszczeń wg karty
-        5.1.1.1 (ocena SSZiZ) · instrukcja 5.1 Programy warunków wstępnych (PRPs)
+        Odczyt ręczny — raz dziennie, w ramach obchodu SSZiZ
       </div>
 
       <div className="meta">
@@ -229,7 +229,7 @@ export function TemperatureLogPrintPage() {
 
       <div className="legend">
         <span className="ti">Zasady wypełniania</span>
-        <span className="it">odczyt raz dziennie, w ramach obchodu SSZiZ — wartość z wyświetlacza w °C, z dokładnością do 0,1</span>
+        <span className="it">odczyt ręczny raz dziennie, w ramach obchodu SSZiZ — wartość w °C, z dokładnością do 0,1</span>
         <span className="it"><span className="sym">—</span>pomieszczenie nieużywane / puste</span>
         <span className="it">odczyt poza zakresem — zakreślić wartość i opisać w tabeli odchyleń</span>
         <span className="it">odczyt dodatkowy (w czasie procesu / na żądanie) — dopisać w tabeli odchyleń z adnotacją</span>
@@ -293,7 +293,8 @@ export function TemperatureLogPrintPage() {
       </div>
 
       <div className="foot">
-        <span className="l">Przechowywanie zapisu: min. 1 rok · załącznik do instrukcji 5.1 PRPs</span>
+        <span className="l">Przechowywanie zapisu: min. 1 rok</span>
+        <span>Karta 5.1.1.1 do instrukcji 5.1 — Programy warunków wstępnych (PRPs)</span>
       </div>
     </div>
   )

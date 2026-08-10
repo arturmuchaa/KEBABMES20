@@ -1,6 +1,8 @@
 /**
  * SanitaryCheckPrintPage — arkusz kontroli techniczno-sanitarnej przed
- * rozpoczęciem pracy zakładu (FIH 06/1/1), do druku i wypełnienia długopisem.
+ * rozpoczęciem pracy zakładu — karta 5.1.1.1 do instrukcji 5.1 (PRPs),
+ * do druku i wypełnienia długopisem. Stary kod FIH 06/1/1 należał do
+ * poprzedniej księgi HACCP i nie jest przenoszony.
  *
  * Jedna karta = jeden dzień roboczy. Arkusz jest PUSTY z założenia — MES go nie
  * wypełnia; to dokument papierowy dla osoby kontrolującej i dla inspekcji
@@ -198,7 +200,7 @@ export function SanitaryCheckPrintPage() {
       </div>
 
       <div className="foot">
-        <span>FIH 06/1/1</span>
+        <span>Karta 5.1.1.1 do instrukcji 5.1 — Programy warunków wstępnych (PRPs)</span>
       </div>
     </div>
   )
