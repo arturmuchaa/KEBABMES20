@@ -69,6 +69,8 @@ class BulkSettleDto(BaseModel):
     date_from: str
     date_to: str
     dry_run: bool = True
+    #: Pracownicy odznaczeni w oknie — plan ich pokazuje, ale zapis pomija.
+    skip_worker_ids: List[str] = []
 
 
 class WorkerDeductionDto(BaseModel):

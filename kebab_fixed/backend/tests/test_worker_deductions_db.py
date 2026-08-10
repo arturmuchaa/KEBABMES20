@@ -586,3 +586,21 @@ def test_zbiorcze_rozlicza_dniowkowca(db):
     res = bulk_settle("WORKER_GENERAL", "2026-08-03", "2026-08-09", dry_run=False)
     assert res["settled"] == 1
     assert res["totalNet"] == 300.0
+
+
+def test_zbiorcze_pomija_odznaczonych(db):
+    """Biuro odznacza kogoś w oknie — jego pasek NIE powstaje, reszta tak."""
+    execute("DELETE FROM workers")
+    _worker("w1", "VADYM")
+    _worker("w2", "DENYS")
+    _deb_day("w1", "2026-08-03", 1000)
+    _deb_day("w2", "2026-08-03", 2000)
+
+    res = bulk_settle("WORKER_DEBONING", "2026-08-03", "2026-08-09",
+                      dry_run=False, skip_worker_ids=["w2"])
+    assert res["settled"] == 1
+    assert res["totalNet"] == 550.0
+    names = [r["worker_name"] for r in query_all("SELECT worker_name FROM payroll_settlements")]
+    assert names == ["VADYM"]
+    # Odznaczony zostaje nierozliczony — da się go rozliczyć później.
+    assert query_all("SELECT 1 FROM settled_days WHERE worker_id='w2'") == []

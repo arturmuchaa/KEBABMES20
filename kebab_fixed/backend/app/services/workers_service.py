@@ -812,7 +812,8 @@ def create_settlement(dto: CreateSettlementDto) -> Dict:
 
 
 def bulk_settle(
-    role: str, date_from: str, date_to: str, dry_run: bool = True
+    role: str, date_from: str, date_to: str, dry_run: bool = True,
+    skip_worker_ids: Optional[List[str]] = None,
 ) -> Dict:
     """Rozlicz jednym kliknięciem całą grupę (rozbiór / produkcja / ogólni).
 
@@ -821,6 +822,9 @@ def bulk_settle(
     (otwarta zmiana weszłaby jako 0 h). Każdy pasek powstaje w osobnej
     transakcji, więc jeden problematyczny pracownik nie blokuje reszty.
     """
+    # Plan pokazuje wszystkich, ale biuro może kogoś odznaczyć w oknie —
+    # np. czeka na domknięcie dnia albo dostanie wypłatę osobno.
+    skipped_ids = set(skip_worker_ids or [])
     plan: List[Dict] = []
     for w in list_workers():
         if (w.get("role") or "") != role:
@@ -911,6 +915,8 @@ def bulk_settle(
     # nieudany pracownik nie może zawyżać raportowanej kwoty.
     settled_net = 0.0
     for p in plan:
+        if p["workerId"] in skipped_ids:
+            continue
         try:
             create_settlement(CreateSettlementDto(
                 worker_id=p["workerId"], date_from=date_from, date_to=date_to,

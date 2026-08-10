@@ -738,7 +738,7 @@ export const payrollApi = {
     get<any[]>(`/payroll/settlements${workerId ? `?workerId=${encodeURIComponent(workerId)}` : ''}`),
   getSettlement: (id: string) => get<any>(`/payroll/settlements/${id}`),
   /** Cofa rozliczenie: dni wracają do rozliczenia, potrącenia do kolejki. */
-  bulkSettle: (dto: { role: string; dateFrom: string; dateTo: string; dryRun: boolean }) =>
+  bulkSettle: (dto: { role: string; dateFrom: string; dateTo: string; dryRun: boolean; skipWorkerIds?: string[] }) =>
     post<{
       workers: { workerId: string; workerName: string; days: number; units: number;
                  unit: string; gross: number; deductions: number; net: number }[]

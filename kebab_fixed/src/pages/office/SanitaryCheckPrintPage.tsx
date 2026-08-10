@@ -47,9 +47,8 @@ const SECTIONS: [string, string[]][] = [
   ['KORYTARZE', STD],
   // Chłodnictwo w jednym bloku, numerami rosnąco — kontroler obchodzi
   // komory po kolei, a nie skacze między sekcjami arkusza.
-  ['KOMORA MROŻENIA NR 26', STD],
   ['MROŹNIA SZOKOWA NR 6', STD],
-  ['MROŹNIA SZOKOWA NR 30', STD],
+  ['MROŹNIA SZOKOWA NR 26', STD],
   ['MROŹNIA SKŁADOWA NR 29', STD],
   ['MROŹNIA SKŁADOWA NR 38', STD],
   ['STREFY MANIPULACYJNE', STD],

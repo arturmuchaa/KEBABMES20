@@ -81,6 +81,7 @@ def bulk_settle(dto: BulkSettleDto):
         date_from=dto.date_from,
         date_to=dto.date_to,
         dry_run=dto.dry_run,
+        skip_worker_ids=dto.skip_worker_ids,
     )
 
 

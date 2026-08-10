@@ -374,9 +374,11 @@ export function PayrollPage() {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm">Dni pracy</CardTitle>
-                  {(workerDays ?? []).filter(d => !d.settled && !d.open).length > 0 && (
+                  {(workerDays ?? []).filter(d => !d.settled && !d.open && !(isDaily && !d.present)).length > 0 && (
                     <button className="text-xs text-primary underline"
-                      onClick={() => setSelectedDays(new Set((workerDays ?? []).filter(d => !d.settled && !d.open).map(d => d.workDate)))}>
+                      onClick={() => setSelectedDays(new Set((workerDays ?? [])
+                        .filter(d => !d.settled && !d.open && !(isDaily && !d.present))
+                        .map(d => d.workDate)))}>
                       Zaznacz wszystkie
                     </button>
                   )}
@@ -392,13 +394,20 @@ export function PayrollPage() {
                 ) : (
                   <div className="space-y-2">
                     {(workerDays ?? []).map((d: any) => {
-                      const unit = (isHourly ? d.hours : d.kgTotal) ?? 0
-                      const sunday = isHourly && isSunday(d.workDate)
-                      const earn = unit * (effRate + (sunday ? sundayAdd : 0))
+                      // JEDNO źródło podstawy — wcześniej wiersz czytał kgTotal
+                      // także dla dniówki i godzin, więc pokazywał zero przy
+                      // poprawnej sumie na dole.
+                      const unit = unitPerDay[d.workDate] ?? 0
+                      const sunday   = isHourly && isSunday(d.workDate)
+                      const saturday = isHourly && isSaturday(d.workDate)
+                      const earn = unit * (effRate
+                        + (sunday ? sundayAdd : saturday ? saturdayAdd : 0))
                       const sel  = selectedDays.has(d.workDate)
                       // Dzień otwarty (bez godziny końca) wpadłby jako 0 h —
                       // pracownik dostałby za mało, więc go nie zaznaczamy.
-                      const blocked = d.settled || d.open
+                      // Dniówka: dzień nieobecności nie ma czego rozliczać —
+                      // zaznaczenie go tylko zamknęłoby dzień na zero.
+                      const blocked = d.settled || d.open || (isDaily && !d.present)
                       return (
                         <div key={d.workDate}
                           className={`flex items-center gap-3 rounded-xl border-2 px-3 py-2.5 transition-all ${
@@ -421,7 +430,9 @@ export function PayrollPage() {
                               )}
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              {isHourly
+                              {isDaily
+                                ? (d.present ? 'obecny' : ({ off: 'Wolne', vacation: 'Urlop', sick: 'Chorobowe', absent: 'Nieobecność' } as Record<string, string>)[d.status] ?? 'brak wpisu')
+                                : isHourly
                                 ? (d.status && d.status !== 'work'
                                     ? ({ off: 'Wolne', vacation: 'Urlop', sick: 'Chorobowe', absent: 'Nieobecność' } as Record<string, string>)[d.status]
                                     : `${d.timeFrom || '—'}–${d.timeTo || '…'}`)
@@ -901,12 +912,22 @@ function BulkSettleDialog({ role, onClose, onDone }: {
     [role, range.from, range.to])
 
   const rows = plan?.workers ?? []
+  // Domyślnie wszyscy, ale biuro musi móc kogoś pominąć (np. czeka na
+  // domknięcie dnia albo dostanie wypłatę osobno).
+  const [skip, setSkip] = useState<Set<string>>(new Set())
+  const rowsKey = rows.map(r => r.workerId).join(',')
+  useEffect(() => { setSkip(new Set()) }, [rowsKey])
+
+  const picked = rows.filter(r => !skip.has(r.workerId))
+  const pickedNet = picked.reduce((s, r) => s + r.net, 0)
 
   async function run() {
     setBusy(true)
     try {
       const res = await payrollApi.bulkSettle({
-        role, dateFrom: range.from, dateTo: range.to, dryRun: false })
+        role, dateFrom: range.from, dateTo: range.to, dryRun: false,
+        skipWorkerIds: Array.from(skip),
+      })
       onDone(); onClose()
       if (res.failed.length) {
         toast.warning(
@@ -952,9 +973,24 @@ function BulkSettleDialog({ role, onClose, onDone }: {
             Nikt z tej grupy nie ma w tym okresie dni do rozliczenia
           </div>
         ) : (
+          <>
+          <button type="button"
+            onClick={() => setSkip(skip.size === 0 ? new Set(rows.map(r => r.workerId)) : new Set())}
+            className="text-xs font-semibold text-primary hover:underline self-start">
+            {skip.size === 0 ? 'Odznacz wszystkich' : 'Zaznacz wszystkich'}
+          </button>
           <div className="max-h-72 overflow-y-auto divide-y border rounded-xl">
             {rows.map(r => (
-              <div key={r.workerId} className="flex items-center gap-3 px-3 py-2">
+              <label key={r.workerId}
+                className={`flex items-center gap-3 px-3 py-2 cursor-pointer ${skip.has(r.workerId) ? 'opacity-45' : ''}`}>
+                <input type="checkbox" className="w-4 h-4 rounded cursor-pointer"
+                  checked={!skip.has(r.workerId)}
+                  onChange={() => setSkip(prev => {
+                    const next = new Set(prev)
+                    if (next.has(r.workerId)) next.delete(r.workerId)
+                    else next.add(r.workerId)
+                    return next
+                  })} />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold truncate">{r.workerName}</div>
                   <div className="text-xs text-muted-foreground">
@@ -963,23 +999,27 @@ function BulkSettleDialog({ role, onClose, onDone }: {
                   </div>
                 </div>
                 <div className="text-sm font-black text-green-700 tabular-nums">{fmtPln(r.net)} zł</div>
-              </div>
+              </label>
             ))}
           </div>
+          </>
         )}
 
         <div className="flex items-center justify-between pt-1">
           <div className="text-sm text-muted-foreground">
             Razem do wypłaty:{' '}
-            <strong className="text-foreground">{fmtPln(plan?.totalNet ?? 0)} zł</strong>
+            <strong className="text-foreground">{fmtPln(pickedNet)} zł</strong>
+            {skip.size > 0 && (
+              <span className="ml-2 text-xs">({skip.size} pominiętych)</span>
+            )}
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={onClose} disabled={busy}>Anuluj</Button>
-            <Button onClick={run} disabled={busy || rows.length === 0}>
+            <Button onClick={run} disabled={busy || picked.length === 0}>
               {busy
                 ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
                 : <CheckCircle size={14} className="mr-2" />}
-              Rozlicz {rows.length}
+              Rozlicz {picked.length}
             </Button>
           </div>
         </div>

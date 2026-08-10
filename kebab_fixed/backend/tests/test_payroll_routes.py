@@ -20,6 +20,7 @@ def test_bulk_settle_przekazuje_payload_z_toSnake(monkeypatch):
         "date_from": "2026-08-03",
         "date_to": "2026-08-09",
         "dry_run": False,
+        "skip_worker_ids": ["w2"],
     })
     route.bulk_settle(dto)
 
@@ -28,6 +29,7 @@ def test_bulk_settle_przekazuje_payload_z_toSnake(monkeypatch):
         "date_from": "2026-08-03",
         "date_to": "2026-08-09",
         "dry_run": False,
+        "skip_worker_ids": ["w2"],
     }
 
 
@@ -37,6 +39,7 @@ def test_bulk_settle_domyslnie_jest_podgladem():
         "role": "WORKER_GENERAL", "date_from": "2026-08-03", "date_to": "2026-08-09",
     })
     assert dto.dry_run is True
+    assert dto.skip_worker_ids == []
 
 
 def test_bulk_settle_wymaga_dat():
