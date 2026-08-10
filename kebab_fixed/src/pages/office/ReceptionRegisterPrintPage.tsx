@@ -168,12 +168,14 @@ export function ReceptionRegisterPrintPage() {
       cols={cols}
       rows={ROWS_MAIN}
       card="Karta 1.1.1 do instrukcji 1.1 — operacyjne programy warunków wstępnych (oPRP)"
+      /* Oznaczenia DOKŁADNIE wg instrukcji 1.1 (b/z, N, K). Wcześniej karta
+         miała ✓/✗/ND — symbole, których procedura w ogóle nie przewiduje. */
       legend={<Legend items={[
-        'ocena (kol. f, i, k): ✓ zgodne — dostawa przyjęta',
-        '✗ niezgodne — opisać w kol. „Uwagi” i podjąć działanie korygujące',
-        'ND nie dotyczy',
-        'temperatura w °C, z dokładnością do 0,1',
-        'dostawa niezgodna nie może zostać rozładowana bez decyzji osoby upoważnionej',
+        'kol. f, i — ocena: b/z bez zastrzeżeń albo N niezgodne',
+        'kol. k — kwalifikacja: K dostawa przyjęta albo N odmowa przyjęcia',
+        'kol. g, h — NAJWYŻSZA zmierzona temperatura; drób do +4 °C, mięso czerwone do +7 °C',
+        'niezgodność ilościowa: wpisać ilość rzeczywiście przyjętą, uwagę w kol. j i wyegzekwować korektę dokumentów od dostawcy',
+        'dostawę odrzuconą również się rejestruje — służy do oceny dostawców',
       ]} />}
     >
       {/* Szapka trójpoziomowa: para „Komora / Mięso” siedzi pod wspólnym
@@ -188,7 +190,10 @@ export function ReceptionRegisterPrintPage() {
         </tr>
         <tr>
           <th className="hd" rowSpan={2}>{cols[5].label}</th>
-          <th className="hd" colSpan={2}>Temperatura</th>
+          {/* „najwyższa zmierzona" wprost w szapce: instrukcja 1.1 każe wpisywać
+              NAJWYŻSZY odczyt (z rejestratora auta i z kolejnych palet), a nie
+              średnią ani pierwszy pomiar — z samej kratki tego nie widać. */}
+          <th className="hd" colSpan={2}>Temperatura — najwyższa zmierzona</th>
           {cols.slice(8, 13).map(c => <th key={c.letter} className="hd" rowSpan={2}>{c.label}</th>)}
         </tr>
         <tr>
