@@ -224,7 +224,7 @@ function SingleReport({ data }: { data: ReportData }) {
       </table>
 
       <div className="mt-2 text-[8px] text-gray-500 border-t pt-1">
-        <span>2.1.1 Raport z rozbioru</span>
+        <span>Karta 2.1.1 do instrukcji 2.1 — operacyjne programy warunków wstępnych (oPRP)</span>
       </div>
     </div>
   )
