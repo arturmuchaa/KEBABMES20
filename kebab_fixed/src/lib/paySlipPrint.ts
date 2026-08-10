@@ -58,6 +58,12 @@ function num(v: unknown): string {
   return Number(v ?? 0).toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+/** Liczba bez zbędnych groszy: 10 → „10", 7,5 → „7,5". Wiersz premii musi
+ *  zmieścić się w jednej linii wąskiej kolumny paska. */
+function numShort(v: unknown): string {
+  return Number(v ?? 0).toLocaleString('pl-PL', { maximumFractionDigits: 2 })
+}
+
 function fmtDate(d: string, opts: Intl.DateTimeFormatOptions): string {
   return new Date(d + 'T12:00:00').toLocaleDateString('pl-PL', opts)
 }
@@ -225,8 +231,8 @@ function paySlipHtml(s: any | null): string {
       <div class="col-sum">
         <table class="sum">
           <tr><td class="lbl">${esc(label)}</td><td class="r bold nw">${num(basisTotal(s))} ${esc(unit)}</td></tr>
-          ${saturdayBonusTotal(s) > 0 ? `<tr><td class="lbl">w tym sobota ${num(s.saturday_hours)} h \u00d7 ${num(s.saturday_bonus_per_hour)} zł</td><td class="r nw">+ ${num(saturdayBonusTotal(s))} zł</td></tr>` : ''}
-          ${sundayBonusTotal(s) > 0 ? `<tr><td class="lbl">w tym niedziela ${num(s.sunday_hours)} h \u00d7 ${num(s.sunday_bonus_per_hour)} zł</td><td class="r nw">+ ${num(sundayBonusTotal(s))} zł</td></tr>` : ''}
+          ${saturdayBonusTotal(s) > 0 ? `<tr><td class="lbl nw">sobota ${numShort(s.saturday_hours)} h \u00d7 ${numShort(s.saturday_bonus_per_hour)} zł</td><td class="r nw">+ ${num(saturdayBonusTotal(s))} zł</td></tr>` : ''}
+          ${sundayBonusTotal(s) > 0 ? `<tr><td class="lbl nw">niedziela ${numShort(s.sunday_hours)} h \u00d7 ${numShort(s.sunday_bonus_per_hour)} zł</td><td class="r nw">+ ${num(sundayBonusTotal(s))} zł</td></tr>` : ''}
           <tr><td class="lbl">Wynagrodzenie</td><td class="r bold nw">${num(s.gross_amount)} zł</td></tr>
           ${deductRows}
         </table>

@@ -31,6 +31,10 @@ const ROLE_ICON: Record<string, React.ReactNode> = {
 function fmtPln(n: number) {
   return n.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
+/** Bez zbędnych groszy — wiersz premii ma się zmieścić w jednej linii. */
+function nfShort(n: unknown) {
+  return Number(n ?? 0).toLocaleString('pl-PL', { maximumFractionDigits: 2 })
+}
 function fmtKg(n: number) {
   return n.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
@@ -561,7 +565,7 @@ export function PayrollPage() {
                     {isHourly && saturdayUnits > 0 && saturdayAdd > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">
-                          w tym sobota ({fmtKg(saturdayUnits)} h × +{saturdayAdd.toFixed(2)} zł/h)
+                          sobota {nfShort(saturdayUnits)} h × +{nfShort(saturdayAdd)} zł/h
                         </span>
                         <span className="font-semibold text-amber-700">+ {fmtPln(saturdayUnits * saturdayAdd)} zł</span>
                       </div>
@@ -569,7 +573,7 @@ export function PayrollPage() {
                     {isHourly && sundayUnits > 0 && sundayAdd > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">
-                          w tym niedziela ({fmtKg(sundayUnits)} h × +{sundayAdd.toFixed(2)} zł/h)
+                          niedziela {nfShort(sundayUnits)} h × +{nfShort(sundayAdd)} zł/h
                         </span>
                         <span className="font-semibold text-amber-700">+ {fmtPln(sundayUnits * sundayAdd)} zł</span>
                       </div>
@@ -1204,7 +1208,7 @@ function PaySlipPreview({ settlement: s }: { settlement: any }) {
         <div className="flex justify-between"><span className="text-muted-foreground">{basisLabel(s)}</span><span className="font-semibold">{basisTotal(s).toFixed(2)} {basisUnit(s)}</span></div>
         {sundayBonusTotal(s) > 0 && (
           <div className="flex justify-between text-amber-700">
-            <span className="text-xs">w tym niedziela {Number(s.sunday_hours).toFixed(2)} h × {Number(s.sunday_bonus_per_hour).toFixed(2)} zł</span>
+            <span className="text-xs">niedziela {nfShort(s.sunday_hours)} h × {nfShort(s.sunday_bonus_per_hour)} zł</span>
             <span>+ {sundayBonusTotal(s).toFixed(2)} zł</span>
           </div>
         )}

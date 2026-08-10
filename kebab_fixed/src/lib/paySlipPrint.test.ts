@@ -262,8 +262,8 @@ describe('premia niedzielna na pasku', () => {
   })
 
   it('pasek pokazuje wiersz premii tylko gdy jest', () => {
-    expect(buildPaySlipsDocument([zBonusem()])).toContain('w tym niedziela')
-    expect(buildPaySlipsDocument([hourly()])).not.toContain('w tym niedziela')
+    expect(buildPaySlipsDocument([zBonusem()])).toContain('niedziela 8 h × 5 zł')
+    expect(buildPaySlipsDocument([hourly()])).not.toContain('niedziela')
   })
 })
 
@@ -312,7 +312,7 @@ describe('premia sobotnia i dniówka na pasku', () => {
     const html = buildPaySlipsDocument([hourly({
       saturday_hours: 8, saturday_bonus_per_hour: 4,
     })])
-    expect(html).toContain('w tym sobota')
+    expect(html).toContain('sobota 8 h × 4 zł')
   })
 
   it('dniówka: jednostka „dni", zarobek z rate_per_day', () => {
@@ -393,5 +393,28 @@ describe('pasek dniówkowy: tylko data i zarobek', () => {
     const html = buildPaySlipsDocument([daily()])
     expect(html).toContain('Dni obecności')
     expect(html).toContain('6,00 dni')
+  })
+})
+
+
+describe('wiersz premii mieści się w jednej linii', () => {
+  const zPremia = () => hourly({
+    saturday_hours: 10, saturday_bonus_per_hour: 5,
+    sunday_hours: 8, sunday_bonus_per_hour: 6,
+  })
+
+  it('bez „w tym" i bez zbędnych groszy', () => {
+    const html = buildPaySlipsDocument([zPremia()])
+    expect(html).toContain('sobota 10 h × 5 zł')
+    expect(html).toContain('niedziela 8 h × 6 zł')
+    expect(html).not.toContain('w tym sobota')
+    expect(html).not.toContain('10,00 h × 5,00 zł')
+  })
+
+  it('ułamkowe godziny i stawki nadal czytelne', () => {
+    const html = buildPaySlipsDocument([hourly({
+      saturday_hours: 7.5, saturday_bonus_per_hour: 4.5,
+    })])
+    expect(html).toContain('sobota 7,5 h × 4,5 zł')
   })
 })
