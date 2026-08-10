@@ -150,6 +150,7 @@ function paySlipHtml(s: any | null): string {
   // pracował — sama suma nie pozwala mu sprawdzić dnia. Kolumna dochodzi
   // tylko tam, gdzie ma sens (akord jej nie ma).
   const hourly = basisOf(s) === 'hours'
+  const daily = basisOf(s) === 'daily'
   const withShift = hourly && days.some((d: any) => d.time_from || (d.shifts ?? []).length)
 
   /** Wszystkie zmiany dnia, jedna pod drugą — powrót po południu (6-15,
@@ -166,20 +167,22 @@ function paySlipHtml(s: any | null): string {
       : '—'
   }
 
-  // Przy godzinach kolumna „Zarobek" wypada: stawkę zna tylko szef, a pasek
-  // ma pokazać pracownikowi czas pracy. Trzy kolumny zamiast czterech dają
-  // też miejsce na drugą zmianę bez obcinania.
+  // Kolumny zależą od podstawy:
+  //  • godziny — bez „Zarobek" (stawkę zna tylko szef), zostaje czas pracy;
+  //  • dniówka — bez liczby dni (jedynka przy każdym dniu to szum), zostaje
+  //    data i kwota;
+  //  • akord — bez zmian: kilogramy i zarobek.
   const dayRow = (d: any) => split
     ? `<tr><td class="nw">${esc(fmtDate(d.work_date, dateFmt))}</td><td class="r nw">${num(dayAmount(d, s))}</td></tr>`
     : `<tr>
       <td class="nw">${esc(fmtDate(d.work_date, dateFmt))}${d.sunday ? ' *' : ''}</td>
       ${withShift ? `<td>${shiftCell(d)}</td>` : ''}
-      <td class="r nw">${num(dayAmount(d, s))}</td>
+      ${daily ? '' : `<td class="r nw">${num(dayAmount(d, s))}</td>`}
       ${hourly ? '' : `<td class="r nw">${num(dayEarning(d, s))} zł</td>`}
     </tr>`
   const daysHead = split
     ? `<tr><th>Dzień</th><th class="r">${esc(unit)}</th></tr>`
-    : `<tr><th>Dzień</th>${withShift ? '<th>Godziny</th>' : ''}<th class="r">${esc(unit)}</th>${hourly ? '' : '<th class="r">Zarobek</th>'}</tr>`
+    : `<tr><th>Dzień</th>${withShift ? '<th>Godziny</th>' : ''}${daily ? '' : `<th class="r">${esc(unit)}</th>`}${hourly ? '' : '<th class="r">Zarobek</th>'}</tr>`
   const daysTable = (rows: any[]) => `<table class="days">
       <thead>${daysHead}</thead>
       <tbody>${rows.map(dayRow).join('')}</tbody>

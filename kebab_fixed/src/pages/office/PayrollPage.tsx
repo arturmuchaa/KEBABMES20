@@ -1189,9 +1189,12 @@ function PaySlipPreview({ settlement: s }: { settlement: any }) {
                     <span key={r} className="ml-1.5 tabular-nums">{r}</span>
                   ))}
               </span>
-              <span className="font-semibold tabular-nums">
-                {dayAmount(d, s).toFixed(2)} {basisUnit(s)}
-              </span>
+              {/* Dniówka: jedynka przy każdym dniu to szum — zostaje sama data. */}
+              {basisUnit(s) !== 'dni' && (
+                <span className="font-semibold tabular-nums">
+                  {dayAmount(d, s).toFixed(2)} {basisUnit(s)}
+                </span>
+              )}
             </div>
           ))}
           <Separator className="my-1" />

@@ -364,3 +364,34 @@ describe('pasek godzinowy: bez zarobku, obie zmiany widoczne', () => {
     expect(html).toContain('11,00')
   })
 })
+
+
+describe('pasek dniówkowy: tylko data i zarobek', () => {
+  const daily = () => sample({
+    worker_role: 'WORKER_GENERAL', basis: 'daily',
+    kg_total: 0, rate_per_kg: 0, days_total: 6, rate_per_day: 175,
+    gross_amount: 1050, net_amount: 1050, deductions: [],
+    work_dates_detail: [
+      { work_date: '2026-08-03', days: 1 },
+      { work_date: '2026-08-04', days: 1 },
+    ],
+  })
+
+  it('kolumna z liczbą dni wypada — jedynka przy każdym dniu to szum', () => {
+    const html = buildPaySlipsDocument([daily()])
+    expect(html).not.toContain('<th class="r">dni</th>')
+    expect(html).not.toContain('>1,00<')
+  })
+
+  it('zostaje data i zarobek dnia', () => {
+    const html = buildPaySlipsDocument([daily()])
+    expect(html).toContain('Zarobek')
+    expect(html).toContain('175,00 zł')
+  })
+
+  it('podsumowanie dalej podaje liczbę dni', () => {
+    const html = buildPaySlipsDocument([daily()])
+    expect(html).toContain('Dni obecności')
+    expect(html).toContain('6,00 dni')
+  })
+})
