@@ -249,18 +249,31 @@ def create_reception(dto: ReceptionCreate) -> Dict[str, Any]:
 
 
 def _attach_details(rec: Dict) -> Dict:
-    """Dokument + numery porządkowe + partie dostawcy pod każdym z nich."""
+    """Dokument + numery porządkowe + partie dostawcy pod każdym z nich.
+
+    Dokłada też mięso z rozbioru: karta 1.1.1/2 ma kolumnę „Mięso [kg]",
+    którą do tej pory zostawialiśmy pustą, bo w chwili przyjęcia jest jeszcze
+    nieznana. Na wydruku miesięcznym rozbiór jest już zrobiony, więc liczba
+    jest — i to ta sama, którą liczy reszta systemu (tylko wpisy `complete`,
+    storna i wpisy w trakcie ważenia nie wchodzą).
+    """
     batches = query_all(
         "SELECT * FROM raw_batches WHERE reception_id=%s ORDER BY internal_batch_seq",
         (rec["id"],))
     lines = query_all(
         "SELECT * FROM reception_supplier_batches WHERE reception_id=%s ORDER BY seq",
         (rec["id"],))
+    meat = {r["raw_batch_id"]: float(r["kg"] or 0) for r in query_all(
+        "SELECT de.raw_batch_id, COALESCE(SUM(de.kg_meat), 0) AS kg "
+        "FROM deboning_entries de JOIN raw_batches b ON b.id = de.raw_batch_id "
+        "WHERE b.reception_id = %s AND COALESCE(de.status, 'complete') = 'complete' "
+        "GROUP BY de.raw_batch_id", (rec["id"],))}
     by_batch: Dict[str, List[Dict]] = {}
     for l in lines:
         by_batch.setdefault(l["raw_batch_id"] or "", []).append(l)
     for b in batches:
         b["supplier_batches"] = by_batch.get(b["id"], [])
+        b["kg_meat"] = meat.get(b["id"], 0.0)
     rec["batches"] = batches
     rec["kg_total"] = sum(float(b["kg_received"] or 0) for b in batches)
     return rec

@@ -2,11 +2,18 @@
  * receptionRegisterRows — dane MES → wiersze kart HACCP 1.1.1 i 1.1.1/2.
  *
  * Karta 1.1.1 rejestruje DOSTAWY (jeden wiersz = jeden numer przyjęcia),
- * karta 1.1.1/2 rozbija każdą dostawę na NUMERY PORZĄDKOWE. Obie karty
- * wypełnia się ręcznie w kolumnach oceny (wizualna, temperatury, kwalifikacja)
- * — system podaje tylko to, co sam wie: numery, dostawcę, asortyment, daty
- * i dokument przywozowy. Kolumn oceny NIE wypełniamy nigdy: to zapis z
- * pomiaru i oględzin, a nie z bazy danych.
+ * karta 1.1.1/2 rozbija każdą dostawę na NUMERY PORZĄDKOWE.
+ *
+ * Karty NIE są równorzędne i to jest tu najważniejsze:
+ *   * 1.1.1 ma sześć kolumn powstających PRZY AUCIE (ocena wizualna,
+ *     temperatura komory i mięsa, zgodność kg, kwalifikacja, podpisy).
+ *     Tych nie wypełniamy nigdy — nie ma ich skąd wziąć, a wydruk na koniec
+ *     miesiąca i tak nie da się już uzupełnić długopisem przy dostawie.
+ *     System podaje wyłącznie kolumny a-e (numery, dostawca, asortyment,
+ *     data, dokument) i służy to sprawdzeniu albo odtworzeniu karty.
+ *   * 1.1.1/2 nie ma ŻADNEJ kolumny pomiarowej, więc drukuje się kompletna:
+ *     wszystko poza uwagami i podpisem system zna, łącznie z mięsem
+ *     z rozbioru.
  *
  * Zero importów z React/UI — moduł ma się dać przetestować w vitest.
  */
@@ -82,8 +89,10 @@ export function mainRows(receptions: Reception[], cols: number): string[][] {
 /**
  * detailRows — karta 1.1.1/2: jeden wiersz na NUMER PORZĄDKOWY.
  *
- * „Mięso [kg]" (g) zostaje puste: wychodzi dopiero po rozbiorze partii, więc
- * w chwili przyjęcia wpisanie tam czegokolwiek byłoby zmyśleniem.
+ * Ta karta NIE ma kolumn pomiarowych (temperatur, oceny wizualnej), więc
+ * w odróżnieniu od 1.1.1 drukuje się kompletna na koniec miesiąca.
+ * „Mięso [kg]" (g) jest wtedy już znane z rozbioru; partia jeszcze
+ * nierozebrana zostaje pusta, zamiast pokazywać zero.
  */
 export function detailRows(receptions: Reception[], cols: number): string[][] {
   const out: string[][] = []
@@ -98,6 +107,7 @@ export function detailRows(receptions: Reception[], cols: number): string[][] {
         plDate(b.slaughterDate),
         plDate(b.expiryDate),
         plNum(Number(b.pricePerKg), 2),
+        plNum(Number(b.kgMeat ?? 0)),
       ]
       out.push([...row, ...Array(Math.max(0, cols - row.length)).fill('')])
     }

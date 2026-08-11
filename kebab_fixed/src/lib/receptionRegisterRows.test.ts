@@ -15,10 +15,10 @@ const rec = (over: Partial<Reception> = {}): Reception => ({
   notes: '',
   kgTotal: 9000,
   batches: [
-    { internalBatchNo: '470', kgReceived: 5235, pricePerKg: 5.2,
+    { internalBatchNo: '470', kgReceived: 5235, pricePerKg: 5.2, kgMeat: 3439.5,
       slaughterDate: '2026-08-10', expiryDate: '2026-08-17',
       materialName: 'Ćwiartka z kurczaka', supplierBatches: [] },
-    { internalBatchNo: '471', kgReceived: 3765, pricePerKg: 5.2,
+    { internalBatchNo: '471', kgReceived: 3765, pricePerKg: 5.2, kgMeat: 1278.5,
       slaughterDate: '2026-08-10', expiryDate: '2026-08-17',
       materialName: 'Ćwiartka z kurczaka', supplierBatches: [] },
   ] as any,
@@ -103,9 +103,17 @@ describe('detailRows — karta 1.1.1/2', () => {
     expect(rows[1][1]).toBe('471')
   })
 
-  it('„Mięso [kg]" zostaje puste — znane dopiero po rozbiorze', () => {
+  it('„Mięso [kg]" wchodzi z rozbioru — na koniec miesiąca jest już znane', () => {
     const rows = detailRows([rec()], 9)
-    expect(rows[0].slice(6)).toEqual(['', '', ''])
+    expect(rows[0][6]).toBe('3439,5')
+    // Uwagi i podpis zostają ręczne.
+    expect(rows[0].slice(7)).toEqual(['', ''])
+  })
+
+  it('partia jeszcze nierozebrana zostawia kratkę pustą, nie zero', () => {
+    const r = rec()
+    const rows = detailRows([{ ...r, batches: [{ ...r.batches[0], kgMeat: 0 }] as any }], 9)
+    expect(rows[0][6]).toBe('')
   })
 })
 

@@ -16,7 +16,7 @@ from app.services.receptions_service import (
     get_reception,
     next_delivery_number,
 )
-from app.utils.ids import now_iso
+from app.utils.ids import cuid, now_iso
 
 
 def _seed_supplier():
@@ -260,3 +260,25 @@ def test_get_reception_zwraca_dokument_z_partiami(db):
     assert float(doc["kg_total"]) == 10000.0
     assert len(doc["batches"]) == 2
     assert len(doc["batches"][0]["supplier_batches"]) == 5
+
+
+def test_mieso_z_rozbioru_dolaczone_do_numeru_porzadkowego(db):
+    """Kolumna „Mięso [kg]" karty 1.1.1/2 — znana dopiero po rozbiorze.
+
+    Liczona jak wszędzie indziej: tylko wpisy `complete`, więc storno ani
+    pobranie w trakcie ważenia nie zawyża dokumentu.
+    """
+    _seed_supplier()
+    out = create_reception(_dto())
+    first = out["batches"][0]
+    for kg, status in ((900.0, "complete"), (500.0, "complete"), (300.0, "cancelled")):
+        execute(
+            "INSERT INTO deboning_entries (id, raw_batch_id, raw_batch_no, kg_meat, status, created_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s)",
+            (cuid(), first["id"], first["internal_batch_no"], kg, status, now_iso()))
+
+    doc = get_reception(out["reception"]["id"])
+    assert float(doc["batches"][0]["kg_meat"]) == 1400.0
+    # Partia jeszcze nierozebrana ma zero, a nie brak klucza — wydruk czyta
+    # to pole bezwarunkowo.
+    assert float(doc["batches"][1]["kg_meat"]) == 0.0

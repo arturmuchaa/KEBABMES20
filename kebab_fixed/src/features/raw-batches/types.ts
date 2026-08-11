@@ -159,6 +159,8 @@ export interface ReceptionHeader {
 
 export interface ReceptionBatch extends RawBatch {
   readonly supplierBatches: SupplierBatchItem[]
+  /** Mięso z rozbioru tego numeru porządkowego; 0 = jeszcze nierozebrana. */
+  readonly kgMeat: number
 }
 
 export interface Reception {

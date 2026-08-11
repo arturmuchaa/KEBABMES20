@@ -51,11 +51,22 @@ export function ReceptionRegisterHistoryPage() {
       </div>
 
       {withData && (
-        <div className="mt-2 mb-3 text-[11px] text-ink-3 leading-snug">
-          System wypełni numer przyjęcia, dostawcę, asortyment, daty, dokument
-          przywozowy oraz numery porządkowe z wagami. Ocena wizualna,
-          temperatury, zgodność i podpisy zostają puste — to zapis z pomiaru
-          przy dostawie, a nie z bazy.
+        <div className="mt-2 mb-3 text-[11px] text-ink-3 leading-snug space-y-1">
+          {/* Obie karty zachowują się INACZEJ i operator musi to wiedzieć
+              przed drukiem, inaczej wydrukuje 1.1.1, której nie da się już
+              dokończyć: temperatury mierzy się przy aucie, a nie na koniec
+              miesiąca nad gotowym wydrukiem. */}
+          <div>
+            <strong>Karta 1.1.1/2</strong> drukuje się kompletna — nie ma kolumn
+            mierzonych przy dostawie. Ręcznie zostają tylko uwagi i podpis.
+          </div>
+          <div>
+            <strong>Karta 1.1.1</strong> dostaje wyłącznie kolumny a–e (numer
+            przyjęcia, dostawca, asortyment, data, dokument). Ocena wizualna,
+            temperatury, zgodność i kwalifikacja powstają przy aucie, więc
+            wydruku z danymi <strong>nie da się już uzupełnić</strong> — służy do
+            sprawdzenia albo odtworzenia karty, a nie zamiast niej.
+          </div>
         </div>
       )}
 
