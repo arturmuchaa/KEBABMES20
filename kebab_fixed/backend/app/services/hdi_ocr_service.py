@@ -4,14 +4,31 @@ Rozbiór tekstu na pozycje siedzi w `hdi_parse` (czysty, testowalny); tutaj
 zostaje samo I/O: PDF → obraz → tekst.
 
 Wszystko lokalnie: skan dokumentu dostawcy NIE wychodzi z serwera zakładu.
+
+TRZY DROGI, od najtańszej (kolejność ma znaczenie dla czasu odpowiedzi):
+
+  1. PDF z warstwą tekstową (gdyby dostawca kiedyś wysłał plik ze swojego
+     systemu zamiast skanu) → `pdftotext`, bez OCR. Natychmiast i bezbłędnie.
+  2. Skan z osadzonym obrazem → wyciągamy obraz `pdfimages` i czytamy JEGO.
+  3. Reszta (obraz za mały albo nietypowy PDF) → rasteryzacja `pdftoppm`.
+
+Zmierzone na skanie HDI 33656 (2026-08-11, serwer 2-rdzeniowy):
+
+    rasteryzacja 300 dpi + OCR domyślny   19,2 s
+    obraz wprost z PDF + strojenie         2,0 s
+
+przy IDENTYCZNYM wyniku (8 pozycji, wszystkie numery partii, zgodne sumy).
+Rasteryzacja w 300 dpi POWIĘKSZAŁA skan (natywnie 1653×2338 px), czyli
+kosztowała czas, nie dodając informacji.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
@@ -22,13 +39,25 @@ logger = get_logger(__name__)
 
 #: Skan A4 z telefonu bywa ciężki; powyżej tego to już nie jest dokument.
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
-#: Rozdzielczość rasteryzacji PDF. 300 dpi to minimum, przy którym tesseract
-#: czyta sześciocyfrowe numery partii bez pomyłek — przy 200 zaczyna mylić
-#: 8 z 0. Wyżej niż 400 rośnie tylko czas.
+#: Rozdzielczość rasteryzacji — tylko dla drogi awaryjnej.
 RENDER_DPI = 300
+#: Poniżej tego skan jest zbyt drobny, żeby czytać go w natywnej wielkości —
+#: wtedy świadomie płacimy za rasteryzację, bo powiększenie pomaga tesseractowi.
+#: 1500 px na dłuższym boku A4 to ok. 180 dpi. UWAGA: to osąd, nie pomiar —
+#: zmierzony jest jeden punkt (skan 1653x2338, czyli 200 dpi, czyta się
+#: bezbłędnie). Gdy trafi się gorszy skan, próg warto zweryfikować na nim.
+MIN_NATIVE_PX = 1500
+#: Logo albo pieczątka osadzona w PDF — nie ma po co jej OCR-ować.
+MIN_USEFUL_PX = 800
 #: OCR całej strony nie powinien trwać dłużej; dłużej = coś jest nie tak
 #: z plikiem, a operator czeka przy formularzu.
 TIMEOUT_S = 90
+
+#: --oem 1        = sam LSTM (starszy silnik i tak nic tu nie wnosi)
+#: do_invert=0    = bez próby czytania negatywu; oszczędza ~30% czasu
+TESSERACT_FLAGS = ["--psm", "6", "--oem", "1", "-c", "tessedit_do_invert=0"]
+#: OpenMP na 2 rdzeniach kosztuje więcej, niż daje: 1 wątek 1,2 s, 4 wątki 4,3 s.
+TESSERACT_ENV = {"OMP_THREAD_LIMIT": "1"}
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 
@@ -37,9 +66,10 @@ def ocr_available() -> bool:
     return shutil.which("tesseract") is not None
 
 
-def _run(cmd: list[str]) -> None:
+def _run(cmd: list[str], env_extra: Dict[str, str] | None = None) -> None:
+    env = {**os.environ, **(env_extra or {})}
     try:
-        subprocess.run(cmd, check=True, capture_output=True, timeout=TIMEOUT_S)
+        subprocess.run(cmd, check=True, capture_output=True, timeout=TIMEOUT_S, env=env)
     except subprocess.TimeoutExpired:
         raise HTTPException(504, "Odczyt dokumentu trwał zbyt długo — spróbuj ponownie")
     except subprocess.CalledProcessError as exc:
@@ -48,26 +78,73 @@ def _run(cmd: list[str]) -> None:
         raise HTTPException(422, "Nie udało się odczytać pliku — czy to na pewno skan HDI?")
 
 
-def _pages_to_text(work: Path, source: Path) -> str:
-    """Każda strona osobno: HDI bywa dwustronicowy przy długiej tabeli."""
-    if source.suffix.lower() == ".pdf":
-        _run(["pdftoppm", "-r", str(RENDER_DPI), "-png", str(source), str(work / "page")])
-        images = sorted(work.glob("page*.png"))
-    else:
-        images = [source]
-    if not images:
-        raise HTTPException(422, "Plik nie zawiera żadnej strony do odczytania")
+def _png_size(path: Path) -> tuple[int, int]:
+    """Wymiary PNG z nagłówka IHDR — bez wciągania biblioteki graficznej."""
+    try:
+        head = path.read_bytes()[:33]
+        if head[:8] != b"\x89PNG\r\n\x1a\n":
+            return (0, 0)
+        return (int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big"))
+    except OSError:
+        return (0, 0)
 
-    out: list[str] = []
-    for img in images:
-        base = work / f"{img.stem}_txt"
-        # --psm 6 = „jednolity blok tekstu": tabela HDI ma stałe kolumny,
-        # a domyślny tryb rozbijał ją na kolumny i mieszał kolejność pól.
-        _run(["tesseract", str(img), str(base), "-l", "pol", "--psm", "6"])
-        txt = base.with_suffix(".txt")
-        if txt.exists():
-            out.append(txt.read_text(encoding="utf-8", errors="replace"))
-    return "\n".join(out)
+
+def usable_images(sizes: List[tuple[int, int]]) -> bool:
+    """Czy osadzone obrazy nadają się do czytania w natywnej wielkości.
+
+    Odrzuca dwa przypadki: brak obrazów (PDF wektorowy) i same drobiazgi
+    (logo, pieczątka) albo skan tak drobny, że powiększenie mu pomoże.
+    """
+    duze = [s for s in sizes if min(s) >= MIN_USEFUL_PX]
+    return bool(duze) and max(max(s) for s in duze) >= MIN_NATIVE_PX
+
+
+def _tesseract(img: Path, work: Path) -> str:
+    base = work / f"{img.stem}_txt"
+    _run(["tesseract", str(img), str(base), "-l", "pol", *TESSERACT_FLAGS], TESSERACT_ENV)
+    txt = base.with_suffix(".txt")
+    return txt.read_text(encoding="utf-8", errors="replace") if txt.exists() else ""
+
+
+def _pdf_text_layer(source: Path) -> str:
+    """Tekst z PDF-a, jeśli w ogóle go ma. Skan zwróci pustkę."""
+    if not shutil.which("pdftotext"):
+        return ""
+    out = source.with_suffix(".layer.txt")
+    try:
+        subprocess.run(["pdftotext", "-layout", str(source), str(out)],
+                       check=True, capture_output=True, timeout=TIMEOUT_S)
+    except (subprocess.SubprocessError, OSError):
+        return ""
+    return out.read_text(encoding="utf-8", errors="replace") if out.exists() else ""
+
+
+def _pages_to_text(work: Path, source: Path) -> str:
+    if source.suffix.lower() != ".pdf":
+        return _tesseract(source, work)
+
+    # 1. Warstwa tekstowa — jeśli PDF ją ma, OCR jest zbędny.
+    layer = _pdf_text_layer(source)
+    if parse_hdi_text(layer)["lines"]:
+        logger.info("hdi_ocr.text_layer_used")
+        return layer
+
+    # 2. Obraz osadzony w PDF — czytany w natywnej wielkości.
+    _run(["pdfimages", "-png", str(source), str(work / "img")])
+    images = sorted(work.glob("img*.png"))
+    sizes = [_png_size(p) for p in images]
+    if images and usable_images(sizes):
+        czytane = [p for p, s in zip(images, sizes) if min(s) >= MIN_USEFUL_PX]
+        return "\n".join(_tesseract(p, work) for p in czytane)
+
+    # 3. Awaryjnie: rasteryzacja. Wolniejsza, ale ratuje PDF-y, z których nie
+    #    da się wyjąć sensownego obrazu (wektor, kafelki, bardzo drobny skan).
+    logger.info("hdi_ocr.fallback_render", extra={"images": len(images)})
+    _run(["pdftoppm", "-r", str(RENDER_DPI), "-gray", "-png", str(source), str(work / "page")])
+    pages = sorted(work.glob("page*.png"))
+    if not pages:
+        raise HTTPException(422, "Plik nie zawiera żadnej strony do odczytania")
+    return "\n".join(_tesseract(p, work) for p in pages)
 
 
 def scan_hdi(data: bytes, filename: str) -> Dict[str, Any]:
