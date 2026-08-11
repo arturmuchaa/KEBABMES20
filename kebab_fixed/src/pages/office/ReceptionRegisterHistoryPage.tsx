@@ -17,19 +17,55 @@ const RANGES = [6, 12, 24]
 
 export function ReceptionRegisterHistoryPage() {
   const [range, setRange] = useState(RANGES[0])
+  // Karta pusta = dotychczasowy druk do wypełnienia długopisem. Z danymi =
+  // MES wpisuje to, co wie (numery przyjęcia i porządkowe, dostawca,
+  // asortyment, daty, dokument); kolumny oceny i temperatur zostają puste,
+  // bo to zapis z pomiaru przy aucie.
+  const [withData, setWithData] = useState(false)
   const rows = useMemo(() => receptionCards(range), [range])
+
+  const suffix = withData ? '?dane=1' : ''
+  const pdf = (fn: (day: string) => string) =>
+    (day: string) => `${fn(day)}${withData ? '&dane=1' : ''}`
 
   return (
     <div className="animate-fade-in">
-      <RangePicker ranges={RANGES} value={range} onChange={setRange} unit="mies." />
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <RangePicker ranges={RANGES} value={range} onChange={setRange} unit="mies." />
+        <div className="flex gap-1.5">
+          {[
+            { on: false, label: 'Karta pusta' },
+            { on: true,  label: 'Wypełniona z systemu' },
+          ].map(o => (
+            <button key={o.label}
+              onClick={() => setWithData(o.on)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                withData === o.on
+                  ? 'bg-primary text-white border-primary'
+                  : 'bg-white text-ink-2 border-surface-4 hover:border-primary/50'
+              }`}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-      <div className="mb-1 text-[11px] font-bold uppercase tracking-wide text-ink-3">
+      {withData && (
+        <div className="mt-2 mb-3 text-[11px] text-ink-3 leading-snug">
+          System wypełni numer przyjęcia, dostawcę, asortyment, daty, dokument
+          przywozowy oraz numery porządkowe z wagami. Ocena wizualna,
+          temperatury, zgodność i podpisy zostają puste — to zapis z pomiaru
+          przy dostawie, a nie z bazy.
+        </div>
+      )}
+
+      <div className="mb-1 mt-4 text-[11px] font-bold uppercase tracking-wide text-ink-3">
         Karta 1.1.1 — rejestr dostaw
       </div>
       <CardHistoryTable
         rows={rows}
-        pdfUrl={haccpFormsApi.receptionPdfUrl}
-        printPath="/office/rejestr-przyjecia/druk"
+        pdfUrl={pdf(haccpFormsApi.receptionPdfUrl)}
+        printPath={`/office/rejestr-przyjecia/druk${suffix}`}
         dayParam="od"
         periodHeader="Miesiąc"
         searchPlaceholder="Filtruj: numer karty lub miesiąc…"
@@ -40,8 +76,8 @@ export function ReceptionRegisterHistoryPage() {
       </div>
       <CardHistoryTable
         rows={rows}
-        pdfUrl={haccpFormsApi.receptionDetailPdfUrl}
-        printPath="/office/rejestr-przyjecia-szczegolowy/druk"
+        pdfUrl={pdf(haccpFormsApi.receptionDetailPdfUrl)}
+        printPath={`/office/rejestr-przyjecia-szczegolowy/druk${suffix}`}
         dayParam="od"
         periodHeader="Miesiąc"
         searchPlaceholder="Filtruj: numer karty lub miesiąc…"

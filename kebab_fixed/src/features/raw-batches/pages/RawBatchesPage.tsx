@@ -14,9 +14,9 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Plus, AlertTriangle, CheckCircle, Trash2 } from 'lucide-react'
-import { useRawBatches, useCreateRawBatch } from '../hooks/useRawBatches'
+import { useRawBatches, useCreateReception } from '../hooks/useRawBatches'
 import { RawBatchesTable }    from '../components/RawBatchesTable'
-import { CreateRawBatchModal } from '../components/CreateRawBatchModal'
+import { CreateReceptionModal } from '../components/CreateReceptionModal'
 import { EditRawBatchModal, type EditRawBatchFormData } from '../components/EditRawBatchModal'
 import { splitDeliveries, liveSummary, pluralDostawy, type MeatStockMap } from '../deliveryView'
 import { wzApi } from '@/lib/apiClient'
@@ -157,32 +157,35 @@ export function RawBatchesPage() {
   }, [cancelBatch, refetch])
 
   const {
-    form, suggestedBatchNo, suggestedNote, open, expiryPreview,
-    confirmOpen, validationResult, mutationLoading, mutationError,
-    openModal, closeModal, requestSubmit, confirmSubmit, cancelConfirm, updateField,
-    setServiceMode,
-  } = useCreateRawBatch(
-    useCallback((batchNo: string, kg: number) => {
+    header, updateHeader, open, openModal, closeModal,
+    confirmOpen, cancelConfirm, pending, validationResult,
+    suggestedReceptionNo, suggestedBatchNo,
+    mutationLoading, mutationError, requestSubmit, confirmSubmit,
+  } = useCreateReception(
+    useCallback((receptionNo: string, batchNos: string[], kg: number) => {
       refetch()
-      toast.success(`Partia ${batchNo} przyjęta — ${kg.toFixed(2).replace('.', ',')} kg`)
+      toast.success(
+        `Przyjęcie ${receptionNo} — ${kg.toFixed(2).replace('.', ',')} kg` +
+        ` (nr porządkowy: ${batchNos.join(', ')})`)
     }, [refetch]),
   )
 
-  const expiryPreviewMapped = useMemo(() => mapExpiryToUi(expiryPreview), [expiryPreview])
   const warnings = validationResult?.ok ? validationResult.warnings : []
+  const pendingKg = useMemo(
+    () => pending.reduce((s, g) => s + g.kg, 0), [pending])
 
   // Rodzaj surowca wstrzykiwany do formularza przyjęcia (zmiana taba lub
   // otwarcie modala ustawia materialTypeId w dto)
   useEffect(() => {
-    updateField('materialTypeId' as any, matId as any)
+    updateHeader('materialTypeId', matId)
     // Usługa dotyczy tylko mięsa z/s — przy innym surowcu tryb musi zgasnąć,
     // inaczej backend odrzuciłby zapis (400) mimo ukrytego przełącznika.
-    if (matId !== 'mat-mieso-zs') updateField('isService' as any, false as any)
+    if (matId !== 'mat-mieso-zs') updateHeader('isService', false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matId, open])
 
-  const handleSubmit = useCallback(async () => {
-    const err = await requestSubmit()
+  const handleSubmit = useCallback(async (groups: Parameters<typeof requestSubmit>[0]) => {
+    const err = await requestSubmit(groups)
     if (err) toast.error(err)
   }, [requestSubmit])
 
@@ -286,20 +289,17 @@ export function RawBatchesPage() {
       </div>
 
       {/* Modal formularza */}
-      <CreateRawBatchModal
+      <CreateReceptionModal
         open={open}
         onClose={closeModal}
         onSubmit={handleSubmit}
-        form={form}
+        header={header}
+        suggestedReceptionNo={suggestedReceptionNo}
         suggestedBatchNo={suggestedBatchNo}
-        suggestedNote={suggestedNote}
-        expiryPreview={expiryPreviewMapped}
-        totalValue={0}
         supplierOptions={supplierOptions}
         loading={mutationLoading}
         error={mutationError}
-        onFieldChange={updateField}
-        onServiceChange={setServiceMode}
+        onHeaderChange={updateHeader}
       />
 
       {/* Modal edycji */}
@@ -344,9 +344,9 @@ export function RawBatchesPage() {
       <Dialog open={confirmOpen} onOpenChange={v => { if (!v) cancelConfirm() }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Potwierdź przyjęcie partii</DialogTitle>
+            <DialogTitle>Potwierdź przyjęcie dostawy</DialogTitle>
             <DialogDescription>
-              Sprawdź dane przed zapisem w systemie.
+              Sprawdź podział dostawy przed zapisem w systemie.
             </DialogDescription>
           </DialogHeader>
 
@@ -354,21 +354,37 @@ export function RawBatchesPage() {
             <Card>
               <CardContent className="p-0 divide-y">
                 <div className="flex items-center justify-between px-4 py-2.5">
-                  <CardDescription>Sugerowany nr partii</CardDescription>
-                  <code className="font-mono font-bold text-primary">{suggestedBatchNo || '—'}</code>
+                  <CardDescription>Numer przyjęcia</CardDescription>
+                  <code className="font-mono font-bold text-primary">
+                    {header.receptionNo || suggestedReceptionNo || '—'}
+                  </code>
                 </div>
                 <div className="flex items-center justify-between px-4 py-2.5">
-                  <CardDescription>Waga</CardDescription>
-                  <CardTitle className="text-sm tabular-nums">{fmtKg(form.kgReceived)} kg</CardTitle>
+                  <CardDescription>Cała dostawa</CardDescription>
+                  <CardTitle className="text-sm tabular-nums">{fmtKg(pendingKg)} kg</CardTitle>
                 </div>
-                <div className="flex items-center justify-between px-4 py-2.5">
-                  <CardDescription>Data ważności</CardDescription>
-                  <CardTitle className="text-sm">{fmtDatePl(form.expiryDate)}</CardTitle>
-                </div>
+                {/* Podział na numery porządkowe — to jest właśnie ta decyzja,
+                    której nie da się już cofnąć jednym kliknięciem po zapisie. */}
+                {pending.map(g => (
+                  <div key={g.index} className="flex items-center justify-between px-4 py-2.5">
+                    <CardDescription>
+                      Numer porządkowy #{g.index + 1}
+                      <span className="block font-mono text-[11px] text-ink-3">
+                        {g.supplierNos.join(', ') || 'bez partii dostawcy'}
+                      </span>
+                    </CardDescription>
+                    <div className="text-right">
+                      <CardTitle className="text-sm tabular-nums">{fmtKg(g.kg)} kg</CardTitle>
+                      <CardDescription className="text-[11px]">
+                        do {fmtDatePl(g.expiryDate)}
+                      </CardDescription>
+                    </div>
+                  </div>
+                ))}
                 <div className="flex items-center justify-between px-4 py-2.5">
                   <CardDescription>Wartość netto</CardDescription>
                   <CardTitle className="text-sm tabular-nums">
-                    {fmtPln(form.kgReceived * form.pricePerKg)}
+                    {fmtPln(pendingKg * header.pricePerKg)}
                   </CardTitle>
                 </div>
               </CardContent>
@@ -391,7 +407,8 @@ export function RawBatchesPage() {
             <Card className="bg-muted/40 border-transparent">
               <CardContent className="px-3 py-2">
                 <CardDescription className="text-xs">
-                  Numer partii zostanie potwierdzony przez system po zapisie.
+                  Numery — przyjęcia i porządkowe — nadaje system przy zapisie;
+                  powyższe to podpowiedzi. Kolejny wolny numer porządkowy: {suggestedBatchNo || '—'}.
                 </CardDescription>
               </CardContent>
             </Card>

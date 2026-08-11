@@ -16,10 +16,12 @@ import {
 } from '@/lib/utils/fefo'
 import { todayIso }       from '@/lib/utils'
 import { rawBatchesApi }  from '../api'
+import { receptionsApi }  from '@/lib/apiClient'
+import type { ReceptionGroup } from '../receptionSplit'
 import type {
   RawBatch, CreateRawBatchDto, EditRawBatchDto, CancelRawBatchDto,
   SupplierOption, ValidationResult, ValidationWarning, EditLockResult,
-  RawBatchHistoryEntry,
+  RawBatchHistoryEntry, ReceptionHeader, CreateReceptionDto,
 } from '../types'
 
 // ─── Stałe operacyjne ─────────────────────────────────────────────────────────
@@ -144,6 +146,46 @@ function validateCreate(f: CreateRawBatchDto): ValidationResult {
   return { ok: true, warnings }
 }
 
+/**
+ * validateReception — te same reguły co dla pojedynczej partii, ale liczone
+ * PER NUMER PORZĄDKOWY.
+ *
+ * Daty i kilogramy różnią się między grupami (grupa z partią ubitą dzień
+ * wcześniej ma krótszy termin), więc sprawdzenie „całej dostawy" jednym
+ * kompletem dat przepuściłoby partię, której nie wolno przyjąć.
+ */
+export function validateReception(
+  header: ReceptionHeader, groups: ReceptionGroup[],
+): ValidationResult {
+  const warnings: ValidationWarning[] = []
+  for (const g of groups) {
+    const res = validateCreate({
+      supplierId:     header.supplierId,
+      supplierBatchNo: g.supplierNos.join(', '),
+      slaughterDate:  g.slaughterDate,
+      receivedDate:   header.receivedDate,
+      expiryDate:     g.expiryDate,
+      kgReceived:     g.kg,
+      pricePerKg:     header.pricePerKg,
+      isService:      header.isService,
+    })
+    if (res.ok === false) {
+      // Bez numeru grupy komunikat „Podaj datę uboju" nie mówi, KTÓRY
+      // numer porządkowy jest niekompletny — a przy trzech to zgadywanka.
+      const message = groups.length > 1
+        ? `Numer porządkowy #${g.index + 1}: ${res.error.message}`
+        : res.error.message
+      return {
+        ok: false,
+        warnings: res.warnings,
+        error: { type: 'error', message },
+      }
+    }
+    warnings.push(...res.warnings)
+  }
+  return { ok: true, warnings }
+}
+
 // ─── checkEditLock — czy partia może być edytowana? ──────────────────────────
 
 export function checkEditLock(batch: RawBatch): EditLockResult {
@@ -165,139 +207,151 @@ export function checkEditLock(batch: RawBatch): EditLockResult {
   return { locked: false }
 }
 
-// ─── Pusty formularz ──────────────────────────────────────────────────────────
+// ─── useCreateReception ───────────────────────────────────────────────────────
+//
+// Rejestracja CAŁEJ dostawy: jeden numer przyjęcia i tyle numerów
+// porządkowych, na ile zakład ją rozbił. Hook trzyma dane wspólne (dostawca,
+// data, dokument, cena, nośniki); pozycje HDI i ich podział na numery
+// porządkowe żyją w formularzu i przychodzą tu dopiero przy zapisie.
 
-function emptyForm(): CreateRawBatchDto {
+function emptyHeader(): ReceptionHeader {
   return {
-    supplierId: '', supplierBatchNo: '', slaughterDate: '',
-    receivedDate: todayIso(), expiryDate: '', kgReceived: 0, pricePerKg: 0, invoiceNo: '',
+    receptionNo: '', receivedDate: todayIso(), supplierId: '',
+    materialTypeId: 'mat-cwiartka', documentNo: '', hdiNo: '',
+    docKg: 0, docContainers: 0, pricePerKg: 0,
     // Domyślny kaliber zakładu to pojemnik 15 kg — 20 kg zdarza się przy filecie.
-    containerKg: 15, containersCount: null, palletsH1: 0, palletsOther: 0,
-    palletsOtherKind: 'net_e1',
-    isService: false,
+    containerKg: 15, palletsH1: 0, palletsOther: 0, palletsOtherKind: 'net_e1',
+    isService: false, notes: '',
   }
 }
 
-// ─── useCreateRawBatch ────────────────────────────────────────────────────────
-
-export function useCreateRawBatch(
-  onSuccess: (confirmedBatchNo: string, kg: number) => void
+export function useCreateReception(
+  onSuccess: (receptionNo: string, batchNos: string[], kg: number) => void,
 ) {
-  const [form,             setForm]           = useState<CreateRawBatchDto>(emptyForm())
-  const [suggestedBatchNo, setSuggested]      = useState<string>('')
-  const [suggestedNote,    setNote]           = useState<string>('')
-  const [open,             setOpen]           = useState(false)
-  // Modal potwierdzenia przed zapisem
-  const [confirmOpen,      setConfirmOpen]    = useState(false)
-  // Wynik walidacji z ostrzeżeniami
+  const [header,      setHeader]     = useState<ReceptionHeader>(emptyHeader())
+  const [open,        setOpen]       = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [suggestedReceptionNo, setSuggestedReceptionNo] = useState('')
+  const [suggestedBatchNo,     setSuggestedBatchNo]     = useState('')
+  const [pending,     setPending]    = useState<ReceptionGroup[]>([])
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null)
 
-  const mutation = useMutation((dto: CreateRawBatchDto) => rawBatchesApi.create(dto))
+  const mutation = useMutation((dto: CreateReceptionDto) => receptionsApi.create(dto))
 
-  const totalValue = (form.kgReceived > 0 && form.pricePerKg > 0)
-    ? form.kgReceived * form.pricePerKg : 0
-
-  const expiryPreview = form.expiryDate ? getExpiryStatus(form.expiryDate) : null
+  const loadNumbers = useCallback(async (isService: boolean, day: string) => {
+    // Dwa NIEZALEŻNE numeratory: dokumentu dostawy (miesięczny) i numeru
+    // porządkowego (ciągły). Podpowiedzi, nie fakty — oba nadaje backend przy
+    // zapisie, więc równoległe przyjęcie z drugiego stanowiska nic nie psuje.
+    try {
+      const r = await receptionsApi.nextNumber(day)
+      setSuggestedReceptionNo(r.nextNo)
+    } catch { setSuggestedReceptionNo('') }
+    try {
+      const b = await rawBatchesApi.nextNumber(isService)
+      setSuggestedBatchNo(b.suggestedBatchNo)
+    } catch { setSuggestedBatchNo('') }
+  }, [])
 
   const openModal = useCallback(async () => {
-    setForm(emptyForm())
+    const fresh = emptyHeader()
+    setHeader(fresh)
     setValidationResult(null)
+    setPending([])
     mutation.clearError()
-    try {
-      const res = await rawBatchesApi.nextNumber(false)
-      setSuggested(res.suggestedBatchNo)
-      setNote(res.note)
-    } catch {
-      setSuggested('')
-      setNote('Numer zostanie nadany przez system')
-    }
+    await loadNumbers(false, fresh.receivedDate)
     setOpen(true)
-  }, []) // eslint-disable-line
-
-  /** Przełączenie trybu „usługa" zmienia SERIĘ numerów (48U zamiast 344),
-   *  więc podpowiedź trzeba pobrać na nowo. */
-  const setServiceMode = useCallback(async (on: boolean) => {
-    setForm(f => ({ ...f, isService: on }))
-    try {
-      const res = await rawBatchesApi.nextNumber(on)
-      setSuggested(res.suggestedBatchNo)
-      setNote(res.note)
-    } catch {
-      setSuggested('')
-    }
-  }, [])
+  }, [loadNumbers]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const closeModal = useCallback(() => {
     setOpen(false)
     setConfirmOpen(false)
     setValidationResult(null)
     mutation.clearError()
-  }, []) // eslint-disable-line
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Krok 1: walidacja + sprawdzenie duplikatów → otwórz modal potwierdzenia
-  const requestSubmit = useCallback(async (): Promise<string | null> => {
-    const result = validateCreate(form)
+  const updateHeader = useCallback(<K extends keyof ReceptionHeader>(
+    key: K, value: ReceptionHeader[K],
+  ) => {
+    setHeader(prev => ({ ...prev, [key]: value }))
+    // Numeracja przyjęć resetuje się z miesiącem, a numery porządkowe mają
+    // osobną serię dla usługi — obie podpowiedzi trzeba odświeżyć.
+    if (key === 'receivedDate') loadNumbers(header.isService, String(value))
+    if (key === 'isService')    loadNumbers(Boolean(value), header.receivedDate)
+  }, [header.isService, header.receivedDate, loadNumbers])
+
+  /** Krok 1 — walidacja całej dostawy; otwiera podsumowanie. */
+  const requestSubmit = useCallback(async (groups: ReceptionGroup[]): Promise<string | null> => {
+    const result = validateReception(header, groups)
     setValidationResult(result)
-
-    if (!result.ok && 'error' in result) return result.error.message
-
-    // Sprawdzenie duplikatów (osobne zapytanie)
-    try {
-      const isDuplicate = await rawBatchesApi.checkDuplicate(
-        form.supplierId, form.supplierBatchNo, form.slaughterDate
-      )
-      if (isDuplicate) {
-        return `Partia ${form.supplierBatchNo} od tego dostawcy z datą uboju ${form.slaughterDate} już istnieje`
-      }
-    } catch { /* brak duplikatu = OK */ }
-
+    if (result.ok === false) return result.error.message
+    setPending(groups)
     setConfirmOpen(true)
     return null
-  }, [form])
+  }, [header])
 
-  // Krok 2: użytkownik potwierdził → faktyczny zapis
+  /** Krok 2 — zapis. Całe przyjęcie idzie jednym POST-em: backend zakłada
+   *  dokument i wszystkie numery porządkowe w JEDNEJ transakcji. */
   const confirmSubmit = useCallback(async (): Promise<string | null> => {
     try {
-      const created = await mutation.mutate(form)
+      const out = await mutation.mutate({
+        receptionNo:    header.receptionNo,
+        receivedDate:   header.receivedDate,
+        supplierId:     header.supplierId,
+        materialTypeId: header.materialTypeId,
+        documentNo:     header.documentNo,
+        hdiNo:          header.hdiNo,
+        // 0 = pole niewypełnione; null zamiast zera, żeby „nie podano" nie
+        // udawało zadeklarowanych zerowych kilogramów.
+        docKg:          header.docKg || null,
+        docContainers:  header.docContainers || null,
+        pricePerKg:     header.pricePerKg,
+        notes:          header.notes,
+        isService:      header.isService,
+        groups: pending.map((g, i) => ({
+          kgReceived:    g.kg,
+          slaughterDate: g.slaughterDate,
+          expiryDate:    g.expiryDate,
+          supplierBatches: g.lines.map(l => ({
+            supplierBatchNo: l.supplierBatchNo.trim(),
+            kgReceived:      l.kgReceived,
+            slaughterDate:   l.slaughterDate,
+            expiryDate:      l.expiryDate,
+          })),
+          containerKg:      header.containerKg,
+          containersCount:  g.containersCount ?? null,
+          // Palety liczy się na całą dostawę, nie per numer porządkowy —
+          // saldo nośników jest per DOSTAWCA, więc obojętne, która partia je
+          // niesie; wieszamy je na pierwszej, żeby nie policzyć ich N razy.
+          palletsH1:        i === 0 ? header.palletsH1 : 0,
+          palletsOther:     i === 0 ? header.palletsOther : 0,
+          palletsOtherKind: header.palletsOtherKind,
+        })),
+      })
       setOpen(false)
       setConfirmOpen(false)
-      onSuccess(created.internalBatchNo, created.kgReceived)
+      onSuccess(
+        out.reception?.reception_no ?? '',
+        out.batches.map(b => b.internalBatchNo),
+        out.batches.reduce((s, b) => s + Number(b.kgReceived), 0),
+      )
       return null
     } catch (e) {
+      setConfirmOpen(false)
       return e instanceof Error ? e.message : 'Błąd zapisu'
     }
-  }, [form, mutation, onSuccess])
+  }, [header, pending, mutation, onSuccess])
 
-  const cancelConfirm = useCallback(() => {
-    setConfirmOpen(false)
-  }, [])
-
-  const updateField = useCallback(
-    <K extends keyof CreateRawBatchDto>(key: K, value: CreateRawBatchDto[K]) => {
-      setForm(prev => ({ ...prev, [key]: value }))
-    }, [],
-  )
+  const cancelConfirm = useCallback(() => setConfirmOpen(false), [])
 
   return {
-    form,
-    suggestedBatchNo,
-    suggestedNote,
-    setServiceMode,
-    open,
-    confirmOpen,
-    validationResult,
-    totalValue,
-    expiryPreview,
+    header, updateHeader,
+    open, openModal, closeModal,
+    confirmOpen, cancelConfirm,
+    pending, validationResult,
+    suggestedReceptionNo, suggestedBatchNo,
     mutationLoading: mutation.loading,
     mutationError:   mutation.error,
-    openModal,
-    closeModal,
-    requestSubmit,   // krok 1 — walidacja + otwiera confirm
-    confirmSubmit,   // krok 2 — faktyczny zapis po potwierdzeniu
-    cancelConfirm,   // zamknięcie confirm bez zapisu
-    updateField,
-    // legacy alias — używany przez RawBatchesPage do obsługi "Zapisz" w modalu
-    submit: requestSubmit,
+    requestSubmit, confirmSubmit,
   }
 }
 

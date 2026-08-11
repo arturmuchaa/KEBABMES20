@@ -6,7 +6,9 @@
 
 // raw-batches
 export type { RawBatch, RawBatchStatus, CreateRawBatchDto, SupplierOption,
-              NextBatchNumberResponse, RawBatchListParams } from '@/features/raw-batches/types'
+              NextBatchNumberResponse, RawBatchListParams,
+              Reception, ReceptionBatch, CreateReceptionDto, ReceptionGroupDto,
+              SupplierBatchItem } from '@/features/raw-batches/types'
 
 // ExpiryStatus — używany globalnie (deboning, meat-stock, production)
 export type ExpiryLevel = 'OK' | 'WARNING' | 'CRITICAL' | 'EXPIRED'

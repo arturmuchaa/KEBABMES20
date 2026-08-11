@@ -55,7 +55,11 @@ function openTab(url: string) {
 }
 
 export function CardHistoryTable({ rows, pdfUrl, printPath, dayParam, searchPlaceholder, periodHeader }: Props) {
-  const printHref = (day: string) => `${printPath}?${dayParam}=${day}`
+  // printPath może już nieść własny parametr (np. ?dane=1) — doklejamy
+  // właściwym separatorem, inaczej powstaje „?dane=1?od=…" i strona druku
+  // nie widzi ani jednego, ani drugiego.
+  const printHref = (day: string) =>
+    `${printPath}${printPath.includes('?') ? '&' : '?'}${dayParam}=${day}`
   // ?pdf=1 wyłącza auto-print — podgląd nie ma otwierać okna drukarki
   const previewHref = (day: string) => `${printHref(day)}&pdf=1`
 

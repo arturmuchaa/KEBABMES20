@@ -47,6 +47,11 @@ export interface RawBatch {
   readonly materialTypeId?: string
   readonly materialName?:   string
 
+  // Dokument dostawy: jedna dostawa (jeden numer przyjęcia) rozbija się na
+  // kilka numerów porządkowych, które są właśnie tymi partiami.
+  readonly receptionId?: string
+  readonly receptionNo?: string
+
   // Status — opcjonalny cache backendu + 'cancelled' który nie da się derive'ować
   readonly status?: RawBatchStatus
 
@@ -92,6 +97,81 @@ export interface CreateRawBatchDto {
   palletsOtherKind?: string
   /** Przyjęcie NA USŁUGĘ (mięso z/s klienta) — osobna seria numerów 48U. */
   isService?:       boolean
+}
+
+// ─── Przyjęcie = dokument całej dostawy ──────────────────────────────────────
+//
+// Jedna dostawa → jeden numer przyjęcia („12/08/2026") → kilka numerów
+// porządkowych (grup). Partie dostawcy wiszą pod grupą, do której trafiły.
+
+/** Jeden numer porządkowy w obrębie dostawy. */
+export interface ReceptionGroupDto {
+  /** Pusty = backend nada kolejny z sekwencji. */
+  internalBatchNo?: string
+  kgReceived:       number
+  slaughterDate?:   string
+  expiryDate?:      string
+  supplierBatches:  SupplierBatchItem[]
+  containerKg?:     number | null
+  containersCount?: number | null
+  palletsH1?:       number
+  palletsOther?:    number
+  palletsOtherKind?: string
+}
+
+export interface CreateReceptionDto {
+  /** Pusty = backend nada kolejny numer w miesiącu. */
+  receptionNo?:     string
+  receivedDate:     string
+  supplierId:       string
+  materialTypeId?:  string
+  /** WZ / faktura / inny dokument przywozowy — kolumna (e) karty 1.1.1. */
+  documentNo?:      string
+  /** Własny numer HDI dostawcy („33656"), niezależny od numeru WZ. */
+  hdiNo?:           string
+  /** Sumy ze stopki HDI — służą tylko kontroli przepisania dokumentu. */
+  docKg?:           number | null
+  docContainers?:   number | null
+  pricePerKg:       number
+  notes?:           string
+  isService?:       boolean
+  groups:           ReceptionGroupDto[]
+}
+
+/** Dane wspólne dla całej dostawy — wszystko, co nie zależy od podziału. */
+export interface ReceptionHeader {
+  receptionNo:      string
+  receivedDate:     string
+  supplierId:       string
+  materialTypeId:   string
+  documentNo:       string
+  hdiNo:            string
+  docKg:            number
+  docContainers:    number
+  pricePerKg:       number
+  containerKg:      number | null
+  palletsH1:        number
+  palletsOther:     number
+  palletsOtherKind: string
+  isService:        boolean
+  notes:            string
+}
+
+export interface ReceptionBatch extends RawBatch {
+  readonly supplierBatches: SupplierBatchItem[]
+}
+
+export interface Reception {
+  readonly id:           string
+  readonly receptionNo:  string
+  readonly receivedDate: string
+  readonly supplierId:   string
+  readonly supplierName: string
+  readonly documentNo:   string
+  readonly hdiNo:        string
+  readonly notes:        string
+  readonly kgTotal:      number
+  readonly batches:      ReceptionBatch[]
 }
 
 export interface EditRawBatchDto {

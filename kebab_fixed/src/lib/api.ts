@@ -11,6 +11,7 @@ import type {
   RawBatch, Supplier, User,
   CreateRawBatchDto, CreateSupplierDto, Paginated,
   MeatStock, DeboningSession,
+  Reception, CreateReceptionDto,
 } from '@/types'
 import type {
   Recipe, CreateRecipeDto, UpdateRecipeDto,
@@ -175,6 +176,9 @@ function mapRawBatch(raw: any): RawBatch {
     invoiceNo:        raw.invoice_no         ?? raw.invoiceNo,
     materialTypeId:   raw.material_type_id   ?? raw.materialTypeId ?? '',
     materialName:     raw.material_name      ?? raw.materialName   ?? '',
+    // Dokument dostawy, który spina kilka numerów porządkowych w jedno przyjęcie.
+    receptionId:      raw.reception_id       ?? raw.receptionId,
+    receptionNo:      raw.reception_no       ?? raw.receptionNo,
     status:           raw.status,
     isInUse:          raw.is_in_use          ?? raw.isInUse,
     editReason:       raw.edit_reason        ?? raw.editReason,
@@ -254,6 +258,57 @@ export const rawBatchesApi = {
   // a przeliczenie stosu wychodzi właśnie wtedy. Rusza tylko stan dostępny.
   adjustStock: (id: string, dto: { containers?: number; kg?: number; reason: string }) =>
     post<any>(`/raw-batches/${id}/adjust`, dto),
+}
+
+// ─── Przyjęcia (dokument całej dostawy) ───────────────────────
+// Jedna dostawa = jeden numer „12/08/2026" i kilka numerów porządkowych.
+// `toSnake` nie tknie zagnieżdżonych grup poprawnie (backend czyta aliasy
+// camelCase), więc DTO idzie tak, jak je zbudował formularz.
+export const receptionsApi = {
+  nextNumber: (date?: string) =>
+    get<any>(`/receptions/next-number${date ? `?date=${date}` : ''}`).then((raw: any) => ({
+      nextNo: raw.nextNo ?? raw.next_no ?? '',
+      seq:    Number(raw.seq ?? 0),
+      note:   raw.note ?? '',
+    })),
+
+  create: (dto: CreateReceptionDto) =>
+    post<any>('/receptions', dto).then((raw: any) => ({
+      reception: raw.reception,
+      batches:   (raw.batches ?? []).map(mapRawBatch),
+      warnings:  (raw.warnings ?? []) as string[],
+    })),
+
+  list: (opts?: { from?: string; to?: string; limit?: number }) =>
+    get<any[]>(`/receptions?from=${opts?.from ?? ''}&to=${opts?.to ?? ''}&limit=${opts?.limit ?? 200}`)
+      .then(rows => (Array.isArray(rows) ? rows : []).map(mapReception)),
+
+  byId: (id: string) => get<any>(`/receptions/${encodeURIComponent(id)}`).then(mapReception),
+}
+
+function mapReception(raw: any): Reception {
+  return {
+    id:            raw.id,
+    receptionNo:   raw.reception_no   ?? raw.receptionNo   ?? '',
+    receivedDate:  String(raw.received_date ?? raw.receivedDate ?? '').slice(0, 10),
+    supplierId:    raw.supplier_id    ?? raw.supplierId    ?? '',
+    supplierName:  raw.supplier_name  ?? raw.supplierName  ?? '',
+    documentNo:    raw.document_no    ?? raw.documentNo    ?? '',
+    hdiNo:         raw.hdi_no         ?? raw.hdiNo         ?? '',
+    notes:         raw.notes ?? '',
+    kgTotal:       Number(raw.kg_total ?? raw.kgTotal ?? 0),
+    batches: (raw.batches ?? []).map((b: any) => ({
+      ...mapRawBatch(b),
+      supplierBatches: (b.supplier_batches ?? b.supplierBatches ?? []).map((s: any) => ({
+        supplierBatchNo: s.supplier_batch_no ?? s.supplierBatchNo ?? '',
+        // kg = null dla partii odtworzonych migracją: numery były sklejone
+        // w jednym polu, kilogramów per partia dostawcy nikt nie zapisywał.
+        kgReceived:      s.kg === null || s.kg === undefined ? 0 : Number(s.kg),
+        slaughterDate:   String(s.slaughter_date ?? s.slaughterDate ?? '').slice(0, 10),
+        expiryDate:      String(s.expiry_date ?? s.expiryDate ?? '').slice(0, 10),
+      })),
+    })),
+  }
 }
 
 // ─── Dostawcy ─────────────────────────────────────────────────

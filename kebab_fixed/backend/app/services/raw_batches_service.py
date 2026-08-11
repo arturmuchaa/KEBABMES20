@@ -114,9 +114,12 @@ def list_all_batches() -> List[Dict]:
 
 def list_batches(active_only: bool, limit: int) -> Dict[str, Any]:
     limit = max(1, min(int(limit), 1000))
+    # Numer przyjęcia dołączony do listy: bez niego ekran dostaw nie pokazuje,
+    # że 470 i 471 przyjechały jednym autem pod jednym dokumentem.
     sql = (
-        "SELECT b.*, s.display_name AS supplier_display_name "
-        "FROM raw_batches b LEFT JOIN suppliers s ON s.id = b.supplier_id"
+        "SELECT b.*, s.display_name AS supplier_display_name, r.reception_no "
+        "FROM raw_batches b LEFT JOIN suppliers s ON s.id = b.supplier_id "
+        "LEFT JOIN receptions r ON r.id = b.reception_id"
     )
     params: list = []
     if active_only:
@@ -127,9 +130,46 @@ def list_batches(active_only: bool, limit: int) -> Dict[str, Any]:
 
 
 def create_batch(dto: RawBatchCreate) -> Dict:
-    """Tworzy nową partię surowca.
+    """Tworzy nową partię surowca (jeden numer porządkowy).
 
-    Numer partii (`internal_batch_no`) — dwie ROZŁĄCZNE serie:
+    Ścieżka pojedyncza: partia dopina się do przyjęcia z tego dnia i od tego
+    dostawcy, a gdy takiego nie ma — zakłada nowe. Rejestracja CAŁEJ dostawy
+    naraz (jeden numer przyjęcia → kilka numerów porządkowych) idzie przez
+    `receptions_service.create_reception`.
+    """
+    from app.services.receptions_service import find_or_create_reception_cx
+
+    with transaction() as conn:
+        reception_id = find_or_create_reception_cx(
+            conn,
+            received_date=dto.received_date,
+            supplier_id=dto.supplier_id,
+            document_no=dto.invoice_no or "",
+        )
+        row = create_batch_cx(conn, dto, reception_id=reception_id)
+
+    logger.info(
+        "raw_batch.created",
+        extra={
+            "batch_id": row["id"],
+            "internal_batch_no": row["internal_batch_no"],
+            "kg_received": dto.kg_received,
+            "supplier_id": dto.supplier_id,
+        },
+    )
+    return row
+
+
+def create_batch_cx(
+    conn, dto: RawBatchCreate, *, reception_id: Optional[str] = None
+) -> Dict:
+    """Partia surowca WEWNĄTRZ istniejącej transakcji.
+
+    Wydzielone z `create_batch`, bo jedna dostawa tworzy kilka partii i albo
+    powstają wszystkie, albo żadna — inaczej po błędzie w trzeciej grupie
+    zostałyby dwie osierocone partie bez dokumentu przyjęcia.
+
+    Numer porządkowy (`internal_batch_no`) — dwie ROZŁĄCZNE serie:
       - podstawowa: goły numer, np. „344" (`batch_seq`),
       - usługowa:   numer z sufiksem U, np. „48U" (`service_batch_seq`) —
         mięso powierzone przez klienta, z którego robimy kebab na jego
@@ -156,182 +196,177 @@ def create_batch(dto: RawBatchCreate) -> Dict:
     fmt = format_service_reception_no if is_service else format_reception_no
     custom_no = fmt(custom_seq) if custom_seq is not None else ""
 
-    with transaction() as conn:
-        if custom_seq is not None:
-            # sprawdź unikalność
-            existing = cx_query_one(
-                conn,
-                "SELECT 1 FROM raw_batches WHERE internal_batch_no=%s",
-                (custom_no,),
-            )
-            if existing:
-                raise HTTPException(409, f"Partia {custom_no} już istnieje")
-            seq = custom_seq
-            internal_no = custom_no
-            # zsynchronizuj sequences żeby kolejne auto-numery były wyższe
-            cx_execute(
-                conn,
-                """
-                INSERT INTO sequences (key, value) VALUES (%s, %s)
-                ON CONFLICT (key) DO UPDATE SET value = GREATEST(sequences.value, EXCLUDED.value)
-                """,
-                (seq_key, custom_seq),
-            )
-        else:
-            # auto-numerowanie: kolejny z właściwej sekwencji. Wartość przy
-            # pierwszym użyciu bierzemy z _SEQ_FIRST, bo seed z migracji może
-            # nie istnieć (świeża baza, baza testowa po TRUNCATE sequences).
-            row = cx_query_one(
-                conn,
-                """
-                INSERT INTO sequences (key, value) VALUES (%s, %s)
-                ON CONFLICT (key) DO UPDATE SET value = sequences.value + 1
-                RETURNING value
-                """,
-                (seq_key, _SEQ_FIRST[is_service]),
-            )
-            seq = int(row["value"])
-            internal_no = fmt(seq)
-
-        sup = cx_query_one(
-            conn, "SELECT * FROM suppliers WHERE id = %s", (dto.supplier_id,)
+    if custom_seq is not None:
+        # sprawdź unikalność
+        existing = cx_query_one(
+            conn,
+            "SELECT 1 FROM raw_batches WHERE internal_batch_no=%s",
+            (custom_no,),
         )
-        # Rodzaj surowca — domyślnie ćwiartka (jedyny wymagający rozbioru)
-        mat = None
-        if dto.material_type_id:
-            mat = cx_query_one(
-                conn, "SELECT * FROM raw_material_types WHERE id=%s",
-                (dto.material_type_id,),
-            )
-        if not mat:
-            mat = cx_query_one(
-                conn, "SELECT * FROM raw_material_types WHERE id='mat-cwiartka'"
-            )
-        mat_id = mat["id"] if mat else ""
-        mat_name = mat["name"] if mat else ""
-        requires_deboning = bool(mat["requires_deboning"]) if mat else True
-
-        row = cx_execute_returning(
+        if existing:
+            raise HTTPException(409, f"Partia {custom_no} już istnieje")
+        seq = custom_seq
+        internal_no = custom_no
+        # zsynchronizuj sequences żeby kolejne auto-numery były wyższe
+        cx_execute(
             conn,
             """
-            INSERT INTO raw_batches
-            (id, internal_batch_no, internal_batch_seq, supplier_id, supplier_name,
-             supplier_batch_no, slaughter_date, received_date, kg_received,
-             kg_available, price_per_kg, expiry_date, status, notes,
-             invoice_no, material_type_id, material_name, is_service, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s,%s,%s,%s,%s)
-            RETURNING *
+            INSERT INTO sequences (key, value) VALUES (%s, %s)
+            ON CONFLICT (key) DO UPDATE SET value = GREATEST(sequences.value, EXCLUDED.value)
+            """,
+            (seq_key, custom_seq),
+        )
+    else:
+        # auto-numerowanie: kolejny z właściwej sekwencji. Wartość przy
+        # pierwszym użyciu bierzemy z _SEQ_FIRST, bo seed z migracji może
+        # nie istnieć (świeża baza, baza testowa po TRUNCATE sequences).
+        row = cx_query_one(
+            conn,
+            """
+            INSERT INTO sequences (key, value) VALUES (%s, %s)
+            ON CONFLICT (key) DO UPDATE SET value = sequences.value + 1
+            RETURNING value
+            """,
+            (seq_key, _SEQ_FIRST[is_service]),
+        )
+        seq = int(row["value"])
+        internal_no = fmt(seq)
+
+    sup = cx_query_one(
+        conn, "SELECT * FROM suppliers WHERE id = %s", (dto.supplier_id,)
+    )
+    # Rodzaj surowca — domyślnie ćwiartka (jedyny wymagający rozbioru)
+    mat = None
+    if dto.material_type_id:
+        mat = cx_query_one(
+            conn, "SELECT * FROM raw_material_types WHERE id=%s",
+            (dto.material_type_id,),
+        )
+    if not mat:
+        mat = cx_query_one(
+            conn, "SELECT * FROM raw_material_types WHERE id='mat-cwiartka'"
+        )
+    mat_id = mat["id"] if mat else ""
+    mat_name = mat["name"] if mat else ""
+    requires_deboning = bool(mat["requires_deboning"]) if mat else True
+
+    row = cx_execute_returning(
+        conn,
+        """
+        INSERT INTO raw_batches
+        (id, internal_batch_no, internal_batch_seq, supplier_id, supplier_name,
+         supplier_batch_no, slaughter_date, received_date, kg_received,
+         kg_available, price_per_kg, expiry_date, status, notes,
+         invoice_no, material_type_id, material_name, is_service, created_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s,%s,%s,%s,%s)
+        RETURNING *
+        """,
+        (
+            cuid(),
+            internal_no,
+            seq,
+            dto.supplier_id,
+            sup["name"] if sup else "",
+            dto.supplier_batch_no,
+            dto.slaughter_date or None,
+            dto.received_date or None,
+            dto.kg_received,
+            dto.kg_received,
+            dto.price_per_kg,
+            dto.expiry_date or None,
+            dto.notes,
+            dto.invoice_no or None,
+            mat_id,
+            mat_name,
+            is_service,
+            now_iso(),
+        ),
+    )
+
+    # Audit: każde przyjęcie surowca = IN movement (product_type="raw").
+    if float(dto.kg_received or 0) > 0:
+        create_stock_movement(
+            conn,
+            product_type="raw",
+            batch_id=row["id"],
+            qty=float(dto.kg_received),
+            movement_type="IN",
+            source_type="supplier",
+            source_id=dto.supplier_id or row["id"],
+        )
+
+    # Saldo pojemników: dostawa przyjeżdża w nośnikach dostawcy.
+    _book_batch_containers(
+        conn, row,
+        container_kg=dto.container_kg,
+        containers_count=dto.containers_count,
+        pallets_h1=dto.pallets_h1,
+        pallets_other=dto.pallets_other,
+        pallets_other_kind=dto.pallets_other_kind,
+    )
+
+    # Surowiec bez rozbioru (filet, indyk…): od razu trafia na magazyn
+    # mięsa jako lot do masowania — odpowiednik "natychmiastowego rozbioru
+    # 1:1". Partia przyjęcia zostaje zapisem traceability (kg_available=0,
+    # stan żyje w meat_stock pod tym samym numerem partii).
+    if not requires_deboning and float(dto.kg_received or 0) > 0:
+        kg = float(dto.kg_received)
+        cx_execute(
+            conn,
+            "UPDATE raw_batches SET kg_available=0 WHERE id=%s",
+            (row["id"],),
+        )
+        row["kg_available"] = 0
+        cx_execute(
+            conn,
+            """
+            INSERT INTO meat_stock
+                (id, lot_no, raw_batch_id, raw_batch_no, kg_initial,
+                 kg_available, production_date, expiry_date, status,
+                 material_type_id, material_name, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,COALESCE(%s::date, CURRENT_DATE),%s,'AVAILABLE',%s,%s,%s)
             """,
             (
                 cuid(),
                 internal_no,
-                seq,
-                dto.supplier_id,
-                sup["name"] if sup else "",
-                dto.supplier_batch_no,
-                dto.slaughter_date or None,
+                row["id"],
+                internal_no,
+                kg,
+                kg,
                 dto.received_date or None,
-                dto.kg_received,
-                dto.kg_received,
-                dto.price_per_kg,
                 dto.expiry_date or None,
-                dto.notes,
-                dto.invoice_no or None,
                 mat_id,
                 mat_name,
-                is_service,
                 now_iso(),
             ),
         )
-
-        # Audit: każde przyjęcie surowca = IN movement (product_type="raw").
-        if float(dto.kg_received or 0) > 0:
-            create_stock_movement(
-                conn,
-                product_type="raw",
-                batch_id=row["id"],
-                qty=float(dto.kg_received),
-                movement_type="IN",
-                source_type="supplier",
-                source_id=dto.supplier_id or row["id"],
-            )
-
-        # Saldo pojemników: dostawa przyjeżdża w nośnikach dostawcy.
-        _book_batch_containers(
-            conn, row,
-            container_kg=dto.container_kg,
-            containers_count=dto.containers_count,
-            pallets_h1=dto.pallets_h1,
-            pallets_other=dto.pallets_other,
-            pallets_other_kind=dto.pallets_other_kind,
+        create_stock_movement(
+            conn,
+            product_type="raw",
+            batch_id=row["id"],
+            qty=kg,
+            movement_type="OUT",
+            source_type="reception_transfer",
+            source_id=row["id"],
+        )
+        ms_row = cx_query_one(
+            conn, "SELECT id FROM meat_stock WHERE lot_no=%s", (internal_no,)
+        )
+        create_stock_movement(
+            conn,
+            product_type="meat",
+            batch_id=ms_row["id"] if ms_row else internal_no,
+            qty=kg,
+            movement_type="IN",
+            source_type="reception",
+            source_id=row["id"],
         )
 
-        # Surowiec bez rozbioru (filet, indyk…): od razu trafia na magazyn
-        # mięsa jako lot do masowania — odpowiednik "natychmiastowego rozbioru
-        # 1:1". Partia przyjęcia zostaje zapisem traceability (kg_available=0,
-        # stan żyje w meat_stock pod tym samym numerem partii).
-        if not requires_deboning and float(dto.kg_received or 0) > 0:
-            kg = float(dto.kg_received)
-            cx_execute(
-                conn,
-                "UPDATE raw_batches SET kg_available=0 WHERE id=%s",
-                (row["id"],),
-            )
-            row["kg_available"] = 0
-            cx_execute(
-                conn,
-                """
-                INSERT INTO meat_stock
-                    (id, lot_no, raw_batch_id, raw_batch_no, kg_initial,
-                     kg_available, production_date, expiry_date, status,
-                     material_type_id, material_name, created_at)
-                VALUES (%s,%s,%s,%s,%s,%s,COALESCE(%s::date, CURRENT_DATE),%s,'AVAILABLE',%s,%s,%s)
-                """,
-                (
-                    cuid(),
-                    internal_no,
-                    row["id"],
-                    internal_no,
-                    kg,
-                    kg,
-                    dto.received_date or None,
-                    dto.expiry_date or None,
-                    mat_id,
-                    mat_name,
-                    now_iso(),
-                ),
-            )
-            create_stock_movement(
-                conn,
-                product_type="raw",
-                batch_id=row["id"],
-                qty=kg,
-                movement_type="OUT",
-                source_type="reception_transfer",
-                source_id=row["id"],
-            )
-            ms_row = cx_query_one(
-                conn, "SELECT id FROM meat_stock WHERE lot_no=%s", (internal_no,)
-            )
-            create_stock_movement(
-                conn,
-                product_type="meat",
-                batch_id=ms_row["id"] if ms_row else internal_no,
-                qty=kg,
-                movement_type="IN",
-                source_type="reception",
-                source_id=row["id"],
-            )
+    if reception_id:
+        cx_execute(conn, "UPDATE raw_batches SET reception_id=%s WHERE id=%s",
+                   (reception_id, row["id"]))
+        row["reception_id"] = reception_id
 
-    logger.info(
-        "raw_batch.created",
-        extra={
-            "batch_id": row["id"],
-            "internal_batch_no": row["internal_batch_no"],
-            "kg_received": dto.kg_received,
-            "supplier_id": dto.supplier_id,
-        },
-    )
     return row
 
 

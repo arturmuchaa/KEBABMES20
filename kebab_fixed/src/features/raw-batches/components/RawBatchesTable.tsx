@@ -91,7 +91,10 @@ export function RawBatchesTable({
   }, [batches, isLive, filter, period, showCancelled, sortCol, sortDir, requiresDeboning, meatStock])
 
   const HEADERS: { col: DeliverySortCol | null; label: string; right?: boolean }[] = [
-    { col: 'internalBatchNo', label: 'Nr partii' },
+    // „Nr porządkowy", nie „Nr partii": numerem partii staje się dopiero przy
+    // sprzedaży ubocznych albo na wyrobie gotowym (ddmmrr + numer porządkowy).
+    { col: 'internalBatchNo', label: 'Nr porządkowy' },
+    { col: null,              label: 'Przyjęcie' },
     { col: 'supplierName',    label: 'Dostawca' },
     { col: null,              label: 'Nr dostawcy' },
     { col: 'receivedDate',    label: 'Przyjęto' },
@@ -240,6 +243,14 @@ export function RawBatchesTable({
                   <TableCell>
                     <code className="font-mono font-bold text-foreground text-xs bg-muted px-1.5 py-0.5 rounded">
                       {batchDisplayNo(b)}
+                    </code>
+                  </TableCell>
+                  <TableCell>
+                    {/* Dostawy sprzed wprowadzenia dokumentu odtworzyła migracja
+                        (dzień + dostawca); gdyby czegoś nie dało się dopasować,
+                        pokazujemy myślnik zamiast udawać numer. */}
+                    <code className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                      {b.receptionNo || '—'}
                     </code>
                   </TableCell>
                   <TableCell>

@@ -4,6 +4,8 @@ Every statement MUST be safe to re-run (IF NOT EXISTS, ADD COLUMN IF NOT EXISTS)
 Never DROP or ALTER TYPE in a way that destroys data.
 """
 import json
+import re
+from typing import Dict, List
 
 from app.db import cx_execute, cx_query_all, execute, query_all, query_one, transaction
 from app.logging_config import get_logger
@@ -998,6 +1000,56 @@ _DDL: list[str] = [
     "ALTER TABLE workers ADD COLUMN IF NOT EXISTS rate_per_day NUMERIC(10,2) DEFAULT 0",
     "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS days_total NUMERIC(10,2) DEFAULT 0",
     "ALTER TABLE payroll_settlements ADD COLUMN IF NOT EXISTS rate_per_day NUMERIC(10,2) DEFAULT 0",
+
+    # ── Przyjęcie = dokument całej dostawy ──
+    # Jedna dostawa (np. 10 t ćwiartki) dostaje JEDEN numer przyjęcia
+    # („12/08/2026") i rozpada się na kilka numerów porządkowych (471, 472).
+    # Dotąd numeru przyjęcia nie było wcale i nic nie łączyło tych partii —
+    # karta HACCP 1.1.1 ma na niego osobną kolumnę (a).
+    """CREATE TABLE IF NOT EXISTS receptions (
+        id               TEXT PRIMARY KEY,
+        reception_no     TEXT NOT NULL,
+        reception_seq    INTEGER NOT NULL DEFAULT 0,
+        reception_period TEXT NOT NULL DEFAULT '',
+        received_date    DATE,
+        supplier_id      TEXT,
+        supplier_name    TEXT DEFAULT '',
+        document_no      TEXT DEFAULT '',
+        notes            TEXT DEFAULT '',
+        created_at       TEXT
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_receptions_no ON receptions(reception_no)",
+    # HDI dostawcy ma WŁASNY numer („33656") i osobno wskazuje dokument
+    # handlowy („do dokumentu: WZ 388/MDU/08/2026"). Karta 1.1.1 kol. (e)
+    # dopuszcza jedno albo drugie, więc trzymamy oba.
+    "ALTER TABLE receptions ADD COLUMN IF NOT EXISTS hdi_no TEXT DEFAULT ''",
+    # Sumy ZE STOPKI HDI: „Masa netto: 9 000,00" i „Ilość pojemników: 600".
+    # Służą wyłącznie kontroli przepisania dokumentu — stan magazynu liczy się
+    # z pozycji, nie stąd.
+    "ALTER TABLE receptions ADD COLUMN IF NOT EXISTS doc_kg NUMERIC(12,3)",
+    "ALTER TABLE receptions ADD COLUMN IF NOT EXISTS doc_containers INTEGER",
+    "CREATE INDEX IF NOT EXISTS idx_receptions_date ON receptions(received_date)",
+    "CREATE INDEX IF NOT EXISTS idx_receptions_supplier ON receptions(supplier_id)",
+    "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS reception_id TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_raw_batches_reception ON raw_batches(reception_id)",
+
+    # Partie DOSTAWCY w obrębie przyjęcia. Dotąd ginęły: formularz zbierał
+    # pozycje HDI (numer + kg + data uboju), a backend sklejał same numery
+    # w jeden string `raw_batches.supplier_batch_no` i gubił kilogramy —
+    # nie dało się udowodnić, że A001-A005 (6000 kg) poszły w numer 400.
+    # raw_batch_id = do którego numeru porządkowego trafiła dana partia.
+    """CREATE TABLE IF NOT EXISTS reception_supplier_batches (
+        id                TEXT PRIMARY KEY,
+        reception_id      TEXT NOT NULL,
+        raw_batch_id      TEXT,
+        supplier_batch_no TEXT NOT NULL DEFAULT '',
+        kg                NUMERIC(12,3),
+        slaughter_date    DATE,
+        expiry_date       DATE,
+        seq               INTEGER NOT NULL DEFAULT 0
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_rsb_reception ON reception_supplier_batches(reception_id)",
+    "CREATE INDEX IF NOT EXISTS idx_rsb_raw_batch ON reception_supplier_batches(raw_batch_id)",
 ]
 
 
@@ -1041,8 +1093,95 @@ def _run_migrations_locked() -> None:
     _backfill_stock_carton_lines()
     _backfill_recipe_ingredients_seq()
     _backfill_byproduct_containers()
+    _backfill_receptions()
     _reconcile_deboning_ledger()
     logger.info("migrations.done")
+
+
+def _backfill_receptions() -> None:
+    """Odtwarza dokument przyjęcia dla partii sprzed tej tabeli.
+
+    Jedna dostawa = (data przyjęcia, dostawca). Tak właśnie wyglądają dane:
+    11.08.2026 KOKO przywiozło 9000 kg, które biuro rozbiło na 470 i 471 —
+    obie partie dostają teraz wspólny numer „x/08/2026".
+
+    Numery przydzielamy chronologicznie i przez tę samą sekwencję
+    (`reception_no:RRRR-MM`), co ścieżka produkcyjna, żeby kolejne przyjęcia
+    ciągnęły dalej, a nie zaczynały od 1 i zderzały się z historią.
+
+    Partie dostawcy odtwarzamy z `supplier_batch_no` — sklejonego stringa
+    („112819, 112820"). Kilogramów per partia dostawcy tam NIE MA i nie
+    wolno ich zmyślać: wiersze powstają z `kg = NULL`.
+
+    Idempotentne: rusza wyłącznie partie z `reception_id IS NULL`.
+    """
+    from app.utils.batch_numbers import delivery_period, format_delivery_no
+    from app.utils.ids import cuid, now_iso
+
+    try:
+        rows = query_all(
+            """
+            SELECT id, internal_batch_seq, supplier_id, supplier_name,
+                   supplier_batch_no, invoice_no, slaughter_date, expiry_date,
+                   COALESCE(received_date, created_at::date) AS rdate
+            FROM raw_batches
+            WHERE reception_id IS NULL
+              AND COALESCE(received_date, created_at::date) IS NOT NULL
+            ORDER BY COALESCE(received_date, created_at::date), internal_batch_seq
+            """
+        )
+        if not rows:
+            return
+
+        groups: Dict[tuple, List[Dict]] = {}
+        for r in rows:
+            groups.setdefault((r["rdate"], r["supplier_id"] or ""), []).append(r)
+
+        created = 0
+        for (rdate, _supplier_id), batches in sorted(groups.items(), key=lambda kv: kv[0][0]):
+            period = delivery_period(rdate)
+            seq_row = query_one(
+                """
+                INSERT INTO sequences (key, value) VALUES (%s, 1)
+                ON CONFLICT (key) DO UPDATE SET value = sequences.value + 1
+                RETURNING value
+                """,
+                (f"reception_no:{period}",),
+            )
+            seq = int(seq_row["value"])
+            head = batches[0]
+            rec_id = cuid()
+            execute(
+                """
+                INSERT INTO receptions
+                    (id, reception_no, reception_seq, reception_period, received_date,
+                     supplier_id, supplier_name, document_no, notes, created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'',%s)
+                """,
+                (rec_id, format_delivery_no(seq, rdate), seq, period, rdate,
+                 head.get("supplier_id"), head.get("supplier_name") or "",
+                 head.get("invoice_no") or "", now_iso()),
+            )
+            for b in batches:
+                execute("UPDATE raw_batches SET reception_id=%s WHERE id=%s", (rec_id, b["id"]))
+                # „112819, 112820" albo „112677 112682" — biuro rozdzielało
+                # numery raz przecinkiem, raz spacją.
+                parts = [p for p in re.split(r"[,;\s]+", b.get("supplier_batch_no") or "") if p]
+                for i, no in enumerate(parts):
+                    execute(
+                        """
+                        INSERT INTO reception_supplier_batches
+                            (id, reception_id, raw_batch_id, supplier_batch_no,
+                             kg, slaughter_date, expiry_date, seq)
+                        VALUES (%s,%s,%s,%s,NULL,%s,%s,%s)
+                        """,
+                        (cuid(), rec_id, b["id"], no,
+                         b.get("slaughter_date"), b.get("expiry_date"), i),
+                    )
+            created += 1
+        logger.info("migrations.backfill_receptions.done", extra={"count": created})
+    except Exception as exc:
+        logger.warning("migrations.backfill_receptions.error", extra={"error": str(exc)})
 
 
 def _reconcile_deboning_ledger() -> None:

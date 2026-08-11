@@ -1,0 +1,119 @@
+/**
+ * receptionRegisterRows — dane MES → wiersze kart HACCP 1.1.1 i 1.1.1/2.
+ *
+ * Karta 1.1.1 rejestruje DOSTAWY (jeden wiersz = jeden numer przyjęcia),
+ * karta 1.1.1/2 rozbija każdą dostawę na NUMERY PORZĄDKOWE. Obie karty
+ * wypełnia się ręcznie w kolumnach oceny (wizualna, temperatury, kwalifikacja)
+ * — system podaje tylko to, co sam wie: numery, dostawcę, asortyment, daty
+ * i dokument przywozowy. Kolumn oceny NIE wypełniamy nigdy: to zapis z
+ * pomiaru i oględzin, a nie z bazy danych.
+ *
+ * Zero importów z React/UI — moduł ma się dać przetestować w vitest.
+ */
+import type { Reception } from '@/types'
+
+/** Formy prawne obcinane w kolumnie „skrócona nazwa dostawcy". */
+const LEGAL_FORMS = [
+  /\s+SP[ÓO]ŁKA\s+Z\s+OGRANICZON[ĄA]\s+ODPOWIEDZIALNO[ŚS]CI[ĄA].*$/i,
+  /\s+SP[ÓO]ŁKA\s+(AKCYJNA|JAWNA|KOMANDYTOWA).*$/i,
+  /\s+SP\.\s*Z\s*O\.?\s*O\.?.*$/i,
+  /\s+S\.?A\.?$/i,
+]
+
+/**
+ * shortSupplier — kolumna (b) ma 27 mm, a pełna nazwa z KRS ma 45 znaków.
+ * Obcinamy formę prawną, nie nazwę: „KOKO SPÓŁKA Z OGRANICZONĄ…" → „KOKO".
+ */
+export function shortSupplier(name: string): string {
+  let out = (name || '').trim().replace(/^["„]|["”]$/g, '')
+  for (const re of LEGAL_FORMS) out = out.replace(re, '')
+  return out.replace(/["„”]/g, '').trim()
+}
+
+/** ISO → dd.mm.rrrr; puste zostaje puste (pusta kratka, nie „Invalid Date"). */
+export function plDate(iso: string): string {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return ''
+  const [y, m, d] = iso.slice(0, 10).split('-')
+  return `${d}.${m}.${y}`
+}
+
+/** Liczba po polsku, bez zer końcowych: 5235 → „5235", 12.5 → „12,5". */
+export function plNum(n: number, decimals = 1): string {
+  if (!Number.isFinite(n) || n === 0) return ''
+  return n.toLocaleString('pl-PL', { maximumFractionDigits: decimals })
+}
+
+/**
+ * documentLabel — kolumna (e): „HDI lub numer faktury, WZ lub inny dokument
+ * przywozowy". HDI dostawcy ma własny numer i osobno wskazuje dokument
+ * handlowy („Nr 33656 do dokumentu WZ 388/MDU/08/2026"), więc na karcie
+ * podajemy oba — inspektor po każdym z nich trafi do tej samej dostawy.
+ */
+export function documentLabel(hdiNo: string, documentNo: string): string {
+  const hdi = (hdiNo || '').trim()
+  const doc = (documentNo || '').trim()
+  if (hdi && doc) return `HDI ${hdi} / ${doc}`
+  return hdi ? `HDI ${hdi}` : doc
+}
+
+/**
+ * mainRows — karta 1.1.1: jeden wiersz na DOSTAWĘ.
+ *
+ * Kolumny f–m (ocena wizualna, temperatury, zgodność, uwagi, kwalifikacja,
+ * podpisy) zostają puste — wypełnia je odbierający przy aucie.
+ */
+export function mainRows(receptions: Reception[], cols: number): string[][] {
+  return [...receptions]
+    .sort((a, b) => a.receivedDate.localeCompare(b.receivedDate) ||
+      a.receptionNo.localeCompare(b.receptionNo, 'pl', { numeric: true }))
+    .map(r => {
+      const assortment = [...new Set(r.batches.map(b => b.materialName || '').filter(Boolean))]
+      const row = [
+        r.receptionNo,
+        shortSupplier(r.supplierName),
+        assortment.join(', '),
+        plDate(r.receivedDate),
+        documentLabel(r.hdiNo, r.documentNo),
+      ]
+      return [...row, ...Array(Math.max(0, cols - row.length)).fill('')]
+    })
+}
+
+/**
+ * detailRows — karta 1.1.1/2: jeden wiersz na NUMER PORZĄDKOWY.
+ *
+ * „Mięso [kg]" (g) zostaje puste: wychodzi dopiero po rozbiorze partii, więc
+ * w chwili przyjęcia wpisanie tam czegokolwiek byłoby zmyśleniem.
+ */
+export function detailRows(receptions: Reception[], cols: number): string[][] {
+  const out: string[][] = []
+  for (const r of [...receptions].sort((a, b) =>
+    a.receivedDate.localeCompare(b.receivedDate) ||
+    a.receptionNo.localeCompare(b.receptionNo, 'pl', { numeric: true }))) {
+    for (const b of r.batches) {
+      const row = [
+        r.receptionNo,
+        b.internalBatchNo,
+        plNum(Number(b.kgReceived)),
+        plDate(b.slaughterDate),
+        plDate(b.expiryDate),
+        plNum(Number(b.pricePerKg), 2),
+      ]
+      out.push([...row, ...Array(Math.max(0, cols - row.length)).fill('')])
+    }
+  }
+  return out
+}
+
+/**
+ * paginate — wiersze na kartki.
+ *
+ * Zawsze co najmniej jedna strona: miesiąc bez dostaw ma się wydrukować jako
+ * pusta karta do ręcznego wypełnienia, a nie zniknąć.
+ */
+export function paginate<T>(rows: T[], perPage: number): T[][] {
+  if (rows.length === 0) return [[]]
+  const pages: T[][] = []
+  for (let i = 0; i < rows.length; i += perPage) pages.push(rows.slice(i, i + perPage))
+  return pages
+}

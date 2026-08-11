@@ -69,20 +69,29 @@ def _first_of_month(value: str) -> date:
 
 
 @router.get("/rejestr-przyjecia/pdf")
-def reception_register_pdf(od: str = Query(..., description="dowolny dzień miesiąca karty, RRRR-MM-DD")):
+def reception_register_pdf(
+    od: str = Query(..., description="dowolny dzień miesiąca karty, RRRR-MM-DD"),
+    dane: int = Query(0, description="1 = wypełnij dostawami z systemu"),
+):
     """Karta 1.1.1 — rejestr przyjęcia artykułów pochodzenia zwierzęcego.
 
-    PUSTY druk: przyjęcia biuro prowadzi ręcznie, poza MES. System nadaje tylko
-    numer karty (MM/RRRR) i renderuje ją w stylu reszty księgi HACCP.
+    Domyślnie PUSTY druk (biuro prowadzi kartę ręcznie). `dane=1` wypełnia
+    kolumny a-e dostawami miesiąca; kolumny oceny i temperatur zostają puste,
+    bo to zapis z pomiaru przy aucie, a nie z bazy.
     """
     first = _first_of_month(od)
-    url = f"{settings.self_base_url}/office/rejestr-przyjecia/druk?pdf=1&od={first.isoformat()}"
+    url = (f"{settings.self_base_url}/office/rejestr-przyjecia/druk"
+           f"?pdf=1&od={first.isoformat()}" + ("&dane=1" if dane else ""))
     return _render(url, f"Rejestr-przyjecia_{first.strftime('%Y-%m')}.pdf")
 
 
 @router.get("/rejestr-przyjecia-szczegolowy/pdf")
-def reception_register_detail_pdf(od: str = Query(..., description="dowolny dzień miesiąca karty, RRRR-MM-DD")):
-    """Karta 1.1.1/2 — rozbicie dostawy na numery porządkowe. Też pusty druk."""
+def reception_register_detail_pdf(
+    od: str = Query(..., description="dowolny dzień miesiąca karty, RRRR-MM-DD"),
+    dane: int = Query(0, description="1 = wypełnij numerami porządkowymi z systemu"),
+):
+    """Karta 1.1.1/2 — rozbicie dostawy na numery porządkowe."""
     first = _first_of_month(od)
-    url = f"{settings.self_base_url}/office/rejestr-przyjecia-szczegolowy/druk?pdf=1&od={first.isoformat()}"
+    url = (f"{settings.self_base_url}/office/rejestr-przyjecia-szczegolowy/druk"
+           f"?pdf=1&od={first.isoformat()}" + ("&dane=1" if dane else ""))
     return _render(url, f"Rejestr-przyjecia-szczegolowy_{first.strftime('%Y-%m')}.pdf")

@@ -1,8 +1,25 @@
 """Czysta logika numeracji partii (bez I/O, bez DB).
 
-Jedyne źródło prawdy dla formatów numerów partii w całym systemie:
+TRZY POZIOMY NUMERACJI — nie mylić ich ze sobą:
 
-  * przyjęcie / rozbiór / mieszanie pojedyncze → goły numer, np. "344"
+  1. NUMER PRZYJĘCIA — dokument całej dostawy, "12/08/2026"
+     (kolejny w miesiącu / miesiąc / rok). Jedna dostawa = jeden numer,
+     niezależnie od tego, na ile numerów porządkowych ją rozbijemy.
+     Pod nim wiszą partie DOSTAWCY (jego numery, np. A001) i dokumenty:
+     WZ, faktura, HDI, temperatura, ocena przyjęcia (karta 1.1.1).
+  2. NUMER PORZĄDKOWY — nasz wewnętrzny numer, np. "471". To on jedzie
+     przez halę: rozbiór, uboczne, masowanie. Na tym etapie NIE jest
+     jeszcze numerem partii.
+  3. NUMER PARTII — powstaje dopiero z tego, co się z surowcem stanie:
+     * uboczne / mięso sprzedane bez produkcji → numer partii = numer
+       porządkowy ("471"),
+     * wyrób gotowy → "ddmmrr <numer porządkowy>" ("110826 471").
+
+Poniższe funkcje są jedynym źródłem prawdy dla tych formatów:
+
+  * numer przyjęcia (dokument dostawy)      → "12/08/2026"
+  * numer porządkowy (przyjęcie / rozbiór / mieszanie pojedyncze)
+                                            → goły numer, np. "344"
   * przyjęcie NA USŁUGĘ (mięso z/s klienta)   → "{n}U", np. "48U"
     (osobna seria: towar jest cudzy, choć leży w tym samym magazynie
      i normalnie się go masuje)
@@ -29,8 +46,57 @@ _PROD_COMBINED_NO_RE = re.compile(r"^PPP\d+$")
 _PROD_MIXED_NO_RE = re.compile(r"^PM\d+$")
 
 
+_DELIVERY_NO_RE = re.compile(r"^(\d+)\s*/\s*(\d{1,2})\s*/\s*(\d{4})$")
+
+
+def _as_date(when: Union[str, date, datetime]) -> date:
+    """Data z ISO stringa / date / datetime — wspólne wejście numeratorów."""
+    if isinstance(when, str):
+        return datetime.strptime(when[:10], "%Y-%m-%d").date()
+    if isinstance(when, datetime):
+        return when.date()
+    return when
+
+
+def format_delivery_no(seq: int, when: Union[str, date, datetime]) -> str:
+    """Numer PRZYJĘCIA (dokument całej dostawy): ``12/08/2026``.
+
+    Numer porządkowy dostawy w miesiącu bez zer wiodących — tak zakład pisze
+    go ręcznie na karcie 1.1.1; miesiąc dwucyfrowy, żeby numery sortowały się
+    i czytały jednakowo przez cały rok.
+    """
+    if int(seq) < 1:
+        raise ValueError("Numer przyjęcia musi być >= 1")
+    d = _as_date(when)
+    return f"{int(seq)}/{d.month:02d}/{d.year}"
+
+
+def parse_delivery_no(raw: Optional[str]) -> Optional[tuple[int, int, int]]:
+    """``"12/08/2026"`` → ``(12, 8, 2026)``. Puste = ``None`` (auto-numer)."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    m = _DELIVERY_NO_RE.match(s)
+    if not m:
+        raise ValueError("Numer przyjęcia ma postać 12/08/2026")
+    seq, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if seq < 1:
+        raise ValueError("Numer przyjęcia musi być >= 1")
+    if not 1 <= month <= 12:
+        raise ValueError("Miesiąc w numerze przyjęcia musi być z zakresu 1-12")
+    return (seq, month, year)
+
+
+def delivery_period(when: Union[str, date, datetime]) -> str:
+    """Okres numeracji przyjęć: ``"2026-08"``. Numeracja resetuje się co miesiąc."""
+    d = _as_date(when)
+    return f"{d.year:04d}-{d.month:02d}"
+
+
 def parse_reception_no(raw: Optional[str]) -> Optional[int]:
-    """Waliduje ręcznie wpisany numer partii na przyjęciu.
+    """Waliduje ręcznie wpisany NUMER PORZĄDKOWY na przyjęciu.
 
     Zwraca int gdy podano poprawny goły numer (>= 1), ``None`` gdy puste
     (auto-numerowanie), albo rzuca ``ValueError`` gdy format zły.

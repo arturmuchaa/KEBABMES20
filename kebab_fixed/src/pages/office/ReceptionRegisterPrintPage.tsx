@@ -30,9 +30,12 @@
  *     ?od=YYYY-MM-DD  dowolny dzień z miesiąca karty (domyślnie dziś)
  *     ?pdf=1          wyłącza auto-print (render do PDF)
  */
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useMemo, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { receptionCardNo } from '@/lib/haccpCardHistory'
+import { receptionsApi } from '@/lib/apiClient'
+import { useApi } from '@/hooks/useApi'
+import { detailRows, mainRows, paginate } from '@/lib/receptionRegisterRows'
 
 /** Pusty wiersz do wypełnienia — tyle, ile mieści się na jednej kartce. */
 const ROWS_MAIN = 12
@@ -81,20 +84,71 @@ function cardMonth(od: string | null): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1)
 }
 
-/** Wspólna oprawa obu kart: nagłówek → belka → tytuł → pola meta → tabela. */
-function RegisterSheet({ od, isPdf, title, subtitle, cols, rows, card, legend, children }: {
-  od: string | null; isPdf: boolean; title: string; subtitle: string
-  cols: Col[]; rows: number; card: string; legend: ReactNode; children?: ReactNode
+/** Pierwszy i ostatni dzień miesiąca karty — okno zapytania o dostawy. */
+function monthRange(month: Date): { from: string; to: string } {
+  const iso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return {
+    from: iso(new Date(month.getFullYear(), month.getMonth(), 1)),
+    to:   iso(new Date(month.getFullYear(), month.getMonth() + 1, 0)),
+  }
+}
+
+/**
+ * RegisterCard — karta jako CAŁOŚĆ: tyle kartek, ile trzeba na dane miesiąca.
+ *
+ * Bez `?dane=1` drukuje się jedna pusta karta do wypełnienia długopisem —
+ * tak, jak zakład prowadzi ją dziś. Z `?dane=1` MES wypełnia to, co wie
+ * (numery, dostawca, asortyment, daty, dokument); kolumny oceny zostają puste,
+ * bo to zapis z pomiaru przy aucie, a nie z bazy.
+ */
+function RegisterCard(props: {
+  od: string | null; isPdf: boolean; withData: boolean; title: string; subtitle: string
+  cols: Col[]; rows: number; card: string; legend: ReactNode; head?: ReactNode
+  build: (recs: any[], cols: number) => string[][]
 }) {
+  const { od, isPdf, withData, rows, build, cols } = props
+  const month = cardMonth(od)
+  const range = useMemo(() => monthRange(month), [month.getTime()]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { data } = useApi(
+    () => withData ? receptionsApi.list(range) : Promise.resolve([]),
+    [withData, range.from, range.to],
+  )
+
+  const pages = useMemo(
+    () => paginate(withData ? build(data ?? [], cols.length) : [], rows),
+    [withData, data, build, cols.length, rows])
+
   useEffect(() => {
-    document.title = title
+    document.title = props.title
     if (isPdf) return
+    // Druk dopiero, gdy dane doszły — inaczej okno druku otwiera się nad
+    // pustą kartą i operator drukuje niewypełnioną.
+    if (withData && data === null) return
     const t = setTimeout(() => window.print(), 600)
     return () => clearTimeout(t)
-  }, [isPdf, title])
+  }, [isPdf, props.title, withData, data])
 
-  const month = cardMonth(od)
+  return (
+    <>
+      {pages.map((pageRows, i) => (
+        <RegisterSheet key={i} {...props} month={month}
+          page={i + 1} pages={pages.length} data={pageRows} />
+      ))}
+    </>
+  )
+}
+
+/** Wspólna oprawa obu kart: nagłówek → belka → tytuł → pola meta → tabela. */
+function RegisterSheet({ month, title, subtitle, cols, rows, card, legend, head,
+                        page, pages, data }: {
+  month: Date; title: string; subtitle: string
+  cols: Col[]; rows: number; card: string; legend: ReactNode; head?: ReactNode
+  page: number; pages: number; data: string[][]
+}) {
   const monthLabel = month.toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' })
+  const children = head
 
   return (
     <div className="reg">
@@ -115,7 +169,10 @@ function RegisterSheet({ od, isPdf, title, subtitle, cols, rows, card, legend, c
       <div className="meta">
         <div className="fld"><div className="lb">Nr karty</div><div className="vl">{receptionCardNo(month)}</div></div>
         <div className="fld"><div className="lb">Miesiąc</div><div className="vl">{monthLabel}</div></div>
-        <div className="fld sm"><div className="lb">Strona</div><div className="vl" /></div>
+        <div className="fld sm">
+          <div className="lb">Strona</div>
+          <div className="vl">{pages > 1 ? `${page} / ${pages}` : ''}</div>
+        </div>
         <div className="fld w2"><div className="lb">Osoba odpowiedzialna za przyjęcia</div><div className="vl" /></div>
       </div>
 
@@ -130,8 +187,12 @@ function RegisterSheet({ od, isPdf, title, subtitle, cols, rows, card, legend, c
           </thead>
         )}
         <tbody>
+          {/* Zawsze pełna siatka wierszy: karta ma wyglądać identycznie pustą
+              i wypełnioną, a wolne kratki służą do dopisania ręką. */}
           {Array.from({ length: rows }, (_, r) => (
-            <tr key={r}>{cols.map(c => <td key={c.letter} />)}</tr>
+            <tr key={r}>
+              {cols.map((c, i) => <td key={c.letter}>{data[r]?.[i] ?? ''}</td>)}
+            </tr>
           ))}
         </tbody>
       </table>
@@ -160,9 +221,11 @@ export function ReceptionRegisterPrintPage() {
   const [params] = useSearchParams()
   const cols = COLS_MAIN
   return (
-    <RegisterSheet
+    <RegisterCard
       od={params.get('od')}
       isPdf={params.get('pdf') === '1'}
+      withData={params.get('dane') === '1'}
+      build={mainRows}
       title="Rejestr przyjęcia artykułów pochodzenia zwierzęcego"
       subtitle="Kontrola dostawy przy przyjęciu — wpis ręczny dla każdej dostawy, w dniu jej przyjęcia"
       cols={cols}
@@ -177,8 +240,7 @@ export function ReceptionRegisterPrintPage() {
         'niezgodność ilościowa: wpisać ilość rzeczywiście przyjętą, uwagę w kol. j i wyegzekwować korektę dokumentów od dostawcy',
         'dostawę odrzuconą również się rejestruje — służy do oceny dostawców',
       ]} />}
-    >
-      {/* Szapka trójpoziomowa: para „Komora / Mięso” siedzi pod wspólnym
+      head={<>{/* Szapka trójpoziomowa: para „Komora / Mięso” siedzi pod wspólnym
           nagłówkiem „Temperatura”, jak para „na chłodni / w mięsie” w karcie
           temperatur. Grupy są SZARE (nie białe) — biel czytała się jak dziura
           w tabeli, a nie jak akcent. */}
@@ -202,7 +264,8 @@ export function ReceptionRegisterPrintPage() {
         </tr>
         <tr className="ltr">{cols.map(c => <th key={c.letter}>{c.letter}</th>)}</tr>
       </thead>
-    </RegisterSheet>
+      </>}
+    />
   )
 }
 
@@ -210,9 +273,11 @@ export function ReceptionRegisterPrintPage() {
 export function ReceptionRegisterDetailPrintPage() {
   const [params] = useSearchParams()
   return (
-    <RegisterSheet
+    <RegisterCard
       od={params.get('od')}
       isPdf={params.get('pdf') === '1'}
+      withData={params.get('dane') === '1'}
+      build={detailRows}
       title="Rejestr przyjęcia artykułów pochodzenia zwierzęcego — część szczegółowa"
       subtitle="Jeden wiersz na numer porządkowy z dostawy zarejestrowanej w karcie 1.1.1"
       cols={COLS_DETAIL}
@@ -250,6 +315,11 @@ const CSS = `
   background:#fff; width:283mm; margin:0 auto; padding:5mm;
   -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 @media print { .reg { width:auto; margin:0; padding:0; } }
+/* Karta miesięczna z danymi bywa wielostronicowa (ok. 2 dostawy dziennie).
+   Każda kartka ma własną szapkę i numer strony, więc łamiemy PRZED kolejną,
+   a nie po ostatniej — inaczej drukarka wypluwa pustą kartkę na końcu. */
+.reg + .reg { break-before:page; page-break-before:always; }
+@media screen { .reg + .reg { margin-top:8mm; } }
 
 .reg .top { display:flex; align-items:flex-start; gap:6mm; }
 .reg .top img { height:10mm; }
