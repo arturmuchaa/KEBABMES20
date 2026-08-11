@@ -368,7 +368,7 @@ export function RawBatchesPage() {
                 {pending.map(g => (
                   <div key={g.index} className="flex items-center justify-between px-4 py-2.5">
                     <CardDescription>
-                      Numer porządkowy #{g.index + 1}
+                      Numer porządkowy {g.batchNo ?? `#${g.index + 1}`}
                       <span className="block font-mono text-[11px] text-ink-3">
                         {g.supplierNos.join(', ') || 'bez partii dostawcy'}
                       </span>
@@ -408,7 +408,8 @@ export function RawBatchesPage() {
               <CardContent className="px-3 py-2">
                 <CardDescription className="text-xs">
                   Numery — przyjęcia i porządkowe — nadaje system przy zapisie;
-                  powyższe to podpowiedzi. Kolejny wolny numer porządkowy: {suggestedBatchNo || '—'}.
+                  powyższe to podpowiedzi. Gdy w tej samej chwili ktoś zarejestruje
+                  dostawę z drugiego stanowiska, faktyczne numery mogą wyjść wyższe.
                 </CardDescription>
               </CardContent>
             </Card>

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
-  canSubmitReception, checkAgainstHdi, groupLines, nextSupplierBatchNo, parseKg,
-  receptionIssues, receptionTotalKg, renumberAfterRemove, withContainers,
-  type HdiLine,
+  canSubmitReception, checkAgainstHdi, groupLines, nextSupplierBatchNo,
+  ordinalLabels, parseKg, receptionIssues, receptionTotalKg, renumberAfterRemove,
+  withContainers, type HdiLine,
 } from './receptionSplit'
 
 const line = (no: string, kg: number, group = 0, extra: Partial<HdiLine> = {}): HdiLine => ({
@@ -125,6 +125,26 @@ describe('nextSupplierBatchNo', () => {
   it('numer nieliczbowy nie generuje podpowiedzi', () => {
     expect(nextSupplierBatchNo('A001')).toBe('')
     expect(nextSupplierBatchNo('')).toBe('')
+  })
+})
+
+describe('ordinalLabels', () => {
+  it('pokazuje numery, które partie faktycznie dostaną', () => {
+    expect(ordinalLabels('472', 3)).toEqual(['472', '473', '474'])
+  })
+
+  it('seria usługowa zachowuje literę U', () => {
+    expect(ordinalLabels('48U', 2)).toEqual(['48U', '49U'])
+    expect(ordinalLabels('48u', 2)).toEqual(['48U', '49U'])
+  })
+
+  it('bez czytelnej podpowiedzi wraca do #1 zamiast zmyślać numer', () => {
+    expect(ordinalLabels('', 2)).toEqual(['#1', '#2'])
+    expect(ordinalLabels('ANUL-x', 2)).toEqual(['#1', '#2'])
+  })
+
+  it('jedna grupa to jeden numer', () => {
+    expect(ordinalLabels('472', 1)).toEqual(['472'])
   })
 })
 

@@ -17,8 +17,8 @@ import {
   type CaliberValue,
 } from '@/lib/containers'
 import {
-  checkAgainstHdi, groupLines, nextSupplierBatchNo, parseKg, receptionIssues,
-  receptionTotalKg, renumberAfterRemove, withContainers,
+  checkAgainstHdi, groupLines, nextSupplierBatchNo, ordinalLabels, parseKg,
+  receptionIssues, receptionTotalKg, renumberAfterRemove, withContainers,
   type HdiLine, type ReceptionGroup,
 } from '../receptionSplit'
 import { receptionsApi } from '@/lib/apiClient'
@@ -132,13 +132,19 @@ export function CreateReceptionModal({
 
   // Liczba pojemników = ta, którą operator WIDZI: wyliczona z kalibru albo
   // ręcznie przeliczona. Jedno źródło dla ekranu, kontroli z HDI i zapisu.
+  // Numery, które grupy dostaną przy zapisie („472", „473"). Operator dzieli
+  // dostawę myśląc numerami hali, nie pozycjami listy.
+  const batchNos = useMemo(
+    () => ordinalLabels(suggestedBatchNo, groupCount), [suggestedBatchNo, groupCount])
+
   const groups: ReceptionGroup[] = useMemo(
     () => withContainers(
       groupLines(lines, groupCount), header.containerKg ?? null, containerOverride,
-      (kg, cal) => containersForKg(kg, cal)),
-    [lines, groupCount, containerOverride, header.containerKg],
+      (kg, cal) => containersForKg(kg, cal)).map((g, i) => ({ ...g, batchNo: batchNos[i] })),
+    [lines, groupCount, containerOverride, header.containerKg, batchNos],
   )
-  const issues = useMemo(() => receptionIssues(lines, groupCount), [lines, groupCount])
+  const issues = useMemo(
+    () => receptionIssues(lines, groupCount, batchNos), [lines, groupCount, batchNos])
   const hdiCheck = useMemo(
     () => checkAgainstHdi(lines, groups, { kg: header.docKg, containers: header.docContainers }),
     [lines, groups, header.docKg, header.docContainers])
@@ -451,12 +457,12 @@ export function CreateReceptionModal({
                           {Array.from({ length: groupCount }, (_, g) => (
                             <button key={g}
                               onClick={() => updateLine(idx, 'group', g)}
-                              className={`h-9 min-w-9 px-2 rounded-md text-xs font-bold border transition-colors ${
+                              className={`h-9 min-w-10 px-2 rounded-md text-xs font-bold border transition-colors tabular-nums ${
                                 line.group === g
                                   ? 'bg-primary text-white border-primary'
                                   : 'bg-white text-ink-2 border-surface-4 hover:border-primary/50'
                               }`}>
-                              #{g + 1}
+                              {batchNos[g]}
                             </button>
                           ))}
                         </div>
@@ -493,10 +499,10 @@ export function CreateReceptionModal({
                 return (
                   <Card key={g.index} className={g.kg > 0 ? '' : 'border-destructive/40 bg-destructive/5'}>
                     <CardContent className="p-3 flex items-center gap-4">
-                      <div className="w-14 shrink-0">
+                      <div className="w-20 shrink-0">
                         <CardDescription className="text-[10px] font-bold uppercase">Nr porz.</CardDescription>
-                        <CardTitle className="text-lg font-black font-mono text-primary">
-                          #{g.index + 1}
+                        <CardTitle className="text-lg font-black font-mono text-primary tabular-nums">
+                          {g.batchNo}
                         </CardTitle>
                       </div>
                       <div className="w-28 shrink-0">
@@ -729,7 +735,9 @@ export function CreateReceptionModal({
               ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               : <Plus size={15} />}
             Przyjmij dostawę ({fmtKg(totalKg, 0)} kg
-            {groupCount > 1 ? ` → ${groupCount} numery porządkowe` : `, nr ${suggestedBatchNo || '—'}`})
+            {groupCount > 1
+              ? ` → nr ${batchNos.join(', ')}`
+              : `, nr ${batchNos[0] || '—'}`})
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -35,6 +35,9 @@ export interface ReceptionGroup {
   /** Najwcześniejsza data uboju / ważności w grupie — FEFO liczy od najkrótszej. */
   slaughterDate: string
   expiryDate:    string
+  /** Numer porządkowy, który grupa dostanie przy zapisie („472").
+   *  Podpowiedź z sekwencji — patrz `ordinalLabels`. */
+  batchNo?:      string
   /** Ręcznie policzone pojemniki tej grupy; null = wylicz z kalibru.
    *  Nie wynika z pozycji HDI — dokłada je operator, który przeliczył stos
    *  (5.08.2026 partia 459: 199 pojemników na palecie vs 193 z wagi). */
@@ -120,13 +123,18 @@ export interface ReceptionIssues {
  * dostawca sam przywozi resztę wcześniejszej partii, a odmowa rejestracji
  * o szóstej rano jest gorsza niż widoczna adnotacja.
  */
-export function receptionIssues(lines: HdiLine[], groupCount: number): ReceptionIssues {
+export function receptionIssues(
+  lines: HdiLine[], groupCount: number, labels: string[] = [],
+): ReceptionIssues {
   const groups = groupLines(lines, groupCount)
   const errors: string[] = []
   const warnings: string[] = []
+  // Komunikat ma mówić numerem, który operator widzi na kaflu („472"),
+  // a nie pozycją listy — inaczej trzeba je w głowie przeliczać.
+  const name = (i: number) => labels[i] ?? `#${i + 1}`
 
   groups.forEach(g => {
-    if (g.kg <= 0) errors.push(`Numer porządkowy #${g.index + 1} nie ma żadnych kilogramów`)
+    if (g.kg <= 0) errors.push(`Numer porządkowy ${name(g.index)} nie ma żadnych kilogramów`)
   })
 
   lines.forEach(l => {
@@ -141,7 +149,7 @@ export function receptionIssues(lines: HdiLine[], groupCount: number): Reception
     const first = seen.get(no)
     if (first !== undefined && first !== l.group) {
       warnings.push(
-        `Partia dostawcy ${no} rozdzielona między numer porządkowy #${first + 1} i #${l.group + 1}`)
+        `Partia dostawcy ${no} rozdzielona między numer porządkowy ${name(first)} i ${name(l.group)}`)
     } else if (first === undefined) {
       seen.set(no, l.group)
     }
@@ -154,8 +162,10 @@ export function receptionIssues(lines: HdiLine[], groupCount: number): Reception
 }
 
 /** Czy dostawę da się zapisać. */
-export function canSubmitReception(lines: HdiLine[], groupCount: number): boolean {
-  return receptionIssues(lines, groupCount).errors.length === 0 &&
+export function canSubmitReception(
+  lines: HdiLine[], groupCount: number, labels: string[] = [],
+): boolean {
+  return receptionIssues(lines, groupCount, labels).errors.length === 0 &&
     receptionTotalKg(lines) > 0
 }
 
@@ -180,6 +190,25 @@ export function withContainers(
     ...g,
     containersCount: overrides[g.index] ?? perKg(g.kg, containerKg),
   }))
+}
+
+/**
+ * ordinalLabels — numery porządkowe, które grupy DOSTANĄ przy zapisie.
+ *
+ * Operator dzieli dostawę myśląc numerami hali („to jedzie na 472"), nie
+ * pozycjami listy, więc pokazujemy 472, 473… zamiast #1, #2. Numery są
+ * PODPOWIEDZIĄ — nadaje je backend atomowo przy zapisie, więc gdy w tej samej
+ * chwili ktoś zarejestruje dostawę z drugiego stanowiska, faktyczne mogą
+ * wyjść wyższe. Dlatego formularz nigdy ich nie wysyła: sekwencja zostaje
+ * jedynym źródłem prawdy.
+ *
+ * Seria usługowa („48U") ma własną numerację i literę trzeba zachować.
+ * Bez czytelnej podpowiedzi wracamy do „#1", zamiast zmyślać numer.
+ */
+export function ordinalLabels(suggested: string, count: number): string[] {
+  const m = /^(\d+)(U?)$/i.exec((suggested || '').trim())
+  return Array.from({ length: Math.max(0, count) }, (_, i) =>
+    m ? `${Number(m[1]) + i}${m[2].toUpperCase()}` : `#${i + 1}`)
 }
 
 /** Sumy zadeklarowane na HDI — do porównania z tym, co faktycznie wpisano. */
