@@ -1,5 +1,7 @@
+import { useLayoutEffect, useRef } from 'react'
 import { WzDoc, WzLine } from '@/lib/api'
 import { fmtDatePl } from '@/lib/utils'
+import { buildHdiRows } from './hdiRows'
 
 /** Dane dokumentu do renderu — pełny WzDoc z API albo szkic z formularza
  *  (przed wystawieniem; wtedy number/seller mogą być puste). */
@@ -30,6 +32,11 @@ const fmtKg3 = (n: number | null | undefined) => {
 }
 const curSymbol = (c?: string) => (c || 'PLN').toUpperCase() === 'EUR' ? '€' : 'zł'
 
+/** Komórka tabeli HDI — wąska i BEZ zawijania (jedna partia = jedna linia).
+ *  Bez klasy wyrównania: „text-left" na nazwie nie wygrałoby z „text-center"
+ *  (o zwycięzcy decyduje kolejność w CSS Tailwinda, nie w atrybucie). */
+const hdiTd = 'border border-[#bfbfbf] px-1 py-[1px] whitespace-nowrap'
+
 const lineValue = (l: WzLine) => {
   if (l.value != null) return l.value
   const base = (l.total_kg ?? 0) > 0 ? Number(l.total_kg) : l.qty
@@ -44,6 +51,35 @@ function Bar({ children }: { children: React.ReactNode }) {
       fontSize: 9.5, padding: '2px 8px', letterSpacing: '.02em',
     }}>{children}</div>
   )
+}
+
+// Wysokość arkusza A4 przy marginesie 5 mm (@page niżej) minus pionowe
+// wyściółki arkusza — tyle miejsca ma treść na JEDNEJ stronie.
+const PAGE_H_PX = 287 /* mm */ / 25.4 * 96 - 32 - 8 /* zapas na zaokrąglenia */
+const MIN_SCALE = 0.6   // niżej druk byłby nieczytelny — wtedy wolimy 2 strony
+
+/** „Zmieść na jednej stronie": jeśli treść jest wyższa od A4, skalujemy ją
+ *  proporcjonalnie (jak „fit to page" w drukarce). Wysokość zewnętrznego boksu
+ *  ustawiamy na PRZESKALOWANĄ — inaczej Chrome dalej łamie stronę po
+ *  nieskalowanym layoutcie i wypluwa pustą drugą kartkę. */
+function useFitOnePage(deps: unknown) {
+  const outer = useRef<HTMLDivElement>(null)
+  const inner = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const o = outer.current, i = inner.current
+    if (!o || !i) return
+    i.style.transform = 'none'
+    o.style.height = ''
+    const natural = i.scrollHeight
+    if (natural > PAGE_H_PX) {
+      const s = Math.max(MIN_SCALE, PAGE_H_PX / natural)
+      i.style.transformOrigin = 'top left'
+      i.style.transform = `scale(${s})`
+      o.style.height = `${Math.ceil(natural * s)}px`
+      o.style.overflow = 'hidden'
+    }
+  }, [deps])
+  return { outer, inner }
 }
 
 /** Arkusz dokumentu WZ — wspólny dla podglądu (modal), strony wydruku i PDF.
@@ -85,6 +121,7 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
   ]
   const cols = head.length
   const totalValue = doc.total_value ?? doc.lines.reduce((s, l) => s + lineValue(l), 0)
+  const fit = useFitOnePage(doc)
   return (
     <div className="wz bg-white text-[#111] mx-auto"
       style={{ width: 756, padding: '16px 20px', fontSize: 10.5, fontFamily: 'Arial, Helvetica, sans-serif' }}>
@@ -98,6 +135,8 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
           print-color-adjust: exact !important;
         }
       `}</style>
+      <div ref={fit.outer}>
+      <div ref={fit.inner} style={{ width: 716 }}>
 
       {/* ── Nagłówek: logo + firma po lewej, boksy dat po prawej (Subiekt) ── */}
       <div className="flex justify-between items-start">
@@ -221,60 +260,56 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
       {/* ── Identyfikacja partii surowca (HDI) — tylko pozycje surowcowe;
              sprzedaż wyrobu (kebab) ma osobny, pełny HDI jak dotąd. ── */}
       {(() => {
-        const hdiLines = doc.lines.filter(l =>
-          (l as any).stock_type && (l as any).stock_type !== 'fg' && l.batch_no)
+        // Grupami towaru, w grupie partie od najstarszej, jedna partia = jedna
+        // linia (reguły i testy: hdiRows.ts).
+        const hdiLines = buildHdiRows(doc.lines)
         if (!hdiLines.length) return null
-        const sumKg = hdiLines.reduce((s, l) => s + Number(l.total_kg ?? (l.unit === 'kg' ? l.qty : 0) ?? 0), 0)
+        const sumKg = hdiLines.reduce((s, l) => s + Number(l.total_kg ?? 0), 0)
         const sumCont = hdiLines.reduce((s, l) => s + Number((l as any).containers ?? 0), 0)
         return (
           // Pełna szerokość jak tabela WZ, ale drobniejszy druk i cieńsze
           // szarości — sekcja identyfikacji nie zlewa się z dokumentem.
-          <div className="mt-6">
+          <div className="mt-4">
             <Bar>Identyfikacja partii surowca (HDI)</Bar>
             <div style={{ borderBottom: '1px solid #9a9a9a', marginBottom: 6 }} />
-            <table className="w-full" style={{ borderCollapse: 'collapse', fontSize: 10.5 }}>
+            {/* Wiersze JEDNOLINIOWE (nowrap) i wąskie — długi WZ na 1 stronie. */}
+            <table className="w-full" style={{ borderCollapse: 'collapse', fontSize: 9, lineHeight: 1.35 }}>
               <thead>
                 <tr>
-                  {['Lp', 'Nazwa towaru', 'Partia', 'Masa netto [kg]', 'Data uboju', 'Data produkcji', 'Data ważności', 'Temp. przechowywania', 'Pojemniki*'].map((h, hi) => (
-                    <th key={h} className={`border border-[#bfbfbf] bg-[#f7f7f7] px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide ${hi === 1 ? 'text-left' : 'text-center'}`}>
+                  {['Lp', 'Nazwa towaru', 'Partia', 'Masa netto [kg]', 'Data uboju', 'Data produkcji', 'Data ważności', 'Temp. przech.', 'Pojemniki*'].map((h, hi) => (
+                    <th key={h} className={`border border-[#bfbfbf] bg-[#f7f7f7] px-1 text-[8px] uppercase tracking-wide whitespace-nowrap ${hi === 1 ? 'text-left' : 'text-center'}`}>
                       {h}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {[...hdiLines]
-                  .sort((a, b) => String(a.batch_no ?? '').localeCompare(String(b.batch_no ?? ''), 'pl', { numeric: true }))
-                  .map((l, i) => (
+                {hdiLines.map((l, i) => (
                   <tr key={i}>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center w-8">{i + 1}</td>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 uppercase">{l.name}</td>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 font-mono font-bold text-center">{l.batch_no}</td>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center font-mono">
-                      {fmtKg3(l.total_kg ?? (l.unit === 'kg' ? l.qty : 0))}
-                    </td>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center">
+                    <td className={`${hdiTd} text-center w-6`}>{i + 1}</td>
+                    <td className={`${hdiTd} uppercase`}>{l.name}</td>
+                    <td className={`${hdiTd} text-center font-mono font-bold`}>{l.batch_no}</td>
+                    <td className={`${hdiTd} text-center font-mono`}>{fmtKg3(l.total_kg)}</td>
+                    <td className={`${hdiTd} text-center`}>
                       {(l as any).slaughter_date ? fmtDatePl((l as any).slaughter_date) : '—'}
                     </td>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center">
+                    <td className={`${hdiTd} text-center`}>
                       {(l as any).production_date ? fmtDatePl((l as any).production_date) : '—'}
                     </td>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center">
+                    <td className={`${hdiTd} text-center`}>
                       {(l as any).expiry_date ? fmtDatePl((l as any).expiry_date) : '—'}
                     </td>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center">0–4°C</td>
-                    <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center font-mono">
+                    <td className={`${hdiTd} text-center`}>0–4°C</td>
+                    <td className={`${hdiTd} text-center font-mono`}>
                       {((l as any).containers ?? 0) > 0 ? (l as any).containers : '—'}
                     </td>
                   </tr>
                 ))}
                 <tr>
-                  <td colSpan={3} className="border border-[#bfbfbf] px-1.5 py-0.5 text-right font-bold">Razem</td>
-                  <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center font-bold font-mono">{fmtKg3(sumKg)}</td>
+                  <td colSpan={3} className={`${hdiTd} text-right font-bold`}>Razem</td>
+                  <td className={`${hdiTd} text-center font-bold font-mono`}>{fmtKg3(sumKg)}</td>
                   <td colSpan={4} className="border border-[#bfbfbf]" />
-                  <td className="border border-[#bfbfbf] px-1.5 py-0.5 text-center font-bold font-mono">
-                    {sumCont > 0 ? sumCont : '—'}
-                  </td>
+                  <td className={`${hdiTd} text-center font-bold font-mono`}>{sumCont > 0 ? sumCont : '—'}</td>
                 </tr>
               </tbody>
             </table>
@@ -287,17 +322,19 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
       })()}
 
       {/* ── Boksy podpisów (Subiekt: Wystawił(a) / Odebrał(a)) ── */}
-      <div className="flex justify-between gap-8 mt-8">
+      <div className="flex justify-between gap-8 mt-6">
         {[
           { label: 'Wystawił(a):', caption: 'Podpis osoby upoważnionej do wystawienia dokumentu WZ' },
           { label: 'Odebrał(a):',  caption: 'Podpis osoby upoważnionej do odbioru towaru' },
         ].map(s => (
           <div key={s.label} className="flex-1" style={{ maxWidth: 330 }}>
             <Bar>{s.label}</Bar>
-            <div style={{ border: '1px solid #9a9a9a', borderTop: 'none', height: 58 }} />
+            <div style={{ border: '1px solid #9a9a9a', borderTop: 'none', height: 52 }} />
             <div className="text-center text-[8.5px] text-[#555] mt-0.5">{s.caption}</div>
           </div>
         ))}
+      </div>
+      </div>
       </div>
     </div>
   )
