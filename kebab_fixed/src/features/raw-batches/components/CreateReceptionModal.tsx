@@ -196,6 +196,9 @@ export function CreateReceptionModal({
       if (scan.totalKg)     onHeaderChange('docKg', scan.totalKg)
       if (scan.containers)  onHeaderChange('docContainers', scan.containers)
       if (scan.pallets)     onHeaderChange('palletsH1', scan.pallets)
+      // Dostawca podstawia się tylko wtedy, gdy rozpoznanie było jednoznaczne;
+      // przy dwóch pasujących backend świadomie nie wybiera żadnego.
+      if (scan.supplier)    onHeaderChange('supplierId', scan.supplier.id)
 
       const kg = scan.lines.reduce((s, l) => s + l.kgReceived, 0)
       setScanNote(scan.sumOk === false
@@ -205,6 +208,9 @@ export function CreateReceptionModal({
         : { ok: true, text:
             `Odczytano ${scan.lines.length} pozycji na ${fmtKg(kg, 1)} kg` +
             (scan.sumOk ? ' — zgodne ze stopką HDI.' : '.') +
+            (scan.supplier
+              ? ` Dostawca: ${scan.supplier.name} (rozpoznany po ${scan.supplier.matchedBy}).`
+              : ' Dostawcy nie udało się rozpoznać — wybierz go z listy.') +
             ' Sprawdź numery partii: literówki w nich nie rozjeżdżają żadnej sumy.' })
     } catch (e) {
       setScanNote({ ok: false, text: e instanceof Error ? e.message : 'Nie udało się odczytać pliku' })

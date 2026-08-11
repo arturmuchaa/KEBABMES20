@@ -309,6 +309,10 @@ export const receptionsApi = {
       containers:  raw.containers ?? null,
       pallets:     raw.pallets ?? null,
       sumOk:       raw.sum_ok ?? null,
+      supplier:    raw.supplier
+        ? { id: raw.supplier.id, name: raw.supplier.name ?? '',
+            matchedBy: raw.supplier.matched_by ?? '' }
+        : null,
       lines: (raw.lines ?? []).map((l: any) => ({
         supplierBatchNo: String(l.supplier_batch_no ?? ''),
         kgReceived:      Number(l.kg ?? 0),
@@ -328,6 +332,8 @@ export interface HdiScan {
   containers:  number | null
   pallets:     number | null
   sumOk:       boolean | null
+  /** Rozpoznany dostawca i po czym — null, gdy nie dało się ustalić pewnie. */
+  supplier:    { id: string; name: string; matchedBy: string } | null
   lines:       { supplierBatchNo: string; kgReceived: number
                  slaughterDate: string; expiryDate: string }[]
 }

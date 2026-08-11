@@ -41,6 +41,8 @@ _SHIPPED_RE = re.compile(rf"Data\s+wysy[łl]ki.*?({_DATE})", re.IGNORECASE | re.
 
 #: Stopka. Szukamy RDZENIA słowa, bo OCR myli wielkie I z małym l
 #: („llość palet" zamiast „Ilość palet") — „palet"/„pojemnik" przeżywa zawsze.
+_NIP_RE = re.compile(r"NIP\s*:?\s*([\d\s-]{10,17})", re.IGNORECASE)
+_VET_RE = re.compile(r"(PL\s*\d{6,10}\s*[A-Z]{2})", re.IGNORECASE)
 _CONTAINERS_RE = re.compile(r"pojemnik[óoc]?w?\s*:?\s*(\d+)", re.IGNORECASE)
 _PALLETS_RE = re.compile(r"palet\s*:?\s*(\d+)", re.IGNORECASE)
 _TOTAL_KG_RE = re.compile(rf"Masa\s+netto\s*:?\s*({_KG})", re.IGNORECASE)
@@ -59,6 +61,78 @@ def parse_kg(raw: str) -> float:
 def _first(pattern: re.Pattern, text: str, group: int = 1) -> str:
     m = pattern.search(text)
     return m.group(group).strip() if m else ""
+
+
+#: Formy prawne obcinane przy porównywaniu nazw (OCR i tak je kaleczy).
+_LEGAL_FORMS = [
+    re.compile(r"\s+SP[ÓO]ŁKA\s+Z\s+OGRANICZON[ĄA]\s+ODPOWIEDZIALNO[ŚS]CI[ĄA].*$", re.I),
+    re.compile(r"\s+SP[ÓO]ŁKA\s+(AKCYJNA|JAWNA|KOMANDYTOWA).*$", re.I),
+    re.compile(r"\s+SP\.?\s*Z\s*O\.?\s*O\.?.*$", re.I),
+    re.compile(r"\s+S\.?A\.?$", re.I),
+]
+#: Krótszy rdzeń nazwy trafiłby się w dowolnym tekście przez przypadek.
+MIN_NAME_CORE = 3
+
+
+def nip_checksum_ok(nip: str) -> bool:
+    """Czy NIP przechodzi sumę kontrolną.
+
+    Kluczowe przy OCR: na skanie 33656 pieczątkę przecina podpis i tesseract
+    czyta „5180279931" zamiast „5130279931". Suma kontrolna wyłapuje taką
+    pojedynczą pomyłkę, więc nie przypiszemy dostawy do obcego kontrahenta.
+    """
+    digits = re.sub(r"\D", "", nip or "")
+    if len(digits) != 10:
+        return False
+    wagi = (6, 5, 7, 2, 3, 4, 5, 6, 7)
+    suma = sum(int(d) * w for d, w in zip(digits[:9], wagi))
+    return suma % 11 == int(digits[9])
+
+
+def core_name(name: str) -> str:
+    """Rdzeń nazwy do porównań: bez formy prawnej, cudzysłowów i ogonków
+    interpunkcyjnych. „KOKO SPÓŁKA Z OGRANICZONĄ…" → „KOKO"."""
+    out = (name or "").strip().strip('"„”')
+    for re_form in _LEGAL_FORMS:
+        out = re_form.sub("", out)
+    return re.sub(r"[\"„”.,]", "", out).strip().upper()
+
+
+def match_supplier(text: str, parsed: Dict[str, Any],
+                   suppliers: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Który kontrahent wystawił ten dokument.
+
+    Kolejność od najpewniejszego: NIP (po sumie kontrolnej) → numer
+    weterynaryjny → nazwa. Gdy po nazwie pasuje więcej niż jeden, NIE
+    zgadujemy — lepiej, żeby operator wybrał sam, niż żeby dostawa cicho
+    trafiła pod obcego dostawcę.
+    """
+    nip = re.sub(r"\D", "", parsed.get("nip") or "")
+    if nip and nip_checksum_ok(nip):
+        for s in suppliers:
+            if re.sub(r"\D", "", s.get("nip") or "") == nip:
+                return {**s, "matched_by": "NIP"}
+
+    vet = re.sub(r"\s+", "", (parsed.get("vet_no") or "")).upper()
+    if vet:
+        for s in suppliers:
+            if re.sub(r"\s+", "", (s.get("vet_number") or "")).upper() == vet:
+                return {**s, "matched_by": "numerze weterynaryjnym"}
+
+    haystack = (text or "").upper()
+    trafienia = []
+    for s in suppliers:
+        for kandydat in (s.get("display_name"), s.get("name")):
+            rdzen = core_name(kandydat or "")
+            if len(rdzen) < MIN_NAME_CORE:
+                continue
+            if re.search(rf"\b{re.escape(rdzen)}\b", haystack):
+                trafienia.append(s)
+                break
+    unikalne = {s["id"]: s for s in trafienia}
+    if len(unikalne) == 1:
+        return {**next(iter(unikalne.values())), "matched_by": "nazwie"}
+    return None
 
 
 def parse_hdi_text(text: str) -> Dict[str, Any]:
@@ -93,6 +167,8 @@ def parse_hdi_text(text: str) -> Dict[str, Any]:
 
     return {
         "hdi_no": _first(_HDI_NO_RE, text),
+        "nip": re.sub(r"\D", "", _first(_NIP_RE, text)),
+        "vet_no": re.sub(r"\s+", " ", _first(_VET_RE, text)).upper(),
         "document_no": doc_no,
         "shipped_date": _first(_SHIPPED_RE, text),
         "lines": lines,

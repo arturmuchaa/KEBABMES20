@@ -32,8 +32,9 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
+from app.db import query_all
 from app.logging_config import get_logger
-from app.services.hdi_parse import parse_hdi_text, sum_matches_footer
+from app.services.hdi_parse import match_supplier, parse_hdi_text, sum_matches_footer
 
 logger = get_logger(__name__)
 
@@ -175,9 +176,24 @@ def scan_hdi(data: bytes, filename: str) -> Dict[str, Any]:
 
     parsed = parse_hdi_text(text)
     parsed["sum_ok"] = sum_matches_footer(parsed)
+
+    # Rozpoznanie dostawcy: po NIP (ze sprawdzoną sumą kontrolną), numerze
+    # weterynaryjnym albo nazwie. Zwracamy TAKŻE po czym rozpoznano, żeby
+    # operator mógł to zważyć — podstawienie kontrahenta bez wyjaśnienia
+    # byłoby magią, której nie da się sprawdzić.
+    dostawcy = query_all(
+        "SELECT id, name, display_name, nip, vet_number FROM suppliers WHERE active")
+    m = match_supplier(text, parsed, dostawcy)
+    parsed["supplier"] = {
+        "id": m["id"],
+        "name": m.get("display_name") or m.get("name") or "",
+        "matched_by": m["matched_by"],
+    } if m else None
+
     logger.info("hdi_ocr.scanned", extra={
         "hdi_no": parsed.get("hdi_no") or "?",
         "rows": len(parsed["lines"]),
         "sum_ok": parsed["sum_ok"],
+        "supplier_matched_by": (parsed["supplier"] or {}).get("matched_by", "brak"),
     })
     return parsed
