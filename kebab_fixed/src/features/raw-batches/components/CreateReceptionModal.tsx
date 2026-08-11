@@ -106,6 +106,7 @@ export function CreateReceptionModal({
   const fileRef = useRef<HTMLInputElement>(null)
   const [scanning, setScanning] = useState(false)
   const [scanNote, setScanNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const [dragOver, setDragOver] = useState(false)
   /** Ręczne liczby pojemników per numer porządkowy (klucz = indeks grupy). */
   const [containerOverride, setContainerOverride] = useState<Record<number, number | null>>({})
 
@@ -206,6 +207,35 @@ export function CreateReceptionModal({
     }
   }
 
+  /**
+   * Skan trafia do formularza także PRZECIĄGNIĘCIEM i przez Ctrl+V.
+   *
+   * Dopóki MES nie steruje bizhubem, operator i tak skanuje do folderu —
+   * a wtedy przeciągnięcie pliku na okno albo wklejenie ze schowka jest
+   * krótsze niż przeklikiwanie okna wyboru pliku. Działa też w przeglądarce,
+   * czyli na stanowiskach bez aplikacji desktopowej.
+   */
+  useEffect(() => {
+    if (!open) return
+    const onPaste = (e: ClipboardEvent) => {
+      // Wklejanie TEKSTU do pól formularza musi działać normalnie —
+      // przechwytujemy tylko wtedy, gdy w schowku faktycznie jest plik.
+      const file = [...(e.clipboardData?.files ?? [])][0]
+      if (!file) return
+      e.preventDefault()
+      loadHdi(file)
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file) loadHdi(file)
+  }
+
   // Ten sam powód, co przy przepinaniu pozycji: po rozbiciu grupa ma inne
   // kilogramy niż ta, dla której operator liczył stos.
   const addGroup = () => { setContainerOverride({}); setGroupCount(n => n + 1) }
@@ -218,7 +248,11 @@ export function CreateReceptionModal({
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto">
+      <DialogContent
+        className={`max-w-5xl max-h-[92vh] overflow-y-auto ${dragOver ? 'ring-2 ring-primary' : ''}`}
+        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}>
         <DialogHeader>
           <DialogTitle>Przyjęcie surowca</DialogTitle>
           <DialogDescription>
@@ -339,6 +373,12 @@ export function CreateReceptionModal({
                 </Button>
               </div>
             </div>
+
+            {!scanNote && !scanning && (
+              <CardDescription className="text-[11px] mb-2">
+                Skan można też przeciągnąć na to okno albo wkleić ze schowka (Ctrl+V).
+              </CardDescription>
+            )}
 
             {scanNote && (
               <Card className={`mb-3 ${scanNote.ok ? 'border-green-200 bg-green-50' : 'border-amber-300 bg-amber-50'}`}>
