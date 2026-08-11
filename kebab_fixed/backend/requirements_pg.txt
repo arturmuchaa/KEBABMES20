@@ -5,3 +5,5 @@ psycopg2-binary>=2.9.9
 python-dotenv>=1.0.1
 pydantic>=2.6.4
 bcrypt>=4.1.0
+# Upload skanu HDI (multipart) — bez tego FastAPI odrzuca UploadFile na starcie.
+python-multipart>=0.0.9

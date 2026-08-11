@@ -9,9 +9,9 @@
  * jest jednym kliknięciem w wierszu — dzięki temu widać na jednym ekranie, że
  * suma się zgadza i że żadna partia dostawcy nie została rozdzielona.
  */
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { fmtPln, fmtKg } from '@/lib/utils'
-import { Plus, Package, Edit2, Check, X, Layers, AlertTriangle } from 'lucide-react'
+import { Plus, Package, Edit2, Check, X, Layers, AlertTriangle, ScanLine } from 'lucide-react'
 import {
   CALIBER_OPTIONS, OTHER_CARRIER_KINDS, caliberKg, caliberValue, containersForKg,
   type CaliberValue,
@@ -21,6 +21,7 @@ import {
   receptionTotalKg, renumberAfterRemove, withContainers,
   type HdiLine, type ReceptionGroup,
 } from '../receptionSplit'
+import { receptionsApi } from '@/lib/apiClient'
 import type { ReceptionHeader } from '../types'
 
 import {
@@ -102,6 +103,9 @@ export function CreateReceptionModal({
   const [editingNo, setEditingNo] = useState(false)
   const [lines, setLines] = useState<HdiLine[]>([emptyLine()])
   const [groupCount, setGroupCount] = useState(1)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [scanning, setScanning] = useState(false)
+  const [scanNote, setScanNote] = useState<{ ok: boolean; text: string } | null>(null)
   /** Ręczne liczby pojemników per numer porządkowy (klucz = indeks grupy). */
   const [containerOverride, setContainerOverride] = useState<Record<number, number | null>>({})
 
@@ -112,6 +116,7 @@ export function CreateReceptionModal({
     setLines([emptyLine()])
     setGroupCount(1)
     setContainerOverride({})
+    setScanNote(null)
   }, [open, suggestedReceptionNo])
 
   // Numer wpisany ręcznie leci do hooka tylko wtedy, gdy różni się od
@@ -150,8 +155,59 @@ export function CreateReceptionModal({
     setLines(p => p.map((l, j) => j === i ? { ...l, [field]: val } : l))
   }
 
-  // Ten sam powód, co wyżej: po rozbiciu grupa ma inne kilogramy niż ta,
-  // dla której operator liczył stos.
+  /**
+   * loadHdi — odczyt skanu podstawia pozycje i nagłówek dokumentu.
+   *
+   * Wszystko ląduje w JEDNYM numerze porządkowym: podział to decyzja
+   * operatora, której na dokumencie nie ma. Wpisanego już podziału nie
+   * ruszamy poza wyzerowaniem — inaczej wczytanie skanu po ręcznym
+   * rozbiciu zostawiłoby pozycje przypisane do nieistniejących grup.
+   */
+  const loadHdi = async (file: File) => {
+    setScanning(true)
+    setScanNote(null)
+    try {
+      const scan = await receptionsApi.scanHdi(file)
+      if (scan.lines.length === 0) {
+        setScanNote({ ok: false, text:
+          'Nie rozpoznano żadnej pozycji. Sprawdź, czy to skan HDI i czy jest czytelny — pozycje można wpisać ręcznie.' })
+        return
+      }
+      setLines(scan.lines.map(l => ({
+        supplierBatchNo: l.supplierBatchNo,
+        kgReceived:      l.kgReceived,
+        kgRaw:           String(l.kgReceived).replace('.', ','),
+        slaughterDate:   l.slaughterDate,
+        expiryDate:      l.expiryDate,
+        group:           0,
+      })))
+      setGroupCount(1)
+      setContainerOverride({})
+      if (scan.hdiNo)       onHeaderChange('hdiNo', scan.hdiNo)
+      if (scan.documentNo)  onHeaderChange('documentNo', scan.documentNo)
+      if (scan.shippedDate) onHeaderChange('receivedDate', scan.shippedDate)
+      if (scan.totalKg)     onHeaderChange('docKg', scan.totalKg)
+      if (scan.containers)  onHeaderChange('docContainers', scan.containers)
+      if (scan.pallets)     onHeaderChange('palletsH1', scan.pallets)
+
+      const kg = scan.lines.reduce((s, l) => s + l.kgReceived, 0)
+      setScanNote(scan.sumOk === false
+        ? { ok: false, text:
+            `Odczytano ${scan.lines.length} pozycji na ${fmtKg(kg, 1)} kg, ale stopka HDI mówi ` +
+            `${fmtKg(scan.totalKg ?? 0, 1)} kg — brakuje pozycji albo któraś waga została źle odczytana. Popraw ręcznie.` }
+        : { ok: true, text:
+            `Odczytano ${scan.lines.length} pozycji na ${fmtKg(kg, 1)} kg` +
+            (scan.sumOk ? ' — zgodne ze stopką HDI.' : '.') +
+            ' Sprawdź numery partii: literówki w nich nie rozjeżdżają żadnej sumy.' })
+    } catch (e) {
+      setScanNote({ ok: false, text: e instanceof Error ? e.message : 'Nie udało się odczytać pliku' })
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  // Ten sam powód, co przy przepinaniu pozycji: po rozbiciu grupa ma inne
+  // kilogramy niż ta, dla której operator liczył stos.
   const addGroup = () => { setContainerOverride({}); setGroupCount(n => n + 1) }
   const removeGroup = (index: number) => {
     if (groupCount <= 1) return
@@ -260,10 +316,40 @@ export function CreateReceptionModal({
                 <Label className="text-sm font-semibold">Partie dostawcy (pozycje z HDI)</Label>
                 <Badge variant="secondary">{lines.length}</Badge>
               </div>
-              <Button variant="outline" size="sm" onClick={addLine}>
-                <Plus size={13} className="mr-1.5" /> Dodaj pozycję
-              </Button>
+              <div className="flex gap-2">
+                {/* Skan HDI zamiast przepisywania ośmiu wierszy z papieru.
+                    Odczyt trafia do tabeli DO SPRAWDZENIA — nic nie zapisuje
+                    się w bazie, dopóki operator nie potwierdzi przyjęcia. */}
+                <input
+                  ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden"
+                  onChange={e => {
+                    const f = e.target.files?.[0]
+                    if (f) loadHdi(f)
+                    e.target.value = ''
+                  }} />
+                <Button variant="outline" size="sm" disabled={scanning}
+                  onClick={() => fileRef.current?.click()}>
+                  {scanning
+                    ? <span className="w-3.5 h-3.5 mr-1.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                    : <ScanLine size={13} className="mr-1.5" />}
+                  {scanning ? 'Odczytuję…' : 'Wczytaj HDI'}
+                </Button>
+                <Button variant="outline" size="sm" onClick={addLine}>
+                  <Plus size={13} className="mr-1.5" /> Dodaj pozycję
+                </Button>
+              </div>
             </div>
+
+            {scanNote && (
+              <Card className={`mb-3 ${scanNote.ok ? 'border-green-200 bg-green-50' : 'border-amber-300 bg-amber-50'}`}>
+                <CardContent className="px-3 py-2 flex items-start gap-2">
+                  <ScanLine size={13} className={`flex-shrink-0 mt-0.5 ${scanNote.ok ? 'text-green-700' : 'text-amber-700'}`} />
+                  <CardDescription className={scanNote.ok ? 'text-green-800' : 'text-amber-800'}>
+                    {scanNote.text}
+                  </CardDescription>
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardContent className="p-0">

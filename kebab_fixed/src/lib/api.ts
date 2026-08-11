@@ -284,6 +284,52 @@ export const receptionsApi = {
       .then(rows => (Array.isArray(rows) ? rows : []).map(mapReception)),
 
   byId: (id: string) => get<any>(`/receptions/${encodeURIComponent(id)}`).then(mapReception),
+
+  /** Skan HDI → pozycje do formularza. Nic nie zapisuje w bazie. */
+  scanHdi: async (file: File): Promise<HdiScan> => {
+    const body = new FormData()
+    body.append('file', file)
+    const token = tokenStore.get()
+    // Bez `Content-Type`: przeglądarka musi sama dopisać boundary multipart,
+    // a ręcznie ustawiony nagłówek go gubi i backend dostaje pusty plik.
+    const res = await fetch(`${BASE}/receptions/hdi-scan`, {
+      method: 'POST', body,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(String(err.detail || `HTTP ${res.status}`))
+    }
+    const raw = await res.json()
+    return {
+      hdiNo:       raw.hdi_no ?? '',
+      documentNo:  raw.document_no ?? '',
+      shippedDate: raw.shipped_date ?? '',
+      totalKg:     raw.total_kg ?? null,
+      containers:  raw.containers ?? null,
+      pallets:     raw.pallets ?? null,
+      sumOk:       raw.sum_ok ?? null,
+      lines: (raw.lines ?? []).map((l: any) => ({
+        supplierBatchNo: String(l.supplier_batch_no ?? ''),
+        kgReceived:      Number(l.kg ?? 0),
+        slaughterDate:   String(l.slaughter_date ?? ''),
+        expiryDate:      String(l.expiry_date ?? ''),
+      })),
+    }
+  },
+}
+
+/** Wynik odczytu skanu HDI. `sumOk === null` = nie odczytano stopki. */
+export interface HdiScan {
+  hdiNo:       string
+  documentNo:  string
+  shippedDate: string
+  totalKg:     number | null
+  containers:  number | null
+  pallets:     number | null
+  sumOk:       boolean | null
+  lines:       { supplierBatchNo: string; kgReceived: number
+                 slaughterDate: string; expiryDate: string }[]
 }
 
 function mapReception(raw: any): Reception {

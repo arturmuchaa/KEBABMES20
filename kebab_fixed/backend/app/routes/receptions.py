@@ -3,10 +3,11 @@
 Partie (numery porządkowe) tworzy i edytuje `/api/raw-batches`; tutaj żyje
 dokument, który je spina, i partie DOSTAWCY pod każdym numerem porządkowym.
 """
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, File, Query, UploadFile
 
 from app.models.receptions import ReceptionCreate
 from app.services import receptions_service as svc
+from app.services.hdi_ocr_service import scan_hdi
 
 router = APIRouter(prefix="/api/receptions", tags=["receptions"])
 
@@ -16,6 +17,17 @@ router = APIRouter(prefix="/api/receptions", tags=["receptions"])
 def next_number(when: str = Query("", alias="date")):
     """Podpowiedź numeru przyjęcia dla dnia (domyślnie dziś)."""
     return svc.next_delivery_number(when)
+
+
+@router.post("/hdi-scan")
+async def hdi_scan(file: UploadFile = File(...)):
+    """Skan HDI dostawcy → pozycje do formularza.
+
+    Nic nie zapisuje: zwraca odczyt do podstawienia w formularzu, bo podział
+    na numery porządkowe i tak jest decyzją operatora, a odczyt trzeba mu
+    najpierw pokazać do sprawdzenia.
+    """
+    return scan_hdi(await file.read(), file.filename or "")
 
 
 @router.get("")

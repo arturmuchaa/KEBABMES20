@@ -17,8 +17,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 # chromium — do renderowania PDF (WZ/HDI/CMR/etykiety; pdf_render.py szuka
 # 'chromium' w /usr/bin) + czcionki (poprawne polskie znaki na dokumentach).
+# tesseract + poppler — odczyt skanu HDI dostawcy na przyjęciu surowca
+# (hdi_ocr_service: pdftoppm rasteryzuje PDF, tesseract czyta tabelę).
+# Bez pakietu językowego -pol OCR myli polskie znaki w nagłówkach.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         chromium fonts-liberation fonts-dejavu ca-certificates \
+        tesseract-ocr tesseract-ocr-pol poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/backend
