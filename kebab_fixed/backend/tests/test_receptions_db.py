@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from app.db import execute, query_all, query_one
 from app.models.raw_batches import RawBatchCreate
 from app.models.receptions import ReceptionCreate
-from app.services.raw_batches_service import create_batch
+from app.services.raw_batches_service import cancel_batch, create_batch
 from app.services.receptions_service import (
     create_reception,
     get_reception,
@@ -282,3 +282,29 @@ def test_mieso_z_rozbioru_dolaczone_do_numeru_porzadkowego(db):
     # Partia jeszcze nierozebrana ma zero, a nie brak klucza — wydruk czyta
     # to pole bezwarunkowo.
     assert float(doc["batches"][1]["kg_meat"]) == 0.0
+
+
+def test_surowiec_bez_rozbioru_ma_mieso_rowne_dostawie(db):
+    """Filet nie idzie na rozbiór — cała dostawa JEST mięsem i tak ma się
+    pokazać na karcie, zamiast zera wyglądającego na partię nieprzerobioną."""
+    _seed_supplier()
+    out = create_reception(_dto(
+        materialTypeId="mat-filet-kurczak",
+        groups=[dict(kgReceived=816.0, supplierBatches=[
+            dict(supplierBatchNo="10508/34", kg=816.0)])]))
+    doc = get_reception(out["reception"]["id"])
+    assert float(doc["batches"][0]["kg_meat"]) == 816.0
+
+
+def test_anulowana_rejestracja_nie_podbija_wagi_dokumentu(db):
+    """7/08/2026 pokazywało 20 010 kg od FARMEXU zamiast 10 005: anulowane
+    rejestracje (korekta naszej pomyłki) sumowały się jak dostawy."""
+    _seed_supplier()
+    out = create_reception(_dto())
+    cancel_batch(out["batches"][1]["id"])
+
+    doc = get_reception(out["reception"]["id"])
+    assert float(doc["kg_total"]) == 6000.0
+    # Sam rekord zostaje w dokumencie — kasowanie danych jest zabronione,
+    # z kart wycina go dopiero warstwa wydruku.
+    assert len(doc["batches"]) == 2

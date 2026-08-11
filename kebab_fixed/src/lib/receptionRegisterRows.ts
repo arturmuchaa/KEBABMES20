@@ -51,6 +51,19 @@ export function plNum(n: number, decimals = 1): string {
 }
 
 /**
+ * liveBatches — numery porządkowe, które NAPRAWDĘ przyjechały.
+ *
+ * Anulowana rejestracja to korekta naszej własnej pomyłki przy wpisywaniu,
+ * a nie zdarzenie przy rampie: w bazie ma techniczny numer „ANUL-<id>",
+ * którego nie wolno wydrukować na karcie HACCP, i podbijałaby wagę dostawy
+ * (7/08/2026 FARMEX: 20 010 kg zamiast 10 005). Dostawa ODRZUCONA przy aucie
+ * to co innego — tę rejestruje się normalnie i opisuje w kolumnie oceny.
+ */
+function liveBatches(r: Reception) {
+  return r.batches.filter(b => b.status !== 'cancelled')
+}
+
+/**
  * documentLabel — kolumna (e): „HDI lub numer faktury, WZ lub inny dokument
  * przywozowy". HDI dostawcy ma własny numer i osobno wskazuje dokument
  * handlowy („Nr 33656 do dokumentu WZ 388/MDU/08/2026"), więc na karcie
@@ -71,10 +84,11 @@ export function documentLabel(hdiNo: string, documentNo: string): string {
  */
 export function mainRows(receptions: Reception[], cols: number): string[][] {
   return [...receptions]
+    .filter(r => liveBatches(r).length > 0)
     .sort((a, b) => a.receivedDate.localeCompare(b.receivedDate) ||
       a.receptionNo.localeCompare(b.receptionNo, 'pl', { numeric: true }))
     .map(r => {
-      const assortment = [...new Set(r.batches.map(b => b.materialName || '').filter(Boolean))]
+      const assortment = [...new Set(liveBatches(r).map(b => b.materialName || '').filter(Boolean))]
       const row = [
         r.receptionNo,
         shortSupplier(r.supplierName),
@@ -99,7 +113,7 @@ export function detailRows(receptions: Reception[], cols: number): string[][] {
   for (const r of [...receptions].sort((a, b) =>
     a.receivedDate.localeCompare(b.receivedDate) ||
     a.receptionNo.localeCompare(b.receptionNo, 'pl', { numeric: true }))) {
-    for (const b of r.batches) {
+    for (const b of liveBatches(r)) {
       const row = [
         r.receptionNo,
         b.internalBatchNo,

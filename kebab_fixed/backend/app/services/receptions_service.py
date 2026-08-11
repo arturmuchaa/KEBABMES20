@@ -258,7 +258,9 @@ def _attach_details(rec: Dict) -> Dict:
     storna i wpisy w trakcie ważenia nie wchodzą).
     """
     batches = query_all(
-        "SELECT * FROM raw_batches WHERE reception_id=%s ORDER BY internal_batch_seq",
+        "SELECT b.*, COALESCE(rt.requires_deboning, true) AS requires_deboning "
+        "FROM raw_batches b LEFT JOIN raw_material_types rt ON rt.id = b.material_type_id "
+        "WHERE b.reception_id=%s ORDER BY b.internal_batch_seq",
         (rec["id"],))
     lines = query_all(
         "SELECT * FROM reception_supplier_batches WHERE reception_id=%s ORDER BY seq",
@@ -273,9 +275,17 @@ def _attach_details(rec: Dict) -> Dict:
         by_batch.setdefault(l["raw_batch_id"] or "", []).append(l)
     for b in batches:
         b["supplier_batches"] = by_batch.get(b["id"], [])
-        b["kg_meat"] = meat.get(b["id"], 0.0)
+        # Surowiec BEZ rozbioru (filet, mięso z/s) sam jest mięsem — cała
+        # dostawa idzie prosto na magazyn mięsa, więc kolumna „Mięso [kg]"
+        # to jej waga. Liczenie z rozbioru dawałoby tu zero i wyglądało jak
+        # partia nieprzerobiona.
+        b["kg_meat"] = (float(b["kg_received"] or 0) if not b["requires_deboning"]
+                        else meat.get(b["id"], 0.0))
     rec["batches"] = batches
-    rec["kg_total"] = sum(float(b["kg_received"] or 0) for b in batches)
+    # Anulowana rejestracja to korekta NASZEJ pomyłki, nie dostawa — nie może
+    # podbijać wagi dokumentu (7/08/2026 pokazywało 20 010 kg zamiast 10 005).
+    rec["kg_total"] = sum(float(b["kg_received"] or 0) for b in batches
+                          if b.get("status") != "cancelled")
     return rec
 
 
