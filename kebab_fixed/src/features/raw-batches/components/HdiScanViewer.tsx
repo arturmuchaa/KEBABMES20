@@ -10,7 +10,7 @@
  * Skan pobieramy Z SESJĄ i pokazujemy jako blob — zwykły adres w ramce
  * poszedłby bez nagłówka logowania i wrócił 401.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Printer, Download, FileWarning } from 'lucide-react'
 
 import { receptionsApi, openDocument } from '@/lib/api'
@@ -33,6 +33,10 @@ export function HdiScanViewer({
 }: HdiScanViewerProps) {
   const [src,   setSrc]   = useState('')
   const [error, setError] = useState('')
+  // Referencja, nie `getElementById` — na stronie stoją DWIE tabele dostaw
+  // (w obiegu i historia), więc stały identyfikator groziłby trafieniem
+  // w ramkę drugiej z nich.
+  const ramkaRef = useRef<HTMLIFrameElement>(null)
 
   useEffect(() => {
     if (!open || !receptionId) return
@@ -60,10 +64,9 @@ export function HdiScanViewer({
    * inaczej na wydruku wyszłaby strona aplikacji zamiast HDI.
    */
   const drukuj = () => {
-    const ramka = document.getElementById('hdi-scan-frame') as HTMLIFrameElement | null
     try {
-      ramka?.contentWindow?.focus()
-      ramka?.contentWindow?.print()
+      ramkaRef.current?.contentWindow?.focus()
+      ramkaRef.current?.contentWindow?.print()
     } catch {
       // Czytniki PDF bywają różne; gdy druk z ramki nie przejdzie, zostaje
       // otwarcie dokumentu na zewnątrz — tam Ctrl+P działa zawsze.
@@ -102,7 +105,7 @@ export function HdiScanViewer({
           </div>
         ) : src ? (
           <iframe
-            id="hdi-scan-frame"
+            ref={ramkaRef}
             src={src}
             title={`Skan HDI przyjęcia ${receptionNo}`}
             className="flex-1 w-full rounded border bg-muted/20"
