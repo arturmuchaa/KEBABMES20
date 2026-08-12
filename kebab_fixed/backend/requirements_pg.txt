@@ -7,3 +7,6 @@ pydantic>=2.6.4
 bcrypt>=4.1.0
 # Upload skanu HDI (multipart) — bez tego FastAPI odrzuca UploadFile na starcie.
 python-multipart>=0.0.9
+# Obrót i zmniejszenie skanu przed OCR (hdi_ocr_service) — skan położony
+# bokiem daje sam bełkot, a 600 dpi tylko spowalnia rozpoznawanie.
+Pillow>=10.0.0

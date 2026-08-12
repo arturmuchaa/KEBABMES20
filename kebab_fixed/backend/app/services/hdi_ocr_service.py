@@ -50,6 +50,10 @@ RENDER_DPI = 300
 MIN_NATIVE_PX = 1500
 #: Logo albo pieczątka osadzona w PDF — nie ma po co jej OCR-ować.
 MIN_USEFUL_PX = 800
+#: Powyżej tego skan tylko spowalnia OCR, nie poprawiając odczytu: 3500 px na
+#: dłuższym boku A4 to ok. 300 dpi, a tesseract i tak nie czyta lepiej z 600.
+#: Skan 7016x4960 (600 dpi) liczył się kilka razy dłużej bez zysku.
+MAX_OCR_PX = 3500
 #: OCR całej strony nie powinien trwać dłużej; dłużej = coś jest nie tak
 #: z plikiem, a operator czeka przy formularzu.
 TIMEOUT_S = 90
@@ -100,6 +104,62 @@ def usable_images(sizes: List[tuple[int, int]]) -> bool:
     return bool(duze) and max(max(s) for s in duze) >= MIN_NATIVE_PX
 
 
+def _osd_rotation(img: Path) -> int:
+    """O ile stopni obrócić obraz, żeby stanął prosto (0/90/180/270).
+
+    Tesseract podaje „Rotate: N" jako obrót ZGODNY z ruchem wskazówek zegara;
+    Pillow obraca przeciwnie, stąd znak minus przy użyciu.
+    """
+    try:
+        res = subprocess.run(
+            ["tesseract", str(img), "-", "--psm", "0"],
+            capture_output=True, timeout=TIMEOUT_S,
+            env={**os.environ, **TESSERACT_ENV})
+        for line in res.stdout.decode("utf-8", "replace").splitlines():
+            if line.startswith("Rotate:"):
+                return int(line.split(":", 1)[1].strip()) % 360
+    except (subprocess.SubprocessError, OSError, ValueError):
+        pass
+    return 0
+
+
+def _prepare(img: Path, rotate: bool) -> Path:
+    """Przygotowanie obrazu pod OCR: zmniejszenie i ewentualny obrót.
+
+    Bez Pillow (np. stara instalacja) zwracamy obraz bez zmian — brak
+    biblioteki ma pogorszyć odczyt, a nie wywalić całe przyjęcie.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        logger.warning("hdi_ocr.pillow_missing")
+        return img
+
+    try:
+        with Image.open(img) as im:
+            zmiana = False
+            if max(im.size) > MAX_OCR_PX:
+                skala = MAX_OCR_PX / max(im.size)
+                im = im.convert("L").resize(
+                    (max(1, int(im.width * skala)), max(1, int(im.height * skala))),
+                    Image.LANCZOS)
+                zmiana = True
+            if rotate:
+                stopnie = _osd_rotation(img)
+                if stopnie:
+                    im = im.convert("L").rotate(-stopnie, expand=True)
+                    zmiana = True
+                    logger.info("hdi_ocr.rotated", extra={"degrees": stopnie})
+            if not zmiana:
+                return img
+            out = img.with_name(f"{img.stem}-prep.png")
+            im.save(out)
+            return out
+    except Exception as exc:            # noqa: BLE001 — obraz nie może wywalić przyjęcia
+        logger.warning("hdi_ocr.prepare_failed", extra={"error": str(exc)})
+        return img
+
+
 def _tesseract(img: Path, work: Path) -> str:
     base = work / f"{img.stem}_txt"
     _run(["tesseract", str(img), str(base), "-l", "pol", *TESSERACT_FLAGS], TESSERACT_ENV)
@@ -136,7 +196,18 @@ def _pages_to_text(work: Path, source: Path) -> str:
     sizes = [_png_size(p) for p in images]
     if images and usable_images(sizes):
         czytane = [p for p, s in zip(images, sizes) if min(s) >= MIN_USEFUL_PX]
-        return "\n".join(_tesseract(p, work) for p in czytane)
+        tekst = "\n".join(_tesseract(_prepare(p, rotate=False), work) for p in czytane)
+        # Kartka położona bokiem w podajniku daje sam bełkot: pionowy tekst
+        # tesseract czyta jako przypadkowe znaki. Obracamy DOPIERO, gdy nie
+        # udało się odczytać ani jednej pozycji — dzięki temu poprawnie
+        # ułożony skan nie płaci za wykrywanie orientacji, a błędnie ułożony
+        # ratuje się sam, bez proszenia operatora o obracanie kartki.
+        if not parse_hdi_text(tekst)["lines"]:
+            logger.info("hdi_ocr.retry_rotated")
+            obrocony = "\n".join(_tesseract(_prepare(p, rotate=True), work) for p in czytane)
+            if parse_hdi_text(obrocony)["lines"]:
+                return obrocony
+        return tekst
 
     # 3. Awaryjnie: rasteryzacja. Wolniejsza, ale ratuje PDF-y, z których nie
     #    da się wyjąć sensownego obrazu (wektor, kafelki, bardzo drobny skan).
