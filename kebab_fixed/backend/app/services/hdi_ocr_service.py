@@ -50,10 +50,17 @@ RENDER_DPI = 300
 MIN_NATIVE_PX = 1500
 #: Logo albo pieczątka osadzona w PDF — nie ma po co jej OCR-ować.
 MIN_USEFUL_PX = 800
-#: Powyżej tego skan tylko spowalnia OCR, nie poprawiając odczytu: 3500 px na
-#: dłuższym boku A4 to ok. 300 dpi, a tesseract i tak nie czyta lepiej z 600.
-#: Skan 7016x4960 (600 dpi) liczył się kilka razy dłużej bez zysku.
-MAX_OCR_PX = 3500
+#: Docelowy dłuższy bok obrazu podawanego tesseractowi.
+#: Zmierzone na skanie jednobitowym 7016x4960 (600 dpi): przy 3500 px odczyt
+#: gubił wiersz i mylił 435 z 485, przy 3000 i 2600 wchodził komplet 8/8.
+#: Mocniejsze zmniejszenie WYGŁADZA poszarpane krawędzie cyfr skanu 1-bitowego
+#: (uśrednianie pikseli działa jak antyaliasing), więc mniej pikseli czyta się
+#: LEPIEJ, nie gorzej. Nie podnosić bez pomiaru na prawdziwych dokumentach.
+MAX_OCR_PX = 3000
+#: Skale zapasowe, próbowane gdy suma pozycji nie zgadza się ze stopką HDI.
+#: Arbitrem jest sam dokument, nie zgadywanie: bierzemy ten odczyt, który
+#: trafia w zadeklarowaną masę netto.
+ALT_OCR_PX = (2600, 3500)
 #: OCR całej strony nie powinien trwać dłużej; dłużej = coś jest nie tak
 #: z plikiem, a operator czeka przy formularzu.
 TIMEOUT_S = 90
@@ -123,7 +130,7 @@ def _osd_rotation(img: Path) -> int:
     return 0
 
 
-def _prepare(img: Path, rotate: bool) -> Path:
+def _prepare(img: Path, rotate: bool, target_px: int = MAX_OCR_PX) -> Path:
     """Przygotowanie obrazu pod OCR: zmniejszenie i ewentualny obrót.
 
     Bez Pillow (np. stara instalacja) zwracamy obraz bez zmian — brak
@@ -138,8 +145,8 @@ def _prepare(img: Path, rotate: bool) -> Path:
     try:
         with Image.open(img) as im:
             zmiana = False
-            if max(im.size) > MAX_OCR_PX:
-                skala = MAX_OCR_PX / max(im.size)
+            if max(im.size) > target_px:
+                skala = target_px / max(im.size)
                 im = im.convert("L").resize(
                     (max(1, int(im.width * skala)), max(1, int(im.height * skala))),
                     Image.LANCZOS)
@@ -152,7 +159,7 @@ def _prepare(img: Path, rotate: bool) -> Path:
                     logger.info("hdi_ocr.rotated", extra={"degrees": stopnie})
             if not zmiana:
                 return img
-            out = img.with_name(f"{img.stem}-prep.png")
+            out = img.with_name(f"{img.stem}-prep{target_px}{'r' if rotate else ''}.png")
             im.save(out)
             return out
     except Exception as exc:            # noqa: BLE001 — obraz nie może wywalić przyjęcia
@@ -196,7 +203,12 @@ def _pages_to_text(work: Path, source: Path) -> str:
     sizes = [_png_size(p) for p in images]
     if images and usable_images(sizes):
         czytane = [p for p, s in zip(images, sizes) if min(s) >= MIN_USEFUL_PX]
-        tekst = "\n".join(_tesseract(_prepare(p, rotate=False), work) for p in czytane)
+        def czytaj(rotate: bool, px: int) -> str:
+            return "\n".join(_tesseract(_prepare(p, rotate, px), work) for p in czytane)
+
+        tekst = czytaj(False, MAX_OCR_PX)
+        obrot = False
+
         # Kartka położona bokiem w podajniku daje sam bełkot: pionowy tekst
         # tesseract czyta jako przypadkowe znaki. Obracamy DOPIERO, gdy nie
         # udało się odczytać ani jednej pozycji — dzięki temu poprawnie
@@ -204,9 +216,24 @@ def _pages_to_text(work: Path, source: Path) -> str:
         # ratuje się sam, bez proszenia operatora o obracanie kartki.
         if not parse_hdi_text(tekst)["lines"]:
             logger.info("hdi_ocr.retry_rotated")
-            obrocony = "\n".join(_tesseract(_prepare(p, rotate=True), work) for p in czytane)
+            obrocony = czytaj(True, MAX_OCR_PX)
             if parse_hdi_text(obrocony)["lines"]:
-                return obrocony
+                tekst, obrot = obrocony, True
+
+        # ARBITREM JEST STOPKA DOKUMENTU. Gdy suma pozycji nie trafia
+        # w zadeklarowaną masę netto, odczyt jest niepełny albo przekłamany —
+        # próbujemy innych skal i bierzemy tę, która się zgadza. To nie
+        # zgadywanie: poprawność potwierdza sam dokument. Kosztuje tylko wtedy,
+        # gdy pierwszy odczyt zawiódł.
+        if sum_matches_footer(parse_hdi_text(tekst)) is False:
+            for px in ALT_OCR_PX:
+                logger.info("hdi_ocr.retry_scale", extra={"px": px})
+                alt = czytaj(obrot, px)
+                if sum_matches_footer(parse_hdi_text(alt)):
+                    return alt
+                # Bez trafienia w sumę zostaje ten odczyt, który dał więcej pozycji.
+                if len(parse_hdi_text(alt)["lines"]) > len(parse_hdi_text(tekst)["lines"]):
+                    tekst = alt
         return tekst
 
     # 3. Awaryjnie: rasteryzacja. Wolniejsza, ale ratuje PDF-y, z których nie
