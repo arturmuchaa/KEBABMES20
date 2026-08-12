@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from app.models.receptions import ReceptionCreate
 from app.services import receptions_service as svc
 from app.services.hdi_ocr_service import scan_hdi
-from app.services.hdi_scan_store import find_attached, save_temp
+from app.services.hdi_scan_store import find_attached, save_temp, scan_media_type
 
 router = APIRouter(prefix="/api/receptions", tags=["receptions"])
 
@@ -69,7 +69,7 @@ def hdi_scan_download(reception_id: str):
     if not plik:
         raise HTTPException(404, "To przyjęcie nie ma wgranego skanu HDI")
     return FileResponse(
-        plik, media_type="application/pdf",
+        plik, media_type=scan_media_type(plik.suffix),
         filename=f"HDI {rec['reception_no'].replace('/', '-')}{plik.suffix}")
 
 

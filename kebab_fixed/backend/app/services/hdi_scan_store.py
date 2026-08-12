@@ -48,6 +48,22 @@ def save_temp(data: bytes, suffix: str) -> str:
     return scan_id
 
 
+#: Skan bywa zdjęciem, nie PDF-em (przeciągnięcie pliku, Ctrl+V, telefon).
+#: Podawanie JPG-a jako „application/pdf" psuło podgląd w MES i zapisywało
+#: plik z typem, którego nie ma w środku.
+_MEDIA = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+}
+
+
+def scan_media_type(suffix: str) -> str:
+    """Typ MIME załącznika po jego rozszerzeniu."""
+    return _MEDIA.get((suffix or "").lower(), "application/octet-stream")
+
+
 def _safe_suffix(suffix: str) -> str:
     s = (suffix or "").lower()
     return s if s in {".pdf", ".png", ".jpg", ".jpeg"} else ".pdf"

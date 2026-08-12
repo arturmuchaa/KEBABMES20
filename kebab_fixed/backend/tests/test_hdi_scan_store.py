@@ -12,3 +12,15 @@ def test_identyfikator_z_zewnatrz_nie_moze_wyjsc_z_katalogu():
 def test_zwykly_identyfikator_przechodzi():
     assert is_safe_id("cl9k2x8v0000qwer") is True
     assert is_safe_id("abc-DEF_123") is True
+
+
+def test_typ_zalacznika_idzie_za_rozszerzeniem():
+    """Skan bywa zdjęciem (przeciągnięcie pliku, Ctrl+V) — podawanie go jako
+    „application/pdf" psuło podgląd w MES i dawało plik z fałszywym typem."""
+    from app.services.hdi_scan_store import scan_media_type
+
+    assert scan_media_type(".pdf") == "application/pdf"
+    assert scan_media_type(".JPG") == "image/jpeg"
+    assert scan_media_type(".jpeg") == "image/jpeg"
+    assert scan_media_type(".png") == "image/png"
+    assert scan_media_type("") == "application/octet-stream"
