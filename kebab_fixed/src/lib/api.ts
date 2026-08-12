@@ -130,6 +130,11 @@ async function fetchDoc(url: string, fallbackName: string): Promise<{ blob: Blob
   return { blob: await res.blob(), name: m ? decodeURIComponent(m[1]) : fallbackName }
 }
 
+/** Bajty dokumentu pobrane Z SESJĄ — do podglądu wewnątrz okna MES. */
+export async function fetchBlob(url: string): Promise<Blob> {
+  return (await fetchDoc(url, 'dokument.pdf')).blob
+}
+
 function saveBlob(blob: Blob, name: string): void {
   const obj = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -330,6 +335,25 @@ export const receptionsApi = {
   /** Adres skanu HDI przypiętego do przyjęcia (dokument do kontroli). */
   hdiScanUrl: (receptionId: string) =>
     `${BASE}/receptions/${encodeURIComponent(receptionId)}/hdi-skan`,
+
+  /** Skan HDI przypięty do przyjęcia — bajty do podglądu w MES. */
+  hdiScanBlob: (receptionId: string) => fetchBlob(receptionsApi.hdiScanUrl(receptionId)),
+
+  /** Dopina skan do dostawy JUŻ ZAPISANEJ (także sprzed archiwum skanów). */
+  attachHdiScan: async (receptionId: string, file: File): Promise<void> => {
+    const body = new FormData()
+    body.append('file', file)
+    const token = tokenStore.get()
+    // Bez `Content-Type` — patrz `scanHdi`: ręczny nagłówek gubi boundary.
+    const res = await fetch(receptionsApi.hdiScanUrl(receptionId), {
+      method: 'POST', body,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(String(err.detail || `HTTP ${res.status}`))
+    }
+  },
 
   /** Skan HDI → pozycje do formularza. Nic nie zapisuje w bazie. */
   scanHdi: async (file: File): Promise<HdiScan> => {

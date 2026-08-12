@@ -12,7 +12,7 @@
  * Dwóch osobnych komponentów świadomie NIE robimy — rozjechałyby się przy
  * pierwszej zmianie kolumn.
  */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { ExpiryBadge, StatusBadge } from '@/components/ui/badge'
 import { fmtKg, fmtDatePl, fmtPln } from '@/lib/utils'
 import { batchDisplayNo } from '../batchDisplayNo'
@@ -21,7 +21,7 @@ import {
   type DeliverySortCol, type SortDir, type HistoryPeriod, type MeatStockMap,
 } from '../deliveryView'
 import { receptionsApi } from '@/lib/apiClient'
-import { openDocument } from '@/lib/api'
+import { HdiScanViewer } from './HdiScanViewer'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/table'
 import { CardDescription, CardTitle } from '@/components/ui/card'
 import type { RawBatch } from '@/types'
-import { Package, ChevronDown, ChevronUp, ChevronsUpDown, Search, Pencil, Trash2 } from 'lucide-react'
+import { Package, ChevronDown, ChevronUp, ChevronsUpDown, Search, Pencil, Trash2, Paperclip } from 'lucide-react'
 
 interface RawBatchesTableProps {
   batches:           RawBatch[]
@@ -45,6 +45,8 @@ interface RawBatchesTableProps {
   emptyHint?:        string
   onEdit?:           (batch: RawBatch) => void
   onCancel?:         (batch: RawBatch) => void
+  /** Wywoływane po dopięciu skanu — lista musi się odświeżyć, żeby pokazać podgląd. */
+  onScanAttached?:   () => void
 }
 
 const PERIODS: { value: HistoryPeriod; label: string }[] = [
@@ -59,10 +61,37 @@ export function RawBatchesTable({
   requiresDeboning = true,
   meatStock,
   emptyTitle, emptyHint,
-  onEdit, onCancel,
+  onEdit, onCancel, onScanAttached,
 }: RawBatchesTableProps) {
   const isLive = variant === 'live'
   const resolveOpts = { requiresDeboning, meatStock }
+
+  // Skan HDI: podgląd wewnątrz MES + dopięcie dokumentu do dostawy, która
+  // go nie ma (wszystkie sprzed archiwum skanów).
+  const [viewer,   setViewer]   = useState<{ id: string; no: string; supplier?: string } | null>(null)
+  const [attachTo, setAttachTo] = useState('')
+  const [attaching, setAttaching] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const wskazSkan = (receptionId: string) => {
+    setAttachTo(receptionId)
+    fileRef.current?.click()
+  }
+
+  const wgrajSkan = async (plik?: File) => {
+    if (!plik || !attachTo) return
+    setAttaching(true)
+    try {
+      await receptionsApi.attachHdiScan(attachTo, plik)
+      onScanAttached?.()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Nie udało się zapisać skanu')
+    } finally {
+      setAttaching(false)
+      setAttachTo('')
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
 
   const [filter,  setFilter]  = useState('')
   const [period,  setPeriod]  = useState<HistoryPeriod>(30)
@@ -260,19 +289,34 @@ export function RawBatchesTable({
                     {b.receptionNo && b.receptionHasScan && b.receptionId ? (
                       <button
                         type="button"
-                        onClick={() => void openDocument(
-                          receptionsApi.hdiScanUrl(b.receptionId!),
-                          `HDI ${b.receptionNo!.replace(/\//g, '-')}.pdf`,
-                        ).catch(e => alert(e?.message || 'Nie udało się otworzyć skanu HDI'))}
+                        onClick={() => setViewer({
+                          id: b.receptionId!, no: b.receptionNo!, supplier: b.supplierName,
+                        })}
                         title="Pokaż skan HDI dostawcy"
                         className="font-mono text-xs whitespace-nowrap underline
                                    decoration-dotted text-primary hover:text-primary/80">
                         {b.receptionNo}
                       </button>
                     ) : (
-                      <code className="font-mono text-xs text-muted-foreground whitespace-nowrap">
-                        {b.receptionNo || '—'}
-                      </code>
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                        <code className="font-mono text-xs text-muted-foreground">
+                          {b.receptionNo || '—'}
+                        </code>
+                        {/* Dostawa bez dokumentu — spinacz pozwala dołożyć HDI
+                            po fakcie. Bez tego wszystkie przyjęcia sprzed
+                            archiwum zostałyby bez dowodu na kontrolę. */}
+                        {b.receptionNo && b.receptionId && (
+                          <button
+                            type="button"
+                            disabled={attaching}
+                            onClick={() => wskazSkan(b.receptionId!)}
+                            title="Dołącz skan HDI do tej dostawy"
+                            className="text-muted-foreground/50 hover:text-primary
+                                       disabled:opacity-40 transition-colors">
+                            <Paperclip size={12} />
+                          </button>
+                        )}
+                      </span>
                     )}
                   </TableCell>
                   <TableCell>
@@ -363,6 +407,26 @@ export function RawBatchesTable({
             })}
           </TableBody>
         </Table>
+      )}
+
+      {/* Wybór pliku do dopięcia — jedno pole na całą tabelę, bo naraz
+          dokłada się skan do JEDNEJ dostawy. */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".pdf,.png,.jpg,.jpeg,image/*"
+        className="hidden"
+        onChange={e => void wgrajSkan(e.target.files?.[0])}
+      />
+
+      {viewer && (
+        <HdiScanViewer
+          open
+          receptionId={viewer.id}
+          receptionNo={viewer.no}
+          supplierName={viewer.supplier}
+          onClose={() => setViewer(null)}
+        />
       )}
     </div>
   )

@@ -23,6 +23,7 @@ from app.logging_config import get_logger
 from app.models.raw_batches import RawBatchCreate
 from app.models.receptions import ReceptionCreate, ReceptionGroupIn
 from app.services.hdi_scan_store import attach as attach_hdi_scan
+from app.services.hdi_scan_store import save_temp
 from app.services.raw_batches_service import create_batch_cx
 from app.utils.batch_numbers import delivery_period, format_delivery_no, parse_delivery_no
 from app.utils.ids import cuid, now_iso
@@ -306,6 +307,34 @@ def get_reception(reception_id: str) -> Dict:
     if not rec:
         raise HTTPException(404, "Nie ma takiego przyjęcia")
     return _attach_details(rec)
+
+
+def attach_scan(reception_id: str, data: bytes, filename: str) -> Dict:
+    """Dopina skan HDI do przyjęcia JUŻ ZAPISANEGO.
+
+    Bez tego dostawa raz zapisana bez dokumentu zostawała bez niego na
+    zawsze — a przy kontroli trzeba pokazać, NA PODSTAWIE CZEGO przyjęto
+    surowiec. Dotyczy to także wszystkich dostaw sprzed archiwum skanów.
+
+    Podmiana istniejącego załącznika jest dozwolona (operator wgrał nie ten
+    dokument), ale zostaje w logu — to zmiana w dokumentacji kontrolnej.
+    """
+    rec = get_reception(reception_id)          # 404, gdy nie ma takiej dostawy
+    if not data:
+        raise HTTPException(400, "Pusty plik — nie ma czego zapisać")
+
+    from pathlib import Path
+
+    poprzedni = rec.get("hdi_scan") or ""
+    nazwa = attach_hdi_scan(save_temp(data, Path(filename or "").suffix), rec["id"])
+    if not nazwa:
+        raise HTTPException(500, "Nie udało się zapisać skanu na serwerze")
+
+    from app.db import execute as _execute
+    _execute("UPDATE receptions SET hdi_scan=%s WHERE id=%s", (nazwa, rec["id"]))
+    logger.info("hdi_scan.attached_late",
+                extra={"reception": rec["id"], "replaced": bool(poprzedni)})
+    return {"reception_id": rec["id"], "hdi_scan": nazwa, "replaced": bool(poprzedni)}
 
 
 def list_receptions(*, date_from: str = "", date_to: str = "", limit: int = 200) -> List[Dict]:

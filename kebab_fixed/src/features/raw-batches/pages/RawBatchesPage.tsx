@@ -259,6 +259,7 @@ export function RawBatchesPage() {
               emptyHint={`Wszystkie dostawy (${selMat?.name ?? 'surowiec'}) są rozliczone — historia poniżej.`}
               onEdit={handleEditOpen}
               onCancel={handleCancelOpen}
+              onScanAttached={refetch}
             />
           </CardContent>
         </Card>
@@ -283,6 +284,7 @@ export function RawBatchesPage() {
               meatStock={meatStock}
               emptyTitle="Brak zamkniętych dostaw"
               emptyHint="Rozliczone i anulowane przyjęcia pojawią się tutaj."
+              onScanAttached={refetch}
             />
           </CardContent>
         </Card>

@@ -55,6 +55,12 @@ def create_reception(dto: ReceptionCreate):
     return svc.create_reception(dto)
 
 
+@router.post("/{reception_id}/hdi-skan")
+async def hdi_scan_attach(reception_id: str, file: UploadFile = File(...)):
+    """Dopina skan do przyjęcia już zapisanego (także sprzed archiwum)."""
+    return svc.attach_scan(reception_id, await file.read(), file.filename or "")
+
+
 @router.get("/{reception_id}/hdi-skan")
 def hdi_scan_download(reception_id: str):
     """Skan HDI przypięty do przyjęcia — dokument do okazania przy kontroli."""

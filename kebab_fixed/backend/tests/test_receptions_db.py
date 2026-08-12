@@ -360,3 +360,44 @@ def test_przyjecie_bez_skanu_nie_udaje_zalacznika(db, tmp_path, monkeypatch):
     out = create_reception(_dto())
     rec = query_one("SELECT hdi_scan FROM receptions WHERE id=%s", (out["reception"]["id"],))
     assert (rec["hdi_scan"] or "") == ""
+
+
+def test_skan_mozna_dopiac_do_juz_zapisanej_dostawy(db, tmp_path, monkeypatch):
+    """46 dostaw na produkcji nie ma dokumentu, bo powstały przed archiwum.
+    Bez dopinania po fakcie zostałyby bez HDI na zawsze."""
+    from app.services import hdi_scan_store as store
+    from app.services.receptions_service import attach_scan
+
+    _scans_in(monkeypatch, tmp_path)
+    _seed_supplier()
+    rid = create_reception(_dto())["reception"]["id"]
+
+    out = attach_scan(rid, b"%PDF-1.4 dokument dostawy", "hdi.pdf")
+    assert out["replaced"] is False
+    assert store.find_attached(out["hdi_scan"]) is not None
+    assert query_one("SELECT hdi_scan FROM receptions WHERE id=%s", (rid,))["hdi_scan"] == f"{rid}.pdf"
+
+
+def test_dopiecie_skanu_zastepuje_poprzedni_i_to_odnotowuje(db, tmp_path, monkeypatch):
+    """Operator wgrał nie ten dokument — podmiana musi być możliwa, ale
+    oznaczona: to zmiana w dokumentacji pokazywanej kontroli."""
+    from app.services import hdi_scan_store as store
+    from app.services.receptions_service import attach_scan
+
+    _scans_in(monkeypatch, tmp_path)
+    _seed_supplier()
+    rid = create_reception(_dto())["reception"]["id"]
+
+    attach_scan(rid, b"%PDF-1.4 zly", "a.pdf")
+    out = attach_scan(rid, b"%PDF-1.4 wlasciwy", "b.pdf")
+    assert out["replaced"] is True
+    assert store.find_attached(out["hdi_scan"]).read_bytes().endswith(b"wlasciwy")
+
+
+def test_dopiecie_do_nieistniejacej_dostawy_konczy_sie_404(db, tmp_path, monkeypatch):
+    from app.services.receptions_service import attach_scan
+
+    _scans_in(monkeypatch, tmp_path)
+    with pytest.raises(HTTPException) as e:
+        attach_scan("nie-ma-takiego", b"%PDF", "x.pdf")
+    assert e.value.status_code == 404
