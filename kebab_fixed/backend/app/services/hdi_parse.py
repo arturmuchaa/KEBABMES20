@@ -19,10 +19,19 @@ import re
 from typing import Any, Dict, List, Optional
 
 #: Waga: „600,00", „1 800,00", „1800.00", „9 000,00" (spacja zwykła i twarda).
-_KG = r"\d[\d\s ]*[.,]\d{2}"
+#: Spacja w środku to separator tysięcy — DLATEGO waga nie może zaczynać się
+#: tuż za literą ani cyfrą. Bez tego zastrzeżenia śmieć OCR przyklejony do
+#: kolumny („hS4 600,00") wchodził jako tysiące i 600 kg zamieniało się
+#: w 4600 kg — cicho i wiarygodnie. Podkreślnik przepuszczamy, bo OCR
+#: rysuje nim linie tabeli („____600,00").
+#: Separator tysięcy MUSI grupować po trzy cyfry. Bez tego „464 1200,00"
+#: (śmieć + prawdziwa waga) sklejało się w 4 641 200 kg.
+_KG = r"(?<![^\W_])(?:\d{1,3}(?:[\s ]\d{3})+|\d+)[.,]\d{2}"
 #: Numer partii dostawcy — u KOKO sześciocyfrowy; dopuszczamy 4-8 cyfr.
 _LOT = r"\d{4,8}"
-_DATE = r"\d{4}-\d{2}-\d{2}"
+#: Data ISO. Drugi myślnik bywa zjadany przez OCR („2026-0810"), więc jest
+#: opcjonalny; pierwszy zostaje wymagany, żeby zwykła liczba nie udawała daty.
+_DATE = r"\d{4}-\d{2}-?\d{2}"
 
 #: Separator kolumn. OCR wsadza między nie kreski tabeli i śmieci
 #: („112823 _ 2026-08-10", „| | 435,00"), więc zwykłe `\s+` gubiło wiersze.
@@ -46,6 +55,12 @@ _VET_RE = re.compile(r"(PL\s*\d{6,10}\s*[A-Z]{2})", re.IGNORECASE)
 _CONTAINERS_RE = re.compile(r"pojemnik[óoc]?w?\s*:?\s*(\d+)", re.IGNORECASE)
 _PALLETS_RE = re.compile(r"palet\s*:?\s*(\d+)", re.IGNORECASE)
 _TOTAL_KG_RE = re.compile(rf"Masa\s+netto\s*:?\s*({_KG})", re.IGNORECASE)
+
+
+def normalize_date(raw: str) -> str:
+    """„2026-0810" → „2026-08-10". OCR gubi drugi myślnik w datach."""
+    s = (raw or "").strip()
+    return f"{s[:7]}-{s[7:]}" if len(s) == 9 and s.count("-") == 1 else s
 
 
 def parse_kg(raw: str) -> float:
@@ -152,8 +167,8 @@ def parse_hdi_text(text: str) -> Dict[str, Any]:
         lines.append({
             "kg": kg,
             "supplier_batch_no": m.group(2),
-            "slaughter_date": m.group(3),
-            "expiry_date": m.group(4),
+            "slaughter_date": normalize_date(m.group(3)),
+            "expiry_date": normalize_date(m.group(4)),
         })
 
     doc_no = _first(_DOC_NO_RE, text)

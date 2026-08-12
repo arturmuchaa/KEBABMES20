@@ -93,3 +93,53 @@ def test_ignoruje_liczby_ktore_nie_sa_pozycja_tabeli():
         "Weterynaryjny numer identyfikacyjny zakładu: PL 12033904 WE\n"
         "NIP: 5130279931\nREGON 622652974\n")
     assert out["lines"] == []
+
+
+# --- pułapki znalezione na 11 prawdziwych skanach (2026-08-12) --------------
+def test_smiec_przed_waga_nie_wchodzi_jako_tysiace():
+    """OCR dokleja do kolumny znaki z sąsiedztwa: „hS4 600,00".
+
+    Spacja w liczbie to u nas separator tysięcy, więc bez zastrzeżenia
+    „nie zaczynaj tuż za literą" 600 kg zamieniało się w 4600 kg — cicho
+    i wiarygodnie. To najgorszy możliwy rodzaj błędu w traceability.
+    """
+    out = parse_hdi_text(
+        "| 2 ĆWIARTKA Z KURCZAKA KL. A SCHŁODZONA hS4 600,00 112730 2026-07-29 2026-08-05")
+    assert [l["kg"] for l in out["lines"]] == [600.0]
+
+
+def test_prawdziwy_separator_tysiecy_dziala_dalej():
+    """Warunek nie może zepsuć wag, które NAPRAWDĘ mają tysiące."""
+    out = parse_hdi_text("1 800,00 112822 2026-08-10 2026-08-17")
+    assert [l["kg"] for l in out["lines"]] == [1800.0]
+
+
+def test_podkreslniki_tabeli_nie_blokuja_wagi():
+    """OCR rysuje podkreślnikami linie tabeli („____600,00") — to nie litera."""
+    out = parse_hdi_text("____600,00 112819 2026-08-10 2026-08-17")
+    assert [l["kg"] for l in out["lines"]] == [600.0]
+
+
+def test_data_bez_drugiego_mysnika():
+    """OCR gubi myślnik: „2026-0810". Wiersz i tak musi wejść, a data
+    ma wyjść znormalizowana — inaczej trafi do bazy w dwóch formatach."""
+    out = parse_hdi_text("1050,00 112761 2026-08-03 2026-0810")
+    assert len(out["lines"]) == 1
+    assert out["lines"][0]["expiry_date"] == "2026-08-10"
+
+
+def test_smiec_i_waga_nie_sklejaja_sie_w_miliony():
+    """„464 1200,00" (śmieć OCR + prawdziwa waga) dawało 4 641 200 kg.
+
+    Prawdziwy separator tysięcy grupuje cyfry PO TRZY — bez tego warunku
+    każda spacja sklejała sąsiednie liczby w jedną.
+    """
+    out = parse_hdi_text("| 3 ĆWIARTKA 464 1200,00 112725 2026-07-29 2026-08-05")
+    assert [l["kg"] for l in out["lines"]] == [1200.0]
+
+
+def test_wagi_czterocyfrowe_bez_separatora_dzialaja():
+    """„2400,00" nie ma separatora i musi przejść — wymuszenie grupowania
+    po trzy nie może odciąć zwykłych czterocyfrowych wag."""
+    out = parse_hdi_text("2400,00 112831 2026-08-11 2026-08-18")
+    assert [l["kg"] for l in out["lines"]] == [2400.0]
