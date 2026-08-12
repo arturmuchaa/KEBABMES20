@@ -11,7 +11,7 @@
  */
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { fmtPln, fmtKg } from '@/lib/utils'
-import { Plus, Package, Edit2, Check, X, Layers, AlertTriangle, ScanLine } from 'lucide-react'
+import { Plus, Package, Edit2, Check, X, Layers, AlertTriangle, ScanLine, Printer } from 'lucide-react'
 import {
   CALIBER_OPTIONS, OTHER_CARRIER_KINDS, caliberKg, caliberValue, containersForKg,
   type CaliberValue,
@@ -22,6 +22,7 @@ import {
   type HdiLine, type ReceptionGroup,
 } from '../receptionSplit'
 import { receptionsApi } from '@/lib/apiClient'
+import { isDesktopApp, scanDocument } from '@/lib/desktopScanner'
 import type { ReceptionHeader } from '../types'
 
 import {
@@ -241,6 +242,19 @@ export function CreateReceptionModal({
     return () => window.removeEventListener('paste', onPaste)
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** Skan wprost z urządzenia — dokument idzie potem tą samą drogą co plik. */
+  const scanFromDevice = async () => {
+    setScanning(true)
+    setScanNote(null)
+    try {
+      const file = await scanDocument()
+      await loadHdi(file)
+    } catch (e) {
+      setScanNote({ ok: false, text: e instanceof Error ? e.message : 'Nie udało się zeskanować' })
+      setScanning(false)
+    }
+  }
+
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
@@ -373,6 +387,19 @@ export function CreateReceptionModal({
                     if (f) loadHdi(f)
                     e.target.value = ''
                   }} />
+                {/* Skanowanie wprost z urządzenia działa tylko w aplikacji
+                    desktopowej — przeglądarka nie ma dostępu do skanera.
+                    Na stanowiskach z przeglądarką przycisk się nie pokazuje,
+                    zamiast kusić czymś, co i tak by nie zadziałało. */}
+                {isDesktopApp() && (
+                  <Button variant="default" size="sm" disabled={scanning}
+                    onClick={scanFromDevice}>
+                    {scanning
+                      ? <span className="w-3.5 h-3.5 mr-1.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      : <Printer size={13} className="mr-1.5" />}
+                    Skanuj HDI
+                  </Button>
+                )}
                 <Button variant="outline" size="sm" disabled={scanning}
                   onClick={() => fileRef.current?.click()}>
                   {scanning

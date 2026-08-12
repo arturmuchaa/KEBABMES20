@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline'; worker-src 'self' blob:; frame-src 'self' blob: data:; object-src 'self' blob: data:; connect-src 'self' http://localhost:8000 http://204.168.166.34 http://204.168.166.34:8000 http://204.168.166.34:8080 https://raw.githubusercontent.com https://github.com https://objects.githubusercontent.com"
+      "csp": "default-src 'self'; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline'; worker-src 'self' blob:; frame-src 'self' blob: data:; object-src 'self' blob: data:; connect-src 'self' http://localhost:8000 http://localhost:9100 http://localhost:9101 http://204.168.166.34 http://204.168.166.34:8000 http://204.168.166.34:8080 https://raw.githubusercontent.com https://github.com https://objects.githubusercontent.com"
     }
   },
   "plugins": {

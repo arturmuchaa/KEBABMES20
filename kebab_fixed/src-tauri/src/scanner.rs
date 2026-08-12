@@ -1,0 +1,217 @@
+//! Most do skanera (biuro) — skan HDI wprost z MES, bez drugiego programu.
+//!
+//! DLACZEGO PRZEZ NAPS2, a nie własną obsługą sterowników: bizhub C458 nie
+//! wystawia eSCL (sprawdzone w zakładzie), więc trzeba iść przez sterownik
+//! TWAIN/WIA Konica Minolty. NAPS2 już to robi i jest na tym urządzeniu
+//! sprawdzony w boju — pisanie własnego mostu do TWAIN oznaczałoby budowanie
+//! trzeciego elementu zamiast połączenia dwóch działających.
+//!
+//! Serwer MES stoi w serwerowni i do skanera w sieci zakładu nie ma jak
+//! sięgnąć; przeglądarka do skanera dostępu nie ma z zasady. Dlatego skanuje
+//! aplikacja desktopowa — jedyne miejsce, które jest we WŁAŚCIWEJ SIECI
+//! i może uruchomić program.
+//!
+//! Konfiguracja: `scanner.json` obok exe, w ProgramData albo w app_config_dir
+//! (naps2Path / profile / pages / timeoutS). Diagnostyka: komenda
+//! `scanner_diagnose` — bez niej serwisant jest ślepy, tak samo jak było
+//! z wagą.
+
+use base64::Engine;
+use serde::Deserialize;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Duration, Instant};
+use tauri::Manager;
+
+#[derive(Deserialize, Clone)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ScannerConfig {
+    pub enabled: bool,
+    /// Pełna ścieżka do NAPS2.Console.exe. Puste = szukamy w typowych miejscach.
+    pub naps2_path: String,
+    /// Nazwa profilu skanowania w NAPS2. Puste = profil domyślny.
+    /// Profil ustawia się RAZ w NAPS2 (urządzenie, PDF, 300 dpi, szarość).
+    pub profile: String,
+    /// 0 = wszystko z podajnika. HDI bywa jednostronicowy, ale przy dwóch
+    /// kartkach operator nie powinien skanować dwa razy.
+    pub pages: u32,
+    /// Skan A4 z podajnika nie powinien trwać dłużej; dłużej = zacięcie
+    /// albo urządzenie czeka na coś, czego operator nie widzi.
+    pub timeout_s: u64,
+}
+
+impl Default for ScannerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            naps2_path: String::new(),
+            profile: String::new(),
+            pages: 0,
+            timeout_s: 120,
+        }
+    }
+}
+
+/// Typowe miejsca instalacji NAPS2 na Windows (instalacja dla wszystkich
+/// użytkowników, 32-bit na 64-bit oraz instalacja per-użytkownik).
+fn naps2_candidates() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for var in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
+        if let Some(base) = std::env::var_os(var) {
+            let base = Path::new(&base);
+            out.push(base.join("NAPS2").join("NAPS2.Console.exe"));
+            out.push(base.join("Programs").join("NAPS2").join("NAPS2.Console.exe"));
+        }
+    }
+    // Ostatnia deska ratunku: jeśli katalog NAPS2 jest w PATH.
+    out.push(PathBuf::from("NAPS2.Console.exe"));
+    out
+}
+
+fn config_paths(app: &tauri::AppHandle) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    // Wspólny plik dla całego komputera — admin ustawia raz, konto operatora
+    // go widzi. Ta sama pułapka co przy wadze: AppData jest per-konto.
+    if let Some(pd) = std::env::var_os("ProgramData") {
+        paths.push(Path::new(&pd).join("Kebab MES").join("scanner.json"));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            paths.push(dir.join("scanner.json"));
+        }
+    }
+    if let Ok(dir) = app.path().app_config_dir() {
+        paths.push(dir.join("scanner.json"));
+    }
+    paths
+}
+
+fn load_config(app: &tauri::AppHandle) -> ScannerConfig {
+    for p in config_paths(app) {
+        if let Ok(s) = std::fs::read_to_string(&p) {
+            // Notatnik Windows zapisuje UTF-8 z BOM, a serde_json go odrzuca —
+            // konfiguracja wracałaby po cichu do domyślnej.
+            let s = s.trim_start_matches('\u{feff}');
+            match serde_json::from_str(s) {
+                Ok(cfg) => return cfg,
+                Err(e) => eprintln!("scanner.json niepoprawny ({}): {e}", p.display()),
+            }
+        }
+    }
+    ScannerConfig::default()
+}
+
+fn resolve_naps2(cfg: &ScannerConfig) -> Option<PathBuf> {
+    if !cfg.naps2_path.trim().is_empty() {
+        let p = PathBuf::from(cfg.naps2_path.trim());
+        return if p.exists() { Some(p) } else { None };
+    }
+    naps2_candidates().into_iter().find(|p| p.exists())
+}
+
+/// Uruchamia NAPS2 i czeka na plik, pilnując limitu czasu.
+///
+/// `Command::status()` nie ma limitu czasu, a zawieszony skaner zostawiłby
+/// operatora przed formularzem, który „myśli" bez końca.
+fn run_with_timeout(mut cmd: Command, timeout: Duration) -> Result<(), String> {
+    let mut child = cmd.spawn().map_err(|e| format!("Nie udało się uruchomić NAPS2: {e}"))?;
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(status)) => {
+                return Err(format!(
+                    "NAPS2 zakończył się błędem (kod {}). Sprawdź w NAPS2, czy profil \
+                     skanowania działa — ten sam profil używa MES.",
+                    status.code().unwrap_or(-1)
+                ))
+            }
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    return Err("Skanowanie trwało zbyt długo — sprawdź urządzenie \
+                                (zacięcie papieru? czeka na potwierdzenie na panelu?)"
+                        .into());
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            Err(e) => return Err(format!("Błąd oczekiwania na NAPS2: {e}")),
+        }
+    }
+}
+
+/// Skanuje dokument i zwraca PDF w base64 (frontend robi z tego plik i wysyła
+/// go do odczytu tą samą drogą, co plik wskazany ręcznie).
+pub fn scan(app: &tauri::AppHandle) -> Result<String, String> {
+    let cfg = load_config(app);
+    if !cfg.enabled {
+        return Err("Skaner wyłączony w scanner.json".into());
+    }
+    let exe = resolve_naps2(&cfg).ok_or_else(|| {
+        "Nie znaleziono NAPS2 na tym komputerze. Zainstaluj NAPS2 albo wskaż \
+         ścieżkę do NAPS2.Console.exe w pliku scanner.json."
+            .to_string()
+    })?;
+
+    let dir = std::env::temp_dir().join(format!("kebab-scan-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Brak miejsca na skan: {e}"))?;
+    let out = dir.join("hdi.pdf");
+    let _ = std::fs::remove_file(&out);
+
+    let mut cmd = Command::new(&exe);
+    cmd.arg("-o").arg(&out)
+        .arg("-n").arg(cfg.pages.to_string())
+        .arg("--force");
+    if !cfg.profile.trim().is_empty() {
+        cmd.arg("-p").arg(cfg.profile.trim());
+    }
+    run_with_timeout(cmd, Duration::from_secs(cfg.timeout_s))?;
+
+    let bytes = std::fs::read(&out).map_err(|_| {
+        "NAPS2 nie zapisał pliku. Najczęstsza przyczyna: w profilu nie wybrano \
+         urządzenia albo podajnik był pusty."
+            .to_string()
+    })?;
+    let _ = std::fs::remove_file(&out);
+    if bytes.is_empty() {
+        return Err("Skan jest pusty — sprawdź, czy dokument leżał na szybie.".into());
+    }
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// Diagnostyka skanera dla serwisu: skąd wczytano config, gdzie szukamy NAPS2
+/// i czy w ogóle go widać. Bez tego pierwsze uruchomienie u klienta to
+/// zgadywanka — dokładnie tak samo jak było z wagą.
+pub fn diagnose(app: &tauri::AppHandle) -> String {
+    let mut out = String::new();
+    let mut used: Option<String> = None;
+    for p in config_paths(app) {
+        let exists = p.exists();
+        out.push_str(&format!("{} {}\n", if exists { "[jest]" } else { "[brak]" }, p.display()));
+        if exists && used.is_none() {
+            used = Some(p.display().to_string());
+        }
+    }
+    let cfg = load_config(app);
+    out.push_str(&format!(
+        "\nUżyty config: {}\n",
+        used.as_deref().unwrap_or("BRAK PLIKU → ustawienia domyślne")
+    ));
+    out.push_str(&format!(
+        "Włączony: {}  Profil NAPS2: {}  Stron: {}\n",
+        cfg.enabled,
+        if cfg.profile.trim().is_empty() { "(domyślny)" } else { cfg.profile.trim() },
+        if cfg.pages == 0 { "wszystkie z podajnika".to_string() } else { cfg.pages.to_string() },
+    ));
+
+    out.push_str("\nSzukanie NAPS2:\n");
+    for p in naps2_candidates() {
+        out.push_str(&format!("{} {}\n", if p.exists() { "[jest]" } else { "[brak]" }, p.display()));
+    }
+    match resolve_naps2(&cfg) {
+        Some(p) => out.push_str(&format!("\nUżyty NAPS2: {}\n", p.display())),
+        None => out.push_str("\nUżyty NAPS2: NIE ZNALEZIONO — zainstaluj NAPS2 albo \
+                              wpisz ścieżkę w scanner.json (naps2Path)\n"),
+    }
+    out
+}

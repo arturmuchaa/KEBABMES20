@@ -5,6 +5,11 @@ use tauri_plugin_updater::UpdaterExt;
 #[cfg(any(feature = "kiosk", test))]
 mod scale;
 
+// Most do skanera — dla BIURA (odwrotnie niż waga, która jest kioskowa).
+// Kompilowany zawsze: to tylko uruchomienie programu, bez ciężkich zależności
+// sprzętowych, więc gating dawałby szum w kodzie bez zysku.
+mod scanner;
+
 // Kod serwisowy kiosku (0099 na numpadzie wagi, wpisany szybko) wywołuje to
 // z JS — wylogowuje operatora z Windows (wraca do ekranu logowania Windows),
 // żeby technik mógł zalogować się na konto Administrator ze zwykłym
@@ -40,6 +45,23 @@ fn scale_diagnose(_app: tauri::AppHandle) -> String {
     }
 }
 
+// Skan HDI wprost z MES. Serwer stoi w serwerowni i do skanera w sieci
+// zakładu nie ma jak sięgnąć, a przeglądarka nie ma dostępu do skanera
+// z zasady — więc skanuje aplikacja desktopowa, jedyne miejsce we właściwej
+// sieci. Zwraca PDF w base64; frontend robi z tego plik i wysyła do odczytu
+// tą samą drogą, co plik wskazany ręcznie.
+#[tauri::command]
+fn scan_document(app: tauri::AppHandle) -> Result<String, String> {
+    scanner::scan(&app)
+}
+
+// Diagnostyka skanera: skąd wczytano config i czy widać NAPS2. Pierwsze
+// uruchomienie u klienta bez tego to zgadywanka — tak samo jak było z wagą.
+#[tauri::command]
+fn scanner_diagnose(app: tauri::AppHandle) -> String {
+    scanner::diagnose(&app)
+}
+
 // Natychmiastowe zastosowanie tego, co wskazuje manifest na serwerze —
 // menu serwisowe po przywróceniu wersji (rollback) nie czeka na godzinny cykl.
 #[tauri::command]
@@ -64,7 +86,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![windows_logoff, scale_diagnose, scale_tare, apply_update_now])
+        .invoke_handler(tauri::generate_handler![windows_logoff, scale_diagnose, scale_tare,
+                                apply_update_now, scan_document, scanner_diagnose])
         .on_window_event(|_window, _event| {
             // Kiosk: operator nie może zamknąć okna (Alt+F4 / żądania zamknięcia ignorowane).
             #[cfg(feature = "kiosk")]
