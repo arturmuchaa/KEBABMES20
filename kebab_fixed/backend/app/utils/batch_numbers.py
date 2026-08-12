@@ -46,7 +46,7 @@ _PROD_COMBINED_NO_RE = re.compile(r"^PPP\d+$")
 _PROD_MIXED_NO_RE = re.compile(r"^PM\d+$")
 
 
-_DELIVERY_NO_RE = re.compile(r"^(\d+)\s*/\s*(\d{1,2})\s*/\s*(\d{4})$")
+_DELIVERY_NO_RE = re.compile(r"^(\d+)\s*/\s*(\d{1,2})(?:\s*/\s*\d{2,4})?$")
 
 
 def _as_date(when: Union[str, date, datetime]) -> date:
@@ -59,20 +59,33 @@ def _as_date(when: Union[str, date, datetime]) -> date:
 
 
 def format_delivery_no(seq: int, when: Union[str, date, datetime]) -> str:
-    """Numer PRZYJĘCIA (dokument całej dostawy): ``12/08/2026``.
+    """Numer PRZYJĘCIA (dokument całej dostawy): ``12/08``.
 
-    Numer porządkowy dostawy w miesiącu bez zer wiodących — tak zakład pisze
-    go ręcznie na karcie 1.1.1; miesiąc dwucyfrowy, żeby numery sortowały się
-    i czytały jednakowo przez cały rok.
+    Numer kolejnej dostawy w miesiącu + miesiąc dwucyfrowy. Dokładnie tak
+    zakład zapisuje go na kartach HACCP — 1.1.1 („1/08" ręcznie w kolumnie
+    „Numer przyjęcia") i 2.5.1 („01/06 BERG", „05/04 BDF" przy składnikach).
+
+    ROKU W NUMERZE NIE MA i nie należy go dokładać: kartę zakłada się na
+    miesiąc, więc rok wynika z samego dokumentu. Do 2026-08-12 MES dopisywał
+    rok („12/08/2026") i rozjeżdżał się z papierem.
+
+    Konsekwencja: sam numer NIE jest unikalny w skali lat (``1/08`` wróci
+    w sierpniu przyszłego roku). Unikalności pilnuje para
+    (``reception_period``, ``reception_seq``) — patrz `_allocate_no_cx`.
     """
     if int(seq) < 1:
         raise ValueError("Numer przyjęcia musi być >= 1")
     d = _as_date(when)
-    return f"{int(seq)}/{d.month:02d}/{d.year}"
+    return f"{int(seq)}/{d.month:02d}"
 
 
 def parse_delivery_no(raw: Optional[str]) -> Optional[tuple[int, int, int]]:
-    """``"12/08/2026"`` → ``(12, 8, 2026)``. Puste = ``None`` (auto-numer)."""
+    """``"12/08"`` → ``(12, 8)``. Puste = ``None`` (numer nada sekwencja).
+
+    Rok dopisany na końcu („12/08/2026") jest PRZYJMOWANY i pomijany — numery
+    sprzed zmiany formatu wciąż dają się wpisać ręcznie, a rok i tak wynika
+    z daty dostawy.
+    """
     if raw is None:
         return None
     s = str(raw).strip()
@@ -80,13 +93,13 @@ def parse_delivery_no(raw: Optional[str]) -> Optional[tuple[int, int, int]]:
         return None
     m = _DELIVERY_NO_RE.match(s)
     if not m:
-        raise ValueError("Numer przyjęcia ma postać 12/08/2026")
-    seq, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        raise ValueError("Numer przyjęcia ma postać 12/08 (numer/miesiąc)")
+    seq, month = int(m.group(1)), int(m.group(2))
     if seq < 1:
         raise ValueError("Numer przyjęcia musi być >= 1")
     if not 1 <= month <= 12:
         raise ValueError("Miesiąc w numerze przyjęcia musi być z zakresu 1-12")
-    return (seq, month, year)
+    return (seq, month)
 
 
 def delivery_period(when: Union[str, date, datetime]) -> str:

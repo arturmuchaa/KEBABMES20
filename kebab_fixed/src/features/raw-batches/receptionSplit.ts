@@ -6,7 +6,7 @@
  * jedna partia dostawcy trafia w CAŁOŚCI do jednego numeru — dzielenie jej
  * urywa identyfikowalność w połowie.
  *
- *     PRZYJĘCIE 12/08/2026 — 10 000 kg
+ *     PRZYJĘCIE 12/08 — 10 000 kg
  *     ├── numer porządkowy #1 — A001…A005 — 6 000 kg
  *     └── numer porządkowy #2 — A006…A008 — 4 000 kg
  *

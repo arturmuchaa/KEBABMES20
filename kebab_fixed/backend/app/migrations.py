@@ -1018,7 +1018,12 @@ _DDL: list[str] = [
         notes            TEXT DEFAULT '',
         created_at       TEXT
     )""",
-    "CREATE UNIQUE INDEX IF NOT EXISTS uq_receptions_no ON receptions(reception_no)",
+    # Numer przyjęcia (12/08) NIE jest unikalny w skali lat — „1/08" wraca
+    # w każdym sierpniu, bo zakład tak go zapisuje na kartach HACCP.
+    # Unikalności pilnuje prawdziwy klucz: miesiąc dostawy + numer w miesiącu.
+    "DROP INDEX IF EXISTS uq_receptions_no",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_receptions_period_seq "
+    "ON receptions(reception_period, reception_seq)",
     # HDI dostawcy ma WŁASNY numer („33656") i osobno wskazuje dokument
     # handlowy („do dokumentu: WZ 388/MDU/08/2026"). Karta 1.1.1 kol. (e)
     # dopuszcza jedno albo drugie, więc trzymamy oba.
@@ -1097,8 +1102,32 @@ def _run_migrations_locked() -> None:
     _backfill_recipe_ingredients_seq()
     _backfill_byproduct_containers()
     _backfill_receptions()
+    _strip_year_from_reception_no()
     _reconcile_deboning_ledger()
     logger.info("migrations.done")
+
+
+def _strip_year_from_reception_no() -> None:
+    """Ucina rok z numerów przyjęcia sprzed 2026-08-12: ``12/08/2026`` → ``12/08``.
+
+    Zakład zapisuje numer przyjęcia jako numer-w-miesiącu i miesiąc — widać to
+    na karcie 1.1.1 („1/08" w kolumnie „Numer przyjęcia") i na 2.5.1
+    („01/06 BERG"). MES dopisywał rok i rozjeżdżał się z papierem, więc
+    dokument w systemie miał inny numer niż ten sam dokument w segregatorze.
+
+    Sam numer porządkowy się NIE zmienia — 12/08/2026 i 12/08 to ta sama
+    dwunasta dostawa sierpnia. Rok nie ginie: trzyma go `reception_period`.
+    """
+    try:
+        ile = int(query_one(
+            "SELECT count(*) AS n FROM receptions WHERE reception_no ~ '/[0-9]{4}$'")["n"])
+        if ile:
+            execute(
+                "UPDATE receptions SET reception_no = regexp_replace(reception_no, '/[0-9]{4}$', '') "
+                "WHERE reception_no ~ '/[0-9]{4}$'")
+            logger.info("migrations.strip_year_from_reception_no.done", extra={"count": ile})
+    except Exception as exc:
+        logger.warning("migrations.strip_year_from_reception_no.failed", extra={"error": str(exc)})
 
 
 def _backfill_receptions() -> None:

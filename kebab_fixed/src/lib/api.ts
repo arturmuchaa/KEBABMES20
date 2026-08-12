@@ -308,7 +308,7 @@ export const rawBatchesApi = {
 }
 
 // ─── Przyjęcia (dokument całej dostawy) ───────────────────────
-// Jedna dostawa = jeden numer „12/08/2026" i kilka numerów porządkowych.
+// Jedna dostawa = jeden numer „12/08" i kilka numerów porządkowych.
 // `toSnake` nie tknie zagnieżdżonych grup poprawnie (backend czyta aliasy
 // camelCase), więc DTO idzie tak, jak je zbudował formularz.
 export const receptionsApi = {

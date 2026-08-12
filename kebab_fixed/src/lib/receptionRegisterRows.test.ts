@@ -6,7 +6,7 @@ import type { Reception } from '@/types'
 
 const rec = (over: Partial<Reception> = {}): Reception => ({
   id: 'r1',
-  receptionNo: '1/08/2026',
+  receptionNo: '1/08',
   receivedDate: '2026-08-11',
   supplierId: 'sup1',
   supplierName: 'KOKO SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ',
@@ -58,7 +58,7 @@ describe('mainRows — karta 1.1.1', () => {
   it('jeden wiersz na dostawę, kolumny a–e z systemu', () => {
     const [row] = mainRows([rec()], 13)
     expect(row.slice(0, 5)).toEqual([
-      '1/08/2026', 'KOKO', 'Ćwiartka z kurczaka', '11.08.2026',
+      '1/08', 'KOKO', 'Ćwiartka z kurczaka', '11.08.2026',
       'HDI 33656 / WZ 27/MDU/08/2026',
     ])
   })
@@ -75,10 +75,10 @@ describe('mainRows — karta 1.1.1', () => {
 
   it('sortuje chronologicznie, nie kolejnością z API', () => {
     const rows = mainRows([
-      rec({ id: 'b', receptionNo: '2/08/2026', receivedDate: '2026-08-12' }),
-      rec({ id: 'a', receptionNo: '1/08/2026', receivedDate: '2026-08-11' }),
+      rec({ id: 'b', receptionNo: '2/08', receivedDate: '2026-08-12' }),
+      rec({ id: 'a', receptionNo: '1/08', receivedDate: '2026-08-11' }),
     ], 13)
-    expect(rows.map(r => r[0])).toEqual(['1/08/2026', '2/08/2026'])
+    expect(rows.map(r => r[0])).toEqual(['1/08', '2/08'])
   })
 })
 
@@ -99,8 +99,8 @@ describe('detailRows — karta 1.1.1/2', () => {
     const rows = detailRows([rec()], 9)
     expect(rows).toHaveLength(2)
     expect(rows[0].slice(0, 6)).toEqual(
-      ['1/08/2026', '470', '5235', '10.08.2026', '17.08.2026', '5,2'])
-    expect(rows[1][0]).toBe('1/08/2026')
+      ['1/08', '470', '5235', '10.08.2026', '17.08.2026', '5,2'])
+    expect(rows[1][0]).toBe('1/08')
     expect(rows[1][1]).toBe('471')
   })
 

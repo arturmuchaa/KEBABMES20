@@ -103,7 +103,7 @@ export interface CreateRawBatchDto {
 
 // ─── Przyjęcie = dokument całej dostawy ──────────────────────────────────────
 //
-// Jedna dostawa → jeden numer przyjęcia („12/08/2026") → kilka numerów
+// Jedna dostawa → jeden numer przyjęcia („12/08") → kilka numerów
 // porządkowych (grup). Partie dostawcy wiszą pod grupą, do której trafiły.
 
 /** Jeden numer porządkowy w obrębie dostawy. */

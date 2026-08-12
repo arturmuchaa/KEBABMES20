@@ -1,6 +1,6 @@
 """Przyjęcie = dokument całej dostawy, rozbity na numery porządkowe.
 
-Model: 10 t ćwiartki przyjeżdża pod JEDNYM numerem przyjęcia („1/08/2026")
+Model: 10 t ćwiartki przyjeżdża pod JEDNYM numerem przyjęcia („1/08")
 i rozpada się na 2-3 numery porządkowe; partie dostawcy (jego numery) wiszą
 pod tą grupą, do której fizycznie trafiły.
 """
@@ -66,7 +66,7 @@ def test_jedna_dostawa_jeden_numer_przyjecia_dwa_porzadkowe(db):
     _seed_supplier()
     out = create_reception(_dto())
 
-    assert out["reception"]["reception_no"] == "1/08/2026"
+    assert out["reception"]["reception_no"] == "1/08"
     assert len(out["batches"]) == 2
     # Numery porządkowe są kolejne i RÓŻNE — to one jadą przez halę.
     nos = [b["internal_batch_no"] for b in out["batches"]]
@@ -78,34 +78,34 @@ def test_jedna_dostawa_jeden_numer_przyjecia_dwa_porzadkowe(db):
 
 def test_numer_przyjecia_rosnie_w_miesiacu_i_resetuje_sie_z_nowym(db):
     _seed_supplier()
-    assert create_reception(_dto())["reception"]["reception_no"] == "1/08/2026"
-    assert create_reception(_dto())["reception"]["reception_no"] == "2/08/2026"
+    assert create_reception(_dto())["reception"]["reception_no"] == "1/08"
+    assert create_reception(_dto())["reception"]["reception_no"] == "2/08"
     # Nowy miesiąc = numeracja od nowa; karta 1.1.1 jest miesięczna.
     wrzesien = create_reception(_dto(receivedDate="2026-09-01"))
-    assert wrzesien["reception"]["reception_no"] == "1/09/2026"
+    assert wrzesien["reception"]["reception_no"] == "1/09"
 
 
 def test_numer_przyjecia_mozna_wpisac_recznie(db):
     _seed_supplier()
-    out = create_reception(_dto(receptionNo="7/08/2026"))
-    assert out["reception"]["reception_no"] == "7/08/2026"
+    out = create_reception(_dto(receptionNo="7/08"))
+    assert out["reception"]["reception_no"] == "7/08"
     # Kolejne auto-numery nie mogą cofnąć się pod wpisany ręcznie.
-    assert create_reception(_dto())["reception"]["reception_no"] == "8/08/2026"
+    assert create_reception(_dto())["reception"]["reception_no"] == "8/08"
 
 
 def test_duplikat_numeru_przyjecia_odrzucony(db):
     _seed_supplier()
-    create_reception(_dto(receptionNo="3/08/2026"))
+    create_reception(_dto(receptionNo="3/08"))
     with pytest.raises(HTTPException) as exc:
-        create_reception(_dto(receptionNo="3/08/2026"))
+        create_reception(_dto(receptionNo="3/08"))
     assert exc.value.status_code == 409
 
 
 def test_next_delivery_number_podpowiada_kolejny(db):
     _seed_supplier()
-    assert next_delivery_number("2026-08-11")["nextNo"] == "1/08/2026"
+    assert next_delivery_number("2026-08-11")["nextNo"] == "1/08"
     create_reception(_dto())
-    assert next_delivery_number("2026-08-11")["nextNo"] == "2/08/2026"
+    assert next_delivery_number("2026-08-11")["nextNo"] == "2/08"
 
 
 # --- partie dostawcy -------------------------------------------------------
@@ -185,7 +185,7 @@ def test_grupa_bez_partii_dostawcy_przechodzi(db):
     _seed_supplier()
     out = create_reception(_dto(groups=[dict(kgReceived=2400.0, supplierBatches=[])]))
     assert float(out["batches"][0]["kg_received"]) == 2400.0
-    assert out["reception"]["reception_no"] == "1/08/2026"
+    assert out["reception"]["reception_no"] == "1/08"
 
 
 # --- integracja z resztą systemu -------------------------------------------
@@ -256,7 +256,7 @@ def test_get_reception_zwraca_dokument_z_partiami(db):
     _seed_supplier()
     out = create_reception(_dto())
     doc = get_reception(out["reception"]["id"])
-    assert doc["reception_no"] == "1/08/2026"
+    assert doc["reception_no"] == "1/08"
     assert float(doc["kg_total"]) == 10000.0
     assert len(doc["batches"]) == 2
     assert len(doc["batches"][0]["supplier_batches"]) == 5
@@ -297,7 +297,7 @@ def test_surowiec_bez_rozbioru_ma_mieso_rowne_dostawie(db):
 
 
 def test_anulowana_rejestracja_nie_podbija_wagi_dokumentu(db):
-    """7/08/2026 pokazywało 20 010 kg od FARMEXU zamiast 10 005: anulowane
+    """7/08 pokazywało 20 010 kg od FARMEXU zamiast 10 005: anulowane
     rejestracje (korekta naszej pomyłki) sumowały się jak dostawy."""
     _seed_supplier()
     out = create_reception(_dto())
@@ -401,3 +401,30 @@ def test_dopiecie_do_nieistniejacej_dostawy_konczy_sie_404(db, tmp_path, monkeyp
     with pytest.raises(HTTPException) as e:
         attach_scan("nie-ma-takiego", b"%PDF", "x.pdf")
     assert e.value.status_code == 404
+
+
+def test_ten_sam_numer_moze_wrocic_w_kolejnym_roku(db):
+    """Numer nie niesie roku („1/08"), więc w sierpniu 2027 wraca ten sam.
+
+    To ŚWIADOMA konsekwencja formatu z kart HACCP. Unikalności pilnuje para
+    (miesiąc dostawy, numer w miesiącu), nie sam napis — dawny unikat na
+    `reception_no` wywaliłby zapis pierwszej sierpniowej dostawy 2027 roku.
+    """
+    _seed_supplier()
+    a = create_reception(_dto(receivedDate="2026-08-11"))["reception"]
+    b = create_reception(_dto(receivedDate="2027-08-11"))["reception"]
+
+    assert a["reception_no"] == b["reception_no"] == "1/08"
+    assert a["reception_period"] == "2026-08"
+    assert b["reception_period"] == "2027-08"
+    assert a["id"] != b["id"]
+
+
+def test_reczny_numer_musi_zgadzac_sie_z_miesiacem_dostawy(db):
+    """„5/07" przy dostawie z sierpnia to pomyłka w przepisywaniu — dokument
+    wylądowałby w innym miesiącu, niż mówi jego własny numer."""
+    _seed_supplier()
+    with pytest.raises(HTTPException) as e:
+        create_reception(_dto(receivedDate="2026-08-11", receptionNo="5/07"))
+    assert e.value.status_code == 400
+    assert "miesi" in str(e.value.detail).lower()

@@ -66,11 +66,22 @@ def _allocate_no_cx(conn, day: str, custom: str) -> tuple[str, int, str]:
     """
     parsed = parse_delivery_no(custom)
     if parsed is not None:
-        seq, month, year = parsed
-        period = f"{year:04d}-{month:02d}"
-        no = format_delivery_no(seq, f"{period}-01")
-        if cx_query_one(conn, "SELECT 1 FROM receptions WHERE reception_no=%s", (no,)):
-            raise HTTPException(409, f"Przyjęcie {no} już istnieje")
+        seq, month = parsed
+        # Numer nie niesie już roku, więc rok bierzemy z DATY DOSTAWY.
+        # Miesiąc musi się z nią zgadzać — inaczej dokument wylądowałby
+        # w innym miesiącu, niż mówi jego własny numer.
+        if month != int(day[5:7]):
+            raise HTTPException(
+                400,
+                f"Numer {custom} wskazuje miesiąc {month:02d}, a data dostawy "
+                f"{day} jest z miesiąca {day[5:7]}. Popraw numer albo datę.")
+        period = delivery_period(day)
+        no = format_delivery_no(seq, day)
+        if cx_query_one(
+                conn,
+                "SELECT 1 FROM receptions WHERE reception_period=%s AND reception_seq=%s",
+                (period, seq)):
+            raise HTTPException(409, f"Przyjęcie {no} już istnieje w tym miesiącu")
         cx_execute(
             conn,
             "INSERT INTO sequences (key, value) VALUES (%s, %s) "
