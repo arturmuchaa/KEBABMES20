@@ -1,0 +1,4 @@
+
+# Artefakty kompilacji Rust — powstają przy cargo check/test na serwerze
+# i potrafią mieć setki MB (GitHub odrzuca push).
+kebab_fixed/src-tauri/target/

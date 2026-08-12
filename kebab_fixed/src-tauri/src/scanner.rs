@@ -32,8 +32,12 @@ pub struct ScannerConfig {
     /// Nazwa profilu skanowania w NAPS2. Puste = profil domyślny.
     /// Profil ustawia się RAZ w NAPS2 (urządzenie, PDF, 300 dpi, szarość).
     pub profile: String,
-    /// 0 = wszystko z podajnika. HDI bywa jednostronicowy, ale przy dwóch
-    /// kartkach operator nie powinien skanować dwa razy.
+    /// Ile stron zeskanować. UWAGA: w NAPS2 `-n` to LICZBA STRON, a nie limit —
+    /// `-n 0` znaczy „zeskanuj zero stron", więc NAPS2 nic nie robi i nie
+    /// zapisuje pliku (objaw: „kręci chwilę i nic"). Domyślnie 1, bo działa
+    /// zarówno z szyby, jak i z podajnika. Przy wielostronicowym HDI z
+    /// podajnika podnieś tę liczbę — nadmiar nie szkodzi, NAPS2 przestaje
+    /// skanować, gdy podajnik się opróżni.
     pub pages: u32,
     /// Skan A4 z podajnika nie powinien trwać dłużej; dłużej = zacięcie
     /// albo urządzenie czeka na coś, czego operator nie widzi.
@@ -46,7 +50,7 @@ impl Default for ScannerConfig {
             enabled: true,
             naps2_path: String::new(),
             profile: String::new(),
-            pages: 0,
+            pages: 1,
             timeout_s: 120,
         }
     }
@@ -99,6 +103,16 @@ fn load_config(app: &tauri::AppHandle) -> ScannerConfig {
         }
     }
     ScannerConfig::default()
+}
+
+/// Liczba stron przekazywana NAPS2 — nigdy zero.
+///
+/// `-n 0` każe NAPS2 zeskanować zero stron: kończy pracę bez błędu i bez
+/// pliku. Stary `scanner.json` z zerem (albo moja pierwotna wartość domyślna)
+/// dawał dokładnie ten objaw, więc zero zamieniamy na jedną stronę zamiast
+/// wysyłać polecenie, które z założenia nic nie zrobi.
+pub fn effective_pages(pages: u32) -> u32 {
+    pages.max(1)
 }
 
 fn resolve_naps2(cfg: &ScannerConfig) -> Option<PathBuf> {
@@ -189,7 +203,7 @@ pub fn scan(app: &tauri::AppHandle) -> Result<String, String> {
 
     let mut cmd = Command::new(&exe);
     cmd.arg("-o").arg(&out)
-        .arg("-n").arg(cfg.pages.to_string())
+        .arg("-n").arg(effective_pages(cfg.pages).to_string())
         .arg("--force");
     if !cfg.profile.trim().is_empty() {
         cmd.arg("-p").arg(cfg.profile.trim());
@@ -230,7 +244,7 @@ pub fn diagnose(app: &tauri::AppHandle) -> String {
         "Włączony: {}  Profil NAPS2: {}  Stron: {}\n",
         cfg.enabled,
         if cfg.profile.trim().is_empty() { "(domyślny)" } else { cfg.profile.trim() },
-        if cfg.pages == 0 { "wszystkie z podajnika".to_string() } else { cfg.pages.to_string() },
+        effective_pages(cfg.pages),
     ));
 
     out.push_str("\nSzukanie NAPS2:\n");
@@ -245,7 +259,7 @@ pub fn diagnose(app: &tauri::AppHandle) -> String {
             out.push_str(&format!(
                 "\nPolecenie MES:\n\"{}\" -o <plik.pdf> -n {} --force{}\n",
                 p.display(),
-                cfg.pages,
+                effective_pages(cfg.pages),
                 if cfg.profile.trim().is_empty() {
                     String::new()
                 } else {
@@ -257,4 +271,23 @@ pub fn diagnose(app: &tauri::AppHandle) -> String {
                               wpisz ścieżkę w scanner.json (naps2Path)\n"),
     }
     out
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::effective_pages;
+
+    #[test]
+    fn zero_stron_nigdy_nie_trafia_do_naps2() {
+        // `-n 0` = „zeskanuj zero stron": NAPS2 kończy bez błędu i bez pliku,
+        // a operator widzi „kręci chwilę i nic". Tak było do 2.5.43.
+        assert_eq!(effective_pages(0), 1);
+    }
+
+    #[test]
+    fn wieksza_liczba_stron_przechodzi_bez_zmian() {
+        assert_eq!(effective_pages(1), 1);
+        assert_eq!(effective_pages(5), 5);
+    }
 }
