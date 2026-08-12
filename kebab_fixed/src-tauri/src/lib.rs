@@ -63,6 +63,13 @@ fn open_last_scan(app: tauri::AppHandle) -> Result<String, String> {
     scanner::open_last_scan(&app)
 }
 
+// Zapisuje dokument z MES na dysk i otwiera systemowo. Powód jak wyżej:
+// w oknie aplikacji pobranie pliku linkiem nie działa.
+#[tauri::command]
+fn open_document(app: tauri::AppHandle, name: String, data: String) -> Result<String, String> {
+    scanner::open_document(&app, &name, &data)
+}
+
 // Diagnostyka skanera: skąd wczytano config i czy widać NAPS2. Pierwsze
 // uruchomienie u klienta bez tego to zgadywanka — tak samo jak było z wagą.
 #[tauri::command]
@@ -96,7 +103,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![windows_logoff, scale_diagnose, scale_tare,
                                 apply_update_now, scan_document, scanner_diagnose,
-                                open_last_scan])
+                                open_last_scan, open_document])
         .on_window_event(|_window, _event| {
             // Kiosk: operator nie może zamknąć okna (Alt+F4 / żądania zamknięcia ignorowane).
             #[cfg(feature = "kiosk")]

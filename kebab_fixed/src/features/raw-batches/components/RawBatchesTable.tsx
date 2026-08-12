@@ -21,6 +21,7 @@ import {
   type DeliverySortCol, type SortDir, type HistoryPeriod, type MeatStockMap,
 } from '../deliveryView'
 import { receptionsApi } from '@/lib/apiClient'
+import { openDocument } from '@/lib/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -253,15 +254,21 @@ export function RawBatchesTable({
                     {/* Skan HDI dostawcy przypięty do przyjęcia — przy kontroli
                         trzeba pokazać, na podstawie czego przyjęto surowiec.
                         Bez skanu zostaje sam numer, bez mylącego linku. */}
+                    {/* Skan otwieramy KODEM, nie linkiem: dokumentów pilnuje
+                        RBAC, a `<a href>` nie niesie sesji (401), i dodatkowo
+                        w aplikacji desktopowej pobieranie plikiem nie działa. */}
                     {b.receptionNo && b.receptionHasScan && b.receptionId ? (
-                      <a
-                        href={receptionsApi.hdiScanUrl(b.receptionId)}
-                        target="_blank" rel="noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => void openDocument(
+                          receptionsApi.hdiScanUrl(b.receptionId!),
+                          `HDI ${b.receptionNo!.replace(/\//g, '-')}.pdf`,
+                        ).catch(e => alert(e?.message || 'Nie udało się otworzyć skanu HDI'))}
                         title="Pokaż skan HDI dostawcy"
                         className="font-mono text-xs whitespace-nowrap underline
                                    decoration-dotted text-primary hover:text-primary/80">
                         {b.receptionNo}
-                      </a>
+                      </button>
                     ) : (
                       <code className="font-mono text-xs text-muted-foreground whitespace-nowrap">
                         {b.receptionNo || '—'}

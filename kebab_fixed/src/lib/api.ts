@@ -110,6 +110,12 @@ const del   = <T>(p: string)             => req<T>('DELETE', p)
  * window.open idzie bez nagłówka Authorization i dostaje 401 (prod
  * 2026-07-16: przycisk PDF przy CMR). Nazwa pliku z Content-Disposition. */
 export async function downloadDocPdf(url: string, fallbackName = 'dokument.pdf'): Promise<void> {
+  const { blob, name } = await fetchDoc(url, fallbackName)
+  saveBlob(blob, name)
+}
+
+/** Pobranie dokumentu z sesją — wspólne dla przeglądarki i desktopu. */
+async function fetchDoc(url: string, fallbackName: string): Promise<{ blob: Blob; name: string }> {
   const token = tokenStore.get()
   const res = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -121,8 +127,10 @@ export async function downloadDocPdf(url: string, fallbackName = 'dokument.pdf')
   }
   const cd = res.headers.get('content-disposition') || ''
   const m = /filename\*=UTF-8''([^;]+)/i.exec(cd) || /filename="?([^";]+)"?/i.exec(cd)
-  const name = m ? decodeURIComponent(m[1]) : fallbackName
-  const blob = await res.blob()
+  return { blob: await res.blob(), name: m ? decodeURIComponent(m[1]) : fallbackName }
+}
+
+function saveBlob(blob: Blob, name: string): void {
   const obj = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = obj
@@ -131,6 +139,39 @@ export async function downloadDocPdf(url: string, fallbackName = 'dokument.pdf')
   a.click()
   a.remove()
   URL.revokeObjectURL(obj)
+}
+
+/**
+ * openDocument — pokazuje dokument NIEZALEŻNIE od tego, gdzie działa MES.
+ *
+ * W przeglądarce zwykłe pobranie. W aplikacji desktopowej pobieranie plikiem
+ * ani blobem NIE DZIAŁA (okno Tauri to nie przeglądarka), więc dokument
+ * oddajemy warstwie natywnej: zapisuje go na dysk i otwiera w domyślnym
+ * czytniku PDF — tą samą drogą, co `open_last_scan`.
+ *
+ * Zwykły `<a href>` odpada w OBU miejscach: dokumentów pilnuje RBAC, a link
+ * nie niesie nagłówka z sesją i wraca 401 (tak samo było przy CMR, patrz
+ * `downloadDocPdf`).
+ */
+export async function openDocument(url: string, fallbackName = 'dokument.pdf'): Promise<void> {
+  const { blob, name } = await fetchDoc(url, fallbackName)
+  const { isDesktopApp } = await import('./desktopScanner')
+  if (!isDesktopApp()) {
+    saveBlob(blob, name)
+    return
+  }
+  const { invoke } = await import('@tauri-apps/api/core')
+  await invoke('open_document', { name, data: await blobToBase64(blob) })
+}
+
+/** Blob → base64 (bez prefiksu `data:`) — tym formatem rozmawiamy z Rustem. */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onerror = () => reject(new Error('Nie udało się odczytać pobranego dokumentu'))
+    r.onload = () => resolve(String(r.result).split(',')[1] ?? '')
+    r.readAsDataURL(blob)
+  })
 }
 
 // ─── camelCase → snake_case dla wszystkich DTO wysyłanych do backendu ─────────

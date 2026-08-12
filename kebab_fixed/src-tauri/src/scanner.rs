@@ -248,6 +248,46 @@ pub fn open_last_scan(app: &tauri::AppHandle) -> Result<String, String> {
     Ok(p.to_string_lossy().to_string())
 }
 
+/// Zapisuje dokument przysłany przez MES i otwiera go systemowo.
+///
+/// Powód ten sam, co przy `open_last_scan`: w oknie aplikacji desktopowej
+/// pobranie pliku linkiem ani blobem NIE DZIAŁA — to nie przeglądarka.
+/// Dokument (skan HDI do okazania przy kontroli, WZ, CMR) musi więc trafić
+/// na dysk przez warstwę natywną i otworzyć się w domyślnym czytniku.
+pub fn open_document(app: &tauri::AppHandle, name: &str, b64: &str) -> Result<String, String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| format!("Uszkodzone dane dokumentu: {e}"))?;
+    if bytes.is_empty() {
+        return Err("Pusty dokument — nie ma czego otworzyć.".into());
+    }
+    let dir = std::env::temp_dir().join("Kebab MES").join("dokumenty");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Nie udało się utworzyć {}: {e}", dir.display()))?;
+    let plik = dir.join(safe_file_name(name));
+    std::fs::write(&plik, &bytes).map_err(|e| format!("Nie udało się zapisać dokumentu: {e}"))?;
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(plik.to_string_lossy(), None::<&str>)
+        .map_err(|e| format!("Nie udało się otworzyć dokumentu: {e}"))?;
+    Ok(plik.to_string_lossy().to_string())
+}
+
+/// Nazwa pliku z serwera NIGDY nie trafia na dysk wprost.
+///
+/// Zostają tylko znaki bezpieczne; ukośniki i kropki wiodące znikają, żeby
+/// `../../` nie wyprowadziło zapisu poza katalog tymczasowy. Polskie litery
+/// zostają — `is_alphanumeric()` je przepuszcza, a nazwa ma być czytelna
+/// („HDI 12-08-2026.pdf").
+fn safe_file_name(raw: &str) -> String {
+    let czyste: String = raw
+        .chars()
+        .map(|c| if c.is_alphanumeric() || " .-_()".contains(c) { c } else { '_' })
+        .collect();
+    let czyste = czyste.trim_matches(|c| c == '.' || c == ' ').to_string();
+    if czyste.is_empty() { "dokument.pdf".into() } else { czyste }
+}
+
 /// Diagnostyka skanera dla serwisu: skąd wczytano config, gdzie szukamy NAPS2
 /// i czy w ogóle go widać. Bez tego pierwsze uruchomienie u klienta to
 /// zgadywanka — dokładnie tak samo jak było z wagą.
@@ -304,7 +344,7 @@ pub fn diagnose(app: &tauri::AppHandle) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::effective_pages;
+    use super::{effective_pages, safe_file_name};
 
     #[test]
     fn zero_stron_nigdy_nie_trafia_do_naps2() {
@@ -317,5 +357,27 @@ mod tests {
     fn wieksza_liczba_stron_przechodzi_bez_zmian() {
         assert_eq!(effective_pages(1), 1);
         assert_eq!(effective_pages(5), 5);
+    }
+
+    #[test]
+    fn nazwa_pliku_nie_wyprowadza_poza_katalog() {
+        // Nazwa idzie z nagłówka odpowiedzi serwera — traktujemy ją jak dane
+        // z zewnątrz, tak samo jak `is_safe_id()` po stronie backendu.
+        // Liczy się JEDEN niezmiennik: w wyniku nie ma separatora ścieżki,
+        // więc zapis nie wyjdzie poza katalog. Kropki same w sobie są
+        // nieszkodliwe — bez ukośnika „.." to zwykły znak w nazwie.
+        for zle in ["../../etc/passwd", "a/b\\c.pdf", "..\\..\\okno.pdf"] {
+            let n = safe_file_name(zle);
+            assert!(!n.contains('/') && !n.contains('\\'), "separator w {n}");
+            assert!(!n.is_empty());
+        }
+        assert_eq!(safe_file_name("..."), "dokument.pdf");
+        assert_eq!(safe_file_name(""), "dokument.pdf");
+    }
+
+    #[test]
+    fn polskie_znaki_i_spacje_w_nazwie_zostaja() {
+        assert_eq!(safe_file_name("HDI 12-08-2026.pdf"), "HDI 12-08-2026.pdf");
+        assert_eq!(safe_file_name("Zażółć gęślą.pdf"), "Zażółć gęślą.pdf");
     }
 }
