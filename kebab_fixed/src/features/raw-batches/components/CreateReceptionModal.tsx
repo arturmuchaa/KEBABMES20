@@ -109,6 +109,10 @@ export function CreateReceptionModal({
   const [scanNote, setScanNote] = useState<{ ok: boolean; text: string } | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [diag, setDiag] = useState<string | null>(null)
+  /** Ostatnio wczytany skan — do pobrania, gdy odczyt wyszedł niepełny.
+   *  Bez tego nie da się zobaczyć, CO dostał MES: skan ze skanera bywa
+   *  gorszy niż ten sam dokument zapisany ręcznie, a plik nigdzie nie zostaje. */
+  const [ostatniSkan, setOstatniSkan] = useState<File | null>(null)
   /** Ręczne liczby pojemników per numer porządkowy (klucz = indeks grupy). */
   const [containerOverride, setContainerOverride] = useState<Record<number, number | null>>({})
 
@@ -175,6 +179,7 @@ export function CreateReceptionModal({
   const loadHdi = async (file: File) => {
     setScanning(true)
     setScanNote(null)
+    setOstatniSkan(file)
     try {
       const scan = await receptionsApi.scanHdi(file)
       if (scan.lines.length === 0) {
@@ -434,6 +439,22 @@ export function CreateReceptionModal({
                       {scanNote.text}
                     </CardDescription>
                   </div>
+                  {ostatniSkan && (
+                    <button
+                      className={`mt-2 text-[11px] font-semibold underline ${scanNote.ok ? "text-green-900" : "text-amber-900"}`}
+                      onClick={() => {
+                        // Pobranie tego SAMEGO pliku, który poszedł do odczytu —
+                        // można go obejrzeć albo przesłać do sprawdzenia.
+                        const url = URL.createObjectURL(ostatniSkan)
+                        const a = document.createElement('a')
+                        a.href = url
+                        a.download = ostatniSkan.name || 'skan-hdi.pdf'
+                        a.click()
+                        URL.revokeObjectURL(url)
+                      }}>
+                      Pobierz skan, który MES odczytywał
+                    </button>
+                  )}
                   {diag && (
                     <details className="mt-2">
                       <summary className="text-[11px] font-semibold cursor-pointer text-amber-900">
