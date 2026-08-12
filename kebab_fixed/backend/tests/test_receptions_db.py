@@ -308,3 +308,55 @@ def test_anulowana_rejestracja_nie_podbija_wagi_dokumentu(db):
     # Sam rekord zostaje w dokumencie — kasowanie danych jest zabronione,
     # z kart wycina go dopiero warstwa wydruku.
     assert len(doc["batches"]) == 2
+
+
+def _scans_in(monkeypatch, katalog):
+    """Kieruje magazyn skanów na katalog testu.
+
+    `settings` jest zamrożone (frozen dataclass), więc podmieniamy całą
+    referencję w module magazynu — to on jako jedyny czyta `hdi_scans_dir`.
+    """
+    from dataclasses import replace
+
+    from app.config import settings
+    from app.services import hdi_scan_store as store
+
+    monkeypatch.setattr(store, "settings", replace(settings, hdi_scans_dir=katalog))
+
+
+def test_skan_hdi_staje_sie_zalacznikiem_przyjecia(db, tmp_path, monkeypatch):
+    """Skan wjeżdża do poczekalni, a ZAPIS przyjęcia czyni go załącznikiem.
+
+    Ta ścieżka do 2026-08-12 nie wykonała się na produkcji ani razu (46
+    przyjęć, zero załączników) — a to od niej zależy, czy przy kontroli
+    da się pokazać, NA PODSTAWIE CZEGO przyjęto surowiec.
+    """
+    from app.services import hdi_scan_store as store
+
+    _scans_in(monkeypatch, tmp_path)
+    _seed_supplier()
+
+    scan_id = store.save_temp(b"%PDF-1.4 udawany skan", ".pdf")
+    assert store.find_temp(scan_id) is not None
+
+    out = create_reception(_dto(hdiScanId=scan_id))
+    rid = out["reception"]["id"]
+
+    # Nazwa w bazie + plik pod nią rzeczywiście do pobrania.
+    nazwa = query_one("SELECT hdi_scan FROM receptions WHERE id=%s", (rid,))["hdi_scan"]
+    assert nazwa == f"{rid}.pdf"
+    plik = store.find_attached(nazwa)
+    assert plik is not None and plik.read_bytes().startswith(b"%PDF")
+
+    # Z poczekalni znika — załącznik ma jedno miejsce, nie dwa.
+    assert store.find_temp(scan_id) is None
+
+
+def test_przyjecie_bez_skanu_nie_udaje_zalacznika(db, tmp_path, monkeypatch):
+    """Brak skanu ma zostawić puste pole, a nie nazwę pliku, którego nie ma —
+    inaczej w tabeli pojawiłby się link prowadzący donikąd."""
+    _scans_in(monkeypatch, tmp_path)
+    _seed_supplier()
+    out = create_reception(_dto())
+    rec = query_one("SELECT hdi_scan FROM receptions WHERE id=%s", (out["reception"]["id"],))
+    assert (rec["hdi_scan"] or "") == ""
