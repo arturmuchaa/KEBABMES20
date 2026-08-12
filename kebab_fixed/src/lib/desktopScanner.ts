@@ -17,6 +17,26 @@ export function isDesktopApp(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
 
+/**
+ * errorText — powód odrzucenia z warstwy natywnej.
+ *
+ * Tauri odrzuca obietnicę TYM, co zwrócił Rust — dla `Result<_, String>` jest
+ * to goły tekst, a NIE obiekt `Error`. Sprawdzanie `e instanceof Error`
+ * kasowało więc cały komunikat mostu („nie znaleziono NAPS2", „NAPS2
+ * zakończył się błędem: …") i operator widział tylko bezużyteczne
+ * „nie udało się zeskanować".
+ */
+export function errorText(e: unknown): string {
+  if (typeof e === 'string' && e.trim()) return e
+  if (e instanceof Error && e.message) return e.message
+  if (e && typeof e === 'object') {
+    const m = (e as { message?: unknown }).message
+    if (typeof m === 'string' && m.trim()) return m
+    try { return JSON.stringify(e) } catch { /* poniżej */ }
+  }
+  return 'Nie udało się zeskanować'
+}
+
 /** base64 → File, żeby skan wszedł tą samą drogą co plik wskazany ręcznie. */
 function base64ToFile(b64: string, name: string): File {
   const bin = atob(b64)
@@ -35,7 +55,14 @@ function base64ToFile(b64: string, name: string): File {
 export async function scanDocument(): Promise<File> {
   if (!isDesktopApp()) throw new Error('Skanowanie działa tylko w aplikacji desktopowej MES')
   const { invoke } = await import('@tauri-apps/api/core')
-  const b64 = await invoke<string>('scan_document')
+  let b64: string
+  try {
+    b64 = await invoke<string>('scan_document')
+  } catch (e) {
+    // Normalizujemy TU, na granicy z warstwą natywną — wołający dostaje
+    // zwykły Error z prawdziwym powodem i nie musi znać kaprysów Tauri.
+    throw new Error(errorText(e))
+  }
   if (!b64) throw new Error('Skaner nie zwrócił dokumentu')
   return base64ToFile(b64, 'skan-hdi.pdf')
 }
@@ -44,5 +71,9 @@ export async function scanDocument(): Promise<File> {
 export async function scannerDiagnose(): Promise<string> {
   if (!isDesktopApp()) return 'Skanowanie dostępne tylko w aplikacji desktopowej MES.'
   const { invoke } = await import('@tauri-apps/api/core')
-  return invoke<string>('scanner_diagnose')
+  try {
+    return await invoke<string>('scanner_diagnose')
+  } catch (e) {
+    return `Diagnostyka niedostępna: ${errorText(e)}`
+  }
 }

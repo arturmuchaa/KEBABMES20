@@ -22,7 +22,7 @@ import {
   type HdiLine, type ReceptionGroup,
 } from '../receptionSplit'
 import { receptionsApi } from '@/lib/apiClient'
-import { isDesktopApp, scanDocument } from '@/lib/desktopScanner'
+import { errorText, isDesktopApp, scanDocument, scannerDiagnose } from '@/lib/desktopScanner'
 import type { ReceptionHeader } from '../types'
 
 import {
@@ -108,6 +108,7 @@ export function CreateReceptionModal({
   const [scanning, setScanning] = useState(false)
   const [scanNote, setScanNote] = useState<{ ok: boolean; text: string } | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [diag, setDiag] = useState<string | null>(null)
   /** Ręczne liczby pojemników per numer porządkowy (klucz = indeks grupy). */
   const [containerOverride, setContainerOverride] = useState<Record<number, number | null>>({})
 
@@ -246,11 +247,16 @@ export function CreateReceptionModal({
   const scanFromDevice = async () => {
     setScanning(true)
     setScanNote(null)
+    setDiag(null)
     try {
       const file = await scanDocument()
       await loadHdi(file)
     } catch (e) {
-      setScanNote({ ok: false, text: e instanceof Error ? e.message : 'Nie udało się zeskanować' })
+      setScanNote({ ok: false, text: errorText(e) })
+      // Raport diagnostyczny dokładamy OD RAZU przy błędzie, zamiast chować go
+      // pod osobnym przyciskiem: gdy skanowanie nie działa, to właśnie te dane
+      // rozstrzygają przyczynę, a operator nie ma wiedzieć, że ma o nie prosić.
+      try { setDiag(await scannerDiagnose()) } catch { /* diagnostyka to dodatek */ }
       setScanning(false)
     }
   }
@@ -421,11 +427,22 @@ export function CreateReceptionModal({
 
             {scanNote && (
               <Card className={`mb-3 ${scanNote.ok ? 'border-green-200 bg-green-50' : 'border-amber-300 bg-amber-50'}`}>
-                <CardContent className="px-3 py-2 flex items-start gap-2">
-                  <ScanLine size={13} className={`flex-shrink-0 mt-0.5 ${scanNote.ok ? 'text-green-700' : 'text-amber-700'}`} />
-                  <CardDescription className={scanNote.ok ? 'text-green-800' : 'text-amber-800'}>
-                    {scanNote.text}
-                  </CardDescription>
+                <CardContent className="px-3 py-2">
+                  <div className="flex items-start gap-2">
+                    <ScanLine size={13} className={`flex-shrink-0 mt-0.5 ${scanNote.ok ? 'text-green-700' : 'text-amber-700'}`} />
+                    <CardDescription className={scanNote.ok ? 'text-green-800' : 'text-amber-800'}>
+                      {scanNote.text}
+                    </CardDescription>
+                  </div>
+                  {diag && (
+                    <details className="mt-2">
+                      <summary className="text-[11px] font-semibold cursor-pointer text-amber-900">
+                        Szczegóły techniczne (pokaż i prześlij, jeśli prosimy o pomoc)
+                      </summary>
+                      <pre className="mt-1 text-[10px] leading-tight whitespace-pre-wrap
+                                      bg-white/70 border rounded p-2 max-h-52 overflow-auto">{diag}</pre>
+                    </details>
+                  )}
                 </CardContent>
               </Card>
             )}

@@ -19,7 +19,7 @@
 use base64::Engine;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use tauri::Manager;
 
@@ -114,17 +114,46 @@ fn resolve_naps2(cfg: &ScannerConfig) -> Option<PathBuf> {
 /// `Command::status()` nie ma limitu czasu, a zawieszony skaner zostawiłby
 /// operatora przed formularzem, który „myśli" bez końca.
 fn run_with_timeout(mut cmd: Command, timeout: Duration) -> Result<(), String> {
-    let mut child = cmd.spawn().map_err(|e| format!("Nie udało się uruchomić NAPS2: {e}"))?;
+    // Wyjście NAPS2 przechwytujemy: to ONO mówi, czemu odmówił (nie ma profilu,
+    // nie wybrano urządzenia, sterownik chce pokazać okno). Bez tego zostawał
+    // sam kod wyjścia i zgadywanie.
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Nie udało się uruchomić NAPS2: {e}"))?;
     let start = Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(status)) if status.success() => return Ok(()),
             Ok(Some(status)) => {
+                let mut szczegoly = String::new();
+                if let Some(out) = child.stdout.take() {
+                    use std::io::Read;
+                    let mut b = String::new();
+                    let _ = std::io::BufReader::new(out).read_to_string(&mut b);
+                    szczegoly.push_str(b.trim());
+                }
+                if let Some(err) = child.stderr.take() {
+                    use std::io::Read;
+                    let mut b = String::new();
+                    let _ = std::io::BufReader::new(err).read_to_string(&mut b);
+                    if !b.trim().is_empty() {
+                        szczegoly.push('\n');
+                        szczegoly.push_str(b.trim());
+                    }
+                }
+                let szczegoly = szczegoly.trim();
                 return Err(format!(
-                    "NAPS2 zakończył się błędem (kod {}). Sprawdź w NAPS2, czy profil \
-                     skanowania działa — ten sam profil używa MES.",
-                    status.code().unwrap_or(-1)
-                ))
+                    "NAPS2 zakończył się błędem (kod {}){}",
+                    status.code().unwrap_or(-1),
+                    if szczegoly.is_empty() {
+                        ". Sprawdź w NAPS2, czy profil skanowania działa — ten sam profil używa MES."
+                            .to_string()
+                    } else {
+                        format!(":\n{szczegoly}")
+                    }
+                ));
             }
             Ok(None) => {
                 if start.elapsed() > timeout {
@@ -209,7 +238,21 @@ pub fn diagnose(app: &tauri::AppHandle) -> String {
         out.push_str(&format!("{} {}\n", if p.exists() { "[jest]" } else { "[brak]" }, p.display()));
     }
     match resolve_naps2(&cfg) {
-        Some(p) => out.push_str(&format!("\nUżyty NAPS2: {}\n", p.display())),
+        Some(p) => {
+            out.push_str(&format!("\nUżyty NAPS2: {}\n", p.display()));
+            // Dokładne polecenie — serwisant może je wkleić w wiersz poleceń
+            // i zobaczyć zachowanie NAPS2 bez pośrednictwa MES.
+            out.push_str(&format!(
+                "\nPolecenie MES:\n\"{}\" -o <plik.pdf> -n {} --force{}\n",
+                p.display(),
+                cfg.pages,
+                if cfg.profile.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!(" -p \"{}\"", cfg.profile.trim())
+                }
+            ));
+        }
         None => out.push_str("\nUżyty NAPS2: NIE ZNALEZIONO — zainstaluj NAPS2 albo \
                               wpisz ścieżkę w scanner.json (naps2Path)\n"),
     }
