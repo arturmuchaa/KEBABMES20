@@ -196,9 +196,10 @@ pub fn scan(app: &tauri::AppHandle) -> Result<String, String> {
             .to_string()
     })?;
 
-    let dir = std::env::temp_dir().join(format!("kebab-scan-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Brak miejsca na skan: {e}"))?;
-    let out = dir.join("hdi.pdf");
+    let out = last_scan_path();
+    if let Some(dir) = out.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("Brak miejsca na skan: {e}"))?;
+    }
     let _ = std::fs::remove_file(&out);
 
     let mut cmd = Command::new(&exe);
@@ -215,11 +216,36 @@ pub fn scan(app: &tauri::AppHandle) -> Result<String, String> {
          urządzenia albo podajnik był pusty."
             .to_string()
     })?;
-    let _ = std::fs::remove_file(&out);
     if bytes.is_empty() {
         return Err("Skan jest pusty — sprawdź, czy dokument leżał na szybie.".into());
     }
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// Stałe miejsce ostatniego skanu.
+///
+/// Plik NIE jest kasowany po odczycie: gdy rozpoznanie wyjdzie niepełne,
+/// trzeba móc zobaczyć, CO dostał MES. Skan ze skanera bywa gorszy niż ten
+/// sam dokument zapisany ręcznie, a bez pliku zostaje zgadywanie.
+/// Jedna, nadpisywana ścieżka — nie zbieramy dokumentów na dysku klienta.
+pub fn last_scan_path() -> PathBuf {
+    std::env::temp_dir().join("Kebab MES").join("ostatni-skan-hdi.pdf")
+}
+
+/// Otwiera ostatni skan w domyślnej przeglądarce PDF.
+///
+/// W oknie aplikacji desktopowej pobieranie pliku przez `<a download>` nie
+/// działa (to nie przeglądarka), więc plik pokazujemy systemowo.
+pub fn open_last_scan(app: &tauri::AppHandle) -> Result<String, String> {
+    let p = last_scan_path();
+    if !p.exists() {
+        return Err("Nie ma jeszcze żadnego skanu — zeskanuj najpierw dokument.".into());
+    }
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(p.to_string_lossy(), None::<&str>)
+        .map_err(|e| format!("Nie udało się otworzyć skanu: {e}"))?;
+    Ok(p.to_string_lossy().to_string())
 }
 
 /// Diagnostyka skanera dla serwisu: skąd wczytano config, gdzie szukamy NAPS2
@@ -247,6 +273,8 @@ pub fn diagnose(app: &tauri::AppHandle) -> String {
         effective_pages(cfg.pages),
     ));
 
+    out.push_str(&format!("\nOstatni skan: {}{}\n", last_scan_path().display(),
+                          if last_scan_path().exists() { "" } else { "  (jeszcze nie ma)" }));
     out.push_str("\nSzukanie NAPS2:\n");
     for p in naps2_candidates() {
         out.push_str(&format!("{} {}\n", if p.exists() { "[jest]" } else { "[brak]" }, p.display()));

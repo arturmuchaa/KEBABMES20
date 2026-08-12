@@ -22,6 +22,7 @@ from app.db import (cx_execute, cx_execute_returning, cx_query_all, cx_query_one
 from app.logging_config import get_logger
 from app.models.raw_batches import RawBatchCreate
 from app.models.receptions import ReceptionCreate, ReceptionGroupIn
+from app.services.hdi_scan_store import attach as attach_hdi_scan
 from app.services.raw_batches_service import create_batch_cx
 from app.utils.batch_numbers import delivery_period, format_delivery_no, parse_delivery_no
 from app.utils.ids import cuid, now_iso
@@ -239,6 +240,16 @@ def create_reception(dto: ReceptionCreate) -> Dict[str, Any]:
                      b.expiry_date or None, seq),
                 )
                 seq += 1
+
+    # Skan HDI staje się załącznikiem DOPIERO teraz: dopóki operator nie
+    # zapisał przyjęcia, mógł zrezygnować, a porzucone próby nie mają po co
+    # trafiać do archiwum dokumentów.
+    if dto.hdi_scan_id:
+        nazwa = attach_hdi_scan(dto.hdi_scan_id, reception["id"])
+        if nazwa:
+            from app.db import execute as _execute
+            _execute("UPDATE receptions SET hdi_scan=%s WHERE id=%s", (nazwa, reception["id"]))
+            reception["hdi_scan"] = nazwa
 
     logger.info("reception.created", extra={
         "reception_no": reception["reception_no"],

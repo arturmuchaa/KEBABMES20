@@ -117,7 +117,8 @@ def list_batches(active_only: bool, limit: int) -> Dict[str, Any]:
     # Numer przyjęcia dołączony do listy: bez niego ekran dostaw nie pokazuje,
     # że 470 i 471 przyjechały jednym autem pod jednym dokumentem.
     sql = (
-        "SELECT b.*, s.display_name AS supplier_display_name, r.reception_no "
+        "SELECT b.*, s.display_name AS supplier_display_name, r.reception_no, "
+        "NULLIF(r.hdi_scan, '') IS NOT NULL AS reception_has_scan "
         "FROM raw_batches b LEFT JOIN suppliers s ON s.id = b.supplier_id "
         "LEFT JOIN receptions r ON r.id = b.reception_id"
     )

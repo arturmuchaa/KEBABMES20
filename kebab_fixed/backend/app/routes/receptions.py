@@ -3,11 +3,15 @@
 Partie (numery porządkowe) tworzy i edytuje `/api/raw-batches`; tutaj żyje
 dokument, który je spina, i partie DOSTAWCY pod każdym numerem porządkowym.
 """
-from fastapi import APIRouter, File, Query, UploadFile
+from pathlib import Path
+
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 
 from app.models.receptions import ReceptionCreate
 from app.services import receptions_service as svc
 from app.services.hdi_ocr_service import scan_hdi
+from app.services.hdi_scan_store import find_attached, save_temp
 
 router = APIRouter(prefix="/api/receptions", tags=["receptions"])
 
@@ -23,11 +27,17 @@ def next_number(when: str = Query("", alias="date")):
 async def hdi_scan(file: UploadFile = File(...)):
     """Skan HDI dostawcy → pozycje do formularza.
 
-    Nic nie zapisuje: zwraca odczyt do podstawienia w formularzu, bo podział
-    na numery porządkowe i tak jest decyzją operatora, a odczyt trzeba mu
-    najpierw pokazać do sprawdzenia.
+    Nie zapisuje NICZEGO w bazie: podział na numery porządkowe jest decyzją
+    operatora, a odczyt trzeba mu najpierw pokazać do sprawdzenia. Sam plik
+    ląduje w poczekalni i staje się załącznikiem dopiero przy zapisie.
     """
-    return scan_hdi(await file.read(), file.filename or "")
+    data = await file.read()
+    out = scan_hdi(data, file.filename or "")
+    # Skan zostaje jako TYMCZASOWY; trwałym załącznikiem przyjęcia staje się
+    # dopiero przy zapisie. Dzięki temu porzucone próby nie zaśmiecają
+    # archiwum, a przyjęty surowiec ma komplet dokumentów do kontroli.
+    out["scan_id"] = save_temp(data, Path(file.filename or "").suffix)
+    return out
 
 
 @router.get("")
@@ -43,6 +53,18 @@ def list_receptions(
 def create_reception(dto: ReceptionCreate):
     """Cała dostawa naraz: dokument + wszystkie numery porządkowe."""
     return svc.create_reception(dto)
+
+
+@router.get("/{reception_id}/hdi-skan")
+def hdi_scan_download(reception_id: str):
+    """Skan HDI przypięty do przyjęcia — dokument do okazania przy kontroli."""
+    rec = svc.get_reception(reception_id)
+    plik = find_attached(rec.get("hdi_scan") or "")
+    if not plik:
+        raise HTTPException(404, "To przyjęcie nie ma wgranego skanu HDI")
+    return FileResponse(
+        plik, media_type="application/pdf",
+        filename=f"HDI {rec['reception_no'].replace('/', '-')}{plik.suffix}")
 
 
 @router.get("/{reception_id}")

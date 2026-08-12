@@ -47,6 +47,18 @@ def _resolve_desktop_updates_dir() -> Path:
     return ROOT_DIR.parent / "desktop-updates"
 
 
+def _resolve_hdi_scans_dir() -> Path:
+    """Skany HDI dostawców przypięte do przyjęć.
+
+    To dokument dostawy: przy kontroli trzeba pokazać, na podstawie czego
+    przyjęto surowiec. Trzymamy je obok reszty danych aplikacji, poza repo.
+    """
+    prod_dir = Path("/opt/kebab/app/hdi-scans")
+    if prod_dir.parent.is_dir():
+        return prod_dir
+    return ROOT_DIR.parent / "hdi-scans"
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str = os.environ.get(
@@ -66,6 +78,7 @@ class Settings:
 
     dist_dir: Path = field(default_factory=_resolve_dist_dir)
     desktop_updates_dir: Path = field(default_factory=_resolve_desktop_updates_dir)
+    hdi_scans_dir: Path = field(default_factory=_resolve_hdi_scans_dir)
     app_version: str = "3.0.0"
 
     vies_api_id: str = os.environ.get("VIES_API_ID", "")

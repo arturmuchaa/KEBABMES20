@@ -57,6 +57,8 @@ class ReceptionCreate(BaseModel):
     material_type_id: str = Field("", alias="materialTypeId")
     document_no: str = Field("", alias="documentNo")
     hdi_no: str = Field("", alias="hdiNo")
+    #: Identyfikator wczytanego skanu — zapis przyjęcia czyni go załącznikiem.
+    hdi_scan_id: str = Field("", alias="hdiScanId")
     # Sumy ze stopki HDI — kontrola przepisania dokumentu, nie źródło stanu.
     doc_kg: Optional[float] = Field(None, alias="docKg", ge=0)
     doc_containers: Optional[int] = Field(None, alias="docContainers", ge=0)

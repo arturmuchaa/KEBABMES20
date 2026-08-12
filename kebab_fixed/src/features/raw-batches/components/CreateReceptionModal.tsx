@@ -203,6 +203,9 @@ export function CreateReceptionModal({
       if (scan.totalKg)     onHeaderChange('docKg', scan.totalKg)
       if (scan.containers)  onHeaderChange('docContainers', scan.containers)
       if (scan.pallets)     onHeaderChange('palletsH1', scan.pallets)
+      // Skan zostanie przypięty do przyjęcia przy zapisie — dokument
+      // dostawy trzeba móc okazać przy kontroli.
+      onHeaderChange('hdiScanId', scan.scanId)
       // Dostawca podstawia się tylko wtedy, gdy rozpoznanie było jednoznaczne;
       // przy dwóch pasujących backend świadomie nie wybiera żadnego.
       if (scan.supplier)    onHeaderChange('supplierId', scan.supplier.id)

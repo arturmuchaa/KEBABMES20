@@ -12,6 +12,7 @@ const rec = (over: Partial<Reception> = {}): Reception => ({
   supplierName: 'KOKO SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ',
   documentNo: 'WZ 27/MDU/08/2026',
   hdiNo: '33656',
+  hdiScan: '',
   notes: '',
   kgTotal: 9000,
   batches: [

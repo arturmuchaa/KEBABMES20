@@ -51,6 +51,8 @@ export interface RawBatch {
   // kilka numerów porządkowych, które są właśnie tymi partiami.
   readonly receptionId?: string
   readonly receptionNo?: string
+  /** Czy do przyjęcia przypięto skan HDI (dokument do kontroli). */
+  readonly receptionHasScan?: boolean
 
   // Status — opcjonalny cache backendu + 'cancelled' który nie da się derive'ować
   readonly status?: RawBatchStatus
@@ -129,6 +131,8 @@ export interface CreateReceptionDto {
   documentNo?:      string
   /** Własny numer HDI dostawcy („33656"), niezależny od numeru WZ. */
   hdiNo?:           string
+  /** Wczytany skan HDI — przy zapisie zostaje załącznikiem przyjęcia. */
+  hdiScanId?:       string
   /** Sumy ze stopki HDI — służą tylko kontroli przepisania dokumentu. */
   docKg?:           number | null
   docContainers?:   number | null
@@ -146,6 +150,7 @@ export interface ReceptionHeader {
   materialTypeId:   string
   documentNo:       string
   hdiNo:            string
+  hdiScanId:        string
   docKg:            number
   docContainers:    number
   pricePerKg:       number
@@ -171,6 +176,8 @@ export interface Reception {
   readonly supplierName: string
   readonly documentNo:   string
   readonly hdiNo:        string
+  /** Nazwa pliku skanu HDI; puste = przyjęcie bez załącznika. */
+  readonly hdiScan:      string
   readonly notes:        string
   readonly kgTotal:      number
   readonly batches:      ReceptionBatch[]

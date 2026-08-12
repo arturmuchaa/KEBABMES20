@@ -1028,6 +1028,9 @@ _DDL: list[str] = [
     # z pozycji, nie stąd.
     "ALTER TABLE receptions ADD COLUMN IF NOT EXISTS doc_kg NUMERIC(12,3)",
     "ALTER TABLE receptions ADD COLUMN IF NOT EXISTS doc_containers INTEGER",
+    # Skan HDI dostawcy przypięty do przyjęcia — dokument do okazania przy
+    # kontroli („na podstawie czego przyjęliście ten surowiec").
+    "ALTER TABLE receptions ADD COLUMN IF NOT EXISTS hdi_scan TEXT DEFAULT ''",
     "CREATE INDEX IF NOT EXISTS idx_receptions_date ON receptions(received_date)",
     "CREATE INDEX IF NOT EXISTS idx_receptions_supplier ON receptions(supplier_id)",
     "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS reception_id TEXT",

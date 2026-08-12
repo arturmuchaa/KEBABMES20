@@ -217,7 +217,7 @@ export function checkEditLock(batch: RawBatch): EditLockResult {
 function emptyHeader(): ReceptionHeader {
   return {
     receptionNo: '', receivedDate: todayIso(), supplierId: '',
-    materialTypeId: 'mat-cwiartka', documentNo: '', hdiNo: '',
+    materialTypeId: 'mat-cwiartka', documentNo: '', hdiNo: '', hdiScanId: '',
     docKg: 0, docContainers: 0, pricePerKg: 0,
     // Domyślny kaliber zakładu to pojemnik 15 kg — 20 kg zdarza się przy filecie.
     containerKg: 15, palletsH1: 0, palletsOther: 0, palletsOtherKind: 'net_e1',
@@ -300,6 +300,7 @@ export function useCreateReception(
         materialTypeId: header.materialTypeId,
         documentNo:     header.documentNo,
         hdiNo:          header.hdiNo,
+        hdiScanId:      header.hdiScanId,
         // 0 = pole niewypełnione; null zamiast zera, żeby „nie podano" nie
         // udawało zadeklarowanych zerowych kilogramów.
         docKg:          header.docKg || null,

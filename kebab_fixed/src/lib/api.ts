@@ -179,6 +179,7 @@ function mapRawBatch(raw: any): RawBatch {
     // Dokument dostawy, który spina kilka numerów porządkowych w jedno przyjęcie.
     receptionId:      raw.reception_id       ?? raw.receptionId,
     receptionNo:      raw.reception_no       ?? raw.receptionNo,
+    receptionHasScan: !!(raw.reception_has_scan ?? raw.receptionHasScan),
     status:           raw.status,
     isInUse:          raw.is_in_use          ?? raw.isInUse,
     editReason:       raw.edit_reason        ?? raw.editReason,
@@ -285,6 +286,10 @@ export const receptionsApi = {
 
   byId: (id: string) => get<any>(`/receptions/${encodeURIComponent(id)}`).then(mapReception),
 
+  /** Adres skanu HDI przypiętego do przyjęcia (dokument do kontroli). */
+  hdiScanUrl: (receptionId: string) =>
+    `${BASE}/receptions/${encodeURIComponent(receptionId)}/hdi-skan`,
+
   /** Skan HDI → pozycje do formularza. Nic nie zapisuje w bazie. */
   scanHdi: async (file: File): Promise<HdiScan> => {
     const body = new FormData()
@@ -309,6 +314,7 @@ export const receptionsApi = {
       containers:  raw.containers ?? null,
       pallets:     raw.pallets ?? null,
       sumOk:       raw.sum_ok ?? null,
+      scanId:      raw.scan_id ?? '',
       supplier:    raw.supplier
         ? { id: raw.supplier.id, name: raw.supplier.name ?? '',
             matchedBy: raw.supplier.matched_by ?? '' }
@@ -332,6 +338,8 @@ export interface HdiScan {
   containers:  number | null
   pallets:     number | null
   sumOk:       boolean | null
+  /** Identyfikator wczytanego skanu — przy zapisie staje się załącznikiem. */
+  scanId:      string
   /** Rozpoznany dostawca i po czym — null, gdy nie dało się ustalić pewnie. */
   supplier:    { id: string; name: string; matchedBy: string } | null
   lines:       { supplierBatchNo: string; kgReceived: number
@@ -347,6 +355,7 @@ function mapReception(raw: any): Reception {
     supplierName:  raw.supplier_name  ?? raw.supplierName  ?? '',
     documentNo:    raw.document_no    ?? raw.documentNo    ?? '',
     hdiNo:         raw.hdi_no         ?? raw.hdiNo         ?? '',
+    hdiScan:       raw.hdi_scan       ?? raw.hdiScan       ?? '',
     notes:         raw.notes ?? '',
     kgTotal:       Number(raw.kg_total ?? raw.kgTotal ?? 0),
     batches: (raw.batches ?? []).map((b: any) => ({

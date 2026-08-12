@@ -20,6 +20,7 @@ import {
   sortDeliveries, filterHistory, deliveryStatusBadgeKey, resolveDelivery,
   type DeliverySortCol, type SortDir, type HistoryPeriod, type MeatStockMap,
 } from '../deliveryView'
+import { receptionsApi } from '@/lib/apiClient'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -249,9 +250,23 @@ export function RawBatchesTable({
                     {/* Dostawy sprzed wprowadzenia dokumentu odtworzyła migracja
                         (dzień + dostawca); gdyby czegoś nie dało się dopasować,
                         pokazujemy myślnik zamiast udawać numer. */}
-                    <code className="font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {b.receptionNo || '—'}
-                    </code>
+                    {/* Skan HDI dostawcy przypięty do przyjęcia — przy kontroli
+                        trzeba pokazać, na podstawie czego przyjęto surowiec.
+                        Bez skanu zostaje sam numer, bez mylącego linku. */}
+                    {b.receptionNo && b.receptionHasScan && b.receptionId ? (
+                      <a
+                        href={receptionsApi.hdiScanUrl(b.receptionId)}
+                        target="_blank" rel="noreferrer"
+                        title="Pokaż skan HDI dostawcy"
+                        className="font-mono text-xs whitespace-nowrap underline
+                                   decoration-dotted text-primary hover:text-primary/80">
+                        {b.receptionNo}
+                      </a>
+                    ) : (
+                      <code className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                        {b.receptionNo || '—'}
+                      </code>
+                    )}
                   </TableCell>
                   <TableCell>
                     <CardDescription className="max-w-[140px] truncate">{b.supplierName ?? '—'}</CardDescription>
