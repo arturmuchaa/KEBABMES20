@@ -24,6 +24,7 @@ kosztowała czas, nie dodając informacji.
 from __future__ import annotations
 
 import os
+import time
 import shutil
 import subprocess
 import tempfile
@@ -61,13 +62,22 @@ MAX_OCR_PX = 3000
 #: Arbitrem jest sam dokument, nie zgadywanie: bierzemy ten odczyt, który
 #: trafia w zadeklarowaną masę netto.
 ALT_OCR_PX = (2600, 3500)
+#: Ile najwyżej wolno szukać właściwej kombinacji, gdy pierwszy odczyt
+#: zawiódł. Operator stoi przy formularzu — lepiej oddać niepełny odczyt
+#: z ostrzeżeniem niż kazać mu czekać pół minuty.
+SEARCH_BUDGET_S = 15
 #: OCR całej strony nie powinien trwać dłużej; dłużej = coś jest nie tak
 #: z plikiem, a operator czeka przy formularzu.
 TIMEOUT_S = 90
 
 #: --oem 1        = sam LSTM (starszy silnik i tak nic tu nie wnosi)
 #: do_invert=0    = bez próby czytania negatywu; oszczędza ~30% czasu
-TESSERACT_FLAGS = ["--psm", "6", "--oem", "1", "-c", "tessedit_do_invert=0"]
+TESSERACT_FLAGS = ["--oem", "1", "-c", "tessedit_do_invert=0"]
+#: Tryb podziału strony. To NIE jest drobiazg: na skanie 33687 tryb 6 czytał
+#: ZERO pozycji, a tryb 3 komplet 5/5 — przy identycznym obrazie. Zależy od
+#: tego, jak tesseract potnie tabelę na bloki, a to zmienia się z dokumentem.
+#: 6 zostaje pierwszy, bo najczęściej wystarcza i jest najszybszy.
+PSM_MODES = ("6", "3", "4")
 #: OpenMP na 2 rdzeniach kosztuje więcej, niż daje: 1 wątek 1,2 s, 4 wątki 4,3 s.
 TESSERACT_ENV = {"OMP_THREAD_LIMIT": "1"}
 
@@ -167,9 +177,10 @@ def _prepare(img: Path, rotate: bool, target_px: int = MAX_OCR_PX) -> Path:
         return img
 
 
-def _tesseract(img: Path, work: Path) -> str:
-    base = work / f"{img.stem}_txt"
-    _run(["tesseract", str(img), str(base), "-l", "pol", *TESSERACT_FLAGS], TESSERACT_ENV)
+def _tesseract(img: Path, work: Path, psm: str = "6") -> str:
+    base = work / f"{img.stem}_psm{psm}_txt"
+    _run(["tesseract", str(img), str(base), "-l", "pol", "--psm", psm, *TESSERACT_FLAGS],
+         TESSERACT_ENV)
     txt = base.with_suffix(".txt")
     return txt.read_text(encoding="utf-8", errors="replace") if txt.exists() else ""
 
@@ -203,38 +214,56 @@ def _pages_to_text(work: Path, source: Path) -> str:
     sizes = [_png_size(p) for p in images]
     if images and usable_images(sizes):
         czytane = [p for p, s in zip(images, sizes) if min(s) >= MIN_USEFUL_PX]
-        def czytaj(rotate: bool, px: int) -> str:
-            return "\n".join(_tesseract(_prepare(p, rotate, px), work) for p in czytane)
+        def czytaj(rotate: bool, px: int, psm: str) -> str:
+            return "\n".join(_tesseract(_prepare(p, rotate, px), work, psm) for p in czytane)
 
-        tekst = czytaj(False, MAX_OCR_PX)
-        obrot = False
+        # ORIENTACJĘ ustalamy RAZ, wykrywaniem tesseractu: kartka położona
+        # bokiem w podajniku daje sam bełkot, a zgadywanie jej przez próby
+        # mnożyłoby czas przez dwa.
+        obrot = _osd_rotation(czytane[0]) != 0
+        if obrot:
+            logger.info("hdi_ocr.rotated_page")
 
-        # Kartka położona bokiem w podajniku daje sam bełkot: pionowy tekst
-        # tesseract czyta jako przypadkowe znaki. Obracamy DOPIERO, gdy nie
-        # udało się odczytać ani jednej pozycji — dzięki temu poprawnie
-        # ułożony skan nie płaci za wykrywanie orientacji, a błędnie ułożony
-        # ratuje się sam, bez proszenia operatora o obracanie kartki.
-        if not parse_hdi_text(tekst)["lines"]:
-            logger.info("hdi_ocr.retry_rotated")
-            obrocony = czytaj(True, MAX_OCR_PX)
-            if parse_hdi_text(obrocony)["lines"]:
-                tekst, obrot = obrocony, True
+        tekst = czytaj(obrot, MAX_OCR_PX, PSM_MODES[0])
+        if sum_matches_footer(parse_hdi_text(tekst)) is True:
+            return tekst
 
         # ARBITREM JEST STOPKA DOKUMENTU. Gdy suma pozycji nie trafia
-        # w zadeklarowaną masę netto, odczyt jest niepełny albo przekłamany —
-        # próbujemy innych skal i bierzemy tę, która się zgadza. To nie
-        # zgadywanie: poprawność potwierdza sam dokument. Kosztuje tylko wtedy,
-        # gdy pierwszy odczyt zawiódł.
-        if sum_matches_footer(parse_hdi_text(tekst)) is False:
-            for px in ALT_OCR_PX:
-                logger.info("hdi_ocr.retry_scale", extra={"px": px})
-                alt = czytaj(obrot, px)
-                if sum_matches_footer(parse_hdi_text(alt)):
-                    return alt
-                # Bez trafienia w sumę zostaje ten odczyt, który dał więcej pozycji.
-                if len(parse_hdi_text(alt)["lines"]) > len(parse_hdi_text(tekst)["lines"]):
-                    tekst = alt
-        return tekst
+        # w zadeklarowaną masę netto — albo gdy nie odczytaliśmy NICZEGO —
+        # przechodzimy przez kombinacje rozmiaru i trybu podziału strony
+        # i bierzemy tę, która się zgadza. To nie zgadywanie: poprawność
+        # potwierdza sam dokument. Płacimy tylko wtedy, gdy pierwszy odczyt
+        # zawiódł; poprawny skan wychodzi wyżej po jednym przebiegu.
+        najlepszy = tekst
+        # Pełną siatkę przechodzimy TYLKO wtedy, gdy jest czym rozstrzygnąć.
+        # Bez odczytanej stopki nie ma arbitra, więc kolejne kombinacje to
+        # loteria za cenę czasu operatora — wtedy próbujemy krótko i wracamy
+        # z najlepszym, co mamy. (Zanim to ograniczyłem, dokument bez stopki
+        # mielił się 37 s, żeby i tak nic nie rozstrzygnąć.)
+        ma_stopke = parse_hdi_text(tekst)["total_kg"] is not None
+        kombinacje = [(px, psm) for px in (MAX_OCR_PX, *ALT_OCR_PX) for psm in PSM_MODES
+                      if not (px == MAX_OCR_PX and psm == PSM_MODES[0])]
+        if not ma_stopke:
+            kombinacje = kombinacje[:2]
+        start = time.monotonic()
+        for px, psm in kombinacje:
+            if time.monotonic() - start > SEARCH_BUDGET_S:
+                logger.info("hdi_ocr.search_budget_reached")
+                break
+            logger.info("hdi_ocr.retry", extra={"px": px, "psm": psm})
+            alt = czytaj(obrot, px, psm)
+            if sum_matches_footer(parse_hdi_text(alt)) is True:
+                return alt
+            if len(parse_hdi_text(alt)["lines"]) > len(parse_hdi_text(najlepszy)["lines"]):
+                najlepszy = alt
+
+        # Ostatnia deska ratunku: wykrywanie orientacji też bywa w błędzie.
+        if not parse_hdi_text(najlepszy)["lines"]:
+            logger.info("hdi_ocr.retry_opposite_orientation")
+            alt = czytaj(not obrot, MAX_OCR_PX, PSM_MODES[1])
+            if parse_hdi_text(alt)["lines"]:
+                najlepszy = alt
+        return najlepszy
 
     # 3. Awaryjnie: rasteryzacja. Wolniejsza, ale ratuje PDF-y, z których nie
     #    da się wyjąć sensownego obrazu (wektor, kafelki, bardzo drobny skan).
