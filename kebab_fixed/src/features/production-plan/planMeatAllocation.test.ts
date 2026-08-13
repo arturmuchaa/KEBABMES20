@@ -58,20 +58,27 @@ describe('lineBatchIds', () => {
   })
 })
 
-describe('allocatePlanMeat — całe sztuki z jednej partii (bez PM)', () => {
-  it('sztuka NIE jest składana z resztek dwóch partii', () => {
-    // 1 kg + 19 kg = 20 kg, ale żadna partia nie ma całych 20 kg na sztukę
+describe('allocatePlanMeat — sztuka z resztek dostaje numer łączony', () => {
+  it('1 kg + 19 kg składa sztukę o numerze „A/B"', () => {
     const res = allocatePlanMeat(
       [{ qty: '1', kgPerUnit: '20', seasonedBatchIds: ['A', 'B'] }],
       [batch('A', 1), batch('B', 19)],
     )
-    expect(res.lines[0].pieces).toBe(0)
-    expect(res.lines[0].ok).toBe(false)
-    expect(res.lines[0].missingPieces).toBe(1)
+    expect(res.lines[0].ok).toBe(true)
+    expect(res.lines[0].pieces).toBe(1)
+    expect(res.lines[0].perBatch).toEqual([])
+    expect(res.lines[0].joined).toEqual([
+      { label: 'A/B', pieces: 1, parts: [
+        { batchId: 'A', batchNo: 'A', kg: 1 },
+        { batchId: 'B', batchNo: 'B', kg: 19 },
+      ] },
+    ])
+    expect(res.freeByBatch.A).toBe(0)
+    expect(res.freeByBatch.B).toBe(0)
   })
 
-  it('resztka poniżej sztuki zostaje w partii, reszta idzie z następnej', () => {
-    // 25 kg: A daje 1 szt (20 kg), zostaje 5 kg; brakującą sztukę daje B
+  it('resztka partii idzie do sztuki łączonej od razu', () => {
+    // 25 kg: A daje 1 całą szt (20 kg), a resztkę 5 kg dokłada do sztuki „A/B"
     const res = allocatePlanMeat(
       [{ qty: '2', kgPerUnit: '20', seasonedBatchIds: ['A', 'B'] }],
       [batch('A', 25), batch('B', 100)],
@@ -79,10 +86,38 @@ describe('allocatePlanMeat — całe sztuki z jednej partii (bez PM)', () => {
     expect(res.lines[0].pieces).toBe(2)
     expect(res.lines[0].perBatch).toEqual([
       { batchId: 'A', batchNo: 'A', pieces: 1, kg: 20 },
-      { batchId: 'B', batchNo: 'B', pieces: 1, kg: 20 },
     ])
-    expect(res.freeByBatch.A).toBe(5)
-    expect(res.freeByBatch.B).toBe(80)
+    expect(res.lines[0].joined[0].label).toBe('A/B')
+    expect(res.freeByBatch.A).toBe(0)
+    expect(res.freeByBatch.B).toBe(85)
+  })
+
+  it('brak, gdy nawet z resztek nie złoży się cała sztuka', () => {
+    const res = allocatePlanMeat(
+      [{ qty: '1', kgPerUnit: '20', seasonedBatchIds: ['A', 'B'] }],
+      [batch('A', 1), batch('B', 5)],
+    )
+    expect(res.lines[0].ok).toBe(false)
+    expect(res.lines[0].missingPieces).toBe(1)
+    expect(res.freeByBatch.A).toBe(1)
+  })
+
+  it('REALNY PRZYPADEK 13.08: maksymalne wykorzystanie BEYAZ AFIYET zamyka się', () => {
+    // 1486,2 + 1238,5 + 247,7 kg przy sztuce 30 kg: całych sztuk 98,
+    // 99. powstaje z resztek — front musi to policzyć tak jak backend
+    const res = allocatePlanMeat(
+      [{ qty: '99', kgPerUnit: '30', seasonedBatchIds: ['471', '472', 'PP12'] }],
+      [batch('471', 1486.2), batch('472', 1238.5), batch('PP12', 247.7)],
+    )
+    const l = res.lines[0]
+    expect(l.ok).toBe(true)
+    expect(l.pieces).toBe(99)
+    expect(l.perBatch.map(b => [b.batchNo, b.pieces])).toEqual([
+      ['471', 49], ['472', 40], ['PP12', 8],
+    ])
+    expect(l.joined.map(j => [j.label, j.pieces])).toEqual([
+      ['471/472', 1], ['472/PP12', 1],
+    ])
   })
 
   it('nie bierze więcej niż potrzeba', () => {

@@ -997,7 +997,6 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
                     ? <>✓ Wystarczy — {fmtKg(selKgAvail,0)} kg na {qty} szt × {kgPerUnit} kg</>
                     : <><AlertTriangle size={12}/>
                         Brakuje {missingPcs} szt ({fmtKg(shortfall,0)} kg) — zaznacz kolejną partię.
-                        Sztuka idzie w całości z jednej partii, więc resztka poniżej {kgPerUnit} kg zostaje w magazynie.
                       </>
                   }
                 </div>
@@ -1212,8 +1211,7 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
       if (la && !la.ok) {
         shortfalls.push(
           `„${recipeName}": z zaznaczonych partii wychodzi ${la.pieces} z ${la.qty} szt — `
-          + `brakuje ${la.missingPieces} szt (${la.missingKg.toFixed(0)} kg). `
-          + `Sztuka idzie w całości z jednej partii — dołóż kolejną.`
+          + `brakuje ${la.missingPieces} szt (${la.missingKg.toFixed(0)} kg). Dołóż kolejną partię.`
         )
       }
     })
@@ -1390,13 +1388,20 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
                       <span className="text-violet-700">· partie dobierze system (FEFO)</span>
                     </div>
                   )}
-                  {/* Podgląd: ile sztuk z której partii — sztuka = jedna partia */}
-                  {preview.length>0 && (
+                  {/* Podgląd: ile sztuk z której partii + sztuki z resztek */}
+                  {(preview.length>0 || (la?.joined.length ?? 0)>0) && (
                     <div className="px-3 pb-1.5 -mt-0.5 pl-10 text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                       <span className="uppercase font-semibold tracking-wide">Rozbicie:</span>
                       {preview.map(c=>(
                         <span key={c.batchId} className="font-semibold">
                           {c.pieces}× <span className="font-mono text-foreground">{c.batchNo}</span>
+                        </span>
+                      ))}
+                      {(la?.joined ?? []).map(j=>(
+                        <span key={j.label} className="font-semibold text-ink"
+                          title={`z resztek: ${j.parts.map(p=>`${fmtKg(p.kg)} kg ${p.batchNo}`).join(' + ')}`}>
+                          {j.pieces}× <span className="font-mono text-foreground">{j.label}</span>
+                          <span className="text-muted-foreground"> (z resztek)</span>
                         </span>
                       ))}
                     </div>

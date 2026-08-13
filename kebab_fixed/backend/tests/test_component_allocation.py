@@ -19,7 +19,7 @@ from app.services.production_plans_service import (
 
 @pytest.fixture(autouse=True)
 def _mixed_on(monkeypatch):
-    monkeypatch.setattr(svc, "ALLOW_MIXED_PIECES", True)
+    monkeypatch.setattr(svc, "MIXED_PIECE_NUMBERING", "pm")
 
 COMPS = [
     {"materialTypeId": "mat-cwiartka", "materialName": "Ćwiartka", "pct": 70},

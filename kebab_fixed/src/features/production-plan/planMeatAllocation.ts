@@ -4,10 +4,10 @@
  * JEDNO źródło prawdy dla formularza planowania — lustro backendowego
  * `_compute_allocation` + `_check_plan_shortfalls`:
  *
- *  • JEDNA SZTUKA = JEDNA PARTIA. Sztuki mieszane (PM), składane z resztek
- *    kilku partii, są wyłączone — na magazynie przyprawionym leży mięso
- *    z gotowymi partiami i wyrób ma dostać numer jednej z nich. Resztka
- *    poniżej masy sztuki zostaje w partii (uzgadnia ją korekta przyprawionego).
+ *  • Najpierw CAŁE sztuki z jednej partii — taka sztuka nosi jeden numer.
+ *    Resztkę partii (poniżej masy sztuki) zużywamy od razu w sztuce
+ *    dopełnionej z kolejnych partii; ta dostaje numer ŁĄCZONY ("471/472"),
+ *    więc widać, z czego jest — bez zbiorczego numeru PM.
  *  • JEDEN WSPÓLNY PRZEBIEG po pozycjach — pozycja bierze z puli po kolei,
  *    dokładnie tyle, ile potrzebuje. Wcześniej każda pozycja liczyła
  *    dostępność tak, jakby wszystkie pozostałe brały przed nią, więc dwie
@@ -16,7 +16,15 @@
  * Kolejność partii w pozycji ma znaczenie (bierzemy po kolei), dlatego
  * `toggleBatchSelection` trzyma zaznaczenie w kolejności FEFO — odznaczenie
  * i ponowne zaznaczenie wraca do dokładnie tego samego stanu.
+ *
+ * UWAGA: `JOIN_LEFTOVER_PIECES` musi odpowiadać backendowemu
+ * `MIXED_PIECE_NUMBERING` (production_plans_service.py). Gdy backend jest
+ * w trybie "off", ustaw tu `false` — inaczej formularz przepuści plan,
+ * który backend odrzuci.
  */
+
+/** Czy sztukę wolno złożyć z resztek kilku partii (numer łączony). */
+export const JOIN_LEFTOVER_PIECES = true
 
 export interface AllocSeasonedBatch {
   id:           string
@@ -39,10 +47,17 @@ export interface LineBatchTake {
   kg:      number
 }
 
+/** Sztuka złożona z resztek kilku partii — numer łączony "471/472". */
+export interface JoinedPieceTake {
+  label:  string
+  pieces: number
+  parts:  Array<{ batchId: string; batchNo: string; kg: number }>
+}
+
 export interface LineAllocation {
   qty:            number
   neededKg:       number
-  /** Sztuki, które da się złożyć z CAŁYCH partii zaznaczonych w pozycji. */
+  /** Wszystkie sztuki, które da się złożyć z zaznaczonych partii. */
   pieces:         number
   allocatedKg:    number
   missingPieces:  number
@@ -50,7 +65,10 @@ export interface LineAllocation {
   hasBatches:     boolean
   /** Czy pozycja ma pokrycie w mięsie (pozycja bez partii = jeszcze nie oceniana). */
   ok:             boolean
+  /** Sztuki CAŁE — jedna partia na sztukę. */
   perBatch:       LineBatchTake[]
+  /** Sztuki z resztek — numer łączony. */
+  joined:         JoinedPieceTake[]
 }
 
 export interface PlanAllocation {
@@ -60,6 +78,8 @@ export interface PlanAllocation {
   /** kg zajęte przez pozycje formularza, per partia. */
   usedByBatch: Record<string, number>
 }
+
+const EPS = 1e-6
 
 const num = (v: unknown): number => {
   const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''))
@@ -118,6 +138,7 @@ export function allocatePlanMeat(
     const ids  = lineBatchIds(line)
     const neededKg = qty * kgPu
     const perBatch: LineBatchTake[] = []
+    const joinedMap = new Map<string, JoinedPieceTake>()
 
     if (qty <= 0 || kgPu <= 0 || ids.length === 0) {
       return {
@@ -125,21 +146,56 @@ export function allocatePlanMeat(
         missingPieces: 0, missingKg: 0,
         hasBatches: ids.length > 0,
         ok: true,   // nic do oceny: pozycja niekompletna albo bez partii
-        perBatch,
+        perBatch, joined: [],
       }
     }
 
+    // Pula pozycji w kolejności zaznaczenia (= FEFO). Lustro backendowego
+    // _compute_allocation: całe sztuki z partii, a jej resztkę od razu
+    // zużyj w sztuce dopełnionej z kolejnych partii.
+    const pool = ids
+      .filter(id => byId.has(id))
+      .map(id => ({ id, batchNo: byId.get(id)?.batchNo ?? '' }))
+
     let stillPieces = qty
-    for (const bid of ids) {
-      if (stillPieces <= 0) break
-      const s = byId.get(bid)
-      if (!s) continue
-      const pcs = Math.min(stillPieces, Math.floor((free[bid] ?? 0) / kgPu))
-      if (pcs <= 0) continue
-      const kg = pcs * kgPu
-      free[bid] = (free[bid] ?? 0) - kg
-      stillPieces -= pcs
-      perBatch.push({ batchId: bid, batchNo: s.batchNo ?? '', pieces: pcs, kg })
+    for (let i = 0; i < pool.length; i++) {
+      const b = pool[i]
+
+      if (stillPieces > 0) {
+        const pcs = Math.min(stillPieces, Math.floor((free[b.id] ?? 0) / kgPu))
+        if (pcs > 0) {
+          const kg = pcs * kgPu
+          free[b.id] = (free[b.id] ?? 0) - kg
+          stillPieces -= pcs
+          perBatch.push({ batchId: b.id, batchNo: b.batchNo, pieces: pcs, kg })
+        }
+      }
+
+      while (JOIN_LEFTOVER_PIECES && stillPieces > 0 && (free[b.id] ?? 0) > EPS) {
+        let need = kgPu
+        const taken: Array<{ idx: number; kg: number }> = []
+        for (let j = i; j < pool.length && need > EPS; j++) {
+          const take = Math.min(need, free[pool[j].id] ?? 0)
+          if (take <= EPS) continue
+          taken.push({ idx: j, kg: take })
+          need -= take
+        }
+        if (need > EPS) break   // nawet z resztek nie złożymy całej sztuki
+
+        const label = [...new Set(taken.map(t => pool[t.idx].batchNo))].join('/')
+        const bucket = joinedMap.get(label)
+          ?? { label, pieces: 0, parts: [] as JoinedPieceTake['parts'] }
+        for (const t of taken) {
+          const p = pool[t.idx]
+          free[p.id] = (free[p.id] ?? 0) - t.kg
+          const part = bucket.parts.find(x => x.batchId === p.id)
+          if (part) part.kg += t.kg
+          else bucket.parts.push({ batchId: p.id, batchNo: p.batchNo, kg: t.kg })
+        }
+        bucket.pieces += 1
+        joinedMap.set(label, bucket)
+        stillPieces -= 1
+      }
     }
 
     const pieces = qty - stillPieces
@@ -153,6 +209,7 @@ export function allocatePlanMeat(
       hasBatches:    true,
       ok:            stillPieces === 0,
       perBatch,
+      joined:        [...joinedMap.values()],
     }
   })
 

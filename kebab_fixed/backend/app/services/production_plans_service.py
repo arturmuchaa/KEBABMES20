@@ -54,17 +54,36 @@ def _lock_seasoned_batches(conn, batch_ids: List[str]) -> Dict[str, Dict]:
 # aktywacji planu (_assign_pm_numbers), do tego czasu trzymane pod sentinelem.
 MIXED_KEY = "__MIXED__"
 
-# ── Sztuki mieszane (PM): WYŁĄCZONE ───────────────────────────────────
-# JEDNA SZTUKA = JEDNA PARTIA MIĘSA. Na magazynie przyprawionym leży mięso
-# z gotowymi partiami, więc wyrób ma dostać numer jednej z nich — nie numer
-# zbiorczy PM złożony z resztek. Resztka poniżej masy sztuki zostaje w partii
-# (uzgadnia ją reconcile_seasoned_batch), a brakujące sztuki planista pokrywa
-# dołożeniem kolejnej partii.
+# ── Sztuka złożona z resztek kilku partii: JAK JĄ NUMEROWAĆ ───────────
+# Przy planie na maksymalne wykorzystanie mięsa ostatnia sztuka bywa
+# składana z resztek kilku partii (np. 16,2 + 8,5 + 5,3 kg). Trzy tryby:
 #
-# JEDYNY przełącznik — ustaw True, żeby wrócić do składania sztuk z resztek
-# kilku partii. Kod CZYTAJĄCY PM (etykiety, tablet, WZ, plany historyczne)
-# zostaje nietknięty: plany sprzed zmiany dalej działają.
-ALLOW_MIXED_PIECES = False
+#   "joined" — numer ŁĄCZONY z realnych partii ("471/472"), tak jak
+#              w kebabie komponentowym 70/30. Widać, z czego sztuka jest;
+#              żadnego zbiorczego PM. DOMYŚLNY.
+#   "pm"     — jeden zbiorczy numer PM{n} nadawany przy aktywacji planu
+#              (zachowanie sprzed 13.08.2026).
+#   "off"    — takich sztuk NIE składamy; resztka poniżej masy sztuki
+#              zostaje w partii, a niedobór łapie walidacja.
+#
+# JEDYNY przełącznik. Kod CZYTAJĄCY PM (etykiety, tablet, WZ) zostaje
+# nietknięty — plany z numerami PM dalej działają.
+MIXED_PIECE_NUMBERING = "joined"
+
+
+def _mixed_pieces_allowed() -> bool:
+    return MIXED_PIECE_NUMBERING in ("joined", "pm")
+
+
+def _mixed_bucket_key(batch_nos: list[str]) -> str:
+    """Klucz kubełka sztuk z resztek: numer łączony albo sentinel PM."""
+    if MIXED_PIECE_NUMBERING == "pm":
+        return MIXED_KEY
+    seen: list[str] = []
+    for b in batch_nos:
+        if b and b not in seen:
+            seen.append(b)
+    return "/".join(seen) or MIXED_KEY
 
 
 def _compute_allocation(
@@ -72,13 +91,12 @@ def _compute_allocation(
 ) -> tuple[list[str], dict, str | None, str]:
     """Rozbij sztuki linii na partie wsadowe.
 
-    CAŁE sztuki mieszczące się w jednej partii — każda sztuka dostaje jeden
-    numer partii. Sztuki, na które żadna pojedyncza partia nie ma już kg,
-    zostają NIEPRZYDZIELONE (łapie je walidacja niedoborów), a resztka partii
-    poniżej masy sztuki zostaje w magazynie.
-
-    Z ``ALLOW_MIXED_PIECES=True`` takie sztuki są zamiast tego składane
-    z resztek kilku partii do kubełka ``MIXED_KEY`` (partia PM).
+    Najpierw CAŁE sztuki mieszczące się w jednej partii — taka sztuka nosi
+    jeden numer partii. Sztukę, na którą żadna pojedyncza partia nie ma już
+    kg, składamy z resztek kilku partii; trafia do kubełka o numerze
+    ŁĄCZONYM ("471/472") z rozbiciem kg per partia w ``parts``.
+    Patrz ``MIXED_PIECE_NUMBERING`` (tryb "pm" = dawny kubełek PM,
+    tryb "off" = takich sztuk nie składamy).
 
     Mutuje ``locked`` (podbija kg_reserved w snapshotcie), żeby kolejne
     linie tego samego planu liczyły się na pomniejszonej puli — DB i tak
@@ -127,13 +145,16 @@ def _compute_allocation(
     kg_pu = float(line.kg_per_unit or 0)
     remaining_qty = int(line.qty)
     eps = 1e-6
-    mixed_pieces = 0
-    mixed_parts: dict[str, dict] = {}
+    # Kubełki sztuk z resztek: klucz = numer łączony ("471/472") albo, w
+    # trybie "pm", wspólny sentinel. Osobny kubełek dla każdej kombinacji
+    # partii — dwie różne sztuki resztkowe mają różne numery.
+    mixed_buckets: dict[str, dict] = {}
 
-    # Partia po partii (kolejność zaznaczenia = FEFO): całe sztuki z partii.
-    # Z ALLOW_MIXED_PIECES resztka partii jest dodatkowo zużywana w sztuce
-    # mieszanej dopełnionej z kolejnych partii (numer PM); domyślnie resztka
-    # zostaje w partii, bo sztuka nie może mieć dwóch numerów partii.
+    # Partia po partii (kolejność zaznaczenia = FEFO): najpierw całe sztuki
+    # z partii, a jej RESZTKĘ od razu zużyj w sztuce dopełnionej z kolejnych
+    # partii. Dzięki temu resztka starszej partii (np. PP1) jest fizycznie
+    # wykorzystana, nawet gdy następna partia sama pokryłaby całą linię —
+    # planista dokłada partię właśnie po to.
     for i, b in enumerate(pool):
         # 1) Całe sztuki z tej partii
         if remaining_qty > 0:
@@ -154,10 +175,9 @@ def _compute_allocation(
             b["free"] -= pcs * kg_pu
             remaining_qty -= pcs
 
-        # 2) Resztka tej partii → sztuka mieszana (dopełniona z kolejnych).
-        # Wyłączone: sztuka nie może nieść dwóch numerów partii.
+        # 2) Resztka tej partii → sztuka dopełniona z kolejnych partii.
         while (
-            ALLOW_MIXED_PIECES
+            _mixed_pieces_allowed()
             and remaining_qty > 0
             and kg_pu > 0
             and b["free"] > eps
@@ -176,37 +196,33 @@ def _compute_allocation(
                 # Nie da się złożyć całej sztuki — zostaw nieprzydzielone,
                 # niedobór złapie walidacja (_check_plan_shortfalls / aktywacja).
                 break
+            # Klucz zawiera "/" (sztuka z resztek ma zawsze ≥2 partie),
+            # więc nie zderzy się z numerem czystej partii.
+            key = _mixed_bucket_key([b2["b_no"] for b2, _ in taken])
+            bucket = mixed_buckets.setdefault(
+                key, {"pieces": 0, "kg": 0.0, "parts": {}}
+            )
             for b2, take in taken:
                 b2["free"] -= take
-                part = mixed_parts.setdefault(
+                part = bucket["parts"].setdefault(
                     b2["b_no"], {"kg": 0.0, "batch_id": b2["bid"]}
                 )
                 part["kg"] = round(float(part["kg"]) + take, 3)
-            mixed_pieces += 1
+            bucket["pieces"] += 1
+            bucket["kg"] = round(bucket["pieces"] * kg_pu, 3)
             remaining_qty -= 1
 
-    if mixed_pieces > 0:
-        allocation[MIXED_KEY] = {
-            "pieces": mixed_pieces,
-            "kg": round(mixed_pieces * kg_pu, 3),
-            "parts": mixed_parts,
-        }
+    for key, bucket in mixed_buckets.items():
+        allocation[key] = bucket
+        if key not in all_batch_nos:
+            all_batch_nos.append(key)
 
     # Zaktualizuj snapshot locked o kg tej linii (kolejne linie planu
     # liczą się już na pomniejszonej puli).
-    reserved_now: Dict[str, float] = {}
-    for key, alloc in allocation.items():
-        if key == MIXED_KEY:
-            for p in alloc["parts"].values():
-                bid = p.get("batch_id")
-                if bid:
-                    reserved_now[bid] = reserved_now.get(bid, 0.0) + float(p["kg"])
-        else:
-            bid = alloc.get("batch_id")
-            kg = float(alloc.get("kg") or 0)
-            if bid and kg > 0:
-                reserved_now[bid] = reserved_now.get(bid, 0.0) + kg
-    for bid, kg in reserved_now.items():
+    # Kubełek sztuk z resztek (numer łączony albo PM) trzyma kg w ``parts``,
+    # nie w ``batch_id`` — dlatego liczymy tak samo jak _allocation_kg_per_batch.
+    # Inaczej migawka zaniża zużycie i kolejne linie planu dostają fałszywe 409.
+    for bid, kg in _allocation_kg_per_batch(allocation).items():
         row = locked.get(bid)
         if row is not None:
             row["kg_reserved"] = float(row.get("kg_reserved") or 0) + kg
@@ -315,7 +331,7 @@ def _allocate_components(
         for ci in range(len(components)):
             need = comp_kg[ci]
             taken: list[tuple[dict, float]] = []
-            if ALLOW_MIXED_PIECES:
+            if _mixed_pieces_allowed():
                 for b in pools[ci]:
                     if need <= eps:
                         break
@@ -343,9 +359,10 @@ def _allocate_components(
             for b, take in taken:
                 b["free"] -= take
 
+        # Udział komponentu dosztukowany z >1 partii → sztuka niesie numery
+        # WSZYSTKICH partii źródłowych (w trybie "pm" — wspólny kubełek PM).
         boundary = any(len(t) > 1 for t in taken_per_comp)
-        if boundary:
-            # Udział komponentu dosztukowany z >1 partii → sztuka MIESZANA (PM)
+        if boundary and MIXED_PIECE_NUMBERING == "pm":
             mixed_pieces += 1
             for taken in taken_per_comp:
                 for b, take in taken:
@@ -354,7 +371,11 @@ def _allocate_components(
                     )
                     p["kg"] = round(float(p["kg"]) + take, 3)
         else:
-            label = "/".join(t[0][0]["b_no"] for t in taken_per_comp)
+            label = _mixed_bucket_key(
+                [b["b_no"] for taken in taken_per_comp for b, _ in taken]
+            ) if boundary else "/".join(
+                t[0][0]["b_no"] for t in taken_per_comp
+            )
             g = allocation.setdefault(
                 label, {"pieces": 0, "kg": 0.0, "parts": {}}
             )
@@ -536,7 +557,7 @@ def _check_plan_shortfalls(
             continue
         kg_pu = float(line.kg_per_unit or 0)
         allocated = 0.0
-        if ALLOW_MIXED_PIECES or kg_pu <= 0:
+        if _mixed_pieces_allowed() or kg_pu <= 0:
             still_needed = line_kg
             for bid in ids:
                 if still_needed <= 0:
@@ -564,7 +585,7 @@ def _check_plan_shortfalls(
             recipe_name, _, _ = _resolve_line_names(conn, line)
             recipe_name = recipe_name or line.recipe_id or "pozycja"
             shortage = round(line_kg - allocated, 3)
-            if not ALLOW_MIXED_PIECES and kg_pu > 0:
+            if not _mixed_pieces_allowed() and kg_pu > 0:
                 # Kilogramy mogą BYĆ, ale rozsypane po partiach poniżej masy
                 # sztuki — powiedz to wprost, żeby planista dołożył partię.
                 shortfalls.append(
