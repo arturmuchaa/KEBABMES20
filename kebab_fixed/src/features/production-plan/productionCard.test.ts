@@ -62,7 +62,7 @@ describe('buildProductionCard', () => {
       .toEqual(['NAZAR', 'ZAGROS', 'POLAT'])
   })
 
-  it('wstawia pusty wiersz przy zmianie klienta — jak na kartce ręcznej', () => {
+  it('pozycje idą pod sobą — BEZ pustych separatorów między klientami', () => {
     const card = buildProductionCard({
       planDate: '2026-08-13',
       lines: [
@@ -72,7 +72,9 @@ describe('buildProductionCard', () => {
       ],
     } as any)
     const uklad = card.rows.slice(0, 4).map(r => r.blank ? '—' : r.client)
-    expect(uklad).toEqual(['NAZAR', 'NAZAR', '—', 'ZAGROS'])
+    expect(uklad).toEqual(['NAZAR', 'NAZAR', 'ZAGROS', '—'])
+    // puste wiersze WYŁĄCZNIE na końcu, na dopiski
+    expect(card.rows.filter(r => r.blank)).toHaveLength(BLANK_ROWS)
   })
 
   it('dokłada puste wiersze na dopiski długopisem', () => {

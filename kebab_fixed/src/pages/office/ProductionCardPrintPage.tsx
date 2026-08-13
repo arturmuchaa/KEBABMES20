@@ -25,9 +25,11 @@ import { productionPlansApi } from '@/lib/apiClient'
 import { buildProductionCard } from '@/features/production-plan/productionCard'
 
 // Wysokość obszaru tabeli na A4 poziomo (210 mm) po odjęciu marginesów
-// (2×6 mm), nagłówka kartki (~35 mm) i wiersza nagłówkowego tabeli (8 mm).
-// Zmierzone renderem — przy 158 mm ostatni wiersz schodził na drugą stronę.
-const BODY_MM = 150
+// (2×6 mm), nagłówka kartki (~33 mm) i wiersza nagłówkowego tabeli (8 mm).
+// Zmierzone renderem. 144 zamiast 150 to świadomy zapas: przeglądarka
+// dokłada własny nagłówek/stopkę druku, gdy operator nie wyłączy ich
+// w oknie drukowania — bez zapasu ostatni wiersz schodził na drugą stronę.
+const BODY_MM = 144
 const ROW_MIN_MM = 6.2      // niżej wiersz przestaje być czytelny na hali
 const ROW_MAX_MM = 20       // wyżej kartka to już same linie
 
@@ -157,11 +159,14 @@ const CSS = `
 /* Nagłówek powtarza się, gdy pozycji jest tyle, że kartka schodzi na drugą stronę. */
 .kpk thead { display: table-header-group; }
 .kpk tr { page-break-inside: avoid; }
-.kpk th, .kpk td { border: .25mm solid #000; padding: 0 2mm; text-align: center;
+.kpk th, .kpk td { border: .25mm solid #000; padding: 0 1.5mm; text-align: center;
   overflow: hidden; }
 .kpk th { background: #f2f2f2; font-weight: 700; font-size: .95em; height: 8mm; }
 .kpk td.b { font-weight: 700; }
 .kpk .tick { width: 12mm; }           /* kolumna na odhaczenie długopisem */
-.kpk .kind { width: 17%; }
-.kpk .lot  { width: 15%; }
+.kpk .kind { width: 15%; }
+/* NR PARTII szerzej: podział bywa długi („2x472, 6xPP13, 1x472/PP13") i przy
+   15% zawijał się do dwóch linii, rozpychając wiersz i spychając kartkę na
+   drugą stronę. Zawijanie zostaje jako awaryjne — nie wolno uciąć partii. */
+.kpk .lot  { width: 22%; }
 `

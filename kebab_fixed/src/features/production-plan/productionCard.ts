@@ -79,20 +79,13 @@ function lineRow(l: ProductionPlanLine): CardRow {
 }
 
 /**
- * Wiersze karty w kolejności planowania. Przy zmianie klienta wchodzi pusty
- * wiersz — tak jak na kartce ręcznej, gdzie oddziela grupy odbiorców.
+ * Wiersze karty w kolejności planowania — pozycja pod pozycją, bez pustych
+ * separatorów między klientami (biuro ich nie chce: zjadały miejsce i
+ * spychały kartkę na drugą stronę). Puste wiersze tylko na końcu, na dopiski.
  */
 export function buildProductionCard(plan: ProductionPlan): ProductionCard {
   const lines = plan?.lines ?? []
-  const rows: CardRow[] = []
-
-  lines.forEach((l, i) => {
-    const prev = lines[i - 1]
-    if (prev && (prev.clientName || '') !== (l.clientName || '')) {
-      rows.push({ ...EMPTY_ROW })
-    }
-    rows.push(lineRow(l))
-  })
+  const rows: CardRow[] = lines.map(lineRow)
 
   for (let i = 0; i < BLANK_ROWS; i++) rows.push({ ...EMPTY_ROW })
 
