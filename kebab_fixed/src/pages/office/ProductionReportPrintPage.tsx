@@ -167,17 +167,31 @@ export function ProductionReportPrintPage() {
           </tr>
           <tr>
             <td>
-              PRZENIESIONO NA KOLEJNĄ PRODUKCJĘ
+              POZOSTAŁO MIĘSA PRZYPRAWIONEGO
               {k.balance.carryOver.length > 0 && (
                 <span className="orig"> — {k.balance.carryOver
                   .map((c: any) => `${c.batchNo}: ${nkg(c.kg)} kg`).join(', ')}</span>
+              )}
+              {!k.balance.carryOverConfirmed && (
+                <span className="orig"> · stan wyliczony z receptury — do potwierdzenia
+                  zważeniem lub zamknięciem partii</span>
               )}
             </td>
             <td className="r b">{nkg(k.balance.carryOverKg)} kg</td>
           </tr>
           <tr className="sum">
-            <td>RÓŻNICA (STRATA PRODUKCYJNA)</td>
-            <td className="r">{nkg(k.balance.diffKg)} kg</td>
+            <td>
+              STRATA PRODUKCYJNA (MASOWANIE, PODŁOGA, ŚCINKI POZA WYRÓB)
+              {!k.balance.carryOverConfirmed && (
+                <span className="orig"> · ustalana po potwierdzeniu pozostałości —
+                  wpisać poniżej</span>
+              )}
+            </td>
+            <td className="r">
+              {k.balance.carryOverConfirmed
+                ? `${nkg(k.balance.diffKg)} kg`
+                : <span className="fill" />}
+            </td>
           </tr>
         </tbody>
       </table>

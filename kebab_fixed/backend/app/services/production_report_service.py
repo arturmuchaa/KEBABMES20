@@ -421,16 +421,29 @@ def get_report(plan_date: str, recipe_id: str) -> Dict[str, Any]:
         if r.get("bid"):
             alokacja[r["bid"]] = alokacja.get(r["bid"], 0.0) + _kg(r.get("kg"))
 
+    # Reszta po dniu to STAN TEORETYCZNY: kg partii są WYLICZONE z receptury,
+    # a mięsa po produkcji nikt nie waży. Realny ubytek (masowanie, podłoga,
+    # ścinki) wychodzi dopiero przy zamknięciu/korekcie partii — dlatego
+    # rozróżniamy partię POTWIERDZONĄ (skorygowaną po tym dniu) od takiej,
+    # która czeka na potwierdzenie. Karta nie może podawać teorii jako faktu.
     przeniesione = []
     for sid in seasoned_ids:
         sb = query_one(
-            "SELECT batch_no, kg_produced FROM seasoned_meat WHERE id=%s", (sid,)
+            "SELECT batch_no, kg_produced, status, reconciled_at "
+            "FROM seasoned_meat WHERE id=%s", (sid,)
         )
         if not sb:
             continue
         reszta = _kg(_kg(sb.get("kg_produced")) - alokacja.get(sid, 0.0))
-        if reszta > 0.05:
-            przeniesione.append({"batchNo": sb.get("batch_no") or "", "kg": reszta})
+        if reszta <= 0.05:
+            continue
+        rec = sb.get("reconciled_at")
+        potwierdzona = bool(rec) and _as_date(rec) >= day
+        przeniesione.append({
+            "batchNo": sb.get("batch_no") or "",
+            "kg": reszta,
+            "confirmed": potwierdzona,
+        })
     przeniesioneKg = _kg(sum(p["kg"] for p in przeniesione))
     wejscie = _kg(meat_kg + sum(d["kg"] for d in dodatki))
     wyrob = _kg(sum(b["kg"] for b in batches))
@@ -442,8 +455,10 @@ def get_report(plan_date: str, recipe_id: str) -> Dict[str, Any]:
             "producedKg": wyrob,
             "carryOverKg": przeniesioneKg,
             "carryOver": przeniesione,
-            # Reszta po odjęciu przeniesienia — do potwierdzenia/wpisania
-            # przy zamrażaniu (STRATA PRODUKCYJNA).
+            # Czy WSZYSTKIE przeniesione partie zostały potwierdzone wagą
+            # (skorygowane/zamknięte). Jeśli nie — bilans jest teoretyczny
+            # i karta musi to powiedzieć wprost.
+            "carryOverConfirmed": all(p["confirmed"] for p in przeniesione) if przeniesione else True,
             "diffKg": _kg(wejscie - wyrob - przeniesioneKg),
         },
         "planDate": str(day),
