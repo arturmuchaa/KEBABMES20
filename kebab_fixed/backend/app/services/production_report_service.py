@@ -112,11 +112,17 @@ def format_packages(rows: List[Dict[str, Any]]) -> str:
 def _meat_components(seasoned_ids: List[str]) -> List[Dict[str, Any]]:
     """Mięso — jeden wiersz na partię przyprawionego (jeden wsad masownicy).
 
-    Rozbicie wsadów bierzemy z `mixing_session_lots` (zapis od 13.08.2026).
-    Partie sprzed tego zapisu go nie mają: dla nich wystawiamy JEDEN wiersz
-    na ZLECENIE i wymieniamy partie, które z niego wyszły. Liczenie ich per
-    partia dawałoby wielokrotność tego samego surowca (13 800 kg zamiast
-    4 600), bo każda partia widziałaby skład całego zlecenia.
+    Rozbicie wsadów bierzemy z `mixing_session_lots` — z tego, co operator
+    wpisał przy POTWIERDZANIU masowania (zapis od 13.08.2026).
+
+    Partie sprzed tego zapisu rozbicia nie mają i NIE WOLNO go zastąpić
+    planem masowania: `mixing_order_lots` niesie ilości PLANOWANE, a karta
+    jest zapisem tego, co faktycznie poszło do wyrobu. Dla takich partii
+    podajemy więc tylko to, co pewne — realną masę mięsa z sesji
+    (`mixing_sessions.kg_meat`) i numery wsadów, które w zleceniu były —
+    z jawną adnotacją, że rozbicie na kilogramy nie zostało zapisane.
+    Liczymy je RAZ na zlecenie: per partia ten sam surowiec wchodziłby
+    wielokrotnie (13 800 kg zamiast 4 600).
     """
     if not seasoned_ids:
         return []
@@ -185,27 +191,49 @@ def _meat_components(seasoned_ids: List[str]) -> List[Dict[str, Any]]:
         else:
             bez_rozbicia.setdefault(order_no, []).append(batch_no)
 
-    # Dane starsze: skład zlecenia liczony RAZ, z wymienionymi partiami.
+    # Dane starsze: bez zapisanego rozbicia. Podajemy REALNĄ masę z sesji
+    # i numery wsadów ze zlecenia, ale BEZ kilogramów per wsad — te były
+    # tylko planowane, a karta nie może podawać planu jako wykonania.
     for order_no, partie in bez_rozbicia.items():
-        lots = query_all(
+        sesje = query_all(
             """
-            SELECT rb.internal_batch_no AS raw_no,
-                   COALESCE(mol.kg_actual, mol.kg_planned) AS kg,
-                   ms.material_name, r.reception_no
+            SELECT s.batch_no, s.kg_meat
+            FROM mixing_sessions s JOIN mixing_orders mo ON mo.id = s.order_id
+            WHERE mo.order_no = %s AND s.batch_no = ANY(%s)
+            """,
+            (order_no, partie),
+        )
+        kg = _kg(sum(_kg(s.get("kg_meat")) for s in sesje))
+        wsady = query_all(
+            """
+            SELECT DISTINCT rb.internal_batch_no AS raw_no, ms.material_name,
+                   r.reception_no
             FROM mixing_orders mo
             JOIN mixing_order_lots mol ON mol.order_id = mo.id
             LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
             LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
             LEFT JOIN receptions r ON r.id = rb.reception_id
             WHERE mo.order_no = %s
-            ORDER BY rb.internal_batch_seq
             """,
             (order_no,),
         )
-        row = _row(lots, f"partie: {', '.join(partie)}", partie[0] if partie else "", True)
-        if row:
-            row["batchNos"] = partie
-            out.append(row)
+        numery = sorted({w.get("raw_no") or "" for w in wsady if w.get("raw_no")})
+        if kg <= 0 or not numery:
+            continue
+        out.append({
+            "kind": "mięso",
+            "name": next((w.get("material_name") for w in wsady if w.get("material_name")), "Mięso"),
+            "deliveryNo": ", ".join(
+                sorted({w.get("reception_no") or "" for w in wsady if w.get("reception_no")})
+            ),
+            "kg": kg,
+            "unit": "kg",
+            "note": (f"partie: {', '.join(partie)} · wsady: {', '.join(numery)} "
+                     f"— rozbicie na kilogramy niezapisane przy masowaniu"),
+            "batchNo": partie[0] if partie else "",
+            "batchNos": partie,
+            "origin": "",
+        })
     return out
 
 
