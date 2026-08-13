@@ -56,6 +56,18 @@ describe('buildOfficeFinishEntries', () => {
   it('brak jakiegokolwiek wykonania = brak wpisów', () => {
     expect(buildOfficeFinishEntries({ lines: [line({ qtyDone: 0 })] } as any)).toEqual([])
   })
+
+  it('„zatwierdź wszystko" bierze PEŁNĄ zaplanowaną ilość, nie wpisane wykonanie', () => {
+    const entries = buildOfficeFinishEntries({
+      lines: [line({ id: 'a', qty: 30, qtyDone: 0 }), line({ id: 'b', qty: 20, qtyDone: 5 })],
+    } as any, { all: true })
+    expect(entries.map(e => [e.planLineId, e.qty])).toEqual([['a', 30], ['b', 20]])
+  })
+
+  it('„zatwierdź wszystko" pomija pozycje bez ilości', () => {
+    expect(buildOfficeFinishEntries({ lines: [line({ qty: 0 })] } as any, { all: true }))
+      .toEqual([])
+  })
 })
 
 describe('officeFinishSummary', () => {

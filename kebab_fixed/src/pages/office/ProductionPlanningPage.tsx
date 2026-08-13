@@ -1552,6 +1552,57 @@ export function ProductionPlanningPage() {
   const [generatingLine, setGeneratingLine] = useState<string|null>(null)
   const [reprintLine, setReprintLine] = useState<ReprintLine|null>(null)
 
+  /**
+   * Zamknięcie produkcji PRZEZ BIURO — dopóki hala nie ma kiosku.
+   *
+   * `all` = cały plan wykonany zgodnie z założeniem (bez wpisywania sztuk),
+   * inaczej bierzemy to, co biuro wpisało w kolumnie „Wykonano".
+   *
+   * Wykonanie MUSI najpierw wylądować na pozycjach: finish_day tworzy wyroby
+   * z przekazanych wpisów, ale qty_done na pozycjach zostawia w spokoju —
+   * bez tego kroku plan pokazywałby 0 szt. mimo wyprodukowanego kebaba.
+   * Dalej idzie ta sama ścieżka co z tabletu (tablet-finish → office-confirm).
+   */
+  async function finishPlan(plan: ProductionPlan, all: boolean) {
+    const entries = buildOfficeFinishEntries(plan, { all })
+    if (entries.length === 0) {
+      alert(all
+        ? 'Plan nie ma pozycji do zatwierdzenia.'
+        : 'Najpierw wpisz wykonane sztuki — rozwiń plan i uzupełnij kolumnę „Wykonano".')
+      return
+    }
+    const pieces = entries.reduce((s, e) => s + e.qty, 0)
+    const kg     = entries.reduce((s, e) => s + e.qty * e.kgPerUnit, 0)
+    const s      = officeFinishSummary(plan)
+    const uwaga  = !all && s.partial > 0
+      ? `\n\nUWAGA: ${s.partial} pozycji wykonano tylko w części — reszta NIE zostanie wyprodukowana.`
+      : ''
+    if (!confirm(
+      `Zatwierdzić produkcję planu ${plan.planNo}?\n\n`
+      + `${pieces} szt · ${fmtKg(kg, 0)} kg w ${entries.length} pozycjach`
+      + `${all ? ' (cały plan)' : ''}.\n`
+      + `Kebab trafi do magazynu wyrobów gotowych, a rezerwacje mięsa zostaną rozliczone.`
+      + uwaga)) return
+
+    try {
+      for (const e of entries) {
+        const line = plan.lines.find(l => l.id === e.planLineId)
+        if (Number((line as any)?.qtyDone ?? 0) === e.qty) continue
+        await productionPlansApi.updateLineProgress(plan.id, e.planLineId, {
+          qtyDone: e.qty,
+          lineStatus: e.qty >= (Number(line?.qty) || 0) ? 'DONE' : 'IN_PROGRESS',
+          workerEntries: [],
+        })
+      }
+      await productionPlansApi.tabletFinish(plan.id, entries)
+      await productionPlansApi.officeConfirm(plan.id)
+      refetch()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Błąd zatwierdzenia produkcji')
+      refetch()
+    }
+  }
+
   async function handleCreate(lines: CreatePlanLineDto[], planDate: string): Promise<string> {
     const plan = await productionPlansApi.create({ planDate, lines })
     refetch()
@@ -1750,33 +1801,22 @@ export function ProductionPlanningPage() {
                           samą ścieżką co tablet (tablet-finish → office-confirm),
                           żeby wyroby, partie i rezerwacje liczyły się tak samo. */}
                       {plan.status==='active' && !(plan as any).tabletFinishedAt && (
-                        <Button variant="default" size="sm"
-                          className="h-7 text-[11px] bg-green-600 hover:bg-green-700 text-white"
-                          onClick={async e=>{
-                            e.stopPropagation()
-                            const s = officeFinishSummary(plan)
-                            if (s.pieces === 0) {
-                              alert('Najpierw wpisz wykonane sztuki — rozwiń plan i uzupełnij kolumnę „Wykonano".')
-                              return
-                            }
-                            const czesciowe = s.partial > 0
-                              ? `\n\nUWAGA: ${s.partial} pozycji wykonano tylko w części — reszta NIE zostanie wyprodukowana.`
-                              : ''
-                            if (!confirm(
-                              `Zatwierdzić produkcję planu ${plan.planNo}?\n\n`
-                              + `${s.pieces} szt · ${fmtKg(s.kg,0)} kg w ${s.lines} pozycjach.\n`
-                              + `Kebab trafi do magazynu wyrobów gotowych, a rezerwacje mięsa zostaną rozliczone.`
-                              + czesciowe)) return
-                            try {
-                              await productionPlansApi.tabletFinish(plan.id, buildOfficeFinishEntries(plan))
-                              await productionPlansApi.officeConfirm(plan.id)
-                              refetch()
-                            } catch(err) {
-                              alert(err instanceof Error ? err.message : 'Błąd zatwierdzenia produkcji')
-                            }
-                          }}>
-                          Zatwierdź produkcję
-                        </Button>
+                        <>
+                          {/* Cały plan wykonany zgodnie z założeniem — bez
+                              wpisywania sztuka po sztuce. Najczęstszy przypadek. */}
+                          <Button variant="default" size="sm"
+                            className="h-7 text-[11px] bg-green-600 hover:bg-green-700 text-white"
+                            onClick={e=>{ e.stopPropagation(); finishPlan(plan, true) }}>
+                            Zatwierdź wszystko
+                          </Button>
+                          {/* Produkcja odbiegła od planu — biuro wpisuje sztuki
+                              w rozwinięciu i zatwierdza dokładnie tyle. */}
+                          <Button variant="outline" size="sm"
+                            className="h-7 text-[11px] text-green-700 border-green-200 hover:bg-green-50"
+                            onClick={e=>{ e.stopPropagation(); finishPlan(plan, false) }}>
+                            Zatwierdź wpisane
+                          </Button>
+                        </>
                       )}
                       {plan.status==='active' && !(plan as any).tabletFinishedAt && (
                         <Button variant="outline" size="sm"

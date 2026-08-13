@@ -38,16 +38,25 @@ function batchNosOf(l: ProductionPlanLine): string[] {
 }
 
 /**
- * Wpisy do zatwierdzenia — tylko pozycje z realnym wykonaniem.
+ * Wpisy do zatwierdzenia — domyślnie tylko pozycje z realnym wykonaniem.
  * `workerNames` puste: biuro potwierdza zbiorczo, bez podziału na ludzi
  * (kiosk na hali doda to później).
+ *
+ * `all: true` = „zatwierdź wszystko": każda pozycja idzie w PEŁNEJ zaplanowanej
+ * ilości, bez wpisywania sztuka po sztuce. Typowy dzień, w którym hala zrobiła
+ * dokładnie to, co zaplanowano.
  */
-export function buildOfficeFinishEntries(plan: ProductionPlan): OfficeFinishEntry[] {
+export function buildOfficeFinishEntries(
+  plan: ProductionPlan,
+  opts: { all?: boolean } = {},
+): OfficeFinishEntry[] {
+  const qtyOf = (l: ProductionPlanLine) =>
+    opts.all ? Math.max(0, Number(l.qty) || 0) : qtyDoneOf(l)
   return (plan?.lines ?? [])
-    .filter(l => qtyDoneOf(l) > 0)
+    .filter(l => qtyOf(l) > 0)
     .map(l => ({
       planLineId:       l.id,
-      qty:              qtyDoneOf(l),
+      qty:              qtyOf(l),
       workerNames:      [],
       kgPerUnit:        Number(l.kgPerUnit) || 0,
       productTypeId:    l.productTypeId || '',
