@@ -312,8 +312,8 @@ export const rawBatchesApi = {
 // `toSnake` nie tknie zagnieżdżonych grup poprawnie (backend czyta aliasy
 // camelCase), więc DTO idzie tak, jak je zbudował formularz.
 export const receptionsApi = {
-  nextNumber: (date?: string) =>
-    get<any>(`/receptions/next-number${date ? `?date=${date}` : ''}`).then((raw: any) => ({
+  nextNumber: (date?: string, isService = false) =>
+    get<any>(`/receptions/next-number?date=${date ?? ''}${isService ? '&service=1' : ''}`).then((raw: any) => ({
       nextNo: raw.nextNo ?? raw.next_no ?? '',
       seq:    Number(raw.seq ?? 0),
       note:   raw.note ?? '',

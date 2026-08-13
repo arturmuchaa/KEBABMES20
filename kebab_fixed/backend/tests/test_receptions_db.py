@@ -464,3 +464,54 @@ def test_zapisany_skan_jest_wyprostowany_i_opisany(db, tmp_path, monkeypatch):
     assert opis.startswith("Przyjęcie 1/08 — nr porządkowy ")
     assert "6000 kg" in opis and "4000 kg" in opis
     assert "?" not in opis
+
+
+def _uslugowe(**kw):
+    """Dostawa NA USŁUGĘ — wyłącznie mięso z/s klienta (reguła biznesowa)."""
+    return _dto(isService=True, materialTypeId="mat-mieso-zs",
+                groups=[dict(kgReceived=1000.0, supplierBatches=[
+                    dict(supplierBatchNo="U001", kg=1000.0,
+                         slaughterDate="2026-08-10", expiryDate="2026-08-17")])], **kw)
+
+
+def test_usluga_ma_wlasna_numeracje_przyjecia_i_porzadkowa(db):
+    """Prośba właściciela 2026-08-13: przyjęcie na usługę idzie SWOJĄ drogą.
+
+    Zwykłe dostawy stoją już na 2/08, a pierwsza usługa sierpnia i tak
+    dostaje 1/08U — obie serie liczą się niezależnie. Numer porządkowy
+    usługi ma sufiks U od dawna; teraz ma go też dokument dostawy.
+    """
+    _seed_supplier()
+    create_reception(_dto())
+    create_reception(_dto())
+
+    usluga = create_reception(_uslugowe())
+    assert usluga["reception"]["reception_no"] == "1/08U"
+    assert usluga["reception"]["is_service"] is True
+    assert usluga["batches"][0]["internal_batch_no"].endswith("U")
+
+    # Zwykła seria biegnie dalej nietknięta.
+    assert create_reception(_dto())["reception"]["reception_no"] == "3/08"
+    # A usługowa liczy swoje.
+    assert create_reception(_uslugowe())["reception"]["reception_no"] == "2/08U"
+
+
+def test_ten_sam_numer_w_obu_seriach_to_dwa_dokumenty(db):
+    """1/08 i 1/08U współistnieją — dlatego unikat obejmuje też serię."""
+    _seed_supplier()
+    zwykle = create_reception(_dto())["reception"]
+    usluga = create_reception(_uslugowe())["reception"]
+
+    assert zwykle["reception_seq"] == usluga["reception_seq"] == 1
+    assert zwykle["reception_period"] == usluga["reception_period"]
+    assert zwykle["reception_no"] != usluga["reception_no"]
+
+
+def test_litera_u_w_numerze_musi_zgadzac_sie_ze_znacznikiem_uslugi(db):
+    """Numer „1/08U" przy zwykłym przyjęciu = pomyłka: dokument trafiłby do
+    innej serii, niż mówi jego własny numer."""
+    _seed_supplier()
+    with pytest.raises(HTTPException) as e:
+        create_reception(_dto(receptionNo="1/08U", isService=False))
+    assert e.value.status_code == 400
+    assert "usług" in str(e.value.detail).lower()

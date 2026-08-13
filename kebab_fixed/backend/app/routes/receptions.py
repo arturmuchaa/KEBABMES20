@@ -18,9 +18,13 @@ router = APIRouter(prefix="/api/receptions", tags=["receptions"])
 
 # UWAGA: /next-number musi stać PRZED /{reception_id}
 @router.get("/next-number")
-def next_number(when: str = Query("", alias="date")):
-    """Podpowiedź numeru przyjęcia dla dnia (domyślnie dziś)."""
-    return svc.next_delivery_number(when)
+def next_number(when: str = Query("", alias="date"),
+                service: bool = Query(False)):
+    """Podpowiedź numeru przyjęcia dla dnia (domyślnie dziś).
+
+    `service=1` → własna seria przyjęć na usługę („1/08U").
+    """
+    return svc.next_delivery_number(when, service)
 
 
 @router.post("/hdi-scan")

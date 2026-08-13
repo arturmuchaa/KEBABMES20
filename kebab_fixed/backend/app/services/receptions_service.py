@@ -35,29 +35,33 @@ logger = get_logger(__name__)
 SUM_TOLERANCE_KG = 0.01
 
 
-def _seq_key(period: str) -> str:
-    return f"reception_no:{period}"
+def _seq_key(period: str, is_service: bool = False) -> str:
+    """Osobna sekwencja dla przyjęć NA USŁUGĘ — własna seria „1/08U"."""
+    return f"reception_no:{period}{':U' if is_service else ''}"
 
 
 def _today_iso() -> str:
     return date.today().isoformat()
 
 
-def next_delivery_number(when: Optional[str] = None) -> Dict[str, Any]:
+def next_delivery_number(when: Optional[str] = None,
+                         is_service: bool = False) -> Dict[str, Any]:
     """Podpowiedź numeru przyjęcia dla podanego dnia (bez rezerwacji)."""
     day = (when or "")[:10] or _today_iso()
     period = delivery_period(day)
-    row = query_one("SELECT value FROM sequences WHERE key=%s", (_seq_key(period),))
+    row = query_one("SELECT value FROM sequences WHERE key=%s",
+                    (_seq_key(period, is_service),))
     nxt = int(row["value"]) + 1 if row else 1
     return {
-        "nextNo": format_delivery_no(nxt, day),
+        "nextNo": format_delivery_no(nxt, day, is_service),
         "seq": nxt,
         "period": period,
         "note": "Numer zostanie potwierdzony przy zapisie",
     }
 
 
-def _allocate_no_cx(conn, day: str, custom: str) -> tuple[str, int, str]:
+def _allocate_no_cx(conn, day: str, custom: str,
+                    is_service: bool = False) -> tuple[str, int, str]:
     """Numer przyjęcia: wpisany ręcznie albo kolejny z sekwencji miesiąca.
 
     Numer ręczny synchronizuje sekwencję do max(dotychczasowa, podana), żeby
@@ -66,7 +70,16 @@ def _allocate_no_cx(conn, day: str, custom: str) -> tuple[str, int, str]:
     """
     parsed = parse_delivery_no(custom)
     if parsed is not None:
-        seq, month = parsed
+        seq, month, wpisana_usluga = parsed
+        # Litera „U" w numerze musi zgadzać się z tym, czy dostawa jest na
+        # usługę — inaczej dokument trafiłby do serii innej, niż mówi jego
+        # własny numer (i pod inne numery porządkowe).
+        if wpisana_usluga != is_service:
+            raise HTTPException(
+                400,
+                f"Numer {custom} należy do serii "
+                f"{'usługowej' if wpisana_usluga else 'zwykłej'}, a przyjęcie jest "
+                f"{'na usługę' if is_service else 'zwykłe'}. Popraw numer albo znacznik usługi.")
         # Numer nie niesie już roku, więc rok bierzemy z DATY DOSTAWY.
         # Miesiąc musi się z nią zgadzać — inaczej dokument wylądowałby
         # w innym miesiącu, niż mówi jego własny numer.
@@ -76,17 +89,18 @@ def _allocate_no_cx(conn, day: str, custom: str) -> tuple[str, int, str]:
                 f"Numer {custom} wskazuje miesiąc {month:02d}, a data dostawy "
                 f"{day} jest z miesiąca {day[5:7]}. Popraw numer albo datę.")
         period = delivery_period(day)
-        no = format_delivery_no(seq, day)
+        no = format_delivery_no(seq, day, is_service)
         if cx_query_one(
                 conn,
-                "SELECT 1 FROM receptions WHERE reception_period=%s AND reception_seq=%s",
-                (period, seq)):
+                "SELECT 1 FROM receptions WHERE reception_period=%s AND reception_seq=%s "
+                "AND COALESCE(is_service,false)=%s",
+                (period, seq, is_service)):
             raise HTTPException(409, f"Przyjęcie {no} już istnieje w tym miesiącu")
         cx_execute(
             conn,
             "INSERT INTO sequences (key, value) VALUES (%s, %s) "
             "ON CONFLICT (key) DO UPDATE SET value = GREATEST(sequences.value, EXCLUDED.value)",
-            (_seq_key(period), seq),
+            (_seq_key(period, is_service), seq),
         )
         return no, seq, period
 
@@ -95,28 +109,29 @@ def _allocate_no_cx(conn, day: str, custom: str) -> tuple[str, int, str]:
         conn,
         "INSERT INTO sequences (key, value) VALUES (%s, 1) "
         "ON CONFLICT (key) DO UPDATE SET value = sequences.value + 1 RETURNING value",
-        (_seq_key(period),),
+        (_seq_key(period, is_service),),
     )
     seq = int(row["value"])
-    return format_delivery_no(seq, day), seq, period
+    return format_delivery_no(seq, day, is_service), seq, period
 
 
 def _insert_reception_cx(conn, *, day: str, supplier_id: str, supplier_name: str,
                          document_no: str, notes: str, custom_no: str = "",
-                         hdi_no: str = "", doc_kg=None, doc_containers=None) -> Dict:
-    no, seq, period = _allocate_no_cx(conn, day, custom_no)
+                         hdi_no: str = "", doc_kg=None, doc_containers=None,
+                         is_service: bool = False) -> Dict:
+    no, seq, period = _allocate_no_cx(conn, day, custom_no, is_service)
     return cx_execute_returning(
         conn,
         """
         INSERT INTO receptions
             (id, reception_no, reception_seq, reception_period, received_date,
              supplier_id, supplier_name, document_no, hdi_no, doc_kg,
-             doc_containers, notes, created_at)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *
+             doc_containers, notes, is_service, created_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *
         """,
         (cuid(), no, seq, period, day, supplier_id, supplier_name or "",
          document_no or "", hdi_no or "", doc_kg, doc_containers,
-         notes or "", now_iso()),
+         notes or "", bool(is_service), now_iso()),
     )
 
 
@@ -204,7 +219,8 @@ def create_reception(dto: ReceptionCreate) -> Dict[str, Any]:
             conn, day=day, supplier_id=dto.supplier_id,
             supplier_name=sup["name"] if sup else "", document_no=dto.document_no,
             notes=dto.notes, custom_no=dto.reception_no, hdi_no=dto.hdi_no,
-            doc_kg=dto.doc_kg, doc_containers=dto.doc_containers)
+            doc_kg=dto.doc_kg, doc_containers=dto.doc_containers,
+            is_service=dto.is_service)
 
         batches: List[Dict] = []
         seq = 0

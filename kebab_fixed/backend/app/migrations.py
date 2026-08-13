@@ -1022,8 +1022,12 @@ _DDL: list[str] = [
     # w każdym sierpniu, bo zakład tak go zapisuje na kartach HACCP.
     # Unikalności pilnuje prawdziwy klucz: miesiąc dostawy + numer w miesiącu.
     "DROP INDEX IF EXISTS uq_receptions_no",
-    "CREATE UNIQUE INDEX IF NOT EXISTS uq_receptions_period_seq "
-    "ON receptions(reception_period, reception_seq)",
+    # Przyjęcie NA USŁUGĘ ma własną serię („1/08U"), więc ta sama para
+    # (miesiąc, numer) występuje legalnie dwa razy — raz w każdej serii.
+    "ALTER TABLE receptions ADD COLUMN IF NOT EXISTS is_service BOOLEAN NOT NULL DEFAULT false",
+    "DROP INDEX IF EXISTS uq_receptions_period_seq",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_receptions_period_seq_series "
+    "ON receptions(reception_period, reception_seq, is_service)",
     # HDI dostawcy ma WŁASNY numer („33656") i osobno wskazuje dokument
     # handlowy („do dokumentu: WZ 388/MDU/08/2026"). Karta 1.1.1 kol. (e)
     # dopuszcza jedno albo drugie, więc trzymamy oba.

@@ -243,7 +243,7 @@ export function useCreateReception(
     // porządkowego (ciągły). Podpowiedzi, nie fakty — oba nadaje backend przy
     // zapisie, więc równoległe przyjęcie z drugiego stanowiska nic nie psuje.
     try {
-      const r = await receptionsApi.nextNumber(day)
+      const r = await receptionsApi.nextNumber(day, isService)
       setSuggestedReceptionNo(r.nextNo)
     } catch { setSuggestedReceptionNo('') }
     try {

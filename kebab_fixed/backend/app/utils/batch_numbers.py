@@ -46,7 +46,7 @@ _PROD_COMBINED_NO_RE = re.compile(r"^PPP\d+$")
 _PROD_MIXED_NO_RE = re.compile(r"^PM\d+$")
 
 
-_DELIVERY_NO_RE = re.compile(r"^(\d+)\s*/\s*(\d{1,2})(?:\s*/\s*\d{2,4})?$")
+_DELIVERY_NO_RE = re.compile(r"^(\d+)\s*/\s*(\d{1,2})(?:\s*/\s*\d{2,4})?\s*([Uu])?$")
 
 
 def _as_date(when: Union[str, date, datetime]) -> date:
@@ -58,7 +58,8 @@ def _as_date(when: Union[str, date, datetime]) -> date:
     return when
 
 
-def format_delivery_no(seq: int, when: Union[str, date, datetime]) -> str:
+def format_delivery_no(seq: int, when: Union[str, date, datetime],
+                      is_service: bool = False) -> str:
     """Numer PRZYJĘCIA (dokument całej dostawy): ``12/08``.
 
     Numer kolejnej dostawy w miesiącu + miesiąc dwucyfrowy. Dokładnie tak
@@ -69,18 +70,26 @@ def format_delivery_no(seq: int, when: Union[str, date, datetime]) -> str:
     miesiąc, więc rok wynika z samego dokumentu. Do 2026-08-12 MES dopisywał
     rok („12/08/2026") i rozjeżdżał się z papierem.
 
+    Przyjęcie NA USŁUGĘ ma WŁASNĄ serię z sufiksem ``U`` (``1/08U``) — tak
+    samo, jak własną serię mają jego numery porządkowe (``55U``). Bez litery
+    pierwsza usługa sierpnia i pierwsza zwykła dostawa sierpnia byłyby
+    dwoma dokumentami o tym samym numerze.
+
     Konsekwencja: sam numer NIE jest unikalny w skali lat (``1/08`` wróci
-    w sierpniu przyszłego roku). Unikalności pilnuje para
-    (``reception_period``, ``reception_seq``) — patrz `_allocate_no_cx`.
+    w sierpniu przyszłego roku). Unikalności pilnuje trójka
+    (``reception_period``, ``reception_seq``, ``is_service``) — patrz
+    `_allocate_no_cx`.
     """
     if int(seq) < 1:
         raise ValueError("Numer przyjęcia musi być >= 1")
     d = _as_date(when)
-    return f"{int(seq)}/{d.month:02d}"
+    return f"{int(seq)}/{d.month:02d}{'U' if is_service else ''}"
 
 
 def parse_delivery_no(raw: Optional[str]) -> Optional[tuple[int, int, int]]:
-    """``"12/08"`` → ``(12, 8)``. Puste = ``None`` (numer nada sekwencja).
+    """``"12/08"`` → ``(12, 8, False)``, ``"1/08U"`` → ``(1, 8, True)``.
+
+    Puste = ``None`` (numer nada sekwencja).
 
     Rok dopisany na końcu („12/08/2026") jest PRZYJMOWANY i pomijany — numery
     sprzed zmiany formatu wciąż dają się wpisać ręcznie, a rok i tak wynika
@@ -93,13 +102,13 @@ def parse_delivery_no(raw: Optional[str]) -> Optional[tuple[int, int, int]]:
         return None
     m = _DELIVERY_NO_RE.match(s)
     if not m:
-        raise ValueError("Numer przyjęcia ma postać 12/08 (numer/miesiąc)")
+        raise ValueError("Numer przyjęcia ma postać 12/08, a na usługę 12/08U")
     seq, month = int(m.group(1)), int(m.group(2))
     if seq < 1:
         raise ValueError("Numer przyjęcia musi być >= 1")
     if not 1 <= month <= 12:
         raise ValueError("Miesiąc w numerze przyjęcia musi być z zakresu 1-12")
-    return (seq, month)
+    return (seq, month, bool(m.group(3)))
 
 
 def delivery_period(when: Union[str, date, datetime]) -> str:

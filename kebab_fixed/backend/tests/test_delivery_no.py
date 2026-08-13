@@ -47,12 +47,12 @@ def test_format_delivery_no_rejects_seq_below_one():
 
 # --- parse_delivery_no -----------------------------------------------------
 def test_parse_delivery_no_roundtrips():
-    assert parse_delivery_no("12/08") == (12, 8)
+    assert parse_delivery_no("12/08") == (12, 8, False)
 
 
 def test_parse_delivery_no_tolerates_whitespace_and_padding():
     # Operator przepisuje numer z kartki — „ 07/08 " ma zadziałać.
-    assert parse_delivery_no(" 07/08 ") == (7, 8)
+    assert parse_delivery_no(" 07/08 ") == (7, 8, False)
 
 
 def test_parse_delivery_no_blank_is_none():
@@ -77,11 +77,31 @@ def test_delivery_period_is_year_month():
 def test_numer_z_rokiem_wciaz_da_sie_wpisac_recznie():
     """Numery sprzed zmiany formatu krążą po dokumentach i notatkach — rok
     przyjmujemy i pomijamy, zamiast odrzucać wpis jako błędny."""
-    assert parse_delivery_no("12/08/2026") == (12, 8)
-    assert parse_delivery_no("12/08") == (12, 8)
+    assert parse_delivery_no("12/08/2026") == (12, 8, False)
+    assert parse_delivery_no("12/08") == (12, 8, False)
 
 
 def test_ten_sam_numer_wraca_w_kolejnym_roku():
     """Świadoma konsekwencja formatu bez roku: unikalności pilnuje
     (reception_period, reception_seq), a nie sam numer."""
     assert format_delivery_no(1, dt.date(2026, 8, 1)) == format_delivery_no(1, dt.date(2027, 8, 1))
+
+
+# --- seria usługowa --------------------------------------------------------
+def test_przyjecie_na_usluge_ma_wlasna_serie_z_litera_u():
+    """„1/08U" — tak samo, jak własną serię mają numery porządkowe („55U")."""
+    assert format_delivery_no(1, dt.date(2026, 8, 13), True) == "1/08U"
+    assert format_delivery_no(12, "2026-08-13", is_service=True) == "12/08U"
+
+
+def test_seria_uslugowa_nie_miesza_sie_ze_zwykla():
+    """Ten sam numer w obu seriach to DWA różne dokumenty — dlatego litera
+    jest konieczna, a nie ozdobna."""
+    assert format_delivery_no(1, dt.date(2026, 8, 13)) != \
+           format_delivery_no(1, dt.date(2026, 8, 13), True)
+
+
+def test_parse_rozpoznaje_serie_uslugowa():
+    assert parse_delivery_no("1/08U") == (1, 8, True)
+    assert parse_delivery_no("1/08u") == (1, 8, True)   # operator pisze małą literą
+    assert parse_delivery_no("1/08") == (1, 8, False)
