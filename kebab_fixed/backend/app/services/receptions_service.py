@@ -22,8 +22,8 @@ from app.db import (cx_execute, cx_execute_returning, cx_query_all, cx_query_one
 from app.logging_config import get_logger
 from app.models.raw_batches import RawBatchCreate
 from app.models.receptions import ReceptionCreate, ReceptionGroupIn
-from app.services.hdi_scan_store import attach as attach_hdi_scan
-from app.services.hdi_scan_store import save_temp
+from app.services.hdi_scan_store import attach_bytes, take_temp
+from app.services.hdi_scan_render import caption_for, prepare_scan
 from app.services.raw_batches_service import create_batch_cx
 from app.utils.batch_numbers import delivery_period, format_delivery_no, parse_delivery_no
 from app.utils.ids import cuid, now_iso
@@ -257,7 +257,9 @@ def create_reception(dto: ReceptionCreate) -> Dict[str, Any]:
     # zapisał przyjęcia, mógł zrezygnować, a porzucone próby nie mają po co
     # trafiać do archiwum dokumentów.
     if dto.hdi_scan_id:
-        nazwa = attach_hdi_scan(dto.hdi_scan_id, reception["id"])
+        wzięty = take_temp(dto.hdi_scan_id)
+        nazwa = _store_scan(reception["id"], reception["reception_no"], batches,
+                            *wzięty) if wzięty else None
         if nazwa:
             from app.db import execute as _execute
             _execute("UPDATE receptions SET hdi_scan=%s WHERE id=%s", (nazwa, reception["id"]))
@@ -320,6 +322,17 @@ def get_reception(reception_id: str) -> Dict:
     return _attach_details(rec)
 
 
+def _store_scan(reception_id: str, reception_no: str, batches, data: bytes,
+                suffix: str) -> Optional[str]:
+    """Skan → archiwum: prostujemy do pionu i drukujemy opis nad dokumentem.
+
+    Opis zastępuje to, co dotąd dopisywano długopisem („472" w rogu skanu
+    z 12.08): do jakich numerów porządkowych trafiła ta dostawa.
+    """
+    gotowe, suf = prepare_scan(data, suffix, caption_for(reception_no, batches))
+    return attach_bytes(gotowe, suf, reception_id)
+
+
 def attach_scan(reception_id: str, data: bytes, filename: str) -> Dict:
     """Dopina skan HDI do przyjęcia JUŻ ZAPISANEGO.
 
@@ -337,7 +350,8 @@ def attach_scan(reception_id: str, data: bytes, filename: str) -> Dict:
     from pathlib import Path
 
     poprzedni = rec.get("hdi_scan") or ""
-    nazwa = attach_hdi_scan(save_temp(data, Path(filename or "").suffix), rec["id"])
+    nazwa = _store_scan(rec["id"], rec.get("reception_no") or "",
+                        rec.get("batches") or [], data, Path(filename or "").suffix)
     if not nazwa:
         raise HTTPException(500, "Nie udało się zapisać skanu na serwerze")
 

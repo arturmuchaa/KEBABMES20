@@ -428,3 +428,39 @@ def test_reczny_numer_musi_zgadzac_sie_z_miesiacem_dostawy(db):
         create_reception(_dto(receivedDate="2026-08-11", receptionNo="5/07"))
     assert e.value.status_code == 400
     assert "miesi" in str(e.value.detail).lower()
+
+
+def test_zapisany_skan_jest_wyprostowany_i_opisany(db, tmp_path, monkeypatch):
+    """Pełna droga: skan z poczekalni → archiwum jako PDF w pionie z opisem.
+
+    Pilnuje przede wszystkim tego, czego nie widać w testach jednostkowych:
+    czy partie zwrócone przy zapisie mają pola, z których budujemy opis
+    („475: 4605 kg"). Literówka w nazwie pola dałaby „?: 0 kg" na dokumencie.
+    """
+    from io import BytesIO
+
+    from PIL import Image
+
+    from app.services import hdi_scan_store as store
+    from app.services.hdi_scan_render import caption_for
+
+    _scans_in(monkeypatch, tmp_path)
+    _seed_supplier()
+
+    buf = BytesIO()
+    Image.new("RGB", (600, 400), "white").save(buf, "JPEG")
+    scan_id = store.save_temp(buf.getvalue(), ".jpg")
+
+    out = create_reception(_dto(hdiScanId=scan_id))
+    rec = out["reception"]
+
+    # Obrobiony: wszedł JPEG, w archiwum leży PDF.
+    plik = store.find_attached(
+        query_one("SELECT hdi_scan FROM receptions WHERE id=%s", (rec["id"],))["hdi_scan"])
+    assert plik is not None and plik.read_bytes().startswith(b"%PDF")
+
+    # Opis zbudowany z TYCH partii ma prawdziwe numery i kilogramy.
+    opis = caption_for(rec["reception_no"], out["batches"])
+    assert opis.startswith("Przyjęcie 1/08 — nr porządkowy ")
+    assert "6000 kg" in opis and "4000 kg" in opis
+    assert "?" not in opis

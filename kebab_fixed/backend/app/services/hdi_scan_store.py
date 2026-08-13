@@ -103,6 +103,42 @@ def attach(scan_id: str, reception_id: str) -> Optional[str]:
     return cel.name
 
 
+def attach_bytes(data: bytes, suffix: str, reception_id: str) -> Optional[str]:
+    """Zapisuje GOTOWE bajty jako załącznik przyjęcia. Zwraca nazwę pliku.
+
+    Osobno od `attach()`, bo skan przed archiwizacją przechodzi obróbkę
+    (pion + opis, patrz `hdi_scan_render`) i do katalogu trafia już inna
+    zawartość niż ta z poczekalni.
+    """
+    if not is_safe_id(reception_id) or not data:
+        return None
+    cel_dir = settings.hdi_scans_dir
+    cel_dir.mkdir(parents=True, exist_ok=True)
+    cel = cel_dir / f"{reception_id}{_safe_suffix(suffix)}"
+    try:
+        cel.write_bytes(data)
+    except OSError as exc:
+        logger.warning("hdi_scan.attach_failed", extra={"error": str(exc)})
+        return None
+    logger.info("hdi_scan.attached", extra={"reception": reception_id})
+    return cel.name
+
+
+def take_temp(scan_id: str) -> Optional[tuple[bytes, str]]:
+    """Wyjmuje skan z poczekalni: (bajty, rozszerzenie). Plik kasuje."""
+    zrodlo = find_temp(scan_id)
+    if not zrodlo:
+        return None
+    try:
+        dane = zrodlo.read_bytes()
+        suffix = zrodlo.suffix
+        zrodlo.unlink(missing_ok=True)
+        return dane, suffix
+    except OSError as exc:
+        logger.warning("hdi_scan.take_temp_failed", extra={"error": str(exc)})
+        return None
+
+
 def find_attached(filename: str) -> Optional[Path]:
     """Plik załącznika po nazwie zapisanej w bazie."""
     if not filename or "/" in filename or "\\" in filename or ".." in filename:
