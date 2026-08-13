@@ -1026,12 +1026,28 @@ interface PlanFormProps {
   onClose:       () => void
   initialPlan?:  ProductionPlan   // gdy edycja
   existingPlans?: ProductionPlan[] // do ostrzeżenia "jeden dzień = jeden plan"
+  /** Pełna strona (edytor) zamiast modala — bez własnego okna przewijania.
+   *  W modalu formularz MUSI mieć ograniczoną wysokość i swój scroll;
+   *  na stronie to samo ograniczenie robiło „okno w oknie" i zostawiało
+   *  puste pole na dole, zwłaszcza po pomniejszeniu widoku do 50–70%. */
+  fullPage?:     boolean
 }
 
-export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFormProps) {
+export function PlanForm({ onSave, onClose, initialPlan, existingPlans, fullPage }: PlanFormProps) {
   const clientDisplay = useClientNames()
   const { data: orders }      = useApi(() => clientOrdersApi.list('confirmed'))
-  const { data: seasonedApi } = useApi(() => seasonedMeatApi.list())
+  // EDYCJA planu musi widzieć TAKŻE partie w 100% zarezerwowane przez TEN plan.
+  // Lista „do zaplanowania" filtruje kg_free > 0, więc własne mięso planu
+  // znikało z niej całkowicie — withOwnReservations nie miało czego oddać
+  // i formularz pokazywał gigantyczny brak (KIRMIZI „brakuje 5453 kg", mimo
+  // że plan sam trzymał 5705 kg na trzech partiach).
+  const { data: seasonedApi } = useApi(
+    () => initialPlan
+      ? seasonedMeatApi.all().then(rows =>
+          (rows ?? []).filter((s: any) => s.status !== 'depleted'))
+      : seasonedMeatApi.list(),
+    [initialPlan?.id],
+  )
   const { data: pkgList }     = useApi(() => packagingApi.list())
   const { data: clientList }  = useApi(() => clientsApi.list())
   const { productTypes }      = useProductTypes()
@@ -1257,7 +1273,7 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
   }
 
   return (
-    <div className="space-y-4 max-h-[85vh] overflow-y-auto pr-1">
+    <div className={fullPage ? 'space-y-4' : 'space-y-4 max-h-[85vh] overflow-y-auto pr-1'}>
       {/* Data + import */}
       <div className="flex gap-3 items-end flex-wrap">
         <div>

@@ -89,3 +89,29 @@ describe('withOwnReservations', () => {
     expect(out[0]).toMatchObject({ recipeId: 'r1', batchNo: 'B-1', kgFree: 150 })
   })
 })
+
+describe('partia zarezerwowana W CAŁOŚCI przez edytowany plan', () => {
+  // Incydent 13.08: KIRMIZI 470 i 472 były w 100% zarezerwowane przez
+  // edytowany plan. Lista „do zaplanowania" filtruje kg_free > 0, więc te
+  // partie w ogóle do formularza nie docierały — nie było czego oddać
+  // i plan świecił „brakuje 5453 kg" mimo że sam trzymał 5705 kg.
+  const lines = [{
+    qtyDone: 0,
+    batchAllocation: { '470': { kg: 4278.9, batch_id: 'id-470', pieces: 85 } },
+  }]
+
+  it('oddaje całą rezerwację, gdy partia JEST na liście z zerowym kg_free', () => {
+    const out = withOwnReservations(
+      [{ id: 'id-470', kgFree: 0, kgAvailable: 4278.9 }], lines,
+    )
+    expect(out[0].kgFree).toBe(4278.9)
+  })
+
+  it('nie ma jak oddać, gdy partia zniknęła z listy — stąd wymóg pełnej listy', () => {
+    const out = withOwnReservations(
+      [{ id: 'inna', kgFree: 100, kgAvailable: 100 }], lines,
+    )
+    expect(out.find(s => s.id === 'id-470')).toBeUndefined()
+    expect(out[0].kgFree).toBe(100)
+  })
+})

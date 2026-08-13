@@ -286,8 +286,12 @@ export function SeasonedMeatPage() {
     }
   }
 
-  const raw: any[]        = data ?? []
   const allBatches: any[] = all  ?? []
+  // Magazyn pokazuje TEŻ partie w całości zarezerwowane przez plan produkcji —
+  // fizycznie leżą w chłodni, więc znikanie ich z listy („KIRMIZI nie pokazuje
+  // nic") było mylące. Kolumna Rezerwacja mówi, ile z nich jest zajęte.
+  // `data` (lista „do zaplanowania", kg_free > 0) zostaje na liczniki wolnych kg.
+  const raw: any[]        = allBatches.filter(b => b.status !== 'depleted')
 
   const totalFree     = raw.reduce((s, b) => s + kgFreeOf(b), 0)
   const totalReserved = raw.reduce((s, b) => s + Number(b.kgReserved || 0), 0)

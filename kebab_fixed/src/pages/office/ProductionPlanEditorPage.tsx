@@ -50,7 +50,9 @@ export function ProductionPlanEditorPage() {
   }
 
   return (
-    <div className="space-y-4 animate-fade-in max-w-[1400px] mx-auto">
+    // Bez ograniczenia szerokości: przy pomniejszeniu widoku (50–70%) okno
+    // planowania ma wypełnić całe dostępne pole, a nie zostawiać pustkę.
+    <div className="space-y-4 animate-fade-in">
       <div className="flex items-center gap-3">
         <button onClick={back}
           className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[13px] font-semibold text-ink-2 hover:bg-surface-2 hover:text-ink">
@@ -67,6 +69,7 @@ export function ProductionPlanEditorPage() {
       </div>
 
       <PlanForm
+        fullPage
         initialPlan={editPlan ?? undefined}
         onSave={handleSave}
         onClose={back}
