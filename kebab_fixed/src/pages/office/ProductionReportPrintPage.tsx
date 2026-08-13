@@ -3,13 +3,16 @@
  *
  * Wg AKTUALNEJ księgi HACCP (2026.01.525), nie poprzedniego „Zalecenia
  * produkcyjnego": numer `PK/N/MM/RR`, JEDNA tabela składników (mięso +
- * dodatki + opakowania) z numerem dostawy przy każdej pozycji, dalej
- * terminy przydatności, mrożenie, strata i uwagi.
+ * dodatki + opakowania) z numerem przyjęcia i numerem porządkowym przy
+ * każdej pozycji, dalej terminy przydatności, mrożenie, strata i uwagi.
  *
  * Instrukcja 2.5 czyni z numeru PK spinacz identyfikowalności — dlatego
- * kolumna NUMER DOSTAWY stoi w tej samej tabeli co składnik, a skład partii
- * PP („z wsadu: 440 — 60 kg, 441 — 58 kg") jest i przy mięsie, i przy partii
- * wyrobu. To pytanie pada przy kontroli najczęściej.
+ * NUMER PRZYJĘCIA i NUMER PORZĄDKOWY stoją w tej samej tabeli co składnik.
+ * Kolumna UWAGI zostaje PUSTA poza partią łączoną (PP), gdzie niesie skład
+ * wsadów — to pytanie pada przy kontroli najczęściej.
+ *
+ * Cała karta drukuje się WIELKIMI LITERAMI (text-transform) — czyta ją
+ * kierownik na hali i kontrola.
  *
  * Karta ZAWSZE mieści się na jednej stronie A4 — przy dużym dniu schodzimy
  * progiem gęstości zamiast pozwolić jej zjechać na drugą kartkę.
@@ -93,7 +96,8 @@ export function ProductionReportPrintPage() {
           <tr>
             <th className="w-kind">RODZAJ</th>
             <th>SKŁADNIK</th>
-            <th className="w-del">NUMER DOSTAWY</th>
+            <th className="w-del">NUMER PRZYJĘCIA</th>
+            <th className="w-ord">NUMER PORZĄDKOWY</th>
             <th className="r w-kg">KG</th>
             <th>UWAGI</th>
           </tr>
@@ -103,13 +107,14 @@ export function ProductionReportPrintPage() {
             <tr key={i}>
               <td className="kind">{c.kind}</td>
               <td className="b">{c.name}</td>
-              <td className="mono">{c.deliveryNo || <span className="fill" />}</td>
+              <td className="mono">{c.receptionNo || <span className="fill" />}</td>
+              <td className="mono b">{c.orderNo || '—'}</td>
               <td className="r b">{c.kg == null ? '—' : `${nkg(c.kg)}${c.unit === 'L' ? ' L' : ''}`}</td>
               <td className="note">{c.note}</td>
             </tr>
           ))}
           <tr className="sum">
-            <td colSpan={3}>SUMA</td>
+            <td colSpan={4}>SUMA</td>
             <td className="r">{nkg(k.componentsTotalKg)} kg</td>
             <td>Wykonał: <span className="fill" /></td>
           </tr>
@@ -196,6 +201,8 @@ const CSS = `
   letter-spacing: .05em; margin: 2mm 0 1.5mm; }
 
 .kp table { width: 100%; border-collapse: collapse; margin-bottom: 1.2mm; }
+/* Cała karta wielkimi literami — czyta ją kierownik na hali i kontrola. */
+.kp th, .kp td { text-transform: uppercase; }
 .kp th, .kp td { border: .22mm solid #000; padding: .7mm 1.2mm; text-align: left;
   vertical-align: top; }
 .kp thead th { background: #efefef; font-size: 6.8pt; font-weight: 700; }
@@ -213,7 +220,8 @@ const CSS = `
 .kp .orig { font-family: Arial; font-weight: 400; font-size: 6.4pt; margin-top: .4mm; }
 
 .kp .w-kind { width: 16mm; }
-.kp .w-del  { width: 26mm; }
+.kp .w-del  { width: 22mm; }
+.kp .w-ord  { width: 24mm; }
 .kp .w-kg   { width: 20mm; }
 .kp .meta th { background: #efefef; width: 26mm; font-size: 6.8pt; }
 .kp .sect { background: #dcdcdc; border: .22mm solid #000; border-bottom: 0;

@@ -145,17 +145,19 @@ def _meat_components(seasoned_ids: List[str]) -> List[Dict[str, Any]]:
         if not lots:
             return None
         origin = format_origin(lots)
-        note = name_note
-        if origin:
-            note += f" — z wsadu: {origin}"
+        # Uwagi zostają PUSTE dla zwykłych partii — numer przyjęcia i numer
+        # porządkowy mają własne kolumny. Wypełniamy je tylko przy partii
+        # łączonej (PP), gdzie skład wsadów jest jedyną możliwą odpowiedzią.
+        note = origin
         if approx:
-            note += " (skład zlecenia — sesja sprzed zapisu rozbicia)"
+            note = "rozbicie na kilogramy niezapisane przy masowaniu"
         return {
             "kind": "mięso",
             "name": next((l["material"] for l in lots if l["material"]), "Mięso"),
-            "deliveryNo": ", ".join(
+            "receptionNo": ", ".join(
                 sorted({l["reception_no"] for l in lots if l["reception_no"]})
             ),
+            "orderNo": batch_no,
             "kg": _kg(sum(l["kg"] for l in lots)),
             "unit": "kg",
             "note": note,
@@ -223,13 +225,14 @@ def _meat_components(seasoned_ids: List[str]) -> List[Dict[str, Any]]:
         out.append({
             "kind": "mięso",
             "name": next((w.get("material_name") for w in wsady if w.get("material_name")), "Mięso"),
-            "deliveryNo": ", ".join(
+            "receptionNo": ", ".join(
                 sorted({w.get("reception_no") or "" for w in wsady if w.get("reception_no")})
             ),
+            "orderNo": ", ".join(partie),
             "kg": kg,
             "unit": "kg",
-            "note": (f"partie: {', '.join(partie)} · wsady: {', '.join(numery)} "
-                     f"— rozbicie na kilogramy niezapisane przy masowaniu"),
+            "note": (f"wsady: {', '.join(numery)} — rozbicie na kilogramy "
+                     f"niezapisane przy masowaniu"),
             "batchNo": partie[0] if partie else "",
             "batchNos": partie,
             "origin": "",
@@ -271,7 +274,8 @@ def _ingredient_components(
         out.append({
             "kind": "dodatek",
             "name": i.get("ingredient_name") or "",
-            "deliveryNo": (lot or {}).get("batch_no") or "",
+            "receptionNo": (lot or {}).get("batch_no") or "",
+            "orderNo": "",
             "kg": _kg(float(i.get("qty_per_100kg") or 0) * meat_kg / 100.0),
             "unit": i.get("unit") or "kg",
             "note": "",
@@ -341,7 +345,7 @@ def get_report(plan_date: str, recipe_id: str) -> Dict[str, Any]:
     dodatki = _ingredient_components(recipe_id, meat_kg, day)
     # Instrukcja 2.5 każe wiązać z numerem PK także materiały opakowaniowe.
     opak = [
-        {"kind": "opakowanie", "name": nazwa, "deliveryNo": "",
+        {"kind": "opakowanie", "name": nazwa, "receptionNo": "", "orderNo": "",
          "kg": None, "unit": "", "note": ""}
         for nazwa in sorted({
             g.get("packaging_name") or "" for g in goods if g.get("packaging_name")
