@@ -394,8 +394,58 @@ def get_report(plan_date: str, recipe_id: str) -> Dict[str, Any]:
         })
     batches.sort(key=lambda b: b["batchNo"])
 
+    # ── BILANS: wejście = wyrób + przeniesienie + strata ──────────────
+    # Bez tego karta nie domyka się dla kontroli: masowanie daje np. 5 789,1 kg
+    # przyprawionego, a tego dnia zapakowano 5 730,0 kg — reszta nie zginęła,
+    # tylko poszła na KOLEJNĄ produkcję. Wyliczamy to z alokacji planu tego
+    # dnia (stabilne dla dokumentu), a nie z bieżącego stanu magazynu, który
+    # zmieniałby się po każdym kolejnym zużyciu.
+    alokacja: Dict[str, float] = {}
+    for r in query_all(
+        """
+        SELECT (v.value->>'batch_id') AS bid, SUM((v.value->>'kg')::numeric) AS kg
+        FROM production_plan_lines l JOIN production_plans p ON p.id = l.plan_id
+        CROSS JOIN LATERAL jsonb_each(l.batch_allocation) v(key, value)
+        WHERE p.plan_date = %s AND l.recipe_id = %s AND (v.value ? 'batch_id')
+        GROUP BY 1
+        UNION ALL
+        SELECT (pp.value->>'batch_id'), SUM((pp.value->>'kg')::numeric)
+        FROM production_plan_lines l JOIN production_plans p ON p.id = l.plan_id
+        CROSS JOIN LATERAL jsonb_each(l.batch_allocation) v(key, value)
+        CROSS JOIN LATERAL jsonb_each(COALESCE(v.value->'parts','{}'::jsonb)) pp(key, value)
+        WHERE p.plan_date = %s AND l.recipe_id = %s
+        GROUP BY 1
+        """,
+        (day, recipe_id, day, recipe_id),
+    ):
+        if r.get("bid"):
+            alokacja[r["bid"]] = alokacja.get(r["bid"], 0.0) + _kg(r.get("kg"))
+
+    przeniesione = []
+    for sid in seasoned_ids:
+        sb = query_one(
+            "SELECT batch_no, kg_produced FROM seasoned_meat WHERE id=%s", (sid,)
+        )
+        if not sb:
+            continue
+        reszta = _kg(_kg(sb.get("kg_produced")) - alokacja.get(sid, 0.0))
+        if reszta > 0.05:
+            przeniesione.append({"batchNo": sb.get("batch_no") or "", "kg": reszta})
+    przeniesioneKg = _kg(sum(p["kg"] for p in przeniesione))
+    wejscie = _kg(meat_kg + sum(d["kg"] for d in dodatki))
+    wyrob = _kg(sum(b["kg"] for b in batches))
+
     return {
         "cardNo": card_no_for(str(day), recipe_id),
+        "balance": {
+            "inputKg": wejscie,
+            "producedKg": wyrob,
+            "carryOverKg": przeniesioneKg,
+            "carryOver": przeniesione,
+            # Reszta po odjęciu przeniesienia — do potwierdzenia/wpisania
+            # przy zamrażaniu (STRATA PRODUKCYJNA).
+            "diffKg": _kg(wejscie - wyrob - przeniesioneKg),
+        },
         "planDate": str(day),
         "recipeId": recipe_id,
         "recipeName": (recipe or {}).get("name") or (goods[0].get("recipe_name") or ""),

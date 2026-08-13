@@ -151,6 +151,37 @@ export function ProductionReportPrintPage() {
         </tbody>
       </table>
 
+      {/* BILANS — bez niego karta nie domyka się dla kontroli: masowanie daje
+          więcej przyprawionego, niż zapakowano tego dnia, a reszta nie ginie,
+          tylko idzie na kolejną produkcję. */}
+      <div className="sect">BILANS</div>
+      <table className="bil">
+        <tbody>
+          <tr>
+            <td>WPROWADZONO DO PRODUKCJI (SKŁADNIKI RAZEM)</td>
+            <td className="r b">{nkg(k.balance.inputKg)} kg</td>
+          </tr>
+          <tr>
+            <td>WYPRODUKOWANO WYROBU</td>
+            <td className="r b">{nkg(k.balance.producedKg)} kg</td>
+          </tr>
+          <tr>
+            <td>
+              PRZENIESIONO NA KOLEJNĄ PRODUKCJĘ
+              {k.balance.carryOver.length > 0 && (
+                <span className="orig"> — {k.balance.carryOver
+                  .map((c: any) => `${c.batchNo}: ${nkg(c.kg)} kg`).join(', ')}</span>
+              )}
+            </td>
+            <td className="r b">{nkg(k.balance.carryOverKg)} kg</td>
+          </tr>
+          <tr className="sum">
+            <td>RÓŻNICA (STRATA PRODUKCYJNA)</td>
+            <td className="r">{nkg(k.balance.diffKg)} kg</td>
+          </tr>
+        </tbody>
+      </table>
+
       <div className="sect">ZAMRAŻANIE, OCENA I STRATA</div>
       <table>
         <thead>
@@ -227,6 +258,7 @@ const CSS = `
 .kp .sect { background: #dcdcdc; border: .22mm solid #000; border-bottom: 0;
   font-weight: 700; font-size: 7.4pt; padding: .7mm 1.2mm; letter-spacing: .03em; }
 .kp .sign th { width: 50%; }
+.kp .bil td:last-child { width: 30mm; }
 .kp .foot { display: flex; justify-content: space-between; font-size: 6.4pt; margin-top: .8mm; }
 
 /* Progi gęstości — karta zawsze na jednej stronie A4. */
