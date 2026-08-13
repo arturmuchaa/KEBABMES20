@@ -49,6 +49,7 @@ import { useRecipes } from '@/features/ingredients/hooks'
 import { withOwnReservations } from '@/features/production-plan/planOwnReservations'
 import { allocatePlanMeat, batchIdsFromAllocation, toggleBatchSelection } from '@/features/production-plan/planMeatAllocation'
 import { buildOfficeFinishEntries, officeFinishSummary } from '@/features/production-plan/officeFinish'
+import { splitRemainder, changedAssignments } from '@/features/production-plan/remainderSplit'
 import type { ProductionPlan, ProductionPlanLine, CreatePlanLineDto, ClientOrder } from '@/lib/mockApi'
 
 interface PlanLineForm {
@@ -1560,6 +1561,9 @@ export function ProductionPlanningPage() {
   const navigate = useNavigate()
   const [generatingLine, setGeneratingLine] = useState<string|null>(null)
   const [reprintLine, setReprintLine] = useState<ReprintLine|null>(null)
+  // Rozliczenie pozostałości po zatwierdzeniu produkcji — patrz `finishPlan`.
+  const [closing, setClosing] = useState<{ planNo: string; rows: any[] }|null>(null)
+  const [closingBusy, setClosingBusy] = useState(false)
 
   /**
    * Zamknięcie produkcji PRZEZ BIURO — dopóki hala nie ma kiosku.
@@ -1606,10 +1610,78 @@ export function ProductionPlanningPage() {
       await productionPlansApi.tabletFinish(plan.id, entries)
       await productionPlansApi.officeConfirm(plan.id)
       refetch()
+      await zapytajOPozostalosc(plan)
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Błąd zatwierdzenia produkcji')
       refetch()
     }
+  }
+
+  /**
+   * Pytanie o POZOSTAŁOŚĆ mięsa przyprawionego — jeden pomiar dziennie.
+   *
+   * Kilogramy partii są WYLICZONE z receptury, a realny ubytek (masowanie,
+   * podłoga, ścinki poza wyrób) powstaje tam, gdzie nikt nie waży. Bez tego
+   * pytania karta 2.5.1 podawałaby teorię jako pomiar, a strata produkcyjna
+   * zostawałaby pustym polem. Odpowiedź księgujemy korektą partii
+   * (reconcile), więc różnica ma ślad w ruchach magazynowych.
+   */
+  async function zapytajOPozostalosc(plan: ProductionPlan) {
+    const uzyte = new Set<string>()
+    for (const l of plan.lines ?? []) {
+      for (const id of batchIdsFromAllocation(
+        (l as any).batchAllocation, (l as any).seasonedBatchNos,
+      )) uzyte.add(id)
+    }
+    if (uzyte.size === 0) return
+    try {
+      const wszystkie = await seasonedMeatApi.all()
+      const partie = (wszystkie ?? [])
+        .filter((s: any) => uzyte.has(s.id) && Number(s.kgAvailable || 0) > 0.05)
+      // Pytamy per RECEPTURA — w chłodni nikt nie rozdziela resztek na partie.
+      // Przypisanie do partii robi splitRemainder (FEFO).
+      const wgReceptury = new Map<string, any>()
+      for (const s of partie) {
+        const k = s.recipeId || s.recipeName
+        const g = wgReceptury.get(k) ?? {
+          recipeId: k, recipeName: s.recipeName, teoria: 0, batches: [] as any[],
+        }
+        g.teoria += Number(s.kgAvailable || 0)
+        g.batches.push({
+          id: s.id, batchNo: s.batchNo,
+          theoryKg: Number(s.kgAvailable || 0), expiryDate: s.expiryDate,
+        })
+        wgReceptury.set(k, g)
+      }
+      const rows = [...wgReceptury.values()].map(g => ({
+        ...g,
+        teoria: Math.round(g.teoria * 1000) / 1000,
+        wpis: String(Math.round(g.teoria * 1000) / 1000),
+      }))
+      if (rows.length > 0) setClosing({ planNo: plan.planNo, rows })
+    } catch { /* rozliczenie można zrobić później na magazynie przyprawionego */ }
+  }
+
+  async function zapiszPozostalosc() {
+    if (!closing) return
+    setClosingBusy(true)
+    try {
+      for (const r of closing.rows) {
+        const podane = parseFloat(String(r.wpis).replace(',', '.'))
+        if (!Number.isFinite(podane)) continue
+        for (const a of changedAssignments(splitRemainder(r.batches, podane))) {
+          await (seasonedMeatApi as any).reconcile(a.id, {
+            targetKg: a.targetKg,
+            reason: `rozliczenie produkcji ${closing.planNo} — ubytek masowania/produkcji`,
+            close: a.close,
+          })
+        }
+      }
+      setClosing(null)
+      refetch()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Nie udało się zapisać pozostałości')
+    } finally { setClosingBusy(false) }
   }
 
   async function handleCreate(lines: CreatePlanLineDto[], planDate: string): Promise<string> {
@@ -1658,6 +1730,56 @@ export function ProductionPlanningPage() {
         open={!!reprintLine}
         onClose={() => setReprintLine(null)}
       />
+
+      {/* Pozostałość mięsa po produkcji — jeden pomiar dziennie. Bez niego
+          karta 2.5.1 nie ma realnej straty produkcyjnej, bo kg partii są
+          wyliczone z receptury, a nie zważone. */}
+      <Dialog open={!!closing} onOpenChange={o => { if (!o) setClosing(null) }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Ile mięsa przyprawionego zostało?</DialogTitle>
+          </DialogHeader>
+          <p className="text-[12px] text-muted-foreground -mt-2">
+            Poniższe kilogramy są <strong>wyliczone z receptury</strong>, nie zważone.
+            Podaj, ile realnie zostało z każdej receptury — partie rozdzieli system
+            (FEFO: zostaje najmłodsza). Różnica zostanie zaksięgowana jako strata
+            produkcyjna (masowanie, podłoga, ścinki) i trafi na kartę realizacji.
+          </p>
+          <div className="space-y-2">
+            {(closing?.rows ?? []).map((r, i) => (
+              <div key={r.recipeId} className="flex items-center gap-2 border rounded-lg px-3 py-2">
+                <span className="font-bold text-[12px] flex-1 truncate">{r.recipeName}</span>
+                <span className="text-[10px] text-muted-foreground">
+                  {r.batches.length} parti{r.batches.length === 1 ? 'a' : r.batches.length < 5 ? 'e' : 'i'}
+                  {' · '}wyliczone {fmtKg(r.teoria, 1)} kg
+                </span>
+                <Input
+                  type="number" min="0" step="0.1" value={r.wpis}
+                  onChange={e => setClosing(c => c && ({
+                    ...c, rows: c.rows.map((x, j) => j === i ? { ...x, wpis: e.target.value } : x),
+                  }))}
+                  className="h-8 w-24 text-sm text-right tabular-nums"
+                />
+                <Button variant="outline" size="sm" className="h-8 text-[11px]"
+                  onClick={() => setClosing(c => c && ({
+                    ...c, rows: c.rows.map((x, j) => j === i ? { ...x, wpis: '0' } : x),
+                  }))}>
+                  Nic nie zostało
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="outline" onClick={() => setClosing(null)} disabled={closingBusy}>
+              Rozliczę później
+            </Button>
+            <Button onClick={zapiszPozostalosc} disabled={closingBusy}
+              className="bg-green-600 hover:bg-green-700 text-white">
+              {closingBusy ? 'Zapisuję…' : 'Zapisz pozostałość'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <div className="flex gap-3">
         <div className="grid grid-cols-2 gap-3 flex-1">
           {[
