@@ -2457,6 +2457,13 @@ function mapSeasonedMeat(raw: any): SeasonedMeatBatch {
   } as SeasonedMeatBatch
 }
 
+// Karta 2.5.1 — ZALECENIE PRODUKCYJNE (raport z realizacji produkcji)
+export const productionReportsApi = {
+  days: (limit = 60) => get<any[]>(`/zalecenia-produkcyjne?limit=${limit}`),
+  card: (planDate: string, recipeId: string) =>
+    get<any>(`/zalecenia-produkcyjne/${planDate}/${recipeId}`),
+}
+
 export const seasonedMeatApi = {
   list: () =>
     get<any>('/seasoned-meat').then(r => {
