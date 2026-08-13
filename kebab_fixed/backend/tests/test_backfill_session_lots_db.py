@@ -62,10 +62,11 @@ def test_odtwarza_sklad_partii_pp_z_ruchow(db):
     s1 = _sesja(order, "55U", 200, 1)
     s2 = _sesja(order, "472", 2800, 2)
     s3 = _sesja(order, "PPX", 200, 3)
-    _ruch(order, a, 200, 0.5)          # → sesja 55U
-    _ruch(order, b, 2800, 1.5)         # → sesja 472
-    _ruch(order, a, 40, 2.5)           # → sesja PPX
-    _ruch(order, b, 160, 2.6)          # → sesja PPX
+    # Ruchy powstają PO wpisie sesji — tak jak w finish_mixing_session
+    _ruch(order, a, 200, 1.2)          # → sesja 55U (zamknięta w 1. sekundzie)
+    _ruch(order, b, 2800, 2.2)         # → sesja 472
+    _ruch(order, a, 40, 3.2)           # → sesja PPX
+    _ruch(order, b, 160, 3.3)          # → sesja PPX
 
     _backfill_mixing_session_lots()
 
@@ -82,7 +83,7 @@ def test_nie_odtwarza_gdy_suma_sie_nie_zgadza(db):
     a = _wsad("900")
     order = _zlecenie()
     _sesja(order, "900X", 600, 1)
-    _ruch(order, a, 500, 0.5)
+    _ruch(order, a, 500, 1.2)
 
     _backfill_mixing_session_lots()
 
@@ -95,7 +96,7 @@ def test_nie_rusza_sesji_ktore_juz_maja_rozbicie(db):
     sid = _sesja(order, "910X", 300, 1)
     execute("INSERT INTO mixing_session_lots (id, session_id, meat_stock_id, raw_batch_no, kg) "
             "VALUES (%s,%s,%s,'910',%s)", (cuid(), sid, a, 300))
-    _ruch(order, a, 300, 0.5)
+    _ruch(order, a, 300, 1.2)
 
     _backfill_mixing_session_lots()
 

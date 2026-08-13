@@ -1910,8 +1910,9 @@ def _backfill_mixing_session_lots() -> None:
 
     Źródłem są RUCHY MAGAZYNOWE OUT mięsa — realne kilogramy zdjęte ze stanu
     w tej samej transakcji co sesja, nie ilości planowane. Ruchy układają się
-    w czasie: ruch należy do pierwszej sesji, której `completed_at` jest nie
-    wcześniejszy niż znacznik ruchu.
+    w czasie: ruchy powstają PO wpisie sesji (sesja jest zapisywana najpierw,
+    potem zdejmowane jest mięso), więc ruch należy do OSTATNIEJ sesji
+    zamkniętej nie później niż znacznik ruchu.
 
     STRAŻNIK: suma odtworzonych kg musi zgadzać się z `kg_meat` sesji (±0,05).
     Gdy się nie zgadza, sesji NIE dotykamy — karta pokaże wtedy uczciwą
@@ -1955,7 +1956,8 @@ def _backfill_mixing_session_lots() -> None:
             przydzial = {s["id"]: [] for s in sesje}
             i = 0
             for r in ruchy:
-                while i < len(sesje) - 1 and sesje[i]["completed_at"] < r["created_at"]:
+                while (i + 1 < len(sesje)
+                       and sesje[i + 1]["completed_at"] <= r["created_at"]):
                     i += 1
                 przydzial[sesje[i]["id"]].append(r)
             for s in sesje:
