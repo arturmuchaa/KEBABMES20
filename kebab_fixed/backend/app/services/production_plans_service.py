@@ -59,16 +59,20 @@ MIXED_KEY = "__MIXED__"
 # składana z resztek kilku partii (np. 16,2 + 8,5 + 5,3 kg). Trzy tryby:
 #
 #   "joined" — numer ŁĄCZONY z realnych partii ("471/472"), tak jak
-#              w kebabie komponentowym 70/30. Widać, z czego sztuka jest;
-#              żadnego zbiorczego PM. DOMYŚLNY.
-#   "pm"     — jeden zbiorczy numer PM{n} nadawany przy aktywacji planu
-#              (zachowanie sprzed 13.08.2026).
+#              w kebabie komponentowym 70/30. ODRZUCONE 13.08.2026: ten zapis
+#              ZNACZY JUŻ CO INNEGO — wyrób złożony z dwóch rodzajów mięsa
+#              (udo/filet, indyk). Ta sama forma na sztuce z resztek jednej
+#              receptury myliłaby halę i kontrolę.
+#   "pm"     — jeden zbiorczy numer PM{n} nadawany przy aktywacji planu.
+#              ODRZUCONE: księga HACCP nie przewiduje takiego zapisu partii.
 #   "off"    — takich sztuk NIE składamy; resztka poniżej masy sztuki
-#              zostaje w partii, a niedobór łapie walidacja.
+#              zostaje w partii, a niedobór łapie walidacja. DOMYŚLNY:
+#              dopóki HACCP nie określi, jak zapisać sztukę z dwóch partii,
+#              nie wolno jej tworzyć. Planista dokłada kolejną partię.
 #
 # JEDYNY przełącznik. Kod CZYTAJĄCY PM (etykiety, tablet, WZ) zostaje
 # nietknięty — plany z numerami PM dalej działają.
-MIXED_PIECE_NUMBERING = "joined"
+MIXED_PIECE_NUMBERING = "off"
 
 
 def _mixed_pieces_allowed() -> bool:

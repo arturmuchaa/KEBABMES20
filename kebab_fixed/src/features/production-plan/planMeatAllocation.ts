@@ -23,8 +23,16 @@
  * który backend odrzuci.
  */
 
-/** Czy sztukę wolno złożyć z resztek kilku partii (numer łączony). */
-export const JOIN_LEFTOVER_PIECES = true
+/**
+ * Czy sztukę wolno złożyć z resztek kilku partii.
+ *
+ * WYŁĄCZONE (13.08.2026): nie ma dziś poprawnego numeru dla takiej sztuki.
+ * PM odpada — księga HACCP nie zna takiego zapisu. Numer łączony „a/b" też —
+ * ta forma ZNACZY JUŻ wyrób z dwóch rodzajów mięsa (udo/filet, indyk).
+ * Do czasu ustalenia zapisu z HACCP resztka zostaje w partii.
+ * MUSI odpowiadać backendowemu MIXED_PIECE_NUMBERING.
+ */
+export const JOIN_LEFTOVER_PIECES = false
 
 export interface AllocSeasonedBatch {
   id:           string
@@ -220,4 +228,50 @@ export function allocatePlanMeat(
   }
 
   return { lines: out, freeByBatch: free, usedByBatch }
+}
+
+
+/**
+ * Partie pozycji planu odczytane z zapisanej alokacji.
+ *
+ * `production_plan_lines` NIE ma kolumny `seasoned_batch_ids` — trzyma tylko
+ * partię główną (`seasoned_batch_id`), numery (`seasoned_batch_nos`) i pełną
+ * alokację. Formularz edycji czytał nieistniejące pole, dostawał pustą listę
+ * i spadał na samą partię główną: pozycja wielopartyjna traciła resztę partii
+ * i świeciła „brakuje mięsa" zaraz po kliknięciu ołówka (zgłoszenie 13.08).
+ *
+ * Kolejność = kolejność alokacji, czyli FEFO z planowania. Kubełek sztuki
+ * z resztek trzyma partie w `parts`.
+ */
+export function batchIdsFromAllocation(
+  allocation: Record<string, any> | null | undefined,
+  orderedNos?: string[] | null,
+): string[] {
+  if (!allocation || typeof allocation !== 'object') return []
+
+  const idsOfBucket = (bucket: any): string[] => {
+    if (!bucket || typeof bucket !== 'object') return []
+    const parts = bucket.parts
+    if (parts && typeof parts === 'object') {
+      return Object.values(parts as Record<string, any>)
+        .map(p => (p && typeof p === 'object' ? (p as any).batch_id : null))
+        .filter((x): x is string => typeof x === 'string' && !!x)
+    }
+    return typeof bucket.batch_id === 'string' && bucket.batch_id ? [bucket.batch_id] : []
+  }
+
+  // Kolejność partii steruje przydziałem, więc bierzemy ją z `seasoned_batch_nos`
+  // (tablica Postgresa — zachowuje kolejność zapisu = FEFO z planowania).
+  // Kluczy JSON użyć NIE można: JS porządkuje klucze liczbowopodobne („472")
+  // przed tekstowymi („55U", „PP13"), więc kolejność zapisu ginie.
+  const keys = (orderedNos ?? []).filter(n => n in allocation)
+  for (const k of Object.keys(allocation)) if (!keys.includes(k)) keys.push(k)
+
+  const out: string[] = []
+  for (const k of keys) {
+    for (const id of idsOfBucket(allocation[k])) {
+      if (!out.includes(id)) out.push(id)
+    }
+  }
+  return out
 }

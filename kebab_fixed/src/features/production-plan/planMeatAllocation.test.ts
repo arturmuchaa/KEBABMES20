@@ -15,6 +15,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   allocatePlanMeat,
+  batchIdsFromAllocation,
   lineBatchIds,
   toggleBatchSelection,
 } from './planMeatAllocation'
@@ -58,65 +59,48 @@ describe('lineBatchIds', () => {
   })
 })
 
-describe('allocatePlanMeat — sztuka z resztek dostaje numer łączony', () => {
-  it('1 kg + 19 kg składa sztukę o numerze „A/B"', () => {
+describe('allocatePlanMeat — resztka ZOSTAJE w partii (bez łączenia)', () => {
+  // Sztuki z resztek kilku partii nie tworzymy: PM odpada (brak zapisu
+  // w HACCP), a numer „a/b" znaczy już wyrób z dwóch rodzajów mięsa
+  // (udo/filet, indyk). Do czasu ustalenia zapisu — resztka zostaje.
+  it('1 kg + 19 kg NIE składa sztuki 20 kg', () => {
     const res = allocatePlanMeat(
       [{ qty: '1', kgPerUnit: '20', seasonedBatchIds: ['A', 'B'] }],
       [batch('A', 1), batch('B', 19)],
     )
-    expect(res.lines[0].ok).toBe(true)
-    expect(res.lines[0].pieces).toBe(1)
-    expect(res.lines[0].perBatch).toEqual([])
-    expect(res.lines[0].joined).toEqual([
-      { label: 'A/B', pieces: 1, parts: [
-        { batchId: 'A', batchNo: 'A', kg: 1 },
-        { batchId: 'B', batchNo: 'B', kg: 19 },
-      ] },
-    ])
-    expect(res.freeByBatch.A).toBe(0)
-    expect(res.freeByBatch.B).toBe(0)
+    expect(res.lines[0].ok).toBe(false)
+    expect(res.lines[0].pieces).toBe(0)
+    expect(res.lines[0].joined).toEqual([])
+    // mięso NIETKNIĘTE — planista dokłada kolejną partię
+    expect(res.freeByBatch.A).toBe(1)
+    expect(res.freeByBatch.B).toBe(19)
   })
 
-  it('resztka partii idzie do sztuki łączonej od razu', () => {
-    // 25 kg: A daje 1 całą szt (20 kg), a resztkę 5 kg dokłada do sztuki „A/B"
+  it('resztka poniżej masy sztuki zostaje w partii', () => {
+    // 25 kg: A daje 1 całą szt (20 kg), 5 kg zostaje w partii
     const res = allocatePlanMeat(
       [{ qty: '2', kgPerUnit: '20', seasonedBatchIds: ['A', 'B'] }],
       [batch('A', 25), batch('B', 100)],
     )
     expect(res.lines[0].pieces).toBe(2)
-    expect(res.lines[0].perBatch).toEqual([
-      { batchId: 'A', batchNo: 'A', pieces: 1, kg: 20 },
-    ])
-    expect(res.lines[0].joined[0].label).toBe('A/B')
-    expect(res.freeByBatch.A).toBe(0)
-    expect(res.freeByBatch.B).toBe(85)
+    expect(res.lines[0].perBatch.map(b => [b.batchNo, b.pieces])).toEqual([['A', 1], ['B', 1]])
+    expect(res.freeByBatch.A).toBe(5)
+    expect(res.freeByBatch.B).toBe(80)
   })
 
-  it('brak, gdy nawet z resztek nie złoży się cała sztuka', () => {
-    const res = allocatePlanMeat(
-      [{ qty: '1', kgPerUnit: '20', seasonedBatchIds: ['A', 'B'] }],
-      [batch('A', 1), batch('B', 5)],
-    )
-    expect(res.lines[0].ok).toBe(false)
-    expect(res.lines[0].missingPieces).toBe(1)
-    expect(res.freeByBatch.A).toBe(1)
-  })
-
-  it('REALNY PRZYPADEK 13.08: maksymalne wykorzystanie BEYAZ AFIYET zamyka się', () => {
-    // 1486,2 + 1238,5 + 247,7 kg przy sztuce 30 kg: całych sztuk 98,
-    // 99. powstaje z resztek — front musi to policzyć tak jak backend
+  it('REALNY PRZYPADEK 13.08: maksimum to CAŁE sztuki, reszta jako brak', () => {
+    // 1486,2 + 1238,5 + 247,7 kg przy sztuce 30 kg → 49+41+8 = 98 szt.
+    // 99. sztuki nie ma z czego złożyć: 16,2+8,5+7,7 kg zostaje w partiach.
     const res = allocatePlanMeat(
       [{ qty: '99', kgPerUnit: '30', seasonedBatchIds: ['471', '472', 'PP12'] }],
       [batch('471', 1486.2), batch('472', 1238.5), batch('PP12', 247.7)],
     )
     const l = res.lines[0]
-    expect(l.ok).toBe(true)
-    expect(l.pieces).toBe(99)
+    expect(l.pieces).toBe(98)
+    expect(l.missingPieces).toBe(1)
+    expect(l.joined).toEqual([])
     expect(l.perBatch.map(b => [b.batchNo, b.pieces])).toEqual([
-      ['471', 49], ['472', 40], ['PP12', 8],
-    ])
-    expect(l.joined.map(j => [j.label, j.pieces])).toEqual([
-      ['471/472', 1], ['472/PP12', 1],
+      ['471', 49], ['472', 41], ['PP12', 8],
     ])
   })
 
@@ -191,5 +175,50 @@ describe('allocatePlanMeat — jeden wspólny przebieg po pozycjach', () => {
       [batch('A', 100)],
     )
     expect(res.lines[0].pieces).toBe(1)
+  })
+})
+
+describe('batchIdsFromAllocation', () => {
+  it('czyta wszystkie partie pozycji, nie tylko główną', () => {
+    // REGRESJA 13.08: po kliknięciu ołówka pozycja wielopartyjna gubiła
+    // wszystkie partie poza główną i pokazywała „brakuje mięsa"
+    expect(batchIdsFromAllocation({
+      '55U': { pieces: 8, kg: 240, batch_id: 'id-55U' },
+      '472': { pieces: 51, kg: 1530, batch_id: 'id-472' },
+    }, ['55U', '472'])).toEqual(['id-55U', 'id-472'])
+  })
+
+  it('wyciąga partie ze sztuki z resztek (kubełek parts)', () => {
+    expect(batchIdsFromAllocation({
+      '472': { pieces: 51, kg: 1530, batch_id: 'id-472' },
+      '55U/472': { pieces: 1, kg: 30, parts: {
+        '55U': { kg: 7.7, batch_id: 'id-55U' },
+        '472': { kg: 22.3, batch_id: 'id-472' },
+      } },
+    }, ['472', '55U/472'])).toEqual(['id-472', 'id-55U'])
+  })
+
+  it('KOLEJNOŚĆ z seasoned_batch_nos, nie z kluczy JSON', () => {
+    // JS stawia klucze liczbowopodobne („472") przed tekstowymi („55U"),
+    // więc bez podanej kolejności przydział szedłby inną trasą niż zapisany
+    const alloc = {
+      '55U': { pieces: 8, batch_id: 'id-55U' },
+      '472': { pieces: 51, batch_id: 'id-472' },
+    }
+    expect(Object.keys(alloc)).toEqual(['472', '55U'])          // tak widzi to JS
+    expect(batchIdsFromAllocation(alloc, ['55U', '472'])).toEqual(['id-55U', 'id-472'])
+  })
+
+  it('nie dubluje partii występującej w kilku kubełkach', () => {
+    expect(batchIdsFromAllocation({
+      '470': { pieces: 5, batch_id: 'a' },
+      '470/472': { pieces: 1, parts: { '470': { batch_id: 'a' }, '472': { batch_id: 'b' } } },
+    })).toEqual(['a', 'b'])
+  })
+
+  it('pusta albo wadliwa alokacja nie wywraca formularza', () => {
+    expect(batchIdsFromAllocation({})).toEqual([])
+    expect(batchIdsFromAllocation(null)).toEqual([])
+    expect(batchIdsFromAllocation({ x: null, y: 'nie-obiekt' } as any)).toEqual([])
   })
 })

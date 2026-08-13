@@ -3,11 +3,16 @@
 Przy planie na maksymalne wykorzystanie mięsa ostatnia sztuka bywa składana
 z resztek kilku partii. MIXED_PIECE_NUMBERING decyduje, jaki numer dostaje:
 
-  "joined" (domyślnie) — numer ŁĄCZONY z realnych partii, np. "471/472";
-                         widać, z czego sztuka jest, bez zbiorczego PM
+  "off" (DOMYŚLNIE)    — takich sztuk nie składamy; resztka zostaje w partii.
+                         Powód: nie ma dziś poprawnego numeru — PM nie istnieje
+                         w księdze HACCP, a "a/b" znaczy już wyrób z dwóch
+                         rodzajów mięsa (udo/filet, indyk).
+  "joined"             — numer ŁĄCZONY z realnych partii, np. "471/472"
   "pm"                 — jeden zbiorczy PM{n} (pilnuje go
                          test_compute_allocation_mixed.py)
-  "off"                — takich sztuk nie składamy; resztka zostaje w partii
+
+Oba tryby łączenia zostają sprawne — gdy HACCP określi zapis sztuki z dwóch
+partii, wystarczy przestawić stałą.
 """
 import pytest
 
@@ -31,17 +36,17 @@ def _pool(*rows):
 
 
 @pytest.fixture
-def tryb_off(monkeypatch):
-    monkeypatch.setattr(svc, "MIXED_PIECE_NUMBERING", "off")
+def tryb_joined(monkeypatch):
+    monkeypatch.setattr(svc, "MIXED_PIECE_NUMBERING", "joined")
 
 
-def test_domyslnie_numer_laczony():
-    assert svc.MIXED_PIECE_NUMBERING == "joined"
+def test_domyslnie_nie_laczymy_resztek():
+    assert svc.MIXED_PIECE_NUMBERING == "off"
 
 
-# ── Tryb domyślny: numer łączony ──────────────────────────────────────
+# ── Tryb "joined" (na wypadek, gdy HACCP dopuści taki zapis) ──────────
 
-def test_sztuka_z_resztek_dostaje_numer_obu_partii():
+def test_sztuka_z_resztek_dostaje_numer_obu_partii(tryb_joined):
     # 1 kg z 346 + 19 kg z 347 = sztuka 20 kg → numer "346/347", NIE PM
     locked = _locked([
         {"id": "a", "batch_no": "346", "kg_available": 1.0, "kg_reserved": 0},
@@ -61,7 +66,7 @@ def test_sztuka_z_resztek_dostaje_numer_obu_partii():
     assert "346/347" in nos
 
 
-def test_sztuka_z_trzech_resztek_niesie_trzy_numery():
+def test_sztuka_z_trzech_resztek_niesie_trzy_numery(tryb_joined):
     # przypadek z produkcji 13.08: 16,2 + 8,5 + 5,3 kg = sztuka 30 kg
     locked = _locked([
         {"id": "a", "batch_no": "471", "kg_available": 16.2, "kg_reserved": 0},
@@ -80,7 +85,7 @@ def test_sztuka_z_trzech_resztek_niesie_trzy_numery():
     assert locked["c"]["kg_reserved"] == 5.3  # 2,4 kg zostaje wolne
 
 
-def test_maksymalne_wykorzystanie_zamyka_sie_bez_bledu():
+def test_maksymalne_wykorzystanie_zamyka_sie_bez_bledu(tryb_joined):
     # BEYAZ AFIYET 13.08: 1486,2 + 1238,5 + 247,7 kg, sztuka 30 kg.
     # Samych całych sztuk wychodzi 98 — 99. powstaje z resztek. Resztka
     # każdej partii jest zużywana OD RAZU, więc zamiast jednej sztuki
@@ -110,7 +115,7 @@ def test_maksymalne_wykorzystanie_zamyka_sie_bez_bledu():
     assert round(sum(locked[b]["kg_reserved"] for b in "abc"), 1) == 2970.0
 
 
-def test_czysty_podzial_nie_tworzy_kubelka_laczonego():
+def test_czysty_podzial_nie_tworzy_kubelka_laczonego(tryb_joined):
     locked = _locked([
         {"id": "a", "batch_no": "346", "kg_available": 120.0, "kg_reserved": 0},
         {"id": "b", "batch_no": "347", "kg_available": 360.0, "kg_reserved": 0},
@@ -123,7 +128,7 @@ def test_czysty_podzial_nie_tworzy_kubelka_laczonego():
     assert alloc["347"]["pieces"] == 18
 
 
-def test_dwie_rozne_kombinacje_to_dwa_numery():
+def test_dwie_rozne_kombinacje_to_dwa_numery(tryb_joined):
     # 3 szt × 20 kg z partii 10 / 15 / 35 kg:
     #   346(10)+347(10) → "346/347", potem 347(5)+348(15) → "347/348"
     locked = _locked([
@@ -140,7 +145,7 @@ def test_dwie_rozne_kombinacje_to_dwa_numery():
     assert sum(int(a.get("pieces") or 0) for a in alloc.values()) == 3
 
 
-def test_niedobor_gdy_nawet_resztki_nie_zlozy_sztuki():
+def test_niedobor_gdy_nawet_resztki_nie_zlozy_sztuki(tryb_joined):
     locked = _locked([
         {"id": "a", "batch_no": "346", "kg_available": 1.0, "kg_reserved": 0},
         {"id": "b", "batch_no": "347", "kg_available": 5.0, "kg_reserved": 0},
@@ -167,7 +172,7 @@ def test_pozycje_planu_dziela_pule_po_kolei():
 
 # ── Kebab komponentowy (70/30) ────────────────────────────────────────
 
-def test_komponent_z_dwoch_partii_daje_numer_wszystkich_zrodel():
+def test_komponent_z_dwoch_partii_daje_numer_wszystkich_zrodel(tryb_joined):
     comps = [{"materialTypeId": "udo", "pct": 70}, {"materialTypeId": "filet", "pct": 30}]
     pools = [
         _pool({"bid": "u1", "b_no": "355", "free": 40.0},
@@ -179,7 +184,7 @@ def test_komponent_z_dwoch_partii_daje_numer_wszystkich_zrodel():
     assert alloc["355/357/356"]["pieces"] == 1
 
 
-def test_komponent_czysty_bez_zmian():
+def test_komponent_czysty_bez_zmian(tryb_joined):
     comps = [{"materialTypeId": "udo", "pct": 70}, {"materialTypeId": "filet", "pct": 30}]
     pools = [
         _pool({"bid": "u1", "b_no": "355", "free": 140.0}),
@@ -191,7 +196,7 @@ def test_komponent_czysty_bez_zmian():
 
 # ── Tryb "off": resztka zostaje w partii ──────────────────────────────
 
-def test_off_nie_sklada_sztuki_z_resztek(tryb_off):
+def test_off_nie_sklada_sztuki_z_resztek():
     locked = _locked([
         {"id": "a", "batch_no": "346", "kg_available": 1.0, "kg_reserved": 0},
         {"id": "b", "batch_no": "347", "kg_available": 19.0, "kg_reserved": 0},
@@ -203,7 +208,7 @@ def test_off_nie_sklada_sztuki_z_resztek(tryb_off):
     assert _allocation_kg_per_batch(alloc) == {}
 
 
-def test_off_liczy_niedobor_w_calych_sztukach(tryb_off):
+def test_off_liczy_niedobor_w_calych_sztukach():
     # 2 × 30 kg = 60 kg wolnego, ale ani jednej sztuki 40 kg
     locked = _locked([
         {"id": "a", "batch_no": "346", "kg_available": 30.0, "kg_reserved": 0},

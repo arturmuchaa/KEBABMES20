@@ -47,7 +47,7 @@ import {
 import { useProductTypes } from '@/features/products/hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
 import { withOwnReservations } from '@/features/production-plan/planOwnReservations'
-import { allocatePlanMeat, toggleBatchSelection } from '@/features/production-plan/planMeatAllocation'
+import { allocatePlanMeat, batchIdsFromAllocation, toggleBatchSelection } from '@/features/production-plan/planMeatAllocation'
 import { buildOfficeFinishEntries, officeFinishSummary } from '@/features/production-plan/officeFinish'
 import type { ProductionPlan, ProductionPlanLine, CreatePlanLineDto, ClientOrder } from '@/lib/mockApi'
 
@@ -1121,9 +1121,18 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans, fullPage
       packagingId:      l.packagingId ?? '',
       clientId:         '',
       clientName:       l.clientName ?? '',
-      seasonedBatchIds: (l as any).seasonedBatchNos?.length > 0
-        ? ((l as any).seasonedBatchIds ?? [])
-        : (l.seasonedBatchId ? [l.seasonedBatchId] : []),
+      // Partie pozycji ODCZYTUJEMY Z ALOKACJI: baza nie ma kolumny
+      // `seasoned_batch_ids`, więc pozycja wielopartyjna gubiła wszystkie
+      // partie poza główną zaraz po kliknięciu ołówka i świeciła „brakuje
+      // mięsa" (zgłoszenie 13.08). Kolejność z `seasonedBatchNos`.
+      seasonedBatchIds: (() => {
+        const zAlokacji = batchIdsFromAllocation(
+          (l as any).batchAllocation, (l as any).seasonedBatchNos,
+        )
+        return zAlokacji.length > 0
+          ? zAlokacji
+          : (l.seasonedBatchId ? [l.seasonedBatchId] : [])
+      })(),
       seasonedBatchId:   l.seasonedBatchId ?? '',
       clientOrderId:     l.clientOrderId ?? '',
       clientOrderNo:     l.clientOrderNo ?? '',
