@@ -39,6 +39,7 @@ import {
   Factory,
   Pencil,
   Plus,
+  Printer,
   Square,
   Trash2,
   X,
@@ -1616,6 +1617,16 @@ export function ProductionPlanningPage() {
                       </div>
                     </div>
                     <div className="flex gap-1 items-center">
+                      {/* Kartka dla kierownika produkcji — dopóki hala nie ma kiosku */}
+                      <Button variant="ghost" size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-primary"
+                        title="Drukuj kartę produkcji dla kierownika"
+                        onClick={e=>{
+                          e.stopPropagation()
+                          window.open(`/office/plan-produkcji/druk?planId=${plan.id}`, '_blank')
+                        }}>
+                        <Printer size={13}/>
+                      </Button>
                       {(plan.status==='draft'||plan.status==='active')&&(
                         <Button variant="ghost" size="icon"
                           className="h-7 w-7 text-muted-foreground hover:text-primary"

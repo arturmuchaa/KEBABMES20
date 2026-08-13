@@ -205,6 +205,11 @@ _DDL: list[str] = [
     "ON payroll_kg_adjustments (worker_id, work_date)",
 
     # ── Postęp produkcji per linia (live update z tabletu) ──
+    # Kolejność pozycji planu = kolejność wpisywania przez planistę. Bez tej
+    # kolumny odczyty szły bez ORDER BY, więc baza zwracała pozycje w dowolnej
+    # kolejności (i innej po każdej edycji) — karta produkcji dla kierownika
+    # musi mieć je dokładnie tak, jak je zaplanowano.
+    "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS qty_done INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS worker_entries JSONB NOT NULL DEFAULT '[]'",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS line_status TEXT NOT NULL DEFAULT 'PLANNED'",
@@ -1105,6 +1110,7 @@ def _run_migrations_locked() -> None:
     _backfill_stock_carton_lines()
     _backfill_recipe_ingredients_seq()
     _backfill_byproduct_containers()
+    _backfill_plan_line_position()
     _backfill_receptions()
     _strip_year_from_reception_no()
     _reconcile_deboning_ledger()
@@ -1842,4 +1848,30 @@ def _backfill_byproduct_containers() -> None:
     except Exception as exc:
         logger.warning(
             "migrations.backfill_byproduct_containers.error", extra={"error": str(exc)}
+        )
+
+
+def _backfill_plan_line_position() -> None:
+    """Nadaje position pozycjom planów sprzed tej kolumny.
+
+    Kolejności wpisywania już nie odtworzymy — bierzemy stabilny zastępnik
+    (id), żeby stare plany przynajmniej przestały skakać przy każdym
+    odczycie. Nowe plany dostają position z kolejności formularza."""
+    try:
+        execute(
+            """
+            WITH ordered AS (
+              SELECT id, ROW_NUMBER() OVER (PARTITION BY plan_id ORDER BY id) AS nr
+              FROM production_plan_lines
+              WHERE COALESCE(position, 0) = 0
+            )
+            UPDATE production_plan_lines l
+            SET position = ordered.nr
+            FROM ordered
+            WHERE ordered.id = l.id
+            """
+        )
+    except Exception as exc:
+        logger.warning(
+            "migrations.backfill_plan_line_position.error", extra={"error": str(exc)}
         )

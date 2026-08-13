@@ -648,7 +648,8 @@ def _restore_reservations(conn, plan_id: str, skip_line_ids: set | None = None) 
     pozycje ZAMROŻONE (wyprodukowane): ich rezerwacji nie ruszamy, bo zostają
     w planie nietknięte."""
     old_lines = cx_query_all(
-        conn, "SELECT * FROM production_plan_lines WHERE plan_id=%s", (plan_id,)
+        conn, "SELECT * FROM production_plan_lines WHERE plan_id=%s "
+        "ORDER BY position, id", (plan_id,)
     )
     per_line_kg: list[Dict[str, float]] = []
     touched_ids: set[str] = set()
@@ -690,7 +691,8 @@ def list_plans() -> List[Dict]:
     plans = query_all("SELECT * FROM production_plans ORDER BY created_at DESC")
     for p in plans:
         p["lines"] = query_all(
-            "SELECT * FROM production_plan_lines WHERE plan_id = %s", (p["id"],)
+            "SELECT * FROM production_plan_lines WHERE plan_id = %s "
+            "ORDER BY position, id", (p["id"],)
         )
     return plans
 
@@ -707,24 +709,26 @@ def _insert_line(
     primary_batch_no: str,
     all_batch_nos: list[str],
     allocation: dict,
+    position: int = 0,
 ) -> None:
     cx_execute(
         conn,
         """
         INSERT INTO production_plan_lines
-            (id, plan_id, qty, kg_per_unit, total_kg,
+            (id, plan_id, position, qty, kg_per_unit, total_kg,
              product_type_id, product_type_name, recipe_id, recipe_name,
              packaging_id, packaging_name, seasoned_batch_id, seasoned_batch_no,
              seasoned_batch_nos, batch_allocation,
              client_order_id, client_order_no, client_order_line_id, client_name,
              kg_assigned, status)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s)
         """,
         (
             # Zachowaj id pozycji z DTO (edycja planu — dopasowanie i qty_done);
             # brak = nowa pozycja → nowy cuid.
             str(getattr(line, "id", "") or "") or cuid(),
             plan_id,
+            position,
             line.qty,
             line.kg_per_unit,
             line_kg,
@@ -833,7 +837,7 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
         )
         assert plan is not None
 
-        for line in valid_lines:
+        for pos, line in enumerate(valid_lines, start=1):
             line_kg = round(line.qty * line.kg_per_unit, 3)
             recipe_name, product_type_name, packaging_name = _resolve_line_names(
                 conn, line
@@ -861,12 +865,14 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
                 primary_no,
                 nos,
                 allocation,
+                pos,
             )
             _apply_reservations(conn, allocation)
 
         plan["lines"] = cx_query_all(
             conn,
-            "SELECT * FROM production_plan_lines WHERE plan_id = %s",
+            "SELECT * FROM production_plan_lines WHERE plan_id = %s "
+            "ORDER BY position, id",
             (plan["id"],),
         )
     logger.info("plan.created", extra={"plan_id": plan["id"], "total_kg": total_kg})
@@ -966,7 +972,22 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
                 + "\n".join("• " + s for s in shortfalls),
             )
 
-        for line in editable_lines:
+        # Pozycja porządkowa z PEŁNEJ listy formularza — zamrożone pozycje
+        # zostają w bazie, więc ich kolejność trzeba tylko odświeżyć.
+        pos_by_line_id = {
+            str(l.id or ""): i for i, l in enumerate(valid_lines, start=1)
+        }
+        for l in valid_lines:
+            lid = str(l.id or "")
+            if lid and lid in produced_ids:
+                cx_execute(
+                    conn,
+                    "UPDATE production_plan_lines SET position=%s WHERE id=%s",
+                    (pos_by_line_id[lid], lid),
+                )
+
+        for pos, line in enumerate(editable_lines, start=1):
+            pos = pos_by_line_id.get(str(line.id or ""), pos)
             line_kg = round(line.qty * line.kg_per_unit, 3)
             recipe_name, product_type_name, packaging_name = _resolve_line_names(
                 conn, line
@@ -992,6 +1013,7 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
                 primary_no,
                 nos,
                 allocation,
+                pos,
             )
             _apply_reservations(conn, allocation)
 
@@ -1001,7 +1023,8 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
         assert updated is not None
         updated["lines"] = cx_query_all(
             conn,
-            "SELECT * FROM production_plan_lines WHERE plan_id=%s",
+            "SELECT * FROM production_plan_lines WHERE plan_id=%s "
+            "ORDER BY position, id",
             (plan_id,),
         )
     logger.info("plan.updated", extra={"plan_id": plan_id})
@@ -1056,7 +1079,8 @@ def update_plan_status(plan_id: str, status: str) -> Dict[str, bool]:
         if status == "active":
             lines = cx_query_all(
                 conn,
-                "SELECT * FROM production_plan_lines WHERE plan_id = %s",
+                "SELECT * FROM production_plan_lines WHERE plan_id = %s "
+            "ORDER BY position, id",
                 (plan_id,),
             )
             errors = []
