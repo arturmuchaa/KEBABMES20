@@ -10,14 +10,9 @@ import pytest
 from app.models.production import PlanLineCreate, ProductionPlanCreate
 from app.services.production_plans_service import (
     create_plan,
-    list_plans,
+    get_plan,
     update_plan,
 )
-
-
-def get_plan(plan_id):
-    """Plan po ponownym odczycie z bazy (MES czyta plany przez list_plans)."""
-    return next(p for p in list_plans() if p["id"] == plan_id)
 
 
 def _line(recipe_name, qty=1, kg=10.0, line_id=""):
@@ -81,3 +76,18 @@ def test_dopisana_pozycja_lada_na_swoim_miejscu(plan_trzy_pozycje):
     assert _names(get_plan(plan_trzy_pozycje["id"])) == [
         "NAZAR", "NOWY", "ZAGROS", "POLAT",
     ]
+
+
+def test_get_plan_zwraca_pojedynczy_plan(plan_trzy_pozycje):
+    """Karta produkcji pobiera JEDEN plan po id — bez tego wydruk pokazywał
+    „Nie znaleziono planu" (klient miał metodę byId, backend nie miał trasy)."""
+    plan = get_plan(plan_trzy_pozycje["id"])
+    assert plan["id"] == plan_trzy_pozycje["id"]
+    assert _names(plan) == ["NAZAR", "ZAGROS", "POLAT"]
+
+
+def test_get_plan_nieznane_id_to_404(db):
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as e:
+        get_plan("nie-ma-takiego")
+    assert e.value.status_code == 404

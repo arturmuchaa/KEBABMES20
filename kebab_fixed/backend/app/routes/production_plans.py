@@ -37,6 +37,12 @@ def create_plan(dto: ProductionPlanCreate):
     return svc.create_plan(dto)
 
 
+# Musi stać PO trasach statycznych (""), żeby nie przechwyciło ich {plan_id}.
+@router.get("/{plan_id}")
+def get_plan(plan_id: str):
+    return svc.get_plan(plan_id)
+
+
 @router.put("/{plan_id}")
 def update_plan(plan_id: str, dto: ProductionPlanCreate):
     return svc.update_plan(plan_id, dto)

@@ -687,6 +687,22 @@ def _restore_reservations(conn, plan_id: str, skip_line_ids: set | None = None) 
                 )
 
 
+def get_plan(plan_id: str) -> Dict:
+    """Jeden plan z pozycjami — dla wydruku karty produkcji.
+
+    Karta ciągnie POJEDYNCZY plan po id; bez tej funkcji front musiałby
+    pobierać wszystkie plany i filtrować po stronie przeglądarki."""
+    plan = query_one("SELECT * FROM production_plans WHERE id = %s", (plan_id,))
+    if not plan:
+        raise HTTPException(404, "Plan nie znaleziony")
+    plan["lines"] = query_all(
+        "SELECT * FROM production_plan_lines WHERE plan_id = %s "
+        "ORDER BY position, id",
+        (plan_id,),
+    )
+    return plan
+
+
 def list_plans() -> List[Dict]:
     plans = query_all("SELECT * FROM production_plans ORDER BY created_at DESC")
     for p in plans:
