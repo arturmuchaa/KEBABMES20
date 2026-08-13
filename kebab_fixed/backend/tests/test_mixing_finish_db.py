@@ -14,10 +14,12 @@ from app.services.mixing_service import finish_mixing_session
 
 # ── Seed helpers ────────────────────────────────────────────────────────
 def _seed_raw_batch(rb_id, seq):
+    # internal_batch_no odpowiada seq — tak jak w produkcji („470", „55U”).
+    # Numer partii przyprawionego bierze się z internal_batch_no.
     execute(
         "INSERT INTO raw_batches (id, internal_batch_no, internal_batch_seq, status) "
         "VALUES (%s,%s,%s,'active')",
-        (rb_id, f"RB-{rb_id}", seq),
+        (rb_id, str(seq), seq),
     )
 
 

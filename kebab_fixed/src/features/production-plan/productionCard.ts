@@ -63,7 +63,7 @@ export function formatBatchSplit(
   return parts.map(p => `${p.pieces}x${p.batchNo}`).join(', ')
 }
 
-function lineRow(l: ProductionPlanLine): CardRow {
+function lineRow(l: ProductionPlanLine, clientName: (s: string) => string): CardRow {
   const qty   = Number(l.qty) || 0
   const kgPu  = Number(l.kgPerUnit) || 0
   return {
@@ -72,22 +72,37 @@ function lineRow(l: ProductionPlanLine): CardRow {
     kgPerUnit: kgPu,
     kind:      l.recipeName || l.productTypeName || '',
     sleeve:    l.packagingName || '',
-    client:    l.clientName || '',
+    client:    clientName(l.clientName || ''),
     totalKg:   qty * kgPu,
     batches:   formatBatchSplit((l as any).batchAllocation),
   }
 }
 
+export interface CardOptions {
+  /** Ile wierszy mieści strona — tabela ZAWSZE ma ich tyle (reszta pusta). */
+  rowsPerPage?: number
+  /** Pełna nazwa klienta → nazwa wyświetlana („SZUMERA", nie „SZUMERA sp. z o.o."). */
+  clientName?: (raw: string) => string
+}
+
 /**
  * Wiersze karty w kolejności planowania — pozycja pod pozycją, bez pustych
  * separatorów między klientami (biuro ich nie chce: zjadały miejsce i
- * spychały kartkę na drugą stronę). Puste wiersze tylko na końcu, na dopiski.
+ * spychały kartkę na drugą stronę).
+ *
+ * Tabela ma wyglądać ZAWSZE tak samo, więc dobijamy pustymi wierszami do
+ * pojemności strony; przy planie dłuższym niż strona zostaje zapas na dopiski.
  */
-export function buildProductionCard(plan: ProductionPlan): ProductionCard {
+export function buildProductionCard(
+  plan: ProductionPlan,
+  opts: CardOptions = {},
+): ProductionCard {
   const lines = plan?.lines ?? []
-  const rows: CardRow[] = lines.map(lineRow)
+  const nazwa = opts.clientName ?? ((s: string) => s)
+  const rows: CardRow[] = lines.map(l => lineRow(l, nazwa))
 
-  for (let i = 0; i < BLANK_ROWS; i++) rows.push({ ...EMPTY_ROW })
+  const target = Math.max(opts.rowsPerPage ?? 0, lines.length + BLANK_ROWS)
+  while (rows.length < target) rows.push({ ...EMPTY_ROW })
 
   const totalKg = lines.reduce(
     (s, l) => s + (Number(l.qty) || 0) * (Number(l.kgPerUnit) || 0), 0,

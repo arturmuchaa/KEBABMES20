@@ -84,6 +84,33 @@ describe('buildProductionCard', () => {
     expect(card.rows.filter(r => r.blank)).toHaveLength(BLANK_ROWS)
   })
 
+  it('tabela ZAWSZE ma tyle wierszy, ile mieści strona — reszta pusta', () => {
+    // 3 pozycje na stronie mieszczącej 16 → 13 pustych, kartka wygląda
+    // tak samo jak przy 10 pozycjach (uwaga biura: „musi być zawsze taka sama")
+    const card = buildProductionCard(
+      { planDate: '2026-08-13', lines: [line(), line(), line()] } as any,
+      { rowsPerPage: 16 },
+    )
+    expect(card.rows).toHaveLength(16)
+    expect(card.rows.filter(r => r.blank)).toHaveLength(13)
+  })
+
+  it('plan dłuższy niż strona dostaje zapas na dopiski, nie obcięcie', () => {
+    const lines = Array.from({ length: 20 }, () => line())
+    const card = buildProductionCard(
+      { planDate: '2026-08-13', lines } as any, { rowsPerPage: 16 },
+    )
+    expect(card.rows).toHaveLength(20 + BLANK_ROWS)
+  })
+
+  it('KLIENT pokazuje nazwę wyświetlaną, nie pełną rejestrową', () => {
+    const card = buildProductionCard(
+      { planDate: '2026-08-13', lines: [line({ clientName: 'SZUMERA SP. Z O.O.' })] } as any,
+      { clientName: n => n === 'SZUMERA SP. Z O.O.' ? 'SZUMERA' : n },
+    )
+    expect(card.rows[0].client).toBe('SZUMERA')
+  })
+
   it('liczy ILOŚĆ jako sumę kg pozycji', () => {
     const card = buildProductionCard({
       planDate: '2026-08-13',

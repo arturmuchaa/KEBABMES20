@@ -658,6 +658,27 @@ def auto_approve_mixing(order_id: str) -> Dict:
 
 # ── Finish session (stock movements + lineage + ingredient deduction) ─
 
+def seasoned_batch_no_from_raw(rows: List[Dict[str, Any]]) -> Optional[str]:
+    """Numer partii przyprawionego z wsadów surowca — albo None (→ PP{n}).
+
+    Bierzemy ``internal_batch_no``, NIE ``internal_batch_seq``: przyjęcia
+    NA USŁUGĘ mają sufiks („55U") i przy seq gubiło się „U", przez co partia
+    usługowa wyglądała w systemie jak własna (zgłoszenie 13.08.2026).
+    Seq zostaje kluczem rozróżniającym wsady i awaryjnym numerem dla starych
+    rekordów bez ``internal_batch_no``.
+
+    Jeden wsad → jego numer. Zero albo kilka → None: partia jest mieszana
+    i dostaje wspólny numer PP{n}.
+    """
+    seen: Dict[int, str] = {}
+    for r in rows or []:
+        seq = r.get("internal_batch_seq")
+        if seq is None:
+            continue
+        seen.setdefault(int(seq), str(r.get("internal_batch_no") or seq))
+    return next(iter(seen.values())) if len(seen) == 1 else None
+
+
 def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
     """End a mixing session: produce seasoned_meat + record stock movements.
 
@@ -707,7 +728,7 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
                 raw_seqs = cx_query_all(
                     conn,
                     """
-                    SELECT DISTINCT rb.internal_batch_seq
+                    SELECT DISTINCT rb.internal_batch_seq, rb.internal_batch_no
                     FROM meat_stock ms
                     JOIN raw_batches rb ON rb.id = ms.raw_batch_id
                     WHERE ms.id = ANY(%s) AND rb.internal_batch_seq IS NOT NULL
@@ -718,7 +739,7 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
                 raw_seqs = cx_query_all(
                     conn,
                     """
-                    SELECT DISTINCT rb.internal_batch_seq
+                    SELECT DISTINCT rb.internal_batch_seq, rb.internal_batch_no
                     FROM mixing_order_lots mol
                     LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
                     LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
@@ -727,11 +748,9 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
                     """,
                     (order_id,),
                 )
-            seqs = [r["internal_batch_seq"] for r in raw_seqs if r.get("internal_batch_seq")]
-            if len(seqs) == 1:
-                batch_no = str(seqs[0])
-            else:
-                batch_no = combined_batch_no(next_seq("pp_seq"))
+            batch_no = seasoned_batch_no_from_raw(raw_seqs) or combined_batch_no(
+                next_seq("pp_seq")
+            )
 
         machine_id = order.get("machine_id")
 

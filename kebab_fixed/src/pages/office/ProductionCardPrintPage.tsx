@@ -23,29 +23,17 @@ import { useSearchParams } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
 import { productionPlansApi } from '@/lib/apiClient'
 import { buildProductionCard } from '@/features/production-plan/productionCard'
+import { useClientNames } from '@/lib/clientNames'
 
-// Wysokość obszaru tabeli na A4 poziomo (210 mm) po odjęciu marginesów
-// (2×6 mm), nagłówka kartki (~33 mm) i wiersza nagłówkowego tabeli (8 mm).
-// Zmierzone renderem. 144 zamiast 150 to świadomy zapas: przeglądarka
-// dokłada własny nagłówek/stopkę druku, gdy operator nie wyłączy ich
-// w oknie drukowania — bez zapasu ostatni wiersz schodził na drugą stronę.
-const BODY_MM = 144
-const ROW_MIN_MM = 6.2      // niżej wiersz przestaje być czytelny na hali
-const ROW_MAX_MM = 20       // wyżej kartka to już same linie
-
-function rowHeightMm(rows: number): number {
-  if (rows <= 0) return ROW_MAX_MM
-  return Math.max(ROW_MIN_MM, Math.min(ROW_MAX_MM, BODY_MM / rows))
-}
-
-/** Czcionka rośnie razem z wierszem — mała kartka nie ma być rozstrzelona. */
-function fontPt(rowH: number): number {
-  if (rowH >= 14) return 12
-  if (rowH >= 10) return 11
-  if (rowH >= 8)  return 10
-  if (rowH >= 7)  return 9
-  return 8.5
-}
+// Kartka ma być ZAWSZE taka sama: stała wysokość wiersza i stała czcionka,
+// a resztę strony wypełniają puste pola. Wysokość dobierana do liczby pozycji
+// (6–20 mm) rozjeżdżała układ — przy kilku pozycjach wiersze robiły się
+// ogromne i kartka wyglądała za każdym razem inaczej (uwaga biura 13.08).
+const ROW_MM   = 9        // wysokość wiersza — stała
+const FONT_PT  = 10       // czcionka tabeli — stała
+const BODY_MM  = 144      // obszar tabeli po nagłówku kartki (zmierzone renderem)
+/** Ile wierszy mieści się na stronie — tyle zawsze rysujemy. */
+export const ROWS_PER_PAGE = Math.floor(BODY_MM / ROW_MM)
 
 const fmtDate = (iso: string) => {
   if (!iso) return ''
@@ -54,6 +42,9 @@ const fmtDate = (iso: string) => {
 }
 
 export function ProductionCardPrintPage() {
+  // Na kartce klient ma być pod nazwą wyświetlaną („SZUMERA"), a nie pełną
+  // nazwą rejestrową z formą prawną — kierownik czyta ją w biegu.
+  const clientDisplay = useClientNames()
   const [params] = useSearchParams()
   const planId = params.get('planId') ?? ''
   const isPdf  = params.get('pdf') === '1'
@@ -73,9 +64,10 @@ export function ProductionCardPrintPage() {
   if (loading) return <div style={{ padding: 24, fontFamily: 'Arial' }}>Wczytywanie planu…</div>
   if (!plan)   return <div style={{ padding: 24, fontFamily: 'Arial' }}>Nie znaleziono planu.</div>
 
-  const card = buildProductionCard(plan as any)
-  const rowH = rowHeightMm(card.rows.length)
-  const fs   = fontPt(rowH)
+  const card = buildProductionCard(plan as any, {
+    rowsPerPage: ROWS_PER_PAGE,
+    clientName: clientDisplay,
+  })
 
   return (
     <div className="kpk">
@@ -98,7 +90,7 @@ export function ProductionCardPrintPage() {
         <div><span className="lb">ILOŚĆ:</span> <span className="vl">{Math.round(card.totalKg)}kg</span></div>
       </div>
 
-      <table style={{ fontSize: `${fs}pt` }}>
+      <table style={{ fontSize: `${FONT_PT}pt` }}>
         <thead>
           <tr>
             <th className="tick" />
@@ -113,7 +105,7 @@ export function ProductionCardPrintPage() {
         </thead>
         <tbody>
           {card.rows.map((r, i) => (
-            <tr key={i} style={{ height: `${rowH}mm` }}>
+            <tr key={i} style={{ height: `${ROW_MM}mm` }}>
               <td className="tick" />
               <td className="b">{r.blank ? '' : `${r.qty}szt.`}</td>
               <td className="b">{r.blank ? '' : `${r.kgPerUnit}kg`}</td>
