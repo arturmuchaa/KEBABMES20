@@ -112,9 +112,11 @@ def format_packages(rows: List[Dict[str, Any]]) -> str:
 def _meat_components(seasoned_ids: List[str]) -> List[Dict[str, Any]]:
     """Mięso — jeden wiersz na partię przyprawionego (jeden wsad masownicy).
 
-    Rozbicie wsadów bierzemy z `mixing_session_lots`. Sesje sprzed tego zapisu
-    go nie mają — schodzimy wtedy na skład całego zlecenia i oznaczamy wiersz
-    jako przybliżony, zamiast udawać precyzję, której w danych nie ma.
+    Rozbicie wsadów bierzemy z `mixing_session_lots` (zapis od 13.08.2026).
+    Partie sprzed tego zapisu go nie mają: dla nich wystawiamy JEDEN wiersz
+    na ZLECENIE i wymieniamy partie, które z niego wyszły. Liczenie ich per
+    partia dawałoby wielokrotność tego samego surowca (13 800 kg zamiast
+    4 600), bo każda partia widziałaby skład całego zlecenia.
     """
     if not seasoned_ids:
         return []
@@ -122,11 +124,42 @@ def _meat_components(seasoned_ids: List[str]) -> List[Dict[str, Any]]:
         """
         SELECT sm.batch_no, sm.mixing_order_no
         FROM seasoned_meat sm WHERE sm.id = ANY(%s)
-        ORDER BY sm.batch_no
+        ORDER BY sm.mixing_order_no, sm.batch_no
         """,
         (seasoned_ids,),
     )
+
+    def _row(lots, name_note, batch_no, approx):
+        lots = [
+            {"raw_no": l.get("raw_no") or "", "kg": _kg(l.get("kg")),
+             "material": l.get("material_name") or "",
+             "reception_no": l.get("reception_no") or ""}
+            for l in lots if _kg(l.get("kg")) > 0
+        ]
+        if not lots:
+            return None
+        origin = format_origin(lots)
+        note = name_note
+        if origin:
+            note += f" — z wsadu: {origin}"
+        if approx:
+            note += " (skład zlecenia — sesja sprzed zapisu rozbicia)"
+        return {
+            "kind": "mięso",
+            "name": next((l["material"] for l in lots if l["material"]), "Mięso"),
+            "deliveryNo": ", ".join(
+                sorted({l["reception_no"] for l in lots if l["reception_no"]})
+            ),
+            "kg": _kg(sum(l["kg"] for l in lots)),
+            "unit": "kg",
+            "note": note,
+            "batchNo": batch_no,
+            "origin": origin,
+        }
+
     out: List[Dict[str, Any]] = []
+    bez_rozbicia: Dict[str, List[str]] = {}   # zlecenie → partie (dane starsze)
+
     for b in batches:
         batch_no = b.get("batch_no") or ""
         order_no = b.get("mixing_order_no") or ""
@@ -145,50 +178,34 @@ def _meat_components(seasoned_ids: List[str]) -> List[Dict[str, Any]]:
             """,
             (order_no, batch_no),
         )
-        approx = False
-        if not lots:
-            approx = True
-            lots = query_all(
-                """
-                SELECT rb.internal_batch_no AS raw_no,
-                       COALESCE(mol.kg_actual, mol.kg_planned) AS kg,
-                       ms.material_name, r.reception_no
-                FROM mixing_orders mo
-                JOIN mixing_order_lots mol ON mol.order_id = mo.id
-                LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
-                LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
-                LEFT JOIN receptions r ON r.id = rb.reception_id
-                WHERE mo.order_no = %s
-                ORDER BY rb.internal_batch_seq
-                """,
-                (order_no,),
-            )
-        lots = [
-            {"raw_no": l.get("raw_no") or "", "kg": _kg(l.get("kg")),
-             "material": l.get("material_name") or "",
-             "reception_no": l.get("reception_no") or ""}
-            for l in lots if _kg(l.get("kg")) > 0
-        ]
-        if not lots:
-            continue
-        origin = format_origin(lots)
-        uwagi = f"partia {batch_no}"
-        if origin:
-            uwagi += f" — z wsadu: {origin}"
-        if approx:
-            uwagi += " (skład zlecenia — sesja sprzed zapisu rozbicia)"
-        out.append({
-            "kind": "mięso",
-            "name": next((l["material"] for l in lots if l["material"]), "Mięso"),
-            "deliveryNo": ", ".join(
-                sorted({l["reception_no"] for l in lots if l["reception_no"]})
-            ),
-            "kg": _kg(sum(l["kg"] for l in lots)),
-            "unit": "kg",
-            "note": uwagi,
-            "batchNo": batch_no,
-            "origin": origin,
-        })
+        if lots:
+            row = _row(lots, f"partia {batch_no}", batch_no, False)
+            if row:
+                out.append(row)
+        else:
+            bez_rozbicia.setdefault(order_no, []).append(batch_no)
+
+    # Dane starsze: skład zlecenia liczony RAZ, z wymienionymi partiami.
+    for order_no, partie in bez_rozbicia.items():
+        lots = query_all(
+            """
+            SELECT rb.internal_batch_no AS raw_no,
+                   COALESCE(mol.kg_actual, mol.kg_planned) AS kg,
+                   ms.material_name, r.reception_no
+            FROM mixing_orders mo
+            JOIN mixing_order_lots mol ON mol.order_id = mo.id
+            LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+            LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
+            LEFT JOIN receptions r ON r.id = rb.reception_id
+            WHERE mo.order_no = %s
+            ORDER BY rb.internal_batch_seq
+            """,
+            (order_no,),
+        )
+        row = _row(lots, f"partie: {', '.join(partie)}", partie[0] if partie else "", True)
+        if row:
+            row["batchNos"] = partie
+            out.append(row)
     return out
 
 
@@ -325,7 +342,12 @@ def get_report(plan_date: str, recipe_id: str) -> Dict[str, Any]:
         row["rows"].append(g)
         row["kg"] = _kg(row["kg"] + _kg(g.get("total_kg")))
 
-    origin_by_batch = {m["batchNo"]: m["origin"] for m in meat if m.get("origin")}
+    origin_by_batch: Dict[str, str] = {}
+    for m in meat:
+        if not m.get("origin"):
+            continue
+        for bno in (m.get("batchNos") or [m["batchNo"]]):
+            origin_by_batch[bno] = m["origin"]
     batches = []
     for row in grouped.values():
         short = row["batchNo"].split(" ")[-1] if row["batchNo"] else ""
