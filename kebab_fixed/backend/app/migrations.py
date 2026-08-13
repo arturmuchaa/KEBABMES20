@@ -1138,6 +1138,7 @@ def _run_migrations_locked() -> None:
     _backfill_recipe_ingredients_seq()
     _backfill_byproduct_containers()
     _backfill_plan_line_position()
+    _backfill_mixing_session_lots()
     _backfill_receptions()
     _strip_year_from_reception_no()
     _reconcile_deboning_ledger()
@@ -1901,4 +1902,83 @@ def _backfill_plan_line_position() -> None:
     except Exception as exc:
         logger.warning(
             "migrations.backfill_plan_line_position.error", extra={"error": str(exc)}
+        )
+
+
+def _backfill_mixing_session_lots() -> None:
+    """Odtwarza rozbicie wsadów dla sesji masowania sprzed zapisu tabeli.
+
+    Źródłem są RUCHY MAGAZYNOWE OUT mięsa — realne kilogramy zdjęte ze stanu
+    w tej samej transakcji co sesja, nie ilości planowane. Ruchy układają się
+    w czasie: ruch należy do pierwszej sesji, której `completed_at` jest nie
+    wcześniejszy niż znacznik ruchu.
+
+    STRAŻNIK: suma odtworzonych kg musi zgadzać się z `kg_meat` sesji (±0,05).
+    Gdy się nie zgadza, sesji NIE dotykamy — karta pokaże wtedy uczciwą
+    adnotację zamiast zmyślonego rozbicia.
+    """
+    from app.utils.ids import cuid
+    try:
+        orders = query_all(
+            """
+            SELECT DISTINCT s.order_id
+            FROM mixing_sessions s
+            WHERE NOT EXISTS (
+                SELECT 1 FROM mixing_session_lots l WHERE l.session_id = s.id
+            )
+            """
+        )
+        odtworzone = pominiete = 0
+        for o in orders:
+            order_id = o["order_id"]
+            sesje = query_all(
+                "SELECT id, batch_no, kg_meat, completed_at FROM mixing_sessions "
+                "WHERE order_id=%s ORDER BY completed_at, id",
+                (order_id,),
+            )
+            ruchy = query_all(
+                """
+                SELECT sm.qty, sm.created_at, rb.internal_batch_no AS raw_no,
+                       ms.id AS meat_stock_id
+                FROM stock_movements sm
+                JOIN meat_stock ms ON ms.id = sm.batch_id
+                LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
+                WHERE sm.source_type='mixing' AND sm.source_id=%s
+                  AND sm.movement_type='OUT'
+                ORDER BY sm.created_at, sm.id
+                """,
+                (order_id,),
+            )
+            if not sesje or not ruchy:
+                continue
+            # Przypisanie po czasie: ruch → pierwsza sesja zamknięta nie wcześniej
+            przydzial = {s["id"]: [] for s in sesje}
+            i = 0
+            for r in ruchy:
+                while i < len(sesje) - 1 and sesje[i]["completed_at"] < r["created_at"]:
+                    i += 1
+                przydzial[sesje[i]["id"]].append(r)
+            for s in sesje:
+                lots = przydzial.get(s["id"]) or []
+                suma = sum(abs(float(l["qty"] or 0)) for l in lots)
+                if not lots or abs(suma - float(s["kg_meat"] or 0)) > 0.05:
+                    pominiete += 1
+                    continue
+                for l in lots:
+                    execute(
+                        "INSERT INTO mixing_session_lots "
+                        "(id, session_id, meat_stock_id, raw_batch_no, kg) "
+                        "VALUES (%s,%s,%s,%s,%s)",
+                        (cuid(), s["id"], l["meat_stock_id"],
+                         l.get("raw_no") or "", abs(float(l["qty"] or 0))),
+                    )
+                odtworzone += 1
+        if odtworzone or pominiete:
+            logger.info(
+                "migrations.backfill_mixing_session_lots.done",
+                extra={"sesji_odtworzonych": odtworzone, "sesji_pominietych": pominiete},
+            )
+    except Exception as exc:
+        logger.warning(
+            "migrations.backfill_mixing_session_lots.error", extra={"error": str(exc)}
         )
