@@ -1,12 +1,25 @@
 """Kebab komponentowy (np. 70/30): sztuka składana CELOWO z kilku partii
 (po jednej na komponent) → partia wyrobu "355/356". Resztkowe sztuki,
 w których udział komponentu dosztukowano z 2 partii → kubełek MIXED (PM).
+
+UWAGA: PM jest DOMYŚLNIE WYŁĄCZONE — udział komponentu musi zmieścić się
+w jednej partii (patrz test_allocation_no_mixed.py). Ten plik pilnuje, że
+przełącznik ALLOW_MIXED_PIECES przywraca dosztukowywanie, więc włącza go
+dla wszystkich testów w module.
 """
+import pytest
+
+import app.services.production_plans_service as svc
 from app.services.production_plans_service import (
     MIXED_KEY,
     _allocate_components,
     _allocation_kg_per_batch,
 )
+
+
+@pytest.fixture(autouse=True)
+def _mixed_on(monkeypatch):
+    monkeypatch.setattr(svc, "ALLOW_MIXED_PIECES", True)
 
 COMPS = [
     {"materialTypeId": "mat-cwiartka", "materialName": "Ćwiartka", "pct": 70},

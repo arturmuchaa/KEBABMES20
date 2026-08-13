@@ -54,16 +54,31 @@ def _lock_seasoned_batches(conn, batch_ids: List[str]) -> Dict[str, Dict]:
 # aktywacji planu (_assign_pm_numbers), do tego czasu trzymane pod sentinelem.
 MIXED_KEY = "__MIXED__"
 
+# ── Sztuki mieszane (PM): WYŁĄCZONE ───────────────────────────────────
+# JEDNA SZTUKA = JEDNA PARTIA MIĘSA. Na magazynie przyprawionym leży mięso
+# z gotowymi partiami, więc wyrób ma dostać numer jednej z nich — nie numer
+# zbiorczy PM złożony z resztek. Resztka poniżej masy sztuki zostaje w partii
+# (uzgadnia ją reconcile_seasoned_batch), a brakujące sztuki planista pokrywa
+# dołożeniem kolejnej partii.
+#
+# JEDYNY przełącznik — ustaw True, żeby wrócić do składania sztuk z resztek
+# kilku partii. Kod CZYTAJĄCY PM (etykiety, tablet, WZ, plany historyczne)
+# zostaje nietknięty: plany sprzed zmiany dalej działają.
+ALLOW_MIXED_PIECES = False
+
 
 def _compute_allocation(
     conn, line: PlanLineCreate, line_kg: float, locked: Dict[str, Dict]
 ) -> tuple[list[str], dict, str | None, str]:
     """Rozbij sztuki linii na partie wsadowe.
 
-    Najpierw CAŁE sztuki mieszczące się w jednej partii (każda sztuka jeden
-    numer partii). Sztuki, na które żadna pojedyncza partia już nie ma kg,
-    są składane z resztek kilku partii i trafiają do kubełka ``MIXED_KEY``
-    z rozbiciem kg per partia w ``parts`` — z nich powstaje partia PM.
+    CAŁE sztuki mieszczące się w jednej partii — każda sztuka dostaje jeden
+    numer partii. Sztuki, na które żadna pojedyncza partia nie ma już kg,
+    zostają NIEPRZYDZIELONE (łapie je walidacja niedoborów), a resztka partii
+    poniżej masy sztuki zostaje w magazynie.
+
+    Z ``ALLOW_MIXED_PIECES=True`` takie sztuki są zamiast tego składane
+    z resztek kilku partii do kubełka ``MIXED_KEY`` (partia PM).
 
     Mutuje ``locked`` (podbija kg_reserved w snapshotcie), żeby kolejne
     linie tego samego planu liczyły się na pomniejszonej puli — DB i tak
@@ -115,11 +130,10 @@ def _compute_allocation(
     mixed_pieces = 0
     mixed_parts: dict[str, dict] = {}
 
-    # Partia po partii (kolejność zaznaczenia = FEFO): najpierw całe sztuki
-    # z partii, a jej RESZTKĘ od razu zużyj w sztuce mieszanej dopełnionej
-    # z kolejnych partii. Dzięki temu resztka starszej partii (np. PP1)
-    # jest fizycznie wykorzystana, nawet gdy następna partia sama
-    # pokryłaby całą linię — planista dokłada partię właśnie po to.
+    # Partia po partii (kolejność zaznaczenia = FEFO): całe sztuki z partii.
+    # Z ALLOW_MIXED_PIECES resztka partii jest dodatkowo zużywana w sztuce
+    # mieszanej dopełnionej z kolejnych partii (numer PM); domyślnie resztka
+    # zostaje w partii, bo sztuka nie może mieć dwóch numerów partii.
     for i, b in enumerate(pool):
         # 1) Całe sztuki z tej partii
         if remaining_qty > 0:
@@ -140,8 +154,14 @@ def _compute_allocation(
             b["free"] -= pcs * kg_pu
             remaining_qty -= pcs
 
-        # 2) Resztka tej partii → sztuka mieszana (dopełniona z kolejnych)
-        while remaining_qty > 0 and kg_pu > 0 and b["free"] > eps:
+        # 2) Resztka tej partii → sztuka mieszana (dopełniona z kolejnych).
+        # Wyłączone: sztuka nie może nieść dwóch numerów partii.
+        while (
+            ALLOW_MIXED_PIECES
+            and remaining_qty > 0
+            and kg_pu > 0
+            and b["free"] > eps
+        ):
             need = kg_pu
             taken: list[tuple[dict, float]] = []
             for b2 in pool[i:]:
@@ -277,6 +297,11 @@ def _allocate_components(
     Zwraca allocation: {"355/356": {pieces, kg, parts}, MIXED_KEY: {...}}.
     Sztuki nieprzydzielone (brak kg któregoś komponentu) zostają poza
     alokacją — niedobór łapie walidacja aktywacji.
+
+    Bez ``ALLOW_MIXED_PIECES`` udział KAŻDEGO komponentu musi zmieścić się
+    w JEDNEJ partii — sztuka nosi wtedy po jednym numerze na komponent
+    ("355/356"). Partia, w której zostało mniej niż udział, jest pomijana
+    (resztka zostaje w magazynie), a nie dosztukowywana z następnej.
     """
     eps = 1e-6
     comp_kg = [kg_pu * float(c.get("pct") or 0) / 100.0 for c in components]
@@ -290,14 +315,23 @@ def _allocate_components(
         for ci in range(len(components)):
             need = comp_kg[ci]
             taken: list[tuple[dict, float]] = []
-            for b in pools[ci]:
-                if need <= eps:
-                    break
-                take = min(need, b["free"])
-                if take <= eps:
-                    continue
-                taken.append((b, take))
-                need -= take
+            if ALLOW_MIXED_PIECES:
+                for b in pools[ci]:
+                    if need <= eps:
+                        break
+                    take = min(need, b["free"])
+                    if take <= eps:
+                        continue
+                    taken.append((b, take))
+                    need -= take
+            else:
+                # Cały udział komponentu z pierwszej partii, która go pomieści
+                src = next(
+                    (b for b in pools[ci] if b["free"] + eps >= need), None
+                )
+                if src is not None:
+                    taken.append((src, need))
+                    need = 0.0
             if need > eps:
                 ok = False
                 break
@@ -470,6 +504,10 @@ def _check_plan_shortfalls(
     """Sekwencyjnie symulujemy alokację mięsa między liniami planu.
     Zwraca listę komunikatów o niedoborach (puste = OK).
 
+    Liczymy CAŁE SZTUKI, tak jak _compute_allocation: bez sztuk mieszanych
+    same kilogramy nie wystarczą — dwie partie po 30 kg to 60 kg wolnego,
+    ale ANI JEDNEJ sztuki 40 kg. Z ALLOW_MIXED_PIECES wracamy do sumy kg.
+
     Linie bez przydzielonych partii pomijamy — są dozwolone w szkicach;
     aktywacja planu (update_plan_status='active') zablokuje je później.
 
@@ -496,26 +534,50 @@ def _check_plan_shortfalls(
         ids = [b for b in ids if b]
         if not ids:
             continue
-        still_needed = line_kg
+        kg_pu = float(line.kg_per_unit or 0)
         allocated = 0.0
-        for bid in ids:
-            if still_needed <= 0:
-                break
-            free = remaining.get(bid, 0.0)
-            if free <= 0:
-                continue
-            take = min(still_needed, free)
-            allocated += take
-            remaining[bid] = free - take
-            still_needed -= take
+        if ALLOW_MIXED_PIECES or kg_pu <= 0:
+            still_needed = line_kg
+            for bid in ids:
+                if still_needed <= 0:
+                    break
+                free = remaining.get(bid, 0.0)
+                if free <= 0:
+                    continue
+                take = min(still_needed, free)
+                allocated += take
+                remaining[bid] = free - take
+                still_needed -= take
+        else:
+            still_pieces = int(line.qty)
+            for bid in ids:
+                if still_pieces <= 0:
+                    break
+                free = remaining.get(bid, 0.0)
+                pcs = min(still_pieces, int(free // kg_pu))
+                if pcs <= 0:
+                    continue
+                remaining[bid] = free - pcs * kg_pu
+                still_pieces -= pcs
+            allocated = (int(line.qty) - still_pieces) * kg_pu
         if allocated < line_kg - SEASONED_SHORTFALL_TOL_KG:
             recipe_name, _, _ = _resolve_line_names(conn, line)
             recipe_name = recipe_name or line.recipe_id or "pozycja"
             shortage = round(line_kg - allocated, 3)
-            shortfalls.append(
-                f'"{recipe_name}": potrzeba {line_kg:.0f} kg, '
-                f"dostępne {allocated:.0f} kg — brakuje {shortage:.0f} kg"
-            )
+            if not ALLOW_MIXED_PIECES and kg_pu > 0:
+                # Kilogramy mogą BYĆ, ale rozsypane po partiach poniżej masy
+                # sztuki — powiedz to wprost, żeby planista dołożył partię.
+                shortfalls.append(
+                    f'"{recipe_name}": z zaznaczonych partii wychodzi '
+                    f"{int(allocated // kg_pu)} z {int(line.qty)} szt — brakuje "
+                    f"{int(round(shortage / kg_pu))} szt ({shortage:.0f} kg). "
+                    f"Sztuka idzie w całości z jednej partii — dołóż kolejną."
+                )
+            else:
+                shortfalls.append(
+                    f'"{recipe_name}": potrzeba {line_kg:.0f} kg, '
+                    f"dostępne {allocated:.0f} kg — brakuje {shortage:.0f} kg"
+                )
     return shortfalls
 
 

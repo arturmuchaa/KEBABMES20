@@ -46,6 +46,7 @@ import {
 import { useProductTypes } from '@/features/products/hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
 import { withOwnReservations } from '@/features/production-plan/planOwnReservations'
+import { allocatePlanMeat, toggleBatchSelection } from '@/features/production-plan/planMeatAllocation'
 import type { ProductionPlan, ProductionPlanLine, CreatePlanLineDto, ClientOrder } from '@/lib/mockApi'
 
 interface PlanLineForm {
@@ -72,161 +73,19 @@ const emptyLine = (): PlanLineForm => ({
   clientOrderId:'', clientOrderNo:'', clientOrderLineId:'',
 })
 
-// Zajętość partii przez WSZYSTKIE linie poza wskazaną (zachłannie,
-// w kolejności linii i zaznaczonych partii).
-function computeOtherUsed(
-  idx: number,
-  lines: PlanLineForm[],
-  seasonedRaw: any[],
-): Record<string, number> {
-  const otherUsed: Record<string, number> = {}
-  lines.forEach((ll, li) => {
-    if (li === idx) return
-    const lids = ll.seasonedBatchIds?.length>0
-      ? ll.seasonedBatchIds
-      : (ll.seasonedBatchId ? [ll.seasonedBatchId] : [])
-    const lNeeded = (parseFloat(ll.qty)||0)*(parseFloat(ll.kgPerUnit)||0)
-    let lStill = lNeeded
-    lids.forEach(id => {
-      if (lStill<=0) return
-      const s = seasonedRaw.find((x:any)=>x.id===id)
-      if (!s) return
-      const free = Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0))
-      const take = Math.min(lStill, free)
-      otherUsed[id] = (otherUsed[id]??0) + take
-      lStill -= take
-    })
-  })
-  return otherUsed
-}
-
-// Oblicza ile kg z zaznaczonych partii jest FAKTYCZNIE dostępne dla danej linii,
-// uwzględniając rezerwacje innych linii (proporcjonalnie, sekwencyjnie).
-function computeSelKgAvailForLine(
-  idx: number,
-  lines: PlanLineForm[],
-  seasonedRaw: any[],
-): number {
-  const line = lines[idx]
-  if (!line) return 0
-  const selIds = line.seasonedBatchIds?.length>0
-    ? line.seasonedBatchIds
-    : (line.seasonedBatchId ? [line.seasonedBatchId] : [])
-  if (selIds.length === 0) return 0
-
-  const otherUsed = computeOtherUsed(idx, lines, seasonedRaw)
-
-  let available = 0
-  selIds.forEach(id => {
-    const s = seasonedRaw.find((x:any)=>x.id===id)
-    if (!s) return
-    available += Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0))
-  })
-  return available
-}
-
-// Podgląd rozbicia linii na partie — lustrzane odbicie backendowego
-// _compute_allocation (FEFO): całe sztuki z partii, a jej resztkę od razu
-// zużyj w sztuce mieszanej (PM) dopełnionej z kolejnych partii.
-interface AllocPreview {
-  clean:       Array<{ batchNo: string; pieces: number }>
-  mixedPieces: number
-  mixedParts:  Array<{ batchNo: string; kg: number }>
-}
-
-function computeAllocPreview(
-  idx: number,
-  lines: PlanLineForm[],
-  seasonedRaw: any[],
-): AllocPreview | null {
-  const line = lines[idx]
-  if (!line) return null
-  const qty  = parseFloat(line.qty)||0
-  const kgPu = parseFloat(line.kgPerUnit)||0
-  if (qty <= 0 || kgPu <= 0) return null
-  const selIds = line.seasonedBatchIds?.length>0
-    ? line.seasonedBatchIds
-    : (line.seasonedBatchId ? [line.seasonedBatchId] : [])
-  if (selIds.length === 0) return null
-
-  const otherUsed = computeOtherUsed(idx, lines, seasonedRaw)
-  const pool = selIds.map(id => {
-    const s = seasonedRaw.find((x:any)=>x.id===id)
-    return {
-      batchNo: s?.batchNo ?? '?',
-      free: s ? Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0)) : 0,
-    }
-  })
-
-  const clean: Array<{ batchNo: string; pieces: number }> = []
-  const partsMap: Record<string, number> = {}
-  let remaining = qty
-  let mixed = 0
-  for (let i = 0; i < pool.length; i++) {
-    const b = pool[i]
-    if (remaining > 0) {
-      const pcs = Math.min(remaining, Math.floor(b.free / kgPu))
-      if (pcs > 0) clean.push({ batchNo: b.batchNo, pieces: pcs })
-      b.free -= pcs * kgPu
-      remaining -= pcs
-    }
-    while (remaining > 0 && b.free > 1e-6) {
-      let need = kgPu
-      const taken: Array<[number, number]> = []
-      for (let j = i; j < pool.length && need > 1e-6; j++) {
-        const take = Math.min(need, pool[j].free)
-        if (take <= 1e-6) continue
-        taken.push([j, take])
-        need -= take
-      }
-      if (need > 1e-6) break
-      taken.forEach(([j, take]) => {
-        pool[j].free -= take
-        partsMap[pool[j].batchNo] = (partsMap[pool[j].batchNo] ?? 0) + take
-      })
-      mixed++
-      remaining--
-    }
-  }
-  return {
-    clean,
-    mixedPieces: mixed,
-    mixedParts: Object.entries(partsMap).map(([batchNo, kg]) => ({ batchNo, kg })),
-  }
-}
-
-// Mapa rezerwacji: ile kg z każdej partii zajmują podane linie formularza
-// (zachłannie, w kolejności linii i zaznaczonych partii).
-function computeUsage(lines: PlanLineForm[], seasonedRaw: any[]): Record<string, number> {
-  const map: Record<string, number> = {}
-  lines.forEach(l => {
-    const needed = (parseFloat(l.qty)||0) * (parseFloat(l.kgPerUnit)||0)
-    if (needed <= 0) return
-    const ids = l.seasonedBatchIds?.length>0
-      ? l.seasonedBatchIds
-      : (l.seasonedBatchId ? [l.seasonedBatchId] : [])
-    if (ids.length === 0) return
-    let stillNeeded = needed
-    ids.forEach(id => {
-      if (stillNeeded <= 0) return
-      const s = seasonedRaw.find((x:any)=>x.id===id)
-      if (!s) return
-      const free = Math.max(0, (s.kgFree ?? s.kgAvailable) - (map[id] ?? 0))
-      const take = Math.min(stillNeeded, free)
-      if (take > 0) { map[id] = (map[id]??0) + take; stillNeeded -= take }
-    })
-  })
-  return map
-}
+// Przydział mięsa liczy planMeatAllocation — JEDEN wspólny przebieg po
+// pozycjach, całe sztuki z jednej partii (bez sztuk mieszanych PM).
+// Tu zostają tylko cienkie nakładki na kształt formularza.
 
 // Automatyczny przydział partii (FEFO) dla nowych linii — pula = wolne kg
-// po odjęciu rezerwacji już istniejących linii formularza.
+// po odjęciu tego, co biorą już istniejące linie formularza. Partię dokładamy
+// tylko wtedy, gdy zmieści choć jedną CAŁĄ sztukę.
 function autoAssignNewLines(newLines: PlanLineForm[], existing: PlanLineForm[], seasonedRaw: any[]): PlanLineForm[] {
-  const used = computeUsage(existing, seasonedRaw)
-  const pool = seasonedRaw
+  const free = allocatePlanMeat(existing, seasonedRaw ?? []).freeByBatch
+  const pool = (seasonedRaw ?? [])
     .map((s:any) => ({
       id: s.id, recipeId: s.recipeId, expiryDate: s.expiryDate, batchNo: s.batchNo,
-      rem: Math.max(0, (s.kgFree ?? s.kgAvailable) - (used[s.id]??0)),
+      rem: free[s.id] ?? Math.max(0, (s.kgFree ?? s.kgAvailable) ?? 0),
     }))
     .sort((a,b)=>fefoLotCompare(
       { expiryDate: a.expiryDate, no: a.batchNo, id: a.id },
@@ -234,15 +93,17 @@ function autoAssignNewLines(newLines: PlanLineForm[], existing: PlanLineForm[], 
     ))
   return newLines.map(line => {
     if (line.seasonedBatchIds?.length>0 || line.seasonedBatchId) return line
-    const needed = (parseFloat(line.qty)||0)*(parseFloat(line.kgPerUnit)||0)
-    if (needed<=0 || !line.recipeId) return line
-    let still = needed
+    const qty  = parseFloat(line.qty)||0
+    const kgPu = parseFloat(line.kgPerUnit)||0
+    if (qty<=0 || kgPu<=0 || !line.recipeId) return line
+    let still = qty
     const assigned: string[] = []
     for (const b of pool) {
       if (still<=0) break
-      if (b.recipeId!==line.recipeId || b.rem<=0.01) continue
-      const take = Math.min(still, b.rem)
-      b.rem -= take; still -= take
+      if (b.recipeId!==line.recipeId) continue
+      const pcs = Math.min(still, Math.floor(b.rem / kgPu))
+      if (pcs<=0) continue
+      b.rem -= pcs * kgPu; still -= pcs
       assigned.push(b.id)
     }
     return assigned.length===0 ? line : { ...line, seasonedBatchIds: assigned, seasonedBatchId: assigned[0] }
@@ -927,48 +788,14 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
 
   const selIds = line.seasonedBatchIds?.length>0 ? line.seasonedBatchIds : (line.seasonedBatchId?[line.seasonedBatchId]:[])
 
-  // Oblicz sumę dostępnego kg z zaznaczonych partii (proporcjonalnie)
-  // Używamy kgAvailLive = kgAvailable - seasonedUsed (już odjęte zużycie z INNYCH linii)
-  // selKgAvail = ile kg FAKTYCZNIE DOSTĘPNE dla tej linii z zaznaczonych partii
-  // Liczymy zachłannie: bierzemy min(potrzeba, wolne_w_partii)
-  // gdzie wolne = kgAvailable - rezerwacje INNYCH linii (seasonedUsed może zawierać też tę linię)
-  // Dlatego liczymy od nowa dla bieżącej linii ignorując jej własne wpisy w seasonedUsed
-  const selKgAvail = (() => {
-    // Zbuduj "zajęte przez INNE linie" (bez bieżącej)
-    const otherUsed: Record<string,number> = {}
-    lines.forEach((ll, li) => {
-      if (li === idx) return  // pomiń bieżącą linię
-      const lids = ll.seasonedBatchIds?.length>0 ? ll.seasonedBatchIds : (ll.seasonedBatchId?[ll.seasonedBatchId]:[])
-      const lNeeded = (parseFloat(ll.qty)||0)*(parseFloat(ll.kgPerUnit)||0)
-      let lStill = lNeeded
-      lids.forEach(id => {
-        if (lStill<=0) return
-        const s = seasonedRaw.find((x:any)=>x.id===id)
-        if (!s) return
-        const free = Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0))
-        const take = Math.min(lStill, free)
-        otherUsed[id] = (otherUsed[id]??0) + take
-        lStill -= take
-      })
-    })
-    // Teraz oblicz ile dostępne dla bieżącej linii
-    let available = 0
-    selIds.forEach(id => {
-      const s = seasonedRaw.find((x:any)=>x.id===id)
-      if (!s) return
-      available += Math.max(0, (s.kgFree ?? s.kgAvailable) - (otherUsed[id]??0))
-    })
-    return available
-  })()
-  const isOk = totalKgLine <= 0 || selKgAvail >= totalKgLine - 0.1
-  const shortfall = totalKgLine - selKgAvail
-
-  function toggleBatch(id: string) {
-    const cur  = selIds
-    const next = cur.includes(id) ? cur.filter(x=>x!==id) : [...cur, id]
-    onChange('seasonedBatchIds', next)
-    onChange('seasonedBatchId',  next[0]??'')
-  }
+  // Ile mięsa realnie przypada tej pozycji — z JEDNEGO przydziału dla całego
+  // formularza (pozycje biorą z puli po kolei, całe sztuki z jednej partii).
+  const alloc       = allocatePlanMeat(lines, seasonedRaw??[]).lines[idx]
+  const selKgAvail  = alloc?.allocatedKg ?? 0
+  const selPieces   = alloc?.pieces ?? 0
+  const isOk        = totalKgLine <= 0 || (alloc?.ok ?? true)
+  const shortfall   = Math.max(0, totalKgLine - selKgAvail)
+  const missingPcs  = alloc?.missingPieces ?? 0
 
   // Partie tej samej receptury co wybrana, FEFO — najstarsza zawsze pierwsza
   const relevantBatches = seasonedAvail
@@ -981,6 +808,15 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
       { expiryDate: a.expiryDate, no: a.batchNo, id: a.id },
       { expiryDate: b.expiryDate, no: b.batchNo, id: b.id },
     ))
+
+  // Zaznaczenie trzymamy w kolejności FEFO (tej z listy poniżej): przydział
+  // idzie partia po partii, więc odznaczenie i ponowne zaznaczenie musi wrócić
+  // do TEGO SAMEGO stanu — inaczej pozycja podbierała mięso sąsiedniej.
+  function toggleBatch(id: string) {
+    const next = toggleBatchSelection(selIds, id, relevantBatches.map((s:any)=>s.id))
+    onChange('seasonedBatchIds', next)
+    onChange('seasonedBatchId',  next[0]??'')
+  }
 
   return (
     <div className="border rounded-xl bg-background overflow-hidden">
@@ -1095,8 +931,8 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
               {selIds.length>0 && (
                 <span className="font-bold">
                   · {selIds.length} parti{selIds.length===1?'a':selIds.length<5?'e':'i'}
-                  · {fmtKg(selKgAvail,0)} kg
-                  {!isOk && <span className="text-red-600 ml-1">⚠ brakuje {fmtKg(shortfall,0)} kg</span>}
+                  · {selPieces} szt / {fmtKg(selKgAvail,0)} kg
+                  {!isOk && <span className="text-red-600 ml-1">⚠ brakuje {missingPcs} szt ({fmtKg(shortfall,0)} kg)</span>}
                 </span>
               )}
               {selIds.length===0&&totalKgLine>0&&<span className="text-amber-600 font-bold">· potrzeba {fmtKg(totalKgLine,0)} kg</span>}
@@ -1159,7 +995,10 @@ function LineFormRow({ line, idx, total, lines, productTypes, recipes, packaging
                 <div className={`px-3 py-2 border-t text-[11px] font-semibold flex items-center gap-1.5 ${isOk?'bg-green-50 text-green-700':'bg-red-50 text-red-600'}`}>
                   {isOk
                     ? <>✓ Wystarczy — {fmtKg(selKgAvail,0)} kg na {qty} szt × {kgPerUnit} kg</>
-                    : <><AlertTriangle size={12}/>Brakuje {fmtKg(shortfall,0)} kg — zaznacz więcej partii</>
+                    : <><AlertTriangle size={12}/>
+                        Brakuje {missingPcs} szt ({fmtKg(shortfall,0)} kg) — zaznacz kolejną partię.
+                        Sztuka idzie w całości z jednej partii, więc resztka poniżej {kgPerUnit} kg zostaje w magazynie.
+                      </>
                   }
                 </div>
               )}
@@ -1236,15 +1075,16 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
     [seasonedApi, initialPlan],
   )
 
-  // ── Żywe zużycie mięsa — zachłannie, partia po partii (FEFO) ──
-  const seasonedUsed = useMemo(() => computeUsage(lines, seasonedRaw??[]), [lines, seasonedRaw])
+  // ── Żywy przydział mięsa: JEDEN przebieg po pozycjach, całe sztuki ──
+  const planAlloc     = useMemo(() => allocatePlanMeat(lines, seasonedRaw??[]), [lines, seasonedRaw])
+  const seasonedUsed  = planAlloc.usedByBatch
 
   const seasonedAvail = useMemo(() =>
     (seasonedRaw??[]).map((s:any) => ({
       ...s,
-      kgAvailLive: Math.max(0, (s.kgFree ?? s.kgAvailable) - (seasonedUsed[s.id]??0)),
+      kgAvailLive: planAlloc.freeByBatch[s.id] ?? Math.max(0, (s.kgFree ?? s.kgAvailable) ?? 0),
     }))
-  , [seasonedRaw, seasonedUsed])
+  , [seasonedRaw, planAlloc])
 
   const totalKg = lines.reduce((s,l)=>s+(parseFloat(l.qty)||0)*(parseFloat(l.kgPerUnit)||0), 0)
 
@@ -1297,16 +1137,16 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
         const hasBatches = (line.seasonedBatchIds?.length>0)||line.seasonedBatchId
         if (hasBatches) return line
 
-        const needed  = qty*kgPu
-        let stillNeed = needed
+        // Partię dokładamy tylko wtedy, gdy zmieści choć jedną CAŁĄ sztukę
+        let stillPcs = qty
         const assigned: string[] = []
 
         for (const b of pool) {
-          if (stillNeed<=0) break
-          if (b.rem<=0.01) continue
-          const take = Math.min(stillNeed, b.rem)
-          b.rem    -= take
-          stillNeed-= take
+          if (stillPcs<=0) break
+          const pcs = Math.min(stillPcs, Math.floor(b.rem / kgPu))
+          if (pcs<=0) continue
+          b.rem    -= pcs * kgPu
+          stillPcs -= pcs
           assigned.push(b.id)
         }
 
@@ -1368,10 +1208,13 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
         return
       }
 
-      const avail = computeSelKgAvailForLine(idx, lines, seasonedRaw??[])
-      if (avail < needed - 0.1) {
-        const short = needed - avail
-        shortfalls.push(`„${recipeName}": potrzeba ${needed.toFixed(0)} kg, dostępne ${avail.toFixed(0)} kg — brakuje ${short.toFixed(0)} kg`)
+      const la = planAlloc.lines[idx]
+      if (la && !la.ok) {
+        shortfalls.push(
+          `„${recipeName}": z zaznaczonych partii wychodzi ${la.pieces} z ${la.qty} szt — `
+          + `brakuje ${la.missingPieces} szt (${la.missingKg.toFixed(0)} kg). `
+          + `Sztuka idzie w całości z jednej partii — dołóż kolejną.`
+        )
       }
     })
 
@@ -1468,10 +1311,11 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
               const kgPu   = parseFloat(line.kgPerUnit)||0
               const tkg    = qty*kgPu
               const ids    = line.seasonedBatchIds?.length>0 ? line.seasonedBatchIds : (line.seasonedBatchId?[line.seasonedBatchId]:[])
-              const avail  = ids.length>0 ? computeSelKgAvailForLine(i, lines, seasonedRaw??[]) : 0
-              const meatOk = ids.length>0 && avail >= tkg-0.1
-              const preview = meatOk ? computeAllocPreview(i, lines, seasonedRaw??[]) : null
-              const mixedPcs = preview?.mixedPieces ?? 0
+              const la     = planAlloc.lines[i]
+              const avail  = la?.allocatedKg ?? 0
+              const meatOk = ids.length>0 && (la?.ok ?? false)
+              // Rozbicie na partie — każda sztuka z JEDNEJ partii (bez PM)
+              const preview = ids.length>0 ? (la?.perBatch ?? []) : []
               // Receptura komponentowa: partie dobierze backend per komponent
               const comps = recipeComponents(recipes??[], line.recipeId)
               const compAvail = comps.length>0 ? componentAvailability(comps, qty, kgPu, seasonedRaw??[]) : []
@@ -1519,8 +1363,8 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
                         {ids.length===0
                           ? 'bez partii'
                           : meatOk
-                            ? `✓ ${ids.length} part.${mixedPcs>0 ? ` · ${mixedPcs} szt PM` : ''}`
-                            : `brak ${fmtKg(tkg-avail,0)} kg`}
+                            ? `✓ ${ids.length} part.`
+                            : `brak ${la?.missingPieces ?? 0} szt (${fmtKg(tkg-avail,0)} kg)`}
                       </span>
                     )}
                     <span className="font-bold text-ink tabular-nums whitespace-nowrap">{fmtKg(tkg,0)} kg</span>
@@ -1546,20 +1390,15 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans }: PlanFo
                       <span className="text-violet-700">· partie dobierze system (FEFO)</span>
                     </div>
                   )}
-                  {/* Podgląd: ile sztuk z której partii (+ skład sztuki PM) */}
-                  {preview && (preview.clean.length>0 || preview.mixedPieces>0) && (
+                  {/* Podgląd: ile sztuk z której partii — sztuka = jedna partia */}
+                  {preview.length>0 && (
                     <div className="px-3 pb-1.5 -mt-0.5 pl-10 text-[10px] text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                       <span className="uppercase font-semibold tracking-wide">Rozbicie:</span>
-                      {preview.clean.map(c=>(
-                        <span key={c.batchNo} className="font-semibold">
+                      {preview.map(c=>(
+                        <span key={c.batchId} className="font-semibold">
                           {c.pieces}× <span className="font-mono text-foreground">{c.batchNo}</span>
                         </span>
                       ))}
-                      {preview.mixedPieces>0 && (
-                        <span className="font-semibold text-violet-700">
-                          {preview.mixedPieces}× PM ({preview.mixedParts.map(p=>`${fmtKg(p.kg)} kg ${p.batchNo}`).join(' + ')})
-                        </span>
-                      )}
                     </div>
                   )}
                   {/* Szczegóły pozycji — pełny edytor z partiami mięsa */}

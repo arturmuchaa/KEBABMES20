@@ -3,13 +3,26 @@
 Scenariusz źródłowy: resztka 1 kg z partii 346 dołożona do 19 kg z partii
 347 w jednej sztuce 20 kg → sztuka NIE może dostać numeru 347; idzie do
 kubełka MIXED (po aktywacji planu → numer PM{n}).
+
+UWAGA: PM jest DOMYŚLNIE WYŁĄCZONE (jedna sztuka = jedna partia; patrz
+test_allocation_no_mixed.py). Ten plik pilnuje, żeby przełącznik
+ALLOW_MIXED_PIECES dalej przywracał pełne zachowanie PM — dlatego włącza
+go dla wszystkich testów w module.
 """
+import pytest
+
+import app.services.production_plans_service as svc
 from app.models.production import PlanLineCreate
 from app.services.production_plans_service import (
     MIXED_KEY,
     _allocation_kg_per_batch,
     _compute_allocation,
 )
+
+
+@pytest.fixture(autouse=True)
+def _mixed_on(monkeypatch):
+    monkeypatch.setattr(svc, "ALLOW_MIXED_PIECES", True)
 
 
 def _locked(rows):
