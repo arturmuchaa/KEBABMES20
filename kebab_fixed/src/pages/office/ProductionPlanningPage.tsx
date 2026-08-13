@@ -48,6 +48,7 @@ import { useProductTypes } from '@/features/products/hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
 import { withOwnReservations } from '@/features/production-plan/planOwnReservations'
 import { allocatePlanMeat, toggleBatchSelection } from '@/features/production-plan/planMeatAllocation'
+import { buildOfficeFinishEntries, officeFinishSummary } from '@/features/production-plan/officeFinish'
 import type { ProductionPlan, ProductionPlanLine, CreatePlanLineDto, ClientOrder } from '@/lib/mockApi'
 
 interface PlanLineForm {
@@ -648,6 +649,60 @@ function MeatPanel({ seasonedAvail, seasonedUsed, demandByRecipe, onAutoAssign }
   )
 }
 
+// ─── Wykonane sztuki wpisywane przez BIURO ────────────────────────────
+// Dopóki hala nie ma kiosku, produkcję kwituje biuro z kartki. Zapis idzie
+// tym samym endpointem co postęp z tabletu (updateLineProgress), więc
+// backend sam pilnuje zakresu 0..qty i statusu pozycji.
+function DoneQtyInput({ planId, lineId, qty, qtyDone, onSaved }: {
+  planId: string; lineId: string; qty: number; qtyDone: number; onSaved: () => void
+}) {
+  const [val, setVal]   = useState(String(qtyDone || ''))
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { setVal(String(qtyDone || '')) }, [qtyDone])
+
+  async function save(next: number) {
+    const clamped = Math.max(0, Math.min(next, qty))
+    if (clamped === qtyDone) { setVal(String(clamped || '')); return }
+    setBusy(true)
+    try {
+      await productionPlansApi.updateLineProgress(planId, lineId, {
+        qtyDone: clamped,
+        lineStatus: clamped >= qty ? 'DONE' : clamped > 0 ? 'IN_PROGRESS' : 'PLANNED',
+        workerEntries: [],
+      })
+      onSaved()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Nie udało się zapisać wykonania')
+      setVal(String(qtyDone || ''))
+    } finally { setBusy(false) }
+  }
+
+  const pct = qty > 0 ? Math.round((qtyDone / qty) * 100) : 0
+  return (
+    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+      <Input
+        type="number" min="0" max={qty} value={val} disabled={busy}
+        onChange={e => setVal(e.target.value)}
+        onBlur={() => save(parseInt(val, 10) || 0)}
+        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+        className="h-6 w-14 px-1.5 text-[11px] text-center tabular-nums"
+        title={`Wykonane sztuki (max ${qty})`}
+      />
+      <span className="text-[10px] text-muted-foreground">/ {qty}</span>
+      {qtyDone > 0 && (
+        <span className={`text-[10px] font-bold ${pct >= 100 ? 'text-green-700' : 'text-amber-700'}`}>
+          {pct >= 100 ? '✓' : `${pct}%`}
+        </span>
+      )}
+      {qtyDone < qty && (
+        <button onClick={() => save(qty)} disabled={busy}
+          className="text-[10px] px-1 rounded text-muted-foreground hover:text-green-700 hover:bg-green-50"
+          title="Wykonano wszystko">wsz.</button>
+      )}
+    </div>
+  )
+}
+
 // ─── Pasek szybkiego dodawania pozycji (styl POS, jak w zamówieniach) ─
 interface QuickAddProps {
   onAdd:            (line: PlanLineForm) => void
@@ -1044,7 +1099,9 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans, fullPage
   const { data: seasonedApi } = useApi(
     () => initialPlan
       ? seasonedMeatApi.all().then(rows =>
-          (rows ?? []).filter((s: any) => s.status !== 'depleted'))
+          // tylko partie, w których fizycznie jest mięso — zużyte do zera
+          // (status bywa 'closed' albo nawet 'available') tylko zaśmiecają
+          (rows ?? []).filter((s: any) => Number(s.kgAvailable || 0) > 0))
       : seasonedMeatApi.list(),
     [initialPlan?.id],
   )
@@ -1688,6 +1745,39 @@ export function ProductionPlanningPage() {
                           </Button>
                         </>
                       )}
+                      {/* Bez kiosku na hali produkcję zamyka biuro: wpisuje
+                          wykonane sztuki w rozwinięciu i zatwierdza. Idzie tą
+                          samą ścieżką co tablet (tablet-finish → office-confirm),
+                          żeby wyroby, partie i rezerwacje liczyły się tak samo. */}
+                      {plan.status==='active' && !(plan as any).tabletFinishedAt && (
+                        <Button variant="default" size="sm"
+                          className="h-7 text-[11px] bg-green-600 hover:bg-green-700 text-white"
+                          onClick={async e=>{
+                            e.stopPropagation()
+                            const s = officeFinishSummary(plan)
+                            if (s.pieces === 0) {
+                              alert('Najpierw wpisz wykonane sztuki — rozwiń plan i uzupełnij kolumnę „Wykonano".')
+                              return
+                            }
+                            const czesciowe = s.partial > 0
+                              ? `\n\nUWAGA: ${s.partial} pozycji wykonano tylko w części — reszta NIE zostanie wyprodukowana.`
+                              : ''
+                            if (!confirm(
+                              `Zatwierdzić produkcję planu ${plan.planNo}?\n\n`
+                              + `${s.pieces} szt · ${fmtKg(s.kg,0)} kg w ${s.lines} pozycjach.\n`
+                              + `Kebab trafi do magazynu wyrobów gotowych, a rezerwacje mięsa zostaną rozliczone.`
+                              + czesciowe)) return
+                            try {
+                              await productionPlansApi.tabletFinish(plan.id, buildOfficeFinishEntries(plan))
+                              await productionPlansApi.officeConfirm(plan.id)
+                              refetch()
+                            } catch(err) {
+                              alert(err instanceof Error ? err.message : 'Błąd zatwierdzenia produkcji')
+                            }
+                          }}>
+                          Zatwierdź produkcję
+                        </Button>
+                      )}
                       {plan.status==='active' && !(plan as any).tabletFinishedAt && (
                         <Button variant="outline" size="sm"
                           className="h-7 text-[11px] text-muted-foreground border-surface-4 hover:bg-surface-2"
@@ -1722,7 +1812,16 @@ export function ProductionPlanningPage() {
                             <TableRow key={l.id}>
                               <TableCell className="py-1.5 font-bold px-3">{l.qty}</TableCell>
                               <TableCell className="py-1.5 px-3">
-                                {qtyDone === 0 ? (
+                                {/* Biuro wpisuje wykonanie ręcznie — hala nie ma
+                                    jeszcze kiosku. Po zatwierdzeniu planu pole
+                                    znika (zostaje sam odczyt). */}
+                                {plan.status === 'active' && !(plan as any).tabletFinishedAt ? (
+                                  <DoneQtyInput
+                                    planId={plan.id} lineId={l.id}
+                                    qty={l.qty} qtyDone={qtyDone}
+                                    onSaved={refetch}
+                                  />
+                                ) : qtyDone === 0 ? (
                                   <span className="text-muted-foreground">—</span>
                                 ) : pct >= 100 ? (
                                   <span className="font-bold text-green-700">{qtyDone} / {l.qty} ✓</span>

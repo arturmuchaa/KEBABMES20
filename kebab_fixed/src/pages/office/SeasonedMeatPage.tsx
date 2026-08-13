@@ -291,12 +291,17 @@ export function SeasonedMeatPage() {
   // fizycznie leżą w chłodni, więc znikanie ich z listy („KIRMIZI nie pokazuje
   // nic") było mylące. Kolumna Rezerwacja mówi, ile z nich jest zajęte.
   // `data` (lista „do zaplanowania", kg_free > 0) zostaje na liczniki wolnych kg.
-  const raw: any[]        = allBatches.filter(b => b.status !== 'depleted')
+  // Lista robocza = partie, w których FIZYCZNIE JEST mięso. Kryterium to
+  // kg_available > 0, nie kg_free: partia zarezerwowana w całości przez plan
+  // produkcji leży w chłodni i musi być widoczna (kolumna Rezerwacja mówi,
+  // ile z niej zajęto). Zużyte do zera schodzą do historii — status bywa
+  // 'closed' albo nawet 'available', więc filtrowanie po statusie nie działa.
+  const raw: any[]        = allBatches.filter(b => Number(b.kgAvailable || 0) > 0)
 
   const totalFree     = raw.reduce((s, b) => s + kgFreeOf(b), 0)
   const totalReserved = raw.reduce((s, b) => s + Number(b.kgReserved || 0), 0)
 
-  const depleted = allBatches.filter(b => b.status === 'depleted')
+  const depleted = allBatches.filter(b => Number(b.kgAvailable || 0) <= 0)
 
   usePageHeaderActions(
     <div className="flex items-center gap-3 text-xs tabular-nums">
