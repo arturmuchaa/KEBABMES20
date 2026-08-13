@@ -309,6 +309,9 @@ export function useCreateReception(
         notes:          header.notes,
         isService:      header.isService,
         groups: pending.map((g, i) => ({
+          // Pusty = numer nadaje sekwencja backendu; wypełniony tylko wtedy,
+          // gdy operator poprawił go ołówkiem w formularzu.
+          internalBatchNo: g.sendBatchNo,
           kgReceived:    g.kg,
           slaughterDate: g.slaughterDate,
           expiryDate:    g.expiryDate,

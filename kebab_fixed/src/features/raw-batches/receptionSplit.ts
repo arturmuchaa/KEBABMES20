@@ -38,6 +38,9 @@ export interface ReceptionGroup {
   /** Numer porządkowy, który grupa dostanie przy zapisie („472").
    *  Podpowiedź z sekwencji — patrz `ordinalLabels`. */
   batchNo?:      string
+  /** Numer WYSYŁANY do backendu — wypełniony tylko po ręcznej poprawce
+   *  ołówkiem; pusty = nadaje go sekwencja (patrz `ordinalsToSend`). */
+  sendBatchNo?:  string
   /** Ręcznie policzone pojemniki tej grupy; null = wylicz z kalibru.
    *  Nie wynika z pozycji HDI — dokłada je operator, który przeliczył stos
    *  (5.08.2026 partia 459: 199 pojemników na palecie vs 193 z wagi). */
@@ -205,10 +208,63 @@ export function withContainers(
  * Seria usługowa („48U") ma własną numerację i literę trzeba zachować.
  * Bez czytelnej podpowiedzi wracamy do „#1", zamiast zmyślać numer.
  */
-export function ordinalLabels(suggested: string, count: number): string[] {
-  const m = /^(\d+)(U?)$/i.exec((suggested || '').trim())
-  return Array.from({ length: Math.max(0, count) }, (_, i) =>
-    m ? `${Number(m[1]) + i}${m[2].toUpperCase()}` : `#${i + 1}`)
+export function ordinalLabels(
+  suggested: string, count: number, overrides: Record<number, string> = {},
+): string[] {
+  const rozbij = (v: string) => /^(\d+)(U?)$/i.exec((v || '').trim())
+  const baza = rozbij(suggested)
+
+  // Zmiana numeru przesuwa NASTĘPNE: operator poprawia zwykle pierwszy
+  // („to nie 50U, tylko 55U"), a kolejne stosy idą po kolei — dokładnie tak,
+  // jak numeruje je hala. Numery WCZEŚNIEJSZE zostają nietknięte.
+  let od = baza, odIndex = 0
+  return Array.from({ length: Math.max(0, count) }, (_, i) => {
+    const wlasny = rozbij(overrides[i] ?? '')
+    if (wlasny) { od = wlasny; odIndex = i }
+    return od ? `${Number(od[1]) + (i - odIndex)}${od[2].toUpperCase()}` : `#${i + 1}`
+  })
+}
+
+/**
+ * normalizeStartNo — numer porządkowy startowy wpisany ręcznie.
+ *
+ * Operator pisze „55" albo „55u"; seria usługowa wymaga wielkiego „U",
+ * a zwykła nie może go mieć. Literę doklejamy/ucinamy SAMI wg znacznika
+ * usługi, zamiast wymagać, żeby ktoś o niej pamiętał.
+ */
+export function normalizeStartNo(raw: string, isService: boolean): string {
+  const s = (raw || '').trim().toUpperCase().replace(/\s+/g, '')
+  const m = /^(\d+)U?$/.exec(s)
+  if (!m) return s                       // niepoprawne — patrz startNoIssue
+  return `${Number(m[1])}${isService ? 'U' : ''}`
+}
+
+/** Powód, dla którego wpisanego numeru startowego nie da się użyć (null = ok). */
+export function startNoIssue(raw: string, isService: boolean): string | null {
+  const s = (raw || '').trim()
+  if (!s) return null                    // puste = numer nada sekwencja
+  if (!/^\d+\s*[Uu]?$/.test(s))
+    return `„${s}" nie jest numerem porządkowym — wpisz sam numer, np. ${isService ? '55U' : '477'}`
+  if (Number(s.replace(/[^\d]/g, '')) < 1)
+    return 'Numer porządkowy musi być większy od zera'
+  return null
+}
+
+/**
+ * ordinalsToSend — numery porządkowe, które formularz WYŚLE.
+ *
+ * Domyślnie żadnych: nadaje je sekwencja backendu i to ona jest źródłem
+ * prawdy (dwa stanowiska rejestrujące naraz nie mogą dostać tego samego).
+ * Dopiero gdy operator ŚWIADOMIE poprawi numer ołówkiem — np. żeby pominąć
+ * numery wydane poza systemem (50U-54U, 13.08.2026) — wysyłamy wyliczone,
+ * a backend podciąga sekwencję do najwyższego.
+ */
+export function ordinalsToSend(
+  overrides: Record<number, string>, labels: string[],
+): (string | undefined)[] {
+  const cokolwiek = Object.values(overrides).some(v => (v || '').trim())
+  if (!cokolwiek) return labels.map(() => undefined)
+  return labels.map(l => (l.startsWith('#') ? undefined : l))
 }
 
 /** Sumy zadeklarowane na HDI — do porównania z tym, co faktycznie wpisano. */

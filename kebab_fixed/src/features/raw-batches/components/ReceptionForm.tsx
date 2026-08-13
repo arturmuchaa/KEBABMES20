@@ -1,5 +1,5 @@
 /**
- * CreateReceptionModal — rejestracja CAŁEJ dostawy.
+ * ReceptionForm — rejestracja CAŁEJ dostawy, na PEŁNEJ STRONIE.
  *
  * Jedno auto = jeden numer przyjęcia („12/08/2026") i tyle numerów
  * porządkowych, na ile zakład je rozbił. Dotąd biuro wypełniało ten formularz
@@ -11,13 +11,14 @@
  */
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { fmtPln, fmtKg } from '@/lib/utils'
-import { Plus, Package, Edit2, Check, X, Layers, AlertTriangle, ScanLine, Printer } from 'lucide-react'
+import { Plus, Package, Edit2, Check, X, Layers, AlertTriangle, ScanLine, Printer, Pencil, ArrowLeft } from 'lucide-react'
 import {
   CALIBER_OPTIONS, OTHER_CARRIER_KINDS, caliberKg, caliberValue, containersForKg,
   type CaliberValue,
 } from '@/lib/containers'
 import {
-  checkAgainstHdi, groupLines, nextSupplierBatchNo, ordinalLabels, parseKg,
+  checkAgainstHdi, groupLines, nextSupplierBatchNo, normalizeStartNo, ordinalLabels,
+  ordinalsToSend, parseKg, startNoIssue,
   receptionIssues, receptionTotalKg, renumberAfterRemove, withContainers,
   type HdiLine, type ReceptionGroup,
 } from '../receptionSplit'
@@ -25,9 +26,6 @@ import { receptionsApi } from '@/lib/apiClient'
 import { errorText, isDesktopApp, scanDocument, scannerDiagnose } from '@/lib/desktopScanner'
 import type { ReceptionHeader } from '../types'
 
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -50,8 +48,7 @@ const GRID = (groups: number) => groups > 1
   ? 'grid-cols-[28px_110px_1fr_130px_130px_auto_40px]'
   : 'grid-cols-[28px_110px_1fr_130px_130px_40px]'
 
-interface CreateReceptionModalProps {
-  open:                 boolean
+interface ReceptionFormProps {
   onClose:              () => void
   /** Oddaje gotowy podział; walidacja i zapis siedzą w hooku. */
   onSubmit:             (groups: ReceptionGroup[]) => void
@@ -93,10 +90,10 @@ function nextLine(prev: HdiLine | undefined, group: number): HdiLine {
   }
 }
 
-export function CreateReceptionModal({
-  open, onClose, onSubmit, header, suggestedReceptionNo, suggestedBatchNo,
+export function ReceptionForm({
+  onClose, onSubmit, header, suggestedReceptionNo, suggestedBatchNo,
   supplierOptions, loading, error, onHeaderChange,
-}: CreateReceptionModalProps) {
+}: ReceptionFormProps) {
   const canBeService = header.materialTypeId === SERVICE_MATERIAL_ID
   const isService = header.isService && canBeService
 
@@ -140,14 +137,47 @@ export function CreateReceptionModal({
   // ręcznie przeliczona. Jedno źródło dla ekranu, kontroli z HDI i zapisu.
   // Numery, które grupy dostaną przy zapisie („472", „473"). Operator dzieli
   // dostawę myśląc numerami hali, nie pozycjami listy.
+  // Numer porządkowy nadaje się sam, ale operator może go poprawić ołówkiem —
+  // np. gdy część numerów wydano poza systemem (50U-54U, 13.08.2026).
+  const [ordinalOverride, setOrdinalOverride] = useState<Record<number, string>>({})
+  const [editedOrdinal, setEditedOrdinal] = useState<number | null>(null)
+  const [ordinalDraft, setOrdinalDraft] = useState('')
+
   const batchNos = useMemo(
-    () => ordinalLabels(suggestedBatchNo, groupCount), [suggestedBatchNo, groupCount])
+    () => ordinalLabels(suggestedBatchNo, groupCount, ordinalOverride),
+    [suggestedBatchNo, groupCount, ordinalOverride])
+
+  // Numery lecą do backendu TYLKO gdy operator je poprawił — inaczej źródłem
+  // prawdy zostaje sekwencja (dwa stanowiska naraz nie mogą dostać tego samego).
+  const doWyslania = useMemo(
+    () => ordinalsToSend(ordinalOverride, batchNos), [ordinalOverride, batchNos])
+
+  const zacznijEdycje = (i: number) => {
+    setEditedOrdinal(i)
+    setOrdinalDraft(ordinalOverride[i] ?? batchNos[i] ?? '')
+  }
+
+  const zapiszNumer = () => {
+    if (editedOrdinal === null) return
+    const blad = startNoIssue(ordinalDraft, header.isService)
+    if (blad) { alert(blad); return }
+    const czysty = ordinalDraft.trim()
+    setOrdinalOverride(prev => {
+      const next = { ...prev }
+      if (czysty) next[editedOrdinal] = normalizeStartNo(czysty, header.isService)
+      else delete next[editedOrdinal]      // puste = wracamy do automatu
+      return next
+    })
+    setEditedOrdinal(null)
+  }
 
   const groups: ReceptionGroup[] = useMemo(
     () => withContainers(
       groupLines(lines, groupCount), header.containerKg ?? null, containerOverride,
-      (kg, cal) => containersForKg(kg, cal)).map((g, i) => ({ ...g, batchNo: batchNos[i] })),
-    [lines, groupCount, containerOverride, header.containerKg, batchNos],
+      (kg, cal) => containersForKg(kg, cal)).map((g, i) => ({
+        ...g, batchNo: batchNos[i], sendBatchNo: doWyslania[i],
+      })),
+    [lines, groupCount, containerOverride, header.containerKg, batchNos, doWyslania],
   )
   const issues = useMemo(
     () => receptionIssues(lines, groupCount, batchNos), [lines, groupCount, batchNos])
@@ -287,21 +317,29 @@ export function CreateReceptionModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent
-        className={`max-w-5xl max-h-[92vh] overflow-y-auto ${dragOver ? 'ring-2 ring-primary' : ''}`}
-        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}>
-        <DialogHeader>
-          <DialogTitle>Przyjęcie surowca</DialogTitle>
-          <DialogDescription>
+    <div
+      className={`p-4 md:p-6 space-y-4 ${dragOver ? 'ring-2 ring-primary rounded-lg' : ''}`}
+      onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={onDrop}>
+      <div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground
+                     hover:text-foreground mb-2">
+          <ArrowLeft size={15} /> Wróć do dostaw
+        </button>
+        <div>
+          <CardTitle className="text-xl">Przyjęcie surowca</CardTitle>
+          <CardDescription>
             Cała dostawa pod jednym numerem przyjęcia — rozbita na tyle numerów
             porządkowych, ile stosów fizycznie stanęło w chłodni.
-          </DialogDescription>
-        </DialogHeader>
+          </CardDescription>
+        </div>
+      </div>
 
-        <div className="space-y-5">
+      <div className="space-y-5">
 
           {/* Usługa — tylko mięso z/s bywa powierzone przez klienta */}
           {canBeService && (
@@ -573,11 +611,36 @@ export function CreateReceptionModal({
                 return (
                   <Card key={g.index} className={g.kg > 0 ? '' : 'border-destructive/40 bg-destructive/5'}>
                     <CardContent className="p-3 flex items-center gap-4">
-                      <div className="w-20 shrink-0">
+                      <div className="w-28 shrink-0">
                         <CardDescription className="text-[10px] font-bold uppercase">Nr porz.</CardDescription>
-                        <CardTitle className="text-lg font-black font-mono text-primary tabular-nums">
-                          {g.batchNo}
-                        </CardTitle>
+                        {editedOrdinal === g.index ? (
+                          <Input
+                            autoFocus
+                            className="h-7 text-base font-mono font-black px-1.5"
+                            value={ordinalDraft}
+                            onChange={e => setOrdinalDraft(e.target.value)}
+                            onBlur={zapiszNumer}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') { e.preventDefault(); zapiszNumer() }
+                              if (e.key === 'Escape') setEditedOrdinal(null)
+                            }}
+                          />
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <CardTitle className="text-lg font-black font-mono text-primary tabular-nums">
+                              {g.batchNo}
+                            </CardTitle>
+                            {/* Poprawka przesuwa numery NASTĘPNYCH stosów —
+                                tak samo, jak numeruje je hala. */}
+                            <button
+                              type="button"
+                              onClick={() => zacznijEdycje(g.index)}
+                              title="Popraw numer porządkowy"
+                              className="text-muted-foreground/40 hover:text-primary transition-colors">
+                              <Pencil size={12} />
+                            </button>
+                          </div>
+                        )}
                       </div>
                       <div className="w-28 shrink-0">
                         <CardDescription className="text-[10px] font-bold uppercase">Waga</CardDescription>
@@ -799,22 +862,24 @@ export function CreateReceptionModal({
           )}
         </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose} disabled={loading}>Anuluj</Button>
-          <Button
-            onClick={() => onSubmit(groups)}
-            disabled={!header.supplierId || totalKg <= 0 || issues.errors.length > 0}
-            className="gap-2">
-            {loading
-              ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              : <Plus size={15} />}
-            Przyjmij dostawę ({fmtKg(totalKg, 0)} kg
-            {groupCount > 1
-              ? ` → nr ${batchNos.join(', ')}`
-              : `, nr ${batchNos[0] || '—'}`})
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      {/* Pasek akcji przyklejony do dołu: formularz bywa długi (kilkanaście
+          pozycji HDI), a „Przyjmij dostawę" musi być pod ręką bez zjeżdżania. */}
+      <div className="sticky bottom-0 -mx-4 md:-mx-6 px-4 md:px-6 py-3 border-t
+                      bg-background/95 backdrop-blur flex justify-end gap-2">
+        <Button variant="outline" onClick={onClose} disabled={loading}>Anuluj</Button>
+        <Button
+          onClick={() => onSubmit(groups)}
+          disabled={!header.supplierId || totalKg <= 0 || issues.errors.length > 0}
+          className="gap-2">
+          {loading
+            ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            : <Plus size={15} />}
+          Przyjmij dostawę ({fmtKg(totalKg, 0)} kg
+          {groupCount > 1
+            ? ` → nr ${batchNos.join(', ')}`
+            : `, nr ${batchNos[0] || '—'}`})
+        </Button>
+      </div>
+    </div>
   )
 }

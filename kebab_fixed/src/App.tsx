@@ -4,6 +4,7 @@ import { OfficeLayout }  from '@/layouts/OfficeLayout'
 import { TabletLayout }  from '@/layouts/TabletLayout'
 import { DashboardPage } from '@/pages/office/DashboardPage'
 import { RawBatchesPage }from '@/pages/office/RawBatchesPage'
+import { ReceptionFormPage } from '@/features/raw-batches/pages/ReceptionFormPage'
 import { WorkersPage }   from '@/pages/office/WorkersPage'
 import { WorkHoursPage } from '@/pages/office/WorkHoursPage'
 import { SuppliersPage } from '@/pages/office/SuppliersPage'
@@ -165,6 +166,7 @@ export default function App() {
         <Route path="cmr-konfigurator"      element={<CmrLayoutConfigPage />} />
         <Route path="faktury"               element={<PurchaseInvoicesPage />} />
         <Route path="raw-batches"           element={<RawBatchesPage />} />
+        <Route path="raw-batches/nowe"      element={<ReceptionFormPage />} />
         <Route path="magazyn/surowiec"      element={<RawStockPage />} />
         <Route path="magazyn/przyprawy"     element={<SpiceStockPage />} />
         <Route path="magazyn/mieso-przyp"   element={<SeasonedMeatPage />} />

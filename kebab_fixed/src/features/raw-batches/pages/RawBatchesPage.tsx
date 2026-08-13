@@ -13,15 +13,15 @@ import {
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { Plus, AlertTriangle, CheckCircle, Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useRawBatches, useCreateReception } from '../hooks/useRawBatches'
 import { RawBatchesTable }    from '../components/RawBatchesTable'
-import { CreateReceptionModal } from '../components/CreateReceptionModal'
 import { EditRawBatchModal, type EditRawBatchFormData } from '../components/EditRawBatchModal'
 import { splitDeliveries, liveSummary, pluralDostawy, type MeatStockMap } from '../deliveryView'
 import { wzApi } from '@/lib/apiClient'
 import { rawBatchesApi } from '../api'
-import { fmtKg, fmtDatePl, fmtPln } from '@/lib/utils'
+import { fmtKg, fmtDatePl } from '@/lib/utils'
+import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import type { RawBatch } from '@/types'
 
@@ -156,43 +156,9 @@ export function RawBatchesPage() {
     }
   }, [cancelBatch, refetch])
 
-  const {
-    header, updateHeader, open, openModal, closeModal,
-    confirmOpen, cancelConfirm, pending, validationResult,
-    suggestedReceptionNo, suggestedBatchNo,
-    mutationLoading, mutationError, requestSubmit, confirmSubmit,
-  } = useCreateReception(
-    useCallback((receptionNo: string, batchNos: string[], kg: number) => {
-      refetch()
-      toast.success(
-        `Przyjęcie ${receptionNo} — ${kg.toFixed(2).replace('.', ',')} kg` +
-        ` (nr porządkowy: ${batchNos.join(', ')})`)
-    }, [refetch]),
-  )
-
-  const warnings = validationResult?.ok ? validationResult.warnings : []
-  const pendingKg = useMemo(
-    () => pending.reduce((s, g) => s + g.kg, 0), [pending])
-
-  // Rodzaj surowca wstrzykiwany do formularza przyjęcia (zmiana taba lub
-  // otwarcie modala ustawia materialTypeId w dto)
-  useEffect(() => {
-    updateHeader('materialTypeId', matId)
-    // Usługa dotyczy tylko mięsa z/s — przy innym surowcu tryb musi zgasnąć,
-    // inaczej backend odrzuciłby zapis (400) mimo ukrytego przełącznika.
-    if (matId !== 'mat-mieso-zs') updateHeader('isService', false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matId, open])
-
-  const handleSubmit = useCallback(async (groups: Parameters<typeof requestSubmit>[0]) => {
-    const err = await requestSubmit(groups)
-    if (err) toast.error(err)
-  }, [requestSubmit])
-
-  const handleConfirm = useCallback(async () => {
-    const err = await confirmSubmit()
-    if (err) toast.error(err)
-  }, [confirmSubmit])
+  // Rejestracja dostawy ma własną stronę (ReceptionFormPage) — lista tylko
+  // tam prowadzi i odświeża się po powrocie.
+  const navigate = useNavigate()
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -205,7 +171,7 @@ export function RawBatchesPage() {
             Dostawy w obiegu i zamknięta historia · pełny stan magazynowy jest w Magazynie surowca
           </CardDescription>
         </div>
-        <Button onClick={openModal}>
+        <Button onClick={() => navigate(`/office/raw-batches/nowe?rodzaj=${encodeURIComponent(matId)}`)}>
           <Plus size={15} className="mr-1.5" /> Przyjmij: {selMat?.name ?? 'partię'}
         </Button>
       </div>
@@ -291,18 +257,6 @@ export function RawBatchesPage() {
       </div>
 
       {/* Modal formularza */}
-      <CreateReceptionModal
-        open={open}
-        onClose={closeModal}
-        onSubmit={handleSubmit}
-        header={header}
-        suggestedReceptionNo={suggestedReceptionNo}
-        suggestedBatchNo={suggestedBatchNo}
-        supplierOptions={supplierOptions}
-        loading={mutationLoading}
-        error={mutationError}
-        onHeaderChange={updateHeader}
-      />
 
       {/* Modal edycji */}
       <EditRawBatchModal
@@ -343,94 +297,6 @@ export function RawBatchesPage() {
       </Dialog>
 
       {/* Krok 2 — potwierdzenie */}
-      <Dialog open={confirmOpen} onOpenChange={v => { if (!v) cancelConfirm() }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Potwierdź przyjęcie dostawy</DialogTitle>
-            <DialogDescription>
-              Sprawdź podział dostawy przed zapisem w systemie.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <Card>
-              <CardContent className="p-0 divide-y">
-                <div className="flex items-center justify-between px-4 py-2.5">
-                  <CardDescription>Numer przyjęcia</CardDescription>
-                  <code className="font-mono font-bold text-primary">
-                    {header.receptionNo || suggestedReceptionNo || '—'}
-                  </code>
-                </div>
-                <div className="flex items-center justify-between px-4 py-2.5">
-                  <CardDescription>Cała dostawa</CardDescription>
-                  <CardTitle className="text-sm tabular-nums">{fmtKg(pendingKg)} kg</CardTitle>
-                </div>
-                {/* Podział na numery porządkowe — to jest właśnie ta decyzja,
-                    której nie da się już cofnąć jednym kliknięciem po zapisie. */}
-                {pending.map(g => (
-                  <div key={g.index} className="flex items-center justify-between px-4 py-2.5">
-                    <CardDescription>
-                      Numer porządkowy {g.batchNo ?? `#${g.index + 1}`}
-                      <span className="block font-mono text-[11px] text-ink-3">
-                        {g.supplierNos.join(', ') || 'bez partii dostawcy'}
-                      </span>
-                    </CardDescription>
-                    <div className="text-right">
-                      <CardTitle className="text-sm tabular-nums">{fmtKg(g.kg)} kg</CardTitle>
-                      <CardDescription className="text-[11px]">
-                        do {fmtDatePl(g.expiryDate)}
-                      </CardDescription>
-                    </div>
-                  </div>
-                ))}
-                <div className="flex items-center justify-between px-4 py-2.5">
-                  <CardDescription>Wartość netto</CardDescription>
-                  <CardTitle className="text-sm tabular-nums">
-                    {fmtPln(pendingKg * header.pricePerKg)}
-                  </CardTitle>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Ostrzeżenia walidacji */}
-            {warnings.length > 0 && (
-              <div className="space-y-2">
-                {warnings.map((w, i) => (
-                  <Card key={i} className="border-amber-200 bg-amber-50">
-                    <CardContent className="px-3 py-2 flex items-start gap-2">
-                      <AlertTriangle size={13} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                      <CardDescription className="text-amber-700">{w.message}</CardDescription>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-
-            <Card className="bg-muted/40 border-transparent">
-              <CardContent className="px-3 py-2">
-                <CardDescription className="text-xs">
-                  Numery — przyjęcia i porządkowe — nadaje system przy zapisie;
-                  powyższe to podpowiedzi. Gdy w tej samej chwili ktoś zarejestruje
-                  dostawę z drugiego stanowiska, faktyczne numery mogą wyjść wyższe.
-                </CardDescription>
-              </CardContent>
-            </Card>
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={cancelConfirm} disabled={mutationLoading}>
-              Anuluj
-            </Button>
-            <Button onClick={handleConfirm} disabled={mutationLoading} className="gap-2">
-              {mutationLoading
-                ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                : <CheckCircle size={14} />
-              }
-              Potwierdź
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
     </div>
   )

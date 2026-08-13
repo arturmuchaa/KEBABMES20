@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  canSubmitReception, checkAgainstHdi, groupLines, nextSupplierBatchNo,
-  ordinalLabels, parseKg, receptionIssues, receptionTotalKg, renumberAfterRemove,
-  withContainers, type HdiLine,
+  canSubmitReception, checkAgainstHdi, groupLines, nextSupplierBatchNo, normalizeStartNo, ordinalLabels, ordinalsToSend, parseKg, receptionIssues, receptionTotalKg, renumberAfterRemove, startNoIssue, type HdiLine, withContainers,
 } from './receptionSplit'
 
 const line = (no: string, kg: number, group = 0, extra: Partial<HdiLine> = {}): HdiLine => ({
@@ -215,5 +213,50 @@ describe('renumberAfterRemove', () => {
   it('pozycje skasowanej grupy wracają do poprzedniej, a nie znikają', () => {
     const lines = [line('A1', 100, 0), line('A2', 100, 1)]
     expect(renumberAfterRemove(lines, 1).map(l => l.group)).toEqual([0, 0])
+  })
+})
+
+describe('numer porządkowy poprawiany ołówkiem', () => {
+  it('bez poprawki numeruje po kolei od podpowiedzi', () => {
+    expect(ordinalLabels('477', 3)).toEqual(['477', '478', '479'])
+  })
+
+  it('poprawka przesuwa NASTĘPNE numery, wcześniejsze zostawia', () => {
+    // Operator poprawia drugi stos; pierwszy ma zostać, kolejne idą po nim.
+    expect(ordinalLabels('477', 4, { 1: '500' })).toEqual(['477', '500', '501', '502'])
+  })
+
+  it('poprawka pierwszego przenumerowuje całość — typowy przypadek', () => {
+    // 13.08.2026: seria usługowa miała pominąć 50U-54U i zacząć od 55U.
+    expect(ordinalLabels('50U', 3, { 0: '55U' })).toEqual(['55U', '56U', '57U'])
+  })
+
+  it('zachowuje literę serii usługowej', () => {
+    expect(ordinalLabels('48U', 2)).toEqual(['48U', '49U'])
+  })
+
+  it('bez czytelnej podpowiedzi nie zmyśla numerów', () => {
+    expect(ordinalLabels('', 2)).toEqual(['#1', '#2'])
+  })
+
+  it('numery wysyłamy TYLKO gdy operator je poprawił', () => {
+    // Domyślnie nadaje je sekwencja backendu — dwa stanowiska naraz nie mogą
+    // dostać tego samego numeru.
+    expect(ordinalsToSend({}, ['477', '478'])).toEqual([undefined, undefined])
+    expect(ordinalsToSend({ 0: '55U' }, ['55U', '56U'])).toEqual(['55U', '56U'])
+  })
+
+  it('literę U dokleja i ucina wg znacznika usługi', () => {
+    expect(normalizeStartNo('55', true)).toBe('55U')
+    expect(normalizeStartNo('55u', true)).toBe('55U')
+    expect(normalizeStartNo('55U', false)).toBe('55')
+    expect(normalizeStartNo(' 007 ', false)).toBe('7')
+  })
+
+  it('odrzuca to, co nie jest numerem', () => {
+    expect(startNoIssue('abc', false)).toContain('nie jest numerem')
+    expect(startNoIssue('0', false)).toContain('większy od zera')
+    expect(startNoIssue('', false)).toBeNull()
+    expect(startNoIssue('55U', true)).toBeNull()
   })
 })

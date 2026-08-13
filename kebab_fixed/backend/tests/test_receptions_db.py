@@ -515,3 +515,27 @@ def test_litera_u_w_numerze_musi_zgadzac_sie_ze_znacznikiem_uslugi(db):
         create_reception(_dto(receptionNo="1/08U", isService=False))
     assert e.value.status_code == 400
     assert "usług" in str(e.value.detail).lower()
+
+
+def test_numer_porzadkowy_poprawiony_recznie_wchodzi_i_przestawia_sekwencje(db):
+    """Ołówek przy numerze (13.08.2026): operator poprawia numer, bo część
+    numerów wydano poza systemem (50U-54U). Poprawka ma nie tylko wejść na
+    dokument, ale też PRZESTAWIĆ licznik — inaczej następna dostawa wróciłaby
+    pod numer już wydany."""
+    _seed_supplier()
+    out = create_reception(_dto(groups=[
+        dict(internalBatchNo="500", kgReceived=6000.0, supplierBatches=[
+            dict(supplierBatchNo="A001", kg=6000.0,
+                 slaughterDate="2026-08-10", expiryDate="2026-08-17")]),
+        dict(internalBatchNo="501", kgReceived=4000.0, supplierBatches=[
+            dict(supplierBatchNo="A002", kg=4000.0,
+                 slaughterDate="2026-08-10", expiryDate="2026-08-17")]),
+    ]))
+    assert [b["internal_batch_no"] for b in out["batches"]] == ["500", "501"]
+
+    # Kolejna dostawa BEZ poprawki idzie dalej od 502, nie wraca do 1.
+    dalej = create_reception(_dto(groups=[
+        dict(kgReceived=1000.0, supplierBatches=[
+            dict(supplierBatchNo="A003", kg=1000.0,
+                 slaughterDate="2026-08-10", expiryDate="2026-08-17")])]))
+    assert dalej["batches"][0]["internal_batch_no"] == "502"
