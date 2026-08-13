@@ -1079,6 +1079,19 @@ _DDL: list[str] = [
         kg            NUMERIC(12,3) NOT NULL DEFAULT 0
     )""",
     "CREATE INDEX IF NOT EXISTS idx_msl_session ON mixing_session_lots(session_id)",
+    # Numer karty realizacji produkcji (PK/N/MM/RR wg instrukcji 2.5). Numer
+    # NADAJEMY RAZ i przechowujemy: to numer dokumentu HACCP, który spina
+    # numery przyjęć surowca, dodatków i opakowań — nie może się przesunąć,
+    # gdy w minionym dniu dojdzie kolejna receptura.
+    """CREATE TABLE IF NOT EXISTS production_cards (
+        id         TEXT PRIMARY KEY,
+        plan_date  DATE NOT NULL,
+        recipe_id  TEXT NOT NULL,
+        card_no    TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (plan_date, recipe_id)
+    )""",
+
     "CREATE INDEX IF NOT EXISTS idx_rsb_reception ON reception_supplier_batches(reception_id)",
     "CREATE INDEX IF NOT EXISTS idx_rsb_raw_batch ON reception_supplier_batches(raw_batch_id)",
 ]

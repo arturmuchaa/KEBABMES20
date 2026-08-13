@@ -1,14 +1,18 @@
 /**
- * Karta 2.5.1 — ZALECENIE PRODUKCYJNE (raport z realizacji produkcji).
+ * KARTA REALIZACJI PRODUKCJI — formularz 2.5.1 oPRP (instrukcja 2.5).
  *
- * Odwzorowanie karty papierowej P/ddmmrr/N, z dwiema świadomymi różnicami
- * wobec dotychczasowego wydruku:
- *  • JEDNA KARTA = JEDNA RECEPTURA (dotąd sześć receptur wchodziło na jedną),
- *  • żadnych pustych wierszy-widm — drukujemy wyłącznie realne pozycje.
+ * Wg AKTUALNEJ księgi HACCP (2026.01.525), nie poprzedniego „Zalecenia
+ * produkcyjnego": numer `PK/N/MM/RR`, JEDNA tabela składników (mięso +
+ * dodatki + opakowania) z numerem dostawy przy każdej pozycji, dalej
+ * terminy przydatności, mrożenie, strata i uwagi.
  *
- * Weterynaria pyta, SKĄD WZIĘŁA SIĘ PARTIA PP. Skład wsadu pokazujemy więc
- * dwa razy: w sekcji surowca i przy samej partii w sekcji pakowania, żeby
- * kontrola nie musiała zestawiać tego z dwóch miejsc.
+ * Instrukcja 2.5 czyni z numeru PK spinacz identyfikowalności — dlatego
+ * kolumna NUMER DOSTAWY stoi w tej samej tabeli co składnik, a skład partii
+ * PP („z wsadu: 440 — 60 kg, 441 — 58 kg") jest i przy mięsie, i przy partii
+ * wyrobu. To pytanie pada przy kontroli najczęściej.
+ *
+ * Karta ZAWSZE mieści się na jednej stronie A4 — przy dużym dniu schodzimy
+ * progiem gęstości zamiast pozwolić jej zjechać na drugą kartkę.
  *
  * /office/zalecenie-produkcyjne/druk?data=YYYY-MM-DD&receptura=<id>
  *   ?pdf=1  wyłącza auto-print (podgląd i render do PDF)
@@ -23,24 +27,22 @@ const fmtDate = (iso: string) => {
   const [y, m, d] = String(iso).slice(0, 10).split('-')
   return `${Number(d)}.${m}.${y}`
 }
-const fmtKg = (v: number) =>
-  `${Number(v || 0).toLocaleString('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kg`
+const nkg = (v: number) =>
+  Number(v || 0).toLocaleString('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
 export function ProductionReportPrintPage() {
-  const [params] = useSearchParams()
-  const data     = params.get('data') ?? ''
+  const [params]  = useSearchParams()
+  const data      = params.get('data') ?? ''
   const receptura = params.get('receptura') ?? ''
-  const isPdf    = params.get('pdf') === '1'
+  const isPdf     = params.get('pdf') === '1'
 
   const { data: k, loading, error } = useApi(
-    () => data && receptura
-      ? productionReportsApi.card(data, receptura)
-      : Promise.resolve(null),
+    () => data && receptura ? productionReportsApi.card(data, receptura) : Promise.resolve(null),
     [data, receptura],
   )
 
   useEffect(() => {
-    document.title = 'Zalecenie produkcyjne'
+    document.title = 'Karta realizacji produkcji'
     if (isPdf || !k) return
     const t = setTimeout(() => window.print(), 500)
     return () => clearTimeout(t)
@@ -55,15 +57,11 @@ export function ProductionReportPrintPage() {
     )
   }
 
-  // Karta ma ZAWSZE zmieścić się na jednej stronie A4. Przy dużym dniu
-  // (dużo wsadów albo dużo partii wyrobu) schodzimy o próg niżej z gęstością
-  // zamiast pozwolić kartce zjechać na drugą kartkę.
-  const wierszy = (k.rawMaterials?.length ?? 0)
-    + (k.ingredients?.length ?? 0) + (k.packing?.length ?? 0)
+  const wierszy = (k.components?.length ?? 0) + (k.batches?.length ?? 0)
   const gestosc = wierszy > 26 ? ' d2' : wierszy > 17 ? ' d1' : ''
 
   return (
-    <div className={`zp${gestosc}`}>
+    <div className={`kp${gestosc}`}>
       <style>{CSS}</style>
 
       <div className="hdr">
@@ -74,108 +72,96 @@ export function ProductionReportPrintPage() {
         </div>
       </div>
 
-      <h1>ZALECENIE PRODUKCYJNE</h1>
-      <div className="sub">Raport z realizacji produkcji — surowiec, masowanie i marynowanie, pakowanie</div>
+      <h1>KARTA REALIZACJI PRODUKCJI</h1>
 
       <table className="meta">
         <tbody>
           <tr>
             <th>NUMER KARTY</th><td className="mono b">{k.cardNo}</td>
-            <th>DATA PRODUKCJI</th><td className="b">{fmtDate(k.planDate)}</td>
+            <th>DATA</th><td className="b">{fmtDate(k.planDate)}</td>
           </tr>
           <tr>
-            <th>NAZWY PRODUKTÓW</th><td className="b" colSpan={3}>{k.productNames}</td>
+            <th>NAZWA WYROBU</th><td className="b">{k.productName}</td>
+            <th>REALIZOWANA ILOŚĆ</th><td className="b">{nkg(k.producedKg)} kg</td>
           </tr>
         </tbody>
       </table>
 
-      <div className="sect">SUROWIEC POBRANY DO PRODUKCJI</div>
+      <div className="sect">SKŁADNIKI</div>
       <table>
         <thead>
-          <tr><th>SUROWIEC</th><th className="r">ILOŚĆ POBRANA</th><th>NUMER PORZĄDKOWY</th><th>PARTIE PRZYPRAWIONEGO</th></tr>
+          <tr>
+            <th className="w-kind">RODZAJ</th>
+            <th>SKŁADNIK</th>
+            <th className="w-del">NUMER DOSTAWY</th>
+            <th className="r w-kg">KG</th>
+            <th>UWAGI</th>
+          </tr>
         </thead>
         <tbody>
-          {k.rawMaterials.map((r: any, i: number) => (
+          {k.components.map((c: any, i: number) => (
             <tr key={i}>
-              <td>{r.material || '—'}</td>
-              <td className="r b">{fmtKg(r.kg)}</td>
-              <td className="mono">
-                {r.batchNo || r.origin}
-                {r.approx && <span className="approx"> (skład zlecenia — sesja sprzed zapisu rozbicia)</span>}
-              </td>
-              <td className="mono b">{r.seasonedBatchNo}</td>
+              <td className="kind">{c.kind}</td>
+              <td className="b">{c.name}</td>
+              <td className="mono">{c.deliveryNo || <span className="fill" />}</td>
+              <td className="r b">{c.kg == null ? '—' : `${nkg(c.kg)}${c.unit === 'L' ? ' L' : ''}`}</td>
+              <td className="note">{c.note}</td>
             </tr>
           ))}
           <tr className="sum">
-            <td>SUMA MIĘSA</td><td className="r">{fmtKg(k.rawTotalKg)}</td><td /><td />
+            <td colSpan={3}>SUMA</td>
+            <td className="r">{nkg(k.componentsTotalKg)} kg</td>
+            <td>Wykonał: <span className="fill" /></td>
           </tr>
         </tbody>
       </table>
 
-      <div className="sect">MASOWANIE I MARYNOWANIE</div>
-      <table>
-        <thead>
-          <tr><th>SKŁADNIK</th><th className="r">ILOŚĆ</th><th>NUMER PRZYJĘCIA</th></tr>
-        </thead>
-        <tbody>
-          {k.ingredients.map((g: any, i: number) => (
-            <tr key={i}>
-              <td>{g.name}</td>
-              <td className="r b">{Number(g.qty).toLocaleString('pl-PL', { maximumFractionDigits: 1 })} {g.unit}</td>
-              <td className="mono">{g.receiptNo || <span className="fill" />}</td>
-            </tr>
-          ))}
-          <tr className="sum"><td>SUMA</td><td className="r">{fmtKg(k.mixTotalKg)}</td><td /></tr>
-          <tr><td>Folia</td><td /><td><span className="fill" /></td></tr>
-          <tr>
-            <td>Tuleje</td>
-            <td className="mono" colSpan={2}>{(k.packagings || []).join(', ')}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div className="sect">PAKOWANIE I ETYKIETOWANIE</div>
+      <div className="sect">TERMINY PRZYDATNOŚCI — PARTIE WYROBU</div>
       <table>
         <thead>
           <tr>
-            <th>RODZAJ KEBABU</th><th>PARTIA</th><th>OPAKOWANIA (SZT. × WAGA)</th>
-            <th>DATA WEJŚCIA NA MROŹNIĘ</th><th>NALEŻY SPOŻYĆ DO</th><th className="r">WAGA</th>
+            <th>NUMER PARTII</th><th>OPAKOWANIA (SZT. × WAGA)</th>
+            <th>PRZECHOWYWANIE</th><th>DATA PRODUKCJI</th>
+            <th>NALEŻY SPOŻYĆ DO</th><th className="r">WAGA</th>
           </tr>
         </thead>
         <tbody>
-          {k.packing.map((p: any, i: number) => (
+          {k.batches.map((b: any, i: number) => (
             <tr key={i}>
-              <td>{p.productType}</td>
               <td className="mono b">
-                {p.batchNo}
-                {p.origin && <div className="orig">z wsadu: {p.origin}</div>}
+                {b.batchNo}
+                {b.origin && <div className="orig">z wsadu: {b.origin}</div>}
               </td>
-              <td>{p.packages}</td>
-              <td>{fmtDate(p.frozenAt)}</td>
-              <td>{fmtDate(p.bestBefore)}</td>
-              <td className="r b">{fmtKg(p.kg)}</td>
+              <td>{b.packages}</td>
+              <td>{b.storage}</td>
+              <td>{fmtDate(b.producedDate)}</td>
+              <td className="b">{fmtDate(b.bestBefore)}</td>
+              <td className="r b">{nkg(b.kg)} kg</td>
             </tr>
           ))}
-          <tr><td>UPPZ kat. 3 / ścinki</td><td /><td /><td /><td /><td className="r"><span className="fill" /></td></tr>
           <tr className="sum">
-            <td>SUMA PRODUKCJI</td><td /><td /><td /><td /><td className="r">{fmtKg(k.packingTotalKg)}</td>
+            <td colSpan={5}>SUMA PRODUKCJI</td>
+            <td className="r">{nkg(k.producedKg)} kg</td>
           </tr>
         </tbody>
       </table>
 
-      <div className="sect">ZAMRAŻANIE I ZWOLNIENIE PARTII</div>
+      <div className="sect">ZAMRAŻANIE, OCENA I STRATA</div>
       <table>
         <thead>
           <tr>
-            <th>TEMPERATURA W CENTRUM SZYSZKI [°C]<div className="req">wymóg: −18 °C</div></th>
-            <th>CZAS ZAMRAŻANIA [H]<div className="req">wymóg: do 24 h</div></th>
+            <th>TEMPERATURA NA KONIEC MROŻENIA WEWNĄTRZ SZYSZKI [°C]<div className="req">wymóg: −18 °C</div></th>
+            <th>CZAS TRWANIA ZAMRAŻANIA [H]<div className="req">wymóg: do 24 h</div></th>
             <th>OCENA ORGANOLEPTYCZNA PO WYCHŁODZENIU</th>
             <th>STRATA PRODUKCYJNA [KG]</th>
-            <th>WYKONAŁ — DATA I PODPIS</th>
+            <th>WYKONAŁ</th>
           </tr>
         </thead>
         <tbody><tr>{[0, 1, 2, 3, 4].map(i => <td key={i} className="tall" />)}</tr></tbody>
       </table>
+
+      <div className="sect">UWAGI</div>
+      <table><tbody><tr><td className="tall" /></tr></tbody></table>
 
       <table className="sign">
         <thead><tr><th>SPORZĄDZIŁ — DATA I PODPIS</th><th>ZATWIERDZIŁ — PIECZĄTKA I PODPIS</th></tr></thead>
@@ -184,71 +170,71 @@ export function ProductionReportPrintPage() {
 
       <div className="foot">
         <span>Przechowywanie zapisu: min. 1 rok</span>
-        <span>Karta 2.5.1 do instrukcji 2.5 — Raport z realizacji produkcji</span>
+        <span>Karta 2.5.1 do instrukcji 2.5 — oPRP Produkcja kebaba</span>
       </div>
     </div>
   )
 }
 
 const CSS = `
-/* Karta MUSI mieścić się na jednej stronie A4 — stąd wąskie marginesy
-   i zwarta typografia. Sprawdzone renderem przy 12 partiach surowca. */
+/* Karta MUSI mieścić się na jednej stronie A4 — wąskie marginesy, zwarta
+   typografia i progi gęstości. Sprawdzone renderem. */
 @page { size: A4 portrait; margin: 5mm 6mm; }
-.zp, .zp * { box-sizing: border-box; }
-.zp { font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff;
+.kp, .kp * { box-sizing: border-box; }
+.kp { font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff;
   font-size: 7.6pt; line-height: 1.15; width: 198mm; margin: 0 auto;
   -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-@media print { .zp { width: auto; } }
+@media print { .kp { width: auto; } }
 
-.zp .hdr { display: flex; align-items: center; gap: 3mm; }
-.zp .logo { height: 8.5mm; flex-shrink: 0; }
-.zp .plant { flex: 1; text-align: center; }
-.zp .plant .nm { font-weight: 700; font-size: 8.2pt; }
-.zp .plant .ad { font-size: 6.8pt; }
+.kp .hdr { display: flex; align-items: center; gap: 3mm; }
+.kp .logo { height: 8.5mm; flex-shrink: 0; }
+.kp .plant { flex: 1; text-align: center; }
+.kp .plant .nm { font-weight: 700; font-size: 8.2pt; }
+.kp .plant .ad { font-size: 6.8pt; }
 
-.zp h1 { text-align: center; font-size: 11pt; font-weight: 700; letter-spacing: .04em;
-  margin: 1.8mm 0 0.3mm; }
-.zp .sub { text-align: center; font-size: 6.8pt; margin-bottom: 1.5mm; }
+.kp h1 { text-align: center; font-size: 11.5pt; font-weight: 700;
+  letter-spacing: .05em; margin: 2mm 0 1.5mm; }
 
-.zp table { width: 100%; border-collapse: collapse; margin-bottom: 1.2mm; }
-.zp th, .zp td { border: .22mm solid #000; padding: .7mm 1.2mm; text-align: left;
+.kp table { width: 100%; border-collapse: collapse; margin-bottom: 1.2mm; }
+.kp th, .kp td { border: .22mm solid #000; padding: .7mm 1.2mm; text-align: left;
   vertical-align: top; }
-.zp thead th { background: #efefef; font-size: 6.8pt; font-weight: 700; }
-.zp .r { text-align: right; }
-.zp .b { font-weight: 700; }
-.zp .mono { font-family: 'Courier New', monospace; font-size: 7.2pt; }
-.zp .sum td { background: #f5f5f5; font-weight: 700; }
-.zp .req { font-weight: 400; font-size: 6pt; }
-.zp .tall { height: 9mm; }
+.kp thead th { background: #efefef; font-size: 6.8pt; font-weight: 700; }
+.kp .r { text-align: right; }
+.kp .b { font-weight: 700; }
+.kp .mono { font-family: 'Courier New', monospace; font-size: 7.2pt; }
+.kp .sum td { background: #f5f5f5; font-weight: 700; }
+.kp .req { font-weight: 400; font-size: 6pt; }
+.kp .tall { height: 9mm; }
+.kp .kind { font-size: 6.4pt; text-transform: uppercase; color: #333; }
+.kp .note { font-size: 6.8pt; }
 /* Pole do wpisania długopisem — MES tej wartości nie zna. */
-.zp .fill { display: inline-block; width: 100%; border-bottom: .2mm dotted #666; height: 3mm; }
-/* Skład wsadu przy partii — odpowiedź na „skąd wzięła się PP". */
-.zp .orig { font-family: Arial; font-weight: 400; font-size: 6.4pt; margin-top: .4mm; }
-/* Dane sprzed zapisu rozbicia per sesja — karta nie udaje precyzji. */
-.zp .approx { font-family: Arial; font-size: 6.2pt; color: #444; }
+.kp .fill { display: inline-block; width: 100%; border-bottom: .2mm dotted #666; height: 3mm; }
+/* Skład wsadu — odpowiedź na „skąd wzięła się partia PP". */
+.kp .orig { font-family: Arial; font-weight: 400; font-size: 6.4pt; margin-top: .4mm; }
 
-.zp .meta th { background: #efefef; width: 24mm; font-size: 6.8pt; }
-.zp .sect { background: #dcdcdc; border: .22mm solid #000; border-bottom: 0;
+.kp .w-kind { width: 16mm; }
+.kp .w-del  { width: 26mm; }
+.kp .w-kg   { width: 20mm; }
+.kp .meta th { background: #efefef; width: 26mm; font-size: 6.8pt; }
+.kp .sect { background: #dcdcdc; border: .22mm solid #000; border-bottom: 0;
   font-weight: 700; font-size: 7.4pt; padding: .7mm 1.2mm; letter-spacing: .03em; }
-.zp .sign th { width: 50%; }
-.zp .foot { display: flex; justify-content: space-between; font-size: 6.4pt; margin-top: .8mm; }
+.kp .sign th { width: 50%; }
+.kp .foot { display: flex; justify-content: space-between; font-size: 6.4pt; margin-top: .8mm; }
 
-/* Progi gęstości — karta zawsze na jednej stronie A4. Sprawdzone renderem:
-   d1 do ~26 wierszy treści, d2 do ~40. */
-.zp.d1 { font-size: 7pt; }
-.zp.d1 th, .zp.d1 td { padding: .45mm 1mm; }
-.zp.d1 .tall { height: 7mm; }
-.zp.d1 h1 { font-size: 10pt; margin: 1.2mm 0 .2mm; }
-.zp.d1 .logo { height: 7.5mm; }
+/* Progi gęstości — karta zawsze na jednej stronie A4. */
+.kp.d1 { font-size: 7pt; }
+.kp.d1 th, .kp.d1 td { padding: .45mm 1mm; }
+.kp.d1 .tall { height: 7mm; }
+.kp.d1 h1 { font-size: 10.5pt; margin: 1.2mm 0 1mm; }
+.kp.d1 .logo { height: 7.5mm; }
 
-.zp.d2 { font-size: 6.3pt; }
-.zp.d2 th, .zp.d2 td { padding: .3mm .8mm; }
-.zp.d2 .mono { font-size: 6pt; }
-.zp.d2 thead th { font-size: 5.9pt; }
-.zp.d2 .tall { height: 5.5mm; }
-.zp.d2 h1 { font-size: 9.5pt; margin: 1mm 0 .2mm; }
-.zp.d2 .sub { font-size: 6pt; margin-bottom: 1mm; }
-.zp.d2 .logo { height: 6.5mm; }
-.zp.d2 .sect { font-size: 6.6pt; padding: .5mm 1mm; }
-.zp.d2 .orig, .zp.d2 .approx { font-size: 5.6pt; }
+.kp.d2 { font-size: 6.3pt; }
+.kp.d2 th, .kp.d2 td { padding: .3mm .8mm; }
+.kp.d2 .mono { font-size: 6pt; }
+.kp.d2 thead th { font-size: 5.9pt; }
+.kp.d2 .tall { height: 5.5mm; }
+.kp.d2 h1 { font-size: 10pt; margin: 1mm 0 .8mm; }
+.kp.d2 .logo { height: 6.5mm; }
+.kp.d2 .sect { font-size: 6.6pt; padding: .5mm 1mm; }
+.kp.d2 .orig, .kp.d2 .note { font-size: 5.8pt; }
 `

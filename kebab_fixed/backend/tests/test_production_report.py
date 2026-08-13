@@ -1,20 +1,20 @@
-"""Karta 2.5.1 — ZALECENIE PRODUKCYJNE: składanie sekcji.
+"""Karta realizacji produkcji (2.5.1 oPRP) — składanie sekcji.
 
-Wzorzec to karta papierowa P/030826/1 z 3.08.2026. Testy pilnują zapisów,
-które czyta weterynaria — przede wszystkim SKŁADU PARTII PP.
+Wzorzec: aktualna księga HACCP 2026.01.525. Testy pilnują zapisów, które
+czyta weterynaria — przede wszystkim SKŁADU PARTII PP.
 """
 from app.services.production_report_service import (
-    card_no,
+    build_card_no,
     format_origin,
     format_packages,
 )
 
 
-def test_numer_karty_jak_na_papierze():
-    # 3.08.2026, pierwsza receptura dnia → P/030826/1
-    assert card_no("2026-08-03", 1) == "P/030826/1"
-    assert card_no("2026-08-03", 2) == "P/030826/2"
-    assert card_no("2026-12-31", 4) == "P/311226/4"
+def test_numer_karty_wg_instrukcji_2_5():
+    # „PK — produkcja kebabu, numer kolejny, miesiąc, rok" (instrukcja 2.5)
+    assert build_card_no(1, "2026-08-03") == "PK/1/08/26"
+    assert build_card_no(12, "2026-08-13") == "PK/12/08/26"
+    assert build_card_no(4, "2026-12-31") == "PK/4/12/26"
 
 
 # ── SKŁAD PARTII PP — to, o co pyta weterynaria ───────────────────────
