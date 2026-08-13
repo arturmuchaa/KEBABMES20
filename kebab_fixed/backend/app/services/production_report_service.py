@@ -140,16 +140,17 @@ def _ingredient_rows(
     return out
 
 
-def _mixing_sources(seasoned_ids: List[str]) -> List[Dict[str, Any]]:
-    """Wsady surowca per ZLECENIE masowania + partie, które z niego powstały.
+def _batch_sources(seasoned_ids: List[str]) -> List[Dict[str, Any]]:
+    """Wsady surowca PER PARTIA przyprawionego — jak na karcie papierowej.
 
-    UWAGA — granulacja: ruch zużycia mięsa zapisuje `source_id = zlecenie`,
-    a nie sesję, więc gdy jedno zlecenie rodzi kilka partii przyprawionego
-    (np. 470, 472 i PP13), MES NIE WIE, ile kilogramów poszło do której.
-    Rozbicie per partia jest liczone przy masowaniu, ale nie utrwalane.
-    Dlatego karta pokazuje skład ZLECENIA i wymienia partie, które z niego
-    wyszły — to zapis prawdziwy, choć grubszy niż na karcie papierowej.
-    Zliczanie per partia dawałoby wielokrotność tego samego surowca.
+    Jedna sesja masowania = jeden wsad masownicy = jedna partia (600 albo
+    200 kg). Rozbicie wsadów operator wpisuje przy potwierdzaniu masowania
+    i od 13.08.2026 jest ono zapisywane w `mixing_session_lots`. Dzięki temu
+    partia PP ma skład co do kilograma („440 — 60 kg, 441 — 58 kg").
+
+    Sesje sprzed tej zmiany rozbicia nie mają — dla nich schodzimy na skład
+    całego ZLECENIA i oznaczamy wiersz jako przybliżony (`approx`), żeby
+    karta nie udawała precyzji, której w danych nie ma.
     """
     if not seasoned_ids:
         return []
@@ -162,29 +163,44 @@ def _mixing_sources(seasoned_ids: List[str]) -> List[Dict[str, Any]]:
         """,
         (seasoned_ids,),
     )
-    by_order: Dict[str, List[Dict[str, Any]]] = {}
-    for b in batches:
-        by_order.setdefault(b.get("mixing_order_no") or "", []).append(b)
-
     out: List[Dict[str, Any]] = []
-    for order_no, produced in by_order.items():
+    for b in batches:
+        batch_no = b.get("batch_no") or ""
+        order_no = b.get("mixing_order_no") or ""
         lots = query_all(
             """
-            SELECT rb.internal_batch_no AS raw_no,
-                   ms.material_name,
-                   COALESCE(mol.kg_actual, mol.kg_planned) AS kg
-            FROM mixing_orders mo
-            JOIN mixing_order_lots mol ON mol.order_id = mo.id
-            LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
-            LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
-            WHERE mo.order_no = %s
-            ORDER BY rb.internal_batch_seq
+            SELECT msl.raw_batch_no AS raw_no, msl.kg, ms.material_name
+            FROM mixing_sessions s
+            JOIN mixing_orders mo ON mo.id = s.order_id
+            JOIN mixing_session_lots msl ON msl.session_id = s.id
+            LEFT JOIN meat_stock ms ON ms.id = msl.meat_stock_id
+            WHERE mo.order_no = %s AND s.batch_no = %s
+            ORDER BY msl.raw_batch_no
             """,
-            (order_no,),
+            (order_no, batch_no),
         )
+        approx = False
+        if not lots:
+            # Sesja sprzed zapisu rozbicia — bierzemy skład zlecenia.
+            approx = True
+            lots = query_all(
+                """
+                SELECT rb.internal_batch_no AS raw_no,
+                       COALESCE(mol.kg_actual, mol.kg_planned) AS kg,
+                       ms.material_name
+                FROM mixing_orders mo
+                JOIN mixing_order_lots mol ON mol.order_id = mo.id
+                LEFT JOIN meat_stock ms ON ms.id = mol.meat_stock_id
+                LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
+                WHERE mo.order_no = %s
+                ORDER BY rb.internal_batch_seq
+                """,
+                (order_no,),
+            )
         out.append({
+            "seasonedBatchNo": batch_no,
             "mixingOrderNo": order_no,
-            "batchNos": [b.get("batch_no") or "" for b in produced],
+            "approx": approx,
             "lots": [
                 {"raw_no": l.get("raw_no") or "", "kg": _kg(l.get("kg")),
                  "material": l.get("material_name") or ""}
@@ -267,8 +283,11 @@ def get_report(plan_date: str, recipe_id: str) -> Dict[str, Any]:
         for sid in (g.get("source_seasoned_ids") or []):
             if sid and sid not in seasoned_ids:
                 seasoned_ids.append(sid)
-    sources = _mixing_sources(seasoned_ids)
+    sources = _batch_sources(seasoned_ids)
 
+    # Jeden wiersz = jedna partia przyprawionego (jeden wsad masownicy),
+    # dokładnie jak na karcie papierowej: 600 kg z wsadu 440, 600 kg z 441,
+    # 118 kg z resztek obu.
     raw_rows: List[Dict[str, Any]] = []
     origin_by_batch: Dict[str, str] = {}
     for s in sources:
@@ -276,11 +295,8 @@ def get_report(plan_date: str, recipe_id: str) -> Dict[str, Any]:
         if not lots:
             continue
         origin = format_origin(lots)
-        # Skład zlecenia dotyczy KAŻDEJ partii, która z niego wyszła —
-        # przy partii łączonej to jedyna prawdziwa odpowiedź „skąd PP".
-        for bno in s["batchNos"]:
-            if origin:
-                origin_by_batch[bno] = origin
+        if origin:
+            origin_by_batch[s["seasonedBatchNo"]] = origin
         material = next((l["material"] for l in lots if l["material"]), "")
         raw_rows.append({
             "material": material,
@@ -288,8 +304,9 @@ def get_report(plan_date: str, recipe_id: str) -> Dict[str, Any]:
             # Jeden wsad → numer w kolumnie; kilka → rozbicie co do kilograma
             "batchNo": lots[0]["raw_no"] if len(lots) == 1 else "",
             "origin": origin,
+            "approx": s["approx"],
             "mixingOrderNo": s["mixingOrderNo"],
-            "seasonedBatchNos": s["batchNos"],
+            "seasonedBatchNo": s["seasonedBatchNo"],
         })
     raw_total = _kg(sum(r["kg"] for r in raw_rows))
 

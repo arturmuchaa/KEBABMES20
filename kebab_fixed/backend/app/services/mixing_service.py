@@ -754,6 +754,7 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
 
         machine_id = order.get("machine_id")
 
+        session_id = cuid()
         cx_execute(
             conn,
             """
@@ -763,7 +764,7 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
-                cuid(),
+                session_id,
                 order_id,
                 machine_id,
                 kg_meat,
@@ -960,6 +961,32 @@ def finish_mixing_session(order_id: str, dto: FinishMixingSessionDto) -> Dict:
                 )
                 for lt in lots_fb
             ]
+
+        # Rozbicie wsadów NA TĘ SESJĘ — jedna sesja = jedna partia
+        # przyprawionego. Operator wpisuje je przy potwierdzaniu masowania;
+        # bez zapisu ginęło (ruch zużycia niesie tylko numer zlecenia), a to
+        # jedyne źródło odpowiedzi „z czego powstała partia PP" na karcie 2.5.1.
+        for ms_id, kg_used_session in session_allocs:
+            if not ms_id or kg_used_session <= 0:
+                continue
+            rb = cx_query_one(
+                conn,
+                """
+                SELECT rb.internal_batch_no
+                FROM meat_stock ms
+                LEFT JOIN raw_batches rb ON rb.id = ms.raw_batch_id
+                WHERE ms.id = %s
+                """,
+                (ms_id,),
+            )
+            cx_execute(
+                conn,
+                "INSERT INTO mixing_session_lots "
+                "(id, session_id, meat_stock_id, raw_batch_no, kg) "
+                "VALUES (%s,%s,%s,%s,%s)",
+                (cuid(), session_id, ms_id,
+                 (rb or {}).get("internal_batch_no") or "", kg_used_session),
+            )
 
         # Lock every meat_stock row we will mutate (deterministic order)
         for ms_id in sorted({ms for ms, _ in session_allocs if ms}):

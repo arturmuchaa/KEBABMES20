@@ -55,8 +55,15 @@ export function ProductionReportPrintPage() {
     )
   }
 
+  // Karta ma ZAWSZE zmieścić się na jednej stronie A4. Przy dużym dniu
+  // (dużo wsadów albo dużo partii wyrobu) schodzimy o próg niżej z gęstością
+  // zamiast pozwolić kartce zjechać na drugą kartkę.
+  const wierszy = (k.rawMaterials?.length ?? 0)
+    + (k.ingredients?.length ?? 0) + (k.packing?.length ?? 0)
+  const gestosc = wierszy > 26 ? ' d2' : wierszy > 17 ? ' d1' : ''
+
   return (
-    <div className="zp">
+    <div className={`zp${gestosc}`}>
       <style>{CSS}</style>
 
       <div className="hdr">
@@ -92,8 +99,11 @@ export function ProductionReportPrintPage() {
             <tr key={i}>
               <td>{r.material || '—'}</td>
               <td className="r b">{fmtKg(r.kg)}</td>
-              <td className="mono">{r.batchNo || r.origin}</td>
-              <td className="mono">{(r.seasonedBatchNos || []).join(', ')}</td>
+              <td className="mono">
+                {r.batchNo || r.origin}
+                {r.approx && <span className="approx"> (skład zlecenia — sesja sprzed zapisu rozbicia)</span>}
+              </td>
+              <td className="mono b">{r.seasonedBatchNo}</td>
             </tr>
           ))}
           <tr className="sum">
@@ -181,41 +191,64 @@ export function ProductionReportPrintPage() {
 }
 
 const CSS = `
-@page { size: A4 portrait; margin: 8mm 10mm; }
+/* Karta MUSI mieścić się na jednej stronie A4 — stąd wąskie marginesy
+   i zwarta typografia. Sprawdzone renderem przy 12 partiach surowca. */
+@page { size: A4 portrait; margin: 5mm 6mm; }
 .zp, .zp * { box-sizing: border-box; }
 .zp { font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff;
-  font-size: 8.5pt; width: 190mm; margin: 0 auto;
+  font-size: 7.6pt; line-height: 1.15; width: 198mm; margin: 0 auto;
   -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 @media print { .zp { width: auto; } }
 
-.zp .hdr { display: flex; align-items: flex-start; gap: 4mm; }
-.zp .logo { height: 11mm; flex-shrink: 0; }
+.zp .hdr { display: flex; align-items: center; gap: 3mm; }
+.zp .logo { height: 8.5mm; flex-shrink: 0; }
 .zp .plant { flex: 1; text-align: center; }
-.zp .plant .nm { font-weight: 700; font-size: 9pt; }
-.zp .plant .ad { font-size: 7.5pt; }
+.zp .plant .nm { font-weight: 700; font-size: 8.2pt; }
+.zp .plant .ad { font-size: 6.8pt; }
 
-.zp h1 { text-align: center; font-size: 12pt; font-weight: 700; letter-spacing: .04em;
-  margin: 3mm 0 0.5mm; }
-.zp .sub { text-align: center; font-size: 7.5pt; margin-bottom: 2.5mm; }
+.zp h1 { text-align: center; font-size: 11pt; font-weight: 700; letter-spacing: .04em;
+  margin: 1.8mm 0 0.3mm; }
+.zp .sub { text-align: center; font-size: 6.8pt; margin-bottom: 1.5mm; }
 
-.zp table { width: 100%; border-collapse: collapse; margin-bottom: 2mm; }
-.zp th, .zp td { border: .25mm solid #000; padding: 1mm 1.5mm; text-align: left;
+.zp table { width: 100%; border-collapse: collapse; margin-bottom: 1.2mm; }
+.zp th, .zp td { border: .22mm solid #000; padding: .7mm 1.2mm; text-align: left;
   vertical-align: top; }
-.zp thead th { background: #efefef; font-size: 7.5pt; font-weight: 700; }
+.zp thead th { background: #efefef; font-size: 6.8pt; font-weight: 700; }
 .zp .r { text-align: right; }
 .zp .b { font-weight: 700; }
-.zp .mono { font-family: 'Courier New', monospace; }
-.zp .sum td { background: #f7f7f7; font-weight: 700; }
-.zp .req { font-weight: 400; font-size: 6.5pt; }
-.zp .tall { height: 12mm; }
+.zp .mono { font-family: 'Courier New', monospace; font-size: 7.2pt; }
+.zp .sum td { background: #f5f5f5; font-weight: 700; }
+.zp .req { font-weight: 400; font-size: 6pt; }
+.zp .tall { height: 9mm; }
 /* Pole do wpisania długopisem — MES tej wartości nie zna. */
-.zp .fill { display: inline-block; width: 100%; border-bottom: .2mm dotted #666; height: 3.2mm; }
-/* Skład wsadu przy partii — to jest odpowiedź na „skąd wzięła się PP". */
-.zp .orig { font-family: Arial; font-weight: 400; font-size: 6.8pt; margin-top: .6mm; }
+.zp .fill { display: inline-block; width: 100%; border-bottom: .2mm dotted #666; height: 3mm; }
+/* Skład wsadu przy partii — odpowiedź na „skąd wzięła się PP". */
+.zp .orig { font-family: Arial; font-weight: 400; font-size: 6.4pt; margin-top: .4mm; }
+/* Dane sprzed zapisu rozbicia per sesja — karta nie udaje precyzji. */
+.zp .approx { font-family: Arial; font-size: 6.2pt; color: #444; }
 
-.zp .meta th { background: #efefef; width: 26mm; font-size: 7.5pt; }
-.zp .sect { background: #dcdcdc; border: .25mm solid #000; border-bottom: 0;
-  font-weight: 700; font-size: 8pt; padding: 1mm 1.5mm; letter-spacing: .03em; }
+.zp .meta th { background: #efefef; width: 24mm; font-size: 6.8pt; }
+.zp .sect { background: #dcdcdc; border: .22mm solid #000; border-bottom: 0;
+  font-weight: 700; font-size: 7.4pt; padding: .7mm 1.2mm; letter-spacing: .03em; }
 .zp .sign th { width: 50%; }
-.zp .foot { display: flex; justify-content: space-between; font-size: 7pt; margin-top: 1mm; }
+.zp .foot { display: flex; justify-content: space-between; font-size: 6.4pt; margin-top: .8mm; }
+
+/* Progi gęstości — karta zawsze na jednej stronie A4. Sprawdzone renderem:
+   d1 do ~26 wierszy treści, d2 do ~40. */
+.zp.d1 { font-size: 7pt; }
+.zp.d1 th, .zp.d1 td { padding: .45mm 1mm; }
+.zp.d1 .tall { height: 7mm; }
+.zp.d1 h1 { font-size: 10pt; margin: 1.2mm 0 .2mm; }
+.zp.d1 .logo { height: 7.5mm; }
+
+.zp.d2 { font-size: 6.3pt; }
+.zp.d2 th, .zp.d2 td { padding: .3mm .8mm; }
+.zp.d2 .mono { font-size: 6pt; }
+.zp.d2 thead th { font-size: 5.9pt; }
+.zp.d2 .tall { height: 5.5mm; }
+.zp.d2 h1 { font-size: 9.5pt; margin: 1mm 0 .2mm; }
+.zp.d2 .sub { font-size: 6pt; margin-bottom: 1mm; }
+.zp.d2 .logo { height: 6.5mm; }
+.zp.d2 .sect { font-size: 6.6pt; padding: .5mm 1mm; }
+.zp.d2 .orig, .zp.d2 .approx { font-size: 5.6pt; }
 `

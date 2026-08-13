@@ -1065,6 +1065,20 @@ _DDL: list[str] = [
         expiry_date       DATE,
         seq               INTEGER NOT NULL DEFAULT 0
     )""",
+    # Rozbicie wsadów surowca NA SESJĘ masowania (jedna sesja = jedna partia
+    # przyprawionego). Operator wpisuje je przy potwierdzaniu masowania, ale
+    # dotąd ginęło: ruch zużycia zapisuje source_id=zlecenie, więc gdy jedno
+    # zlecenie rodziło kilka partii, nie dało się powiedzieć ile kg poszło do
+    # której. Bez tego karta 2.5.1 nie odpowiada na pytanie weterynarii,
+    # skąd wzięła się partia PP.
+    """CREATE TABLE IF NOT EXISTS mixing_session_lots (
+        id            TEXT PRIMARY KEY,
+        session_id    TEXT NOT NULL REFERENCES mixing_sessions(id) ON DELETE CASCADE,
+        meat_stock_id TEXT,
+        raw_batch_no  TEXT,
+        kg            NUMERIC(12,3) NOT NULL DEFAULT 0
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_msl_session ON mixing_session_lots(session_id)",
     "CREATE INDEX IF NOT EXISTS idx_rsb_reception ON reception_supplier_batches(reception_id)",
     "CREATE INDEX IF NOT EXISTS idx_rsb_raw_batch ON reception_supplier_batches(raw_batch_id)",
 ]
