@@ -13,13 +13,16 @@
  * w backendzie — wizard startuje od pierwszej niezważonej frakcji.
  */
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { AlertTriangle, Check, Delete, Package, ArrowRight, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Check, Delete, Package, ArrowRight, Printer, Trash2, X } from 'lucide-react'
 import { fmtKg, fmtPct } from '@/lib/utils'
+import { getDevices, sendZpl, probeBrowserPrint } from '@/lib/zebra'
+import { byproductLabelZpl } from '@/features/deboning/byproductLabelZpl'
 import {
   E2_TARE_KG, DRIVE_OFF_IDLE, driveOffStep, isByproductBelowNorm, TYPICAL_BYPRODUCT_PCT_MIN,
   byproductTareOptions, BALANCE_WARN_PCT,
   type DriveOffTracker, type PalletSnapshot,
 } from '@/features/deboning/utils/weighing'
+import { getProductionDate } from '@/features/deboning/utils'
 import type { ScaleState } from '@/features/deboning/useScale'
 import type { BatchByproducts } from '@/lib/api'
 
@@ -35,6 +38,14 @@ interface Pallet {
 const FRAC_LABEL: Record<Frac, string> = { backs: 'grzbiety', bones: 'kości' }
 const FRAC_TITLE: Record<Frac, string> = { backs: 'Zważ grzbiety', bones: 'Zważ kości' }
 
+/** „Data produkcji" palety = dzień PRODUKCYJNY rozbioru (getProductionDate:
+ *  zmiana przed 04:00 należy jeszcze do poprzedniego dnia), a nie surowa data
+ *  kalendarzowa — etykieta ma mówić to samo, co reszta kiosku i raporty. */
+function palletProductionDate(weighedAt?: string): string {
+  const parsed = weighedAt ? new Date(weighedAt) : null
+  return getProductionDate(parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date())
+}
+
 // Pasmo normy i sprawdzenie odchylenia: isByproductBelowNorm / TYPICAL_BYPRODUCT_PCT_MIN
 // (utils/weighing.ts) — patrz tam komentarz o audycie partii 428, 2026-07-23.
 
@@ -47,7 +58,8 @@ const V: CSSProperties = {
 const MONO = '"SFMono-Regular",ui-monospace,"Cascadia Mono",Consolas,monospace'
 
 export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onClose }: {
-  batch: { id: string; internalBatchNo: string }
+  /** expiryDate — data ważności ćwiartki; jedzie 1:1 na etykietę palety. */
+  batch: { id: string; internalBatchNo: string; expiryDate?: string }
   record: BatchByproducts
   scale: ScaleState
   /** Tary wózków z systemu (ta sama lista co przy ważeniu mięsa) — uboczne
@@ -74,6 +86,9 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
   const [balancePrompt, setBalancePrompt] = useState<{ pallet: Pallet; pct: number } | null>(null)
   // Ostatni stabilny odczyt palety + prompt po zjeździe z wagi bez „Dodaj".
   const [driveOff, setDriveOff] = useState<DriveOffTracker<PalletSnapshot>>(DRIVE_OFF_IDLE)
+  // Druk etykiety palety: indeks palety w druku + komunikat po próbie.
+  const [printingIdx, setPrintingIdx] = useState<number | null>(null)
+  const [printMsg, setPrintMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   const tareOptions = useMemo(() => byproductTareOptions(cartTares), [cartTares])
   const containers = parseInt(containersStr || '0', 10) || 0
@@ -128,6 +143,14 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
     ))
   }, [phase, scale.connected, scale.stable, gross, tareKg, tareLabel, containers, net])
 
+  // Komunikat druku znika sam; błąd trzyma się dłużej — operator ma zdążyć
+  // przeczytać, co zrobić z drukarką.
+  useEffect(() => {
+    if (!printMsg) return
+    const t = setTimeout(() => setPrintMsg(null), printMsg.ok ? 3500 : 12000)
+    return () => clearTimeout(t)
+  }, [printMsg])
+
   /** Zapis frakcji na serwer po KAŻDEJ dodanej palecie — zamknięcie/reload
    * kiosku nie gubi już zważonych palet (kości 417: 783 kg przepadło, bo
    * zapis szedł dopiero przy „To wszystko", prod 2026-07-16). Backend
@@ -181,6 +204,39 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
     const next = pallets.filter((_, i) => i !== idx)
     setPallets(next)
     void persist(next)
+  }
+
+  /** Druk etykiety palety (80×50) na drukarce Zebra podpiętej do panelu —
+   *  ten sam most co w biurze: usługa Zebra BrowserPrint na localhost:9100.
+   *  Druk NIC nie zapisuje; to wydruk tego, co już jest w sumie, więc można
+   *  go powtórzyć (etykieta zgubiona / rozmazana) bez ważenia od nowa. */
+  async function printPalletLabel(p: Pallet, idx: number) {
+    setPrintingIdx(idx)
+    setPrintMsg(null)
+    try {
+      const { default: def, list } = await getDevices()
+      const dev = def ?? list[0]
+      if (!dev) throw new Error('Nie znaleziono drukarki etykiet — sprawdź, czy Zebra jest włączona i podłączona do panelu.')
+      await sendZpl(dev, byproductLabelZpl({
+        kind: frac,
+        batchNo: batch.internalBatchNo,
+        netKg: p.net,
+        productionDate: palletProductionDate(p.weighedAt),
+        // Data ważności NIE jest liczona z normy — przepisujemy ją z ćwiartki.
+        expiryDate: (batch.expiryDate ?? '').slice(0, 10),
+      }))
+      setPrintMsg({ ok: true, text: `Etykieta ${FRAC_LABEL[frac]} ${fmtKg(p.net, 1)} kg — wysłana na drukarkę` })
+    } catch (e: any) {
+      // Zwykle to nie błąd druku, tylko brak/zablokowana usługa BrowserPrint —
+      // sonda mówi operatorowi wprost, co jest nie tak.
+      const probe = await probeBrowserPrint()
+      setPrintMsg({
+        ok: false,
+        text: probe.ok ? (e?.message || 'Nie udało się wydrukować etykiety') : (probe.reason ?? 'Brak połączenia z drukarką etykiet'),
+      })
+    } finally {
+      setPrintingIdx(null)
+    }
   }
 
   // Operator zjechał z wagi bez „Dodaj do sumy" — potwierdził dodanie odczytu.
@@ -412,7 +468,7 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
               </div>
             )}
 
-            {/* Lista palet z możliwością zdjęcia pojedynczej. */}
+            {/* Lista palet: druk etykiety (także dodruk) + zdjęcie pojedynczej. */}
             {pallets.length > 0 && (
               <div className="flex flex-col gap-2 max-h-52 overflow-auto">
                 {pallets.map((p, i) => (
@@ -421,6 +477,12 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
                     <span className="text-xs font-bold uppercase flex-1 min-w-0 truncate" style={{ color: 'var(--mut)', letterSpacing: '.06em' }}>
                       {p.tareLabel} · {p.containers} poj. · brutto {fmtKg(p.gross, 1)} kg
                     </span>
+                    <button type="button" onClick={() => printPalletLabel(p, i)} disabled={printingIdx != null}
+                      aria-label="Drukuj etykietę palety"
+                      className="w-10 h-10 flex items-center justify-center flex-shrink-0"
+                      style={{ borderRadius: 8, border: '1px solid var(--line)', color: printingIdx === i ? 'var(--mut)' : 'var(--accent)' }}>
+                      <Printer size={18} />
+                    </button>
                     <button type="button" onClick={() => removePallet(i)} aria-label="Usuń paletę"
                       className="w-10 h-10 flex items-center justify-center flex-shrink-0"
                       style={{ borderRadius: 8, border: '1px solid var(--line)', color: '#B45309' }}>
@@ -428,6 +490,32 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
                     </button>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Druk etykiety ostatnio zważonej palety — główna ścieżka: operator
+                zjeżdża z wagi, dotyka „Drukuj etykietę" i nakleja ją na paletę. */}
+            {pallets.length > 0 && (
+              <button type="button" onClick={() => printPalletLabel(pallets[pallets.length - 1], pallets.length - 1)}
+                disabled={printingIdx != null}
+                className="h-16 font-extrabold text-lg flex items-center justify-center gap-2"
+                style={{
+                  borderRadius: 12, background: 'var(--panel)',
+                  border: '1.5px solid var(--accent)', color: 'var(--accent)',
+                  opacity: printingIdx != null ? .6 : 1,
+                }}>
+                <Printer size={24} />
+                {printingIdx != null ? 'Drukuję…' : `Drukuj etykietę — ${FRAC_LABEL[frac]} ${fmtKg(pallets[pallets.length - 1].net, 1)} kg`}
+              </button>
+            )}
+            {printMsg && (
+              <div className="px-5 py-3 text-sm font-bold" style={{
+                borderRadius: 12,
+                background: printMsg.ok ? 'var(--successSoft)' : '#FEE2E2',
+                border: `1.5px solid ${printMsg.ok ? 'var(--successLine)' : '#FCA5A5'}`,
+                color: printMsg.ok ? 'var(--success)' : '#B91C1C',
+              }}>
+                {printMsg.text}
               </div>
             )}
 
@@ -537,10 +625,16 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
                 }}>
                 {canAdd ? <><Check size={22} /> Dodaj do sumy</> : tareKg == null ? 'Wybierz paletę / wózek' : !scale.stable ? 'Czekam na wagę…' : 'Wjedź na wagę'}
               </button>
+              {/* Wejście do listy palet (druk etykiety / dodruk / zdjęcie palety).
+                  Bez tego przy ważeniu wznowionym z kafla lista była nieosiągalna
+                  — pokazywała się dopiero PO dołożeniu kolejnej palety. */}
               {pallets.length > 0 && (
-                <div className="text-center text-sm font-bold" style={{ color: 'var(--mut)' }}>
+                <button type="button" onClick={() => setPhase('ask')}
+                  className="text-center text-sm font-bold py-2 flex items-center justify-center gap-2"
+                  style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--mut)' }}>
+                  <Printer size={16} />
                   {FRAC_LABEL[frac]} dotąd: <span className="hmi-v10-mono" style={{ color: 'var(--ink)' }}>{fmtKg(fracTotal, 1)} kg</span> ({pallets.length})
-                </div>
+                </button>
               )}
               {/* Zawsze dostępne ręczne wpisanie kg. */}
               <button type="button" onClick={() => setPhase('manual')}
