@@ -346,11 +346,15 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
                 </div>
               )}
 
+              {/* Tarowanie robi się PRZYCISKIEM NA MIERNIKU. Przycisk w aplikacji
+                  był tu wcześniej, ale most RS232 nie tarował wagi (hala,
+                  14.08.2026) — martwy przycisk na ekranie hali jest gorszy niż
+                  jego brak. Wróci, gdy komenda tary zadziała na mierniku. */}
               {stacks.length > 0 && (
-                <button type="button" onClick={() => scale.tare()}
-                  className="h-11 text-sm font-bold" style={{ borderRadius: 10, border: '1px dashed var(--mut)', color: 'var(--mut)' }}>
-                  Wytaruj wagę pod kolejny słupek
-                </button>
+                <div className="px-3 py-2 text-[11px] font-bold text-center"
+                  style={{ borderRadius: 8, background: 'var(--accentSoft)', color: 'var(--accent)' }}>
+                  Wytaruj wagę przyciskiem na mierniku i buduj kolejny słupek
+                </div>
               )}
               <button type="button" onClick={() => przejdzDoSkladu(sumaKg)} disabled={stacks.length === 0}
                 className="h-11 text-sm font-bold" style={{ borderRadius: 10, border: '1px solid var(--line)', color: stacks.length ? 'var(--ink)' : 'var(--mut)' }}>

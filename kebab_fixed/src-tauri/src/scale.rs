@@ -48,7 +48,10 @@ impl Default for ScaleConfig {
     fn default() -> Self {
         Self {
             enabled: true, port: "COM3".into(), baud: 9600,
-            stability_tol_kg: 0.5, tare_cmd: "T\r\n".into(),
+            // "Z" (zero), nie "T": miernik na hali nie reagował na "T\r\n"
+            // (14.08.2026), a opis tego pola od początku mówił o LP7510 i "Z".
+            // Inny miernik = nadpisz `tareCmd` w scale.json, bez nowego builda.
+            stability_tol_kg: 0.5, tare_cmd: "Z\r\n".into(),
         }
     }
 }
