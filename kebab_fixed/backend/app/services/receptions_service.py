@@ -21,7 +21,7 @@ from app.db import (cx_execute, cx_execute_returning, cx_query_all, cx_query_one
                     query_all, query_one, transaction)
 from app.logging_config import get_logger
 from app.models.raw_batches import RawBatchCreate
-from app.models.receptions import ReceptionCreate, ReceptionGroupIn
+from app.models.receptions import ReceptionCreate, ReceptionGroupIn, ReceptionUpdate
 from app.services.hdi_scan_store import attach_bytes, take_temp
 from app.services.hdi_scan_render import caption_for, prepare_scan
 from app.services.raw_batches_service import create_batch_cx
@@ -287,6 +287,38 @@ def create_reception(dto: ReceptionCreate) -> Dict[str, Any]:
         "kg_total": sum(float(b["kg_received"]) for b in batches),
     })
     return {"reception": reception, "batches": batches, "warnings": warnings}
+
+
+def update_reception(reception_id: str, dto: ReceptionUpdate) -> Dict[str, Any]:
+    """Zapis CAŁEGO dokumentu dostawy po edycji.
+
+    Wszystko w jednej transakcji: dokument zapisany w połowie rozjeżdża księgę
+    i saldo pojemników bez śladu, dlaczego.
+
+    UWAGA — praca w toku (plan `docs/superpowers/plans/2026-08-14-edycja-przyjecia.md`):
+    na razie zapisuje sam NAGŁÓWEK dokumentu. Pozycje (aktualizacja, dołożenie,
+    zdjęcie numeru, zmiana rodzaju surowca) dochodzą w kolejnych zadaniach planu
+    i dopiero wtedy front dostanie ekran edycji. Endpoint nie jest jeszcze
+    podpięty do żadnego przycisku.
+    """
+    rec = query_one("SELECT * FROM receptions WHERE id=%s", (reception_id,))
+    if not rec:
+        raise HTTPException(404, "Nie ma takiego przyjęcia")
+
+    day = (dto.received_date or "")[:10] or str(rec["received_date"])[:10]
+
+    with transaction() as conn:
+        cx_execute(
+            conn,
+            "UPDATE receptions SET received_date=%s, document_no=%s, hdi_no=%s, notes=%s "
+            "WHERE id=%s",
+            (day, dto.document_no or "", dto.hdi_no or "", dto.notes or "", reception_id),
+        )
+
+    out = get_reception(reception_id)
+    out["warnings"] = []
+    logger.info("reception.updated", extra={"reception_no": rec.get("reception_no")})
+    return out
 
 
 def _attach_details(rec: Dict) -> Dict:

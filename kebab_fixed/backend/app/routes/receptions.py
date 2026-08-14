@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
-from app.models.receptions import ReceptionCreate
+from app.models.receptions import ReceptionCreate, ReceptionUpdate
 from app.services import raw_batches_service as raw_batches_svc
 from app.services import receptions_service as svc
 from app.services.hdi_ocr_service import scan_hdi
@@ -76,6 +76,15 @@ def hdi_scan_download(reception_id: str):
     return FileResponse(
         plik, media_type=scan_media_type(plik.suffix),
         filename=f"HDI {rec['reception_no'].replace('/', '-')}{plik.suffix}")
+
+
+@router.put("/{reception_id}")
+def update_reception(reception_id: str, dto: ReceptionUpdate):
+    """Zapis całego dokumentu dostawy po edycji (nagłówek + numery porządkowe).
+
+    Praca w toku — na razie sam nagłówek, patrz `receptions_service.update_reception`.
+    """
+    return svc.update_reception(reception_id, dto)
 
 
 @router.patch("/{reception_id}/cancel")

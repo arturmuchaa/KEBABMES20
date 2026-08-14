@@ -34,6 +34,10 @@ class ReceptionGroupIn(BaseModel):
     model_config = ConfigDict(populate_by_name=True, validate_default=True)
 
     internal_batch_no: str = Field("", alias="internalBatchNo")
+    #: Partia, którą ta grupa JEST (tylko edycja dokumentu). Puste = pozycja
+    #: nowa. Parujemy po id, nie po numerze porządkowym: numer bywa zmieniany,
+    #: a przy dołożonym wierszu jeszcze nie istnieje.
+    batch_id: Optional[str] = Field(None, alias="batchId")
     kg_received: float = Field(..., alias="kgReceived", gt=0)
     supplier_batches: List[ReceptionSupplierBatchIn] = Field(
         default_factory=list, alias="supplierBatches")
@@ -65,4 +69,26 @@ class ReceptionCreate(BaseModel):
     price_per_kg: float = Field(0, alias="pricePerKg", ge=0)
     notes: str = ""
     is_service: bool = Field(False, alias="isService")
+    groups: List[ReceptionGroupIn] = Field(default_factory=list)
+
+
+class ReceptionUpdate(BaseModel):
+    """PUT /api/receptions/{id} — zapis CAŁEGO dokumentu po edycji.
+
+    Kształt jak przy tworzeniu, bez pól, których edycja nie rusza: dostawcy
+    (przesuwałby saldo pojemników i unieważniał opis wypalony na skanie HDI),
+    numeru przyjęcia (klucz ludzki w rejestrze i na wydrukach), trybu
+    usługowego (inna seria numerów) oraz skanu HDI (ma własny przycisk).
+    """
+
+    model_config = ConfigDict(populate_by_name=True, validate_default=True)
+
+    received_date: str = Field("", alias="receivedDate")
+    material_type_id: str = Field("", alias="materialTypeId")
+    document_no: str = Field("", alias="documentNo")
+    hdi_no: str = Field("", alias="hdiNo")
+    doc_kg: Optional[float] = Field(None, alias="docKg", ge=0)
+    doc_containers: Optional[int] = Field(None, alias="docContainers", ge=0)
+    price_per_kg: float = Field(0, alias="pricePerKg", ge=0)
+    notes: str = ""
     groups: List[ReceptionGroupIn] = Field(default_factory=list)
