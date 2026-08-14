@@ -109,7 +109,14 @@ def next_batch_number(is_service: bool = False) -> Dict[str, Any]:
 
 
 def list_all_batches() -> List[Dict]:
-    return query_all("SELECT * FROM raw_batches ORDER BY internal_batch_seq ASC")
+    # Numer przyjęcia dołączony tym samym joinem co w `list_batches`: karta 2.1.1
+    # ma rubrykę „Numer przyjęcia surowców do rozbioru", a raport HACCP czyta
+    # partie właśnie z tego endpointu.
+    return query_all(
+        "SELECT b.*, r.reception_no "
+        "FROM raw_batches b LEFT JOIN receptions r ON r.id = b.reception_id "
+        "ORDER BY b.internal_batch_seq ASC"
+    )
 
 
 def list_batches(active_only: bool, limit: int) -> Dict[str, Any]:

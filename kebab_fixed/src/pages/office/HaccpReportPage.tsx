@@ -6,6 +6,7 @@ import { useApi } from '@/hooks/useApi'
 import { deboningApi, rawBatchesApi, suppliersApi, byproductsApi, type BatchByproducts } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl } from '@/lib/utils'
 import { haccpReportNo } from '@/lib/haccpReportNo'
+import { balanceToIntake } from '@/features/reports/deboningReportBalance'
 import { Printer, FileText, Calendar, CheckSquare, Square } from 'lucide-react'
 import type { DeboningSession, RawBatch } from '@/types'
 
@@ -156,12 +157,19 @@ function SingleReport({ data }: { data: ReportData }) {
         backs += (rec.backsKg ?? 0) * share
         bones += (rec.bonesKg ?? 0) * share
       }
-      const bilans = taken - meat - bones - backs
-      const kat3    = Math.max(0, bilans)
-      // Nadwyżka rozbiorowa: suma frakcji > waga z dokumentu dostawcy
-      // (woda z chłodzenia / niedoważenie dostawcy) — dokumentujemy, nie ukrywamy.
-      const surplus = Math.max(0, -bilans)
-      return { batch, sessions: bs, taken, meat, backs, bones, kat3, surplus }
+      // Karta 2.1.1 nie ma rubryki na nadwyżkę, a SUMA musi równać się pozycji
+      // „masa surowców do rozbioru" — więc uboczne idą do druku ROZLICZONE do
+      // masy wsadu (patrz features/reports/deboningReportBalance). Mięso zostaje
+      // co do grosza takie jak z HMI, żeby karta spinała się z produkcją.
+      //
+      // MES tego nie widzi: akord, koszt kilograma, uzysk pracownika, stany
+      // magazynu i WZ na uboczne liczą się dalej z pomiaru. Korekta żyje
+      // wyłącznie tutaj, w warstwie wydruku.
+      const rep = balanceToIntake({ takenKg: taken, meatKg: meat, backsKg: backs, bonesKg: bones })
+      return {
+        batch, sessions: bs, taken,
+        meat: rep.meatKg, backs: rep.backsKg, bones: rep.bonesKg,
+      }
     })
   }, [sessions, batches, zb])
 
@@ -170,10 +178,21 @@ function SingleReport({ data }: { data: ReportData }) {
     const totalMeat  = rows.reduce((s, r) => s + r.meat, 0)
     const totalBacks = rows.reduce((s, r) => s + r.backs, 0)
     const totalBones = rows.reduce((s, r) => s + r.bones, 0)
-    // Sumy per partia (bez nettowania: ubytek partii A nie znosi nadwyżki B).
-    const uppzKat3   = rows.reduce((s, r) => s + r.kat3, 0)
-    const surplus    = rows.reduce((s, r) => s + r.surplus, 0)
-    return { totalTaken, totalMeat, totalBacks, totalBones, uppzKat3, surplus, loss: 0 }
+    // Każdy wiersz domyka się osobno, więc suma dnia domyka się także —
+    // UPPZ i strata produkcyjna zostają w formularzu, ale nie mają czego zebrać.
+    return {
+      totalTaken, totalMeat, totalBacks, totalBones,
+      uppzKat3: 0, loss: 0,
+      totalOut: totalMeat + totalBacks + totalBones,
+    }
+  }, [rows])
+
+  // Numery przyjęć, z których pochodzi surowiec rozebrany tego dnia — rubryka
+  // „Numer przyjęcia surowców do rozbioru" z szablonu 2.1.1.
+  const receptionNos = useMemo(() => {
+    const set = new Set<string>()
+    rows.forEach(r => { if (r.batch?.receptionNo) set.add(r.batch.receptionNo) })
+    return [...set].sort((a, b) => a.localeCompare(b, 'pl', { numeric: true }))
   }, [rows])
 
   // Numer raportu: R/nr/MM/RR — JEDEN dzień produkcyjny = JEDEN numer, liczony
@@ -205,7 +224,11 @@ function SingleReport({ data }: { data: ReportData }) {
       <div className="meta">
         <div className="fld"><div className="lb">Nr raportu</div><div className="vl">{reportNo}</div></div>
         <div className="fld"><div className="lb">Data produkcji</div><div className="vl">{fmtDatePl(date)}</div></div>
-        <div className="fld"><div className="lb">Edycja</div><div className="vl">2</div></div>
+        <div className="fld w2">
+          <div className="lb">Numer przyjęcia surowców do rozbioru</div>
+          <div className="vl">{receptionNos.length ? receptionNos.join(', ') : '—'}</div>
+        </div>
+        <div className="fld"><div className="lb">Edycja</div><div className="vl">3</div></div>
       </div>
 
       <div className="blk">
@@ -218,7 +241,6 @@ function SingleReport({ data }: { data: ReportData }) {
             { label: 'Grzbiety',                   val: summary.totalBacks },
             { label: 'Kości',                       val: summary.totalBones },
             { label: 'UPPZ kat. 3 lub/i Kat 2',    val: summary.uppzKat3   },
-            { label: 'Nadwyżka rozbiorowa (ponad wagę z dok. dostawcy)', val: summary.surplus },
             { label: 'Strata produkcyjna',           val: summary.loss       },
           ].map(row => (
             <tr key={row.label}>
@@ -226,6 +248,14 @@ function SingleReport({ data }: { data: ReportData }) {
               <td className="r" style={{ fontWeight: 700, fontSize: '9pt' }}>{fmtKg(row.val, 2)} kg</td>
             </tr>
           ))}
+          {/* Wiersz „Suma" z szablonu 2.1.1 — musi zgadzać się co do grosza
+              z masą surowców do rozbioru, inaczej karta nie zamyka bilansu. */}
+          <tr className="tot">
+            <td className="lab" style={{ width: '55%' }}>Suma</td>
+            <td className="r" style={{ fontWeight: 700, fontSize: '9pt' }}>
+              {fmtKg(summary.totalOut + summary.uppzKat3 + summary.loss, 2)} kg
+            </td>
+          </tr>
         </tbody>
       </table>
       </div>
@@ -239,13 +269,13 @@ function SingleReport({ data }: { data: ReportData }) {
                 (przyjęcie→rozbiór) będzie miał numer porządkowy, a numer partii
                 dostanie tylko wyrób gotowy i sprzedane uboczne/mięso. Na razie
                 zmiana TYLKO opisu na dokumencie (decyzja 2026-07-16). */}
-            {['Numer porządkowy','Nr partii dostawcy','Dostawca','Data uboju','Data ważności','Ćwiartka kg','Mięso Z/S kg','Grzbiety kg','Kości kg','UPPZ kat.3','Nadwyżka kg'].map(h => (
+            {['Numer porządkowy','Nr partii dostawcy','Dostawca','Data uboju','Data ważności','Ćwiartka kg','Mięso Z/S kg','Grzbiety kg','Kości kg','Razem kg'].map(h => (
               <th key={h}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ batch, sessions: bs, taken, meat, backs, bones, kat3, surplus }, idx) => {
+          {rows.map(({ batch, sessions: bs, taken, meat, backs, bones }, idx) => {
             const firstSession  = bs[0] as any
             const internalBatchNo = batch?.internalBatchNo  || firstSession?.rawBatchNo  || '—'
             const supplierBatchNo = batch?.supplierBatchNo  || firstSession?.supplierBatchNo || '—'
@@ -263,8 +293,7 @@ function SingleReport({ data }: { data: ReportData }) {
                 <td className="r" style={{ fontWeight: 700 }}>{fmtKg(meat, 2)}</td>
                 <td className="r">{fmtKg(backs, 2)}</td>
                 <td className="r">{fmtKg(bones, 2)}</td>
-                <td className="r">{fmtKg(kat3, 2)}</td>
-                <td className="r">{surplus > 0 ? `+${fmtKg(surplus, 2)}` : '—'}</td>
+                <td className="r" style={{ fontWeight: 600 }}>{fmtKg(meat + backs + bones, 2)}</td>
               </tr>
             )
           })}
@@ -274,8 +303,7 @@ function SingleReport({ data }: { data: ReportData }) {
             <td className="r">{fmtKg(summary.totalMeat, 2)}</td>
             <td className="r">{fmtKg(summary.totalBacks, 2)}</td>
             <td className="r">{fmtKg(summary.totalBones, 2)}</td>
-            <td className="r">{fmtKg(summary.uppzKat3, 2)}</td>
-            <td className="r">{summary.surplus > 0 ? `+${fmtKg(summary.surplus, 2)}` : '—'}</td>
+            <td className="r">{fmtKg(summary.totalOut, 2)}</td>
           </tr>
         </tbody>
       </table>
