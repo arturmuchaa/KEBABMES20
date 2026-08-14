@@ -1,5 +1,5 @@
 /**
- * Etykieta palety produktów ubocznych (grzbiety / kości) — ZPL 80×50 mm.
+ * Etykieta palety produktów ubocznych (grzbiety / kości) — ZPL 50×80 mm.
  *
  * Drukowana z kiosku rozbioru zaraz po zważeniu palety, przez ten sam most co
  * biuro (Zebra BrowserPrint na localhost:9100 — patrz `@/lib/zebra`).
@@ -15,8 +15,13 @@
 /** Rozdzielczość drukarki na hali. Ta sama co domyślna w biurze (Zebra 203 dpi).
  *  Drukarka 300 dpi = zmiana tej jednej stałej (albo `dpi` w opcjach). */
 export const LABEL_DPI = 203
-export const LABEL_W_MM = 80
-export const LABEL_H_MM = 50
+
+/** Etykieta z rolki na hali: 50 mm W POPRZEK taśmy, 80 mm wzdłuż podawania.
+ *  Pierwsze wydanie miało to odwrotnie (80×50) i drukarka ucinała lewą stronę
+ *  każdego wiersza — na taśmie zostawały same końcówki („ŚCI" zamiast
+ *  „KOŚCI"). Szerokość jest tu wąskim gardłem, wysokości mamy w zapasie. */
+export const LABEL_W_MM = 50
+export const LABEL_H_MM = 80
 
 export type ByproductKind = 'backs' | 'bones'
 
@@ -78,16 +83,31 @@ export function byproductLabelZpl(
   input: ByproductLabelInput,
   { dpi = LABEL_DPI, copies = 1 }: ByproductLabelOptions = {},
 ): string {
-  const M = 4 // margines mm
+  // Układ pionowy: wąska etykieta nie zmieści „etykieta: wartość" w jednym
+  // wierszu, więc opis idzie małą czcionką NAD wartością. Liczby, po które
+  // operator sięga z odległości (numer partii, waga), zostają duże.
+  const M = 3 // margines mm — 44 mm pola zadruku na 50 mm taśmy
   const W = LABEL_W_MM - 2 * M
 
   const body = [
-    text(M, 3, 10, KIND_TITLE[input.kind] ?? '', dpi),
-    line(M, 15.5, W, dpi),
-    text(M, 18, 5, `Nr porządkowy: ${input.batchNo ?? ''}`, dpi),
-    text(M, 25, 7.5, `${fmtLabelKg(input.netKg)} kg`, dpi),
-    text(M, 35.5, 4.2, `Data produkcji: ${fmtLabelDate(input.productionDate)}`, dpi),
-    text(M, 41, 4.2, `Data ważności: ${fmtLabelDate(input.expiryDate)}`, dpi),
+    text(M, 3, 7, KIND_TITLE[input.kind] ?? '', dpi),
+    line(M, 12.5, W, dpi),
+
+    text(M, 15, 3.2, 'Nr porządkowy', dpi),
+    text(M, 19, 11, input.batchNo ?? '', dpi),
+    line(M, 32, W, dpi),
+
+    text(M, 34.5, 3.2, 'Waga netto', dpi),
+    // 7,5 mm, nie więcej: przy czterocyfrowej wadze („1245,5 kg") większy
+    // font nie mieści się w 44 mm pola zadruku i drukarka utnie końcówkę.
+    text(M, 38.5, 7.5, `${fmtLabelKg(input.netKg)} kg`, dpi),
+    line(M, 50, W, dpi),
+
+    text(M, 52.5, 3.2, 'Data produkcji', dpi),
+    text(M, 56.5, 5, fmtLabelDate(input.productionDate), dpi),
+
+    text(M, 64, 3.2, 'Data ważności', dpi),
+    text(M, 68, 5, fmtLabelDate(input.expiryDate), dpi),
   ]
 
   const n = Math.max(1, Math.round(copies))
@@ -96,8 +116,9 @@ export function byproductLabelZpl(
   return [
     '^XA',
     '^CI28', // UTF-8 — polskie znaki (KOŚCI, porządkowy, ważności)
-    `^PW${mmToDots(LABEL_W_MM, dpi)}`,
+    `^PW${mmToDots(LABEL_W_MM, dpi)}`,   // szerokość TAŚMY — za duża ucina wiersze
     `^LL${mmToDots(LABEL_H_MM, dpi)}`,
+    '^LH0,0',                            // zeruj przesunięcie z ustawień drukarki
     '^LS0',
     ...body,
     '^XZ',
