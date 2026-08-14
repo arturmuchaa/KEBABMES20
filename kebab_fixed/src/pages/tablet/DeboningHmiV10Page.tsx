@@ -1356,20 +1356,18 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     saveFlashRef.current = setTimeout(() => setSaveFlash(false), 350)
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false); setMeatType('zs')
     setMeatDriveOff(DRIVE_OFF_IDLE)
-    if (guided) {
-      // Tryb prowadzony (v11): po zapisie zostaje TYLKO partia, cała reszta się
-      // restartuje. Pracownik — bo świadomie wybieramy, kto robił każdą sztukę.
-      // Wózek — bo każdy pracownik ma inny (trzeba wskazać na nowo). Pojemniki
-      // wracają do typowych 5 szt (operator koryguje +/-). Cykl startuje od
-      // kroku „Wybierz pracownika".
-      setSelWorker(null)
-      setCartCounts({})
-      setNoCart(false)
-      setE2Count(GUIDED_DEFAULT_E2)
-    } else {
-      // v10 (produkcja): wózek i e2Count celowo zostają — kolejny wózek zwykle
-      // taki sam, ten sam pracownik robi wiele sztuk pod rząd.
-    }
+    // Po zapisie zostaje TYLKO partia — reszta startuje od nowa (decyzja hali,
+    // 2026-08-14). Wcześniej v10 trzymało pracownika, wózek i pojemniki „bo
+    // kolejna sztuka zwykle taka sama"; kosztowało to wpis zapisany na
+    // poprzedniego pracownika, gdy dotknięcie kafelka nie złapało — wózek
+    // DAWIDA wylądował na DENYSIE i wyglądało to na zniknięcie wpisu.
+    // Kilka dotknięć więcej jest tańsze niż korekta akordu i fantomowe kg
+    // na partii.
+    setSelWorker(null)
+    setCartCounts({})
+    setNoCart(false)
+    // v11 podpowiada typowe 5 pojemników, v10 każe je wskazać świadomie.
+    setE2Count(guided ? GUIDED_DEFAULT_E2 : 0)
     setUndoUntil(Date.now() + 60_000); setUndoNow(Date.now())
     showToast(`Zapisano: ${fmtKg(meat)} kg mięsa`)
     flashSaveSummary({ batchNo: selBatch.internalBatchNo, workerName: selWorker.name, takenKg: taken, meatKg: meat, kind: 'saved', meatType })
