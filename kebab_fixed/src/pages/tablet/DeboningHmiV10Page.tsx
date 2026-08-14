@@ -1129,7 +1129,12 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     : taken <= 0 ? 'PODAJ WAGĘ ZABRANĄ'
     : meat <= 0 ? 'PODAJ WAGĘ MIĘSA'
     : meatTooBig ? 'MIĘSO > ZABRANE!'
-    : autoMode ? `ZAPISZ — ${fmtKg(meat, 1)} KG MIĘSA` : 'ZAPISZ WPIS'
+    // Nazwisko NA PRZYCISKU. Po zapisie pracownik zostaje zaznaczony (kolejna
+    // sztuka zwykle tego samego), więc nietrafione dotknięcie kafelka wysyłało
+    // ważenie na poprzednika — i wyglądało to na zniknięcie wpisu (prod
+    // 2026-08-14: wózek DAWIDA zapisany na DENYSA, potem zważony drugi raz).
+    // Zero dodatkowych dotknięć, a pomyłkę widać, ZANIM się wydarzy.
+    : `ZAPISZ — ${selWorker.name.toUpperCase()}${autoMode ? ` · ${fmtKg(meat, 1)} KG` : ''}`
 
   // ── Tryb prowadzony (wariant „wzmocnione prowadzenie") ──
   // Który krok cyklu jest teraz aktywny — steruje wielkim banerem u góry

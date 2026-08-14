@@ -1150,8 +1150,13 @@ def create_deboning_entry(
                  kg_quarter, kg_meat, kg_remainder, yield_pct,
                  worker_id, worker_name,
                  kg_gross, tare_cart_kg, tare_e2_kg, e2_count, weigh_mode,
-                 meat_type, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 meat_type, created_at, completed_at)
+            -- completed_at = created_at: wpis „za jednym razem" JEST zważony
+            -- w chwili zapisu. Bez tego kartoteka pracownika pokazywała pustą
+            -- kolumnę „Zważono" przy wpisach zrobionych na wadze (prod
+            -- 2026-08-14, DAWID 75 kg). Ścieżka dwufazowa (pobranie →
+            -- domknięcie) ustawia je osobno w complete_deboning_take.
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING *
             """,
             (
@@ -1173,6 +1178,7 @@ def create_deboning_entry(
                 dto.weigh_mode,
                 meat_type,
                 now_iso(),
+                now_iso(),   # completed_at — zapis jednoetapowy jest od razu zważony
             ),
         )
 

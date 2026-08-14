@@ -183,3 +183,20 @@ def test_wz_stempluje_daty_uboju_i_waznosci_takze_dla_lotu_bs(db):
     assert line["batch_no"] == "441-BS"
     assert line["slaughter_date"] == slaughter, "brak daty uboju na pozycji b/s"
     assert line["expiry_date"] == expiry, "brak daty ważności na pozycji b/s"
+
+
+def test_wpis_jednoetapowy_ma_godzine_zwazenia(db):
+    """Kartoteka pracownika pokazuje kolumnę „Zważono" z completed_at.
+
+    Zapis „za jednym razem" (ZAPISZ na HMI) zostawiał tam NULL, więc ważenie
+    zrobione na wadze wyglądało w biurze na niezważone (prod 2026-08-14,
+    DAWID 75 kg). Wpis jednoetapowy JEST zważony w chwili zapisu.
+    """
+    from app.models.deboning import DeboningEntryCreate
+    from app.services.deboning_service import create_deboning_entry
+    _seed_batch()
+    create_deboning_entry(DeboningEntryCreate(
+        rawBatchId="rb1", workerId="w1", workerName="DAWID",
+        kgTaken=75.0, kgMeat=50.0, kgGross=56.0, tareE2Kg=6.0, e2Count=3, weighMode="auto"))
+    row = query_one("SELECT completed_at, created_at FROM deboning_entries")
+    assert row["completed_at"] is not None

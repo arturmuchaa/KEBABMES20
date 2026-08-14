@@ -156,6 +156,13 @@ _DDL: list[str] = [
     # Czas domknięcia pobrania mięsem (dwufazowy rozbiór) — „Ostatnie wpisy"
     # sortują po nim, żeby wpis nie wskakiwał wg czasu POBRANIA (created_at).
     "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ",
+    # Wpisy zapisane „za jednym razem" (ZAPISZ na HMI) nie miały completed_at,
+    # więc kartoteka pracownika pokazywała pustą kolumnę „Zważono" przy
+    # ważeniach zrobionych na wadze (prod 2026-08-14, DAWID 75 kg). Dla wpisu
+    # jednoetapowego moment zapisu JEST momentem zważenia. Idempotentne —
+    # po przebiegu nie ma już wierszy do uzupełnienia.
+    "UPDATE deboning_entries SET completed_at = created_at "
+    "WHERE completed_at IS NULL AND COALESCE(status, 'complete') = 'complete'",
 
     # ── Stock reservation model ──
     "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS kg_reserved NUMERIC(10,3) DEFAULT 0",
