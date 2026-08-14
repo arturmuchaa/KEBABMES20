@@ -1,5 +1,12 @@
 /**
- * Numer karty raportu HACCP rozbioru: `R/<nr>/MM/RR`.
+ * Numer karty raportu HACCP rozbioru: `R/<nr>/RRRR`.
+ *
+ * Format wprost z instrukcji 2.1 oPRP pkt 4.4a — „R/numer kolejny
+ * w miesiącu/rok". Do 14.08.2026 drukowaliśmy `R/<nr>/MM/RR` (jak numer PK
+ * na karcie produkcji); miesiąc wypadł z numeru przy uzgadnianiu karty
+ * z instrukcją. UWAGA: numer resetuje się co miesiąc, a w numerze został
+ * sam rok, więc R/1/2026 wypada raz na każdy miesiąc — kartę identyfikuje
+ * dopiero para numer + data produkcji.
  *
  * Numer jest PORZĄDKOWY w obrębie miesiąca — liczy karty, nie dni kalendarza.
  * Wcześniej brano wprost dzień miesiąca, więc każdy dzień bez produkcji robił
@@ -30,5 +37,5 @@ export function haccpReportNo(date: string, productionDates: Iterable<string>): 
   // Dzień spoza listy (np. podgląd dnia bez wpisów) i tak dostaje numer —
   // kolejny po ostatnim dniu produkcyjnym przed nim.
   const nth = days.includes(date) ? upTo : upTo + 1
-  return `R/${nth}/${date.slice(5, 7)}/${date.slice(2, 4)}`
+  return `R/${nth}/${date.slice(0, 4)}`
 }

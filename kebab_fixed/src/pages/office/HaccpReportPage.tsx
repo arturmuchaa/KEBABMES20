@@ -7,6 +7,7 @@ import { deboningApi, rawBatchesApi, suppliersApi, byproductsApi, type BatchBypr
 import { fmtKg, fmtDatePl } from '@/lib/utils'
 import { haccpReportNo } from '@/lib/haccpReportNo'
 import { balanceToIntake } from '@/features/reports/deboningReportBalance'
+import { meatByType } from '@/features/reports/meatTypeBreakdown'
 import { Printer, FileText, Calendar, CheckSquare, Square } from 'lucide-react'
 import type { DeboningSession, RawBatch } from '@/types'
 
@@ -101,7 +102,9 @@ const DOC_CSS = `
 .rap td { border:.28mm solid #8c8c8c; padding:1mm .8mm; text-align:center;
   font-size:8pt; font-variant-numeric:tabular-nums; }
 .rap td.l { text-align:left; }
-.rap td.r { text-align:right; }
+/* nowrap: przy szerokiej kolumnie partii dostawcy auto-layout ściskał kolumny
+   liczbowe i „1 339,17" łamało się na dwie linie w wierszu SUMA. */
+.rap td.r { text-align:right; white-space:nowrap; }
 .rap td.lab { background:#f2f2f2; font-weight:700; text-align:left; }
 .rap tr.tot td { background:#ededed; font-weight:700; }
 
@@ -187,6 +190,16 @@ function SingleReport({ data }: { data: ReportData }) {
     }
   }, [rows])
 
+  // Sekcja „Mięsa" z szablonu 2.1.1 to LISTA rodzajów, nie jedna pozycja —
+  // b/s ma własne pasmo wydajności i nie może iść pod etykietą z/s.
+  const meatRows = useMemo(
+    () => meatByType(
+      sessions.map(s => ({ meatType: (s as any).meatType, kgMeat: Number(s.kgMeat) })),
+      summary.totalMeat,
+    ),
+    [sessions, summary.totalMeat],
+  )
+
   // Numery przyjęć, z których pochodzi surowiec rozebrany tego dnia — rubryka
   // „Numer przyjęcia surowców do rozbioru" z szablonu 2.1.1.
   const receptionNos = useMemo(() => {
@@ -228,7 +241,10 @@ function SingleReport({ data }: { data: ReportData }) {
           <div className="lb">Numer przyjęcia surowców do rozbioru</div>
           <div className="vl">{receptionNos.length ? receptionNos.join(', ') : '—'}</div>
         </div>
-        <div className="fld"><div className="lb">Edycja</div><div className="vl">3</div></div>
+        {/* Edycja idzie za dokumentem nadrzędnym — instrukcja 2.1 ma Edycję 2
+            (18.11.2025). Formularz nie może deklarować wyższej niż instrukcja,
+            do której należy. */}
+        <div className="fld"><div className="lb">Edycja</div><div className="vl">2</div></div>
       </div>
 
       <div className="blk">
@@ -237,7 +253,7 @@ function SingleReport({ data }: { data: ReportData }) {
         <tbody>
           {[
             { label: 'Masa surowców do rozbioru', val: summary.totalTaken },
-            { label: 'Mięso Z/S',                 val: summary.totalMeat  },
+            ...meatRows.map(m => ({ label: m.label, val: m.kg })),
             { label: 'Grzbiety',                   val: summary.totalBacks },
             { label: 'Kości',                       val: summary.totalBones },
             { label: 'UPPZ kat. 3 lub/i Kat 2',    val: summary.uppzKat3   },
@@ -269,7 +285,9 @@ function SingleReport({ data }: { data: ReportData }) {
                 (przyjęcie→rozbiór) będzie miał numer porządkowy, a numer partii
                 dostanie tylko wyrób gotowy i sprzedane uboczne/mięso. Na razie
                 zmiana TYLKO opisu na dokumencie (decyzja 2026-07-16). */}
-            {['Numer porządkowy','Nr partii dostawcy','Dostawca','Data uboju','Data ważności','Ćwiartka kg','Mięso Z/S kg','Grzbiety kg','Kości kg','Razem kg'].map(h => (
+            {/* „Mięso kg" bez rodzaju: jedna partia potrafi dać i z/s, i b/s
+                (458 z 4.08.2026) — rozbicie na rodzaje jest w podsumowaniu. */}
+            {['Numer porządkowy','Nr partii dostawcy','Dostawca','Data uboju','Data ważności','Ćwiartka kg','Mięso kg','Grzbiety kg','Kości kg','Razem kg'].map(h => (
               <th key={h}>{h}</th>
             ))}
           </tr>
