@@ -99,6 +99,16 @@ def permission_for_path(path: str, method: str = "GET") -> str:
         return "office"
     if _matches(path, "/api/deboning/entries/office-add"):
         return "office"
+    # Ważenie zbiorcze mięsa robi HALA: kiosk rozbioru zapisuje paletę i czyta
+    # magazyn mięsa, żeby rozpisać jej skład na partie. Bez tego kiosk dostawał
+    # „odmowa dostępu" przy druku etykiety mięsa (prod 2026-08-14) — uboczne
+    # drukowały się dalej, bo ich etykieta nie rusza backendu.
+    if _matches(path, "/api/meat-pallets"):
+        return "rozbior"
+    # Magazyn mięsa: hala tylko CZYTA loty (skład palety). Każda zmiana stanu
+    # zostaje w biurze — kiosk nie ma po co ruszać kilogramów.
+    if _matches(path, "/api/meat-stock"):
+        return "rozbior" if method == "GET" else "office"
     for dept, prefixes in DEPARTMENT_PREFIXES.items():
         for p in prefixes:
             if _matches(path, p):

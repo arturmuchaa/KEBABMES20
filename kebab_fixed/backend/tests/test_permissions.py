@@ -105,3 +105,31 @@ def test_korekta_wpisu_tylko_dla_biura():
     assert can_access({"kind": "office", "role": "admin"}, p) is True
     # zwykłe ścieżki rozbioru dalej działają dla operatora
     assert permission_for_path("/api/deboning/entries/abc123", "PATCH") == "rozbior"
+
+
+# Ważenie zbiorcze mięsa robi HALA (rozbiór), nie biuro: kiosk zapisuje paletę
+# i czyta magazyn mięsa, żeby rozpisać skład partii. Bez tego kiosk dostawał
+# „odmowa dostępu" przy druku etykiety mięsa (prod 2026-08-14) — uboczne
+# drukowały się dalej, bo one nie ruszają backendu.
+def test_palety_miesa_dostepne_dla_rozbioru():
+    assert permission_for_path("/api/meat-pallets", "POST") == "rozbior"
+    assert permission_for_path("/api/meat-pallets", "GET") == "rozbior"
+    assert permission_for_path("/api/meat-pallets/PAL/14/08/26", "GET") == "rozbior"
+
+
+def test_magazyn_miesa_do_odczytu_dla_hali_zapis_dla_biura():
+    """Hala musi ZOBACZYĆ loty, żeby rozpisać skład palety; zmieniać ich nie może."""
+    assert permission_for_path("/api/meat-stock", "GET") == "rozbior"
+    assert permission_for_path("/api/meat-stock/abc", "GET") == "rozbior"
+    assert permission_for_path("/api/meat-stock/abc", "POST") == "office"
+
+
+def test_operator_rozbioru_wchodzi_na_palety_miesa():
+    operator = {"kind": "operator", "departments": ["rozbior"]}
+    assert can_access(operator, permission_for_path("/api/meat-pallets", "POST"))
+    assert can_access(operator, permission_for_path("/api/meat-stock", "GET"))
+
+
+def test_operator_pakowania_nie_wchodzi_na_palety_miesa():
+    pakowacz = {"kind": "operator", "departments": ["pakowanie"]}
+    assert not can_access(pakowacz, permission_for_path("/api/meat-pallets", "POST"))
