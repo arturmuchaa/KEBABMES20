@@ -11,12 +11,12 @@
  */
 import { useState, useRef, useEffect, useMemo, useCallback, memo, type CSSProperties } from 'react'
 import { useApi } from '@/hooks/useApi'
-import { rawBatchesApi, usersApi, settingsApi, byproductsApi, type BatchByproducts } from '@/lib/apiClient'
+import { rawBatchesApi, usersApi, settingsApi, byproductsApi, meatPalletsApi, meatStockApi, type BatchByproducts } from '@/lib/apiClient'
 import { Spinner } from '@/components/ui/widgets'
 import { fmtKg, fmtPct, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
 import { mergeBatchOrder, moveBatch } from './batchOrder'
-import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2, Clock, Wifi, WifiOff, Layers } from 'lucide-react'
+import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2, Clock, Wifi, WifiOff, Layers, Printer } from 'lucide-react'
 import { BASE } from '@/lib/api'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
@@ -40,6 +40,10 @@ import { useAuth } from '@/features/auth/AuthContext'
 import { useServiceHold, ServiceMenuModal } from '@/features/deboning/ServiceMenu'
 import { ByproductsWizard } from '@/features/deboning/ByproductsWizard'
 import { BulkWeighingWizard } from '@/features/deboning/BulkWeighingWizard'
+import { QUICK_TARGET_KG, quickPalletDraft, withinTolerance } from '@/features/deboning/meatPallet'
+import { meatPalletLabelZpl } from '@/features/deboning/meatPalletLabelZpl'
+import { getDevices, sendZpl, probeBrowserPrint } from '@/lib/zebra'
+import { getProductionDate } from '@/features/deboning/utils'
 import './DeboningHmiV10Page.css'
 
 // Wstrzyknięte przez Vite (vite.config.ts) z tauri.rozbior-v10.conf.json —
@@ -734,6 +738,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [operatorModal, setOperatorModal] = useState(false)
   // Ważenie zbiorcze mięsa: kompletowanie równych palet dla masowni.
   const [bulkOpen, setBulkOpen] = useState(false)
+  // Szybka etykieta słupka (100 kg) wprost z panelu ważenia.
+  const [quickBusy, setQuickBusy] = useState(false)
 
   // Ważenie ubocznych: prompt po zakończeniu partii + otwarty kreator.
   const [finishPrompt, setFinishPrompt] = useState<{ batch: RawBatch; record: BatchByproducts } | null>(null)
@@ -1021,6 +1027,59 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     () => computeWeighing({ gross: scale.gross, cartTareKg: cartTareTotal, e2Count }),
     [scale.gross, cartTareTotal, e2Count],
   )
+  /** Szybka etykieta słupka: netto w normie 100 ± 0,5 kg (zielony przycisk).
+   *  Poza normą przycisk DZIAŁA — etykieta drukuje wagę zmierzoną, nie cel. */
+  const quickReady = !!selBatch && weighing.netKg > 0 && scale.stable
+    && withinTolerance(weighing.netKg, QUICK_TARGET_KG)
+
+  /** Zapisz słupek i wydrukuj etykietę — jedno dotknięcie, bez kreatora. */
+  async function handleQuickLabel() {
+    if (!selBatch || weighing.netKg <= 0) return
+    setQuickBusy(true)
+    try {
+      // Termin z lotu mięsa tej partii; gdy lotu nie ma (świeże pobranie
+      // jeszcze niezapisane) — termin ćwiartki, żeby etykieta nie wyszła pusta.
+      let expiry = selBatch.expiryDate ?? ''
+      try {
+        const lots = await meatStockApi.list()
+        const lot = lots.data.find(m => m.lotNo === selBatch.internalBatchNo)
+        if (lot?.expiryDate) expiry = lot.expiryDate
+      } catch { /* brak sieci nie może blokować etykiety */ }
+
+      const draft = quickPalletDraft({
+        netKg: weighing.netKg,
+        containers: e2Count,
+        batchNo: selBatch.internalBatchNo,
+        carrierLabel: cartTareTotal ? `wózek ${fmtKg(cartTareTotal, 1)}` : 'bez wózka',
+        carrierKg: cartTareTotal ?? 0,
+        operator: loggedInUser?.name ?? '',
+        productionDate: getProductionDate(),
+        expiryDate: expiry,
+      })
+      if (!draft) { showToast('Brak partii albo wagi — etykieta nie powstała', 'err'); return }
+
+      const zapisana = await meatPalletsApi.create(draft)
+      const { default: def, list } = await getDevices()
+      const dev = def ?? list[0]
+      if (!dev) throw new Error('Nie znaleziono drukarki etykiet')
+      await sendZpl(dev, meatPalletLabelZpl({
+        palletNo: zapisana.palletNo,
+        netKg: draft.kgNet,
+        containers: draft.containers,
+        productionDate: draft.productionDate,
+        expiryDate: draft.expiryDate,
+        lots: draft.lots,
+      }))
+      showToast(`Etykieta ${zapisana.palletNo} — ${fmtKg(draft.kgNet, 1)} kg z partii ${selBatch.internalBatchNo}`)
+    } catch (e: any) {
+      const probe = await probeBrowserPrint()
+      showToast(probe.ok ? (e?.message || 'Nie udało się wydrukować etykiety')
+        : (probe.reason ?? 'Brak połączenia z drukarką'), 'err')
+    } finally {
+      setQuickBusy(false)
+    }
+  }
+
   const autoMode = scale.available && !meatManual
   const autoNet  = autoMode && scale.connected && scale.stable ? weighing.netKg : 0
 
@@ -2521,6 +2580,34 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                     {weighing.plausible
                       ? `✓ ${fmtKg(weighing.kgPerContainer, 1)} kg / pojemnik — w normie (${KG_PER_E2_MIN}–${KG_PER_E2_MAX} kg)`
                       : `⚠ ${fmtKg(weighing.kgPerContainer, 1)} kg / pojemnik — poza normą ${KG_PER_E2_MIN}–${KG_PER_E2_MAX} kg. Sprawdź liczbę E2 i wózek!`}
+                  </div>
+                )}
+
+                {/* Szybka etykieta słupka: pracownik oddaje ~97-100 kg z ćwiartki,
+                    operator dokłada brakujące kilogramy i JEDNYM dotknięciem
+                    drukuje etykietę. Netto jest już policzone wyżej — kreator
+                    „Ważenie zbiorcze" zostaje dla palet z kilku partii. */}
+                <button type="button" onClick={handleQuickLabel}
+                  disabled={quickBusy || !selBatch || weighing.netKg <= 0 || !scale.stable}
+                  className="h-14 mt-1 font-extrabold text-base flex items-center justify-center gap-2"
+                  style={{
+                    borderRadius: 10,
+                    background: quickReady ? 'var(--success)' : 'var(--panel)',
+                    color: quickReady ? '#fff' : (!selBatch || weighing.netKg <= 0 || !scale.stable) ? 'var(--mut)' : 'var(--ink)',
+                    border: `1.5px solid ${quickReady ? 'var(--success)' : 'var(--line)'}`,
+                  }}>
+                  <Printer size={18} />
+                  {quickBusy ? 'Drukuję…'
+                    : !selBatch ? 'Etykieta 100 kg — wybierz partię'
+                    : weighing.netKg <= 0 ? 'Etykieta 100 kg'
+                    : !scale.stable ? 'Etykieta — czekam na wagę…'
+                    : `Etykieta · ${fmtKg(weighing.netKg, 1)} kg`}
+                </button>
+                {selBatch && weighing.netKg > 0 && scale.stable && !quickReady && (
+                  <div className="text-[11px] font-bold text-center" style={{ color: 'var(--mut)' }}>
+                    {weighing.netKg < QUICK_TARGET_KG
+                      ? `brakuje ${fmtKg(QUICK_TARGET_KG - weighing.netKg, 1)} kg do ${QUICK_TARGET_KG}`
+                      : `ponad cel o ${fmtKg(weighing.netKg - QUICK_TARGET_KG, 1)} kg`}
                   </div>
                 )}
               </div>

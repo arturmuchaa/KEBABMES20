@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   PALLET_TARGETS, TOLERANCE_KG, withinTolerance, stackNetKg, proposeLots,
+  quickPalletDraft,
 } from './meatPallet'
 
 describe('PALLET_TARGETS — kafelki celu', () => {
@@ -104,5 +105,47 @@ describe('proposeLots — skład palety wg FEFO', () => {
     expect(r.picks[0].kg).toBe(33.3)
     expect(r.picks[1].kg).toBe(66.7)
     expect(r.picks.reduce((s, p) => s + p.kg, 0)).toBeCloseTo(100, 5)
+  })
+})
+
+describe('quickPalletDraft — szybka etykieta z ekranu głównego', () => {
+  const WEJSCIE = {
+    netKg: 100, containers: 5, batchNo: '476', carrierLabel: 'wózek 6,5',
+    carrierKg: 6.5, operator: 'INNA', productionDate: '2026-08-14',
+    expiryDate: '2026-08-19',
+  }
+
+  it('cały słupek idzie na partię zaznaczoną na ekranie', () => {
+    const d = quickPalletDraft(WEJSCIE)!
+    expect(d.lots).toEqual([{ lotNo: '476', kg: 100 }])
+    expect(d.kgNet).toBe(100)
+    expect(d.targetKg).toBe(100)
+    expect(d.stackKg).toBe(100)
+  })
+
+  it('na etykietę idzie ZMIERZONE netto, nie okrągły cel', () => {
+    const d = quickPalletDraft({ ...WEJSCIE, netKg: 97.6 })!
+    expect(d.kgNet).toBe(97.6)
+    expect(d.lots[0].kg).toBe(97.6)
+    expect(d.targetKg).toBe(100)   // cel zostaje w zapisie jako odniesienie
+  })
+
+  it('waga poza tolerancją nadal się drukuje — wydruk ma mówić prawdę', () => {
+    expect(quickPalletDraft({ ...WEJSCIE, netKg: 103.2 })).not.toBeNull()
+  })
+
+  it('bez zaznaczonej partii nie ma czego zapisać', () => {
+    expect(quickPalletDraft({ ...WEJSCIE, batchNo: '' })).toBeNull()
+    expect(quickPalletDraft({ ...WEJSCIE, batchNo: '   ' })).toBeNull()
+  })
+
+  it('zerowa waga nie tworzy palety', () => {
+    expect(quickPalletDraft({ ...WEJSCIE, netKg: 0 })).toBeNull()
+  })
+
+  it('daje ten sam skład co kreator dla jednego słupka z jednej partii', () => {
+    const d = quickPalletDraft(WEJSCIE)!
+    const kreator = proposeLots([{ lotNo: '476', kgFree: 900 }], 100)
+    expect(d.lots).toEqual(kreator.picks)
   })
 })

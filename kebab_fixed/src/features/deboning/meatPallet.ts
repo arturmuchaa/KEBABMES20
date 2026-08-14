@@ -53,6 +53,9 @@ export function stackNetKg(
   return Math.max(0, Math.round((gross - tare) * 10) / 10)
 }
 
+/** Cel szybkiej etykiety z ekranu głównego — typowy słupek z jednej ćwiartki. */
+export const QUICK_TARGET_KG = 100
+
 export interface LotPick { lotNo: string; kg: number }
 export interface FefoResult {
   picks: LotPick[]
@@ -85,4 +88,59 @@ export function proposeLots(
     zostalo = r1(zostalo - wziete)
   }
   return { picks, unassignedKg: Math.max(0, zostalo) }
+}
+
+export interface QuickPalletInput {
+  /** Zmierzone netto słupka — to ONO trafia na etykietę, nie okrągły cel. */
+  netKg: number
+  containers: number
+  /** Numer partii zaznaczonej na ekranie; lot mięsa ma ten sam numer. */
+  batchNo: string
+  carrierLabel: string
+  carrierKg: number
+  operator: string
+  productionDate: string
+  expiryDate: string
+}
+
+export interface PalletDraft {
+  targetKg: number
+  stackKg: number | null
+  kgNet: number
+  containers: number
+  carrierLabel: string
+  carrierKg: number
+  operator: string
+  productionDate: string
+  expiryDate: string
+  lots: LotPick[]
+}
+
+/**
+ * Szybka etykieta z ekranu głównego: pracownik oddaje ~97-100 kg z ćwiartki,
+ * operator dokłada brakujące kilogramy i jednym dotknięciem drukuje etykietę.
+ *
+ * Cały słupek idzie na partię zaznaczoną na ekranie — przy 2-3 kg dokładki
+ * rozbijanie tego na drugą partię kosztowałoby więcej dotknięć niż jest warte.
+ * Waga na etykiecie to ZMIERZONE netto, nie cel: 100 kg jest podpowiedzią,
+ * a wydruk ma mówić prawdę o tym, co stoi na wózku.
+ *
+ * Zwraca `null`, gdy nie ma czego zapisać — brak partii albo zerowa waga.
+ */
+export function quickPalletDraft(i: QuickPalletInput): PalletDraft | null {
+  const kg = Math.round((i.netKg ?? 0) * 10) / 10
+  const nr = (i.batchNo ?? '').trim()
+  if (!nr || kg <= 0) return null
+  return {
+    targetKg: QUICK_TARGET_KG,
+    stackKg: QUICK_TARGET_KG,
+    kgNet: kg,
+    containers: Math.max(0, Math.round(i.containers ?? 0)),
+    carrierLabel: i.carrierLabel ?? '',
+    carrierKg: i.carrierKg ?? 0,
+    operator: i.operator ?? '',
+    productionDate: i.productionDate,
+    expiryDate: i.expiryDate ?? '',
+    lots: [{ lotNo: nr, kg }],
+  }
 }
