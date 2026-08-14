@@ -857,6 +857,68 @@ export const meatStockApi = {
   byId: (id: string) => get<any>(`/meat-stock/${id}`).then(mapMeatStock),
 }
 
+// ─── Palety mięsa z ważenia zbiorczego ────────────────────────
+// OPIS ułożenia, nie stan: mięso jest na stanie od rozbioru, a paleta mówi
+// tylko, ile go leży i z jakich partii — dla operatora masowania.
+export interface MeatPalletLot { lotNo: string; kg: number }
+export interface MeatPallet {
+  id: string
+  palletNo: string
+  targetKg: number
+  stackKg: number | null
+  kgNet: number
+  containers: number
+  carrierLabel: string
+  operator: string
+  productionDate: string
+  expiryDate: string
+  lots: MeatPalletLot[]
+}
+export interface MeatPalletCreateDto {
+  targetKg: number
+  stackKg: number | null
+  kgNet: number
+  containers: number
+  carrierLabel: string
+  carrierKg: number
+  operator: string
+  productionDate: string
+  expiryDate: string
+  lots: MeatPalletLot[]
+}
+
+function mapMeatPallet(raw: any): MeatPallet {
+  return {
+    id:             raw.id,
+    palletNo:       raw.pallet_no       ?? raw.palletNo       ?? '',
+    targetKg:       Number(raw.target_kg ?? raw.targetKg      ?? 0),
+    stackKg:        raw.stack_kg == null && raw.stackKg == null
+                      ? null : Number(raw.stack_kg ?? raw.stackKg),
+    kgNet:          Number(raw.kg_net    ?? raw.kgNet         ?? 0),
+    containers:     Number(raw.containers ?? 0),
+    carrierLabel:   raw.carrier_label   ?? raw.carrierLabel   ?? '',
+    operator:       raw.operator ?? '',
+    productionDate: String(raw.production_date ?? raw.productionDate ?? '').slice(0, 10),
+    expiryDate:     String(raw.expiry_date ?? raw.expiryDate ?? '').slice(0, 10),
+    lots: (raw.lots ?? []).map((l: any) => ({
+      lotNo: l.lot_no ?? l.lotNo ?? '',
+      kg:    Number(l.kg ?? 0),
+    })),
+  }
+}
+
+export const meatPalletsApi = {
+  create: (dto: MeatPalletCreateDto) =>
+    post<any>('/meat-pallets', dto).then(mapMeatPallet),
+  // Numer palety zawiera ukośniki — musi wejść zakodowany, inaczej rozjedzie
+  // się na segmenty ścieżki.
+  byNo: (palletNo: string) =>
+    get<any>(`/meat-pallets/${encodeURIComponent(palletNo)}`).then(mapMeatPallet),
+  list: (day = '') =>
+    get<any>(`/meat-pallets${day ? `?day=${day}` : ''}`)
+      .then(r => ((r?.data ?? []) as any[]).map(mapMeatPallet)),
+}
+
 // ─── Kontrahenci ──────────────────────────────────────────────
 // Backend zwraca snake_case (display_name, contact_name) — mapujemy do camelCase
 function mapClient(raw: any): Client {

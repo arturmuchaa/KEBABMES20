@@ -16,7 +16,7 @@ import { Spinner } from '@/components/ui/widgets'
 import { fmtKg, fmtPct, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
 import { mergeBatchOrder, moveBatch } from './batchOrder'
-import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2, Clock, Wifi, WifiOff } from 'lucide-react'
+import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2, Clock, Wifi, WifiOff, Layers } from 'lucide-react'
 import { BASE } from '@/lib/api'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
@@ -39,6 +39,7 @@ import {
 import { useAuth } from '@/features/auth/AuthContext'
 import { useServiceHold, ServiceMenuModal } from '@/features/deboning/ServiceMenu'
 import { ByproductsWizard } from '@/features/deboning/ByproductsWizard'
+import { BulkWeighingWizard } from '@/features/deboning/BulkWeighingWizard'
 import './DeboningHmiV10Page.css'
 
 // Wstrzyknięte przez Vite (vite.config.ts) z tauri.rozbior-v10.conf.json —
@@ -731,6 +732,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [shiftModal,  setShiftModal]  = useState(false)
   const [statsModal,  setStatsModal]  = useState(false)
   const [operatorModal, setOperatorModal] = useState(false)
+  // Ważenie zbiorcze mięsa: kompletowanie równych palet dla masowni.
+  const [bulkOpen, setBulkOpen] = useState(false)
+
   // Ważenie ubocznych: prompt po zakończeniu partii + otwarty kreator.
   const [finishPrompt, setFinishPrompt] = useState<{ batch: RawBatch; record: BatchByproducts } | null>(null)
   // Modal listy dzisiejszych ważeń frakcji (klik w kafelek dolnego paska).
@@ -1679,6 +1683,12 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       {children}
       <ServiceMenuModal open={serviceModal} onClose={() => setServiceModal(false)} buildLabel={buildLabel} />
 
+      {/* Ważenie zbiorcze mięsa — równe palety i wózki dla masowni. */}
+      {bulkOpen && (
+        <BulkWeighingWizard scale={scale} cartTares={cartTares}
+          operator={loggedInUser?.name ?? ''} onClose={() => setBulkOpen(false)} />
+      )}
+
       {/* Prompt po zakończeniu partii — zważyć uboczne teraz czy później. */}
       {finishPrompt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -2069,6 +2079,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           className="h-9 px-4 text-[13px] font-bold flex items-center gap-2 flex-shrink-0"
           style={{ border: '1px solid var(--line)', color: 'var(--mut)', borderRadius: 8, background: 'var(--panel)' }}>
           <LogOut size={15} /> Zakończ zmianę
+        </button>
+        <button type="button" onClick={() => setBulkOpen(true)}
+          className="h-9 px-4 text-[13px] font-bold flex items-center gap-2 flex-shrink-0"
+          style={{ border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 8, background: 'var(--panel)' }}>
+          <Layers size={15} /> Ważenie zbiorcze
         </button>
         <button type="button" onClick={handleFinishBatch}
           className="h-9 px-4 text-[13px] font-bold flex items-center gap-2 flex-shrink-0"
