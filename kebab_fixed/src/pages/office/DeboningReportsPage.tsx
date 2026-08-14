@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { deboningApi, type DeboningStats, type DeboningStatsWorker } from '@/lib/api'
-import { ChangeBatchDialog, EntryCorrectionDialog } from '@/features/deboning/EntryFixDialogs'
+import { ChangeBatchDialog, DeleteEntryDialog, EntryCorrectionDialog } from '@/features/deboning/EntryFixDialogs'
 import { DeboningWeighingsLog } from '@/features/deboning/DeboningWeighingsLog'
 import { YieldOverridesLog } from '@/features/deboning/YieldOverridesLog'
 import { DataTable } from '@/components/DataTable'
@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
 import { useNavigate } from 'react-router-dom'
 import {
   Scissors, Beef, Gauge, Percent, Users, Bone, Layers, Radio, CalendarDays, X,
-  Package, Scale, Truck, Banknote, Printer, ArrowLeftRight, PencilLine,
+  Package, Scale, Truck, Banknote, Printer, ArrowLeftRight, PencilLine, Trash2,
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -167,6 +167,7 @@ export function DeboningReportsPage() {
   // przez Panel rozbioru: „Popraw" (pracownik/kg + powód) i „Zmień partię".
   const [cbEntry, setCbEntry] = useState<any | null>(null)
   const [fixEntry, setFixEntry] = useState<any | null>(null)
+  const [delEntry, setDelEntry] = useState<any | null>(null)
 
   // Druk raportu ma własny okres (pełny tydzień/miesiąc/kwartał/rok), bo
   // filtr ekranu prawie nigdy nie pokrywa się z granicami kalendarza.
@@ -467,6 +468,11 @@ export function DeboningReportsPage() {
                         className="shrink-0 w-7 h-7 rounded flex items-center justify-center text-ink-4 hover:text-brand hover:bg-brand/10">
                         <PencilLine size={14} />
                       </button>
+                      <button onClick={() => setDelEntry(r)}
+                        title="Usuń wpis (oddaje ćwiartkę i zdejmuje mięso)"
+                        className="shrink-0 w-7 h-7 rounded flex items-center justify-center text-ink-4 hover:text-red-600 hover:bg-red-50">
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -667,6 +673,9 @@ export function DeboningReportsPage() {
 
       {cbEntry && (
         <ChangeBatchDialog entry={cbEntry} onClose={() => setCbEntry(null)} onSaved={load} />
+      )}
+      {delEntry && (
+        <DeleteEntryDialog entry={delEntry} onClose={() => setDelEntry(null)} onSaved={load} />
       )}
       {fixEntry && (
         <EntryCorrectionDialog entry={fixEntry} onClose={() => setFixEntry(null)} onSaved={load} />

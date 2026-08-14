@@ -735,6 +735,12 @@ export const deboningEntriesApi = {
   // pomiar z wagi (bez tego backend odbija 409 — incydent 2026-07-21).
   correct: (id: string, body: { workerId?: string; kgQuarter?: number; kgMeat?: number; reason: string; overrideWeighings?: boolean }) =>
     post<any>(`/deboning/entries/${id}/correct`, body),
+  // officeDelete — usunięcie wpisu z BIURA. Zwykły `remove` (HMI) ma okno
+  // 15 minut; ta ścieżka je omija, bo komunikat blokady od zawsze odsyłał
+  // „cofnij przez biuro". Powód wymagany — usunięcie rusza wstecz akord.
+  // Blokady fizyczne zostają: zużyte mięso i rozliczone uboczne.
+  officeDelete: (id: string, reason: string) =>
+    post<{ ok: boolean; id: string }>(`/deboning/entries/${id}/office-delete`, { reason }),
   corrections: (id: string) =>
     get<{ corrections: EntryCorrection[] }>(`/deboning/entries/${id}/corrections`)
       .then(r => r?.corrections ?? []),

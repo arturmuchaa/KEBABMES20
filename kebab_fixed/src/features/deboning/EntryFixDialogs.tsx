@@ -17,7 +17,7 @@ import {
 } from '@/lib/api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
-import { AlertTriangle, ArrowLeftRight, History, Loader2, PencilLine } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, History, Loader2, PencilLine, Trash2 } from 'lucide-react'
 
 const nf0 = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -278,6 +278,90 @@ export function ChangeBatchDialog({ entry, onClose, onSaved }: {
               Zmień partię
             </button>
           </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/**
+ * DeleteEntryDialog — usunięcie wpisu rozbioru z biura.
+ *
+ * Cofnięcie z HMI ma okno 15 minut i po nim komunikat odsyła „cofnij przez
+ * biuro" — a biuro takiej ścieżki nie miało, więc operator obchodził to,
+ * edytując wpis na 1 kg (prod 2026-08-14). Backend odwraca wszystko: oddaje
+ * ćwiartkę do partii, zdejmuje mięso z lotu i sprząta ruchy. Blokady fizyczne
+ * zostają — zużytego mięsa i rozliczonych ubocznych nie da się cofnąć.
+ */
+export function DeleteEntryDialog({ entry, onClose, onSaved }: {
+  entry: FixableEntry
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  async function submit() {
+    if (!reason.trim()) { setErr('Podaj powód usunięcia'); return }
+    setBusy(true); setErr('')
+    try {
+      await deboningEntriesApi.officeDelete(entry.id, reason.trim())
+      onSaved()
+      onClose()
+    } catch (e: any) {
+      setErr(e?.message || 'Nie udało się usunąć wpisu')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={v => { if (!v) onClose() }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Trash2 size={16} className="text-red-600" /> Usuń wpis rozbioru
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="rounded-md border border-surface-4 bg-surface-2 px-3 py-2 text-[13px]">
+          <div className="font-semibold text-ink">{entry.workerName || '—'}</div>
+          <div className="text-ink-4">
+            partia {entry.rawBatchNo || '—'} · ćwiartka {nf0.format(entryQuarter(entry))} kg ·
+            mięso {nf1.format(entry.kgMeat ?? 0)} kg
+          </div>
+        </div>
+
+        <p className="text-[12.5px] text-ink-4">
+          Ćwiartka wróci do partii, mięso zejdzie z lotu, a ruchy magazynowe wpisu znikną.
+          Akord pracownika przeliczy się bez tego wpisu. Operacja zostaje w historii korekt.
+        </p>
+
+        <label className="block text-[12.5px] font-medium text-ink">
+          Powód
+          <input value={reason} onChange={e => setReason(e.target.value)} autoFocus
+            placeholder="np. wpis testowy operatora"
+            className="mt-1 w-full rounded border border-surface-4 px-2 py-1.5 text-[13px]" />
+        </label>
+
+        {err && (
+          <div className="flex items-start gap-2 rounded-md bg-red-50 px-3 py-2 text-[12.5px] text-red-700">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {err}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} disabled={busy}
+            className="rounded border border-surface-4 px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-surface-2">
+            Anuluj
+          </button>
+          <button onClick={submit} disabled={busy || !reason.trim()}
+            className={cn('inline-flex items-center gap-2 rounded px-3 py-1.5 text-[13px] font-semibold text-white',
+              busy || !reason.trim() ? 'bg-red-300' : 'bg-red-600 hover:bg-red-700')}>
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+            Usuń wpis
+          </button>
         </div>
       </DialogContent>
     </Dialog>

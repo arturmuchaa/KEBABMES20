@@ -99,6 +99,10 @@ def permission_for_path(path: str, method: str = "GET") -> str:
         return "office"
     if _matches(path, "/api/deboning/entries/office-add"):
         return "office"
+    # Usunięcie wpisu z biura omija okno 15 minut, które pilnuje hali →
+    # wyłącznie biuro. Zwykły DELETE (HMI, świeży wpis) zostaje przy „rozbior".
+    if path.startswith("/api/deboning/entries/") and path.endswith("/office-delete"):
+        return "office"
     # Ważenie zbiorcze mięsa robi HALA: kiosk rozbioru zapisuje paletę i czyta
     # magazyn mięsa, żeby rozpisać jej skład na partie. Bez tego kiosk dostawał
     # „odmowa dostępu" przy druku etykiety mięsa (prod 2026-08-14) — uboczne

@@ -133,3 +133,13 @@ def test_operator_rozbioru_wchodzi_na_palety_miesa():
 def test_operator_pakowania_nie_wchodzi_na_palety_miesa():
     pakowacz = {"kind": "operator", "departments": ["pakowanie"]}
     assert not can_access(pakowacz, permission_for_path("/api/meat-pallets", "POST"))
+
+
+def test_usuniecie_wpisu_z_biura_tylko_dla_biura():
+    """Okno 15 minut pilnuje hali; ścieżka biura je omija, więc hala tu nie wchodzi."""
+    assert permission_for_path("/api/deboning/entries/abc/office-delete", "POST") == "office"
+    # Zwykłe cofnięcie z HMI (świeży wpis) zostaje przy dziale rozbioru.
+    assert permission_for_path("/api/deboning/entries/abc", "DELETE") == "rozbior"
+    operator = {"kind": "operator", "departments": ["rozbior"]}
+    assert not can_access(operator, permission_for_path(
+        "/api/deboning/entries/abc/office-delete", "POST"))

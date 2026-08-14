@@ -948,12 +948,18 @@ def validate_session_writable(session_row, office_correction: bool = False):
 UNDO_MAX_AGE_MIN = 15
 
 
-def validate_entry_undo(entry, meat_available, now: datetime | None = None):
+def validate_entry_undo(entry, meat_available, now: datetime | None = None,
+                        skip_age: bool = False):
     """Czy wpis rozbioru można bezpiecznie cofnąć (storno z HMI).
 
     Blokady: wpis rozliczony (grzbiety/kości), mięso z lotu już zużyte
     dalej (masowanie), wpis starszy niż UNDO_MAX_AGE_MIN.
     meat_available=None → lot nie istnieje (stare dane) — nie blokuje.
+
+    `skip_age=True` (usunięcie z BIURA): pomija wyłącznie limit wieku. Okno
+    15 minut pilnuje hali, żeby operator nie kasował wpisów sprzed godzin —
+    biuro robi to świadomie i ze śladem. Zużyte mięso i rozliczone uboczne
+    blokują dalej: wiek to sprawa procedury, tamto fizyka.
     """
     if float(entry.get("kg_backs") or 0) > 0 or float(entry.get("kg_bones") or 0) > 0:
         return "Wpis już rozliczony (grzbiety/kości) — cofnięcie niemożliwe"
@@ -961,7 +967,7 @@ def validate_entry_undo(entry, meat_available, now: datetime | None = None):
     if meat_available is not None and float(meat_available) < kg_meat - 0.001:
         return "Mięso z tego wpisu zostało już zużyte — cofnięcie niemożliwe"
     created = entry.get("created_at")
-    if created:
+    if created and not skip_age:
         try:
             created_dt = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
             now = now or datetime.now(timezone.utc)
@@ -1970,15 +1976,50 @@ def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate, by_subject: s
     return _map_deboning_entry(row)
 
 
-def delete_deboning_entry(entry_id: str) -> Dict:
-    """Cofnięcie wpisu rozbioru (przycisk „Cofnij" na HMI).
+def _slad_usuniecia_cx(conn, entry, office_correction: bool,
+                       by_subject: str, reason: str) -> None:
+    """Ślad po usuniętym wpisie — tabela korekt nie ma FK, więc przeżywa wpis.
+
+    Po usunięciu to JEDYNE miejsce, gdzie widać, co i dlaczego zniknęło:
+    kto usunął, z jakiej partii i ile kilogramów schodziło z akordu.
+    """
+    if not office_correction:
+        return
+    cx_execute(
+        conn,
+        "INSERT INTO deboning_entry_corrections "
+        "(id, entry_id, by_subject, reason, changes) VALUES (%s,%s,%s,%s,%s)",
+        (cuid(), entry["id"], by_subject or "biuro", (reason or "").strip(),
+         json.dumps({
+             "usuniety": {
+                 "sessionNo": entry.get("session_no"),
+                 "rawBatchNo": entry.get("raw_batch_no"),
+                 "worker": entry.get("worker_name"),
+                 "kgQuarter": float(entry.get("kg_quarter") or 0),
+                 "kgMeat": float(entry.get("kg_meat") or 0),
+             }
+         }, ensure_ascii=False)),
+    )
+
+
+def delete_deboning_entry(entry_id: str, office_correction: bool = False,
+                          by_subject: str = "", reason: str = "") -> Dict:
+    """Cofnięcie wpisu rozbioru (przycisk „Cofnij" na HMI, usunięcie z biura).
 
     Odwraca w JEDNEJ transakcji wszystko, co utworzył create_deboning_entry:
     oddaje kg_taken do partii surowca, zdejmuje kg_meat z lotu mięsa
     (lot współdzielony między wpisami tej samej partii — tylko odejmujemy;
     pusty lot kasujemy), usuwa loty ABP i ruchy magazynowe wpisu.
     Warunki bezpieczeństwa w validate_entry_undo (czysta funkcja).
+
+    `office_correction=True` — usunięcie z BIURA: pomija limit wieku (okno
+    15 minut pilnuje hali) i zostawia ślad w deboning_entry_corrections ze
+    zdjętymi kilogramami. Reszta blokad zostaje: zużyte mięso i rozliczone
+    uboczne to fizyka, nie procedura. Powód wymagany — usunięcie zmienia
+    wstecz akord pracownika i statystyki partii.
     """
+    if office_correction and not (reason or "").strip():
+        raise HTTPException(400, "Podaj powód usunięcia wpisu")
     with transaction() as conn:
         # Lock partii PRZED wpisem — ta sama kolejność co create_deboning_take
         # (odwrotna zakleszczała się z równoległym pobraniem; patrz
@@ -2047,6 +2088,7 @@ def delete_deboning_entry(entry_id: str) -> Dict:
                 "DELETE FROM stock_movements WHERE source_type IN ('deboning','deboning_correction') AND source_id=%s",
                 (entry_id,),
             )
+            _slad_usuniecia_cx(conn, entry, office_correction, by_subject, reason)
             cx_execute(conn, "DELETE FROM deboning_entries WHERE id=%s", (entry_id,))
             logger.info("deboning.take.undone", extra={"entry_id": entry_id, "kg_taken": kg_taken})
             return {"ok": True, "id": entry_id}
@@ -2059,6 +2101,7 @@ def delete_deboning_entry(entry_id: str) -> Dict:
         undo_err = validate_entry_undo(
             entry,
             float(meat_lot["kg_available"]) if meat_lot else None,
+            skip_age=office_correction,
         )
         if undo_err:
             raise HTTPException(400, undo_err)
@@ -2108,6 +2151,7 @@ def delete_deboning_entry(entry_id: str) -> Dict:
             "DELETE FROM stock_movements WHERE source_type IN ('deboning','deboning_correction') AND source_id=%s",
             (entry_id,),
         )
+        _slad_usuniecia_cx(conn, entry, office_correction, by_subject, reason)
         cx_execute(conn, "DELETE FROM deboning_entries WHERE id=%s", (entry_id,))
 
     logger.info(

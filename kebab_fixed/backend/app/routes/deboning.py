@@ -273,6 +273,22 @@ def correct_deboning_entry(entry_id: str, dto: DeboningEntryCorrect, request: Re
     )
 
 
+@router.post("/api/deboning/entries/{entry_id}/office-delete")
+def office_delete_deboning_entry(entry_id: str, body: dict, request: Request):
+    """Usunięcie wpisu z BIURA — omija okno 15 minut, które pilnuje hali.
+
+    Komunikat blokady na HMI od zawsze odsyłał „cofnij przez biuro", a biuro
+    takiej ścieżki nie miało (prod 2026-08-14). Reszta blokad zostaje: zużyte
+    mięso i rozliczone uboczne. Dostęp wyłącznie biuro (permissions.py).
+    """
+    subject = getattr(request.state, "subject", None) or {}
+    by = str(subject.get("username") or subject.get("id") or "")
+    return svc.delete_deboning_entry(
+        entry_id, office_correction=True, by_subject=by,
+        reason=str((body or {}).get("reason") or ""),
+    )
+
+
 @router.get("/api/deboning/entries/{entry_id}/corrections")
 def list_deboning_entry_corrections(entry_id: str):
     """Historia korekt wpisu — kto, kiedy, co na co i dlaczego."""

@@ -100,6 +100,25 @@ class TestValidateEntryUndo:
         # lot mógł nie powstać (stare dane) — cofnięcie samego wpisu OK
         assert validate_entry_undo(self._entry(), meat_available=None, now=self.NOW) is None
 
+    def test_biuro_cofa_stary_wpis(self):
+        """Okno 15 minut pilnuje HALI. Biuro musi móc usunąć wpis z rana —
+        komunikat blokady od zawsze odsyłał „cofnij przez biuro”, a biuro
+        takiej ścieżki nie miało (prod 2026-08-14, wpis DENYS z 13:50)."""
+        old = self._entry(created_at=(self.NOW - timedelta(hours=6)).isoformat())
+        assert validate_entry_undo(old, meat_available=150.5, now=self.NOW,
+                                   skip_age=True) is None
+
+    def test_biuro_NIE_omija_zuzytego_miesa(self):
+        """Wiek to sprawa procedury, zużyte mięso to fizyka — tego nie omijamy."""
+        old = self._entry(created_at=(self.NOW - timedelta(hours=6)).isoformat())
+        err = validate_entry_undo(old, meat_available=100.0, now=self.NOW, skip_age=True)
+        assert err and "zużyte" in err
+
+    def test_biuro_NIE_omija_rozliczonych_ubocznych(self):
+        old = self._entry(kg_bones=15, created_at=(self.NOW - timedelta(hours=6)).isoformat())
+        err = validate_entry_undo(old, meat_available=150.5, now=self.NOW, skip_age=True)
+        assert err and "rozliczony" in err
+
 
 class TestValidateEditDeltas:
     def test_bez_zmian_ok(self):

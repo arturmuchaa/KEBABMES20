@@ -10,13 +10,13 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { byproductsApi, deboningEntriesApi, type BatchByproducts, type DeboningPanelBatch } from '@/lib/api'
-import { ChangeBatchDialog, EntryCorrectionDialog, type FixableEntry } from '@/features/deboning/EntryFixDialogs'
+import { ChangeBatchDialog, DeleteEntryDialog, EntryCorrectionDialog, type FixableEntry } from '@/features/deboning/EntryFixDialogs'
 import { DeboningWeighingsLog } from '@/features/deboning/DeboningWeighingsLog'
 import { StatusBadge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import {
   ArrowLeftRight, Bone, ChevronDown, ChevronRight, Clock3, Loader2,
-  PencilLine, Search, Scissors,
+  PencilLine, Search, Scissors, Trash2,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 
@@ -143,6 +143,7 @@ export function DeboningControlPage() {
 
   const [fixEntry, setFixEntry] = useState<FixableEntry | null>(null)
   const [cbEntry, setCbEntry] = useState<FixableEntry | null>(null)
+  const [delEntry, setDelEntry] = useState<FixableEntry | null>(null)
 
   const [weighPreset, setWeighPreset] = useState<WeighPreset>('today')
   const [weighCf, setWeighCf] = useState('')
@@ -311,6 +312,11 @@ export function DeboningControlPage() {
                                             className="inline-flex w-7 h-7 rounded items-center justify-center text-ink-4 hover:text-brand hover:bg-brand/10">
                                             <ArrowLeftRight size={14} />
                                           </button>
+                                          <button onClick={() => setDelEntry(e)}
+                                            title="Usuń wpis (oddaje ćwiartkę i zdejmuje mięso)"
+                                            className="inline-flex w-7 h-7 rounded items-center justify-center text-ink-4 hover:text-red-600 hover:bg-red-50">
+                                            <Trash2 size={14} />
+                                          </button>
                                         </>
                                       )}
                                     </td>
@@ -366,6 +372,9 @@ export function DeboningControlPage() {
 
       {fixEntry && (
         <EntryCorrectionDialog entry={fixEntry} onClose={() => setFixEntry(null)} onSaved={onSaved} />
+      )}
+      {delEntry && (
+        <DeleteEntryDialog entry={delEntry} onClose={() => setDelEntry(null)} onSaved={onSaved} />
       )}
       {cbEntry && (
         <ChangeBatchDialog entry={cbEntry} onClose={() => setCbEntry(null)} onSaved={onSaved} />

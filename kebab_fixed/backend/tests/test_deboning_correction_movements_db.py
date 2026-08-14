@@ -189,3 +189,75 @@ def test_migracja_domyka_dryf_ksiegi(db):
     _reconcile_deboning_ledger()
     assert _raw_ledger() == pytest.approx(-275.0)
     assert _meat_ledger() == pytest.approx(142.0)
+
+
+# ── Usunięcie wpisu z BIURA ───────────────────────────────────────────────────
+#
+# Okno 15 minut pilnuje hali; komunikat blokady odsyłał „cofnij przez biuro",
+# ale biuro takiej ścieżki nie miało (prod 2026-08-14, wpis DENYS z 13:50 —
+# operator obszedł to, edytując wpis na 1 kg).
+
+def _postarz_wpis(godzin=6):
+    execute(
+        "UPDATE deboning_entries SET created_at = now() - (%s || ' hours')::interval "
+        "WHERE id='e1'", (godzin,))
+
+
+def test_biuro_usuwa_stary_wpis_i_oddaje_kilogramy(db):
+    _seed()
+    _postarz_wpis()
+    przed = query_one("SELECT kg_available FROM raw_batches WHERE id='rb1'")
+
+    delete_deboning_entry("e1", office_correction=True, by_subject="artur",
+                          reason="wpis testowy operatora")
+
+    assert query_one("SELECT COUNT(*) AS n FROM deboning_entries WHERE id='e1'")["n"] == 0
+    po = query_one("SELECT kg_available FROM raw_batches WHERE id='rb1'")
+    assert float(po["kg_available"]) - float(przed["kg_available"]) == 200.0
+    assert query_one("SELECT COUNT(*) AS n FROM stock_movements WHERE source_id='e1'")["n"] == 0
+
+
+def test_usuniecie_z_biura_zostawia_slad_kto_i_dlaczego(db):
+    _seed()
+    _postarz_wpis()
+    delete_deboning_entry("e1", office_correction=True, by_subject="artur",
+                          reason="wpis testowy operatora")
+
+    slad = query_one(
+        "SELECT by_subject, reason, changes FROM deboning_entry_corrections WHERE entry_id='e1'")
+    assert slad is not None
+    assert slad["by_subject"] == "artur"
+    assert "testowy" in slad["reason"]
+    # Ślad przeżywa wpis — po usunięciu to jedyne miejsce z jego kilogramami.
+    assert float(slad["changes"]["usuniety"]["kgMeat"]) == 132.0
+
+
+def test_usuniecie_z_biura_wymaga_powodu(db):
+    _seed()
+    _postarz_wpis()
+    with pytest.raises(HTTPException) as err:
+        delete_deboning_entry("e1", office_correction=True, by_subject="artur", reason="  ")
+    assert err.value.status_code == 400
+    assert query_one("SELECT COUNT(*) AS n FROM deboning_entries WHERE id='e1'")["n"] == 1
+
+
+def test_biuro_nie_usunie_wpisu_ze_zuzytym_miesem(db):
+    """Wiek to procedura, zużyte mięso to fizyka — tego nie omijamy."""
+    _seed()
+    _postarz_wpis()
+    execute("UPDATE meat_stock SET kg_available=10 WHERE id='ms1'")
+
+    with pytest.raises(HTTPException) as err:
+        delete_deboning_entry("e1", office_correction=True, by_subject="artur",
+                              reason="próba")
+    assert err.value.status_code == 400
+    assert query_one("SELECT COUNT(*) AS n FROM deboning_entries WHERE id='e1'")["n"] == 1
+
+
+def test_hala_dalej_nie_cofnie_starego_wpisu(db):
+    """Bez office_correction okno 15 minut obowiązuje jak dotąd."""
+    _seed()
+    _postarz_wpis()
+    with pytest.raises(HTTPException) as err:
+        delete_deboning_entry("e1")
+    assert "minut" in str(err.value.detail)
