@@ -108,6 +108,32 @@ _DDL: list[str] = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_stock_cartons_status ON stock_cartons(status)",
     "CREATE INDEX IF NOT EXISTS idx_stock_cartons_client ON stock_cartons(client_id)",
+    # ── Ważenie zbiorcze mięsa: równe palety i wózki dla masowni.
+    #    To OPIS ułożenia, nie stan — mięso jest na stanie od rozbioru, więc
+    #    ten zapis NIE generuje żadnych ruchów magazynowych.
+    """CREATE TABLE IF NOT EXISTS meat_pallets (
+        id              TEXT PRIMARY KEY,
+        pallet_no       TEXT UNIQUE NOT NULL,
+        target_kg       NUMERIC NOT NULL,
+        stack_kg        NUMERIC,
+        kg_net          NUMERIC NOT NULL,
+        containers      INTEGER NOT NULL DEFAULT 0,
+        carrier_label   TEXT NOT NULL DEFAULT '',
+        carrier_kg      NUMERIC NOT NULL DEFAULT 0,
+        operator        TEXT DEFAULT '',
+        production_date DATE NOT NULL,
+        expiry_date     DATE,
+        created_at      TIMESTAMPTZ DEFAULT now()
+    )""",
+    """CREATE TABLE IF NOT EXISTS meat_pallet_lots (
+        id        TEXT PRIMARY KEY,
+        pallet_id TEXT NOT NULL REFERENCES meat_pallets(id) ON DELETE CASCADE,
+        lot_no    TEXT NOT NULL,
+        kg        NUMERIC NOT NULL,
+        seq       INTEGER NOT NULL DEFAULT 0
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_meat_pallet_lots_pallet ON meat_pallet_lots(pallet_id)",
+    "CREATE INDEX IF NOT EXISTS idx_meat_pallets_day ON meat_pallets(production_date)",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS batch_allocation JSONB DEFAULT '{}'",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS seasoned_batch_nos TEXT[] DEFAULT '{}'",
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS client_order_line_id TEXT",

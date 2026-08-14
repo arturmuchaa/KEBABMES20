@@ -31,6 +31,7 @@ _TRUNCATE = [
     "stock_movements", "stock_cartons", "stock_carton_lines", "finished_units", "finished_goods",
     "production_plan_lines", "production_plans",
     "seasoned_meat", "mixing_sessions", "mixing_order_lots", "mixing_orders",
+    "meat_pallet_lots", "meat_pallets",
     "meat_stock", "reception_supplier_batches", "receptions", "raw_batches",
     "recipe_ingredients", "recipes",
     "order_pallet_items", "order_pallets", "client_order_lines", "client_orders",
