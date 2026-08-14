@@ -67,6 +67,15 @@ describe('byproductLabelZpl — etykieta palety ubocznych 50×80', () => {
     expect(byproductLabelZpl({ ...BASE, kind: 'bones' })).toContain('KOŚCI')
   })
 
+  it('nazwa towaru niesie gatunek — „GRZBIETY z kurczaka", w dwóch wierszach', () => {
+    // Jeden wiersz „GRZBIETY Z KURCZAKA" ma ~80 mm i nie zmieściłby się na
+    // 44 mm pola zadruku — stąd podział na frakcję i gatunek pod spodem.
+    const zpl = byproductLabelZpl(BASE)
+    expect(zpl).toContain('GRZBIETY')
+    expect(zpl).toContain('z kurczaka')
+    expect(zpl).not.toContain('GRZBIETY z kurczaka')
+  })
+
   it('brak daty ważności na ćwiartce → pusta wartość, nie „Invalid Date"', () => {
     const zpl = byproductLabelZpl({ ...BASE, expiryDate: '' })
     expect(zpl).toContain('Data ważności')

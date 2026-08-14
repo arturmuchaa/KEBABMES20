@@ -175,7 +175,12 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
     setPallets(next)
     setDriveOff(DRIVE_OFF_IDLE)
     resetInputs()
-    void persist(next)
+    // Etykieta leci na drukarkę SAMA, zaraz po zapisie palety: operator zjeżdża
+    // z wagi z gotową naklejką, bez dodatkowego dotknięcia ekranu w rękawicach.
+    // Druk po zapisie, żeby na etykiecie była ta sama waga, która poszła na
+    // serwer; nieudany zapis nie wstrzymuje druku — paleta fizycznie stoi i
+    // musi być opisana, a sumę operator ponowi „To wszystko".
+    void persist(next).then(() => printPalletLabel(p, next.length - 1))
   }
 
   function tryAddPallet(p: Pallet) {
@@ -493,8 +498,9 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
               </div>
             )}
 
-            {/* Druk etykiety ostatnio zważonej palety — główna ścieżka: operator
-                zjeżdża z wagi, dotyka „Drukuj etykietę" i nakleja ją na paletę. */}
+            {/* Dodruk ostatniej palety — etykieta wychodzi automatycznie po
+                „Dodaj do sumy", ten przycisk jest na wypadek zaciętej taśmy
+                albo zgubionej naklejki. */}
             {pallets.length > 0 && (
               <button type="button" onClick={() => printPalletLabel(pallets[pallets.length - 1], pallets.length - 1)}
                 disabled={printingIdx != null}
@@ -505,7 +511,7 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
                   opacity: printingIdx != null ? .6 : 1,
                 }}>
                 <Printer size={24} />
-                {printingIdx != null ? 'Drukuję…' : `Drukuj etykietę — ${FRAC_LABEL[frac]} ${fmtKg(pallets[pallets.length - 1].net, 1)} kg`}
+                {printingIdx != null ? 'Drukuję…' : `Drukuj ponownie — ${FRAC_LABEL[frac]} ${fmtKg(pallets[pallets.length - 1].net, 1)} kg`}
               </button>
             )}
             {printMsg && (

@@ -25,7 +25,11 @@ export const LABEL_H_MM = 80
 
 export type ByproductKind = 'backs' | 'bones'
 
+/** Nazwa towaru w dwóch wierszach: frakcja dużą czcionką (czytelna z drugiego
+ *  końca hali) i gatunek pod spodem. W jednym wierszu „GRZBIETY Z KURCZAKA" ma
+ *  ~80 mm — na 44 mm pola zadruku drukarka ucięłaby połowę. */
 const KIND_TITLE: Record<ByproductKind, string> = { backs: 'GRZBIETY', bones: 'KOŚCI' }
+const KIND_SUBTITLE = 'z kurczaka'
 
 export interface ByproductLabelInput {
   kind: ByproductKind
@@ -91,23 +95,24 @@ export function byproductLabelZpl(
 
   const body = [
     text(M, 3, 7, KIND_TITLE[input.kind] ?? '', dpi),
-    line(M, 12.5, W, dpi),
+    text(M, 11.5, 4, KIND_SUBTITLE, dpi),
+    line(M, 17.5, W, dpi),
 
-    text(M, 15, 3.2, 'Nr porządkowy', dpi),
-    text(M, 19, 11, input.batchNo ?? '', dpi),
-    line(M, 32, W, dpi),
+    text(M, 20, 3.2, 'Nr porządkowy', dpi),
+    text(M, 24, 11, input.batchNo ?? '', dpi),
+    line(M, 37, W, dpi),
 
-    text(M, 34.5, 3.2, 'Waga netto', dpi),
+    text(M, 39.5, 3.2, 'Waga netto', dpi),
     // 7,5 mm, nie więcej: przy czterocyfrowej wadze („1245,5 kg") większy
     // font nie mieści się w 44 mm pola zadruku i drukarka utnie końcówkę.
-    text(M, 38.5, 7.5, `${fmtLabelKg(input.netKg)} kg`, dpi),
-    line(M, 50, W, dpi),
+    text(M, 43.5, 7.5, `${fmtLabelKg(input.netKg)} kg`, dpi),
+    line(M, 53.5, W, dpi),
 
-    text(M, 52.5, 3.2, 'Data produkcji', dpi),
-    text(M, 56.5, 5, fmtLabelDate(input.productionDate), dpi),
+    text(M, 56, 3.2, 'Data produkcji', dpi),
+    text(M, 60, 5, fmtLabelDate(input.productionDate), dpi),
 
-    text(M, 64, 3.2, 'Data ważności', dpi),
-    text(M, 68, 5, fmtLabelDate(input.expiryDate), dpi),
+    text(M, 67, 3.2, 'Data ważności', dpi),
+    text(M, 71, 5, fmtLabelDate(input.expiryDate), dpi),
   ]
 
   const n = Math.max(1, Math.round(copies))
@@ -119,6 +124,10 @@ export function byproductLabelZpl(
     `^PW${mmToDots(LABEL_W_MM, dpi)}`,   // szerokość TAŚMY — za duża ucina wiersze
     `^LL${mmToDots(LABEL_H_MM, dpi)}`,
     '^LH0,0',                            // zeruj przesunięcie z ustawień drukarki
+    // Etykiety są wykrawane, z przerwą między nimi — drukarka ma szukać
+    // przerwy, a nie traktować taśmy jako ciągłej. Bez tego dojeżdża w połowie
+    // następnej etykiety i miga na czerwono (hala, 14.08.2026).
+    '^MNY',
     '^LS0',
     ...body,
     '^XZ',
