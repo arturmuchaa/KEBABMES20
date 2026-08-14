@@ -261,3 +261,33 @@ def test_hala_dalej_nie_cofnie_starego_wpisu(db):
     with pytest.raises(HTTPException) as err:
         delete_deboning_entry("e1")
     assert "minut" in str(err.value.detail)
+
+
+def test_biuro_usuwa_wpis_z_zatwierdzonej_zmiany(db):
+    """Zatwierdzona zmiana blokuje halę, nie biuro — jak przy korekcie wpisu.
+    Usuwa się najczęściej właśnie dzień już zamknięty (prod 2026-08-14)."""
+    _seed()
+    _postarz_wpis()
+    execute(
+        "INSERT INTO production_sessions (id, session_date, process_type, status, started_at) "
+        "VALUES ('ps-zatw', current_date, 'rozbior', 'approved', now()) "
+        "ON CONFLICT (id) DO NOTHING")
+    execute("UPDATE deboning_entries SET session_id='ps-zatw' WHERE id='e1'")
+
+    delete_deboning_entry("e1", office_correction=True, by_subject="artur",
+                          reason="dzień zamknięty, wpis do usunięcia")
+
+    assert query_one("SELECT COUNT(*) AS n FROM deboning_entries WHERE id='e1'")["n"] == 0
+
+
+def test_hala_nie_cofnie_wpisu_z_zatwierdzonej_zmiany(db):
+    _seed()
+    execute(
+        "INSERT INTO production_sessions (id, session_date, process_type, status, started_at) "
+        "VALUES ('ps-zatw2', current_date, 'rozbior', 'approved', now()) "
+        "ON CONFLICT (id) DO NOTHING")
+    execute("UPDATE deboning_entries SET session_id='ps-zatw2' WHERE id='e1'")
+
+    with pytest.raises(HTTPException) as err:
+        delete_deboning_entry("e1")
+    assert "atwierdzona" in str(err.value.detail)

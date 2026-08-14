@@ -2042,7 +2042,11 @@ def delete_deboning_entry(entry_id: str, office_correction: bool = False,
         if entry.get("raw_batch_id") != peek.get("raw_batch_id"):
             raise HTTPException(409, "Wpis zmienił partię w trakcie — spróbuj ponownie")
 
-        if entry.get("session_id"):
+        # Zatwierdzona zmiana blokuje HALĘ, nie biuro — tak samo jak przy
+        # korekcie wpisu (correct_deboning_entry). Usunięcie z biura dotyczy
+        # najczęściej właśnie dnia już zamkniętego; blokada tutaj czyniłaby
+        # tę ścieżkę bezużyteczną dokładnie wtedy, gdy jest potrzebna.
+        if entry.get("session_id") and not office_correction:
             session_row = cx_query_one(
                 conn,
                 "SELECT status FROM production_sessions WHERE id=%s",
