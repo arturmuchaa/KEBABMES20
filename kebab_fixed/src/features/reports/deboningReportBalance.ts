@@ -56,6 +56,8 @@ export interface BalancedFractions {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 const round2 = (v: number) => Math.round(v * 100) / 100
+/** Waga na hali chodzi co 0,5 kg — liczby na karcie mają tak wyglądać. */
+const roundHalf = (v: number) => Math.round(v * 2) / 2
 
 /**
  * Zwraca frakcje przeliczone tak, żeby mięso + grzbiety + kości = masa przyjęcia.
@@ -66,8 +68,8 @@ const round2 = (v: number) => Math.round(v * 100) / 100
  * 3. Przy uzysku ponad 66% na uboczne zostaje mniej niż 34% wsadu i oba pasma
  *    naraz przestają być wykonalne. Wtedy pierwszeństwo mają grzbiety (pasmo
  *    węższe), a niedomiar bierze na siebie pozycja kości.
- * 4. Kości liczone jako różnica, więc suma zamyka się co do grosza również po
- *    zaokrągleniu do dwóch miejsc — SUMA na wydruku nie „ucieka" o 0,01.
+ * 4. Grzbiety zaokrąglone do 0,5 kg (działka wagi hali), kości jako różnica —
+ *    dzięki temu obie liczby są w połówkach, a SUMA nie „ucieka" o grosz.
  */
 export function balanceToIntake(m: MeasuredFractions): BalancedFractions {
   const { takenKg, meatKg, backsKg, bonesKg } = m
@@ -90,8 +92,13 @@ export function balanceToIntake(m: MeasuredFractions): BalancedFractions {
   const backsHi = Math.max(backsLo, Math.min(REPORT_BANDS.backs.hi, restPct - REPORT_BANDS.bones.lo))
   const backsPct = clamp(restPct * backsRatio, backsLo, backsHi)
 
+  // Grzbiety zaokrąglone do 0,5 kg, kości jako różnica. Ćwiartka i mięso są
+  // wielokrotnościami 0,5 (waga hali), więc reszta też nią jest i kości
+  // wychodzą w połówkach SAME — bez drugiego zaokrąglenia, które musiałoby
+  // rozjechać sumę. Zaokrąglamy grzbiety, bo to one mają pasmo (19–20%)
+  // z zapasem na 0,25 kg, a nie odwrotnie.
   const outMeat  = round2(takenKg * meatPct / 100)
-  const outBacks = round2(takenKg * backsPct / 100)
+  const outBacks = roundHalf(takenKg * backsPct / 100)
   return {
     takenKg,
     meatKg:  outMeat,

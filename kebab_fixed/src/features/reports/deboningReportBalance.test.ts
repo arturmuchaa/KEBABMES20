@@ -50,11 +50,13 @@ describe('balanceToIntake — domknięcie raportu 2.1.1 do masy przyjęcia', () 
     expect((b.backsKg + b.bonesKg) - (B460.backsKg + B460.bonesKg)).toBeCloseTo(48, 2)
   })
 
+  // Tolerancja 0,05 p.p. to zaokrąglenie do 0,5 kg (najwyżej 0,25 kg na
+  // wsadzie rzędu tony), nie luz w paśmie.
   it('grzbiety zawsze mieszczą się w paśmie 19–20% wsadu', () => {
     for (const m of ALL) {
       const p = pct(balanceToIntake(m).backsKg, m.takenKg)
-      expect(p).toBeGreaterThanOrEqual(REPORT_BANDS.backs.lo - 0.01)
-      expect(p).toBeLessThanOrEqual(REPORT_BANDS.backs.hi + 0.01)
+      expect(p).toBeGreaterThanOrEqual(REPORT_BANDS.backs.lo - 0.05)
+      expect(p).toBeLessThanOrEqual(REPORT_BANDS.backs.hi + 0.05)
     }
   })
 
@@ -62,8 +64,8 @@ describe('balanceToIntake — domknięcie raportu 2.1.1 do masy przyjęcia', () 
     // 461 i 460: uzysk poniżej 66%, więc na uboczne zostaje pełne 34%+.
     for (const m of [B461, B460]) {
       const p = pct(balanceToIntake(m).bonesKg, m.takenKg)
-      expect(p).toBeGreaterThanOrEqual(REPORT_BANDS.bones.lo - 0.01)
-      expect(p).toBeLessThanOrEqual(REPORT_BANDS.bones.hi + 0.01)
+      expect(p).toBeGreaterThanOrEqual(REPORT_BANDS.bones.lo - 0.05)
+      expect(p).toBeLessThanOrEqual(REPORT_BANDS.bones.hi + 0.05)
     }
     // 466: uzysk 66,56% zostawia 33,44% — 19% grzbietów + 15% kości już się
     // nie mieści, więc niedomiar bierze na siebie pozycja o szerszym paśmie.
@@ -104,12 +106,33 @@ describe('balanceToIntake — domknięcie raportu 2.1.1 do masy przyjęcia', () 
     expect(b.meatKg + b.backsKg + b.bonesKg).toBeCloseTo(1000, 6)
   })
 
-  it('kilogramy są zaokrąglone do 2 miejsc, więc SUMA na wydruku zgadza się co do grosza', () => {
+  // Waga na hali chodzi co 0,5 kg, więc każda liczba na karcie ma tak
+  // wyglądać. „668,61 kg grzbietów" widać od razu, że jest policzone,
+  // a nie zważone.
+  it('grzbiety i kości wychodzą w pełnych połówkach kilograma', () => {
     for (const m of ALL) {
       const b = balanceToIntake(m)
-      for (const kg of [b.meatKg, b.backsKg, b.bonesKg]) {
-        expect(Math.round(kg * 100) / 100).toBe(kg)
-      }
+      expect(b.backsKg * 2).toBe(Math.round(b.backsKg * 2))
+      expect(b.bonesKg * 2).toBe(Math.round(b.bonesKg * 2))
+    }
+  })
+
+  // Resztka partii z 12.08.2026: 30 kg ćwiartki, 20 kg mięsa. Przy takim
+  // wsadzie 0,25 kg zaokrąglenia to już 0,8 p.p., więc grzbiety wychodzą
+  // poniżej 19% — świadomie. Pół kilograma na karcie jest ważniejsze niż
+  // trzecia cyfra po przecinku w udziale.
+  it('mały wsad trzyma połówki i sumę, choć udział odjeżdża od pasma', () => {
+    const b = balanceToIntake({ takenKg: 30, meatKg: 20, backsKg: 5.5, bonesKg: 4.5 })
+    expect(b.meatKg + b.backsKg + b.bonesKg).toBe(30)
+    expect(b.backsKg * 2).toBe(Math.round(b.backsKg * 2))
+    expect(b.bonesKg * 2).toBe(Math.round(b.bonesKg * 2))
+    expect(Math.abs(pct(b.backsKg, 30) - REPORT_BANDS.backs.lo)).toBeLessThan(1)
+  })
+
+  it('zaokrąglenie do 0,5 kg nie rusza sumy — reszta ląduje na kościach', () => {
+    for (const m of ALL) {
+      const b = balanceToIntake(m)
+      expect(b.meatKg + b.backsKg + b.bonesKg).toBe(m.takenKg)
     }
   })
 
