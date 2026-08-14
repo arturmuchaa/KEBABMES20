@@ -378,10 +378,29 @@ def batch_history(batch_id: str) -> List[Dict]:
     )
 
 
-def _batch_used_reason_cx(conn, batch_id: str) -> str | None:
+#: Lot magazynu mięsa, który powstał PRZY SAMYM PRZYJĘCIU (filet, mięso z/s —
+#: create_batch przerzuca całość dostawy do meat_stock) i z którego nic jeszcze
+#: nie zeszło. Lot z rozbioru ma deboning_session_id, więc tu nie wpada.
+_UNTOUCHED_RECEPTION_LOT = (
+    "deboning_session_id IS NULL"
+    " AND COALESCE(kg_used,0) = 0 AND COALESCE(kg_reserved,0) = 0"
+    " AND COALESCE(kg_in_process,0) = 0"
+    " AND COALESCE(kg_available,0) >= COALESCE(kg_initial,0)"
+)
+
+
+def _batch_used_reason_cx(conn, batch_id: str, for_cancel: bool = False) -> str | None:
     """Zwraca powód, dla którego partii NIE wolno edytować/usuwać (albo None).
     Partia „ruszona": status used/cancelled, albo są wpisy rozbioru / mięso /
-    uboczne z tej partii. Chroni traceability przed edycją rozliczonej ćwiartki."""
+    uboczne z tej partii. Chroni traceability przed edycją rozliczonej ćwiartki.
+
+    `for_cancel=True` łagodzi JEDEN warunek: własny, nietknięty lot przyjęcia
+    (filet / mięso z/s) nie liczy się jako użycie partii. Bez tego takiej
+    dostawy NIE DAŁO SIĘ anulować nigdy — miała wpis w meat_stock już w
+    sekundzie przyjęcia, więc dostawa wpisana pod złym rodzajem zostawała w
+    systemie na zawsze (prod 2026-08-14). Edycji to nie dotyczy: `update_batch`
+    nie rusza lotu i rozjechałby kilogramy między dostawą a magazynem.
+    """
     st = cx_query_one(conn, "SELECT status FROM raw_batches WHERE id=%s", (batch_id,))
     if not st:
         return "not_found"
@@ -393,20 +412,60 @@ def _batch_used_reason_cx(conn, batch_id: str) -> str | None:
         ("meat_stock", "magazynie mięsa"),
         ("batch_byproducts", "ważeniu ubocznych"),
     ):
-        r = cx_query_one(conn, f"SELECT 1 FROM {table} WHERE raw_batch_id=%s LIMIT 1", (batch_id,))
+        sql = f"SELECT 1 FROM {table} WHERE raw_batch_id=%s LIMIT 1"
+        if table == "meat_stock" and for_cancel:
+            sql = (
+                "SELECT 1 FROM meat_stock WHERE raw_batch_id=%s"
+                f" AND NOT ({_UNTOUCHED_RECEPTION_LOT}) LIMIT 1"
+            )
+        r = cx_query_one(conn, sql, (batch_id,))
         if r:
             return f"Partia jest już użyta w {label} — operacja niedozwolona"
     return None
 
 
-def cancel_batch(batch_id: str) -> Dict:
-    with transaction() as conn:
-        reason = _batch_used_reason_cx(conn, batch_id)
-        if reason == "not_found":
-            raise HTTPException(404, "Partia nie znaleziona")
-        if reason:
-            raise HTTPException(409, reason)
-        # Zerowanie stanu: anulowana dostawa nie może trzymać kg — duch 415
+def _cancel_reception_lots_cx(conn, batch_id: str) -> None:
+    """Zdejmij z magazynu mięsa lot(y) utworzone przy przyjęciu tej dostawy.
+
+    Filet i mięso z/s nie mają rozbioru — całość dostawy leży w meat_stock.
+    Bez tego anulowanie zerowało tylko dostawę (i tak pustą), a kilogramy
+    zostawały duchem w magazynie mięsa, pickerze WZ i planie masowania.
+
+    Ruch domykający idzie PRZED zerowaniem lotu: create_stock_movement(OUT,
+    meat) waliduje żywy stan i przy kg_available=0 odrzuciłby własny ruch.
+    """
+    lots = query_all(
+        "SELECT id, kg_available FROM meat_stock WHERE raw_batch_id=%s "
+        f"AND {_UNTOUCHED_RECEPTION_LOT}",
+        (batch_id,),
+    )
+    for lot in lots:
+        kg = float(lot.get("kg_available") or 0)
+        if kg > 0:
+            create_stock_movement(
+                conn, product_type="meat", batch_id=lot["id"], qty=kg,
+                movement_type="OUT", source_type="cancellation", source_id=batch_id,
+            )
+        cx_execute(
+            conn,
+            "UPDATE meat_stock SET kg_available=0, status='CANCELLED' WHERE id=%s",
+            (lot["id"],),
+        )
+
+
+def _cancel_batch_cx(conn, batch_id: str) -> Dict:
+    """Anulowanie JEDNEJ partii wewnątrz istniejącej transakcji.
+
+    Wydzielone z `cancel_batch`, żeby anulowanie całego dokumentu dostawy szło
+    jedną transakcją — inaczej blokada na trzecim numerze zostawiłaby dwa
+    pierwsze anulowane, a dokument w połowie wycofany.
+    """
+    reason = _batch_used_reason_cx(conn, batch_id, for_cancel=True)
+    if reason == "not_found":
+        raise HTTPException(404, "Partia nie znaleziona")
+    if reason:
+        raise HTTPException(409, reason)
+    # Zerowanie stanu: anulowana dostawa nie może trzymać kg — duch 415
         # (2026-07-16) wisiał z 5010 kg na magazynie surowca i w pickerze WZ.
         #
         # Numer WRACA DO PULI (prod 2026-07-20: usunięto 423 i nie dało się
@@ -419,28 +478,59 @@ def cancel_batch(batch_id: str) -> Dict:
         # Ruch domykający księgę: bez niego anulowana partia miała w
         # stock_movements samo przyjęcie IN i kartoteka pokazywała ducha
         # (audyt 2026-07-22: ANUL-* z +5010/+7005 kg w księdze przy stanie 0).
-        cur = cx_query_one(
-            conn, "SELECT kg_available FROM raw_batches WHERE id=%s FOR UPDATE",
-            (batch_id,),
+    cur = cx_query_one(
+        conn, "SELECT kg_available FROM raw_batches WHERE id=%s FOR UPDATE",
+        (batch_id,),
+    )
+    kg_left = float((cur or {}).get("kg_available") or 0)
+    if kg_left > 0:
+        create_stock_movement(
+            conn, product_type="raw", batch_id=batch_id, qty=kg_left,
+            movement_type="OUT", source_type="cancellation", source_id=batch_id,
         )
-        kg_left = float((cur or {}).get("kg_available") or 0)
-        if kg_left > 0:
-            create_stock_movement(
-                conn, product_type="raw", batch_id=batch_id, qty=kg_left,
-                movement_type="OUT", source_type="cancellation", source_id=batch_id,
-            )
-        row = cx_execute_returning(
-            conn,
-            "UPDATE raw_batches SET status='cancelled', kg_available=0, "
-            "internal_batch_no='ANUL-' || id WHERE id=%s RETURNING *",
-            (batch_id,),
-        )
-        if row:
-            _unbook_batch_containers(conn, row)
+    # Dostawa bez rozbioru trzyma kilogramy w locie magazynu mięsa, nie tutaj.
+    _cancel_reception_lots_cx(conn, batch_id)
+    row = cx_execute_returning(
+        conn,
+        "UPDATE raw_batches SET status='cancelled', kg_available=0, "
+        "internal_batch_no='ANUL-' || id WHERE id=%s RETURNING *",
+        (batch_id,),
+    )
     if not row:
         raise HTTPException(404, "Partia nie znaleziona")
+    _unbook_batch_containers(conn, row)
     logger.info("raw_batch.cancelled", extra={"batch_id": batch_id})
     return row
+
+
+def cancel_batch(batch_id: str) -> Dict:
+    with transaction() as conn:
+        return _cancel_batch_cx(conn, batch_id)
+
+
+def cancel_reception(reception_id: str) -> Dict:
+    """Anuluj CAŁY dokument dostawy — wszystkie numery porządkowe naraz.
+
+    Wszystko albo nic: jeśli choć jeden numer jest już ruszony (rozbiór,
+    masowanie, WZ), nie anulujemy niczego i mówimy, który to numer. Dostawa
+    wycofana w połowie byłaby gorsza niż niewycofana — księga i saldo
+    pojemników rozjechałyby się bez śladu, dlaczego.
+    """
+    with transaction() as conn:
+        rows = query_all(
+            "SELECT id, internal_batch_no FROM raw_batches "
+            "WHERE reception_id=%s AND COALESCE(status,'') <> 'cancelled' "
+            "ORDER BY internal_batch_seq",
+            (reception_id,),
+        )
+        if not rows:
+            raise HTTPException(404, "Przyjęcie nie ma partii do anulowania")
+        cancelled = [_cancel_batch_cx(conn, r["id"]) for r in rows]
+    logger.info(
+        "reception.cancelled",
+        extra={"reception_id": reception_id, "batches": len(cancelled)},
+    )
+    return {"cancelled": len(cancelled), "batches": cancelled}
 
 
 def adjust_batch_stock(batch_id: str, dto: RawBatchAdjust) -> Dict:

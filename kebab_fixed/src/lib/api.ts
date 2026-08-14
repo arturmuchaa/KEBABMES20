@@ -332,6 +332,12 @@ export const receptionsApi = {
 
   byId: (id: string) => get<any>(`/receptions/${encodeURIComponent(id)}`).then(mapReception),
 
+  /** Anuluje CAŁY dokument dostawy (wszystkie numery porządkowe naraz).
+   *  Wszystko albo nic — ruszony choćby jeden numer daje 409 i nic się nie
+   *  dzieje. Pojedynczy numer: rawBatchesApi.cancel. */
+  cancel: (id: string) =>
+    patch<{ cancelled: number }>(`/receptions/${encodeURIComponent(id)}/cancel`, {}),
+
   /** Adres skanu HDI przypiętego do przyjęcia (dokument do kontroli). */
   hdiScanUrl: (receptionId: string) =>
     `${BASE}/receptions/${encodeURIComponent(receptionId)}/hdi-skan`,

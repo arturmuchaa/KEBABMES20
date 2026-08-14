@@ -260,7 +260,7 @@ export function RawBatchesTable({
             {displayed.map(b => {
               // Gdzie leży stan, zależy od rodzaju surowca — ćwiartka trzyma go
               // w dostawie, filet i mięso z/s w lotach magazynu mięsa.
-              const { status, kgLeft, kgReserved, untouched } = resolveDelivery(b, resolveOpts)
+              const { status, kgLeft, kgReserved, untouched, cancellable } = resolveDelivery(b, resolveOpts)
               // Alarm terminu ma sens tylko dla surowca, który jeszcze leży.
               // Data ważności zostaje widoczna zawsze — audyt HACCP jej potrzebuje.
               const showExpiryAlarm = kgLeft > 0 && status !== 'cancelled'
@@ -268,6 +268,11 @@ export function RawBatchesTable({
               // bez rozbioru jest „ruszona" od chwili przyjęcia — ma wpis
               // w meat_stock. untouched już to uwzględnia.
               const canEdit = untouched && b.status !== 'cancelled' && !b.isInUse
+              // Anulowanie ma łagodniejszy warunek niż edycja: filet i mięso
+              // z/s są „tknięte" od chwili przyjęcia (lot w magazynie mięsa),
+              // więc pod regułą edycji nie dało się wycofać nawet dostawy
+              // wpisanej pod złym rodzajem. Patrz `cancellable` w deliveryView.
+              const canCancel = cancellable && b.status !== 'cancelled' && !b.isInUse
 
               return (
                 <TableRow key={b.id} className={status === 'cancelled' ? 'opacity-60' : undefined}>
@@ -374,9 +379,9 @@ export function RawBatchesTable({
                   </TableCell>
                   {isLive && (
                     <TableCell>
-                      {canEdit && (
+                      {(canEdit || canCancel) && (
                         <div className="flex items-center gap-1">
-                          {onEdit && (
+                          {canEdit && onEdit && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -387,7 +392,7 @@ export function RawBatchesTable({
                               <Pencil size={13} />
                             </Button>
                           )}
-                          {onCancel && (
+                          {canCancel && onCancel && (
                             <Button
                               variant="ghost"
                               size="icon"

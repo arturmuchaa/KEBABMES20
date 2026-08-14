@@ -61,8 +61,17 @@ export interface ResolvedDelivery {
   kgLeft:     number
   /** Zajęte pod plan masowania (tylko magazyn mięsa). */
   kgReserved: number
-  /** Dostawa nietknięta — warunek konieczny edycji/usunięcia. */
+  /** Dostawa nietknięta — warunek konieczny EDYCJI. */
   untouched:  boolean
+  /** Można anulować przyjęcie (nic z niego nie poszło dalej).
+   *
+   *  Osobne od `untouched`, bo filet i mięso z/s są „tknięte" od chwili
+   *  przyjęcia — mają lot w magazynie mięsa — i nigdy nie dawały się anulować,
+   *  nawet świeże (prod 2026-08-14: dostawa wpisana pod złym rodzajem, brak
+   *  jakiegokolwiek wyjścia z poziomu aplikacji). Do anulowania wystarczy, że
+   *  lot jest w całości wolny; edycja zostaje zablokowana, bo `update_batch`
+   *  nie rusza lotu i rozjechałaby kilogramy. */
+  cancellable: boolean
 }
 
 /**
@@ -84,16 +93,21 @@ export function resolveDelivery(b: DeliveryLike, opts: ResolveOpts): ResolvedDel
   const received = Number(b.kgReceived)
 
   if (b.status === 'cancelled') {
-    return { status: 'cancelled', kgLeft: Number(b.kgAvailable), kgReserved: 0, untouched: false }
+    return {
+      status: 'cancelled', kgLeft: Number(b.kgAvailable),
+      kgReserved: 0, untouched: false, cancellable: false,
+    }
   }
 
   if (opts.requiresDeboning) {
     const kgLeft = Number(b.kgAvailable)
+    const untouched = kgLeft >= received
     return {
       status:     deriveDeliveryStatus(b),
       kgLeft,
       kgReserved: 0,
-      untouched:  kgLeft >= received,
+      untouched,
+      cancellable: untouched,
     }
   }
 
@@ -106,6 +120,9 @@ export function resolveDelivery(b: DeliveryLike, opts: ResolveOpts): ResolvedDel
     kgLeft,
     kgReserved: lot?.kgReserved ?? 0,
     untouched:  false,
+    // Lot w całości wolny = z dostawy nic nie poszło w produkcję ani na WZ.
+    // Brak lotu (kgLeft 0) to dostawa już zużyta — nie ma czego anulować.
+    cancellable: lot != null && kgLeft >= initial && (lot.kgReserved ?? 0) <= 0,
   }
 }
 

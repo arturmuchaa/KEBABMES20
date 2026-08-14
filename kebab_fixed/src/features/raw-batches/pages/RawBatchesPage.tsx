@@ -18,7 +18,7 @@ import { useRawBatches, useCreateReception } from '../hooks/useRawBatches'
 import { RawBatchesTable }    from '../components/RawBatchesTable'
 import { EditRawBatchModal, type EditRawBatchFormData } from '../components/EditRawBatchModal'
 import { splitDeliveries, liveSummary, pluralDostawy, type MeatStockMap } from '../deliveryView'
-import { wzApi } from '@/lib/apiClient'
+import { wzApi, receptionsApi } from '@/lib/apiClient'
 import { rawBatchesApi } from '../api'
 import { fmtKg, fmtDatePl } from '@/lib/utils'
 import { useNavigate } from 'react-router-dom'
@@ -137,9 +137,37 @@ export function RawBatchesPage() {
   const [cancelBatch,   setCancelBatch]   = useState<RawBatch | null>(null)
   const [cancelLoading, setCancelLoading] = useState(false)
 
+  // Pozostałe numery porządkowe z TEGO SAMEGO dokumentu dostawy. Jedna dostawa
+  // bywa rozpisana na kilka numerów i wycofanie pojedynczego numeru zostawiłoby
+  // resztę dokumentu w systemie.
+  const sameReception = useMemo(
+    () => (cancelBatch?.receptionId
+      ? batches.filter((b: RawBatch) =>
+          b.receptionId === cancelBatch.receptionId && b.status !== 'cancelled')
+      : []),
+    [batches, cancelBatch],
+  )
+
   const handleCancelOpen = useCallback((batch: RawBatch) => {
     setCancelBatch(batch)
   }, [])
+
+  const handleCancelReception = useCallback(async () => {
+    if (!cancelBatch?.receptionId) return
+    setCancelLoading(true)
+    try {
+      const out = await receptionsApi.cancel(cancelBatch.receptionId)
+      toast.success(`Dostawa ${cancelBatch.receptionNo ?? ''} anulowana — ${out.cancelled} nr`)
+      setCancelBatch(null)
+      refetch()
+    } catch (e) {
+      // 409 z backendu niesie numer, który jest już ruszony — pokazujemy go
+      // wprost, bo to jedyna informacja pozwalająca zrozumieć odmowę.
+      toast.error(e instanceof Error ? e.message : 'Błąd anulowania dostawy')
+    } finally {
+      setCancelLoading(false)
+    }
+  }, [cancelBatch, refetch])
 
   const handleCancelConfirm = useCallback(async () => {
     if (!cancelBatch) return
@@ -275,16 +303,29 @@ export function RawBatchesPage() {
             <DialogTitle>Usuń przyjęcie</DialogTitle>
             <DialogDescription>
               Czy na pewno usunąć partię <code className="font-mono font-bold text-primary">{cancelBatch?.internalBatchNo}</code>?
-              Ćwiartka jeszcze nie została wykorzystana, więc usunięcie jest bezpieczne.
+              Surowiec nie został jeszcze wykorzystany, więc usunięcie jest bezpieczne.
               Dostawa zostanie oznaczona jako anulowana (zostaje w historii), a numer{' '}
               <strong>{cancelBatch?.internalBatchNo}</strong> wróci do puli — będzie można
               przyjąć pod nim ponownie.
+              {sameReception.length > 1 && (
+                <>
+                  {' '}Ten sam dokument <strong>{cancelBatch?.receptionNo}</strong> ma{' '}
+                  <strong>{sameReception.length} numerów</strong> — pozostałe zostaną,
+                  chyba że wycofasz całą dostawę.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setCancelBatch(null)} disabled={cancelLoading}>
               Anuluj
             </Button>
+            {sameReception.length > 1 && (
+              <Button variant="destructive" onClick={handleCancelReception} disabled={cancelLoading} className="gap-2">
+                <Trash2 size={14} />
+                Cała dostawa ({sameReception.length})
+              </Button>
+            )}
             <Button variant="destructive" onClick={handleCancelConfirm} disabled={cancelLoading} className="gap-2">
               {cancelLoading
                 ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />

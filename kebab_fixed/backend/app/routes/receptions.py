@@ -9,6 +9,7 @@ from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from app.models.receptions import ReceptionCreate
+from app.services import raw_batches_service as raw_batches_svc
 from app.services import receptions_service as svc
 from app.services.hdi_ocr_service import scan_hdi
 from app.services.hdi_scan_store import find_attached, save_temp, scan_media_type
@@ -75,6 +76,16 @@ def hdi_scan_download(reception_id: str):
     return FileResponse(
         plik, media_type=scan_media_type(plik.suffix),
         filename=f"HDI {rec['reception_no'].replace('/', '-')}{plik.suffix}")
+
+
+@router.patch("/{reception_id}/cancel")
+def cancel_reception(reception_id: str):
+    """Anuluj CAŁĄ dostawę — wszystkie numery porządkowe tego dokumentu.
+
+    Wszystko albo nic: ruszony choćby jeden numer → 409 i nic się nie dzieje.
+    Pojedynczy numer anuluje się przez PATCH /api/raw-batches/{id}/cancel.
+    """
+    return raw_batches_svc.cancel_reception(reception_id)
 
 
 @router.get("/{reception_id}")

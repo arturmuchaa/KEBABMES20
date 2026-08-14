@@ -279,6 +279,18 @@ describe('sortDeliveries — kierunek rosnący', () => {
 
 // ─── Surowiec BEZ rozbioru: stan mieszka w meat_stock ─────────────────────────
 
+describe('resolveDelivery — anulowanie ćwiartki', () => {
+  it('nietknięta ćwiartka daje się anulować', () => {
+    const r = resolveDelivery(batch({ kgReceived: 1000, kgAvailable: 1000 }), CWIARTKA)
+    expect(r.cancellable).toBe(true)
+  })
+
+  it('napoczęta ćwiartka już nie — poszła w rozbiór', () => {
+    const r = resolveDelivery(batch({ kgReceived: 1000, kgAvailable: 700 }), CWIARTKA)
+    expect(r.cancellable).toBe(false)
+  })
+})
+
 describe('resolveDelivery — filet i mięso z/s (bez rozbioru)', () => {
   const BS = { requiresDeboning: false }
   // Realny obraz z produkcji: 465 przyjęty dziś i nietknięty, 446 napoczęty
@@ -320,6 +332,36 @@ describe('resolveDelivery — filet i mięso z/s (bez rozbioru)', () => {
     expect(r.untouched).toBe(false)
   })
 
+  // Anulowanie ma WŁASNY warunek: świeżą dostawę wpisaną pod złym rodzajem
+  // trzeba dać się wycofać, choć „nietknięta" jest false (prod 2026-08-14).
+  it('nietknięty lot wolno anulować, mimo że dostawa nie jest „nietknięta"', () => {
+    const r = resolveDelivery(
+      batch({ internalBatchNo: '465', internalBatchSeq: 465, kgReceived: 816, kgAvailable: 0 }),
+      { ...BS, meatStock })
+    expect(r.cancellable).toBe(true)
+  })
+
+  it('napoczęty lot z rezerwacją planu — anulować NIE wolno', () => {
+    const r = resolveDelivery(
+      batch({ internalBatchNo: '446', internalBatchSeq: 446, kgReceived: 300, kgAvailable: 0 }),
+      { ...BS, meatStock })
+    expect(r.cancellable).toBe(false)
+  })
+
+  it('cały lot zarezerwowany, nic jeszcze nie wydane — anulować NIE wolno', () => {
+    const r = resolveDelivery(
+      batch({ internalBatchNo: '470', internalBatchSeq: 470, kgReceived: 200, kgAvailable: 0 }),
+      { ...BS, meatStock: { '470': { kgAvailable: 200, kgReserved: 200, kgInitial: 200 } } })
+    expect(r.cancellable).toBe(false)
+  })
+
+  it('dostawa bez lotu (wszystko zeszło) — nie ma czego anulować', () => {
+    const r = resolveDelivery(
+      batch({ internalBatchNo: '435', internalBatchSeq: 435, kgReceived: 210, kgAvailable: 0 }),
+      { ...BS, meatStock })
+    expect(r.cancellable).toBe(false)
+  })
+
   it('sekcja W obiegu zawiera filet, który jeszcze leży', () => {
     const { live, history } = splitDeliveries([
       batch({ internalBatchNo: '465', internalBatchSeq: 465, kgReceived: 816, kgAvailable: 0 }),
@@ -342,6 +384,7 @@ describe('resolveDelivery — filet i mięso z/s (bez rozbioru)', () => {
       batch({ internalBatchNo: ANUL, internalBatchSeq: 432, status: 'cancelled' }),
       { ...BS, meatStock })
     expect(r.status).toBe('cancelled')
+    expect(r.cancellable).toBe(false)  // drugi raz się nie anuluje
   })
 })
 
