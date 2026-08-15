@@ -559,6 +559,34 @@ export function ByproductsWizard({ batch, record, scale, cartTares, onWeigh, onC
                 )}
               </div>
 
+              {/* Palety zważone wcześniej — wczytane z zapisu przy wyborze
+                  frakcji. Lista z drukarką była dotąd TYLKO na ekranie „to
+                  wszystko?", więc żeby dodrukować urwaną etykietę, operator
+                  musiał najpierw zważyć kolejną paletę. */}
+              {pallets.length > 0 && (
+                <div>
+                  <div className="text-xs font-bold uppercase mb-2" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>
+                    Zważone dotąd — dodruk etykiety
+                  </div>
+                  <div className="flex flex-col gap-2 max-h-40 overflow-auto">
+                    {pallets.map((p, i) => (
+                      <div key={i} className="flex items-center gap-3 px-3 py-2" style={{ borderRadius: 10, background: 'var(--panel)', border: '1px solid var(--line)' }}>
+                        <span className="hmi-v10-mono font-extrabold text-base" style={{ fontFamily: MONO, minWidth: 80 }}>{fmtKg(p.net, 1)} kg</span>
+                        <span className="text-[11px] font-bold uppercase flex-1 min-w-0 truncate" style={{ color: 'var(--mut)', letterSpacing: '.06em' }}>
+                          {p.tareLabel} · {p.containers} poj.
+                        </span>
+                        <button type="button" onClick={() => printPalletLabel(p, i)} disabled={printingIdx != null}
+                          aria-label="Drukuj etykietę palety"
+                          className="w-10 h-10 flex items-center justify-center flex-shrink-0"
+                          style={{ borderRadius: 8, border: '1px solid var(--line)', color: printingIdx === i ? 'var(--mut)' : 'var(--accent)' }}>
+                          <Printer size={18} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <div className="text-xs font-bold uppercase mb-2" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>1. Na czym ważysz (tara)</div>
                 <div className="flex flex-wrap gap-2">

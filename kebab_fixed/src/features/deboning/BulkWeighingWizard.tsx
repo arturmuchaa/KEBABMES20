@@ -13,9 +13,9 @@
  * Przepływ: cel → nośnik → słupki (paleta zostaje na wadze, operator taruje
  * między słupkami) → skład partii → zapis i druk.
  */
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
-  AlertTriangle, ArrowLeft, Check, Delete, Layers, Package, Printer, Trash2, X,
+  AlertTriangle, ArrowLeft, Check, Delete, Layers, ListChecks, Package, Printer, Trash2, X,
 } from 'lucide-react'
 import { fmtKg } from '@/lib/utils'
 import { getDevices, sendZpl, probeBrowserPrint } from '@/lib/zebra'
@@ -26,7 +26,7 @@ import {
   withinTolerance, type LotPick, type PalletTarget,
 } from '@/features/deboning/meatPallet'
 import { meatPalletLabelZpl } from '@/features/deboning/meatPalletLabelZpl'
-import { meatPalletsApi, meatStockApi } from '@/lib/api'
+import { meatPalletsApi, meatStockApi, type MeatPallet } from '@/lib/api'
 import type { MeatStock } from '@/types'
 import type { ScaleState } from '@/features/deboning/useScale'
 
@@ -73,6 +73,18 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
   const [saveErr, setSaveErr] = useState<string | null>(null)
   const [printMsg, setPrintMsg] = useState<string | null>(null)
   const [palletNo, setPalletNo] = useState('')
+  // Palety zważone dziś — lista do dodruku uszkodzonej etykiety. Ładowana od
+  // razu, bo licznik na przycisku ma być widoczny bez wchodzenia w listę.
+  const [zwazone, setZwazone] = useState<MeatPallet[]>([])
+  const [listaOtwarta, setListaOtwarta] = useState(false)
+  const [dodruk, setDodruk] = useState('')
+
+  const odswiezZwazone = useCallback(() => {
+    meatPalletsApi.list(getProductionDate())
+      .then(setZwazone)
+      .catch(() => setZwazone([]))
+  }, [])
+  useEffect(() => { odswiezZwazone() }, [odswiezZwazone])
 
   // Pula mięsa: loty z wolnymi kilogramami, posortowane po terminie (FEFO) —
   // dokładnie w kolejności, w jakiej hala je zdejmuje.
@@ -172,6 +184,7 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
       })
       setPalletNo(zapisana.palletNo)
       setPhase('done')
+      odswiezZwazone()
       // Druk PO zapisie — numer palety nadaje backend i to on idzie na etykietę.
       await drukuj(zapisana.palletNo)
     } catch (e: any) {
@@ -180,24 +193,47 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
     }
   }
 
-  async function drukuj(nr: string) {
+  /** Wyślij etykietę na drukarkę. Wspólne dla świeżej palety i dodruku —
+   *  etykieta z listy MUSI być identyczna z tą, która wyjechała za pierwszym
+   *  razem, więc nie odtwarzamy jej z bieżącego stanu ekranu. */
+  async function drukujEtykiete(input: Parameters<typeof meatPalletLabelZpl>[0]) {
     try {
       const { default: def, list } = await getDevices()
       const dev = def ?? list[0]
       if (!dev) throw new Error('Nie znaleziono drukarki etykiet')
-      await sendZpl(dev, meatPalletLabelZpl({
-        palletNo: nr,
-        netKg: sumaKg,
-        containers: sumaPojemnikow,
-        productionDate: getProductionDate(),
-        expiryDate,
-        lots,
-      }))
+      await sendZpl(dev, meatPalletLabelZpl(input))
       setPrintMsg('Etykieta wysłana na drukarkę')
+      return true
     } catch (e: any) {
       const probe = await probeBrowserPrint()
       setPrintMsg(probe.ok ? (e?.message || 'Nie udało się wydrukować') : (probe.reason ?? 'Brak drukarki'))
+      return false
     }
+  }
+
+  async function drukuj(nr: string) {
+    await drukujEtykiete({
+      palletNo: nr,
+      netKg: sumaKg,
+      containers: sumaPojemnikow,
+      productionDate: getProductionDate(),
+      expiryDate,
+      lots,
+    })
+  }
+
+  /** Dodruk etykiety palety zważonej wcześniej — dane z zapisu, nie z ekranu. */
+  async function dodrukuj(p: MeatPallet) {
+    setDodruk(p.palletNo)
+    await drukujEtykiete({
+      palletNo: p.palletNo,
+      netKg: p.kgNet,
+      containers: p.containers,
+      productionDate: p.productionDate,
+      expiryDate: p.expiryDate,
+      lots: p.lots,
+    })
+    setDodruk('')
   }
 
   const pressKey = (k: string) => setContainersStr(prev => {
@@ -237,6 +273,16 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
                 </button>
               ))}
             </div>
+            {/* Wejście do tego, co już zważono dziś — po to, żeby dało się
+                dodrukować etykietę, gdy oryginał się rozmoczy albo urwie. */}
+            <button type="button" onClick={() => setListaOtwarta(true)}
+              className="h-14 font-bold flex items-center justify-center gap-3"
+              style={{ borderRadius: 12, background: 'var(--panel)', border: '1.5px solid var(--line)', color: 'var(--ink)' }}>
+              <ListChecks size={20} style={{ color: 'var(--accent)' }} />
+              Zważone dziś
+              <span className="hmi-v10-mono font-extrabold text-lg" style={{ color: 'var(--accent)' }}>{zwazone.length}</span>
+              <span className="text-xs font-bold" style={{ color: 'var(--mut)' }}>· dodruk etykiety</span>
+            </button>
           </div>
         ) : phase === 'carrier' ? (
           <div className="flex flex-col gap-5 p-8">
@@ -492,6 +538,58 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
           </div>
         )}
       </div>
+
+      {/* Zważone dziś — dodruk etykiety do palety, która już pojechała. */}
+      {listaOtwarta && (
+        <div className="fixed inset-0 z-[58] flex items-center justify-center bg-black/50">
+          <div className="w-[720px] max-w-[94vw] flex flex-col" style={{ maxHeight: '88vh', borderRadius: 14, background: 'var(--bg)', border: '1px solid var(--line)', color: 'var(--ink)' }}>
+            <div className="flex items-center gap-3 px-6 py-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--line)', background: 'var(--panel)', borderTopLeftRadius: 14, borderTopRightRadius: 14 }}>
+              <ListChecks size={20} style={{ color: 'var(--accent)' }} />
+              <div className="flex-1">
+                <div className="font-extrabold text-lg leading-tight">Zważone dziś</div>
+                <div className="text-xs font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.06em' }}>
+                  {zwazone.length} {zwazone.length === 1 ? 'paleta' : 'palet'} · dodruk etykiety
+                </div>
+              </div>
+              <button type="button" onClick={() => setListaOtwarta(false)} aria-label="Zamknij"
+                className="w-11 h-11 flex items-center justify-center" style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--mut)' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-2 p-5 overflow-auto">
+              {zwazone.map(p => (
+                <div key={p.id} className="flex items-center gap-4 px-4 py-3" style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
+                  <div className="flex flex-col min-w-0" style={{ flex: '1 1 0' }}>
+                    <span className="hmi-v10-mono font-extrabold text-lg leading-tight" style={{ fontFamily: MONO }}>{p.palletNo}</span>
+                    <span className="text-[11px] font-bold truncate" style={{ color: 'var(--mut)' }}>
+                      {p.lots.map(l => `${l.lotNo} · ${fmtKg(l.kg, 1)} kg`).join('  |  ') || 'bez składu'}
+                    </span>
+                  </div>
+                  <div className="flex flex-col items-end" style={{ minWidth: 110 }}>
+                    <span className="hmi-v10-mono font-extrabold text-xl leading-tight" style={{ fontFamily: MONO }}>{fmtKg(p.kgNet, 1)} kg</span>
+                    <span className="text-[11px] font-bold" style={{ color: 'var(--mut)' }}>{p.containers} pojemników</span>
+                  </div>
+                  <button type="button" onClick={() => dodrukuj(p)} disabled={dodruk === p.palletNo}
+                    className="h-12 px-4 font-bold flex items-center justify-center gap-2"
+                    style={{ borderRadius: 10, background: 'var(--accent)', color: '#fff', minWidth: 150 }}>
+                    <Printer size={18} /> {dodruk === p.palletNo ? 'Drukuję…' : 'Drukuj etykietę'}
+                  </button>
+                </div>
+              ))}
+              {zwazone.length === 0 && (
+                <div className="text-sm font-bold px-2 py-10 text-center" style={{ color: 'var(--mut)' }}>
+                  Dziś nie zważono jeszcze żadnej palety.
+                </div>
+              )}
+            </div>
+
+            {printMsg && (
+              <div className="px-6 py-3 text-sm font-bold flex-shrink-0" style={{ borderTop: '1px solid var(--line)', color: 'var(--mut)' }}>{printMsg}</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Wybór partii — lista lotów z magazynu mięsa, od najstarszego. */}
       {picker && (
