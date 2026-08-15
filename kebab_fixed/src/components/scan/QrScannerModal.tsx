@@ -133,7 +133,7 @@ export function QrScannerModal({
             <div className="mt-3 rounded-lg bg-white/70 p-3 text-xs text-slate-700">
               <div className="font-semibold text-slate-900">Jak włączyć (jednorazowo):</div>
               <ol className="mt-1 list-decimal space-y-1 pl-5">
-                <li>Pobierz certyfikat z <span className="font-mono">http://204.168.166.34:8080/ca.crt</span></li>
+                <li>Pobierz certyfikat z <span className="font-mono">http://91.98.105.107:8080/ca.crt</span></li>
                 <li>Otwórz pobrany plik → Ustawienia → Profil → <em>Zainstaluj</em></li>
                 <li>Ustawienia → Ogólne → Informacje → Zaufanie certyfikatów → włącz dla „kebab-mes-ca”</li>
                 <li>Otwórz aplikację pod adresem HTTPS poniżej, dodaj ją ponownie do ekranu początkowego</li>

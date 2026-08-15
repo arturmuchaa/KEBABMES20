@@ -36,7 +36,7 @@ import type {
 
 // URL backendu:
 //   Przeglądarka (VPS):  VITE_API_URL=""  → fetch('/api') → nginx proxy
-//   Tauri (desktop):     VITE_API_URL="http://204.168.166.34:8080" → fetch absolutny do serwera
+//   Tauri (desktop):     VITE_API_URL="http://91.98.105.107:8080" → fetch absolutny do serwera
 //
 // Tauri nie może używać ścieżek względnych (/api) bo nie ma serwera HTTP lokalnie.
 // Wykrywamy środowisko Tauri przez window.__TAURI_INTERNALS__ ustawiane przez runtime.
@@ -44,7 +44,10 @@ const _isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in windo
 
 export const BASE = (() => {
   if (import.meta.env.VITE_API_URL) return `${import.meta.env.VITE_API_URL}/api`
-  if (_isTauri) return 'http://204.168.166.34:8080/api'  // fallback dla Tauri bez zmiennej (nginx MES = port 8080)
+  // Floating IP w Falkenstein (2026-08-15). Stary adres 204.168.166.34 stoi
+  // w Helsinkach, a łącze tranzytowe do Finlandii gubi 32% pakietów —
+  // MES przestawał się wczytywać. Ten sam serwer, wejście przez Niemcy.
+  if (_isTauri) return 'http://91.98.105.107:8080/api'  // fallback dla Tauri bez zmiennej (nginx MES = port 8080)
   return '/api'  // przeglądarka — nginx proxy
 })()
 

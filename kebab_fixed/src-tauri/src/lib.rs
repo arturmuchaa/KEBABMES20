@@ -143,7 +143,7 @@ pub fn run() {
                         eprintln!("Update check failed: {e}");
                         let _ = tauri_plugin_dialog::DialogExt::dialog(&handle)
                             .message(format!(
-                                "Aktualizacja nie powiodła się:\n\n{e}\n\nMożesz pobrać najnowszą wersję ręcznie:\nhttp://204.168.166.34:8080/api/desktop-updates/latest-installer"
+                                "Aktualizacja nie powiodła się:\n\n{e}\n\nMożesz pobrać najnowszą wersję ręcznie:\nhttp://91.98.105.107:8080/api/desktop-updates/latest-installer"
                             ))
                             .title("Błąd aktualizacji")
                             .blocking_show();
