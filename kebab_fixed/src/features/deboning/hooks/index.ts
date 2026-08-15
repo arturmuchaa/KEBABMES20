@@ -301,6 +301,28 @@ export function useDeboningEntries(sessionId: string | null) {
     }
   }, [removeMutation, refetch])
 
+  // Usunięcie DOWOLNEGO wpisu dnia z rozpiski pracownika. Osobno od
+  // `removeEntry`, bo tamto jest oknem „Cofnij" (60 s, ostatni wpis) i backend
+  // przyjmuje je tylko do 15 minut — operator, który zauważył pomyłkę po
+  // godzinie, nie miał już czego kliknąć. Zmiana musi być OTWARTA: dzień
+  // domknięty prostuje biuro.
+  const hallRemoveEntry = useCallback(async (
+    entryId: string,
+    operator: string,
+    session: ProductionSession | null,
+  ): Promise<string | null> => {
+    if (session?.status !== 'open') {
+      return 'Usuwanie możliwe tylko przy otwartej zmianie'
+    }
+    try {
+      await deboningApi.hallDeleteEntry(entryId, operator)
+      refetch()
+      return null
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Nie udało się usunąć wpisu'
+    }
+  }, [refetch])
+
   return {
     entries: entries ?? [],
     loading,
@@ -312,6 +334,7 @@ export function useDeboningEntries(sessionId: string | null) {
     editTake,
     editEntry,
     removeEntry,
+    hallRemoveEntry,
     lastCreated,
     lastTakeRef,
     addLoading:    createMutation.loading,

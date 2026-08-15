@@ -14,7 +14,9 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from app.db import cx_execute, cx_execute_returning, query_all, query_one, transaction
+from app.db import (
+    cx_execute, cx_execute_returning, cx_query_all, query_all, query_one, transaction,
+)
 from app.logging_config import get_logger
 from app.models.meat_pallets import MeatPalletCreate
 from app.utils.ids import cuid, next_dated_no
@@ -23,6 +25,72 @@ logger = get_logger(__name__)
 
 #: Dopuszczalna różnica sumy składu i wagi palety — zaokrąglenia po 0,1 kg.
 SKLAD_TOL_KG = 0.05
+#: Ten sam luz przy limicie partii — waga podaje 0,1 kg, składy się dodają.
+BULK_TOL_KG = 0.05
+
+
+def validate_bulk_lots(lots, pozostalo_by_lot, tol: float = BULK_TOL_KG):
+    """Czy paleta mieści się w tym, co partie jeszcze mają do wydania.
+
+    `lots` – pary (numer partii, kg); `pozostalo_by_lot` – ile z danej partii
+    zostało (None albo brak klucza = partia spoza magazynu mięsa, czyli brak
+    wiedzy, a nie zero kilogramów — nie blokujemy).
+
+    Kilogramy sumujemy PO NUMERZE partii: bez tego operator obszedłby limit,
+    wpisując tę samą partię w dwóch wierszach po połowie.
+
+    Czysta funkcja — testy bez DB.
+    """
+    razem: Dict[str, float] = {}
+    for lot_no, kg in lots:
+        razem[lot_no] = razem.get(lot_no, 0.0) + float(kg)
+
+    for lot_no, kg in razem.items():
+        left = pozostalo_by_lot.get(lot_no)
+        if left is None:
+            continue
+        if kg > float(left) + tol:
+            return (
+                f"Z partii {lot_no} zostało {max(0.0, float(left)):.1f} kg mięsa, "
+                f"a paleta bierze {kg:.1f} kg. Resztę wskaż z kolejnej partii."
+            )
+    return None
+
+
+def _pozostalo_by_lot(conn, lot_nos) -> Dict[str, Any]:
+    """Ile mięsa z każdej partii można jeszcze wydać na palety.
+
+    Limit = ile partia DAŁA na rozbiorze (`meat_stock.kg_initial`), licznik =
+    suma tego, co już z niej zeszło na paletach. Świadomie NIE bierzemy
+    `kg_available`: ono spada przy masowaniu, a mięso zmasowane pojechało na
+    masownię właśnie na palecie — odejmowalibyśmy je drugi raz.
+
+    Wiersze partii blokujemy na czas transakcji, żeby dwie palety zapisywane
+    równolegle nie przepchnęły się obie przez ten sam limit.
+    """
+    nos = sorted({str(n).strip() for n in lot_nos if str(n).strip()})
+    if not nos:
+        return {}
+    cx_query_all(
+        conn, "SELECT id FROM meat_stock WHERE lot_no = ANY(%s) ORDER BY id FOR UPDATE", (nos,)
+    )
+    dala = cx_query_all(
+        conn,
+        "SELECT lot_no, SUM(kg_initial) AS kg FROM meat_stock "
+        "WHERE lot_no = ANY(%s) GROUP BY lot_no",
+        (nos,),
+    )
+    juz = cx_query_all(
+        conn,
+        "SELECT lot_no, SUM(kg) AS kg FROM meat_pallet_lots "
+        "WHERE lot_no = ANY(%s) GROUP BY lot_no",
+        (nos,),
+    )
+    wydano = {r["lot_no"]: float(r["kg"] or 0) for r in juz}
+    return {
+        r["lot_no"]: round(float(r["kg"] or 0) - wydano.get(r["lot_no"], 0.0), 3)
+        for r in dala
+    }
 
 
 def _lots_of(pallet_id: str) -> List[Dict[str, Any]]:
@@ -47,6 +115,16 @@ def create_pallet(dto: MeatPalletCreate) -> Dict[str, Any]:
 
     day = (dto.production_date or "")[:10]
     with transaction() as conn:
+        # Strażnik partii: paleta nie może wziąć więcej mięsa, niż partia dała.
+        # Bez tego z partii o wydajności 2 353 kg dało się zważyć 10 ton —
+        # ważenie zbiorcze nie rusza stanu, więc nic tego nie pilnowało.
+        blad = validate_bulk_lots(
+            [(l.lot_no.strip(), float(l.kg)) for l in dto.lots],
+            _pozostalo_by_lot(conn, [l.lot_no for l in dto.lots]),
+        )
+        if blad:
+            raise HTTPException(400, blad)
+
         pallet_no = next_dated_no(conn, "PAL", day)
         row = cx_execute_returning(
             conn,

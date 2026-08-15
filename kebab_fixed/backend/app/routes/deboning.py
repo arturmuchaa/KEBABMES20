@@ -289,6 +289,26 @@ def office_delete_deboning_entry(entry_id: str, body: dict, request: Request):
     )
 
 
+@router.post("/api/deboning/entries/{entry_id}/hall-delete")
+def hall_delete_deboning_entry(entry_id: str, body: dict, request: Request):
+    """Usunięcie wpisu Z HALI — z rozpiski pobrań pracownika na HMI.
+
+    Przycisk „Cofnij" żyje 60 s i dotyczy tylko OSTATNIEGO wpisu, więc operator,
+    który zauważył pomyłkę po godzinie, nie miał już czego kliknąć. Ta ścieżka
+    omija WYŁĄCZNIE limit wieku.
+
+    Czego NIE omija: zmiany zamkniętej i zatwierdzonej (dzień domknięty prostuje
+    biuro — patrz office-delete) ani blokad fizycznych, czyli zużytego mięsa
+    i rozliczonych ubocznych. Ślad zostaje tak samo jak przy usunięciu z biura.
+    """
+    subject = getattr(request.state, "subject", None) or {}
+    by = str(
+        (body or {}).get("operator")
+        or subject.get("username") or subject.get("id") or ""
+    )
+    return svc.delete_deboning_entry(entry_id, hall_correction=True, by_subject=by)
+
+
 @router.get("/api/deboning/entries/{entry_id}/corrections")
 def list_deboning_entry_corrections(entry_id: str):
     """Historia korekt wpisu — kto, kiedy, co na co i dlaczego."""

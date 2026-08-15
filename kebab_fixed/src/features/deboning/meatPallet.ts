@@ -90,6 +90,41 @@ export function proposeLots(
   return { picks, unassignedKg: Math.max(0, zostalo) }
 }
 
+export interface LotOverBudget { lotNo: string; kg: number; freeKg: number }
+
+/** Luz na zaokrąglenia wagi — ten sam, którym posługuje się backend. */
+export const BULK_TOL_KG = 0.05
+
+/**
+ * Partie, z których paleta bierze więcej mięsa, niż w nich zostało.
+ *
+ * Ważenie zbiorcze nie rusza stanu magazynowego, więc nic samo z siebie nie
+ * pilnowało, ile z partii już zeszło na palety — z partii o wydajności
+ * 2 353 kg dało się zważyć 10 ton. Limit pilnuje backend (`validate_bulk_lots`),
+ * a ten sam rachunek tutaj pokazuje go operatorowi ZANIM dojdzie do zapisu.
+ *
+ * `freeByLot` – ile z partii zostało; brak klucza = limit nieznany (mięso
+ * z zewnątrz, stare dane) i wtedy nie zgłaszamy nic: brak wiedzy to nie zero.
+ * Kilogramy sumujemy PO NUMERZE partii — inaczej dwa wiersze po połowie
+ * przeszłyby pod limitem.
+ */
+export function overBudgetLots(
+  lots: readonly LotPick[],
+  freeByLot: ReadonlyMap<string, number>,
+  tol = BULK_TOL_KG,
+): LotOverBudget[] {
+  const razem = new Map<string, number>()
+  for (const l of lots) razem.set(l.lotNo, (razem.get(l.lotNo) ?? 0) + l.kg)
+
+  const out: LotOverBudget[] = []
+  for (const [lotNo, kg] of razem) {
+    const freeKg = freeByLot.get(lotNo)
+    if (freeKg == null) continue
+    if (kg > freeKg + tol) out.push({ lotNo, kg: Math.round(kg * 10) / 10, freeKg })
+  }
+  return out
+}
+
 export interface QuickPalletInput {
   /** Zmierzone netto słupka — to ONO trafia na etykietę, nie okrągły cel. */
   netKg: number

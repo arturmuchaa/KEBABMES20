@@ -741,6 +741,11 @@ export const deboningEntriesApi = {
   // Blokady fizyczne zostają: zużyte mięso i rozliczone uboczne.
   officeDelete: (id: string, reason: string) =>
     post<{ ok: boolean; id: string }>(`/deboning/entries/${id}/office-delete`, { reason }),
+  // hallDelete — usunięcie z rozpiski pracownika na HMI. Omija okno 15 minut,
+  // ale nie zmianę zamkniętą/zatwierdzoną ani blokad fizycznych. Powodu nie
+  // wymaga (ekran dotykowy), operator idzie do śladu jako `by_subject`.
+  hallDelete: (id: string, operator: string) =>
+    post<{ ok: boolean; id: string }>(`/deboning/entries/${id}/hall-delete`, { operator }),
   corrections: (id: string) =>
     get<{ corrections: EntryCorrection[] }>(`/deboning/entries/${id}/corrections`)
       .then(r => r?.corrections ?? []),
@@ -840,6 +845,11 @@ function mapMeatStock(raw: any): MeatStock {
     kgReserved:         Number(raw.kg_reserved  ?? raw.kgReserved        ?? 0),
     kgInProcess:        Number(raw.kg_in_process ?? raw.kgInProcess      ?? 0),
     kgUsed:             Number(raw.kg_used      ?? raw.kgUsed            ?? 0),
+    // Limit ważenia zbiorczego. Backend liczy go tylko na liście magazynu;
+    // gdzie go nie ma, zostaje undefined i ekran nie udaje, że zna limit.
+    kgBulkFree:         raw.kg_bulk_free != null || raw.kgBulkFree != null
+                          ? Number(raw.kg_bulk_free ?? raw.kgBulkFree)
+                          : undefined,
     productionDate:     raw.production_date     ?? raw.productionDate    ?? '',
     expiryDate:         raw.expiry_date         ?? raw.expiryDate        ?? '',
     expiryStatus:       raw.expiry_status       ?? raw.expiryStatus      ?? 'OK',

@@ -676,10 +676,18 @@ def list_meat_stock(include_reserved: bool = False) -> Dict[str, Any]:
             f"""
             SELECT m.*,
                    (m.kg_available - COALESCE(m.kg_reserved, 0)) AS kg_free,
+                   -- Ile z partii można jeszcze wydać na paletę ważenia
+                   -- zbiorczego: wydajność partii minus to, co już z niej
+                   -- zeszło. NIE kg_available — ono spada przy masowaniu,
+                   -- a mięso zmasowane pojechało tam właśnie na palecie.
+                   GREATEST(0, m.kg_initial - COALESCE(pal.kg, 0)) AS kg_bulk_free,
                    b.internal_batch_no, b.supplier_name,
                    s.display_name AS supplier_display_name,
                    b.slaughter_date as batch_slaughter_date
             FROM meat_stock m
+            LEFT JOIN (
+                SELECT lot_no, SUM(kg) AS kg FROM meat_pallet_lots GROUP BY lot_no
+            ) pal ON pal.lot_no = m.lot_no
             LEFT JOIN raw_batches b ON b.id = m.raw_batch_id
             LEFT JOIN suppliers s ON s.id = b.supplier_id
             WHERE {cond}

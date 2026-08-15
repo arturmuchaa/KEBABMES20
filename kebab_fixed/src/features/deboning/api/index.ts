@@ -37,6 +37,9 @@ export interface DeboningApi {
   updateTake(entryId: string, kgTaken: number): Promise<DeboningEntry>
   updateEntry(entryId: string, dto: UpdateDeboningEntryDto): Promise<DeboningEntry>
   deleteEntry(entryId: string): Promise<{ ok: boolean; id: string }>
+  /** Usunięcie z rozpiski pracownika na HMI — omija okno 15 minut, nie omija
+   *  zmiany zamkniętej/zatwierdzonej ani blokad fizycznych. */
+  hallDeleteEntry(entryId: string, operator: string): Promise<{ ok: boolean; id: string }>
 
   // Agregacje
   getSessionSummary(sessionId: string): Promise<SessionSummary>
@@ -90,6 +93,7 @@ export const deboningApi: DeboningApi = {
   updateTake:  (id, kg)    => entriesStore.updateTake(id, { kgTaken: kg }),
   updateEntry: (id, dto)   => entriesStore.update(id, dto),
   deleteEntry: (id)        => entriesStore.remove(id),
+  hallDeleteEntry: (id, operator) => entriesStore.hallDelete(id, operator),
 
   getSessionSummary: async (sessionId) => {
     const session = await sessionsStore.byId(sessionId)

@@ -642,7 +642,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // je NA PARTIĘ, nie per wpis, więc suma wpisów ich nie widzi).
   const byprodToday = useApi(() => byproductsApi.today())
   const { session, timeWindow, loading: sessionLoading, startDay, startLoading, closeDay, closeLoading } = useProductionSession()
-  const { entries, addEntry, addTake, completeTake, weighPart, editTake, editEntry, removeEntry, lastCreated, lastTakeRef, addLoading, addTakeLoading, completeTakeLoading, weighPartLoading, removeLoading } = useDeboningEntries(session?.id ?? null)
+  const { entries, addEntry, addTake, completeTake, weighPart, editTake, editEntry, removeEntry, hallRemoveEntry, lastCreated, lastTakeRef, addLoading, addTakeLoading, completeTakeLoading, weighPartLoading, removeLoading } = useDeboningEntries(session?.id ?? null)
 
   // Rozdział: pobrania czekające na mięso (pending) vs domknięte wpisy (complete).
   // Agregaty, statystyki i lista „ostatnie” liczą tylko complete; pending mają
@@ -693,6 +693,10 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Szczegóły/edycja pracownika (przytrzymanie kafla).
   const [workerDetail, setWorkerDetail] = useState<User | null>(null)
   const [editEntryId, setEditEntryId] = useState<string | null>(null)
+  // Potwierdzenie usunięcia wpisu z rozpiski. Operator myli się pod presją,
+  // a usunięcie rusza akord i bilans partii — jedno dotknięcie to za mało.
+  const [delEntry, setDelEntry] = useState<DeboningEntry | null>(null)
+  const [delBusy, setDelBusy] = useState(false)
   const [editTaken, setEditTaken] = useState('')
   const [editMeat,  setEditMeat]  = useState('')
   // Domykane pobranie (kliknięty kafelek „czeka na zważenie”). Gdy != null,
@@ -1660,6 +1664,19 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     showToast('Wpis zaktualizowany')
   }
 
+  async function confirmDeleteEntry() {
+    if (!delEntry || !session) return
+    setDelBusy(true)
+    const err = await hallRemoveEntry(delEntry.id, loggedInUser?.name ?? '', session)
+    setDelBusy(false)
+    // Backend blokuje, gdy mięso poszło dalej albo uboczne są rozliczone —
+    // komunikat idzie wprost na ekran, bez tłumaczenia go na własne słowa.
+    if (err) { showToast(err, 'err'); return }
+    setDelEntry(null)
+    batchData.refetch()
+    showToast('Wpis usunięty — wprowadź poprawny')
+  }
+
   async function handleWizardWeigh(kind: 'backs' | 'bones', kg: number, pallets: any[]) {
     if (!wizard) return
     try {
@@ -2012,32 +2029,74 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                     </div>
                   </div>
                 ) : (
-                  <div key={e.id} className="grid grid-cols-[52px_56px_1fr_1fr_52px_90px] items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
+                  <div key={e.id} className="grid grid-cols-[52px_56px_1fr_1fr_52px_78px_74px] items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
                     <span className="hmi-v10-mono text-xs" style={{ color: 'var(--mut)' }}>{new Date(entryTime(e)).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</span>
                     <span className="hmi-v10-mono text-xs font-bold" style={{ color: 'var(--accent)' }}>{e.rawBatchNo}</span>
                     <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>ćw</span>{fmtKg(e.kgTaken, 1)}</span>
                     <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>mię</span>{fmtKg(e.kgMeat, 1)}</span>
                     <span className="hmi-v10-mono text-sm font-bold text-right" style={{ color: yieldInk(e.yieldPct) }}>{fmtPct(e.yieldPct, 1)}</span>
                     <button type="button" onClick={() => startEditEntry(e)} className="h-9 text-xs font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--accent)' }}>Edytuj</button>
+                    {/* Usunięcie działa na KAŻDYM wpisie otwartej zmiany, nie
+                        tylko w oknie „Cofnij" — operator prostuje pomyłkę
+                        sprzed godziny bez dzwonienia do biura. */}
+                    <button type="button" onClick={() => setDelEntry(e)} className="h-9 text-xs font-bold" style={{ borderRadius: 8, border: '1px solid var(--redLine)', background: 'var(--redSoft)', color: 'var(--red)' }}>Usuń</button>
                   </div>
                 ))}
                 {wEntries.length > 0 && (
-                  <div className="grid grid-cols-[52px_56px_1fr_1fr_52px_90px] items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
+                  <div className="grid grid-cols-[52px_56px_1fr_1fr_52px_78px_74px] items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
                     <span className="text-[11px] font-extrabold uppercase col-span-2" style={{ color: 'var(--accent)', letterSpacing: '.08em' }}>Razem</span>
                     <span className="hmi-v10-mono text-sm font-extrabold text-right"><span className="text-[9px] uppercase mr-1 font-bold" style={{ color: 'var(--mut)' }}>ćw</span>{fmtKg(wt, 1)}</span>
                     <span className="hmi-v10-mono text-sm font-extrabold text-right"><span className="text-[9px] uppercase mr-1 font-bold" style={{ color: 'var(--mut)' }}>mię</span>{fmtKg(wm, 1)}</span>
                     <span className="hmi-v10-mono text-sm font-extrabold text-right" style={{ color: yieldInk(wy) }}>{fmtPct(wy, 1)}</span>
                     <span className="hmi-v10-mono text-[11px] font-bold text-right" style={{ color: 'var(--mut)' }}>{wEntries.length} szt</span>
+                    <span />
                   </div>
                 )}
               </div>
               <div className="px-4 py-3 flex-shrink-0 text-[11px] font-semibold" style={{ borderTop: '1px solid var(--line)', color: 'var(--mut)' }}>
-                Edycja możliwa, dopóki mięso nie poszło dalej (np. na masowanie). Jeśli poszło — system zablokuje zmianę.
+                Edycja i usunięcie możliwe, dopóki mięso nie poszło dalej (np. na masowanie) i uboczne nie są rozliczone. Jeśli poszło — system zablokuje.
               </div>
             </div>
           </div>
         )
       })()}
+
+      {/* Potwierdzenie usunięcia wpisu — usunięcie rusza akord pracownika
+          i bilans partii, więc operator musi zobaczyć CO kasuje. */}
+      {delEntry && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
+          <div className="w-[520px] p-8 flex flex-col gap-6" style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)' }}>
+            <div className="font-extrabold text-2xl">Usunąć wpis?</div>
+            <div className="flex flex-col gap-2 px-5 py-4" style={{ borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--line)' }}>
+              <div className="flex items-baseline gap-3">
+                <span className="hmi-v10-mono text-sm" style={{ color: 'var(--mut)' }}>
+                  {new Date(entryTime(delEntry)).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+                <span className="hmi-v10-mono text-lg font-extrabold" style={{ color: 'var(--accent)' }}>partia {delEntry.rawBatchNo}</span>
+              </div>
+              <div className="font-bold text-lg">{delEntry.workerName}</div>
+              <div className="hmi-v10-mono text-xl font-extrabold">
+                {fmtKg(delEntry.kgTaken, 1)} kg ćwiartki → {fmtKg(delEntry.kgMeat, 1)} kg mięsa
+                <span className="text-base font-bold ml-3" style={{ color: yieldInk(delEntry.yieldPct) }}>{fmtPct(delEntry.yieldPct, 1)}</span>
+              </div>
+            </div>
+            <div className="text-sm font-semibold" style={{ color: 'var(--mut)' }}>
+              Kilogramy wrócą do partii, a wpis zniknie z akordu pracownika.
+              Po usunięciu wprowadź poprawny wpis od nowa.
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button type="button" onClick={() => setDelEntry(null)} disabled={delBusy}
+                className="h-16 font-bold text-lg" style={{ borderRadius: 12, border: '1px solid var(--line)', color: 'var(--mut)' }}>
+                Anuluj
+              </button>
+              <button type="button" onClick={confirmDeleteEntry} disabled={delBusy}
+                className="h-16 font-extrabold text-lg" style={{ borderRadius: 12, background: 'var(--red)', color: '#fff' }}>
+                {delBusy ? 'Usuwam…' : 'Tak, usuń'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 

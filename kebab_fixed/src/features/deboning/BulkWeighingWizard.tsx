@@ -22,8 +22,8 @@ import { getDevices, sendZpl, probeBrowserPrint } from '@/lib/zebra'
 import { byproductTareOptions, E2_TARE_KG } from '@/features/deboning/utils/weighing'
 import { getProductionDate } from '@/features/deboning/utils'
 import {
-  PALLET_TARGETS, TOLERANCE_KG, proposeLots, stackNetKg, withinTolerance,
-  type LotPick, type PalletTarget,
+  PALLET_TARGETS, TOLERANCE_KG, overBudgetLots, proposeLots, stackNetKg,
+  withinTolerance, type LotPick, type PalletTarget,
 } from '@/features/deboning/meatPallet'
 import { meatPalletLabelZpl } from '@/features/deboning/meatPalletLabelZpl'
 import { meatPalletsApi, meatStockApi } from '@/lib/api'
@@ -43,6 +43,18 @@ const V: CSSProperties = {
 const MONO = '"SFMono-Regular",ui-monospace,"Cascadia Mono",Consolas,monospace'
 
 const r1 = (n: number) => Math.round(n * 10) / 10
+
+/**
+ * Ile z partii można jeszcze wydać na paletę: wydajność partii minus to, co
+ * już z niej na palety zeszło (backend liczy to jako `kgBulkFree`).
+ *
+ * Świadomie NIE `kgAvailable` — ono spada przy masowaniu, a mięso zmasowane
+ * pojechało na masownię właśnie na palecie; odejmowalibyśmy je drugi raz.
+ * Gdy backend limitu nie zna (starsza wersja), wracamy do stanu magazynu,
+ * żeby ekran nie został z pustą pulą.
+ */
+const wolneNaPalety = (m: MeatStock): number =>
+  Number(m.kgBulkFree ?? m.kgAvailable ?? 0)
 
 export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
   scale: ScaleState
@@ -67,7 +79,7 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
   const [pool, setPool] = useState<MeatStock[]>([])
   useEffect(() => {
     meatStockApi.list()
-      .then(r => setPool(r.data.filter(m => Number(m.kgAvailable) > 0)))
+      .then(r => setPool(r.data.filter(m => wolneNaPalety(m) > 0)))
       .catch(() => setPool([]))
   }, [])
 
@@ -90,10 +102,12 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
 
   const kgLotu = useMemo(() => {
     const m = new Map<string, number>()
-    for (const p of pool) m.set(p.lotNo, Number(p.kgAvailable))
+    for (const p of pool) m.set(p.lotNo, wolneNaPalety(p))
     return m
   }, [pool])
   const sumaSkladu = useMemo(() => r1(lots.reduce((s, l) => s + l.kg, 0)), [lots])
+  // Partie, z których paleta bierze więcej, niż w nich zostało.
+  const przekroczenia = useMemo(() => overBudgetLots(lots, kgLotu), [lots, kgLotu])
   const doPrzypisania = r1(sumaKg - sumaSkladu)
 
   function wybierzCel(t: PalletTarget) {
@@ -121,7 +135,7 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
   }
 
   function przejdzDoSkladu(suma: number) {
-    const dostepne = pool.map(m => ({ lotNo: m.lotNo, kgFree: Number(m.kgAvailable) }))
+    const dostepne = pool.map(m => ({ lotNo: m.lotNo, kgFree: wolneNaPalety(m) }))
     setLots(proposeLots(dostepne, suma).picks)
     setPhase('summary')
   }
@@ -384,7 +398,7 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
                   <span className="hmi-v10-mono font-extrabold text-xl" style={{ fontFamily: MONO, minWidth: 90 }}>{l.lotNo}</span>
                   <span className="hmi-v10-mono font-extrabold text-lg flex-1" style={{ fontFamily: MONO }}>{fmtKg(l.kg, 1)} kg</span>
                   <span className="text-[11px] font-bold" style={{ color: 'var(--mut)' }}>
-                    w partii {fmtKg(kgLotu.get(l.lotNo) ?? 0, 0)} kg
+                    zostało {fmtKg(kgLotu.get(l.lotNo) ?? 0, 0)} kg
                   </span>
                   <button type="button" onClick={() => setPicker({ mode: 'swap', idx: i })}
                     className="h-10 px-3 text-sm font-bold" style={{ borderRadius: 8, border: '1px solid var(--accent)', color: 'var(--accent)' }}>
@@ -415,6 +429,20 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
               </div>
             )}
 
+            {/* Strażnik partii — ten sam rachunek co na backendzie, tyle że
+                widoczny, zanim operator dojdzie do zapisu. */}
+            {przekroczenia.length > 0 && (
+              <div className="flex flex-col gap-1.5 px-5 py-3.5" style={{ borderRadius: 12, background: '#FEE2E2', border: '1.5px solid #FCA5A5' }}>
+                {przekroczenia.map(x => (
+                  <div key={x.lotNo} className="flex items-center gap-3 text-sm font-bold" style={{ color: '#B91C1C' }}>
+                    <AlertTriangle size={20} />
+                    Z partii {x.lotNo} zostało {fmtKg(x.freeKg, 1)} kg,
+                    a paleta bierze {fmtKg(x.kg, 1)} kg — resztę wskaż z kolejnej partii.
+                  </div>
+                ))}
+              </div>
+            )}
+
             {saveErr && (
               <div className="px-4 py-3 text-sm font-bold" style={{ borderRadius: 10, background: '#FEE2E2', color: '#B91C1C' }}>{saveErr}</div>
             )}
@@ -426,12 +454,12 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
                 <ArrowLeft size={20} /> Wróć do ważenia
               </button>
               <button type="button" onClick={zapiszIDrukuj}
-                disabled={phase === 'saving' || Math.abs(doPrzypisania) > 0.05 || lots.length === 0}
+                disabled={phase === 'saving' || Math.abs(doPrzypisania) > 0.05 || lots.length === 0 || przekroczenia.length > 0}
                 className="h-16 font-extrabold text-lg flex items-center justify-center gap-2"
                 style={{
                   borderRadius: 12,
-                  background: Math.abs(doPrzypisania) > 0.05 || lots.length === 0 ? 'var(--panel)' : 'var(--success)',
-                  color: Math.abs(doPrzypisania) > 0.05 || lots.length === 0 ? 'var(--mut)' : '#fff',
+                  background: Math.abs(doPrzypisania) > 0.05 || lots.length === 0 || przekroczenia.length > 0 ? 'var(--panel)' : 'var(--success)',
+                  color: Math.abs(doPrzypisania) > 0.05 || lots.length === 0 || przekroczenia.length > 0 ? 'var(--mut)' : '#fff',
                   border: '1px solid var(--line)',
                 }}>
                 <Printer size={22} /> {phase === 'saving' ? 'Zapisuję…' : 'Zapisz i drukuj'}
@@ -477,14 +505,16 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
                     if (picker.mode === 'swap') {
                       setLots(ls => ls.map((l, k) => k === picker.idx ? { ...l, lotNo: m.lotNo } : l))
                     } else {
-                      setLots(ls => [...ls, { lotNo: m.lotNo, kg: doPrzypisania }])
+                      // Nie wsypujemy całej reszty w jedną partię: tyle, ile
+                      // w niej zostało — ogon idzie na kolejną (FEFO).
+                      setLots(ls => [...ls, { lotNo: m.lotNo, kg: r1(Math.min(doPrzypisania, wolneNaPalety(m))) }])
                     }
                     setPicker(null)
                   }}
                   className="flex items-center gap-3 px-4 py-3 text-left" style={{ borderRadius: 10, border: '1px solid var(--line)' }}>
                   <span className="hmi-v10-mono font-extrabold text-lg" style={{ minWidth: 80 }}>{m.lotNo}</span>
                   <span className="text-sm font-bold flex-1" style={{ color: 'var(--mut)' }}>
-                    wolne {fmtKg(Number(m.kgAvailable), 1)} kg
+                    zostało {fmtKg(wolneNaPalety(m), 1)} kg
                   </span>
                   <span className="text-xs font-bold" style={{ color: 'var(--mut)' }}>do {m.expiryDate || '—'}</span>
                 </button>

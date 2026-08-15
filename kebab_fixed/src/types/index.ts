@@ -47,6 +47,11 @@ export interface MeatStock {
   kgReserved:   number   // RESERVED — zarezerwowane pod zlecenie masowania
   kgInProcess:  number   // IN_PROCESS — fizycznie w masownicy
   kgUsed:       number   // USED — zużyte (przekazane do mięsa przyprawionego)
+  /** Ile z partii można jeszcze wydać na paletę ważenia zbiorczego:
+   *  wydajność partii minus to, co już z niej na palety zeszło. To NIE jest
+   *  kgAvailable — ono spada przy masowaniu, a mięso zmasowane pojechało
+   *  na masownię właśnie na palecie. */
+  kgBulkFree?:  number
   productionDate: string
   expiryDate: string; expiryStatus: ExpiryStatus
   storageLocation?: string; status: MeatStockStatus; createdAt: string

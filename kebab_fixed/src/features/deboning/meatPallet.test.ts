@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   PALLET_TARGETS, TOLERANCE_KG, withinTolerance, stackNetKg, proposeLots,
-  quickPalletDraft,
+  quickPalletDraft, overBudgetLots,
 } from './meatPallet'
 
 describe('PALLET_TARGETS — kafelki celu', () => {
@@ -147,5 +147,35 @@ describe('quickPalletDraft — szybka etykieta z ekranu głównego', () => {
     const d = quickPalletDraft(WEJSCIE)!
     const kreator = proposeLots([{ lotNo: '476', kgFree: 900 }], 100)
     expect(d.lots).toEqual(kreator.picks)
+  })
+})
+
+describe('overBudgetLots — strażnik wydajności partii na palecie', () => {
+  const wolne = new Map([['478', 118.5], ['475', 900]])
+
+  it('paleta w granicach partii nie zgłasza nic', () => {
+    expect(overBudgetLots([{ lotNo: '478', kg: 100 }], wolne)).toEqual([])
+  })
+
+  it('wskazuje partię, z której paleta bierze za dużo', () => {
+    const out = overBudgetLots([{ lotNo: '478', kg: 800 }], wolne)
+    expect(out).toEqual([{ lotNo: '478', kg: 800, freeKg: 118.5 }])
+  })
+
+  // Bez sumowania operator obszedłby limit, wpisując partię w dwóch wierszach.
+  it('sumuje kilogramy tej samej partii z kilku wierszy', () => {
+    expect(overBudgetLots([{ lotNo: '478', kg: 60 }, { lotNo: '478', kg: 70 }], wolne))
+      .toEqual([{ lotNo: '478', kg: 130, freeKg: 118.5 }])
+  })
+
+  // Partia spoza magazynu mięsa (stare dane, mięso z zewnątrz) nie ma limitu —
+  // brak wiedzy to nie zero kilogramów.
+  it('partia bez znanego limitu nie jest zgłaszana', () => {
+    expect(overBudgetLots([{ lotNo: '999', kg: 800 }], wolne)).toEqual([])
+  })
+
+  it('zaokrąglenie wagi nie wywołuje alarmu', () => {
+    expect(overBudgetLots([{ lotNo: '478', kg: 118.53 }], wolne)).toEqual([])
+    expect(overBudgetLots([{ lotNo: '478', kg: 119 }], wolne)).toHaveLength(1)
   })
 })

@@ -72,3 +72,57 @@ def test_paleta_bez_skladu_nie_przechodzi(db):
     with pytest.raises(HTTPException) as err:
         create_pallet(_dto(lots=[]))
     assert err.value.status_code == 400
+
+
+# ── Strażnik partii ───────────────────────────────────────────────────────────
+#
+# Ważenie zbiorcze nie rusza stanu magazynowego, więc do 2026-08-14 nic nie
+# pilnowało, ile z danej partii już zeszło na palety: z partii o wydajności
+# 2 353 kg dało się zważyć 10 ton. Limitem jest wydajność partii z rozbioru.
+
+def _lot(lot_no: str, kg_initial: float):
+    from app.db import execute
+    execute(
+        "INSERT INTO meat_stock (id, lot_no, kg_initial, kg_available, created_at) "
+        "VALUES (%s,%s,%s,%s, now())",
+        (f"ms-{lot_no}", lot_no, kg_initial, kg_initial),
+    )
+
+
+def test_paleta_ponad_wydajnosc_partii_odrzucona(db):
+    _lot("475", 300.0)
+    _lot("476", 300.0)
+    with pytest.raises(HTTPException) as err:
+        create_pallet(_dto())          # 420 kg z partii 475, która dała 300
+    assert "475" in err.value.detail
+    assert "kolejnej partii" in err.value.detail
+
+
+def test_druga_paleta_liczy_to_co_juz_zwazono(db):
+    """Limit jest kumulatywny — inaczej każda kolejna paleta startowałaby
+    od pełnej wydajności partii."""
+    _lot("475", 500.0)
+    _lot("476", 500.0)
+    create_pallet(_dto(kgNet=600, lots=[{"lotNo": "475", "kg": 420},
+                                        {"lotNo": "476", "kg": 180}]))
+    with pytest.raises(HTTPException) as err:
+        create_pallet(_dto(kgNet=200, lots=[{"lotNo": "475", "kg": 200}]))
+    assert "475" in err.value.detail          # zostało 80 kg, nie 500
+
+
+def test_reszta_schodzi_na_kolejna_partie(db):
+    """Scenariusz z hali: partia się kończy, ogon palety bierze następną."""
+    _lot("475", 500.0)
+    _lot("476", 500.0)
+    create_pallet(_dto(kgNet=600, lots=[{"lotNo": "475", "kg": 420},
+                                        {"lotNo": "476", "kg": 180}]))
+    out = create_pallet(_dto(kgNet=200, lots=[{"lotNo": "475", "kg": 80},
+                                              {"lotNo": "476", "kg": 120}]))
+    assert out["pallet_no"].startswith("PAL/14/08/26")
+
+
+def test_partia_spoza_magazynu_miesa_nie_blokuje(db):
+    """Mięso przyjęte z zewnątrz i stare dane nie mają lotu z rozbioru —
+    brak wiersza to brak wiedzy, nie zero kilogramów."""
+    out = create_pallet(_dto())
+    assert out["pallet_no"].startswith("PAL/14/08/26")

@@ -1982,14 +1982,14 @@ def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate, by_subject: s
     return _map_deboning_entry(row)
 
 
-def _slad_usuniecia_cx(conn, entry, office_correction: bool,
+def _slad_usuniecia_cx(conn, entry, zapisz_slad: bool,
                        by_subject: str, reason: str) -> None:
     """Ślad po usuniętym wpisie — tabela korekt nie ma FK, więc przeżywa wpis.
 
     Po usunięciu to JEDYNE miejsce, gdzie widać, co i dlaczego zniknęło:
     kto usunął, z jakiej partii i ile kilogramów schodziło z akordu.
     """
-    if not office_correction:
+    if not zapisz_slad:
         return
     cx_execute(
         conn,
@@ -2009,7 +2009,8 @@ def _slad_usuniecia_cx(conn, entry, office_correction: bool,
 
 
 def delete_deboning_entry(entry_id: str, office_correction: bool = False,
-                          by_subject: str = "", reason: str = "") -> Dict:
+                          by_subject: str = "", reason: str = "",
+                          hall_correction: bool = False) -> Dict:
     """Cofnięcie wpisu rozbioru (przycisk „Cofnij" na HMI, usunięcie z biura).
 
     Odwraca w JEDNEJ transakcji wszystko, co utworzył create_deboning_entry:
@@ -2023,6 +2024,13 @@ def delete_deboning_entry(entry_id: str, office_correction: bool = False,
     zdjętymi kilogramami. Reszta blokad zostaje: zużyte mięso i rozliczone
     uboczne to fizyka, nie procedura. Powód wymagany — usunięcie zmienia
     wstecz akord pracownika i statystyki partii.
+
+    `hall_correction=True` — usunięcie Z HALI, z rozpiski pracownika na HMI.
+    Omija WYŁĄCZNIE limit wieku: przycisk „Cofnij" żyje 60 s i dotyczy tylko
+    ostatniego wpisu, więc operator, który zauważył pomyłkę po godzinie, nie
+    miał już czego kliknąć. Zmiana zamknięta i zatwierdzona blokuje dalej —
+    to jest granica między halą a biurem. Powodu nie wymagamy (wpisywanie go
+    na ekranie dotykowym byłoby barierą), ale ślad zostaje tak samo.
     """
     if office_correction and not (reason or "").strip():
         raise HTTPException(400, "Podaj powód usunięcia wpisu")
@@ -2098,7 +2106,8 @@ def delete_deboning_entry(entry_id: str, office_correction: bool = False,
                 "DELETE FROM stock_movements WHERE source_type IN ('deboning','deboning_correction') AND source_id=%s",
                 (entry_id,),
             )
-            _slad_usuniecia_cx(conn, entry, office_correction, by_subject, reason)
+            _slad_usuniecia_cx(conn, entry, office_correction or hall_correction,
+                               by_subject, reason)
             cx_execute(conn, "DELETE FROM deboning_entries WHERE id=%s", (entry_id,))
             logger.info("deboning.take.undone", extra={"entry_id": entry_id, "kg_taken": kg_taken})
             return {"ok": True, "id": entry_id}
@@ -2111,7 +2120,7 @@ def delete_deboning_entry(entry_id: str, office_correction: bool = False,
         undo_err = validate_entry_undo(
             entry,
             float(meat_lot["kg_available"]) if meat_lot else None,
-            skip_age=office_correction,
+            skip_age=office_correction or hall_correction,
         )
         if undo_err:
             raise HTTPException(400, undo_err)
@@ -2161,7 +2170,8 @@ def delete_deboning_entry(entry_id: str, office_correction: bool = False,
             "DELETE FROM stock_movements WHERE source_type IN ('deboning','deboning_correction') AND source_id=%s",
             (entry_id,),
         )
-        _slad_usuniecia_cx(conn, entry, office_correction, by_subject, reason)
+        _slad_usuniecia_cx(conn, entry, office_correction or hall_correction,
+                               by_subject, reason)
         cx_execute(conn, "DELETE FROM deboning_entries WHERE id=%s", (entry_id,))
 
     logger.info(

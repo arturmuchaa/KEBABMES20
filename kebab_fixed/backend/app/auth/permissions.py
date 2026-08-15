@@ -103,6 +103,11 @@ def permission_for_path(path: str, method: str = "GET") -> str:
     # wyłącznie biuro. Zwykły DELETE (HMI, świeży wpis) zostaje przy „rozbior".
     if path.startswith("/api/deboning/entries/") and path.endswith("/office-delete"):
         return "office"
+    # Usunięcie z HALI omija tylko okno 15 minut — zmiana zamknięta
+    # i zatwierdzona blokuje dalej, więc operator nie sięgnie dnia domkniętego.
+    # Operator musi móc skasować własną pomyłkę sprzed godziny bez biura.
+    if path.startswith("/api/deboning/entries/") and path.endswith("/hall-delete"):
+        return "rozbior"
     # Ważenie zbiorcze mięsa robi HALA: kiosk rozbioru zapisuje paletę i czyta
     # magazyn mięsa, żeby rozpisać jej skład na partie. Bez tego kiosk dostawał
     # „odmowa dostępu" przy druku etykiety mięsa (prod 2026-08-14) — uboczne
