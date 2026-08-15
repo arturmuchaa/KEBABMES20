@@ -3,8 +3,10 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Download, Printer } from 'lucide-react'
 import QRCode from 'qrcode'
 import { filterUnitsByIds } from '@/lib/unitReprint'
-import { PDFDocument, rgb } from 'pdf-lib'
-import fontkit from '@pdf-lib/fontkit'
+// pdf-lib + fontkit ładowane NA ŻĄDANIE (patrz buildVectorPdf) — razem ~500 kB
+// po gzipie, a potrzebne wyłącznie przy składaniu etykiety wektorowej.
+// W paczce wejściowej były największą pozycją i na słabym łączu biura
+// przesądzały o tym, czy MES się w ogóle wczyta.
 import arialRegularUrl from '@/assets/fonts/LiberationSans-Regular.ttf?url'
 import arialBoldUrl from '@/assets/fonts/LiberationSans-Bold.ttf?url'
 import { useApi } from '@/hooks/useApi'
@@ -168,6 +170,9 @@ async function buildVectorPdf(
   orgCode = '',
 ): Promise<string> {
   const MM = 2.83465 // mm → pt
+
+  const { PDFDocument, rgb } = await import('pdf-lib')
+  const { default: fontkit } = await import('@pdf-lib/fontkit')
 
   const srcDoc = await PDFDocument.load(dataUrlToBytes(template.backgroundPdf!))
   const out = await PDFDocument.create()
