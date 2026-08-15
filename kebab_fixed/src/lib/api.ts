@@ -42,12 +42,24 @@ import type {
 // Wykrywamy środowisko Tauri przez window.__TAURI_INTERNALS__ ustawiane przez runtime.
 const _isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
+/** Adres serwera MES — Floating IP w Falkenstein (od 2026-08-15).
+ *
+ *  Poprzedni serwer stał w Helsinkach; łącze tranzytowe do Finlandii zaczęło
+ *  gubić 32% pakietów i MES przestał się wczytywać (paczka 1,18 MB urywała
+ *  się w 4 na 7 prób). Do Hetznera w Niemczech to samo łącze ma 0% strat.
+ *
+ *  To Floating IP, nie adres własny serwera: kolejna przeprowadzka w obrębie
+ *  strefy eu-central nie wymusi przebudowy kiosku i aplikacji biurowej. */
+const SERWER_MES = 'http://91.98.105.107:8080'
+
 export const BASE = (() => {
+  // Aplikacje desktopowe (kiosk hali, MES biura) biorą adres STĄD, a nie
+  // z VITE_API_URL. Powód: workflow buildu wstrzykuje tę zmienną z adresem
+  // wpisanym w pliku CI, do którego nie zawsze mamy dostęp — i cicho
+  // nadpisywał adres z kodu. Zainstalowany kiosk nie ma jak tego naprawić,
+  // więc kolejność jest odwrotna niż zwykle: kod wygrywa ze zmienną.
+  if (_isTauri) return `${SERWER_MES}/api`
   if (import.meta.env.VITE_API_URL) return `${import.meta.env.VITE_API_URL}/api`
-  // Floating IP w Falkenstein (2026-08-15). Stary adres 204.168.166.34 stoi
-  // w Helsinkach, a łącze tranzytowe do Finlandii gubi 32% pakietów —
-  // MES przestawał się wczytywać. Ten sam serwer, wejście przez Niemcy.
-  if (_isTauri) return 'http://91.98.105.107:8080/api'  // fallback dla Tauri bez zmiennej (nginx MES = port 8080)
   return '/api'  // przeglądarka — nginx proxy
 })()
 
