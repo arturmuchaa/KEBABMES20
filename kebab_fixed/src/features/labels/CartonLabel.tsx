@@ -9,6 +9,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Printer } from 'lucide-react'
 import { fmtKg } from '@/lib/utils'
+import { drukuj } from '@/lib/print'
 
 export function formatKgCompact(value: number) {
   return Number.isInteger(value) ? fmtKg(value, 0) : fmtKg(value, 1)
@@ -67,7 +68,7 @@ export function CartonLabel(props: CartonLabelProps) {
   useEffect(() => {
     if (!layoutReady || !qrDataUrl || printedRef.current) return
     printedRef.current = true
-    const t = window.setTimeout(() => window.print(), 250)
+    const t = window.setTimeout(() => void drukuj(), 250)
     return () => window.clearTimeout(t)
   }, [layoutReady, qrDataUrl])
 
@@ -88,7 +89,7 @@ export function CartonLabel(props: CartonLabelProps) {
         <Link to={backTo} className="flex items-center gap-1.5 text-sm text-slate-700 hover:text-slate-900">
           <ArrowLeft size={14} /> {backLabel}
         </Link>
-        <button onClick={() => window.print()} className="flex items-center gap-1.5 rounded bg-brand px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand-dark">
+        <button onClick={() => void drukuj()} className="flex items-center gap-1.5 rounded bg-brand px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand-dark">
           <Printer size={14} /> Drukuj etykietę
         </button>
       </div>

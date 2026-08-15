@@ -24,6 +24,8 @@ import { useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
 import { productionReportsApi } from '@/lib/apiClient'
+import { drukuj } from '@/lib/print'
+import { PrintToolbar } from '@/components/print/PrintToolbar'
 
 const fmtDate = (iso: string) => {
   if (!iso) return ''
@@ -47,7 +49,7 @@ export function ProductionReportPrintPage() {
   useEffect(() => {
     document.title = 'Karta realizacji produkcji'
     if (isPdf || !k) return
-    const t = setTimeout(() => window.print(), 500)
+    const t = setTimeout(() => void drukuj(), 500)
     return () => clearTimeout(t)
   }, [isPdf, k])
 
@@ -65,6 +67,7 @@ export function ProductionReportPrintPage() {
 
   return (
     <div className={`kp${gestosc}`}>
+      <PrintToolbar />
       <style>{CSS}</style>
 
       <div className="hdr">

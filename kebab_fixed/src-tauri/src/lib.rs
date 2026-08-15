@@ -94,6 +94,19 @@ async fn apply_update_now(_app: tauri::AppHandle) -> Result<String, String> {
     }
 }
 
+
+// Druk strony w oknie desktopowym.
+//
+// `window.print()` z JavaScriptu w WebView2 nie robi NIC — operator musial
+// wciskac Ctrl+P recznie, a strony wydruku (plan operatora, wyplaty, karty)
+// otwieraly sie i nie dalo sie ich wydrukowac. Natywne okno druku otwiera
+// dopiero webview po stronie Rusta.
+#[tauri::command]
+fn print_page(window: tauri::WebviewWindow) -> Result<String, String> {
+    window.print().map_err(|e| e.to_string())?;
+    Ok("ok".into())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -103,7 +116,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![windows_logoff, scale_diagnose, scale_tare,
                                 apply_update_now, scan_document, scanner_diagnose,
-                                open_last_scan, open_document])
+                                open_last_scan, open_document, print_page])
         .on_window_event(|_window, _event| {
             // Kiosk: operator nie może zamknąć okna (Alt+F4 / żądania zamknięcia ignorowane).
             #[cfg(feature = "kiosk")]

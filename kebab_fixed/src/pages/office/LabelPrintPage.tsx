@@ -12,6 +12,7 @@ import arialBoldUrl from '@/assets/fonts/LiberationSans-Bold.ttf?url'
 import { useApi } from '@/hooks/useApi'
 import { finishedUnitsApi, labelTemplatesApi, recipesApi, clientsApi } from '@/lib/apiClient'
 import type { FinishedUnitCard, LabelTemplate, LabelSlotOffset, LabelFieldPos } from '@/lib/api'
+import { drukuj } from '@/lib/print'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -430,7 +431,7 @@ export function LabelPrintPage() {
     if (clientsRes.loading) return            // poczekaj aż wiemy czy klient ma nadzór
     if (halal && !orgCode) return             // nadzór HALAL → najpierw wpisz kod nadzoru
     printedRef.current = true
-    const timer = window.setTimeout(() => window.print(), 300)
+    const timer = window.setTimeout(() => void drukuj(), 300)
     return () => window.clearTimeout(timer)
   }, [dataReady, template?.backgroundPdf, clientsRes.loading, halal, orgCode])
 
@@ -645,7 +646,7 @@ export function LabelPrintPage() {
           )}
         </div>
         <button
-          onClick={() => window.print()}
+          onClick={() => void drukuj()}
           className="flex items-center gap-1.5 rounded bg-brand px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand-dark"
         >
           <Printer size={14} /> Drukuj

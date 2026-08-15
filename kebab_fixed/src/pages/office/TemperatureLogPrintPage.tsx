@@ -42,6 +42,8 @@
 import { useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { cardPeriod } from '@/lib/temperatureLogCard'
+import { drukuj } from '@/lib/print'
+import { PrintToolbar } from '@/components/print/PrintToolbar'
 
 /** Jedna kratka pomiarowa: opcjonalna podetykieta + temperatura wymagana. */
 type Col = { label?: string; req: string; w: number }
@@ -136,7 +138,7 @@ export function TemperatureLogPrintPage() {
   useEffect(() => {
     document.title = 'Karta kontroli temperatury pomieszczeń'
     if (isPdf) return
-    const t = setTimeout(() => window.print(), 600)
+    const t = setTimeout(() => void drukuj(), 600)
     return () => clearTimeout(t)
   }, [isPdf])
 
@@ -151,6 +153,7 @@ export function TemperatureLogPrintPage() {
 
   return (
     <div className="tmp">
+      <PrintToolbar />
       <style>{CSS}</style>
 
       <div className="top">

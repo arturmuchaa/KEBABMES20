@@ -19,6 +19,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { containersApi, type ContainerAsset, type ContainerStatement } from '@/lib/api'
 import { ASSET_SHORT, ASSET_TYPES } from '@/lib/containers'
+import { drukuj } from '@/lib/print'
+import { PrintToolbar } from '@/components/print/PrintToolbar'
 
 function fmtD(iso: string): string {
   if (!iso) return '—'
@@ -121,7 +123,7 @@ export function ContainerStatementPrintPage() {
   }, [partnerId, from, to])
 
   useEffect(() => {
-    if (st && params.get('pdf') !== '1') setTimeout(() => window.print(), 300)
+    if (st && params.get('pdf') !== '1') setTimeout(() => void drukuj(), 300)
   }, [st, params])
 
   const rows = useMemo(() => (st ? buildRows(st) : []), [st])
@@ -141,6 +143,7 @@ export function ContainerStatementPrintPage() {
 
   return (
     <div style={S.page}>
+      <PrintToolbar />
       <style>{`
         @page { size: A4 portrait; margin: 8mm; }
         html, body { margin: 0; padding: 0; background: #fff; }

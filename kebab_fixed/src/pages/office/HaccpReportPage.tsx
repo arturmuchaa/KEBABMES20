@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
+import { drukuj } from '@/lib/print'
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from '@/components/ui/card'
@@ -398,7 +399,7 @@ export function HaccpReportPage() {
 
   const handlePrint = () => {
     const s = document.createElement('style'); s.textContent = printStyles; document.head.appendChild(s)
-    window.print()
+    void drukuj()
     setTimeout(() => document.head.removeChild(s), 2000)
   }
 

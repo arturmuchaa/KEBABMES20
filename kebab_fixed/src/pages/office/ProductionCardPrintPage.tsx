@@ -24,6 +24,8 @@ import { useApi } from '@/hooks/useApi'
 import { productionPlansApi } from '@/lib/apiClient'
 import { buildProductionCard } from '@/features/production-plan/productionCard'
 import { useClientNames } from '@/lib/clientNames'
+import { drukuj } from '@/lib/print'
+import { PrintToolbar } from '@/components/print/PrintToolbar'
 
 // Kartka ma być ZAWSZE taka sama: stała wysokość wiersza i stała czcionka,
 // a resztę strony wypełniają puste pola. Wysokość dobierana do liczby pozycji
@@ -57,7 +59,7 @@ export function ProductionCardPrintPage() {
   useEffect(() => {
     document.title = 'Karta produkcji kebab'
     if (isPdf || !plan) return
-    const t = setTimeout(() => window.print(), 500)
+    const t = setTimeout(() => void drukuj(), 500)
     return () => clearTimeout(t)
   }, [isPdf, plan])
 
@@ -71,6 +73,7 @@ export function ProductionCardPrintPage() {
 
   return (
     <div className="kpk">
+      <PrintToolbar />
       <style>{CSS}</style>
 
       <div className="hdr">

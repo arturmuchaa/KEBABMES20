@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft, Printer, Download } from 'lucide-react'
 import { cmrApi, downloadDocPdf } from '@/lib/api'
+import { drukuj } from '@/lib/print'
+import { PrintToolbar } from '@/components/print/PrintToolbar'
 import { mergeCmrPositions, CMR_LINE_GAP, getGoodsRowH, fontCss, customFieldKeys,
          type CmrPositions, type FieldPos } from '@/lib/cmrLayout'
 
@@ -142,7 +144,7 @@ export function CmrPrintPage() {
   useEffect(() => {
     // Drukuj dopiero, gdy mamy dokument i ustawienia układu.
     if (doc && pos && !isPdf) {
-      const t = setTimeout(() => window.print(), 700)
+      const t = setTimeout(() => void drukuj(), 700)
       return () => clearTimeout(t)
     }
   }, [doc, pos, isPdf])
@@ -152,6 +154,7 @@ export function CmrPrintPage() {
 
   return (
     <div style={{ background: '#fff', color: '#000' }}>
+      <PrintToolbar />
       <style>{`
         @font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 400;
           src: url('/fonts/robotocondensed-400-latin-ext.woff2') format('woff2');
@@ -195,7 +198,7 @@ export function CmrPrintPage() {
           <ArrowLeft size={14} /> Zamówienia
         </Link>
         <button
-          onClick={() => window.print()}
+          onClick={() => void drukuj()}
           style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', padding: '5px 12px', fontSize: '13px', cursor: 'pointer' }}
         >
           <Printer size={14} /> Drukuj

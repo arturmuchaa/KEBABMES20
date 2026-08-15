@@ -17,6 +17,7 @@ import { useApi } from '@/hooks/useApi'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { fmtKg } from '@/lib/utils'
 import { useClientNames } from '@/lib/clientNames'
+import { drukuj } from '@/lib/print'
 
 type Toast = { ok: boolean; message: string; ts: number }
 const storageKeyFor = (vehicleId: string) =>
@@ -93,7 +94,7 @@ function renderLoadingDocument(doc: any, plateOverride?: string) {
   @media print { .actions { display: none } }
   button { font: inherit; padding: 6px 12px; border: 1px solid #888; background: #fff; cursor: pointer; border-radius: 6px }
 </style></head><body>
-<div class="actions"><button onclick="window.print()">Drukuj</button></div>
+<div class="actions"><button onclick="void drukuj()">Drukuj</button></div>
 <h1>Dokument wydania (WZ)</h1>
 <div class="meta">
   Pojazd: <b>${escapeHtml(v.name || '')}</b>${plate ? ' · ' + escapeHtml(plate) : ''}${v.kind === 'own' ? ' · firmowy' : ' · spedycja'}<br/>
@@ -104,7 +105,7 @@ ${ordersHtml}
   <div class="sig">Wydał (osoba magazynowa)</div>
   <div class="sig">Odebrał (kierowca)</div>
 </div>
-<script>window.addEventListener('load', () => setTimeout(() => window.print(), 350))</script>
+<script>window.addEventListener('load', () => setTimeout(() => void drukuj(), 350))</script>
 </body></html>`
 
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' })

@@ -16,6 +16,7 @@ import { clientOrdersApi, orderPalletsApi, settingsApi, type OrderPallet } from 
 import { fmtKg, fmtDatePl } from '@/lib/utils'
 import { Printer, ArrowLeft } from 'lucide-react'
 import { useClientNames } from '@/lib/clientNames'
+import { drukuj } from '@/lib/print'
 
 export function OrderPrintPage() {
   const clientDisplay = useClientNames()
@@ -111,7 +112,7 @@ export function OrderPrintPage() {
           <ArrowLeft size={14} /> Wróć do zamówień
         </Link>
         <button
-          onClick={() => window.print()}
+          onClick={() => void drukuj()}
           className="flex items-center gap-1.5 bg-brand hover:bg-brand-dark text-white text-sm font-semibold px-4 py-1.5 rounded"
         >
           <Printer size={14} /> Drukuj

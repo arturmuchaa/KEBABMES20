@@ -33,6 +33,8 @@ import {
   detectScope, periodLabel, scopeSections, scopeTitle, scopeWords,
 } from '@/features/reports/reportPeriod'
 import { YIELD_NORM_PCT } from '@/features/deboning/utils'
+import { drukuj } from '@/lib/print'
+import { PrintToolbar } from '@/components/print/PrintToolbar'
 
 const nf0 = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -154,7 +156,7 @@ export function DeboningReportPrintPage() {
   }, [from, to])
 
   useEffect(() => {
-    if (data && months && eur !== undefined && !isPdf) setTimeout(() => window.print(), 400)
+    if (data && months && eur !== undefined && !isPdf) setTimeout(() => void drukuj(), 400)
   }, [data, months, eur, isPdf])
 
   const suppliers = useMemo(() => {
@@ -227,6 +229,7 @@ export function DeboningReportPrintPage() {
 
   return (
     <div style={S.page}>
+      <PrintToolbar />
       <style>{`@media print { @page { size: A4 portrait; margin: 10mm } }`}</style>
 
       {/* ── Nagłówek ── */}

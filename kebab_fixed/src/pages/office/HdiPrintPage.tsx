@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft, Printer, Download } from 'lucide-react'
 import { hdiApi, downloadDocPdf, type HdiDoc } from '@/lib/api'
+import { drukuj } from '@/lib/print'
+import { PrintToolbar } from '@/components/print/PrintToolbar'
 
 const L: Record<string, Record<string, string>> = {
   pl: { title: 'HANDLOWY DOKUMENT IDENTYFIKACYJNY', number: 'Numer HDI', issue: 'Data wystawienia', producer: 'Producent', qual: 'Zakład zakwalifikowany do prowadzenia sprzedaży na rynek', vet: 'Weterynaryjny numer identyfikacyjny', dom: 'Krajowy /domestic market/ National', eu: 'Unii Europejskiej /UE / Europäische Union', superv: 'Zakład posiada stały nadzór weterynaryjny i wprowadzony system HACCP.', lp: 'L.P', cName: 'NAZWA TOWARU', cQty: 'L.B SZT.', cNet: 'MASA NETTO', cBatch: 'NR PARTII', cExp: 'TERMIN PRZYDATNOŚCI', total: 'RAZEM', recip: 'ODBIORCA', unload: 'MIEJSCE ROZŁADUNKU', regno: 'NUMER REJESTRACYJNY / TYP SAMOCHODU', fridge: 'Samochód z zabudową mroźniczą -18°C', load: 'MIEJSCE ZAŁADUNKU', seller: 'SPRZEDAWCA', remarks: 'UWAGI / WARUNKI REKLAMACJI / COMMENTS/CONDITIONS REGARDING COMPLAINTS/ ANMERKUNGEN/VORAUSSETZUNGEN FÜR BESCHWERDEN/', ship: 'Data wysyłki', sign: 'Podpis Wystawiającego', stamp: 'Podpis i pieczęć wystawiającego',
@@ -114,7 +116,7 @@ export function HdiPrintPage() {
   const [rowExtra, setRowExtra] = useState(0)
   const [scale, setScale] = useState(1)
   const [scaledH, setScaledH] = useState<number | null>(null)
-  // ?pdf=1 → render do PDF przez headless Chrome; nie wywołuj wtedy window.print().
+  // ?pdf=1 → render do PDF przez headless Chrome; nie wywołuj wtedy void drukuj().
   const isPdf = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('pdf')
   useEffect(() => { hdiApi.get(id).then(setDoc).catch(e => setErr(e instanceof Error ? e.message : 'Błąd')) }, [id])
 
@@ -144,7 +146,7 @@ export function HdiPrintPage() {
 
   useEffect(() => {
     // Drukuj/PDF dopiero po dopasowaniu (rowExtra/scale ustawione w layout-effekcie).
-    if (doc && !isPdf) { const t = setTimeout(() => window.print(), 600); return () => clearTimeout(t) }
+    if (doc && !isPdf) { const t = setTimeout(() => void drukuj(), 600); return () => clearTimeout(t) }
   }, [doc, isPdf, rowExtra, scale])
   if (err) return <div className="p-8 text-red-700">{err}</div>
   if (!doc) return <div className="p-8 text-slate-500">Ładowanie HDI…</div>
@@ -168,6 +170,7 @@ export function HdiPrintPage() {
 
   return (
     <div style={{ background: '#fff', color: '#000' }}>
+      <PrintToolbar />
       <style>{`
         @media print {
           .no-print { display: none !important; }
@@ -355,7 +358,7 @@ export function HdiPrintPage() {
           <ArrowLeft size={14} /> Zamówienia
         </Link>
         <button
-          onClick={() => window.print()}
+          onClick={() => void drukuj()}
           style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', padding: '5px 12px', fontSize: '13px', cursor: 'pointer' }}
         >
           <Printer size={14} /> Drukuj

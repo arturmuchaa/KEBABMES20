@@ -27,6 +27,8 @@
 import { useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { sanitaryCardNo } from '@/lib/haccpCardHistory'
+import { drukuj } from '@/lib/print'
+import { PrintToolbar } from '@/components/print/PrintToolbar'
 
 const STD = ['posadzka', 'ściany, drzwi', 'sufit, osłony lamp + lampy', 'wyposażenie']
 const STER = [...STD, 'sterylizacja narzędzi i wyposażenia']
@@ -100,7 +102,7 @@ export function SanitaryCheckPrintPage() {
   useEffect(() => {
     document.title = 'Arkusz kontroli techniczno-sanitarnej'
     if (isPdf) return
-    const t = setTimeout(() => window.print(), 600)
+    const t = setTimeout(() => void drukuj(), 600)
     return () => clearTimeout(t)
   }, [isPdf])
 
@@ -116,6 +118,7 @@ export function SanitaryCheckPrintPage() {
 
   return (
     <div className="ark">
+      <PrintToolbar />
       <style>{CSS}</style>
 
       <div className="top">

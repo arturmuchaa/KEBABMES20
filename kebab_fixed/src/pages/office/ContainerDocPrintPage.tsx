@@ -17,6 +17,8 @@ import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { containersApi, type ContainerDoc } from '@/lib/api'
 import { ASSET_SHORT, ASSET_TYPES } from '@/lib/containers'
+import { drukuj } from '@/lib/print'
+import { PrintToolbar } from '@/components/print/PrintToolbar'
 
 function fmtD(iso: string): string {
   if (!iso) return ''
@@ -126,6 +128,7 @@ function Copy({ doc, mark }: { doc: ContainerDoc; mark: string }) {
     .filter(Boolean).join(', ')
   return (
     <div style={S.copy}>
+      <PrintToolbar />
       {/* Logo POZA ramką dokumentu — papier firmowy, nie element formularza. */}
       <div style={S.brand}>
         <img src="/logo-ksiezyc-znak.png" alt="" style={{ height: '6.5mm' }} />
@@ -227,7 +230,7 @@ export function ContainerDocPrintPage() {
 
   useEffect(() => {
     // ?pdf=1 → renderer headless robi zrzut sam, bez dialogu drukowania.
-    if (doc && params.get('pdf') !== '1') setTimeout(() => window.print(), 300)
+    if (doc && params.get('pdf') !== '1') setTimeout(() => void drukuj(), 300)
   }, [doc, params])
 
   if (err) return <div style={{ padding: 24, fontFamily: 'Arial' }}>Błąd: {err}</div>

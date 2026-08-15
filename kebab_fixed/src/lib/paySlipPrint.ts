@@ -366,8 +366,26 @@ export function buildPaySlipsDocument(items: any[]): string {
 
   .sigs{display:grid;grid-template-columns:1fr 1fr;gap:10mm;margin-top:auto;padding-top:7mm}
   .sig{border-top:1px solid #333;padding-top:1.2mm;font-size:9px;color:#666;text-align:center}
+  /* Pasek sterowania — znika przy druku, nie brudzi dokumentu. */
+  .pasek{position:sticky;top:0;z-index:99;display:flex;gap:8px;align-items:center;
+    padding:8px 12px;background:#fff;border-bottom:1px solid #d8dee6}
+  .pasek button{height:38px;padding:0 16px;border-radius:8px;font-weight:700;cursor:pointer;
+    font-family:inherit;font-size:14px}
+  .pasek .wroc{border:1px solid #d8dee6;background:#fff;color:#0f172a}
+  .pasek .druk{border:none;background:#2563eb;color:#fff}
+  @media print{.pasek{display:none!important}}
 </style></head><body>
+<div class="pasek">
+  <button type="button" class="wroc" onclick="history.back()">&larr; Wr\u00f3\u0107</button>
+  <button type="button" class="druk" onclick="window.print()">Drukuj</button>
+</div>
 ${sheets}
-<script>window.onload=function(){window.print()}</script>
+<script>
+// Auto-druk tylko w przegl\u0105darce. W oknie desktopowym (Tauri) window.print()
+// z JavaScriptu nic nie robi \u2014 operator ma przycisk powy\u017cej albo Ctrl+P,
+// a przede wszystkim ma jak WR\u00d3CI\u0106: bez tego paska aplikacja
+// przechodzi\u0142a pod adres blob i jedynym wyj\u015bciem by\u0142o zamkni\u0119cie MES-a.
+if (!('__TAURI_INTERNALS__' in window)) { window.onload = function(){ window.print() } }
+</script>
 </body></html>`
 }

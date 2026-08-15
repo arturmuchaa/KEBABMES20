@@ -22,6 +22,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { mixingOrdersApi, recipesApi } from '@/lib/apiClient'
 import { buildLotRows, roundIngredientDose } from '@/lib/mixingPlanPrint'
+import { drukuj } from '@/lib/print'
+import { PrintToolbar } from '@/components/print/PrintToolbar'
 
 const nf0 = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -90,7 +92,7 @@ export function MixingPlanPrintPage() {
   }, [planDate])
 
   useEffect(() => {
-    if (plan && plan.length > 0 && !isPdf) setTimeout(() => window.print(), 400)
+    if (plan && plan.length > 0 && !isPdf) setTimeout(() => void drukuj(), 400)
   }, [plan, isPdf])
 
   const recipeById = useMemo(() => new Map(recipes.map((r: any) => [r.id, r])), [recipes])
@@ -137,6 +139,7 @@ export function MixingPlanPrintPage() {
 
   return (
     <div style={S.page}>
+      <PrintToolbar />
       <style>{`@media print { @page { size: A4 portrait; margin: 8mm } }`}</style>
 
       {/* ── Nagłówek ── */}

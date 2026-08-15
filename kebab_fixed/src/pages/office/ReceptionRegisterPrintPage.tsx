@@ -36,6 +36,8 @@ import { receptionCardNo } from '@/lib/haccpCardHistory'
 import { receptionsApi } from '@/lib/apiClient'
 import { useApi } from '@/hooks/useApi'
 import { detailRows, mainRows, paginate } from '@/lib/receptionRegisterRows'
+import { drukuj } from '@/lib/print'
+import { PrintToolbar } from '@/components/print/PrintToolbar'
 
 /** Pusty wiersz do wypełnienia — tyle, ile mieści się na jednej kartce. */
 const ROWS_MAIN = 12
@@ -126,7 +128,7 @@ function RegisterCard(props: {
     // Druk dopiero, gdy dane doszły — inaczej okno druku otwiera się nad
     // pustą kartą i operator drukuje niewypełnioną.
     if (withData && data === null) return
-    const t = setTimeout(() => window.print(), 600)
+    const t = setTimeout(() => void drukuj(), 600)
     return () => clearTimeout(t)
   }, [isPdf, props.title, withData, data])
 
@@ -210,6 +212,7 @@ function RegisterSheet({ month, title, subtitle, cols, rows, card, legend, head,
 function Legend({ items }: { items: string[] }) {
   return (
     <div className="legend">
+      <PrintToolbar />
       <span className="ti">Zasady wypełniania</span>
       {items.map((t, i) => <span key={i} className="it">{t}</span>)}
     </div>
