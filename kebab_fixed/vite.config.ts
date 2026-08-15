@@ -41,24 +41,22 @@ export default defineConfig({
       output: {
         // Podział na paczki wg biblioteki.
         //
-        // Powód jest sieciowy, nie estetyczny: `main` urósł do 1,18 MB po
-        // gzipie i na słabym łączu biura schodził w 19% po 8 sekundach, po
-        // czym połączenie padało — MES nie wstawał w ogóle. Mniejsze paczki
-        // z tego samego builda (41 KB, 56 KB) szły na tym samym łączu
-        // w 0,000 s. Jedna wielka paczka to pojedynczy punkt awarii:
-        // przerwany transfer = brak aplikacji.
+        // Powód jest sieciowy: `main` urósł do 1,18 MB po gzipie i na słabym
+        // łączu biura schodził w 19% po 8 sekundach — MES nie wstawał wcale.
+        // Mniejsze paczki z tego samego builda szły na tym samym łączu
+        // w 0,000 s. Jedna wielka paczka to pojedynczy punkt awarii.
         //
-        // React trzymamy w JEDNEJ paczce (react + react-dom + scheduler +
-        // router). Rozdzielenie ich potrafi wywrócić kolejność inicjalizacji.
+        // WYDZIELAMY WYŁĄCZNIE BIBLIOTEKI, KTÓRE NIE DOTYKAJĄ REACTA.
+        // Pierwsze podejście (2026-08-15) rozbiło też react / radix / charts
+        // i wywróciło aplikację: „Cannot read properties of undefined
+        // (reading 'useLayoutEffect')" — paczka `vendor` wykonywała się przed
+        // paczką `react` i sięgała po niezainicjalizowany moduł. Wszystko,
+        // co zależy od Reacta, MUSI zostać w jednej paczce.
         manualChunks(id: string) {
           if (!id.includes('node_modules')) return
-          if (/[\\/]node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom)[\\/]/.test(id)) return 'react'
           if (id.includes('pdfjs-dist')) return 'pdfjs'
           if (id.includes('pdf-lib') || id.includes('@pdf-lib')) return 'pdflib'
-          if (id.includes('lucide-react')) return 'icons'
-          if (id.includes('recharts') || id.includes('d3-') || id.includes('victory')) return 'charts'
           if (id.includes('html5-qrcode')) return 'qr'
-          if (id.includes('@radix-ui')) return 'radix'
           if (id.includes('@fontsource')) return 'fonts'
           return 'vendor'
         },
