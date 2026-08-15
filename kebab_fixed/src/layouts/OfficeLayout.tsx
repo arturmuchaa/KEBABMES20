@@ -3,14 +3,12 @@ import { OfficeSidebar } from './OfficeSidebar'
 import { useState, useEffect } from 'react'
 import { Menu, X, Bell, ChevronRight, LayoutDashboard } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import pkg from '../../package.json'
 import { ZoomControls } from '@/features/ui/ZoomControls'
 import { useZoomInit } from '@/features/ui/useZoom'
 import { useAuth } from '@/features/auth/AuthContext'
 import { PageHeader, PageHeaderProvider } from '@/components/PageHeader'
 import { GlobalSearch } from '@/components/GlobalSearch'
-
-const APP_VERSION = pkg.version
+import { useWersjaAplikacji } from '@/lib/wersja'
 
 const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
   '/office/dashboard':             { title: 'Pulpit operacyjny' },
@@ -53,6 +51,7 @@ export function OfficeLayout() {
   useEffect(() => { setMobileOpen(false) }, [pathname])
   useZoomInit()
   const { user, logout } = useAuth()
+  const wersja = useWersjaAplikacji()
 
   const today = new Date()
   const dateStr = today.toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -121,7 +120,7 @@ export function OfficeLayout() {
               className="hidden sm:inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-mono font-semibold tracking-wide bg-surface-3 text-ink-3 border border-surface-4"
               title="Wersja aplikacji"
             >
-              v{APP_VERSION}
+              v{wersja}
             </span>
 
             {/* Notification bell */}
