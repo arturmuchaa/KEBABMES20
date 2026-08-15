@@ -84,6 +84,11 @@ def create_app() -> FastAPI:
         allow_credentials=_cors_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
+        # Domyślne 600 s dawało 7 preflightów na jeden zapis (983 OPTIONS na
+        # 138 POST, prod 2026-08-15). Na łączu hali, które potrafi zamilknąć
+        # na całą minutę, każdy zbędny round-trip to ryzyko, że zapis ważenia
+        # utknie. 7200 s to górna granica honorowana przez Chrome/WebView.
+        max_age=7200,
     )
 
     # ── Register route modules ────────────────────────────────────
