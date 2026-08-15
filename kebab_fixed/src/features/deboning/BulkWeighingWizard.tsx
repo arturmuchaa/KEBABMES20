@@ -78,6 +78,9 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
   const [zwazone, setZwazone] = useState<MeatPallet[]>([])
   const [listaOtwarta, setListaOtwarta] = useState(false)
   const [dodruk, setDodruk] = useState('')
+  // Bufor tekstowy pola kg przy partii — bez niego kasowanie cyfry (pusty
+  // string) natychmiast wracałoby jako 0 i nie dałoby się nic dopisać.
+  const [kgEdit, setKgEdit] = useState<{ idx: number; text: string } | null>(null)
 
   const odswiezZwazone = useCallback(() => {
     meatPalletsApi.list(getProductionDate())
@@ -121,6 +124,21 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
   // Partie, z których paleta bierze więcej, niż w nich zostało.
   const przekroczenia = useMemo(() => overBudgetLots(lots, kgLotu), [lots, kgLotu])
   const doPrzypisania = r1(sumaKg - sumaSkladu)
+
+  /** Ręczna korekta kilogramów z danej partii.
+   *
+   *  Propozycja FEFO liczy się z tego, co system WIE o partii, a hala widzi,
+   *  ile fizycznie zostało: partia 478 miała w systemie 918,5 kg zapasu, gdy
+   *  na chłodni leżały z niej 44 kg luzem do połączenia z nową dostawą.
+   *  Bez tego pola operator mógł tylko usunąć wiersz albo przerzucić CAŁĄ
+   *  resztę palety na inną partię — nie dało się złożyć palety z resztki
+   *  i świeżego mięsa. */
+  function zmienKgPartii(i: number, text: string) {
+    setKgEdit({ idx: i, text })
+    const v = parseFloat(text.replace(',', '.'))
+    if (Number.isNaN(v) || v < 0) return
+    setLots(ls => ls.map((l, k) => (k === i ? { ...l, kg: r1(v) } : l)))
+  }
 
   function wybierzCel(t: PalletTarget) {
     setTarget(t)
@@ -442,7 +460,17 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
               {lots.map((l, i) => (
                 <div key={i} className="flex items-center gap-3 px-4 py-3" style={{ borderRadius: 10, background: 'var(--panel)', border: '1px solid var(--line)' }}>
                   <span className="hmi-v10-mono font-extrabold text-xl" style={{ fontFamily: MONO, minWidth: 90 }}>{l.lotNo}</span>
-                  <span className="hmi-v10-mono font-extrabold text-lg flex-1" style={{ fontFamily: MONO }}>{fmtKg(l.kg, 1)} kg</span>
+                  <div className="flex items-center gap-2 flex-1">
+                    <input type="number" inputMode="decimal" step="0.1" min="0"
+                      value={kgEdit?.idx === i ? kgEdit.text : String(l.kg)}
+                      onChange={ev => zmienKgPartii(i, ev.target.value)}
+                      onFocus={ev => { setKgEdit({ idx: i, text: String(l.kg) }); ev.currentTarget.select() }}
+                      onBlur={() => setKgEdit(null)}
+                      aria-label={`Kilogramy z partii ${l.lotNo}`}
+                      className="hmi-v10-mono font-extrabold text-lg h-12 px-3 text-right"
+                      style={{ fontFamily: MONO, width: 116, borderRadius: 8, border: '1.5px solid var(--line)', background: 'var(--bg)', color: 'var(--ink)' }} />
+                    <span className="text-sm font-bold" style={{ color: 'var(--mut)' }}>kg</span>
+                  </div>
                   <span className="text-[11px] font-bold" style={{ color: 'var(--mut)' }}>
                     zostało {fmtKg(kgLotu.get(l.lotNo) ?? 0, 0)} kg
                   </span>
