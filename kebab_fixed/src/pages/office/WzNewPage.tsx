@@ -1,3 +1,4 @@
+import { useOtworzDokument } from '@/lib/otworzDokument'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { wzApi, clientsApi, settingsApi, downloadDocPdf, containersApi, payrollApi, WzDoc } from '@/lib/api'
@@ -60,6 +61,7 @@ const rowKg = (r: Row) => r.kgPerUnit ? rowQty(r) * r.kgPerUnit : (r.unit === 'k
 const rowValue = (r: Row) => (rowKg(r) > 0 ? rowKg(r) : rowQty(r)) * rowPrice(r)
 
 export function WzNewPage() {
+  const otworz = useOtworzDokument()
   const nav = useNavigate()
   const [clients, setClients] = useState<any[]>([])
   const [fg, setFg]   = useState<any[]>([])
@@ -373,7 +375,7 @@ export function WzNewPage() {
               </div>
             </div>
             <div className="flex flex-wrap justify-center gap-2 mt-3">
-              <Button className="gap-1.5" onClick={() => window.open(`/office/wz/${savedDoc.id}/druk`, '_blank')}>
+              <Button className="gap-1.5" onClick={() => otworz(`/office/wz/${savedDoc.id}/druk`)}>
                 <Printer size={14} /> Drukuj
               </Button>
               <Button variant="outline" className="gap-1.5" onClick={() => void downloadDocPdf(wzApi.pdfUrl(savedDoc.id)).catch(e => alert(e?.message || 'Nie udało się pobrać PDF'))}>
@@ -393,7 +395,7 @@ export function WzNewPage() {
                     kolumna „Zwrot" jest pusta, wypełnia ją odbiorca.
                   </div>
                   <Button size="sm" className="gap-1.5"
-                    onClick={() => window.open(`/office/pojemniki/${contDoc.id}/druk`, '_blank')}>
+                    onClick={() => otworz(`/office/pojemniki/${contDoc.id}/druk`)}>
                     <Printer size={13} /> Drukuj
                   </Button>
                 </div>

@@ -1,8 +1,9 @@
+import { useOtworzDokument } from '@/lib/otworzDokument'
 import { useEffect, useState } from 'react'
 import { useApi, useMutation } from '@/hooks/useApi'
 import { usersApi, payrollApi } from '@/lib/apiClient'
 import {
-  ROLE_LABEL, buildPaySlipsDocument, basisLabel, basisTotal, basisUnit,
+  ROLE_LABEL, buildPaySlipsDocument, KLUCZ_PASKOW, basisLabel, basisTotal, basisUnit,
   dayAmount, dayEarning, pageCount, settlementOverlapsRange, sundayBonusTotal,
 } from '@/lib/paySlipPrint'
 import { splitDeductions, sumDeductions } from '@/lib/payrollDeductions'
@@ -54,6 +55,7 @@ function getDefaultRange() {
 }
 
 export function PayrollPage() {
+  const drukujPaski = useDrukPaskow()
   const { data: workers, loading: wLoading } = useApi(() => usersApi.list(true))
   const [selWorker, setSelWorker]   = useState<any>(null)
   const [range, setRange]           = useState(() => getDefaultRange())
@@ -627,7 +629,7 @@ export function PayrollPage() {
                       onClick={async () => {
                         const ids = Array.from(selectedSlips)
                         const full = await Promise.all(ids.map(id => payrollApi.getSettlement(id)))
-                        printPaySlips(full)
+                        drukujPaski(full)
                         setSelectedSlips(new Set())
                       }}
                       className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
@@ -675,7 +677,7 @@ export function PayrollPage() {
                             <div className="flex items-center gap-2 justify-end">
                               <button onClick={async () => {
                                 const full = await payrollApi.getSettlement(s.id)
-                                printPaySlips([full])
+                                drukujPaski([full])
                               }} className="text-xs text-primary hover:underline flex items-center gap-1">
                                 <Printer size={11} /> Drukuj
                               </button>
@@ -715,7 +717,7 @@ export function PayrollPage() {
             <PaySlipPreview settlement={showSettlement} />
             <div className="flex justify-end gap-2 mt-2">
               <Button variant="outline" onClick={() => setShowSettlement(null)}>Zamknij</Button>
-              <Button onClick={() => printPaySlips([showSettlement])}>
+              <Button onClick={() => drukujPaski([showSettlement])}>
                 <Printer size={14} className="mr-2" /> Drukuj (A4 poziomo — 4 paski)
               </Button>
             </div>
@@ -1040,6 +1042,7 @@ function plural(n: number, one: string, few: string, many: string) {
 }
 
 function BatchPrintDialog({ onClose, role }: { onClose: () => void; role?: string }) {
+  const drukujPaski = useDrukPaskow()
   const [range, setRange] = useState(() => getDefaultRange())
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [printing, setPrinting] = useState(false)
@@ -1069,7 +1072,7 @@ function BatchPrintDialog({ onClose, role }: { onClose: () => void; role?: strin
     setPrinting(true)
     try {
       const full = await Promise.all(ids.map((id: string) => payrollApi.getSettlement(id)))
-      printPaySlips(full)
+      drukujPaski(full)
       onClose()
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Błąd pobierania pasków')
@@ -1230,6 +1233,23 @@ function PaySlipPreview({ settlement: s }: { settlement: any }) {
 }
 
 // ─── Druk pasków: A4 poziomo, 4 paski w siatce 2×2 ────────────
+const wTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+
+/**
+ * W przeglądarce paski idą jak dotąd — osobna karta z gotowym dokumentem.
+ * W aplikacji desktopowej muszą zostać WEWNĄTRZ aplikacji: tam CSP z nonce
+ * wyłącza inline'owe skrypty, więc w osobnym dokumencie ani „Wróć", ani
+ * „Drukuj" nie mają jak zadziałać.
+ */
+function useDrukPaskow(): (items: any[]) => void {
+  const otworz = useOtworzDokument()
+  return (items: any[]) => {
+    if (!wTauri) { printPaySlips(items); return }
+    sessionStorage.setItem(KLUCZ_PASKOW, JSON.stringify(items))
+    otworz('/office/wyplaty/druk')
+  }
+}
+
 function printPaySlips(items: any[]) {
   const html = buildPaySlipsDocument(items)
   // Blob URL działa zarówno w przeglądarce (window.open _blank) jak i w Tauri

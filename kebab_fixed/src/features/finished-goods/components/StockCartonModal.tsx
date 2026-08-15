@@ -1,3 +1,4 @@
+import { useOtworzDokument } from '@/lib/otworzDokument'
 /**
  * „Dodaj karton z ręki" — wyrób na magazyn dla JEDNEGO klienta.
  * Karton może być mieszany: wiele pozycji (rodzaj+receptura+tuleja+waga+ilość),
@@ -30,6 +31,7 @@ function emptyLine(): LineDraft {
 }
 
 export function StockCartonModal({ onCreated }: { onCreated?: (cartonId: string) => void }) {
+  const otworz = useOtworzDokument()
   const [open, setOpen] = useState(false)
   const { data: clients } = useApi(() => clientsApi.list(), [])
   const { data: recipes } = useApi(() => recipesApi.list(), [])
@@ -96,7 +98,7 @@ export function StockCartonModal({ onCreated }: { onCreated?: (cartonId: string)
       })
       setOpen(false); reset(); onCreated?.(carton.id)
       // Od razu otwórz etykietę kartonu (magazynier ją drukuje i pakuje do niego sztuki)
-      window.open(`/etykiety/karton/${carton.id}`, '_blank')
+      otworz(`/etykiety/karton/${carton.id}`)
     } catch (e: any) {
       setError(e?.message || 'Nie udało się dodać kartonu')
     } finally {

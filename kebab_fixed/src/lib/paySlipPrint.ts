@@ -292,14 +292,14 @@ function paySlipHtml(s: any | null): string {
 
 // ─── Dokument: N pasków → kartki A4 poziomo, po 4 (2×2) ───────
 
-export function buildPaySlipsDocument(items: any[]): string {
-  const sheets = chunkIntoPages(items)
-    .map(p => `<div class="sheet">${p.map(paySlipHtml).join('')}</div>`)
-    .join('')
+/** Klucz w sessionStorage, którym PayrollPage przekazuje paski stronie wydruku. */
+export const KLUCZ_PASKOW = 'paski-do-druku'
 
-  return `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Paski wypłaty</title>
-<style>
+/**
+ * Style dokumentu pasków — wspólne dla wydruku w przeglądarce (osobny dokument)
+ * i dla strony `/office/wyplaty/druk` renderowanej wewnątrz aplikacji.
+ */
+export const PASKI_CSS = `
   @page { size: A4 landscape; margin: 0; }
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:Arial,Helvetica,sans-serif;color:#171717;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -374,7 +374,21 @@ export function buildPaySlipsDocument(items: any[]): string {
   .pasek .wroc{border:1px solid #d8dee6;background:#fff;color:#0f172a}
   .pasek .druk{border:none;background:#2563eb;color:#fff}
   @media print{.pasek{display:none!important}}
-</style></head><body>
+`
+
+/** Same kartki z paskami, bez opakowania HTML — do osadzenia w aplikacji. */
+export function buildPaySlipsSheets(items: any[]): string {
+  return chunkIntoPages(items)
+    .map(p => `<div class="sheet">${p.map(paySlipHtml).join('')}</div>`)
+    .join('')
+}
+
+export function buildPaySlipsDocument(items: any[]): string {
+  const sheets = buildPaySlipsSheets(items)
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Paski wyp\u0142aty</title>
+<style>${PASKI_CSS}</style></head><body>
 <div class="pasek">
   <button type="button" class="wroc" onclick="history.back()">&larr; Wr\u00f3\u0107</button>
   <button type="button" class="druk" onclick="window.print()">Drukuj</button>

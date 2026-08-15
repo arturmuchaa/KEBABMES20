@@ -1,3 +1,4 @@
+import { useOtworzDokument } from '@/lib/otworzDokument'
 /**
  * RawStockBatchCard — Kartoteka partii Magazynu surowca (styl Subiekt).
  *
@@ -111,6 +112,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export function RawStockBatchCard({ stockType, stockId, onClose }: {
   stockType: string; stockId: string; onClose: () => void
 }) {
+  const otworz = useOtworzDokument()
   const navigate = useNavigate()
   const [card, setCard] = useState<StockCard | null>(null)
   const [error, setError] = useState('')
@@ -312,7 +314,7 @@ export function RawStockBatchCard({ stockType, stockId, onClose }: {
                                 : <ArrowUpFromLine size={13} className="text-red-600 flex-shrink-0" />}
                               {m.ref_kind === 'wz' && m.ref_id ? (
                                 <button
-                                  onClick={() => window.open(`/office/wz/${m.ref_id}/druk`, '_blank')}
+                                  onClick={() => otworz(`/office/wz/${m.ref_id}/druk`)}
                                   className="font-semibold text-brand hover:underline inline-flex items-center gap-1"
                                   title="Otwórz dokument WZ">
                                   <FileText size={12} />{docLabel}
@@ -408,7 +410,7 @@ export function RawStockBatchCard({ stockType, stockId, onClose }: {
             )}
             {batchNo && (
               <Button size="sm" variant="outline" className="gap-1.5"
-                onClick={() => window.open(`/office/partia/${encodeURIComponent(batchNo)}/raport`, '_blank')}>
+                onClick={() => otworz(`/office/partia/${encodeURIComponent(batchNo)}/raport`)}>
                 <FileText size={13} /> Raport partii
               </Button>
             )}

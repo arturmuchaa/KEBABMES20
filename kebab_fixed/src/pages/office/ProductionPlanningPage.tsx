@@ -1,3 +1,4 @@
+import { useOtworzDokument } from '@/lib/otworzDokument'
 /**
  * ProductionPlanningPage v3
  * - Panel mięsa: zgrupowany per receptura, zwinięty domyślnie
@@ -1553,6 +1554,7 @@ export function PlanForm({ onSave, onClose, initialPlan, existingPlans, fullPage
 
 // ─── Strona główna ────────────────────────────────────────────
 export function ProductionPlanningPage() {
+  const otworz = useOtworzDokument()
   const clientDisplay = useClientNames()
   const { data: plans, loading, refetch } = useApi(()=>productionPlansApi.list())
   const [modal,    setModal]    = useState(false)
@@ -1878,7 +1880,7 @@ export function ProductionPlanningPage() {
                         title="Drukuj kartę produkcji dla kierownika"
                         onClick={e=>{
                           e.stopPropagation()
-                          window.open(`/office/plan-produkcji/druk?planId=${plan.id}`, '_blank')
+                          otworz(`/office/plan-produkcji/druk?planId=${plan.id}`)
                         }}>
                         <Printer size={13}/>
                       </Button>

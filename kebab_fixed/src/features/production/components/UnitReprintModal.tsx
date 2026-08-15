@@ -1,3 +1,4 @@
+import { useOtworzDokument } from '@/lib/otworzDokument'
 /**
  * Dodruk pojedynczej etykiety sztuki (awaria druku QR).
  * Lista sztuk linii planu ze statusem; „Dodrukuj" otwiera druk TYLKO tej sztuki
@@ -26,6 +27,7 @@ export function UnitReprintModal({ line, open, onClose }: {
   open: boolean
   onClose: () => void
 }) {
+  const otworz = useOtworzDokument()
   const { data, loading } = useApi(
     () => (line ? finishedUnitsApi.listByPlanLine(line.id) : Promise.resolve([])),
     [line?.id, open],
@@ -37,7 +39,7 @@ export function UnitReprintModal({ line, open, onClose }: {
     const p = new URLSearchParams({ planLineId: line.id, unitIds: u.id })
     if (line.clientName) p.set('clientId', line.clientName)
     if (line.recipeId)   p.set('recipeId', line.recipeId)
-    window.open(`/etykiety/druk?${p.toString()}`, '_blank')
+    otworz(`/etykiety/druk?${p.toString()}`)
   }
 
   return (

@@ -1,3 +1,4 @@
+import { useOtworzDokument } from '@/lib/otworzDokument'
 /**
  * MixingDayPlanEditor — plan dnia masowania (serce strony planowania).
  *
@@ -33,6 +34,7 @@ function shiftIsoDate(iso: string, days: number): string {
 }
 
 export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
+  const otworz = useOtworzDokument()
   const { recipes, stock: spiceStock } = useRecipes()
   const [planDate, setPlanDate] = useState(todayIso())
   const [rows, setRows] = useState<PlanRowData[]>([])
@@ -425,7 +427,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
             <Button size="sm" variant="outline" className="h-8 gap-1 text-[12px]"
               disabled={dirty || rows.length === 0}
               title={dirty ? 'Najpierw zapisz plan — wydruk pokazuje ZAPISANY plan' : 'Wydruk planu dla operatora: kolejka + przyprawy łącznie + przepisy na wsady 200/600 kg'}
-              onClick={() => window.open(`/office/plan-masowania/druk?date=${planDate}`, '_blank')}>
+              onClick={() => otworz(`/office/plan-masowania/druk?date=${planDate}`)}>
               <Printer size={13} /> Plan dla operatora
             </Button>
             {!isPast && (

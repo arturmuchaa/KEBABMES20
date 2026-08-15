@@ -1,3 +1,4 @@
+import { useOtworzDokument } from '@/lib/otworzDokument'
 import { Fragment, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { wzApi, downloadDocPdf, WzDoc, WzLine, QuantityChain } from '@/lib/api'
@@ -149,6 +150,7 @@ function LoadingReportDialog({ doc, onClose }: { doc: WzDoc; onClose: () => void
 type SortCol = 'number' | 'date' | 'buyer' | 'value' | 'status'
 
 export function WzDocumentsPage() {
+  const otworz = useOtworzDokument()
   const nav = useNavigate()
   const [docs, setDocs]       = useState<WzDoc[] | null>(null)
   const [editId, setEditId]   = useState<string | null>(null)
@@ -399,7 +401,7 @@ export function WzDocumentsPage() {
                           <Eye size={13} />
                         </Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
-                                title="Drukuj" onClick={() => window.open(`/office/wz/${d.id}/druk`, '_blank')}>
+                                title="Drukuj" onClick={() => otworz(`/office/wz/${d.id}/druk`)}>
                           <Printer size={13} />
                         </Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
@@ -542,7 +544,7 @@ export function WzDocumentsPage() {
               {previewDoc && (
                 <span className="flex gap-1.5">
                   <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1"
-                          onClick={() => window.open(`/office/wz/${previewDoc.id}/druk`, '_blank')}>
+                          onClick={() => otworz(`/office/wz/${previewDoc.id}/druk`)}>
                     <Printer size={12} /> Drukuj
                   </Button>
                   <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1"

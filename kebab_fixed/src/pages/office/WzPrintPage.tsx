@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom'
 import { wzApi, WzDoc } from '@/lib/api'
 import { WzDocumentView } from '@/components/wz/WzDocumentView'
 import { drukuj } from '@/lib/print'
+import { PrintToolbar } from '@/components/print/PrintToolbar'
 
 export function WzPrintPage() {
   const { id = '' } = useParams()
@@ -14,5 +15,10 @@ export function WzPrintPage() {
   useEffect(() => { if (doc && !isPdf) setTimeout(() => void drukuj(), 300) }, [doc, isPdf])
 
   if (!doc) return <div style={{ padding: 24 }}>Ładowanie…</div>
-  return <WzDocumentView doc={doc} />
+  return (
+    <>
+      <PrintToolbar powrot="/office/wz" />
+      <WzDocumentView doc={doc} />
+    </>
+  )
 }

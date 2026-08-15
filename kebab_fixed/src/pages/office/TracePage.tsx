@@ -1,3 +1,4 @@
+import { useOtworzDokument } from '@/lib/otworzDokument'
 /**
  * TracePage — Śledzenie surowca
  *
@@ -81,6 +82,7 @@ function docHref(d: TraceDoc): string | null {
 
 // ─── Węzeł drzewa ─────────────────────────────────────────────
 function TreeNodeView({ node, depth }: { node: TraceNode; depth: number }) {
+  const otworz = useOtworzDokument()
   const [open, setOpen] = useState(true)
   const clientDisplay = useClientNames()
   const cfg = STAGE[node.type] ?? STAGE.raw
@@ -123,7 +125,7 @@ function TreeNodeView({ node, depth }: { node: TraceNode; depth: number }) {
                   const label = `${d.label}${d.number ? ` ${d.number}` : ''}`
                   return href ? (
                     <button key={i}
-                      onClick={() => window.open(href, '_blank')}
+                      onClick={() => otworz(href)}
                       title={`Drukuj: ${label}`}
                       className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg bg-surface-2 border border-surface-4 text-ink-2 hover:border-brand hover:text-brand transition-colors">
                       <Printer size={10}/>{label}

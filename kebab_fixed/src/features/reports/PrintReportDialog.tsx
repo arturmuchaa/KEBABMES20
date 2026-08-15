@@ -1,3 +1,4 @@
+import { useOtworzDokument } from '@/lib/otworzDokument'
 /**
  * PrintReportDialog — wybór okresu raportu rozbioru do druku.
  *
@@ -50,6 +51,7 @@ export function PrintReportDialog({ open, onClose, initialKind, initialRef }: {
   initialKind: PeriodKind
   initialRef: string
 }) {
+  const otworz = useOtworzDokument()
   const [kind, setKind] = useState<PeriodKind>(initialKind)
   const [ref, setRef] = useState(initialRef)
 
@@ -72,7 +74,7 @@ export function PrintReportDialog({ open, onClose, initialKind, initialRef }: {
   const move = (step: number) => setRef(r => shiftPeriod(kind, r, step))
 
   const print = () => {
-    window.open(`/office/rozbior-raport/druk?from=${range.from}&to=${range.to}`, '_blank')
+    otworz(`/office/rozbior-raport/druk?from=${range.from}&to=${range.to}`)
     onClose()
   }
 

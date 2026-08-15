@@ -40,6 +40,7 @@ import { CmrDocumentsPage }     from '@/pages/office/CmrDocumentsPage'
 import { WzPrintPage }          from '@/pages/office/WzPrintPage'
 import { DeboningReportPrintPage } from '@/pages/office/DeboningReportPrintPage'
 import { MixingPlanPrintPage }    from '@/pages/office/MixingPlanPrintPage'
+import { PaySlipsPrintPage }     from '@/pages/office/PaySlipsPrintPage'
 import { ProductionCardPrintPage } from '@/pages/office/ProductionCardPrintPage'
 import { ProductionReportPrintPage } from '@/pages/office/ProductionReportPrintPage'
 import { ProductionReportsPage } from '@/pages/office/ProductionReportsPage'
@@ -131,6 +132,7 @@ export default function App() {
       <Route path="/office/wz/:id/druk" element={<WzPrintPage />} />
       <Route path="/office/rozbior-raport/druk" element={<DeboningReportPrintPage />} />
       <Route path="/office/plan-masowania/druk" element={<MixingPlanPrintPage />} />
+      <Route path="/office/wyplaty/druk" element={<PaySlipsPrintPage />} />
       <Route path="/office/plan-produkcji/druk" element={<ProductionCardPrintPage />} />
       <Route path="/office/zalecenie-produkcyjne/druk" element={<ProductionReportPrintPage />} />
       <Route path="/office/arkusz-kontroli/druk" element={<SanitaryCheckPrintPage />} />

@@ -1,3 +1,4 @@
+import { useOtworzDokument } from '@/lib/otworzDokument'
 /**
  * Zalecenia produkcyjne (karta 2.5.1) — lista do druku.
  *
@@ -14,15 +15,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { fmtDatePl, fmtKg } from '@/lib/utils'
 
 export function ProductionReportsPage() {
+  const otworz = useOtworzDokument()
   const { data, loading } = useApi(() => productionReportsApi.days(60))
   const [open, setOpen] = useState<string | null>(null)
   const dni: any[] = data ?? []
 
   function drukuj(day: string, recipeId: string) {
-    window.open(
-      `/office/zalecenie-produkcyjne/druk?data=${day}&receptura=${recipeId}`,
-      '_blank',
-    )
+    otworz(`/office/zalecenie-produkcyjne/druk?data=${day}&receptura=${recipeId}`)
   }
 
   return (
