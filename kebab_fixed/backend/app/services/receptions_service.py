@@ -24,7 +24,8 @@ from app.models.raw_batches import RawBatchCreate
 from app.models.receptions import ReceptionCreate, ReceptionGroupIn, ReceptionUpdate
 from app.services.hdi_scan_store import attach_bytes, take_temp
 from app.services.hdi_scan_render import caption_for, prepare_scan
-from app.services.raw_batches_service import apply_group_cx, create_batch_cx
+from app.services.raw_batches_service import (_batch_used_reason_cx, apply_group_cx,
+                                              create_batch_cx)
 from app.utils.batch_numbers import delivery_period, format_delivery_no, parse_delivery_no
 from app.utils.ids import cuid, now_iso
 
@@ -289,6 +290,25 @@ def create_reception(dto: ReceptionCreate) -> Dict[str, Any]:
     return {"reception": reception, "batches": batches, "warnings": warnings}
 
 
+def _assert_group_unchanged_cx(conn, batch_row: Dict, g) -> Optional[str]:
+    """Zamrożoną pozycję wolno przysłać TYLKO bez zmian.
+
+    Backend porównuje wartości sam — nie ufa temu, że front wyszarzył wiersz.
+    Zwraca powód zamrożenia (albo None), żeby pętla wiedziała, czy pozycję
+    pominąć: przepuszczenie jej przez `apply_group_cx` przeksięgowałoby
+    nośniki i przepisało datę mimo braku zmian.
+    """
+    reason = _batch_used_reason_cx(conn, batch_row["id"], for_cancel=True)
+    if not reason:
+        return None
+    numer = batch_row.get("internal_batch_no") or batch_row["id"]
+    if abs(float(g.kg_received) - float(batch_row["kg_received"] or 0)) > 0.001:
+        raise HTTPException(409, f"Numer {numer} jest już w użyciu — nie można zmienić wagi")
+    if (g.internal_batch_no or numer) != numer:
+        raise HTTPException(409, f"Numer {numer} jest już w użyciu — nie można zmienić numeru")
+    return reason
+
+
 def _replace_supplier_lines_cx(conn, reception_id: str, g) -> None:
     """Pozycje HDI tego numeru porządkowego zapisane od nowa.
 
@@ -354,6 +374,8 @@ def update_reception(reception_id: str, dto: ReceptionUpdate) -> Dict[str, Any]:
                 continue                      # dołożenie pozycji — Task 6
             if g.batch_id not in istniejace:
                 raise HTTPException(400, f"Pozycja {g.batch_id} nie należy do tej dostawy")
+            if _assert_group_unchanged_cx(conn, istniejace[g.batch_id], g):
+                continue          # zamrożona i bez zmian — nie ruszamy jej wcale
             numery = [b.supplier_batch_no.strip() for b in g.supplier_batches
                       if (b.supplier_batch_no or "").strip()]
             apply_group_cx(

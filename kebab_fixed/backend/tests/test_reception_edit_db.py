@@ -97,3 +97,61 @@ def test_edycja_poprawia_kilogramy_i_cene_nietknietej_cwiartki(db):
     assert float(row["kg_available"]) == 1200.0
     assert float(row["price_per_kg"]) == 6.5
     assert str(row["slaughter_date"]) == "2026-08-10"
+
+
+def _zamroz(batch_id, kg=500.0):
+    """Symuluje pobranie do rozbioru — partia staje się „ruszona"."""
+    execute(
+        "INSERT INTO deboning_entries (id, raw_batch_id, raw_batch_no, kg_quarter, "
+        " kg_meat, status, created_at) VALUES (%s,%s,'x',%s,0,'complete',%s)",
+        (f"de-{batch_id[:8]}", batch_id, kg, now_iso()),
+    )
+
+
+def test_zmiana_zamrozonej_pozycji_daje_409(db):
+    sid = _seed_dostawca()
+    out = _przyjmij(sid, grupy=(("502", 1000.0),))
+    rec_id, partia = out["reception"]["id"], out["batches"][0]
+    _zamroz(partia["id"])
+
+    with pytest.raises(HTTPException) as err:
+        update_reception(rec_id, ReceptionUpdate.model_validate({
+            "receivedDate": "2026-08-14", "materialTypeId": "mat-cwiartka",
+            "pricePerKg": 5.0, "groups": [_grupa(partia, kg=900.0)],
+        }))
+    assert err.value.status_code == 409
+    assert "502" in str(err.value.detail)   # numer porządkowy w komunikacie
+
+
+def test_blokada_jednej_pozycji_nie_zapisuje_pozostalych(db):
+    """Atomowość: dokument zapisany w połowie rozjeżdża księgę."""
+    sid = _seed_dostawca()
+    out = _przyjmij(sid, grupy=(("503", 600.0), ("504", 400.0)))
+    rec_id, wolna, ruszona = out["reception"]["id"], out["batches"][0], out["batches"][1]
+    _zamroz(ruszona["id"])
+
+    with pytest.raises(HTTPException):
+        update_reception(rec_id, ReceptionUpdate.model_validate({
+            "receivedDate": "2026-08-14", "materialTypeId": "mat-cwiartka",
+            "pricePerKg": 5.0,
+            "groups": [_grupa(wolna, kg=700.0), _grupa(ruszona, kg=300.0)],
+        }))
+
+    row = query_one("SELECT kg_received FROM raw_batches WHERE id=%s", (wolna["id"],))
+    assert float(row["kg_received"]) == 600.0   # nietknięta pozycja BEZ zmian
+
+
+def test_zamrozona_pozycja_bez_zmian_przechodzi(db):
+    sid = _seed_dostawca()
+    out = _przyjmij(sid, grupy=(("505", 600.0), ("506", 400.0)))
+    rec_id, wolna, ruszona = out["reception"]["id"], out["batches"][0], out["batches"][1]
+    _zamroz(ruszona["id"])
+
+    update_reception(rec_id, ReceptionUpdate.model_validate({
+        "receivedDate": "2026-08-14", "materialTypeId": "mat-cwiartka",
+        "pricePerKg": 5.0,
+        "groups": [_grupa(wolna, kg=650.0), _grupa(ruszona)],
+    }))
+
+    assert float(query_one(
+        "SELECT kg_received FROM raw_batches WHERE id=%s", (wolna["id"],))["kg_received"]) == 650.0
