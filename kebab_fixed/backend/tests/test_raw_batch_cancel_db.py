@@ -145,6 +145,37 @@ def test_nietkniety_filet_daje_sie_anulowac_i_znika_z_magazynu_miesa(db):
     assert float(saldo["q"]) == 0.0
 
 
+def test_numer_anulowanej_dostawy_bez_rozbioru_wraca_do_puli_razem_z_lotem(db):
+    """Prod 2026-08-19: biuro anulowało przez pomyłkę dostawę mięsa z/s (4700 kg)
+    i nie mogło wpisać jej z powrotem pod tym samym numerem.
+
+    Anulowanie oddawało numer PARTII, ale lot w `meat_stock` trzymał goły numer
+    dalej, a `meat_stock.lot_no` ma UNIQUE — więc ponowne przyjęcie wywalało się
+    na bazie. Okno anulowania obiecuje „numer wróci do puli", więc dla dostaw
+    bez rozbioru musi to być prawda tak samo jak dla ćwiartki."""
+    sid = _seed_supplier("sup-filet-pula")
+    first = _przyjmij_filet(sid, internal_no="482", kg=4700.0)
+    cancel_batch(first["id"])
+
+    again = _przyjmij_filet(sid, internal_no="482", kg=4700.0)
+
+    assert again["internal_batch_no"] == "482"
+    assert again["id"] != first["id"]
+    # Numer wskazuje dokładnie jeden ŻYWY lot — magazyn mięsa i picker WZ
+    # szukają po numerze, dwa trafienia dałyby losowy stan.
+    zywe = query_all(
+        "SELECT id FROM meat_stock WHERE lot_no='482' AND status <> 'CANCELLED'")
+    assert len(zywe) == 1
+    assert float(query_one(
+        "SELECT kg_available FROM meat_stock WHERE id=%s", (zywe[0]["id"],)
+    )["kg_available"]) == 4700.0
+    # Anulowany lot zostaje w historii — tylko bez numeru w puli.
+    stary = query_one(
+        "SELECT lot_no, status FROM meat_stock WHERE raw_batch_id=%s", (first["id"],))
+    assert stary["status"] == "CANCELLED"
+    assert stary["lot_no"] != "482"
+
+
 def test_filet_ruszony_nadal_blokuje_anulowanie(db):
     sid = _seed_supplier("sup-filet2")
     created = _przyjmij_filet(sid, internal_no="481")

@@ -453,9 +453,18 @@ def _cancel_reception_lots_cx(conn, batch_id: str) -> None:
                 conn, product_type="meat", batch_id=lot["id"], qty=kg,
                 movement_type="OUT", source_type="cancellation", source_id=batch_id,
             )
+        # Numer lotu WRACA DO PULI razem z numerem partii. `meat_stock.lot_no`
+        # ma UNIQUE, a lot powstaje już przy przyjęciu dostawy bez rozbioru —
+        # bez tego ponowne przyjęcie pod tym samym numerem wywalało się na
+        # bazie („duplicate key … meat_stock_lot_no_key”), mimo że okno
+        # anulowania obiecuje operatorowi zwolnienie numeru (prod 2026-08-19:
+        # anulowane przez pomyłkę mięso z/s 4700 kg, biuro nie mogło wpisać go
+        # z powrotem). Znacznik ANUL-<id> nigdy nie koliduje z gołym numerem,
+        # a historia lotu zostaje — tak samo jak przy partii.
         cx_execute(
             conn,
-            "UPDATE meat_stock SET kg_available=0, status='CANCELLED' WHERE id=%s",
+            "UPDATE meat_stock SET kg_available=0, status='CANCELLED', "
+            "lot_no='ANUL-' || id WHERE id=%s",
             (lot["id"],),
         )
 
