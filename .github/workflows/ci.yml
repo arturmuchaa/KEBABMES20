@@ -48,26 +48,64 @@ jobs:
       - run: pytest -q
 
   e2e:
+    name: e2e — prawdziwy stos (obraz produkcyjny + zasiana baza)
     runs-on: ubuntu-latest
-    # INFORMACYJNY, nie blokuje bramki deployu. Te testy nigdy nie działały
-    # w CI (workflow leżał poza korzeniem repo) i mają dziś dwie wady:
-    #   1. zoom.spec.ts jest nieaktualny wobec implementacji useZoom,
-    #   2. reszta specow woła /api/auth/login — w CI nie ma backendu ani
-    #      zasianej bazy z kontem testowym.
-    # Zdjąć continue-on-error, gdy powstanie zasiane środowisko testowe.
+    # Do 19.08.2026 to zadanie nie sprawdzało NICZEGO: nie było backendu ani
+    # konta testowego, więc specy padały na pierwszym logowaniu. Teraz stawiamy
+    # ten sam obraz, który idzie na produkcję, na świeżej bazie z zasianą jedną
+    # dostawą — i przechodzimy trzy ścieżki, bez których biuro rano nie ruszy.
+    #
+    # Nadal `continue-on-error`: dopóki nie pochodzi kilku tygodni bez fałszywych
+    # alarmów, nie ma prawa blokować wdrożenia. Zdjąć, gdy się ustabilizuje.
     continue-on-error: true
     # Krok `playwright install --with-deps` potrafi na runnerach GitHuba trwać
     # od 2 minut do PONAD GODZINY (19.08.2026 zmierzone: 2m19s, 22m, 1h41m).
-    # Przebieg zostawał wtedy w stanie „in_progress", a bramka deployu czeka na
-    # zakończone CI — czyli zadanie, które NICZEGO nie pilnuje, blokowało
-    # wdrożenia na godziny. Limit ucina to bez zmiany znaczenia: e2e i tak jest
-    # informacyjne, więc jego przerwanie nie psuje wyniku całego przebiegu.
-    timeout-minutes: 12
+    # Przebieg zostawał wtedy „in_progress", a bramka deployu czeka na CI
+    # ZAKOŃCZONE — zadanie informacyjne blokowało wdrożenia na godziny.
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: kebab_e2e
+          POSTGRES_USER: kebab
+          POSTGRES_PASSWORD: kebab
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kebab -d kebab_e2e"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     defaults:
       run:
         working-directory: kebab_fixed
     steps:
       - uses: actions/checkout@v4
+
+      - name: Zbuduj obraz produkcyjny
+        run: docker build -f deploy/Dockerfile -t kebab-mes:e2e .
+
+      - name: Uruchom MES na świeżej bazie
+        # --network host: kontener widzi postgresa usługi CI na localhost:5432
+        # i sam wystawia 8000 na hoście, gdzie czeka Playwright.
+        run: |
+          docker run -d --name mes --network host \
+            -e DATABASE_URL=postgresql://kebab:kebab@localhost:5432/kebab_e2e \
+            -e BIND=0.0.0.0:8000 -e WEB_CONCURRENCY=2 -e LOG_LEVEL=WARNING \
+            kebab-mes:e2e
+
+      - name: Czekaj, aż MES wstanie
+        run: |
+          for i in $(seq 1 60); do
+            if [ "$(curl -s http://localhost:8000/api/health || true)" = "true" ]; then
+              echo "MES gotowy po ${i}. próbie"; exit 0
+            fi
+            sleep 2
+          done
+          echo "MES nie wstał — logi kontenera:"; docker logs mes; exit 1
+
+      - name: Zasiej dane (konto biura + jedna dostawa)
+        run: docker exec -i mes python - < e2e/seed_e2e.py
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -75,7 +113,14 @@ jobs:
           cache-dependency-path: kebab_fixed/package-lock.json
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test
+
+      - name: Smoke po prawdziwym stosie
+        run: E2E_BASE_URL=http://localhost:8000 npx playwright test e2e/smoke.spec.ts
+
+      - name: Logi MES-a, gdy smoke padnie
+        if: ${{ failure() }}
+        run: docker logs mes | tail -80
+
       - uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:

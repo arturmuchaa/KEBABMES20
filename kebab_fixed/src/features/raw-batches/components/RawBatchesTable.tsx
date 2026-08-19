@@ -401,7 +401,7 @@ export function RawBatchesTable({
                               size="icon"
                               className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                               onClick={() => onCancel(b)}
-                              title="Usuń przyjęcie"
+                              title="Anuluj przyjęcie (zostaje w historii, numer wraca do puli)"
                             >
                               <Trash2 size={13} />
                             </Button>
