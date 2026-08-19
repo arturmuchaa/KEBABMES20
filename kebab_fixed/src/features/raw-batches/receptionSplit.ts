@@ -41,6 +41,10 @@ export interface ReceptionGroup {
   /** Numer WYSYŁANY do backendu — wypełniony tylko po ręcznej poprawce
    *  ołówkiem; pusty = nadaje go sekwencja (patrz `ordinalsToSend`). */
   sendBatchNo?:  string
+  /** Partia, którą ta grupa JEST — tylko w trybie EDYCJI dokumentu.
+   *  Puste = pozycja dołożona. Parujemy po id, nie po numerze porządkowym:
+   *  numer bywa zmieniany ołówkiem, a dołożony wiersz jeszcze go nie ma. */
+  batchId?:      string
   /** Ręcznie policzone pojemniki tej grupy; null = wylicz z kalibru.
    *  Nie wynika z pozycji HDI — dokłada je operator, który przeliczył stos
    *  (5.08.2026 partia 459: 199 pojemników na palecie vs 193 z wagi). */

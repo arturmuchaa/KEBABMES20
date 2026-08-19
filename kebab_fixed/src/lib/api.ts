@@ -7,6 +7,7 @@
  */
 import { tokenStore } from '@/features/auth/storage'
 import { formatCartonNo } from '@/lib/unitLocation'
+import type { UpdateReceptionDto } from '@/features/raw-batches/receptionEditView'
 import type {
   RawBatch, Supplier, User,
   CreateRawBatchDto, CreateSupplierDto, Paginated,
@@ -346,6 +347,11 @@ export const receptionsApi = {
       .then(rows => (Array.isArray(rows) ? rows : []).map(mapReception)),
 
   byId: (id: string) => get<any>(`/receptions/${encodeURIComponent(id)}`).then(mapReception),
+
+  /** Zapis CAŁEGO dokumentu po edycji — backend sam wylicza, co zmienić,
+   *  co dołożyć i który numer zdjąć. Pozycje już ruszone odrzuca (409). */
+  update: (id: string, dto: UpdateReceptionDto) =>
+    put<any>(`/receptions/${encodeURIComponent(id)}`, dto).then(mapReception),
 
   /** Anuluje CAŁY dokument dostawy (wszystkie numery porządkowe naraz).
    *  Wszystko albo nic — ruszony choćby jeden numer daje 409 i nic się nie
