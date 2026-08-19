@@ -65,16 +65,32 @@ def ensure_bootstrap_admin() -> None:
     login = settings.admin_login or "admin"
     password = settings.admin_password
     must_change = False
-    if not password:
+    losowe = not password
+    if losowe:
         password = secrets.token_urlsafe(12)
         must_change = True
+    # ON CONFLICT, bo gunicorn startuje KILKA workerów naraz: na świeżej bazie
+    # każdy przechodzi sprawdzenie powyżej i każdy próbuje wstawić to samo
+    # konto. Unikat na `login` przewracał wtedy worker przy starcie
+    # (19.08.2026, e2e na czystej bazie) — a świeża baza to każda nowa
+    # instalacja u klienta (deploy/nowy-klient.sh).
+    utworzone = query_one(
+        "INSERT INTO app_users (id, login, password_hash, role, display_name, active, "
+        "must_change_password, failed_attempts, created_at) "
+        "VALUES (%s,%s,%s,'admin','Administrator',true,%s,0,%s) "
+        "ON CONFLICT (login) DO NOTHING RETURNING id",
+        (cuid(), login, hash_secret(password), must_change, now_iso()),
+    )
+    if not utworzone:
+        # Konto założył inny worker — nasze hasło jest nieaktualne i nie wolno
+        # go pokazywać, bo operator próbowałby się nim zalogować.
+        logger.info("auth.bootstrap.admin_juz_istnieje", extra={"login": login})
+        return
+    # Hasło pokazujemy DOPIERO po udanym zapisie. Przegrany wyścig workerów
+    # wypisywał wcześniej hasło, którego w bazie nie ma — operator próbowałby
+    # się nim zalogować i zostałby z niczym.
+    if losowe:
         logger.warning("auth.bootstrap.random_password",
                        extra={"login": login, "hint": "ustaw ADMIN_PASSWORD w .env"})
         print(f"[BOOTSTRAP] konto admin: login={login} haslo={password} (ZMIEN po zalogowaniu)")
-    execute(
-        "INSERT INTO app_users (id, login, password_hash, role, display_name, active, "
-        "must_change_password, failed_attempts, created_at) "
-        "VALUES (%s,%s,%s,'admin','Administrator',true,%s,0,%s)",
-        (cuid(), login, hash_secret(password), must_change, now_iso()),
-    )
     logger.info("auth.bootstrap.admin_created", extra={"login": login})
