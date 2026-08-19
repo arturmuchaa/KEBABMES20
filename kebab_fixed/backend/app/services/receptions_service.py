@@ -483,6 +483,15 @@ def _attach_details(rec: Dict) -> Dict:
         # partia nieprzerobiona.
         b["kg_meat"] = (float(b["kg_received"] or 0) if not b["requires_deboning"]
                         else meat.get(b["id"], 0.0))
+    # Powód, dla którego pozycji nie wolno już ruszyć — formularz edycji
+    # wyszarza po nim wiersz. Liczymy go TYM SAMYM warunkiem, którego pilnuje
+    # zapis: druga definicja „ruszonej" pozycji rozjechałaby się z pierwszą
+    # i operator dostawałby 409 na polu, które wyglądało na edytowalne.
+    if batches:
+        with transaction() as conn:
+            for b in batches:
+                b["frozen_reason"] = (
+                    _batch_used_reason_cx(conn, b["id"], for_cancel=True) or "")
     rec["batches"] = batches
     # Anulowana rejestracja to korekta NASZEJ pomyłki, nie dostawa — nie może
     # podbijać wagi dokumentu (7/08/2026 pokazywało 20 010 kg zamiast 10 005).

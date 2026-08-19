@@ -284,3 +284,19 @@ def test_zdjecie_zamrozonego_numeru_daje_409(db):
         }))
     assert err.value.status_code == 409
     assert "516" in str(err.value.detail)
+
+
+def test_dokument_niesie_powod_zamrozenia_pozycji(db):
+    """Formularz wyszarza wiersz po TYM SAMYM warunku, którego pilnuje zapis —
+    dwie definicje „ruszonej" pozycji rozjechałyby się przy pierwszej zmianie."""
+    from app.services.receptions_service import get_reception
+
+    sid = _seed_dostawca()
+    out = _przyjmij(sid, grupy=(("517", 600.0), ("518", 400.0)))
+    rec_id, wolna, ruszona = out["reception"]["id"], out["batches"][0], out["batches"][1]
+    _zamroz(ruszona["id"])
+
+    doc = get_reception(rec_id)
+    powody = {b["internal_batch_no"]: b.get("frozen_reason") for b in doc["batches"]}
+    assert not powody["517"]
+    assert powody["518"]                    # powód po polsku, do pokazania w formularzu
