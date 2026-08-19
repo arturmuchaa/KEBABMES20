@@ -16,6 +16,7 @@ import { Separator } from '@/components/ui/separator'
 import { Plus, Trash2 } from 'lucide-react'
 import { useRawBatches, useCreateReception } from '../hooks/useRawBatches'
 import { RawBatchesTable }    from '../components/RawBatchesTable'
+import { podsumowanieAnulowania } from '../cancelSummary'
 import { EditRawBatchModal, type EditRawBatchFormData } from '../components/EditRawBatchModal'
 import { splitDeliveries, liveSummary, pluralDostawy, type MeatStockMap } from '../deliveryView'
 import { wzApi, receptionsApi } from '@/lib/apiClient'
@@ -174,7 +175,7 @@ export function RawBatchesPage() {
     setCancelLoading(true)
     try {
       await rawBatchesApi.cancel(cancelBatch.id, { reason: '' } as any)
-      toast.success(`Partia ${cancelBatch.internalBatchNo} usunięta`)
+      toast.success(`Partia ${cancelBatch.internalBatchNo} anulowana`)
       setCancelBatch(null)
       refetch()
     } catch (e) {
@@ -300,25 +301,47 @@ export function RawBatchesPage() {
       <Dialog open={cancelBatch !== null} onOpenChange={v => { if (!v) setCancelBatch(null) }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Usuń przyjęcie</DialogTitle>
+            <DialogTitle>Anuluj przyjęcie</DialogTitle>
             <DialogDescription>
-              Czy na pewno usunąć partię <code className="font-mono font-bold text-primary">{cancelBatch?.internalBatchNo}</code>?
-              Surowiec nie został jeszcze wykorzystany, więc usunięcie jest bezpieczne.
-              Dostawa zostanie oznaczona jako anulowana (zostaje w historii), a numer{' '}
-              <strong>{cancelBatch?.internalBatchNo}</strong> wróci do puli — będzie można
-              przyjąć pod nim ponownie.
-              {sameReception.length > 1 && (
-                <>
-                  {' '}Ten sam dokument <strong>{cancelBatch?.receptionNo}</strong> ma{' '}
-                  <strong>{sameReception.length} numerów</strong> — pozostałe zostaną,
-                  chyba że wycofasz całą dostawę.
-                </>
-              )}
+              Sprawdź, czy to ta dostawa — po anulowaniu jej kilogramy znikną z magazynu.
             </DialogDescription>
           </DialogHeader>
+
+          {/* Tożsamość partii. Sam numer nie wystarcza: na liście stoją obok
+              siebie kolejne numery od różnych dostawców i 2026-08-19 operator
+              anulował w ciemno nie tę dostawę, co chciał. */}
+          {cancelBatch && (() => {
+            const op = podsumowanieAnulowania(cancelBatch)
+            return (
+              <div className="rounded-lg border-2 border-destructive/30 bg-destructive/5 px-3 py-2.5">
+                <div className="flex items-baseline gap-2">
+                  <code className="font-mono text-lg font-bold text-destructive">{op.numer}</code>
+                  <span className="text-sm font-semibold text-foreground">{op.surowiec}</span>
+                </div>
+                <div className="text-sm font-semibold text-foreground mt-0.5">{op.dostawca}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {op.kg} · przyjęta {op.data}
+                </div>
+              </div>
+            )
+          })()}
+
+          <DialogDescription>
+            Surowiec nie został jeszcze wykorzystany, więc anulowanie jest bezpieczne.
+            Dostawa zostaje w historii jako anulowana, a numer{' '}
+            <strong>{cancelBatch?.internalBatchNo}</strong> wraca do puli — będzie można
+            przyjąć pod nim ponownie.
+            {sameReception.length > 1 && (
+              <>
+                {' '}Ten sam dokument <strong>{cancelBatch?.receptionNo}</strong> ma{' '}
+                <strong>{sameReception.length} numerów</strong> — pozostałe zostaną,
+                chyba że wycofasz całą dostawę.
+              </>
+            )}
+          </DialogDescription>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setCancelBatch(null)} disabled={cancelLoading}>
-              Anuluj
+              Nie, wróć
             </Button>
             {sameReception.length > 1 && (
               <Button variant="destructive" onClick={handleCancelReception} disabled={cancelLoading} className="gap-2">
@@ -331,7 +354,7 @@ export function RawBatchesPage() {
                 ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 : <Trash2 size={14} />
               }
-              Usuń
+              Anuluj {cancelBatch?.internalBatchNo}
             </Button>
           </DialogFooter>
         </DialogContent>
