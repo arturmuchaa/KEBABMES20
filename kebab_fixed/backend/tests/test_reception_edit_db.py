@@ -234,3 +234,53 @@ def test_zmiana_cwiartki_na_filet_tworzy_lot(db):
     assert lot is not None and float(lot["kg_available"]) == 300.0
     assert float(query_one("SELECT kg_available FROM raw_batches WHERE id=%s",
                            (partia["id"],))["kg_available"]) == 0.0
+
+
+def test_dolozenie_numeru_tworzy_partie_pod_tym_samym_dokumentem(db):
+    sid = _seed_dostawca()
+    out = _przyjmij(sid, grupy=(("511", 600.0),))
+    rec_id, partia = out["reception"]["id"], out["batches"][0]
+
+    update_reception(rec_id, ReceptionUpdate.model_validate({
+        "receivedDate": "2026-08-14", "materialTypeId": "mat-cwiartka",
+        "pricePerKg": 5.0,
+        "groups": [_grupa(partia), {"internalBatchNo": "512", "kgReceived": 400.0,
+                                    "supplierBatches": []}],
+    }))
+
+    partie = query_all(
+        "SELECT internal_batch_no, kg_received FROM raw_batches WHERE reception_id=%s "
+        "AND COALESCE(status,'') <> 'cancelled' ORDER BY internal_batch_seq", (rec_id,))
+    assert [p["internal_batch_no"] for p in partie] == ["511", "512"]
+
+
+def test_zdjecie_numeru_anuluje_partie_i_zwalnia_numer(db):
+    sid = _seed_dostawca()
+    out = _przyjmij(sid, grupy=(("513", 600.0), ("514", 400.0)))
+    rec_id, zostaje, znika = out["reception"]["id"], out["batches"][0], out["batches"][1]
+
+    update_reception(rec_id, ReceptionUpdate.model_validate({
+        "receivedDate": "2026-08-14", "materialTypeId": "mat-cwiartka",
+        "pricePerKg": 5.0, "groups": [_grupa(zostaje)],
+    }))
+
+    row = query_one("SELECT status, internal_batch_no, internal_batch_seq "
+                    "FROM raw_batches WHERE id=%s", (znika["id"],))
+    assert row["status"] == "cancelled"
+    assert row["internal_batch_no"].startswith("ANUL-")   # numer wrócił do puli
+    assert int(row["internal_batch_seq"]) == 514
+
+
+def test_zdjecie_zamrozonego_numeru_daje_409(db):
+    sid = _seed_dostawca()
+    out = _przyjmij(sid, grupy=(("515", 600.0), ("516", 400.0)))
+    rec_id, zostaje, ruszona = out["reception"]["id"], out["batches"][0], out["batches"][1]
+    _zamroz(ruszona["id"])
+
+    with pytest.raises(HTTPException) as err:
+        update_reception(rec_id, ReceptionUpdate.model_validate({
+            "receivedDate": "2026-08-14", "materialTypeId": "mat-cwiartka",
+            "pricePerKg": 5.0, "groups": [_grupa(zostaje)],
+        }))
+    assert err.value.status_code == 409
+    assert "516" in str(err.value.detail)

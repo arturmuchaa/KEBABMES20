@@ -24,8 +24,9 @@ from app.models.raw_batches import RawBatchCreate
 from app.models.receptions import ReceptionCreate, ReceptionGroupIn, ReceptionUpdate
 from app.services.hdi_scan_store import attach_bytes, take_temp
 from app.services.hdi_scan_render import caption_for, prepare_scan
-from app.services.raw_batches_service import (_batch_used_reason_cx, apply_group_cx,
-                                              create_batch_cx, retarget_material_cx)
+from app.services.raw_batches_service import (_batch_used_reason_cx, _cancel_batch_cx,
+                                              apply_group_cx, create_batch_cx,
+                                              retarget_material_cx)
 from app.utils.batch_numbers import delivery_period, format_delivery_no, parse_delivery_no
 from app.utils.ids import cuid, now_iso
 
@@ -313,16 +314,18 @@ def _assert_group_unchanged_cx(conn, batch_row: Dict, g, *,
     return reason
 
 
-def _replace_supplier_lines_cx(conn, reception_id: str, g) -> None:
+def _replace_supplier_lines_cx(conn, reception_id: str, g, *,
+                               batch_id: str = "") -> None:
     """Pozycje HDI tego numeru porządkowego zapisane od nowa.
 
     Kasujemy i wstawiamy zamiast diffować wiersz po wierszu: pozycje HDI nie
     mają własnej tożsamości (operator dokłada, usuwa i przestawia je w locie),
     a jedyne, co się liczy, to końcowa lista i jej kolejność (`seq`).
     """
+    bid = batch_id or g.batch_id
     cx_execute(
         conn, "DELETE FROM reception_supplier_batches WHERE raw_batch_id=%s",
-        (g.batch_id,))
+        (bid,))
     seq = 1
     for b in g.supplier_batches:
         if not (b.supplier_batch_no or "").strip():
@@ -335,7 +338,7 @@ def _replace_supplier_lines_cx(conn, reception_id: str, g) -> None:
                  kg, slaughter_date, expiry_date, seq)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
             """,
-            (cuid(), reception_id, g.batch_id, b.supplier_batch_no.strip(),
+            (cuid(), reception_id, bid, b.supplier_batch_no.strip(),
              float(b.kg) if b.kg else None, b.slaughter_date or None,
              b.expiry_date or None, seq),
         )
@@ -375,7 +378,32 @@ def update_reception(reception_id: str, dto: ReceptionUpdate) -> Dict[str, Any]:
         }
         for g in dto.groups:
             if not g.batch_id:
-                continue                      # dołożenie pozycji — Task 6
+                # Pozycja dołożona przy edycji — powstaje tak samo jak przy
+                # rejestrowaniu dostawy, żeby dostała numer z sekwencji, lot
+                # magazynu mięsa i zaksięgowane nośniki.
+                numery_nowej = [b.supplier_batch_no.strip() for b in g.supplier_batches
+                                if (b.supplier_batch_no or "").strip()]
+                nowa = create_batch_cx(conn, RawBatchCreate.model_validate({
+                    "internalBatchNo": g.internal_batch_no or "",
+                    "materialTypeId": dto.material_type_id or "",
+                    "supplierId": rec["supplier_id"],
+                    "supplierBatchNo": ", ".join(numery_nowej),
+                    "slaughterDate": g.slaughter_date or "",
+                    "receivedDate": day,
+                    "expiryDate": g.expiry_date or "",
+                    "kgReceived": g.kg_received,
+                    "pricePerKg": dto.price_per_kg,
+                    "invoiceNo": dto.document_no or "",
+                    "notes": dto.notes or "",
+                    "containerKg": g.container_kg,
+                    "containersCount": g.containers_count,
+                    "palletsH1": g.pallets_h1,
+                    "palletsOther": g.pallets_other,
+                    "palletsOtherKind": g.pallets_other_kind,
+                    "isService": bool(rec.get("is_service")),
+                }), reception_id=reception_id)
+                _replace_supplier_lines_cx(conn, reception_id, g, batch_id=nowa["id"])
+                continue
             if g.batch_id not in istniejace:
                 raise HTTPException(400, f"Pozycja {g.batch_id} nie należy do tej dostawy")
             if _assert_group_unchanged_cx(conn, istniejace[g.batch_id], g,
@@ -402,6 +430,19 @@ def update_reception(reception_id: str, dto: ReceptionUpdate) -> Dict[str, Any]:
                 pallets_h1=g.pallets_h1, pallets_other=g.pallets_other,
                 pallets_other_kind=g.pallets_other_kind)
             _replace_supplier_lines_cx(conn, reception_id, g)
+
+        # Numer, którego formularz nie odesłał, operator zdjął z dokumentu.
+        # Anulujemy go tą samą drogą co ręczne anulowanie: wiersz zostaje
+        # w historii ze znacznikiem ANUL-, a numer wraca do puli.
+        przyslane = {g.batch_id for g in dto.groups if g.batch_id}
+        for bid, brow in istniejace.items():
+            if bid in przyslane:
+                continue
+            powod = _batch_used_reason_cx(conn, bid, for_cancel=True)
+            if powod:
+                numer = brow.get("internal_batch_no") or bid
+                raise HTTPException(409, f"Numer {numer} jest już w użyciu — nie można go zdjąć")
+            _cancel_batch_cx(conn, bid)
 
     out = get_reception(reception_id)
     out["warnings"] = []
