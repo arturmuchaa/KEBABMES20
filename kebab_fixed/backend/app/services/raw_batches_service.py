@@ -378,6 +378,20 @@ def create_batch_cx(
     return row
 
 
+def _wymaga_rozbioru_cx(conn, batch_id: str) -> bool:
+    """Czy surowiec tej partii idzie przez rozbiór (ćwiartka), czy prosto na
+    magazyn mięsa (filet, mięso z/s). Brak rodzaju = ćwiartka, jak przy
+    tworzeniu partii."""
+    row = cx_query_one(
+        conn,
+        "SELECT COALESCE(t.requires_deboning, true) AS wymaga "
+        "FROM raw_batches b LEFT JOIN raw_material_types t ON t.id = b.material_type_id "
+        "WHERE b.id=%s",
+        (batch_id,),
+    )
+    return bool(row["wymaga"]) if row else True
+
+
 def apply_group_cx(conn, batch_id: str, *, kg: float, price_per_kg: float,
                    supplier_batch_no: str, slaughter_date: str, expiry_date: str,
                    received_date: str, document_no: str, notes: str,
@@ -389,6 +403,11 @@ def apply_group_cx(conn, batch_id: str, *, kg: float, price_per_kg: float,
     korekta wagi zmienia i `kg_received`, i `kg_available`. Partia ruszona tu
     nie dociera — filtruje ją strażnik w `update_reception`.
     """
+    # Gdzie mieszka stan, zależy od rodzaju surowca: ćwiartka trzyma kilogramy
+    # na dostawie, a filet i mięso z/s idą przy przyjęciu prosto do meat_stock
+    # i na dostawie zostaje zero. Wpisanie tam wagi zrobiłoby z jednej dostawy
+    # dwa stany naraz — w magazynie surowca i w magazynie mięsa.
+    z_rozbiorem = _wymaga_rozbioru_cx(conn, batch_id)
     row = cx_execute_returning(
         conn,
         """
@@ -397,11 +416,14 @@ def apply_group_cx(conn, batch_id: str, *, kg: float, price_per_kg: float,
             slaughter_date=%s, expiry_date=%s, received_date=%s, invoice_no=%s, notes=%s
         WHERE id=%s RETURNING *
         """,
-        (kg, kg, price_per_kg, supplier_batch_no, slaughter_date or None,
-         expiry_date or None, received_date or None, document_no, notes, batch_id),
+        (kg, kg if z_rozbiorem else 0, price_per_kg, supplier_batch_no,
+         slaughter_date or None, expiry_date or None, received_date or None,
+         document_no, notes, batch_id),
     )
     if not row:
         raise HTTPException(404, "Partia nie znaleziona")
+    if not z_rozbiorem:
+        resize_reception_lot_cx(conn, batch_id, kg)
     # Nośniki księgują się RÓŻNICOWO, więc przy edycji to wywołanie jest
     # obowiązkowe — pominięte zostawia dostawcę z fantomowym saldem pojemników.
     _book_batch_containers(
@@ -427,6 +449,36 @@ _UNTOUCHED_RECEPTION_LOT = (
     " AND COALESCE(kg_in_process,0) = 0"
     " AND COALESCE(kg_available,0) >= COALESCE(kg_initial,0)"
 )
+
+
+def resize_reception_lot_cx(conn, batch_id: str, kg_new: float) -> None:
+    """Dociągnij lot przyjęcia (filet / mięso z/s) do skorygowanej wagi.
+
+    Bez tego edycja takiej dostawy rozjeżdżała dostawę z magazynem mięsa —
+    dlatego dotąd była w ogóle zablokowana. Różnicę księguje ruch, żeby
+    kartoteka lotu tłumaczyła, skąd wzięła się nowa liczba.
+    """
+    lot = cx_query_one(
+        conn,
+        "SELECT id, kg_initial, kg_available FROM meat_stock "
+        f"WHERE raw_batch_id=%s AND {_UNTOUCHED_RECEPTION_LOT} FOR UPDATE",
+        (batch_id,),
+    )
+    if not lot:
+        return
+    delta = round(float(kg_new) - float(lot["kg_available"] or 0), 3)
+    if abs(delta) < 0.001:
+        return
+    # Ruch PRZED zmianą stanu — create_stock_movement waliduje żywy stan lotu.
+    create_stock_movement(
+        conn, product_type="meat", batch_id=lot["id"], qty=abs(delta),
+        movement_type="IN" if delta > 0 else "OUT",
+        source_type="reception_edit", source_id=batch_id,
+    )
+    cx_execute(
+        conn, "UPDATE meat_stock SET kg_initial=%s, kg_available=%s WHERE id=%s",
+        (kg_new, kg_new, lot["id"]),
+    )
 
 
 def _batch_used_reason_cx(conn, batch_id: str, for_cancel: bool = False) -> str | None:

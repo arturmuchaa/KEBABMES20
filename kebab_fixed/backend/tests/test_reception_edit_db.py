@@ -155,3 +155,28 @@ def test_zamrozona_pozycja_bez_zmian_przechodzi(db):
 
     assert float(query_one(
         "SELECT kg_received FROM raw_batches WHERE id=%s", (wolna["id"],))["kg_received"]) == 650.0
+
+
+def test_korekta_kg_fileta_idzie_razem_z_lotem(db):
+    sid = _seed_dostawca()
+    out = _przyjmij(sid, material="mat-filet-kurczak", grupy=(("507", 167.0),))
+    rec_id, partia = out["reception"]["id"], out["batches"][0]
+
+    update_reception(rec_id, ReceptionUpdate.model_validate({
+        "receivedDate": "2026-08-14", "materialTypeId": "mat-filet-kurczak",
+        "pricePerKg": 10.0, "groups": [_grupa(partia, kg=180.0)],
+    }))
+
+    lot = query_one("SELECT kg_initial, kg_available FROM meat_stock WHERE raw_batch_id=%s",
+                    (partia["id"],))
+    assert float(lot["kg_initial"]) == 180.0
+    assert float(lot["kg_available"]) == 180.0
+    # Księga lotu = stan: przyjęcie 167 + korekta 13.
+    saldo = query_one(
+        "SELECT COALESCE(SUM(qty),0) AS q FROM stock_movements "
+        "WHERE product_type='meat' AND batch_id=(SELECT id FROM meat_stock WHERE raw_batch_id=%s)",
+        (partia["id"],))
+    assert float(saldo["q"]) == 180.0
+    # Dostawa bez rozbioru trzyma zero — stan żyje w locie.
+    assert float(query_one("SELECT kg_available FROM raw_batches WHERE id=%s",
+                           (partia["id"],))["kg_available"]) == 0.0
