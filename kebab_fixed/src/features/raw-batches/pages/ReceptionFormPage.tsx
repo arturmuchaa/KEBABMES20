@@ -10,7 +10,7 @@
  * strona listy nie musi już nic wiedzieć o rejestracji.
  */
 import { useEffect } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, CheckCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/dialog'
 
 import { ReceptionForm } from '../components/ReceptionForm'
-import { useCreateReception } from '../hooks/useRawBatches'
+import { useCreateReception, useEditReception } from '../hooks/useRawBatches'
 import { useApi } from '@/hooks/useApi'
 import { suppliersApi } from '@/lib/apiClient'
 import type { SupplierOption } from '../types'
@@ -30,6 +30,14 @@ import type { SupplierOption } from '../types'
 const LIST_PATH = '/office/raw-batches'
 
 export function ReceptionFormPage() {
+  const { receptionId } = useParams()
+  // Ta sama strona obsługuje rejestrację i poprawianie dostawy — formularz
+  // ma być JEDEN, żeby edycja nie została z połową pól, jak stary modal.
+  if (receptionId) return <ReceptionEditPage receptionId={receptionId} />
+  return <ReceptionCreatePage />
+}
+
+function ReceptionCreatePage() {
   const navigate = useNavigate()
   // Rodzaj surowca przychodzi z zakładki, z której operator kliknął „Nowe
   // przyjęcie" — dotąd wstrzykiwała go strona listy.
@@ -181,5 +189,45 @@ export function ReceptionFormPage() {
     </Dialog>
 
     </div>
+  )
+}
+
+function ReceptionEditPage({ receptionId }: { receptionId: string }) {
+  const navigate = useNavigate()
+  const suppliers = useApi(() => suppliersApi.list())
+  const supplierOptions: SupplierOption[] = (suppliers.data ?? []).map(
+    s => ({ value: s.id, label: s.name }))
+
+  const {
+    header, updateHeader, groups, frozen, receptionNo, loaded,
+    loading, error, submit,
+  } = useEditReception(receptionId, no => {
+    toast.success(`Dostawa ${no} zapisana`)
+    navigate(LIST_PATH)
+  })
+
+  if (!loaded) {
+    return (
+      <div className="p-6 text-sm text-muted-foreground">
+        {error ?? 'Wczytywanie dostawy…'}
+      </div>
+    )
+  }
+
+  return (
+    <ReceptionForm
+      mode="edit"
+      initialGroups={groups}
+      frozen={frozen}
+      onClose={() => navigate(LIST_PATH)}
+      onSubmit={async g => { const err = await submit(g); if (err) toast.error(err) }}
+      header={header}
+      suggestedReceptionNo={receptionNo}
+      suggestedBatchNo=""
+      supplierOptions={supplierOptions}
+      loading={loading}
+      error={error}
+      onHeaderChange={updateHeader}
+    />
   )
 }

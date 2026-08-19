@@ -17,7 +17,6 @@ import { Plus, Trash2 } from 'lucide-react'
 import { useRawBatches, useCreateReception } from '../hooks/useRawBatches'
 import { RawBatchesTable }    from '../components/RawBatchesTable'
 import { podsumowanieAnulowania } from '../cancelSummary'
-import { EditRawBatchModal, type EditRawBatchFormData } from '../components/EditRawBatchModal'
 import { splitDeliveries, liveSummary, pluralDostawy, type MeatStockMap } from '../deliveryView'
 import { wzApi, receptionsApi } from '@/lib/apiClient'
 import { rawBatchesApi } from '../api'
@@ -39,6 +38,7 @@ function mapExpiryToUi(expiry: { level: string; daysLeft: number } | null) {
 }
 
 export function RawBatchesPage() {
+  const navigate = useNavigate()
   const { batches, supplierOptions, loading, refetch } = useRawBatches()
 
   // ── Rodzaje surowca (ćwiartka / filet / indyk…) — przełącznik ──────────────
@@ -94,45 +94,13 @@ export function RawBatchesPage() {
     () => splitDeliveries(matBatches, resolveOpts), [matBatches, resolveOpts])
   const summary = useMemo(() => liveSummary(live, resolveOpts), [live, resolveOpts])
 
-  // ── Edit state ─────────────────────────────────────────────────────────────
-  const [editBatch,   setEditBatch]   = useState<RawBatch | null>(null)
-  const [editLoading, setEditLoading] = useState(false)
-  const [editError,   setEditError]   = useState<string | null>(null)
-
+  // ── Edycja dostawy — pełny formularz na osobnej stronie ───────────────────
   const handleEditOpen = useCallback((batch: RawBatch) => {
-    setEditBatch(batch)
-    setEditError(null)
-  }, [])
-
-  const handleEditClose = useCallback(() => {
-    setEditBatch(null)
-    setEditError(null)
-  }, [])
-
-  const handleEditSubmit = useCallback(async (data: EditRawBatchFormData) => {
-    if (!editBatch) return
-    setEditLoading(true)
-    setEditError(null)
-    try {
-      await rawBatchesApi.edit(editBatch.id, {
-        supplierBatchNo: data.supplierBatchNo,
-        slaughterDate:   data.slaughterDate,
-        receivedDate:    data.receivedDate,
-        expiryDate:      data.expiryDate,
-        kgReceived:      data.kgReceived,
-        pricePerKg:      data.pricePerKg,
-        invoiceNo:       data.invoiceNo,
-        notes:           data.notes,
-      } as any)
-      setEditBatch(null)
-      refetch()
-      toast.success(`Partia ${editBatch.internalBatchNo} zaktualizowana`)
-    } catch (e) {
-      setEditError(e instanceof Error ? e.message : 'Błąd zapisu')
-    } finally {
-      setEditLoading(false)
-    }
-  }, [editBatch, refetch])
+    // Edycja to teraz PEŁNY formularz dokumentu dostawy, nie modal na kilka
+    // pól — poprawianie wagi czy rodzaju surowca nie wymaga już anulowania
+    // dostawy i wpisywania jej od nowa.
+    if (batch.receptionId) navigate(`/office/raw-batches/${batch.receptionId}/edycja`)
+  }, [navigate])
 
   // ── Cancel (delete) state ──────────────────────────────────────────────────
   const [cancelBatch,   setCancelBatch]   = useState<RawBatch | null>(null)
@@ -187,7 +155,6 @@ export function RawBatchesPage() {
 
   // Rejestracja dostawy ma własną stronę (ReceptionFormPage) — lista tylko
   // tam prowadzi i odświeża się po powrocie.
-  const navigate = useNavigate()
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -286,16 +253,6 @@ export function RawBatchesPage() {
       </div>
 
       {/* Modal formularza */}
-
-      {/* Modal edycji */}
-      <EditRawBatchModal
-        open={editBatch !== null}
-        batch={editBatch}
-        loading={editLoading}
-        error={editError}
-        onClose={handleEditClose}
-        onSubmit={handleEditSubmit}
-      />
 
       {/* Dialog potwierdzenia usuniecia (cancel) */}
       <Dialog open={cancelBatch !== null} onOpenChange={v => { if (!v) setCancelBatch(null) }}>

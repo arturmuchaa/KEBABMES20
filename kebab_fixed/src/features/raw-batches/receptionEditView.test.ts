@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { documentToForm, formToUpdatePayload } from './receptionEditView'
+import { documentToForm, formToUpdatePayload, groupsToLines, withBatchIds } from './receptionEditView'
 
 const REC = {
   id: 'rec1', receptionNo: '16/08', receivedDate: '2026-08-14',
@@ -53,5 +53,31 @@ describe('formToUpdatePayload — stan formularza na żądanie PUT', () => {
     const { header, groups } = documentToForm(REC)
     const dto = formToUpdatePayload(header, [groups[0]])
     expect(dto.groups.map(g => g.batchId)).toEqual(['b1'])
+  })
+})
+
+describe('groupsToLines — grupy z powrotem na wiersze formularza', () => {
+  it('wiersze HDI zachowują przypisanie do numeru porządkowego', () => {
+    const { groups } = documentToForm(REC)
+    const lines = groupsToLines(groups)
+    expect(lines.map(l => l.group)).toEqual([0, 1])
+    expect(lines[0].supplierBatchNo).toBe('17/08')
+  })
+
+  it('pozycja BEZ wpisów HDI dostaje wiersz zastępczy z jej wagą', () => {
+    // Inaczej numer porządkowy wpisany bez rozpisywania HDI (a takich jest
+    // większość) wróciłby z formularza z zerem — kg grupy liczy się z wierszy.
+    const lines = groupsToLines(documentToForm(REC).groups)
+    const drugi = lines.filter(l => l.group === 1)
+    expect(drugi).toHaveLength(1)
+    expect(drugi[0].kgReceived).toBe(100)
+    expect(drugi[0].supplierBatchNo).toBe('')
+  })
+
+  it('withBatchIds przywraca powiązanie grupy z partią po indeksie', () => {
+    const { groups } = documentToForm(REC)
+    const przeliczone = groups.map(g => ({ ...g, batchId: undefined })) as any
+    expect(withBatchIds(przeliczone, ['b1', 'b2']).map((g: any) => g.batchId))
+      .toEqual(['b1', 'b2'])
   })
 })

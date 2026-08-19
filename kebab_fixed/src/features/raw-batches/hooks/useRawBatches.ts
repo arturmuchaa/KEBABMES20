@@ -18,6 +18,7 @@ import { todayIso }       from '@/lib/utils'
 import { rawBatchesApi }  from '../api'
 import { receptionsApi }  from '@/lib/apiClient'
 import type { ReceptionGroup } from '../receptionSplit'
+import { documentToForm, formToUpdatePayload, type UpdateReceptionDto } from '../receptionEditView'
 import type {
   RawBatch, CreateRawBatchDto, EditRawBatchDto, CancelRawBatchDto,
   SupplierOption, ValidationResult, ValidationWarning, EditLockResult,
@@ -376,4 +377,68 @@ import type { RawBatchStatus }  from '../types'
 export function computeDisplayStatus(batch: RawBatch): RawBatchStatus {
   if (batch.status === 'cancelled') return 'cancelled'
   return deriveRawBatchStatus(batch.expiryDate, Number(batch.kgAvailable))
+}
+
+// ─── useEditReception — poprawianie ZAPISANEJ dostawy ─────────────────────────
+
+/**
+ * Edycja dokumentu dostawy w tym samym formularzu, w którym się ją rejestruje.
+ *
+ * Dotąd był tylko modal na osiem pól, więc poprawienie czegokolwiek poza
+ * nagłówkiem (waga numeru porządkowego, rodzaj surowca, dołożenie pozycji)
+ * wymagało anulowania dostawy i wpisania jej od nowa — z nowym numerem
+ * i drugim dokumentem na to samo auto.
+ *
+ * Bez podpowiedzi numerów: dokument już je ma i nie wolno ich przesuwać.
+ */
+export function useEditReception(
+  receptionId: string,
+  onSuccess: (receptionNo: string) => void,
+) {
+  const [header, setHeader]   = useState<ReceptionHeader>(emptyHeader())
+  const [groups, setGroups]   = useState<ReceptionGroup[]>([])
+  const [frozen, setFrozen]   = useState<Record<string, string>>({})
+  const [receptionNo, setNo]  = useState('')
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loaded, setLoaded]   = useState(false)
+
+  const mutation = useMutation((dto: UpdateReceptionDto) =>
+    receptionsApi.update(receptionId, dto))
+
+  useEffect(() => {
+    let porzucone = false
+    void (async () => {
+      try {
+        const rec = await receptionsApi.byId(receptionId)
+        if (porzucone) return
+        const { header: h, groups: g, frozen: f } = documentToForm(rec)
+        setHeader(h); setGroups(g); setFrozen(f); setNo(h.receptionNo)
+        setLoaded(true)
+      } catch (e) {
+        if (!porzucone) setLoadError(e instanceof Error ? e.message : 'Nie udało się wczytać dostawy')
+      }
+    })()
+    return () => { porzucone = true }
+  }, [receptionId])
+
+  const updateHeader = useCallback(<K extends keyof ReceptionHeader>(
+    key: K, value: ReceptionHeader[K],
+  ) => setHeader(prev => ({ ...prev, [key]: value })), [])
+
+  /** Zapis CAŁEGO dokumentu jednym PUT — backend sam wylicza, co zmienić,
+   *  co dołożyć i który numer zdjąć. Zwraca komunikat błędu albo null. */
+  const submit = useCallback(async (wyslane: ReceptionGroup[]): Promise<string | null> => {
+    try {
+      await mutation.mutate(formToUpdatePayload(header, wyslane))
+      onSuccess(receptionNo)
+      return null
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Błąd zapisu dostawy'
+    }
+  }, [header, receptionNo]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return {
+    header, updateHeader, groups, frozen, receptionNo, loaded,
+    loading: mutation.loading, error: mutation.error ?? loadError, submit,
+  }
 }

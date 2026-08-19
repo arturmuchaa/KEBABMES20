@@ -453,6 +453,9 @@ function mapReception(raw: any): Reception {
     batches: (raw.batches ?? []).map((b: any) => ({
       ...mapRawBatch(b),
       kgMeat: Number(b.kg_meat ?? b.kgMeat ?? 0),
+      // Powód, dla którego pozycji nie wolno już ruszyć (pusty = wolna).
+      // Liczy go backend tym samym warunkiem, którym blokuje zapis.
+      frozenReason: String(b.frozen_reason ?? b.frozenReason ?? ''),
       supplierBatches: (b.supplier_batches ?? b.supplierBatches ?? []).map((s: any) => ({
         supplierBatchNo: s.supplier_batch_no ?? s.supplierBatchNo ?? '',
         // kg = null dla partii odtworzonych migracją: numery były sklejone

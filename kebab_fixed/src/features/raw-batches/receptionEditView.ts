@@ -1,4 +1,5 @@
 import type { HdiLine, ReceptionGroup } from './receptionSplit'
+import type { ReceptionHeader } from './types'
 
 /**
  * Dostawa z API ↔ stan pełnego formularza przyjęcia.
@@ -12,15 +13,6 @@ import type { HdiLine, ReceptionGroup } from './receptionSplit'
  * Mapowanie jest czystą funkcją, żeby dało się je sprawdzić testem bez DOM-u:
  * to tu ginęły dotąd kilogramy pozycji HDI przy rozjeździe nazw pól.
  */
-
-export interface ReceptionHeader {
-  receivedDate:   string
-  materialTypeId: string
-  documentNo:     string
-  hdiNo:          string
-  notes:          string
-  pricePerKg:     number
-}
 
 export interface EditableDelivery {
   header: ReceptionHeader
@@ -91,12 +83,22 @@ export function documentToForm(rec: any): EditableDelivery {
   const pierwsza = batches[0] ?? {}
   return {
     header: {
-      receivedDate:   String(rec?.receivedDate ?? ''),
-      materialTypeId: String(pierwsza?.materialTypeId ?? ''),
-      documentNo:     String(rec?.documentNo ?? ''),
-      hdiNo:          String(rec?.hdiNo ?? ''),
-      notes:          String(rec?.notes ?? ''),
-      pricePerKg:     num(pierwsza?.pricePerKg),
+      receptionNo:      String(rec?.receptionNo ?? ''),
+      receivedDate:     String(rec?.receivedDate ?? ''),
+      supplierId:       String(rec?.supplierId ?? ''),
+      materialTypeId:   String(pierwsza?.materialTypeId ?? ''),
+      documentNo:       String(rec?.documentNo ?? ''),
+      hdiNo:            String(rec?.hdiNo ?? ''),
+      hdiScanId:        '',
+      docKg:            num(rec?.docKg),
+      docContainers:    num(rec?.docContainers),
+      pricePerKg:       num(pierwsza?.pricePerKg),
+      containerKg:      pierwsza?.containerKg ?? null,
+      palletsH1:        num(pierwsza?.palletsH1),
+      palletsOther:     num(pierwsza?.palletsOther),
+      palletsOtherKind: String(pierwsza?.palletsOtherKind ?? ''),
+      isService:        Boolean(rec?.isService),
+      notes:            String(rec?.notes ?? ''),
     },
     groups,
     frozen,
@@ -130,4 +132,39 @@ export function formToUpdatePayload(
       containersCount: g.containersCount ?? null,
     })),
   }
+}
+
+/**
+ * Grupy z powrotem na wiersze, którymi żyje formularz (`lines` + `groupCount`).
+ *
+ * Numer porządkowy wpisany BEZ rozpisywania pozycji HDI — a takich jest
+ * większość — nie ma żadnego wiersza, a kilogramy grupy liczą się właśnie
+ * z wierszy. Bez wiersza zastępczego taka pozycja wróciłaby z formularza
+ * z zerem i edycja „bez zmian" wyzerowałaby dostawę.
+ */
+export function groupsToLines(groups: ReceptionGroup[]): HdiLine[] {
+  return groups.flatMap((g, i) => (
+    g.lines.length > 0
+      ? g.lines.map(l => ({ ...l, group: i }))
+      : [{
+          supplierBatchNo: '',
+          kgReceived:      g.kg,
+          slaughterDate:   g.slaughterDate,
+          expiryDate:      g.expiryDate,
+          group:           i,
+        }]
+  ))
+}
+
+/**
+ * Przywraca powiązanie grupy z partią po indeksie.
+ *
+ * Formularz przelicza grupy z wierszy przy każdej zmianie i `batchId` mu przy
+ * tym ginie — a bez niego backend potraktowałby istniejące pozycje jako
+ * dołożone i założył drugi komplet numerów porządkowych.
+ */
+export function withBatchIds(
+  groups: ReceptionGroup[], ids: (string | undefined)[],
+): ReceptionGroup[] {
+  return groups.map((g, i) => ({ ...g, batchId: ids[i] }))
 }

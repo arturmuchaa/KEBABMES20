@@ -267,7 +267,10 @@ export function RawBatchesTable({
               // Backend odrzuca edycję każdej ruszonej partii (409), a partia
               // bez rozbioru jest „ruszona" od chwili przyjęcia — ma wpis
               // w meat_stock. untouched już to uwzględnia.
-              const canEdit = untouched && b.status !== 'cancelled' && !b.isInUse
+              // Ołówek prowadzi do PEŁNEGO formularza dokumentu, więc otwiera
+              // się także dla dostawy częściowo ruszonej — formularz wyszarzy
+              // pozycje, których nie wolno zmienić, a resztę da się poprawić.
+              const canEdit = b.status !== 'cancelled' && Boolean(b.receptionId)
               // Anulowanie ma łagodniejszy warunek niż edycja: filet i mięso
               // z/s są „tknięte" od chwili przyjęcia (lot w magazynie mięsa),
               // więc pod regułą edycji nie dało się wycofać nawet dostawy

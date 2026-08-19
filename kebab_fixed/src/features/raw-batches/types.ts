@@ -164,6 +164,9 @@ export interface ReceptionHeader {
 
 export interface ReceptionBatch extends RawBatch {
   readonly supplierBatches: SupplierBatchItem[]
+  /** Powód, dla którego pozycji nie wolno już ruszyć; pusty = wolna.
+   *  Liczy go backend tym samym warunkiem, którym blokuje zapis edycji. */
+  readonly frozenReason?: string
   /** Mięso z rozbioru tego numeru porządkowego; 0 = jeszcze nierozebrana. */
   readonly kgMeat: number
 }

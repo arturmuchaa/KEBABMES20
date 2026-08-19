@@ -22,6 +22,7 @@ import {
   receptionIssues, receptionTotalKg, renumberAfterRemove, withContainers,
   type HdiLine, type ReceptionGroup,
 } from '../receptionSplit'
+import { groupsToLines, withBatchIds } from '../receptionEditView'
 import { receptionsApi } from '@/lib/apiClient'
 import { errorText, isDesktopApp, scanDocument, scannerDiagnose } from '@/lib/desktopScanner'
 import type { ReceptionHeader } from '../types'
@@ -59,6 +60,14 @@ interface ReceptionFormProps {
   loading:              boolean
   error:                string | null
   onHeaderChange:       <K extends keyof ReceptionHeader>(key: K, value: ReceptionHeader[K]) => void
+  /** 'edit' = poprawianie ZAPISANEJ dostawy: dokument już ma numery, więc
+   *  formularz startuje z jego treści i nie podpowiada nowych. */
+  mode?:                'create' | 'edit'
+  /** Treść dostawy do wypełnienia formularza (tylko tryb edycji). */
+  initialGroups?:       ReceptionGroup[]
+  /** Powód zamrożenia per `batchId` — pozycji ruszonej nie wolno zmienić
+   *  (backend i tak ją odrzuci, więc nie udajemy, że da się ją edytować). */
+  frozen?:              Record<string, string>
 }
 
 function emptyLine(group = 0): HdiLine {
@@ -93,7 +102,9 @@ function nextLine(prev: HdiLine | undefined, group: number): HdiLine {
 export function ReceptionForm({
   onClose, onSubmit, header, suggestedReceptionNo, suggestedBatchNo,
   supplierOptions, loading, error, onHeaderChange,
+  mode = 'create', initialGroups, frozen = {},
 }: ReceptionFormProps) {
+  const edycja = mode === 'edit'
   const canBeService = header.materialTypeId === SERVICE_MATERIAL_ID
   const isService = header.isService && canBeService
 
@@ -101,6 +112,20 @@ export function ReceptionForm({
   const [editingNo, setEditingNo] = useState(false)
   const [lines, setLines] = useState<HdiLine[]>([emptyLine()])
   const [groupCount, setGroupCount] = useState(1)
+  /** Partie, którymi SĄ kolejne grupy (tryb edycji) — po indeksie.
+   *  Formularz przelicza grupy z wierszy i `batchId` mu przy tym ginie. */
+  const [batchIds, setBatchIds] = useState<(string | undefined)[]>([])
+
+  // Dokument wczytuje się asynchronicznie, więc formularz zasiewamy dopiero,
+  // gdy przyjdzie — i tylko RAZ, żeby nie zadeptać zmian operatora.
+  const zasiane = useRef(false)
+  useEffect(() => {
+    if (!initialGroups || initialGroups.length === 0 || zasiane.current) return
+    zasiane.current = true
+    setLines(groupsToLines(initialGroups))
+    setGroupCount(initialGroups.length)
+    setBatchIds(initialGroups.map(g => g.batchId))
+  }, [initialGroups])
   const fileRef = useRef<HTMLInputElement>(null)
   const [scanning, setScanning] = useState(false)
   const [scanNote, setScanNote] = useState<{ ok: boolean; text: string } | null>(null)
@@ -397,8 +422,11 @@ export function ReceptionForm({
 
             <div className="space-y-1.5">
               <Label>Dostawca *</Label>
-              <Select value={header.supplierId} onValueChange={v => onHeaderChange('supplierId', v)}>
-                <SelectTrigger className="h-11">
+              <Select value={header.supplierId} onValueChange={v => onHeaderChange('supplierId', v)}
+                      disabled={edycja}>
+                <SelectTrigger className="h-11" title={edycja
+                  ? 'Zła firma? Anuluj dostawę i wpisz ją ponownie — zmiana dostawcy przesunęłaby saldo pojemników.'
+                  : undefined}>
                   <SelectValue placeholder="Wybierz dostawcę..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -608,8 +636,14 @@ export function ReceptionForm({
             <div className="grid gap-2">
               {groups.map(g => {
                 const auto = containersForKg(g.kg, header.containerKg ?? null)
+                // Pozycja już ruszona (rozbiór, mięso, uboczne) — backend
+                // odrzuci każdą jej zmianę, więc mówimy to wprost zamiast
+                // pozwalać wpisywać liczby, które i tak nie przejdą.
+                const powodZamrozenia = frozen[batchIds[g.index] ?? ''] ?? ''
                 return (
-                  <Card key={g.index} className={g.kg > 0 ? '' : 'border-destructive/40 bg-destructive/5'}>
+                  <Card key={g.index} className={
+                    powodZamrozenia ? 'opacity-70 border-amber-300 bg-amber-50/40'
+                    : g.kg > 0 ? '' : 'border-destructive/40 bg-destructive/5'}>
                     <CardContent className="p-3 flex items-center gap-4">
                       <div className="w-28 shrink-0">
                         <CardDescription className="text-[10px] font-bold uppercase">Nr porz.</CardDescription>
@@ -632,13 +666,15 @@ export function ReceptionForm({
                             </CardTitle>
                             {/* Poprawka przesuwa numery NASTĘPNYCH stosów —
                                 tak samo, jak numeruje je hala. */}
-                            <button
-                              type="button"
-                              onClick={() => zacznijEdycje(g.index)}
-                              title="Popraw numer porządkowy"
-                              className="text-muted-foreground/40 hover:text-primary transition-colors">
-                              <Pencil size={12} />
-                            </button>
+                            {!powodZamrozenia && (
+                              <button
+                                type="button"
+                                onClick={() => zacznijEdycje(g.index)}
+                                title="Popraw numer porządkowy"
+                                className="text-muted-foreground/40 hover:text-primary transition-colors">
+                                <Pencil size={12} />
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -646,6 +682,11 @@ export function ReceptionForm({
                         <CardDescription className="text-[10px] font-bold uppercase">Waga</CardDescription>
                         <CardTitle className="text-lg font-black tabular-nums">{fmtKg(g.kg, 1)} kg</CardTitle>
                       </div>
+                      {powodZamrozenia && (
+                        <Badge variant="outline" className="border-amber-400 text-amber-800 bg-amber-100/60">
+                          {powodZamrozenia}
+                        </Badge>
+                      )}
                       <div className="w-28 shrink-0">
                         <CardDescription className="text-[10px] font-bold uppercase">Pojemniki</CardDescription>
                         <Input
@@ -868,13 +909,13 @@ export function ReceptionForm({
                       bg-background/95 backdrop-blur flex justify-end gap-2">
         <Button variant="outline" onClick={onClose} disabled={loading}>Anuluj</Button>
         <Button
-          onClick={() => onSubmit(groups)}
+          onClick={() => onSubmit(edycja ? withBatchIds(groups, batchIds) : groups)}
           disabled={!header.supplierId || totalKg <= 0 || issues.errors.length > 0}
           className="gap-2">
           {loading
             ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             : <Plus size={15} />}
-          Przyjmij dostawę ({fmtKg(totalKg, 0)} kg
+          {edycja ? 'Zapisz zmiany' : 'Przyjmij dostawę'} ({fmtKg(totalKg, 0)} kg
           {groupCount > 1
             ? ` → nr ${batchNos.join(', ')}`
             : `, nr ${batchNos[0] || '—'}`})

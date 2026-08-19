@@ -174,6 +174,7 @@ export default function App() {
         <Route path="faktury"               element={<PurchaseInvoicesPage />} />
         <Route path="raw-batches"           element={<RawBatchesPage />} />
         <Route path="raw-batches/nowe"      element={<ReceptionFormPage />} />
+        <Route path="raw-batches/:receptionId/edycja" element={<ReceptionFormPage />} />
         <Route path="magazyn/surowiec"      element={<RawStockPage />} />
         <Route path="magazyn/przyprawy"     element={<SpiceStockPage />} />
         <Route path="magazyn/mieso-przyp"   element={<SeasonedMeatPage />} />
