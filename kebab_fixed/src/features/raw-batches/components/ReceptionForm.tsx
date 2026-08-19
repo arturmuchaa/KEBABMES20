@@ -356,10 +356,15 @@ export function ReceptionForm({
           <ArrowLeft size={15} /> Wróć do dostaw
         </button>
         <div>
-          <CardTitle className="text-xl">Przyjęcie surowca</CardTitle>
+          <CardTitle className="text-xl">
+            {edycja
+              ? `Edycja dostawy ${header.receptionNo || suggestedReceptionNo}`
+              : 'Przyjęcie surowca'}
+          </CardTitle>
           <CardDescription>
-            Cała dostawa pod jednym numerem przyjęcia — rozbita na tyle numerów
-            porządkowych, ile stosów fizycznie stanęło w chłodni.
+            {edycja
+              ? 'Poprawiasz zapisany dokument — pozycje już użyte w produkcji są zablokowane.'
+              : 'Cała dostawa pod jednym numerem przyjęcia — rozbita na tyle numerów porządkowych, ile stosów fizycznie stanęło w chłodni.'}
           </CardDescription>
         </div>
       </div>
@@ -610,7 +615,9 @@ export function ReceptionForm({
                       <Button
                         variant="ghost" size="icon"
                         onClick={() => removeLine(idx)}
-                        disabled={lines.length <= 1}
+                        // Wiersz należący do pozycji już użytej w produkcji —
+                        // usunięcie i tak wróciłoby z serwera jako 409.
+                        disabled={lines.length <= 1 || Boolean(frozen[batchIds[line.group] ?? ''])}
                         className="h-9 w-9 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
                         <X size={13} />
                       </Button>
