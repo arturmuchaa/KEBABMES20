@@ -130,6 +130,13 @@ export function ReceptionForm({
     setGroupCount(initialGroups.length)
     setBatchIds(initialGroups.map(g => g.batchId))
     setNumeryDokumentu(initialGroups.map(g => g.batchNo ?? ''))
+    // Ręcznie policzone pojemniki wracają jako nadpisania: to liczba
+    // PRZELICZONA na rampie, a wyliczenie z kalibru daje inną (5.08.2026
+    // partia 459: 199 policzonych vs 193 z wagi). Nośniki są saldem wobec
+    // dostawcy, więc zapis edycji nie może ich po cichu wyrównać do wzoru.
+    setContainerOverride(Object.fromEntries(
+      initialGroups.flatMap((g, i) =>
+        g.containersCount == null ? [] : [[i, g.containersCount] as const])))
   }, [initialGroups])
   const fileRef = useRef<HTMLInputElement>(null)
   const [scanning, setScanning] = useState(false)
@@ -153,8 +160,8 @@ export function ReceptionForm({
     if (!edycja) {
       setLines([emptyLine()])
       setGroupCount(1)
+      setContainerOverride({})
     }
-    setContainerOverride({})
     setScanNote(null)
   }, [open, suggestedReceptionNo, edycja])
 

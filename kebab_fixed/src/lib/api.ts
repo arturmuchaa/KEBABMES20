@@ -213,7 +213,8 @@ function toSnake(obj: any): any {
 // Backend Python zwraca pola w snake_case (internal_batch_no, kg_received...).
 // Frontend TypeScript oczekuje camelCase (internalBatchNo, kgReceived...).
 // Bez tego mapowania: b.kgReceived = undefined → undefined.toFixed() → CRASH (NaNd)
-function mapRawBatch(raw: any): RawBatch {
+/** Eksportowane do testów: to mapowanie po cichu gubiło nośniki zwrotne. */
+export function mapRawBatch(raw: any): RawBatch {
   return {
     id:               raw.id,
     internalBatchNo:  raw.internal_batch_no  ?? raw.internalBatchNo  ?? '',
@@ -237,6 +238,14 @@ function mapRawBatch(raw: any): RawBatch {
     pricePerKg:       Number(raw.price_per_kg ?? raw.pricePerKg ?? 0),
     invoiceNo:        raw.invoice_no         ?? raw.invoiceNo,
     materialTypeId:   raw.material_type_id   ?? raw.materialTypeId ?? '',
+    // Nośniki zwrotne: kaliber pojemnika, ręcznie policzona liczba i palety.
+    // Brak kalibru to NULL („niekalibrowany"), a nie zero kilogramów — zero
+    // znaczyłoby pojemnik bez wagi i psuło wyliczenie liczby pojemników.
+    containerKg:      raw.container_kg      ?? raw.containerKg      ?? null,
+    containersCount:  raw.containers_count  ?? raw.containersCount  ?? null,
+    palletsH1:        Number(raw.pallets_h1    ?? raw.palletsH1    ?? 0),
+    palletsOther:     Number(raw.pallets_other ?? raw.palletsOther ?? 0),
+    palletsOtherKind: raw.pallets_other_kind ?? raw.palletsOtherKind ?? '',
     materialName:     raw.material_name      ?? raw.materialName   ?? '',
     // Dokument dostawy, który spina kilka numerów porządkowych w jedno przyjęcie.
     receptionId:      raw.reception_id       ?? raw.receptionId,

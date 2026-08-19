@@ -54,6 +54,15 @@ export interface RawBatch {
   /** Czy do przyjęcia przypięto skan HDI (dokument do kontroli). */
   readonly receptionHasScan?: boolean
 
+  // Nośniki zwrotne przyjęte z dostawą. To SALDO wobec dostawcy, nie ozdoba
+  // ekranu — edycja dostawy bez tych liczb przeksięgowałaby je różnicowo
+  // na zero (prod 2026-08-19: formularz edycji wstawał bez kalibru i pojemników).
+  readonly containerKg?:      number | null   // null = niekalibrowany
+  readonly containersCount?:  number | null   // ręczna liczba; wygrywa z wyliczeniem
+  readonly palletsH1?:        number
+  readonly palletsOther?:     number
+  readonly palletsOtherKind?: string
+
   // Status — opcjonalny cache backendu + 'cancelled' który nie da się derive'ować
   readonly status?: RawBatchStatus
 

@@ -28,7 +28,8 @@ const REC = {
   supplierId: 'sup1', documentNo: 'WZ 728/MDU/08/2026', hdiNo: '33836', notes: '',
   batches: [
     { id: 'b1', internalBatchNo: '493', kgReceived: 4800, pricePerKg: 5.4,
-      materialTypeId: 'mat-cwiartka', supplierBatches: [
+      materialTypeId: 'mat-cwiartka', containerKg: 15, containersCount: 317,
+      palletsH1: 17, supplierBatches: [
         { supplierBatchNo: 'A-1', kg: 4800, slaughterDate: '2026-08-18', expiryDate: '2026-08-25' }] },
     { id: 'b2', internalBatchNo: '494', kgReceived: 4200, pricePerKg: 5.4,
       materialTypeId: 'mat-cwiartka', supplierBatches: [] },
@@ -81,6 +82,14 @@ describe('ReceptionForm w trybie edycji', () => {
     expect(screen.getAllByText('493').length).toBeGreaterThan(0)
     expect(screen.getAllByText('494').length).toBeGreaterThan(0)
     expect(screen.queryByText('#1')).toBeNull()
+  })
+
+  it('wczytuje ręcznie policzone pojemniki, a nie wylicza ich od nowa', () => {
+    // 317 to liczba PRZELICZONA na rampie; z kalibru 15 kg wyszłoby 320.
+    // Nośniki to saldo wobec dostawcy — zapis edycji z wyliczoną liczbą
+    // przeksięgowałby różnicę bez powodu.
+    pokazFormularz()
+    expect(screen.getByDisplayValue('317')).toBeTruthy()
   })
 
   it('mówi wprost, że to edycja, a nie nowe przyjęcie', () => {
