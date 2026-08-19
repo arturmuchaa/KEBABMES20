@@ -14,8 +14,11 @@ Frontend = React + TypeScript + Vite + Tailwind (font Fira). Desktop = Tauri.
 ## ▶️ Run / test / build
 
 - Backend tests: `cd backend && python3 -m pytest -q`
+  (DB tests need the FULL url: `TEST_DATABASE_URL=postgresql://postgres:p@localhost:55437/kebab_mes_test` — without it they SKIP silently and go falsely green)
 - Frontend: `npm run dev` · build `npm run build` · types `npx tsc --noEmit` · unit `npx vitest run`
 - DB: PostgreSQL via `DATABASE_URL` (env / `/opt/kebab/config/.env`).
+- **Rehearsal on a copy of prod (server):** `deploy/proba_generalna.sh` — office path on real data, then drops the copy.
+- **Post-deploy smoke (server):** `deploy/smoke.sh` · **rollback:** `deploy/rollback.sh [all|frontend|backend|--lista]`
 
 ---
 
@@ -42,7 +45,9 @@ Frontend = React + TypeScript + Vite + Tailwind (font Fira). Desktop = Tauri.
   ```
   If prod has content not in the repo → **commit it to git FIRST.** A full deploy silently overwrites prod-only changes (this broke label resolution on 2026-06-21).
 - Deploy with `deploy/deploy.sh [all|frontend|backend]` — it backs up, swaps `dist` atomically, health-checks (8010), and rolls back on failure. `frontend` does not restart the backend.
-- **After deploy, smoke-test critical flows** (label print, WZ/HDI) before calling it done.
+- **After deploy run `deploy/smoke.sh`** (backend, page, served bundle vs built, update channel, DB) — the served bundle check catches "deploy OK, nginx still serving the old file".
+- **Before deploying anything that writes kilograms, run `deploy/proba_generalna.sh`.** On 2026-08-19 the whole suite was green (1124 backend, 750 frontend) while an edit left a 150 kg gap between batch stock and the movement ledger; only the rehearsal on real data caught it.
+- Rollback is one command: `deploy/rollback.sh` (keeps the pre-rollback state, restarts the backend, health-checks).
 
 ---
 
@@ -63,3 +68,5 @@ Frontend = React + TypeScript + Vite + Tailwind (font Fira). Desktop = Tauri.
 
 - Stock math: 1000 kg, use 200 → expect 800, and a movement logged.
 - Pure logic (yields, allocations, requirements) is unit-tested without DB; API logic via monkeypatched loaders (auth middleware blocks raw TestClient).
+- **Every screen where an operator types numbers that reach the ledger gets a COMPONENT test** (`*.test.tsx`, jsdom via the `// @vitest-environment jsdom` docblock, `afterEach(cleanup)` — there is no `globals: true`). Mount it with real document data and assert what the operator sees. Reason: on 2026-08-19 three bugs reached production (empty edit form, ordinals shown as `#1/#2`, missing carriers) while every pure-logic test stayed green — all three lived in EFFECT ORDER and field mapping, where pure logic does not reach. Pattern: `src/features/raw-batches/receptionEditForm.test.tsx`.
+- **Response mappers are testable and tested** (`mapRawBatch` is exported for that): a field the mapper silently drops type-checks fine and disappears only on screen.
