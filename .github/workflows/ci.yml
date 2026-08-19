@@ -112,7 +112,26 @@ jobs:
           cache: npm
           cache-dependency-path: kebab_fixed/package-lock.json
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+
+      # Przeglądarka z cache. Bez tego `playwright install` na runnerach
+      # GitHuba trwa od 2 minut do ponad godziny (19.08.2026: 2m19s, 22m,
+      # 1h41m) i to ON, a nie testy, zjadał limit czasu zadania.
+      - name: Cache przeglądarek Playwrighta
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('kebab_fixed/package-lock.json') }}
+
+      - name: Pobierz przeglądarkę (tylko przy pudle w cache)
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
+        timeout-minutes: 8
+        run: npx playwright install --with-deps chromium
+
+      - name: Zależności systemowe przeglądarki (przy trafieniu w cache)
+        if: steps.cache-playwright.outputs.cache-hit == 'true'
+        timeout-minutes: 5
+        run: npx playwright install-deps chromium
 
       - name: Smoke po prawdziwym stosie
         run: E2E_BASE_URL=http://localhost:8000 npx playwright test e2e/smoke.spec.ts
