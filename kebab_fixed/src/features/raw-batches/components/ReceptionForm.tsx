@@ -115,6 +115,10 @@ export function ReceptionForm({
   /** Partie, którymi SĄ kolejne grupy (tryb edycji) — po indeksie.
    *  Formularz przelicza grupy z wierszy i `batchId` mu przy tym ginie. */
   const [batchIds, setBatchIds] = useState<(string | undefined)[]>([])
+  /** Numery porządkowe NADANE dostawie (tryb edycji) — po indeksie grupy.
+   *  W edycji nie ma podpowiedzi z sekwencji, więc bez tego formularz
+   *  pokazywałby „#1, #2" zamiast numerów stojących fizycznie w chłodni. */
+  const [numeryDokumentu, setNumeryDokumentu] = useState<string[]>([])
 
   // Dokument wczytuje się asynchronicznie, więc formularz zasiewamy dopiero,
   // gdy przyjdzie — i tylko RAZ, żeby nie zadeptać zmian operatora.
@@ -125,6 +129,7 @@ export function ReceptionForm({
     setLines(groupsToLines(initialGroups))
     setGroupCount(initialGroups.length)
     setBatchIds(initialGroups.map(g => g.batchId))
+    setNumeryDokumentu(initialGroups.map(g => g.batchNo ?? ''))
   }, [initialGroups])
   const fileRef = useRef<HTMLInputElement>(null)
   const [scanning, setScanning] = useState(false)
@@ -174,8 +179,13 @@ export function ReceptionForm({
   const [ordinalDraft, setOrdinalDraft] = useState('')
 
   const batchNos = useMemo(
-    () => ordinalLabels(suggestedBatchNo, groupCount, ordinalOverride),
-    [suggestedBatchNo, groupCount, ordinalOverride])
+    () => (edycja
+      // Dokument ma już swoje numery — pozycja dołożona dostanie numer
+      // z sekwencji dopiero przy zapisie, więc do tego czasu mówimy „nowy".
+      ? Array.from({ length: groupCount }, (_, i) =>
+          ordinalOverride[i] ?? numeryDokumentu[i] ?? 'nowy')
+      : ordinalLabels(suggestedBatchNo, groupCount, ordinalOverride)),
+    [edycja, numeryDokumentu, suggestedBatchNo, groupCount, ordinalOverride])
 
   // Numery lecą do backendu TYLKO gdy operator je poprawił — inaczej źródłem
   // prawdy zostaje sekwencja (dwa stanowiska naraz nie mogą dostać tego samego).
@@ -678,7 +688,10 @@ export function ReceptionForm({
                             </CardTitle>
                             {/* Poprawka przesuwa numery NASTĘPNYCH stosów —
                                 tak samo, jak numeruje je hala. */}
-                            {!powodZamrozenia && (
+                            {/* W edycji numer istniejącej pozycji jest już
+                                nadany i zapis go nie rusza — ołówek obiecywałby
+                                zmianę, której backend nie zrobi. */}
+                            {!powodZamrozenia && !(edycja && batchIds[g.index]) && (
                               <button
                                 type="button"
                                 onClick={() => zacznijEdycje(g.index)}

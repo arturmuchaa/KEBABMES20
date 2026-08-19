@@ -73,6 +73,16 @@ describe('ReceptionForm w trybie edycji', () => {
     expect(screen.getByDisplayValue('4200')).toBeTruthy()
   })
 
+  it('pokazuje numery porządkowe NADANE dostawie, nie kolejne od jedynki', () => {
+    // Zgłoszenie z produkcji: edycja pokazywała „#1, #2" zamiast 493 i 494.
+    // Numery brały się z podpowiedzi sekwencji, której w edycji nie ma —
+    // a to numery fizycznie nadane stosom w chłodni.
+    pokazFormularz()
+    expect(screen.getAllByText('493').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('494').length).toBeGreaterThan(0)
+    expect(screen.queryByText('#1')).toBeNull()
+  })
+
   it('mówi wprost, że to edycja, a nie nowe przyjęcie', () => {
     pokazFormularz()
     // Nagłówek bywa też w podtytule — wystarczy, że napis w ogóle jest.
