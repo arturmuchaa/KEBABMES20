@@ -56,6 +56,13 @@ jobs:
     #      zasianej bazy z kontem testowym.
     # Zdjąć continue-on-error, gdy powstanie zasiane środowisko testowe.
     continue-on-error: true
+    # Krok `playwright install --with-deps` potrafi na runnerach GitHuba trwać
+    # od 2 minut do PONAD GODZINY (19.08.2026 zmierzone: 2m19s, 22m, 1h41m).
+    # Przebieg zostawał wtedy w stanie „in_progress", a bramka deployu czeka na
+    # zakończone CI — czyli zadanie, które NICZEGO nie pilnuje, blokowało
+    # wdrożenia na godziny. Limit ucina to bez zmiany znaczenia: e2e i tak jest
+    # informacyjne, więc jego przerwanie nie psuje wyniku całego przebiegu.
+    timeout-minutes: 12
     defaults:
       run:
         working-directory: kebab_fixed
