@@ -180,3 +180,57 @@ def test_korekta_kg_fileta_idzie_razem_z_lotem(db):
     # Dostawa bez rozbioru trzyma zero — stan żyje w locie.
     assert float(query_one("SELECT kg_available FROM raw_batches WHERE id=%s",
                            (partia["id"],))["kg_available"]) == 0.0
+
+
+def test_zmiana_zs_na_filet_zostawia_kilogramy_na_miejscu(db):
+    """Przypadek Wąsika 2026-08-14: filet przyjęty jako mięso z/s."""
+    sid = _seed_dostawca()
+    out = _przyjmij(sid, material="mat-mieso-zs", grupy=(("508", 167.0),))
+    rec_id, partia = out["reception"]["id"], out["batches"][0]
+
+    update_reception(rec_id, ReceptionUpdate.model_validate({
+        "receivedDate": "2026-08-14", "materialTypeId": "mat-filet-kurczak",
+        "pricePerKg": 10.0, "groups": [_grupa(partia)],
+    }))
+
+    b = query_one("SELECT material_type_id, material_name FROM raw_batches WHERE id=%s",
+                  (partia["id"],))
+    lot = query_one("SELECT material_type_id, kg_available FROM meat_stock WHERE raw_batch_id=%s",
+                    (partia["id"],))
+    assert b["material_type_id"] == "mat-filet-kurczak"
+    assert b["material_name"] == "Filet z kurczaka"
+    assert lot["material_type_id"] == "mat-filet-kurczak"
+    assert float(lot["kg_available"]) == 167.0
+
+
+def test_zmiana_fileta_na_cwiartke_zdejmuje_lot_i_oddaje_kg_dostawie(db):
+    sid = _seed_dostawca()
+    out = _przyjmij(sid, material="mat-filet-kurczak", grupy=(("509", 200.0),))
+    rec_id, partia = out["reception"]["id"], out["batches"][0]
+
+    update_reception(rec_id, ReceptionUpdate.model_validate({
+        "receivedDate": "2026-08-14", "materialTypeId": "mat-cwiartka",
+        "pricePerKg": 5.0, "groups": [_grupa(partia)],
+    }))
+
+    assert float(query_one("SELECT kg_available FROM raw_batches WHERE id=%s",
+                           (partia["id"],))["kg_available"]) == 200.0
+    lot = query_one("SELECT kg_available, status FROM meat_stock WHERE raw_batch_id=%s",
+                    (partia["id"],))
+    assert float(lot["kg_available"]) == 0.0 and lot["status"] == "CANCELLED"
+
+
+def test_zmiana_cwiartki_na_filet_tworzy_lot(db):
+    sid = _seed_dostawca()
+    out = _przyjmij(sid, grupy=(("510", 300.0),))
+    rec_id, partia = out["reception"]["id"], out["batches"][0]
+
+    update_reception(rec_id, ReceptionUpdate.model_validate({
+        "receivedDate": "2026-08-14", "materialTypeId": "mat-filet-kurczak",
+        "pricePerKg": 10.0, "groups": [_grupa(partia)],
+    }))
+
+    lot = query_one("SELECT kg_available FROM meat_stock WHERE raw_batch_id=%s", (partia["id"],))
+    assert lot is not None and float(lot["kg_available"]) == 300.0
+    assert float(query_one("SELECT kg_available FROM raw_batches WHERE id=%s",
+                           (partia["id"],))["kg_available"]) == 0.0

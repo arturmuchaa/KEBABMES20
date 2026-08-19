@@ -25,7 +25,7 @@ from app.models.receptions import ReceptionCreate, ReceptionGroupIn, ReceptionUp
 from app.services.hdi_scan_store import attach_bytes, take_temp
 from app.services.hdi_scan_render import caption_for, prepare_scan
 from app.services.raw_batches_service import (_batch_used_reason_cx, apply_group_cx,
-                                              create_batch_cx)
+                                              create_batch_cx, retarget_material_cx)
 from app.utils.batch_numbers import delivery_period, format_delivery_no, parse_delivery_no
 from app.utils.ids import cuid, now_iso
 
@@ -290,7 +290,8 @@ def create_reception(dto: ReceptionCreate) -> Dict[str, Any]:
     return {"reception": reception, "batches": batches, "warnings": warnings}
 
 
-def _assert_group_unchanged_cx(conn, batch_row: Dict, g) -> Optional[str]:
+def _assert_group_unchanged_cx(conn, batch_row: Dict, g, *,
+                               material_type_id: str = "") -> Optional[str]:
     """Zamrożoną pozycję wolno przysłać TYLKO bez zmian.
 
     Backend porównuje wartości sam — nie ufa temu, że front wyszarzył wiersz.
@@ -306,6 +307,9 @@ def _assert_group_unchanged_cx(conn, batch_row: Dict, g) -> Optional[str]:
         raise HTTPException(409, f"Numer {numer} jest już w użyciu — nie można zmienić wagi")
     if (g.internal_batch_no or numer) != numer:
         raise HTTPException(409, f"Numer {numer} jest już w użyciu — nie można zmienić numeru")
+    if material_type_id and material_type_id != (batch_row.get("material_type_id") or ""):
+        raise HTTPException(
+            409, f"Numer {numer} jest już w użyciu — nie można zmienić rodzaju surowca")
     return reason
 
 
@@ -374,8 +378,14 @@ def update_reception(reception_id: str, dto: ReceptionUpdate) -> Dict[str, Any]:
                 continue                      # dołożenie pozycji — Task 6
             if g.batch_id not in istniejace:
                 raise HTTPException(400, f"Pozycja {g.batch_id} nie należy do tej dostawy")
-            if _assert_group_unchanged_cx(conn, istniejace[g.batch_id], g):
+            if _assert_group_unchanged_cx(conn, istniejace[g.batch_id], g,
+                                          material_type_id=dto.material_type_id):
                 continue          # zamrożona i bez zmian — nie ruszamy jej wcale
+            # Rodzaj surowca decyduje, GDZIE leżą kilogramy, więc przenosimy je
+            # przed zapisem wagi — inaczej apply_group_cx pisałby stan w miejsce,
+            # z którego zaraz by go zabrano.
+            if dto.material_type_id:
+                retarget_material_cx(conn, g.batch_id, dto.material_type_id)
             numery = [b.supplier_batch_no.strip() for b in g.supplier_batches
                       if (b.supplier_batch_no or "").strip()]
             apply_group_cx(

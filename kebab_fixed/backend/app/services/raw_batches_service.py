@@ -325,29 +325,6 @@ def create_batch_cx(
             (row["id"],),
         )
         row["kg_available"] = 0
-        cx_execute(
-            conn,
-            """
-            INSERT INTO meat_stock
-                (id, lot_no, raw_batch_id, raw_batch_no, kg_initial,
-                 kg_available, production_date, expiry_date, status,
-                 material_type_id, material_name, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,COALESCE(%s::date, CURRENT_DATE),%s,'AVAILABLE',%s,%s,%s)
-            """,
-            (
-                cuid(),
-                internal_no,
-                row["id"],
-                internal_no,
-                kg,
-                kg,
-                dto.received_date or None,
-                dto.expiry_date or None,
-                mat_id,
-                mat_name,
-                now_iso(),
-            ),
-        )
         create_stock_movement(
             conn,
             product_type="raw",
@@ -357,18 +334,7 @@ def create_batch_cx(
             source_type="reception_transfer",
             source_id=row["id"],
         )
-        ms_row = cx_query_one(
-            conn, "SELECT id FROM meat_stock WHERE lot_no=%s", (internal_no,)
-        )
-        create_stock_movement(
-            conn,
-            product_type="meat",
-            batch_id=ms_row["id"] if ms_row else internal_no,
-            qty=kg,
-            movement_type="IN",
-            source_type="reception",
-            source_id=row["id"],
-        )
+        _create_reception_lot_cx(conn, row, {"id": mat_id, "name": mat_name}, kg)
 
     if reception_id:
         cx_execute(conn, "UPDATE raw_batches SET reception_id=%s WHERE id=%s",
@@ -376,6 +342,102 @@ def create_batch_cx(
         row["reception_id"] = reception_id
 
     return row
+
+
+def _create_reception_lot_cx(conn, batch_row: Dict, mat: Dict, kg: float) -> None:
+    """Lot magazynu mięsa dla dostawy BEZ rozbioru (filet, mięso z/s).
+
+    Wydzielone z `create_batch`, bo tę samą wstawkę robi zmiana rodzaju
+    surowca przy edycji dokumentu — dwie kopie rozjechałyby się przy pierwszej
+    zmianie kolumn albo źródła ruchu.
+
+    Numer lotu = numer porządkowy dostawy: magazyn mięsa, picker WZ i plan
+    masowania szukają dostawy właśnie po nim.
+    """
+    lot_no = batch_row["internal_batch_no"]
+    cx_execute(
+        conn,
+        """
+        INSERT INTO meat_stock
+            (id, lot_no, raw_batch_id, raw_batch_no, kg_initial,
+             kg_available, production_date, expiry_date, status,
+             material_type_id, material_name, created_at)
+        VALUES (%s,%s,%s,%s,%s,%s,COALESCE(%s::date, CURRENT_DATE),%s,'AVAILABLE',%s,%s,%s)
+        """,
+        (
+            cuid(), lot_no, batch_row["id"], lot_no, kg, kg,
+            batch_row.get("received_date") or None,
+            batch_row.get("expiry_date") or None,
+            mat.get("id") or "", mat.get("name") or "", now_iso(),
+        ),
+    )
+    ms_row = cx_query_one(conn, "SELECT id FROM meat_stock WHERE lot_no=%s", (lot_no,))
+    create_stock_movement(
+        conn,
+        product_type="meat",
+        batch_id=ms_row["id"] if ms_row else lot_no,
+        qty=kg,
+        movement_type="IN",
+        source_type="reception",
+        source_id=batch_row["id"],
+    )
+
+
+def retarget_material_cx(conn, batch_id: str, material_type_id: str) -> None:
+    """Zmiana rodzaju surowca na NIETKNIĘTEJ dostawie.
+
+    Dotąd nie było na to ścieżki i jedynym wyjściem było anulowanie dostawy
+    i wpisanie jej od nowa — z nowym numerem, drugim dokumentem i skanem
+    opisanym starym numerem (prod 2026-08-19: dwa dokumenty KOKO na jedną
+    dostawę i anulowana przez pomyłkę SZUMERA).
+
+    Trzy przypadki, każdy z ruchem domykającym księgę — nigdy cichy UPDATE:
+      filet ↔ mięso z/s  — kilogramy zostają w locie, zmienia się rodzaj,
+      filet/z-s → ćwiartka — lot znika, kilogramy wracają na dostawę,
+      ćwiartka → filet/z-s — powstaje lot, dostawa schodzi do zera.
+    """
+    b = cx_query_one(conn, "SELECT * FROM raw_batches WHERE id=%s FOR UPDATE", (batch_id,))
+    if not b or (b.get("material_type_id") or "") == material_type_id:
+        return
+    mat = cx_query_one(
+        conn, "SELECT id, name, requires_deboning FROM raw_material_types WHERE id=%s",
+        (material_type_id,))
+    if not mat:
+        raise HTTPException(400, "Nieznany rodzaj surowca")
+    stary = cx_query_one(
+        conn, "SELECT requires_deboning FROM raw_material_types WHERE id=%s",
+        (b.get("material_type_id") or "",))
+    bylo_z_rozbiorem = bool(stary["requires_deboning"]) if stary else True
+    ma_rozbior = bool(mat["requires_deboning"])
+    kg = float(b.get("kg_received") or 0)
+
+    cx_execute(
+        conn, "UPDATE raw_batches SET material_type_id=%s, material_name=%s WHERE id=%s",
+        (mat["id"], mat["name"], batch_id))
+
+    if bylo_z_rozbiorem == ma_rozbior:
+        if not ma_rozbior:      # filet ↔ mięso z/s — lot zostaje, zmienia rodzaj
+            cx_execute(
+                conn,
+                "UPDATE meat_stock SET material_type_id=%s, material_name=%s "
+                f"WHERE raw_batch_id=%s AND {_UNTOUCHED_RECEPTION_LOT}",
+                (mat["id"], mat["name"], batch_id))
+        return
+
+    if ma_rozbior:              # filet/z-s → ćwiartka: lot znika, kg wracają
+        _cancel_reception_lots_cx(conn, batch_id)
+        create_stock_movement(
+            conn, product_type="raw", batch_id=batch_id, qty=kg,
+            movement_type="IN", source_type="reception_edit", source_id=batch_id)
+        cx_execute(conn, "UPDATE raw_batches SET kg_available=%s WHERE id=%s", (kg, batch_id))
+        return
+
+    # ćwiartka → filet/z-s: kg schodzą z dostawy do nowego lotu
+    create_stock_movement(
+        conn, product_type="raw", batch_id=batch_id, qty=kg,
+        movement_type="OUT", source_type="reception_edit", source_id=batch_id)
+    cx_execute(conn, "UPDATE raw_batches SET kg_available=0 WHERE id=%s", (batch_id,))
+    _create_reception_lot_cx(conn, b, mat, kg)
 
 
 def _wymaga_rozbioru_cx(conn, batch_id: str) -> bool:
