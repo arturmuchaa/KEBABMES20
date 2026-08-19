@@ -378,6 +378,39 @@ def create_batch_cx(
     return row
 
 
+def apply_group_cx(conn, batch_id: str, *, kg: float, price_per_kg: float,
+                   supplier_batch_no: str, slaughter_date: str, expiry_date: str,
+                   received_date: str, document_no: str, notes: str,
+                   container_kg, containers_count, pallets_h1: int,
+                   pallets_other: int, pallets_other_kind) -> Dict:
+    """Zapis JEDNEJ pozycji dokumentu po edycji (ćwiartka).
+
+    Stan idzie razem z wagą: dla ćwiartki kilogramy żyją na dostawie, więc
+    korekta wagi zmienia i `kg_received`, i `kg_available`. Partia ruszona tu
+    nie dociera — filtruje ją strażnik w `update_reception`.
+    """
+    row = cx_execute_returning(
+        conn,
+        """
+        UPDATE raw_batches
+        SET kg_received=%s, kg_available=%s, price_per_kg=%s, supplier_batch_no=%s,
+            slaughter_date=%s, expiry_date=%s, received_date=%s, invoice_no=%s, notes=%s
+        WHERE id=%s RETURNING *
+        """,
+        (kg, kg, price_per_kg, supplier_batch_no, slaughter_date or None,
+         expiry_date or None, received_date or None, document_no, notes, batch_id),
+    )
+    if not row:
+        raise HTTPException(404, "Partia nie znaleziona")
+    # Nośniki księgują się RÓŻNICOWO, więc przy edycji to wywołanie jest
+    # obowiązkowe — pominięte zostawia dostawcę z fantomowym saldem pojemników.
+    _book_batch_containers(
+        conn, row, container_kg=container_kg, containers_count=containers_count,
+        pallets_h1=pallets_h1, pallets_other=pallets_other,
+        pallets_other_kind=pallets_other_kind)
+    return row
+
+
 def batch_history(batch_id: str) -> List[Dict]:
     return query_all(
         "SELECT * FROM raw_batch_history WHERE batch_id=%s ORDER BY created_at DESC",

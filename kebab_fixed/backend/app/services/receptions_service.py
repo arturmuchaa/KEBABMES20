@@ -24,7 +24,7 @@ from app.models.raw_batches import RawBatchCreate
 from app.models.receptions import ReceptionCreate, ReceptionGroupIn, ReceptionUpdate
 from app.services.hdi_scan_store import attach_bytes, take_temp
 from app.services.hdi_scan_render import caption_for, prepare_scan
-from app.services.raw_batches_service import create_batch_cx
+from app.services.raw_batches_service import apply_group_cx, create_batch_cx
 from app.utils.batch_numbers import delivery_period, format_delivery_no, parse_delivery_no
 from app.utils.ids import cuid, now_iso
 
@@ -289,6 +289,35 @@ def create_reception(dto: ReceptionCreate) -> Dict[str, Any]:
     return {"reception": reception, "batches": batches, "warnings": warnings}
 
 
+def _replace_supplier_lines_cx(conn, reception_id: str, g) -> None:
+    """Pozycje HDI tego numeru porządkowego zapisane od nowa.
+
+    Kasujemy i wstawiamy zamiast diffować wiersz po wierszu: pozycje HDI nie
+    mają własnej tożsamości (operator dokłada, usuwa i przestawia je w locie),
+    a jedyne, co się liczy, to końcowa lista i jej kolejność (`seq`).
+    """
+    cx_execute(
+        conn, "DELETE FROM reception_supplier_batches WHERE raw_batch_id=%s",
+        (g.batch_id,))
+    seq = 1
+    for b in g.supplier_batches:
+        if not (b.supplier_batch_no or "").strip():
+            continue
+        cx_execute(
+            conn,
+            """
+            INSERT INTO reception_supplier_batches
+                (id, reception_id, raw_batch_id, supplier_batch_no,
+                 kg, slaughter_date, expiry_date, seq)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (cuid(), reception_id, g.batch_id, b.supplier_batch_no.strip(),
+             float(b.kg) if b.kg else None, b.slaughter_date or None,
+             b.expiry_date or None, seq),
+        )
+        seq += 1
+
+
 def update_reception(reception_id: str, dto: ReceptionUpdate) -> Dict[str, Any]:
     """Zapis CAŁEGO dokumentu dostawy po edycji.
 
@@ -314,6 +343,33 @@ def update_reception(reception_id: str, dto: ReceptionUpdate) -> Dict[str, Any]:
             "WHERE id=%s",
             (day, dto.document_no or "", dto.hdi_no or "", dto.notes or "", reception_id),
         )
+
+        istniejace = {
+            b["id"]: b for b in cx_query_all(
+                conn, "SELECT * FROM raw_batches WHERE reception_id=%s "
+                      "AND COALESCE(status,'') <> 'cancelled'", (reception_id,))
+        }
+        for g in dto.groups:
+            if not g.batch_id:
+                continue                      # dołożenie pozycji — Task 6
+            if g.batch_id not in istniejace:
+                raise HTTPException(400, f"Pozycja {g.batch_id} nie należy do tej dostawy")
+            numery = [b.supplier_batch_no.strip() for b in g.supplier_batches
+                      if (b.supplier_batch_no or "").strip()]
+            apply_group_cx(
+                conn, g.batch_id,
+                kg=g.kg_received, price_per_kg=dto.price_per_kg,
+                supplier_batch_no=", ".join(numery),
+                slaughter_date=g.slaughter_date or _earliest(
+                    [b.slaughter_date for b in g.supplier_batches]),
+                expiry_date=g.expiry_date or _earliest(
+                    [b.expiry_date for b in g.supplier_batches]),
+                received_date=day, document_no=dto.document_no or "",
+                notes=dto.notes or "",
+                container_kg=g.container_kg, containers_count=g.containers_count,
+                pallets_h1=g.pallets_h1, pallets_other=g.pallets_other,
+                pallets_other_kind=g.pallets_other_kind)
+            _replace_supplier_lines_cx(conn, reception_id, g)
 
     out = get_reception(reception_id)
     out["warnings"] = []

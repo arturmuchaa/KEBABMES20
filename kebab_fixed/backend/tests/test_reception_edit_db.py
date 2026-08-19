@@ -75,3 +75,25 @@ def test_edycja_zapisuje_naglowek_dokumentu(db):
     rec = query_one("SELECT document_no, notes FROM receptions WHERE id=%s", (rec_id,))
     assert rec["document_no"] == "FA/999/08/2026"
     assert rec["notes"] == "poprawiony numer faktury"
+
+
+def test_edycja_poprawia_kilogramy_i_cene_nietknietej_cwiartki(db):
+    sid = _seed_dostawca()
+    out = _przyjmij(sid, grupy=(("501", 1000.0),))
+    rec_id, partia = out["reception"]["id"], out["batches"][0]
+
+    update_reception(rec_id, ReceptionUpdate.model_validate({
+        "receivedDate": "2026-08-14",
+        "materialTypeId": "mat-cwiartka",
+        "pricePerKg": 6.5,
+        "groups": [dict(_grupa(partia, kg=1200.0), slaughterDate="2026-08-10")],
+    }))
+
+    row = query_one(
+        "SELECT kg_received, kg_available, price_per_kg, slaughter_date "
+        "FROM raw_batches WHERE id=%s", (partia["id"],))
+    assert float(row["kg_received"]) == 1200.0
+    # Ćwiartka trzyma stan na dostawie — po korekcie idzie razem z wagą.
+    assert float(row["kg_available"]) == 1200.0
+    assert float(row["price_per_kg"]) == 6.5
+    assert str(row["slaughter_date"]) == "2026-08-10"
