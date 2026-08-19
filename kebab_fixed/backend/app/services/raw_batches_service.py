@@ -470,6 +470,23 @@ def apply_group_cx(conn, batch_id: str, *, kg: float, price_per_kg: float,
     # i na dostawie zostaje zero. Wpisanie tam wagi zrobiłoby z jednej dostawy
     # dwa stany naraz — w magazynie surowca i w magazynie mięsa.
     z_rozbiorem = _wymaga_rozbioru_cx(conn, batch_id)
+    if z_rozbiorem:
+        # Korekta wagi ćwiartki musi zostawić ślad w księdze. Bez ruchu stan
+        # dostawy schodziłby cicho, a kartoteka partii pokazywałaby przyjęcie
+        # 4800 kg przy stanie 4650 kg — liczbę bez wyjaśnienia, dokładnie jak
+        # duch 415 (prod 2026-07-16). Ruch idzie PRZED zmianą stanu, bo
+        # create_stock_movement waliduje żywy stan partii.
+        stare = cx_query_one(
+            conn, "SELECT kg_received FROM raw_batches WHERE id=%s FOR UPDATE",
+            (batch_id,),
+        )
+        delta = round(float(kg) - float((stare or {}).get("kg_received") or 0), 3)
+        if abs(delta) >= 0.001:
+            create_stock_movement(
+                conn, product_type="raw", batch_id=batch_id, qty=abs(delta),
+                movement_type="IN" if delta > 0 else "OUT",
+                source_type="reception_edit", source_id=batch_id,
+            )
     row = cx_execute_returning(
         conn,
         """

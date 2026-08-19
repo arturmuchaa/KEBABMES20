@@ -300,3 +300,23 @@ def test_dokument_niesie_powod_zamrozenia_pozycji(db):
     powody = {b["internal_batch_no"]: b.get("frozen_reason") for b in doc["batches"]}
     assert not powody["517"]
     assert powody["518"]                    # powód po polsku, do pokazania w formularzu
+
+
+def test_korekta_kg_cwiartki_domyka_ksiege(db):
+    """Stan i księga muszą mówić to samo — inaczej kartoteka partii pokazuje
+    liczbę bez wyjaśnienia, skąd się wzięła (duch 415, prod 2026-07-16).
+    Znalezione próbą generalną na kopii produkcyjnej 2026-08-19."""
+    sid = _seed_dostawca()
+    out = _przyjmij(sid, grupy=(("519", 4800.0),))
+    rec_id, partia = out["reception"]["id"], out["batches"][0]
+
+    update_reception(rec_id, ReceptionUpdate.model_validate({
+        "receivedDate": "2026-08-14", "materialTypeId": "mat-cwiartka",
+        "pricePerKg": 5.0, "groups": [_grupa(partia, kg=4650.0)],
+    }))
+
+    stan = query_one("SELECT kg_available FROM raw_batches WHERE id=%s", (partia["id"],))
+    ksiega = query_one("SELECT COALESCE(SUM(qty),0) AS q FROM stock_movements "
+                       "WHERE product_type='raw' AND batch_id=%s", (partia["id"],))
+    assert float(stan["kg_available"]) == 4650.0
+    assert float(ksiega["q"]) == 4650.0
