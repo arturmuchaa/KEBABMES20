@@ -142,11 +142,16 @@ export function ReceptionForm({
     if (!open) return
     setCustomNo(suggestedReceptionNo || '')
     setEditingNo(false)
-    setLines([emptyLine()])
-    setGroupCount(1)
+    // Czyszczenie pozycji dotyczy WYŁĄCZNIE nowego przyjęcia. W trybie edycji
+    // ten reset wykonywał się tuż po zasianiu dostawy (efekty idą w kolejności
+    // deklaracji) i operator dostawał pusty formularz zamiast swojej dostawy.
+    if (!edycja) {
+      setLines([emptyLine()])
+      setGroupCount(1)
+    }
     setContainerOverride({})
     setScanNote(null)
-  }, [open, suggestedReceptionNo])
+  }, [open, suggestedReceptionNo, edycja])
 
   // Numer wpisany ręcznie leci do hooka tylko wtedy, gdy różni się od
   // podpowiedzi — inaczej każde otwarcie modala „rezerwowałoby" numer.
