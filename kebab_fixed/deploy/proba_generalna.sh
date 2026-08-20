@@ -15,6 +15,10 @@
 set -uo pipefail
 
 APP="${KEBAB_APP:-/opt/kebab/app}"
+# Domyślnie sprawdzamy kod, który STOI na produkcji. Przed wdrożeniem można
+# wskazać repo (KEBAB_KOD=/opt/kebab/kebab_new/kebab_fixed/backend) i przejść
+# ścieżkę biura kodem, który dopiero ma tam trafić — na danych zakładu.
+KOD="${KEBAB_KOD:-$APP/backend}"
 VENV="${KEBAB_VENV:-/opt/kebab/venv}"
 ENVFILE="${KEBAB_ENV:-/opt/kebab/config/.env}"
 KOPIA="${KEBAB_KOPIA_DB:-kebab_proba}"
@@ -36,7 +40,14 @@ su - postgres -c "pg_dump -p $PORT $ZRODLO | psql -p $PORT -q -d $KOPIA" >/dev/n
 # Kod bierzemy Z WDROŻONEGO katalogu, nie z repo: sprawdzamy to, co naprawdę
 # stoi na serwerze, a nie to, co dopiero miało tam trafić.
 PROBA_URL="$(printf '%s' "$DATABASE_URL" | sed "s|/$ZRODLO\$|/$KOPIA|")"
-DATABASE_URL="$PROBA_URL" PYTHONPATH="$APP/backend" "$VENV/bin/python" "$SKRYPT" 2>&1 \
+echo "▶ kod: $KOD"
+# Migracje na kopii — dokładnie to robi start backendu po wdrożeniu. Bez tego
+# próba sprawdzałaby nowy kod na starym schemacie i mówiła o błędach, których
+# na produkcji by nie było.
+DATABASE_URL="$PROBA_URL" PYTHONPATH="$KOD" "$VENV/bin/python" \
+  -c "from app.migrations import run_migrations; run_migrations()" >/dev/null 2>&1
+
+DATABASE_URL="$PROBA_URL" PYTHONPATH="$KOD" "$VENV/bin/python" "$SKRYPT" 2>&1 \
   | grep -vE '^\s*(INFO|WARNING)|^20[0-9]{2}-'
 wynik=${PIPESTATUS[0]}
 

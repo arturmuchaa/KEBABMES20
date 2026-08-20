@@ -51,20 +51,47 @@ def format_kg(kg: float) -> str:
     return f"{kg:.1f}".replace(".", ",")
 
 
+def zakres_pozycji(numery: Sequence[int]) -> str:
+    """Numery pozycji HDI skrócone do zakresów: [1,2,3,5] → „1-3, 5".
+
+    Dostawa bywa rozbita na trzy stosy, a HDI ma kilkanaście pozycji —
+    wypisanie ich po przecinku nie zmieściłoby się nad dokumentem.
+    """
+    porz = sorted({int(n) for n in numery if n})
+    if not porz:
+        return ""
+    grupy: list[list[int]] = [[porz[0]]]
+    for n in porz[1:]:
+        if n == grupy[-1][-1] + 1:
+            grupy[-1].append(n)
+        else:
+            grupy.append([n])
+    return ", ".join(str(g[0]) if len(g) == 1 else f"{g[0]}-{g[-1]}" for g in grupy)
+
+
+def _pozycje_partii(b: dict) -> str:
+    linie = b.get("supplier_batches") or b.get("supplierBatches") or []
+    return zakres_pozycji([l.get("seq") for l in linie if isinstance(l, dict)])
+
+
 def caption_for(reception_no: str, batches: Sequence[dict]) -> str:
     """Opis drukowany nad HDI — to, co dotąd pisano długopisem.
 
-    „Przyjęcie 14/08 — nr porządkowy 475: 4605 kg, 476: 5400 kg"
+    „Przyjęcie 14/08 — nr porządkowy 475: 4605 kg (poz. 1-3), 476: 5400 kg (poz. 4-5)"
 
-    Partie anulowane pomijamy: na dokumencie ma zostać to, co faktycznie
-    przyjęto, a nie ślad po naszej pomyłce w rejestracji.
+    Numery pozycji są z kolumny Lp dokumentu dostawcy: dostawa rozbita na dwa
+    stosy inaczej nie daje się ze skanu odczytać — nie widać, gdzie trafiła
+    pozycja 4. Partie anulowane pomijamy: na dokumencie ma zostać to, co
+    faktycznie przyjęto, a nie ślad po naszej pomyłce w rejestracji.
     """
     zywe = [b for b in batches if (b.get("status") or "") != "cancelled"]
-    czesci = [
-        f"{b.get('internal_batch_no') or b.get('internalBatchNo') or '?'}: "
-        f"{format_kg(float(b.get('kg_received') or b.get('kgReceived') or 0))} kg"
-        for b in zywe
-    ]
+    czesci = []
+    for b in zywe:
+        opis_partii = (
+            f"{b.get('internal_batch_no') or b.get('internalBatchNo') or '?'}: "
+            f"{format_kg(float(b.get('kg_received') or b.get('kgReceived') or 0))} kg")
+        poz = _pozycje_partii(b)
+        czesci.append(f"{opis_partii} (poz. {poz})" if poz else opis_partii)
     opis = f"Przyjęcie {reception_no}" if reception_no else "Przyjęcie"
     if czesci:
         opis += " — nr porządkowy " + ", ".join(czesci)

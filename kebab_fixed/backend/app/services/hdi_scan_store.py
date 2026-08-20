@@ -124,6 +124,38 @@ def attach_bytes(data: bytes, suffix: str, reception_id: str) -> Optional[str]:
     return cel.name
 
 
+#: Oryginał skanu — bajty DOKŁADNIE takie, jakie przyszły ze skanera, obok
+#: wersji opisanej. Opis („Przyjęcie 28/08 — nr porządkowy…") jest wypalany
+#: w pliku, a numer dokumentu bywa poprawiany: bez oryginału jedynym sposobem
+#: na zgodny opis było ponowne skanowanie papieru (19 i 20.08.2026).
+_ORYGINAL = ".orig"
+
+
+def save_original(data: bytes, suffix: str, reception_id: str) -> Optional[str]:
+    """Zachowaj skan sprzed opisania, żeby dało się opis przeliczyć."""
+    if not is_safe_id(reception_id) or not data:
+        return None
+    cel_dir = settings.hdi_scans_dir
+    cel_dir.mkdir(parents=True, exist_ok=True)
+    cel = cel_dir / f"{reception_id}{_ORYGINAL}{_safe_suffix(suffix)}"
+    try:
+        cel.write_bytes(data)
+    except OSError as exc:
+        logger.warning("hdi_scan.original_failed", extra={"error": str(exc)})
+        return None
+    return cel.name
+
+
+def find_original(reception_id: str) -> Optional[Path]:
+    """Oryginał skanu przyjęcia (albo None dla dostaw sprzed tej zmiany)."""
+    if not is_safe_id(reception_id):
+        return None
+    for p in settings.hdi_scans_dir.glob(f"{reception_id}{_ORYGINAL}.*"):
+        if p.is_file():
+            return p
+    return None
+
+
 def take_temp(scan_id: str) -> Optional[tuple[bytes, str]]:
     """Wyjmuje skan z poczekalni: (bajty, rozszerzenie). Plik kasuje."""
     zrodlo = find_temp(scan_id)

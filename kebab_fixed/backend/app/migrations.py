@@ -1125,6 +1125,17 @@ _DDL: list[str] = [
         UNIQUE (plan_date, recipe_id)
     )""",
 
+    # Numery zwolnione anulowaniem — wracają do puli, żeby seria była CIĄGŁA
+    # (decyzja właściciela 20.08.2026). Rejestr zamiast szukania dziur w całej
+    # historii: wolno użyć ponownie tylko numeru, który MY zwolniliśmy, a nie
+    # takiego, który zniknął przy dawnych ręcznych porządkach (416, 448-450).
+    """CREATE TABLE IF NOT EXISTS numery_zwolnione (
+        seria      TEXT NOT NULL,
+        seq        INTEGER NOT NULL,
+        zwolniony  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (seria, seq)
+    )""",
+
     "CREATE INDEX IF NOT EXISTS idx_rsb_reception ON reception_supplier_batches(reception_id)",
     "CREATE INDEX IF NOT EXISTS idx_rsb_raw_batch ON reception_supplier_batches(raw_batch_id)",
 ]

@@ -18,15 +18,17 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException
 
 from app.db import (cx_execute, cx_execute_returning, cx_query_all, cx_query_one,
-                    query_all, query_one, transaction)
+                    execute, query_all, query_one, transaction)
 from app.logging_config import get_logger
 from app.models.raw_batches import RawBatchCreate
 from app.models.receptions import ReceptionCreate, ReceptionGroupIn, ReceptionUpdate
-from app.services.hdi_scan_store import attach_bytes, take_temp
+from app.services.hdi_scan_store import (attach_bytes, find_original, save_original,
+                                          take_temp)
 from app.services.hdi_scan_render import caption_for, prepare_scan
 from app.services.raw_batches_service import (_batch_used_reason_cx, _cancel_batch_cx,
                                               apply_group_cx, create_batch_cx,
                                               retarget_material_cx)
+from app.services.raw_batches_service import cancel_reception as raw_batches_cancel_reception
 from app.utils.batch_numbers import delivery_period, format_delivery_no, parse_delivery_no
 from app.utils.ids import cuid, now_iso
 
@@ -107,6 +109,19 @@ def _allocate_no_cx(conn, day: str, custom: str,
         return no, seq, period
 
     period = delivery_period(day)
+    # Najpierw numer ZWOLNIONY anulowaniem dokumentu — seria przyjęć ma być
+    # ciągła, bo biuro czyta ją jako listę dostaw i drukuje na karcie 1.1.1
+    # (19.08.2026 anulowana próba zostawiła widoczną przerwę 27/08 → 29/08).
+    odzyskany = cx_query_one(
+        conn,
+        "DELETE FROM numery_zwolnione WHERE seria=%s AND seq = ("
+        "  SELECT MIN(seq) FROM numery_zwolnione WHERE seria=%s) RETURNING seq",
+        (_seq_key(period, is_service), _seq_key(period, is_service)),
+    )
+    if odzyskany and odzyskany.get("seq"):
+        seq = int(odzyskany["seq"])
+        return format_delivery_no(seq, day, is_service), seq, period
+
     row = cx_query_one(
         conn,
         "INSERT INTO sequences (key, value) VALUES (%s, 1) "
@@ -326,7 +341,13 @@ def _replace_supplier_lines_cx(conn, reception_id: str, g, *,
     cx_execute(
         conn, "DELETE FROM reception_supplier_batches WHERE raw_batch_id=%s",
         (bid,))
-    seq = 1
+    # Lp liczy się PRZEZ CAŁY dokument, nie od nowa w każdym numerze
+    # porządkowym: to kolumna z HDI dostawcy i po niej biuro odnajduje pozycję
+    # na papierze (opis wypalany na skanie wymienia właśnie te numery).
+    ost = cx_query_one(
+        conn, "SELECT COALESCE(MAX(seq),0) AS m FROM reception_supplier_batches "
+              "WHERE reception_id=%s", (reception_id,))
+    seq = int((ost or {}).get("m") or 0) + 1
     for b in g.supplier_batches:
         if not (b.supplier_batch_no or "").strip():
             continue
@@ -444,6 +465,11 @@ def update_reception(reception_id: str, dto: ReceptionUpdate) -> Dict[str, Any]:
                 raise HTTPException(409, f"Numer {numer} jest już w użyciu — nie można go zdjąć")
             _cancel_batch_cx(conn, bid)
 
+    # Opis wypalony na skanie wymienia numery porządkowe i wagi — po edycji
+    # dokumentu musi za nimi pójść, inaczej skan mówi co innego niż system
+    # (19 i 20.08.2026). Dostawy bez zachowanego oryginału zostają bez zmian.
+    przelicz_opis_skanu(reception_id)
+
     out = get_reception(reception_id)
     out["warnings"] = []
     logger.info("reception.updated", extra={"reception_no": rec.get("reception_no")})
@@ -508,6 +534,39 @@ def get_reception(reception_id: str) -> Dict:
     return _attach_details(rec)
 
 
+#: Anulowane dokumenty odkładamy poza serię — numer ma wrócić do puli, a ślad
+#: zostać. Przesunięcie o 9000 nie koliduje z żadną realną numeracją miesiąca.
+_POZA_SERIA = 9000
+
+
+def cancel_reception_document(reception_id: str) -> Dict[str, Any]:
+    """Anuluj CAŁY dokument dostawy i ZWOLNIJ jego numer.
+
+    Anulowana rejestracja to korekta naszej pomyłki przy wpisywaniu, a nie
+    zdarzenie przy rampie: nie ma prawa zjadać numeru w serii, którą biuro
+    czyta jako listę dostaw (19.08.2026 zostawiła widoczną przerwę między
+    27/08 a 29/08). Wiersz zostaje w historii ze znacznikiem „ANUL", żeby dało
+    się odtworzyć, co się wydarzyło.
+    """
+    rec = query_one("SELECT * FROM receptions WHERE id=%s", (reception_id,))
+    if not rec:
+        raise HTTPException(404, "Nie ma takiego przyjęcia")
+
+    out = raw_batches_cancel_reception(reception_id)
+
+    seq = int(rec["reception_seq"] or 0)
+    if seq < _POZA_SERIA:
+        execute(
+            "UPDATE receptions SET reception_seq=%s, reception_no=%s WHERE id=%s",
+            (seq + _POZA_SERIA, f"ANUL {rec['reception_no']}", reception_id))
+        execute(
+            "INSERT INTO numery_zwolnione (seria, seq) VALUES (%s,%s) "
+            "ON CONFLICT (seria, seq) DO NOTHING",
+            (_seq_key(rec["reception_period"], bool(rec.get("is_service"))), seq))
+        logger.info("reception.cancelled", extra={"reception_no": rec["reception_no"]})
+    return {**out, "reception_no": rec["reception_no"]}
+
+
 def _store_scan(reception_id: str, reception_no: str, batches, data: bytes,
                 suffix: str) -> Optional[str]:
     """Skan → archiwum: prostujemy do pionu i drukujemy opis nad dokumentem.
@@ -515,8 +574,48 @@ def _store_scan(reception_id: str, reception_no: str, batches, data: bytes,
     Opis zastępuje to, co dotąd dopisywano długopisem („472" w rogu skanu
     z 12.08): do jakich numerów porządkowych trafiła ta dostawa.
     """
+    # Oryginał zostaje OBOK wersji opisanej: opis jest wypalony w pliku,
+    # a numer dokumentu bywa poprawiany. Bez oryginału jedynym wyjściem było
+    # ponowne skanowanie papieru (19 i 20.08.2026 dwa razy z rzędu).
+    save_original(data, suffix, reception_id)
     gotowe, suf = prepare_scan(data, suffix, caption_for(reception_no, batches))
     return attach_bytes(gotowe, suf, reception_id)
+
+
+def przelicz_opis_skanu(reception_id: str) -> bool:
+    """Odtwórz opis na skanie z AKTUALNEGO stanu dokumentu.
+
+    Wołane po zmianie, która rusza opis: numer przyjęcia, numery porządkowe
+    albo wagi. Zwraca False, gdy nie ma z czego odtworzyć (dostawy sprzed
+    zachowywania oryginałów) — wtedy trzeba przeskanować papier ponownie
+    i trzeba to powiedzieć wprost, a nie udawać sukces.
+    """
+    zrodlo = find_original(reception_id)
+    if not zrodlo:
+        return False
+    rec = query_one("SELECT reception_no FROM receptions WHERE id=%s", (reception_id,))
+    if not rec:
+        return False
+    # Z pozycjami HDI — opis wymienia, które Lp weszły do którego numeru.
+    batches = query_all(
+        "SELECT id, internal_batch_no, kg_received, status FROM raw_batches "
+        "WHERE reception_id=%s ORDER BY internal_batch_seq", (reception_id,))
+    po_partii: Dict[str, List[Dict]] = {}
+    for l in query_all(
+            "SELECT raw_batch_id, seq FROM reception_supplier_batches "
+            "WHERE reception_id=%s ORDER BY seq", (reception_id,)):
+        po_partii.setdefault(l["raw_batch_id"] or "", []).append({"seq": l["seq"]})
+    for b in batches:
+        b["supplier_batches"] = po_partii.get(b["id"], [])
+    gotowe, suf = prepare_scan(
+        zrodlo.read_bytes(), zrodlo.suffix.replace(".orig", ""),
+        caption_for(rec["reception_no"], batches))
+    nazwa = attach_bytes(gotowe, suf, reception_id)
+    if not nazwa:
+        return False
+    execute("UPDATE receptions SET hdi_scan=%s WHERE id=%s", (nazwa, reception_id))
+    logger.info("hdi_scan.opis_przeliczony", extra={"reception": reception_id})
+    return True
 
 
 def attach_scan(reception_id: str, data: bytes, filename: str) -> Dict:

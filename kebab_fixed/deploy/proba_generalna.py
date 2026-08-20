@@ -207,13 +207,48 @@ def _znane_rozjazdy() -> dict[str, float]:
     return znane
 
 
+def numeracja_ciagla(sup_id: str) -> None:
+    """Anulowanie ZWALNIA numer, a kolejne przyjęcie go bierze.
+
+    Decyzja właściciela 20.08.2026: numery przyjęć i porządkowe mają być
+    ciągłe. Sprawdzamy to na danych zakładu, bo pula wolnych numerów zależy
+    od tego, co w tej bazie już anulowano.
+    """
+    print("\n3. NUMERACJA — anulowany numer wraca do puli")
+    from app.services.raw_batches_service import cancel_batch
+    from app.services.receptions_service import cancel_reception_document
+
+    out = create_reception(ReceptionCreate.model_validate({
+        "supplierId": sup_id, "materialTypeId": "mat-cwiartka",
+        "receivedDate": DZIEN, "documentNo": "PROBA NUMERY", "pricePerKg": 5,
+        "groups": [{"kgReceived": 1000, "supplierBatches": []}],
+    }))
+    nr_dok = out["reception"]["reception_no"]
+    nr_porz = out["batches"][0]["internal_batch_no"]
+
+    cancel_reception_document(out["reception"]["id"])
+
+    znowu = create_reception(ReceptionCreate.model_validate({
+        "supplierId": sup_id, "materialTypeId": "mat-cwiartka",
+        "receivedDate": DZIEN, "documentNo": "PROBA NUMERY 2", "pricePerKg": 5,
+        "groups": [{"kgReceived": 1200, "supplierBatches": []}],
+    }))
+    sprawdz(znowu["reception"]["reception_no"] == nr_dok,
+            f"numer przyjęcia {nr_dok} wrócił do puli i został użyty ponownie")
+    sprawdz(znowu["batches"][0]["internal_batch_no"] == nr_porz,
+            f"numer porządkowy {nr_porz} wrócił do puli i został użyty ponownie")
+
+    # Sprzątanie: to była próba, nie dostawa.
+    cancel_reception_document(znowu["reception"]["id"])
+
+
 def ksiega_calej_bazy() -> None:
     """Kontrola całej bazy: czy stan KAŻDEJ żywej partii zgadza się z księgą.
 
     To jest ten test, który złapał rozjazd 150 kg. Liczy się nie to, że nowa
     dostawa się zapisała, tylko że nic w bazie nie rozjechało się po drodze.
     """
-    print("\n3. KSIĘGA CAŁEJ BAZY — stan partii vs suma ruchów")
+    print("\n4. KSIĘGA CAŁEJ BAZY — stan partii vs suma ruchów")
     rozjazdy = query_all(
         """
         SELECT b.internal_batch_no AS nr, b.kg_available AS stan,
@@ -254,6 +289,7 @@ def main() -> int:
 
     cwiartka(sup["id"])
     bez_rozbioru(sup["id"])
+    numeracja_ciagla(sup["id"])
     ksiega_calej_bazy()
 
     print()

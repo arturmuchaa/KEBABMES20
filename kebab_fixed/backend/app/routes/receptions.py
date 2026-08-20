@@ -93,8 +93,12 @@ def cancel_reception(reception_id: str):
 
     Wszystko albo nic: ruszony choćby jeden numer → 409 i nic się nie dzieje.
     Pojedynczy numer anuluje się przez PATCH /api/raw-batches/{id}/cancel.
+
+    Numer dokumentu WRACA DO PULI — anulowana rejestracja to korekta pomyłki
+    przy wpisywaniu, a nie dostawa, więc nie może zostawiać dziury w serii,
+    którą biuro czyta jako listę dostaw.
     """
-    return raw_batches_svc.cancel_reception(reception_id)
+    return svc.cancel_reception_document(reception_id)
 
 
 @router.get("/{reception_id}")

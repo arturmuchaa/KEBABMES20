@@ -228,17 +228,33 @@ def create_batch_cx(
         # auto-numerowanie: kolejny z właściwej sekwencji. Wartość przy
         # pierwszym użyciu bierzemy z _SEQ_FIRST, bo seed z migracji może
         # nie istnieć (świeża baza, baza testowa po TRUNCATE sequences).
-        row = cx_query_one(
+        # Najpierw bierzemy numer ZWOLNIONY anulowaniem — seria ma być ciągła
+        # (decyzja właściciela 20.08.2026). Rejestr, a nie szukanie dziur
+        # w historii: wolno użyć tylko numeru, który MY zwolniliśmy. Dawne
+        # dziury po ręcznych porządkach (416, 448-450) zostają nietknięte,
+        # bo sierpniowa dostawa z numerem z lipca rozjechałaby chronologię
+        # listy i FEFO, które przy równych datach rozstrzyga po numerze.
+        odzyskany = cx_query_one(
             conn,
-            """
-            INSERT INTO sequences (key, value) VALUES (%s, %s)
-            ON CONFLICT (key) DO UPDATE SET value = sequences.value + 1
-            RETURNING value
-            """,
-            (seq_key, _SEQ_FIRST[is_service]),
+            "DELETE FROM numery_zwolnione WHERE seria=%s AND seq = ("
+            "  SELECT MIN(seq) FROM numery_zwolnione WHERE seria=%s) RETURNING seq",
+            (seq_key, seq_key),
         )
-        seq = int(row["value"])
-        internal_no = fmt(seq)
+        if odzyskany and odzyskany.get("seq"):
+            seq = int(odzyskany["seq"])
+            internal_no = fmt(seq)
+        else:
+            row = cx_query_one(
+                conn,
+                """
+                INSERT INTO sequences (key, value) VALUES (%s, %s)
+                ON CONFLICT (key) DO UPDATE SET value = sequences.value + 1
+                RETURNING value
+                """,
+                (seq_key, _SEQ_FIRST[is_service]),
+            )
+            seq = int(row["value"])
+            internal_no = fmt(seq)
 
     sup = cx_query_one(
         conn, "SELECT * FROM suppliers WHERE id = %s", (dto.supplier_id,)
@@ -679,6 +695,16 @@ def _cancel_batch_cx(conn, batch_id: str) -> Dict:
     if not row:
         raise HTTPException(404, "Partia nie znaleziona")
     _unbook_batch_containers(conn, row)
+    # Numer wraca do puli: anulowana partia nosi już „ANUL-<id>", więc numer
+    # jest wolny, ale bez tego wpisu kolejne przyjęcie i tak wzięłoby następny
+    # z licznika i zostawałaby dziura.
+    seq_key = _SEQ_KEY[bool(row.get("is_service"))]
+    cx_execute(
+        conn,
+        "INSERT INTO numery_zwolnione (seria, seq) VALUES (%s,%s) "
+        "ON CONFLICT (seria, seq) DO NOTHING",
+        (seq_key, int(row.get("internal_batch_seq") or 0)),
+    )
     logger.info("raw_batch.cancelled", extra={"batch_id": batch_id})
     return row
 
