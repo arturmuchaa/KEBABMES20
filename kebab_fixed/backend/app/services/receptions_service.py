@@ -556,9 +556,18 @@ def cancel_reception_document(reception_id: str) -> Dict[str, Any]:
 
     seq = int(rec["reception_seq"] or 0)
     if seq < _POZA_SERIA:
+        # Miejsce poza serią bierzemy PO KOLEI, nie „numer + 9000": numer wraca
+        # do puli, więc kolejny dokument może dostać ten sam i też bywa
+        # anulowany — stałe przesunięcie dawało wtedy kolizję z unikatem
+        # (period, seq, is_service). Znalezione próbą generalną 20.08.2026.
+        wolne = query_one(
+            "SELECT COALESCE(MAX(reception_seq), %s) + 1 AS n FROM receptions "
+            "WHERE reception_period=%s AND COALESCE(is_service,false)=%s "
+            "  AND reception_seq >= %s",
+            (_POZA_SERIA, rec["reception_period"], bool(rec.get("is_service")), _POZA_SERIA))
         execute(
             "UPDATE receptions SET reception_seq=%s, reception_no=%s WHERE id=%s",
-            (seq + _POZA_SERIA, f"ANUL {rec['reception_no']}", reception_id))
+            (int(wolne["n"]), f"ANUL {rec['reception_no']}", reception_id))
         execute(
             "INSERT INTO numery_zwolnione (seria, seq) VALUES (%s,%s) "
             "ON CONFLICT (seria, seq) DO NOTHING",

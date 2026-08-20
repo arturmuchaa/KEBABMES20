@@ -98,3 +98,28 @@ def test_anulowany_dokument_zostaje_w_historii_poza_seria(db):
     rec = query_one("SELECT reception_no, reception_seq FROM receptions WHERE id=%s", (rec_id,))
     assert rec is not None, "dokument nie może zniknąć z bazy"
     assert rec["reception_no"].startswith("ANUL"), "poza serią, z czytelnym znacznikiem"
+
+
+def test_dwa_anulowania_pod_tym_samym_numerem_nie_koliduja(db):
+    """Numer wraca do puli, więc DRUGI dokument może dostać ten sam numer —
+    i też bywa anulowany. Obie anulowane wersje muszą się zmieścić poza serią.
+
+    Znalezione próbą generalną na kopii produkcji 20.08.2026: przesuwanie
+    o stałe 9000 dawało kolizję z unikatem (period, seq, is_service).
+    """
+    sid = _dostawca()
+    pierwsze = _przyjmij(sid)
+    nr = pierwsze["reception"]["reception_no"]
+    cancel_reception_document(pierwsze["reception"]["id"])
+
+    drugie = _przyjmij(sid, kg=2000)
+    assert drugie["reception"]["reception_no"] == nr
+    cancel_reception_document(drugie["reception"]["id"])   # przed poprawką: UniqueViolation
+
+    poza = query_all(
+        "SELECT reception_seq FROM receptions WHERE reception_period=%s AND reception_seq >= 9000",
+        (pierwsze["reception"]["reception_period"],))
+    assert len({r["reception_seq"] for r in poza}) == len(poza), "numery poza serią muszą być różne"
+
+    trzecie = _przyjmij(sid, kg=3000)
+    assert trzecie["reception"]["reception_no"] == nr, "numer nadal wraca do puli"
