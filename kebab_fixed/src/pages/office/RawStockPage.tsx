@@ -196,7 +196,12 @@ export function RawStockPage() {
         rows={rows}
         columns={columns}
         rowKey={r => r.id}
-        initialSort={{ key: 'expiry', dir: 'asc' }}
+        // Najświeższe dostawy na górze (decyzja właściciela 20.08.2026).
+        // Numer partii jest tekstem, ale DataTable porównuje go numerycznie,
+        // więc 501 stoi nad 99. Terminy dalej pilnują same siebie: wygasłe
+        // wiersze świecą na czerwono, a kolumna „Ważność" sortuje jednym
+        // kliknięciem, gdy trzeba spojrzeć po FEFO.
+        initialSort={{ key: 'batch', dir: 'desc' }}
         searchText={r => `${r.internal_batch_no} ${r.supplier_name ?? ''} ${r.name}`}
         searchPlaceholder="Filtruj: nr partii, dostawca…"
         initialQuery={new URLSearchParams(window.location.search).get('q') ?? undefined}
