@@ -4,7 +4,7 @@ import { useClientNames } from '@/lib/clientNames'
 import { ProcessStatusBadge } from '@/features/operations/ProcessStatusBadge'
 import {
   rawBatchesApi, meatStockApi, seasonedMeatApi,
-  productionPlansApi, clientOrdersApi, finishedGoodsApi,
+  productionPlansApi, mixingOrdersApi, clientOrdersApi, finishedGoodsApi,
   deboningApi, productionSessionsApi,
 } from '@/lib/apiClient'
 import {
@@ -31,7 +31,7 @@ import {
 
 import {
   AlertTriangle, Package, Boxes, ArrowRight, Clock, Zap,
-  Info, Factory, Truck, ChevronDown, ChevronRight,
+  Info, Factory, Soup, Truck, ChevronDown, ChevronRight,
   Scissors, CheckCircle2,
 } from 'lucide-react'
 
@@ -119,7 +119,7 @@ function EmptyCard({ icon, title, description }: {
 
 /**
  * Linia procesu — przepływ surowca przez zakład z żywymi kg na każdym etapie:
- * Surowiec → Rozbiór → Mięso z/s → Przyprawione → Produkcja →
+ * Surowiec → Rozbiór → Mięso z/s → Masowanie → Przyprawione → Produkcja →
  * Wyrób gotowy (+ Wysyłki dziś). To mentalny model szefa i planisty
  * („gdzie w rurze stoi mięso"). Etapy klikalne, kropka = proces pracuje TERAZ.
  */
@@ -248,6 +248,7 @@ export function DashboardPage() {
   const meatRes     = useApi(() => meatStockApi.list())
   const seasonedRes = useApi(() => seasonedMeatApi.list())
   const plansRes    = useApi(() => productionPlansApi.list())
+  const mixingRes   = useApi(() => mixingOrdersApi.list())
   const ordersRes   = useApi(() => clientOrdersApi.list())
   const finishedRes = useApi(() => finishedGoodsApi.list())
   const deboningRes = useApi(() => deboningApi.list())
@@ -261,6 +262,7 @@ export function DashboardPage() {
       meatRes.refetch()
       seasonedRes.refetch()
       plansRes.refetch()
+      mixingRes.refetch()
       ordersRes.refetch()
       finishedRes.refetch()
       deboningRes.refetch()
@@ -268,7 +270,7 @@ export function DashboardPage() {
     }, POLL_MS)
     return () => clearInterval(t)
   }, [batchRes.refetch, meatRes.refetch, seasonedRes.refetch,
-      plansRes.refetch, ordersRes.refetch,
+      plansRes.refetch, mixingRes.refetch, ordersRes.refetch,
       finishedRes.refetch, deboningRes.refetch, pendingRes.refetch])
 
   // Skeleton tylko przy pierwszym ładowaniu (gdy żadnych danych jeszcze nie ma).
@@ -283,6 +285,7 @@ export function DashboardPage() {
   const allMeat     = meatRes.data?.data     ?? []
   const allSeasoned = seasonedRes.data       ?? []
   const allPlans    = plansRes.data          ?? []
+  const allMixing   = mixingRes.data         ?? []
   const allOrders   = ordersRes.data         ?? []
   const allFinished = finishedRes.data       ?? []
   const allDeboning = deboningRes.data?.data ?? []
@@ -554,6 +557,12 @@ export function DashboardPage() {
     }
   }, [activePlans, allPlans])
 
+  // ── Masowanie LIVE ─────────────────────────────────────────────
+  const activeMixing = allMixing.filter(o => o.status !== 'done' && o.status !== 'cancelled')
+  const mixPlanned   = activeMixing.reduce((s, o) => s + Number(o.meatKg), 0)
+  const mixDone      = activeMixing.reduce((s, o) => s + Number(o.kgDone), 0)
+  const mixPct       = mixPlanned > 0 ? (mixDone / mixPlanned) * 100 : 0
+
   // ── Zamówienia — sort po deliveryDate ASC, exclude done/cancelled ─
   const finishedQtyByOrderNo = useMemo(() => {
     const m = new Map<string, number>()
@@ -601,10 +610,11 @@ export function DashboardPage() {
       {/* Czy zakład pracuje? — przynajmniej jeden proces aktywny. */}
       {(() => {
         const debLive  = todayDeb.length > 0
+        const mixLive  = activeMixing.some((o: any) => o.status === 'in_progress')
         const prodLive = activePlans.some((p: any) =>
           (p.lines ?? []).some((l: any) => (l.lineStatus ?? '') === 'IN_PROGRESS'))
         const finishedStockKg = allFinished.reduce((s: number, f: any) => s + Number(f.totalKg ?? 0), 0)
-        return <ProductionFlowStrip live={debLive || prodLive} stages={[
+        return <ProductionFlowStrip live={debLive || mixLive || prodLive} stages={[
           { label: 'Surowiec', value: `${fmtKg(totalKgRaw, 0)} kg`,
             sub: receivedToday.length > 0 ? `· dziś +${fmtKg(receivedTodayKg, 0)}` : `· ${activeBatches.length} part.`,
             to: '/office/magazyn/surowiec' },
@@ -612,6 +622,8 @@ export function DashboardPage() {
             sub: debKgQuarter > 0 && debYield > 0 ? `· ${debYield.toFixed(0)}%` : undefined,
             to: '/office/deboning', live: debLive },
           { label: 'Mięso z/s', value: `${fmtKg(totalKgMeat, 0)} kg`, to: '/office/magazyn/surowiec' },
+          { label: 'Masowanie', value: mixPlanned > 0 ? `${fmtKg(mixDone, 0)} / ${fmtKg(mixPlanned, 0)} kg` : '—',
+            to: '/office/historia-masowania', live: mixLive },
           { label: 'Przyprawione', value: `${fmtKg(totalKgSeasoned, 0)} kg`, to: '/office/magazyn/mieso-przyp' },
           { label: 'Produkcja', value: prodPlanned > 0 ? `${fmtKg(prodProduced, 0)} / ${fmtKg(prodPlanned, 0)} kg` : '—',
             to: '/office/planowanie-produkcji', live: prodLive },
@@ -822,11 +834,8 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* ── Rozbiór + Produkcja — na żywo ────────────────────────
-          Zleceń masowania tu nie ma: moduł nie jest jeszcze używany na hali,
-          a niedokończone zlecenia zbierały się na pulpicie jako szum.
-          Żywy obraz masowania: plan masowania i magazyn przyprawionego. */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* ── Rozbiór + Masowanie + Produkcja — na żywo ───────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* Rozbiór */}
         {(() => {
@@ -950,6 +959,85 @@ export function DashboardPage() {
                           </tr>
                         )
                       })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+          )
+        })()}
+
+        {/* Masowanie */}
+        {(() => {
+          const dataActive = activeMixing.some((o: any) => o.status === 'in_progress')
+          return (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Soup size={15} className={dataActive ? "text-brand animate-pulse" : "text-ink-5"} />
+                  Masowanie
+                </CardTitle>
+                <CardDescription className="mt-0.5">
+                  Aktywne zlecenia · {activeMixing.length}
+                </CardDescription>
+              </div>
+              <ProcessStatusBadge processType="mixing" dataActive={dataActive} />
+            </div>
+          </CardHeader>
+          <Separator />
+          <CardContent className="pt-4 space-y-3">
+            <div>
+              <div className="flex items-baseline justify-between mb-1.5">
+                <CardDescription className="text-xs uppercase tracking-wide font-semibold">
+                  Postęp łączny
+                </CardDescription>
+                <div className="text-xs tabular-nums">
+                  <span className="font-bold text-foreground">{fmtKg(mixDone, 0)} kg</span>
+                  <span className="text-muted-foreground"> / {fmtKg(mixPlanned, 0)} kg</span>
+                  <span className="ml-2 font-bold text-ink-2">{mixPct.toFixed(0)}%</span>
+                </div>
+              </div>
+              <ProgressBar value={mixPct} color="brand" height={10} />
+            </div>
+
+            <Separator />
+
+            {activeMixing.length === 0 ? (
+              <EmptyCard icon={<Soup size={36} />} title="Brak aktywnych zleceń masowania" />
+            ) : (
+              <div className="max-h-96 overflow-y-auto">
+                <table className="w-full text-xs tabular-nums">
+                  <thead className="sticky top-0 z-10 bg-white">
+                    <tr className="border-b-2 border-surface-4">
+                      <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 text-left">Receptura</th>
+                      <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 text-right">Zrobione / plan</th>
+                      <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 text-right">%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeMixing.map((m, idx) => {
+                      const pct = Number(m.meatKg) > 0 ? (Number(m.kgDone) / Number(m.meatKg)) * 100 : 0
+                      return (
+                        <tr key={m.id} className={cn('border-b border-surface-3 hover:bg-surface-3/60', idx % 2 === 1 && 'bg-surface-2/40')}>
+                          <td className="px-2 py-1.5 font-medium text-ink max-w-[170px] truncate" title={m.recipeName}>{m.recipeName}</td>
+                          <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                            <span className="font-bold">{fmtKg(m.kgDone, 0)}</span>
+                            <span className="text-muted-foreground"> / {fmtKg(m.meatKg, 0)} kg</span>
+                          </td>
+                          <td className={`px-2 py-1.5 text-right font-semibold ${pct >= 100 ? 'text-green-600' : 'text-ink-2'}`}>{pct.toFixed(0)}%</td>
+                        </tr>
+                      )
+                    })}
+                    <tr className="bg-surface-2/70">
+                      <td className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-ink-3">Razem</td>
+                      <td className="px-2 py-1.5 text-right font-bold whitespace-nowrap">
+                        {fmtKg(mixDone, 0)}<span className="text-muted-foreground font-normal"> / {fmtKg(mixPlanned, 0)} kg</span>
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-bold text-ink-2">{mixPct.toFixed(0)}%</td>
+                    </tr>
                   </tbody>
                 </table>
               </div>

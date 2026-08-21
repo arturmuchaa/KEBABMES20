@@ -72,8 +72,12 @@ export interface MeatGroup {
 }
 
 /**
- * Mięso z/s od najkrótszej daty ważności. Partie bez terminu idą na koniec —
- * brak daty nie może udawać najpilniejszej. Remis rozstrzyga większa masa.
+ * Mięso z/s od najkrótszej daty ważności, a przy tym samym terminie od
+ * NAJNIŻSZEGO numeru partii (najstarsza dostawa schodzi pierwsza). Partie bez
+ * terminu idą na koniec — brak daty nie może udawać najpilniejszej.
+ *
+ * Numer partii jest tekstem, więc porównujemy go liczbowo: `localeCompare`
+ * bez `numeric` postawiłby „99" nad „501".
  */
 export function sortMeatGroupsByExpiry<T extends MeatGroup>(groups: readonly T[]): T[] {
   return [...groups].sort((a, b) => {
@@ -84,6 +88,17 @@ export function sortMeatGroupsByExpiry<T extends MeatGroup>(groups: readonly T[]
       if (!eb) return -1
       return ea < eb ? -1 : 1
     }
-    return b.kg - a.kg
+    return compareBatchNo(a.rawBatchNo, b.rawBatchNo)
   })
+}
+
+/** Numer partii rosnąco, liczbowo; wpisy nieliczbowe („—") na koniec. */
+function compareBatchNo(a: string, b: string): number {
+  const na = Number.parseInt(a, 10)
+  const nb = Number.parseInt(b, 10)
+  const aNum = Number.isFinite(na)
+  const bNum = Number.isFinite(nb)
+  if (aNum && bNum && na !== nb) return na - nb
+  if (aNum !== bNum) return aNum ? -1 : 1
+  return (a || '').localeCompare(b || '', 'pl', { numeric: true })
 }

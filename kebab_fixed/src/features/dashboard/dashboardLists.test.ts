@@ -96,11 +96,30 @@ describe('sortMeatGroupsByExpiry', () => {
     expect(sortMeatGroupsByExpiry(grupy).map(g => g.rawBatchNo)).toEqual(['498', 'bez'])
   })
 
-  it('ten sam termin — najpierw większa masa', () => {
+  it('ten sam termin — najpierw najniższy numer partii', () => {
     const grupy = [
-      { rawBatchNo: 'mała',  kg: 100, earliestExpiry: '2026-08-23' },
-      { rawBatchNo: 'duża', kg: 900, earliestExpiry: '2026-08-23' },
+      { rawBatchNo: '489', kg: 3156.5, earliestExpiry: '2026-08-25' },
+      { rawBatchNo: '488', kg: 2774.0, earliestExpiry: '2026-08-25' },
+      { rawBatchNo: '490', kg: 260.0,  earliestExpiry: '2026-08-25' },
     ]
-    expect(sortMeatGroupsByExpiry(grupy).map(g => g.rawBatchNo)).toEqual(['duża', 'mała'])
+    expect(sortMeatGroupsByExpiry(grupy).map(g => g.rawBatchNo))
+      .toEqual(['488', '489', '490'])
+  })
+
+  // Numer partii to tekst — porównanie leksykalne postawiłoby „99" nad „501".
+  it('numer partii porównywany liczbowo, nie po znakach', () => {
+    const grupy = [
+      { rawBatchNo: '501', kg: 100, earliestExpiry: '2026-08-25' },
+      { rawBatchNo: '99',  kg: 100, earliestExpiry: '2026-08-25' },
+    ]
+    expect(sortMeatGroupsByExpiry(grupy).map(g => g.rawBatchNo)).toEqual(['99', '501'])
+  })
+
+  it('partia bez numeru („—") schodzi pod numerowane', () => {
+    const grupy = [
+      { rawBatchNo: '—',   kg: 100, earliestExpiry: '2026-08-25' },
+      { rawBatchNo: '488', kg: 100, earliestExpiry: '2026-08-25' },
+    ]
+    expect(sortMeatGroupsByExpiry(grupy).map(g => g.rawBatchNo)).toEqual(['488', '—'])
   })
 })
