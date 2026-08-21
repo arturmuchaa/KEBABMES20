@@ -57,7 +57,11 @@ def zakres_pozycji(numery: Sequence[int]) -> str:
     Dostawa bywa rozbita na trzy stosy, a HDI ma kilkanaście pozycji —
     wypisanie ich po przecinku nie zmieściłoby się nad dokumentem.
     """
-    porz = sorted({int(n) for n in numery if n})
+    # `if n is not None`, nie `if n`: numer 0 to prawidłowa pozycja w dostawach
+    # zapisanych do 21.08.2026 (numerowaliśmy wtedy od zera). Filtr po
+    # prawdziwości gubił ją po cichu — z opisu dokumentu kontrolnego znikała
+    # PIERWSZA pozycja przyjęcia i nic tego nie sygnalizowało.
+    porz = sorted({int(n) for n in numery if n is not None})
     if not porz:
         return ""
     grupy: list[list[int]] = [[porz[0]]]

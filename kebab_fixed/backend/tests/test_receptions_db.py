@@ -539,3 +539,39 @@ def test_numer_porzadkowy_poprawiony_recznie_wchodzi_i_przestawia_sekwencje(db):
             dict(supplierBatchNo="A003", kg=1000.0,
                  slaughterDate="2026-08-10", expiryDate="2026-08-17")])]))
     assert dalej["batches"][0]["internal_batch_no"] == "502"
+
+
+# --- opis wypalany na skanie (pozycje HDI) ---------------------------------
+def test_zapis_przyjecia_numeruje_pozycje_hdi_od_jedynki(db):
+    """`seq` to kolumna Lp z HDI dostawcy — a ta zaczyna się od 1, nie od 0.
+
+    Zapis przyjęcia numerował od zera, edycja (`_replace_supplier_lines_cx`)
+    od jedynki: ta sama dostawa miała inne Lp przed i po poprawce, a opis na
+    skanie rozjeżdżał się z papierem o jeden wiersz.
+    """
+    _seed_supplier()
+    out = create_reception(_dto())
+    seqs = [r["seq"] for r in query_all(
+        "SELECT seq FROM reception_supplier_batches WHERE reception_id=%s ORDER BY seq",
+        (out["reception"]["id"],))]
+    assert seqs == list(range(1, 9)), "Lp numerowane od 1, przez cały dokument"
+
+
+def test_opis_skanu_z_zapisu_wymienia_pozycje_hdi(db):
+    """Partie wracające z zapisu niosą swoje pozycje HDI.
+
+    To TEN SAM obiekt, z którego `_store_scan` buduje opis wypalany nad
+    dokumentem. Bez pozycji na pasku zostawały same kilogramy i ze skanu nie
+    dało się odczytać, co weszło w skład numeru porządkowego (zgłoszone
+    21.08.2026). Ścieżki „dopnij skan później" i „przelicz opis" pozycje
+    miały — bo czytają dokument z bazy — więc brak widać było tylko przy
+    rejestracji dostawy ze skanem.
+    """
+    from app.services.hdi_scan_render import caption_for
+
+    _seed_supplier()
+    out = create_reception(_dto())
+    opis = caption_for(out["reception"]["reception_no"], out["batches"])
+
+    assert "6000 kg (poz. 1-5)" in opis
+    assert "4000 kg (poz. 6-8)" in opis

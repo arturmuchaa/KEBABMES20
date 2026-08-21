@@ -252,7 +252,11 @@ def create_reception(dto: ReceptionCreate) -> Dict[str, Any]:
             is_service=dto.is_service)
 
         batches: List[Dict] = []
-        seq = 0
+        # Lp liczy się PRZEZ CAŁY dokument i OD JEDYNKI — to kolumna z HDI
+        # dostawcy, a ta zaczyna się od 1. Numerowanie od zera rozjeżdżało
+        # opis na skanie z papierem o jeden wiersz i różniło się od edycji
+        # dokumentu (`_replace_supplier_lines_cx` liczy od 1).
+        seq = 1
         for g in dto.groups:
             numbers = [b.supplier_batch_no.strip() for b in g.supplier_batches
                        if (b.supplier_batch_no or "").strip()]
@@ -281,9 +285,17 @@ def create_reception(dto: ReceptionCreate) -> Dict[str, Any]:
             }), reception_id=reception["id"])
             batches.append(batch)
 
+            # Pozycje HDI zostają PRZY partii, nie tylko w bazie: z tej samej
+            # listy `_store_scan` buduje opis wypalany nad dokumentem. Bez
+            # tego na pasku były same kilogramy i ze skanu nie dało się
+            # odczytać, co weszło w skład numeru porządkowego (21.08.2026).
+            pozycje: List[Dict] = []
+            batch["supplier_batches"] = pozycje
+
             for b in g.supplier_batches:
                 if not (b.supplier_batch_no or "").strip():
                     continue
+                pozycje.append({"seq": seq, "supplier_batch_no": b.supplier_batch_no.strip()})
                 cx_execute(
                     conn,
                     """

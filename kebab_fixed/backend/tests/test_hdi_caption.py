@@ -52,3 +52,17 @@ def test_anulowana_partia_nie_wchodzi_do_opisu():
         _partia("501", 1000, pozycje=(2,), status="cancelled"),
     ])
     assert "500" in opis and "501" not in opis
+
+
+def test_pozycja_zero_nie_znika_z_opisu():
+    """Pozycja o numerze 0 ma się WYŚWIETLIĆ, a nie zniknąć po cichu.
+
+    Numeracja pozycji leci od 1 (kolumna Lp z HDI), ale dostawy zapisane do
+    21.08.2026 mają w bazie numerację od zera. Filtr `if n` traktował takie
+    zero jak brak numeru i gubił PIERWSZĄ pozycję dostawy — na skanie 28/08
+    numer 495 pokazywał „poz. 1-2" zamiast trzech pozycji, które faktycznie
+    do niego weszły. Cichy ubytek w opisie dokumentu kontrolnego jest gorszy
+    niż widoczne zero.
+    """
+    opis = caption_for("28/08", [_partia("495", 4830, pozycje=(0, 1, 2))])
+    assert "495: 4830 kg (poz. 0-2)" in opis
