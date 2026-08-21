@@ -9,7 +9,7 @@
  * Stan formularza mieszka TUTAJ (`useCreateReception`), nie na liście dostaw —
  * strona listy nie musi już nic wiedzieć o rejestracji.
  */
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, CheckCircle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -22,7 +22,8 @@ import {
 } from '@/components/ui/dialog'
 
 import { ReceptionForm } from '../components/ReceptionForm'
-import { useCreateReception, useEditReception } from '../hooks/useRawBatches'
+import { PrintTagsPrompt } from '../components/PrintTagsPrompt'
+import { useCreateReception, useEditReception, type SavedReception } from '../hooks/useRawBatches'
 import { useApi } from '@/hooks/useApi'
 import { suppliersApi } from '@/lib/apiClient'
 import type { SupplierOption } from '../types'
@@ -50,15 +51,22 @@ function ReceptionCreatePage() {
   const supplierOptions: SupplierOption[] = (suppliers.data ?? []).map(
     s => ({ value: s.id, label: s.name }))
 
+  // Zapisana dostawa zostaje na ekranie do czasu odpowiedzi na pytanie
+  // o zawieszki — dopiero ona decyduje, dokąd idziemy dalej.
+  const [saved, setSaved] = useState<SavedReception | null>(null)
+
   const {
     header, updateHeader, openModal, confirmOpen, cancelConfirm, pending,
     validationResult, suggestedReceptionNo, suggestedBatchNo,
     mutationLoading, mutationError, requestSubmit, confirmSubmit,
-  } = useCreateReception((receptionNo, batchNos, kg) => {
+  } = useCreateReception(zapisane => {
     toast.success(
-      `Przyjęcie ${receptionNo} — ${kg.toFixed(2).replace('.', ',')} kg` +
-      ` (nr porządkowy: ${batchNos.join(', ')})`)
-    navigate(LIST_PATH)
+      `Przyjęcie ${zapisane.receptionNo} — ${zapisane.kg.toFixed(2).replace('.', ',')} kg` +
+      ` (nr porządkowy: ${zapisane.batchNos.join(', ')})`)
+    // Bez id nie ma dokąd pójść po zawieszki (stary dokument, dziwna
+    // odpowiedź) — wtedy zachowujemy się jak dotąd i wracamy na listę.
+    if (!zapisane.receptionId) { navigate(LIST_PATH); return }
+    setSaved(zapisane)
   })
 
   // Podpowiedzi numerów wczytujemy przy wejściu na stronę — dotąd robiło to
@@ -98,6 +106,15 @@ function ReceptionCreatePage() {
         error={mutationError}
         onHeaderChange={updateHeader}
       />
+
+    <PrintTagsPrompt
+      open={saved !== null}
+      receptionNo={saved?.receptionNo ?? ''}
+      batchNos={saved?.batchNos ?? []}
+      kg={saved?.kg ?? 0}
+      onPrint={() => navigate(`${LIST_PATH}/${saved?.receptionId}/zawieszki`)}
+      onSkip={() => { setSaved(null); navigate(LIST_PATH) }}
+    />
 
     <Dialog open={confirmOpen} onOpenChange={v => { if (!v) cancelConfirm() }}>
       <DialogContent className="max-w-sm">

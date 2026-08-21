@@ -43,6 +43,117 @@ def format_wz_number(seq: int, year_month: str) -> str:
     return f"WZ/{seq}/{mm}/{yy}"
 
 
+#: Anulowane dokumenty odkładamy poza serię — numer ma wrócić do puli, a ślad
+#: zostać. Ta sama zasada i ta sama granica co przy przyjęciach surowca.
+_POZA_SERIA = 9000
+
+
+def _seq_key_wz(year_month: str) -> str:
+    """Klucz licznika WZ w tabeli `sequences` — osobny na każdy miesiąc."""
+    return f"wz_no:{year_month}"
+
+
+def _alokuj_seq_cx(conn, year_month: str) -> int:
+    """Kolejny numer WZ w miesiącu: najpierw ZWOLNIONY anulowaniem, potem licznik.
+
+    Biuro czyta serię WZ jak rejestr faktur — numery aktywnych dokumentów mają
+    iść po kolei. Do 21.08.2026 anulowanie zostawiało numer zajęty na zawsze
+    (w sierpniu 12 z 34 numerów było dziurami po anulowanych).
+
+    Licznik siedzi w `sequences`, nie w MAX(seq): MAX policzony przez dwa
+    równoległe zapisy dałby ten sam numer dwóm dokumentom.
+    """
+    klucz = _seq_key_wz(year_month)
+    odzyskany = cx_query_one(
+        conn,
+        "DELETE FROM numery_zwolnione WHERE seria=%s AND seq = ("
+        "  SELECT MIN(seq) FROM numery_zwolnione WHERE seria=%s) RETURNING seq",
+        (klucz, klucz),
+    )
+    if odzyskany and odzyskany.get("seq"):
+        return int(odzyskany["seq"])
+
+    # Pierwszy dokument w miesiącu startuje PO istniejących numerach: licznika
+    # nie było przed 21.08.2026, a seria bieżącego miesiąca jest już w toku.
+    start = cx_query_one(
+        conn,
+        "SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM wz_documents "
+        "WHERE year_month=%s AND seq < %s", (year_month, _POZA_SERIA))
+    row = cx_query_one(
+        conn,
+        "INSERT INTO sequences (key, value) VALUES (%s, %s) "
+        "ON CONFLICT (key) DO UPDATE SET value = sequences.value + 1 RETURNING value",
+        (klucz, int(start["n"])),
+    )
+    return int(row["value"])
+
+
+def next_wz_number(when: Optional[str] = None) -> Dict[str, Any]:
+    """Podpowiedź numeru dla NOWEGO WZ — bez rezerwacji.
+
+    Kolejność ta sama co w `_alokuj_seq_cx`: najpierw numer zwolniony
+    anulowaniem, potem licznik miesiąca. Inaczej formularz pokazuje jeden
+    numer, a zapis nadaje drugi (przyjęcia, 21.08.2026).
+
+    Podgląd, nie pobranie: MIN bez DELETE.
+    """
+    day = (when or "")[:10] or date.today().isoformat()
+    ym = f"{day[2:4]}{day[5:7]}"          # RRMM z ISO
+    klucz = _seq_key_wz(ym)
+    wolny = query_one("SELECT MIN(seq) AS seq FROM numery_zwolnione WHERE seria=%s", (klucz,))
+    if wolny and wolny.get("seq"):
+        seq = int(wolny["seq"])
+    else:
+        row = query_one("SELECT value FROM sequences WHERE key=%s", (klucz,))
+        if row:
+            seq = int(row["value"]) + 1
+        else:
+            # Licznika jeszcze nie ma w tym miesiącu — seria bieżącego miesiąca
+            # może być już w toku (dokumenty sprzed 21.08.2026).
+            istniejace = query_one(
+                "SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM wz_documents "
+                "WHERE year_month=%s AND seq < %s", (ym, _POZA_SERIA))
+            seq = int(istniejace["n"])
+    return {"number": format_wz_number(seq, ym), "seq": seq, "yearMonth": ym,
+            "note": "Numer zostanie potwierdzony przy zapisie"}
+
+
+def wyprowadz_wz_poza_serie_cx(conn, wz_id: str) -> bool:
+    """Anulowany WZ schodzi z serii i ODDAJE numer do puli.
+
+    Dokument zostaje w rejestrze ze znacznikiem „ANUL WZ/11/08/26" — znika
+    tylko z serii numerów, nie z bazy. Idempotentne: dokument już wyprowadzony
+    zwraca False.
+    """
+    row = cx_query_one(
+        conn, "SELECT id, number, seq, year_month FROM wz_documents WHERE id=%s FOR UPDATE",
+        (wz_id,))
+    if not row:
+        return False
+    seq = int(row["seq"] or 0)
+    if seq >= _POZA_SERIA:
+        return False
+    ym = row["year_month"]
+    # Miejsce poza serią bierzemy PO KOLEI, nie „numer + 9000": numer wraca do
+    # puli, więc kolejny dokument może dostać ten sam i też bywa anulowany —
+    # stałe przesunięcie dawało wtedy kolizję (przyjęcia, próba generalna 20.08).
+    wolne = cx_query_one(
+        conn,
+        "SELECT COALESCE(MAX(seq), %s) + 1 AS n FROM wz_documents "
+        "WHERE year_month=%s AND seq >= %s",
+        (_POZA_SERIA, ym, _POZA_SERIA))
+    cx_execute(
+        conn, "UPDATE wz_documents SET seq=%s, number=%s WHERE id=%s",
+        (int(wolne["n"]), f"ANUL {row['number']}", wz_id))
+    cx_execute(
+        conn,
+        "INSERT INTO numery_zwolnione (seria, seq) VALUES (%s,%s) "
+        "ON CONFLICT (seria, seq) DO NOTHING",
+        (_seq_key_wz(ym), seq))
+    logger.info("wz.left_series", extra={"wz_id": wz_id, "wz_number": row["number"]})
+    return True
+
+
 def build_wz_lines(items: List[Dict[str, Any]], valued: bool) -> Tuple[List[Dict[str, Any]], float]:
     """Zbuduj pozycje WZ. valued=True → cena + wartość.
 
@@ -301,9 +412,7 @@ def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
     """
     today = date.today()
     ym = today.strftime("%y%m")  # RRMM
-    seq_row = cx_query_one(
-        conn, "SELECT COALESCE(MAX(seq),0)+1 AS n FROM wz_documents WHERE year_month=%s", (ym,))
-    seq = int(seq_row["n"])
+    seq = _alokuj_seq_cx(conn, ym)
     number = format_wz_number(seq, ym)
     wid = cuid()
     cx_execute_returning(
@@ -835,6 +944,10 @@ def cancel_wz(wz_id: str) -> Dict[str, Any]:
                     movement_type="CANCEL", source_type="wz", source_id=wz_id)
 
         cx_execute(conn, "UPDATE wz_documents SET status='anulowany' WHERE id=%s", (wz_id,))
+        # Numer WRACA DO PULI, a dokument schodzi z serii jako „ANUL WZ/…":
+        # anulowanie to korekta pomyłki przy wystawianiu, a nie wydanie towaru,
+        # więc nie może zostawiać dziury w serii, którą biuro czyta jak rejestr.
+        wyprowadz_wz_poza_serie_cx(conn, wz_id)
         # Nośniki wracają na saldo odbiorcy — dokument już nic nie wydaje.
         _rebook_wz_containers(conn, wz_id, zero=True)
 

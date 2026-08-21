@@ -10,6 +10,13 @@ from app.utils.ids import cuid, now_iso
 
 logger = get_logger(__name__)
 
+#: Ile pojemników wchodzi na paletę, gdy dostawca nie ma własnego układu.
+#: Główny dostawca (KOKO) układa 9 na warstwę × 4 warstwy.
+DEFAULT_CONTAINERS_PER_PALLET = 36
+
+#: Górna granica zdrowego rozsądku — powyżej to pomyłka w polu, nie paleta.
+MAX_CONTAINERS_PER_PALLET = 200
+
 
 def list_suppliers() -> List[Dict]:
     return query_all("SELECT * FROM suppliers WHERE active = true ORDER BY name")
@@ -105,3 +112,33 @@ def delete_supplier(supplier_id: str) -> Dict:
         raise HTTPException(404, "Dostawca nie znaleziony")
     logger.info("supplier.deleted", extra={"supplier_id": supplier_id})
     return {"ok": True, "id": supplier_id}
+
+
+def set_containers_per_pallet(supplier_id: str, value):
+    """Zapamiętaj układ palety dostawcy (albo wyczyść go przez None).
+
+    Osobny endpoint zamiast pełnego `update_supplier`: ekran zawieszek zna
+    tylko tę jedną liczbę, a wysyłanie całej kartoteki wyzerowałoby pola,
+    których nie ma na formularzu druku.
+    """
+    if value is not None:
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Liczba pojemników na palecie musi być liczbą")
+        # Zero pojemników na palecie dałoby nieskończenie wiele zawieszek.
+        if not (1 <= value <= MAX_CONTAINERS_PER_PALLET):
+            raise HTTPException(
+                400,
+                f"Liczba pojemników na palecie musi być w zakresie 1–{MAX_CONTAINERS_PER_PALLET}")
+    with transaction() as conn:
+        row = cx_execute_returning(
+            conn,
+            "UPDATE suppliers SET containers_per_pallet=%s WHERE id=%s RETURNING *",
+            (value, supplier_id),
+        )
+    if not row:
+        raise HTTPException(404, "Dostawca nie znaleziony")
+    logger.info("supplier.pallet_layout",
+                extra={"supplier_id": supplier_id, "containers_per_pallet": value})
+    return row

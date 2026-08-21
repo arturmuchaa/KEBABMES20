@@ -5,6 +5,12 @@ import { wzApi, clientsApi, settingsApi, downloadDocPdf, containersApi, payrollA
 import { todayIso, cn } from '@/lib/utils'
 import { OTHER_CARRIER_KINDS } from '@/lib/containers'
 import { WzDocumentView, WzDocData } from '@/components/wz/WzDocumentView'
+import { WzLinesGrid } from '@/features/wz/components/WzLinesGrid'
+import { StockPickerDialog, fgLabel } from '@/features/wz/components/StockPickerDialog'
+import {
+  fmtKg3, fmtKgPl, fmtMoneyPl, rowKg, rowPrice, rowQty, rowValue,
+  sanitizeDecimal, sanitizeInt, toNum, type WzRow as Row,
+} from '@/features/wz/rowMath'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,43 +28,10 @@ import {
   FileCheck2, CheckCircle2, Package, Beef, AlertTriangle, RefreshCw,
 } from 'lucide-react'
 
-type Row = {
-  stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string
-  containersStr?: string
-  slaughterDate?: string | null
-  expiryDate?: string | null
-  productionDate?: string | null
-  qtyStr: string; priceStr: string; batchNo?: string; available: number
-  kgPerUnit?: number   // FG: waga 1 szt — wycena za kg
-}
-
 const isForeignNip = (nip: string) => {
   const s = (nip || '').trim().toUpperCase()
   return s.length >= 2 && /^[A-Z]{2}/.test(s) && s.slice(0, 2) !== 'PL'
 }
-
-/** "3,25" / "3.25" / "10" → liczba; śmieci → 0. */
-const toNum = (s: string) => {
-  const n = parseFloat((s || '').trim().replace(',', '.'))
-  return Number.isFinite(n) ? n : 0
-}
-/** Zostaw tylko cyfry i jeden separator dziesiętny (przecinek lub kropka). */
-const sanitizeDecimal = (s: string) => {
-  const cleaned = s.replace(/[^\d.,]/g, '')
-  const firstSep = cleaned.search(/[.,]/)
-  if (firstSep === -1) return cleaned
-  return cleaned.slice(0, firstSep + 1) + cleaned.slice(firstSep + 1).replace(/[.,]/g, '')
-}
-const sanitizeInt = (s: string) => s.replace(/\D/g, '')
-
-const fmtKg3 = (n: number) => Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/\.?0+$/, '')
-
-const rowQty   = (r: Row) => toNum(r.qtyStr)
-const rowPrice = (r: Row) => toNum(r.priceStr)
-/** Waga pozycji w kg: FG = szt × kg/szt, surowiec = qty (jednostka kg). */
-const rowKg = (r: Row) => r.kgPerUnit ? rowQty(r) * r.kgPerUnit : (r.unit === 'kg' ? rowQty(r) : 0)
-/** Wartość pozycji: cena ZA KG gdy znamy wagę, inaczej za jednostkę. */
-const rowValue = (r: Row) => (rowKg(r) > 0 ? rowKg(r) : rowQty(r)) * rowPrice(r)
 
 export function WzNewPage() {
   const otworz = useOtworzDokument()
@@ -99,6 +72,11 @@ export function WzNewPage() {
   // raz — po wybraniu klienta zwija się do jednej linii, żeby lista magazynu
   // (w niej się pracuje) dostała tę wysokość.
   const [buyerEdit, setBuyerEdit] = useState(false)
+  // Numer widoczny od razu w nagłówku — jak w programach do fakturowania.
+  // Po anulowaniu numery wracają do puli, więc podpowiedź czyta tę samą
+  // kolejkę co zapis (backend: next_wz_number).
+  const [nextNo, setNextNo] = useState('')
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [preview, setPreview] = useState(false)
   const [saving, setSaving]   = useState(false)
   // Druk na pojemniki wystawiany po WZ — kolumna „Zwrot" wychodzi PUSTA,
@@ -132,6 +110,7 @@ export function WzNewPage() {
         setTab('raw')
       }
     })
+    wzApi.nextNumber().then(n => setNextNo(n.number)).catch(() => setNextNo(''))
     settingsApi.getCompany().then(c => {
       setSeller({
         name: c.name,
@@ -206,15 +185,9 @@ export function WzNewPage() {
     }
   }
 
-  const fgName = (g: any) => {
-    const base = g.recipe_name || g.product_type_name || 'Wyrób'
-    const kg = Number(g.kg_per_unit || 0)
-    return kg > 0 ? `${base} ${fmtKg3(kg)}kg` : base
-  }
-
   const addedIds = useMemo(() => new Set(rows.map(r => r.stockId)), [rows])
   const addFg = (g: any) => setRows(r => [...r, {
-    stockType: 'fg', stockId: g.id, name: fgName(g),
+    stockType: 'fg', stockId: g.id, name: fgLabel(g),
     unit: 'szt', qtyStr: '1', priceStr: '', batchNo: g.batch_no,
     available: Number(g.qty_available || 0),
     kgPerUnit: Number(g.kg_per_unit || 0) || undefined,
@@ -225,7 +198,8 @@ export function WzNewPage() {
     stockType: b.stock_type || 'raw', stockId: b.id,
     // Pełna nazwa na dokument (doc_name); krótka zostaje w HMI/MES.
     name: b.doc_name || b.name || `Surowiec ${b.internal_batch_no}`,
-    unit: 'kg', qtyStr: String(Number(b.kg_available || 0)), priceStr: '',
+    // Przecinek, nie kropka: pole ma wyglądać jak reszta liczb w biurze.
+    unit: 'kg', qtyStr: fmtKgPl(Number(b.kg_available || 0)), priceStr: '',
     // Pojemniki ZAPAMIĘTANE z ważenia na HMI — podpowiedź, można poprawić.
     containersStr: b.containers ? String(b.containers) : '',
     batchNo: b.internal_batch_no,
@@ -355,6 +329,7 @@ export function WzNewPage() {
     setIssuedDate(todayIso()); setReleaseDate(todayIso())
     wzApi.stockFg().then(setFg)
     wzApi.stockRaw().then(setRaw)
+    wzApi.nextNumber().then(n => setNextNo(n.number)).catch(() => {})
   }
 
   // ── Ekran sukcesu po wystawieniu ──────────────────────────────
@@ -450,49 +425,48 @@ export function WzNewPage() {
   }
 
   // ── Formularz ────────────────────────────────────────────────
+  // Układ jak w programach do fakturowania: nagłówek dokumentu ściśnięty
+  // w jeden pas u góry, a całą resztę ekranu zajmuje SIATKA POZYCJI. Magazyn
+  // przeniósł się do okna pod klawiszem Insert — wcześniej ekran trzymał dwie
+  // listy naraz (magazyn i pozycje) i przy kilku partiach ubocznych nie dało
+  // się ogarnąć wzrokiem, co właściwie jedzie na dokument.
   return (
-    <div className="space-y-4 animate-fade-in">
-      <div className="flex items-center gap-3">
+    <div className="space-y-3 animate-fade-in pb-20">
+      <div className="flex items-center gap-3 flex-wrap">
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => nav('/office/wz')}>
           <ArrowLeft size={16} />
         </Button>
-        <div>
+        <div className="min-w-0">
           <h1 className="text-lg font-bold leading-tight">Nowy dokument WZ</h1>
-          <div className="text-[11px] text-muted-foreground">Wydanie zewnętrzne — sprzedaż z magazynu (rozchód ze stanu)</div>
+          <div className="text-[11px] text-ink-4">Wydanie zewnętrzne — sprzedaż z magazynu (rozchód ze stanu)</div>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wider text-ink-4">Numer</span>
+          <code className="font-mono font-bold text-primary text-[15px]" aria-label="Numer dokumentu">
+            {nextNo || '—'}
+          </code>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_310px] gap-4 items-start">
-        {/* ── Lewa kolumna: odbiorca + pozycje ── */}
-        <div className="space-y-4 min-w-0">
-          <Card>
-            <div className="px-4 py-2.5 border-b flex items-center gap-3 flex-wrap">
-              <span className="text-[13px] font-semibold">Odbiorca</span>
-              {buyer.nip && (
-                foreign
-                  ? <Badge variant="warning" className="text-[10px]">Zagraniczny — wymagany CMR (SP-2c) + HDI</Badge>
-                  : <Badge variant="info" className="text-[10px]">Krajowy — wymagany WZ + HDI</Badge>
-              )}
-              {!buyerFormOpen && (
-                <Button variant="ghost" size="sm" className="h-7 text-[11px] ml-auto"
-                        onClick={() => setBuyerEdit(true)}>
-                  Zmień odbiorcę
-                </Button>
-              )}
-            </div>
+      {/* ── Nagłówek dokumentu: wszystko, co nie jest pozycją ── */}
+      <Card>
+        <CardContent className="p-3 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
+          {/* Odbiorca */}
+          <div className="space-y-1.5 min-w-0">
+            <Label className="text-[10px] uppercase tracking-wider text-ink-4">Odbiorca</Label>
             {!buyerFormOpen ? (
-              // Zwinięty odbiorca: wszystko, co idzie na dokument, w jednej linii.
-              <CardContent className="px-4 py-2.5 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                <span className="text-[13px] font-semibold text-ink">{buyer.name}</span>
-                {buyer.nip && <span className="text-[12px] font-mono text-ink-3">{buyer.nip}</span>}
-                {buyer.address && <span className="text-[12px] text-ink-3">{buyer.address}</span>}
-              </CardContent>
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-semibold text-ink truncate">{buyer.name}</div>
+                  <div className="text-[11px] text-ink-4 truncate">
+                    {[buyer.address, buyer.nip && `NIP ${buyer.nip}`].filter(Boolean).join(' · ') || '—'}
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" className="h-7 text-[11px] shrink-0"
+                        onClick={() => setBuyerEdit(true)}>Zmień</Button>
+              </div>
             ) : (
-            <CardContent className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-1.5 md:col-span-2">
-                <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                  Klient z bazy <span className="font-normal normal-case text-ink-4">(wpisz, aby wyszukać)</span>
-                </Label>
+              <div className="space-y-2">
                 <SearchSelect
                   items={clients.map(c => ({
                     id: c.id, label: c.name || c.displayName || '', sublabel: c.city || undefined,
@@ -502,290 +476,71 @@ export function WzNewPage() {
                   onSelect={pickClient}
                   placeholder="Wpisz nazwę odbiorcy…"
                 />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Nazwa</Label>
-                <Input className="h-9" placeholder="Nazwa odbiorcy" value={buyer.name}
-                       onChange={e => setBuyer({ ...buyer, name: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">NIP</Label>
-                <Input className="h-9 font-mono" placeholder="np. PL1234567890" value={buyer.nip}
-                       onChange={e => setBuyer({ ...buyer, nip: e.target.value })} />
-              </div>
-              <div className="space-y-1.5 md:col-span-2">
-                <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Adres</Label>
-                <Input className="h-9" placeholder="Ulica, kod, miasto" value={buyer.address}
-                       onChange={e => setBuyer({ ...buyer, address: e.target.value })} />
-              </div>
-              {buyer.name.trim() && (
-                <div className="md:col-span-2 flex justify-end">
-                  <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => setBuyerEdit(false)}>
-                    Zwiń dane odbiorcy
-                  </Button>
+                <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-2">
+                  <Input className="h-8 text-[12px]" placeholder="Nazwa odbiorcy" value={buyer.name}
+                         onChange={e => setBuyer(b => ({ ...b, name: e.target.value }))} />
+                  <Input className="h-8 text-[12px] font-mono" placeholder="NIP" value={buyer.nip}
+                         onChange={e => setBuyer(b => ({ ...b, nip: e.target.value }))} />
                 </div>
-              )}
-            </CardContent>
+                <Input className="h-8 text-[12px]" placeholder="Ulica, kod, miasto" value={buyer.address}
+                       onChange={e => setBuyer(b => ({ ...b, address: e.target.value }))} />
+                {foreign && (
+                  <div className="text-[11px] text-ink-3">
+                    NIP zagraniczny — dokument bez VAT (wewnątrzwspólnotowa dostawa).
+                  </div>
+                )}
+              </div>
             )}
-          </Card>
+          </div>
 
-          <Card>
-            <div className="px-4 py-2.5 border-b flex items-center gap-3 flex-wrap">
-              <span className="text-[13px] font-semibold">Pozycje z magazynu</span>
-              {clientName && tab === 'fg' && (
-                <div className="flex rounded-md border overflow-hidden">
-                  {([['client', `${clientName} (${fgClientCount})`], ['all', 'Wszystkie']] as const).map(([key, label]) => (
-                    <button key={key}
-                            className={cn('px-2.5 h-7 text-[11px] font-semibold transition-colors',
-                              stockView === key ? 'bg-green-600 text-white' : 'bg-background text-muted-foreground hover:bg-muted')}
-                            onClick={() => setStockView(key)}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className="flex rounded-md border overflow-hidden ml-auto">
-                {([['fg', 'Wyroby gotowe', Package], ['raw', 'Surowce', Beef]] as const).map(([key, label, Icon]) => (
-                  <button key={key}
-                          className={cn('px-3 h-7 text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors',
-                            tab === key ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:bg-muted')}
-                          onClick={() => setTab(key)}>
-                    <Icon size={12} /> {label}
-                  </button>
-                ))}
+          {/* Daty i miejsce */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] uppercase tracking-wider text-ink-4">Daty</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <div className="text-[10px] text-ink-4 mb-0.5">wystawienia</div>
+                <Input type="date" className="h-8 text-[12px]" value={issuedDate}
+                       onChange={e => setIssuedDate(e.target.value)} />
+              </div>
+              <div>
+                <div className="text-[10px] text-ink-4 mb-0.5">wydania</div>
+                <Input type="date" className="h-8 text-[12px]" value={releaseDate}
+                       onChange={e => setReleaseDate(e.target.value)} />
               </div>
             </div>
-            <CardContent className="p-4 space-y-3">
-              <div className="relative">
-                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input className="h-9 pl-8" placeholder={tab === 'fg' ? 'Szukaj wyrobu lub partii...' : 'Szukaj partii lub dostawcy...'}
-                       value={query} onChange={e => setQuery(e.target.value)} />
-              </div>
+            <Input className="h-8 text-[12px]" placeholder="Miejsce wystawienia" value={place}
+                   onChange={e => setPlace(e.target.value)} />
+          </div>
 
-              {/* Lista magazynu to główne pole pracy przy wystawianiu — rośnie
-                  z ekranem (dawne sztywne max-h-72 = 288 px zmuszało do
-                  ciągłego przewijania przy 7 partiach kości i 3 grzbietów). */}
-              <div className="border rounded-md min-h-[320px] max-h-[52vh] overflow-y-auto divide-y">
-                {tab === 'fg' && fgFiltered.map(g => {
-                  const added = addedIds.has(g.id)
-                  return (
-                    <div key={g.id} className="px-3 py-2 flex items-center gap-3 hover:bg-muted/50">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-medium truncate">
-                          {fgName(g)}
-                          {g.client_name && (
-                            <span className="ml-2 text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1 py-px">
-                              {g.client_name}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
-                          <span className="font-mono text-green-700 bg-green-50 border border-green-200 rounded px-1">{g.batch_no}</span>
-                          <span>{g.qty_available} szt · {fmtKg3(Number(g.qty_available || 0) * Number(g.kg_per_unit || 0))} kg dostępne</span>
-                        </div>
-                      </div>
-                      <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1 shrink-0"
-                              disabled={added} onClick={() => addFg(g)}>
-                        {added ? 'Dodano' : <><Plus size={12} /> Dodaj</>}
-                      </Button>
-                    </div>
-                  )
-                })}
-                {tab === 'raw' && (() => {
-                  // Grupy per rodzaj — kości nie mieszają się z grzbietami i ćwiartką.
-                  const GROUPS: { key: string; label: string; chip: string; match: (b: any) => boolean }[] = [
-                    { key: 'raw',    label: 'Ćwiartka',   chip: 'bg-blue-50 text-blue-700 border-blue-200',       match: b => (b.stock_type || 'raw') === 'raw' },
-                    { key: 'meat',   label: 'Mięso z/s',  chip: 'bg-emerald-50 text-emerald-700 border-emerald-200', match: b => b.stock_type === 'meat' },
-                    { key: 'backs',  label: 'Grzbiety',   chip: 'bg-amber-50 text-amber-700 border-amber-200',    match: b => b.stock_type === 'byproduct' && b.name === 'Grzbiety' },
-                    { key: 'bones',  label: 'Kości',      chip: 'bg-gray-100 text-gray-700 border-gray-300',      match: b => b.stock_type === 'byproduct' && b.name !== 'Grzbiety' },
-                  ]
-                  return GROUPS.map(g => {
-                    const items = rawFiltered.filter(g.match)
-                    if (!items.length) return null
-                    const sumKg = items.reduce((a, b) => a + Number(b.kg_available || 0), 0)
-                    return (
-                      <div key={g.key}>
-                        <div className="px-3 py-1.5 bg-surface-2 border-y border-surface-3 flex items-center gap-2 sticky top-0 z-10">
-                          <span className={cn('text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border', g.chip)}>{g.label}</span>
-                          <span className="text-[11px] text-muted-foreground">{items.length} poz. · {fmtKg3(sumKg)} kg</span>
-                          {(() => {
-                            const left = items.filter(b => !addedIds.has(b.id))
-                            if (!left.length) return null
-                            return (
-                              <Button variant="outline" size="sm" className="h-6 ml-auto text-[11px] gap-1 shrink-0"
-                                      onClick={() => addRawMany(items)}>
-                                <Plus size={11} /> Dodaj wszystkie ({left.length})
-                              </Button>
-                            )
-                          })()}
-                        </div>
-                        {items.map(b => {
-                          const added = addedIds.has(b.id)
-                          return (
-                            <div key={b.id} className="px-3 py-2.5 flex items-center gap-3 hover:bg-muted/50 border-b border-surface-3 last:border-b-0">
-                              <div className="flex-1 min-w-0">
-                                <div className="text-[14px] font-medium truncate flex items-center gap-2">
-                                  <span className="font-mono font-bold text-green-700 bg-green-50 border border-green-200 rounded px-1.5">{b.internal_batch_no}</span>
-                                  <span className="truncate">{b.name || 'Surowiec'}</span>
-                                </div>
-                                <div className="text-[12px] text-muted-foreground flex items-center gap-2 mt-0.5">
-                                  <span className="font-semibold text-ink-2">{fmtKg3(Number(b.kg_available || 0))} kg dostępne</span>
-                                  {b.containers ? <span>· {b.containers} poj.</span> : null}
-                                  {b.supplier_name && <span className="truncate">· {b.supplier_name}</span>}
-                                </div>
-                              </div>
-                              <Button variant="outline" size="sm" className="h-8 text-[12px] gap-1 shrink-0"
-                                      disabled={added} onClick={() => addRaw(b)}>
-                                {added ? 'Dodano' : <><Plus size={13} /> Dodaj</>}
-                              </Button>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )
-                  })
-                })()}
-                {((tab === 'fg' && !fgFiltered.length) || (tab === 'raw' && !rawFiltered.length)) && (
-                  <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">
-                    {q ? 'Brak wyników wyszukiwania'
-                      : tab === 'fg' && stockView === 'client'
-                        ? `Brak wyrobów przypisanych do klienta ${clientName} — przełącz na „Wszystkie"`
-                        : 'Brak dostępnego stanu magazynowego'}
-                  </div>
-                )}
-              </div>
-
-              {rows.length > 0 && (
-                <Table className="text-[12px]">
-                  <TableHeader>
-                    <TableRow>
-                      {['Towar', 'Partia', 'Ilość', 'Pojemniki', 'Waga', ...(valued ? [`Cena/kg [${sym}]`, `Wartość [${sym}]`] : []), ''].map((h, i) => (
-                        <TableHead key={i} className="text-[9px] uppercase tracking-wider h-7 px-2">
-                          {h}
-                          {valued && h.startsWith('Cena') && (
-                            <Input
-                              type="text" inputMode="decimal" placeholder="wszystkim"
-                              title="Wpisz jedną cenę — trafi do wszystkich pozycji; każdą można potem poprawić"
-                              className="h-6 w-20 mt-1 font-mono text-[11px] normal-case"
-                              onFocus={e => e.target.select()}
-                              onChange={e => applyPriceToAll(sanitizeDecimal(e.target.value))} />
-                          )}
-                        </TableHead>
-                      ))}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rows.map((r, i) => {
-                      const over = rowQty(r) > r.available
-                      return (
-                        <TableRow key={i}>
-                          <TableCell className="py-1.5 px-2 font-medium">{r.name}</TableCell>
-                          <TableCell className="py-1.5 px-2 font-mono text-green-700">{r.batchNo || '—'}</TableCell>
-                          <TableCell className="py-1.5 px-2">
-                            <div className="flex items-center gap-1.5">
-                              <Input type="text" inputMode={r.unit === 'szt' ? 'numeric' : 'decimal'}
-                                     value={r.qtyStr}
-                                     className={cn('h-8 w-20 font-mono', over && 'border-red-400 focus-visible:ring-red-400')}
-                                     onFocus={e => e.target.select()}
-                                     onChange={e => upd(i, 'qtyStr', r.unit === 'szt' ? sanitizeInt(e.target.value) : sanitizeDecimal(e.target.value))} />
-                              <span className="text-[11px] text-muted-foreground">{r.unit}</span>
-                              {over && (
-                                <span title={`Dostępne tylko ${r.available} ${r.unit}`}>
-                                  <AlertTriangle size={14} className="text-red-600" />
-                                </span>
-                              )}
-                            </div>
-                            <div className={cn('text-[10px] mt-0.5', over ? 'text-red-600 font-semibold' : 'text-muted-foreground')}>
-                              dostępne {r.available} {r.unit}
-                            </div>
-                          </TableCell>
-                          <TableCell className="py-1.5 px-2">
-                            {r.stockType === 'fg' ? (
-                              <span className="text-muted-foreground">—</span>
-                            ) : (
-                              <Input type="text" inputMode="numeric" placeholder="—"
-                                     value={r.containersStr ?? ''}
-                                     className="h-8 w-16 font-mono"
-                                     onFocus={e => e.target.select()}
-                                     onChange={e => upd(i, 'containersStr', sanitizeInt(e.target.value))} />
-                            )}
-                          </TableCell>
-                          <TableCell className="py-1.5 px-2 font-mono font-semibold whitespace-nowrap">
-                            {rowKg(r) > 0 ? `${fmtKg3(rowKg(r))} kg` : '—'}
-                            {r.kgPerUnit ? <div className="text-[10px] font-normal text-muted-foreground">{fmtKg3(r.kgPerUnit)} kg/szt</div> : null}
-                          </TableCell>
-                          {valued && (
-                            <TableCell className="py-1.5 px-2">
-                              <Input type="text" inputMode="decimal" placeholder="0,00"
-                                     value={r.priceStr}
-                                     className="h-8 w-24 font-mono"
-                                     onFocus={e => e.target.select()}
-                                     onChange={e => upd(i, 'priceStr', sanitizeDecimal(e.target.value))} />
-                            </TableCell>
-                          )}
-                          {valued && (
-                            <TableCell className="py-1.5 px-2 text-right font-mono font-semibold whitespace-nowrap">
-                              {rowValue(r).toFixed(2)} {sym}
-                            </TableCell>
-                          )}
-                          <TableCell className="py-1.5 px-2 w-9">
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600"
-                                    onClick={() => del(i)}>
-                              <Trash2 size={13} />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* ── Prawa kolumna: dokument + akcje ── */}
-        <div className="space-y-4 lg:sticky lg:top-4">
-          <Card>
-            <div className="px-4 py-2.5 border-b">
-              <span className="text-[13px] font-semibold">Dokument</span>
+          {/* Rodzaj i waluta */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] uppercase tracking-wider text-ink-4">Rodzaj dokumentu</Label>
+            <div className="grid grid-cols-2 rounded-md border border-surface-4 overflow-hidden">
+              {([[true, 'Z cenami'], [false, 'Bez cen']] as const).map(([v, label]) => (
+                <button key={label}
+                        className={cn('h-8 text-[11px] font-semibold transition-colors',
+                          valued === v ? 'bg-primary text-primary-foreground' : 'bg-background text-ink-3 hover:bg-surface-2')}
+                        onClick={() => setValued(v)}>
+                  {label}
+                </button>
+              ))}
             </div>
-            <CardContent className="p-4 space-y-3">
-              <div className="space-y-1.5">
-                <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Rodzaj</Label>
-                <div className="grid grid-cols-2 rounded-md border overflow-hidden">
-                  {([[true, 'Z cenami'], [false, 'Bez cen']] as const).map(([v, label]) => (
-                    <button key={label}
+            {valued ? (
+              <>
+                <div className="grid grid-cols-2 rounded-md border border-surface-4 overflow-hidden">
+                  {(['PLN', 'EUR'] as const).map(c => (
+                    <button key={c}
                             className={cn('h-8 text-[11px] font-semibold transition-colors',
-                              valued === v ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:bg-muted')}
-                            onClick={() => setValued(v)}>
-                      {label}
+                              currency === c ? 'bg-primary text-primary-foreground' : 'bg-background text-ink-3 hover:bg-surface-2')}
+                            onClick={() => setCurrency(c)}>
+                      {c}
                     </button>
                   ))}
                 </div>
-                {!valued && (
-                  <div className="text-[11px] text-amber-700">
-                    WZ wstępny — ceny uzupełnisz później na liście dokumentów.
-                  </div>
-                )}
-              </div>
-              {valued && (
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Waluta</Label>
-                  <div className="grid grid-cols-2 rounded-md border overflow-hidden">
-                    {(['PLN', 'EUR'] as const).map(c => (
-                      <button key={c}
-                              className={cn('h-8 text-[11px] font-semibold transition-colors',
-                                currency === c ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:bg-muted')}
-                              onClick={() => setCurrency(c)}>
-                        {c}
-                      </button>
-                    ))}
-                  </div>
-                  {currency === 'EUR' && (
+                {currency === 'EUR' && (
+                  <>
                     <div className="flex items-center gap-1.5">
-                      <Input type="text" inputMode="decimal" value={eurRateStr}
-                             placeholder="kurs EUR"
+                      <Input type="text" inputMode="decimal" value={eurRateStr} placeholder="kurs EUR"
                              className="h-8 font-mono text-[12px]"
                              onFocus={e => e.target.select()}
                              onChange={e => { setEurRateStr(sanitizeDecimal(e.target.value)); setEurRateDate('') }} />
@@ -794,155 +549,162 @@ export function WzNewPage() {
                         <RefreshCw size={13} className={rateLoading ? 'animate-spin' : ''} />
                       </Button>
                     </div>
-                  )}
-                  {currency === 'EUR' && (
-                    <div className="text-[10px] text-muted-foreground">
+                    <div className="text-[10px] text-ink-4">
                       {eurRateStr && eurRateDate
                         ? <>Kurs średni NBP (tab. A) z {eurRateDate}</>
-                        : eurRateStr
-                          ? 'Kurs wpisany ręcznie'
-                          : rateLoading ? 'Pobieranie kursu z NBP…' : 'Pobierz kurs z NBP lub wpisz ręcznie'}
+                        : eurRateStr ? 'Kurs wpisany ręcznie'
+                        : rateLoading ? 'Pobieranie kursu z NBP…' : 'Pobierz kurs z NBP lub wpisz ręcznie'}
                     </div>
-                  )}
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Data wystawienia</Label>
-                  <Input type="date" className="h-9" value={issuedDate} onChange={e => setIssuedDate(e.target.value)} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Data wydania</Label>
-                  <Input type="date" className="h-9" value={releaseDate} onChange={e => setReleaseDate(e.target.value)} />
-                </div>
+                  </>
+                )}
+              </>
+            ) : (
+              <div className="text-[11px] text-amber-700">
+                WZ wstępny — ceny uzupełnisz później na liście dokumentów.
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Miejsce wystawienia</Label>
-                <Input className="h-9" placeholder="Miejscowość" value={place} onChange={e => setPlace(e.target.value)} />
-              </div>
-              {/* Nośniki na druk pojemnikowy. Pojemniki podpowiadamy z ważeń
-                  (suma z pozycji WZ), palety wpisuje operator — tylko on widzi
-                  samochód. Wszystko do poprawienia przed wystawieniem druku. */}
-              <div className="space-y-1.5">
-                <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                  Pojemniki na saldo i druk
-                  <span className="normal-case"> (z ważeń: {totalContainers}; wpisz 0, żeby nie ruszać salda)</span>
-                </Label>
-                <Input type="text" inputMode="numeric" className="h-9 font-mono"
-                       placeholder={String(totalContainers)}
-                       value={contOverride}
-                       onFocus={e => e.target.select()}
-                       onChange={e => setContOverride(sanitizeInt(e.target.value))} />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Palety H1</Label>
-                  <Input type="text" inputMode="numeric" className="h-9 font-mono"
-                         value={String(palletsH1)}
-                         onFocus={e => e.target.select()}
-                         onChange={e => {
-                           setPalletsH1(parseInt(sanitizeInt(e.target.value) || '0') || 0)
-                         }} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                    Inne opakowania
-                  </Label>
-                  <div className="flex gap-1">
-                    {/* Rodzaj ma własne saldo — siatek E1 nie zwraca się europaletą. */}
-                    <select value={palletsOtherKind}
-                            onChange={e => setPalletsOtherKind(e.target.value)}
-                            className="h-9 flex-1 rounded border border-surface-4 bg-surface px-1 text-[11px]">
-                      {OTHER_CARRIER_KINDS.map(k => (
-                        <option key={k.value} value={k.value}>{k.label}</option>
-                      ))}
-                    </select>
-                    <Input type="text" inputMode="numeric" className="h-9 w-14 font-mono"
-                           value={String(palletsOther)}
-                           onFocus={e => e.target.select()}
-                           onChange={e => {
-                             setPalletsOther(parseInt(sanitizeInt(e.target.value) || '0') || 0)
-                           }} />
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Uwagi</Label>
-                <textarea
-                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[60px] resize-y"
-                  placeholder="Opcjonalne uwagi do dokumentu"
-                  value={notes} onChange={e => setNotes(e.target.value)} />
-              </div>
-            </CardContent>
-          </Card>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
-          <Card>
-            <CardContent className="p-4 space-y-3">
-              <div className="flex justify-between text-[12px]">
-                <span className="text-muted-foreground">Pozycje</span>
-                <span className="font-semibold">{rows.length}</span>
-              </div>
-              <div className="flex justify-between text-[12px]">
-                <span className="text-muted-foreground">Razem waga</span>
-                <span className="font-mono font-semibold">{fmtKg3(totalKg)} kg</span>
-              </div>
-              {valued && (
-                <div className="flex justify-between items-baseline border-t pt-2">
-                  <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Razem</span>
-                  <span className="font-mono font-bold text-xl">{totalValue.toFixed(2)} <span className="text-[12px] font-medium text-muted-foreground">{sym}</span></span>
-                </div>
+      {/* ── Pozycje: główne pole pracy ── */}
+      <WzLinesGrid
+        rows={rows}
+        valued={valued}
+        sym={sym}
+        onChange={upd}
+        onDelete={del}
+        onAdd={() => setPickerOpen(true)}
+      />
+
+      {/* ── Transport, nośniki i uwagi — pod siatką, jeden pas ── */}
+      <Card>
+        <CardContent className="p-3 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+          {valued && (
+            <div className="space-y-1">
+              <Label className="text-[10px] uppercase tracking-wider text-ink-4">Cena dla wszystkich pozycji</Label>
+              <Input type="text" inputMode="decimal" placeholder="np. 1,20"
+                     title="Jedna cena trafia do wszystkich pozycji; każdą można potem poprawić w siatce"
+                     className="h-8 font-mono text-[12px]"
+                     onFocus={e => e.target.select()}
+                     onChange={e => applyPriceToAll(sanitizeDecimal(e.target.value))} />
+            </div>
+          )}
+          <div className="space-y-1">
+            <Label className="text-[10px] uppercase tracking-wider text-ink-4">
+              Pojemniki na saldo i druk
+            </Label>
+            <Input type="text" inputMode="numeric" className="h-8 font-mono text-[12px]"
+                   placeholder={String(totalContainers)}
+                   value={contOverride}
+                   onFocus={e => e.target.select()}
+                   onChange={e => setContOverride(sanitizeInt(e.target.value))} />
+            <div className="text-[10px] text-ink-4">
+              z ważeń: {totalContainers}; wpisz 0, żeby nie ruszać salda
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] uppercase tracking-wider text-ink-4">Palety H1</Label>
+            <Input type="text" inputMode="numeric" className="h-8 font-mono text-[12px]"
+                   value={String(palletsH1)}
+                   onFocus={e => e.target.select()}
+                   onChange={e => setPalletsH1(parseInt(sanitizeInt(e.target.value) || '0') || 0)} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] uppercase tracking-wider text-ink-4">Inne opakowania</Label>
+            <div className="flex gap-1">
+              {/* Rodzaj ma własne saldo — siatek E1 nie zwraca się europaletą. */}
+              <select value={palletsOtherKind}
+                      onChange={e => setPalletsOtherKind(e.target.value)}
+                      className="h-8 flex-1 rounded border border-surface-4 bg-surface px-1 text-[11px]">
+                {OTHER_CARRIER_KINDS.map(k => (
+                  <option key={k.value} value={k.value}>{k.label}</option>
+                ))}
+              </select>
+              <Input type="text" inputMode="numeric" className="h-8 w-14 font-mono text-[12px]"
+                     value={String(palletsOther)}
+                     onFocus={e => e.target.select()}
+                     onChange={e => setPalletsOther(parseInt(sanitizeInt(e.target.value) || '0') || 0)} />
+            </div>
+          </div>
+          <div className="space-y-1 md:col-span-2 lg:col-span-4">
+            <Label className="text-[10px] uppercase tracking-wider text-ink-4">Uwagi</Label>
+            <textarea
+              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-[12px] ring-offset-background placeholder:text-ink-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[48px] resize-y"
+              placeholder="Opcjonalne uwagi do dokumentu"
+              value={notes} onChange={e => setNotes(e.target.value)} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Odbiorca rozpoznany jako pracownik: WZ zdejmuje towar ze stanu,
+          a potrącenie idzie prosto do jego rozliczenia. */}
+      {empMatch && (
+        <div className={cn('rounded-md border px-3 py-2.5 text-[12px]',
+          deductionDefault > 0 ? 'border-primary/40 bg-primary/5' : 'border-amber-300 bg-amber-50 text-amber-900')}>
+          {deductionDefault > 0 ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <input type="checkbox" className="w-4 h-4 rounded cursor-pointer"
+                     checked={empDeduct} onChange={e => setEmpDeduct(e.target.checked)} />
+              <span className="flex-1 min-w-[220px]">
+                Odbiorca to pracownik <strong>{empMatch.name}</strong> — dopisz potrącenie
+              </span>
+              <Input className="w-24 h-8 text-right" type="number" step="0.01" min="0"
+                     value={empAmount} onChange={e => setEmpAmount(e.target.value)} disabled={!empDeduct} />
+              <span className="text-ink-4">zł</span>
+            </div>
+          ) : (
+            <>Odbiorca to pracownik <strong>{empMatch.name}</strong>, ale WZ jest bez wyceny —
+            uzupełnij ceny, żeby powstało potrącenie.</>
+          )}
+        </div>
+      )}
+
+      {err && (
+        <div className="text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+          {err}
+        </div>
+      )}
+
+      {/* Pasek akcji przyklejony do dołu — przy długiej siatce „Wystaw"
+          nie może uciekać pod ekran. */}
+      <div className="sticky bottom-0 -mx-1 px-1 py-2 bg-surface-1/95 backdrop-blur border-t border-surface-4
+                      flex items-center gap-3 flex-wrap">
+        <div className="text-[12px] text-ink-3">
+          {rows.length} poz. · <span className="font-mono font-semibold text-ink">{fmtKgPl(totalKg)} kg</span>
+          {valued && (
+            <>
+              {' · '}RAZEM{' '}
+              <span className="font-mono font-bold text-ink text-[15px]">{fmtMoneyPl(totalValue)}</span> {sym}
+              {currency === 'EUR' && eurRate > 0 && totalValue > 0 && (
+                <span className="text-ink-4"> ≈ {fmtMoneyPl(totalValue * eurRate)} zł</span>
               )}
-              {valued && currency === 'EUR' && eurRate > 0 && totalValue > 0 && (
-                <div className="text-right text-[11px] text-muted-foreground -mt-2">
-                  ≈ {(totalValue * eurRate).toFixed(2)} zł (kurs {eurRate.toFixed(4)})
-                </div>
-              )}
-              {/* Odbiorca rozpoznany jako pracownik: WZ zdejmuje towar ze
-                  stanu, a potrącenie idzie prosto do jego rozliczenia. */}
-              {empMatch && (
-                <div className={cn('rounded-md border px-3 py-2.5 text-[12px]',
-                  deductionDefault > 0
-                    ? 'border-primary/40 bg-primary/5'
-                    : 'border-amber-300 bg-amber-50 text-amber-900')}>
-                  {deductionDefault > 0 ? (
-                    <div className="flex items-center gap-2">
-                      <input type="checkbox" className="w-4 h-4 rounded cursor-pointer"
-                        checked={empDeduct} onChange={e => setEmpDeduct(e.target.checked)} />
-                      <span className="flex-1">
-                        Odbiorca to pracownik <strong>{empMatch.name}</strong> — dopisz potrącenie
-                      </span>
-                      <Input className="w-24 h-8 text-right" type="number" step="0.01" min="0"
-                        value={empAmount} onChange={e => setEmpAmount(e.target.value)}
-                        disabled={!empDeduct} />
-                      <span className="text-muted-foreground">zł</span>
-                    </div>
-                  ) : (
-                    <>Odbiorca to pracownik <strong>{empMatch.name}</strong>, ale WZ jest bez
-                    wyceny — uzupełnij ceny, żeby powstało potrącenie.</>
-                  )}
-                </div>
-              )}
-              {err && (
-                <div className="text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                  {err}
-                </div>
-              )}
-              <div className="space-y-2">
-                <Button variant="outline" className="w-full gap-1.5" disabled={!rows.length} onClick={() => setPreview(true)}>
-                  <Eye size={14} /> Podgląd dokumentu
-                </Button>
-                <Button className="w-full gap-1.5" disabled={saving} onClick={submit}>
-                  <FileCheck2 size={14} />
-                  {saving ? 'Wystawianie…' : 'Wystaw i zapisz WZ'}
-                </Button>
-                <div className="text-[10px] text-muted-foreground text-center">
-                  Wystawienie zdejmuje pozycje ze stanu magazynowego.
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+            </>
+          )}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="outline" className="gap-1.5" disabled={!rows.length} onClick={() => setPreview(true)}>
+            <Eye size={14} /> Podgląd
+          </Button>
+          <Button className="gap-1.5" disabled={saving} onClick={submit}>
+            <FileCheck2 size={14} />
+            {saving ? 'Wystawianie…' : 'Wystaw i zapisz WZ'}
+          </Button>
         </div>
       </div>
+
+      <StockPickerDialog
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        fg={fg}
+        raw={raw}
+        addedIds={addedIds}
+        clientName={clientName}
+        clientAliases={clientAliases}
+        onAddFg={addFg}
+        onAddRaw={addRaw}
+        onAddRawMany={addRawMany}
+      />
 
       <Dialog open={preview} onOpenChange={setPreview}>
         <DialogContent className="max-w-[880px] max-h-[85vh] overflow-y-auto bg-surface-3 p-6">

@@ -102,6 +102,11 @@ export function RawBatchesPage() {
     if (batch.receptionId) navigate(`/office/raw-batches/${batch.receptionId}/edycja`)
   }, [navigate])
 
+  // ── Zawieszki na palety — przedruk po rejestracji dostawy ────────────────
+  const handlePrintTags = useCallback((batch: RawBatch) => {
+    if (batch.receptionId) navigate(`/office/raw-batches/${batch.receptionId}/zawieszki`)
+  }, [navigate])
+
   // ── Cancel (delete) state ──────────────────────────────────────────────────
   const [cancelBatch,   setCancelBatch]   = useState<RawBatch | null>(null)
   const [cancelLoading, setCancelLoading] = useState(false)
@@ -220,6 +225,7 @@ export function RawBatchesPage() {
               emptyTitle="Brak surowca w obiegu"
               emptyHint={`Wszystkie dostawy (${selMat?.name ?? 'surowiec'}) są rozliczone — historia poniżej.`}
               onEdit={handleEditOpen}
+              onPrintTags={handlePrintTags}
               onCancel={handleCancelOpen}
               onScanAttached={refetch}
             />

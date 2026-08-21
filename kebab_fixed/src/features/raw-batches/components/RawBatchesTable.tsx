@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/table'
 import { CardDescription, CardTitle } from '@/components/ui/card'
 import type { RawBatch } from '@/types'
-import { Package, ChevronDown, ChevronUp, ChevronsUpDown, Search, Pencil, Trash2, Paperclip } from 'lucide-react'
+import { Package, ChevronDown, ChevronUp, ChevronsUpDown, Search, Pencil, Trash2, Paperclip, Tags } from 'lucide-react'
 
 interface RawBatchesTableProps {
   batches:           RawBatch[]
@@ -45,6 +45,9 @@ interface RawBatchesTableProps {
   emptyHint?:        string
   onEdit?:           (batch: RawBatch) => void
   onCancel?:         (batch: RawBatch) => void
+  /** Druk zawieszek na palety tej dostawy. Wolno go powtórzyć zawsze — to
+   *  wydruk, nie zapis, a etykieta lubi się zgubić w drodze do chłodni. */
+  onPrintTags?:      (batch: RawBatch) => void
   /** Wywoływane po dopięciu skanu — lista musi się odświeżyć, żeby pokazać podgląd. */
   onScanAttached?:   () => void
 }
@@ -61,7 +64,7 @@ export function RawBatchesTable({
   requiresDeboning = true,
   meatStock,
   emptyTitle, emptyHint,
-  onEdit, onCancel, onScanAttached,
+  onEdit, onCancel, onPrintTags, onScanAttached,
 }: RawBatchesTableProps) {
   const isLive = variant === 'live'
   const resolveOpts = { requiresDeboning, meatStock }
@@ -382,8 +385,22 @@ export function RawBatchesTable({
                   </TableCell>
                   {isLive && (
                     <TableCell>
-                      {(canEdit || canCancel) && (
+                      {(canEdit || canCancel || (onPrintTags && b.receptionId)) && (
                         <div className="flex items-center gap-1">
+                          {/* Zawieszki wolno drukować NIEZALEŻNIE od blokady
+                              edycji: partia w rozbiorze też stoi na paletach,
+                              a przedruk niczego nie rusza w księdze. */}
+                          {onPrintTags && b.receptionId && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                              onClick={() => onPrintTags(b)}
+                              title="Zawieszki na palety"
+                            >
+                              <Tags size={13} />
+                            </Button>
+                          )}
                           {canEdit && onEdit && (
                             <Button
                               variant="ghost"

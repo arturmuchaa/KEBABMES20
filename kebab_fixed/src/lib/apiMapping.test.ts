@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mapRawBatch } from './api'
+import { mapRawBatch, mapSupplier } from './api'
 
 /**
  * Mapowanie odpowiedzi backendu na partię.
@@ -37,5 +37,16 @@ describe('mapRawBatch — nośniki zwrotne przeżywają mapowanie', () => {
     expect(b.containerKg).toBeNull()
     expect(b.containersCount).toBeNull()
     expect(b.palletsH1).toBe(0)
+  })
+})
+
+describe('mapSupplier — układ palety przeżywa mapowanie', () => {
+  it('przepisuje liczbę pojemników na palecie z kartoteki', () => {
+    expect(mapSupplier({ id: 's1', name: 'KOKO', containers_per_pallet: 32 })
+      .containersPerPallet).toBe(32)
+  })
+
+  it('dostawca bez własnego układu nie udaje zera pojemników', () => {
+    expect(mapSupplier({ id: 's2', name: 'Inny' }).containersPerPallet).toBeNull()
   })
 })
