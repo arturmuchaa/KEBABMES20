@@ -83,7 +83,9 @@ jobs:
         env:
           KEBAB_UPDATER_ADMIN_TOKEN: ${{ secrets.KEBAB_UPDATER_ADMIN_TOKEN }}
         run: |
-          $pub = 'http://204.168.166.34:8080/api/admin/desktop-updates/rozbior-v10/publish'
+          # Falkenstein = produkcja. Stary adres w Helsinkach odpowiada dziś 308
+          # — patrz tauri-build.yml, gdzie ten sam adres cicho gubił publikację.
+          $pub = 'http://91.98.105.107:8080/api/admin/desktop-updates/rozbior-v10/publish'
           $tok = ("$env:KEBAB_UPDATER_ADMIN_TOKEN" -replace '[^\x21-\x7e]', '')
           if ([string]::IsNullOrWhiteSpace($tok)) {
             Write-Host "KEBAB_UPDATER_ADMIN_TOKEN brak; pomijam publikację cichej aktualizacji (artefakt i tak zostanie wgrany do GitHub Release)."

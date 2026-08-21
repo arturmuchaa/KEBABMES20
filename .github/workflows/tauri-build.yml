@@ -97,7 +97,10 @@ jobs:
           # znakami (zero-width / NBSP), których .Trim() NIE usuwa → curl: (3) Bad
           # hostname. Token czyścimy do samych drukowalnych znaków ASCII (ten sam
           # problem mógłby psuć nagłówek).
-          $pub = 'http://204.168.166.34:8080/api/admin/desktop-updates/publish'
+          # Falkenstein = produkcja. Stary adres w Helsinkach odpowiada dziś 308,
+          # a curl bez -L gubi na przekierowaniu ciało POST-a — instalator nigdy nie
+          # dolatywał na kanał, a krok (continue-on-error) świecił na zielono.
+          $pub = 'http://91.98.105.107:8080/api/admin/desktop-updates/publish'
           $tok = ("$env:KEBAB_UPDATER_ADMIN_TOKEN" -replace '[^\x21-\x7e]', '')
           if ([string]::IsNullOrWhiteSpace($tok)) {
             Write-Host "KEBAB_UPDATER_ADMIN_TOKEN brak; pomijam publikację na VPS (artefakt i tak zostanie wgrany)."
@@ -115,6 +118,7 @@ jobs:
 
           curl.exe --fail --silent --show-error `
             -k `
+            -L --post301 --post302 --post308 `
             -X POST `
             -H "X-Admin-Token: $tok" `
             -H "Content-Type: application/octet-stream" `
