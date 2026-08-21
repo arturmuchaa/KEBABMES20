@@ -1136,6 +1136,12 @@ _DDL: list[str] = [
         PRIMARY KEY (seria, seq)
     )""",
 
+    # Układ palety u dostawcy: ile pojemników wchodzi na jedną paletę.
+    # KOKO układa 9 na warstwę × 4 warstwy = 36, inni po 8 = 32. Biuro drukuje
+    # z tego zawieszki na palety, więc liczba musi siedzieć przy dostawcy.
+    # NULL = nieustawiony, wtedy ekran bierze DEFAULT_CONTAINERS_PER_PALLET.
+    "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS containers_per_pallet INTEGER",
+
     "CREATE INDEX IF NOT EXISTS idx_rsb_reception ON reception_supplier_batches(reception_id)",
     "CREATE INDEX IF NOT EXISTS idx_rsb_raw_batch ON reception_supplier_batches(raw_batch_id)",
 ]

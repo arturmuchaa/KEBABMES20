@@ -226,8 +226,17 @@ function emptyHeader(): ReceptionHeader {
   }
 }
 
+/** Co zapisała dostawa — komplet potrzebny stronie do dalszego kroku
+ *  (podsumowanie w toaście ORAZ druk zawieszek, który potrzebuje id). */
+export interface SavedReception {
+  receptionId: string
+  receptionNo: string
+  batchNos:    string[]
+  kg:          number
+}
+
 export function useCreateReception(
-  onSuccess: (receptionNo: string, batchNos: string[], kg: number) => void,
+  onSuccess: (saved: SavedReception) => void,
 ) {
   const [header,      setHeader]     = useState<ReceptionHeader>(emptyHeader())
   const [open,        setOpen]       = useState(false)
@@ -334,11 +343,12 @@ export function useCreateReception(
       })
       setOpen(false)
       setConfirmOpen(false)
-      onSuccess(
-        out.reception?.reception_no ?? '',
-        out.batches.map(b => b.internalBatchNo),
-        out.batches.reduce((s, b) => s + Number(b.kgReceived), 0),
-      )
+      onSuccess({
+        receptionId: out.reception?.id ?? '',
+        receptionNo: out.reception?.reception_no ?? '',
+        batchNos:    out.batches.map(b => b.internalBatchNo),
+        kg:          out.batches.reduce((s, b) => s + Number(b.kgReceived), 0),
+      })
       return null
     } catch (e) {
       setConfirmOpen(false)

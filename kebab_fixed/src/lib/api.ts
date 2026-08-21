@@ -478,7 +478,7 @@ function mapReception(raw: any): Reception {
 }
 
 // ─── Dostawcy ─────────────────────────────────────────────────
-function mapSupplier(raw: any): Supplier {
+export function mapSupplier(raw: any): Supplier {
   return {
     id:          raw.id,
     code:        raw.code           ?? '',
@@ -494,6 +494,9 @@ function mapSupplier(raw: any): Supplier {
     phone:       raw.phone,
     email:       raw.email,
     active:      raw.active ?? true,
+    // null = dostawca bez własnego układu palety; zero znaczyłoby paletę,
+    // na którą nic nie wchodzi, i zapętliłoby liczenie zawieszek.
+    containersPerPallet: raw.containers_per_pallet ?? raw.containersPerPallet ?? null,
   }
 }
 
@@ -547,6 +550,11 @@ export const suppliersApi = {
   create:   (dto: CreateSupplierDto) => post<any>('/suppliers', toSnake(dto)).then(mapSupplier),
   update:   (id: string, dto: Partial<CreateSupplierDto>) => put<any>(`/suppliers/${id}`, toSnake(dto)).then(mapSupplier),
   delete:   (id: string) => del<{ ok: boolean; id: string }>(`/suppliers/${id}`),
+
+  /** Zapamiętuje układ palety dostawcy (null = wyczyść).
+   *  Osobno od `update`, który wymaga całej kartoteki. */
+  setPalletLayout: (id: string, containersPerPallet: number | null) =>
+    patch<any>(`/suppliers/${id}/uklad-palety`, { containersPerPallet }).then(mapSupplier),
 }
 
 // ─── Sesje produkcyjne — PRAWDZIWY backend ────────────────────

@@ -22,6 +22,9 @@ export interface Supplier {
   vetNumber?: string
   address?: string; postalCode?: string; city?: string
   contactName?: string; phone?: string; email?: string; active: boolean
+  /** Ile pojemników wchodzi na paletę u tego dostawcy; null = jak zwykle (36).
+   *  KOKO układa 9 na warstwę × 4 warstwy, inni po 8 = 32. */
+  containersPerPallet?: number | null
 }
 
 export interface User {
