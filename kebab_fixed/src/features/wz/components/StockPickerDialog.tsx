@@ -62,6 +62,9 @@ export function StockPickerDialog({
   // Po wybraniu klienta zaczynamy od JEGO wyrobów — przy wystawianiu dla
   // jednego odbiorcy reszta magazynu tylko przeszkadza.
   const [tylkoKlienta, setTylkoKlienta] = useState(true)
+  // Typowe wydanie idzie na JEDNĄ frakcję (kierowca przyjeżdża po kości),
+  // więc frakcje są klikalne — pusty klucz = całość magazynu.
+  const [frakcja, setFrakcja] = useState('')
   const q = query.trim().toLowerCase()
 
   const maKlienta = !!clientAliases?.size
@@ -72,9 +75,23 @@ export function StockPickerDialog({
       && (!q || `${g.recipe_name || ''} ${g.product_type_name || ''} ${g.batch_no || ''}`.toLowerCase().includes(q))
   }), [fg, q, maKlienta, tylkoKlienta, clientAliases])
 
-  const rawFiltered = useMemo(() => (raw ?? []).filter(b =>
+  /** Po samej szukajce — z tego liczymy liczniki frakcji, żeby nie znikały
+   *  przy zawężeniu do jednej z nich. */
+  const rawSzukane = useMemo(() => (raw ?? []).filter(b =>
     !q || `${b.internal_batch_no || ''} ${b.supplier_name || ''} ${b.name || ''}`.toLowerCase().includes(q)),
     [raw, q])
+
+  /** Frakcje, które mają jakikolwiek stan — pusta nie ma czego filtrować. */
+  const frakcjeZeStanem = useMemo(() => GRUPY.map(g => {
+    const items = (raw ?? []).filter(g.match)
+    return { ...g, ile: items.length, kg: items.reduce((a, b) => a + Number(b.kg_available || 0), 0) }
+  }).filter(g => g.ile > 0), [raw])
+
+  const rawFiltered = useMemo(
+    () => (frakcja
+      ? rawSzukane.filter(GRUPY.find(g => g.key === frakcja)?.match ?? (() => true))
+      : rawSzukane),
+    [rawSzukane, frakcja])
 
   const pusto = tab === 'fg' ? !fgFiltered.length : !rawFiltered.length
 
@@ -106,7 +123,7 @@ export function StockPickerDialog({
                 <button key={String(v)}
                         aria-label={v ? `Pokaż wyroby ${clientName}` : 'Pokaż wszystkie wyroby'}
                         className={cn('px-2.5 h-8 text-[11px] font-semibold transition-colors max-w-[160px] truncate',
-                          tylkoKlienta === v ? 'bg-ink text-surface-1' : 'bg-background text-ink-3 hover:bg-surface-2')}
+                          tylkoKlienta === v ? 'bg-primary text-primary-foreground' : 'bg-background text-ink-3 hover:bg-surface-2')}
                         onClick={() => setTylkoKlienta(v)}>
                   {label}
                 </button>
@@ -120,6 +137,35 @@ export function StockPickerDialog({
                    value={query} onChange={e => setQuery(e.target.value)} autoFocus />
           </div>
         </div>
+
+        {tab === 'raw' && frakcjeZeStanem.length > 1 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              aria-label="Filtruj wszystkie frakcje"
+              className={cn('px-2.5 h-7 rounded-md border text-[11px] font-semibold transition-colors',
+                frakcja === ''
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-background text-ink-3 border-surface-4 hover:bg-surface-2')}
+              onClick={() => setFrakcja('')}>
+              Wszystkie
+            </button>
+            {frakcjeZeStanem.map(g => (
+              <button
+                key={g.key}
+                aria-label={`Filtruj ${g.label}`}
+                className={cn('px-2.5 h-7 rounded-md border text-[11px] font-semibold transition-colors',
+                  frakcja === g.key
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-background text-ink-3 border-surface-4 hover:bg-surface-2')}
+                onClick={() => setFrakcja(g.key)}>
+                {g.label}
+                <span className="ml-1.5 font-normal opacity-70 tabular-nums">
+                  {g.ile} · {fmtKg3(g.kg).replace('.', ',')} kg
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="border border-surface-4 rounded-md max-h-[52vh] overflow-y-auto divide-y divide-surface-3">
           {tab === 'fg' && fgFiltered.map(g => {

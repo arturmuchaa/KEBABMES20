@@ -23,6 +23,10 @@ const RAW = [
     kg_available: 320.5, containers: 22 },
   { id: 'r3', stock_type: 'byproduct', name: 'Kości', internal_batch_no: '468',
     kg_available: 210, containers: 15 },
+  // Druga partia kości — frakcja zbiera się z kilku partii, licznik na chipie
+  // musi je sumować.
+  { id: 'r4', stock_type: 'byproduct', name: 'Kości', internal_batch_no: '467',
+    kg_available: 96.4, containers: 7 },
 ]
 
 function pokaz(props: Partial<React.ComponentProps<typeof StockPickerDialog>> = {}) {
@@ -111,6 +115,64 @@ describe('StockPickerDialog — wybór towaru na dokument', () => {
   it('bez wybranego klienta nie ma czego filtrować', () => {
     pokaz()
     expect(screen.queryByLabelText('Pokaż wszystkie wyroby')).toBeNull()
+  })
+
+  it('frakcje są klikalne — jedno kliknięcie zawęża listę do kości', () => {
+    // Typowe wydanie idzie na JEDNĄ frakcję (kierowca przyjeżdża po kości).
+    // Przewijanie całego magazynu, żeby dojść do właściwej sekcji, to strata
+    // czasu przy kilkunastu partiach.
+    pokaz()
+    fireEvent.click(screen.getByLabelText('Surowce'))
+    fireEvent.click(screen.getByLabelText('Filtruj Kości'))
+
+    expect(screen.getByLabelText('Dodaj r3')).toBeTruthy()
+    expect(screen.queryByLabelText('Dodaj r1')).toBeNull()
+    expect(screen.queryByLabelText('Dodaj r2')).toBeNull()
+  })
+
+  it('„Wszystkie" wraca do pełnego stanu magazynu', () => {
+    pokaz()
+    fireEvent.click(screen.getByLabelText('Surowce'))
+    fireEvent.click(screen.getByLabelText('Filtruj Kości'))
+    fireEvent.click(screen.getByLabelText('Filtruj wszystkie frakcje'))
+
+    expect(screen.getByLabelText('Dodaj r1')).toBeTruthy()
+    expect(screen.getByLabelText('Dodaj r2')).toBeTruthy()
+  })
+
+  it('każda frakcja pokazuje, ile w niej jest kilogramów', () => {
+    pokaz()
+    fireEvent.click(screen.getByLabelText('Surowce'))
+    // Kości: 210 + 96,4 = 306,4 kg w dwóch partiach.
+    expect(screen.getByLabelText('Filtruj Kości').textContent).toContain('306,4')
+    expect(screen.getByLabelText('Filtruj Kości').textContent).toContain('2')
+  })
+
+  it('frakcja bez stanu nie zaśmieca paska filtrów', () => {
+    // Mięso z/s: żadnej partii na stanie — nie ma czego filtrować.
+    pokaz()
+    fireEvent.click(screen.getByLabelText('Surowce'))
+    expect(screen.queryByLabelText('Filtruj Mięso z/s')).toBeNull()
+  })
+
+  it('szukajka działa RAZEM z filtrem frakcji, nie zamiast niego', () => {
+    pokaz()
+    fireEvent.click(screen.getByLabelText('Surowce'))
+    fireEvent.click(screen.getByLabelText('Filtruj Kości'))
+    fireEvent.change(screen.getByLabelText('Szukaj towaru'), { target: { value: '467' } })
+
+    expect(screen.getByLabelText('Dodaj r4')).toBeTruthy()
+    expect(screen.queryByLabelText('Dodaj r3')).toBeNull()
+  })
+
+  it('filtr frakcji nie miesza się do zakładki wyrobów gotowych', () => {
+    pokaz()
+    fireEvent.click(screen.getByLabelText('Surowce'))
+    fireEvent.click(screen.getByLabelText('Filtruj Kości'))
+    fireEvent.click(screen.getByLabelText('Wyroby gotowe'))
+
+    expect(screen.getByLabelText('Dodaj g1')).toBeTruthy()
+    expect(screen.queryByLabelText('Filtruj Kości')).toBeNull()
   })
 
   it('pusty wynik mówi wprost, że nic nie znaleziono', () => {
