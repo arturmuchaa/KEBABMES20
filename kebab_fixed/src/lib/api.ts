@@ -2056,6 +2056,12 @@ export const wzApi = {
     valued?: boolean; place?: string; issuedDate?: string; releaseDate?: string; notes?: string;
   }) => post<WzDoc>('/wz', body),
   list: () => get<WzDoc[]>('/wz'),
+
+  /** Numer, który dostanie NASTĘPNY wystawiony WZ — pokazywany w nagłówku
+   *  formularza. Po anulowaniu numery wracają do puli, więc podpowiedź czyta
+   *  tę samą kolejkę co zapis. */
+  nextNumber: () => get<{ number: string; seq: number; yearMonth: string; note: string }>('/wz/next-number'),
+
   byId: (id: string) => get<WzDoc>(`/wz/${id}`),
   stockFg: () => get<any[]>('/wz/stock/finished-goods'),
   stockRaw: () => get<any[]>('/wz/stock/raw'),

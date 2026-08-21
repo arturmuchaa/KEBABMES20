@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { filterWz, wzTabCounts, type WzTab } from '@/features/wz/wzListView'
+import { fmtMoneyPl } from '@/features/wz/rowMath'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
@@ -166,6 +168,9 @@ export function WzDocumentsPage() {
   const [previewDoc, setPreviewDoc] = useState<WzDoc | null>(null)
   const [reportDoc, setReportDoc]   = useState<WzDoc | null>(null)
   const [query,   setQuery]   = useState('')
+  // Zakładki jak w rejestrze faktur: anulowane osobno, żeby seria aktywnych
+  // dokumentów dała się przeczytać z góry na dół.
+  const [tab,     setTab]     = useState<WzTab>('active')
   const [sortCol, setSortCol] = useState<SortCol>('date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
@@ -267,12 +272,9 @@ export function WzDocumentsPage() {
       : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60" />
 
   // Wyszukiwanie: numer, odbiorca, NIP. Sortowanie: klik nagłówka (Subiekt).
-  const visibleDocs = (docs ?? [])
-    .filter(d => {
-      const q = query.toLowerCase().trim()
-      if (!q) return true
-      return `${d.number} ${d.buyer_name ?? ''} ${d.buyer_nip ?? ''}`.toLowerCase().includes(q)
-    })
+  const counts = wzTabCounts(docs ?? [])
+  const visibleDocs = filterWz(docs ?? [], query, tab)
+    .slice()
     .sort((a, b) => {
       let cmp = 0
       if (sortCol === 'number') cmp = (a.number || '').localeCompare(b.number || '', 'pl', { numeric: true })
@@ -297,8 +299,19 @@ export function WzDocumentsPage() {
 
       <Card>
         <div className="px-4 py-2.5 border-b flex items-center gap-3 flex-wrap">
+          <div className="flex rounded-md border overflow-hidden">
+            {([['active', 'Aktywne', counts.active], ['cancelled', 'Anulowane', counts.cancelled]] as const).map(
+              ([key, label, n]) => (
+                <button key={key}
+                        className={cn('px-3 h-7 text-[11px] font-semibold transition-colors',
+                          tab === key ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:bg-muted')}
+                        onClick={() => setTab(key)}>
+                  {label} <span className="tabular-nums opacity-70">{n}</span>
+                </button>
+              ))}
+          </div>
           <span className="text-[13px] font-semibold whitespace-nowrap">
-            {visibleDocs.length}{docs && visibleDocs.length !== docs.length ? `/${docs.length}` : ''} dokumentów
+            {visibleDocs.length} dokumentów
           </span>
           <div className="relative flex-1 max-w-xs ml-auto">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -328,7 +341,13 @@ export function WzDocumentsPage() {
         ) : visibleDocs.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
             <Search size={28} className="opacity-40" />
-            <div className="text-sm">Brak wyników dla „{query}"</div>
+            <div className="text-sm">
+              {query
+                ? `Brak wyników dla „${query}"`
+                : tab === 'cancelled'
+                  ? 'Żaden dokument nie został anulowany'
+                  : 'Brak aktywnych dokumentów'}
+            </div>
           </div>
         ) : (
           <Table className="text-[12px]">
@@ -367,7 +386,7 @@ export function WzDocumentsPage() {
                     <TableCell className="py-2 px-3 font-medium">{d.buyer_name}</TableCell>
                     <TableCell className="py-2 px-3 text-right font-mono">
                       {d.valued
-                        ? `${(d.total_value ?? 0).toFixed(2)} ${(d.currency || 'PLN').toUpperCase() === 'EUR' ? '€' : 'zł'}`
+                        ? `${fmtMoneyPl(d.total_value ?? 0)} ${(d.currency || 'PLN').toUpperCase() === 'EUR' ? '€' : 'zł'}`
                         : <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell className="py-2 px-3">

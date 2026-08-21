@@ -33,6 +33,18 @@ def list_docs():
     return svc.list_wz()
 
 
+# UWAGA: /next-number musi stać PRZED /{wz_id}
+@router.get("/next-number")
+def next_number(when: str = ""):
+    """Numer, który dostanie NASTĘPNY wystawiony WZ (bez rezerwacji).
+
+    Formularz pokazuje go od razu w nagłówku — jak w programach do
+    fakturowania. Po anulowaniu numer wraca do puli, więc podpowiedź musi
+    czytać tę samą kolejkę co zapis.
+    """
+    return svc.next_wz_number(when)
+
+
 @router.get("/{wz_id}/pdf")
 def pdf(wz_id: str):
     doc = svc.get_wz(wz_id)  # 404, gdy nie istnieje

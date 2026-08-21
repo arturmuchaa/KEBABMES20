@@ -1142,6 +1142,12 @@ _DDL: list[str] = [
     # NULL = nieustawiony, wtedy ekran bierze DEFAULT_CONTAINERS_PER_PALLET.
     "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS containers_per_pallet INTEGER",
 
+    # Numery WZ wracają do puli po anulowaniu (21.08.2026), więc o pomyłkę
+    # łatwiej niż dotąd — unikat jest ostatnią linią obrony przed dwoma
+    # dokumentami o tym samym numerze. Anulowane siedzą poza serią (seq >= 9000)
+    # i też są unikalne, więc indeks przechodzi na istniejących danych.
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_wz_ym_seq ON wz_documents(year_month, seq)",
+
     "CREATE INDEX IF NOT EXISTS idx_rsb_reception ON reception_supplier_batches(reception_id)",
     "CREATE INDEX IF NOT EXISTS idx_rsb_raw_batch ON reception_supplier_batches(raw_batch_id)",
 ]

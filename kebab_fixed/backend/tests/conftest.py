@@ -32,6 +32,10 @@ _TRUNCATE = [
     "production_plan_lines", "production_plans",
     "seasoned_meat", "mixing_sessions", "mixing_order_lots", "mixing_orders",
     "meat_pallet_lots", "meat_pallets",
+    # Dokumenty WZ czyszczone od 21.08.2026: numeracja WZ liczy się z tabeli
+    # (MAX(seq) w miesiącu), więc dokumenty z poprzedniego przebiegu podbijały
+    # numer i testy serii dostawały 1871 zamiast 1.
+    "wz_documents",
     "meat_stock", "reception_supplier_batches", "receptions", "raw_batches",
     "recipe_ingredients", "recipes",
     "order_pallet_items", "order_pallets", "client_order_lines", "client_orders",
