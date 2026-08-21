@@ -17,8 +17,10 @@ Testy DB — wymagają TEST_DATABASE_URL (patrz conftest), inaczej skip.
 """
 from app.models.raw_batches import RawBatchCreate
 from app.models.receptions import ReceptionCreate
-from app.services.raw_batches_service import cancel_batch, create_batch
-from app.services.receptions_service import cancel_reception_document, create_reception
+from app.services.raw_batches_service import (cancel_batch, create_batch,
+                                             next_batch_number)
+from app.services.receptions_service import (cancel_reception_document, create_reception,
+                                            next_delivery_number)
 from app.db import execute, query_all, query_one
 from app.utils.ids import now_iso
 
@@ -123,3 +125,90 @@ def test_dwa_anulowania_pod_tym_samym_numerem_nie_koliduja(db):
 
     trzecie = _przyjmij(sid, kg=3000)
     assert trzecie["reception"]["reception_no"] == nr, "numer nadal wraca do puli"
+
+
+# --- PODPOWIEDŹ w formularzu musi znać pulę --------------------------------
+#
+# Numer nadaje sekwencja przy zapisie, ale operator wpisuje dostawę patrząc na
+# PODPOWIEDŹ i to ją przepisuje na kartkę oraz na etykietę pojemnika. Dotąd
+# podpowiedź czytała wyłącznie licznik, więc po anulowaniu pokazywała numer
+# następny, a zapis nadawał zwolniony — dwa różne numery na tej samej dostawie
+# (zgłoszone 21.08.2026: „usunąłem dwa przyjęcia, a system je pomija").
+
+def test_podpowiedz_numeru_porzadkowego_pokazuje_zwolniony(db):
+    sid = _dostawca()
+    partia = create_batch(RawBatchCreate(supplierId=sid, kgReceived=500, pricePerKg=5))
+    numer = partia["internal_batch_no"]
+
+    cancel_batch(partia["id"])
+
+    assert next_batch_number()["suggestedBatchNo"] == numer, \
+        "podpowiedź ma pokazać numer, który zapis faktycznie nada"
+
+
+def test_podpowiedz_numeru_przyjecia_pokazuje_zwolniony(db):
+    sid = _dostawca()
+    pierwsze = _przyjmij(sid)
+    nr = pierwsze["reception"]["reception_no"]
+
+    cancel_reception_document(pierwsze["reception"]["id"])
+
+    assert next_delivery_number(DZIEN)["nextNo"] == nr, \
+        "podpowiedź dokumentu ma pokazać numer wracający z puli"
+
+
+def test_podpowiedz_zwolnionego_nie_zzera_numeru(db):
+    """Podpowiedź tylko PODGLĄDA pulę. Gdyby ją opróżniała, numer wyparowałby
+    przy samym otwarciu formularza — a formularz odpytuje endpoint po każdym
+    przeładowaniu listy."""
+    sid = _dostawca()
+    partia = create_batch(RawBatchCreate(supplierId=sid, kgReceived=500, pricePerKg=5))
+    numer = partia["internal_batch_no"]
+    cancel_batch(partia["id"])
+
+    next_batch_number()
+    next_batch_number()
+
+    nowa = create_batch(RawBatchCreate(supplierId=sid, kgReceived=600, pricePerKg=5))
+    assert nowa["internal_batch_no"] == numer
+
+
+# --- anulowanie WSZYSTKICH numerów porządkowych zwalnia też dokument --------
+#
+# Biuro anuluje pomyłkę wierszami (PATCH /api/raw-batches/{id}/cancel) — innego
+# przycisku w apce nie ma. 21.08.2026 zostawiło to dokumenty 30/08 i 31/08 bez
+# ani jednej żywej pozycji, ale wciąż trzymające swoje numery: rejestr dostaw
+# miał dwa puste wiersze, a następna dostawa dostawała 32/08.
+
+def test_anulowanie_ostatniej_pozycji_zwalnia_numer_dokumentu(db):
+    sid = _dostawca()
+    pierwsze = _przyjmij(sid)
+    nr = pierwsze["reception"]["reception_no"]
+
+    cancel_batch(pierwsze["batches"][0]["id"])
+
+    rec = query_one("SELECT reception_no FROM receptions WHERE id=%s",
+                    (pierwsze["reception"]["id"],))
+    assert rec["reception_no"].startswith("ANUL"), \
+        "dokument bez ani jednej żywej pozycji wychodzi z serii"
+    drugie = _przyjmij(sid, kg=2000)
+    assert drugie["reception"]["reception_no"] == nr, "numer dokumentu wraca do puli"
+
+
+def test_anulowanie_jednej_z_dwoch_pozycji_nie_rusza_dokumentu(db):
+    """Dostawa rozbita na dwa numery porządkowe, anulowany jeden: dokument
+    dalej istnieje i trzyma swój numer — auto przyjechało."""
+    sid = _dostawca()
+    p = create_reception(ReceptionCreate.model_validate({
+        "supplierId": sid, "materialTypeId": "mat-cwiartka", "receivedDate": DZIEN,
+        "documentNo": "CIAG", "pricePerKg": 5,
+        "groups": [{"kgReceived": 1000.0, "supplierBatches": []},
+                   {"kgReceived": 800.0, "supplierBatches": []}],
+    }))
+    nr = p["reception"]["reception_no"]
+
+    cancel_batch(p["batches"][0]["id"])
+
+    rec = query_one("SELECT reception_no FROM receptions WHERE id=%s",
+                    (p["reception"]["id"],))
+    assert rec["reception_no"] == nr, "dokument z żywą pozycją zostaje w serii"

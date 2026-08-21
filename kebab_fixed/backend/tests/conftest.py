@@ -39,6 +39,10 @@ _TRUNCATE = [
     # testami (suppliers czyszczono, clients nie), więc test seedujący tego
     # samego klienta co poprzedni padał na duplicate key.
     "product_types", "machine_locks", "sequences", "suppliers", "clients", "ingredients",
+    # Pula numerów zwolnionych anulowaniem — czyszczona razem z `sequences`.
+    # Bez tego numer zwolniony w jednym teście wyskakiwał w następnym
+    # (kolejna partia dostawała 1 zamiast 2) i testy zależały od kolejności.
+    "numery_zwolnione",
     # Płace: dotąd nieczyszczone, bo żaden test ich nie dotykał. Rozliczenia
     # i potrącenia przeciekałyby między testami (settled_days blokuje dzień
     # na zawsze, więc drugi przebieg tego samego testu padałby na 400).

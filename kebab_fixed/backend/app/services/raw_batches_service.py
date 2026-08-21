@@ -95,9 +95,27 @@ _SEQ_FIRST = {False: 1, True: 48}
 
 
 def next_batch_number(is_service: bool = False) -> Dict[str, Any]:
+    """Podpowiedź numeru porządkowego — TEGO SAMEGO, który nada zapis.
+
+    Najpierw pula numerów zwolnionych anulowaniem, dopiero potem licznik —
+    dokładnie w tej kolejności, co `create_batch_cx`. Podpowiedź czytająca sam
+    licznik po anulowaniu pokazywała numer NASTĘPNY, a zapis nadawał zwolniony:
+    operator przepisywał na kartkę i na etykietę pojemnika inny numer, niż
+    dostawa miała w bazie (zgłoszone 21.08.2026 — „usunąłem dwa przyjęcia,
+    a system je pomija i sugeruje kolejny").
+
+    Podgląd, nie pobranie: MIN bez DELETE. Formularz odpytuje ten endpoint po
+    każdym przeładowaniu listy, więc opróżnianie puli tutaj gubiłoby numer
+    bez zapisania czegokolwiek.
+    """
     svc = bool(is_service)
-    row = query_one("SELECT value FROM sequences WHERE key=%s", (_SEQ_KEY[svc],))
-    next_val = int(row["value"]) + 1 if row else _SEQ_FIRST[svc]
+    wolny = query_one(
+        "SELECT MIN(seq) AS seq FROM numery_zwolnione WHERE seria=%s", (_SEQ_KEY[svc],))
+    if wolny and wolny.get("seq"):
+        next_val = int(wolny["seq"])
+    else:
+        row = query_one("SELECT value FROM sequences WHERE key=%s", (_SEQ_KEY[svc],))
+        next_val = int(row["value"]) + 1 if row else _SEQ_FIRST[svc]
     no = format_service_reception_no(next_val) if is_service else format_reception_no(next_val)
     return {
         "nextNo": no,
@@ -710,8 +728,17 @@ def _cancel_batch_cx(conn, batch_id: str) -> Dict:
 
 
 def cancel_batch(batch_id: str) -> Dict:
+    """Anuluj JEDEN numer porządkowy (przycisk „Anuluj przyjęcie" w wierszu).
+
+    Razem z ostatnim numerem porządkowym z serii schodzi też dokument dostawy —
+    w jednej transakcji, żeby awaria nie zostawiła dokumentu bez pozycji, ale
+    z numerem. Import lokalny, bo `receptions_service` importuje ten moduł.
+    """
+    from app.services.receptions_service import zwolnij_dokument_bez_pozycji_cx
     with transaction() as conn:
-        return _cancel_batch_cx(conn, batch_id)
+        row = _cancel_batch_cx(conn, batch_id)
+        zwolnij_dokument_bez_pozycji_cx(conn, row.get("reception_id"))
+        return row
 
 
 def cancel_reception(reception_id: str) -> Dict:

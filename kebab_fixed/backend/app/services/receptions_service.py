@@ -50,12 +50,24 @@ def _today_iso() -> str:
 
 def next_delivery_number(when: Optional[str] = None,
                          is_service: bool = False) -> Dict[str, Any]:
-    """Podpowiedź numeru przyjęcia dla podanego dnia (bez rezerwacji)."""
+    """Podpowiedź numeru przyjęcia dla podanego dnia (bez rezerwacji).
+
+    Kolejność jak w `_allocate_no_cx`: najpierw numer ZWOLNIONY anulowaniem,
+    potem licznik miesiąca. Inaczej formularz pokazuje jeden numer, a zapis
+    nadaje drugi — patrz `next_batch_number` (21.08.2026).
+
+    Podgląd, nie pobranie: MIN bez DELETE.
+    """
     day = (when or "")[:10] or _today_iso()
     period = delivery_period(day)
-    row = query_one("SELECT value FROM sequences WHERE key=%s",
-                    (_seq_key(period, is_service),))
-    nxt = int(row["value"]) + 1 if row else 1
+    wolny = query_one("SELECT MIN(seq) AS seq FROM numery_zwolnione WHERE seria=%s",
+                      (_seq_key(period, is_service),))
+    if wolny and wolny.get("seq"):
+        nxt = int(wolny["seq"])
+    else:
+        row = query_one("SELECT value FROM sequences WHERE key=%s",
+                        (_seq_key(period, is_service),))
+        nxt = int(row["value"]) + 1 if row else 1
     return {
         "nextNo": format_delivery_no(nxt, day, is_service),
         "seq": nxt,
@@ -539,14 +551,76 @@ def get_reception(reception_id: str) -> Dict:
 _POZA_SERIA = 9000
 
 
+def wyprowadz_dokument_poza_serie_cx(conn, reception_id: str) -> bool:
+    """Dokument wychodzi z serii i ODDAJE swój numer do puli.
+
+    Wiersz zostaje w historii ze znacznikiem „ANUL", żeby dało się odtworzyć,
+    co się wydarzyło — znika tylko z serii numerów, nie z bazy.
+
+    Idempotentne: dokument już wyprowadzony (seq >= _POZA_SERIA) zwraca False
+    i niczego nie rusza.
+    """
+    rec = cx_query_one(
+        conn,
+        "SELECT id, reception_no, reception_seq, reception_period, is_service "
+        "FROM receptions WHERE id=%s FOR UPDATE", (reception_id,))
+    if not rec:
+        return False
+    seq = int(rec["reception_seq"] or 0)
+    if seq >= _POZA_SERIA:
+        return False
+    period, usluga = rec["reception_period"], bool(rec.get("is_service"))
+    # Miejsce poza serią bierzemy PO KOLEI, nie „numer + 9000": numer wraca
+    # do puli, więc kolejny dokument może dostać ten sam i też bywa
+    # anulowany — stałe przesunięcie dawało wtedy kolizję z unikatem
+    # (period, seq, is_service). Znalezione próbą generalną 20.08.2026.
+    wolne = cx_query_one(
+        conn,
+        "SELECT COALESCE(MAX(reception_seq), %s) + 1 AS n FROM receptions "
+        "WHERE reception_period=%s AND COALESCE(is_service,false)=%s "
+        "  AND reception_seq >= %s",
+        (_POZA_SERIA, period, usluga, _POZA_SERIA))
+    cx_execute(
+        conn,
+        "UPDATE receptions SET reception_seq=%s, reception_no=%s WHERE id=%s",
+        (int(wolne["n"]), f"ANUL {rec['reception_no']}", reception_id))
+    cx_execute(
+        conn,
+        "INSERT INTO numery_zwolnione (seria, seq) VALUES (%s,%s) "
+        "ON CONFLICT (seria, seq) DO NOTHING",
+        (_seq_key(period, usluga), seq))
+    logger.info("reception.cancelled", extra={"reception_no": rec["reception_no"]})
+    return True
+
+
+def zwolnij_dokument_bez_pozycji_cx(conn, reception_id: Optional[str]) -> bool:
+    """Dokument, z którego anulowano OSTATNI numer porządkowy, też schodzi z serii.
+
+    Biuro anuluje pomyłkę wierszami — innego przycisku w apce nie ma. Bez tego
+    zostawał dokument bez ani jednej żywej pozycji, wciąż trzymający swój numer:
+    21.08.2026 rejestr dostaw miał dwa takie puste wiersze (30/08 i 31/08),
+    a następna dostawa dostawała 32/08. Dostawa bez pozycji nie jest dostawą.
+
+    Dokument z choćby jedną żywą pozycją zostaje nietknięty — auto przyjechało,
+    anulowany jest tylko jeden z jego numerów porządkowych.
+    """
+    if not reception_id:
+        return False
+    if cx_query_one(
+            conn,
+            "SELECT 1 FROM raw_batches WHERE reception_id=%s "
+            "AND COALESCE(status,'') <> 'cancelled' LIMIT 1", (reception_id,)):
+        return False
+    return wyprowadz_dokument_poza_serie_cx(conn, reception_id)
+
+
 def cancel_reception_document(reception_id: str) -> Dict[str, Any]:
     """Anuluj CAŁY dokument dostawy i ZWOLNIJ jego numer.
 
     Anulowana rejestracja to korekta naszej pomyłki przy wpisywaniu, a nie
     zdarzenie przy rampie: nie ma prawa zjadać numeru w serii, którą biuro
     czyta jako listę dostaw (19.08.2026 zostawiła widoczną przerwę między
-    27/08 a 29/08). Wiersz zostaje w historii ze znacznikiem „ANUL", żeby dało
-    się odtworzyć, co się wydarzyło.
+    27/08 a 29/08).
     """
     rec = query_one("SELECT * FROM receptions WHERE id=%s", (reception_id,))
     if not rec:
@@ -554,25 +628,8 @@ def cancel_reception_document(reception_id: str) -> Dict[str, Any]:
 
     out = raw_batches_cancel_reception(reception_id)
 
-    seq = int(rec["reception_seq"] or 0)
-    if seq < _POZA_SERIA:
-        # Miejsce poza serią bierzemy PO KOLEI, nie „numer + 9000": numer wraca
-        # do puli, więc kolejny dokument może dostać ten sam i też bywa
-        # anulowany — stałe przesunięcie dawało wtedy kolizję z unikatem
-        # (period, seq, is_service). Znalezione próbą generalną 20.08.2026.
-        wolne = query_one(
-            "SELECT COALESCE(MAX(reception_seq), %s) + 1 AS n FROM receptions "
-            "WHERE reception_period=%s AND COALESCE(is_service,false)=%s "
-            "  AND reception_seq >= %s",
-            (_POZA_SERIA, rec["reception_period"], bool(rec.get("is_service")), _POZA_SERIA))
-        execute(
-            "UPDATE receptions SET reception_seq=%s, reception_no=%s WHERE id=%s",
-            (int(wolne["n"]), f"ANUL {rec['reception_no']}", reception_id))
-        execute(
-            "INSERT INTO numery_zwolnione (seria, seq) VALUES (%s,%s) "
-            "ON CONFLICT (seria, seq) DO NOTHING",
-            (_seq_key(rec["reception_period"], bool(rec.get("is_service"))), seq))
-        logger.info("reception.cancelled", extra={"reception_no": rec["reception_no"]})
+    with transaction() as conn:
+        wyprowadz_dokument_poza_serie_cx(conn, reception_id)
     return {**out, "reception_no": rec["reception_no"]}
 
 
