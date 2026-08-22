@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 
 import { LABEL_H_MM, LABEL_W_MM, mmToDots } from '@/features/deboning/byproductLabelZpl'
-import { fmtSupplierBatches, receptionTagZpl, shortenSupplier } from './receptionTagZpl'
+import { LOGO_DOTS_W } from '@/lib/labelLogo'
+import { LOGO_H_MM, fmtSupplierBatches, receptionTagZpl, shortenSupplier } from './receptionTagZpl'
 
 const BASE = {
   receptionNo: '12/08/2026',
@@ -273,5 +274,45 @@ describe('receptionTagZpl — partia dostawcy', () => {
       const mm = m[2].length * ((Number(m[1]) * 25.4) / 203) * 0.6
       expect(mm).toBeLessThanOrEqual(44)
     }
+  })
+})
+
+/**
+ * Znak firmowy. Wchodzi w prawy górny róg — jedyne miejsce na zawieszce, które
+ * nie zabiera wiersza treści. Pilnujemy, żeby nie wjechał na numer dokumentu
+ * ani poza pole zadruku, bo drukarka nie ostrzega: po prostu utnie.
+ */
+describe('receptionTagZpl — znak firmowy', () => {
+  const LOGO = /\^FO(\d+),(\d+)\^GFA,(\d+),\d+,(\d+),([0-9A-F]+)\^FS/
+
+  it('wysyła znak razem z etykietą — drukarka nie ma dostępu do plików aplikacji', () => {
+    expect(LOGO.test(receptionTagZpl(BASE))).toBe(true)
+  })
+
+  it('deklarowana długość mapy bitowej zgadza się z liczbą bajtów heksa', () => {
+    const m = LOGO.exec(receptionTagZpl(BASE))!
+    expect(m[5].length).toBe(Number(m[3]) * 2)
+    expect(Number(m[3]) % Number(m[4])).toBe(0)
+  })
+
+  it('mieści się w polu zadruku i nie wchodzi na numer dokumentu', () => {
+    const m = LOGO.exec(receptionTagZpl(NAJGORSZE_LOTY))!
+    const mm = (dots: number) => (dots * 25.4) / 203
+    const lewa = mm(Number(m[1]))
+    const dol = mm(Number(m[2])) + LOGO_H_MM
+    // Prawa krawędź liczona w PUNKTACH — w milimetrach wychodzi 47,05 przez
+    // zaokrąglenie siatki drukarki, a na taśmie znak stoi równo z polem.
+    expect(Number(m[1]) + LOGO_DOTS_W).toBeLessThanOrEqual(mmToDots(LABEL_W_MM - 3))
+    // Najdłuższy numer dokumentu („128/08/2026", font 4 mm) kończy się poniżej
+    // 30 mm — znak zaczyna się dalej, więc wiersze się nie zderzą.
+    expect(lewa).toBeGreaterThan(30)
+    expect(dol).toBeLessThan(9)
+  })
+
+  it('przesunięcie kalibracyjne rusza znak razem z resztą etykiety', () => {
+    const bez = LOGO.exec(receptionTagZpl(BASE))!
+    const z = LOGO.exec(receptionTagZpl(BASE, { offsetXMm: -2, offsetYMm: 1 }))!
+    expect(Number(bez[1]) - Number(z[1])).toBe(mmToDots(2))
+    expect(Number(z[2]) - Number(bez[2])).toBe(mmToDots(1))
   })
 })

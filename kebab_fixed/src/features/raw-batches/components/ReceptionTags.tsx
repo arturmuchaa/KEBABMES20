@@ -342,7 +342,19 @@ function TagPreview({ tag, calibration }: { tag: ReceptionTagInput; calibration:
           style={{ width: LABEL_W_MM * SKALA, height: LABEL_H_MM * SKALA,
                    fontFamily: 'Arial, Helvetica, sans-serif' }}
         >
-          {pola.map((p, i) => p.kind === 'text' ? (
+          {pola.map((p, i) => p.kind === 'logo' ? (
+            // W podglądzie pokazujemy ŹRÓDŁO rastra, nie mapę bitową z ZPL:
+            // pozycja i rozmiar są te same, a biuro ma sprawdzić, czy znak
+            // mieści się w rogu — nie liczyć pikseli.
+            <img
+              key={i} src="/logo-ksiezyc-znak.png" alt="Księżyc"
+              className="absolute"
+              style={{
+                left: p.xMm * SKALA, top: p.yMm * SKALA,
+                width: (p.widthMm ?? 0) * SKALA, height: (p.heightMm ?? 0) * SKALA,
+              }}
+            />
+          ) : p.kind === 'text' ? (
             <div
               key={i}
               className="absolute whitespace-pre"

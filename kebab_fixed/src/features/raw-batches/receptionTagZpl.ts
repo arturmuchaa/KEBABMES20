@@ -16,6 +16,7 @@
 import {
   LABEL_DPI, LABEL_H_MM, LABEL_W_MM, fmtLabelDate, fmtLabelKg, mmToDots,
 } from '@/features/deboning/byproductLabelZpl'
+import { LOGO_DOTS_H, LOGO_DOTS_W, labelLogoZpl } from '@/lib/labelLogo'
 
 export interface ReceptionTagInput {
   /** Numer dokumentu dostawy („12/08/2026"). */
@@ -83,6 +84,10 @@ export function shortenSupplier(name: string): string {
   const spacja = ciete.lastIndexOf(' ')
   return (spacja > MAX_DOSTAWCA / 2 ? ciete.slice(0, spacja) : ciete).trim()
 }
+
+/** Znak firmowy w milimetrach — raster jest robiony pod 203 dpi (`labelLogo`). */
+export const LOGO_W_MM = (LOGO_DOTS_W * 25.4) / LABEL_DPI
+export const LOGO_H_MM = (LOGO_DOTS_H * 25.4) / LABEL_DPI
 
 /** Ile znaków numeru partii dostawcy mieści się w wierszu 3,6 mm na 44 mm. */
 const MAX_PARTIE_DOSTAWCY = 19
@@ -153,9 +158,19 @@ export function receptionTagZpl(
   // waga „1245,5 kg", paleta „12 / 12"). Drukarka nie zawija tekstu — wiersz
   // szerszy niż 44 mm po prostu znika na taśmie. Każda zmiana fontu albo
   // treści musi przejść testy szerokości w `receptionTagZpl.test.ts`.
+  // Znak firmowy w prawym górnym rogu: jedyne wolne miejsce na zawieszce,
+  // które nie zabiera wiersza treści. Wisi na wysokości nagłówka „Przyjęcie",
+  // obok numeru dokumentu, a nie nad nim — pionu tu nie ma ani milimetra.
+  // Wyrównanie do prawej liczone w PUNKTACH, nie w milimetrach: raster ma
+  // stałą szerokość w punktach, więc przeliczanie przez mm zostawiało go
+  // ułamek milimetra poza polem zadruku.
+  const logoX = Math.max(0, mmToDots(LABEL_W_MM - M, dpi) - LOGO_DOTS_W + mmToDots(g.ox, dpi))
+
   const body = [
+    labelLogoZpl(logoX, dot(g, 2 + g.oy)),
+
     text(g, M, 2.2, 2.6, 'Przyjęcie'),
-    text(g, M, 5.4, 4.2, input.receptionNo ?? ''),
+    text(g, M, 5.4, 4, input.receptionNo ?? ''),
     text(g, M, 10.3, 3.2, shortenSupplier(input.supplierName)),
     line(g, M, 14.3, W),
 
