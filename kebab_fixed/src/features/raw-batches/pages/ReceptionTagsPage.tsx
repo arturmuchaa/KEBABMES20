@@ -8,7 +8,8 @@
  * powtórzyć do skutku.
  *
  * Sam rachunek i tabela siedzą w `ReceptionTags`; tutaj tylko wczytanie
- * dokumentu i most do drukarki.
+ * dokumentu, most do drukarki i nastawa kalibracyjna stanowiska
+ * (`tagPrinterCalibration` — tam opisane, dlaczego wychodziła „co druga krzywo").
  */
 import { useCallback, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -21,6 +22,10 @@ import { getDevices, probeBrowserPrint, sendZpl } from '@/lib/zebra'
 import { ReceptionTags } from '../components/ReceptionTags'
 import { DEFAULT_CONTAINERS_PER_PALLET } from '../palletTags'
 import { receptionTagZpl, type ReceptionTagInput } from '../receptionTagZpl'
+import {
+  CALIBRATE_ZPL, calibrationTestZpl, loadCalibration, printerSetupZpl, saveCalibration,
+  tearOffZpl, type TagPrinterCalibration,
+} from '../tagPrinterCalibration'
 
 const LIST_PATH = '/office/raw-batches'
 
@@ -33,20 +38,22 @@ export function ReceptionTagsPage() {
 
   const [printing, setPrinting] = useState(false)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+  // Nastawa jest cechą TEGO stanowiska (drukarka + rolka), więc czytamy ją z
+  // localStorage, a nie z bazy — drugie biurko ma inną drukarkę.
+  const [calibration, setCalibration] = useState<TagPrinterCalibration>(loadCalibration)
 
   const dostawca = (suppliers.data ?? []).find(s => s.id === reception.data?.supplierId)
 
-  const print = useCallback(async (tags: ReceptionTagInput[]) => {
+  /** Wyślij ciąg zadań na drukarkę etykiet; komunikat błędu tłumaczy sonda. */
+  const send = useCallback(async (jobs: string[], ok: string) => {
     setPrinting(true)
     setMessage(null)
     try {
       const { default: def, list } = await getDevices()
       const dev = def ?? list[0]
       if (!dev) throw new Error('Nie znaleziono drukarki etykiet — sprawdź, czy Zebra jest włączona i podłączona do tego komputera.')
-      // Zawieszka po zawieszce, a nie jednym ^PQ: każda ma inny numer palety
-      // i inną wagę, więc kopie drukarki nie wchodzą w grę.
-      for (const tag of tags) await sendZpl(dev, receptionTagZpl(tag))
-      setMessage({ ok: true, text: `Wysłano na drukarkę: ${tags.length} zawieszek` })
+      for (const zpl of jobs) await sendZpl(dev, zpl)
+      setMessage({ ok: true, text: ok })
     } catch (e: any) {
       // Zwykle to nie błąd druku, tylko brak/zablokowana usługa BrowserPrint —
       // sonda mówi biuru wprost, co jest nie tak.
@@ -54,13 +61,54 @@ export function ReceptionTagsPage() {
       setMessage({
         ok: false,
         text: probe.ok
-          ? (e?.message || 'Nie udało się wydrukować zawieszek')
+          ? (e?.message || 'Nie udało się wysłać na drukarkę')
           : (probe.reason ?? 'Brak połączenia z drukarką etykiet'),
       })
     } finally {
       setPrinting(false)
     }
   }, [])
+
+  const print = useCallback((tags: ReceptionTagInput[]) => send(
+    [
+      // Ustawienia taśmy RAZ na serię — powtarzane przy każdej etykiecie kazały
+      // drukarce przepozycjonować taśmę i co druga zawieszka schodziła krzywo.
+      printerSetupZpl(calibration),
+      // Zawieszka po zawieszce, a nie jednym ^PQ: każda ma inny numer palety
+      // i inną wagę, więc kopie drukarki nie wchodzą w grę.
+      ...tags.map(tag => receptionTagZpl(tag, {
+        offsetXMm: calibration.offsetXMm,
+        offsetYMm: calibration.offsetYMm,
+        labelLengthMm: calibration.labelLengthMm,
+        setup: false,
+      })),
+    ],
+    `Wysłano na drukarkę: ${tags.length} zawieszek`,
+  ), [calibration, send])
+
+  /** Zapisz nastawę stanowiska; zmianę punktu odrywania od razu na drukarkę,
+   *  żeby biuro widziało efekt kroku, a nie dopiero przy następnej serii. */
+  const changeCalibration = useCallback((next: TagPrinterCalibration) => {
+    const zapisana = saveCalibration(next)
+    // Porównanie PRZED setState, nie w updaterze: efekt uboczny w updaterze
+    // React w trybie ścisłym odpala dwa razy (ta sama pułapka co kod 0099).
+    const odrywanieZmienione = zapisana.tearOffMm !== calibration.tearOffMm
+    setCalibration(zapisana)
+    if (odrywanieZmienione) {
+      void send([tearOffZpl(zapisana.tearOffMm)],
+        `Punkt odrywania: ${zapisana.tearOffMm > 0 ? '+' : ''}${zapisana.tearOffMm} mm`)
+    }
+  }, [calibration.tearOffMm, send])
+
+  const calibratePrinter = useCallback(() => void send(
+    [CALIBRATE_ZPL],
+    'Kalibracja uruchomiona — drukarka wypuści kilka etykiet i zmierzy taśmę.',
+  ), [send])
+
+  const testPrint = useCallback(() => void send(
+    [calibrationTestZpl(calibration)],
+    'Wydruk testowy wysłany — sprawdź, czy ramka mieści się w całości na etykiecie.',
+  ), [calibration, send])
 
   const rememberLayout = useCallback(async (perPallet: number) => {
     if (!dostawca) return
@@ -90,6 +138,10 @@ export function ReceptionTagsPage() {
       onClose={() => navigate(LIST_PATH)}
       printing={printing}
       message={message}
+      calibration={calibration}
+      onCalibrationChange={changeCalibration}
+      onCalibratePrinter={calibratePrinter}
+      onTestPrint={testPrint}
     />
   )
 }

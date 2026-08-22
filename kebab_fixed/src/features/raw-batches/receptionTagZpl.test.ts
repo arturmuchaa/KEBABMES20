@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 
 import { LABEL_H_MM, LABEL_W_MM, mmToDots } from '@/features/deboning/byproductLabelZpl'
-import { receptionTagZpl, shortenSupplier } from './receptionTagZpl'
+import { fmtSupplierBatches, receptionTagZpl, shortenSupplier } from './receptionTagZpl'
 
 const BASE = {
   receptionNo: '12/08/2026',
@@ -149,6 +149,129 @@ describe('receptionTagZpl — nic nie wychodzi poza pole zadruku', () => {
     while ((m = re.exec(zpl))) {
       const dolMm = ((Number(m[1]) + Number(m[2])) * 25.4) / 203
       expect(dolMm).toBeLessThanOrEqual(LABEL_H_MM)
+    }
+  })
+})
+
+/**
+ * Kalibracja stanowiska. Biuro zgłosiło (22.08.2026) „co druga zawieszka źle
+ * skalibrowana" — ten sam ZPL na każdą sztukę, więc winna była nie treść, tylko
+ * obsługa mediów powtarzana przy każdej etykiecie. Stąd `setup: false`.
+ */
+describe('receptionTagZpl — kalibracja drukarki', () => {
+  /** Wszystkie współrzędne `^FO` z gotowego ZPL. */
+  function pola(zpl: string): Array<[number, number]> {
+    const re = /\^FO(\d+),(\d+)/g
+    const out: Array<[number, number]> = []
+    let m: RegExpExecArray | null
+    while ((m = re.exec(zpl))) out.push([Number(m[1]), Number(m[2])])
+    return out
+  }
+
+  it('przesunięcie dosuwa KAŻDE pole o tyle samo — układ zawieszki się nie rozjeżdża', () => {
+    const bez = pola(receptionTagZpl(BASE))
+    const z = pola(receptionTagZpl(BASE, { offsetXMm: 2, offsetYMm: 1 }))
+    expect(z).toHaveLength(bez.length)
+    z.forEach(([x, y], i) => {
+      expect(x - bez[i][0]).toBe(mmToDots(2))
+      expect(y - bez[i][1]).toBe(mmToDots(1))
+    })
+  })
+
+  it('przesunięcie w górę nie schodzi poniżej zera — ujemne `^FO` wywala cały format', () => {
+    const zpl = receptionTagZpl(BASE, { offsetXMm: -5, offsetYMm: -5 })
+    expect(zpl).not.toMatch(/\^FO-|\^FO\d+,-/)
+    expect(pola(zpl).every(([x, y]) => x >= 0 && y >= 0)).toBe(true)
+  })
+
+  it('zmierzony skok taśmy trafia do ^LL zamiast nominalnych 80 mm', () => {
+    expect(receptionTagZpl(BASE, { labelLengthMm: 82 })).toContain(`^LL${mmToDots(82)}`)
+  })
+
+  it('w serii (`setup: false`) nie powtarza komend obsługi mediów', () => {
+    const zpl = receptionTagZpl(BASE, { setup: false })
+    expect(zpl).not.toContain('^LL')
+    expect(zpl).not.toContain('^MNY')
+  })
+
+  it('…ale zostawia szerokość taśmy i zerowanie przesunięcia z drukarki', () => {
+    const zpl = receptionTagZpl(BASE, { setup: false })
+    expect(zpl).toContain(`^PW${mmToDots(LABEL_W_MM)}`)
+    expect(zpl).toContain('^LH0,0')
+    expect(zpl).toContain('^FD471^FS')
+  })
+
+  it('pojedynczy wydruk domyślnie nadal ustawia taśmę sam', () => {
+    const zpl = receptionTagZpl(BASE)
+    expect(zpl).toContain('^MNY')
+    expect(zpl).toContain(`^LL${mmToDots(LABEL_H_MM)}`)
+  })
+})
+
+/**
+ * Partia dostawcy na dole zawieszki (biuro, 22.08.2026). Numer porządkowy jest
+ * NASZ i wisi wielkim drukiem u góry; numer dostawcy służy do rozmowy z nim
+ * przy reklamacji, więc musi być na palecie, a nie tylko w księdze.
+ */
+const NAJGORSZE_LOTY = {
+  ...BASE,
+  receptionNo: '128/08/2026',
+  supplierName: 'Zakład Przetwórstwa Drobiowego Wielkopolska',
+  batchNo: '1471',
+  netKg: 1245.5,
+  containers: 199,
+  batchKg: 12480,
+  palletIndex: 12,
+  palletCount: 12,
+  full: false,
+}
+
+describe('receptionTagZpl — partia dostawcy', () => {
+  it('drukuje numer partii dostawcy pod rubryką „Partia dostawcy"', () => {
+    const zpl = receptionTagZpl({ ...BASE, supplierBatchNos: ['4577'] })
+    expect(zpl).toContain('^FDPartia dostawcy^FS')
+    expect(zpl).toContain('^FD4577^FS')
+  })
+
+  it('wszystkie loty złożone na jeden numer porządkowy, nie tylko pierwszy', () => {
+    expect(receptionTagZpl({ ...BASE, supplierBatchNos: ['4577', '4578'] }))
+      .toContain('^FD4577 / 4578^FS')
+  })
+
+  it('powtórzony lot nie zajmuje wiersza dwa razy', () => {
+    expect(fmtSupplierBatches(['4577', '4577'])).toBe('4577')
+  })
+
+  it('brak numeru daje kreskę, a nie pustą rubrykę wyglądającą na błąd druku', () => {
+    expect(fmtSupplierBatches([])).toBe('—')
+    expect(fmtSupplierBatches(['  '])).toBe('—')
+    expect(receptionTagZpl(BASE)).toContain('^FD—^FS')
+  })
+
+  it('długą listę lotów ucinamy MY — drukarka ucięłaby ją bez śladu', () => {
+    const out = fmtSupplierBatches(['1234567', '2345678', '3456789', '4567890'])
+    expect(out.endsWith('…')).toBe(true)
+    expect(out.length).toBeLessThanOrEqual(19)
+  })
+
+  it('partia dostawcy siedzi NIŻEJ niż numer porządkowy', () => {
+    const zpl = receptionTagZpl({ ...BASE, supplierBatchNos: ['4577'] })
+    const y = (wartosc: string) => {
+      const re = /\^FO\d+,(\d+)\^A0N,\d+,\d+\^FD([\s\S]*?)\^FS/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(zpl))) if (m[2] === wartosc) return Number(m[1])
+      return Number.NaN
+    }
+    expect(y('4577')).toBeGreaterThan(y('471'))
+  })
+
+  it('najdłuższa dopuszczalna lista lotów mieści się w 44 mm', () => {
+    const zpl = receptionTagZpl({ ...NAJGORSZE_LOTY, supplierBatchNos: ['1234567', '2345678', '3456789'] })
+    const re = /\^A0N,(\d+),\d+\^FD([\s\S]*?)\^FS/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(zpl))) {
+      const mm = m[2].length * ((Number(m[1]) * 25.4) / 203) * 0.6
+      expect(mm).toBeLessThanOrEqual(44)
     }
   })
 })

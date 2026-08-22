@@ -147,3 +147,93 @@ describe('ReceptionTags — ile zawieszek na dostawę', () => {
     expect(onRememberLayout).toHaveBeenCalledWith(32)
   })
 })
+
+/**
+ * Kalibracja drukarki. Biuro zgłosiło (22.08.2026), że co druga zawieszka
+ * schodzi przesunięta — regulacja musi siedzieć DOKŁADNIE na tym ekranie,
+ * bo tu widać efekt: wydruk, poprawka, wydruk.
+ */
+describe('ReceptionTags — kalibracja drukarki', () => {
+  const KALIBRACJA = { offsetXMm: 0, offsetYMm: 0, labelLengthMm: 80, tearOffMm: 0 }
+
+  function zKalibracja(cal = KALIBRACJA) {
+    const onCalibrationChange = vi.fn()
+    const onCalibratePrinter = vi.fn()
+    const onTestPrint = vi.fn()
+    render(
+      <ReceptionTags
+        reception={REC}
+        defaultContainersPerPallet={36}
+        onPrint={vi.fn()}
+        onClose={() => {}}
+        calibration={cal}
+        onCalibrationChange={onCalibrationChange}
+        onCalibratePrinter={onCalibratePrinter}
+        onTestPrint={onTestPrint}
+      />,
+    )
+    return { onCalibrationChange, onCalibratePrinter, onTestPrint }
+  }
+
+  function otworz(cal = KALIBRACJA) {
+    const h = zKalibracja(cal)
+    fireEvent.click(screen.getByLabelText('Kalibracja drukarki'))
+    return h
+  }
+
+  it('ekran bez obsługi kalibracji nie pokazuje regulacji', () => {
+    pokaz()
+    expect(screen.queryByLabelText('Kalibracja drukarki')).toBeNull()
+  })
+
+  it('regulacja jest schowana, dopóki biuro jej nie otworzy', () => {
+    zKalibracja()
+    expect(screen.queryByLabelText('Kalibruj etykiety')).toBeNull()
+  })
+
+  it('„Kalibruj etykiety" każe drukarce zmierzyć taśmę', () => {
+    const { onCalibratePrinter } = otworz()
+    fireEvent.click(screen.getByLabelText('Kalibruj etykiety'))
+    expect(onCalibratePrinter).toHaveBeenCalled()
+  })
+
+  it('wydruk testowy idzie osobno, żeby nie marnować stosu zawieszek', () => {
+    const { onTestPrint } = otworz()
+    fireEvent.click(screen.getByLabelText('Wydruk testowy'))
+    expect(onTestPrint).toHaveBeenCalled()
+  })
+
+  it('krok regulacji oddaje CAŁĄ nastawę, nie samą zmienioną wartość', () => {
+    const { onCalibrationChange } = otworz()
+    fireEvent.click(screen.getByLabelText('Przesunięcie wzdłuż taśmy więcej'))
+    expect(onCalibrationChange).toHaveBeenCalledWith({
+      offsetXMm: 0, offsetYMm: 0.5, labelLengthMm: 80, tearOffMm: 0,
+    })
+  })
+
+  it('nie pozwala wyjechać poza zakres regulacji', () => {
+    otworz({ ...KALIBRACJA, offsetXMm: 5 })
+    const wiecej = screen.getByLabelText('Przesunięcie w poprzek taśmy więcej') as HTMLButtonElement
+    expect(wiecej.disabled).toBe(true)
+  })
+
+  it('„Wyzeruj" wraca do nastawy fabrycznej jednym kliknięciem', () => {
+    const { onCalibrationChange } = otworz({ offsetXMm: 2, offsetYMm: -1, labelLengthMm: 82, tearOffMm: 3 })
+    fireEvent.click(screen.getByLabelText('Wyzeruj kalibrację'))
+    expect(onCalibrationChange).toHaveBeenCalledWith({
+      offsetXMm: 0, offsetYMm: 0, labelLengthMm: 80, tearOffMm: 0,
+    })
+  })
+
+  it('ustawioną nastawę widać bez otwierania panelu', () => {
+    zKalibracja({ ...KALIBRACJA, offsetXMm: 1.5, offsetYMm: -1 })
+    expect(screen.getByLabelText('Kalibracja drukarki').textContent).toContain('+1,5 / -1 mm')
+  })
+
+  it('podgląd zawieszki uwzględnia przesunięcie — biuro widzi je przed drukiem', () => {
+    zKalibracja({ ...KALIBRACJA, offsetYMm: 2 })
+    const przyjecie = screen.getAllByText('Przyjęcie').find(el => el.className.includes('absolute'))
+    expect(przyjecie).toBeTruthy()
+    expect(Number.parseFloat((przyjecie as HTMLElement).style.top)).toBeGreaterThan(2.5 * 7)
+  })
+})

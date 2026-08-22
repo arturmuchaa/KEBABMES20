@@ -39,8 +39,11 @@ describe('zplPreviewBoxes — ZPL → pola do narysowania', () => {
       slaughterDate: '2026-08-04', expiryDate: '2026-08-18', receivedDate: '2026-08-12',
     }))
 
-    expect(boxes.filter(b => b.kind === 'text').map(b => b.text)).toContain('471')
-    expect(boxes.filter(b => b.kind === 'line')).toHaveLength(4)
+    const teksty = boxes.filter(b => b.kind === 'text').map(b => b.text)
+    expect(teksty).toContain('471')
+    expect(teksty).toContain('Partia dostawcy')
+    // Pięć kresek: pod dostawcą, numerem porządkowym, wagą, paletą i partią dostawcy.
+    expect(boxes.filter(b => b.kind === 'line')).toHaveLength(5)
     // Nic nie wychodzi poza taśmę — ten sam warunek, co na drukarce.
     expect(boxes.every(b => b.yMm >= 0 && b.yMm < 80)).toBe(true)
   })

@@ -12,8 +12,8 @@
  *
  * Cała matematyka siedzi w `palletTags`; tu jest tylko ekran.
  */
-import { useMemo, useState } from 'react'
-import { Bookmark, Printer, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Bookmark, Crosshair, Printer, RotateCcw, SlidersHorizontal, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
@@ -24,6 +24,11 @@ import { LABEL_H_MM, LABEL_W_MM } from '@/features/deboning/byproductLabelZpl'
 
 import { DEFAULT_CONTAINERS_PER_PALLET, planPalletTags } from '../palletTags'
 import { receptionTagZpl, type ReceptionTagInput } from '../receptionTagZpl'
+import {
+  DEFAULT_CALIBRATION, LABEL_LENGTH_MAX_MM, LABEL_LENGTH_MIN_MM, OFFSET_MAX_MM,
+  clampCalibration, fmtOffsetMm, isDefaultCalibration, tearOffMaxMm,
+  type TagPrinterCalibration,
+} from '../tagPrinterCalibration'
 import { zplPreviewBoxes } from '../zplPreview'
 import type { Reception, ReceptionBatch } from '../types'
 
@@ -50,12 +55,22 @@ export interface ReceptionTagsProps {
   printing?: boolean
   /** Komunikat druku (błąd BrowserPrint albo potwierdzenie). */
   message?: { ok: boolean; text: string } | null
+  /** Nastawa drukarki tego stanowiska; brak = ekran bez kalibracji. */
+  calibration?: TagPrinterCalibration
+  onCalibrationChange?: (cal: TagPrinterCalibration) => void
+  /** `~JC` — drukarka sama mierzy etykietę i przerwę. */
+  onCalibratePrinter?: () => void
+  /** Wydruk testowy z ramką po krawędzi etykiety. */
+  onTestPrint?: () => void
 }
 
 export function ReceptionTags({
   reception, defaultContainersPerPallet, onPrint, onRememberLayout, onClose,
   printing = false, message = null,
+  calibration, onCalibrationChange, onCalibratePrinter, onTestPrint,
 }: ReceptionTagsProps) {
+  const [kalibracjaOtwarta, setKalibracjaOtwarta] = useState(false)
+  const kalibracja = calibration ?? DEFAULT_CALIBRATION
   // Anulowany numer porządkowy nie pojechał do chłodni — zawieszka na niego
   // to etykieta na paletę, której nie ma.
   const batches = useMemo(
@@ -111,6 +126,11 @@ export function ReceptionTags({
       palletIndex:   t.palletIndex,
       palletCount:   t.palletCount,
       batchKg:       w.batch.kgReceived,
+      // Sekcja identyfikacji z HDI, a gdy jej nie ma — numer wpisany na
+      // przyjęciu. Zawieszka pokazuje WSZYSTKIE loty tego numeru porządkowego.
+      supplierBatchNos: (w.batch.supplierBatches ?? []).length > 0
+        ? w.batch.supplierBatches.map(sb => sb.supplierBatchNo)
+        : [w.batch.supplierBatchNo],
       slaughterDate: w.batch.slaughterDate,
       expiryDate:    w.batch.expiryDate,
       receivedDate:  w.batch.receivedDate || reception.receivedDate,
@@ -244,10 +264,28 @@ export function ReceptionTags({
       </Card>
 
       <div className="flex items-center justify-between gap-4">
-        <div className="text-sm text-ink-2">
-          Razem do wydrukowania:{' '}
-          <span className="font-bold text-ink tabular-nums" aria-label="Zawieszek razem">{razem}</span>
-          {' '}zawieszek
+        <div className="flex items-center gap-3 text-sm text-ink-2">
+          <span>
+            Razem do wydrukowania:{' '}
+            <span className="font-bold text-ink tabular-nums" aria-label="Zawieszek razem">{razem}</span>
+            {' '}zawieszek
+          </span>
+          {onCalibrationChange && (
+            <Button
+              variant="ghost" size="sm" className="gap-2"
+              aria-label="Kalibracja drukarki"
+              aria-expanded={kalibracjaOtwarta}
+              onClick={() => setKalibracjaOtwarta(o => !o)}
+            >
+              <SlidersHorizontal size={14} />
+              Kalibracja drukarki
+              {!isDefaultCalibration(kalibracja) && (
+                <span className="font-mono text-[11px] text-primary">
+                  {fmtOffsetMm(kalibracja.offsetXMm)} / {fmtOffsetMm(kalibracja.offsetYMm)} mm
+                </span>
+              )}
+            </Button>
+          )}
         </div>
         <Button
           className="gap-2" disabled={printing || razem === 0}
@@ -265,7 +303,17 @@ export function ReceptionTags({
         </p>
       )}
 
-      {podglad && <TagPreview tag={podglad} />}
+      {kalibracjaOtwarta && onCalibrationChange && (
+        <PrinterCalibration
+          calibration={kalibracja}
+          onChange={onCalibrationChange}
+          onCalibratePrinter={onCalibratePrinter}
+          onTestPrint={onTestPrint}
+          busy={printing}
+        />
+      )}
+
+      {podglad && <TagPreview tag={podglad} calibration={kalibracja} />}
     </div>
   )
 }
@@ -273,10 +321,15 @@ export function ReceptionTags({
 /** Podgląd pierwszej zawieszki — rysowany Z SAMEGO ZPL, który pojedzie na
  *  drukarkę. Podgląd odwzorowany osobno rozjeżdżał się z wydrukiem przy
  *  pierwszej zmianie fontu, a biuro decyduje z niego o stosie etykiet. */
-function TagPreview({ tag }: { tag: ReceptionTagInput }) {
+function TagPreview({ tag, calibration }: { tag: ReceptionTagInput; calibration: TagPrinterCalibration }) {
   // px na mm — na tyle duże, żeby najmniejszy tekst (2,8 mm) dało się czytać.
   const SKALA = 7
-  const pola = zplPreviewBoxes(receptionTagZpl(tag))
+  // Podgląd bierze przesunięcie kalibracyjne: biuro ma zobaczyć, czy dosunięcie
+  // nie wypycha ostatniego wiersza poza taśmę, ZANIM wypuści stos etykiet.
+  const pola = zplPreviewBoxes(receptionTagZpl(tag, {
+    offsetXMm: calibration.offsetXMm,
+    offsetYMm: calibration.offsetYMm,
+  }))
 
   return (
     <Card className="w-fit">
@@ -315,5 +368,172 @@ function TagPreview({ tag }: { tag: ReceptionTagInput }) {
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * Kalibracja drukarki zawieszek — regulacja STANOWISKA, nie układu etykiety.
+ *
+ * Kolejność ma znaczenie i dlatego ekran ją narzuca: najpierw „Kalibruj
+ * etykiety" (drukarka mierzy taśmę czujnikiem), potem dopiero dosuwanie
+ * milimetrami. Odwrotnie kończy się tak, że nastawa kompensuje źle zmierzoną
+ * taśmę i po wymianie rolki wszystko trzeba ustawiać od nowa.
+ */
+function PrinterCalibration({
+  calibration, onChange, onCalibratePrinter, onTestPrint, busy,
+}: {
+  calibration: TagPrinterCalibration
+  onChange: (cal: TagPrinterCalibration) => void
+  onCalibratePrinter?: () => void
+  onTestPrint?: () => void
+  busy: boolean
+}) {
+  const maxTear = tearOffMaxMm()
+  const zmien = (patch: Partial<TagPrinterCalibration>) =>
+    onChange(clampCalibration({ ...calibration, ...patch }))
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <CardTitle className="text-sm">Kalibracja drukarki</CardTitle>
+            <CardDescription className="max-w-2xl">
+              Jeśli co druga zawieszka schodzi przesunięta, zacznij od „Kalibruj etykiety" —
+              drukarka wypuści kilka sztuk i sama zmierzy etykietę z przerwą. Milimetry poniżej
+              dosuwają wydruk dopiero wtedy, gdy po kalibracji siedzi krzywo o stałą wartość.
+              Nastawa zostaje na tym komputerze.
+            </CardDescription>
+          </div>
+          <Button
+            variant="ghost" size="sm" className="gap-2 flex-shrink-0"
+            aria-label="Wyzeruj kalibrację" disabled={busy}
+            onClick={() => onChange({ ...DEFAULT_CALIBRATION })}
+          >
+            <RotateCcw size={14} /> Wyzeruj
+          </Button>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline" size="sm" className="gap-2"
+            aria-label="Kalibruj etykiety" disabled={busy || !onCalibratePrinter}
+            onClick={() => onCalibratePrinter?.()}
+          >
+            <Crosshair size={14} /> Kalibruj etykiety
+          </Button>
+          <Button
+            variant="outline" size="sm" className="gap-2"
+            aria-label="Wydruk testowy" disabled={busy || !onTestPrint}
+            onClick={() => onTestPrint?.()}
+          >
+            <Printer size={14} /> Wydruk testowy
+          </Button>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Nudge
+            label="Przesunięcie w poprzek taśmy" hint="plus przesuwa w prawo"
+            value={calibration.offsetXMm} step={0.5} min={-OFFSET_MAX_MM} max={OFFSET_MAX_MM}
+            disabled={busy} onChange={v => zmien({ offsetXMm: v })}
+          />
+          <Nudge
+            label="Przesunięcie wzdłuż taśmy" hint="plus przesuwa w dół"
+            value={calibration.offsetYMm} step={0.5} min={-OFFSET_MAX_MM} max={OFFSET_MAX_MM}
+            disabled={busy} onChange={v => zmien({ offsetYMm: v })}
+          />
+          <Nudge
+            label="Punkt odrywania" hint="gdzie taśma staje po wydruku"
+            value={calibration.tearOffMm} step={1} min={-maxTear} max={maxTear}
+            disabled={busy} onChange={v => zmien({ tearOffMm: v })}
+          />
+          <MmField
+            label="Skok taśmy" hint="etykieta razem z przerwą, zmierzona linijką (zawieszka: 80 mm)"
+            value={calibration.labelLengthMm} min={LABEL_LENGTH_MIN_MM} max={LABEL_LENGTH_MAX_MM}
+            disabled={busy} onCommit={v => zmien({ labelLengthMm: v })}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Regulacja krokiem — po jednym milimetrze widać efekt na taśmie, a wpisywanie
+ *  liczby z klawiatury kusi do „na oko o pięć". */
+function Nudge({ label, hint, value, step, min, max, disabled, onChange }: {
+  label: string
+  hint: string
+  value: number
+  step: number
+  min: number
+  max: number
+  disabled: boolean
+  onChange: (value: number) => void
+}) {
+  const przesun = (krok: number) =>
+    onChange(Math.round(Math.min(max, Math.max(min, value + krok)) * 10) / 10)
+
+  return (
+    <div className="space-y-1">
+      <div className="text-[11px] uppercase font-semibold text-ink-4">{label}</div>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline" size="sm" className="w-16 font-bold"
+          aria-label={`${label} mniej`} disabled={disabled || value <= min}
+          onClick={() => przesun(-step)}
+        >
+          − {step}
+        </Button>
+        <span className="w-20 text-center font-mono font-bold text-ink tabular-nums"
+              aria-label={label}>
+          {fmtOffsetMm(value)} mm
+        </span>
+        <Button
+          variant="outline" size="sm" className="w-16 font-bold"
+          aria-label={`${label} więcej`} disabled={disabled || value >= max}
+          onClick={() => przesun(step)}
+        >
+          + {step}
+        </Button>
+      </div>
+      <div className="text-[11px] text-ink-4">{hint}</div>
+    </div>
+  )
+}
+
+/** Wartość MIERZONA linijką, więc wpisywana z klawiatury. Bufor tekstowy, bo
+ *  przycinanie do zakresu przy każdym znaku nie pozwoliłoby skasować cyfry. */
+function MmField({ label, hint, value, min, max, disabled, onCommit }: {
+  label: string
+  hint: string
+  value: number
+  min: number
+  max: number
+  disabled: boolean
+  onCommit: (value: number) => void
+}) {
+  const [tekst, setTekst] = useState(String(value))
+  useEffect(() => setTekst(String(value)), [value])
+
+  const zatwierdz = () => {
+    const n = Number(tekst.replace(',', '.'))
+    onCommit(Number.isFinite(n) ? n : value)
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="text-[11px] uppercase font-semibold text-ink-4">{label}</div>
+      <div className="flex items-center gap-2">
+        <Input
+          type="number" min={min} max={max} step={1} className="h-8 w-24"
+          aria-label={label} disabled={disabled} value={tekst}
+          onChange={e => setTekst(e.target.value)}
+          onBlur={zatwierdz}
+          onKeyDown={e => { if (e.key === 'Enter') zatwierdz() }}
+        />
+        <span className="text-sm text-ink-3">mm</span>
+      </div>
+      <div className="text-[11px] text-ink-4">{hint}</div>
+    </div>
   )
 }

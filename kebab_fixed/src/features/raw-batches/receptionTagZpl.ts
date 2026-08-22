@@ -32,6 +32,9 @@ export interface ReceptionTagInput {
   palletCount: number
   /** Waga netto całego numeru porządkowego — kontekst dla palety. */
   batchKg: number
+  /** Partie DOSTAWCY złożone na ten numer porządkowy (z HDI). Jeden numer
+   *  porządkowy potrafi zebrać kilka lotów jednego dostawcy. */
+  supplierBatchNos?: string[]
   /** ISO (yyyy-mm-dd). */
   slaughterDate: string
   expiryDate: string
@@ -43,6 +46,14 @@ export interface ReceptionTagInput {
 export interface ReceptionTagOptions {
   dpi?: number
   copies?: number
+  /** Kalibracja stanowiska: przesunięcie wydruku w poprzek taśmy (+ w prawo). */
+  offsetXMm?: number
+  /** Kalibracja stanowiska: przesunięcie wzdłuż taśmy (+ w dół). */
+  offsetYMm?: number
+  /** Rzeczywisty skok taśmy (etykieta + przerwa). */
+  labelLengthMm?: number
+  /** false = ustawienia taśmy poszły już preambułą (`printerSetupZpl`). */
+  setup?: boolean
 }
 
 /** Formy prawne, które na 44 mm pola zadruku zjadają nazwę, a nic nie mówią
@@ -73,25 +84,62 @@ export function shortenSupplier(name: string): string {
   return (spacja > MAX_DOSTAWCA / 2 ? ciete.slice(0, spacja) : ciete).trim()
 }
 
+/** Ile znaków numeru partii dostawcy mieści się w wierszu 3,6 mm na 44 mm. */
+const MAX_PARTIE_DOSTAWCY = 19
+
+/**
+ * Partie dostawcy w jednym wierszu. Numer porządkowy bywa złożony z kilku
+ * lotów jednego dostawcy (sekcja identyfikacji z HDI) i wtedy na zawieszce
+ * muszą być WSZYSTKIE — inaczej przy reklamacji nie wiadomo, który lot jechał
+ * na tej palecie. Za długą listę ucinamy MY, wielokropkiem: drukarka ucięłaby
+ * ją w losowym miejscu i wyglądałoby to na pełny numer.
+ */
+export function fmtSupplierBatches(numery?: readonly string[]): string {
+  const czyste = (numery ?? []).map(n => (n ?? '').trim()).filter(Boolean)
+  if (czyste.length === 0) return '—'
+  const linia = Array.from(new Set(czyste)).join(' / ')
+  if (linia.length <= MAX_PARTIE_DOSTAWCY) return linia
+  return `${linia.slice(0, MAX_PARTIE_DOSTAWCY - 1).trimEnd()}…`
+}
+
 /** Znaki sterujące ZPL z DANYCH (^ ~) rozbiłyby komendy — wycinamy je. */
 function esc(value: string): string {
   return (value ?? '').replace(/[\^~]/g, ' ')
 }
 
-function text(xMm: number, yMm: number, fontMm: number, value: string, dpi: number): string {
-  const h = mmToDots(fontMm, dpi)
-  return `^FO${mmToDots(xMm, dpi)},${mmToDots(yMm, dpi)}^A0N,${h},${h}^FD${esc(value)}^FS`
+/** Rysunek etykiety: rozdzielczość drukarki i przesunięcie kalibracyjne. */
+interface Rysunek {
+  dpi: number
+  /** Przesunięcie w mm doklejane do KAŻDEJ współrzędnej, a nie do `^LH`:
+   *  `^LH` nie przyjmuje wartości ujemnych, a kalibracja bywa „w górę". */
+  ox: number
+  oy: number
 }
 
-function line(xMm: number, yMm: number, wMm: number, dpi: number): string {
-  const t = Math.max(1, mmToDots(0.6, dpi))
-  return `^FO${mmToDots(xMm, dpi)},${mmToDots(yMm, dpi)}^GB${mmToDots(wMm, dpi)},${t},${t}^FS`
+/** Milimetry na punkty drukarki. Ujemna współrzędna wywala CAŁY format —
+ *  drukarka odrzuca etykietę w całości, więc przycinamy do zera. */
+function dot(g: Rysunek, mm: number): number {
+  return Math.max(0, mmToDots(mm, g.dpi))
+}
+
+function text(g: Rysunek, xMm: number, yMm: number, fontMm: number, value: string): string {
+  const h = mmToDots(fontMm, g.dpi)
+  return `^FO${dot(g, xMm + g.ox)},${dot(g, yMm + g.oy)}^A0N,${h},${h}^FD${esc(value)}^FS`
+}
+
+function line(g: Rysunek, xMm: number, yMm: number, wMm: number): string {
+  const t = Math.max(1, mmToDots(0.6, g.dpi))
+  return `^FO${dot(g, xMm + g.ox)},${dot(g, yMm + g.oy)}^GB${mmToDots(wMm, g.dpi)},${t},${t}^FS`
 }
 
 export function receptionTagZpl(
   input: ReceptionTagInput,
-  { dpi = LABEL_DPI, copies = 1 }: ReceptionTagOptions = {},
+  {
+    dpi = LABEL_DPI, copies = 1,
+    offsetXMm = 0, offsetYMm = 0, labelLengthMm = LABEL_H_MM, setup = true,
+  }: ReceptionTagOptions = {},
 ): string {
+  const g: Rysunek = { dpi, ox: offsetXMm, oy: offsetYMm }
   const M = 3 // margines mm — 44 mm pola zadruku na 50 mm taśmy
   const W = LABEL_W_MM - 2 * M
 
@@ -106,31 +154,38 @@ export function receptionTagZpl(
   // szerszy niż 44 mm po prostu znika na taśmie. Każda zmiana fontu albo
   // treści musi przejść testy szerokości w `receptionTagZpl.test.ts`.
   const body = [
-    text(M, 2.5, 3, 'Przyjęcie', dpi),
-    text(M, 5.8, 4.6, input.receptionNo ?? '', dpi),
-    text(M, 11, 3.5, shortenSupplier(input.supplierName), dpi),
-    line(M, 15.8, W, dpi),
+    text(g, M, 2.2, 2.6, 'Przyjęcie'),
+    text(g, M, 5.4, 4.2, input.receptionNo ?? ''),
+    text(g, M, 10.3, 3.2, shortenSupplier(input.supplierName)),
+    line(g, M, 14.3, W),
 
-    text(M, 17.3, 3, 'Nr porządkowy', dpi),
-    text(M, 20.8, 10.5, input.batchNo ?? '', dpi),
-    line(M, 32.8, W, dpi),
+    text(g, M, 15.5, 2.6, 'Nr porządkowy'),
+    text(g, M, 18.6, 9.8, input.batchNo ?? ''),
+    line(g, M, 29.4, W),
 
-    text(M, 34.3, 3, 'Waga netto palety', dpi),
-    text(M, 37.8, 7.5, `${fmtLabelKg(input.netKg)} kg`, dpi),
-    text(M, 46, 3, pojemniki, dpi),
-    text(M, 49.8, 2.8, `z partii ${fmtLabelKg(input.batchKg)} kg`, dpi),
-    line(M, 54, W, dpi),
+    text(g, M, 30.8, 2.6, 'Waga netto palety'),
+    text(g, M, 33.9, 6.8, `${fmtLabelKg(input.netKg)} kg`),
+    text(g, M, 41.4, 2.8, pojemniki),
+    text(g, M, 44.7, 2.6, `z partii ${fmtLabelKg(input.batchKg)} kg`),
+    line(g, M, 48.2, W),
 
-    text(M, 55.5, 4.2, `PALETA ${input.palletIndex} / ${input.palletCount}`, dpi),
+    text(g, M, 49.6, 3.8, `PALETA ${input.palletIndex} / ${input.palletCount}`),
     // „NIEPEŁNA" idzie OSOBNYM wierszem, a nie doklejone do numeru palety:
     // w jednym wierszu przy tym foncie tekst wychodził na 64 mm i drukarka
     // ucinałaby go w połowie.
-    ...(input.full === false ? [text(M, 60.3, 3.4, 'NIEPEŁNA', dpi)] : []),
-    line(M, 65, W, dpi),
+    ...(input.full === false ? [text(g, M, 53.9, 3, 'NIEPEŁNA')] : []),
+    line(g, M, 57.6, W),
 
-    text(M, 66.5, 3, `Ubój      ${fmtLabelDate(input.slaughterDate)}`, dpi),
-    text(M, 70, 3, `Ważność   ${fmtLabelDate(input.expiryDate)}`, dpi),
-    text(M, 73.5, 3, `Przyjęcie ${fmtLabelDate(input.receivedDate)}`, dpi),
+    // Partia DOSTAWCY nisko, tuż nad datami: numer porządkowy jest nasz i wisi
+    // wielkim drukiem u góry, a ten numer służy do rozmowy z dostawcą przy
+    // reklamacji (biuro, 22.08.2026).
+    text(g, M, 59, 2.6, 'Partia dostawcy'),
+    text(g, M, 62.1, 3.6, fmtSupplierBatches(input.supplierBatchNos)),
+    line(g, M, 66.8, W),
+
+    text(g, M, 68.4, 2.9, `Ubój      ${fmtLabelDate(input.slaughterDate)}`),
+    text(g, M, 71.8, 2.9, `Ważność   ${fmtLabelDate(input.expiryDate)}`),
+    text(g, M, 75.2, 2.9, `Przyjęcie ${fmtLabelDate(input.receivedDate)}`),
   ]
 
   const n = Math.max(1, Math.round(copies))
@@ -140,9 +195,13 @@ export function receptionTagZpl(
     '^XA',
     '^CI28',
     `^PW${mmToDots(LABEL_W_MM, dpi)}`,
-    `^LL${mmToDots(LABEL_H_MM, dpi)}`,
+    // `^LL` i `^MNY` sterują OBSŁUGĄ MEDIÓW i zostają w drukarce na stałe.
+    // Powtarzane przy każdej etykiecie potrafią kazać jej przepozycjonować
+    // taśmę — stąd „co druga zawieszka krzywo" (biuro, 22.08.2026). Przy druku
+    // serii idą RAZ, preambułą `printerSetupZpl`, a tutaj zostaje sam układ.
+    ...(setup ? [`^LL${mmToDots(labelLengthMm, dpi)}`] : []),
     '^LH0,0',
-    '^MNY',
+    ...(setup ? ['^MNY'] : []),
     '^LS0',
     ...body,
     '^XZ',
