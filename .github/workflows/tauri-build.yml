@@ -84,9 +84,11 @@ jobs:
           Get-ChildItem $BUNDLE | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) B)" }
 
       - name: Publish installer to VPS updater
-        # continue-on-error: porażka publikacji (np. zły token w sekrecie) NIE może
-        # blokować uploadu artefaktu ani utworzenia GitHub Release poniżej.
-        continue-on-error: true
+        # BEZ continue-on-error (od 2.5.64): porażka publikacji MA zapalić run na
+        # czerwono. Wcześniej krok połykał błąd i zielony build oznaczał wersję,
+        # która nigdy nie trafiła na kanał — biuro stało na starej przez dwa dni.
+        # Upload artefaktu i GitHub Release niżej mają `if: always()`, więc
+        # instalator jest do odzyskania także po nieudanej publikacji.
         shell: pwsh
         env:
           KEBAB_UPDATER_PUBLISH_URL: ${{ secrets.KEBAB_UPDATER_PUBLISH_URL }}
@@ -116,14 +118,20 @@ jobs:
           Write-Host "Publikuję $FILENAME (v$VERSION) -> $pub"
           Write-Host "URL well-formed: $([uri]::IsWellFormedUriString($URL, [UriKind]::Absolute))"
 
-          curl.exe --fail --silent --show-error `
-            -k `
-            -L --post301 --post302 --post308 `
-            -X POST `
-            -H "X-Admin-Token: $tok" `
-            -H "Content-Type: application/octet-stream" `
-            --data-binary "@${{ steps.meta.outputs.exe_path }}" `
-            "$URL"
+          # Wysyłamy przez Invoke-RestMethod, tak samo jak kiosk (który publikuje
+          # się bez problemu od 1.0.11). `curl.exe` na runnerze Windows to stara
+          # kompilacja: przy 2.5.64 wywaliła się na `--post308: is unknown`,
+          # a krok z `continue-on-error` świecił na zielono, więc instalator
+          # nigdy nie dolatywał na kanał. Poza wersją flag to też jedyny sposób,
+          # żeby BŁĄD publikacji był widoczny w logu, a nie schowany w exit code.
+          try {
+            $resp = Invoke-RestMethod -Uri $URL -Method Post -Headers @{ 'X-Admin-Token' = $tok } -InFile "${{ steps.meta.outputs.exe_path }}" -ContentType 'application/octet-stream'
+            Write-Host "Publikacja OK: $($resp | ConvertTo-Json -Compress -Depth 5)"
+          } catch {
+            Write-Host "##[error]Publikacja nie powiodla sie: $($_.Exception.Message)"
+            if ($_.ErrorDetails) { Write-Host "Szczegoly: $($_.ErrorDetails.Message)" }
+            exit 1
+          }
 
       - name: Upload installer artifact (backup)
         if: ${{ always() }}

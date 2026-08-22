@@ -76,9 +76,10 @@ jobs:
           Write-Host "Version: $VERSION | EXE: $($EXE.Name) ($([math]::Round($EXE.Length/1MB, 1)) MB) | SIG: $(if ($SIG) { $SIG.Name } else { 'BRAK!' })"
 
       - name: Publish installer to VPS silent-updater (rozbior-v10 channel)
-        # continue-on-error: porażka publikacji (np. zły token w sekrecie) NIE może
-        # blokować uploadu artefaktu ani utworzenia GitHub Release poniżej.
-        continue-on-error: true
+        # BEZ continue-on-error (od 2026-08-22): porażka publikacji MA zapalić run
+        # na czerwono. Zielony build przy niedziałającej publikacji oznacza kiosk,
+        # który cicho stoi na starej wersji. Kroki niżej mają `if: always()`, więc
+        # instalator zostaje do odzyskania także po nieudanej publikacji.
         shell: pwsh
         env:
           KEBAB_UPDATER_ADMIN_TOKEN: ${{ secrets.KEBAB_UPDATER_ADMIN_TOKEN }}
@@ -133,6 +134,7 @@ jobs:
           }
 
       - name: Upload installer artifact (backup)
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: RozborHMI-v10-Windows-Setup
@@ -142,7 +144,7 @@ jobs:
           retention-days: 90
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: ${{ always() && startsWith(github.ref, 'refs/tags/') }}
         uses: softprops/action-gh-release@v2
         with:
           name: Rozbiór HMI v10 — ${{ github.ref_name }}
