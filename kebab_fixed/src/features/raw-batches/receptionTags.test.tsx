@@ -122,14 +122,12 @@ describe('ReceptionTags — ile zawieszek na dostawę', () => {
     expect(screen.getByLabelText('Zawieszek razem').textContent).toBe('6')
   })
 
-  it('podgląd pokazuje DOKŁADNIE to, co pójdzie na taśmę', () => {
-    // Podgląd rysowany osobno od ZPL rozjeżdżał się z wydrukiem przy
-    // pierwszej zmianie formatu liczb („3000,0 kg" na ekranie, „3000 kg"
-    // na etykiecie) — biuro decyduje z niego o wypuszczeniu stosu etykiet.
+  it('ekran nie rysuje podglądu zawieszki — biuro prosiło o samą tabelę', () => {
+    // Podgląd zajmował pół ekranu i nikt z niego nie korzystał: o poprawności
+    // wydruku decyduje wydruk testowy z kalibracji, nie obrazek na monitorze.
     pokaz()
-    expect(screen.getByText('PALETA 1 / 6')).toBeTruthy()
-    expect(screen.getByText('z partii 3000 kg')).toBeTruthy()
-    expect(screen.getByText('36 poj. x 15 kg')).toBeTruthy()
+    expect(screen.queryByText('PALETA 1 / 6')).toBeNull()
+    expect(screen.queryByText(/Podgląd zawieszki/)).toBeNull()
   })
 
   it('preset układa całą dostawę tak samo jednym kliknięciem', () => {
@@ -230,10 +228,4 @@ describe('ReceptionTags — kalibracja drukarki', () => {
     expect(screen.getByLabelText('Kalibracja drukarki').textContent).toContain('+1,5 / -1 mm')
   })
 
-  it('podgląd zawieszki uwzględnia przesunięcie — biuro widzi je przed drukiem', () => {
-    zKalibracja({ ...KALIBRACJA, offsetYMm: 2 })
-    const przyjecie = screen.getAllByText('Przyjęcie').find(el => el.className.includes('absolute'))
-    expect(przyjecie).toBeTruthy()
-    expect(Number.parseFloat((przyjecie as HTMLElement).style.top)).toBeGreaterThan(2.5 * 7)
-  })
 })

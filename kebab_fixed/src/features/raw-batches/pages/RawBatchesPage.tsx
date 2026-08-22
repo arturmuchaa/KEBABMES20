@@ -102,6 +102,14 @@ export function RawBatchesPage() {
     if (batch.receptionId) navigate(`/office/raw-batches/${batch.receptionId}/edycja`)
   }, [navigate])
 
+  // ── Podgląd arkusza dostawy — czytanie bez otwierania edycji ─────────────
+  const handlePreview = useCallback((batch: RawBatch) => {
+    // Biuro oglądało dokument przez EDYCJĘ, bo innej drogi nie było — a otwarty
+    // formularz edycji na rozliczonej dostawie to proszenie się o przypadkową
+    // zmianę (biuro, 22.08.2026).
+    if (batch.receptionId) navigate(`/office/raw-batches/${batch.receptionId}/podglad`)
+  }, [navigate])
+
   // ── Zawieszki na palety — przedruk po rejestracji dostawy ────────────────
   const handlePrintTags = useCallback((batch: RawBatch) => {
     if (batch.receptionId) navigate(`/office/raw-batches/${batch.receptionId}/zawieszki`)
@@ -225,6 +233,7 @@ export function RawBatchesPage() {
               emptyTitle="Brak surowca w obiegu"
               emptyHint={`Wszystkie dostawy (${selMat?.name ?? 'surowiec'}) są rozliczone — historia poniżej.`}
               onEdit={handleEditOpen}
+              onPreview={handlePreview}
               onPrintTags={handlePrintTags}
               onCancel={handleCancelOpen}
               onScanAttached={refetch}
@@ -252,6 +261,7 @@ export function RawBatchesPage() {
               meatStock={meatStock}
               emptyTitle="Brak zamkniętych dostaw"
               emptyHint="Rozliczone i anulowane przyjęcia pojawią się tutaj."
+              onPreview={handlePreview}
               onScanAttached={refetch}
             />
           </CardContent>

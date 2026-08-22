@@ -44,3 +44,41 @@ describe('RawBatchesTable — druk zawieszek z rejestru dostaw', () => {
     expect(screen.queryByTitle(/Zawieszki/)).toBeNull()
   })
 })
+
+/**
+ * Podgląd arkusza dostawy. Biuro oglądało dokument przez EDYCJĘ, bo innej drogi
+ * nie było — a w historii edycji już nie ma, więc rozliczonej dostawy nie dało
+ * się przejrzeć wcale.
+ */
+describe('RawBatchesTable — podgląd arkusza dostawy', () => {
+  it('daje przycisk podglądu przy dostawie w obiegu', () => {
+    const onPreview = vi.fn()
+    render(<RawBatchesTable batches={[BATCH]} loading={false} onPreview={onPreview} />)
+    fireEvent.click(screen.getByTitle(/Podgląd arkusza/))
+    expect(onPreview).toHaveBeenCalledWith(expect.objectContaining({ receptionId: 'rec1' }))
+  })
+
+  it('podgląd jest też w HISTORII, gdzie edycji nie ma', () => {
+    const onPreview = vi.fn()
+    render(
+      <RawBatchesTable
+        batches={[BATCH]} loading={false} variant="history"
+        onPreview={onPreview} onEdit={vi.fn()} onCancel={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByTitle(/Podgląd arkusza/))
+    expect(onPreview).toHaveBeenCalled()
+    // …ale sama historia nadal nie pozwala nic zmienić.
+    expect(screen.queryByTitle('Edytuj')).toBeNull()
+    expect(screen.queryByTitle(/Anuluj przyjęcie/)).toBeNull()
+  })
+
+  it('dostawa bez dokumentu nie dostaje podglądu — nie ma czego pokazać', () => {
+    render(
+      <RawBatchesTable
+        batches={[{ ...BATCH, receptionId: undefined }]} loading={false} onPreview={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTitle(/Podgląd arkusza/)).toBeNull()
+  })
+})

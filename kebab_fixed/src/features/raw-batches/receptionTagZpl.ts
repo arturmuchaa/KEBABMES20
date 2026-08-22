@@ -89,22 +89,54 @@ export function shortenSupplier(name: string): string {
 export const LOGO_W_MM = (LOGO_DOTS_W * 25.4) / LABEL_DPI
 export const LOGO_H_MM = (LOGO_DOTS_H * 25.4) / LABEL_DPI
 
-/** Ile znaków numeru partii dostawcy mieści się w wierszu 3,6 mm na 44 mm. */
-const MAX_PARTIE_DOSTAWCY = 19
+/** Wysokość wiersza partii dostawcy. Mniejsza niż reszta, bo lotów bywa
+ *  sześć — czytelność jednego numeru przegrywa z pokazaniem wszystkich. */
+export const LOT_FONT_MM = 3
+
+/** Ile znaków wchodzi w wiersz przy `LOT_FONT_MM` na 44 mm pola zadruku
+ *  (font 0 jest proporcjonalny, ~0,6 wysokości na znak). */
+const MAX_ZNAKOW_LOTU = Math.floor(44 / (LOT_FONT_MM * 0.6))
+
+/** Ile wierszy zawieszka oddaje partiom dostawcy. Dwa = sześć krótkich lotów. */
+export const WIERSZE_LOTOW = 2
+
+/** Wiersz z sygnałem, że lotów było więcej, niż weszło. */
+function zWielokropkiem(linia: string): string {
+  const pelny = `${linia} …`
+  if (pelny.length <= MAX_ZNAKOW_LOTU) return pelny
+  return `${linia.slice(0, MAX_ZNAKOW_LOTU - 2).trimEnd()} …`
+}
 
 /**
- * Partie dostawcy w jednym wierszu. Numer porządkowy bywa złożony z kilku
- * lotów jednego dostawcy (sekcja identyfikacji z HDI) i wtedy na zawieszce
- * muszą być WSZYSTKIE — inaczej przy reklamacji nie wiadomo, który lot jechał
- * na tej palecie. Za długą listę ucinamy MY, wielokropkiem: drukarka ucięłaby
- * ją w losowym miejscu i wyglądałoby to na pełny numer.
+ * Partie dostawcy rozłożone na wiersze zawieszki.
+ *
+ * Numer porządkowy bywa złożony z kilku lotów jednego dostawcy (sekcja
+ * identyfikacji z HDI) i wtedy na zawieszce muszą być WSZYSTKIE — inaczej przy
+ * reklamacji nie wiadomo, który lot jechał na tej palecie. Pakujemy zachłannie:
+ * ile wejdzie w wiersz, reszta do drugiego. Dopiero gdy zabraknie wierszy,
+ * ucinamy — i robimy to MY, wielokropkiem, bo drukarka utnie w losowym miejscu
+ * i urwany numer będzie wyglądał na pełny.
  */
-export function fmtSupplierBatches(numery?: readonly string[]): string {
-  const czyste = (numery ?? []).map(n => (n ?? '').trim()).filter(Boolean)
-  if (czyste.length === 0) return '—'
-  const linia = Array.from(new Set(czyste)).join(' / ')
-  if (linia.length <= MAX_PARTIE_DOSTAWCY) return linia
-  return `${linia.slice(0, MAX_PARTIE_DOSTAWCY - 1).trimEnd()}…`
+export function splitSupplierBatches(numery?: readonly string[]): string[] {
+  const czyste = Array.from(
+    new Set((numery ?? []).map(n => (n ?? '').trim()).filter(Boolean)))
+  if (czyste.length === 0) return ['—']
+
+  const wiersze: string[] = ['']
+  for (const numer of czyste) {
+    const i = wiersze.length - 1
+    const kandydat = wiersze[i] ? `${wiersze[i]} / ${numer}` : numer
+    if (kandydat.length <= MAX_ZNAKOW_LOTU) {
+      wiersze[i] = kandydat
+      continue
+    }
+    if (wiersze.length >= WIERSZE_LOTOW) {
+      wiersze[i] = zWielokropkiem(wiersze[i])
+      return wiersze
+    }
+    wiersze.push(numer.length <= MAX_ZNAKOW_LOTU ? numer : zWielokropkiem(numer))
+  }
+  return wiersze
 }
 
 /** Znaki sterujące ZPL z DANYCH (^ ~) rozbiłyby komendy — wycinamy je. */
@@ -158,6 +190,8 @@ export function receptionTagZpl(
   // waga „1245,5 kg", paleta „12 / 12"). Drukarka nie zawija tekstu — wiersz
   // szerszy niż 44 mm po prostu znika na taśmie. Każda zmiana fontu albo
   // treści musi przejść testy szerokości w `receptionTagZpl.test.ts`.
+  const loty = splitSupplierBatches(input.supplierBatchNos)
+
   // Znak firmowy w prawym górnym rogu: jedyne wolne miejsce na zawieszce,
   // które nie zabiera wiersza treści. Wisi na wysokości nagłówka „Przyjęcie",
   // obok numeru dokumentu, a nie nad nim — pionu tu nie ma ani milimetra.
@@ -175,32 +209,34 @@ export function receptionTagZpl(
     line(g, M, 14.3, W),
 
     text(g, M, 15.5, 2.6, 'Nr porządkowy'),
-    text(g, M, 18.6, 9.8, input.batchNo ?? ''),
-    line(g, M, 29.4, W),
+    text(g, M, 18.6, 9.2, input.batchNo ?? ''),
+    line(g, M, 28.8, W),
 
-    text(g, M, 30.8, 2.6, 'Waga netto palety'),
-    text(g, M, 33.9, 6.8, `${fmtLabelKg(input.netKg)} kg`),
-    text(g, M, 41.4, 2.8, pojemniki),
-    text(g, M, 44.7, 2.6, `z partii ${fmtLabelKg(input.batchKg)} kg`),
-    line(g, M, 48.2, W),
+    text(g, M, 30.2, 2.6, 'Waga netto palety'),
+    text(g, M, 33.3, 6.4, `${fmtLabelKg(input.netKg)} kg`),
+    text(g, M, 40.4, 2.8, pojemniki),
+    text(g, M, 43.7, 2.6, `z partii ${fmtLabelKg(input.batchKg)} kg`),
+    line(g, M, 47.2, W),
 
-    text(g, M, 49.6, 3.8, `PALETA ${input.palletIndex} / ${input.palletCount}`),
+    text(g, M, 48.6, 3.6, `PALETA ${input.palletIndex} / ${input.palletCount}`),
     // „NIEPEŁNA" idzie OSOBNYM wierszem, a nie doklejone do numeru palety:
     // w jednym wierszu przy tym foncie tekst wychodził na 64 mm i drukarka
     // ucinałaby go w połowie.
-    ...(input.full === false ? [text(g, M, 53.9, 3, 'NIEPEŁNA')] : []),
-    line(g, M, 57.6, W),
+    ...(input.full === false ? [text(g, M, 52.6, 2.8, 'NIEPEŁNA')] : []),
+    line(g, M, 56.2, W),
 
     // Partia DOSTAWCY nisko, tuż nad datami: numer porządkowy jest nasz i wisi
     // wielkim drukiem u góry, a ten numer służy do rozmowy z dostawcą przy
-    // reklamacji (biuro, 22.08.2026).
-    text(g, M, 59, 2.6, 'Partia dostawcy'),
-    text(g, M, 62.1, 3.6, fmtSupplierBatches(input.supplierBatchNos)),
-    line(g, M, 66.8, W),
+    // reklamacji (biuro, 22.08.2026). DWA wiersze mniejszym fontem — jeden lot
+    // czyta się gorzej, ale sześć lotów mieści się w całości zamiast urywać się
+    // wielokropkiem po dwóch.
+    text(g, M, 57.6, 2.6, 'Partia dostawcy'),
+    ...loty.map((linia, i) => text(g, M, 60.7 + i * 3.4, LOT_FONT_MM, linia)),
+    line(g, M, 67.8, W),
 
-    text(g, M, 68.4, 2.9, `Ubój      ${fmtLabelDate(input.slaughterDate)}`),
-    text(g, M, 71.8, 2.9, `Ważność   ${fmtLabelDate(input.expiryDate)}`),
-    text(g, M, 75.2, 2.9, `Przyjęcie ${fmtLabelDate(input.receivedDate)}`),
+    text(g, M, 69.2, 2.8, `Ubój      ${fmtLabelDate(input.slaughterDate)}`),
+    text(g, M, 72.6, 2.8, `Ważność   ${fmtLabelDate(input.expiryDate)}`),
+    text(g, M, 76, 2.8, `Przyjęcie ${fmtLabelDate(input.receivedDate)}`),
   ]
 
   const n = Math.max(1, Math.round(copies))

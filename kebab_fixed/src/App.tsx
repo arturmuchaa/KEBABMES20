@@ -5,6 +5,7 @@ import { TabletLayout }  from '@/layouts/TabletLayout'
 import { DashboardPage } from '@/pages/office/DashboardPage'
 import { RawBatchesPage }from '@/pages/office/RawBatchesPage'
 import { ReceptionFormPage } from '@/features/raw-batches/pages/ReceptionFormPage'
+import { ReceptionPreviewPage } from '@/features/raw-batches/pages/ReceptionPreviewPage'
 import { ReceptionTagsPage } from '@/features/raw-batches/pages/ReceptionTagsPage'
 import { WorkersPage }   from '@/pages/office/WorkersPage'
 import { WorkHoursPage } from '@/pages/office/WorkHoursPage'
@@ -175,6 +176,7 @@ export default function App() {
         <Route path="faktury"               element={<PurchaseInvoicesPage />} />
         <Route path="raw-batches"           element={<RawBatchesPage />} />
         <Route path="raw-batches/nowe"      element={<ReceptionFormPage />} />
+        <Route path="raw-batches/:receptionId/podglad" element={<ReceptionPreviewPage />} />
         <Route path="raw-batches/:receptionId/edycja" element={<ReceptionFormPage />} />
         <Route path="raw-batches/:receptionId/zawieszki" element={<ReceptionTagsPage />} />
         <Route path="magazyn/surowiec"      element={<RawStockPage />} />

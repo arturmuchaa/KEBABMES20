@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 
 import { LABEL_H_MM, LABEL_W_MM, mmToDots } from '@/features/deboning/byproductLabelZpl'
 import { LOGO_DOTS_W } from '@/lib/labelLogo'
-import { LOGO_H_MM, fmtSupplierBatches, receptionTagZpl, shortenSupplier } from './receptionTagZpl'
+import { LOGO_H_MM, receptionTagZpl, shortenSupplier, splitSupplierBatches } from './receptionTagZpl'
 
 const BASE = {
   receptionNo: '12/08/2026',
@@ -239,20 +239,46 @@ describe('receptionTagZpl — partia dostawcy', () => {
       .toContain('^FD4577 / 4578^FS')
   })
 
-  it('powtórzony lot nie zajmuje wiersza dwa razy', () => {
-    expect(fmtSupplierBatches(['4577', '4577'])).toBe('4577')
+  it('trzy loty wchodzą w jeden wiersz, sześć w dwa — nic się nie urywa', () => {
+    const szesc = ['4577', '4578', '4579', '4580', '4581', '4582']
+    const wiersze = splitSupplierBatches(szesc)
+    expect(wiersze).toEqual(['4577 / 4578 / 4579', '4580 / 4581 / 4582'])
+    expect(wiersze.join(' ')).not.toContain('…')
+  })
+
+  it('drugi wiersz trafia na zawieszkę NIŻEJ niż pierwszy', () => {
+    const zpl = receptionTagZpl({
+      ...BASE, supplierBatchNos: ['4577', '4578', '4579', '4580', '4581', '4582'],
+    })
+    const y = (wartosc: string) => {
+      const re = /\^FO\d+,(\d+)\^A0N,\d+,\d+\^FD([\s\S]*?)\^FS/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(zpl))) if (m[2] === wartosc) return Number(m[1])
+      return Number.NaN
+    }
+    expect(y('4580 / 4581 / 4582')).toBeGreaterThan(y('4577 / 4578 / 4579'))
+  })
+
+  it('powtórzony lot nie zajmuje miejsca dwa razy', () => {
+    expect(splitSupplierBatches(['4577', '4577'])).toEqual(['4577'])
   })
 
   it('brak numeru daje kreskę, a nie pustą rubrykę wyglądającą na błąd druku', () => {
-    expect(fmtSupplierBatches([])).toBe('—')
-    expect(fmtSupplierBatches(['  '])).toBe('—')
+    expect(splitSupplierBatches([])).toEqual(['—'])
+    expect(splitSupplierBatches(['  '])).toEqual(['—'])
     expect(receptionTagZpl(BASE)).toContain('^FD—^FS')
   })
 
-  it('długą listę lotów ucinamy MY — drukarka ucięłaby ją bez śladu', () => {
-    const out = fmtSupplierBatches(['1234567', '2345678', '3456789', '4567890'])
-    expect(out.endsWith('…')).toBe(true)
-    expect(out.length).toBeLessThanOrEqual(19)
+  it('dłuższe numery pakuje ciaśniej, zamiast rozpychać wiersz', () => {
+    expect(splitSupplierBatches(['1234567', '2345678', '3456789', '4567890']))
+      .toEqual(['1234567 / 2345678', '3456789 / 4567890'])
+  })
+
+  it('dopiero po zapełnieniu obu wierszy ucina — i sygnalizuje to wielokropkiem', () => {
+    const out = splitSupplierBatches(
+      ['1234567', '2345678', '3456789', '4567890', '5678901'])
+    expect(out).toHaveLength(2)
+    expect(out[1].endsWith(' …')).toBe(true)
   })
 
   it('partia dostawcy siedzi NIŻEJ niż numer porządkowy', () => {
@@ -266,8 +292,11 @@ describe('receptionTagZpl — partia dostawcy', () => {
     expect(y('4577')).toBeGreaterThan(y('471'))
   })
 
-  it('najdłuższa dopuszczalna lista lotów mieści się w 44 mm', () => {
-    const zpl = receptionTagZpl({ ...NAJGORSZE_LOTY, supplierBatchNos: ['1234567', '2345678', '3456789'] })
+  it('sześć lotów przy najdłuższych danych nadal mieści się w 44 mm', () => {
+    const zpl = receptionTagZpl({
+      ...NAJGORSZE_LOTY,
+      supplierBatchNos: ['1234567', '2345678', '3456789', '4567890', '5678901', '6789012'],
+    })
     const re = /\^A0N,(\d+),\d+\^FD([\s\S]*?)\^FS/g
     let m: RegExpExecArray | null
     while ((m = re.exec(zpl))) {
@@ -277,11 +306,6 @@ describe('receptionTagZpl — partia dostawcy', () => {
   })
 })
 
-/**
- * Znak firmowy. Wchodzi w prawy górny róg — jedyne miejsce na zawieszce, które
- * nie zabiera wiersza treści. Pilnujemy, żeby nie wjechał na numer dokumentu
- * ani poza pole zadruku, bo drukarka nie ostrzega: po prostu utnie.
- */
 describe('receptionTagZpl — znak firmowy', () => {
   const LOGO = /\^FO(\d+),(\d+)\^GFA,(\d+),\d+,(\d+),([0-9A-F]+)\^FS/
 

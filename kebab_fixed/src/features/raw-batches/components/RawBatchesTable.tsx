@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/table'
 import { CardDescription, CardTitle } from '@/components/ui/card'
 import type { RawBatch } from '@/types'
-import { Package, ChevronDown, ChevronUp, ChevronsUpDown, Search, Pencil, Trash2, Paperclip, Tags } from 'lucide-react'
+import { Package, ChevronDown, ChevronUp, ChevronsUpDown, Search, Eye, Pencil, Trash2, Paperclip, Tags } from 'lucide-react'
 
 interface RawBatchesTableProps {
   batches:           RawBatch[]
@@ -45,6 +45,9 @@ interface RawBatchesTableProps {
   emptyHint?:        string
   onEdit?:           (batch: RawBatch) => void
   onCancel?:         (batch: RawBatch) => void
+  /** Podgląd arkusza dostawy — czytanie bez otwierania edycji. Dostępny także
+   *  w historii, bo tam edycji nie ma, a dokument trzeba czasem przejrzeć. */
+  onPreview?:        (batch: RawBatch) => void
   /** Druk zawieszek na palety tej dostawy. Wolno go powtórzyć zawsze — to
    *  wydruk, nie zapis, a etykieta lubi się zgubić w drodze do chłodni. */
   onPrintTags?:      (batch: RawBatch) => void
@@ -64,7 +67,7 @@ export function RawBatchesTable({
   requiresDeboning = true,
   meatStock,
   emptyTitle, emptyHint,
-  onEdit, onCancel, onPrintTags, onScanAttached,
+  onEdit, onCancel, onPreview, onPrintTags, onScanAttached,
 }: RawBatchesTableProps) {
   const isLive = variant === 'live'
   const resolveOpts = { requiresDeboning, meatStock }
@@ -138,7 +141,9 @@ export function RawBatchesTable({
     { col: 'kgAvailable',     label: 'Zostało kg',  right: true },
     { col: null,              label: 'Cena/kg',     right: true },
     { col: null,              label: 'Status' },
-    ...(isLive ? [{ col: null, label: '' }] : []),
+    // Kolumna akcji jest w OBU tabelach: w historii nie ma edycji ani
+    // anulowania, ale podgląd dokumentu owszem.
+    { col: null, label: '' },
   ]
 
   if (loading) {
@@ -383,14 +388,27 @@ export function RawBatchesTable({
                   <TableCell>
                     <StatusBadge status={deliveryStatusBadgeKey(status, requiresDeboning)} />
                   </TableCell>
-                  {isLive && (
-                    <TableCell>
-                      {(canEdit || canCancel || (onPrintTags && b.receptionId)) && (
+                  <TableCell>
+                      {(canEdit || canCancel || (b.receptionId && (onPrintTags || onPreview))) && (
                         <div className="flex items-center gap-1">
+                          {/* Podgląd niczego nie zapisuje, więc stoi przy KAŻDEJ
+                              dostawie — także anulowanej i takiej z historii,
+                              gdzie edycja jest już zamknięta. */}
+                          {onPreview && b.receptionId && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                              onClick={() => onPreview(b)}
+                              title="Podgląd arkusza dostawy"
+                            >
+                              <Eye size={13} />
+                            </Button>
+                          )}
                           {/* Zawieszki wolno drukować NIEZALEŻNIE od blokady
                               edycji: partia w rozbiorze też stoi na paletach,
                               a przedruk niczego nie rusza w księdze. */}
-                          {onPrintTags && b.receptionId && (
+                          {isLive && onPrintTags && b.receptionId && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -401,7 +419,7 @@ export function RawBatchesTable({
                               <Tags size={13} />
                             </Button>
                           )}
-                          {canEdit && onEdit && (
+                          {isLive && canEdit && onEdit && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -412,7 +430,7 @@ export function RawBatchesTable({
                               <Pencil size={13} />
                             </Button>
                           )}
-                          {canCancel && onCancel && (
+                          {isLive && canCancel && onCancel && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -425,8 +443,7 @@ export function RawBatchesTable({
                           )}
                         </div>
                       )}
-                    </TableCell>
-                  )}
+                  </TableCell>
                 </TableRow>
               )
             })}

@@ -20,16 +20,13 @@ import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/c
 import { Input } from '@/components/ui/input'
 import { fmtKg, fmtDatePl } from '@/lib/utils'
 
-import { LABEL_H_MM, LABEL_W_MM } from '@/features/deboning/byproductLabelZpl'
-
 import { DEFAULT_CONTAINERS_PER_PALLET, planPalletTags } from '../palletTags'
-import { receptionTagZpl, type ReceptionTagInput } from '../receptionTagZpl'
+import type { ReceptionTagInput } from '../receptionTagZpl'
 import {
   DEFAULT_CALIBRATION, LABEL_LENGTH_MAX_MM, LABEL_LENGTH_MIN_MM, OFFSET_MAX_MM,
   clampCalibration, fmtOffsetMm, isDefaultCalibration, tearOffMaxMm,
   type TagPrinterCalibration,
 } from '../tagPrinterCalibration'
-import { zplPreviewBoxes } from '../zplPreview'
 import type { Reception, ReceptionBatch } from '../types'
 
 /** Układy, których używają dostawcy: 9 albo 8 pojemników na warstwę × 4 warstwy. */
@@ -136,8 +133,6 @@ export function ReceptionTags({
       receivedDate:  w.batch.receivedDate || reception.receivedDate,
       full:          t.full,
     }))
-
-  const podglad = wiersze.flatMap(zawieszki)[0] ?? null
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -312,74 +307,7 @@ export function ReceptionTags({
           busy={printing}
         />
       )}
-
-      {podglad && <TagPreview tag={podglad} calibration={kalibracja} />}
     </div>
-  )
-}
-
-/** Podgląd pierwszej zawieszki — rysowany Z SAMEGO ZPL, który pojedzie na
- *  drukarkę. Podgląd odwzorowany osobno rozjeżdżał się z wydrukiem przy
- *  pierwszej zmianie fontu, a biuro decyduje z niego o stosie etykiet. */
-function TagPreview({ tag, calibration }: { tag: ReceptionTagInput; calibration: TagPrinterCalibration }) {
-  // px na mm — na tyle duże, żeby najmniejszy tekst (2,8 mm) dało się czytać.
-  const SKALA = 7
-  // Podgląd bierze przesunięcie kalibracyjne: biuro ma zobaczyć, czy dosunięcie
-  // nie wypycha ostatniego wiersza poza taśmę, ZANIM wypuści stos etykiet.
-  const pola = zplPreviewBoxes(receptionTagZpl(tag, {
-    offsetXMm: calibration.offsetXMm,
-    offsetYMm: calibration.offsetYMm,
-  }))
-
-  return (
-    <Card className="w-fit">
-      <CardContent className="p-4 space-y-2">
-        <CardTitle className="text-xs uppercase text-ink-4">
-          Podgląd zawieszki — {LABEL_W_MM} × {LABEL_H_MM} mm
-        </CardTitle>
-        <div
-          className="relative bg-white text-black border border-ink-4 overflow-hidden"
-          style={{ width: LABEL_W_MM * SKALA, height: LABEL_H_MM * SKALA,
-                   fontFamily: 'Arial, Helvetica, sans-serif' }}
-        >
-          {pola.map((p, i) => p.kind === 'logo' ? (
-            // W podglądzie pokazujemy ŹRÓDŁO rastra, nie mapę bitową z ZPL:
-            // pozycja i rozmiar są te same, a biuro ma sprawdzić, czy znak
-            // mieści się w rogu — nie liczyć pikseli.
-            <img
-              key={i} src="/logo-ksiezyc-znak.png" alt="Księżyc"
-              className="absolute"
-              style={{
-                left: p.xMm * SKALA, top: p.yMm * SKALA,
-                width: (p.widthMm ?? 0) * SKALA, height: (p.heightMm ?? 0) * SKALA,
-              }}
-            />
-          ) : p.kind === 'text' ? (
-            <div
-              key={i}
-              className="absolute whitespace-pre"
-              style={{
-                left: p.xMm * SKALA, top: p.yMm * SKALA,
-                fontSize: (p.fontMm ?? 3) * SKALA,
-                lineHeight: `${(p.fontMm ?? 3) * SKALA}px`,
-              }}
-            >
-              {p.text}
-            </div>
-          ) : (
-            <div
-              key={i}
-              className="absolute bg-black"
-              style={{
-                left: p.xMm * SKALA, top: p.yMm * SKALA,
-                width: (p.widthMm ?? 0) * SKALA,
-                height: Math.max(1, (p.heightMm ?? 0) * SKALA),
-              }}
-            />
-          ))}
-        </div>
-      </CardContent>
-    </Card>
   )
 }
 
