@@ -19,8 +19,14 @@ import { useApi } from '@/hooks/useApi'
 import { receptionsApi, suppliersApi } from '@/lib/apiClient'
 import { getDevices, probeBrowserPrint, sendThenReadZpl, sendZpl } from '@/lib/zebra'
 
+import { LABEL_H_MM } from '@/features/deboning/byproductLabelZpl'
+
 import { ReceptionTags } from '../components/ReceptionTags'
 import { DEFAULT_CONTAINERS_PER_PALLET } from '../palletTags'
+import {
+  IDENTIFY_ZPL, PRINT_CONFIG_ZPL, STATUS_ZPL,
+  parsePrinterIdentity, parsePrinterStatus, printerSummary,
+} from '../printerStatus'
 import type { ReceptionTagInput } from '../receptionTagZpl'
 import { receptionTagsPrintJobs } from '../receptionTagsPrint'
 import {
@@ -110,8 +116,15 @@ export function ReceptionTagsPage() {
     'Wydruk testowy wysłany — sprawdź, czy ramka mieści się w całości na etykiecie.',
   ), [calibration, send])
 
-  /** Zapytaj drukarkę o JEJ ustawienia (`^HH`) zamiast zgadywać z tej strony:
-   *  długość etykiety, punkt odrywania, tryb mediów, szerokość zadruku. */
+  /**
+   * Zapytaj drukarkę o JEJ ustawienia zamiast zgadywać z tej strony.
+   *
+   * `^HH` odpadło: GC420t oddaje na nie pustkę (biuro 22.08.2026), choć zapis
+   * działa. Stara seria G zna komendy natychmiastowe `~HI` i `~HS`, a `~HS`
+   * niesie DŁUGOŚĆ ETYKIETY w punktach — jedyną liczbę, która rozstrzyga, czy
+   * drukarka i my mówimy o tej samej etykiecie. Gdy i to milczy, każemy jej
+   * WYDRUKOWAĆ etykietę konfiguracyjną (`~WC`) — z papieru odczyta się zawsze.
+   */
   const readPrinter = useCallback(async () => {
     setPrinting(true)
     setMessage(null)
@@ -119,8 +132,32 @@ export function ReceptionTagsPage() {
       const { default: def, list } = await getDevices()
       const dev = def ?? list[0]
       if (!dev) throw new Error('Nie znaleziono drukarki etykiet')
-      const odpowiedz = await sendThenReadZpl(dev, '^XA^HH^XZ')
-      setPrinterInfo(odpowiedz.trim() || '(drukarka nic nie odesłała)')
+
+      const surowaId = await sendThenReadZpl(dev, IDENTIFY_ZPL).catch(() => '')
+      const surowyStatus = await sendThenReadZpl(dev, STATUS_ZPL).catch(() => '')
+
+      const identity = parsePrinterIdentity(surowaId)
+      const status = parsePrinterStatus(surowyStatus)
+      const podsumowanie = printerSummary(identity, status, LABEL_H_MM)
+
+      if (podsumowanie.length === 0) {
+        // Drukarka nie gada — niech wydrukuje konfigurację na taśmie.
+        await sendZpl(dev, PRINT_CONFIG_ZPL)
+        setPrinterInfo(
+          'Drukarka nie odpowiada na pytania (stary firmware).\n'
+          + 'Wysłałem polecenie wydruku etykiety konfiguracyjnej — wyjdzie z drukarki.\n'
+          + 'Szukaj na niej wiersza LABEL LENGTH i porównaj go z 80 mm.',
+        )
+        setMessage({ ok: true, text: 'Drukarka wypuści etykietę z konfiguracją' })
+        return
+      }
+
+      setPrinterInfo([
+        ...podsumowanie,
+        '',
+        `~HI: ${surowaId.trim() || '(brak odpowiedzi)'}`,
+        `~HS: ${surowyStatus.trim() || '(brak odpowiedzi)'}`,
+      ].join('\n'))
       setMessage({ ok: true, text: 'Odczytano ustawienia drukarki' })
     } catch (e: any) {
       setPrinterInfo(null)
