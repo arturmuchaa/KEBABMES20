@@ -20,9 +20,9 @@ const TAG = {
 describe('receptionTagsPrintJobs — co leci na drukarkę', () => {
   const zadania = receptionTagsPrintJobs([TAG, TAG, TAG], DEFAULT_CALIBRATION)
 
-  it('cała seria idzie JEDNYM zadaniem', () => {
-    expect(zadania).toHaveLength(1)
-    expect(zadania[0].match(/\^XA/g)).toHaveLength(3)
+  it('zadanie na KAŻDĄ zawieszkę — tak druk działał, zanim go ruszyłem', () => {
+    expect(zadania).toHaveLength(3)
+    zadania.forEach(z => expect(z.match(/\^XA/g)).toHaveLength(1))
   })
 
   it('NIE rusza punktu odrywania — to nastawa zapisana w drukarce', () => {
@@ -39,9 +39,7 @@ describe('receptionTagsPrintJobs — co leci na drukarkę', () => {
   })
 
   it('każdy format niesie własną długość taśmy i szukanie przerwy', () => {
-    const formaty = zadania[0].split('^XZ').filter(f => f.includes('^XA'))
-    expect(formaty).toHaveLength(3)
-    formaty.forEach(f => {
+    zadania.forEach(f => {
       expect(f).toContain('^LL')
       expect(f).toContain('^MNY')
     })

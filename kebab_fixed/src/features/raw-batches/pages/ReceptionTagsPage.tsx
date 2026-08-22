@@ -17,7 +17,7 @@ import { toast } from 'sonner'
 
 import { useApi } from '@/hooks/useApi'
 import { receptionsApi, suppliersApi } from '@/lib/apiClient'
-import { getDevices, probeBrowserPrint, sendZpl } from '@/lib/zebra'
+import { getDevices, probeBrowserPrint, sendThenReadZpl, sendZpl } from '@/lib/zebra'
 
 import { ReceptionTags } from '../components/ReceptionTags'
 import { DEFAULT_CONTAINERS_PER_PALLET } from '../palletTags'
@@ -42,6 +42,8 @@ export function ReceptionTagsPage() {
   // Nastawa jest cechą TEGO stanowiska (drukarka + rolka), więc czytamy ją z
   // localStorage, a nie z bazy — drugie biurko ma inną drukarkę.
   const [calibration, setCalibration] = useState<TagPrinterCalibration>(loadCalibration)
+  // Surowa odpowiedź drukarki na `^HH` — pokazujemy ją tak, jak przyszła.
+  const [printerInfo, setPrinterInfo] = useState<string | null>(null)
 
   const dostawca = (suppliers.data ?? []).find(s => s.id === reception.data?.supplierId)
 
@@ -108,6 +110,26 @@ export function ReceptionTagsPage() {
     'Wydruk testowy wysłany — sprawdź, czy ramka mieści się w całości na etykiecie.',
   ), [calibration, send])
 
+  /** Zapytaj drukarkę o JEJ ustawienia (`^HH`) zamiast zgadywać z tej strony:
+   *  długość etykiety, punkt odrywania, tryb mediów, szerokość zadruku. */
+  const readPrinter = useCallback(async () => {
+    setPrinting(true)
+    setMessage(null)
+    try {
+      const { default: def, list } = await getDevices()
+      const dev = def ?? list[0]
+      if (!dev) throw new Error('Nie znaleziono drukarki etykiet')
+      const odpowiedz = await sendThenReadZpl(dev, '^XA^HH^XZ')
+      setPrinterInfo(odpowiedz.trim() || '(drukarka nic nie odesłała)')
+      setMessage({ ok: true, text: 'Odczytano ustawienia drukarki' })
+    } catch (e: any) {
+      setPrinterInfo(null)
+      setMessage({ ok: false, text: e?.message || 'Nie udało się odczytać ustawień drukarki' })
+    } finally {
+      setPrinting(false)
+    }
+  }, [])
+
   const rememberLayout = useCallback(async (perPallet: number) => {
     if (!dostawca) return
     try {
@@ -140,6 +162,8 @@ export function ReceptionTagsPage() {
       onCalibrationChange={changeCalibration}
       onCalibratePrinter={calibratePrinter}
       onTestPrint={testPrint}
+      onReadPrinter={readPrinter}
+      printerInfo={printerInfo}
     />
   )
 }

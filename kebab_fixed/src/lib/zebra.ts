@@ -44,6 +44,24 @@ export function sendZpl(device: ZebraDevice, zpl: string): Promise<void> {
   return new Promise((resolve, reject) => device.send(zpl, () => resolve(), (e: any) => reject(e)))
 }
 
+/**
+ * Wyślij komendę i ODCZYTAJ odpowiedź drukarki (`^HH`, `~HI`, `~HS`).
+ *
+ * Bez tego ustawienia drukarki są dla nas czarną skrzynką i zostaje zgadywanie
+ * — a przy zawieszkach (22.08.2026) zgadywanie kosztowało trzy wydania pod rząd.
+ * Drukarka sama powie, jaką ma DŁUGOŚĆ ETYKIETY, punkt odrywania i tryb mediów.
+ */
+export function sendThenReadZpl(device: ZebraDevice, zpl: string): Promise<string> {
+  const dev = device as ZebraDevice & {
+    sendThenRead?: (d: string, ok: (r: string) => void, err: (e: any) => void) => void
+  }
+  if (typeof dev.sendThenRead !== 'function') {
+    return Promise.reject(new Error('Ta wersja BrowserPrint nie umie odczytać odpowiedzi drukarki'))
+  }
+  return new Promise((resolve, reject) =>
+    dev.sendThenRead!(zpl, (r: string) => resolve(r ?? ''), (e: any) => reject(e)))
+}
+
 /** Usługa Zebra BrowserPrint słucha na http://localhost:9100 (loopback http).
  * Z bezpiecznej strony (https/localhost) Chrome pozwala sięgnąć po http://localhost. */
 export function browserPrintBaseUrl(): string {

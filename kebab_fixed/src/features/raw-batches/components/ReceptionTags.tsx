@@ -13,7 +13,9 @@
  * Cała matematyka siedzi w `palletTags`; tu jest tylko ekran.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Bookmark, Crosshair, Printer, RotateCcw, SlidersHorizontal, X } from 'lucide-react'
+import {
+  Bookmark, Crosshair, Printer, RotateCcw, SlidersHorizontal, Stethoscope, X,
+} from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
@@ -59,12 +61,17 @@ export interface ReceptionTagsProps {
   onCalibratePrinter?: () => void
   /** Wydruk testowy z ramką po krawędzi etykiety. */
   onTestPrint?: () => void
+  /** Odczyt ustawień z drukarki (`^HH`) — długość etykiety, odrywanie, tryb. */
+  onReadPrinter?: () => void
+  /** Surowa odpowiedź drukarki; null = jeszcze nie pytaliśmy. */
+  printerInfo?: string | null
 }
 
 export function ReceptionTags({
   reception, defaultContainersPerPallet, onPrint, onRememberLayout, onClose,
   printing = false, message = null,
   calibration, onCalibrationChange, onCalibratePrinter, onTestPrint,
+  onReadPrinter, printerInfo = null,
 }: ReceptionTagsProps) {
   const [kalibracjaOtwarta, setKalibracjaOtwarta] = useState(false)
   const kalibracja = calibration ?? DEFAULT_CALIBRATION
@@ -304,6 +311,8 @@ export function ReceptionTags({
           onChange={onCalibrationChange}
           onCalibratePrinter={onCalibratePrinter}
           onTestPrint={onTestPrint}
+          onReadPrinter={onReadPrinter}
+          printerInfo={printerInfo}
           busy={printing}
         />
       )}
@@ -320,12 +329,14 @@ export function ReceptionTags({
  * taśmę i po wymianie rolki wszystko trzeba ustawiać od nowa.
  */
 function PrinterCalibration({
-  calibration, onChange, onCalibratePrinter, onTestPrint, busy,
+  calibration, onChange, onCalibratePrinter, onTestPrint, onReadPrinter, printerInfo, busy,
 }: {
   calibration: TagPrinterCalibration
   onChange: (cal: TagPrinterCalibration) => void
   onCalibratePrinter?: () => void
   onTestPrint?: () => void
+  onReadPrinter?: () => void
+  printerInfo?: string | null
   busy: boolean
 }) {
   const maxTear = tearOffMaxMm()
@@ -370,7 +381,30 @@ function PrinterCalibration({
           >
             <Printer size={14} /> Wydruk testowy
           </Button>
+          <Button
+            variant="outline" size="sm" className="gap-2"
+            aria-label="Odczytaj ustawienia drukarki" disabled={busy || !onReadPrinter}
+            onClick={() => onReadPrinter?.()}
+          >
+            <Stethoscope size={14} /> Odczytaj ustawienia
+          </Button>
         </div>
+
+        {/* Odpowiedź drukarki na `^HH`: długość etykiety, punkt odrywania, tryb
+            mediów. Bez tego ustawienia drukarki są czarną skrzynką, a szukanie
+            przyczyny rozjechanego cięcia schodzi do zgadywania. */}
+        {printerInfo && (
+          <div className="space-y-1">
+            <div className="text-[11px] uppercase font-semibold text-ink-4">
+              Co mówi drukarka
+            </div>
+            <pre className="text-[11px] leading-snug font-mono whitespace-pre-wrap
+                            max-h-64 overflow-auto p-3 rounded bg-surface-2
+                            border border-surface-4 text-ink-2">
+              {printerInfo}
+            </pre>
+          </div>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Nudge
