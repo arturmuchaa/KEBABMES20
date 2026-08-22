@@ -3,17 +3,16 @@
  *
  * Zawieszki na palety drukują się seriami po kilkanaście sztuk i biuro
  * zgłosiło (22.08.2026), że „co druga jest źle skalibrowana": jedna wychodzi
- * równo, następna przesunięta. To nie jest wina układu etykiety — ten sam ZPL
- * jedzie na każdą sztukę — tylko tego, że drukarka gubi początek etykiety
- * między wydrukami. Dwie przyczyny, obie da się usunąć stąd:
+ * równo, następna przesunięta. To nie wina układu etykiety — ten sam ZPL jedzie
+ * na każdą sztukę — tylko tego, że drukarka gubi początek etykiety między
+ * wydrukami. Lekarstwo to `~JC`: drukarka wypuszcza kilka etykiet i MIERZY
+ * czujnikiem etykietę razem z przerwą.
  *
- *  1. Drukarka nie zna rzeczywistego skoku taśmy (etykieta + przerwa).
- *     Lekarstwo to `~JC`: drukarka wypuszcza kilka etykiet i MIERZY je czujnikiem.
- *  2. Każda etykieta niosła własne `^LL` i `^MNY` — komendy trwałe, dotykające
- *     obsługi mediów. Część firmware'ów przyjmuje je jako zmianę ustawień i
- *     przepozycjonowuje taśmę, co gubi rejestrację CO DRUGIEGO wydruku.
- *     Dlatego `printerSetupZpl` idzie RAZ przed serią, a same zawieszki
- *     dostają `setup: false` (patrz `receptionTagZpl`).
+ * ODRZUCONA HIPOTEZA (nie wracać): że winne jest powtarzanie `^LL` i `^MNY`
+ * w każdej etykiecie. Wyniesienie ich do preambuły wysyłanej raz na serię
+ * urwało wydruki w 3/4 etykiety na Zebrze GC420t — bez `^LL` w formacie
+ * drukarka bierze długość zapisaną u siebie. Komendy wróciły do każdej
+ * etykiety, a serię wysyłamy jednym strumieniem (`receptionTagsStreamZpl`).
  *
  * Jeżeli po kalibracji wydruk nadal siedzi krzywo o stałą wartość — to już
  * cecha rolki i drukarki, nie logiki — biuro dosuwa go `offsetXMm`/`offsetYMm`.
@@ -118,30 +117,6 @@ export function saveCalibration(cal: TagPrinterCalibration, store: Magazyn | nul
     // Tryb prywatny albo pełny dysk: druk ma działać dalej, tylko bez pamięci.
   }
   return czysta
-}
-
-/**
- * Preambuła wysyłana RAZ przed serią zawieszek: ustawia szerokość taśmy, skok
- * etykiety, wykrywanie przerwy i punkt odrywania. Wszystko to są ustawienia
- * TRWAŁE drukarki — dlatego nie powtarzamy ich przy każdej etykiecie.
- *
- * `~TA` musi stać POZA `^XA…^XZ` (komenda natychmiastowa, nie format).
- */
-export function printerSetupZpl(
-  cal: TagPrinterCalibration = DEFAULT_CALIBRATION,
-  dpi: number = LABEL_DPI,
-): string {
-  const c = clampCalibration(cal)
-  return [
-    tearOffZpl(c.tearOffMm, dpi),
-    '^XA',
-    `^PW${mmToDots(LABEL_W_MM, dpi)}`,
-    `^LL${mmToDots(c.labelLengthMm, dpi)}`,
-    '^LH0,0',
-    '^MNY',
-    '^LS0',
-    '^XZ',
-  ].join('\n')
 }
 
 /** Milimetry ze znakiem, po polsku: „+1,5 mm". */

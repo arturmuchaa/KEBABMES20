@@ -9,7 +9,7 @@ import { LABEL_H_MM, LABEL_W_MM, mmToDots } from '@/features/deboning/byproductL
 import {
   DEFAULT_CALIBRATION, LABEL_LENGTH_MAX_MM, LABEL_LENGTH_MIN_MM, OFFSET_MAX_MM,
   CALIBRATION_STORAGE_KEY, calibrationTestZpl, clampCalibration, fmtOffsetMm,
-  isDefaultCalibration, loadCalibration, printerSetupZpl, saveCalibration,
+  isDefaultCalibration, loadCalibration, saveCalibration, tearOffZpl,
 } from './tagPrinterCalibration'
 
 /** Prosty magazyn zamiast localStorage — testy nie zależą od jsdom. */
@@ -80,21 +80,16 @@ describe('pamięć stanowiska', () => {
   })
 })
 
-describe('printerSetupZpl — ustawienia taśmy RAZ na serię', () => {
-  const zpl = printerSetupZpl({ ...DEFAULT_CALIBRATION, labelLengthMm: 82, tearOffMm: 2 })
-
-  it('niesie szerokość taśmy, zmierzony skok i szukanie przerwy', () => {
-    expect(zpl).toContain(`^PW${mmToDots(LABEL_W_MM)}`)
-    expect(zpl).toContain(`^LL${mmToDots(82)}`)
-    expect(zpl).toContain('^MNY')
+describe('tearOffZpl — punkt odrywania przed serią', () => {
+  it('`~TA` to komenda natychmiastowa — nie wolno jej zamknąć w formacie', () => {
+    const zpl = tearOffZpl(2)
+    expect(zpl.startsWith('~TA')).toBe(true)
+    expect(zpl).not.toContain('^XA')
   })
 
-  it('punkt odrywania idzie POZA formatem — `~TA` to komenda natychmiastowa', () => {
-    expect(zpl.indexOf('~TA')).toBeLessThan(zpl.indexOf('^XA'))
-  })
-
-  it('domyślna nastawa też ustawia taśmę — drukarka mogła zostać po innym wydruku', () => {
-    expect(printerSetupZpl()).toContain(`^LL${mmToDots(LABEL_H_MM)}`)
+  it('wartość zawsze trzycyfrowa — część firmware ignoruje krótszą', () => {
+    expect(tearOffZpl(0)).toBe('~TA000')
+    expect(tearOffZpl(-1)).toMatch(/^~TA-\d{3}$/)
   })
 })
 

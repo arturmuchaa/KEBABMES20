@@ -53,8 +53,6 @@ export interface ReceptionTagOptions {
   offsetYMm?: number
   /** Rzeczywisty skok taśmy (etykieta + przerwa). */
   labelLengthMm?: number
-  /** false = ustawienia taśmy poszły już preambułą (`printerSetupZpl`). */
-  setup?: boolean
 }
 
 /** Formy prawne, które na 44 mm pola zadruku zjadają nazwę, a nic nie mówią
@@ -173,7 +171,7 @@ export function receptionTagZpl(
   input: ReceptionTagInput,
   {
     dpi = LABEL_DPI, copies = 1,
-    offsetXMm = 0, offsetYMm = 0, labelLengthMm = LABEL_H_MM, setup = true,
+    offsetXMm = 0, offsetYMm = 0, labelLengthMm = LABEL_H_MM,
   }: ReceptionTagOptions = {},
 ): string {
   const g: Rysunek = { dpi, ox: offsetXMm, oy: offsetYMm }
@@ -246,15 +244,36 @@ export function receptionTagZpl(
     '^XA',
     '^CI28',
     `^PW${mmToDots(LABEL_W_MM, dpi)}`,
-    // `^LL` i `^MNY` sterują OBSŁUGĄ MEDIÓW i zostają w drukarce na stałe.
-    // Powtarzane przy każdej etykiecie potrafią kazać jej przepozycjonować
-    // taśmę — stąd „co druga zawieszka krzywo" (biuro, 22.08.2026). Przy druku
-    // serii idą RAZ, preambułą `printerSetupZpl`, a tutaj zostaje sam układ.
-    ...(setup ? [`^LL${mmToDots(labelLengthMm, dpi)}`] : []),
+    // `^LL` i `^MNY` MUSZĄ być w KAŻDEJ etykiecie.
+    //
+    // 22.08.2026 wyniosłem je stąd do preambuły wysyłanej raz na serię, licząc,
+    // że to one gubią rejestrację. Zebra GC420t (G-series) tego nie wybacza:
+    // bez `^LL` w formacie bierze DŁUGOŚĆ ZAPISANĄ U SIEBIE i kończy wydruk
+    // tam, gdzie ona się kończy — biuro dostało etykiety urwane w 3/4. Wcześniej
+    // działało właśnie dlatego, że każda etykieta narzucała 639 punktów na nowo.
+    // Rejestrację naprawia kalibracja `~JC` z panelu, a nie odchudzanie formatu.
+    `^LL${mmToDots(labelLengthMm, dpi)}`,
     '^LH0,0',
-    ...(setup ? ['^MNY'] : []),
+    '^MNY',
     '^LS0',
     ...body,
     '^XZ',
   ].join('\n')
+}
+
+/**
+ * Cała seria zawieszek JEDNYM strumieniem.
+ *
+ * Wysyłanie etykieta-po-etykiecie to tyle osobnych zadań, ile zawieszek: między
+ * nimi drukarka zdąży dojechać do punktu odrywania i cofnąć taśmę, a GC420t
+ * lubi przy tym zgubić rejestrację. Jeden strumień formatów (`^XA…^XZ^XA…^XZ`)
+ * drukarka przerabia bez przerw — to jest ten „druk wszystkiego na raz".
+ *
+ * `^PQ` nie wchodzi w grę: każda zawieszka ma inny numer palety i inną wagę.
+ */
+export function receptionTagsStreamZpl(
+  tags: readonly ReceptionTagInput[],
+  options: ReceptionTagOptions = {},
+): string {
+  return tags.map(tag => receptionTagZpl(tag, options)).join('\n')
 }

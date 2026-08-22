@@ -21,9 +21,9 @@ import { getDevices, probeBrowserPrint, sendZpl } from '@/lib/zebra'
 
 import { ReceptionTags } from '../components/ReceptionTags'
 import { DEFAULT_CONTAINERS_PER_PALLET } from '../palletTags'
-import { receptionTagZpl, type ReceptionTagInput } from '../receptionTagZpl'
+import { receptionTagsStreamZpl, type ReceptionTagInput } from '../receptionTagZpl'
 import {
-  CALIBRATE_ZPL, calibrationTestZpl, loadCalibration, printerSetupZpl, saveCalibration,
+  CALIBRATE_ZPL, calibrationTestZpl, loadCalibration, saveCalibration,
   tearOffZpl, type TagPrinterCalibration,
 } from '../tagPrinterCalibration'
 
@@ -71,17 +71,17 @@ export function ReceptionTagsPage() {
 
   const print = useCallback((tags: ReceptionTagInput[]) => send(
     [
-      // Ustawienia taśmy RAZ na serię — powtarzane przy każdej etykiecie kazały
-      // drukarce przepozycjonować taśmę i co druga zawieszka schodziła krzywo.
-      printerSetupZpl(calibration),
-      // Zawieszka po zawieszce, a nie jednym ^PQ: każda ma inny numer palety
-      // i inną wagę, więc kopie drukarki nie wchodzą w grę.
-      ...tags.map(tag => receptionTagZpl(tag, {
+      // Punkt odrywania to komenda natychmiastowa — musi pójść przed serią.
+      tearOffZpl(calibration.tearOffMm),
+      // CAŁA seria jednym strumieniem. Osobne zadanie na każdą zawieszkę dawało
+      // drukarce czas na dojazd do odrywania i cofnięcie taśmy między nimi;
+      // GC420t gubiła przy tym rejestrację, a biuro prosiło wprost o „wszystko
+      // na raz". Każdy format niesie własne `^LL`/`^MNY` — patrz receptionTagZpl.
+      receptionTagsStreamZpl(tags, {
         offsetXMm: calibration.offsetXMm,
         offsetYMm: calibration.offsetYMm,
         labelLengthMm: calibration.labelLengthMm,
-        setup: false,
-      })),
+      }),
     ],
     `Wysłano na drukarkę: ${tags.length} zawieszek`,
   ), [calibration, send])

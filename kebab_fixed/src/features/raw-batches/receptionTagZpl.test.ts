@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest'
 
 import { LABEL_H_MM, LABEL_W_MM, mmToDots } from '@/features/deboning/byproductLabelZpl'
 import { LOGO_DOTS_W } from '@/lib/labelLogo'
-import { LOGO_H_MM, receptionTagZpl, shortenSupplier, splitSupplierBatches } from './receptionTagZpl'
+import {
+  LOGO_H_MM, receptionTagZpl, receptionTagsStreamZpl, shortenSupplier, splitSupplierBatches,
+} from './receptionTagZpl'
 
 const BASE = {
   receptionNo: '12/08/2026',
@@ -189,23 +191,42 @@ describe('receptionTagZpl — kalibracja drukarki', () => {
     expect(receptionTagZpl(BASE, { labelLengthMm: 82 })).toContain(`^LL${mmToDots(82)}`)
   })
 
-  it('w serii (`setup: false`) nie powtarza komend obsługi mediów', () => {
-    const zpl = receptionTagZpl(BASE, { setup: false })
-    expect(zpl).not.toContain('^LL')
-    expect(zpl).not.toContain('^MNY')
-  })
-
-  it('…ale zostawia szerokość taśmy i zerowanie przesunięcia z drukarki', () => {
-    const zpl = receptionTagZpl(BASE, { setup: false })
-    expect(zpl).toContain(`^PW${mmToDots(LABEL_W_MM)}`)
-    expect(zpl).toContain('^LH0,0')
-    expect(zpl).toContain('^FD471^FS')
-  })
-
-  it('pojedynczy wydruk domyślnie nadal ustawia taśmę sam', () => {
+  // REGRESJA 22.08.2026: wyniesienie `^LL`/`^MNY` do preambuły wysyłanej raz na
+  // serię urwało wydruki w 3/4 etykiety na Zebrze GC420t — bez `^LL` w formacie
+  // drukarka bierze długość zapisaną u siebie. Te trzy testy mają nie pozwolić
+  // wrócić do tego pomysłu.
+  it('KAŻDA etykieta niesie własną długość taśmy — GC420t inaczej urywa wydruk', () => {
     const zpl = receptionTagZpl(BASE)
-    expect(zpl).toContain('^MNY')
     expect(zpl).toContain(`^LL${mmToDots(LABEL_H_MM)}`)
+    expect(zpl).toContain('^MNY')
+  })
+
+  it('…także wtedy, gdy etykieta idzie w środku serii', () => {
+    const seria = receptionTagsStreamZpl([BASE, BASE, BASE])
+    const formaty = seria.split('^XZ').filter(f => f.includes('^XA'))
+    expect(formaty).toHaveLength(3)
+    formaty.forEach(f => {
+      expect(f).toContain('^LL')
+      expect(f).toContain('^MNY')
+      expect(f).toContain(`^PW${mmToDots(LABEL_W_MM)}`)
+    })
+  })
+
+  it('seria idzie JEDNYM strumieniem, a nie zadaniem na zawieszkę', () => {
+    const seria = receptionTagsStreamZpl([BASE, BASE])
+    expect(seria.match(/\^XA/g)).toHaveLength(2)
+    expect(seria.match(/\^XZ/g)).toHaveLength(2)
+    // Bez `^PQ`: każda zawieszka ma inny numer palety i inną wagę.
+    expect(seria).not.toContain('^PQ')
+  })
+
+  it('pusta seria nie wysyła na drukarkę pustego formatu', () => {
+    expect(receptionTagsStreamZpl([])).toBe('')
+  })
+
+  it('kalibracja stanowiska obowiązuje każdą zawieszkę w serii', () => {
+    const seria = receptionTagsStreamZpl([BASE, BASE], { labelLengthMm: 82 })
+    expect(seria.match(new RegExp(`\\^LL${mmToDots(82)}`, 'g'))).toHaveLength(2)
   })
 })
 
