@@ -14,7 +14,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Bookmark, Crosshair, Printer, RotateCcw, SlidersHorizontal, Stethoscope, X,
+  Bookmark, Crosshair, Printer, RotateCcw, Ruler, SlidersHorizontal, Stethoscope, X,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -65,6 +65,10 @@ export interface ReceptionTagsProps {
   onReadPrinter?: () => void
   /** Surowa odpowiedź drukarki; null = jeszcze nie pytaliśmy. */
   printerInfo?: string | null
+  /** Długość etykiety ZMIERZONA przez drukarkę; null = nieznana. */
+  printerLabelLengthMm?: number | null
+  /** Przenieś zmierzoną długość do nastawy stanowiska. */
+  onApplyPrinterLabelLength?: () => void
 }
 
 export function ReceptionTags({
@@ -72,6 +76,7 @@ export function ReceptionTags({
   printing = false, message = null,
   calibration, onCalibrationChange, onCalibratePrinter, onTestPrint,
   onReadPrinter, printerInfo = null,
+  printerLabelLengthMm = null, onApplyPrinterLabelLength,
 }: ReceptionTagsProps) {
   const [kalibracjaOtwarta, setKalibracjaOtwarta] = useState(false)
   const kalibracja = calibration ?? DEFAULT_CALIBRATION
@@ -313,6 +318,8 @@ export function ReceptionTags({
           onTestPrint={onTestPrint}
           onReadPrinter={onReadPrinter}
           printerInfo={printerInfo}
+          printerLabelLengthMm={printerLabelLengthMm}
+          onApplyPrinterLabelLength={onApplyPrinterLabelLength}
           busy={printing}
         />
       )}
@@ -329,7 +336,8 @@ export function ReceptionTags({
  * taśmę i po wymianie rolki wszystko trzeba ustawiać od nowa.
  */
 function PrinterCalibration({
-  calibration, onChange, onCalibratePrinter, onTestPrint, onReadPrinter, printerInfo, busy,
+  calibration, onChange, onCalibratePrinter, onTestPrint, onReadPrinter, printerInfo,
+  printerLabelLengthMm, onApplyPrinterLabelLength, busy,
 }: {
   calibration: TagPrinterCalibration
   onChange: (cal: TagPrinterCalibration) => void
@@ -337,8 +345,14 @@ function PrinterCalibration({
   onTestPrint?: () => void
   onReadPrinter?: () => void
   printerInfo?: string | null
+  printerLabelLengthMm?: number | null
+  onApplyPrinterLabelLength?: () => void
   busy: boolean
 }) {
+  // Spór o skok taśmy rozstrzyga DRUKARKA, nie nasza stała 80 mm — pokazujemy
+  // przycisk dopiero wtedy, gdy jej pomiar różni się od nastawy.
+  const rozjazdTasmy = printerLabelLengthMm !== null
+    && Math.abs(printerLabelLengthMm - calibration.labelLengthMm) >= 0.5
   const maxTear = tearOffMaxMm()
   const zmien = (patch: Partial<TagPrinterCalibration>) =>
     onChange(clampCalibration({ ...calibration, ...patch }))
@@ -393,6 +407,17 @@ function PrinterCalibration({
         {/* Odpowiedź drukarki na `^HH`: długość etykiety, punkt odrywania, tryb
             mediów. Bez tego ustawienia drukarki są czarną skrzynką, a szukanie
             przyczyny rozjechanego cięcia schodzi do zgadywania. */}
+        {rozjazdTasmy && onApplyPrinterLabelLength && (
+          <Button
+            variant="default" size="sm" className="gap-2 w-fit"
+            aria-label="Ustaw skok taśmy z drukarki" disabled={busy}
+            onClick={() => onApplyPrinterLabelLength()}
+          >
+            <Ruler size={14} />
+            Ustaw skok taśmy {fmtOffsetMm(printerLabelLengthMm!).replace('+', '')} mm z drukarki
+          </Button>
+        )}
+
         {printerInfo && (
           <div className="space-y-1">
             <div className="text-[11px] uppercase font-semibold text-ink-4">

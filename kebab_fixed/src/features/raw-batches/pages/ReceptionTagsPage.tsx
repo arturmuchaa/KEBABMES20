@@ -48,8 +48,10 @@ export function ReceptionTagsPage() {
   // Nastawa jest cechą TEGO stanowiska (drukarka + rolka), więc czytamy ją z
   // localStorage, a nie z bazy — drugie biurko ma inną drukarkę.
   const [calibration, setCalibration] = useState<TagPrinterCalibration>(loadCalibration)
-  // Surowa odpowiedź drukarki na `^HH` — pokazujemy ją tak, jak przyszła.
+  // Surowa odpowiedź drukarki — pokazujemy ją tak, jak przyszła.
   const [printerInfo, setPrinterInfo] = useState<string | null>(null)
+  // Długość etykiety ZMIERZONA przez drukarkę; to ona rozstrzyga spór o skok taśmy.
+  const [printerLabelLengthMm, setPrinterLabelLengthMm] = useState<number | null>(null)
 
   const dostawca = (suppliers.data ?? []).find(s => s.id === reception.data?.supplierId)
 
@@ -139,9 +141,11 @@ export function ReceptionTagsPage() {
       const identity = parsePrinterIdentity(surowaId)
       const status = parsePrinterStatus(surowyStatus)
       const podsumowanie = printerSummary(identity, status, LABEL_H_MM)
+      setPrinterLabelLengthMm(status.labelLengthMm)
 
       if (podsumowanie.length === 0) {
         // Drukarka nie gada — niech wydrukuje konfigurację na taśmie.
+        setPrinterLabelLengthMm(null)
         await sendZpl(dev, PRINT_CONFIG_ZPL)
         setPrinterInfo(
           'Drukarka nie odpowiada na pytania (stary firmware).\n'
@@ -161,11 +165,22 @@ export function ReceptionTagsPage() {
       setMessage({ ok: true, text: 'Odczytano ustawienia drukarki' })
     } catch (e: any) {
       setPrinterInfo(null)
+      setPrinterLabelLengthMm(null)
       setMessage({ ok: false, text: e?.message || 'Nie udało się odczytać ustawień drukarki' })
     } finally {
       setPrinting(false)
     }
   }, [])
+
+  /** Przenieś ZMIERZONĄ przez drukarkę długość etykiety do nastawy stanowiska.
+   *  Spór o skok taśmy rozstrzyga drukarka, nie nasza stała 80 mm: po `~JC`
+   *  zmierzyła 658 pkt (82,3 mm), a my wysyłaliśmy 639 — i te 2,4 mm różnicy
+   *  wypychały odrywanie dokładnie na nagłówek następnej zawieszki. */
+  const applyPrinterLabelLength = useCallback(() => {
+    if (printerLabelLengthMm === null) return
+    changeCalibration({ ...calibration, labelLengthMm: printerLabelLengthMm })
+    toast.success(`Skok taśmy z drukarki: ${String(printerLabelLengthMm).replace('.', ',')} mm`)
+  }, [printerLabelLengthMm, calibration, changeCalibration])
 
   const rememberLayout = useCallback(async (perPallet: number) => {
     if (!dostawca) return
@@ -201,6 +216,8 @@ export function ReceptionTagsPage() {
       onTestPrint={testPrint}
       onReadPrinter={readPrinter}
       printerInfo={printerInfo}
+      printerLabelLengthMm={printerLabelLengthMm}
+      onApplyPrinterLabelLength={applyPrinterLabelLength}
     />
   )
 }

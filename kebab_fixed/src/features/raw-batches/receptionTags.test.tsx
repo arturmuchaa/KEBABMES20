@@ -229,3 +229,45 @@ describe('ReceptionTags — kalibracja drukarki', () => {
   })
 
 })
+
+/**
+ * Skok taśmy z drukarki. 22.08.2026 `~JC` zmierzyło etykietę na 658 punktów
+ * (82,3 mm), a MES wysyłał `^LL639` (80 mm) — te 2,4 mm różnicy wypychały
+ * odrywanie dokładnie na nagłówek następnej zawieszki.
+ */
+describe('ReceptionTags — skok taśmy zmierzony przez drukarkę', () => {
+  const KAL = { offsetXMm: 0, offsetYMm: 0, labelLengthMm: 80, tearOffMm: 0 }
+
+  function pokazPanel(printerLabelLengthMm: number | null) {
+    const onApplyPrinterLabelLength = vi.fn()
+    render(
+      <ReceptionTags
+        reception={REC} defaultContainersPerPallet={36}
+        onPrint={vi.fn()} onClose={() => {}}
+        calibration={KAL} onCalibrationChange={vi.fn()}
+        printerLabelLengthMm={printerLabelLengthMm}
+        onApplyPrinterLabelLength={onApplyPrinterLabelLength}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('Kalibracja drukarki'))
+    return { onApplyPrinterLabelLength }
+  }
+
+  it('proponuje przeniesienie pomiaru, gdy drukarka mówi co innego niż nastawa', () => {
+    const { onApplyPrinterLabelLength } = pokazPanel(82.3)
+    const przycisk = screen.getByLabelText('Ustaw skok taśmy z drukarki')
+    expect(przycisk.textContent).toContain('82,3')
+    fireEvent.click(przycisk)
+    expect(onApplyPrinterLabelLength).toHaveBeenCalled()
+  })
+
+  it('nie zaczepia, gdy drukarka i nastawa są zgodne', () => {
+    pokazPanel(80)
+    expect(screen.queryByLabelText('Ustaw skok taśmy z drukarki')).toBeNull()
+  })
+
+  it('bez odczytu z drukarki nie proponuje niczego', () => {
+    pokazPanel(null)
+    expect(screen.queryByLabelText('Ustaw skok taśmy z drukarki')).toBeNull()
+  })
+})
