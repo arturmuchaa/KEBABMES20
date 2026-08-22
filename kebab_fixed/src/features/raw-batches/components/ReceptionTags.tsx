@@ -339,10 +339,11 @@ function PrinterCalibration({
           <div className="space-y-1">
             <CardTitle className="text-sm">Kalibracja drukarki</CardTitle>
             <CardDescription className="max-w-2xl">
-              Jeśli co druga zawieszka schodzi przesunięta, zacznij od „Kalibruj etykiety" —
-              drukarka wypuści kilka sztuk i sama zmierzy etykietę z przerwą. Milimetry poniżej
-              dosuwają wydruk dopiero wtedy, gdy po kalibracji siedzi krzywo o stałą wartość.
-              Nastawa zostaje na tym komputerze.
+              Jeśli zawieszki schodzą przesunięte, zacznij od „Kalibruj etykiety" — drukarka
+              wypuści kilka sztuk i sama zmierzy etykietę z przerwą. Przesunięcia poniżej
+              dosuwają sam WYDRUK i pamięta je ten komputer. <strong>Punkt odrywania</strong> to
+              nastawa samej drukarki: zapisuje się w niej i zostaje tam także po wyłączeniu —
+              druk zawieszek już jej nie rusza.
             </CardDescription>
           </div>
           <Button
@@ -383,7 +384,8 @@ function PrinterCalibration({
             disabled={busy} onChange={v => zmien({ offsetYMm: v })}
           />
           <Nudge
-            label="Punkt odrywania" hint="gdzie taśma staje po wydruku"
+            label="Punkt odrywania"
+            hint="minus cofa taśmę — gdy odrywa się już w następnej etykiecie"
             value={calibration.tearOffMm} step={1} min={-maxTear} max={maxTear}
             disabled={busy} onChange={v => zmien({ tearOffMm: v })}
           />

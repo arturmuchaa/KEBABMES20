@@ -21,7 +21,8 @@ import { getDevices, probeBrowserPrint, sendZpl } from '@/lib/zebra'
 
 import { ReceptionTags } from '../components/ReceptionTags'
 import { DEFAULT_CONTAINERS_PER_PALLET } from '../palletTags'
-import { receptionTagsStreamZpl, type ReceptionTagInput } from '../receptionTagZpl'
+import type { ReceptionTagInput } from '../receptionTagZpl'
+import { receptionTagsPrintJobs } from '../receptionTagsPrint'
 import {
   CALIBRATE_ZPL, calibrationTestZpl, loadCalibration, saveCalibration,
   tearOffZpl, type TagPrinterCalibration,
@@ -69,20 +70,17 @@ export function ReceptionTagsPage() {
     }
   }, [])
 
+  // UWAGA: druk NIE wysyła `~TA`.
+  //
+  // Punkt odrywania to nastawa TRWAŁA, zapisana w drukarce — ustawiona raz
+  // (ręcznie na urządzeniu albo przyciskiem w panelu) ma tam zostać. Wysyłanie
+  // go przed każdą serią kasowało tę nastawę wartością z ekranu: przy domyślnym
+  // zerze każdy wydruk cichaczem robił `~TA000` i taśma stawała w innym miejscu
+  // niż przez cały poprzedni rok (biuro 22.08.2026: „cięcie na wysokości numeru
+  // przyjęcia"). Zmiana punktu odrywania idzie na drukarkę WYŁĄCZNIE wtedy, gdy
+  // operator ruszy suwak — patrz `changeCalibration`.
   const print = useCallback((tags: ReceptionTagInput[]) => send(
-    [
-      // Punkt odrywania to komenda natychmiastowa — musi pójść przed serią.
-      tearOffZpl(calibration.tearOffMm),
-      // CAŁA seria jednym strumieniem. Osobne zadanie na każdą zawieszkę dawało
-      // drukarce czas na dojazd do odrywania i cofnięcie taśmy między nimi;
-      // GC420t gubiła przy tym rejestrację, a biuro prosiło wprost o „wszystko
-      // na raz". Każdy format niesie własne `^LL`/`^MNY` — patrz receptionTagZpl.
-      receptionTagsStreamZpl(tags, {
-        offsetXMm: calibration.offsetXMm,
-        offsetYMm: calibration.offsetYMm,
-        labelLengthMm: calibration.labelLengthMm,
-      }),
-    ],
+    receptionTagsPrintJobs(tags, calibration),
     `Wysłano na drukarkę: ${tags.length} zawieszek`,
   ), [calibration, send])
 
