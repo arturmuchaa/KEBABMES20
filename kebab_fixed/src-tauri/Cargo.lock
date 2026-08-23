@@ -1914,7 +1914,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-mes"
-version = "2.5.70"
+version = "2.5.71"
 dependencies = [
  "base64 0.22.1",
  "serde",
