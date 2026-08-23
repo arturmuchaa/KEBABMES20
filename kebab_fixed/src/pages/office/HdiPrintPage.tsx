@@ -4,6 +4,7 @@ import { ArrowLeft, Printer, Download } from 'lucide-react'
 import { hdiApi, downloadDocPdf, type HdiDoc } from '@/lib/api'
 import { drukuj } from '@/lib/print'
 import { PrintToolbar } from '@/components/print/PrintToolbar'
+import { MAX_ROWS, bodyRowsFor, baseHeight, fitFor, fitChanged, type FitState } from './hdiFit'
 
 const L: Record<string, Record<string, string>> = {
   pl: { title: 'HANDLOWY DOKUMENT IDENTYFIKACYJNY', number: 'Numer HDI', issue: 'Data wystawienia', producer: 'Producent', qual: 'Zakład zakwalifikowany do prowadzenia sprzedaży na rynek', vet: 'Weterynaryjny numer identyfikacyjny', dom: 'Krajowy /domestic market/ National', eu: 'Unii Europejskiej /UE / Europäische Union', superv: 'Zakład posiada stały nadzór weterynaryjny i wprowadzony system HACCP.', lp: 'L.P', cName: 'NAZWA TOWARU', cQty: 'L.B SZT.', cNet: 'MASA NETTO', cBatch: 'NR PARTII', cExp: 'TERMIN PRZYDATNOŚCI', total: 'RAZEM', recip: 'ODBIORCA', unload: 'MIEJSCE ROZŁADUNKU', regno: 'NUMER REJESTRACYJNY / TYP SAMOCHODU', fridge: 'Samochód z zabudową mroźniczą -18°C', load: 'MIEJSCE ZAŁADUNKU', seller: 'SPRZEDAWCA', remarks: 'UWAGI / WARUNKI REKLAMACJI / COMMENTS/CONDITIONS REGARDING COMPLAINTS/ ANMERKUNGEN/VORAUSSETZUNGEN FÜR BESCHWERDEN/', ship: 'Data wysyłki', sign: 'Podpis Wystawiającego', stamp: 'Podpis i pieczęć wystawiającego',
@@ -92,18 +93,6 @@ const L: Record<string, Record<string, string>> = {
   },
 }
 
-// Zadrukowana część A4 przy wąskim marginesie 5mm (96dpi) ≈ 1085px — marginesy
-// jak w raporcie HACCP. NIE wypełniamy do samej krawędzi — przeglądarka przy
-// „drukuj" często dokłada własne marginesy i nagłówki/stopki, które zjadają
-// miejsce i wypychały dokument na 2. stronę. Dlatego: wypełniamy wiersze tylko
-// do A4_FILL_PX (z zapasem na dole), a gdy treść przekracza A4_MAX_PX —
-// skalujemy w dół. To gwarantuje jedną stronę także przy domyślnych
-// ustawieniach druku.
-const A4_FILL_PX = 1020   // cel wypełnienia (zapas ~17mm względem 1085)
-const A4_MAX_PX = 1050    // powyżej tego skalujemy dokument w dół
-// Maksymalna liczba wierszy tabeli (pozycje + puste dopełniające).
-const MAX_ROWS = 15
-
 export function HdiPrintPage() {
   const { id = '' } = useParams<{ id: string }>()
   const [doc, setDoc] = useState<HdiDoc | null>(null)
@@ -113,12 +102,36 @@ export function HdiPrintPage() {
   // wiersze (rowExtra), aż wypełnią A4. Gdy pozycji jest tyle, że dokument
   // przelewałby się na drugą stronę — skalujemy w dół. Zawsze jedna A4.
   const sheetRef = useRef<HTMLDivElement>(null)
-  const [rowExtra, setRowExtra] = useState(0)
-  const [scale, setScale] = useState(1)
-  const [scaledH, setScaledH] = useState<number | null>(null)
+  const [fit, setFit] = useState<FitState>({ rowExtra: 0, scale: 1, scaledH: null })
+  const { rowExtra, scale, scaledH } = fit
+  // Pomiar ma sens dopiero, gdy logo i fonty są na miejscu — inaczej mierzymy
+  // arkusz bez 20 mm nagłówka i dopasowanie wychodzi za wysokie.
+  const [assetsReady, setAssetsReady] = useState(false)
   // ?pdf=1 → render do PDF przez headless Chrome; nie wywołuj wtedy void drukuj().
   const isPdf = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('pdf')
   useEffect(() => { hdiApi.get(id).then(setDoc).catch(e => setErr(e instanceof Error ? e.message : 'Błąd')) }, [id])
+
+  // Pomiar SYNCHRONICZNY w useLayoutEffect (przed paintem), bez requestAnimationFrame
+  // — inaczej zrzut PDF przez headless Chrome wyścigowo łapie stan sprzed dopasowania.
+  // Wysokość bazową liczymy odejmując bieżące podwyższenie/skalę → deterministyczne.
+  // Logo i fonty. Bezpiecznik czasowy, żeby uszkodzony obrazek albo fonts API,
+  // które nie odpowiada, nigdy nie zablokowały wydruku.
+  useEffect(() => {
+    if (!doc) return
+    let alive = true
+    const gotowe = () => { if (alive) setAssetsReady(true) }
+    const img = sheetRef.current?.querySelector('img')
+    const obrazek = img && !img.complete
+      ? new Promise<void>(res => {
+          img.addEventListener('load',  () => res(), { once: true })
+          img.addEventListener('error', () => res(), { once: true })
+        })
+      : Promise.resolve()
+    const fonty = (document as any).fonts?.ready ?? Promise.resolve()
+    void Promise.all([obrazek, fonty]).then(gotowe)
+    const bezpiecznik = setTimeout(gotowe, 2500)
+    return () => { alive = false; clearTimeout(bezpiecznik) }
+  }, [doc])
 
   // Pomiar SYNCHRONICZNY w useLayoutEffect (przed paintem), bez requestAnimationFrame
   // — inaczej zrzut PDF przez headless Chrome wyścigowo łapie stan sprzed dopasowania.
@@ -127,27 +140,21 @@ export function HdiPrintPage() {
     if (!doc) return
     const sheet = sheetRef.current
     if (!sheet) return
-    const n = doc.items?.length || 0
-    const bodyRows = n <= MAX_ROWS ? MAX_ROWS : n
-    const scaled = scale !== 1
-    const hNow = sheet.getBoundingClientRect().height
-    // Prawdziwa (nieskalowana) wysokość bez rozłożonego naddatku wierszy:
-    const h0 = scaled ? hNow / scale : hNow - rowExtra * bodyRows
-    if (h0 > A4_MAX_PX + 2) {
-      if (rowExtra !== 0) setRowExtra(0)
-      const s = Math.max(0.55, A4_MAX_PX / h0)
-      if (Math.abs(s - scale) > 0.004) { setScale(s); setScaledH(Math.ceil(h0 * s)) }
-    } else {
-      if (scale !== 1) { setScale(1); setScaledH(null) }
-      const want = bodyRows > 0 ? Math.max(0, Math.min(40, (A4_FILL_PX - h0) / bodyRows)) : 0
-      if (Math.abs(want - rowExtra) > 0.5) setRowExtra(want)
-    }
-  }, [doc, id, rowExtra, scale])
+    const bodyRows = bodyRowsFor(doc.items?.length || 0)
+    const h0 = baseHeight(sheet.getBoundingClientRect().height, fit, bodyRows)
+    const next = fitFor(h0, bodyRows)
+    if (fitChanged(fit, next)) setFit(next)
+  }, [doc, id, fit, assetsReady])
 
   useEffect(() => {
-    // Drukuj/PDF dopiero po dopasowaniu (rowExtra/scale ustawione w layout-effekcie).
-    if (doc && !isPdf) { const t = setTimeout(() => void drukuj(), 600); return () => clearTimeout(t) }
-  }, [doc, isPdf, rowExtra, scale])
+    // Drukuj dopiero po dopasowaniu (fit ustawiony w layout-effekcie) i po tym,
+    // jak logo z fontami są na miejscu — inaczej okno druku łapie inny układ,
+    // niż ten, pod który liczyliśmy wysokość.
+    if (doc && assetsReady && !isPdf) {
+      const t = setTimeout(() => void drukuj(), 600)
+      return () => clearTimeout(t)
+    }
+  }, [doc, isPdf, assetsReady, fit])
   if (err) return <div className="p-8 text-red-700">{err}</div>
   if (!doc) return <div className="p-8 text-slate-500">Ładowanie HDI…</div>
 
@@ -322,6 +329,10 @@ export function HdiPrintPage() {
 
         /* ── Stopka: data + duże pole na podpis i pieczęć ── */
         .hdi .signoff {
+          /* Gdyby mimo zapasu coś kiedyś nie weszło — pole podpisu przenosi
+             się w całości, a nie przecięte w poprzek. */
+          break-inside: avoid;
+          page-break-inside: avoid;
           display: flex;
           justify-content: space-between;
           align-items: flex-end;
