@@ -1,0 +1,99 @@
+/**
+ * Terminal wprowadzania zamówień — warstwa wizualna.
+ *
+ * Język ekranu: „tusz na papierze" biura Kebab MES, ale zaostrzony do roli
+ * stanowiska WBIJANIA DANYCH z klawiatury. Dwa zabiegi niosą całość:
+ *
+ *  1. ZAKŁADKA POLA. Każde pole wsadu ma nad sobą małą zakładkę z nazwą, jak
+ *     karta w kartotece. Zakładka AKTYWNEGO pola jest odwrócona (czarne tło,
+ *     biały napis) i pole dostaje czarną ramkę. Operator widzi „gdzie jestem"
+ *     bez czytania — obwódka focusa przeglądarki tego nie daje.
+ *
+ *  2. PARAGON. Lista wbitych pozycji to kartka: liniatura, linie wiodące,
+ *     odcięta krawędź u dołu. Widać dokument, który zaraz pójdzie do zapisu,
+ *     a nie kolejną tabelę SaaS.
+ *
+ * Kolor: żaden. Czerń, biel, szarości — reszta systemu biura tak samo.
+ */
+
+/* ── Klawisz w legendzie i podpowiedziach (⏎, ⇥, F2) ─────────────── */
+.oe-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5em;
+  padding: 0.05em 0.38em;
+  border: 1px solid #B8B8B8;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: #FFF;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
+  font-family: '"Fira Code"', ui-monospace, monospace;
+  font-size: 0.84em;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #404040;
+  white-space: nowrap;
+}
+
+/* ── Paragon: liniatura zeszytu i ząbkowana krawędź ──────────────── */
+.oe-receipt {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 31px,
+    rgba(0, 0, 0, 0.05) 31px,
+    rgba(0, 0, 0, 0.05) 32px
+  );
+  background-position: 0 0;
+}
+
+/* Dolna krawędź paragonu — linia odcięcia jak na kwitku do oderwania.
+   Ząbkowana perforacja tu nie działa: tło strony jest niemal białe, więc
+   wycięcia w kartce byłyby niewidoczne. Kreska widać zawsze. */
+.oe-tear { border-bottom: 2px dashed #D4D4D4 !important; }
+
+/* Linia wiodąca między opisem a liczbą — jak w spisie treści. */
+.oe-leader {
+  flex: 1 1 auto;
+  min-width: 1rem;
+  align-self: flex-end;
+  margin-bottom: 0.42em;
+  border-bottom: 1px dotted #D4D4D4;
+}
+
+/* ── Pole odziedziczone po poprzedniej pozycji ───────────────────── */
+/* Podwójne podkreślenie „= to samo co wyżej", jak korekta na maszynopisie. */
+.oe-inherit {
+  background-image: linear-gradient(to right, #171717 0 100%), linear-gradient(to right, #171717 0 100%);
+  background-size: 100% 1px, 100% 1px;
+  background-position: left calc(100% - 3px), left 100%;
+  background-repeat: no-repeat;
+}
+
+/* ── Dopisanie pozycji na paragon: jedno przybicie pieczątki ─────── */
+@keyframes oe-stamp {
+  from { background-color: #171717; color: #FFF; }
+  to   { background-color: transparent; }
+}
+.oe-stamped { animation: oe-stamp 0.45s ease-out 1; }
+
+/* ── Lista rozwijana wsadu: wjazd bez fajerwerków ────────────────── */
+@keyframes oe-drop {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.oe-drop { animation: oe-drop 0.1s ease-out 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .oe-stamped, .oe-drop { animation: none; }
+}
+
+/* Wiersze klikalne — bez zaznaczania tekstu przy dwukliku. */
+.oe-noselect { user-select: none; }
+
+/* Cienki, dyskretny suwak w listach wyboru i na paragonie. */
+.oe-scroll::-webkit-scrollbar { width: 7px; height: 7px; }
+.oe-scroll::-webkit-scrollbar-track { background: transparent; }
+.oe-scroll::-webkit-scrollbar-thumb { background: #D4D4D4; border-radius: 999px; }
+.oe-scroll::-webkit-scrollbar-thumb:hover { background: #B8B8B8; }

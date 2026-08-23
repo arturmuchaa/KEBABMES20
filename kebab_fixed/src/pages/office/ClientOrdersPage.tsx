@@ -1,41 +1,37 @@
 /**
  * ClientOrdersPage — Zamówienia od kontrahentów (lista, styl Subiekt GT).
+ *
+ * Sama LISTA. Wprowadzanie i edycja zamówienia mieszkają od 2026-08-23 na
+ * osobnej stronie (features/orders/order-entry) — modal był za ciasny na
+ * ekran, na którym operator wbija kilkanaście pozycji z klawiatury.
  */
 import { Fragment, useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
-import { clientOrdersApi, clientsApi, packagingApi } from '@/lib/apiClient'
+import { clientOrdersApi } from '@/lib/apiClient'
 import { hdiApi, wzApi } from '@/lib/api'
 import { CmrFormModal } from '@/components/cmr/CmrFormModal'
 import { WzFromOrderModal } from '@/components/wz/WzFromOrderModal'
 import { useClientNames } from '@/lib/clientNames'
-import { fmtKg, fmtDatePl, todayIso, cn } from '@/lib/utils'
+import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import {
   Check, CheckCircle2, ChevronDown, ChevronUp, ChevronsUpDown, Clock,
   Pencil, Plus, Printer, ShoppingCart, Trash2, X, Search, Download,
 } from 'lucide-react'
 import { PalletsEditor } from '@/components/orders/PalletsEditor'
 import { StockCartonSuggestions } from '@/features/finished-goods/components/StockCartonSuggestions'
-import { useProductTypes } from '@/features/products/hooks'
-import { useRecipes } from '@/features/ingredients/hooks'
-import type { ClientOrder, CreateClientOrderDto } from '@/lib/mockApi'
+import type { ClientOrder } from '@/lib/mockApi'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Badge, StatusBadge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Separator } from '@/components/ui/separator'
 import {
   Card, CardContent, CardDescription, CardTitle,
 } from '@/components/ui/card'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from '@/components/ui/dialog'
-import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { OrderLinesQuickAdd } from '@/features/orders/order-form/OrderLinesQuickAdd'
-import { emptyLine, type LineForm } from '@/features/orders/order-form/types'
 import { MaterialSummaryCard } from '@/features/orders/MaterialSummaryCard'
 import { OrderMaterialShortfall } from '@/features/orders/OrderMaterialShortfall'
 import { usePageHeaderActions } from '@/components/PageHeader'
@@ -48,161 +44,6 @@ const STATUS_VARIANT: Record<ClientOrder['status'], 'secondary' | 'info' | 'warn
 }
 const ORDER_TONE: Record<ClientOrder['status'], 'gray' | 'blue' | 'amber' | 'green' | 'red'> = {
   draft: 'gray', confirmed: 'blue', in_production: 'amber', done: 'green', cancelled: 'red',
-}
-
-interface OrderFormProps {
-  onSave:       (dto: CreateClientOrderDto) => Promise<void>
-  onClose:      () => void
-  initialData?: ClientOrder
-}
-
-function OrderForm({ onSave, onClose, initialData }: OrderFormProps) {
-  const { data: clientList } = useApi(() => clientsApi.list())
-  const { data: pkgList }    = useApi(() => packagingApi.list())
-  const { productTypes }     = useProductTypes()
-  const { recipes }          = useRecipes()
-
-  const [clientId,     setClientId]     = useState(initialData?.clientId ?? '')
-  const [orderDate,    setOrderDate]    = useState(initialData?.orderDate ?? todayIso())
-  const [deliveryDate, setDeliveryDate] = useState(initialData?.deliveryDate ?? '')
-  const [notes,        setNotes]        = useState(initialData?.notes ?? '')
-  const [lines,        setLines]        = useState<LineForm[]>(
-    initialData?.lines.map(l => ({
-      qty: String(l.qty), kgPerUnit: String(l.kgPerUnit),
-      productTypeId: l.productTypeId, recipeId: l.recipeId,
-      packagingId: l.packagingId ?? '', notes: l.notes ?? '',
-    })) ?? [emptyLine()]
-  )
-  const [saving,       setSaving]       = useState(false)
-  const [error,        setError]        = useState('')
-
-  const clients   = clientList ?? []
-  const packaging = pkgList    ?? []
-
-  function setLine(i: number, k: keyof LineForm, v: string) {
-    setLines(p => p.map((l, j) => j === i ? { ...l, [k]: v } : l))
-  }
-  const addLine = () => setLines(p => [...p, emptyLine()])
-  const removeLine = (i: number) => setLines(p => p.filter((_, j) => j !== i))
-
-  const totals = useMemo(() => ({
-    totalUnits: lines.reduce((s, l) => s + (parseFloat(l.qty) || 0), 0),
-    totalKg:    lines.reduce((s, l) => s + (parseFloat(l.qty) || 0) * (parseFloat(l.kgPerUnit) || 0), 0),
-  }), [lines])
-
-  async function handleSave() {
-    if (!clientId) { setError('Wybierz klienta'); return }
-    const validLines = lines.filter(l => l.productTypeId && l.recipeId && parseFloat(l.qty) > 0 && parseFloat(l.kgPerUnit) > 0)
-    if (validLines.length === 0) { setError('Dodaj przynajmniej jedną pozycję'); return }
-    setSaving(true)
-    try {
-      await onSave({
-        clientId, orderDate, deliveryDate: deliveryDate || undefined, notes: notes || undefined,
-        lines: validLines.map(l => ({
-          qty: parseFloat(l.qty), kgPerUnit: parseFloat(l.kgPerUnit),
-          productTypeId: l.productTypeId,
-          productTypeName: (productTypes ?? []).find((pt: any) => pt.id === l.productTypeId)?.name
-                        || (recipes ?? []).find((r: any) => r.id === l.recipeId)?.productTypeName
-                        || '',
-          recipeId: l.recipeId,
-          recipeName: (recipes ?? []).find((r: any) => r.id === l.recipeId)?.name || '',
-          packagingId: l.packagingId || undefined,
-          packagingName: l.packagingId ? (packaging.find((p: any) => p.id === l.packagingId)?.name || '') : undefined,
-        })),
-      })
-      onClose()
-    } catch (e) { setError(e instanceof Error ? e.message : 'Błąd') }
-    finally { setSaving(false) }
-  }
-
-  return (
-    <div className="space-y-5 max-h-[75vh] overflow-y-auto pr-1">
-      {/* Nagłówek zamówienia */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="space-y-1.5">
-          <Label>Klient *</Label>
-          <Select value={clientId} onValueChange={setClientId}>
-            <SelectTrigger><SelectValue placeholder="Wybierz klienta..." /></SelectTrigger>
-            <SelectContent>
-              {clients.map(c => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.displayName || c.name}
-                  {c.displayName && c.displayName !== c.name && (
-                    <span className="text-muted-foreground"> · {c.name}</span>
-                  )}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Data zamówienia</Label>
-          <Input type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)} />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Termin dostawy</Label>
-          <Input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} />
-        </div>
-      </div>
-
-      <Separator />
-
-      {/* Pozycje */}
-      <div className="space-y-3">
-        <Label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Pozycje zamówienia</Label>
-        <OrderLinesQuickAdd
-          lines={lines}
-          setLine={setLine}
-          setLines={setLines}
-          addLine={addLine}
-          removeLine={removeLine}
-          productTypes={productTypes ?? []}
-          recipes={recipes ?? []}
-          packaging={packaging}
-        />
-      </div>
-
-      {/* Suma */}
-      <Card className="bg-muted/40 border-transparent">
-        <CardContent className="px-4 py-3 flex items-center justify-between">
-          <CardDescription className="text-xs font-bold uppercase">Suma zamówienia:</CardDescription>
-          <div className="text-right">
-            <CardTitle className="text-xl font-black text-primary tabular-nums">{fmtKg(totals.totalKg, 0)} kg</CardTitle>
-            <CardDescription className="text-xs">{totals.totalUnits} szt</CardDescription>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="space-y-1.5">
-        <Label>Uwagi</Label>
-        <textarea
-          rows={2}
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-        />
-      </div>
-
-      {error && (
-        <Card className="border-destructive/50 bg-destructive/5">
-          <CardContent className="px-3 py-2">
-            <CardDescription className="text-destructive font-medium">{error}</CardDescription>
-          </CardContent>
-        </Card>
-      )}
-
-      <DialogFooter className="gap-2">
-        <Button variant="outline" onClick={onClose} disabled={saving}>Anuluj</Button>
-        <Button onClick={handleSave} disabled={saving} className="gap-2">
-          {saving
-            ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            : <Plus size={14} />
-          }
-          Zapisz zamówienie
-        </Button>
-      </DialogFooter>
-    </div>
-  )
 }
 
 type SortCol = 'orderNo' | 'clientName' | 'orderDate' | 'deliveryDate' | 'status' | 'totalUnits' | 'totalKg' | 'progress'
@@ -232,10 +73,9 @@ function exportCsv(rows: ClientOrder[]) {
 }
 
 export function ClientOrdersPage() {
+  const navigate      = useNavigate()
   const clientDisplay = useClientNames()
   const { data: orders, loading, refetch } = useApi(() => clientOrdersApi.list())
-  const [modal,        setModal]        = useState(false)
-  const [editOrder,    setEditOrder]    = useState<ClientOrder | null>(null)
   const [cmrOrderId,   setCmrOrderId]   = useState<string | null>(null)
   const [wzOrderId,    setWzOrderId]    = useState<string | null>(null)
   const [expanded,     setExpanded]     = useState<string | null>(null)
@@ -290,12 +130,6 @@ export function ClientOrdersPage() {
       ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
       : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60"/>
 
-  async function handleCreate(dto: CreateClientOrderDto) { await clientOrdersApi.create(dto); refetch() }
-  async function handleUpdate(dto: CreateClientOrderDto) {
-    if (!editOrder) return
-    await clientOrdersApi.update(editOrder.id, dto)
-    refetch()
-  }
   async function handleStatus(id: string, status: ClientOrder['status']) { await clientOrdersApi.updateStatus(id, status); refetch() }
   async function handleDelete(id: string) {
     if (!confirm('Usunąć to zamówienie?')) return
@@ -319,7 +153,7 @@ export function ClientOrdersPage() {
         <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Kg:</span>
         <span className="font-bold text-emerald-700">{fmtKg(totalKg, 0)}</span>
       </div>
-      <Button size="sm" className="gap-1.5" onClick={() => setModal(true)}>
+      <Button size="sm" className="gap-1.5" onClick={() => navigate('/office/zamowienia/nowe')}>
         <Plus size={14}/> Nowe zamówienie
       </Button>
     </div>,
@@ -552,7 +386,7 @@ export function ClientOrdersPage() {
                             )}
                             {(o.status === 'draft' || o.status === 'confirmed') && (
                               <button
-                                onClick={(e) => { e.stopPropagation(); setEditOrder(o) }}
+                                onClick={(e) => { e.stopPropagation(); navigate(`/office/zamowienia/${o.id}/edycja`) }}
                                 className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
                                 title="Edytuj"
                               >
@@ -689,34 +523,6 @@ export function ClientOrdersPage() {
           </div>
         )}
       </Card>
-
-      {/* New order modal */}
-      <Dialog open={modal} onOpenChange={v => { if (!v) setModal(false) }}>
-        <DialogContent className="max-w-5xl">
-          <DialogHeader>
-            <DialogTitle>Nowe zamówienie od klienta</DialogTitle>
-            <DialogDescription>Utwórz zamówienie z pozycjami produktów</DialogDescription>
-          </DialogHeader>
-          <OrderForm onSave={handleCreate} onClose={() => setModal(false)} />
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit order modal */}
-      <Dialog open={!!editOrder} onOpenChange={v => { if (!v) setEditOrder(null) }}>
-        <DialogContent className="max-w-5xl">
-          <DialogHeader>
-            <DialogTitle>Edycja zamówienia {editOrder?.orderNo}</DialogTitle>
-            <DialogDescription>Zmień pozycje lub dane zamówienia</DialogDescription>
-          </DialogHeader>
-          {editOrder && (
-            <OrderForm
-              initialData={editOrder}
-              onSave={handleUpdate}
-              onClose={() => setEditOrder(null)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
 
       {cmrOrderId && <CmrFormModal orderId={cmrOrderId} onClose={() => setCmrOrderId(null)} />}
       {wzOrderId && <WzFromOrderModal orderId={wzOrderId} onClose={() => setWzOrderId(null)} />}

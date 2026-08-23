@@ -29,6 +29,7 @@ import { PurchaseInvoicesPage } from '@/pages/office/PurchaseInvoicesPage'
 import { ClientOrdersPage } from '@/pages/office/ClientOrdersPage'
 import { CostCalculatorPage } from '@/pages/office/CostCalculatorPage'
 import { OrderPrintPage }   from '@/pages/office/OrderPrintPage'
+import { OrderEntryPage }   from '@/features/orders/order-entry/OrderEntryPage'
 import { PalletLabelPrintPage } from '@/pages/office/PalletLabelPrintPage'
 import { LabelPrintPage }       from '@/pages/office/LabelPrintPage'
 import { StockCartonLabelPage }  from '@/pages/office/StockCartonLabelPage'
@@ -165,6 +166,8 @@ export default function App() {
         <Route path="dostawcy"              element={<SuppliersPage />} />
         <Route path="kontrahenci"           element={<ClientsPage />} />
         <Route path="zamowienia"            element={<ClientOrdersPage />} />
+        <Route path="zamowienia/nowe"       element={<OrderEntryPage />} />
+        <Route path="zamowienia/:id/edycja" element={<OrderEntryPage />} />
         <Route path="hdi"                   element={<HdiDocumentsPage />} />
         <Route path="wz"                    element={<WzDocumentsPage />} />
         <Route path="wz/nowy"               element={<WzNewPage />} />
