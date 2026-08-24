@@ -41,6 +41,8 @@ import { useServiceHold, ServiceMenuModal } from '@/features/deboning/ServiceMen
 import { ByproductsWizard } from '@/features/deboning/ByproductsWizard'
 import { batchForLabel } from '@/features/deboning/batchForLabel'
 import { BulkProgressBadge, bulkOverLot } from '@/features/deboning/BulkProgressBadge'
+import { BatchMeatPanel } from '@/features/deboning/BatchMeatPanel'
+import { buildBatchMeatSummary } from '@/features/deboning/batchMeatSummary'
 import { lotProgress } from '@/features/deboning/meatPallet'
 import type { MeatStock } from '@/types'
 import { BulkWeighingWizard } from '@/features/deboning/BulkWeighingWizard'
@@ -748,6 +750,14 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [bulkOpen, setBulkOpen] = useState(false)
   // Szybka etykieta słupka (100 kg) wprost z panelu ważenia.
   const [quickBusy, setQuickBusy] = useState(false)
+  // Kafel zakończonej partii prowadził WYŁĄCZNIE do ubocznych — nie dało się
+  // sprawdzić mięsa ani dokończyć końcówki (503 zostawiła 24.08.2026 422 kg).
+  // Teraz klik pyta, o co chodzi: uboczne czy mięso.
+  const [wyborKafla, setWyborKafla] = useState<{ batchId: string; batchNo: string } | null>(null)
+  const [panelMiesa, setPanelMiesa] = useState<string | null>(null)
+  // Partia, z której waży kreator palet. Domyślnie ta zaznaczona na ekranie,
+  // ale z panelu mięsa wskazujemy końcówkę partii już zamkniętej.
+  const [bulkBatchNo, setBulkBatchNo] = useState<string | null>(null)
   // Loty mięsa — dla licznika „ile z tej partii zostało do rozważenia".
   // Do 1.0.88 ta wiedza żyła TYLKO w kreatorze palet, więc szybka etykieta
   // z panelu głównego drukowała się w ciemno.
@@ -758,6 +768,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // (1.0.89: panel pokazywał 195 kg, gdy z partii było już ponad 400).
   // useApi porównuje dane głęboko, więc odświeżanie co 5 s nie miga ekranem.
   const meatStockData = useApi(() => meatStockApi.list())
+  // Palety ważenia zbiorczego — panel mięsa partii pokazuje, które z niej
+  // poszły. Ten sam interwał co reszta ekranu (patrz niżej).
+  const palletData = useApi(() => meatPalletsApi.list())
   const meatLots = useMemo(
     () => ((meatStockData.data as any)?.data ?? []) as MeatStock[],
     [meatStockData.data],
@@ -837,10 +850,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       // Bez tego licznik partii zamarzał: rozbiór dokłada mięso do lotu,
       // a panel główny pokazywał stan sprzed wejścia na ekran.
       meatStockData.refetch()
+      palletData.refetch()
     }, 5000)
     return () => clearInterval(t)
   }, [batchData.refetch, workerData.refetch, byproductsData.refetch, byprodToday.refetch,
-      meatStockData.refetch])
+      meatStockData.refetch, palletData.refetch])
 
   // Suma kg otwartych pobrań per partia — partia z pobraniami czekającymi na
   // wagę MUSI zostać aktywnym kaflem, nawet gdy kg_available spadło do zera
@@ -1812,8 +1826,70 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       {bulkOpen && (
         <BulkWeighingWizard scale={scale} cartTares={cartTares}
           operator={loggedInUser?.name ?? ''}
-          activeBatchNo={selBatch?.internalBatchNo}
-          onClose={() => setBulkOpen(false)} />
+          activeBatchNo={bulkBatchNo ?? selBatch?.internalBatchNo}
+          onClose={() => { setBulkOpen(false); setBulkBatchNo(null); palletData.refetch() }} />
+      )}
+
+      {/* Klik w zakończoną partię: uboczne czy mięso. */}
+      {wyborKafla && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setWyborKafla(null)}>
+          <div className="w-[460px] p-7 flex flex-col gap-5" onClick={e => e.stopPropagation()}
+            style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)' }}>
+            <div className="flex items-baseline gap-3">
+              <span className="text-[13px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.06em' }}>Partia</span>
+              <span className="hmi-v10-mono text-3xl font-extrabold" style={{ color: 'var(--accent)' }}>{wyborKafla.batchNo}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button type="button" data-testid="wybor-uboczne"
+                onClick={() => {
+                  const b = wyborKafla
+                  setWyborKafla(null)
+                  openWizard({ id: b.batchId, internalBatchNo: b.batchNo } as RawBatch)
+                }}
+                className="h-24 font-extrabold text-lg"
+                style={{ borderRadius: 12, background: 'var(--panel)', border: '2px solid var(--accent)', color: 'var(--accent)' }}>
+                Uboczne
+              </button>
+              <button type="button" data-testid="wybor-mieso"
+                onClick={() => { setPanelMiesa(wyborKafla.batchNo); setWyborKafla(null) }}
+                className="h-24 font-extrabold text-lg"
+                style={{ borderRadius: 12, background: 'var(--accent)', border: '2px solid var(--accent)', color: '#fff' }}>
+                Mięso
+              </button>
+            </div>
+            <button type="button" onClick={() => setWyborKafla(null)}
+              className="h-12 font-bold" style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--mut)' }}>
+              Zamknij
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Mięso zakończonej partii: co poszło na palety i ile zostało. */}
+      {panelMiesa && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setPanelMiesa(null)}>
+          <div className="w-[560px] max-h-[86vh] overflow-y-auto p-7 flex flex-col gap-5"
+            onClick={e => e.stopPropagation()}
+            style={{ borderRadius: 14, background: 'var(--bg)', border: '1px solid var(--line)', color: 'var(--ink)' }}>
+            <div className="flex items-baseline gap-3">
+              <span className="text-[13px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.06em' }}>Mięso partii</span>
+              <span className="hmi-v10-mono text-3xl font-extrabold" style={{ color: 'var(--accent)' }}>{panelMiesa}</span>
+            </div>
+            <BatchMeatPanel
+              summary={buildBatchMeatSummary(
+                meatLots.find(m => m.lotNo === panelMiesa) ?? null,
+                (palletData.data ?? []) as any[],
+              )}
+              onWeighRest={() => { setBulkBatchNo(panelMiesa); setPanelMiesa(null); setBulkOpen(true) }}
+            />
+            <button type="button" onClick={() => setPanelMiesa(null)}
+              className="h-12 font-bold" style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--mut)' }}>
+              Zamknij
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Prompt po zakończeniu partii — zważyć uboczne teraz czy później. */}
@@ -2316,7 +2392,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           .filter(p => !allActiveBatches.some(b => b.id === p.rawBatchId))
           .map(p => (
             <PendingBatchTile key={p.rawBatchId} rec={p}
-              onOpen={() => openWizard({ id: p.rawBatchId, internalBatchNo: p.rawBatchNo } as RawBatch)} />
+              onOpen={() => setWyborKafla({ batchId: p.rawBatchId, batchNo: p.rawBatchNo })} />
           ))}
       </div>
 
