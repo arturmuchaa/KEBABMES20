@@ -909,7 +909,10 @@ def list_meat_stock(include_reserved: bool = False) -> Dict[str, Any]:
                    GREATEST(0, m.kg_initial - COALESCE(pal.kg, 0)) AS kg_bulk_free,
                    b.internal_batch_no, b.supplier_name,
                    s.display_name AS supplier_display_name,
-                   b.slaughter_date as batch_slaughter_date
+                   -- Ubój i przyjęcie ćwiartki jadą na etykietę palety
+                   -- ważenia zbiorczego (układ z 24.08.2026).
+                   b.slaughter_date as batch_slaughter_date,
+                   b.received_date  as batch_received_date
             FROM meat_stock m
             LEFT JOIN (
                 SELECT lot_no, SUM(kg) AS kg FROM meat_pallet_lots GROUP BY lot_no

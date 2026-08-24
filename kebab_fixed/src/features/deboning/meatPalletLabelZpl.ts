@@ -19,9 +19,12 @@ import type { LotPick } from './meatPallet'
 /** Ile partii mieści się na etykiecie; reszta idzie jako „+ N kolejnych". */
 export const MAX_LOTS_ON_LABEL = 4
 
-/** Wysokość czcionki wagi palety. Numer partii przy palecie jednorodnej
- *  dostaje DOKŁADNIE tę samą — ma być czytelny z tej samej odległości. */
-const KG_FONT_MM = 7
+/** Wysokość czcionki wagi palety. */
+const KG_FONT_MM = 7.5
+
+/** Numer porządkowy — NAJWIĘKSZY napis na etykiecie. To po niego operator
+ *  masowania sięga wzrokiem z drugiego końca chłodni. */
+const NR_FONT_MM = 11
 
 export interface MeatPalletLabelInput {
   palletNo: string
@@ -31,6 +34,11 @@ export interface MeatPalletLabelInput {
   productionDate: string
   /** ISO (yyyy-mm-dd) — najkrótszy termin ze składu palety. */
   expiryDate: string
+  /** ISO — ubój ćwiartki. Tylko dla palety Z JEDNEJ partii; przy mieszance
+   *  dwie ćwiartki mają dwie różne daty i jedna byłaby nieprawdą. */
+  slaughterDate?: string
+  /** ISO — przyjęcie ćwiartki. Jak wyżej: tylko przy jednej partii. */
+  receivedDate?: string
   lots: LotPick[]
 }
 
@@ -48,69 +56,69 @@ function line(xMm: number, yMm: number, wMm: number, dpi: number): string {
   return `^FO${mmToDots(xMm, dpi)},${mmToDots(yMm, dpi)}^GB${mmToDots(wMm, dpi)},${t},${t}^FS`
 }
 
-function qr(xMm: number, yMm: number, value: string, dpi: number): string {
-  return `^FO${mmToDots(xMm, dpi)},${mmToDots(yMm, dpi)}^BQN,2,3^FDQA,${esc(value)}^FS`
-}
-
 export function meatPalletLabelZpl(
   input: MeatPalletLabelInput, { dpi = LABEL_DPI }: { dpi?: number } = {},
 ): string {
+  // Układ jak na etykiecie ubocznych: opis małą czcionką NAD wartością,
+  // a liczby, po które operator masowania sięga z odległości — duże.
+  // Kolejność ustalona przez biuro 24.08.2026: rodzaj, numer porządkowy,
+  // waga, a daty małym drukiem na dole. QR zdjęty — masownia go nie skanuje.
   const M = 3
   const W = LABEL_W_MM - 2 * M
 
   const widoczne = input.lots.slice(0, MAX_LOTS_ON_LABEL)
   const reszta = input.lots.length - widoczne.length
+  const jednaPartia = widoczne.length === 1 && reszta === 0
 
   const body: string[] = [
-    text(M, 3, 6, 'MIĘSO', dpi),
-    // QR w prawym górnym rogu — nie zabiera miejsca wierszom tekstu.
-    qr(34, 3, input.palletNo, dpi),
-    text(M, 13, 4.5, input.palletNo, dpi),
-    line(M, 19.5, W, dpi),
-
-    text(M, 22, KG_FONT_MM, `${fmtLabelKg(input.netKg)} kg`, dpi),
-    text(M, 31, 3.5, `${input.containers} pojemników`, dpi),
-    line(M, 36.5, W, dpi),
-
+    text(M, 3, 7, 'MIĘSO', dpi),
+    text(M, 11.5, 3.5, input.palletNo, dpi),
+    line(M, 16.5, W, dpi),
   ]
 
-  // Paleta z JEDNEJ partii: sam numer, wielkim drukiem.
-  //
-  // Rozpisywanie „503 — 200 kg" niczego tu nie wnosi — te kilogramy to waga
-  // całej palety, wydrukowana wyżej największą czcionką. Operator masowania
-  // czyta z zawieszki dwie rzeczy: ile bierze i z czego; numer partii ma być
-  // widoczny z tej samej odległości co waga, więc dostaje tę samą wysokość.
-  //
-  // Skład z kilogramami zostaje TAM, GDZIE ma sens: przy palecie złożonej
-  // z dwóch partii i więcej. To dla niej ta etykieta w ogóle powstała.
+  // ── Numer porządkowy ──
   let y: number
-  if (widoczne.length === 1) {
+  if (jednaPartia) {
     body.push(
-      text(M, 38.5, 3.2, 'Partia', dpi),
-      text(M, 42, KG_FONT_MM, widoczne[0].lotNo, dpi),
+      text(M, 19, 3.2, 'Nr porządkowy', dpi),
+      text(M, 23, NR_FONT_MM, widoczne[0].lotNo, dpi),
     )
-    y = 42 + KG_FONT_MM + 2
+    y = 23 + NR_FONT_MM + 2
   } else {
+    // Paleta z kilku partii: numer sam w sobie nic nie mówi, liczy się SKŁAD.
     body.push(
-      text(M, 38.5, 3.2, 'Partie:', dpi),
+      text(M, 19, 3.2, 'Partie:', dpi),
       ...widoczne.map((l, i) =>
-        text(M, 42.5 + i * 4.5, 4, `${l.lotNo} — ${fmtLabelKg(l.kg)} kg`, dpi)),
+        text(M, 23 + i * 4.5, 4, `${l.lotNo} — ${fmtLabelKg(l.kg)} kg`, dpi)),
     )
-    // Stopka idzie ZARAZ POD składem, a nie na stałej wysokości: przy dwóch
-    // partiach stała pozycja zostawiała w środku etykiety pustą dziurę
-    // wyglądającą jak błąd druku.
-    y = 42.5 + widoczne.length * 4.5
+    y = 23 + widoczne.length * 4.5
     if (reszta > 0) {
       body.push(text(M, y, 3.5, `+ ${reszta} kolejnych`, dpi))
       y += 4.5
     }
   }
 
+  // ── Waga ──
   body.push(
-    line(M, y + 1.5, W, dpi),
-    text(M, y + 3.5, 3.5, `Prod. ${fmtLabelDate(input.productionDate)}`, dpi),
-    text(M, y + 8.5, 3.5, `Ważn. ${fmtLabelDate(input.expiryDate)}`, dpi),
+    line(M, y, W, dpi),
+    text(M, y + 2.5, 3.2, 'Waga netto', dpi),
+    text(M, y + 6.5, KG_FONT_MM, `${fmtLabelKg(input.netKg)} kg`, dpi),
+    text(M, y + 16, 3.2, `${input.containers} pojemników`, dpi),
   )
+  y = y + 20.5
+
+  // ── Daty, małym drukiem ──
+  //
+  // Ubój i przyjęcie TYLKO przy jednej partii: przy mieszance dwie ćwiartki
+  // mają dwie różne daty, a jedna wydrukowana byłaby nieprawdą. Ważenie
+  // i najkrótsza ważność opisują całą paletę, więc zostają zawsze.
+  const daty: string[] = [`Ważenie ${fmtLabelDate(input.productionDate)}`]
+  if (jednaPartia && input.slaughterDate) daty.push(`Ubój ${fmtLabelDate(input.slaughterDate)}`)
+  daty.push(`Ważność ${fmtLabelDate(input.expiryDate)}`)
+  if (jednaPartia && input.receivedDate) daty.push(`Przyjęcie ${fmtLabelDate(input.receivedDate)}`)
+
+  body.push(line(M, y, W, dpi))
+  daty.forEach((d, i) => body.push(text(M, y + 2.5 + i * 4.5, 3.4, d, dpi)))
 
   return [
     '^XA',

@@ -39,6 +39,7 @@ import {
 import { useAuth } from '@/features/auth/AuthContext'
 import { useServiceHold, ServiceMenuModal } from '@/features/deboning/ServiceMenu'
 import { ByproductsWizard } from '@/features/deboning/ByproductsWizard'
+import { batchForLabel } from '@/features/deboning/batchForLabel'
 import { BulkWeighingWizard } from '@/features/deboning/BulkWeighingWizard'
 import { QUICK_TARGET_KG, quickPalletDraft, withinTolerance } from '@/features/deboning/meatPallet'
 import { meatPalletLabelZpl } from '@/features/deboning/meatPalletLabelZpl'
@@ -1072,6 +1073,10 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         containers: draft.containers,
         productionDate: draft.productionDate,
         expiryDate: draft.expiryDate,
+        // Szybka etykieta zawsze idzie z JEDNEJ partii — tej zaznaczonej na
+        // ekranie — więc jej daty uboju i przyjęcia są jednoznaczne.
+        slaughterDate: selBatch.slaughterDate,
+        receivedDate:  selBatch.receivedDate,
         lots: draft.lots,
       }))
       showToast(`Etykieta ${zapisana.palletNo} — ${fmtKg(draft.kgNet, 1)} kg z partii ${selBatch.internalBatchNo}`)
@@ -1631,11 +1636,16 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   }
 
   // Otwórz kreator ważenia dla partii (z promptu albo z szarego kafla).
+  //
+  // Partię UZUPEŁNIAMY z pełnej listy: szary kafel podaje tu sklejkę z dwóch
+  // pól (id + numer), a etykieta ubocznych przepisuje datę ważności z ćwiartki
+  // — bez uzupełnienia wychodziła z pustym terminem (502, 24.08.2026).
   async function openWizard(batch: RawBatch) {
     const rec = byproductsByBatch.get(batch.id) ?? await byproductsApi.finish(batch.id, loggedInUser?.name).catch(() => null)
     if (!rec) { showToast('Nie udało się otworzyć ważenia', 'err'); return }
     setFinishPrompt(null)
-    setWizard({ batch, record: rec })
+    const pelna = batchForLabel(batch, (batchData.data?.data ?? []) as RawBatch[])
+    setWizard({ batch: pelna, record: rec })
   }
 
   // Ważenie kości/grzbietów W TRAKCIE rozbioru — przytrzymanie kafelka partii.
@@ -1644,7 +1654,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   async function openWizardInProgress(batch: RawBatch) {
     const rec = await byproductsApi.ensure(batch.id, loggedInUser?.name).catch(() => null)
     if (!rec) { showToast('Nie udało się otworzyć ważenia', 'err'); return }
-    setWizard({ batch, record: rec })
+    setWizard({ batch: batchForLabel(batch, (batchData.data?.data ?? []) as RawBatch[]), record: rec })
   }
 
   function startEditEntry(e: DeboningEntry) {

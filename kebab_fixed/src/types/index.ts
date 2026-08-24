@@ -57,6 +57,10 @@ export interface MeatStock {
   kgBulkFree?:  number
   productionDate: string
   expiryDate: string; expiryStatus: ExpiryStatus
+  /** Ubój ćwiartki źródłowej — na etykietę palety ważenia zbiorczego. */
+  slaughterDate?: string
+  /** Przyjęcie ćwiartki źródłowej — jw. */
+  receivedDate?:  string
   storageLocation?: string; status: MeatStockStatus; createdAt: string
   productType?: 'meat' | 'backs' | 'bones'
   // Rodzaj surowca (ćwiartka po rozbiorze / filet / indyk…) — komponenty

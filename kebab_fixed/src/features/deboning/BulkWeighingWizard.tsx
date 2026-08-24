@@ -262,12 +262,18 @@ export function BulkWeighingWizard({ scale, cartTares, operator, activeBatchNo, 
   }
 
   async function drukuj(nr: string) {
+    // Ubój i przyjęcie bierzemy z ĆWIARTKI, ale tylko gdy paleta jest z JEDNEJ
+    // partii — przy mieszance dwie ćwiartki mają dwie różne daty i jedna
+    // wydrukowana byłaby nieprawdą (etykieta sama je wtedy pomija).
+    const jedyny = lots.length === 1 ? pool.find(m => m.lotNo === lots[0].lotNo) : undefined
     await drukujEtykiete({
       palletNo: nr,
       netKg: sumaKg,
       containers: sumaPojemnikow,
       productionDate: getProductionDate(),
       expiryDate,
+      slaughterDate: jedyny?.slaughterDate,
+      receivedDate:  jedyny?.receivedDate,
       lots,
     })
   }

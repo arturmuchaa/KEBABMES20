@@ -893,6 +893,11 @@ function mapMeatStock(raw: any): MeatStock {
                           : undefined,
     productionDate:     raw.production_date     ?? raw.productionDate    ?? '',
     expiryDate:         raw.expiry_date         ?? raw.expiryDate        ?? '',
+    // Daty ĆWIARTKI źródłowej — na etykietę palety ważenia zbiorczego.
+    // Backend podaje je tylko na liście magazynu; gdzie ich nie ma, zostaje
+    // pusty string i etykieta po prostu nie drukuje tego wiersza.
+    slaughterDate:      raw.batch_slaughter_date ?? raw.slaughterDate    ?? '',
+    receivedDate:       raw.batch_received_date  ?? raw.receivedDate     ?? '',
     expiryStatus:       raw.expiry_status       ?? raw.expiryStatus      ?? 'OK',
     status:             raw.status              ?? 'AVAILABLE',
     materialTypeId:     raw.material_type_id    ?? raw.materialTypeId    ?? '',

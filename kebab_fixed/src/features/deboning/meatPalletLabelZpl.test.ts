@@ -26,10 +26,10 @@ describe('meatPalletLabelZpl — etykieta palety mięsa', () => {
     expect(zpl).toContain('30 pojem')
   })
 
-  it('QR koduje numer palety — masownia go zeskanuje', () => {
-    const zpl = meatPalletLabelZpl(BASE)
-    expect(zpl).toContain('^BQ')
-    expect(zpl).toContain('PAL/14/08/26/3')
+  // QR zdjęty 24.08.2026 — masownia go nie skanowała, a zabierał róg etykiety.
+  // Numer palety zostaje drukiem: po nim odnajduje się paletę w „Zważone dziś".
+  it('numer palety zostaje na etykiecie mimo zdjęcia QR', () => {
+    expect(meatPalletLabelZpl(BASE)).toContain('PAL/14/08/26/3')
   })
 
   it('drukuje skład partii z kilogramami', () => {
@@ -126,6 +126,84 @@ describe('meatPalletLabelZpl — numer partii', () => {
 
   it('etykieta jednej partii mieści się na taśmie', () => {
     const zpl = meatPalletLabelZpl(JEDNA)
+    const yMax = Math.max(...[...zpl.matchAll(/\^FO\d+,(\d+)/g)].map(m => Number(m[1])))
+    expect(yMax).toBeLessThan(mmToDots(LABEL_H_MM))
+  })
+})
+
+/**
+ * Układ przeniesiony z etykiety ubocznych: rodzaj → nr porządkowy → waga,
+ * a daty małym drukiem na dole (biuro, 24.08.2026). QR zdjęty — masownia go
+ * nie skanuje, a zabierał róg etykiety.
+ */
+describe('meatPalletLabelZpl — układ jak na ubocznych', () => {
+  const JEDNA = {
+    palletNo: 'PAL/24/08/26/7', netKg: 200, containers: 10,
+    productionDate: '2026-08-24', expiryDate: '2026-08-28',
+    slaughterDate: '2026-08-21', receivedDate: '2026-08-22',
+    lots: [{ lotNo: '503', kg: 200 }],
+  }
+
+  /** Kolejność napisów na etykiecie, z góry na dół. */
+  function kolejnosc(zpl: string): string[] {
+    return [...zpl.matchAll(/\^FO\d+,(\d+)\^A0N,\d+,\d+\^FD([^^]*)\^FS/g)]
+      .sort((a, b) => Number(a[1]) - Number(b[1]))
+      .map(m => m[2])
+  }
+
+  it('nie drukuje już kodu QR', () => {
+    expect(meatPalletLabelZpl(JEDNA)).not.toContain('^BQ')
+  })
+
+  it('idzie rodzaj, numer porządkowy, waga — a daty na końcu', () => {
+    const k = kolejnosc(meatPalletLabelZpl(JEDNA))
+    expect(k[0]).toBe('MIĘSO')
+    expect(k.indexOf('Nr porządkowy')).toBeLessThan(k.indexOf('Waga netto'))
+    expect(k.indexOf('503')).toBeLessThan(k.indexOf('200 kg'))
+    expect(k.indexOf('Waga netto')).toBeLessThan(k.findIndex(t => t.startsWith('Ważenie')))
+  })
+
+  it('daty na dole w ustalonej kolejności: ważenie, ubój, ważność, przyjęcie', () => {
+    const k = kolejnosc(meatPalletLabelZpl(JEDNA)).filter(t => /^(Ważenie|Ubój|Ważność|Przyjęcie)/.test(t))
+    expect(k).toEqual([
+      'Ważenie 24.08.2026',
+      'Ubój 21.08.2026',
+      'Ważność 28.08.2026',
+      'Przyjęcie 22.08.2026',
+    ])
+  })
+
+  it('numer partii zostaje największy na etykiecie', () => {
+    const zpl = meatPalletLabelZpl(JEDNA)
+    const font = (t: string) => Number(zpl.match(new RegExp(`\\^A0N,(\\d+),\\d+\\^FD${t}\\^FS`))?.[1] ?? 0)
+    expect(font('503')).toBeGreaterThan(font('200 kg'))
+  })
+
+  it('paleta z dwóch partii NIE udaje jednej daty uboju ani przyjęcia', () => {
+    const zpl = meatPalletLabelZpl({
+      ...JEDNA, lots: [{ lotNo: '503', kg: 50 }, { lotNo: '504', kg: 150 }],
+    })
+    expect(zpl).toContain('503 — 50 kg')
+    expect(zpl).toContain('504 — 150 kg')
+    expect(zpl).not.toContain('Ubój')
+    expect(zpl).not.toContain('Przyjęcie')
+    // Ważenie i najkrótsza ważność dalej mają sens dla całej palety.
+    expect(zpl).toContain('Ważenie 24.08.2026')
+    expect(zpl).toContain('Ważność 28.08.2026')
+  })
+
+  it('brakującej daty nie drukuje jako pustego wiersza', () => {
+    const zpl = meatPalletLabelZpl({ ...JEDNA, slaughterDate: '', receivedDate: '' })
+    expect(zpl).not.toContain('Ubój')
+    expect(zpl).not.toContain('Przyjęcie')
+    expect(zpl).toContain('Ważność 28.08.2026')
+  })
+
+  it('mieści się na taśmie także przy czterech partiach', () => {
+    const zpl = meatPalletLabelZpl({
+      ...JEDNA,
+      lots: [{ lotNo: '1', kg: 50 }, { lotNo: '2', kg: 50 }, { lotNo: '3', kg: 50 }, { lotNo: '4', kg: 50 }],
+    })
     const yMax = Math.max(...[...zpl.matchAll(/\^FO\d+,(\d+)/g)].map(m => Number(m[1])))
     expect(yMax).toBeLessThan(mmToDots(LABEL_H_MM))
   })
