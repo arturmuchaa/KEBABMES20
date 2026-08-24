@@ -29,7 +29,11 @@ const stan = vi.hoisted(() => ({
 const zlapane = vi.hoisted(() => ({ bulk: null as any, uboczne: null as any }))
 
 /** Zapis wpisu rozbioru — sprawdzamy, CO strona wysyła i co robi po zapisie. */
-const { addEntry } = vi.hoisted(() => ({ addEntry: vi.fn(async () => null) }))
+/** Kształt DTO wpisu — tyle, ile sprawdzamy. */
+type WpisDto = { rawBatchId: string; workerId: string; kgTaken: number; kgMeat: number }
+const { addEntry } = vi.hoisted(() => ({
+  addEntry: vi.fn(async (_dto: any, ..._reszta: any[]) => null),
+}))
 
 vi.mock('@/lib/apiClient', () => ({
   rawBatchesApi: { list: async () => ({ data: stan.batches }) },
@@ -205,18 +209,6 @@ describe('okablowanie ekranu rozbioru', () => {
  * zapisu i co robi ze stanem po zapisie.
  */
 describe('okablowanie zapisu wpisu rozbioru', () => {
-  /** Wybierz partię i pracownika, wpisz kilogramy, zapisz. */
-  async function wbijWpis({ partia = '504', pracownik = 'DAWID' } = {}) {
-    await pokazEkran()
-    fireEvent.click(await screen.findByText(partia))
-    fireEvent.click(await screen.findByText(pracownik))
-    // Pola kg: pierwsze „pobrane", drugie „mięso" — wpisujemy klawiaturą ekranu.
-    const pola = screen.getAllByRole('textbox')
-    fireEvent.change(pola[0], { target: { value: '100' } })
-    fireEvent.change(pola[1], { target: { value: '65' } })
-    return pola
-  }
-
   /** Wbij pobranie klawiaturą ekranową: partia, pracownik, kg pobrane, kg mięsa. */
   async function wbijWpis(pracownik = 'DAWID') {
     await pokazEkran()
@@ -231,7 +223,7 @@ describe('okablowanie zapisu wpisu rozbioru', () => {
     await wbijWpis('DENYS')
     fireEvent.click(await screen.findByRole('button', { name: /ZAPISZ — DENYS/ }))
     await waitFor(() => expect(addEntry).toHaveBeenCalled())
-    expect(addEntry.mock.calls[0][0]).toMatchObject({
+    expect(addEntry.mock.calls[0][0] as WpisDto).toMatchObject({
       rawBatchId: 'b-504', workerId: 'w2', kgTaken: 100, kgMeat: 65,
     })
   })
