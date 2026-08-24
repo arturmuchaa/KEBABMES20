@@ -18,7 +18,12 @@ import { deboningApi, byproductsApi, type ByproductWeighing } from '@/lib/apiCli
 import { DataTable } from '@/components/DataTable'
 import { E2_TARE_KG } from '@/features/deboning/utils/weighing'
 import { cn } from '@/lib/utils'
-import { ListChecks, ChevronUp, ChevronDown } from 'lucide-react'
+import { ListChecks, ChevronUp, ChevronDown, Pencil, Trash2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
 
 const nf1 = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
@@ -59,6 +64,12 @@ export function DeboningWeighingsLog({
   const [meat, setMeat] = useState<TakeWeighing[] | null>(null)
   const [byprod, setByprod] = useState<ByproductWeighing[] | null>(null)
   const [tab, setTab] = useState<Tab>('meat')
+  // Korekta pojedynczego ważenia ubocznych — patrz komentarz przy kolumnie akcji.
+  const [korekta, setKorekta] = useState<ByproductWeighing | null>(null)
+  const [powod, setPowod] = useState('')
+  const [netto, setNetto] = useState('')
+  const [zapis, setZapis] = useState(false)
+  const [blad, setBlad] = useState('')
   const [show, setShow] = useState(defaultOpen)
   const sameDay = from === to
 
@@ -93,6 +104,29 @@ export function DeboningWeighingsLog({
     { key: 'backs', label: 'Grzbiety', count: backs?.length ?? null },
     { key: 'bones', label: 'Kości',    count: bones?.length ?? null },
   ]
+  async function zapiszKorekte(usun: boolean) {
+    if (!korekta || !powod.trim()) return
+    setZapis(true)
+    setBlad('')
+    try {
+      await byproductsApi.correctWeighing({
+        rawBatchId: korekta.rawBatchId,
+        kind:       korekta.kind,
+        weighedAt:  korekta.weighedAt,
+        reason:     powod.trim(),
+        ...(usun ? { delete: true } : { netKg: parseFloat(netto.replace(',', '.')) }),
+      })
+      setKorekta(null)
+      // Przeładuj dziennik — suma frakcji też się zmieniła.
+      const r = await byproductsApi.weighings(from, to)
+      setByprod(r.data ?? [])
+    } catch (e) {
+      setBlad(e instanceof Error ? e.message : 'Nie udało się poprawić ważenia')
+    } finally {
+      setZapis(false)
+    }
+  }
+
   const hint = tab === 'meat'
     ? 'każda porcja mięsa zważona — brutto / tara / netto'
     : `każda paleta ${tab === 'backs' ? 'grzbietów' : 'kości'} zważona — brutto / tara / netto`
@@ -128,8 +162,55 @@ export function DeboningWeighingsLog({
       {show && (
         tab === 'meat'
           ? <MeatTable rows={meat} sameDay={sameDay} />
-          : <ByproductTable rows={tab === 'backs' ? backs : bones} sameDay={sameDay} kind={tab} />
+          : <ByproductTable rows={tab === 'backs' ? backs : bones} sameDay={sameDay} kind={tab}
+              onCorrect={w => { setKorekta(w); setPowod(''); setNetto(String(w.netKg)); setBlad('') }} />
       )}
+
+      {/* Korekta ważenia ubocznych. Powód OBOWIĄZKOWY — bez niego zniknięcie
+          palety z dokumentu identyfikowalności jest nie do wytłumaczenia. */}
+      <Dialog open={korekta !== null} onOpenChange={v => { if (!v) setKorekta(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Ważenie {korekta?.kind === 'backs' ? 'grzbietów' : 'kości'} · partia {korekta?.rawBatchNo}
+            </DialogTitle>
+            <DialogDescription>
+              {korekta && `${fmtTimePl(korekta.weighedAtLocal)} · brutto ${nf1.format(korekta.kgGross)} kg`}
+              {' · '}netto {korekta && nf1.format(korekta.netKg)} kg · {korekta?.containers} poj.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-[10px] font-bold uppercase text-ink-4">Netto [kg]</label>
+              <Input value={netto} inputMode="decimal" onChange={e => setNetto(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] font-bold uppercase text-ink-4">Powód korekty</label>
+              <Input value={powod} placeholder="np. dubel — ta sama paleta co minutę wcześniej"
+                onChange={e => setPowod(e.target.value)} />
+            </div>
+            {blad && (
+              <div className="rounded-[3px] border border-destructive/30 bg-destructive/5 px-3 py-2 text-[12px] font-semibold text-destructive">
+                {blad}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setKorekta(null)} disabled={zapis}>Anuluj</Button>
+            <Button variant="destructive" className="gap-1.5" disabled={zapis || !powod.trim()}
+              data-testid="wazenie-usun"
+              onClick={() => zapiszKorekte(true)}>
+              <Trash2 size={14} /> Usuń ważenie
+            </Button>
+            <Button disabled={zapis || !powod.trim()} data-testid="wazenie-zapisz"
+              onClick={() => zapiszKorekte(false)}>
+              Zapisz wagę
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -221,10 +302,11 @@ function MeatTable({ rows, sameDay }: { rows: TakeWeighing[] | null; sameDay: bo
   )
 }
 
-function ByproductTable({ rows, sameDay, kind }: {
+function ByproductTable({ rows, sameDay, kind, onCorrect }: {
   rows: ByproductWeighing[] | null
   sameDay: boolean
   kind: 'backs' | 'bones'
+  onCorrect?: (w: ByproductWeighing) => void
 }) {
   if (rows == null) return <Loading />
   const label = kind === 'backs' ? 'grzbietów' : 'kości'
@@ -290,6 +372,20 @@ function ByproductTable({ rows, sameDay, kind }: {
         { key: 'netKg', header: `Netto ${kind === 'backs' ? 'grzbietów' : 'kości'} [kg]`,
           align: 'right', sortable: true, sortValue: w => w.netKg,
           cell: w => <span className="font-black tabular-nums text-brand">{nf1.format(w.netKg)}</span> },
+        // Korekta pojedynczego ważenia. Istnieje, bo dubel na dokumencie
+        // identyfikowalności nie może wymagać dostępu do bazy (partia 503,
+        // 24.08.2026 — dwie te same palety grzbietów minutę po sobie).
+        ...(onCorrect ? [{
+          key: 'akcje', header: '', width: 44,
+          cell: (w: ByproductWeighing) => (
+            <button type="button" title="Popraw albo usuń to ważenie"
+              data-testid="wazenie-popraw"
+              onClick={() => onCorrect(w)}
+              className="grid h-7 w-7 place-items-center text-ink-4 hover:bg-surface-3 hover:text-ink">
+              <Pencil size={13} />
+            </button>
+          ),
+        }] : []),
       ]}
     />
   )

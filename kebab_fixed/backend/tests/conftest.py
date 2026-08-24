@@ -31,6 +31,7 @@ _TRUNCATE = [
     "stock_movements", "stock_cartons", "stock_carton_lines", "finished_units", "finished_goods",
     "production_plan_lines", "production_plans",
     "seasoned_meat", "mixing_sessions", "mixing_order_lots", "mixing_orders",
+    "byproduct_weighing_corrections",
     "meat_pallet_corrections", "meat_pallet_lots", "meat_pallets",
     # Dokumenty WZ czyszczone od 21.08.2026: numeracja WZ liczy się z tabeli
     # (MAX(seq) w miesiącu), więc dokumenty z poprzedniego przebiegu podbijały

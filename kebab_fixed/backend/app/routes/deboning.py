@@ -85,6 +85,30 @@ def byproducts_weighings(
     return byproducts_svc.list_weighings(date_from, date_to)
 
 
+@router.post("/api/deboning/byproducts/weighings/correct")
+def byproducts_correct_weighing(body: dict, request: Request):
+    """Popraw albo usuń pojedyncze ważenie ubocznych (jedną paletę).
+
+    Istnieje, bo dubel na dokumencie identyfikowalności nie może wymagać
+    dostępu do bazy (24.08.2026 — partia 503 dostała dwie te same palety
+    grzbietów minutę po sobie).
+
+    MUSI stać przed „/{raw_batch_id}/…", inaczej „weighings" wpadnie
+    w parametr ścieżki.
+    """
+    return byproducts_svc.correct_weighing(
+        str(body.get("rawBatchId") or ""),
+        str(body.get("kind") or ""),
+        str(body.get("weighedAt") or ""),
+        delete=bool(body.get("delete")),
+        net_kg=body.get("netKg"),
+        gross=body.get("grossKg"),
+        containers=body.get("containers"),
+        reason=str(body.get("reason") or ""),
+        subject=_subject_of(request),
+    )
+
+
 @router.post("/api/deboning/byproducts/{raw_batch_id}/close")
 def byproducts_close(raw_batch_id: str, body: dict = None):
     """Zamknij ważenie ubocznych — kafel znika z HMI, kilogramy zostają.

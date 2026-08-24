@@ -776,6 +776,20 @@ _DDL: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_mpc_pallet ON meat_pallet_corrections(pallet_id)",
+    # Korekty wazen ubocznych (2026-08-24). Wazenie uboczne to PALETA w JSON-ie
+    # wewnatrz batch_byproducts, wiec bez tego sladu po korekcie nie zostaje
+    # zadna informacja, co i dlaczego zniknelo.
+    """
+    CREATE TABLE IF NOT EXISTS byproduct_weighing_corrections (
+        id           TEXT PRIMARY KEY,
+        raw_batch_id TEXT NOT NULL,
+        at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        by_subject   TEXT,
+        reason       TEXT NOT NULL,
+        changes      JSONB NOT NULL DEFAULT '{}'::jsonb
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_bwc_batch ON byproduct_weighing_corrections(raw_batch_id)",
     # Częściowe ważenia mięsa z otwartego pobrania — porcja = wiersz (2026-07-18).
     # Mięso schodzi z hali porcjami zanim pracownik wykroi całość; każda porcja
     # od razu wchodzi na lot mięsa, wpis zostaje 'pending' aż do domknięcia.

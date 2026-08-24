@@ -821,6 +821,8 @@ export interface ByproductTodayWeighing {
 export interface ByproductWeighing {
   id: string; kind: 'backs' | 'bones'
   rawBatchId: string; rawBatchNo: string
+  /** Surowy stempel ISO — TOŻSAMOŚĆ palety przy korekcie (indeks się przesuwa). */
+  weighedAt: string
   weighedAtLocal: string   // naive local (Europe/Warsaw)
   dayLocal: string         // 'YYYY-MM-DD' lokalnie
   tareLabel: string; tareKg: number; containers: number
@@ -853,6 +855,14 @@ export const byproductsApi = {
   pending: () => get<{ pending: BatchByproducts[] }>('/deboning/byproducts/pending').then(r => r?.pending ?? []),
   today: () => get<{ backsKg: number; bonesKg: number; weighings: ByproductTodayWeighing[] }>('/deboning/byproducts/today'),
   // Dziennik ważeń grzbietów/kości w zakresie dat (biuro) — paleta po palecie.
+  /** Popraw albo usuń pojedyncze ważenie ubocznych (jedną paletę).
+   *  Paletę wskazujemy CZASEM ważenia — indeksy przesuwają się po usunięciu. */
+  correctWeighing: (dto: {
+    rawBatchId: string; kind: 'backs' | 'bones'; weighedAt: string
+    reason: string; delete?: boolean
+    netKg?: number; grossKg?: number; containers?: number
+  }) => post<any>('/deboning/byproducts/weighings/correct', dto),
+
   weighings: (from: string, to: string) =>
     get<{ data: ByproductWeighing[] }>(`/deboning/byproducts/weighings?date_from=${from}&date_to=${to}`),
   get: (batchId: string) => get<BatchByproducts>(`/deboning/byproducts/${batchId}`),

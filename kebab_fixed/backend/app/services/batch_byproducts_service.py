@@ -447,6 +447,9 @@ def list_weighings(date_from: str, date_to: str) -> Dict[str, Any]:
             "rawBatchId":     r["raw_batch_id"],
             "rawBatchNo":     r["raw_batch_no"],
             "kind":           r["kind"],
+            # Surowy stempel — TOŻSAMOŚĆ palety przy korekcie. Indeks w tablicy
+            # przesuwa się po każdym usunięciu, więc nie nadaje się na klucz.
+            "weighedAt":      (p.get("weighedAt") or ""),
             "weighedAtLocal": r["weighedAtLocal"],
             "dayLocal":       r["dayLocal"],
             "tareLabel":      p.get("tareLabel") or "",
@@ -641,6 +644,101 @@ def _drop_moved_pallets(conn, raw_batch_id: str, raw_batch_no: str, kind: str,
     )
     _write_fraction(conn, raw_batch_id, raw_batch_no, other,
                     total if keep else None, keep, quarter, reopen=False)
+
+
+def correct_weighing(
+    raw_batch_id: str, kind: str, weighed_at: str, *,
+    delete: bool = False,
+    net_kg: Optional[float] = None,
+    gross: Optional[float] = None,
+    containers: Optional[int] = None,
+    reason: str = "",
+    subject: str = "",
+) -> Dict[str, Any]:
+    """Popraw albo usuń pojedyncze ważenie ubocznych (jedną paletę).
+
+    POWÓD ISTNIENIA: 24.08.2026 partia 503 dostała DUBEL grzbietów — dwie
+    palety minutę po sobie, ta sama tara i ta sama liczba pojemników. Ważenia
+    ubocznych to palety zapisane w JSON-ie wewnątrz `batch_byproducts`, więc
+    jedyną drogą zdjęcia takiego wpisu był SQL na produkcji.
+
+    Paletę identyfikujemy CZASEM WAŻENIA, nie numerem porządkowym: indeksy
+    przesuwają się po każdym usunięciu, więc dwie korekty pod rząd trafiałyby
+    w niewłaściwe wiersze.
+
+    Świadomie NIE piszemy drugiego zapisującego — budujemy nową listę palet
+    i oddajemy ją `record()`, czyli tej samej funkcji, której używa hala.
+    Osobny zapis rozjechałby się z nią przy pierwszej zmianie (loty ABP,
+    żywy licznik pojemników, otwieranie zamkniętej partii).
+
+    Ślad korekty zapisujemy PO udanej zmianie. Samo żądanie zostaje w
+    `audit_log` (middleware), więc nie ma okna bez jakiegokolwiek zapisu.
+    """
+    if kind not in ("backs", "bones"):
+        raise HTTPException(400, "kind musi być 'backs' albo 'bones'")
+    powod = (reason or "").strip()
+    if not powod:
+        raise HTTPException(400, "Podaj powód korekty — bez niego nie wiadomo, co się stało")
+
+    rec = get(raw_batch_id)
+    if not rec:
+        raise HTTPException(404, "Partia nie ma rekordu ubocznych")
+
+    palety = list(rec.get("backsPallets" if kind == "backs" else "bonesPallets") or [])
+    szukany = _parse_stamp(weighed_at)
+
+    idx = None
+    for i, p in enumerate(palety):
+        stamp = (p or {}).get("weighedAt")
+        # Najpierw dokładny napis (frontend odsyła to, co dostał), potem
+        # porównanie chwil — zapisy z różnych wersji mają różną precyzję.
+        if stamp == weighed_at:
+            idx = i
+            break
+        if szukany is not None and _parse_stamp(stamp) == szukany:
+            idx = i
+            break
+    if idx is None:
+        raise HTTPException(404, "Nie ma ważenia o tym czasie w tej frakcji")
+
+    przed = dict(palety[idx])
+    przed_kg = rec.get("backsKg" if kind == "backs" else "bonesKg")
+
+    if delete:
+        palety.pop(idx)
+    else:
+        poprawiona = dict(przed)
+        if net_kg is not None:
+            poprawiona["net"] = float(net_kg)
+        if gross is not None:
+            poprawiona["gross"] = float(gross)
+        if containers is not None:
+            poprawiona["containers"] = int(containers)
+        palety[idx] = poprawiona
+
+    # Pusta lista = frakcja wraca na kafel jako NIEZWAŻONA (record: kg=None),
+    # zamiast udawać zważone 0 kg.
+    nowe_kg = None if not palety else round(sum(float(p.get("net") or 0) for p in palety), 3)
+
+    out = record(raw_batch_id, kind, nowe_kg, palety)
+
+    execute(
+        "INSERT INTO byproduct_weighing_corrections "
+        "(id, raw_batch_id, by_subject, reason, changes) VALUES (%s,%s,%s,%s,%s::jsonb)",
+        (cuid(), raw_batch_id, subject, powod, json.dumps({
+            "action":            "delete" if delete else "update",
+            "kind":              kind,
+            "weighedAt":         weighed_at,
+            "before":            przed,
+            "after":             None if delete else palety[idx],
+            "beforeFractionKg":  None if przed_kg is None else float(przed_kg),
+            "afterFractionKg":   nowe_kg,
+        })),
+    )
+    logger.info("byproduct_weighing_corrected", extra={
+        "batch": raw_batch_id, "frakcja": kind, "by": subject,
+    })
+    return out
 
 
 def record(raw_batch_id: str, kind: str, kg: Optional[float],
