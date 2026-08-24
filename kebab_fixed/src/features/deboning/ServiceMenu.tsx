@@ -74,7 +74,26 @@ const SVC_VARS: CSSProperties = {
 }
 const MONO = '"JetBrains Mono", "Cascadia Mono", Consolas, monospace'
 
-export function ServiceMenuModal({ open, onClose, buildLabel = `HMI v10 · ${__ROZBIOR_V10_VERSION__}` }: { open: boolean; onClose: () => void; buildLabel?: string }) {
+/**
+ * Menu serwisowe stanowiska.
+ *
+ * `channel` i `version` MUSZĄ pochodzić z tego kiosku, w którym menu stoi —
+ * inaczej serwisant przy jednym panelu cofnąłby wersję drugiego (menu jest
+ * współdzielone przez stanowiska od czasu wydzielenia wspólnej ramy kiosku).
+ */
+export function ServiceMenuModal({
+  open,
+  onClose,
+  channel = 'rozbior-v10',
+  version = __ROZBIOR_V10_VERSION__,
+  buildLabel = `HMI v10 · ${version}`,
+}: {
+  open: boolean
+  onClose: () => void
+  channel?: string
+  version?: string
+  buildLabel?: string
+}) {
   const [code, setCode] = useState('')
   const [ok,   setOk]   = useState(false)
   const [err,  setErr]  = useState(false)
@@ -91,21 +110,21 @@ export function ServiceMenuModal({ open, onClose, buildLabel = `HMI v10 · ${__R
   useEffect(() => {
     if (!ok) return
     setPrevVersion(null)
-    fetch(`${BASE}/desktop-updates/rozbior-v10/versions`)
+    fetch(`${BASE}/desktop-updates/${channel}/versions`)
       .then(r => r.json())
       .then((d: { versions?: { version: string }[] }) => {
-        const prev = (d.versions ?? []).find(v => v.version !== __ROZBIOR_V10_VERSION__)
+        const prev = (d.versions ?? []).find(v => v.version !== version)
         setPrevVersion(prev?.version ?? null)
       })
       .catch(() => setPrevVersion(null))
-  }, [ok])
+  }, [ok, channel, version])
 
   const doRollback = useCallback(async () => {
     if (!prevVersion || rollbackBusy) return
     setRollbackBusy(true)
     setRollbackMsg(`Przywracam ${prevVersion}…`)
     try {
-      const res = await fetch(`${BASE}/desktop-updates/rozbior-v10/rollback`, {
+      const res = await fetch(`${BASE}/desktop-updates/${channel}/rollback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: SERVICE_CODE, version: prevVersion }),
@@ -127,7 +146,7 @@ export function ServiceMenuModal({ open, onClose, buildLabel = `HMI v10 · ${__R
     } finally {
       setRollbackBusy(false)
     }
-  }, [prevVersion, rollbackBusy])
+  }, [prevVersion, rollbackBusy, channel])
 
   // Po poprawnym kodzie pobierz diagnostykę wagi (jaki port HMI otwiera, czy
   // scale.json jest czytany) — najczęstszy problem serwisowy na hali.

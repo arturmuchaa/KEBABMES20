@@ -1,0 +1,171 @@
+name: Build Tauri — Produkcja HMI (Windows)
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - 'produkcja-*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './kebab_fixed/src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm install
+        working-directory: kebab_fixed
+
+      - name: Install Tauri CLI
+        run: npm install --save-dev @tauri-apps/cli@^2
+        working-directory: kebab_fixed
+
+      - name: Generate icons
+        run: npx tauri icon src-tauri/app-icon.png
+        working-directory: kebab_fixed
+
+      - name: Build Tauri Produkcja (Windows NSIS, signed for silent auto-update)
+        run: npx tauri build --target x86_64-pc-windows-msvc --config src-tauri/tauri.produkcja.conf.json --features kiosk
+        working-directory: kebab_fixed
+        env:
+          VITE_API_URL: 'http://204.168.166.34:8080'
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Get artifact info
+        id: meta
+        shell: pwsh
+        run: |
+          $VERSION = (Select-String -Path "kebab_fixed/src-tauri/tauri.produkcja.conf.json" -Pattern '"version":\s*"(.+)"').Matches[0].Groups[1].Value
+          $BUNDLE = "kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
+          $EXE = Get-ChildItem "$BUNDLE/*.exe" | Select-Object -First 1
+          $SIG = Get-ChildItem "$BUNDLE/*.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
+          # UWAGA: nie przepuszczamy treści .sig (wieloliniowa) przez $GITHUB_OUTPUT —
+          # prosta składnia "key=value" psuje się na wartościach z osadzonymi
+          # nowymi liniami (GitHub Actions wymaga do tego osobnej składni z
+          # delimiterem). Zamiast tego przekazujemy tylko sig_path (bezpieczna,
+          # jednoliniowa ścieżka) i odczytujemy treść podpisu na nowo w kroku
+          # publikacji, na tym samym runnerze, gdzie plik nadal istnieje.
+          "version=$VERSION"          >> $env:GITHUB_OUTPUT
+          "exe_path=$($EXE.FullName)" >> $env:GITHUB_OUTPUT
+          "exe_name=$($EXE.Name)"     >> $env:GITHUB_OUTPUT
+          "sig_path=$(if ($SIG) { $SIG.FullName } else { '' })" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $VERSION | EXE: $($EXE.Name) ($([math]::Round($EXE.Length/1MB, 1)) MB) | SIG: $(if ($SIG) { $SIG.Name } else { 'BRAK!' })"
+
+      - name: Publish installer to VPS silent-updater (produkcja channel)
+        # BEZ continue-on-error (od 2026-08-22): porażka publikacji MA zapalić run
+        # na czerwono. Zielony build przy niedziałającej publikacji oznacza kiosk,
+        # który cicho stoi na starej wersji. Kroki niżej mają `if: always()`, więc
+        # instalator zostaje do odzyskania także po nieudanej publikacji.
+        shell: pwsh
+        env:
+          KEBAB_UPDATER_ADMIN_TOKEN: ${{ secrets.KEBAB_UPDATER_ADMIN_TOKEN }}
+        run: |
+          # Falkenstein = produkcja. Stary adres w Helsinkach odpowiada dziś 308
+          # — patrz tauri-build.yml, gdzie ten sam adres cicho gubił publikację.
+          $pub = 'http://91.98.105.107:8080/api/admin/desktop-updates/produkcja/publish'
+          $tok = ("$env:KEBAB_UPDATER_ADMIN_TOKEN" -replace '[^\x21-\x7e]', '')
+          if ([string]::IsNullOrWhiteSpace($tok)) {
+            Write-Host "KEBAB_UPDATER_ADMIN_TOKEN brak; pomijam publikację cichej aktualizacji (artefakt i tak zostanie wgrany do GitHub Release)."
+            exit 0
+          }
+
+          $sigPath = "${{ steps.meta.outputs.sig_path }}"
+          if ([string]::IsNullOrWhiteSpace($sigPath) -or -not (Test-Path $sigPath)) {
+            Write-Host "Brak pliku .sig (sekrety TAURI_SIGNING_* nieustawione?) — pomijam publikację, kiosk nie zweryfikowałby niepodpisanej aktualizacji."
+            exit 0
+          }
+          # Odczyt TREŚCI podpisu na nowo z pliku (nie z $GITHUB_OUTPUT) — patrz
+          # komentarz w kroku "Get artifact info" o wieloliniowych wartościach.
+          $SIGNATURE = (Get-Content $sigPath -Raw).Trim()
+
+          $VERSION = "${{ steps.meta.outputs.version }}"
+          $FILENAME = "${{ steps.meta.outputs.exe_name }}"
+          $EXE_PATH = "${{ steps.meta.outputs.exe_path }}"
+          $PUB_DATE = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
+          $NOTES = "Produkcja HMI $VERSION"
+
+          # ROOT CAUSE (znaleziony po bisekcji w 1.0.11–1.0.14, potwierdzony
+          # zrzutem surowej wartości): "$pub?version=..." — goła zmienna $pub
+          # przylegająca BEZPOŚREDNIO do "?" (bez separatora) — PowerShell w
+          # interpolacji string-owej gubi wszystko od $pub aż do najbliższego
+          # "=" włącznie. Realny dowód: $qVersion miało wtedy wartość "=1.0.14"
+          # (7 znaków) zamiast oczekiwanych ~90 znaków zaczynających się od
+          # "http://...". Stąd błąd "hostname could not be parsed" — URL
+          # faktycznie zaczynał się od "=", nie od "http://". Fix: jawne
+          # ${pub} (nawiasy klamrowe) jednoznacznie kończą nazwę zmiennej
+          # PRZED znakiem specjalnym — standardowa, udokumentowana praktyka
+          # PowerShell dla tej dokładnie sytuacji (patrz about_Variables).
+          $URL = "${pub}?version=$([uri]::EscapeDataString($VERSION))&signature=$([uri]::EscapeDataString($SIGNATURE))&filename=$([uri]::EscapeDataString($FILENAME))&notes=$([uri]::EscapeDataString($NOTES))&pub_date=$([uri]::EscapeDataString($PUB_DATE))"
+
+          Write-Host "Publikuję $FILENAME (v$VERSION) -> $pub"
+          Write-Host "URL well-formed: $([uri]::IsWellFormedUriString($URL, [UriKind]::Absolute))"
+
+          try {
+            $resp = Invoke-RestMethod -Uri $URL -Method Post -Headers @{ 'X-Admin-Token' = $tok } -InFile $EXE_PATH -ContentType 'application/octet-stream'
+            Write-Host "Publikacja OK: $($resp | ConvertTo-Json -Compress -Depth 5)"
+          } catch {
+            Write-Host "##[error]Publikacja nie powiodla sie: $($_.Exception.Message)"
+            if ($_.ErrorDetails) { Write-Host "Szczegoly: $($_.ErrorDetails.Message)" }
+            exit 1
+          }
+
+      - name: Upload installer artifact (backup)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProdukcjaHMI-Windows-Setup
+          path: |
+            ${{ steps.meta.outputs.exe_path }}
+            ${{ steps.meta.outputs.sig_path }}
+          retention-days: 90
+
+      - name: Create GitHub Release
+        if: ${{ always() && startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Produkcja HMI — ${{ github.ref_name }}
+          body: |
+            ## Produkcja HMI — stanowisko produkcyjne — Windows
+
+            Standalone aplikacja dla panelu PC na produkcji (Windows).
+
+            **Interfejs:** ten sam wygląd co HMI rozbiorowe (wspólny motyw), zasady
+            działania jak w tablecie produkcji: plan dnia listą, liczenie sztuk,
+            przerwa, statystyki zmiany.
+            **Logowanie:** PIN operatora działu `produkcja` (biuro musi przypisać ludzi).
+            **Fullscreen** — startuje w pełnym ekranie bez paska Windows.
+            **Blokady:** F5, F12, Alt+F4, menu kontekstowe zablokowane.
+            **Auto-update:** własny kanał `produkcja` — kiosk sam sprawdza i instaluje
+            nowe wersje w tle, co godzinę. Kanał jest ODDZIELNY od rozbiorowego, więc
+            wydania obu stanowisk się nie mieszają.
+
+            **Instalacja (tylko za pierwszym razem):** uruchom `.exe` jako Administrator
+            na komputerze panelowym. Kolejne wersje instalują się same.
+          files: |
+            ${{ steps.meta.outputs.exe_path }}
+            ${{ steps.meta.outputs.sig_path }}
+          token: ${{ secrets.GITHUB_TOKEN }}

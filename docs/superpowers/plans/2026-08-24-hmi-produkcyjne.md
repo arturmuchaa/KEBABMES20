@@ -199,11 +199,14 @@ describe('planDiff', () => {
 **Pliki:** `src/features/production-hmi/planProgress.ts` + test
 
 **Interfejsy:**
-- `planTotals(lines)` → `{ sztPlan, sztDone, kgPlan, kgDone, pct }`
+- `planTotals(lines)` → `{ kgPlan, kgDone, pct, sztPlan, sztDone }`
+  — `pct` liczone **z kilogramów** (plan rozlicza się w kg), zaokrąglone do całości
 - `lineState(line)` → `'PLANNED' | 'IN_PROGRESS' | 'DONE'`
 - `byWorker(line)` → `{ workerName: string; pieces: number }[]`
 
-- [ ] **Krok 1:** testy — sumy szt/kg, procent, pozycja bez postępu =
+- [ ] **Krok 1:** testy — sumy kg/szt; **procent z kilogramów, nie ze sztuk**
+      (pozycje 40×10 kg zrobione i 0×40 kg niezrobione → 20%, nie 50%);
+      plan pusty → `pct` 0, nie `NaN`; nadwyżka → 100, nie 112; pozycja bez postępu =
       `PLANNED`, częściowa = `IN_PROGRESS`, pełna = `DONE`, nadwyżka też
       `DONE` (hala zrobiła więcej, to nie błąd ekranu); rozbicie per pracownik
       sumuje wpisy tej samej osoby.

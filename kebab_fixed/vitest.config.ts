@@ -29,6 +29,7 @@ export default defineConfig({
   // sprawdzi — wartość jest nieistotna, liczy się samo istnienie.
   define: {
     __ROZBIOR_V10_VERSION__: JSON.stringify('test'),
+    __PRODUKCJA_VERSION__: JSON.stringify('test'),
     __ROZBIOR_V11_VERSION__: JSON.stringify('test'),
   },
   test: {

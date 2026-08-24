@@ -51,7 +51,8 @@ import { QUICK_TARGET_KG, quickPalletDraft, withinTolerance } from '@/features/d
 import { meatPalletLabelZpl } from '@/features/deboning/meatPalletLabelZpl'
 import { getDevices, sendZpl, probeBrowserPrint } from '@/lib/zebra'
 import { getProductionDate } from '@/features/deboning/utils'
-import './DeboningHmiV10Page.css'
+import '@/features/hmi-theme/hmi-font.css'
+import { HMI_VARS } from '@/features/hmi-theme/vars'
 
 // Wstrzyknięte przez Vite (vite.config.ts) z tauri.rozbior-v10.conf.json —
 // widoczne na ekranie, żeby dało się na oko zweryfikować że cichy auto-update
@@ -76,25 +77,8 @@ const TEMPO_TARGET  = 800  // kg/h — cel linii
 type ActiveField = 'taken' | 'meat'
 type StatsSort = 'taken' | 'meat' | 'yield' | 'count'
 
-/** Paleta — biel + jeden akcent indygo. Kontrast zweryfikowany WCAG. */
-const VARS: CSSProperties = {
-  ['--bg' as string]:         '#E7EAEE',
-  ['--panel' as string]:      '#FFFFFF',
-  ['--ink' as string]:        '#0F172A',
-  ['--mut' as string]:        '#5B6472',
-  ['--line' as string]:       '#D8DEE6',
-  ['--lineSoft' as string]:   '#E2E5EA',
-  ['--accent' as string]:     '#4F46E5',
-  ['--accentSoft' as string]: '#EEF2FF',
-  ['--barBg' as string]:      '#D3DBF7',
-  ['--success' as string]:    '#16A34A',
-  ['--amb' as string]:        '#B45309',
-  ['--ambSoft' as string]:    '#FFFBF3',
-  ['--ambLine' as string]:    '#F3D9AE',
-  ['--red' as string]:        '#DC2626',
-  ['--redSoft' as string]:    '#FEF2F2',
-  ['--redLine' as string]:    '#F6C6C6',
-}
+/** Paleta stanowisk hali — jedno źródło w features/hmi-theme. */
+const VARS = HMI_VARS
 
 // Progi wydajności (decyzja operatora 2026-07-07): >=66% dobra/super (zielona),
 // 65% „w miarę" (bursztyn), poniżej 65% słaba (czerwona).

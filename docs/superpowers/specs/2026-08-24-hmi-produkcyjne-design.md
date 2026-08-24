@@ -88,6 +88,16 @@ dnia. Świadomie z boku, nie w liście — to nie jest pozycja planu.
 (`2x472, 6xPP13, 1x472/PP13`) i zjadłby czytelność wiersza. Operator zobaczy go
 po dotknięciu pozycji, czyli wtedy, gdy jest mu potrzebny.
 
+## Postęp dnia — procent liczony z kilogramów
+
+Pasek planu podaje `4 200 / 11 900 kg` i obok **procent**, wielkim drukiem:
+to jedna liczba, po której operator wie, gdzie jest dzień. Ten sam procent stoi
+przy każdej pozycji, obok paska.
+
+Procent liczymy **z kilogramów**, nie ze sztuk — dzień z samych 40-kilogramowych
+kebabów i dzień z 10-kilogramowych mają inną wagę, a plan rozlicza się w kg.
+Sztuki zostają na ekranie, ale jako liczba drugorzędna.
+
 ## Wygląd — tożsamy z HMI rozbiorowym
 
 Decyzja właściciela 24.08.2026: produkcja ma wyglądać **tak samo jak rozbiór**,

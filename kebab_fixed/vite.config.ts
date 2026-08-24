@@ -14,12 +14,17 @@ const rozbiorV10Version = JSON.parse(
 const rozbiorV11Version = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, 'src-tauri/tauri.rozbior-v11.conf.json'), 'utf-8')
 ).version as string
+// Stanowisko produkcyjne — osobny kiosk, osobny kanał aktualizacji.
+const produkcjaVersion = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, 'src-tauri/tauri.produkcja.conf.json'), 'utf-8')
+).version as string
 
 export default defineConfig({
   plugins: [react()],
   define: {
     __ROZBIOR_V10_VERSION__: JSON.stringify(rozbiorV10Version),
     __ROZBIOR_V11_VERSION__: JSON.stringify(rozbiorV11Version),
+    __PRODUKCJA_VERSION__: JSON.stringify(produkcjaVersion),
   },
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
@@ -37,6 +42,8 @@ export default defineConfig({
         'rozbior-v10': path.resolve(__dirname, 'rozbior-v10.html'),
         // Wariant v11 „wzmocnione prowadzenie" — ten sam ekran + baner kroków
         'rozbior-v11': path.resolve(__dirname, 'rozbior-v11.html'),
+        // Stanowisko produkcyjne — plan dnia i liczenie sztuk
+        'produkcja': path.resolve(__dirname, 'produkcja.html'),
       },
       output: {
         // Podział na paczki wg biblioteki.

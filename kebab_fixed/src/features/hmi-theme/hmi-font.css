@@ -1,4 +1,7 @@
-/* DeboningHmiV10Page.css — lokalny font liczb HMI v10 (offline, bez CDN). Etykiety/nagłówki: systemowy font (jak v5/v7). */
+/* hmi-font.css — krój liczb dla WSZYSTKICH stanowisk hali (rozbiór, produkcja).
+   Wożony LOKALNIE (public/fonts/rozbior-v10/), bo hala pracuje bez internetu:
+   CDN oznaczałby cyfry w foncie zastępczym przy pierwszym starcie po awarii
+   sieci. Etykiety i nagłówki zostają na kroju systemowym (jak v5/v7). */
 
 @font-face {
   font-family: 'IBM Plex Mono HMI';
