@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   PALLET_TARGETS, TOLERANCE_KG, withinTolerance, stackNetKg, proposeLots,
-  quickPalletDraft, overBudgetLots,
+  quickPalletDraft, overBudgetLots, proposeLotsFromActive, lotProgress, targetFitsLot, targetGate,
 } from './meatPallet'
 
 describe('PALLET_TARGETS — kafelki celu', () => {
@@ -177,5 +177,142 @@ describe('overBudgetLots — strażnik wydajności partii na palecie', () => {
   it('zaokrąglenie wagi nie wywołuje alarmu', () => {
     expect(overBudgetLots([{ lotNo: '478', kg: 118.53 }], wolne)).toEqual([])
     expect(overBudgetLots([{ lotNo: '478', kg: 119 }], wolne)).toHaveLength(1)
+  })
+})
+
+/**
+ * Skład palety liczony OD PARTII, KTÓRĄ ROZBIERA HALA.
+ *
+ * 24.08.2026 na masownię pojechała paleta z etykietą „485", mimo że ważono
+ * partię 503. Ekran nie wiedział, co stoi na wadze, więc `proposeLots` szło po
+ * puli od najstarszego terminu, a na jej szczycie stała 485 — i podpowiadało ją
+ * przy KAŻDEJ palecie. Operator musiał to nadpisywać za każdym razem; raz nie
+ * nadpisał i wyszła zła etykieta.
+ */
+describe('proposeLotsFromActive — najpierw partia z ekranu, nie najstarsza w puli', () => {
+  // Pula w kolejności FEFO, dokładnie jak z API: 485 najstarsza.
+  const pula = [
+    { lotNo: '485', kgFree: 2360 },
+    { lotNo: '502', kgFree: 1803 },
+    { lotNo: '503', kgFree: 193 },
+  ]
+
+  it('bierze z partii wskazanej na ekranie, choć w puli stoi starsza', () => {
+    expect(proposeLotsFromActive('503', pula, 100)).toEqual({
+      picks: [{ lotNo: '503', kg: 100 }], fromOtherLotsKg: 0, unassignedKg: 0,
+    })
+  })
+
+  it('resztki nie dobiera po cichu — mówi, ile musi wejść z innej partii', () => {
+    const r = proposeLotsFromActive('503', pula, 250)
+    expect(r.picks).toEqual([{ lotNo: '503', kg: 193 }, { lotNo: '485', kg: 57 }])
+    expect(r.fromOtherLotsKg).toBe(57)
+  })
+
+  it('partia z ekranu nie powtarza się w dobieraniu reszty', () => {
+    const r = proposeLotsFromActive('503', pula, 250)
+    expect(r.picks.filter(p => p.lotNo === '503')).toHaveLength(1)
+  })
+
+  it('bez wskazanej partii zachowuje się jak dotąd — czyste FEFO', () => {
+    expect(proposeLotsFromActive(null, pula, 100)).toEqual({
+      picks: [{ lotNo: '485', kg: 100 }], fromOtherLotsKg: 100, unassignedKg: 0,
+    })
+  })
+
+  it('partia z ekranu spoza puli nie wymyśla kilogramów', () => {
+    const r = proposeLotsFromActive('999', pula, 100)
+    expect(r.picks).toEqual([{ lotNo: '485', kg: 100 }])
+    expect(r.fromOtherLotsKg).toBe(100)
+  })
+
+  it('braku pokrycia nie dopisuje do ostatniej partii', () => {
+    const r = proposeLotsFromActive('503', [{ lotNo: '503', kgFree: 193 }], 250)
+    expect(r.picks).toEqual([{ lotNo: '503', kg: 193 }])
+    expect(r.unassignedKg).toBe(57)
+  })
+})
+
+/**
+ * Licznik nad wagą: ile z tej partii już zeszło na palety i ile jeszcze wolno.
+ * Bez niego strażnik jest niewidoczny — operator dowiaduje się o limicie
+ * dopiero, gdy backend odrzuci zapis (albo nie dowiaduje się wcale, bo FEFO
+ * po cichu przerzuca nadmiar na inną partię).
+ */
+describe('lotProgress — postęp ważenia partii', () => {
+  it('rozkłada partię na zważone / na paletach / zostało', () => {
+    expect(lotProgress({ lotNo: '503', kgInitial: 493, kgBulkFree: 193 })).toEqual({
+      lotNo: '503', weighedKg: 493, onPalletsKg: 300, leftKg: 193,
+    })
+  })
+
+  it('świeża partia ma zero na paletach', () => {
+    expect(lotProgress({ lotNo: '504', kgInitial: 500, kgBulkFree: 500 }).onPalletsKg).toBe(0)
+  })
+
+  it('bez limitu z backendu nie udaje wiedzy — zostało równa się zważone', () => {
+    expect(lotProgress({ lotNo: '503', kgInitial: 493 })).toEqual({
+      lotNo: '503', weighedKg: 493, onPalletsKg: 0, leftKg: 493,
+    })
+  })
+})
+
+describe('targetFitsLot — kafelek celu kontra reszta partii', () => {
+  it('kafelek większy niż reszta partii jest nieosiągalny', () => {
+    expect(targetFitsLot(600, 193)).toBe(false)
+  })
+
+  it('kafelek mieszczący się w reszcie jest dostępny', () => {
+    expect(targetFitsLot(100, 193)).toBe(true)
+  })
+
+  it('równo na styk przechodzi — z tolerancją wagi', () => {
+    expect(targetFitsLot(200, 200)).toBe(true)
+    expect(targetFitsLot(200, 199.97)).toBe(true)
+  })
+
+  it('nieznany limit niczego nie blokuje', () => {
+    expect(targetFitsLot(600, null)).toBe(true)
+  })
+})
+
+/**
+ * Bramka kafelka: najpierw wyczerp partię całymi paletami, dopiero KOŃCÓWKĘ
+ * wolno połączyć z kolejną partią.
+ *
+ * Z 490 kg wychodzi 200 + 200 i zostaje 90 — i dopiero te 90 kg wolno dobić
+ * mięsem z następnej partii. Bez tej reguły ekran albo puszczał 600 kg
+ * z partii, która dała 490 (dobierając resztę po cichu), albo — gdyby twardo
+ * blokować wszystko ponad resztę — nie dałoby się w ogóle zużyć końcówki.
+ */
+describe('targetGate — kiedy wolno łączyć partie', () => {
+  const cele = [100, 200, 400, 600, 800]
+
+  it('cel mieszczący się w partii jest zwyczajnie dostępny', () => {
+    expect(targetGate(200, 490, cele)).toBe('ok')
+  })
+
+  it('cel ponad resztę jest ZABLOKOWANY, dopóki z reszty wyjdzie mniejsza paleta', () => {
+    expect(targetGate(600, 490, cele)).toBe('blocked')
+    expect(targetGate(400, 193, cele)).toBe('blocked')
+  })
+
+  it('końcówkę, z której nie wyjdzie żadna cała paleta, wolno połączyć', () => {
+    expect(targetGate(200, 90, cele)).toBe('combine')
+    expect(targetGate(100, 90, cele)).toBe('combine')
+  })
+
+  it('wyczerpana partia nie blokuje ważenia z następnej', () => {
+    expect(targetGate(200, 0, cele)).toBe('combine')
+  })
+
+  it('nieznany limit niczego nie blokuje', () => {
+    expect(targetGate(600, null, cele)).toBe('ok')
+  })
+
+  it('scenariusz z hali: 490 kg to 200 + 200, a potem 90 do połączenia', () => {
+    expect(targetGate(200, 490, cele)).toBe('ok')
+    expect(targetGate(200, 290, cele)).toBe('ok')
+    expect(targetGate(200, 90,  cele)).toBe('combine')
   })
 })

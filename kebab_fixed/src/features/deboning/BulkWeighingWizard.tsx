@@ -22,7 +22,8 @@ import { getDevices, sendZpl, probeBrowserPrint } from '@/lib/zebra'
 import { byproductTareOptions, E2_TARE_KG } from '@/features/deboning/utils/weighing'
 import { getProductionDate } from '@/features/deboning/utils'
 import {
-  PALLET_TARGETS, TOLERANCE_KG, overBudgetLots, proposeLots, stackNetKg,
+  PALLET_TARGETS, TOLERANCE_KG, overBudgetLots, proposeLotsFromActive, stackNetKg,
+  lotProgress, targetGate,
   withinTolerance, type LotPick, type PalletTarget,
 } from '@/features/deboning/meatPallet'
 import { meatPalletLabelZpl } from '@/features/deboning/meatPalletLabelZpl'
@@ -56,11 +57,18 @@ const r1 = (n: number) => Math.round(n * 10) / 10
 const wolneNaPalety = (m: MeatStock): number =>
   Number(m.kgBulkFree ?? m.kgAvailable ?? 0)
 
-export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
+export function BulkWeighingWizard({ scale, cartTares, operator, activeBatchNo, onClose }: {
   scale: ScaleState
   /** Tary wózków z ustawień firmy — ta sama lista co przy rozbiorze. */
   cartTares: number[]
   operator: string
+  /** Partia zaznaczona na ekranie rozbioru — TA, którą hala właśnie waży.
+   *
+   *  Bez niej skład palety proponowało czyste FEFO po całej puli, więc na
+   *  szczycie stawał najstarszy żywy lot i podpowiadał się przy KAŻDEJ
+   *  palecie. 24.08.2026 pojechała tak na masownię paleta z etykietą „485",
+   *  choć ważono 503. */
+  activeBatchNo?: string
   onClose: () => void
 }) {
   const [phase, setPhase] = useState<Phase>('target')
@@ -81,6 +89,9 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
   // Bufor tekstowy pola kg przy partii — bez niego kasowanie cyfry (pusty
   // string) natychmiast wracałoby jako 0 i nie dałoby się nic dopisać.
   const [kgEdit, setKgEdit] = useState<{ idx: number; text: string } | null>(null)
+  // Ile kg weszło z partii INNEJ niż ta z ekranu i czy operator to potwierdził.
+  const [dobraneZInnych, setDobraneZInnych] = useState(0)
+  const [laczenieOk,     setLaczenieOk]     = useState(true)
 
   const odswiezZwazone = useCallback(() => {
     meatPalletsApi.list(getProductionDate())
@@ -97,6 +108,22 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
       .then(r => setPool(r.data.filter(m => wolneNaPalety(m) > 0)))
       .catch(() => setPool([]))
   }, [])
+
+  // Postęp aktywnej partii — licznik nad wagą. Strażnik limitu istniał, ale
+  // był niewidoczny: operator dowiadywał się o nim najwyżej przy odmowie
+  // zapisu, a najczęściej wcale, bo dobieranie FEFO po cichu przerzucało
+  // nadmiar na inną partię.
+  const aktywna = useMemo(
+    () => pool.find(m => m.lotNo === (activeBatchNo ?? '').trim()),
+    [pool, activeBatchNo],
+  )
+  const postep = useMemo(
+    () => (aktywna ? lotProgress({
+      lotNo: aktywna.lotNo, kgInitial: aktywna.kgInitial, kgBulkFree: aktywna.kgBulkFree,
+    }) : null),
+    [aktywna],
+  )
+  const celeKg = useMemo(() => PALLET_TARGETS.map(t => t.totalKg), [])
 
   const containers = parseInt(containersStr || '0', 10) || 0
   const isFirst = stacks.length === 0
@@ -166,7 +193,12 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
 
   function przejdzDoSkladu(suma: number) {
     const dostepne = pool.map(m => ({ lotNo: m.lotNo, kgFree: wolneNaPalety(m) }))
-    setLots(proposeLots(dostepne, suma).picks)
+    const r = proposeLotsFromActive(activeBatchNo, dostepne, suma)
+    setLots(r.picks)
+    // Dobranie z innej partii nie może przejść po cichu — operator ma to
+    // potwierdzić świadomie, bo to ono zrobiło z palety 503 etykietę „485".
+    setDobraneZInnych(r.fromOtherLotsKg)
+    setLaczenieOk(r.fromOtherLotsKg <= 0)
     setPhase('summary')
   }
 
@@ -280,16 +312,63 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
 
         {phase === 'target' ? (
           <div className="flex flex-col gap-5 p-8">
+            {/* Licznik partii — to ON jest „widocznym strażnikiem". Mówi wprost,
+                ile z tej partii zważono, ile już pojechało na paletach i ile
+                jeszcze wolno wydać. */}
+            {postep && (
+              <div className="flex items-center justify-between px-5 py-3"
+                style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
+                <div className="flex items-baseline gap-3">
+                  <span className="text-xs font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.06em' }}>Partia</span>
+                  <span className="text-3xl font-extrabold" style={{ fontFamily: MONO, color: 'var(--accent)' }} data-testid="bw-partia">
+                    {postep.lotNo}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-5 text-sm font-bold" style={{ fontFamily: MONO }} data-testid="bw-licznik">
+                  <span style={{ color: 'var(--mut)' }}>zważone {postep.weighedKg} kg</span>
+                  <span style={{ color: 'var(--mut)' }}>na paletach {postep.onPalletsKg} kg</span>
+                  <span className="text-2xl" style={{ color: postep.leftKg > 0 ? 'var(--ink)' : '#B91C1C' }}>
+                    zostało {postep.leftKg} kg
+                  </span>
+                </div>
+              </div>
+            )}
             <div className="text-center font-extrabold text-2xl">Ile ma ważyć?</div>
             <div className="grid grid-cols-3 gap-4">
-              {PALLET_TARGETS.map(t => (
-                <button key={t.key} type="button" onClick={() => wybierzCel(t)}
-                  className="h-32 flex flex-col items-center justify-center gap-2 font-extrabold"
-                  style={{ borderRadius: 14, background: 'var(--panel)', border: '2px solid var(--accent)', color: 'var(--accent)' }}>
-                  <span className="text-4xl" style={{ color: 'var(--ink)' }}>{t.label}</span>
-                  <span className="text-xs font-bold" style={{ color: 'var(--mut)' }}>{t.hint}</span>
-                </button>
-              ))}
+              {PALLET_TARGETS.map(t => {
+                // Partię wyczerpuje się CAŁYMI paletami; dopiero końcówkę wolno
+                // dobić z następnej. Stąd trzy stany kafelka, nie dwa.
+                const gate = targetGate(t.totalKg, postep?.leftKg ?? null, celeKg)
+                const zablokowany = gate === 'blocked'
+                return (
+                  <button key={t.key} type="button"
+                    disabled={zablokowany}
+                    data-testid={`bw-cel-${t.key}`}
+                    data-gate={gate}
+                    onClick={() => { if (!zablokowany) wybierzCel(t) }}
+                    className="h-32 flex flex-col items-center justify-center gap-1.5 font-extrabold"
+                    style={{
+                      borderRadius: 14,
+                      background: zablokowany ? 'var(--bg)' : 'var(--panel)',
+                      border: `2px solid ${zablokowany ? 'var(--line)' : 'var(--accent)'}`,
+                      color: zablokowany ? 'var(--mut)' : 'var(--accent)',
+                      opacity: zablokowany ? 0.55 : 1,
+                    }}>
+                    <span className="text-4xl" style={{ color: zablokowany ? 'var(--mut)' : 'var(--ink)' }}>{t.label}</span>
+                    <span className="text-xs font-bold" style={{ color: 'var(--mut)' }}>{t.hint}</span>
+                    {zablokowany && (
+                      <span className="text-[11px] font-bold" style={{ color: '#B91C1C' }}>
+                        z partii {postep?.lotNo} zostało {postep?.leftKg} kg
+                      </span>
+                    )}
+                    {gate === 'combine' && postep && (
+                      <span className="text-[11px] font-bold" style={{ color: 'var(--accent)' }}>
+                        końcówka {postep.leftKg} kg + kolejna partia
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
             {/* Wejście do tego, co już zważono dziś — po to, żeby dało się
                 dodrukować etykietę, gdy oryginał się rozmoczy albo urwie. */}
@@ -505,6 +584,29 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
 
             {/* Strażnik partii — ten sam rachunek co na backendzie, tyle że
                 widoczny, zanim operator dojdzie do zapisu. */}
+            {/* Dobranie mięsa z INNEJ partii niż ta z ekranu. Dokładnie to
+                zrobiło z palety 503 etykietę „485" — więc nie przechodzi po
+                cichu: operator musi to potwierdzić palcem. */}
+            {dobraneZInnych > 0.05 && (
+              <div className="flex flex-col gap-3 px-4 py-3" data-testid="bw-laczenie"
+                style={{ borderRadius: 12, background: '#FEF3C7', border: '1.5px solid #F59E0B' }}>
+                <div className="text-sm font-bold" style={{ color: '#92400E' }}>
+                  {postep
+                    ? `Z partii ${postep.lotNo} zostało ${postep.leftKg} kg — brakujące ${fmtKg(dobraneZInnych, 1)} kg dobrano z kolejnej partii.`
+                    : `${fmtKg(dobraneZInnych, 1)} kg dobrano z innej partii.`}
+                  {' '}Sprawdź skład poniżej — wejdzie na etykietę.
+                </div>
+                {!laczenieOk && (
+                  <button type="button" onClick={() => setLaczenieOk(true)}
+                    data-testid="bw-laczenie-ok"
+                    className="h-12 font-extrabold"
+                    style={{ borderRadius: 10, background: '#F59E0B', color: '#fff' }}>
+                    Tak, paleta jest z dwóch partii
+                  </button>
+                )}
+              </div>
+            )}
+
             {przekroczenia.length > 0 && (
               <div className="flex flex-col gap-1.5 px-5 py-3.5" style={{ borderRadius: 12, background: '#FEE2E2', border: '1.5px solid #FCA5A5' }}>
                 {przekroczenia.map(x => (
@@ -528,12 +630,12 @@ export function BulkWeighingWizard({ scale, cartTares, operator, onClose }: {
                 <ArrowLeft size={20} /> Wróć do ważenia
               </button>
               <button type="button" onClick={zapiszIDrukuj}
-                disabled={phase === 'saving' || Math.abs(doPrzypisania) > 0.05 || lots.length === 0 || przekroczenia.length > 0}
+                disabled={phase === 'saving' || Math.abs(doPrzypisania) > 0.05 || lots.length === 0 || przekroczenia.length > 0 || !laczenieOk}
                 className="h-16 font-extrabold text-lg flex items-center justify-center gap-2"
                 style={{
                   borderRadius: 12,
-                  background: Math.abs(doPrzypisania) > 0.05 || lots.length === 0 || przekroczenia.length > 0 ? 'var(--panel)' : 'var(--success)',
-                  color: Math.abs(doPrzypisania) > 0.05 || lots.length === 0 || przekroczenia.length > 0 ? 'var(--mut)' : '#fff',
+                  background: Math.abs(doPrzypisania) > 0.05 || lots.length === 0 || przekroczenia.length > 0 || !laczenieOk ? 'var(--panel)' : 'var(--success)',
+                  color: Math.abs(doPrzypisania) > 0.05 || lots.length === 0 || przekroczenia.length > 0 || !laczenieOk ? 'var(--mut)' : '#fff',
                   border: '1px solid var(--line)',
                 }}>
                 <Printer size={22} /> {phase === 'saving' ? 'Zapisuję…' : 'Zapisz i drukuj'}

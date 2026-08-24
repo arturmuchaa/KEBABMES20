@@ -1765,7 +1765,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       {/* Ważenie zbiorcze mięsa — równe palety i wózki dla masowni. */}
       {bulkOpen && (
         <BulkWeighingWizard scale={scale} cartTares={cartTares}
-          operator={loggedInUser?.name ?? ''} onClose={() => setBulkOpen(false)} />
+          operator={loggedInUser?.name ?? ''}
+          activeBatchNo={selBatch?.internalBatchNo}
+          onClose={() => setBulkOpen(false)} />
       )}
 
       {/* Prompt po zakończeniu partii — zważyć uboczne teraz czy później. */}

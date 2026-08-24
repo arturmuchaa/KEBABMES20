@@ -90,6 +90,121 @@ export function proposeLots(
   return { picks, unassignedKg: Math.max(0, zostalo) }
 }
 
+export interface ActiveLotResult extends FefoResult {
+  /** Ile kilogramów musi wejść z INNYCH partii niż ta z ekranu. 0 = paleta
+   *  w całości z jednej partii. Ekran pyta o zgodę, zamiast dobierać po cichu. */
+  fromOtherLotsKg: number
+}
+
+/**
+ * Skład palety liczony OD PARTII, KTÓRĄ ROZBIERA HALA.
+ *
+ * `proposeLots` idzie po puli od najstarszego terminu i nie wie, co stoi na
+ * wadze. 24.08.2026 wyjechała przez to paleta z etykietą „485", choć ważono
+ * 503: 485 była najstarszym żywym lotem, więc ekran podpowiadał ją przy każdej
+ * palecie, a operator musiał ją nadpisywać za każdym razem.
+ *
+ * Tutaj partia z ekranu idzie PIERWSZA i do wyczerpania, a dopiero brakującą
+ * resztę dobieramy FEFO z pozostałych — i zwracamy ją osobno w
+ * `fromOtherLotsKg`, żeby ekran mógł o nią zapytać zamiast milczeć.
+ *
+ * Bez wskazanej partii (albo gdy nie ma jej w puli) zachowujemy się dokładnie
+ * jak dotąd — czyste FEFO. Brak wiedzy nie może zablokować ważenia.
+ */
+export function proposeLotsFromActive(
+  activeLotNo: string | null | undefined,
+  available: { lotNo: string; kgFree: number }[],
+  kg: number,
+): ActiveLotResult {
+  const nr = (activeLotNo ?? '').trim()
+  const active = nr ? available.find(l => l.lotNo === nr) : undefined
+  if (!active) {
+    const r = proposeLots(available, kg)
+    return { ...r, fromOtherLotsKg: r.picks.reduce((s, p) => s + p.kg, 0) }
+  }
+  // Partia z ekranu przodem, reszta puli w niezmienionej kolejności FEFO.
+  const r = proposeLots([active, ...available.filter(l => l.lotNo !== nr)], kg)
+  const fromOther = r.picks
+    .filter(p => p.lotNo !== nr)
+    .reduce((s, p) => s + p.kg, 0)
+  return { ...r, fromOtherLotsKg: Math.round(fromOther * 10) / 10 }
+}
+
+export interface LotProgress {
+  lotNo: string
+  /** Ile mięsa zważono z tej partii na rozbiorze (kg_initial lotu). */
+  weighedKg: number
+  /** Ile z tego zeszło już na palety. */
+  onPalletsKg: number
+  /** Ile jeszcze wolno wydać. */
+  leftKg: number
+}
+
+/**
+ * Postęp ważenia partii do licznika nad wagą: „zważone 493 · na paletach 300 ·
+ * zostało 193". Bez tego strażnik jest niewidoczny — operator dowiadywał się
+ * o limicie dopiero przy odmowie zapisu, a najczęściej wcale, bo dobieranie
+ * FEFO po cichu przerzucało nadmiar na inną partię.
+ *
+ * `kgBulkFree` liczy backend (wydajność partii minus to, co na paletach).
+ * Gdy go nie ma — starsza wersja backendu — nie udajemy wiedzy i pokazujemy
+ * całą wydajność jako dostępną.
+ */
+export function lotProgress(
+  m: { lotNo: string; kgInitial?: number | null; kgBulkFree?: number | null },
+): LotProgress {
+  const r1 = (n: number) => Math.round(n * 10) / 10
+  const weighed = r1(Number(m.kgInitial ?? 0))
+  const left = m.kgBulkFree == null ? weighed : r1(Number(m.kgBulkFree))
+  return {
+    lotNo: m.lotNo,
+    weighedKg: weighed,
+    onPalletsKg: r1(Math.max(0, weighed - left)),
+    leftKg: left,
+  }
+}
+
+/**
+ * Czy kafelek celu da się w ogóle zrobić z tego, co zostało w partii.
+ * Nieznany limit (null) niczego nie blokuje — brak wiedzy to nie zero.
+ */
+export function targetFitsLot(targetKg: number, leftKg: number | null | undefined): boolean {
+  if (leftKg == null) return true
+  return targetKg <= leftKg + BULK_TOL_KG + 1e-9
+}
+
+/** Co ekran robi z kafelkiem celu wobec reszty aktywnej partii. */
+export type TargetGate =
+  /** Mieści się w partii — zwykły wybór. */
+  | 'ok'
+  /** Ponad resztę partii, ale z tej reszty wyjdzie jeszcze cała mniejsza
+   *  paleta — najpierw zużyj partię, potem łącz. */
+  | 'blocked'
+  /** Końcówka partii: nie wyjdzie z niej żadna cała paleta, więc wolno dobić
+   *  mięsem z kolejnej — ze składem wypisanym na etykiecie. */
+  | 'combine'
+
+/**
+ * Kiedy wolno połączyć partie na jednej palecie.
+ *
+ * Zasada z hali: partię wyczerpuje się CAŁYMI paletami, a dopiero końcówkę
+ * dokłada do następnej. Z 490 kg wychodzi 200 + 200 i zostaje 90 — i dopiero
+ * te 90 kg wolno dobić z kolejnej partii.
+ *
+ * Twarde blokowanie wszystkiego ponad resztę byłoby błędem w drugą stronę:
+ * końcówki nie dałoby się wtedy zużyć wcale.
+ */
+export function targetGate(
+  targetKg: number,
+  leftKg: number | null | undefined,
+  targets: readonly number[],
+): TargetGate {
+  if (leftKg == null) return 'ok'
+  if (targetFitsLot(targetKg, leftKg)) return 'ok'
+  const wyjdzieMniejsza = targets.some(t => targetFitsLot(t, leftKg))
+  return wyjdzieMniejsza ? 'blocked' : 'combine'
+}
+
 export interface LotOverBudget { lotNo: string; kg: number; freeKg: number }
 
 /** Luz na zaokrąglenia wagi — ten sam, którym posługuje się backend. */
