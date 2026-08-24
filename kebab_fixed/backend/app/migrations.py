@@ -714,6 +714,27 @@ _DDL: list[str] = [
     # PEŁNA liczba, nigdy nie malało przy wydaniu). Teraz WZ dekrementuje
     # tę kolumnę, edycja/anulowanie WZ koryguje ją z powrotem.
     "ALTER TABLE byproduct_lots ADD COLUMN IF NOT EXISTS containers_available INTEGER",
+    # Materiały zużyte w dniu produkcyjnym (folia stretch i kolejne).
+    # `packaging.kg_used` jest NARASTAJĄCE — nie odpowie na pytanie „ile folii
+    # poszło 25.08", a tego potrzebuje koszt dnia. Zapis musi też przeżyć
+    # zamknięcie planu, bo koszt liczy się po fakcie, czasem po tygodniu.
+    """
+    CREATE TABLE IF NOT EXISTS production_day_materials (
+        id           TEXT PRIMARY KEY,
+        work_date    DATE NOT NULL,
+        packaging_id TEXT NOT NULL,
+        qty          NUMERIC(12,3) NOT NULL,
+        kind         TEXT NOT NULL,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        created_by   TEXT DEFAULT '',
+        CONSTRAINT production_day_materials_kind_ck
+            CHECK (kind IN ('pobranie','zwrot')),
+        CONSTRAINT production_day_materials_qty_ck CHECK (qty > 0)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS production_day_materials_dzien_idx "
+    "ON production_day_materials (work_date, packaging_id)",
+
     # CHECK w bazie nie nadążył za app/utils/stock.py: VALID_MOVEMENT_TYPES
     # ma od dawna też ADJUST/CANCEL, ale baza znała tylko IN/OUT/TRANSFORM —
     # każdy ruch tych dwóch typów (np. zwrot stanu po anulowaniu WZ) padał

@@ -2507,6 +2507,44 @@ function mapPlan(raw: any): any {
   }
 }
 
+// ─── Materiały dnia produkcyjnego (folia stretch) ─────────────
+export interface DayMaterialMove { kind: 'pobranie' | 'zwrot'; qty: number; at: string; by: string }
+export interface DayMaterial {
+  packagingId: string
+  name: string
+  unit: string
+  pobrane: number
+  zwrocone: number
+  zuzyte: number
+  moves: DayMaterialMove[]
+}
+
+function mapDayMaterial(r: any): DayMaterial {
+  return {
+    packagingId: r.packaging_id ?? r.packagingId ?? '',
+    name:        r.name ?? '',
+    unit:        r.unit ?? '',
+    pobrane:     Number(r.pobrane ?? 0),
+    zwrocone:    Number(r.zwrocone ?? 0),
+    zuzyte:      Number(r.zuzyte ?? 0),
+    moves:       (r.moves ?? []).map((m: any) => ({
+      kind: m.kind, qty: Number(m.qty ?? 0), at: m.at ?? '', by: m.by ?? '',
+    })),
+  }
+}
+
+export const dayMaterialsApi = {
+  forDay: (date: string) =>
+    get<any[]>(`/production-day-materials?date=${encodeURIComponent(date)}`)
+      .then(r => (Array.isArray(r) ? r : []).map(mapDayMaterial)),
+  /** Pobranie z magazynu — stan schodzi od razu. */
+  take: (workDate: string, packagingId: string, qty: number, by = '') =>
+    post<{ ok: boolean }>('/production-day-materials/take', { workDate, packagingId, qty, by }),
+  /** Zwrot niewykorzystanego przy zamykaniu dnia. */
+  giveBack: (workDate: string, packagingId: string, qty: number, by = '') =>
+    post<{ ok: boolean }>('/production-day-materials/return', { workDate, packagingId, qty, by }),
+}
+
 export const productionPlansApi = {
   list:         () => get<any[]>('/production-plans').then(r => r.map(mapPlan)),
   byId:         (id: string) => get<any>(`/production-plans/${id}`).then(mapPlan),
