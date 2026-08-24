@@ -24,6 +24,13 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
   },
+  // Stałe podstawiane normalnie przez vite.config przy budowaniu kiosku.
+  // Bez nich test ekranu hali wywraca się na ReferenceError, zanim cokolwiek
+  // sprawdzi — wartość jest nieistotna, liczy się samo istnienie.
+  define: {
+    __ROZBIOR_V10_VERSION__: JSON.stringify('test'),
+    __ROZBIOR_V11_VERSION__: JSON.stringify('test'),
+  },
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],

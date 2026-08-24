@@ -11,6 +11,7 @@
  */
 import { useState, useRef, useEffect, useMemo, useCallback, memo, type CSSProperties } from 'react'
 import { useApi } from '@/hooks/useApi'
+import { useLiveRefresh } from '@/hooks/useLiveRefresh'
 import { rawBatchesApi, usersApi, settingsApi, byproductsApi, meatPalletsApi, meatStockApi, type BatchByproducts } from '@/lib/apiClient'
 import { Spinner } from '@/components/ui/widgets'
 import { fmtKg, fmtPct, cn } from '@/lib/utils'
@@ -841,20 +842,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // wbudowane porównanie głębokie (shallowEqualByJson), więc gdy dane się nie
   // zmieniły, nie ma re-renderu — zero migania. batchData.refetch/workerData.
   // refetch mają stabilną referencję (useCallback z pustymi deps w useApi).
-  useEffect(() => {
-    const t = setInterval(() => {
-      batchData.refetch()
-      workerData.refetch()
-      byproductsData.refetch()
-      byprodToday.refetch()
-      // Bez tego licznik partii zamarzał: rozbiór dokłada mięso do lotu,
-      // a panel główny pokazywał stan sprzed wejścia na ekran.
-      meatStockData.refetch()
-      palletData.refetch()
-    }, 5000)
-    return () => clearInterval(t)
-  }, [batchData.refetch, workerData.refetch, byproductsData.refetch, byprodToday.refetch,
-      meatStockData.refetch, palletData.refetch])
+  // JEDEN rejestr żywych danych. Wcześniej była tu ręcznie pisana lista
+  // `refetch()` plus tablica zależności — dołożenie źródła wymagało pamiętania
+  // o DWÓCH miejscach i 24.08.2026 licznik partii przez to zamarzł. Teraz
+  // dopisanie źródła tutaj wystarcza; useLiveRefresh odświeża cały obiekt.
+  useLiveRefresh({
+    batchData, workerData, byproductsData, byprodToday, meatStockData, palletData,
+  })
 
   // Suma kg otwartych pobrań per partia — partia z pobraniami czekającymi na
   // wagę MUSI zostać aktywnym kaflem, nawet gdy kg_available spadło do zera
