@@ -54,6 +54,7 @@ _TRUNCATE = [
     "worker_hours", "worker_deductions", "payroll_kg_adjustments",
     "settlement_deductions", "settled_days", "payroll_settlements",
     "production_day_materials",
+    "production_wrapping",
 ]
 
 

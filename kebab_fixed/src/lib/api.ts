@@ -2539,6 +2539,18 @@ function mapDayMaterial(r: any): DayMaterial {
   }
 }
 
+// ─── Foliowanie (kilogramy foliowczyków per dzień) ────────────
+export interface WrappingEntry { workerId: string; workerName: string; kg: number; by?: string }
+
+export const wrappingApi = {
+  forDay: (date: string) =>
+    get<WrappingEntry[]>(`/production-wrapping?date=${encodeURIComponent(date)}`)
+      .then(r => (Array.isArray(r) ? r : [])),
+  /** Zapis nadpisuje wpis osoby na ten dzień; 0 kg usuwa. */
+  save: (workDate: string, entries: { workerId: string; workerName: string; kg: number }[], by = '') =>
+    post<{ ok: boolean; entries: number }>('/production-wrapping', { workDate, entries, by }),
+}
+
 export const dayMaterialsApi = {
   forDay: (date: string) =>
     get<any[]>(`/production-day-materials?date=${encodeURIComponent(date)}`)

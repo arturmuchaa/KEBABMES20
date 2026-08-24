@@ -18,12 +18,14 @@ const stan = vi.hoisted(() => ({
   plany: [] as any[],
   operatorzy: [] as any[],
   materialy: [] as any[],
+  foliowanie: [] as any[],
 }))
 const wolania = vi.hoisted(() => ({
   postep: [] as any[],
   finish: [] as any[],
   pobranie: [] as any[],
   zwrot: [] as any[],
+  foliowanieZapis: [] as any[],
 }))
 
 const kopia = <T,>(x: T): T => JSON.parse(JSON.stringify(x))
@@ -39,6 +41,14 @@ vi.mock('@/lib/api', () => ({
     },
     tabletFinish: (planId: string, entries: any[]) => {
       wolania.finish.push({ planId, entries }); return Promise.resolve({})
+    },
+  },
+  wrappingApi: {
+    forDay: () => Promise.resolve(kopia(stan.foliowanie)),
+    save: (workDate: string, entries: any[]) => {
+      wolania.foliowanieZapis.push({ workDate, entries })
+      stan.foliowanie = entries
+      return Promise.resolve({ ok: true, entries: entries.length })
     },
   },
   operatorsApi: { forDepartment: (d: string) => Promise.resolve(kopia(stan.operatorzy).map((o: any) => ({ ...o, dep: d }))) },
@@ -80,7 +90,9 @@ beforeEach(() => {
   }]
   stan.operatorzy = [{ id: 'w1', name: 'DAWID NOWAK' }, { id: 'w2', name: 'DENYS KOVAL' }]
   stan.materialy = [{ packagingId: 'f1', name: 'Folia stretch', unit: 'rolek', pobrane: 40, zwrocone: 0, zuzyte: 40, moves: [] }]
+  stan.foliowanie = []
   wolania.postep = []; wolania.finish = []; wolania.pobranie = []; wolania.zwrot = []
+  wolania.foliowanieZapis = []
 })
 afterEach(cleanup)
 
@@ -178,7 +190,7 @@ describe('ProductionHmiPage — okablowanie', () => {
     stan.plany[0].lines[0].workerEntries = [{ workerId: 'w1', workerName: 'DAWID', pieces: 4, addedAt: '' }]
     stan.plany[0].lines[0].qtyDone = 4
     render(<ProductionHmiPage buildLabel="test" />)
-    fireEvent.click(await screen.findByRole('button', { name: /Statystyki zmiany/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /Statystyki/i }))
 
     const wiersz = (await screen.findByText('DAWID')).closest('tr')!
     expect(within(wiersz).getByText('140')).toBeTruthy()   // 4 × 35 kg
@@ -210,5 +222,43 @@ describe('ProductionHmiPage — okablowanie', () => {
     stan.plany = []
     render(<ProductionHmiPage buildLabel="test" />)
     expect(await screen.findByText(/Biuro nie zaplanowało/i)).toBeTruthy()
+  })
+})
+
+describe('ProductionHmiPage — pasek dnia i foliowanie', () => {
+  it('pasek dnia pokazuje kilogramy, postęp i tempo cały czas na oku', async () => {
+    stan.plany[0].lines[0].qtyDone = 10          // 350 z 1100 kg
+    render(<ProductionHmiPage buildLabel="test" />)
+    await screen.findByText('WROCŁAW')
+
+    expect(screen.getByText('Zrobione')).toBeTruthy()
+    expect(screen.getByText('350 kg')).toBeTruthy()
+    expect(screen.getByText('32%')).toBeTruthy()
+    expect(screen.getByText(/Foliowanie/)).toBeTruthy()
+  })
+
+  it('kafel foliowania otwiera okno i zapisuje podział po równo', async () => {
+    stan.plany[0].lines[0].qtyDone = 20          // 700 kg zrobione
+    render(<ProductionHmiPage buildLabel="test" />)
+    await screen.findByText('WROCŁAW')
+
+    fireEvent.click(screen.getByRole('button', { name: /Foliowanie/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'DAWID NOWAK' }))
+    fireEvent.click(screen.getByRole('button', { name: 'DENYS KOVAL' }))
+    fireEvent.click(screen.getByRole('button', { name: /Podziel po równo/ }))
+    fireEvent.click(screen.getByTestId('zapisz-foliowanie'))
+
+    await waitFor(() => expect(wolania.foliowanieZapis).toHaveLength(1))
+    expect(wolania.foliowanieZapis[0].workDate).toBe(DZIEN)
+    expect(wolania.foliowanieZapis[0].entries).toEqual([
+      { workerId: 'w1', workerName: 'DAWID NOWAK', kg: 350 },
+      { workerId: 'w2', workerName: 'DENYS KOVAL', kg: 350 },
+    ])
+  })
+
+  it('zapisane foliowanie widać na pasku bez wchodzenia w okno', async () => {
+    stan.foliowanie = [{ workerId: 'w1', workerName: 'DAWID NOWAK', kg: 4000 }]
+    render(<ProductionHmiPage buildLabel="test" />)
+    expect(await screen.findByText('4000 kg')).toBeTruthy()
   })
 })

@@ -16,7 +16,7 @@ import { Spinner } from '@/components/ui/widgets'
 import { useApi } from '@/hooks/useApi'
 import { useLiveRefresh } from '@/hooks/useLiveRefresh'
 import { useAuth } from '@/features/auth/AuthContext'
-import { dayMaterialsApi, operatorsApi, productionPlansApi } from '@/lib/api'
+import { dayMaterialsApi, operatorsApi, productionPlansApi, wrappingApi } from '@/lib/api'
 import { getProductionDate } from '@/features/deboning/utils'
 import { HMI_VARS, HMI_FONT } from '@/features/hmi-theme/vars'
 import '@/features/hmi-theme/hmi-font.css'
@@ -33,6 +33,8 @@ import { MaterialsRail } from '@/features/production-hmi/components/MaterialsRai
 import { BreakOverlay } from '@/features/production-hmi/components/BreakOverlay'
 import { ShiftStats } from '@/features/production-hmi/components/ShiftStats'
 import { DaySummary } from '@/features/production-hmi/components/DaySummary'
+import { WrappingModal } from '@/features/production-hmi/components/WrappingModal'
+import { wrappedTotal } from '@/features/production-hmi/wrapping'
 
 declare const __PRODUKCJA_VERSION__: string
 
@@ -60,15 +62,17 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   const planData = useApi(() => productionPlansApi.list())
   const opsData = useApi(() => operatorsApi.forDepartment(DZIAL))
   const matData = useApi(() => dayMaterialsApi.forDay(dzien))
+  const wrapData = useApi(() => wrappingApi.forDay(dzien))
 
   // Jeden rejestr źródeł — dopisanie kolejnego nie wymaga pamiętania o drugim
   // miejscu (patrz incydent zamrożonego licznika na rozbiorze).
-  useLiveRefresh({ planData, opsData, matData })
+  useLiveRefresh({ planData, opsData, matData, wrapData })
 
   const [wybranaPozycja, setWybranaPozycja] = useState<string | null>(null)
   const [pracownik, setPracownik] = useState('')
   const [przerwy, setPrzerwy] = useState<BreakState>(BRAK_PRZERW)
   const [statystykiOtwarte, setStatystykiOtwarte] = useState(false)
+  const [foliowanieOtwarte, setFoliowanieOtwarte] = useState(false)
   const [podsumowanie, setPodsumowanie] = useState(false)
   const [zajety, setZajety] = useState(false)
   const [toast, setToast] = useState('')
@@ -143,6 +147,11 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   const operatorzy = opsData.data ?? []
   const pozycja = linie.find(l => l.id === wybranaPozycja) ?? null
 
+  const foliowanie = wrapData.data ?? []
+  const zafoliowane = useMemo(() => wrappedTotal(foliowanie), [foliowanie])
+  // Tuleja idzie jedna na sztukę — zużycie dnia to po prostu zrobione sztuki.
+  const tulejeZuzyte = totals.sztDone
+
   const pokazToast = (t: string) => { setToast(t); setTimeout(() => setToast(''), 3000) }
 
   // ── Zapis sztuk ──
@@ -184,6 +193,21 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
       pokazToast(e?.message || 'Nie udało się pobrać folii')
     }
   }, [foliaId, dzien, user, matData])
+
+  // ── Foliowanie ──
+  const zapiszFoliowanie = useCallback(async (shares: { workerId: string; workerName: string; kg: number }[]) => {
+    setZajety(true)
+    try {
+      await wrappingApi.save(dzien, shares, user?.name ?? '')
+      wrapData.refetch()
+      setFoliowanieOtwarte(false)
+      pokazToast('Foliowanie zapisane')
+    } catch (e: any) {
+      pokazToast(e?.message || 'Nie udało się zapisać foliowania')
+    } finally {
+      setZajety(false)
+    }
+  }, [dzien, user, wrapData])
 
   // ── Zakończenie dnia ──
   const zakonczDzien = useCallback(async (zwrot: number) => {
@@ -248,8 +272,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
         </div>
         {([
           { label: 'Plan',     val: `${totals.kgPlan} kg` },
-          { label: 'Zrobione', val: `${totals.kgDone} kg` },
-          { label: 'Postęp',   val: `${totals.pct}%`, color: 'var(--accent)' },
+          { label: 'Pozycje',  val: String(linie.length) },
           { label: 'Operator', val: (user?.name ?? '—').split(' ')[0], color: 'var(--accent)' },
         ] as const).map(c => (
           <div key={c.label} className="flex flex-col justify-center pl-5 flex-shrink-0"
@@ -259,11 +282,6 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
           </div>
         ))}
         <div className="flex-1" />
-        <button type="button" onClick={() => setStatystykiOtwarte(true)}
-          className="h-9 px-4 text-[13px] font-bold flex-shrink-0"
-          style={{ border: '1px solid var(--line)', color: 'var(--mut)', borderRadius: 8, background: 'var(--panel)' }}>
-          Statystyki zmiany
-        </button>
         <button type="button" onClick={() => setPrzerwy(s => breakStarted(s, new Date().toISOString()))}
           disabled={wPrzerwie} className="h-9 px-4 text-[13px] font-bold flex-shrink-0"
           style={{ border: '1px solid var(--ambLine)', color: 'var(--amb)', borderRadius: 8,
@@ -313,18 +331,55 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
             material={folia}
             onTake={pobierzFolie}
             shiftLines={[
-              `Zrobione: ${totals.kgDone} z ${totals.kgPlan} kg`,
-              `Tempo: ${stats.total.kgPerHour} kg/godz.`,
-              `Czas pracy: ${czasHM(stats.total.workedMs)}`,
+              `Start 06:00 · czas pracy ${czasHM(stats.total.workedMs)}`,
               przerwyMs > 0 ? `Przerwy: ${czasHM(przerwyMs)}` : 'Bez przerw',
+              `Tuleje zużyte: ${tulejeZuzyte} szt.`,
             ]}
           />
         </div>
       </div>
 
+      {/* Pasek dnia — ten sam wzorzec co w rozbiorze: 76 px, --barBg, kafle
+          z liczbą i podpisem, część klikalna (▸). Liczby dnia mają stać cały
+          czas na oku, a nie chować się w oknach. */}
+      <div className="flex-shrink-0 grid grid-cols-7" style={{ height: 76, background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
+        {([
+          { label: 'Zrobione',   val: `${totals.kgDone} kg` },
+          { label: 'Postęp',     val: `${totals.pct}%`, color: 'var(--accent)' },
+          { label: 'Tempo',      val: `${stats.total.kgPerHour} kg/h` },
+          { label: 'Sztuki',     val: `${totals.sztDone} / ${totals.sztPlan}` },
+          { label: 'Folia',      val: `${folia?.pobrane ?? 0} rolek` },
+          { label: 'Foliowanie', val: `${zafoliowane} kg`, onTap: () => setFoliowanieOtwarte(true) },
+        ] as { label: string; val: string; color?: string; onTap?: () => void }[]).map(c => c.onTap ? (
+          <button key={c.label} type="button" onClick={c.onTap}
+            className="flex flex-col items-center justify-center px-1 text-center active:scale-95 transition-transform"
+            style={{ borderRight: '1px solid var(--lineSoft)' }}>
+            <span className="hmi-v10-mono text-xl font-bold leading-none">{c.val}</span>
+            <span className="text-[10px] font-bold uppercase mt-1.5 leading-tight" style={{ color: 'var(--accent)' }}>{c.label} ▸</span>
+          </button>
+        ) : (
+          <div key={c.label} className="flex flex-col items-center justify-center px-1 text-center"
+            style={{ borderRight: '1px solid var(--lineSoft)' }}>
+            <span className="hmi-v10-mono text-xl font-bold leading-none" style={{ color: c.color ?? 'var(--ink)' }}>{c.val}</span>
+            <span className="text-[10px] font-bold uppercase mt-1.5 leading-tight" style={{ color: 'var(--mut)' }}>{c.label}</span>
+          </div>
+        ))}
+        <button type="button" onClick={() => setStatystykiOtwarte(true)}
+          className="flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-transform"
+          style={{ color: 'var(--accent)' }}>
+          <span className="text-xl leading-none">▤</span>
+          <span className="text-[10px] font-bold uppercase">Statystyki</span>
+        </button>
+      </div>
+
       {wPrzerwie && (
         <BreakOverlay startedAt={trwajacaOd} now={teraz}
           onEnd={() => setPrzerwy(s => breakEnded(s, new Date().toISOString()))} />
+      )}
+
+      {foliowanieOtwarte && (
+        <WrappingModal workers={operatorzy} saved={foliowanie} kgToday={totals.kgDone}
+          busy={zajety} onSave={zapiszFoliowanie} onClose={() => setFoliowanieOtwarte(false)} />
       )}
 
       {statystykiOtwarte && (

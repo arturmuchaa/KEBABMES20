@@ -735,6 +735,30 @@ _DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS production_day_materials_dzien_idx "
     "ON production_day_materials (work_date, packaging_id)",
 
+    # Foliowanie — kilogramy zafoliowane przez konkretną osobę w danym dniu.
+    # Pracy foliowczyka nie widać w liczniku sztuk (foliuje to, co zrobiła cała
+    # linia), a wchodzi do płacy tak samo jak układanie. UNIQUE na (dzień,
+    # pracownik), bo poprawka ma nadpisywać, nie dopisywać drugiej kwoty.
+    """
+    CREATE TABLE IF NOT EXISTS production_wrapping (
+        id          TEXT PRIMARY KEY,
+        work_date   DATE NOT NULL,
+        worker_id   TEXT NOT NULL,
+        worker_name TEXT DEFAULT '',
+        kg          NUMERIC(12,2) NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        created_by  TEXT DEFAULT '',
+        CONSTRAINT production_wrapping_kg_ck CHECK (kg > 0)
+    )
+    """,
+    "CREATE UNIQUE INDEX IF NOT EXISTS production_wrapping_dzien_osoba_idx "
+    "ON production_wrapping (work_date, worker_id)",
+
+    # Tuleje zdejmowane NA BIEŻĄCO przy zapisie sztuk. Licznik mówi, ile już
+    # zeszło z tej linii, żeby finish_day nie zdjął ich drugi raz przy
+    # potwierdzeniu biura (i żeby dni bez kiosku działały jak dotąd).
+    "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS packaging_used INTEGER NOT NULL DEFAULT 0",
+
     # CHECK w bazie nie nadążył za app/utils/stock.py: VALID_MOVEMENT_TYPES
     # ma od dawna też ADJUST/CANCEL, ale baza znała tylko IN/OUT/TRANSFORM —
     # każdy ruch tych dwóch typów (np. zwrot stanu po anulowaniu WZ) padał

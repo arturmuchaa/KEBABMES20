@@ -15,6 +15,7 @@ import { PlanChangedBanner } from './PlanChangedBanner'
 import { BreakOverlay } from './BreakOverlay'
 import { DaySummary } from './DaySummary'
 import { ShiftStats } from './ShiftStats'
+import { WrappingModal } from './WrappingModal'
 import type { PlanLineView } from './PlanList'
 
 afterEach(cleanup)
@@ -269,5 +270,75 @@ describe('ShiftStats', () => {
     render(<ShiftStats stats={{ perWorker: [], total: { kg: 0, pieces: 0, kgPerHour: 0, workers: 0, workedMs: 0 } }}
       date="25.08.2026" onClose={() => {}} />)
     expect(screen.getByText(/Jeszcze nikt nic nie zapisał/i)).toBeTruthy()
+  })
+})
+
+describe('WrappingModal — foliowczycy', () => {
+  const workers = [
+    { id: 'w3', name: 'VLAD' }, { id: 'w4', name: 'ADAM' }, { id: 'w5', name: 'PIOTR' },
+  ]
+  const props = (over: any = {}) => ({
+    workers, saved: [], kgToday: 8000, onSave: vi.fn(), onClose: vi.fn(), ...over,
+  })
+
+  it('„Podziel po równo" dzieli dzień między zaznaczonych', () => {
+    render(<WrappingModal {...props()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'VLAD' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ADAM' }))
+    fireEvent.click(screen.getByRole('button', { name: /Podziel po równo/ }))
+
+    expect(screen.getByTestId('kg-w3').textContent).toBe('4000 kg')
+    expect(screen.getByTestId('kg-w4').textContent).toBe('4000 kg')
+    expect(screen.getByTestId('suma-foliowania').textContent).toBe('8000 kg')
+  })
+
+  it('na trzech dzieli tak, żeby suma się zgadzała co do kilograma', () => {
+    render(<WrappingModal {...props({ kgToday: 1000 })} />)
+    workers.forEach(w => fireEvent.click(screen.getByRole('button', { name: w.name })))
+    fireEvent.click(screen.getByRole('button', { name: /Podziel po równo/ }))
+    expect(screen.getByTestId('suma-foliowania').textContent).toBe('1000 kg')
+  })
+
+  it('klawiatura numeryczna wpisuje kilogramy wybranej osobie', () => {
+    render(<WrappingModal {...props()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'VLAD' }))
+    fireEvent.click(screen.getByTestId('kg-w3'))
+    ;['4', '5', '00'].forEach(k => fireEvent.click(screen.getByRole('button', { name: k })))
+    expect(screen.getByTestId('kg-w3').textContent).toBe('4500 kg')
+  })
+
+  it('kasowanie cofa ostatnią cyfrę', () => {
+    render(<WrappingModal {...props()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'VLAD' }))
+    fireEvent.click(screen.getByTestId('kg-w3'))
+    ;['1', '2', '3'].forEach(k => fireEvent.click(screen.getByRole('button', { name: k })))
+    fireEvent.click(screen.getByRole('button', { name: 'skasuj' }))
+    expect(screen.getByTestId('kg-w3').textContent).toBe('12 kg')
+  })
+
+  it('zapis oddaje tylko zaznaczone osoby z ich kilogramami', () => {
+    const p = props()
+    render(<WrappingModal {...p} />)
+    fireEvent.click(screen.getByRole('button', { name: 'VLAD' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ADAM' }))
+    fireEvent.click(screen.getByRole('button', { name: /Podziel po równo/ }))
+    fireEvent.click(screen.getByTestId('zapisz-foliowanie'))
+
+    expect(p.onSave).toHaveBeenCalledWith([
+      { workerId: 'w3', workerName: 'VLAD', kg: 4000 },
+      { workerId: 'w4', workerName: 'ADAM', kg: 4000 },
+    ])
+  })
+
+  it('bez wpisanych kilogramów zapis jest zablokowany', () => {
+    const p = props()
+    render(<WrappingModal {...p} />)
+    fireEvent.click(screen.getByTestId('zapisz-foliowanie'))
+    expect(p.onSave).not.toHaveBeenCalled()
+  })
+
+  it('wpis z rana można poprawić — pokazuje zapisane kilogramy', () => {
+    render(<WrappingModal {...props({ saved: [{ workerId: 'w3', workerName: 'VLAD', kg: 1200 }] })} />)
+    expect(screen.getByTestId('kg-w3').textContent).toBe('1200 kg')
   })
 })

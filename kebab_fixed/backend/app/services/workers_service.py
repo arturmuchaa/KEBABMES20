@@ -251,28 +251,93 @@ def get_worker_days(worker_id: str, date_from: str, date_to: str) -> List[Dict]:
 
     if "PRODUCTION" in role:
         worker_name = worker.get("name", "") or ""
-        rows = query_all(
+
+        # Kilogramy KONKRETNEJ osoby, na tej samej zasadzie co rozbiór:
+        # tam każdy wpis ma worker_id, tu każdy wpis w `worker_entries` ma
+        # sztuki tej osoby, a waga sztuki stoi na pozycji planu.
+        #
+        # Stare źródło (SUM(total_kg) po nazwisku w worker_names) liczyło
+        # KAŻDEJ osobie CAŁE kilogramy pozycji — przy dwóch ludziach na
+        # pozycji 700 kg wychodziło 1400 kg do wypłaty.
+        ukladanie = query_all(
             """
-            SELECT DATE(added_at AT TIME ZONE 'Europe/Warsaw') AS work_date,
-                   SUM(total_kg) AS kg_total,
-                   COUNT(*)      AS session_count
-            FROM finished_goods_sessions
-            WHERE %s = ANY(worker_names)
-              AND DATE(added_at AT TIME ZONE 'Europe/Warsaw') BETWEEN %s AND %s
-            GROUP BY DATE(added_at AT TIME ZONE 'Europe/Warsaw')
-            ORDER BY work_date
+            SELECT p.plan_date::text                              AS work_date,
+                   SUM((e->>'pieces')::numeric * l.kg_per_unit)   AS kg_total,
+                   COUNT(*)                                       AS entries_count
+            FROM production_plan_lines l
+            JOIN production_plans p ON p.id = l.plan_id
+            CROSS JOIN LATERAL jsonb_array_elements(l.worker_entries) AS e
+            WHERE e->>'workerId' = %s
+              AND p.plan_date BETWEEN %s AND %s
+            GROUP BY p.plan_date
             """,
-            (worker_name, date_from, date_to),
+            (worker_id, date_from, date_to),
         )
-        days = [
-            {
-                "workDate": str(r["work_date"]),
+        foliowanie = query_all(
+            """
+            SELECT work_date::text AS work_date, SUM(kg) AS kg_total
+            FROM production_wrapping
+            WHERE worker_id = %s AND work_date BETWEEN %s AND %s
+            GROUP BY work_date
+            """,
+            (worker_id, date_from, date_to),
+        )
+
+        wg_dnia: Dict[str, Dict] = {}
+        for r in ukladanie:
+            d = str(r["work_date"])
+            wg_dnia[d] = {
+                "workDate": d,
                 "kgTotal": float(r["kg_total"] or 0),
-                "sessionCount": int(r["session_count"] or 0),
-                "settled": str(r["work_date"]) in settled_dates,
+                "kgStacked": float(r["kg_total"] or 0),
+                "kgWrapped": 0.0,
+                "entriesCount": int(r["entries_count"] or 0),
             }
-            for r in rows
-        ]
+        for r in foliowanie:
+            d = str(r["work_date"])
+            kg = float(r["kg_total"] or 0)
+            rek = wg_dnia.setdefault(d, {
+                "workDate": d, "kgTotal": 0.0, "kgStacked": 0.0,
+                "kgWrapped": 0.0, "entriesCount": 0,
+            })
+            rek["kgWrapped"] = kg
+            rek["kgTotal"] += kg
+
+        # Furtka dla wyrobu dodanego RĘCZNIE z biura (create_finished_goods):
+        # ta droga nie zapisuje sztuk per osoba, więc bez niej ludzie z takiego
+        # dnia straciliby kilogramy. Dni z rozbiciem jej nie dotykają, żeby nie
+        # policzyć tej samej pracy dwa razy.
+        if worker_name:
+            for r in query_all(
+                """
+                SELECT DATE(added_at AT TIME ZONE 'Europe/Warsaw') AS work_date,
+                       SUM(total_kg) AS kg_total,
+                       COUNT(*)      AS session_count
+                FROM finished_goods_sessions
+                WHERE %s = ANY(worker_names)
+                  AND DATE(added_at AT TIME ZONE 'Europe/Warsaw') BETWEEN %s AND %s
+                GROUP BY DATE(added_at AT TIME ZONE 'Europe/Warsaw')
+                """,
+                (worker_name, date_from, date_to),
+            ):
+                d = str(r["work_date"])
+                if d in wg_dnia:
+                    continue
+                wg_dnia[d] = {
+                    "workDate": d,
+                    "kgTotal": float(r["kg_total"] or 0),
+                    "kgStacked": float(r["kg_total"] or 0),
+                    "kgWrapped": 0.0,
+                    "sessionCount": int(r["session_count"] or 0),
+                }
+
+        days = []
+        for d in sorted(wg_dnia):
+            rek = wg_dnia[d]
+            rek["kgTotal"] = round(rek["kgTotal"], 2)
+            rek["settled"] = d in settled_dates
+            days.append(rek)
+
         return _apply_kg_adjustments(
             worker_id, date_from, date_to, days, settled_dates
         )
