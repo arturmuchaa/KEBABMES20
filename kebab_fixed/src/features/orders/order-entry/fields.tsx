@@ -145,6 +145,11 @@ export function ComboField({
   emptyHint?: string
 }) {
   const [query, setQuery] = useState('')
+  // Lista rozwija się NA ŻĄDANIE. Wcześniej wisiała otwarta przez samo to, że
+  // pole jest aktywne — a pierwsze pole jest aktywne od wejścia na ekran, więc
+  // operator dostawał spis wszystkich rodzajów zasłaniający pół terminala.
+  // Focus zostaje: pisanie, ↓ albo klik rozwijają ją natychmiast.
+  const [open, setOpen] = useState(false)
   const [hi, setHi] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef  = useRef<HTMLDivElement>(null)
@@ -160,11 +165,13 @@ export function ComboField({
   )
   const selected = all.find(i => i.id === value)
 
-  // Wejście w pole: czyścimy zapytanie i stajemy na aktualnym wyborze.
+  // Wejście w pole: czyścimy zapytanie, zwijamy listę i stajemy na aktualnym
+  // wyborze.
   useLayoutEffect(() => {
-    if (!active) { setQuery(''); return }
+    if (!active) { setQuery(''); setOpen(false); return }
     if (document.activeElement !== inputRef.current) inputRef.current?.focus()
     setQuery('')
+    setOpen(false)
     const idx = all.findIndex(i => i.id === value)
     setHi(idx >= 0 ? idx : 0)
   }, [active]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -173,24 +180,39 @@ export function ComboField({
 
   // Kursor listy zawsze w polu widzenia.
   useEffect(() => {
-    if (!active) return
+    if (!active || !open) return
     listRef.current?.querySelector<HTMLElement>('[data-hi="1"]')?.scrollIntoView({ block: 'nearest' })
-  }, [hi, active, q])
+  }, [hi, active, open, q])
 
   function pick(item: ComboItem | undefined) {
     if (!item) return
     setQuery('')
+    setOpen(false)
     onPick(item.id)
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     switch (e.key) {
-      case 'ArrowDown': e.preventDefault(); setHi(h => Math.min(h + 1, matches.length - 1)); break
-      case 'ArrowUp':   e.preventDefault(); setHi(h => Math.max(h - 1, 0)); break
+      // Strzałki na zwiniętym polu najpierw je rozwijają — to naturalny odruch
+      // „pokaż mi, co tu jest", a nie skok kursora po niewidocznej liście.
+      case 'ArrowDown':
+        e.preventDefault()
+        if (!open) { setOpen(true); break }
+        setHi(h => Math.min(h + 1, matches.length - 1))
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        if (!open) { setOpen(true); break }
+        setHi(h => Math.max(h - 1, 0))
+        break
       case 'Home':      e.preventDefault(); setHi(0); break
       case 'End':       e.preventDefault(); setHi(matches.length - 1); break
       case 'Enter':
         e.preventDefault()
+        // Zwinięte pole: wypełnione → lecimy dalej, puste → pokazujemy listę.
+        // Wybranie w ciemno pierwszej pozycji z listy, której operator NIE
+        // widzi, byłoby cichym wpisaniem złego rodzaju na zamówienie.
+        if (!open) { value ? onNext() : setOpen(true); break }
         // Nic nie wpisano i wybór już jest → ⏎ znaczy „zostaw i leć dalej".
         if (!q && value) onNext()
         else pick(matches[hi])
@@ -203,8 +225,9 @@ export function ComboField({
         break
       case 'Escape':
         e.preventDefault()
-        if (q) setQuery('')
-        else inputRef.current?.blur()
+        if (open)      { setOpen(false); setQuery('') }
+        else if (query) setQuery('')
+        else            inputRef.current?.blur()
         break
     }
   }
@@ -217,7 +240,8 @@ export function ComboField({
           value={active ? query : (selected?.label ?? '')}
           aria-label={label}
           onFocus={onActivate}
-          onChange={e => setQuery(e.target.value)}
+          onClick={() => setOpen(true)}
+          onChange={e => { setQuery(e.target.value); setOpen(true) }}
           onKeyDown={onKeyDown}
           autoComplete="off"
           spellCheck={false}
@@ -231,7 +255,7 @@ export function ComboField({
         />
         <ChevronDown size={13} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-4" />
 
-        {active && (
+        {active && open && (
           <div
             ref={listRef}
             className="oe-drop oe-scroll absolute left-0 top-[calc(100%+3px)] z-30 max-h-[276px] w-full min-w-[220px] overflow-y-auto border-2 border-ink bg-white shadow-modal"

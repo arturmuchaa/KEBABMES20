@@ -25,7 +25,7 @@ import { clientsApi, packagingApi } from '@/lib/apiClient'
 import { clientOrdersApi } from '@/lib/api'
 import { useProductTypes } from '@/features/products/hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
-import { fmtKg, todayIso, cn } from '@/lib/utils'
+import { fmtKgTrim, todayIso, cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { CreateClientOrderDto } from '@/lib/mockApi'
 import type { PreviewItem } from '@/lib/api'
@@ -418,7 +418,7 @@ export function OrderEntryPage() {
               draftKg > 0 ? 'border-ink bg-white' : 'border-surface-4 bg-surface-2',
             )}>
               <span className="font-mono text-[20px] font-bold leading-none tabular-nums text-ink">
-                {draftKg > 0 ? fmtKg(draftKg, 1) : '—'}
+                {draftKg > 0 ? fmtKgTrim(draftKg) : '—'}
               </span>
               <span className="font-display text-[10px] font-bold uppercase text-ink-4">kg</span>
             </div>
@@ -453,6 +453,26 @@ export function OrderEntryPage() {
             <span className="font-mono text-[10.5px] tabular-nums text-ink-4">{sum.count} poz.</span>
           </header>
 
+          {/* Nagłówek kolumn. Bez niego trzy nazwy zlewały się w jeden urwany
+              napis i przy kilku pozycjach nie dawało się rzucić okiem, co jest
+              rodzajem, co recepturą, a co tuleją. Szerokości MUSZĄ być te same
+              co w wierszu poniżej — inaczej nagłówek kłamie. */}
+          {lines.length > 0 && (
+            <div
+              data-testid="oe-line-head"
+              className="flex items-center gap-2.5 border-b border-surface-3 bg-surface-2/60 px-4 py-1
+                         font-display text-[9.5px] font-bold uppercase tracking-[0.13em] text-ink-4"
+            >
+              <span className="w-5 shrink-0" />
+              <span className="w-[104px] shrink-0">Ilość</span>
+              <span className="min-w-0 flex-[3]">Rodzaj</span>
+              <span className="min-w-0 flex-[3]">Receptura</span>
+              <span className="min-w-0 flex-[2]">Tuleja</span>
+              <span className="w-[92px] shrink-0 text-right">Razem</span>
+              <span className="w-[52px] shrink-0" />
+            </div>
+          )}
+
           {lines.length === 0 ? (
             <div className="flex flex-1 flex-col items-center gap-1 pt-10">
               <p className="text-[13px] text-ink-3">Jeszcze pusto.</p>
@@ -483,16 +503,20 @@ export function OrderEntryPage() {
                       <span className={cn('w-5 shrink-0 text-right font-mono text-[11px] tabular-nums',
                         editingIdx === i ? 'text-white/50' : 'text-ink-5')}>{i + 1}</span>
                       <span className="w-[104px] shrink-0 font-mono text-[12.5px] font-bold tabular-nums">
-                        {num(l.qty)}<span className={cn('mx-1 font-sans text-[10px] font-normal', editingIdx === i ? 'text-white/50' : 'text-ink-4')}>×</span>{fmtKg(num(l.kgPerUnit), 1)}
+                        {num(l.qty)}<span className={cn('mx-1 font-sans text-[10px] font-normal', editingIdx === i ? 'text-white/50' : 'text-ink-4')}>×</span>{fmtKgTrim(num(l.kgPerUnit))}
                       </span>
-                      <span className="min-w-0 truncate">
-                        <span className="font-medium">{pt}</span>
-                        <span className={editingIdx === i ? 'text-white/45' : 'text-ink-4'}> / {rc}</span>
-                        {pk && <span className={editingIdx === i ? 'text-white/45' : 'text-ink-4'}> · {pk}</span>}
-                      </span>
-                      <span className="oe-leader" />
-                      <span className="shrink-0 font-mono text-[13px] font-bold tabular-nums">
-                        {fmtKg(lineKg(l), 1)}<span className={cn('ml-1 font-sans text-[10px] font-normal', editingIdx === i ? 'text-white/50' : 'text-ink-4')}>kg</span>
+                      <span data-testid="oe-col-rodzaj"
+                        className="min-w-0 flex-[3] truncate font-medium" title={pt}>{pt}</span>
+                      <span data-testid="oe-col-receptura"
+                        className={cn('min-w-0 flex-[3] truncate', editingIdx === i ? 'text-white/70' : 'text-ink-2')}
+                        title={rc}>{rc}</span>
+                      {/* Myślnik, nie pustka: „bez tulei" to decyzja operatora,
+                          a pusta kratka wygląda jak niedokończona pozycja. */}
+                      <span data-testid="oe-col-tuleja"
+                        className={cn('min-w-0 flex-[2] truncate', editingIdx === i ? 'text-white/70' : 'text-ink-3')}
+                        title={pk || undefined}>{pk || '—'}</span>
+                      <span className="w-[92px] shrink-0 text-right font-mono text-[13px] font-bold tabular-nums">
+                        {fmtKgTrim(lineKg(l))}<span className={cn('ml-1 font-sans text-[10px] font-normal', editingIdx === i ? 'text-white/50' : 'text-ink-4')}>kg</span>
                       </span>
                       <span className="flex w-[52px] shrink-0 justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                         <button onClick={() => editLine(i)} title="Popraw pozycję (dwuklik)"
@@ -538,7 +562,7 @@ export function OrderEntryPage() {
         </span>
         <span className="oe-leader" />
         <span className="font-mono text-[27px] font-bold leading-none tabular-nums text-ink">
-          {fmtKg(sum.kg, 1)}<span className="ml-1 font-display text-[12px] font-bold uppercase text-ink-4">kg</span>
+          {fmtKgTrim(sum.kg)}<span className="ml-1 font-display text-[12px] font-bold uppercase text-ink-4">kg</span>
         </span>
 
         {error && <span className="max-w-[280px] text-[12px] font-semibold text-danger">{error}</span>}

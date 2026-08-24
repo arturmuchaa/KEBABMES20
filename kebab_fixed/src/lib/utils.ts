@@ -14,6 +14,16 @@ export const fmtKg = (n: number | string, d = 2): string => {
   }
   return fixed.replace('.', ',')
 }
+/**
+ * Kilogramy bez ozdobnego zera: „35" zamiast „35,00", „700" zamiast „700,0".
+ *
+ * Nie zaokrągla — ucina wyłącznie zera z KOŃCA części dziesiętnej, więc 8,5 kg
+ * na sztuce i 340,05 kg na pozycji zostają nietknięte. Grupowanie tysięcy
+ * dziedziczy po fmtKg, żeby liczby na jednym ekranie wyglądały tak samo.
+ */
+export const fmtKgTrim = (n: number | string, d = 2): string =>
+  fmtKg(n, d).replace(/,(\d*?)0+$/, (_m, keep: string) => (keep ? `,${keep}` : ''))
+
 export const fmtPct    = (n: number | string, d = 2) => Number(n).toFixed(d).replace('.', ',') + '%'
 export const fmtDate   = (d?: string) => d ? d.slice(0, 10) : '—'
 export const fmtDatePl = (d?: string) => {

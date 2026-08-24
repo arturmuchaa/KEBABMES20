@@ -9,7 +9,7 @@
  * formularz przyjęcia — dlatego ten test istnieje.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 // vi.mock jest podnoszone na górę pliku — atrapy muszą powstać wcześniej.
@@ -278,5 +278,44 @@ describe('zapis', () => {
     const zapisz = screen.getByRole('button', { name: /Zapisz zamówienie/i }) as HTMLButtonElement
     expect(zapisz.disabled).toBe(true)
     expect(create).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Lista pozycji czytała się jako jeden urwany napis „Kebab drobiowy / Drobiowy
+ * ostry · Tuleja 65 cm" — przy kilku pozycjach nie dawało się rzucić okiem,
+ * co jest czym, a tuleja znikała bez śladu, gdy jej nie było.
+ */
+describe('pozycje — rodzaj, receptura i tuleja w osobnych kolumnach', () => {
+  it('lista ma nagłówek kolumn', async () => {
+    pokazTerminal()
+    await wybierzKlienta()
+    await wbijPierwszaPozycje()
+    const naglowek = screen.getByTestId('oe-line-head')
+    expect(within(naglowek).getByText('Rodzaj')).toBeTruthy()
+    expect(within(naglowek).getByText('Receptura')).toBeTruthy()
+    expect(within(naglowek).getByText('Tuleja')).toBeTruthy()
+  })
+
+  it('każda z trzech wartości stoi w swojej kolumnie', async () => {
+    pokazTerminal()
+    await wybierzKlienta()
+    await wbijPierwszaPozycje()
+    const wiersz = screen.getByTestId('oe-line')
+    expect(within(wiersz).getByTestId('oe-col-rodzaj').textContent).toBe('Kebab drobiowy')
+    expect(within(wiersz).getByTestId('oe-col-receptura').textContent).toBe('Drobiowy ostry')
+    expect(within(wiersz).getByTestId('oe-col-tuleja').textContent).toBe('Tuleja 65 cm')
+  })
+
+  it('pozycja bez tulei ma w kolumnie myślnik, a nie pustkę', async () => {
+    pokazTerminal()
+    await wybierzKlienta()
+    wybierz('Rodzaj', 'Kebab drobiowy')
+    wybierz('Receptura', 'ostry')
+    wybierz('Tuleja', 'bez tulei')
+    wpisz('Sztuk', '40')
+    wpisz('Waga sztuki', '8,5')
+    const wiersz = screen.getByTestId('oe-line')
+    expect(within(wiersz).getByTestId('oe-col-tuleja').textContent).toBe('—')
   })
 })
