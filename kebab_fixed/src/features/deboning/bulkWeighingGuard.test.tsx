@@ -81,3 +81,42 @@ describe('ważenie zbiorcze — widoczny strażnik partii', () => {
     expect(screen.queryByTestId('bw-partia')).toBeNull()
   })
 })
+
+/**
+ * Blokada przy przekroczeniu celu. PAL/24/08/26/18 (24.08.2026) zapisała się
+ * jako 218 kg przy ZEROWEJ liczbie pojemników — tara E2 nie została odjęta
+ * i 18 kg plastiku poszło na dokument jako mięso.
+ */
+describe('ważenie zbiorcze — przekroczenie celu', () => {
+  /** Doprowadź ekran do ważenia słupka przy celu 200 kg i wskazanej wadze. */
+  async function doWagi(gross: number) {
+    render(
+      <BulkWeighingWizard
+        scale={{ connected: true, stable: true, gross } as any}
+        cartTares={[6]} operator="MARCIN" activeBatchNo="504" onClose={() => {}}
+      />,
+    )
+    fireEvent.click(await screen.findByTestId('bw-cel-t200'))
+    fireEvent.click(screen.getByRole('button', { name: /6/ }))
+  }
+
+  it('nadwyżka o dokładną tarę pojemników mówi, ile ich brakuje', async () => {
+    await doWagi(224)   // 224 brutto − 6 wózek − 0 pojemników = 218 netto
+    expect((await screen.findByTestId('bw-nadwyzka')).textContent).toContain('9 pojemników')
+  })
+
+  it('nie da się dodać słupka ponad cel', async () => {
+    await doWagi(224)
+    await screen.findByTestId('bw-nadwyzka')
+    const dodaj = screen.getByTestId('bw-dodaj') as HTMLButtonElement
+    expect(dodaj.disabled).toBe(true)
+    // Etykieta ma mówić PRAWDĘ o przyczynie: waga jest obciążona, więc
+    // „Wjedź na wagę" myliłoby operatora.
+    expect(dodaj.textContent).toContain('Ponad cel')
+  })
+
+  it('waga w celu nie blokuje niczego', async () => {
+    await doWagi(206)   // 206 − 6 = 200 netto
+    expect(screen.queryByTestId('bw-nadwyzka')).toBeNull()
+  })
+})

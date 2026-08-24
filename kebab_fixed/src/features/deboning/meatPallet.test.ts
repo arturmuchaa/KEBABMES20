@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   PALLET_TARGETS, TOLERANCE_KG, withinTolerance, stackNetKg, proposeLots,
-  quickPalletDraft, overBudgetLots, proposeLotsFromActive, lotProgress, targetFitsLot, targetGate,
+  quickPalletDraft, overBudgetLots, proposeLotsFromActive, lotProgress, targetFitsLot, targetGate, diagnoseOverage,
 } from './meatPallet'
 
 describe('PALLET_TARGETS — kafelki celu', () => {
@@ -314,5 +314,46 @@ describe('targetGate — kiedy wolno łączyć partie', () => {
     expect(targetGate(200, 490, cele)).toBe('ok')
     expect(targetGate(200, 290, cele)).toBe('ok')
     expect(targetGate(200, 90,  cele)).toBe('combine')
+  })
+})
+
+/**
+ * Przekroczenie celu = najczęściej niewpisane pojemniki.
+ *
+ * 24.08.2026 paleta PAL/24/08/26/18 zapisała się jako 218 kg przy ZEROWEJ
+ * liczbie pojemników i celu 200 kg. Tara E2 (9 × 2,0 kg) nie została odjęta,
+ * więc 18 kg plastiku poszło na dokument jako mięso i obciążyło partię 504.
+ * Ekran przepuścił to bez słowa — zmienił tylko kolor liczby.
+ */
+describe('diagnoseOverage — dlaczego wyszło za dużo', () => {
+  it('waga w normie nie jest problemem', () => {
+    expect(diagnoseOverage(200, 200, 9)).toBeNull()
+    expect(diagnoseOverage(200.4, 200, 9)).toBeNull()
+  })
+
+  it('niedowaga nie jest problemem — operator jeszcze dokłada', () => {
+    expect(diagnoseOverage(150, 200, 9)).toBeNull()
+  })
+
+  it('przekroczenie zgłasza z konkretną liczbą kilogramów', () => {
+    expect(diagnoseOverage(218, 200, 0)!.overKg).toBe(18)
+  })
+
+  it('przy zerze pojemników nazywa, ILE ich brakuje', () => {
+    expect(diagnoseOverage(218, 200, 0)!.containersLikely).toBe(9)
+  })
+
+  it('nadwyżka niepodzielna przez tarę nie zgaduje pojemników', () => {
+    expect(diagnoseOverage(207, 200, 0)!.containersLikely).toBeNull()
+  })
+
+  it('gdy pojemniki SĄ wpisane, nie sugeruje ich po raz drugi', () => {
+    const d = diagnoseOverage(218, 200, 9)!
+    expect(d.overKg).toBe(18)
+    expect(d.containersLikely).toBeNull()
+  })
+
+  it('cel zerowy niczego nie ocenia — kafelek jeszcze niewybrany', () => {
+    expect(diagnoseOverage(218, 0, 0)).toBeNull()
   })
 })

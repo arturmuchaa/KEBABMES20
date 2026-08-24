@@ -23,7 +23,7 @@ import { byproductTareOptions, E2_TARE_KG } from '@/features/deboning/utils/weig
 import { getProductionDate } from '@/features/deboning/utils'
 import {
   PALLET_TARGETS, TOLERANCE_KG, overBudgetLots, proposeLotsFromActive, stackNetKg,
-  lotProgress, targetGate,
+  lotProgress, targetGate, diagnoseOverage,
   withinTolerance, type LotPick, type PalletTarget,
 } from '@/features/deboning/meatPallet'
 import { meatPalletLabelZpl } from '@/features/deboning/meatPalletLabelZpl'
@@ -140,7 +140,12 @@ export function BulkWeighingWizard({ scale, cartTares, operator, activeBatchNo, 
     : 0
   const brakuje = r1(Math.max(0, (target?.totalKg ?? 0) - sumaKg))
   const wNormie = withinTolerance(netto, celSlupka)
-  const canAdd = scale.connected && scale.stable && netto > 0
+  // Przekroczenie celu to najczęściej niewpisane pojemniki: tara E2 nie
+  // zostaje odjęta i plastik jedzie na dokument jako mięso (PAL/24/08/26/18,
+  // 24.08.2026 — 218 kg przy zerze pojemników). Do 1.0.90 ekran przepuszczał
+  // to bez słowa, zmieniał tylko kolor liczby.
+  const nadwyzka = diagnoseOverage(netto, celSlupka, containers)
+  const canAdd = scale.connected && scale.stable && netto > 0 && !nadwyzka
 
   const kgLotu = useMemo(() => {
     const m = new Map<string, number>()
@@ -493,13 +498,28 @@ export function BulkWeighingWizard({ scale, cartTares, operator, activeBatchNo, 
                 </div>
               </div>
 
-              <button type="button" onClick={dodajSlupek} disabled={!canAdd}
+              {/* Blokada z KONKRETEM: gdy nadwyżka dzieli się równo przez
+                  tarę pojemnika, mówimy wprost ile ich brakuje. */}
+              {nadwyzka && (
+                <div data-testid="bw-nadwyzka" className="px-3 py-2 text-[12px] font-bold"
+                  style={{ borderRadius: 10, background: '#FEF3C7', border: '1.5px solid #F59E0B', color: '#92400E' }}>
+                  Ponad cel o {fmtKg(nadwyzka.overKg, 1)} kg.
+                  {nadwyzka.containersLikely != null
+                    ? ` To dokładnie ${nadwyzka.containersLikely} pojemników — wpisz ich liczbę.`
+                    : ' Sprawdź liczbę pojemników i wózek.'}
+                </div>
+              )}
+
+              <button type="button" data-testid="bw-dodaj" onClick={dodajSlupek} disabled={!canAdd}
                 className="h-16 font-extrabold text-lg flex items-center justify-center gap-2" style={{
                   borderRadius: 12,
                   background: canAdd ? (wNormie ? 'var(--success)' : 'var(--accent)') : 'var(--panel)',
                   color: canAdd ? '#fff' : 'var(--mut)', border: `1px solid ${canAdd ? 'transparent' : 'var(--line)'}`,
                 }}>
-                {canAdd ? <><Check size={22} /> Dodaj słupek</> : !scale.stable ? 'Czekam na wagę…' : 'Wjedź na wagę'}
+                {canAdd ? <><Check size={22} /> Dodaj słupek</>
+                  : nadwyzka ? 'Ponad cel — popraw pojemniki'
+                  : !scale.stable ? 'Czekam na wagę…'
+                  : 'Wjedź na wagę'}
               </button>
 
               {!wNormie && canAdd && (

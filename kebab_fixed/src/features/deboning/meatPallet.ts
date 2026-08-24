@@ -205,6 +205,44 @@ export function targetGate(
   return wyjdzieMniejsza ? 'blocked' : 'combine'
 }
 
+export interface OverageHint {
+  /** O ile kilogramów netto przekracza cel. */
+  overKg:           number
+  /** Ile pojemników tłumaczyłoby tę nadwyżkę — null, gdy nie da się tak
+   *  wyjaśnić albo operator już je wpisał. */
+  containersLikely: number | null
+}
+
+/**
+ * Dlaczego wyszło za dużo.
+ *
+ * 24.08.2026 paleta zapisała się jako 218 kg przy ZEROWEJ liczbie pojemników
+ * i celu 200 kg: tara E2 (9 × 2,0 kg) nie została odjęta, więc 18 kg plastiku
+ * poszło na dokument jako mięso. Ekran przepuścił to bez słowa — zmienił
+ * tylko kolor liczby.
+ *
+ * Gdy nadwyżka dzieli się równo przez tarę pojemnika, a operator wpisał ich
+ * zero, potrafimy powiedzieć wprost ILE ich brakuje — to znacznie lepsza
+ * podpowiedź niż „poza normą".
+ *
+ * Niedowaga nie jest problemem: operator dokłada mięso i patrzy na wagę.
+ */
+export function diagnoseOverage(
+  netKg: number, targetKg: number, containers: number,
+): OverageHint | null {
+  if (!(targetKg > 0)) return null
+  const over = Math.round((netKg - targetKg) * 10) / 10
+  if (over <= TOLERANCE_KG) return null
+
+  let containersLikely: number | null = null
+  if ((containers ?? 0) <= 0) {
+    const ile = over / E2_TARE_KG
+    const zaokr = Math.round(ile)
+    if (zaokr >= 1 && Math.abs(ile - zaokr) < 0.02) containersLikely = zaokr
+  }
+  return { overKg: over, containersLikely }
+}
+
 export interface LotOverBudget { lotNo: string; kg: number; freeKg: number }
 
 /** Luz na zaokrąglenia wagi — ten sam, którym posługuje się backend. */
