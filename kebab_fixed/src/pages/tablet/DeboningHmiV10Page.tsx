@@ -751,11 +751,17 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // Loty mięsa — dla licznika „ile z tej partii zostało do rozważenia".
   // Do 1.0.88 ta wiedza żyła TYLKO w kreatorze palet, więc szybka etykieta
   // z panelu głównego drukowała się w ciemno.
-  const [meatLots, setMeatLots] = useState<MeatStock[]>([])
-  const odswiezLoty = useCallback(() => {
-    meatStockApi.list().then(r => setMeatLots(r.data)).catch(() => { /* offline nie blokuje ważenia */ })
-  }, [])
-  useEffect(() => { odswiezLoty() }, [odswiezLoty])
+  //
+  // MUSI iść przez useApi i wisieć na tym samym odświeżaniu co reszta ekranu:
+  // `kg_initial` lotu ROŚNIE w trakcie dnia, bo rozbiór dokłada mięso. Przy
+  // pobraniu raz-na-wejście licznik zamarzał na wartości sprzed godziny
+  // (1.0.89: panel pokazywał 195 kg, gdy z partii było już ponad 400).
+  // useApi porównuje dane głęboko, więc odświeżanie co 5 s nie miga ekranem.
+  const meatStockData = useApi(() => meatStockApi.list())
+  const meatLots = useMemo(
+    () => ((meatStockData.data as any)?.data ?? []) as MeatStock[],
+    [meatStockData.data],
+  )
 
   // Ważenie ubocznych: prompt po zakończeniu partii + otwarty kreator.
   const [finishPrompt, setFinishPrompt] = useState<{ batch: RawBatch; record: BatchByproducts } | null>(null)
@@ -828,9 +834,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       workerData.refetch()
       byproductsData.refetch()
       byprodToday.refetch()
+      // Bez tego licznik partii zamarzał: rozbiór dokłada mięso do lotu,
+      // a panel główny pokazywał stan sprzed wejścia na ekran.
+      meatStockData.refetch()
     }, 5000)
     return () => clearInterval(t)
-  }, [batchData.refetch, workerData.refetch, byproductsData.refetch, byprodToday.refetch])
+  }, [batchData.refetch, workerData.refetch, byproductsData.refetch, byprodToday.refetch,
+      meatStockData.refetch])
 
   // Suma kg otwartych pobrań per partia — partia z pobraniami czekającymi na
   // wagę MUSI zostać aktywnym kaflem, nawet gdy kg_available spadło do zera
@@ -1104,7 +1114,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         receivedDate:  selBatch.receivedDate,
         lots: draft.lots,
       }))
-      odswiezLoty()
+      meatStockData.refetch()
       showToast(`Etykieta ${zapisana.palletNo} — ${fmtKg(draft.kgNet, 1)} kg z partii ${selBatch.internalBatchNo}`)
     } catch (e: any) {
       const probe = await probeBrowserPrint()
