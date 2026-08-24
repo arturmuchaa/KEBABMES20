@@ -1,5 +1,11 @@
 # HMI produkcyjne — plan wdrożenia
 
+> **STAN 24.08.2026 wieczorem:** zadania 1–10 zrobione i na produkcji
+> (commit `29b4bd4`, tag `produkcja-1.0.0`, instalator na kanale `produkcja`).
+> Zostaje instalacja na stanowisku i dwie rzeczy po stronie biura:
+> przypisanie ludzi do działu `produkcja` oraz przyjęcie folii stretch
+> (kartoteka założona, stan 0).
+>
 > **Dla wykonawcy:** zadanie po zadaniu, każde kończy się zielonymi testami
 > i commitem. Kroki mają checkboxy (`- [ ]`). **Nie zlecać podagentom** — w tym
 > repo podagenty nie piszą do `src/` ani `backend/`.
@@ -64,15 +70,15 @@ musi mieć.
   `desktop_updates_rozbior_v10.py`, podmienione ścieżki i katalog)
 - Zmień: `backend/app/main.py` — rejestracja routera
 
-- [ ] **Krok 1:** skopiuj `desktop_updates_rozbior_v10.py`, zamień w ścieżkach
+- [x] **Krok 1:** skopiuj `desktop_updates_rozbior_v10.py`, zamień w ścieżkach
       `rozbior-v10` → `produkcja` i katalog przechowywania instalatorów.
-- [ ] **Krok 2:** zarejestruj router w `main.py` obok pozostałych.
-- [ ] **Krok 3:** sprawdź, że stary kanał dalej działa
+- [x] **Krok 2:** zarejestruj router w `main.py` obok pozostałych.
+- [x] **Krok 3:** sprawdź, że stary kanał dalej działa
 
 Run: `TEST_DATABASE_URL=… python3 -m pytest tests/ -q`
 Expected: bez regresji
 
-- [ ] **Krok 4:** commit `feat(kiosk): kanal aktualizacji dla HMI produkcyjnego`
+- [x] **Krok 4:** commit `feat(kiosk): kanal aktualizacji dla HMI produkcyjnego`
 
 ---
 
@@ -87,27 +93,27 @@ Expected: bez regresji
 - Produkuje: aplikację, która startuje splashem, prosi o PIN działu
   `produkcja` i renderuje `<ProductionHmiPage />` (na razie zaślepkę).
 
-- [ ] **Krok 1:** `produkcja.html` na wzór `rozbior-v10.html` — ze skryptem
+- [x] **Krok 1:** `produkcja.html` na wzór `rozbior-v10.html` — ze skryptem
       sprzątającym service workera i statycznym splashem.
-- [ ] **Krok 2:** `src/produkcja.tsx` — kopia ramy z `rozbior-v10.tsx`,
+- [x] **Krok 2:** `src/produkcja.tsx` — kopia ramy z `rozbior-v10.tsx`,
       `department=produkcja`, tytuł „Produkcja".
-- [ ] **Krok 3:** `tauri.produkcja.conf.json` — `productName: "Produkcja HMI"`,
+- [x] **Krok 3:** `tauri.produkcja.conf.json` — `productName: "Produkcja HMI"`,
       `identifier: pl.kebabmes.produkcja`, okno pełnoekranowe, updater na
       `/api/desktop-updates/produkcja/latest.json`, wersja `1.0.0`.
-- [ ] **Krok 4:** `vite.config.ts` — wpis w `rollupOptions.input` i stała
+- [x] **Krok 4:** `vite.config.ts` — wpis w `rollupOptions.input` i stała
       `__PRODUKCJA_VERSION__` czytana z conf (jak dla v10).
-- [ ] **Krok 5:** workflow `tauri-produkcja.yml` na wzór `tauri-rozbior-v10.yml`,
+- [x] **Krok 5:** workflow `tauri-produkcja.yml` na wzór `tauri-rozbior-v10.yml`,
       tag `produkcja-*`.
-- [ ] **Krok 6: wspólny wygląd, nie kopia.** Wyjmij z `DeboningHmiV10Page.tsx`
+- [x] **Krok 6: wspólny wygląd, nie kopia.** Wyjmij z `DeboningHmiV10Page.tsx`
       obiekt `VARS` do `src/features/hmi-theme/vars.ts`, a `@font-face`
       z `DeboningHmiV10Page.css` do `src/features/hmi-theme/hmi-font.css`.
       Oba ekrany **importują to samo** — inaczej za pół roku rozjadą się kolory.
       Rozbiór po tej zmianie musi wyglądać identycznie: `npx vitest run src/` bez
       regresji i oględziny ekranu v10.
-- [ ] **Krok 7:** font zostaje **lokalny** (`public/fonts/rozbior-v10/`), bez CDN —
+- [x] **Krok 7:** font zostaje **lokalny** (`public/fonts/rozbior-v10/`), bez CDN —
       hala pracuje bez internetu.
-- [ ] **Krok 8:** `npm run build` przechodzi, `npx tsc --noEmit` czysty.
-- [ ] **Krok 9:** commit `feat(kiosk): rama HMI produkcyjnego na wspolnym motywie v10`
+- [x] **Krok 8:** `npm run build` przechodzi, `npx tsc --noEmit` czysty.
+- [x] **Krok 9:** commit `feat(kiosk): rama HMI produkcyjnego na wspolnym motywie v10`
 
 ---
 
@@ -119,12 +125,12 @@ zepsuty serwer. Dotyczy TAKŻE kiosku rozbioru.
 **Pliki:**
 - Zmień: `src/produkcja.tsx`, `src/rozbior-v10.tsx`
 
-- [ ] **Krok 1:** rozdziel dwa przypadki — **błąd sieci** ponawiamy w kółko,
+- [x] **Krok 1:** rozdziel dwa przypadki — **błąd sieci** ponawiamy w kółko,
       **pusta lista z działającego backendu** po 5 próbach (10 s) pokazuje
       „Brak operatorów działu <dział> — ustaw dział w kartotece pracowników",
       nie przestając ponawiać w tle.
-- [ ] **Krok 2:** `npx vitest run src/` — bez regresji.
-- [ ] **Krok 3:** commit `fix(kiosk): pusta lista operatorow mowi, co jest nie tak`
+- [x] **Krok 2:** `npx vitest run src/` — bez regresji.
+- [x] **Krok 3:** commit `fix(kiosk): pusta lista operatorow mowi, co jest nie tak`
 
 ---
 
@@ -139,7 +145,7 @@ zepsuty serwer. Dotyczy TAKŻE kiosku rozbioru.
   - `planDiff(poprzedni: PlanSnapshotLine[], biezacy: PlanSnapshotLine[]): PlanChange[]`
   - `opiszZmiane(z: PlanChange): string` — tekst na pasek
 
-- [ ] **Krok 1: Test, który pada**
+- [x] **Krok 1: Test, który pada**
 
 ```ts
 import { describe, it, expect } from 'vitest'
@@ -187,10 +193,10 @@ describe('planDiff', () => {
 })
 ```
 
-- [ ] **Krok 2:** `npx vitest run src/features/production-hmi/planDiff.test.ts` → FAIL (brak modułu)
-- [ ] **Krok 3:** implementacja — porównanie **po `id`**, nie po pozycji w tablicy.
-- [ ] **Krok 4:** zielone, 7 testów
-- [ ] **Krok 5:** commit `feat(hmi-produkcja): porownanie planow`
+- [x] **Krok 2:** `npx vitest run src/features/production-hmi/planDiff.test.ts` → FAIL (brak modułu)
+- [x] **Krok 3:** implementacja — porównanie **po `id`**, nie po pozycji w tablicy.
+- [x] **Krok 4:** zielone, 7 testów
+- [x] **Krok 5:** commit `feat(hmi-produkcja): porownanie planow`
 
 ---
 
@@ -204,14 +210,14 @@ describe('planDiff', () => {
 - `lineState(line)` → `'PLANNED' | 'IN_PROGRESS' | 'DONE'`
 - `byWorker(line)` → `{ workerName: string; pieces: number }[]`
 
-- [ ] **Krok 1:** testy — sumy kg/szt; **procent z kilogramów, nie ze sztuk**
+- [x] **Krok 1:** testy — sumy kg/szt; **procent z kilogramów, nie ze sztuk**
       (pozycje 40×10 kg zrobione i 0×40 kg niezrobione → 20%, nie 50%);
       plan pusty → `pct` 0, nie `NaN`; nadwyżka → 100, nie 112; pozycja bez postępu =
       `PLANNED`, częściowa = `IN_PROGRESS`, pełna = `DONE`, nadwyżka też
       `DONE` (hala zrobiła więcej, to nie błąd ekranu); rozbicie per pracownik
       sumuje wpisy tej samej osoby.
-- [ ] **Krok 2:** czerwone → **Krok 3:** implementacja → **Krok 4:** zielone
-- [ ] **Krok 5:** commit `feat(hmi-produkcja): sumy i stany pozycji`
+- [x] **Krok 2:** czerwone → **Krok 3:** implementacja → **Krok 4:** zielone
+- [x] **Krok 5:** commit `feat(hmi-produkcja): sumy i stany pozycji`
 
 ---
 
@@ -233,7 +239,7 @@ odchodzi od czasu pracy, inaczej trzy przerwy dziennie zaniżają wynik zmiany.
 - `breakStarted(now)` / `breakEnded(state, now)` / `canSave(state)` → `boolean`
 - `pausedMs(state)` → suma przerw dnia
 
-- [ ] **Krok 1: Testy, które padają**
+- [x] **Krok 1: Testy, które padają**
       — `workedMs`: godzina zegarowa minus 20 min przerwy = 40 min pracy;
         **trwająca przerwa** (`to: null`) też się liczy, do „teraz";
       — `shiftStats`: kg = suma `pieces × kgPerPiece`; `kgPerHour` z czasu
@@ -242,12 +248,12 @@ odchodzi od czasu pracy, inaczej trzy przerwy dziennie zaniżają wynik zmiany.
         zero czasu pracy → tempo `0`, **nie `Infinity`/`NaN`**;
       — `breakState`: `canSave` **fałsz w trakcie przerwy**, prawda po
         wyłączeniu; przerwa wyłączona dwa razy nie dubluje sumy.
-- [ ] **Krok 2:** `npx vitest run src/features/production-hmi/` → FAIL (brak modułów)
-- [ ] **Krok 3:** implementacja
-- [ ] **Krok 4:** zielone + **sabotaż**: policz tempo z czasu zegarowego zamiast
+- [x] **Krok 2:** `npx vitest run src/features/production-hmi/` → FAIL (brak modułów)
+- [x] **Krok 3:** implementacja
+- [x] **Krok 4:** zielone + **sabotaż**: policz tempo z czasu zegarowego zamiast
       pracy — test tempa MUSI paść; zwróć `canSave: true` na sztywno — test
       blokady MUSI paść.
-- [ ] **Krok 5:** commit `feat(hmi-produkcja): tempo w kg na godzine i przerwy`
+- [x] **Krok 5:** commit `feat(hmi-produkcja): tempo w kg na godzine i przerwy`
 
 ---
 
@@ -260,11 +266,11 @@ odchodzi od czasu pracy, inaczej trzy przerwy dziennie zaniżają wynik zmiany.
 - `filmSummary(moves: FilmMove[])` → `{ pobrane, zwrocone, zuzyte }`
 - `returnIssues(pobrane: number, zwrot: number): string[]`
 
-- [ ] **Krok 1:** testy — pobranie 40 + dokładka 20 = 60 pobranych; zwrot 5 →
+- [x] **Krok 1:** testy — pobranie 40 + dokładka 20 = 60 pobranych; zwrot 5 →
       zużyte 55; **zwrot większy niż pobranie odrzucony** z komunikatem;
       zwrot ujemny odrzucony; brak ruchów = zero, nie NaN.
-- [ ] **Krok 2:** czerwone → **Krok 3:** implementacja → **Krok 4:** zielone
-- [ ] **Krok 5:** commit `feat(hmi-produkcja): rozliczenie folii stretch`
+- [x] **Krok 2:** czerwone → **Krok 3:** implementacja → **Krok 4:** zielone
+- [x] **Krok 5:** commit `feat(hmi-produkcja): rozliczenie folii stretch`
 
 ---
 
@@ -280,13 +286,13 @@ poszło 25.08". Do kosztów potrzebny zapis per dzień, który przeżyje zamkni�
 - Utwórz: `backend/app/services/day_materials_service.py` + trasy
 - Test: `backend/tests/test_day_materials_db.py`
 
-- [ ] **Krok 1: Testy, które padają** — pobranie zdejmuje stan od razu; zwrot
+- [x] **Krok 1: Testy, które padają** — pobranie zdejmuje stan od razu; zwrot
       oddaje do `kg_available` i zdejmuje z `kg_used`; **zwrot większy niż
       pobrano odrzucony**; zużycie dnia = pobrane − zwrócone; zapis dnia
       przeżywa zamknięcie planu; dwa pobrania tego samego dnia sumują się.
-- [ ] **Krok 2:** czerwone → **Krok 3:** implementacja → **Krok 4:** zielone
-- [ ] **Krok 5:** pełny zestaw backendu bez regresji
-- [ ] **Krok 6:** commit `feat(opakowania): zwrot na magazyn i zuzycie per dzien`
+- [x] **Krok 2:** czerwone → **Krok 3:** implementacja → **Krok 4:** zielone
+- [x] **Krok 5:** pełny zestaw backendu bez regresji
+- [x] **Krok 6:** commit `feat(opakowania): zwrot na magazyn i zuzycie per dzien`
 
 ---
 
@@ -295,7 +301,7 @@ poszło 25.08". Do kosztów potrzebny zapis per dzień, który przeżyje zamkni�
 **Pliki:** `PlanList.tsx`, `LineCounter.tsx`, `PlanChangedBanner.tsx`,
 `MaterialsRail.tsx`, `BreakOverlay.tsx`, `ShiftStats.tsx` + testy jsdom
 
-- [ ] **Krok 1: Testy, które padają** — kolumny w kolejności karty produkcji
+- [x] **Krok 1: Testy, które padają** — kolumny w kolejności karty produkcji
       (`ILOŚĆ SZT. · WAGA · RODZAJ · TULEJE · KLIENT · RAZEM · POSTĘP`);
       pozycja gotowa wyróżniona; `−`/`+` nastawiają liczbę i **nigdzie nie ma
       pola do wpisywania z klawiatury**; pod liczbą stoi przelicznik na kg;
@@ -304,12 +310,12 @@ poszło 25.08". Do kosztów potrzebny zapis per dzień, który przeżyje zamkni�
       pobrań i sumę; **`BreakOverlay` zasłania ekran, a przycisk zapisu w
       trakcie przerwy nie woła zapisu**; `ShiftStats` pokazuje kolumny w
       kolejności `Kilogramy · Sztuki · Kg/godz.` i rozbicie `5 × 40 kg`.
-- [ ] **Krok 2:** czerwone → **Krok 3:** implementacja na **wspólnym motywie**
+- [x] **Krok 2:** czerwone → **Krok 3:** implementacja na **wspólnym motywie**
       (`hmi-theme/vars.ts` + `hmi-font.css`), z geometrią v10: nagłówek 76 px na
       `--barBg`, przyciski `h-9 r-8` / `h-14 r-10`, karty `r-12`, modale `r-14`
       z kwadratem ikony 56 px, plakietki `r-6`, paski `--barBg` w klamrach
       `--accent` → **Krok 4:** zielone
-- [ ] **Krok 5:** commit `feat(hmi-produkcja): lista planu, licznik, szyna materialow`
+- [x] **Krok 5:** commit `feat(hmi-produkcja): lista planu, licznik, szyna materialow`
 
 ---
 
@@ -320,27 +326,27 @@ poszło 25.08". Do kosztów potrzebny zapis per dzień, który przeżyje zamkni�
 **Stelaż od pierwszego dnia** — nie zaślepiamy `useApi`, tylko moduły
 sięgające na zewnątrz. Trzy awarie z 24.08 wyszły dokładnie z tej warstwy.
 
-- [ ] **Krok 1: Testy okablowania, które padają** — podsumowanie dnia podaje
+- [x] **Krok 1: Testy okablowania, które padają** — podsumowanie dnia podaje
       liczby w kolejności **kilogramy → sztuki → tempo (kg/godz.)**; plan dnia wczytuje się SAM
       po zalogowaniu; `+1` wysyła właściwą pozycję i pracownika do
       `updateLineProgress`; zmiana planu w tle podnosi pasek; pobranie folii
       woła `use_packaging`; zakończenie dnia pyta o zwrot i dopiero potem
       woła `tabletFinish`.
-- [ ] **Krok 2:** czerwone → **Krok 3:** kompozycja, odświeżanie przez
+- [x] **Krok 2:** czerwone → **Krok 3:** kompozycja, odświeżanie przez
       `useLiveRefresh` → **Krok 4:** zielone
-- [ ] **Krok 5:** `npx vitest run` + `npx tsc --noEmit` + `npm run build`
-- [ ] **Krok 6:** commit `feat(hmi-produkcja): terminal produkcyjny`
+- [x] **Krok 5:** `npx vitest run` + `npx tsc --noEmit` + `npm run build`
+- [x] **Krok 6:** commit `feat(hmi-produkcja): terminal produkcyjny`
 
 ---
 
 ### Zadanie 11: Wydanie
 
-- [ ] **Krok 1:** założyć kartotekę folii stretch w opakowaniach (jednostka
+- [x] **Krok 1:** założyć kartotekę folii stretch w opakowaniach (jednostka
       „rolka") — z biura, nie SQL-em.
-- [ ] **Krok 2:** wdrożyć backend (migracja + trasy) i **sprawdzić DANYMI**,
+- [x] **Krok 2:** wdrożyć backend (migracja + trasy) i **sprawdzić DANYMI**,
       że tabela `production_day_materials` istnieje.
-- [ ] **Krok 3:** tag `produkcja-1.0.0`, poczekać na build.
-- [ ] **Krok 4:** potwierdzić kanał: `latest.json` podaje 1.0.0 z podpisem
+- [x] **Krok 3:** tag `produkcja-1.0.0`, poczekać na build.
+- [x] **Krok 4:** potwierdzić kanał: `latest.json` podaje 1.0.0 z podpisem
       **i instalator realnie się pobiera** — zielony build to nie to samo.
 - [ ] **Krok 5:** zainstalować na stanowisku, sprawdzić z operatorem pełny
       dzień: logowanie, liczenie, zmiana planu z biura, zwrot folii.
