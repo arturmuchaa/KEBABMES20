@@ -762,6 +762,20 @@ _DDL: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_dec_entry ON deboning_entry_corrections(entry_id)",
+    # Korekty palet ważenia zbiorczego (2026-08-24). Ten sam wzorzec co przy
+    # rozbiorze: zapisujemy stan SPRZED zmiany, bo bez niego korekta jest
+    # nieodróżnialna od zmyślenia.
+    """
+    CREATE TABLE IF NOT EXISTS meat_pallet_corrections (
+        id         TEXT PRIMARY KEY,
+        pallet_id  TEXT NOT NULL,
+        at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+        by_subject TEXT,
+        reason     TEXT NOT NULL,
+        changes    JSONB NOT NULL DEFAULT '{}'::jsonb
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_mpc_pallet ON meat_pallet_corrections(pallet_id)",
     # Częściowe ważenia mięsa z otwartego pobrania — porcja = wiersz (2026-07-18).
     # Mięso schodzi z hali porcjami zanim pracownik wykroi całość; każda porcja
     # od razu wchodzi na lot mięsa, wpis zostaje 'pending' aż do domknięcia.

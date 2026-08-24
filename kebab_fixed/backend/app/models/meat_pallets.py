@@ -37,3 +37,19 @@ class MeatPalletCreate(BaseModel):
     #: Najkrótszy termin ze składu palety.
     expiry_date: str = Field("", alias="expiryDate")
     lots: List[MeatPalletLotIn] = Field(default_factory=list)
+
+
+class MeatPalletUpdate(BaseModel):
+    """PATCH /api/meat-pallets/{pallet_no} — korekta palety z biura.
+
+    Poprawiamy to, co realnie się myli: wagę netto, liczbę pojemników
+    i skład partii. `reason` jest OBOWIĄZKOWY — korekta bez powodu jest na
+    dokumencie identyfikowalności nieodróżnialna od zmyślenia.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, validate_default=True)
+
+    kg_net: float = Field(..., alias="kgNet", gt=0)
+    containers: int = Field(0, ge=0)
+    reason: str = Field(..., min_length=3)
+    lots: List[MeatPalletLotIn] = Field(..., min_length=1)

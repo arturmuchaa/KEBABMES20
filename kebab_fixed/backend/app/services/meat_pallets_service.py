@@ -10,6 +10,7 @@ zaksięgowanie go tutaj drugi raz byłoby podwójnym przyjęciem. Dlatego nie
 ruszamy `meat_stock`, `kg_reserved` ani `stock_movements`; test regresyjny
 `test_paleta_NIE_rusza_stanu_magazynowego` tego pilnuje.
 """
+import json
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
@@ -18,7 +19,7 @@ from app.db import (
     cx_execute, cx_execute_returning, cx_query_all, query_all, query_one, transaction,
 )
 from app.logging_config import get_logger
-from app.models.meat_pallets import MeatPalletCreate
+from app.models.meat_pallets import MeatPalletCreate, MeatPalletUpdate
 from app.utils.ids import cuid, next_dated_no
 
 logger = get_logger(__name__)
@@ -57,7 +58,7 @@ def validate_bulk_lots(lots, pozostalo_by_lot, tol: float = BULK_TOL_KG):
     return None
 
 
-def _pozostalo_by_lot(conn, lot_nos) -> Dict[str, Any]:
+def _pozostalo_by_lot(conn, lot_nos, exclude_pallet_id: str = "") -> Dict[str, Any]:
     """Ile mięsa z każdej partii można jeszcze wydać na palety.
 
     Limit = ile partia DAŁA na rozbiorze (`meat_stock.kg_initial`), licznik =
@@ -80,11 +81,14 @@ def _pozostalo_by_lot(conn, lot_nos) -> Dict[str, Any]:
         "WHERE lot_no = ANY(%s) GROUP BY lot_no",
         (nos,),
     )
+    # Przy KOREKCIE poprawiana paleta musi wypaść z licznika: inaczej jej
+    # własne kilogramy liczyłyby się drugi raz i zmiana 218 -> 200 wyglądałaby
+    # na przekroczenie limitu partii.
     juz = cx_query_all(
         conn,
         "SELECT lot_no, SUM(kg) AS kg FROM meat_pallet_lots "
-        "WHERE lot_no = ANY(%s) GROUP BY lot_no",
-        (nos,),
+        "WHERE lot_no = ANY(%s) AND (%s = '' OR pallet_id <> %s) GROUP BY lot_no",
+        (nos, exclude_pallet_id, exclude_pallet_id),
     )
     wydano = {r["lot_no"]: float(r["kg"] or 0) for r in juz}
     return {
@@ -167,6 +171,92 @@ def get_pallet(pallet_no: str) -> Dict[str, Any]:
     out = dict(row)
     out["lots"] = _lots_of(row["id"])
     return out
+
+
+def update_pallet(pallet_no: str, dto: MeatPalletUpdate, subject: str = "") -> Dict[str, Any]:
+    """Korekta palety z biura: waga netto, pojemniki i skład partii.
+
+    POWÓD ISTNIENIA: 24.08.2026 cztery palety trzeba było poprawić ręcznie
+    w bazie produkcyjnej — trzy razy zła partia (ekran podpowiadał najstarszy
+    lot z puli), raz brak liczby pojemników (218 kg zamiast 200, bo tara E2
+    nie została odjęta). Pomyłka na dokumencie identyfikowalności nie może
+    wymagać dostępu do bazy.
+
+    Zapisujemy stan SPRZED zmiany razem z powodem — bez tego korekta jest
+    nieodróżnialna od zmyślenia. Walidacje te same co przy zapisie: suma
+    składu równa wadze palety i limit wydajności partii, z tą różnicą, że
+    poprawiana paleta wypada z licznika własnych kilogramów.
+    """
+    powod = (dto.reason or "").strip()
+    if not powod:
+        raise HTTPException(400, "Podaj powód korekty — bez niego nie wiadomo, co się stało")
+
+    suma = round(sum(float(l.kg) for l in dto.lots), 3)
+    if abs(suma - float(dto.kg_net)) > SKLAD_TOL_KG:
+        raise HTTPException(
+            400,
+            f"Suma składu ({suma:.1f} kg) nie zgadza się z wagą palety "
+            f"({float(dto.kg_net):.1f} kg)",
+        )
+
+    with transaction() as conn:
+        row = cx_query_all(
+            conn, "SELECT * FROM meat_pallets WHERE pallet_no=%s FOR UPDATE", (pallet_no,)
+        )
+        if not row:
+            raise HTTPException(404, "Nie ma takiej palety")
+        pallet = dict(row[0])
+        przed = cx_query_all(
+            conn,
+            "SELECT lot_no, kg FROM meat_pallet_lots WHERE pallet_id=%s ORDER BY seq",
+            (pallet["id"],),
+        )
+
+        blad = validate_bulk_lots(
+            [(l.lot_no.strip(), float(l.kg)) for l in dto.lots],
+            _pozostalo_by_lot(
+                conn,
+                [l.lot_no for l in dto.lots] + [r["lot_no"] for r in przed],
+                exclude_pallet_id=pallet["id"],
+            ),
+        )
+        if blad:
+            raise HTTPException(400, blad)
+
+        cx_execute(
+            conn,
+            "INSERT INTO meat_pallet_corrections (id, pallet_id, by_subject, reason, changes) "
+            "VALUES (%s,%s,%s,%s,%s::jsonb)",
+            (cuid(), pallet["id"], subject, powod, json.dumps({
+                "before": {
+                    "kg_net":     float(pallet["kg_net"]),
+                    "containers": int(pallet["containers"] or 0),
+                    "lots": [{"lot_no": r["lot_no"], "kg": float(r["kg"])} for r in przed],
+                },
+                "after": {
+                    "kg_net":     float(dto.kg_net),
+                    "containers": int(dto.containers),
+                    "lots": [{"lot_no": l.lot_no.strip(), "kg": float(l.kg)} for l in dto.lots],
+                },
+            })),
+        )
+
+        cx_execute(
+            conn,
+            "UPDATE meat_pallets SET kg_net=%s, containers=%s WHERE id=%s",
+            (float(dto.kg_net), int(dto.containers), pallet["id"]),
+        )
+        cx_execute(conn, "DELETE FROM meat_pallet_lots WHERE pallet_id=%s", (pallet["id"],))
+        for seq, l in enumerate(dto.lots, start=1):
+            cx_execute(
+                conn,
+                "INSERT INTO meat_pallet_lots (id, pallet_id, lot_no, kg, seq) "
+                "VALUES (%s,%s,%s,%s,%s)",
+                (cuid(), pallet["id"], l.lot_no.strip(), float(l.kg), seq),
+            )
+
+    logger.info("meat_pallet_corrected", extra={"pallet": pallet_no, "by": subject})
+    return get_pallet(pallet_no)
 
 
 def list_pallets(day: str = "") -> List[Dict[str, Any]]:

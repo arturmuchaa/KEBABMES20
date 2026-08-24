@@ -979,6 +979,14 @@ export const meatPalletsApi = {
   list: (day = '') =>
     get<any>(`/meat-pallets${day ? `?day=${day}` : ''}`)
       .then(r => ((r?.data ?? []) as any[]).map(mapMeatPallet)),
+  /** Korekta z biura: waga netto, pojemniki i skład partii. Powód OBOWIĄZKOWY —
+   *  bez niego korekta na dokumencie identyfikowalności jest nieodróżnialna
+   *  od zmyślenia. */
+  correct: (palletNo: string, dto: {
+    kgNet: number; containers: number; reason: string
+    lots: { lotNo: string; kg: number }[]
+  }) =>
+    patch<any>(`/meat-pallets/${encodeURIComponent(palletNo)}`, dto).then(mapMeatPallet),
 }
 
 // ─── Kontrahenci ──────────────────────────────────────────────

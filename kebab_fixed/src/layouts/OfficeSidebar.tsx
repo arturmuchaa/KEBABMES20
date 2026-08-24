@@ -39,6 +39,7 @@ const NAV: NavSection[] = [
   { heading: 'Rozbiór', items: [
     { to: '/office/deboning',      label: 'Statystyki rozbioru', icon: <BarChart2 size={16} /> },
     { to: '/office/rozbior-panel', label: 'Panel rozbioru',      icon: <Scissors size={16} /> },
+    { to: '/office/palety-miesa',  label: 'Palety mięsa',        icon: <Boxes size={16} /> },
     { to: '/office/kartoteka-pracownika', label: 'Kartoteka pracownika', icon: <UserSearch size={16} /> },
     { to: '/office/haccp-report',  label: 'Raport HACCP',        icon: <FileText size={16} /> },
   ]},

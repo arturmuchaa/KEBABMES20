@@ -2,9 +2,9 @@
 
 Zapis NIE rusza stanu magazynowego: mięso jest na stanie od rozbioru.
 """
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
-from app.models.meat_pallets import MeatPalletCreate
+from app.models.meat_pallets import MeatPalletCreate, MeatPalletUpdate
 from app.services import meat_pallets_service as svc
 
 router = APIRouter(prefix="/api/meat-pallets", tags=["meat-pallets"])
@@ -20,6 +20,22 @@ def create_pallet(dto: MeatPalletCreate):
 def list_pallets(day: str = Query("", alias="day")):
     """Palety dnia produkcyjnego — podgląd i dodruk z biura."""
     return {"data": svc.list_pallets(day)}
+
+
+def _subject_of(request: Request) -> str:
+    """Kto poprawia — do śladu korekty. Pusty, gdy sesji nie ma."""
+    subject = getattr(request.state, "subject", None) or {}
+    return str(subject.get("username") or subject.get("id") or "")
+
+
+@router.patch("/{pallet_no:path}")
+def correct_pallet(pallet_no: str, dto: MeatPalletUpdate, request: Request):
+    """Korekta palety z biura: waga netto, pojemniki i skład partii.
+
+    Istnieje, bo pomyłka na dokumencie identyfikowalności nie może wymagać
+    dostępu do bazy produkcyjnej (24.08.2026 — cztery palety poprawiane ręcznie).
+    """
+    return svc.update_pallet(pallet_no, dto, _subject_of(request))
 
 
 # UWAGA: trasa z parametrem MUSI stać po „" i „?day=", inaczej złapie oba.

@@ -66,6 +66,7 @@ import { CarriersPage }         from '@/pages/office/CarriersPage'
 import { LabelTemplateSetupPage } from '@/pages/office/LabelTemplateSetupPage'
 import { CompanySettingsPage } from '@/pages/office/CompanySettingsPage'
 import { ProductionPlanningPage } from '@/pages/office/ProductionPlanningPage'
+import { MeatPalletsPage } from '@/pages/office/MeatPalletsPage'
 import { ProductionPlanEditorPage } from '@/pages/office/ProductionPlanEditorPage'
 import { RecallPage }             from '@/pages/office/RecallPage'
 import { MixingHmiV2Page }        from '@/pages/tablet/MixingHmiV2Page'
@@ -188,6 +189,7 @@ export default function App() {
         <Route path="magazyn/opakowania"    element={<PackagingPage />} />
         <Route path="magazyn/gotowe"        element={<FinishedGoodsPage />} />
         <Route path="deboning"              element={<DeboningReportsPage />} />
+        <Route path="palety-miesa"        element={<MeatPalletsPage />} />
         <Route path="rozbior-panel"         element={<DeboningControlPage />} />
         <Route path="kartoteka-pracownika"  element={<WorkerCardPage />} />
         <Route path="haccp-report"          element={<HaccpReportPage />} />
