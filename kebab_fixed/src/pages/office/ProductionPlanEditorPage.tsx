@@ -3,8 +3,10 @@
  *
  * Zastępuje modal ("okno") z ProductionPlanningPage: planowanie dostaje całą
  * stronę, więc panel mięsa, pozycje i dobór partii mają miejsce i są czytelne.
- * Reużywa sprawdzony <PlanForm> (cała logika: szybkie dodawanie, podgląd
- * alokacji FEFO, receptury komponentowe, walidacja braków). Trasy:
+ * Od 2026-08-24 renderuje <PlanEditor> — terminal dnia pod klawiaturę.
+ * Stary <PlanForm> zostaje jeszcze w ProductionPlanningPage do czasu
+ * sprzątania; logika (alokacja FEFO, receptury komponentowe, walidacja
+ * braków) jest wspólna i wyjęta do features/production-plan. Trasy:
  *   /office/planowanie-produkcji/nowy            → nowy plan
  *   /office/planowanie-produkcji/:id/edytuj      → edycja (też aktywnego)
  */
@@ -13,7 +15,7 @@ import { ArrowLeft } from 'lucide-react'
 import { useApi } from '@/hooks/useApi'
 import { productionPlansApi } from '@/lib/apiClient'
 import type { CreatePlanLineDto } from '@/lib/mockApi'
-import { PlanForm } from './ProductionPlanningPage'
+import { PlanEditor } from '@/features/production-plan/PlanEditor'
 
 const LIST_PATH = '/office/planowanie-produkcji'
 
@@ -25,7 +27,7 @@ export function ProductionPlanEditorPage() {
   const editPlan = id ? (plans ?? []).find(p => p.id === id) ?? null : null
   const back = () => navigate(LIST_PATH)
 
-  // Nawigacja NIE tutaj: PlanForm.save() po sukcesie (i ewentualnej aktywacji)
+  // Nawigacja NIE tutaj: PlanEditor po sukcesie (i ewentualnej aktywacji)
   // sam woła onClose → back(). Zwracamy tylko id planu.
   async function handleSave(lines: CreatePlanLineDto[], planDate: string): Promise<string> {
     const plan = editPlan
@@ -68,12 +70,12 @@ export function ProductionPlanEditorPage() {
         )}
       </div>
 
-      <PlanForm
-        fullPage
+      <PlanEditor
         initialPlan={editPlan ?? undefined}
         onSave={handleSave}
         onClose={back}
         existingPlans={plans ?? []}
+        onOpenExisting={pid => navigate(`${LIST_PATH}/${pid}/edytuj`)}
       />
     </div>
   )
