@@ -8,7 +8,10 @@
  * Zero importów z React/UI — testowane w node.
  */
 import { num, type PlanLine } from './planLineModel'
-import type { PlanAllocation } from './planMeatAllocation'
+import { allocatePlanMeat, type PlanAllocation } from './planMeatAllocation'
+import { assignFefo, type FefoBatch } from './planFefo'
+import { batchIdsFromAllocation } from './planMeatAllocation'
+import { emptyPlanLine } from './planLineModel'
 import type { BatchPanelRow } from './components/BatchPanel'
 
 export interface SeasonedLite {
@@ -91,4 +94,87 @@ export function buildBatchRows(
     kgFreeLive:    alloc.freeByBatch[s.id] ?? Math.max(0, Number(s.kgFree ?? s.kgAvailable ?? 0)),
     usedByLines:   uzycie[s.id] ?? [],
   }))
+}
+
+/** Partie widziane przez FEFO: wolne kg PO uwzględnieniu podanej alokacji. */
+function pulaPo(seasoned: SeasonedLite[], alloc: PlanAllocation): FefoBatch[] {
+  return seasoned.map(s => ({
+    id:         s.id,
+    recipeId:   s.recipeId,
+    batchNo:    s.batchNo,
+    expiryDate: s.expiryDate,
+    kgFree:     alloc.freeByBatch[s.id] ?? Math.max(0, Number(s.kgFree ?? s.kgAvailable ?? 0)),
+  }))
+}
+
+/**
+ * Dopisz pozycję i od razu przydziel jej partie.
+ *
+ * Pula MUSI być pomniejszona o to, co zabrały już pozycje stojące na liście —
+ * inaczej nowa pozycja zgłosiłaby te same kilogramy co poprzednia i backend
+ * odrzuciłby cały plan. Stąd przydział liczymy na `freeByBatch` bieżącej
+ * alokacji, a nie na surowych wolnych kilogramach partii.
+ */
+export function addLineWithFefo(
+  lines: PlanLine[], nowa: PlanLine, seasoned: SeasonedLite[],
+): PlanLine[] {
+  const alloc = allocatePlanMeat(lines, seasoned as any)
+  const przydzielona = assignFefo([nowa], pulaPo(seasoned, alloc))[0]
+  return [...lines, przydzielona]
+}
+
+/**
+ * Przelicz przydział całego planu od nowa.
+ *
+ * Zdejmujemy partie ze wszystkich pozycji POZA rozpoczętymi na hali, liczymy
+ * co trzymają te rozpoczęte, i dopiero resztę rozdajemy FEFO. Wersja „na
+ * skróty" — assignFefo z force na surowej puli — oddawałaby do rozdania mięso,
+ * które fizycznie poszło już w produkcję.
+ */
+export function recalcAll(lines: PlanLine[], seasoned: SeasonedLite[]): PlanLine[] {
+  const zdjete = lines.map(l => (num(l.qtyDone) > 0
+    ? l
+    : { ...l, seasonedBatchIds: [], seasonedBatchId: '', batchesManual: false }))
+  // Po zdjęciu partii tylko pozycje zamrożone cokolwiek zajmują.
+  const trzymaneRegularnie = allocatePlanMeat(zdjete, seasoned as any)
+  return assignFefo(zdjete, pulaPo(seasoned, trzymaneRegularnie))
+}
+
+/**
+ * Pozycje istniejącego planu w kształcie szkicu.
+ *
+ * Partie odczytujemy Z ALOKACJI: baza nie ma kolumny `seasoned_batch_ids`,
+ * więc pozycja wielopartyjna gubiła po kliknięciu ołówka wszystkie partie
+ * poza główną i świeciła „brakuje mięsa" (zgłoszenie 13.08.2026). Kolejność
+ * bierze się z `seasonedBatchNos`, bo przydział idzie partia po partii.
+ *
+ * Wczytane partie liczą się jako RĘCZNE: ktoś je już raz zatwierdził
+ * zapisem planu, więc automat nie ma prawa ich przemielić przy pierwszej
+ * zmianie w innej pozycji.
+ */
+export function planLinesFromPlan(plan?: { lines?: any[] } | null): PlanLine[] {
+  return (plan?.lines ?? []).map((l: any) => {
+    const zAlokacji = batchIdsFromAllocation(l.batchAllocation, l.seasonedBatchNos)
+    const ids = zAlokacji.length > 0
+      ? zAlokacji
+      : (l.seasonedBatchId ? [l.seasonedBatchId] : [])
+    return {
+      ...emptyPlanLine(),
+      id:                l.id ?? '',
+      qty:               String(l.qty ?? ''),
+      kgPerUnit:         String(l.kgPerUnit ?? ''),
+      productTypeId:     l.productTypeId ?? '',
+      recipeId:          l.recipeId ?? '',
+      packagingId:       l.packagingId ?? '',
+      clientId:          l.clientId ?? '',
+      clientName:        l.clientName ?? '',
+      seasonedBatchIds:  ids,
+      seasonedBatchId:   ids[0] ?? '',
+      batchesManual:     ids.length > 0,
+      qtyDone:           Number(l.qtyDone ?? 0) || undefined,
+      clientOrderId:     l.clientOrderId ?? '',
+      clientOrderNo:     l.clientOrderNo ?? '',
+      clientOrderLineId: l.clientOrderLineId ?? '',
+    }
+  })
 }

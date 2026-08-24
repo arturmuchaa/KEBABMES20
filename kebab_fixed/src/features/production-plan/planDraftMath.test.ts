@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  demandByRecipe, usedLinesByBatch, buildBatchRows,
+  demandByRecipe, usedLinesByBatch, buildBatchRows, addLineWithFefo, recalcAll, planLinesFromPlan,
   type SeasonedLite,
 } from './planDraftMath'
 import { emptyPlanLine, type PlanLine } from './planLineModel'
@@ -114,5 +114,144 @@ describe('buildBatchRows', () => {
 
   it('zachowuje kolejność wejściową — API oddaje ją po terminie (FEFO)', () => {
     expect(buildBatchRows(PARTIE, ALLOC).map(r => r.id)).toEqual(['b1', 'b2', 'b3'])
+  })
+})
+
+/**
+ * Dokładanie pozycji i przeliczanie planu od nowa.
+ *
+ * Dwie pułapki, obie kosztowne po cichu:
+ *  1. nowa pozycja NIE może widzieć mięsa, które zabrały już poprzednie —
+ *     inaczej dwie pozycje zgłaszają te same kilogramy i backend odrzuca plan;
+ *  2. przeliczenie od nowa nie może ruszyć pozycji rozpoczętych na hali —
+ *     ich mięso już poszło w produkcję.
+ */
+describe('addLineWithFefo', () => {
+  const partie: SeasonedLite[] = [
+    { id: 'b1', recipeId: 'r1', batchNo: '1', expiryDate: '2026-09-01', kgFree: 300 },
+    { id: 'b2', recipeId: 'r1', batchNo: '2', expiryDate: '2026-09-05', kgFree: 900 },
+  ]
+
+  it('pierwsza pozycja bierze najstarszą partię', () => {
+    const out = addLineWithFefo([], linia({ recipeId: 'r1', qty: '10', kgPerUnit: '10' }), partie)
+    expect(out[0].seasonedBatchIds).toEqual(['b1'])
+  })
+
+  it('druga pozycja NIE bierze kilogramów zabranych przez pierwszą', () => {
+    const po1 = addLineWithFefo([], linia({ recipeId: 'r1', qty: '30', kgPerUnit: '10' }), partie)
+    const po2 = addLineWithFefo(po1, linia({ recipeId: 'r1', qty: '30', kgPerUnit: '10' }), partie)
+    expect(po2[0].seasonedBatchIds).toEqual(['b1'])
+    expect(po2[1].seasonedBatchIds).toEqual(['b2'])
+  })
+
+  it('nie rusza pozycji już stojących na liście', () => {
+    const reczna = linia({ recipeId: 'r1', qty: '5', kgPerUnit: '10',
+      seasonedBatchIds: ['b2'], seasonedBatchId: 'b2', batchesManual: true })
+    const out = addLineWithFefo([reczna], linia({ recipeId: 'r1', qty: '5', kgPerUnit: '10' }), partie)
+    expect(out[0].seasonedBatchIds).toEqual(['b2'])
+  })
+})
+
+describe('recalcAll', () => {
+  const partie: SeasonedLite[] = [
+    { id: 'b1', recipeId: 'r1', batchNo: '1', expiryDate: '2026-09-01', kgFree: 300 },
+    { id: 'b2', recipeId: 'r1', batchNo: '2', expiryDate: '2026-09-05', kgFree: 900 },
+  ]
+
+  it('zdejmuje ręczne decyzje i rozdaje od zera po FEFO', () => {
+    const out = recalcAll(
+      [linia({ recipeId: 'r1', qty: '10', kgPerUnit: '10',
+        seasonedBatchIds: ['b2'], seasonedBatchId: 'b2', batchesManual: true })],
+      partie,
+    )
+    expect(out[0].seasonedBatchIds).toEqual(['b1'])
+    expect(out[0].batchesManual).toBe(false)
+  })
+
+  it('pozycji rozpoczętej na hali NIE rusza', () => {
+    const out = recalcAll(
+      [linia({ recipeId: 'r1', qty: '10', kgPerUnit: '10',
+        seasonedBatchIds: ['b2'], seasonedBatchId: 'b2', qtyDone: 3 })],
+      partie,
+    )
+    expect(out[0].seasonedBatchIds).toEqual(['b2'])
+  })
+
+  it('mięso trzymane przez pozycję rozpoczętą nie wraca do puli', () => {
+    // Zamrożona bierze CAŁE 300 kg z b1; przeliczana musi pójść na b2.
+    const out = recalcAll(
+      [linia({ recipeId: 'r1', qty: '30', kgPerUnit: '10',
+        seasonedBatchIds: ['b1'], seasonedBatchId: 'b1', qtyDone: 5 }),
+       linia({ recipeId: 'r1', qty: '10', kgPerUnit: '10',
+        seasonedBatchIds: ['b1'], seasonedBatchId: 'b1', batchesManual: true })],
+      partie,
+    )
+    expect(out[0].seasonedBatchIds).toEqual(['b1'])
+    expect(out[1].seasonedBatchIds).toEqual(['b2'])
+  })
+})
+
+/**
+ * Wczytanie istniejącego planu do edycji.
+ *
+ * Baza NIE ma kolumny `seasoned_batch_ids` — partie pozycji trzeba odczytać
+ * z zapisanej alokacji. Zgłoszenie z 13.08.2026: pozycja wielopartyjna gubiła
+ * po kliknięciu ołówka wszystkie partie poza główną i świeciła „brakuje mięsa".
+ */
+describe('planLinesFromPlan', () => {
+  it('odczytuje partie z alokacji, nie z jednego pola', () => {
+    const [l] = planLinesFromPlan({ lines: [{
+      id: 'l1', qty: 20, kgPerUnit: 35, productTypeId: 'pt1', recipeId: 'r1',
+      seasonedBatchId: 'b1',
+      // Alokacja jest kluczowana NUMEREM partii, id siedzi w środku wiadra.
+      batchAllocation: { '495': { batch_id: 'b1', kg: 500 }, '496': { batch_id: 'b2', kg: 200 } },
+      seasonedBatchNos: ['495', '496'],
+    }] } as any)
+    expect(l.seasonedBatchIds).toEqual(['b1', 'b2'])
+  })
+
+  it('kolejność partii bierze z seasonedBatchNos, nie z kluczy JSON', () => {
+    // JS porządkuje klucze liczbowopodobne przed tekstowymi, więc sama
+    // alokacja nie niesie kolejności zapisu.
+    const [l] = planLinesFromPlan({ lines: [{
+      id: 'l1', qty: 20, kgPerUnit: 35, recipeId: 'r1',
+      batchAllocation: { '472': { batch_id: 'bA' }, 'PP13': { batch_id: 'bB' } },
+      seasonedBatchNos: ['PP13', '472'],
+    }] } as any)
+    expect(l.seasonedBatchIds).toEqual(['bB', 'bA'])
+  })
+
+  it('gdy alokacji nie ma, zostaje partia główna', () => {
+    const [l] = planLinesFromPlan({ lines: [{
+      id: 'l1', qty: 5, kgPerUnit: 10, recipeId: 'r1', seasonedBatchId: 'b9',
+    }] } as any)
+    expect(l.seasonedBatchIds).toEqual(['b9'])
+  })
+
+  it('wczytane partie liczą się jako RĘCZNE — automat ich nie przemieli', () => {
+    const [l] = planLinesFromPlan({ lines: [{
+      id: 'l1', qty: 5, kgPerUnit: 10, recipeId: 'r1', seasonedBatchId: 'b9',
+    }] } as any)
+    expect(l.batchesManual).toBe(true)
+  })
+
+  it('niesie wykonane sztuki — po nich poznajemy pozycję zamrożoną', () => {
+    const [l] = planLinesFromPlan({ lines: [{
+      id: 'l1', qty: 5, kgPerUnit: 10, recipeId: 'r1', qtyDone: 3,
+    }] } as any)
+    expect(l.qtyDone).toBe(3)
+  })
+
+  it('zachowuje powiązanie z pozycją zamówienia', () => {
+    const [l] = planLinesFromPlan({ lines: [{
+      id: 'l1', qty: 5, kgPerUnit: 10, recipeId: 'r1',
+      clientOrderId: 'z1', clientOrderLineId: 'zl1', clientOrderNo: 'ZAM/1', clientName: 'Bulli',
+    }] } as any)
+    expect(l.clientOrderLineId).toBe('zl1')
+    expect(l.clientName).toBe('Bulli')
+  })
+
+  it('pusty plan daje pustą listę', () => {
+    expect(planLinesFromPlan(undefined)).toEqual([])
   })
 })
