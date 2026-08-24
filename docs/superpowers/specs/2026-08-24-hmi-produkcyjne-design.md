@@ -80,6 +80,10 @@ PLAN NA 25.08.2026              120 / 340 szt  ·  4 200 / 11 900 kg
 `RODZAJ` to nazwa receptury (fallback: rodzaj produktu), `TULEJE` to opakowanie
 — dokładnie jak na karcie. Wiersze wysokie pod palec w rękawicy.
 
+Z prawej strony **szyna materiałów dnia**: ile folii pobrano, log pobrań
+(„06:10 — 40 rolek", „11:20 — dołożono 20"), przycisk dokładania i zakończenie
+dnia. Świadomie z boku, nie w liście — to nie jest pozycja planu.
+
 **NR PARTII świadomie NIE trafia na listę.** Na karcie bywa długi
 (`2x472, 6xPP13, 1x472/PP13`) i zjadłby czytelność wiersza. Operator zobaczy go
 po dotknięciu pozycji, czyli wtedy, gdy jest mu potrzebny.
@@ -132,6 +136,40 @@ produkuje według nieaktualnego planu.
 Odświeżanie idzie przez `useLiveRefresh` — jeden rejestr źródeł, bez ręcznie
 utrzymywanej listy (patrz incydent zamrożonego licznika na rozbiorze).
 
+## Folia stretch — zużycie do kosztów
+
+Operator pobiera rano rolki, dokłada w ciągu dnia, a przy zamykaniu **zwraca to,
+czego nie zużył**. Zużycie liczymy jako **pobrane − zwrócone**, nie z pamięci:
+zwrot jest ruchem magazynowym w drugą stronę, więc stan zgadza się bez
+inwentaryzacji, a koszt dnia opiera się na rolkach, które ktoś fizycznie
+policzył na koniec zmiany.
+
+Decyzje właściciela: folia leży w **opakowaniach**, a **pobranie zdejmuje stan
+od razu** (rolki fizycznie schodzą z magazynu rano).
+
+### Co już jest
+
+`packaging` ma `kg_available` / `kg_used` / `unit`, a `use_packaging`
+(`PATCH /api/packaging/{id}/use`) zdejmuje stan natychmiast i pilnuje, żeby nie
+zejść poniżej zera. To pokrywa **pobranie i dokładanie** bez żadnej zmiany.
+
+### Czego brakuje — do dorobienia
+
+1. **Kartoteka folii stretch.** Dziś w `packaging` są wyłącznie tuleje
+   (KARTON/METAL). Folię trzeba założyć jako pozycję z jednostką „rolka".
+2. **Zwrot na magazyn.** `use_packaging` przyjmuje tylko ilości dodatnie,
+   a `receive_packaging` zakłada NOWĄ dostawę (podbija `kg_initial`), więc
+   zwrot przez niego zafałszowałby ilość kiedykolwiek przyjętą. Potrzebny
+   osobny ruch: oddaje do `kg_available` i zdejmuje z `kg_used`, ze strażnikiem
+   „nie można zwrócić więcej, niż pobrano".
+3. **Zużycie PER DZIEŃ produkcyjny.** `packaging.kg_used` to licznik narastający
+   — nie odpowie na pytanie „ile folii poszło 25.08". Do kosztów potrzebny
+   zapis per dzień: pobrania, dokładki i zwrot, z sumą. Bez tego cała funkcja
+   nie robi tego, po co powstaje.
+
+Zapis pobrań i zwrotu musi też **przeżyć zamknięcie dnia** — koszt liczy się
+po fakcie, czasem po tygodniu.
+
 ## Zasady — te same co tablet produkcji
 
 Backend **bez zmian**, wszystkie endpointy istnieją i działają:
@@ -174,7 +212,8 @@ tego błędu nie powtarzamy.
 ## Testy
 
 - **Czysta logika** (node): `planDiff` — dodanie, usunięcie, zmiana ilości,
-  zmiana receptury/tulei/klienta, brak zmian; `planProgress` — sumy i stany.
+  zmiana receptury/tulei/klienta, brak zmian; `planProgress` — sumy i stany;
+  rozliczenie folii — pobrane − zwrócone, zwrot większy niż pobranie odrzucony.
 - **Komponenty** (jsdom): lista pokazuje kolumny karty produkcji; licznik `+1`
   i wpisanie liczby; rozliczenie per pracownik; pasek zmiany nie znika bez
   potwierdzenia.
