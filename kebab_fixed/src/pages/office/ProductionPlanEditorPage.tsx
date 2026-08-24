@@ -3,10 +3,11 @@
  *
  * Zastępuje modal ("okno") z ProductionPlanningPage: planowanie dostaje całą
  * stronę, więc panel mięsa, pozycje i dobór partii mają miejsce i są czytelne.
- * TYMCZASOWO renderuje stary <PlanForm>. Nowy <PlanEditor> (terminal dnia)
- * jest gotowy i przetestowany, ale nie ma jeszcze poprawiania pozycji ani
- * wciągania z zamówień — a stary formularz to miał. Przełączamy z powrotem,
- * gdy terminal domknie te dwie rzeczy (zadania 8-9 planu wdrożenia). Trasy:
+ * Od 2026-08-24 renderuje <PlanEditor> — terminal dnia pod klawiaturę.
+ * Powód przebudowy: stary formularz ODBIŁ (dwa plany w całej historii bazy),
+ * bo wbijało się go myszką przez rozwijane listy. Logika (alokacja FEFO,
+ * receptury komponentowe, walidacja braków) jest wspólna i wyjęta do
+ * features/production-plan. Trasy:
  *   /office/planowanie-produkcji/nowy            → nowy plan
  *   /office/planowanie-produkcji/:id/edytuj      → edycja (też aktywnego)
  */
@@ -15,7 +16,7 @@ import { ArrowLeft } from 'lucide-react'
 import { useApi } from '@/hooks/useApi'
 import { productionPlansApi } from '@/lib/apiClient'
 import type { CreatePlanLineDto } from '@/lib/mockApi'
-import { PlanForm } from './ProductionPlanningPage'
+import { PlanEditor } from '@/features/production-plan/PlanEditor'
 
 const LIST_PATH = '/office/planowanie-produkcji'
 
@@ -70,12 +71,12 @@ export function ProductionPlanEditorPage() {
         )}
       </div>
 
-      <PlanForm
-        fullPage
+      <PlanEditor
         initialPlan={editPlan ?? undefined}
         onSave={handleSave}
         onClose={back}
         existingPlans={plans ?? []}
+        onOpenExisting={pid => navigate(`${LIST_PATH}/${pid}/edytuj`)}
       />
     </div>
   )

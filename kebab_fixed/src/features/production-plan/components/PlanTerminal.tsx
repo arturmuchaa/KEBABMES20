@@ -27,20 +27,33 @@ const Glyph = ({ children }: { children: React.ReactNode }) => (
 
 export function PlanTerminal({
   productTypes, recipes, packaging, clients, lastLine, onCommit,
+  editing = false, onCancelEdit,
 }: {
   productTypes: Nazwane[]
   recipes:      RecipeOpt[]
   packaging:    Nazwane[]
   clients:      Nazwane[]
-  /** Ostatnio dopisana pozycja — po niej dziedziczy się tożsamość. */
+  /** Nowa pozycja: ostatnio dopisana, po której dziedziczy się tożsamość.
+   *  Tryb poprawiania: POPRAWIANA pozycja — wchodzi w całości, z liczbami. */
   lastLine:     PlanLine | null
+  /** Pasek poprawia istniejącą pozycję zamiast dopisywać nową. */
+  editing?:     boolean
+  onCancelEdit?: () => void
   onCommit:     (line: PlanLine) => void
 }) {
-  const [draft, setDraft] = useState<PlanLine>(() => carryOver(lastLine))
-  const [slot,  setSlot]  = useState<Slot>(() => initialSlot(carryOver(lastLine)))
+  // W trybie poprawiania NIE dziedziczymy: wsad ma pokazać pozycję taką, jaka
+  // jest — z ilością i wagą — bo poprawiane bywa właśnie któreś z tych pól.
+  const start = editing && lastLine ? lastLine : carryOver(lastLine)
+  const [draft, setDraft] = useState<PlanLine>(() => start)
+  const [slot,  setSlot]  = useState<Slot>(() => (editing ? 'qty' : initialSlot(start)))
   const [hint,  setHint]  = useState('')
 
-  const inherit = useMemo(() => inheritedSlots(draft, lastLine), [draft, lastLine])
+  // Znaczniki dziedziczenia tylko przy NOWEJ pozycji — przy poprawianiu
+  // wszystko „pochodzi" z tej samej pozycji i znaczniki nic nie znaczą.
+  const inherit = useMemo(
+    () => (editing ? new Set<Slot>() : inheritedSlots(draft, lastLine)),
+    [editing, draft, lastLine],
+  )
 
   const ptItems = useMemo(() => productTypes.map(p => ({ id: p.id, label: p.name })), [productTypes])
   // Receptury zawężone do wybranego rodzaju: receptura z innego produktu
@@ -76,6 +89,7 @@ export function PlanTerminal({
     if (!draftComplete(draft)) return
 
     onCommit(draft)
+    if (editing) return          // rodzic zamyka tryb poprawiania
     const next = carryOver(draft)
     setDraft(next)
     setSlot(initialSlot(next))
@@ -90,8 +104,14 @@ export function PlanTerminal({
     <section className="border border-surface-4 bg-white shadow-card">
       <header className="flex items-center gap-2 border-b border-surface-3 bg-surface-2 px-4 py-1.5">
         <span className="font-display text-[10px] font-bold uppercase tracking-[0.14em] text-ink">
-          Wsad
+          {editing ? 'Poprawa pozycji' : 'Wsad'}
         </span>
+        {editing && onCancelEdit && (
+          <button onClick={onCancelEdit} data-testid="porzuc-poprawke"
+            className="flex items-center gap-1 text-[10.5px] text-ink-3 hover:text-ink">
+            porzuć poprawkę
+          </button>
+        )}
         <span className="ml-auto text-[10.5px] text-ink-4">
           <kbd className="oe-key">⏎</kbd> dalej / dodaj · <kbd className="oe-key">⇥</kbd> pole ·{' '}
           <kbd className="oe-key">⇧⇥</kbd> wstecz

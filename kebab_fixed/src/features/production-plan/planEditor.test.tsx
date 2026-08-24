@@ -16,6 +16,12 @@ const PARTIE = [
     productionDay: '2026-08-22', expiryDate: '2026-09-05', kgFree: 900, kgAvailable: 900 },
 ]
 
+/** Jedno potwierdzone zamówienie: 20 szt po 35 kg, z czego 8 jeszcze zostało. */
+const ZAMOWIENIA = [{
+  id: 'z1', orderNo: 'ZAM/1', clientId: 'c1', clientName: 'Bulli', status: 'confirmed',
+  lines: [{ id: 'zl1', qty: 20, kgPerUnit: 35, productTypeId: 'pt1', recipeId: 'r1' }],
+}]
+
 const { updateStatus, thenable } = vi.hoisted(() => ({
   updateStatus: vi.fn(async () => ({})),
   // `all()` jest w kodzie łańcuchowane przez .then() (edycja planu filtruje
@@ -32,6 +38,10 @@ vi.mock('@/lib/apiClient', () => ({
   packagingApi:    { list: () => [{ id: 'tul65', name: 'Tuleja 65 cm' }] },
   clientsApi:      { list: () => [{ id: 'c1', name: 'Bulli', active: true }] },
   productionPlansApi: { updateStatus },
+  clientOrdersApi: {
+    list: () => ZAMOWIENIA,
+    productionProgress: async (_id: string) => ({ lines: [{ lineId: 'zl1', qtyRemaining: 8 }] }),
+  },
 }))
 vi.mock('@/features/products/hooks', () => ({
   useProductTypes: () => ({ productTypes: [{ id: 'pt1', name: 'Kebab drobiowy' }] }),
@@ -138,5 +148,77 @@ describe('PlanEditor', () => {
     pokaz()
     fireEvent.click(screen.getByRole('button', { name: /Zapisz szkic/ }))
     expect(screen.getByText(/Dodaj przynajmniej jedną pozycję/)).toBeTruthy()
+  })
+})
+
+/**
+ * Dwa wejścia planu: z ręki (wyżej) i z zamówień. Plan powstaje po połowie,
+ * więc oba muszą być wygodne — ale panel zamówień otwiera się NA ŻĄDANIE,
+ * bo w większość dni nie ma czego wciągać.
+ */
+describe('PlanEditor — wciąganie z zamówień', () => {
+  const otworzPanel = async () => {
+    pokaz()
+    fireEvent.click(screen.getByTestId('otworz-zamowienia'))
+    return screen.findByTestId('panel-zamowien')
+  }
+
+  it('pokazuje RESZTĘ do wyprodukowania, nie ilość z zamówienia', async () => {
+    await otworzPanel()
+    await waitFor(() =>
+      expect(screen.getByTestId('zamowienie-pozycja').textContent).toContain('8×35'))
+  })
+
+  it('wciągnięta pozycja ląduje w planie z partiami od FEFO', async () => {
+    await otworzPanel()
+    await waitFor(() => screen.getByTestId('zamowienie-pozycja'))
+    fireEvent.click(screen.getByTestId('wciagnij'))
+    await waitFor(() => expect(screen.getAllByTestId('plan-line')).toHaveLength(1))
+    expect(partieWiersza(0)).toBe('495')
+  })
+
+  it('zapis niesie powiązanie z pozycją zamówienia', async () => {
+    const { onSave } = pokaz()
+    fireEvent.click(screen.getByTestId('otworz-zamowienia'))
+    await screen.findByTestId('zamowienie-pozycja')
+    fireEvent.click(screen.getByTestId('wciagnij'))
+    await waitFor(() => screen.getAllByTestId('plan-line'))
+    fireEvent.click(screen.getByRole('button', { name: /Zapisz szkic/ }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0][0]).toMatchObject({
+      qty: 8, clientOrderId: 'z1', clientOrderLineId: 'zl1', clientName: 'Bulli',
+    })
+  })
+})
+
+describe('PlanEditor — poprawianie pozycji', () => {
+  const wbijIWejdzWEdycje = async () => {
+    pokaz()
+    wbij('10', '10')
+    fireEvent.click(screen.getAllByTitle(/Popraw pozycję/)[0])
+    await screen.findByTestId('porzuc-poprawke')
+  }
+
+  it('pasek wsadu pokazuje pozycję Z LICZBAMI, nie samą tożsamość', async () => {
+    await wbijIWejdzWEdycje()
+    expect(pole('Sztuk').value).toBe('10')
+    expect(pole('Waga sztuki').value).toBe('10')
+  })
+
+  it('poprawka PODMIENIA pozycję, nie dopisuje nowej', async () => {
+    await wbijIWejdzWEdycje()
+    fireEvent.change(pole('Sztuk'), { target: { value: '25' } })
+    fireEvent.keyDown(pole('Sztuk'), { key: 'Enter' })
+    fireEvent.keyDown(pole('Waga sztuki'), { key: 'Enter' })
+    await waitFor(() => expect(screen.getAllByTestId('plan-line')).toHaveLength(1))
+    expect(within(screen.getAllByTestId('plan-line')[0]).getByTestId('plan-ilosc').textContent).toBe('25×10')
+  })
+
+  it('„porzuć poprawkę" zostawia pozycję nietkniętą', async () => {
+    await wbijIWejdzWEdycje()
+    fireEvent.change(pole('Sztuk'), { target: { value: '99' } })
+    fireEvent.click(screen.getByTestId('porzuc-poprawke'))
+    await waitFor(() => expect(screen.queryByTestId('porzuc-poprawke')).toBeNull())
+    expect(within(screen.getAllByTestId('plan-line')[0]).getByTestId('plan-ilosc').textContent).toBe('10×10')
   })
 })

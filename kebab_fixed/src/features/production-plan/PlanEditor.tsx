@@ -13,7 +13,7 @@
 import { useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import {
-  seasonedMeatApi, packagingApi, clientsApi, productionPlansApi,
+  seasonedMeatApi, packagingApi, clientsApi, productionPlansApi, clientOrdersApi,
 } from '@/lib/apiClient'
 import { useProductTypes } from '@/features/products/hooks'
 import { useRecipes } from '@/features/ingredients/hooks'
@@ -21,12 +21,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { fmtKgTrim } from '@/lib/utils'
-import { Factory, Save, AlertTriangle } from 'lucide-react'
+import { Factory, Save, AlertTriangle, Download, X } from 'lucide-react'
 
 import { usePlanDraft } from './usePlanDraft'
 import { PlanTerminal } from './components/PlanTerminal'
 import { PlanLinesTable, type PlanLineRow } from './components/PlanLinesTable'
 import { BatchPanel } from './components/BatchPanel'
+import { PullFromOrders } from './components/PullFromOrders'
+import { pullableLines, type ProgressByLine } from './pullFromOrders'
 import { num, type PlanLine } from './planLineModel'
 import type { CreatePlanLineDto } from '@/lib/mockApi'
 
@@ -83,7 +85,34 @@ export function PlanEditor({
   const clients   = useMemo(
     () => ((clientList ?? []) as any[]).filter(c => c.active), [clientList])
 
+  // Zamówienia potwierdzone + ile z ich pozycji ZOSTAŁO do wyprodukowania.
+  // Postęp doczytujemy raz przy otwarciu panelu — bez niego pozycja zrobiona
+  // w połowie wjechałaby w plan w pełnej ilości i zakład zrobiłby ją drugi raz.
+  const { data: ordersData } = useApi(() => clientOrdersApi.list('confirmed'))
+  const orders = useMemo(() => (ordersData ?? []) as any[], [ordersData])
+  const [progress, setProgress] = useState<ProgressByLine>({})
+  const [panelZamowien, setPanelZamowien] = useState(false)
+
   const draft = usePlanDraft({ initialPlan, seasoned, recipes: (recipes ?? []) as any[] })
+
+  // Pozycja poprawiana — wraca do paska wsadu, a z listy znika na czas edycji.
+  const [editingIdx, setEditingIdx] = useState<number | null>(null)
+
+  const doWciagniecia = useMemo(
+    () => pullableLines(orders, progress).length, [orders, progress])
+
+  async function otworzZamowienia() {
+    setPanelZamowien(true)
+    // Postęp per zamówienie; brak danych = traktuj całość jako do zrobienia.
+    const zebrane: ProgressByLine = {}
+    await Promise.all(orders.map(async (o: any) => {
+      try {
+        const p = await clientOrdersApi.productionProgress(o.id)
+        for (const pl of p.lines ?? []) zebrane[pl.lineId] = { qtyRemaining: pl.qtyRemaining }
+      } catch { /* bez postępu planujemy całość */ }
+    }))
+    setProgress(prev => ({ ...prev, ...zebrane }))
+  }
 
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState('')
@@ -165,6 +194,15 @@ export function PlanEditor({
         <span className="pb-2 font-mono text-[12px] tabular-nums text-ink-3">
           {draft.lines.length} poz. · {fmtKgTrim(draft.totalKg)} kg
         </span>
+        {/* Licznik tylko gdy jest co wciągać — w dni bez zamówień przycisk
+            nie udaje, że coś czeka. */}
+        {orders.length > 0 && !panelZamowien && (
+          <Button variant="outline" className="mb-0.5 ml-auto gap-1.5"
+            data-testid="otworz-zamowienia" onClick={otworzZamowienia}>
+            <Download size={15} />
+            Wciągnij z zamówień{doWciagniecia > 0 ? ` (${doWciagniecia})` : ''}
+          </Button>
+        )}
       </div>
 
       {/* Jeden dzień = jeden plan. Nie podmieniamy szkicu po cichu — planista
@@ -182,24 +220,53 @@ export function PlanEditor({
         </div>
       )}
 
+      {/* Poprawianie pozycji: wraca do paska wsadu z jej danymi, a zatwierdzenie
+          podmienia ją w miejscu zamiast dopisywać na końcu. `key` wymusza reset
+          pól — bez niego pasek zostałby z poprzednim szkicem. */}
       <PlanTerminal
+        key={editingIdx === null ? 'nowa' : `edycja-${editingIdx}`}
         productTypes={(productTypes ?? []) as any[]}
         recipes={(recipes ?? []) as any[]}
         packaging={packaging}
         clients={clients}
-        lastLine={draft.lines[draft.lines.length - 1] ?? null}
-        onCommit={draft.addLine}
+        lastLine={editingIdx !== null
+          ? draft.lines[editingIdx]
+          : (draft.lines[draft.lines.length - 1] ?? null)}
+        editing={editingIdx !== null}
+        onCancelEdit={() => setEditingIdx(null)}
+        onCommit={l => {
+          if (editingIdx === null) { draft.addLine(l); return }
+          // Zachowujemy id pozycji i powiązanie z zamówieniem — poprawka nie
+          // może zerwać rozliczenia zamówienia ani zrobić z pozycji nowej.
+          const stara = draft.lines[editingIdx]
+          draft.replaceLine(editingIdx, {
+            ...l,
+            id:                stara.id,
+            qtyDone:           stara.qtyDone,
+            clientOrderId:     stara.clientOrderId,
+            clientOrderNo:     stara.clientOrderNo,
+            clientOrderLineId: stara.clientOrderLineId,
+          })
+          setEditingIdx(null)
+        }}
       />
 
       <div className="flex min-h-[240px] items-stretch gap-3">
         <div className="flex min-w-0 flex-1 flex-col border border-surface-4 bg-white shadow-card">
           <PlanLinesTable
             rows={rows}
-            editingIdx={null}
-            onEdit={() => { /* poprawianie pozycji — zadanie osobne */ }}
-            onRemove={draft.removeLine}
+            editingIdx={editingIdx}
+            onEdit={i => setEditingIdx(i)}
+            onRemove={i => { setEditingIdx(null); draft.removeLine(i) }}
           />
         </div>
+        {panelZamowien && (
+          <PullFromOrders
+            orders={orders} progress={progress}
+            onPull={lines => lines.forEach(draft.addLine)}
+            onClose={() => setPanelZamowien(false)}
+          />
+        )}
         <aside className="w-[300px] shrink-0">
           <BatchPanel rows={draft.batchRows} demandByRecipe={draft.demand} onRecalc={draft.recalcFefo} />
         </aside>
