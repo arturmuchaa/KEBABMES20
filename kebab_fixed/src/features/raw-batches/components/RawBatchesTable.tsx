@@ -114,11 +114,12 @@ export function RawBatchesTable({
   }
 
   const [filter,  setFilter]  = useState('')
-  // Zakładka „Wszystko" odpowiada na pytanie „gdzie jest numer 437" — okres
-  // ani status anulowania nie mogą go chować, bo szukany numer bywa właśnie
-  // sprzed pół roku albo anulowany.
+  // Zakładka „Wszystko" odpowiada na pytanie „gdzie jest numer 437", więc
+  // okres startuje bez ograniczenia — numer bywa sprzed pół roku.
+  // Anulowane zostają SCHOWANE (decyzja biura 24.08.2026): to śmieci
+  // w codziennym czytaniu listy, a gdy trzeba, wraca je jeden klik.
   const [period,  setPeriod]  = useState<HistoryPeriod>(isAll ? 0 : 30)
-  const [showCancelled, setShowCancelled] = useState(isAll)
+  const [showCancelled, setShowCancelled] = useState(false)
   // Domyślnie od najnowszej dostawy — pytanie „co ostatnio przyszło" jest
   // częstsze niż „co najszybciej wygasa" (od tego jest Magazyn surowca).
   // W „Wszystko" rządzi numer porządkowy: ciągły rząd pokazuje dziury.

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 
 import { RawBatchesTable } from './components/RawBatchesTable'
 import type { MeatStockMap } from './deliveryView'
@@ -110,13 +110,20 @@ describe('RawBatchesTable — zakładka „Wszystko"', () => {
     expect(numeryWKolejnosci()).toContain('301')
   })
 
-  it('pokazuje anulowane od razu — szukany numer bywa właśnie anulowany', () => {
+  it('anulowanych nie pokazuje domyślnie — lista ma zostać czytelna', () => {
     pokazWszystko()
+    expect(numeryWKolejnosci()).not.toContain('499')
+  })
+
+  it('anulowane wracają po zaznaczeniu „Pokaż anulowane"', () => {
+    pokazWszystko()
+    fireEvent.click(screen.getByLabelText('Pokaż anulowane'))
     expect(numeryWKolejnosci()).toContain('499')
   })
 
   it('ustawia numery w ciągły rząd malejąco, mieszając rodzaje surowca', () => {
     pokazWszystko()
+    fireEvent.click(screen.getByLabelText('Pokaż anulowane'))
     expect(numeryWKolejnosci()).toEqual(['502', '501', '499', '301'])
   })
 
