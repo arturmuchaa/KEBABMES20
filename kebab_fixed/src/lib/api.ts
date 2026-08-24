@@ -2507,6 +2507,12 @@ function mapPlan(raw: any): any {
   }
 }
 
+// ─── Operatorzy stanowiska (bez tokenu — kiosk pyta przed zalogowaniem) ───
+export const operatorsApi = {
+  forDepartment: (department: string) =>
+    get<{ id: string; name: string }[]>(`/auth/operators?department=${encodeURIComponent(department)}`),
+}
+
 // ─── Materiały dnia produkcyjnego (folia stretch) ─────────────
 export interface DayMaterialMove { kind: 'pobranie' | 'zwrot'; qty: number; at: string; by: string }
 export interface DayMaterial {
