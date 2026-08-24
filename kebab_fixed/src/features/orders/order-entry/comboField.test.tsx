@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { useState } from 'react'
 
-import { ComboField } from './fields'
+import { ComboField } from '@/components/terminal/fields'
 
 /**
  * Pole wyboru na ekranie wprowadzania zamówień.

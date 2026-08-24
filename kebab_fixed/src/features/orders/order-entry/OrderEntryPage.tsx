@@ -36,7 +36,7 @@ import {
   applyIdentity, carryOver, draftComplete, identityComplete, inheritedSlots,
   initialSlot, lineKg, nextSlot, num, prevSlot, totals, type Slot,
 } from './model'
-import { ComboField, FieldShell, NumberField } from './fields'
+import { ComboField, FieldShell, NumberField } from '@/components/terminal/fields'
 import { ClientStep } from './ClientStep'
 import './order-entry.css'
 
