@@ -1151,6 +1151,62 @@ def update_plan_status(plan_id: str, status: str) -> Dict[str, bool]:
     return {"ok": True}
 
 
+def delete_plan(plan_id: str) -> Dict[str, bool]:
+    """Usuń plan, którego nikt jeszcze nie zaczął robić.
+
+    POWÓD ISTNIENIA: plan wpisany omyłkowo albo na zły dzień zostawał
+    w systemie na zawsze — dało się go najwyżej anulować, więc lista puchła
+    od pozycji, których nigdy nie było.
+
+    Usuwamy TYLKO to, po czym nie ma śladu na hali: szkic albo plan aktywny,
+    z którego nie wyprodukowano ani jednej sztuki. Plan wykonany zostaje —
+    jest zapisem tego, co zakład faktycznie zrobił.
+
+    Rezerwacje mięsa oddajemy do puli PRZED usunięciem: kilogramy wiszą na
+    `seasoned_meat.kg_reserved` i zniknęłyby razem z planem, a nikt by ich
+    potem nie odzyskał.
+
+    Numer planu zostaje luką w serii — plan bez wyprodukowanej sztuki nie ma
+    karty produkcji ani etykiet, więc nie ma czego z tym numerem wiązać.
+    """
+    with transaction() as conn:
+        plan = cx_query_one(
+            conn, "SELECT id, plan_no, status FROM production_plans WHERE id=%s FOR UPDATE",
+            (plan_id,),
+        )
+        if not plan:
+            raise HTTPException(404, "Nie ma takiego planu")
+
+        if plan["status"] == "done":
+            raise HTTPException(
+                400,
+                f"Plan {plan['plan_no']} jest wykonany — zostaje jako zapis produkcji. "
+                "Usuwać można tylko plan, z którego nic nie zrobiono.",
+            )
+
+        zrobione = cx_query_one(
+            conn,
+            "SELECT COUNT(*) AS n, COALESCE(SUM(qty_done),0) AS szt "
+            "FROM production_plan_lines WHERE plan_id=%s AND COALESCE(qty_done,0) > 0",
+            (plan_id,),
+        ) or {}
+        if int(zrobione.get("n") or 0) > 0:
+            raise HTTPException(
+                400,
+                f"Plan {plan['plan_no']} jest już w trakcie — hala wyprodukowała "
+                f"{int(zrobione.get('szt') or 0)} szt. Usunąć można tylko plan nieruszony.",
+            )
+
+        # Kolejność ma znaczenie: najpierw oddaj kilogramy, potem kasuj wiersze,
+        # z których wiadomo, ile oddać.
+        _restore_reservations(conn, plan_id)
+        cx_execute(conn, "DELETE FROM production_plan_lines WHERE plan_id=%s", (plan_id,))
+        cx_execute(conn, "DELETE FROM production_plans WHERE id=%s", (plan_id,))
+
+    logger.info("plan.deleted", extra={"plan_id": plan_id, "plan_no": plan.get("plan_no")})
+    return {"ok": True}
+
+
 def update_line_progress(
     plan_id: str,
     line_id: str,

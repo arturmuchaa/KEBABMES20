@@ -48,6 +48,13 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate):
     return svc.update_plan(plan_id, dto)
 
 
+@router.delete("/{plan_id}")
+def delete_plan(plan_id: str):
+    """Usuń plan, którego nikt jeszcze nie zaczął robić (szkic albo aktywny
+    bez wyprodukowanej sztuki). Rezerwacje mięsa wracają do puli."""
+    return svc.delete_plan(plan_id)
+
+
 @router.patch("/{plan_id}/status")
 def update_plan_status(plan_id: str, body: dict):
     return svc.update_plan_status(plan_id, body.get("status", ""))

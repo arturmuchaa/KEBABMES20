@@ -685,6 +685,31 @@ export function ProductionPlanningPage() {
                           <Pencil size={13}/>
                         </Button>
                       )}
+                      {/* Usuwanie: tylko plan, po którym NIE MA śladu na hali —
+                          szkic albo aktywny bez wyprodukowanej sztuki. Backend
+                          pilnuje tego samego i oddaje zarezerwowane mięso. */}
+                      {(plan.status==='draft'||plan.status==='active')
+                        && !(plan.lines ?? []).some(l => ((l as any).qtyDone ?? 0) > 0) && (
+                        <Button variant="ghost" size="icon"
+                          data-testid="usun-plan"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          title="Usuń plan (nic z niego nie wyprodukowano)"
+                          onClick={async e=>{
+                            e.stopPropagation()
+                            if (!confirm(
+                              `Usunąć plan ${plan.planNo}?\n\n`
+                              + 'Zarezerwowane mięso wróci do puli. Tej operacji nie da się cofnąć.'
+                            )) return
+                            try {
+                              await productionPlansApi.remove(plan.id)
+                              refetch()
+                            } catch(err) {
+                              alert(err instanceof Error ? err.message : 'Nie udało się usunąć planu')
+                            }
+                          }}>
+                          <Trash2 size={13}/>
+                        </Button>
+                      )}
                       {plan.status==='draft'&&(
                         <Button variant="outline" size="sm"
                           className="h-7 text-[11px] text-amber-700 border-amber-200 hover:bg-amber-50"

@@ -2512,6 +2512,9 @@ export const productionPlansApi = {
   byId:         (id: string) => get<any>(`/production-plans/${id}`).then(mapPlan),
   create:       (dto: CreateProductionPlanDto) => post<any>('/production-plans', toSnake(dto)).then(mapPlan),
   update:       (id: string, dto: CreateProductionPlanDto) => put<any>(`/production-plans/${id}`, toSnake(dto)).then(mapPlan),
+  /** Usuń plan, którego hala jeszcze nie zaczęła (szkic albo aktywny bez
+   *  wyprodukowanej sztuki). Rezerwacje mięsa wracają do puli. */
+  remove: (id: string) => del<{ ok: boolean }>(`/production-plans/${id}`),
   updateStatus: (id: string, status: string) => patch<void>(`/production-plans/${id}/status`, { status }),
   updateLineProgress: (
     planId: string,
