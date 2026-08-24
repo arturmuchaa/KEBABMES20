@@ -19,6 +19,10 @@ import type { LotPick } from './meatPallet'
 /** Ile partii mieści się na etykiecie; reszta idzie jako „+ N kolejnych". */
 export const MAX_LOTS_ON_LABEL = 4
 
+/** Wysokość czcionki wagi palety. Numer partii przy palecie jednorodnej
+ *  dostaje DOKŁADNIE tę samą — ma być czytelny z tej samej odległości. */
+const KG_FONT_MM = 7
+
 export interface MeatPalletLabelInput {
   palletNo: string
   netKg: number
@@ -64,22 +68,42 @@ export function meatPalletLabelZpl(
     text(M, 13, 4.5, input.palletNo, dpi),
     line(M, 19.5, W, dpi),
 
-    text(M, 22, 7, `${fmtLabelKg(input.netKg)} kg`, dpi),
+    text(M, 22, KG_FONT_MM, `${fmtLabelKg(input.netKg)} kg`, dpi),
     text(M, 31, 3.5, `${input.containers} pojemników`, dpi),
     line(M, 36.5, W, dpi),
 
-    text(M, 38.5, 3.2, 'Partie:', dpi),
-    ...widoczne.map((l, i) =>
-      text(M, 42.5 + i * 4.5, 4, `${l.lotNo} — ${fmtLabelKg(l.kg)} kg`, dpi)),
   ]
 
-  // Stopka idzie ZARAZ POD składem, a nie na stałej wysokości: przy dwóch
-  // partiach stała pozycja zostawiała w środku etykiety pustą dziurę
-  // wyglądającą jak błąd druku.
-  let y = 42.5 + widoczne.length * 4.5
-  if (reszta > 0) {
-    body.push(text(M, y, 3.5, `+ ${reszta} kolejnych`, dpi))
-    y += 4.5
+  // Paleta z JEDNEJ partii: sam numer, wielkim drukiem.
+  //
+  // Rozpisywanie „503 — 200 kg" niczego tu nie wnosi — te kilogramy to waga
+  // całej palety, wydrukowana wyżej największą czcionką. Operator masowania
+  // czyta z zawieszki dwie rzeczy: ile bierze i z czego; numer partii ma być
+  // widoczny z tej samej odległości co waga, więc dostaje tę samą wysokość.
+  //
+  // Skład z kilogramami zostaje TAM, GDZIE ma sens: przy palecie złożonej
+  // z dwóch partii i więcej. To dla niej ta etykieta w ogóle powstała.
+  let y: number
+  if (widoczne.length === 1) {
+    body.push(
+      text(M, 38.5, 3.2, 'Partia', dpi),
+      text(M, 42, KG_FONT_MM, widoczne[0].lotNo, dpi),
+    )
+    y = 42 + KG_FONT_MM + 2
+  } else {
+    body.push(
+      text(M, 38.5, 3.2, 'Partie:', dpi),
+      ...widoczne.map((l, i) =>
+        text(M, 42.5 + i * 4.5, 4, `${l.lotNo} — ${fmtLabelKg(l.kg)} kg`, dpi)),
+    )
+    // Stopka idzie ZARAZ POD składem, a nie na stałej wysokości: przy dwóch
+    // partiach stała pozycja zostawiała w środku etykiety pustą dziurę
+    // wyglądającą jak błąd druku.
+    y = 42.5 + widoczne.length * 4.5
+    if (reszta > 0) {
+      body.push(text(M, y, 3.5, `+ ${reszta} kolejnych`, dpi))
+      y += 4.5
+    }
   }
 
   body.push(

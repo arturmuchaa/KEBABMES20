@@ -80,3 +80,53 @@ describe('meatPalletLabelZpl — etykieta palety mięsa', () => {
     expect(zpl).toContain('PAL 1 2')
   })
 })
+
+/**
+ * Numer partii na etykiecie palety.
+ *
+ * Operator masowania czyta z zawieszki dwie rzeczy: ile bierze i Z CZEGO.
+ * Numer partii szedł mniejszą czcionką niż waga i tonął w wierszu „503 — 200 kg",
+ * a przy palecie z JEDNEJ partii ten dopisek z kilogramami niczego nie wnosi:
+ * powtarza wagę palety, która stoi wyżej wielkim drukiem (biuro, 24.08.2026).
+ */
+
+/** Wysokość czcionki (w punktach ^A0N) użyta do wydrukowania danego napisu. */
+function fontHeightOf(zpl: string, tekst: string): number | null {
+  const m = zpl.match(new RegExp(`\\^A0N,(\\d+),\\d+\\^FD${tekst.replace(/[/^$.*+?()[\]{}|\\]/g, '\\$&')}\\^FS`))
+  return m ? Number(m[1]) : null
+}
+
+describe('meatPalletLabelZpl — numer partii', () => {
+  const JEDNA = { ...BASE, netKg: 200, lots: [{ lotNo: '503', kg: 200 }] }
+
+  it('paleta z JEDNEJ partii pokazuje sam numer, bez powtarzania kilogramów', () => {
+    const zpl = meatPalletLabelZpl(JEDNA)
+    expect(zpl).toContain('503')
+    expect(zpl).not.toContain('503 — 200 kg')
+  })
+
+  it('numer jednej partii jest co najmniej tak duży jak waga palety', () => {
+    const zpl = meatPalletLabelZpl(JEDNA)
+    const waga = fontHeightOf(zpl, '200 kg')
+    const numer = fontHeightOf(zpl, '503')
+    expect(waga).toBeGreaterThan(0)
+    expect(numer).toBeGreaterThanOrEqual(waga as number)
+  })
+
+  it('przy jednej partii nie ma nagłówka „Partie:" — nie ma czego wyliczać', () => {
+    expect(meatPalletLabelZpl(JEDNA)).not.toContain('Partie:')
+  })
+
+  it('dwie partie DALEJ pokazują, ile z której — po to jest ta etykieta', () => {
+    const zpl = meatPalletLabelZpl(BASE)
+    expect(zpl).toContain('Partie:')
+    expect(zpl).toContain('475 — 420 kg')
+    expect(zpl).toContain('476 — 180 kg')
+  })
+
+  it('etykieta jednej partii mieści się na taśmie', () => {
+    const zpl = meatPalletLabelZpl(JEDNA)
+    const yMax = Math.max(...[...zpl.matchAll(/\^FO\d+,(\d+)/g)].map(m => Number(m[1])))
+    expect(yMax).toBeLessThan(mmToDots(LABEL_H_MM))
+  })
+})
