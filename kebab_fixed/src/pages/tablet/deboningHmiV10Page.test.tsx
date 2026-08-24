@@ -22,14 +22,21 @@ const stan = vi.hoisted(() => ({
   lots:    [] as any[],
   pallets: [] as any[],
   pending: [] as any[],
+  entries: [] as any[],
 }))
 
 /** Propsy przechwycone z komponentów-dzieci — tak sprawdzamy okablowanie. */
 const zlapane = vi.hoisted(() => ({ bulk: null as any, uboczne: null as any }))
 
+/** Zapis wpisu rozbioru — sprawdzamy, CO strona wysyła i co robi po zapisie. */
+const { addEntry } = vi.hoisted(() => ({ addEntry: vi.fn(async () => null) }))
+
 vi.mock('@/lib/apiClient', () => ({
   rawBatchesApi: { list: async () => ({ data: stan.batches }) },
-  usersApi:      { list: async () => [] },
+  usersApi:      { list: async () => [
+    { id: 'w1', name: 'DAWID',  role: 'WORKER_DEBONING', active: true },
+    { id: 'w2', name: 'DENYS',  role: 'WORKER_DEBONING', active: true },
+  ] },
   settingsApi:   { getCartTares: async () => [6], getBatchOrder: async () => [] },
   byproductsApi: {
     pending: async () => stan.pending,
@@ -63,7 +70,7 @@ vi.mock('@/features/deboning/hooks', () => ({
     loading: false, startDay: vi.fn(), startLoading: false, closeDay: vi.fn(), closeLoading: false,
   }),
   useDeboningEntries: () => ({
-    entries: [], addEntry: vi.fn(), addTake: vi.fn(), completeTake: vi.fn(),
+    entries: stan.entries, addEntry, addTake: vi.fn(), completeTake: vi.fn(),
     weighPart: vi.fn(), editTake: vi.fn(), editEntry: vi.fn(), removeEntry: vi.fn(),
     hallRemoveEntry: vi.fn(), lastCreated: null, lastTakeRef: { current: null },
     addLoading: false, addTakeLoading: false, completeTakeLoading: false,
@@ -107,6 +114,7 @@ beforeEach(() => {
   stan.lots    = [lot('504', 1185, 167)]
   stan.pallets = []
   stan.pending = []
+  stan.entries = []
 })
 afterEach(cleanup)
 
@@ -188,5 +196,69 @@ describe('okablowanie ekranu rozbioru', () => {
 
     await screen.findByTestId('kreator-palet')
     expect(zlapane.bulk.activeBatchNo).toBe('503')
+  })
+})
+
+/**
+ * Ścieżki, które hala przechodzi setki razy dziennie — i które już się kiedyś
+ * wywróciły na produkcji. Testujemy OKABLOWANIE: co strona wysyła do hooka
+ * zapisu i co robi ze stanem po zapisie.
+ */
+describe('okablowanie zapisu wpisu rozbioru', () => {
+  /** Wybierz partię i pracownika, wpisz kilogramy, zapisz. */
+  async function wbijWpis({ partia = '504', pracownik = 'DAWID' } = {}) {
+    await pokazEkran()
+    fireEvent.click(await screen.findByText(partia))
+    fireEvent.click(await screen.findByText(pracownik))
+    // Pola kg: pierwsze „pobrane", drugie „mięso" — wpisujemy klawiaturą ekranu.
+    const pola = screen.getAllByRole('textbox')
+    fireEvent.change(pola[0], { target: { value: '100' } })
+    fireEvent.change(pola[1], { target: { value: '65' } })
+    return pola
+  }
+
+  /** Wbij pobranie klawiaturą ekranową: partia, pracownik, kg pobrane, kg mięsa. */
+  async function wbijWpis(pracownik = 'DAWID') {
+    await pokazEkran()
+    fireEvent.click(await screen.findByText('504'))
+    fireEvent.click(await screen.findByText(new RegExp(pracownik)))
+    for (const c of ['1', '0', '0']) fireEvent.click(screen.getByRole('button', { name: c }))
+    fireEvent.click(screen.getAllByText(/Mięso/)[0])
+    for (const c of ['6', '5']) fireEvent.click(screen.getByRole('button', { name: c }))
+  }
+
+  it('wpis niesie partię i pracownika ZAZNACZONYCH na ekranie', async () => {
+    await wbijWpis('DENYS')
+    fireEvent.click(await screen.findByRole('button', { name: /ZAPISZ — DENYS/ }))
+    await waitFor(() => expect(addEntry).toHaveBeenCalled())
+    expect(addEntry.mock.calls[0][0]).toMatchObject({
+      rawBatchId: 'b-504', workerId: 'w2', kgTaken: 100, kgMeat: 65,
+    })
+  })
+
+  it('po zapisie zostaje TYLKO partia — pracownik się czyści', async () => {
+    // Produkcja 2026-08-14: ekran trzymał pracownika „bo kolejna sztuka zwykle
+    // taka sama" i wpis wylądował na poprzedniej osobie — wózek DAWIDA na
+    // DENYSIE. Kilka dotknięć więcej jest tańsze niż korekta akordu.
+    await wbijWpis('DAWID')
+    fireEvent.click(await screen.findByRole('button', { name: /ZAPISZ — DAWID/ }))
+    await waitFor(() => expect(addEntry).toHaveBeenCalled())
+    // Pracownik odznaczony: przycisk wraca do proszenia o wybór…
+    expect(await screen.findByRole('button', { name: /WYBIERZ PRACOWNIKA/ })).toBeTruthy()
+    // …a partia ZOSTAJE, bo kolejne pobranie idzie z tej samej. Numer bywa
+    // w kilku miejscach (kafel + podsumowanie zapisu), więc pytamy o kafel.
+    expect(screen.getAllByText('504').length).toBeGreaterThan(0)
+  })
+
+  it('partia z pobraniem czekającym ZOSTAJE aktywnym kaflem mimo zerowego stanu', async () => {
+    // Produkcja 2026-07-10: wszyscy pobrali z 408, kg_available spadło do zera
+    // i ekran „przeskoczył" na 409 — pracownik nie miał gdzie domknąć pobrania.
+    stan.batches = [partia('504'), partia('408', { kgAvailable: 0 })]
+    stan.entries = [{
+      id: 'e1', rawBatchId: 'b-408', rawBatchNo: '408', workerId: 'w1', workerName: 'DAWID',
+      kgTaken: 100, kgMeat: null, status: 'pending', createdAt: '2026-08-24T10:00:00Z',
+    }]
+    await pokazEkran()
+    expect(await screen.findByText('408')).toBeTruthy()
   })
 })
