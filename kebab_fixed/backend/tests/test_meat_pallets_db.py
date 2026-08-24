@@ -126,3 +126,44 @@ def test_partia_spoza_magazynu_miesa_nie_blokuje(db):
     brak wiersza to brak wiedzy, nie zero kilogramów."""
     out = create_pallet(_dto())
     assert out["pallet_no"].startswith("PAL/14/08/26")
+
+
+# ── Partia, z której NIC nie zważono ──────────────────────────────────────
+#
+# 24.08.2026 paleta PAL/24/08/26/19 zapisała się na partię 505, której ćwiartka
+# była NIETKNIĘTA (4860 kg przyjęte, 4860 dostępne, zero mięsa w locie).
+# Strażnik jej nie zatrzymał, bo brak lotu w magazynie mięsa traktował jako
+# „nie wiem", a nie „zero" — reguła słuszna dla mięsa z zewnątrz, ale nie dla
+# partii, która stoi w chłodni nierozebrana.
+
+def _cwiartka(nr: str, kg: float = 4000.0, kg_available: float | None = None):
+    from app.db import execute
+    execute(
+        "INSERT INTO raw_batches (id, internal_batch_no, kg_received, kg_available, status) "
+        "VALUES (%s,%s,%s,%s,'active')",
+        (f"rb-{nr}", nr, kg, kg if kg_available is None else kg_available),
+    )
+
+
+def test_paleta_z_partii_bez_zwazonego_miesa_odrzucona(db):
+    """Ćwiartka jest, ale nikt jej nie rozebrał — mięsa fizycznie nie ma."""
+    _cwiartka("505")
+    with pytest.raises(HTTPException) as err:
+        create_pallet(_dto(kgNet=100, lots=[{"lotNo": "505", "kg": 100}]))
+    assert "505" in err.value.detail
+
+
+def test_partia_w_trakcie_rozbioru_dalej_dziala(db):
+    """Uszczelnienie nie może zablokować normalnej pracy: partia z lotem
+    mięsa rozlicza się limitem jak dotąd."""
+    _cwiartka("506")
+    _lot("506", 500.0)
+    out = create_pallet(_dto(kgNet=200, lots=[{"lotNo": "506", "kg": 200}]))
+    assert out["pallet_no"].startswith("PAL/")
+
+
+def test_mieso_spoza_magazynu_nadal_nie_jest_blokowane(db):
+    """Numer, którego NIE MA wśród ćwiartek (mięso z zewnątrz, stare dane),
+    zostaje brakiem wiedzy — blokowanie go zatrzymałoby legalne ważenia."""
+    out = create_pallet(_dto(kgNet=100, lots=[{"lotNo": "ZEWN-1", "kg": 100}]))
+    assert out["pallet_no"].startswith("PAL/")

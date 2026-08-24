@@ -91,10 +91,30 @@ def _pozostalo_by_lot(conn, lot_nos, exclude_pallet_id: str = "") -> Dict[str, A
         (nos, exclude_pallet_id, exclude_pallet_id),
     )
     wydano = {r["lot_no"]: float(r["kg"] or 0) for r in juz}
-    return {
+    out = {
         r["lot_no"]: round(float(r["kg"] or 0) - wydano.get(r["lot_no"], 0.0), 3)
         for r in dala
     }
+
+    # Partia, która ISTNIEJE jako ćwiartka, ale nie ma lotu mięsa, to nie
+    # „brak wiedzy" — to partia, z której nikt jeszcze nic nie zważył, więc
+    # mięsa fizycznie nie ma. 24.08.2026 paleta 100 kg zapisała się na partię
+    # 505 z nietkniętą ćwiartką właśnie dlatego, że brak lotu przepuszczaliśmy.
+    #
+    # Numer spoza ćwiartek (mięso z zewnątrz, stare dane) ZOSTAJE brakiem
+    # wiedzy i dalej nie jest blokowany — inaczej zatrzymalibyśmy legalne
+    # ważenia, których system nie zna.
+    brakujace = [n for n in nos if n not in out]
+    if brakujace:
+        znane = cx_query_all(
+            conn,
+            "SELECT internal_batch_no FROM raw_batches WHERE internal_batch_no = ANY(%s)",
+            (brakujace,),
+        )
+        for r in znane:
+            out[r["internal_batch_no"]] = 0.0
+
+    return out
 
 
 def _lots_of(pallet_id: str) -> List[Dict[str, Any]]:
