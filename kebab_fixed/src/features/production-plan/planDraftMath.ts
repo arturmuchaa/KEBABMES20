@@ -90,6 +90,9 @@ export function buildBatchRows(
     recipeName:    s.recipeName ?? s.recipeId,
     batchNo:       s.batchNo ?? '',
     productionDay: s.productionDay,
+    // Surowe wolne kg — mianownik dla braku. Liczenie braku od `kgFreeLive`
+    // odejmowałoby zapotrzebowanie planu DWA RAZY.
+    kgFreeRaw:     Math.max(0, Number(s.kgFree ?? s.kgAvailable ?? 0)),
     // Brak klucza w `freeByBatch` = partia nietknięta przez ten szkic.
     kgFreeLive:    alloc.freeByBatch[s.id] ?? Math.max(0, Number(s.kgFree ?? s.kgAvailable ?? 0)),
     usedByLines:   uzycie[s.id] ?? [],

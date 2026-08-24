@@ -24,8 +24,14 @@ export interface BatchPanelRow {
   recipeName:     string
   batchNo:        string
   productionDay?: string
-  /** Wolne kilogramy PO przydziale wszystkich pozycji bieżącego szkicu. */
+  /** Wolne kilogramy PO przydziale pozycji bieżącego szkicu — do wiersza
+   *  partii, bo po nich widać, co plan zjadł. */
   kgFreeLive:     number
+  /** Wolne kilogramy PRZED przydziałem tego szkicu — do liczenia braku.
+   *  Porównanie zapotrzebowania z `kgFreeLive` odejmowałoby plan DWA RAZY
+   *  (KIRMIZI 498, 24.08.2026: „3,8 kg wolne, brakuje 4476,2" przy realnych
+   *  3524 kg i braku 956). */
+  kgFreeRaw:      number
   /** Numery pozycji planu (1-based), które biorą z tej partii. */
   usedByLines:    number[]
 }
@@ -40,6 +46,7 @@ export interface BatchPanelProps {
 interface Grupa {
   recipeId:   string
   recipeName: string
+  /** Surowe wolne kg grupy — mianownik dla braku. */
   wolneKg:    number
   potrzebaKg: number
   partie:     BatchPanelRow[]
@@ -50,7 +57,7 @@ function grupuj(rows: BatchPanelRow[], demand: BatchPanelProps['demandByRecipe']
   for (const r of rows) {
     const g = map.get(r.recipeId)
       ?? { recipeId: r.recipeId, recipeName: r.recipeName, wolneKg: 0, potrzebaKg: 0, partie: [] }
-    g.wolneKg += r.kgFreeLive
+    g.wolneKg += r.kgFreeRaw
     g.partie.push(r)
     map.set(r.recipeId, g)
   }

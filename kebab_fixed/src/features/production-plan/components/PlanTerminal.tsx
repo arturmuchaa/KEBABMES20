@@ -118,7 +118,9 @@ export function PlanTerminal({
         </span>
       </header>
 
-      <div className="flex items-start gap-2.5 px-4 pb-3 pt-2.5">
+      {/* Na wąskim ekranie pola zgniatały się i etykiety nachodziły na wartości
+          (zrzut z telefonu, 24.08.2026). Przewijamy w poziomie zamiast zgniatać. */}
+      <div className="flex items-start gap-2.5 overflow-x-auto px-4 pb-3 pt-2.5 [&>*]:shrink-0">
         <ComboField
           label="Rodzaj" width="w-[190px]" placeholder="Rodzaj produktu…"
           items={ptItems} value={draft.productTypeId}

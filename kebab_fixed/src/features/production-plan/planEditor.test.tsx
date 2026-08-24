@@ -222,3 +222,98 @@ describe('PlanEditor — poprawianie pozycji', () => {
     expect(within(screen.getAllByTestId('plan-line')[0]).getByTestId('plan-ilosc').textContent).toBe('10×10')
   })
 })
+
+/**
+ * Ręczny wybór partii — druga połowa zasady, której brakowało w pierwszym
+ * wydaniu terminala: FEFO proponowało, ale nie było czym zdecydować inaczej.
+ */
+describe('PlanEditor — ręczny wybór partii', () => {
+  const otworzPicker = async () => {
+    pokaz()
+    wbij('10', '10')
+    fireEvent.click(screen.getByTestId('plan-partie'))
+    return screen.findByTestId('picker-zapisz')
+  }
+
+  it('kolumna „Partie" otwiera wybór', async () => {
+    await otworzPicker()
+    expect(screen.getByTestId('picker-partia-b1')).toBeTruthy()
+    expect(screen.getByTestId('picker-partia-b2')).toBeTruthy()
+  })
+
+  it('picker pokazuje SUROWE wolne kg partii, nie resztkę po alokacji', async () => {
+    await otworzPicker()
+    // b1 ma 300 kg wolnego; FEFO zjadło z niej 100 na tę pozycję.
+    expect(screen.getByTestId('picker-partia-b1').textContent).toContain('300')
+  })
+
+  it('mówi wprost, czy zaznaczone partie pokryją pozycję', async () => {
+    await otworzPicker()
+    expect(screen.getByTestId('picker-podsumowanie').textContent).toContain('starczy')
+  })
+
+  it('ręczny wybór nadpisuje propozycję FEFO', async () => {
+    await otworzPicker()
+    fireEvent.click(within(screen.getByTestId('picker-partia-b1')).getByRole('checkbox'))
+    fireEvent.click(within(screen.getByTestId('picker-partia-b2')).getByRole('checkbox'))
+    fireEvent.click(screen.getByTestId('picker-zapisz'))
+    await waitFor(() => expect(partieWiersza(0)).toBe('496'))
+  })
+
+  it('„Zostaw FEFO" oddaje pozycję automatowi, nie zostawia jej bez mięsa', async () => {
+    await otworzPicker()
+    fireEvent.click(within(screen.getByTestId('picker-partia-b1')).getByRole('checkbox'))
+    fireEvent.click(within(screen.getByTestId('picker-partia-b2')).getByRole('checkbox'))
+    fireEvent.click(screen.getByTestId('picker-zapisz'))
+    await waitFor(() => expect(partieWiersza(0)).toBe('496'))
+
+    fireEvent.click(screen.getByTestId('plan-partie'))
+    fireEvent.click(await screen.findByTestId('picker-fefo'))
+    await waitFor(() => expect(partieWiersza(0)).toBe('495'))
+  })
+
+  it('pozycji rozpoczętej na hali nie da się przepiąć', async () => {
+    pokaz({ initialPlan: { planDate: '2026-08-26', lines: [
+      { id: 'l1', qty: 10, kgPerUnit: 10, productTypeId: 'pt1', recipeId: 'r1',
+        seasonedBatchId: 'b2', qtyDone: 4 },
+    ] } })
+    expect((screen.getByTestId('plan-partie') as HTMLButtonElement).disabled).toBe(true)
+  })
+})
+
+/**
+ * Płynne przeliczanie: ręczna zmiana partii ma NATYCHMIAST pokazać, gdzie
+ * mięso doszło, a skąd zniknęło — bez zapisu i bez odświeżania ekranu.
+ */
+describe('PlanEditor — przeliczanie po ręcznej zmianie', () => {
+  it('panel partii przepina „→ poz." na nową partię', async () => {
+    pokaz()
+    wbij('10', '10')
+    // FEFO wzięło najstarszą (495) — panel to pokazuje.
+    expect(within(screen.getByTestId('partia-b1')).getByText(/poz\. 1/)).toBeTruthy()
+    expect(within(screen.getByTestId('partia-b2')).queryByText(/poz\./)).toBeNull()
+
+    fireEvent.click(screen.getByTestId('plan-partie'))
+    fireEvent.click(within(await screen.findByTestId('picker-partia-b1')).getByRole('checkbox'))
+    fireEvent.click(within(screen.getByTestId('picker-partia-b2')).getByRole('checkbox'))
+    fireEvent.click(screen.getByTestId('picker-zapisz'))
+
+    // Po ręcznej zmianie mięso zeszło z 495 na 496 — widać to od razu.
+    await waitFor(() =>
+      expect(within(screen.getByTestId('partia-b2')).getByText(/poz\. 1/)).toBeTruthy())
+    expect(within(screen.getByTestId('partia-b1')).queryByText(/poz\./)).toBeNull()
+  })
+
+  it('wolne kilogramy partii wracają, gdy pozycja z niej zejdzie', async () => {
+    pokaz()
+    wbij('10', '10')
+    expect(screen.getByTestId('partia-b1').textContent).toContain('200')  // 300 − 100
+
+    fireEvent.click(screen.getByTestId('plan-partie'))
+    fireEvent.click(within(await screen.findByTestId('picker-partia-b1')).getByRole('checkbox'))
+    fireEvent.click(within(screen.getByTestId('picker-partia-b2')).getByRole('checkbox'))
+    fireEvent.click(screen.getByTestId('picker-zapisz'))
+
+    await waitFor(() => expect(screen.getByTestId('partia-b1').textContent).toContain('300'))
+  })
+})

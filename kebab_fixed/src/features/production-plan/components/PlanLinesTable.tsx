@@ -31,6 +31,11 @@ const num = (v: string): number => {
 
 const lineKg = (r: PlanLineRow): number => num(r.qty) * num(r.kgPerUnit)
 
+/** Najwęższy sensowny układ. Poniżej tej szerokości kolumny elastyczne
+ *  zgniatały się do zera i nagłówki nachodziły na siebie (zrzut z telefonu,
+ *  24.08.2026) — wtedy zamiast zgniatać, przewijamy w poziomie. */
+const MIN_SZER = 'min-w-[760px]'
+
 /** Kolumny — szerokości MUSZĄ być te same w nagłówku i w wierszu. */
 const COL = {
   lp:     'w-5 shrink-0',
@@ -43,19 +48,22 @@ const COL = {
   akcje:  'w-[52px] shrink-0',
 }
 
-export function PlanLinesTable({ rows, editingIdx, onEdit, onRemove }: {
+export function PlanLinesTable({ rows, editingIdx, onEdit, onRemove, onPickBatches }: {
   rows:       PlanLineRow[]
   editingIdx: number | null
   onEdit:     (i: number) => void
   onRemove:   (i: number) => void
+  /** Ręczny wybór partii dla pozycji — „FEFO proponuje, człowiek decyduje". */
+  onPickBatches?: (i: number) => void
 }) {
   const sumaKg = rows.reduce((s, r) => s + lineKg(r), 0)
 
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex min-h-0 flex-col overflow-x-auto">
       <div data-testid="plan-head"
-        className="flex items-center gap-2.5 border-b border-surface-3 bg-surface-2/60 px-4 py-1
-                   font-display text-[9.5px] font-bold uppercase tracking-[0.13em] text-ink-4">
+        className={cn(MIN_SZER,
+          "flex items-center gap-2.5 border-b border-surface-3 bg-surface-2/60 px-4 py-1")
+                   + " font-display text-[9.5px] font-bold uppercase tracking-[0.13em] text-ink-4"}>
         <span className={COL.lp} />
         <span className={COL.ilosc}>Ilość</span>
         <span className={COL.rodzaj}>Rodzaj</span>
@@ -73,6 +81,7 @@ export function PlanLinesTable({ rows, editingIdx, onEdit, onRemove }: {
             <div key={i} data-testid="plan-line"
               onDoubleClick={() => onEdit(i)}
               className={cn(
+                MIN_SZER,
                 'group flex h-8 items-center gap-2.5 px-4 text-[12.5px]',
                 edytowana ? 'bg-ink text-white' : 'hover:bg-surface-2',
               )}>
@@ -96,14 +105,21 @@ export function PlanLinesTable({ rows, editingIdx, onEdit, onRemove }: {
 
               {/* Partie: myślnik znaczy „jeszcze nieprzypisane" — pozycja bez
                   mięsa nie może wyglądać jak gotowa. */}
-              <span data-testid="plan-partie"
-                className={cn(COL.partie, 'truncate font-mono text-[11.5px]',
+              {/* Partie są KLIKALNE — to jedyne wejście do ręcznej zmiany
+                  przydziału, a ta jest tu czynnością codzienną, nie awaryjną. */}
+              <button type="button" data-testid="plan-partie"
+                onClick={e => { e.stopPropagation(); onPickBatches?.(i) }}
+                disabled={!onPickBatches || r.frozen}
+                title={r.frozen
+                  ? 'Pozycja rozpoczęta na hali — partii nie zmieniamy'
+                  : 'Wybierz partie ręcznie'}
+                className={cn(COL.partie, 'truncate text-left font-mono text-[11.5px]',
+                  !r.frozen && onPickBatches && 'underline decoration-dotted underline-offset-2',
                   r.batchNos.length === 0
                     ? (edytowana ? 'text-white/50' : 'text-danger')
-                    : (edytowana ? 'text-white/70' : 'text-ink-2'))}
-                title={r.batchNos.join(', ') || undefined}>
+                    : (edytowana ? 'text-white/70' : 'text-ink-2'))}>
                 {r.batchNos.length > 0 ? r.batchNos.join(', ') : '—'}
-              </span>
+              </button>
 
               <span data-testid="plan-razem"
                 className={cn(COL.razem, 'font-mono text-[13px] font-bold tabular-nums')}>
@@ -132,7 +148,7 @@ export function PlanLinesTable({ rows, editingIdx, onEdit, onRemove }: {
       </div>
 
       <div data-testid="plan-suma"
-        className="flex items-baseline gap-2 border-t border-surface-4 bg-surface-2/60 px-4 py-1.5">
+        className={cn(MIN_SZER, 'flex items-baseline gap-2 border-t border-surface-4 bg-surface-2/60 px-4 py-1.5')}>
         <span className="font-display text-[9.5px] font-bold uppercase tracking-[0.13em] text-ink-4">
           Razem plan
         </span>

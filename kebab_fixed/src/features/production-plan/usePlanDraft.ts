@@ -9,6 +9,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { todayIso } from '@/lib/utils'
 import { withOwnReservations } from './planOwnReservations'
 import { allocatePlanMeat } from './planMeatAllocation'
+import { assignFefo } from './planFefo'
 import { lineKg, type PlanLine } from './planLineModel'
 import {
   demandByRecipe, buildBatchRows, addLineWithFefo, recalcAll, planLinesFromPlan,
@@ -56,12 +57,35 @@ export function usePlanDraft({ initialPlan, seasoned, recipes }: {
     (i: number) => setLines(prev => prev.filter((_, j) => j !== i)),
     [],
   )
-  /** Ręczna zmiana partii — od tej chwili FEFO tej pozycji nie nadpisuje. */
+  /**
+   * Ręczna zmiana partii — od tej chwili FEFO tej pozycji nie nadpisuje.
+   *
+   * PUSTA lista znaczy „oddaj tę pozycję automatowi": zdejmujemy znacznik
+   * ręczny i od razu przydzielamy jej partie od nowa. Bez tego „Zostaw FEFO"
+   * zapisywałoby pozycję jako ręcznie pustą i zostawałaby bez mięsa.
+   */
   const setLineBatches = useCallback((i: number, ids: string[]) => {
-    setLines(prev => prev.map((x, j) => (j === i
-      ? { ...x, seasonedBatchIds: ids, seasonedBatchId: ids[0] ?? '', batchesManual: true }
-      : x)))
-  }, [])
+    setLines(prev => {
+      const zmienione = prev.map((x, j) => (j === i
+        ? {
+            ...x,
+            seasonedBatchIds: ids,
+            seasonedBatchId:  ids[0] ?? '',
+            batchesManual:    ids.length > 0,
+          }
+        : x))
+      if (ids.length > 0) return zmienione
+      // Pula musi być pomniejszona o to, co trzymają POZOSTAŁE pozycje.
+      const bezTej = zmienione.map((x, j) => (j === i
+        ? { ...x, seasonedBatchIds: [], seasonedBatchId: '' }
+        : x))
+      const alloc = allocatePlanMeat(bezTej, seasonedRaw as any)
+      return assignFefo(bezTej, seasonedRaw.map(s => ({
+        id: s.id, recipeId: s.recipeId, batchNo: s.batchNo, expiryDate: s.expiryDate,
+        kgFree: alloc.freeByBatch[s.id] ?? Math.max(0, Number(s.kgFree ?? s.kgAvailable ?? 0)),
+      })))
+    })
+  }, [seasonedRaw])
   const recalcFefo = useCallback(
     () => setLines(prev => recalcAll(prev, seasonedRaw)),
     [seasonedRaw],

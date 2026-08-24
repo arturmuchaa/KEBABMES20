@@ -28,6 +28,7 @@ import { PlanTerminal } from './components/PlanTerminal'
 import { PlanLinesTable, type PlanLineRow } from './components/PlanLinesTable'
 import { BatchPanel } from './components/BatchPanel'
 import { PullFromOrders } from './components/PullFromOrders'
+import { BatchPicker } from './components/BatchPicker'
 import { pullableLines, type ProgressByLine } from './pullFromOrders'
 import { num, type PlanLine } from './planLineModel'
 import type { CreatePlanLineDto } from '@/lib/mockApi'
@@ -97,6 +98,8 @@ export function PlanEditor({
 
   // Pozycja poprawiana — wraca do paska wsadu, a z listy znika na czas edycji.
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
+  // Pozycja, dla której planista wybiera partie ręcznie.
+  const [pickerIdx, setPickerIdx] = useState<number | null>(null)
 
   const doWciagniecia = useMemo(
     () => pullableLines(orders, progress).length, [orders, progress])
@@ -258,6 +261,7 @@ export function PlanEditor({
             editingIdx={editingIdx}
             onEdit={i => setEditingIdx(i)}
             onRemove={i => { setEditingIdx(null); draft.removeLine(i) }}
+            onPickBatches={i => setPickerIdx(i)}
           />
         </div>
         {panelZamowien && (
@@ -271,6 +275,21 @@ export function PlanEditor({
           <BatchPanel rows={draft.batchRows} demandByRecipe={draft.demand} onRecalc={draft.recalcFefo} />
         </aside>
       </div>
+
+      {/* Ręczny wybór partii — druga połowa zasady „FEFO proponuje". */}
+      {pickerIdx !== null && draft.lines[pickerIdx] && (() => {
+        const pozycja = draft.lines[pickerIdx]
+        return (
+          <BatchPicker
+            recipeName={nazwaReceptury(pozycja.recipeId) || '—'}
+            neededKg={num(pozycja.qty) * num(pozycja.kgPerUnit)}
+            batches={draft.batchRows.filter(b => b.recipeId === pozycja.recipeId)}
+            selected={pozycja.seasonedBatchIds}
+            onSave={ids => draft.setLineBatches(pickerIdx, ids)}
+            onClose={() => setPickerIdx(null)}
+          />
+        )
+      })()}
 
       {error && (
         <div className="whitespace-pre-line rounded-[3px] border border-destructive/30 bg-destructive/5 px-3 py-2 text-[12px] font-semibold text-destructive">

@@ -10,11 +10,11 @@ import { BatchPanel, type BatchPanelRow } from './BatchPanel'
  */
 const ROWS: BatchPanelRow[] = [
   { id: 'b1', recipeId: 'r1', recipeName: 'WROCŁAW', batchNo: '495',
-    productionDay: '2026-08-22', kgFreeLive: 0,    usedByLines: [1] },
+    productionDay: '2026-08-22', kgFreeRaw: 0,    kgFreeLive: 0,    usedByLines: [1] },
   { id: 'b2', recipeId: 'r1', recipeName: 'WROCŁAW', batchNo: '496',
-    productionDay: '2026-08-22', kgFreeLive: 664,  usedByLines: [3] },
+    productionDay: '2026-08-22', kgFreeRaw: 664,  kgFreeLive: 664,  usedByLines: [3] },
   { id: 'b3', recipeId: 'r2', recipeName: 'BULLI',   batchNo: '496',
-    productionDay: '2026-08-22', kgFreeLive: 1220, usedByLines: [] },
+    productionDay: '2026-08-22', kgFreeRaw: 1220, kgFreeLive: 1220, usedByLines: [] },
 ]
 
 afterEach(cleanup)
@@ -63,5 +63,45 @@ describe('BatchPanel', () => {
     const wiele = [{ ...ROWS[0], usedByLines: [1, 3, 4] }]
     render(<BatchPanel rows={wiele} demandByRecipe={{}} onRecalc={vi.fn()} />)
     expect(within(screen.getByTestId('partia-b1')).getByText(/poz\. 1, 3, 4/)).toBeTruthy()
+  })
+})
+
+/**
+ * Brak liczymy od SUROWYCH wolnych kilogramów, nie od tych pomniejszonych
+ * o alokację bieżącego planu.
+ *
+ * 24.08.2026, plan PROD/24/08/26: partia KIRMIZI 498 miała 3524 kg wolnego
+ * mięsa, plan chciał 4480 kg. Panel pokazał „3,8 kg wolne · brakuje 4476,2 kg",
+ * bo `kgFreeLive` jest już PO odjęciu tego planu — zapotrzebowanie odejmowało
+ * się drugi raz. Realny brak to 4480 − 3524 = 956 kg.
+ */
+describe('BatchPanel — brak liczony od surowego stanu', () => {
+  const KIRMIZI: BatchPanelRow[] = [{
+    id: 'b498', recipeId: 'kir', recipeName: 'KIRMIZI', batchNo: '498',
+    productionDay: '2026-08-24',
+    kgFreeRaw: 3524, kgFreeLive: 3.8, usedByLines: [1, 2, 3],
+  }]
+
+  it('nagłówek grupy pokazuje SUROWE wolne kilogramy', () => {
+    render(<BatchPanel rows={KIRMIZI} demandByRecipe={{}} onRecalc={vi.fn()} />)
+    expect(screen.getByTestId('grupa-kir').textContent).toContain('3524')
+  })
+
+  it('brak = zapotrzebowanie minus SUROWE wolne, nie minus resztka po alokacji', () => {
+    render(<BatchPanel rows={KIRMIZI}
+      demandByRecipe={{ kir: { name: 'KIRMIZI', kg: 4480 } }} onRecalc={vi.fn()} />)
+    expect(screen.getByTestId('brak-kir').textContent).toContain('956')
+    expect(screen.getByTestId('brak-kir').textContent).not.toContain('4476')
+  })
+
+  it('gdy mięsa starczy, nie ma braku mimo zjedzonej resztki', () => {
+    render(<BatchPanel rows={KIRMIZI}
+      demandByRecipe={{ kir: { name: 'KIRMIZI', kg: 3000 } }} onRecalc={vi.fn()} />)
+    expect(screen.queryByTestId('brak-kir')).toBeNull()
+  })
+
+  it('wiersz partii dalej pokazuje ŻYWĄ resztkę — po niej widać, co plan zjadł', () => {
+    render(<BatchPanel rows={KIRMIZI} demandByRecipe={{}} onRecalc={vi.fn()} />)
+    expect(screen.getByTestId('partia-b498').textContent).toContain('3,8')
   })
 })
