@@ -18,6 +18,9 @@ import { useRawBatches, useCreateReception } from '../hooks/useRawBatches'
 import { RawBatchesTable }    from '../components/RawBatchesTable'
 import { podsumowanieAnulowania } from '../cancelSummary'
 import { splitDeliveries, liveSummary, pluralDostawy, type MeatStockMap } from '../deliveryView'
+import {
+  ALL_MATERIALS, receptionTabs, batchesForTab, materialLookup, type MaterialTypeLike,
+} from '../receptionTabs'
 import { wzApi, receptionsApi } from '@/lib/apiClient'
 import { rawBatchesApi } from '../api'
 import { fmtKg, fmtDatePl } from '@/lib/utils'
@@ -43,19 +46,24 @@ export function RawBatchesPage() {
 
   // ── Rodzaje surowca (ćwiartka / filet / indyk…) — przełącznik ──────────────
   const { data: materialTypes } = useApi(() => (legacyRawBatchesApi as any).materialTypes())
-  // Przyjmuje się TYLKO surowce receivable=true (od 2026-07 także „Mięso z/s"
-  // z dostaw zewnętrznych — ścieżką "bez rozbioru" wprost do magazynu mięsa).
-  const matList: { id: string; name: string; requiresDeboning: boolean }[] =
-    ((materialTypes as any) ?? [{ id: 'mat-cwiartka', name: 'Ćwiartka z kurczaka', requiresDeboning: true, receivable: true }])
-      .filter((m: any) => m.receivable !== false)
+  const allTypes: MaterialTypeLike[] = useMemo(
+    () => ((materialTypes as any) ?? [
+      { id: 'mat-cwiartka', name: 'Ćwiartka z kurczaka', requiresDeboning: true, receivable: true },
+    ]),
+    [materialTypes],
+  )
+  // Zakładka „Wszystko" + rodzaje, które faktycznie się przyjmuje (receivable).
+  const matList = useMemo(() => receptionTabs(allTypes), [allTypes])
   const [matId, setMatId] = useState('mat-cwiartka')
   const selMat = matList.find(m => m.id === matId) ?? matList[0]
+  const isAll  = matId === ALL_MATERIALS
+
+  // Rodzaj czytany z DOSTAWY — w zakładce zbiorczej jedna tabela miesza
+  // ćwiartkę z filetem, a od rodzaju zależy, skąd brać stan i jak nazwać status.
+  const lookup = useMemo(() => materialLookup(allTypes), [allTypes])
 
   // Lista filtrowana po wybranym rodzaju (stare partie bez rodzaju = ćwiartka)
-  const matBatches = useMemo(
-    () => batches.filter((b: any) => (b.materialTypeId || 'mat-cwiartka') === matId),
-    [batches, matId],
-  )
+  const matBatches = useMemo(() => batchesForTab(batches as any[], matId), [batches, matId])
 
   // Żywy stan magazynu mięsa — jedyne miejsce, gdzie widać, ile zostało
   // z dostawy przyjętej BEZ rozbioru (filet, mięso z/s). Backend zeruje
@@ -87,8 +95,11 @@ export function RawBatchesPage() {
   // Dwie perspektywy tej samej listy: co jeszcze leży w chłodni (W obiegu)
   // i co już rozliczone (Historia). Alarmy terminów żyją tylko w pierwszej.
   const resolveOpts = useMemo(
-    () => ({ requiresDeboning: selMat?.requiresDeboning ?? true, meatStock }),
-    [selMat?.requiresDeboning, meatStock],
+    () => ({
+      requiresDeboning: isAll ? lookup.requiresDeboning : (selMat?.requiresDeboning ?? true),
+      meatStock,
+    }),
+    [isAll, lookup, selMat?.requiresDeboning, meatStock],
   )
   const { live, history } = useMemo(
     () => splitDeliveries(matBatches, resolveOpts), [matBatches, resolveOpts])
@@ -177,11 +188,18 @@ export function RawBatchesPage() {
         <div>
           <CardTitle className="text-base">Przyjęcie surowca</CardTitle>
           <CardDescription className="mt-0.5">
-            Dostawy w obiegu i zamknięta historia · pełny stan magazynowy jest w Magazynie surowca
+            {isAll
+              ? 'Wszystkie przyjęcia w jednym ciągu numerów porządkowych · pełny stan magazynowy jest w Magazynie surowca'
+              : 'Dostawy w obiegu i zamknięta historia · pełny stan magazynowy jest w Magazynie surowca'}
           </CardDescription>
         </div>
-        <Button onClick={() => navigate(`/office/raw-batches/nowe?rodzaj=${encodeURIComponent(matId)}`)}>
-          <Plus size={15} className="mr-1.5" /> Przyjmij: {selMat?.name ?? 'partię'}
+        {/* W zakładce zbiorczej nie ma wybranego rodzaju — formularz startuje
+            od swojego domyślnego (ćwiartka) i tam rodzaj się wybiera. */}
+        <Button onClick={() => navigate(isAll
+          ? '/office/raw-batches/nowe'
+          : `/office/raw-batches/nowe?rodzaj=${encodeURIComponent(matId)}`)}>
+          <Plus size={15} className="mr-1.5" />
+          {isAll ? 'Nowe przyjęcie' : `Przyjmij: ${selMat?.name ?? 'partię'}`}
         </Button>
       </div>
 
@@ -204,7 +222,7 @@ export function RawBatchesPage() {
           </button>
         ))}
       </div>
-      {selMat && !selMat.requiresDeboning && (
+      {!isAll && selMat && !selMat.requiresDeboning && (
         <CardDescription className="text-xs -mt-2">
           Surowiec bez rozbioru — po przyjęciu od razu trafia na magazyn mięsa
           i jest dostępny do masowania pod numerem partii przyjęcia.
@@ -213,6 +231,43 @@ export function RawBatchesPage() {
 
       <Separator />
 
+      {/* Zakładka „Wszystko" — jedna tabela, ciągły rząd numerów porządkowych.
+          Podział na obieg i historię jest tu przeszkodą: szukanego numeru nie
+          wiadomo, w której z dwóch tabel szukać. */}
+      {isAll ? (
+        <div className="space-y-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <CardTitle className="text-xs uppercase tracking-[0.08em] text-ink-2">
+              Wszystkie przyjęcia
+            </CardTitle>
+            <CardDescription className="text-xs tabular-nums">
+              {matBatches.length} {pluralDostawy(matBatches.length)} · w obiegu{' '}
+              {summary.count} · {fmtKg(summary.kg)} kg
+            </CardDescription>
+          </div>
+          <Card>
+            <CardContent className="p-0">
+              <RawBatchesTable
+                key="all"
+                batches={matBatches as RawBatch[]}
+                loading={loading}
+                variant="all"
+                requiresDeboning={lookup.requiresDeboning}
+                materialLabel={lookup.label}
+                meatStock={meatStock}
+                emptyTitle="Brak przyjęć"
+                emptyHint="Pierwsza zarejestrowana dostawa pojawi się tutaj."
+                onEdit={handleEditOpen}
+                onPreview={handlePreview}
+                onPrintTags={handlePrintTags}
+                onCancel={handleCancelOpen}
+                onScanAttached={refetch}
+              />
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+      <>
       {/* Sekcja 1 — dostawy z resztą surowca */}
       <div className="space-y-2">
         <div className="flex items-baseline justify-between gap-3">
@@ -267,6 +322,9 @@ export function RawBatchesPage() {
           </CardContent>
         </Card>
       </div>
+
+      </>
+      )}
 
       {/* Modal formularza */}
 

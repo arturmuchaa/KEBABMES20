@@ -418,3 +418,55 @@ describe('sortDeliveries — kolumna „Zostało kg" bez rozbioru', () => {
     expect(out.map(b => b.internalBatchNo)).toEqual(['465', '446'])
   })
 })
+
+/**
+ * Zakładka „Wszystko" — jedna tabela ze wszystkimi rodzajami surowca naraz.
+ *
+ * Numery porządkowe są wspólne dla całego zakładu, więc szukany numer bywa
+ * pod innym rodzajem niż otwarta zakładka. Skoro rodzaje mieszają się
+ * w jednej liście, pytanie „gdzie leży stan tej dostawy" trzeba rozstrzygać
+ * per WIERSZ: ćwiartka trzyma kilogramy w dostawie, filet i mięso z/s
+ * w locie magazynu mięsa.
+ */
+describe('requiresDeboning rozstrzygane per wiersz (zakładka Wszystko)', () => {
+  const MEAT_STOCK: MeatStockMap = {
+    '502': { kgAvailable: 400, kgReserved: 0, kgInitial: 400 },
+  }
+  /** Ćwiartka idzie na rozbiór, wszystko inne prosto na magazyn mięsa. */
+  const MIESZANE = {
+    requiresDeboning: (b: DeliveryLike) => (b.materialTypeId ?? 'mat-cwiartka') === 'mat-cwiartka',
+    meatStock: MEAT_STOCK,
+  }
+
+  const cwiartka = batch({
+    internalBatchNo: '501', internalBatchSeq: 501,
+    materialTypeId: 'mat-cwiartka', kgReceived: 1000, kgAvailable: 250,
+  })
+  const filet = batch({
+    internalBatchNo: '502', internalBatchSeq: 502,
+    materialTypeId: 'mat-filet', kgReceived: 400, kgAvailable: 0,
+  })
+
+  it('ćwiartka czyta stan z dostawy', () => {
+    expect(resolveDelivery(cwiartka, MIESZANE).kgLeft).toBe(250)
+  })
+
+  it('filet w tej samej liście czyta stan z lotu mięsa, nie zero z dostawy', () => {
+    expect(resolveDelivery(filet, MIESZANE).kgLeft).toBe(400)
+  })
+
+  it('świeży filet nie wypada z obiegu tylko dlatego, że obok stoi ćwiartka', () => {
+    const { live, history } = splitDeliveries([cwiartka, filet], MIESZANE)
+    expect(live.map(b => b.internalBatchNo)).toEqual(['501', '502'])
+    expect(history).toHaveLength(0)
+  })
+
+  it('podsumowanie sumuje kilogramy z właściwego źródła dla każdego rodzaju', () => {
+    expect(liveSummary([cwiartka, filet], MIESZANE).kg).toBe(650)
+  })
+
+  it('sortowanie po „Zostało kg" widzi stan fileta z magazynu mięsa', () => {
+    const out = sortDeliveries([cwiartka, filet], 'kgAvailable', 'desc', MIESZANE)
+    expect(out.map(b => b.internalBatchNo)).toEqual(['502', '501'])
+  })
+})

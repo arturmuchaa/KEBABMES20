@@ -8,6 +8,12 @@
  *   variant='history' — „Historia dostaw": rozliczone i anulowane. Zero
  *                       alarmów (termin partii zużytej nic już nie znaczy),
  *                       za to pasek filtrów: szukaj / okres / anulowane.
+ *   variant='all'     — zakładka „Wszystko": WSZYSTKIE przyjęcia w jednej
+ *                       tabeli, bez względu na rodzaj surowca. Numery
+ *                       porządkowe są wspólne dla zakładu, więc szukany numer
+ *                       bywa pod innym rodzajem niż otwarta zakładka. Startuje
+ *                       od pełnego okresu, z anulowanymi i po numerze malejąco
+ *                       — ciągły rząd numerów, dziury widać od razu.
  *
  * Dwóch osobnych komponentów świadomie NIE robimy — rozjechałyby się przy
  * pierwszej zmianie kolumn.
@@ -17,7 +23,7 @@ import { ExpiryBadge, StatusBadge } from '@/components/ui/badge'
 import { fmtKg, fmtDatePl, fmtPln } from '@/lib/utils'
 import { batchDisplayNo } from '../batchDisplayNo'
 import {
-  sortDeliveries, filterHistory, deliveryStatusBadgeKey, resolveDelivery,
+  sortDeliveries, filterHistory, deliveryStatusBadgeKey, resolveDelivery, needsDeboning,
   type DeliverySortCol, type SortDir, type HistoryPeriod, type MeatStockMap,
 } from '../deliveryView'
 import { receptionsApi } from '@/lib/apiClient'
@@ -35,10 +41,16 @@ import { Package, ChevronDown, ChevronUp, ChevronsUpDown, Search, Eye, Pencil, T
 interface RawBatchesTableProps {
   batches:           RawBatch[]
   loading:           boolean
-  /** 'live' = W obiegu (alarmy + akcje), 'history' = Historia (filtry, bez alarmów) */
-  variant?:          'live' | 'history'
-  /** Ćwiartka idzie na rozbiór; filet i mięso z/s prosto na magazyn — inne etykiety statusów */
-  requiresDeboning?: boolean
+  /** 'live' = W obiegu (alarmy + akcje), 'history' = Historia (filtry, bez
+   *  alarmów), 'all' = zakładka „Wszystko" (filtry + akcje, wszystkie rodzaje) */
+  variant?:          'live' | 'history' | 'all'
+  /** Ćwiartka idzie na rozbiór; filet i mięso z/s prosto na magazyn — inne
+   *  etykiety statusów i inne źródło stanu. Predykat, gdy jedna lista miesza
+   *  rodzaje (zakładka „Wszystko") — wtedy rozstrzyga się to per wiersz. */
+  requiresDeboning?: boolean | ((b: RawBatch) => boolean)
+  /** Nazwa rodzaju surowca do kolumny „Rodzaj". Podana = kolumna się pokazuje;
+   *  w liście jednorodnej byłaby tylko powtórzeniem nagłówka zakładki. */
+  materialLabel?:    (b: RawBatch) => string
   /** Żywy stan lotów mięsa — dla surowca bez rozbioru to JEDYNE źródło „ile zostało" */
   meatStock?:        MeatStockMap
   emptyTitle?:       string
@@ -65,11 +77,13 @@ export function RawBatchesTable({
   batches, loading,
   variant = 'live',
   requiresDeboning = true,
+  materialLabel,
   meatStock,
   emptyTitle, emptyHint,
   onEdit, onCancel, onPreview, onPrintTags, onScanAttached,
 }: RawBatchesTableProps) {
   const isLive = variant === 'live'
+  const isAll  = variant === 'all'
   const resolveOpts = { requiresDeboning, meatStock }
 
   // Skan HDI: podgląd wewnątrz MES + dopięcie dokumentu do dostawy, która
@@ -100,11 +114,15 @@ export function RawBatchesTable({
   }
 
   const [filter,  setFilter]  = useState('')
-  const [period,  setPeriod]  = useState<HistoryPeriod>(30)
-  const [showCancelled, setShowCancelled] = useState(false)
+  // Zakładka „Wszystko" odpowiada na pytanie „gdzie jest numer 437" — okres
+  // ani status anulowania nie mogą go chować, bo szukany numer bywa właśnie
+  // sprzed pół roku albo anulowany.
+  const [period,  setPeriod]  = useState<HistoryPeriod>(isAll ? 0 : 30)
+  const [showCancelled, setShowCancelled] = useState(isAll)
   // Domyślnie od najnowszej dostawy — pytanie „co ostatnio przyszło" jest
   // częstsze niż „co najszybciej wygasa" (od tego jest Magazyn surowca).
-  const [sortCol, setSortCol] = useState<DeliverySortCol>('receivedDate')
+  // W „Wszystko" rządzi numer porządkowy: ciągły rząd pokazuje dziury.
+  const [sortCol, setSortCol] = useState<DeliverySortCol>(isAll ? 'internalBatchNo' : 'receivedDate')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
   const toggleSort = (col: DeliverySortCol) => {
@@ -131,6 +149,8 @@ export function RawBatchesTable({
     // „Nr porządkowy", nie „Nr partii": numerem partii staje się dopiero przy
     // sprzedaży ubocznych albo na wyrobie gotowym (ddmmrr + numer porządkowy).
     { col: 'internalBatchNo', label: 'Nr porządkowy' },
+    // Tylko w liście mieszającej rodzaje — inaczej powtarzałaby nagłówek zakładki.
+    ...(materialLabel ? [{ col: null, label: 'Rodzaj' }] : []),
     { col: null,              label: 'Przyjęcie' },
     { col: 'supplierName',    label: 'Dostawca' },
     { col: null,              label: 'Nr dostawcy' },
@@ -292,6 +312,13 @@ export function RawBatchesTable({
                       {batchDisplayNo(b)}
                     </code>
                   </TableCell>
+                  {materialLabel && (
+                    <TableCell>
+                      <CardDescription className="whitespace-nowrap font-medium text-foreground">
+                        {materialLabel(b)}
+                      </CardDescription>
+                    </TableCell>
+                  )}
                   <TableCell>
                     {/* Dostawy sprzed wprowadzenia dokumentu odtworzyła migracja
                         (dzień + dostawca); gdyby czegoś nie dało się dopasować,
@@ -386,7 +413,7 @@ export function RawBatchesTable({
                     <code className="font-mono text-xs text-muted-foreground">{fmtPln(b.pricePerKg)}</code>
                   </TableCell>
                   <TableCell>
-                    <StatusBadge status={deliveryStatusBadgeKey(status, requiresDeboning)} />
+                    <StatusBadge status={deliveryStatusBadgeKey(status, needsDeboning(b, resolveOpts))} />
                   </TableCell>
                   <TableCell>
                       {(canEdit || canCancel || (b.receptionId && (onPrintTags || onPreview))) && (

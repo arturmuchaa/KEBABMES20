@@ -17,6 +17,9 @@ import { batchDisplayNo } from './batchDisplayNo'
 export interface DeliveryLike {
   internalBatchNo?:  string
   internalBatchSeq?: number
+  /** Rodzaj surowca (mat-cwiartka / mat-filet / mat-mieso-zs…). Puste = ćwiartka
+   *  (dostawy sprzed wprowadzenia rodzajów). */
+  materialTypeId?:   string
   supplierName?:     string
   supplierBatchNo?:  string
   receivedDate?:     string
@@ -50,9 +53,20 @@ export interface MeatLotInfo {
 export type MeatStockMap = Record<string, MeatLotInfo>
 
 export interface ResolveOpts {
-  /** Ćwiartka = true (stan żyje w raw_batches); filet i mięso z/s = false. */
-  requiresDeboning: boolean
+  /** Ćwiartka = true (stan żyje w raw_batches); filet i mięso z/s = false.
+   *
+   *  Predykat zamiast flagi, gdy jedna lista miesza rodzaje surowca (zakładka
+   *  „Wszystko"): numery porządkowe są wspólne dla zakładu, więc ćwiartka
+   *  i filet stoją tam obok siebie i każdy wiersz ma stan gdzie indziej. */
+  requiresDeboning: boolean | ((b: DeliveryLike) => boolean)
   meatStock?:       MeatStockMap
+}
+
+/** Czy TEN wiersz idzie na rozbiór. Rozwija flagę albo predykat z ResolveOpts. */
+export function needsDeboning(b: DeliveryLike, opts: ResolveOpts): boolean {
+  return typeof opts.requiresDeboning === 'function'
+    ? opts.requiresDeboning(b)
+    : opts.requiresDeboning
 }
 
 export interface ResolvedDelivery {
@@ -99,7 +113,7 @@ export function resolveDelivery(b: DeliveryLike, opts: ResolveOpts): ResolvedDel
     }
   }
 
-  if (opts.requiresDeboning) {
+  if (needsDeboning(b, opts)) {
     const kgLeft = Number(b.kgAvailable)
     const untouched = kgLeft >= received
     return {
