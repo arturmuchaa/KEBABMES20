@@ -68,7 +68,18 @@ jobs:
         id: meta
         shell: pwsh
         run: |
-          $VERSION = (Select-String -Path "kebab_fixed/src-tauri/Cargo.toml" -Pattern '^version\s*=\s*"(.+)"').Matches[0].Groups[1].Value
+          # Wersja z tauri.conf.json — tego samego pliku, z ktorego bierze ja
+          # Tauri przy budowaniu instalatora. Do 2.5.75 czytalismy ja z
+          # Cargo.toml i wystarczylo podbic tylko conf, zeby na kanal poszedl
+          # manifest ze STARYM numerem przy nowym pliku .exe: updater porownywal
+          # 2.5.74 z 2.5.74 i biuro nigdy nie dostawalo aktualizacji.
+          $CONF = "kebab_fixed/src-tauri/tauri.conf.json"
+          $VERSION = (Get-Content $CONF -Raw | ConvertFrom-Json).version
+          $CARGO = (Select-String -Path "kebab_fixed/src-tauri/Cargo.toml" -Pattern '^version\s*=\s*"(.+)"').Matches[0].Groups[1].Value
+          if ($VERSION -ne $CARGO) {
+            Write-Host "::error::Rozjazd wersji: tauri.conf.json=$VERSION, Cargo.toml=$CARGO. Podbij OBA pliki."
+            exit 1
+          }
           $BUNDLE = "kebab_fixed/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
           $EXE = Get-ChildItem "$BUNDLE/*.exe" | Select-Object -First 1
           $SIG = Get-ChildItem "$BUNDLE/*.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
