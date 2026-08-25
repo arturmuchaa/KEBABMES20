@@ -10,7 +10,7 @@ import { finishedGoodsApi } from '@/lib/apiClient'
 import { useClientNames } from '@/lib/clientNames'
 import { fmtKg, cn } from '@/lib/utils'
 import {
-  Eye, Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Download, ShoppingBag,
+  Eye, Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Download, ShoppingBag, Plus,
 } from 'lucide-react'
 import type { FinishedGoodsItem } from '@/lib/mockApi'
 
@@ -22,6 +22,7 @@ import {
 import { DetailModal } from '@/features/finished-goods/components/DetailModal'
 import { OfficeUnitLookup } from '@/features/finished-goods/components/OfficeUnitLookup'
 import { StockCartonModal } from '@/features/finished-goods/components/StockCartonModal'
+import { AddFinishedGoodModal } from '@/features/finished-goods/components/AddFinishedGoodModal'
 import { PackedCartonsSection } from '@/features/finished-goods/components/PackedCartonsSection'
 
 // ─── Grupowanie po SKU (łączymy partie/daty w jeden wiersz magazynu) ──────────
@@ -120,6 +121,7 @@ function exportCsv(rows: SkuGroup[]) {
 export function FinishedGoodsPage() {
   const clientDisplay = useClientNames()
   const { data: items, loading, refetch } = useApi(() => finishedGoodsApi.list())
+  const [dodawanie, setDodawanie] = useState(false)
   const [detailGroup, setDetailGroup] = useState<SkuGroup | null>(null)
   const [cartonRefresh, setCartonRefresh] = useState(0)
   const [filter,   setFilter]   = useState('')
@@ -190,6 +192,16 @@ export function FinishedGoodsPage() {
             <OfficeUnitLookup />
             {/* Karton magazynowy „z ręki" */}
             <StockCartonModal onCreated={() => { refetch(); setCartonRefresh(k => k + 1) }} />
+            {/* Ręczne dodanie wyrobu — dopóki produkcja i masownia nie mają
+                komputerów, tędy wchodzi cała produkcja dnia. */}
+            <button
+              type="button"
+              data-testid="dodaj-wyrob"
+              onClick={() => setDodawanie(true)}
+              className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground"
+            >
+              <Plus size={14}/> Dodaj wyrób
+            </button>
           </div>
 
           {/* Inline KPI — kompaktowe, magazynowo (Subiekt GT style) */}
@@ -342,6 +354,9 @@ export function FinishedGoodsPage() {
       <PackedCartonsSection refreshKey={cartonRefresh} />
 
       {detailGroup && <DetailModal group={detailGroup} onClose={() => setDetailGroup(null)} />}
+      {dodawanie && (
+        <AddFinishedGoodModal onClose={() => setDodawanie(false)} onSaved={() => refetch()} />
+      )}
     </div>
   )
 }

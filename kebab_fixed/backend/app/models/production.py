@@ -75,12 +75,20 @@ class FinishedGoodCreate(BaseModel):
     packaging_id: str = Field("", alias="packagingId")
     packaging_name: str = Field("", alias="packagingName")
     client_name: str = Field("", alias="clientName")
+    client_id: str = Field("", alias="clientId")
     client_order_no: str = Field("", alias="clientOrderNo")
     qty: int = Field(..., gt=0)
     kg_per_unit: float = Field(..., alias="kgPerUnit", gt=0)
     produced_date: str = Field("", alias="producedDate")
     produced_by: List[str] = Field(default_factory=list, alias="producedBy")
     seasoned_batch_nos: List[str] = Field(default_factory=list, alias="seasonedBatchNos")
+    #: Zdejmij mięso przyprawione ze stanu masowni.
+    #:
+    #: Domyślnie WYŁĄCZONE, bo ten endpoint od zawsze służył też do korekt
+    #: samego wyrobu — nagłe ruszanie masowni zaskoczyłoby biuro. Ekran
+    #: „Dodaj wyrób" włącza to jawnie, bo tam wpis zastępuje pracę kiosku:
+    #: bez tego masownia trzyma w systemie mięso, którego fizycznie nie ma.
+    consume_seasoned: bool = Field(False, alias="consumeSeasoned")
 
 
 class StockCartonLineDto(BaseModel):

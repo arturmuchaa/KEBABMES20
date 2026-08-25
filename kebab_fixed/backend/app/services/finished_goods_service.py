@@ -315,10 +315,10 @@ def create_finished_good(dto: FinishedGoodCreate) -> Dict:
             INSERT INTO finished_goods
                 (id, batch_no, plan_no, product_type_id, product_type_name,
                  recipe_id, recipe_name, packaging_id, packaging_name,
-                 client_name, client_order_no, qty, kg_per_unit, total_kg,
+                 client_name, client_id, client_order_no, qty, kg_per_unit, total_kg,
                  qty_available, qty_shipped, produced_date, produced_by,
                  seasoned_batch_nos, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s,%s,%s)
             RETURNING *
             """,
             (
@@ -332,6 +332,7 @@ def create_finished_good(dto: FinishedGoodCreate) -> Dict:
                 dto.packaging_id or None,
                 dto.packaging_name or None,
                 dto.client_name or None,
+                dto.client_id or None,
                 dto.client_order_no or None,
                 qty,
                 kg_per_unit,
@@ -359,6 +360,20 @@ def create_finished_good(dto: FinishedGoodCreate) -> Dict:
 
         if dto.packaging_id and qty > 0:
             _consume_packaging(conn, dto.packaging_id, qty, item["id"])
+
+        # Mięso przyprawione — tylko na wyraźne życzenie (patrz komentarz przy
+        # `consume_seasoned` w modelu). Brak partii w masowni NIE blokuje
+        # wpisu: biuro wprowadza też historię sprzed wdrożenia, a funkcja
+        # sama loguje, że nie miała czego zdjąć.
+        if dto.consume_seasoned and total_kg > 0:
+            # `plan_id` służy tu wyłącznie jako źródło ruchu magazynowego —
+            # przy wpisie ręcznym wskazujemy wiersz wyrobu, żeby OUT mięsa
+            # dało się powiązać z tym, co z niego powstało.
+            _consume_seasoned_for_entry(
+                conn, plan_id=item["id"], plan_line_id="",
+                entry_qty=qty, total_kg=total_kg,
+                seasoned_batch_nos=dto.seasoned_batch_nos or [],
+            )
 
     logger.info(
         "finished_goods.created",

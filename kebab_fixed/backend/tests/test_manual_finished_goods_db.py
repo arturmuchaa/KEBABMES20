@@ -1,0 +1,168 @@
+"""Ręczne dodanie wyrobu gotowego z biura.
+
+Hala nie ma jeszcze komputerów na produkcji i masowni, więc do czasu pełnego
+HMI wyrób wprowadza biuro. Ten wpis musi robić DOKŁADNIE to, co zrobiłby
+kiosk: postawić sztuki na magazynie, zdjąć tuleje, zdjąć mięso przyprawione
+i policzyć się do pokrycia zamówienia — inaczej stany rozjeżdżają się po
+tygodniu i nikt nie wie, gdzie zniknęło mięso.
+
+Testy DB — bez TEST_DATABASE_URL skip."""
+import pytest
+
+from app.db import execute, query_all, query_one
+from app.models.production import FinishedGoodCreate
+from app.services.finished_goods_service import create_finished_good
+from app.services.orders_service import get_order
+
+
+def _tuleja(pid="t1", stan=100):
+    execute(
+        "INSERT INTO packaging (id, code, name, type, unit, kg_initial, kg_available, kg_used) "
+        "VALUES (%s,'METAL 65','METAL 65','tuleja','szt',%s,%s,0)",
+        (pid, stan, stan),
+    )
+
+
+def _przyprawione(bno="344", kg=1000):
+    execute(
+        "INSERT INTO seasoned_meat (id, batch_no, recipe_id, kg_produced, kg_available, "
+        " kg_reserved, kg_used, status) VALUES (%s,%s,'r1',%s,%s,0,0,'available')",
+        (f"sm-{bno}", bno, kg, kg),
+    )
+
+
+def _wpis(**kw):
+    dane = dict(
+        product_type_id="pt1", product_type_name="KEBAB",
+        recipe_id="r1", recipe_name="WROCŁAW",
+        qty=10, kg_per_unit=35, produced_date="2026-08-25",
+    )
+    dane.update(kw)
+    return FinishedGoodCreate(**dane)
+
+
+def _stan_tulei(pid="t1"):
+    r = query_one("SELECT kg_available, kg_used FROM packaging WHERE id=%s", (pid,))
+    return int(float(r["kg_available"])), int(float(r["kg_used"]))
+
+
+def _stan_przyprawionego(bno="344"):
+    r = query_one("SELECT kg_available, kg_used FROM seasoned_meat WHERE batch_no=%s", (bno,))
+    return float(r["kg_available"]), float(r["kg_used"])
+
+
+# ── Magazyn ──────────────────────────────────────────────────────────────
+
+def test_wyrob_staje_na_magazynie_z_ruchem(db):
+    item = create_finished_good(_wpis())
+
+    assert (int(item["qty"]), float(item["total_kg"]), int(item["qty_available"])) == (10, 350.0, 10)
+    ruchy = query_all("SELECT movement_type, qty, source_type FROM stock_movements "
+                      "WHERE product_type='finished_goods'")
+    assert len(ruchy) == 1
+    assert (ruchy[0]["movement_type"], float(ruchy[0]["qty"])) == ("IN", 350.0)
+
+
+def test_numer_partii_liczy_sie_z_wsadu_gdy_nie_podany(db):
+    item = create_finished_good(_wpis(seasoned_batch_nos=["344"]))
+
+    assert item["batch_no"] == "250826 344"
+
+
+def test_wpisany_numer_partii_ma_pierwszenstwo(db):
+    item = create_finished_good(_wpis(batch_no="250826 PP13", seasoned_batch_nos=["344"]))
+
+    assert item["batch_no"] == "250826 PP13"
+
+
+def test_tuleje_schodza_ze_stanu(db):
+    _tuleja()
+
+    create_finished_good(_wpis(packaging_id="t1", packaging_name="METAL 65"))
+
+    assert _stan_tulei() == (90, 10)
+
+
+# ── Mięso przyprawione ───────────────────────────────────────────────────
+
+def test_mieso_przyprawione_schodzi_gdy_biuro_o_to_prosi(db):
+    """Bez tego masownia trzyma w systemie mięso, którego fizycznie nie ma."""
+    _przyprawione("344", 1000)
+
+    create_finished_good(_wpis(seasoned_batch_nos=["344"], consume_seasoned=True))
+
+    assert _stan_przyprawionego("344") == (650.0, 350.0)
+    ruchy = query_all("SELECT movement_type, source_id FROM stock_movements WHERE product_type='seasoned'")
+    assert [r["movement_type"] for r in ruchy] == ["OUT"]
+    # Ruch wskazuje wiersz wyrobu — inaczej nie widać, na co poszło mięso.
+    assert ruchy[0]["source_id"]
+
+
+def test_domyslnie_mieso_NIE_schodzi(db):
+    """Dawne wywołania (korekta wyrobu) nie mogą nagle ruszać masowni."""
+    _przyprawione("344", 1000)
+
+    create_finished_good(_wpis(seasoned_batch_nos=["344"]))
+
+    assert _stan_przyprawionego("344") == (1000.0, 0.0)
+
+
+def test_dwie_partie_dziela_kilogramy_po_rowno(db):
+    _przyprawione("344", 1000)
+    _przyprawione("355", 1000)
+
+    create_finished_good(_wpis(seasoned_batch_nos=["344", "355"], consume_seasoned=True))
+
+    assert _stan_przyprawionego("344") == (825.0, 175.0)
+    assert _stan_przyprawionego("355") == (825.0, 175.0)
+
+
+def test_brak_partii_w_masowni_nie_blokuje_wpisu(db):
+    """Biuro wpisuje też historię — mięsa sprzed wdrożenia nie ma w systemie."""
+    item = create_finished_good(_wpis(seasoned_batch_nos=["999"], consume_seasoned=True))
+
+    assert int(item["qty"]) == 10
+
+
+# ── Powiązanie z zamówieniem ─────────────────────────────────────────────
+
+def _zamowienie(order_no="ZAM/1", qty=20):
+    execute("INSERT INTO clients (id, code, name) VALUES ('c1','BULLI','Bulli sp. z o.o.') "
+            "ON CONFLICT (id) DO NOTHING")
+    execute(
+        "INSERT INTO client_orders (id, order_no, client_id, client_name, order_date, status) "
+        "VALUES ('o1',%s,'c1','Bulli sp. z o.o.','2026-08-25','new')",
+        (order_no,),
+    )
+    execute(
+        "INSERT INTO client_order_lines (id, order_id, recipe_id, product_type_id, qty, kg_per_unit) "
+        "VALUES ('ol1','o1','r1','pt1',%s,35)",
+        (qty,),
+    )
+
+
+def test_wpis_z_numerem_zamowienia_liczy_sie_do_pokrycia(db):
+    _zamowienie()
+
+    create_finished_good(_wpis(qty=8, client_order_no="ZAM/1", client_name="Bulli sp. z o.o."))
+
+    linia = get_order("o1")["lines"][0]
+    assert int(linia["qty_done"]) == 8
+
+
+def test_wpis_na_magazyn_tez_pokrywa_zamowienie(db):
+    """Produkcja „na magazyn" ma pokrywać zamówienia — tak działa WZ."""
+    _zamowienie()
+
+    create_finished_good(_wpis(qty=5))
+
+    linia = get_order("o1")["lines"][0]
+    assert int(linia["qty_done"]) >= 5
+
+
+def test_klient_zapisuje_sie_takze_po_id(db):
+    """Bez client_id wyrób wisi tylko na nazwie — po zmianie nazwy klienta
+    w kartotece traci powiązanie."""
+    item = create_finished_good(_wpis(client_id="c1", client_name="Bulli sp. z o.o."))
+
+    assert item["client_id"] == "c1"
