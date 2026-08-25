@@ -26,6 +26,86 @@ const KG_FONT_MM = 7.5
  *  masowania sięga wzrokiem z drugiego końca chłodni. */
 const NR_FONT_MM = 11
 
+/** Ile milimetrów szerokości zjada jeden znak czcionki skalowalnej ZPL (A0)
+ *  o wysokości 1 mm. Zmierzone na wydruku — z zapasem, żeby numer nigdy nie
+ *  wyjechał poza taśmę. */
+const SZEROKOSC_ZNAKU = 0.62
+
+/**
+ * Największa czcionka, przy której napis mieści się w podanej szerokości.
+ *
+ * Numer partii bywa krótki („505") i długi („505-BS-2026"), a etykieta ma
+ * stałe 50 mm. Sztywna wartość albo marnuje miejsce, albo ucina numer —
+ * dlatego liczymy ją z długości tekstu i przycinamy sufitem pionowym.
+ */
+export function nrFontMm(tekst: string, szerokoscMm: number, sufitMm: number): number {
+  const znaki = Math.max(1, (tekst || '').length)
+  const zSzerokosci = szerokoscMm / (znaki * SZEROKOSC_ZNAKU)
+  return Math.max(3, Math.min(sufitMm, Math.floor(zSzerokosci * 10) / 10))
+}
+
+/** Sufit czcionki numeru. Jedna partia zostaje przy 11 mm — hala zna tę
+ *  etykietę i nie zgłaszała do niej zastrzeżeń; kilka partii dostaje tyle,
+ *  ile realnie zmieści się wszerz i w pionie. */
+const SUFIT_NR_MM = 11
+
+/**
+ * Ile pionu wolno zabrać liście partii (od y=23 w dół).
+ *
+ * Pod nią muszą jeszcze wejść: waga netto z pojemnikami (20,5 mm) oraz dwie
+ * linijki dat (11 mm). Etykieta ma 80 mm, więc lista kończy się najpóźniej
+ * na ~49 mm. Bez tego budżetu cztery partie po 9 mm zepchnęły daty poza
+ * taśmę (sprawdzone testem — 646 punktów przy 639 dostępnych).
+ */
+const PION_NA_PARTIE_MM = 26
+
+/** Poniżej tej wysokości numer przestaje być czytelny z odległości, więc
+ *  zamiast go zmniejszać — pokazujemy MNIEJ partii i „+ N kolejnych". */
+const MIN_CZYTELNA_MM = 4.5
+
+/** Odstęp między numerem a kilogramami w wierszu partii. */
+const ODSTEP_MM = 2
+
+/** Kilogramy o tyle mniejsze od numeru — „trochę, ale nie dużo". */
+const MNIEJ_KG_MM = 1
+
+/** Szerokość napisu przy danej wysokości czcionki. */
+const szerokoscMm = (tekst: string, fontMm: number): number =>
+  Math.max(1, (tekst || '').length) * SZEROKOSC_ZNAKU * fontMm
+
+/**
+ * Czcionka wiersza partii: numer i kilogramy jedną wielkością (kg o 1 mm
+ * mniejsze), tak duże, jak pozwala taśma.
+ *
+ * Dwa ograniczenia naraz:
+ *  • WSZERZ — `505` + `119,5` w jednej wielkości muszą zmieścić się w 44 mm;
+ *    dlatego jednostka „kg" stoi w nagłówku sekcji, a nie przy każdej liczbie
+ *    (z sufiksem wiersz ma 65 mm i nie ma szans),
+ *  • W PIONIE — pod partiami muszą jeszcze wejść waga i daty, więc cztery
+ *    partie dostają mniejszą czcionkę niż dwie.
+ *
+ * Gdy numer jest długi (`505-BS-2026`), czcionka schodzi poniżej 9 mm:
+ * mniejszy numer jest lepszy niż ucięty.
+ */
+export function wierszPartiiFontMm(
+  wiersze: readonly { nr: string; kg: string }[],
+  szerokoscDostepnaMm: number,
+  pionDostepnyMm: number,
+): { nr: number; kg: number } {
+  const n = Math.max(1, wiersze.length)
+  // W pionie każdy wiersz zajmuje czcionkę + odstęp.
+  const zPionu = pionDostepnyMm / n - ODSTEP_MM
+  const zSzerokosci = wiersze.map(w => {
+    const jednostkowa = SZEROKOSC_ZNAKU * (w.nr.length + w.kg.length)
+    // f·0,62·|nr| + odstęp + (f−1)·0,62·|kg| ≤ szerokość
+    return (szerokoscDostepnaMm - ODSTEP_MM + SZEROKOSC_ZNAKU * w.kg.length * MNIEJ_KG_MM)
+      / Math.max(0.01, jednostkowa)
+  })
+  const f = Math.max(3, Math.min(SUFIT_NR_MM, zPionu, ...zSzerokosci))
+  const nr = Math.floor(f * 10) / 10
+  return { nr, kg: Math.max(3, Math.round((nr - MNIEJ_KG_MM) * 10) / 10) }
+}
+
 export interface MeatPalletLabelInput {
   palletNo: string
   netKg: number
@@ -49,6 +129,14 @@ function esc(value: string): string {
 function text(xMm: number, yMm: number, fontMm: number, value: string, dpi: number): string {
   const h = mmToDots(fontMm, dpi)
   return `^FO${mmToDots(xMm, dpi)},${mmToDots(yMm, dpi)}^A0N,${h},${h}^FD${esc(value)}^FS`
+}
+
+/** Napis wyrównany do PRAWEJ w podanej szerokości — kilogramy stają wtedy
+ *  równo przy krawędzi, obok dużego numeru, bez liczenia szerokości znaków. */
+function textRight(xMm: number, yMm: number, fontMm: number, wMm: number, value: string, dpi: number): string {
+  const h = mmToDots(fontMm, dpi)
+  return `^FO${mmToDots(xMm, dpi)},${mmToDots(yMm, dpi)}^A0N,${h},${h}`
+    + `^FB${mmToDots(wMm, dpi)},1,0,R^FD${esc(value)}^FS`
 }
 
 function line(xMm: number, yMm: number, wMm: number, dpi: number): string {
@@ -79,21 +167,39 @@ export function meatPalletLabelZpl(
   // ── Numer porządkowy ──
   let y: number
   if (jednaPartia) {
+    const f = nrFontMm(widoczne[0].lotNo, W, SUFIT_NR_MM)
     body.push(
       text(M, 19, 3.2, 'Nr porządkowy', dpi),
-      text(M, 23, NR_FONT_MM, widoczne[0].lotNo, dpi),
+      text(M, 23, f, widoczne[0].lotNo, dpi),
     )
-    y = 23 + NR_FONT_MM + 2
+    y = 23 + f + 2
   } else {
     // Paleta z kilku partii: numer sam w sobie nic nie mówi, liczy się SKŁAD.
-    body.push(
-      text(M, 19, 3.2, 'Partie:', dpi),
-      ...widoczne.map((l, i) =>
-        text(M, 23 + i * 4.5, 4, `${l.lotNo} — ${fmtLabelKg(l.kg)} kg`, dpi)),
-    )
-    y = 23 + widoczne.length * 4.5
-    if (reszta > 0) {
-      body.push(text(M, y, 3.5, `+ ${reszta} kolejnych`, dpi))
+    // Do 1.0.94 cały wiersz („475 — 420 kg") szedł jedną czcionką 4 mm i z
+    // chłodni był nieczytelny. Teraz numer i kilogramy idą jedną wielkością,
+    // a jednostka stoi w nagłówku — z sufiksem „kg" przy każdej liczbie
+    // wiersz miałby 65 mm i nie zmieściłby się na 50-milimetrowej taśmie.
+    // Ile partii wypisać, żeby każdy numer był jeszcze czytelny. Pięć
+    // wierszy mieściło się tylko przy 3,3 mm — mniej niż przed poprawką.
+    let wiersze = widoczne.map(l => ({ nr: l.lotNo, kg: fmtLabelKg(l.kg) }))
+    let ukryte = reszta
+    let f = wierszPartiiFontMm(wiersze, W, PION_NA_PARTIE_MM - (ukryte > 0 ? 4.5 : 0))
+    while (wiersze.length > 1 && f.nr < MIN_CZYTELNA_MM) {
+      wiersze = wiersze.slice(0, -1)
+      ukryte = input.lots.length - wiersze.length
+      f = wierszPartiiFontMm(wiersze, W, PION_NA_PARTIE_MM - (ukryte > 0 ? 4.5 : 0))
+    }
+    body.push(text(M, 19, 3.2, 'Partie · kg', dpi))
+    wiersze.forEach((w, i) => {
+      const wiersz = 23 + i * (f.nr + ODSTEP_MM)
+      body.push(
+        text(M, wiersz, f.nr, w.nr, dpi),
+        textRight(M, wiersz + (f.nr - f.kg), f.kg, W, w.kg, dpi),
+      )
+    })
+    y = 23 + wiersze.length * (f.nr + ODSTEP_MM)
+    if (ukryte > 0) {
+      body.push(text(M, y, 3.5, `+ ${ukryte} kolejnych`, dpi))
       y += 4.5
     }
   }

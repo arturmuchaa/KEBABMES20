@@ -32,23 +32,29 @@ describe('meatPalletLabelZpl — etykieta palety mięsa', () => {
     expect(meatPalletLabelZpl(BASE)).toContain('PAL/14/08/26/3')
   })
 
-  it('drukuje skład partii z kilogramami', () => {
+  it('drukuje skład partii z kilogramami (jednostka w nagłówku sekcji)', () => {
     const zpl = meatPalletLabelZpl(BASE)
-    expect(zpl).toContain('475')
-    expect(zpl).toContain('420 kg')
-    expect(zpl).toContain('476')
-    expect(zpl).toContain('180 kg')
+    expect(zpl).toContain('Partie · kg')
+    expect(zpl).toContain('^FD475^FS')
+    expect(zpl).toContain('^FD420^FS')
+    expect(zpl).toContain('^FD476^FS')
+    expect(zpl).toContain('^FD180^FS')
   })
 
-  it('przy piątej partii ostatni wiersz to „+ N kolejnych"', () => {
+  it('nadmiar partii schodzi do „+ N kolejnych", a suma zawsze się zgadza', () => {
     const duzo = { ...BASE, lots: [
       { lotNo: '471', kg: 100 }, { lotNo: '472', kg: 100 }, { lotNo: '473', kg: 100 },
       { lotNo: '474', kg: 100 }, { lotNo: '475', kg: 100 }, { lotNo: '476', kg: 100 },
     ] }
     const zpl = meatPalletLabelZpl(duzo)
-    expect(zpl).toContain('471')
-    expect(zpl).toContain(`+ ${6 - MAX_LOTS_ON_LABEL} kolejnych`)
-    expect(zpl).not.toContain('476')
+    expect(zpl).toContain('^FD471^FS')
+    expect(zpl).not.toContain('^FD476^FS')
+    // Ile dokładnie wierszy zostanie, decyduje czytelność czcionki
+    // (MAX_LOTS_ON_LABEL to tylko sufit), więc liczba w „+ N" ma po prostu
+    // domykać sześć partii.
+    const wypisane = [...zpl.matchAll(/\^FD(47\d)\^FS/g)].length
+    expect(wypisane).toBeLessThanOrEqual(MAX_LOTS_ON_LABEL)
+    expect(zpl).toContain(`+ ${6 - wypisane} kolejnych`)
   })
 
   it('daty w formacie dd.mm.rrrr', () => {
@@ -92,8 +98,16 @@ describe('meatPalletLabelZpl — etykieta palety mięsa', () => {
 
 /** Wysokość czcionki (w punktach ^A0N) użyta do wydrukowania danego napisu. */
 function fontHeightOf(zpl: string, tekst: string): number | null {
-  const m = zpl.match(new RegExp(`\\^A0N,(\\d+),\\d+\\^FD${tekst.replace(/[/^$.*+?()[\]{}|\\]/g, '\\$&')}\\^FS`))
+  const m = zpl.match(new RegExp(
+    `\\^A0N,(\\d+),\\d+(?:\\^FB[^^]*)?\\^FD${tekst.replace(/[/^$.*+?()[\]{}|\\]/g, '\\$&')}\\^FS`))
   return m ? Number(m[1]) : null
+}
+
+/** Dół najniższego napisu: ^FO podaje POCZĄTEK, więc sama współrzędna nie
+ *  powie, czy napis nie ucieka poza taśmę. */
+function dolNajnizszegoNapisu(zpl: string): number {
+  const napisy = [...zpl.matchAll(/\^FO\d+,(\d+)\^A0N,(\d+),/g)]
+  return Math.max(...napisy.map(m => Number(m[1]) + Number(m[2])))
 }
 
 describe('meatPalletLabelZpl — numer partii', () => {
@@ -119,9 +133,85 @@ describe('meatPalletLabelZpl — numer partii', () => {
 
   it('dwie partie DALEJ pokazują, ile z której — po to jest ta etykieta', () => {
     const zpl = meatPalletLabelZpl(BASE)
-    expect(zpl).toContain('Partie:')
-    expect(zpl).toContain('475 — 420 kg')
-    expect(zpl).toContain('476 — 180 kg')
+    expect(zpl).toContain('Partie · kg')
+    // Numer i kilogramy stoją osobno (numer duży, kg małe przy krawędzi) —
+    // do 1.0.94 był to jeden wiersz „475 — 420 kg" czcionką 4 mm.
+    expect(zpl).toContain('^FD475^FS')
+    expect(zpl).toContain('^FD420^FS')
+    expect(zpl).toContain('^FD476^FS')
+    expect(zpl).toContain('^FD180^FS')
+  })
+
+  // 25.08.2026, hala: po połączeniu dwóch partii numery zrobiły się drobne
+  // (4 mm) — operator masowania czyta je z drugiego końca chłodni, więc mają
+  // być tak duże, jak taśma pozwala.
+  it('przy dwóch partiach numer i kilogramy są tej samej wielkości', () => {
+    const zpl = meatPalletLabelZpl(BASE)
+    const numer = fontHeightOf(zpl, '475')!
+    const kg = fontHeightOf(zpl, '420')!
+    expect(numer).toBeGreaterThanOrEqual(mmToDots(9))
+    expect(kg).toBeGreaterThanOrEqual(mmToDots(8))
+    // „trochę mniejsze, ale nie dużo" — najwyżej 1 mm różnicy
+    expect(numer - kg).toBeLessThanOrEqual(mmToDots(1))
+    expect(kg).toBeLessThanOrEqual(numer)
+  })
+
+  it('jednostka stoi w nagłówku, nie przy każdej liczbie — inaczej wiersz nie mieści się w taśmie', () => {
+    const zpl = meatPalletLabelZpl(BASE)
+    expect(zpl).toContain('Partie · kg')
+    expect(zpl).not.toContain('420 kg')
+  })
+
+  it('wiersz partii mieści się w szerokości taśmy', () => {
+    const szerokoscWiersza = (zpl: string, nr: string, kg: string) => {
+      const fN = fontHeightOf(zpl, nr)! / mmToDots(1)
+      const fK = fontHeightOf(zpl, kg)! / mmToDots(1)
+      return nr.length * 0.62 * fN + 2 + kg.length * 0.62 * fK
+    }
+    expect(szerokoscWiersza(meatPalletLabelZpl(BASE), '475', '420')).toBeLessThanOrEqual(44)
+
+    const dlugi = meatPalletLabelZpl({ ...BASE, lots: [
+      { lotNo: '505-BS-2026', kg: 420 }, { lotNo: '476', kg: 180 },
+    ] })
+    expect(szerokoscWiersza(dlugi, '505-BS-2026', '420')).toBeLessThanOrEqual(44)
+  })
+
+  it('numer partii jest największym napisem na etykiecie', () => {
+    const zpl = meatPalletLabelZpl(BASE)
+    const wszystkie = [...zpl.matchAll(/\^A0N,(\d+),/g)].map(m => Number(m[1]))
+    expect(fontHeightOf(zpl, '475')).toBe(Math.max(...wszystkie))
+  })
+
+  it('im więcej partii, tym mniejszy numer — ale wszystko zostaje NA taśmie', () => {
+    const dwie = meatPalletLabelZpl(BASE)
+    const partie = (n: number) => meatPalletLabelZpl({ ...BASE, netKg: n * 150,
+      lots: Array.from({ length: n }, (_, i) => ({ lotNo: String(475 + i), kg: 150 })) })
+
+    expect(fontHeightOf(partie(4), '475')!).toBeLessThan(fontHeightOf(dwie, '475')!)
+    // Dół napisu, nie sam jego początek: ^FO mówi, gdzie napis się ZACZYNA.
+    for (const n of [1, 2, 3, 4]) {
+      expect(dolNajnizszegoNapisu(partie(n))).toBeLessThanOrEqual(mmToDots(LABEL_H_MM))
+    }
+  })
+
+  // Wciśnięcie pięciu wierszy w budżet pionu dawało czcionkę 3,3 mm — czyli
+  // gorzej niż przed całą poprawką. Numer nieczytelny to żadna informacja:
+  // wolimy pokazać mniej partii, a te czytelnie („+ N kolejnych" mówi, że
+  // reszta jest w systemie).
+  it('nie drukuje numerów mniejszych niż czytelne — woli pokazać mniej partii', () => {
+    const zpl = meatPalletLabelZpl({ ...BASE, netKg: 200, lots:
+      [1, 2, 3, 4, 5].map(i => ({ lotNo: String(504 + i), kg: 40 })) })
+    const numer = fontHeightOf(zpl, '505')!
+    expect(numer).toBeGreaterThanOrEqual(mmToDots(4.5))
+    expect(zpl).toMatch(/\+ \d kolejnych/)
+    expect(dolNajnizszegoNapisu(zpl)).toBeLessThanOrEqual(mmToDots(LABEL_H_MM))
+  })
+
+  it('długi numer schodzi z czcionką, zamiast wyjechać poza taśmę', () => {
+    const dlugi = meatPalletLabelZpl({ ...BASE, lots: [
+      { lotNo: '505-BS-2026', kg: 420 }, { lotNo: '476', kg: 180 },
+    ] })
+    expect(fontHeightOf(dlugi, '505-BS-2026')!).toBeLessThan(fontHeightOf(meatPalletLabelZpl(BASE), '475')!)
   })
 
   it('etykieta jednej partii mieści się na taśmie', () => {
@@ -183,8 +273,10 @@ describe('meatPalletLabelZpl — układ jak na ubocznych', () => {
     const zpl = meatPalletLabelZpl({
       ...JEDNA, lots: [{ lotNo: '503', kg: 50 }, { lotNo: '504', kg: 150 }],
     })
-    expect(zpl).toContain('503 — 50 kg')
-    expect(zpl).toContain('504 — 150 kg')
+    expect(zpl).toContain('^FD503^FS')
+    expect(zpl).toContain('^FD50^FS')
+    expect(zpl).toContain('^FD504^FS')
+    expect(zpl).toContain('^FD150^FS')
     expect(zpl).not.toContain('Ubój')
     expect(zpl).not.toContain('Przyjęcie')
     // Ważenie i najkrótsza ważność dalej mają sens dla całej palety.
