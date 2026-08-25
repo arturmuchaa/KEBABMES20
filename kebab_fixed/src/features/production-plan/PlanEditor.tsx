@@ -203,7 +203,7 @@ export function PlanEditor({
           <Button variant="outline" className="mb-0.5 ml-auto gap-1.5"
             data-testid="otworz-zamowienia" onClick={otworzZamowienia}>
             <Download size={15} />
-            Wciągnij z zamówień{doWciagniecia > 0 ? ` (${doWciagniecia})` : ''}
+            Importuj z zamówień{doWciagniecia > 0 ? ` (${doWciagniecia})` : ''}
           </Button>
         )}
       </div>
@@ -266,7 +266,7 @@ export function PlanEditor({
         </div>
         {panelZamowien && (
           <PullFromOrders
-            orders={orders} progress={progress}
+            orders={orders} progress={progress} recipes={recipes}
             onPull={lines => lines.forEach(draft.addLine)}
             onClose={() => setPanelZamowien(false)}
           />

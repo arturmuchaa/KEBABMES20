@@ -163,16 +163,24 @@ describe('PlanEditor — wciąganie z zamówień', () => {
     return screen.findByTestId('panel-zamowien')
   }
 
+  /** Nic nie jest zaznaczone z góry (25.08.2026) — wciągnięcie pięćdziesięciu
+   *  pozycji przez przypadek to plan do ręcznego rozbierania. */
+  const wybierzPierwsza = async () => {
+    const poz = await screen.findByTestId('pozycja-zl1')
+    fireEvent.click(poz)
+    return poz
+  }
+
   it('pokazuje RESZTĘ do wyprodukowania, nie ilość z zamówienia', async () => {
     await otworzPanel()
     await waitFor(() =>
-      expect(screen.getByTestId('zamowienie-pozycja').textContent).toContain('8×35'))
+      expect(screen.getByTestId('pozycja-zl1').textContent).toContain('8×35'))
   })
 
   it('wciągnięta pozycja ląduje w planie z partiami od FEFO', async () => {
     await otworzPanel()
-    await waitFor(() => screen.getByTestId('zamowienie-pozycja'))
-    fireEvent.click(screen.getByTestId('wciagnij'))
+    await wybierzPierwsza()
+    fireEvent.click(screen.getByTestId('importuj'))
     await waitFor(() => expect(screen.getAllByTestId('plan-line')).toHaveLength(1))
     expect(partieWiersza(0)).toBe('495')
   })
@@ -180,8 +188,8 @@ describe('PlanEditor — wciąganie z zamówień', () => {
   it('zapis niesie powiązanie z pozycją zamówienia', async () => {
     const { onSave } = pokaz()
     fireEvent.click(screen.getByTestId('otworz-zamowienia'))
-    await screen.findByTestId('zamowienie-pozycja')
-    fireEvent.click(screen.getByTestId('wciagnij'))
+    await wybierzPierwsza()
+    fireEvent.click(screen.getByTestId('importuj'))
     await waitFor(() => screen.getAllByTestId('plan-line'))
     fireEvent.click(screen.getByRole('button', { name: /Zapisz szkic/ }))
     await waitFor(() => expect(onSave).toHaveBeenCalled())

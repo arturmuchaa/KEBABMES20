@@ -99,3 +99,35 @@ export function toPlanLines(picked: PullableLine[]): PlanLine[] {
     clientOrderLineId: p.lineId,
   }))
 }
+
+export interface PullableGroup {
+  clientId:   string
+  clientName: string
+  pozycji:    number
+  kg:         number
+  lines:      PullableLine[]
+}
+
+/**
+ * Pozycje do importu POGRUPOWANE KLIENTAMI.
+ *
+ * Kilka zamówień potrafi dać ponad pięćdziesiąt pozycji i płaska lista robi
+ * się nie do przejrzenia („nie da się połapać, co jest co"). Planista myśli
+ * klientami — najpierw wybiera, dla kogo dziś produkuje, potem co.
+ */
+export function groupPullableByClient(lines: PullableLine[] | null | undefined): PullableGroup[] {
+  const grupy = new Map<string, PullableGroup>()
+  for (const l of Array.isArray(lines) ? lines : []) {
+    const key = l.clientId || l.clientName || '—'
+    const g = grupy.get(key)
+      ?? { clientId: key, clientName: l.clientName || '—', pozycji: 0, kg: 0, lines: [] }
+    g.lines.push(l)
+    g.pozycji += 1
+    g.kg = Math.round((g.kg + (Number(l.kg) || 0)) * 100) / 100
+    grupy.set(key, g)
+  }
+  for (const g of grupy.values()) {
+    g.lines.sort((a, b) => a.orderNo.localeCompare(b.orderNo, 'pl', { numeric: true }))
+  }
+  return [...grupy.values()].sort((a, b) => a.clientName.localeCompare(b.clientName, 'pl'))
+}

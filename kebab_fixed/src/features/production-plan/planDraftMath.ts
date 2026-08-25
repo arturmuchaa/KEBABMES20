@@ -46,6 +46,15 @@ export function demandByRecipe(
   const out: Record<string, { name: string; kg: number }> = {}
   for (const l of lines) {
     if (!l.recipeId) continue
+    // Pozycja rozpoczęta na hali jest ZAMROŻONA: backend nie zwalnia jej
+    // rezerwacji przy zapisie (`skip_line_ids`), więc jej mięso nie wraca do
+    // puli — a skoro nie wraca, nie wolno go liczyć drugi raz jako potrzeby.
+    //
+    // Asymetria tych dwóch stron zrobiła fantomowy brak na PROD/25/08/26
+    // (25.08.2026): plan z pozycją wyprodukowaną 700 kg i planowaną 2700 kg
+    // pokazywał „brakuje 576,2 kg KIRMIZI" zaraz po wejściu w edycję, choć
+    // partia 498 trzymała komplet 3400 kg rezerwacji tego samego planu.
+    if (num(l.qtyDone) > 0) continue
     const r = recipes.find(x => x.id === l.recipeId)
     if ((r?.components?.length ?? 0) > 0) continue
     const kg = num(l.qty) * num(l.kgPerUnit)

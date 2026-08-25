@@ -35,6 +35,33 @@ describe('demandByRecipe', () => {
     expect(d.r2.kg).toBe(100)
   })
 
+  /**
+   * PROD/25/08/26 (25.08.2026): plan z dwiema pozycjami KIRMIZI — pierwsza
+   * WYPRODUKOWANA (20 szt. × 35 kg = 700 kg), druga do zrobienia (2700 kg).
+   * Partia 498 ma 3523,8 kg i trzyma 3400 kg rezerwacji tego planu.
+   *
+   * Przy wejściu w edycję panel krzyczał „brakuje KIRMIZI", choć nikt niczego
+   * nie ruszał. Powód: mięso pozycji ZAMROŻONEJ słusznie NIE wraca do puli
+   * (backend nie zwalnia jej rezerwacji), ale zapotrzebowanie liczyło ją dalej
+   * — 3400 kg potrzeby przy 2823,8 kg puli daje fantomowy brak 576,2 kg.
+   */
+  it('pozycji WYPRODUKOWANEJ nie liczy — jej mięso jest już zarezerwowane', () => {
+    const d = demandByRecipe(
+      [linia({ recipeId: 'r1', qty: '20', kgPerUnit: '35', qtyDone: 20 }),
+       linia({ recipeId: 'r1', qty: '90', kgPerUnit: '30' })],
+      RECEPTURY,
+    )
+    expect(d.r1.kg).toBe(2700)
+  })
+
+  it('pozycja ZACZĘTA też nie liczy się do potrzeby — jej rezerwacja stoi w całości', () => {
+    // Backend zwalnia rezerwacje tylko pozycji NIETKNIĘTYCH (skip_line_ids),
+    // więc rozpoczęta trzyma swoje kilogramy do końca. Liczenie jej potrzeby
+    // dawałoby ten sam fantomowy brak co przy pozycji wyprodukowanej.
+    const d = demandByRecipe([linia({ recipeId: 'r1', qty: '20', kgPerUnit: '35', qtyDone: 5 })], RECEPTURY)
+    expect(d.r1).toBeUndefined()
+  })
+
   it('receptury komponentowej NIE liczy — jej partie dobiera backend', () => {
     const d = demandByRecipe([linia({ recipeId: 'r7', qty: '10', kgPerUnit: '10' })], RECEPTURY)
     expect(d.r7).toBeUndefined()

@@ -76,3 +76,46 @@ describe('toPlanLines', () => {
     expect(p.packagingId).toBe('')
   })
 })
+
+// ── Grupowanie do importu ────────────────────────────────────────────────
+import { groupPullableByClient, type PullableLine } from './pullFromOrders'
+
+const poz = (over: Partial<PullableLine> = {}): PullableLine => ({
+  orderId: 'o1', orderNo: 'ZAM/1', clientId: 'c1', clientName: 'Bulli',
+  lineId: 'l1', productTypeId: 'pt1', recipeId: 'r1', packagingId: 't1',
+  kgPerUnit: 35, qtyRemaining: 12, kg: 420, ...over,
+})
+
+describe('groupPullableByClient', () => {
+  it('składa pozycje w grupy klientów z sumami', () => {
+    const g = groupPullableByClient([
+      poz(),
+      poz({ lineId: 'l2', kg: 180, qtyRemaining: 6, kgPerUnit: 30 }),
+      poz({ lineId: 'l3', clientId: 'c2', clientName: 'Zagros', kg: 240 }),
+    ])
+    expect(g.map(x => x.clientName)).toEqual(['Bulli', 'Zagros'])
+    expect(g[0]).toMatchObject({ pozycji: 2, kg: 600 })
+    expect(g[1]).toMatchObject({ pozycji: 1, kg: 240 })
+  })
+
+  it('klienci po alfabecie — lista ma nie skakać', () => {
+    const g = groupPullableByClient([
+      poz({ clientId: 'c9', clientName: 'Zagros' }),
+      poz({ lineId: 'l2', clientId: 'c1', clientName: 'Alfa' }),
+    ])
+    expect(g.map(x => x.clientName)).toEqual(['Alfa', 'Zagros'])
+  })
+
+  it('w grupie pozycje idą po numerze zamówienia — tak je czyta biuro', () => {
+    const g = groupPullableByClient([
+      poz({ lineId: 'l2', orderNo: 'ZAM/9' }),
+      poz({ lineId: 'l1', orderNo: 'ZAM/2' }),
+    ])
+    expect(g[0].lines.map(l => l.orderNo)).toEqual(['ZAM/2', 'ZAM/9'])
+  })
+
+  it('pusto na wejściu to pusto na wyjściu', () => {
+    expect(groupPullableByClient([])).toEqual([])
+    expect(groupPullableByClient(null as any)).toEqual([])
+  })
+})
