@@ -759,6 +759,30 @@ _DDL: list[str] = [
     # potwierdzeniu biura (i żeby dni bez kiosku działały jak dotąd).
     "ALTER TABLE production_plan_lines ADD COLUMN IF NOT EXISTS packaging_used INTEGER NOT NULL DEFAULT 0",
 
+    # Sztuka weszła na magazyn wyrobu gotowego już przy skanie QR na hali.
+    # Bez tego znacznika potwierdzenie dnia dopisałoby ją drugi raz (skan
+    # tworzy wyrób „na bieżąco", finish_day dopisuje wyłącznie resztę).
+    "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS stock_booked_at TIMESTAMPTZ",
+
+    # Ślad przeniesienia sztuk między pracownikami. Sam `worker_entries` po
+    # poprawce wygląda tak, jakby pomyłki nigdy nie było — a kilogramy idą do
+    # wypłaty, więc musi zostać zapis kto, komu, ile i kiedy przepisał.
+    """
+    CREATE TABLE IF NOT EXISTS production_worker_moves (
+        id             TEXT PRIMARY KEY,
+        plan_id        TEXT NOT NULL,
+        plan_line_id   TEXT NOT NULL,
+        from_worker_id TEXT NOT NULL,
+        to_worker_id   TEXT NOT NULL,
+        pieces         INTEGER NOT NULL,
+        moved_by       TEXT DEFAULT '',
+        moved_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT production_worker_moves_pieces_ck CHECK (pieces > 0)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS production_worker_moves_linia_idx "
+    "ON production_worker_moves (plan_line_id, moved_at DESC)",
+
     # CHECK w bazie nie nadążył za app/utils/stock.py: VALID_MOVEMENT_TYPES
     # ma od dawna też ADJUST/CANCEL, ale baza znała tylko IN/OUT/TRANSFORM —
     # każdy ruch tych dwóch typów (np. zwrot stanu po anulowaniu WZ) padał

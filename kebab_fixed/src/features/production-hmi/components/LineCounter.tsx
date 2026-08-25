@@ -23,9 +23,12 @@ export interface LineCounterProps {
   onBack: () => void
   /** `false` w trakcie przerwy — zapis jest wtedy odmawiany. */
   canSave: boolean
+  /** Dotknięcie osoby w rozliczeniu — poprawka „nie ta osoba".
+   *  Działa też na pozycji gotowej: pomyłka wychodzi zwykle na koniec. */
+  onMoveFrom?: (workerId: string) => void
 }
 
-export function LineCounter({ line, workers, selectedWorkerId, onSelectWorker, onSave, onBack, canSave }: LineCounterProps) {
+export function LineCounter({ line, workers, selectedWorkerId, onSelectWorker, onSave, onBack, canSave, onMoveFrom }: LineCounterProps) {
   const zostalo = Math.max(0, line.qty - line.qtyDone)
   const [ile, setIle] = useState(1)
 
@@ -112,16 +115,21 @@ export function LineCounter({ line, workers, selectedWorkerId, onSelectWorker, o
 
       <div className="flex flex-col gap-2 pt-3" style={{ borderTop: '1px solid var(--line)' }}>
         <div className="text-[11px] font-bold uppercase" style={{ letterSpacing: '.1em', color: 'var(--mut)' }}>
-          Kto ile zrobił
+          Kto ile zrobił{onMoveFrom ? ' · dotknij, żeby przepisać komu innemu' : ''}
         </div>
         <div className="flex gap-3 flex-wrap">
           {rozliczenie.length === 0
             ? <span className="text-[15px]" style={{ color: 'var(--mut)' }}>Jeszcze nikt</span>
             : rozliczenie.map(w => (
-                <span key={w.workerId} className="hmi-v10-mono text-[16px] font-bold"
-                  style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 14px' }}>
+                <button key={w.workerId} type="button" data-testid={`rozliczenie-${w.workerId}`}
+                  onClick={() => onMoveFrom?.(w.workerId)}
+                  className="hmi-v10-mono text-[16px] font-bold"
+                  style={{ background: 'var(--bg)', borderRadius: 10, padding: '8px 14px',
+                           border: `1px solid ${onMoveFrom ? 'var(--accent)' : 'var(--line)'}`,
+                           color: onMoveFrom ? 'var(--accent)' : 'var(--ink)',
+                           cursor: onMoveFrom ? 'pointer' : 'default' }}>
                   {w.workerName} — {w.pieces} szt.
-                </span>
+                </button>
               ))}
         </div>
       </div>

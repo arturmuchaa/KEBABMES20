@@ -1858,6 +1858,9 @@ export interface ScanProducedResult {
   weightKg: number
   done: number
   total: number
+  /** Sztuka weszła na magazyn wyrobu gotowego już przy tym skanie. */
+  onStock?: boolean
+  goodsId?: string | null
 }
 
 export const finishedUnitsApi = {
@@ -2472,6 +2475,9 @@ function mapPlanLine(raw: any) {
     recipeName:     raw.recipe_name      ?? raw.recipeName      ?? '',
     packagingId:    raw.packaging_id     ?? raw.packagingId,
     packagingName:  raw.packaging_name   ?? raw.packagingName,
+    // Ile tulei zeszło już ze stanu na tej pozycji (hala zdejmuje je na
+    // bieżąco). Przy zmianie rodzaju tyle samo wraca na magazyn.
+    packagingUsed:  Number(raw.packaging_used ?? raw.packagingUsed ?? 0),
     seasonedBatchId:  raw.seasoned_batch_id  ?? raw.seasonedBatchId,
     seasonedBatchNo:  raw.seasoned_batch_no  ?? raw.seasonedBatchNo,
     seasonedBatchIds: raw.seasoned_batch_ids ?? raw.seasonedBatchIds ?? [],
@@ -2582,6 +2588,18 @@ export const productionPlansApi = {
     line_status: body.lineStatus,
     worker_entries: body.workerEntries,
   }),
+  /** Przepisanie sztuk z jednego pracownika na drugiego (pomyłka operatora).
+   *  Postęp pozycji się nie zmienia — zmienia się tylko przypisanie pracy. */
+  moveLinePieces: (
+    planId: string, lineId: string,
+    body: { fromWorkerId: string; toWorkerId: string; toWorkerName?: string; pieces: number; by?: string },
+  ) => post<{ ok: boolean; moved?: number; unchanged?: boolean }>(
+    `/production-plans/${planId}/lines/${lineId}/move-pieces`, body),
+  /** Zmiana tulei pozycji z hali (np. METAL 65 → KARTON 65).
+   *  Tuleje już zdjęte ze stanu wracają na magazyn, nowe schodzą. */
+  changeLinePackaging: (planId: string, lineId: string, packagingId: string) =>
+    patch<{ ok: boolean; moved?: number; unchanged?: boolean }>(
+      `/production-plans/${planId}/lines/${lineId}/packaging`, { packagingId }),
   tabletFinish:  (planId: string, entries: any[]) =>
     post<any>(`/production-plans/${planId}/tablet-finish`, { entries }),
   tabletReopen:  (planId: string) =>

@@ -142,6 +142,31 @@ poprawką, nie drugim wpisem.
 Kilogramy foliowania wchodzą do płacy tak samo jak układanie: `kg × stawka`.
 Osoba, która robiła jedno i drugie, dostaje sumę.
 
+## Co weszło (25.08.2026)
+
+Wszystkie sześć punktów zrobione i przetestowane (backend 1266, frontend 1448).
+
+| Punkt | Backend | Ekran |
+|---|---|---|
+| 1. Tuleje na bieżąco | `line_packaging_service.sync_line_packaging` w transakcji `update_line_progress`; licznik `production_plan_lines.packaging_used`; `finish_day` bierze resztę | — |
+| 2. Przeniesienie sztuk | `production_plans_service.move_line_pieces` + ślad `production_worker_moves`; blokada po `office_confirmed_at` | chip osoby w `LineCounter` → `MovePiecesModal` |
+| 3. Zmiana tulei | `line_packaging_service.change_line_packaging` (oddaje stare, bierze nowe) | dotknięcie kolumny TULEJE → `PackagingPicker` |
+| 4. Skan QR → magazyn | `unit_stock_service.book_scanned_unit` w `scan_produced`; `stock_booked_at` na sztuce; `finish_day` dopisuje resztę **per partia** | kafel „Skanowanie" → `ScanPanel` |
+| 5. Płaca z kg pracownika | `workers_service` liczy z `worker_entries` × `kg_per_unit` + `production_wrapping` | — |
+| 6. Foliowczycy | `production_wrapping_service` | kafel „Foliowanie" → `WrappingModal` |
+
+Przy okazji naprawione dwie rzeczy zastane:
+
+* **Kiosk produkcji nie miał uprawnień do niczego.** `/api/production-plans`
+  wpadało w domyślne „office", więc operator działu `produkcja` nie zapisałby
+  ani jednej sztuki. Teraz odczyt planu, postęp, tuleje, przeniesienie sztuk
+  i zamknięcie zmiany to `produkcja`; układanie planu i potwierdzenie dnia
+  zostają w biurze.
+* **Martwa reguła `/api/finished_units`** (podkreślenie zamiast myślnika)
+  nigdy nie pasowała do trasy `/api/finished-units` — cały podsystem sztuk
+  wymagał konta biura. Teraz `produkcja|pakowanie`, a generowanie sztuk
+  i etykiet zostaje w biurze.
+
 ## Czego NIE robimy
 
 - Nie zmieniamy moment potwierdzenia biura — plan dalej zamyka biuro.

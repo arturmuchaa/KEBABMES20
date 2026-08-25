@@ -16,7 +16,7 @@ import { Spinner } from '@/components/ui/widgets'
 import { useApi } from '@/hooks/useApi'
 import { useLiveRefresh } from '@/hooks/useLiveRefresh'
 import { useAuth } from '@/features/auth/AuthContext'
-import { dayMaterialsApi, operatorsApi, productionPlansApi, wrappingApi } from '@/lib/api'
+import { dayMaterialsApi, finishedUnitsApi, operatorsApi, packagingApi, productionPlansApi, wrappingApi } from '@/lib/api'
 import { getProductionDate } from '@/features/deboning/utils'
 import { HMI_VARS, HMI_FONT } from '@/features/hmi-theme/vars'
 import '@/features/hmi-theme/hmi-font.css'
@@ -34,6 +34,9 @@ import { BreakOverlay } from '@/features/production-hmi/components/BreakOverlay'
 import { ShiftStats } from '@/features/production-hmi/components/ShiftStats'
 import { DaySummary } from '@/features/production-hmi/components/DaySummary'
 import { WrappingModal } from '@/features/production-hmi/components/WrappingModal'
+import { PackagingPicker } from '@/features/production-hmi/components/PackagingPicker'
+import { MovePiecesModal } from '@/features/production-hmi/components/MovePiecesModal'
+import { ScanPanel } from '@/features/production-hmi/components/ScanPanel'
 import { wrappedTotal } from '@/features/production-hmi/wrapping'
 
 declare const __PRODUKCJA_VERSION__: string
@@ -63,12 +66,18 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   const opsData = useApi(() => operatorsApi.forDepartment(DZIAL))
   const matData = useApi(() => dayMaterialsApi.forDay(dzien))
   const wrapData = useApi(() => wrappingApi.forDay(dzien))
+  // `all`, nie `list`: kartoteka z zerowym stanem musi być widoczna w wyborze
+  // tulei (tuleja pozycji potrafi zejść do zera w trakcie dnia).
+  const pkgData = useApi(() => packagingApi.all())
 
   // Jeden rejestr źródeł — dopisanie kolejnego nie wymaga pamiętania o drugim
   // miejscu (patrz incydent zamrożonego licznika na rozbiorze).
-  useLiveRefresh({ planData, opsData, matData, wrapData })
+  useLiveRefresh({ planData, opsData, matData, wrapData, pkgData })
 
   const [wybranaPozycja, setWybranaPozycja] = useState<string | null>(null)
+  const [tulejaPozycji, setTulejaPozycji] = useState<string | null>(null)
+  const [przepisywany, setPrzepisywany] = useState<string | null>(null)
+  const [skanowanie, setSkanowanie] = useState(false)
   const [pracownik, setPracownik] = useState('')
   const [przerwy, setPrzerwy] = useState<BreakState>(BRAK_PRZERW)
   const [statystykiOtwarte, setStatystykiOtwarte] = useState(false)
@@ -96,7 +105,9 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   const linie: PlanLineView[] = useMemo(() => (plan?.lines ?? []).map((l: any) => ({
     id: l.id, qty: l.qty, kgPerUnit: l.kgPerUnit, totalKg: l.totalKg,
     recipeName: l.recipeName || l.productTypeName || '',
-    packagingName: l.packagingName ?? '', clientName: l.clientName ?? '',
+    packagingId: l.packagingId ?? '', packagingName: l.packagingName ?? '',
+    packagingUsed: l.packagingUsed ?? 0,
+    clientName: l.clientName ?? '',
     qtyDone: l.qtyDone ?? 0, workerEntries: l.workerEntries ?? [],
   })), [plan])
 
@@ -146,6 +157,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
 
   const operatorzy = opsData.data ?? []
   const pozycja = linie.find(l => l.id === wybranaPozycja) ?? null
+  const pozycjaTulei = linie.find(l => l.id === tulejaPozycji) ?? null
 
   const foliowanie = wrapData.data ?? []
   const zafoliowane = useMemo(() => wrappedTotal(foliowanie), [foliowanie])
@@ -182,6 +194,65 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
       pokazToast('Nie udało się zapisać — spróbuj jeszcze raz')
     }
   }, [plan, pozycja, przerwy, operatorzy, pracownik, planData])
+
+  // ── Skanowanie gotowych kebabów ──
+  //
+  // Skan księguje sztukę na magazynie wyrobu gotowego po stronie backendu;
+  // tu odświeżamy plan, żeby postęp pozycji nadążał za wózkiem.
+  const zeskanuj = useCallback(async (code: string) => {
+    const wynik = await finishedUnitsApi.scanProduced(code)
+    planData.refetch()
+    return wynik
+  }, [planData])
+
+  // ── Poprawka „nie ta osoba" ──
+  //
+  // Sztuki są zrobione i tuleje zeszły — przenosimy wyłącznie przypisanie
+  // pracy, bo to ono idzie do wypłaty. Działa też na pozycji gotowej: pomyłka
+  // wychodzi zwykle dopiero, gdy pozycja jest zamknięta.
+  const przeniesSztuki = useCallback(async (
+    ruch: { toWorkerId: string; toWorkerName: string; pieces: number },
+  ) => {
+    if (!plan || !pozycja || !przepisywany) return
+    setZajety(true)
+    try {
+      await productionPlansApi.moveLinePieces(plan.id, pozycja.id, {
+        fromWorkerId: przepisywany, toWorkerId: ruch.toWorkerId,
+        toWorkerName: ruch.toWorkerName, pieces: ruch.pieces, by: user?.name ?? '',
+      })
+      setPrzepisywany(null)
+      planData.refetch()
+      pokazToast(`Przepisano ${ruch.pieces} szt. na ${ruch.toWorkerName.split(' ')[0]}`)
+    } catch (e: any) {
+      setPrzepisywany(null)
+      pokazToast(e?.message ? `Nie udało się przenieść — ${e.message}` : 'Nie udało się przenieść sztuk')
+    } finally {
+      setZajety(false)
+    }
+  }, [plan, pozycja, przepisywany, user, planData])
+
+  // ── Zmiana tulei pozycji ──
+  //
+  // Metalowe potrafią skończyć się w połowie dnia. Zamykamy okno DOPIERO po
+  // udanym zapisie: gdyby zamykało się od razu, operator nie wiedziałby, czy
+  // zmiana weszła, i klikałby drugi raz (a każde kliknięcie przerzuca tuleje
+  // na magazynie).
+  const zmienTuleje = useCallback(async (packagingId: string) => {
+    const linia = linie.find(l => l.id === tulejaPozycji)
+    if (!plan || !linia) return
+    setZajety(true)
+    try {
+      await productionPlansApi.changeLinePackaging(plan.id, linia.id, packagingId)
+      setTulejaPozycji(null)
+      planData.refetch(); pkgData.refetch()
+      pokazToast('Tuleja zmieniona')
+    } catch (e: any) {
+      setTulejaPozycji(null)
+      pokazToast(e?.message ? `Nie udało się zmienić tulei — ${e.message}` : 'Nie udało się zmienić tulei')
+    } finally {
+      setZajety(false)
+    }
+  }, [plan, linie, tulejaPozycji, planData, pkgData])
 
   // ── Folia ──
   const pobierzFolie = useCallback(async (ile: number) => {
@@ -322,9 +393,10 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
               onSave={zapisz}
               onBack={() => setWybranaPozycja(null)}
               canSave={canSave(przerwy)}
+              onMoveFrom={setPrzepisywany}
             />
           ) : (
-            <PlanList lines={linie} onPick={setWybranaPozycja} />
+            <PlanList lines={linie} onPick={setWybranaPozycja} onPickPackaging={setTulejaPozycji} />
           )}
 
           <MaterialsRail
@@ -342,7 +414,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
       {/* Pasek dnia — ten sam wzorzec co w rozbiorze: 76 px, --barBg, kafle
           z liczbą i podpisem, część klikalna (▸). Liczby dnia mają stać cały
           czas na oku, a nie chować się w oknach. */}
-      <div className="flex-shrink-0 grid grid-cols-7" style={{ height: 76, background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
+      <div className="flex-shrink-0 grid grid-cols-8" style={{ height: 76, background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
         {([
           { label: 'Zrobione',   val: `${totals.kgDone} kg` },
           { label: 'Postęp',     val: `${totals.pct}%`, color: 'var(--accent)' },
@@ -350,6 +422,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
           { label: 'Sztuki',     val: `${totals.sztDone} / ${totals.sztPlan}` },
           { label: 'Folia',      val: `${folia?.pobrane ?? 0} rolek` },
           { label: 'Foliowanie', val: `${zafoliowane} kg`, onTap: () => setFoliowanieOtwarte(true) },
+          { label: 'Skanowanie', val: `${totals.sztDone} szt.`, onTap: () => setSkanowanie(true) },
         ] as { label: string; val: string; color?: string; onTap?: () => void }[]).map(c => c.onTap ? (
           <button key={c.label} type="button" onClick={c.onTap}
             className="flex flex-col items-center justify-center px-1 text-center active:scale-95 transition-transform"
@@ -380,6 +453,33 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
       {foliowanieOtwarte && (
         <WrappingModal workers={operatorzy} saved={foliowanie} kgToday={totals.kgDone}
           busy={zajety} onSave={zapiszFoliowanie} onClose={() => setFoliowanieOtwarte(false)} />
+      )}
+
+      {skanowanie && (
+        <ScanPanel onScan={zeskanuj} onClose={() => setSkanowanie(false)} />
+      )}
+
+      {pozycja && przepisywany && (
+        <MovePiecesModal
+          line={pozycja}
+          fromWorkerId={przepisywany}
+          workers={operatorzy}
+          busy={zajety}
+          onMove={przeniesSztuki}
+          onClose={() => setPrzepisywany(null)}
+        />
+      )}
+
+      {pozycjaTulei && (
+        <PackagingPicker
+          line={pozycjaTulei}
+          packagingId={pozycjaTulei.packagingId ?? ''}
+          packaging={pkgData.data ?? []}
+          used={pozycjaTulei.packagingUsed ?? 0}
+          busy={zajety}
+          onPick={zmienTuleje}
+          onClose={() => setTulejaPozycji(null)}
+        />
       )}
 
       {statystykiOtwarte && (

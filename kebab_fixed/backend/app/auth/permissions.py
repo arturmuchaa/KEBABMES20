@@ -52,7 +52,10 @@ ADMIN_PREFIXES = ("/api/app-users", "/api/audit-log")
 DEPARTMENT_PREFIXES = {
     "rozbior": ("/api/deboning",),
     "produkcja": ("/api/mixing", "/api/seasoned_meat"),
-    "pakowanie": ("/api/packaging", "/api/finished_units"),
+    # `/api/finished-units` ma WŁASNĄ regułę niżej (dzielą je produkcja
+    # i pakowanie). Nie wracać tu z wpisem `/api/finished_units` —
+    # z podkreśleniem nigdy nie pasował do trasy i cicho nic nie robił.
+    "pakowanie": ("/api/packaging",),
     "wydanie": ("/api/dispatches",),
 }
 
@@ -118,6 +121,38 @@ def permission_for_path(path: str, method: str = "GET") -> str:
     # zostaje w biurze — kiosk nie ma po co ruszać kilogramów.
     if _matches(path, "/api/meat-stock"):
         return "rozbior" if method == "GET" else "office"
+    # Kiosk produkcji pracuje na planie dnia: czyta go, dopisuje sztuki, zmienia
+    # tuleję i zamyka zmianę. Układanie planu (utworzenie, edycja, kasowanie,
+    # status) i POTWIERDZENIE dnia — czyli moment, w którym powstaje wyrób
+    # gotowy — zostają w biurze. Bez tego rozróżnienia domyślne „office"
+    # odcinałoby kiosk od wszystkiego i operator nie zapisałby ani jednej sztuki.
+    if _matches(path, "/api/production-plans"):
+        reszta = path[len("/api/production-plans"):].strip("/")
+        if method == "GET":
+            return "produkcja"
+        if (reszta.endswith("/progress") or reszta.endswith("/packaging")
+                or reszta.endswith("/move-pieces")):
+            return "produkcja"
+        if reszta.endswith("/tablet-finish") or reszta.endswith("/tablet-reopen"):
+            return "produkcja"
+        return "office"
+    if _matches(path, "/api/production-day-materials") or _matches(path, "/api/production-wrapping"):
+        return "produkcja"
+    # Sztuki gotowe (QR): skanuje i podgląda PRODUKCJA (kebab schodzi z linii
+    # na magazyn) oraz PAKOWANIE (kompletacja). Wygenerowanie sztuk i etykiet
+    # zostaje w biurze — hala skanuje to, co dostała wydrukowane.
+    #
+    # Uwaga historyczna: reguła działowa miała tu `/api/finished_units`
+    # z PODKREŚLENIEM, a trasa to `/api/finished-units` z myślnikiem, więc
+    # nigdy się nie dopasowała i wszystko wpadało w domyślne „office".
+    if _matches(path, "/api/finished-units"):
+        if path.endswith("/from-plan-line"):
+            return "office"
+        return "produkcja|pakowanie"
+    # Kartoteka opakowań: CZYTAĆ musi kilka działów naraz (kiosk produkcji
+    # wybiera z niej tuleję pozycji), zmieniać — tylko pakowanie i biuro.
+    if _matches(path, "/api/packaging"):
+        return "any" if method == "GET" else "pakowanie"
     for dept, prefixes in DEPARTMENT_PREFIXES.items():
         for p in prefixes:
             if _matches(path, p):
@@ -142,6 +177,11 @@ def can_access(subject: Optional[dict], required: str) -> bool:
         return required != "admin"
 
     # operator
-    if required in DEPARTMENT_PREFIXES:
-        return required in (subject.get("departments") or [])
+    # „a|b" — ścieżka wspólna dla kilku działów (np. skan sztuki gotowej robi
+    # produkcja I pakowanie). Wpuszczamy operatora z KTÓRYMKOLWIEK z nich;
+    # „any" byłoby za szerokie, bo to zapis stanu, nie odczyt.
+    wymagane = [r for r in required.split("|") if r]
+    dzialy = set(subject.get("departments") or [])
+    if wymagane and all(r in DEPARTMENT_PREFIXES for r in wymagane):
+        return bool(dzialy.intersection(wymagane))
     return False

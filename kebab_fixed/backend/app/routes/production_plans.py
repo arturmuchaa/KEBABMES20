@@ -71,6 +71,35 @@ def update_line_progress(plan_id: str, line_id: str, body: LineProgressDto):
     )
 
 
+@router.post("/{plan_id}/lines/{line_id}/move-pieces")
+def move_line_pieces(plan_id: str, line_id: str, body: dict):
+    """Przepisz sztuki z jednego pracownika na drugiego (pomyłka operatora).
+
+    Postęp pozycji się nie zmienia — zmienia się tylko to, komu liczymy pracę
+    (a więc i wypłatę).
+    """
+    return svc.move_line_pieces(
+        plan_id, line_id,
+        str(body.get("fromWorkerId") or ""),
+        str(body.get("toWorkerId") or ""),
+        int(body.get("pieces") or 0),
+        by=str(body.get("by") or ""),
+        to_worker_name=str(body.get("toWorkerName") or ""),
+    )
+
+
+@router.patch("/{plan_id}/lines/{line_id}/packaging")
+def change_line_packaging(plan_id: str, line_id: str, body: dict):
+    """Hala zmienia tuleję pozycji (np. METAL 65 → KARTON 65).
+
+    Zdarza się, że metalowe skończą się w trakcie dnia. Bez tej trasy operator
+    robiłby sztuki „na papierze" z tulei, której nie ma na stanie.
+    """
+    from app.services.line_packaging_service import change_line_packaging as zmien
+
+    return zmien(plan_id, line_id, str(body.get("packagingId") or body.get("packaging_id") or ""))
+
+
 @router.post("/{plan_id}/tablet-finish")
 def tablet_finish(plan_id: str, body: TabletFinishDto):
     """Tablet zakończył produkcję — czeka na potwierdzenie biura."""

@@ -43,6 +43,11 @@ _TRUNCATE = [
     # `clients` dopisane 2026-07-29: kartoteka odbiorców przeciekała między
     # testami (suppliers czyszczono, clients nie), więc test seedujący tego
     # samego klienta co poprzedni padał na duplicate key.
+    # `packaging` dopisane 2026-08-25: kartoteka tulei/folii przeciekała między
+    # testami. Test seedujący tuleję po stałym id (t-metal) padał na duplicate
+    # key przy drugim teście w pliku, a stan z poprzedniego testu (kg_available)
+    # fałszowałby asercje magazynowe.
+    "packaging",
     "product_types", "machine_locks", "sequences", "suppliers", "clients", "ingredients",
     # Pula numerów zwolnionych anulowaniem — czyszczona razem z `sequences`.
     # Bez tego numer zwolniony w jednym teście wyskakiwał w następnym
@@ -55,6 +60,7 @@ _TRUNCATE = [
     "settlement_deductions", "settled_days", "payroll_settlements",
     "production_day_materials",
     "production_wrapping",
+    "production_worker_moves",
 ]
 
 

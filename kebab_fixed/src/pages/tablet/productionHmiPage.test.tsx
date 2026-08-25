@@ -19,6 +19,7 @@ const stan = vi.hoisted(() => ({
   operatorzy: [] as any[],
   materialy: [] as any[],
   foliowanie: [] as any[],
+  opakowania: [] as any[],
 }))
 const wolania = vi.hoisted(() => ({
   postep: [] as any[],
@@ -26,6 +27,11 @@ const wolania = vi.hoisted(() => ({
   pobranie: [] as any[],
   zwrot: [] as any[],
   foliowanieZapis: [] as any[],
+  tuleja: [] as any[],
+  tulejaBlad: false,
+  przeniesienia: [] as any[],
+  przeniesienieBlad: false,
+  skany: [] as any[],
 }))
 
 const kopia = <T,>(x: T): T => JSON.parse(JSON.stringify(x))
@@ -41,6 +47,38 @@ vi.mock('@/lib/api', () => ({
     },
     tabletFinish: (planId: string, entries: any[]) => {
       wolania.finish.push({ planId, entries }); return Promise.resolve({})
+    },
+    moveLinePieces: (planId: string, lineId: string, body: any) => {
+      wolania.przeniesienia.push({ planId, lineId, body })
+      if (wolania.przeniesienieBlad) return Promise.reject(new Error('brak łączności'))
+      const l = stan.plany[0].lines.find((x: any) => x.id === lineId)
+      const z = l.workerEntries.find((e: any) => e.workerId === body.fromWorkerId)
+      z.pieces -= body.pieces
+      const na = l.workerEntries.find((e: any) => e.workerId === body.toWorkerId)
+      if (na) na.pieces += body.pieces
+      else l.workerEntries.push({ workerId: body.toWorkerId, workerName: body.toWorkerName, pieces: body.pieces, addedAt: '12:00' })
+      l.workerEntries = l.workerEntries.filter((e: any) => e.pieces > 0)
+      return Promise.resolve({ ok: true, moved: body.pieces })
+    },
+    changeLinePackaging: (planId: string, lineId: string, packagingId: string) => {
+      wolania.tuleja.push({ planId, lineId, packagingId })
+      if (wolania.tulejaBlad) return Promise.reject(new Error('brak łączności'))
+      const l = stan.plany[0].lines.find((x: any) => x.id === lineId)
+      const pkg = stan.opakowania.find((p: any) => p.id === packagingId)
+      l.packagingId = packagingId; l.packagingName = pkg?.name ?? ''
+      return Promise.resolve({ ok: true, moved: l.packagingUsed ?? 0 })
+    },
+  },
+  packagingApi: { all: () => Promise.resolve(kopia(stan.opakowania)) },
+  finishedUnitsApi: {
+    scanProduced: (code: string) => {
+      wolania.skany.push(code)
+      const l = stan.plany[0].lines[0]
+      l.qtyDone = (l.qtyDone ?? 0) + 1
+      return Promise.resolve({
+        ok: true, unitId: 'u1', status: 'produced', clientName: 'Bulli sp. z o.o.',
+        batchNo: '250826 344', weightKg: 35, done: l.qtyDone, total: l.qty, onStock: true,
+      })
     },
   },
   wrappingApi: {
@@ -91,8 +129,14 @@ beforeEach(() => {
   stan.operatorzy = [{ id: 'w1', name: 'DAWID NOWAK' }, { id: 'w2', name: 'DENYS KOVAL' }]
   stan.materialy = [{ packagingId: 'f1', name: 'Folia stretch', unit: 'rolek', pobrane: 40, zwrocone: 0, zuzyte: 40, moves: [] }]
   stan.foliowanie = []
+  stan.opakowania = [
+    { id: 'pk1', name: 'Tuleja 120', type: 'tuleja', kgAvailable: 200 },
+    { id: 'pk2', name: 'KARTON 65', type: 'tuleja', kgAvailable: 80 },
+    { id: 'f1', name: 'Folia stretch', type: 'FOLIA', kgAvailable: 30 },
+  ]
+  wolania.tuleja = []; wolania.tulejaBlad = false; wolania.przeniesienia = []; wolania.przeniesienieBlad = false
   wolania.postep = []; wolania.finish = []; wolania.pobranie = []; wolania.zwrot = []
-  wolania.foliowanieZapis = []
+  wolania.foliowanieZapis = []; wolania.skany = []
 })
 afterEach(cleanup)
 
@@ -260,5 +304,120 @@ describe('ProductionHmiPage — pasek dnia i foliowanie', () => {
     stan.foliowanie = [{ workerId: 'w1', workerName: 'DAWID NOWAK', kg: 4000 }]
     render(<ProductionHmiPage buildLabel="test" />)
     expect(await screen.findByText('4000 kg')).toBeTruthy()
+  })
+})
+
+describe('ProductionHmiPage — zmiana tulei z hali', () => {
+  it('dotknięcie tulei otwiera wybór z kartoteki, nie licznik sztuk', async () => {
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByTestId('tuleja-l1'))
+
+    expect(await screen.findByText('Zmień tuleję')).toBeTruthy()
+    expect(screen.getByTestId('tuleja-opcja-pk2')).toBeTruthy()
+    expect(screen.queryByText(/Wykonano/)).toBeNull()      // licznik się nie otworzył
+  })
+
+  it('wybór tulei idzie na WŁAŚCIWĄ pozycję i odświeża plan oraz stan tulei', async () => {
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByTestId('tuleja-l2'))
+    fireEvent.click(await screen.findByTestId('tuleja-opcja-pk2'))
+
+    await waitFor(() => expect(wolania.tuleja).toHaveLength(1))
+    expect(wolania.tuleja[0]).toMatchObject({ planId: 'p1', lineId: 'l2', packagingId: 'pk2' })
+    // plan pokazuje nową tuleję bez odświeżania ekranu przez operatora
+    await waitFor(() => expect(within(screen.getByTestId('tuleja-l2')).getByText('KARTON 65')).toBeTruthy())
+  })
+
+  it('okno mówi, ile tulei wróci na magazyn', async () => {
+    stan.plany[0].lines[0].packagingUsed = 7
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByTestId('tuleja-l1'))
+    expect((await screen.findByTestId('tuleje-do-oddania')).textContent).toMatch(/7 tulei/)
+  })
+
+  it('nieudana zmiana mówi to operatorowi i nie zostawia otwartego okna w martwym stanie', async () => {
+    wolania.tulejaBlad = true
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByTestId('tuleja-l1'))
+    fireEvent.click(await screen.findByTestId('tuleja-opcja-pk2'))
+
+    expect(await screen.findByText(/Nie udało się zmienić tulei/i)).toBeTruthy()
+    expect(screen.queryByText('Zmień tuleję')).toBeNull()
+  })
+})
+
+describe('ProductionHmiPage — poprawka „nie ta osoba"', () => {
+  it('przepisanie sztuk idzie od WŁAŚCIWEJ osoby na właściwą, postęp bez zmian', async () => {
+    // Źródłem jest DRUGI operator z listy — inaczej test przeszedłby też
+    // wtedy, gdyby ekran zawsze brał pierwszego z brzegu.
+    stan.plany[0].lines[0].qtyDone = 12
+    stan.plany[0].lines[0].workerEntries = [
+      { workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 3, addedAt: '10:00' },
+      { workerId: 'w2', workerName: 'DENYS KOVAL', pieces: 9, addedAt: '11:00' },
+    ]
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByText('WROCŁAW'))
+    fireEvent.click(screen.getByTestId('rozliczenie-w2'))
+    fireEvent.click(await screen.findByTestId('na-w1'))
+    fireEvent.click(within(screen.getByTestId('okno-przeniesienia')).getByRole('button', { name: 'więcej' }))
+    fireEvent.click(screen.getByTestId('przenies'))
+
+    await waitFor(() => expect(wolania.przeniesienia).toHaveLength(1))
+    expect(wolania.przeniesienia[0]).toMatchObject({
+      planId: 'p1', lineId: 'l1',
+      body: { fromWorkerId: 'w2', toWorkerId: 'w1', toWorkerName: 'DAWID NOWAK', pieces: 2 },
+    })
+    // ekran pokazuje nowy podział, a licznik pozycji stoi w miejscu
+    await waitFor(() => expect(screen.getByTestId('rozliczenie-w1').textContent).toContain('5 szt.'))
+    expect(screen.getByText(/Wykonano/).textContent).toContain('12')
+  })
+
+  it('gotowa pozycja też daje się poprawić', async () => {
+    stan.plany[0].lines[0].qtyDone = 20
+    stan.plany[0].lines[0].lineStatus = 'DONE'
+    stan.plany[0].lines[0].workerEntries = [
+      { workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 20, addedAt: '10:00' },
+    ]
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByText('WROCŁAW'))
+    fireEvent.click(screen.getByTestId('rozliczenie-w1'))
+    fireEvent.click(await screen.findByTestId('na-w2'))
+    fireEvent.click(screen.getByTestId('przenies'))
+
+    await waitFor(() => expect(wolania.przeniesienia).toHaveLength(1))
+    expect(wolania.przeniesienia[0].body.pieces).toBe(1)
+  })
+
+  it('nieudane przeniesienie mówi to operatorowi', async () => {
+    stan.plany[0].lines[0].workerEntries = [
+      { workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 5, addedAt: '10:00' },
+    ]
+    stan.plany[0].lines[0].qtyDone = 5
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByText('WROCŁAW'))
+    fireEvent.click(screen.getByTestId('rozliczenie-w1'))
+    fireEvent.click(await screen.findByTestId('na-w2'))
+    wolania.przeniesienieBlad = true
+    fireEvent.click(screen.getByTestId('przenies'))
+
+    expect(await screen.findByText(/Nie udało się przenieść/i)).toBeTruthy()
+  })
+})
+
+describe('ProductionHmiPage — skanowanie na magazyn', () => {
+  it('kafel skanowania otwiera panel, a skan idzie na serwer i odświeża plan', async () => {
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByText(/Skanowanie/i))
+
+    const pole = await screen.findByTestId('pole-skanu')
+    fireEvent.change(pole, { target: { value: 'KEBAB-u1' } })
+    fireEvent.submit((pole as HTMLInputElement).closest('form')!)
+
+    await waitFor(() => expect(wolania.skany).toEqual(['KEBAB-u1']))
+    expect(await screen.findByText(/Na magazynie/i)).toBeTruthy()
+    // plan sam pokazuje nowy postęp — bez wychodzenia z panelu
+    await waitFor(() => expect(screen.getByTestId('postep-pozycji').textContent).toBe('1 / 20'))
+    fireEvent.click(screen.getByLabelText('Zamknij'))
+    await waitFor(() => expect(screen.getByText('1 / 30')).toBeTruthy())   // pasek dnia: sztuki
   })
 })

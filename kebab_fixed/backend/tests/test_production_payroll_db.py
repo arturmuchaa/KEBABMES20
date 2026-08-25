@@ -71,6 +71,27 @@ def test_pracownik_dostaje_TYLKO_swoje_kilogramy(db):
     assert d1[0]["kgTotal"] + d2[0]["kgTotal"] == 700.0
 
 
+def test_przeniesienie_sztuk_przenosi_TEZ_wyplate(db):
+    """Sedno poprawki „nie ta osoba": kilogramy mają iść za przypisaniem.
+
+    Bez tego operator poprawia licznik na ekranie, a wypłata dalej leci
+    na pomyloną osobę — czyli poprawka nic nie daje tam, gdzie boli."""
+    from app.services.production_plans_service import move_line_pieces
+
+    _worker("w1", "DAWID")
+    _worker("w2", "DENYS")
+    _plan("p1", "2026-08-25", [
+        {"id": "l1", "qty": 20, "kg": 35, "done": 20,
+         "entries": [_wpis("w1", "DAWID", 20)]},
+    ])
+    assert [x["kgTotal"] for x in get_worker_days("w1", "2026-08-25", "2026-08-25")] == [700.0]
+
+    move_line_pieces("p1", "l1", "w1", "w2", 8, by="MARCIN", to_worker_name="DENYS")
+
+    assert [x["kgTotal"] for x in get_worker_days("w1", "2026-08-25", "2026-08-25")] == [420.0]
+    assert [x["kgTotal"] for x in get_worker_days("w2", "2026-08-25", "2026-08-25")] == [280.0]
+
+
 def test_sumuje_pozycje_o_roznych_wagach_sztuki(db):
     _worker("w1", "DAWID")
     _plan("p1", "2026-08-25", [

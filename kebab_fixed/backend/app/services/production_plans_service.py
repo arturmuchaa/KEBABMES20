@@ -1216,7 +1216,8 @@ def update_line_progress(
 ) -> Dict:
     """Zapisz postęp linii produkcji — wywoływane z tabletu po każdym wpisie."""
     line = query_one(
-        "SELECT id, plan_id, qty FROM production_plan_lines WHERE id=%s AND plan_id=%s",
+        "SELECT id, plan_id, qty, packaging_id, packaging_used "
+        "FROM production_plan_lines WHERE id=%s AND plan_id=%s",
         (line_id, plan_id),
     )
     if not line:
@@ -1236,6 +1237,13 @@ def update_line_progress(
         status = "PLANNED"
 
     with transaction() as conn:
+        # Tuleje schodzą RAZEM z zapisem sztuk (jedna sztuka = jedna tuleja).
+        # W tej samej transakcji, żeby stan i postęp zmieniły się razem albo
+        # wcale. Brak tulei na stanie nie blokuje zapisu — patrz komentarz
+        # w line_packaging_service.
+        from app.services.line_packaging_service import sync_line_packaging
+        packaging_used = sync_line_packaging(conn, line, qty_done)
+
         rowcount = cx_execute_rowcount(
             conn,
             """
@@ -1243,10 +1251,11 @@ def update_line_progress(
             SET qty_done = %s,
                 line_status = %s,
                 worker_entries = %s::jsonb,
+                packaging_used = %s,
                 progress_updated_at = now()
             WHERE id = %s
             """,
-            (qty_done, status, json.dumps(worker_entries or []), line_id),
+            (qty_done, status, json.dumps(worker_entries or []), packaging_used, line_id),
         )
         # Wąski wyścig: edycja planu mogła skasować/odtworzyć wiersz między
         # odczytem a UPDATE (READ COMMITTED). Nie chowaj zgubionego skanu —
@@ -1267,6 +1276,104 @@ def update_line_progress(
         "qty_done": qty_done,
         "line_status": status,
     }
+
+
+def move_line_pieces(
+    plan_id: str,
+    line_id: str,
+    from_worker_id: str,
+    to_worker_id: str,
+    pieces: int,
+    by: str = "",
+    to_worker_name: str = "",
+) -> Dict[str, Any]:
+    """Przepisz sztuki z jednego pracownika na drugiego (pomyłka operatora).
+
+    Operator liczy w rękawicy, na jednym ekranie — „nie ta osoba" wychodzi
+    zwykle dopiero pod koniec pozycji, czasem po jej zamknięciu. Kilogramy idą
+    prosto do wypłaty, więc poprawka musi być możliwa na hali.
+
+    Przenosimy WYŁĄCZNIE przypisanie: `qty_done` i `packaging_used` zostają bez
+    zmian. Sztuki są zrobione, tuleje zeszły — zmienia się tylko to, komu je
+    liczymy. Granica: potwierdzenie biura. Potem istnieje wyrób gotowy i dzień
+    wchodzi do rozliczeń, więc korekta należy do biura, nie do hali.
+    """
+    ile = int(pieces or 0)
+    if ile <= 0:
+        raise HTTPException(400, "Podaj, ile sztuk przenieść")
+    if from_worker_id == to_worker_id:
+        return {"ok": True, "unchanged": True}
+
+    with transaction() as conn:
+        plan = cx_query_one(
+            conn, "SELECT id, status, office_confirmed_at FROM production_plans WHERE id=%s",
+            (plan_id,),
+        )
+        if not plan:
+            raise HTTPException(404, "Plan nie znaleziony")
+        if plan.get("office_confirmed_at") or plan.get("status") == "done":
+            raise HTTPException(
+                409,
+                "Biuro potwierdziło już ten dzień — poprawkę przypisania robi biuro.",
+            )
+
+        line = cx_query_one(
+            conn,
+            "SELECT id, worker_entries FROM production_plan_lines "
+            "WHERE id=%s AND plan_id=%s FOR UPDATE",
+            (line_id, plan_id),
+        )
+        if not line:
+            raise HTTPException(404, "Linia planu nie znaleziona")
+
+        wpisy = list(line.get("worker_entries") or [])
+        zrodlo = next((e for e in wpisy if e.get("workerId") == from_worker_id), None)
+        if not zrodlo:
+            raise HTTPException(400, "Ten pracownik nie ma sztuk na tej pozycji")
+        ma = int(zrodlo.get("pieces") or 0)
+        if ile > ma:
+            raise HTTPException(400, f"Ten pracownik ma tylko {ma} szt. na tej pozycji")
+
+        zrodlo["pieces"] = ma - ile
+        cel = next((e for e in wpisy if e.get("workerId") == to_worker_id), None)
+        if cel:
+            cel["pieces"] = int(cel.get("pieces") or 0) + ile
+        else:
+            # Godzina wpisu to czas HALI, nie serwera (UTC różni się o 2 h
+            # latem — wpis „08:00" wylądowałby przed startem zmiany).
+            teraz = cx_query_one(
+                conn, "SELECT to_char(now() AT TIME ZONE 'Europe/Warsaw', 'HH24:MI') AS t", ()
+            )
+            wpisy.append({
+                "workerId": to_worker_id,
+                "workerName": to_worker_name or to_worker_id,
+                "pieces": ile,
+                "addedAt": (teraz or {}).get("t") or "",
+            })
+        # Wpis na zero to nie wpis — zostawiony straszyłby w statystykach zmiany
+        # i na liście „kto dziś robił" jako osoba z zerem sztuk.
+        wpisy = [e for e in wpisy if int(e.get("pieces") or 0) > 0]
+
+        cx_execute(
+            conn,
+            "UPDATE production_plan_lines SET worker_entries=%s::jsonb, "
+            "progress_updated_at = now() WHERE id=%s",
+            (json.dumps(wpisy), line_id),
+        )
+        cx_execute(
+            conn,
+            "INSERT INTO production_worker_moves "
+            "(id, plan_id, plan_line_id, from_worker_id, to_worker_id, pieces, moved_by) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            (cuid(), plan_id, line_id, from_worker_id, to_worker_id, ile, by or ""),
+        )
+
+    logger.info(
+        "plan.line_pieces_moved",
+        extra={"plan_id": plan_id, "line_id": line_id, "z_pracownika": from_worker_id,
+               "na_pracownika": to_worker_id, "sztuk": ile},
+    )
+    return {"ok": True, "moved": ile, "worker_entries": wpisy}
 
 
 def tablet_finish(plan_id: str, entries: list[dict]) -> Dict[str, Any]:

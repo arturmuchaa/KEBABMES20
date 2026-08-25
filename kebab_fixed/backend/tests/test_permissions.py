@@ -15,7 +15,9 @@ def test_any_authenticated_paths():
 def test_department_paths():
     assert permission_for_path("/api/deboning/sessions") == "rozbior"
     assert permission_for_path("/api/mixing/orders") == "produkcja"
-    assert permission_for_path("/api/packaging/items") == "pakowanie"
+    # Od 25.08.2026 sam ODCZYT kartoteki opakowań jest wspólny dla hali
+    # (kiosk produkcji wybiera z niej tuleję) — zapis zostaje przy pakowaniu.
+    assert permission_for_path("/api/packaging/items", "POST") == "pakowanie"
     assert permission_for_path("/api/dispatches/123") == "wydanie"
 
 
@@ -133,6 +135,93 @@ def test_operator_rozbioru_wchodzi_na_palety_miesa():
 def test_operator_pakowania_nie_wchodzi_na_palety_miesa():
     pakowacz = {"kind": "operator", "departments": ["pakowanie"]}
     assert not can_access(pakowacz, permission_for_path("/api/meat-pallets", "POST"))
+
+
+# ── Kiosk produkcji (HMI produkcyjne) ────────────────────────────────────
+# Stanowisko produkcyjne pracuje na planie dnia: czyta go, dopisuje sztuki,
+# zmienia tuleję i zamyka zmianę. Domyślne „office" na /api/production-plans
+# odcinałoby kiosk od WSZYSTKIEGO — operator nie zapisałby ani jednej sztuki.
+def test_kiosk_produkcji_czyta_i_zapisuje_plan():
+    assert permission_for_path("/api/production-plans", "GET") == "produkcja"
+    assert permission_for_path("/api/production-plans/p1", "GET") == "produkcja"
+    assert permission_for_path(
+        "/api/production-plans/p1/lines/l1/progress", "PATCH") == "produkcja"
+    assert permission_for_path(
+        "/api/production-plans/p1/lines/l1/packaging", "PATCH") == "produkcja"
+    assert permission_for_path(
+        "/api/production-plans/p1/lines/l1/move-pieces", "POST") == "produkcja"
+    assert permission_for_path("/api/production-plans/p1/tablet-finish", "POST") == "produkcja"
+    assert permission_for_path("/api/production-plans/p1/tablet-reopen", "POST") == "produkcja"
+
+
+def test_uklandanie_planu_zostaje_w_biurze():
+    """Hala robi to, co zaplanowane — planu nie tworzy, nie kasuje i nie potwierdza."""
+    assert permission_for_path("/api/production-plans", "POST") == "office"
+    assert permission_for_path("/api/production-plans/p1", "PUT") == "office"
+    assert permission_for_path("/api/production-plans/p1", "DELETE") == "office"
+    assert permission_for_path("/api/production-plans/p1/status", "PATCH") == "office"
+    assert permission_for_path("/api/production-plans/p1/office-confirm", "POST") == "office"
+    operator = {"kind": "operator", "departments": ["produkcja"]}
+    assert not can_access(operator, permission_for_path(
+        "/api/production-plans/p1/office-confirm", "POST"))
+
+
+def test_kiosk_produkcji_prowadzi_folie_i_foliowanie():
+    assert permission_for_path("/api/production-day-materials", "GET") == "produkcja"
+    assert permission_for_path("/api/production-day-materials/take", "POST") == "produkcja"
+    assert permission_for_path("/api/production-day-materials/return", "POST") == "produkcja"
+    assert permission_for_path("/api/production-wrapping", "GET") == "produkcja"
+    assert permission_for_path("/api/production-wrapping", "POST") == "produkcja"
+
+
+def test_lista_tulei_do_odczytu_dla_kazdej_hali():
+    """Kiosk produkcji wybiera tuleję z kartoteki opakowań; zmieniać jej nie może."""
+    assert permission_for_path("/api/packaging", "GET") == "any"
+    assert permission_for_path("/api/packaging/all", "GET") == "any"
+    assert permission_for_path("/api/packaging", "POST") == "pakowanie"
+    assert permission_for_path("/api/packaging/abc/use", "PATCH") == "pakowanie"
+    produkcja = {"kind": "operator", "departments": ["produkcja"]}
+    assert can_access(produkcja, permission_for_path("/api/packaging", "GET"))
+    assert not can_access(produkcja, permission_for_path("/api/packaging", "POST"))
+
+
+def test_operator_produkcji_wchodzi_na_swoj_kiosk():
+    operator = {"kind": "operator", "departments": ["produkcja"]}
+    for sciezka, metoda in (
+        ("/api/production-plans", "GET"),
+        ("/api/production-plans/p1/lines/l1/progress", "PATCH"),
+        ("/api/production-plans/p1/lines/l1/packaging", "PATCH"),
+        ("/api/production-day-materials/take", "POST"),
+        ("/api/production-wrapping", "POST"),
+    ):
+        assert can_access(operator, permission_for_path(sciezka, metoda)), sciezka
+    # ...a operator innego działu nie
+    pakowacz = {"kind": "operator", "departments": ["pakowanie"]}
+    assert not can_access(pakowacz, permission_for_path(
+        "/api/production-plans/p1/lines/l1/progress", "PATCH"))
+
+
+# Sztuki gotowe skanują DWA działy: produkcja (kebab schodzi z linii i wchodzi
+# na magazyn) oraz pakowanie (kompletacja). Reguła miała dotąd literówkę —
+# `/api/finished_units` z podkreśleniem, gdy trasa to `/api/finished-units` —
+# więc NIE działała wcale i wszystko wpadało w domyślne „office".
+def test_skan_sztuki_dla_produkcji_i_pakowania():
+    p = permission_for_path("/api/finished-units/scan-produced", "POST")
+    assert can_access({"kind": "operator", "departments": ["produkcja"]}, p)
+    assert can_access({"kind": "operator", "departments": ["pakowanie"]}, p)
+    assert not can_access({"kind": "operator", "departments": ["rozbior"]}, p)
+    assert can_access({"kind": "office", "role": "office"}, p)
+
+
+def test_generowanie_sztuk_i_etykiety_zostaja_w_biurze():
+    """Etykiety z QR drukuje biuro — hala tylko skanuje to, co dostała."""
+    assert permission_for_path("/api/finished-units/from-plan-line", "POST") == "office"
+
+
+def test_odczyt_sztuki_po_qr_dla_hali():
+    p = permission_for_path("/api/finished-units/lookup", "GET")
+    assert can_access({"kind": "operator", "departments": ["produkcja"]}, p)
+    assert can_access({"kind": "operator", "departments": ["pakowanie"]}, p)
 
 
 def test_usuniecie_wpisu_z_biura_tylko_dla_biura():

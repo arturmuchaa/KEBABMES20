@@ -18,6 +18,10 @@ export interface PlanLineView {
   clientName: string
   qtyDone: number
   workerEntries?: WorkerEntry[]
+  /** Kartoteka tulei pozycji — potrzebna przy zmianie rodzaju z hali. */
+  packagingId?: string
+  /** Ile tulei zeszło już ze stanu na tej pozycji. */
+  packagingUsed?: number
 }
 
 const NAGLOWKI = ['Lp', 'Ilość szt.', 'Waga', 'Rodzaj', 'Tuleje', 'Klient', 'Razem', 'Postęp', 'Stan'] as const
@@ -30,7 +34,13 @@ const ETYKIETA_STANU = {
 
 const kg = (n: number) => `${Math.round(n * 100) / 100} kg`
 
-export function PlanList({ lines, onPick }: { lines: PlanLineView[]; onPick: (lineId: string) => void }) {
+export function PlanList({ lines, onPick, onPickPackaging }: {
+  lines: PlanLineView[]
+  onPick: (lineId: string) => void
+  /** Dotknięcie kolumny TULEJE — zmiana rodzaju (np. METAL 65 → KARTON 65).
+   *  Bez tej obsługi komórka zachowuje się jak reszta wiersza. */
+  onPickPackaging?: (lineId: string) => void
+}) {
   if (!lines.length) {
     return (
       <div className="flex-1 flex items-center justify-center"
@@ -77,7 +87,14 @@ export function PlanList({ lines, onPick }: { lines: PlanLineView[]; onPick: (li
                 <Td bold>{l.qty} szt.</Td>
                 <Td>{kg(l.kgPerUnit)}</Td>
                 <Td bold plain>{l.recipeName}</Td>
-                <Td plain>{l.packagingName || '—'}</Td>
+                <Td plain testId={`tuleja-${l.id}`}
+                  onTap={onPickPackaging ? (e) => { e.stopPropagation(); onPickPackaging(l.id) } : undefined}>
+                  <span style={onPickPackaging ? {
+                    borderBottom: '1.5px dashed var(--accent)', color: 'var(--accent)', fontWeight: 700,
+                  } : undefined}>
+                    {l.packagingName || '—'}
+                  </span>
+                </Td>
                 <Td plain muted={!l.clientName}>{l.clientName || '— na magazyn —'}</Td>
                 <Td right>{kg(l.totalKg)}</Td>
                 <td style={{ padding: '13px 12px', borderBottom: '1px solid var(--line)' }}>
@@ -109,11 +126,12 @@ export function PlanList({ lines, onPick }: { lines: PlanLineView[]; onPick: (li
   )
 }
 
-function Td({ children, bold, right, muted, plain }: {
+function Td({ children, bold, right, muted, plain, testId, onTap }: {
   children: React.ReactNode; bold?: boolean; right?: boolean; muted?: boolean; plain?: boolean
+  testId?: string; onTap?: (e: React.MouseEvent) => void
 }) {
   return (
-    <td className={plain ? '' : 'hmi-v10-mono'}
+    <td className={plain ? '' : 'hmi-v10-mono'} data-testid={testId} onClick={onTap}
       style={{
         padding: '13px 12px', borderBottom: '1px solid var(--line)', fontSize: 16,
         whiteSpace: 'nowrap', textAlign: right ? 'right' : 'left',

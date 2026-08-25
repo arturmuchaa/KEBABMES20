@@ -616,6 +616,13 @@ def _process_finish_day_entry(
             from app.services.production_plans_service import ensure_pm_assigned
             allocation = ensure_pm_assigned(conn, ln)
 
+    # Sztuki zeskanowane na hali są JUŻ na magazynie (skan QR księguje je na
+    # bieżąco). Tu dopisujemy wyłącznie resztę — per partia, bo pozycja bywa
+    # rozbita na kilka i zbiorcze odejmowanie zjadłoby pulę niewłaściwej.
+    from app.services.unit_stock_service import booked_by_batch
+    zeskanowane = booked_by_batch(conn, entry.plan_line_id)
+    juz_na_stanie = sum(zeskanowane.values())
+
     portions = entry_batch_portions(entry.qty, allocation)
     item_ids: List[str] = []
 
@@ -624,7 +631,9 @@ def _process_finish_day_entry(
         # Porcja PM (sztuki mieszane) ma lineage z partii źródłowych (parts).
         for p in portions:
             raw = p["batch_no"]
-            pqty = int(p["qty"])
+            pqty = int(p["qty"]) - int(zeskanowane.get(raw, 0))
+            if pqty <= 0:
+                continue
             source_nos = p.get("source_nos") or [raw]
             pkg_kg = round(pqty * entry.kg_per_unit, 3)
             bno = kebab_batch_no(today, raw)
@@ -633,12 +642,14 @@ def _process_finish_day_entry(
                 conn, plan, entry, today, bno, pqty, pkg_kg, source_nos, lineage))
     else:
         # Tryb łączony: jedna partia (lub PP gdy fizycznie zmieszane).
-        total_kg = round(entry.qty * entry.kg_per_unit, 3)
-        bno = _compute_kebab_batch_no(today, entry.seasoned_batch_nos or [])
-        lineage = _resolve_lineage(conn, entry.seasoned_batch_nos or [])
-        item_ids.append(_upsert_goods_row(
-            conn, plan, entry, today, bno, entry.qty, total_kg,
-            entry.seasoned_batch_nos or [], lineage))
+        zostalo = int(entry.qty) - juz_na_stanie
+        if zostalo > 0:
+            total_kg = round(zostalo * entry.kg_per_unit, 3)
+            bno = _compute_kebab_batch_no(today, entry.seasoned_batch_nos or [])
+            lineage = _resolve_lineage(conn, entry.seasoned_batch_nos or [])
+            item_ids.append(_upsert_goods_row(
+                conn, plan, entry, today, bno, zostalo, total_kg,
+                entry.seasoned_batch_nos or [], lineage))
 
     # Konsumpcja seasoned_meat — RAZ na cały wpis (split per partia w środku).
     # Domyka łańcuch audytu — patrz CLAUDE.md "TRACEABILITY MUST WORK BOTH WAYS".
@@ -650,9 +661,26 @@ def _process_finish_day_entry(
             seasoned_batch_nos=entry.seasoned_batch_nos or [],
         )
 
-    # Opakowania — RAZ na cały wpis.
-    if entry.packaging_id and entry.qty > 0 and item_ids:
-        _consume_packaging(conn, entry.packaging_id, entry.qty, item_ids[0])
+    # Opakowania — RAZ na cały wpis, i TYLKO to, czego hala nie zdjęła już
+    # na bieżąco. Stanowisko produkcyjne zdejmuje tuleje przy zapisie sztuk
+    # i zapisuje licznik w `packaging_used`; bez tego odjęcia zeszłyby drugi
+    # raz. Dni prowadzone bez kiosku mają `packaging_used = 0`, więc działają
+    # dokładnie jak dotąd.
+    # Uwaga: warunek NIE patrzy na `item_ids` — dzień w całości zeskanowany nie
+    # tworzy tu żadnego nowego wiersza wyrobu, a tuleje i tak trzeba rozliczyć.
+    if entry.packaging_id and entry.qty > 0:
+        juz = 0
+        if entry.plan_line_id:
+            row = cx_query_one(
+                conn,
+                "SELECT packaging_used FROM production_plan_lines WHERE id=%s",
+                (entry.plan_line_id,),
+            )
+            juz = int((row or {}).get("packaging_used") or 0)
+        zostalo = int(entry.qty) - juz
+        if zostalo > 0:
+            _consume_packaging(conn, entry.packaging_id, zostalo,
+                               item_ids[0] if item_ids else entry.plan_line_id)
 
     # Twardy link sztuka → wyrób gotowy (raz, gdy wszystkie wyroby tej linii już są).
     if entry.plan_line_id:

@@ -295,6 +295,13 @@ def scan_produced(code: str, trolley_id: str | None = None) -> Dict[str, Any]:
             (new_status, trolley_id, unit_id),
         )
 
+        # Sztuka wchodzi NA MAGAZYN wyrobu gotowego od razu — hala nie czeka
+        # z pakowaniem do wieczornego potwierdzenia biura. `finish_day`
+        # dopisze wyłącznie to, czego nikt nie zeskanował.
+        from app.services.unit_stock_service import book_scanned_unit
+
+        goods_id = book_scanned_unit(conn, unit)
+
         counts = cx_query_one(
             conn,
             """
@@ -308,6 +315,8 @@ def scan_produced(code: str, trolley_id: str | None = None) -> Dict[str, Any]:
             "ok": True,
             "unitId": unit_id,
             "status": new_status,
+            "goodsId": goods_id,
+            "onStock": bool(goods_id),
             "clientName": unit.get("client_name") or "",
             "batchNo": unit.get("batch_no") or "",
             "weightKg": float(unit.get("weight_kg") or 0),
