@@ -100,3 +100,48 @@ describe('ComboField — lista rozwija się na żądanie, nie sama', () => {
     expect(opcje()).toEqual([])
   })
 })
+
+/**
+ * Lista rozwijana wychodzi PONAD kontener.
+ *
+ * Terminal stoi w tabeli/karcie z własnym przewijaniem, a lista pozycjonowana
+ * absolutnie wewnątrz pola była przez nią UCINANA — na planowaniu produkcji
+ * z listy klientów widać było jeden wiersz albo nic. Renderujemy ją w portalu
+ * na <body>, z pozycją liczoną od pola.
+ */
+describe('ComboField — lista nie daje się uciąć kontenerowi', () => {
+  const wKontenerze = () => render(
+    <div style={{ overflow: 'hidden', height: 40, width: 180 }} data-testid="ciasny">
+      <ComboField label="Klient" items={ITEMS} value=""
+        active onActivate={() => {}} onPick={() => {}} onNext={() => {}} onPrev={() => {}} />
+    </div>,
+  )
+
+  it('rozwinięta lista NIE siedzi w ciasnym kontenerze', () => {
+    wKontenerze()
+    fireEvent.keyDown(screen.getByLabelText('Klient'), { key: 'ArrowDown' })
+
+    const lista = screen.getByTestId('combo-lista')
+    expect(screen.getByTestId('ciasny').contains(lista)).toBe(false)
+    expect(document.body.contains(lista)).toBe(true)
+  })
+
+  it('lista stoi tam, gdzie pole, i nie jest węższa niż czytelne minimum', () => {
+    wKontenerze()
+    fireEvent.keyDown(screen.getByLabelText('Klient'), { key: 'ArrowDown' })
+
+    const lista = screen.getByTestId('combo-lista') as HTMLElement
+    expect(lista.style.position).toBe('fixed')
+    expect(parseInt(lista.style.minWidth, 10)).toBeGreaterThanOrEqual(240)
+  })
+
+  it('zwinięcie listy sprząta po sobie — nic nie zostaje na stronie', () => {
+    wKontenerze()
+    const pole = screen.getByLabelText('Klient')
+    fireEvent.keyDown(pole, { key: 'ArrowDown' })
+    expect(screen.getByTestId('combo-lista')).toBeTruthy()
+
+    fireEvent.keyDown(pole, { key: 'Escape' })
+    expect(screen.queryByTestId('combo-lista')).toBeNull()
+  })
+})

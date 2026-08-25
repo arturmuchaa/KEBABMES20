@@ -105,3 +105,66 @@ describe('BatchPanel — brak liczony od surowego stanu', () => {
     expect(screen.getByTestId('partia-b498').textContent).toContain('3,8')
   })
 })
+
+/**
+ * Czytelność panelu (25.08.2026).
+ *
+ * Zgłoszenie z biura: „stan mięsa przyprawionego, jakie partie — strasznie
+ * nieczytelne". Panel ma 300 px szerokości i cisnął wszystko czcionką
+ * 10–11 px w jedną szarą masę: nazwa receptury, kilogramy, plan, braki
+ * i partie wyglądały tak samo.
+ */
+describe('BatchPanel — czytelność', () => {
+  const wiersz = (over: Partial<BatchPanelRow> = {}): BatchPanelRow => ({
+    id: 'sm1', recipeId: 'r1', recipeName: 'WROCŁAW', batchNo: '344',
+    productionDay: '2026-08-24', kgFreeLive: 300, kgFreeRaw: 800, usedByLines: [1, 3], ...over,
+  })
+
+  // jsdom nie kompiluje Tailwinda, więc rozmiar czytamy z klasy `text-[13.5px]`
+  // — a to właśnie ta wartość zjechała kiedyś do 10 px.
+  const px = (id: string) => {
+    const kl = screen.getByTestId(id).className
+    const m = /text-\[(\d+(?:\.\d+)?)px\]/.exec(kl)
+    return m ? parseFloat(m[1]) : 0
+  }
+
+  it('numer partii jest największym napisem w wierszu — po nim się szuka', () => {
+    render(<BatchPanel rows={[wiersz()]} demandByRecipe={{}} onRecalc={() => {}} />)
+    expect(px('partia-nr-sm1')).toBeGreaterThanOrEqual(13)
+    expect(px('partia-nr-sm1')).toBeGreaterThan(px('partia-kg-sm1'))
+  })
+
+  it('żadna liczba nie schodzi poniżej 12 px', () => {
+    render(<BatchPanel rows={[wiersz()]} demandByRecipe={{ r1: { name: 'WROCŁAW', kg: 500 } }} onRecalc={() => {}} />)
+    expect(px('partia-kg-sm1')).toBeGreaterThanOrEqual(12)
+    expect(px('grupa-wolne-r1')).toBeGreaterThanOrEqual(12)
+  })
+
+  it('pozycje planu biorące z partii to znaczniki, nie sam kolor', () => {
+    render(<BatchPanel rows={[wiersz()]} demandByRecipe={{}} onRecalc={() => {}} />)
+    const uzycie = screen.getByTestId('partia-uzycie-sm1')
+    expect(uzycie.textContent).toContain('1')
+    expect(uzycie.textContent).toContain('3')
+    expect(uzycie.textContent?.toLowerCase()).toContain('poz')
+  })
+
+  it('brak mięsa mówi ILE brakuje i nie polega na samej czerwieni', () => {
+    render(<BatchPanel rows={[wiersz({ kgFreeRaw: 100 })]}
+      demandByRecipe={{ r1: { name: 'WROCŁAW', kg: 500 } }} onRecalc={() => {}} />)
+    const brak = screen.getByTestId('brak-r1')
+    expect(brak.textContent).toMatch(/brakuje/i)
+    expect(brak.textContent).toContain('400')
+  })
+
+  it('pasek pokrycia pokazuje na oko, ile planu stoi za mięsem', () => {
+    render(<BatchPanel rows={[wiersz({ kgFreeRaw: 250 })]}
+      demandByRecipe={{ r1: { name: 'WROCŁAW', kg: 500 } }} onRecalc={() => {}} />)
+    const pasek = screen.getByTestId('pokrycie-r1')
+    expect(pasek.style.width).toBe('50%')
+  })
+
+  it('partia nietknięta planem nie udaje, że coś z niej poszło', () => {
+    render(<BatchPanel rows={[wiersz({ usedByLines: [] })]} demandByRecipe={{}} onRecalc={() => {}} />)
+    expect(screen.queryByTestId('partia-uzycie-sm1')).toBeNull()
+  })
+})

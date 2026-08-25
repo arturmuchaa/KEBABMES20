@@ -10,9 +10,14 @@
  * ⏎ — bez sięgania po mysz. Reszta (Input, tokeny, ikony) to ten sam system
  * komponentów co wszędzie.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+/** Najmniejsza czytelna szerokość listy — nazwy klientów bywają długie,
+ *  a pole wsadu wąskie. Lista węższa niż to ucina je do trzech liter. */
+const MIN_LISTA_PX = 260
 
 // ── Ramka z zakładką ──────────────────────────────────────────────
 export function FieldShell({
@@ -153,6 +158,39 @@ export function ComboField({
   const [hi, setHi] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef  = useRef<HTMLDivElement>(null)
+  // Pozycja listy liczona od pola i trzymana w stanie, bo lista wisi
+  // w PORTALU na <body>. Wewnątrz pola była ucinana przez każdy kontener
+  // z `overflow` — na planowaniu produkcji z listy klientów widać było
+  // jeden wiersz albo nic.
+  const [pozycja, setPozycja] = useState<{ top: number; left: number; width: number; gora: boolean }>(
+    { top: 0, left: 0, width: MIN_LISTA_PX, gora: false })
+
+  const zmierz = useCallback(() => {
+    const el = inputRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const doDolu = window.innerHeight - r.bottom
+    // Nie mieści się pod polem, a nad nim jest więcej miejsca → rozwiń w górę.
+    const gora = doDolu < 200 && r.top > doDolu
+    setPozycja({
+      top: gora ? Math.max(4, r.top - 3) : r.bottom + 3,
+      left: Math.max(4, Math.min(r.left, window.innerWidth - MIN_LISTA_PX - 4)),
+      width: Math.max(r.width, MIN_LISTA_PX),
+      gora,
+    })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!active || !open) return
+    zmierz()
+    // Przewijanie strony pod rozwiniętą listą zostawiłoby ją w powietrzu.
+    window.addEventListener('scroll', zmierz, true)
+    window.addEventListener('resize', zmierz)
+    return () => {
+      window.removeEventListener('scroll', zmierz, true)
+      window.removeEventListener('resize', zmierz)
+    }
+  }, [active, open, zmierz])
 
   const all = useMemo<ComboItem[]>(
     () => (noneLabel ? [{ id: '', label: noneLabel }, ...items] : items),
@@ -255,10 +293,19 @@ export function ComboField({
         />
         <ChevronDown size={13} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-4" />
 
-        {active && open && (
+        {active && open && createPortal(
           <div
             ref={listRef}
-            className="oe-drop oe-scroll absolute left-0 top-[calc(100%+3px)] z-30 max-h-[276px] w-full min-w-[220px] overflow-y-auto border-2 border-ink bg-white shadow-modal"
+            data-testid="combo-lista"
+            style={{
+              position: 'fixed',
+              top: pozycja.gora ? undefined : pozycja.top,
+              bottom: pozycja.gora ? window.innerHeight - pozycja.top : undefined,
+              left: pozycja.left,
+              minWidth: pozycja.width,
+              maxWidth: Math.max(pozycja.width, 420),
+            }}
+            className="oe-drop oe-scroll z-[70] max-h-[276px] overflow-y-auto border-2 border-ink bg-white shadow-modal"
           >
             {matches.length === 0 ? (
               <div className="px-2.5 py-3 text-center text-[11px] text-ink-4">
@@ -289,7 +336,8 @@ export function ComboField({
                 </button>
               ))
             )}
-          </div>
+          </div>,
+          document.body,
         )}
       </div>
     </FieldShell>
