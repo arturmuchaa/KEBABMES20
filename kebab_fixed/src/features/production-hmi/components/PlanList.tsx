@@ -2,11 +2,14 @@
  * Plan dnia LISTĄ, nie kaflami.
  *
  * Kolumny i ich kolejność są 1:1 z KARTĄ PRODUKCJI, którą hala zna z wydruku:
- * ILOŚĆ SZT. · WAGA · RODZAJ · TULEJE · KLIENT · RAZEM. Numer partii nie wchodzi
- * na listę — bywa długi („2x472, 6xPP13") i zjadłby czytelność wiersza;
- * operator widzi go po dotknięciu pozycji.
+ * ILOŚĆ SZT. · WAGA · RODZAJ · PARTIA · TULEJE · KLIENT · RAZEM.
+ *
+ * Numer partii dopisany 25.08.2026 na prośbę hali: bez niego operator pytał
+ * biuro, z jakiego wsadu robi bieżącą pozycję. Rozbicie na kilka partii jest
+ * zwijane (`batchLabel`), żeby długi wpis nie rozsadził wiersza.
  */
 import { lineState, linePct, type WorkerEntry } from '../planProgress'
+import { batchLabel } from '../batchLabel'
 
 export interface PlanLineView {
   id: string
@@ -18,13 +21,16 @@ export interface PlanLineView {
   clientName: string
   qtyDone: number
   workerEntries?: WorkerEntry[]
+  /** Wsad, z którego robi się pozycję — operator musi go widzieć na liście. */
+  seasonedBatchNos?: string[]
+  batchAllocation?: Record<string, any>
   /** Kartoteka tulei pozycji — potrzebna przy zmianie rodzaju z hali. */
   packagingId?: string
   /** Ile tulei zeszło już ze stanu na tej pozycji. */
   packagingUsed?: number
 }
 
-const NAGLOWKI = ['Lp', 'Ilość szt.', 'Waga', 'Rodzaj', 'Tuleje', 'Klient', 'Razem', 'Postęp', 'Stan'] as const
+const NAGLOWKI = ['Lp', 'Ilość szt.', 'Waga', 'Rodzaj', 'Partia', 'Tuleje', 'Klient', 'Razem', 'Postęp', 'Stan'] as const
 
 const ETYKIETA_STANU = {
   PLANNED:     { text: 'Zaplanowane', bg: 'var(--bg)',          fg: 'var(--mut)',     line: 'var(--line)' },
@@ -87,6 +93,7 @@ export function PlanList({ lines, onPick, onPickPackaging }: {
                 <Td bold>{l.qty} szt.</Td>
                 <Td>{kg(l.kgPerUnit)}</Td>
                 <Td bold plain>{l.recipeName}</Td>
+                <Td>{batchLabel(l)}</Td>
                 <Td plain testId={`tuleja-${l.id}`}
                   onTap={onPickPackaging ? (e) => { e.stopPropagation(); onPickPackaging(l.id) } : undefined}>
                   <span style={onPickPackaging ? {

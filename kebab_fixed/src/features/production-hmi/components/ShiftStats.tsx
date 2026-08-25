@@ -14,7 +14,13 @@ const czas = (ms: number): string => {
   return g ? `${g} godz. ${m % 60} min` : `${m} min`
 }
 
-export function ShiftStats({ stats, date, onClose }: { stats: Stats; date: string; onClose: () => void }) {
+export function ShiftStats({ stats, date, onClose, lines = [] }: {
+  stats: Stats; date: string; onClose: () => void
+  /** Podpis zmiany: start, przerwy, zużyte tuleje. Stał kiedyś w szynie
+   *  materiałów na ekranie głównym — szyna zniknęła (folia przeniesiona do
+   *  foliowania), więc te liczby mieszkają tutaj. */
+  lines?: string[]
+}) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-8" style={{ background: 'rgba(15,23,42,.34)' }}>
       <div className="flex flex-col overflow-hidden" style={{
@@ -30,6 +36,14 @@ export function ShiftStats({ stats, date, onClose }: { stats: Stats; date: strin
           <button type="button" onClick={onClose} aria-label="Zamknij"
             className="ml-auto text-[20px]" style={{ color: 'var(--mut)' }}>✕</button>
         </div>
+
+        {lines.length > 0 && (
+          <div className="flex gap-5 flex-wrap px-4.5 py-2.5 text-[14px] font-semibold"
+            style={{ padding: '10px 18px', background: 'var(--bg)',
+                     borderBottom: '1px solid var(--line)', color: 'var(--mut)' }}>
+            {lines.map((t, i) => <span key={i}>{t}</span>)}
+          </div>
+        )}
 
         <div className="overflow-auto">
           <table className="w-full" style={{ borderCollapse: 'collapse' }}>

@@ -56,8 +56,8 @@ def create_worker(dto: WorkerCreate) -> Dict:
                  rate_per_hour, sunday_bonus_enabled, sunday_bonus_per_hour,
                  saturday_bonus_enabled, saturday_bonus_per_hour,
                  pay_mode, rate_per_day,
-                 contract_type, employer_cost_amount, crew_size, created_at)
-            VALUES (%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 contract_type, employer_cost_amount, crew_size, is_wrapper, created_at)
+            VALUES (%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING *
             """,
             (
@@ -77,6 +77,7 @@ def create_worker(dto: WorkerCreate) -> Dict:
                 dto.contract_type,
                 dto.employer_cost_amount,
                 max(1, int(dto.crew_size or 1)),
+                bool(dto.is_wrapper),
                 now_iso(),
             ),
         )
@@ -132,6 +133,9 @@ def update_worker(worker_id: str, dto: WorkerUpdate) -> Dict:
         if dto.crew_size is not None:
             fields.append("crew_size=%s")
             vals.append(max(1, int(dto.crew_size)))
+        if dto.is_wrapper is not None:
+            fields.append("is_wrapper=%s")
+            vals.append(bool(dto.is_wrapper))
         if dto.contract_type is not None:
             fields.append("contract_type=%s")
             vals.append(dto.contract_type)

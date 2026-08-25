@@ -89,7 +89,7 @@ vi.mock('@/lib/api', () => ({
       return Promise.resolve({ ok: true, entries: entries.length })
     },
   },
-  operatorsApi: { forDepartment: (d: string) => Promise.resolve(kopia(stan.operatorzy).map((o: any) => ({ ...o, dep: d }))) },
+  usersApi: { list: () => Promise.resolve(kopia(stan.operatorzy)) },
   dayMaterialsApi: {
     forDay: () => Promise.resolve(kopia(stan.materialy)),
     take: (workDate: string, packagingId: string, qty: number) => {
@@ -126,7 +126,10 @@ beforeEach(() => {
     tabletFinishedAt: null, officeConfirmedAt: null,
     lines: [pozycja(), pozycja({ id: 'l2', qty: 10, kgPerUnit: 40, totalKg: 400, recipeName: 'KIRMIZI', clientName: '' })],
   }]
-  stan.operatorzy = [{ id: 'w1', name: 'DAWID NOWAK' }, { id: 'w2', name: 'DENYS KOVAL' }]
+  stan.operatorzy = [
+    { id: 'w1', name: 'DAWID NOWAK', role: 'WORKER_PRODUCTION', active: true },
+    { id: 'w2', name: 'DENYS KOVAL', role: 'WORKER_PRODUCTION', active: true },
+  ]
   stan.materialy = [{ packagingId: 'f1', name: 'Folia stretch', unit: 'rolek', pobrane: 40, zwrocone: 0, zuzyte: 40, moves: [] }]
   stan.foliowanie = []
   stan.opakowania = [
@@ -220,15 +223,6 @@ describe('ProductionHmiPage — okablowanie', () => {
     expect(await screen.findByText('WROCŁAW 20 → 32 szt.', {}, { timeout: 8000 })).toBeTruthy()
     expect(screen.getByText('doszła BULLI 4×12 kg')).toBeTruthy()
   }, 20000)
-
-  it('pobranie folii idzie na dzisiejszy dzień i właściwą kartotekę', async () => {
-    render(<ProductionHmiPage buildLabel="test" />)
-    fireEvent.click(await screen.findByRole('button', { name: /Dołóż rolki/i }))
-    fireEvent.click(screen.getByRole('button', { name: '+20' }))
-
-    await waitFor(() => expect(wolania.pobranie).toHaveLength(1))
-    expect(wolania.pobranie[0]).toMatchObject({ workDate: DZIEN, packagingId: 'f1', qty: 20 })
-  })
 
   it('statystyki zmiany liczą kilogramy z wagi sztuki tej pozycji', async () => {
     stan.plany[0].lines[0].workerEntries = [{ workerId: 'w1', workerName: 'DAWID', pieces: 4, addedAt: '' }]
@@ -419,5 +413,47 @@ describe('ProductionHmiPage — skanowanie na magazyn', () => {
     await waitFor(() => expect(screen.getByTestId('postep-pozycji').textContent).toBe('1 / 20'))
     fireEvent.click(screen.getByLabelText('Zamknij'))
     await waitFor(() => expect(screen.getByText('1 / 30')).toBeTruthy())   // pasek dnia: sztuki
+  })
+})
+
+describe('ProductionHmiPage — kto stoi na liście', () => {
+  it('kierownik obsługujący panel NIE jest na liście liczenia sztuk', async () => {
+    stan.operatorzy = [
+      { id: 'w1', name: 'DAWID NOWAK', role: 'WORKER_PRODUCTION', active: true },
+      { id: 'kier', name: 'VOVA KIEROWNIK', role: 'WORKER_GENERAL', active: true },
+    ]
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByText('WROCŁAW'))
+
+    expect(screen.getByRole('button', { name: 'DAWID' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'VOVA' })).toBeNull()
+  })
+
+  it('foliowanie proponuje zaznaczonych foliowczyków, nie całą zmianę', async () => {
+    stan.operatorzy = [
+      { id: 'w1', name: 'DAWID NOWAK', role: 'WORKER_PRODUCTION', active: true },
+      { id: 'w2', name: 'VLAD FOLIA', role: 'WORKER_PRODUCTION', active: true, is_wrapper: true },
+      { id: 'w3', name: 'ADAM FOLIA', role: 'WORKER_PRODUCTION', active: true, is_wrapper: true },
+    ]
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByText(/Foliowanie/i))
+
+    const okno = await screen.findByTestId('okno-foliowania')
+    expect(within(okno).getByText('VLAD FOLIA')).toBeTruthy()
+    expect(within(okno).getByText('ADAM FOLIA')).toBeTruthy()
+    expect(within(okno).queryByText('DAWID NOWAK')).toBeNull()
+  })
+
+  it('pobranie folii siedzi w oknie foliowania, nie na głównym ekranie', async () => {
+    render(<ProductionHmiPage buildLabel="test" />)
+    await screen.findByText('WROCŁAW')
+    expect(screen.queryByText(/Dołóż rolki/i)).toBeNull()      // główna wolna od tego
+
+    fireEvent.click(screen.getByText(/Foliowanie/i))
+    fireEvent.click(await screen.findByText(/Dołóż rolki/i))
+    fireEvent.click(await screen.findByRole('button', { name: '+10' }))
+
+    await waitFor(() => expect(wolania.pobranie).toHaveLength(1))
+    expect(wolania.pobranie[0]).toMatchObject({ workDate: DZIEN, packagingId: 'f1', qty: 10 })
   })
 })

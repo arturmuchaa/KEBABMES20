@@ -7,6 +7,7 @@
  * przycisk, więc klawiatura jest dla wyjątków, nie dla reguły.
  */
 import { useMemo, useState } from 'react'
+import type { DayMaterial } from '@/lib/api'
 import { splitEvenly, wrappingIssues, wrappedTotal, type WrapperShare } from '../wrapping'
 
 export interface WrappingModalProps {
@@ -19,11 +20,21 @@ export interface WrappingModalProps {
   onSave: (shares: { workerId: string; workerName: string; kg: number }[]) => void
   onClose: () => void
   busy?: boolean
+  /** Folia stretch — kartoteka materiału dnia. Pobranie mieszkało kiedyś
+   *  w szynie na ekranie głównym; zajmowało pół ekranu pod czynność robioną
+   *  raz dziennie, więc siedzi tam, gdzie folia jest tematem. */
+  material?: DayMaterial | null
+  onTakeMaterial?: (ile: number) => void
 }
+
+const ROLKI = [5, 10, 20]
 
 const KLAWISZE = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '00', '⌫']
 
-export function WrappingModal({ workers, saved, kgToday, onSave, onClose, busy }: WrappingModalProps) {
+export function WrappingModal({
+  workers, saved, kgToday, onSave, onClose, busy, material, onTakeMaterial,
+}: WrappingModalProps) {
+  const [foliaOtwarta, setFoliaOtwarta] = useState(false)
   const [kg, setKg] = useState<Record<string, number>>(
     () => Object.fromEntries(saved.map(s => [s.workerId, s.kg])),
   )
@@ -74,7 +85,7 @@ export function WrappingModal({ workers, saved, kgToday, onSave, onClose, busy }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-8" style={{ background: 'rgba(15,23,42,.34)' }}>
-      <div className="flex flex-col gap-5 p-6" style={{
+      <div data-testid="okno-foliowania" className="flex flex-col gap-5 p-6" style={{
         width: 860, maxWidth: '100%', maxHeight: '100%', borderRadius: 14, background: 'var(--panel)',
         border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)',
       }}>
@@ -157,6 +168,53 @@ export function WrappingModal({ workers, saved, kgToday, onSave, onClose, busy }
               ))}
             </div>
           </div>
+        </div>
+
+        <div className="flex items-center gap-4 pt-3" style={{ borderTop: '1px solid var(--line)' }}>
+          <span className="text-[11px] font-bold uppercase" style={{ letterSpacing: '.1em', color: 'var(--mut)' }}>
+            Folia stretch
+          </span>
+          {material ? (
+            <>
+              <span>
+                <b data-testid="folia-pobrane" className="hmi-v10-mono text-[22px] font-extrabold">{material.pobrane ?? 0}</b>
+                <span className="text-[13px] font-bold ml-1.5" style={{ color: 'var(--mut)' }}>
+                  {material.unit === 'rolka' ? 'rolek pobrane' : 'pobrane'}
+                </span>
+              </span>
+              {foliaOtwarta ? (
+                <div className="flex gap-2 ml-auto">
+                  {ROLKI.map(k => (
+                    <button key={k} type="button"
+                      onClick={() => { onTakeMaterial?.(k); setFoliaOtwarta(false) }}
+                      className="text-[15px] font-bold"
+                      style={{ height: 44, padding: '0 18px', borderRadius: 10,
+                               border: '1.5px solid var(--accent)', background: 'var(--accentSoft)',
+                               color: 'var(--accent)' }}>
+                      +{k}
+                    </button>
+                  ))}
+                  <button type="button" onClick={() => setFoliaOtwarta(false)} className="text-[14px] font-bold"
+                    style={{ height: 44, padding: '0 14px', borderRadius: 10,
+                             border: '1px solid var(--line)', color: 'var(--mut)' }}>
+                    Anuluj
+                  </button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setFoliaOtwarta(true)}
+                  className="ml-auto text-[15px] font-bold"
+                  style={{ height: 44, padding: '0 20px', borderRadius: 10,
+                           border: '1.5px solid var(--accent)', background: 'var(--accentSoft)',
+                           color: 'var(--accent)' }}>
+                  + Dołóż rolki
+                </button>
+              )}
+            </>
+          ) : (
+            <span className="text-[14px]" style={{ color: 'var(--mut)' }}>
+              Brak kartoteki folii w opakowaniach — zgłoś biuru.
+            </span>
+          )}
         </div>
 
         <div className="flex items-baseline gap-3 pt-3" style={{ borderTop: '1px solid var(--line)' }}>

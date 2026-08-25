@@ -60,7 +60,7 @@ function initials(name: string) {
 
 const ALL_DEPTS = ['rozbior', 'produkcja', 'pakowanie', 'wydanie'] as const
 
-const BLANK_FORM = { login: '', name: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', ratePerHour: '0', sundayBonusEnabled: false, sundayBonusPerHour: '5', saturdayBonusEnabled: false, saturdayBonusPerHour: '5', payMode: 'hourly', ratePerDay: '150', contractType: 'zlecenie', employerCostAmount: '0', pin: '', departments: [] as string[], crewSize: '1' }
+const BLANK_FORM = { login: '', name: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', ratePerHour: '0', sundayBonusEnabled: false, sundayBonusPerHour: '5', saturdayBonusEnabled: false, saturdayBonusPerHour: '5', payMode: 'hourly', ratePerDay: '150', contractType: 'zlecenie', employerCostAmount: '0', pin: '', departments: [] as string[], crewSize: '1', isWrapper: false }
 
 export function WorkersPage() {
   const { data, loading, refetch } = useApi(() => usersApi.list(true))
@@ -91,6 +91,7 @@ export function WorkersPage() {
     contractType: d.contractType,
     employerCostAmount: parseFloat(d.employerCostAmount) || 0,
     crewSize: parseInt(d.crewSize, 10) || 1,
+    isWrapper: d.isWrapper,
   }))
   const updateMut = useMutation((d: { id: string } & typeof editForm) =>
     usersApi.update(d.id, {
@@ -108,6 +109,7 @@ export function WorkersPage() {
       contractType: d.contractType,
       employerCostAmount: parseFloat(d.employerCostAmount) || 0,
       crewSize: parseInt(d.crewSize, 10) || 1,
+      isWrapper: d.isWrapper,
     })
   )
 
@@ -156,6 +158,7 @@ export function WorkersPage() {
       employerCostAmount: String((u as any).employerCostAmount ?? (u as any).employer_cost_amount ?? 0),
       pin: '',
       departments: (u as any).departments ?? [],
+      isWrapper: !!((u as any).isWrapper ?? (u as any).is_wrapper ?? false),
     })
   }
 
@@ -438,7 +441,7 @@ export function WorkersPage() {
 
 // ─── Reusable form component ──────────────────────────────────
 function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles }: {
-  form: { login: string; name: string; role: string; ratePerKg: string; ratePerHour: string; sundayBonusEnabled: boolean; sundayBonusPerHour: string; saturdayBonusEnabled: boolean; saturdayBonusPerHour: string; payMode: string; ratePerDay: string; contractType: string; employerCostAmount: string; pin: string; departments: string[]; crewSize: string }
+  form: { login: string; name: string; role: string; ratePerKg: string; ratePerHour: string; sundayBonusEnabled: boolean; sundayBonusPerHour: string; saturdayBonusEnabled: boolean; saturdayBonusPerHour: string; payMode: string; ratePerDay: string; contractType: string; employerCostAmount: string; pin: string; departments: string[]; crewSize: string; isWrapper: boolean }
   setForm: React.Dispatch<React.SetStateAction<any>>
   onRoleChange: (role: string) => void
   onNameChange: (name: string) => void
@@ -640,6 +643,19 @@ function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles
                 maxLength={8}
               />
               <p className="text-[10px] text-muted-foreground">Służy do logowania na panelu tabletu</p>
+            </div>
+            <div className="space-y-1.5">
+              {/* Foliowczyk to ZNACZNIK, nie rola: te same osoby zwykle też
+                  układają, a płaca sumuje jedno i drugie. Panel produkcji
+                  proponuje wpis zafoliowanych kilogramów tylko zaznaczonym. */}
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!form.isWrapper}
+                  onChange={e => setForm((f: any) => ({ ...f, isWrapper: e.target.checked }))}
+                />
+                Foliowczyk (wpisuje zafoliowane kilogramy)
+              </label>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Działy (dostęp do paneli)</Label>

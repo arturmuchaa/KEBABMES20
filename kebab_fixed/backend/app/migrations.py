@@ -764,6 +764,13 @@ _DDL: list[str] = [
     # tworzy wyrób „na bieżąco", finish_day dopisuje wyłącznie resztę).
     "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS stock_booked_at TIMESTAMPTZ",
 
+    # Foliowczyk — znacznik w kartotece pracownika. Kiosk proponuje wpis
+    # zafoliowanych kilogramów tylko tym osobom; bez tego okno foliowania
+    # pokazuje całą zmianę i operator szuka dwóch nazwisk w dziesięciu.
+    # Znacznik, nie osobna rola: foliowczyk zwykle też układa, a płaca sumuje
+    # jedno i drugie.
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS is_wrapper BOOLEAN NOT NULL DEFAULT false",
+
     # Ślad przeniesienia sztuk między pracownikami. Sam `worker_entries` po
     # poprawce wygląda tak, jakby pomyłki nigdy nie było — a kilogramy idą do
     # wypłaty, więc musi zostać zapis kto, komu, ile i kiedy przepisał.

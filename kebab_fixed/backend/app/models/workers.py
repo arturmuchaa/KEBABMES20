@@ -21,6 +21,8 @@ class WorkerCreate(BaseModel):
     contract_type: str = "zlecenie"
     employer_cost_amount: float = 0.0
     departments: List[str] = []
+    #: Foliowczyk — kiosk proponuje mu wpis zafoliowanych kilogramów.
+    is_wrapper: bool = False
     #: Ile osób pracuje na tym stanowisku (2 = para rozbierająca na jedno
     #: nazwisko). Wpływa WYŁĄCZNIE na tempo kg/h w raporcie — nie na akord.
     crew_size: int = 1
@@ -43,6 +45,7 @@ class WorkerUpdate(BaseModel):
     active: Optional[bool] = None
     departments: Optional[List[str]] = None
     crew_size: Optional[int] = None
+    is_wrapper: Optional[bool] = None
 
 
 class SettlementDeductionDto(BaseModel):

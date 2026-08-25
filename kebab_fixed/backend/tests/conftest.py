@@ -56,6 +56,11 @@ _TRUNCATE = [
     # Płace: dotąd nieczyszczone, bo żaden test ich nie dotykał. Rozliczenia
     # i potrącenia przeciekałyby między testami (settled_days blokuje dzień
     # na zawsze, więc drugi przebieg tego samego testu padałby na 400).
+    # `workers` dopisane 2026-08-25: kartoteka przeciekała między testami.
+    # Testy radziły sobie z tym `ON CONFLICT (id) DO UPDATE` po stałych id,
+    # ale test szukający pracownika po NAZWISKU dostawał kilku „VLAD-ów"
+    # z poprzednich przebiegów i czytał znacznik nie tego, którego założył.
+    "workers",
     "worker_hours", "worker_deductions", "payroll_kg_adjustments",
     "settlement_deductions", "settled_days", "payroll_settlements",
     "production_day_materials",

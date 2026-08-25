@@ -1042,9 +1042,9 @@ export const usersApi = {
    *  jawnie o archiwum. */
   list:   (includeInactive = false) =>
     get<User[]>(`/workers${includeInactive ? '?includeInactive=1' : ''}`),
-  create: (dto: { name: string; role: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; sundayBonusEnabled?: boolean; sundayBonusPerHour?: number; saturdayBonusEnabled?: boolean; saturdayBonusPerHour?: number; payMode?: string; ratePerDay?: number; contractType?: string; employerCostAmount?: number; crewSize?: number }) =>
+  create: (dto: { name: string; role: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; sundayBonusEnabled?: boolean; sundayBonusPerHour?: number; saturdayBonusEnabled?: boolean; saturdayBonusPerHour?: number; payMode?: string; ratePerDay?: number; contractType?: string; employerCostAmount?: number; crewSize?: number; isWrapper?: boolean; wrappingRatePerKg?: number }) =>
     post<User>('/workers', toSnake(dto)),
-  update: (id: string, dto: { name?: string; role?: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; sundayBonusEnabled?: boolean; sundayBonusPerHour?: number; saturdayBonusEnabled?: boolean; saturdayBonusPerHour?: number; payMode?: string; ratePerDay?: number; contractType?: string; employerCostAmount?: number; active?: boolean; crewSize?: number }) =>
+  update: (id: string, dto: { name?: string; role?: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; sundayBonusEnabled?: boolean; sundayBonusPerHour?: number; saturdayBonusEnabled?: boolean; saturdayBonusPerHour?: number; payMode?: string; ratePerDay?: number; contractType?: string; employerCostAmount?: number; active?: boolean; crewSize?: number; isWrapper?: boolean; wrappingRatePerKg?: number }) =>
     put<User>(`/workers/${id}`, toSnake(dto)),
   setActive: (id: string, active: boolean) =>
     put<User>(`/workers/${id}`, { active }),

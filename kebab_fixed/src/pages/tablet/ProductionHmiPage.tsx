@@ -16,7 +16,7 @@ import { Spinner } from '@/components/ui/widgets'
 import { useApi } from '@/hooks/useApi'
 import { useLiveRefresh } from '@/hooks/useLiveRefresh'
 import { useAuth } from '@/features/auth/AuthContext'
-import { dayMaterialsApi, finishedUnitsApi, operatorsApi, packagingApi, productionPlansApi, wrappingApi } from '@/lib/api'
+import { dayMaterialsApi, finishedUnitsApi, packagingApi, productionPlansApi, usersApi, wrappingApi } from '@/lib/api'
 import { getProductionDate } from '@/features/deboning/utils'
 import { HMI_VARS, HMI_FONT } from '@/features/hmi-theme/vars'
 import '@/features/hmi-theme/hmi-font.css'
@@ -29,7 +29,6 @@ import {
 import { PlanList, type PlanLineView } from '@/features/production-hmi/components/PlanList'
 import { LineCounter } from '@/features/production-hmi/components/LineCounter'
 import { PlanChangedBanner } from '@/features/production-hmi/components/PlanChangedBanner'
-import { MaterialsRail } from '@/features/production-hmi/components/MaterialsRail'
 import { BreakOverlay } from '@/features/production-hmi/components/BreakOverlay'
 import { ShiftStats } from '@/features/production-hmi/components/ShiftStats'
 import { DaySummary } from '@/features/production-hmi/components/DaySummary'
@@ -38,6 +37,7 @@ import { PackagingPicker } from '@/features/production-hmi/components/PackagingP
 import { MovePiecesModal } from '@/features/production-hmi/components/MovePiecesModal'
 import { ScanPanel } from '@/features/production-hmi/components/ScanPanel'
 import { wrappedTotal } from '@/features/production-hmi/wrapping'
+import { productionCrew, wrappingCrew } from '@/features/production-hmi/crew'
 
 declare const __PRODUKCJA_VERSION__: string
 
@@ -63,7 +63,12 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   const [dzien] = useState(() => getProductionDate())
 
   const planData = useApi(() => productionPlansApi.list())
-  const opsData = useApi(() => operatorsApi.forDepartment(DZIAL))
+  // Lista z ROLI pracownika, nie z działu.
+  //
+  // Dział mówi „kto ma dostęp do panelu" — po wdrożeniu 1.0.1 stał tam sam
+  // kierownik, bo tylko on ma PIN, a sztuki liczy się ludziom z linii.
+  // Rozbiór robi to tak samo (`WORKER_DEBONING`).
+  const opsData = useApi(() => usersApi.list())
   const matData = useApi(() => dayMaterialsApi.forDay(dzien))
   const wrapData = useApi(() => wrappingApi.forDay(dzien))
   // `all`, nie `list`: kartoteka z zerowym stanem musi być widoczna w wyborze
@@ -107,6 +112,8 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
     recipeName: l.recipeName || l.productTypeName || '',
     packagingId: l.packagingId ?? '', packagingName: l.packagingName ?? '',
     packagingUsed: l.packagingUsed ?? 0,
+    seasonedBatchNos: l.seasonedBatchNos ?? (l.seasonedBatchNo ? [l.seasonedBatchNo] : []),
+    batchAllocation: l.batchAllocation ?? {},
     clientName: l.clientName ?? '',
     qtyDone: l.qtyDone ?? 0, workerEntries: l.workerEntries ?? [],
   })), [plan])
@@ -155,7 +162,8 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   )
   const foliaId = useMemo(() => folia?.packagingId ?? '', [folia])
 
-  const operatorzy = opsData.data ?? []
+  const operatorzy = useMemo(() => productionCrew(opsData.data as any), [opsData.data])
+  const foliowczycy = useMemo(() => wrappingCrew(opsData.data as any), [opsData.data])
   const pozycja = linie.find(l => l.id === wybranaPozycja) ?? null
   const pozycjaTulei = linie.find(l => l.id === tulejaPozycji) ?? null
 
@@ -398,29 +406,18 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
           ) : (
             <PlanList lines={linie} onPick={setWybranaPozycja} onPickPackaging={setTulejaPozycji} />
           )}
-
-          <MaterialsRail
-            material={folia}
-            onTake={pobierzFolie}
-            shiftLines={[
-              `Start 06:00 · czas pracy ${czasHM(stats.total.workedMs)}`,
-              przerwyMs > 0 ? `Przerwy: ${czasHM(przerwyMs)}` : 'Bez przerw',
-              `Tuleje zużyte: ${tulejeZuzyte} szt.`,
-            ]}
-          />
         </div>
       </div>
 
       {/* Pasek dnia — ten sam wzorzec co w rozbiorze: 76 px, --barBg, kafle
           z liczbą i podpisem, część klikalna (▸). Liczby dnia mają stać cały
           czas na oku, a nie chować się w oknach. */}
-      <div className="flex-shrink-0 grid grid-cols-8" style={{ height: 76, background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
+      <div className="flex-shrink-0 grid grid-cols-7" style={{ height: 76, background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
         {([
           { label: 'Zrobione',   val: `${totals.kgDone} kg` },
           { label: 'Postęp',     val: `${totals.pct}%`, color: 'var(--accent)' },
           { label: 'Tempo',      val: `${stats.total.kgPerHour} kg/h` },
           { label: 'Sztuki',     val: `${totals.sztDone} / ${totals.sztPlan}` },
-          { label: 'Folia',      val: `${folia?.pobrane ?? 0} rolek` },
           { label: 'Foliowanie', val: `${zafoliowane} kg`, onTap: () => setFoliowanieOtwarte(true) },
           { label: 'Skanowanie', val: `${totals.sztDone} szt.`, onTap: () => setSkanowanie(true) },
         ] as { label: string; val: string; color?: string; onTap?: () => void }[]).map(c => c.onTap ? (
@@ -451,7 +448,8 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
       )}
 
       {foliowanieOtwarte && (
-        <WrappingModal workers={operatorzy} saved={foliowanie} kgToday={totals.kgDone}
+        <WrappingModal workers={foliowczycy as any} saved={foliowanie} kgToday={totals.kgDone}
+          material={folia} onTakeMaterial={pobierzFolie}
           busy={zajety} onSave={zapiszFoliowanie} onClose={() => setFoliowanieOtwarte(false)} />
       )}
 
@@ -483,7 +481,12 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
       )}
 
       {statystykiOtwarte && (
-        <ShiftStats stats={stats} date={dzienPoPolsku(dzien)} onClose={() => setStatystykiOtwarte(false)} />
+        <ShiftStats stats={stats} date={dzienPoPolsku(dzien)} onClose={() => setStatystykiOtwarte(false)}
+          lines={[
+            `Start 06:00 · czas pracy ${czasHM(stats.total.workedMs)}`,
+            przerwyMs > 0 ? `Przerwy: ${czasHM(przerwyMs)}` : 'Bez przerw',
+            `Tuleje zużyte: ${tulejeZuzyte} szt.`,
+          ]} />
       )}
 
       {podsumowanie && (

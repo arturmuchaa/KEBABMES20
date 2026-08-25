@@ -32,7 +32,7 @@ describe('PlanList', () => {
   it('pokazuje kolumny w kolejności karty produkcji', () => {
     render(<PlanList lines={[linia()]} onPick={() => {}} />)
     const naglowki = screen.getAllByRole('columnheader').map(h => h.textContent?.trim())
-    expect(naglowki).toEqual(['Lp', 'Ilość szt.', 'Waga', 'Rodzaj', 'Tuleje', 'Klient', 'Razem', 'Postęp', 'Stan'])
+    expect(naglowki).toEqual(['Lp', 'Ilość szt.', 'Waga', 'Rodzaj', 'Partia', 'Tuleje', 'Klient', 'Razem', 'Postęp', 'Stan'])
   })
 
   it('wiersz niesie to, co operator musi wiedzieć', () => {
@@ -67,6 +67,16 @@ describe('PlanList', () => {
     render(<PlanList lines={[linia(), linia({ id: 'l2', recipeName: 'BULLI' })]} onPick={pick} />)
     fireEvent.click(screen.getAllByRole('row')[2])
     expect(pick).toHaveBeenCalledWith('l2')
+  })
+
+  // Operator musi wiedzieć, z jakiego wsadu robi pozycję — bez tego pyta biuro.
+  it('wiersz pokazuje numer partii, także przy rozbiciu na kilka', () => {
+    render(<PlanList onPick={() => {}} lines={[
+      linia({ id: 'l1', seasonedBatchNos: ['344'] }),
+      linia({ id: 'l2', batchAllocation: { '472': { pieces: 2 }, 'PP13': { pieces: 6 } } }),
+    ]} />)
+    expect(within(screen.getAllByRole('row')[1]).getByText('344')).toBeTruthy()
+    expect(within(screen.getAllByRole('row')[2]).getByText('2×472 · 6×PP13')).toBeTruthy()
   })
 
   it('pusty plan mówi wprost, że biuro nic nie zaplanowało', () => {
@@ -139,6 +149,37 @@ describe('MovePiecesModal — pomyłka „nie ta osoba"', () => {
     fireEvent.click(screen.getByRole('button', { name: 'więcej' }))
     fireEvent.click(screen.getByTestId('przenies'))
     expect(p.onMove).toHaveBeenCalledWith({ toWorkerId: 'w3', toWorkerName: 'OLEH BONDAR', pieces: 2 })
+  })
+})
+
+describe('WrappingModal — folia stretch przeniesiona z ekranu głównego', () => {
+  const props = () => ({
+    workers: [{ id: 'w1', name: 'VLAD FOLIA' }, { id: 'w2', name: 'ADAM FOLIA' }],
+    saved: [],
+    kgToday: 8000,
+    material: { packagingId: 'f1', name: 'Folia stretch', unit: 'rolka', pobrane: 40, zwrocone: 0, zuzyte: 40, moves: [] } as any,
+    onTakeMaterial: vi.fn(),
+    onSave: vi.fn(),
+    onClose: vi.fn(),
+  })
+
+  it('pokazuje ile rolek już pobrano', () => {
+    render(<WrappingModal {...props()} />)
+    expect(screen.getByTestId('folia-pobrane').textContent).toBe('40')
+  })
+
+  it('dokłada rolki jednym dotknięciem', () => {
+    const p = props()
+    render(<WrappingModal {...p} />)
+    fireEvent.click(screen.getByText(/Dołóż rolki/i))
+    fireEvent.click(screen.getByRole('button', { name: '+10' }))
+    expect(p.onTakeMaterial).toHaveBeenCalledWith(10)
+  })
+
+  it('bez kartoteki folii nie udaje, że da się pobrać', () => {
+    render(<WrappingModal {...{ ...props(), material: null }} />)
+    expect(screen.queryByText(/Dołóż rolki/i)).toBeNull()
+    expect(screen.getByText(/Brak kartoteki folii/i)).toBeTruthy()
   })
 })
 
