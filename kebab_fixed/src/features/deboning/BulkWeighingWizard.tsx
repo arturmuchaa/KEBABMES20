@@ -78,6 +78,11 @@ export function BulkWeighingWizard({ scale, cartTares, operator, activeBatchNo, 
   const [containersStr, setContainersStr] = useState('')
   const [lots, setLots] = useState<LotPick[]>([])
   const [picker, setPicker] = useState<{ mode: 'swap'; idx: number } | { mode: 'add' } | null>(null)
+  // Cel większy niż reszta partii — pytanie zamiast zamkniętych drzwi.
+  // Twarde blokowanie zapędzało halę w ślepy zaułek: z końcówki 119,5 kg
+  // trzeba było zrobić paletę 100 kg i zostawić 19,5 kg sieroty, zamiast
+  // jednej palety 200 kg z końcówki i nowej partii (25.08.2026).
+  const [pytanieOCel, setPytanieOCel] = useState<PalletTarget | null>(null)
   const [saveErr, setSaveErr] = useState<string | null>(null)
   const [printMsg, setPrintMsg] = useState<string | null>(null)
   const [palletNo, setPalletNo] = useState('')
@@ -173,6 +178,7 @@ export function BulkWeighingWizard({ scale, cartTares, operator, activeBatchNo, 
   }
 
   function wybierzCel(t: PalletTarget) {
+    setPytanieOCel(null)
     setTarget(t)
     setStacks([])
     setContainersStr('')
@@ -350,26 +356,26 @@ export function BulkWeighingWizard({ scale, cartTares, operator, activeBatchNo, 
                 // Partię wyczerpuje się CAŁYMI paletami; dopiero końcówkę wolno
                 // dobić z następnej. Stąd trzy stany kafelka, nie dwa.
                 const gate = targetGate(t.totalKg, postep?.leftKg ?? null, celeKg)
+                // Ostrzeżenie, nie zamknięte drzwi: z partii wyjdzie jeszcze
+                // cała mniejsza paleta, więc pytamy, czy na pewno łączymy.
                 const zablokowany = gate === 'blocked'
                 return (
                   <button key={t.key} type="button"
-                    disabled={zablokowany}
                     data-testid={`bw-cel-${t.key}`}
                     data-gate={gate}
-                    onClick={() => { if (!zablokowany) wybierzCel(t) }}
+                    onClick={() => (zablokowany ? setPytanieOCel(t) : wybierzCel(t))}
                     className="h-32 flex flex-col items-center justify-center gap-1.5 font-extrabold"
                     style={{
                       borderRadius: 14,
-                      background: zablokowany ? 'var(--bg)' : 'var(--panel)',
-                      border: `2px solid ${zablokowany ? 'var(--line)' : 'var(--accent)'}`,
-                      color: zablokowany ? 'var(--mut)' : 'var(--accent)',
-                      opacity: zablokowany ? 0.55 : 1,
+                      background: zablokowany ? '#FEF3C7' : 'var(--panel)',
+                      border: `2px solid ${zablokowany ? '#F59E0B' : 'var(--accent)'}`,
+                      color: zablokowany ? '#92400E' : 'var(--accent)',
                     }}>
-                    <span className="text-4xl" style={{ color: zablokowany ? 'var(--mut)' : 'var(--ink)' }}>{t.label}</span>
+                    <span className="text-4xl" style={{ color: zablokowany ? '#92400E' : 'var(--ink)' }}>{t.label}</span>
                     <span className="text-xs font-bold" style={{ color: 'var(--mut)' }}>{t.hint}</span>
                     {zablokowany && (
-                      <span className="text-[11px] font-bold" style={{ color: '#B91C1C' }}>
-                        z partii {postep?.lotNo} zostało {postep?.leftKg} kg
+                      <span className="text-[11px] font-bold" style={{ color: '#92400E' }}>
+                        z partii {postep?.lotNo} zostało {postep?.leftKg} kg — dobierzesz z kolejnej
                       </span>
                     )}
                     {gate === 'combine' && postep && (
@@ -743,6 +749,33 @@ export function BulkWeighingWizard({ scale, cartTares, operator, activeBatchNo, 
             {printMsg && (
               <div className="px-6 py-3 text-sm font-bold flex-shrink-0" style={{ borderTop: '1px solid var(--line)', color: 'var(--mut)' }}>{printMsg}</div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Cel większy niż reszta partii — pytanie, nie zamknięte drzwi.
+          Zasada „partię wyczerpuje się całymi paletami" zostaje jako
+          podpowiedź; decyzję podejmuje operator, bo to on widzi, ile mięsa
+          fizycznie stoi na chłodni. */}
+      {pytanieOCel && (
+        <div className="fixed inset-0 z-[59] flex items-center justify-center bg-black/50">
+          <div className="w-[560px] max-w-[92vw] p-6 flex flex-col gap-4"
+            style={{ borderRadius: 14, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)' }}>
+            <div className="font-extrabold text-xl">Paleta z dwóch partii?</div>
+            <div data-testid="bw-cel-pytanie" className="text-base font-bold" style={{ color: 'var(--mut)' }}>
+              Z partii {postep?.lotNo} zostało {postep?.leftKg} kg, a paleta ma ważyć {pytanieOCel.totalKg} kg.
+              Brakujące kilogramy dobierzesz z kolejnej partii — skład wejdzie na etykietę.
+            </div>
+            <button type="button" data-testid="bw-cel-potwierdz" onClick={() => wybierzCel(pytanieOCel)}
+              className="h-14 font-extrabold text-lg"
+              style={{ borderRadius: 12, background: '#F59E0B', color: '#fff' }}>
+              Tak, łączę partie
+            </button>
+            <button type="button" data-testid="bw-cel-anuluj" onClick={() => setPytanieOCel(null)}
+              className="h-12 font-bold"
+              style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--mut)' }}>
+              Anuluj
+            </button>
           </div>
         </div>
       )}

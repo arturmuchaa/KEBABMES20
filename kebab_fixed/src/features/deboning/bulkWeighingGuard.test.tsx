@@ -60,19 +60,58 @@ describe('ważenie zbiorcze — widoczny strażnik partii', () => {
     expect(licznik.textContent).toContain('zostało 193 kg')
   })
 
-  it('nie pozwala wybrać palety większej, niż partia jeszcze ma do wydania', async () => {
+  // 25.08.2026: twarda blokada zapędzała halę w ślepy zaułek. Przy 119,5 kg
+  // końcówki partii 505 operator chciał zrobić JEDNĄ paletę 200 kg (końcówka
+  // + nowa partia 506), a ekran kazał najpierw zrobić paletę 100 kg i zostawić
+  // 19,5 kg sieroty — czyli i tak paletę z dwóch partii, tylko o jedną więcej.
+  // Kafelek ostrzega i pyta, ale nie zamyka drogi.
+  it('cel ponad resztę partii OSTRZEGA, ale nie jest zamknięty', async () => {
     pokaz('503')
     await screen.findByTestId('bw-partia')
-    // Z 193 kg wyjdzie jeszcze cała paleta 100 kg — więc 400 i 600 są zamknięte.
-    expect(kafelek('t600').disabled).toBe(true)
-    expect(kafelek('t400').disabled).toBe(true)
+    expect(kafelek('t600').disabled).toBe(false)
+    expect(kafelek('t400').disabled).toBe(false)
     expect(kafelek('t100').disabled).toBe(false)
   })
 
-  it('zablokowany kafelek mówi, dlaczego', async () => {
+  it('kafelek ponad resztę mówi, ile w partii zostało', async () => {
     pokaz('503')
     await screen.findByTestId('bw-partia')
     expect(kafelek('t600').textContent).toContain('zostało 193 kg')
+  })
+
+  it('wybór celu ponad resztę wymaga POTWIERDZENIA, zanim ruszy ważenie', async () => {
+    pokaz('503')
+    await screen.findByTestId('bw-partia')
+    fireEvent.click(kafelek('t400'))
+
+    const pyt = await screen.findByTestId('bw-cel-pytanie')
+    expect(pyt.textContent).toContain('193')
+    expect(screen.queryByTestId('bw-dodaj')).toBeNull()          // ważenie jeszcze nie ruszyło
+
+    fireEvent.click(screen.getByTestId('bw-cel-potwierdz'))
+    fireEvent.click(await screen.findByRole('button', { name: /20/ }))   // wózek
+    expect(await screen.findByTestId('bw-dodaj')).toBeTruthy()           // dopiero teraz
+  })
+
+  it('anulowanie pytania zostawia operatora przy wyborze celu', async () => {
+    pokaz('503')
+    await screen.findByTestId('bw-partia')
+    fireEvent.click(kafelek('t400'))
+    fireEvent.click(await screen.findByTestId('bw-cel-anuluj'))
+
+    expect(screen.queryByTestId('bw-cel-pytanie')).toBeNull()
+    expect(kafelek('t400')).toBeTruthy()
+    expect(screen.queryByTestId('bw-dodaj')).toBeNull()
+  })
+
+  it('cel mieszczący się w partii NIE pyta o nic', async () => {
+    pokaz('503')
+    await screen.findByTestId('bw-partia')
+    fireEvent.click(kafelek('t100'))
+    expect(screen.queryByTestId('bw-cel-pytanie')).toBeNull()
+
+    fireEvent.click(await screen.findByRole('button', { name: /20/ }))   // wózek
+    expect(await screen.findByTestId('bw-dodaj')).toBeTruthy()
   })
 
   it('bez wskazanej partii nic nie blokuje — brak wiedzy to nie zero', async () => {
