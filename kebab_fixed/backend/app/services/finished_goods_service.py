@@ -299,6 +299,27 @@ def list_finished() -> List[Dict]:
 
 
 def create_finished_good(dto: FinishedGoodCreate) -> Dict:
+    """Jeden wyrób wpisany ręcznie z biura."""
+    with transaction() as conn:
+        return _create_finished_good(conn, dto)
+
+
+def create_finished_goods_bulk(items: List[FinishedGoodCreate]) -> List[Dict]:
+    """Kilka wyrobów naraz — JEDNA transakcja.
+
+    Biuro zaznacza kilka pozycji zamówienia i klika raz. Bez wspólnej
+    transakcji błąd na trzeciej pozycji (np. brak tulei) zostawiłby dwa
+    wyroby, zdjęte tuleje i operatora bez pojęcia, co właściwie weszło.
+    """
+    if not items:
+        return []
+    with transaction() as conn:
+        out = [_create_finished_good(conn, dto) for dto in items]
+    logger.info("finished_goods.created_bulk", extra={"rows": len(out)})
+    return out
+
+
+def _create_finished_good(conn, dto: FinishedGoodCreate) -> Dict:
     qty = int(dto.qty)
     kg_per_unit = float(dto.kg_per_unit)
     total_kg = round(qty * kg_per_unit, 3)
@@ -308,72 +329,71 @@ def create_finished_good(dto: FinishedGoodCreate) -> Dict:
     else:
         batch_no = _compute_kebab_batch_no(produced_date, dto.seasoned_batch_nos or [])
 
-    with transaction() as conn:
-        item = cx_execute_returning(
+    item = cx_execute_returning(
+        conn,
+        """
+        INSERT INTO finished_goods
+            (id, batch_no, plan_no, product_type_id, product_type_name,
+             recipe_id, recipe_name, packaging_id, packaging_name,
+             client_name, client_id, client_order_no, qty, kg_per_unit, total_kg,
+             qty_available, qty_shipped, produced_date, produced_by,
+             seasoned_batch_nos, created_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s,%s,%s)
+        RETURNING *
+        """,
+        (
+            cuid(),
+            batch_no,
+            dto.plan_no or "",
+            dto.product_type_id or "",
+            dto.product_type_name or "",
+            dto.recipe_id or "",
+            dto.recipe_name or "",
+            dto.packaging_id or None,
+            dto.packaging_name or None,
+            dto.client_name or None,
+            dto.client_id or None,
+            dto.client_order_no or None,
+            qty,
+            kg_per_unit,
+            total_kg,
+            qty,
+            produced_date,
+            dto.produced_by or [],
+            dto.seasoned_batch_nos or [],
+            now_iso(),
+        ),
+    )
+    assert item is not None
+
+    # Every IN on finished_goods is logged
+    if total_kg > 0:
+        create_stock_movement(
             conn,
-            """
-            INSERT INTO finished_goods
-                (id, batch_no, plan_no, product_type_id, product_type_name,
-                 recipe_id, recipe_name, packaging_id, packaging_name,
-                 client_name, client_id, client_order_no, qty, kg_per_unit, total_kg,
-                 qty_available, qty_shipped, produced_date, produced_by,
-                 seasoned_batch_nos, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s,%s,%s)
-            RETURNING *
-            """,
-            (
-                cuid(),
-                batch_no,
-                dto.plan_no or "",
-                dto.product_type_id or "",
-                dto.product_type_name or "",
-                dto.recipe_id or "",
-                dto.recipe_name or "",
-                dto.packaging_id or None,
-                dto.packaging_name or None,
-                dto.client_name or None,
-                dto.client_id or None,
-                dto.client_order_no or None,
-                qty,
-                kg_per_unit,
-                total_kg,
-                qty,
-                produced_date,
-                dto.produced_by or [],
-                dto.seasoned_batch_nos or [],
-                now_iso(),
-            ),
+            product_type="finished_goods",
+            batch_id=item["id"],
+            qty=total_kg,
+            movement_type="IN",
+            source_type="manual",
+            source_id=item["id"],
         )
-        assert item is not None
 
-        # Every IN on finished_goods is logged
-        if total_kg > 0:
-            create_stock_movement(
-                conn,
-                product_type="finished_goods",
-                batch_id=item["id"],
-                qty=total_kg,
-                movement_type="IN",
-                source_type="manual",
-                source_id=item["id"],
-            )
+    if dto.packaging_id and qty > 0:
+        _consume_packaging(conn, dto.packaging_id, qty, item["id"])
 
-        if dto.packaging_id and qty > 0:
-            _consume_packaging(conn, dto.packaging_id, qty, item["id"])
-
-        # Mięso przyprawione — tylko na wyraźne życzenie (patrz komentarz przy
-        # `consume_seasoned` w modelu). Brak partii w masowni NIE blokuje
-        # wpisu: biuro wprowadza też historię sprzed wdrożenia, a funkcja
-        # sama loguje, że nie miała czego zdjąć.
-        if dto.consume_seasoned and total_kg > 0:
-            # `plan_id` służy tu wyłącznie jako źródło ruchu magazynowego —
-            # przy wpisie ręcznym wskazujemy wiersz wyrobu, żeby OUT mięsa
-            # dało się powiązać z tym, co z niego powstało.
-            _consume_seasoned_for_entry(
-                conn, plan_id=item["id"], plan_line_id="",
-                entry_qty=qty, total_kg=total_kg,
-                seasoned_batch_nos=dto.seasoned_batch_nos or [],
-            )
+    # Mięso przyprawione — tylko na wyraźne życzenie (patrz komentarz przy
+    # `consume_seasoned` w modelu). Brak partii w masowni NIE blokuje
+    # wpisu: biuro wprowadza też historię sprzed wdrożenia, a funkcja
+    # sama loguje, że nie miała czego zdjąć.
+    if dto.consume_seasoned and total_kg > 0:
+        # `plan_id` służy tu wyłącznie jako źródło ruchu magazynowego —
+        # przy wpisie ręcznym wskazujemy wiersz wyrobu, żeby OUT mięsa
+        # dało się powiązać z tym, co z niego powstało.
+        _consume_seasoned_for_entry(
+            conn, plan_id=item["id"], plan_line_id="",
+            entry_qty=qty, total_kg=total_kg,
+            seasoned_batch_nos=dto.seasoned_batch_nos or [],
+        )
 
     logger.info(
         "finished_goods.created",

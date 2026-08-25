@@ -72,3 +72,68 @@ describe('remainingOnLine — ile jeszcze brakuje na pozycji zamówienia', () =>
     expect(remainingOnLine({} as any)).toBe(0)
   })
 })
+
+// ── Grupowanie po kliencie i koszyk ──────────────────────────────────────
+import { groupLinesByClient, cartTotals } from './manualGoods'
+
+const zam = (over: any = {}) => ({
+  id: 'o1', orderNo: 'ZAM/1', clientId: 'c1', clientName: 'Bulli', status: 'new',
+  lines: [{ id: 'ol1', qty: 20, qtyDone: 8, kgPerUnit: 35, recipeId: 'r1', recipeName: 'WROCŁAW' }],
+  ...over,
+})
+
+describe('groupLinesByClient', () => {
+  it('składa pozycje w grupy klientów', () => {
+    const g = groupLinesByClient([
+      zam(),
+      zam({ id: 'o2', orderNo: 'ZAM/2', lines: [{ id: 'ol2', qty: 5, qtyDone: 0, kgPerUnit: 40, recipeId: 'r1' }] }),
+      zam({ id: 'o3', orderNo: 'ZAM/3', clientId: 'c2', clientName: 'Zagros',
+            lines: [{ id: 'ol3', qty: 6, qtyDone: 0, kgPerUnit: 40, recipeId: 'r2' }] }),
+    ])
+    expect(g.map(x => x.clientName)).toEqual(['Bulli', 'Zagros'])
+    expect(g[0].lines.map(l => l.id)).toEqual(['ol1', 'ol2'])
+  })
+
+  it('pomija zamówienia zamknięte — nie ma ich po co produkować', () => {
+    const g = groupLinesByClient([zam({ status: 'done' }), zam({ id: 'o2', status: 'cancelled' })])
+    expect(g).toEqual([])
+  })
+
+  it('każda pozycja niesie numer zamówienia — po nim liczy się pokrycie', () => {
+    expect(groupLinesByClient([zam()])[0].lines[0]).toMatchObject({ orderNo: 'ZAM/1', orderId: 'o1' })
+  })
+
+  it('grupa podaje, ile kg jeszcze brakuje u tego klienta', () => {
+    expect(groupLinesByClient([zam()])[0].kgLeft).toBe(420)   // 12 szt. × 35 kg
+  })
+
+  it('klienci po alfabecie, żeby lista nie skakała między odświeżeniami', () => {
+    const g = groupLinesByClient([
+      zam({ clientId: 'c9', clientName: 'Zagros' }),
+      zam({ id: 'o2', clientId: 'c1', clientName: 'Alfa' }),
+    ])
+    expect(g.map(x => x.clientName)).toEqual(['Alfa', 'Zagros'])
+  })
+
+  it('znosi śmieci z API', () => {
+    expect(groupLinesByClient(null as any)).toEqual([])
+    expect(groupLinesByClient([{ id: 'o1', status: 'new' } as any])).toEqual([])
+  })
+})
+
+describe('cartTotals', () => {
+  it('liczy pozycje, sztuki i kilogramy', () => {
+    expect(cartTotals([
+      { qty: 12, kgPerUnit: 35 } as any,
+      { qty: 6, kgPerUnit: 40 } as any,
+    ])).toEqual({ pozycje: 2, sztuki: 18, kg: 660 })
+  })
+
+  it('pusty koszyk to zera, nie NaN', () => {
+    expect(cartTotals([])).toEqual({ pozycje: 0, sztuki: 0, kg: 0 })
+  })
+
+  it('kilogramy zaokrągla do dwóch miejsc', () => {
+    expect(cartTotals([{ qty: 3, kgPerUnit: 17.53 } as any]).kg).toBe(52.59)
+  })
+})

@@ -2948,6 +2948,9 @@ export const finishedGoodsApi = {
     return items.map(mapFinishedGoodsItem)
   },
   create: (dto: any) => post<FinishedGoodsItem>('/finished-goods', toSnake(dto)),
+  /** Kilka wyrobów naraz — backend zapisuje je JEDNĄ transakcją, więc błąd
+   *  na trzeciej pozycji cofa całość zamiast zostawiać połowę dnia. */
+  createBulk: (items: any[]) => post<any[]>('/finished-goods/bulk', items.map(toSnake)),
   finishProductionDay: (planId: string, entries: any[]) =>
     post<any>('/finished-goods/finish-day', { plan_id: planId, entries: entries.map(toSnake) }),
 }

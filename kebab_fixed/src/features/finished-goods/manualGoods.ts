@@ -71,3 +71,73 @@ export function remainingOnLine(line: { qty?: number; qtyDone?: number }): numbe
   const zostalo = Number(line?.qty ?? 0) - Number(line?.qtyDone ?? 0)
   return zostalo > 0 ? Math.round(zostalo) : 0
 }
+
+// ── Wybór z zamówień ─────────────────────────────────────────────────────
+
+export interface PickableLine {
+  id: string
+  orderId: string
+  orderNo: string
+  qty: number
+  qtyDone: number
+  kgPerUnit: number
+  recipeId: string
+  recipeName: string
+  productTypeId: string
+  productTypeName: string
+  packagingId: string
+  packagingName: string
+}
+
+export interface ClientGroup {
+  clientId: string
+  clientName: string
+  /** Ile kilogramów zostało do zrobienia u tego klienta. */
+  kgLeft: number
+  lines: PickableLine[]
+}
+
+const OTWARTE = (status: string): boolean => status !== 'done' && status !== 'cancelled'
+
+/**
+ * Pozycje zamówień pogrupowane KLIENTAMI.
+ *
+ * Biuro wpisuje cały dzień produkcji naraz i myśli klientami („co dziś idzie
+ * do Bulli"), a nie numerami zamówień. Płaska lista wszystkich pozycji
+ * zmuszała do polowania wzrokiem.
+ */
+export function groupLinesByClient(orders: any[] | null | undefined): ClientGroup[] {
+  const grupy = new Map<string, ClientGroup>()
+  for (const o of Array.isArray(orders) ? orders : []) {
+    if (!o || !OTWARTE(String(o.status || ''))) continue
+    for (const l of o.lines ?? []) {
+      if (!l?.id) continue
+      const clientId = String(o.clientId || o.clientName || '—')
+      let g = grupy.get(clientId)
+      if (!g) {
+        g = { clientId, clientName: String(o.clientName || '—'), kgLeft: 0, lines: [] }
+        grupy.set(clientId, g)
+      }
+      const linia: PickableLine = {
+        id: String(l.id), orderId: String(o.id || ''), orderNo: String(o.orderNo || ''),
+        qty: Number(l.qty) || 0, qtyDone: Number(l.qtyDone) || 0,
+        kgPerUnit: Number(l.kgPerUnit) || 0,
+        recipeId: l.recipeId ?? '', recipeName: l.recipeName ?? '',
+        productTypeId: l.productTypeId ?? '', productTypeName: l.productTypeName ?? '',
+        packagingId: l.packagingId ?? '', packagingName: l.packagingName ?? '',
+      }
+      g.lines.push(linia)
+      g.kgLeft = Math.round((g.kgLeft + remainingOnLine(linia) * linia.kgPerUnit) * 100) / 100
+    }
+  }
+  return [...grupy.values()].sort((a, b) => a.clientName.localeCompare(b.clientName, 'pl'))
+}
+
+/** Podsumowanie koszyka — to, co operator widzi przed kliknięciem zapisu. */
+export function cartTotals(pozycje: { qty: number; kgPerUnit: number }[]): {
+  pozycje: number; sztuki: number; kg: number
+} {
+  const sztuki = pozycje.reduce((s, p) => s + (Number(p.qty) || 0), 0)
+  const kg = pozycje.reduce((s, p) => s + (Number(p.qty) || 0) * (Number(p.kgPerUnit) || 0), 0)
+  return { pozycje: pozycje.length, sztuki, kg: Math.round(kg * 100) / 100 }
+}

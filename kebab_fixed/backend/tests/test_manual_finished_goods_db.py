@@ -166,3 +166,55 @@ def test_klient_zapisuje_sie_takze_po_id(db):
     item = create_finished_good(_wpis(client_id="c1", client_name="Bulli sp. z o.o."))
 
     assert item["client_id"] == "c1"
+
+
+# ── Kilka pozycji naraz ───────────────────────────────────────────────────
+
+def test_kilka_pozycji_zapisuje_sie_razem(db):
+    """Biuro zaznacza kilka pozycji zamówienia i klika RAZ."""
+    from app.services.finished_goods_service import create_finished_goods_bulk
+    _tuleja(stan=100)
+
+    out = create_finished_goods_bulk([
+        _wpis(qty=10, packaging_id="t1", packaging_name="METAL 65"),
+        _wpis(qty=4, kg_per_unit=17.5, packaging_id="t1", packaging_name="METAL 65"),
+    ])
+
+    assert len(out) == 2
+    assert sum(int(i["qty"]) for i in out) == 14
+    assert _stan_tulei() == (86, 14)
+
+
+def test_blad_w_drugiej_pozycji_cofa_CALOSC(db):
+    """Bez jednej transakcji zostawałby wyrób bez pary i rozjechane tuleje."""
+    from fastapi import HTTPException
+
+    from app.services.finished_goods_service import create_finished_goods_bulk
+    _tuleja(stan=12)      # starczy na pierwszą pozycję, na drugą już nie
+
+    with pytest.raises(HTTPException):
+        create_finished_goods_bulk([
+            _wpis(qty=10, packaging_id="t1", packaging_name="METAL 65"),
+            _wpis(qty=10, packaging_id="t1", packaging_name="METAL 65"),
+        ])
+
+    assert query_all("SELECT id FROM finished_goods") == []
+    assert _stan_tulei() == (12, 0)
+    assert query_all("SELECT id FROM stock_movements WHERE product_type='finished_goods'") == []
+
+
+def test_pusta_lista_niczego_nie_robi(db):
+    from app.services.finished_goods_service import create_finished_goods_bulk
+
+    assert create_finished_goods_bulk([]) == []
+
+
+def test_kazda_pozycja_moze_miec_wlasna_partie(db):
+    from app.services.finished_goods_service import create_finished_goods_bulk
+
+    out = create_finished_goods_bulk([
+        _wpis(qty=2, batch_no="250826 344"),
+        _wpis(qty=3, batch_no="250826 PP13"),
+    ])
+
+    assert sorted(i["batch_no"] for i in out) == ["250826 344", "250826 PP13"]

@@ -1,39 +1,68 @@
 /**
- * Ręczne dodanie wyrobu gotowego (biuro).
+ * „Dodaj wyrób gotowy" — wejście biura na czas, gdy produkcja i masownia nie
+ * mają jeszcze komputerów (ok. miesiąc). Docelowo wyrób powstaje na hali.
  *
- * Produkcja i masownia nie mają jeszcze komputerów, więc wyrób wprowadza
- * biuro. Wpis ma zrobić to samo, co zrobiłby kiosk: postawić sztuki na
- * magazynie, zdjąć tuleje, zdjąć mięso przyprawione i policzyć się do
- * pokrycia zamówienia.
+ * Dwie rzeczy decydują o tym, czy wpis się przyda:
  *
- * Dlatego DOMYŚLNĄ drogą jest „z zamówienia": pokrycie liczy się po trójce
- * numer zamówienia + receptura + waga sztuki, a wpisywanie ich z ręki kończy
- * się wyrobem, który wisi obok zamówienia zamiast je domykać.
+ *  • POWIĄZANIE — pokrycie zamówienia liczy się po trójce numer zamówienia +
+ *    receptura + waga sztuki (`orders_service._hydrate_order`), więc te pola
+ *    biorą się z POZYCJI zamówienia, nie z ręki. Tryb ręczny istnieje obok,
+ *    bo nie wszystko jest zamówione i nie każda partia jest w masowni.
+ *
+ *  • TEMPO — biuro wpisuje cały dzień produkcji naraz, więc pozycje wybiera
+ *    się wielokrotnie, grupami po kliencie, jednym kliknięciem na grupę.
+ *    Wszystko leci JEDNYM żądaniem: błąd na trzeciej pozycji ma cofnąć
+ *    całość, a nie zostawić połowę dnia.
+ *
+ * Wygląd wg systemu biura („tusz na papierze"): monochrom, hairline, gęsta
+ * siatka jak w Subiekcie, dane monospace, znaczniki dokumentowe zamiast
+ * pigułek. Kolor TYLKO semantyczny (ostrzeżenie o stanie, błąd).
  */
 import { useEffect, useMemo, useState } from 'react'
-import { clientOrdersApi, finishedGoodsApi, packagingApi, recipesApi, seasonedMeatApi } from '@/lib/api'
+import { clientOrdersApi, clientsApi, finishedGoodsApi, packagingApi, recipesApi, seasonedMeatApi } from '@/lib/api'
 import { fmtKg } from '@/lib/utils'
 import {
-  manualGoodsIssues, manualGoodsPayload, remainingOnLine, liczba, type ManualGoodsForm,
+  cartTotals, groupLinesByClient, liczba, remainingOnLine,
+  type ClientGroup, type PickableLine,
 } from '../manualGoods'
 
 const dzisiaj = () => new Date().toISOString().slice(0, 10)
 
-const PUSTY: ManualGoodsForm = {
-  qty: '', kgPerUnit: '', producedDate: dzisiaj(),
-  recipeId: '', recipeName: '', productTypeId: '', productTypeName: '',
-  packagingId: '', packagingName: '', clientId: '', clientName: '', clientOrderNo: '',
-  batchNos: [], consumeSeasoned: false,
+/** Pozycja wpisana z ręki — bez zamówienia albo z klientem spoza listy. */
+interface RecznaPozycja {
+  qty: number
+  kgPerUnit: number
+  recipeId: string
+  recipeName: string
+  productTypeId: string
+  productTypeName: string
+  packagingId: string
+  packagingName: string
+  clientId: string
+  clientName: string
+}
+
+const PUSTA_RECZNA = {
+  qty: '', kgPerUnit: '', recipeId: '', packagingId: '', clientId: '',
 }
 
 export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [tryb, setTryb] = useState<'zamowienie' | 'magazyn'>('zamowienie')
-  const [form, setForm] = useState<ManualGoodsForm>(PUSTY)
+  const [tryb, setTryb] = useState<'zamowienia' | 'recznie'>('zamowienia')
   const [zamowienia, setZamowienia] = useState<any[]>([])
   const [partie, setPartie] = useState<any[]>([])
   const [tuleje, setTuleje] = useState<any[]>([])
   const [receptury, setReceptury] = useState<any[]>([])
-  const [wybranaPozycja, setWybranaPozycja] = useState('')
+  const [klienci, setKlienci] = useState<any[]>([])
+
+  const [wybrane, setWybrane] = useState<Record<string, number>>({})   // lineId → sztuki
+  const [reczne, setReczne] = useState<RecznaPozycja[]>([])
+  const [formaReczna, setFormaReczna] = useState({ ...PUSTA_RECZNA })
+
+  const [zrodloPartii, setZrodloPartii] = useState<'masownia' | 'recznie'>('masownia')
+  const [partieWybrane, setPartieWybrane] = useState<string[]>([])
+  const [partiaReczna, setPartiaReczna] = useState('')
+  const [data, setData] = useState(dzisiaj())
+
   const [zajety, setZajety] = useState(false)
   const [blad, setBlad] = useState('')
   const [pokazBledy, setPokazBledy] = useState(false)
@@ -44,47 +73,103 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
     packagingApi.all().then(r => setTuleje((Array.isArray(r) ? r : [])
       .filter((p: any) => String(p.type || '').toLowerCase() === 'tuleja'))).catch(() => setTuleje([]))
     recipesApi.list().then(r => setReceptury(Array.isArray(r) ? r : [])).catch(() => setReceptury([]))
+    clientsApi.list().then((r: any) => setKlienci(Array.isArray(r) ? r : [])).catch(() => setKlienci([]))
   }, [])
 
-  const otwarte = useMemo(
-    () => zamowienia.filter(o => o.status !== 'done' && o.status !== 'cancelled'),
-    [zamowienia],
-  )
+  const grupy: ClientGroup[] = useMemo(() => groupLinesByClient(zamowienia), [zamowienia])
+  const wszystkieLinie = useMemo(() => grupy.flatMap(g => g.lines), [grupy])
+  const poId = useMemo(
+    () => new Map(wszystkieLinie.map(l => [l.id, l])), [wszystkieLinie])
 
-  // Pozycja zamówienia wypełnia WSZYSTKIE pola powiązania naraz — po to,
-  // żeby operator nie mógł wpisać receptury innej niż zamówiona.
-  const wezZPozycji = (order: any, l: any) => {
-    setWybranaPozycja(l.id)
-    setForm(f => ({
-      ...f,
-      qty: String(remainingOnLine(l) || l.qty || ''),
-      kgPerUnit: String(l.kgPerUnit ?? ''),
-      recipeId: l.recipeId ?? '', recipeName: l.recipeName ?? '',
-      productTypeId: l.productTypeId ?? '', productTypeName: l.productTypeName ?? '',
-      packagingId: l.packagingId ?? '', packagingName: l.packagingName ?? '',
-      clientId: order.clientId ?? '', clientName: order.clientName ?? '',
-      clientOrderNo: order.orderNo ?? '',
-    }))
-  }
+  const domyslnaIlosc = (l: PickableLine) => remainingOnLine(l) || l.qty || 0
 
-  const przelaczPartie = (batchNo: string) => setForm(f => {
-    const ma = f.batchNos.includes(batchNo)
-    const batchNos = ma ? f.batchNos.filter(b => b !== batchNo) : [...f.batchNos, batchNo]
-    // Wskazanie partii samo włącza zdejmowanie mięsa: to domyślna, poprawna
-    // droga. Odznaczenie zostawiamy na wpisy historyczne.
-    return { ...f, batchNos, consumeSeasoned: batchNos.length > 0 && (ma ? f.consumeSeasoned : true) }
+  const przelacz = (l: PickableLine) => setWybrane(w => {
+    if (w[l.id] != null) { const { [l.id]: _, ...reszta } = w; return reszta }
+    return { ...w, [l.id]: domyslnaIlosc(l) }
   })
 
-  const bledy = manualGoodsIssues(form)
-  const sztuk = Math.round(liczba(form.qty))
-  const kgRazem = Math.round(sztuk * liczba(form.kgPerUnit) * 100) / 100
+  const przelaczGrupe = (g: ClientGroup) => setWybrane(w => {
+    const wszystkieZaznaczone = g.lines.every(l => w[l.id] != null)
+    const next = { ...w }
+    for (const l of g.lines) {
+      if (wszystkieZaznaczone) delete next[l.id]
+      else next[l.id] = next[l.id] ?? domyslnaIlosc(l)
+    }
+    return next
+  })
+
+  const przelaczWszystko = () => setWybrane(w => {
+    const wszystkie = wszystkieLinie.every(l => w[l.id] != null)
+    if (wszystkie) return {}
+    return Object.fromEntries(wszystkieLinie.map(l => [l.id, w[l.id] ?? domyslnaIlosc(l)]))
+  })
+
+  const przelaczPartie = (batchNo: string) => setPartieWybrane(p =>
+    p.includes(batchNo) ? p.filter(b => b !== batchNo) : [...p, batchNo])
+
+  // ── Koszyk: pozycje z zamówień + wpisane z ręki ──
+  const koszyk = useMemo(() => {
+    const zZamowien = Object.entries(wybrane).flatMap(([lineId, qty]) => {
+      const l = poId.get(lineId)
+      if (!l) return []
+      const grupa = grupy.find(g => g.lines.some(x => x.id === lineId))
+      return [{
+        qty: Math.round(liczba(String(qty))), kgPerUnit: l.kgPerUnit,
+        recipeId: l.recipeId, recipeName: l.recipeName,
+        productTypeId: l.productTypeId, productTypeName: l.productTypeName,
+        packagingId: l.packagingId, packagingName: l.packagingName,
+        clientId: grupa?.clientId ?? '', clientName: grupa?.clientName ?? '',
+        clientOrderNo: l.orderNo, zrodlo: `${l.orderNo} · ${l.recipeName}`,
+      }]
+    })
+    const zReki = reczne.map(r => ({
+      ...r, clientOrderNo: '', zrodlo: `${r.recipeName} · ręcznie`,
+    }))
+    return [...zZamowien, ...zReki]
+  }, [wybrane, poId, grupy, reczne])
+
+  const sumy = useMemo(() => cartTotals(koszyk), [koszyk])
+  const tulejeSzt = koszyk.filter(p => p.packagingId).reduce((s, p) => s + p.qty, 0)
+
+  const bledy: string[] = []
+  if (!koszyk.length) bledy.push('Wybierz pozycje z zamówień albo wpisz wyrób ręcznie')
+  if (koszyk.some(p => p.qty <= 0)) bledy.push('Któraś pozycja ma zero sztuk')
+  if (!data) bledy.push('Podaj datę produkcji')
+  if (zrodloPartii === 'recznie' && !partiaReczna.trim()) bledy.push('Wpisz numer partii')
+  if (zrodloPartii === 'masownia' && !partieWybrane.length) bledy.push('Wskaż partię z masowni albo przełącz na numer ręczny')
+
+  const dodajReczna = () => {
+    const r = receptury.find((x: any) => x.id === formaReczna.recipeId)
+    const t = tuleje.find((x: any) => x.id === formaReczna.packagingId)
+    const k = klienci.find((x: any) => x.id === formaReczna.clientId)
+    const qty = Math.round(liczba(formaReczna.qty))
+    const kgPerUnit = liczba(formaReczna.kgPerUnit)
+    if (!r || qty <= 0 || kgPerUnit <= 0) { setPokazBledy(true); return }
+    setReczne(list => [...list, {
+      qty, kgPerUnit,
+      recipeId: r.id, recipeName: r.name,
+      productTypeId: '', productTypeName: '',
+      packagingId: t?.id ?? '', packagingName: t?.name ?? '',
+      clientId: k?.id ?? '', clientName: k?.name ?? '',
+    }])
+    setFormaReczna({ ...PUSTA_RECZNA })
+  }
 
   const zapisz = async () => {
     setPokazBledy(true)
     if (bledy.length) return
     setZajety(true); setBlad('')
     try {
-      await finishedGoodsApi.create(manualGoodsPayload(form))
+      await finishedGoodsApi.createBulk(koszyk.map(p => ({
+        qty: p.qty, kgPerUnit: p.kgPerUnit, producedDate: data,
+        recipeId: p.recipeId, recipeName: p.recipeName,
+        productTypeId: p.productTypeId, productTypeName: p.productTypeName,
+        packagingId: p.packagingId, packagingName: p.packagingName,
+        clientId: p.clientId, clientName: p.clientName, clientOrderNo: p.clientOrderNo,
+        batchNo: zrodloPartii === 'recznie' ? partiaReczna.trim() : '',
+        seasonedBatchNos: zrodloPartii === 'masownia' ? partieWybrane : [],
+        consumeSeasoned: zrodloPartii === 'masownia' && partieWybrane.length > 0,
+      })))
       onSaved()
       onClose()
     } catch (e: any) {
@@ -94,162 +179,268 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
     }
   }
 
-  const pole = 'w-full rounded-md border border-input bg-background px-3 py-2 text-sm'
+  // ── Klocki wizualne (system biura: hairline, monochrom, znacznik) ──
+  const znacznik = 'inline-block rounded-[3px] border border-ink-400/40 px-1.5 py-px text-[10.5px] font-semibold uppercase tracking-[0.05em]'
+  const etykieta = 'text-[10.5px] font-semibold uppercase tracking-[0.05em] text-ink-500'
+  const input = 'h-8 w-full rounded-[3px] border border-surface-400 bg-white px-2 text-sm outline-none focus:border-ink-700'
+  const zakladka = (aktywna: boolean) =>
+    `rounded-[3px] border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.05em] ${
+      aktywna ? 'border-ink-700 bg-ink-700 text-white' : 'border-surface-400 bg-white text-ink-500 hover:border-ink-400'}`
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6">
-      <div className="flex max-h-full w-[900px] max-w-full flex-col gap-4 overflow-auto rounded-xl bg-background p-6 shadow-xl">
-        <div className="flex items-center gap-3">
-          <div>
-            <h2 className="text-xl font-bold">Dodaj wyrób gotowy</h2>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              Wpis zastępuje pracę kiosku: sztuki wchodzą na magazyn, tuleje i mięso schodzą ze stanu.
-            </p>
-          </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-700/40 p-6">
+      <div className="flex h-[86vh] w-[1180px] max-w-full flex-col rounded border border-surface-400 bg-white shadow-lg">
+
+        {/* Nagłówek */}
+        <div className="flex items-baseline gap-4 border-b border-surface-300 px-5 py-3">
+          <h2 className="font-display text-lg font-bold tracking-tight">Dodaj wyrób gotowy</h2>
+          <span className="text-xs text-ink-500">
+            wejście biura, dopóki produkcja i masownia nie mają panelu
+          </span>
+          <label className="ml-auto flex items-center gap-2">
+            <span className={etykieta}>Data produkcji</span>
+            <input data-testid="pole-data" type="date" value={data}
+              onChange={e => setData(e.target.value)}
+              className="h-8 rounded-[3px] border border-surface-400 px-2 font-mono text-sm" />
+          </label>
           <button type="button" onClick={onClose} aria-label="Zamknij"
-            className="ml-auto text-xl text-muted-foreground">✕</button>
+            className="text-lg leading-none text-ink-500 hover:text-ink-700">✕</button>
         </div>
 
-        <div className="flex gap-2">
-          {([['zamowienie', 'Z zamówienia'], ['magazyn', 'Na magazyn']] as const).map(([k, label]) => (
-            <button key={k} type="button" data-testid={`tryb-${k}`}
-              onClick={() => { setTryb(k); if (k === 'magazyn') { setWybranaPozycja(''); setForm(f => ({ ...f, clientOrderNo: '', clientId: '', clientName: '' })) } }}
-              className={`rounded-md border px-4 py-2 text-sm font-semibold ${
-                tryb === k ? 'border-primary bg-primary text-primary-foreground' : 'border-input'}`}>
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {tryb === 'zamowienie' && (
-          <div className="flex flex-col gap-2">
-            <div className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-              Pozycja zamówienia
-            </div>
-            <div className="flex max-h-52 flex-col gap-1.5 overflow-auto">
-              {otwarte.flatMap(o => (o.lines ?? []).map((l: any) => (
-                <button key={l.id} type="button" data-testid={`pozycja-${l.id}`}
-                  onClick={() => wezZPozycji(o, l)}
-                  className={`flex items-center gap-3 rounded-md border px-3 py-2 text-left text-sm ${
-                    wybranaPozycja === l.id ? 'border-primary bg-primary/5' : 'border-input'}`}>
-                  <span className="font-mono font-bold">{o.orderNo}</span>
-                  <span className="flex-1">{o.clientName} · {l.recipeName} {fmtKg(l.kgPerUnit)} kg</span>
-                  <span className="tabular-nums text-muted-foreground">
-                    zostało {remainingOnLine(l)} z {l.qty} szt.
-                  </span>
+        <div className="flex min-h-0 flex-1">
+          {/* ── Lewa kolumna: skąd bierzemy pozycje ── */}
+          <div className="flex min-h-0 flex-[3] flex-col border-r border-surface-300">
+            <div className="flex items-center gap-2 border-b border-surface-300 px-5 py-2.5">
+              <button type="button" data-testid="tryb-zamowienia" className={zakladka(tryb === 'zamowienia')}
+                onClick={() => setTryb('zamowienia')}>Z zamówień</button>
+              <button type="button" data-testid="tryb-recznie" className={zakladka(tryb === 'recznie')}
+                onClick={() => setTryb('recznie')}>Ręcznie</button>
+              {tryb === 'zamowienia' && wszystkieLinie.length > 0 && (
+                <button type="button" data-testid="zaznacz-wszystko" onClick={przelaczWszystko}
+                  className="ml-auto text-xs font-semibold text-ink-700 underline underline-offset-2">
+                  {wszystkieLinie.every(l => wybrane[l.id] != null) ? 'Odznacz wszystko' : 'Zaznacz wszystko'}
                 </button>
-              )))}
-              {otwarte.length === 0 && (
-                <div className="px-1 py-4 text-sm text-muted-foreground">
-                  Brak otwartych zamówień — wpisz wyrób „na magazyn".
-                </div>
               )}
             </div>
-          </div>
-        )}
 
-        <div className="grid grid-cols-4 gap-3">
-          <label className="col-span-2 flex flex-col gap-1 text-xs font-semibold">
-            Receptura
-            <select data-testid="pole-receptura" className={pole} value={form.recipeId}
-              disabled={tryb === 'zamowienie'}
-              onChange={e => {
-                const r = receptury.find((x: any) => x.id === e.target.value)
-                setForm(f => ({ ...f, recipeId: e.target.value, recipeName: r?.name ?? '' }))
-              }}>
-              <option value="">— wybierz —</option>
-              {receptury.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold">
-            Waga sztuki (kg)
-            <input data-testid="pole-waga" className={pole} inputMode="decimal" value={form.kgPerUnit}
-              disabled={tryb === 'zamowienie'}
-              onChange={e => setForm(f => ({ ...f, kgPerUnit: e.target.value }))} />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold">
-            Sztuk
-            <input data-testid="pole-sztuki" className={pole} inputMode="numeric" value={form.qty}
-              onChange={e => setForm(f => ({ ...f, qty: e.target.value }))} />
-          </label>
-          <label className="col-span-2 flex flex-col gap-1 text-xs font-semibold">
-            Tuleja
-            <select data-testid="pole-tuleja" className={pole} value={form.packagingId}
-              onChange={e => {
-                const p = tuleje.find((x: any) => x.id === e.target.value)
-                setForm(f => ({ ...f, packagingId: e.target.value, packagingName: p?.name ?? '' }))
-              }}>
-              <option value="">— bez tulei —</option>
-              {tuleje.map((p: any) => (
-                <option key={p.id} value={p.id}>{p.name} ({Math.floor(Number(p.kgAvailable) || 0)} szt.)</option>
-              ))}
-            </select>
-          </label>
-          <label className="col-span-2 flex flex-col gap-1 text-xs font-semibold">
-            Data produkcji
-            <input data-testid="pole-data" type="date" className={pole} value={form.producedDate}
-              onChange={e => setForm(f => ({ ...f, producedDate: e.target.value }))} />
-          </label>
-        </div>
+            {tryb === 'zamowienia' ? (
+              <div className="min-h-0 flex-1 overflow-auto">
+                {grupy.map(g => {
+                  const zaznaczonych = g.lines.filter(l => wybrane[l.id] != null).length
+                  return (
+                    <div key={g.clientId} data-testid={`grupa-${g.clientId}`}>
+                      {/* Nagłówek klienta — sticky, żeby przy przewijaniu było
+                          wiadomo, czyje pozycje się właśnie zaznacza. */}
+                      <div className="sticky top-0 z-10 flex items-center gap-3 border-y border-surface-300 bg-surface-100 px-5 py-1.5">
+                        <button type="button" data-testid={`grupa-zaznacz-${g.clientId}`}
+                          onClick={() => przelaczGrupe(g)}
+                          className="flex items-center gap-2 text-left">
+                          <span className={`flex h-4 w-4 items-center justify-center rounded-[3px] border text-[10px] ${
+                            zaznaczonych === g.lines.length ? 'border-ink-700 bg-ink-700 text-white'
+                              : zaznaczonych > 0 ? 'border-ink-700 text-ink-700' : 'border-surface-400'}`}>
+                            {zaznaczonych === g.lines.length ? '✓' : zaznaczonych > 0 ? '–' : ''}
+                          </span>
+                          <span className="text-sm font-bold">{g.clientName}</span>
+                        </button>
+                        <span className={znacznik}>{g.lines.length} poz.</span>
+                        <span className="ml-auto font-mono text-xs text-ink-500">
+                          zostało {fmtKg(g.kgLeft, 0)} kg
+                        </span>
+                      </div>
 
-        <div className="flex flex-col gap-2">
-          <div className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-            Partia z masowni — z niej powstanie numer partii wyrobu
-          </div>
-          <div className="flex max-h-40 flex-wrap gap-2 overflow-auto">
-            {partie.map((p: any) => (
-              <button key={p.id} type="button" data-testid={`partia-${p.batchNo}`}
-                onClick={() => przelaczPartie(p.batchNo)}
-                className={`rounded-md border px-3 py-2 text-sm font-semibold ${
-                  form.batchNos.includes(p.batchNo) ? 'border-primary bg-primary text-primary-foreground' : 'border-input'}`}>
-                <span className="font-mono">{p.batchNo}</span>
-                <span className="ml-2 opacity-70">{p.recipeName} · {fmtKg(p.kgAvailable)} kg</span>
-              </button>
-            ))}
-            {partie.length === 0 && (
-              <div className="text-sm text-muted-foreground">
-                Masownia nie ma wolnych partii — wyrób wejdzie bez wsadu, z numerem z daty.
+                      <table className="w-full">
+                        <tbody>
+                          {g.lines.map(l => {
+                            const wybrana = wybrane[l.id] != null
+                            const brakuje = remainingOnLine(l)
+                            return (
+                              <tr key={l.id} data-testid={`pozycja-${l.id}`} onClick={() => przelacz(l)}
+                                className={`cursor-pointer border-b border-surface-200 ${wybrana ? 'bg-surface-100' : 'hover:bg-surface-50'}`}>
+                                <td className="w-8 py-1.5 pl-5">
+                                  <span className={`flex h-4 w-4 items-center justify-center rounded-[3px] border text-[10px] ${
+                                    wybrana ? 'border-ink-700 bg-ink-700 text-white' : 'border-surface-400'}`}>
+                                    {wybrana ? '✓' : ''}
+                                  </span>
+                                </td>
+                                <td className="py-1.5 font-mono text-xs text-ink-500">{l.orderNo}</td>
+                                <td className="py-1.5 text-sm font-semibold">{l.recipeName}</td>
+                                <td className="py-1.5 font-mono text-sm tabular-nums">{fmtKg(l.kgPerUnit)} kg</td>
+                                <td className="py-1.5 text-xs text-ink-500">{l.packagingName || '—'}</td>
+                                <td className="py-1.5 text-right font-mono text-xs tabular-nums text-ink-500">
+                                  {brakuje} z {l.qty} szt.
+                                </td>
+                                <td className="w-24 py-1.5 pr-5 pl-3 text-right" onClick={e => e.stopPropagation()}>
+                                  {wybrana && (
+                                    <input data-testid={`ilosc-${l.id}`} value={String(wybrane[l.id])}
+                                      inputMode="numeric"
+                                      onChange={e => setWybrane(w => ({ ...w, [l.id]: Math.round(liczba(e.target.value)) }))}
+                                      className="h-7 w-20 rounded-[3px] border border-ink-400 px-2 text-right font-mono text-sm tabular-nums" />
+                                  )}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                })}
+                {grupy.length === 0 && (
+                  <div className="px-5 py-10 text-center text-sm text-ink-500">
+                    Brak otwartych zamówień — wpisz wyrób ręcznie.
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+                <div className="grid grid-cols-6 gap-3">
+                  <label className="col-span-3 flex flex-col gap-1">
+                    <span className={etykieta}>Receptura</span>
+                    <select data-testid="reczne-receptura" className={input} value={formaReczna.recipeId}
+                      onChange={e => setFormaReczna(f => ({ ...f, recipeId: e.target.value }))}>
+                      <option value="">— wybierz —</option>
+                      {receptury.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className={etykieta}>Sztuk</span>
+                    <input data-testid="reczne-sztuki" inputMode="numeric" className={`${input} text-right font-mono tabular-nums`}
+                      value={formaReczna.qty} onChange={e => setFormaReczna(f => ({ ...f, qty: e.target.value }))} />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className={etykieta}>Waga sztuki</span>
+                    <input data-testid="reczne-waga" inputMode="decimal" className={`${input} text-right font-mono tabular-nums`}
+                      value={formaReczna.kgPerUnit} onChange={e => setFormaReczna(f => ({ ...f, kgPerUnit: e.target.value }))} />
+                  </label>
+                  <div className="flex items-end pb-1 font-mono text-sm tabular-nums text-ink-500">
+                    = {Math.round(liczba(formaReczna.qty) * liczba(formaReczna.kgPerUnit) * 100) / 100} kg
+                  </div>
+                  <label className="col-span-3 flex flex-col gap-1">
+                    <span className={etykieta}>Tuleja</span>
+                    <select data-testid="reczne-tuleja" className={input} value={formaReczna.packagingId}
+                      onChange={e => setFormaReczna(f => ({ ...f, packagingId: e.target.value }))}>
+                      <option value="">— bez tulei —</option>
+                      {tuleje.map((p: any) => (
+                        <option key={p.id} value={p.id}>{p.name} ({Math.floor(Number(p.kgAvailable) || 0)} szt.)</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="col-span-3 flex flex-col gap-1">
+                    <span className={etykieta}>Klient</span>
+                    <select data-testid="reczne-klient" className={input} value={formaReczna.clientId}
+                      onChange={e => setFormaReczna(f => ({ ...f, clientId: e.target.value }))}>
+                      <option value="">— na magazyn —</option>
+                      {klienci.map((k: any) => <option key={k.id} value={k.id}>{k.name}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <button type="button" data-testid="dodaj-do-koszyka" onClick={dodajReczna}
+                  className="mt-4 rounded-[3px] border border-ink-700 px-4 py-2 text-xs font-semibold uppercase tracking-[0.05em] hover:bg-surface-100">
+                  Dołóż pozycję
+                </button>
+                <p className="mt-3 text-xs text-ink-500">
+                  Pozycja bez klienta wchodzi „na magazyn" — i tak pokryje zamówienie przy wystawianiu WZ.
+                </p>
               </div>
             )}
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" data-testid="zdejmij-mieso" checked={form.consumeSeasoned}
-              onChange={e => setForm(f => ({ ...f, consumeSeasoned: e.target.checked }))} />
-            Zdejmij mięso przyprawione ze stanu masowni
-          </label>
-        </div>
 
-        <div data-testid="podsumowanie" className="rounded-lg border border-input bg-muted/40 px-4 py-3 text-sm">
-          <b>{sztuk || 0} szt. × {form.kgPerUnit || 0} kg = {kgRazem} kg</b>
-          {form.recipeName ? ` · ${form.recipeName}` : ''}
-          {form.packagingName ? ` · ${form.packagingName}` : ''}
-          {form.clientName ? ` · ${form.clientName}` : ' · na magazyn'}
-          {form.clientOrderNo ? ` · ${form.clientOrderNo}` : ''}
-        </div>
+          {/* ── Prawa kolumna: partia + koszyk ── */}
+          <div className="flex min-h-0 flex-[2] flex-col">
+            <div className="border-b border-surface-300 px-5 py-3">
+              <div className="flex items-center gap-2">
+                <span className={etykieta}>Numer partii</span>
+                <div className="ml-auto flex gap-1">
+                  <button type="button" data-testid="partia-tryb-masownia" onClick={() => setZrodloPartii('masownia')}
+                    className={zakladka(zrodloPartii === 'masownia')}>Z masowni</button>
+                  <button type="button" data-testid="partia-tryb-recznie" onClick={() => setZrodloPartii('recznie')}
+                    className={zakladka(zrodloPartii === 'recznie')}>Ręcznie</button>
+                </div>
+              </div>
 
-        <div data-testid="skutki" className="text-sm text-muted-foreground">
-          Ze stanu zejdzie: {form.packagingId ? `${sztuk} szt. tulei` : 'brak tulei'}
-          {form.consumeSeasoned && form.batchNos.length
-            ? ` · ${kgRazem} kg mięsa przyprawionego (${form.batchNos.join(', ')})`
-            : ' · mięso bez zmian'}
-        </div>
+              {zrodloPartii === 'masownia' ? (
+                <>
+                  <div className="mt-2.5 flex max-h-32 flex-wrap gap-1.5 overflow-auto">
+                    {partie.map((p: any) => (
+                      <button key={p.id} type="button" data-testid={`partia-${p.batchNo}`}
+                        onClick={() => przelaczPartie(p.batchNo)}
+                        className={`rounded-[3px] border px-2 py-1 text-left ${
+                          partieWybrane.includes(p.batchNo) ? 'border-ink-700 bg-ink-700 text-white' : 'border-surface-400 hover:border-ink-400'}`}>
+                        <span className="font-mono text-sm font-bold">{p.batchNo}</span>
+                        <span className="ml-1.5 text-[11px] opacity-70">{p.recipeName} · {fmtKg(p.kgAvailable, 0)} kg</span>
+                      </button>
+                    ))}
+                    {partie.length === 0 && (
+                      <span className="text-xs text-ink-500">Masownia nie ma wolnych partii — wpisz numer ręcznie.</span>
+                    )}
+                  </div>
+                  <p className="mt-2 text-[11px] text-ink-500">
+                    Mięso zejdzie ze stanu masowni, a numer partii wyrobu powstanie z daty i wsadu.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <input data-testid="partia-reczna" value={partiaReczna} placeholder="np. 250826 344"
+                    onChange={e => setPartiaReczna(e.target.value)}
+                    className="mt-2.5 h-9 w-full rounded-[3px] border border-surface-400 px-2 font-mono text-base" />
+                  <p className="mt-2 text-[11px] text-ink-500">
+                    Numer trafia na wyrób bez zmian. Masownia zostaje nietknięta — do wpisów,
+                    których nie ma w systemie.
+                  </p>
+                </>
+              )}
+            </div>
 
-        {pokazBledy && bledy.length > 0 && (
-          <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive">
-            {bledy[0]}
+            {/* Koszyk */}
+            <div data-testid="koszyk" className="flex min-h-0 flex-1 flex-col">
+              <div className="flex items-baseline gap-2 px-5 py-2">
+                <span className={etykieta}>Do zapisania</span>
+                <span className="ml-auto font-mono text-sm font-bold tabular-nums">
+                  {sumy.pozycje === 0 ? 'nic nie wybrano'
+                    : `${sumy.pozycje} ${sumy.pozycje === 1 ? 'pozycja' : 'pozycje'} · ${sumy.sztuki} szt. · ${fmtKg(sumy.kg)} kg`}
+                </span>
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto border-t border-surface-200">
+                {koszyk.map((p, i) => (
+                  <div key={`${p.clientOrderNo}-${p.recipeId}-${i}`}
+                    className="flex items-baseline gap-2 border-b border-surface-200 px-5 py-1.5 text-sm">
+                    <span className="font-mono text-xs tabular-nums text-ink-500">{p.qty}×</span>
+                    <span className="font-mono text-xs tabular-nums">{fmtKg(p.kgPerUnit)} kg</span>
+                    <span className="truncate font-semibold">{p.recipeName}</span>
+                    <span className="truncate text-xs text-ink-500">{p.clientName || 'na magazyn'}</span>
+                    <span className="ml-auto font-mono text-xs tabular-nums">{fmtKg(p.qty * p.kgPerUnit)} kg</span>
+                    {!p.clientOrderNo && (
+                      <button type="button" data-testid={`usun-reczna-${i - Object.keys(wybrane).length}`}
+                        onClick={() => setReczne(list => list.filter((_, k) => k !== i - Object.keys(wybrane).length))}
+                        className="text-ink-500 hover:text-danger" aria-label="Usuń">✕</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div data-testid="skutki" className="border-t border-surface-300 px-5 py-2 text-[11px] text-ink-500">
+                Ze stanu zejdzie: {tulejeSzt > 0 ? `${tulejeSzt} szt. tulei` : 'brak tulei'}
+                {zrodloPartii === 'masownia' && partieWybrane.length
+                  ? ` · ${fmtKg(sumy.kg)} kg mięsa (${partieWybrane.join(', ')})`
+                  : ' · mięso bez zmian'}
+              </div>
+            </div>
           </div>
-        )}
-        {blad && (
-          <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive">{blad}</div>
-        )}
+        </div>
 
-        <div className="flex gap-3">
-          <button type="button" data-testid="zapisz-wyrob" onClick={zapisz} disabled={zajety}
-            className="flex-1 rounded-md bg-primary px-4 py-3 text-sm font-bold text-primary-foreground disabled:opacity-50">
-            {zajety ? 'Zapisuję…' : 'Dodaj wyrób'}
-          </button>
+        {/* Stopka */}
+        <div className="flex items-center gap-3 border-t border-surface-300 px-5 py-3">
+          {pokazBledy && bledy.length > 0 && (
+            <span className="text-sm font-semibold text-danger">{bledy[0]}</span>
+          )}
+          {blad && <span className="text-sm font-semibold text-danger">{blad}</span>}
           <button type="button" onClick={onClose}
-            className="rounded-md border border-input px-6 py-3 text-sm font-semibold">Anuluj</button>
+            className="ml-auto rounded-[3px] border border-surface-400 px-4 py-2 text-xs font-semibold uppercase tracking-[0.05em]">
+            Anuluj
+          </button>
+          <button type="button" data-testid="zapisz-wyrob" onClick={zapisz} disabled={zajety}
+            className="rounded-[3px] bg-ink-700 px-5 py-2 text-xs font-semibold uppercase tracking-[0.05em] text-white disabled:opacity-40">
+            {zajety ? 'Zapisuję…' : `Dodaj ${sumy.pozycje || ''} ${sumy.pozycje ? (sumy.pozycje === 1 ? 'pozycję' : 'pozycje') : 'wyrób'}`}
+          </button>
         </div>
       </div>
     </div>
