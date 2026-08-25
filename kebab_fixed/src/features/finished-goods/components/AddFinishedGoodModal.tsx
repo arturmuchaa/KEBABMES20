@@ -22,8 +22,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { clientOrdersApi, clientsApi, finishedGoodsApi, packagingApi, recipesApi, seasonedMeatApi } from '@/lib/api'
 import { fmtKg } from '@/lib/utils'
 import {
-  cartTotals, groupLinesByClient, liczba, remainingOnLine,
-  type ClientGroup, type PickableLine,
+  batchNoPreview, cartTotals, groupLinesByClient, liczba, normalizeManualBatchNo,
+  remainingOnLine, type ClientGroup, type PickableLine,
 } from '../manualGoods'
 
 const dzisiaj = () => new Date().toISOString().slice(0, 10)
@@ -129,6 +129,13 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
   }, [wybrane, poId, grupy, reczne])
 
   const sumy = useMemo(() => cartTotals(koszyk), [koszyk])
+  // Co DOKŁADNIE stanie na wyrobie. Bez tego biuro nie wie, czy wpisać sam
+  // numer porządkowy („456"), czy pełny z datą — a numer ręczny leci na
+  // wyrób bez zmian.
+  const podgladPartii = useMemo(
+    () => batchNoPreview({ mode: zrodloPartii, batchNos: partieWybrane, manual: partiaReczna, producedDate: data }),
+    [zrodloPartii, partieWybrane, partiaReczna, data],
+  )
   const tulejeSzt = koszyk.filter(p => p.packagingId).reduce((s, p) => s + p.qty, 0)
 
   const bledy: string[] = []
@@ -166,7 +173,7 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
         productTypeId: p.productTypeId, productTypeName: p.productTypeName,
         packagingId: p.packagingId, packagingName: p.packagingName,
         clientId: p.clientId, clientName: p.clientName, clientOrderNo: p.clientOrderNo,
-        batchNo: zrodloPartii === 'recznie' ? partiaReczna.trim() : '',
+        batchNo: zrodloPartii === 'recznie' ? normalizeManualBatchNo(partiaReczna, data) : '',
         seasonedBatchNos: zrodloPartii === 'masownia' ? partieWybrane : [],
         consumeSeasoned: zrodloPartii === 'masownia' && partieWybrane.length > 0,
       })))
@@ -384,11 +391,19 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                     onChange={e => setPartiaReczna(e.target.value)}
                     className="mt-2.5 h-9 w-full rounded-[3px] border border-surface-400 px-2 font-mono text-base" />
                   <p className="mt-2 text-[11px] text-ink-500">
-                    Numer trafia na wyrób bez zmian. Masownia zostaje nietknięta — do wpisów,
-                    których nie ma w systemie.
+                    Wpisz sam numer porządkowy („456") — datę produkcji dokleimy z pola wyżej.
+                    Masownia zostaje nietknięta: to droga dla wpisów, których nie ma w systemie.
                   </p>
                 </>
               )}
+            </div>
+
+            {/* Numer, który faktycznie stanie na wyrobie i dokumentach. */}
+            <div className="flex items-baseline gap-2 border-b border-surface-300 bg-surface-50 px-5 py-2">
+              <span className={etykieta}>Na wyrobie stanie</span>
+              <b data-testid="partia-podglad" className="ml-auto font-mono text-sm font-bold">
+                {podgladPartii}
+              </b>
             </div>
 
             {/* Koszyk */}

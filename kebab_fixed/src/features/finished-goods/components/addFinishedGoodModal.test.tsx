@@ -140,6 +140,40 @@ describe('AddFinishedGoodModal — numer partii', () => {
     expect(wolania.zapisy[0][0]).toMatchObject({ batchNo: '250826 344', consumeSeasoned: false })
   })
 
+  it('pokazuje wprost, jaki numer stanie na wyrobie — z masowni', async () => {
+    otworz()
+    fireEvent.change(screen.getByTestId('pole-data'), { target: { value: '2026-08-23' } })
+    fireEvent.click(await screen.findByTestId('pozycja-ol1'))
+    fireEvent.click(screen.getByTestId('partia-344'))
+
+    expect(screen.getByTestId('partia-podglad').textContent).toContain('230826 344')
+  })
+
+  it('sam numer porządkowy dostaje datę produkcji — nie trzeba jej wpisywać', async () => {
+    otworz()
+    fireEvent.change(screen.getByTestId('pole-data'), { target: { value: '2026-08-23' } })
+    fireEvent.click(await screen.findByTestId('pozycja-ol1'))
+    fireEvent.click(screen.getByTestId('partia-tryb-recznie'))
+    fireEvent.change(screen.getByTestId('partia-reczna'), { target: { value: '456' } })
+    expect(screen.getByTestId('partia-podglad').textContent).toContain('230826 456')
+
+    fireEvent.click(screen.getByTestId('zapisz-wyrob'))
+    await waitFor(() => expect(wolania.zapisy).toHaveLength(1))
+    expect(wolania.zapisy[0][0].batchNo).toBe('230826 456')
+  })
+
+  it('wpisany pełny numer nie dostaje daty drugi raz', async () => {
+    otworz()
+    fireEvent.change(screen.getByTestId('pole-data'), { target: { value: '2026-08-23' } })
+    fireEvent.click(await screen.findByTestId('pozycja-ol1'))
+    fireEvent.click(screen.getByTestId('partia-tryb-recznie'))
+    fireEvent.change(screen.getByTestId('partia-reczna'), { target: { value: '230826 456' } })
+    fireEvent.click(screen.getByTestId('zapisz-wyrob'))
+
+    await waitFor(() => expect(wolania.zapisy).toHaveLength(1))
+    expect(wolania.zapisy[0][0].batchNo).toBe('230826 456')
+  })
+
   it('tryb ręczny bez numeru nie przechodzi — wyrób bez partii jest bezużyteczny', async () => {
     otworz()
     fireEvent.click(await screen.findByTestId('pozycja-ol1'))

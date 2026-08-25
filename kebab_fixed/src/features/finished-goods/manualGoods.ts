@@ -141,3 +141,43 @@ export function cartTotals(pozycje: { qty: number; kgPerUnit: number }[]): {
   const kg = pozycje.reduce((s, p) => s + (Number(p.qty) || 0) * (Number(p.kgPerUnit) || 0), 0)
   return { pozycje: pozycje.length, sztuki, kg: Math.round(kg * 100) / 100 }
 }
+
+// ── Numer partii wyrobu ──────────────────────────────────────────────────
+//
+// Backend składa go jako `ddmmrr <numer wsadu>` z DATY PRODUKCJI z formularza
+// (nie z „dzisiaj"), więc wpis wczorajszej produkcji dostaje wczorajszą datę.
+// Numer wpisany ręcznie leci na wyrób BEZ ZMIAN — dlatego biuro musi wpisać
+// pełne „230826 456". Żeby nikt nie musiał tego pamiętać, sam numer
+// porządkowy uzupełniamy datą, a okno pokazuje wynik na żywo.
+
+/** '2026-08-23' → '230826'. */
+export function ddmmrr(isoDate: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate || '').trim())
+  return m ? `${m[3]}${m[2]}${m[1].slice(2)}` : ''
+}
+
+const MA_DATE = /^\d{6}\s+\S/
+
+/** Goły numer („456", „PP13") dostaje z przodu datę produkcji. */
+export function normalizeManualBatchNo(manual: string, producedDate: string): string {
+  const wpis = String(manual || '').trim()
+  if (!wpis || MA_DATE.test(wpis)) return wpis
+  const data = ddmmrr(producedDate)
+  return data ? `${data} ${wpis}` : wpis
+}
+
+/** Co dokładnie stanie na wyrobie — pokazywane pod polem partii. */
+export function batchNoPreview(o: {
+  mode: 'masownia' | 'recznie'
+  batchNos: string[]
+  manual: string
+  producedDate: string
+}): string {
+  const data = ddmmrr(o.producedDate)
+  if (o.mode === 'recznie') return normalizeManualBatchNo(o.manual, o.producedDate) || '—'
+  if (!o.batchNos.length) return '—'
+  if (o.batchNos.length === 1) return data ? `${data} ${o.batchNos[0]}` : o.batchNos[0]
+  // Sztuki z kilku wsadów dostają partię mieszaną PM — numer z sekwencji
+  // nadaje backend, więc uczciwie mówimy „nada system" zamiast zgadywać.
+  return `${data} PM… (numer nada system)`
+}

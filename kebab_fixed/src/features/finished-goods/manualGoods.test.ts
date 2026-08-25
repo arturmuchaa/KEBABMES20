@@ -137,3 +137,64 @@ describe('cartTotals', () => {
     expect(cartTotals([{ qty: 3, kgPerUnit: 17.53 } as any]).kg).toBe(52.59)
   })
 })
+
+// ── Numer partii: co dokładnie stanie na wyrobie ─────────────────────────
+import { ddmmrr, batchNoPreview, normalizeManualBatchNo } from './manualGoods'
+
+describe('ddmmrr', () => {
+  it('data produkcji w formacie numeru partii', () => {
+    expect(ddmmrr('2026-08-23')).toBe('230826')
+  })
+
+  it('pusta albo popsuta data nie udaje numeru', () => {
+    expect(ddmmrr('')).toBe('')
+    expect(ddmmrr('nie-data')).toBe('')
+  })
+})
+
+describe('normalizeManualBatchNo — biuro wpisuje sam numer porządkowy', () => {
+  it('goły numer dostaje datę produkcji z przodu', () => {
+    expect(normalizeManualBatchNo('456', '2026-08-23')).toBe('230826 456')
+  })
+
+  it('pełny numer zostaje bez zmian — nie doklejamy daty drugi raz', () => {
+    expect(normalizeManualBatchNo('230826 456', '2026-08-23')).toBe('230826 456')
+  })
+
+  it('numer z literami (PP13, PM2) też dostaje datę', () => {
+    expect(normalizeManualBatchNo('PP13', '2026-08-23')).toBe('230826 PP13')
+  })
+
+  it('spacje na brzegach nie robią różnicy', () => {
+    expect(normalizeManualBatchNo('  456 ', '2026-08-23')).toBe('230826 456')
+  })
+
+  it('bez daty produkcji oddaje to, co wpisano', () => {
+    expect(normalizeManualBatchNo('456', '')).toBe('456')
+  })
+
+  it('pusty wpis zostaje pusty', () => {
+    expect(normalizeManualBatchNo('', '2026-08-23')).toBe('')
+  })
+})
+
+describe('batchNoPreview — co stanie na wyrobie', () => {
+  it('jeden wsad z masowni: data + numer wsadu', () => {
+    expect(batchNoPreview({ mode: 'masownia', batchNos: ['344'], manual: '', producedDate: '2026-08-25' }))
+      .toBe('250826 344')
+  })
+
+  it('kilka wsadów: numer mieszany PM nada system', () => {
+    expect(batchNoPreview({ mode: 'masownia', batchNos: ['344', 'PP13'], manual: '', producedDate: '2026-08-25' }))
+      .toBe('250826 PM… (numer nada system)')
+  })
+
+  it('bez wskazanego wsadu nie ma czego pokazać', () => {
+    expect(batchNoPreview({ mode: 'masownia', batchNos: [], manual: '', producedDate: '2026-08-25' })).toBe('—')
+  })
+
+  it('tryb ręczny pokazuje numer po doklejeniu daty', () => {
+    expect(batchNoPreview({ mode: 'recznie', batchNos: [], manual: '456', producedDate: '2026-08-23' }))
+      .toBe('230826 456')
+  })
+})
