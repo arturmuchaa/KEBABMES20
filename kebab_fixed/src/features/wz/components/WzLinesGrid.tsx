@@ -48,7 +48,7 @@ export function WzLinesGrid({ rows, valued, sym, onChange, onDelete, onAdd }: Wz
   const sumaWart = rows.reduce((s, r) => s + rowValue(r), 0)
 
   return (
-    <div className="border border-surface-4 rounded-md overflow-hidden bg-surface-1">
+    <div className="border border-surface-4 rounded-md overflow-hidden bg-surface-2">
       <div className="px-3 py-2 border-b border-surface-4 flex items-center gap-3">
         <span className="text-[11px] uppercase tracking-wider font-semibold text-ink-3">Pozycje</span>
         <Button size="sm" variant="outline" className="h-7 gap-1.5 ml-auto text-[11px]"

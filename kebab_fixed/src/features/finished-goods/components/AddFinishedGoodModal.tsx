@@ -187,44 +187,44 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
   }
 
   // ── Klocki wizualne (system biura: hairline, monochrom, znacznik) ──
-  const znacznik = 'inline-block rounded-[3px] border border-ink-400/40 px-1.5 py-px text-[10.5px] font-semibold uppercase tracking-[0.05em]'
-  const etykieta = 'text-[10.5px] font-semibold uppercase tracking-[0.05em] text-ink-500'
-  const input = 'h-8 w-full rounded-[3px] border border-surface-400 bg-white px-2 text-sm outline-none focus:border-ink-700'
+  const znacznik = 'inline-block rounded-[3px] border border-ink-5 px-1.5 py-px text-[10.5px] font-semibold uppercase tracking-[0.05em]'
+  const etykieta = 'text-[10.5px] font-semibold uppercase tracking-[0.05em] text-ink-3'
+  const input = 'h-8 w-full rounded-[3px] border border-surface-4 bg-white px-2 text-sm outline-none focus:border-ink'
   const zakladka = (aktywna: boolean) =>
     `rounded-[3px] border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.05em] ${
-      aktywna ? 'border-ink-700 bg-ink-700 text-white' : 'border-surface-400 bg-white text-ink-500 hover:border-ink-400'}`
+      aktywna ? 'border-ink bg-ink text-white' : 'border-surface-4 bg-white text-ink-3 hover:border-ink-4'}`
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-700/40 p-6">
-      <div className="flex h-[86vh] w-[1180px] max-w-full flex-col rounded border border-surface-400 bg-white shadow-lg">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-6">
+      <div className="flex h-[86vh] w-[1180px] max-w-full flex-col rounded border border-surface-4 bg-white shadow-lg">
 
         {/* Nagłówek */}
-        <div className="flex items-baseline gap-4 border-b border-surface-300 px-5 py-3">
+        <div className="flex items-baseline gap-4 border-b border-surface-3 px-5 py-3">
           <h2 className="font-display text-lg font-bold tracking-tight">Dodaj wyrób gotowy</h2>
-          <span className="text-xs text-ink-500">
+          <span className="text-xs text-ink-3">
             wejście biura, dopóki produkcja i masownia nie mają panelu
           </span>
           <label className="ml-auto flex items-center gap-2">
             <span className={etykieta}>Data produkcji</span>
             <input data-testid="pole-data" type="date" value={data}
               onChange={e => setData(e.target.value)}
-              className="h-8 rounded-[3px] border border-surface-400 px-2 font-mono text-sm" />
+              className="h-8 rounded-[3px] border border-surface-4 px-2 font-mono text-sm" />
           </label>
           <button type="button" onClick={onClose} aria-label="Zamknij"
-            className="text-lg leading-none text-ink-500 hover:text-ink-700">✕</button>
+            className="text-lg leading-none text-ink-3 hover:text-ink">✕</button>
         </div>
 
         <div className="flex min-h-0 flex-1">
           {/* ── Lewa kolumna: skąd bierzemy pozycje ── */}
-          <div className="flex min-h-0 flex-[3] flex-col border-r border-surface-300">
-            <div className="flex items-center gap-2 border-b border-surface-300 px-5 py-2.5">
+          <div className="flex min-h-0 flex-[3] flex-col border-r border-surface-3">
+            <div className="flex items-center gap-2 border-b border-surface-3 px-5 py-2.5">
               <button type="button" data-testid="tryb-zamowienia" className={zakladka(tryb === 'zamowienia')}
                 onClick={() => setTryb('zamowienia')}>Z zamówień</button>
               <button type="button" data-testid="tryb-recznie" className={zakladka(tryb === 'recznie')}
                 onClick={() => setTryb('recznie')}>Ręcznie</button>
               {tryb === 'zamowienia' && wszystkieLinie.length > 0 && (
                 <button type="button" data-testid="zaznacz-wszystko" onClick={przelaczWszystko}
-                  className="ml-auto text-xs font-semibold text-ink-700 underline underline-offset-2">
+                  className="ml-auto text-xs font-semibold text-ink underline underline-offset-2">
                   {wszystkieLinie.every(l => wybrane[l.id] != null) ? 'Odznacz wszystko' : 'Zaznacz wszystko'}
                 </button>
               )}
@@ -238,19 +238,19 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                     <div key={g.clientId} data-testid={`grupa-${g.clientId}`}>
                       {/* Nagłówek klienta — sticky, żeby przy przewijaniu było
                           wiadomo, czyje pozycje się właśnie zaznacza. */}
-                      <div className="sticky top-0 z-10 flex items-center gap-3 border-y border-surface-300 bg-surface-100 px-5 py-1.5">
+                      <div className="sticky top-0 z-10 flex items-center gap-3 border-y border-surface-3 bg-surface-3 px-5 py-1.5">
                         <button type="button" data-testid={`grupa-zaznacz-${g.clientId}`}
                           onClick={() => przelaczGrupe(g)}
                           className="flex items-center gap-2 text-left">
                           <span className={`flex h-4 w-4 items-center justify-center rounded-[3px] border text-[10px] ${
-                            zaznaczonych === g.lines.length ? 'border-ink-700 bg-ink-700 text-white'
-                              : zaznaczonych > 0 ? 'border-ink-700 text-ink-700' : 'border-surface-400'}`}>
+                            zaznaczonych === g.lines.length ? 'border-ink bg-ink text-white'
+                              : zaznaczonych > 0 ? 'border-ink text-ink' : 'border-surface-4'}`}>
                             {zaznaczonych === g.lines.length ? '✓' : zaznaczonych > 0 ? '–' : ''}
                           </span>
                           <span className="text-sm font-bold">{g.clientName}</span>
                         </button>
                         <span className={znacznik}>{g.lines.length} poz.</span>
-                        <span className="ml-auto font-mono text-xs text-ink-500">
+                        <span className="ml-auto font-mono text-xs text-ink-3">
                           zostało {fmtKg(g.kgLeft, 0)} kg
                         </span>
                       </div>
@@ -262,18 +262,18 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                             const brakuje = remainingOnLine(l)
                             return (
                               <tr key={l.id} data-testid={`pozycja-${l.id}`} onClick={() => przelacz(l)}
-                                className={`cursor-pointer border-b border-surface-200 ${wybrana ? 'bg-surface-100' : 'hover:bg-surface-50'}`}>
+                                className={`cursor-pointer border-b border-surface-3 ${wybrana ? 'bg-surface-3' : 'hover:bg-surface-2'}`}>
                                 <td className="w-8 py-1.5 pl-5">
                                   <span className={`flex h-4 w-4 items-center justify-center rounded-[3px] border text-[10px] ${
-                                    wybrana ? 'border-ink-700 bg-ink-700 text-white' : 'border-surface-400'}`}>
+                                    wybrana ? 'border-ink bg-ink text-white' : 'border-surface-4'}`}>
                                     {wybrana ? '✓' : ''}
                                   </span>
                                 </td>
-                                <td className="py-1.5 font-mono text-xs text-ink-500">{l.orderNo}</td>
+                                <td className="py-1.5 font-mono text-xs text-ink-3">{l.orderNo}</td>
                                 <td className="py-1.5 text-sm font-semibold">{l.recipeName}</td>
                                 <td className="py-1.5 font-mono text-sm tabular-nums">{fmtKg(l.kgPerUnit)} kg</td>
-                                <td className="py-1.5 text-xs text-ink-500">{l.packagingName || '—'}</td>
-                                <td className="py-1.5 text-right font-mono text-xs tabular-nums text-ink-500">
+                                <td className="py-1.5 text-xs text-ink-3">{l.packagingName || '—'}</td>
+                                <td className="py-1.5 text-right font-mono text-xs tabular-nums text-ink-3">
                                   {brakuje} z {l.qty} szt.
                                 </td>
                                 <td className="w-24 py-1.5 pr-5 pl-3 text-right" onClick={e => e.stopPropagation()}>
@@ -281,7 +281,7 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                                     <input data-testid={`ilosc-${l.id}`} value={String(wybrane[l.id])}
                                       inputMode="numeric"
                                       onChange={e => setWybrane(w => ({ ...w, [l.id]: Math.round(liczba(e.target.value)) }))}
-                                      className="h-7 w-20 rounded-[3px] border border-ink-400 px-2 text-right font-mono text-sm tabular-nums" />
+                                      className="h-7 w-20 rounded-[3px] border border-ink-4 px-2 text-right font-mono text-sm tabular-nums" />
                                   )}
                                 </td>
                               </tr>
@@ -293,7 +293,7 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                   )
                 })}
                 {grupy.length === 0 && (
-                  <div className="px-5 py-10 text-center text-sm text-ink-500">
+                  <div className="px-5 py-10 text-center text-sm text-ink-3">
                     Brak otwartych zamówień — wpisz wyrób ręcznie.
                   </div>
                 )}
@@ -319,7 +319,7 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                     <input data-testid="reczne-waga" inputMode="decimal" className={`${input} text-right font-mono tabular-nums`}
                       value={formaReczna.kgPerUnit} onChange={e => setFormaReczna(f => ({ ...f, kgPerUnit: e.target.value }))} />
                   </label>
-                  <div className="flex items-end pb-1 font-mono text-sm tabular-nums text-ink-500">
+                  <div className="flex items-end pb-1 font-mono text-sm tabular-nums text-ink-3">
                     = {Math.round(liczba(formaReczna.qty) * liczba(formaReczna.kgPerUnit) * 100) / 100} kg
                   </div>
                   <label className="col-span-3 flex flex-col gap-1">
@@ -342,10 +342,10 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                   </label>
                 </div>
                 <button type="button" data-testid="dodaj-do-koszyka" onClick={dodajReczna}
-                  className="mt-4 rounded-[3px] border border-ink-700 px-4 py-2 text-xs font-semibold uppercase tracking-[0.05em] hover:bg-surface-100">
+                  className="mt-4 rounded-[3px] border border-ink px-4 py-2 text-xs font-semibold uppercase tracking-[0.05em] hover:bg-surface-3">
                   Dołóż pozycję
                 </button>
-                <p className="mt-3 text-xs text-ink-500">
+                <p className="mt-3 text-xs text-ink-3">
                   Pozycja bez klienta wchodzi „na magazyn" — i tak pokryje zamówienie przy wystawianiu WZ.
                 </p>
               </div>
@@ -354,7 +354,7 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
 
           {/* ── Prawa kolumna: partia + koszyk ── */}
           <div className="flex min-h-0 flex-[2] flex-col">
-            <div className="border-b border-surface-300 px-5 py-3">
+            <div className="border-b border-surface-3 px-5 py-3">
               <div className="flex items-center gap-2">
                 <span className={etykieta}>Numer partii</span>
                 <div className="ml-auto flex gap-1">
@@ -372,16 +372,16 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                       <button key={p.id} type="button" data-testid={`partia-${p.batchNo}`}
                         onClick={() => przelaczPartie(p.batchNo)}
                         className={`rounded-[3px] border px-2 py-1 text-left ${
-                          partieWybrane.includes(p.batchNo) ? 'border-ink-700 bg-ink-700 text-white' : 'border-surface-400 hover:border-ink-400'}`}>
+                          partieWybrane.includes(p.batchNo) ? 'border-ink bg-ink text-white' : 'border-surface-4 hover:border-ink-4'}`}>
                         <span className="font-mono text-sm font-bold">{p.batchNo}</span>
                         <span className="ml-1.5 text-[11px] opacity-70">{p.recipeName} · {fmtKg(p.kgAvailable, 0)} kg</span>
                       </button>
                     ))}
                     {partie.length === 0 && (
-                      <span className="text-xs text-ink-500">Masownia nie ma wolnych partii — wpisz numer ręcznie.</span>
+                      <span className="text-xs text-ink-3">Masownia nie ma wolnych partii — wpisz numer ręcznie.</span>
                     )}
                   </div>
-                  <p className="mt-2 text-[11px] text-ink-500">
+                  <p className="mt-2 text-[11px] text-ink-3">
                     Mięso zejdzie ze stanu masowni, a numer partii wyrobu powstanie z daty i wsadu.
                   </p>
                 </>
@@ -389,8 +389,8 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                 <>
                   <input data-testid="partia-reczna" value={partiaReczna} placeholder="np. 250826 344"
                     onChange={e => setPartiaReczna(e.target.value)}
-                    className="mt-2.5 h-9 w-full rounded-[3px] border border-surface-400 px-2 font-mono text-base" />
-                  <p className="mt-2 text-[11px] text-ink-500">
+                    className="mt-2.5 h-9 w-full rounded-[3px] border border-surface-4 px-2 font-mono text-base" />
+                  <p className="mt-2 text-[11px] text-ink-3">
                     Wpisz sam numer porządkowy („456") — datę produkcji dokleimy z pola wyżej.
                     Masownia zostaje nietknięta: to droga dla wpisów, których nie ma w systemie.
                   </p>
@@ -399,7 +399,7 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
             </div>
 
             {/* Numer, który faktycznie stanie na wyrobie i dokumentach. */}
-            <div className="flex items-baseline gap-2 border-b border-surface-300 bg-surface-50 px-5 py-2">
+            <div className="flex items-baseline gap-2 border-b border-surface-3 bg-surface-2 px-5 py-2">
               <span className={etykieta}>Na wyrobie stanie</span>
               <b data-testid="partia-podglad" className="ml-auto font-mono text-sm font-bold">
                 {podgladPartii}
@@ -415,24 +415,24 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                     : `${sumy.pozycje} ${sumy.pozycje === 1 ? 'pozycja' : 'pozycje'} · ${sumy.sztuki} szt. · ${fmtKg(sumy.kg)} kg`}
                 </span>
               </div>
-              <div className="min-h-0 flex-1 overflow-auto border-t border-surface-200">
+              <div className="min-h-0 flex-1 overflow-auto border-t border-surface-3">
                 {koszyk.map((p, i) => (
                   <div key={`${p.clientOrderNo}-${p.recipeId}-${i}`}
-                    className="flex items-baseline gap-2 border-b border-surface-200 px-5 py-1.5 text-sm">
-                    <span className="font-mono text-xs tabular-nums text-ink-500">{p.qty}×</span>
+                    className="flex items-baseline gap-2 border-b border-surface-3 px-5 py-1.5 text-sm">
+                    <span className="font-mono text-xs tabular-nums text-ink-3">{p.qty}×</span>
                     <span className="font-mono text-xs tabular-nums">{fmtKg(p.kgPerUnit)} kg</span>
                     <span className="truncate font-semibold">{p.recipeName}</span>
-                    <span className="truncate text-xs text-ink-500">{p.clientName || 'na magazyn'}</span>
+                    <span className="truncate text-xs text-ink-3">{p.clientName || 'na magazyn'}</span>
                     <span className="ml-auto font-mono text-xs tabular-nums">{fmtKg(p.qty * p.kgPerUnit)} kg</span>
                     {!p.clientOrderNo && (
                       <button type="button" data-testid={`usun-reczna-${i - Object.keys(wybrane).length}`}
                         onClick={() => setReczne(list => list.filter((_, k) => k !== i - Object.keys(wybrane).length))}
-                        className="text-ink-500 hover:text-danger" aria-label="Usuń">✕</button>
+                        className="text-ink-3 hover:text-danger" aria-label="Usuń">✕</button>
                     )}
                   </div>
                 ))}
               </div>
-              <div data-testid="skutki" className="border-t border-surface-300 px-5 py-2 text-[11px] text-ink-500">
+              <div data-testid="skutki" className="border-t border-surface-3 px-5 py-2 text-[11px] text-ink-3">
                 Ze stanu zejdzie: {tulejeSzt > 0 ? `${tulejeSzt} szt. tulei` : 'brak tulei'}
                 {zrodloPartii === 'masownia' && partieWybrane.length
                   ? ` · ${fmtKg(sumy.kg)} kg mięsa (${partieWybrane.join(', ')})`
@@ -443,17 +443,17 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
         </div>
 
         {/* Stopka */}
-        <div className="flex items-center gap-3 border-t border-surface-300 px-5 py-3">
+        <div className="flex items-center gap-3 border-t border-surface-3 px-5 py-3">
           {pokazBledy && bledy.length > 0 && (
             <span className="text-sm font-semibold text-danger">{bledy[0]}</span>
           )}
           {blad && <span className="text-sm font-semibold text-danger">{blad}</span>}
           <button type="button" onClick={onClose}
-            className="ml-auto rounded-[3px] border border-surface-400 px-4 py-2 text-xs font-semibold uppercase tracking-[0.05em]">
+            className="ml-auto rounded-[3px] border border-surface-4 px-4 py-2 text-xs font-semibold uppercase tracking-[0.05em]">
             Anuluj
           </button>
           <button type="button" data-testid="zapisz-wyrob" onClick={zapisz} disabled={zajety}
-            className="rounded-[3px] bg-ink-700 px-5 py-2 text-xs font-semibold uppercase tracking-[0.05em] text-white disabled:opacity-40">
+            className="rounded-[3px] bg-ink px-5 py-2 text-xs font-semibold uppercase tracking-[0.05em] text-white disabled:opacity-40">
             {zajety ? 'Zapisuję…' : `Dodaj ${sumy.pozycje || ''} ${sumy.pozycje ? (sumy.pozycje === 1 ? 'pozycję' : 'pozycje') : 'wyrób'}`}
           </button>
         </div>

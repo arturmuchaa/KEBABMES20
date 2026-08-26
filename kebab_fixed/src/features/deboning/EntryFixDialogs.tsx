@@ -114,7 +114,7 @@ export function EntryCorrectionDialog({ entry, onClose, onSaved }: {
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-bold uppercase text-ink-4">Pracownik</span>
             <select value={worker} onChange={e => setWorker(e.target.value)}
-              className="h-9 px-2 text-[13px] rounded border border-surface-4 bg-surface-1">
+              className="h-9 px-2 text-[13px] rounded border border-surface-4 bg-surface-2">
               {!workers.some(w => w.id === worker) && (
                 <option value={worker}>{entry.workerName ?? '—'}</option>
               )}
@@ -126,12 +126,12 @@ export function EntryCorrectionDialog({ entry, onClose, onSaved }: {
             <label className="flex flex-col gap-1">
               <span className="text-[11px] font-bold uppercase text-ink-4">Ćwiartka [kg]</span>
               <input value={quarter} onChange={e => setQuarter(e.target.value)} inputMode="decimal"
-                className="h-9 px-2 text-[13px] tabular-nums rounded border border-surface-4 bg-surface-1" />
+                className="h-9 px-2 text-[13px] tabular-nums rounded border border-surface-4 bg-surface-2" />
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-[11px] font-bold uppercase text-ink-4">Mięso [kg]</span>
               <input value={meat} onChange={e => setMeat(e.target.value)} inputMode="decimal"
-                className="h-9 px-2 text-[13px] tabular-nums rounded border border-surface-4 bg-surface-1" />
+                className="h-9 px-2 text-[13px] tabular-nums rounded border border-surface-4 bg-surface-2" />
             </label>
           </div>
           <div className="text-[12px] text-ink-3">
@@ -144,7 +144,7 @@ export function EntryCorrectionDialog({ entry, onClose, onSaved }: {
             <span className="text-[11px] font-bold uppercase text-ink-4">Powód korekty *</span>
             <input value={reason} onChange={e => setReason(e.target.value)}
               placeholder="np. pomyłka operatora — Adrian zamiast Raschada"
-              className="h-9 px-2 text-[13px] rounded border border-surface-4 bg-surface-1" />
+              className="h-9 px-2 text-[13px] rounded border border-surface-4 bg-surface-2" />
           </label>
 
           <div className="flex items-start gap-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">

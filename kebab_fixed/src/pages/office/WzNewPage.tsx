@@ -668,7 +668,7 @@ export function WzNewPage() {
 
       {/* Pasek akcji przyklejony do dołu — przy długiej siatce „Wystaw"
           nie może uciekać pod ekran. */}
-      <div className="sticky bottom-0 -mx-1 px-1 py-2 bg-surface-1/95 backdrop-blur border-t border-surface-4
+      <div className="sticky bottom-0 -mx-1 px-1 py-2 bg-surface-2/95 backdrop-blur border-t border-surface-4
                       flex items-center gap-3 flex-wrap">
         <div className="text-[12px] text-ink-3">
           {rows.length} poz. · <span className="font-mono font-semibold text-ink">{fmtKgPl(totalKg)} kg</span>

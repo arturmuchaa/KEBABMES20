@@ -194,7 +194,7 @@ export function DeboningControlPage() {
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-4" />
           <input value={q} onChange={e => setQ(e.target.value)}
             placeholder="Szukaj partii lub dostawcy…"
-            className="w-full h-9 pl-8 pr-2 text-[13px] rounded border border-surface-4 bg-surface-1" />
+            className="w-full h-9 pl-8 pr-2 text-[13px] rounded border border-surface-4 bg-surface-2" />
         </div>
         <span className="text-[12px] text-ink-4">
           {filtered.length} {filtered.length === 1 ? 'partia' : 'partii'} z rozbiorem

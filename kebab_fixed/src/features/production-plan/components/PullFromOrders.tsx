@@ -157,7 +157,7 @@ export function PullFromOrders({ orders, progress, recipes = [], onPull, onClose
                     onClick={() => przelacz(l.lineId)}
                     className={cn(
                       'flex w-full items-center gap-2 border-b border-surface-2 px-3 py-1.5 text-left last:border-b-0',
-                      wybrana ? 'bg-surface-2' : 'hover:bg-surface-1',
+                      wybrana ? 'bg-surface-2' : 'hover:bg-surface-2',
                     )}>
                     {znacznik(wybrana ? 'pelny' : 'pusty')}
                     <span className="min-w-0 flex-1">

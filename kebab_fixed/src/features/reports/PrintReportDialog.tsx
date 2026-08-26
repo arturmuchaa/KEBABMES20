@@ -101,7 +101,7 @@ export function PrintReportDialog({ open, onClose, initialKind, initialRef }: {
             ))}
           </div>
 
-          <div className="flex items-center justify-between gap-2 rounded-lg border border-surface-4 bg-surface-1 px-2 py-2">
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-surface-4 bg-surface-2 px-2 py-2">
             <button type="button" onClick={() => move(-1)} aria-label="Poprzedni okres"
               className="h-8 w-8 inline-flex items-center justify-center rounded-md border border-surface-4 bg-white text-ink-2 hover:bg-surface-2 hover:text-ink transition-colors">
               <ChevronLeft size={16} />
@@ -118,7 +118,7 @@ export function PrintReportDialog({ open, onClose, initialKind, initialRef }: {
             </button>
           </div>
 
-          <div className="rounded-lg border border-surface-4 bg-surface-1 px-3 py-2.5 space-y-1">
+          <div className="rounded-lg border border-surface-4 bg-surface-2 px-3 py-2.5 space-y-1">
             <div className="text-[11px] font-bold uppercase tracking-wide text-ink-4">{scopeTitle(kind)}</div>
             <p className="text-xs text-ink-2 leading-relaxed">{contentNote(kind)}</p>
             {ongoing && (
