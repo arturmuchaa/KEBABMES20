@@ -319,11 +319,61 @@ def create_finished_goods_bulk(items: List[FinishedGoodCreate]) -> List[Dict]:
     return out
 
 
+def _match_open_order(conn, dto: FinishedGoodCreate, qty: int) -> str:
+    """Numer OTWARTEGO zamówienia, które ten wyrób domyka — albo pusty.
+
+    Wpis bez numeru lądował w „puli bez przypisania", a ta liczy się do
+    pokrycia KAŻDEGO pasującego zamówienia naraz: 30 szt. KIRMIZI 50 kg
+    pokazywało postęp jednocześnie na ZAGROS i TRUVA (produkcja 26.08.2026).
+    Skoro klient, receptura i waga sztuki się zgadzają, wyrób ma trafić do
+    KONKRETNEGO zamówienia.
+
+    Dopasowanie jest wąskie i nie zgaduje:
+      * ten sam klient (po id, w zapasie po nazwie),
+      * ta sama receptura i ta sama waga sztuki — inna waga to inny towar,
+      * zamówienie otwarte i z niepokrytą resztą na tej pozycji.
+
+    Przy kilku pasujących wygrywa NAJSTARSZE — tak samo jak przy wydaniu
+    z magazynu, żeby zamówienia domykały się po kolei.
+    """
+    if dto.client_order_no or not dto.recipe_id or qty <= 0:
+        return dto.client_order_no or ""
+    if not (dto.client_id or dto.client_name):
+        return ""      # produkcja „na magazyn" nie należy do nikogo
+
+    wiersz = cx_query_one(
+        conn,
+        """
+        SELECT o.order_no
+        FROM client_orders o
+        JOIN client_order_lines l ON l.order_id = o.id
+        WHERE o.status NOT IN ('done', 'cancelled')
+          AND (o.client_id = %s OR (%s <> '' AND o.client_name = %s))
+          AND l.recipe_id = %s
+          AND l.kg_per_unit = %s
+          AND l.qty > COALESCE((
+                SELECT SUM(fg.qty) FROM finished_goods fg
+                WHERE fg.client_order_no = o.order_no
+                  AND fg.recipe_id = l.recipe_id
+                  AND fg.kg_per_unit = l.kg_per_unit
+              ), 0)
+        ORDER BY o.order_date, o.created_at, o.order_no
+        LIMIT 1
+        """,
+        (dto.client_id or "", dto.client_name or "", dto.client_name or "",
+         dto.recipe_id, float(dto.kg_per_unit)),
+    )
+    return (wiersz or {}).get("order_no") or ""
+
+
 def _create_finished_good(conn, dto: FinishedGoodCreate) -> Dict:
     qty = int(dto.qty)
     kg_per_unit = float(dto.kg_per_unit)
     total_kg = round(qty * kg_per_unit, 3)
     produced_date = dto.produced_date or datetime.now().date().isoformat()
+    # Numer zamówienia: wskazany ręcznie wygrywa, w przeciwnym razie
+    # dopasowujemy do otwartego zamówienia tego klienta.
+    client_order_no = _match_open_order(conn, dto, qty)
     if dto.batch_no:
         batch_no = dto.batch_no
     else:
@@ -353,7 +403,7 @@ def _create_finished_good(conn, dto: FinishedGoodCreate) -> Dict:
             dto.packaging_name or None,
             dto.client_name or None,
             dto.client_id or None,
-            dto.client_order_no or None,
+            client_order_no or None,
             qty,
             kg_per_unit,
             total_kg,

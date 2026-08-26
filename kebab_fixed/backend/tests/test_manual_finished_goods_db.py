@@ -218,3 +218,98 @@ def test_kazda_pozycja_moze_miec_wlasna_partie(db):
     ])
 
     assert sorted(i["batch_no"] for i in out) == ["250826 344", "250826 PP13"]
+
+
+# ── Scalanie z zamówieniem ────────────────────────────────────────────────
+#
+# Wpis bez numeru zamówienia lądował w „puli bez przypisania", która liczy się
+# do pokrycia KAŻDEGO pasującego zamówienia naraz: 30 szt. KIRMIZI 50 kg
+# pokazywało postęp jednocześnie na ZAGROS i TRUVA (produkcja, 26.08.2026).
+# Jeśli wszystko pasuje — klient, receptura i waga sztuki — wyrób ma się
+# przypiąć do KONKRETNEGO zamówienia.
+
+def _zamowienie2(order_no, client_name="ZAGROS", client_id="c1", qty=30, kg=50,
+                 order_date="2026-08-25", status="confirmed", oid=None):
+    oid = oid or f"o-{order_no}".replace("/", "-")
+    execute("INSERT INTO clients (id, code, name) VALUES (%s,%s,%s) ON CONFLICT (id) DO NOTHING",
+            (client_id, client_id.upper(), client_name))
+    execute(
+        "INSERT INTO client_orders (id, order_no, client_id, client_name, order_date, status) "
+        "VALUES (%s,%s,%s,%s,%s,%s)",
+        (oid, order_no, client_id, client_name, order_date, status),
+    )
+    execute(
+        "INSERT INTO client_order_lines (id, order_id, recipe_id, product_type_id, qty, kg_per_unit) "
+        "VALUES (%s,%s,'r1','pt1',%s,%s)",
+        (f"l-{oid}", oid, qty, kg),
+    )
+    return oid
+
+
+def test_wpis_przypina_sie_do_pasujacego_zamowienia(db):
+    _zamowienie2("ZAGROS/Z/1")
+
+    item = create_finished_good(_wpis(qty=30, kg_per_unit=50, client_name="ZAGROS", client_id="c1"))
+
+    assert item["client_order_no"] == "ZAGROS/Z/1"
+    assert int(get_order("o-ZAGROS-Z-1")["lines"][0]["qty_done"]) == 30
+
+
+def test_inna_waga_sztuki_to_inny_towar_i_nie_scala(db):
+    _zamowienie2("ZAGROS/Z/1", qty=30, kg=50)
+
+    item = create_finished_good(_wpis(qty=30, kg_per_unit=40, client_name="ZAGROS", client_id="c1"))
+
+    assert not item["client_order_no"]
+
+
+def test_inny_klient_nie_dostaje_cudzego_wyrobu(db):
+    _zamowienie2("ZAGROS/Z/1", client_name="ZAGROS", client_id="c1")
+
+    item = create_finished_good(_wpis(qty=30, kg_per_unit=50, client_name="TRUVA", client_id="c2"))
+
+    assert not item["client_order_no"]
+
+
+def test_zamowienie_juz_pokryte_nie_bierze_wiecej(db):
+    _zamowienie2("ZAGROS/Z/1", qty=30, kg=50)
+    create_finished_good(_wpis(qty=30, kg_per_unit=50, client_name="ZAGROS", client_id="c1"))
+
+    drugi = create_finished_good(_wpis(qty=5, kg_per_unit=50, client_name="ZAGROS", client_id="c1"))
+
+    assert not drugi["client_order_no"]
+
+
+def test_przy_dwoch_pasujacych_wybiera_NAJSTARSZE(db):
+    _zamowienie2("ZAGROS/Z/2", order_date="2026-08-25", oid="o-nowe")
+    _zamowienie2("ZAGROS/Z/1", order_date="2026-08-20", oid="o-stare")
+
+    item = create_finished_good(_wpis(qty=30, kg_per_unit=50, client_name="ZAGROS", client_id="c1"))
+
+    assert item["client_order_no"] == "ZAGROS/Z/1"
+
+
+def test_zamkniete_zamowienie_nie_lapie_wyrobu(db):
+    _zamowienie2("ZAGROS/Z/1", status="done")
+
+    item = create_finished_good(_wpis(qty=30, kg_per_unit=50, client_name="ZAGROS", client_id="c1"))
+
+    assert not item["client_order_no"]
+
+
+def test_wskazane_recznie_zamowienie_wygrywa_z_dopasowaniem(db):
+    _zamowienie2("ZAGROS/Z/1", order_date="2026-08-20", oid="o-stare")
+    _zamowienie2("ZAGROS/Z/2", order_date="2026-08-25", oid="o-nowe")
+
+    item = create_finished_good(_wpis(qty=30, kg_per_unit=50, client_name="ZAGROS",
+                                      client_id="c1", client_order_no="ZAGROS/Z/2"))
+
+    assert item["client_order_no"] == "ZAGROS/Z/2"
+
+
+def test_wyrob_na_magazyn_bez_klienta_zostaje_bez_zamowienia(db):
+    _zamowienie2("ZAGROS/Z/1")
+
+    item = create_finished_good(_wpis(qty=30, kg_per_unit=50))
+
+    assert not item["client_order_no"]
