@@ -55,3 +55,42 @@ describe('receptionTagsPrintJobs — co leci na drukarkę', () => {
     expect(receptionTagsPrintJobs([], DEFAULT_CALIBRATION)).toEqual([])
   })
 })
+
+/**
+ * Przerwa między zawieszkami (26.08.2026).
+ *
+ * Biuro: „całość się drukuje, ale cięcie w złym miejscu" — i tylko przy serii
+ * kilku palet, przy pojedynczej zawieszce dobrze.
+ *
+ * Zadania są osobne od 22.08, ale BrowserPrint oddaje sterowanie w chwili
+ * przekazania danych, nie po wydrukowaniu. Sześć zawieszek ląduje w buforze
+ * w kilkanaście milisekund, a GC420t drukuje pełny bufor jednym ciągiem:
+ * do punktu odrywania dojeżdża dopiero po OSTATNIEJ. Wcześniejsze zatrzymują
+ * się tam, gdzie zaczyna się druk następnej — i biuro odrywa je w poprzek.
+ *
+ * Lekarstwo: poczekać, aż bufor się opróżni. Wtedy drukarka wykonuje dosuw do
+ * krawędzi po KAŻDEJ zawieszce, dokładnie jak przy druku pojedynczym.
+ */
+import { tagPrintDelayMs } from './receptionTagsPrint'
+
+describe('tagPrintDelayMs — ile czekać między zawieszkami', () => {
+  it('starcza na wydruk etykiety i dosuw do krawędzi', () => {
+    // 80 mm przy ~100 mm/s to 0,8 s druku + dosuw; z zapasem ponad sekunda.
+    expect(tagPrintDelayMs(80)).toBeGreaterThanOrEqual(1000)
+    expect(tagPrintDelayMs(80)).toBeLessThanOrEqual(2000)
+  })
+
+  it('dłuższa etykieta czeka dłużej', () => {
+    expect(tagPrintDelayMs(150)).toBeGreaterThan(tagPrintDelayMs(80))
+  })
+
+  it('krótka etykieta nie schodzi poniżej sensownego minimum', () => {
+    expect(tagPrintDelayMs(20)).toBeGreaterThanOrEqual(600)
+  })
+
+  it('bzdurna długość nie zawiesza druku na minutę', () => {
+    expect(tagPrintDelayMs(0)).toBeGreaterThanOrEqual(600)
+    expect(tagPrintDelayMs(99999)).toBeLessThanOrEqual(3000)
+    expect(tagPrintDelayMs(NaN as any)).toBeGreaterThanOrEqual(600)
+  })
+})

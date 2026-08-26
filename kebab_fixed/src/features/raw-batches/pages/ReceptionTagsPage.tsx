@@ -28,7 +28,10 @@ import {
   parsePrinterIdentity, parsePrinterStatus, printerSummary,
 } from '../printerStatus'
 import type { ReceptionTagInput } from '../receptionTagZpl'
-import { receptionTagsPrintJobs } from '../receptionTagsPrint'
+import { receptionTagsPrintJobs, tagPrintDelayMs } from '../receptionTagsPrint'
+
+/** Czekanie między zawieszkami — patrz komentarz w `send`. */
+const pauza = (ms: number) => new Promise<void>(res => setTimeout(res, ms))
 import {
   CALIBRATE_ZPL, calibrationTestZpl, loadCalibration, saveCalibration,
   tearOffZpl, type TagPrinterCalibration,
@@ -63,7 +66,15 @@ export function ReceptionTagsPage() {
       const { default: def, list } = await getDevices()
       const dev = def ?? list[0]
       if (!dev) throw new Error('Nie znaleziono drukarki etykiet — sprawdź, czy Zebra jest włączona i podłączona do tego komputera.')
-      for (const zpl of jobs) await sendZpl(dev, zpl)
+      // Przerwa MIĘDZY zawieszkami, nie po ostatniej: BrowserPrint oddaje
+      // sterowanie w chwili przekazania danych, więc bez niej cała seria
+      // ląduje w buforze naraz i GC420t dojeżdża do punktu odrywania dopiero
+      // po ostatniej etykiecie — wcześniejsze biuro odrywało w poprzek
+      // (zgłoszenie 26.08.2026).
+      for (let i = 0; i < jobs.length; i++) {
+        await sendZpl(dev, jobs[i])
+        if (i < jobs.length - 1) await pauza(tagPrintDelayMs(calibration.labelLengthMm))
+      }
       setMessage({ ok: true, text: ok })
     } catch (e: any) {
       // Zwykle to nie błąd druku, tylko brak/zablokowana usługa BrowserPrint —
@@ -78,7 +89,7 @@ export function ReceptionTagsPage() {
     } finally {
       setPrinting(false)
     }
-  }, [])
+  }, [calibration.labelLengthMm])
 
   // UWAGA: druk NIE wysyła `~TA`.
   //

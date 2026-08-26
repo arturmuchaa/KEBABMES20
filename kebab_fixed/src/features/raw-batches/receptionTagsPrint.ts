@@ -33,3 +33,25 @@ export function receptionTagsPrintJobs(
     labelLengthMm: calibration.labelLengthMm,
   }))
 }
+
+/**
+ * Ile czekać między zawieszkami serii, żeby drukarka zdążyła dojechać do
+ * punktu odrywania.
+ *
+ * BrowserPrint oddaje sterowanie w chwili PRZEKAZANIA danych, nie po
+ * wydrukowaniu. Bez tej przerwy sześć zawieszek ląduje w buforze w kilkanaście
+ * milisekund, a GC420t drukuje pełny bufor jednym ciągiem — dosuw do krawędzi
+ * robi dopiero po ostatniej, więc wcześniejsze biuro odrywa w poprzek
+ * (zgłoszenie 26.08.2026; przy pojedynczej zawieszce problemu nie ma).
+ *
+ * Liczymy z długości etykiety i prędkości druku, z zapasem na dosuw i cofnięcie
+ * taśmy. Sufit 3 s pilnuje, żeby błędna nastawa nie zawiesiła druku na minuty.
+ */
+const PREDKOSC_MM_S = 100   // GC420t domyślnie ~4 cale/s
+const DOSUW_MM = 25         // dojazd do krawędzi odrywania i powrót
+
+export function tagPrintDelayMs(labelLengthMm: number): number {
+  const dlugosc = Number.isFinite(labelLengthMm) && labelLengthMm > 0 ? labelLengthMm : 0
+  const ms = ((dlugosc + DOSUW_MM) / PREDKOSC_MM_S) * 1000 * 1.25
+  return Math.round(Math.min(3000, Math.max(600, ms)))
+}
