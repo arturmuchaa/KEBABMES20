@@ -9,7 +9,7 @@ import {
 } from '@/lib/apiClient'
 import {
   FINISHED_BATCHES_LIMIT, filterDeboningBatches, lastFinishedBatches,
-  sortMeatGroupsByExpiry,
+  orderLineDone, sortMeatGroupsByExpiry,
 } from '@/features/dashboard/dashboardLists'
 import { ExpiryBadge, StatusBadge, computeDisplayStatus } from '@/components/ui/badge'
 import { fmtKg, fmtPct, fmtDatePl, getExpiryStatus, todayIso, cn } from '@/lib/utils'
@@ -1456,7 +1456,15 @@ function OrdersTable({ orders, finishedQtyByOrderNo, inProgressQtyByOrderId, inP
                               // Wykonano = qty_done ze wszystkich planów (active + done).
                               // inProgressByLineId pokazałoby tylko aktywne — po finish-day
                               // wartość znikałaby z rozwinięcia, mimo że produkcja się odbyła.
-                              const lineDone = qtyDoneByLineId.get(l.id) ?? 0
+                              // Dwa źródła: plan produkcji (praca zaraportowana
+                              // na hali) i wyrób gotowy z backendu (`qtyDone`,
+                              // obejmuje wpisy ręczne z biura). Bez tego drugiego
+                              // rozwinięcie milczało o wyrobie dodanym ręcznie,
+                              // choć sekcja Zamówienia pokazywała go poprawnie.
+                              const lineDone = orderLineDone({
+                                zPlanow: qtyDoneByLineId.get(l.id) ?? 0,
+                                zWyrobu: Number(l.qtyDone) || 0,
+                              })
                               const linePending = inProgressByLineId.get(l.id) ?? 0
                               const linePct  = Number(l.qty) > 0 ? Math.round((lineDone / Number(l.qty)) * 100) : 0
                               return (
@@ -1468,7 +1476,9 @@ function OrdersTable({ orders, finishedQtyByOrderNo, inProgressQtyByOrderId, inP
                                         <span className={cn('font-bold', linePct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>
                                           {lineDone}
                                         </span>
-                                        <span className="text-muted-foreground"> ({linePct}%)</span>
+                                        <span className="text-muted-foreground">
+                                          {' '}({linePct}%) · {fmtKg(lineDone * (Number(l.kgPerUnit) || 0), 0)} kg
+                                        </span>
                                         {linePending > 0 && linePending < lineDone && (
                                           <span className="text-[10px] text-amber-600 ml-1">· {linePending} w produkcji</span>
                                         )}

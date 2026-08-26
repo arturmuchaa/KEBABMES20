@@ -102,3 +102,24 @@ function compareBatchNo(a: string, b: string): number {
   if (aNum !== bNum) return aNum ? -1 : 1
   return (a || '').localeCompare(b || '', 'pl', { numeric: true })
 }
+
+/**
+ * Ile sztuk pozycji zamówienia jest zrobionych — z DWÓCH źródeł naraz.
+ *
+ * Pulpit liczył to wyłącznie z linii planów produkcji (`clientOrderLineId`),
+ * więc wyrób dodany ręcznie z biura nie pokazywał się w rozwinięciu wcale,
+ * choć sekcja Zamówienia — licząca z wyrobu gotowego — pokazywała go dobrze.
+ * Ta sama pozycja miała dwie różne prawdy na jednym ekranie.
+ *
+ * Bierzemy WIĘKSZE z dwóch, nie sumę: po potwierdzeniu dnia te same sztuki
+ * siedzą w obu źródłach naraz (plan je zaraportował, a finish_day zrobił
+ * z nich wyrób) i suma pokazywałaby podwójnie.
+ */
+export function orderLineDone(o: { zPlanow?: number; zWyrobu?: number }): number {
+  const plan = Number(o?.zPlanow)
+  const wyrob = Number(o?.zWyrobu)
+  return Math.max(
+    Number.isFinite(plan) ? plan : 0,
+    Number.isFinite(wyrob) ? wyrob : 0,
+  )
+}

@@ -123,3 +123,37 @@ describe('sortMeatGroupsByExpiry', () => {
     expect(sortMeatGroupsByExpiry(grupy).map(g => g.rawBatchNo)).toEqual(['488', '—'])
   })
 })
+
+/**
+ * Wykonanie pozycji zamówienia w rozwinięciu na pulpicie (26.08.2026).
+ *
+ * Rozwinięcie liczyło TYLKO z linii planów produkcji, więc wyrób dodany
+ * ręcznie z biura nie pokazywał się wcale — a sekcja Zamówienia (licząca
+ * z wyrobu gotowego) pokazywała go poprawnie. Ta sama pozycja miała dwie
+ * różne prawdy na jednym ekranie.
+ */
+import { orderLineDone } from './dashboardLists'
+
+describe('orderLineDone — ile tej pozycji faktycznie zrobiono', () => {
+  it('bierze wyrób gotowy, gdy plan o niczym nie wie (wpis ręczny z biura)', () => {
+    expect(orderLineDone({ zPlanow: 0, zWyrobu: 17 })).toBe(17)
+  })
+
+  it('bierze plan, gdy wyrób gotowy jeszcze nie powstał (biuro nie potwierdziło dnia)', () => {
+    expect(orderLineDone({ zPlanow: 12, zWyrobu: 0 })).toBe(12)
+  })
+
+  it('NIE sumuje — po potwierdzeniu dnia te same sztuki są w obu źródłach', () => {
+    expect(orderLineDone({ zPlanow: 20, zWyrobu: 20 })).toBe(20)
+  })
+
+  it('gdy źródła się różnią, wygrywa większe — praca już się wydarzyła', () => {
+    expect(orderLineDone({ zPlanow: 8, zWyrobu: 20 })).toBe(20)
+    expect(orderLineDone({ zPlanow: 25, zWyrobu: 20 })).toBe(25)
+  })
+
+  it('śmieci i brak danych to zero, nie NaN', () => {
+    expect(orderLineDone({} as any)).toBe(0)
+    expect(orderLineDone({ zPlanow: NaN as any, zWyrobu: undefined as any })).toBe(0)
+  })
+})
