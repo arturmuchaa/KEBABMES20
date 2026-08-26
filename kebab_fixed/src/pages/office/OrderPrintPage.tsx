@@ -1,5 +1,13 @@
 /**
- * OrderPrintPage — Wydruk zamówienia klienta.
+ * OrderPrintPage — kartka, z którą magazynier chodzi po chłodni.
+ *
+ * To NIE jest dokument handlowy (od tego jest WZ), tylko lista do
+ * skompletowania. Musi nieść wszystko, co potrzebne przy zbieraniu towaru —
+ * rodzaj, receptura, tuleja, sztuki, waga, ile już zrobione i ile ZOSTAŁO —
+ * i mieć kratkę do odhaczenia ręką. Bez kratki magazynier znaczy po pamięci
+ * albo pisze po marginesie (zgłoszenie z biura 26.08.2026).
+ *
+ * Gęstość i styl jak w WZ: monochrom, hairline, dane monospace.
  *
  * Trasa: /office/zamowienia/:id/druk
  * Renderowana POZA OfficeLayout (bez sidebara) — pełne okno do druku.
@@ -43,8 +51,11 @@ export function OrderPrintPage() {
   }, [pallets])
 
   const totalPallets = pallets.length
-  const totalKg      = order?.totalKg    ?? 0
-  const totalUnits   = order?.totalUnits ?? 0
+  // Sumy liczone Z WIERSZY, nie z pól zamówienia: kartka, której podsumowanie
+  // nie zgadza się z tym, co na niej wydrukowano, jest gorsza niż bez sumy.
+  const totalKg = (order?.lines ?? []).reduce(
+    (sum: number, l: any) => sum + (Number(l.totalKg) || (Number(l.qty) || 0) * (Number(l.kgPerUnit) || 0)), 0)
+  const totalUnits = (order?.lines ?? []).reduce((sum: number, l: any) => sum + (Number(l.qty) || 0), 0)
 
   // Auto-focus print button: użytkownik klika "Drukuj" świadomie.
   useEffect(() => { document.title = order ? `Zamówienie nr ${order.orderNo}` : 'Wydruk zamówienia' }, [order])
@@ -100,6 +111,10 @@ export function OrderPrintPage() {
           .no-print { display: none !important; }
           body, html { background: white !important; }
           @page { size: A4; margin: 12mm 10mm; }
+          /* Kartka bywa na dwie strony — nagłówek tabeli ma się powtórzyć,
+             a wiersz nie może się przełamać w pół. */
+          thead { display: table-header-group; }
+          tr { break-inside: avoid; page-break-inside: avoid; }
         }
         @media screen {
           .print-page { max-width: 210mm; margin: 16px auto; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
@@ -154,53 +169,75 @@ export function OrderPrintPage() {
           <div className="font-bold text-base">{clientDisplay(order.clientName)}</div>
         </div>
 
-        {/* Tabela pozycji */}
-        <table className="w-full text-sm border-collapse mb-4">
-          <thead>
-            <tr className="bg-slate-100">
-              <th className="border border-slate-400 px-2 py-1.5 text-left w-8">Lp</th>
-              <th className="border border-slate-400 px-2 py-1.5 text-left">Produkt / Receptura / Tuleja</th>
-              <th className="border border-slate-400 px-2 py-1.5 text-right w-14">Szt</th>
-              <th className="border border-slate-400 px-2 py-1.5 text-right w-16">kg</th>
-              <th className="border border-slate-400 px-2 py-1.5 text-right w-20">Razem kg</th>
-              <th className="border border-slate-400 px-2 py-1.5 text-center w-24">Palety</th>
+        {/* Tabela pozycji — kolejność jak przy zbieraniu: co, ile, ile zostało. */}
+        <table className="w-full border-collapse text-[12px]">
+          <thead className="table-header-group">
+            <tr>
+              {[
+                ['Lp', 'w-8 text-center'],
+                ['Rodzaj · receptura · tuleja', 'text-left'],
+                ['Szt.', 'w-14 text-right'],
+                ['kg/szt.', 'w-16 text-right'],
+                ['Razem kg', 'w-20 text-right'],
+                ['Zrobione', 'w-16 text-right'],
+                ['Zostało', 'w-16 text-right'],
+                ['Gotowe', 'w-14 text-center'],
+              ].map(([h, cls]) => (
+                <th key={h} className={`border border-black bg-surface-3 px-1.5 py-1 text-[10px] font-bold uppercase tracking-[0.05em] ${cls}`}>
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {order.lines.map((l: any, i: number) => {
               const pal = palletsByLine[l.id] ?? []
-              const kgPerUnitText = Number.isInteger(Number(l.kgPerUnit))
-                ? fmtKg(l.kgPerUnit, 0)
-                : fmtKg(l.kgPerUnit, 1)
+              const zrobione = Math.max(0, Number(l.qtyDone) || 0)
+              const zostalo = Math.max(0, (Number(l.qty) || 0) - zrobione)
+              const kgSzt = Number.isInteger(Number(l.kgPerUnit))
+                ? fmtKg(l.kgPerUnit, 0) : fmtKg(l.kgPerUnit, 1)
               return (
-                <tr key={l.id}>
-                  <td className="border border-slate-400 px-2 py-1.5 text-center">{i + 1}</td>
-                  <td className="border border-slate-400 px-2 py-1.5">
-                    <div className="font-semibold">{l.productTypeName || '—'}</div>
-                    <div className="text-xs text-slate-600">
-                      {l.recipeName || ''}
-                      {l.packagingName ? ` · ${l.packagingName}` : ''}
-                    </div>
+                <tr key={l.id} data-testid={`pozycja-${l.id}`} className="break-inside-avoid">
+                  <td className="border border-black px-1.5 py-1 text-center tabular-nums">{i + 1}</td>
+                  <td className="border border-black px-1.5 py-1">
+                    <span className="font-bold">{l.productTypeName || '—'}</span>
+                    {l.recipeName ? <span> · {l.recipeName}</span> : null}
+                    {l.packagingName ? <span className="text-ink-3"> · {l.packagingName}</span> : null}
+                    {pal.length > 0 && (
+                      <span className="ml-1 text-[10px] text-ink-3">
+                        [{pal.map(p => `P${p.palletNo}` + (p.qty < l.qty ? `(${p.qty})` : '')).join(', ')}]
+                      </span>
+                    )}
                   </td>
-                  <td className="border border-slate-400 px-2 py-1.5 text-right font-bold tabular-nums">{l.qty} szt</td>
-                  <td className="border border-slate-400 px-2 py-1.5 text-right tabular-nums">{kgPerUnitText} kg</td>
-                  <td className="border border-slate-400 px-2 py-1.5 text-right font-bold tabular-nums">{fmtKg(l.totalKg, 1)} kg</td>
-                  <td className="border border-slate-400 px-2 py-1.5 text-center text-xs">
-                    {pal.length === 0
-                      ? <span className="text-slate-400 italic">—</span>
-                      : pal.map(p => `P${p.palletNo}` + (p.qty < l.qty ? `(${p.qty})` : '')).join(', ')}
+                  <td className="border border-black px-1.5 py-1 text-right font-mono font-bold tabular-nums">{l.qty}</td>
+                  <td className="border border-black px-1.5 py-1 text-right font-mono tabular-nums">{kgSzt}</td>
+                  <td className="border border-black px-1.5 py-1 text-right font-mono font-bold tabular-nums">{fmtKg(l.totalKg, 0)}</td>
+                  <td data-testid={`zrobione-${l.id}`}
+                    className="border border-black px-1.5 py-1 text-right font-mono tabular-nums">
+                    {zrobione > 0 ? zrobione : '—'}
+                  </td>
+                  {/* „Zostało" to jedyna liczba, po którą magazynier sięga
+                      w chłodni — dlatego jest wytłuszczona, a zero znika. */}
+                  <td data-testid={`zostalo-${l.id}`}
+                    className="border border-black px-1.5 py-1 text-right font-mono font-bold tabular-nums">
+                    {zostalo > 0 ? zostalo : '—'}
+                  </td>
+                  <td className="border border-black px-1.5 py-1 text-center">
+                    {/* Kratka rysowana ramką, nie znakiem — pusty kwadrat
+                        z fontu bywa niewidoczny na wydruku termicznym. */}
+                    <span data-testid={`kratka-${l.id}`}
+                      className="mx-auto block h-[4mm] w-[4mm] border border-black" />
                   </td>
                 </tr>
               )
             })}
-            {/* Wiersz sumy */}
-            <tr className="bg-slate-100 font-bold">
-              <td className="border border-slate-400 px-2 py-1.5"></td>
-              <td className="border border-slate-400 px-2 py-1.5 text-right">RAZEM:</td>
-              <td className="border border-slate-400 px-2 py-1.5 text-right tabular-nums">{totalUnits} szt</td>
-              <td className="border border-slate-400 px-2 py-1.5"></td>
-              <td className="border border-slate-400 px-2 py-1.5 text-right tabular-nums">{fmtKg(totalKg, 1)} kg</td>
-              <td className="border border-slate-400 px-2 py-1.5 text-center tabular-nums">{totalPallets}</td>
+            <tr data-testid="podsumowanie" className="font-bold">
+              <td className="border border-black px-1.5 py-1" />
+              <td className="border border-black px-1.5 py-1 text-right uppercase text-[10px] tracking-[0.05em]">Razem</td>
+              <td className="border border-black px-1.5 py-1 text-right font-mono tabular-nums">{totalUnits}</td>
+              <td className="border border-black px-1.5 py-1" />
+              <td className="border border-black px-1.5 py-1 text-right font-mono tabular-nums">{fmtKg(totalKg, 0)}</td>
+              <td className="border border-black px-1.5 py-1" colSpan={3} />
             </tr>
           </tbody>
         </table>
@@ -267,13 +304,16 @@ export function OrderPrintPage() {
           )}
         </div>
 
-        {/* Podpisy */}
-        <div className="grid grid-cols-2 gap-8 mt-12 pt-8 text-sm">
+        {/* Podpisy — kartkę zamyka ten, kto skompletował. */}
+        <div data-testid="podpisy" className="mt-10 grid grid-cols-3 gap-6 text-[11px]">
           <div className="text-center">
-            <div className="border-t border-black pt-1 mt-12">Wydał (podpis)</div>
+            <div className="mt-10 border-t border-black pt-1">Skompletował (podpis)</div>
           </div>
           <div className="text-center">
-            <div className="border-t border-black pt-1 mt-12">Odebrał (podpis)</div>
+            <div className="mt-10 border-t border-black pt-1">Data i godzina</div>
+          </div>
+          <div className="text-center">
+            <div className="mt-10 border-t border-black pt-1">Sprawdził (podpis)</div>
           </div>
         </div>
 
