@@ -28,6 +28,12 @@ import {
 
 const dzisiaj = () => new Date().toISOString().slice(0, 10)
 
+/** Na ekranie nazwa HANDLOWA („ZAGROS"), bo tak biuro mówi o kliencie.
+ *  Na backend leci nazwa z kartoteki („OKAYTEKIN KG") — po niej wiążą się
+ *  zamówienia i dokumenty. */
+const nazwaKlienta = (k: any): string =>
+  String(k?.displayName || k?.display_name || k?.name || '')
+
 /** Pozycja wpisana z ręki — bez zamówienia albo z klientem spoza listy. */
 interface RecznaPozycja {
   qty: number
@@ -40,6 +46,8 @@ interface RecznaPozycja {
   packagingName: string
   clientId: string
   clientName: string
+  /** Nazwa pokazywana operatorowi (handlowa); na backend idzie `clientName`. */
+  clientLabel: string
 }
 
 const PUSTA_RECZNA = {
@@ -119,6 +127,8 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
         productTypeId: l.productTypeId, productTypeName: l.productTypeName,
         packagingId: l.packagingId, packagingName: l.packagingName,
         clientId: grupa?.clientId ?? '', clientName: grupa?.clientName ?? '',
+        // Zamówienie trzyma już nazwę, którą biuro zna z ekranu zamówień.
+        clientLabel: grupa?.clientName ?? '',
         clientOrderNo: l.orderNo, zrodlo: `${l.orderNo} · ${l.recipeName}`,
       }]
     })
@@ -157,7 +167,7 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
       recipeId: r.id, recipeName: r.name,
       productTypeId: '', productTypeName: '',
       packagingId: t?.id ?? '', packagingName: t?.name ?? '',
-      clientId: k?.id ?? '', clientName: k?.name ?? '',
+      clientId: k?.id ?? '', clientName: k?.name ?? '', clientLabel: nazwaKlienta(k),
     }])
     setFormaReczna({ ...PUSTA_RECZNA })
   }
@@ -337,7 +347,9 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                     <select data-testid="reczne-klient" className={input} value={formaReczna.clientId}
                       onChange={e => setFormaReczna(f => ({ ...f, clientId: e.target.value }))}>
                       <option value="">— na magazyn —</option>
-                      {klienci.map((k: any) => <option key={k.id} value={k.id}>{k.name}</option>)}
+                      {klienci.map((k: any) => (
+                        <option key={k.id} value={k.id}>{nazwaKlienta(k)}</option>
+                      ))}
                     </select>
                   </label>
                 </div>
@@ -422,7 +434,9 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                     <span className="font-mono text-xs tabular-nums text-ink-3">{p.qty}×</span>
                     <span className="font-mono text-xs tabular-nums">{fmtKg(p.kgPerUnit)} kg</span>
                     <span className="truncate font-semibold">{p.recipeName}</span>
-                    <span className="truncate text-xs text-ink-3">{p.clientName || 'na magazyn'}</span>
+                    <span className="truncate text-xs text-ink-3">
+                      {(p as any).clientLabel || p.clientName || 'na magazyn'}
+                    </span>
                     <span className="ml-auto font-mono text-xs tabular-nums">{fmtKg(p.qty * p.kgPerUnit)} kg</span>
                     {!p.clientOrderNo && (
                       <button type="button" data-testid={`usun-reczna-${i - Object.keys(wybrane).length}`}

@@ -53,7 +53,12 @@ beforeEach(() => {
   ]
   stan.opakowania = [{ id: 't1', name: 'METAL 65', type: 'tuleja', kgAvailable: 500 }]
   stan.receptury = [{ id: 'r1', name: 'WROCŁAW' }, { id: 'r2', name: 'KIRMIZI' }]
-  stan.klienci = [{ id: 'c1', name: 'Bulli sp. z o.o.' }, { id: 'c2', name: 'Zagros' }]
+  stan.klienci = [
+    { id: 'c1', name: 'Bulli sp. z o.o.', displayName: '' },
+    // Nazwa prawna vs handlowa: biuro mówi „ZAGROS", w kartotece siedzi
+    // „OKAYTEKIN KG" — na ekranie ma stać ta, którą hala zna.
+    { id: 'c2', name: 'OKAYTEKIN KG', displayName: 'ZAGROS' },
+  ]
   wolania.zapisy = []; wolania.blad = false
 })
 afterEach(cleanup)
@@ -193,6 +198,9 @@ describe('AddFinishedGoodModal — wpis całkowicie ręczny', () => {
     fireEvent.change(screen.getByTestId('reczne-waga'), { target: { value: '40' } })
     fireEvent.change(screen.getByTestId('reczne-sztuki'), { target: { value: '20' } })
     fireEvent.change(screen.getByTestId('reczne-tuleja'), { target: { value: 't1' } })
+    // Lista klientów pokazuje nazwę HANDLOWĄ.
+    expect(within(screen.getByTestId('reczne-klient')).getByText('ZAGROS')).toBeTruthy()
+    expect(within(screen.getByTestId('reczne-klient')).queryByText('OKAYTEKIN KG')).toBeNull()
     fireEvent.change(screen.getByTestId('reczne-klient'), { target: { value: 'c2' } })
     fireEvent.click(screen.getByTestId('partia-tryb-recznie'))
     fireEvent.change(screen.getByTestId('partia-reczna'), { target: { value: '250826 PP13' } })
@@ -204,7 +212,9 @@ describe('AddFinishedGoodModal — wpis całkowicie ręczny', () => {
     await waitFor(() => expect(wolania.zapisy).toHaveLength(1))
     expect(wolania.zapisy[0][0]).toMatchObject({
       recipeId: 'r2', kgPerUnit: 40, qty: 20, packagingId: 't1',
-      clientId: 'c2', clientName: 'Zagros', batchNo: '250826 PP13', clientOrderNo: '',
+      // Na backend leci nazwa Z KARTOTEKI — po niej wiąże się zamówienia
+      // i dokumenty; „ZAGROS" jest tylko tym, co widzi operator.
+      clientId: 'c2', clientName: 'OKAYTEKIN KG', batchNo: '250826 PP13', clientOrderNo: '',
     })
   })
 
