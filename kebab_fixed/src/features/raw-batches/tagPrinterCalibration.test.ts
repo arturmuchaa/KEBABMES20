@@ -32,7 +32,7 @@ describe('clampCalibration — na drukarkę nie może pójść śmieć', () => {
   it('NaN i tekst zastępuje domyślną — `^FO` z NaN drukarka odrzuca w całości', () => {
     const c = clampCalibration({ offsetXMm: Number.NaN, labelLengthMm: 'osiemdziesiąt' as never })
     expect(c.offsetXMm).toBe(0)
-    expect(c.labelLengthMm).toBe(LABEL_H_MM)
+    expect(c.labelLengthMm).toBe(DEFAULT_CALIBRATION.labelLengthMm)
   })
 
   it('skok taśmy trzyma w granicach rolki zawieszek', () => {
@@ -119,5 +119,44 @@ describe('fmtOffsetMm — milimetry ze znakiem, po polsku', () => {
     expect(fmtOffsetMm(1.5)).toBe('+1,5')
     expect(fmtOffsetMm(-1)).toBe('-1')
     expect(fmtOffsetMm(0)).toBe('0')
+  })
+})
+
+/**
+ * Skok taśmy = to, co zmierzyła DRUKARKA (26.08.2026).
+ *
+ * Wydruk konfiguracyjny GC420t z biura: `LABEL LENGTH 0658` = 82,3 mm, a MES
+ * wysyłał `^LL` 80 mm. Te 2,3 mm nadmiaru wypychały punkt odrywania na nagłówek
+ * następnej zawieszki — „cięcie w złym miejscu", którego żaden `~TA` nie ruszy,
+ * bo to nie jest problem punktu odrywania.
+ *
+ * 22.08 dołożyłem przycisk „Ustaw skok taśmy z drukarki", ale wymagał, żeby
+ * biuro najpierw odczytało ustawienia (a ta drukarka odpowiada tylko wydrukiem
+ * konfiguracji) i kliknęło. Nikt nie kliknął, więc naprawa nie zadziałała
+ * ani razu. Wartość zmierzona MUSI być domyślna, nie do wyklikania.
+ */
+describe('skok taśmy — domyślnie to, co ma taśma, a nie wysokość zawieszki', () => {
+  it('domyślny skok to zmierzone 82,3 mm, nie 80 mm zawieszki', () => {
+    expect(DEFAULT_CALIBRATION.labelLengthMm).toBe(82.3)
+  })
+
+  it('stara nastawa 80 mm (nigdy nie ruszana) dostaje zmierzoną wartość', () => {
+    const store = magazyn({ [CALIBRATION_STORAGE_KEY]: JSON.stringify(
+      { offsetXMm: 0, offsetYMm: 0, labelLengthMm: 80, tearOffMm: 0 }) })
+    expect(loadCalibration(store).labelLengthMm).toBe(82.3)
+  })
+
+  it('skok USTAWIONY ręcznie zostaje nietknięty — biuro wie lepiej', () => {
+    const store = magazyn({ [CALIBRATION_STORAGE_KEY]: JSON.stringify(
+      { offsetXMm: 0, offsetYMm: 0, labelLengthMm: 76.5, tearOffMm: 0 }) })
+    expect(loadCalibration(store).labelLengthMm).toBe(76.5)
+  })
+
+  it('migracja nie rusza pozostałych nastaw', () => {
+    const store = magazyn({ [CALIBRATION_STORAGE_KEY]: JSON.stringify(
+      { offsetXMm: 1.5, offsetYMm: -2, labelLengthMm: 80, tearOffMm: 3 }) })
+    expect(loadCalibration(store)).toEqual({
+      offsetXMm: 1.5, offsetYMm: -2, labelLengthMm: 82.3, tearOffMm: 3,
+    })
   })
 })

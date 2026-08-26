@@ -47,7 +47,7 @@ export function receptionTagsPrintJobs(
  * Liczymy z długości etykiety i prędkości druku, z zapasem na dosuw i cofnięcie
  * taśmy. Sufit 3 s pilnuje, żeby błędna nastawa nie zawiesiła druku na minuty.
  */
-const PREDKOSC_MM_S = 100   // GC420t domyślnie ~4 cale/s
+const PREDKOSC_MM_S = 76    // z konfiguracji drukarki biura: PRINT SPEED 3 IPS
 const DOSUW_MM = 25         // dojazd do krawędzi odrywania i powrót
 
 export function tagPrintDelayMs(labelLengthMm: number): number {

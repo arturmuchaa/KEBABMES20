@@ -218,8 +218,10 @@ describe('ReceptionTags — kalibracja drukarki', () => {
   it('„Wyzeruj" wraca do nastawy fabrycznej jednym kliknięciem', () => {
     const { onCalibrationChange } = otworz({ offsetXMm: 2, offsetYMm: -1, labelLengthMm: 82, tearOffMm: 3 })
     fireEvent.click(screen.getByLabelText('Wyzeruj kalibrację'))
+    // Skok taśmy wraca do ZMIERZONEGO przez drukarkę (82,3 mm), nie do
+    // wysokości zawieszki — „fabryczne" znaczy tu „zgodne z taśmą".
     expect(onCalibrationChange).toHaveBeenCalledWith({
-      offsetXMm: 0, offsetYMm: 0, labelLengthMm: 80, tearOffMm: 0,
+      offsetXMm: 0, offsetYMm: 0, labelLengthMm: 82.3, tearOffMm: 0,
     })
   })
 

@@ -50,10 +50,26 @@ export interface TagPrinterCalibration {
   tearOffMm: number
 }
 
+/**
+ * Skok taśmy zmierzony przez drukarkę biura (ZTC GC420t, wydruk
+ * konfiguracyjny 22.08.2026): `LABEL LENGTH 0658` = 82,3 mm. Zawieszka ma
+ * 80 mm — reszta to przerwa między etykietami.
+ *
+ * To musi być WARTOŚĆ DOMYŚLNA, nie coś do wyklikania. Do 26.08 domyślne było
+ * 80 mm, a zmierzone 82,3 dawał dopiero przycisk „Ustaw skok taśmy z drukarki"
+ * po udanym odczycie ustawień — a ta drukarka odpowiada tylko wydrukiem
+ * konfiguracji na taśmie, więc przycisk nigdy się nie pokazał i biuro przez
+ * cztery dni odrywało zawieszki w poprzek.
+ */
+export const MEASURED_LABEL_PITCH_MM = 82.3
+
+/** Stara wartość domyślna — po niej poznajemy nastawę, której nikt nie ruszał. */
+const LEGACY_LABEL_LENGTH_MM = LABEL_H_MM
+
 export const DEFAULT_CALIBRATION: TagPrinterCalibration = {
   offsetXMm: 0,
   offsetYMm: 0,
-  labelLengthMm: LABEL_H_MM,
+  labelLengthMm: MEASURED_LABEL_PITCH_MM,
   tearOffMm: 0,
 }
 
@@ -102,7 +118,13 @@ export function loadCalibration(store: Magazyn | null = storage()): TagPrinterCa
   try {
     const raw = store?.getItem(CALIBRATION_STORAGE_KEY)
     if (!raw) return { ...DEFAULT_CALIBRATION }
-    return clampCalibration(JSON.parse(raw) as Partial<TagPrinterCalibration>)
+    const zapisana = clampCalibration(JSON.parse(raw) as Partial<TagPrinterCalibration>)
+    // Nastawa zapisana STARĄ wartością domyślną (80 mm) znaczy „nikt tego nie
+    // ruszał" — podnosimy ją do zmierzonej. Bez tego poprawka minęłaby każdą
+    // maszynę, która choć raz otworzyła ten ekran.
+    return zapisana.labelLengthMm === LEGACY_LABEL_LENGTH_MM
+      ? { ...zapisana, labelLengthMm: MEASURED_LABEL_PITCH_MM }
+      : zapisana
   } catch {
     // Uszkodzony wpis nie może zablokować druku zawieszek — wracamy do domyślnej.
     return { ...DEFAULT_CALIBRATION }
