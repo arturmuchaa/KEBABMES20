@@ -200,13 +200,19 @@ def _hydrate_order(order: Dict[str, Any]) -> Dict[str, Any]:
         for r in starsze
     }
 
+    # Pula kurczy się także W OBRĘBIE zamówienia: TRUVA ma dwie pozycje
+    # KIRMIZI 60×25 i te same 17 szt. pokazywało się przy obu.
+    zostalo_w_puli = {
+        k: max(0, v - zajete_map.get(k, 0)) for k, v in unlinked_map.items()
+    }
     for line in lines:
         key = f"{line['recipe_id']}|{float(line['kg_per_unit'])}"
         swoje = done_map.get(key, 0)
         # Z puli bierzemy najwyżej tyle, ile tej pozycji BRAKUJE — nadwyżka
         # zostaje dla kolejnych zamówień, zamiast robić „zrobione 17 z 10".
         brakuje = max(0, int(line["qty"] or 0) - swoje)
-        z_puli = min(brakuje, max(0, unlinked_map.get(key, 0) - zajete_map.get(key, 0)))
+        z_puli = min(brakuje, zostalo_w_puli.get(key, 0))
+        zostalo_w_puli[key] = zostalo_w_puli.get(key, 0) - z_puli
         line["qty_done"] = swoje + z_puli
 
     order["lines"] = lines

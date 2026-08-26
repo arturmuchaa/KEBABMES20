@@ -423,3 +423,15 @@ def test_zamowienie_bez_wskazanej_tulei_przyjmuje_kazda(db):
     item = create_finished_good(_wpis(qty=17, kg_per_unit=25, client_name="LEZZA", client_id="cl",
                                       packaging_id="t-karton"))
     assert item["client_order_no"] == "LEZZA/Z/1"
+
+
+def test_dwie_takie_same_pozycje_w_jednym_zamowieniu_dziela_pule(db):
+    """TRUVA ma dwa razy KIRMIZI 60×25 — 17 szt. z magazynu ma pokryć JEDNĄ
+    z nich, a nie pokazać się przy obu (biuro 26.08.2026)."""
+    _zamowienie2("TRUVA/Z/1", client_name="TRUVA", client_id="ct", qty=60, kg=25, oid="o-t")
+    _linia_zam("o-t", "l-druga", recipe="r1", kg=25, qty=60)
+
+    create_finished_good(_wpis(qty=17, kg_per_unit=25))
+
+    zrobione = [int(l["qty_done"]) for l in get_order("o-t")["lines"]]
+    assert sorted(zrobione) == [0, 17]
