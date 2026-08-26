@@ -154,7 +154,7 @@ describe('ReceptionTags — ile zawieszek na dostawę', () => {
 describe('ReceptionTags — kalibracja drukarki', () => {
   const KALIBRACJA = { offsetXMm: 0, offsetYMm: 0, labelLengthMm: 80, tearOffMm: 0 }
 
-  function zKalibracja(cal = KALIBRACJA) {
+  function zKalibracja(cal = KALIBRACJA, extra: any = {}) {
     const onCalibrationChange = vi.fn()
     const onCalibratePrinter = vi.fn()
     const onTestPrint = vi.fn()
@@ -168,13 +168,14 @@ describe('ReceptionTags — kalibracja drukarki', () => {
         onCalibrationChange={onCalibrationChange}
         onCalibratePrinter={onCalibratePrinter}
         onTestPrint={onTestPrint}
+        {...extra}
       />,
     )
     return { onCalibrationChange, onCalibratePrinter, onTestPrint }
   }
 
-  function otworz(cal = KALIBRACJA) {
-    const h = zKalibracja(cal)
+  function otworz(cal = KALIBRACJA, extra: any = {}) {
+    const h = zKalibracja(cal, extra)
     fireEvent.click(screen.getByLabelText('Kalibracja drukarki'))
     return h
   }
@@ -213,6 +214,27 @@ describe('ReceptionTags — kalibracja drukarki', () => {
     otworz({ ...KALIBRACJA, offsetXMm: 5 })
     const wiecej = screen.getByLabelText('Przesunięcie w poprzek taśmy więcej') as HTMLButtonElement
     expect(wiecej.disabled).toBe(true)
+  })
+
+  /**
+   * Tryb języka drukarki (26.08.2026).
+   *
+   * GC420t w biurze stoi w EPL: formaty ZPL jeszcze się drukują, ale trwałe
+   * nastawy (punkt odrywania, śledzenie taśmy) nie mają się gdzie zapisać —
+   * biuro widzi „wpisane, a nic nie zmienia", etykiety urwane w 3/4 i czerwoną
+   * kontrolkę. Przestawienie jest jednorazowe, więc przycisk pokazuje się
+   * TYLKO wtedy, gdy odczyt na to wskazuje.
+   */
+  it('przycisku przestawienia na ZPL nie ma, dopóki nic nie wskazuje na EPL', () => {
+    otworz()
+    expect(screen.queryByLabelText('Przestaw drukarkę na ZPL')).toBeNull()
+  })
+
+  it('po wykryciu EPL przycisk się pojawia i wysyła przestawienie', () => {
+    const onSetZplMode = vi.fn()
+    otworz(KALIBRACJA, { eplSuspected: true, onSetZplMode })
+    fireEvent.click(screen.getByLabelText('Przestaw drukarkę na ZPL'))
+    expect(onSetZplMode).toHaveBeenCalledTimes(1)
   })
 
   it('„Wyzeruj" wraca do nastawy fabrycznej jednym kliknięciem', () => {

@@ -172,9 +172,42 @@ def _hydrate_order(order: Dict[str, Any]) -> Dict[str, Any]:
         f"{dr['recipe_id']}|{float(dr['kg_per_unit'])}": int(dr["qty_done"] or 0)
         for dr in unlinked_rows
     }
+
+    # Zapas BEZ zamówienia dzieli się między zamówienia PO KOLEI, od
+    # najstarszego. Liczony wprost dla każdego z osobna pokrywał wszystkie
+    # naraz: 17 szt. dodanych „na magazyn" pokazywało się jako zrobione
+    # jednocześnie u YALCIN, TRUVY i LEZZY (biuro, 26.08.2026). Tu odejmujemy
+    # to, co z tej samej puli biorą zamówienia STARSZE od tego.
+    starsze = query_all(
+        """
+        SELECT l.recipe_id, l.kg_per_unit, SUM(GREATEST(l.qty - COALESCE((
+                 SELECT SUM(fg.qty) FROM finished_goods fg
+                 WHERE fg.client_order_no = o.order_no
+                   AND fg.recipe_id = l.recipe_id
+                   AND fg.kg_per_unit = l.kg_per_unit
+               ), 0), 0)) AS potrzeba
+        FROM client_orders o
+        JOIN client_order_lines l ON l.order_id = o.id
+        WHERE o.status NOT IN ('done', 'cancelled')
+          AND o.id <> %s
+          AND (o.order_date, o.created_at, o.order_no) < (%s, %s, %s)
+        GROUP BY l.recipe_id, l.kg_per_unit
+        """,
+        (order["id"], order.get("order_date"), order.get("created_at"), order.get("order_no")),
+    )
+    zajete_map: dict = {
+        f"{r['recipe_id']}|{float(r['kg_per_unit'])}": int(r["potrzeba"] or 0)
+        for r in starsze
+    }
+
     for line in lines:
         key = f"{line['recipe_id']}|{float(line['kg_per_unit'])}"
-        line["qty_done"] = done_map.get(key, 0) + unlinked_map.get(key, 0)
+        swoje = done_map.get(key, 0)
+        # Z puli bierzemy najwyżej tyle, ile tej pozycji BRAKUJE — nadwyżka
+        # zostaje dla kolejnych zamówień, zamiast robić „zrobione 17 z 10".
+        brakuje = max(0, int(line["qty"] or 0) - swoje)
+        z_puli = min(brakuje, max(0, unlinked_map.get(key, 0) - zajete_map.get(key, 0)))
+        line["qty_done"] = swoje + z_puli
 
     order["lines"] = lines
     return order

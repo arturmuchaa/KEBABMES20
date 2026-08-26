@@ -63,6 +63,11 @@ export interface ReceptionTagsProps {
   onTestPrint?: () => void
   /** Odczyt ustawień z drukarki (`^HH`) — długość etykiety, odrywanie, tryb. */
   onReadPrinter?: () => void
+  /** Odczyt wskazuje, że drukarka stoi w EPL — trwałe nastawy ZPL nie mają
+   *  się wtedy gdzie zapisać (patrz `epLModeSuspected`). */
+  eplSuspected?: boolean
+  /** Trwałe przestawienie drukarki na ZPL — raz na drukarkę. */
+  onSetZplMode?: () => void
   /** Surowa odpowiedź drukarki; null = jeszcze nie pytaliśmy. */
   printerInfo?: string | null
   /** Długość etykiety ZMIERZONA przez drukarkę; null = nieznana. */
@@ -75,7 +80,7 @@ export function ReceptionTags({
   reception, defaultContainersPerPallet, onPrint, onRememberLayout, onClose,
   printing = false, message = null,
   calibration, onCalibrationChange, onCalibratePrinter, onTestPrint,
-  onReadPrinter, printerInfo = null,
+  onReadPrinter, eplSuspected = false, onSetZplMode, printerInfo = null,
   printerLabelLengthMm = null, onApplyPrinterLabelLength,
 }: ReceptionTagsProps) {
   const [kalibracjaOtwarta, setKalibracjaOtwarta] = useState(false)
@@ -317,6 +322,8 @@ export function ReceptionTags({
           onCalibratePrinter={onCalibratePrinter}
           onTestPrint={onTestPrint}
           onReadPrinter={onReadPrinter}
+          eplSuspected={eplSuspected}
+          onSetZplMode={onSetZplMode}
           printerInfo={printerInfo}
           printerLabelLengthMm={printerLabelLengthMm}
           onApplyPrinterLabelLength={onApplyPrinterLabelLength}
@@ -336,7 +343,8 @@ export function ReceptionTags({
  * taśmę i po wymianie rolki wszystko trzeba ustawiać od nowa.
  */
 function PrinterCalibration({
-  calibration, onChange, onCalibratePrinter, onTestPrint, onReadPrinter, printerInfo,
+  calibration, onChange, onCalibratePrinter, onTestPrint, onReadPrinter,
+  eplSuspected = false, onSetZplMode, printerInfo,
   printerLabelLengthMm, onApplyPrinterLabelLength, busy,
 }: {
   calibration: TagPrinterCalibration
@@ -344,6 +352,9 @@ function PrinterCalibration({
   onCalibratePrinter?: () => void
   onTestPrint?: () => void
   onReadPrinter?: () => void
+  /** Odczyt wskazuje, że drukarka stoi w EPL — patrz `epLModeSuspected`. */
+  eplSuspected?: boolean
+  onSetZplMode?: () => void
   printerInfo?: string | null
   printerLabelLengthMm?: number | null
   onApplyPrinterLabelLength?: () => void
@@ -395,6 +406,17 @@ function PrinterCalibration({
           >
             <Printer size={14} /> Wydruk testowy
           </Button>
+          {eplSuspected && (
+            // Nastawa TRWAŁA, więc przycisk pokazuje się tylko wtedy, gdy
+            // odczyt wskazuje na EPL — nie ma po co kusić przy zdrowej drukarce.
+            <Button
+              size="sm" className="gap-2"
+              aria-label="Przestaw drukarkę na ZPL" disabled={busy || !onSetZplMode}
+              onClick={() => onSetZplMode?.()}
+            >
+              <Crosshair size={14} /> Przestaw na ZPL
+            </Button>
+          )}
           <Button
             variant="outline" size="sm" className="gap-2"
             aria-label="Odczytaj ustawienia drukarki" disabled={busy || !onReadPrinter}

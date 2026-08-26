@@ -112,3 +112,32 @@ export function printerSummary(
   if (status.paused) linie.push('⚠ Drukarka jest w pauzie.')
   return linie
 }
+
+/**
+ * Przestawienie drukarki na ZPL — polecenie SGD, wysyłane POZA `^XA…^XZ`.
+ *
+ * GC420t bywa fabrycznie w trybie EPL (nagłówek wydruku konfiguracyjnego:
+ * „ZTC GC420t (EPL)"). Formaty ZPL wtedy jeszcze się drukują, bo drukarka
+ * rozpoznaje je per zadanie, ale TRWAŁE nastawy ZPL nie mają się gdzie
+ * zapisać: punkt odrywania `~TA` i śledzenie taśmy `^MN` przechodzą bez
+ * echa, `~HI` milczy, a wydruk urywa się na długości zapamiętanej po stronie
+ * EPL. Biuro widziało to jako „wpisane, a nic nie zmienia" i etykiety ucięte
+ * w 3/4 z czerwoną kontrolką.
+ *
+ * Nastawa jest TRWAŁA — wystarczy raz na drukarkę.
+ */
+export const SET_ZPL_MODE = '! U1 setvar "device.languages" "zpl"\n'
+
+/**
+ * Czy drukarka wygląda na stojącą w EPL.
+ *
+ * Dwa sygnały: `~HI` (identyfikacja) milczy, choć `~HS` (status) odpowiada —
+ * albo identyfikacja wprost niesie „(EPL)". Cisza na OBU pytaniach to zwykły
+ * brak łączności, nie tryb języka; nie strasz wtedy bez powodu.
+ */
+export function epLModeSuspected(o: { identify: string; status: string }): boolean {
+  const hi = (o.identify || '').trim()
+  const hs = (o.status || '').trim()
+  if (hi.toUpperCase().includes('(EPL)')) return true
+  return hs.length > 0 && hi.length === 0
+}

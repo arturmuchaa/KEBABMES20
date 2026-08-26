@@ -313,3 +313,113 @@ def test_wyrob_na_magazyn_bez_klienta_zostaje_bez_zamowienia(db):
     item = create_finished_good(_wpis(qty=30, kg_per_unit=50))
 
     assert not item["client_order_no"]
+
+
+# ── Zapas bez zamówienia nie może pokrywać wszystkich naraz ───────────────
+#
+# Biuro: „dodałem 17×25 kg dla LEZZA, a zaciągnęli do siebie YALCIN, TRUVA
+# i LEZZA". Wyrób bez numeru zamówienia wchodzi do puli wspólnej, a ta liczyła
+# się do pokrycia KAŻDEGO pasującego zamówienia. Pula ma się rozdzielać po
+# kolei — najstarsze zamówienie bierze pierwsze.
+
+def test_zapas_bez_zamowienia_idzie_do_NAJSTARSZEGO(db):
+    _zamowienie2("STARE/Z/1", client_name="A", client_id="ca", qty=10, kg=25,
+                 order_date="2026-08-20", oid="o-stare")
+    _zamowienie2("NOWE/Z/1", client_name="B", client_id="cb", qty=10, kg=25,
+                 order_date="2026-08-25", oid="o-nowe")
+
+    create_finished_good(_wpis(qty=10, kg_per_unit=25))     # na magazyn, bez klienta
+
+    assert int(get_order("o-stare")["lines"][0]["qty_done"]) == 10
+    assert int(get_order("o-nowe")["lines"][0]["qty_done"]) == 0
+
+
+def test_nadwyzka_puli_schodzi_na_kolejne_zamowienie(db):
+    _zamowienie2("STARE/Z/1", client_name="A", client_id="ca", qty=10, kg=25,
+                 order_date="2026-08-20", oid="o-stare")
+    _zamowienie2("NOWE/Z/1", client_name="B", client_id="cb", qty=10, kg=25,
+                 order_date="2026-08-25", oid="o-nowe")
+
+    create_finished_good(_wpis(qty=17, kg_per_unit=25))
+
+    assert int(get_order("o-stare")["lines"][0]["qty_done"]) == 10
+    assert int(get_order("o-nowe")["lines"][0]["qty_done"]) == 7
+
+
+def test_wyrob_przypisany_nie_zabiera_z_puli_wspolnej(db):
+    _zamowienie2("STARE/Z/1", client_name="A", client_id="ca", qty=10, kg=25,
+                 order_date="2026-08-20", oid="o-stare")
+    _zamowienie2("NOWE/Z/1", client_name="B", client_id="cb", qty=10, kg=25,
+                 order_date="2026-08-25", oid="o-nowe")
+    # Wyrób wprost dla NOWEGO zamówienia.
+    create_finished_good(_wpis(qty=10, kg_per_unit=25, client_name="B", client_id="cb"))
+    # I osobno zapas na magazyn.
+    create_finished_good(_wpis(qty=4, kg_per_unit=25))
+
+    assert int(get_order("o-nowe")["lines"][0]["qty_done"]) == 10   # swoje, nie z puli
+    assert int(get_order("o-stare")["lines"][0]["qty_done"]) == 4   # cała pula
+
+
+def test_inna_waga_sztuki_ma_wlasna_pule(db):
+    _zamowienie2("STARE/Z/1", client_name="A", client_id="ca", qty=10, kg=25,
+                 order_date="2026-08-20", oid="o-stare")
+    _zamowienie2("NOWE/Z/1", client_name="B", client_id="cb", qty=10, kg=40,
+                 order_date="2026-08-25", oid="o-nowe")
+
+    create_finished_good(_wpis(qty=10, kg_per_unit=40))
+
+    assert int(get_order("o-stare")["lines"][0]["qty_done"]) == 0
+    assert int(get_order("o-nowe")["lines"][0]["qty_done"]) == 10
+
+
+# ── Dopasowanie po pełnej tożsamości towaru ───────────────────────────────
+#
+# „Wybrałem klienta LEZZA i to powinno przypisywać na podstawie klient +
+# rodzaj + tuleja + receptura, nawet jak dodaję ręcznie" (biuro 26.08.2026).
+# Receptura i waga sztuki to za mało: ten sam klient miewa dwie pozycje tej
+# samej receptury różniące się rodzajem albo tuleją.
+
+def _linia_zam(oid, line_id, recipe="r1", kg=25, qty=17, pt=None, pkg=None):
+    execute(
+        "INSERT INTO client_order_lines (id, order_id, recipe_id, product_type_id, qty, "
+        " kg_per_unit, packaging_id) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        (line_id, oid, recipe, pt, qty, kg, pkg),
+    )
+
+
+def test_rodzaj_zawezа_dopasowanie(db):
+    _zamowienie2("LEZZA/Z/1", client_name="LEZZA", client_id="cl", qty=17, kg=25, oid="o-l")
+    execute("UPDATE client_order_lines SET product_type_id='pt-sebzeli' WHERE order_id='o-l'")
+
+    pasuje = create_finished_good(_wpis(qty=17, kg_per_unit=25, client_name="LEZZA", client_id="cl",
+                                        product_type_id="pt-sebzeli"))
+    assert pasuje["client_order_no"] == "LEZZA/Z/1"
+
+
+def test_inny_rodzaj_nie_domyka_cudzej_pozycji(db):
+    _zamowienie2("LEZZA/Z/1", client_name="LEZZA", client_id="cl", qty=17, kg=25, oid="o-l")
+    execute("UPDATE client_order_lines SET product_type_id='pt-sebzeli' WHERE order_id='o-l'")
+
+    item = create_finished_good(_wpis(qty=17, kg_per_unit=25, client_name="LEZZA", client_id="cl",
+                                      product_type_id="pt-kebab"))
+    assert not item["client_order_no"]
+
+
+def test_tuleja_tez_zaweza(db):
+    _tuleja("t-metal")
+    _zamowienie2("LEZZA/Z/1", client_name="LEZZA", client_id="cl", qty=17, kg=25, oid="o-l")
+    execute("UPDATE client_order_lines SET packaging_id='t-metal' WHERE order_id='o-l'")
+
+    dobra = create_finished_good(_wpis(qty=17, kg_per_unit=25, client_name="LEZZA", client_id="cl",
+                                       packaging_id="t-metal"))
+    assert dobra["client_order_no"] == "LEZZA/Z/1"
+
+
+def test_zamowienie_bez_wskazanej_tulei_przyjmuje_kazda(db):
+    """Zamówienia często nie precyzują tulei — brak wskazania nie może blokować."""
+    _tuleja("t-karton")
+    _zamowienie2("LEZZA/Z/1", client_name="LEZZA", client_id="cl", qty=17, kg=25, oid="o-l")
+
+    item = create_finished_good(_wpis(qty=17, kg_per_unit=25, client_name="LEZZA", client_id="cl",
+                                      packaging_id="t-karton"))
+    assert item["client_order_no"] == "LEZZA/Z/1"

@@ -24,8 +24,8 @@ import { LABEL_H_MM } from '@/features/deboning/byproductLabelZpl'
 import { ReceptionTags } from '../components/ReceptionTags'
 import { DEFAULT_CONTAINERS_PER_PALLET } from '../palletTags'
 import {
-  IDENTIFY_ZPL, PRINT_CONFIG_ZPL, STATUS_ZPL,
-  parsePrinterIdentity, parsePrinterStatus, printerSummary,
+  IDENTIFY_ZPL, PRINT_CONFIG_ZPL, SET_ZPL_MODE, STATUS_ZPL,
+  epLModeSuspected, parsePrinterIdentity, parsePrinterStatus, printerSummary,
 } from '../printerStatus'
 import type { ReceptionTagInput } from '../receptionTagZpl'
 import { receptionTagsPrintJobs, tagPrintDelayMs } from '../receptionTagsPrint'
@@ -55,6 +55,7 @@ export function ReceptionTagsPage() {
   const [printerInfo, setPrinterInfo] = useState<string | null>(null)
   // Długość etykiety ZMIERZONA przez drukarkę; to ona rozstrzyga spór o skok taśmy.
   const [printerLabelLengthMm, setPrinterLabelLengthMm] = useState<number | null>(null)
+  const [eplPodejrzenie, setEplPodejrzenie] = useState(false)
 
   const dostawca = (suppliers.data ?? []).find(s => s.id === reception.data?.supplierId)
 
@@ -119,6 +120,12 @@ export function ReceptionTagsPage() {
     }
   }, [calibration.tearOffMm, send])
 
+  /** Trwałe przestawienie drukarki na ZPL — raz na drukarkę. */
+  const setZplMode = useCallback(() => void send(
+    [SET_ZPL_MODE],
+    'Wysłano przestawienie na ZPL. Wyłącz i włącz drukarkę, potem odczytaj ustawienia ponownie.',
+  ), [send])
+
   const calibratePrinter = useCallback(() => void send(
     [CALIBRATE_ZPL],
     'Kalibracja uruchomiona — drukarka wypuści kilka etykiet i zmierzy taśmę.',
@@ -151,7 +158,7 @@ export function ReceptionTagsPage() {
 
       const identity = parsePrinterIdentity(surowaId)
       const status = parsePrinterStatus(surowyStatus)
-      const podsumowanie = printerSummary(identity, status, LABEL_H_MM)
+      const podsumowanie = printerSummary(identity, status, calibration.labelLengthMm)
       setPrinterLabelLengthMm(status.labelLengthMm)
 
       if (podsumowanie.length === 0) {
@@ -167,8 +174,20 @@ export function ReceptionTagsPage() {
         return
       }
 
+      // Milczące `~HI` przy działającym `~HS` znaczy, że drukarka stoi
+      // w EPL — wtedy trwałe nastawy ZPL (punkt odrywania, śledzenie taśmy)
+      // przechodzą bez echa i biuro widzi „wpisane, a nic nie zmienia".
+      const epl = epLModeSuspected({ identify: surowaId, status: surowyStatus })
+      setEplPodejrzenie(epl)
       setPrinterInfo([
         ...podsumowanie,
+        ...(epl ? [
+          '',
+          '⚠ Drukarka pracuje w trybie EPL, nie ZPL.',
+          'Formaty jeszcze się drukują, ale punkt odrywania i śledzenie taśmy',
+          'nie mają się gdzie zapisać — stąd urwane etykiety i czerwona kontrolka.',
+          'Kliknij „Przestaw na ZPL" — to nastawa trwała, raz na drukarkę.',
+        ] : []),
         '',
         `~HI: ${surowaId.trim() || '(brak odpowiedzi)'}`,
         `~HS: ${surowyStatus.trim() || '(brak odpowiedzi)'}`,

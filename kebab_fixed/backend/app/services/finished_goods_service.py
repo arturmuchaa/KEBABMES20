@@ -331,6 +331,10 @@ def _match_open_order(conn, dto: FinishedGoodCreate, qty: int) -> str:
     Dopasowanie jest wąskie i nie zgaduje:
       * ten sam klient (po id, w zapasie po nazwie),
       * ta sama receptura i ta sama waga sztuki — inna waga to inny towar,
+      * ten sam RODZAJ i ta sama TULEJA, o ile obie strony je podają: ten sam
+        klient miewa dwie pozycje tej samej receptury różniące się właśnie
+        rodzajem albo tuleją. Zamówienie, które ich nie precyzuje, przyjmuje
+        każdy — brak wskazania nie może blokować dopasowania.
       * zamówienie otwarte i z niepokrytą resztą na tej pozycji.
 
     Przy kilku pasujących wygrywa NAJSTARSZE — tak samo jak przy wydaniu
@@ -351,6 +355,8 @@ def _match_open_order(conn, dto: FinishedGoodCreate, qty: int) -> str:
           AND (o.client_id = %s OR (%s <> '' AND o.client_name = %s))
           AND l.recipe_id = %s
           AND l.kg_per_unit = %s
+          AND (%s = '' OR COALESCE(l.product_type_id,'') = '' OR l.product_type_id = %s)
+          AND (%s = '' OR COALESCE(l.packaging_id,'') = ''   OR l.packaging_id   = %s)
           AND l.qty > COALESCE((
                 SELECT SUM(fg.qty) FROM finished_goods fg
                 WHERE fg.client_order_no = o.order_no
@@ -361,7 +367,9 @@ def _match_open_order(conn, dto: FinishedGoodCreate, qty: int) -> str:
         LIMIT 1
         """,
         (dto.client_id or "", dto.client_name or "", dto.client_name or "",
-         dto.recipe_id, float(dto.kg_per_unit)),
+         dto.recipe_id, float(dto.kg_per_unit),
+         dto.product_type_id or "", dto.product_type_id or "",
+         dto.packaging_id or "", dto.packaging_id or ""),
     )
     return (wiersz or {}).get("order_no") or ""
 

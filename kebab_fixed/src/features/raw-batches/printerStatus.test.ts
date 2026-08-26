@@ -78,3 +78,50 @@ describe('printerSummary — zdanie dla biura', () => {
     expect(printerSummary(parsePrinterIdentity(''), status, 80).join(' ')).not.toContain('⚠')
   })
 })
+
+/**
+ * Drukarka w trybie EPL (26.08.2026).
+ *
+ * Biuro: zawieszka drukuje się cała, ale urywa w 3/4, po jednej etykiecie
+ * Zebra świeci na czerwono, a wpisany skok taśmy nic nie zmienia. Odczyt
+ * z panelu:
+ *
+ *     ~HI: (brak odpowiedzi)
+ *     ~HS: 030,0,0,0658,...
+ *
+ * Na wydruku konfiguracyjnym nagłówek brzmi „ZTC GC420t (EPL)" — nawias
+ * podaje JĘZYK, w którym drukarka pracuje. W trybie EPL formaty ZPL jeszcze
+ * się drukują (autodetekcja per zadanie), ale trwałe nastawy ZPL — punkt
+ * odrywania `~TA`, śledzenie taśmy `^MN` — nie mają się gdzie zapisać
+ * i `~HI` nie odpowiada. Stąd „wpisane, a nic nie zmienia".
+ *
+ * Drukarka hali od początku stoi w ZPL i te same etykiety wychodzą na niej
+ * poprawnie — to jest ta różnica, nie układ etykiety.
+ */
+import { epLModeSuspected, SET_ZPL_MODE } from './printerStatus'
+
+describe('tryb języka drukarki', () => {
+  it('polecenie przestawienia na ZPL to SGD, nie format', () => {
+    // Musi iść jako osobne zadanie, POZA ^XA…^XZ — inaczej drukarka
+    // potraktuje je jak treść etykiety.
+    expect(SET_ZPL_MODE).toContain('device.languages')
+    expect(SET_ZPL_MODE).toContain('zpl')
+    expect(SET_ZPL_MODE).not.toContain('^XA')
+  })
+
+  it('milczące ~HI przy działającym ~HS zdradza tryb EPL', () => {
+    expect(epLModeSuspected({ identify: '', status: '030,0,0,0658,000' })).toBe(true)
+  })
+
+  it('gadające ~HI znaczy, że drukarka jest w ZPL', () => {
+    expect(epLModeSuspected({ identify: 'ZBRGC420t,V71.17.15Z', status: '030,0,0,0658' })).toBe(false)
+  })
+
+  it('drukarka niepodłączona to nie jest tryb EPL — nie strasz bez powodu', () => {
+    expect(epLModeSuspected({ identify: '', status: '' })).toBe(false)
+  })
+
+  it('nawias (EPL) na wydruku konfiguracyjnym też się liczy', () => {
+    expect(epLModeSuspected({ identify: 'ZTC GC420t (EPL)', status: '030,0,0,0658' })).toBe(true)
+  })
+})

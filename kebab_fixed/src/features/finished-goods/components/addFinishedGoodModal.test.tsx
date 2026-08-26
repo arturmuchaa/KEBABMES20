@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 
-const stan = vi.hoisted(() => ({ zamowienia: [] as any[], partie: [] as any[], opakowania: [] as any[], receptury: [] as any[], klienci: [] as any[] }))
+const stan = vi.hoisted(() => ({ zamowienia: [] as any[], partie: [] as any[], opakowania: [] as any[], receptury: [] as any[], klienci: [] as any[], rodzaje: [] as any[] }))
 const wolania = vi.hoisted(() => ({ zapisy: [] as any[], blad: false }))
 const kopia = <T,>(x: T): T => JSON.parse(JSON.stringify(x))
 
@@ -21,6 +21,7 @@ vi.mock('@/lib/api', () => ({
   seasonedMeatApi: { list: () => Promise.resolve(kopia(stan.partie)) },
   packagingApi: { all: () => Promise.resolve(kopia(stan.opakowania)) },
   recipesApi: { list: () => Promise.resolve(kopia(stan.receptury)) },
+  productTypesApi: { list: () => Promise.resolve(kopia(stan.rodzaje)) },
   clientsApi: { list: () => Promise.resolve(kopia(stan.klienci)) },
   finishedGoodsApi: {
     createBulk: (items: any[]) => {
@@ -53,6 +54,7 @@ beforeEach(() => {
   ]
   stan.opakowania = [{ id: 't1', name: 'METAL 65', type: 'tuleja', kgAvailable: 500 }]
   stan.receptury = [{ id: 'r1', name: 'WROCŁAW' }, { id: 'r2', name: 'KIRMIZI' }]
+  stan.rodzaje = [{ id: 'pt1', name: 'KEBAB' }, { id: 'pt2', name: 'SEBZELI' }]
   stan.klienci = [
     { id: 'c1', name: 'Bulli sp. z o.o.', displayName: '' },
     // Nazwa prawna vs handlowa: biuro mówi „ZAGROS", w kartotece siedzi
@@ -187,6 +189,39 @@ describe('AddFinishedGoodModal — numer partii', () => {
 
     expect(await screen.findByText('Wpisz numer partii')).toBeTruthy()
     expect(wolania.zapisy).toHaveLength(0)
+  })
+})
+
+describe('AddFinishedGoodModal — rodzaj wyrobu', () => {
+  // 26.08.2026: „dodałem 17×25 kg, a nie mogłem wybrać rodzaju, a to był
+  // SEBZELI". Bez rodzaju wyrób wchodzi na magazyn jako coś innego, niż
+  // faktycznie zrobiono — i nie domyka właściwej pozycji zamówienia.
+  it('ręczny wpis pozwala wskazać rodzaj', async () => {
+    otworz()
+    fireEvent.click(await screen.findByTestId('tryb-recznie'))
+    fireEvent.change(screen.getByTestId('reczne-rodzaj'), { target: { value: 'pt2' } })
+    fireEvent.change(screen.getByTestId('reczne-receptura'), { target: { value: 'r2' } })
+    fireEvent.change(screen.getByTestId('reczne-waga'), { target: { value: '25' } })
+    fireEvent.change(screen.getByTestId('reczne-sztuki'), { target: { value: '17' } })
+    fireEvent.click(screen.getByTestId('partia-tryb-recznie'))
+    fireEvent.change(screen.getByTestId('partia-reczna'), { target: { value: '260826 500' } })
+    fireEvent.click(screen.getByTestId('dodaj-do-koszyka'))
+    fireEvent.click(screen.getByTestId('zapisz-wyrob'))
+
+    await waitFor(() => expect(wolania.zapisy).toHaveLength(1))
+    expect(wolania.zapisy[0][0]).toMatchObject({
+      productTypeId: 'pt2', productTypeName: 'SEBZELI', recipeId: 'r2', qty: 17, kgPerUnit: 25,
+    })
+  })
+
+  it('pozycja z zamówienia niesie rodzaj z zamówienia', async () => {
+    otworz()
+    fireEvent.click(await screen.findByTestId('pozycja-ol1'))
+    fireEvent.click(screen.getByTestId('partia-344'))
+    fireEvent.click(screen.getByTestId('zapisz-wyrob'))
+
+    await waitFor(() => expect(wolania.zapisy).toHaveLength(1))
+    expect(wolania.zapisy[0][0]).toMatchObject({ productTypeId: 'pt1', productTypeName: 'KEBAB' })
   })
 })
 

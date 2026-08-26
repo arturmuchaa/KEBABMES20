@@ -19,7 +19,7 @@
  * pigułek. Kolor TYLKO semantyczny (ostrzeżenie o stanie, błąd).
  */
 import { useEffect, useMemo, useState } from 'react'
-import { clientOrdersApi, clientsApi, finishedGoodsApi, packagingApi, recipesApi, seasonedMeatApi } from '@/lib/api'
+import { clientOrdersApi, clientsApi, finishedGoodsApi, packagingApi, productTypesApi, recipesApi, seasonedMeatApi } from '@/lib/api'
 import { fmtKg } from '@/lib/utils'
 import {
   batchNoPreview, cartTotals, groupLinesByClient, liczba, normalizeManualBatchNo,
@@ -51,7 +51,7 @@ interface RecznaPozycja {
 }
 
 const PUSTA_RECZNA = {
-  qty: '', kgPerUnit: '', recipeId: '', packagingId: '', clientId: '',
+  qty: '', kgPerUnit: '', recipeId: '', productTypeId: '', packagingId: '', clientId: '',
 }
 
 export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
@@ -61,6 +61,7 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
   const [tuleje, setTuleje] = useState<any[]>([])
   const [receptury, setReceptury] = useState<any[]>([])
   const [klienci, setKlienci] = useState<any[]>([])
+  const [rodzaje, setRodzaje] = useState<any[]>([])
 
   const [wybrane, setWybrane] = useState<Record<string, number>>({})   // lineId → sztuki
   const [reczne, setReczne] = useState<RecznaPozycja[]>([])
@@ -82,6 +83,7 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
       .filter((p: any) => String(p.type || '').toLowerCase() === 'tuleja'))).catch(() => setTuleje([]))
     recipesApi.list().then(r => setReceptury(Array.isArray(r) ? r : [])).catch(() => setReceptury([]))
     clientsApi.list().then((r: any) => setKlienci(Array.isArray(r) ? r : [])).catch(() => setKlienci([]))
+    productTypesApi.list().then((r: any) => setRodzaje(Array.isArray(r) ? r : [])).catch(() => setRodzaje([]))
   }, [])
 
   const grupy: ClientGroup[] = useMemo(() => groupLinesByClient(zamowienia), [zamowienia])
@@ -159,13 +161,14 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
     const r = receptury.find((x: any) => x.id === formaReczna.recipeId)
     const t = tuleje.find((x: any) => x.id === formaReczna.packagingId)
     const k = klienci.find((x: any) => x.id === formaReczna.clientId)
+    const pt = rodzaje.find((x: any) => x.id === formaReczna.productTypeId)
     const qty = Math.round(liczba(formaReczna.qty))
     const kgPerUnit = liczba(formaReczna.kgPerUnit)
     if (!r || qty <= 0 || kgPerUnit <= 0) { setPokazBledy(true); return }
     setReczne(list => [...list, {
       qty, kgPerUnit,
       recipeId: r.id, recipeName: r.name,
-      productTypeId: '', productTypeName: '',
+      productTypeId: pt?.id ?? '', productTypeName: pt?.name ?? '',
       packagingId: t?.id ?? '', packagingName: t?.name ?? '',
       clientId: k?.id ?? '', clientName: k?.name ?? '', clientLabel: nazwaKlienta(k),
     }])
@@ -311,6 +314,17 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
             ) : (
               <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
                 <div className="grid grid-cols-6 gap-3">
+                  <label className="col-span-3 flex flex-col gap-1">
+                    {/* Rodzaj wyrobu — bez niego wyrób wchodzi na magazyn jako
+                        coś innego, niż zrobiono, i nie domyka właściwej
+                        pozycji zamówienia (zgłoszenie 26.08.2026: SEBZELI). */}
+                    <span className={etykieta}>Rodzaj</span>
+                    <select data-testid="reczne-rodzaj" className={input} value={formaReczna.productTypeId}
+                      onChange={e => setFormaReczna(f => ({ ...f, productTypeId: e.target.value }))}>
+                      <option value="">— wybierz —</option>
+                      {rodzaje.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </label>
                   <label className="col-span-3 flex flex-col gap-1">
                     <span className={etykieta}>Receptura</span>
                     <select data-testid="reczne-receptura" className={input} value={formaReczna.recipeId}
