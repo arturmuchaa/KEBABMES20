@@ -19,7 +19,7 @@ def _fg(**kw):
            "recipe_name": "Gold2", "product_type_name": "Kebab drobiowy",
            "kg_per_unit": 40, "qty": 18, "qty_available": 18,
            "qty_shipped": 0, "client_order_no": "", "client_name": "",
-           "product_type_id": "",
+           "product_type_id": "", "packaging_id": "",
            "produced_date": "2026-06-12"}
     row.update(kw)
     return row
@@ -199,3 +199,35 @@ def test_stempel_INNEGO_zamowienia_nie_wchodzi_po_wysylce():
     obcy = _fg(id="obcy", client_order_no="Z2", qty=50, qty_available=0, qty_shipped=50)
 
     assert portion_stock_rows({_key("r1", 40.0): 50}, [obcy], "Z1") == []
+
+
+# ── Tuleja ────────────────────────────────────────────────────────────────
+
+def test_zapas_na_innej_tulei_nie_wchodzi_na_dokument():
+    """METAL 65 to nie 80 cm — dokument nie może podmienić tulei."""
+    short = compute_shortfalls(
+        [{"recipe_id": "r1", "kg_per_unit": 30.0, "packaging_id": "t-80cm", "qty": 15}], {})
+    rows = [_fg(id="a", kg_per_unit=30.0, qty=15, qty_available=15, packaging_id="t-metal65")]
+
+    assert portion_stock_rows(short, rows, "Z1") == []
+
+
+def test_zapas_na_tej_samej_tulei_pokrywa():
+    short = compute_shortfalls(
+        [{"recipe_id": "r1", "kg_per_unit": 30.0, "packaging_id": "t-metal65", "qty": 15}], {})
+    rows = [_fg(id="a", kg_per_unit=30.0, qty=15, qty_available=15, packaging_id="t-metal65")]
+
+    assert [(p["take"]) for p in portion_stock_rows(short, rows, "Z1")] == [15]
+
+
+def test_FEFO_wazniejsze_niz_dokladnosc_opisu():
+    """Wiersz bez wpisanej tulei pasuje do każdej (stare dane), więc jeśli
+    leży dłużej — wychodzi pierwszy. FEFO to reguła żywnościowa i nie
+    ustępuje dokładności opisu."""
+    short = compute_shortfalls(
+        [{"recipe_id": "r1", "kg_per_unit": 30.0, "packaging_id": "t-metal65", "qty": 10}], {})
+    rows = [_fg(id="starszy-bez-tulei", kg_per_unit=30.0, qty=10, qty_available=10, packaging_id=""),
+            _fg(id="mlodszy-metal65", kg_per_unit=30.0, qty=10, qty_available=10, packaging_id="t-metal65")]
+
+    wziete = {p["fg"]["id"]: p["take"] for p in portion_stock_rows(short, rows, "Z1")}
+    assert wziete == {"starszy-bez-tulei": 10}

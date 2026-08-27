@@ -167,6 +167,7 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
     # Plany anulowane wykluczone — qty_done mógł zostać wpisany przed anulowaniem.
     lines = query_all(
         """SELECT pl.qty_done, pl.kg_per_unit, pl.recipe_id, pl.recipe_name,
+                  pl.product_type_id, pl.packaging_id,
                   pl.product_type_name, pl.batch_allocation, pl.seasoned_batch_no,
                   pl.seasoned_batch_nos, pl.progress_updated_at
            FROM production_plan_lines pl
@@ -178,7 +179,7 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
     # Braki względem zamówienia pokryj zapasem magazynowym (produkcja "na
     # magazyn" sprzed zamówienia nie ma linku w liniach planu).
     order_lines = query_all(
-        "SELECT recipe_id, kg_per_unit, product_type_id, qty "
+        "SELECT recipe_id, kg_per_unit, product_type_id, packaging_id, qty "
         "FROM client_order_lines WHERE order_id=%s",
         (order_id,))
     portions = stock_portions_for_order(

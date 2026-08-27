@@ -316,14 +316,14 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
         if (o["status"] or "") not in ("done", "cancelled")
     }
     linie = query_all(
-        "SELECT id, order_id, recipe_id, kg_per_unit, product_type_id, qty "
+        "SELECT id, order_id, recipe_id, kg_per_unit, product_type_id, packaging_id, qty "
         "FROM client_order_lines ORDER BY id"
     )
     wg_zam: Dict[str, List[Dict[str, Any]]] = {}
     for l in linie:
         wg_zam.setdefault(l["order_id"], []).append({
             "id": l["id"],
-            "key": _klucz(l["recipe_id"], l["kg_per_unit"], l["product_type_id"]),
+            "key": _klucz(l["recipe_id"], l["kg_per_unit"], l["product_type_id"], l["packaging_id"]),
             "qty": int(l["qty"] or 0),
         })
 
@@ -335,7 +335,7 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
         {
             "order_no": r["client_order_no"] if r["client_order_no"] in zywe_numery else "",
             "client_id": r["client_id"] or "",
-            "key": _klucz(r["recipe_id"], r["kg_per_unit"], r["product_type_id"]),
+            "key": _klucz(r["recipe_id"], r["kg_per_unit"], r["product_type_id"], r["packaging_id"]),
             "qty": int(r["qty"] or 0),
         }
         for r in query_all(
@@ -347,11 +347,11 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
                        ORDER BY (c.name = fg.client_name) DESC
                        LIMIT 1
                    ), '') AS client_id,
-                   fg.recipe_id, fg.kg_per_unit, fg.product_type_id,
+                   fg.recipe_id, fg.kg_per_unit, fg.product_type_id, fg.packaging_id,
                    SUM(fg.qty_available) AS qty
             FROM finished_goods fg
             WHERE COALESCE(fg.qty_available, 0) > 0
-            GROUP BY 1, 2, fg.recipe_id, fg.kg_per_unit, fg.product_type_id
+            GROUP BY 1, 2, fg.recipe_id, fg.kg_per_unit, fg.product_type_id, fg.packaging_id
             """
         )
     ]
@@ -363,7 +363,7 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
         {
             "order_id": r["order_id"] or "",
             "client_id": r["client_id"] or "",
-            "key": _klucz(r["recipe_id"], r["kg_per_unit"], r["product_type_id"]),
+            "key": _klucz(r["recipe_id"], r["kg_per_unit"], r["product_type_id"], r["packaging_id"]),
             "qty": int(float(r["qty"] or 0)),
             "kiedy": str(r["kiedy"] or ""),
         }
@@ -380,6 +380,7 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
                    COALESCE(fg.recipe_id, li->>'recipe_id', '') AS recipe_id,
                    COALESCE(fg.kg_per_unit, (li->>'kg_per_unit')::numeric, 0) AS kg_per_unit,
                    COALESCE(fg.product_type_id, li->>'product_type_id', '') AS product_type_id,
+                   COALESCE(fg.packaging_id, li->>'packaging_id', '') AS packaging_id,
                    w.created_at AS kiedy,
                    SUM(COALESCE((li->>'qty')::numeric, 0)) AS qty
             FROM wz_documents w
@@ -388,7 +389,7 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
             WHERE COALESCE(w.status, '') <> 'anulowany'
               AND (COALESCE(li->>'stock_type', '') = 'fg'
                    OR (w.source_type = 'order' AND COALESCE(li->>'recipe_id', '') <> ''))
-            GROUP BY 1, 2, 3, 4, 5, 6
+            GROUP BY 1, 2, 3, 4, 5, 6, 7
             """
         )
     ]

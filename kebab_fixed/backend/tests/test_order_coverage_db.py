@@ -35,36 +35,36 @@ def _klient(cid, nazwa, display):
 
 
 def _zamowienie(oid, order_no, cid, nazwa, data="2026-08-26", qty=20, kg=35,
-                recipe="r1", rodzaj="pt1"):
+                recipe="r1", rodzaj="pt1", tuleja=None):
     execute(
         "INSERT INTO client_orders (id, order_no, client_id, client_name, order_date, "
         " created_at, status) VALUES (%s,%s,%s,%s,%s,%s,'confirmed')",
         (oid, order_no, cid, nazwa, data, f"{data} 08:00:00+00"),
     )
-    _pozycja(oid, f"{oid}-l1", qty=qty, kg=kg, recipe=recipe, rodzaj=rodzaj)
+    _pozycja(oid, f"{oid}-l1", qty=qty, kg=kg, recipe=recipe, rodzaj=rodzaj, tuleja=tuleja)
 
 
-def _pozycja(oid, lid, qty=20, kg=35, recipe="r1", rodzaj="pt1"):
+def _pozycja(oid, lid, qty=20, kg=35, recipe="r1", rodzaj="pt1", tuleja=None):
     execute(
         "INSERT INTO client_order_lines (id, order_id, recipe_id, product_type_id, qty, "
-        " kg_per_unit) VALUES (%s,%s,%s,%s,%s,%s)",
-        (lid, oid, recipe, rodzaj, qty, kg),
+        " kg_per_unit, packaging_id) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        (lid, oid, recipe, rodzaj, qty, kg, tuleja),
     )
 
 
 def _zapas(fid, qty=20, kg=35, recipe="r1", cid=None, nazwa=None,
-           order_no=None, dostepne=None, rodzaj="pt1"):
+           order_no=None, dostepne=None, rodzaj="pt1", tuleja=None):
     """Wiersz wyrobu gotowego wprost do bazy — bez serwisu, bo serwis sam
     dobiera zamówienie, a tu badamy właśnie dobieranie."""
     execute(
         "INSERT INTO finished_goods (id, batch_no, recipe_id, product_type_id, qty, "
         " kg_per_unit, total_kg, qty_available, qty_shipped, client_id, client_name, "
-        " client_order_no, produced_date) "
-        "VALUES (%s,'260826 500',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'2026-08-26')",
+        " client_order_no, packaging_id, produced_date) "
+        "VALUES (%s,'260826 500',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'2026-08-26')",
         (fid, recipe, rodzaj, qty, kg, qty * kg,
          qty if dostepne is None else dostepne,
          0 if dostepne is None else qty - dostepne,
-         cid, nazwa, order_no),
+         cid, nazwa, order_no, tuleja),
     )
 
 
@@ -500,3 +500,39 @@ def test_zamkniete_zamowienie_nie_wraca_na_liste_nabywcy(db):
     execute("UPDATE client_orders SET status='done' WHERE id='o1'")
 
     assert numery_zamowien_klienta("YALCIN") == []
+
+
+# ── Tuleja (METAL 65 to nie 80 cm) ────────────────────────────────────────
+
+def test_tuleja_rozroznia_pozycje(db):
+    """Cały KIRMIZI leżał na METAL 65, a 5 szt. 40 kg i 15 szt. 30 kg system
+    przypisał do 80 cm (biuro, 27.08.2026)."""
+    _klient("c1", "Emin Handels GmbH", "YALCIN")
+    _zamowienie("o1", "YALCIN/Z/3/08/26", "c1", "Emin Handels GmbH",
+                qty=15, kg=30, tuleja="t-80cm")
+    _pozycja("o1", "o1-l2", qty=15, kg=30, tuleja="t-metal65")
+
+    _zapas("f1", qty=15, kg=30, tuleja="t-metal65", cid="c1", nazwa="Emin Handels GmbH")
+
+    assert _zrobione_pozycji("o1") == [0, 15]
+
+
+def test_zapas_na_innej_tulei_nie_pokrywa(db):
+    _klient("c1", "Emin Handels GmbH", "YALCIN")
+    _zamowienie("o1", "YALCIN/Z/3/08/26", "c1", "Emin Handels GmbH",
+                qty=5, kg=40, tuleja="t-80cm")
+
+    _zapas("f1", qty=5, kg=40, tuleja="t-metal65", cid="c1", nazwa="Emin Handels GmbH")
+
+    assert _zrobione("o1") == 0
+
+
+def test_zapas_bez_tulei_liczy_sie_dalej(db):
+    """Wyroby sprzed wpisywania tulei — nie gubimy ich."""
+    _klient("c1", "Emin Handels GmbH", "YALCIN")
+    _zamowienie("o1", "YALCIN/Z/3/08/26", "c1", "Emin Handels GmbH",
+                qty=5, kg=40, tuleja="t-metal65")
+
+    _zapas("f1", qty=5, kg=40, tuleja=None, cid="c1", nazwa="Emin Handels GmbH")
+
+    assert _zrobione("o1") == 5

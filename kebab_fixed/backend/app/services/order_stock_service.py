@@ -29,7 +29,8 @@ def produced_by_key_from_plan_lines(plan_lines: List[Dict[str, Any]]) -> Dict[Ke
     """Suma qty_done linii planu per (receptura, waga sztuki)."""
     out: Dict[Key, int] = {}
     for pl in plan_lines or []:
-        k = _key(pl.get("recipe_id"), pl.get("kg_per_unit"), pl.get("product_type_id"))
+        k = _key(pl.get("recipe_id"), pl.get("kg_per_unit"), pl.get("product_type_id"),
+                 pl.get("packaging_id"))
         out[k] = out.get(k, 0) + int(pl.get("qty_done") or 0)
     return out
 
@@ -44,7 +45,8 @@ def compute_shortfalls(
     do kartonów powiązanych z tym zamówieniem (anty-dublowanie z FIFO finished_goods)."""
     short: Dict[Key, int] = {}
     for ln in order_lines or []:
-        k = _key(ln.get("recipe_id"), ln.get("kg_per_unit"), ln.get("product_type_id"))
+        k = _key(ln.get("recipe_id"), ln.get("kg_per_unit"), ln.get("product_type_id"),
+                 ln.get("packaging_id"))
         short[k] = short.get(k, 0) + int(ln.get("qty") or 0)
     # Odejmowanie idzie po RODZAJU: produkcja UDO 100 % nie zamyka pozycji
     # 95/5. Wpis bez rodzaju (starsze dane) pasuje do każdej — patrz
@@ -85,7 +87,8 @@ def portion_stock_rows(
     remaining = dict(shortfalls or {})
     portions: List[Dict[str, Any]] = []
     for row in fg_rows or []:
-        k = _key(row.get("recipe_id"), row.get("kg_per_unit"), row.get("product_type_id"))
+        k = _key(row.get("recipe_id"), row.get("kg_per_unit"), row.get("product_type_id"),
+                 row.get("packaging_id"))
         # Jeden wiersz → jedna porcja (rozchód idzie potem dokładnie z niego),
         # więc bierzemy pierwszy pasujący brak, nie rozbijamy po kilku.
         cel = next((c for c in kandydaci(remaining, k) if int(remaining.get(c) or 0) > 0), None)
@@ -141,6 +144,7 @@ def stock_portions_for_order(
     fg_rows = query_all(
         """
         SELECT id, batch_no, recipe_id, recipe_name, product_type_id, product_type_name,
+               packaging_id, packaging_name,
                kg_per_unit, qty, qty_available, qty_shipped,
                client_order_no, client_name, produced_date, created_at
         FROM finished_goods fg
