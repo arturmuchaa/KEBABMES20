@@ -492,6 +492,43 @@ def generate_wz(
     return get_wz(wid)
 
 
+def zdejmij_stempel_obcej_sprzedazy(conn, fg_id: str, stempel: str, nabywca: str) -> bool:
+    """Sprzedaż wyrobu jednego klienta KOMUŚ INNEMU zdejmuje przypisanie
+    do zamówienia.
+
+    Wyrób ostemplowany zamówieniem jest dowodem „to pojechało na nie" — po nim
+    dokumenty (HDI/CMR) wykazują sztuki, których nie ma już na stanie. Gdy
+    towar poszedł innemu nabywcy, właściciel zamówienia go NIE dostał i nadal
+    na niego czeka (TRUVA, 26.08.2026: 30 szt. 95/5 pojechało do innej firmy
+    i weszłoby jej na HDI).
+
+    Nabywcę rozpoznajemy w kartotece — nazwa pełna albo handlowa. Nabywcy
+    spoza kartoteki nie umiemy przypisać, więc stempla nie ruszamy.
+    """
+    stempel = (stempel or "").strip()
+    nabywca = (nabywca or "").strip()
+    if not stempel or not nabywca:
+        return False
+    wiersz = cx_query_one(
+        conn,
+        """
+        SELECT (SELECT c.id FROM clients c
+                WHERE c.name = %s OR c.display_name = %s
+                ORDER BY (c.name = %s) DESC LIMIT 1) AS kupujacy,
+               (SELECT o.client_id FROM client_orders o WHERE o.order_no = %s
+                ORDER BY o.created_at LIMIT 1) AS wlasciciel
+        """,
+        (nabywca, nabywca, nabywca, stempel),
+    )
+    kupujacy = (wiersz or {}).get("kupujacy")
+    wlasciciel = (wiersz or {}).get("wlasciciel")
+    if not kupujacy or not wlasciciel or kupujacy == wlasciciel:
+        return False
+    cx_execute(conn, "UPDATE finished_goods SET client_order_no=NULL WHERE id=%s", (fg_id,))
+    logger.info("wz.stempel.zdjety", extra={"fg_id": fg_id, "order_no": stempel})
+    return True
+
+
 def create_manual_wz(
     buyer: Dict[str, Any],
     selections: List[Dict[str, Any]],
@@ -571,6 +608,11 @@ def create_manual_wz(
                 if not row:
                     raise HTTPException(400, "Pozycja magazynowa nie istnieje")
                 numery_zamowien.append(row.get("client_order_no") or "")
+                # Sprzedaż komuś innemu zabiera sztuki właścicielowi
+                # zamówienia — razem z przypisaniem.
+                zdejmij_stempel_obcej_sprzedazy(
+                    conn, sid, row.get("client_order_no") or "",
+                    (buyer or {}).get("name") or "")
                 need = int(qty)
                 avail = int(row.get("qty_available") or 0)
                 if avail < need:

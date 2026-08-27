@@ -6,6 +6,8 @@ sam numer. Osobno: część miesiąca bywa wystawiona poza systemem i biuro musi
 móc powiedzieć „kolejny ma być 11".
 
 Testy DB — bez TEST_DATABASE_URL skip."""
+import pytest
+
 from app.db import execute, query_one, transaction
 from app.services.hdi_service import _next_hdi_seq, format_hdi_number
 
@@ -64,3 +66,63 @@ def test_licznik_zapamietuje_wydany_numer(db):
     _kolejny()
 
     assert int(query_one("SELECT value FROM sequences WHERE key='hdi_seq:2608'")["value"]) == 2
+
+
+# ── Zamówienie zrealizowane: dokument zamrożony ───────────────────────────
+
+def _zamowienie(oid="o1", status="confirmed"):
+    execute("INSERT INTO clients (id, code, name) VALUES ('c1','BULLI','Bulli') "
+            "ON CONFLICT (id) DO NOTHING")
+    execute(
+        "INSERT INTO client_orders (id, order_no, client_id, client_name, order_date, status) "
+        "VALUES (%s,'BULLI/Z/1/08/26','c1','Bulli','2026-08-26',%s)", (oid, status))
+
+
+def _hdi_zam(hid="h1", oid="o1", seq=11, qty=477, kg=12920):
+    import json
+    execute(
+        "INSERT INTO hdi_documents (id, number, seq, year_month, order_id, client_name, "
+        " language, status, incomplete, header, items, totals, issue_date, created_at) "
+        "VALUES (%s,%s,%s,'2608',%s,'BULLI','pl','wstepny',false,'{}'::jsonb,'[]'::jsonb,"
+        " %s::jsonb,'27.08.2026',now())",
+        (hid, format_hdi_number(seq, "2608"), seq, oid, json.dumps({"qty": qty, "kg": kg})),
+    )
+
+
+def test_zrealizowane_zamowienie_nie_przelicza_hdi(db):
+    """Dokument pojechał już z towarem — kolejne kliknięcie „Generuj" nie może
+    go przepisać (biuro, 27.08.2026: HDI spadło z 12 920 na 5 220 kg)."""
+    from app.services.hdi_service import generate_hdi
+    _zamowienie(status="done")
+    _hdi_zam()
+
+    out = generate_hdi("o1")
+
+    assert out["number"] == "11/08/26"
+    assert out["totals"] == {"qty": 477, "kg": 12920}
+    assert out.get("frozen") is True
+
+
+def test_zrealizowane_zamowienie_bez_hdi_nie_wystawia_nowego(db):
+    from fastapi import HTTPException
+
+    from app.services.hdi_service import generate_hdi
+    _zamowienie(status="done")
+
+    with pytest.raises(HTTPException) as e:
+        generate_hdi("o1")
+    assert e.value.status_code == 400
+
+
+def test_zamowienie_w_toku_dalej_odswieza_dokument(db):
+    """Dopóki zamówienie żyje, HDI ma pokazywać stan faktyczny."""
+    from fastapi import HTTPException
+
+    from app.services.hdi_service import generate_hdi
+    _zamowienie(status="confirmed")
+
+    # Brak produkcji i zapasu → build_hdi protestuje, ale NIE zamrożeniem.
+    with pytest.raises(HTTPException) as e:
+        generate_hdi("o1")
+    assert e.value.status_code == 400
+    assert "zrealizowane" not in (e.value.detail or "").lower()

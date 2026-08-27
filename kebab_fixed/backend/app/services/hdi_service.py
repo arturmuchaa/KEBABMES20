@@ -274,14 +274,32 @@ def _next_hdi_seq(conn, ym: str) -> int:
 
 
 def generate_hdi(order_id: str) -> Dict[str, Any]:
-    data = build_hdi(order_id)
     # Numer HDI jest STAŁY per zamówienie/wydanie. Jeśli dokument dla tego
     # zamówienia już istnieje, NIE nabijamy kolejnego numeru — zwracamy ten sam.
     # Dopóki status to 'wstepny', odświeżamy jego treść (stan produkcji mógł się
     # zmienić), zachowując numer; po potwierdzeniu zwracamy bez zmian.
     existing = query_one(
-        "SELECT id, number, status FROM hdi_documents WHERE order_id=%s ORDER BY created_at LIMIT 1",
+        "SELECT id, number, status, incomplete, totals FROM hdi_documents "
+        "WHERE order_id=%s ORDER BY created_at LIMIT 1",
         (order_id,))
+
+    # Zamówienie ZREALIZOWANE (albo anulowane) — dokument jest zamknięty.
+    # Towar wyjechał, papier z nim pojechał; ponowne „Generuj" tylko go
+    # otwiera do podglądu. Przeliczenie po zamknięciu przepisało HDI YALCINA
+    # z 12 920 kg na 5 220 kg (biuro, 27.08.2026).
+    zamowienie = query_one("SELECT status FROM client_orders WHERE id=%s", (order_id,))
+    if not zamowienie:
+        raise HTTPException(404, "Zamówienie nie znalezione")
+    if (zamowienie.get("status") or "") in ("done", "cancelled"):
+        if not existing:
+            raise HTTPException(
+                400, "Zamówienie jest już zamknięte — nowego HDI nie wystawiamy")
+        return {"id": existing["id"], "number": existing["number"],
+                "status": existing["status"], "frozen": True,
+                "incomplete": bool(existing.get("incomplete")),
+                "totals": existing.get("totals") or {}}
+
+    data = build_hdi(order_id)
     if existing:
         if existing["status"] == "wstepny":
             with transaction() as conn:

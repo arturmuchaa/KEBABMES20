@@ -268,7 +268,9 @@ export function ClientOrdersPage() {
                                   }
                                 }}
                                 className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-violet-700 hover:bg-violet-50"
-                                title="Generuj HDI"
+                                title={o.status === 'done' || o.status === 'cancelled'
+                                  ? 'Podgląd HDI — zamówienie zamknięte, dokument jest zamrożony'
+                                  : 'Generuj HDI'}
                               >
                                 HDI
                               </button>
@@ -554,7 +556,7 @@ export function ClientOrdersPage() {
               </CardContent>
             )}
             {zamkniete.length > 0 && (
-              <div className="border-t-2 border-surface-4">
+              <div className="mt-4 border-t-2 border-surface-4">
                 {/* Zrealizowane i anulowane osobno — mieszały się z tym, nad
                     czym biuro pracuje. Domyślnie zwinięte, bo zagląda się tam
                     tylko wtedy, gdy ktoś czegoś szuka. */}

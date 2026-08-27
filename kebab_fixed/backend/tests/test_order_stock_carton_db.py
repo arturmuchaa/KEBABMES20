@@ -1,6 +1,6 @@
 """Reconciliacja dokumentów: sztuki spakowane do kartonu powiązanego z zamówieniem
 NIE są liczone drugi raz w FIFO finished_goods (anty-dublowanie)."""
-from app.db import execute
+from app.db import execute, query_one
 from app.services.order_stock_service import stock_portions_for_order
 from app.utils.ids import now_iso
 
@@ -195,3 +195,35 @@ def test_wz_wystawiony_na_to_zamowienie_zostaje_na_dokumencie(db):
         [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 50}], {})
 
     assert [(p["fg"]["id"], p["take"]) for p in portions] == [("fg-dzis", 50)]
+
+
+def test_sprzedaz_cudzemu_nabywcy_zdejmuje_stempel(db):
+    """Sztuki sprzedane komuś innemu przestają należeć do zamówienia —
+    inaczej weszłyby jego właścicielowi na HDI, choć ich nie dostał."""
+    from app.db import transaction
+    from app.services.wz_service import zdejmij_stempel_obcej_sprzedazy
+    _seed_order(order_id="ord1", order_no="TRUVA/Z/1/08/26", client_id="c1")
+    execute("INSERT INTO clients (id, code, name) VALUES ('c9','KK','Katarzyna Księżyc') "
+            "ON CONFLICT (id) DO NOTHING")
+    _seed_fg_klienta("fg1", 30, "c1", "Truva", "2026-08-26")
+    execute("UPDATE finished_goods SET client_order_no='TRUVA/Z/1/08/26' WHERE id='fg1'")
+
+    with transaction() as conn:
+        zdejmij_stempel_obcej_sprzedazy(conn, "fg1", "TRUVA/Z/1/08/26", "Katarzyna Księżyc")
+
+    assert query_one("SELECT client_order_no FROM finished_goods WHERE id='fg1'")["client_order_no"] in (None, "")
+
+
+def test_sprzedaz_TEMU_klientowi_zostawia_stempel(db):
+    """WZ ręczny na tego samego klienta to normalne wydanie na zamówienie."""
+    from app.db import transaction
+    from app.services.wz_service import zdejmij_stempel_obcej_sprzedazy
+    _seed_order(order_id="ord1", order_no="TRUVA/Z/1/08/26", client_id="c1")
+    execute("UPDATE clients SET name='Truva gastro s.r.o.', display_name='TRUVA' WHERE id='c1'")
+    _seed_fg_klienta("fg1", 30, "c1", "Truva gastro s.r.o.", "2026-08-26")
+    execute("UPDATE finished_goods SET client_order_no='TRUVA/Z/1/08/26' WHERE id='fg1'")
+
+    with transaction() as conn:
+        zdejmij_stempel_obcej_sprzedazy(conn, "fg1", "TRUVA/Z/1/08/26", "TRUVA")
+
+    assert query_one("SELECT client_order_no FROM finished_goods WHERE id='fg1'")["client_order_no"] == "TRUVA/Z/1/08/26"

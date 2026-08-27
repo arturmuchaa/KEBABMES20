@@ -74,9 +74,11 @@ def test_sztuki_wydane_na_TO_zamowienie_widac_na_pozniejszym_dokumencie():
 
 
 def test_sztuki_sprzedane_KOMUS_INNEMU_nie_wchodza_na_dokument():
-    """TRUVA: 30 szt. jej wyrobu poszło ręcznym WZ do innego nabywcy —
-    HDI dla TRUVY nie może ich wykazać, bo ona ich nie dostała."""
-    row = _fg(id="a", client_order_no="Z1", qty_available=0, qty_shipped=30)
+    """TRUVA: 30 szt. jej wyrobu poszło ręcznym WZ do innego nabywcy — HDI dla
+    TRUVY nie może ich wykazać, bo ona ich nie dostała. Rozchód zdejmuje wtedy
+    stempel (patrz `zdejmij_stempel_obcej_sprzedazy`), więc wiersz zostaje bez
+    przypisania i bez wpisu w mapie wydań."""
+    row = _fg(id="a", client_order_no="", qty_available=0, qty_shipped=30)
     assert portion_stock_rows({_key("r1", 40.0): 30}, [row], "Z1") == []
 
 
@@ -178,3 +180,22 @@ def test_nazwa_pozycji_wz_niesie_rodzaj():
 
     assert [l["name"] for l in lines] == [
         "KEBAB MIX 95/5 KIRMIZI 25kg", "KEBAB UDO 100% KIRMIZI 25kg"]
+
+
+def test_klon_po_rozchodzie_wchodzi_na_dokument():
+    """Rozchód WZ dzieli wiersz: oryginal zostaje, a wydane sztuki ida do
+    NOWEGO wiersza ostemplowanego zamowieniem. Pozycja WZ wskazuje id
+    oryginalu, wiec klona nie da sie rozpoznac po mapie wydan — poznajemy go
+    po stemplu (biuro, 27.08.2026: HDI spadlo z 477 na 169 szt.)."""
+    klon = _fg(id="klon", client_order_no="Z1", qty=50, qty_available=0, qty_shipped=50)
+
+    portions = portion_stock_rows({_key("r1", 40.0): 50}, [klon], "Z1")
+
+    assert [(p["fg"]["id"], p["take"]) for p in portions] == [("klon", 50)]
+
+
+def test_stempel_INNEGO_zamowienia_nie_wchodzi_po_wysylce():
+    """Sztuki wydane pod cudzym zamowieniem nie moga wejsc na ten dokument."""
+    obcy = _fg(id="obcy", client_order_no="Z2", qty=50, qty_available=0, qty_shipped=50)
+
+    assert portion_stock_rows({_key("r1", 40.0): 50}, [obcy], "Z1") == []

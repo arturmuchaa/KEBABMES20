@@ -92,8 +92,15 @@ def portion_stock_rows(
         if cel is None:
             continue
         need = int(remaining.get(cel) or 0)
-        pool = (int(row.get("qty_available") or 0)
-                + int(wydane_wg_wiersza.get(row.get("id")) or 0))
+        # Ile ten wiersz wnosi: to, co LEŻY, plus sztuki wydane NA TO
+        # zamówienie. Wiersz ostemplowany tym zamówieniem niesie swoje
+        # `qty_shipped` — rozchód WZ dzieli wiersz i wydane sztuki lądują
+        # w KLONIE, którego pozycja WZ (wskazująca id oryginału) nie zna.
+        wlasny_stempel = order_no and (row.get("client_order_no") or "").strip() == order_no
+        pool = int(row.get("qty_available") or 0) + (
+            int(row.get("qty_shipped") or 0) if wlasny_stempel
+            else int(wydane_wg_wiersza.get(row.get("id")) or 0)
+        )
         take = min(need, pool)
         if take <= 0:
             continue
