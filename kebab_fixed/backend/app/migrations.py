@@ -1254,6 +1254,59 @@ _DDL: list[str] = [
 
     "CREATE INDEX IF NOT EXISTS idx_rsb_reception ON reception_supplier_batches(reception_id)",
     "CREATE INDEX IF NOT EXISTS idx_rsb_raw_batch ON reception_supplier_batches(raw_batch_id)",
+
+    # ── Prognoza zakończenia produkcji ────────────────────────────────
+    #
+    # Log zapisów sztuk. Bez niego po dniu produkcyjnym nie zostaje ŻADEN
+    # ślad czasowy: `progress_updated_at` trzyma tylko ostatni zapis, a
+    # `worker_entries[].addedAt` tylko pierwszy wpis osoby na pozycji.
+    """CREATE TABLE IF NOT EXISTS production_work_events (
+        id           TEXT PRIMARY KEY,
+        plan_id      TEXT NOT NULL,
+        plan_line_id TEXT NOT NULL,
+        recipe_id    TEXT,
+        recipe_name  TEXT,
+        kg_per_unit  NUMERIC NOT NULL DEFAULT 0,
+        pieces_delta INTEGER NOT NULL,
+        worker_id    TEXT,
+        worker_name  TEXT,
+        crew_size    INTEGER NOT NULL DEFAULT 0,
+        at           TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_work_events_plan ON production_work_events (plan_id, at)",
+
+    # Przerwy. Do tej pory żyły w `useState` ekranu i ginęły przy odświeżeniu
+    # — razem z blokadą zapisu sztuk, która na nich stoi.
+    """CREATE TABLE IF NOT EXISTS production_breaks (
+        id         TEXT PRIMARY KEY,
+        plan_id    TEXT NOT NULL,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        ended_at   TIMESTAMPTZ
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_breaks_plan ON production_breaks (plan_id, started_at)",
+
+    # Próbki tempa — JEDNA na (dzień, receptura). Trzymamy próbki, a nie
+    # gotową średnią: `tablet_reopen` pozwala cofnąć zamknięcie dnia, a
+    # średniej doliczanej przyrostowo nie da się cofnąć.
+    """CREATE TABLE IF NOT EXISTS production_rate_samples (
+        plan_id      TEXT NOT NULL,
+        recipe_id    TEXT NOT NULL DEFAULT '',
+        plan_date    DATE,
+        kg           NUMERIC NOT NULL DEFAULT 0,
+        person_hours NUMERIC NOT NULL DEFAULT 0,
+        computed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (plan_id, recipe_id)
+    )""",
+
+    # Ziarno prognozy: 120 kg/h na osobę układającą (wartość od właściciela,
+    # 27.08.2026) i planowana przerwa. W app_settings, żeby biuro mogło je
+    # poprawić bez wdrożenia.
+    """INSERT INTO app_settings (key, value)
+       VALUES ('production.seed_kg_per_person_hour', '120'::jsonb)
+       ON CONFLICT (key) DO NOTHING""",
+    """INSERT INTO app_settings (key, value)
+       VALUES ('production.planned_break_minutes', '30'::jsonb)
+       ON CONFLICT (key) DO NOTHING""",
 ]
 
 

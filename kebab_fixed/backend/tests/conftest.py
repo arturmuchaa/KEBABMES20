@@ -69,6 +69,9 @@ _TRUNCATE = [
     "settlement_deductions", "settled_days", "payroll_settlements",
     "production_day_materials",
     "production_wrapping",
+    # Prognoza zakończenia — log zapisów, przerwy i próbki tempa przeciekałyby
+    # między testami (próbka po (plan_id, recipe_id) trafiałaby na duplikat).
+    "production_work_events", "production_breaks", "production_rate_samples",
     "production_worker_moves",
 ]
 
