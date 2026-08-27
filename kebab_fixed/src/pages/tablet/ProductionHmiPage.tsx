@@ -22,6 +22,7 @@ import { HMI_VARS, HMI_FONT } from '@/features/hmi-theme/vars'
 import '@/features/hmi-theme/hmi-font.css'
 import { planDiff, snapshotPlanu, type PlanChange, type PlanSnapshotLine } from '@/features/production-hmi/planDiff'
 import { planTotals } from '@/features/production-hmi/planProgress'
+import { removablePieces, type ScanMap } from '@/features/production-hmi/scanProgress'
 import { shiftStats, type ShiftEntry } from '@/features/production-hmi/shiftStats'
 import {
   BRAK_PRZERW, breakEnded, breakStarted, canSave, onBreak, pausedMs, type BreakState,
@@ -75,14 +76,12 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   // tulei (tuleja pozycji potrafi zejść do zera w trakcie dnia).
   const pkgData = useApi(() => packagingApi.all())
 
-  // Jeden rejestr źródeł — dopisanie kolejnego nie wymaga pamiętania o drugim
-  // miejscu (patrz incydent zamrożonego licznika na rozbiorze).
-  useLiveRefresh({ planData, opsData, matData, wrapData, pkgData })
-
   const [wybranaPozycja, setWybranaPozycja] = useState<string | null>(null)
   const [tulejaPozycji, setTulejaPozycji] = useState<string | null>(null)
   const [przepisywany, setPrzepisywany] = useState<string | null>(null)
-  const [skanowanie, setSkanowanie] = useState(false)
+  /** `null` — panel skanowania zamknięty; `''` — otwarty na wyborze pozycji;
+   *  id — otwarty od razu na tej pozycji (wejście z licznika). */
+  const [skanowanie, setSkanowanie] = useState<string | null>(null)
   const [pracownik, setPracownik] = useState('')
   const [przerwy, setPrzerwy] = useState<BreakState>(BRAK_PRZERW)
   const [statystykiOtwarte, setStatystykiOtwarte] = useState(false)
@@ -117,6 +116,27 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
     clientName: l.clientName ?? '',
     qtyDone: l.qtyDone ?? 0, workerEntries: l.workerEntries ?? [],
   })), [plan])
+
+  // Postęp skanowania per pozycja — osobne źródło, bo `list_plans` ciągnie
+  // biuro dla WSZYSTKICH planów, a ten licznik dotyczy tylko planu dnia.
+  const scanData = useApi(
+    () => (plan?.id ? finishedUnitsApi.planScanProgress(plan.id) : Promise.resolve([])),
+    [plan?.id],
+  )
+  const skany: ScanMap = useMemo(() => {
+    const out: ScanMap = {}
+    for (const s of scanData.data ?? []) out[s.planLineId] = { total: s.total, scanned: s.scanned }
+    return out
+  }, [scanData.data])
+  const zeskanowaneRazem = useMemo(
+    () => (scanData.data ?? []).reduce((a, s) => a + s.scanned, 0),
+    [scanData.data],
+  )
+
+  // Jeden rejestr źródeł — dopisanie kolejnego nie wymaga pamiętania o drugim
+  // miejscu (patrz incydent zamrożonego licznika na rozbiorze). Stoi TU,
+  // a nie przy deklaracjach źródeł, bo `scanData` zależy od wyliczonego planu.
+  useLiveRefresh({ planData, opsData, matData, wrapData, pkgData, scanData })
 
   const totals = useMemo(() => planTotals(linie), [linie])
 
@@ -174,9 +194,15 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
 
   const pokazToast = (t: string) => { setToast(t); setTimeout(() => setToast(''), 3000) }
 
-  // ── Zapis sztuk ──
+  // ── Zapis sztuk (w obie strony) ──
+  //
+  // Dodatnie `sztuk` dopisuje pracę, ujemne ją zdejmuje. Odejmowanie zawsze
+  // schodzi WYBRANEJ osobie — sztuki idą do wypłaty, więc nie wolno ich
+  // zabierać „z pozycji" komukolwiek. Serwer trzyma próg skanu (zeskanowanej
+  // sztuki nie da się odjąć, bo leży już na magazynie wyrobu gotowego);
+  // LineCounter gasi przycisk wcześniej, ale to tylko uprzejmość dla operatora.
   const zapisz = useCallback(async (sztuk: number) => {
-    if (!plan || !pozycja) return
+    if (!plan || !pozycja || sztuk === 0) return
     // Strażnik autorytatywny. Operator i tak nie kliknie — LineCounter gasi
     // przycisk — więc ta linia jest nieosiągalna z DOM-u i świadomie nieobjęta
     // testem; trzyma zapis, gdyby kiedyś pojawiła się druga droga wywołania.
@@ -185,33 +211,51 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
     if (!kto) { pokazToast('Wybierz, kto liczy'); return }
 
     const dotad = pozycja.workerEntries ?? []
+    const maja = dotad.filter(e => e.workerId === kto.id).reduce((a, e) => a + (e.pieces ?? 0), 0)
+    // Ile realnie schodzi: nie więcej, niż osoba ma na pozycji i nie poniżej
+    // progu skanu. Bez tego zapis poleciałby na serwer po 409.
+    const zmiana = sztuk < 0
+      ? -Math.min(-sztuk, maja, removablePieces(pozycja, skany))
+      : sztuk
+    if (zmiana === 0) { pokazToast('Tych sztuk nie da się już odjąć'); return }
+
     const idx = dotad.findIndex(e => e.workerId === kto.id)
-    const wpisy = idx >= 0
-      ? dotad.map((e, i) => (i === idx ? { ...e, pieces: e.pieces + sztuk } : e))
-      : [...dotad, { workerId: kto.id, workerName: kto.name, pieces: sztuk,
+    const wpisy = (idx >= 0
+      ? dotad.map((e, i) => (i === idx ? { ...e, pieces: e.pieces + zmiana } : e))
+      : [...dotad, { workerId: kto.id, workerName: kto.name, pieces: zmiana,
                      addedAt: new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) }]
-    const zrobione = Math.min(pozycja.qty, pozycja.qtyDone + sztuk)
+    // Wpis na zero to nie wpis — zostawiony straszyłby w statystykach zmiany
+    // jako osoba z zerem sztuk (tak samo jak przy przepisywaniu na serwerze).
+    ).filter(e => (e.pieces ?? 0) > 0)
+    const zrobione = Math.max(0, Math.min(pozycja.qty, pozycja.qtyDone + zmiana))
     const stan = zrobione >= pozycja.qty ? 'DONE' : zrobione > 0 ? 'IN_PROGRESS' : 'PLANNED'
 
     try {
       await productionPlansApi.updateLineProgress(plan.id, pozycja.id,
         { qtyDone: zrobione, lineStatus: stan as any, workerEntries: wpisy })
       planData.refetch()
-      if (zrobione >= pozycja.qty) { setWybranaPozycja(null); pokazToast('Pozycja gotowa') }
-    } catch {
-      pokazToast('Nie udało się zapisać — spróbuj jeszcze raz')
+      if (zmiana < 0) {
+        pokazToast(`Odjęto ${-zmiana} szt. · ${kto.name.split(' ')[0]}`)
+      } else if (zrobione >= pozycja.qty) {
+        // Zamknięta pozycja wraca na listę, ale NIE jest zamknięta na klucz —
+        // wchodzi się w nią z powrotem i poprawia, dopóki nic nie zeskanowane.
+        setWybranaPozycja(null); pokazToast('Pozycja gotowa — zeskanuj sztuki, żeby ją potwierdzić')
+      }
+    } catch (e: any) {
+      pokazToast(e?.message || 'Nie udało się zapisać — spróbuj jeszcze raz')
     }
-  }, [plan, pozycja, przerwy, operatorzy, pracownik, planData])
+  }, [plan, pozycja, przerwy, operatorzy, pracownik, planData, skany])
 
   // ── Skanowanie gotowych kebabów ──
   //
   // Skan księguje sztukę na magazynie wyrobu gotowego po stronie backendu;
   // tu odświeżamy plan, żeby postęp pozycji nadążał za wózkiem.
-  const zeskanuj = useCallback(async (code: string) => {
-    const wynik = await finishedUnitsApi.scanProduced(code)
+  const zeskanuj = useCallback(async (code: string, lineId: string) => {
+    const wynik = await finishedUnitsApi.scanProduced(code, undefined, lineId)
     planData.refetch()
+    scanData.refetch()
     return wynik
-  }, [planData])
+  }, [planData, scanData])
 
   // ── Poprawka „nie ta osoba" ──
   //
@@ -402,9 +446,12 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
               onBack={() => setWybranaPozycja(null)}
               canSave={canSave(przerwy)}
               onMoveFrom={setPrzepisywany}
+              scan={skany[pozycja.id]}
+              onScanLine={setSkanowanie}
             />
           ) : (
-            <PlanList lines={linie} onPick={setWybranaPozycja} onPickPackaging={setTulejaPozycji} />
+            <PlanList lines={linie} onPick={setWybranaPozycja} onPickPackaging={setTulejaPozycji}
+              scans={skany} />
           )}
         </div>
       </div>
@@ -419,7 +466,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
           { label: 'Tempo',      val: `${stats.total.kgPerHour} kg/h` },
           { label: 'Sztuki',     val: `${totals.sztDone} / ${totals.sztPlan}` },
           { label: 'Foliowanie', val: `${zafoliowane} kg`, onTap: () => setFoliowanieOtwarte(true) },
-          { label: 'Skanowanie', val: `${totals.sztDone} szt.`, onTap: () => setSkanowanie(true) },
+          { label: 'Skanowanie', val: `${zeskanowaneRazem} / ${totals.sztPlan}`, onTap: () => setSkanowanie('') },
         ] as { label: string; val: string; color?: string; onTap?: () => void }[]).map(c => c.onTap ? (
           <button key={c.label} type="button" onClick={c.onTap}
             className="flex flex-col items-center justify-center px-1 text-center active:scale-95 transition-transform"
@@ -453,8 +500,9 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
           busy={zajety} onSave={zapiszFoliowanie} onClose={() => setFoliowanieOtwarte(false)} />
       )}
 
-      {skanowanie && (
-        <ScanPanel onScan={zeskanuj} onClose={() => setSkanowanie(false)} />
+      {skanowanie !== null && (
+        <ScanPanel lines={linie} scans={skany} initialLineId={skanowanie}
+          onScan={zeskanuj} onClose={() => setSkanowanie(null)} />
       )}
 
       {pozycja && przepisywany && (

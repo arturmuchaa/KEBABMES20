@@ -19,7 +19,13 @@ def generate_from_plan_line(dto: GenerateUnitsRequest):
 
 @router.post("/scan-produced")
 def scan_produced(dto: ScanProducedRequest):
-    return svc.scan_produced(dto.code, dto.trolley_id)
+    return svc.scan_produced(dto.code, dto.trolley_id, dto.plan_line_id)
+
+
+@router.get("/plan-progress")
+def plan_progress(plan_id: str = ""):
+    """Postęp skanowania per pozycja planu — dla HMI produkcji."""
+    return svc.plan_scan_progress(plan_id)
 
 
 @router.get("/lookup")

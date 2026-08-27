@@ -268,8 +268,77 @@ def list_units_by_plan_line(plan_line_id: str) -> List[Dict[str, Any]]:
     ]
 
 
-def scan_produced(code: str, trolley_id: str | None = None) -> Dict[str, Any]:
-    """Skan produkcyjny: planned → produced (+ wózek). Dubel → 409."""
+def plan_scan_progress(plan_id: str) -> List[Dict[str, Any]]:
+    """Ile sztuk każdej pozycji planu wygenerowano i ile z nich zeskanowano.
+
+    Osobny endpoint, a nie kolumna w `list_plans`: biuro ciągnie WSZYSTKIE plany
+    naraz, a ten licznik jest potrzebny wyłącznie hali i tylko dla planu dnia.
+
+    LEFT JOIN, bo pozycja bez wydrukowanych etykiet też musi być na liście
+    wyboru w panelu skanowania — z zerem, zamiast zniknąć.
+    """
+    if not plan_id:
+        return []
+    rows = query_all(
+        """
+        SELECT l.id AS plan_line_id,
+               count(u.id) AS total,
+               count(u.id) FILTER (WHERE u.status <> 'planned') AS scanned
+        FROM production_plan_lines l
+        LEFT JOIN finished_units u ON u.plan_line_id = l.id
+        WHERE l.plan_id = %s
+        GROUP BY l.id, l.position
+        ORDER BY l.position, l.id
+        """,
+        (plan_id,),
+    )
+    return [
+        {
+            "planLineId": r["plan_line_id"],
+            "total": int(r["total"] or 0),
+            "scanned": int(r["scanned"] or 0),
+        }
+        for r in rows
+    ]
+
+
+def _line_label(conn, plan_line_id: str) -> str:
+    """„3 (KIRMIZI)" — pozycja tak, jak operator widzi ją na liście planu.
+
+    Numer liczymy `row_number()` po (position, id), czyli tym samym porządkiem,
+    którym plan jedzie na ekran. Kolumna `position` bywa 0-based i sama w sobie
+    kazałaby operatorowi szukać pozycji o numer niżej.
+    """
+    if not plan_line_id:
+        return ""
+    row = cx_query_one(
+        conn,
+        """
+        SELECT lp, recipe_name FROM (
+            SELECT id, recipe_name, plan_id,
+                   row_number() OVER (PARTITION BY plan_id ORDER BY position, id) AS lp
+            FROM production_plan_lines
+            WHERE plan_id = (SELECT plan_id FROM production_plan_lines WHERE id=%s)
+        ) t WHERE t.id = %s
+        """,
+        (plan_line_id, plan_line_id),
+    )
+    if not row:
+        return ""
+    nazwa = (row.get("recipe_name") or "").strip()
+    return f"{int(row['lp'])} ({nazwa})" if nazwa else str(int(row["lp"]))
+
+
+def scan_produced(
+    code: str, trolley_id: str | None = None, plan_line_id: str | None = None
+) -> Dict[str, Any]:
+    """Skan produkcyjny: planned → produced (+ wózek). Dubel → 409.
+
+    `plan_line_id` — pozycja WYBRANA na HMI. Operator skanuje jedną pozycję
+    naraz („poz. 1: 20×40 kg"), więc sztuka z innej pozycji musi się odbić
+    z nazwą tej właściwej, zamiast po cichu zaliczyć się gdzie indziej.
+    Skanowanie mobilne pozycji nie zna i podaje `None` — działa jak dotąd.
+    """
     unit_id = parse_unit_qr(code)
     if not unit_id:
         raise HTTPException(400, "Nieprawidłowy kod QR sztuki")
@@ -280,6 +349,15 @@ def scan_produced(code: str, trolley_id: str | None = None) -> Dict[str, Any]:
         )
         if not unit:
             raise HTTPException(404, "Sztuka nie znaleziona")
+        # Sprawdzamy pozycję PRZED zmianą statusu — odbita sztuka ma zostać
+        # nietknięta, żeby dało się ją zeskanować na właściwej pozycji.
+        if plan_line_id and (unit.get("plan_line_id") or "") != plan_line_id:
+            gdzie = _line_label(conn, unit.get("plan_line_id") or "")
+            raise HTTPException(
+                409,
+                f"Ta sztuka jest z pozycji {gdzie}" if gdzie
+                else "Ta sztuka jest z innej pozycji planu",
+            )
         try:
             new_status = next_produced_status(unit["status"])
         except ValueError as exc:
@@ -316,6 +394,7 @@ def scan_produced(code: str, trolley_id: str | None = None) -> Dict[str, Any]:
             "unitId": unit_id,
             "status": new_status,
             "goodsId": goods_id,
+            "planLineId": unit.get("plan_line_id") or "",
             "onStock": bool(goods_id),
             "clientName": unit.get("client_name") or "",
             "batchNo": unit.get("batch_no") or "",

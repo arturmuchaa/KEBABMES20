@@ -11,3 +11,6 @@ class GenerateUnitsRequest(BaseModel):
 class ScanProducedRequest(BaseModel):
     code: str
     trolley_id: Optional[str] = None
+    # Pozycja wybrana na HMI produkcji — skan zamknięty na jedną pozycję planu.
+    # Skanowanie mobilne pozycji nie zna i zostawia None.
+    plan_line_id: Optional[str] = None

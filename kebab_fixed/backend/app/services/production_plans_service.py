@@ -1237,6 +1237,25 @@ def update_line_progress(
         status = "PLANNED"
 
     with transaction() as conn:
+        # PRÓG SKANU: sztuka zeskanowana leży już na magazynie wyrobu gotowego
+        # (`book_scanned_unit`), więc `qty_done` nie może zejść poniżej liczby
+        # zeskanowanych. Nadwyżkę wpisaną przez pomyłkę wolno skasować — skan
+        # jednej sztuki NIE zamraża całej pozycji. Poniżej progu zostaje
+        # przepisanie pracy komu innemu (`move_line_pieces`).
+        zeskanowane = int((cx_query_one(
+            conn,
+            "SELECT count(*) AS n FROM finished_units "
+            "WHERE plan_line_id=%s AND status <> 'planned'",
+            (line_id,),
+        ) or {}).get("n") or 0)
+        if qty_done < zeskanowane:
+            raise HTTPException(
+                409,
+                f"Na tej pozycji zeskanowano już {zeskanowane} szt. — niżej nie zejdziesz. "
+                "Sztuki są na magazynie wyrobu gotowego; można je tylko przepisać "
+                "na innego pracownika.",
+            )
+
         # Tuleje schodzą RAZEM z zapisem sztuk (jedna sztuka = jedna tuleja).
         # W tej samej transakcji, żeby stan i postęp zmieniły się razem albo
         # wcale. Brak tulei na stanie nie blokuje zapisu — patrz komentarz

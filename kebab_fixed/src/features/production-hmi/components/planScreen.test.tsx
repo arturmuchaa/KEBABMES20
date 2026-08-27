@@ -32,7 +32,7 @@ describe('PlanList', () => {
   it('pokazuje kolumny w kolejności karty produkcji', () => {
     render(<PlanList lines={[linia()]} onPick={() => {}} />)
     const naglowki = screen.getAllByRole('columnheader').map(h => h.textContent?.trim())
-    expect(naglowki).toEqual(['Lp', 'Ilość szt.', 'Waga', 'Rodzaj', 'Partia', 'Tuleje', 'Klient', 'Razem', 'Postęp', 'Stan'])
+    expect(naglowki).toEqual(['Lp', 'Ilość szt.', 'Waga', 'Rodzaj', 'Partia', 'Tuleje', 'Klient', 'Razem', 'Postęp', 'Skan', 'Stan'])
   })
 
   it('wiersz niesie to, co operator musi wiedzieć', () => {
@@ -77,6 +77,32 @@ describe('PlanList', () => {
     ]} />)
     expect(within(screen.getAllByRole('row')[1]).getByText('344')).toBeTruthy()
     expect(within(screen.getAllByRole('row')[2]).getByText('2×472 · 6×PP13')).toBeTruthy()
+  })
+
+  // Potwierdzenie pozycji to SKAN, nie licznik sztuk: dopiero zeskanowana
+  // sztuka leży na magazynie wyrobu gotowego.
+  it('pozycja zeskanowana w całości jest POTWIERDZONA, a nie tylko gotowa', () => {
+    render(<PlanList lines={[linia({ qtyDone: 20 })]} onPick={() => {}}
+      scans={{ l1: { total: 20, scanned: 20 } }} />)
+    expect(screen.getByText('Potwierdzone')).toBeTruthy()
+    expect(screen.queryByText('Gotowe')).toBeNull()
+  })
+
+  it('policzona, ale niezeskanowana pozycja zostaje gotowa', () => {
+    render(<PlanList lines={[linia({ qtyDone: 20 })]} onPick={() => {}}
+      scans={{ l1: { total: 20, scanned: 12 } }} />)
+    expect(screen.getByText('Gotowe')).toBeTruthy()
+    expect(screen.queryByText('Potwierdzone')).toBeNull()
+  })
+
+  it('kolumna skanu pokazuje, ile sztuk pozycji już zeskanowano', () => {
+    render(<PlanList lines={[linia()]} onPick={() => {}} scans={{ l1: { total: 20, scanned: 12 } }} />)
+    expect(screen.getByTestId('skan-l1').textContent).toBe('12 / 20')
+  })
+
+  it('pozycja bez wydrukowanych etykiet mówi wprost, że nie ma czego skanować', () => {
+    render(<PlanList lines={[linia()]} onPick={() => {}} scans={{}} />)
+    expect(screen.getByTestId('skan-l1').textContent).toBe('—')
   })
 
   it('pusty plan mówi wprost, że biuro nic nie zaplanowało', () => {
@@ -314,6 +340,171 @@ describe('LineCounter', () => {
     render(<LineCounter {...p} />)
     expect(screen.getByText('DAWID — 8 szt.')).toBeTruthy()
     expect(screen.getByText('DENYS — 4 szt.')).toBeTruthy()
+  })
+})
+
+// Układa 10–15 osób naraz. Kafelek ma nieść nazwisko I dorobek na tej pozycji,
+// bo operator wybiera osobę wzrokiem z drugiego końca stołu, w rękawicy.
+describe('LineCounter — kafelki pracowników', () => {
+  const zaloga = Array.from({ length: 12 }, (_, i) => ({ id: `w${i + 1}`, name: `PRACOWNIK ${i + 1}` }))
+  const props = (over: any = {}) => ({
+    line: linia({ qtyDone: 12, workerEntries: [
+      { workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 9, addedAt: '10:00' },
+      { workerId: 'w2', workerName: 'DENYS KOVAL', pieces: 3, addedAt: '11:00' },
+    ] }),
+    workers: zaloga,
+    selectedWorkerId: 'w1',
+    onSelectWorker: vi.fn(),
+    onSave: vi.fn(),
+    onBack: vi.fn(),
+    canSave: true,
+    ...over,
+  })
+
+  it('każdy pracownik ma własny kafelek — cała załoga na ekranie', () => {
+    render(<LineCounter {...props()} />)
+    expect(screen.getAllByTestId(/^pracownik-/)).toHaveLength(12)
+  })
+
+  it('kafelek niesie dorobek osoby na tej pozycji', () => {
+    render(<LineCounter {...props()} />)
+    expect(within(screen.getByTestId('pracownik-w1')).getByText('9 szt.')).toBeTruthy()
+    expect(within(screen.getByTestId('pracownik-w2')).getByText('3 szt.')).toBeTruthy()
+  })
+
+  it('osoba bez sztuk na pozycji nie udaje, że coś zrobiła', () => {
+    render(<LineCounter {...props()} />)
+    expect(within(screen.getByTestId('pracownik-w5')).queryByText(/szt\./)).toBeNull()
+  })
+
+  it('zaznaczony kafelek jest oznaczony dla czytnika ekranu', () => {
+    render(<LineCounter {...props()} />)
+    expect(screen.getByTestId('pracownik-w1').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('pracownik-w2').getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('dotknięcie kafelka wybiera osobę', () => {
+    const p = props()
+    render(<LineCounter {...p} />)
+    fireEvent.click(screen.getByTestId('pracownik-w7'))
+    expect(p.onSelectWorker).toHaveBeenCalledWith('w7')
+  })
+})
+
+// Pomyłka w liczeniu wychodzi zwykle na końcu pozycji. Dopóki sztuka nie jest
+// zeskanowana, jest tylko liczbą na ekranie — wolno ją odjąć.
+describe('LineCounter — odejmowanie sztuk przed skanem', () => {
+  const props = (over: any = {}) => ({
+    line: linia({ qty: 20, qtyDone: 12, workerEntries: [
+      { workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 9, addedAt: '10:00' },
+      { workerId: 'w2', workerName: 'DENYS KOVAL', pieces: 3, addedAt: '11:00' },
+    ] }),
+    workers: [{ id: 'w1', name: 'DAWID NOWAK' }, { id: 'w2', name: 'DENYS KOVAL' }],
+    selectedWorkerId: 'w1',
+    onSelectWorker: vi.fn(),
+    onSave: vi.fn(),
+    onBack: vi.fn(),
+    canSave: true,
+    scan: { total: 20, scanned: 0 },
+    ...over,
+  })
+
+  it('odejmowanie oddaje UJEMNĄ liczbę sztuk — jeden zapis, jedna droga', () => {
+    const p = props()
+    render(<LineCounter {...p} />)
+    fireEvent.click(screen.getByRole('button', { name: 'więcej' }))
+    fireEvent.click(screen.getByTestId('odejmij'))
+    expect(p.onSave).toHaveBeenCalledWith(-2)
+  })
+
+  it('nazwisko osoby stoi na przycisku odejmowania — sztuki schodzą JEJ', () => {
+    render(<LineCounter {...props()} />)
+    expect(screen.getByTestId('odejmij').textContent).toContain('DAWID')
+  })
+
+  it('nie odejmiesz osobie więcej, niż ma na pozycji', () => {
+    const p = props({ selectedWorkerId: 'w2' })   // DENYS ma 3 szt.
+    render(<LineCounter {...p} />)
+    for (let i = 0; i < 8; i++) fireEvent.click(screen.getByRole('button', { name: 'więcej' }))
+    fireEvent.click(screen.getByTestId('odejmij'))
+    expect(p.onSave).toHaveBeenCalledWith(-3)
+  })
+
+  it('osobie bez sztuk nie ma czego odjąć', () => {
+    const p = props({ workers: [{ id: 'w1', name: 'DAWID NOWAK' }, { id: 'w3', name: 'OLEH BONDAR' }],
+                      selectedWorkerId: 'w3' })
+    render(<LineCounter {...p} />)
+    expect((screen.getByTestId('odejmij') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('GOTOWA pozycja nadal pozwala odjąć — pomyłka wychodzi na końcu', () => {
+    const p = props({ line: linia({ qty: 12, qtyDone: 12, workerEntries: [
+      { workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 12, addedAt: '10:00' },
+    ] }) })
+    render(<LineCounter {...p} />)
+    expect((screen.getByTestId('zapisz') as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByTestId('odejmij') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('w trakcie przerwy nie odejmiesz tak samo jak nie dopiszesz', () => {
+    const p = props({ canSave: false })
+    render(<LineCounter {...p} />)
+    fireEvent.click(screen.getByTestId('odejmij'))
+    expect(p.onSave).not.toHaveBeenCalled()
+  })
+})
+
+// Skan = sztuka leży na magazynie wyrobu gotowego. Tego już nie cofniemy
+// z HMI — zostaje przepisanie pracy komu innemu.
+describe('LineCounter — po zeskanowaniu', () => {
+  const props = (over: any = {}) => ({
+    line: linia({ qty: 20, qtyDone: 12, workerEntries: [
+      { workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 9, addedAt: '10:00' },
+      { workerId: 'w2', workerName: 'DENYS KOVAL', pieces: 3, addedAt: '11:00' },
+    ] }),
+    workers: [{ id: 'w1', name: 'DAWID NOWAK' }, { id: 'w2', name: 'DENYS KOVAL' }],
+    selectedWorkerId: 'w1',
+    onSelectWorker: vi.fn(),
+    onSave: vi.fn(),
+    onBack: vi.fn(),
+    canSave: true,
+    onMoveFrom: vi.fn(),
+    ...over,
+  })
+
+  it('wszystko zeskanowane → odejmowanie zgaszone, zostaje przepisanie', () => {
+    const p = props({ scan: { total: 20, scanned: 12 } })
+    render(<LineCounter {...p} />)
+    expect((screen.getByTestId('odejmij') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByTestId('rozliczenie-w2'))
+    expect(p.onMoveFrom).toHaveBeenCalledWith('w2')
+  })
+
+  it('nadwyżkę ponad zeskanowane wolno jeszcze skasować', () => {
+    const p = props({ scan: { total: 20, scanned: 9 } })   // wpisane 12, zeskanowane 9
+    render(<LineCounter {...p} />)
+    for (let i = 0; i < 8; i++) fireEvent.click(screen.getByRole('button', { name: 'więcej' }))
+    fireEvent.click(screen.getByTestId('odejmij'))
+    expect(p.onSave).toHaveBeenCalledWith(-3)
+  })
+
+  it('mówi wprost, ile sztuk pozycji jest już zeskanowanych', () => {
+    render(<LineCounter {...props({ scan: { total: 20, scanned: 9 } })} />)
+    expect(screen.getByTestId('skan-pozycji').textContent).toMatch(/9 \/ 20/)
+  })
+
+  it('dopisywanie sztuk działa mimo skanów — brakującą sztukę wolno dodać', () => {
+    const p = props({ scan: { total: 20, scanned: 12 } })
+    render(<LineCounter {...p} />)
+    fireEvent.click(screen.getByTestId('zapisz'))
+    expect(p.onSave).toHaveBeenCalledWith(1)
+  })
+
+  it('prowadzi do skanowania TEJ pozycji', () => {
+    const skanuj = vi.fn()
+    render(<LineCounter {...props({ onScanLine: skanuj })} />)
+    fireEvent.click(screen.getByTestId('skanuj-pozycje'))
+    expect(skanuj).toHaveBeenCalledWith('l1')
   })
 })
 

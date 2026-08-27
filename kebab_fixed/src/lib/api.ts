@@ -1865,15 +1865,24 @@ export interface ScanProducedResult {
   /** Sztuka weszła na magazyn wyrobu gotowego już przy tym skanie. */
   onStock?: boolean
   goodsId?: string | null
+  /** Pozycja planu, na której wylądował skan. */
+  planLineId?: string
 }
 
 export const finishedUnitsApi = {
   generateFromPlanLine: (planLineId: string) =>
     post<{ planLineId: string; created: number; existing: number }>(
       '/finished-units/from-plan-line', { plan_line_id: planLineId }),
-  scanProduced: (code: string, trolleyId?: string) =>
+  /** `planLineId` — pozycja wybrana na HMI produkcji. Sztuka z innej pozycji
+   *  odbija się z 409 i nazwą tej właściwej. Skanowanie mobilne pozycji nie
+   *  zna i zostawia pole puste (zachowanie jak dotąd). */
+  scanProduced: (code: string, trolleyId?: string, planLineId?: string) =>
     post<ScanProducedResult>('/finished-units/scan-produced',
-      { code, trolley_id: trolleyId ?? null }),
+      { code, trolley_id: trolleyId ?? null, plan_line_id: planLineId ?? null }),
+  /** Postęp skanowania per pozycja planu — źródło stanu POTWIERDZONE na HMI. */
+  planScanProgress: (planId: string) =>
+    get<{ planLineId: string; total: number; scanned: number }[]>(
+      `/finished-units/plan-progress?plan_id=${encodeURIComponent(planId)}`),
   lookup: (code: string) =>
     get<FinishedUnitCard>(`/finished-units/lookup?code=${encodeURIComponent(code)}`),
   listByPlanLine: (planLineId: string) =>

@@ -20,6 +20,8 @@ const stan = vi.hoisted(() => ({
   materialy: [] as any[],
   foliowanie: [] as any[],
   opakowania: [] as any[],
+  /** Postęp skanowania per pozycja planu: { [planLineId]: { total, scanned } }. */
+  skanPozycji: {} as Record<string, { total: number; scanned: number }>,
 }))
 const wolania = vi.hoisted(() => ({
   postep: [] as any[],
@@ -71,15 +73,25 @@ vi.mock('@/lib/api', () => ({
   },
   packagingApi: { all: () => Promise.resolve(kopia(stan.opakowania)) },
   finishedUnitsApi: {
-    scanProduced: (code: string) => {
-      wolania.skany.push(code)
-      const l = stan.plany[0].lines[0]
+    scanProduced: (code: string, _trolleyId?: string, planLineId?: string) => {
+      wolania.skany.push({ code, planLineId })
+      const l = stan.plany[0].lines.find((x: any) => x.id === planLineId) ?? stan.plany[0].lines[0]
       l.qtyDone = (l.qtyDone ?? 0) + 1
+      const s = stan.skanPozycji[l.id] ?? { total: l.qty, scanned: 0 }
+      stan.skanPozycji[l.id] = { total: s.total, scanned: s.scanned + 1 }
       return Promise.resolve({
         ok: true, unitId: 'u1', status: 'produced', clientName: 'Bulli sp. z o.o.',
         batchNo: '250826 344', weightKg: 35, done: l.qtyDone, total: l.qty, onStock: true,
+        planLineId: l.id,
       })
     },
+    planScanProgress: () => Promise.resolve(
+      (stan.plany[0]?.lines ?? []).map((l: any) => ({
+        planLineId: l.id,
+        total: stan.skanPozycji[l.id]?.total ?? 0,
+        scanned: stan.skanPozycji[l.id]?.scanned ?? 0,
+      })),
+    ),
   },
   wrappingApi: {
     forDay: () => Promise.resolve(kopia(stan.foliowanie)),
@@ -140,6 +152,9 @@ beforeEach(() => {
   wolania.tuleja = []; wolania.tulejaBlad = false; wolania.przeniesienia = []; wolania.przeniesienieBlad = false
   wolania.postep = []; wolania.finish = []; wolania.pobranie = []; wolania.zwrot = []
   wolania.foliowanieZapis = []; wolania.skany = []
+  // Domyślnie biuro wydrukowało etykiety na obie pozycje, ale nic jeszcze
+  // nie zeskanowano — czyli stan, w którym hala zaczyna dzień.
+  stan.skanPozycji = { l1: { total: 20, scanned: 0 }, l2: { total: 10, scanned: 0 } }
 })
 afterEach(cleanup)
 
@@ -399,20 +414,115 @@ describe('ProductionHmiPage — poprawka „nie ta osoba"', () => {
 })
 
 describe('ProductionHmiPage — skanowanie na magazyn', () => {
-  it('kafel skanowania otwiera panel, a skan idzie na serwer i odświeża plan', async () => {
+  it('kafel skanowania prowadzi przez WYBÓR POZYCJI, a skan niesie jej id', async () => {
     render(<ProductionHmiPage buildLabel="test" />)
     fireEvent.click(await screen.findByText(/Skanowanie/i))
 
+    // Najpierw pozycja — operator przekłada wózek pozycja po pozycji.
+    fireEvent.click(await screen.findByTestId('pozycja-l2'))
     const pole = await screen.findByTestId('pole-skanu')
     fireEvent.change(pole, { target: { value: 'KEBAB-u1' } })
     fireEvent.submit((pole as HTMLInputElement).closest('form')!)
 
-    await waitFor(() => expect(wolania.skany).toEqual(['KEBAB-u1']))
+    await waitFor(() => expect(wolania.skany).toEqual([{ code: 'KEBAB-u1', planLineId: 'l2' }]))
     expect(await screen.findByText(/Na magazynie/i)).toBeTruthy()
     // plan sam pokazuje nowy postęp — bez wychodzenia z panelu
-    await waitFor(() => expect(screen.getByTestId('postep-pozycji').textContent).toBe('1 / 20'))
-    fireEvent.click(screen.getByLabelText('Zamknij'))
-    await waitFor(() => expect(screen.getByText('1 / 30')).toBeTruthy())   // pasek dnia: sztuki
+    await waitFor(() => expect(screen.getByTestId('postep-pozycji').textContent).toBe('1 / 10'))
+  })
+
+  it('„Skanuj tę pozycję" z licznika wchodzi od razu w skan tej pozycji', async () => {
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByText('KIRMIZI'))
+    fireEvent.click(screen.getByTestId('skanuj-pozycje'))
+
+    expect((await screen.findByTestId('wybrana-pozycja')).textContent).toMatch(/KIRMIZI/)
+    expect(screen.getByTestId('pole-skanu')).toBeTruthy()
+  })
+
+  it('pasek dnia liczy ZESKANOWANE, nie policzone sztuki', async () => {
+    stan.plany[0].lines[0].qtyDone = 12          // policzone, ale niezeskanowane
+    stan.skanPozycji = { l1: { total: 20, scanned: 3 }, l2: { total: 10, scanned: 0 } }
+    render(<ProductionHmiPage buildLabel="test" />)
+
+    expect(await screen.findByText('3 / 30')).toBeTruthy()
+  })
+
+  // Potwierdzenie pozycji przychodzi ze skanów, nie z licznika sztuk.
+  it('pozycja zeskanowana w całości melduje się na liście jako POTWIERDZONA', async () => {
+    stan.plany[0].lines[0].qtyDone = 20
+    stan.skanPozycji = { l1: { total: 20, scanned: 20 }, l2: { total: 10, scanned: 0 } }
+    render(<ProductionHmiPage buildLabel="test" />)
+
+    expect(await screen.findByText('Potwierdzone')).toBeTruthy()
+  })
+})
+
+describe('ProductionHmiPage — poprawianie sztuk przed skanem', () => {
+  it('odejmowanie schodzi WYBRANEJ osobie i obniża postęp pozycji', async () => {
+    stan.plany[0].lines[0].qtyDone = 12
+    stan.plany[0].lines[0].workerEntries = [
+      { workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 9, addedAt: '10:00' },
+      { workerId: 'w2', workerName: 'DENYS KOVAL', pieces: 3, addedAt: '11:00' },
+    ]
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByText('WROCŁAW'))
+    fireEvent.click(screen.getByTestId('pracownik-w2'))
+    fireEvent.click(screen.getByRole('button', { name: 'więcej' }))   // 2 szt.
+    fireEvent.click(screen.getByTestId('odejmij'))
+
+    await waitFor(() => expect(wolania.postep).toHaveLength(1))
+    expect(wolania.postep[0].body.qtyDone).toBe(10)
+    expect(wolania.postep[0].body.workerEntries).toEqual([
+      { workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 9, addedAt: '10:00' },
+      { workerId: 'w2', workerName: 'DENYS KOVAL', pieces: 1, addedAt: '11:00' },
+    ])
+  })
+
+  it('odjęcie całego dorobku ZDEJMUJE osobę z pozycji, zamiast zostawiać zero', async () => {
+    stan.plany[0].lines[0].qtyDone = 12
+    stan.plany[0].lines[0].workerEntries = [
+      { workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 9, addedAt: '10:00' },
+      { workerId: 'w2', workerName: 'DENYS KOVAL', pieces: 3, addedAt: '11:00' },
+    ]
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByText('WROCŁAW'))
+    fireEvent.click(screen.getByTestId('pracownik-w2'))
+    for (let i = 0; i < 5; i++) fireEvent.click(screen.getByRole('button', { name: 'więcej' }))
+    fireEvent.click(screen.getByTestId('odejmij'))
+
+    await waitFor(() => expect(wolania.postep).toHaveLength(1))
+    expect(wolania.postep[0].body.qtyDone).toBe(9)
+    expect(wolania.postep[0].body.workerEntries.map((e: any) => e.workerId)).toEqual(['w1'])
+  })
+
+  // Zeskanowana sztuka leży na magazynie wyrobu gotowego — HMI nie ma czego cofać.
+  it('zeskanowanych sztuk nie da się odjąć', async () => {
+    stan.plany[0].lines[0].qtyDone = 12
+    stan.plany[0].lines[0].workerEntries = [
+      { workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 12, addedAt: '10:00' },
+    ]
+    stan.skanPozycji = { l1: { total: 20, scanned: 12 }, l2: { total: 10, scanned: 0 } }
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByText('WROCŁAW'))
+
+    await waitFor(() => expect((screen.getByTestId('odejmij') as HTMLButtonElement).disabled).toBe(true))
+    expect(wolania.postep).toHaveLength(0)
+  })
+
+  it('nadwyżkę ponad zeskanowane wolno jeszcze skasować', async () => {
+    stan.plany[0].lines[0].qtyDone = 12
+    stan.plany[0].lines[0].workerEntries = [
+      { workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 12, addedAt: '10:00' },
+    ]
+    stan.skanPozycji = { l1: { total: 20, scanned: 10 }, l2: { total: 10, scanned: 0 } }
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByText('WROCŁAW'))
+    await waitFor(() => expect((screen.getByTestId('odejmij') as HTMLButtonElement).disabled).toBe(false))
+    for (let i = 0; i < 6; i++) fireEvent.click(screen.getByRole('button', { name: 'więcej' }))
+    fireEvent.click(screen.getByTestId('odejmij'))
+
+    await waitFor(() => expect(wolania.postep).toHaveLength(1))
+    expect(wolania.postep[0].body.qtyDone).toBe(10)          // zeszła tylko nadwyżka
   })
 })
 

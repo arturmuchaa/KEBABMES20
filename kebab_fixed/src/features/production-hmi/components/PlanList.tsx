@@ -7,8 +7,14 @@
  * Numer partii dopisany 25.08.2026 na prośbę hali: bez niego operator pytał
  * biuro, z jakiego wsadu robi bieżącą pozycję. Rozbicie na kilka partii jest
  * zwijane (`batchLabel`), żeby długi wpis nie rozsadził wiersza.
+ *
+ * Kolumna SKAN i stan POTWIERDZONE dopisane 27.08.2026: policzona pozycja to
+ * jeszcze deklaracja operatora, dopiero zeskanowana sztuka leży na magazynie
+ * wyrobu gotowego. Hala musi widzieć tę różnicę na liście, bez wchodzenia
+ * w pozycję.
  */
-import { lineState, linePct, type WorkerEntry } from '../planProgress'
+import { linePct, type WorkerEntry } from '../planProgress'
+import { lineScanState, scanOf, type ScanMap } from '../scanProgress'
 import { batchLabel } from '../batchLabel'
 
 export interface PlanLineView {
@@ -30,22 +36,25 @@ export interface PlanLineView {
   packagingUsed?: number
 }
 
-const NAGLOWKI = ['Lp', 'Ilość szt.', 'Waga', 'Rodzaj', 'Partia', 'Tuleje', 'Klient', 'Razem', 'Postęp', 'Stan'] as const
+const NAGLOWKI = ['Lp', 'Ilość szt.', 'Waga', 'Rodzaj', 'Partia', 'Tuleje', 'Klient', 'Razem', 'Postęp', 'Skan', 'Stan'] as const
 
 const ETYKIETA_STANU = {
-  PLANNED:     { text: 'Zaplanowane', bg: 'var(--bg)',          fg: 'var(--mut)',     line: 'var(--line)' },
-  IN_PROGRESS: { text: 'W trakcie',   bg: 'var(--accentSoft)',  fg: 'var(--accent)',  line: '#C7CCFB' },
-  DONE:        { text: 'Gotowe',      bg: 'var(--successSoft)', fg: 'var(--success)', line: 'var(--successLine)' },
+  PLANNED:     { text: 'Zaplanowane',  bg: 'var(--bg)',          fg: 'var(--mut)',     line: 'var(--line)' },
+  IN_PROGRESS: { text: 'W trakcie',    bg: 'var(--accentSoft)',  fg: 'var(--accent)',  line: '#C7CCFB' },
+  DONE:        { text: 'Gotowe',       bg: 'var(--successSoft)', fg: 'var(--success)', line: 'var(--successLine)' },
+  CONFIRMED:   { text: 'Potwierdzone', bg: 'var(--success)',     fg: '#fff',           line: 'var(--success)' },
 } as const
 
 const kg = (n: number) => `${Math.round(n * 100) / 100} kg`
 
-export function PlanList({ lines, onPick, onPickPackaging }: {
+export function PlanList({ lines, onPick, onPickPackaging, scans }: {
   lines: PlanLineView[]
   onPick: (lineId: string) => void
   /** Dotknięcie kolumny TULEJE — zmiana rodzaju (np. METAL 65 → KARTON 65).
    *  Bez tej obsługi komórka zachowuje się jak reszta wiersza. */
   onPickPackaging?: (lineId: string) => void
+  /** Postęp skanowania per pozycja — źródło stanu POTWIERDZONE. */
+  scans?: ScanMap
 }) {
   if (!lines.length) {
     return (
@@ -81,13 +90,15 @@ export function PlanList({ lines, onPick, onPickPackaging }: {
         </thead>
         <tbody>
           {lines.map((l, i) => {
-            const stan = lineState(l)
+            const stan = lineScanState(l, scans)
             const pct = linePct(l)
             const s = ETYKIETA_STANU[stan]
+            const skan = scanOf(scans, l.id)
             return (
               <tr key={l.id} onClick={() => onPick(l.id)} style={{
                 cursor: 'pointer',
-                background: stan === 'DONE' ? 'var(--successSoft)' : stan === 'IN_PROGRESS' ? 'var(--accentSoft)' : undefined,
+                background: stan === 'DONE' || stan === 'CONFIRMED' ? 'var(--successSoft)'
+                          : stan === 'IN_PROGRESS' ? 'var(--accentSoft)' : undefined,
               }}>
                 <Td muted>{i + 1}</Td>
                 <Td bold>{l.qty} szt.</Td>
@@ -116,6 +127,16 @@ export function PlanList({ lines, onPick, onPickPackaging }: {
                     <span className="hmi-v10-mono font-bold text-[15px] whitespace-nowrap">{l.qtyDone} / {l.qty}</span>
                     <span className="hmi-v10-mono font-bold text-[13px]" style={{ color: 'var(--mut)', minWidth: 42, textAlign: 'right' }}>{pct}%</span>
                   </div>
+                </td>
+                {/* Kreska, a nie „0 / 20": zero zeskanowanych i BRAK etykiet to
+                    dwie różne sytuacje, a operator ma po tej kolumnie poznać,
+                    czy w ogóle jest co skanować. */}
+                <td data-testid={`skan-${l.id}`} className="hmi-v10-mono"
+                  style={{ padding: '13px 12px', borderBottom: '1px solid var(--line)', fontSize: 16,
+                           whiteSpace: 'nowrap', fontWeight: 700,
+                           color: stan === 'CONFIRMED' ? 'var(--success)'
+                                : skan.total === 0 ? 'var(--mut)' : undefined }}>
+                  {skan.total === 0 ? '—' : `${skan.scanned} / ${skan.total}`}
                 </td>
                 <td style={{ padding: '13px 12px', borderBottom: '1px solid var(--line)' }}>
                   <span className="text-[10px] font-bold uppercase whitespace-nowrap"
