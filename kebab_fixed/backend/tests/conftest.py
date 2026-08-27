@@ -37,6 +37,10 @@ _TRUNCATE = [
     # (MAX(seq) w miesiącu), więc dokumenty z poprzedniego przebiegu podbijały
     # numer i testy serii dostawały 1871 zamiast 1.
     "wz_documents",
+    # `hdi_documents` dopisane 2026-08-27: numeracja HDI liczy się z tabeli
+    # (MAX(seq) w miesiącu), więc dokumenty z poprzedniego przebiegu podbijały
+    # numer, a test wstawiający dokument po stałym id padał na duplicate key.
+    "hdi_documents",
     "meat_stock", "reception_supplier_batches", "receptions", "raw_batches",
     "recipe_ingredients", "recipes",
     "order_pallet_items", "order_pallets", "client_order_lines", "client_orders",

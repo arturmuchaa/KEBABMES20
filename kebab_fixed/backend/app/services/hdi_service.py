@@ -247,6 +247,31 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
             "totals": {"qty": total_qty, "kg": total_kg}}
 
 
+def _next_hdi_seq(conn, ym: str) -> int:
+    """Kolejny numer HDI w miesiącu (RRMM).
+
+    Numer raz nadany jest SPALONY — papier z nim pojechał już z towarem,
+    więc skasowanie dokumentu nie może oddać numeru następnemu transportowi.
+    Stan licznika trzyma `sequences` (klucz `hdi_seq:RRMM`); wpisanie tam
+    wartości pozwala też ustawić numer startowy, gdy część miesiąca była
+    wystawiana poza systemem (biuro, sierpień 2026: kolejny ma być 11).
+    """
+    key = f"hdi_seq:{ym}"
+    cx_execute(
+        conn,
+        "INSERT INTO sequences (key, value) VALUES (%s, 0) ON CONFLICT (key) DO NOTHING",
+        (key,),
+    )
+    # Blokada na wiersz licznika — dwa wydania naraz nie dostaną tego samego numeru.
+    stan = cx_query_one(conn, "SELECT value FROM sequences WHERE key=%s FOR UPDATE", (key,))
+    row = cx_query_one(
+        conn, "SELECT COALESCE(MAX(seq),0) AS n FROM hdi_documents WHERE year_month=%s", (ym,)
+    )
+    seq = max(int(row["n"] or 0), int((stan or {}).get("value") or 0)) + 1
+    cx_execute(conn, "UPDATE sequences SET value=%s WHERE key=%s", (seq, key))
+    return seq
+
+
 def generate_hdi(order_id: str) -> Dict[str, Any]:
     data = build_hdi(order_id)
     # Numer HDI jest STAŁY per zamówienie/wydanie. Jeśli dokument dla tego
@@ -275,9 +300,7 @@ def generate_hdi(order_id: str) -> Dict[str, Any]:
     ym = today.strftime("%y%m")  # RRMM
     hid = cuid()
     with transaction() as conn:
-        row = cx_query_one(conn,
-            "SELECT COALESCE(MAX(seq),0)+1 AS n FROM hdi_documents WHERE year_month=%s", (ym,))
-        seq = int(row["n"])
+        seq = _next_hdi_seq(conn, ym)
         number = format_hdi_number(seq, ym)
         cx_execute(conn,
             """INSERT INTO hdi_documents
