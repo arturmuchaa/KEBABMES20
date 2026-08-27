@@ -1434,6 +1434,16 @@ def tablet_finish(plan_id: str, entries: list[dict]) -> Dict[str, Any]:
             """,
             (json.dumps(entries or []), plan_id),
         )
+    # Uczenie tempa — po zamknięciu dnia przez halę, nie przy potwierdzeniu
+    # biura: biuro kwituje czasem po kilku dniach, a prognoza ma być lepsza
+    # na jutro. Błąd tutaj NIE może zablokować zamknięcia dnia — hala
+    # zostałaby z otwartym dniem przez statystykę.
+    try:
+        from app.services import production_rates_service as rates
+        rates.learn_from_plan(plan_id)
+    except Exception:
+        logger.exception("plan.rates_learn_failed", extra={"plan_id": plan_id})
+
     logger.info(
         "plan.tablet_finished",
         extra={"plan_id": plan_id, "entries": len(entries or [])},
