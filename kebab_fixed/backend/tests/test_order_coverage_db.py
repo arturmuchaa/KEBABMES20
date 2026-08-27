@@ -290,14 +290,14 @@ def _na_magazynie(oid):
 
 
 def _wz(wid, buyer, linie, source_type="manual", source_id=None,
-        status="wstepny", seq=1):
+        status="wstepny", seq=1, kiedy="2026-08-26 12:00:00+00"):
     execute(
         "INSERT INTO wz_documents (id, number, seq, year_month, source_type, "
         " source_id, buyer_name, valued, lines, status, currency, pallets_h1, "
-        " pallets_other, issued_date) "
-        "VALUES (%s,%s,%s,'08/26',%s,%s,%s,false,%s::jsonb,%s,'PLN',0,0,'2026-08-26')",
+        " pallets_other, issued_date, created_at) "
+        "VALUES (%s,%s,%s,'08/26',%s,%s,%s,false,%s::jsonb,%s,'PLN',0,0,'2026-08-26',%s)",
         (wid, f"WZ/{seq}/08/26", seq, source_type, source_id, buyer,
-         json.dumps(linie), status),
+         json.dumps(linie), status, kiedy),
     )
 
 
@@ -357,6 +357,44 @@ def test_wydane_plus_lezace_nie_przekracza_zamowienia(db):
     linia = get_order("o1")["lines"][0]
     assert (int(linia["qty_stock"]), int(linia["qty_delivered"]),
             int(linia["qty_done"])) == (30, 30, 60)
+
+
+def test_wz_sprzed_zalozenia_zamowienia_nie_jest_jego_wydaniem(db):
+    """Lipcowa dostawa do YBM doklejała się do zamówienia z 27.08 i pokazywała
+    „wydane" na pozycjach, których nikt nie wydał (biuro, 27.08.2026)."""
+    _klient("c1", "YBM Gastro GmbH", "YALCIN")
+    _zamowienie("o1", "YALCIN/Z/2/08/26", "c1", "YBM Gastro GmbH",
+                data="2026-08-27", qty=60)
+
+    _zapas("f1", qty=30, dostepne=0, cid="c1", nazwa="YBM Gastro GmbH")
+    _wz("w1", "YBM Gastro GmbH", [_linia_wz("f1", 30)], kiedy="2026-07-20 08:28:00+00")
+
+    assert _wydane("o1")[0] == 0
+
+
+def test_wz_wystawiony_po_zalozeniu_zamowienia_jest_wydaniem(db):
+    _klient("c1", "YBM Gastro GmbH", "YALCIN")
+    _zamowienie("o1", "YALCIN/Z/2/08/26", "c1", "YBM Gastro GmbH",
+                data="2026-08-20", qty=60)
+
+    _zapas("f1", qty=30, dostepne=0, cid="c1", nazwa="YBM Gastro GmbH")
+    _wz("w1", "YBM Gastro GmbH", [_linia_wz("f1", 30)], kiedy="2026-08-26 12:00:00+00")
+
+    assert _wydane("o1")[0] == 30
+
+
+def test_wydanie_idzie_do_zamowienia_ktore_wtedy_istnialo(db):
+    """Dwa zamówienia klienta: WZ z 26.08 nie może trafić na to z 27.08."""
+    _klient("c1", "YBM Gastro GmbH", "YALCIN")
+    _zamowienie("o1", "YALCIN/Z/1/08/26", "c1", "YBM Gastro GmbH",
+                data="2026-08-20", qty=60)
+    _zamowienie("o2", "YALCIN/Z/2/08/26", "c1", "YBM Gastro GmbH",
+                data="2026-08-27", qty=60)
+
+    _zapas("f1", qty=30, dostepne=0, cid="c1", nazwa="YBM Gastro GmbH")
+    _wz("w1", "YBM Gastro GmbH", [_linia_wz("f1", 30)], kiedy="2026-08-26 12:00:00+00")
+
+    assert (_wydane("o1")[0], _wydane("o2")[0]) == (30, 0)
 
 
 def test_anulowany_wz_nie_jest_wydaniem(db):

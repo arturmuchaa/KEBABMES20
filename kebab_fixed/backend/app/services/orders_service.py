@@ -183,16 +183,23 @@ def rozdziel_pokrycie(
 
     # ── Wydania ──────────────────────────────────────────────────────────
     wyd_zam: Dict[str, Dict[Klucz, int]] = {}
-    wyd_klient: Dict[str, Dict[Klucz, int]] = {}
+    wyd_klient: Dict[str, List[Dict[str, Any]]] = {}
     for w in wydania:
         ile = int(w.get("qty") or 0)
         if ile <= 0:
             continue
         oid = (w.get("order_id") or "").strip()
-        cel = (wyd_zam.setdefault(oid, {}) if oid
-               else wyd_klient.setdefault((w.get("client_id") or "").strip(), {}))
-        cel[w["key"]] = cel.get(w["key"], 0) + ile
-    wyd_klient.pop("", None)              # nabywca spoza kartoteki — nie wiemy czyje
+        if oid:
+            polka = wyd_zam.setdefault(oid, {})
+            polka[w["key"]] = polka.get(w["key"], 0) + ile
+            continue
+        cid = (w.get("client_id") or "").strip()
+        if not cid:                       # nabywca spoza kartoteki — nie wiemy czyje
+            continue
+        wyd_klient.setdefault(cid, []).append(
+            {"key": w["key"], "qty": ile, "kiedy": str(w.get("kiedy") or "")})
+    for lista in wyd_klient.values():
+        lista.sort(key=lambda p: p["kiedy"])
 
     for zam in zamowienia:                # WZ wystawiony Z zamówienia
         polka = wyd_zam.get(zam["id"])
@@ -202,15 +209,31 @@ def rozdziel_pokrycie(
             wynik[zam["id"]][linia["id"]]["wydane"] += _bierz(
                 polka, linia["key"], int(linia.get("qty") or 0))
 
-    for zam in zamowienia:                # WZ ręczny — po nabywcy, od najstarszego
-        polka = wyd_klient.get((zam.get("client_id") or "").strip())
-        if not polka:
+    # WZ ręczny — po nabywcy, od najstarszego zamówienia. Liczy się tylko
+    # dokument wystawiony PO założeniu zamówienia: lipcowa dostawa do YBM
+    # doklejała się do zamówienia z 27.08 i pokazywała „wydane" na pozycjach,
+    # których nikt nie wydał (biuro, 27.08.2026).
+    for zam in zamowienia:
+        lista = wyd_klient.get((zam.get("client_id") or "").strip())
+        if not lista:
             continue
+        od = str(zam.get("kiedy") or "")
         for linia in zam["lines"]:
             stan = wynik[zam["id"]][linia["id"]]
             brak = max(0, int(linia.get("qty") or 0) - stan["wydane"])
-            if brak > 0:
-                stan["wydane"] += _bierz(polka, linia["key"], brak)
+            if brak <= 0:
+                continue
+            for poz in lista:
+                if brak <= 0:
+                    break
+                if poz["qty"] <= 0 or poz["kiedy"] < od:
+                    continue
+                if not _kandydaci({poz["key"]: poz["qty"]}, linia["key"]):
+                    continue
+                bierz = min(brak, poz["qty"])
+                poz["qty"] -= bierz
+                stan["wydane"] += bierz
+                brak -= bierz
 
     # ── Zapas na magazynie ───────────────────────────────────────────────
     stemple: Dict[str, Dict[Klucz, int]] = {}
@@ -278,7 +301,7 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
     pokazuje się przy każdym z osobna."""
     orders = query_all(
         """
-        SELECT id, order_no, client_id, status
+        SELECT id, order_no, client_id, status, created_at
         FROM client_orders
         ORDER BY order_date, created_at, order_no
         """
@@ -342,6 +365,7 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
             "client_id": r["client_id"] or "",
             "key": _klucz(r["recipe_id"], r["kg_per_unit"], r["product_type_id"]),
             "qty": int(float(r["qty"] or 0)),
+            "kiedy": str(r["kiedy"] or ""),
         }
         for r in query_all(
             """
@@ -356,6 +380,7 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
                    COALESCE(fg.recipe_id, li->>'recipe_id', '') AS recipe_id,
                    COALESCE(fg.kg_per_unit, (li->>'kg_per_unit')::numeric, 0) AS kg_per_unit,
                    COALESCE(fg.product_type_id, li->>'product_type_id', '') AS product_type_id,
+                   w.created_at AS kiedy,
                    SUM(COALESCE((li->>'qty')::numeric, 0)) AS qty
             FROM wz_documents w
             CROSS JOIN LATERAL jsonb_array_elements(COALESCE(w.lines, '[]'::jsonb)) li
@@ -363,7 +388,7 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
             WHERE COALESCE(w.status, '') <> 'anulowany'
               AND (COALESCE(li->>'stock_type', '') = 'fg'
                    OR (w.source_type = 'order' AND COALESCE(li->>'recipe_id', '') <> ''))
-            GROUP BY 1, 2, 3, 4, 5
+            GROUP BY 1, 2, 3, 4, 5, 6
             """
         )
     ]
@@ -375,6 +400,7 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
                 "order_no": o["order_no"],
                 "client_id": o["client_id"] or "",
                 "bierze_z_puli": (o["status"] or "") not in ("done", "cancelled"),
+                "kiedy": str(o["created_at"] or ""),
                 "lines": wg_zam.get(o["id"], []),
             }
             for o in orders
