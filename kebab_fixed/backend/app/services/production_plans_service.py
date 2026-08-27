@@ -1216,7 +1216,8 @@ def update_line_progress(
 ) -> Dict:
     """Zapisz postęp linii produkcji — wywoływane z tabletu po każdym wpisie."""
     line = query_one(
-        "SELECT id, plan_id, qty, packaging_id, packaging_used "
+        "SELECT id, plan_id, qty, qty_done, kg_per_unit, recipe_id, recipe_name, "
+        "worker_entries, packaging_id, packaging_used "
         "FROM production_plan_lines WHERE id=%s AND plan_id=%s",
         (line_id, plan_id),
     )
@@ -1285,6 +1286,16 @@ def update_line_progress(
                 "Linia planu zmieniła się w trakcie zapisu (plan był edytowany) "
                 "— odśwież i zapisz postęp ponownie.",
             )
+
+        # Log przebiegu dnia — w TEJ SAMEJ transakcji co postęp. Rollback
+        # zapisu musi zabrać zdarzenie ze sobą, inaczej uczenie policzyłoby
+        # pracę, której nie ma.
+        from app.services.production_events_service import changed_worker, record_work_event
+        delta = qty_done - int(line.get("qty_done") or 0)
+        kto_id, kto_nazwa = changed_worker(
+            list(line.get("worker_entries") or []), worker_entries or []
+        )
+        record_work_event(conn, plan_id, line, delta, kto_id, kto_nazwa)
     logger.info(
         "plan.line_progress",
         extra={"plan_id": plan_id, "line_id": line_id, "qty_done": qty_done, "status": status},
