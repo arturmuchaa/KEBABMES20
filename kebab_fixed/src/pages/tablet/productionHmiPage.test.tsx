@@ -22,6 +22,7 @@ const stan = vi.hoisted(() => ({
   opakowania: [] as any[],
   /** Postęp skanowania per pozycja planu: { [planLineId]: { total, scanned } }. */
   skanPozycji: {} as Record<string, { total: number; scanned: number }>,
+  przerwy: [] as any[],
 }))
 const wolania = vi.hoisted(() => ({
   postep: [] as any[],
@@ -34,6 +35,7 @@ const wolania = vi.hoisted(() => ({
   przeniesienia: [] as any[],
   przeniesienieBlad: false,
   skany: [] as any[],
+  przerwy: [] as any[],
 }))
 
 const kopia = <T,>(x: T): T => JSON.parse(JSON.stringify(x))
@@ -62,6 +64,13 @@ vi.mock('@/lib/api', () => ({
       l.workerEntries = l.workerEntries.filter((e: any) => e.pieces > 0)
       return Promise.resolve({ ok: true, moved: body.pieces })
     },
+    startBreak: (planId: string) => {
+      wolania.przerwy.push({ planId, co: 'start' }); return Promise.resolve({ ok: true })
+    },
+    endBreak: (planId: string) => {
+      wolania.przerwy.push({ planId, co: 'end' }); return Promise.resolve({ ok: true })
+    },
+    breaks: () => Promise.resolve(kopia(stan.przerwy)),
     changeLinePackaging: (planId: string, lineId: string, packagingId: string) => {
       wolania.tuleja.push({ planId, lineId, packagingId })
       if (wolania.tulejaBlad) return Promise.reject(new Error('brak łączności'))
@@ -72,6 +81,9 @@ vi.mock('@/lib/api', () => ({
     },
   },
   packagingApi: { all: () => Promise.resolve(kopia(stan.opakowania)) },
+  productionRatesApi: {
+    current: () => Promise.resolve({ seed: 120, global: 120, plannedBreakMinutes: 30, byRecipe: {} }),
+  },
   finishedUnitsApi: {
     scanProduced: (code: string, _trolleyId?: string, planLineId?: string) => {
       wolania.skany.push({ code, planLineId })
@@ -155,6 +167,7 @@ beforeEach(() => {
   // Domyślnie biuro wydrukowało etykiety na obie pozycje, ale nic jeszcze
   // nie zeskanowano — czyli stan, w którym hala zaczyna dzień.
   stan.skanPozycji = { l1: { total: 20, scanned: 0 }, l2: { total: 10, scanned: 0 } }
+  stan.przerwy = []; wolania.przerwy = []
 })
 afterEach(cleanup)
 
@@ -565,5 +578,25 @@ describe('ProductionHmiPage — kto stoi na liście', () => {
 
     await waitFor(() => expect(wolania.pobranie).toHaveLength(1))
     expect(wolania.pobranie[0]).toMatchObject({ workDate: DZIEN, packagingId: 'f1', qty: 10 })
+  })
+})
+
+
+describe('ProductionHmiPage — prognoza zakończenia', () => {
+  it('na starcie dnia kafel nie zgaduje godziny', async () => {
+    render(<ProductionHmiPage buildLabel="test" />)
+    expect((await screen.findByTestId('kafel-prognoza')).textContent).toMatch(/—/)
+  })
+
+  it('dotknięcie kafla otwiera uzasadnienie', async () => {
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByTestId('kafel-prognoza'))
+    expect(await screen.findByText(/Przewidywane zakończenie/i)).toBeTruthy()
+  })
+
+  it('przerwa idzie na serwer, a nie tylko w stan ekranu', async () => {
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByText('Przerwa'))
+    await waitFor(() => expect(wolania.przerwy).toEqual([{ planId: 'p1', co: 'start' }]))
   })
 })

@@ -2613,12 +2613,29 @@ export const productionPlansApi = {
   changeLinePackaging: (planId: string, lineId: string, packagingId: string) =>
     patch<{ ok: boolean; moved?: number; unchanged?: boolean }>(
       `/production-plans/${planId}/lines/${lineId}/packaging`, { packagingId }),
+  /** Przerwy zmiany — zapisywane na serwerze, bo ekran gubił je przy odświeżeniu. */
+  startBreak: (planId: string) => post<{ ok: boolean }>(`/production-plans/${planId}/breaks/start`, {}),
+  endBreak:   (planId: string) => post<{ ok: boolean }>(`/production-plans/${planId}/breaks/end`, {}),
+  breaks:     (planId: string) =>
+    get<{ id: string; startedAt: string; endedAt: string | null }[]>(`/production-plans/${planId}/breaks`),
   tabletFinish:  (planId: string, entries: any[]) =>
     post<any>(`/production-plans/${planId}/tablet-finish`, { entries }),
   tabletReopen:  (planId: string) =>
     post<any>(`/production-plans/${planId}/tablet-reopen`, {}),
   officeConfirm: (planId: string) =>
     post<any>(`/production-plans/${planId}/office-confirm`, {}),
+}
+
+// ─── Tempo produkcji (prognoza zakończenia) ──────────────────
+export interface ProductionRates {
+  seed: number
+  global: number
+  plannedBreakMinutes: number
+  byRecipe: Record<string, number>
+}
+
+export const productionRatesApi = {
+  current: () => get<ProductionRates>('/production-rates'),
 }
 
 // ─── Day closures ────────────────────────────────────────────

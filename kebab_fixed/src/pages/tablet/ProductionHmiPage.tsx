@@ -16,13 +16,14 @@ import { Spinner } from '@/components/ui/widgets'
 import { useApi } from '@/hooks/useApi'
 import { useLiveRefresh } from '@/hooks/useLiveRefresh'
 import { useAuth } from '@/features/auth/AuthContext'
-import { dayMaterialsApi, finishedUnitsApi, packagingApi, productionPlansApi, usersApi, wrappingApi } from '@/lib/api'
+import { dayMaterialsApi, finishedUnitsApi, packagingApi, productionPlansApi, productionRatesApi, usersApi, wrappingApi } from '@/lib/api'
 import { getProductionDate } from '@/features/deboning/utils'
 import { HMI_VARS, HMI_FONT } from '@/features/hmi-theme/vars'
 import '@/features/hmi-theme/hmi-font.css'
 import { planDiff, snapshotPlanu, type PlanChange, type PlanSnapshotLine } from '@/features/production-hmi/planDiff'
 import { planTotals } from '@/features/production-hmi/planProgress'
 import { removablePieces, type ScanMap } from '@/features/production-hmi/scanProgress'
+import { finishForecast, type Forecast } from '@/features/production-hmi/finishForecast'
 import { shiftStats, type ShiftEntry } from '@/features/production-hmi/shiftStats'
 import {
   BRAK_PRZERW, breakEnded, breakStarted, canSave, onBreak, pausedMs, type BreakState,
@@ -37,6 +38,7 @@ import { WrappingModal } from '@/features/production-hmi/components/WrappingModa
 import { PackagingPicker } from '@/features/production-hmi/components/PackagingPicker'
 import { MovePiecesModal } from '@/features/production-hmi/components/MovePiecesModal'
 import { ScanPanel } from '@/features/production-hmi/components/ScanPanel'
+import { ForecastPanel } from '@/features/production-hmi/components/ForecastPanel'
 import { wrappedTotal } from '@/features/production-hmi/wrapping'
 import { productionCrew, wrappingCrew } from '@/features/production-hmi/crew'
 
@@ -85,6 +87,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   const [pracownik, setPracownik] = useState('')
   const [przerwy, setPrzerwy] = useState<BreakState>(BRAK_PRZERW)
   const [statystykiOtwarte, setStatystykiOtwarte] = useState(false)
+  const [prognozaOtwarta, setPrognozaOtwarta] = useState(false)
   const [foliowanieOtwarte, setFoliowanieOtwarte] = useState(false)
   const [podsumowanie, setPodsumowanie] = useState(false)
   const [zajety, setZajety] = useState(false)
@@ -123,6 +126,9 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
     () => (plan?.id ? finishedUnitsApi.planScanProgress(plan.id) : Promise.resolve([])),
     [plan?.id],
   )
+  // Tempo uczone z zakończonych dni; przy pustej historii stoi na ziarnie
+  // 120 kg/h na osobę, więc prognoza działa od pierwszej produkcji.
+  const ratesData = useApi(() => productionRatesApi.current())
   const skany: ScanMap = useMemo(() => {
     const out: ScanMap = {}
     for (const s of scanData.data ?? []) out[s.planLineId] = { total: s.total, scanned: s.scanned }
@@ -136,7 +142,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   // Jeden rejestr źródeł — dopisanie kolejnego nie wymaga pamiętania o drugim
   // miejscu (patrz incydent zamrożonego licznika na rozbiorze). Stoi TU,
   // a nie przy deklaracjach źródeł, bo `scanData` zależy od wyliczonego planu.
-  useLiveRefresh({ planData, opsData, matData, wrapData, pkgData, scanData })
+  useLiveRefresh({ planData, opsData, matData, wrapData, pkgData, scanData, ratesData })
 
   const totals = useMemo(() => planTotals(linie), [linie])
 
@@ -175,6 +181,29 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
     () => shiftStats(wpisy, { from: startZmiany, now: teraz, pauses: przerwy }),
     [wpisy, startZmiany, teraz, przerwy],
   )
+
+  const przerwyMs = pausedMs(przerwy, teraz)
+
+  // Ilu UKŁADA — z żywych wpisów, nie z kartoteki działu: załoga zmienia się
+  // w ciągu dnia (ktoś odchodzi na foliowanie), a prognoza ma płynąć z nią.
+  const uklada = useMemo(
+    () => new Set(wpisy.filter(w => w.pieces > 0).map(w => w.worker)).size,
+    [wpisy],
+  )
+
+  const prognoza: Forecast = useMemo(() => finishForecast({
+    lines: linie.map(l => ({
+      id: l.id, qty: l.qty, qtyDone: l.qtyDone, kgPerUnit: l.kgPerUnit,
+      recipeId: (plan?.lines ?? []).find((x: any) => x.id === l.id)?.recipeId ?? '',
+    })),
+    crew: uklada,
+    rates: ratesData.data ?? { seed: 120, global: 120, plannedBreakMinutes: 30, byRecipe: {} },
+    todayKg: stats.total.kg,
+    todayPersonHours: (stats.total.workedMs / 3_600_000) * uklada,
+    todayWorkedMin: stats.total.workedMs / 60_000,
+    breakUsedMin: przerwyMs / 60_000,
+    now: teraz,
+  }), [linie, plan, uklada, ratesData.data, stats, przerwyMs, teraz])
 
   const folia = useMemo(
     () => (matData.data ?? []).find(m => m.name.toLowerCase().includes(FOLIA)) ?? null,
@@ -306,6 +335,21 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
     }
   }, [plan, linie, tulejaPozycji, planData, pkgData])
 
+  // ── Przerwy ──
+  //
+  // Ekran reaguje NATYCHMIAST (stan lokalny), a serwer jest źródłem prawdy.
+  // Nieudany zapis nie cofa ekranu: operator już stoi, a przerwa bez zapisu
+  // jest mniejszym złem niż przerwa, która nie zablokowała liczenia sztuk.
+  const zacznijPrzerwe = useCallback(async () => {
+    setPrzerwy(s => breakStarted(s, new Date().toISOString()))
+    if (plan?.id) { try { await productionPlansApi.startBreak(plan.id) } catch { /* ekran już stoi */ } }
+  }, [plan])
+
+  const zakonczPrzerwe = useCallback(async () => {
+    setPrzerwy(s => breakEnded(s, new Date().toISOString()))
+    if (plan?.id) { try { await productionPlansApi.endBreak(plan.id) } catch { /* ekran już wrócił */ } }
+  }, [plan])
+
   // ── Folia ──
   const pobierzFolie = useCallback(async (ile: number) => {
     if (!foliaId) { pokazToast('Brak kartoteki folii w opakowaniach'); return }
@@ -379,7 +423,6 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
 
   const wPrzerwie = onBreak(przerwy)
   const trwajacaOd = przerwy.pauses.find(p => p.to === null)?.from ?? teraz
-  const przerwyMs = pausedMs(przerwy, teraz)
 
   return (
     <div className="h-full w-full overflow-hidden flex flex-col"
@@ -405,7 +448,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
           </div>
         ))}
         <div className="flex-1" />
-        <button type="button" onClick={() => setPrzerwy(s => breakStarted(s, new Date().toISOString()))}
+        <button type="button" onClick={zacznijPrzerwe}
           disabled={wPrzerwie} className="h-9 px-4 text-[13px] font-bold flex-shrink-0"
           style={{ border: '1px solid var(--ambLine)', color: 'var(--amb)', borderRadius: 8,
                    background: 'var(--ambSoft)', opacity: wPrzerwie ? .4 : 1 }}>
@@ -459,7 +502,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
       {/* Pasek dnia — ten sam wzorzec co w rozbiorze: 76 px, --barBg, kafle
           z liczbą i podpisem, część klikalna (▸). Liczby dnia mają stać cały
           czas na oku, a nie chować się w oknach. */}
-      <div className="flex-shrink-0 grid grid-cols-7" style={{ height: 76, background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
+      <div className="flex-shrink-0 grid grid-cols-8" style={{ height: 76, background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
         {([
           { label: 'Zrobione',   val: `${totals.kgDone} kg` },
           { label: 'Postęp',     val: `${totals.pct}%`, color: 'var(--accent)' },
@@ -467,8 +510,14 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
           { label: 'Sztuki',     val: `${totals.sztDone} / ${totals.sztPlan}` },
           { label: 'Foliowanie', val: `${zafoliowane} kg`, onTap: () => setFoliowanieOtwarte(true) },
           { label: 'Skanowanie', val: `${zeskanowaneRazem} / ${totals.sztPlan}`, onTap: () => setSkanowanie('') },
-        ] as { label: string; val: string; color?: string; onTap?: () => void }[]).map(c => c.onTap ? (
-          <button key={c.label} type="button" onClick={c.onTap}
+          // Godzina, nie procent: kierownik podejmuje po niej decyzje (drugi
+          // kurs auta, nadgodziny). Kreska, gdy prognoza byłaby zgadywaniem.
+          { label: 'Koniec ok.', testId: 'kafel-prognoza',
+            val: prognoza.kind === 'eta' ? prognoza.hhmm
+               : prognoza.kind === 'ready' ? 'Zrobione' : '—',
+            onTap: () => setPrognozaOtwarta(true) },
+        ] as { label: string; val: string; color?: string; testId?: string; onTap?: () => void }[]).map(c => c.onTap ? (
+          <button key={c.label} type="button" onClick={c.onTap} data-testid={c.testId}
             className="flex flex-col items-center justify-center px-1 text-center active:scale-95 transition-transform"
             style={{ borderRight: '1px solid var(--lineSoft)' }}>
             <span className="hmi-v10-mono text-xl font-bold leading-none">{c.val}</span>
@@ -491,7 +540,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
 
       {wPrzerwie && (
         <BreakOverlay startedAt={trwajacaOd} now={teraz}
-          onEnd={() => setPrzerwy(s => breakEnded(s, new Date().toISOString()))} />
+          onEnd={zakonczPrzerwe} />
       )}
 
       {foliowanieOtwarte && (
@@ -526,6 +575,10 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
           onPick={zmienTuleje}
           onClose={() => setTulejaPozycji(null)}
         />
+      )}
+
+      {prognozaOtwarta && (
+        <ForecastPanel forecast={prognoza} crew={uklada} onClose={() => setPrognozaOtwarta(false)} />
       )}
 
       {statystykiOtwarte && (
