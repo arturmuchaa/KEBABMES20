@@ -67,13 +67,21 @@ def portion_stock_rows(
     shortfalls: Dict[Key, int],
     fg_rows: List[Dict[str, Any]],
     order_no: str,
+    wydane_wg_wiersza: Dict[str, int] = None,
 ) -> List[Dict[str, Any]]:
     """Rozbij braki na porcje z wierszy finished_goods (w podanej kolejności).
 
-    Wiersz ostemplowany tym zamówieniem wnosi swoje pełne ``qty`` (już
-    rozdysponowane pod to zamówienie), pozostałe tylko ``qty_available``.
+    Wiersz wnosi to, co LEŻY (``qty_available``), powiększone o sztuki już
+    wydane NA TO ZAMÓWIENIE (`wydane_wg_wiersza`) — dokument wystawiany po WZ
+    musi je nadal wykazać, bo pojechały z tym zamówieniem.
+
+    Sztuk sprzedanych komuś innemu NIE liczymy, nawet gdy wiersz nosi stempel
+    tego zamówienia: TRUVA miała 30 szt. wydane ręcznym WZ do innego nabywcy
+    i weszłyby jej na HDI, choć ich nie dostała (biuro, 27.08.2026).
+
     Zwraca ``[{"fg": wiersz, "take": szt}]``.
     """
+    wydane_wg_wiersza = wydane_wg_wiersza or {}
     remaining = dict(shortfalls or {})
     portions: List[Dict[str, Any]] = []
     for row in fg_rows or []:
@@ -84,10 +92,8 @@ def portion_stock_rows(
         if cel is None:
             continue
         need = int(remaining.get(cel) or 0)
-        if order_no and (row.get("client_order_no") or "").strip() == order_no:
-            pool = int(row.get("qty") or 0)
-        else:
-            pool = int(row.get("qty_available") or 0)
+        pool = (int(row.get("qty_available") or 0)
+                + int(wydane_wg_wiersza.get(row.get("id")) or 0))
         take = min(need, pool)
         if take <= 0:
             continue
@@ -132,7 +138,25 @@ def stock_portions_for_order(
                client_order_no, client_name, produced_date, created_at
         FROM finished_goods fg
         WHERE COALESCE(fg.qty, 0) > 0
-          AND (fg.client_order_no = %s OR COALESCE(fg.client_order_no, '') = '')
+          AND (fg.client_order_no = %s
+               OR COALESCE(fg.client_order_no, '') = ''
+               -- Stempel po SKASOWANYM (albo zamkniętym) zamówieniu jest
+               -- martwy — sztuki wracają do obrotu. Bez tego HDI dla nowego
+               -- zamówienia YBM wyszło na 104 szt. zamiast całości, bo 436
+               -- sztuk stało pod numerem zamówienia, którego już nie ma.
+               OR NOT EXISTS (SELECT 1 FROM client_orders o2
+                              WHERE o2.order_no = fg.client_order_no
+                                AND o2.status NOT IN ('done', 'cancelled')))
+          -- ...i tylko towar TEGO klienta albo niczyj. Cudzy wolno sprzedać,
+          -- ale ręcznym WZ, świadomie — dokument z zamówienia nie może po
+          -- cichu wciągnąć kebabu innego klienta.
+          AND COALESCE(NULLIF(fg.client_id, ''), (
+                  SELECT c.id FROM clients c
+                  WHERE c.name = fg.client_name OR c.display_name = fg.client_name
+                  ORDER BY (c.name = fg.client_name) DESC
+                  LIMIT 1
+              ), '') IN ('', COALESCE((SELECT o3.client_id FROM client_orders o3
+                                       WHERE o3.id = %s), ''))
           AND COALESCE(fg.source_production_id, '') NOT IN (
               SELECT DISTINCT pl.plan_id FROM production_plan_lines pl
               WHERE pl.client_order_id = %s)
@@ -146,6 +170,33 @@ def stock_portions_for_order(
                       SELECT o.client_id FROM client_orders o WHERE o.id = %s), ''))) DESC,
                  produced_date ASC NULLS LAST, created_at ASC
         """,
-        (order_no, order_id, order_no, order_id),
+        (order_no, order_id, order_id, order_no, order_id),
     )
-    return portion_stock_rows(shortfalls, fg_rows, order_no)
+    # Sztuki, które wyjechały NA TO zamówienie — dokument wystawiany po WZ
+    # musi je nadal wykazać. Rozpoznajemy po dokumencie WZ: wystawionym
+    # z zamówienia albo ręcznym na tego samego nabywcę.
+    wydane_wg_wiersza = {
+        r["stock_id"]: int(float(r["qty"] or 0))
+        for r in query_all(
+            """
+            SELECT li->>'stock_id' AS stock_id,
+                   SUM(COALESCE((li->>'qty')::numeric, 0)) AS qty
+            FROM wz_documents w
+            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(w.lines, '[]'::jsonb)) li
+            WHERE COALESCE(w.status, '') <> 'anulowany'
+              AND COALESCE(li->>'stock_id', '') <> ''
+              AND ((w.source_type = 'order' AND w.source_id = %s)
+                   OR COALESCE((
+                          SELECT c.id FROM clients c
+                          WHERE c.name = w.buyer_name OR c.display_name = w.buyer_name
+                          ORDER BY (c.name = w.buyer_name) DESC
+                          LIMIT 1
+                      ), '-') = COALESCE((
+                          SELECT o4.client_id FROM client_orders o4 WHERE o4.id = %s
+                      ), '?'))
+            GROUP BY 1
+            """,
+            (order_id, order_id),
+        )
+    }
+    return portion_stock_rows(shortfalls, fg_rows, order_no, wydane_wg_wiersza)

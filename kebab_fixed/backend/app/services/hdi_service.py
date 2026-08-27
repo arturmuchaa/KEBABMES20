@@ -178,7 +178,8 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
     # Braki względem zamówienia pokryj zapasem magazynowym (produkcja "na
     # magazyn" sprzed zamówienia nie ma linku w liniach planu).
     order_lines = query_all(
-        "SELECT recipe_id, kg_per_unit, qty FROM client_order_lines WHERE order_id=%s",
+        "SELECT recipe_id, kg_per_unit, product_type_id, qty "
+        "FROM client_order_lines WHERE order_id=%s",
         (order_id,))
     portions = stock_portions_for_order(
         order_id, order.get("order_no") or "", order_lines,

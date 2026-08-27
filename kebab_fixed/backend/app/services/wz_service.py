@@ -1161,7 +1161,8 @@ def _order_wz_payload(order_id: str) -> Dict[str, Any]:
     lines, produced = build_order_wz_lines(plan_lines)
 
     order_lines = query_all(
-        "SELECT recipe_id, kg_per_unit, qty FROM client_order_lines WHERE order_id=%s",
+        "SELECT recipe_id, kg_per_unit, product_type_id, qty "
+        "FROM client_order_lines WHERE order_id=%s",
         (order_id,))
     ordered_qty = sum(int(ln.get("qty") or 0) for ln in order_lines)
 

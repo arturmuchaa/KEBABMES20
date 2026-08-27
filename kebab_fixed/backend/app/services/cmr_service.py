@@ -136,7 +136,8 @@ def build_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
     # magazyn" sprzed zamówienia nie ma linku w liniach planu) — porcje
     # wchodzą do zbiorczej pozycji kebaba jak linie planu.
     order_lines = query_all(
-        "SELECT recipe_id, kg_per_unit, qty FROM client_order_lines WHERE order_id=%s",
+        "SELECT recipe_id, kg_per_unit, product_type_id, qty "
+        "FROM client_order_lines WHERE order_id=%s",
         (order_id,))
     portions = stock_portions_for_order(
         order_id, order.get("order_no") or "", order_lines,

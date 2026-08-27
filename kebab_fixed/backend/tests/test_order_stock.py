@@ -65,12 +65,19 @@ def test_portion_respects_qty_available_not_qty():
     assert [(p["take"]) for p in portions] == [5]
 
 
-def test_stamped_rows_count_full_qty_even_when_shipped():
-    # Po wystawieniu WZ rozchód stemplował wiersz zamówieniem i wyzerował
-    # qty_available — HDI/CMR wystawiane PO WZ nadal muszą widzieć te sztuki.
-    row = _fg(client_order_no="Z1", qty_available=0, qty_shipped=18)
-    portions = portion_stock_rows({_key("r1", 40.0): 18}, [row], "Z1")
+def test_sztuki_wydane_na_TO_zamowienie_widac_na_pozniejszym_dokumencie():
+    # Po WZ rozchód wyzerował qty_available — HDI/CMR wystawiane PO WZ nadal
+    # muszą widzieć te sztuki, bo pojechały z tym zamówieniem.
+    row = _fg(id="a", client_order_no="Z1", qty_available=0, qty_shipped=18)
+    portions = portion_stock_rows({_key("r1", 40.0): 18}, [row], "Z1", {"a": 18})
     assert [(p["take"]) for p in portions] == [18]
+
+
+def test_sztuki_sprzedane_KOMUS_INNEMU_nie_wchodza_na_dokument():
+    """TRUVA: 30 szt. jej wyrobu poszło ręcznym WZ do innego nabywcy —
+    HDI dla TRUVY nie może ich wykazać, bo ona ich nie dostała."""
+    row = _fg(id="a", client_order_no="Z1", qty_available=0, qty_shipped=30)
+    assert portion_stock_rows({_key("r1", 40.0): 30}, [row], "Z1") == []
 
 
 def test_rows_for_other_recipe_or_weight_skipped():

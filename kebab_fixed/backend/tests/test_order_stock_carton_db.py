@@ -75,3 +75,73 @@ def test_zapas_obcego_klienta_dobiera_sie_OSTATNI(db):
     )
 
     assert [p["fg"]["id"] for p in portions] == ["fg-niczyj"]
+
+
+def test_stempel_po_skasowanym_zamowieniu_wraca_do_wydania(db):
+    """YBM: 436 szt. stało pod numerem SKASOWANEGO zamówienia, więc HDI dla
+    nowego wyszło na 104 szt. zamiast całości (biuro, 27.08.2026)."""
+    _seed_order(order_id="ord1", order_no="YALCIN/Z/2/08/26", client_id="c1")
+    execute(
+        "INSERT INTO finished_goods (id, batch_no, recipe_id, recipe_name, "
+        " product_type_name, kg_per_unit, qty, qty_available, qty_shipped, "
+        " client_order_no, client_name, produced_date, created_at) "
+        "VALUES ('fg-stary','180626 1','r1','Gold','UDO',10,50,50,0,"
+        " 'YALCIN/Z/1/08/26','YBM Gastro GmbH','2026-06-10',%s)",
+        (now_iso(),),
+    )
+
+    portions = stock_portions_for_order(
+        "ord1", "YALCIN/Z/2/08/26",
+        [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 50}], {})
+
+    assert [(p["fg"]["id"], p["take"]) for p in portions] == [("fg-stary", 50)]
+
+
+def test_stempel_ZYWEGO_cudzego_zamowienia_zostaje_nietkniety(db):
+    """Towar zaklepany innym, wciąż otwartym zamówieniem nie może wyjechać
+    na tym dokumencie."""
+    _seed_order(order_id="ord1", order_no="YALCIN/Z/2/08/26", client_id="c1")
+    execute("INSERT INTO clients (id, code, name) VALUES ('c2','TRUVA','Truva') "
+            "ON CONFLICT (id) DO NOTHING")
+    execute(
+        "INSERT INTO client_orders (id, order_no, client_id, status) "
+        "VALUES ('ord2','TRUVA/Z/1/08/26','c2','confirmed')")
+    execute(
+        "INSERT INTO finished_goods (id, batch_no, recipe_id, recipe_name, "
+        " product_type_name, kg_per_unit, qty, qty_available, qty_shipped, "
+        " client_order_no, client_name, produced_date, created_at) "
+        "VALUES ('fg-truva','180626 1','r1','Gold','UDO',10,50,50,0,"
+        " 'TRUVA/Z/1/08/26','Truva','2026-06-10',%s)",
+        (now_iso(),),
+    )
+
+    portions = stock_portions_for_order(
+        "ord1", "YALCIN/Z/2/08/26",
+        [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 50}], {})
+
+    assert portions == []
+
+
+def test_dokument_nie_siega_po_towar_innego_klienta(db):
+    """Cudzy towar wolno sprzedać, ale RĘCZNYM WZ — dokument z zamówienia nie
+    może po cichu wciągnąć kebabu innego klienta."""
+    _seed_order(order_id="ord1", order_no="YALCIN/Z/2/08/26", client_id="c1")
+    _seed_fg_klienta("fg-obcy", 50, "c2", "Provia Global BV", "2026-06-01")
+
+    portions = stock_portions_for_order(
+        "ord1", "YALCIN/Z/2/08/26",
+        [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 50}], {})
+
+    assert portions == []
+
+
+def test_dokument_bierze_towar_niczyj(db):
+    """Produkcja „na magazyn" nie ma klienta — z niej wolno wystawić."""
+    _seed_order(order_id="ord1", order_no="YALCIN/Z/2/08/26", client_id="c1")
+    _seed_fg_klienta("fg-niczyj", 50, None, "", "2026-06-01")
+
+    portions = stock_portions_for_order(
+        "ord1", "YALCIN/Z/2/08/26",
+        [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 50}], {})
+
+    assert [(p["fg"]["id"], p["take"]) for p in portions] == [("fg-niczyj", 50)]
