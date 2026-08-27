@@ -1164,13 +1164,13 @@ def _consume_fg_for_order(conn, row: Dict[str, Any], take: int,
             """INSERT INTO finished_goods
                  (id, batch_no, plan_no, product_type_id, product_type_name,
                   recipe_id, recipe_name, packaging_id, packaging_name,
-                  client_name, client_order_no, qty, kg_per_unit, total_kg,
+                  client_name, client_id, client_order_no, qty, kg_per_unit, total_kg,
                   qty_available, qty_shipped, produced_date, produced_by,
                   seasoned_batch_nos, source_production_id, source_mixing_ids,
                   source_seasoned_ids, source_deboning_ids, created_at)
                SELECT %s, batch_no, plan_no, product_type_id, product_type_name,
                       recipe_id, recipe_name, packaging_id, packaging_name,
-                      COALESCE(NULLIF(%s,''), client_name), %s, %s, kg_per_unit,
+                      COALESCE(NULLIF(%s,''), client_name), client_id, %s, %s, kg_per_unit,
                       %s, 0, %s, produced_date, produced_by,
                       seasoned_batch_nos, source_production_id, source_mixing_ids,
                       source_seasoned_ids, source_deboning_ids, now()

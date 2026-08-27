@@ -145,25 +145,31 @@ def stock_portions_for_order(
                client_order_no, client_name, produced_date, created_at
         FROM finished_goods fg
         WHERE COALESCE(fg.qty, 0) > 0
-          AND (fg.client_order_no = %s
-               OR COALESCE(fg.client_order_no, '') = ''
-               -- Stempel po SKASOWANYM (albo zamkniętym) zamówieniu jest
-               -- martwy — sztuki wracają do obrotu. Bez tego HDI dla nowego
-               -- zamówienia YBM wyszło na 104 szt. zamiast całości, bo 436
-               -- sztuk stało pod numerem zamówienia, którego już nie ma.
-               OR NOT EXISTS (SELECT 1 FROM client_orders o2
-                              WHERE o2.order_no = fg.client_order_no
-                                AND o2.status NOT IN ('done', 'cancelled')))
-          -- ...i tylko towar TEGO klienta albo niczyj. Cudzy wolno sprzedać,
-          -- ale ręcznym WZ, świadomie — dokument z zamówienia nie może po
-          -- cichu wciągnąć kebabu innego klienta.
-          AND COALESCE(NULLIF(fg.client_id, ''), (
-                  SELECT c.id FROM clients c
-                  WHERE c.name = fg.client_name OR c.display_name = fg.client_name
-                  ORDER BY (c.name = fg.client_name) DESC
-                  LIMIT 1
-              ), '') IN ('', COALESCE((SELECT o3.client_id FROM client_orders o3
-                                       WHERE o3.id = %s), ''))
+          AND (
+               -- Ostemplowane TYM zamówieniem — należy do niego bezwarunkowo.
+               -- Nazwa klienta nie jest tu żadnym dowodem: w kartotece bywają
+               -- dwie karty o tej samej nazwie handlowej (biuro rozbiło YBM na
+               -- dwie 27.08.2026) i klony po rozchodzie wypadały z dokumentu.
+               fg.client_order_no = %s
+               OR (
+                   -- Wolne sztuki: bez stempla albo po SKASOWANYM (zamkniętym)
+                   -- zamówieniu — wtedy wracają do obrotu. Bez tego HDI dla
+                   -- nowego zamówienia YBM wyszło na 104 szt. zamiast całości.
+                   (COALESCE(fg.client_order_no, '') = ''
+                    OR NOT EXISTS (SELECT 1 FROM client_orders o2
+                                   WHERE o2.order_no = fg.client_order_no
+                                     AND o2.status NOT IN ('done', 'cancelled')))
+                   -- ...i tylko towar TEGO klienta albo niczyj. Cudzy wolno
+                   -- sprzedać, ale ręcznym WZ, świadomie — dokument z
+                   -- zamówienia nie wciąga po cichu kebabu innego klienta.
+                   AND COALESCE(NULLIF(fg.client_id, ''), (
+                           SELECT c.id FROM clients c
+                           WHERE c.name = fg.client_name OR c.display_name = fg.client_name
+                           ORDER BY (c.name = fg.client_name) DESC
+                           LIMIT 1
+                       ), '') IN ('', COALESCE((SELECT o3.client_id FROM client_orders o3
+                                                WHERE o3.id = %s), ''))
+               ))
           AND COALESCE(fg.source_production_id, '') NOT IN (
               SELECT DISTINCT pl.plan_id FROM production_plan_lines pl
               WHERE pl.client_order_id = %s)

@@ -227,3 +227,26 @@ def test_sprzedaz_TEMU_klientowi_zostawia_stempel(db):
         zdejmij_stempel_obcej_sprzedazy(conn, "fg1", "TRUVA/Z/1/08/26", "TRUVA")
 
     assert query_one("SELECT client_order_no FROM finished_goods WHERE id='fg1'")["client_order_no"] == "TRUVA/Z/1/08/26"
+
+
+def test_stempel_tego_zamowienia_wazniejszy_niz_nazwa_klienta(db):
+    """W kartotece bywają dwie karty o tej samej nazwie handlowej (biuro
+    rozbiło YBM na dwie, 27.08.2026). Wiersz ostemplowany TYM zamówieniem
+    należy do niego niezależnie od tego, na którą kartę wskaże nazwa."""
+    _seed_order(order_id="ord1", order_no="YALCIN/Z/2/08/26", client_id="c1")
+    execute("INSERT INTO clients (id, code, name, display_name) "
+            "VALUES ('c-inny','K20','YBM Gastro GmbH','YALCIN') ON CONFLICT (id) DO NOTHING")
+    execute(
+        "INSERT INTO finished_goods (id, batch_no, recipe_id, recipe_name, "
+        " product_type_name, kg_per_unit, qty, qty_available, qty_shipped, "
+        " client_order_no, client_name, produced_date, created_at) "
+        "VALUES ('fg-klon','220826 493','r1','Gold','UDO',10,50,0,50,"
+        " 'YALCIN/Z/2/08/26','YALCIN','2026-08-22',%s)",
+        (now_iso(),),
+    )
+
+    portions = stock_portions_for_order(
+        "ord1", "YALCIN/Z/2/08/26",
+        [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 50}], {})
+
+    assert [(p["fg"]["id"], p["take"]) for p in portions] == [("fg-klon", 50)]
