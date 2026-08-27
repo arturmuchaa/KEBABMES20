@@ -186,17 +186,22 @@ def stock_portions_for_order(
             WHERE COALESCE(w.status, '') <> 'anulowany'
               AND COALESCE(li->>'stock_id', '') <> ''
               AND ((w.source_type = 'order' AND w.source_id = %s)
-                   OR COALESCE((
+                   -- Ręczny WZ na tego nabywcę, ale tylko wystawiony PO
+                   -- założeniu zamówienia. Bez tej daty lipcowa dostawa do YBM
+                   -- wciągała na HDI kebaby z lipca, których fizycznie nie ma.
+                   OR (COALESCE((
                           SELECT c.id FROM clients c
                           WHERE c.name = w.buyer_name OR c.display_name = w.buyer_name
                           ORDER BY (c.name = w.buyer_name) DESC
                           LIMIT 1
                       ), '-') = COALESCE((
                           SELECT o4.client_id FROM client_orders o4 WHERE o4.id = %s
-                      ), '?'))
+                      ), '?')
+                       AND w.created_at >= (
+                          SELECT o5.created_at FROM client_orders o5 WHERE o5.id = %s)))
             GROUP BY 1
             """,
-            (order_id, order_id),
+            (order_id, order_id, order_id),
         )
     }
     return portion_stock_rows(shortfalls, fg_rows, order_no, wydane_wg_wiersza)

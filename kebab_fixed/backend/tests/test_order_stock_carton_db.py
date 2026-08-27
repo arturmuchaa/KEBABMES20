@@ -145,3 +145,53 @@ def test_dokument_bierze_towar_niczyj(db):
         [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 50}], {})
 
     assert [(p["fg"]["id"], p["take"]) for p in portions] == [("fg-niczyj", 50)]
+
+
+def _wz_fg(wid, buyer, stock_id, qty, kiedy, source_type="manual", source_id=None, seq=1):
+    import json
+    execute(
+        "INSERT INTO wz_documents (id, number, seq, year_month, source_type, source_id, "
+        " buyer_name, valued, lines, status, currency, pallets_h1, pallets_other, created_at) "
+        "VALUES (%s,%s,%s,'08/26',%s,%s,%s,false,%s::jsonb,'wstepny','PLN',0,0,%s)",
+        (wid, f"WZ/{seq}/08/26", seq, source_type, source_id, buyer,
+         json.dumps([{"stock_type": "fg", "stock_id": stock_id, "qty": qty}]), kiedy),
+    )
+
+
+def _fg_wydany(fid, qty, klient, data="2026-07-14"):
+    execute(
+        "INSERT INTO finished_goods (id, batch_no, recipe_id, recipe_name, "
+        " product_type_name, kg_per_unit, qty, qty_available, qty_shipped, "
+        " client_order_no, client_name, produced_date, created_at) "
+        "VALUES (%s,'140726 411','r1','Gold','UDO',10,%s,0,%s,'',%s,%s,%s)",
+        (fid, qty, qty, klient, data, now_iso()),
+    )
+
+
+def test_lipcowa_wz_nie_wciaga_starych_kebabow_do_dokumentu(db):
+    """Magazyn wyrobu gotowego to świętość: HDI nie może wykazać towaru
+    z lipca, którego fizycznie nie ma (biuro, 27.08.2026)."""
+    _seed_order(order_id="ord1", order_no="YALCIN/Z/2/08/26", client_id="c1")
+    execute("UPDATE clients SET name='YBM Gastro GmbH' WHERE id='c1'")
+    _fg_wydany("fg-lipiec", 50, "YBM Gastro GmbH")
+    _wz_fg("w-lipiec", "YBM Gastro GmbH", "fg-lipiec", 50, "2026-07-20 08:28:00+00")
+
+    portions = stock_portions_for_order(
+        "ord1", "YALCIN/Z/2/08/26",
+        [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 50}], {})
+
+    assert portions == []
+
+
+def test_wz_wystawiony_na_to_zamowienie_zostaje_na_dokumencie(db):
+    """WZ poszedł dziś z tego zamówienia — HDI po nim musi te sztuki wykazać."""
+    _seed_order(order_id="ord1", order_no="YALCIN/Z/2/08/26", client_id="c1")
+    execute("UPDATE clients SET name='YBM Gastro GmbH' WHERE id='c1'")
+    _fg_wydany("fg-dzis", 50, "YBM Gastro GmbH", data="2026-08-27")
+    _wz_fg("w-dzis", "YBM Gastro GmbH", "fg-dzis", 50, now_iso())
+
+    portions = stock_portions_for_order(
+        "ord1", "YALCIN/Z/2/08/26",
+        [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 50}], {})
+
+    assert [(p["fg"]["id"], p["take"]) for p in portions] == [("fg-dzis", 50)]
