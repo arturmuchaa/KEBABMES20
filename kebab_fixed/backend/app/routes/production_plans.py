@@ -71,6 +71,25 @@ def update_line_progress(plan_id: str, line_id: str, body: LineProgressDto):
     )
 
 
+@router.post("/{plan_id}/breaks/start")
+def start_break(plan_id: str):
+    """Przerwa zmiany — zapisywana, bo ekran gubił ją przy odświeżeniu."""
+    from app.services import production_breaks_service as breaks
+    return breaks.start_break(plan_id)
+
+
+@router.post("/{plan_id}/breaks/end")
+def end_break(plan_id: str):
+    from app.services import production_breaks_service as breaks
+    return breaks.end_break(plan_id)
+
+
+@router.get("/{plan_id}/breaks")
+def list_breaks(plan_id: str):
+    from app.services import production_breaks_service as breaks
+    return breaks.list_breaks(plan_id)
+
+
 @router.post("/{plan_id}/lines/{line_id}/move-pieces")
 def move_line_pieces(plan_id: str, line_id: str, body: dict):
     """Przepisz sztuki z jednego pracownika na drugiego (pomyłka operatora).
