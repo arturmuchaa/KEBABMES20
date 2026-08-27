@@ -30,13 +30,13 @@ beforeEach(() => {
     id: 'o1', orderNo: 'ZAGROS/Z/1/08/26', clientName: 'ZAGROS',
     orderDate: '2026-08-25', deliveryDate: '2026-08-28', status: 'confirmed',
     lines: [
-      { id: 'l1', qty: 30, kgPerUnit: 50, totalKg: 1500, qtyDone: 30,
+      { id: 'l1', qty: 30, kgPerUnit: 50, totalKg: 1500, qtyStock: 30, qtyDone: 30,
         productTypeName: 'KEBAB', recipeName: 'KIRMIZI', packagingName: 'METAL 65' },
-      { id: 'l2', qty: 20, kgPerUnit: 35, totalKg: 700, qtyDone: 8,
+      { id: 'l2', qty: 20, kgPerUnit: 35, totalKg: 700, qtyStock: 8, qtyDone: 8,
         productTypeName: 'SEBZELI', recipeName: 'WROCŁAW', packagingName: 'KARTON 65' },
       { id: 'l3', qty: 10, kgPerUnit: 25, totalKg: 250, qtyDone: 0,
         productTypeName: 'KEBAB', recipeName: 'BEYAZ AFIYET', packagingName: '' },
-      { id: 'l4', qty: 12, kgPerUnit: 20, totalKg: 240, qtyDone: 12, qtyShipped: 12,
+      { id: 'l4', qty: 12, kgPerUnit: 20, totalKg: 240, qtyStock: 0, qtyDelivered: 12, qtyDone: 12,
         productTypeName: 'KEBAB UDO 100%', recipeName: 'KIRMIZI', packagingName: 'METAL 65' },
     ],
   }
@@ -87,17 +87,25 @@ describe('OrderPrintPage — co niesie kartka', () => {
     }
   })
 
-  it('pozycja wysłana na WZ nie ma czego kompletować', async () => {
+  it('pozycja wydana klientowi nie ma czego kompletować', async () => {
     await pokaz()
     const w = screen.getByTestId('pozycja-l4')
-    expect(w.textContent).toContain('WYSŁANE')
+    expect(w.textContent).toContain('WYDANE')
     expect(screen.queryByTestId('kratka-l4')).toBeNull()
   })
 
-  it('pozycja częściowo wysłana wciąż ma kratkę', async () => {
-    stan.zamowienie.lines[3].qtyShipped = 5
+  it('pozycja częściowo wydana wciąż ma kratkę', async () => {
+    stan.zamowienie.lines[3].qtyDelivered = 5
+    stan.zamowienie.lines[3].qtyDone = 5
     await pokaz()
     expect(screen.getByTestId('kratka-l4')).toBeTruthy()
+  })
+
+  it('kolumna „na stanie" pokazuje TO, CO LEŻY — nie to, co wyjechało', async () => {
+    // Magazyn wyrobu gotowego to świętość: magazynier bierze z półki.
+    await pokaz()
+    expect(within(screen.getByTestId('pozycja-l4')).getByTestId('zrobione-l4').textContent)
+      .toMatch(/^—|0/)
   })
 
   it('podsumowanie zgadza się z pozycjami', async () => {

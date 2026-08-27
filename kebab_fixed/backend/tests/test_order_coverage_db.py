@@ -10,7 +10,15 @@ kłamać:
   wysłanej produkcji — nowe zamówienie POLAT startowało z pokryciem 100 %,
   choć magazyn był pusty.
 
+REGUŁA NADRZĘDNA (właściciel, 27.08.2026): „magazyn wyrobu gotowego to
+świętość". Zamówienie pokrywa WYŁĄCZNIE towar, który FIZYCZNIE leży na
+magazynie, plus to, co wyjechało NA TO ZAMÓWIENIE (wydanie do tego klienta).
+Sprzedaż towaru jednego klienta komuś innemu jest dozwolona i NIE pokazuje
+się na zamówieniu — po prostu znika z magazynu, więc pokrycie spada.
+
 Testy DB — bez TEST_DATABASE_URL skip."""
+import json
+
 import pytest
 
 from app.db import execute, query_one
@@ -200,15 +208,27 @@ def test_dwie_identyczne_pozycje_dziela_sztuki_a_nie_mnoza(db):
     assert sorted(_zrobione_pozycji("o1"), reverse=True) == [20, 0]
 
 
-def test_nadprodukcja_zostaje_widoczna(db):
-    """Sztuk ponad zamówienie nie chowamy — magazynier musi je zobaczyć."""
+def test_pokrycie_konczy_sie_na_zamowionej_ilosci(db):
+    """Nadprodukcja leży na magazynie, ale zamówienie nie pokazuje 120 z 80 —
+    „żadnych dziwnych duplikatów" (właściciel, 27.08.2026)."""
     _klient("c1", "Bulli sp. z o.o.", "BULLI")
     _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", qty=20)
     _pozycja("o1", "o1-l2", qty=20)
 
     _zapas("f1", qty=50, order_no="BULLI/Z/1/08/26", cid="c1", nazwa="Bulli sp. z o.o.")
 
-    assert sum(_zrobione_pozycji("o1")) == 50
+    assert _zrobione_pozycji("o1") == [20, 20]
+
+
+def test_nadwyzka_ze_stempla_pokrywa_kolejne_zamowienie_klienta(db):
+    """Sztuki zrobione ponad jedno zamówienie nie mogą zniknąć z widoku."""
+    _klient("c1", "Bulli sp. z o.o.", "BULLI")
+    _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", data="2026-08-20", qty=20)
+    _zamowienie("o2", "BULLI/Z/2/08/26", "c1", "Bulli sp. z o.o.", data="2026-08-26", qty=20)
+
+    _zapas("f1", qty=35, order_no="BULLI/Z/1/08/26", cid="c1", nazwa="Bulli sp. z o.o.")
+
+    assert (_zrobione("o1"), _zrobione("o2")) == (20, 15)
 
 
 def test_zapas_nie_dokłada_sie_do_pozycji_juz_zrobionej(db):
@@ -261,31 +281,106 @@ def test_wpis_bez_rodzaju_liczy_sie_dalej(db):
 
 # ── Zrobione ≠ wysłane ────────────────────────────────────────────────────
 
-def _wyslane_pozycji(oid):
-    return [int(l["qty_shipped"] or 0) for l in get_order(oid)["lines"]]
+def _wydane(oid):
+    return [int(l["qty_delivered"] or 0) for l in get_order(oid)["lines"]]
 
 
-def test_wyslane_widac_osobno_od_lezacego_na_magazynie(db):
+def _na_magazynie(oid):
+    return [int(l["qty_stock"] or 0) for l in get_order(oid)["lines"]]
+
+
+def _wz(wid, buyer, linie, source_type="manual", source_id=None,
+        status="wstepny", seq=1):
+    execute(
+        "INSERT INTO wz_documents (id, number, seq, year_month, source_type, "
+        " source_id, buyer_name, valued, lines, status, currency, pallets_h1, "
+        " pallets_other, issued_date) "
+        "VALUES (%s,%s,%s,'08/26',%s,%s,%s,false,%s::jsonb,%s,'PLN',0,0,'2026-08-26')",
+        (wid, f"WZ/{seq}/08/26", seq, source_type, source_id, buyer,
+         json.dumps(linie), status),
+    )
+
+
+def _linia_wz(stock_id, qty):
+    return {"stock_type": "fg", "stock_id": stock_id, "qty": qty, "unit": "szt"}
+
+
+def test_towar_ktory_zszedl_z_magazynu_nie_pokrywa_juz_zamowienia(db):
+    """Sprzedany komuś innemu — TRUVA nadal czeka na swoje 60 szt."""
+    _klient("c1", "Truva gastro s.r.o.", "TRUVA")
+    _klient("c9", "Katarzyna Księżyc", "KK")
+    _zamowienie("o1", "TRUVA/Z/1/08/26", "c1", "Truva gastro s.r.o.", qty=60, kg=25)
+
+    _zapas("f1", qty=30, kg=25, order_no="TRUVA/Z/1/08/26", dostepne=0,
+           cid="c1", nazwa="Truva gastro s.r.o.")
+    _wz("w1", "Katarzyna Księżyc", [_linia_wz("f1", 30)])
+
+    assert (_zrobione("o1"), _wydane("o1")[0]) == (0, 0)
+
+
+def test_wydanie_na_to_zamowienie_liczy_sie_dalej(db):
+    """Towar pojechał do TEGO klienta — nie każemy robić go drugi raz."""
     _klient("c1", "Bulli sp. z o.o.", "BULLI")
     _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", qty=60)
 
     _zapas("f1", qty=30, order_no="BULLI/Z/1/08/26", dostepne=0,
-           cid="c1", nazwa="Bulli sp. z o.o.")          # wyjechało na WZ
-    _zapas("f2", qty=20, order_no="BULLI/Z/1/08/26",
-           cid="c1", nazwa="Bulli sp. z o.o.")          # leży na magazynie
-
-    assert (_zrobione("o1"), _wyslane_pozycji("o1")[0]) == (50, 30)
-
-
-def test_pozycja_w_calosci_wyslana_jest_zamknieta(db):
-    _klient("c1", "Bulli sp. z o.o.", "BULLI")
-    _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", qty=30)
-
-    _zapas("f1", qty=30, order_no="BULLI/Z/1/08/26", dostepne=0,
            cid="c1", nazwa="Bulli sp. z o.o.")
+    _wz("w1", "Bulli sp. z o.o.", [_linia_wz("f1", 30)],
+        source_type="order", source_id="o1")
 
     linia = get_order("o1")["lines"][0]
-    assert (int(linia["qty_done"]), int(linia["qty_shipped"])) == (30, 30)
+    assert (int(linia["qty_stock"]), int(linia["qty_delivered"]),
+            int(linia["qty_done"])) == (0, 30, 30)
+
+
+def test_reczny_wz_do_wlasciwego_klienta_tez_jest_wydaniem(db):
+    """Biuro wystawia WZ ręcznie — to nadal wydanie temu klientowi."""
+    _klient("c1", "Bulli sp. z o.o.", "BULLI")
+    _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", qty=60)
+
+    _zapas("f1", qty=30, dostepne=0, cid="c1", nazwa="Bulli sp. z o.o.")
+    _wz("w1", "BULLI", [_linia_wz("f1", 30)])          # nazwa handlowa
+
+    assert _wydane("o1")[0] == 30
+
+
+def test_wydane_plus_lezace_nie_przekracza_zamowienia(db):
+    """Zamówienie 60: 30 pojechało, a na magazynie leży jeszcze 50 —
+    pozycja pokazuje 60 z 60, nie 80 z 60."""
+    _klient("c1", "Bulli sp. z o.o.", "BULLI")
+    _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", qty=60)
+
+    _zapas("f1", qty=30, dostepne=0, cid="c1", nazwa="Bulli sp. z o.o.")   # wydane
+    _zapas("f2", qty=50, cid="c1", nazwa="Bulli sp. z o.o.")               # leży
+    _wz("w1", "BULLI", [_linia_wz("f1", 30)])
+
+    linia = get_order("o1")["lines"][0]
+    assert (int(linia["qty_stock"]), int(linia["qty_delivered"]),
+            int(linia["qty_done"])) == (30, 30, 60)
+
+
+def test_anulowany_wz_nie_jest_wydaniem(db):
+    _klient("c1", "Bulli sp. z o.o.", "BULLI")
+    _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", qty=60)
+
+    _zapas("f1", qty=30, dostepne=0, cid="c1", nazwa="Bulli sp. z o.o.")
+    _wz("w1", "BULLI", [_linia_wz("f1", 30)], status="anulowany")
+
+    assert _wydane("o1")[0] == 0
+
+
+def test_wydanie_nie_dubluje_sie_z_zapasem(db):
+    """Część wydana, część leży — razem nie więcej niż zamówiono."""
+    _klient("c1", "Bulli sp. z o.o.", "BULLI")
+    _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", qty=60)
+
+    _zapas("f1", qty=30, dostepne=0, cid="c1", nazwa="Bulli sp. z o.o.")   # wydane
+    _zapas("f2", qty=20, cid="c1", nazwa="Bulli sp. z o.o.")               # leży
+    _wz("w1", "BULLI", [_linia_wz("f1", 30)])
+
+    linia = get_order("o1")["lines"][0]
+    assert (int(linia["qty_stock"]), int(linia["qty_delivered"]),
+            int(linia["qty_done"])) == (20, 30, 50)
 
 
 # ── Stempel po skasowanym zamówieniu ──────────────────────────────────────
@@ -320,6 +415,7 @@ def test_zamowienie_w_calosci_wyslane_zamyka_sie(db):
     _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", qty=30)
     _zapas("f1", qty=30, order_no="BULLI/Z/1/08/26", dostepne=0,
            cid="c1", nazwa="Bulli sp. z o.o.")
+    _wz("w1", "BULLI", [_linia_wz("f1", 30)])
 
     assert zamknij_wyslane_zamowienia(["BULLI/Z/1/08/26"]) == ["BULLI/Z/1/08/26"]
     assert get_order("o1")["status"] == "done"

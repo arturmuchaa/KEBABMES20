@@ -14,7 +14,7 @@ import { CmrFormModal } from '@/components/cmr/CmrFormModal'
 import { WzFromOrderModal } from '@/components/wz/WzFromOrderModal'
 import { useClientNames } from '@/lib/clientNames'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
-import { domkniete } from '@/features/orders/lineShipping'
+import { wydane, wydaneWCalosci } from '@/features/orders/lineShipping'
 import {
   Check, CheckCircle2, ChevronDown, ChevronUp, ChevronsUpDown, Clock,
   Pencil, Plus, Printer, ShoppingCart, Trash2, Truck, X, Search, Download,
@@ -435,8 +435,8 @@ export function ClientOrdersPage() {
                                   <tbody>
                                     {o.lines.map((l, li) => {
                                       const lineDone = (l as any).qtyDone ?? 0
-                                      const lineSent = (l as any).qtyShipped ?? 0
-                                      const wyslana       = domkniete(l as any)
+                                      const lineSent = wydane(l as any)
+                                      const wyslana       = wydaneWCalosci(l as any)
                                       const isLineDone    = !wyslana && lineDone >= l.qty
                                       const isLinePartial = !wyslana && lineDone > 0 && !isLineDone
                                       return (
@@ -448,17 +448,17 @@ export function ClientOrdersPage() {
                                           <td className="px-2.5 py-2 whitespace-nowrap">
                                             {wyslana ? (
                                               <Badge variant="outline" className="text-[10px] gap-1 bg-surface-2 text-ink-3 border-surface-4">
-                                                <Truck size={10}/> WYSŁANE
+                                                <Truck size={10}/> WYDANE
                                               </Badge>
                                             ) : isLineDone ? (
                                               <Badge variant="outline" className="text-[10px] gap-1 bg-emerald-50 text-emerald-700 border-emerald-200">
                                                 <CheckCircle2 size={10}/> {lineDone}/{l.qty}
-                                                {lineSent > 0 && <span className="text-ink-4">· {lineSent} wysł.</span>}
+                                                {lineSent > 0 && <span className="text-ink-4">· {lineSent} wyd.</span>}
                                               </Badge>
                                             ) : isLinePartial ? (
                                               <Badge variant="outline" className="text-[10px] gap-1 bg-amber-50 text-amber-700 border-amber-200">
                                                 <Clock size={10}/> {lineDone}/{l.qty}
-                                                {lineSent > 0 && <span className="text-ink-4">· {lineSent} wysł.</span>}
+                                                {lineSent > 0 && <span className="text-ink-4">· {lineSent} wyd.</span>}
                                               </Badge>
                                             ) : (
                                               <span className="text-muted-foreground text-[11px]">—</span>

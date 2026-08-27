@@ -1,35 +1,45 @@
 import { describe, it, expect } from 'vitest'
-import { stanPozycji, naMagazynie, zostaloDoZrobienia, domkniete } from './lineShipping'
+import { naMagazynie, wydane, pokryte, zostaloDoZrobienia, wydaneWCalosci } from './lineShipping'
 
 describe('stan pozycji zamówienia', () => {
   it('nic nie zrobione', () => {
-    expect(stanPozycji({ qty: 60 })).toBe('brak')
+    expect(pokryte({ qty: 60 })).toBe(0)
+    expect(zostaloDoZrobienia({ qty: 60 })).toBe(60)
   })
 
-  it('zrobione i leży na magazynie', () => {
-    expect(stanPozycji({ qty: 60, qtyDone: 60 })).toBe('gotowe')
-    expect(naMagazynie({ qty: 60, qtyDone: 60 })).toBe(60)
+  it('leży na magazynie', () => {
+    const l = { qty: 60, qtyStock: 20, qtyDelivered: 0 }
+    expect(naMagazynie(l)).toBe(20)
+    expect(zostaloDoZrobienia(l)).toBe(40)
+    expect(wydaneWCalosci(l)).toBe(false)
   })
 
-  it('wyjechało na WZ — pozycja domknięta, nie ma czego kompletować', () => {
-    const l = { qty: 60, qtyDone: 60, qtyShipped: 60 }
-    expect(stanPozycji(l)).toBe('wyslane')
-    expect(naMagazynie(l)).toBe(0)
-    expect(domkniete(l)).toBe(true)
+  it('towar sprzedany komuś innemu nie pokrywa pozycji', () => {
+    // Zniknął z magazynu, na zamówieniu nie ma po nim śladu.
+    const l = { qty: 60, qtyStock: 0, qtyDelivered: 0 }
+    expect(pokryte(l)).toBe(0)
+    expect(zostaloDoZrobienia(l)).toBe(60)
   })
 
-  it('połowa wyjechała, połowa leży', () => {
-    const l = { qty: 60, qtyDone: 60, qtyShipped: 30 }
-    expect(stanPozycji(l)).toBe('gotowe')
-    expect(naMagazynie(l)).toBe(30)
-    expect(domkniete(l)).toBe(false)
+  it('wydane temu klientowi liczy się jako zrobione — nie robimy tego drugi raz', () => {
+    const l = { qty: 60, qtyStock: 0, qtyDelivered: 60 }
+    expect(pokryte(l)).toBe(60)
+    expect(zostaloDoZrobienia(l)).toBe(0)
+    expect(wydaneWCalosci(l)).toBe(true)
   })
 
-  it('wysłane liczy się jako zrobione — nie robimy tego drugi raz', () => {
-    expect(zostaloDoZrobienia({ qty: 60, qtyDone: 30, qtyShipped: 30 })).toBe(30)
+  it('połowa wydana, połowa leży', () => {
+    const l = { qty: 60, qtyStock: 30, qtyDelivered: 30 }
+    expect(pokryte(l)).toBe(60)
+    expect(wydaneWCalosci(l)).toBe(false)
+    expect(wydane(l)).toBe(30)
   })
 
-  it('pozycja bez sztuk nie udaje wysłanej', () => {
-    expect(stanPozycji({ qty: 0, qtyDone: 0, qtyShipped: 0 })).toBe('brak')
+  it('stare dane bez rozbicia liczą się po qtyDone', () => {
+    expect(pokryte({ qty: 60, qtyDone: 40 })).toBe(40)
+  })
+
+  it('pozycja bez sztuk nie udaje wydanej', () => {
+    expect(wydaneWCalosci({ qty: 0, qtyDelivered: 0 })).toBe(false)
   })
 })

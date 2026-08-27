@@ -1364,9 +1364,10 @@ function mapOrderLine(raw: any) {
     packagingId:     raw.packaging_id     ?? raw.packagingId,
     packagingName:   raw.packaging_name   ?? raw.packagingName,
     qtyDone:         Number(raw.qty_done  ?? raw.qtyDone  ?? 0),
-    // Wysłane = wyjechało na WZ. Osobno od „zrobione", bo tego magazynier
-    // już nie kompletuje.
-    qtyShipped:      Number(raw.qty_shipped ?? raw.qtyShipped ?? 0),
+    // Magazyn wyrobu gotowego to świętość: qtyStock = ile LEŻY, qtyDelivered
+    // = ile pojechało do tego klienta. qtyDone to ich suma.
+    qtyStock:        Number(raw.qty_stock     ?? raw.qtyStock     ?? 0),
+    qtyDelivered:    Number(raw.qty_delivered ?? raw.qtyDelivered ?? 0),
     notes:           raw.notes,
   }
 }

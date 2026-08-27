@@ -21,7 +21,7 @@ import { useEffect, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, orderPalletsApi, settingsApi, type OrderPallet } from '@/lib/apiClient'
-import { domkniete, zostaloDoZrobienia } from '@/features/orders/lineShipping'
+import { naMagazynie, wydaneWCalosci, zostaloDoZrobienia } from '@/features/orders/lineShipping'
 import { fmtKg, fmtDatePl } from '@/lib/utils'
 import { Printer, ArrowLeft } from 'lucide-react'
 import { useClientNames } from '@/lib/clientNames'
@@ -180,7 +180,7 @@ export function OrderPrintPage() {
                 ['Szt.', 'w-14 text-right'],
                 ['kg/szt.', 'w-16 text-right'],
                 ['Razem kg', 'w-20 text-right'],
-                ['Zrobione', 'w-16 text-right'],
+                ['Na stanie', 'w-16 text-right'],
                 ['Zostało', 'w-16 text-right'],
                 ['Gotowe', 'w-14 text-center'],
               ].map(([h, cls]) => (
@@ -193,9 +193,11 @@ export function OrderPrintPage() {
           <tbody>
             {order.lines.map((l: any, i: number) => {
               const pal = palletsByLine[l.id] ?? []
-              const zrobione = Math.max(0, Number(l.qtyDone) || 0)
+              // „Na stanie" to jedyna liczba, po którą magazynier sięga na
+              // półkę — nie sumujemy tu tego, co już pojechało.
+              const zrobione = naMagazynie(l)
               const zostalo = zostaloDoZrobienia(l)
-              const wyslane = domkniete(l)          // wszystko u klienta
+              const wyslane = wydaneWCalosci(l)     // wszystko u klienta
               const kgSzt = Number.isInteger(Number(l.kgPerUnit))
                 ? fmtKg(l.kgPerUnit, 0) : fmtKg(l.kgPerUnit, 1)
               return (
@@ -230,7 +232,7 @@ export function OrderPrintPage() {
                         czego kompletować, a pusty kwadrat prosi się o szukanie
                         towaru, którego już u nas nie ma. */}
                     {wyslane ? (
-                      <span className="text-[9px] font-bold tracking-[0.08em]">WYSŁANE</span>
+                      <span className="text-[9px] font-bold tracking-[0.08em]">WYDANE</span>
                     ) : (
                       /* Kratka rysowana ramką, nie znakiem — pusty kwadrat
                          z fontu bywa niewidoczny na wydruku termicznym. */
