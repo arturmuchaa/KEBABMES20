@@ -4,7 +4,8 @@ import { ArrowLeft, Printer, Download } from 'lucide-react'
 import { hdiApi, downloadDocPdf, type HdiDoc } from '@/lib/api'
 import { drukuj } from '@/lib/print'
 import { PrintToolbar } from '@/components/print/PrintToolbar'
-import { MAX_ROWS, bodyRowsFor, baseHeight, fitFor, fitChanged, type FitState } from './hdiFit'
+import { MAX_ROWS, SHEET_WIDTH_MM, bodyRowsFor, baseHeight, fitFor, fitChanged,
+         sheetWidthPct, type FitState } from './hdiFit'
 
 const L: Record<string, Record<string, string>> = {
   pl: { title: 'HANDLOWY DOKUMENT IDENTYFIKACYJNY', number: 'Numer HDI', issue: 'Data wystawienia', producer: 'Producent', qual: 'Zakład zakwalifikowany do prowadzenia sprzedaży na rynek', vet: 'Weterynaryjny numer identyfikacyjny', dom: 'Krajowy /domestic market/ National', eu: 'Unii Europejskiej /UE / Europäische Union', superv: 'Zakład posiada stały nadzór weterynaryjny i wprowadzony system HACCP.', lp: 'L.P', cName: 'NAZWA TOWARU', cQty: 'L.B SZT.', cNet: 'MASA NETTO', cBatch: 'NR PARTII', cExp: 'TERMIN PRZYDATNOŚCI', total: 'RAZEM', recip: 'ODBIORCA', unload: 'MIEJSCE ROZŁADUNKU', regno: 'NUMER REJESTRACYJNY / TYP SAMOCHODU', fridge: 'Samochód z zabudową mroźniczą -18°C', load: 'MIEJSCE ZAŁADUNKU', seller: 'SPRZEDAWCA', remarks: 'UWAGI / WARUNKI REKLAMACJI / COMMENTS/CONDITIONS REGARDING COMPLAINTS/ ANMERKUNGEN/VORAUSSETZUNGEN FÜR BESCHWERDEN/', ship: 'Data wysyłki', sign: 'Podpis Wystawiającego', stamp: 'Podpis i pieczęć wystawiającego',
@@ -192,9 +193,13 @@ export function HdiPrintPage() {
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
         }
-        .hdi {
-          max-width: 194mm;
+        .sheet-wrap {
+          max-width: ${SHEET_WIDTH_MM}mm;
           margin: 0 auto;
+        }
+        .hdi {
+          width: 100%;
+          margin: 0;
           padding: 6px 8px;
           font-family: Arial, Helvetica, sans-serif;
           font-size: 9px;
@@ -392,7 +397,16 @@ export function HdiPrintPage() {
         ref={sheetRef}
         style={{
           ['--rowpad' as any]: `${rowExtra / 2}px`,
-          ...(scale !== 1 ? { transform: `scale(${scale})`, transformOrigin: 'top center' } : {}),
+          // Skala zmniejsza arkusz w OBU wymiarach, więc szerokość
+          // kompensujemy — inaczej dokument na kilkanaście pozycji drukuje się
+          // z białymi pasami po bokach i nieczytelną tabelą.
+          ...(scale !== 1
+            ? {
+                width: `${sheetWidthPct(scale)}%`,
+                transform: `scale(${scale})`,
+                transformOrigin: 'top left',
+              }
+            : {}),
         }}
       >
 

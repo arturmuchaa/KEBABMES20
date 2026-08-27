@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   A4_PRINTABLE_PX, A4_FILL_PX, A4_MAX_PX, MAX_ROWS, MIN_SCALE,
-  bodyRowsFor, baseHeight, fitFor, fitChanged,
+  bodyRowsFor, baseHeight, fitFor, fitChanged, sheetWidthPct, SHEET_WIDTH_MM,
 } from './hdiFit'
 
 describe('zapas do krawędzi kartki', () => {
@@ -113,5 +113,30 @@ describe('pętla dopasowania zbiega', () => {
     const a = { rowExtra: 10, scale: 1, scaledH: null }
     expect(fitChanged(a, { rowExtra: 10.2, scale: 1, scaledH: null })).toBe(false)
     expect(fitChanged(a, { rowExtra: 11, scale: 1, scaledH: null })).toBe(true)
+  })
+})
+
+describe('szerokość arkusza — pełna A4, bez białych pasów po bokach', () => {
+  it('bez skalowania arkusz zajmuje całą obudowę', () => {
+    expect(sheetWidthPct(1)).toBe(100)
+  })
+
+  it('przy skalowaniu arkusz jest ROZSZERZANY, żeby po skalowaniu wypełnić stronę', () => {
+    // Skala 0,8 sama z siebie zostawiała ~20 % kartki na boczne marginesy
+    // i tabela robiła się nieczytelna (biuro, 27.08.2026, HDI na 16 pozycji).
+    expect(sheetWidthPct(0.8)).toBeCloseTo(125, 3)
+    expect(0.8 * sheetWidthPct(0.8)).toBeCloseTo(100, 3)
+  })
+
+  it('każda dopuszczalna skala wypełnia szerokość dokładnie', () => {
+    for (const s of [0.95, 0.9, 0.75, 0.6, MIN_SCALE]) {
+      expect(s * sheetWidthPct(s)).toBeCloseTo(100, 3)
+    }
+  })
+
+  it('arkusz A4 wykorzystuje szerokość kartki, nie 194 mm', () => {
+    // Zadrukowana szerokość A4 przy marginesie 5 mm to 200 mm.
+    expect(SHEET_WIDTH_MM).toBeGreaterThanOrEqual(198)
+    expect(SHEET_WIDTH_MM).toBeLessThanOrEqual(200)
   })
 })

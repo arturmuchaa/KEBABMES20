@@ -36,6 +36,24 @@ export const MAX_ROWS = 15
 export const MIN_SCALE = 0.55
 /** Najwyższe dopuszczalne podwyższenie pojedynczego wiersza. */
 export const MAX_ROW_EXTRA = 40
+/** Szerokość arkusza. Zadrukowana A4 przy marginesie 5 mm to 200 mm; zostawiamy
+ *  2 mm luzu na niedokładność sterownika, resztę oddajemy tabeli. */
+export const SHEET_WIDTH_MM = 198
+
+/**
+ * Szerokość arkusza w procentach obudowy — taka, żeby PO przeskalowaniu
+ * wypełnił kartkę na całą szerokość.
+ *
+ * `transform: scale()` zmniejsza arkusz w OBU wymiarach, więc dokument na
+ * 16 pozycji (skala ~0,8) drukował się z 20 % kartki zmarnowanym na białe
+ * pasy po bokach, a tabela robiła się nieczytelna (biuro, 27.08.2026).
+ * Rozszerzamy arkusz dokładnie o tyle, o ile skala go zmniejszy: czcionka
+ * zostaje ta sama co dotąd, ale kolumny dostają całą szerokość kartki.
+ */
+export function sheetWidthPct(scale: number): number {
+  const s = Math.min(1, Math.max(MIN_SCALE, scale || 1))
+  return 100 / s
+}
 
 export interface FitState {
   /** Rozłożony naddatek wysokości na wiersz (px). */
