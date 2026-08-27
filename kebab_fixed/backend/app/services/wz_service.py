@@ -21,6 +21,7 @@ from app.db import (
 from app.logging_config import get_logger
 from app.services.container_ledger_service import book_assets
 from app.services.container_partners_service import resolve_partner, resolve_partner_by_nip
+from app.services.orders_service import zamknij_wyslane_zamowienia
 from app.services.order_stock_service import (
     produced_by_key_from_plan_lines,
     stock_portions_for_order,
@@ -550,6 +551,7 @@ def create_manual_wz(
             containers_total=containers_total,
             pallets_other_kind=pallets_other_kind)
 
+        numery_zamowien: List[str] = []
         for sel in selections:
             stype = sel.get("stock_type")
             sid = sel.get("stock_id")
@@ -560,10 +562,12 @@ def create_manual_wz(
             if stype == "fg":
                 row = cx_query_one(
                     conn,
-                    "SELECT id, batch_no, qty_available, kg_per_unit FROM finished_goods WHERE id=%s FOR UPDATE",
+                    "SELECT id, batch_no, qty_available, kg_per_unit, client_order_no "
+                    "FROM finished_goods WHERE id=%s FOR UPDATE",
                     (sid,))
                 if not row:
                     raise HTTPException(400, "Pozycja magazynowa nie istnieje")
+                numery_zamowien.append(row.get("client_order_no") or "")
                 need = int(qty)
                 avail = int(row.get("qty_available") or 0)
                 if avail < need:
@@ -689,6 +693,10 @@ def create_manual_wz(
                     """,
                     (cuid(), worker["id"], issued, descr,
                      amount, wid, now_iso()))
+
+    # Poza transakcją: zamówienie, z którego wszystko już wyjechało, samo
+    # przechodzi na „zrealizowane".
+    zamknij_wyslane_zamowienia(numery_zamowien)
 
     logger.info("wz.manual.created", extra={"wz_id": wid, "items": len(selections)})
     return get_wz(wid)
@@ -1046,7 +1054,9 @@ def build_stock_wz_lines(portions: List[Dict[str, Any]]) -> List[Dict[str, Any]]
         take = int(p.get("take") or 0)
         if take <= 0:
             continue
-        name = (fg.get("recipe_name") or fg.get("product_type_name") or "Kebab").strip()
+        rodzaj = (fg.get("product_type_name") or "").strip()
+        receptura = (fg.get("recipe_name") or "").strip()
+        name = " ".join(x for x in (rodzaj, receptura) if x) or "Kebab"
         kgpu = float(fg.get("kg_per_unit") or 0)
         ln: Dict[str, Any] = {
             "name": f"{name} {_fmt_kg(kgpu)}kg" if kgpu > 0 else name,
@@ -1287,6 +1297,8 @@ def create_wz_from_order(
             if need > 0:
                 raise HTTPException(
                     400, f"Za mało na stanie wyrobów dla partii {ln.get('batch_no')} (brakuje {need} szt)")
+
+    zamknij_wyslane_zamowienia([order.get("order_no") or ""])
 
     logger.info("wz.order.created", extra={"wz_id": wid, "order_id": order_id, "wz_incomplete": incomplete})
     doc = get_wz(wid)

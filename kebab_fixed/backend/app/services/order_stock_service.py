@@ -16,22 +16,20 @@ Kolejność czerpania:
 Wiersze powstałe z planów podpiętych pod to zamówienie są wykluczone —
 te sztuki są już policzone w qty_done linii planu (anty-dublowanie).
 """
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from app.db import query_all
+from app.utils.product_key import Klucz as Key
+from app.utils.product_key import kandydaci, klucz_wyrobu
 
-Key = Tuple[str, float]
-
-
-def _key(recipe_id: Any, kg_per_unit: Any) -> Key:
-    return (str(recipe_id or ""), round(float(kg_per_unit or 0), 3))
+_key = klucz_wyrobu
 
 
 def produced_by_key_from_plan_lines(plan_lines: List[Dict[str, Any]]) -> Dict[Key, int]:
     """Suma qty_done linii planu per (receptura, waga sztuki)."""
     out: Dict[Key, int] = {}
     for pl in plan_lines or []:
-        k = _key(pl.get("recipe_id"), pl.get("kg_per_unit"))
+        k = _key(pl.get("recipe_id"), pl.get("kg_per_unit"), pl.get("product_type_id"))
         out[k] = out.get(k, 0) + int(pl.get("qty_done") or 0)
     return out
 
@@ -46,14 +44,22 @@ def compute_shortfalls(
     do kartonów powiązanych z tym zamówieniem (anty-dublowanie z FIFO finished_goods)."""
     short: Dict[Key, int] = {}
     for ln in order_lines or []:
-        k = _key(ln.get("recipe_id"), ln.get("kg_per_unit"))
+        k = _key(ln.get("recipe_id"), ln.get("kg_per_unit"), ln.get("product_type_id"))
         short[k] = short.get(k, 0) + int(ln.get("qty") or 0)
-    for k, done in (produced_by_key or {}).items():
-        if k in short:
-            short[k] = short[k] - int(done or 0)
-    for k, packed in (cartoned_by_key or {}).items():
-        if k in short:
-            short[k] = short[k] - int(packed or 0)
+    # Odejmowanie idzie po RODZAJU: produkcja UDO 100 % nie zamyka pozycji
+    # 95/5. Wpis bez rodzaju (starsze dane) pasuje do każdej — patrz
+    # `kandydaci`.
+    for mapa in (produced_by_key, cartoned_by_key):
+        for k, zrobione in (mapa or {}).items():
+            zostalo = int(zrobione or 0)
+            for cel in kandydaci(short, k):
+                if zostalo <= 0:
+                    break
+                odejmij = min(zostalo, short.get(cel, 0))
+                if odejmij <= 0:
+                    continue
+                short[cel] -= odejmij
+                zostalo -= odejmij
     return {k: v for k, v in short.items() if v > 0}
 
 
@@ -71,10 +77,13 @@ def portion_stock_rows(
     remaining = dict(shortfalls or {})
     portions: List[Dict[str, Any]] = []
     for row in fg_rows or []:
-        k = _key(row.get("recipe_id"), row.get("kg_per_unit"))
-        need = int(remaining.get(k) or 0)
-        if need <= 0:
+        k = _key(row.get("recipe_id"), row.get("kg_per_unit"), row.get("product_type_id"))
+        # Jeden wiersz → jedna porcja (rozchód idzie potem dokładnie z niego),
+        # więc bierzemy pierwszy pasujący brak, nie rozbijamy po kilku.
+        cel = next((c for c in kandydaci(remaining, k) if int(remaining.get(c) or 0) > 0), None)
+        if cel is None:
             continue
+        need = int(remaining.get(cel) or 0)
         if order_no and (row.get("client_order_no") or "").strip() == order_no:
             pool = int(row.get("qty") or 0)
         else:
@@ -83,7 +92,7 @@ def portion_stock_rows(
         if take <= 0:
             continue
         portions.append({"fg": row, "take": take})
-        remaining[k] = need - take
+        remaining[cel] = need - take
     return portions
 
 
@@ -98,16 +107,17 @@ def stock_portions_for_order(
     # wyklucz je z FIFO finished_goods, żeby nie liczyć ich drugi raz.
     cartoned_rows = query_all(
         """
-        SELECT fu.recipe_id, fu.weight_kg, COUNT(*) AS qty
+        SELECT fu.recipe_id, fu.weight_kg, fu.product_type_id, COUNT(*) AS qty
         FROM finished_units fu
         JOIN stock_cartons sc ON sc.id = fu.carton_id
         WHERE sc.linked_order_id = %s AND fu.status IN ('packed', 'shipped')
-        GROUP BY fu.recipe_id, fu.weight_kg
+        GROUP BY fu.recipe_id, fu.weight_kg, fu.product_type_id
         """,
         (order_id,),
     )
     cartoned_by_key = {
-        _key(r["recipe_id"], r["weight_kg"]): int(r["qty"]) for r in cartoned_rows
+        _key(r["recipe_id"], r["weight_kg"], r.get("product_type_id")): int(r["qty"])
+        for r in cartoned_rows
     }
     shortfalls = compute_shortfalls(order_lines, produced_by_key, cartoned_by_key)
     if not shortfalls:
@@ -117,7 +127,7 @@ def stock_portions_for_order(
     # z najstarszego wiersza na magazynie, choć leżał tam pod czyjąś nazwą.
     fg_rows = query_all(
         """
-        SELECT id, batch_no, recipe_id, recipe_name, product_type_name,
+        SELECT id, batch_no, recipe_id, recipe_name, product_type_id, product_type_name,
                kg_per_unit, qty, qty_available, qty_shipped,
                client_order_no, client_name, produced_date, created_at
         FROM finished_goods fg

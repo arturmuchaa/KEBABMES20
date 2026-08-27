@@ -21,6 +21,7 @@ import { useEffect, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, orderPalletsApi, settingsApi, type OrderPallet } from '@/lib/apiClient'
+import { domkniete, zostaloDoZrobienia } from '@/features/orders/lineShipping'
 import { fmtKg, fmtDatePl } from '@/lib/utils'
 import { Printer, ArrowLeft } from 'lucide-react'
 import { useClientNames } from '@/lib/clientNames'
@@ -193,11 +194,13 @@ export function OrderPrintPage() {
             {order.lines.map((l: any, i: number) => {
               const pal = palletsByLine[l.id] ?? []
               const zrobione = Math.max(0, Number(l.qtyDone) || 0)
-              const zostalo = Math.max(0, (Number(l.qty) || 0) - zrobione)
+              const zostalo = zostaloDoZrobienia(l)
+              const wyslane = domkniete(l)          // wszystko u klienta
               const kgSzt = Number.isInteger(Number(l.kgPerUnit))
                 ? fmtKg(l.kgPerUnit, 0) : fmtKg(l.kgPerUnit, 1)
               return (
-                <tr key={l.id} data-testid={`pozycja-${l.id}`} className="break-inside-avoid">
+                <tr key={l.id} data-testid={`pozycja-${l.id}`}
+                  className={`break-inside-avoid${wyslane ? ' text-ink-3' : ''}`}>
                   <td className="border border-black px-1.5 py-1 text-center tabular-nums">{i + 1}</td>
                   <td className="border border-black px-1.5 py-1">
                     <span className="font-bold">{l.productTypeName || '—'}</span>
@@ -223,10 +226,17 @@ export function OrderPrintPage() {
                     {zostalo > 0 ? zostalo : '—'}
                   </td>
                   <td className="border border-black px-1.5 py-1 text-center">
-                    {/* Kratka rysowana ramką, nie znakiem — pusty kwadrat
-                        z fontu bywa niewidoczny na wydruku termicznym. */}
-                    <span data-testid={`kratka-${l.id}`}
-                      className="mx-auto block h-[4mm] w-[4mm] border border-black" />
+                    {/* Pozycja, która wyjechała na WZ, nie ma kratki — nie ma
+                        czego kompletować, a pusty kwadrat prosi się o szukanie
+                        towaru, którego już u nas nie ma. */}
+                    {wyslane ? (
+                      <span className="text-[9px] font-bold tracking-[0.08em]">WYSŁANE</span>
+                    ) : (
+                      /* Kratka rysowana ramką, nie znakiem — pusty kwadrat
+                         z fontu bywa niewidoczny na wydruku termicznym. */
+                      <span data-testid={`kratka-${l.id}`}
+                        className="mx-auto block h-[4mm] w-[4mm] border border-black" />
+                    )}
                   </td>
                 </tr>
               )

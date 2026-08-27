@@ -26,29 +26,34 @@ def _klient(cid, nazwa, display):
     )
 
 
-def _zamowienie(oid, order_no, cid, nazwa, data="2026-08-26", qty=20, kg=35, recipe="r1"):
+def _zamowienie(oid, order_no, cid, nazwa, data="2026-08-26", qty=20, kg=35,
+                recipe="r1", rodzaj="pt1"):
     execute(
         "INSERT INTO client_orders (id, order_no, client_id, client_name, order_date, "
         " created_at, status) VALUES (%s,%s,%s,%s,%s,%s,'confirmed')",
         (oid, order_no, cid, nazwa, data, f"{data} 08:00:00+00"),
     )
+    _pozycja(oid, f"{oid}-l1", qty=qty, kg=kg, recipe=recipe, rodzaj=rodzaj)
+
+
+def _pozycja(oid, lid, qty=20, kg=35, recipe="r1", rodzaj="pt1"):
     execute(
         "INSERT INTO client_order_lines (id, order_id, recipe_id, product_type_id, qty, "
-        " kg_per_unit) VALUES (%s,%s,%s,'pt1',%s,%s)",
-        (f"{oid}-l1", oid, recipe, qty, kg),
+        " kg_per_unit) VALUES (%s,%s,%s,%s,%s,%s)",
+        (lid, oid, recipe, rodzaj, qty, kg),
     )
 
 
 def _zapas(fid, qty=20, kg=35, recipe="r1", cid=None, nazwa=None,
-           order_no=None, dostepne=None):
+           order_no=None, dostepne=None, rodzaj="pt1"):
     """Wiersz wyrobu gotowego wprost do bazy — bez serwisu, bo serwis sam
     dobiera zamówienie, a tu badamy właśnie dobieranie."""
     execute(
         "INSERT INTO finished_goods (id, batch_no, recipe_id, product_type_id, qty, "
         " kg_per_unit, total_kg, qty_available, qty_shipped, client_id, client_name, "
         " client_order_no, produced_date) "
-        "VALUES (%s,'260826 500',%s,'pt1',%s,%s,%s,%s,%s,%s,%s,%s,'2026-08-26')",
-        (fid, recipe, qty, kg, qty * kg,
+        "VALUES (%s,'260826 500',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'2026-08-26')",
+        (fid, recipe, rodzaj, qty, kg, qty * kg,
          qty if dostepne is None else dostepne,
          0 if dostepne is None else qty - dostepne,
          cid, nazwa, order_no),
@@ -180,14 +185,6 @@ def test_numer_zajety_przez_zywe_zamowienie_nie_wraca(db):
 
 # ── Dwie pozycje na ten sam wyrób ─────────────────────────────────────────
 
-def _pozycja(oid, lid, qty=20, kg=35, recipe="r1"):
-    execute(
-        "INSERT INTO client_order_lines (id, order_id, recipe_id, product_type_id, qty, "
-        " kg_per_unit) VALUES (%s,%s,%s,'pt1',%s,%s)",
-        (lid, oid, recipe, qty, kg),
-    )
-
-
 def _zrobione_pozycji(oid):
     return [int(l["qty_done"] or 0) for l in get_order(oid)["lines"]]
 
@@ -223,3 +220,128 @@ def test_zapas_nie_dokłada_sie_do_pozycji_juz_zrobionej(db):
     _zapas("f2", qty=20, cid="c1", nazwa="Bulli sp. z o.o.")
 
     assert _zrobione("o1") == 20
+
+
+# ── Rodzaj (95/5 to nie UDO 100 %) ────────────────────────────────────────
+
+def test_rodzaj_rozroznia_pozycje_o_tej_samej_recepturze(db):
+    """TRUVA: KIRMIZI 25 kg jako MIX 95/5 i jako UDO 100 % to DWA produkty.
+    Wysłane 30 szt. 95/5 wpadło na pozycję UDO."""
+    _klient("c1", "Truva gastro s.r.o.", "TRUVA")
+    _zamowienie("o1", "TRUVA/Z/1/08/26", "c1", "Truva gastro s.r.o.",
+                qty=60, kg=25, rodzaj="pt-udo")            # pierwsza w kolejce
+    _pozycja("o1", "o1-l2", qty=60, kg=25, rodzaj="pt-95-5")
+
+    _zapas("f1", qty=30, kg=25, rodzaj="pt-95-5", order_no="TRUVA/Z/1/08/26",
+           cid="c1", nazwa="Truva gastro s.r.o.")
+
+    assert _zrobione_pozycji("o1") == [0, 30]
+
+
+def test_zapas_innego_rodzaju_nie_pokrywa(db):
+    _klient("c1", "Truva gastro s.r.o.", "TRUVA")
+    _zamowienie("o1", "TRUVA/Z/1/08/26", "c1", "Truva gastro s.r.o.",
+                qty=60, kg=25, rodzaj="pt-95-5")
+
+    _zapas("f1", qty=30, kg=25, rodzaj="pt-udo", cid="c1", nazwa="Truva gastro s.r.o.")
+
+    assert _zrobione("o1") == 0
+
+
+def test_wpis_bez_rodzaju_liczy_sie_dalej(db):
+    """Wyroby wpisane zanim w formularzu pojawił się rodzaj — nie gubimy ich."""
+    _klient("c1", "Truva gastro s.r.o.", "TRUVA")
+    _zamowienie("o1", "TRUVA/Z/1/08/26", "c1", "Truva gastro s.r.o.",
+                qty=60, kg=25, rodzaj="pt-95-5")
+
+    _zapas("f1", qty=30, kg=25, rodzaj=None, cid="c1", nazwa="Truva gastro s.r.o.")
+
+    assert _zrobione("o1") == 30
+
+
+# ── Zrobione ≠ wysłane ────────────────────────────────────────────────────
+
+def _wyslane_pozycji(oid):
+    return [int(l["qty_shipped"] or 0) for l in get_order(oid)["lines"]]
+
+
+def test_wyslane_widac_osobno_od_lezacego_na_magazynie(db):
+    _klient("c1", "Bulli sp. z o.o.", "BULLI")
+    _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", qty=60)
+
+    _zapas("f1", qty=30, order_no="BULLI/Z/1/08/26", dostepne=0,
+           cid="c1", nazwa="Bulli sp. z o.o.")          # wyjechało na WZ
+    _zapas("f2", qty=20, order_no="BULLI/Z/1/08/26",
+           cid="c1", nazwa="Bulli sp. z o.o.")          # leży na magazynie
+
+    assert (_zrobione("o1"), _wyslane_pozycji("o1")[0]) == (50, 30)
+
+
+def test_pozycja_w_calosci_wyslana_jest_zamknieta(db):
+    _klient("c1", "Bulli sp. z o.o.", "BULLI")
+    _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", qty=30)
+
+    _zapas("f1", qty=30, order_no="BULLI/Z/1/08/26", dostepne=0,
+           cid="c1", nazwa="Bulli sp. z o.o.")
+
+    linia = get_order("o1")["lines"][0]
+    assert (int(linia["qty_done"]), int(linia["qty_shipped"])) == (30, 30)
+
+
+# ── Stempel po skasowanym zamówieniu ──────────────────────────────────────
+
+def test_stempel_nieistniejacego_zamowienia_wraca_na_magazyn(db):
+    """Po usunięciu zamówienia jego sztuki nie mogą zniknąć z widoku —
+    wracają do zapasu klienta i pokrywają jego kolejne zamówienie."""
+    _klient("c1", "Polat d.o.o.", "POLAT")
+    _zamowienie("o2", "POLAT/Z/2/08/26", "c1", "Polat d.o.o.", qty=60)
+
+    _zapas("f1", qty=40, order_no="POLAT/Z/1/08/26",   # zamówienie skasowane
+           cid="c1", nazwa="Polat d.o.o.")
+
+    assert _zrobione("o2") == 40
+
+
+def test_stempel_zywego_zamowienia_nie_wycieka_do_innego(db):
+    _klient("c1", "Polat d.o.o.", "POLAT")
+    _zamowienie("o1", "POLAT/Z/1/08/26", "c1", "Polat d.o.o.", data="2026-08-20", qty=60)
+    _zamowienie("o2", "POLAT/Z/2/08/26", "c1", "Polat d.o.o.", data="2026-08-26", qty=60)
+
+    _zapas("f1", qty=40, order_no="POLAT/Z/1/08/26", cid="c1", nazwa="Polat d.o.o.")
+
+    assert (_zrobione("o1"), _zrobione("o2")) == (40, 0)
+
+
+# ── Zamknięcie zamówienia po wysyłce ──────────────────────────────────────
+
+def test_zamowienie_w_calosci_wyslane_zamyka_sie(db):
+    from app.services.orders_service import zamknij_wyslane_zamowienia
+    _klient("c1", "Bulli sp. z o.o.", "BULLI")
+    _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", qty=30)
+    _zapas("f1", qty=30, order_no="BULLI/Z/1/08/26", dostepne=0,
+           cid="c1", nazwa="Bulli sp. z o.o.")
+
+    assert zamknij_wyslane_zamowienia(["BULLI/Z/1/08/26"]) == ["BULLI/Z/1/08/26"]
+    assert get_order("o1")["status"] == "done"
+
+
+def test_zamowienie_z_towarem_na_polce_zostaje_otwarte(db):
+    """Zrobione ≠ wysłane: dopóki towar leży u nas, zamówienie żyje."""
+    from app.services.orders_service import zamknij_wyslane_zamowienia
+    _klient("c1", "Bulli sp. z o.o.", "BULLI")
+    _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", qty=30)
+    _zapas("f1", qty=30, order_no="BULLI/Z/1/08/26",
+           cid="c1", nazwa="Bulli sp. z o.o.")
+
+    assert zamknij_wyslane_zamowienia(["BULLI/Z/1/08/26"]) == []
+    assert get_order("o1")["status"] == "confirmed"
+
+
+def test_zamowienie_bez_sztuk_nie_zamyka_sie_samo(db):
+    """Pozycje z zerową ilością nie mogą udawać wysyłki."""
+    from app.services.orders_service import zamknij_wyslane_zamowienia
+    _klient("c1", "Bulli sp. z o.o.", "BULLI")
+    _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", qty=0)
+
+    assert zamknij_wyslane_zamowienia(["BULLI/Z/1/08/26"]) == []
+    assert get_order("o1")["status"] == "confirmed"

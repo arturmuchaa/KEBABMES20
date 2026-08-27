@@ -181,3 +181,19 @@ describe('StockPickerDialog — wybór towaru na dokument', () => {
     expect(screen.getByText(/Brak wyników/)).toBeTruthy()
   })
 })
+
+describe('rodzaj na liście wyrobu', () => {
+  it('dwie pozycje o tej samej recepturze i wadze są rozróżnialne', () => {
+    // KIRMIZI 25 kg to i KEBAB MIX 95/5, i KEBAB UDO 100 % — bez rodzaju
+    // biuro wydało 95/5 z pozycji UDO (TRUVA, 26.08.2026).
+    pokaz({ fg: [
+      { id: 'a', recipe_name: 'KIRMIZI', product_type_name: 'KEBAB MIX 95/5',
+        kg_per_unit: 25, batch_no: '260826 504', qty_available: 30 },
+      { id: 'b', recipe_name: 'KIRMIZI', product_type_name: 'KEBAB UDO 100%',
+        kg_per_unit: 25, batch_no: '260826 504', qty_available: 30 },
+    ] })
+
+    expect(screen.getByText(/KEBAB MIX 95\/5 KIRMIZI 25kg/)).toBeTruthy()
+    expect(screen.getByText(/KEBAB UDO 100% KIRMIZI 25kg/)).toBeTruthy()
+  })
+})

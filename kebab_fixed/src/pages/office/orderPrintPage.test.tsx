@@ -36,6 +36,8 @@ beforeEach(() => {
         productTypeName: 'SEBZELI', recipeName: 'WROCŁAW', packagingName: 'KARTON 65' },
       { id: 'l3', qty: 10, kgPerUnit: 25, totalKg: 250, qtyDone: 0,
         productTypeName: 'KEBAB', recipeName: 'BEYAZ AFIYET', packagingName: '' },
+      { id: 'l4', qty: 12, kgPerUnit: 20, totalKg: 240, qtyDone: 12, qtyShipped: 12,
+        productTypeName: 'KEBAB UDO 100%', recipeName: 'KIRMIZI', packagingName: 'METAL 65' },
     ],
   }
 })
@@ -78,18 +80,31 @@ describe('OrderPrintPage — co niesie kartka', () => {
     expect(within(screen.getByTestId('pozycja-l1')).getByTestId('zostalo-l1').textContent).toMatch(/0|—/)
   })
 
-  it('każda pozycja ma kratkę do odhaczenia ręką', async () => {
+  it('każda pozycja do skompletowania ma kratkę do odhaczenia ręką', async () => {
     await pokaz()
     for (const id of ['l1', 'l2', 'l3']) {
       expect(screen.getByTestId(`kratka-${id}`)).toBeTruthy()
     }
   })
 
+  it('pozycja wysłana na WZ nie ma czego kompletować', async () => {
+    await pokaz()
+    const w = screen.getByTestId('pozycja-l4')
+    expect(w.textContent).toContain('WYSŁANE')
+    expect(screen.queryByTestId('kratka-l4')).toBeNull()
+  })
+
+  it('pozycja częściowo wysłana wciąż ma kratkę', async () => {
+    stan.zamowienie.lines[3].qtyShipped = 5
+    await pokaz()
+    expect(screen.getByTestId('kratka-l4')).toBeTruthy()
+  })
+
   it('podsumowanie zgadza się z pozycjami', async () => {
     await pokaz()
     const suma = (screen.getByTestId('podsumowanie').textContent ?? '').replace(/[^0-9A-Za-z]/g, '')
-    expect(suma).toContain('60')        // 30 + 20 + 10 szt.
-    expect(suma).toContain('2450')    // 1500 + 700 + 250 kg
+    expect(suma).toContain('72')        // 30 + 20 + 10 + 12 szt.
+    expect(suma).toContain('2690')    // 1500 + 700 + 250 + 240 kg
   })
 
   it('jest miejsce na podpis magazyniera', async () => {

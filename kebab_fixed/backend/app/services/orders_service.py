@@ -4,6 +4,7 @@ from fastapi import HTTPException
 
 from app.db import (
     cx_execute,
+    execute,
     cx_execute_returning,
     cx_query_all,
     cx_query_one,
@@ -14,6 +15,7 @@ from app.db import (
 from app.logging_config import get_logger
 from app.models.orders import ClientOrderCreate, OrderLineCreate
 from app.utils.ids import cuid, now_iso, slugify_for_number
+from app.utils.product_key import Klucz, kandydaci, klucz_wyrobu
 from datetime import datetime
 
 logger = get_logger(__name__)
@@ -131,73 +133,102 @@ def _resolve_line_names(conn, line: OrderLineCreate) -> Tuple[str, str, str]:
     return recipe_name or "", product_type_name or "", packaging_name or ""
 
 
-def _klucz(recipe_id: Any, kg_per_unit: Any) -> str:
-    return f"{recipe_id}|{float(kg_per_unit or 0)}"
+_klucz = klucz_wyrobu
+_kandydaci = kandydaci
+
+
+def _bierz_ze_stempla(polka: Dict[Klucz, List[Dict]], klucze: List[Klucz], ile: int
+                      ) -> Tuple[int, int]:
+    """Zdejmij `ile` sztuk z wierszy wyrobu. Zwraca (wzięte, w tym wysłane)."""
+    wziete = wyslane = 0
+    for klucz in klucze:
+        for wiersz in polka.get(klucz, []):
+            if ile <= 0:
+                return wziete, wyslane
+            bierz = min(ile, wiersz["qty"])
+            if bierz <= 0:
+                continue
+            wiersz["qty"] -= bierz
+            juz_poszlo = min(bierz, wiersz["shipped"])
+            wiersz["shipped"] -= juz_poszlo
+            wziete += bierz
+            wyslane += juz_poszlo
+            ile -= bierz
+    return wziete, wyslane
 
 
 def rozdziel_pokrycie(
     zamowienia: List[Dict[str, Any]],
-    przypisane: Dict[str, Dict[str, int]],
+    przypisane: Dict[str, List[Dict[str, Any]]],
     pula: List[Dict[str, Any]],
-) -> Dict[str, Dict[str, int]]:
-    """Ile sztuk każdej POZYCJI zamówienia jest już zrobione.
+) -> Dict[str, Dict[str, Dict[str, int]]]:
+    """Ile sztuk każdej POZYCJI zamówienia jest zrobione i ile z tego wyjechało.
 
     * `zamowienia` — od najstarszego:
       `{"id", "order_no", "client_id", "bierze_z_puli", "lines": [{"id", "key", "qty"}]}`
-    * `przypisane` — `{order_no: {key: sztuki}}`, sztuki ostemplowane numerem
-      zamówienia (także już wydane — poszły na to zamówienie).
+    * `przypisane` — `{order_no: [{"key", "qty", "shipped"}]}`, wiersze wyrobu
+      ostemplowane numerem zamówienia, w kolejności produkcji.
     * `pula` — zapas BEZ zamówienia: `{"client_id", "key", "qty"}`, tylko sztuki
       leżące na magazynie.
 
-    Zwraca `{order_id: {line_id: sztuki}}`.
+    Zwraca `{order_id: {line_id: {"done": szt, "shipped": szt}}}`.
 
-    Dwie reguły, obie z rozjazdów w biurze:
+    Reguły, każda z rozjazdu w biurze:
 
-    1. Sztuki dzielą się między POZYCJE, nie mnożą przez nie. TRUVA miała dwie
-       identyczne pozycje 80×20 kg i te same 80 sztuk pokazywało się przy obu
-       (160 z 160 zrobione, magazyn pusty). Nadwyżka ponad zamówioną ilość
-       ląduje na ostatniej pozycji tego wyrobu — nadprodukcji nie chowamy.
-    2. Zapas podpisany klientem liczy się TYLKO jemu. Wyrób wpisany na LEZZĘ
-       pokazywał postęp u YALCINA i TRUVY, bo pula szła po samej recepturze.
-       Zapas bez klienta (produkcja „na magazyn") pokrywa dowolne zamówienie,
-       po kolei od najstarszego — jeden raz.
+    1. Sztuki dzielą się między POZYCJE, nie mnożą przez nie, i trafiają na
+       pozycję o TYM SAMYM RODZAJU (patrz `_klucz`, `_kandydaci`).
+       Nadwyżka ponad zamówioną ilość ląduje na ostatniej pozycji tego wyrobu —
+       nadprodukcji nie chowamy.
+    2. Zapas podpisany klientem liczy się TYLKO jemu; zapas bez klienta
+       (produkcja „na magazyn") pokrywa dowolne zamówienie, po kolei od
+       najstarszego — jeden raz.
+    3. „Wysłane" jest osobno od „zrobione": to, co wyjechało na WZ, nie leży
+       już na magazynie i magazynier nie ma tego kompletować.
     """
-    wynik: Dict[str, Dict[str, int]] = {}
+    wynik: Dict[str, Dict[str, Dict[str, int]]] = {}
     brakuje: Dict[str, Dict[str, int]] = {}
 
     for zam in zamowienia:
-        zostalo = dict(przypisane.get(zam.get("order_no") or "", {}))
-        # Ostatnia pozycja danego wyrobu — na nią spada ewentualna nadwyżka.
-        ostatnia: Dict[str, str] = {}
-        for linia in zam["lines"]:
-            ostatnia[linia["key"]] = linia["id"]
+        polka: Dict[Klucz, List[Dict]] = {}
+        for wiersz in przypisane.get(zam.get("order_no") or "", []):
+            polka.setdefault(wiersz["key"], []).append(
+                {"qty": int(wiersz.get("qty") or 0), "shipped": int(wiersz.get("shipped") or 0)}
+            )
 
-        dla_zam: Dict[str, int] = {}
+        dla_zam: Dict[str, Dict[str, int]] = {}
         brak_zam: Dict[str, int] = {}
+        ostatnia: Dict[Klucz, str] = {}
         for linia in zam["lines"]:
-            klucz, potrzeba = linia["key"], int(linia.get("qty") or 0)
-            mam = zostalo.get(klucz, 0)
-            wziete = max(0, min(potrzeba, mam))
-            zostalo[klucz] = mam - wziete
-            if ostatnia.get(klucz) == linia["id"] and zostalo.get(klucz, 0) > 0:
-                wziete += zostalo[klucz]      # nadprodukcja — widoczna, nie zgubiona
-                zostalo[klucz] = 0
-            dla_zam[linia["id"]] = wziete
+            potrzeba = int(linia.get("qty") or 0)
+            klucze = _kandydaci(polka, linia["key"])
+            for k in klucze:
+                ostatnia[k] = linia["id"]
+            wziete, wyslane = _bierz_ze_stempla(polka, klucze, potrzeba)
+            dla_zam[linia["id"]] = {"done": wziete, "shipped": wyslane}
             brak_zam[linia["id"]] = max(0, potrzeba - wziete)
+
+        # Nadprodukcja — reszta stempla ląduje na ostatniej pozycji tego wyrobu.
+        for klucz, wiersze in polka.items():
+            reszta = sum(w["qty"] for w in wiersze)
+            if reszta <= 0 or klucz not in ostatnia:
+                continue
+            wziete, wyslane = _bierz_ze_stempla(polka, [klucz], reszta)
+            cel = dla_zam[ostatnia[klucz]]
+            cel["done"] += wziete
+            cel["shipped"] += wyslane
+
         wynik[zam["id"]] = dla_zam
         brakuje[zam["id"]] = brak_zam
 
-    wlasne: Dict[Tuple[str, str], int] = {}
-    niczyje: Dict[str, int] = {}
+    wlasne: Dict[str, Dict[Klucz, int]] = {}
+    niczyje: Dict[Klucz, int] = {}
     for row in pula:
         ile = int(row.get("qty") or 0)
         if ile <= 0:
             continue
         cid = (row.get("client_id") or "").strip()
-        if cid:
-            wlasne[(cid, row["key"])] = wlasne.get((cid, row["key"]), 0) + ile
-        else:
-            niczyje[row["key"]] = niczyje.get(row["key"], 0) + ile
+        magazyn = wlasne.setdefault(cid, {}) if cid else niczyje
+        magazyn[row["key"]] = magazyn.get(row["key"], 0) + ile
 
     for zam in zamowienia:
         if not zam.get("bierze_z_puli", True):
@@ -207,25 +238,25 @@ def rozdziel_pokrycie(
             brak = brakuje[zam["id"]].get(linia["id"], 0)
             if brak <= 0:
                 continue
-            klucz = linia["key"]
-            polki: List[Tuple[Dict, Any]] = []
-            if cid:
-                polki.append((wlasne, (cid, klucz)))   # najpierw zapas własny
-            polki.append((niczyje, klucz))             # potem „na magazyn"
-            for magazyn, mkey in polki:
-                bierz = min(brak, magazyn.get(mkey, 0))
-                if bierz <= 0:
-                    continue
-                magazyn[mkey] -= bierz
-                wynik[zam["id"]][linia["id"]] += bierz
-                brak -= bierz
+            polki = [wlasne[cid]] if cid and cid in wlasne else []
+            polki.append(niczyje)                      # potem „na magazyn"
+            for magazyn in polki:
+                for klucz in _kandydaci(magazyn, linia["key"]):
+                    bierz = min(brak, magazyn.get(klucz, 0))
+                    if bierz <= 0:
+                        continue
+                    magazyn[klucz] -= bierz
+                    wynik[zam["id"]][linia["id"]]["done"] += bierz
+                    brak -= bierz
+                    if brak <= 0:
+                        break
                 if brak <= 0:
                     break
 
     return wynik
 
 
-def _pokrycie_zamowien() -> Dict[str, Dict[str, int]]:
+def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
     """Liczy pokrycie WSZYSTKICH zamówień naraz — inaczej ten sam zapas
     pokazuje się przy każdym z osobna."""
     orders = query_all(
@@ -237,38 +268,57 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, int]]:
     )
     if not orders:
         return {}
+    zywe_numery = {o["order_no"] for o in orders}
     linie = query_all(
-        "SELECT id, order_id, recipe_id, kg_per_unit, qty FROM client_order_lines ORDER BY id"
+        "SELECT id, order_id, recipe_id, kg_per_unit, product_type_id, qty "
+        "FROM client_order_lines ORDER BY id"
     )
     wg_zam: Dict[str, List[Dict[str, Any]]] = {}
     for l in linie:
-        wg_zam.setdefault(l["order_id"], []).append(
-            {"id": l["id"], "key": _klucz(l["recipe_id"], l["kg_per_unit"]), "qty": int(l["qty"] or 0)}
-        )
+        wg_zam.setdefault(l["order_id"], []).append({
+            "id": l["id"],
+            "key": _klucz(l["recipe_id"], l["kg_per_unit"], l["product_type_id"]),
+            "qty": int(l["qty"] or 0),
+        })
 
-    przypisane: Dict[str, Dict[str, int]] = {}
+    # Stempel po SKASOWANYM zamówieniu jest martwy: sztuki wracają do zapasu
+    # klienta (jeśli jeszcze leżą), zamiast zniknąć z każdego widoku.
+    przypisane: Dict[str, List[Dict[str, Any]]] = {}
+    martwe: List[Dict[str, Any]] = []
     for r in query_all(
         """
-        SELECT client_order_no, recipe_id, kg_per_unit, SUM(qty) AS qty
-        FROM finished_goods
-        WHERE COALESCE(client_order_no, '') <> ''
-        GROUP BY client_order_no, recipe_id, kg_per_unit
+        SELECT fg.client_order_no, fg.recipe_id, fg.kg_per_unit, fg.product_type_id,
+               fg.qty, fg.qty_available, fg.qty_shipped,
+               COALESCE(NULLIF(fg.client_id, ''), (
+                   SELECT c.id FROM clients c
+                   WHERE c.name = fg.client_name OR c.display_name = fg.client_name
+                   ORDER BY (c.name = fg.client_name) DESC
+                   LIMIT 1
+               ), '') AS client_id
+        FROM finished_goods fg
+        WHERE COALESCE(fg.client_order_no, '') <> ''
+        ORDER BY fg.created_at, fg.id
         """
     ):
-        przypisane.setdefault(r["client_order_no"], {})[
-            _klucz(r["recipe_id"], r["kg_per_unit"])
-        ] = int(r["qty"] or 0)
+        klucz = _klucz(r["recipe_id"], r["kg_per_unit"], r["product_type_id"])
+        if r["client_order_no"] in zywe_numery:
+            przypisane.setdefault(r["client_order_no"], []).append(
+                {"key": klucz, "qty": int(r["qty"] or 0), "shipped": int(r["qty_shipped"] or 0)}
+            )
+        elif int(r["qty_available"] or 0) > 0:
+            martwe.append({"client_id": r["client_id"] or "", "key": klucz,
+                           "qty": int(r["qty_available"] or 0)})
 
     # Zapas bez zamówienia liczy się tylko w wysokości qty_available — po
     # wydaniu rozchód stempluje sztuki numerem zamówienia, a reszta nie może
     # fantomowo pokrywać kolejnych zamówień tym samym, wydanym towarem.
     # Klienta bierzemy z client_id, a dla starszych wpisów rozpoznajemy go po
     # nazwie: w wyrobie stoi nazwa z KRS („POLAT D.O.O."), w zamówieniu
-    # handlowa („POLAT”).
-    pula = [
+    # handlowa („POLAT").
+    pula = martwe + [
         {
             "client_id": r["client_id"] or "",
-            "key": _klucz(r["recipe_id"], r["kg_per_unit"]),
+            "key": _klucz(r["recipe_id"], r["kg_per_unit"], r["product_type_id"]),
             "qty": int(r["qty"] or 0),
         }
         for r in query_all(
@@ -279,11 +329,12 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, int]]:
                        ORDER BY (c.name = fg.client_name) DESC
                        LIMIT 1
                    ), '') AS client_id,
-                   fg.recipe_id, fg.kg_per_unit, SUM(fg.qty_available) AS qty
+                   fg.recipe_id, fg.kg_per_unit, fg.product_type_id,
+                   SUM(fg.qty_available) AS qty
             FROM finished_goods fg
             WHERE COALESCE(fg.client_order_no, '') = ''
               AND COALESCE(fg.qty_available, 0) > 0
-            GROUP BY 1, fg.recipe_id, fg.kg_per_unit
+            GROUP BY 1, fg.recipe_id, fg.kg_per_unit, fg.product_type_id
             """
         )
     ]
@@ -304,8 +355,42 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, int]]:
     )
 
 
+def zamknij_wyslane_zamowienia(numery: List[str]) -> List[str]:
+    """Zamówienie, z którego WSZYSTKO wyjechało, samo przechodzi na „zrealizowane".
+
+    Wołane po wystawieniu WZ. Towar leżący jeszcze u nas zamówienia nie zamyka
+    — magazynier ma je nadal na liście do kompletowania.
+    """
+    numery = [n for n in {(n or "").strip() for n in numery} if n]
+    if not numery:
+        return []
+    orders = query_all(
+        "SELECT id, order_no FROM client_orders "
+        "WHERE order_no = ANY(%s) AND status NOT IN ('done', 'cancelled')",
+        (numery,),
+    )
+    if not orders:
+        return []
+    pokrycie = _pokrycie_zamowien()
+    zamkniete: List[str] = []
+    for o in orders:
+        lines = query_all(
+            "SELECT id, qty FROM client_order_lines WHERE order_id = %s", (o["id"],)
+        )
+        moje = pokrycie.get(o["id"], {})
+        if not lines or sum(int(l["qty"] or 0) for l in lines) <= 0:
+            continue
+        if all(int((moje.get(l["id"]) or {}).get("shipped") or 0) >= int(l["qty"] or 0)
+               for l in lines):
+            execute("UPDATE client_orders SET status='done' WHERE id=%s", (o["id"],))
+            zamkniete.append(o["order_no"])
+            logger.info("order.shipped.closed", extra={"order_id": o["id"]})
+    return zamkniete
+
+
 def _hydrate_order(
-    order: Dict[str, Any], pokrycie: Dict[str, Dict[str, int]] | None = None
+    order: Dict[str, Any],
+    pokrycie: Dict[str, Dict[str, Dict[str, int]]] | None = None,
 ) -> Dict[str, Any]:
     lines = query_all(
         "SELECT * FROM client_order_lines WHERE order_id = %s", (order["id"],)
@@ -338,7 +423,9 @@ def _hydrate_order(
         pokrycie = _pokrycie_zamowien()
     moje = pokrycie.get(order["id"], {})
     for line in lines:
-        line["qty_done"] = int(moje.get(line["id"], 0))
+        stan = moje.get(line["id"]) or {}
+        line["qty_done"] = int(stan.get("done") or 0)
+        line["qty_shipped"] = int(stan.get("shipped") or 0)
 
     order["lines"] = lines
     return order

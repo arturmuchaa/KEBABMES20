@@ -19,6 +19,7 @@ def _fg(**kw):
            "recipe_name": "Gold2", "product_type_name": "Kebab drobiowy",
            "kg_per_unit": 40, "qty": 18, "qty_available": 18,
            "qty_shipped": 0, "client_order_no": "", "client_name": "",
+           "product_type_id": "",
            "produced_date": "2026-06-12"}
     row.update(kw)
     return row
@@ -27,7 +28,7 @@ def _fg(**kw):
 def test_shortfall_is_ordered_minus_plan_production():
     produced = produced_by_key_from_plan_lines(
         [{"recipe_id": "r1", "kg_per_unit": 40, "qty_done": 10}])
-    assert compute_shortfalls(ORDER_LINES, produced) == {("r1", 40.0): 8}
+    assert compute_shortfalls(ORDER_LINES, produced) == {_key("r1", 40.0): 8}
 
 
 def test_no_shortfall_when_plan_covers_order():
@@ -60,7 +61,7 @@ def test_stock_only_order_fully_covered_from_stock():
 def test_portion_respects_qty_available_not_qty():
     # Część zapasu już wydana ręcznym WZ — do pokrycia tylko dostępne.
     portions = portion_stock_rows(
-        {("r1", 40.0): 18}, [_fg(qty_available=5, qty_shipped=13)], "Z1")
+        {_key("r1", 40.0): 18}, [_fg(qty_available=5, qty_shipped=13)], "Z1")
     assert [(p["take"]) for p in portions] == [5]
 
 
@@ -68,28 +69,28 @@ def test_stamped_rows_count_full_qty_even_when_shipped():
     # Po wystawieniu WZ rozchód stemplował wiersz zamówieniem i wyzerował
     # qty_available — HDI/CMR wystawiane PO WZ nadal muszą widzieć te sztuki.
     row = _fg(client_order_no="Z1", qty_available=0, qty_shipped=18)
-    portions = portion_stock_rows({("r1", 40.0): 18}, [row], "Z1")
+    portions = portion_stock_rows({_key("r1", 40.0): 18}, [row], "Z1")
     assert [(p["take"]) for p in portions] == [18]
 
 
 def test_rows_for_other_recipe_or_weight_skipped():
     rows = [_fg(id="a", recipe_id="r2"), _fg(id="b", kg_per_unit=30),
             _fg(id="c")]
-    portions = portion_stock_rows({("r1", 40.0): 18}, rows, "Z1")
+    portions = portion_stock_rows({_key("r1", 40.0): 18}, rows, "Z1")
     assert [(p["fg"]["id"], p["take"]) for p in portions] == [("c", 18)]
 
 
 def test_partial_coverage_across_rows_in_order():
     rows = [_fg(id="a", qty=10, qty_available=10),
             _fg(id="b", qty=10, qty_available=10)]
-    portions = portion_stock_rows({("r1", 40.0): 14}, rows, "Z1")
+    portions = portion_stock_rows({_key("r1", 40.0): 14}, rows, "Z1")
     assert [(p["fg"]["id"], p["take"]) for p in portions] == [("a", 10), ("b", 4)]
 
 
 def test_build_stock_wz_lines_carry_full_batch_and_stock_id():
     lines = build_stock_wz_lines([{"fg": _fg(), "take": 18}])
     assert lines == [{
-        "name": "Gold2 40kg", "qty": 18, "unit": "szt",
+        "name": "Kebab drobiowy Gold2 40kg", "qty": 18, "unit": "szt",
         "batch_no": "120626 364", "price": None, "value": None,
         "stock_type": "fg", "stock_id": "fg1", "recipe_id": "r1",
         "kg_per_unit": 40, "total_kg": 720,
@@ -116,3 +117,57 @@ def test_kebab_batch_wsad_strips_date_prefix_idempotently():
     assert kebab_batch_wsad("PP2") == "PP2"
     assert kebab_batch_wsad("") == ""
     assert kebab_batch_wsad(None) == ""
+
+
+# ── Rodzaj: 95/5 to nie UDO 100 % ─────────────────────────────────────────
+
+def _linia(pt, qty=60, kg=25.0):
+    return {"recipe_id": "r1", "kg_per_unit": kg, "product_type_id": pt, "qty": qty}
+
+
+def test_zapas_innego_rodzaju_nie_pokrywa_pozycji():
+    """WZ wystawiony z KIRMIZI 95/5 na pozycję KIRMIZI UDO 100 %."""
+    short = compute_shortfalls([_linia("udo")], {})
+    rows = [_fg(id="a", kg_per_unit=25.0, qty=30, qty_available=30,
+                product_type_id="95-5")]
+
+    assert portion_stock_rows(short, rows, "Z1") == []
+
+
+def test_zapas_wlasciwego_rodzaju_pokrywa():
+    short = compute_shortfalls([_linia("udo")], {})
+    rows = [_fg(id="a", kg_per_unit=25.0, qty=30, qty_available=30,
+                product_type_id="udo")]
+
+    assert [(p["fg"]["id"], p["take"]) for p in portion_stock_rows(short, rows, "Z1")] == [("a", 30)]
+
+
+def test_zapas_bez_rodzaju_nadal_pokrywa():
+    """Wyroby sprzed dodania rodzaju do formularza — nie gubimy ich."""
+    short = compute_shortfalls([_linia("udo")], {})
+    rows = [_fg(id="a", kg_per_unit=25.0, qty=30, qty_available=30, product_type_id="")]
+
+    assert [(p["take"]) for p in portion_stock_rows(short, rows, "Z1")] == [30]
+
+
+def test_produkcja_z_planu_odejmuje_sie_od_wlasciwego_rodzaju():
+    produced = produced_by_key_from_plan_lines(
+        [{"recipe_id": "r1", "kg_per_unit": 25.0, "product_type_id": "udo", "qty_done": 10}])
+
+    short = compute_shortfalls([_linia("udo"), _linia("95-5")], produced)
+
+    assert short == {_key("r1", 25.0, "udo"): 50, _key("r1", 25.0, "95-5"): 60}
+
+
+def test_nazwa_pozycji_wz_niesie_rodzaj():
+    """Na dokumencie „KIRMIZI 25kg" to i MIX 95/5, i UDO 100 % — nie do
+    odróżnienia po wydaniu."""
+    lines = build_stock_wz_lines([
+        {"fg": _fg(id="a", recipe_name="KIRMIZI", product_type_name="KEBAB MIX 95/5",
+                   kg_per_unit=25), "take": 30},
+        {"fg": _fg(id="b", recipe_name="KIRMIZI", product_type_name="KEBAB UDO 100%",
+                   kg_per_unit=25), "take": 30},
+    ])
+
+    assert [l["name"] for l in lines] == [
+        "KEBAB MIX 95/5 KIRMIZI 25kg", "KEBAB UDO 100% KIRMIZI 25kg"]

@@ -30,8 +30,16 @@ const GRUPY: { key: string; label: string; match: (b: any) => boolean }[] = [
   { key: 'bones', label: 'Kości',     match: b => b.stock_type === 'byproduct' && b.name !== 'Grzbiety' },
 ]
 
+/** Nazwa wyrobu na liście i na dokumencie.
+ *
+ *  Rodzaj MUSI stać przed recepturą: „KIRMIZI 25kg" to i KEBAB MIX 95/5,
+ *  i KEBAB UDO 100 % — dwa różne produkty, których po wydaniu nie da się
+ *  odróżnić na WZ-ce (biuro, 26.08.2026). */
 export function fgLabel(g: any): string {
-  const base = g.recipe_name || g.product_type_name || 'Wyrób'
+  const base = [g.product_type_name, g.recipe_name]
+    .map((x: any) => String(x ?? '').trim())
+    .filter(Boolean)
+    .join(' ') || 'Wyrób'
   const kg = Number(g.kg_per_unit || 0)
   return kg > 0 ? `${base} ${fmtKg3(kg)}kg` : base
 }
