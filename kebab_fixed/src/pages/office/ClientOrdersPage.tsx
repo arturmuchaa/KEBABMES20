@@ -15,6 +15,7 @@ import { WzFromOrderModal } from '@/components/wz/WzFromOrderModal'
 import { useClientNames } from '@/lib/clientNames'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { wydane, wydaneWCalosci } from '@/features/orders/lineShipping'
+import { podzielZamowienia } from '@/features/orders/orderBuckets'
 import {
   Check, CheckCircle2, ChevronDown, ChevronUp, ChevronsUpDown, Clock,
   Pencil, Plus, Printer, ShoppingCart, Trash2, Truck, X, Search, Download,
@@ -82,6 +83,7 @@ export function ClientOrdersPage() {
   const [expanded,     setExpanded]     = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState('')
   // Start z ?q= — globalne szukanie (Ctrl+K) kieruje tu z numerem zamówienia.
+  const [archiwum,     setArchiwum]     = useState(false)
   const [search,       setSearch]       = useState(() => new URLSearchParams(window.location.search).get('q') ?? '')
   const [sortCol,      setSortCol]      = useState<SortCol>('orderDate')
   const [sortDir,      setSortDir]      = useState<'asc'|'desc'>('desc')
@@ -117,6 +119,333 @@ export function ClientOrdersPage() {
       return sortDir === 'asc' ? cmp : -cmp
     })
   }, [rawList, filterStatus, search, sortCol, sortDir])
+
+  const { biezace, zamkniete } = useMemo(() => podzielZamowienia(filtered), [filtered])
+
+  const tabela = (rows: ClientOrder[]) => {
+    const sumaSzt = rows.reduce((s, o) => s + o.totalUnits, 0)
+    const sumaKg  = rows.reduce((s, o) => s + o.totalKg, 0)
+    if (rows.length === 0) return null
+    return (
+            <div className="overflow-auto max-h-[calc(100vh-12rem)]">
+              <table className="w-full text-xs tabular-nums">
+                <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
+                  <tr>
+                    <th className="w-6" />
+                    {[
+                      { col: 'orderNo'      as SortCol, label: 'Nr zam.',   align: 'left'  },
+                      { col: 'clientName'   as SortCol, label: 'Klient',    align: 'left'  },
+                      { col: 'orderDate'    as SortCol, label: 'Data',      align: 'left'  },
+                      { col: 'deliveryDate' as SortCol, label: 'Dostawa',   align: 'left'  },
+                      { col: 'status'       as SortCol, label: 'Status',    align: 'left'  },
+                      { col: 'totalUnits'   as SortCol, label: 'Szt',       align: 'right' },
+                      { col: 'totalKg'      as SortCol, label: 'Razem kg',  align: 'right' },
+                      { col: 'progress'     as SortCol, label: 'Postęp',    align: 'left'  },
+                    ].map(h => (
+                      <th
+                        key={h.col}
+                        onClick={() => toggleSort(h.col)}
+                        className={cn(
+                          'group cursor-pointer select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
+                          h.align === 'right' && 'text-right',
+                        )}
+                      >
+                        <span className={cn('inline-flex items-center gap-1', h.align === 'right' && 'flex-row-reverse')}>
+                          {h.label}
+                          <SortIcon col={h.col} />
+                        </span>
+                      </th>
+                    ))}
+                    <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-right">Akcja</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((o, idx) => {
+                    const isExp = expanded === o.id
+                    const qtyDone = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0), 0)
+                    const kgDone  = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0) * l.kgPerUnit, 0)
+                    const pct     = progressOf(o)
+                    const isDue   = o.deliveryDate
+                      ? new Date(o.deliveryDate).getTime() - Date.now() < 1000 * 60 * 60 * 48
+                      : false
+
+                    return (
+                      <Fragment key={o.id}>
+                        <tr
+                          onClick={() => setExpanded(isExp ? null : o.id)}
+                          className={cn(
+                            'cursor-pointer border-b border-surface-3 transition-colors',
+                            idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
+                            isExp ? 'bg-surface-3/50' : 'hover:bg-surface-3/60',
+                          )}
+                        >
+                          <td className="px-1 py-2 text-center text-muted-foreground">
+                            {isExp ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                          </td>
+                          <td className="px-2.5 py-2 whitespace-nowrap">
+                            <code className="font-mono font-bold text-primary text-[13px]">{o.orderNo}</code>
+                          </td>
+                          <td className="px-2.5 py-2 whitespace-nowrap text-ink font-medium max-w-[240px] truncate" title={o.clientName}>
+                            {clientDisplay(o.clientName)}
+                          </td>
+                          <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
+                            {fmtDatePl(o.orderDate)}
+                          </td>
+                          <td className="px-2.5 py-2 whitespace-nowrap">
+                            {o.deliveryDate ? (
+                              <span className={isDue && o.status !== 'done' && o.status !== 'cancelled' ? 'text-red-600 font-semibold' : 'text-ink-2'}>
+                                {fmtDatePl(o.deliveryDate)}
+                              </span>
+                            ) : <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="px-2.5 py-2 whitespace-nowrap">
+                            <StatusBadge tone={ORDER_TONE[o.status]} label={STATUS_LABELS[o.status]} />
+                          </td>
+                          <td className="px-2.5 py-2 whitespace-nowrap text-right">
+                            {qtyDone > 0 ? (
+                              <>
+                                <span className={pct >= 100 ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
+                                  {qtyDone}
+                                </span>
+                                <span className="text-muted-foreground">/{o.totalUnits}</span>
+                              </>
+                            ) : (
+                              <span className="font-bold">{o.totalUnits}</span>
+                            )}
+                            <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
+                          </td>
+                          <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold text-emerald-700">
+                            {fmtKg(o.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span>
+                          </td>
+                          <td className="px-2.5 py-2 whitespace-nowrap min-w-[140px]">
+                            {qtyDone > 0 ? (
+                              <div className="flex items-center gap-2">
+                                <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden flex-1 max-w-[100px]">
+                                  <div
+                                    className={cn('h-full rounded-full', pct >= 100 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-400' : 'bg-orange-400')}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                                <span className={cn('text-[11px] font-semibold tabular-nums', pct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>
+                                  {pct}%
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-[11px]">—</span>
+                            )}
+                          </td>
+                          <td className="px-2 py-2 whitespace-nowrap text-right">
+                            <div className="inline-flex items-center gap-0.5">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const url = `/office/zamowienia/${o.id}/druk`
+                                  const win = window.open(url, '_blank')
+                                  if (!win || win.closed || typeof win.closed === 'undefined') {
+                                    window.location.href = url
+                                  }
+                                }}
+                                className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
+                                title="Drukuj"
+                              >
+                                <Printer size={13}/>
+                              </button>
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation()
+                                  try {
+                                    const r = await hdiApi.generate(o.id)
+                                    if (r.incomplete) {
+                                      alert(`Uwaga: nie wszystkie sztuki z zamówienia zostały wyprodukowane.\n` +
+                                            `HDI ${r.number} wystawiono na stan faktyczny: ` +
+                                            `${r.totals?.qty ?? 0} szt. / ${(r.totals?.kg ?? 0).toFixed(0)} kg.`)
+                                    }
+                                    const url = `/office/hdi/${r.id}/druk`
+                                    const win = window.open(url, '_blank')
+                                    if (!win || win.closed || typeof win.closed === 'undefined') window.location.href = url
+                                  } catch (err) {
+                                    alert(err instanceof Error ? err.message : 'Błąd generowania HDI')
+                                  }
+                                }}
+                                className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-violet-700 hover:bg-violet-50"
+                                title="Generuj HDI"
+                              >
+                                HDI
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setWzOrderId(o.id) }}
+                                className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-amber-700 hover:bg-amber-50"
+                                title="Wystaw WZ (rozchód ze stanu)"
+                              >
+                                WZ
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setCmrOrderId(o.id) }}
+                                className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-teal-700 hover:bg-teal-50"
+                                title="Wystaw CMR"
+                              >
+                                CMR
+                              </button>
+                              {o.status === 'draft' && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleStatus(o.id, 'confirmed') }}
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                  title="Potwierdź"
+                                >
+                                  <Check size={13}/>
+                                </button>
+                              )}
+                              {(o.status === 'draft' || o.status === 'confirmed') && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); navigate(`/office/zamowienia/${o.id}/edycja`) }}
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
+                                  title="Edytuj"
+                                >
+                                  <Pencil size={13}/>
+                                </button>
+                              )}
+                              {(o.status === 'draft' || o.status === 'confirmed') && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(o.id) }}
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                  title="Usuń"
+                                >
+                                  <Trash2 size={13}/>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Rozwinięcie: pozycje + palety */}
+                        {isExp && (
+                          <tr>
+                            <td colSpan={10} className="bg-surface-2/60 border-b border-surface-3 px-4 py-3">
+                              {o.notes && (
+                                <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs">
+                                  <span className="font-bold text-amber-700">Uwagi: </span>
+                                  <span className="text-amber-900">{o.notes}</span>
+                                </div>
+                              )}
+
+                              {/* Lines */}
+                              <div className="mb-3">
+                                <CardDescription className="text-[11px] font-bold uppercase tracking-wide mb-1.5">
+                                  Pozycje zamówienia ({o.lines.length})
+                                </CardDescription>
+                                <div className="overflow-x-auto rounded border border-surface-3 bg-white">
+                                  <table className="w-full text-xs tabular-nums">
+                                    <thead className="bg-surface-2">
+                                      <tr>
+                                        {['Status','Szt','kg','Razem kg','Rodzaj','Receptura','Tuleja'].map(h => (
+                                          <th key={h} className="px-2.5 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-2 whitespace-nowrap">{h}</th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {o.lines.map((l, li) => {
+                                        const lineDone = (l as any).qtyDone ?? 0
+                                        const lineSent = wydane(l as any)
+                                        const wyslana       = wydaneWCalosci(l as any)
+                                        const isLineDone    = !wyslana && lineDone >= l.qty
+                                        const isLinePartial = !wyslana && lineDone > 0 && !isLineDone
+                                        return (
+                                          <tr key={l.id} className={cn(
+                                            li % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
+                                            /* Wysłane u klienta — nie ma czego kompletować. */
+                                            wyslana && 'text-ink-4',
+                                          )}>
+                                            <td className="px-2.5 py-2 whitespace-nowrap">
+                                              {wyslana ? (
+                                                <Badge variant="outline" className="text-[10px] gap-1 bg-surface-2 text-ink-3 border-surface-4">
+                                                  <Truck size={10}/> WYDANE
+                                                </Badge>
+                                              ) : isLineDone ? (
+                                                <Badge variant="outline" className="text-[10px] gap-1 bg-emerald-50 text-emerald-700 border-emerald-200">
+                                                  <CheckCircle2 size={10}/> {lineDone}/{l.qty}
+                                                  {lineSent > 0 && <span className="text-ink-4">· {lineSent} wyd.</span>}
+                                                </Badge>
+                                              ) : isLinePartial ? (
+                                                <Badge variant="outline" className="text-[10px] gap-1 bg-amber-50 text-amber-700 border-amber-200">
+                                                  <Clock size={10}/> {lineDone}/{l.qty}
+                                                  {lineSent > 0 && <span className="text-ink-4">· {lineSent} wyd.</span>}
+                                                </Badge>
+                                              ) : (
+                                                <span className="text-muted-foreground text-[11px]">—</span>
+                                              )}
+                                            </td>
+                                            <td className="px-2.5 py-2 font-bold">{l.qty}<span className="text-muted-foreground font-normal text-[11px]"> szt</span></td>
+                                            <td className="px-2.5 py-2 text-ink-2">{l.kgPerUnit}<span className="text-muted-foreground text-[11px]"> kg</span></td>
+                                            <td className="px-2.5 py-2 font-bold text-emerald-700">{fmtKg(l.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span></td>
+                                            <td className="px-2.5 py-2 text-ink">{l.productTypeName || <span className="text-muted-foreground">—</span>}</td>
+                                            <td className="px-2.5 py-2 text-ink-2">{l.recipeName || <span className="text-muted-foreground">—</span>}</td>
+                                            <td className="px-2.5 py-2 text-ink-2">{l.packagingName || <span className="text-muted-foreground">—</span>}</td>
+                                          </tr>
+                                        )
+                                      })}
+                                      <tr className="border-t-2 border-surface-4 bg-surface-2/60 font-bold">
+                                        <td className="px-2.5 py-2 text-[11px] uppercase tracking-wider text-ink-2">Suma</td>
+                                        <td className="px-2.5 py-2">{o.totalUnits}<span className="text-muted-foreground font-normal text-[11px]"> szt</span></td>
+                                        <td />
+                                        <td className="px-2.5 py-2 text-emerald-700">{fmtKg(o.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span></td>
+                                        <td colSpan={3} />
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+
+                              {/* Brakujący surowiec na niewykonaną część zamówienia */}
+                              {o.status !== 'cancelled' && <OrderMaterialShortfall orderId={o.id} />}
+
+                              {/* Progress (jeśli jakikolwiek) */}
+                              {kgDone > 0 && (
+                                <div className="mb-3 px-3 py-2 bg-white rounded border border-surface-3">
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <span className={cn('text-xs font-semibold', pct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>
+                                      Wyprodukowano {fmtKg(kgDone, 0)} kg z {fmtKg(o.totalKg, 0)} kg
+                                    </span>
+                                    <span className={cn('text-xs font-bold', pct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>{pct}%</span>
+                                  </div>
+                                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                    <div
+                                      className={cn('h-full rounded-full transition-all', pct >= 100 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-400' : 'bg-orange-400')}
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Pasujące kartony z magazynu (powiązanie „na magazyn" → zamówienie) */}
+                              <StockCartonSuggestions orderId={o.id} />
+
+                              {/* Palety */}
+                              <PalletsEditor orderId={o.id} lines={o.lines} />
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+                <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
+                  <tr>
+                    <td className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2" colSpan={6}>
+                      Suma · {rows.length} zamówień
+                    </td>
+                    <td className="px-2.5 py-2 text-right font-bold tabular-nums text-ink">
+                      {sumaSzt}<span className="text-muted-foreground font-normal text-[11px]"> szt</span>
+                    </td>
+                    <td className="px-2.5 py-2 text-right font-bold tabular-nums text-emerald-700">
+                      {fmtKg(sumaKg, 0)} kg
+                    </td>
+                    <td colSpan={2} />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+    )
+  }
 
   const totalKg    = filtered.reduce((s, o) => s + o.totalKg, 0)
   const totalUnits = filtered.reduce((s, o) => s + o.totalUnits, 0)
@@ -217,323 +546,31 @@ export function ClientOrdersPage() {
             <CardDescription>Brak wyników</CardDescription>
           </CardContent>
         ) : (
-          <div className="overflow-auto max-h-[calc(100vh-12rem)]">
-            <table className="w-full text-xs tabular-nums">
-              <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
-                <tr>
-                  <th className="w-6" />
-                  {[
-                    { col: 'orderNo'      as SortCol, label: 'Nr zam.',   align: 'left'  },
-                    { col: 'clientName'   as SortCol, label: 'Klient',    align: 'left'  },
-                    { col: 'orderDate'    as SortCol, label: 'Data',      align: 'left'  },
-                    { col: 'deliveryDate' as SortCol, label: 'Dostawa',   align: 'left'  },
-                    { col: 'status'       as SortCol, label: 'Status',    align: 'left'  },
-                    { col: 'totalUnits'   as SortCol, label: 'Szt',       align: 'right' },
-                    { col: 'totalKg'      as SortCol, label: 'Razem kg',  align: 'right' },
-                    { col: 'progress'     as SortCol, label: 'Postęp',    align: 'left'  },
-                  ].map(h => (
-                    <th
-                      key={h.col}
-                      onClick={() => toggleSort(h.col)}
-                      className={cn(
-                        'group cursor-pointer select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
-                        h.align === 'right' && 'text-right',
-                      )}
-                    >
-                      <span className={cn('inline-flex items-center gap-1', h.align === 'right' && 'flex-row-reverse')}>
-                        {h.label}
-                        <SortIcon col={h.col} />
-                      </span>
-                    </th>
-                  ))}
-                  <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-right">Akcja</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((o, idx) => {
-                  const isExp = expanded === o.id
-                  const qtyDone = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0), 0)
-                  const kgDone  = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0) * l.kgPerUnit, 0)
-                  const pct     = progressOf(o)
-                  const isDue   = o.deliveryDate
-                    ? new Date(o.deliveryDate).getTime() - Date.now() < 1000 * 60 * 60 * 48
-                    : false
-
-                  return (
-                    <Fragment key={o.id}>
-                      <tr
-                        onClick={() => setExpanded(isExp ? null : o.id)}
-                        className={cn(
-                          'cursor-pointer border-b border-surface-3 transition-colors',
-                          idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
-                          isExp ? 'bg-surface-3/50' : 'hover:bg-surface-3/60',
-                        )}
-                      >
-                        <td className="px-1 py-2 text-center text-muted-foreground">
-                          {isExp ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
-                        </td>
-                        <td className="px-2.5 py-2 whitespace-nowrap">
-                          <code className="font-mono font-bold text-primary text-[13px]">{o.orderNo}</code>
-                        </td>
-                        <td className="px-2.5 py-2 whitespace-nowrap text-ink font-medium max-w-[240px] truncate" title={o.clientName}>
-                          {clientDisplay(o.clientName)}
-                        </td>
-                        <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
-                          {fmtDatePl(o.orderDate)}
-                        </td>
-                        <td className="px-2.5 py-2 whitespace-nowrap">
-                          {o.deliveryDate ? (
-                            <span className={isDue && o.status !== 'done' && o.status !== 'cancelled' ? 'text-red-600 font-semibold' : 'text-ink-2'}>
-                              {fmtDatePl(o.deliveryDate)}
-                            </span>
-                          ) : <span className="text-muted-foreground">—</span>}
-                        </td>
-                        <td className="px-2.5 py-2 whitespace-nowrap">
-                          <StatusBadge tone={ORDER_TONE[o.status]} label={STATUS_LABELS[o.status]} />
-                        </td>
-                        <td className="px-2.5 py-2 whitespace-nowrap text-right">
-                          {qtyDone > 0 ? (
-                            <>
-                              <span className={pct >= 100 ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
-                                {qtyDone}
-                              </span>
-                              <span className="text-muted-foreground">/{o.totalUnits}</span>
-                            </>
-                          ) : (
-                            <span className="font-bold">{o.totalUnits}</span>
-                          )}
-                          <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
-                        </td>
-                        <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold text-emerald-700">
-                          {fmtKg(o.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span>
-                        </td>
-                        <td className="px-2.5 py-2 whitespace-nowrap min-w-[140px]">
-                          {qtyDone > 0 ? (
-                            <div className="flex items-center gap-2">
-                              <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden flex-1 max-w-[100px]">
-                                <div
-                                  className={cn('h-full rounded-full', pct >= 100 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-400' : 'bg-orange-400')}
-                                  style={{ width: `${pct}%` }}
-                                />
-                              </div>
-                              <span className={cn('text-[11px] font-semibold tabular-nums', pct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>
-                                {pct}%
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground text-[11px]">—</span>
-                          )}
-                        </td>
-                        <td className="px-2 py-2 whitespace-nowrap text-right">
-                          <div className="inline-flex items-center gap-0.5">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                const url = `/office/zamowienia/${o.id}/druk`
-                                const win = window.open(url, '_blank')
-                                if (!win || win.closed || typeof win.closed === 'undefined') {
-                                  window.location.href = url
-                                }
-                              }}
-                              className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
-                              title="Drukuj"
-                            >
-                              <Printer size={13}/>
-                            </button>
-                            <button
-                              onClick={async (e) => {
-                                e.stopPropagation()
-                                try {
-                                  const r = await hdiApi.generate(o.id)
-                                  if (r.incomplete) {
-                                    alert(`Uwaga: nie wszystkie sztuki z zamówienia zostały wyprodukowane.\n` +
-                                          `HDI ${r.number} wystawiono na stan faktyczny: ` +
-                                          `${r.totals?.qty ?? 0} szt. / ${(r.totals?.kg ?? 0).toFixed(0)} kg.`)
-                                  }
-                                  const url = `/office/hdi/${r.id}/druk`
-                                  const win = window.open(url, '_blank')
-                                  if (!win || win.closed || typeof win.closed === 'undefined') window.location.href = url
-                                } catch (err) {
-                                  alert(err instanceof Error ? err.message : 'Błąd generowania HDI')
-                                }
-                              }}
-                              className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-violet-700 hover:bg-violet-50"
-                              title="Generuj HDI"
-                            >
-                              HDI
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setWzOrderId(o.id) }}
-                              className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-amber-700 hover:bg-amber-50"
-                              title="Wystaw WZ (rozchód ze stanu)"
-                            >
-                              WZ
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setCmrOrderId(o.id) }}
-                              className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-teal-700 hover:bg-teal-50"
-                              title="Wystaw CMR"
-                            >
-                              CMR
-                            </button>
-                            {o.status === 'draft' && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleStatus(o.id, 'confirmed') }}
-                                className="inline-flex items-center justify-center w-7 h-7 rounded text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                                title="Potwierdź"
-                              >
-                                <Check size={13}/>
-                              </button>
-                            )}
-                            {(o.status === 'draft' || o.status === 'confirmed') && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); navigate(`/office/zamowienia/${o.id}/edycja`) }}
-                                className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
-                                title="Edytuj"
-                              >
-                                <Pencil size={13}/>
-                              </button>
-                            )}
-                            {(o.status === 'draft' || o.status === 'confirmed') && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleDelete(o.id) }}
-                                className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                                title="Usuń"
-                              >
-                                <Trash2 size={13}/>
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-
-                      {/* Rozwinięcie: pozycje + palety */}
-                      {isExp && (
-                        <tr>
-                          <td colSpan={10} className="bg-surface-2/60 border-b border-surface-3 px-4 py-3">
-                            {o.notes && (
-                              <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs">
-                                <span className="font-bold text-amber-700">Uwagi: </span>
-                                <span className="text-amber-900">{o.notes}</span>
-                              </div>
-                            )}
-
-                            {/* Lines */}
-                            <div className="mb-3">
-                              <CardDescription className="text-[11px] font-bold uppercase tracking-wide mb-1.5">
-                                Pozycje zamówienia ({o.lines.length})
-                              </CardDescription>
-                              <div className="overflow-x-auto rounded border border-surface-3 bg-white">
-                                <table className="w-full text-xs tabular-nums">
-                                  <thead className="bg-surface-2">
-                                    <tr>
-                                      {['Status','Szt','kg','Razem kg','Rodzaj','Receptura','Tuleja'].map(h => (
-                                        <th key={h} className="px-2.5 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-2 whitespace-nowrap">{h}</th>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {o.lines.map((l, li) => {
-                                      const lineDone = (l as any).qtyDone ?? 0
-                                      const lineSent = wydane(l as any)
-                                      const wyslana       = wydaneWCalosci(l as any)
-                                      const isLineDone    = !wyslana && lineDone >= l.qty
-                                      const isLinePartial = !wyslana && lineDone > 0 && !isLineDone
-                                      return (
-                                        <tr key={l.id} className={cn(
-                                          li % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
-                                          /* Wysłane u klienta — nie ma czego kompletować. */
-                                          wyslana && 'text-ink-4',
-                                        )}>
-                                          <td className="px-2.5 py-2 whitespace-nowrap">
-                                            {wyslana ? (
-                                              <Badge variant="outline" className="text-[10px] gap-1 bg-surface-2 text-ink-3 border-surface-4">
-                                                <Truck size={10}/> WYDANE
-                                              </Badge>
-                                            ) : isLineDone ? (
-                                              <Badge variant="outline" className="text-[10px] gap-1 bg-emerald-50 text-emerald-700 border-emerald-200">
-                                                <CheckCircle2 size={10}/> {lineDone}/{l.qty}
-                                                {lineSent > 0 && <span className="text-ink-4">· {lineSent} wyd.</span>}
-                                              </Badge>
-                                            ) : isLinePartial ? (
-                                              <Badge variant="outline" className="text-[10px] gap-1 bg-amber-50 text-amber-700 border-amber-200">
-                                                <Clock size={10}/> {lineDone}/{l.qty}
-                                                {lineSent > 0 && <span className="text-ink-4">· {lineSent} wyd.</span>}
-                                              </Badge>
-                                            ) : (
-                                              <span className="text-muted-foreground text-[11px]">—</span>
-                                            )}
-                                          </td>
-                                          <td className="px-2.5 py-2 font-bold">{l.qty}<span className="text-muted-foreground font-normal text-[11px]"> szt</span></td>
-                                          <td className="px-2.5 py-2 text-ink-2">{l.kgPerUnit}<span className="text-muted-foreground text-[11px]"> kg</span></td>
-                                          <td className="px-2.5 py-2 font-bold text-emerald-700">{fmtKg(l.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span></td>
-                                          <td className="px-2.5 py-2 text-ink">{l.productTypeName || <span className="text-muted-foreground">—</span>}</td>
-                                          <td className="px-2.5 py-2 text-ink-2">{l.recipeName || <span className="text-muted-foreground">—</span>}</td>
-                                          <td className="px-2.5 py-2 text-ink-2">{l.packagingName || <span className="text-muted-foreground">—</span>}</td>
-                                        </tr>
-                                      )
-                                    })}
-                                    <tr className="border-t-2 border-surface-4 bg-surface-2/60 font-bold">
-                                      <td className="px-2.5 py-2 text-[11px] uppercase tracking-wider text-ink-2">Suma</td>
-                                      <td className="px-2.5 py-2">{o.totalUnits}<span className="text-muted-foreground font-normal text-[11px]"> szt</span></td>
-                                      <td />
-                                      <td className="px-2.5 py-2 text-emerald-700">{fmtKg(o.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span></td>
-                                      <td colSpan={3} />
-                                    </tr>
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-
-                            {/* Brakujący surowiec na niewykonaną część zamówienia */}
-                            {o.status !== 'cancelled' && <OrderMaterialShortfall orderId={o.id} />}
-
-                            {/* Progress (jeśli jakikolwiek) */}
-                            {kgDone > 0 && (
-                              <div className="mb-3 px-3 py-2 bg-white rounded border border-surface-3">
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <span className={cn('text-xs font-semibold', pct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>
-                                    Wyprodukowano {fmtKg(kgDone, 0)} kg z {fmtKg(o.totalKg, 0)} kg
-                                  </span>
-                                  <span className={cn('text-xs font-bold', pct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>{pct}%</span>
-                                </div>
-                                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                  <div
-                                    className={cn('h-full rounded-full transition-all', pct >= 100 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-400' : 'bg-orange-400')}
-                                    style={{ width: `${pct}%` }}
-                                  />
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Pasujące kartony z magazynu (powiązanie „na magazyn" → zamówienie) */}
-                            <StockCartonSuggestions orderId={o.id} />
-
-                            {/* Palety */}
-                            <PalletsEditor orderId={o.id} lines={o.lines} />
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  )
-                })}
-              </tbody>
-              <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
-                <tr>
-                  <td className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2" colSpan={6}>
-                    Suma · {filtered.length} zamówień
-                  </td>
-                  <td className="px-2.5 py-2 text-right font-bold tabular-nums text-ink">
-                    {totalUnits}<span className="text-muted-foreground font-normal text-[11px]"> szt</span>
-                  </td>
-                  <td className="px-2.5 py-2 text-right font-bold tabular-nums text-emerald-700">
-                    {fmtKg(totalKg, 0)} kg
-                  </td>
-                  <td colSpan={2} />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+          <>
+            {tabela(biezace)}
+            {biezace.length === 0 && (
+              <CardContent className="flex flex-col items-center justify-center py-8 gap-1">
+                <CardDescription>Brak bieżących zamówień</CardDescription>
+              </CardContent>
+            )}
+            {zamkniete.length > 0 && (
+              <div className="border-t-2 border-surface-4">
+                {/* Zrealizowane i anulowane osobno — mieszały się z tym, nad
+                    czym biuro pracuje. Domyślnie zwinięte, bo zagląda się tam
+                    tylko wtedy, gdy ktoś czegoś szuka. */}
+                <button
+                  type="button"
+                  onClick={() => setArchiwum(v => !v)}
+                  className="flex w-full items-center gap-2 bg-surface-2/60 px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:bg-surface-3/60"
+                >
+                  {archiwum ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  Zrealizowane i anulowane
+                  <span className="font-normal text-muted-foreground">· {zamkniete.length}</span>
+                </button>
+                {archiwum && tabela(zamkniete)}
+              </div>
+            )}
+          </>
         )}
       </Card>
 
