@@ -410,6 +410,30 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
     )
 
 
+def numery_zamowien_klienta(nazwa_nabywcy: str) -> List[str]:
+    """Otwarte zamówienia nabywcy — po nazwie z kartoteki (pełnej albo
+    handlowej). Ręczny WZ zdejmuje czasem sztuki NICZYJE, więc stempel na
+    wierszu wyrobu nie wystarcza, żeby wiedzieć, czyje zamówienie sprawdzić.
+    """
+    nazwa = (nazwa_nabywcy or "").strip()
+    if not nazwa:
+        return []
+    return [
+        r["order_no"]
+        for r in query_all(
+            """
+            SELECT o.order_no
+            FROM client_orders o
+            LEFT JOIN clients c ON c.id = o.client_id
+            WHERE o.status NOT IN ('done', 'cancelled')
+              AND (c.name = %s OR c.display_name = %s OR o.client_name = %s)
+            ORDER BY o.order_date, o.created_at, o.order_no
+            """,
+            (nazwa, nazwa, nazwa),
+        )
+    ]
+
+
 def zamknij_wyslane_zamowienia(numery: List[str]) -> List[str]:
     """Zamówienie, z którego WSZYSTKO wyjechało, samo przechodzi na „zrealizowane".
 

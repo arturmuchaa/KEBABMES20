@@ -21,7 +21,10 @@ from app.db import (
 from app.logging_config import get_logger
 from app.services.container_ledger_service import book_assets
 from app.services.container_partners_service import resolve_partner, resolve_partner_by_nip
-from app.services.orders_service import zamknij_wyslane_zamowienia
+from app.services.orders_service import (
+    numery_zamowien_klienta,
+    zamknij_wyslane_zamowienia,
+)
 from app.services.order_stock_service import (
     produced_by_key_from_plan_lines,
     stock_portions_for_order,
@@ -695,8 +698,11 @@ def create_manual_wz(
                      amount, wid, now_iso()))
 
     # Poza transakcją: zamówienie, z którego wszystko już wyjechało, samo
-    # przechodzi na „zrealizowane".
-    zamknij_wyslane_zamowienia(numery_zamowien)
+    # przechodzi na „zrealizowane". Sprawdzamy zamówienia ostemplowane na
+    # zdjętych sztukach ORAZ wszystkie otwarte zamówienia nabywcy — wydanie
+    # rozpoznaje się po nabywcy, a sztuki bywają niczyje.
+    zamknij_wyslane_zamowienia(
+        numery_zamowien + numery_zamowien_klienta((buyer or {}).get("name") or ""))
 
     logger.info("wz.manual.created", extra={"wz_id": wid, "items": len(selections)})
     return get_wz(wid)

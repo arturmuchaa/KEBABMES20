@@ -479,3 +479,24 @@ def test_zamowienie_bez_sztuk_nie_zamyka_sie_samo(db):
 
     assert zamknij_wyslane_zamowienia(["BULLI/Z/1/08/26"]) == []
     assert get_order("o1")["status"] == "confirmed"
+
+
+def test_zamowienia_nabywcy_po_nazwie_z_kartoteki(db):
+    """Po ręcznym WZ trzeba sprawdzić zamówienia NABYWCY — sztuki bywają
+    niczyje, więc sam stempel na wierszu wyrobu nie wystarczy."""
+    from app.services.orders_service import numery_zamowien_klienta
+    _klient("c1", "YBM Gastro GmbH", "YALCIN")
+    _zamowienie("o1", "YALCIN/Z/2/08/26", "c1", "YBM Gastro GmbH", qty=60)
+
+    assert numery_zamowien_klienta("YBM Gastro GmbH") == ["YALCIN/Z/2/08/26"]
+    assert numery_zamowien_klienta("YALCIN") == ["YALCIN/Z/2/08/26"]
+    assert numery_zamowien_klienta("Katarzyna Księżyc") == []
+
+
+def test_zamkniete_zamowienie_nie_wraca_na_liste_nabywcy(db):
+    from app.services.orders_service import numery_zamowien_klienta
+    _klient("c1", "YBM Gastro GmbH", "YALCIN")
+    _zamowienie("o1", "YALCIN/Z/2/08/26", "c1", "YBM Gastro GmbH", qty=60)
+    execute("UPDATE client_orders SET status='done' WHERE id='o1'")
+
+    assert numery_zamowien_klienta("YALCIN") == []
