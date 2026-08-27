@@ -112,20 +112,30 @@ def stock_portions_for_order(
     shortfalls = compute_shortfalls(order_lines, produced_by_key, cartoned_by_key)
     if not shortfalls:
         return []
+    # Kolejność: stempel tego zamówienia → zapas własny albo niczyj → dopiero
+    # na końcu towar podpisany INNYM klientem. Samo FEFO wystawiało dokument
+    # z najstarszego wiersza na magazynie, choć leżał tam pod czyjąś nazwą.
     fg_rows = query_all(
         """
         SELECT id, batch_no, recipe_id, recipe_name, product_type_name,
                kg_per_unit, qty, qty_available, qty_shipped,
                client_order_no, client_name, produced_date, created_at
-        FROM finished_goods
-        WHERE COALESCE(qty, 0) > 0
-          AND (client_order_no = %s OR COALESCE(client_order_no, '') = '')
-          AND COALESCE(source_production_id, '') NOT IN (
+        FROM finished_goods fg
+        WHERE COALESCE(fg.qty, 0) > 0
+          AND (fg.client_order_no = %s OR COALESCE(fg.client_order_no, '') = '')
+          AND COALESCE(fg.source_production_id, '') NOT IN (
               SELECT DISTINCT pl.plan_id FROM production_plan_lines pl
               WHERE pl.client_order_id = %s)
-        ORDER BY (client_order_no = %s) DESC,
+        ORDER BY (fg.client_order_no = %s) DESC,
+                 (COALESCE(NULLIF(fg.client_id, ''), (
+                      SELECT c.id FROM clients c
+                      WHERE c.name = fg.client_name OR c.display_name = fg.client_name
+                      ORDER BY (c.name = fg.client_name) DESC
+                      LIMIT 1
+                  ), '') IN ('', COALESCE((
+                      SELECT o.client_id FROM client_orders o WHERE o.id = %s), ''))) DESC,
                  produced_date ASC NULLS LAST, created_at ASC
         """,
-        (order_no, order_id, order_no),
+        (order_no, order_id, order_no, order_id),
     )
     return portion_stock_rows(shortfalls, fg_rows, order_no)

@@ -47,3 +47,31 @@ def test_portions_exclude_cartoned_units(db):
     portions = stock_portions_for_order("ord1", "ZAM/1", order_lines, {})
     # brak 50 − 20 (karton) = 30 do dobrania z finished_goods
     assert sum(p["take"] for p in portions) == 30
+
+
+def _seed_fg_klienta(fid, qty, klient_id, klient_nazwa, data, recipe="r1", kg=10.0):
+    if klient_id:
+        execute("INSERT INTO clients (id, code, name) VALUES (%s,%s,%s) ON CONFLICT (id) DO NOTHING",
+                (klient_id, klient_id, klient_nazwa))
+    execute(
+        "INSERT INTO finished_goods "
+        "(id, batch_no, recipe_id, recipe_name, product_type_name, kg_per_unit, "
+        " qty, qty_available, qty_shipped, client_order_no, client_id, client_name, "
+        " produced_date, created_at) "
+        "VALUES (%s,'180626 1',%s,'Gold','UDO',%s,%s,%s,0,'',%s,%s,%s,%s)",
+        (fid, recipe, kg, qty, qty, klient_id or None, klient_nazwa, data, now_iso()),
+    )
+
+
+def test_zapas_obcego_klienta_dobiera_sie_OSTATNI(db):
+    """FEFO nie może wyprzedzić właściciela: najstarszy wiersz na magazynie
+    bywa podpisany innym klientem, a dokument wystawiamy z niego po cichu."""
+    _seed_order(client_id="c1")
+    _seed_fg_klienta("fg-obcy", 50, "c2", "Provia Global BV", "2026-06-01")   # starszy
+    _seed_fg_klienta("fg-niczyj", 50, None, "", "2026-06-20")                 # młodszy
+
+    portions = stock_portions_for_order(
+        "ord1", "ZAM/1", [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 30}], {}
+    )
+
+    assert [p["fg"]["id"] for p in portions] == ["fg-niczyj"]
