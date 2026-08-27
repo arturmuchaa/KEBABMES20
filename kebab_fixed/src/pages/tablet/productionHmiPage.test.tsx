@@ -600,3 +600,34 @@ describe('ProductionHmiPage — prognoza zakończenia', () => {
     await waitFor(() => expect(wolania.przerwy).toEqual([{ planId: 'p1', co: 'start' }]))
   })
 })
+
+
+// Serwer jest źródłem prawdy od 27.08.2026. Kiosk potrafi się odświeżyć
+// (auto-update, zerwana sesja), a przerwa trzymana wyłącznie w pamięci ekranu
+// znikała razem z blokadą zapisu sztuk — hala liczyła wtedy w trakcie przerwy.
+describe('ProductionHmiPage — przerwy z serwera', () => {
+  it('trwająca przerwa z serwera zatrzymuje ekran po wejściu', async () => {
+    stan.przerwy = [{ id: 'b1', startedAt: '2026-08-27T09:00:00.000Z', endedAt: null }]
+    render(<ProductionHmiPage buildLabel="test" />)
+
+    expect(await screen.findByText(/Liczenie sztuk jest wstrzymane/i)).toBeTruthy()
+  })
+
+  it('przerwa zamknięta na serwerze NIE blokuje liczenia', async () => {
+    stan.przerwy = [
+      { id: 'b1', startedAt: '2026-08-27T09:00:00.000Z', endedAt: '2026-08-27T09:20:00.000Z' },
+    ]
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByText('WROCŁAW'))
+
+    await waitFor(() => expect((screen.getByTestId('zapisz') as HTMLButtonElement).disabled).toBe(false))
+  })
+
+  it('zakończenie przerwy melduje się serwerowi', async () => {
+    stan.przerwy = [{ id: 'b1', startedAt: '2026-08-27T09:00:00.000Z', endedAt: null }]
+    render(<ProductionHmiPage buildLabel="test" />)
+    fireEvent.click(await screen.findByText(/Wracam do pracy/i))
+
+    await waitFor(() => expect(wolania.przerwy).toEqual([{ planId: 'p1', co: 'end' }]))
+  })
+})

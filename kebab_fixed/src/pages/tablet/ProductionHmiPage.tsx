@@ -11,7 +11,7 @@
  * pilnować, żeby odświeżenie go nie zdeptało; tutaj nie ma czego deptać —
  * a to dokładnie ta klasa błędów, która 24.08.2026 zamroziła licznik rozbioru.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Spinner } from '@/components/ui/widgets'
 import { useApi } from '@/hooks/useApi'
 import { useLiveRefresh } from '@/hooks/useLiveRefresh'
@@ -26,7 +26,7 @@ import { removablePieces, type ScanMap } from '@/features/production-hmi/scanPro
 import { finishForecast, type Forecast } from '@/features/production-hmi/finishForecast'
 import { shiftStats, type ShiftEntry } from '@/features/production-hmi/shiftStats'
 import {
-  BRAK_PRZERW, breakEnded, breakStarted, canSave, onBreak, pausedMs, type BreakState,
+  BRAK_PRZERW, breakEnded, breakStarted, breaksFromServer, canSave, onBreak, pausedMs, type BreakState,
 } from '@/features/production-hmi/breakState'
 import { PlanList, type PlanLineView } from '@/features/production-hmi/components/PlanList'
 import { LineCounter } from '@/features/production-hmi/components/LineCounter'
@@ -129,6 +129,23 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   // Tempo uczone z zakończonych dni; przy pustej historii stoi na ziarnie
   // 120 kg/h na osobę, więc prognoza działa od pierwszej produkcji.
   const ratesData = useApi(() => productionRatesApi.current())
+  // Przerwy z SERWERA. Do 27.08.2026 żyły tylko w pamięci ekranu i odświeżenie
+  // kiosku (auto-update, zerwana sesja) kasowało je razem z blokadą zapisu
+  // sztuk — hala liczyła wtedy w trakcie przerwy.
+  const breaksData = useApi(
+    () => (plan?.id ? productionPlansApi.breaks(plan.id) : Promise.resolve([])),
+    [plan?.id],
+  )
+  // Stan ekranu nadąża za serwerem, ale NIE depcze własnego zapisu w locie:
+  // dotknięcie „Przerwa" zmienia stan lokalny natychmiast, a odpowiedź
+  // odświeżenia potrafi jeszcze przez chwilę nieść poprzedni stan.
+  const zapisPrzerwy = useRef(0)
+  useEffect(() => {
+    if (zapisPrzerwy.current > 0) return
+    if (breaksData.data === null) return
+    setPrzerwy(breaksFromServer(breaksData.data))
+  }, [breaksData.data])
+
   const skany: ScanMap = useMemo(() => {
     const out: ScanMap = {}
     for (const s of scanData.data ?? []) out[s.planLineId] = { total: s.total, scanned: s.scanned }
@@ -142,7 +159,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   // Jeden rejestr źródeł — dopisanie kolejnego nie wymaga pamiętania o drugim
   // miejscu (patrz incydent zamrożonego licznika na rozbiorze). Stoi TU,
   // a nie przy deklaracjach źródeł, bo `scanData` zależy od wyliczonego planu.
-  useLiveRefresh({ planData, opsData, matData, wrapData, pkgData, scanData, ratesData })
+  useLiveRefresh({ planData, opsData, matData, wrapData, pkgData, scanData, ratesData, breaksData })
 
   const totals = useMemo(() => planTotals(linie), [linie])
 
@@ -342,13 +359,21 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   // jest mniejszym złem niż przerwa, która nie zablokowała liczenia sztuk.
   const zacznijPrzerwe = useCallback(async () => {
     setPrzerwy(s => breakStarted(s, new Date().toISOString()))
-    if (plan?.id) { try { await productionPlansApi.startBreak(plan.id) } catch { /* ekran już stoi */ } }
-  }, [plan])
+    if (!plan?.id) return
+    zapisPrzerwy.current += 1
+    try { await productionPlansApi.startBreak(plan.id); breaksData.refetch() }
+    catch { /* ekran już stoi — przerwa bez zapisu jest mniejszym złem */ }
+    finally { zapisPrzerwy.current -= 1 }
+  }, [plan, breaksData])
 
   const zakonczPrzerwe = useCallback(async () => {
     setPrzerwy(s => breakEnded(s, new Date().toISOString()))
-    if (plan?.id) { try { await productionPlansApi.endBreak(plan.id) } catch { /* ekran już wrócił */ } }
-  }, [plan])
+    if (!plan?.id) return
+    zapisPrzerwy.current += 1
+    try { await productionPlansApi.endBreak(plan.id); breaksData.refetch() }
+    catch { /* ekran już wrócił do pracy */ }
+    finally { zapisPrzerwy.current -= 1 }
+  }, [plan, breaksData])
 
   // ── Folia ──
   const pobierzFolie = useCallback(async (ile: number) => {

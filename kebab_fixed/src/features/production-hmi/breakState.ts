@@ -69,3 +69,27 @@ export function workedMs(from: string, now: string, state: BreakState): number {
   }, 0)
   return Math.max(0, end - start - przerwy)
 }
+
+/** Wiersz przerwy tak, jak oddaje go serwer (`GET /production-plans/{id}/breaks`). */
+export interface ServerBreak {
+  startedAt: string | null
+  endedAt: string | null
+}
+
+/** Przerwy z serwera → stan ekranu.
+ *
+ * Serwer jest źródłem prawdy: kiosk odświeżony w środku przerwy (albo postoju,
+ * bo hala wbija wtedy przerwę) musi ją zobaczyć i dalej blokować zapis sztuk.
+ * Do 27.08.2026 stan żył wyłącznie w pamięci ekranu i odświeżenie kasowało
+ * przerwę razem z tą blokadą.
+ *
+ * Wiersz bez czasu startu pomijamy — nie da się z niego policzyć odcinka,
+ * a wpuszczony psułby sumę przerw i przez nią tempo.
+ */
+export function breaksFromServer(rows: ServerBreak[] | null | undefined): BreakState {
+  const pauses = (rows ?? [])
+    .filter(r => !!r?.startedAt)
+    .map(r => ({ from: String(r.startedAt), to: r.endedAt ? String(r.endedAt) : null }))
+    .sort((a, b) => ms(a.from) - ms(b.from))
+  return pauses.length ? { pauses } : BRAK_PRZERW
+}

@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  BRAK_PRZERW, breakStarted, breakEnded, onBreak, canSave, pausedMs, workedMs,
+  BRAK_PRZERW, breakStarted, breakEnded, breaksFromServer, onBreak, canSave, pausedMs, workedMs,
 } from './breakState'
 
 const t = (hhmm: string) => `2026-08-25T${hhmm}:00`
@@ -80,5 +80,48 @@ describe('workedMs', () => {
 
   it('zegar cofnięty nie daje ujemnego czasu pracy', () => {
     expect(workedMs(t('10:00'), t('09:00'), BRAK_PRZERW)).toBe(0)
+  })
+})
+
+// Serwer jest źródłem prawdy od 27.08.2026: kiosk odświeżony w środku przerwy
+// (albo postoju — hala wbija wtedy przerwę) musi ją zobaczyć, a nie puścić
+// zapis sztuk tak, jakby nic się nie działo.
+describe('breaksFromServer', () => {
+  it('przerwa zamknięta wraca jako odcinek z końcem', () => {
+    const s = breaksFromServer([{ startedAt: t('09:00'), endedAt: t('09:20') }])
+    expect(s.pauses).toEqual([{ from: t('09:00'), to: t('09:20') }])
+  })
+
+  it('przerwa TRWAJĄCA wraca jako otwarta i blokuje zapis', () => {
+    const s = breaksFromServer([{ startedAt: t('09:00'), endedAt: null }])
+    expect(onBreak(s)).toBe(true)
+    expect(canSave(s)).toBe(false)
+  })
+
+  it('kilka przerw dnia wraca w kolejności rozpoczęcia', () => {
+    const s = breaksFromServer([
+      { startedAt: t('11:00'), endedAt: t('11:15') },
+      { startedAt: t('09:00'), endedAt: t('09:20') },
+    ])
+    expect(s.pauses.map(p => p.from)).toEqual([t('09:00'), t('11:00')])
+  })
+
+  it('pusta lista i brak danych dają brak przerw', () => {
+    expect(breaksFromServer([])).toEqual(BRAK_PRZERW)
+    expect(breaksFromServer(null)).toEqual(BRAK_PRZERW)
+    expect(breaksFromServer(undefined)).toEqual(BRAK_PRZERW)
+  })
+
+  it('wiersz bez czasu startu jest pomijany, a nie psuje sumy', () => {
+    const s = breaksFromServer([
+      { startedAt: '', endedAt: null },
+      { startedAt: t('09:00'), endedAt: t('09:20') },
+    ])
+    expect(s.pauses).toHaveLength(1)
+  })
+
+  it('czas przerw z serwera liczy się tak samo jak lokalnych', () => {
+    const s = breaksFromServer([{ startedAt: t('09:00'), endedAt: t('09:30') }])
+    expect(pausedMs(s, t('10:00'))).toBe(30 * 60_000)
   })
 })
