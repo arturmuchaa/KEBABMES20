@@ -309,7 +309,14 @@ def is_foreign_nip(nip: Optional[str]) -> bool:
 def should_reuse(existing: Optional[Dict], source_id: Optional[str]) -> bool:
     """WZ jest idempotentny per źródło: istniejący dokument dla danego
     (source_type, source_id) zwracamy ponownie. WZ ręczny (brak source_id)
-    zawsze tworzy nowy dokument."""
+    zawsze tworzy nowy dokument.
+
+    ANULOWANY dokument kandydatem nie jest: wyszedł z serii („ANUL WZ/…"),
+    oddał numer do puli i nic już nie wydaje. Po cofnięciu pomyłkowego wydania
+    „Wystaw WZ" przerzucało biuro na ten trup zamiast wystawić nowy dokument,
+    więc zamówienia nie dało się ani wydać, ani domknąć (ISSA, 28.08.2026)."""
+    if (existing or {}).get("status") == "anulowany":
+        return False
     return bool(existing) and bool((source_id or "").strip())
 
 
@@ -1241,7 +1248,7 @@ def preview_order_wz(order_id: str) -> Dict[str, Any]:
     p = _order_wz_payload(order_id)
     existing = query_one(
         "SELECT id, number, valued FROM wz_documents WHERE source_type='order' AND source_id=%s "
-        "ORDER BY created_at LIMIT 1", (order_id,))
+        "AND COALESCE(status,'') <> 'anulowany' ORDER BY created_at LIMIT 1", (order_id,))
     return {
         "order_id": order_id,
         "order_no": p["order"].get("order_no"),
@@ -1284,6 +1291,7 @@ def create_wz_from_order(
     with transaction() as conn:
         existing = cx_query_one(
             conn, "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
+                  "AND COALESCE(status,'') <> 'anulowany' "
                   "ORDER BY created_at LIMIT 1", (order_id,))
         if existing:
             doc = get_wz(existing["id"])
