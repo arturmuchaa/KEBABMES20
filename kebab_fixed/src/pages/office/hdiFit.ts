@@ -96,3 +96,24 @@ export function fitFor(h0: number, bodyRows: number): FitState {
 export function fitChanged(a: FitState, b: FitState): boolean {
   return Math.abs(a.rowExtra - b.rowExtra) > 0.5 || Math.abs(a.scale - b.scale) > 0.004
 }
+
+/** Ile razy najwyżej poprawiamy dopasowanie dla jednego dokumentu. */
+export const MAX_FIT_PASSES = 8
+
+/**
+ * Czy zastosować kolejne dopasowanie — z TWARDYM limitem przebiegów.
+ *
+ * Dopasowanie jest pętlą: zmierz arkusz → policz skalę → przerysuj → zmierz
+ * ponownie. Zbiega się tylko wtedy, gdy zmiana skali NIE zmienia zawijania
+ * tekstu. Na wąskim ekranie (telefon) zmienia: arkusz dostaje szerokość
+ * `100/skala %` obudowy, więc każda nowa skala łamie wiersze inaczej, wysokość
+ * skacze i pętla nie kończy się nigdy — React wywalał „Maximum update depth"
+ * i cały ekran szedł do ErrorBoundary (28.08.2026, wydruk HDI z telefonu).
+ *
+ * Szerokość arkusza jest już usztywniona, więc pętla ma się zbiegać sama.
+ * Limit zostaje jako bezpiecznik: ekran wydruku nie może położyć aplikacji,
+ * nawet gdy jakaś czcionka czy przeglądarka zmierzy inaczej, niż zakładamy.
+ */
+export function shouldApplyFit(current: FitState, next: FitState, pass: number): boolean {
+  return pass < MAX_FIT_PASSES && fitChanged(current, next)
+}

@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest'
 import {
   A4_PRINTABLE_PX, A4_FILL_PX, A4_MAX_PX, MAX_ROWS, MIN_SCALE,
   bodyRowsFor, baseHeight, fitFor, fitChanged, sheetWidthPct, SHEET_WIDTH_MM,
+  shouldApplyFit, MAX_FIT_PASSES, type FitState,
 } from './hdiFit'
 
 describe('zapas do krawędzi kartki', () => {
@@ -138,5 +139,38 @@ describe('szerokość arkusza — pełna A4, bez białych pasów po bokach', () 
     // Zadrukowana szerokość A4 przy marginesie 5 mm to 200 mm.
     expect(SHEET_WIDTH_MM).toBeGreaterThanOrEqual(198)
     expect(SHEET_WIDTH_MM).toBeLessThanOrEqual(200)
+  })
+})
+
+// ── Bezpiecznik pętli dopasowania ─────────────────────────────────────────
+//
+// 28.08.2026: wydruk HDI otwarty na TELEFONIE wywalał aplikację na
+// „Maximum update depth exceeded" (React #185). Dopasowanie jest pętlą
+// zmierz→przeskaluj→zmierz, a na wąskim ekranie arkusz dostawał szerokość
+// zależną od skali, więc każda nowa skala łamała wiersze inaczej i wysokość
+// skakała w nieskończoność. Szerokość arkusza jest już usztywniona; ten limit
+// zostaje jako bezpiecznik — ekran wydruku nie może położyć całej aplikacji.
+
+describe('shouldApplyFit', () => {
+  const a: FitState = { rowExtra: 0, scale: 1, scaledH: null }
+  const b: FitState = { rowExtra: 12, scale: 1, scaledH: null }
+
+  it('przepuszcza zmianę, dopóki nie wyczerpie limitu przebiegów', () => {
+    expect(shouldApplyFit(a, b, 0)).toBe(true)
+    expect(shouldApplyFit(a, b, MAX_FIT_PASSES - 1)).toBe(true)
+  })
+
+  it('po limicie NIE przepuszcza, choćby stan wciąż się różnił', () => {
+    expect(shouldApplyFit(a, b, MAX_FIT_PASSES)).toBe(false)
+    expect(shouldApplyFit(a, b, MAX_FIT_PASSES + 5)).toBe(false)
+  })
+
+  it('nie przerysowuje, gdy stan jest ten sam — limit tu nie ma znaczenia', () => {
+    expect(shouldApplyFit(a, { ...a }, 0)).toBe(false)
+  })
+
+  it('limit jest mały — pętla ma się urwać, zanim zamuli przeglądarkę', () => {
+    expect(MAX_FIT_PASSES).toBeGreaterThan(2)
+    expect(MAX_FIT_PASSES).toBeLessThan(20)
   })
 })

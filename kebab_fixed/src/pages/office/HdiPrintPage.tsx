@@ -5,7 +5,7 @@ import { hdiApi, downloadDocPdf, type HdiDoc } from '@/lib/api'
 import { drukuj } from '@/lib/print'
 import { PrintToolbar } from '@/components/print/PrintToolbar'
 import { MAX_ROWS, SHEET_WIDTH_MM, bodyRowsFor, baseHeight, fitFor, fitChanged,
-         sheetWidthPct, type FitState } from './hdiFit'
+         sheetWidthPct, shouldApplyFit, type FitState } from './hdiFit'
 
 const L: Record<string, Record<string, string>> = {
   pl: { title: 'HANDLOWY DOKUMENT IDENTYFIKACYJNY', number: 'Numer HDI', issue: 'Data wystawienia', producer: 'Producent', qual: 'Zakład zakwalifikowany do prowadzenia sprzedaży na rynek', vet: 'Weterynaryjny numer identyfikacyjny', dom: 'Krajowy /domestic market/ National', eu: 'Unii Europejskiej /UE / Europäische Union', superv: 'Zakład posiada stały nadzór weterynaryjny i wprowadzony system HACCP.', lp: 'L.P', cName: 'NAZWA TOWARU', cQty: 'L.B SZT.', cNet: 'MASA NETTO', cBatch: 'NR PARTII', cExp: 'TERMIN PRZYDATNOŚCI', total: 'RAZEM', recip: 'ODBIORCA', unload: 'MIEJSCE ROZŁADUNKU', regno: 'NUMER REJESTRACYJNY / TYP SAMOCHODU', fridge: 'Samochód z zabudową mroźniczą -18°C', load: 'MIEJSCE ZAŁADUNKU', seller: 'SPRZEDAWCA', remarks: 'UWAGI / WARUNKI REKLAMACJI / COMMENTS/CONDITIONS REGARDING COMPLAINTS/ ANMERKUNGEN/VORAUSSETZUNGEN FÜR BESCHWERDEN/', ship: 'Data wysyłki', sign: 'Podpis Wystawiającego', stamp: 'Podpis i pieczęć wystawiającego',
@@ -137,6 +137,10 @@ export function HdiPrintPage() {
   // Pomiar SYNCHRONICZNY w useLayoutEffect (przed paintem), bez requestAnimationFrame
   // — inaczej zrzut PDF przez headless Chrome wyścigowo łapie stan sprzed dopasowania.
   // Wysokość bazową liczymy odejmując bieżące podwyższenie/skalę → deterministyczne.
+  // Licznik przebiegów dopasowania — zerowany przy każdym NOWYM dokumencie.
+  const przebiegi = useRef(0)
+  useEffect(() => { przebiegi.current = 0 }, [doc, id, assetsReady])
+
   useLayoutEffect(() => {
     if (!doc) return
     const sheet = sheetRef.current
@@ -144,7 +148,10 @@ export function HdiPrintPage() {
     const bodyRows = bodyRowsFor(doc.items?.length || 0)
     const h0 = baseHeight(sheet.getBoundingClientRect().height, fit, bodyRows)
     const next = fitFor(h0, bodyRows)
-    if (fitChanged(fit, next)) setFit(next)
+    if (shouldApplyFit(fit, next, przebiegi.current)) {
+      przebiegi.current += 1
+      setFit(next)
+    }
   }, [doc, id, fit, assetsReady])
 
   useEffect(() => {
@@ -194,7 +201,13 @@ export function HdiPrintPage() {
           print-color-adjust: exact !important;
         }
         .sheet-wrap {
-          max-width: ${SHEET_WIDTH_MM}mm;
+          /* SZTYWNA szerokość, nie max-width: arkusz jest kartką A4, a nie
+             elementem responsywnym. Na telefonie obudowa zwężała się do
+             szerokości ekranu, przez co skala zmieniała łamanie wierszy,
+             wysokość skakała i dopasowanie nie zbiegało się nigdy.
+             Na wąskim ekranie strona przewija się teraz w poziomie — i dobrze,
+             bo podgląd ma wyglądać jak wydruk. */
+          width: ${SHEET_WIDTH_MM}mm;
           margin: 0 auto;
         }
         .hdi {

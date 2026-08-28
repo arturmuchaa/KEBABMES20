@@ -125,9 +125,18 @@ const del   = <T>(p: string)             => req<T>('DELETE', p)
 /** Pobierz PDF endpointu dokumentów (HDI/WZ/CMR) Z SESJĄ. Zwykły <a href> /
  * window.open idzie bez nagłówka Authorization i dostaje 401 (prod
  * 2026-07-16: przycisk PDF przy CMR). Nazwa pliku z Content-Disposition. */
+/**
+ * downloadDocPdf — pobranie dokumentu (WZ, HDI, CMR, karty HACCP).
+ *
+ * Kieruje do `openDocument`, bo pobieranie blobem `<a download>` NIE DZIAŁA
+ * w aplikacji desktopowej: okno Tauri to nie przeglądarka, klik w link nic nie
+ * robi i biuro zostawało bez pliku (zgłoszenie 28.08.2026 — „na Tauri nie
+ * działa generowanie PDF, muszę przez przeglądarkę"). Wszystkie ekrany
+ * dokumentów wołały tę funkcję, a wersję świadomą desktopu miał tylko podgląd
+ * skanów HDI.
+ */
 export async function downloadDocPdf(url: string, fallbackName = 'dokument.pdf'): Promise<void> {
-  const { blob, name } = await fetchDoc(url, fallbackName)
-  saveBlob(blob, name)
+  return openDocument(url, fallbackName)
 }
 
 /** Pobranie dokumentu z sesją — wspólne dla przeglądarki i desktopu. */
@@ -182,7 +191,14 @@ export async function openDocument(url: string, fallbackName = 'dokument.pdf'): 
     return
   }
   const { invoke } = await import('@tauri-apps/api/core')
-  await invoke('open_document', { name, data: await blobToBase64(blob) })
+  try {
+    await invoke('open_document', { name, data: await blobToBase64(blob) })
+  } catch (e) {
+    // Starszy instalator biura może nie znać tej komendy. Zapis blobem i tak
+    // zwykle nic nie da, ale lepszy on niż komunikat o błędzie zamiast pliku.
+    console.warn('open_document niedostępne, próbuję zapisu blobem', e)
+    saveBlob(blob, name)
+  }
 }
 
 /** Blob → base64 (bez prefiksu `data:`) — tym formatem rozmawiamy z Rustem. */
