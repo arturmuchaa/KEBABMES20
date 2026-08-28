@@ -229,6 +229,7 @@ describe('AddFinishedGoodModal — wpis całkowicie ręczny', () => {
   it('bez zamówienia da się wpisać 20 × 40 kg z recepturą, tuleją i klientem', async () => {
     otworz()
     fireEvent.click(await screen.findByTestId('tryb-recznie'))
+    fireEvent.change(screen.getByTestId('reczne-rodzaj'), { target: { value: 'pt1' } })
     fireEvent.change(screen.getByTestId('reczne-receptura'), { target: { value: 'r2' } })
     fireEvent.change(screen.getByTestId('reczne-waga'), { target: { value: '40' } })
     fireEvent.change(screen.getByTestId('reczne-sztuki'), { target: { value: '20' } })
@@ -256,6 +257,7 @@ describe('AddFinishedGoodModal — wpis całkowicie ręczny', () => {
   it('ręczna pozycja da się usunąć z koszyka przed zapisem', async () => {
     otworz()
     fireEvent.click(await screen.findByTestId('tryb-recznie'))
+    fireEvent.change(screen.getByTestId('reczne-rodzaj'), { target: { value: 'pt1' } })
     fireEvent.change(screen.getByTestId('reczne-receptura'), { target: { value: 'r1' } })
     fireEvent.change(screen.getByTestId('reczne-waga'), { target: { value: '35' } })
     fireEvent.change(screen.getByTestId('reczne-sztuki'), { target: { value: '3' } })
@@ -297,5 +299,44 @@ describe('AddFinishedGoodModal — czego pilnuje', () => {
 
     expect(await screen.findByText(/brak łączności/i)).toBeTruthy()
     expect(screen.getByTestId('zapisz-wyrob')).toBeTruthy()
+  })
+})
+
+// ── Rodzaj musi być widoczny i wymagany ───────────────────────────────────
+//
+// 28.08.2026: wyrób Truva 80 × 20 kg wpadł na UDO 100%, choć miał być MIX 95/5.
+// Zamówienie TRUVA/Z/1/08/26 ma DWIE pozycje różniące się WYŁĄCZNIE rodzajem
+// (obie KIRMIZI, 20 kg, KARTON 60CM, po 80 szt.), a lista pozycji rodzaju
+// w ogóle nie pokazywała — dwa wiersze wyglądały identycznie. Od dziś rodzaj
+// jest częścią tożsamości wyrobu (klucz magazynu), więc musi być i widoczny,
+// i wymagany przy wpisie ręcznym.
+
+describe('AddFinishedGoodModal — rodzaj', () => {
+  it('lista pozycji pokazuje rodzaj, gdy dwie różnią się tylko nim', async () => {
+    stan.zamowienia = [{
+      id: 'o1', orderNo: 'TRUVA/Z/1', clientId: 'c1', clientName: 'Truva', status: 'new',
+      lines: [
+        pozycja({ id: 'a', qty: 80, qtyDone: 0, kgPerUnit: 20, recipeName: 'KIRMIZI',
+                  productTypeId: 'ptU', productTypeName: 'KEBAB UDO 100%' }),
+        pozycja({ id: 'b', qty: 80, qtyDone: 0, kgPerUnit: 20, recipeName: 'KIRMIZI',
+                  productTypeId: 'ptM', productTypeName: 'KEBAB MIX 95/5' }),
+      ],
+    }]
+    otworz()
+    const wiersz = await screen.findByTestId('pozycja-a')
+    expect(within(wiersz).getByText('KEBAB UDO 100%')).toBeTruthy()
+    expect(within(screen.getByTestId('pozycja-b')).getByText('KEBAB MIX 95/5')).toBeTruthy()
+  })
+
+  it('wpis ręczny bez rodzaju nie przechodzi', async () => {
+    otworz()
+    fireEvent.click(await screen.findByTestId('tryb-recznie'))
+    fireEvent.change(screen.getByTestId('reczne-receptura'), { target: { value: 'r1' } })
+    fireEvent.change(screen.getByTestId('reczne-sztuki'), { target: { value: '80' } })
+    fireEvent.change(screen.getByTestId('reczne-waga'), { target: { value: '20' } })
+    fireEvent.click(screen.getByTestId('dodaj-do-koszyka'))
+
+    await waitFor(() => expect(screen.getByText(/Wskaż rodzaj/i)).toBeTruthy())
+    expect(wolania.zapisy).toHaveLength(0)
   })
 })

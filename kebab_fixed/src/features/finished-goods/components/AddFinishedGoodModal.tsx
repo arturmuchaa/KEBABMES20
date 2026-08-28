@@ -164,7 +164,10 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
     const pt = rodzaje.find((x: any) => x.id === formaReczna.productTypeId)
     const qty = Math.round(liczba(formaReczna.qty))
     const kgPerUnit = liczba(formaReczna.kgPerUnit)
-    if (!r || qty <= 0 || kgPerUnit <= 0) { setPokazBledy(true); return }
+    // Rodzaj jest częścią TOŻSAMOŚCI wyrobu, nie opisem: UDO 100% i MIX 95/5
+    // mają tę samą recepturę, tuleję i wagę, a inny skład mięsa i inną cenę.
+    // Puste pole robiło z tego osobną, bezimienną pozycję magazynu.
+    if (!r || !pt || qty <= 0 || kgPerUnit <= 0) { setPokazBledy(true); return }
     setReczne(list => [...list, {
       qty, kgPerUnit,
       recipeId: r.id, recipeName: r.name,
@@ -284,6 +287,11 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                                 </td>
                                 <td className="py-1.5 font-mono text-xs text-ink-3">{l.orderNo}</td>
                                 <td className="py-1.5 text-sm font-semibold">{l.recipeName}</td>
+                                {/* Rodzaj: jedno zamówienie miewa dwie pozycje
+                                    różniące się WYŁĄCZNIE nim (Truva: UDO 100%
+                                    i MIX 95/5, obie KIRMIZI 20 kg po 80 szt.).
+                                    Bez tej kolumny wiersze są nie do odróżnienia. */}
+                                <td className="py-1.5 text-xs text-ink-3">{l.productTypeName || '—'}</td>
                                 <td className="py-1.5 font-mono text-sm tabular-nums">{fmtKg(l.kgPerUnit)} kg</td>
                                 <td className="py-1.5 text-xs text-ink-3">{l.packagingName || '—'}</td>
                                 <td className="py-1.5 text-right font-mono text-xs tabular-nums text-ink-3">
@@ -367,6 +375,12 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                     </select>
                   </label>
                 </div>
+                {pokazBledy && formaReczna.recipeId && !formaReczna.productTypeId && (
+                  <p className="mt-3 text-xs font-semibold text-red-700">
+                    Wskaż rodzaj — bez niego wyrób wejdzie na magazyn jako osobna pozycja
+                    i nie domknie zamówienia.
+                  </p>
+                )}
                 <button type="button" data-testid="dodaj-do-koszyka" onClick={dodajReczna}
                   className="mt-4 rounded-[3px] border border-ink px-4 py-2 text-xs font-semibold uppercase tracking-[0.05em] hover:bg-surface-3">
                   Dołóż pozycję
