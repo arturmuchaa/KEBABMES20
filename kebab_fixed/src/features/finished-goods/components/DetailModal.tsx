@@ -6,6 +6,7 @@
  */
 import { useState, useEffect } from 'react'
 import { traceabilityApi } from '@/lib/apiClient'
+import { finishedGoodsApi, productTypesApi } from '@/lib/api'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { useClientNames } from '@/lib/clientNames'
 import { GitBranch, Beef, Scissors, FlaskConical, Package2, ChevronRight } from 'lucide-react'
@@ -234,12 +235,44 @@ export function LineageChain({ batchId }: { batchId: string }) {
   )
 }
 
-export function DetailModal({ group, onClose }: { group: SkuGroup; onClose: () => void }) {
+export function DetailModal({ group, onClose, onChanged }: {
+  group: SkuGroup; onClose: () => void; onChanged?: () => void
+}) {
   const clientDisplay = useClientNames()
   const [openId, setOpenId] = useState<string | null>(
     group.batches.length === 1 ? group.batches[0].id : null
   )
   const workers = Array.from(new Set(group.batches.flatMap(b => b.producedBy ?? [])))
+
+  // ── Korekta rodzaju ──
+  // Rodzaj jest częścią tożsamości wyrobu (UDO 100% ≠ MIX 95/5 przy tej samej
+  // recepturze i wadze), więc pomyłka przy wpisie robi na magazynie towar,
+  // którego tam nie ma. Poprawiamy per PARTIA, bo to wiersz magazynu — i tylko
+  // dopóki nic z niego nie wyjechało; potem rodzaj stoi już na WZ i HDI.
+  const [rodzaje, setRodzaje] = useState<any[]>([])
+  const [edytowany, setEdytowany] = useState<string | null>(null)
+  const [zapisywany, setZapisywany] = useState<string | null>(null)
+  useEffect(() => {
+    if (!edytowany || rodzaje.length) return
+    productTypesApi.list()
+      .then((r: any) => setRodzaje(Array.isArray(r) ? r : []))
+      .catch(() => setRodzaje([]))
+  }, [edytowany, rodzaje.length])
+
+  const zapiszRodzaj = async (goodsId: string, productTypeId: string) => {
+    if (!productTypeId) return
+    setZapisywany(goodsId)
+    try {
+      await finishedGoodsApi.zmienRodzaj(goodsId, productTypeId)
+      setEdytowany(null)
+      onChanged?.()
+      onClose()
+    } catch (e: any) {
+      alert(e?.message || 'Nie udało się zmienić rodzaju')
+    } finally {
+      setZapisywany(null)
+    }
+  }
 
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
@@ -300,6 +333,34 @@ export function DetailModal({ group, onClose }: { group: SkuGroup; onClose: () =
                     </button>
                     {open && (
                       <div className="px-3 py-3 border-t border-slate-100 bg-slate-50/40">
+                        <div className="mb-3 flex items-center gap-2 text-xs">
+                          <span className="font-bold uppercase tracking-wider text-muted-foreground">Rodzaj</span>
+                          <span className="font-semibold">{b.productTypeName || '—'}</span>
+                          {(b.qtyShipped ?? 0) > 0 ? (
+                            <span className="text-[11px] text-muted-foreground">
+                              — wyjechało {b.qtyShipped} szt., rodzaj stoi na dokumentach
+                            </span>
+                          ) : edytowany === b.id ? (
+                            <>
+                              <select data-testid={`rodzaj-wybor-${b.id}`}
+                                className="h-7 rounded-[3px] border border-ink-4 px-2 text-xs"
+                                defaultValue={b.productTypeId || ''}
+                                disabled={zapisywany === b.id}
+                                onChange={e => void zapiszRodzaj(b.id, e.target.value)}>
+                                <option value="">— wybierz —</option>
+                                {rodzaje.map((p: any) => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                              <button type="button" className="text-[11px] underline text-muted-foreground"
+                                onClick={() => setEdytowany(null)}>anuluj</button>
+                            </>
+                          ) : (
+                            <button type="button" data-testid={`rodzaj-popraw-${b.id}`}
+                              className="text-[11px] underline underline-offset-2 text-primary"
+                              onClick={() => setEdytowany(b.id)}>popraw</button>
+                          )}
+                        </div>
                         <BatchLocationSummary batchNo={b.batchNo || ''} />
                         <LineageChain batchId={b.id} />
                       </div>

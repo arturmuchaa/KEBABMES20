@@ -319,6 +319,48 @@ def create_finished_goods_bulk(items: List[FinishedGoodCreate]) -> List[Dict]:
     return out
 
 
+def zmien_rodzaj(goods_id: str, product_type_id: str) -> Dict[str, Any]:
+    """Popraw RODZAJ na wierszu wyrobu gotowego.
+
+    Rodzaj jest częścią tożsamości wyrobu (UDO 100% i MIX 95/5 mają tę samą
+    recepturę, tuleję i wagę, a inny skład mięsa), więc pomyłka przy wpisie
+    robi na magazynie towar, którego tam nie ma. Dotąd jedyną drogą był SQL
+    na produkcji (Truva 80 × 20 kg, 28.08.2026).
+
+    Poprawiamy TYLKO wiersz, z którego nic nie wyjechało. Po wydaniu rodzaj
+    stoi już na WZ i HDI u klienta — cicha zmiana rozjechałaby magazyn
+    z dokumentami, a papieru u odbiorcy i tak nie poprawi.
+    """
+    with transaction() as conn:
+        row = cx_query_one(
+            conn,
+            "SELECT id, product_type_name, qty_shipped, recipe_name, kg_per_unit "
+            "FROM finished_goods WHERE id=%s FOR UPDATE", (goods_id,))
+        if not row:
+            raise HTTPException(404, "Wiersz wyrobu gotowego nie istnieje")
+        if int(row.get("qty_shipped") or 0) > 0:
+            raise HTTPException(
+                409,
+                f"Z tej pozycji wyjechało już {row['qty_shipped']} szt. — rodzaj stoi "
+                f"na wystawionych dokumentach. Anuluj wydanie albo zrób korektę.")
+
+        pt = cx_query_one(
+            conn, "SELECT id, name FROM product_types WHERE id=%s", (product_type_id,))
+        if not pt:
+            raise HTTPException(404, "Nie ma takiego rodzaju w kartotece")
+
+        cx_execute(
+            conn,
+            "UPDATE finished_goods SET product_type_id=%s, product_type_name=%s WHERE id=%s",
+            (pt["id"], pt["name"], goods_id))
+
+    logger.info("finished_goods.type_changed", extra={
+        "goods_id": goods_id, "z_rodzaju": row.get("product_type_name") or "",
+        "na_rodzaj": pt["name"]})
+    return {"id": goods_id, "productTypeId": pt["id"], "productTypeName": pt["name"],
+            "poprzedni": row.get("product_type_name") or ""}
+
+
 def _match_open_order(conn, dto: FinishedGoodCreate, qty: int) -> str:
     """Numer OTWARTEGO zamówienia, które ten wyrób domyka — albo pusty.
 

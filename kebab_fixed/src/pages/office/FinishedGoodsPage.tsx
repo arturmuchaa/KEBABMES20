@@ -360,7 +360,8 @@ export function FinishedGoodsPage() {
       {/* Spakowane kebaby — lista utworzonych kartonów ze statusem */}
       <PackedCartonsSection refreshKey={cartonRefresh} />
 
-      {detailGroup && <DetailModal group={detailGroup} onClose={() => setDetailGroup(null)} />}
+      {detailGroup && <DetailModal group={detailGroup} onClose={() => setDetailGroup(null)}
+                                   onChanged={() => refetch()} />}
       {dodawanie && (
         <AddFinishedGoodModal onClose={() => setDodawanie(false)} onSaved={() => refetch()} />
       )}

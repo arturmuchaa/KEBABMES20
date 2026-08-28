@@ -2976,6 +2976,10 @@ function mapFinishedGoodsItem(raw: any): FinishedGoodsItem {
 }
 
 export const finishedGoodsApi = {
+  /** Korekta rodzaju na wierszu magazynu — działa, dopóki nic nie wyjechało. */
+  zmienRodzaj: (goodsId: string, productTypeId: string) =>
+    patch<{ id: string; productTypeId: string; productTypeName: string; poprzedni: string }>(
+      `/finished-goods/${encodeURIComponent(goodsId)}/rodzaj?product_type_id=${encodeURIComponent(productTypeId)}`, {}),
   list: async () => {
     const items = await get<any[]>('/finished-goods')
     return items.map(mapFinishedGoodsItem)

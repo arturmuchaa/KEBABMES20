@@ -1,7 +1,7 @@
 """Finished goods endpoints."""
 from typing import List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.models.production import FinishDayDto, FinishedGoodCreate
 from app.services import finished_goods_service as svc
@@ -27,6 +27,12 @@ def create_finished_goods_bulk(items: List[FinishedGoodCreate]):
     pozycji ma cofnąć całość, a nie zostawić połowę wpisu.
     """
     return svc.create_finished_goods_bulk(items)
+
+
+@router.patch("/{goods_id}/rodzaj")
+def zmien_rodzaj(goods_id: str, product_type_id: str = Query(...)):
+    """Korekta rodzaju na wierszu magazynu — tylko dopóki nic nie wyjechało."""
+    return svc.zmien_rodzaj(goods_id, product_type_id)
 
 
 @router.post("/finish-day")
