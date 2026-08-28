@@ -480,6 +480,16 @@ _DDL: list[str] = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_hdi_status ON hdi_documents(status)",
     "CREATE INDEX IF NOT EXISTS idx_hdi_order ON hdi_documents(order_id)",
+    # Grupy odbiorców: jeden kontrahent bywa kilkoma spółkami (YALCIN — dwie,
+    # oddziały Wrocławia — pięć). Towar zrobiony dla jednej ma pokrywać
+    # zamówienia pozostałych, bo dla hali to jeden odbiorca.
+    """CREATE TABLE IF NOT EXISTS client_groups (
+        id          text PRIMARY KEY,
+        name        text NOT NULL,
+        created_at  timestamptz DEFAULT now()
+    )""",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS group_id text",
+    "CREATE INDEX IF NOT EXISTS idx_clients_group ON clients(group_id)",
     # HDI do RĘCZNEGO WZ (sprzedaż wyrobu z magazynu, bez zamówienia).
     # `order_id` zostaje wtedy puste — dokument wisi na WZ.
     "ALTER TABLE hdi_documents ADD COLUMN IF NOT EXISTS wz_id text",

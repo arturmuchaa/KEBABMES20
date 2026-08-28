@@ -590,3 +590,72 @@ def test_zrealizowane_nie_zabiera_wydania_zywemu_zamowieniu(db):
     _wz("w1", "YALCIN", [_linia_wz("f1", 30)], kiedy="2026-08-28 09:00:00+00")
 
     assert _wydane("o2")[0] == 30
+
+
+# ── Grupa odbiorców: kilka spółek, wspólna pula ───────────────────────────
+#
+# Jeden kontrahent bywa kilkoma firmami: YALCIN to dwie spółki, odbiorca
+# wrocławski ma pięć oddziałów. Towar zrobiony dla jednej ma pokrywać
+# zamówienia pozostałych — dla hali to jeden klient. Poza grupą nic się nie
+# zmienia: obcy nadal nie sięga do cudzego zapasu.
+
+def _klient_g(cid, nazwa, display):
+    """Klient z UNIKALNYM kodem, ale wspólną nazwą handlową — tak wygląda
+    kartoteka, gdy jeden kontrahent ma kilka spółek."""
+    execute(
+        "INSERT INTO clients (id, code, name, display_name) VALUES (%s,%s,%s,%s) "
+        "ON CONFLICT (id) DO NOTHING", (cid, cid, nazwa, display))
+
+
+def _grupa(gid, nazwa, *client_ids):
+    execute("INSERT INTO client_groups (id, name) VALUES (%s,%s) "
+            "ON CONFLICT (id) DO NOTHING", (gid, nazwa))
+    for cid in client_ids:
+        execute("UPDATE clients SET group_id=%s WHERE id=%s", (gid, cid))
+
+
+def test_towar_jednej_spolki_pokrywa_zamowienie_drugiej_z_grupy(db):
+    _klient_g("c1", "YBM Gastro GmbH", "YALCIN")
+    _klient_g("c2", "Emin Handels GmbH", "YALCIN")
+    _grupa("g1", "YALCIN", "c1", "c2")
+    _zamowienie("o1", "YALCIN/Z/9/08/26", "c2", "Emin Handels GmbH", qty=20)
+
+    # Wyrób zrobiony dla PIERWSZEJ spółki, zamówienie ma DRUGA.
+    _zapas("f1", qty=20, cid="c1", nazwa="YBM Gastro GmbH")
+
+    assert _zrobione("o1") == 20
+
+
+def test_bez_grupy_towar_obcej_spolki_nadal_nie_pokrywa(db):
+    """Regresja reguły «magazyn to świętość» — grupa łączy tylko to, co wskazane."""
+    _klient_g("c1", "YBM Gastro GmbH", "YALCIN")
+    _klient_g("c2", "Emin Handels GmbH", "YALCIN")
+    _zamowienie("o1", "YALCIN/Z/9/08/26", "c2", "Emin Handels GmbH", qty=20)
+
+    _zapas("f1", qty=20, cid="c1", nazwa="YBM Gastro GmbH")
+
+    assert _zrobione("o1") == 0
+
+
+def test_spolka_spoza_grupy_nie_siega_do_puli_grupy(db):
+    _klient_g("c1", "Oddzial Wroclaw I", "WROCŁAW")
+    _klient_g("c2", "Oddzial Wroclaw II", "WROCŁAW")
+    _klient_g("c9", "Truva gastro s.r.o.", "TRUVA")
+    _grupa("g1", "WROCŁAW", "c1", "c2")
+    _zamowienie("o9", "TRUVA/Z/1/08/26", "c9", "Truva gastro s.r.o.", qty=20)
+
+    _zapas("f1", qty=20, cid="c1", nazwa="Oddzial Wroclaw I")
+
+    assert _zrobione("o9") == 0
+
+
+def test_piec_oddzialow_dzieli_jedna_pule(db):
+    """Pięć oddziałów Wrocławia: zapas leży na jednym, zamówienie ma piąty."""
+    for i in range(1, 6):
+        _klient_g(f"c{i}", f"Oddzial Wroclaw {i}", "WROCŁAW")
+    _grupa("g1", "WROCŁAW", "c1", "c2", "c3", "c4", "c5")
+    _zamowienie("o5", "WROCLAW/Z/1/08/26", "c5", "Oddzial Wroclaw 5", qty=12)
+
+    _zapas("f1", qty=12, cid="c3", nazwa="Oddzial Wroclaw 3")
+
+    assert _zrobione("o5") == 12

@@ -8,8 +8,9 @@ import { GusLookup, type GusCompanyData } from '@/components/ui/GusLookup'
 import { ViesLookup, type ViesCompanyData } from '@/components/ui/ViesLookup'
 import {
   Building2, Pencil, Plus, Search, Globe, Flag, Trash2, CheckCircle,
-  X, ChevronDown, ChevronUp, ChevronsUpDown, Download,
+  X, ChevronDown, ChevronUp, ChevronsUpDown, Download, Users,
 } from 'lucide-react'
+import { ClientGroupsModal } from '@/features/clients/ClientGroupsModal'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { Client, CreateClientDto } from '@/lib/mockApi'
@@ -334,6 +335,7 @@ export function ClientsPage() {
   const [edit,   setEdit]   = useState<Client | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Client | null>(null)
   const [deleting,     setDeleting]     = useState(false)
+  const [grupy,        setGrupy]        = useState(false)
 
   const rawList = (clientList ?? []).filter(c => c.active)
 
@@ -365,6 +367,9 @@ export function ClientsPage() {
   usePageHeaderActions(
     <div className="flex items-center gap-3 text-xs tabular-nums">
       <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Kontrahentów: <span className="text-ink font-bold">{rawList.length}</span></span>
+      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setGrupy(true)}>
+        <Users size={14}/> Grupy odbiorców
+      </Button>
       <Button size="sm" className="gap-1.5" onClick={openAdd}><Plus size={14}/> Dodaj kontrahenta</Button>
     </div>,
     [rawList.length]
@@ -372,6 +377,10 @@ export function ClientsPage() {
 
   return (
     <div className="animate-fade-in">
+      {grupy && (
+        <ClientGroupsModal clients={rawList} onClose={() => setGrupy(false)}
+          onChanged={() => refetch()} />
+      )}
       {loading ? (
         <div className="rounded-lg border border-surface-4 bg-white p-4 space-y-2">
           {[0,1,2,3,4,5].map(i => <Skeleton key={i} className="h-8 w-full" />)}

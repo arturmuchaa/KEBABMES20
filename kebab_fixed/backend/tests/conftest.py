@@ -52,7 +52,10 @@ _TRUNCATE = [
     # key przy drugim teście w pliku, a stan z poprzedniego testu (kg_available)
     # fałszowałby asercje magazynowe.
     "packaging",
-    "product_types", "machine_locks", "sequences", "suppliers", "clients", "ingredients",
+    "product_types", "machine_locks", "sequences", "suppliers", "clients",
+    # Grupy odbiorców — czyszczone RAZEM z klientami, inaczej `clients.group_id`
+    # wskazywałby na grupę z poprzedniego przebiegu.
+    "client_groups", "ingredients",
     # Pula numerów zwolnionych anulowaniem — czyszczona razem z `sequences`.
     # Bez tego numer zwolniony w jednym teście wyskakiwał w następnym
     # (kolejna partia dostawała 1 zamiast 2) i testy zależały od kolejności.

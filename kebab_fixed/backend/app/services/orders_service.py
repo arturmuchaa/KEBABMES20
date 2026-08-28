@@ -317,7 +317,15 @@ def rozdziel_pokrycie(
 
 def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
     """Liczy pokrycie WSZYSTKICH zamówień naraz — inaczej ten sam zapas
-    pokazuje się przy każdym z osobna."""
+    pokazuje się przy każdym z osobna.
+
+    Klienta sprowadzamy do PULI: spółki w jednej grupie odbiorców dzielą zapas,
+    bo dla hali to jeden kontrahent (YALCIN to dwie spółki, odbiorca wrocławski
+    ma pięć oddziałów). Spółka bez grupy jest własną pulą, więc dla reszty
+    kartoteki nic się nie zmienia."""
+    from app.services.client_groups_service import pule_klientow
+    pule = pule_klientow()
+    pula = lambda cid: pule.get((cid or "").strip(), (cid or "").strip())  # noqa: E731
     orders = query_all(
         """
         SELECT id, order_no, client_id, status, created_at
@@ -353,7 +361,7 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
     zapas = [
         {
             "order_no": r["client_order_no"] if r["client_order_no"] in zywe_numery else "",
-            "client_id": r["client_id"] or "",
+            "client_id": pula(r["client_id"] or ""),
             "key": _klucz(r["recipe_id"], r["kg_per_unit"], r["product_type_id"], r["packaging_id"]),
             "qty": int(r["qty"] or 0),
         }
@@ -381,7 +389,7 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
     wydania = [
         {
             "order_id": r["order_id"] or "",
-            "client_id": r["client_id"] or "",
+            "client_id": pula(r["client_id"] or ""),
             "key": _klucz(r["recipe_id"], r["kg_per_unit"], r["product_type_id"], r["packaging_id"]),
             "qty": int(float(r["qty"] or 0)),
             "kiedy": str(r["kiedy"] or ""),
@@ -418,7 +426,7 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
             {
                 "id": o["id"],
                 "order_no": o["order_no"],
-                "client_id": o["client_id"] or "",
+                "client_id": pula(o["client_id"] or ""),
                 "bierze_z_puli": (o["status"] or "") not in ("done", "cancelled"),
                 "zrealizowane": (o["status"] or "") == "done",
                 "kiedy": str(o["created_at"] or ""),

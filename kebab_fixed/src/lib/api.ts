@@ -1035,6 +1035,22 @@ export const clientsApi = {
   delete:     (id: string) => del<{ ok: boolean }>(`/clients/${id}`),
 }
 
+/** Grupy odbiorców — kilka spółek jednego kontrahenta ze WSPÓLNĄ pulą wyrobu.
+ *  Dokumenty (WZ/HDI/CMR) zostają przy konkretnej spółce. */
+export interface ClientGroup {
+  id: string
+  name: string
+  members: { id: string; name: string; display_name?: string; nip?: string }[]
+}
+export const clientGroupsApi = {
+  list:       () => get<ClientGroup[]>('/client-groups'),
+  create:     (name: string) => post<ClientGroup>('/client-groups', { name }),
+  rename:     (id: string, name: string) => patch<ClientGroup>(`/client-groups/${id}`, { name }),
+  setMembers: (id: string, clientIds: string[]) =>
+    put<ClientGroup>(`/client-groups/${id}/members`, { client_ids: clientIds }),
+  remove:     (id: string) => del<{ ok: boolean }>(`/client-groups/${id}`),
+}
+
 // ─── Pracownicy ───────────────────────────────────────────────
 export const usersApi = {
   /** Bez `includeInactive` zwraca tylko aktywnych — tak korzystają z tego
