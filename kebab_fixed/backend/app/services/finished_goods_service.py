@@ -587,20 +587,26 @@ def _upsert_goods_row(conn, plan, entry, today, batch_no, qty, total_kg,
     src_seasoned = lineage["seasoned_meat_ids"]
     src_deboning = lineage["deboning_entry_ids"]
 
+    # RODZAJ jest częścią tożsamości wiersza, nie opisem. KEBAB UDO 100%
+    # i KEBAB MIX 95/5 mają ten sam przepis, tuleję, klienta i wagę, a różnią
+    # się składem mięsa — bez `product_type_id` w kluczu dwa rodzaje z tej samej
+    # partii wpadłyby w JEDEN wiersz, który zachowałby rodzaj wpisany pierwszy.
+    # W bazie to strata nieodwracalna: drugiego rodzaju nie da się już odtworzyć.
     existing = cx_query_one(
         conn,
         """
         SELECT * FROM finished_goods
         WHERE produced_date = %s
           AND batch_no = %s
+          AND COALESCE(product_type_id,'') = %s
           AND recipe_id = %s
           AND COALESCE(packaging_id,'') = %s
           AND COALESCE(client_name,'') = %s
           AND kg_per_unit = %s
         FOR UPDATE
         """,
-        (today, batch_no, entry.recipe_id, entry.packaging_id or "",
-         entry.client_name or "", entry.kg_per_unit),
+        (today, batch_no, entry.product_type_id or "", entry.recipe_id,
+         entry.packaging_id or "", entry.client_name or "", entry.kg_per_unit),
     )
 
     if existing:

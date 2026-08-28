@@ -40,12 +40,19 @@ export interface SkuGroup {
 
 export function groupBySku(items: FinishedGoodsItem[]): SkuGroup[] {
   const map = new Map<string, SkuGroup>()
-  // Klucz po ID (receptura, tuleja) + znormalizowanym kliencie i wadze —
+  // Klucz po ID (rodzaj, receptura, tuleja) + znormalizowanym kliencie i wadze —
   // klucz po nazwach dublował pozycje przy różnicach w pustych polach /
   // wielkości liter (np. dwa wiersze „Zagros 20×40 kg" zamiast jednego).
+  //
+  // RODZAJ jest częścią SKU, nie ozdobą: KEBAB UDO 100% i KEBAB MIX 95/5 mają
+  // ten sam przepis, tuleję, klienta i wagę, a różnią się składem mięsa, ceną
+  // i deklaracją dla klienta. Bez niego w kluczu magazyn pokazywał jeden wiersz
+  // „Truva 25 kg" na 98 sztuk z rodzajem tego wiersza, który akurat wpadł
+  // pierwszy — stan, którego nie ma na regale (zgłoszone z produkcji 28.08.2026).
   const norm = (s?: string) => (s ?? '').trim().toLowerCase()
   for (const it of items) {
     const key = [
+      it.productTypeId || norm(it.productTypeName),
       it.recipeId || norm(it.recipeName),
       it.packagingId || norm(it.packagingName),
       norm(it.clientName),
