@@ -480,6 +480,10 @@ _DDL: list[str] = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_hdi_status ON hdi_documents(status)",
     "CREATE INDEX IF NOT EXISTS idx_hdi_order ON hdi_documents(order_id)",
+    # HDI do RĘCZNEGO WZ (sprzedaż wyrobu z magazynu, bez zamówienia).
+    # `order_id` zostaje wtedy puste — dokument wisi na WZ.
+    "ALTER TABLE hdi_documents ADD COLUMN IF NOT EXISTS wz_id text",
+    "CREATE INDEX IF NOT EXISTS idx_hdi_wz ON hdi_documents(wz_id)",
 
     # ── Przewoźnicy (słownik) ──
     """CREATE TABLE IF NOT EXISTS carriers (

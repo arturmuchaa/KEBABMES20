@@ -1,7 +1,7 @@
 import { useOtworzDokument } from '@/lib/otworzDokument'
 import { Fragment, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { wzApi, downloadDocPdf, WzDoc, WzLine, QuantityChain } from '@/lib/api'
+import { wzApi, hdiApi, downloadDocPdf, WzDoc, WzLine, QuantityChain } from '@/lib/api'
 import { cn, fmtDatePl } from '@/lib/utils'
 import { WzDocumentView } from '@/components/wz/WzDocumentView'
 import { Card, CardContent } from '@/components/ui/card'
@@ -165,6 +165,7 @@ export function WzDocumentsPage() {
   const [editErr, setEditErr] = useState('')
   const [saving, setSaving]   = useState(false)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
+  const [hdiId, setHdiId] = useState<string | null>(null)
   const [previewDoc, setPreviewDoc] = useState<WzDoc | null>(null)
   const [reportDoc, setReportDoc]   = useState<WzDoc | null>(null)
   const [query,   setQuery]   = useState('')
@@ -244,6 +245,20 @@ export function WzDocumentsPage() {
       await reload()
     } catch (e: any) { setEditErr(e?.message || 'Błąd zapisu zmian') }
     finally { setSaving(false) }
+  }
+
+  /** HDI do ręcznego WZ. Numer jest stały per dokument, więc ponowne
+   *  kliknięcie odświeża treść zamiast nabijać kolejny numer. */
+  const generujHdi = async (wzId: string) => {
+    setHdiId(wzId)
+    try {
+      const doc = await hdiApi.generateFromWz(wzId)
+      otworz(`/office/hdi/${doc.id}/druk`)
+    } catch (e: any) {
+      alert(e?.message || 'Nie udało się wystawić HDI')
+    } finally {
+      setHdiId(null)
+    }
   }
 
   const cancelWz = async (d: WzDoc) => {
@@ -440,6 +455,18 @@ export function WzDocumentsPage() {
                             {editId === d.id ? <><ChevronUp size={12} /> Zwiń</> : <><Pencil size={12} /> Uzupełnij ceny</>}
                           </Button>
                         ))}
+                        {/* HDI do ręcznej sprzedaży z magazynu. WZ z zamówienia
+                            ma własną ścieżkę (HDI liczone z produkcji), więc
+                            przycisk stoi tylko przy dokumentach ręcznych. */}
+                        {!cancelled && (d as any).source_type === 'manual' && (
+                          <Button variant="outline" size="sm"
+                                  className="h-7 text-[11px] gap-1 text-sky-700 border-sky-200 hover:bg-sky-50"
+                                  disabled={hdiId === d.id}
+                                  onClick={() => generujHdi(d.id)}>
+                            {hdiId === d.id ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
+                            HDI
+                          </Button>
+                        )}
                         {!cancelled && (d as any).source_type === 'manual' && (
                           <Button variant="outline" size="sm"
                                   className="h-7 text-[11px] gap-1 text-red-700 border-red-200 hover:bg-red-50"

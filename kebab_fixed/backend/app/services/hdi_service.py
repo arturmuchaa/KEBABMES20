@@ -157,6 +157,42 @@ def group_hdi_items(units: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
+CLIENT_COLS = ("name, address, city, nip, language, dest_name, dest_address, "
+               "dest_city, dest_for_hdi")
+
+
+def _hdi_header(client: Dict[str, Any], fallback_name: str) -> tuple:
+    """Nagłówek HDI z kartoteki odbiorcy. Wspólny dla HDI z zamówienia i z WZ."""
+    co = get_company()
+    lang = client.get("language") or lang_from_nip(client.get("nip") or "")
+    company_addr = f"{co.get('address','')}, {co.get('postal_code','')} {co.get('city','')}".strip(", ")
+    client_addr = f"{client.get('address','')}, {client.get('city','')}".strip(", ")
+    # Ptaszek „stosuj na HDI" w kartotece: wyłączony → rozładunek = adres
+    # odbiorcy, nawet gdy miejsce przeznaczenia jest wypełnione (np. ISSA:
+    # CMR jedzie na Farmex, HDI na adres klienta). Brak kolumny (None) = true.
+    use_dest = client.get("dest_for_hdi")
+    dest = "" if use_dest is False else " ".join(
+        x for x in [client.get('dest_name', ''), client.get('dest_address', ''),
+                    client.get('dest_city', '')] if x).strip()
+    client_name = client.get("name") or fallback_name
+    recipient = ", ".join(x for x in [client_name, client_addr, client.get("nip", "")] if x)
+    header = {
+        "producer_name": co.get("name", ""), "producer_addr": company_addr,
+        "producer_nip": co.get("nip", ""), "producer_email": co.get("email", ""),
+        "vet_number": co.get("vet_number", ""),
+        "market_domestic": bool(co.get("market_domestic", True)),
+        "market_eu": bool(co.get("market_eu", True)),
+        "recipient": recipient,
+        "unload": dest or ", ".join(x for x in [client_name, client_addr] if x),
+        "load": co.get("load_place") or company_addr,
+        "seller": f"{co.get('name', '')}, {company_addr}".strip(", "),
+        # Nr rejestracyjny / typ samochodu — uzupełniany przy załadunku (wybór
+        # pojazdu); pusty, dopóki sztuki nie zostaną zeskanowane na konkretny wóz.
+        "reg_number": "",
+    }
+    return header, lang
+
+
 def build_hdi(order_id: str) -> Dict[str, Any]:
     order = query_one("SELECT * FROM client_orders WHERE id=%s", (order_id,))
     if not order:
@@ -209,43 +245,86 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
     # Klient: najpierw po client_id (pewny klucz obcy zamówienia), dopiero potem
     # po nazwie. Bez tego zamówienia, gdzie client_name jest wolnym tekstem
     # niepasującym do słownika, gubiły pełne dane odbiorcy (NIP, adres, język).
-    cols = "name, address, city, nip, language, dest_name, dest_address, dest_city, dest_for_hdi"
     client = None
     if order.get("client_id"):
-        client = query_one(f"SELECT {cols} FROM clients WHERE id=%s", (order.get("client_id"),))
+        client = query_one(f"SELECT {CLIENT_COLS} FROM clients WHERE id=%s", (order.get("client_id"),))
     if not client:
-        client = query_one(f"SELECT {cols} FROM clients WHERE name=%s", (order.get("client_name"),))
+        client = query_one(f"SELECT {CLIENT_COLS} FROM clients WHERE name=%s", (order.get("client_name"),))
     client = client or {}
-    co = get_company()
-    lang = client.get("language") or lang_from_nip(client.get("nip") or "")
-
-    company_addr = f"{co.get('address','')}, {co.get('postal_code','')} {co.get('city','')}".strip(", ")
-    client_addr = f"{client.get('address','')}, {client.get('city','')}".strip(", ")
-    # Ptaszek „stosuj na HDI" w kartotece: wyłączony → rozładunek = adres
-    # odbiorcy, nawet gdy miejsce przeznaczenia jest wypełnione (np. ISSA:
-    # CMR jedzie na Farmex, HDI na adres klienta). Brak kolumny (None) = true.
-    use_dest = client.get("dest_for_hdi")
-    dest = "" if use_dest is False else " ".join(
-        x for x in [client.get('dest_name', ''), client.get('dest_address', ''), client.get('dest_city', '')] if x).strip()
-    # Fallback na nazwę z zamówienia, gdy brak rekordu klienta w słowniku.
-    client_name = client.get('name') or order.get('client_name', '')
-    recipient = ", ".join(x for x in [client_name, client_addr, client.get('nip', '')] if x)
-    header = {
-        "producer_name": co.get("name", ""), "producer_addr": company_addr,
-        "producer_nip": co.get("nip", ""), "producer_email": co.get("email", ""),
-        "vet_number": co.get("vet_number", ""),
-        "market_domestic": bool(co.get("market_domestic", True)),
-        "market_eu": bool(co.get("market_eu", True)),
-        "recipient": recipient,
-        "unload": dest or ", ".join(x for x in [client_name, client_addr] if x),
-        "load": co.get("load_place") or company_addr,
-        "seller": f"{co.get('name', '')}, {company_addr}".strip(", "),
-        # Nr rejestracyjny / typ samochodu — uzupełniany przy załadunku (wybór
-        # pojazdu); pusty, dopóki sztuki nie zostaną zeskanowane na konkretny wóz.
-        "reg_number": "",
-    }
+    header, lang = _hdi_header(client, order.get("client_name", ""))
     return {"order_id": order_id, "client_name": order.get("client_name", ""), "language": lang,
             "incomplete": incomplete, "header": header, "items": items,
+            "totals": {"qty": total_qty, "kg": total_kg}}
+
+
+def build_hdi_from_wz(wz_id: str) -> Dict[str, Any]:
+    """HDI dla RĘCZNEGO WZ — sprzedaży wyrobu prosto z magazynu.
+
+    Do 28.08.2026 handlowy dokument identyfikacyjny dało się wystawić WYŁĄCZNIE
+    z zamówienia, bo pozycje brał z linii planu produkcji. Sprzedaż z magazynu
+    zamówienia nie ma i zostawała bez HDI — a wyrób jedzie do klienta tak samo
+    i tak samo musi mieć identyfikację partii.
+
+    Pozycje idą wprost z linii WZ: każda wskazuje wiersz `finished_goods`
+    i liczbę sztuk, czyli dokładnie to, czego oczekuje `units_from_stock_portions`.
+    Odbiorcę bierzemy z kartoteki po NIP-ie z dokumentu (najpewniejszy klucz),
+    potem po nazwie; brak kartoteki nie blokuje wystawienia — nagłówek schodzi
+    wtedy do danych wpisanych na WZ.
+    """
+    wz = query_one("SELECT * FROM wz_documents WHERE id=%s", (wz_id,))
+    if not wz:
+        raise HTTPException(404, "Dokument WZ nie istnieje")
+    if (wz.get("status") or "") == "anulowany":
+        raise HTTPException(409, "WZ jest anulowany — nie wystawiamy do niego HDI")
+    if (wz.get("source_type") or "") == "order":
+        raise HTTPException(
+            409, "WZ z zamówienia ma własne HDI — wystaw je z poziomu zamówienia")
+
+    lines = wz.get("lines")
+    if isinstance(lines, str):
+        lines = json.loads(lines or "[]")
+
+    portions: List[Dict[str, Any]] = []
+    for line in lines or []:
+        if (line.get("stock_type") or "") != "fg":
+            continue          # surowiec i uboczne nie są wyrobem gotowym
+        sid, ile = line.get("stock_id"), int(round(float(line.get("qty") or 0)))
+        if not sid or ile <= 0:
+            continue
+        fg = query_one("SELECT * FROM finished_goods WHERE id=%s", (sid,))
+        if fg:
+            portions.append({"fg": fg, "take": ile})
+    if not portions:
+        raise HTTPException(400, "Ten WZ nie wydaje wyrobu gotowego — nie ma z czego zrobić HDI")
+
+    recipe_ids = sorted({(p["fg"].get("recipe_id") or "") for p in portions} - {""})
+    shelf_by_recipe: Dict[str, int] = {}
+    if recipe_ids:
+        for r in query_all(
+                "SELECT id, shelf_life_days FROM recipes WHERE id = ANY(%s)", (recipe_ids,)):
+            shelf_by_recipe[r["id"]] = int(r.get("shelf_life_days") or 0)
+
+    items = group_hdi_items(units_from_stock_portions(portions, shelf_by_recipe))
+    total_qty = sum(i["qty"] for i in items)
+    total_kg = round(sum(i["kg"] for i in items), 3)
+
+    nazwa = wz.get("buyer_name") or ""
+    client = None
+    if (wz.get("buyer_nip") or "").strip():
+        client = query_one(f"SELECT {CLIENT_COLS} FROM clients WHERE nip=%s",
+                           (wz.get("buyer_nip"),))
+    if not client:
+        client = query_one(
+            f"SELECT {CLIENT_COLS} FROM clients WHERE name=%s OR display_name=%s "
+            "ORDER BY (name=%s) DESC LIMIT 1", (nazwa, nazwa, nazwa))
+    if not client:
+        # Nabywca spoza kartoteki (np. sprzedaż jednorazowa) — nagłówek z WZ.
+        client = {"name": nazwa, "address": wz.get("buyer_address") or "",
+                  "city": "", "nip": wz.get("buyer_nip") or ""}
+
+    header, lang = _hdi_header(client, nazwa)
+    return {"wz_id": wz_id, "client_name": nazwa, "language": lang,
+            "incomplete": False, "header": header, "items": items,
             "totals": {"qty": total_qty, "kg": total_kg}}
 
 
@@ -333,6 +412,47 @@ def generate_hdi(order_id: str) -> Dict[str, Any]:
     logger.info("hdi.generated", extra={"hdi_id": hid, "number": number})
     return {"id": hid, "number": number, "status": "wstepny",
             "incomplete": data["incomplete"], "totals": data["totals"]}
+
+
+def generate_hdi_from_wz(wz_id: str) -> Dict[str, Any]:
+    """HDI do ręcznego WZ. Numer STAŁY per dokument WZ — ponowne „Generuj"
+    odświeża treść dokumentu wstępnego, tak samo jak przy zamówieniu."""
+    data = build_hdi_from_wz(wz_id)
+    existing = query_one(
+        "SELECT id, number, status FROM hdi_documents WHERE wz_id=%s "
+        "ORDER BY created_at LIMIT 1", (wz_id,))
+    if existing:
+        if existing["status"] == "wstepny":
+            with transaction() as conn:
+                cx_execute(conn,
+                    """UPDATE hdi_documents
+                       SET client_name=%s, language=%s,
+                           header=%s::jsonb, items=%s::jsonb, totals=%s::jsonb
+                       WHERE id=%s""",
+                    (data["client_name"], data["language"], json.dumps(data["header"]),
+                     json.dumps(data["items"]), json.dumps(data["totals"]), existing["id"]))
+        logger.info("hdi.wz.reused", extra={"hdi_id": existing["id"], "wz_id": wz_id})
+        return {"id": existing["id"], "number": existing["number"],
+                "status": existing["status"], "incomplete": False,
+                "totals": data["totals"]}
+
+    today = datetime.now()
+    ym = today.strftime("%y%m")
+    hid = cuid()
+    with transaction() as conn:
+        seq = _next_hdi_seq(conn, ym)
+        number = format_hdi_number(seq, ym)
+        cx_execute(conn,
+            """INSERT INTO hdi_documents
+               (id, number, seq, year_month, wz_id, client_name, language, status,
+                incomplete, header, items, totals, issue_date, created_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,'wstepny',false,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s)""",
+            (hid, number, seq, ym, wz_id, data["client_name"], data["language"],
+             json.dumps(data["header"]), json.dumps(data["items"]),
+             json.dumps(data["totals"]), today.strftime("%d.%m.%Y"), now_iso()))
+    logger.info("hdi.wz.generated", extra={"hdi_id": hid, "number": number, "wz_id": wz_id})
+    return {"id": hid, "number": number, "status": "wstepny",
+            "incomplete": False, "totals": data["totals"]}
 
 
 def get_hdi(hdi_id: str) -> Dict[str, Any]:

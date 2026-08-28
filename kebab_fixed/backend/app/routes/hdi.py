@@ -17,6 +17,12 @@ def generate(order_id: str = Query(...)):
     return svc.generate_hdi(order_id)
 
 
+@router.post("/z-wz")
+def generate_from_wz(wz_id: str = Query(...)):
+    """HDI do ręcznego WZ — sprzedaż wyrobu prosto z magazynu, bez zamówienia."""
+    return svc.generate_hdi_from_wz(wz_id)
+
+
 @router.get("/{hdi_id}/pdf")
 def pdf(hdi_id: str):
     doc = svc.get_hdi(hdi_id)  # 404, gdy nie istnieje
