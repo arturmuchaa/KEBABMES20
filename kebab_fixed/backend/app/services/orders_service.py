@@ -160,7 +160,8 @@ def rozdziel_pokrycie(
     """Ile z każdej POZYCJI zamówienia leży na magazynie, a ile już wydano.
 
     * `zamowienia` — od najstarszego:
-      `{"id", "order_no", "client_id", "bierze_z_puli", "lines": [{"id", "key", "qty"}]}`
+      `{"id", "order_no", "client_id", "bierze_z_puli", "zrealizowane",
+        "lines": [{"id", "key", "qty"}]}`
     * `zapas` — wyrób FIZYCZNIE leżący na magazynie (tylko `qty_available`):
       `{"order_no": stempel albo "", "client_id", "key", "qty"}`
     * `wydania` — pozycje WZ (nieanulowanych): `{"order_id": "" albo id,
@@ -209,11 +210,29 @@ def rozdziel_pokrycie(
             wynik[zam["id"]][linia["id"]]["wydane"] += _bierz(
                 polka, linia["key"], int(linia.get("qty") or 0))
 
+    # Zamówienie ZREALIZOWANE jest zamknięte — jego liczby już się nie ruszają.
+    #
+    # Zamykamy je dopiero wtedy, gdy KAŻDA pozycja jest w całości wydana
+    # (`zamknij_wyslane_zamowienia`), więc pokrycie znamy bez żadnej migawki:
+    # wydane = zamówione. Wcześniej liczyło się dalej ze wspólnej puli klienta
+    # i każdy nowy ręczny WZ przepisywał liczby na dokumencie, który dawno
+    # wyjechał — u klienta z kilkoma spółkami (YALCIN) wysyłka do jednej
+    # zabierała kilogramy zamówieniu drugiej (zgłoszenie 28.08.2026).
+    for zam in zamowienia:
+        if not zam.get("zrealizowane"):
+            continue
+        for linia in zam["lines"]:
+            wynik[zam["id"]][linia["id"]]["wydane"] = int(linia.get("qty") or 0)
+
     # WZ ręczny — po nabywcy, od najstarszego zamówienia. Liczy się tylko
     # dokument wystawiony PO założeniu zamówienia: lipcowa dostawa do YBM
     # doklejała się do zamówienia z 27.08 i pokazywała „wydane" na pozycjach,
     # których nikt nie wydał (biuro, 27.08.2026).
     for zam in zamowienia:
+        # Zamknięte zamówienie do wspólnej puli już nie sięga — inaczej
+        # trzymałoby sztuki, których potrzebuje zamówienie wciąż otwarte.
+        if not zam.get("bierze_z_puli", True):
+            continue
         lista = wyd_klient.get((zam.get("client_id") or "").strip())
         if not lista:
             continue
@@ -401,6 +420,7 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
                 "order_no": o["order_no"],
                 "client_id": o["client_id"] or "",
                 "bierze_z_puli": (o["status"] or "") not in ("done", "cancelled"),
+                "zrealizowane": (o["status"] or "") == "done",
                 "kiedy": str(o["created_at"] or ""),
                 "lines": wg_zam.get(o["id"], []),
             }

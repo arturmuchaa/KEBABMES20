@@ -536,3 +536,57 @@ def test_zapas_bez_tulei_liczy_sie_dalej(db):
     _zapas("f1", qty=5, kg=40, tuleja=None, cid="c1", nazwa="Emin Handels GmbH")
 
     assert _zrobione("o1") == 5
+
+
+# ── Zamówienie zrealizowane jest ZAMKNIĘTE ────────────────────────────────
+#
+# Zgłoszenie właściciela 28.08.2026: „zrealizowane YALCIN znowu uciekły 10 kg,
+# nie może być tak, że zamówienie zrealizowane się modyfikuje". Zamówienie samo
+# się nie zmieniało — zmieniało się jego POKRYCIE, liczone na żywo z puli
+# wspólnej dla klienta. Każdy nowy ręczny WZ przetasowywał tę pulę i przepisywał
+# liczby na dokumencie, który dawno wyjechał. Ta sama klasa błędu przepisała
+# wcześniej HDI YALCINA z 12 920 kg na 5 220 kg (stąd zamrożenie w hdi_service).
+#
+# Zamówienie zamyka się DOPIERO, gdy każda pozycja jest w całości wydana
+# (`zamknij_wyslane_zamowienia`), więc jego pokrycie jest znane bez migawki:
+# wydane = zamówione. I tyle ma pokazywać już zawsze.
+
+def _zrealizowane(oid):
+    execute("UPDATE client_orders SET status='done' WHERE id=%s", (oid,))
+
+
+def test_zrealizowane_zamowienie_pokazuje_pelne_wydanie(db):
+    _klient("c1", "YBM Gastro GmbH", "YALCIN")
+    _zamowienie("o1", "YALCIN/Z/2/08/26", "c1", "YBM Gastro GmbH", qty=60)
+    _zrealizowane("o1")
+
+    assert _wydane("o1")[0] == 60
+
+
+def test_nowy_wz_nie_rusza_zrealizowanego_zamowienia(db):
+    """Sedno zgłoszenia: wysyłka do innej spółki tej samej firmy nie może
+    przepisać liczb na zamówieniu, które już wyjechało."""
+    _klient("c1", "YBM Gastro GmbH", "YALCIN")
+    _zamowienie("o1", "YALCIN/Z/2/08/26", "c1", "YBM Gastro GmbH", qty=60)
+    _zrealizowane("o1")
+    przed = _wydane("o1")[0]
+
+    _zapas("f1", qty=30, dostepne=0, cid="c1", nazwa="YBM Gastro GmbH")
+    _wz("w1", "YALCIN", [_linia_wz("f1", 30)], kiedy="2026-08-28 09:00:00+00")
+
+    assert _wydane("o1")[0] == przed == 60
+
+
+def test_zrealizowane_nie_zabiera_wydania_zywemu_zamowieniu(db):
+    """Zamknięte zamówienie przestaje też SIĘGAĆ do wspólnej puli — inaczej
+    trzymałoby sztuki, których żywe zamówienie potrzebuje."""
+    _klient("c1", "YBM Gastro GmbH", "YALCIN")
+    _zamowienie("o1", "YALCIN/Z/2/08/26", "c1", "YBM Gastro GmbH", qty=60)
+    _zrealizowane("o1")
+    _zamowienie("o2", "YALCIN/Z/3/08/26", "c1", "YBM Gastro GmbH",
+                data="2026-08-27", qty=30)
+
+    _zapas("f1", qty=30, dostepne=0, cid="c1", nazwa="YBM Gastro GmbH")
+    _wz("w1", "YALCIN", [_linia_wz("f1", 30)], kiedy="2026-08-28 09:00:00+00")
+
+    assert _wydane("o2")[0] == 30
