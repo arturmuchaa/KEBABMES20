@@ -16,8 +16,11 @@ build/
 .env.local
 backend/.env
 
-# Wdrożenia klientów — sekrety per klient (generowane przez deploy/nowy-klient.sh)
-clients/
+# Wdrożenia klientów — sekrety per klient (generowane przez deploy/nowy-klient.sh).
+# Ukośnik z przodu jest KONIECZNY: bez niego reguła łapie KAŻDY katalog o tej
+# nazwie, więc `src/features/clients/` cicho wypadał z gita. Kod budował się
+# lokalnie i wywracał dopiero w CI, na czystym klonie (28.08.2026).
+/clients/
 
 # E2E (Playwright)
 test-results/
