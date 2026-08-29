@@ -1,4 +1,5 @@
 import { useOtworzDokument } from '@/lib/otworzDokument'
+import { mozliweHdiDoWz } from '@/components/wz/hdiDostepne'
 import { Fragment, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { wzApi, hdiApi, downloadDocPdf, WzDoc, WzLine, QuantityChain } from '@/lib/api'
@@ -455,10 +456,11 @@ export function WzDocumentsPage() {
                             {editId === d.id ? <><ChevronUp size={12} /> Zwiń</> : <><Pencil size={12} /> Uzupełnij ceny</>}
                           </Button>
                         ))}
-                        {/* HDI do ręcznej sprzedaży z magazynu. WZ z zamówienia
-                            ma własną ścieżkę (HDI liczone z produkcji), więc
-                            przycisk stoi tylko przy dokumentach ręcznych. */}
-                        {!cancelled && (d as any).source_type === 'manual' && (
+                        {/* HDI do ręcznej sprzedaży WYROBU z magazynu. WZ
+                            z zamówienia ma własną ścieżkę (HDI liczone
+                            z produkcji), a uboczne niosą identyfikację partii
+                            w sekcji HDI na samym WZ — reguła w hdiDostepne.ts. */}
+                        {mozliweHdiDoWz(d) && (
                           <Button variant="outline" size="sm"
                                   className="h-7 text-[11px] gap-1 text-sky-700 border-sky-200 hover:bg-sky-50"
                                   disabled={hdiId === d.id}

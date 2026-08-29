@@ -2110,6 +2110,9 @@ export interface WzDoc {
   loading_diff?: WzLoadingDiff[] | null
   vehicle_plate?: string | null
   loaded_at?: string | null
+  /** Czy dokument wydaje wyrób gotowy — steruje przyciskiem HDI (uboczne
+   *  mają identyfikację partii w sekcji HDI na samym WZ). */
+  has_fg?: boolean
 }
 export interface QuantityChainLine {
   recipe_id: string; kg_per_unit: number; name: string

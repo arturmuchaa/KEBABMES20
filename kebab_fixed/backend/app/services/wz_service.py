@@ -1371,10 +1371,20 @@ def get_wz(wz_id: str) -> Dict[str, Any]:
 
 
 def list_wz() -> List[Dict[str, Any]]:
+    """Lista dokumentów WZ. Bez pozycji — te ekran dociąga dla wybranego WZ.
+
+    `has_fg` mówi, czy dokument wydaje WYRÓB GOTOWY. Steruje przyciskiem „HDI":
+    handlowy dokument identyfikacyjny wystawiamy tylko do kebabu, bo uboczne
+    (grzbiety, kości, mięso z/s) niosą identyfikację partii w sekcji HDI
+    drukowanej na samym WZ i osobnego dokumentu nie potrzebują.
+    """
     return query_all(
         "SELECT id, number, buyer_name, total_value, valued, status, issued_date, "
         "currency, source_type, source_id, loading_status, loading_diff, "
-        "vehicle_plate, loaded_at, created_at "
+        "vehicle_plate, loaded_at, created_at, "
+        "EXISTS (SELECT 1 FROM jsonb_array_elements("
+        "          COALESCE(lines, '[]'::jsonb)) li "
+        "        WHERE li->>'stock_type' = 'fg') AS has_fg "
         "FROM wz_documents ORDER BY created_at DESC"
     )
 

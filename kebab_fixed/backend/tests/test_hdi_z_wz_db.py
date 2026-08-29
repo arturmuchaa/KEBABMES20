@@ -109,3 +109,27 @@ def test_wz_bez_wyrobu_gotowego_mowi_dlaczego(db):
         build_hdi_from_wz("w1")
     assert e.value.status_code == 400
     assert "wyrob" in e.value.detail.lower() or "wyrób" in e.value.detail.lower()
+
+
+# ── Kto MOŻE dostać HDI (29.08.2026) ────────────────────────────────────────
+#
+# Zgłoszenie właściciela: przycisk „HDI" ma stać tylko przy WZ z wyrobem
+# (kebab). Uboczne — grzbiety, kości, mięso z/s — niosą identyfikację partii
+# w sekcji HDI drukowanej NA SAMYM WZ, więc osobny dokument jest im niepotrzebny
+# i tylko myli biuro (klik kończył się komunikatem o błędzie). Lista WZ musi
+# powiedzieć ekranowi, czy dokument w ogóle wydaje wyrób gotowy.
+def test_lista_wz_mowi_ktory_dokument_wydaje_wyrob_gotowy(db):
+    from app.services.wz_service import list_wz
+
+    _receptura()
+    _wyrob("fg-hasfg", qty=2, kg=80)
+    _wz("wz-kebab", linie=[_linia("fg-hasfg", 2)], seq=91)
+    _wz("wz-uboczne", seq=92, linie=[
+        {"stock_type": "byproduct", "stock_id": "lot-1", "qty": 120.0,
+         "unit": "kg", "name": "GRZBIETY", "batch_no": "507"}])
+    _wz("wz-puste", seq=93, linie=[])
+
+    flagi = {d["id"]: d.get("has_fg") for d in list_wz()}
+    assert flagi["wz-kebab"] is True
+    assert flagi["wz-uboczne"] is False
+    assert flagi["wz-puste"] is False
