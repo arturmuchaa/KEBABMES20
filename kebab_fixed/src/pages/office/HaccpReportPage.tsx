@@ -107,6 +107,12 @@ const DOC_CSS = `
    liczbowe i „1 339,17" łamało się na dwie linie w wierszu SUMA. */
 .rap td.r { text-align:right; white-space:nowrap; }
 .rap td.lab { background:#f2f2f2; font-weight:700; text-align:left; }
+/* „Szczegóły rozbioru wg partii" — CAŁA tabela do prawej, nic wyśrodkowane
+   (prośba właściciela 2026-08-29). Wyśrodkowane numery partii i daty pływały
+   w kolumnie, a kilogramy obok i tak stały do prawej. Reguła stoi PO td.l/td.r
+   i ma wyższą specyficzność, więc wygrywa w tej jednej tabeli. Bez apostrofu
+   wstecznego w komentarzu — DOC_CSS to template literal, backtick urwałby go. */
+.rap table.det th, .rap table.det td { text-align:right; }
 .rap tr.tot td { background:#ededed; font-weight:700; }
 
 /* pola podpisu — puste, czysto białe, jak kratki do wypełnienia w kartach */
@@ -243,10 +249,11 @@ function SingleReport({ data }: { data: ReportData }) {
           <div className="lb">Numer przyjęcia surowców do rozbioru</div>
           <div className="vl">{receptionNos.length ? receptionNos.join(', ') : '—'}</div>
         </div>
-        {/* Edycja idzie za dokumentem nadrzędnym — instrukcja 2.1 ma Edycję 2
-            (18.11.2025). Formularz nie może deklarować wyższej niż instrukcja,
-            do której należy. */}
-        <div className="fld"><div className="lb">Edycja</div><div className="vl">2</div></div>
+        {/* Edycja FORMULARZA, nie instrukcji: wzór karty 2.1.1 przysłany przez
+            biuro (19.08.2026) ma Edycję 3, choć nagłówek instrukcji 2.1 nadal
+            stoi na Edycji 2 z 18.11.2025. Karta musi zgadzać się z wzorem
+            w księdze, więc idzie za nim — decyzja właściciela 2026-08-29. */}
+        <div className="fld"><div className="lb">Edycja</div><div className="vl">3</div></div>
       </div>
 
       <div className="blk">
@@ -280,7 +287,7 @@ function SingleReport({ data }: { data: ReportData }) {
 
       <div className="blk">
         <div className="cap">Szczegóły rozbioru wg partii</div>
-      <table>
+      <table className="det">
         <thead>
           <tr>
             {/* „Numer porządkowy" (dawniej „Nr partii"): docelowo cały proces
@@ -306,7 +313,7 @@ function SingleReport({ data }: { data: ReportData }) {
               <tr key={idx}>
                 <td style={{ fontWeight: 700, fontSize: '9pt' }}>{internalBatchNo}</td>
                 <td>{supplierBatchNo}</td>
-                <td className="l">{supplierName}</td>
+                <td>{supplierName}</td>
                 <td>{slaughterDate ? fmtDatePl(slaughterDate) : '—'}</td>
                 <td>{expiryDate ? fmtDatePl(expiryDate) : '—'}</td>
                 <td className="r" style={{ fontWeight: 600 }}>{fmtKg(taken, 2)}</td>
@@ -318,7 +325,7 @@ function SingleReport({ data }: { data: ReportData }) {
             )
           })}
           <tr className="tot">
-            <td className="l" colSpan={5}>SUMA</td>
+            <td colSpan={5}>SUMA</td>
             <td className="r">{fmtKg(summary.totalTaken, 2)}</td>
             <td className="r">{fmtKg(summary.totalMeat, 2)}</td>
             <td className="r">{fmtKg(summary.totalBacks, 2)}</td>
