@@ -22,7 +22,7 @@ export interface ReceptionTagInput {
   /** Numer dokumentu dostawy („12/08/2026"). */
   receptionNo: string
   supplierName: string
-  /** Numer porządkowy partii („471") — największy napis na zawieszce. */
+  /** Numer przyjęcia zewnętrznego („471") — największy napis na zawieszce. */
   batchNo: string
   /** Waga netto TEJ palety. */
   netKg: number
@@ -31,11 +31,12 @@ export interface ReceptionTagInput {
   containerKg?: number | null
   palletIndex: number
   palletCount: number
-  /** Waga netto całego numeru porządkowego — kontekst dla palety. */
+  /** Waga netto całego numeru przyjęcia zewnętrznego — kontekst dla palety. */
   batchKg: number
-  /** Partie DOSTAWCY złożone na ten numer porządkowy (z HDI). Jeden numer
-   *  porządkowy potrafi zebrać kilka lotów jednego dostawcy. */
-  supplierBatchNos?: string[]
+  /** Partie DOSTAWCY złożone na ten numer przyjęcia zewnętrznego (z HDI).
+   *  Jeden numer potrafi zebrać kilka lotów jednego dostawcy — wtedy zawieszka
+   *  pokazuje przy każdym jego kilogramy. */
+  supplierLots?: readonly SupplierLotTag[]
   /** ISO (yyyy-mm-dd). */
   slaughterDate: string
   expiryDate: string
@@ -91,48 +92,93 @@ export const LOGO_H_MM = (LOGO_DOTS_H * 25.4) / LABEL_DPI
  *  sześć — czytelność jednego numeru przegrywa z pokazaniem wszystkich. */
 export const LOT_FONT_MM = 3
 
-/** Ile znaków wchodzi w wiersz przy `LOT_FONT_MM` na 44 mm pola zadruku
- *  (font 0 jest proporcjonalny, ~0,6 wysokości na znak). */
-const MAX_ZNAKOW_LOTU = Math.floor(44 / (LOT_FONT_MM * 0.6))
+/** PARTIA ŁĄCZONA (kilka lotów dostawcy na jednym numerze przyjęcia
+ *  zewnętrznego): przy każdym numerze idą jeszcze kilogramy, więc wiersz
+ *  robi się o połowę dłuższy. Font schodzi o oczko i dokładamy trzeci
+ *  wiersz — inaczej przy czterech lotach (a tyle mają dostawy KOKO)
+ *  zawieszka urywałaby się wielokropkiem po drugim numerze.
+ *  Prośba biura 29.08.2026. */
+export const LOT_FONT_LACZONA_MM = 2.4
+
+/** Ile znaków wchodzi w wiersz na 44 mm pola zadruku (font 0 jest
+ *  proporcjonalny, ~0,6 wysokości na znak). */
+const znakowWWierszu = (fontMm: number) => Math.floor(44 / (fontMm * 0.6))
+const MAX_ZNAKOW_LOTU = znakowWWierszu(LOT_FONT_MM)
 
 /** Ile wierszy zawieszka oddaje partiom dostawcy. Dwa = sześć krótkich lotów. */
 export const WIERSZE_LOTOW = 2
 
+/** Partia łączona dostaje trzeci wiersz — mieści się w tej samej ramce, bo
+ *  font jest mniejszy. */
+export const WIERSZE_LOTOW_LACZONA = 3
+
+/** Jedna partia dostawcy złożona na numer przyjęcia zewnętrznego. */
+export interface SupplierLotTag {
+  readonly no: string
+  /** Kilogramy TEGO lotu z sekcji identyfikacji HDI; brak = starsze przyjęcia. */
+  readonly kg?: number | null
+}
+
 /** Wiersz z sygnałem, że lotów było więcej, niż weszło. */
-function zWielokropkiem(linia: string): string {
+function zWielokropkiem(linia: string, maxZnakow: number): string {
   const pelny = `${linia} …`
-  if (pelny.length <= MAX_ZNAKOW_LOTU) return pelny
-  return `${linia.slice(0, MAX_ZNAKOW_LOTU - 2).trimEnd()} …`
+  if (pelny.length <= maxZnakow) return pelny
+  return `${linia.slice(0, maxZnakow - 2).trimEnd()} …`
+}
+
+/** „112906 450 kg" albo sam numer, gdy przyjęcie nie zna wagi lotu. */
+export function opisLotu(lot: SupplierLotTag): string {
+  const no = (lot.no ?? '').trim()
+  const kg = Number(lot.kg)
+  if (!no) return ''
+  return Number.isFinite(kg) && kg > 0 ? `${no} ${fmtLabelKg(kg)} kg` : no
 }
 
 /**
  * Partie dostawcy rozłożone na wiersze zawieszki.
  *
- * Numer porządkowy bywa złożony z kilku lotów jednego dostawcy (sekcja
- * identyfikacji z HDI) i wtedy na zawieszce muszą być WSZYSTKIE — inaczej przy
- * reklamacji nie wiadomo, który lot jechał na tej palecie. Pakujemy zachłannie:
- * ile wejdzie w wiersz, reszta do drugiego. Dopiero gdy zabraknie wierszy,
- * ucinamy — i robimy to MY, wielokropkiem, bo drukarka utnie w losowym miejscu
- * i urwany numer będzie wyglądał na pełny.
+ * Numer przyjęcia zewnętrznego bywa złożony z kilku lotów jednego dostawcy
+ * (sekcja identyfikacji z HDI) i wtedy na zawieszce muszą być WSZYSTKIE —
+ * inaczej przy reklamacji nie wiadomo, który lot jechał na tej palecie.
+ * Przy partii łączonej dokładamy do każdego numeru jego kilogramy: paleta
+ * pokazuje wagę własną i wagę całego numeru, ale bez rozbicia nie widać,
+ * ile przyszło z którego lotu (prośba biura 29.08.2026).
+ *
+ * Pakujemy zachłannie: ile wejdzie w wiersz, reszta do następnego. Dopiero
+ * gdy zabraknie wierszy, ucinamy — i robimy to MY, wielokropkiem, bo drukarka
+ * utnie w losowym miejscu i urwany numer będzie wyglądał na pełny.
  */
-export function splitSupplierBatches(numery?: readonly string[]): string[] {
-  const czyste = Array.from(
-    new Set((numery ?? []).map(n => (n ?? '').trim()).filter(Boolean)))
-  if (czyste.length === 0) return ['—']
+export function splitSupplierLots(
+  loty?: readonly SupplierLotTag[],
+  { maxZnakow = MAX_ZNAKOW_LOTU, maxWierszy = WIERSZE_LOTOW, zKilogramami = false }: {
+    maxZnakow?: number; maxWierszy?: number; zKilogramami?: boolean
+  } = {},
+): string[] {
+  const opisy: string[] = []
+  const widziane = new Set<string>()
+  for (const lot of loty ?? []) {
+    // Kilogramy tylko przy partii łączonej: przy jednym locie waga numeru
+    // stoi już wyżej („z partii 3 000 kg") i drugi raz nic nie wnosi.
+    const opis = zKilogramami ? opisLotu(lot) : (lot.no ?? '').trim()
+    if (!opis || widziane.has(opis)) continue
+    widziane.add(opis)
+    opisy.push(opis)
+  }
+  if (opisy.length === 0) return ['—']
 
   const wiersze: string[] = ['']
-  for (const numer of czyste) {
+  for (const opis of opisy) {
     const i = wiersze.length - 1
-    const kandydat = wiersze[i] ? `${wiersze[i]} / ${numer}` : numer
-    if (kandydat.length <= MAX_ZNAKOW_LOTU) {
+    const kandydat = wiersze[i] ? `${wiersze[i]} / ${opis}` : opis
+    if (kandydat.length <= maxZnakow) {
       wiersze[i] = kandydat
       continue
     }
-    if (wiersze.length >= WIERSZE_LOTOW) {
-      wiersze[i] = zWielokropkiem(wiersze[i])
+    if (wiersze.length >= maxWierszy) {
+      wiersze[i] = zWielokropkiem(wiersze[i], maxZnakow)
       return wiersze
     }
-    wiersze.push(numer.length <= MAX_ZNAKOW_LOTU ? numer : zWielokropkiem(numer))
+    wiersze.push(opis.length <= maxZnakow ? opis : zWielokropkiem(opis, maxZnakow))
   }
   return wiersze
 }
@@ -184,11 +230,28 @@ export function receptionTagZpl(
     : `${input.containers} poj.`
 
   // UWAGA: układ jest policzony pod NAJDŁUŻSZE dane, jakie mogą przyjść z
-  // przyjęcia (nazwa dostawcy 20 znaków, czterocyfrowy numer porządkowy,
+  // przyjęcia (nazwa dostawcy 20 znaków, czterocyfrowy numer przyjęcia,
   // waga „1245,5 kg", paleta „12 / 12"). Drukarka nie zawija tekstu — wiersz
   // szerszy niż 44 mm po prostu znika na taśmie. Każda zmiana fontu albo
   // treści musi przejść testy szerokości w `receptionTagZpl.test.ts`.
-  const loty = splitSupplierBatches(input.supplierBatchNos)
+  // Partia łączona = kilka lotów dostawcy na jednym numerze przyjęcia
+  // zewnętrznego. Wtedy przy każdym numerze idą kilogramy, font schodzi
+  // o oczko i mamy trzy wiersze zamiast dwóch — cała sekcja zostaje w tej
+  // samej ramce, bo mniejszy font oddaje wysokość, którą zabiera wiersz.
+  // Łączona TYLKO wtedy, gdy jest co pokazać: kilka lotów i znane kilogramy.
+  // Starsze przyjęcia mają same numery — te drukujemy jak dotąd, większym
+  // fontem w dwóch wierszach.
+  const laczona = (input.supplierLots ?? []).length > 1
+    && (input.supplierLots ?? []).some(l => Number(l.kg) > 0)
+  const lotFont = laczona ? LOT_FONT_LACZONA_MM : LOT_FONT_MM
+  const lotSkok = laczona ? 2.85 : 3.4
+  const loty = splitSupplierLots(input.supplierLots, {
+    maxZnakow: znakowWWierszu(lotFont),
+    maxWierszy: laczona ? WIERSZE_LOTOW_LACZONA : WIERSZE_LOTOW,
+    zKilogramami: laczona,
+  })
+  const lotyY = laczona ? 59.7 : 60.7
+  const lotyKoniec = lotyY + loty.length * lotSkok
 
   // Znak firmowy w prawym górnym rogu: jedyne wolne miejsce na zawieszce,
   // które nie zabiera wiersza treści. Wisi na wysokości nagłówka „Przyjęcie",
@@ -206,7 +269,7 @@ export function receptionTagZpl(
     text(g, M, 10.3, 3.2, shortenSupplier(input.supplierName)),
     line(g, M, 14.3, W),
 
-    text(g, M, 15.5, 2.6, 'Nr porządkowy'),
+    text(g, M, 15.5, 2.6, 'Nr przyjęcia zewnętrznego'),
     text(g, M, 18.6, 9.2, input.batchNo ?? ''),
     line(g, M, 28.8, W),
 
@@ -228,9 +291,10 @@ export function receptionTagZpl(
     // reklamacji (biuro, 22.08.2026). DWA wiersze mniejszym fontem — jeden lot
     // czyta się gorzej, ale sześć lotów mieści się w całości zamiast urywać się
     // wielokropkiem po dwóch.
-    text(g, M, 57.6, 2.6, 'Partia dostawcy'),
-    ...loty.map((linia, i) => text(g, M, 60.7 + i * 3.4, LOT_FONT_MM, linia)),
-    line(g, M, 67.8, W),
+    text(g, M, laczona ? 56.9 : 57.6, 2.6,
+      laczona ? 'Partie dostawcy (kg)' : 'Partia dostawcy'),
+    ...loty.map((linia, i) => text(g, M, lotyY + i * lotSkok, lotFont, linia)),
+    line(g, M, Math.max(67.8, lotyKoniec + 0.2), W),
 
     text(g, M, 69.2, 2.8, `Ubój      ${fmtLabelDate(input.slaughterDate)}`),
     text(g, M, 72.6, 2.8, `Ważność   ${fmtLabelDate(input.expiryDate)}`),

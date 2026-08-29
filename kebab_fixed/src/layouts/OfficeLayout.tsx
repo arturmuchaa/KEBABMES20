@@ -30,6 +30,7 @@ const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
   '/office/arkusz-kontroli':       { title: 'Arkusz kontroli sanitarnej',  description: 'Karty dopuszczenia zakładu do pracy — jedna na dzień' },
   '/office/kontrola-temperatury':  { title: 'Kontrola temperatury',        description: 'Karty odczytu temperatur pomieszczeń — jedna na tydzień' },
   '/office/rodzaje-produktow':     { title: 'Rodzaje produktów',           description: 'Katalog produktów' },
+  '/office/wykazy-kontrahentow':   { title: 'Wykazy dostawców i odbiorców', description: 'Karty 1.1.3 i 1.3.2 oPRP' },
   '/office/receptury':             { title: 'Receptury',                   description: 'Składy i receptury' },
   '/office/szablony-etykiet':      { title: 'Szablony etykiet',            description: 'Konfiguracje etykiet per klient i receptura' },
   '/office/planowanie-masowania':  { title: 'Planowanie masowania',        description: 'Zlecenia masowania' },

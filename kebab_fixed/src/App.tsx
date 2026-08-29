@@ -23,6 +23,7 @@ import { DeboningReportsPage } from '@/pages/office/DeboningReportsPage'
 import { WorkerCardPage }        from '@/pages/office/WorkerCardPage'
 import { DeboningControlPage } from '@/pages/office/DeboningControlPage'
 import { HaccpReportPage } from '@/pages/office/HaccpReportPage'
+import { PartnerListsPage } from '@/pages/office/PartnerListsPage'
 import { PlaceholderPage }     from '@/pages/office/PlaceholderPage'
 import { FinishedGoodsPage }   from '@/pages/office/FinishedGoodsPage'
 import { PurchaseInvoicesPage } from '@/pages/office/PurchaseInvoicesPage'
@@ -193,6 +194,7 @@ export default function App() {
         <Route path="rozbior-panel"         element={<DeboningControlPage />} />
         <Route path="kartoteka-pracownika"  element={<WorkerCardPage />} />
         <Route path="haccp-report"          element={<HaccpReportPage />} />
+        <Route path="wykazy-kontrahentow"   element={<PartnerListsPage />} />
         {/* Historie kart HACCP — menu prowadzi TU, nie prosto do druku */}
         <Route path="arkusz-kontroli"       element={<SanitaryCheckHistoryPage />} />
         <Route path="kontrola-temperatury"  element={<TemperatureLogHistoryPage />} />

@@ -124,7 +124,7 @@ export function ReceptionPreviewPage() {
           <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5 text-sm">
             <Liczba label="Waga przyjęta" value={`${fmtKg(suma.kg, 1)} kg`} mocna />
             <Liczba label="Zeszło z magazynu" value={`${fmtKg(suma.kgUsed, 1)} kg`} />
-            <Liczba label="Numery porządkowe" value={String(suma.batches)} />
+            <Liczba label="Numery przyjęcia zewnętrznego" value={String(suma.batches)} />
             <Liczba label="Partie dostawcy" value={String(suma.supplierLots)} />
             <Liczba
               label="Pojemniki"
@@ -147,7 +147,7 @@ export function ReceptionPreviewPage() {
           <CardContent className="p-4 space-y-3">
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
-                <CardDescription>Numer porządkowy</CardDescription>
+                <CardDescription>Numer przyjęcia zewnętrznego</CardDescription>
                 <div className="flex items-center gap-3">
                   <code className="font-mono text-2xl font-bold text-primary">
                     {w.batch.internalBatchNo}

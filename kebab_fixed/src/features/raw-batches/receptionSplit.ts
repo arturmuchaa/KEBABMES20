@@ -248,9 +248,9 @@ export function startNoIssue(raw: string, isService: boolean): string | null {
   const s = (raw || '').trim()
   if (!s) return null                    // puste = numer nada sekwencja
   if (!/^\d+\s*[Uu]?$/.test(s))
-    return `„${s}" nie jest numerem porządkowym — wpisz sam numer, np. ${isService ? '55U' : '477'}`
+    return `„${s}" nie jest numerem przyjęcia zewnętrznego — wpisz sam numer, np. ${isService ? '55U' : '477'}`
   if (Number(s.replace(/[^\d]/g, '')) < 1)
-    return 'Numer porządkowy musi być większy od zera'
+    return 'Numer przyjęcia zewnętrznego musi być większy od zera'
   return null
 }
 

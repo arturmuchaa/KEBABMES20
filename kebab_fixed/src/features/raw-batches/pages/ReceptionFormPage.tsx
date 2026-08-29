@@ -62,7 +62,7 @@ function ReceptionCreatePage() {
   } = useCreateReception(zapisane => {
     toast.success(
       `Przyjęcie ${zapisane.receptionNo} — ${zapisane.kg.toFixed(2).replace('.', ',')} kg` +
-      ` (nr porządkowy: ${zapisane.batchNos.join(', ')})`)
+      ` (nr przyjęcia zewnętrznego: ${zapisane.batchNos.join(', ')})`)
     // Bez id nie ma dokąd pójść po zawieszki (stary dokument, dziwna
     // odpowiedź) — wtedy zachowujemy się jak dotąd i wracamy na listę.
     if (!zapisane.receptionId) { navigate(LIST_PATH); return }

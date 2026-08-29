@@ -149,7 +149,7 @@ export function RawBatchesTable({
   const HEADERS: { col: DeliverySortCol | null; label: string; right?: boolean }[] = [
     // „Nr porządkowy", nie „Nr partii": numerem partii staje się dopiero przy
     // sprzedaży ubocznych albo na wyrobie gotowym (ddmmrr + numer porządkowy).
-    { col: 'internalBatchNo', label: 'Nr porządkowy' },
+    { col: 'internalBatchNo', label: 'Nr przyjęcia zewnętrznego' },
     // Tylko w liście mieszającej rodzaje — inaczej powtarzałaby nagłówek zakładki.
     ...(materialLabel ? [{ col: null, label: 'Rodzaj' }] : []),
     { col: null,              label: 'Przyjęcie' },

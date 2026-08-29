@@ -100,7 +100,7 @@ export function ProductionReportPrintPage() {
             <th className="w-kind">RODZAJ</th>
             <th>SKŁADNIK</th>
             <th className="w-del">NUMER PRZYJĘCIA</th>
-            <th className="w-ord">NUMER PORZĄDKOWY</th>
+            <th className="w-ord">NUMER PRZYJĘCIA ZEWN.</th>
             <th className="r w-kg">KG</th>
             <th>UWAGI</th>
           </tr>

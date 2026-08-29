@@ -32,7 +32,7 @@ export function PrintTagsPrompt({
         <DialogHeader>
           <DialogTitle>Przyjęcie {receptionNo} zapisane</DialogTitle>
           <DialogDescription>
-            {fmtKg(kg, 1)} kg na {batchNos.length === 1 ? 'numerze porządkowym' : 'numerach porządkowych'}{' '}
+            {fmtKg(kg, 1)} kg na {batchNos.length === 1 ? 'numerze przyjęcia zewnętrznego' : 'numerach przyjęcia zewnętrznego'}{' '}
             <span className="font-mono font-bold text-primary">{batchNos.join(', ')}</span>.
             {' '}Wydrukować zawieszki na palety?
           </DialogDescription>

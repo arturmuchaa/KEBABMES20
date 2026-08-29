@@ -169,7 +169,7 @@ export function meatPalletLabelZpl(
   if (jednaPartia) {
     const f = nrFontMm(widoczne[0].lotNo, W, SUFIT_NR_MM)
     body.push(
-      text(M, 19, 3.2, 'Nr porządkowy', dpi),
+      text(M, 19, 3.2, 'Nr przyjęcia zewn.', dpi),
       text(M, 23, f, widoczne[0].lotNo, dpi),
     )
     y = 23 + f + 2

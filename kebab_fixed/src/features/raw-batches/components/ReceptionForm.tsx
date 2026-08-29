@@ -386,7 +386,7 @@ export function ReceptionForm({
           <CardDescription>
             {edycja
               ? 'Poprawiasz zapisany dokument — pozycje już użyte w produkcji są zablokowane.'
-              : 'Cała dostawa pod jednym numerem przyjęcia — rozbita na tyle numerów porządkowych, ile stosów fizycznie stanęło w chłodni.'}
+              : 'Cała dostawa pod jednym numerem przyjęcia — rozbita na tyle numerów przyjęcia zewnętrznego, ile stosów fizycznie stanęło w chłodni.'}
           </CardDescription>
         </div>
       </div>
@@ -571,7 +571,7 @@ export function ReceptionForm({
                     wiersz z papieru lewo-do-prawa, bez skakania wzrokiem. */}
                 <div className={`grid ${GRID(groupCount)} gap-2 px-4 py-2 border-b bg-muted/30`}>
                   {['Lp', 'Masa netto', 'Nr partii', 'Data uboju', 'Data ważności',
-                    ...(groupCount > 1 ? ['Nr porządkowy'] : []), ''].map((h, i) => (
+                    ...(groupCount > 1 ? ['Nr przyjęcia zewnętrznego'] : []), ''].map((h, i) => (
                     <CardDescription key={i}
                       className={`text-[10px] font-bold uppercase tracking-wide ${i === 1 ? 'text-right' : ''}`}>
                       {h}
@@ -654,7 +654,7 @@ export function ReceptionForm({
           <div>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <Label className="text-sm font-semibold">Numery porządkowe</Label>
+                <Label className="text-sm font-semibold">Numery przyjęcia zewnętrznego</Label>
                 <Badge variant="secondary">{groupCount}</Badge>
               </div>
               <Button variant="outline" size="sm" onClick={addGroup}>
@@ -702,7 +702,7 @@ export function ReceptionForm({
                               <button
                                 type="button"
                                 onClick={() => zacznijEdycje(g.index)}
-                                title="Popraw numer porządkowy"
+                                title="Popraw numer przyjęcia zewnętrznego"
                                 className="text-muted-foreground/40 hover:text-primary transition-colors">
                                 <Pencil size={12} />
                               </button>

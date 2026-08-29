@@ -141,10 +141,11 @@ export function ReceptionTags({
       palletCount:   t.palletCount,
       batchKg:       w.batch.kgReceived,
       // Sekcja identyfikacji z HDI, a gdy jej nie ma — numer wpisany na
-      // przyjęciu. Zawieszka pokazuje WSZYSTKIE loty tego numeru porządkowego.
-      supplierBatchNos: (w.batch.supplierBatches ?? []).length > 0
-        ? w.batch.supplierBatches.map(sb => sb.supplierBatchNo)
-        : [w.batch.supplierBatchNo],
+      // przyjęciu. Zawieszka pokazuje WSZYSTKIE loty tego numeru przyjęcia
+      // zewnętrznego, a przy partii łączonej także kilogramy każdego lotu.
+      supplierLots: (w.batch.supplierBatches ?? []).length > 0
+        ? w.batch.supplierBatches.map(sb => ({ no: sb.supplierBatchNo, kg: sb.kgReceived }))
+        : [{ no: w.batch.supplierBatchNo }],
       slaughterDate: w.batch.slaughterDate,
       expiryDate:    w.batch.expiryDate,
       receivedDate:  w.batch.receivedDate || reception.receivedDate,
@@ -198,7 +199,7 @@ export function ReceptionTags({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-surface-4 text-left text-[11px] uppercase text-ink-4">
-                <th className="py-2 pr-3 font-semibold">Nr porządkowy</th>
+                <th className="py-2 pr-3 font-semibold">Nr przyjęcia zewnętrznego</th>
                 <th className="py-2 pr-3 font-semibold text-right">Waga netto</th>
                 <th className="py-2 pr-3 font-semibold">Kaliber [kg]</th>
                 <th className="py-2 pr-3 font-semibold">Poj. na palecie</th>

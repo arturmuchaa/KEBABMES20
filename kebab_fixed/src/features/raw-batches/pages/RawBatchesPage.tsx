@@ -189,7 +189,7 @@ export function RawBatchesPage() {
           <CardTitle className="text-base">Przyjęcie surowca</CardTitle>
           <CardDescription className="mt-0.5">
             {isAll
-              ? 'Wszystkie przyjęcia w jednym ciągu numerów porządkowych · pełny stan magazynowy jest w Magazynie surowca'
+              ? 'Wszystkie przyjęcia w jednym ciągu numerów przyjęcia zewnętrznego · pełny stan magazynowy jest w Magazynie surowca'
               : 'Dostawy w obiegu i zamknięta historia · pełny stan magazynowy jest w Magazynie surowca'}
           </CardDescription>
         </div>

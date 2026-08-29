@@ -66,7 +66,7 @@ const COLS_MAIN: Col[] = [
 
 const COLS_DETAIL: Col[] = [
   { letter: 'a', w: 26, label: 'Numer przyjęcia' },
-  { letter: 'b', w: 30, label: 'Numer porządkowy' },
+  { letter: 'b', w: 30, label: 'Numer przyjęcia zewnętrznego' },
   { letter: 'c', w: 24, label: 'Waga [kg]' },
   { letter: 'd', w: 26, label: 'Data uboju' },
   { letter: 'e', w: 30, label: 'Termin ważności' },
@@ -282,13 +282,13 @@ export function ReceptionRegisterDetailPrintPage() {
       withData={params.get('dane') === '1'}
       build={detailRows}
       title="Rejestr przyjęcia artykułów pochodzenia zwierzęcego — część szczegółowa"
-      subtitle="Jeden wiersz na numer porządkowy z dostawy zarejestrowanej w karcie 1.1.1"
+      subtitle="Jeden wiersz na numer przyjęcia zewnętrznego z dostawy zarejestrowanej w karcie 1.1.1"
       cols={COLS_DETAIL}
       rows={ROWS_DETAIL}
       card="Karta 1.1.1/2 do instrukcji 1.1 — operacyjne programy warunków wstępnych (oPRP)"
       legend={<Legend items={[
         'numer przyjęcia — ten sam, co w karcie 1.1.1 (np. 1/08)',
-        'numer porządkowy — kolejny numer nadawany partii surowca',
+        'numer przyjęcia zewnętrznego — roczny numer nadawany partii surowca (instrukcja 1.1)',
         'waga — z dokumentu dostawy; różnicę po ważeniu opisać w kol. „Uwagi”',
         '„Mięso [kg]” uzupełnia się po rozbiorze partii',
       ]} />}

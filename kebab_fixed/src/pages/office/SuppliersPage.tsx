@@ -31,7 +31,7 @@ import {
 function emptyForm(): CreateSupplierDto {
   return {
     code: '', name: '', displayName: '',
-    nip: '', regon: '', vetNumber: '',
+    nip: '', regon: '', vetNumber: '', supplyScope: '',
     address: '', postalCode: '', city: '',
     contactName: '', phone: '', email: '',
   }
@@ -116,6 +116,7 @@ function SupplierForm({ initial, onSave, onClose }: {
           nip: initial.nip ?? '',
           regon: initial.regon ?? '',
           vetNumber: initial.vetNumber ?? '',
+          supplyScope: initial.supplyScope ?? '',
           address: initial.address ?? '',
           postalCode: initial.postalCode ?? '',
           city: initial.city ?? '',
@@ -229,6 +230,10 @@ function SupplierForm({ initial, onSave, onClose }: {
               { k: 'contactName', label: 'Osoba kontaktowa',           ph: '' },
               { k: 'phone',       label: 'Telefon',                    ph: '' },
               { k: 'email',       label: 'E-mail',                     ph: '' },
+              // Kolumna karty 1.3.2 oPRP — wypełnia się raz, przy zakładaniu
+              // kartoteki, i wychodzi na wykazie dostawców do księgi HACCP.
+              { k: 'supplyScope', label: 'Zakres dostaw (karta 1.3.2)',
+                ph: 'np. folie, etykiety' },
             ].map(f => (
               <div key={f.k} className="space-y-1.5">
                 <Label>{f.label}</Label>

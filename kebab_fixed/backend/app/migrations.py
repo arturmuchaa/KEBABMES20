@@ -1312,6 +1312,11 @@ _DDL: list[str] = [
         PRIMARY KEY (plan_id, recipe_id)
     )""",
 
+    # Zakres dostaw dostawcy — kolumna karty 1.3.2 oPRP („Lista dostawców
+    # opakowań, przypraw, dodatków technologicznych…"). Wpisywana ręcznie
+    # w kartotece, bo to deklaracja zakresu współpracy, a nie historia dostaw.
+    "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS supply_scope TEXT",
+
     # Nazwa rodzaju NA DOKUMENTACH (HDI). Rodzaj w MES nazywa się tak, jak go
     # planuje produkcja („KEBAB MIX 95/5"), a klient ma na dokumencie widzieć
     # nazwę handlową („KEBAB MIX") — proporcji składu nie pokazujemy odbiorcy.

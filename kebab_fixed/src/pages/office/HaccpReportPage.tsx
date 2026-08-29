@@ -296,7 +296,7 @@ function SingleReport({ data }: { data: ReportData }) {
                 zmiana TYLKO opisu na dokumencie (decyzja 2026-07-16). */}
             {/* „Mięso kg" bez rodzaju: jedna partia potrafi dać i z/s, i b/s
                 (458 z 4.08.2026) — rozbicie na rodzaje jest w podsumowaniu. */}
-            {['Numer porządkowy','Nr partii dostawcy','Dostawca','Data uboju','Data ważności','Ćwiartka kg','Mięso kg','Grzbiety kg','Kości kg','Razem kg'].map(h => (
+            {['Numer przyjęcia zewnętrznego','Nr partii dostawcy','Dostawca','Data uboju','Data ważności','Ćwiartka kg','Mięso kg','Grzbiety kg','Kości kg','Razem kg'].map(h => (
               <th key={h}>{h}</th>
             ))}
           </tr>

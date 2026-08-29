@@ -509,6 +509,7 @@ export function mapSupplier(raw: any): Supplier {
     contactName: raw.contact_name   ?? raw.contactName,
     phone:       raw.phone,
     email:       raw.email,
+    supplyScope: raw.supply_scope   ?? raw.supplyScope ?? '',
     active:      raw.active ?? true,
     // null = dostawca bez własnego układu palety; zero znaczyłoby paletę,
     // na którą nic nie wchodzi, i zapętliłoby liczenie zawieszek.

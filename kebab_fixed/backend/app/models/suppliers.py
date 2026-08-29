@@ -17,3 +17,5 @@ class SupplierCreate(BaseModel):
     address: str = ""
     city: str = ""
     postal_code: str = ""
+    #: Zakres dostaw na kartę 1.3.2 oPRP („folie, etykiety", „przyprawy").
+    supply_scope: str = ""

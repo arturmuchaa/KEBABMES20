@@ -98,7 +98,7 @@ export function byproductLabelZpl(
     text(M, 11.5, 4, KIND_SUBTITLE, dpi),
     line(M, 17.5, W, dpi),
 
-    text(M, 20, 3.2, 'Nr porządkowy', dpi),
+    text(M, 20, 3.2, 'Nr przyjęcia zewn.', dpi),
     text(M, 24, 11, input.batchNo ?? '', dpi),
     line(M, 37, W, dpi),
 

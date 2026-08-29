@@ -431,7 +431,7 @@ export function AddFinishedGoodModal({ onClose, onSaved }: { onClose: () => void
                     onChange={e => setPartiaReczna(e.target.value)}
                     className="mt-2.5 h-9 w-full rounded-[3px] border border-surface-4 px-2 font-mono text-base" />
                   <p className="mt-2 text-[11px] text-ink-3">
-                    Wpisz sam numer porządkowy („456") — datę produkcji dokleimy z pola wyżej.
+                    Wpisz sam numer przyjęcia zewnętrznego („456") — datę produkcji dokleimy z pola wyżej.
                     Masownia zostaje nietknięta: to droga dla wpisów, których nie ma w systemie.
                   </p>
                 </>
