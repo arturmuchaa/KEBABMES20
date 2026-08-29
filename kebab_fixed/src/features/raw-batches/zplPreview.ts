@@ -19,12 +19,18 @@ export interface ZplPreviewBox {
   /** Wysokość fontu w mm — tylko dla tekstu. */
   fontMm?: number
   text?: string
-  /** Wymiary w mm — kreska i znak firmowy. */
+  /** Wymiary w mm — kreska, znak firmowy oraz szerokość bloku `^FB`. */
   widthMm?: number
   heightMm?: number
+  /** Wyrównanie tekstu w bloku `^FB`; brak = do lewej od `xMm`. */
+  align?: 'L' | 'C' | 'R'
 }
 
-const POLE = /\^FO(\d+),(\d+)(?:\^A0N,(\d+),\d+\^FD([\s\S]*?)\^FS|\^GB(\d+),(\d+),\d+\^FS|\^GFA,(\d+),\d+,(\d+),[0-9A-F]*\^FS)/g
+// `^FB` (blok tekstu) jest OPCJONALNY między `^A0N` a `^FD` — etykieta palety
+// mięsa wyrównuje nim kilogramy do prawej krawędzi. Bez tego kawałka wzorca
+// podgląd gubił CAŁE kilogramy przy każdej partii, a etykieta drukowała je
+// poprawnie: podgląd kłamał w drugą stronę niż zwykle (29.08.2026).
+const POLE = /\^FO(\d+),(\d+)(?:\^A0N,(\d+),\d+(?:\^FB(\d+),\d+,-?\d+,([LCR]))?\^FD([\s\S]*?)\^FS|\^GB(\d+),(\d+),\d+\^FS|\^GFA,(\d+),\d+,(\d+),[0-9A-F]*\^FS)/g
 
 export function zplPreviewBoxes(zpl: string, dpi: number = LABEL_DPI): ZplPreviewBox[] {
   const mm = (dots: number) => (dots * 25.4) / dpi
@@ -37,17 +43,22 @@ export function zplPreviewBoxes(zpl: string, dpi: number = LABEL_DPI): ZplPrevie
     const xMm = mm(Number(m[1]))
     const yMm = mm(Number(m[2]))
     if (m[3] !== undefined) {
-      out.push({ kind: 'text', xMm, yMm, fontMm: mm(Number(m[3])), text: m[4] ?? '' })
-    } else if (m[5] !== undefined) {
-      out.push({ kind: 'line', xMm, yMm, widthMm: mm(Number(m[5])), heightMm: mm(Number(m[6])) })
+      out.push({
+        kind: 'text', xMm, yMm, fontMm: mm(Number(m[3])), text: m[6] ?? '',
+        ...(m[4] !== undefined
+          ? { widthMm: mm(Number(m[4])), align: (m[5] as 'L' | 'C' | 'R') }
+          : {}),
+      })
+    } else if (m[7] !== undefined) {
+      out.push({ kind: 'line', xMm, yMm, widthMm: mm(Number(m[7])), heightMm: mm(Number(m[8])) })
     } else {
       // `^GFA,<bajtów>,<bajtów>,<bajtów w wierszu>` — z tego liczymy rozmiar
       // mapy bitowej: szerokość to bajty w wierszu × 8, wysokość to reszta.
-      const bajtowNaWiersz = Number(m[8])
+      const bajtowNaWiersz = Number(m[10])
       out.push({
         kind: 'logo', xMm, yMm,
         widthMm: mm(bajtowNaWiersz * 8),
-        heightMm: mm(Number(m[7]) / bajtowNaWiersz),
+        heightMm: mm(Number(m[9]) / bajtowNaWiersz),
       })
     }
   }

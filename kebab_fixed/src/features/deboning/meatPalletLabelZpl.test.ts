@@ -32,13 +32,13 @@ describe('meatPalletLabelZpl — etykieta palety mięsa', () => {
     expect(meatPalletLabelZpl(BASE)).toContain('PAL/14/08/26/3')
   })
 
-  it('drukuje skład partii z kilogramami (jednostka w nagłówku sekcji)', () => {
+  it('drukuje skład partii z kilogramami przy KAŻDYM numerze', () => {
     const zpl = meatPalletLabelZpl(BASE)
-    expect(zpl).toContain('Partie · kg')
+    expect(zpl).toContain('Skład palety')
     expect(zpl).toContain('^FD475^FS')
-    expect(zpl).toContain('^FD420^FS')
+    expect(zpl).toContain('^FD420 kg^FS')
     expect(zpl).toContain('^FD476^FS')
-    expect(zpl).toContain('^FD180^FS')
+    expect(zpl).toContain('^FD180 kg^FS')
   })
 
   it('nadmiar partii schodzi do „+ N kolejnych", a suma zawsze się zgadza', () => {
@@ -133,13 +133,13 @@ describe('meatPalletLabelZpl — numer partii', () => {
 
   it('dwie partie DALEJ pokazują, ile z której — po to jest ta etykieta', () => {
     const zpl = meatPalletLabelZpl(BASE)
-    expect(zpl).toContain('Partie · kg')
+    expect(zpl).toContain('Skład palety')
     // Numer i kilogramy stoją osobno (numer duży, kg małe przy krawędzi) —
     // do 1.0.94 był to jeden wiersz „475 — 420 kg" czcionką 4 mm.
     expect(zpl).toContain('^FD475^FS')
-    expect(zpl).toContain('^FD420^FS')
+    expect(zpl).toContain('^FD420 kg^FS')
     expect(zpl).toContain('^FD476^FS')
-    expect(zpl).toContain('^FD180^FS')
+    expect(zpl).toContain('^FD180 kg^FS')
   })
 
   // 25.08.2026, hala: po połączeniu dwóch partii numery zrobiły się drobne
@@ -148,18 +148,29 @@ describe('meatPalletLabelZpl — numer partii', () => {
   it('przy dwóch partiach numer i kilogramy są tej samej wielkości', () => {
     const zpl = meatPalletLabelZpl(BASE)
     const numer = fontHeightOf(zpl, '475')!
-    const kg = fontHeightOf(zpl, '420')!
-    expect(numer).toBeGreaterThanOrEqual(mmToDots(9))
-    expect(kg).toBeGreaterThanOrEqual(mmToDots(8))
+    const kg = fontHeightOf(zpl, '420 kg')!
+    // Sufiks „kg" przy każdej liczbie (29.08.2026) zjada ~2 mm czcionki:
+    // z 11 mm robi się ~8. Próg pilnuje, żeby nie zsunęło się z powrotem do
+    // 4 mm, na które hala narzekała 25.08 — jednostka ma kosztować trochę,
+    // nie wszystko.
+    expect(numer).toBeGreaterThanOrEqual(mmToDots(7.5))
+    expect(kg).toBeGreaterThanOrEqual(mmToDots(6.5))
     // „trochę mniejsze, ale nie dużo" — najwyżej 1 mm różnicy
     expect(numer - kg).toBeLessThanOrEqual(mmToDots(1))
     expect(kg).toBeLessThanOrEqual(numer)
   })
 
-  it('jednostka stoi w nagłówku, nie przy każdej liczbie — inaczej wiersz nie mieści się w taśmie', () => {
-    const zpl = meatPalletLabelZpl(BASE)
-    expect(zpl).toContain('Partie · kg')
-    expect(zpl).not.toContain('420 kg')
+  // 29.08.2026, hala: „przy wadze są same cyfry" — operator czytał „30" przy
+  // numerze 518 jak część numeru. Jednostka wraca do KAŻDEGO wiersza; kosztuje
+  // ~2 mm czcionki i tyle wolno jej kosztować.
+  it('każda liczba w składzie ma przy sobie jednostkę', () => {
+    const zpl = meatPalletLabelZpl({
+      ...BASE, lots: [{ lotNo: '518', kg: 30 }, { lotNo: '519', kg: 170 }],
+    })
+    expect(zpl).toContain('^FD30 kg^FS')
+    expect(zpl).toContain('^FD170 kg^FS')
+    // ...i dalej jest czytelna z drugiego końca chłodni.
+    expect(fontHeightOf(zpl, '518')!).toBeGreaterThanOrEqual(mmToDots(7))
   })
 
   it('wiersz partii mieści się w szerokości taśmy', () => {
@@ -168,12 +179,12 @@ describe('meatPalletLabelZpl — numer partii', () => {
       const fK = fontHeightOf(zpl, kg)! / mmToDots(1)
       return nr.length * 0.62 * fN + 2 + kg.length * 0.62 * fK
     }
-    expect(szerokoscWiersza(meatPalletLabelZpl(BASE), '475', '420')).toBeLessThanOrEqual(44)
+    expect(szerokoscWiersza(meatPalletLabelZpl(BASE), '475', '420 kg')).toBeLessThanOrEqual(44)
 
     const dlugi = meatPalletLabelZpl({ ...BASE, lots: [
       { lotNo: '505-BS-2026', kg: 420 }, { lotNo: '476', kg: 180 },
     ] })
-    expect(szerokoscWiersza(dlugi, '505-BS-2026', '420')).toBeLessThanOrEqual(44)
+    expect(szerokoscWiersza(dlugi, '505-BS-2026', '420 kg')).toBeLessThanOrEqual(44)
   })
 
   it('numer partii jest największym napisem na etykiecie', () => {
@@ -274,9 +285,9 @@ describe('meatPalletLabelZpl — układ jak na ubocznych', () => {
       ...JEDNA, lots: [{ lotNo: '503', kg: 50 }, { lotNo: '504', kg: 150 }],
     })
     expect(zpl).toContain('^FD503^FS')
-    expect(zpl).toContain('^FD50^FS')
+    expect(zpl).toContain('^FD50 kg^FS')
     expect(zpl).toContain('^FD504^FS')
-    expect(zpl).toContain('^FD150^FS')
+    expect(zpl).toContain('^FD150 kg^FS')
     expect(zpl).not.toContain('Ubój')
     expect(zpl).not.toContain('Przyjęcie')
     // Ważenie i najkrótsza ważność dalej mają sens dla całej palety.

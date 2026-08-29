@@ -78,9 +78,10 @@ const szerokoscMm = (tekst: string, fontMm: number): number =>
  * mniejsze), tak duże, jak pozwala taśma.
  *
  * Dwa ograniczenia naraz:
- *  • WSZERZ — `505` + `119,5` w jednej wielkości muszą zmieścić się w 44 mm;
- *    dlatego jednostka „kg" stoi w nagłówku sekcji, a nie przy każdej liczbie
- *    (z sufiksem wiersz ma 65 mm i nie ma szans),
+ *  • WSZERZ — cały wiersz (`505` + `119,5 kg`) musi zmieścić się w 44 mm;
+ *    sufiks „kg" wchodzi do rachunku jako część napisu kilogramów, więc
+ *    czcionka schodzi o tyle, ile ten sufiks zabiera (przy dwóch partiach
+ *    z 11 na ~9 mm — hala prosiła o „troszkę mniejsze cyfry", 29.08.2026),
  *  • W PIONIE — pod partiami muszą jeszcze wejść waga i daty, więc cztery
  *    partie dostają mniejszą czcionkę niż dwie.
  *
@@ -176,12 +177,15 @@ export function meatPalletLabelZpl(
   } else {
     // Paleta z kilku partii: numer sam w sobie nic nie mówi, liczy się SKŁAD.
     // Do 1.0.94 cały wiersz („475 — 420 kg") szedł jedną czcionką 4 mm i z
-    // chłodni był nieczytelny. Teraz numer i kilogramy idą jedną wielkością,
-    // a jednostka stoi w nagłówku — z sufiksem „kg" przy każdej liczbie
-    // wiersz miałby 65 mm i nie zmieściłby się na 50-milimetrowej taśmie.
+    // chłodni był nieczytelny; potem numer i kilogramy urosły, ale jednostka
+    // przeniosła się do nagłówka i przy liczbie zostały same cyfry. Hala
+    // czytała to jako część numeru („30" przy „518"), więc 29.08.2026
+    // sufiks „kg" wraca do KAŻDEGO wiersza, kosztem ~2 mm czcionki:
+    // paleta z ważenia zbiorczego („518 30 kg", „519 170 kg") ma mówić
+    // wprost, ile mięsa poszło z której partii.
     // Ile partii wypisać, żeby każdy numer był jeszcze czytelny. Pięć
     // wierszy mieściło się tylko przy 3,3 mm — mniej niż przed poprawką.
-    let wiersze = widoczne.map(l => ({ nr: l.lotNo, kg: fmtLabelKg(l.kg) }))
+    let wiersze = widoczne.map(l => ({ nr: l.lotNo, kg: `${fmtLabelKg(l.kg)} kg` }))
     let ukryte = reszta
     let f = wierszPartiiFontMm(wiersze, W, PION_NA_PARTIE_MM - (ukryte > 0 ? 4.5 : 0))
     while (wiersze.length > 1 && f.nr < MIN_CZYTELNA_MM) {
@@ -189,7 +193,7 @@ export function meatPalletLabelZpl(
       ukryte = input.lots.length - wiersze.length
       f = wierszPartiiFontMm(wiersze, W, PION_NA_PARTIE_MM - (ukryte > 0 ? 4.5 : 0))
     }
-    body.push(text(M, 19, 3.2, 'Partie · kg', dpi))
+    body.push(text(M, 19, 3.2, 'Skład palety', dpi))
     wiersze.forEach((w, i) => {
       const wiersz = 23 + i * (f.nr + ODSTEP_MM)
       body.push(

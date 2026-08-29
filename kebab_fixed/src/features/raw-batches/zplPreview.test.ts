@@ -48,3 +48,26 @@ describe('zplPreviewBoxes — ZPL → pola do narysowania', () => {
     expect(boxes.every(b => b.yMm >= 0 && b.yMm < 80)).toBe(true)
   })
 })
+
+/**
+ * Kilogramy na etykiecie palety mięsa idą blokiem `^FB` wyrównanym do prawej.
+ * Podgląd, który tego nie rozumiał, pokazywał paletę BEZ kilogramów — czyli
+ * kłamał w drugą stronę niż zwykle: etykieta drukowała się dobrze, a obraz na
+ * ekranie wyglądał na błąd (29.08.2026).
+ */
+describe('zplPreviewBoxes — blok tekstu ^FB', () => {
+  it('czyta tekst wyrównany do prawej razem z szerokością bloku', () => {
+    const zpl = '^XA^FO24,184^A0N,65,65^FB352,1,0,R^FD170 kg^FS^XZ'
+    const [box] = zplPreviewBoxes(zpl)
+    expect(box.kind).toBe('text')
+    expect(box.text).toBe('170 kg')
+    expect(box.align).toBe('R')
+    expect(box.widthMm).toBeCloseTo(44, 0)
+  })
+
+  it('zwykły tekst bez bloku nie dostaje wyrównania', () => {
+    const [box] = zplPreviewBoxes('^XA^FO24,184^A0N,65,65^FD518^FS^XZ')
+    expect(box.text).toBe('518')
+    expect(box.align).toBeUndefined()
+  })
+})
