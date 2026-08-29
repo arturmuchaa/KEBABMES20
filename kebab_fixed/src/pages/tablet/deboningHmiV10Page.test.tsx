@@ -70,7 +70,8 @@ vi.mock('@/features/deboning/useScale', () => ({
 }))
 vi.mock('@/features/deboning/hooks', () => ({
   useProductionSession: () => ({
-    session: { id: 's1', productionDate: '2026-08-24' }, timeWindow: 'open',
+    session: { id: 's1', productionDate: new Date().toISOString().slice(0, 10) },
+    timeWindow: 'open',
     loading: false, startDay: vi.fn(), startLoading: false, closeDay: vi.fn(), closeLoading: false,
   }),
   useDeboningEntries: () => ({
@@ -93,16 +94,31 @@ vi.mock('@/features/deboning/ByproductsWizard', () => ({
 import { DeboningHmiV10Page } from './DeboningHmiV10Page'
 
 // ── Zasiew ───────────────────────────────────────────────────────────────
+/**
+ * Daty liczone WZGLĘDEM DNIA URUCHOMIENIA, nie wpisane na sztywno.
+ *
+ * Pierwsza wersja stelaża miała partię z terminem 2026-08-28 i zestaw
+ * przestał przechodzić 29.08 — ekran rozbioru słusznie nie pozwala wybrać
+ * przeterminowanej partii, więc cztery testy okablowania przewracały się na
+ * upływie czasu, a nie na zmianie w kodzie. Fixture z datą w przeszłości to
+ * bomba zegarowa: psuje CI dzień po napisaniu testu.
+ */
+const dzien = (przesuniecie: number): string =>
+  new Date(Date.now() + przesuniecie * 86_400_000).toISOString().slice(0, 10)
+
+const DZIS = dzien(0)
+const TERMIN = dzien(4)          // partia ważna — ekran pozwala ją wybrać
+
 const partia = (nr: string, over: any = {}) => ({
   id: `b-${nr}`, internalBatchNo: nr, internalBatchSeq: Number(nr),
   supplierName: 'KOKO', supplierBatchNo: 'A-1',
-  slaughterDate: '2026-08-21', receivedDate: '2026-08-22', expiryDate: '2026-08-28',
+  slaughterDate: dzien(-8), receivedDate: dzien(-7), expiryDate: TERMIN,
   kgReceived: 3390, kgAvailable: 1000, kgUsed: 0, utilizationPct: 0, pricePerKg: 5,
-  createdAt: '2026-08-24T06:00:00Z', ...over,
+  createdAt: `${DZIS}T06:00:00Z`, ...over,
 })
 const lot = (nr: string, kgInitial: number, kgBulkFree: number) => ({
   id: `ms-${nr}`, lotNo: nr, kgInitial, kgAvailable: kgInitial, kgBulkFree,
-  expiryDate: '2026-08-28', productionDate: '2026-08-24', recipeId: '', status: 'AVAILABLE',
+  expiryDate: TERMIN, productionDate: DZIS, recipeId: '', status: 'AVAILABLE',
 })
 
 beforeAll(() => {
@@ -161,7 +177,7 @@ describe('okablowanie ekranu rozbioru', () => {
     fireEvent.click(await screen.findByText('503'))
     fireEvent.click(await screen.findByTestId('wybor-uboczne'))
     await screen.findByTestId('kreator-ubocznych')
-    expect(zlapane.uboczne.batch.expiryDate).toBe('2026-08-28')
+    expect(zlapane.uboczne.batch.expiryDate).toBe(TERMIN)
   })
 
   it('zakończona partia daje wejść w MIĘSO i pokazuje końcówkę', async () => {
@@ -248,7 +264,7 @@ describe('okablowanie zapisu wpisu rozbioru', () => {
     stan.batches = [partia('504'), partia('408', { kgAvailable: 0 })]
     stan.entries = [{
       id: 'e1', rawBatchId: 'b-408', rawBatchNo: '408', workerId: 'w1', workerName: 'DAWID',
-      kgTaken: 100, kgMeat: null, status: 'pending', createdAt: '2026-08-24T10:00:00Z',
+      kgTaken: 100, kgMeat: null, status: 'pending', createdAt: `${DZIS}T10:00:00Z`,
     }]
     await pokazEkran()
     expect(await screen.findByText('408')).toBeTruthy()
