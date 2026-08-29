@@ -115,8 +115,19 @@ def test_hdi_units_use_bare_wsad_and_produced_date():
     assert u["batch_no"] == "364"
     assert u["produced_date"] == "2026-06-12"
     assert u["shelf_life_days"] == 30
-    assert u["product_type_name"] == "Gold2"
+    # Nazwa pozycji HDI = RODZAJ + RECEPTURA (od 29.08.2026). Sama receptura
+    # scalała na dokumencie dwa różne rodzaje zrobione na tej samej recepturze.
+    assert u["product_type_name"] == "Kebab drobiowy Gold2"
     assert u["weight_kg"] == 40
+
+
+def test_hdi_units_biora_nazwe_rodzaju_z_dokumentow():
+    # Rodzaj nazywa się po składzie, a klient ma widzieć nazwę handlową.
+    units = units_from_stock_portions(
+        [{"fg": _fg(product_type_id="t-mix", product_type_name="KEBAB MIX 95/5",
+                    recipe_name="KIRMIZI"), "take": 1}],
+        {"r1": 30}, {"t-mix": "KEBAB MIX"})
+    assert units[0]["product_type_name"] == "KEBAB MIX KIRMIZI"
 
 
 def test_kebab_batch_wsad_strips_date_prefix_idempotently():

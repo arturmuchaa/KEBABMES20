@@ -2,6 +2,7 @@ from app.services.hdi_service import (
     _product_label,
     group_hdi_items,
     format_hdi_number,
+    hdi_product_base,
     units_from_plan_lines,
 )
 
@@ -140,3 +141,52 @@ def test_units_partial_production_grouped_to_hdi_items():
     assert by_name["GOLD KEBAB 10KG"]["qty"] == 40
     assert by_name["GOLD KEBAB 50KG"]["qty"] == 12
 
+
+
+# ── Rodzaj na pozycji HDI (zgłoszenie TRUVA, 29.08.2026) ────────────────────
+#
+# Dwa rodzaje na tej samej recepturze („KEBAB UDO 100%" i „KEBAB MIX 95/5"
+# na KIRMIZI) schodziły na dokument jako jedna pozycja „KIRMIZI 25KG".
+
+def test_product_base_laczy_rodzaj_z_receptura():
+    assert hdi_product_base("KEBAB UDO 100%", "KIRMIZI") == "KEBAB UDO 100% KIRMIZI"
+    assert hdi_product_base("KEBAB MIX", "KIRMIZI") == "KEBAB MIX KIRMIZI"
+
+
+def test_product_base_nie_dubluje_nazwy():
+    # Rodzaj „KEBAB YAPRAK" + receptura „YAPRAK" to nie „KEBAB YAPRAK YAPRAK".
+    assert hdi_product_base("KEBAB YAPRAK", "YAPRAK") == "KEBAB YAPRAK"
+    assert hdi_product_base("VATAN", "VATAN KEBAB") == "VATAN KEBAB"
+
+
+def test_product_base_braki_danych():
+    # Stare linie planu bez rodzaju zachowują się jak dotąd — sama receptura.
+    assert hdi_product_base("", "KIRMIZI") == "KIRMIZI"
+    assert hdi_product_base("KEBAB MIX", "") == "KEBAB MIX"
+
+
+def _line_pt(product_type_id, product_type_name, recipe_name, qty=1, kg=25):
+    return {"qty_done": qty, "kg_per_unit": kg, "recipe_id": "r1",
+            "recipe_name": recipe_name, "product_type_id": product_type_id,
+            "product_type_name": product_type_name, "batch_allocation": {},
+            "seasoned_batch_no": "PP1", "seasoned_batch_nos": ["PP1"],
+            "progress_updated_at": "2026-08-27"}
+
+
+def test_dwa_rodzaje_tej_samej_receptury_to_dwie_pozycje():
+    lines = [
+        _line_pt("t-udo", "KEBAB UDO 100%", "KIRMIZI", qty=2),
+        _line_pt("t-mix", "KEBAB MIX 95/5", "KIRMIZI", qty=3),
+    ]
+    doc_names = {"t-udo": "KEBAB UDO 100%", "t-mix": "KEBAB MIX"}
+    items = group_hdi_items(units_from_plan_lines(lines, {"r1": 365}, doc_names))
+    assert {i["name"]: i["qty"] for i in items} == {
+        "KEBAB MIX KIRMIZI 25KG": 3,
+        "KEBAB UDO 100% KIRMIZI 25KG": 2,
+    }
+
+
+def test_bez_mapy_nazw_dokumentowych_idzie_nazwa_rodzaju():
+    lines = [_line_pt("t-mix", "KEBAB MIX 95/5", "KIRMIZI", qty=1)]
+    items = group_hdi_items(units_from_plan_lines(lines, {"r1": 365}))
+    assert items[0]["name"] == "KEBAB MIX 95/5 KIRMIZI 25KG"

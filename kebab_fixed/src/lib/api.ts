@@ -1299,11 +1299,16 @@ function mapProductType(raw: any): ProductType {
     id:          raw.id,
     name:        raw.name        ?? '',
     description: raw.description ?? '',
+    documentName: raw.documentName ?? raw.document_name ?? '',
     components:  comps.map((c: any) => ({
       id:         c.id         ?? '',
       name:       c.name       ?? '',
       pct:        Number(c.pct ?? 0),
       sourceType: c.sourceType ?? c.source_type ?? 'meat_stock',
+      // materialTypeId MUSI przejść: formularz edycji odsyła składniki tak, jak
+      // je dostał, więc bez tego pierwsza edycja rodzaju kasowała powiązanie
+      // z katalogiem surowca i produkcja przestawała dopasowywać partie.
+      materialTypeId: c.materialTypeId ?? c.material_type_id ?? '',
     })),
     active:    raw.active    ?? true,
     createdAt: raw.createdAt ?? raw.created_at ?? '',

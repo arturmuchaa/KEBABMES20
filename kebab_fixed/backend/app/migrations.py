@@ -1312,6 +1312,12 @@ _DDL: list[str] = [
         PRIMARY KEY (plan_id, recipe_id)
     )""",
 
+    # Nazwa rodzaju NA DOKUMENTACH (HDI). Rodzaj w MES nazywa się tak, jak go
+    # planuje produkcja („KEBAB MIX 95/5"), a klient ma na dokumencie widzieć
+    # nazwę handlową („KEBAB MIX") — proporcji składu nie pokazujemy odbiorcy.
+    # NULL/puste = na dokumencie idzie zwykła nazwa rodzaju.
+    "ALTER TABLE product_types ADD COLUMN IF NOT EXISTS document_name TEXT",
+
     # Ziarno prognozy: 120 kg/h na osobę układającą (wartość od właściciela,
     # 27.08.2026) i planowana przerwa. W app_settings, żeby biuro mogło je
     # poprawić bez wdrożenia.

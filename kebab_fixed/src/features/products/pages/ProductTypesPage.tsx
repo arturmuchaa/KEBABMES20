@@ -40,7 +40,7 @@ export function ProductTypesPage() {
     ((matTypesData as any) ?? []).filter((m: any) => !m.requiresDeboning)
 
   function openCreate() { form.reset(); setEditItem(null); setModalOpen(true) }
-  function openEdit(p: ProductType) { setEditItem(p); setModalOpen(true) }
+  function openEdit(p: ProductType) { form.load(p); setEditItem(p); setModalOpen(true) }
 
   async function handleSubmit() {
     const dto = form.toDto()
@@ -92,6 +92,11 @@ export function ProductTypesPage() {
                 onClick={() => setExpanded(expanded === p.id ? null : p.id)}>
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] font-semibold">{p.name}</div>
+                  {p.documentName && p.documentName !== p.name && (
+                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                      Na dokumentach: <span className="font-semibold">{p.documentName}</span>
+                    </div>
+                  )}
                   {p.description && <div className="text-[11px] text-muted-foreground mt-0.5">{p.description}</div>}
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -164,6 +169,17 @@ export function ProductTypesPage() {
               <Label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1 block">Opis (opcjonalnie)</Label>
               <Input placeholder="np. Udo z kurczaka + filet z indyka"
                 value={form.description} onChange={e => form.setDescription(e.target.value)}/>
+            </div>
+            <div>
+              <Label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1 block">
+                Nazwa na dokumentach (opcjonalnie)
+              </Label>
+              <Input placeholder="np. KEBAB MIX — puste = nazwa rodzaju"
+                value={form.documentName} onChange={e => form.setDocumentName(e.target.value)}/>
+              <div className="text-[11px] text-muted-foreground mt-1">
+                Tak rodzaj pokaże się klientowi na HDI (razem z nazwą receptury,
+                np. „KEBAB MIX KIRMIZI"). Proporcji składu na dokument nie dajemy.
+              </div>
             </div>
 
             <div>

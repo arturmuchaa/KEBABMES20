@@ -40,6 +40,10 @@ export interface ProductType {
   readonly id:          string
   readonly name:        string          // np. "Kebab MIX 70/30"
   readonly description?: string
+  /** Nazwa na dokumentach dla klienta (HDI). Puste = `name`. Rodzaj nazywamy
+   *  po składzie („Kebab MIX 95/5"), a odbiorca ma widzieć nazwę handlową
+   *  („KEBAB MIX") — proporcji składu na dokument nie dajemy. */
+  readonly documentName?: string
   readonly components:  ProductMeatComponent[]
   readonly active:      boolean
   readonly createdAt:   string
@@ -49,12 +53,14 @@ export interface ProductType {
 export interface CreateProductTypeDto {
   name:         string
   description?: string
+  documentName?: string
   components:   Omit<ProductMeatComponent, 'id'>[]
 }
 
 export interface UpdateProductTypeDto {
   name?:        string
   description?: string
+  documentName?: string
   components?:  Omit<ProductMeatComponent, 'id'>[]
   active?:      boolean
 }

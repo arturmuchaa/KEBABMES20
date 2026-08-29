@@ -42,6 +42,8 @@ def _map(row: Dict) -> Dict:
         "id": row["id"],
         "name": row.get("name", ""),
         "description": row.get("description") or "",
+        # Nazwa na dokumentach dla klienta (HDI) — puste = nazwa rodzaju.
+        "documentName": row.get("document_name") or "",
         "components": result_comps,
         "active": row.get("active", True),
         "createdAt": str(row.get("created_at", "")),
@@ -80,11 +82,12 @@ def create_product_type(dto: ProductTypeCreate) -> Dict:
             conn,
             """
             INSERT INTO product_types
-                (id, name, description, components, active, created_at)
-            VALUES (%s,%s,%s,%s::jsonb,true,%s)
+                (id, name, description, document_name, components, active, created_at)
+            VALUES (%s,%s,%s,%s,%s::jsonb,true,%s)
             RETURNING *
             """,
-            (cuid(), dto.name, dto.description or None, comps_json, now_iso()),
+            (cuid(), dto.name, dto.description or None,
+             (dto.document_name or "").strip() or None, comps_json, now_iso()),
         )
     assert row is not None
     logger.info("product_type.created", extra={"id": row["id"]})
@@ -98,11 +101,12 @@ def update_product_type(type_id: str, dto: ProductTypeCreate) -> Dict:
             conn,
             """
             UPDATE product_types
-            SET name=%s, description=%s, components=%s::jsonb
+            SET name=%s, description=%s, document_name=%s, components=%s::jsonb
             WHERE id=%s
             RETURNING *
             """,
-            (dto.name, dto.description or None, comps_json, type_id),
+            (dto.name, dto.description or None,
+             (dto.document_name or "").strip() or None, comps_json, type_id),
         )
     if not row:
         raise HTTPException(404, "Rodzaj produktu nie znaleziony")

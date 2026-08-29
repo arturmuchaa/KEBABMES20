@@ -67,6 +67,7 @@ export function useProductTypes() {
 export function useProductTypeForm(initial?: ProductType) {
   const [name,       setName]       = useState(initial?.name ?? '')
   const [description,setDescription]= useState(initial?.description ?? '')
+  const [documentName, setDocumentName] = useState(initial?.documentName ?? '')
   const [components, setComponents] = useState<Omit<ProductMeatComponent, 'id'>[]>(
     initial?.components.map(({ id: _id, ...rest }) => rest) ?? [emptyComponent()]
   )
@@ -125,22 +126,42 @@ export function useProductTypeForm(initial?: ProductType) {
   const validation = validateComponents(components)
 
   const toDto = useCallback((): CreateProductTypeDto => ({
-    name, description: description || undefined, components,
-  }), [name, description, components])
+    name, description: description || undefined,
+    // Puste pole zapisujemy jako '' (nie undefined): inaczej wyczyszczenie
+    // nazwy dokumentowej nie dojechałoby do backendu.
+    documentName: documentName.trim(),
+    components,
+  }), [name, description, documentName, components])
 
   const reset = useCallback(() => {
     setName('')
     setDescription('')
+    setDocumentName('')
     setComponents([emptyComponent()])
+  }, [])
+
+  // Wczytanie rodzaju do edycji. Hook wisi na STRONIE, nie w modalu, więc
+  // `useState(initial)` zadziała tylko przy pierwszym renderze — „Edytuj"
+  // otwierało formularz z tym, co akurat w nim zostało (przy pierwszym wejściu
+  // PUSTY), a zapis nadpisywał skład rodzaju. Strona wywołuje `load` jawnie
+  // przy otwarciu edycji (znalezione 29.08.2026).
+  const load = useCallback((p: ProductType) => {
+    setName(p.name ?? '')
+    setDescription(p.description ?? '')
+    setDocumentName(p.documentName ?? '')
+    const comps = (p.components ?? []).map(({ id: _id, ...rest }) => rest)
+    setComponents(comps.length ? comps : [emptyComponent()])
   }, [])
 
   return {
     name, setName,
     description, setDescription,
+    documentName, setDocumentName,
     components,
     addComponent, removeComponent, updateComponent, setComponentMaterial, autoFillLastPct,
     validation,
     toDto,
     reset,
+    load,
   }
 }

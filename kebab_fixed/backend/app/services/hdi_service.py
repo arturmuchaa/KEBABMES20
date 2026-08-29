@@ -1,7 +1,7 @@
 """HDI — generowanie dokumentu wstępnego z zamówienia."""
 import json
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
@@ -22,6 +22,40 @@ logger = get_logger(__name__)
 
 def _product_label(product_type_name: str, weight_kg) -> str:
     return f"{(product_type_name or '').strip()} {int(round(float(weight_kg or 0)))}KG".strip()
+
+
+def hdi_product_base(type_label: str, recipe_name: str) -> str:
+    """Nazwa pozycji HDI bez wagi: RODZAJ + RECEPTURA.
+
+    Do 29.08.2026 pozycja brała samą recepturę, więc rodzaje „KEBAB UDO 100%"
+    i „KEBAB MIX 95/5" zrobione na tej samej recepturze schodziły na dokument
+    jako jedna pozycja „KIRMIZI" — odbiorca nie widział, że dostał dwa różne
+    wyroby (zgłoszenie klienta TRUVA). Rodzaj wchodzi do nazwy, a nazwa jest
+    kluczem grupowania w `group_hdi_items`, więc pozycje już się nie scalają.
+
+    Rodzaj bierzemy nazwą Z DOKUMENTÓW (`product_types.document_name`) —
+    proporcji składu („95/5") klientowi nie pokazujemy.
+
+    Gdy jedna nazwa zawiera się w drugiej, zostaje ta dłuższa: rodzaj
+    „KEBAB YAPRAK" z recepturą „YAPRAK" dałby inaczej „KEBAB YAPRAK YAPRAK".
+    """
+    t = (type_label or "").strip()
+    r = (recipe_name or "").strip()
+    if not t or not r:
+        return t or r
+    if r.upper() in t.upper():
+        return t
+    if t.upper() in r.upper():
+        return r
+    return f"{t} {r}"
+
+
+def document_type_names() -> Dict[str, str]:
+    """Mapa rodzaj_id → nazwa na dokumentach (puste pole = nazwa rodzaju)."""
+    return {
+        r["id"]: ((r.get("document_name") or r.get("name") or "").strip())
+        for r in query_all("SELECT id, name, document_name FROM product_types")
+    }
 
 
 def _fmt_date(iso) -> str:
@@ -49,7 +83,8 @@ def _pd_iso(val) -> str:
     return datetime.now().date().isoformat()
 
 
-def units_from_plan_lines(lines: List[Dict[str, Any]], shelf_by_recipe: Dict[str, int]) -> List[Dict[str, Any]]:
+def units_from_plan_lines(lines: List[Dict[str, Any]], shelf_by_recipe: Dict[str, int],
+                          doc_names: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
     """Zsyntetyzuj sztuki HDI z linii planu produkcji.
 
     Źródłem prawdy o faktycznej produkcji jest ``production_plan_lines.qty_done``
@@ -66,7 +101,10 @@ def units_from_plan_lines(lines: List[Dict[str, Any]], shelf_by_recipe: Dict[str
         qty_done = int(line.get("qty_done") or 0)
         if qty_done <= 0:
             continue
-        name = (line.get("recipe_name") or line.get("product_type_name") or "").strip()
+        name = hdi_product_base(
+            (doc_names or {}).get(line.get("product_type_id") or "")
+            or line.get("product_type_name") or "",
+            line.get("recipe_name") or "")
         weight = line.get("kg_per_unit") or 0
         shelf = int(shelf_by_recipe.get(line.get("recipe_id"), 0) or 0)
         pd = _pd_iso(line.get("progress_updated_at"))
@@ -95,7 +133,8 @@ def units_from_plan_lines(lines: List[Dict[str, Any]], shelf_by_recipe: Dict[str
 
 
 def units_from_stock_portions(
-    portions: List[Dict[str, Any]], shelf_by_recipe: Dict[str, int]
+    portions: List[Dict[str, Any]], shelf_by_recipe: Dict[str, int],
+    doc_names: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
     """Zsyntetyzuj sztuki HDI z porcji magazynowych finished_goods (pokrycie
     zamówienia towarem zrobionym "na magazyn", bez linku w liniach planu).
@@ -109,7 +148,10 @@ def units_from_stock_portions(
         take = int(p.get("take") or 0)
         if take <= 0:
             continue
-        name = (fg.get("recipe_name") or fg.get("product_type_name") or "").strip()
+        name = hdi_product_base(
+            (doc_names or {}).get(fg.get("product_type_id") or "")
+            or fg.get("product_type_name") or "",
+            fg.get("recipe_name") or "")
         pd = _pd_iso(fg.get("produced_date"))
         bno = kebab_batch_wsad(fg.get("batch_no") or "")
         shelf = int(shelf_by_recipe.get(fg.get("recipe_id"), 0) or 0)
@@ -231,8 +273,9 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
         for r in query_all(
             "SELECT id, shelf_life_days FROM recipes WHERE id = ANY(%s)", (recipe_ids,)):
             shelf_by_recipe[r["id"]] = int(r.get("shelf_life_days") or 0)
-    units = units_from_plan_lines(lines, shelf_by_recipe)
-    units += units_from_stock_portions(portions, shelf_by_recipe)
+    doc_names = document_type_names()
+    units = units_from_plan_lines(lines, shelf_by_recipe, doc_names)
+    units += units_from_stock_portions(portions, shelf_by_recipe, doc_names)
     if not units:
         raise HTTPException(400, "Brak wyprodukowanej produkcji dla tego zamówienia")
     items = group_hdi_items(units)
@@ -304,7 +347,8 @@ def build_hdi_from_wz(wz_id: str) -> Dict[str, Any]:
                 "SELECT id, shelf_life_days FROM recipes WHERE id = ANY(%s)", (recipe_ids,)):
             shelf_by_recipe[r["id"]] = int(r.get("shelf_life_days") or 0)
 
-    items = group_hdi_items(units_from_stock_portions(portions, shelf_by_recipe))
+    items = group_hdi_items(
+        units_from_stock_portions(portions, shelf_by_recipe, document_type_names()))
     total_qty = sum(i["qty"] for i in items)
     total_kg = round(sum(i["kg"] for i in items), 3)
 
