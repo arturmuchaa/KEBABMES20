@@ -123,3 +123,38 @@ export function orderLineDone(o: { zPlanow?: number; zWyrobu?: number }): number
     Number.isFinite(wyrob) ? wyrob : 0,
   )
 }
+
+export interface OrderLineProgress {
+  readonly id?: string
+  readonly qty?: number
+  /** Pokrycie z backendu: leży na magazynie + wydane klientowi (`qty_done`). */
+  readonly qtyDone?: number
+}
+
+/**
+ * Ile sztuk CAŁEGO zamówienia jest zrobionych — do paska postępu na pulpicie.
+ *
+ * Pulpit liczył to ze sztuk OSTEMPLOWANYCH numerem zamówienia (wyrób gotowy
+ * z `client_order_no`) plus aktywnych planów. Wyrób zrobiony „na magazyn",
+ * bez stempla, nie liczył się wcale — TRUVA/Z/1/08/26 miała 304 z 534 sztuk
+ * ostemplowanych i pulpit pokazywał 57%, a lista Zamówień (licząca z pokrycia
+ * backendu: zapas puli klienta + wydania) poprawne 100%.
+ *
+ * Liczymy więc POZYCJAMI, tą samą regułą co rozwinięcie wiersza pod spodem
+ * (`orderLineDone`): większe z pokrycia i pracy zaraportowanej na hali, nigdy
+ * suma. Pozycję przycinamy do jej ilości — nadprodukcja jednego wsadu nie
+ * może zaliczać pozycji, której nikt nie ruszył.
+ */
+export function orderDoneQty(
+  order: { lines?: readonly OrderLineProgress[] },
+  qtyDoneByLineId: ReadonlyMap<string, number>,
+): number {
+  return (order?.lines ?? []).reduce((suma, l) => {
+    const qty = Number(l?.qty)
+    const zrobione = orderLineDone({
+      zPlanow: qtyDoneByLineId.get(l?.id ?? '') ?? 0,
+      zWyrobu: Number(l?.qtyDone),
+    })
+    return suma + (Number.isFinite(qty) ? Math.min(zrobione, qty) : zrobione)
+  }, 0)
+}

@@ -9,7 +9,7 @@ import {
 } from '@/lib/apiClient'
 import {
   FINISHED_BATCHES_LIMIT, filterDeboningBatches, lastFinishedBatches,
-  orderLineDone, sortMeatGroupsByExpiry,
+  orderDoneQty, orderLineDone, sortMeatGroupsByExpiry,
 } from '@/features/dashboard/dashboardLists'
 import { ExpiryBadge, StatusBadge, computeDisplayStatus } from '@/components/ui/badge'
 import { fmtKg, fmtPct, fmtDatePl, getExpiryStatus, todayIso, cn } from '@/lib/utils'
@@ -564,16 +564,6 @@ export function DashboardPage() {
   const mixPct       = mixPlanned > 0 ? (mixDone / mixPlanned) * 100 : 0
 
   // ── Zamówienia — sort po deliveryDate ASC, exclude done/cancelled ─
-  const finishedQtyByOrderNo = useMemo(() => {
-    const m = new Map<string, number>()
-    allFinished.forEach((f: any) => {
-      const k = f.clientOrderNo ?? ''
-      if (!k) return
-      m.set(k, (m.get(k) ?? 0) + Number(f.qty ?? 0))
-    })
-    return m
-  }, [allFinished])
-
   const visibleOrders = useMemo(() => {
     return [...allOrders]
       .filter(o => o.status !== 'done' && o.status !== 'cancelled')
@@ -1307,7 +1297,6 @@ export function DashboardPage() {
           ) : (
             <OrdersTable
               orders={visibleOrders}
-              finishedQtyByOrderNo={finishedQtyByOrderNo}
               inProgressQtyByOrderId={inProgressQtyByOrderId}
               inProgressByLineId={inProgressQtyByOrderLineId}
               qtyDoneByLineId={totalDoneQtyByOrderLineId}
@@ -1324,9 +1313,8 @@ export function DashboardPage() {
 // OrdersTable — dense table z zamówieniami w stylu Subiekt GT
 //   Klik wiersza rozwija inline pozycje zamówienia (line breakdown).
 // ─────────────────────────────────────────────────────────────────
-function OrdersTable({ orders, finishedQtyByOrderNo, inProgressQtyByOrderId, inProgressByLineId, qtyDoneByLineId }: {
+function OrdersTable({ orders, inProgressQtyByOrderId, inProgressByLineId, qtyDoneByLineId }: {
   orders: any[]
-  finishedQtyByOrderNo: Map<string, number>
   inProgressQtyByOrderId: Map<string, number>
   inProgressByLineId: Map<string, number>
   qtyDoneByLineId: Map<string, number>
@@ -1360,11 +1348,15 @@ function OrdersTable({ orders, finishedQtyByOrderNo, inProgressQtyByOrderId, inP
         <tbody>
           {orders.map((o, idx) => {
             const isExp     = expanded === o.id
-            const finished  = finishedQtyByOrderNo.get(o.orderNo) ?? 0
             const inProgress= inProgressQtyByOrderId.get(o.id) ?? 0
-            const qtyDone   = finished + inProgress
+            // Wykonanie liczymy POZYCJAMI — z pokrycia backendu (zapas puli
+            // klienta + wydania) i z pracy zaraportowanej na hali. Stempel
+            // numeru zamówienia na wyrobie nie wystarcza: sztuki zrobione „na
+            // magazyn" go nie mają i pulpit zaniżał postęp (TRUVA: 57% zamiast
+            // 100%). Ta sama reguła co w rozwinięciu wiersza pod spodem.
+            const qtyDone   = orderDoneQty(o, qtyDoneByLineId)
             const qtyTotal  = Number(o.totalUnits ?? 0)
-            const pct       = qtyTotal > 0 ? Math.round((qtyDone / qtyTotal) * 100) : 0
+            const pct       = qtyTotal > 0 ? Math.min(100, Math.round((qtyDone / qtyTotal) * 100)) : 0
             const isDue     = o.deliveryDate
               ? new Date(o.deliveryDate).getTime() - Date.now() < 1000 * 60 * 60 * 48
               : false

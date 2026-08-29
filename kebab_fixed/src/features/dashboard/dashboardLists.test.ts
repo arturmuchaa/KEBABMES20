@@ -157,3 +157,45 @@ describe('orderLineDone — ile tej pozycji faktycznie zrobiono', () => {
     expect(orderLineDone({ zPlanow: NaN as any, zWyrobu: undefined as any })).toBe(0)
   })
 })
+
+/**
+ * Postęp CAŁEGO zamówienia na pulpicie (29.08.2026).
+ *
+ * Zgłoszenie właściciela: „TRUVA w Zamówieniach ma 100% i to prawda, a na
+ * pulpicie 57%". Pulpit liczył wykonanie ze sztuk OSTEMPLOWANYCH numerem
+ * zamówienia (`finished_goods.client_order_no`) plus aktywnych planów, więc
+ * 230 z 534 sztuk — wyprodukowanych na magazyn, bez stempla — nie liczyło się
+ * wcale. Sekcja Zamówienia liczy z pokrycia (zapas klienta + wydania) i widzi
+ * je poprawnie. Nagłówek wiersza musi mówić to samo, co rozwinięcie pod nim.
+ */
+import { orderDoneQty } from './dashboardLists'
+
+describe('orderDoneQty — ile sztuk zamówienia jest zrobionych', () => {
+  const zam = (lines: any[]) => ({ lines })
+
+  it('liczy z pokrycia backendu, nie ze stempla numeru zamówienia', () => {
+    // TRUVA: pozycje pokryte w całości zapasem klienta, plany o nich nie wiedzą.
+    const o = zam([{ id: 'a', qty: 64, qtyDone: 64 }, { id: 'b', qty: 80, qtyDone: 80 }])
+    expect(orderDoneQty(o, new Map())).toBe(144)
+  })
+
+  it('bierze pracę z hali, zanim biuro potwierdzi dzień', () => {
+    const o = zam([{ id: 'a', qty: 50, qtyDone: 0 }])
+    expect(orderDoneQty(o, new Map([['a', 30]]))).toBe(30)
+  })
+
+  it('NIE sumuje dwóch źródeł tej samej pozycji', () => {
+    const o = zam([{ id: 'a', qty: 50, qtyDone: 40 }])
+    expect(orderDoneQty(o, new Map([['a', 40]]))).toBe(40)
+  })
+
+  it('nadprodukcja jednej pozycji nie zalicza innej — cap na ilości pozycji', () => {
+    const o = zam([{ id: 'a', qty: 50, qtyDone: 0 }, { id: 'b', qty: 50, qtyDone: 0 }])
+    expect(orderDoneQty(o, new Map([['a', 70]]))).toBe(50)
+  })
+
+  it('zamówienie bez pozycji to zero, nie NaN', () => {
+    expect(orderDoneQty({ lines: [] } as any, new Map())).toBe(0)
+    expect(orderDoneQty({} as any, new Map())).toBe(0)
+  })
+})
