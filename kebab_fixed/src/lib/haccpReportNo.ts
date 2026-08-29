@@ -1,12 +1,19 @@
 /**
- * Numer karty raportu HACCP rozbioru: `R/<nr>/RRRR`.
+ * Numer karty raportu rozbioru: `R/<nr>/MM/RR`.
  *
- * Format wprost z instrukcji 2.1 oPRP pkt 4.4a — „R/numer kolejny
- * w miesiącu/rok". Do 14.08.2026 drukowaliśmy `R/<nr>/MM/RR` (jak numer PK
- * na karcie produkcji); miesiąc wypadł z numeru przy uzgadnianiu karty
- * z instrukcją. UWAGA: numer resetuje się co miesiąc, a w numerze został
- * sam rok, więc R/1/2026 wypada raz na każdy miesiąc — kartę identyfikuje
- * dopiero para numer + data produkcji.
+ * Format wprost z instrukcji 2.1 oPRP pkt 4.4a (Edycja 2, tekst poprawiony
+ * 19.08.2026): „R/numer kolejny w miesiącu/miesiąc/rok, np. R/1/08/26" —
+ * miesiąc dwucyfrowo, rok dwiema OSTATNIMI cyframi. Wzór karty 2.1.1 (Edycja 3)
+ * ma w polu „Numer raportu" dokładnie `R/1/08/26`.
+ *
+ * Historia formatu (żeby nie zawrócić po raz trzeci):
+ *  • do 14.08.2026 drukowaliśmy `R/<nr>/MM/RR` — tak jak teraz,
+ *  • 14.08.2026 miesiąc wypadł z numeru (`R/<nr>/RRRR`) przy uzgadnianiu karty
+ *    z ówczesnym brzmieniem instrukcji,
+ *  • 29.08.2026 wraca `R/<nr>/MM/RR` — nowe wydanie instrukcji podaje pełny
+ *    wzór z miesiącem. Numer nie jest nigdzie zapisywany (liczy się przy
+ *    druku), więc poprawka działa WSTECZ: przedruk każdej karty od sierpnia
+ *    wychodzi już w nowym formacie.
  *
  * Numer jest PORZĄDKOWY w obrębie miesiąca — liczy karty, nie dni kalendarza.
  * Wcześniej brano wprost dzień miesiąca, więc każdy dzień bez produkcji robił
@@ -14,7 +21,8 @@
  * R/3 (zgłoszenie 2026-08-04). Karty muszą iść R/1, R/2, R/3…, bo inspekcja
  * czyta je jako kolejne dokumenty, a nie jako daty.
  *
- * Reset z nowym miesiącem — jak dotąd (decyzja właściciela 2026-07-16).
+ * Reset z nowym miesiącem — instrukcja pkt 4.4: „Numeracja raportów rozpoczyna
+ * się od 1 w pierwszym dniu każdego miesiąca".
  */
 
 /** Dni z produkcją w miesiącu `date`, posortowane rosnąco, bez duplikatów. */
@@ -37,5 +45,5 @@ export function haccpReportNo(date: string, productionDates: Iterable<string>): 
   // Dzień spoza listy (np. podgląd dnia bez wpisów) i tak dostaje numer —
   // kolejny po ostatnim dniu produkcyjnym przed nim.
   const nth = days.includes(date) ? upTo : upTo + 1
-  return `R/${nth}/${date.slice(0, 4)}`
+  return `R/${nth}/${date.slice(5, 7)}/${date.slice(2, 4)}`
 }

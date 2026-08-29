@@ -211,7 +211,8 @@ function SingleReport({ data }: { data: ReportData }) {
 
   // Numer raportu: R/nr/MM/RR — JEDEN dzień produkcyjny = JEDEN numer, liczony
   // PORZĄDKOWO (dzień bez produkcji nie robi dziury), reset z nowym miesiącem.
-  // Decyzja właściciela 2026-07-16, poprawka numeracji 2026-08-04.
+  // Decyzja właściciela 2026-07-16, poprawka numeracji 2026-08-04, powrót
+  // miesiąca do numeru 2026-08-29 (instrukcja 2.1 pkt 4.4a: „R/1/08/26").
   const reportNo = haccpReportNo(date, productionDates)
 
   return (
