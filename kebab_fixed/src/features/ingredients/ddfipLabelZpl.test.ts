@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  DDFIP_LABEL_H_MM, DDFIP_LABEL_W_MM, DDFIP_PRINT_W_MM,
+  DDFIP_LABEL_H_MM, DDFIP_LABEL_W_MM, DDFIP_NAGLOWEK, DDFIP_PRINT_W_MM,
   ddfipLabelZpl, znakowWWierszu, zawinTekst,
 } from './ddfipLabelZpl'
 
@@ -176,5 +176,24 @@ describe('znakowWWierszu', () => {
   it('liczy z pola zadruku, nie z całej taśmy', () => {
     // Font 0 jest proporcjonalny — ~0,6 wysokości na znak.
     expect(znakowWWierszu(5)).toBe(Math.floor(DDFIP_PRINT_W_MM / (5 * 0.6)))
+  })
+})
+
+describe('nagłówek naklejki', () => {
+  it('mieści się w szerokości druku', () => {
+    // Nazwa ekranu i nagłówek naklejki to jeden napis (DDFIP_NAGLOWEK), więc
+    // zmiana nazwy w menu potrafi ją wypchnąć poza taśmę. Bez tego testu
+    // wyszłoby to dopiero na wydruku, po naklejeniu na paletę.
+    expect(DDFIP_NAGLOWEK.length).toBeLessThanOrEqual(znakowWWierszu(3.2))
+  })
+
+  it('trafia na etykietę', () => {
+    const zpl = ddfipLabelZpl({
+      receptionNo: 'DF/1/08', ingredientName: 'Folia stretch', qty: 120,
+      unit: 'szt', batchNo: 'F-1', expiryDate: '2029-01-01',
+      supplierName: 'BERG', documentNo: 'FV 1', receivedDate: '2026-08-30',
+    })
+    expect(zpl).toContain(DDFIP_NAGLOWEK)
+    expect(zpl).not.toContain('Przyjęcie DDFiP')
   })
 })

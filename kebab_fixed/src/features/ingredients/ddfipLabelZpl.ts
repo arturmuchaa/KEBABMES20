@@ -27,6 +27,12 @@ export const DDFIP_LABEL_H_MM = 150
 
 /** Margines taśmy. Zebra gubi pierwszy milimetr przy krawędzi. */
 const M = 4
+/**
+ * Nagłówek naklejki — ta sama nazwa co na ekranie i w menu biura.
+ * Skrót DDFiP zostaje na karcie 1.3.1; magazynier czyta z palety nazwę,
+ * a nie akronim z księgi.
+ */
+export const DDFIP_NAGLOWEK = 'Przyjęcie opakowań i przypraw'
 export const DDFIP_PRINT_W_MM = DDFIP_LABEL_W_MM - 2 * M
 
 /** Ile znaków wchodzi w wiersz danego fontu (font 0 jest proporcjonalny,
@@ -147,7 +153,7 @@ export function ddfipLabelZpl(
   const body = [
     labelLogoZpl(logoX, dot(g, 3 + g.oy)),
 
-    text(g, M, 4, PODPIS_MM, 'Przyjęcie DDFiP'),
+    text(g, M, 4, PODPIS_MM, DDFIP_NAGLOWEK),
     text(g, M, 8.5, 11, input.receptionNo || '—'),
     line(g, 21.5),
 
