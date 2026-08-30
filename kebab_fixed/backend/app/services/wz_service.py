@@ -26,6 +26,7 @@ from app.services.orders_service import (
     zamknij_wyslane_zamowienia,
 )
 from app.services.order_stock_service import (
+    picks_for_order,
     produced_by_key_from_plan_lines,
     stock_portions_for_order,
 )
@@ -556,6 +557,7 @@ def create_manual_wz(
     pallets_h1: int = 0,
     pallets_other: int = 0,
     containers_total: Optional[int] = None,
+    order_id: Optional[str] = None,
     pallets_other_kind: Optional[str] = None,
     payroll_deduction: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -596,8 +598,13 @@ def create_manual_wz(
     seller = _seller_block()
 
     with transaction() as conn:
+        # Dokument wystawiony z zamówienia ZOSTAJE z nim związany, choć idzie
+        # ręczną ścieżką: bez tego stempla zamówienie pokazywałoby „brak WZ",
+        # a przy ponownym wejściu nikt by nie ostrzegł, że dokument już jest.
         wid = _insert_wz(
-            conn, source_type="manual", source_id=None, seller=seller,
+            conn,
+            source_type="order" if order_id else "manual",
+            source_id=order_id or None, seller=seller,
             buyer=buyer, valued=valued, lines=lines, total=total, place=place_val,
             issued=issued, released=released, notes=notes,
             currency=currency, eur_rate=eur_rate,
@@ -1267,6 +1274,31 @@ def preview_order_wz(order_id: str) -> Dict[str, Any]:
         "lines": p["lines"],
         "existing": ({"id": existing["id"], "number": existing["number"],
                       "valued": existing["valued"]} if existing else None),
+    }
+
+
+def picks_from_order(order_id: str) -> Dict[str, Any]:
+    """Nabywca + wiersze magazynu pokrywające zamówienie (do formularza WZ)."""
+    p = _order_wz_payload(order_id)
+    picks = picks_for_order(order_id)
+    return {
+        "order_id": order_id,
+        "order_no": p["order"].get("order_no"),
+        "client_id": p["order"].get("client_id") or "",
+        "buyer": p["buyer"],
+        "ordered": p["ordered"],
+        "picks": [
+            {
+                "stock_id": (poz["fg"] or {}).get("id"),
+                "qty": int(poz.get("take") or 0),
+                "batch_no": (poz["fg"] or {}).get("batch_no"),
+                "product_type_name": (poz["fg"] or {}).get("product_type_name") or "",
+                "recipe_name": (poz["fg"] or {}).get("recipe_name") or "",
+                "kg_per_unit": float((poz["fg"] or {}).get("kg_per_unit") or 0),
+                "qty_available": int(float((poz["fg"] or {}).get("qty_available") or 0)),
+            }
+            for poz in picks
+        ],
     }
 
 

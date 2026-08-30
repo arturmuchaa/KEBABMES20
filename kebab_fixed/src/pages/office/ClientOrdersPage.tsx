@@ -11,7 +11,6 @@ import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi } from '@/lib/apiClient'
 import { hdiApi, wzApi } from '@/lib/api'
 import { CmrFormModal } from '@/components/cmr/CmrFormModal'
-import { WzFromOrderModal } from '@/components/wz/WzFromOrderModal'
 import { useClientNames } from '@/lib/clientNames'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { wydane, wydaneWCalosci } from '@/features/orders/lineShipping'
@@ -79,7 +78,6 @@ export function ClientOrdersPage() {
   const clientDisplay = useClientNames()
   const { data: orders, loading, refetch } = useApi(() => clientOrdersApi.list())
   const [cmrOrderId,   setCmrOrderId]   = useState<string | null>(null)
-  const [wzOrderId,    setWzOrderId]    = useState<string | null>(null)
   const [expanded,     setExpanded]     = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState('')
   // Start z ?q= — globalne szukanie (Ctrl+K) kieruje tu z numerem zamówienia.
@@ -275,9 +273,12 @@ export function ClientOrdersPage() {
                                 HDI
                               </button>
                               <button
-                                onClick={(e) => { e.stopPropagation(); setWzOrderId(o.id) }}
+                                /* Od 30.08.2026 zamówienie przenosi się do ZWYKŁEGO
+                                   formularza WZ — z pickerem, VAT-em, paletami
+                                   i podglądem. Osobne okno miało z tego ułamek. */
+                                onClick={(e) => { e.stopPropagation(); navigate(`/office/wz/nowy?order=${o.id}`) }}
                                 className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-amber-700 hover:bg-amber-50"
-                                title="Wystaw WZ (rozchód ze stanu)"
+                                title="Wystaw WZ — otwiera formularz z pozycjami zamówienia"
                               >
                                 WZ
                               </button>
@@ -577,7 +578,6 @@ export function ClientOrdersPage() {
       </Card>
 
       {cmrOrderId && <CmrFormModal orderId={cmrOrderId} onClose={() => setCmrOrderId(null)} />}
-      {wzOrderId && <WzFromOrderModal orderId={wzOrderId} onClose={() => setWzOrderId(null)} />}
 
     </div>
   )

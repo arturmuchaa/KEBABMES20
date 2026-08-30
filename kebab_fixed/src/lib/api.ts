@@ -2285,6 +2285,8 @@ export const wzApi = {
     get<any>(`/wz/stock/raw/card?stock_type=${encodeURIComponent(stockType)}&stock_id=${encodeURIComponent(stockId)}`),
   createManual: (body: {
     buyer: { name: string; address?: string; nip?: string };
+    /** Zamówienie, z którego wyszedł dokument — zostaje z nim związany. */
+    orderId?: string;
     items: { stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string; kgPerUnit?: number; containers?: number; productionDate?: string | null; vatRate?: number }[];
     valued?: boolean; place?: string; issuedDate?: string; releaseDate?: string; notes?: string;
     currency?: string; eurRate?: number | null;
@@ -2309,6 +2311,18 @@ export const wzApi = {
     patch<WzDoc>(`/wz/${encodeURIComponent(id)}/cancel`, {}),
   quantityChain: (orderId: string) =>
     get<QuantityChain>(`/client-orders/${encodeURIComponent(orderId)}/quantity-chain`),
+  /** Wiersze magazynu pod „Wystaw WZ" na zamówieniu — do zwykłego formularza. */
+  fromOrderPicks: (orderId: string) =>
+    get<{
+      order_id: string; order_no: string; client_id: string
+      buyer: { name: string; address: string; nip: string }
+      ordered: number
+      picks: {
+        stock_id: string; qty: number; batch_no: string | null
+        product_type_name: string; recipe_name: string
+        kg_per_unit: number; qty_available: number
+      }[]
+    }>(`/wz/from-order/${encodeURIComponent(orderId)}/picks`),
   fromOrderPreview: (orderId: string) =>
     get<{
       order_id: string; order_no: string; buyer_name: string; buyer_nip: string

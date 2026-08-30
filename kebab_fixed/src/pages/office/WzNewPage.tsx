@@ -12,6 +12,7 @@ import {
   sanitizeDecimal, sanitizeInt, toNum, type WzRow as Row,
 } from '@/features/wz/rowMath'
 import { stawkaVatDlaNabywcy } from '@/features/wz/wzVat'
+import { zlozNazweWyrobu } from '@/features/wz/nazwaWyrobu'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -93,6 +94,43 @@ export function WzNewPage() {
   const [empAmount, setEmpAmount] = useState('')
   const [err, setErr]         = useState('')
   const [savedDoc, setSavedDoc] = useState<WzDoc | null>(null)
+  /** Zamówienie, z którego przyszły pozycje — tylko do pokazania w nagłówku. */
+  const [zZamowienia, setZZamowienia] = useState<{ orderNo: string; brakuje: number } | null>(null)
+  const [orderId, setOrderId] = useState<string>('')
+
+  // „Wystaw WZ" na zamówieniu otwiera TEN formularz z wstawionymi pozycjami
+  // (?order=id) — wcześniej było osobne, ubogie okno bez pickera, VAT-u,
+  // palet i podglądu. Dokument nadal wystawia się zwykłą ścieżką ręczną,
+  // więc rozchód idzie po stock_id, tak jak przy każdym innym WZ.
+  useEffect(() => {
+    const orderId = new URLSearchParams(window.location.search).get('order')
+    if (!orderId) return
+    let anulowane = false
+    wzApi.fromOrderPicks(orderId).then(d => {
+      if (anulowane) return
+      setBuyer({ name: d.buyer.name || '', address: d.buyer.address || '', nip: d.buyer.nip || '' })
+      setOrderId(orderId)
+      if (d.client_id) { setClientId(d.client_id); setStockView('client') }
+      const wiersze: Row[] = d.picks.map(p => ({
+        stockType: 'fg', stockId: p.stock_id,
+        name: zlozNazweWyrobu(p.product_type_name, p.recipe_name)
+          + (p.kg_per_unit > 0 ? ` ${fmtKg3(p.kg_per_unit)}kg` : ''),
+        unit: 'szt', qtyStr: String(p.qty), priceStr: '',
+        batchNo: p.batch_no ?? undefined,
+        available: p.qty_available,
+        kgPerUnit: p.kg_per_unit || undefined,
+        vatRate: stawkaVatDlaNabywcy(d.buyer.nip),
+      }))
+      // Dedupe na wypadek podwójnego odpalenia efektu (StrictMode).
+      setRows(r => {
+        const sa = new Set(r.map(x => x.stockId))
+        return [...r, ...wiersze.filter(w => !sa.has(w.stockId))]
+      })
+      const wstawione = d.picks.reduce((s2, p) => s2 + p.qty, 0)
+      setZZamowienia({ orderNo: d.order_no || '', brakuje: Math.max(0, d.ordered - wstawione) })
+    }).catch(e => setErr(e?.message || 'Nie udało się wczytać pozycji zamówienia'))
+    return () => { anulowane = true }
+  }, [])
 
   useEffect(() => {
     clientsApi.list().then(setClients)
@@ -314,6 +352,7 @@ export function WzNewPage() {
     try {
       const doc = await wzApi.createManual({
         buyer,
+        orderId: orderId || undefined,
         items: rows.map(r => ({
           stockType: r.stockType, stockId: r.stockId, name: r.name, unit: r.unit,
           qty: rowQty(r), price: rowPrice(r), batchNo: r.batchNo, kgPerUnit: r.kgPerUnit,
@@ -457,8 +496,23 @@ export function WzNewPage() {
           <ArrowLeft size={16} />
         </Button>
         <div className="min-w-0">
-          <h1 className="text-lg font-bold leading-tight">Nowy dokument WZ</h1>
-          <div className="text-[11px] text-ink-4">Wydanie zewnętrzne — sprzedaż z magazynu (rozchód ze stanu)</div>
+          <h1 className="text-lg font-bold leading-tight">
+            Nowy dokument WZ
+            {zZamowienia && (
+              <span className="ml-2 text-[12px] font-semibold text-primary">
+                z zamówienia {zZamowienia.orderNo}
+              </span>
+            )}
+          </h1>
+          <div className="text-[11px] text-ink-4">
+            {zZamowienia
+              ? (zZamowienia.brakuje > 0
+                  // Braku NIE ukrywamy: dokument wyszedłby cichy, a magazynier
+                  // dowiedziałby się o nim dopiero przy załadunku.
+                  ? `Pozycje wstawione z magazynu. Brakuje ${zZamowienia.brakuje} szt. do pełnego zamówienia — sprawdź ilości.`
+                  : 'Pozycje wstawione z magazynu — sprawdź ilości i ceny.')
+              : 'Wydanie zewnętrzne — sprzedaż z magazynu (rozchód ze stanu)'}
+          </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[10px] uppercase tracking-wider text-ink-4">Numer</span>

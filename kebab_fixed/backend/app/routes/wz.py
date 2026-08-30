@@ -103,6 +103,7 @@ def manual(body: dict):
     return svc.create_manual_wz(
         buyer=body.get("buyer") or {},
         selections=items,
+        order_id=(body.get("orderId") or "").strip() or None,
         valued=bool(body.get("valued", True)),
         place=body.get("place"),
         issued_date=body.get("issuedDate"),
@@ -146,6 +147,17 @@ def cancel(wz_id: str):
 def from_order_preview(order_id: str):
     """Pozycje przyszłego WZ z zamówienia (do okna cen) — bez tworzenia dokumentu."""
     return svc.preview_order_wz(order_id)
+
+
+@router.get("/from-order/{order_id}/picks")
+def from_order_picks(order_id: str):
+    """Wiersze magazynu pod „Wystaw WZ" na zamówieniu.
+
+    Zamówienie przenosi się do ZWYKŁEGO formularza WZ, więc oddajemy to,
+    czym ten formularz operuje: wiersze magazynu wyrobu gotowego z sugerowaną
+    ilością, plus dane nabywcy.
+    """
+    return svc.picks_from_order(order_id)
 
 
 @router.post("/from-order")

@@ -177,7 +177,11 @@ def stock_portions_for_order(
           AND COALESCE(fg.source_production_id, '') NOT IN (
               SELECT DISTINCT pl.plan_id FROM production_plan_lines pl
               WHERE pl.client_order_id = %s)
-        ORDER BY (fg.client_order_no = %s) DESC,
+        -- COALESCE, nie gołe porównanie: `NULL = 'ZAM/7/08'` daje w SQL NULL,
+        -- a przy DESC Postgres stawia NULL-e PIERWSZE. Bez tego 13 wierszy
+        -- bez stempla wyprzedzało 34 ostemplowane (produkcja, 30.08.2026) —
+        -- odwrotnie niż mówi reguła kolejności opisana na górze modułu.
+        ORDER BY (COALESCE(fg.client_order_no, '') = %s) DESC,
                  (COALESCE(NULLIF(fg.client_id, ''), (
                       SELECT c.id FROM clients c
                       WHERE c.name = fg.client_name OR c.display_name = fg.client_name
@@ -222,3 +226,71 @@ def stock_portions_for_order(
         )
     }
     return portion_stock_rows(shortfalls, fg_rows, order_no, wydane_wg_wiersza)
+
+
+def picks_for_order(order_id: str) -> List[Dict[str, Any]]:
+    """Wiersze magazynu wyrobu gotowego pokrywające CAŁE zamówienie.
+
+    Pod „Wystaw WZ" na zamówieniu, które od 30.08.2026 otwiera zwykły
+    formularz WZ z wstawionymi pozycjami zamiast osobnego, ubogiego okna.
+    Formularz rozchodowuje towar po `stock_id`, więc potrzebuje WIERSZY
+    magazynu, a nie abstrakcyjnych pozycji z linii planu.
+
+    Różnica wobec `stock_portions_for_order`: tam liczą się tylko BRAKI po
+    produkcji zaraportowanej na planach, tu całe zamówienie — bo dokument
+    ma wykazać wszystko, co jedzie, niezależnie od tego, czy powstało pod
+    ten plan, czy leżało na magazynie.
+
+    Kolejność czerpania i reguły własności zostają te same, co przy pokryciu
+    ([[kebab-pokrycie-zamowien]]): najpierw stempel tego zamówienia, potem
+    zapas własny albo niczyj, a cudzy towar dopiero świadomie i ręcznie —
+    dlatego go tu w ogóle nie ma.
+    """
+    order = query_all("SELECT id, order_no, client_id FROM client_orders WHERE id=%s",
+                      (order_id,))
+    if not order:
+        return []
+    order_no = order[0].get("order_no") or ""
+
+    order_lines = query_all(
+        "SELECT recipe_id, kg_per_unit, product_type_id, packaging_id, qty "
+        "FROM client_order_lines WHERE order_id=%s", (order_id,))
+    braki = compute_shortfalls(order_lines, {}, {})
+    if not braki:
+        return []
+
+    fg_rows = query_all(
+        """
+        SELECT id, batch_no, recipe_id, recipe_name, product_type_id, product_type_name,
+               packaging_id, packaging_name,
+               kg_per_unit, qty, qty_available, qty_shipped,
+               client_order_no, client_name, produced_date, created_at
+        FROM finished_goods fg
+        WHERE COALESCE(fg.qty_available, 0) > 0
+          AND (
+               fg.client_order_no = %s
+               OR (
+                   (COALESCE(fg.client_order_no, '') = ''
+                    OR NOT EXISTS (SELECT 1 FROM client_orders o2
+                                   WHERE o2.order_no = fg.client_order_no
+                                     AND o2.status NOT IN ('done', 'cancelled')))
+                   AND COALESCE(NULLIF(fg.client_id, ''), (
+                           SELECT c.id FROM clients c
+                           WHERE c.name = fg.client_name OR c.display_name = fg.client_name
+                           ORDER BY (c.name = fg.client_name) DESC
+                           LIMIT 1
+                       ), '') IN ('', COALESCE((SELECT o3.client_id FROM client_orders o3
+                                                WHERE o3.id = %s), ''))
+               ))
+        -- COALESCE, nie gołe porównanie: `NULL = 'ZAM/7/08'` daje w SQL NULL,
+        -- a przy DESC Postgres stawia NULL-e PIERWSZE — towar bez stempla
+        -- wyprzedzałby ostemplowany, czyli dokładnie odwrotnie niż chcemy.
+        ORDER BY (COALESCE(fg.client_order_no, '') = %s) DESC,
+                 produced_date ASC NULLS LAST, created_at ASC
+        """,
+        (order_no, order_id, order_no),
+    )
+    # Bez `wydane_wg_wiersza`: formularz wystawia NOWY dokument, więc liczy
+    # się tylko to, co fizycznie leży. Sztuki już wydane pokazałyby się jako
+    # dostępne i biuro wydałoby je drugi raz.
+    return portion_stock_rows(braki, fg_rows, order_no)
