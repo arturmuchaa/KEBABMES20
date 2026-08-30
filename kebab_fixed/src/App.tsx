@@ -13,6 +13,9 @@ import { SuppliersPage } from '@/pages/office/SuppliersPage'
 import { ClientsPage }   from '@/pages/office/ClientsPage'
 import { RawStockPage }  from '@/pages/office/RawStockPage'
 import { SpiceStockPage }from '@/pages/office/SpiceStockPage'
+import { IngredientReceptionPage } from '@/pages/office/IngredientReceptionPage'
+import { IngredientLabelsPage } from '@/pages/office/IngredientLabelsPage'
+import { DdfipRegisterPrintPage } from '@/pages/office/DdfipRegisterPrintPage'
 import { SeasonedMeatPage } from '@/pages/office/SeasonedMeatPage'
 import { MixingHistoryPage } from '@/pages/office/MixingHistoryPage'
 import { ProductionHistoryPage } from '@/pages/office/ProductionHistoryPage'
@@ -143,6 +146,8 @@ export default function App() {
       <Route path="/office/arkusz-kontroli/druk" element={<SanitaryCheckPrintPage />} />
       <Route path="/office/kontrola-temperatury/druk" element={<TemperatureLogPrintPage />} />
       <Route path="/office/rejestr-przyjecia/druk" element={<ReceptionRegisterPrintPage />} />
+      {/* Karta 1.3.1 — ta sama oprawa co 1.1.1, inne źródło danych. */}
+      <Route path="/office/rejestr-ddfip/druk" element={<DdfipRegisterPrintPage />} />
       <Route path="/office/rejestr-przyjecia-szczegolowy/druk" element={<ReceptionRegisterDetailPrintPage />} />
       {/* Statyczna ścieżka PRZED parametryczną — 'raport' nie może wpaść jako :id */}
       <Route path="/office/pojemniki/raport/druk" element={<ContainerStatementPrintPage />} />
@@ -186,6 +191,9 @@ export default function App() {
         <Route path="raw-batches/:receptionId/zawieszki" element={<ReceptionTagsPage />} />
         <Route path="magazyn/surowiec"      element={<RawStockPage />} />
         <Route path="magazyn/przyprawy"     element={<SpiceStockPage />} />
+        {/* Przyjęcie DDFiP — instrukcja 1.3 oPRP; osobna seria numerów DF. */}
+        <Route path="przyjecie-ddfip"       element={<IngredientReceptionPage />} />
+        <Route path="przyjecie-ddfip/:receptionId/etykiety" element={<IngredientLabelsPage />} />
         <Route path="magazyn/mieso-przyp"   element={<SeasonedMeatPage />} />
         <Route path="magazyn/opakowania"    element={<PackagingPage />} />
         <Route path="magazyn/gotowe"        element={<FinishedGoodsPage />} />

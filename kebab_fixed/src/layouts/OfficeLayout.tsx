@@ -22,6 +22,7 @@ const PAGE_TITLES: Record<string, { title: string; description?: string }> = {
   '/office/raw-batches':           { title: 'Przyjęcie ćwiartki',          description: 'Rejestracja dostaw surowca' },
   '/office/magazyn/surowiec':      { title: 'Magazyn — Surowiec',          description: 'Stan magazynu ćwiartki' },
   '/office/magazyn/przyprawy':     { title: 'Magazyn — Przyprawy',         description: 'Przyprawy i dodatki' },
+  '/office/przyjecie-ddfip':       { title: 'Przyjęcie DDFiP',             description: 'Przyprawy, dodatki, opakowania — instrukcja 1.3 oPRP, karta 1.3.1' },
   '/office/magazyn/gotowe':        { title: 'Magazyn — Wyrób gotowy',      description: 'Gotowe produkty' },
   '/office/magazyn/mieso-przyp':   { title: 'Magazyn — Mięso przyprawione', description: 'Mięso po masowaniu' },
   '/office/magazyn/opakowania':    { title: 'Magazyn — Opakowania',        description: 'Tuleje i opakowania' },

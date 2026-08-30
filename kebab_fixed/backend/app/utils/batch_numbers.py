@@ -48,6 +48,11 @@ _PROD_MIXED_NO_RE = re.compile(r"^PM\d+$")
 
 _DELIVERY_NO_RE = re.compile(r"^(\d+)\s*/\s*(\d{1,2})(?:\s*/\s*\d{2,4})?\s*([Uu])?$")
 
+#: Numer przyjęcia DDFiP: „DF/1/08". Litera jest OBOWIĄZKOWA — bez niej numer
+#: nie różniłby się od numeru przyjęcia mięsa („1/08") i dwa rejestry
+#: dzieliłyby jedną serię.
+_DDFIP_NO_RE = re.compile(r"^[Dd]\s*[Ff]\s*/\s*(\d+)\s*/\s*(\d{1,2})(?:\s*/\s*\d{2,4})?$")
+
 
 def _as_date(when: Union[str, date, datetime]) -> date:
     """Data z ISO stringa / date / datetime — wspólne wejście numeratorów."""
@@ -115,6 +120,50 @@ def delivery_period(when: Union[str, date, datetime]) -> str:
     """Okres numeracji przyjęć: ``"2026-08"``. Numeracja resetuje się co miesiąc."""
     d = _as_date(when)
     return f"{d.year:04d}-{d.month:02d}"
+
+
+def format_ddfip_no(seq: int, when: Union[str, date, datetime]) -> str:
+    """Numer przyjęcia ARTYKUŁÓW POMOCNICZYCH (DDFiP): ``DF/1/08``.
+
+    Instrukcja 1.3 oPRP — „Przykładowy numer to DF/1/08 gdzie: DF — wyróżnik
+    wyróżniający od surowców pochodzenia zwierzęcego, 1 — numer kolejny
+    dostawy w danym miesiącu, 08 — miesiąc dostawy". Numeracja rusza od 1
+    pierwszego dnia każdego miesiąca, tak jak numer przyjęcia mięsa.
+
+    Roku w numerze NIE MA i nie należy go dokładać — karta 1.3.1 zakładana
+    jest na miesiąc, więc rok wynika z samego dokumentu (ta sama zasada, co
+    przy `format_delivery_no`).
+
+    BŁĄD W KSIĘDZE: instrukcja 1.3 zdanie wyżej mówi „Numeracja zaczyna się
+    każdego miesiąca od litery P oraz cyfry 1". Litera „P" nie występuje ani
+    w przykładzie z tej samej instrukcji, ani w nagłówku karty 1.3.1
+    („Numer przyjęcia DF/numer kolejny/miesiąc"). Idziemy za DF; zdanie o „P"
+    zgłoszone do poprawki (30.08.2026).
+    """
+    d = _as_date(when)
+    return f"DF/{int(seq)}/{d.month:02d}"
+
+
+def parse_ddfip_no(raw: Optional[str]) -> Optional[tuple[int, int]]:
+    """``"DF/12/08"`` → ``(12, 8)``. Puste = ``None`` (numer nada sekwencja).
+
+    Numer BEZ litery odrzucamy — „1/08" to numer przyjęcia mięsa i wpuszczenie
+    go tutaj zlałoby dwa rejestry w jedną serię.
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    m = _DDFIP_NO_RE.match(s)
+    if not m:
+        raise ValueError("Numer przyjęcia DDFiP ma postać DF/1/08")
+    seq, month = int(m.group(1)), int(m.group(2))
+    if seq < 1:
+        raise ValueError("Numer przyjęcia DDFiP musi być >= 1")
+    if not 1 <= month <= 12:
+        raise ValueError("Miesiąc w numerze DDFiP musi być z zakresu 1-12")
+    return (seq, month)
 
 
 def parse_reception_no(raw: Optional[str]) -> Optional[int]:

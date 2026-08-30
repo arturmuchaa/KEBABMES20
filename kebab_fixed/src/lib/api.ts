@@ -1206,6 +1206,92 @@ export const ingredientReceiptsApi = {
   create: (dto: CreateIngredientReceiptDto) => post<any>('/ingredient-receipts', toSnake(dto)).then(mapIngredientReceipt),
 }
 
+// ─── Przyjęcie DDFiP (przyprawy, dodatki, opakowania) — instrukcja 1.3 oPRP ──
+
+/** Pozycja dostawy = lot magazynu przypraw pod dokumentem. */
+export interface IngredientReceptionLine {
+  id:             string
+  ingredientId:   string
+  ingredientName: string
+  unit:           string
+  qty:            number
+  batchNo:        string
+  expiryDate:     string
+  pricePerUnit:   number
+}
+
+/** Dokument dostawy — jeden wiersz karty 1.3.1 (kolumny a-k). */
+export interface IngredientReception {
+  id:              string
+  receptionNo:     string      // a — „DF/1/08"
+  supplierId:      string
+  supplierName:    string      // b
+  assortment:      string      // c — składany z pozycji przy zapisie
+  receivedDate:    string      // d
+  documentNo:      string      // e — faktura / atest
+  visualCheck:     string      // f — 'bz' | 'N'
+  complianceCheck: string      // g — 'bz' | 'N'
+  notes:           string      // h — uwagi
+  decision:        string      // i — 'K' | 'N'
+  doneBy:          string      // j
+  checkedBy:       string      // k
+  lines:           IngredientReceptionLine[]
+}
+
+function mapIngredientReceptionLine(raw: any): IngredientReceptionLine {
+  return {
+    id:             raw.id ?? '',
+    ingredientId:   raw.ingredient_id   ?? raw.ingredientId   ?? '',
+    ingredientName: raw.ingredient_name ?? raw.ingredientName ?? '',
+    unit:           raw.unit ?? 'kg',
+    qty:            Number(raw.qty ?? 0),
+    batchNo:        raw.batch_no    ?? raw.batchNo    ?? '',
+    expiryDate:     String(raw.expiry_date ?? raw.expiryDate ?? '').slice(0, 10),
+    pricePerUnit:   Number(raw.price_per_unit ?? raw.pricePerUnit ?? 0),
+  }
+}
+
+export function mapIngredientReception(raw: any): IngredientReception {
+  return {
+    id:              raw.id ?? '',
+    receptionNo:     raw.reception_no  ?? raw.receptionNo  ?? '',
+    supplierId:      raw.supplier_id   ?? raw.supplierId   ?? '',
+    supplierName:    raw.supplier_name ?? raw.supplierName ?? '',
+    assortment:      raw.assortment ?? '',
+    receivedDate:    String(raw.received_date ?? raw.receivedDate ?? '').slice(0, 10),
+    documentNo:      raw.document_no ?? raw.documentNo ?? '',
+    visualCheck:     raw.visual_check     ?? raw.visualCheck     ?? 'bz',
+    complianceCheck: raw.compliance_check ?? raw.complianceCheck ?? 'bz',
+    notes:           raw.notes ?? '',
+    // Brak oceny czytamy jako K: dokument bez litery to dostawa przyjęta,
+    // odmowa zawsze jest wpisana świadomie.
+    decision:        raw.decision ?? 'K',
+    doneBy:          raw.done_by    ?? raw.doneBy    ?? '',
+    checkedBy:       raw.checked_by ?? raw.checkedBy ?? '',
+    lines:           (raw.lines ?? []).map(mapIngredientReceptionLine),
+  }
+}
+
+export const ingredientReceptionsApi = {
+  list: (range?: { from?: string; to?: string }) => {
+    const q = new URLSearchParams()
+    if (range?.from) q.set('from', range.from)
+    if (range?.to)   q.set('to', range.to)
+    const suffix = q.toString() ? `?${q}` : ''
+    return get<any[]>(`/ingredient-receptions${suffix}`)
+      .then(r => (Array.isArray(r) ? r : []).map(mapIngredientReception))
+  },
+  byId: (id: string) =>
+    get<any>(`/ingredient-receptions/${id}`).then(mapIngredientReception),
+  nextNumber: (date: string) =>
+    get<{ nextNo: string }>(`/ingredient-receptions/next-number?date=${date}`),
+  // Odpowiedź to { reception, lines } — mapujemy sam dokument, bo tylko on
+  // jest potrzebny do podsumowania i druku etykiet.
+  create: (dto: unknown) =>
+    post<any>('/ingredient-receptions', dto).then(r => mapIngredientReception(
+      { ...(r?.reception ?? r), lines: r?.lines ?? [] })),
+}
+
 // ─── Receptury ────────────────────────────────────────────────
 // BUGFIX #3: Backend zwraca snake_case w składnikach receptury
 function mapRecipeIngredient(raw: any) {

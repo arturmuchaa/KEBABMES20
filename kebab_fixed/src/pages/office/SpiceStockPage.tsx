@@ -4,16 +4,19 @@
  * Gęsta lista składników z aktualnym stanem. Klik wiersza rozwija historię
  * przyjęć tego składnika. Przyciski Nowy składnik / Przyjęcie PZ w toolbar.
  */
-import { Fragment, useState, useMemo, useRef, useEffect } from 'react'
+import { Fragment, useState, useMemo } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { ingredientReceiptsApi, ingredientsApi } from '@/lib/apiClient'
 import { fmtDatePl, todayIso, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
 import {
   FlaskConical, Plus, ChevronDown, ChevronUp, ChevronsUpDown, Search, X,
+  ClipboardCheck,
 } from 'lucide-react'
 import type { IngredientCategory } from '@/features/ingredients/types'
+import { useNavigate } from 'react-router-dom'
 import { useIngredients } from '@/features/ingredients/hooks'
+import { IngredientPicker } from '@/features/ingredients/components/IngredientPicker'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -69,89 +72,8 @@ function ExpiryCell({ date }: { date?: string }) {
   )
 }
 
-/**
- * IngredientPicker — pole "Składnik" z wyszukiwaniem po wpisaniu.
- *
- * Zastępuje rozwijany Select, w który nie dało się nic WPISAĆ (użytkownicy
- * próbowali wpisać nazwę nowego dodatku i pole wyglądało na zablokowane).
- * Wpisanie nazwy filtruje listę; gdy brak dopasowania — przycisk tworzy
- * nowy składnik bezpośrednio z tego miejsca (onCreateNew).
- */
-function IngredientPicker({ ingredients, stockMap, value, onSelect, onCreateNew }: {
-  ingredients: { id: string; name: string; unit: string; category: string }[]
-  stockMap: Map<string, any>
-  value: string
-  onSelect: (id: string) => void
-  onCreateNew: (name: string) => void
-}) {
-  const selected = ingredients.find(i => i.id === value)
-  const [query, setQuery] = useState('')
-  const [open, setOpen]   = useState(false)
-  const boxRef = useRef<HTMLDivElement>(null)
-
-  // Zamknij listę przy kliknięciu poza polem
-  useEffect(() => {
-    function onDown(e: MouseEvent) {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [])
-
-  const q = query.toLowerCase().trim()
-  const matches = q
-    ? ingredients.filter(i => i.name.toLowerCase().includes(q))
-    : ingredients
-  const exact = ingredients.some(i => i.name.toLowerCase() === q)
-
-  return (
-    <div ref={boxRef} className="relative">
-      <Input
-        placeholder="Wpisz nazwę, np. Papryka słodka…"
-        value={open ? query : (selected?.name ?? query)}
-        onFocus={() => { setOpen(true); setQuery(selected?.name ?? '') }}
-        onChange={e => { setQuery(e.target.value); setOpen(true); if (value) onSelect('') }}
-      />
-      {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white border border-surface-4 rounded-lg shadow-md max-h-56 overflow-y-auto scrollbar-thin">
-          {matches.map(i => {
-            const qty = stockMap.get(i.id)?.qtyAvailable ?? 0
-            return (
-              <button
-                key={i.id}
-                type="button"
-                onClick={() => { onSelect(i.id); setQuery(''); setOpen(false) }}
-                className={cn(
-                  'w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-surface-3/70',
-                  i.id === value && 'bg-surface-3 font-semibold',
-                )}
-              >
-                <span className="truncate">{i.name}</span>
-                <span className={cn('text-[11px] tabular-nums flex-shrink-0', qty > 0 ? 'text-emerald-700' : 'text-ink-4')}>
-                  {qty.toFixed(1)} {i.unit}
-                </span>
-              </button>
-            )
-          })}
-          {matches.length === 0 && (
-            <div className="px-3 py-2 text-xs text-ink-4">Brak składnika o tej nazwie</div>
-          )}
-          {q && !exact && (
-            <button
-              type="button"
-              onClick={() => { onCreateNew(query.trim()); setOpen(false) }}
-              className="w-full flex items-center gap-1.5 px-3 py-2 text-left text-sm font-semibold text-brand border-t border-surface-3 hover:bg-surface-3/70"
-            >
-              <Plus size={13} /> Dodaj nowy składnik „{query.trim()}"
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
 export function SpiceStockPage() {
+  const navigate = useNavigate()
   const { ingredients, stock, loading, refetch, createIngredient, addReceipt, createLoading, receiptLoading } = useIngredients()
   const { data: receipts, refetch: refetchReceipts } = useApi(() => ingredientReceiptsApi.list())
 
@@ -321,8 +243,18 @@ export function SpiceStockPage() {
             <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => setIngModal(true)}>
               Nowy składnik
             </Button>
-            <Button size="sm" className="h-7 px-2.5 text-xs gap-1" onClick={() => { setSelIngId(''); setReceiptModal(true) }}>
-              <Plus size={12}/> Przyjęcie PZ
+            {/* Właściwa droga dostawy prowadzi przez dokument DDFiP (karta
+                1.3.1). „Przyjęcie PZ" zostaje jako korekta stanu — dokłada
+                kilogramy bez dostawcy, oceny i numeru DF, więc do księgi się
+                nie liczy i nie może być pierwszym, co widzi biuro. */}
+            <Button size="sm" className="h-7 px-2.5 text-xs gap-1"
+              onClick={() => navigate('/office/przyjecie-ddfip')}>
+              <ClipboardCheck size={12}/> Przyjęcie DDFiP
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs gap-1"
+              title="Korekta stanu bez dokumentu dostawy — nie trafia na kartę 1.3.1"
+              onClick={() => { setSelIngId(''); setReceiptModal(true) }}>
+              <Plus size={12}/> Korekta PZ
             </Button>
           </div>
         </div>

@@ -4,8 +4,10 @@ from app.utils.batch_numbers import (
     parse_reception_no,
     format_reception_no,
     combined_batch_no,
+    format_ddfip_no,
     is_combined,
     kebab_batch_no,
+    parse_ddfip_no,
 )
 
 
@@ -121,3 +123,54 @@ def test_scrap_pool_batch_no_format():
     from app.utils.batch_numbers import scrap_pool_batch_no
     assert scrap_pool_batch_no(1) == "SC1"
     assert scrap_pool_batch_no(12) == "SC12"
+
+
+# ─── Numeracja DDFiP (przyprawy, dodatki, opakowania) — instrukcja 1.3 ───────
+
+class TestNumerDdfip:
+    """Numer przyjęcia artykułów pomocniczych: ``DF/1/08``.
+
+    Instrukcja 1.3 oPRP: „DF — wyróżnik wyróżniający od surowców pochodzenia
+    zwierzęcego, 1 — numer kolejny dostawy w danym miesiącu, 08 — miesiąc
+    dostawy". Numeracja rusza od 1 pierwszego dnia każdego miesiąca.
+
+    UWAGA: ta sama instrukcja mówi też zdanie wyżej „Numeracja zaczyna się
+    każdego miesiąca od litery P" — to błąd w księdze (zgłoszony). Idziemy za
+    przykładem i za nagłówkiem karty 1.3.1, które oba mówią DF.
+    """
+
+    def test_format_wg_przykladu_z_instrukcji(self):
+        assert format_ddfip_no(1, "2026-08-30") == "DF/1/08"
+
+    def test_miesiac_zawsze_dwucyfrowy(self):
+        assert format_ddfip_no(7, "2026-01-05") == "DF/7/01"
+
+    def test_numer_nie_niesie_roku(self):
+        # Karta 1.3.1 jest miesięczna, więc rok wynika z dokumentu — tak samo
+        # jak przy numerze przyjęcia surowca (poprawka z 12.08.2026).
+        assert "2026" not in format_ddfip_no(3, "2026-08-30")
+
+    def test_parse_odwraca_format(self):
+        assert parse_ddfip_no("DF/12/08") == (12, 8)
+
+    def test_parse_wybacza_spacje_i_male_litery(self):
+        assert parse_ddfip_no("  df / 12 / 08 ") == (12, 8)
+
+    def test_puste_znaczy_numer_z_sekwencji(self):
+        assert parse_ddfip_no("") is None
+        assert parse_ddfip_no(None) is None
+
+    def test_numer_surowca_nie_przechodzi_jako_ddfip(self):
+        # „1/08" to numer przyjęcia MIĘSA. Gdyby wpadł tu bez litery, dwa
+        # rejestry dzieliłyby jedną serię i karta 1.3.1 pokazałaby dostawę
+        # wołowiny między foliami.
+        with pytest.raises(ValueError):
+            parse_ddfip_no("1/08")
+
+    def test_zly_miesiac_odrzucony(self):
+        with pytest.raises(ValueError):
+            parse_ddfip_no("DF/1/13")
+
+    def test_numer_zero_odrzucony(self):
+        with pytest.raises(ValueError):
+            parse_ddfip_no("DF/0/08")

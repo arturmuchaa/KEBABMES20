@@ -46,7 +46,7 @@ const ROWS_DETAIL = 13
 /** Szerokości w mm; muszą sumować się do szerokości kolumny tekstu (283 mm). */
 const SHEET_MM = 283
 
-type Col = { letter: string; w: number; label: string }
+export type Col = { letter: string; w: number; label: string }
 
 const COLS_MAIN: Col[] = [
   { letter: 'a', w: 16, label: 'Numer przyjęcia' },
@@ -104,17 +104,22 @@ function monthRange(month: Date): { from: string; to: string } {
  * (numery, dostawca, asortyment, daty, dokument); kolumny oceny zostają puste,
  * bo to zapis z pomiaru przy aucie, a nie z bazy.
  */
-function RegisterCard(props: {
+export function RegisterCard(props: {
   od: string | null; isPdf: boolean; withData: boolean; title: string; subtitle: string
   cols: Col[]; rows: number; card: string; legend: ReactNode; head?: ReactNode
   build: (recs: any[], cols: number) => string[][]
+  /** Skąd wziąć wiersze miesiąca. Domyślnie przyjęcia surowca (karty 1.1.1
+   *  i 1.1.1/2); karta 1.3.1 podaje tu rejestr DDFiP — oprawa, siatka i CSS
+   *  zostają te same, bo to JEDNA karta księgi w dwóch odmianach. */
+  fetch?: (range: { from: string; to: string }) => Promise<any[]>
 }) {
-  const { od, isPdf, withData, rows, build, cols } = props
+  const { od, isPdf, withData, rows, build, cols, fetch } = props
   const month = cardMonth(od)
   const range = useMemo(() => monthRange(month), [month.getTime()]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const pobierz = fetch ?? receptionsApi.list
   const { data } = useApi(
-    () => withData ? receptionsApi.list(range) : Promise.resolve([]),
+    () => withData ? pobierz(range) : Promise.resolve([]),
     [withData, range.from, range.to],
   )
 
@@ -209,7 +214,7 @@ function RegisterSheet({ month, title, subtitle, cols, rows, card, legend, head,
   )
 }
 
-function Legend({ items }: { items: string[] }) {
+export function Legend({ items }: { items: string[] }) {
   return (
     <div className="legend">
       <PrintToolbar />

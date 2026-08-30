@@ -1343,6 +1343,55 @@ _DDL: list[str] = [
     # chłodzony → pom. 3 (+3 °C), mrożony → pom. 6 (−18 °C).
     "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS storage_state TEXT NOT NULL DEFAULT 'chlodzony'",
     "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS storage_state TEXT NOT NULL DEFAULT 'chlodzony'",
+
+    # ── Przyjęcie DDFiP: przyprawy, dodatki, opakowania (instrukcja 1.3) ──
+    #
+    # DOKUMENT dostawy artykułów pomocniczych — odpowiednik `receptions` dla
+    # surowca. Osobna seria numerów „DF/1/08" (litera odróżnia go od numeru
+    # przyjęcia mięsa „1/08") i osobna karta 1.3.1.
+    #
+    # Kolumny odwzorowują karta 1.3.1 (a-k):
+    #   a reception_no · b supplier_name · c assortment · d received_date
+    #   e document_no · f visual_check · g compliance_check · h notes
+    #   i decision · j done_by · k checked_by
+    #
+    # `assortment` jest DENORMALIZOWANY z pozycji, bo dostawa ODRZUCONA
+    # (decision='N') nie tworzy żadnych lotów magazynu, a instrukcja 1.3 każe
+    # ją mimo to zarejestrować („posłużyć ono może w przyszłości do oceny
+    # dostawców"). Bez tej kolumny odrzucona dostawa nie miałaby czym wypełnić
+    # kolumny „Asortyment".
+    """CREATE TABLE IF NOT EXISTS ingredient_receptions (
+        id               TEXT PRIMARY KEY,
+        reception_no     TEXT NOT NULL,
+        reception_seq    INTEGER NOT NULL DEFAULT 0,
+        reception_period TEXT NOT NULL DEFAULT '',
+        received_date    DATE,
+        supplier_id      TEXT,
+        supplier_name    TEXT DEFAULT '',
+        assortment       TEXT DEFAULT '',
+        document_no      TEXT DEFAULT '',
+        visual_check     TEXT DEFAULT 'bz',
+        compliance_check TEXT DEFAULT 'bz',
+        notes            TEXT DEFAULT '',
+        decision         TEXT NOT NULL DEFAULT 'K',
+        done_by          TEXT DEFAULT '',
+        checked_by       TEXT DEFAULT '',
+        created_at       TEXT
+    )""",
+    # Numer jest unikalny w obrębie MIESIĄCA, nie w skali lat — „DF/1/08"
+    # wraca w każdym sierpniu, dokładnie jak numer przyjęcia mięsa.
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_ingredient_receptions_period_seq "
+    "ON ingredient_receptions (reception_period, reception_seq)",
+    # Kategoria składnika (spice_mix | functional | other). Kolumnę tworzył
+    # WYŁĄCZNIE `init_db.py migrate`, a `create_ingredient` wstawia ją zawsze —
+    # więc baza postawiona samymi migracjami (tak stawia ją CI i tak stawiał
+    # test DB) wywracała się na pierwszym dodanym składniku. Produkcja ma tę
+    # kolumnę od dawna, tu tylko domykamy ścieżkę świeżej instalacji.
+    "ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'other'",
+    # Pozycja dostawy = lot magazynu przypraw. Dokument wiąże je w jedno auto.
+    "ALTER TABLE ingredient_stock ADD COLUMN IF NOT EXISTS reception_id TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_ingredient_stock_reception "
+    "ON ingredient_stock (reception_id)",
 ]
 
 

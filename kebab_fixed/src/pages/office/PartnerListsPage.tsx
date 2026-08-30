@@ -131,7 +131,12 @@ const OPIS: Record<Rodzaj, {
     podtytul: 'Wykaz dostawców zatwierdzonych wg Głównego Lekarza Weterynarii — '
       + 'aktualizacja raz na kwartał, przez przegląd wykazu na stronach GLW',
     stopka: 'Karta 1.1.3 do instrukcji 1.1 — operacyjne programy warunków wstępnych (oPRP)',
-    kolumny: ['Lp.', 'Nazwa dostawcy', 'Numer IW'],
+    // Księga pisze w tej kolumnie „Numer IW". To skrót od Inspekcji
+    // Weterynaryjnej, a nie nazwa numeru — urzędowo jest to WETERYNARYJNY
+    // NUMER IDENTYFIKACYJNY (WNI), nadawany przez powiatowego lekarza
+    // weterynarii. Drukujemy nazwę urzędową, bo po niej audytor rozpozna
+    // pole; poprawka nagłówka w księdze zgłoszona 30.08.2026.
+    kolumny: ['Lp.', 'Nazwa dostawcy', 'Weterynaryjny numer identyfikacyjny (WNI)'],
   },
   ddfip: {
     przycisk: 'Karta 1.3.2 — opakowania i przyprawy',
@@ -192,7 +197,8 @@ export function PartnerListsPage() {
     if (rodzaj === 'odbiorcy') {
       return cli.map(c => ({
         id: c.id,
-        nazwa: c.displayName || c.name,
+        // Jak wyżej: wykaz to dokument o podmiotach, nie ekran roboczy.
+        nazwa: c.name || c.displayName,
         numer: c.nip || '',
         adres: adresPelny(c),
         zakres: '',
@@ -202,7 +208,11 @@ export function PartnerListsPage() {
     // bo jeden dostawca potrafi wozić i mięso, i przyprawy.
     return sup.map(s => ({
       id: s.id,
-      nazwa: s.displayName || s.name,
+      // PEŁNA nazwa, nie handlowa. `displayName` to skrót do ekranów biura
+      // („KOKO"), a wykaz w księdze identyfikuje PODMIOT PRAWNY — audytor
+      // porównuje go z wykazem Głównego Lekarza Weterynarii, gdzie stoi
+      // pełna nazwa z KRS. Prośba właściciela 30.08.2026.
+      nazwa: s.name || s.displayName,
       numer: s.vetNumber || '',
       adres: adresPelny(s),
       zakres: s.supplyScope || '',
@@ -370,8 +380,15 @@ export function PartnerListsPage() {
             <table>
               <thead>
                 <tr>
+                  {/* Nazwa dostawcy dostaje resztę szerokości: to ona ma się
+                      zmieścić w całości (pełna nazwa z KRS bywa długa), a numer
+                      weterynaryjny ma stałe 11 znaków. Nagłówek WNI zawija się
+                      na dwa wiersze — tak samo robią nagłówki karty 1.1.1. */}
                   {opis.kolumny.map((h, i) => (
-                    <th key={h} style={{ width: i === 0 ? '10mm' : undefined }}>{h}</th>
+                    <th key={h} style={{
+                      width: i === 0 ? '10mm'
+                        : (rodzaj === 'apz' && i === 2) ? '42mm' : undefined,
+                    }}>{h}</th>
                   ))}
                 </tr>
               </thead>

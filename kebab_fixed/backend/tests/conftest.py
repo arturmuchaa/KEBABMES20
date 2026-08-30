@@ -41,6 +41,12 @@ _TRUNCATE = [
     # (MAX(seq) w miesiącu), więc dokumenty z poprzedniego przebiegu podbijały
     # numer, a test wstawiający dokument po stałym id padał na duplicate key.
     "hdi_documents",
+    # `ingredient_receptions` dopisane 2026-08-30: numeracja DDFiP liczy się
+    # z sekwencji, ale UNIKALNOŚĆ pilnuje indeks (period, seq) na tej tabeli —
+    # dokument z poprzedniego przebiegu wywracał kolejny test na duplicate key.
+    # `ingredient_stock` jawnie, a nie tylko przez CASCADE od `ingredients`:
+    # loty muszą zniknąć razem z dokumentem, który je stworzył.
+    "ingredient_stock", "ingredient_receptions",
     "meat_stock", "reception_supplier_batches", "receptions", "raw_batches",
     "recipe_ingredients", "recipes",
     "order_pallet_items", "order_pallets", "client_order_lines", "client_orders",
