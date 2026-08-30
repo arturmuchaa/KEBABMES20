@@ -1,10 +1,14 @@
 /**
  * RawStockPage — Magazyn surowca: ŻYWY stan wszystkiego przed produkcją.
  *
- * Pięć zakładek na wspólnym DataTable (styl Subiekt):
- *   Ćwiartka (raw_batches kg>0) · Mięso z/s · Filet i inne (meat_stock
- *   rozdzielone po material_type_id — filet to INNY składnik, nie może się
- *   mieszać z z/s) · Grzbiety · Kości (otwarte loty ABP).
+ * Siedem zakładek na wspólnym DataTable (styl Subiekt):
+ *   Ćwiartka (raw_batches kg>0) · Mięso z/s · Mięso b/s · Mięso czerwone ·
+ *   Filet i inne (meat_stock rozdzielone po material_type_id — filet to INNY
+ *   składnik, nie może się mieszać z z/s) · Grzbiety · Kości (otwarte loty ABP).
+ *
+ * „Mięso czerwone" ma dodatkową kolumnę STANU: wołowina i łój przyjeżdżają
+ * chłodzone albo w blokach, a od tego zależy, w którym magazynie leżą —
+ * pom. 3 (+3 °C) czy pom. 6 (−18 °C).
  * Jedno źródło danych: GET /wz/stock/raw (to samo co picker WZ — stan,
  * pojemniki, daty, rezerwacje). Klik wiersza → kartoteka partii
  * (RawStockBatchCard: łańcuch śledzenia + historia ruchów).
@@ -12,10 +16,13 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
-import { wzApi } from '@/lib/apiClient'
+import { rawBatchesApi, wzApi } from '@/lib/apiClient'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
-import { Drumstick, Beef, Layers, Package, Bone, FileOutput } from 'lucide-react'
+import { Drumstick, Beef, Layers, Package, Bone, FileOutput, Snowflake } from 'lucide-react'
+import {
+  czyCzerwone, etykietaStanu, magazynStanu, normalizeStan,
+} from '@/features/raw-batches/storageState'
 
 import { DataTable, type DataColumn } from '@/components/DataTable'
 import { Button } from '@/components/ui/button'
@@ -30,6 +37,8 @@ interface StockRow {
   name: string
   doc_name?: string
   material_type_id?: string
+  /** 'chlodzony' | 'mrozony' — decyduje, w którym magazynie lot leży. */
+  storage_state?: string
   kg_available: number | string
   kg_reserved?: number | string
   kg_initial?: number | string
@@ -44,7 +53,7 @@ function isExpiredRow(r: StockRow): boolean {
 }
 
 // ─── Strona ─────────────────────────────────────────────────
-type Tab = 'raw' | 'meat' | 'bs' | 'other' | 'backs' | 'bones'
+type Tab = 'raw' | 'meat' | 'bs' | 'red' | 'other' | 'backs' | 'bones'
 
 const ZS = 'mat-mieso-zs'
 const BS = 'mat-mieso-bs'
@@ -52,6 +61,17 @@ const BS = 'mat-mieso-bs'
 export function RawStockPage() {
   const navigate = useNavigate()
   const { data: stockData, loading } = useApi<StockRow[]>(() => (wzApi as any).stockRaw())
+  // Słownik rodzajów — tylko po to, żeby wiedzieć, które id-ki są wołowiną.
+  // Bez niego wołowina wpadałaby do „Filet i inne" razem z drobiem.
+  //
+  // Filtrujemy po samej KATEGORII, bez `receivable`: magazyn pokazuje to, co
+  // fizycznie leży. Rodzaj wycofany z przyjmowania (receivable=false) ma
+  // dokończyć życie w swojej zakładce, a nie wpaść nagle między filety.
+  const { data: typesData } = useApi(() => (rawBatchesApi as any).materialTypes())
+  const czerwoneIds = useMemo(
+    () => new Set(((typesData as any[]) ?? [])
+      .filter(m => czyCzerwone(m.category)).map(m => m.id)),
+    [typesData])
   const [activeTab, setActiveTab] = useState<Tab>('raw')
   const [trace, setTrace] = useState<StockRow | null>(null)
 
@@ -75,11 +95,16 @@ export function RawStockPage() {
     // Mięso b/s (bez skóry) z rozbioru — robione rzadko, ale MUSI stać osobno:
     // inny uzysk, inna receptura, Auto-FEFO masowania bierze tylko z/s.
     bs:    stock.filter(r => r.stock_type === 'meat' && r.material_type_id === BS),
+    // Mięso czerwone — jedna zakładka na pięć rodzajów (80/20, zrazowa,
+    // mostek, dwa łoje). Instrukcja 1.1 oPRP traktuje je jednakowo, a rozbicie
+    // na pięć zakładek zasypałoby drób.
+    red: stock.filter(r => r.stock_type === 'meat' && czerwoneIds.has(r.material_type_id ?? '')),
     other: stock.filter(r => r.stock_type === 'meat'
-      && (r.material_type_id ?? ZS) !== ZS && r.material_type_id !== BS),
+      && (r.material_type_id ?? ZS) !== ZS && r.material_type_id !== BS
+      && !czerwoneIds.has(r.material_type_id ?? '')),
     backs: stock.filter(r => r.stock_type === 'byproduct' && r.name === 'Grzbiety'),
     bones: stock.filter(r => r.stock_type === 'byproduct' && r.name === 'Kości'),
-  }), [stock])
+  }), [stock, czerwoneIds])
 
   const sumKg = (rows: StockRow[]) => rows.reduce((s, r) => s + Number(r.kg_available), 0)
 
@@ -87,6 +112,7 @@ export function RawStockPage() {
     { key: 'raw',   label: 'Ćwiartka',     icon: <Drumstick size={13} /> },
     { key: 'meat',  label: 'Mięso z/s',    icon: <Beef size={13} /> },
     { key: 'bs',    label: 'Mięso b/s',    icon: <Beef size={13} /> },
+    { key: 'red',   label: 'Mięso czerwone', icon: <Beef size={13} /> },
     { key: 'other', label: 'Filet i inne', icon: <Layers size={13} /> },
     { key: 'backs', label: 'Grzbiety',     icon: <Package size={13} /> },
     { key: 'bones', label: 'Kości',        icon: <Bone size={13} /> },
@@ -174,6 +200,25 @@ export function RawStockPage() {
     key: 'material', header: 'Rodzaj', sortable: true, sortValue: r => r.name,
     cell: r => <span className="font-semibold text-ink">{r.name}</span>,
   }
+  // Stan + magazyn w jednej kolumnie: numer pomieszczenia jest tym, czego
+  // magazynier naprawdę szuka, a sam napis „Mrożony" jeszcze go tam nie prowadzi.
+  const colStan: DataColumn<StockRow> = {
+    key: 'state', header: 'Stan', sortable: true, width: 150,
+    sortValue: r => normalizeStan(r.storage_state),
+    cell: r => {
+      const mrozony = normalizeStan(r.storage_state) === 'mrozony'
+      const mag = magazynStanu(r.storage_state)
+      return (
+        <span className="flex items-center gap-1.5">
+          {mrozony && <Snowflake size={12} className="text-sky-600 shrink-0" />}
+          <span className={mrozony ? 'font-semibold text-sky-700' : 'text-ink-2'}>
+            {etykietaStanu(r.storage_state)}
+          </span>
+          <span className="text-[11px] text-muted-foreground">mag. {mag.nr}</span>
+        </span>
+      )
+    },
+  }
 
   const columns: DataColumn<StockRow>[] = [
     colZaznacz,
@@ -181,6 +226,8 @@ export function RawStockPage() {
       ? [colPartia, colDostawca, colDostepne, colPojemniki, colUboj, colProdukcja('Przyjęcie'), colWaznosc]
       : activeTab === 'meat' || activeTab === 'bs'
         ? [colPartia, colDostawca, colDostepne, colZarezerwowane, colPoczatkowe, colProdukcja('Produkcja'), colWaznosc]
+        : activeTab === 'red'
+          ? [colRodzaj, colStan, colPartia, colDostawca, colDostepne, colZarezerwowane, colPoczatkowe, colProdukcja('Przyjęcie'), colWaznosc]
         : activeTab === 'other'
           ? [colRodzaj, colPartia, colDostawca, colDostepne, colZarezerwowane, colPoczatkowe, colProdukcja('Przyjęcie'), colWaznosc]
           : [colPartia, colDostawca, colDostepne, colPojemniki, colProdukcja('Ważenie'), colUboj, colWaznosc]),
@@ -214,6 +261,7 @@ export function RawStockPage() {
               {activeTab === 'raw' ? 'Ćwiartka pojawia się po przyjęciu dostawy.'
                 : activeTab === 'meat' ? 'Mięso z/s pojawia się po ważeniu na rozbiorze.'
                 : activeTab === 'bs' ? 'Mięso b/s pojawia się, gdy operator przełączy wagę na B/S przy rozbiorze.'
+                : activeTab === 'red' ? 'Wołowina i łój pojawiają się po przyjęciu w zakładce „Mięso czerwone".'
                 : activeTab === 'other' ? 'Filet/indyk pojawia się po przyjęciu surowca bez rozbioru.'
                 : 'Grzbiety i kości pojawiają się po ważeniu zbiorczym na rozbiorze.'}
             </span>

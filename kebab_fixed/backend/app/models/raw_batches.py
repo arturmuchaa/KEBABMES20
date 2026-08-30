@@ -28,6 +28,10 @@ class RawBatchCreate(BaseModel):
     pallets_other_kind: Optional[str] = Field(None, alias="palletsOtherKind")
     # Przyjęcie na usługę (mięso z/s klienta) — osobna seria numerów „48U".
     is_service: bool = Field(False, alias="isService")
+    # Stan surowca: 'chlodzony' | 'mrozony'. Cecha DOSTAWY, nie rodzaju —
+    # ta sama wołowina 80/20 przyjeżdża raz świeża, raz w blokach. Decyduje
+    # o progu temperatury na karcie 1.1.1 i o magazynie (pom. 3 / pom. 6).
+    storage_state: str = Field("chlodzony", alias="storageState")
 
 
 class RawBatchAdjust(BaseModel):

@@ -86,6 +86,18 @@ def _unbook_batch_containers(conn, batch_row: Dict) -> None:
 
 #: Materiał, dla którego usługa ma sens — mięso powierzone przez klienta.
 SERVICE_MATERIAL_ID = "mat-mieso-zs"
+
+
+def normalize_storage_state(value: Optional[str]) -> str:
+    """Stan surowca: 'chlodzony' albo 'mrozony', nic innego.
+
+    Nieznana i pusta wartość czyta się jak chłodzony — tak jechały wszystkie
+    dostawy, zanim stan w ogóle powstał (30.08.2026), i tak ma się zachować
+    stara wersja formularza, która stanu nie przysyła.
+    """
+    return "mrozony" if value == "mrozony" else "chlodzony"
+
+
 #: Sekwencje numerów przyjęcia: podstawowa i usługowa (rozłączne).
 _SEQ_KEY = {False: "batch_seq", True: "service_batch_seq"}
 _SEQ_START = {False: 171, True: 47}
@@ -299,8 +311,9 @@ def create_batch_cx(
         (id, internal_batch_no, internal_batch_seq, supplier_id, supplier_name,
          supplier_batch_no, slaughter_date, received_date, kg_received,
          kg_available, price_per_kg, expiry_date, status, notes,
-         invoice_no, material_type_id, material_name, is_service, created_at)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s,%s,%s,%s,%s)
+         invoice_no, material_type_id, material_name, is_service,
+         storage_state, created_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s,%s,%s,%s,%s,%s)
         RETURNING *
         """,
         (
@@ -321,6 +334,7 @@ def create_batch_cx(
             mat_id,
             mat_name,
             is_service,
+            normalize_storage_state(getattr(dto, "storage_state", None)),
             now_iso(),
         ),
     )
@@ -395,14 +409,18 @@ def _create_reception_lot_cx(conn, batch_row: Dict, mat: Dict, kg: float) -> Non
         INSERT INTO meat_stock
             (id, lot_no, raw_batch_id, raw_batch_no, kg_initial,
              kg_available, production_date, expiry_date, status,
-             material_type_id, material_name, created_at)
-        VALUES (%s,%s,%s,%s,%s,%s,COALESCE(%s::date, CURRENT_DATE),%s,'AVAILABLE',%s,%s,%s)
+             material_type_id, material_name, storage_state, created_at)
+        VALUES (%s,%s,%s,%s,%s,%s,COALESCE(%s::date, CURRENT_DATE),%s,'AVAILABLE',%s,%s,%s,%s)
         """,
         (
             cuid(), lot_no, batch_row["id"], lot_no, kg, kg,
             batch_row.get("received_date") or None,
             batch_row.get("expiry_date") or None,
-            mat.get("id") or "", mat.get("name") or "", now_iso(),
+            mat.get("id") or "", mat.get("name") or "",
+            # Blok mrożony zostaje mrożony także w magazynie — to on decyduje,
+            # czy lot leży w pom. 3 (+3 °C), czy w pom. 6 (−18 °C).
+            normalize_storage_state(batch_row.get("storage_state")),
+            now_iso(),
         ),
     )
     ms_row = cx_query_one(conn, "SELECT id FROM meat_stock WHERE lot_no=%s", (lot_no,))

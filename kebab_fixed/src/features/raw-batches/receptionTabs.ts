@@ -1,3 +1,5 @@
+import { czyCzerwone } from './storageState'
+
 /**
  * receptionTabs — przełącznik rodzaju surowca na stronie „Przyjęcie surowca".
  *
@@ -12,6 +14,18 @@
 /** Identyfikator zakładki zbiorczej. Nie jest rodzajem surowca — stąd sentinel. */
 export const ALL_MATERIALS = '__all__'
 
+/**
+ * Zakładka zbiorcza MIĘSA CZERWONEGO — też sentinel, nie rodzaj surowca.
+ *
+ * Wołowina przyjeżdża w pięciu postaciach (80/20, dolna zrazowa, filet
+ * z mostka, łój otokowy, łój zwykły) i każda z nich jako osobna zakładka
+ * rozdęłaby przełącznik do dziesięciu pozycji, mieszając drób z wołowiną.
+ * Księga i tak traktuje je jednakowo — instrukcja 1.1 oPRP wymienia mięsa
+ * i tłuszcz wołowy jednym tchem z drobiem — więc zbiorcza zakładka jest
+ * bliższa dokumentacji niż pięć osobnych. Rodzaj wybiera się w formularzu.
+ */
+export const RED_MEAT = '__czerwone__'
+
 /** Dostawy sprzed wprowadzenia rodzajów surowca to ćwiartka. */
 export const DEFAULT_MATERIAL = 'mat-cwiartka'
 
@@ -23,6 +37,13 @@ export interface MaterialTypeLike {
   requiresDeboning?: boolean
   /** Czy rodzaj wolno przyjąć od dostawcy (uboczne z rozbioru — nie). */
   receivable?:       boolean
+  /** 'drob' | 'czerwone'. Steruje zbiorczą zakładką i progiem temperatury. */
+  category?:         string
+}
+
+/** Rodzaje spod zbiorczej zakładki „Mięso czerwone" — do wyboru w formularzu. */
+export function redMeatTypes(types: MaterialTypeLike[]): MaterialTypeLike[] {
+  return types.filter(m => czyCzerwone(m.category) && m.receivable !== false)
 }
 
 export interface ReceptionTab {
@@ -33,21 +54,36 @@ export interface ReceptionTab {
 
 /** Zakładka „Wszystko" + rodzaje, które faktycznie się przyjmuje. */
 export function receptionTabs(types: MaterialTypeLike[]): ReceptionTab[] {
+  const czerwone = redMeatTypes(types)
   return [
     // requiresDeboning zakładki zbiorczej nikogo nie obowiązuje — w niej każdy
     // wiersz rozstrzyga to sam (patrz materialLookup).
     { id: ALL_MATERIALS, name: 'Wszystko', requiresDeboning: true },
     ...types
-      .filter(m => m.receivable !== false)
+      .filter(m => m.receivable !== false && !czyCzerwone(m.category))
       .map(m => ({ id: m.id, name: m.name, requiresDeboning: m.requiresDeboning !== false })),
+    // Wołowina na końcu, za drobiem — drób to 95% dostaw i ma zostać pod ręką.
+    // Zakładka pojawia się dopiero, gdy słownik ma choć jeden taki rodzaj.
+    ...(czerwone.length
+      ? [{ id: RED_MEAT, name: 'Mięso czerwone', requiresDeboning: false }]
+      : []),
   ]
 }
 
-/** Dostawy widoczne w wybranej zakładce. */
+/**
+ * Dostawy widoczne w wybranej zakładce.
+ *
+ * Zakładka „Mięso czerwone" nie ma własnego `materialTypeId`, więc musi
+ * dostać słownik: bez niego nie da się powiedzieć, które rodzaje są jej.
+ */
 export function batchesForTab<T extends { materialTypeId?: string }>(
-  batches: T[], tabId: string,
+  batches: T[], tabId: string, types: MaterialTypeLike[] = [],
 ): T[] {
   if (tabId === ALL_MATERIALS) return batches
+  if (tabId === RED_MEAT) {
+    const czerwone = new Set(redMeatTypes(types).map(m => m.id))
+    return batches.filter(b => czerwone.has(b.materialTypeId || ''))
+  }
   return batches.filter(b => (b.materialTypeId || DEFAULT_MATERIAL) === tabId)
 }
 

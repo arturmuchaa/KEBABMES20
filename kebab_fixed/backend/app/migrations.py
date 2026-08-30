@@ -1332,6 +1332,17 @@ _DDL: list[str] = [
     """INSERT INTO app_settings (key, value)
        VALUES ('production.planned_break_minutes', '30'::jsonb)
        ON CONFLICT (key) DO NOTHING""",
+
+    # ── Stan surowca: chłodzony / mrożony (mięso czerwone, 30.08.2026) ──
+    # Cecha DOSTAWY, nie rodzaju surowca: ta sama wołowina 80/20 i ten sam łój
+    # otokowy przyjeżdżają raz świeże, raz w blokach. Podwojenie słownika
+    # zmusiłoby recepturę (product_types.components) do wyboru między
+    # mrożonym a świeżym, a instrukcja 2.5 pkt 5.1.1 i tak każe blok
+    # rozdrobnić na wilku i wymieszać z mięsem chłodzonym.
+    # Stan decyduje o progu temperatury na karcie 1.1.1 i o magazynie:
+    # chłodzony → pom. 3 (+3 °C), mrożony → pom. 6 (−18 °C).
+    "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS storage_state TEXT NOT NULL DEFAULT 'chlodzony'",
+    "ALTER TABLE meat_stock ADD COLUMN IF NOT EXISTS storage_state TEXT NOT NULL DEFAULT 'chlodzony'",
 ]
 
 
@@ -1824,6 +1835,30 @@ def _seed_raw_material_types() -> None:
         # nie może mieszać się z z/s ani w magazynie, ani w planie masowania
         # (Auto-FEFO bierze wyłącznie z/s). Z zewnątrz nieprzyjmowany.
         ("mat-mieso-bs",      "Mięso b/s",           False, "drob", False),
+
+        # ── Mięso czerwone (kategoria 'czerwone', 30.08.2026) ──
+        # Instrukcja 1.1 oPRP wymienia je w zakresie razem z drobiem („Mięsa
+        # drobne wołowe, cielęce", „Elementy wołowe, cielęce", „Tłuszcz
+        # wołowy"), więc idzie tą samą kartą 1.1.1 i tą samą numeracją —
+        # to NIE jest osobne przyjęcie. Różni się tylko progiem temperatury
+        # (≤ +7 °C zamiast ≤ +4 °C) i magazynem, gdy przyjeżdża mrożone.
+        #
+        # Żaden z tych rodzajów nie idzie na rozbiór: bloki 80/20 wchodzą
+        # wprost do masowania (instrukcja 2.5 pkt 5.1.1 — rozdrobnienie na
+        # wilku zamiast rozmrażania), a zrazowa i mostek do kebaba yaprak
+        # krojone są dopiero na produkcji.
+        #
+        # Świeże/mrożone NIE jest tu rodzajem — to stan DOSTAWY
+        # (raw_batches.storage_state), inaczej słownik by się podwoił,
+        # a receptura musiałaby wybierać między blokiem a świeżym.
+        ("mat-wolowina-8020",    "Wołowina 80/20",           False, "czerwone", True),
+        ("mat-wolowina-zrazowa", "Dolna zrazowa wołowa",     False, "czerwone", True),
+        ("mat-wolowina-mostek",  "Filet z mostka wołowego",  False, "czerwone", True),
+        # Łój wchodzi do masowania JAK MIĘSO — udział ustala skład rodzaju
+        # (product_types.components), nie receptura przypraw. Dwa gatunki,
+        # bo otokowy i zwykły nie są zamienne.
+        ("mat-loj-otokowy",      "Łój wołowy otokowy",       False, "czerwone", True),
+        ("mat-loj-zwykly",       "Łój wołowy zwykły",        False, "czerwone", True),
     ]
     try:
         for rid, name, deb, cat, recv in rows:

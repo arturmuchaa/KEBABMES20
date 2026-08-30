@@ -77,6 +77,23 @@ export function documentLabel(hdiNo: string, documentNo: string): string {
 }
 
 /**
+ * assortmentLabel — kolumna (c): rodzaj surowca, a przy blokach także STAN.
+ *
+ * Stan dopisujemy tylko mrożonemu i tylko dlatego, że inaczej karta sama
+ * sobie przeczy: legenda podaje próg +7 °C dla mięsa czerwonego, a obok
+ * stoi wpisane ręką −15 °C i wygląda to jak niezgodność. Chłodzony dopisku
+ * nie dostaje — to stan domyślny i zaśmiecałby wąską kolumnę.
+ *
+ * To nie jest wypełnianie kolumny pomiarowej: stan deklaruje biuro przy
+ * rejestracji dostawy, tak samo jak rodzaj surowca obok.
+ */
+export function assortmentLabel(materialName: string, storageState?: string): string {
+  const nazwa = (materialName || '').trim()
+  if (!nazwa) return ''
+  return storageState === 'mrozony' ? `${nazwa} (mrożona)` : nazwa
+}
+
+/**
  * mainRows — karta 1.1.1: jeden wiersz na DOSTAWĘ.
  *
  * Kolumny f–m (ocena wizualna, temperatury, zgodność, uwagi, kwalifikacja,
@@ -88,7 +105,9 @@ export function mainRows(receptions: Reception[], cols: number): string[][] {
     .sort((a, b) => a.receivedDate.localeCompare(b.receivedDate) ||
       a.receptionNo.localeCompare(b.receptionNo, 'pl', { numeric: true }))
     .map(r => {
-      const assortment = [...new Set(liveBatches(r).map(b => b.materialName || '').filter(Boolean))]
+      const assortment = [...new Set(liveBatches(r)
+        .map(b => assortmentLabel(b.materialName || '', b.storageState))
+        .filter(Boolean))]
       const row = [
         r.receptionNo,
         shortSupplier(r.supplierName),

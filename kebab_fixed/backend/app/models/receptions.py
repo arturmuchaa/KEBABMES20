@@ -69,6 +69,8 @@ class ReceptionCreate(BaseModel):
     price_per_kg: float = Field(0, alias="pricePerKg", ge=0)
     notes: str = ""
     is_service: bool = Field(False, alias="isService")
+    #: Stan CAŁEJ dostawy — jedno auto wiezie albo chłodzone, albo bloki.
+    storage_state: str = Field("chlodzony", alias="storageState")
     groups: List[ReceptionGroupIn] = Field(default_factory=list)
 
 
@@ -91,4 +93,5 @@ class ReceptionUpdate(BaseModel):
     doc_containers: Optional[int] = Field(None, alias="docContainers", ge=0)
     price_per_kg: float = Field(0, alias="pricePerKg", ge=0)
     notes: str = ""
+    storage_state: str = Field("chlodzony", alias="storageState")
     groups: List[ReceptionGroupIn] = Field(default_factory=list)

@@ -240,6 +240,7 @@ export function ReceptionRegisterPrintPage() {
         'kol. f, i — ocena: b/z bez zastrzeżeń albo N niezgodne',
         'kol. k — kwalifikacja: K dostawa przyjęta albo N odmowa przyjęcia',
         'kol. g, h — NAJWYŻSZA zmierzona temperatura; drób do +4 °C, mięso czerwone do +7 °C',
+        'surowiec MROŻONY (oznaczony w kol. c): do −12 °C — próg zakładowy, instrukcja 1.1 progu dla mrożonego jeszcze nie podaje',
         'niezgodność ilościowa: wpisać ilość rzeczywiście przyjętą, uwagę w kol. j i wyegzekwować korektę dokumentów od dostawcy',
         'dostawę odrzuconą również się rejestruje — służy do oceny dostawców',
       ]} />}

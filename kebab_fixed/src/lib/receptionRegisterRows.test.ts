@@ -73,6 +73,41 @@ describe('mainRows — karta 1.1.1', () => {
     expect(mainRows([rec()], 13)[0][2]).toBe('Ćwiartka z kurczaka')
   })
 
+  it('blok mrożony dopisuje stan do asortymentu', () => {
+    // Bez tego temperatura −15 °C wpisana obok wygląda jak błąd wobec progu
+    // +7 °C z legendy. Stan zna system, więc nie każemy go dopisywać ręką.
+    const mrozona = rec({ batches: [
+      { internalBatchNo: '512', kgReceived: 900, pricePerKg: 18, kgMeat: 0,
+        slaughterDate: '', expiryDate: '2027-02-01',
+        materialName: 'Wołowina 80/20', storageState: 'mrozony',
+        supplierBatches: [] },
+    ] as any })
+    expect(mainRows([mrozona], 13)[0][2]).toBe('Wołowina 80/20 (mrożona)')
+  })
+
+  it('surowiec chłodzony NIE dostaje dopisku — to stan domyślny', () => {
+    const chlodzona = rec({ batches: [
+      { internalBatchNo: '513', kgReceived: 400, pricePerKg: 22, kgMeat: 0,
+        slaughterDate: '', expiryDate: '2026-09-10',
+        materialName: 'Dolna zrazowa wołowa', storageState: 'chlodzony',
+        supplierBatches: [] },
+    ] as any })
+    expect(mainRows([chlodzona], 13)[0][2]).toBe('Dolna zrazowa wołowa')
+  })
+
+  it('auto z chłodzonym i mrożonym pokazuje oba osobno', () => {
+    const mieszana = rec({ batches: [
+      { internalBatchNo: '514', kgReceived: 900, pricePerKg: 18, kgMeat: 0,
+        slaughterDate: '', expiryDate: '2027-02-01',
+        materialName: 'Wołowina 80/20', storageState: 'mrozony', supplierBatches: [] },
+      { internalBatchNo: '515', kgReceived: 300, pricePerKg: 9, kgMeat: 0,
+        slaughterDate: '', expiryDate: '2026-09-05',
+        materialName: 'Łój wołowy otokowy', storageState: 'chlodzony', supplierBatches: [] },
+    ] as any })
+    expect(mainRows([mieszana], 13)[0][2])
+      .toBe('Wołowina 80/20 (mrożona), Łój wołowy otokowy')
+  })
+
   it('sortuje chronologicznie, nie kolejnością z API', () => {
     const rows = mainRows([
       rec({ id: 'b', receptionNo: '2/08', receivedDate: '2026-08-12' }),

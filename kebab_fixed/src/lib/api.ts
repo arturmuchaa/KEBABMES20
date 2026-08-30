@@ -254,6 +254,9 @@ export function mapRawBatch(raw: any): RawBatch {
     pricePerKg:       Number(raw.price_per_kg ?? raw.pricePerKg ?? 0),
     invoiceNo:        raw.invoice_no         ?? raw.invoiceNo,
     materialTypeId:   raw.material_type_id   ?? raw.materialTypeId ?? '',
+    // Stan surowca: dostawa sprzed 30.08.2026 nie ma go wcale i czyta się
+    // jak chłodzona — jedyny stan, w jakim zakład dotąd cokolwiek przyjmował.
+    storageState:     raw.storage_state      ?? raw.storageState ?? 'chlodzony',
     // Nośniki zwrotne: kaliber pojemnika, ręcznie policzona liczba i palety.
     // Brak kalibru to NULL („niekalibrowany"), a nie zero kilogramów — zero
     // znaczyłoby pojemnik bez wagi i psuło wyliczenie liczby pojemników.

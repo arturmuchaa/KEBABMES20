@@ -223,6 +223,8 @@ function emptyHeader(): ReceptionHeader {
     // Domyślny kaliber zakładu to pojemnik 15 kg — 20 kg zdarza się przy filecie.
     containerKg: 15, palletsH1: 0, palletsOther: 0, palletsOtherKind: 'net_e1',
     isService: false, notes: '',
+    // Drób jeździ wyłącznie świeży; przy wołowinie formularz pyta.
+    storageState: 'chlodzony',
   }
 }
 
@@ -318,6 +320,7 @@ export function useCreateReception(
         pricePerKg:     header.pricePerKg,
         notes:          header.notes,
         isService:      header.isService,
+        storageState:   header.storageState,
         groups: pending.map((g, i) => ({
           // Pusty = numer nadaje sekwencja backendu; wypełniony tylko wtedy,
           // gdy operator poprawił go ołówkiem w formularzu.

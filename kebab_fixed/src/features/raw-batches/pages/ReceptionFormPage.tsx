@@ -9,7 +9,7 @@
  * Stan formularza mieszka TUTAJ (`useCreateReception`), nie na liście dostaw —
  * strona listy nie musi już nic wiedzieć o rejestracji.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, CheckCircle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -25,8 +25,25 @@ import { ReceptionForm } from '../components/ReceptionForm'
 import { PrintTagsPrompt } from '../components/PrintTagsPrompt'
 import { useCreateReception, useEditReception, type SavedReception } from '../hooks/useRawBatches'
 import { useApi } from '@/hooks/useApi'
-import { suppliersApi } from '@/lib/apiClient'
+import { rawBatchesApi, suppliersApi } from '@/lib/apiClient'
+import { RED_MEAT, redMeatTypes } from '../receptionTabs'
 import type { SupplierOption } from '../types'
+
+/**
+ * Rodzaje do wyboru w formularzu — puste dla drobiu (rodzaj daje zakładka),
+ * niepuste dla zbiorczej zakładki „Mięso czerwone", która pięciu rodzajów
+ * wołowiny nie rozstrzyga.
+ */
+function useMaterialChoices(aktywne: boolean) {
+  const { data } = useApi(() => aktywne
+    ? (rawBatchesApi as any).materialTypes()
+    : Promise.resolve([]))
+  // useMemo, żeby prop nie zmieniał tożsamości przy każdym renderze —
+  // formularz przyjęcia i tak jest ciężki, nie ma po co go budzić.
+  return useMemo(
+    () => aktywne ? redMeatTypes((data as any[]) ?? []) : [],
+    [aktywne, data])
+}
 
 const LIST_PATH = '/office/raw-batches'
 
@@ -43,7 +60,12 @@ function ReceptionCreatePage() {
   // Rodzaj surowca przychodzi z zakładki, z której operator kliknął „Nowe
   // przyjęcie" — dotąd wstrzykiwała go strona listy.
   const [params] = useSearchParams()
-  const matId = params.get('rodzaj') || 'mat-cwiartka'
+  const rodzajParam = params.get('rodzaj') || 'mat-cwiartka'
+  const czerwone = rodzajParam === RED_MEAT
+  const materialChoices = useMaterialChoices(czerwone)
+  // Ze zbiorczej zakładki nie przychodzi żaden konkretny rodzaj — formularz
+  // startuje od pierwszego z listy, a operator zmienia go selectem.
+  const matId = czerwone ? (materialChoices[0]?.id ?? '') : rodzajParam
 
   // Sama kartoteka dostawców — bez wciągania całej listy partii, której ta
   // strona nie pokazuje.
@@ -74,6 +96,9 @@ function ReceptionCreatePage() {
   useEffect(() => { void openModal() }, [openModal])
 
   useEffect(() => {
+    // Przy wołowinie czekamy na słownik: pusty rodzaj skasowałby wybór
+    // operatora przy każdym renderze, zanim lista zdąży się wczytać.
+    if (!matId) return
     updateHeader('materialTypeId', matId)
     // Usługa dotyczy tylko mięsa z/s — przy innym surowcu tryb musi zgasnąć,
     // inaczej backend odrzuciłby zapis (400) mimo ukrytego przełącznika.
@@ -82,6 +107,17 @@ function ReceptionCreatePage() {
 
   const warnings = validationResult?.ok ? validationResult.warnings : []
   const pendingKg = pending.reduce((s, g) => s + g.kg, 0)
+
+  // Wołowina bez wczytanego słownika: formularz miałby w nagłówku ćwiartkę
+  // (wartość startowa `emptyHeader`) i dostawa zapisałaby się jako drób.
+  // Lepiej wstrzymać ekran na sekundę, niż wpuścić do bazy zły rodzaj.
+  if (czerwone && materialChoices.length === 0) {
+    return (
+      <div className="p-6 text-sm text-muted-foreground">
+        Wczytywanie rodzajów mięsa czerwonego…
+      </div>
+    )
+  }
 
   const handleSubmit = async (groups: Parameters<typeof requestSubmit>[0]) => {
     const err = await requestSubmit(groups)
@@ -105,6 +141,7 @@ function ReceptionCreatePage() {
         loading={mutationLoading}
         error={mutationError}
         onHeaderChange={updateHeader}
+        materialChoices={materialChoices}
       />
 
     <PrintTagsPrompt
@@ -212,6 +249,9 @@ function ReceptionCreatePage() {
 function ReceptionEditPage({ receptionId }: { receptionId: string }) {
   const navigate = useNavigate()
   const suppliers = useApi(() => suppliersApi.list())
+  // Słownik wołowiny wczytujemy zawsze — dopiero po wczytaniu dostawy wiadomo,
+  // czy to jej dokument, a wtedy jest za późno na warunkowy hook.
+  const czerwoneTypy = useMaterialChoices(true)
   const supplierOptions: SupplierOption[] = (suppliers.data ?? []).map(
     s => ({ value: s.id, label: s.name }))
 
@@ -231,11 +271,19 @@ function ReceptionEditPage({ receptionId }: { receptionId: string }) {
     )
   }
 
+  // Rodzaj i stan pokazujemy w edycji tylko dostawie wołowiny — przy drobiu
+  // rodzaj wynika z zakładki i zmiana go tutaj byłaby zmianą, o którą nikt
+  // nie prosił.
+  const materialChoices = czerwoneTypy.some(m => m.id === header.materialTypeId)
+    ? czerwoneTypy
+    : []
+
   return (
     <ReceptionForm
       mode="edit"
       initialGroups={groups}
       frozen={frozen}
+      materialChoices={materialChoices}
       onClose={() => navigate(LIST_PATH)}
       onSubmit={async g => { const err = await submit(g); if (err) toast.error(err) }}
       header={header}

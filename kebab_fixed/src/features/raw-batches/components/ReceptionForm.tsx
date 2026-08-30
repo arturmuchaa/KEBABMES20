@@ -23,6 +23,10 @@ import {
   type HdiLine, type ReceptionGroup,
 } from '../receptionSplit'
 import { groupsToLines, withBatchIds } from '../receptionEditView'
+import {
+  STORAGE_STATES, etykietaStanu, magazynStanu, progPrzyjecia,
+} from '../storageState'
+import type { MaterialTypeLike } from '../receptionTabs'
 import { receptionsApi } from '@/lib/apiClient'
 import { errorText, isDesktopApp, scanDocument, scannerDiagnose } from '@/lib/desktopScanner'
 import type { ReceptionHeader } from '../types'
@@ -68,6 +72,10 @@ interface ReceptionFormProps {
   /** Powód zamrożenia per `batchId` — pozycji ruszonej nie wolno zmienić
    *  (backend i tak ją odrzuci, więc nie udajemy, że da się ją edytować). */
   frozen?:              Record<string, string>
+  /** Rodzaje do wyboru W FORMULARZU — niepuste tylko dla mięsa czerwonego,
+   *  które przychodzi ze zbiorczej zakładki i nie ma rodzaju z przełącznika.
+   *  Drób wybiera rodzaj zakładką, więc dostaje pustą listę i pola nie widzi. */
+  materialChoices?:     MaterialTypeLike[]
 }
 
 function emptyLine(group = 0): HdiLine {
@@ -102,11 +110,17 @@ function nextLine(prev: HdiLine | undefined, group: number): HdiLine {
 export function ReceptionForm({
   onClose, onSubmit, header, suggestedReceptionNo, suggestedBatchNo,
   supplierOptions, loading, error, onHeaderChange,
-  mode = 'create', initialGroups, frozen = {},
+  mode = 'create', initialGroups, frozen = {}, materialChoices = [],
 }: ReceptionFormProps) {
   const edycja = mode === 'edit'
   const canBeService = header.materialTypeId === SERVICE_MATERIAL_ID
   const isService = header.isService && canBeService
+  // Wołowina: rodzaj i stan wybiera się tutaj, bo zbiorcza zakładka „Mięso
+  // czerwone" nie przesądza ani jednego, ani drugiego.
+  const wyborRodzaju = materialChoices.length > 0
+  const kategoria = wyborRodzaju ? 'czerwone' : 'drob'
+  const prog = progPrzyjecia(kategoria, header.storageState)
+  const magazyn = magazynStanu(header.storageState)
 
   const [customNo, setCustomNo] = useState('')
   const [editingNo, setEditingNo] = useState(false)
@@ -392,6 +406,50 @@ export function ReceptionForm({
       </div>
 
       <div className="space-y-5">
+
+          {/* Mięso czerwone — rodzaj i stan. Instrukcja 1.1 oPRP obejmuje je tą
+              samą kartą 1.1.1 co drób, ale próg temperatury jest inny (+7 °C
+              zamiast +4 °C), a blok mrożony leży w innym magazynie. */}
+          {wyborRodzaju && (
+            <Card>
+              <CardContent className="p-3 grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1.2fr)] gap-4 items-end">
+                <div>
+                  <Label className="text-xs mb-1 block">Rodzaj surowca</Label>
+                  <Select
+                    value={header.materialTypeId}
+                    onValueChange={v => onHeaderChange('materialTypeId', v)}>
+                    <SelectTrigger><SelectValue placeholder="Wybierz rodzaj" /></SelectTrigger>
+                    <SelectContent>
+                      {materialChoices.map(m => (
+                        <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs mb-1 block">Stan</Label>
+                  <Select
+                    value={header.storageState || 'chlodzony'}
+                    onValueChange={v => onHeaderChange('storageState', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {STORAGE_STATES.map(st => (
+                        <SelectItem key={st} value={st}>{etykietaStanu(st)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <CardDescription className="text-[12px] leading-snug pb-1.5">
+                  Przyjęcie do <strong>{prog.opis}</strong>
+                  {!prog.wKsiedze && (
+                    <span className="text-amber-700"> (próg zakładowy — instrukcja 1.1 nie podaje progu dla surowca mrożonego)</span>
+                  )}
+                  <br />
+                  Magazyn nr {magazyn.nr} — {magazyn.nazwa} ({magazyn.temp})
+                </CardDescription>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Usługa — tylko mięso z/s bywa powierzone przez klienta */}
           {canBeService && (

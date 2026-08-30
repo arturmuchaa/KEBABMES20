@@ -46,6 +46,9 @@ export interface RawBatch {
   // Rodzaj surowca (ćwiartka / filet z kurczaka / mięso z indyka…)
   readonly materialTypeId?: string
   readonly materialName?:   string
+  /** Stan surowca: 'chlodzony' | 'mrozony'. Cecha dostawy, nie rodzaju —
+   *  decyduje o progu temperatury (karta 1.1.1) i o magazynie (pom. 3 / 6). */
+  readonly storageState?:   string
 
   // Dokument dostawy: jedna dostawa (jeden numer przyjęcia) rozbija się na
   // kilka numerów porządkowych, które są właśnie tymi partiami.
@@ -108,6 +111,8 @@ export interface CreateRawBatchDto {
   palletsOtherKind?: string
   /** Przyjęcie NA USŁUGĘ (mięso z/s klienta) — osobna seria numerów 48U. */
   isService?:       boolean
+  /** 'chlodzony' | 'mrozony' — pytane tylko przy mięsie czerwonym. */
+  storageState?:    string
 }
 
 // ─── Przyjęcie = dokument całej dostawy ──────────────────────────────────────
@@ -148,6 +153,8 @@ export interface CreateReceptionDto {
   pricePerKg:       number
   notes?:           string
   isService?:       boolean
+  /** Stan CAŁEJ dostawy — jedno auto wiezie albo chłodzone, albo bloki. */
+  storageState?:    string
   groups:           ReceptionGroupDto[]
 }
 
@@ -168,6 +175,7 @@ export interface ReceptionHeader {
   palletsOther:     number
   palletsOtherKind: string
   isService:        boolean
+  storageState:     string
   notes:            string
 }
 

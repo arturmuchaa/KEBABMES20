@@ -19,7 +19,8 @@ import { RawBatchesTable }    from '../components/RawBatchesTable'
 import { podsumowanieAnulowania } from '../cancelSummary'
 import { splitDeliveries, liveSummary, pluralDostawy, type MeatStockMap } from '../deliveryView'
 import {
-  ALL_MATERIALS, receptionTabs, batchesForTab, materialLookup, type MaterialTypeLike,
+  ALL_MATERIALS, RED_MEAT, receptionTabs, batchesForTab, materialLookup,
+  type MaterialTypeLike,
 } from '../receptionTabs'
 import { wzApi, receptionsApi } from '@/lib/apiClient'
 import { rawBatchesApi } from '../api'
@@ -57,13 +58,18 @@ export function RawBatchesPage() {
   const [matId, setMatId] = useState('mat-cwiartka')
   const selMat = matList.find(m => m.id === matId) ?? matList[0]
   const isAll  = matId === ALL_MATERIALS
+  // Zakładka wołowiny miesza pięć rodzajów, więc — jak „Wszystko" — nazwę
+  // i sposób liczenia stanu musi rozstrzygać każdy wiersz sam.
+  const isRed  = matId === RED_MEAT
+  const mieszana = isAll || isRed
 
   // Rodzaj czytany z DOSTAWY — w zakładce zbiorczej jedna tabela miesza
   // ćwiartkę z filetem, a od rodzaju zależy, skąd brać stan i jak nazwać status.
   const lookup = useMemo(() => materialLookup(allTypes), [allTypes])
 
   // Lista filtrowana po wybranym rodzaju (stare partie bez rodzaju = ćwiartka)
-  const matBatches = useMemo(() => batchesForTab(batches as any[], matId), [batches, matId])
+  const matBatches = useMemo(
+    () => batchesForTab(batches as any[], matId, allTypes), [batches, matId, allTypes])
 
   // Żywy stan magazynu mięsa — jedyne miejsce, gdzie widać, ile zostało
   // z dostawy przyjętej BEZ rozbioru (filet, mięso z/s). Backend zeruje
@@ -96,10 +102,10 @@ export function RawBatchesPage() {
   // i co już rozliczone (Historia). Alarmy terminów żyją tylko w pierwszej.
   const resolveOpts = useMemo(
     () => ({
-      requiresDeboning: isAll ? lookup.requiresDeboning : (selMat?.requiresDeboning ?? true),
+      requiresDeboning: mieszana ? lookup.requiresDeboning : (selMat?.requiresDeboning ?? true),
       meatStock,
     }),
-    [isAll, lookup, selMat?.requiresDeboning, meatStock],
+    [mieszana, lookup, selMat?.requiresDeboning, meatStock],
   )
   const { live, history } = useMemo(
     () => splitDeliveries(matBatches, resolveOpts), [matBatches, resolveOpts])
@@ -222,7 +228,14 @@ export function RawBatchesPage() {
           </button>
         ))}
       </div>
-      {!isAll && selMat && !selMat.requiresDeboning && (
+      {isRed && (
+        <CardDescription className="text-xs -mt-2">
+          Wołowina i łój — instrukcja 1.1 oPRP obejmuje je tą samą kartą 1.1.1 co
+          drób. Rodzaj i stan (chłodzony / mrożony) wybiera się w formularzu
+          przyjęcia; blok mrożony idzie do magazynu nr 6 (−18 °C).
+        </CardDescription>
+      )}
+      {!mieszana && selMat && !selMat.requiresDeboning && (
         <CardDescription className="text-xs -mt-2">
           Surowiec bez rozbioru — po przyjęciu od razu trafia na magazyn mięsa
           i jest dostępny do masowania pod numerem partii przyjęcia.
@@ -283,7 +296,8 @@ export function RawBatchesPage() {
               batches={live}
               loading={loading}
               variant="live"
-              requiresDeboning={selMat?.requiresDeboning ?? true}
+              requiresDeboning={isRed ? lookup.requiresDeboning : (selMat?.requiresDeboning ?? true)}
+              materialLabel={isRed ? lookup.label : undefined}
               meatStock={meatStock}
               emptyTitle="Brak surowca w obiegu"
               emptyHint={`Wszystkie dostawy (${selMat?.name ?? 'surowiec'}) są rozliczone — historia poniżej.`}
@@ -312,7 +326,8 @@ export function RawBatchesPage() {
               batches={history}
               loading={loading}
               variant="history"
-              requiresDeboning={selMat?.requiresDeboning ?? true}
+              requiresDeboning={isRed ? lookup.requiresDeboning : (selMat?.requiresDeboning ?? true)}
+              materialLabel={isRed ? lookup.label : undefined}
               meatStock={meatStock}
               emptyTitle="Brak zamkniętych dostaw"
               emptyHint="Rozliczone i anulowane przyjęcia pojawią się tutaj."

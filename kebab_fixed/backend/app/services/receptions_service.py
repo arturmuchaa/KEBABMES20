@@ -27,6 +27,7 @@ from app.services.hdi_scan_store import (attach_bytes, find_original, save_origi
 from app.services.hdi_scan_render import caption_for, prepare_scan
 from app.services.raw_batches_service import (_batch_used_reason_cx, _cancel_batch_cx,
                                               apply_group_cx, create_batch_cx,
+                                              normalize_storage_state,
                                               retarget_material_cx)
 from app.services.raw_batches_service import cancel_reception as raw_batches_cancel_reception
 from app.utils.batch_numbers import delivery_period, format_delivery_no, parse_delivery_no
@@ -282,6 +283,10 @@ def create_reception(dto: ReceptionCreate) -> Dict[str, Any]:
                 "palletsOther": g.pallets_other,
                 "palletsOtherKind": g.pallets_other_kind,
                 "isService": dto.is_service,
+                # Stan jest cechą CAŁEJ dostawy — jedno auto wiezie albo
+                # chłodzone, albo bloki. Każdy numer porządkowy dziedziczy go
+                # z dokumentu, żeby lot magazynu mięsa wiedział, gdzie leży.
+                "storageState": dto.storage_state,
             }), reception_id=reception["id"])
             batches.append(batch)
 
@@ -446,6 +451,7 @@ def update_reception(reception_id: str, dto: ReceptionUpdate) -> Dict[str, Any]:
                     "palletsOther": g.pallets_other,
                     "palletsOtherKind": g.pallets_other_kind,
                     "isService": bool(rec.get("is_service")),
+                    "storageState": dto.storage_state,
                 }), reception_id=reception_id)
                 _replace_supplier_lines_cx(conn, reception_id, g, batch_id=nowa["id"])
                 continue
@@ -489,6 +495,12 @@ def update_reception(reception_id: str, dto: ReceptionUpdate) -> Dict[str, Any]:
                 raise HTTPException(409, f"Numer {numer} jest już w użyciu — nie można go zdjąć")
             _cancel_batch_cx(conn, bid)
 
+        # Stan (chłodzony/mrożony) dotyczy CAŁEGO auta, więc poprawia się go
+        # jednym ruchem na wszystkich numerach porządkowych dokumentu, a nie
+        # przy każdej pozycji z osobna. Lot magazynu mięsa idzie za dostawą,
+        # bo to on mówi, czy towar leży w pom. 3, czy w pom. 6.
+        _apply_storage_state_cx(conn, reception_id, dto.storage_state)
+
     # Opis wypalony na skanie wymienia numery porządkowe i wagi — po edycji
     # dokumentu musi za nimi pójść, inaczej skan mówi co innego niż system
     # (19 i 20.08.2026). Dostawy bez zachowanego oryginału zostają bez zmian.
@@ -498,6 +510,19 @@ def update_reception(reception_id: str, dto: ReceptionUpdate) -> Dict[str, Any]:
     out["warnings"] = []
     logger.info("reception.updated", extra={"reception_no": rec.get("reception_no")})
     return out
+
+
+def _apply_storage_state_cx(conn, reception_id: str, state: str) -> None:
+    """Stan dostawy na wszystkie jej numery porządkowe i loty mięsa."""
+    stan = normalize_storage_state(state)
+    cx_execute(conn, "UPDATE raw_batches SET storage_state=%s WHERE reception_id=%s",
+               (stan, reception_id))
+    cx_execute(
+        conn,
+        "UPDATE meat_stock SET storage_state=%s WHERE raw_batch_id IN "
+        "(SELECT id FROM raw_batches WHERE reception_id=%s)",
+        (stan, reception_id),
+    )
 
 
 def _attach_details(rec: Dict) -> Dict:

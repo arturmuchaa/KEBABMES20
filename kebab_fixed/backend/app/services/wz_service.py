@@ -1413,8 +1413,8 @@ def stock_raw() -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for r in query_all(
         """SELECT id, internal_batch_no, supplier_name, kg_available, material_name,
-                  material_type_id, slaughter_date, expiry_date, received_date,
-                  container_kg, containers_count, kg_received
+                  material_type_id, storage_state, slaughter_date, expiry_date,
+                  received_date, container_kg, containers_count, kg_received
            FROM raw_batches WHERE COALESCE(kg_available,0) > 0
              AND COALESCE(status,'active') <> 'cancelled'
            ORDER BY received_date DESC NULLS LAST, internal_batch_no"""):
@@ -1433,6 +1433,8 @@ def stock_raw() -> List[Dict[str, Any]]:
             "supplier_name": r["supplier_name"],
             "name": r.get("material_name") or "Ćwiartka z kurczaka",
             "material_type_id": r.get("material_type_id") or "mat-cwiartka",
+            # Stan mówi, w którym magazynie lot fizycznie leży (pom. 3 / pom. 6).
+            "storage_state": r.get("storage_state") or "chlodzony",
             "kg_available": r["kg_available"],
             "containers": cont,
             "slaughter_date": str(r.get("slaughter_date") or "")[:10] or None,
@@ -1441,7 +1443,7 @@ def stock_raw() -> List[Dict[str, Any]]:
         })
     for m in query_all(
         """SELECT m.id, m.lot_no, m.raw_batch_no, m.kg_available, m.material_name,
-                  m.material_type_id, m.kg_reserved, m.kg_initial,
+                  m.material_type_id, m.storage_state, m.kg_reserved, m.kg_initial,
                   m.production_date,
                   b.slaughter_date, b.expiry_date, b.supplier_name,
                   (SELECT COALESCE(SUM(de.e2_count), 0) FROM deboning_entries de
@@ -1458,6 +1460,7 @@ def stock_raw() -> List[Dict[str, Any]]:
             "supplier_name": m.get("supplier_name"),
             "name": m.get("material_name") or "Mięso z/s",
             "material_type_id": m.get("material_type_id") or "mat-mieso-zs",
+            "storage_state": m.get("storage_state") or "chlodzony",
             "kg_available": m["kg_available"],
             "kg_reserved": m.get("kg_reserved") or 0,
             "kg_initial": m.get("kg_initial"),

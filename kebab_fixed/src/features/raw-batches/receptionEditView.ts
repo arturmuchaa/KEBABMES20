@@ -24,6 +24,8 @@ export interface EditableDelivery {
 export interface UpdateReceptionDto {
   receivedDate:   string
   materialTypeId: string
+  /** 'chlodzony' | 'mrozony' — poprawka idzie na wszystkie pozycje dostawy. */
+  storageState:   string
   documentNo:     string
   hdiNo:          string
   notes:          string
@@ -87,6 +89,9 @@ export function documentToForm(rec: any): EditableDelivery {
       receivedDate:     String(rec?.receivedDate ?? ''),
       supplierId:       String(rec?.supplierId ?? ''),
       materialTypeId:   String(pierwsza?.materialTypeId ?? ''),
+      // Stan trzyma partia, nie dokument — wszystkie numery porządkowe
+      // jednej dostawy mają go identyczny, więc pierwszy wystarczy.
+      storageState:     String(pierwsza?.storageState ?? 'chlodzony'),
       documentNo:       String(rec?.documentNo ?? ''),
       hdiNo:            String(rec?.hdiNo ?? ''),
       hdiScanId:        '',
@@ -111,6 +116,7 @@ export function formToUpdatePayload(
   return {
     receivedDate:   header.receivedDate,
     materialTypeId: header.materialTypeId,
+    storageState:   header.storageState,
     documentNo:     header.documentNo,
     hdiNo:          header.hdiNo,
     notes:          header.notes,
