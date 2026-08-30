@@ -8,10 +8,14 @@ import re
 from typing import Dict, List
 
 from app.db import (
-    cx_execute, cx_query_all, cx_query_one, execute, query_all, query_one, transaction,
+    cx_execute, cx_execute_returning, cx_query_all, cx_query_one, execute,
+    query_all, query_one, transaction,
 )
 from app.logging_config import get_logger
 from app.utils.pallets import pallet_containers
+from app.services.product_catalog_service import (
+    nadaj_kody_slownikowi_cx, odswiez_katalog_cx,
+)
 from app.utils.stock_codes import (
     kod_tulei, kod_z_licznika, prefiks_opakowania,
 )
@@ -1417,6 +1421,31 @@ _DDL: list[str] = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_ingredient_reception_packaging_doc "
     "ON ingredient_reception_packaging (reception_id)",
+    # Kod katalogowy rodzaju i receptury. Identyfikatory w bazie to cuid-y
+    # („7e3090df935f4f509658" = KEBAB MIX) — czytelne dla maszyny, bezużyteczne
+    # w cenniku i w wymianie z księgowością.
+    "ALTER TABLE product_types ADD COLUMN IF NOT EXISTS code TEXT",
+    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS code TEXT",
+    # KATALOG WYROBÓW. Pozycja katalogu to nie sam rodzaj, tylko to, co
+    # faktycznie się sprzedaje: rodzaj × receptura × tuleja × gramatura.
+    # Ta czwórka jest już kluczem pokrycia zamówień — katalog nie wprowadza
+    # nowej tożsamości, tylko nadaje jej numer.
+    """CREATE TABLE IF NOT EXISTS product_catalog (
+        id                TEXT PRIMARY KEY,
+        code              TEXT NOT NULL,
+        product_type_id   TEXT NOT NULL DEFAULT '',
+        product_type_name TEXT NOT NULL DEFAULT '',
+        recipe_id         TEXT NOT NULL DEFAULT '',
+        recipe_name       TEXT NOT NULL DEFAULT '',
+        packaging_id      TEXT NOT NULL DEFAULT '',
+        packaging_name    TEXT NOT NULL DEFAULT '',
+        kg_per_unit       DOUBLE PRECISION NOT NULL DEFAULT 0,
+        active            BOOLEAN NOT NULL DEFAULT true,
+        created_at        TEXT NOT NULL
+    )""",
+    # Tożsamość pozycji to CZWÓRKA, nie kod — kod wolno zmienić, czwórki nie.
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_product_catalog_tuple "
+    "ON product_catalog (product_type_name, recipe_name, packaging_name, kg_per_unit)",
 ]
 
 
@@ -1464,6 +1493,7 @@ def _run_migrations_locked() -> None:
     _backfill_mixing_session_lots()
     _backfill_receptions()
     _backfill_stock_codes()
+    _backfill_product_catalog()
     _strip_year_from_reception_no()
     _reconcile_deboning_ledger()
     logger.info("migrations.done")
@@ -1490,6 +1520,50 @@ def _strip_year_from_reception_no() -> None:
             logger.info("migrations.strip_year_from_reception_no.done", extra={"count": ile})
     except Exception as exc:
         logger.warning("migrations.strip_year_from_reception_no.failed", extra={"error": str(exc)})
+
+
+def _backfill_product_catalog() -> None:
+    """Nadaje kody rodzajom i recepturom, po czym odświeża katalog wyrobów.
+
+    Kody nadajemy TYLKO tam, gdzie ich nie ma — biuro może je poprawić
+    i kolejny deploy nie ma prawa nadpisać poprawki.
+
+    Katalog odświeżamy przy KAŻDYM deployu (INSERT … ON CONFLICT DO NOTHING),
+    bo to rejestr tego, co realnie wyprodukowano i zamówiono. Nowa kombinacja
+    dopisuje się sama; istniejąca zostaje z kodem, który biuro jej nadało.
+
+    Kombinacje z PUSTYM rodzajem pomijamy: to dane sprzed wymagania rodzaju
+    przy wpisie wyrobu (41 z 95 kombinacji w produkcji). Wpuszczone do
+    katalogu byłyby pozycjami bez tożsamości, których nikt nie potrafi
+    nazwać ani wycenić.
+    """
+    try:
+        with transaction() as conn:
+            nadaj_kody_slownikowi_cx(conn, "product_types")
+            nadaj_kody_slownikowi_cx(conn, "recipes")
+            dodane = odswiez_katalog_cx(conn)
+        logger.info("migrations.backfill_product_catalog.done", extra={"added": dodane})
+    except Exception as exc:
+        logger.warning("migrations.backfill_product_catalog.error",
+                       extra={"error": str(exc)})
+
+    # Indeks unikalny na kodzie DOPIERO po nadaniu kodów — w `_DDL` powstawałby
+    # przed nimi i wywracał się na wierszach z NULL-em… a raczej przepuszczał
+    # je i pilnował dopiero następnym deployem. Ta sama pułapka co przy
+    # kodach magazynów.
+    for ddl in (
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_product_types_code "
+        "ON product_types (code) WHERE code IS NOT NULL AND code <> ''",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_recipes_code "
+        "ON recipes (code) WHERE code IS NOT NULL AND code <> ''",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_product_catalog_code "
+        "ON product_catalog (code) WHERE code IS NOT NULL AND code <> ''",
+    ):
+        try:
+            execute(ddl)
+        except Exception as exc:
+            logger.warning("migrations.product_catalog_index.error",
+                           extra={"error": str(exc), "ddl": ddl[:60]})
 
 
 def _backfill_stock_codes() -> None:

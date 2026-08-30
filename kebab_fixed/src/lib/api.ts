@@ -1476,6 +1476,43 @@ function mapPackaging(raw: any): PackagingItem {
     createdAt:    raw.created_at   ?? raw.createdAt ?? '',
   }
 }
+/** Pozycja katalogu wyrobów — rodzaj × receptura × tuleja × gramatura. */
+export interface ProductCatalogEntry {
+  id:              string
+  code:            string
+  productTypeId:   string
+  productTypeName: string
+  recipeId:        string
+  recipeName:      string
+  packagingId:     string
+  packagingName:   string
+  kgPerUnit:       number
+  active:          boolean
+}
+
+function mapCatalogEntry(raw: any): ProductCatalogEntry {
+  return {
+    id:              raw.id ?? '',
+    code:            raw.code ?? '',
+    productTypeId:   raw.product_type_id   ?? raw.productTypeId   ?? '',
+    productTypeName: raw.product_type_name ?? raw.productTypeName ?? '',
+    recipeId:        raw.recipe_id         ?? raw.recipeId        ?? '',
+    recipeName:      raw.recipe_name       ?? raw.recipeName      ?? '',
+    packagingId:     raw.packaging_id      ?? raw.packagingId     ?? '',
+    packagingName:   raw.packaging_name    ?? raw.packagingName   ?? '',
+    kgPerUnit:       Number(raw.kg_per_unit ?? raw.kgPerUnit ?? 0),
+    active:          raw.active ?? true,
+  }
+}
+
+export const productCatalogApi = {
+  list:    () => get<any[]>('/product-catalog')
+    .then(r => (Array.isArray(r) ? r : []).map(mapCatalogEntry)),
+  refresh: () => post<{ added: number }>('/product-catalog/refresh', {}),
+  update:  (id: string, body: { code?: string; active?: boolean }) =>
+    patch<any>(`/product-catalog/${id}`, body).then(mapCatalogEntry),
+}
+
 export const packagingApi = {
   list:    () => get<any[]>('/packaging').then(r => (Array.isArray(r) ? r : []).map(mapPackaging)),
   all:     () => get<any[]>('/packaging/all').then(r => (Array.isArray(r) ? r : []).map(mapPackaging)),

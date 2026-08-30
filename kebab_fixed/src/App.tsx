@@ -80,6 +80,7 @@ import { UsersPage }              from '@/pages/office/UsersPage'
 import { VehiclesPage }           from '@/pages/office/VehiclesPage'
 import { LabelTemplatesPage }     from '@/pages/office/LabelTemplatesPage'
 import { ProductTypesPage, RecipesPage, PlanningPage } from '@/features/products'
+import { ProductCatalogPage } from '@/pages/office/ProductCatalogPage'
 import { RozbiorRoute }        from '@/pages/tablet/RozbiorRoute'
 import { MixingTabletPage }    from '@/pages/tablet/MixingTabletPage'
 import { MieszanieRoute }      from '@/pages/tablet/MieszanieRoute'
@@ -209,6 +210,8 @@ export default function App() {
         <Route path="rejestr-przyjecia"     element={<ReceptionRegisterHistoryPage />} />
         <Route path="zalecenia-produkcyjne" element={<ProductionReportsPage />} />
         <Route path="rodzaje-produktow"     element={<ProductTypesPage />} />
+        {/* Katalog wyrobów — rodzaj × receptura × tuleja × gramatura z kodem. */}
+        <Route path="katalog-wyrobow"       element={<ProductCatalogPage />} />
         <Route path="receptury"             element={<RecipesPage />} />
         <Route path="szablony-etykiet"      element={<LabelTemplatesPage />} />
         <Route path="kalkulacja-kosztow"    element={<CostCalculatorPage />} />

@@ -7,7 +7,7 @@ import {
   BarChart2, CreditCard, Scissors, Monitor, Truck, Building2,
   FileText, X, Factory, ShoppingCart, Archive,
   Banknote, Clock, Settings, QrCode, Calculator, GitBranch, History, ChevronRight, ShieldCheck, BarChart3,
-  ClipboardCheck, UserSearch, Boxes, Thermometer, ClipboardList,
+  ClipboardCheck, UserSearch, Boxes, Thermometer, ClipboardList, Tags,
 } from 'lucide-react'
 
 interface NavItem { to: string; label: string; icon: React.ReactNode }
@@ -49,6 +49,8 @@ const NAV: NavSection[] = [
   { heading: 'Produkcja', items: [
     { to: '/office/rodzaje-produktow',    label: 'Rodzaje produktów', icon: <Package size={16} /> },
     { to: '/office/receptury',            label: 'Receptury',         icon: <BookOpen size={16} /> },
+    // Katalog stoi przy rodzajach i recepturach, bo z nich się składa.
+    { to: '/office/katalog-wyrobow',      label: 'Katalog wyrobów',   icon: <Tags size={16} /> },
     { to: '/office/szablony-etykiet',     label: 'Szablony etykiet',  icon: <QrCode size={16} /> },
     { to: '/office/planowanie-masowania', label: 'Plan. masowania',   icon: <Layers size={16} /> },
     { to: '/office/historia-masowania',   label: 'Historia masowania', icon: <History size={16} /> },
