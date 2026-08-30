@@ -21,6 +21,7 @@ import {
 import { cn } from '@/lib/utils'
 
 import { fmtKg3 } from '../rowMath'
+import { zlozNazweWyrobu } from '../nazwaWyrobu'
 
 /** Frakcje surowca w kolejności, w jakiej biuro ich szuka. */
 const GRUPY: { key: string; label: string; match: (b: any) => boolean }[] = [
@@ -36,10 +37,7 @@ const GRUPY: { key: string; label: string; match: (b: any) => boolean }[] = [
  *  i KEBAB UDO 100 % — dwa różne produkty, których po wydaniu nie da się
  *  odróżnić na WZ-ce (biuro, 26.08.2026). */
 export function fgLabel(g: any): string {
-  const base = [g.product_type_name, g.recipe_name]
-    .map((x: any) => String(x ?? '').trim())
-    .filter(Boolean)
-    .join(' ') || 'Wyrób'
+  const base = zlozNazweWyrobu(g.product_type_name, g.recipe_name)
   const kg = Number(g.kg_per_unit || 0)
   return kg > 0 ? `${base} ${fmtKg3(kg)}kg` : base
 }

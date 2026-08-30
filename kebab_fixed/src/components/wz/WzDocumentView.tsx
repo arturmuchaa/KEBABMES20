@@ -2,6 +2,8 @@ import { useLayoutEffect, useRef } from 'react'
 import { WzDoc, WzLine } from '@/lib/api'
 import { fmtDatePl } from '@/lib/utils'
 import { buildHdiRows } from './hdiRows'
+import { sortujPozycjeWz } from '@/features/wz/wzLineOrder'
+import { bezPowtorzonychSlow } from '@/features/wz/nazwaWyrobu'
 
 /** Dane dokumentu do renderu — pełny WzDoc z API albo szkic z formularza
  *  (przed wystawieniem; wtedy number/seller mogą być puste). */
@@ -94,7 +96,9 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
   const mergedLines: WzLine[] = []
   {
     const byKey = new Map<string, WzLine>()
-    for (const l of doc.lines) {
+    // Sortujemy PRZED scalaniem, żeby kolejność wynikowa szła z reguły, a nie
+    // z tego, w jakiej kolejności biuro dokładało pozycje do koszyka.
+    for (const l of sortujPozycjeWz(doc.lines)) {
       const k = `${l.name}|${l.unit}|${l.price ?? ''}|${l.kg_per_unit ?? ''}`
       const m = byKey.get(k)
       if (m) {
@@ -204,7 +208,9 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
           {mergedLines.map((l, i) => (
             <tr key={i}>
               <td className="px-1.5 py-0.5 text-center w-8 text-[9.5px]" style={{ border: '1px solid #9a9a9a' }}>{i + 1}</td>
-              <td className="px-1.5 py-0.5 uppercase font-semibold text-[9.5px]" style={{ border: '1px solid #9a9a9a' }}>{l.name}</td>
+              {/* Nazwa bez powtórzonego słowa — dokumenty sprzed poprawki mają
+                  „KEBAB YAPRAK YAPRAK" zapisane w bazie i wydruk ma je zwinąć. */}
+              <td className="px-1.5 py-0.5 uppercase font-semibold text-[9.5px]" style={{ border: '1px solid #9a9a9a' }}>{bezPowtorzonychSlow(l.name)}</td>
               <td className="px-1.5 py-0.5 text-right text-[9.5px]" style={{ border: '1px solid #9a9a9a' }}>{l.qty}</td>
               <td className="px-1.5 py-0.5 w-12 text-center text-[9.5px]" style={{ border: '1px solid #9a9a9a' }}>{l.unit}</td>
               {hasKg && (
