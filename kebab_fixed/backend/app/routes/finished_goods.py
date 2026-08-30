@@ -35,6 +35,12 @@ def zmien_rodzaj(goods_id: str, product_type_id: str = Query(...)):
     return svc.zmien_rodzaj(goods_id, product_type_id)
 
 
+@router.patch("/{goods_id}/receptura")
+def zmien_recepture(goods_id: str, recipe_id: str = Query(...)):
+    """Korekta receptury na wierszu magazynu — tylko dopóki nic nie wyjechało."""
+    return svc.zmien_recepture(goods_id, recipe_id)
+
+
 @router.post("/finish-day")
 def finish_day(dto: FinishDayDto):
     return svc.finish_day(dto)

@@ -6,7 +6,7 @@
  */
 import { useState, useEffect } from 'react'
 import { traceabilityApi } from '@/lib/apiClient'
-import { finishedGoodsApi, productTypesApi } from '@/lib/api'
+import { finishedGoodsApi, productTypesApi, recipesApi } from '@/lib/api'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { useClientNames } from '@/lib/clientNames'
 import { GitBranch, Beef, Scissors, FlaskConical, Package2, ChevronRight } from 'lucide-react'
@@ -259,6 +259,35 @@ export function DetailModal({ group, onClose, onChanged }: {
       .catch(() => setRodzaje([]))
   }, [edytowany, rodzaje.length])
 
+  // Receptura jest częścią tożsamości wyrobu tak samo jak rodzaj: pokrycie
+  // dopasowuje po (rodzaj, receptura, tuleja, waga). Dwie sztuki wpisane
+  // z inną recepturą LEŻĄ na magazynie, ale zamówienia nie pokrywają — i na
+  // ekranie nie widać dlaczego, bo rodzaj i gramatura się zgadzają
+  // (ZAGROS, 30.08.2026: zamówienie widziało 4 z 6 sztuk).
+  const [receptury, setReceptury] = useState<any[]>([])
+  const [edytowanaRec, setEdytowanaRec] = useState<string | null>(null)
+  useEffect(() => {
+    if (!edytowanaRec || receptury.length) return
+    recipesApi.list()
+      .then((r: any) => setReceptury(Array.isArray(r) ? r : []))
+      .catch(() => setReceptury([]))
+  }, [edytowanaRec, receptury.length])
+
+  const zapiszRecepture = async (goodsId: string, recipeId: string) => {
+    if (!recipeId) return
+    setZapisywany(goodsId)
+    try {
+      await finishedGoodsApi.zmienRecepture(goodsId, recipeId)
+      setEdytowanaRec(null)
+      onChanged?.()
+      onClose()
+    } catch (e: any) {
+      alert(e?.message || 'Nie udało się zmienić receptury')
+    } finally {
+      setZapisywany(null)
+    }
+  }
+
   const zapiszRodzaj = async (goodsId: string, productTypeId: string) => {
     if (!productTypeId) return
     setZapisywany(goodsId)
@@ -359,6 +388,34 @@ export function DetailModal({ group, onClose, onChanged }: {
                             <button type="button" data-testid={`rodzaj-popraw-${b.id}`}
                               className="text-[11px] underline underline-offset-2 text-primary"
                               onClick={() => setEdytowany(b.id)}>popraw</button>
+                          )}
+                        </div>
+                        <div className="mb-3 flex items-center gap-2 text-xs">
+                          <span className="font-bold uppercase tracking-wider text-muted-foreground">Receptura</span>
+                          <span className="font-semibold">{b.recipeName || '—'}</span>
+                          {(b.qtyShipped ?? 0) > 0 ? (
+                            <span className="text-[11px] text-muted-foreground">
+                              — wyjechało {b.qtyShipped} szt., receptura stoi na dokumentach
+                            </span>
+                          ) : edytowanaRec === b.id ? (
+                            <>
+                              <select data-testid={`receptura-wybor-${b.id}`}
+                                className="h-7 rounded-[3px] border border-ink-4 px-2 text-xs"
+                                defaultValue={b.recipeId || ''}
+                                disabled={zapisywany === b.id}
+                                onChange={e => void zapiszRecepture(b.id, e.target.value)}>
+                                <option value="">— wybierz —</option>
+                                {receptury.map((r: any) => (
+                                  <option key={r.id} value={r.id}>{r.name}</option>
+                                ))}
+                              </select>
+                              <button type="button" className="text-[11px] underline text-muted-foreground"
+                                onClick={() => setEdytowanaRec(null)}>anuluj</button>
+                            </>
+                          ) : (
+                            <button type="button" data-testid={`receptura-popraw-${b.id}`}
+                              className="text-[11px] underline underline-offset-2 text-primary"
+                              onClick={() => setEdytowanaRec(b.id)}>popraw</button>
                           )}
                         </div>
                         <BatchLocationSummary batchNo={b.batchNo || ''} />

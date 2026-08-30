@@ -3168,6 +3168,10 @@ export const finishedGoodsApi = {
   zmienRodzaj: (goodsId: string, productTypeId: string) =>
     patch<{ id: string; productTypeId: string; productTypeName: string; poprzedni: string }>(
       `/finished-goods/${encodeURIComponent(goodsId)}/rodzaj?product_type_id=${encodeURIComponent(productTypeId)}`, {}),
+  /** Korekta receptury — bliźniak korekty rodzaju, ta sama zasada. */
+  zmienRecepture: (goodsId: string, recipeId: string) =>
+    patch<{ id: string; recipeId: string; recipeName: string; poprzednia: string }>(
+      `/finished-goods/${encodeURIComponent(goodsId)}/receptura?recipe_id=${encodeURIComponent(recipeId)}`, {}),
   list: async () => {
     const items = await get<any[]>('/finished-goods')
     return items.map(mapFinishedGoodsItem)

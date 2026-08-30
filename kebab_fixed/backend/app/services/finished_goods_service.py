@@ -361,6 +361,52 @@ def zmien_rodzaj(goods_id: str, product_type_id: str) -> Dict[str, Any]:
             "poprzedni": row.get("product_type_name") or ""}
 
 
+def zmien_recepture(goods_id: str, recipe_id: str) -> Dict[str, Any]:
+    """Popraw RECEPTURĘ na wierszu wyrobu gotowego.
+
+    Bliźniak `zmien_rodzaj`. Receptura jest częścią tożsamości wyrobu tak samo
+    jak rodzaj: pokrycie zamówienia dopasowuje po (rodzaj, receptura, tuleja,
+    waga), więc dwie sztuki wpisane z inną recepturą leżą na magazynie, ale
+    zamówienia NIE pokrywają — i nikt nie widzi dlaczego, bo na ekranie stoi
+    ta sama nazwa rodzaju i ta sama gramatura.
+
+    Realny przypadek (ZAGROS, 30.08.2026): zamówienie na 6 szt. KEBAB YAPRAK
+    30 kg w recepturze SHAORMA TRUVA + AROMAT, na magazynie 4 szt. w tej
+    recepturze i 2 szt. w recepturze YAPRAK. Zamówienie widziało 4.
+
+    Poprawiamy TYLKO wiersz, z którego nic nie wyjechało — po wydaniu
+    receptura stoi już na WZ i HDI u klienta.
+    """
+    with transaction() as conn:
+        row = cx_query_one(
+            conn,
+            "SELECT id, recipe_name, qty_shipped, product_type_name, kg_per_unit "
+            "FROM finished_goods WHERE id=%s FOR UPDATE", (goods_id,))
+        if not row:
+            raise HTTPException(404, "Wiersz wyrobu gotowego nie istnieje")
+        if int(row.get("qty_shipped") or 0) > 0:
+            raise HTTPException(
+                409,
+                f"Z tej pozycji wyjechało już {row['qty_shipped']} szt. — receptura stoi "
+                f"na wystawionych dokumentach. Anuluj wydanie albo zrób korektę.")
+
+        rec = cx_query_one(
+            conn, "SELECT id, name FROM recipes WHERE id=%s", (recipe_id,))
+        if not rec:
+            raise HTTPException(404, "Nie ma takiej receptury w kartotece")
+
+        cx_execute(
+            conn,
+            "UPDATE finished_goods SET recipe_id=%s, recipe_name=%s WHERE id=%s",
+            (rec["id"], rec["name"], goods_id))
+
+    logger.info("finished_goods.recipe_changed", extra={
+        "goods_id": goods_id, "z_receptury": row.get("recipe_name") or "",
+        "na_recepture": rec["name"]})
+    return {"id": goods_id, "recipeId": rec["id"], "recipeName": rec["name"],
+            "poprzednia": row.get("recipe_name") or ""}
+
+
 def _match_open_order(conn, dto: FinishedGoodCreate, qty: int) -> str:
     """Numer OTWARTEGO zamówienia, które ten wyrób domyka — albo pusty.
 
