@@ -1,5 +1,5 @@
 import { useOtworzDokument } from '@/lib/otworzDokument'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { wzApi, clientsApi, settingsApi, downloadDocPdf, containersApi, payrollApi, WzDoc } from '@/lib/api'
 import { todayIso, cn } from '@/lib/utils'
@@ -8,9 +8,10 @@ import { WzDocumentView, WzDocData } from '@/components/wz/WzDocumentView'
 import { WzLinesGrid } from '@/features/wz/components/WzLinesGrid'
 import { StockPickerDialog, fgLabel } from '@/features/wz/components/StockPickerDialog'
 import {
-  fmtKg3, fmtKgPl, fmtMoneyPl, rowKg, rowPrice, rowQty, rowValue,
+  fmtKg3, fmtKgPl, fmtMoneyPl, rowKg, rowPrice, rowQty, rowValue, rowVat,
   sanitizeDecimal, sanitizeInt, toNum, type WzRow as Row,
 } from '@/features/wz/rowMath'
+import { stawkaVatDlaNabywcy } from '@/features/wz/wzVat'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -142,6 +143,19 @@ export function WzNewPage() {
   const clientName = (selectedClient?.name || selectedClient?.displayName || '').trim()
 
   const foreign = useMemo(() => isForeignNip(buyer.nip), [buyer.nip])
+  // Stawka domyślna z NIP-u nabywcy: kraj 5 %, zagranica 0 % (WDT/eksport).
+  // Podpowiedź, nie przymus — każdy wiersz da się zmienić osobno.
+  const vatDomyslny = useMemo(() => stawkaVatDlaNabywcy(buyer.nip), [buyer.nip])
+  // Gdy nabywca zmieni się PO dodaniu pozycji, stawka nietknięta ma pójść za
+  // nim. Inaczej dokument eksportowy wyszedłby z krajowymi 5 % tylko dlatego,
+  // że klienta wybrano na końcu. Wiersze poprawione ręcznie zostają.
+  const poprzedniVat = useRef(vatDomyslny)
+  useEffect(() => {
+    const stary = poprzedniVat.current
+    poprzedniVat.current = vatDomyslny
+    if (stary === vatDomyslny) return
+    setRows(rs => rs.map(r => (Number(r.vatRate ?? 0) === stary ? { ...r, vatRate: vatDomyslny } : r)))
+  }, [vatDomyslny])
   const totalValue = rows.reduce((s, r) => s + rowValue(r), 0)
   const totalKg = rows.reduce((s, r) => s + rowKg(r), 0)
   const overdrawn = rows.filter(r => rowQty(r) > r.available)
@@ -191,6 +205,7 @@ export function WzNewPage() {
     unit: 'szt', qtyStr: '1', priceStr: '', batchNo: g.batch_no,
     available: Number(g.qty_available || 0),
     kgPerUnit: Number(g.kg_per_unit || 0) || undefined,
+    vatRate: vatDomyslny,
   }])
   // Domyślnie CAŁA partia (typowy przypadek); częściowe wydanie = edycja kg
   // w tabeli (np. „600 z 406, reszta nie weszła na samochód").
@@ -207,6 +222,7 @@ export function WzNewPage() {
     expiryDate: b.expiry_date ?? null,
     productionDate: b.production_date ?? null,
     available: Number(b.kg_available || 0),
+    vatRate: vatDomyslny,
   })
   const addRaw = (b: any) => setRows(r => [...r, mkRawRow(b)])
   /** „Dodaj wszystkie" z grupy (kości/grzbiety/ćwiartka…) — typowe wydanie
@@ -225,6 +241,8 @@ export function WzNewPage() {
    *  tej samej stawce). Każdy wiersz da się potem poprawić osobno. */
   const applyPriceToAll = (v: string) =>
     setRows(rs => rs.map(r => ({ ...r, priceStr: v })))
+  const updVat = (i: number, vatRate: number) =>
+    setRows(r => r.map((x, j) => j === i ? { ...x, vatRate } : x))
   const del = (i: number) => setRows(r => r.filter((_, j) => j !== i))
 
   const q = query.trim().toLowerCase()
@@ -274,6 +292,7 @@ export function WzNewPage() {
       kg_per_unit: r.kgPerUnit ?? null,
       total_kg: r.kgPerUnit ? Math.round(rowQty(r) * r.kgPerUnit * 1000) / 1000 : null,
       price: valued ? rowPrice(r) : null, value: valued ? Math.round(rowValue(r) * 100) / 100 : null,
+      vat_rate: valued ? rowVat(r) : null,
     })),
     total_value: valued ? Math.round(totalValue * 100) / 100 : undefined,
   }
@@ -300,6 +319,7 @@ export function WzNewPage() {
           qty: rowQty(r), price: rowPrice(r), batchNo: r.batchNo, kgPerUnit: r.kgPerUnit,
           containers: parseInt(r.containersStr || '') || undefined,
           productionDate: r.productionDate ?? undefined,
+          vatRate: valued ? rowVat(r) : undefined,
         })),
         valued,
         currency,
@@ -573,6 +593,7 @@ export function WzNewPage() {
         valued={valued}
         sym={sym}
         onChange={upd}
+        onVatChange={updVat}
         onDelete={del}
         onAdd={() => setPickerOpen(true)}
       />

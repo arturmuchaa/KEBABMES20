@@ -26,6 +26,8 @@ export interface WzRow {
   productionDate?: string | null
   /** Waga jednej sztuki wyrobu gotowego — klucz do wyceny za kilogram. */
   kgPerUnit?: number
+  /** Stawka VAT w % — cecha POZYCJI. Domyślną podpowiada NIP nabywcy. */
+  vatRate?: number
 }
 
 /** „3,25" / „3.25" / „10" → liczba; śmieci → 0. */
@@ -66,3 +68,6 @@ export const rowKg = (r: WzRow): number =>
 /** Wartość pozycji: cena ZA KG gdy znamy wagę, inaczej za jednostkę. */
 export const rowValue = (r: WzRow): number =>
   (rowKg(r) > 0 ? rowKg(r) : rowQty(r)) * rowPrice(r)
+
+/** Stawka pozycji; brak = 0 % (WDT/eksport albo dokument bez VAT). */
+export const rowVat = (r: WzRow): number => Number(r.vatRate ?? 0)

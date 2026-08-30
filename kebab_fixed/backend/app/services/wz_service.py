@@ -187,6 +187,13 @@ def build_wz_lines(items: List[Dict[str, Any]], valued: bool) -> Tuple[List[Dict
             value = round(float(base) * price, 2)
             line["price"] = round(price, 2)
             line["value"] = value
+            # Stawka VAT jest cechą POZYCJI, nie dokumentu: jedno auto potrafi
+            # wieźć wyrób (5 %) i pozycję opodatkowaną inaczej. Domyślną
+            # podpowiada formularz z NIP-u nabywcy; tu tylko ją przenosimy.
+            try:
+                line["vat_rate"] = round(float(it.get("vat_rate") or 0), 2)
+            except (TypeError, ValueError):
+                line["vat_rate"] = 0.0
             total += value
         lines.append(line)
     return lines, round(total, 2)
@@ -198,7 +205,7 @@ def build_manual_wz_lines(selections: List[Dict[str, Any]], valued: bool) -> Tup
     items = [
         {"name": s.get("name"), "qty": s.get("qty"), "unit": s.get("unit"),
          "price": s.get("price"), "batch_no": s.get("batch_no"),
-         "kg_per_unit": s.get("kg_per_unit")}
+         "kg_per_unit": s.get("kg_per_unit"), "vat_rate": s.get("vat_rate")}
         for s in (selections or [])
     ]
     lines, total = build_wz_lines(items, valued)

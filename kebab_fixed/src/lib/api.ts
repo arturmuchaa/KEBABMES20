@@ -2224,6 +2224,7 @@ export interface WzLine {
   name: string; qty: number; unit: string; price: number | null; value: number | null
   batch_no?: string | null
   kg_per_unit?: number | null   // waga 1 szt — pozycje FG wyceniane za kg
+  vat_rate?: number | null      // stawka VAT w % — cecha POZYCJI, nie dokumentu
   total_kg?: number | null      // qty * kg_per_unit
   containers?: number | null    // pojemniki E2 (surowiec) — informacyjnie + HDI
   stock_type?: string | null    // 'raw'|'meat'|'byproduct'|'fg' — surowcowe wchodzą do tabeli HDI
@@ -2284,7 +2285,7 @@ export const wzApi = {
     get<any>(`/wz/stock/raw/card?stock_type=${encodeURIComponent(stockType)}&stock_id=${encodeURIComponent(stockId)}`),
   createManual: (body: {
     buyer: { name: string; address?: string; nip?: string };
-    items: { stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string; kgPerUnit?: number; containers?: number; productionDate?: string | null }[];
+    items: { stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string; kgPerUnit?: number; containers?: number; productionDate?: string | null; vatRate?: number }[];
     valued?: boolean; place?: string; issuedDate?: string; releaseDate?: string; notes?: string;
     currency?: string; eurRate?: number | null;
     // Palety są na POZIOMIE DOKUMENTU (transport wiezie N palet łącznie);

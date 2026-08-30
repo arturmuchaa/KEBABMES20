@@ -18,9 +18,10 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
 import {
-  fmtKgPl, fmtMoneyPl, rowKg, rowPrice, rowQty, rowValue, sanitizeDecimal, sanitizeInt,
+  fmtKgPl, fmtMoneyPl, rowKg, rowPrice, rowQty, rowValue, rowVat, sanitizeDecimal, sanitizeInt,
   type WzRow,
 } from '../rowMath'
+import { STAWKI_VAT } from '../wzVat'
 
 export interface WzLinesGridProps {
   rows: WzRow[]
@@ -28,11 +29,13 @@ export interface WzLinesGridProps {
   /** Symbol waluty dokumentu („zł" / „€"). */
   sym: string
   onChange: (index: number, key: 'qtyStr' | 'priceStr' | 'containersStr', value: string) => void
+  /** Zmiana stawki VAT pozycji; pominięte = kolumny VAT nie ma. */
+  onVatChange?: (index: number, vatRate: number) => void
   onDelete: (index: number) => void
   onAdd: () => void
 }
 
-export function WzLinesGrid({ rows, valued, sym, onChange, onDelete, onAdd }: WzLinesGridProps) {
+export function WzLinesGrid({ rows, valued, sym, onChange, onVatChange, onDelete, onAdd }: WzLinesGridProps) {
   // Insert dokłada pozycję — odruch przeniesiony z Subiekta/Comarcha, gdzie
   // biuro wystawia dokumenty z klawiatury, nie myszą.
   useEffect(() => {
@@ -74,6 +77,7 @@ export function WzLinesGrid({ rows, valued, sym, onChange, onDelete, onAdd }: Wz
                 <th className="h-8 px-2 w-16">Poj.</th>
                 <th className="h-8 px-2 w-24 text-right">Waga</th>
                 {valued && <th className="h-8 px-2 w-24">Cena</th>}
+                {valued && onVatChange && <th className="h-8 px-2 w-20">VAT</th>}
                 {valued && <th className="h-8 px-2 w-28 text-right">Wartość</th>}
                 <th className="h-8 px-2 w-9" />
               </tr>
@@ -146,6 +150,18 @@ export function WzLinesGrid({ rows, valued, sym, onChange, onDelete, onAdd }: Wz
                         {rowPrice(r) > 0 && rowKg(r) > 0 && (
                           <div className="text-[10px] text-ink-4">za kg</div>
                         )}
+                      </td>
+                    )}
+                    {valued && onVatChange && (
+                      <td className="px-2 py-1.5">
+                        <select
+                          aria-label={`VAT ${lp}`}
+                          value={rowVat(r)}
+                          className="h-7 w-16 rounded border border-surface-4 bg-white px-1 font-mono text-[12px]"
+                          onChange={e => onVatChange(i, Number(e.target.value))}
+                        >
+                          {STAWKI_VAT.map(v => <option key={v} value={v}>{v}%</option>)}
+                        </select>
                       </td>
                     )}
                     {valued && (

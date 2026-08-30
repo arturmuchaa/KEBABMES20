@@ -4,6 +4,7 @@ import { fmtDatePl } from '@/lib/utils'
 import { buildHdiRows } from './hdiRows'
 import { sortujPozycjeWz } from '@/features/wz/wzLineOrder'
 import { bezPowtorzonychSlow } from '@/features/wz/nazwaWyrobu'
+import { maVat, podsumowanieVat } from '@/features/wz/wzVat'
 
 /** Dane dokumentu do renderu — pełny WzDoc z API albo szkic z formularza
  *  (przed wystawieniem; wtedy number/seller mogą być puste). */
@@ -99,7 +100,9 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
     // Sortujemy PRZED scalaniem, żeby kolejność wynikowa szła z reguły, a nie
     // z tego, w jakiej kolejności biuro dokładało pozycje do koszyka.
     for (const l of sortujPozycjeWz(doc.lines)) {
-      const k = `${l.name}|${l.unit}|${l.price ?? ''}|${l.kg_per_unit ?? ''}`
+      // Stawka w kluczu: dwie pozycje o tej samej nazwie, ale innym VAT,
+      // NIE mogą się scalić — podsumowanie rozbija kwoty po stawkach.
+      const k = `${l.name}|${l.unit}|${l.price ?? ''}|${l.kg_per_unit ?? ''}|${l.vat_rate ?? ''}`
       const m = byKey.get(k)
       if (m) {
         m.qty = Number(m.qty) + Number(l.qty)
@@ -114,6 +117,8 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
       }
     }
   }
+  const pokazVat = maVat(doc.lines)
+  const vat = podsumowanieVat(mergedLines)
   const sym = curSymbol(doc.currency)
   const isEur = (doc.currency || 'PLN').toUpperCase() === 'EUR'
   const totalKg = doc.lines.reduce((s, l) => s + Number(l.total_kg ?? 0), 0)
@@ -121,7 +126,9 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
   const head = [
     'Lp', 'Nazwa towaru', 'Ilość', 'j.m.',
     ...(hasKg ? ['Waga'] : []),
-    ...(doc.valued ? [hasKg ? `Cena/kg [${sym}]` : `Cena jedn. [${sym}]`, `Wartość [${sym}]`] : []),
+    ...(doc.valued ? [hasKg ? `Cena/kg [${sym}]` : `Cena jedn. [${sym}]`] : []),
+    ...(doc.valued && pokazVat ? ['VAT'] : []),
+    ...(doc.valued ? [`Wartość [${sym}]`] : []),
   ]
   const cols = head.length
   const totalValue = doc.total_value ?? doc.lines.reduce((s, l) => s + lineValue(l), 0)
@@ -219,6 +226,11 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
                 </td>
               )}
               {doc.valued && <td className="px-1.5 py-0.5 text-right text-[9.5px]" style={{ border: '1px solid #9a9a9a' }}>{fmt(l.price)}</td>}
+              {doc.valued && pokazVat && (
+                <td className="px-1.5 py-0.5 text-center w-10 text-[9.5px]" style={{ border: '1px solid #9a9a9a' }}>
+                  {Number(l.vat_rate ?? 0)}%
+                </td>
+              )}
               {doc.valued && <td className="px-1.5 py-0.5 text-right text-[9.5px]" style={{ border: '1px solid #9a9a9a' }}>{fmt(lineValue(l))}</td>}
             </tr>
           ))}
@@ -234,6 +246,7 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
                 <td className="px-1.5 py-0.5 text-right font-bold text-[9.5px]" style={{ border: '1px solid #9a9a9a', background: '#efefef' }}>{fmtKg3(totalKg)} kg</td>
               )}
               {doc.valued && <td style={{ border: '1px solid #9a9a9a', background: '#efefef' }} />}
+              {doc.valued && pokazVat && <td style={{ border: '1px solid #9a9a9a', background: '#efefef' }} />}
               {doc.valued && (
                 <td className="px-1.5 py-0.5 text-right font-bold text-[9.5px]" style={{ border: '1px solid #9a9a9a', background: '#efefef' }}>
                   {fmt(totalValue)}
@@ -248,10 +261,26 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
       {doc.valued && (
         <div className="flex justify-end mt-2.5">
           <div style={{ width: 280 }}>
+            {pokazVat && (
+              <>
+                {vat.wiersze.map(w => (
+                  <div key={w.stawka} className="flex items-center justify-between px-2.5 py-0.5"
+                    style={{ border: '1px solid #9a9a9a', borderBottom: 'none', fontSize: 10 }}>
+                    <span>Netto {w.stawka}% / VAT:</span>
+                    <span>{fmt(w.netto)} / {fmt(w.vat)} {sym}</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between px-2.5 py-0.5"
+                  style={{ border: '1px solid #9a9a9a', borderBottom: 'none', fontSize: 10 }}>
+                  <span>Razem netto:</span>
+                  <span>{fmt(vat.netto)} {sym}</span>
+                </div>
+              </>
+            )}
             <div className="flex items-center justify-between font-bold px-2.5 py-1"
               style={{ background: '#d7d7d7', border: '1px solid #9a9a9a', fontSize: 11 }}>
-              <span>Razem do zapłaty:</span>
-              <span>{fmt(totalValue)} {sym}</span>
+              <span>{pokazVat ? 'Razem brutto:' : 'Razem do zapłaty:'}</span>
+              <span>{fmt(pokazVat ? vat.brutto : totalValue)} {sym}</span>
             </div>
             {isEur && doc.eur_rate ? (
               <div className="text-right text-[10.5px] mt-0.5 text-[#333]">
