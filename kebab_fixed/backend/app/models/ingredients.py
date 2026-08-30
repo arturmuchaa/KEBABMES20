@@ -26,13 +26,12 @@ class IngredientReceptionLineIn(BaseModel):
     #: magazyn: składnik do `ingredient_stock`, opakowanie do `packaging`.
     kind: str = "ingredient"
     ingredient_id: str = Field("", alias="ingredientId")
-    #: Pozycja magazynu opakowań, gdy dokładamy do istniejącej.
+    #: Pozycja magazynu opakowań. WYMAGANA dla ``kind='packaging'`` — nazwy
+    #: nie da się podać z ręki. Magazyn opakowań scala pozycje po nazwie,
+    #: więc literówka założyłaby po cichu drugą pozycję i rozbiła stan na
+    #: dwa wiersze. Nową pozycję zakłada się raz, na Magazynie tulei
+    #: i opakowań, i od tej pory tylko się ją wybiera.
     packaging_id: str = Field("", alias="packagingId")
-    #: Nazwa NOWEJ pozycji opakowania (gdy nie ma jej jeszcze w magazynie).
-    name: str = ""
-    #: Rodzaj z magazynu opakowań: tuleja | opakowanie | inne.
-    packaging_type: str = Field("opakowanie", alias="packagingType")
-    unit: str = "szt"
     qty: float = Field(..., gt=0)
     #: Numer partii DOSTAWCY z opakowania — po nim idzie identyfikowalność
     #: (instrukcja 1.3 wymienia „brak identyfikowalności partii" jako zagrożenie).

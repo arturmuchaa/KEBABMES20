@@ -245,56 +245,56 @@ class TestOpakowania:
     technologicznych" — folia i tuleje należą do niej tak samo jak przyprawa.
 
     Idą jednak na INNY magazyn: `packaging`, który nie jest lotowy (pozycje
-    scalają się po nazwie). Dlatego ślad po konkretnej dostawie zostaje
-    w wierszu dokumentu, a nie w wierszu magazynu.
+    scalają się po nazwie). Dlatego pozycję WYBIERA się z magazynu, a nie
+    wpisuje z ręki: literówka nie podniosłaby alarmu, tylko po cichu
+    założyła drugi wiersz i rozbiła stan na dwa. Ślad po konkretnej dostawie
+    zostaje w wierszu dokumentu.
     """
 
-    def _dto_folia(self, **kw):
+    def _folia(self, nazwa="Folia stretch 500", stan=0.0):
+        """Pozycja magazynu założona WCZEŚNIEJ — tak, jak robi to biuro."""
+        pid = cuid()
+        execute("INSERT INTO packaging (id, code, name, type, unit, kg_initial, "
+                "kg_available, kg_used, created_at) "
+                "VALUES (%s,%s,%s,'opakowanie','szt',%s,%s,0,%s)",
+                (pid, f"PAK-{pid[:4]}", nazwa, stan, stan, now_iso()))
+        return pid
+
+    def _dto_folia(self, packaging_id, **kw):
         base = dict(
             receivedDate="2026-08-30",
             supplierId="sup-berg",
             documentNo="FV 900/2026",
-            lines=[dict(kind="packaging", name="Folia stretch 500",
-                        packagingType="opakowanie", unit="szt", qty=120.0,
+            lines=[dict(kind="packaging", packagingId=packaging_id, qty=120.0,
                         batchNo="F-1", expiryDate="2029-01-01")],
         )
         base.update(kw)
         return IngredientReceptionCreate.model_validate(base)
 
-    def test_nowe_opakowanie_zaklada_pozycje_magazynu(self, db):
+    def test_dostawa_doklada_do_wybranej_pozycji(self, db):
         _seed()
-        create_ingredient_reception(self._dto_folia())
-        pkg = query_one("SELECT * FROM packaging WHERE LOWER(name)=LOWER('Folia stretch 500')")
-        assert pkg is not None
-        assert pkg["kg_available"] == 120.0
-        assert pkg["type"] == "opakowanie"
+        pid = self._folia(stan=50.0)
+        create_ingredient_reception(self._dto_folia(pid))
+        pkg = query_one("SELECT * FROM packaging WHERE id=%s", (pid,))
+        assert pkg["kg_available"] == 170.0
 
-    def test_druga_dostawa_DOKLADA_do_tej_samej_pozycji(self, db):
+    def test_druga_dostawa_nie_robi_drugiej_pozycji(self, db):
         _seed()
-        create_ingredient_reception(self._dto_folia())
-        create_ingredient_reception(self._dto_folia(qty=None, lines=[
-            dict(kind="packaging", name="Folia stretch 500", qty=80.0, unit="szt"),
+        pid = self._folia()
+        create_ingredient_reception(self._dto_folia(pid))
+        create_ingredient_reception(self._dto_folia(pid, lines=[
+            dict(kind="packaging", packagingId=pid, qty=80.0),
         ]))
         pozycje = query_all("SELECT * FROM packaging WHERE LOWER(name)=LOWER('Folia stretch 500')")
         assert len(pozycje) == 1, "magazyn opakowań scala po nazwie, nie robi lotów"
         assert pozycje[0]["kg_available"] == 200.0
 
-    def test_dokladanie_do_ISTNIEJACEJ_pozycji_po_id(self, db):
-        _seed()
-        create_ingredient_reception(self._dto_folia())
-        pkg = query_one("SELECT * FROM packaging WHERE LOWER(name)=LOWER('Folia stretch 500')")
-        create_ingredient_reception(self._dto_folia(lines=[
-            dict(kind="packaging", packagingId=pkg["id"], qty=30.0),
-        ]))
-        po = query_one("SELECT * FROM packaging WHERE id=%s", (pkg["id"],))
-        assert po["kg_available"] == 150.0
-
     def test_wiersz_dokumentu_pamieta_partie_i_termin_z_TEJ_dostawy(self, db):
         _seed()
-        out = create_ingredient_reception(self._dto_folia())
-        rec_id = out["reception"]["id"]
-        wiersz = query_one(
-            "SELECT * FROM ingredient_reception_packaging WHERE reception_id=%s", (rec_id,))
+        pid = self._folia()
+        out = create_ingredient_reception(self._dto_folia(pid))
+        wiersz = query_one("SELECT * FROM ingredient_reception_packaging "
+                           "WHERE reception_id=%s", (out["reception"]["id"],))
         assert wiersz["packaging_name"] == "Folia stretch 500"
         assert wiersz["qty"] == 120.0
         assert wiersz["batch_no"] == "F-1"
@@ -302,44 +302,49 @@ class TestOpakowania:
 
     def test_ruch_magazynowy_wskazuje_na_dokument_nie_na_dostawce(self, db):
         _seed()
-        out = create_ingredient_reception(self._dto_folia())
-        rec_id = out["reception"]["id"]
+        pid = self._folia()
+        out = create_ingredient_reception(self._dto_folia(pid))
         ruchy = query_all(
             "SELECT * FROM stock_movements WHERE product_type='packaging' "
-            "AND source_type='ingredient_reception' AND source_id=%s", (rec_id,))
+            "AND source_type='ingredient_reception' AND source_id=%s",
+            (out["reception"]["id"],))
         assert len(ruchy) == 1
         assert ruchy[0]["movement_type"] == "IN"
         assert ruchy[0]["qty"] == 120.0
 
     def test_jedno_auto_moze_przywiezc_przyprawe_I_folie(self, db):
         _seed()
+        pid = self._folia("Karton 5 kg")
         out = create_ingredient_reception(_dto(lines=[
             dict(ingredientId="ing-mix", qty=50.0, batchNo="L1"),
-            dict(kind="packaging", name="Karton 5 kg", unit="szt", qty=300.0),
+            dict(kind="packaging", packagingId=pid, qty=300.0),
         ]))
         assert out["reception"]["assortment"] == "Mieszanka KEBAB, Karton 5 kg"
-        rodzaje = sorted(l["kind"] for l in out["lines"])
-        assert rodzaje == ["ingredient", "packaging"]
+        assert sorted(l["kind"] for l in out["lines"]) == ["ingredient", "packaging"]
         # Każda pozycja na SWOIM magazynie — przyprawa nie ląduje w opakowaniach.
         assert query_one("SELECT count(*) c FROM ingredient_stock "
                          "WHERE reception_id=%s", (out["reception"]["id"],))["c"] == 1
-        assert query_one("SELECT count(*) c FROM packaging "
-                         "WHERE LOWER(name)=LOWER('Karton 5 kg')")["c"] == 1
+        assert query_one("SELECT kg_available FROM packaging "
+                         "WHERE id=%s", (pid,))["kg_available"] == 300.0
 
-    def test_odmowa_nie_dokłada_opakowan_do_magazynu(self, db):
+    def test_odmowa_nie_doklada_opakowan_do_magazynu(self, db):
         _seed()
-        create_ingredient_reception(self._dto_folia(decision="N", notes="uszkodzona paleta"))
-        assert query_all("SELECT * FROM packaging "
-                         "WHERE LOWER(name)=LOWER('Folia stretch 500')") == []
+        pid = self._folia(stan=10.0)
+        create_ingredient_reception(self._dto_folia(pid, decision="N",
+                                                   notes="uszkodzona paleta"))
+        assert query_one("SELECT kg_available FROM packaging WHERE id=%s",
+                         (pid,))["kg_available"] == 10.0
         assert query_all("SELECT * FROM ingredient_reception_packaging") == []
 
-    def test_opakowanie_bez_nazwy_odrzucone(self, db):
+    def test_opakowania_NIE_da_sie_wpisac_z_reki(self, db):
         _seed()
         with pytest.raises(HTTPException) as e:
-            create_ingredient_reception(self._dto_folia(lines=[
+            create_ingredient_reception(self._dto_folia("", lines=[
                 dict(kind="packaging", qty=10.0),
             ]))
         assert e.value.status_code == 400
+        # Komunikat ma prowadzić tam, gdzie pozycję się zakłada.
+        assert "Magazynie tulei" in e.value.detail
 
     def test_nieznane_opakowanie_zatrzymuje_CALY_dokument(self, db):
         _seed()
@@ -354,9 +359,10 @@ class TestOpakowania:
 
     def test_dokument_oddaje_obie_pozycje_pod_etykiety(self, db):
         _seed()
+        pid = self._folia("Tuleja 60")
         out = create_ingredient_reception(_dto(lines=[
             dict(ingredientId="ing-sol", qty=25.0, batchNo="S-77"),
-            dict(kind="packaging", name="Tuleja 60", unit="szt", qty=500.0, batchNo="T-9"),
+            dict(kind="packaging", packagingId=pid, qty=500.0, batchNo="T-9"),
         ]))
         doc = get_ingredient_reception(out["reception"]["id"])
         assert [l["ingredient_name"] for l in doc["lines"]] == ["Sól", "Tuleja 60"]

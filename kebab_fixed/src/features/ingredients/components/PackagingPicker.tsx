@@ -4,18 +4,16 @@ import type { PackagingItem } from '@/lib/mockApi'
 /**
  * PackagingPicker — pole „Opakowanie" na przyjęciu DDFiP (karta 1.3.1).
  *
- * Różnica wobec składnika jest jedna, ale istotna: magazyn opakowań NIE ma
- * kartoteki, do której trzeba najpierw coś dopisać. Pozycje scalają się po
- * nazwie, więc wpisanie nowej nazwy nie zakłada niczego z góry — nazwa
- * jedzie na dokumencie, a magazyn założy pozycję dopiero przy kwalifikacji
- * „K". Odmowa przyjęcia nie zostawia po sobie pustej pozycji magazynu.
+ * Pole tylko WYBIERA — nazwy nie da się wpisać z ręki. Magazyn opakowań
+ * scala pozycje po `LOWER(name)`, więc literówka („Folia strech") nie
+ * podniosłaby alarmu, tylko po cichu założyła DRUGĄ pozycję o prawie tej
+ * samej nazwie, a stan rozjechałby się na dwa wiersze. Pozycję zakłada się
+ * raz, na Magazynie tulei i opakowań, i od tej pory tylko się ją wybiera.
  */
-export function PackagingPicker({ items, value, freeText, onSelect, onFreeText }: {
+export function PackagingPicker({ items, value, onSelect }: {
   items: PackagingItem[]
   value: string
-  freeText: string
   onSelect: (id: string) => void
-  onFreeText: (name: string) => void
 }) {
   return (
     <SearchPicker
@@ -26,12 +24,9 @@ export function PackagingPicker({ items, value, freeText, onSelect, onFreeText }
         rightStrong: p.kgAvailable > 0,
       }))}
       value={value}
-      freeText={freeText}
-      onSelect={id => { onSelect(id); if (id) onFreeText('') }}
-      onCreateNew={onFreeText}
-      placeholder="Wpisz nazwę, np. Folia stretch 500…"
-      emptyText="Brak takiego opakowania na magazynie"
-      createLabel={nazwa => `Przyjmij nowe opakowanie „${nazwa}"`}
+      onSelect={onSelect}
+      placeholder="Wpisz, żeby wyszukać…"
+      emptyText="Brak takiej pozycji — załóż ją na Magazynie tulei i opakowań" 
     />
   )
 }

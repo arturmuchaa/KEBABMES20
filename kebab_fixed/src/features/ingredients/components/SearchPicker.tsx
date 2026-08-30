@@ -34,7 +34,8 @@ export function SearchPicker({
   onCreateNew?: (name: string) => void
   placeholder: string
   emptyText: string
-  createLabel: (nazwa: string) => string
+  /** Wymagane tylko razem z `onCreateNew`. */
+  createLabel?: (nazwa: string) => string
 }) {
   const wybrana = items.find(i => i.id === value)
   const [query, setQuery] = useState('')
@@ -87,7 +88,7 @@ export function SearchPicker({
           {trafienia.length === 0 && (
             <div className="px-3 py-2 text-xs text-ink-4">{emptyText}</div>
           )}
-          {q && !dokladne && onCreateNew && (
+          {q && !dokladne && onCreateNew && createLabel && (
             <button
               type="button"
               onClick={() => { onCreateNew(query.trim()); setOpen(false) }}

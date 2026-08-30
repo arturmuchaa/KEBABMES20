@@ -1,11 +1,19 @@
 /**
  * PackagingPage — Magazyn tulei i opakowań (lista, styl Subiekt GT).
- * Przyjęcie przez modal "Przyjmij na magazyn".
+ *
+ * Ten ekran zakłada POZYCJE (kartotekę) i koryguje stan. Dostawy wchodzą
+ * dokumentem „Przyjęcie opakowań i przypraw" (karta 1.3.1) — tam dostawa
+ * dostaje numer, ocenę i etykietę, których to okno nigdy nie miało.
+ *
+ * Nazwę wpisuje się TYLKO tutaj, raz. Magazyn scala pozycje po nazwie, więc
+ * gdyby nazwę dało się wpisać także przy przyjęciu, literówka („Folia
+ * strech") po cichu założyłaby drugą pozycję i rozbiła stan na dwa wiersze.
  */
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
 import { packagingApi, suppliersApi } from '@/lib/apiClient'
-import { Archive, Package, Plus, Search, X, ChevronDown, ChevronUp, ChevronsUpDown, Download } from 'lucide-react'
+import { Archive, ClipboardCheck, Package, Plus, Search, X, ChevronDown, ChevronUp, ChevronsUpDown, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { CreatePackagingDto, PackagingType } from '@/lib/mockApi'
 import { DataTable } from '@/components/DataTable'
@@ -42,7 +50,10 @@ function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) =>
   const set = (k: keyof CreatePackagingDto, v: any) => setForm(p => ({ ...p, [k]: v }))
 
   async function handleSave() {
-    if (!form.name.trim() || form.qty <= 0) { setError('Podaj nazwę i ilość'); return }
+    // Ilość jest NIEOBOWIĄZKOWA: pozycję zakłada się po to, żeby dało się ją
+    // wybrać na dokumencie przyjęcia — stan przyjdzie dopiero z dostawy.
+    if (!form.name.trim()) { setError('Podaj nazwę pozycji'); return }
+    if (form.qty < 0) { setError('Ilość nie może być ujemna'); return }
     setSaving(true)
     try { await onSave(form); onClose() }
     catch(e) { setError(e instanceof Error ? e.message : 'Błąd') }
@@ -79,8 +90,10 @@ function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) =>
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label>Ilość *</Label>
-          <Input type="number" min="0" step="1" value={form.qty || ''} onChange={e => set('qty', parseFloat(e.target.value) || 0)} />
+          <Label>Stan początkowy</Label>
+          <Input type="number" min="0" step="1" value={form.qty || ''}
+            placeholder="0 — dostawa wejdzie dokumentem"
+            onChange={e => set('qty', parseFloat(e.target.value) || 0)} />
         </div>
         <div className="space-y-1.5">
           <Label>Dostawca</Label>
@@ -113,7 +126,7 @@ function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) =>
             ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             : <Package size={14} />
           }
-          Przyjmij na magazyn
+          Zapisz pozycję
         </Button>
       </DialogFooter>
     </div>
@@ -136,6 +149,7 @@ function exportCsv(rows: any[]) {
 }
 
 export function PackagingPage() {
+  const navigate = useNavigate()
   const { data: items, loading, refetch } = useApi(() => packagingApi.all())
   const [modal, setModal] = useState(false)
 
@@ -151,7 +165,12 @@ export function PackagingPage() {
     <div className="flex items-center gap-3 text-xs tabular-nums">
       <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Pozycji: <span className="text-ink font-bold">{rawList.length}</span></span>
       <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Dostępne: <span className="text-emerald-700 font-bold">{totalAvail.toFixed(0)}</span></span>
-      <Button size="sm" className="gap-1.5" onClick={() => setModal(true)}><Plus size={14}/> Przyjmij</Button>
+      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setModal(true)}>
+        <Plus size={14}/> Nowa pozycja
+      </Button>
+      <Button size="sm" className="gap-1.5" onClick={() => navigate('/office/przyjecie-ddfip')}>
+        <ClipboardCheck size={14}/> Przyjęcie opakowań i przypraw
+      </Button>
     </div>,
     [rawList.length, totalAvail]
   )
@@ -166,7 +185,9 @@ export function PackagingPage() {
         <div className="rounded-lg border border-surface-4 bg-white flex flex-col items-center justify-center py-16 gap-2">
           <Archive size={36} className="text-muted-foreground opacity-20" />
           <div className="text-sm font-medium text-muted-foreground">Brak opakowań</div>
-          <div className="text-xs text-muted-foreground">Przyjmij opakowania przyciskiem „Przyjmij"</div>
+          <div className="text-xs text-muted-foreground">
+            Załóż pozycję przyciskiem „Nowa pozycja", potem przyjmij dostawę dokumentem
+          </div>
         </div>
       ) : (
         <DataTable
@@ -196,8 +217,11 @@ export function PackagingPage() {
       <Dialog open={modal} onOpenChange={v => { if (!v) setModal(false) }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Przyjmij opakowania / tuleje</DialogTitle>
-            <DialogDescription>Zarejestruj przyjęcie opakowań lub tulei na magazyn</DialogDescription>
+            <DialogTitle>Nowa pozycja magazynu</DialogTitle>
+            <DialogDescription>
+              Załóż tuleję albo opakowanie, żeby dało się je wybrać na dokumencie
+              przyjęcia. Stan początkowy zostaw pusty — dostawa wejdzie dokumentem.
+            </DialogDescription>
           </DialogHeader>
           <ReceiveForm onSave={handleReceive} onClose={() => setModal(false)} />
         </DialogContent>

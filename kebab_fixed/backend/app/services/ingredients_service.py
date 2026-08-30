@@ -254,24 +254,21 @@ def _rozpoznaj_pozycje_cx(conn, lines) -> List[Dict[str, Any]]:
                                "name": row["name"], "unit": row.get("unit") or "kg"})
             continue
 
-        # Opakowanie: albo dokładamy do pozycji z magazynu, albo zakładamy nową
-        # z nazwy wpisanej w formularzu.
-        if (line.packaging_id or "").strip():
-            row = cx_query_one(conn, "SELECT id, name, unit, type FROM packaging WHERE id=%s",
-                               (line.packaging_id,))
-            if not row:
-                raise HTTPException(400, f"Nieznane opakowanie {line.packaging_id}")
-            rozpoznane.append({"kind": kind, "line": line, "id": row["id"],
-                               "name": row["name"], "unit": row.get("unit") or "szt",
-                               "type": row.get("type") or "opakowanie"})
-            continue
-
-        nazwa = (line.name or "").strip()
-        if not nazwa:
-            raise HTTPException(400, "Pozycja opakowania bez nazwy")
-        rozpoznane.append({"kind": kind, "line": line, "id": "", "name": nazwa,
-                           "unit": (line.unit or "szt").strip() or "szt",
-                           "type": (line.packaging_type or "opakowanie").strip()})
+        # Opakowanie WYBIERA się z magazynu — nazwy nie da się wpisać z ręki.
+        # Magazyn scala pozycje po nazwie, więc literówka nie podniosłaby
+        # alarmu, tylko po cichu założyła drugi wiersz o prawie tej samej
+        # nazwie i rozbiła stan na dwa.
+        if not (line.packaging_id or "").strip():
+            raise HTTPException(
+                400, "Wybierz opakowanie z magazynu — nową pozycję zakłada się "
+                     "na Magazynie tulei i opakowań")
+        row = cx_query_one(conn, "SELECT id, name, unit, type FROM packaging WHERE id=%s",
+                           (line.packaging_id,))
+        if not row:
+            raise HTTPException(400, f"Nieznane opakowanie {line.packaging_id}")
+        rozpoznane.append({"kind": kind, "line": line, "id": row["id"],
+                           "name": row["name"], "unit": row.get("unit") or "szt",
+                           "type": row.get("type") or "opakowanie"})
     return rozpoznane
 
 

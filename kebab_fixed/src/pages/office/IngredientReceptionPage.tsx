@@ -54,10 +54,8 @@ type RodzajPozycji = 'ingredient' | 'packaging'
 export interface Pozycja {
   kind:         RodzajPozycji
   ingredientId: string
-  /** Pozycja magazynu opakowań, gdy dokładamy do istniejącej. */
+  /** Pozycja Magazynu tulei i opakowań — WYBRANA z listy, nigdy wpisana. */
   packagingId:  string
-  /** Nazwa opakowania wpisana z ręki, gdy nie ma go jeszcze na magazynie. */
-  nazwa:        string
   qty:          string
   batchNo:      string
   expiryDate:   string
@@ -65,7 +63,7 @@ export interface Pozycja {
 }
 
 const pustaPozycja = (): Pozycja => ({
-  kind: 'ingredient', ingredientId: '', packagingId: '', nazwa: '',
+  kind: 'ingredient', ingredientId: '', packagingId: '',
   qty: '', batchNo: '', expiryDate: '', pricePerUnit: '',
 })
 
@@ -74,7 +72,7 @@ export function pozycjaGotowa(p: Pozycja): boolean {
   if (Number(p.qty) <= 0) return false
   return p.kind === 'ingredient'
     ? Boolean(p.ingredientId)
-    : Boolean(p.packagingId || p.nazwa.trim())
+    : Boolean(p.packagingId)
 }
 
 /**
@@ -227,8 +225,6 @@ export function IngredientReceptionPage() {
           kind: p.kind,
           ingredientId: p.kind === 'ingredient' ? p.ingredientId : '',
           packagingId:  p.kind === 'packaging'  ? p.packagingId  : '',
-          name:         p.kind === 'packaging'  ? p.nazwa.trim() : '',
-          unit:         p.kind === 'packaging'  ? 'szt' : '',
           qty: Number(p.qty),
           batchNo: p.batchNo.trim(),
           expiryDate: p.expiryDate,
@@ -398,7 +394,7 @@ export function IngredientReceptionPage() {
                   // Przełączenie rodzaju czyści wybór z poprzedniej listy —
                   // inaczej dokument wiózłby identyfikator składnika w
                   // pozycji opakowaniowej i zapis padłby dopiero na backendzie.
-                  ingredientId: '', packagingId: '', nazwa: '',
+                  ingredientId: '', packagingId: '',
                 })}
               />
               {p.kind === 'ingredient' ? (
@@ -407,22 +403,13 @@ export function IngredientReceptionPage() {
                   stockMap={stockMap}
                   value={p.ingredientId}
                   onSelect={id => zmienPozycje(i, { ingredientId: id })}
-                  onCreateNew={async nazwa => {
-                    const utworzony = await (ingredientsApi as any).create({
-                      name: nazwa, category: 'other', unit: 'kg', isUnlimited: false,
-                    })
-                    refetchIng()
-                    zmienPozycje(i, { ingredientId: utworzony.id })
-                    toast.success(`„${nazwa}" dodany do kartoteki`)
-                  }}
+                  emptyText="Brak takiego składnika — załóż go na Magazynie przypraw"
                 />
               ) : (
                 <PackagingPicker
                   items={opakowania ?? []}
                   value={p.packagingId}
-                  freeText={p.nazwa}
                   onSelect={id => zmienPozycje(i, { packagingId: id })}
-                  onFreeText={nazwa => zmienPozycje(i, { nazwa, packagingId: '' })}
                 />
               )}
               <Input type="number" step="0.001" value={p.qty}

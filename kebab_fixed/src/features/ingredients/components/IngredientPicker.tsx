@@ -14,12 +14,16 @@ import { SearchPicker } from './SearchPicker'
  * Zastępuje rozwijany Select, w który nie dało się nic WPISAĆ (użytkownicy
  * próbowali wpisać nazwę nowego dodatku i pole wyglądało na zablokowane).
  */
-export function IngredientPicker({ ingredients, stockMap, value, onSelect, onCreateNew }: {
+export function IngredientPicker({
+  ingredients, stockMap, value, onSelect, onCreateNew, emptyText,
+}: {
   ingredients: { id: string; name: string; unit: string; category: string }[]
   stockMap: Map<string, any>
   value: string
   onSelect: (id: string) => void
-  onCreateNew: (name: string) => void
+  /** Pominięte = pole tylko WYBIERA; nowej pozycji nie da się wpisać z ręki. */
+  onCreateNew?: (name: string) => void
+  emptyText?: string
 }) {
   return (
     <SearchPicker
@@ -36,7 +40,7 @@ export function IngredientPicker({ ingredients, stockMap, value, onSelect, onCre
       onSelect={onSelect}
       onCreateNew={onCreateNew}
       placeholder="Wpisz nazwę, np. Papryka słodka…"
-      emptyText="Brak składnika o tej nazwie"
+      emptyText={emptyText ?? 'Brak składnika o tej nazwie'}
       createLabel={nazwa => `Dodaj nowy składnik „${nazwa}"`}
     />
   )
