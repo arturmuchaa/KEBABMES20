@@ -13,8 +13,9 @@ type KorektaDto = {
   kgNet: number; containers: number; reason: string
   lots: { lotNo: string; kg: number }[]
 }
-const { correct } = vi.hoisted(() => ({
+const { correct, usun } = vi.hoisted(() => ({
   correct: vi.fn(async (_palletNo: string, _dto: any) => ({})),
+  usun: vi.fn(async (_palletNo: string, _reason: string) => ({ palletNo: '', deleted: true })),
 }))
 
 const PALETY = [
@@ -31,7 +32,7 @@ const PALETY = [
 vi.mock('@/hooks/useApi', () => ({
   useApi: (fn: () => any) => ({ data: fn(), loading: false, error: null, refetch: vi.fn() }),
 }))
-vi.mock('@/lib/api', () => ({ meatPalletsApi: { list: () => PALETY, correct } }))
+vi.mock('@/lib/api', () => ({ meatPalletsApi: { list: () => PALETY, correct, usun } }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 import { MeatPalletsPage } from './MeatPalletsPage'
@@ -131,5 +132,63 @@ describe('MeatPalletsPage — korekta palety', () => {
     fireEvent.change(loty[1].querySelectorAll('input')[0], { target: { value: '504' } })
     fireEvent.change(loty[1].querySelectorAll('input')[1], { target: { value: '100' } })
     expect(screen.getByTestId('korekta-bledy').textContent).toContain('dwa razy')
+  })
+})
+
+
+/**
+ * Zdjęcie palety.
+ *
+ * Operator na hali dotyka „Etykieta" przy pełnym wskazaniu wagi i zapisuje
+ * paletę, której nie ma. Biuro umiało ją poprawić, ale nie zdjąć — zostawała
+ * zmniejszona do 0,5 kg i i tak pokazywała się masowni (biuro, 30.08.2026).
+ */
+describe('MeatPalletsPage — zdjęcie palety', () => {
+  beforeEach(() => { usun.mockClear() })
+  afterEach(cleanup)
+
+  const otworzUsuwanie = (nr: string) => {
+    fireEvent.click(screen.getByTestId(`paleta-usun-${nr}`))
+  }
+
+  it('bez powodu nie da się zdjąć palety', async () => {
+    render(<MeatPalletsPage />)
+    otworzUsuwanie('PAL/24/08/26/18')
+
+    const przycisk = await screen.findByRole('button', { name: /zdejmij paletę/i })
+    expect((przycisk as HTMLButtonElement).disabled).toBe(true)
+    expect(usun).not.toHaveBeenCalled()
+  })
+
+  it('zbyt krótki powód nadal blokuje', async () => {
+    render(<MeatPalletsPage />)
+    otworzUsuwanie('PAL/24/08/26/18')
+
+    const pole = await screen.findByPlaceholderText(/przez pomyłkę/i)
+    fireEvent.change(pole, { target: { value: 'ok' } })
+    const przycisk = screen.getByRole('button', { name: /zdejmij paletę/i })
+    expect((przycisk as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('z powodem wysyła numer palety i powód', async () => {
+    render(<MeatPalletsPage />)
+    otworzUsuwanie('PAL/24/08/26/18')
+
+    const pole = await screen.findByPlaceholderText(/przez pomyłkę/i)
+    fireEvent.change(pole, { target: { value: 'operator kliknął etykietę' } })
+    fireEvent.click(screen.getByRole('button', { name: /zdejmij paletę/i }))
+
+    await waitFor(() => expect(usun).toHaveBeenCalledWith(
+      'PAL/24/08/26/18', 'operator kliknął etykietę'))
+  })
+
+  it('okno pokazuje skład palety, żeby biuro wiedziało, co zdejmuje', async () => {
+    render(<MeatPalletsPage />)
+    otworzUsuwanie('PAL/24/08/26/18')
+
+    // Skład stoi też w wierszu tabeli, więc pytamy WEWNĄTRZ okna.
+    const okno = await screen.findByRole('dialog')
+    expect(within(okno).getByText(/504: 218/)).toBeTruthy()
+    expect(within(okno).getByText(/218 kg/)).toBeTruthy()
   })
 })

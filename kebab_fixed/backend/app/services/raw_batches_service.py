@@ -933,7 +933,12 @@ def list_meat_stock(include_reserved: bool = False) -> Dict[str, Any]:
                    b.received_date  as batch_received_date
             FROM meat_stock m
             LEFT JOIN (
-                SELECT lot_no, SUM(kg) AS kg FROM meat_pallet_lots GROUP BY lot_no
+                -- Palety ZDJĘTE nie zajmują kilogramów partii: pomyłkowa
+                -- paleta blokowałaby mięso, które fizycznie leży w chłodni.
+                SELECT l.lot_no, SUM(l.kg) AS kg
+                FROM meat_pallet_lots l
+                JOIN meat_pallets p ON p.id = l.pallet_id AND p.deleted_at IS NULL
+                GROUP BY l.lot_no
             ) pal ON pal.lot_no = m.lot_no
             LEFT JOIN raw_batches b ON b.id = m.raw_batch_id
             LEFT JOIN suppliers s ON s.id = b.supplier_id

@@ -38,6 +38,16 @@ def correct_pallet(pallet_no: str, dto: MeatPalletUpdate, request: Request):
     return svc.update_pallet(pallet_no, dto, _subject_of(request))
 
 
+@router.delete("/{pallet_no:path}")
+def delete_pallet(pallet_no: str, reason: str = Query(...), request: Request = None):
+    """Zdejmij paletę (miękko) — operator zapisał ją przez pomyłkę.
+
+    Powód OBOWIĄZKOWY: paleta znika masowni z oczu, więc musi zostać ślad,
+    kto i dlaczego ją zdjął.
+    """
+    return svc.usun_palete(pallet_no, reason, _subject_of(request) if request else "")
+
+
 # UWAGA: trasa z parametrem MUSI stać po „" i „?day=", inaczej złapie oba.
 @router.get("/{pallet_no:path}")
 def get_pallet(pallet_no: str):

@@ -1446,6 +1446,12 @@ _DDL: list[str] = [
     # Tożsamość pozycji to CZWÓRKA, nie kod — kod wolno zmienić, czwórki nie.
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_product_catalog_tuple "
     "ON product_catalog (product_type_name, recipe_name, packaging_name, kg_per_unit)",
+    # Usunięcie palety ważenia zbiorczego. MIĘKKIE: paleta zostaje w bazie ze
+    # śladem, kto i dlaczego ją zdjął. Twarde DELETE zabrałoby jedyny dowód,
+    # że numer w serii kiedykolwiek istniał — a numery są dzienne i ciągłe.
+    "ALTER TABLE meat_pallets ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+    "ALTER TABLE meat_pallets ADD COLUMN IF NOT EXISTS deleted_by TEXT",
+    "ALTER TABLE meat_pallets ADD COLUMN IF NOT EXISTS deleted_reason TEXT",
 ]
 
 

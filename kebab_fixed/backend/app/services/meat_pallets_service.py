@@ -86,8 +86,11 @@ def _pozostalo_by_lot(conn, lot_nos, exclude_pallet_id: str = "") -> Dict[str, A
     # na przekroczenie limitu partii.
     juz = cx_query_all(
         conn,
-        "SELECT lot_no, SUM(kg) AS kg FROM meat_pallet_lots "
-        "WHERE lot_no = ANY(%s) AND (%s = '' OR pallet_id <> %s) GROUP BY lot_no",
+        # Paleta ZDJĘTA nie zajmuje już kilogramów partii — inaczej mięso
+        # z pomyłkowej palety zostałoby zablokowane na zawsze.
+        "SELECT l.lot_no, SUM(l.kg) AS kg FROM meat_pallet_lots l "
+        "JOIN meat_pallets p ON p.id = l.pallet_id AND p.deleted_at IS NULL "
+        "WHERE l.lot_no = ANY(%s) AND (%s = '' OR l.pallet_id <> %s) GROUP BY l.lot_no",
         (nos, exclude_pallet_id, exclude_pallet_id),
     )
     wydano = {r["lot_no"]: float(r["kg"] or 0) for r in juz}
@@ -184,8 +187,14 @@ def create_pallet(dto: MeatPalletCreate) -> Dict[str, Any]:
 
 
 def get_pallet(pallet_no: str) -> Dict[str, Any]:
-    """Paleta po numerze — do dodruku zgubionej etykiety i kontroli na masowni."""
-    row = query_one("SELECT * FROM meat_pallets WHERE pallet_no=%s", (pallet_no,))
+    """Paleta po numerze — do dodruku zgubionej etykiety i kontroli na masowni.
+
+    Paleta ZDJĘTA nie istnieje dla hali: dodruk jej etykiety wprowadziłby na
+    masownię towar, którego nie ma. Ślad zostaje w bazie, ale nie tędy.
+    """
+    row = query_one(
+        "SELECT * FROM meat_pallets WHERE pallet_no=%s AND deleted_at IS NULL",
+        (pallet_no,))
     if not row:
         raise HTTPException(404, "Nie ma takiej palety")
     out = dict(row)
@@ -279,14 +288,76 @@ def update_pallet(pallet_no: str, dto: MeatPalletUpdate, subject: str = "") -> D
     return get_pallet(pallet_no)
 
 
+def usun_palete(pallet_no: str, reason: str, subject: str = "") -> Dict[str, Any]:
+    """Zdejmij paletę ważenia zbiorczego — MIĘKKO, ze śladem.
+
+    POWÓD ISTNIENIA: operator na hali potrafi dotknąć „Etykieta" przy pełnym
+    wskazaniu wagi i zapisać paletę, której nie ma (np. 153 kg). Biuro umiało
+    ją POPRAWIĆ, ale nie umiało zdjąć — zostawała więc zmniejszona do 0,5 kg
+    i i tak pokazywała się masowni jako mięso do wzięcia.
+
+    Miękko, a nie DELETE: numery palet są dzienne i ciągłe, więc twarde
+    kasowanie zabrałoby jedyny dowód, że numer w serii istniał. Paleta znika
+    z listy, z etykiet i z licznika kilogramów partii; ślad zostaje w bazie
+    i w `meat_pallet_corrections`.
+
+    Zapis palety nie rusza stanu magazynowego (mięso jest na stanie od
+    rozbioru), więc zdjęcie też niczego nie księguje — oddaje tylko
+    kilogramy z powrotem do puli „nie ułożone na palecie".
+    """
+    powod = (reason or "").strip()
+    if len(powod) < 3:
+        raise HTTPException(400, "Podaj powód zdjęcia palety — bez niego nie wiadomo, co się stało")
+
+    with transaction() as conn:
+        rows = cx_query_all(
+            conn, "SELECT * FROM meat_pallets WHERE pallet_no=%s FOR UPDATE", (pallet_no,)
+        )
+        if not rows:
+            raise HTTPException(404, "Nie ma takiej palety")
+        pallet = dict(rows[0])
+        if pallet.get("deleted_at"):
+            raise HTTPException(409, "Ta paleta jest już zdjęta")
+
+        przed = cx_query_all(
+            conn,
+            "SELECT lot_no, kg FROM meat_pallet_lots WHERE pallet_id=%s ORDER BY seq",
+            (pallet["id"],),
+        )
+        cx_execute(
+            conn,
+            "INSERT INTO meat_pallet_corrections (id, pallet_id, by_subject, reason, changes) "
+            "VALUES (%s,%s,%s,%s,%s::jsonb)",
+            (cuid(), pallet["id"], subject, powod, json.dumps({
+                "action": "deleted",
+                "before": {
+                    "kg_net":     float(pallet["kg_net"]),
+                    "containers": int(pallet["containers"] or 0),
+                    "lots": [{"lot_no": r["lot_no"], "kg": float(r["kg"])} for r in przed],
+                },
+            })),
+        )
+        cx_execute(
+            conn,
+            "UPDATE meat_pallets SET deleted_at=now(), deleted_by=%s, deleted_reason=%s "
+            "WHERE id=%s",
+            (subject, powod, pallet["id"]),
+        )
+
+    logger.info("meat_pallet_deleted", extra={"pallet": pallet_no, "by": subject})
+    return {"palletNo": pallet_no, "deleted": True}
+
+
 def list_pallets(day: str = "") -> List[Dict[str, Any]]:
     """Palety dnia produkcyjnego (domyślnie wszystkie, najnowsze pierwsze)."""
     rows = query_all(
-        "SELECT * FROM meat_pallets WHERE (%s = '' OR production_date = %s::date) "
+        "SELECT * FROM meat_pallets WHERE deleted_at IS NULL "
+        "AND (%s = '' OR production_date = %s::date) "
         "ORDER BY created_at DESC LIMIT 200",
         (day, day or None),
     ) if day else query_all(
-        "SELECT * FROM meat_pallets ORDER BY created_at DESC LIMIT 200"
+        "SELECT * FROM meat_pallets WHERE deleted_at IS NULL "
+        "ORDER BY created_at DESC LIMIT 200"
     )
     out = []
     for r in rows:

@@ -56,6 +56,12 @@ export function MeatPalletsPage() {
 
   const [szkic, setSzkic]   = useState<Szkic | null>(null)
   const [saving, setSaving] = useState(false)
+  // Zdjęcie palety, a nie „poprawienie jej do zera": operator na hali dotyka
+  // „Etykieta" przy pełnym wskazaniu wagi i zapisuje paletę, której nie ma.
+  // Zmniejszona do 0,5 kg dalej pokazywała się masowni jako mięso do wzięcia.
+  const [doUsuniecia, setDoUsuniecia] = useState<MeatPallet | null>(null)
+  const [powodUsuniecia, setPowodUsuniecia] = useState('')
+  const [usuwanie, setUsuwanie] = useState(false)
 
   const lotyDoWalidacji: CorrectionLot[] = useMemo(
     () => (szkic?.lots ?? []).map(l => ({ lotNo: l.lotNo.trim(), kg: num(l.kg) })),
@@ -91,6 +97,22 @@ export function MeatPalletsPage() {
       setSaving(false)
     }
   }, [szkic, bledy, lotyDoWalidacji, refetch])
+
+  const usun = useCallback(async () => {
+    if (!doUsuniecia || powodUsuniecia.trim().length < 3) return
+    setUsuwanie(true)
+    try {
+      await meatPalletsApi.usun(doUsuniecia.palletNo, powodUsuniecia.trim())
+      toast.success(`Paleta ${doUsuniecia.palletNo} zdjęta — masownia jej nie zobaczy`)
+      setDoUsuniecia(null)
+      setPowodUsuniecia('')
+      refetch()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Nie udało się zdjąć palety')
+    } finally {
+      setUsuwanie(false)
+    }
+  }, [doUsuniecia, powodUsuniecia, refetch])
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -155,6 +177,11 @@ export function MeatPalletsPage() {
                       <Button size="sm" variant="ghost" className="gap-1.5 text-xs"
                         onClick={() => setSzkic(szkicZPalety(p))}>
                         <Pencil size={13} /> Popraw
+                      </Button>
+                      <Button size="sm" variant="ghost" data-testid={`paleta-usun-${p.palletNo}`}
+                        className="gap-1.5 text-xs text-red-700 hover:bg-red-50"
+                        onClick={() => { setDoUsuniecia(p); setPowodUsuniecia('') }}>
+                        <Trash2 size={13} /> Zdejmij
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -246,6 +273,47 @@ export function MeatPalletsPage() {
             <Button variant="outline" onClick={() => setSzkic(null)} disabled={saving}>Anuluj</Button>
             <Button onClick={zapisz} disabled={saving || bledy.length > 0} className="gap-1.5">
               <Printer size={14} /> Zapisz i przedrukuj etykietę
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={doUsuniecia !== null} onOpenChange={v => { if (!v) setDoUsuniecia(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Zdjąć paletę {doUsuniecia?.palletNo}?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-[3px] border border-surface-4 bg-surface-2 px-3 py-2 text-[12px]">
+              <div className="font-bold tabular-nums">
+                {doUsuniecia ? fmtKgTrim(doUsuniecia.kgNet) : '0'} kg
+                {doUsuniecia?.operator ? ` · ${doUsuniecia.operator}` : ''}
+              </div>
+              <div className="font-mono text-[11.5px] text-ink-2 mt-0.5">
+                {(doUsuniecia?.lots ?? []).map(l => `${l.lotNo}: ${fmtKgTrim(l.kg)}`).join(' · ') || '—'}
+              </div>
+            </div>
+            <CardDescription className="text-[11.5px]">
+              Paleta zniknie z listy i z widoku masowni, a jej kilogramy wrócą do puli
+              partii jako mięso nieułożone. Ślad zostaje w bazie — kto i dlaczego ją zdjął.
+              Stan magazynowy się nie zmienia: paleta go nigdy nie ruszała.
+            </CardDescription>
+            <div>
+              <Label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                Powód *
+              </Label>
+              <Input value={powodUsuniecia} autoFocus
+                placeholder="np. operator kliknął etykietę przez pomyłkę"
+                onChange={e => setPowodUsuniecia(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDoUsuniecia(null)} disabled={usuwanie}>
+              Anuluj
+            </Button>
+            <Button variant="destructive" onClick={usun}
+              disabled={usuwanie || powodUsuniecia.trim().length < 3} className="gap-1.5">
+              <Trash2 size={14} /> Zdejmij paletę
             </Button>
           </DialogFooter>
         </DialogContent>

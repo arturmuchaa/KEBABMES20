@@ -1017,6 +1017,11 @@ export const meatPalletsApi = {
     lots: { lotNo: string; kg: number }[]
   }) =>
     patch<any>(`/meat-pallets/${encodeURIComponent(palletNo)}`, dto).then(mapMeatPallet),
+  /** Zdejmij paletę zapisaną przez pomyłkę. MIĘKKO — ślad zostaje w bazie.
+   *  Powód OBOWIĄZKOWY: paleta znika masowni z oczu. */
+  usun: (palletNo: string, reason: string) =>
+    del<{ palletNo: string; deleted: boolean }>(
+      `/meat-pallets/${encodeURIComponent(palletNo)}?reason=${encodeURIComponent(reason)}`),
 }
 
 // ─── Kontrahenci ──────────────────────────────────────────────
