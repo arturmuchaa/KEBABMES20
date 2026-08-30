@@ -106,7 +106,7 @@ export function IngredientLabelsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                {['Składnik', 'Ilość', 'Partia dostawcy', 'Termin', 'Kopie', ''].map(h => (
+                {['Pozycja', 'Ilość', 'Partia dostawcy', 'Termin', 'Kopie', ''].map(h => (
                   <TableHead key={h}>{h}</TableHead>
                 ))}
               </TableRow>
@@ -114,7 +114,14 @@ export function IngredientLabelsPage() {
             <TableBody>
               {dokument.lines.map(l => (
                 <TableRow key={l.id}>
-                  <TableCell className="font-semibold text-ink">{l.ingredientName}</TableCell>
+                  <TableCell className="font-semibold text-ink">
+                    {l.ingredientName}
+                    {/* Skąd wiadomo, na którą paletę nakleić — dokument miesza
+                        przyprawy z foliami, a leżą w różnych pomieszczeniach. */}
+                    <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-ink-4">
+                      {l.kind === 'packaging' ? 'opakowanie' : 'składnik'}
+                    </span>
+                  </TableCell>
                   <TableCell className="tabular-nums">{l.qty} {l.unit}</TableCell>
                   <TableCell><code className="font-mono text-xs">{l.batchNo || '—'}</code></TableCell>
                   <TableCell className="text-ink-2">

@@ -46,7 +46,10 @@ _TRUNCATE = [
     # dokument z poprzedniego przebiegu wywracał kolejny test na duplicate key.
     # `ingredient_stock` jawnie, a nie tylko przez CASCADE od `ingredients`:
     # loty muszą zniknąć razem z dokumentem, który je stworzył.
-    "ingredient_stock", "ingredient_receptions",
+    # `ingredient_reception_packaging` i `packaging` z tego samego powodu:
+    # opakowaniowa pozycja dokumentu DOKŁADA do magazynu scalanego po nazwie,
+    # więc pozostałość z poprzedniego testu podbijała stan następnemu.
+    "ingredient_stock", "ingredient_reception_packaging", "ingredient_receptions",
     "meat_stock", "reception_supplier_batches", "receptions", "raw_batches",
     "recipe_ingredients", "recipes",
     "order_pallet_items", "order_pallets", "client_order_lines", "client_orders",

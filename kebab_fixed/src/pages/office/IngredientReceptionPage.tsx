@@ -21,11 +21,12 @@ import {
 } from 'lucide-react'
 
 import { useApi } from '@/hooks/useApi'
-import { ingredientReceptionsApi, ingredientsApi, suppliersApi } from '@/lib/apiClient'
+import { ingredientReceptionsApi, ingredientsApi, packagingApi, suppliersApi } from '@/lib/apiClient'
 import type { IngredientReception } from '@/lib/api'
 import { fmtDatePl, todayIso, cn } from '@/lib/utils'
 import { useIngredients } from '@/features/ingredients/hooks'
 import { IngredientPicker } from '@/features/ingredients/components/IngredientPicker'
+import { PackagingPicker } from '@/features/ingredients/components/PackagingPicker'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,9 +40,24 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 
-/** Jedna pozycja formularza — jeden składnik z jednej partii dostawcy. */
-interface Pozycja {
+/**
+ * Jedna pozycja formularza — jedna partia dostawcy.
+ *
+ * Karta 1.3.1 nazywa się „Rejestr przyjęcia OPAKOWAŃ, przypraw i dodatków
+ * technologicznych", a jedno auto potrafi przywieźć i jedno, i drugie.
+ * Pozycja niesie więc rodzaj, bo każdy idzie na INNY magazyn: składnik na
+ * magazyn przypraw (lotowy), opakowanie na magazyn tulei i opakowań
+ * (scalany po nazwie).
+ */
+type RodzajPozycji = 'ingredient' | 'packaging'
+
+export interface Pozycja {
+  kind:         RodzajPozycji
   ingredientId: string
+  /** Pozycja magazynu opakowań, gdy dokładamy do istniejącej. */
+  packagingId:  string
+  /** Nazwa opakowania wpisana z ręki, gdy nie ma go jeszcze na magazynie. */
+  nazwa:        string
   qty:          string
   batchNo:      string
   expiryDate:   string
@@ -49,8 +65,68 @@ interface Pozycja {
 }
 
 const pustaPozycja = (): Pozycja => ({
-  ingredientId: '', qty: '', batchNo: '', expiryDate: '', pricePerUnit: '',
+  kind: 'ingredient', ingredientId: '', packagingId: '', nazwa: '',
+  qty: '', batchNo: '', expiryDate: '', pricePerUnit: '',
 })
+
+/** Czy pozycja jest na tyle wypełniona, żeby wejść na dokument. */
+export function pozycjaGotowa(p: Pozycja): boolean {
+  if (Number(p.qty) <= 0) return false
+  return p.kind === 'ingredient'
+    ? Boolean(p.ingredientId)
+    : Boolean(p.packagingId || p.nazwa.trim())
+}
+
+/**
+ * Podsumowanie pod przyciskiem zapisu: gdzie wyląduje ta dostawa.
+ *
+ * Dwa magazyny, więc mówimy WPROST, ile pozycji idzie na który — biuro
+ * wpisuje folię i przyprawę na jednym dokumencie i bez tego nie widziałoby
+ * podziału aż do chwili, gdy czegoś zabraknie na stanie.
+ */
+export function opisMagazynow(gotowe: Pozycja[]): string {
+  const skl = gotowe.filter(p => p.kind === 'ingredient').length
+  const pak = gotowe.filter(p => p.kind === 'packaging').length
+  const czesci = [
+    skl > 0 ? `${skl} poz. na magazyn przypraw` : '',
+    pak > 0 ? `${pak} poz. na magazyn tulei i opakowań` : '',
+  ].filter(Boolean)
+  return czesci.length
+    ? `${czesci.join(' · ')} — pod tym numerem dokumentu.`
+    : 'Pozycje wejdą na magazyn pod tym numerem dokumentu.'
+}
+
+/** Siatka wiersza pozycji — jedna definicja dla nagłówka i wierszy. */
+const SIATKA = 'grid grid-cols-[132px_minmax(0,2fr)_100px_minmax(0,1fr)_140px_100px_36px] gap-2'
+
+/** Składnik czy opakowanie — decyduje, na który magazyn pójdzie pozycja. */
+function RodzajPozycjiPrzelacznik({ value, onChange }: {
+  value: RodzajPozycji; onChange: (v: RodzajPozycji) => void
+}) {
+  const opcje: { v: RodzajPozycji; label: string }[] = [
+    { v: 'ingredient', label: 'Składnik' },
+    { v: 'packaging',  label: 'Opakow.' },
+  ]
+  return (
+    <div className="flex rounded-md border border-surface-4 overflow-hidden h-9">
+      {opcje.map(o => (
+        <button
+          key={o.v}
+          type="button"
+          onClick={() => onChange(o.v)}
+          className={cn(
+            'flex-1 text-[11px] font-semibold transition-colors',
+            // Paleta biura zna `ink` i `ink-2`…`ink-5`; `ink-1` nie istnieje
+            // i Tailwind nic by nie wygenerował — patrz tokenyKolorow.test.ts.
+            value === o.v ? 'bg-ink text-white' : 'bg-white text-ink-3 hover:bg-surface-3',
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 /** Ocena cząstkowa wg instrukcji 1.3: bz albo N. */
 function OcenaPrzelacznik({ value, onChange, label, hint }: {
@@ -87,6 +163,10 @@ export function IngredientReceptionPage() {
     () => ingredientReceptionsApi.list())
   const { data: dostawcy } = useApi(() => suppliersApi.list())
   const { ingredients, stock, refetch: refetchIng } = useIngredients()
+  // Magazyn opakowań: PEŁNA lista, także pozycje z zerowym stanem —
+  // dostawa folii, która się skończyła, ma się dołożyć do tej samej
+  // pozycji, a nie założyć drugą o tej samej nazwie.
+  const { data: opakowania, refetch: refetchPak } = useApi(() => packagingApi.all(), [])
 
   const stockMap = useMemo(
     () => new Map(((stock as any[]) ?? []).map(s => [s.ingredientId ?? s.id, s])),
@@ -120,7 +200,9 @@ export function IngredientReceptionPage() {
   const zmienPozycje = (i: number, patch: Partial<Pozycja>) =>
     setPozycje(p => p.map((x, j) => (j === i ? { ...x, ...patch } : x)))
 
-  const wypelnione = pozycje.filter(p => p.ingredientId && Number(p.qty) > 0)
+  const wypelnione = pozycje.filter(pozycjaGotowa)
+
+  const podsumowanieMagazynow = opisMagazynow(wypelnione)
 
   async function zapisz() {
     if (!dostawca) { toast.error('Wybierz dostawcę z kartoteki'); return }
@@ -142,7 +224,11 @@ export function IngredientReceptionPage() {
         doneBy: wykonal.trim(),
         checkedBy: sprawdzil.trim(),
         lines: wypelnione.map(p => ({
-          ingredientId: p.ingredientId,
+          kind: p.kind,
+          ingredientId: p.kind === 'ingredient' ? p.ingredientId : '',
+          packagingId:  p.kind === 'packaging'  ? p.packagingId  : '',
+          name:         p.kind === 'packaging'  ? p.nazwa.trim() : '',
+          unit:         p.kind === 'packaging'  ? 'szt' : '',
           qty: Number(p.qty),
           batchNo: p.batchNo.trim(),
           expiryDate: p.expiryDate,
@@ -152,7 +238,7 @@ export function IngredientReceptionPage() {
       toast.success(ocena === 'K'
         ? `Przyjęcie ${zapisany.receptionNo} zapisane — ${wypelnione.length} poz. na magazynie`
         : `Odmowa ${zapisany.receptionNo} zarejestrowana — magazyn bez zmian`)
-      refetch(); refetchIng()
+      refetch(); refetchIng(); refetchPak()
       // Etykiety tylko dla towaru, który fizycznie wjechał.
       if (ocena === 'K') navigate(`/office/przyjecie-ddfip/${zapisany.id}/etykiety`)
       else setTryb('lista')
@@ -170,7 +256,7 @@ export function IngredientReceptionPage() {
       <div className="space-y-3 animate-fade-in">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-base">Przyjęcie DDFiP</CardTitle>
+            <CardTitle className="text-base">Przyjęcie opakowań i przypraw</CardTitle>
             <CardDescription className="mt-0.5">
               Przyprawy, dodatki, osłonki, folie i opakowania · instrukcja 1.3 oPRP,
               karta 1.3.1 · osobna seria numerów DF
@@ -240,7 +326,7 @@ export function IngredientReceptionPage() {
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-2">
           <ArrowLeft size={15} /> Wróć do rejestru
         </button>
-        <CardTitle className="text-xl">Przyjęcie DDFiP</CardTitle>
+        <CardTitle className="text-xl">Przyjęcie opakowań i przypraw</CardTitle>
         <CardDescription>
           Przyprawy, dodatki, osłonki, folie i opakowania — jeden dokument na jedno auto.
         </CardDescription>
@@ -298,27 +384,47 @@ export function IngredientReceptionPage() {
             </Button>
           </div>
 
-          <div className="grid grid-cols-[minmax(0,2fr)_110px_minmax(0,1fr)_150px_110px_36px] gap-2 text-[11px] font-bold uppercase tracking-wide text-ink-3">
-            <span>Składnik</span><span>Ilość</span><span>Partia dostawcy</span>
+          <div className={SIATKA + ' text-[11px] font-bold uppercase tracking-wide text-ink-3'}>
+            <span>Rodzaj</span><span>Nazwa</span><span>Ilość</span><span>Partia dostawcy</span>
             <span>Termin przydatności</span><span>Cena / jedn.</span><span />
           </div>
 
           {pozycje.map((p, i) => (
-            <div key={i} className="grid grid-cols-[minmax(0,2fr)_110px_minmax(0,1fr)_150px_110px_36px] gap-2 items-start">
-              <IngredientPicker
-                ingredients={(ingredients as any[]) ?? []}
-                stockMap={stockMap}
-                value={p.ingredientId}
-                onSelect={id => zmienPozycje(i, { ingredientId: id })}
-                onCreateNew={async nazwa => {
-                  const utworzony = await (ingredientsApi as any).create({
-                    name: nazwa, category: 'other', unit: 'kg', isUnlimited: false,
-                  })
-                  refetchIng()
-                  zmienPozycje(i, { ingredientId: utworzony.id })
-                  toast.success(`„${nazwa}" dodany do kartoteki`)
-                }}
+            <div key={i} className={SIATKA + ' items-start'}>
+              <RodzajPozycjiPrzelacznik
+                value={p.kind}
+                onChange={kind => zmienPozycje(i, {
+                  kind,
+                  // Przełączenie rodzaju czyści wybór z poprzedniej listy —
+                  // inaczej dokument wiózłby identyfikator składnika w
+                  // pozycji opakowaniowej i zapis padłby dopiero na backendzie.
+                  ingredientId: '', packagingId: '', nazwa: '',
+                })}
               />
+              {p.kind === 'ingredient' ? (
+                <IngredientPicker
+                  ingredients={(ingredients as any[]) ?? []}
+                  stockMap={stockMap}
+                  value={p.ingredientId}
+                  onSelect={id => zmienPozycje(i, { ingredientId: id })}
+                  onCreateNew={async nazwa => {
+                    const utworzony = await (ingredientsApi as any).create({
+                      name: nazwa, category: 'other', unit: 'kg', isUnlimited: false,
+                    })
+                    refetchIng()
+                    zmienPozycje(i, { ingredientId: utworzony.id })
+                    toast.success(`„${nazwa}" dodany do kartoteki`)
+                  }}
+                />
+              ) : (
+                <PackagingPicker
+                  items={opakowania ?? []}
+                  value={p.packagingId}
+                  freeText={p.nazwa}
+                  onSelect={id => zmienPozycje(i, { packagingId: id })}
+                  onFreeText={nazwa => zmienPozycje(i, { nazwa, packagingId: '' })}
+                />
+              )}
               <Input type="number" step="0.001" value={p.qty}
                 onChange={e => zmienPozycje(i, { qty: e.target.value })} />
               <Input value={p.batchNo} placeholder="z opakowania"
@@ -373,7 +479,7 @@ export function IngredientReceptionPage() {
             <CardDescription className="text-[11px] mt-1.5">
               {ocena === 'N'
                 ? 'Odmowa zostaje w rejestrze do oceny dostawcy — nic nie wejdzie na magazyn.'
-                : 'Pozycje wejdą na magazyn przypraw pod tym numerem dokumentu.'}
+                : podsumowanieMagazynow}
             </CardDescription>
           </div>
           <div>

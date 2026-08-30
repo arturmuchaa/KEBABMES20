@@ -25,42 +25,50 @@ def list_all_packaging() -> List[Dict]:
     return query_all("SELECT * FROM packaging ORDER BY created_at DESC")
 
 
-def receive_packaging(dto: PackagingReceive) -> Dict:
-    with transaction() as conn:
-        existing = cx_query_one(
+def receive_packaging_cx(
+    conn,
+    *,
+    name: str,
+    qty: float,
+    packaging_type: str = "opakowanie",
+    unit: str = "szt",
+    supplier_id: str = "",
+    expiry_date: str = "",
+    notes: str = "",
+    source_type: str = "supplier",
+    source_id: str = "",
+) -> Dict:
+    """Dokłada opakowania do magazynu w JUŻ OTWARTEJ transakcji.
+
+    Wydzielone z `receive_packaging`, bo tę samą regułę potrzebuje przyjęcie
+    DDFiP (karta 1.3.1) — a dostawa folii i tulei ma wejść na magazyn tym
+    samym torem co dostawa wpisana z okienka magazynu, inaczej ten sam towar
+    liczyłby się dwa razy albo wcale.
+
+    Magazyn opakowań NIE jest lotowy: pozycja o tej samej nazwie się DOKŁADA
+    (scalanie po `LOWER(name)`). Ślad po konkretnej dostawie zostaje w ruchu
+    magazynowym (`source_type`/`source_id`), a przy DDFiP dodatkowo w wierszu
+    dokumentu — patrz `ingredient_reception_packaging`.
+    """
+    istnieje = cx_query_one(
+        conn,
+        "SELECT * FROM packaging WHERE LOWER(name) = LOWER(%s) FOR UPDATE",
+        (name,),
+    )
+    if istnieje:
+        cx_execute(
             conn,
-            "SELECT * FROM packaging WHERE LOWER(name) = LOWER(%s) FOR UPDATE",
-            (dto.name,),
+            """
+            UPDATE packaging
+            SET kg_available = kg_available + %s,
+                kg_initial = kg_initial + %s
+            WHERE id = %s
+            """,
+            (qty, qty, istnieje["id"]),
         )
-        if existing:
-            cx_execute(
-                conn,
-                """
-                UPDATE packaging
-                SET kg_available = kg_available + %s,
-                    kg_initial = kg_initial + %s
-                WHERE id = %s
-                """,
-                (dto.qty, dto.qty, existing["id"]),
-            )
-            if float(dto.qty or 0) > 0:
-                create_stock_movement(
-                    conn,
-                    product_type="packaging",
-                    batch_id=existing["id"],
-                    qty=float(dto.qty),
-                    movement_type="IN",
-                    source_type="supplier",
-                    source_id=dto.supplier_id or existing["id"],
-                )
-            row = cx_query_one(
-                conn, "SELECT * FROM packaging WHERE id = %s", (existing["id"],)
-            )
-            logger.info(
-                "packaging.received",
-                extra={"packaging_id": existing["id"], "qty": dto.qty, "mode": "topup"},
-            )
-            return row  # type: ignore[return-value]
+        row = cx_query_one(conn, "SELECT * FROM packaging WHERE id = %s", (istnieje["id"],))
+        tryb = "topup"
+    else:
         seq = next_seq("packaging_seq")
         row = cx_execute_returning(
             conn,
@@ -74,32 +82,49 @@ def receive_packaging(dto: PackagingReceive) -> Dict:
             (
                 cuid(),
                 f"PAK-{str(seq).zfill(3)}",
-                dto.name,
-                dto.type,
-                dto.unit,
-                dto.qty,
-                dto.qty,
-                dto.supplier_id or None,
-                dto.expiry_date or None,
-                dto.notes,
+                name,
+                packaging_type,
+                unit,
+                qty,
+                qty,
+                supplier_id or None,
+                expiry_date or None,
+                notes,
                 now_iso(),
             ),
         )
-        if float(dto.qty or 0) > 0:
-            create_stock_movement(
-                conn,
-                product_type="packaging",
-                batch_id=row["id"],
-                qty=float(dto.qty),
-                movement_type="IN",
-                source_type="supplier",
-                source_id=dto.supplier_id or row["id"],
-            )
+        tryb = "new"
+
+    if float(qty or 0) > 0:
+        create_stock_movement(
+            conn,
+            product_type="packaging",
+            batch_id=row["id"],
+            qty=float(qty),
+            movement_type="IN",
+            source_type=source_type,
+            source_id=source_id or supplier_id or row["id"],
+        )
+
     logger.info(
         "packaging.received",
-        extra={"packaging_id": row["id"], "qty": dto.qty, "mode": "new"},
+        extra={"packaging_id": row["id"], "qty": qty, "mode": tryb},
     )
-    return row
+    return row  # type: ignore[return-value]
+
+
+def receive_packaging(dto: PackagingReceive) -> Dict:
+    with transaction() as conn:
+        return receive_packaging_cx(
+            conn,
+            name=dto.name,
+            qty=dto.qty,
+            packaging_type=dto.type,
+            unit=dto.unit,
+            supplier_id=dto.supplier_id,
+            expiry_date=dto.expiry_date,
+            notes=dto.notes,
+        )
 
 
 def use_packaging(packaging_id: str, body: Dict[str, Any]) -> Dict[str, Any]:

@@ -19,7 +19,20 @@ class IngredientReceptionLineIn(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, validate_default=True)
 
-    ingredient_id: str = Field(..., alias="ingredientId", min_length=1)
+    #: Czym jest ta pozycja: ``ingredient`` (przyprawa, dodatek) albo
+    #: ``packaging`` (folia, tuleja, karton). Karta 1.3.1 nazywa się
+    #: „Rejestr przyjęcia OPAKOWAŃ, przypraw i dodatków technologicznych" —
+    #: jedno auto potrafi przywieźć i jedno, i drugie, a każde idzie na INNY
+    #: magazyn: składnik do `ingredient_stock`, opakowanie do `packaging`.
+    kind: str = "ingredient"
+    ingredient_id: str = Field("", alias="ingredientId")
+    #: Pozycja magazynu opakowań, gdy dokładamy do istniejącej.
+    packaging_id: str = Field("", alias="packagingId")
+    #: Nazwa NOWEJ pozycji opakowania (gdy nie ma jej jeszcze w magazynie).
+    name: str = ""
+    #: Rodzaj z magazynu opakowań: tuleja | opakowanie | inne.
+    packaging_type: str = Field("opakowanie", alias="packagingType")
+    unit: str = "szt"
     qty: float = Field(..., gt=0)
     #: Numer partii DOSTAWCY z opakowania — po nim idzie identyfikowalność
     #: (instrukcja 1.3 wymienia „brak identyfikowalności partii" jako zagrożenie).

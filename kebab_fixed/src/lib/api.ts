@@ -1211,7 +1211,10 @@ export const ingredientReceiptsApi = {
 /** Pozycja dostawy = lot magazynu przypraw pod dokumentem. */
 export interface IngredientReceptionLine {
   id:             string
+  /** 'ingredient' — magazyn przypraw; 'packaging' — magazyn tulei i opakowań. */
+  kind:           'ingredient' | 'packaging'
   ingredientId:   string
+  packagingId:    string
   ingredientName: string
   unit:           string
   qty:            number
@@ -1241,7 +1244,9 @@ export interface IngredientReception {
 function mapIngredientReceptionLine(raw: any): IngredientReceptionLine {
   return {
     id:             raw.id ?? '',
+    kind:           raw.kind === 'packaging' ? 'packaging' : 'ingredient',
     ingredientId:   raw.ingredient_id   ?? raw.ingredientId   ?? '',
+    packagingId:    raw.packaging_id    ?? raw.packagingId    ?? '',
     ingredientName: raw.ingredient_name ?? raw.ingredientName ?? '',
     unit:           raw.unit ?? 'kg',
     qty:            Number(raw.qty ?? 0),

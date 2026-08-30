@@ -1392,6 +1392,26 @@ _DDL: list[str] = [
     "ALTER TABLE ingredient_stock ADD COLUMN IF NOT EXISTS reception_id TEXT",
     "CREATE INDEX IF NOT EXISTS idx_ingredient_stock_reception "
     "ON ingredient_stock (reception_id)",
+    # Opakowaniowe pozycje dostawy DDFiP. OSOBNA tabela, bo magazyn opakowań
+    # nie jest lotowy: `packaging` scala pozycje po nazwie, więc jeden wiersz
+    # magazynu pochodzi z wielu dostaw i `packaging.reception_id` byłby
+    # kłamstwem. Tu siedzi to, co było NA DOKUMENCIE — ilość, partia dostawcy
+    # i termin z konkretnego auta — czyli dokładnie to, czego karta 1.3.1
+    # i etykieta palety potrzebują.
+    """CREATE TABLE IF NOT EXISTS ingredient_reception_packaging (
+        id              TEXT PRIMARY KEY,
+        reception_id    TEXT NOT NULL,
+        packaging_id    TEXT NOT NULL,
+        packaging_name  TEXT NOT NULL DEFAULT '',
+        unit            TEXT NOT NULL DEFAULT 'szt',
+        qty             DOUBLE PRECISION NOT NULL DEFAULT 0,
+        batch_no        TEXT,
+        expiry_date     TEXT,
+        price_per_unit  DOUBLE PRECISION NOT NULL DEFAULT 0,
+        created_at      TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_ingredient_reception_packaging_doc "
+    "ON ingredient_reception_packaging (reception_id)",
 ]
 
 

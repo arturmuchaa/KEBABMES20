@@ -1,7 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
-import { Plus } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { Input } from '@/components/ui/input'
+import { SearchPicker } from './SearchPicker'
 
 /**
  * IngredientPicker — pole „Składnik" z wyszukiwaniem po wpisaniu.
@@ -10,10 +7,12 @@ import { Input } from '@/components/ui/input'
  * własny ekran: dwa miejsca wybierają składnik, więc pole musi być JEDNO.
  * Kopia rozjechałaby się przy pierwszej poprawce.
  *
+ * Od 30.08.2026 samo pole siedzi w `SearchPicker` — tę samą listę wybiera
+ * też pole opakowań na przyjęciu DDFiP. Tu zostaje tylko to, co składnikowe:
+ * stan magazynowy po prawej i zakładanie nowej pozycji kartoteki.
+ *
  * Zastępuje rozwijany Select, w który nie dało się nic WPISAĆ (użytkownicy
  * próbowali wpisać nazwę nowego dodatku i pole wyglądało na zablokowane).
- * Wpisanie nazwy filtruje listę; gdy brak dopasowania — przycisk tworzy
- * nowy składnik bezpośrednio z tego miejsca (onCreateNew).
  */
 export function IngredientPicker({ ingredients, stockMap, value, onSelect, onCreateNew }: {
   ingredients: { id: string; name: string; unit: string; category: string }[]
@@ -22,69 +21,23 @@ export function IngredientPicker({ ingredients, stockMap, value, onSelect, onCre
   onSelect: (id: string) => void
   onCreateNew: (name: string) => void
 }) {
-  const selected = ingredients.find(i => i.id === value)
-  const [query, setQuery] = useState('')
-  const [open, setOpen]   = useState(false)
-  const boxRef = useRef<HTMLDivElement>(null)
-
-  // Zamknij listę przy kliknięciu poza polem
-  useEffect(() => {
-    function onDown(e: MouseEvent) {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [])
-
-  const q = query.toLowerCase().trim()
-  const matches = q
-    ? ingredients.filter(i => i.name.toLowerCase().includes(q))
-    : ingredients
-  const exact = ingredients.some(i => i.name.toLowerCase() === q)
-
   return (
-    <div ref={boxRef} className="relative">
-      <Input
-        placeholder="Wpisz nazwę, np. Papryka słodka…"
-        value={open ? query : (selected?.name ?? query)}
-        onFocus={() => { setOpen(true); setQuery(selected?.name ?? '') }}
-        onChange={e => { setQuery(e.target.value); setOpen(true); if (value) onSelect('') }}
-      />
-      {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white border border-surface-4 rounded-lg shadow-md max-h-56 overflow-y-auto scrollbar-thin">
-          {matches.map(i => {
-            const qty = stockMap.get(i.id)?.qtyAvailable ?? 0
-            return (
-              <button
-                key={i.id}
-                type="button"
-                onClick={() => { onSelect(i.id); setQuery(''); setOpen(false) }}
-                className={cn(
-                  'w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-surface-3/70',
-                  i.id === value && 'bg-surface-3 font-semibold',
-                )}
-              >
-                <span className="truncate">{i.name}</span>
-                <span className={cn('text-[11px] tabular-nums flex-shrink-0', qty > 0 ? 'text-emerald-700' : 'text-ink-4')}>
-                  {qty.toFixed(1)} {i.unit}
-                </span>
-              </button>
-            )
-          })}
-          {matches.length === 0 && (
-            <div className="px-3 py-2 text-xs text-ink-4">Brak składnika o tej nazwie</div>
-          )}
-          {q && !exact && (
-            <button
-              type="button"
-              onClick={() => { onCreateNew(query.trim()); setOpen(false) }}
-              className="w-full flex items-center gap-1.5 px-3 py-2 text-left text-sm font-semibold text-brand border-t border-surface-3 hover:bg-surface-3/70"
-            >
-              <Plus size={13} /> Dodaj nowy składnik „{query.trim()}"
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+    <SearchPicker
+      items={ingredients.map(i => {
+        const qty = stockMap.get(i.id)?.qtyAvailable ?? 0
+        return {
+          id: i.id,
+          name: i.name,
+          rightText: `${qty.toFixed(1)} ${i.unit}`,
+          rightStrong: qty > 0,
+        }
+      })}
+      value={value}
+      onSelect={onSelect}
+      onCreateNew={onCreateNew}
+      placeholder="Wpisz nazwę, np. Papryka słodka…"
+      emptyText="Brak składnika o tej nazwie"
+      createLabel={nazwa => `Dodaj nowy składnik „${nazwa}"`}
+    />
   )
 }

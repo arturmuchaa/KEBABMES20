@@ -249,7 +249,7 @@ export function SpiceStockPage() {
                 nie liczy i nie może być pierwszym, co widzi biuro. */}
             <Button size="sm" className="h-7 px-2.5 text-xs gap-1"
               onClick={() => navigate('/office/przyjecie-ddfip')}>
-              <ClipboardCheck size={12}/> Przyjęcie DDFiP
+              <ClipboardCheck size={12}/> Przyjęcie opakowań i przypraw
             </Button>
             <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs gap-1"
               title="Korekta stanu bez dokumentu dostawy — nie trafia na kartę 1.3.1"

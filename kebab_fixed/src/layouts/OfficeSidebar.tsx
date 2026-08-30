@@ -34,7 +34,7 @@ const NAV: NavSection[] = [
     { to: '/office/magazyn/przyprawy',   label: 'Przyprawy i dodatki', icon: <FlaskConical size={16} /> },
     // Przyjęcie DDFiP stoi przy magazynie przypraw, a nie w „Jakości": biuro
     // wchodzi tu, gdy przyjeżdża auto, a nie gdy szuka karty do księgi.
-    { to: '/office/przyjecie-ddfip',     label: 'Przyjęcie DDFiP',     icon: <ClipboardCheck size={16} /> },
+    { to: '/office/przyjecie-ddfip',     label: 'Przyjęcie opakowań i przypraw', icon: <ClipboardCheck size={16} /> },
     { to: '/office/magazyn/mieso-przyp', label: 'Mięso przyprawione',  icon: <Beef size={16} /> },
     { to: '/office/magazyn/opakowania',  label: 'Opakowania/Tuleje',   icon: <Archive size={16} /> },
     { to: '/office/magazyn/gotowe',      label: 'Wyrób gotowy',        icon: <ShoppingBag size={16} /> },
