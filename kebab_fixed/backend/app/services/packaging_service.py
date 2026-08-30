@@ -11,7 +11,10 @@ from app.db import (
 )
 from app.logging_config import get_logger
 from app.models.packaging import PackagingReceive
-from app.utils.ids import cuid, next_seq, now_iso
+from app.utils.ids import cuid, now_iso
+from app.utils.stock_codes import (
+    kod_tulei, kod_z_licznika, normalizuj_kod, prefiks_opakowania,
+)
 from app.utils.stock import create_stock_movement
 
 logger = get_logger(__name__)
@@ -25,6 +28,44 @@ def list_all_packaging() -> List[Dict]:
     return query_all("SELECT * FROM packaging ORDER BY created_at DESC")
 
 
+def _nadaj_kod_cx(conn, code: str, name: str, packaging_type: str) -> str:
+    """Kod nowej pozycji magazynu: podany przez biuro albo wyliczony.
+
+    Kod podany wygrywa — biuro zna swoje oznaczenia lepiej niż reguła. Kod
+    zajęty odrzucamy WPROST, zamiast pozwolić na drugą pozycję o tym samym
+    numerze; dokładnie to zdarzyło się przy PAK-001…004, tyle że po cichu,
+    bo nie było wtedy indeksu unikalnego.
+    """
+    reczny = normalizuj_kod(code)
+    if reczny:
+        if cx_query_one(conn, "SELECT id FROM packaging WHERE code = %s", (reczny,)):
+            raise HTTPException(400, f"Kod {reczny} jest już zajęty przez inną pozycję")
+        return reczny
+
+    # Tuleja bierze kod z nazwy; przy kolizji (np. drugi „METAL 65CM")
+    # schodzimy na licznik, żeby zapis się nie wywrócił.
+    kod = kod_tulei(name)
+    if kod and not cx_query_one(conn, "SELECT id FROM packaging WHERE code = %s", (kod,)):
+        return kod
+
+    prefiks = prefiks_opakowania(packaging_type)
+    for _ in range(200):
+        # Licznik podbijamy na TEJ SAMEJ transakcji (jak numer DDFiP), a nie
+        # przez `next_seq`, które bierze osobne połączenie z puli i commituje
+        # niezależnie — przy wycofaniu zapisu numer byłby spalony.
+        row = cx_execute_returning(
+            conn,
+            """INSERT INTO sequences (key, value) VALUES (%s, 1)
+               ON CONFLICT (key) DO UPDATE SET value = sequences.value + 1
+               RETURNING value""",
+            (f"packaging_code:{prefiks}",),
+        )
+        kandydat = kod_z_licznika(prefiks, int(row["value"]))
+        if not cx_query_one(conn, "SELECT id FROM packaging WHERE code = %s", (kandydat,)):
+            return kandydat
+    raise HTTPException(500, "Nie udało się nadać kodu pozycji magazynu")
+
+
 def receive_packaging_cx(
     conn,
     *,
@@ -32,6 +73,7 @@ def receive_packaging_cx(
     qty: float,
     packaging_type: str = "opakowanie",
     unit: str = "szt",
+    code: str = "",
     supplier_id: str = "",
     expiry_date: str = "",
     notes: str = "",
@@ -69,7 +111,7 @@ def receive_packaging_cx(
         row = cx_query_one(conn, "SELECT * FROM packaging WHERE id = %s", (istnieje["id"],))
         tryb = "topup"
     else:
-        seq = next_seq("packaging_seq")
+        kod = _nadaj_kod_cx(conn, code, name, packaging_type)
         row = cx_execute_returning(
             conn,
             """
@@ -81,7 +123,7 @@ def receive_packaging_cx(
             """,
             (
                 cuid(),
-                f"PAK-{str(seq).zfill(3)}",
+                kod,
                 name,
                 packaging_type,
                 unit,
@@ -124,6 +166,7 @@ def receive_packaging(dto: PackagingReceive) -> Dict:
             supplier_id=dto.supplier_id,
             expiry_date=dto.expiry_date,
             notes=dto.notes,
+            code=dto.code,
         )
 
 

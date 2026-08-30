@@ -2190,6 +2190,8 @@ export interface PackagingItem {
 
 export interface CreatePackagingDto {
   name: string; type: PackagingType; unit: string; qty: number
+  /** Pusty = kod nadaje backend (`TUL-M65` z nazwy albo kolejny `OPA-nnn`). */
+  code?: string
   supplierId?: string; expiryDate?: string; notes?: string
 }
 

@@ -18,6 +18,7 @@ from app.utils.body import body_get
 from app.utils.ids import cuid, now_iso
 from app.services.packaging_service import receive_packaging_cx
 from app.utils.stock import create_stock_movement
+from app.utils.stock_codes import kod_z_licznika, normalizuj_kod
 
 logger = get_logger(__name__)
 
@@ -41,6 +42,32 @@ def ingredient_stock() -> List[Dict]:
     )
 
 
+def _kod_skladnika_cx(conn, code: str) -> str:
+    """Kod składnika: podany przez biuro albo kolejny `SKL-nnn`.
+
+    Kolumna `code` stała pusta we WSZYSTKICH 28 pozycjach kartoteki — pole
+    było, ale nic go nie wypełniało. Teraz nowa pozycja dostaje kod od razu,
+    żeby dało się ją odróżnić w pickerze bez czytania całej nazwy
+    („PRZYPRAWA AUSTRIA" obok „PRZYPRAWA VATAN").
+    """
+    reczny = normalizuj_kod(code)
+    if reczny:
+        if cx_query_one(conn, "SELECT id FROM ingredients WHERE code = %s", (reczny,)):
+            raise HTTPException(400, f"Kod {reczny} jest już zajęty przez inny składnik")
+        return reczny
+    for _ in range(200):
+        row = cx_execute_returning(
+            conn,
+            """INSERT INTO sequences (key, value) VALUES ('ingredient_code', 1)
+               ON CONFLICT (key) DO UPDATE SET value = sequences.value + 1
+               RETURNING value""",
+        )
+        kandydat = kod_z_licznika("SKL", int(row["value"]))
+        if not cx_query_one(conn, "SELECT id FROM ingredients WHERE code = %s", (kandydat,)):
+            return kandydat
+    raise HTTPException(500, "Nie udało się nadać kodu składnikowi")
+
+
 def create_ingredient(dto: IngredientCreate) -> Dict:
     with transaction() as conn:
         row = cx_execute_returning(
@@ -51,8 +78,8 @@ def create_ingredient(dto: IngredientCreate) -> Dict:
             VALUES (%s,%s,%s,%s,%s,%s,true,%s)
             RETURNING *
             """,
-            (cuid(), dto.code, dto.name, dto.unit, dto.is_unlimited,
-             getattr(dto, "category", None) or "other", now_iso()),
+            (cuid(), _kod_skladnika_cx(conn, dto.code), dto.name, dto.unit,
+             dto.is_unlimited, getattr(dto, "category", None) or "other", now_iso()),
         )
     logger.info("ingredient.created", extra={"ingredient_id": row["id"]})
     return row

@@ -7,9 +7,14 @@ import json
 import re
 from typing import Dict, List
 
-from app.db import cx_execute, cx_query_all, execute, query_all, query_one, transaction
+from app.db import (
+    cx_execute, cx_query_all, cx_query_one, execute, query_all, query_one, transaction,
+)
 from app.logging_config import get_logger
 from app.utils.pallets import pallet_containers
+from app.utils.stock_codes import (
+    kod_tulei, kod_z_licznika, prefiks_opakowania,
+)
 
 logger = get_logger(__name__)
 
@@ -1458,6 +1463,7 @@ def _run_migrations_locked() -> None:
     _backfill_plan_line_position()
     _backfill_mixing_session_lots()
     _backfill_receptions()
+    _backfill_stock_codes()
     _strip_year_from_reception_no()
     _reconcile_deboning_ledger()
     logger.info("migrations.done")
@@ -1484,6 +1490,107 @@ def _strip_year_from_reception_no() -> None:
             logger.info("migrations.strip_year_from_reception_no.done", extra={"count": ile})
     except Exception as exc:
         logger.warning("migrations.strip_year_from_reception_no.failed", extra={"error": str(exc)})
+
+
+def _backfill_stock_codes() -> None:
+    """Nadaje kody pozycjom magazynów słownikowych — JEDNORAZOWO.
+
+    Zastane dane: 13 tulei i opakowań miało 9 różnych kodów, bo cztery
+    pozycje z zasiewu wpisały PAK-001…004 nie ruszając licznika, a licznik
+    wydał te same numery drugi raz (METAL 65CM i KARTON 65CM chodziły jako
+    PAK-001). Kod, który się powtarza, jest gorszy niż jego brak: wygląda na
+    identyfikator i da się po nim wyszukiwać. Wszystkie 28 przypraw miało
+    kod pusty.
+
+    Tuleje dostają kod CZYTELNY (`TUL-M65`), bo ich nazwa i tak koduje
+    materiał i rozmiar. Reszta — prefiks rodzaju i licznik.
+
+    Znacznik `stock_codes_v2` pilnuje, żeby przebiegło to RAZ: biuro może
+    potem poprawić kod ręcznie i kolejny deploy nie ma prawa go nadpisać.
+    """
+    try:
+        if query_one("SELECT value FROM sequences WHERE key = 'stock_codes_v2'"):
+            return
+
+        with transaction() as conn:
+            # 'FOLIA' nie jest rodzajem z listy (tuleja|opakowanie|inne) —
+            # ekran nie umiał go opisać i pokazywał surową wartość.
+            cx_execute(
+                conn,
+                "UPDATE packaging SET type = 'opakowanie' "
+                "WHERE LOWER(type) NOT IN ('tuleja','opakowanie','inne')",
+            )
+
+            zajete: set = set()
+            liczniki: Dict[str, int] = {}
+            for row in cx_query_all(
+                conn, "SELECT id, name, type FROM packaging ORDER BY created_at, id"
+            ):
+                kod = kod_tulei(row["name"] or "")
+                if not kod or kod in zajete:
+                    prefiks = prefiks_opakowania(row["type"] or "")
+                    while True:
+                        liczniki[prefiks] = liczniki.get(prefiks, 0) + 1
+                        kod = kod_z_licznika(prefiks, liczniki[prefiks])
+                        if kod not in zajete:
+                            break
+                zajete.add(kod)
+                cx_execute(conn, "UPDATE packaging SET code = %s WHERE id = %s",
+                           (kod, row["id"]))
+
+            # Przyprawy: nazwa nic regularnego nie koduje, więc sam licznik.
+            for i, row in enumerate(
+                cx_query_all(
+                    conn,
+                    "SELECT id FROM ingredients WHERE COALESCE(code,'') = '' "
+                    "ORDER BY name, id",
+                ),
+                start=1,
+            ):
+                cx_execute(conn, "UPDATE ingredients SET code = %s WHERE id = %s",
+                           (kod_z_licznika("SKL", i), row["id"]))
+
+            # Liczniki ponad to, co już wydano — inaczej zderzą się ponownie.
+            for prefiks, ile in liczniki.items():
+                cx_execute(
+                    conn,
+                    "INSERT INTO sequences (key, value) VALUES (%s, %s) "
+                    "ON CONFLICT (key) DO UPDATE SET value = GREATEST(sequences.value, %s)",
+                    (f"packaging_code:{prefiks}", ile, ile),
+                )
+            ile_skl = cx_query_one(
+                conn, "SELECT count(*) AS c FROM ingredients WHERE code LIKE 'SKL-%%'")
+            cx_execute(
+                conn,
+                "INSERT INTO sequences (key, value) VALUES ('ingredient_code', %s) "
+                "ON CONFLICT (key) DO UPDATE SET value = GREATEST(sequences.value, %s)",
+                (int(ile_skl["c"]), int(ile_skl["c"])),
+            )
+            cx_execute(
+                conn,
+                "INSERT INTO sequences (key, value) VALUES ('stock_codes_v2', 1) "
+                "ON CONFLICT (key) DO NOTHING",
+            )
+        logger.info("migrations.backfill_stock_codes.done")
+    except Exception as exc:
+        logger.warning("migrations.backfill_stock_codes.error", extra={"error": str(exc)})
+
+    # Indeksy DOPIERO TERAZ, nie w `_DDL`. W `_DDL` powstawałyby PRZED
+    # naprawą danych, więc na zastanych duplikatach `CREATE UNIQUE INDEX`
+    # wywracał się, błąd był połykany i unikalności pilnowałby dopiero
+    # NASTĘPNY deploy. Indeks CZĘŚCIOWY: pozycja bez kodu jest dozwolona,
+    # dwie z tym samym kodem nie.
+    for ddl in (
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_packaging_code "
+        "ON packaging (code) WHERE code IS NOT NULL AND code <> ''",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_ingredients_code "
+        "ON ingredients (code) WHERE code IS NOT NULL AND code <> ''",
+    ):
+        try:
+            execute(ddl)
+        except Exception as exc:
+            logger.warning("migrations.stock_codes_index.error",
+                           extra={"error": str(exc), "ddl": ddl[:60]})
 
 
 def _backfill_receptions() -> None:

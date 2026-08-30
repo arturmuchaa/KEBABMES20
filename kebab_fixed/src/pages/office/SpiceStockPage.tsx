@@ -87,6 +87,7 @@ export function SpiceStockPage() {
 
   // Nowy składnik
   const [newName, setNewName] = useState('')
+  const [newCode, setNewCode] = useState('')
   const [newCat,  setNewCat]  = useState<IngredientCategory>('spice_mix')
   const [newUnit, setNewUnit] = useState('kg')
 
@@ -174,10 +175,13 @@ export function SpiceStockPage() {
       : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60"/>
 
   async function handleCreateIng() {
-    const err = await createIngredient({ name: newName, category: newCat, unit: newUnit, isUnlimited: false })
+    const err = await createIngredient({
+      name: newName, code: newCode.trim(), category: newCat, unit: newUnit, isUnlimited: false,
+    })
     if (err) { toast.error(err); return }
     toast.success(`"${newName}" dodany do magazynu`)
-    setIngModal(false); setNewName(''); setNewCat('spice_mix'); setNewUnit('kg')
+    setIngModal(false); setNewName(''); setNewCode('')
+    setNewCat('spice_mix'); setNewUnit('kg')
   }
 
   async function handleReceipt() {
@@ -423,6 +427,11 @@ export function SpiceStockPage() {
             <div className="space-y-1.5">
               <Label>Nazwa *</Label>
               <Input placeholder="np. Van Hess Hell, Chiken BKS" value={newName} onChange={e => setNewName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Kod</Label>
+              <Input placeholder="puste = nadam sam" className="font-mono"
+                value={newCode} onChange={e => setNewCode(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label>Kategoria</Label>

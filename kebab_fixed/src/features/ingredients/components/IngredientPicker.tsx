@@ -17,7 +17,7 @@ import { SearchPicker } from './SearchPicker'
 export function IngredientPicker({
   ingredients, stockMap, value, onSelect, onCreateNew, emptyText,
 }: {
-  ingredients: { id: string; name: string; unit: string; category: string }[]
+  ingredients: { id: string; name: string; unit: string; category: string; code?: string }[]
   stockMap: Map<string, any>
   value: string
   onSelect: (id: string) => void
@@ -32,6 +32,7 @@ export function IngredientPicker({
         return {
           id: i.id,
           name: i.name,
+          code: i.code,
           rightText: `${qty.toFixed(1)} ${i.unit}`,
           rightStrong: qty > 0,
         }

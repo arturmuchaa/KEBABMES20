@@ -1150,6 +1150,7 @@ export const workHoursApi = {
 function mapIngredient(raw: any): Ingredient {
   return {
     id:          raw.id,
+    code:        raw.code         ?? '',
     name:        raw.name         ?? '',
     category:    raw.category     ?? 'other',
     unit:        raw.unit         ?? 'kg',

@@ -42,7 +42,7 @@ type SortCol = 'name' | 'type' | 'available' | 'used' | 'supplierName'
 function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) => Promise<void>; onClose: () => void }) {
   const { data: suppliers } = useApi(() => suppliersApi.list())
   const [form, setForm] = useState<CreatePackagingDto>({
-    name: '', type: 'tuleja', unit: 'szt', qty: 0, supplierId: '', expiryDate: '', notes: '',
+    name: '', code: '', type: 'tuleja', unit: 'szt', qty: 0, supplierId: '', expiryDate: '', notes: '',
   })
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState('')
@@ -66,6 +66,17 @@ function ReceiveForm({ onSave, onClose }: { onSave: (dto: CreatePackagingDto) =>
         <div className="col-span-2 space-y-1.5">
           <Label>Nazwa *</Label>
           <Input value={form.name} onChange={e => set('name', e.target.value)} placeholder="np. Tuleja metal 65cm" />
+        </div>
+        <div className="col-span-2 space-y-1.5">
+          <Label>Kod</Label>
+          <Input value={form.code ?? ''} onChange={e => set('code', e.target.value)}
+            placeholder="puste = nadam sam" className="font-mono" />
+          <CardDescription className="text-[11px]">
+            {/* Reguła kodu siedzi TYLKO w backendzie (`stock_codes.py`) —
+                kopia tutaj rozjechałaby się przy pierwszej poprawce. */}
+            Zostaw puste, a kod nada się sam: tuleja bierze go z nazwy
+            („METAL 65CM" → TUL-M65), reszta dostaje kolejny numer.
+          </CardDescription>
         </div>
         <div className="space-y-1.5">
           <Label>Typ</Label>

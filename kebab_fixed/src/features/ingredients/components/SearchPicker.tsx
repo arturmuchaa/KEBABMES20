@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input'
 export interface PozycjaListy {
   id: string
   name: string
+  /** Kod pozycji magazynu — krótki uchwyt przed nazwą. */
+  code?: string
   /** Prawa strona wiersza — zwykle stan magazynowy z jednostką. */
   rightText?: string
   /** Czy prawą stronę podświetlić na zielono (stan > 0). */
@@ -76,7 +78,12 @@ export function SearchPicker({
                 i.id === value && 'bg-surface-3 font-semibold',
               )}
             >
-              <span className="truncate">{i.name}</span>
+              <span className="truncate">
+                {i.code && (
+                  <span className="font-mono text-[11px] text-ink-4 mr-2">{i.code}</span>
+                )}
+                {i.name}
+              </span>
               {i.rightText && (
                 <span className={cn('text-[11px] tabular-nums flex-shrink-0',
                   i.rightStrong ? 'text-emerald-700' : 'text-ink-4')}>

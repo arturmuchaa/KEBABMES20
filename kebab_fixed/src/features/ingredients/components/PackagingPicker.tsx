@@ -20,6 +20,7 @@ export function PackagingPicker({ items, value, onSelect }: {
       items={items.map(p => ({
         id: p.id,
         name: p.name,
+        code: p.code,
         rightText: `${p.kgAvailable.toFixed(0)} ${p.unit}`,
         rightStrong: p.kgAvailable > 0,
       }))}

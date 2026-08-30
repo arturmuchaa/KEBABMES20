@@ -25,6 +25,8 @@ export type IngredientCategory =
 
 export interface Ingredient {
   readonly id:           string
+  /** Kod kartoteki („SKL-014") — krótki uchwyt pozycji. */
+  readonly code?:        string
   readonly name:         string          // np. "Van Hess Hell", "Woda"
   readonly category:     IngredientCategory
   readonly unit:         string          // 'kg', 'l', 'szt'
@@ -37,6 +39,8 @@ export interface Ingredient {
 }
 
 export interface CreateIngredientDto {
+  /** Pusty = kod nadaje backend (kolejny `SKL-nnn`). */
+  code?:       string
   name:        string
   category:    IngredientCategory
   unit:        string
