@@ -1,0 +1,78 @@
+"""Kontrola HACCP dostawy — kolumny f-k karty 1.1.1.
+
+Wpis jest ZAWSZE opcjonalny: dostawa zapisuje się bez niego, a system
+tylko przypomina o uzupełnieniu (żadnej blokady — dostawa o 6 rano nie
+może czekać na kierownika).
+"""
+from typing import Any, Dict, Optional
+
+from app.db import execute, query_one
+from app.models.reception_checks import ReceptionCheckIn
+from app.utils.ids import now_iso
+
+#: Pola, bez których karta 1.1.1 ma dziurę w wierszu.
+_WYMAGANE = ("visual", "tempChamber", "tempMeat", "kgMatch", "verdict")
+
+
+def _f(v: Any) -> Optional[float]:
+    return None if v is None else float(v)
+
+
+def _pusty(reception_id: str) -> Dict[str, Any]:
+    return {
+        "receptionId": reception_id, "visual": None, "tempChamber": None,
+        "tempMeat": None, "kgMatch": None, "notes": "", "verdict": None,
+        "ncDescription": "", "ncAction": "", "ncAt": None,
+        "updatedAt": None,
+    }
+
+
+def check_status(check: Dict[str, Any]) -> str:
+    """'brak' — nic nie wpisano; 'niepelne' — brakuje pola; 'komplet'."""
+    wypelnione = [k for k in _WYMAGANE if check.get(k) not in (None, "")]
+    if not wypelnione:
+        return "brak"
+    return "komplet" if len(wypelnione) == len(_WYMAGANE) else "niepelne"
+
+
+def get_check(reception_id: str) -> Dict[str, Any]:
+    """Wpis dostawy. Brak wiersza to stan NORMALNY, nie błąd — zwracamy
+    pusty szkic, żeby formularz miał co pokazać i gdzie zapisać."""
+    row = query_one(
+        "SELECT * FROM reception_checks WHERE reception_id=%s", (reception_id,))
+    out = _pusty(reception_id) if not row else {
+        "receptionId": row["reception_id"],
+        "visual": row["visual"],
+        "tempChamber": _f(row["temp_chamber"]),
+        "tempMeat": _f(row["temp_meat"]),
+        "kgMatch": row["kg_match"],
+        "notes": row["notes"] or "",
+        "verdict": row["verdict"],
+        "ncDescription": row["nc_description"] or "",
+        "ncAction": row["nc_action"] or "",
+        "ncAt": row["nc_at"].isoformat() if row["nc_at"] else None,
+        "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
+    }
+    out["status"] = check_status(out)
+    return out
+
+
+def save_check(reception_id: str, dto: ReceptionCheckIn) -> Dict[str, Any]:
+    """Zapis wpisu. UPSERT po kluczu głównym — jedna dostawa, jeden wpis."""
+    teraz = now_iso()
+    execute(
+        """INSERT INTO reception_checks
+             (reception_id, visual, temp_chamber, temp_meat, kg_match, notes,
+              verdict, nc_description, nc_action, nc_at, created_at, updated_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+           ON CONFLICT (reception_id) DO UPDATE SET
+             visual=EXCLUDED.visual, temp_chamber=EXCLUDED.temp_chamber,
+             temp_meat=EXCLUDED.temp_meat, kg_match=EXCLUDED.kg_match,
+             notes=EXCLUDED.notes, verdict=EXCLUDED.verdict,
+             nc_description=EXCLUDED.nc_description, nc_action=EXCLUDED.nc_action,
+             nc_at=EXCLUDED.nc_at, updated_at=EXCLUDED.updated_at""",
+        (reception_id, dto.visual, dto.temp_chamber, dto.temp_meat, dto.kg_match,
+         dto.notes, dto.verdict, dto.nc_description, dto.nc_action, dto.nc_at,
+         teraz, teraz),
+    )
+    return get_check(reception_id)

@@ -1472,6 +1472,27 @@ _DDL: list[str] = [
     "ALTER TABLE meat_pallets ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
     "ALTER TABLE meat_pallets ADD COLUMN IF NOT EXISTS deleted_by TEXT",
     "ALTER TABLE meat_pallets ADD COLUMN IF NOT EXISTS deleted_reason TEXT",
+    # ── Kontrola HACCP przy przyjęciu (karta 1.1.1, kolumny f-k) ──
+    #
+    # OSOBNA tabela, nie kolumny w `receptions`: PUT /api/receptions/{id}
+    # przepisuje CAŁY dokument dostawy, więc poprawka kilogramów zrobiona
+    # formularzem bez sekcji HACCP wyzerowałaby zmierzoną temperaturę.
+    # Wpis powstaje też PÓŹNIEJ niż dostawa (biuro uzupełnia go po pół
+    # godziny) i docelowo w innym miejscu — przy rampie.
+    """CREATE TABLE IF NOT EXISTS reception_checks (
+        reception_id   TEXT PRIMARY KEY REFERENCES receptions(id) ON DELETE CASCADE,
+        visual         TEXT,
+        temp_chamber   NUMERIC(4,1),
+        temp_meat      NUMERIC(4,1),
+        kg_match       TEXT,
+        notes          TEXT NOT NULL DEFAULT '',
+        verdict        TEXT,
+        nc_description TEXT NOT NULL DEFAULT '',
+        nc_action      TEXT NOT NULL DEFAULT '',
+        nc_at          TIMESTAMPTZ,
+        created_at     TIMESTAMPTZ NOT NULL,
+        updated_at     TIMESTAMPTZ NOT NULL
+    )""",
 ]
 
 

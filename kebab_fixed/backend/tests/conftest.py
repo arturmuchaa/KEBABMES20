@@ -50,6 +50,8 @@ _TRUNCATE = [
     # opakowaniowa pozycja dokumentu DOKŁADA do magazynu scalanego po nazwie,
     # więc pozostałość z poprzedniego testu podbijała stan następnemu.
     "ingredient_stock", "ingredient_reception_packaging", "ingredient_receptions",
+    # Kontrola HACCP dostawy — czyszczona razem z przyjęciami.
+    "reception_checks",
     "meat_stock", "reception_supplier_batches", "receptions", "raw_batches",
     # `product_catalog` przed `recipes`/`product_types`: rejestr trzyma
     # nazwy rodzajów i receptur, więc pozostałość podbijała licznik
