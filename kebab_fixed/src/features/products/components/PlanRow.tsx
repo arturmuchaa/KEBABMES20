@@ -13,7 +13,7 @@ import {
 import { fmtKg, cn } from '@/lib/utils'
 import {
   ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, GripVertical, Trash2,
-  AlertTriangle, CheckCheck, Loader2, RotateCcw,
+  AlertTriangle, CheckCheck, Loader2, RotateCcw, X,
 } from 'lucide-react'
 import { MeatLotPicker, type PickerLot, type SelLot } from './MeatLotPicker'
 import { IngredientPreview } from './IngredientPreview'
@@ -43,7 +43,8 @@ const GRID = 'grid grid-cols-[28px_20px_minmax(180px,1.2fr)_120px_96px_minmax(14
 export function PlanRow({
   row, index, total, recipes, lots, liveFree, output, expanded,
   onUpdate, onMove, onDelete, onToggle, onAutoFefoRow,
-  onConfirmExecution, onUndoConfirm, confirmingExecution, canConfirmExecution, showConfirmExecution,
+  onConfirmExecution, onUndoConfirm, onCancelOrder,
+  confirmingExecution, canConfirmExecution, showConfirmExecution,
   readOnly = false,
   dragHandlers,
 }: {
@@ -65,6 +66,9 @@ export function PlanRow({
   onConfirmExecution: () => void
   /** Cofnięcie potwierdzenia zlecenia 'done' (undo-confirm) — gdy nic nie zużyto dalej. */
   onUndoConfirm: () => void
+  /** Anulowanie zlecenia, którego nikt nie wykonał — zwalnia rezerwację mięsa.
+   *  Dostępne TAKŻE na planie minionym: właśnie wtedy jest potrzebne. */
+  onCancelOrder: () => void
   confirmingExecution: boolean
   /** Plan zapisany (ma id) i bez niezapisanych zmian — inaczej potwierdzenie
    * mogłoby dotyczyć pozycji, która zaraz zniknie/zmieni się przy zapisie. */
@@ -192,6 +196,28 @@ export function PlanRow({
             ? <Loader2 size={10} className="animate-spin" />
             : <CheckCheck size={10} />}
           Potwierdź
+        </button>
+      )}
+      {/* Anulowanie: zlecenie zaplanowane albo potwierdzone do wykonania,
+          którego NIKT nie ruszył. Świadomie działa też na planie minionym —
+          plan sprzed dwóch dni z zerowym wykonaniem to dokładnie ten
+          przypadek, w którym mięso stoi zamrożone i nie ma jak go oddać. */}
+      {row.id && !row.kgDone
+        && (row.status === 'planned' || row.status === 'confirmed') && (
+        <button
+          onClick={onCancelOrder}
+          data-testid="zlecenie-anuluj"
+          disabled={confirmingExecution}
+          title="Anuluj zlecenie — mięso wróci do puli. Dla masowania, którego NIE było."
+          className={cn(
+            'inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap',
+            'border-red-300 bg-red-50 text-red-700 hover:bg-red-100',
+            confirmingExecution && 'opacity-60 cursor-wait',
+          )}>
+          {confirmingExecution
+            ? <Loader2 size={10} className="animate-spin" />
+            : <X size={10} />}
+          Anuluj
         </button>
       )}
       {row.status === 'done' && showConfirmExecution && (

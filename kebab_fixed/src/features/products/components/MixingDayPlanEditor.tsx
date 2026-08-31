@@ -344,6 +344,36 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
     }
   }
 
+  // Anulowanie zlecenia, którego NIKT nie wykonał — zwalnia mięso z rezerwacji.
+  //
+  // Działa także na planie MINIONYM i to jest sedno: 30.08.2026 (niedziela)
+  // dwa zlecenia z planu na ten dzień zostały nietknięte i zamroziły 7 000 kg
+  // mięsa z partii 512/513/514. Plan miniony jest read-only, potwierdzenie
+  // pokazuje się tylko dla dnia dzisiejszego — biuro nie miało ŻADNEGO
+  // przycisku, a jedyną drogą było odmrożenie rezerwacji w bazie.
+  //
+  // Potwierdzenie nie jest tu wyjściem: rozchodowałoby mięso i przyprawy za
+  // masowanie, którego nie było.
+  async function anulujZlecenie(row: PlanRowData) {
+    if (!row.id) return
+    const nazwa = recipes.find((r: any) => r.id === row.recipeId)?.name ?? ''
+    if (!window.confirm(
+      `Anulować zlecenie: ${nazwa} — ${fmtKg(row.meatKg || 0, 0)} kg mięsa?\n\n`
+      + 'Zlecenie zniknie z kolejki, a zarezerwowane mięso wróci do puli. '
+      + 'Rób to, gdy masowania NIE było — jeśli było, użyj „Potwierdź".'
+    )) return
+    setConfirmingKey(row.rowKey)
+    try {
+      await mixingOrdersApi.cancel(row.id)
+      await load()
+      toast.success('Zlecenie anulowane — mięso wróciło do puli')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Nie można anulować zlecenia')
+    } finally {
+      setConfirmingKey(null)
+    }
+  }
+
   // Cofnięcie potwierdzenia (undo): odwraca finish; działa tylko gdy partia niezużyta.
   async function undoConfirmExecution(row: PlanRowData) {
     if (!row.id || !isToday) return
@@ -484,6 +514,7 @@ export function MixingDayPlanEditor({ onSaved }: { onSaved?: () => void }) {
                 canConfirmExecution={!dirty && !!r.id}
                 showConfirmExecution={isToday}
                 readOnly={isPast}
+                onCancelOrder={() => void anulujZlecenie(r)}
                 dragHandlers={{
                   draggable: true,
                   onDragStart: () => { dragIdx.current = i },
