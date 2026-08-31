@@ -512,12 +512,31 @@ def przepnij_do_pilniejszego_cx(conn, order_id: str) -> int:
             """
             SELECT fg.id, fg.qty, fg.kg_per_unit, fg.client_order_no
             FROM finished_goods fg
-            JOIN client_orders o ON o.order_no = fg.client_order_no
-            WHERE o.status NOT IN ('done','cancelled')
-              AND o.id <> %s
-              AND o.delivery_date IS NOT NULL
-              AND o.delivery_date > %s
-              AND COALESCE(o.client_id,'') = COALESCE(%s,'')
+            WHERE COALESCE(fg.client_id,'') = COALESCE(%s,'')
+              AND (
+                -- (1) ostemplowane zamówieniem OTWARTYM, jadącym PÓŹNIEJ
+                EXISTS (
+                  SELECT 1 FROM client_orders o
+                  WHERE o.order_no = fg.client_order_no
+                    AND o.id <> %s
+                    AND o.status NOT IN ('done','cancelled')
+                    AND o.delivery_date IS NOT NULL
+                    AND o.delivery_date > %s
+                )
+                -- (2) albo WOLNE: bez stempla, po zamówieniu zamkniętym albo
+                -- ze stemplem wskazującym numer, którego już nie ma. Ten
+                -- ostatni przypadek zablokował 31.08.2026 dwanaście sztuk
+                -- 70 kg i dwadzieścia dziewięć 30 kg: nosiły numer
+                -- „YALCIN/Z/1/08/26", a takiego zamówienia nie ma w bazie,
+                -- więc przepinanie po złączeniu ich nie widziało. Ta sama
+                -- reguła, co przy pokryciu zamówień (order_stock_service).
+                OR COALESCE(fg.client_order_no,'') = ''
+                OR NOT EXISTS (
+                  SELECT 1 FROM client_orders o2
+                  WHERE o2.order_no = fg.client_order_no
+                    AND o2.status NOT IN ('done','cancelled')
+                )
+              )
               AND fg.recipe_id = %s
               AND fg.kg_per_unit = %s
               AND (%s = '' OR COALESCE(fg.product_type_id,'') = '' OR fg.product_type_id = %s)
@@ -526,9 +545,9 @@ def przepnij_do_pilniejszego_cx(conn, order_id: str) -> int:
               AND fg.qty_available = fg.qty
               AND fg.qty > 0
             ORDER BY fg.produced_date ASC NULLS LAST, fg.created_at ASC
-            FOR UPDATE OF fg
+            FOR UPDATE
             """,
-            (order_id, zam["delivery_date"], zam.get("client_id") or "",
+            (zam.get("client_id") or "", order_id, zam["delivery_date"],
              linia["recipe_id"], float(linia["kg_per_unit"]),
              linia.get("product_type_id") or "", linia.get("product_type_id") or "",
              linia.get("packaging_id") or "", linia.get("packaging_id") or ""),

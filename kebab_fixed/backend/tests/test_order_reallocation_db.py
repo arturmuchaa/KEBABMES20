@@ -109,13 +109,31 @@ class TestPrzepiecie:
         create_order(_dto('2026-08-31'))
         assert _stempel(fid) == 'INNY/Z/1/08/26'
 
-    def test_NIE_rusza_zamowien_zamknietych(self, db):
-        # Zrealizowane zamówienie ma wydane = zamówione i nie sięga do puli.
+    def test_sztuki_po_zamowieniu_ZAMKNIETYM_wracaja_do_obrotu(self, db):
+        # Zrealizowane zamówienie ma wydane = zamówione i nie sięga już do
+        # puli — jego resztki są wolne. Ta sama reguła, co przy pokryciu
+        # (order_stock_service), więc przepinanie musi ją znać.
         _klient()
         _zamowienie('YALCIN/Z/3/08/26', '2026-09-03', status='done', dni_temu=4)
         fid = _sztuki('YALCIN/Z/3/08/26', qty=10)
-        create_order(_dto('2026-08-31'))
-        assert _stempel(fid) == 'YALCIN/Z/3/08/26'
+        nowe = create_order(_dto('2026-08-31'))
+        assert _stempel(fid) == nowe["order_no"]
+
+    def test_stempel_wskazujacy_NIEISTNIEJACE_zamowienie_nie_blokuje(self, db):
+        # 31.08.2026: dwanaście sztuk 70 kg i dwadzieścia dziewięć 30 kg nosiło
+        # numer „YALCIN/Z/1/08/26", którego NIE MA w bazie. Przepinanie łączyło
+        # magazyn z zamówieniami, więc tych wierszy w ogóle nie widziało
+        # i towar stał, choć nie należał do niczego.
+        _klient()
+        fid = _sztuki('YALCIN/Z/1/08/26', qty=12, kg=70.0)
+        nowe = create_order(_dto('2026-08-31', qty=12, kg=70.0))
+        assert _stempel(fid) == nowe["order_no"]
+
+    def test_sztuki_BEZ_stempla_tez_wchodza(self, db):
+        _klient()
+        fid = _sztuki(None, qty=10)
+        nowe = create_order(_dto('2026-08-31'))
+        assert _stempel(fid) == nowe["order_no"]
 
     def test_zamowienie_bez_daty_wyjazdu_nic_nie_przejmuje(self, db):
         _klient()
