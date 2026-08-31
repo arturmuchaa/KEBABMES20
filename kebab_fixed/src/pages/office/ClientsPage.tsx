@@ -1,9 +1,9 @@
 /**
  * ClientsPage — Kontrahenci
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
-import { clientsApi } from '@/lib/apiClient'
+import { clientsApi, recipesApi } from '@/lib/apiClient'
 import { GusLookup, type GusCompanyData } from '@/components/ui/GusLookup'
 import { ViesLookup, type ViesCompanyData } from '@/components/ui/ViesLookup'
 import {
@@ -11,9 +11,10 @@ import {
   X, ChevronDown, ChevronUp, ChevronsUpDown, Download, Users,
 } from 'lucide-react'
 import { ClientGroupsModal } from '@/features/clients/ClientGroupsModal'
+import { recipeNameOf, setRecipeName } from '@/features/clients/hdiNames'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
-import type { Client, CreateClientDto } from '@/lib/mockApi'
+import type { Client, CreateClientDto, HdiNameMode } from '@/lib/mockApi'
 import { DataTable } from '@/components/DataTable'
 import { usePageHeaderActions } from '@/components/PageHeader'
 
@@ -37,7 +38,7 @@ function langFromNip(nip?: string): string {
 }
 
 function emptyForm(): CreateClientDto {
-  return { name: '', displayName: '', nip: '', regon: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '', language: '', destName: '', destAddress: '', destCity: '', destForHdi: true, destForCmr: true, halalSupervision: false }
+  return { name: '', displayName: '', nip: '', regon: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '', language: '', destName: '', destAddress: '', destCity: '', destForHdi: true, destForCmr: true, halalSupervision: false, hdiNameMode: 'type_recipe', hdiRecipeNames: [] }
 }
 
 interface AddressParts { address: string; postalCode: string; city: string }
@@ -112,11 +113,23 @@ function ClientForm({ initial, onSave, onClose }: {
 }) {
   const [form, setForm] = useState<CreateClientDto>(
     initial
-      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email, language: initial.language, destName: initial.destName, destAddress: initial.destAddress, destCity: initial.destCity, destForHdi: initial.destForHdi ?? true, destForCmr: initial.destForCmr ?? true, halalSupervision: initial.halalSupervision }
+      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email, language: initial.language, destName: initial.destName, destAddress: initial.destAddress, destCity: initial.destCity, destForHdi: initial.destForHdi ?? true, destForCmr: initial.destForCmr ?? true, halalSupervision: initial.halalSupervision, hdiNameMode: initial.hdiNameMode ?? 'type_recipe', hdiRecipeNames: initial.hdiRecipeNames ?? [] }
       : emptyForm()
   )
   const [saving,   setSaving]   = useState(false)
   const [error,    setError]    = useState('')
+  // Receptury do własnych nazw odbiorcy — lista jest krótka i potrzebna
+  // dopiero w otwartym formularzu.
+  const [recipes,  setRecipes]  = useState<{ id: string; name: string }[]>([])
+  useEffect(() => {
+    recipesApi.list()
+      .then(r => setRecipes((r as any[]).map(x => ({ id: x.id, name: x.name }))))
+      .catch(() => setRecipes([]))
+  }, [])
+
+  const nazwaReceptury = (id: string) => recipeNameOf(form.hdiRecipeNames, id)
+  const ustawNazweReceptury = (id: string, nazwa: string) =>
+    setForm(p => ({ ...p, hdiRecipeNames: setRecipeName(p.hdiRecipeNames, id, nazwa) }))
   const [mode,     setMode]     = useState<'gus'|'vies'|'manual'>(initial ? 'manual' : 'gus')
   const [isAbroad, setIsAbroad] = useState(false)
   const [imported, setImported] = useState<ImportedData | null>(null)
@@ -283,6 +296,46 @@ function ClientForm({ initial, onSave, onClose }: {
             <span className="font-semibold">Nadzór HALAL</span>
             <span className="text-xs text-slate-500">— etykieta dostaje pole „kod nadzoru" (wpisywany przy druku, inny co zamówienie)</span>
           </label>
+          {/* Co odbiorca ma widzieć w nazwie pozycji HDI. POLAT chce sam rodzaj
+              i kilogramy („nazwa receptury to nasza kuchnia"), TRUVA odwrotnie:
+              rodzaj ORAZ recepturę, żeby odróżnić dwa wyroby z jednej receptury.
+              Dlatego ustawienie stoi przy odbiorcy, nie globalnie. */}
+          <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Nazwa pozycji na HDI
+            </div>
+            <select
+              value={form.hdiNameMode ?? 'type_recipe'}
+              data-testid="hdi-nazwa-tryb"
+              onChange={e => setForm(p => ({ ...p, hdiNameMode: e.target.value as HdiNameMode }))}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="type_recipe">Rodzaj i receptura — np. KEBAB UDO BEYAZ AFIYET 20KG</option>
+              <option value="type">Tylko rodzaj — np. KEBAB UDO 20KG</option>
+              <option value="recipe">Tylko receptura — np. BEYAZ AFIYET 20KG</option>
+            </select>
+            <div className="text-xs text-slate-500">
+              Waga pozycji dochodzi zawsze. Przy „tylko rodzaj" dwie receptury tego
+              samego rodzaju i wagi schodzą jako jedna pozycja — partie zostają rozpisane pod nią.
+            </div>
+            {recipes.length > 0 && (
+              <div className="space-y-1.5 pt-1 border-t border-slate-200">
+                <div className="text-xs font-semibold text-slate-600">
+                  Własne nazwy receptur <span className="font-normal text-slate-400">(puste = nazwa z receptury)</span>
+                </div>
+                <div className="max-h-48 space-y-1 overflow-auto pr-1">
+                  {recipes.map(r => (
+                    <div key={r.id} className="grid grid-cols-2 items-center gap-2">
+                      <span className="truncate text-sm text-slate-700">{r.name}</span>
+                      <Input value={nazwaReceptury(r.id)} placeholder={r.name}
+                        data-testid={`hdi-nazwa-receptury-${r.id}`}
+                        onChange={e => ustawNazweReceptury(r.id, e.target.value)} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           {!initial && (
             <Button variant="ghost" size="sm" onClick={() => setMode(isAbroad ? 'vies' : 'gus')} className="text-xs text-primary">
               ← Wróć do wyszukiwania {isAbroad ? 'VIES' : 'GUS'}

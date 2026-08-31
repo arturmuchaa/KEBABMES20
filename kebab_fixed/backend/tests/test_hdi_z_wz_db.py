@@ -133,3 +133,49 @@ def test_lista_wz_mowi_ktory_dokument_wydaje_wyrob_gotowy(db):
     assert flagi["wz-kebab"] is True
     assert flagi["wz-uboczne"] is False
     assert flagi["wz-puste"] is False
+
+
+def _klient(nazwa="POLAT", tryb="type", nip="SI12345678", nazwy_receptur=None):
+    execute(
+        "INSERT INTO clients (id, code, name, nip, language, hdi_name_mode, active, created_at) "
+        "VALUES ('c-polat','K90',%s,%s,'sl',%s,true,now())",
+        (nazwa, nip, tryb))
+    for rid, nowa in (nazwy_receptur or {}).items():
+        execute("INSERT INTO client_recipe_names (client_id, recipe_id, name) "
+                "VALUES ('c-polat',%s,%s)", (rid, nowa))
+
+
+def test_odbiorca_w_trybie_rodzaju_ma_na_hdi_sam_rodzaj(db):
+    """POLAT (31.08.2026): „na HDI tylko rodzaj i kg" — nazwa receptury to
+    nasza kuchnia, odbiorca rozpoznaje wyrób po rodzaju i wadze."""
+    _receptura()
+    _wyrob("f1", qty=3, kg=80)
+    _klient()
+    _wz(linie=[_linia("f1", 3)], buyer="POLAT", nip="SI12345678")
+
+    hdi = build_hdi_from_wz("w1")
+
+    assert hdi["items"][0]["name"] == "KEBAB UDO 100% 80KG"
+
+
+def test_odbiorca_domyslny_ma_rodzaj_z_receptura(db):
+    _receptura()
+    _wyrob("f1", qty=3, kg=80)
+    _klient(nazwa="TRUVA", tryb="type_recipe", nip="PL999")
+    _wz(linie=[_linia("f1", 3)], buyer="TRUVA", nip="PL999")
+
+    hdi = build_hdi_from_wz("w1")
+
+    assert hdi["items"][0]["name"] == "KEBAB UDO 100% WROCŁAW 80KG"
+
+
+def test_wlasna_nazwa_receptury_odbiorcy_schodzi_na_hdi(db):
+    """U POLATA receptura „WROCŁAW" ma schodzić jako „BEYAZ"."""
+    _receptura()
+    _wyrob("f1", qty=3, kg=80)
+    _klient(tryb="recipe", nazwy_receptur={"r1": "BEYAZ"})
+    _wz(linie=[_linia("f1", 3)], buyer="POLAT", nip="SI12345678")
+
+    hdi = build_hdi_from_wz("w1")
+
+    assert hdi["items"][0]["name"] == "BEYAZ 80KG"

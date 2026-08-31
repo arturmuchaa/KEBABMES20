@@ -467,7 +467,27 @@ _DDL: list[str] = [
     # Ptaszki per dokument: na których dokumentach stosować miejsce
     # przeznaczenia (np. ISSA: CMR → Farmex, HDI → adres odbiorcy).
     # Default true = dotychczasowe zachowanie (przeznaczenie wszędzie).
+    # Kod pocztowy odbiorcy OSOBNO od adresu (CMR pole 2). Na produkcji kolumna
+    # powstala recznie i nie bylo jej ani w init_db, ani tutaj — swieza baza
+    # (nowy klient, baza testowa CI) wywracala zakladanie kontrahenta na
+    # UndefinedColumn. Ujawnil to test kartoteki z 31.08.2026.
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS postal_code TEXT DEFAULT ''",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_for_hdi BOOLEAN NOT NULL DEFAULT true",
+    # Nazwa pozycji HDI per odbiorca (31.08.2026). POLAT chce na dokumencie sam
+    # rodzaj i kilogramy, TRUVA odwrotnie — rodzaj ORAZ recepture, zeby odroznic
+    # dwa wyroby z jednej receptury. Tryby: type_recipe (domyslny) | type | recipe.
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS hdi_name_mode TEXT NOT NULL DEFAULT 'type_recipe'",
+    # Wlasna nazwa receptury dla odbiorcy — u POLATA „BEYAZ AFIYET" ma schodzic
+    # na dokument jako samo „BEYAZ". Rodzaj zostaje wspolny, zmienia sie tylko
+    # to, co odbiorca widzi na papierze.
+    """
+    CREATE TABLE IF NOT EXISTS client_recipe_names (
+        client_id TEXT NOT NULL,
+        recipe_id TEXT NOT NULL,
+        name      TEXT NOT NULL,
+        PRIMARY KEY (client_id, recipe_id)
+    )
+    """,
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS dest_for_cmr BOOLEAN NOT NULL DEFAULT true",
 
     # ── HDI dokumenty ──

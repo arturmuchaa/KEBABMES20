@@ -24,7 +24,7 @@ def _product_label(product_type_name: str, weight_kg) -> str:
     return f"{(product_type_name or '').strip()} {int(round(float(weight_kg or 0)))}KG".strip()
 
 
-def hdi_product_base(type_label: str, recipe_name: str) -> str:
+def hdi_product_base(type_label: str, recipe_name: str, mode: str = "type_recipe") -> str:
     """Nazwa pozycji HDI bez wagi: RODZAJ + RECEPTURA.
 
     Do 29.08.2026 pozycja brała samą recepturę, więc rodzaje „KEBAB UDO 100%"
@@ -38,9 +38,24 @@ def hdi_product_base(type_label: str, recipe_name: str) -> str:
 
     Gdy jedna nazwa zawiera się w drugiej, zostaje ta dłuższa: rodzaj
     „KEBAB YAPRAK" z recepturą „YAPRAK" dałby inaczej „KEBAB YAPRAK YAPRAK".
+
+    `mode` z kartoteki odbiorcy (31.08.2026, HDI 20/08 dla POLATA): odbiorcy
+    różnią się tym, co chcą widzieć na papierze — POLAT sam rodzaj i wagę
+    („nazwa receptury to nasza kuchnia"), TRUVA odwrotnie: rodzaj ORAZ
+    recepturę, żeby odróżnić dwa wyroby zrobione z jednej receptury.
+
+    - `type_recipe` (domyślnie) — rodzaj + receptura,
+    - `type`        — sam rodzaj,
+    - `recipe`      — sama receptura.
+
+    Brakujący człon nie zostawia pozycji bez nazwy — wchodzi ten drugi.
     """
     t = (type_label or "").strip()
     r = (recipe_name or "").strip()
+    if mode == "type":
+        return t or r
+    if mode == "recipe":
+        return r or t
     if not t or not r:
         return t or r
     if r.upper() in t.upper():
@@ -84,7 +99,9 @@ def _pd_iso(val) -> str:
 
 
 def units_from_plan_lines(lines: List[Dict[str, Any]], shelf_by_recipe: Dict[str, int],
-                          doc_names: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+                          doc_names: Optional[Dict[str, str]] = None,
+                          mode: str = "type_recipe",
+                          recipe_names: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
     """Zsyntetyzuj sztuki HDI z linii planu produkcji.
 
     Źródłem prawdy o faktycznej produkcji jest ``production_plan_lines.qty_done``
@@ -104,7 +121,8 @@ def units_from_plan_lines(lines: List[Dict[str, Any]], shelf_by_recipe: Dict[str
         name = hdi_product_base(
             (doc_names or {}).get(line.get("product_type_id") or "")
             or line.get("product_type_name") or "",
-            line.get("recipe_name") or "")
+            (recipe_names or {}).get(line.get("recipe_id") or "")
+            or line.get("recipe_name") or "", mode)
         weight = line.get("kg_per_unit") or 0
         shelf = int(shelf_by_recipe.get(line.get("recipe_id"), 0) or 0)
         pd = _pd_iso(line.get("progress_updated_at"))
@@ -135,6 +153,8 @@ def units_from_plan_lines(lines: List[Dict[str, Any]], shelf_by_recipe: Dict[str
 def units_from_stock_portions(
     portions: List[Dict[str, Any]], shelf_by_recipe: Dict[str, int],
     doc_names: Optional[Dict[str, str]] = None,
+    mode: str = "type_recipe",
+    recipe_names: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
     """Zsyntetyzuj sztuki HDI z porcji magazynowych finished_goods (pokrycie
     zamówienia towarem zrobionym "na magazyn", bez linku w liniach planu).
@@ -151,7 +171,8 @@ def units_from_stock_portions(
         name = hdi_product_base(
             (doc_names or {}).get(fg.get("product_type_id") or "")
             or fg.get("product_type_name") or "",
-            fg.get("recipe_name") or "")
+            (recipe_names or {}).get(fg.get("recipe_id") or "")
+            or fg.get("recipe_name") or "", mode)
         pd = _pd_iso(fg.get("produced_date"))
         bno = kebab_batch_wsad(fg.get("batch_no") or "")
         shelf = int(shelf_by_recipe.get(fg.get("recipe_id"), 0) or 0)
@@ -199,8 +220,28 @@ def group_hdi_items(units: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-CLIENT_COLS = ("name, address, city, nip, language, dest_name, dest_address, "
-               "dest_city, dest_for_hdi")
+CLIENT_COLS = ("id, name, address, city, nip, language, dest_name, dest_address, "
+               "dest_city, dest_for_hdi, hdi_name_mode")
+
+
+def client_recipe_names(client_id: str) -> Dict[str, str]:
+    """Własne nazwy receptur odbiorcy: receptura → nazwa na JEGO dokumentach
+    („BEYAZ AFIYET" u POLATA schodzi jako samo „BEYAZ")."""
+    if not client_id:
+        return {}
+    return {
+        r["recipe_id"]: (r.get("name") or "").strip()
+        for r in query_all(
+            "SELECT recipe_id, name FROM client_recipe_names WHERE client_id=%s",
+            (client_id,))
+        if (r.get("name") or "").strip()
+    }
+
+
+def client_naming(client: Optional[Dict[str, Any]]) -> tuple:
+    """(tryb nazwy, mapa własnych nazw receptur) dla odbiorcy z kartoteki."""
+    c = client or {}
+    return (c.get("hdi_name_mode") or "type_recipe"), client_recipe_names(c.get("id") or "")
 
 
 def _hdi_header(client: Dict[str, Any], fallback_name: str) -> tuple:
@@ -273,18 +314,8 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
         for r in query_all(
             "SELECT id, shelf_life_days FROM recipes WHERE id = ANY(%s)", (recipe_ids,)):
             shelf_by_recipe[r["id"]] = int(r.get("shelf_life_days") or 0)
-    doc_names = document_type_names()
-    units = units_from_plan_lines(lines, shelf_by_recipe, doc_names)
-    units += units_from_stock_portions(portions, shelf_by_recipe, doc_names)
-    if not units:
-        raise HTTPException(400, "Brak wyprodukowanej produkcji dla tego zamówienia")
-    items = group_hdi_items(units)
-    total_qty = sum(i["qty"] for i in items)
-    total_kg = round(sum(i["kg"] for i in items), 3)
-
-    ordered_qty = sum(int(ln.get("qty") or 0) for ln in order_lines)
-    incomplete = ordered_qty > 0 and total_qty < ordered_qty
-
+    # Kartotekę odbiorcy czytamy PRZED pozycjami — ptaszek „Na HDI tylko
+    # rodzaj" (POLAT) decyduje o nazwie pozycji, nie tylko o nagłówku.
     # Klient: najpierw po client_id (pewny klucz obcy zamówienia), dopiero potem
     # po nazwie. Bez tego zamówienia, gdzie client_name jest wolnym tekstem
     # niepasującym do słownika, gubiły pełne dane odbiorcy (NIP, adres, język).
@@ -294,6 +325,20 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
     if not client:
         client = query_one(f"SELECT {CLIENT_COLS} FROM clients WHERE name=%s", (order.get("client_name"),))
     client = client or {}
+    mode, recipe_names = client_naming(client)
+
+    doc_names = document_type_names()
+    units = units_from_plan_lines(lines, shelf_by_recipe, doc_names, mode, recipe_names)
+    units += units_from_stock_portions(portions, shelf_by_recipe, doc_names, mode, recipe_names)
+    if not units:
+        raise HTTPException(400, "Brak wyprodukowanej produkcji dla tego zamówienia")
+    items = group_hdi_items(units)
+    total_qty = sum(i["qty"] for i in items)
+    total_kg = round(sum(i["kg"] for i in items), 3)
+
+    ordered_qty = sum(int(ln.get("qty") or 0) for ln in order_lines)
+    incomplete = ordered_qty > 0 and total_qty < ordered_qty
+
     header, lang = _hdi_header(client, order.get("client_name", ""))
     return {"order_id": order_id, "client_name": order.get("client_name", ""), "language": lang,
             "incomplete": incomplete, "header": header, "items": items,
@@ -347,11 +392,8 @@ def build_hdi_from_wz(wz_id: str) -> Dict[str, Any]:
                 "SELECT id, shelf_life_days FROM recipes WHERE id = ANY(%s)", (recipe_ids,)):
             shelf_by_recipe[r["id"]] = int(r.get("shelf_life_days") or 0)
 
-    items = group_hdi_items(
-        units_from_stock_portions(portions, shelf_by_recipe, document_type_names()))
-    total_qty = sum(i["qty"] for i in items)
-    total_kg = round(sum(i["kg"] for i in items), 3)
-
+    # Kartoteka PRZED pozycjami — ptaszek „Na HDI tylko rodzaj" (POLAT)
+    # decyduje o nazwie pozycji, nie tylko o nagłówku.
     nazwa = wz.get("buyer_name") or ""
     client = None
     if (wz.get("buyer_nip") or "").strip():
@@ -365,6 +407,12 @@ def build_hdi_from_wz(wz_id: str) -> Dict[str, Any]:
         # Nabywca spoza kartoteki (np. sprzedaż jednorazowa) — nagłówek z WZ.
         client = {"name": nazwa, "address": wz.get("buyer_address") or "",
                   "city": "", "nip": wz.get("buyer_nip") or ""}
+
+    mode, recipe_names = client_naming(client)
+    items = group_hdi_items(units_from_stock_portions(
+        portions, shelf_by_recipe, document_type_names(), mode, recipe_names))
+    total_qty = sum(i["qty"] for i in items)
+    total_kg = round(sum(i["kg"] for i in items), 3)
 
     header, lang = _hdi_header(client, nazwa)
     return {"wz_id": wz_id, "client_name": nazwa, "language": lang,

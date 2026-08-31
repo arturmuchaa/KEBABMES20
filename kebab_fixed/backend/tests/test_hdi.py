@@ -190,3 +190,63 @@ def test_bez_mapy_nazw_dokumentowych_idzie_nazwa_rodzaju():
     lines = [_line_pt("t-mix", "KEBAB MIX 95/5", "KIRMIZI", qty=1)]
     items = group_hdi_items(units_from_plan_lines(lines, {"r1": 365}))
     assert items[0]["name"] == "KEBAB MIX 95/5 KIRMIZI 25KG"
+
+
+# ─── Nazwa pozycji per odbiorca: rodzaj / receptura / obie ────────────
+#
+# POLAT (31.08.2026, HDI 20/08): „na HDI ustaw tylko rodzaj i kg", a nazwa
+# receptury „BEYAZ AFIYET" ma u niego schodzić jako samo „BEYAZ". TRUVA chce
+# odwrotnie — rodzaj ORAZ recepturę, żeby odróżnić dwa wyroby zrobione
+# z jednej receptury. Dlatego tryb stoi w kartotece odbiorcy.
+
+def test_product_base_tryb_sam_rodzaj():
+    assert hdi_product_base("KEBAB UDO", "BEYAZ AFIYET", "type") == "KEBAB UDO"
+    assert hdi_product_base("KEBAB YAPRAK", "SHAORMA TRUVA + AROMAT", "type") == "KEBAB YAPRAK"
+
+
+def test_product_base_tryb_sama_receptura():
+    assert hdi_product_base("KEBAB UDO", "BEYAZ AFIYET", "recipe") == "BEYAZ AFIYET"
+
+
+def test_product_base_brakujacy_czlon_nie_zostawia_pustej_nazwy():
+    """Stara linia planu bez rodzaju (albo wyrób bez receptury) nie może
+    zostawić pozycji bez nazwy."""
+    assert hdi_product_base("", "KIRMIZI", "type") == "KIRMIZI"
+    assert hdi_product_base("KEBAB MIX", "", "recipe") == "KEBAB MIX"
+
+
+def test_nieznany_tryb_zachowuje_sie_jak_domyslny():
+    assert hdi_product_base("KEBAB UDO", "KIRMIZI", "cokolwiek") == "KEBAB UDO KIRMIZI"
+
+
+def test_tryb_sam_rodzaj_scala_dwie_receptury_tego_samego_rodzaju():
+    """Skoro receptury nie ma w nazwie, dwie receptury jednego rodzaju i wagi
+    to dla odbiorcy JEDNA pozycja — partie zostają rozpisane pod nią."""
+    lines = [
+        _line_pt("t-udo", "KEBAB UDO 100%", "BEYAZ AFIYET", qty=2, kg=20),
+        _line_pt("t-udo", "KEBAB UDO 100%", "KIRMIZI", qty=3, kg=20),
+    ]
+    items = group_hdi_items(
+        units_from_plan_lines(lines, {"r1": 365}, {"t-udo": "KEBAB UDO"}, "type"))
+    assert {i["name"]: i["qty"] for i in items} == {"KEBAB UDO 20KG": 5}
+
+
+def test_wlasna_nazwa_receptury_odbiorcy_wchodzi_do_pozycji():
+    """U POLATA „BEYAZ AFIYET" ma schodzić jako samo „BEYAZ"."""
+    lines = [_line_pt("t-udo", "KEBAB UDO 100%", "BEYAZ AFIYET", qty=2, kg=20)]
+    items = group_hdi_items(units_from_plan_lines(
+        lines, {"r1": 365}, {"t-udo": "KEBAB UDO"}, "type_recipe", {"r1": "BEYAZ"}))
+    assert items[0]["name"] == "KEBAB UDO BEYAZ 20KG"
+
+
+def test_wlasna_nazwa_receptury_dziala_tez_w_trybie_samej_receptury():
+    lines = [_line_pt("t-udo", "KEBAB UDO 100%", "BEYAZ AFIYET", qty=2, kg=20)]
+    items = group_hdi_items(units_from_plan_lines(
+        lines, {"r1": 365}, {"t-udo": "KEBAB UDO"}, "recipe", {"r1": "BEYAZ"}))
+    assert items[0]["name"] == "BEYAZ 20KG"
+
+
+def test_bez_ustawien_odbiorcy_nazwa_jest_jak_dotad():
+    lines = [_line_pt("t-udo", "KEBAB UDO 100%", "BEYAZ AFIYET", qty=2, kg=20)]
+    items = group_hdi_items(units_from_plan_lines(lines, {"r1": 365}, {"t-udo": "KEBAB UDO"}))
+    assert items[0]["name"] == "KEBAB UDO BEYAZ AFIYET 20KG"

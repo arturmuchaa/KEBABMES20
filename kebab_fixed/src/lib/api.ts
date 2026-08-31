@@ -1055,6 +1055,14 @@ function mapClient(raw: any): Client {
     destForHdi:  !!(raw.dest_for_hdi ?? raw.destForHdi ?? true),
     destForCmr:  !!(raw.dest_for_cmr ?? raw.destForCmr ?? true),
     halalSupervision: !!(raw.halal_supervision ?? raw.halalSupervision ?? false),
+    // Nazwa pozycji HDI: co odbiorca chce widzieć na papierze (POLAT vs TRUVA).
+    hdiNameMode: (raw.hdi_name_mode ?? raw.hdiNameMode ?? 'type_recipe'),
+    hdiRecipeNames: (Array.isArray(raw.hdi_recipe_names ?? raw.hdiRecipeNames)
+      ? (raw.hdi_recipe_names ?? raw.hdiRecipeNames)
+      : []).map((n: any) => ({
+        recipeId: n.recipe_id ?? n.recipeId ?? '',
+        name:     n.name ?? '',
+      })),
     active:      raw.active ?? true,
     createdAt:   raw.created_at ?? raw.createdAt ?? '',
   }

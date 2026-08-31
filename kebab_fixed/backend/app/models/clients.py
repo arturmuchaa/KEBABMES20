@@ -1,4 +1,12 @@
+from typing import List
+
 from pydantic import BaseModel
+
+
+class ClientRecipeName(BaseModel):
+    """Własna nazwa receptury na dokumentach TEGO odbiorcy."""
+    recipe_id: str
+    name: str = ""
 
 
 class ClientCreate(BaseModel):
@@ -22,4 +30,9 @@ class ClientCreate(BaseModel):
     # Na których dokumentach stosować miejsce przeznaczenia (ptaszki w kartotece).
     dest_for_hdi: bool = True
     dest_for_cmr: bool = True
+    # Nazwa pozycji HDI: rodzaj + receptura (domyślnie), sam rodzaj albo
+    # sama receptura — życzenie odbiorcy (POLAT vs TRUVA).
+    hdi_name_mode: str = "type_recipe"
+    # Własne nazwy receptur dla tego odbiorcy (BEYAZ AFIYET → BEYAZ).
+    hdi_recipe_names: List[ClientRecipeName] = []
     halal_supervision: bool = False

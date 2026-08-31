@@ -2099,6 +2099,10 @@ export const machineLockApi = {
 // KONTRAHENCI (Clients) — zamówienia klientów
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/** Co pokazać w nazwie pozycji HDI — życzenie odbiorcy (POLAT vs TRUVA). */
+export type HdiNameMode = 'type_recipe' | 'type' | 'recipe'
+export interface ClientRecipeName { recipeId: string; name: string }
+
 export interface Client {
   id:           string
   code:         string       // KLI-001
@@ -2119,6 +2123,10 @@ export interface Client {
   destForHdi?:  boolean      // stosuj miejsce przeznaczenia na HDI (rozładunek)
   destForCmr?:  boolean      // stosuj miejsce przeznaczenia na CMR (pole 3)
   halalSupervision?: boolean  // klient pod nadzorem HALAL → etykieta z kodem nadzoru
+  /** Nazwa pozycji na HDI: rodzaj + receptura (domyślnie), sam rodzaj, sama receptura. */
+  hdiNameMode?: HdiNameMode
+  /** Własne nazwy receptur TEGO odbiorcy (BEYAZ AFIYET → BEYAZ). */
+  hdiRecipeNames?: ClientRecipeName[]
   active:       boolean
   createdAt:    string
 }
@@ -2129,6 +2137,8 @@ export interface CreateClientDto {
   language?: string; destName?: string; destAddress?: string; destCity?: string
   destForHdi?: boolean; destForCmr?: boolean
   halalSupervision?: boolean
+  hdiNameMode?: HdiNameMode
+  hdiRecipeNames?: ClientRecipeName[]
 }
 
 let clients    = load<Client>('kebab_mes_clients', [])

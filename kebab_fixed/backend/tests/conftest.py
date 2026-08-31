@@ -65,6 +65,10 @@ _TRUNCATE = [
     # key przy drugim teście w pliku, a stan z poprzedniego testu (kg_available)
     # fałszowałby asercje magazynowe.
     "packaging",
+    # `client_recipe_names` czyszczone RAZEM z klientami: własne nazwy receptur
+    # odbiorcy przeciekały między testami (klienci po stałym id), więc dokument
+    # kolejnego testu dostawał nazwę z poprzedniego.
+    "client_recipe_names",
     "product_types", "machine_locks", "sequences", "suppliers", "clients",
     # Grupy odbiorców — czyszczone RAZEM z klientami, inaczej `clients.group_id`
     # wskazywałby na grupę z poprzedniego przebiegu.
