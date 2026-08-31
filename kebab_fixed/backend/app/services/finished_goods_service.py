@@ -451,7 +451,14 @@ def _match_open_order(conn, dto: FinishedGoodCreate, qty: int) -> str:
                   AND fg.recipe_id = l.recipe_id
                   AND fg.kg_per_unit = l.kg_per_unit
               ), 0)
-        ORDER BY o.order_date, o.created_at, o.order_no
+        -- Pierwszeństwo ma zamówienie, które WYJEŻDŻA najwcześniej, a nie to
+        -- złożone najwcześniej. 31.08.2026 YALCIN złożył rano zamówienie na
+        -- wyjazd tego samego dnia, a świeże sztuki poszły na zamówienie
+        -- sprzed czterech dni jadące dopiero 3 września — auto stało puste
+        -- obok pełnej chłodni. Zamówienie bez daty dostawy idzie na koniec:
+        -- nie wiadomo, kiedy jedzie, więc nie może wyprzedzać tych, o których
+        -- wiadomo.
+        ORDER BY o.delivery_date ASC NULLS LAST, o.order_date, o.created_at, o.order_no
         LIMIT 1
         """,
         (dto.client_id or "", dto.client_name or "", dto.client_name or "",
@@ -460,6 +467,133 @@ def _match_open_order(conn, dto: FinishedGoodCreate, qty: int) -> str:
          dto.packaging_id or "", dto.packaging_id or ""),
     )
     return (wiersz or {}).get("order_no") or ""
+
+
+def przepnij_do_pilniejszego_cx(conn, order_id: str) -> int:
+    """Przepina nieruszone sztuki na zamówienie, które wyjeżdża WCZEŚNIEJ.
+
+    POWÓD (biuro, 31.08.2026): YALCIN złożył rano zamówienie na wyjazd tego
+    samego dnia. Sztuki wyprodukowane poprzedniego wieczoru były już
+    ostemplowane zamówieniem sprzed czterech dni, jadącym 3 września — auto
+    stało puste obok pełnej chłodni. Sam stempel nie jest faktem fizycznym,
+    tylko PRZYDZIAŁEM, więc wolno go zmienić, dopóki towar nie wyjechał.
+
+    Bierzemy WYŁĄCZNIE:
+      * sztuki tego samego klienta,
+      * ostemplowane zamówieniem OTWARTYM o PÓŹNIEJSZEJ dacie wyjazdu,
+      * nieruszone: nic z wiersza nie wyjechało (`qty_shipped = 0`
+        i `qty_available = qty`) — po wydaniu stempel stoi już na WZ i HDI
+        u odbiorcy i cicha zmiana rozjechałaby magazyn z dokumentami,
+      * tyle, ile pilniejsze zamówienie faktycznie POTRZEBUJE.
+
+    Kolejność FEFO: najstarsza produkcja idzie na najbliższy wyjazd.
+    Zwraca liczbę przepiętych sztuk.
+    """
+    zam = cx_query_one(
+        conn,
+        "SELECT id, order_no, client_id, client_name, delivery_date "
+        "FROM client_orders WHERE id=%s", (order_id,))
+    if not zam or not zam.get("delivery_date"):
+        # Bez daty wyjazdu nie wiadomo, czy to zamówienie jest pilniejsze.
+        return 0
+
+    przepiete = 0
+    for linia in cx_query_all(
+        conn,
+        "SELECT qty, kg_per_unit, recipe_id, product_type_id, packaging_id "
+        "FROM client_order_lines WHERE order_id=%s", (order_id,)
+    ):
+        potrzeba = int(linia.get("qty") or 0) - _juz_przypisane_cx(conn, zam["order_no"], linia)
+        if potrzeba <= 0:
+            continue
+
+        for wiersz in cx_query_all(
+            conn,
+            """
+            SELECT fg.id, fg.qty, fg.kg_per_unit, fg.client_order_no
+            FROM finished_goods fg
+            JOIN client_orders o ON o.order_no = fg.client_order_no
+            WHERE o.status NOT IN ('done','cancelled')
+              AND o.id <> %s
+              AND o.delivery_date IS NOT NULL
+              AND o.delivery_date > %s
+              AND COALESCE(o.client_id,'') = COALESCE(%s,'')
+              AND fg.recipe_id = %s
+              AND fg.kg_per_unit = %s
+              AND (%s = '' OR COALESCE(fg.product_type_id,'') = '' OR fg.product_type_id = %s)
+              AND (%s = '' OR COALESCE(fg.packaging_id,'') = ''   OR fg.packaging_id   = %s)
+              AND COALESCE(fg.qty_shipped,0) = 0
+              AND fg.qty_available = fg.qty
+              AND fg.qty > 0
+            ORDER BY fg.produced_date ASC NULLS LAST, fg.created_at ASC
+            FOR UPDATE OF fg
+            """,
+            (order_id, zam["delivery_date"], zam.get("client_id") or "",
+             linia["recipe_id"], float(linia["kg_per_unit"]),
+             linia.get("product_type_id") or "", linia.get("product_type_id") or "",
+             linia.get("packaging_id") or "", linia.get("packaging_id") or ""),
+        ):
+            if potrzeba <= 0:
+                break
+            ile = int(wiersz["qty"])
+            bierzemy = min(potrzeba, ile)
+            if bierzemy == ile:
+                cx_execute(
+                    conn,
+                    "UPDATE finished_goods SET client_order_no=%s WHERE id=%s",
+                    (zam["order_no"], wiersz["id"]))
+            else:
+                _odetnij_czesc_wiersza_cx(conn, wiersz, bierzemy, zam["order_no"])
+            potrzeba -= bierzemy
+            przepiete += bierzemy
+
+    if przepiete:
+        logger.info("finished_goods.reallocated", extra={
+            "order_no": zam["order_no"], "qty": przepiete})
+    return przepiete
+
+
+def _juz_przypisane_cx(conn, order_no: str, linia) -> int:
+    row = cx_query_one(
+        conn,
+        "SELECT COALESCE(SUM(qty),0) AS q FROM finished_goods "
+        "WHERE client_order_no=%s AND recipe_id=%s AND kg_per_unit=%s",
+        (order_no, linia["recipe_id"], float(linia["kg_per_unit"])))
+    return int(float((row or {}).get("q") or 0))
+
+
+def _odetnij_czesc_wiersza_cx(conn, wiersz, ile: int, order_no: str) -> None:
+    """Dzieli wiersz magazynu: część idzie na pilniejsze zamówienie.
+
+    Ten sam zabieg co przy wydaniu części partii na WZ — źródło maleje,
+    a odcięta część powstaje jako nowy wiersz z tą samą partią i produkcją,
+    więc identyfikowalność zostaje nietknięta.
+    """
+    kgpu = float(wiersz["kg_per_unit"] or 0)
+    cx_execute(
+        conn,
+        """UPDATE finished_goods
+           SET qty=qty-%s, qty_available=qty_available-%s,
+               total_kg=GREATEST(0, total_kg-%s)
+           WHERE id=%s""",
+        (ile, ile, round(ile * kgpu, 3), wiersz["id"]))
+    cx_execute(
+        conn,
+        """INSERT INTO finished_goods
+             (id, batch_no, plan_no, product_type_id, product_type_name,
+              recipe_id, recipe_name, packaging_id, packaging_name,
+              client_name, client_id, client_order_no, qty, kg_per_unit, total_kg,
+              qty_available, qty_shipped, produced_date, produced_by,
+              seasoned_batch_nos, source_production_id, source_mixing_ids,
+              source_seasoned_ids, source_deboning_ids, created_at)
+           SELECT %s, batch_no, plan_no, product_type_id, product_type_name,
+                  recipe_id, recipe_name, packaging_id, packaging_name,
+                  client_name, client_id, %s, %s, kg_per_unit,
+                  %s, %s, 0, produced_date, produced_by,
+                  seasoned_batch_nos, source_production_id, source_mixing_ids,
+                  source_seasoned_ids, source_deboning_ids, now()
+           FROM finished_goods WHERE id=%s""",
+        (cuid(), order_no, ile, round(ile * kgpu, 3), ile, wiersz["id"]))
 
 
 def _create_finished_good(conn, dto: FinishedGoodCreate) -> Dict:

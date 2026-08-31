@@ -14,6 +14,7 @@ from app.db import (
 )
 from app.logging_config import get_logger
 from app.models.orders import ClientOrderCreate, OrderLineCreate
+from app.services.finished_goods_service import przepnij_do_pilniejszego_cx
 from app.utils.ids import cuid, now_iso, slugify_for_number
 from app.utils.product_key import Klucz, kandydaci, klucz_wyrobu
 from datetime import datetime
@@ -625,13 +626,35 @@ def create_order(dto: ClientOrderCreate) -> Dict:
                 ),
             )
 
+        # Sztuki nieruszone, ostemplowane zamówieniem tego klienta jadącym
+        # PÓŹNIEJ, przechodzą na to zamówienie — jeśli wyjeżdża wcześniej.
+        # Stempel to przydział, nie fakt fizyczny (patrz
+        # `przepnij_do_pilniejszego_cx`).
+        przepiete = przepnij_do_pilniejszego_cx(conn, order["id"])
+
         order["lines"] = cx_query_all(
             conn,
             "SELECT * FROM client_order_lines WHERE order_id = %s",
             (order["id"],),
         )
-    logger.info("order.created", extra={"order_id": order["id"]})
+    logger.info("order.created",
+                extra={"order_id": order["id"], "reallocated": przepiete})
     return order
+
+
+def przepnij_sztuki(order_id: str) -> Dict[str, Any]:
+    """Ręczne uruchomienie przepięcia dla istniejącego zamówienia.
+
+    Przy zakładaniu zamówienia dzieje się to samo. Ta droga jest dla zamówień
+    ZAŁOŻONYCH WCZEŚNIEJ oraz dla sytuacji, gdy data wyjazdu zmieniła się już
+    po założeniu — wtedy pierwszeństwo się przestawia, a nikt nie zakłada
+    zamówienia od nowa.
+    """
+    with transaction() as conn:
+        przepiete = przepnij_do_pilniejszego_cx(conn, order_id)
+    logger.info("order.reallocated_manually",
+                extra={"order_id": order_id, "qty": przepiete})
+    return {"orderId": order_id, "przepiete": przepiete}
 
 
 def update_order_status(order_id: str, status: str) -> Dict:

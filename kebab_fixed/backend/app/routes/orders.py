@@ -95,6 +95,12 @@ def reset_pallet(order_id: str, pallet_no: int):
     return pallets_service.reset_pallet(order_id, pallet_no)
 
 
+@router.post("/{order_id}/przepnij-sztuki")
+def przepnij_sztuki(order_id: str):
+    """Przepnij nieruszone sztuki z zamówień jadących PÓŹNIEJ na to zamówienie."""
+    return svc.przepnij_sztuki(order_id)
+
+
 @router.get("/{order_id}/stock-carton-suggestions")
 def stock_carton_suggestions(order_id: str):
     """Pasujące kartony magazynowe do tego zamówienia (klient+receptura+rodzaj+tuleja+waga)."""
