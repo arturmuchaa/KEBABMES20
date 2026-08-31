@@ -109,6 +109,28 @@ def byproducts_correct_weighing(body: dict, request: Request):
     )
 
 
+@router.post("/api/deboning/byproducts/weighings/move")
+def byproducts_move_weighing(body: dict, request: Request):
+    """Przenieś jedno ważenie ubocznych (jedną paletę) na INNĄ partię.
+
+    Istnieje, bo przy równoległych partiach paleta zważona po ostatnim wpisie
+    ląduje na partii kończonej, choć materiał jest już z następnej (31.08.2026:
+    490,5 kg grzbietów o 12:37 pod 519 zamiast pod 520) — a biuro prostowało
+    to dotąd wyłącznie SQL-em na produkcji.
+
+    MUSI stać przed „/{raw_batch_id}/…", inaczej „weighings" wpadnie
+    w parametr ścieżki.
+    """
+    return byproducts_svc.move_weighing(
+        str(body.get("rawBatchId") or ""),
+        str(body.get("kind") or ""),
+        str(body.get("weighedAt") or ""),
+        str(body.get("targetRawBatchId") or ""),
+        reason=str(body.get("reason") or ""),
+        subject=_subject_of(request),
+    )
+
+
 @router.post("/api/deboning/byproducts/{raw_batch_id}/close")
 def byproducts_close(raw_batch_id: str, body: dict = None):
     """Zamknij ważenie ubocznych — kafel znika z HMI, kilogramy zostają.

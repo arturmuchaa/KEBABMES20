@@ -9,10 +9,16 @@ import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-li
  * (15:10 i 15:11), ta sama tara i ta sama liczba pojemników. Nie było jak tego
  * zdjąć: ważenia ubocznych to palety w JSON-ie, a jedyną drogą był SQL.
  */
-const { correctWeighing, byprodWeighings } = vi.hoisted(() => ({
+const { correctWeighing, moveWeighing, byprodWeighings } = vi.hoisted(() => ({
   correctWeighing: vi.fn(async (_dto: any) => ({})),
+  moveWeighing:    vi.fn(async (_dto: any) => ({})),
   byprodWeighings: vi.fn(),
 }))
+
+const PARTIE = [
+  { id: 'rb-503', internalBatchNo: '503', supplierDisplayName: 'KOKO', kgAvailable: 0 },
+  { id: 'rb-504', internalBatchNo: '504', supplierDisplayName: 'KOKO', kgAvailable: 1200 },
+]
 
 const WAZENIA = [
   { id: 'b503:backs:1', kind: 'backs', rawBatchId: 'rb-503', rawBatchNo: '503',
@@ -25,9 +31,11 @@ const WAZENIA = [
 
 vi.mock('@/lib/apiClient', () => ({
   deboningApi:   { weighings: async () => ({ data: [] }) },
+  rawBatchesApi: { all: async () => ({ data: PARTIE }) },
   byproductsApi: {
     weighings: async (...a: any[]) => { byprodWeighings(...a); return { data: WAZENIA } },
     correctWeighing,
+    moveWeighing,
   },
 }))
 
@@ -99,5 +107,75 @@ describe('dziennik ważeń — korekta ubocznych', () => {
   it('zakładka Mięso nie dostaje przycisków korekty ubocznych', async () => {
     render(<DeboningWeighingsLog from="2026-08-24" to="2026-08-24" defaultOpen />)
     await waitFor(() => expect(screen.queryAllByTestId('wazenie-popraw')).toHaveLength(0))
+  })
+})
+
+/**
+ * Przeniesienie ważenia na inną partię — TAM, GDZIE edycja kg.
+ *
+ * 31.08.2026: paleta grzbietów zważona o 12:37 (490,5 kg) poszła pod partię
+ * 519, choć materiał był już z 520 (dwie partie szły równolegle). Biuro
+ * prostowało takie pomyłki SQL-em na produkcji.
+ */
+describe('dziennik ważeń — przeniesienie palety na inną partię', () => {
+  const otworzKorekte = async (godzina: string) => {
+    await otworzGrzbiety()
+    await waitFor(() => screen.getAllByTestId('wazenie-popraw'))
+    fireEvent.click(within(wiersz(godzina)).getByTestId('wazenie-popraw'))
+  }
+
+  it('lista partii nie zawiera partii, w której paleta już jest', async () => {
+    await otworzKorekte('15:11')
+    const wybor = await screen.findByTestId('wazenie-partia') as HTMLSelectElement
+    const wartosci = Array.from(wybor.options).map(o => o.value)
+    expect(wartosci).toContain('rb-504')
+    expect(wartosci).not.toContain('rb-503')
+  })
+
+  it('bez wybranej partii przenieść się nie da', async () => {
+    await otworzKorekte('15:11')
+    await screen.findByTestId('wazenie-partia')
+    fireEvent.change(screen.getByPlaceholderText(/dubel/), { target: { value: 'zla partia' } })
+    expect((screen.getByTestId('wazenie-przenies') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('bez powodu przenieść się nie da', async () => {
+    await otworzKorekte('15:11')
+    fireEvent.change(await screen.findByTestId('wazenie-partia'), { target: { value: 'rb-504' } })
+    expect((screen.getByTestId('wazenie-przenies') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('przeniesienie wskazuje paletę czasem ważenia i partię docelową', async () => {
+    await otworzKorekte('15:11')
+    fireEvent.change(await screen.findByTestId('wazenie-partia'), { target: { value: 'rb-504' } })
+    fireEvent.change(screen.getByPlaceholderText(/dubel/), { target: { value: 'material z 504' } })
+    fireEvent.click(screen.getByTestId('wazenie-przenies'))
+
+    await waitFor(() => expect(moveWeighing).toHaveBeenCalled())
+    expect(moveWeighing.mock.calls[0][0]).toEqual({
+      rawBatchId: 'rb-503', kind: 'backs',
+      weighedAt: '2026-08-24T13:11:23+00:00',
+      targetRawBatchId: 'rb-504', reason: 'material z 504',
+    })
+    expect(correctWeighing).not.toHaveBeenCalled()
+  })
+
+  it('po przeniesieniu dziennik przeładowuje się sam', async () => {
+    await otworzKorekte('15:11')
+    fireEvent.change(await screen.findByTestId('wazenie-partia'), { target: { value: 'rb-504' } })
+    fireEvent.change(screen.getByPlaceholderText(/dubel/), { target: { value: 'zla partia' } })
+    byprodWeighings.mockClear()
+    fireEvent.click(screen.getByTestId('wazenie-przenies'))
+    await waitFor(() => expect(byprodWeighings).toHaveBeenCalled())
+  })
+
+  it('zapis wagi nadal nie przenosi partii', async () => {
+    await otworzKorekte('15:10')
+    fireEvent.change(await screen.findByTestId('wazenie-partia'), { target: { value: 'rb-504' } })
+    fireEvent.change(screen.getByPlaceholderText(/dubel/), { target: { value: 'zla tara' } })
+    fireEvent.click(screen.getByTestId('wazenie-zapisz'))
+
+    await waitFor(() => expect(correctWeighing).toHaveBeenCalled())
+    expect(moveWeighing).not.toHaveBeenCalled()
   })
 })

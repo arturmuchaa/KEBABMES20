@@ -883,6 +883,14 @@ export const byproductsApi = {
     netKg?: number; grossKg?: number; containers?: number
   }) => post<any>('/deboning/byproducts/weighings/correct', dto),
 
+  /** Przenieś ważenie (całą paletę) na INNĄ partię — przy równoległych
+   *  partiach paleta zważona po ostatnim wpisie ląduje na partii kończonej,
+   *  choć materiał jest już z następnej. Godzina ważenia zostaje. */
+  moveWeighing: (dto: {
+    rawBatchId: string; kind: 'backs' | 'bones'; weighedAt: string
+    targetRawBatchId: string; reason: string
+  }) => post<any>('/deboning/byproducts/weighings/move', dto),
+
   weighings: (from: string, to: string) =>
     get<{ data: ByproductWeighing[] }>(`/deboning/byproducts/weighings?date_from=${from}&date_to=${to}`),
   get: (batchId: string) => get<BatchByproducts>(`/deboning/byproducts/${batchId}`),

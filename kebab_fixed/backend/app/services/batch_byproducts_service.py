@@ -646,6 +646,24 @@ def _drop_moved_pallets(conn, raw_batch_id: str, raw_batch_no: str, kind: str,
                     total if keep else None, keep, quarter, reopen=False)
 
 
+def _find_pallet(pallets: List[Dict[str, Any]], weighed_at: str) -> Optional[int]:
+    """Pozycja palety o danym czasie ważenia — TOŻSAMOŚĆ palety przy korekcie.
+
+    Numer porządkowy się nie nadaje: po każdym usunięciu indeksy się przesuwają,
+    więc dwie korekty pod rząd trafiałyby w niewłaściwe wiersze. Najpierw
+    porównujemy dokładny napis (frontend odsyła to, co dostał), potem chwile —
+    zapisy z różnych wersji mają różną precyzję.
+    """
+    szukany = _parse_stamp(weighed_at)
+    for i, p in enumerate(pallets):
+        stamp = (p or {}).get("weighedAt")
+        if stamp == weighed_at:
+            return i
+        if szukany is not None and _parse_stamp(stamp) == szukany:
+            return i
+    return None
+
+
 def correct_weighing(
     raw_batch_id: str, kind: str, weighed_at: str, *,
     delete: bool = False,
@@ -685,19 +703,7 @@ def correct_weighing(
         raise HTTPException(404, "Partia nie ma rekordu ubocznych")
 
     palety = list(rec.get("backsPallets" if kind == "backs" else "bonesPallets") or [])
-    szukany = _parse_stamp(weighed_at)
-
-    idx = None
-    for i, p in enumerate(palety):
-        stamp = (p or {}).get("weighedAt")
-        # Najpierw dokładny napis (frontend odsyła to, co dostał), potem
-        # porównanie chwil — zapisy z różnych wersji mają różną precyzję.
-        if stamp == weighed_at:
-            idx = i
-            break
-        if szukany is not None and _parse_stamp(stamp) == szukany:
-            idx = i
-            break
+    idx = _find_pallet(palety, weighed_at)
     if idx is None:
         raise HTTPException(404, "Nie ma ważenia o tym czasie w tej frakcji")
 
@@ -739,6 +745,149 @@ def correct_weighing(
         "batch": raw_batch_id, "frakcja": kind, "by": subject,
     })
     return out
+
+
+def _pallets_kg(pallets: List[Dict[str, Any]]) -> float:
+    return round(sum(float((p or {}).get("net") or 0) for p in pallets), 3)
+
+
+def move_weighing(
+    raw_batch_id: str, kind: str, weighed_at: str, target_raw_batch_id: str, *,
+    reason: str = "", subject: str = "",
+) -> Dict[str, Any]:
+    """Przenieś jedną zważoną paletę ubocznych na INNĄ partię surowca.
+
+    POWÓD ISTNIENIA: gdy dwie partie idą równolegle, paleta zważona po
+    ostatnim wpisie partii kończonej ląduje na niej, choć materiał jest już
+    z następnej (31.08.2026: 490,5 kg grzbietów o 12:37 pod partią 519 —
+    bilans 122% ćwiartki, a 520 miała zero grzbietów). Sygnatura jest zawsze
+    ta sama: partie liczone RAZEM bilansują się dobrze, osobno jedna jest
+    ponad normą, druga poniżej. To nie ubytek ani błąd wagi, tylko złe
+    przypisanie — i do dziś prostował je wyłącznie SQL na produkcji.
+
+    Paleta przenosi się w CAŁOŚCI i ze swoim `weighedAt`: należy do dnia
+    SWOJEGO ważenia, więc dziennik, pasek HMI i raport HACCP dalej liczą ją
+    w tym samym dniu, tylko pod inną partią.
+
+    Obie frakcje zapisuje `_write_fraction` w JEDNEJ transakcji — ta sama
+    funkcja, której używa hala (loty ABP, żywy licznik pojemników, procenty).
+    Osobny zapis rozjechałby się z nią przy pierwszej zmianie, a dwie osobne
+    transakcje mogłyby zgubić paletę między zdjęciem a dołożeniem.
+    """
+    if kind not in ("backs", "bones"):
+        raise HTTPException(400, "kind musi być 'backs' albo 'bones'")
+    powod = (reason or "").strip()
+    if not powod:
+        raise HTTPException(400, "Podaj powód korekty — bez niego nie wiadomo, co się stało")
+    cel = (target_raw_batch_id or "").strip()
+    if not cel:
+        raise HTTPException(400, "Wskaż partię docelową")
+    if cel == raw_batch_id:
+        raise HTTPException(400, "Paleta już jest w tej partii")
+    if not get(raw_batch_id):
+        raise HTTPException(404, "Partia nie ma rekordu ubocznych")
+    if not query_one("SELECT id FROM raw_batches WHERE id=%s", (cel,)):
+        raise HTTPException(404, "Partia docelowa nie istnieje")
+    # Partia docelowa może jeszcze nie mieć rekordu ubocznych (waży się
+    # w trakcie rozbioru) — ensure_record NIE oznacza jej jako zakończonej.
+    ensure_record(cel)
+
+    with transaction() as conn:
+        # Blokada w stałej kolejności — dwie korekty naraz nie zakleszczą się.
+        for bid in sorted([raw_batch_id, cel]):
+            cx_query_one(
+                conn,
+                "SELECT raw_batch_id FROM batch_byproducts WHERE raw_batch_id=%s FOR UPDATE",
+                (bid,),
+            )
+        zrodlo = cx_query_one(
+            conn,
+            f"SELECT raw_batch_no, quarter_kg, {kind}_kg AS kg, {kind}_pallets AS pallets "
+            "FROM batch_byproducts WHERE raw_batch_id=%s",
+            (raw_batch_id,),
+        )
+        docelowa = cx_query_one(
+            conn,
+            f"SELECT raw_batch_no, quarter_kg, {kind}_pallets AS pallets "
+            "FROM batch_byproducts WHERE raw_batch_id=%s",
+            (cel,),
+        )
+        if not zrodlo or not docelowa:
+            raise HTTPException(404, "Partia nie ma rekordu ubocznych")
+
+        palety = list(zrodlo.get("pallets") or [])
+        idx = _find_pallet(palety, weighed_at)
+        if idx is None:
+            raise HTTPException(404, "Nie ma ważenia o tym czasie w tej frakcji")
+        paleta = dict(palety[idx])
+        przed_kg = zrodlo.get("kg")
+
+        zostaje = [p for i, p in enumerate(palety) if i != idx]
+        zrodlo_kg = _pallets_kg(zostaje) if zostaje else None
+
+        # Ile z tej frakcji JUŻ WYJECHAŁO (WZ/utylizacja) — loty są żywym
+        # stanem. Jeżeli po przeniesieniu na źródle zostałoby mniej kg, niż
+        # już wydano, magazyn dostałby FANTOMOWE kilogramy (klasa incydentu
+        # 411). Dokument poprawia się wtedy PRZED przeniesieniem.
+        live = cx_query_one(
+            conn,
+            "SELECT COALESCE(SUM(kg),0) AS kg FROM byproduct_lots "
+            "WHERE raw_batch_id=%s AND kind=%s AND deboning_entry_id IS NULL",
+            (raw_batch_id, kind),
+        ) or {}
+        wydane = round(max(0.0, float(przed_kg or 0) - float(live.get("kg") or 0)), 3)
+        if wydane > (zrodlo_kg or 0.0) + 0.001:
+            raise HTTPException(
+                400,
+                f"Z tej frakcji partii {zrodlo['raw_batch_no']} wyjechało już "
+                f"{wydane:.1f} kg (WZ/utylizacja) — po przeniesieniu zostałoby mniej, "
+                "niż wydano. Najpierw popraw dokument WZ.",
+            )
+
+        cel_palety = sorted(
+            list(docelowa.get("pallets") or []) + [paleta],
+            key=lambda p: str((p or {}).get("weighedAt") or ""),
+        )
+        cel_kg = _pallets_kg(cel_palety)
+
+        # Źródło: reopen=False — zdjęcie palety to nie nowe ważenie, więc
+        # ręcznie zamkniętego kafla nie otwieramy. Cel: reopen=True, bo dla
+        # tej partii paleta JEST nowym ważeniem.
+        _write_fraction(conn, raw_batch_id, zrodlo["raw_batch_no"], kind, zrodlo_kg,
+                        zostaje, float(zrodlo.get("quarter_kg") or 0), reopen=False)
+        _write_fraction(conn, cel, docelowa["raw_batch_no"], kind, cel_kg,
+                        cel_palety, float(docelowa.get("quarter_kg") or 0), reopen=True)
+        _rescale_other_lots(conn, raw_batch_id)
+        _rescale_other_lots(conn, cel)
+
+    # Ślad po OBU stronach — dokument identyfikowalności każdej partii ma
+    # tłumaczyć, skąd paleta zniknęła i skąd się wzięła.
+    for batch_id, zmiana in (
+        (raw_batch_id, {
+            "action": "move_out", "kind": kind, "weighedAt": weighed_at,
+            "before": paleta, "after": None,
+            "beforeFractionKg": None if przed_kg is None else float(przed_kg),
+            "afterFractionKg": zrodlo_kg,
+            "targetRawBatchId": cel, "targetRawBatchNo": docelowa["raw_batch_no"],
+        }),
+        (cel, {
+            "action": "move_in", "kind": kind, "weighedAt": weighed_at,
+            "before": None, "after": paleta,
+            "afterFractionKg": cel_kg,
+            "sourceRawBatchId": raw_batch_id, "sourceRawBatchNo": zrodlo["raw_batch_no"],
+        }),
+    ):
+        execute(
+            "INSERT INTO byproduct_weighing_corrections "
+            "(id, raw_batch_id, by_subject, reason, changes) VALUES (%s,%s,%s,%s,%s::jsonb)",
+            (cuid(), batch_id, subject, powod, json.dumps(zmiana)),
+        )
+    logger.warning("byproduct_weighing_moved", extra={
+        "frakcja": kind, "z_partii": zrodlo["raw_batch_no"],
+        "na_partie": docelowa["raw_batch_no"], "kg": float(paleta.get("net") or 0),
+        "by": subject,
+    })
+    return get(cel)
 
 
 def record(raw_batch_id: str, kind: str, kg: Optional[float],

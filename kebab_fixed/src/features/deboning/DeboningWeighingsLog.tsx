@@ -14,11 +14,11 @@
  * się w dzienniku dzień po dniu — tak samo jak statystyki i pasek HMI.
  */
 import { useEffect, useState } from 'react'
-import { deboningApi, byproductsApi, type ByproductWeighing } from '@/lib/apiClient'
+import { deboningApi, byproductsApi, rawBatchesApi, type ByproductWeighing } from '@/lib/apiClient'
 import { DataTable } from '@/components/DataTable'
 import { E2_TARE_KG } from '@/features/deboning/utils/weighing'
 import { cn } from '@/lib/utils'
-import { ListChecks, ChevronUp, ChevronDown, Pencil, Trash2 } from 'lucide-react'
+import { ListChecks, ChevronUp, ChevronDown, Pencil, Trash2, ArrowLeftRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -68,6 +68,9 @@ export function DeboningWeighingsLog({
   const [korekta, setKorekta] = useState<ByproductWeighing | null>(null)
   const [powod, setPowod] = useState('')
   const [netto, setNetto] = useState('')
+  // Przeniesienie palety na inną partię — patrz komentarz przy polu wyboru.
+  const [partie, setPartie] = useState<{ id: string; internalBatchNo: string; supplierDisplayName?: string; supplierName?: string }[]>([])
+  const [celPartia, setCelPartia] = useState('')
   const [zapis, setZapis] = useState(false)
   const [blad, setBlad] = useState('')
   const [show, setShow] = useState(defaultOpen)
@@ -97,6 +100,17 @@ export function DeboningWeighingsLog({
     return () => clearInterval(id)
   }, [from, to])
 
+  // Partie do przeniesienia dociągamy dopiero przy otwarciu dialogu — lista
+  // jest długa, a dziennik otwiera się na każdym wejściu w Panel rozbioru.
+  useEffect(() => {
+    if (korekta === null || partie.length > 0) return
+    let alive = true
+    rawBatchesApi.all()
+      .then(r => { if (alive) setPartie((r.data ?? []) as any) })
+      .catch(() => { if (alive) setPartie([]) })
+    return () => { alive = false }
+  }, [korekta, partie.length])
+
   const backs = byprod?.filter(w => w.kind === 'backs') ?? null
   const bones = byprod?.filter(w => w.kind === 'bones') ?? null
   const tabs: { key: Tab; label: string; count: number | null }[] = [
@@ -104,27 +118,45 @@ export function DeboningWeighingsLog({
     { key: 'backs', label: 'Grzbiety', count: backs?.length ?? null },
     { key: 'bones', label: 'Kości',    count: bones?.length ?? null },
   ]
-  async function zapiszKorekte(usun: boolean) {
-    if (!korekta || !powod.trim()) return
+  async function wykonaj(akcja: () => Promise<unknown>, komunikat: string) {
     setZapis(true)
     setBlad('')
     try {
-      await byproductsApi.correctWeighing({
-        rawBatchId: korekta.rawBatchId,
-        kind:       korekta.kind,
-        weighedAt:  korekta.weighedAt,
-        reason:     powod.trim(),
-        ...(usun ? { delete: true } : { netKg: parseFloat(netto.replace(',', '.')) }),
-      })
+      await akcja()
       setKorekta(null)
       // Przeładuj dziennik — suma frakcji też się zmieniła.
       const r = await byproductsApi.weighings(from, to)
       setByprod(r.data ?? [])
     } catch (e) {
-      setBlad(e instanceof Error ? e.message : 'Nie udało się poprawić ważenia')
+      setBlad(e instanceof Error ? e.message : komunikat)
     } finally {
       setZapis(false)
     }
+  }
+
+  async function zapiszKorekte(usun: boolean) {
+    if (!korekta || !powod.trim()) return
+    await wykonaj(() => byproductsApi.correctWeighing({
+      rawBatchId: korekta.rawBatchId,
+      kind:       korekta.kind,
+      weighedAt:  korekta.weighedAt,
+      reason:     powod.trim(),
+      ...(usun ? { delete: true } : { netKg: parseFloat(netto.replace(',', '.')) }),
+    }), 'Nie udało się poprawić ważenia')
+  }
+
+  // Przeniesienie CAŁEJ palety na inną partię. Powód, jak przy korekcie wagi,
+  // obowiązkowy: paleta znika z dokumentu identyfikowalności jednej partii
+  // i pojawia się w drugiej.
+  async function przeniesWazenie() {
+    if (!korekta || !powod.trim() || !celPartia) return
+    await wykonaj(() => byproductsApi.moveWeighing({
+      rawBatchId:       korekta.rawBatchId,
+      kind:             korekta.kind,
+      weighedAt:        korekta.weighedAt,
+      targetRawBatchId: celPartia,
+      reason:           powod.trim(),
+    }), 'Nie udało się przenieść ważenia')
   }
 
   const hint = tab === 'meat'
@@ -163,7 +195,7 @@ export function DeboningWeighingsLog({
         tab === 'meat'
           ? <MeatTable rows={meat} sameDay={sameDay} />
           : <ByproductTable rows={tab === 'backs' ? backs : bones} sameDay={sameDay} kind={tab}
-              onCorrect={w => { setKorekta(w); setPowod(''); setNetto(String(w.netKg)); setBlad('') }} />
+              onCorrect={w => { setKorekta(w); setPowod(''); setNetto(String(w.netKg)); setCelPartia(''); setBlad('') }} />
       )}
 
       {/* Korekta ważenia ubocznych. Powód OBOWIĄZKOWY — bez niego zniknięcie
@@ -184,6 +216,41 @@ export function DeboningWeighingsLog({
             <div>
               <label className="mb-1 block text-[10px] font-bold uppercase text-ink-4">Netto [kg]</label>
               <Input value={netto} inputMode="decimal" onChange={e => setNetto(e.target.value)} />
+            </div>
+            {/* Przeniesienie na inną partię. Przy równoległych partiach paleta
+                zważona po ostatnim wpisie ląduje na partii kończonej, choć
+                materiał jest już z następnej (31.08.2026: 490,5 kg grzbietów
+                o 12:37 pod 519 zamiast pod 520) — do tej pory prostował to
+                wyłącznie SQL na produkcji. */}
+            <div>
+              <label className="mb-1 block text-[10px] font-bold uppercase text-ink-4">
+                Przenieś na inną partię
+              </label>
+              <div className="flex gap-2">
+                <select value={celPartia} onChange={e => setCelPartia(e.target.value)}
+                  data-testid="wazenie-partia"
+                  className="h-9 min-w-0 flex-1 rounded border border-surface-4 bg-white px-2 text-[13px]">
+                  <option value="">— zostaw w partii {korekta?.rawBatchNo} —</option>
+                  {partie
+                    .filter(b => b.id !== korekta?.rawBatchId)
+                    .map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.internalBatchNo}
+                        {(b.supplierDisplayName || b.supplierName) ? ` — ${b.supplierDisplayName || b.supplierName}` : ''}
+                      </option>
+                    ))}
+                </select>
+                <Button variant="outline" className="gap-1.5 shrink-0"
+                  data-testid="wazenie-przenies"
+                  disabled={zapis || !powod.trim() || !celPartia}
+                  onClick={przeniesWazenie}>
+                  <ArrowLeftRight size={14} /> Przenieś
+                </Button>
+              </div>
+              <p className="mt-1 text-[11px] text-ink-4">
+                Paleta przejdzie w całości, ze swoją godziną ważenia — kilogramy
+                i pojemniki zejdą z partii {korekta?.rawBatchNo} i wejdą na wybraną.
+              </p>
             </div>
             <div>
               <label className="mb-1 block text-[10px] font-bold uppercase text-ink-4">Powód korekty</label>
