@@ -99,3 +99,51 @@ describe('Przyjęcie mięsa czerwonego', () => {
     expect(screen.queryByText('Stan')).toBeNull()
   })
 })
+
+/**
+ * Wejście BEZ zakładki — „Nowe przyjęcie" z zakładki „Wszystko".
+ *
+ * Formularz dostawał wtedy pustą listę rodzajów i cicho startował na
+ * ćwiartce: pól mięsa czerwonego nie było w ogóle, mimo że komentarz na
+ * liście obiecywał, że „tam rodzaj się wybiera". Biuro zgłosiło to
+ * 31.08.2026 jako „zniknęły opcje temperatury" — bo próg widać tylko razem
+ * z tymi polami.
+ */
+describe('ReceptionForm — wejście bez wskazanej zakładki', () => {
+  afterEach(cleanup)
+
+  const WSZYSTKIE = [
+    { id: 'mat-cwiartka', name: 'Ćwiartka z kurczaka', requiresDeboning: true,
+      receivable: true, category: 'drob' },
+    ...CZERWONE,
+  ]
+
+  it('pozwala wybrać rodzaj z PEŁNEJ listy, także drób', () => {
+    pokaz({ materialTypeId: 'mat-cwiartka' }, WSZYSTKIE)
+    expect(screen.getByText('Rodzaj surowca')).toBeTruthy()
+  })
+
+  it('przy wybranym DROBIU nie pokazuje stanu dostawy', () => {
+    // Drób jeździ wyłącznie chłodzony — pole zawsze z tą samą wartością
+    // to zaproszenie do pomyłki.
+    pokaz({ materialTypeId: 'mat-cwiartka' }, WSZYSTKIE)
+    expect(screen.queryByText('Stan')).toBeNull()
+  })
+
+  it('przy wybranym DROBIU próg to +4 °C, nie +7 °C', () => {
+    pokaz({ materialTypeId: 'mat-cwiartka' }, WSZYSTKIE)
+    expect(screen.getByText(/≤ \+4 °C/)).toBeTruthy()
+  })
+
+  it('po wybraniu WOŁOWINY wraca stan i próg +7 °C', () => {
+    pokaz({ materialTypeId: 'mat-wolowina-8020' }, WSZYSTKIE)
+    expect(screen.getByText('Stan')).toBeTruthy()
+    expect(screen.getByText(/≤ \+7 °C/)).toBeTruthy()
+  })
+
+  it('kategoria idzie z WYBRANEGO rodzaju, nie z długości listy', () => {
+    // Sedno regresji: „są opcje" nie znaczy „to wołowina".
+    pokaz({ materialTypeId: 'mat-cwiartka' }, WSZYSTKIE)
+    expect(screen.queryByText(/≤ \+7 °C/)).toBeNull()
+  })
+})

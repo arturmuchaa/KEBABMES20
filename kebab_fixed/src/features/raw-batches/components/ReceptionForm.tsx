@@ -24,7 +24,7 @@ import {
 } from '../receptionSplit'
 import { groupsToLines, withBatchIds } from '../receptionEditView'
 import {
-  STORAGE_STATES, etykietaStanu, magazynStanu, progPrzyjecia,
+  STORAGE_STATES, czyCzerwone, etykietaStanu, magazynStanu, progPrzyjecia,
 } from '../storageState'
 import type { MaterialTypeLike } from '../receptionTabs'
 import { receptionsApi } from '@/lib/apiClient'
@@ -118,7 +118,13 @@ export function ReceptionForm({
   // Wołowina: rodzaj i stan wybiera się tutaj, bo zbiorcza zakładka „Mięso
   // czerwone" nie przesądza ani jednego, ani drugiego.
   const wyborRodzaju = materialChoices.length > 0
-  const kategoria = wyborRodzaju ? 'czerwone' : 'drob'
+  // Kategoria idzie z WYBRANEGO rodzaju, nie z samego faktu, że lista jest
+  // niepusta. Od 31.08.2026 lista bywa pełna (wejście bez zakładki), więc
+  // „są opcje" nie znaczy już „to wołowina": stan dostawy i próg +7 °C
+  // dotyczą wyłącznie mięsa czerwonego.
+  const wybrany = materialChoices.find(m => m.id === header.materialTypeId)
+  const czerwoneWybrane = czyCzerwone(wybrany?.category)
+  const kategoria = czerwoneWybrane ? 'czerwone' : 'drob'
   const prog = progPrzyjecia(kategoria, header.storageState)
   const magazyn = magazynStanu(header.storageState)
 
@@ -426,19 +432,24 @@ export function ReceptionForm({
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Stan</Label>
-                  <Select
-                    value={header.storageState || 'chlodzony'}
-                    onValueChange={v => onHeaderChange('storageState', v)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {STORAGE_STATES.map(st => (
-                        <SelectItem key={st} value={st}>{etykietaStanu(st)}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {/* Stan wybiera się TYLKO przy mięsie czerwonym. Drób jeździ
+                    wyłącznie chłodzony — pole zawsze z tą samą wartością to
+                    zaproszenie do pomyłki przy 45 dostawach miesięcznie. */}
+                {czerwoneWybrane ? (
+                  <div>
+                    <Label className="text-xs mb-1 block">Stan</Label>
+                    <Select
+                      value={header.storageState || 'chlodzony'}
+                      onValueChange={v => onHeaderChange('storageState', v)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {STORAGE_STATES.map(st => (
+                          <SelectItem key={st} value={st}>{etykietaStanu(st)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : <div />}
                 <CardDescription className="text-[12px] leading-snug pb-1.5">
                   Przyjęcie do <strong>{prog.opis}</strong>
                   {!prog.wKsiedze && (

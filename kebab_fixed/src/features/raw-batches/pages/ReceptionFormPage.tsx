@@ -30,19 +30,35 @@ import { RED_MEAT, redMeatTypes } from '../receptionTabs'
 import type { SupplierOption } from '../types'
 
 /**
- * Rodzaje do wyboru w formularzu — puste dla drobiu (rodzaj daje zakładka),
- * niepuste dla zbiorczej zakładki „Mięso czerwone", która pięciu rodzajów
- * wołowiny nie rozstrzyga.
+ * Rodzaje do wyboru w formularzu.
+ *
+ * `zakres`:
+ *   'brak'      — rodzaj daje zakładka, formularz go nie pokazuje (drób),
+ *   'czerwone'  — pięć rodzajów wołowiny ze zbiorczej zakładki,
+ *   'wszystkie' — wejście bez wskazanego rodzaju („Nowe przyjęcie" z zakładki
+ *                 „Wszystko"): operator MUSI móc wybrać, także mięso czerwone.
+ *                 Dotąd formularz cicho startował na ćwiartce i pól mięsa
+ *                 czerwonego w ogóle nie było — mimo że komentarz na liście
+ *                 obiecywał, że „tam rodzaj się wybiera" (biuro, 31.08.2026).
  */
-function useMaterialChoices(aktywne: boolean) {
+type ZakresRodzajow = 'brak' | 'czerwone' | 'wszystkie'
+
+function useMaterialChoices(zakres: ZakresRodzajow) {
+  const aktywne = zakres !== 'brak'
   const { data } = useApi(() => aktywne
     ? (rawBatchesApi as any).materialTypes()
     : Promise.resolve([]))
   // useMemo, żeby prop nie zmieniał tożsamości przy każdym renderze —
   // formularz przyjęcia i tak jest ciężki, nie ma po co go budzić.
-  return useMemo(
-    () => aktywne ? redMeatTypes((data as any[]) ?? []) : [],
-    [aktywne, data])
+  return useMemo(() => {
+    const wszystkie = (data as any[]) ?? []
+    if (zakres === 'brak') return []
+    if (zakres === 'czerwone') return redMeatTypes(wszystkie)
+    // „Wszystkie" to rodzaje, które faktycznie się PRZYJMUJE — słownik ma
+    // też pozycje powstające na rozbiorze (mięso b/s), których nikt nie
+    // przywozi autem.
+    return wszystkie.filter(m => m.receivable)
+  }, [zakres, data])
 }
 
 const LIST_PATH = '/office/raw-batches'
@@ -60,12 +76,18 @@ function ReceptionCreatePage() {
   // Rodzaj surowca przychodzi z zakładki, z której operator kliknął „Nowe
   // przyjęcie" — dotąd wstrzykiwała go strona listy.
   const [params] = useSearchParams()
-  const rodzajParam = params.get('rodzaj') || 'mat-cwiartka'
+  const rodzajParam = params.get('rodzaj')
   const czerwone = rodzajParam === RED_MEAT
-  const materialChoices = useMaterialChoices(czerwone)
+  // Brak parametru = wejście z zakładki „Wszystko". Wtedy rodzaju nie ma
+  // skąd wziąć i formularz musi go POKAZAĆ, a nie zgadywać ćwiartkę.
+  const zakres: ZakresRodzajow =
+    czerwone ? 'czerwone' : (rodzajParam ? 'brak' : 'wszystkie')
+  const materialChoices = useMaterialChoices(zakres)
   // Ze zbiorczej zakładki nie przychodzi żaden konkretny rodzaj — formularz
   // startuje od pierwszego z listy, a operator zmienia go selectem.
-  const matId = czerwone ? (materialChoices[0]?.id ?? '') : rodzajParam
+  const matId = rodzajParam && !czerwone
+    ? rodzajParam
+    : (materialChoices[0]?.id ?? '')
 
   // Sama kartoteka dostawców — bez wciągania całej listy partii, której ta
   // strona nie pokazuje.
@@ -111,10 +133,10 @@ function ReceptionCreatePage() {
   // Wołowina bez wczytanego słownika: formularz miałby w nagłówku ćwiartkę
   // (wartość startowa `emptyHeader`) i dostawa zapisałaby się jako drób.
   // Lepiej wstrzymać ekran na sekundę, niż wpuścić do bazy zły rodzaj.
-  if (czerwone && materialChoices.length === 0) {
+  if (zakres !== 'brak' && materialChoices.length === 0) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
-        Wczytywanie rodzajów mięsa czerwonego…
+        Wczytywanie rodzajów surowca…
       </div>
     )
   }
@@ -251,7 +273,7 @@ function ReceptionEditPage({ receptionId }: { receptionId: string }) {
   const suppliers = useApi(() => suppliersApi.list())
   // Słownik wołowiny wczytujemy zawsze — dopiero po wczytaniu dostawy wiadomo,
   // czy to jej dokument, a wtedy jest za późno na warunkowy hook.
-  const czerwoneTypy = useMaterialChoices(true)
+  const czerwoneTypy = useMaterialChoices('czerwone')
   const supplierOptions: SupplierOption[] = (suppliers.data ?? []).map(
     s => ({ value: s.id, label: s.name }))
 
