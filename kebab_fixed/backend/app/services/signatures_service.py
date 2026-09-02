@@ -171,13 +171,16 @@ def signatures_for(doc_type: str, doc_id: str) -> List[Dict[str, Any]]:
     """Tylko AKTYWNE podpisy. Unieważnione zostają w bazie jako historia,
     ale nie mają prawa trafić ani na ekran, ani na kartę."""
     rows = query_all(
-        """SELECT role, signer_name, png, signed_at
+        """SELECT role, worker_id, signer_name, png, signed_at
              FROM document_signatures
             WHERE doc_type=%s AND doc_id=%s AND superseded_at IS NULL
             ORDER BY signed_at""",
         (doc_type, doc_id),
     )
-    return [{"role": r["role"], "signerName": r["signer_name"], "png": r["png"],
+    # `workerId` jest potrzebny ekranowi, żeby ostrzec „ta sama osoba
+    # podpisze obie role" — bez niego ostrzeżenie nigdy by się nie pokazało.
+    return [{"role": r["role"], "workerId": r["worker_id"],
+             "signerName": r["signer_name"], "png": r["png"],
              "signedAt": r["signed_at"].isoformat() if r["signed_at"] else None}
             for r in rows]
 

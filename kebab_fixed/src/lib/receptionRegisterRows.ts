@@ -44,6 +44,14 @@ function ocena(v: string | null | undefined): string {
   return v === 'N' ? 'N' : ''
 }
 
+/** Podpis na karcie: obrazek albo PUSTA kratka. Podpis unieważniony
+ *  (dane zmieniono po podpisaniu) nie dociera tu wcale — backend oddaje
+ *  tylko aktywne. Pusta kratka jest uczciwa; podpis pod zmienioną treścią
+ *  nie jest. */
+function podpis(sig?: { png: string }): Cell {
+  return sig ? { png: sig.png } : ''
+}
+
 /** Temperatura po polsku. Zero jest POMIAREM, nie brakiem — `plNum`
  *  zwraca dla zera pusty napis, więc tutaj nie da się go użyć. */
 function temp(v: number | null | undefined): string {
@@ -158,6 +166,8 @@ export function mainRows(
         ocena(c?.kgMatch),       // i
         c?.notes ?? '',          // j
         c?.verdict ?? '',        // k
+        podpis(c?.signatures?.wykonal),    // l
+        podpis(c?.signatures?.sprawdzil),  // m
       ]
       return [...row, ...Array(Math.max(0, cols - row.length)).fill('')]
     })
@@ -168,16 +178,22 @@ export function mainRows(
  *
  * Ta karta NIE ma kolumn pomiarowych (temperatur, oceny wizualnej), więc
  * w odróżnieniu od 1.1.1 drukuje się kompletna na koniec miesiąca.
+ * Kolumna „Podpis" niesie podpis „wykonał" z przyjęcia, powtórzony przy
+ * KAŻDYM numerze porządkowym tej dostawy — dokładnie jak na papierze.
  * „Mięso [kg]" (g) jest wtedy już znane z rozbioru; partia jeszcze
  * nierozebrana zostaje pusta, zamiast pokazywać zero.
  */
-export function detailRows(receptions: Reception[], cols: number): string[][] {
-  const out: string[][] = []
+export function detailRows(
+  receptions: Reception[],
+  cols: number,
+  checks: Record<string, RegisterCheck> = {},
+): Cell[][] {
+  const out: Cell[][] = []
   for (const r of [...receptions].sort((a, b) =>
     a.receivedDate.localeCompare(b.receivedDate) ||
     a.receptionNo.localeCompare(b.receptionNo, 'pl', { numeric: true }))) {
     for (const b of liveBatches(r)) {
-      const row = [
+      const row: Cell[] = [
         r.receptionNo,
         b.internalBatchNo,
         plNum(Number(b.kgReceived)),
@@ -185,6 +201,8 @@ export function detailRows(receptions: Reception[], cols: number): string[][] {
         plDate(b.expiryDate),
         plNum(Number(b.pricePerKg), 2),
         plNum(Number(b.kgMeat ?? 0)),
+        '',                                          // h — uwagi, ręcznie
+        podpis(checks[r.id]?.signatures?.wykonal),   // i — podpis
       ]
       out.push([...row, ...Array(Math.max(0, cols - row.length)).fill('')])
     }

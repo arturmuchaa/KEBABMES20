@@ -250,3 +250,51 @@ describe('mainRows — kolumny oceny (f-k)', () => {
     expect(row.slice(5, 11)).toEqual(['', '', '', '', '', ''])
   })
 })
+
+// ── Kolumny podpisu (l-m) ──────────────────────────────────────────
+//
+// Podpis unieważniony (dane zmieniono po podpisaniu) NIE dociera tutaj —
+// backend oddaje tylko aktywne. Pusta kratka jest uczciwa; podpis pod
+// zmienioną treścią nie jest.
+const wpisZPodpisami = {
+  ...wpis,
+  signatures: {
+    wykonal:   { png: 'data:image/png;base64,AAA' },
+    sprawdzil: { png: 'data:image/png;base64,BBB' },
+  },
+} as any
+
+describe('mainRows — podpisy (l-m)', () => {
+  it('bez podpisów kratki l-m zostają puste', () => {
+    const [row] = mainRows([rec()], 13, { r1: wpis })
+    expect(row[11]).toBe('')
+    expect(row[12]).toBe('')
+  })
+
+  it('podpisy trafiają jako obrazki, nie tekst', () => {
+    const [row] = mainRows([rec()], 13, { r1: wpisZPodpisami })
+    expect(row[11]).toEqual({ png: 'data:image/png;base64,AAA' })
+    expect(row[12]).toEqual({ png: 'data:image/png;base64,BBB' })
+  })
+
+  it('sam podpis wykonał zostawia kratkę sprawdził pustą', () => {
+    const jeden = { ...wpis, signatures: { wykonal: { png: 'data:image/png;base64,AAA' } } } as any
+    const [row] = mainRows([rec()], 13, { r1: jeden })
+    expect(row[11]).toEqual({ png: 'data:image/png;base64,AAA' })
+    expect(row[12]).toBe('')
+  })
+})
+
+describe('detailRows — kolumna podpisu karty 1.1.1/2', () => {
+  it('podpis „wykonał" powtarza się przy każdym numerze porządkowym', () => {
+    const rows = detailRows([rec()], 9, { r1: wpisZPodpisami })
+    expect(rows).toHaveLength(2)
+    expect(rows[0][8]).toEqual({ png: 'data:image/png;base64,AAA' })
+    expect(rows[1][8]).toEqual({ png: 'data:image/png;base64,AAA' })
+  })
+
+  it('bez podpisu kolumna zostaje pusta', () => {
+    const rows = detailRows([rec()], 9)
+    expect(rows[0][8]).toBe('')
+  })
+})

@@ -233,3 +233,14 @@ def test_pracownik_bez_uprawnien_domyslnie_nie_podpisuje(db):
     w = create_worker(WorkerCreate.model_validate({"name": "Nowy Test", "pin": "1111"}))
     assert w["can_sign_performed"] is False
     assert w["can_sign_checked"] is False
+
+
+def test_podpis_niesie_workerid_dla_ostrzezenia(db):
+    """Ekran ostrzega „ta sama osoba podpisze obie role" — porównuje po
+    identyfikatorze, więc bez `workerId` ostrzeżenie nigdy by nie padło."""
+    rid = _dostawa()
+    w = _pracownik("w-1", "Jan K.")
+    save_sample(w, PNG, "1234")
+    sign("reception_check", rid, "wykonal", w, "1234")
+    (p,) = signatures_for("reception_check", rid)
+    assert p["workerId"] == "w-1"

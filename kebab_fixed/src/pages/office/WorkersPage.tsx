@@ -60,7 +60,7 @@ function initials(name: string) {
 
 const ALL_DEPTS = ['rozbior', 'produkcja', 'pakowanie', 'wydanie'] as const
 
-const BLANK_FORM = { login: '', name: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', ratePerHour: '0', sundayBonusEnabled: false, sundayBonusPerHour: '5', saturdayBonusEnabled: false, saturdayBonusPerHour: '5', payMode: 'hourly', ratePerDay: '150', contractType: 'zlecenie', employerCostAmount: '0', pin: '', departments: [] as string[], crewSize: '1', isWrapper: false }
+const BLANK_FORM = { login: '', name: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', ratePerHour: '0', sundayBonusEnabled: false, sundayBonusPerHour: '5', saturdayBonusEnabled: false, saturdayBonusPerHour: '5', payMode: 'hourly', ratePerDay: '150', contractType: 'zlecenie', employerCostAmount: '0', pin: '', departments: [] as string[], crewSize: '1', isWrapper: false, canSignPerformed: false, canSignChecked: false }
 
 export function WorkersPage() {
   const { data, loading, refetch } = useApi(() => usersApi.list(true))
@@ -92,6 +92,8 @@ export function WorkersPage() {
     employerCostAmount: parseFloat(d.employerCostAmount) || 0,
     crewSize: parseInt(d.crewSize, 10) || 1,
     isWrapper: d.isWrapper,
+    canSignPerformed: d.canSignPerformed,
+    canSignChecked: d.canSignChecked,
   }))
   const updateMut = useMutation((d: { id: string } & typeof editForm) =>
     usersApi.update(d.id, {
@@ -110,6 +112,8 @@ export function WorkersPage() {
       employerCostAmount: parseFloat(d.employerCostAmount) || 0,
       crewSize: parseInt(d.crewSize, 10) || 1,
       isWrapper: d.isWrapper,
+      canSignPerformed: d.canSignPerformed,
+      canSignChecked: d.canSignChecked,
     })
   )
 
@@ -159,6 +163,8 @@ export function WorkersPage() {
       pin: '',
       departments: (u as any).departments ?? [],
       isWrapper: !!((u as any).isWrapper ?? (u as any).is_wrapper ?? false),
+      canSignPerformed: !!((u as any).canSignPerformed ?? (u as any).can_sign_performed ?? false),
+      canSignChecked: !!((u as any).canSignChecked ?? (u as any).can_sign_checked ?? false),
     })
   }
 
@@ -441,7 +447,7 @@ export function WorkersPage() {
 
 // ─── Reusable form component ──────────────────────────────────
 function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles }: {
-  form: { login: string; name: string; role: string; ratePerKg: string; ratePerHour: string; sundayBonusEnabled: boolean; sundayBonusPerHour: string; saturdayBonusEnabled: boolean; saturdayBonusPerHour: string; payMode: string; ratePerDay: string; contractType: string; employerCostAmount: string; pin: string; departments: string[]; crewSize: string; isWrapper: boolean }
+  form: { login: string; name: string; role: string; ratePerKg: string; ratePerHour: string; sundayBonusEnabled: boolean; sundayBonusPerHour: string; saturdayBonusEnabled: boolean; saturdayBonusPerHour: string; payMode: string; ratePerDay: string; contractType: string; employerCostAmount: string; pin: string; departments: string[]; crewSize: string; isWrapper: boolean; canSignPerformed: boolean; canSignChecked: boolean }
   setForm: React.Dispatch<React.SetStateAction<any>>
   onRoleChange: (role: string) => void
   onNameChange: (name: string) => void
@@ -656,6 +662,33 @@ function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles
                 />
                 Foliowczyk (wpisuje zafoliowane kilogramy)
               </label>
+            </div>
+            <div className="space-y-1.5">
+              {/* Uprawnienia podpisu HACCP. Dwa, bo kolumny l i m karty 1.1.1
+                  znaczą co innego: „wykonał" to kto przyjął dostawę,
+                  „sprawdził" to kierownik albo technolog. Domyślnie NIKT ich
+                  nie ma — nadaje się je świadomie. */}
+              <Label className="text-xs">Podpis elektroniczny (karta HACCP)</Label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!form.canSignPerformed}
+                  onChange={e => setForm((f: any) => ({ ...f, canSignPerformed: e.target.checked }))}
+                />
+                Podpis: wykonał
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!form.canSignChecked}
+                  onChange={e => setForm((f: any) => ({ ...f, canSignChecked: e.target.checked }))}
+                />
+                Podpis: sprawdził
+              </label>
+              <p className="text-[10px] text-muted-foreground">
+                Decyduje, w której kolumnie karty 1.1.1 osoba może się podpisać.
+                Wzór podpisu rysuje się na HMI rozbioru (kod 0099).
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Działy (dostęp do paneli)</Label>

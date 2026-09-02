@@ -7,8 +7,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const get = vi.fn()
 const save = vi.fn()
+const forDoc = vi.fn()
 vi.mock('@/lib/apiClient', () => ({
   receptionChecksApi: { get: (...a: any[]) => get(...a), save: (...a: any[]) => save(...a) },
+  // Sloty podpisu doszły w fazie 2 — komponent czyta stąd kolumny l/m.
+  signaturesApi: { forDoc: (...a: any[]) => forDoc(...a), eligible: vi.fn(), sign: vi.fn() },
 }))
 
 import { ReceptionCheckCard } from './components/ReceptionCheckCard'
@@ -21,7 +24,8 @@ const pusty = {
 
 beforeEach(() => {
   cleanup()
-  get.mockReset(); save.mockReset()
+  get.mockReset(); save.mockReset(); forDoc.mockReset()
+  forDoc.mockResolvedValue([])
   get.mockResolvedValue(pusty)
   save.mockImplementation((_id: string, dto: any) => Promise.resolve({ ...pusty, ...dto }))
 })
@@ -64,5 +68,33 @@ describe('ReceptionCheckCard', () => {
                             tempChamber: 2, tempMeat: 3, status: 'komplet' })
     render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
     expect(await screen.findByText(/anulować przyjęcie/i)).toBeTruthy()
+  })
+})
+
+describe('ReceptionCheckCard — sloty podpisu', () => {
+  it('bez podpisów pokazuje przyciski dla obu ról', async () => {
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    expect(await screen.findByText(/Wykonał \(l\)/)).toBeTruthy()
+    expect(screen.getByText(/Sprawdził \(m\)/)).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: /^Podpisz$/ })).toHaveLength(2)
+  })
+
+  it('złożony podpis pokazuje nazwisko zamiast przycisku', async () => {
+    forDoc.mockResolvedValue([{
+      role: 'wykonal', workerId: 'w-1', signerName: 'Jan K.',
+      png: 'data:image/png;base64,AA', signedAt: '2026-08-14T07:14:00Z',
+    }])
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    expect(await screen.findByText('Jan K.')).toBeTruthy()
+    // Została JEDNA rola do podpisania, więc jeden przycisk.
+    expect(screen.getAllByRole('button', { name: /^Podpisz$/ })).toHaveLength(1)
+  })
+
+  it('po zapisie wpisu odświeża podpisy — zapis mógł je unieważnić', async () => {
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    await screen.findByText(/Wykonał \(l\)/)
+    forDoc.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: /Zapisz kontrolę/i }))
+    await waitFor(() => expect(forDoc).toHaveBeenCalled())
   })
 })

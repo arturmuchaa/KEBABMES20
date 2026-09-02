@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, ClipboardCheck, ThermometerSnowflake } from 'lucide-react'
 
-import { receptionChecksApi } from '@/lib/apiClient'
+import { receptionChecksApi, signaturesApi } from '@/lib/apiClient'
 import {
   checkIssues, checkStatus, needsCorrectiveAction, tempExceeded,
   type ReceptionCheck,
@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
+import { SignDialog } from '@/features/signatures/SignDialog'
 
 const PUSTY: ReceptionCheck = {
   receptionId: '', visual: null, tempChamber: null, tempMeat: null,
@@ -85,13 +86,23 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
   const [zapisuje, setZapisuje] = useState(false)
   const [blad, setBlad] = useState<string | null>(null)
   const [zapisano, setZapisano] = useState(false)
+  const [podpisy, setPodpisy] = useState<any[]>([])
+  const [podpisujeRola, setPodpisujeRola] = useState<'wykonal' | 'sprawdzil' | null>(null)
+
+  const wczytajPodpisy = () => {
+    signaturesApi.forDoc('reception_check', receptionId)
+      .then((d: any) => setPodpisy(d ?? []))
+      .catch(() => setPodpisy([]))
+  }
 
   useEffect(() => {
     let aktualne = true
     receptionChecksApi.get(receptionId)
       .then((d: any) => { if (aktualne) setCheck({ ...PUSTY, ...d, receptionId }) })
       .catch((e: any) => { if (aktualne) setBlad(e?.message ?? 'Nie udało się wczytać kontroli') })
+    wczytajPodpisy()
     return () => { aktualne = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [receptionId])
 
   if (!check) {
@@ -129,7 +140,14 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
       ncAction: check.ncAction,
       ncAt: check.ncAt,
     })
-      .then((d: any) => { setCheck({ ...PUSTY, ...d, receptionId }); setZapisano(true) })
+      .then((d: any) => {
+        setCheck({ ...PUSTY, ...d, receptionId })
+        setZapisano(true)
+        // Zapis mógł UNIEWAŻNIĆ podpisy (zmiana treści) — ekran musi to
+        // pokazać od razu, inaczej biuro myśli, że dokument nadal jest
+        // podpisany, a karta wydrukuje pustą kratkę.
+        wczytajPodpisy()
+      })
       .catch((e: any) => setBlad(e?.message ?? 'Nie udało się zapisać kontroli'))
       .finally(() => setZapisuje(false))
   }
@@ -270,6 +288,47 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
         )}
 
         {blad && <p className="text-sm text-red-700">{blad}</p>}
+
+        {/* Podpisy — kolumny l/m karty 1.1.1. Podpis unieważniony zmianą
+            treści tu nie dociera (backend oddaje tylko aktywne), więc slot
+            wraca do stanu pustego i sam mówi, co się stało. */}
+        <div className="grid gap-3 md:grid-cols-2 pt-1">
+          {(['wykonal', 'sprawdzil'] as const).map(rola => {
+            const p = podpisy.find((x: any) => x.role === rola)
+            return (
+              <div key={rola} className="rounded border border-ink-5 p-3">
+                <p className="text-xs font-semibold text-ink-2 mb-2">
+                  {rola === 'wykonal' ? 'Wykonał (l)' : 'Sprawdził (m)'}
+                </p>
+                {p ? (
+                  <div className="space-y-1">
+                    <img src={p.png} alt="" className="h-10 w-auto max-w-full object-contain" />
+                    <p className="text-xs font-semibold">{p.signerName}</p>
+                    <p className="text-[11px] text-ink-3">
+                      {p.signedAt ? new Date(p.signedAt).toLocaleString('pl-PL') : ''}
+                    </p>
+                  </div>
+                ) : (
+                  <Button type="button" variant="outline" size="sm"
+                          onClick={() => setPodpisujeRola(rola)}>
+                    Podpisz
+                  </Button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {podpisujeRola && (
+          <SignDialog
+            docType="reception_check"
+            docId={receptionId}
+            role={podpisujeRola}
+            juzPodpisal={podpisy.find((x: any) => x.role !== podpisujeRola)?.workerId}
+            onSigned={wczytajPodpisy}
+            onClose={() => setPodpisujeRola(null)}
+          />
+        )}
 
         <div className="flex items-center gap-3">
           {/* Przekroczony próg NIE blokuje zapisu: dostawę odrzuconą trzeba

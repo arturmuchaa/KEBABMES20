@@ -13,7 +13,7 @@
  * fizycznego dostępu do BIOS-u.
  */
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Delete, History, LogOut, Printer, Wrench } from 'lucide-react'
+import { Delete, History, LogOut, PenLine, Printer, Wrench } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { BASE } from '@/lib/api'
 import { getDevices, sendZpl } from '@/lib/zebra'
@@ -21,6 +21,7 @@ import { byproductLabelZpl } from '@/features/deboning/byproductLabelZpl'
 import {
   CALIBRATE_ZPL, TEAR_OFF_STORAGE_KEY, tearOffMaxMm, tearOffZpl,
 } from '@/features/deboning/labelPrinterSetup'
+import { SignatureSamplesScreen } from '@/features/signatures/SignatureSamplesScreen'
 
 export const SERVICE_CODE = '0099'
 export const SERVICE_HOLD_MS = 3000
@@ -102,8 +103,9 @@ export function ServiceMenuModal({
   const [prevVersion, setPrevVersion] = useState<string | null>(null)
   const [rollbackMsg, setRollbackMsg] = useState<string | null>(null)
   const [rollbackBusy, setRollbackBusy] = useState(false)
+  const [wzoryOtwarte, setWzoryOtwarte] = useState(false)
 
-  useEffect(() => { if (open) { setCode(''); setOk(false); setErr(false); setScaleDiag(null); setRollbackMsg(null); setRollbackBusy(false) } }, [open])
+  useEffect(() => { if (open) { setCode(''); setOk(false); setErr(false); setScaleDiag(null); setRollbackMsg(null); setRollbackBusy(false); setWzoryOtwarte(false) } }, [open])
 
   // Po poprawnym kodzie pobierz listę wersji — „poprzednia" = pierwsza inna
   // niż aktualnie uruchomiona (rollback po złej aktualizacji).
@@ -222,6 +224,9 @@ export function ServiceMenuModal({
   }, [code])
 
   if (!open) return null
+  if (ok && wzoryOtwarte) {
+    return <SignatureSamplesScreen onClose={() => setWzoryOtwarte(false)} />
+  }
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" style={SVC_VARS}>
       <div className="w-[380px] p-8 flex flex-col gap-6" style={{ borderRadius: 14, background: 'var(--svcPanel)', border: '1px solid var(--svcLine)', color: 'var(--svcInk)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)' }}>
@@ -309,6 +314,17 @@ export function ServiceMenuModal({
                 </div>
               )}
             </div>
+
+            {/* Wzory podpisów — to JEDYNY dotykowy ekran w zakładzie, więc
+                wzór podpisu HACCP musi powstawać właśnie tutaj. Ekran
+                otwiera się na pełną szerokość: w panelu 380 px nikt nie
+                złoży czytelnego podpisu. */}
+            <button type="button" onClick={() => setWzoryOtwarte(true)}
+              className="h-14 text-base font-bold flex items-center justify-center gap-3"
+              style={{ borderRadius: 10, border: '1px solid var(--svcLine)', background: 'var(--svcBg)' }}>
+              <PenLine size={20} />
+              Wzory podpisów
+            </button>
 
             <button type="button" onClick={() => void doRollback()} disabled={!prevVersion || rollbackBusy}
               className="h-14 text-base font-bold flex items-center justify-center gap-3"
