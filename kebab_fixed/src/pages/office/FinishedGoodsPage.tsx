@@ -4,7 +4,8 @@
  * Gęsta tabela z stickyheader, sortowaniem i szybkim filtrem. Klik wiersza
  * → modal ze szczegółami per SKU + rozbiciem wg partii + łańcuchem traceability.
  */
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
 import { finishedGoodsApi } from '@/lib/apiClient'
 import { useClientNames } from '@/lib/clientNames'
@@ -23,6 +24,11 @@ import { DetailModal } from '@/features/finished-goods/components/DetailModal'
 import { OfficeUnitLookup } from '@/features/finished-goods/components/OfficeUnitLookup'
 import { StockCartonModal } from '@/features/finished-goods/components/StockCartonModal'
 import { AddFinishedGoodModal } from '@/features/finished-goods/components/AddFinishedGoodModal'
+import { dopasujTowar } from '@/features/finished-goods/finishedGoodsSearch'
+import {
+  dataFefo, ograniczIlosc, podsumowanieZaznaczenia, podzialStanu, przydzialNaMape,
+  rozpiszNaPartie, sumaPrzydzialu,
+} from '@/features/finished-goods/finishedGoodsSelection'
 import { PackedCartonsSection } from '@/features/finished-goods/components/PackedCartonsSection'
 
 // ─── Grupowanie po SKU (łączymy partie/daty w jeden wiersz magazynu) ──────────
@@ -126,6 +132,7 @@ function exportCsv(rows: SkuGroup[]) {
 
 // ─── Strona ─────────────────────────────────────────────────
 export function FinishedGoodsPage() {
+  const navigate = useNavigate()
   const clientDisplay = useClientNames()
   const { data: items, loading, refetch } = useApi(() => finishedGoodsApi.list())
   const [dodawanie, setDodawanie] = useState(false)
@@ -134,25 +141,51 @@ export function FinishedGoodsPage() {
   const [filter,   setFilter]   = useState('')
   const [sortCol,  setSortCol]  = useState<SortCol>('productTypeName')
   const [sortDir,  setSortDir]  = useState<'asc' | 'desc'>('asc')
+  /** key SKU → { id partii: sztuki }. Brak wpisu = pozycja niezaznaczona.
+   *  Trzymamy PER PARTIA, bo FEFO tylko proponuje — magazynier może wziąć
+   *  z innej partii, jeśli tak stoi w chłodni. */
+  const [wybor,    setWybor]    = useState<Record<string, Record<string, number>>>({})
+  const [rozwiniete, setRozwiniete] = useState<Record<string, boolean>>({})
 
   const rawList = items ?? []
+  // Wszystkie grupy (nie tylko przefiltrowane) — zaznaczenie ma przeżyć
+  // zawężenie filtra, inaczej wpisanie litery gubi koszyk.
+  const allGroupsRef = useRef<SkuGroup[]>([])
+  allGroupsRef.current = useMemo(() => groupBySku(rawList), [rawList])
 
   const list = useMemo(() => {
-    const q = filter.toLowerCase().trim()
-    let result = groupBySku(rawList).filter(g => g.qty > 0)
-    if (q) {
-      result = result.filter(g =>
-        (g.clientName      || '').toLowerCase().includes(q) ||
-        (g.productTypeName || '').toLowerCase().includes(q) ||
-        (g.recipeName      || '').toLowerCase().includes(q) ||
-        (g.packagingName   || '').toLowerCase().includes(q) ||
-        String(g.kgPerUnit).includes(q) ||
-        g.batches.some(b => (b.batchNo || '').toLowerCase().includes(q))
-      )
-    }
+    // Wyszukiwarka: każde SŁOWO musi trafić w jakiekolwiek pole. Dawny filtr
+    // robił includes na całej frazie naraz, więc „kirmizi 30" nie znajdowało
+    // nic. Szuka też po SKRÓCONEJ nazwie klienta — tej, którą widać na ekranie.
+    const result = groupBySku(rawList)
+      .filter(g => g.qty > 0)
+      .filter(g => dopasujTowar(g, filter, clientDisplay))
     const cmp = compareRows(sortCol)
     return [...result].sort((a, b) => sortDir === 'asc' ? cmp(a, b) : -cmp(a, b))
-  }, [rawList, filter, sortCol, sortDir])
+  }, [rawList, filter, sortCol, sortDir, clientDisplay])
+
+  /** Suma zaznaczenia dla paska akcji. Liczona z AKTUALNEJ listy, więc
+   *  zawężenie filtra nie gubi tego, co zaznaczono gdzie indziej. */
+  const podsumZaznaczenia = useMemo(() => podsumowanieZaznaczenia(
+    allGroupsRef.current
+      .filter(g => wybor[g.key] !== undefined)
+      .map(g => ({ towar: g, ilosc: sumaPrzydzialu(wybor[g.key]) }))),
+  [wybor])
+
+  /** Zaznaczone pozycje → okno WZ z gotowym koszykiem.
+   *
+   *  Adresem, tym samym wzorcem co „Wystaw WZ z zaznaczonych" w Magazynie
+   *  surowca (`?stock=`) — jeden mechanizm na oba magazyny zamiast dwóch.
+   *  Okno WZ operuje POZYCJAMI MAGAZYNOWYMI, więc zaznaczoną ilość
+   *  rozpisujemy tutaj na konkretne partie wg FEFO. */
+  const wystawWz = () => {
+    const pary = Object.values(wybor)
+      .flatMap(mapa => Object.entries(mapa))
+      .filter(([, szt]) => szt > 0)
+      .map(([id, szt]) => `${id}:${szt}`)
+    if (!pary.length) return
+    navigate(`/office/wz/nowy?fg=${pary.join(',')}`)
+  }
 
   const totalQty = list.reduce((s, g) => s + g.qty, 0)
   const totalKg  = list.reduce((s, g) => s + g.totalKg, 0)
@@ -167,7 +200,7 @@ export function FinishedGoodsPage() {
       ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
       : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60"/>
 
-  const allGroups = groupBySku(rawList)
+  const allGroups = allGroupsRef.current
 
   return (
     <div className="space-y-3 animate-fade-in">
@@ -180,7 +213,7 @@ export function FinishedGoodsPage() {
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="h-9 pl-9 pr-8 text-sm"
-                placeholder="Filtruj: klient, receptura, tuleja, kg, nr partii…"
+                placeholder="Szukaj: klient, receptura, rodzaj, tuleja, kg, partia, nr zamówienia…"
                 value={filter}
                 onChange={e => setFilter(e.target.value)}
                 autoFocus
@@ -237,6 +270,38 @@ export function FinishedGoodsPage() {
         </div>
       </Card>
 
+      {/* ── Pasek zaznaczenia ───────────────────────────
+          Widoczny dopiero, gdy coś zaznaczono — pusty pasek zabierałby
+          miejsce listy, a to ona jest tu najważniejsza. */}
+      {podsumZaznaczenia.pozycji > 0 && (
+        <Card className="border-ink bg-surface-2">
+          <div className="px-4 py-2.5 flex items-center justify-between gap-4 flex-wrap">
+            <div className="text-sm tabular-nums">
+              <strong>{podsumZaznaczenia.pozycji}</strong> poz. ·{' '}
+              <strong>{podsumZaznaczenia.sztuk}</strong> szt ·{' '}
+              <strong>{fmtKg(podsumZaznaczenia.kg, 0)}</strong> kg
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setWybor({})}
+                className="rounded-md border border-ink-5 px-3 py-1.5 text-xs font-bold"
+              >
+                Wyczyść zaznaczenie
+              </button>
+              <button
+                type="button"
+                data-testid="wystaw-wz"
+                onClick={wystawWz}
+                className="rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground"
+              >
+                Wystaw WZ
+              </button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* ── Tabela ─────────────────────────────────────── */}
       <Card className="overflow-hidden">
         {loading ? (
@@ -259,8 +324,9 @@ export function FinishedGoodsPage() {
             <table className="w-full text-xs tabular-nums">
               <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
                 <tr>
+                  <th className="w-8 px-2" />
                   {[
-                    { col: 'qty'             as SortCol, label: 'Ilość',     align: 'right' },
+                    { col: 'qty'             as SortCol, label: 'Wolne',     align: 'right' },
                     { col: 'kgPerUnit'       as SortCol, label: 'kg',        align: 'right' },
                     { col: 'productTypeName' as SortCol, label: 'Rodzaj',    align: 'left'  },
                     { col: 'recipeName'      as SortCol, label: 'Receptura', align: 'left'  },
@@ -286,7 +352,8 @@ export function FinishedGoodsPage() {
                 </tr>
               </thead>
               <tbody>
-                {list.map((g, idx) => (
+                {list.flatMap((g, idx) => [
+                  (
                   <tr
                     key={g.key}
                     onClick={() => setDetailGroup(g)}
@@ -296,9 +363,49 @@ export function FinishedGoodsPage() {
                       'hover:bg-surface-3/60'
                     )}
                   >
+                    <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Zaznacz ${g.productTypeName} ${g.recipeName} ${g.kgPerUnit}kg`}
+                        checked={wybor[g.key] !== undefined}
+                        disabled={podzialStanu(g).wolne <= 0}
+                        onChange={e => setWybor(w => {
+                          const n = { ...w }
+                          // Zaznaczenie bierze CAŁY wolny stan, rozpisany FEFO —
+                          // to tylko PROPOZYCJA, partie da się poprawić po
+                          // rozwinięciu wiersza.
+                          if (e.target.checked) {
+                            n[g.key] = przydzialNaMape(
+                              rozpiszNaPartie(g as any, podzialStanu(g).wolne))
+                            setRozwiniete(r => ({ ...r, [g.key]: true }))
+                          } else delete n[g.key]
+                          return n
+                        })}
+                      />
+                    </td>
                     <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold">
-                      {g.qty}
+                      {wybor[g.key] !== undefined ? (
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); setRozwiniete(r => ({ ...r, [g.key]: !r[g.key] })) }}
+                          className="rounded border border-ink px-1.5 py-0.5 font-bold tabular-nums"
+                          title="Rozwiń, żeby poprawić partie"
+                        >
+                          {sumaPrzydzialu(wybor[g.key])} z {podzialStanu(g).wolne}
+                        </button>
+                      ) : podzialStanu(g).wolne}
                       <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
+                      {/* Zajęte pod zamówienia pokazujemy OBOK wolnego, bo
+                          magazyn wyrobu to świętość: obiecanie czyjegoś towaru
+                          kończy się brakiem na wydaniu. */}
+                      {podzialStanu(g).podZamowienia > 0 && (
+                        <span
+                          className="ml-1.5 font-normal text-[11px] text-warn"
+                          title="zajęte pod zamówienia"
+                        >
+                          +{podzialStanu(g).podZamowienia}
+                        </span>
+                      )}
                     </td>
                     <td className="px-2.5 py-2 whitespace-nowrap text-right text-ink-2">
                       {g.kgPerUnit}<span className="text-muted-foreground font-normal text-[11px]"> kg</span>
@@ -334,7 +441,50 @@ export function FinishedGoodsPage() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  ),
+                  /* Rozwinięcie: partie tej pozycji z ilościami wypełnionymi
+                     przez FEFO. Magazynier poprawia je ręcznie, gdy w chłodni
+                     wygodniej sięgnąć po inną partię — automat ma proponować,
+                     nie decydować. */
+                  wybor[g.key] !== undefined && rozwiniete[g.key] && (
+                  <tr key={`${g.key}-partie`} className="bg-surface-2/60">
+                    <td />
+                    <td colSpan={8} className="px-2.5 py-2">
+                      <div className="text-[11px] font-bold uppercase tracking-wide text-ink-3 mb-1.5">
+                        Partie — poprawiaj, jeśli bierzesz z innej
+                      </div>
+                      <div className="space-y-1">
+                        {[...g.batches]
+                          .filter(b => !(b.clientOrderNo || '').trim())
+                          .sort((a, b) => (dataFefo(a) || '~').localeCompare(dataFefo(b) || '~'))
+                          .map(b => (
+                          <div key={b.id} className="flex items-center gap-2 text-xs">
+                            <span className="font-mono font-bold w-32">{b.batchNo || '—'}</span>
+                            <span className="text-ink-3 w-28">
+                              {dataFefo(b) ? `prod. ${dataFefo(b)}` : 'bez daty'}
+                            </span>
+                            <span className="text-ink-3 w-20 text-right">{b.qtyAvailable} szt</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              aria-label={`Sztuki z partii ${b.batchNo}`}
+                              value={wybor[g.key]?.[b.id] ?? 0}
+                              onClick={e => e.stopPropagation()}
+                              onChange={e => {
+                                const v = ograniczIlosc(
+                                  Number(e.target.value.replace(/[^0-9]/g, '')),
+                                  Number(b.qtyAvailable || 0))
+                                setWybor(w => ({ ...w, [g.key]: { ...w[g.key], [b.id]: v } }))
+                              }}
+                              className="w-16 rounded border border-ink-5 px-1 py-0.5 text-right font-bold tabular-nums"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                  )]
+                )}
               </tbody>
               <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
                 <tr>

@@ -134,7 +134,36 @@ export function WzNewPage() {
 
   useEffect(() => {
     clientsApi.list().then(setClients)
-    wzApi.stockFg().then(setFg)
+    wzApi.stockFg().then(lista => {
+      setFg(lista)
+      // Pozycje zaznaczone w Magazynie wyrobu gotowego („Wystaw WZ")
+      // przyjeżdżają w ?fg=id:szt,id:szt — magazyn rozpisał już ilość na
+      // partie wg FEFO, więc tutaj tylko je wstawiamy. Ten sam wzorzec co
+      // ?stock= dla surowca.
+      const par = new URLSearchParams(window.location.search).get('fg')
+      if (!par) return
+      const chce = new Map<string, number>()
+      for (const kawalek of par.split(',').filter(Boolean)) {
+        const [id, szt] = kawalek.split(':')
+        if (id) chce.set(id, Math.max(1, parseInt(szt || '1', 10) || 1))
+      }
+      const wybrane = (lista as any[]).filter(g => chce.has(g.id))
+      if (!wybrane.length) return
+      setRows(r => {
+        // Dedupe: efekt potrafi odpalić dwa razy (StrictMode).
+        const juz = new Set(r.filter(x => x.stockType === 'fg').map(x => x.stockId))
+        const nowe = wybrane.filter(g => !juz.has(g.id)).map(g => ({
+          stockType: 'fg' as const, stockId: g.id, name: fgLabel(g),
+          unit: 'szt', qtyStr: String(chce.get(g.id) ?? 1), priceStr: '',
+          batchNo: g.batch_no,
+          available: Number(g.qty_available || 0),
+          kgPerUnit: Number(g.kg_per_unit || 0) || undefined,
+          vatRate: vatDomyslny,
+        }))
+        return nowe.length ? [...r, ...nowe] : r
+      })
+      setTab('fg')
+    })
     wzApi.stockRaw().then(list => {
       setRaw(list)
       // Pozycje zaznaczone checkboxami w Magazynie surowca („Wystaw WZ
