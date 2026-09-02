@@ -449,6 +449,23 @@ export const receptionsApi = {
   },
 }
 
+/** Kontrola HACCP dostawy — kolumny f-k karty 1.1.1.
+ *  Osobny klient, bo to osobny byt: wpis powstaje PO zapisaniu dostawy. */
+export const receptionChecksApi = {
+  get: (receptionId: string) =>
+    get<any>(`/receptions/${encodeURIComponent(receptionId)}/check`),
+
+  save: (receptionId: string, dto: Record<string, unknown>) =>
+    put<any>(`/receptions/${encodeURIComponent(receptionId)}/check`, dto),
+
+  /** Dostawy bez kompletu HACCP — okno dni, nie cała historia. */
+  pending: (days = 14) => get<any[]>(`/receptions/haccp-pending?days=${days}`),
+
+  /** Wpisy + podpisy dla zakresu — źródło kolumn f-m karty 1.1.1. */
+  forRange: (from: string, to: string) =>
+    get<any[]>(`/receptions/haccp-checks?from=${from}&to=${to}`),
+}
+
 /** Wynik odczytu skanu HDI. `sumOk === null` = nie odczytano stopki. */
 export interface HdiScan {
   hdiNo:       string
