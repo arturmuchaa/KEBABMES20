@@ -12,25 +12,19 @@
  * narysowania cudzego podpisu.
  */
 import { useEffect, useState } from 'react'
-import { BASE } from '@/lib/api'
+import { signaturesApi, usersApi } from '@/lib/apiClient'
 import { SignaturePad } from './SignaturePad'
 
-interface Pracownik { id: string; name: string }
+interface Pracownik { id: string; name: string; active?: boolean }
 
-/** Kiosk nie ma klienta apiClient pod ręką na każdym ekranie — trzyma się
- *  wzorca ServiceMenu i strzela fetch-em po BASE. */
-async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${url}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
-    credentials: 'include',
-  })
-  if (!res.ok) {
-    const tresc = await res.json().catch(() => ({} as any))
-    throw new Error((tresc as any).detail || `HTTP ${res.status}`)
-  }
-  return res.json() as Promise<T>
-}
+/* Korzystamy z KLIENTA APLIKACJI (`apiClient`), nie własnego `fetch`.
+ *
+ * Pierwsza wersja strzelała sama, z `credentials: 'include'` — i wywracała
+ * się na produkcji jako „Failed to fetch". Produkcja ma CORS z gwiazdką,
+ * a żądanie z poświadczeniami przy `Allow-Origin: *` przeglądarka odrzuca
+ * (spec CORS; main.py ostrzega o tym wprost). Do tego własny fetch nie
+ * dokładał nagłówka `Authorization`, więc `/api/workers` oddałoby 401
+ * i pustą listę. Klient aplikacji robi obie te rzeczy poprawnie. */
 
 export function SignatureSamplesScreen({ onClose }: { onClose: () => void }) {
   const [osoby, setOsoby] = useState<Pracownik[] | null>(null)
@@ -43,29 +37,26 @@ export function SignatureSamplesScreen({ onClose }: { onClose: () => void }) {
   const [zapisuje, setZapisuje] = useState(false)
 
   useEffect(() => {
-    json<Pracownik[]>('/workers')
-      .then(w => {
-        const aktywni = (w ?? []).filter((x: any) => x.active !== false)
+    usersApi.list()
+      .then((w: any[]) => {
+        const aktywni = (w ?? []).filter(x => x.active !== false) as Pracownik[]
         setOsoby(aktywni)
         // Miniatury istniejących wzorów — kierownik ma widzieć, kto już ma
         // podpis, żeby nie wywoływać tych samych osób po raz drugi.
         aktywni.forEach(o => {
-          json<{ png: string }>(`/signature-samples/${encodeURIComponent(o.id)}`)
-            .then(d => setMaWzor(m => ({ ...m, [o.id]: d.png })))
-            .catch(() => { /* brak wzoru to normalny stan */ })
+          signaturesApi.sample(o.id)
+            .then((d: any) => setMaWzor(m => ({ ...m, [o.id]: d.png })))
+            .catch(() => { /* brak wzoru to normalny stan, nie błąd ekranu */ })
         })
       })
-      .catch(e => { setOsoby([]); setBlad(String(e?.message ?? e)) })
+      .catch((e: any) => { setOsoby([]); setBlad(String(e?.message ?? e)) })
   }, [])
 
   const zapisz = () => {
     if (!wybrany || !png || !pin || zapisuje) return
     setZapisuje(true)
     setBlad(null)
-    json(`/signature-samples/${encodeURIComponent(wybrany.id)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ png, pin }),
-    })
+    signaturesApi.saveSample(wybrany.id, png, pin)
       .then(() => {
         setMaWzor(m => ({ ...m, [wybrany.id]: png }))
         setInfo(`Zapisano wzór: ${wybrany.name}`)
