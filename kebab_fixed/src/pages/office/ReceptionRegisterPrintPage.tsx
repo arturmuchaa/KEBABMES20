@@ -33,9 +33,9 @@
 import { useEffect, useMemo, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { receptionCardNo } from '@/lib/haccpCardHistory'
-import { receptionsApi } from '@/lib/apiClient'
+import { receptionChecksApi, receptionsApi } from '@/lib/apiClient'
 import { useApi } from '@/hooks/useApi'
-import { detailRows, mainRows, paginate } from '@/lib/receptionRegisterRows'
+import { detailRows, mainRows, paginate, type Cell } from '@/lib/receptionRegisterRows'
 import { drukuj } from '@/lib/print'
 import { PrintToolbar } from '@/components/print/PrintToolbar'
 
@@ -107,7 +107,7 @@ function monthRange(month: Date): { from: string; to: string } {
 export function RegisterCard(props: {
   od: string | null; isPdf: boolean; withData: boolean; title: string; subtitle: string
   cols: Col[]; rows: number; card: string; legend: ReactNode; head?: ReactNode
-  build: (recs: any[], cols: number) => string[][]
+  build: (recs: any[], cols: number, checks?: Record<string, any>) => Cell[][]
   /** Skąd wziąć wiersze miesiąca. Domyślnie przyjęcia surowca (karty 1.1.1
    *  i 1.1.1/2); karta 1.3.1 podaje tu rejestr DDFiP — oprawa, siatka i CSS
    *  zostają te same, bo to JEDNA karta księgi w dwóch odmianach. */
@@ -123,9 +123,22 @@ export function RegisterCard(props: {
     [withData, range.from, range.to],
   )
 
+  // Wpisy kontroli HACCP miesiąca — źródło kolumn f-m karty 1.1.1.
+  // Osobne żądanie, nie doładowanie listy przyjęć: ta lista jest używana
+  // w pięciu innych miejscach i nie ma po co wozić tam podpisów.
+  const { data: checks } = useApi(
+    () => withData ? receptionChecksApi.forRange(range.from, range.to) : Promise.resolve([]),
+    [withData, range.from, range.to],
+  )
+  const checksById = useMemo(() => {
+    const out: Record<string, any> = {}
+    for (const c of (checks ?? []) as any[]) out[c.receptionId] = c
+    return out
+  }, [checks])
+
   const pages = useMemo(
-    () => paginate(withData ? build(data ?? [], cols.length) : [], rows),
-    [withData, data, build, cols.length, rows])
+    () => paginate(withData ? build(data ?? [], cols.length, checksById) : [], rows),
+    [withData, data, build, cols.length, rows, checksById])
 
   useEffect(() => {
     document.title = props.title
@@ -147,12 +160,21 @@ export function RegisterCard(props: {
   )
 }
 
+/** Komórka karty: tekst albo podpis. Obrazek skalujemy do WYSOKOŚCI kratki
+ *  (9,5 mm w 1.1.1), żeby podpis nie rozpychał wiersza i karta nadal
+ *  mieściła się na jednej kartce. */
+function renderCell(cell: Cell | undefined) {
+  if (!cell) return ''
+  if (typeof cell === 'string') return cell
+  return <img className="sig" src={cell.png} alt="" />
+}
+
 /** Wspólna oprawa obu kart: nagłówek → belka → tytuł → pola meta → tabela. */
 function RegisterSheet({ month, title, subtitle, cols, rows, card, legend, head,
                         page, pages, data }: {
   month: Date; title: string; subtitle: string
   cols: Col[]; rows: number; card: string; legend: ReactNode; head?: ReactNode
-  page: number; pages: number; data: string[][]
+  page: number; pages: number; data: Cell[][]
 }) {
   const monthLabel = month.toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' })
   const children = head
@@ -198,7 +220,7 @@ function RegisterSheet({ month, title, subtitle, cols, rows, card, legend, head,
               i wypełnioną, a wolne kratki służą do dopisania ręką. */}
           {Array.from({ length: rows }, (_, r) => (
             <tr key={r}>
-              {cols.map((c, i) => <td key={c.letter}>{data[r]?.[i] ?? ''}</td>)}
+              {cols.map((c, i) => <td key={c.letter}>{renderCell(data[r]?.[i])}</td>)}
             </tr>
           ))}
         </tbody>
@@ -377,5 +399,6 @@ const CSS = `
 
 .reg .foot { display:flex; justify-content:space-between; margin-top:1.6mm;
   font-size:6.8pt; font-weight:700; color:#333; letter-spacing:.04em; }
+.reg .sig { height: 7mm; width: auto; max-width: 100%; object-fit: contain; display: block; margin: 0 auto; }
 .reg .foot .l { font-weight:400; color:#555; }
 `

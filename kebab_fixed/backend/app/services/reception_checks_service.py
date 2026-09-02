@@ -111,3 +111,54 @@ def pending(days: int = 14) -> list:
             "status": stan,
         })
     return out
+
+
+def checks_for_range(date_from: str, date_to: str) -> list:
+    """Wpisy kontroli dla zakresu dat — źródło kolumn f-m karty 1.1.1.
+
+    Zwraca też PODPISY, żeby karta miesiąca powstawała z jednego żądania.
+    Podpisy unieważnione tu nie docierają: karta ma drukować pustą kratkę,
+    a nie podpis pod treścią, która zmieniła się po podpisaniu.
+
+    Tabela podpisów powstaje dopiero razem z podpisami elektronicznymi,
+    więc do tego czasu pytamy o nią warunkowo — karta ma działać z samymi
+    kolumnami f-k, zanim l-m w ogóle zaistnieją.
+    """
+    rows = query_all(
+        """SELECT r.id, c.visual, c.temp_chamber, c.temp_meat, c.kg_match,
+                  c.notes, c.verdict, c.nc_description, c.nc_action, c.nc_at
+             FROM receptions r
+             JOIN reception_checks c ON c.reception_id = r.id
+            WHERE r.received_date BETWEEN %s AND %s""",
+        (date_from, date_to),
+    )
+    wg_dostawy: dict = {}
+    if query_one("SELECT to_regclass('public.document_signatures') AS t")["t"]:
+        podpisy = query_all(
+            """SELECT s.doc_id, s.role, s.png, s.signer_name, s.signed_at
+                 FROM document_signatures s
+                 JOIN receptions r ON r.id = s.doc_id
+                WHERE s.doc_type = 'reception_check'
+                  AND s.superseded_at IS NULL
+                  AND r.received_date BETWEEN %s AND %s""",
+            (date_from, date_to),
+        )
+        for p in podpisy:
+            wg_dostawy.setdefault(p["doc_id"], {})[p["role"]] = {
+                "png": p["png"],
+                "signerName": p["signer_name"],
+                "signedAt": p["signed_at"].isoformat() if p["signed_at"] else None,
+            }
+    return [{
+        "receptionId": r["id"],
+        "visual": r["visual"],
+        "tempChamber": _f(r["temp_chamber"]),
+        "tempMeat": _f(r["temp_meat"]),
+        "kgMatch": r["kg_match"],
+        "notes": r["notes"] or "",
+        "verdict": r["verdict"],
+        "ncDescription": r["nc_description"] or "",
+        "ncAction": r["nc_action"] or "",
+        "ncAt": r["nc_at"].isoformat() if r["nc_at"] else None,
+        "signatures": wg_dostawy.get(r["id"], {}),
+    } for r in rows]

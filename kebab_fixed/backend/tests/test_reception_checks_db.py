@@ -102,3 +102,30 @@ def test_pending_nie_siega_poza_okno_dni(db):
         (dawno, now_iso()),
     )
     assert all(r["receptionId"] != "rec-stare" for r in pending(14))
+
+
+def test_checks_for_range_zwraca_wpis_dostawy(db):
+    """Karta 1.1.1 pobiera wpisy CAŁEGO miesiąca jednym żądaniem —
+    `pending` nie wystarcza, bo zwraca wyłącznie braki."""
+    from app.services.reception_checks_service import checks_for_range
+    rid = _seed_przyjecie("rec-range")
+    save_check(rid, ReceptionCheckIn.model_validate({
+        "visual": "bz", "tempChamber": 2.5, "tempMeat": 3.1,
+        "kgMatch": "bz", "verdict": "K",
+    }))
+    wpisy = checks_for_range("2026-08-01", "2026-08-31")
+    assert [w["receptionId"] for w in wpisy] == [rid]
+    assert wpisy[0]["tempChamber"] == 2.5
+    # Podpisów jeszcze nie ma — pusty słownik, nie wywrócenie się na
+    # nieistniejącej tabeli (kolumny f-k muszą działać przed l-m).
+    assert wpisy[0]["signatures"] == {}
+
+
+def test_checks_for_range_pomija_dostawy_spoza_zakresu(db):
+    from app.services.reception_checks_service import checks_for_range
+    rid = _seed_przyjecie("rec-poza")
+    save_check(rid, ReceptionCheckIn.model_validate({
+        "visual": "bz", "tempChamber": 2.5, "tempMeat": 3.1,
+        "kgMatch": "bz", "verdict": "K",
+    }))
+    assert checks_for_range("2026-09-01", "2026-09-30") == []

@@ -20,6 +20,13 @@ def haccp_pending(days: int = Query(14, ge=1, le=365)):
     return svc.pending(days)
 
 
+@router.get("/haccp-checks")
+def haccp_checks(date_from: str = Query("", alias="from"),
+                 date_to: str = Query("", alias="to")):
+    """Wpisy kontroli i podpisy dla zakresu dat — źródło kolumn f-m."""
+    return svc.checks_for_range(date_from, date_to)
+
+
 @router.get("/{reception_id}/check")
 def get_check(reception_id: str):
     if not query_one("SELECT id FROM receptions WHERE id=%s", (reception_id,)):

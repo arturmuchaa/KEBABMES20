@@ -4,20 +4,52 @@
  * Karta 1.1.1 rejestruje DOSTAWY (jeden wiersz = jeden numer przyjęcia),
  * karta 1.1.1/2 rozbija każdą dostawę na NUMERY PORZĄDKOWE.
  *
- * Karty NIE są równorzędne i to jest tu najważniejsze:
- *   * 1.1.1 ma sześć kolumn powstających PRZY AUCIE (ocena wizualna,
- *     temperatura komory i mięsa, zgodność kg, kwalifikacja, podpisy).
- *     Tych nie wypełniamy nigdy — nie ma ich skąd wziąć, a wydruk na koniec
- *     miesiąca i tak nie da się już uzupełnić długopisem przy dostawie.
- *     System podaje wyłącznie kolumny a-e (numery, dostawca, asortyment,
- *     data, dokument) i służy to sprawdzeniu albo odtworzeniu karty.
- *   * 1.1.1/2 nie ma ŻADNEJ kolumny pomiarowej, więc drukuje się kompletna:
- *     wszystko poza uwagami i podpisem system zna, łącznie z mięsem
- *     z rozbioru.
+ * Skąd biorą się kolumny 1.1.1:
+ *   * a-e (numery, dostawca, asortyment, data, dokument) — z dokumentu dostawy;
+ *   * f-k (ocena wizualna, temperatury, zgodność kg, uwagi, kwalifikacja) —
+ *     z kontroli HACCP dostawy (`reception_checks`), którą biuro uzupełnia
+ *     po przyjęciu, a docelowo operator przy rampie;
+ *   * l-m (wykonał, sprawdził) — z podpisów elektronicznych, jako obrazek.
+ *
+ * Do 31.08.2026 f-m zostawały PUSTE i zakład dopisywał je długopisem —
+ * system nie miał ich skąd wziąć. Teraz ma, więc karta wychodzi kompletna,
+ * a pusta kratka znaczy naprawdę „nie zmierzono", nie „system nie wie".
+ *
+ * Karta 1.1.1/2 nie ma kolumn pomiarowych i drukuje się kompletna od zawsze:
+ * wszystko poza uwagami i podpisem system zna, łącznie z mięsem z rozbioru.
  *
  * Zero importów z React/UI — moduł ma się dać przetestować w vitest.
  */
 import type { Reception } from '@/types'
+
+/** Komórka karty: tekst albo obrazek podpisu (kolumny l/m karty 1.1.1).
+ *  Typ wprowadzony razem z kolumnami f-k, choć obrazki dochodzą dopiero
+ *  z podpisami — inaczej siatkę wydruku trzeba by przepisywać dwa razy. */
+export type Cell = string | { png: string }
+
+/** Wpis kontroli HACCP w kształcie, w jakim oddaje go backend. */
+export interface RegisterCheck {
+  visual?: string | null
+  tempChamber?: number | null
+  tempMeat?: number | null
+  kgMatch?: string | null
+  notes?: string | null
+  verdict?: string | null
+  signatures?: { wykonal?: { png: string }; sprawdzil?: { png: string } }
+}
+
+/** 'bz' → „b/z" (tak brzmi legenda karty), 'N' → „N", brak → pusto. */
+function ocena(v: string | null | undefined): string {
+  if (v === 'bz') return 'b/z'
+  return v === 'N' ? 'N' : ''
+}
+
+/** Temperatura po polsku. Zero jest POMIAREM, nie brakiem — `plNum`
+ *  zwraca dla zera pusty napis, więc tutaj nie da się go użyć. */
+function temp(v: number | null | undefined): string {
+  if (v === null || v === undefined) return ''
+  return v.toLocaleString('pl-PL', { maximumFractionDigits: 1 })
+}
 
 /** Formy prawne obcinane w kolumnie „skrócona nazwa dostawcy". */
 const LEGAL_FORMS = [
@@ -96,10 +128,15 @@ export function assortmentLabel(materialName: string, storageState?: string): st
 /**
  * mainRows — karta 1.1.1: jeden wiersz na DOSTAWĘ.
  *
- * Kolumny f–m (ocena wizualna, temperatury, zgodność, uwagi, kwalifikacja,
- * podpisy) zostają puste — wypełnia je odbierający przy aucie.
+ * `checks` to wpisy kontroli HACCP po identyfikatorze dostawy. Brak wpisu
+ * zostawia kolumny f-k puste — karta ma wtedy wyglądać jak druk do
+ * wypełnienia ręką, a nie kłamać zerami.
  */
-export function mainRows(receptions: Reception[], cols: number): string[][] {
+export function mainRows(
+  receptions: Reception[],
+  cols: number,
+  checks: Record<string, RegisterCheck> = {},
+): Cell[][] {
   return [...receptions]
     .filter(r => liveBatches(r).length > 0)
     .sort((a, b) => a.receivedDate.localeCompare(b.receivedDate) ||
@@ -108,12 +145,19 @@ export function mainRows(receptions: Reception[], cols: number): string[][] {
       const assortment = [...new Set(liveBatches(r)
         .map(b => assortmentLabel(b.materialName || '', b.storageState))
         .filter(Boolean))]
-      const row = [
+      const c = checks[r.id]
+      const row: Cell[] = [
         r.receptionNo,
         shortSupplier(r.supplierName),
         assortment.join(', '),
         plDate(r.receivedDate),
         documentLabel(r.hdiNo, r.documentNo),
+        ocena(c?.visual),        // f
+        temp(c?.tempChamber),    // g
+        temp(c?.tempMeat),       // h
+        ocena(c?.kgMatch),       // i
+        c?.notes ?? '',          // j
+        c?.verdict ?? '',        // k
       ]
       return [...row, ...Array(Math.max(0, cols - row.length)).fill('')]
     })

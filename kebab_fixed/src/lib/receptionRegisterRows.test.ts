@@ -201,3 +201,52 @@ describe('paginate', () => {
     expect(paginate([], 12)).toEqual([[]])
   })
 })
+
+// ── Kolumny oceny (f-k) — dane z kontroli HACCP dostawy ────────────────
+//
+// Do 31.08.2026 karta drukowała się z pustymi kolumnami f-m i zakład
+// dopisywał je długopisem. Od wprowadzenia `reception_checks` system je
+// zna i ma wydrukować — pusta kratka zostaje tylko tam, gdzie naprawdę
+// nie było pomiaru.
+const wpis = {
+  receptionId: 'r1', visual: 'bz', tempChamber: 2.5, tempMeat: 3.1,
+  kgMatch: 'bz', notes: 'brak uwag', verdict: 'K',
+  ncDescription: '', ncAction: '', ncAt: null,
+} as any
+
+describe('mainRows — kolumny oceny (f-k)', () => {
+  it('bez wpisu kolumny f-k zostają puste', () => {
+    const [row] = mainRows([rec()], 13)
+    expect(row.slice(5, 11)).toEqual(['', '', '', '', '', ''])
+  })
+
+  it('wpis wypełnia ocenę, temperatury, zgodność, uwagi i kwalifikację', () => {
+    const [row] = mainRows([rec()], 13, { r1: wpis })
+    expect(row[5]).toBe('b/z')        // f — ocena wizualna
+    expect(row[6]).toBe('2,5')        // g — komora
+    expect(row[7]).toBe('3,1')        // h — mięso
+    expect(row[8]).toBe('b/z')        // i — zgodność kg
+    expect(row[9]).toBe('brak uwag')  // j
+    expect(row[10]).toBe('K')         // k — kwalifikacja
+  })
+
+  it('temperatura 0 °C drukuje się jako „0", nie jako pusta kratka', () => {
+    const [row] = mainRows([rec()], 13, { r1: { ...wpis, tempChamber: 0 } })
+    expect(row[6]).toBe('0')
+  })
+
+  it('temperatura ujemna (blok mrożony) drukuje się ze znakiem', () => {
+    const [row] = mainRows([rec()], 13, { r1: { ...wpis, tempChamber: -18.5 } })
+    expect(row[6]).toBe('-18,5')
+  })
+
+  it('ocena N drukuje się jako N', () => {
+    const [row] = mainRows([rec()], 13, { r1: { ...wpis, visual: 'N' } })
+    expect(row[5]).toBe('N')
+  })
+
+  it('wpis innej dostawy nie wypełnia tego wiersza', () => {
+    const [row] = mainRows([rec()], 13, { INNA: wpis })
+    expect(row.slice(5, 11)).toEqual(['', '', '', '', '', ''])
+  })
+})
