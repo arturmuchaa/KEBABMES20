@@ -108,3 +108,39 @@ def test_bez_podanej_kartoteki_nazwa_nadal_powstaje():
     nie mogą zostać z pustą nazwą pozycji."""
     linie = build_goods_wz_lines(_sztuki())
     assert linie[0]["name"].strip()
+
+
+# ── Dopisek tulei w TYM SAMYM miejscu na obu dokumentach ────────────
+def test_hdi_stawia_dopisek_tulei_za_waga_tak_jak_wz():
+    """Rozjazd złapany na produkcji 02.09.2026: WZ dawał
+    „…70kg (80cm)", a HDI „…(80cm) 70KG". Ten sam wyrób, dwa napisy —
+    dokumentów nie dało się zestawić."""
+    from app.services.hdi_service import group_hdi_items
+    poz = group_hdi_items([
+        {"product_type_name": "KEBAB UDO BEYAZ", "tuleja": " (80cm)",
+         "weight_kg": 70, "batch_no": "518", "produced_date": "2026-09-01",
+         "shelf_life_days": 365},
+    ])
+    assert poz[0]["name"] == "KEBAB UDO BEYAZ 70KG (80cm)"
+
+
+def test_hdi_rozdziela_te_sama_wage_w_dwoch_tulejach():
+    from app.services.hdi_service import group_hdi_items
+    poz = group_hdi_items([
+        {"product_type_name": "KIRMIZI", "tuleja": "", "weight_kg": 30,
+         "batch_no": "518", "produced_date": "2026-09-01", "shelf_life_days": 365},
+        {"product_type_name": "KIRMIZI", "tuleja": " (80cm)", "weight_kg": 30,
+         "batch_no": "518", "produced_date": "2026-09-01", "shelf_life_days": 365},
+    ])
+    assert sorted(p["name"] for p in poz) == ["KIRMIZI 30KG", "KIRMIZI 30KG (80cm)"]
+
+
+def test_hdi_standardowa_tuleja_stoi_przed_niestandardowa():
+    from app.services.hdi_service import group_hdi_items
+    poz = group_hdi_items([
+        {"product_type_name": "KIRMIZI", "tuleja": " (80cm)", "weight_kg": 70,
+         "batch_no": "518", "produced_date": "2026-09-01", "shelf_life_days": 365},
+        {"product_type_name": "KIRMIZI", "tuleja": "", "weight_kg": 30,
+         "batch_no": "518", "produced_date": "2026-09-01", "shelf_life_days": 365},
+    ])
+    assert [p["name"] for p in poz] == ["KIRMIZI 30KG", "KIRMIZI 70KG (80cm)"]

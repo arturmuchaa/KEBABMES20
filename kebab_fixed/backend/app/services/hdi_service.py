@@ -21,8 +21,15 @@ from app.services.document_naming import tuleja_suffix
 logger = get_logger(__name__)
 
 
-def _product_label(product_type_name: str, weight_kg) -> str:
-    return f"{(product_type_name or '').strip()} {int(round(float(weight_kg or 0)))}KG".strip()
+def _product_label(product_type_name: str, weight_kg, tuleja: str = "") -> str:
+    """Nazwa pozycji z wagą i ewentualnym rozmiarem tulei NA KOŃCU.
+
+    Dopisek za wagą, tak samo jak na WZ („KEBAB UDO KIRMIZI 30KG (80cm)") —
+    inaczej ten sam wyrób miałby na dwóch dokumentach dwa różne napisy
+    i nie dałoby się ich zestawić.
+    """
+    base = f"{(product_type_name or '').strip()} {int(round(float(weight_kg or 0)))}KG".strip()
+    return base + (tuleja or "")
 
 
 def hdi_product_base(type_label: str, recipe_name: str, mode: str = "type_recipe") -> str:
@@ -127,7 +134,7 @@ def units_from_plan_lines(lines: List[Dict[str, Any]], shelf_by_recipe: Dict[str
         # Tuleja niestandardowa wchodzi do NAZWY, a nazwa jest kluczem
         # grupowania — dzięki temu 80 cm dostaje własną pozycję zamiast
         # scalać się z 65 cm w jedną liczbę sztuk.
-        name += tuleja_suffix(line.get("packaging_name"))
+        tul = tuleja_suffix(line.get("packaging_name"))
         weight = line.get("kg_per_unit") or 0
         shelf = int(shelf_by_recipe.get(line.get("recipe_id"), 0) or 0)
         pd = _pd_iso(line.get("progress_updated_at"))
@@ -147,6 +154,8 @@ def units_from_plan_lines(lines: List[Dict[str, Any]], shelf_by_recipe: Dict[str
             for _ in range(int(pieces)):
                 units.append({
                     "product_type_name": name,
+                "tuleja": tul,
+                    "tuleja": tul,
                     "weight_kg": weight,
                     "batch_no": bno,
                     "produced_date": pd,
@@ -178,13 +187,14 @@ def units_from_stock_portions(
             or fg.get("product_type_name") or "",
             (recipe_names or {}).get(fg.get("recipe_id") or "")
             or fg.get("recipe_name") or "", mode)
-        name += tuleja_suffix(fg.get("packaging_name"))
+        tul = tuleja_suffix(fg.get("packaging_name"))
         pd = _pd_iso(fg.get("produced_date"))
         bno = kebab_batch_wsad(fg.get("batch_no") or "")
         shelf = int(shelf_by_recipe.get(fg.get("recipe_id"), 0) or 0)
         for _ in range(take):
             units.append({
                 "product_type_name": name,
+                "tuleja": tul,
                 "weight_kg": fg.get("kg_per_unit") or 0,
                 "batch_no": bno,
                 "produced_date": pd,
@@ -198,9 +208,12 @@ def group_hdi_items(units: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     by_prod: Dict[tuple, Dict[str, Any]] = {}
     for u in units:
         w = round(float(u.get("weight_kg") or 0), 3)
-        key = ((u.get("product_type_name") or "").strip(), w)
-        grp = by_prod.setdefault(key, {"name": _product_label(key[0], w), "qty": 0, "kg": 0.0,
-                                       "_base": key[0], "_w": w, "_b": {}})
+        # Tuleja w KLUCZU: ta sama receptura i waga w 65 cm i 80 cm to dwie
+        # różne pozycje na papierze, nie jedna zsumowana.
+        key = ((u.get("product_type_name") or "").strip(), w, u.get("tuleja") or "")
+        grp = by_prod.setdefault(key, {"name": _product_label(key[0], w, key[2]),
+                                       "qty": 0, "kg": 0.0,
+                                       "_base": key[0], "_w": w, "_t": key[2], "_b": {}})
         grp["qty"] += 1
         grp["kg"] += w
         pd = u.get("produced_date") or ""
@@ -219,10 +232,13 @@ def group_hdi_items(units: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         out.append(grp)
     # Kolejność pozycji: wg przepisu (nazwa rosnąco), w obrębie przepisu
     # od najwyższej wagi do najniższej (jak na wzorze HDI klienta).
-    out.sort(key=lambda g: (g["_base"], -g["_w"]))
+    # Standardowa tuleja przed niestandardową w obrębie tego samego wyrobu —
+    # tak samo jak w kolejności pozycji zamówienia.
+    out.sort(key=lambda g: (g["_base"], 1 if g["_t"] else 0, -g["_w"]))
     for grp in out:
         grp.pop("_base", None)
         grp.pop("_w", None)
+        grp.pop("_t", None)
     return out
 
 

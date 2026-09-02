@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from 'react'
 import { WzDoc, WzLine } from '@/lib/api'
 import { fmtDatePl } from '@/lib/utils'
 import { buildHdiRows } from './hdiRows'
-import { sortujPozycjeWz } from '@/features/wz/wzLineOrder'
+import { scalPozycjeWz } from '@/features/wz/wzLineMerge'
 import { bezPowtorzonychSlow } from '@/features/wz/nazwaWyrobu'
 import { maVat, podsumowanieVat } from '@/features/wz/wzVat'
 
@@ -94,29 +94,8 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
   // Główna tabela SCALA pozycje o tej samej nazwie/jm/cenie (np. „Kości
   // z kurczaka" z trzech partii = jedna pozycja z sumą kg) — rozbicie na
   // partie daje sekcja HDI pod spodem. Dane dokumentu zostają per partia.
-  const mergedLines: WzLine[] = []
-  {
-    const byKey = new Map<string, WzLine>()
-    // Sortujemy PRZED scalaniem, żeby kolejność wynikowa szła z reguły, a nie
-    // z tego, w jakiej kolejności biuro dokładało pozycje do koszyka.
-    for (const l of sortujPozycjeWz(doc.lines)) {
-      // Stawka w kluczu: dwie pozycje o tej samej nazwie, ale innym VAT,
-      // NIE mogą się scalić — podsumowanie rozbija kwoty po stawkach.
-      const k = `${l.name}|${l.unit}|${l.price ?? ''}|${l.kg_per_unit ?? ''}|${l.vat_rate ?? ''}`
-      const m = byKey.get(k)
-      if (m) {
-        m.qty = Number(m.qty) + Number(l.qty)
-        if ((l.total_kg ?? 0) > 0 || (m.total_kg ?? 0) > 0)
-          m.total_kg = Number(m.total_kg ?? 0) + Number(l.total_kg ?? 0)
-        if (l.value != null || m.value != null)
-          m.value = Number(m.value ?? 0) + Number(l.value ?? 0)
-      } else {
-        const c = { ...l }
-        byKey.set(k, c)
-        mergedLines.push(c)
-      }
-    }
-  }
+  const mergedLines: WzLine[] = scalPozycjeWz(doc.lines)
+
   const pokazVat = maVat(doc.lines)
   const vat = podsumowanieVat(mergedLines)
   const sym = curSymbol(doc.currency)
