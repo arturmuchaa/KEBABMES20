@@ -5,7 +5,7 @@ import { ProcessStatusBadge } from '@/features/operations/ProcessStatusBadge'
 import {
   rawBatchesApi, meatStockApi, seasonedMeatApi,
   productionPlansApi, mixingOrdersApi, clientOrdersApi, finishedGoodsApi,
-  deboningApi, productionSessionsApi,
+  deboningApi, productionSessionsApi, receptionChecksApi,
 } from '@/lib/apiClient'
 import {
   FINISHED_BATCHES_LIMIT, filterDeboningBatches, lastFinishedBatches,
@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/tooltip'
 
 import {
-  AlertTriangle, Package, Boxes, ArrowRight, Clock, Zap,
+  AlertTriangle, Package, Boxes, ArrowRight, Clock, Zap, ClipboardCheck,
   Info, Factory, Soup, Truck, ChevronDown, ChevronRight,
   Scissors, CheckCircle2,
 } from 'lucide-react'
@@ -254,6 +254,10 @@ export function DashboardPage() {
   const deboningRes = useApi(() => deboningApi.list())
   // Sesje czekające na potwierdzenie biura (w tym zaległe z poprzednich dni)
   const pendingRes  = useApi(() => productionSessionsApi.pending())
+  // Dostawy bez kompletu kontroli HACCP. Okno 14 dni, bo pulpit pokazuje
+  // STAN, nie archiwum — pełna historia świeciłaby setką starych dostaw,
+  // których nikt już nie uzupełni, i kafel przestałby cokolwiek znaczyć.
+  const haccpRes    = useApi(() => receptionChecksApi.pending(14))
 
   // Live polling — odświeża sekcje produkcyjne i magazynowe co POLL_MS
   useEffect(() => {
@@ -622,6 +626,46 @@ export function DashboardPage() {
             to: '/office/zamowienia', alert: shipsToday > 0 },
         ]} />
       })()}
+
+      {/* ── Przyjęcia bez kompletu HACCP ───────────────────────────
+          Dostawa zapisuje się bez kontroli (nie może czekać na kierownika),
+          więc system musi się o nią upomnieć — inaczej karta 1.1.1 wychodzi
+          na koniec miesiąca z dziurami, których nikt już nie uzupełni. */}
+      {(haccpRes.data ?? []).length > 0 && (
+        <Card className="border-amber-300 bg-amber-50/40">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <ClipboardCheck size={15} className="text-amber-600" />
+              <span className="text-sm font-bold text-amber-800">
+                Przyjęcia bez kompletu HACCP · {(haccpRes.data ?? []).length}
+              </span>
+            </div>
+            <div className="space-y-2">
+              {(haccpRes.data ?? []).slice(0, 5).map((r: any) => (
+                <Link
+                  key={r.receptionId}
+                  to={`/office/raw-batches/${r.receptionId}/podglad`}
+                  className="flex items-center gap-3 bg-white border border-amber-200 rounded-lg px-3 py-2 hover:bg-amber-50 transition-colors"
+                >
+                  <code className="font-mono font-bold text-xs">{r.receptionNo}</code>
+                  <span className="text-xs font-semibold">{r.supplierName || '—'}</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {fmtDatePl(r.receivedDate)}
+                  </span>
+                  <Badge variant="outline" className="ml-auto flex-shrink-0">
+                    {r.status === 'brak' ? 'brak danych' : 'niepełne'}
+                  </Badge>
+                </Link>
+              ))}
+              {(haccpRes.data ?? []).length > 5 && (
+                <p className="text-[11px] text-muted-foreground pl-1">
+                  …i {(haccpRes.data ?? []).length - 5} więcej
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Do potwierdzenia przez biuro ──────────────────────────
           Tablet kończy sesję/plan, biuro potwierdza tutaj. Zaległe
