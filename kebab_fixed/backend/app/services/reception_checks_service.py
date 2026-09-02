@@ -6,7 +6,7 @@ może czekać na kierownika).
 """
 from typing import Any, Dict, Optional
 
-from app.db import execute, query_one
+from app.db import execute, query_all, query_one
 from app.models.reception_checks import ReceptionCheckIn
 from app.utils.ids import now_iso
 
@@ -76,3 +76,38 @@ def save_check(reception_id: str, dto: ReceptionCheckIn) -> Dict[str, Any]:
          teraz, teraz),
     )
     return get_check(reception_id)
+
+
+def pending(days: int = 14) -> list:
+    """Dostawy bez kompletu HACCP z ostatnich `days` dni.
+
+    Okno, nie cała historia: pulpit pokazuje STAN, nie archiwum — inaczej
+    kafel od pierwszego dnia świeciłby setką starych dostaw, których nikt
+    już nie uzupełni, i przestałby cokolwiek znaczyć.
+    """
+    rows = query_all(
+        """SELECT r.id, r.reception_no, r.supplier_name, r.received_date,
+                  c.visual, c.temp_chamber, c.temp_meat, c.kg_match, c.verdict
+             FROM receptions r
+             LEFT JOIN reception_checks c ON c.reception_id = r.id
+            WHERE r.received_date >= CURRENT_DATE - %s::int
+            ORDER BY r.received_date DESC, r.reception_seq DESC""",
+        (days,),
+    )
+    out = []
+    for r in rows:
+        stan = check_status({
+            "visual": r["visual"], "tempChamber": r["temp_chamber"],
+            "tempMeat": r["temp_meat"], "kgMatch": r["kg_match"],
+            "verdict": r["verdict"],
+        })
+        if stan == "komplet":
+            continue
+        out.append({
+            "receptionId": r["id"],
+            "receptionNo": r["reception_no"],
+            "supplierName": r["supplier_name"] or "",
+            "receivedDate": r["received_date"].isoformat() if r["received_date"] else "",
+            "status": stan,
+        })
+    return out
