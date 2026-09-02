@@ -1586,6 +1586,7 @@ def _run_migrations_locked() -> None:
     _backfill_plan_line_position()
     _backfill_order_line_positions()
     _ustaw_prog_kontroli_haccp()
+    _przeloz_pozycje_wg_tulei_raz()
     _backfill_mixing_session_lots()
     _backfill_receptions()
     _backfill_stock_codes()
@@ -2496,6 +2497,70 @@ def _backfill_byproduct_containers() -> None:
         logger.warning(
             "migrations.backfill_byproduct_containers.error", extra={"error": str(exc)}
         )
+
+
+def _przeloz_pozycje_wg_tulei_raz() -> None:
+    """Jednorazowe PRZEŁOŻENIE pozycji zamówień wg reguły tulei.
+
+    Dlaczego osobna migracja, a nie poprawka poprzedniej: `_backfill_order_line_positions`
+    rusza WYŁĄCZNIE zamówienia z samymi zerami. Pierwsze wdrożenie (2026-09-02
+    rano) wypełniło im position bez podziału na tuleje, więc gdy reguła tulei
+    doszła po południu, strażnik wykluczył każde zamówienie i METAL 80CM został
+    wymieszany z 65CM.
+
+    Przełożenie jest BEZPIECZNE, bo kolejność pozycji nie jest w tej aplikacji
+    niczyją ręczną decyzją — nie ma ekranu do przestawiania wierszy. Jedynym
+    źródłem kolejności jest ta reguła, więc ponowne jej zastosowanie daje ten
+    sam wynik, co zapis dokumentu z panelu.
+
+    Odpala się RAZ — znacznik w `app_settings`. Bez niego każdy restart
+    przekładałby dokumenty, w tym te zapisane później ręcznie z panelu.
+    """
+    try:
+        zrobione = query_one(
+            "SELECT 1 AS x FROM app_settings WHERE key = 'order_lines_resort_tuleje'")
+        if zrobione:
+            return
+        execute(
+            r"""
+            WITH wpisane AS (
+              SELECT l.id, l.order_id, l.recipe_id, l.kg_per_unit,
+                     CASE WHEN COALESCE(
+                            (substring(upper(l.packaging_name) from '([0-9]+)\s*CM'))::int,
+                            0) BETWEEN 45 AND 65
+                          THEN 0 ELSE 1 END AS niestandard,
+                     ROW_NUMBER() OVER (PARTITION BY l.order_id ORDER BY l.position, l.ctid) AS wpis
+                FROM client_order_lines l
+            ),
+            grupy AS (
+              SELECT order_id, recipe_id, MIN(wpis) AS pierwsze
+                FROM wpisane GROUP BY order_id, recipe_id
+            ),
+            ulozone AS (
+              SELECT w.id,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY w.order_id
+                       ORDER BY g.pierwsze, w.niestandard, w.kg_per_unit DESC, w.wpis
+                     ) - 1 AS poz
+                FROM wpisane w
+                JOIN grupy g
+                  ON g.order_id = w.order_id
+                 AND g.recipe_id IS NOT DISTINCT FROM w.recipe_id
+            )
+            UPDATE client_order_lines l
+               SET position = ulozone.poz
+              FROM ulozone
+             WHERE ulozone.id = l.id
+            """
+        )
+        execute(
+            "INSERT INTO app_settings (key, value) "
+            "VALUES ('order_lines_resort_tuleje', to_jsonb(now()::text)) "
+            "ON CONFLICT (key) DO NOTHING"
+        )
+        logger.info("migrations.resort_tuleje.done")
+    except Exception as exc:
+        logger.warning("migrations.resort_tuleje.error", extra={"error": str(exc)})
 
 
 def _ustaw_prog_kontroli_haccp() -> None:

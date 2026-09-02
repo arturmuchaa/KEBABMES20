@@ -235,3 +235,62 @@ def test_wypelnienie_pozycja_bez_tulei_ladzie_na_koncu(db):
     assert [r["id"] for r in query_all(
         "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position",
         (oid,))] == ["b2", "b1"]
+
+
+# ── Jednorazowe przełożenie wg reguły tulei ─────────────────────────
+def test_przelozenie_naprawia_dokument_ulozony_bez_reguly_tulei(db):
+    """Pierwsze wdrożenie ułożyło zamówienia SAMYMI kilogramami — METAL 80CM
+    wylądował między 65CM. To przełożenie ma je naprawić mimo że position
+    nie są już zerami."""
+    from app.migrations import _przeloz_pozycje_wg_tulei_raz
+    _slownik()
+    execute("DELETE FROM app_settings WHERE key='order_lines_resort_tuleje'")
+    oid = _stare_zamowienie("ord-resort")
+    # Układ jak po pierwszym wdrożeniu: same kg malejąco.
+    _stara_pozycja(oid, "r1", "rec-a", 60, poz=0, tuleja="METAL 80CM")
+    _stara_pozycja(oid, "r2", "rec-a", 50, poz=1, tuleja="METAL 65CM")
+    _stara_pozycja(oid, "r3", "rec-a", 40, poz=2, tuleja="METAL 80CM")
+    _stara_pozycja(oid, "r4", "rec-a", 30, poz=3, tuleja="METAL 60CM")
+
+    _przeloz_pozycje_wg_tulei_raz()
+
+    assert [r["id"] for r in query_all(
+        "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position",
+        (oid,))] == ["r2", "r4", "r1", "r3"]
+
+
+def test_przelozenie_zachowuje_kolejnosc_grup_receptur(db):
+    """Grupa receptury ma zostać tam, gdzie była — przekładamy WEWNĄTRZ niej."""
+    from app.migrations import _przeloz_pozycje_wg_tulei_raz
+    _slownik()
+    execute("DELETE FROM app_settings WHERE key='order_lines_resort_tuleje'")
+    oid = _stare_zamowienie("ord-grupy")
+    _stara_pozycja(oid, "g1", "rec-b", 50, poz=0, tuleja="METAL 65CM")
+    _stara_pozycja(oid, "g2", "rec-b", 40, poz=1, tuleja="METAL 80CM")
+    _stara_pozycja(oid, "g3", "rec-a", 90, poz=2, tuleja="METAL 65CM")
+    _przeloz_pozycje_wg_tulei_raz()
+    assert [r["id"] for r in query_all(
+        "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position",
+        (oid,))] == ["g1", "g2", "g3"]
+
+
+def test_przelozenie_odpala_sie_tylko_raz(db):
+    """Bez znacznika każdy restart przekładałby dokumenty, w tym te zapisane
+    później ręcznie z panelu."""
+    from app.migrations import _przeloz_pozycje_wg_tulei_raz
+    _slownik()
+    execute("DELETE FROM app_settings WHERE key='order_lines_resort_tuleje'")
+    oid = _stare_zamowienie("ord-raz")
+    _stara_pozycja(oid, "j1", "rec-a", 60, poz=0, tuleja="METAL 80CM")
+    _stara_pozycja(oid, "j2", "rec-a", 50, poz=1, tuleja="METAL 65CM")
+    _przeloz_pozycje_wg_tulei_raz()
+    po_pierwszym = [r["id"] for r in query_all(
+        "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position", (oid,))]
+    # Symulacja ręcznego zapisu z panelu w innej kolejności…
+    execute("UPDATE client_order_lines SET position=0 WHERE id='j1'")
+    execute("UPDATE client_order_lines SET position=1 WHERE id='j2'")
+    _przeloz_pozycje_wg_tulei_raz()          # drugi przebieg NIE rusza
+    assert [r["id"] for r in query_all(
+        "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position",
+        (oid,))] == ["j1", "j2"]
+    assert po_pierwszym == ["j2", "j1"]
