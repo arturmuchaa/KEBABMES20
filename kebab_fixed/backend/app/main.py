@@ -104,6 +104,8 @@ def create_app() -> FastAPI:
         carriers,
         raw_batches,
         receptions,
+        reception_checks,
+        signatures,
         meat_stock,
         ingredients,
         packaging,
@@ -161,7 +163,15 @@ def create_app() -> FastAPI:
         client_groups,
         carriers,
         raw_batches,
+        # reception_checks MUSI stać przed receptions: oba mają prefiks
+        # /api/receptions, a receptions.get_reception („/{reception_id}")
+        # dopasowuje się do GET /api/receptions/haccp-pending, gdyby ten
+        # router był zarejestrowany wcześniej (sprawdzone empirycznie
+        # Starlette Router.matches — receptions wygrywał jako pierwszy).
+        reception_checks,
         receptions,
+        signatures,
+        signatures.samples_router,
         meat_stock,
         ingredients,
         packaging,

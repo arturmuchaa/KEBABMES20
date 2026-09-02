@@ -26,6 +26,11 @@ class WorkerCreate(BaseModel):
     #: Ile osób pracuje na tym stanowisku (2 = para rozbierająca na jedno
     #: nazwisko). Wpływa WYŁĄCZNIE na tempo kg/h w raporcie — nie na akord.
     crew_size: int = 1
+    #: Uprawnienia podpisu elektronicznego — kolumny l/m karty 1.1.1.
+    #: Rozdzielone, bo „sprawdził" to węższa grupa (kierownik, technolog)
+    #: niż „wykonał" (magazynier, ktokolwiek przyjmuje dostawę).
+    can_sign_performed: bool = False
+    can_sign_checked: bool = False
 
 
 class WorkerUpdate(BaseModel):
@@ -46,6 +51,8 @@ class WorkerUpdate(BaseModel):
     departments: Optional[List[str]] = None
     crew_size: Optional[int] = None
     is_wrapper: Optional[bool] = None
+    can_sign_performed: Optional[bool] = None
+    can_sign_checked: Optional[bool] = None
 
 
 class SettlementDeductionDto(BaseModel):

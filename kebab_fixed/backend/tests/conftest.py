@@ -50,6 +50,8 @@ _TRUNCATE = [
     # opakowaniowa pozycja dokumentu DOKŁADA do magazynu scalanego po nazwie,
     # więc pozostałość z poprzedniego testu podbijała stan następnemu.
     "ingredient_stock", "ingredient_reception_packaging", "ingredient_receptions",
+    # Kontrola HACCP dostawy — czyszczona razem z przyjęciami.
+    "reception_checks",
     "meat_stock", "reception_supplier_batches", "receptions", "raw_batches",
     # `product_catalog` przed `recipes`/`product_types`: rejestr trzyma
     # nazwy rodzajów i receptur, więc pozostałość podbijała licznik
@@ -84,6 +86,8 @@ _TRUNCATE = [
     # Testy radziły sobie z tym `ON CONFLICT (id) DO UPDATE` po stałych id,
     # ale test szukający pracownika po NAZWISKU dostawał kilku „VLAD-ów"
     # z poprzednich przebiegów i czytał znacznik nie tego, którego założył.
+    # Podpisy i wzory — czyszczone PRZED kartoteką pracowników (FK).
+    "document_signatures", "signature_samples",
     "workers",
     "worker_hours", "worker_deductions", "payroll_kg_adjustments",
     "settlement_deductions", "settled_days", "payroll_settlements",

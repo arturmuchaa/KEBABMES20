@@ -449,6 +449,43 @@ export const receptionsApi = {
   },
 }
 
+/** Kontrola HACCP dostawy — kolumny f-k karty 1.1.1.
+ *  Osobny klient, bo to osobny byt: wpis powstaje PO zapisaniu dostawy. */
+export const receptionChecksApi = {
+  get: (receptionId: string) =>
+    get<any>(`/receptions/${encodeURIComponent(receptionId)}/check`),
+
+  save: (receptionId: string, dto: Record<string, unknown>) =>
+    put<any>(`/receptions/${encodeURIComponent(receptionId)}/check`, dto),
+
+  /** Dostawy bez kompletu HACCP — okno dni, nie cała historia. */
+  pending: (days = 14) => get<any[]>(`/receptions/haccp-pending?days=${days}`),
+
+  /** Wpisy + podpisy dla zakresu — źródło kolumn f-m karty 1.1.1. */
+  forRange: (from: string, to: string) =>
+    get<any[]>(`/receptions/haccp-checks?from=${from}&to=${to}`),
+}
+
+/** Podpisy elektroniczne. Wzór rysuje się na HMI rozbioru (menu serwisowe
+ *  pod kodem 0099 — jedyny dotykowy ekran w zakładzie), a sam dokument
+ *  podpisuje biuro PIN-em podpisującego. Patrz auth/permissions.py. */
+export const signaturesApi = {
+  sample: (workerId: string) =>
+    get<{ png: string }>(`/signature-samples/${encodeURIComponent(workerId)}`),
+
+  saveSample: (workerId: string, png: string, pin: string) =>
+    put<any>(`/signature-samples/${encodeURIComponent(workerId)}`, { png, pin }),
+
+  eligible: (role: 'wykonal' | 'sprawdzil') =>
+    get<any[]>(`/signatures/eligible?role=${role}`),
+
+  sign: (dto: { docType: string; docId: string; role: string; workerId: string; pin: string }) =>
+    post<any>('/signatures', dto),
+
+  forDoc: (docType: string, docId: string) =>
+    get<any[]>(`/signatures/doc?docType=${encodeURIComponent(docType)}&docId=${encodeURIComponent(docId)}`),
+}
+
 /** Wynik odczytu skanu HDI. `sumOk === null` = nie odczytano stopki. */
 export interface HdiScan {
   hdiNo:       string
@@ -1099,9 +1136,9 @@ export const usersApi = {
    *  jawnie o archiwum. */
   list:   (includeInactive = false) =>
     get<User[]>(`/workers${includeInactive ? '?includeInactive=1' : ''}`),
-  create: (dto: { name: string; role: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; sundayBonusEnabled?: boolean; sundayBonusPerHour?: number; saturdayBonusEnabled?: boolean; saturdayBonusPerHour?: number; payMode?: string; ratePerDay?: number; contractType?: string; employerCostAmount?: number; crewSize?: number; isWrapper?: boolean; wrappingRatePerKg?: number }) =>
+  create: (dto: { name: string; role: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; sundayBonusEnabled?: boolean; sundayBonusPerHour?: number; saturdayBonusEnabled?: boolean; saturdayBonusPerHour?: number; payMode?: string; ratePerDay?: number; contractType?: string; employerCostAmount?: number; crewSize?: number; isWrapper?: boolean; wrappingRatePerKg?: number; canSignPerformed?: boolean; canSignChecked?: boolean }) =>
     post<User>('/workers', toSnake(dto)),
-  update: (id: string, dto: { name?: string; role?: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; sundayBonusEnabled?: boolean; sundayBonusPerHour?: number; saturdayBonusEnabled?: boolean; saturdayBonusPerHour?: number; payMode?: string; ratePerDay?: number; contractType?: string; employerCostAmount?: number; active?: boolean; crewSize?: number; isWrapper?: boolean; wrappingRatePerKg?: number }) =>
+  update: (id: string, dto: { name?: string; role?: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; sundayBonusEnabled?: boolean; sundayBonusPerHour?: number; saturdayBonusEnabled?: boolean; saturdayBonusPerHour?: number; payMode?: string; ratePerDay?: number; contractType?: string; employerCostAmount?: number; active?: boolean; crewSize?: number; isWrapper?: boolean; wrappingRatePerKg?: number; canSignPerformed?: boolean; canSignChecked?: boolean }) =>
     put<User>(`/workers/${id}`, toSnake(dto)),
   setActive: (id: string, active: boolean) =>
     put<User>(`/workers/${id}`, { active }),

@@ -248,11 +248,32 @@ describe('zapis', () => {
     const dto = create.mock.calls[0][0] as any
     expect(dto.clientId).toBe('c1')
     expect(dto.lines).toHaveLength(2)
+    // Zapis idzie w kolejności DOKUMENTU, nie wpisywania: w obrębie jednej
+    // receptury wagi malejąco, więc 12 kg stoi przed 8,5 kg, choć operator
+    // wbił je odwrotnie (reguła kolejności, 2026-09-02).
     expect(dto.lines[0]).toMatchObject({
-      qty: 40, kgPerUnit: 8.5, productTypeId: 'pt1', recipeId: 'r2', packagingId: 'tul65',
+      qty: 10, kgPerUnit: 12, productTypeId: 'pt1', recipeId: 'r2', packagingId: 'tul65',
       productTypeName: 'Kebab drobiowy', recipeName: 'Drobiowy ostry', packagingName: 'Tuleja 65 cm',
     })
-    expect(dto.lines[1]).toMatchObject({ qty: 10, kgPerUnit: 12, recipeId: 'r2' })
+    expect(dto.lines[1]).toMatchObject({ qty: 40, kgPerUnit: 8.5, recipeId: 'r2' })
+  })
+
+  it('pozycja dopisana przy edycji wchodzi do swojej grupy, nie na koniec', async () => {
+    // Zgłoszenie z biura (zamówienie YALCIN): dopisana pozycja lądowała za
+    // wszystkimi pozycjami drugiej receptury i dokument robił się nieczytelny.
+    pokazTerminal()
+    await wybierzKlienta()
+    await wbijPierwszaPozycje()                       // r2, 8,5 kg
+    await waitFor(() => expect(screen.getAllByTestId('oe-line')).toHaveLength(1))
+    wpisz('Sztuk', '10'); wpisz('Waga sztuki', '3')   // r2, 3 kg — na koniec grupy
+    await waitFor(() => expect(screen.getAllByTestId('oe-line')).toHaveLength(2))
+    wpisz('Sztuk', '5');  wpisz('Waga sztuki', '20')  // r2, 20 kg — na czoło grupy
+    await waitFor(() => expect(screen.getAllByTestId('oe-line')).toHaveLength(3))
+
+    fireEvent.click(screen.getByRole('button', { name: /Zapisz zamówienie/i }))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    const dto = create.mock.calls[0][0] as any
+    expect(dto.lines.map((l: any) => l.kgPerUnit)).toEqual([20, 8.5, 3])
   })
 
   it('nie gubi wypełnionego, ale niezatwierdzonego wsadu', async () => {

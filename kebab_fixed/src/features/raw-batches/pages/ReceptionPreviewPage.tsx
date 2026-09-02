@@ -14,14 +14,16 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { FileText, Paperclip, Pencil, Tags, X } from 'lucide-react'
 
 import { useApi } from '@/hooks/useApi'
-import { receptionsApi } from '@/lib/apiClient'
+import { rawBatchesApi as legacyRawBatchesApi, receptionsApi } from '@/lib/apiClient'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/badge'
 import { fmtKg, fmtPln, fmtDatePl } from '@/lib/utils'
 
 import { HdiScanViewer } from '../components/HdiScanViewer'
+import { ReceptionCheckCard } from '../components/ReceptionCheckCard'
 import { previewRows, receptionPreviewSummary } from '../receptionPreview'
+import type { MaterialTypeLike } from '../receptionTabs'
 
 const LIST_PATH = '/office/raw-batches'
 
@@ -32,6 +34,11 @@ export function ReceptionPreviewPage() {
 
   const reception = useApi(() => receptionsApi.byId(receptionId), [receptionId])
   const rec = reception.data
+  // Kategoria surowca decyduje o progu temperatury na karcie HACCP
+  // (czerwone +7 °C, drób +4 °C), a dostawa niesie tylko identyfikator
+  // rodzaju — próg bez kategorii liczyłby się dla wołowiny jak dla drobiu.
+  const { data: materialTypes } = useApi(
+    () => (legacyRawBatchesApi as any).materialTypes(), [])
 
   if (!rec) {
     return (
@@ -235,6 +242,15 @@ export function ReceptionPreviewPage() {
           </CardContent>
         </Card>
       ))}
+
+      {/* Kontrola HACCP — kolumny f-k karty 1.1.1. Osobno od dokumentu
+          dostawy, bo powstaje później i (docelowo) przy rampie. */}
+      <ReceptionCheckCard
+        receptionId={rec.id}
+        category={((materialTypes as MaterialTypeLike[] | null) ?? [])
+          .find(m => m.id === rec.batches?.[0]?.materialTypeId)?.category}
+        storageState={rec.batches?.[0]?.storageState}
+      />
 
       <HdiScanViewer
         receptionId={rec.id}

@@ -201,3 +201,100 @@ describe('paginate', () => {
     expect(paginate([], 12)).toEqual([[]])
   })
 })
+
+// ── Kolumny oceny (f-k) — dane z kontroli HACCP dostawy ────────────────
+//
+// Do 31.08.2026 karta drukowała się z pustymi kolumnami f-m i zakład
+// dopisywał je długopisem. Od wprowadzenia `reception_checks` system je
+// zna i ma wydrukować — pusta kratka zostaje tylko tam, gdzie naprawdę
+// nie było pomiaru.
+const wpis = {
+  receptionId: 'r1', visual: 'bz', tempChamber: 2.5, tempMeat: 3.1,
+  kgMatch: 'bz', notes: 'brak uwag', verdict: 'K',
+  ncDescription: '', ncAction: '', ncAt: null,
+} as any
+
+describe('mainRows — kolumny oceny (f-k)', () => {
+  it('bez wpisu kolumny f-k zostają puste', () => {
+    const [row] = mainRows([rec()], 13)
+    expect(row.slice(5, 11)).toEqual(['', '', '', '', '', ''])
+  })
+
+  it('wpis wypełnia ocenę, temperatury, zgodność, uwagi i kwalifikację', () => {
+    const [row] = mainRows([rec()], 13, { r1: wpis })
+    expect(row[5]).toBe('b/z')        // f — ocena wizualna
+    expect(row[6]).toBe('2,5')        // g — komora
+    expect(row[7]).toBe('3,1')        // h — mięso
+    expect(row[8]).toBe('b/z')        // i — zgodność kg
+    expect(row[9]).toBe('brak uwag')  // j
+    expect(row[10]).toBe('K')         // k — kwalifikacja
+  })
+
+  it('temperatura 0 °C drukuje się jako „0", nie jako pusta kratka', () => {
+    const [row] = mainRows([rec()], 13, { r1: { ...wpis, tempChamber: 0 } })
+    expect(row[6]).toBe('0')
+  })
+
+  it('temperatura ujemna (blok mrożony) drukuje się ze znakiem', () => {
+    const [row] = mainRows([rec()], 13, { r1: { ...wpis, tempChamber: -18.5 } })
+    expect(row[6]).toBe('-18,5')
+  })
+
+  it('ocena N drukuje się jako N', () => {
+    const [row] = mainRows([rec()], 13, { r1: { ...wpis, visual: 'N' } })
+    expect(row[5]).toBe('N')
+  })
+
+  it('wpis innej dostawy nie wypełnia tego wiersza', () => {
+    const [row] = mainRows([rec()], 13, { INNA: wpis })
+    expect(row.slice(5, 11)).toEqual(['', '', '', '', '', ''])
+  })
+})
+
+// ── Kolumny podpisu (l-m) ──────────────────────────────────────────
+//
+// Podpis unieważniony (dane zmieniono po podpisaniu) NIE dociera tutaj —
+// backend oddaje tylko aktywne. Pusta kratka jest uczciwa; podpis pod
+// zmienioną treścią nie jest.
+const wpisZPodpisami = {
+  ...wpis,
+  signatures: {
+    wykonal:   { png: 'data:image/png;base64,AAA' },
+    sprawdzil: { png: 'data:image/png;base64,BBB' },
+  },
+} as any
+
+describe('mainRows — podpisy (l-m)', () => {
+  it('bez podpisów kratki l-m zostają puste', () => {
+    const [row] = mainRows([rec()], 13, { r1: wpis })
+    expect(row[11]).toBe('')
+    expect(row[12]).toBe('')
+  })
+
+  it('podpisy trafiają jako obrazki, nie tekst', () => {
+    const [row] = mainRows([rec()], 13, { r1: wpisZPodpisami })
+    expect(row[11]).toEqual({ png: 'data:image/png;base64,AAA' })
+    expect(row[12]).toEqual({ png: 'data:image/png;base64,BBB' })
+  })
+
+  it('sam podpis wykonał zostawia kratkę sprawdził pustą', () => {
+    const jeden = { ...wpis, signatures: { wykonal: { png: 'data:image/png;base64,AAA' } } } as any
+    const [row] = mainRows([rec()], 13, { r1: jeden })
+    expect(row[11]).toEqual({ png: 'data:image/png;base64,AAA' })
+    expect(row[12]).toBe('')
+  })
+})
+
+describe('detailRows — kolumna podpisu karty 1.1.1/2', () => {
+  it('podpis „wykonał" powtarza się przy każdym numerze porządkowym', () => {
+    const rows = detailRows([rec()], 9, { r1: wpisZPodpisami })
+    expect(rows).toHaveLength(2)
+    expect(rows[0][8]).toEqual({ png: 'data:image/png;base64,AAA' })
+    expect(rows[1][8]).toEqual({ png: 'data:image/png;base64,AAA' })
+  })
+
+  it('bez podpisu kolumna zostaje pusta', () => {
+    const rows = detailRows([rec()], 9)
+    expect(rows[0][8]).toBe('')
+  })
+})

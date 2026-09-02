@@ -1472,6 +1472,74 @@ _DDL: list[str] = [
     "ALTER TABLE meat_pallets ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
     "ALTER TABLE meat_pallets ADD COLUMN IF NOT EXISTS deleted_by TEXT",
     "ALTER TABLE meat_pallets ADD COLUMN IF NOT EXISTS deleted_reason TEXT",
+    # ── Kontrola HACCP przy przyjęciu (karta 1.1.1, kolumny f-k) ──
+    #
+    # OSOBNA tabela, nie kolumny w `receptions`: PUT /api/receptions/{id}
+    # przepisuje CAŁY dokument dostawy, więc poprawka kilogramów zrobiona
+    # formularzem bez sekcji HACCP wyzerowałaby zmierzoną temperaturę.
+    # Wpis powstaje też PÓŹNIEJ niż dostawa (biuro uzupełnia go po pół
+    # godziny) i docelowo w innym miejscu — przy rampie.
+    """CREATE TABLE IF NOT EXISTS reception_checks (
+        reception_id   TEXT PRIMARY KEY REFERENCES receptions(id) ON DELETE CASCADE,
+        visual         TEXT,
+        temp_chamber   NUMERIC(4,1),
+        temp_meat      NUMERIC(4,1),
+        kg_match       TEXT,
+        notes          TEXT NOT NULL DEFAULT '',
+        verdict        TEXT,
+        nc_description TEXT NOT NULL DEFAULT '',
+        nc_action      TEXT NOT NULL DEFAULT '',
+        nc_at          TIMESTAMPTZ,
+        created_at     TIMESTAMPTZ NOT NULL,
+        updated_at     TIMESTAMPTZ NOT NULL
+    )""",
+
+    # ── Podpisy elektroniczne ──
+    #
+    # WZÓR rysowany raz, na HMI rozbioru pod kodem serwisowym 0099 — to
+    # jedyny dotykowy ekran w zakładzie. Jeden wzór na osobę.
+    """CREATE TABLE IF NOT EXISTS signature_samples (
+        worker_id  TEXT PRIMARY KEY REFERENCES workers(id) ON DELETE CASCADE,
+        png        TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL
+    )""",
+    # AKT PODPISANIA. `png` i `signer_name` są KOPIĄ, nie referencją:
+    # przerysowanie wzoru albo odejście pracownika nie może zmienić
+    # dokumentu sprzed roku. `content_hash` wiąże podpis z treścią —
+    # zmiana danych po podpisaniu ustawia `superseded_at`.
+    """CREATE TABLE IF NOT EXISTS document_signatures (
+        id            TEXT PRIMARY KEY,
+        doc_type      TEXT NOT NULL,
+        doc_id        TEXT NOT NULL,
+        role          TEXT NOT NULL,
+        worker_id     TEXT NOT NULL REFERENCES workers(id),
+        signer_name   TEXT NOT NULL,
+        png           TEXT NOT NULL,
+        content_hash  TEXT NOT NULL,
+        signed_at     TIMESTAMPTZ NOT NULL,
+        superseded_at TIMESTAMPTZ
+    )""",
+    # Jeden AKTYWNY podpis na (dokument, rola). Indeks CZĘŚCIOWY, nie zwykły
+    # UNIQUE: unieważnione podpisy zostają jako historia i muszą móc się
+    # powtarzać, inaczej ponowne podpisanie po korekcie byłoby niemożliwe.
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_document_signatures_active "
+    "ON document_signatures (doc_type, doc_id, role) WHERE superseded_at IS NULL",
+    "CREATE INDEX IF NOT EXISTS idx_document_signatures_doc "
+    "ON document_signatures (doc_type, doc_id)",
+    # Uprawnienia podpisu — dwa, bo kolumny l i m karty 1.1.1 znaczą co innego:
+    # „wykonał" to magazynier, „sprawdził" to kierownik albo technolog.
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS can_sign_performed BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS can_sign_checked BOOLEAN NOT NULL DEFAULT false",
+
+    # ── Kolejność pozycji zamówienia ──
+    #
+    # Biuro (2026-09-02, YALCIN): „pomieszały się receptury i wagi". Dokument
+    # nie miał gdzie zapisać swojej kolejności, a `update_order` kasuje
+    # wszystkie wiersze i wstawia je od nowa z NOWYMI, losowymi id — więc ani
+    # kolejność wpisania, ani `ORDER BY id` nic nie znaczyły.
+    "ALTER TABLE client_order_lines ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0",
+    "CREATE INDEX IF NOT EXISTS idx_client_order_lines_order_pos "
+    "ON client_order_lines (order_id, position)",
 ]
 
 
@@ -1516,6 +1584,7 @@ def _run_migrations_locked() -> None:
     _backfill_recipe_ingredients_seq()
     _backfill_byproduct_containers()
     _backfill_plan_line_position()
+    _backfill_order_line_positions()
     _backfill_mixing_session_lots()
     _backfill_receptions()
     _backfill_stock_codes()
@@ -2425,6 +2494,65 @@ def _backfill_byproduct_containers() -> None:
     except Exception as exc:
         logger.warning(
             "migrations.backfill_byproduct_containers.error", extra={"error": str(exc)}
+        )
+
+
+def _backfill_order_line_positions() -> None:
+    """Nadaje position pozycjom zamówień sprzed tej kolumny.
+
+    Reguła jest ta sama co przy zapisie (właściciel, 2026-09-02): pozycje
+    jednej receptury razem, w grupie wagi sztuki malejąco, grupy w kolejności
+    pierwszego wpisania.
+
+    Kolejności wpisywania stare dokumenty nigdzie nie zapisały, więc bierzemy
+    `ctid` — fizyczne miejsce wiersza, które w praktyce odpowiada kolejności
+    wstawienia. To NIE jest gwarancja bazy, tylko najlepszy dostępny ślad:
+    dzięki niemu grupa receptur zostaje tam, gdzie biuro widzi ją dziś,
+    zamiast przeskoczyć na alfabetyczną.
+
+    Rusza WYŁĄCZNIE zamówienia, w których wszystkie pozycje mają jeszcze 0 —
+    dokument zapisany już nową ścieżką ma swoją kolejność i nie wolno jej
+    nadpisać.
+    """
+    try:
+        execute(
+            """
+            WITH kandydaci AS (
+              SELECT order_id FROM client_order_lines
+               GROUP BY order_id
+              HAVING bool_and(COALESCE(position, 0) = 0)
+            ),
+            wpisane AS (
+              SELECT l.id, l.order_id, l.recipe_id, l.kg_per_unit,
+                     ROW_NUMBER() OVER (PARTITION BY l.order_id ORDER BY l.ctid) AS wpis
+                FROM client_order_lines l
+                JOIN kandydaci k ON k.order_id = l.order_id
+            ),
+            grupy AS (
+              SELECT order_id, recipe_id, MIN(wpis) AS pierwsze
+                FROM wpisane GROUP BY order_id, recipe_id
+            ),
+            ulozone AS (
+              SELECT w.id,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY w.order_id
+                       ORDER BY g.pierwsze, w.kg_per_unit DESC, w.wpis
+                     ) - 1 AS poz
+                FROM wpisane w
+                JOIN grupy g
+                  ON g.order_id = w.order_id
+                 AND g.recipe_id IS NOT DISTINCT FROM w.recipe_id
+            )
+            UPDATE client_order_lines l
+               SET position = ulozone.poz
+              FROM ulozone
+             WHERE ulozone.id = l.id
+            """
+        )
+        logger.info("migrations.backfill_order_line_positions.done")
+    except Exception as exc:
+        logger.warning(
+            "migrations.backfill_order_line_positions.error", extra={"error": str(exc)}
         )
 
 

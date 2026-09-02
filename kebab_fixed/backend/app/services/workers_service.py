@@ -56,8 +56,9 @@ def create_worker(dto: WorkerCreate) -> Dict:
                  rate_per_hour, sunday_bonus_enabled, sunday_bonus_per_hour,
                  saturday_bonus_enabled, saturday_bonus_per_hour,
                  pay_mode, rate_per_day,
-                 contract_type, employer_cost_amount, crew_size, is_wrapper, created_at)
-            VALUES (%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 contract_type, employer_cost_amount, crew_size, is_wrapper,
+                 can_sign_performed, can_sign_checked, created_at)
+            VALUES (%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING *
             """,
             (
@@ -78,6 +79,8 @@ def create_worker(dto: WorkerCreate) -> Dict:
                 dto.employer_cost_amount,
                 max(1, int(dto.crew_size or 1)),
                 bool(dto.is_wrapper),
+                bool(dto.can_sign_performed),
+                bool(dto.can_sign_checked),
                 now_iso(),
             ),
         )
@@ -136,6 +139,12 @@ def update_worker(worker_id: str, dto: WorkerUpdate) -> Dict:
         if dto.is_wrapper is not None:
             fields.append("is_wrapper=%s")
             vals.append(bool(dto.is_wrapper))
+        if dto.can_sign_performed is not None:
+            fields.append("can_sign_performed=%s")
+            vals.append(bool(dto.can_sign_performed))
+        if dto.can_sign_checked is not None:
+            fields.append("can_sign_checked=%s")
+            vals.append(bool(dto.can_sign_checked))
         if dto.contract_type is not None:
             fields.append("contract_type=%s")
             vals.append(dto.contract_type)

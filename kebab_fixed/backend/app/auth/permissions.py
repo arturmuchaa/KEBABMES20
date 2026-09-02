@@ -117,6 +117,14 @@ def permission_for_path(path: str, method: str = "GET") -> str:
     # drukowały się dalej, bo ich etykieta nie rusza backendu.
     if _matches(path, "/api/meat-pallets"):
         return "rozbior"
+    # Wzory podpisów: rysuje je HALA (menu serwisowe kiosku rozbioru pod
+    # kodem 0099 — jedyny dotykowy ekran w zakładzie), a podgląd wzoru
+    # potrzebny jest też biuru w dialogu podpisu. Reguła działowa daje jedno
+    # i drugie, bo „office" ma nadzbiór uprawnień operatora.
+    # SAMO złożenie podpisu zostaje przy domyślnym „office": dokument
+    # podpisuje się z biura, kiosk tylko dostarcza wzór.
+    if _matches(path, "/api/signature-samples"):
+        return "rozbior"
     # Magazyn mięsa: hala tylko CZYTA loty (skład palety). Każda zmiana stanu
     # zostaje w biurze — kiosk nie ma po co ruszać kilogramów.
     if _matches(path, "/api/meat-stock"):
