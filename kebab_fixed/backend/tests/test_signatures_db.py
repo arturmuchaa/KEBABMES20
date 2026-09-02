@@ -166,7 +166,10 @@ def test_zmiana_temperatury_uniewaznia_podpis(db):
         "visual": "bz", "tempChamber": 2.5, "tempMeat": 9.9,
         "kgMatch": "bz", "verdict": "K",
     }))
-    assert signatures_for("reception_check", rid) == []
+    # Podpis przestaje być WAŻNY, ale nie znika z ekranu: biuro musi
+    # zobaczyć, że unieważniła go zmiana danych, a nie że go nigdy nie było.
+    out = signatures_for("reception_check", rid)
+    assert [x["active"] for x in out] == [False]
     # Wiersz ZOSTAJE jako historia — ślad, że ktoś podpisał poprzednią wersję,
     # bywa przy sporze najważniejszy.
     assert query_one(
@@ -280,3 +283,115 @@ def test_blokada_konta_nadal_ma_swoj_kod(db):
     with pytest.raises(HTTPException) as e:
         save_sample(w, PNG, "1234")
     assert e.value.status_code == 423
+
+
+# ── Ślad po unieważnionym podpisie ──────────────────────────────────
+# BŁĄD Z PRODUKCJI (02.09.2026): biuro podpisało obie kolumny, poprawiło
+# temperaturę i podpisy zniknęły BEZ SŁOWA — slot wrócił do gołego
+# przycisku „Podpisz". Wyglądało to jak zgubienie podpisów przez system.
+# Unieważnienie jest słuszne (HACCP), ale musi być WIDOCZNE.
+def _uniewaznij(rid):
+    save_check(rid, ReceptionCheckIn.model_validate({
+        "visual": "bz", "tempChamber": 2.5, "tempMeat": 9.9,
+        "kgMatch": "bz", "verdict": "K",
+    }))
+
+
+def test_uniewazniony_podpis_zostaje_widoczny_ze_swoim_autorem(db):
+    rid = _dostawa()
+    w = _pracownik("w-1", "Jan K.")
+    save_sample(w, PNG, "1234")
+    sign("reception_check", rid, "wykonal", w, "1234")
+    _uniewaznij(rid)
+
+    out = signatures_for("reception_check", rid)
+    assert len(out) == 1
+    assert out[0]["role"] == "wykonal"
+    assert out[0]["signerName"] == "Jan K."
+    assert out[0]["active"] is False
+    assert out[0]["signedAt"]
+
+
+def test_slad_uniewaznionego_NIE_niesie_obrazka_podpisu(db):
+    """Nieważny podpis nie może wyglądać jak ważny. Zostaje nazwisko i
+    data — dowód, kto podpisywał — ale nie grafika do zrzutu ekranu."""
+    rid = _dostawa()
+    w = _pracownik("w-1", "Jan K.")
+    save_sample(w, PNG, "1234")
+    sign("reception_check", rid, "wykonal", w, "1234")
+    _uniewaznij(rid)
+    assert signatures_for("reception_check", rid)[0]["png"] is None
+
+
+def test_aktywny_podpis_nadal_niesie_obrazek(db):
+    rid = _dostawa()
+    w = _pracownik("w-1", "Jan K.")
+    save_sample(w, PNG, "1234")
+    sign("reception_check", rid, "wykonal", w, "1234")
+    out = signatures_for("reception_check", rid)
+    assert out[0]["active"] is True
+    assert out[0]["png"] == PNG
+
+
+def test_ponowny_podpis_wypiera_slad_tej_samej_roli(db):
+    """Po ponownym podpisaniu rola ma JEDEN wpis — ważny. Inaczej karta
+    pokazywałaby obok siebie podpis i jego własne unieważnienie."""
+    rid = _dostawa()
+    w = _pracownik("w-1", "Jan K.")
+    save_sample(w, PNG, "1234")
+    sign("reception_check", rid, "wykonal", w, "1234")
+    _uniewaznij(rid)
+    sign("reception_check", rid, "wykonal", w, "1234")
+
+    out = signatures_for("reception_check", rid)
+    assert len(out) == 1
+    assert out[0]["active"] is True
+
+
+def test_slad_pokazuje_NAJNOWSZE_uniewaznienie_roli(db):
+    """Trzy podejścia to nie trzy kratki na ekranie."""
+    rid = _dostawa()
+    w = _pracownik("w-1", "Jan K.")
+    save_sample(w, PNG, "1234")
+    for temp in (9.9, 8.8):
+        sign("reception_check", rid, "wykonal", w, "1234")
+        save_check(rid, ReceptionCheckIn.model_validate({
+            "visual": "bz", "tempChamber": 2.5, "tempMeat": temp,
+            "kgMatch": "bz", "verdict": "K",
+        }))
+    out = signatures_for("reception_check", rid)
+    assert len(out) == 1
+    assert out[0]["active"] is False
+
+
+def test_rola_aktywna_i_rola_uniewazniona_obok_siebie(db):
+    """Realny stan po poprawce: jedna kolumna podpisana na nowo, druga nie."""
+    rid = _dostawa()
+    w1 = _pracownik("w-1", "Jan K.")
+    w2 = _pracownik("w-2", "Ewa M.", pin="4321", wykonal=False, sprawdzil=True)
+    save_sample(w1, PNG, "1234")
+    save_sample(w2, PNG, "4321")
+    sign("reception_check", rid, "wykonal", w1, "1234")
+    sign("reception_check", rid, "sprawdzil", w2, "4321")
+    _uniewaznij(rid)
+    sign("reception_check", rid, "wykonal", w1, "1234")
+
+    out = {x["role"]: x for x in signatures_for("reception_check", rid)}
+    assert out["wykonal"]["active"] is True
+    assert out["sprawdzil"]["active"] is False
+    assert out["sprawdzil"]["signerName"] == "Ewa M."
+
+
+def test_karta_do_DRUKU_nadal_pomija_uniewaznione(db):
+    """Ślad jest dla EKRANU. Na karcie 1.1.1 kratka ma zostać pusta —
+    wydrukowany podpis znaczy „podpisano tę treść"."""
+    from app.services.reception_checks_service import checks_for_range
+    rid = _dostawa()
+    w = _pracownik("w-1", "Jan K.")
+    save_sample(w, PNG, "1234")
+    sign("reception_check", rid, "wykonal", w, "1234")
+    _uniewaznij(rid)
+
+    wiersze = [r for r in checks_for_range("2026-08-01", "2026-08-31")
+               if r["receptionId"] == rid]
+    assert wiersze and not (wiersze[0].get("signatures") or {})

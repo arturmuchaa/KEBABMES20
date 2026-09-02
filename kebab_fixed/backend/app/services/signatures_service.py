@@ -176,21 +176,48 @@ def sign(doc_type: str, doc_id: str, role: str,
 
 
 def signatures_for(doc_type: str, doc_id: str) -> List[Dict[str, Any]]:
-    """Tylko AKTYWNE podpisy. Unieważnione zostają w bazie jako historia,
-    ale nie mają prawa trafić ani na ekran, ani na kartę."""
+    """Podpisy do pokazania na EKRANIE: aktywne, a gdzie ich brak — ślad po
+    ostatnim unieważnionym.
+
+    BŁĄD Z PRODUKCJI (02.09.2026): biuro podpisało obie kolumny, poprawiło
+    temperaturę i podpisy zniknęły bez słowa — kratka wróciła do gołego
+    przycisku „Podpisz". Wyglądało to na zgubienie podpisów przez system,
+    a nie na skutek własnej poprawki. Unieważnienie jest słuszne, ale
+    milczące unieważnienie podkopuje zaufanie do całego mechanizmu.
+
+    Ślad niesie NAZWISKO i DATĘ — dowód, kto podpisywał — ale nigdy
+    obrazka: nieważny podpis nie ma prawa wyglądać jak ważny.
+
+    Karta 1.1.1 do druku chodzi osobnym zapytaniem i bierze wyłącznie
+    aktywne. Wydrukowany podpis znaczy „podpisano tę treść", więc po
+    zmianie danych kratka ma zostać pusta.
+    """
     rows = query_all(
-        """SELECT role, worker_id, signer_name, png, signed_at
+        """SELECT role, worker_id, signer_name, png, signed_at, superseded_at
              FROM document_signatures
-            WHERE doc_type=%s AND doc_id=%s AND superseded_at IS NULL
+            WHERE doc_type=%s AND doc_id=%s
             ORDER BY signed_at""",
         (doc_type, doc_id),
     )
+    # ORDER BY signed_at → w każdej roli zostaje wpis NAJNOWSZY. Trzy
+    # podejścia do jednej kolumny to nie trzy kratki na ekranie.
+    aktywne: Dict[str, Any] = {}
+    slady: Dict[str, Any] = {}
+    for r in rows:
+        (aktywne if r["superseded_at"] is None else slady)[r["role"]] = r
+
+    wybrane = [(r, True) for r in aktywne.values()]
+    wybrane += [(r, False) for rola, r in slady.items() if rola not in aktywne]
+    wybrane.sort(key=lambda x: x[0]["signed_at"] or "")
+
     # `workerId` jest potrzebny ekranowi, żeby ostrzec „ta sama osoba
     # podpisze obie role" — bez niego ostrzeżenie nigdy by się nie pokazało.
     return [{"role": r["role"], "workerId": r["worker_id"],
-             "signerName": r["signer_name"], "png": r["png"],
+             "signerName": r["signer_name"],
+             "png": r["png"] if czynny else None,
+             "active": czynny,
              "signedAt": r["signed_at"].isoformat() if r["signed_at"] else None}
-            for r in rows]
+            for r, czynny in wybrane]
 
 
 def supersede_if_changed(doc_type: str, doc_id: str, new_hash: str) -> int:

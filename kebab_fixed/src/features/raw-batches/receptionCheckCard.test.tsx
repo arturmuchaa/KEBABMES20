@@ -122,3 +122,128 @@ describe('ReceptionCheckCard — próg obowiązywania', () => {
     expect(await screen.findByText(/Uzupełnij kontrolę HACCP/i)).toBeTruthy()
   })
 })
+
+// ── Temperatura po przecinku ────────────────────────────────────────
+// BŁĄD Z PRODUKCJI (02.09.2026): „nie da się dać po przecinku, a musi być,
+// bo część rond jest 2,3 stopnia". Pole było sterowane liczbą: wpisany
+// przecinek znikał w tej samej chwili (Number("2,") → 2 → z powrotem "2"),
+// więc kolejna cyfra dopisywała się do CAŁOŚCI i z 2,3 robiło się 23.
+describe('ReceptionCheckCard — temperatura ułamkowa', () => {
+  const wpisz = async (id: string, tekst: string) => {
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    const pole = await screen.findByLabelText(new RegExp(id, 'i')) as HTMLInputElement
+    // Znak po znaku — tak jak pisze człowiek, bo błąd był właśnie w tym.
+    let dotad = ''
+    for (const znak of tekst) {
+      dotad += znak
+      fireEvent.change(pole, { target: { value: dotad } })
+      dotad = pole.value
+    }
+    return pole
+  }
+
+  it('przecinek NIE znika w trakcie pisania', async () => {
+    const pole = await wpisz('Temperatura mięsa', '2,3')
+    expect(pole.value).toBe('2,3')
+  })
+
+  it('2,3 zapisuje się jako 2.3, a NIE jako 23', async () => {
+    await wpisz('Temperatura mięsa', '2,3')
+    fireEvent.click(screen.getByRole('button', { name: /Zapisz/i }))
+    await waitFor(() => expect(save).toHaveBeenCalled())
+    expect(save.mock.calls[0][1].tempMeat).toBe(2.3)
+  })
+
+  it('kropka działa tak samo jak przecinek', async () => {
+    await wpisz('Temperatura komory', '2.3')
+    fireEvent.click(screen.getByRole('button', { name: /Zapisz/i }))
+    await waitFor(() => expect(save).toHaveBeenCalled())
+    expect(save.mock.calls[0][1].tempChamber).toBe(2.3)
+  })
+
+  it('temperatura ujemna po przecinku — mrożonka bywa -18,5', async () => {
+    const pole = await wpisz('Temperatura mięsa', '-18,5')
+    expect(pole.value).toBe('-18,5')
+    fireEvent.click(screen.getByRole('button', { name: /Zapisz/i }))
+    await waitFor(() => expect(save).toHaveBeenCalled())
+    expect(save.mock.calls[0][1].tempMeat).toBe(-18.5)
+  })
+
+  it('sam minus w trakcie pisania nie jest jeszcze pomiarem', async () => {
+    const pole = await wpisz('Temperatura mięsa', '-')
+    expect(pole.value).toBe('-')
+    fireEvent.click(screen.getByRole('button', { name: /Zapisz/i }))
+    await waitFor(() => expect(save).toHaveBeenCalled())
+    expect(save.mock.calls[0][1].tempMeat).toBeNull()
+  })
+
+  it('wyczyszczenie pola to BRAK pomiaru, nie zero', async () => {
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    const pole = await screen.findByLabelText(/Temperatura mięsa/i) as HTMLInputElement
+    fireEvent.change(pole, { target: { value: '2,3' } })
+    fireEvent.change(pole, { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: /Zapisz/i }))
+    await waitFor(() => expect(save).toHaveBeenCalled())
+    expect(save.mock.calls[0][1].tempMeat).toBeNull()
+  })
+
+  it('wartość z bazy pokazuje się po polsku', async () => {
+    get.mockResolvedValue({ ...pusty, tempMeat: 2.3 })
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    const pole = await screen.findByLabelText(/Temperatura mięsa/i) as HTMLInputElement
+    expect(pole.value).toBe('2,3')
+  })
+})
+
+// ── Ślad po unieważnionym podpisie ──────────────────────────────────
+// BŁĄD Z PRODUKCJI (02.09.2026): „podpisałem wszystkie ok, ale nie ma
+// podpisów na karcie". Poprawka danych po podpisaniu unieważniła oba
+// podpisy, a kratka wróciła do gołego przycisku — bez słowa wyjaśnienia.
+describe('ReceptionCheckCard — podpis unieważniony', () => {
+  const uniewazniony = {
+    role: 'wykonal', workerId: 'w-1', signerName: 'Jan K.',
+    png: null, active: false, signedAt: '2026-09-02T19:32:00Z',
+  }
+
+  it('pokazuje, KTO podpisał, mimo unieważnienia', async () => {
+    forDoc.mockResolvedValue([uniewazniony])
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    expect(await screen.findByText('Jan K.')).toBeTruthy()
+  })
+
+  it('mówi wprost, że podpis stracił ważność przez zmianę danych', async () => {
+    forDoc.mockResolvedValue([uniewazniony])
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    expect(await screen.findByText(/unieważnion/i)).toBeTruthy()
+  })
+
+  it('pozwala podpisać ponownie', async () => {
+    forDoc.mockResolvedValue([uniewazniony])
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    expect(await screen.findByRole('button', { name: /Podpisz ponownie/i })).toBeTruthy()
+  })
+
+  it('NIE rysuje obrazka nieważnego podpisu', async () => {
+    forDoc.mockResolvedValue([{ ...uniewazniony, png: 'data:image/png;base64,AAAA' }])
+    const { container } = render(
+      <ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    await screen.findByText('Jan K.')
+    expect(container.querySelectorAll('img').length).toBe(0)
+  })
+
+  it('ważny podpis nadal pokazuje obrazek i nie krzyczy o unieważnieniu', async () => {
+    forDoc.mockResolvedValue([{ ...uniewazniony, active: true, png: 'data:image/png;base64,AAAA' }])
+    const { container } = render(
+      <ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    await screen.findByText('Jan K.')
+    expect(container.querySelectorAll('img').length).toBe(1)
+    expect(screen.queryByText(/unieważnion/i)).toBeNull()
+  })
+
+  it('pusta kratka nadal zaprasza do podpisu', async () => {
+    forDoc.mockResolvedValue([])
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    const przyciski = await screen.findAllByRole('button', { name: /^Podpisz$/i })
+    expect(przyciski.length).toBe(2)
+  })
+})

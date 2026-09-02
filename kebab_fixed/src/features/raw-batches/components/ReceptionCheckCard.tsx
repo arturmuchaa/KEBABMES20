@@ -47,7 +47,7 @@ function parsujTemp(v: string): number | null {
 }
 
 /** Liczba do pola tekstowego — po polsku, bo tak ją operator wpisał. */
-function tempDoPola(v: number | null): string {
+function tempDoPola(v: number | null | undefined): string {
   return v === null || v === undefined ? '' : String(v).replace('.', ',')
 }
 
@@ -93,6 +93,17 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
   const [zapisano, setZapisano] = useState(false)
   const [podpisy, setPodpisy] = useState<any[]>([])
   const [podpisujeRola, setPodpisujeRola] = useState<'wykonal' | 'sprawdzil' | null>(null)
+  /** Temperatury trzymamy jako TEKST, którego operator jeszcze pisze.
+   *
+   *  BŁĄD Z PRODUKCJI (02.09.2026): pole sterowane liczbą zjadało przecinek
+   *  w tej samej chwili, w której go wpisano — `Number("2,")` to 2, więc
+   *  pole wracało do „2", a następna cyfra dopisywała się do całości i
+   *  z 2,3 °C robiło się 23 °C. Na karcie HACCP to nie literówka, tylko
+   *  zapis pomiaru, którego nikt nie zmierzył.
+   *
+   *  „2,", „-" czy „" są w trakcie pisania poprawnymi stanami POLA, choć
+   *  nie są jeszcze liczbą — dlatego tekst i liczba muszą żyć osobno. */
+  const [tempTekst, setTempTekst] = useState({ chamber: '', meat: '' })
 
   const wczytajPodpisy = () => {
     signaturesApi.forDoc('reception_check', receptionId)
@@ -103,7 +114,11 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
   useEffect(() => {
     let aktualne = true
     receptionChecksApi.get(receptionId)
-      .then((d: any) => { if (aktualne) setCheck({ ...PUSTY, ...d, receptionId }) })
+      .then((d: any) => {
+        if (!aktualne) return
+        setCheck({ ...PUSTY, ...d, receptionId })
+        setTempTekst({ chamber: tempDoPola(d?.tempChamber), meat: tempDoPola(d?.tempMeat) })
+      })
       .catch((e: any) => { if (aktualne) setBlad(e?.message ?? 'Nie udało się wczytać kontroli') })
     wczytajPodpisy()
     return () => { aktualne = false }
@@ -132,6 +147,14 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
     setZapisano(false)
   }
 
+  /** Tekst zostaje taki, jaki wpisał człowiek; do stanu idzie liczba. */
+  const ustawTemp = (
+    pole: 'tempChamber' | 'tempMeat', klucz: 'chamber' | 'meat', tekst: string,
+  ) => {
+    setTempTekst(t => ({ ...t, [klucz]: tekst }))
+    ustaw(pole, parsujTemp(tekst))
+  }
+
   const zapisz = () => {
     setZapisuje(true)
     setBlad(null)
@@ -148,6 +171,9 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
     })
       .then((d: any) => {
         setCheck({ ...PUSTY, ...d, receptionId })
+        // Po zapisie pole pokazuje to, co NAPRAWDĘ stoi w bazie: „2," staje
+        // się „2". Niedokończona liczba nie ma prawa udawać zapisanej.
+        setTempTekst({ chamber: tempDoPola(d?.tempChamber), meat: tempDoPola(d?.tempMeat) })
         setZapisano(true)
         // Zapis mógł UNIEWAŻNIĆ podpisy (zmiana treści) — ekran musi to
         // pokazać od razu, inaczej biuro myśli, że dokument nadal jest
@@ -205,8 +231,8 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
               id="haccp-temp-chamber"
               inputMode="decimal"
               placeholder={prog.opis}
-              value={tempDoPola(check.tempChamber)}
-              onChange={e => ustaw('tempChamber', parsujTemp(e.target.value))}
+              value={tempTekst.chamber}
+              onChange={e => ustawTemp('tempChamber', 'chamber', e.target.value)}
               className={tempExceeded(check.tempChamber, category, storageState)
                 ? 'border-red-400 bg-red-50' : ''}
             />
@@ -217,8 +243,8 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
               id="haccp-temp-meat"
               inputMode="decimal"
               placeholder={prog.opis}
-              value={tempDoPola(check.tempMeat)}
-              onChange={e => ustaw('tempMeat', parsujTemp(e.target.value))}
+              value={tempTekst.meat}
+              onChange={e => ustawTemp('tempMeat', 'meat', e.target.value)}
               className={tempExceeded(check.tempMeat, category, storageState)
                 ? 'border-red-400 bg-red-50' : ''}
             />
@@ -298,26 +324,47 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
 
         {blad && <p className="text-sm text-red-700">{blad}</p>}
 
-        {/* Podpisy — kolumny l/m karty 1.1.1. Podpis unieważniony zmianą
-            treści tu nie dociera (backend oddaje tylko aktywne), więc slot
-            wraca do stanu pustego i sam mówi, co się stało. */}
+        {/* Podpisy — kolumny l/m karty 1.1.1.
+            Zmiana treści po podpisaniu UNIEWAŻNIA podpis; tak ma być, bo
+            inaczej podpis stwierdzałby coś, czego nikt nie zatwierdził.
+            Ale unieważnienie musi być WIDOCZNE: biuro zgłosiło „podpisałem
+            wszystkie ok, a podpisów nie ma" właśnie dlatego, że kratka
+            wracała po cichu do gołego przycisku. Nazwisko i data zostają
+            jako ślad — sam obrazek nie, żeby nieważny podpis nie wyglądał
+            jak ważny. */}
         <div className="grid gap-3 md:grid-cols-2 pt-1">
           {(['wykonal', 'sprawdzil'] as const).map(rola => {
             const p = podpisy.find((x: any) => x.role === rola)
+            const wazny = !!p && p.active !== false
+            const kiedy = p?.signedAt ? new Date(p.signedAt).toLocaleString('pl-PL') : ''
             return (
               <div key={rola} className="rounded border border-ink-5 p-3">
                 <p className="text-xs font-semibold text-ink-2 mb-2">
                   {rola === 'wykonal' ? 'Wykonał (l)' : 'Sprawdził (m)'}
                 </p>
-                {p ? (
+                {wazny && (
                   <div className="space-y-1">
                     <img src={p.png} alt="" className="h-10 w-auto max-w-full object-contain" />
                     <p className="text-xs font-semibold">{p.signerName}</p>
-                    <p className="text-[11px] text-ink-3">
-                      {p.signedAt ? new Date(p.signedAt).toLocaleString('pl-PL') : ''}
-                    </p>
+                    <p className="text-[11px] text-ink-3">{kiedy}</p>
                   </div>
-                ) : (
+                )}
+                {!wazny && p && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-ink-3 line-through">
+                      {p.signerName}
+                    </p>
+                    <p className="text-[11px] text-ink-3">{kiedy}</p>
+                    <p className="text-[11px] text-amber-700">
+                      Podpis unieważniony — dane zmieniono po podpisaniu.
+                    </p>
+                    <Button type="button" variant="outline" size="sm"
+                            onClick={() => setPodpisujeRola(rola)}>
+                      Podpisz ponownie
+                    </Button>
+                  </div>
+                )}
+                {!p && (
                   <Button type="button" variant="outline" size="sm"
                           onClick={() => setPodpisujeRola(rola)}>
                     Podpisz
@@ -333,7 +380,13 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
             docType="reception_check"
             docId={receptionId}
             role={podpisujeRola}
-            juzPodpisal={podpisy.find((x: any) => x.role !== podpisujeRola)?.workerId}
+            juzPodpisal={
+              // Tylko WAŻNY podpis drugiej roli znaczy „ktoś już podpisał".
+              // Unieważniony jest śladem, nie podpisem — nie może wywoływać
+              // ostrzeżenia o jednej osobie w obu kolumnach.
+              podpisy.find(
+                (x: any) => x.role !== podpisujeRola && x.active !== false)?.workerId
+            }
             onSigned={wczytajPodpisy}
             onClose={() => setPodpisujeRola(null)}
           />
