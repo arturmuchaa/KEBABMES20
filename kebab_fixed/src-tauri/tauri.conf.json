@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Kebab MES",
-  "version": "2.5.104",
+  "version": "2.5.105",
   "identifier": "pl.kebabmes.app",
   "build": {
     "beforeBuildCommand": "npm run build",
