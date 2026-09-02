@@ -10,6 +10,27 @@ from app.db import execute, query_all, query_one
 from app.models.reception_checks import ReceptionCheckIn
 from app.utils.ids import now_iso
 
+#: Od kiedy kontrola HACCP w ogóle obowiązuje.
+#:
+#: Właściciel (2026-09-02): „chciałbym od kolejnego przyjęcia, wstecz już nie
+#: będę uzupełniał, bo mam wersję papierową". Dostawy sprzed wdrożenia mają
+#: kontrolę udokumentowaną NA PAPIERZE — upominanie się o nie zamieniłoby
+#: kafel pulpitu w listę 86 pozycji, których nikt nie ruszy, i tym samym
+#: w szum. Próg WYCISZA upominanie, nie odbiera możliwości: starą dostawę
+#: nadal można uzupełnić ręcznie, jeśli biuro zechce.
+HACCP_FROM_KEY = "haccp_checks_from"
+
+
+def haccp_required_from() -> Optional[str]:
+    """Znacznik czasu progu albo None, gdy próg nie ustawiony (świeża
+    instalacja — wtedy obowiązują wszystkie dostawy)."""
+    row = query_one("SELECT value FROM app_settings WHERE key = %s", (HACCP_FROM_KEY,))
+    if not row or row["value"] in (None, "", "null"):
+        return None
+    v = row["value"]
+    return v if isinstance(v, str) else str(v)
+
+
 #: Pola, bez których karta 1.1.1 ma dziurę w wierszu.
 _WYMAGANE = ("visual", "tempChamber", "tempMeat", "kgMatch", "verdict")
 
@@ -35,6 +56,23 @@ def check_status(check: Dict[str, Any]) -> str:
     return "komplet" if len(wypelnione) == len(_WYMAGANE) else "niepelne"
 
 
+def check_required(reception_id: str) -> bool:
+    """Czy system ma się o tę kontrolę upominać.
+
+    Dostawy sprzed progu mają kontrolę na papierze — ekran nie ma prawa
+    ich poganiać. Uzupełnić je nadal MOŻNA, gdyby biuro zechciało.
+    """
+    prog = haccp_required_from()
+    if not prog:
+        return True
+    row = query_one(
+        "SELECT (created_at::timestamptz >= %s::timestamptz) AS wymagana "
+        "FROM receptions WHERE id = %s",
+        (prog, reception_id),
+    )
+    return bool(row and row["wymagana"])
+
+
 def get_check(reception_id: str) -> Dict[str, Any]:
     """Wpis dostawy. Brak wiersza to stan NORMALNY, nie błąd — zwracamy
     pusty szkic, żeby formularz miał co pokazać i gdzie zapisać."""
@@ -54,6 +92,7 @@ def get_check(reception_id: str) -> Dict[str, Any]:
         "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
     }
     out["status"] = check_status(out)
+    out["required"] = check_required(reception_id)
     return out
 
 
@@ -91,14 +130,19 @@ def pending(days: int = 14) -> list:
     kafel od pierwszego dnia świeciłby setką starych dostaw, których nikt
     już nie uzupełni, i przestałby cokolwiek znaczyć.
     """
+    prog = haccp_required_from()
+    # Próg po `created_at`, nie po dacie dostawy: „od kolejnego przyjęcia"
+    # znaczy „od następnej REJESTRACJI". Dostawa wpisana dziś wstecz za
+    # zeszły tydzień też ma podlegać kontroli.
     rows = query_all(
         """SELECT r.id, r.reception_no, r.supplier_name, r.received_date,
                   c.visual, c.temp_chamber, c.temp_meat, c.kg_match, c.verdict
              FROM receptions r
              LEFT JOIN reception_checks c ON c.reception_id = r.id
             WHERE r.received_date >= CURRENT_DATE - %s::int
+              AND (%s::timestamptz IS NULL OR r.created_at::timestamptz >= %s::timestamptz)
             ORDER BY r.received_date DESC, r.reception_seq DESC""",
-        (days,),
+        (days, prog, prog),
     )
     out = []
     for r in rows:

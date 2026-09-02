@@ -89,11 +89,23 @@ export function OrderEntryPage() {
   // straciłby robotę bez żadnego pytania. Dwa razy Esc / dwa kliknięcia.
   const [armedExit,  setArmedExit]  = useState(false)
 
+  /** Nazwa tulei po id — reguła kolejności czyta z niej rozmiar (45-65 cm
+   *  standard, 70 i wyżej na koniec receptury). */
+  const nazwaTulei = useMemo(() => {
+    const wg = new Map<string, string>()
+    for (const p of (packaging as any[]) ?? []) wg.set(p.id, p.name)
+    return (id: string) => wg.get(id)
+  }, [packaging])
+
   // Zasianie danych przy edycji — RAZ. Bez tej blokady kolejny przelot
   // useApi (polling/refetch) skasowałby to, co operator zdążył poprawić.
   const seeded = useRef(false)
   useEffect(() => {
     if (!existing || seeded.current) return
+    // Czekamy na kartotekę tulei: bez niej reguła kolejności nie odróżni
+    // tulei standardowej od niestandardowej i dokument otworzyłby się
+    // ułożony INACZEJ, niż po pierwszym dotknięciu pozycji.
+    if (!pkgList) return
     seeded.current = true
     setClientId(existing.clientId)
     setOrderDate(existing.orderDate || todayIso())
@@ -104,9 +116,10 @@ export function OrderEntryPage() {
       qty: String(l.qty), kgPerUnit: String(l.kgPerUnit),
       productTypeId: l.productTypeId, recipeId: l.recipeId,
       packagingId: l.packagingId ?? '', notes: l.notes ?? '',
-    }))))
+    })), nazwaTulei))
     setStep('lines')
-  }, [existing])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing, pkgList])
 
   // ── Listy do pól wyboru ────────────────────────────────────────
   const ptItems = useMemo(() => ptList.map((p: any) => ({ id: p.id, label: p.name })), [ptList])
@@ -183,7 +196,8 @@ export function OrderEntryPage() {
     // klawisza: inaczej wiersz wędrowałby operatorowi pod palcami w trakcie
     // wpisywania wagi. Po Enterze pozycja siada od razu w swojej grupie.
     setLines(ls => sortOrderLines(
-      editingIdx === null ? [...ls, line] : ls.map((l, i) => (i === editingIdx ? line : l))))
+      editingIdx === null ? [...ls, line] : ls.map((l, i) => (i === editingIdx ? line : l)),
+      nazwaTulei))
     setEditingIdx(null)
     setHint('')
     setError('')

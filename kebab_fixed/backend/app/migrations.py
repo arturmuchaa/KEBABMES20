@@ -1585,6 +1585,7 @@ def _run_migrations_locked() -> None:
     _backfill_byproduct_containers()
     _backfill_plan_line_position()
     _backfill_order_line_positions()
+    _ustaw_prog_kontroli_haccp()
     _backfill_mixing_session_lots()
     _backfill_receptions()
     _backfill_stock_codes()
@@ -2497,12 +2498,42 @@ def _backfill_byproduct_containers() -> None:
         )
 
 
+def _ustaw_prog_kontroli_haccp() -> None:
+    """Zapisuje PRÓG, od którego kontrola HACCP przyjęcia obowiązuje.
+
+    Właściciel (2026-09-02): „chciałbym od kolejnego przyjęcia, wstecz już
+    nie będę uzupełniał, bo mam wersję papierową". Dostawy sprzed wdrożenia
+    mają kontrolę udokumentowaną na papierze — gdyby system się o nie
+    upominał, kafel pulpitu świeciłby od pierwszego dnia listą kilkudziesięciu
+    pozycji, których nikt nie ruszy, i przestałby cokolwiek znaczyć.
+
+    Próg zapisujemy RAZ, przy pierwszym uruchomieniu po wdrożeniu (ON CONFLICT
+    DO NOTHING) — migracje chodzą przy każdym starcie, a przesunięcie progu
+    w przód wyciszyłoby dostawy, o które system MA się upominać.
+
+    Świeża instalacja u nowego klienta progu nie potrzebuje, ale dostaje go
+    tak samo: w pustej bazie nie ma czego wyciszać, a wpis nie szkodzi.
+    """
+    try:
+        execute(
+            "INSERT INTO app_settings (key, value) "
+            "VALUES ('haccp_checks_from', to_jsonb(now()::text)) "
+            "ON CONFLICT (key) DO NOTHING"
+        )
+        logger.info("migrations.haccp_prog.done")
+    except Exception as exc:
+        logger.warning("migrations.haccp_prog.error", extra={"error": str(exc)})
+
+
 def _backfill_order_line_positions() -> None:
     """Nadaje position pozycjom zamówień sprzed tej kolumny.
 
     Reguła jest ta sama co przy zapisie (właściciel, 2026-09-02): pozycje
     jednej receptury razem, w grupie wagi sztuki malejąco, grupy w kolejności
     pierwszego wpisania.
+
+    Tuleja niestandardowa (70 cm i wyżej, np. METAL 80CM) idzie na koniec
+    swojej receptury — tak samo jak przy zapisie.
 
     Kolejności wpisywania stare dokumenty nigdzie nie zapisały, więc bierzemy
     `ctid` — fizyczne miejsce wiersza, które w praktyce odpowiada kolejności
@@ -2516,7 +2547,7 @@ def _backfill_order_line_positions() -> None:
     """
     try:
         execute(
-            """
+            r"""
             WITH kandydaci AS (
               SELECT order_id FROM client_order_lines
                GROUP BY order_id
@@ -2524,6 +2555,12 @@ def _backfill_order_line_positions() -> None:
             ),
             wpisane AS (
               SELECT l.id, l.order_id, l.recipe_id, l.kg_per_unit,
+                     -- Tuleja 45-65 cm to standard; 70 i wyżej (METAL 80CM)
+                     -- oraz brak rozmiaru spadają na koniec receptury.
+                     CASE WHEN COALESCE(
+                            (substring(upper(l.packaging_name) from '([0-9]+)\s*CM'))::int,
+                            0) BETWEEN 45 AND 65
+                          THEN 0 ELSE 1 END AS niestandard,
                      ROW_NUMBER() OVER (PARTITION BY l.order_id ORDER BY l.ctid) AS wpis
                 FROM client_order_lines l
                 JOIN kandydaci k ON k.order_id = l.order_id
@@ -2536,7 +2573,7 @@ def _backfill_order_line_positions() -> None:
               SELECT w.id,
                      ROW_NUMBER() OVER (
                        PARTITION BY w.order_id
-                       ORDER BY g.pierwsze, w.kg_per_unit DESC, w.wpis
+                       ORDER BY g.pierwsze, w.niestandard, w.kg_per_unit DESC, w.wpis
                      ) - 1 AS poz
                 FROM wpisane w
                 JOIN grupy g

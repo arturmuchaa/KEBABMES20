@@ -19,7 +19,7 @@ import { ReceptionCheckCard } from './components/ReceptionCheckCard'
 const pusty = {
   receptionId: 'r1', visual: null, tempChamber: null, tempMeat: null,
   kgMatch: null, notes: '', verdict: null,
-  ncDescription: '', ncAction: '', ncAt: null, status: 'brak',
+  ncDescription: '', ncAction: '', ncAt: null, status: 'brak', required: true,
 }
 
 beforeEach(() => {
@@ -96,5 +96,29 @@ describe('ReceptionCheckCard — sloty podpisu', () => {
     forDoc.mockClear()
     fireEvent.click(screen.getByRole('button', { name: /Zapisz kontrolę/i }))
     await waitFor(() => expect(forDoc).toHaveBeenCalled())
+  })
+})
+
+describe('ReceptionCheckCard — próg obowiązywania', () => {
+  it('dostawa sprzed wdrożenia nie jest poganiana', async () => {
+    // Właściciel: „wstecz już nie będę uzupełniał, bo mam wersję papierową".
+    get.mockResolvedValue({ ...pusty, required: false })
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    expect(await screen.findByText(/kontrola prowadzona na papierze/i)).toBeTruthy()
+    expect(screen.queryByText(/Uzupełnij kontrolę HACCP/i)).toBeNull()
+    expect(screen.queryByText(/brak danych/i)).toBeNull()
+  })
+
+  it('mimo to da się ją uzupełnić, gdyby biuro chciało', async () => {
+    get.mockResolvedValue({ ...pusty, required: false })
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    await screen.findByText(/kontrola prowadzona na papierze/i)
+    expect(screen.getByRole('button', { name: /Zapisz kontrolę/i })).toBeTruthy()
+    expect(screen.getByLabelText(/Temperatura komory/i)).toBeTruthy()
+  })
+
+  it('nowa dostawa nadal prosi o uzupełnienie', async () => {
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    expect(await screen.findByText(/Uzupełnij kontrolę HACCP/i)).toBeTruthy()
   })
 })

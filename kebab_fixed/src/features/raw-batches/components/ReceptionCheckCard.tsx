@@ -32,6 +32,11 @@ const PUSTY: ReceptionCheck = {
   ncDescription: '', ncAction: '', ncAt: null,
 }
 
+/** Czy system ma się o tę kontrolę upominać. Dostawy sprzed wdrożenia mają
+ *  kontrolę na papierze (właściciel, 02.09.2026) — ekran ich nie pogania,
+ *  ale uzupełnić je nadal można. */
+type CheckZeStanem = ReceptionCheck & { required?: boolean }
+
 /** Biuro wpisuje „2,5" — przecinek dziesiętny musi działać jak kropka.
  *  Pusty napis to BRAK pomiaru (null), nie zero: zero jest odczytem. */
 function parsujTemp(v: string): number | null {
@@ -82,7 +87,7 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
   /** 'chlodzony' | 'mrozony' — blok mrożony ma próg −12 °C. */
   storageState?: string | null
 }) {
-  const [check, setCheck] = useState<ReceptionCheck | null>(null)
+  const [check, setCheck] = useState<CheckZeStanem | null>(null)
   const [zapisuje, setZapisuje] = useState(false)
   const [blad, setBlad] = useState<string | null>(null)
   const [zapisano, setZapisano] = useState(false)
@@ -120,6 +125,7 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
   const prog = progPrzyjecia(category, storageState)
   const trzebaDzialania = needsCorrectiveAction(check)
   const odmowa = check.verdict === 'N'
+  const wymagana = check.required !== false
 
   const ustaw = <K extends keyof ReceptionCheck>(k: K, v: ReceptionCheck[K]) => {
     setCheck(c => (c ? { ...c, [k]: v } : c))
@@ -164,10 +170,13 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
             <CardDescription>
               {status === 'komplet'
                 ? 'Karta 1.1.1 — komplet danych kontroli dostawy'
-                : 'Uzupełnij kontrolę HACCP — karta 1.1.1 ma bez tego dziurę w wierszu'}
+                : wymagana
+                  ? 'Uzupełnij kontrolę HACCP — karta 1.1.1 ma bez tego dziurę w wierszu'
+                  : 'Dostawa sprzed wdrożenia — kontrola prowadzona na papierze. '
+                    + 'Uzupełnić można, ale nie trzeba.'}
             </CardDescription>
           </div>
-          {status !== 'komplet' && (
+          {status !== 'komplet' && wymagana && (
             <span className="text-xs font-semibold px-2 py-1 rounded bg-amber-50 text-amber-800 border border-amber-200">
               {status === 'brak' ? 'brak danych' : 'niepełne'}
             </span>

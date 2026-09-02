@@ -112,13 +112,13 @@ def test_kolejnosc_jest_wlasnoscia_dokumentu_nie_zapytania(db):
 
 
 # ── Wypełnienie kolejności w starych zamówieniach ───────────────────
-def _stara_pozycja(oid, lid, recipe, kg, poz=0):
+def _stara_pozycja(oid, lid, recipe, kg, poz=0, tuleja="METAL 60CM"):
     """Wiersz sprzed kolumny `position` — wszystkie mają 0."""
     execute(
         "INSERT INTO client_order_lines (id, order_id, position, qty, kg_per_unit, "
-        " total_kg, product_type_id, recipe_id) "
-        "VALUES (%s,%s,%s,1,%s,%s,'pt-udo',%s)",
-        (lid, oid, poz, kg, kg, recipe),
+        " total_kg, product_type_id, recipe_id, packaging_name) "
+        "VALUES (%s,%s,%s,1,%s,%s,'pt-udo',%s,%s)",
+        (lid, oid, poz, kg, kg, recipe, tuleja),
     )
 
 
@@ -193,3 +193,45 @@ def test_wypelnienie_mozna_uruchomic_dwa_razy(db):
     drugi = [r["id"] for r in query_all(
         "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position", (oid,))]
     assert pierwszy == drugi == ["d2", "d1"]
+
+
+def test_wypelnienie_odsuwa_tuleje_niestandardowe_na_koniec(db):
+    """METAL 80CM ma stać PO standardowych 45-65 cm, choć waży najwięcej."""
+    from app.migrations import _backfill_order_line_positions
+    _slownik()
+    oid = _stare_zamowienie("ord-tuleje")
+    _stara_pozycja(oid, "t1", "rec-a", 80, tuleja="METAL 80CM")
+    _stara_pozycja(oid, "t2", "rec-a", 50, tuleja="METAL 65CM")
+    _stara_pozycja(oid, "t3", "rec-a", 25, tuleja="METAL 50CM")
+    _stara_pozycja(oid, "t4", "rec-a", 20, tuleja="METAL 75CM")
+    _backfill_order_line_positions()
+    assert [r["id"] for r in query_all(
+        "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position",
+        (oid,))] == ["t2", "t3", "t1", "t4"]
+
+
+def test_wypelnienie_traktuje_karton_i_metal_jednakowo(db):
+    """Standard zależy od ROZMIARU, nie od materiału tulei."""
+    from app.migrations import _backfill_order_line_positions
+    _slownik()
+    oid = _stare_zamowienie("ord-karton")
+    _stara_pozycja(oid, "k1", "rec-a", 30, tuleja="KARTON 60CM")
+    _stara_pozycja(oid, "k2", "rec-a", 40, tuleja="METAL 60CM")
+    _backfill_order_line_positions()
+    assert [r["id"] for r in query_all(
+        "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position",
+        (oid,))] == ["k2", "k1"]
+
+
+def test_wypelnienie_pozycja_bez_tulei_ladzie_na_koncu(db):
+    """Brak rozmiaru traktujemy jak niestandard — nie wmieszamy jej między
+    zwykłe pozycje."""
+    from app.migrations import _backfill_order_line_positions
+    _slownik()
+    oid = _stare_zamowienie("ord-bez-tulei")
+    _stara_pozycja(oid, "b1", "rec-a", 90, tuleja=None)
+    _stara_pozycja(oid, "b2", "rec-a", 10, tuleja="METAL 60CM")
+    _backfill_order_line_positions()
+    assert [r["id"] for r in query_all(
+        "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position",
+        (oid,))] == ["b2", "b1"]

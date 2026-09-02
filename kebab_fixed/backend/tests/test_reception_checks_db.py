@@ -153,3 +153,85 @@ def test_puste_pole_oceny_nadal_dozwolone(db):
     """Wpis powstaje etapami — brak oceny to normalny stan, nie błąd."""
     m = ReceptionCheckIn.model_validate({"tempChamber": 2.5})
     assert m.visual is None and m.verdict is None
+
+
+# ── Próg obowiązywania kontroli ─────────────────────────────────────
+#
+# Właściciel (2026-09-02): „kontrolę HACCP chciałbym od kolejnego przyjęcia,
+# wstecz już nie będę uzupełniał, bo mam wersję papierową". Dostawy sprzed
+# wdrożenia mają udokumentowaną kontrolę NA PAPIERZE — system nie ma prawa
+# się o nie upominać, bo kafel od pierwszego dnia świeciłby 86 dostawami,
+# których nikt nie ruszy, i przestałby cokolwiek znaczyć.
+def _przyjecie(rid, kiedy, seq=1):
+    execute(
+        "INSERT INTO receptions (id, reception_no, reception_seq, reception_period, "
+        "received_date, supplier_id, supplier_name, created_at) "
+        "VALUES (%s,%s,%s,'2026-09','2026-09-01','sup-1','KOKO',%s) "
+        "ON CONFLICT (id) DO NOTHING",
+        (rid, f"{seq}/09", seq, kiedy),
+    )
+    return rid
+
+
+def _prog(kiedy):
+    from app.services.reception_checks_service import HACCP_FROM_KEY
+    execute(
+        "INSERT INTO app_settings (key, value) VALUES (%s, to_jsonb(%s::text)) "
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+        (HACCP_FROM_KEY, kiedy),
+    )
+
+
+def test_dostawa_sprzed_progu_nie_upomina_sie(db):
+    _prog("2026-09-02T12:00:00+00:00")
+    _przyjecie("rec-stara", "2026-09-01 08:00:00+00", 1)
+    assert all(r["receptionId"] != "rec-stara" for r in pending(365))
+
+
+def test_dostawa_po_progu_upomina_sie(db):
+    _prog("2026-09-02T12:00:00+00:00")
+    _przyjecie("rec-nowa", "2026-09-02 14:00:00+00", 2)
+    assert any(r["receptionId"] == "rec-nowa" for r in pending(365))
+
+
+def test_bez_ustawionego_progu_obowiazuja_wszystkie(db):
+    """Świeża instalacja u nowego klienta nie ma czego wyłączać."""
+    execute("DELETE FROM app_settings WHERE key = 'haccp_checks_from'")
+    _przyjecie("rec-bezprogu", "2026-09-01 08:00:00+00", 3)
+    assert any(r["receptionId"] == "rec-bezprogu" for r in pending(365))
+
+
+def test_prog_nie_blokuje_recznego_wypelnienia_starej_dostawy(db):
+    """Biuro MOŻE uzupełnić starą dostawę, jeśli zechce — próg wycisza
+    upominanie, a nie odbiera możliwości."""
+    _prog("2026-09-02T12:00:00+00:00")
+    rid = _przyjecie("rec-recznie", "2026-09-01 08:00:00+00", 4)
+    save_check(rid, ReceptionCheckIn.model_validate({
+        "visual": "bz", "tempChamber": 2.5, "tempMeat": 3.1,
+        "kgMatch": "bz", "verdict": "K",
+    }))
+    assert get_check(rid)["status"] == "komplet"
+
+
+def test_prog_ustawia_sie_raz_i_nie_przesuwa_sie(db):
+    """Migracje chodzą przy KAŻDYM starcie. Gdyby próg przesuwał się w przód,
+    każdy restart wyciszałby dostawy, o które system ma się upominać."""
+    from app.migrations import _ustaw_prog_kontroli_haccp
+    from app.services.reception_checks_service import haccp_required_from
+    execute("DELETE FROM app_settings WHERE key = 'haccp_checks_from'")
+    _ustaw_prog_kontroli_haccp()
+    pierwszy = haccp_required_from()
+    assert pierwszy
+    _ustaw_prog_kontroli_haccp()
+    _ustaw_prog_kontroli_haccp()
+    assert haccp_required_from() == pierwszy
+
+
+def test_get_check_mowi_czy_kontrola_jest_wymagana(db):
+    """Ekran musi wiedzieć, czy poganiać — inaczej stara dostawa świeci
+    „Uzupełnij kontrolę HACCP" mimo papierowej wersji w segregatorze."""
+    _prog("2026-09-02T12:00:00+00:00")
+    stara = _przyjecie("rec-req-stara", "2026-09-01 08:00:00+00", 7)
+    nowa = _przyjecie("rec-req-nowa", "2026-09-02 14:00:00+00", 8)
+    assert get_check(stara)["required"] is False
+    assert get_check(nowa)["required"] is True
