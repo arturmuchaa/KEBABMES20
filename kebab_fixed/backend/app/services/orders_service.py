@@ -691,6 +691,114 @@ def delete_order(order_id: str) -> Dict[str, bool]:
     return {"ok": True}
 
 
+def _line_identity(product_type_id, recipe_id, packaging_id, kg_per_unit) -> tuple:
+    """Tożsamość pozycji dla dopasowania bez identyfikatora.
+
+    Zaokrąglenie kg do 3 miejsc, bo z bazy wraca Decimal, a z formularza
+    float — bez tego ta sama pozycja nie dopasowałaby się do samej siebie.
+    """
+    return (product_type_id or "", recipe_id or "", packaging_id or "",
+            round(float(kg_per_unit or 0), 3))
+
+
+def _reconcile_lines_cx(conn, order_id: str, lines) -> None:
+    """Uzgodnij pozycje zamówienia zamiast kasować je i tworzyć od nowa.
+
+    DLACZEGO to jest ważne: `order_pallet_items` wskazuje pozycję po id
+    i ma `ON DELETE CASCADE`. Kasowanie wszystkich wierszy przy każdej
+    edycji zabierało ze sobą CAŁY rozpis palet — poprawka daty dostawy
+    kasowała pracę magazynu (biuro: „ciągle mi znikają te palety").
+
+    Pozycja, która przetrwała edycję, zachowuje swój identyfikator.
+    Pozycja naprawdę usunięta zabiera swój rozpis i to jest poprawne.
+
+    Dopasowanie idzie dwuetapowo:
+      1. po identyfikatorze przysłanym przez formularz (pewne),
+      2. po tożsamości produktu (rodzaj + receptura + tuleja + waga sztuki)
+         — furtka dla starszego klienta, który identyfikatorów nie wysyła.
+         Bez niej desktop biura sprzed aktualizacji dalej gubiłby palety.
+    """
+    istniejace = cx_query_all(
+        conn,
+        "SELECT * FROM client_order_lines WHERE order_id=%s ORDER BY position",
+        (order_id,),
+    )
+    wolne: Dict[str, Any] = {r["id"]: r for r in istniejace}
+    dopasowane: Dict[int, str] = {}
+
+    # 1) po identyfikatorze
+    for i, line in enumerate(lines):
+        lid = (getattr(line, "id", "") or "").strip()
+        if lid and lid in wolne:
+            dopasowane[i] = lid
+            del wolne[lid]
+
+    # 2) po tożsamości produktu — pierwszy wolny kandydat
+    wg_tozsamosci: Dict[tuple, List[str]] = {}
+    for rid, r in wolne.items():
+        wg_tozsamosci.setdefault(
+            _line_identity(r["product_type_id"], r["recipe_id"],
+                           r["packaging_id"], r["kg_per_unit"]), []).append(rid)
+    for i, line in enumerate(lines):
+        if i in dopasowane:
+            continue
+        kandydaci = wg_tozsamosci.get(
+            _line_identity(line.product_type_id, line.recipe_id,
+                           line.packaging_id, line.kg_per_unit))
+        if kandydaci:
+            rid = kandydaci.pop(0)
+            dopasowane[i] = rid
+            wolne.pop(rid, None)
+
+    # 3) pozycje, których nikt nie odebrał — usuwane razem ze swoim rozpisem
+    for rid in wolne:
+        cx_execute(conn, "DELETE FROM client_order_lines WHERE id=%s", (rid,))
+
+    # 4) aktualizacja dopasowanych i wstawienie nowych.
+    #    `position` utrwala KOLEJNOŚĆ dokumentu — bez niej odczyt nie ma
+    #    czego sortować, bo id są losowe.
+    for poz, line in enumerate(lines):
+        rn, ptn, pkgn = _resolve_line_names(conn, line)
+        wartosci = (
+            poz,
+            line.qty,
+            line.kg_per_unit,
+            round(line.qty * line.kg_per_unit, 3),
+            line.product_type_id or None,
+            ptn or None,
+            line.recipe_id,
+            rn or None,
+            line.packaging_id or None,
+            pkgn or None,
+        )
+        rid = dopasowane.get(poz)
+        if rid:
+            cx_execute(
+                conn,
+                """
+                UPDATE client_order_lines
+                   SET position=%s, qty=%s, kg_per_unit=%s, total_kg=%s,
+                       product_type_id=%s, product_type_name=%s,
+                       recipe_id=%s, recipe_name=%s,
+                       packaging_id=%s, packaging_name=%s
+                 WHERE id=%s
+                """,
+                wartosci + (rid,),
+            )
+        else:
+            cx_execute(
+                conn,
+                """
+                INSERT INTO client_order_lines
+                    (id, order_id, position, qty, kg_per_unit, total_kg,
+                     product_type_id, product_type_name, recipe_id, recipe_name,
+                     packaging_id, packaging_name)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (cuid(), order_id) + wartosci,
+            )
+
+
 def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
     with transaction() as conn:
         order = cx_query_one(
@@ -732,37 +840,7 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
             ),
         )
 
-        cx_execute(
-            conn, "DELETE FROM client_order_lines WHERE order_id=%s", (order_id,)
-        )
-        # `position` utrwala KOLEJNOŚĆ dokumentu — wiersze dostają nowe id
-        # przy każdej edycji, więc bez niej nie ma czego sortować.
-        for poz, line in enumerate(dto.lines):
-            rn, ptn, pkgn = _resolve_line_names(conn, line)
-            cx_execute(
-                conn,
-                """
-                INSERT INTO client_order_lines
-                    (id, order_id, position, qty, kg_per_unit, total_kg,
-                     product_type_id, product_type_name, recipe_id, recipe_name,
-                     packaging_id, packaging_name)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                """,
-                (
-                    cuid(),
-                    order_id,
-                    poz,
-                    line.qty,
-                    line.kg_per_unit,
-                    round(line.qty * line.kg_per_unit, 3),
-                    line.product_type_id or None,
-                    ptn or None,
-                    line.recipe_id,
-                    rn or None,
-                    line.packaging_id or None,
-                    pkgn or None,
-                ),
-            )
+        _reconcile_lines_cx(conn, order_id, dto.lines)
 
         updated = cx_query_one(
             conn, "SELECT * FROM client_orders WHERE id=%s", (order_id,)

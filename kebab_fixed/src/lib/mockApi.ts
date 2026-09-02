@@ -2287,8 +2287,13 @@ export interface ClientOrder {
 }
 
 export interface CreateOrderLineDto {
+  /** Identyfikator ISTNIEJĄCEJ pozycji przy edycji; brak = pozycja nowa.
+   *  Backend uzgadnia po nim wiersze zamiast kasować je i tworzyć od nowa —
+   *  paleta wskazuje pozycję po id, więc nowy id zrywa jej rozpis. */
+  id?: string
   qty: number; kgPerUnit: number
   productTypeId: string; recipeId: string
+  productTypeName?: string; recipeName?: string; packagingName?: string
   packagingId?: string; notes?: string
 }
 

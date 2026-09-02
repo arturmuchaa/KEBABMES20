@@ -100,6 +100,7 @@ export function OrderEntryPage() {
     setDeliveryDate(existing.deliveryDate ?? '')
     setNotes(existing.notes ?? '')
     setLines(sortOrderLines(existing.lines.map(l => ({
+      id: (l as any).id ?? '',
       qty: String(l.qty), kgPerUnit: String(l.kgPerUnit),
       productTypeId: l.productTypeId, recipeId: l.recipeId,
       packagingId: l.packagingId ?? '', notes: l.notes ?? '',
@@ -244,6 +245,8 @@ export function OrderEntryPage() {
       deliveryDate: deliveryDate || undefined,
       notes: notes || undefined,
       lines: all.map(l => ({
+        // Puste dla nowej pozycji — backend wstawi ją wtedy jako nową.
+        id: l.id || undefined,
         qty: num(l.qty),
         kgPerUnit: num(l.kgPerUnit),
         productTypeId: l.productTypeId,

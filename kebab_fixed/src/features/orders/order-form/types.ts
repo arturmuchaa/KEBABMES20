@@ -5,6 +5,11 @@
 import type { Dispatch, SetStateAction } from 'react'
 
 export interface LineForm {
+  /** Identyfikator ISTNIEJĄCEJ pozycji przy edycji; puste = pozycja nowa.
+   *  Wysyłamy go przy zapisie, żeby backend UZGODNIŁ wiersze zamiast
+   *  kasować je i tworzyć od nowa — paleta wskazuje pozycję po id, więc
+   *  nowy id zrywa jej rozpis („ciągle mi znikają te palety", 02.09.2026). */
+  id?: string
   qty: string
   kgPerUnit: string
   productTypeId: string
@@ -14,7 +19,7 @@ export interface LineForm {
 }
 
 export const emptyLine = (): LineForm => ({
-  qty: '', kgPerUnit: '', productTypeId: '', recipeId: '', packagingId: '', notes: '',
+  id: '', qty: '', kgPerUnit: '', productTypeId: '', recipeId: '', packagingId: '', notes: '',
 })
 
 export interface ProductTypeLite { id: string; name: string }

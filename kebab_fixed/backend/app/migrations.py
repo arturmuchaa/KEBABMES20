@@ -1584,6 +1584,7 @@ def _run_migrations_locked() -> None:
     _backfill_recipe_ingredients_seq()
     _backfill_byproduct_containers()
     _backfill_plan_line_position()
+    _backfill_order_line_positions()
     _backfill_mixing_session_lots()
     _backfill_receptions()
     _backfill_stock_codes()
@@ -2493,6 +2494,65 @@ def _backfill_byproduct_containers() -> None:
     except Exception as exc:
         logger.warning(
             "migrations.backfill_byproduct_containers.error", extra={"error": str(exc)}
+        )
+
+
+def _backfill_order_line_positions() -> None:
+    """Nadaje position pozycjom zamówień sprzed tej kolumny.
+
+    Reguła jest ta sama co przy zapisie (właściciel, 2026-09-02): pozycje
+    jednej receptury razem, w grupie wagi sztuki malejąco, grupy w kolejności
+    pierwszego wpisania.
+
+    Kolejności wpisywania stare dokumenty nigdzie nie zapisały, więc bierzemy
+    `ctid` — fizyczne miejsce wiersza, które w praktyce odpowiada kolejności
+    wstawienia. To NIE jest gwarancja bazy, tylko najlepszy dostępny ślad:
+    dzięki niemu grupa receptur zostaje tam, gdzie biuro widzi ją dziś,
+    zamiast przeskoczyć na alfabetyczną.
+
+    Rusza WYŁĄCZNIE zamówienia, w których wszystkie pozycje mają jeszcze 0 —
+    dokument zapisany już nową ścieżką ma swoją kolejność i nie wolno jej
+    nadpisać.
+    """
+    try:
+        execute(
+            """
+            WITH kandydaci AS (
+              SELECT order_id FROM client_order_lines
+               GROUP BY order_id
+              HAVING bool_and(COALESCE(position, 0) = 0)
+            ),
+            wpisane AS (
+              SELECT l.id, l.order_id, l.recipe_id, l.kg_per_unit,
+                     ROW_NUMBER() OVER (PARTITION BY l.order_id ORDER BY l.ctid) AS wpis
+                FROM client_order_lines l
+                JOIN kandydaci k ON k.order_id = l.order_id
+            ),
+            grupy AS (
+              SELECT order_id, recipe_id, MIN(wpis) AS pierwsze
+                FROM wpisane GROUP BY order_id, recipe_id
+            ),
+            ulozone AS (
+              SELECT w.id,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY w.order_id
+                       ORDER BY g.pierwsze, w.kg_per_unit DESC, w.wpis
+                     ) - 1 AS poz
+                FROM wpisane w
+                JOIN grupy g
+                  ON g.order_id = w.order_id
+                 AND g.recipe_id IS NOT DISTINCT FROM w.recipe_id
+            )
+            UPDATE client_order_lines l
+               SET position = ulozone.poz
+              FROM ulozone
+             WHERE ulozone.id = l.id
+            """
+        )
+        logger.info("migrations.backfill_order_line_positions.done")
+    except Exception as exc:
+        logger.warning(
+            "migrations.backfill_order_line_positions.error", extra={"error": str(exc)}
         )
 
 

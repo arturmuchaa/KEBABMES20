@@ -4,6 +4,10 @@ from pydantic import BaseModel
 
 
 class OrderLineCreate(BaseModel):
+    #: Identyfikator ISTNIEJĄCEJ pozycji przy edycji. Pusty = pozycja nowa.
+    #: Dzięki niemu edycja UZGADNIA wiersze zamiast kasować je i tworzyć od
+    #: nowa — a paleta wskazuje pozycję po id, więc nowy id zrywa jej rozpis.
+    id: str = ""
     qty: int
     kg_per_unit: float
     product_type_id: str = ""
