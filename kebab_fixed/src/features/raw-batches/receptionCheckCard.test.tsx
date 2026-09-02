@@ -247,3 +247,111 @@ describe('ReceptionCheckCard — podpis unieważniony', () => {
     expect(przyciski.length).toBe(2)
   })
 })
+
+// ── Podpis a niezapisane zmiany ─────────────────────────────────────
+// BŁĄD Z PRODUKCJI (02.09.2026, druga odsłona): biuro wpisało 2,3/2,2,
+// NIE zapisało, podpisało obie kolumny, a potem kliknęło „Zapisz".
+// Podpis objął treść SPRZED poprawki (2,0/2,0 — to, co stało w bazie),
+// więc zapis natychmiast go unieważnił. Dowód: podpisy 20:11:42 i
+// 20:12:07 z hashem 11aaaca4, unieważnione 20:12:09.
+//
+// Dwie osobne zasady: nie wolno podpisać treści, której nie ma w bazie,
+// i nie wolno po cichu skasować ważnego podpisu zapisem.
+describe('ReceptionCheckCard — podpis a niezapisane zmiany', () => {
+  const zmien = async () => {
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    const pole = await screen.findByLabelText(/Temperatura mięsa/i)
+    fireEvent.change(pole, { target: { value: '2,3' } })
+  }
+
+  it('niezapisana zmiana BLOKUJE podpis', async () => {
+    await zmien()
+    const podpisz = screen.getAllByRole('button', { name: /^Podpisz$/i })
+    expect(podpisz.every(b => b.hasAttribute('disabled'))).toBe(true)
+  })
+
+  it('mówi, dlaczego nie da się podpisać', async () => {
+    await zmien()
+    expect(screen.getByText(/zapisz.*przed podpisaniem/i)).toBeTruthy()
+  })
+
+  it('po zapisaniu podpis znów jest możliwy', async () => {
+    await zmien()
+    fireEvent.click(screen.getByRole('button', { name: /Zapisz/i }))
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: /^Podpisz$/i })[0].hasAttribute('disabled'))
+        .toBe(false))
+  })
+
+  it('bez zmian podpis jest dostępny od razu', async () => {
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    const podpisz = await screen.findAllByRole('button', { name: /^Podpisz$/i })
+    expect(podpisz.every(b => b.hasAttribute('disabled'))).toBe(false)
+  })
+})
+
+describe('ReceptionCheckCard — zapis kasujący ważny podpis', () => {
+  const wazny = {
+    role: 'wykonal', workerId: 'w-1', signerName: 'Jan K.',
+    png: 'data:image/png;base64,AAAA', active: true, signedAt: '2026-09-02T19:32:00Z',
+  }
+  const zmienIZapisz = async () => {
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    const pole = await screen.findByLabelText(/Temperatura mięsa/i)
+    fireEvent.change(pole, { target: { value: '2,3' } })
+    fireEvent.click(screen.getByRole('button', { name: /Zapisz/i }))
+  }
+
+  it('pyta, zanim unieważni ważny podpis', async () => {
+    forDoc.mockResolvedValue([wazny])
+    const pytanie = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await zmienIZapisz()
+    await waitFor(() => expect(pytanie).toHaveBeenCalled())
+    expect(pytanie.mock.calls[0][0]).toMatch(/unieważni/i)
+    pytanie.mockRestore()
+  })
+
+  it('odmowa NIE zapisuje — dane zostają, podpis też', async () => {
+    forDoc.mockResolvedValue([wazny])
+    const pytanie = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await zmienIZapisz()
+    await waitFor(() => expect(pytanie).toHaveBeenCalled())
+    expect(save).not.toHaveBeenCalled()
+    pytanie.mockRestore()
+  })
+
+  it('zgoda zapisuje', async () => {
+    forDoc.mockResolvedValue([wazny])
+    const pytanie = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await zmienIZapisz()
+    await waitFor(() => expect(save).toHaveBeenCalled())
+    pytanie.mockRestore()
+  })
+
+  it('wymienia z nazwiska, czyj podpis padnie', async () => {
+    forDoc.mockResolvedValue([wazny])
+    const pytanie = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await zmienIZapisz()
+    await waitFor(() => expect(pytanie).toHaveBeenCalled())
+    expect(pytanie.mock.calls[0][0]).toMatch(/Jan K\./)
+    pytanie.mockRestore()
+  })
+
+  it('bez ważnych podpisów zapisuje BEZ pytania', async () => {
+    forDoc.mockResolvedValue([])
+    const pytanie = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await zmienIZapisz()
+    await waitFor(() => expect(save).toHaveBeenCalled())
+    expect(pytanie).not.toHaveBeenCalled()
+    pytanie.mockRestore()
+  })
+
+  it('sam unieważniony podpis nie wywołuje pytania — nie ma czego stracić', async () => {
+    forDoc.mockResolvedValue([{ ...wazny, active: false, png: null }])
+    const pytanie = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await zmienIZapisz()
+    await waitFor(() => expect(save).toHaveBeenCalled())
+    expect(pytanie).not.toHaveBeenCalled()
+    pytanie.mockRestore()
+  })
+})

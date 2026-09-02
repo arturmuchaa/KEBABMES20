@@ -46,6 +46,11 @@ function parsujTemp(v: string): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+/** Nazwa kolumny karty 1.1.1 — ta sama w kratce i w pytaniu o zapis. */
+function etykietaRoli(rola: string): string {
+  return rola === 'wykonal' ? 'Wykonał (l)' : 'Sprawdził (m)'
+}
+
 /** Liczba do pola tekstowego — po polsku, bo tak ją operator wpisał. */
 function tempDoPola(v: number | null | undefined): string {
   return v === null || v === undefined ? '' : String(v).replace('.', ',')
@@ -104,6 +109,16 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
    *  „2,", „-" czy „" są w trakcie pisania poprawnymi stanami POLA, choć
    *  nie są jeszcze liczbą — dlatego tekst i liczba muszą żyć osobno. */
   const [tempTekst, setTempTekst] = useState({ chamber: '', meat: '' })
+  /** Czy na ekranie siedzi coś, czego nie ma jeszcze w bazie.
+   *
+   *  BŁĄD Z PRODUKCJI (02.09.2026): biuro wpisało nowe temperatury, NIE
+   *  zapisało, podpisało obie kolumny i dopiero potem kliknęło „Zapisz".
+   *  Podpis objął treść SPRZED poprawki — bo podpisuje się to, co stoi
+   *  w bazie, nie to, co widać w polu. Zapis natychmiast go unieważnił.
+   *
+   *  Podpis pod treścią, której podpisujący nie widział, jest gorszy niż
+   *  brak podpisu: wygląda na ważny. Dlatego blokada, nie ostrzeżenie. */
+  const [brudny, setBrudny] = useState(false)
 
   const wczytajPodpisy = () => {
     signaturesApi.forDoc('reception_check', receptionId)
@@ -145,6 +160,7 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
   const ustaw = <K extends keyof ReceptionCheck>(k: K, v: ReceptionCheck[K]) => {
     setCheck(c => (c ? { ...c, [k]: v } : c))
     setZapisano(false)
+    setBrudny(true)
   }
 
   /** Tekst zostaje taki, jaki wpisał człowiek; do stanu idzie liczba. */
@@ -156,6 +172,20 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
   }
 
   const zapisz = () => {
+    // Zapis zmieniający treść ZDEJMUJE ważne podpisy. Dozwolone — poprawka
+    // musi być możliwa — ale nie po cichu: biuro traciło podpisy, nie
+    // wiedząc, że to zrobiło własnym kliknięciem.
+    const wazne = podpisy.filter((x: any) => x.active !== false)
+    if (brudny && wazne.length) {
+      const kto = wazne
+        .map((x: any) => `  • ${etykietaRoli(x.role)}: ${x.signerName}`)
+        .join('\n')
+      const ok = window.confirm(
+        `Zapis unieważni złożone podpisy:\n\n${kto}\n\n` +
+        'Podpis dotyczy treści sprzed zmiany, więc traci ważność i trzeba ' +
+        'będzie podpisać ponownie.\n\nZapisać mimo to?')
+      if (!ok) return
+    }
     setZapisuje(true)
     setBlad(null)
     receptionChecksApi.save(receptionId, {
@@ -175,6 +205,7 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
         // się „2". Niedokończona liczba nie ma prawa udawać zapisanej.
         setTempTekst({ chamber: tempDoPola(d?.tempChamber), meat: tempDoPola(d?.tempMeat) })
         setZapisano(true)
+        setBrudny(false)
         // Zapis mógł UNIEWAŻNIĆ podpisy (zmiana treści) — ekran musi to
         // pokazać od razu, inaczej biuro myśli, że dokument nadal jest
         // podpisany, a karta wydrukuje pustą kratkę.
@@ -340,7 +371,7 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
             return (
               <div key={rola} className="rounded border border-ink-5 p-3">
                 <p className="text-xs font-semibold text-ink-2 mb-2">
-                  {rola === 'wykonal' ? 'Wykonał (l)' : 'Sprawdził (m)'}
+                  {etykietaRoli(rola)}
                 </p>
                 {wazny && (
                   <div className="space-y-1">
@@ -358,14 +389,14 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
                     <p className="text-[11px] text-amber-700">
                       Podpis unieważniony — dane zmieniono po podpisaniu.
                     </p>
-                    <Button type="button" variant="outline" size="sm"
+                    <Button type="button" variant="outline" size="sm" disabled={brudny}
                             onClick={() => setPodpisujeRola(rola)}>
                       Podpisz ponownie
                     </Button>
                   </div>
                 )}
                 {!p && (
-                  <Button type="button" variant="outline" size="sm"
+                  <Button type="button" variant="outline" size="sm" disabled={brudny}
                           onClick={() => setPodpisujeRola(rola)}>
                     Podpisz
                   </Button>
@@ -374,6 +405,13 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
             )
           })}
         </div>
+
+        {brudny && (
+          <p className="text-[11px] text-amber-700">
+            Zapisz zmiany przed podpisaniem — podpisuje się treść z bazy,
+            nie to, co widać w polu.
+          </p>
+        )}
 
         {podpisujeRola && (
           <SignDialog
