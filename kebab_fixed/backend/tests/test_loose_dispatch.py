@@ -84,9 +84,16 @@ def test_goods_wz_lines_full_batch_and_kg():
 
 
 def test_goods_wz_lines_sorted_and_no_kg_when_unknown():
+    # Od 02.09.2026 nazwa pozycji WZ liczy się TĄ SAMĄ regułą co HDI, żeby
+    # oba dokumenty pokazywały odbiorcy to samo. Domyślny tryb to
+    # „rodzaj + receptura", więc „Zagros" schodzi jako „KEBAB Zagros",
+    # ale „GOLD KEBAB" zostaje samo: rodzaj „KEBAB" ZAWIERA SIĘ w nazwie
+    # receptury, a wtedy reguła bierze dłuższą, żeby nie było „KEBAB GOLD
+    # KEBAB". Prawdziwe ścieżki wystawiania podają tryb z kartoteki odbiorcy
+    # (naming_context) — tutaj sprawdzamy sam builder, czyli domyślny.
     lines = build_goods_wz_lines([
         {"goods": _fg(id="G2", batch="100626 354", recipe="Zagros", kgpu=0), "count": 5},
         {"goods": _fg(id="G1", batch="100626 353", recipe="GOLD KEBAB"), "count": 1},
     ])
-    assert [l["name"] for l in lines] == ["GOLD KEBAB", "Zagros"]
+    assert [l["name"] for l in lines] == ["GOLD KEBAB", "KEBAB Zagros"]
     assert "total_kg" not in lines[1]  # kg_per_unit=0 → bez wagi, cena za szt

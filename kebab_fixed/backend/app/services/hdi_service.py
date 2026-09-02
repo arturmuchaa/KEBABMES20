@@ -16,6 +16,7 @@ from app.services.order_stock_service import (
     stock_portions_for_order,
 )
 from app.services.settings_service import get_company
+from app.services.document_naming import tuleja_suffix
 
 logger = get_logger(__name__)
 
@@ -123,6 +124,10 @@ def units_from_plan_lines(lines: List[Dict[str, Any]], shelf_by_recipe: Dict[str
             or line.get("product_type_name") or "",
             (recipe_names or {}).get(line.get("recipe_id") or "")
             or line.get("recipe_name") or "", mode)
+        # Tuleja niestandardowa wchodzi do NAZWY, a nazwa jest kluczem
+        # grupowania — dzięki temu 80 cm dostaje własną pozycję zamiast
+        # scalać się z 65 cm w jedną liczbę sztuk.
+        name += tuleja_suffix(line.get("packaging_name"))
         weight = line.get("kg_per_unit") or 0
         shelf = int(shelf_by_recipe.get(line.get("recipe_id"), 0) or 0)
         pd = _pd_iso(line.get("progress_updated_at"))
@@ -173,6 +178,7 @@ def units_from_stock_portions(
             or fg.get("product_type_name") or "",
             (recipe_names or {}).get(fg.get("recipe_id") or "")
             or fg.get("recipe_name") or "", mode)
+        name += tuleja_suffix(fg.get("packaging_name"))
         pd = _pd_iso(fg.get("produced_date"))
         bno = kebab_batch_wsad(fg.get("batch_no") or "")
         shelf = int(shelf_by_recipe.get(fg.get("recipe_id"), 0) or 0)

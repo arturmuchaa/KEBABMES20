@@ -9,7 +9,8 @@ import re
 from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.services.settings_service import get_company
-from app.services.wz_service import _insert_wz, _seller_block, build_goods_wz_lines
+from app.services.wz_service import (_insert_wz, _seller_block, build_goods_wz_lines,
+                                     naming_context)
 from app.utils.ids import cuid, format_carton_no, now_iso
 from app.utils.stock import create_stock_movement
 from app.utils.unit_codes import (
@@ -200,7 +201,11 @@ def close_dispatch(dispatch_id: str) -> Dict[str, Any]:
             issued = date.today().isoformat()
             wid = _insert_wz(
                 conn, source_type="dispatch", source_id=dispatch_id, seller=_seller_block(),
-                buyer=buyer, valued=False, lines=build_goods_wz_lines(goods_with_counts),
+                buyer=buyer, valued=False,
+                lines=build_goods_wz_lines(
+                    goods_with_counts,
+                    *naming_context(str(buyer.get("clientId") or buyer.get("client_id") or ""),
+                                    buyer.get("name") or "")),
                 total=0.0, place=get_company().get("city") or "", issued=issued,
                 released=issued, notes="")
             wz_number = cx_query_one(conn, "SELECT number FROM wz_documents WHERE id=%s", (wid,))["number"]

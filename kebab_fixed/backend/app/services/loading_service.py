@@ -21,7 +21,8 @@ from fastapi import HTTPException
 from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.services.settings_service import get_company
-from app.services.wz_service import _insert_wz, _seller_block, build_goods_wz_lines
+from app.services.wz_service import (_insert_wz, _seller_block, build_goods_wz_lines,
+                                     naming_context)
 from app.utils.stock import create_stock_movement
 from app.utils.unit_codes import SHIPPED, group_units_by_goods
 
@@ -219,7 +220,11 @@ def finalize_loading(
                 wz_id = _insert_wz(
                     conn, source_type="order", source_id=order_id, seller=_seller_block(),
                     buyer=_order_buyer(conn, order), valued=False,
-                    lines=build_goods_wz_lines(goods_with_counts), total=0.0,
+                    lines=build_goods_wz_lines(
+                        goods_with_counts,
+                        *naming_context(str(order.get("client_id") or ""),
+                                        order.get("client_name") or "")),
+                    total=0.0,
                     place=get_company().get("city") or "", issued=issued, released=issued,
                     notes="Wystawiony przy załadunku.")
                 for g in goods_with_counts:

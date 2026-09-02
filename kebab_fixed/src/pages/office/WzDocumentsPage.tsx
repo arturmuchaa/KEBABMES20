@@ -1,4 +1,5 @@
 import { useOtworzDokument } from '@/lib/otworzDokument'
+import { docNumberSortValue } from '@/lib/docNumberSort'
 import { mozliweHdiDoWz } from '@/components/wz/hdiDostepne'
 import { Fragment, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -293,7 +294,9 @@ export function WzDocumentsPage() {
     .slice()
     .sort((a, b) => {
       let cmp = 0
-      if (sortCol === 'number') cmp = (a.number || '').localeCompare(b.number || '', 'pl', { numeric: true })
+      // Numer WZ to WZ/NN/MM/RR. `numeric: true` porównuje PIERWSZĄ liczbę,
+      // czyli numer w miesiącu — sierpniowe dokumenty lądowały nad wrześniowymi.
+      if (sortCol === 'number') cmp = docNumberSortValue(a.number) - docNumberSortValue(b.number)
       if (sortCol === 'date')   cmp = (a.issued_date || '').localeCompare(b.issued_date || '')
       if (sortCol === 'buyer')  cmp = (a.buyer_name || '').localeCompare(b.buyer_name || '', 'pl')
       if (sortCol === 'value')  cmp = (a.total_value ?? 0) - (b.total_value ?? 0)

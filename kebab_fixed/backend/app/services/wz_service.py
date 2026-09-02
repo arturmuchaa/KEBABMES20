@@ -31,6 +31,9 @@ from app.services.order_stock_service import (
     stock_portions_for_order,
 )
 from app.services.settings_service import get_company
+from app.services.document_naming import tuleja_suffix
+from app.services.hdi_service import (client_naming, document_type_names,
+                                      hdi_product_base)
 from app.utils.containers import (
     ASSET_TYPES, containers_for_kg, normalize_nip, prorate_containers,
 )
@@ -225,7 +228,12 @@ def build_manual_wz_lines(selections: List[Dict[str, Any]], valued: bool) -> Tup
     return lines, total
 
 
-def build_goods_wz_lines(goods_with_counts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def build_goods_wz_lines(
+    goods_with_counts: List[Dict[str, Any]],
+    mode: str = "type_recipe",
+    recipe_names: Optional[Dict[str, str]] = None,
+    doc_names: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, Any]]:
     """Pozycje WZ z wydania po twardym linku sztuka→wyrób: jedna linia per
     finished_goods. batch_no = pełna partia WYROBU (format "ddmmrr partia",
     jak na etykiecie i HDI). kg_per_unit/total_kg dołączone, żeby późniejsze
@@ -239,7 +247,12 @@ def build_goods_wz_lines(goods_with_counts: List[Dict[str, Any]]) -> List[Dict[s
         count = int(g.get("count") or 0)
         kgpu = float(fg.get("kg_per_unit") or 0)
         line: Dict[str, Any] = {
-            "name": fg.get("recipe_name") or fg.get("product_type_name") or "Kebab",
+            "name": (hdi_product_base(
+                (doc_names or {}).get(fg.get("product_type_id") or "")
+                or fg.get("product_type_name") or "",
+                (recipe_names or {}).get(fg.get("recipe_id") or "")
+                or fg.get("recipe_name") or "", mode) or "Kebab")
+                + tuleja_suffix(fg.get("packaging_name")),
             "qty": count,
             "unit": "szt",
             "batch_no": fg.get("batch_no"),
@@ -1066,7 +1079,30 @@ def _fmt_kg(v: float) -> str:
     return str(int(v)) if float(v).is_integer() else f"{v:g}"
 
 
-def build_order_wz_lines(plan_lines: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int]:
+def naming_context(client_id: str = "", client_name: str = "") -> tuple:
+    """(tryb, własne nazwy receptur, nazwy rodzajów) dla odbiorcy.
+
+    Wspólne dla WSZYSTKICH ścieżek wystawiania WZ — z zamówienia, z wydania
+    i z załadunku. Bez tego WZ z jednej ścieżki nazywałby wyrób inaczej niż
+    z drugiej, a odbiorca dostawałby dokumenty, których nie da się zestawić.
+    """
+    client = None
+    if client_id:
+        client = query_one(
+            "SELECT id, hdi_name_mode FROM clients WHERE id=%s", (client_id,))
+    if not client and client_name:
+        client = query_one(
+            "SELECT id, hdi_name_mode FROM clients WHERE name=%s", (client_name,))
+    mode, recipe_names = client_naming(client or {})
+    return mode, recipe_names, document_type_names()
+
+
+def build_order_wz_lines(
+    plan_lines: List[Dict[str, Any]],
+    mode: str = "type_recipe",
+    recipe_names: Optional[Dict[str, str]] = None,
+    doc_names: Optional[Dict[str, str]] = None,
+) -> Tuple[List[Dict[str, Any]], int]:
     """Linie WZ z linii planu produkcji: pozycja per (receptura, waga, partia)
     wg batch_allocation (fallback: seasoned_batch_no, jak w HDI).
     Jak w WZ ręcznym: nazwa z wagą ("Gold2 40kg"), kg_per_unit/total_kg na
@@ -1078,7 +1114,18 @@ def build_order_wz_lines(plan_lines: List[Dict[str, Any]]) -> Tuple[List[Dict[st
         if qty_done <= 0:
             continue
         produced += qty_done
-        name = (line.get("recipe_name") or line.get("product_type_name") or "Kebab").strip()
+        # Nazwa wg kartoteki ODBIORCY — ta sama reguła co HDI, żeby oba
+        # dokumenty pokazywały ten sam wyrób tak samo. Tuleja niestandardowa
+        # wchodzi do nazwy, więc 80 cm dostaje własną pozycję (nazwa jest
+        # częścią klucza grupowania niżej).
+        name = hdi_product_base(
+            (doc_names or {}).get(line.get("product_type_id") or "")
+            or line.get("product_type_name") or "",
+            (recipe_names or {}).get(line.get("recipe_id") or "")
+            or line.get("recipe_name") or "", mode) or "Kebab"
+        # Dopisek tulei idzie na SAM KONIEC, za wagą: „KEBAB MIX 30kg (80cm)".
+        # Wchodzi do klucza grupowania, więc 80 cm dostaje własną pozycję.
+        tul = tuleja_suffix(line.get("packaging_name"))
         rid = line.get("recipe_id")
         kgpu = float(line.get("kg_per_unit") or 0)
         ba = line.get("batch_allocation") or {}
@@ -1095,14 +1142,14 @@ def build_order_wz_lines(plan_lines: List[Dict[str, Any]]) -> Tuple[List[Dict[st
         for bno, pieces in buckets:
             if int(pieces) <= 0:
                 continue
-            key = (rid, name, bno, kgpu)
+            key = (rid, name, bno, kgpu, tul)
             agg[key] = agg.get(key, 0) + int(pieces)
     lines: List[Dict[str, Any]] = []
-    for (rid, name, bno, kgpu), qty in sorted(
-        agg.items(), key=lambda kv: (kv[0][1], -kv[0][3], kv[0][2] or "")
+    for (rid, name, bno, kgpu, tul), qty in sorted(
+        agg.items(), key=lambda kv: (kv[0][1], kv[0][4], -kv[0][3], kv[0][2] or "")
     ):
         ln: Dict[str, Any] = {
-            "name": f"{name} {_fmt_kg(kgpu)}kg" if kgpu > 0 else name,
+            "name": (f"{name} {_fmt_kg(kgpu)}kg" if kgpu > 0 else name) + tul,
             "qty": qty, "unit": "szt", "batch_no": bno,
             "price": None, "value": None, "stock_type": "fg", "recipe_id": rid,
         }
@@ -1113,7 +1160,12 @@ def build_order_wz_lines(plan_lines: List[Dict[str, Any]]) -> Tuple[List[Dict[st
     return lines, produced
 
 
-def build_stock_wz_lines(portions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def build_stock_wz_lines(
+    portions: List[Dict[str, Any]],
+    mode: str = "type_recipe",
+    recipe_names: Optional[Dict[str, str]] = None,
+    doc_names: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, Any]]:
     """Linie WZ z porcji magazynowych (pokrycie zamówienia zapasem zrobionym
     "na magazyn"). batch_no = pełna partia WYROBU (jak w WZ ręcznym), stock_id
     wskazuje konkretny wiersz finished_goods do rozchodu."""
@@ -1123,12 +1175,15 @@ def build_stock_wz_lines(portions: List[Dict[str, Any]]) -> List[Dict[str, Any]]
         take = int(p.get("take") or 0)
         if take <= 0:
             continue
-        rodzaj = (fg.get("product_type_name") or "").strip()
-        receptura = (fg.get("recipe_name") or "").strip()
-        name = " ".join(x for x in (rodzaj, receptura) if x) or "Kebab"
+        name = hdi_product_base(
+            (doc_names or {}).get(fg.get("product_type_id") or "")
+            or fg.get("product_type_name") or "",
+            (recipe_names or {}).get(fg.get("recipe_id") or "")
+            or fg.get("recipe_name") or "", mode) or "Kebab"
+        tul = tuleja_suffix(fg.get("packaging_name"))
         kgpu = float(fg.get("kg_per_unit") or 0)
         ln: Dict[str, Any] = {
-            "name": f"{name} {_fmt_kg(kgpu)}kg" if kgpu > 0 else name,
+            "name": (f"{name} {_fmt_kg(kgpu)}kg" if kgpu > 0 else name) + tul,
             "qty": take, "unit": "szt", "batch_no": fg.get("batch_no"),
             "price": None, "value": None, "stock_type": "fg",
             "stock_id": fg.get("id"), "recipe_id": fg.get("recipe_id"),
@@ -1214,6 +1269,7 @@ def _order_wz_payload(order_id: str) -> Dict[str, Any]:
     # wpisany na tablecie przed anulowaniem).
     plan_lines = query_all(
         """SELECT pl.qty_done, pl.recipe_id, pl.recipe_name, pl.product_type_name,
+                  pl.product_type_id, pl.packaging_name,
                   pl.kg_per_unit, pl.batch_allocation, pl.seasoned_batch_no,
                   pl.seasoned_batch_nos
            FROM production_plan_lines pl
@@ -1221,7 +1277,25 @@ def _order_wz_payload(order_id: str) -> Dict[str, Any]:
            WHERE pl.client_order_id=%s AND COALESCE(pl.qty_done,0) > 0
              AND pp.status <> 'cancelled'""",
         (order_id,))
-    lines, produced = build_order_wz_lines(plan_lines)
+    # Odbiorca MUSI być rozwiązany PRZED budowaniem pozycji: nazwa pozycji
+    # zależy od jego kartoteki (tryb „rodzaj + receptura" / „sam rodzaj" /
+    # „sama receptura" + własne nazwy receptur), dokładnie jak na HDI.
+    # Bez tego WZ i HDI pokazywały odbiorcy dwie różne nazwy tego samego
+    # wyrobu i nie dawały się zestawić.
+    client = None
+    if order.get("client_id"):
+        client = query_one(
+            "SELECT id, name, address, city, nip, hdi_name_mode FROM clients WHERE id=%s",
+            (order.get("client_id"),))
+    if not client:
+        client = query_one(
+            "SELECT id, name, address, city, nip, hdi_name_mode FROM clients WHERE name=%s",
+            (order.get("client_name"),))
+    client = client or {}
+    mode, recipe_names = client_naming(client)
+    doc_names = document_type_names()
+
+    lines, produced = build_order_wz_lines(plan_lines, mode, recipe_names, doc_names)
 
     order_lines = query_all(
         "SELECT recipe_id, kg_per_unit, product_type_id, packaging_id, qty "
@@ -1234,21 +1308,12 @@ def _order_wz_payload(order_id: str) -> Dict[str, Any]:
     portions = stock_portions_for_order(
         order_id, order.get("order_no") or "", order_lines,
         produced_by_key_from_plan_lines(plan_lines))
-    stock_lines = build_stock_wz_lines(portions)
+    stock_lines = build_stock_wz_lines(portions, mode, recipe_names, doc_names)
     lines = lines + stock_lines
     produced += sum(int(ln.get("qty") or 0) for ln in stock_lines)
 
     incomplete = wz_order_incomplete(produced, ordered_qty)
 
-    # Klient jak w HDI: najpierw client_id, potem nazwa.
-    client = None
-    if order.get("client_id"):
-        client = query_one("SELECT name, address, city, nip FROM clients WHERE id=%s",
-                           (order.get("client_id"),))
-    if not client:
-        client = query_one("SELECT name, address, city, nip FROM clients WHERE name=%s",
-                           (order.get("client_name"),))
-    client = client or {}
     buyer = {"name": client.get("name") or order.get("client_name") or "",
              "address": f"{client.get('address') or ''} {client.get('city') or ''}".strip(),
              "nip": client.get("nip") or ""}

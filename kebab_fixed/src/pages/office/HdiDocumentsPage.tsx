@@ -8,6 +8,7 @@
 import { useMemo, useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { hdiApi, downloadDocPdf, type HdiListRow } from '@/lib/api'
+import { docNumberSortValue } from '@/lib/docNumberSort'
 import { cn } from '@/lib/utils'
 import { DataTable } from '@/components/DataTable'
 import { usePageHeaderActions } from '@/components/PageHeader'
@@ -93,7 +94,10 @@ export function HdiDocumentsPage() {
           initialSort={{ key: 'number', dir: 'desc' }}
           onRowClick={r => openPrint(r.id)}
           columns={[
-            { key: 'number', header: 'Numer HDI', sortable: true, sortValue: r => r.number || '',
+            { key: 'number', header: 'Numer HDI', sortable: true,
+              // Numer to NN/MM/RR — sortowany tekstem stawiał sierpień nad
+              // wrześniem („9/08/26" > „7/09/26"). Porównujemy liczbowo.
+              sortValue: r => docNumberSortValue(r.number),
               cell: r => (
                 <span className="font-bold text-ink whitespace-nowrap">
                   {r.number}
