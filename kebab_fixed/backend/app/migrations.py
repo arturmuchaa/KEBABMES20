@@ -1493,6 +1493,43 @@ _DDL: list[str] = [
         created_at     TIMESTAMPTZ NOT NULL,
         updated_at     TIMESTAMPTZ NOT NULL
     )""",
+
+    # ── Podpisy elektroniczne ──
+    #
+    # WZÓR rysowany raz, na HMI rozbioru pod kodem serwisowym 0099 — to
+    # jedyny dotykowy ekran w zakładzie. Jeden wzór na osobę.
+    """CREATE TABLE IF NOT EXISTS signature_samples (
+        worker_id  TEXT PRIMARY KEY REFERENCES workers(id) ON DELETE CASCADE,
+        png        TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL
+    )""",
+    # AKT PODPISANIA. `png` i `signer_name` są KOPIĄ, nie referencją:
+    # przerysowanie wzoru albo odejście pracownika nie może zmienić
+    # dokumentu sprzed roku. `content_hash` wiąże podpis z treścią —
+    # zmiana danych po podpisaniu ustawia `superseded_at`.
+    """CREATE TABLE IF NOT EXISTS document_signatures (
+        id            TEXT PRIMARY KEY,
+        doc_type      TEXT NOT NULL,
+        doc_id        TEXT NOT NULL,
+        role          TEXT NOT NULL,
+        worker_id     TEXT NOT NULL REFERENCES workers(id),
+        signer_name   TEXT NOT NULL,
+        png           TEXT NOT NULL,
+        content_hash  TEXT NOT NULL,
+        signed_at     TIMESTAMPTZ NOT NULL,
+        superseded_at TIMESTAMPTZ
+    )""",
+    # Jeden AKTYWNY podpis na (dokument, rola). Indeks CZĘŚCIOWY, nie zwykły
+    # UNIQUE: unieważnione podpisy zostają jako historia i muszą móc się
+    # powtarzać, inaczej ponowne podpisanie po korekcie byłoby niemożliwe.
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_document_signatures_active "
+    "ON document_signatures (doc_type, doc_id, role) WHERE superseded_at IS NULL",
+    "CREATE INDEX IF NOT EXISTS idx_document_signatures_doc "
+    "ON document_signatures (doc_type, doc_id)",
+    # Uprawnienia podpisu — dwa, bo kolumny l i m karty 1.1.1 znaczą co innego:
+    # „wykonał" to magazynier, „sprawdził" to kierownik albo technolog.
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS can_sign_performed BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS can_sign_checked BOOLEAN NOT NULL DEFAULT false",
 ]
 
 

@@ -86,6 +86,8 @@ _TRUNCATE = [
     # Testy radziły sobie z tym `ON CONFLICT (id) DO UPDATE` po stałych id,
     # ale test szukający pracownika po NAZWISKU dostawał kilku „VLAD-ów"
     # z poprzednich przebiegów i czytał znacznik nie tego, którego założył.
+    # Podpisy i wzory — czyszczone PRZED kartoteką pracowników (FK).
+    "document_signatures", "signature_samples",
     "workers",
     "worker_hours", "worker_deductions", "payroll_kg_adjustments",
     "settlement_deductions", "settled_days", "payroll_settlements",

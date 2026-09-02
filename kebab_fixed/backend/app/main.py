@@ -105,6 +105,7 @@ def create_app() -> FastAPI:
         raw_batches,
         receptions,
         reception_checks,
+        signatures,
         meat_stock,
         ingredients,
         packaging,
@@ -169,6 +170,8 @@ def create_app() -> FastAPI:
         # Starlette Router.matches — receptions wygrywał jako pierwszy).
         reception_checks,
         receptions,
+        signatures,
+        signatures.samples_router,
         meat_stock,
         ingredients,
         packaging,

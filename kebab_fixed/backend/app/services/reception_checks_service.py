@@ -75,6 +75,12 @@ def save_check(reception_id: str, dto: ReceptionCheckIn) -> Dict[str, Any]:
          dto.notes, dto.verdict, dto.nc_description, dto.nc_action, dto.nc_at,
          teraz, teraz),
     )
+    # Zmiana danych po podpisaniu UNIEWAŻNIA podpis. Wiersze zostają
+    # (historia), ale karta ich nie drukuje, a ekran żąda podpisania od nowa.
+    # Import LOKALNY: signatures_service sięga tutaj po `current_hash`,
+    # więc import na poziomie modułu byłby cyklem i wywracał start aplikacji.
+    from app.services.signatures_service import current_hash, supersede_if_changed
+    supersede_if_changed("reception_check", reception_id, current_hash(reception_id))
     return get_check(reception_id)
 
 
