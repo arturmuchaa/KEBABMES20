@@ -132,16 +132,33 @@ export function SignatureSamplesScreen({ onClose }: { onClose: () => void }) {
               <label className="mb-2 block text-base font-bold" htmlFor="wzor-pin">
                 PIN pracownika
               </label>
-              <input
-                id="wzor-pin"
-                type="password"
-                inputMode="numeric"
-                value={pin}
-                onChange={e => { setPin(e.target.value); setBlad(null) }}
-                className="w-48 px-4 py-3 text-2xl tracking-[0.4em]"
-                style={{ borderRadius: 10, border: `1px solid ${T.line}` }}
-                placeholder="••••"
-              />
+              {/* Kropki zamiast pola tekstowego: na panelu dotykowym nie ma
+                  klawiatury, a systemowa w kiosku Tauri się nie pokazuje.
+                  Ten sam wzorzec co pole kodu serwisowego obok. */}
+              <div className="flex gap-3 mb-3" aria-label="PIN pracownika" id="wzor-pin">
+                {[0, 1, 2, 3].map(i => (
+                  <div key={i}
+                    className="w-12 h-14 flex items-center justify-center text-2xl font-bold"
+                    style={{ borderRadius: 10, background: T.bg, border: `1px solid ${T.line}` }}>
+                    {pin[i] ? '•' : ''}
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-2 max-w-[260px]">
+                {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((k, i) => k === ''
+                  ? <div key={i} />
+                  : <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        setBlad(null)
+                        setPin(prev => k === '⌫' ? prev.slice(0, -1) : (prev + k).slice(0, 4))
+                      }}
+                      className="h-14 flex items-center justify-center text-2xl font-bold select-none active:opacity-70"
+                      style={{ borderRadius: 10, background: T.panel, border: `1px solid ${T.line}` }}>
+                      {k}
+                    </button>)}
+              </div>
               <p className="mt-2 text-sm" style={{ color: T.mut }}>
                 PIN wpisuje osoba podpisująca — kod serwisowy jej nie zastępuje.
               </p>

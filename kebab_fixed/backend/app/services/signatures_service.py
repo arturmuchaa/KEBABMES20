@@ -48,12 +48,20 @@ def _pracownik(worker_id: str) -> Dict[str, Any]:
 
 
 def _sprawdz_pin(w: Dict[str, Any], pin: str) -> None:
-    """Ta sama ścieżka co logowanie PIN-em: blokada po serii pomyłek."""
+    """Ta sama ścieżka co logowanie PIN-em: blokada po serii pomyłek.
+
+    ZŁY PIN TO 403, NIE 401. Klient API traktuje każde 401 jako wygaśnięcie
+    sesji: czyści token i przeładowuje kiosk (`location.reload()`
+    w `lib/api.ts`). Tutaj sesja operatora jest w porządku — odrzucone jest
+    jedno poświadczenie podane w formularzu. Z 401 pomyłka w PIN-ie
+    wyrzucała operatora na ekran logowania i gubiła narysowany wzór
+    (zgłoszenie z hali 02.09.2026: „daję zapis i kiosk się restartuje").
+    """
     if is_locked(w.get("locked_until"), datetime.now(tz=timezone.utc)):
         raise HTTPException(423, "Konto tymczasowo zablokowane")
     if not w.get("pin_hash") or not verify_secret(pin, w["pin_hash"]):
         _record_failure("workers", w["id"], w.get("failed_attempts") or 0)
-        raise HTTPException(401, "Nieprawidłowy PIN")
+        raise HTTPException(403, "Nieprawidłowy PIN")
     _reset_failures("workers", w["id"])
 
 

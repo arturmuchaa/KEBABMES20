@@ -244,3 +244,39 @@ def test_podpis_niesie_workerid_dla_ostrzezenia(db):
     sign("reception_check", rid, "wykonal", w, "1234")
     (p,) = signatures_for("reception_check", rid)
     assert p["workerId"] == "w-1"
+
+
+# ── Kod odpowiedzi przy złym PIN-ie ─────────────────────────────────
+def test_zly_pin_NIE_zwraca_401(db):
+    """BŁĄD Z PRODUKCJI (02.09.2026): „daję zapis i kiosk się restartuje".
+
+    Klient API traktuje KAŻDE 401 jako wygaśnięcie sesji: czyści token
+    i przeładowuje kiosk (`location.reload()` w lib/api.ts). Zły PIN to nie
+    utrata sesji — sesja operatora jest w porządku, odrzucone jest jedno
+    poświadczenie. 401 kasował operatorowi zalogowanie i wyrzucał go na
+    ekran PIN, a wzór się nie zapisywał.
+    """
+    w = _pracownik("w-1", "Jan K.")
+    with pytest.raises(HTTPException) as e:
+        save_sample(w, PNG, "9999")
+    assert e.value.status_code != 401, "401 przeładowuje kiosk — użyj 403"
+    assert e.value.status_code == 403
+
+
+def test_zly_pin_przy_podpisie_tez_nie_zwraca_401(db):
+    rid = _dostawa()
+    w = _pracownik("w-1", "Jan K.")
+    save_sample(w, PNG, "1234")
+    with pytest.raises(HTTPException) as e:
+        sign("reception_check", rid, "wykonal", w, "0000")
+    assert e.value.status_code == 403
+
+
+def test_blokada_konta_nadal_ma_swoj_kod(db):
+    """423 zostaje — to inny stan niż zła próba i klient go nie myli z sesją."""
+    from app.db import execute as ex
+    w = _pracownik("w-1", "Jan K.")
+    ex("UPDATE workers SET locked_until = now() + interval '10 minutes' WHERE id=%s", (w,))
+    with pytest.raises(HTTPException) as e:
+        save_sample(w, PNG, "1234")
+    assert e.value.status_code == 423

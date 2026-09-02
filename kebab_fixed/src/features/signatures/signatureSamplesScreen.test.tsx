@@ -12,7 +12,7 @@
  * Te testy pilnują, że ekran korzysta z KLIENTA APLIKACJI — jedynego
  * miejsca, które wie o tokenie i nie wysyła poświadczeń.
  */
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const listaPracownikow = vi.fn()
@@ -71,5 +71,41 @@ describe('SignatureSamplesScreen', () => {
     render(<SignatureSamplesScreen onClose={() => {}} />)
     expect(await screen.findByText('Jan K.')).toBeTruthy()
     expect(screen.queryByText(/Failed to fetch/i)).toBeNull()
+  })
+})
+
+describe('SignatureSamplesScreen — PIN na panelu dotykowym', () => {
+  const wybierz = async () => {
+    render(<SignatureSamplesScreen onClose={() => {}} />)
+    fireEvent.click(await screen.findByText('Jan K.'))
+  }
+
+  it('daje klawiaturę numeryczną — panel nie ma fizycznej klawiatury', async () => {
+    await wybierz()
+    for (const k of ['1', '5', '9', '0', '⌫']) {
+      expect(screen.getByRole('button', { name: k })).toBeTruthy()
+    }
+  })
+
+  it('nie pokazuje liter — PIN jest wyłącznie cyfrowy', async () => {
+    await wybierz()
+    expect(screen.queryByRole('button', { name: 'A' })).toBeNull()
+  })
+
+  it('cofanie kasuje ostatnią cyfrę', async () => {
+    await wybierz()
+    fireEvent.click(screen.getByRole('button', { name: '1' }))
+    fireEvent.click(screen.getByRole('button', { name: '2' }))
+    fireEvent.click(screen.getByRole('button', { name: '⌫' }))
+    // Jedna kropka została — druga skasowana.
+    expect(screen.getAllByText('•')).toHaveLength(1)
+  })
+
+  it('PIN nie przekracza czterech cyfr', async () => {
+    await wybierz()
+    for (const k of ['1', '2', '3', '4', '5', '6']) {
+      fireEvent.click(screen.getByRole('button', { name: k }))
+    }
+    expect(screen.getAllByText('•')).toHaveLength(4)
   })
 })
