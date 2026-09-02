@@ -36,6 +36,7 @@ import { receptionCardNo } from '@/lib/haccpCardHistory'
 import { receptionChecksApi, receptionsApi } from '@/lib/apiClient'
 import { useApi } from '@/hooks/useApi'
 import { detailRows, mainRows, paginate, type Cell } from '@/lib/receptionRegisterRows'
+import { NOTA_PODPISOW_ELEKTRONICZNYCH } from '@/lib/notaPodpisow'
 import { drukuj } from '@/lib/print'
 import { PrintToolbar } from '@/components/print/PrintToolbar'
 
@@ -228,6 +229,11 @@ function RegisterSheet({ month, title, subtitle, cols, rows, card, legend, head,
 
       {legend}
 
+      {/* Obie karty mają kolumnę potwierdzenia wypełnianą podpisem
+          elektronicznym, więc nota jest na obu. Gdyby kiedyś powstał
+          arkusz BEZ podpisów, dopiero wtedy warto ją uzależnić od kolumn. */}
+      <div className="enote">{NOTA_PODPISOW_ELEKTRONICZNYCH}</div>
+
       <div className="foot">
         <span className="l">Przechowywanie zapisu: min. 1 rok</span>
         <span>{card}</span>
@@ -397,6 +403,8 @@ const CSS = `
 .reg .legend .it { font-size:6.8pt; }
 .reg .legend .it + .it::before { content:'•'; color:#888; margin:0 2.5mm; }
 
+.reg .enote { margin-top:1.2mm; font-size:6pt; line-height:1.2; color:#555;
+  text-align:justify; }
 .reg .foot { display:flex; justify-content:space-between; margin-top:1.6mm;
   font-size:6.8pt; font-weight:700; color:#333; letter-spacing:.04em; }
 .reg .sig { height: 7mm; width: auto; max-width: 100%; object-fit: contain; display: block; margin: 0 auto; }
