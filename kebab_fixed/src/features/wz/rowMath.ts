@@ -21,6 +21,10 @@ export interface WzRow {
   available: number
   containersStr?: string
   batchNo?: string
+  /** Stempel zamówienia na wyrobie i klient, dla którego go zrobiono.
+   *  Służą OSTRZEŻENIU przed wydaniem cudzej rezerwacji — patrz wzRezerwacje. */
+  clientOrderNo?: string | null
+  clientName?: string | null
   slaughterDate?: string | null
   expiryDate?: string | null
   productionDate?: string | null

@@ -12,6 +12,7 @@ import {
   sanitizeDecimal, sanitizeInt, toNum, type WzRow as Row,
 } from '@/features/wz/rowMath'
 import { stawkaVatDlaNabywcy } from '@/features/wz/wzVat'
+import { rezerwacjeObcegoKlienta } from '@/features/wz/wzRezerwacje'
 import { zlozNazweWyrobu } from '@/features/wz/nazwaWyrobu'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -156,6 +157,7 @@ export function WzNewPage() {
           stockType: 'fg' as const, stockId: g.id, name: fgLabel(g),
           unit: 'szt', qtyStr: String(chce.get(g.id) ?? 1), priceStr: '',
           batchNo: g.batch_no,
+          clientOrderNo: g.client_order_no ?? null, clientName: g.client_name ?? null,
           available: Number(g.qty_available || 0),
           kgPerUnit: Number(g.kg_per_unit || 0) || undefined,
           vatRate: vatDomyslny,
@@ -270,6 +272,7 @@ export function WzNewPage() {
   const addFg = (g: any) => setRows(r => [...r, {
     stockType: 'fg', stockId: g.id, name: fgLabel(g),
     unit: 'szt', qtyStr: '1', priceStr: '', batchNo: g.batch_no,
+    clientOrderNo: g.client_order_no ?? null, clientName: g.client_name ?? null,
     available: Number(g.qty_available || 0),
     kgPerUnit: Number(g.kg_per_unit || 0) || undefined,
     vatRate: vatDomyslny,
@@ -377,6 +380,23 @@ export function WzNewPage() {
   const submit = async () => {
     const v = validate()
     if (v) { setErr(v); return }
+
+    // Wydanie CUDZEJ rezerwacji jest dozwolone, ale nie może się zdarzyć
+    // przez przypadek: backend zdejmie wtedy przypisanie do tamtego
+    // zamówienia i pokaże na nim brak. Biuro dowiadywało się o tym dopiero
+    // po fakcie — stąd pytanie.
+    const cudze = rezerwacjeObcegoKlienta(rows, buyer.name || '')
+    if (cudze.length) {
+      const lista = cudze
+        .map(r => `  • ${r.qty} szt pod ${r.orderNo}${r.clientName ? ` (${r.clientName})` : ''}`)
+        .join('\n')
+      const ok = window.confirm(
+        `Wydajesz towar ZAREZERWOWANY pod inne zamówienia:\n\n${lista}\n\n` +
+        'Te sztuki zostaną zdjęte z pokrycia tamtych zamówień — pokażą brak ' +
+        'i trzeba będzie dorobić.\n\nWystawić WZ mimo to?')
+      if (!ok) return
+    }
+
     setErr(''); setSaving(true)
     try {
       const doc = await wzApi.createManual({

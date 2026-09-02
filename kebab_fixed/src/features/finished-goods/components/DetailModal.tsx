@@ -4,8 +4,9 @@
  *
  * Props: group: SkuGroup (zamiast pojedynczego FinishedGoodsItem).
  */
-import { useState, useEffect } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { traceabilityApi } from '@/lib/apiClient'
+import { podzialStanu } from '../finishedGoodsSelection'
 import { finishedGoodsApi, productTypesApi, recipesApi } from '@/lib/api'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { useClientNames } from '@/lib/clientNames'
@@ -244,6 +245,21 @@ export function DetailModal({ group, onClose, onChanged }: {
   )
   const workers = Array.from(new Set(group.batches.flatMap(b => b.producedBy ?? [])))
 
+  /** Ile sztuk i pod jakie zamówienia jest zajęte. Liczone z partii, bo
+   *  stempel siedzi na wierszu magazynowym, nie na towarze zbiorczo. */
+  const rezerwacje = useMemo(() => {
+    const wg = new Map<string, number>()
+    for (const b of group.batches) {
+      const nr = (b.clientOrderNo || '').trim()
+      if (!nr) continue
+      wg.set(nr, (wg.get(nr) ?? 0) + Math.max(0, Math.floor(Number(b.qtyAvailable ?? 0))))
+    }
+    return [...wg.entries()]
+      .filter(([, qty]) => qty > 0)
+      .map(([orderNo, qty]) => ({ orderNo, qty }))
+      .sort((a, b) => b.qty - a.qty)
+  }, [group])
+
   // ── Korekta rodzaju ──
   // Rodzaj jest częścią tożsamości wyrobu (UDO 100% ≠ MIX 95/5 przy tej samej
   // recepturze i wadze), więc pomyłka przy wpisie robi na magazynie towar,
@@ -324,6 +340,9 @@ export function DetailModal({ group, onClose, onChanged }: {
               { label: 'Tuleja',    val: group.packagingName || '—' },
               { label: 'Klient',    val: group.clientName ? clientDisplay(group.clientName) : '—' },
               { label: 'Łącznie',   val: `${group.qty} szt · ${fmtKg(group.totalKg)} kg` },
+              // Rezerwacje w SZCZEGÓŁACH, nie na liście (właściciel, 02.09.2026):
+              // lista odpowiada „ile mam", tutaj widać „ile z tego czyjeś".
+              { label: 'Wolne',     val: `${podzialStanu(group).wolne} szt` },
             ].map(r => (
               <div key={r.label}>
                 <CardDescription className="text-[10px] font-bold uppercase mb-0.5">{r.label}</CardDescription>
@@ -331,6 +350,25 @@ export function DetailModal({ group, onClose, onChanged }: {
               </div>
             ))}
           </div>
+
+          {/* Pod jakie zamówienia towar jest zajęty — bez tego „wolne 52 z 142"
+              nie mówi, komu obiecane jest pozostałe 90. */}
+          {rezerwacje.length > 0 && (
+            <div className="mt-3 rounded border border-ink-5 p-2.5">
+              <CardDescription className="text-[10px] font-bold uppercase mb-1.5">
+                Zarezerwowane pod zamówienia
+              </CardDescription>
+              <div className="space-y-1">
+                {rezerwacje.map(r => (
+                  <div key={r.orderNo} className="flex items-center gap-2 text-xs">
+                    <code className="font-mono font-bold">{r.orderNo}</code>
+                    <span className="ml-auto tabular-nums font-semibold">{r.qty} szt</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
 
           <div className="space-y-2">
             <CardDescription className="text-[10px] font-bold uppercase tracking-wider">

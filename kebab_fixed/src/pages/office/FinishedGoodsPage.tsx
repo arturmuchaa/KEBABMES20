@@ -326,7 +326,7 @@ export function FinishedGoodsPage() {
                 <tr>
                   <th className="w-8 px-2" />
                   {[
-                    { col: 'qty'             as SortCol, label: 'Wolne',     align: 'right' },
+                    { col: 'qty'             as SortCol, label: 'Ilość',     align: 'right' },
                     { col: 'kgPerUnit'       as SortCol, label: 'kg',        align: 'right' },
                     { col: 'productTypeName' as SortCol, label: 'Rodzaj',    align: 'left'  },
                     { col: 'recipeName'      as SortCol, label: 'Receptura', align: 'left'  },
@@ -393,17 +393,18 @@ export function FinishedGoodsPage() {
                         >
                           {sumaPrzydzialu(wybor[g.key])} z {podzialStanu(g).wolne}
                         </button>
-                      ) : podzialStanu(g).wolne}
+                      ) : g.qty}
                       <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
-                      {/* Zajęte pod zamówienia pokazujemy OBOK wolnego, bo
-                          magazyn wyrobu to świętość: obiecanie czyjegoś towaru
-                          kończy się brakiem na wydaniu. */}
+                      {/* Kolumna pokazuje CAŁY stan (właściciel, 02.09.2026):
+                          magazyn ma odpowiadać na pytanie „ile tego mam", a nie
+                          „ile mogę zabrać". Co jest zarezerwowane i pod jakie
+                          zamówienie — w szczegółach pod kliknięciem. */}
                       {podzialStanu(g).podZamowienia > 0 && (
                         <span
-                          className="ml-1.5 font-normal text-[11px] text-warn"
-                          title="zajęte pod zamówienia"
+                          className="ml-1 font-normal text-[11px] text-ink-4"
+                          title="część zajęta pod zamówienia — szczegóły po kliknięciu"
                         >
-                          +{podzialStanu(g).podZamowienia}
+                          ●
                         </span>
                       )}
                     </td>
