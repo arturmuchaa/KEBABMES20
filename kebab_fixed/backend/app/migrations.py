@@ -1530,6 +1530,16 @@ _DDL: list[str] = [
     # „wykonał" to magazynier, „sprawdził" to kierownik albo technolog.
     "ALTER TABLE workers ADD COLUMN IF NOT EXISTS can_sign_performed BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE workers ADD COLUMN IF NOT EXISTS can_sign_checked BOOLEAN NOT NULL DEFAULT false",
+
+    # ── Kolejność pozycji zamówienia ──
+    #
+    # Biuro (2026-09-02, YALCIN): „pomieszały się receptury i wagi". Dokument
+    # nie miał gdzie zapisać swojej kolejności, a `update_order` kasuje
+    # wszystkie wiersze i wstawia je od nowa z NOWYMI, losowymi id — więc ani
+    # kolejność wpisania, ani `ORDER BY id` nic nie znaczyły.
+    "ALTER TABLE client_order_lines ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0",
+    "CREATE INDEX IF NOT EXISTS idx_client_order_lines_order_pos "
+    "ON client_order_lines (order_id, position)",
 ]
 
 

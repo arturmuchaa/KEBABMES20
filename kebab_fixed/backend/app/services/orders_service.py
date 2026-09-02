@@ -345,7 +345,7 @@ def _pokrycie_zamowien() -> Dict[str, Dict[str, Dict[str, int]]]:
     }
     linie = query_all(
         "SELECT id, order_id, recipe_id, kg_per_unit, product_type_id, packaging_id, qty "
-        "FROM client_order_lines ORDER BY id"
+        "FROM client_order_lines ORDER BY order_id, position"
     )
     wg_zam: Dict[str, List[Dict[str, Any]]] = {}
     for l in linie:
@@ -502,7 +502,8 @@ def _hydrate_order(
     pokrycie: Dict[str, Dict[str, Dict[str, int]]] | None = None,
 ) -> Dict[str, Any]:
     lines = query_all(
-        "SELECT * FROM client_order_lines WHERE order_id = %s", (order["id"],)
+        "SELECT * FROM client_order_lines WHERE order_id = %s ORDER BY position",
+        (order["id"],)
     )
     for line in lines:
         if not line.get("recipe_name") and line.get("recipe_id"):
@@ -600,20 +601,23 @@ def create_order(dto: ClientOrderCreate) -> Dict:
         )
         assert order is not None
 
-        for line in dto.lines:
+        # `position` utrwala KOLEJNOŚĆ dokumentu — wiersze dostają nowe id
+        # przy każdej edycji, więc bez niej nie ma czego sortować.
+        for poz, line in enumerate(dto.lines):
             rn, ptn, pkgn = _resolve_line_names(conn, line)
             cx_execute(
                 conn,
                 """
                 INSERT INTO client_order_lines
-                    (id, order_id, qty, kg_per_unit, total_kg,
+                    (id, order_id, position, qty, kg_per_unit, total_kg,
                      product_type_id, product_type_name, recipe_id, recipe_name,
                      packaging_id, packaging_name)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     cuid(),
                     order["id"],
+                    poz,
                     line.qty,
                     line.kg_per_unit,
                     round(line.qty * line.kg_per_unit, 3),
@@ -634,7 +638,7 @@ def create_order(dto: ClientOrderCreate) -> Dict:
 
         order["lines"] = cx_query_all(
             conn,
-            "SELECT * FROM client_order_lines WHERE order_id = %s",
+            "SELECT * FROM client_order_lines WHERE order_id = %s ORDER BY position",
             (order["id"],),
         )
     logger.info("order.created",
@@ -731,20 +735,23 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
         cx_execute(
             conn, "DELETE FROM client_order_lines WHERE order_id=%s", (order_id,)
         )
-        for line in dto.lines:
+        # `position` utrwala KOLEJNOŚĆ dokumentu — wiersze dostają nowe id
+        # przy każdej edycji, więc bez niej nie ma czego sortować.
+        for poz, line in enumerate(dto.lines):
             rn, ptn, pkgn = _resolve_line_names(conn, line)
             cx_execute(
                 conn,
                 """
                 INSERT INTO client_order_lines
-                    (id, order_id, qty, kg_per_unit, total_kg,
+                    (id, order_id, position, qty, kg_per_unit, total_kg,
                      product_type_id, product_type_name, recipe_id, recipe_name,
                      packaging_id, packaging_name)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     cuid(),
                     order_id,
+                    poz,
                     line.qty,
                     line.kg_per_unit,
                     round(line.qty * line.kg_per_unit, 3),
@@ -762,7 +769,8 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
         )
         assert updated is not None
         updated["lines"] = cx_query_all(
-            conn, "SELECT * FROM client_order_lines WHERE order_id=%s", (order_id,)
+            conn, "SELECT * FROM client_order_lines WHERE order_id=%s ORDER BY position",
+            (order_id,)
         )
     logger.info("order.updated", extra={"order_id": order_id})
     return updated

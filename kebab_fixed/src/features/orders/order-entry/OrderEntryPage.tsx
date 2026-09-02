@@ -31,6 +31,7 @@ import type { CreateClientOrderDto } from '@/lib/mockApi'
 import type { PreviewItem } from '@/lib/api'
 
 import { emptyLine, filterRecipesFor, type LineForm } from '../order-form/types'
+import { sortOrderLines } from '../orderLineSort'
 import { MaterialRequirementsPanel } from '../order-form/MaterialRequirementsPanel'
 import {
   applyIdentity, carryOver, draftComplete, identityComplete, inheritedSlots,
@@ -98,11 +99,11 @@ export function OrderEntryPage() {
     setOrderDate(existing.orderDate || todayIso())
     setDeliveryDate(existing.deliveryDate ?? '')
     setNotes(existing.notes ?? '')
-    setLines(existing.lines.map(l => ({
+    setLines(sortOrderLines(existing.lines.map(l => ({
       qty: String(l.qty), kgPerUnit: String(l.kgPerUnit),
       productTypeId: l.productTypeId, recipeId: l.recipeId,
       packagingId: l.packagingId ?? '', notes: l.notes ?? '',
-    })))
+    }))))
     setStep('lines')
   }, [existing])
 
@@ -177,7 +178,11 @@ export function OrderEntryPage() {
     if (num(draft.kgPerUnit)<=0){ setSlot('kgPerUnit');     setHint('Podaj wagę sztuki');        return }
 
     const line = { ...draft }
-    setLines(ls => (editingIdx === null ? [...ls, line] : ls.map((l, i) => (i === editingIdx ? line : l))))
+    // Sortujemy przy ZATWIERDZENIU pozycji, nie przy każdym naciśnięciu
+    // klawisza: inaczej wiersz wędrowałby operatorowi pod palcami w trakcie
+    // wpisywania wagi. Po Enterze pozycja siada od razu w swojej grupie.
+    setLines(ls => sortOrderLines(
+      editingIdx === null ? [...ls, line] : ls.map((l, i) => (i === editingIdx ? line : l))))
     setEditingIdx(null)
     setHint('')
     setError('')
