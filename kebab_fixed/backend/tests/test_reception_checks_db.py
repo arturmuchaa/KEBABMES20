@@ -129,3 +129,27 @@ def test_checks_for_range_pomija_dostawy_spoza_zakresu(db):
         "kgMatch": "bz", "verdict": "K",
     }))
     assert checks_for_range("2026-09-01", "2026-09-30") == []
+
+
+def test_ocena_spoza_slownika_odrzucona(db):
+    """Kolumny f/i/k karty 1.1.1 mają zamknięty zestaw wartości: b/z albo N,
+    K albo N. Dowolny napis przeszedłby na wydruk i karta pokazałaby coś,
+    czego legenda nie tłumaczy."""
+    import pytest
+    from pydantic import ValidationError
+    for pole, zla in (("visual", "tak"), ("kgMatch", "ok"), ("verdict", "przyjete")):
+        with pytest.raises(ValidationError):
+            ReceptionCheckIn.model_validate({pole: zla})
+
+
+def test_poprawne_oceny_przechodza(db):
+    for pole, dobra in (("visual", "bz"), ("visual", "N"),
+                        ("kgMatch", "bz"), ("kgMatch", "N"),
+                        ("verdict", "K"), ("verdict", "N")):
+        ReceptionCheckIn.model_validate({pole: dobra})
+
+
+def test_puste_pole_oceny_nadal_dozwolone(db):
+    """Wpis powstaje etapami — brak oceny to normalny stan, nie błąd."""
+    m = ReceptionCheckIn.model_validate({"tempChamber": 2.5})
+    assert m.visual is None and m.verdict is None
