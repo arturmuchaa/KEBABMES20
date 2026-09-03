@@ -355,3 +355,31 @@ describe('ReceptionCheckCard — zapis kasujący ważny podpis', () => {
     pytanie.mockRestore()
   })
 })
+
+// ── Wejście do protokołu weryfikacji ────────────────────────────────
+describe('ReceptionCheckCard — protokół dla kontroli', () => {
+  const p = {
+    role: 'wykonal', workerId: 'w-1', signerName: 'Artur Mucha',
+    png: 'data:image/png;base64,AAAA', active: true, signedAt: '2026-09-02T19:32:00Z',
+  }
+
+  it('podpisany dokument prowadzi do protokołu', async () => {
+    forDoc.mockResolvedValue([p])
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    const link = await screen.findByRole('link', { name: /Protokół weryfikacji/i })
+    expect(link.getAttribute('href')).toBe('/office/weryfikacja-podpisow/r1')
+  })
+
+  it('prowadzi do protokołu także po unieważnieniu — historia to też dowód', async () => {
+    forDoc.mockResolvedValue([{ ...p, active: false, png: null }])
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    expect(await screen.findByRole('link', { name: /Protokół weryfikacji/i })).toBeTruthy()
+  })
+
+  it('bez podpisów nie kusi pustym protokołem', async () => {
+    forDoc.mockResolvedValue([])
+    render(<ReceptionCheckCard receptionId="r1" category="drob" storageState="chlodzony" />)
+    await screen.findAllByRole('button', { name: /^Podpisz$/i })
+    expect(screen.queryByRole('link', { name: /Protokół weryfikacji/i })).toBeNull()
+  })
+})

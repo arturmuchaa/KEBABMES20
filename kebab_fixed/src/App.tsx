@@ -58,6 +58,7 @@ import { TemperatureLogHistoryPage } from '@/pages/office/TemperatureLogHistoryP
 import {
   ReceptionRegisterPrintPage, ReceptionRegisterDetailPrintPage,
 } from '@/pages/office/ReceptionRegisterPrintPage'
+import { SignatureVerificationPage } from '@/pages/office/SignatureVerificationPage'
 import { ReceptionRegisterHistoryPage } from '@/pages/office/ReceptionRegisterHistoryPage'
 import { WzDocumentsPage }      from '@/pages/office/WzDocumentsPage'
 import { WzNewPage }            from '@/pages/office/WzNewPage'
@@ -150,6 +151,9 @@ export default function App() {
       {/* Karta 1.3.1 — ta sama oprawa co 1.1.1, inne źródło danych. */}
       <Route path="/office/rejestr-ddfip/druk" element={<DdfipRegisterPrintPage />} />
       <Route path="/office/rejestr-przyjecia-szczegolowy/druk" element={<ReceptionRegisterDetailPrintPage />} />
+      {/* Protokół dowodowy dla kontroli weterynaryjnej — poza layoutem
+          biura, bo pokazuje się go na ekranie inspektorowi i drukuje. */}
+      <Route path="/office/weryfikacja-podpisow/:receptionId" element={<SignatureVerificationPage />} />
       {/* Statyczna ścieżka PRZED parametryczną — 'raport' nie może wpaść jako :id */}
       <Route path="/office/pojemniki/raport/druk" element={<ContainerStatementPrintPage />} />
       <Route path="/office/pojemniki/:id/druk" element={<ContainerDocPrintPage />} />

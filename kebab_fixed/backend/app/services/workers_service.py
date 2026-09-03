@@ -52,18 +52,19 @@ def create_worker(dto: WorkerCreate) -> Dict:
             conn,
             """
             INSERT INTO workers
-                (id, name, role, pin, pin_hash, departments, active, rate_per_kg,
+                (id, name, full_name, role, pin, pin_hash, departments, active, rate_per_kg,
                  rate_per_hour, sunday_bonus_enabled, sunday_bonus_per_hour,
                  saturday_bonus_enabled, saturday_bonus_per_hour,
                  pay_mode, rate_per_day,
                  contract_type, employer_cost_amount, crew_size, is_wrapper,
                  can_sign_performed, can_sign_checked, created_at)
-            VALUES (%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,NULL,%s,%s,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING *
             """,
             (
                 cuid(),
                 dto.name,
+                (dto.full_name or "").strip(),
                 dto.role,
                 pin_hash,
                 departments_json,
@@ -109,6 +110,9 @@ def update_worker(worker_id: str, dto: WorkerUpdate) -> Dict:
                 fields.append("pin_hash=%s")
                 vals.append(hash_secret(dto.pin))
             # never store plaintext pin; leave pin column untouched
+        if dto.full_name is not None:
+            fields.append("full_name=%s")
+            vals.append(dto.full_name.strip())
         if dto.rate_per_kg is not None:
             fields.append("rate_per_kg=%s")
             vals.append(dto.rate_per_kg)

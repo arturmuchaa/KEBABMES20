@@ -22,7 +22,7 @@ from fastapi import HTTPException
 from app.auth.lockout import is_locked
 from app.db import execute, query_all, query_one
 from app.services.auth_service import _record_failure, _reset_failures
-from app.services.signature_hash import content_hash
+from app.services.signature_hash import canonical_payload, content_hash
 from app.utils.ids import cuid, now_iso
 from app.utils.passwords import verify_secret
 
@@ -107,17 +107,22 @@ def eligible(role: str) -> List[Dict[str, Any]]:
     # `_rola_na_kolumne` odrzuca wszystko spoza niego, więc interpolacja
     # nie otwiera wstrzyknięcia.
     rows = query_all(
-        f"""SELECT w.id, w.name, s.png
+        f"""SELECT w.id, w.name, w.full_name, s.png
               FROM workers w
               JOIN signature_samples s ON s.worker_id = w.id
              WHERE w.active = true AND w.{kolumna} = true
              ORDER BY w.name""")
-    return [{"id": r["id"], "name": r["name"], "png": r["png"]} for r in rows]
+    # Dialog pokazuje nazwę roboczą (biuro rozpoznaje po niej osobę), ale
+    # na dokument pójdzie `documentName` — i to on ma być widoczny przed
+    # kliknięciem, żeby nikt nie odkrył pustego nazwiska dopiero na wydruku.
+    return [{"id": r["id"], "name": r["name"],
+             "documentName": nazwa_na_dokument(r), "png": r["png"]}
+            for r in rows]
 
 
 # ── Treść podpisywana ───────────────────────────────────────────────
-def current_hash(reception_id: str) -> str:
-    """Hash AKTUALNEJ treści dostawy razem z wpisem kontroli.
+def _tresc_dokumentu(reception_id: str) -> Dict[str, Any]:
+    """Wiersz, z którego liczy się odcisk treści.
 
     Kilogramy liczymy z żywych numerów porządkowych, nie z zapamiętanej
     sumy: korekta wagi po podpisaniu też ma unieważnić podpis.
@@ -136,9 +141,27 @@ def current_hash(reception_id: str) -> str:
     )
     if not row:
         raise HTTPException(404, "Przyjęcie nie istnieje")
+    return row
+
+
+def current_hash(reception_id: str) -> str:
+    """Hash AKTUALNEJ treści dostawy razem z wpisem kontroli."""
+    row = _tresc_dokumentu(reception_id)
     # Ten sam wiersz jako dostawa i jako kontrola: `signature_hash` wybiera
     # pola po nazwie, a nazwy z obu zestawów nie kolidują.
     return content_hash(row, row)
+
+
+def nazwa_na_dokument(w: Dict[str, Any]) -> str:
+    """Nazwisko, które ma stanąć pod podpisem na dokumencie.
+
+    Kartoteka używa krótkich nazw roboczych („ABY") — dobrych na przyciski
+    HMI, bezużytecznych dla kontroli. `full_name` jest pełnym imieniem
+    i nazwiskiem, wpisywanym w panelu Pracownicy WYŁĄCZNIE na dokumenty.
+    Puste pole spada na nazwę roboczą: brak nazwiska nie może zablokować
+    podpisu, bo dostawa nie poczeka na uzupełnienie kartoteki.
+    """
+    return (w.get("full_name") or "").strip() or w["name"]
 
 
 # ── Akt podpisania ──────────────────────────────────────────────────
@@ -168,11 +191,11 @@ def sign(doc_type: str, doc_id: str, role: str,
              (id, doc_type, doc_id, role, worker_id, signer_name, png,
               content_hash, signed_at)
            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-        (cuid(), doc_type, doc_id, role, worker_id, w["name"], wzor["png"],
-         h, now_iso()),
+        (cuid(), doc_type, doc_id, role, worker_id, nazwa_na_dokument(w),
+         wzor["png"], h, now_iso()),
     )
     return {"docType": doc_type, "docId": doc_id, "role": role,
-            "signerName": w["name"], "png": wzor["png"]}
+            "signerName": nazwa_na_dokument(w), "png": wzor["png"]}
 
 
 def signatures_for(doc_type: str, doc_id: str) -> List[Dict[str, Any]]:
@@ -237,3 +260,60 @@ def supersede_if_changed(doc_type: str, doc_id: str, new_hash: str) -> int:
         execute("UPDATE document_signatures SET superseded_at=%s WHERE id=%s",
                 (now_iso(), r["id"]))
     return len(rows)
+
+# ── Weryfikacja dla kontroli ────────────────────────────────────────
+def weryfikacja(doc_type: str, doc_id: str) -> Dict[str, Any]:
+    """Komplet dowodowy dla jednego dokumentu — pod kontrolę weterynaryjną.
+
+    Odpowiada na pytanie „jak udowodnisz, kto to podpisał": oddaje KAŻDY
+    podpis, także unieważniony, z nazwiskiem, sekundą złożenia i odciskiem
+    treści, pod którą powstał.
+
+    Kluczowa jest `tresc` — dokładnie ten tekst, z którego liczony jest
+    SHA-256. Kontroler nie musi nam wierzyć: może wziąć ten tekst,
+    policzyć sha256 dowolnym narzędziem i porównać z `contentHash`
+    podpisu. To jedyny sposób, żeby dowód nie opierał się na naszym
+    słowie honoru.
+
+    `zgodny` mówi, czy podpis dotyczy treści AKTUALNEJ. Niezgodny podpis
+    nie jest fałszywy — dotyczy wcześniejszej wersji zapisu i właśnie
+    dlatego został unieważniony.
+    """
+    if doc_type not in OBSLUGIWANE_DOKUMENTY:
+        raise HTTPException(422, "Nieobsługiwany typ dokumentu")
+    row = _tresc_dokumentu(doc_id)
+    tresc = canonical_payload(row, row)
+    teraz = content_hash(row, row)
+
+    rows = query_all(
+        """SELECT role, worker_id, signer_name, content_hash,
+                  signed_at, superseded_at
+             FROM document_signatures
+            WHERE doc_type=%s AND doc_id=%s
+            ORDER BY signed_at""",
+        (doc_type, doc_id),
+    )
+    podpisy = [{
+        "role": r["role"],
+        "signerName": r["signer_name"],
+        "workerId": r["worker_id"],
+        "signedAt": r["signed_at"].isoformat() if r["signed_at"] else None,
+        "contentHash": r["content_hash"],
+        "zgodny": r["content_hash"] == teraz,
+        "active": r["superseded_at"] is None,
+        "supersededAt": (r["superseded_at"].isoformat()
+                         if r["superseded_at"] else None),
+    } for r in rows]
+
+    return {
+        "docType": doc_type,
+        "docId": doc_id,
+        "receptionNo": row.get("reception_no"),
+        "supplierName": row.get("supplier_name"),
+        "receivedDate": (row["received_date"].isoformat()
+                         if row.get("received_date") else None),
+        "tresc": tresc,
+        "currentHash": teraz,
+        "algorytm": "SHA-256",
+        "signatures": podpisy,
+    }

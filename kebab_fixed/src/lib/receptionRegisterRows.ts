@@ -25,7 +25,7 @@ import type { Reception } from '@/types'
 /** Komórka karty: tekst albo obrazek podpisu (kolumny l/m karty 1.1.1).
  *  Typ wprowadzony razem z kolumnami f-k, choć obrazki dochodzą dopiero
  *  z podpisami — inaczej siatkę wydruku trzeba by przepisywać dwa razy. */
-export type Cell = string | { png: string }
+export type Cell = string | { png: string; name?: string }
 
 /** Wpis kontroli HACCP w kształcie, w jakim oddaje go backend. */
 export interface RegisterCheck {
@@ -35,7 +35,10 @@ export interface RegisterCheck {
   kgMatch?: string | null
   notes?: string | null
   verdict?: string | null
-  signatures?: { wykonal?: { png: string }; sprawdzil?: { png: string } }
+  signatures?: {
+    wykonal?: { png: string; signerName?: string }
+    sprawdzil?: { png: string; signerName?: string }
+  }
 }
 
 /** 'bz' → „b/z" (tak brzmi legenda karty), 'N' → „N", brak → pusto. */
@@ -48,8 +51,10 @@ function ocena(v: string | null | undefined): string {
  *  (dane zmieniono po podpisaniu) nie dociera tu wcale — backend oddaje
  *  tylko aktywne. Pusta kratka jest uczciwa; podpis pod zmienioną treścią
  *  nie jest. */
-function podpis(sig?: { png: string }): Cell {
-  return sig ? { png: sig.png } : ''
+function podpis(sig?: { png: string; signerName?: string }): Cell {
+  // Pod podpisem staje PEŁNE imię i nazwisko. Sam rysunek nie mówi kontroli
+  // nic — nazwisko dopiero czyni z kratki dowód, kto zatwierdził dostawę.
+  return sig ? { png: sig.png, name: sig.signerName } : ''
 }
 
 /** Temperatura po polsku. Zero jest POMIAREM, nie brakiem — `plNum`

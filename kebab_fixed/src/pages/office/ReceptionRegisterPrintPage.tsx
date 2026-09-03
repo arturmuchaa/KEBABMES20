@@ -167,7 +167,15 @@ export function RegisterCard(props: {
 function renderCell(cell: Cell | undefined) {
   if (!cell) return ''
   if (typeof cell === 'string') return cell
-  return <img className="sig" src={cell.png} alt="" />
+  // Obrazek + nazwisko muszą się zmieścić w kratce 9,5 mm, stąd niższy
+  // podpis niż wcześniej. Nazwisko jest tu ważniejsze od rozmachu kreski:
+  // rysunek jest ozdobą, dowodem jest imię i nazwisko z datą.
+  return (
+    <>
+      <img className="sig" src={cell.png} alt="" />
+      {cell.name ? <span className="signame">{cell.name}</span> : null}
+    </>
+  )
 }
 
 /** Wspólna oprawa obu kart: nagłówek → belka → tytuł → pola meta → tabela. */
@@ -407,6 +415,9 @@ const CSS = `
   text-align:justify; }
 .reg .foot { display:flex; justify-content:space-between; margin-top:1.6mm;
   font-size:6.8pt; font-weight:700; color:#333; letter-spacing:.04em; }
-.reg .sig { height: 7mm; width: auto; max-width: 100%; object-fit: contain; display: block; margin: 0 auto; }
+.reg .sig { height:5.4mm; width:auto; max-width:100%; object-fit:contain; display:block; margin:0 auto; }
+.reg .signame { display:block; text-align:center; font-size:5pt; line-height:1.05;
+  color:#222; letter-spacing:0; white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis; }
 .reg .foot .l { font-weight:400; color:#555; }
 `

@@ -406,6 +406,18 @@ export function ReceptionCheckCard({ receptionId, category, storageState }: {
           })}
         </div>
 
+        {/* Wejście do protokołu dowodowego. Pokazuje się dopiero, gdy jest
+            co weryfikować — pusty protokół nie jest nikomu potrzebny. */}
+        {podpisy.length > 0 && (
+          <p className="text-[11px]">
+            <a className="underline text-ink-2"
+               href={`/office/weryfikacja-podpisow/${receptionId}`}
+               target="_blank" rel="noreferrer">
+              Protokół weryfikacji podpisów (dla kontroli)
+            </a>
+          </p>
+        )}
+
         {brudny && (
           <p className="text-[11px] text-amber-700">
             Zapisz zmiany przed podpisaniem — podpisuje się treść z bazy,

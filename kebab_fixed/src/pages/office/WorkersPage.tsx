@@ -60,7 +60,7 @@ function initials(name: string) {
 
 const ALL_DEPTS = ['rozbior', 'produkcja', 'pakowanie', 'wydanie'] as const
 
-const BLANK_FORM = { login: '', name: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', ratePerHour: '0', sundayBonusEnabled: false, sundayBonusPerHour: '5', saturdayBonusEnabled: false, saturdayBonusPerHour: '5', payMode: 'hourly', ratePerDay: '150', contractType: 'zlecenie', employerCostAmount: '0', pin: '', departments: [] as string[], crewSize: '1', isWrapper: false, canSignPerformed: false, canSignChecked: false }
+const BLANK_FORM = { login: '', name: '', fullName: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', ratePerHour: '0', sundayBonusEnabled: false, sundayBonusPerHour: '5', saturdayBonusEnabled: false, saturdayBonusPerHour: '5', payMode: 'hourly', ratePerDay: '150', contractType: 'zlecenie', employerCostAmount: '0', pin: '', departments: [] as string[], crewSize: '1', isWrapper: false, canSignPerformed: false, canSignChecked: false }
 
 export function WorkersPage() {
   const { data, loading, refetch } = useApi(() => usersApi.list(true))
@@ -77,7 +77,7 @@ export function WorkersPage() {
     usersApi.setActive(d.id, d.active))
 
   const createMut = useMutation((d: typeof form) => usersApi.create({
-    name: d.name, role: d.role,
+    name: d.name, fullName: d.fullName.trim(), role: d.role,
     pin: d.pin || undefined,
     departments: d.departments,
     ratePerKg: parseFloat(d.ratePerKg) || 0,
@@ -97,7 +97,7 @@ export function WorkersPage() {
   }))
   const updateMut = useMutation((d: { id: string } & typeof editForm) =>
     usersApi.update(d.id, {
-      name: d.name, role: d.role,
+      name: d.name, fullName: d.fullName.trim(), role: d.role,
       pin: d.pin || undefined,
       departments: d.departments,
       ratePerKg: parseFloat(d.ratePerKg) || 0,
@@ -148,6 +148,7 @@ export function WorkersPage() {
     setEditForm({
       login: (u as any).login ?? '',
       name: u.name,
+      fullName: (u as any).fullName ?? (u as any).full_name ?? '',
       role: u.role,
       ratePerKg: String((u as any).ratePerKg ?? (u as any).rate_per_kg ?? 0),
       ratePerHour: String((u as any).ratePerHour ?? (u as any).rate_per_hour ?? 0),
@@ -447,7 +448,7 @@ export function WorkersPage() {
 
 // ─── Reusable form component ──────────────────────────────────
 function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles }: {
-  form: { login: string; name: string; role: string; ratePerKg: string; ratePerHour: string; sundayBonusEnabled: boolean; sundayBonusPerHour: string; saturdayBonusEnabled: boolean; saturdayBonusPerHour: string; payMode: string; ratePerDay: string; contractType: string; employerCostAmount: string; pin: string; departments: string[]; crewSize: string; isWrapper: boolean; canSignPerformed: boolean; canSignChecked: boolean }
+  form: { login: string; name: string; fullName: string; role: string; ratePerKg: string; ratePerHour: string; sundayBonusEnabled: boolean; sundayBonusPerHour: string; saturdayBonusEnabled: boolean; saturdayBonusPerHour: string; payMode: string; ratePerDay: string; contractType: string; employerCostAmount: string; pin: string; departments: string[]; crewSize: string; isWrapper: boolean; canSignPerformed: boolean; canSignChecked: boolean }
   setForm: React.Dispatch<React.SetStateAction<any>>
   onRoleChange: (role: string) => void
   onNameChange: (name: string) => void
@@ -662,6 +663,25 @@ function WorkerForm({ form, setForm, onRoleChange, onNameChange, hideSystemRoles
                 />
                 Foliowczyk (wpisuje zafoliowane kilogramy)
               </label>
+            </div>
+            <div className="space-y-1.5">
+              {/* Pełne imię i nazwisko idzie WYŁĄCZNIE na dokumenty. Kartoteka
+                  i HMI zostają przy krótkiej nazwie roboczej — na przyciskach
+                  dotykowych „Artur Mucha" się nie mieści, a hala i tak
+                  rozpoznaje ludzi po skrócie. */}
+              <Label className="text-xs" htmlFor="worker-full-name">
+                Imię i nazwisko (na dokumenty)
+              </Label>
+              <Input
+                id="worker-full-name"
+                value={form.fullName}
+                placeholder="np. Artur Mucha"
+                onChange={e => setForm((f: any) => ({ ...f, fullName: e.target.value }))}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Drukuje się pod podpisem elektronicznym na karcie HACCP.
+                Puste — na dokument pójdzie nazwa robocza.
+              </p>
             </div>
             <div className="space-y-1.5">
               {/* Uprawnienia podpisu HACCP. Dwa, bo kolumny l i m karty 1.1.1

@@ -1530,6 +1530,10 @@ _DDL: list[str] = [
     # „wykonał" to magazynier, „sprawdził" to kierownik albo technolog.
     "ALTER TABLE workers ADD COLUMN IF NOT EXISTS can_sign_performed BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE workers ADD COLUMN IF NOT EXISTS can_sign_checked BOOLEAN NOT NULL DEFAULT false",
+    # Pelne imie i nazwisko NA DOKUMENTY. Kartoteka trzyma krotkie nazwy
+    # robocze („ABY") — dobre na przyciski HMI, bezuzyteczne dla kontroli
+    # weterynaryjnej, ktora musi wiedziec, kto podpisal karte HACCP.
+    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS full_name TEXT",
 
     # ── Kolejność pozycji zamówienia ──
     #

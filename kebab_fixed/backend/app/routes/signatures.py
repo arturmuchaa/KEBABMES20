@@ -28,6 +28,19 @@ def for_doc(doc_type: str = Query(..., alias="docType"),
     return svc.signatures_for(doc_type, doc_id)
 
 
+@router.get("/weryfikacja")
+def weryfikacja(doc_type: str = Query(..., alias="docType"),
+                doc_id: str = Query(..., alias="docId")):
+    """Komplet dowodowy dokumentu — pod kontrolę weterynaryjną.
+
+    Oddaje KAŻDY podpis (także unieważniony) z nazwiskiem, sekundą i
+    odciskiem treści, oraz sam podpisywany tekst. Kontroler może policzyć
+    z niego sha256 własnym narzędziem i porównać — dowód nie opiera się
+    wtedy na naszym zapewnieniu.
+    """
+    return svc.weryfikacja(doc_type, doc_id)
+
+
 @router.post("")
 def sign(dto: SignIn):
     return svc.sign(dto.doc_type, dto.doc_id, dto.role, dto.worker_id, dto.pin)

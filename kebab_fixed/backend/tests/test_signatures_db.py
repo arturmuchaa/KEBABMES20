@@ -7,23 +7,25 @@ from fastapi import HTTPException
 from app.db import execute, query_one
 from app.models.reception_checks import ReceptionCheckIn
 from app.services.reception_checks_service import save_check
-from app.services.signatures_service import (eligible, get_sample, save_sample,
-                                             sign, signatures_for)
+from app.services.signatures_service import (eligible, get_sample, nazwa_na_dokument,
+                                             save_sample, sign, signatures_for,
+                                             weryfikacja)
 from app.utils.ids import now_iso
 from app.utils.passwords import hash_secret
 
 PNG = "data:image/png;base64," + "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB" * 2
 
 
-def _pracownik(wid, imie, pin="1234", wykonal=True, sprawdzil=False):
+def _pracownik(wid, imie, pin="1234", wykonal=True, sprawdzil=False, pelne=""):
     execute(
-        "INSERT INTO workers (id, name, role, pin_hash, active, created_at, "
+        "INSERT INTO workers (id, name, full_name, role, pin_hash, active, created_at, "
         "can_sign_performed, can_sign_checked) "
-        "VALUES (%s,%s,'WORKER_PRODUCTION',%s,true,%s,%s,%s) "
+        "VALUES (%s,%s,%s,'WORKER_PRODUCTION',%s,true,%s,%s,%s) "
         "ON CONFLICT (id) DO UPDATE SET pin_hash=EXCLUDED.pin_hash, "
+        "full_name=EXCLUDED.full_name, "
         "can_sign_performed=EXCLUDED.can_sign_performed, "
         "can_sign_checked=EXCLUDED.can_sign_checked",
-        (wid, imie, hash_secret(pin), now_iso(), wykonal, sprawdzil),
+        (wid, imie, pelne, hash_secret(pin), now_iso(), wykonal, sprawdzil),
     )
     return wid
 
@@ -395,3 +397,129 @@ def test_karta_do_DRUKU_nadal_pomija_uniewaznione(db):
     wiersze = [r for r in checks_for_range("2026-08-01", "2026-08-31")
                if r["receptionId"] == rid]
     assert wiersze and not (wiersze[0].get("signatures") or {})
+
+
+# ── Pełne nazwisko na dokumencie ────────────────────────────────────
+# Kartoteka trzyma krotkie nazwy robocze („ABY") — dobre na przyciski HMI,
+# bezuzyteczne dla kontroli, ktora musi wiedziec, KTO podpisal karte.
+def test_na_dokument_idzie_pelne_imie_i_nazwisko(db):
+    rid = _dostawa()
+    w = _pracownik("w-1", "ABY", pelne="Artur Mucha")
+    save_sample(w, PNG, "1234")
+    sign("reception_check", rid, "wykonal", w, "1234")
+    assert signatures_for("reception_check", rid)[0]["signerName"] == "Artur Mucha"
+
+
+def test_brak_pelnego_nazwiska_spada_na_nazwe_robocza(db):
+    """Pusta rubryka nie moze zablokowac podpisu — dostawa nie poczeka
+    na uzupelnienie kartoteki."""
+    rid = _dostawa()
+    w = _pracownik("w-1", "ABY", pelne="")
+    save_sample(w, PNG, "1234")
+    sign("reception_check", rid, "wykonal", w, "1234")
+    assert signatures_for("reception_check", rid)[0]["signerName"] == "ABY"
+
+
+def test_same_spacje_to_tez_brak_nazwiska(db):
+    assert nazwa_na_dokument({"name": "ABY", "full_name": "   "}) == "ABY"
+
+
+def test_zmiana_nazwiska_w_kartotece_NIE_rusza_zlozonych_podpisow(db):
+    """`signer_name` jest KOPIA. Poprawka literowki w kartotece nie moze
+    zmieniac dokumentu sprzed roku."""
+    rid = _dostawa()
+    w = _pracownik("w-1", "ABY", pelne="Artur Mucha")
+    save_sample(w, PNG, "1234")
+    sign("reception_check", rid, "wykonal", w, "1234")
+    execute("UPDATE workers SET full_name=%s WHERE id=%s", ("Ktos Inny", w))
+    assert signatures_for("reception_check", rid)[0]["signerName"] == "Artur Mucha"
+
+
+def test_lista_uprawnionych_pokazuje_nazwisko_dokumentowe(db):
+    """Biuro ma zobaczyc, co pojdzie na wydruk, PRZED kliknieciem."""
+    w = _pracownik("w-1", "ABY", pelne="Artur Mucha")
+    save_sample(w, PNG, "1234")
+    poz = [x for x in eligible("wykonal") if x["id"] == w][0]
+    assert poz["name"] == "ABY"
+    assert poz["documentName"] == "Artur Mucha"
+
+
+# ── Weryfikacja dla kontroli weterynaryjnej ─────────────────────────
+def test_weryfikacja_oddaje_tresc_z_ktorej_liczy_sie_hash(db):
+    """Sedno dowodu: kontroler liczy sha256 z TEGO tekstu wlasnym
+    narzedziem i porownuje. Nie musi nam wierzyc."""
+    import hashlib
+    rid = _dostawa()
+    w = _pracownik("w-1", "ABY", pelne="Artur Mucha")
+    save_sample(w, PNG, "1234")
+    sign("reception_check", rid, "wykonal", w, "1234")
+
+    v = weryfikacja("reception_check", rid)
+    policzony = hashlib.sha256(v["tresc"].encode("utf-8")).hexdigest()
+    assert policzony == v["currentHash"]
+    assert policzony == v["signatures"][0]["contentHash"]
+    assert v["algorytm"] == "SHA-256"
+
+
+def test_weryfikacja_podaje_kto_i_o_ktorej(db):
+    rid = _dostawa()
+    w = _pracownik("w-1", "ABY", pelne="Artur Mucha")
+    save_sample(w, PNG, "1234")
+    sign("reception_check", rid, "wykonal", w, "1234")
+
+    p = weryfikacja("reception_check", rid)["signatures"][0]
+    assert p["signerName"] == "Artur Mucha"
+    assert p["role"] == "wykonal"
+    assert p["workerId"] == w
+    assert p["signedAt"] and p["zgodny"] is True and p["active"] is True
+
+
+def test_weryfikacja_POKAZUJE_uniewaznione_z_powodem(db):
+    """Kontrola musi widziec cala historie, nie tylko stan koncowy —
+    ukryty podpis wyglada gorzej niz uniewazniony."""
+    rid = _dostawa()
+    w = _pracownik("w-1", "ABY", pelne="Artur Mucha")
+    save_sample(w, PNG, "1234")
+    sign("reception_check", rid, "wykonal", w, "1234")
+    save_check(rid, ReceptionCheckIn.model_validate({
+        "visual": "bz", "tempChamber": 2.5, "tempMeat": 9.9,
+        "kgMatch": "bz", "verdict": "K",
+    }))
+    sign("reception_check", rid, "wykonal", w, "1234")
+
+    v = weryfikacja("reception_check", rid)
+    assert len(v["signatures"]) == 2
+    stary, nowy = v["signatures"]
+    assert stary["active"] is False and stary["zgodny"] is False
+    assert stary["supersededAt"]
+    assert nowy["active"] is True and nowy["zgodny"] is True
+
+
+def test_weryfikacja_niesie_dane_dostawy(db):
+    rid = _dostawa()
+    v = weryfikacja("reception_check", rid)
+    assert v["receptionNo"] == "7/08"
+    assert v["supplierName"] == "KOKO"
+    assert v["receivedDate"] == "2026-08-14"
+
+
+def test_weryfikacja_NIE_wypuszcza_obrazka_podpisu(db):
+    """Protokol ma dowodzic, nie dostarczac grafiki do przeklejenia."""
+    rid = _dostawa()
+    w = _pracownik("w-1", "ABY", pelne="Artur Mucha")
+    save_sample(w, PNG, "1234")
+    sign("reception_check", rid, "wykonal", w, "1234")
+    assert "png" not in weryfikacja("reception_check", rid)["signatures"][0]
+
+
+def test_weryfikacja_dokumentu_bez_podpisow_nie_wybucha(db):
+    rid = _dostawa()
+    v = weryfikacja("reception_check", rid)
+    assert v["signatures"] == [] and v["currentHash"]
+
+
+def test_weryfikacja_odrzuca_nieznany_typ_dokumentu(db):
+    rid = _dostawa()
+    with pytest.raises(HTTPException) as e:
+        weryfikacja("cokolwiek", rid)
+    assert e.value.status_code == 422

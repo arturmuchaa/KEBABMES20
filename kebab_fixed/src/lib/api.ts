@@ -484,6 +484,35 @@ export const signaturesApi = {
 
   forDoc: (docType: string, docId: string) =>
     get<any[]>(`/signatures/doc?docType=${encodeURIComponent(docType)}&docId=${encodeURIComponent(docId)}`),
+
+  /** Komplet dowodowy dokumentu — pod kontrolę weterynaryjną. */
+  weryfikacja: (docType: string, docId: string) =>
+    get<Weryfikacja>(`/signatures/weryfikacja?docType=${encodeURIComponent(docType)}&docId=${encodeURIComponent(docId)}`),
+}
+
+export interface WeryfikacjaPodpis {
+  role: string
+  signerName: string
+  workerId: string
+  signedAt: string | null
+  contentHash: string
+  /** Czy podpis dotyczy treści AKTUALNEJ. */
+  zgodny: boolean
+  active: boolean
+  supersededAt: string | null
+}
+
+export interface Weryfikacja {
+  docType: string
+  docId: string
+  receptionNo: string | null
+  supplierName: string | null
+  receivedDate: string | null
+  /** Dokładny tekst, z którego liczony jest SHA-256. */
+  tresc: string
+  currentHash: string
+  algorytm: string
+  signatures: WeryfikacjaPodpis[]
 }
 
 /** Wynik odczytu skanu HDI. `sumOk === null` = nie odczytano stopki. */
@@ -1136,9 +1165,9 @@ export const usersApi = {
    *  jawnie o archiwum. */
   list:   (includeInactive = false) =>
     get<User[]>(`/workers${includeInactive ? '?includeInactive=1' : ''}`),
-  create: (dto: { name: string; role: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; sundayBonusEnabled?: boolean; sundayBonusPerHour?: number; saturdayBonusEnabled?: boolean; saturdayBonusPerHour?: number; payMode?: string; ratePerDay?: number; contractType?: string; employerCostAmount?: number; crewSize?: number; isWrapper?: boolean; wrappingRatePerKg?: number; canSignPerformed?: boolean; canSignChecked?: boolean }) =>
+  create: (dto: { name: string; fullName?: string; role: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; sundayBonusEnabled?: boolean; sundayBonusPerHour?: number; saturdayBonusEnabled?: boolean; saturdayBonusPerHour?: number; payMode?: string; ratePerDay?: number; contractType?: string; employerCostAmount?: number; crewSize?: number; isWrapper?: boolean; wrappingRatePerKg?: number; canSignPerformed?: boolean; canSignChecked?: boolean }) =>
     post<User>('/workers', toSnake(dto)),
-  update: (id: string, dto: { name?: string; role?: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; sundayBonusEnabled?: boolean; sundayBonusPerHour?: number; saturdayBonusEnabled?: boolean; saturdayBonusPerHour?: number; payMode?: string; ratePerDay?: number; contractType?: string; employerCostAmount?: number; active?: boolean; crewSize?: number; isWrapper?: boolean; wrappingRatePerKg?: number; canSignPerformed?: boolean; canSignChecked?: boolean }) =>
+  update: (id: string, dto: { name?: string; fullName?: string; role?: string; pin?: string; departments?: string[]; ratePerKg?: number; ratePerHour?: number; sundayBonusEnabled?: boolean; sundayBonusPerHour?: number; saturdayBonusEnabled?: boolean; saturdayBonusPerHour?: number; payMode?: string; ratePerDay?: number; contractType?: string; employerCostAmount?: number; active?: boolean; crewSize?: number; isWrapper?: boolean; wrappingRatePerKg?: number; canSignPerformed?: boolean; canSignChecked?: boolean }) =>
     put<User>(`/workers/${id}`, toSnake(dto)),
   setActive: (id: string, active: boolean) =>
     put<User>(`/workers/${id}`, { active }),
