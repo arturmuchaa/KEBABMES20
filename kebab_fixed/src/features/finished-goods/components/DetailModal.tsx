@@ -7,7 +7,7 @@
 import { useMemo, useState, useEffect } from 'react'
 import { traceabilityApi } from '@/lib/apiClient'
 import { podzialStanu } from '../finishedGoodsSelection'
-import { finishedGoodsApi, productTypesApi, recipesApi } from '@/lib/api'
+import { finishedGoodsApi, productTypesApi, recipesApi, clientOrdersApi } from '@/lib/api'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { useClientNames } from '@/lib/clientNames'
 import { GitBranch, Beef, Scissors, FlaskConical, Package2, ChevronRight } from 'lucide-react'
@@ -246,20 +246,59 @@ export function DetailModal({ group, onClose, onChanged }: {
   )
   const workers = Array.from(new Set(group.batches.flatMap(b => b.producedBy ?? [])))
 
-  /** Ile sztuk i pod jakie zamówienia jest zajęte. Liczone z partii, bo
-   *  stempel siedzi na wierszu magazynowym, nie na towarze zbiorczo. */
+  /** Stemple zamówień ZAMKNIĘTYCH (done/cancelled) wracają do puli —
+   *  pokrycie (order_stock_service) liczy je jako wolne, więc modal nie może
+   *  pokazywać ich jako „zarezerwowane" (YALCIN Z3/08, 09.2026: zamówienie
+   *  zrealizowane, a 10 szt. dalej widniało w rezerwacjach). Statusy bierzemy
+   *  z API zamówień; brak danych = stare zachowanie (wszystko zarezerwowane).
+   *  To tylko PREZENTACJA — stanów ani stempli nie ruszamy. */
+  const stempleKey = useMemo(() => [...new Set(
+    group.batches.map(b => (b.clientOrderNo || '').trim()).filter(Boolean),
+  )].sort().join('|'), [group])
+
+  const [zamkniete, setZamkniete] = useState<Set<string> | null>(null)
+  useEffect(() => {
+    if (!stempleKey) return
+    let alive = true
+    const p = clientOrdersApi?.list?.()
+    if (!p) return
+    p.then(list => {
+      if (!alive) return
+      setZamkniete(new Set(
+        (list ?? [])
+          .filter(o => (o?.status === 'done' || o?.status === 'cancelled') && o?.orderNo)
+          .map(o => String(o.orderNo).trim()),
+      ))
+    }).catch(() => { if (alive) setZamkniete(new Set()) })
+    return () => { alive = false }
+  }, [stempleKey])
+
+  /** Ile sztuk i pod jakie OTWARTE zamówienia jest zajęte. Liczone z partii,
+   *  bo stempel siedzi na wierszu magazynowym, nie na towarze zbiorczo. */
   const rezerwacje = useMemo(() => {
     const wg = new Map<string, number>()
     for (const b of group.batches) {
       const nr = (b.clientOrderNo || '').trim()
       if (!nr) continue
+      if (zamkniete?.has(nr)) continue
       wg.set(nr, (wg.get(nr) ?? 0) + Math.max(0, Math.floor(Number(b.qtyAvailable ?? 0))))
     }
     return [...wg.entries()]
       .filter(([, qty]) => qty > 0)
       .map(([orderNo, qty]) => ({ orderNo, qty }))
       .sort((a, b) => b.qty - a.qty)
-  }, [group])
+  }, [group, zamkniete])
+
+  /** Sztuki spod stempli zamówień już zamkniętych — leżą u nas, wolne. */
+  const zwroconeZPuli = useMemo(() => {
+    if (!zamkniete) return 0
+    let s = 0
+    for (const b of group.batches) {
+      const nr = (b.clientOrderNo || '').trim()
+      if (nr && zamkniete.has(nr)) s += Math.max(0, Math.floor(Number(b.qtyAvailable ?? 0)))
+    }
+    return s
+  }, [group, zamkniete])
 
   // ── Korekta rodzaju ──
   // Rodzaj jest częścią tożsamości wyrobu (UDO 100% ≠ MIX 95/5 przy tej samej
@@ -343,7 +382,9 @@ export function DetailModal({ group, onClose, onChanged }: {
               { label: 'Łącznie',   val: `${group.qty} szt · ${fmtKg(group.totalKg)} kg` },
               // Rezerwacje w SZCZEGÓŁACH, nie na liście (właściciel, 02.09.2026):
               // lista odpowiada „ile mam", tutaj widać „ile z tego czyjeś".
-              { label: 'Wolne',     val: `${podzialStanu(group).wolne} szt` },
+              { label: 'Wolne',     val: zwroconeZPuli > 0
+                  ? `${podzialStanu(group).wolne} szt + ${zwroconeZPuli} spod zamkniętych`
+                  : `${podzialStanu(group).wolne} szt` },
             ].map(r => (
               <div key={r.label}>
                 <CardDescription className="text-[10px] font-bold uppercase mb-0.5">{r.label}</CardDescription>
@@ -354,19 +395,27 @@ export function DetailModal({ group, onClose, onChanged }: {
 
           {/* Pod jakie zamówienia towar jest zajęty — bez tego „wolne 52 z 142"
               nie mówi, komu obiecane jest pozostałe 90. */}
-          {rezerwacje.length > 0 && (
+          {(rezerwacje.length > 0 || zwroconeZPuli > 0) && (
             <div className="mt-3 rounded border border-ink-5 p-2.5">
-              <CardDescription className="text-[10px] font-bold uppercase mb-1.5">
-                Zarezerwowane pod zamówienia
-              </CardDescription>
-              <div className="space-y-1">
-                {rezerwacje.map(r => (
-                  <div key={r.orderNo} className="flex items-center gap-2 text-xs">
-                    <code className="font-mono font-bold">{r.orderNo}</code>
-                    <span className="ml-auto tabular-nums font-semibold">{r.qty} szt</span>
-                  </div>
-                ))}
-              </div>
+              {rezerwacje.length > 0 && (<>
+                <CardDescription className="text-[10px] font-bold uppercase mb-1.5">
+                  Zarezerwowane pod zamówienia
+                </CardDescription>
+                <div className="space-y-1">
+                  {rezerwacje.map(r => (
+                    <div key={r.orderNo} className="flex items-center gap-2 text-xs">
+                      <code className="font-mono font-bold">{r.orderNo}</code>
+                      <span className="ml-auto tabular-nums font-semibold">{r.qty} szt</span>
+                    </div>
+                  ))}
+                </div>
+              </>)}
+              {zwroconeZPuli > 0 && (
+                <div className={rezerwacje.length > 0 ? 'mt-1.5 text-[11px] text-muted-foreground' : 'text-xs text-muted-foreground'}>
+                  Spod zamkniętych zamówień wróciło do puli:{' '}
+                  <strong className="tabular-nums">{zwroconeZPuli} szt</strong> — wolne.
+                </div>
+              )}
             </div>
           )}
 

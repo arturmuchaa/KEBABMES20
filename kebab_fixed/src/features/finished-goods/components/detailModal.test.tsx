@@ -48,6 +48,12 @@ vi.mock('@/lib/api', () => ({
       { id: 'pt-mix', name: 'KEBAB MIX 95/5' },
     ]),
   },
+  clientOrdersApi: {
+    list: () => Promise.resolve([
+      { orderNo: 'Z3/08', status: 'done' },
+      { orderNo: 'Z1/09', status: 'open' },
+    ]),
+  },
 }))
 vi.mock('@/lib/clientNames', () => ({ useClientNames: () => (s: string) => s }))
 vi.mock('@/features/finished-goods/components/BatchLocationSummary', () => ({
@@ -132,5 +138,22 @@ describe('DetailModal — korekta receptury', () => {
     // Otwarcie edycji receptury nie otwiera edycji rodzaju.
     expect(screen.queryByTestId('rodzaj-wybor-f1')).toBeNull()
     expect(screen.getByTestId('rodzaj-popraw-f1')).toBeTruthy()
+  })
+})
+
+describe('DetailModal — rezerwacje ze zrealizowanych zamówień', () => {
+  it('stempel zamkniętego zamówienia wraca do puli, nie do rezerwacji', async () => {
+    render(<DetailModal group={grupa([
+      partia({ id: 'a', batchNo: 'A', qtyAvailable: 10, clientOrderNo: 'Z3/08' }),
+      partia({ id: 'b', batchNo: 'B', qtyAvailable: 20, clientOrderNo: 'Z1/09' }),
+    ])} onClose={() => {}} />)
+
+    // Najpierw czekamy na podział — przed dociągnięciem statusów wszystko
+    // widnieje jako zarezerwowane, jak dotąd.
+    expect(await screen.findByText(/wróciło do puli/)).toBeTruthy()
+    expect(screen.queryByText('Z3/08')).toBeNull()
+    expect(screen.getByText('Z1/09')).toBeTruthy()
+    expect(screen.getByText('20 szt')).toBeTruthy()
+    expect(screen.getByText('0 szt + 10 spod zamkniętych')).toBeTruthy()
   })
 })

@@ -160,8 +160,12 @@ export function FinishedGoodsPage() {
 
   // Opcje selectów z CAŁEGO magazynu (nie zawężają się podczas pisania).
   // Warianty nazw („Truva", „TRUVA ") schodzą się do jednej pozycji.
+  // Klientów kluczymy po NAZWIE WYŚWIETLANEJ (skrót z kartoteki), nie po
+  // pełnej z KRS — dwie różne pełne nazwy ze wspólnym skrótem („ISSA …"
+  // + „ISSA …") dublowały się na liście, choć na ekranie widać je tak samo.
   const klienci = useMemo(
-    () => unikalneOpcje(rawList.map(i => i.clientName)), [rawList])
+    () => unikalneOpcje(rawList.map(i => clientDisplay(i.clientName || ''))),
+    [rawList, clientDisplay])
   const produkty = useMemo(
     () => unikalneOpcje(rawList.map(i => i.productTypeName)), [rawList])
   const klientEtykieta = klienci.find(o => o.klucz === klient)?.etykieta || ''
@@ -185,7 +189,7 @@ export function FinishedGoodsPage() {
     const result = groupBySku(rawList)
       .filter(g => g.qty > 0)
       .filter(g => dopasujTowar(g, filter, clientDisplay))
-      .filter(g => pasujeOpcja(g.clientName, klient))
+      .filter(g => pasujeOpcja(clientDisplay(g.clientName || ''), klient))
       .filter(g => pasujeOpcja(g.productTypeName, produkt))
       // Zakres dat trzyma pozycje, które mają KTÓRĄKOLWIEK partię
       // wyprodukowaną w zakresie — tak samo jak szukajka tekstowa trzyma
@@ -321,7 +325,7 @@ export function FinishedGoodsPage() {
           >
             <option value="">Klient: wszyscy</option>
             {klienci.map(o => (
-              <option key={o.klucz} value={o.klucz}>{clientDisplay(o.etykieta)}</option>
+              <option key={o.klucz} value={o.klucz}>{o.etykieta}</option>
             ))}
           </select>
           <select

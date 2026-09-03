@@ -121,4 +121,8 @@ describe('unikalneOpcje — jeden klient to jedna pozycja na liście', () => {
   it('normalizujNazwe ścina i scala spacje', () => {
     expect(normalizujNazwe('  Truva   gastro ')).toBe('Truva gastro')
   })
+  it('składa też polskie znaki przy scalaniu', () => {
+    expect(unikalneOpcje(['ŁÓDŹ', 'lodz ', 'Łodź']))
+      .toEqual([{ klucz: 'lodz', etykieta: 'ŁÓDŹ' }])
+  })
 })
