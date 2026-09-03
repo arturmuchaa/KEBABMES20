@@ -173,8 +173,13 @@ function renderCell(cell: Cell | undefined) {
   return (
     <>
       <img className="sig" src={cell.png} alt="" />
-      {cell.name ? <span className="signame">{cell.name}</span> : null}
-      {cell.when ? <span className="sigwhen">{cell.when}</span> : null}
+      {/* Nazwisko i data w JEDNEJ linii, do lewej. Kolumna ma 18 mm — dwie
+          wyśrodkowane linijki zjadały wysokość kratki i kazały kurczyć
+          podpis. Słowa „podpisał" nie dopisujemy: nagłówek kolumny już
+          mówi „Wykonał" albo „Sprawdził". */}
+      {(cell.name || cell.when)
+        ? <span className="sigline">{[cell.name, cell.when].filter(Boolean).join('  ')}</span>
+        : null}
     </>
   )
 }
@@ -416,11 +421,9 @@ const CSS = `
   text-align:justify; }
 .reg .foot { display:flex; justify-content:space-between; margin-top:1.6mm;
   font-size:6.8pt; font-weight:700; color:#333; letter-spacing:.04em; }
-.reg .sig { height:4.4mm; width:auto; max-width:100%; object-fit:contain; display:block; margin:0 auto; }
-.reg .signame { display:block; text-align:center; font-size:4.8pt; line-height:1.02;
-  color:#222; letter-spacing:0; white-space:nowrap; overflow:hidden;
+.reg .sig { height:5.8mm; width:auto; max-width:100%; object-fit:contain; display:block; margin:0 auto; }
+.reg .sigline { display:block; text-align:left; font-size:3.9pt; line-height:1;
+  color:#333; letter-spacing:0; white-space:nowrap; overflow:hidden;
   text-overflow:ellipsis; }
-.reg .sigwhen { display:block; text-align:center; font-size:4.3pt; line-height:1.02;
-  color:#555; white-space:nowrap; }
 .reg .foot .l { font-weight:400; color:#555; }
 `
