@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dopasujTowar, normalizuj, tokeny } from './finishedGoodsSearch'
+import { dopasujTowar, normalizuj, normalizujNazwe, pasujeOpcja, tokeny, unikalneOpcje } from './finishedGoodsSearch'
 
 /** Wiersz magazynu w kształcie, jaki widzi ekran. */
 const g = (over: Partial<any> = {}): any => ({
@@ -101,5 +101,24 @@ describe('dopasujTowar — sedno naprawy', () => {
 
   it('działa bez podanej mapy skrótów', () => {
     expect(dopasujTowar(g(), 'kirmizi')).toBe(true)
+  })
+})
+
+describe('unikalneOpcje — jeden klient to jedna pozycja na liście', () => {
+  it('scala warianty ze spacjami i wielkością liter', () => {
+    expect(unikalneOpcje(['Truva', 'TRUVA ', 'Truva  gastro']))
+      .toEqual([{ klucz: 'truva', etykieta: 'Truva' }, { klucz: 'truva gastro', etykieta: 'Truva gastro' }])
+  })
+  it('wywala puste nazwy i sortuje po polsku', () => {
+    expect(unikalneOpcje(['ZAGROS', '', null, '  ', 'Yalcin']))
+      .toEqual([{ klucz: 'yalcin', etykieta: 'Yalcin' }, { klucz: 'zagros', etykieta: 'ZAGROS' }])
+  })
+  it('pasujeOpcja: pusta przepuszcza, wariant trafia w klucz', () => {
+    expect(pasujeOpcja('TRUVA ', 'truva')).toBe(true)
+    expect(pasujeOpcja('Yalcin', 'truva')).toBe(false)
+    expect(pasujeOpcja('Yalcin', '')).toBe(true)
+  })
+  it('normalizujNazwe ścina i scala spacje', () => {
+    expect(normalizujNazwe('  Truva   gastro ')).toBe('Truva gastro')
   })
 })

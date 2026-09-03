@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
 import { finishedGoodsApi } from '@/lib/apiClient'
 import { useClientNames } from '@/lib/clientNames'
-import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
+import { fmtKg, cn } from '@/lib/utils'
 import { CopyButton } from '@/features/finished-goods/components/CopyButton'
 import {
   Eye, Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Download, ShoppingBag, Plus,
@@ -25,9 +25,9 @@ import { DetailModal } from '@/features/finished-goods/components/DetailModal'
 import { OfficeUnitLookup } from '@/features/finished-goods/components/OfficeUnitLookup'
 import { StockCartonModal } from '@/features/finished-goods/components/StockCartonModal'
 import { AddFinishedGoodModal } from '@/features/finished-goods/components/AddFinishedGoodModal'
-import { dopasujTowar } from '@/features/finished-goods/finishedGoodsSearch'
+import { dopasujTowar, pasujeOpcja, unikalneOpcje } from '@/features/finished-goods/finishedGoodsSearch'
 import {
-  dataFefo, ograniczIlosc, podsumowanieZaznaczenia, podzialStanu, przydzialNaMape,
+  dataFefo, ograniczIlosc, podsumowanieZaznaczenia, przydzialNaMape,
   rozpiszNaPartie, sumaPrzydzialu,
 } from '@/features/finished-goods/finishedGoodsSelection'
 import { PackedCartonsSection } from '@/features/finished-goods/components/PackedCartonsSection'
@@ -85,22 +85,6 @@ export function groupBySku(items: FinishedGoodsItem[]): SkuGroup[] {
     g.batches.sort((a, b) => (a.producedDate || '').localeCompare(b.producedDate || ''))
   }
   return [...map.values()]
-}
-
-/** Najstarsza data produkcji w grupie (tylko partie z dostępnym stanem).
- *  Czysta prezentacja — druga linia pod ilością, żeby wiek towaru było
- *  widać bez rozwijania wiersza. Grupowania ani sum nie zmienia. */
-function najstarszaProdukcja(g: SkuGroup): string {
-  const zDostepnych = g.batches
-    .filter(b => (b.qtyAvailable ?? b.qty) > 0)
-    .map(b => (b.producedDate || '').slice(0, 10))
-    .filter(Boolean)
-    .sort()
-  if (zDostepnych.length) return zDostepnych[0]
-  return g.batches
-    .map(b => (b.producedDate || '').slice(0, 10))
-    .filter(Boolean)
-    .sort()[0] || ''
 }
 
 // ─── Sort ────────────────────────────────────────────────────
@@ -175,16 +159,13 @@ export function FinishedGoodsPage() {
   allGroupsRef.current = useMemo(() => groupBySku(rawList), [rawList])
 
   // Opcje selectów z CAŁEGO magazynu (nie zawężają się podczas pisania).
-  const klienci = useMemo(() => {
-    const s = new Set<string>()
-    rawList.forEach(i => { if (i.clientName) s.add(i.clientName) })
-    return [...s].sort((a, b) => a.localeCompare(b, 'pl'))
-  }, [rawList])
-  const produkty = useMemo(() => {
-    const s = new Set<string>()
-    rawList.forEach(i => { if (i.productTypeName) s.add(i.productTypeName) })
-    return [...s].sort((a, b) => a.localeCompare(b, 'pl'))
-  }, [rawList])
+  // Warianty nazw („Truva", „TRUVA ") schodzą się do jednej pozycji.
+  const klienci = useMemo(
+    () => unikalneOpcje(rawList.map(i => i.clientName)), [rawList])
+  const produkty = useMemo(
+    () => unikalneOpcje(rawList.map(i => i.productTypeName)), [rawList])
+  const klientEtykieta = klienci.find(o => o.klucz === klient)?.etykieta || ''
+  const produktEtykieta = produkty.find(o => o.klucz === produkt)?.etykieta || ''
 
   const aktywneFiltry =
     (klient ? 1 : 0) + (produkt ? 1 : 0) + (odDaty ? 1 : 0) + (doDaty ? 1 : 0)
@@ -204,8 +185,8 @@ export function FinishedGoodsPage() {
     const result = groupBySku(rawList)
       .filter(g => g.qty > 0)
       .filter(g => dopasujTowar(g, filter, clientDisplay))
-      .filter(g => !klient || g.clientName === klient)
-      .filter(g => !produkt || g.productTypeName === produkt)
+      .filter(g => pasujeOpcja(g.clientName, klient))
+      .filter(g => pasujeOpcja(g.productTypeName, produkt))
       // Zakres dat trzyma pozycje, które mają KTÓRĄKOLWIEK partię
       // wyprodukowaną w zakresie — tak samo jak szukajka tekstowa trzyma
       // całą pozycję po trafieniu w jedną partię. Ilości w wierszu i stopce
@@ -333,25 +314,25 @@ export function FinishedGoodsPage() {
         <div className="px-4 py-2 border-t border-surface-3 flex items-center gap-2 flex-wrap">
           <select
             aria-label="Filtr klienta"
-            title={klient || 'Klient: wszyscy'}
+            title={klientEtykieta || 'Klient: wszyscy'}
             className="h-8 text-xs border border-ink-4 rounded-md px-2 bg-white max-w-48"
             value={klient}
             onChange={e => setKlient(e.target.value)}
           >
             <option value="">Klient: wszyscy</option>
-            {klienci.map(c => (
-              <option key={c} value={c}>{clientDisplay(c)}</option>
+            {klienci.map(o => (
+              <option key={o.klucz} value={o.klucz}>{clientDisplay(o.etykieta)}</option>
             ))}
           </select>
           <select
             aria-label="Filtr produktu"
-            title={produkt || 'Produkt: wszystkie'}
+            title={produktEtykieta || 'Produkt: wszystkie'}
             className="h-8 text-xs border border-ink-4 rounded-md px-2 bg-white max-w-48"
             value={produkt}
             onChange={e => setProdukt(e.target.value)}
           >
             <option value="">Produkt: wszystkie</option>
-            {produkty.map(p => <option key={p} value={p}>{p}</option>)}
+            {produkty.map(o => <option key={o.klucz} value={o.klucz}>{o.etykieta}</option>)}
           </select>
           <label className="flex items-center gap-1 text-xs text-ink-2">
             prod. od
@@ -485,9 +466,7 @@ export function FinishedGoodsPage() {
                 </tr>
               </thead>
               <tbody>
-                {list.flatMap((g, idx) => {
-                  const najst = najstarszaProdukcja(g)
-                  return [
+                {list.flatMap((g, idx) => [
                   (
                   <tr
                     key={g.key}
@@ -499,33 +478,25 @@ export function FinishedGoodsPage() {
                     )}
                   >
                     <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
-                      {/* title na SPANIE, nie na disablowanym inpucie —
-                          Chrome nie pokazuje tooltipów z wyłączonych pól. */}
-                      <span
-                        className="inline-flex"
-                        title={podzialStanu(g).wolne <= 0
-                          ? 'Brak wolnego stanu — całość pod zamówieniami (szczegóły po kliknięciu wiersza)'
-                          : `Zaznacz ${g.productTypeName} ${g.recipeName} ${g.kgPerUnit}kg`}
-                      >
                       <input
                         type="checkbox"
                         aria-label={`Zaznacz ${g.productTypeName} ${g.recipeName} ${g.kgPerUnit}kg`}
                         checked={wybor[g.key] !== undefined}
-                        disabled={podzialStanu(g).wolne <= 0}
+                        disabled={g.qty <= 0}
                         onChange={e => setWybor(w => {
                           const n = { ...w }
-                          // Zaznaczenie bierze CAŁY wolny stan, rozpisany FEFO —
-                          // to tylko PROPOZYCJA, partie da się poprawić po
-                          // rozwinięciu wiersza.
+                          // Zaznaczenie bierze CAŁY stan (także spod zamówień —
+                          // zamówienie rezerwuje towar, ale NIE blokuje WZ),
+                          // rozpisany FEFO. To tylko PROPOZYCJA, partie da się
+                          // poprawić po rozwinięciu wiersza.
                           if (e.target.checked) {
                             n[g.key] = przydzialNaMape(
-                              rozpiszNaPartie(g as any, podzialStanu(g).wolne))
+                              rozpiszNaPartie(g as any, g.qty, 'wszystkie'))
                             setRozwiniete(r => ({ ...r, [g.key]: true }))
                           } else delete n[g.key]
                           return n
                         })}
                       />
-                      </span>
                     </td>
                     <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold">
                       {wybor[g.key] !== undefined ? (
@@ -535,30 +506,13 @@ export function FinishedGoodsPage() {
                           className="rounded border border-ink px-1.5 py-0.5 font-bold tabular-nums"
                           title="Rozwiń, żeby poprawić partie"
                         >
-                          {sumaPrzydzialu(wybor[g.key])} z {podzialStanu(g).wolne}
+                          {sumaPrzydzialu(wybor[g.key])} z {g.qty}
                         </button>
                       ) : g.qty}
                       <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
-                      {najst && (
-                        <div
-                          className="text-[10px] font-normal text-muted-foreground tabular-nums"
-                          title="Najstarsza partia z dostępnym stanem"
-                        >
-                          najst. {fmtDatePl(najst)}
-                        </div>
-                      )}
                       {/* Kolumna pokazuje CAŁY stan (właściciel, 02.09.2026):
                           magazyn ma odpowiadać na pytanie „ile tego mam", a nie
-                          „ile mogę zabrać". Co jest zarezerwowane i pod jakie
-                          zamówienie — w szczegółach pod kliknięciem. */}
-                      {podzialStanu(g).podZamowienia > 0 && (
-                        <span
-                          className="ml-1 font-normal text-[11px] text-ink-4"
-                          title="część zajęta pod zamówienia — szczegóły po kliknięciu"
-                        >
-                          ●
-                        </span>
-                      )}
+                          „ile mogę zabrać". */}
                     </td>
                     <td className="px-2.5 py-2 whitespace-nowrap text-right text-ink-2">
                       {g.kgPerUnit}<span className="text-muted-foreground font-normal text-[11px]"> kg</span>
@@ -608,7 +562,9 @@ export function FinishedGoodsPage() {
                       </div>
                       <div className="space-y-1">
                         {[...g.batches]
-                          .filter(b => !(b.clientOrderNo || '').trim())
+                          // Wszystkie partie ze stanem — także spod zamówień:
+                          // zamówienie nie blokuje WZ, magazynier widzi i poprawia pełny rozkład.
+                          .filter(b => Math.floor(Number(b.qtyAvailable ?? 0)) > 0)
                           .sort((a, b) => (dataFefo(a) || '~').localeCompare(dataFefo(b) || '~'))
                           .map(b => (
                           <div key={b.id} className="flex items-center gap-2 text-xs">
@@ -639,10 +595,8 @@ export function FinishedGoodsPage() {
                       </div>
                     </td>
                   </tr>
-                  )
-                  ]
-                  })
-                }
+                  )]
+                )}
               </tbody>
               <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
                 <tr>

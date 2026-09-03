@@ -131,6 +131,19 @@ describe('rozpiszNaPartie — FEFO', () => {
       g({ batches: [p2('BEZ', 50, ''), p2('A', 20, '2027-08-31')] }), 30)
     expect(out).toEqual([{ id: 'A', qty: 20 }, { id: 'BEZ', qty: 10 }])
   })
+
+  it("tryb 'wszystkie' bierze też partie ostemplowane zamówieniem", () => {
+    const out = rozpiszNaPartie(
+      g({ batches: [p2('A', 90, '2027-08-31', 'Z/1'), p2('B', 50, '2027-09-02')] }),
+      100, 'wszystkie')
+    expect(out).toEqual([{ id: 'A', qty: 90 }, { id: 'B', qty: 10 }])
+  })
+
+  it("domyślny tryb nadal pomija partie pod zamówieniami", () => {
+    const out = rozpiszNaPartie(
+      g({ batches: [p2('A', 90, '2027-08-31', 'Z/1')] }), 50)
+    expect(out).toEqual([])
+  })
 })
 
 describe('przydzialNaMape / sumaPrzydzialu — ręczna korekta partii', () => {

@@ -61,6 +61,50 @@ function trafiaGramature(token: string, kgPerUnit: number | null | undefined): b
 }
 
 /**
+ * Nazwa sprowadzona do porównywalnej postaci: bez nadmiarowych spacji.
+ * „Truva  gastro " → „Truva gastro". Wielkość liter i polskie znaki
+ * składa `normalizuj` przy budowie klucza.
+ */
+export function normalizujNazwe(v: string | null | undefined): string {
+  return String(v ?? '').trim().replace(/\s+/g, ' ')
+}
+
+/**
+ * Opcja do selecta filtra: klucz do porównań + etykieta do pokazania.
+ *
+ * Magazynierzy wpisują nazwy z nadmiarowymi spacjami i różną wielkością
+ * liter („Truva", „TRUVA ", „Truva  gastro"), więc goły Set() dublował
+ * klientów po kilka pozycji zamiast trzymać wszystko w jednym. Tutaj
+ * warianty schodzą się do jednego klucza, a etykietą zostaje pierwszy
+ * wariant spotkany w magazynie. Puste nazwy wypadają z listy.
+ */
+export interface OpcjaFiltra { klucz: string; etykieta: string }
+
+export function unikalneOpcje(
+  nazwy: readonly (string | null | undefined)[],
+): OpcjaFiltra[] {
+  const mapa = new Map<string, string>()
+  for (const n of nazwy) {
+    const czysta = normalizujNazwe(n)
+    if (!czysta) continue
+    const klucz = normalizuj(czysta)
+    if (!mapa.has(klucz)) mapa.set(klucz, czysta)
+  }
+  return [...mapa.entries()]
+    .map(([klucz, etykieta]) => ({ klucz, etykieta }))
+    .sort((a, b) => a.etykieta.localeCompare(b.etykieta, 'pl'))
+}
+
+/** Czy wartość z wiersza pasuje do wybranej opcji (pusta = wszystkie). */
+export function pasujeOpcja(
+  wartosc: string | null | undefined,
+  klucz: string,
+): boolean {
+  if (!klucz) return true
+  return normalizuj(normalizujNazwe(wartosc)) === klucz
+}
+
+/**
  * Czy wiersz magazynu pasuje do zapytania.
  *
  * `skrotKlienta` mapuje pełną nazwę odbiorcy na tę pokazywaną na ekranie —

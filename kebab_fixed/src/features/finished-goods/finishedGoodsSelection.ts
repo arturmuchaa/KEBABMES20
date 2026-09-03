@@ -94,7 +94,8 @@ export interface PrzydzialPartii {
  * a nie człowiek w oknie WZ: inaczej biuro co wydanie wybierałoby partie
  * ręcznie i prędzej czy później wydało świeższą przed starszą.
  *
- * Partie ZAJĘTE pod zamówienia są pomijane — to nie jest towar do wzięcia.
+ * Partie ZAJĘTE pod zamówienia są pomijane — to nie jest towar do wzięcia
+ * (chyba że wywołujący poda tryb 'wszystkie').
  * Brak terminu ważności ląduje na KOŃCU: niekompletny wiersz nie może
  * udawać najpilniejszego i wywracać całej kolejności.
  */
@@ -113,12 +114,18 @@ export function rozpiszNaPartie(
     })[]
   },
   ilosc: number,
+  // 'wolne' (domyślnie, jak dotąd): partie ostemplowane zamówieniem są
+  // pomijane. 'wszystkie' (decyzja właściciela, 09.2026): zamówienie
+  // rezerwuje towar, ale go nie blokuje — da się go sprzedać komuś innemu,
+  // więc magazyn rozpisuje z całego stanu. Domyślna gałąź NIE zmienia
+  // dotychczasowego zachowania ani istniejących testów.
+  tryb: 'wolne' | 'wszystkie' = 'wolne',
 ): PrzydzialPartii[] {
   let zostalo = Math.max(0, Math.floor(Number(ilosc) || 0))
   if (!zostalo) return []
 
   const wolne = (towar.batches ?? [])
-    .filter(b => !(b.clientOrderNo || '').trim())
+    .filter(b => tryb === 'wszystkie' || !(b.clientOrderNo || '').trim())
     .filter(b => Math.floor(Number(b.qtyAvailable ?? 0)) > 0)
     .slice()
     .sort((a, b) => {
