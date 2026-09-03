@@ -4,15 +4,15 @@
  * Gęsta tabela z stickyheader, sortowaniem i szybkim filtrem. Klik wiersza
  * → modal ze szczegółami per SKU + rozbiciem wg partii + łańcuchem traceability.
  */
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
 import { finishedGoodsApi } from '@/lib/apiClient'
 import { useClientNames } from '@/lib/clientNames'
-import { fmtKg, cn } from '@/lib/utils'
+import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { CopyButton } from '@/features/finished-goods/components/CopyButton'
 import {
-  Eye, Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Download, ShoppingBag, Plus,
+  Eye, Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Download, ShoppingBag, Plus, Printer,
 } from 'lucide-react'
 import type { FinishedGoodsItem } from '@/lib/mockApi'
 
@@ -143,6 +143,21 @@ function exportCsv(rows: SkuGroup[]) {
   URL.revokeObjectURL(url)
 }
 
+// ─── Chip aktywnego filtra (kasowanie jednym klikiem) ───────
+function Chip({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClear}
+      title={`Usuń filtr: ${label}`}
+      className="inline-flex items-center gap-1 rounded-full border border-ink-4 bg-white px-2 py-0.5 text-[11px] font-semibold hover:bg-surface-3/60"
+    >
+      <span className="max-w-48 truncate">{label}</span>
+      <X size={11} />
+    </button>
+  )
+}
+
 // ─── Strona ─────────────────────────────────────────────────
 export function FinishedGoodsPage() {
   const navigate = useNavigate()
@@ -154,8 +169,18 @@ export function FinishedGoodsPage() {
   const [filter,   setFilter]   = useState('')
   const [klient,   setKlient]   = useState('')
   const [produkt,  setProdukt]  = useState('')
+  const [receptura, setReceptura] = useState('')
   const [odDaty,   setOdDaty]   = useState('')
   const [doDaty,   setDoDaty]   = useState('')
+  // Gęstość wierszy (hala: zwarty, biuro: wygodny). Pamiętana w przeglądarce.
+  const [gestosc, setGestosc] = useState<'zwarty' | 'wygodny'>(() => {
+    try { return localStorage.getItem('wg-gestosc') === 'wygodny' ? 'wygodny' : 'zwarty' }
+    catch { return 'zwarty' }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('wg-gestosc', gestosc) } catch { /* tryb prywatny */ }
+  }, [gestosc])
+  const zwarty = gestosc === 'zwarty'
   const [sortCol,  setSortCol]  = useState<SortCol>('productTypeName')
   const [sortDir,  setSortDir]  = useState<'asc' | 'desc'>('asc')
   /** key SKU → { id partii: sztuki }. Brak wpisu = pozycja niezaznaczona.
@@ -180,16 +205,30 @@ export function FinishedGoodsPage() {
     [rawList, clientDisplay])
   const produkty = useMemo(
     () => unikalneOpcje(rawList.map(i => i.productTypeName)), [rawList])
+  const receptury = useMemo(
+    () => unikalneOpcje(rawList.map(i => i.recipeName)), [rawList])
   const klientEtykieta = klienci.find(o => o.klucz === klient)?.etykieta || ''
   const produktEtykieta = produkty.find(o => o.klucz === produkt)?.etykieta || ''
+  const recepturaEtykieta = receptury.find(o => o.klucz === receptura)?.etykieta || ''
 
   const aktywneFiltry =
-    (klient ? 1 : 0) + (produkt ? 1 : 0) + (odDaty ? 1 : 0) + (doDaty ? 1 : 0)
+    (klient ? 1 : 0) + (produkt ? 1 : 0) + (receptura ? 1 : 0) + (odDaty ? 1 : 0) + (doDaty ? 1 : 0)
+
+  // Opis do nagłówka wydruku i czytelnego podsumowania.
+  const opisFiltrow = [
+    filter.trim() && `szukaj: „${filter.trim()}”`,
+    klient && `klient: ${klientEtykieta || klient}`,
+    produkt && `rodzaj: ${produktEtykieta || produkt}`,
+    receptura && `receptura: ${recepturaEtykieta || receptura}`,
+    odDaty && `prod. od ${fmtDatePl(odDaty)}`,
+    doDaty && `prod. do ${fmtDatePl(doDaty)}`,
+  ].filter(Boolean).join(' · ') || 'brak'
 
   const wyczyscFiltry = () => {
     setFilter('')
     setKlient('')
     setProdukt('')
+    setReceptura('')
     setOdDaty('')
     setDoDaty('')
   }
@@ -203,6 +242,7 @@ export function FinishedGoodsPage() {
       .filter(g => dopasujTowar(g, filter, clientDisplay))
       .filter(g => pasujeOpcja(clientDisplay(g.clientName || ''), klient))
       .filter(g => pasujeOpcja(g.productTypeName, produkt))
+      .filter(g => pasujeOpcja(g.recipeName, receptura))
       // Zakres dat trzyma pozycje, które mają KTÓRĄKOLWIEK partię
       // wyprodukowaną w zakresie — tak samo jak szukajka tekstowa trzyma
       // całą pozycję po trafieniu w jedną partię. Ilości w wierszu i stopce
@@ -216,7 +256,7 @@ export function FinishedGoodsPage() {
       })
     const cmp = compareRows(sortCol)
     return [...result].sort((a, b) => sortDir === 'asc' ? cmp(a, b) : -cmp(a, b))
-  }, [rawList, filter, klient, produkt, odDaty, doDaty, sortCol, sortDir, clientDisplay])
+  }, [rawList, filter, klient, produkt, receptura, odDaty, doDaty, sortCol, sortDir, clientDisplay])
 
   /** Suma zaznaczenia dla paska akcji. Liczona z AKTUALNEJ listy, więc
    *  zawężenie filtra nie gubi tego, co zaznaczono gdzie indziej. */
@@ -259,8 +299,8 @@ export function FinishedGoodsPage() {
   return (
     <div className="space-y-3 animate-fade-in">
 
-      {/* ── Toolbar ─────────────────────────────────────── */}
-      <Card>
+      {/* ── Toolbar (nie drukujemy — na papierze tylko tabela) ── */}
+      <Card className="print:hidden">
         <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3 flex-1 min-w-[260px]">
             <div className="relative flex-1 min-w-0 max-w-md">
@@ -341,14 +381,24 @@ export function FinishedGoodsPage() {
             ))}
           </select>
           <select
-            aria-label="Filtr produktu"
-            title={produktEtykieta || 'Produkt: wszystkie'}
+            aria-label="Filtr rodzaju"
+            title={produktEtykieta || 'Rodzaj: wszystkie'}
             className="h-8 text-xs border border-ink-4 rounded-md px-2 bg-white max-w-48"
             value={produkt}
             onChange={e => setProdukt(e.target.value)}
           >
-            <option value="">Produkt: wszystkie</option>
+            <option value="">Rodzaj: wszystkie</option>
             {produkty.map(o => <option key={o.klucz} value={o.klucz}>{o.etykieta}</option>)}
+          </select>
+          <select
+            aria-label="Filtr receptury"
+            title={recepturaEtykieta || 'Receptura: wszystkie'}
+            className="h-8 text-xs border border-ink-4 rounded-md px-2 bg-white max-w-48"
+            value={receptura}
+            onChange={e => setReceptura(e.target.value)}
+          >
+            <option value="">Receptura: wszystkie</option>
+            {receptury.map(o => <option key={o.klucz} value={o.klucz}>{o.etykieta}</option>)}
           </select>
           <label className="flex items-center gap-1 text-xs text-ink-2">
             prod. od
@@ -370,23 +420,64 @@ export function FinishedGoodsPage() {
               onChange={e => setDoDaty(e.target.value)}
             />
           </label>
-          {aktywneFiltry > 0 && (
+          <div className="flex items-center rounded-md border border-ink-4 overflow-hidden" role="group" aria-label="Gęstość wierszy">
+            <button
+              type="button"
+              onClick={() => setGestosc('zwarty')}
+              aria-pressed={zwarty}
+              title="Wiersze zwarte (hala)"
+              className={cn('px-2.5 h-8 text-xs font-bold', zwarty ? 'bg-black text-white' : 'text-ink-2 hover:bg-surface-3/60')}
+            >
+              Zwarty
+            </button>
+            <button
+              type="button"
+              onClick={() => setGestosc('wygodny')}
+              aria-pressed={!zwarty}
+              title="Wiersze wygodne (biuro)"
+              className={cn('px-2.5 h-8 text-xs font-bold', !zwarty ? 'bg-black text-white' : 'text-ink-2 hover:bg-surface-3/60')}
+            >
+              Wygodny
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            title="Wydrukuj aktualny stan listy"
+            className="flex items-center gap-1.5 rounded-md border border-ink-4 px-3 h-8 text-xs font-bold hover:bg-surface-3/60 whitespace-nowrap"
+          >
+            <Printer size={13} /> Drukuj
+          </button>
+        </div>
+
+        {/* ── Pasek aktywnych filtrów ─────────────────────── */}
+        {(filter.trim() || aktywneFiltry > 0) && (
+          <div className="px-4 py-1.5 border-t border-surface-3 flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+              {list.length} z {allGroups.length} pozycji
+            </span>
+            {filter.trim() && <Chip label={`Szukaj: ${filter.trim()}`} onClear={() => setFilter('')} />}
+            {klient && <Chip label={klientEtykieta || klient} onClear={() => setKlient('')} />}
+            {produkt && <Chip label={produktEtykieta || produkt} onClear={() => setProdukt('')} />}
+            {receptura && <Chip label={recepturaEtykieta || receptura} onClear={() => setReceptura('')} />}
+            {odDaty && <Chip label={`od ${fmtDatePl(odDaty)}`} onClear={() => setOdDaty('')} />}
+            {doDaty && <Chip label={`do ${fmtDatePl(doDaty)}`} onClear={() => setDoDaty('')} />}
             <button
               type="button"
               onClick={wyczyscFiltry}
-              className="flex items-center gap-1 h-8 px-2 text-xs font-bold text-ink-2 hover:text-ink"
+              className="text-[11px] font-bold underline underline-offset-2 text-ink-2 hover:text-ink"
             >
-              <X size={13} /> Wyczyść ({aktywneFiltry})
+              Wyczyść wszystko
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </Card>
 
       {/* ── Pasek zaznaczenia ───────────────────────────
           Widoczny dopiero, gdy coś zaznaczono — pusty pasek zabierałby
           miejsce listy, a to ona jest tu najważniejsza. */}
       {podsumZaznaczenia.pozycji > 0 && (
-        <Card className="border-ink bg-surface-2">
+        <Card className="border-ink bg-surface-2 print:hidden">
           <div className="px-4 py-2.5 flex items-center justify-between gap-4 flex-wrap">
             <div className="text-sm tabular-nums">
               <strong>{podsumZaznaczenia.pozycji}</strong> poz. ·{' '}
@@ -416,6 +507,15 @@ export function FinishedGoodsPage() {
 
       {/* ── Tabela ─────────────────────────────────────── */}
       <Card className="overflow-hidden">
+        {/* Nagłówek wydruku — tylko na papierze. */}
+        <div className="hidden print:block px-4 py-3 border-b border-black">
+          <div className="text-sm font-bold">
+            Magazyn wyrobów gotowych — stan na {new Date().toLocaleDateString('pl-PL')}
+          </div>
+          <div className="text-xs text-gray-700">
+            Filtry: {opisFiltrow} · Pozycji: {list.length} · Szt: {totalQty} · Kg: {fmtKg(totalKg, 0)}
+          </div>
+        </div>
         {loading ? (
           <div className="p-4 space-y-2">
             {[0,1,2,3,4,5,6,7].map(i => <Skeleton key={i} className="h-8 w-full" />)}
@@ -445,11 +545,14 @@ export function FinishedGoodsPage() {
             )}
           </CardContent>
         ) : (
-          <div className="overflow-auto max-h-[calc(100vh-12rem)]">
-            <table className="w-full text-xs tabular-nums">
-              <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
+          <div className={cn('overflow-auto max-h-[calc(100vh-12rem)] print:max-h-none print:overflow-visible', !zwarty && 'wg-wygodny')}>
+            {!zwarty && (
+              <style>{'.wg-wygodny tbody td{padding-top:.8rem;padding-bottom:.8rem}.wg-wygodny thead th{padding-top:.7rem;padding-bottom:.7rem}.wg-wygodny table{font-size:13px}'}</style>
+            )}
+            <table className="w-full text-xs tabular-nums print:text-black">
+              <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4 print:bg-white">
                 <tr>
-                  <th className="w-8 px-2" />
+                  <th className="w-8 px-2 print:hidden" aria-hidden="true" />
                   {[
                     { col: 'qty'             as SortCol, label: 'Ilość',     align: 'right' },
                     { col: 'kgPerUnit'       as SortCol, label: 'kg',        align: 'right' },
@@ -463,7 +566,7 @@ export function FinishedGoodsPage() {
                       key={h.col}
                       aria-sort={sortCol === h.col ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                       className={cn(
-                        'group select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 whitespace-nowrap',
+                        'group select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 whitespace-nowrap print:text-black print:bg-white',
                         h.align === 'right' && 'text-right',
                       )}
                     >
@@ -478,7 +581,7 @@ export function FinishedGoodsPage() {
                       </button>
                     </th>
                   ))}
-                  <th className="w-8" />
+                  <th className="w-8 print:hidden" aria-hidden="true" />
                 </tr>
               </thead>
               <tbody>
@@ -488,12 +591,12 @@ export function FinishedGoodsPage() {
                     key={g.key}
                     onClick={() => setDetailGroup(g)}
                     className={cn(
-                      'cursor-pointer border-b border-surface-3 transition-colors',
+                      'cursor-pointer border-b border-surface-3 transition-colors print:bg-white',
                       idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
                       'hover:bg-surface-3/60'
                     )}
                   >
-                    <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
+                    <td className="px-2 py-2 print:hidden" onClick={e => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         aria-label={`Zaznacz ${g.productTypeName} ${g.recipeName} ${g.kgPerUnit}kg`}
@@ -554,7 +657,7 @@ export function FinishedGoodsPage() {
                     <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold text-emerald-700">
                       {fmtKg(g.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span>
                     </td>
-                    <td className="px-2 py-2 text-right">
+                    <td className="px-2 py-2 text-right print:hidden">
                       <button
                         onClick={(e) => { e.stopPropagation(); setDetailGroup(g) }}
                         className="inline-flex items-center justify-center w-6 h-6 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
@@ -570,7 +673,7 @@ export function FinishedGoodsPage() {
                      wygodniej sięgnąć po inną partię — automat ma proponować,
                      nie decydować. */
                   wybor[g.key] !== undefined && rozwiniete[g.key] && (
-                  <tr key={`${g.key}-partie`} className="bg-surface-2/60">
+                  <tr key={`${g.key}-partie`} className="bg-surface-2/60 print:hidden">
                     <td />
                     <td colSpan={8} className="px-2.5 py-2">
                       <div className="text-[11px] font-bold uppercase tracking-wide text-ink-3 mb-1.5">
@@ -635,8 +738,11 @@ export function FinishedGoodsPage() {
         )}
       </Card>
 
-      {/* Spakowane kebaby — lista utworzonych kartonów ze statusem */}
-      <PackedCartonsSection refreshKey={cartonRefresh} />
+      {/* Spakowane kebaby — lista utworzonych kartonów ze statusem.
+          Na wydruku tylko stan magazynu. */}
+      <div className="print:hidden">
+        <PackedCartonsSection refreshKey={cartonRefresh} />
+      </div>
 
       {detailGroup && <DetailModal group={detailGroup} onClose={() => setDetailGroup(null)}
                                    onChanged={() => refetch()} />}
