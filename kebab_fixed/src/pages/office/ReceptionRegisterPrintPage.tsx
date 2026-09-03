@@ -422,8 +422,11 @@ const CSS = `
 .reg .foot { display:flex; justify-content:space-between; margin-top:1.6mm;
   font-size:6.8pt; font-weight:700; color:#333; letter-spacing:.04em; }
 .reg .sig { height:5.8mm; width:auto; max-width:100%; object-fit:contain; display:block; margin:0 auto; }
-.reg .sigline { display:block; text-align:left; font-size:3.9pt; line-height:1;
-  color:#333; letter-spacing:0; white-space:nowrap; overflow:hidden;
-  text-overflow:ellipsis; }
+/* Bez nowrap: krotkie nazwisko zostaje w JEDNEJ linii (tak ma byc), ale
+   dlugie zawija sie zamiast zostac uciete. Kratka ma na to miejsce —
+   5,8 mm podpisu + dwie linijki po 1,4 mm mieszcza sie w 9,5 mm. Ucieta
+   polowa nazwiska na dokumencie kontrolnym jest gorsza niz dwie linijki. */
+.reg .sigline { display:block; text-align:left; font-size:3.9pt; line-height:1.05;
+  color:#333; letter-spacing:0; overflow:hidden; overflow-wrap:break-word; }
 .reg .foot .l { font-weight:400; color:#555; }
 `
