@@ -174,6 +174,7 @@ function renderCell(cell: Cell | undefined) {
     <>
       <img className="sig" src={cell.png} alt="" />
       {cell.name ? <span className="signame">{cell.name}</span> : null}
+      {cell.when ? <span className="sigwhen">{cell.when}</span> : null}
     </>
   )
 }
@@ -415,9 +416,11 @@ const CSS = `
   text-align:justify; }
 .reg .foot { display:flex; justify-content:space-between; margin-top:1.6mm;
   font-size:6.8pt; font-weight:700; color:#333; letter-spacing:.04em; }
-.reg .sig { height:5.4mm; width:auto; max-width:100%; object-fit:contain; display:block; margin:0 auto; }
-.reg .signame { display:block; text-align:center; font-size:5pt; line-height:1.05;
+.reg .sig { height:4.4mm; width:auto; max-width:100%; object-fit:contain; display:block; margin:0 auto; }
+.reg .signame { display:block; text-align:center; font-size:4.8pt; line-height:1.02;
   color:#222; letter-spacing:0; white-space:nowrap; overflow:hidden;
   text-overflow:ellipsis; }
+.reg .sigwhen { display:block; text-align:center; font-size:4.3pt; line-height:1.02;
+  color:#555; white-space:nowrap; }
 .reg .foot .l { font-weight:400; color:#555; }
 `

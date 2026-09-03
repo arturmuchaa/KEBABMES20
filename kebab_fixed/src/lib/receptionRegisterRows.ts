@@ -25,7 +25,19 @@ import type { Reception } from '@/types'
 /** Komórka karty: tekst albo obrazek podpisu (kolumny l/m karty 1.1.1).
  *  Typ wprowadzony razem z kolumnami f-k, choć obrazki dochodzą dopiero
  *  z podpisami — inaczej siatkę wydruku trzeba by przepisywać dwa razy. */
-export type Cell = string | { png: string; name?: string }
+export type Cell = string | { png: string; name?: string; when?: string }
+
+/** Data i godzina podpisu do kratki — „02.09.2026 20:19".
+ *  Bez sekund: na karcie liczy się CZY i KIEDY, sekundy ma protokół.
+ *  Papierowa karta zawsze miała datę przy podpisie i kontrola jej szuka. */
+export function chwilaPodpisu(iso?: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const dwa = (n: number) => String(n).padStart(2, '0')
+  return `${dwa(d.getDate())}.${dwa(d.getMonth() + 1)}.${d.getFullYear()} `
+    + `${dwa(d.getHours())}:${dwa(d.getMinutes())}`
+}
 
 /** Wpis kontroli HACCP w kształcie, w jakim oddaje go backend. */
 export interface RegisterCheck {
@@ -36,8 +48,8 @@ export interface RegisterCheck {
   notes?: string | null
   verdict?: string | null
   signatures?: {
-    wykonal?: { png: string; signerName?: string }
-    sprawdzil?: { png: string; signerName?: string }
+    wykonal?: { png: string; signerName?: string; signedAt?: string | null }
+    sprawdzil?: { png: string; signerName?: string; signedAt?: string | null }
   }
 }
 
@@ -51,10 +63,15 @@ function ocena(v: string | null | undefined): string {
  *  (dane zmieniono po podpisaniu) nie dociera tu wcale — backend oddaje
  *  tylko aktywne. Pusta kratka jest uczciwa; podpis pod zmienioną treścią
  *  nie jest. */
-function podpis(sig?: { png: string; signerName?: string }): Cell {
-  // Pod podpisem staje PEŁNE imię i nazwisko. Sam rysunek nie mówi kontroli
-  // nic — nazwisko dopiero czyni z kratki dowód, kto zatwierdził dostawę.
-  return sig ? { png: sig.png, name: sig.signerName } : ''
+function podpis(
+  sig?: { png: string; signerName?: string; signedAt?: string | null },
+): Cell {
+  // Pod podpisem staje PEŁNE imię i nazwisko oraz data z godziną. Sam rysunek
+  // nie mówi kontroli nic — dowodem jest KTO i KIEDY. Tak też wyglądała karta
+  // papierowa: parafka zawsze szła z datą.
+  return sig
+    ? { png: sig.png, name: sig.signerName, when: chwilaPodpisu(sig.signedAt) }
+    : ''
 }
 
 /** Temperatura po polsku. Zero jest POMIAREM, nie brakiem — `plNum`

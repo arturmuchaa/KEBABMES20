@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  detailRows, documentLabel, mainRows, paginate, plDate, plNum, shortSupplier,
+  chwilaPodpisu, detailRows, documentLabel, mainRows, paginate, plDate, plNum,
+  shortSupplier,
 } from './receptionRegisterRows'
 import type { Reception } from '@/types'
 
@@ -273,14 +274,31 @@ describe('mainRows — podpisy (l-m)', () => {
 
   it('podpisy trafiają jako obrazki, nie tekst', () => {
     const [row] = mainRows([rec()], 13, { r1: wpisZPodpisami })
-    expect(row[11]).toEqual({ png: 'data:image/png;base64,AAA' })
-    expect(row[12]).toEqual({ png: 'data:image/png;base64,BBB' })
+    expect((row[11] as any).png).toBe('data:image/png;base64,AAA')
+    expect((row[12] as any).png).toBe('data:image/png;base64,BBB')
+  })
+
+  it('kratka niesie też nazwisko i chwilę podpisu', () => {
+    // Sam rysunek nie dowodzi niczego — kontrola czyta KTO i KIEDY.
+    const zDanymi = {
+      ...wpis,
+      signatures: {
+        wykonal: {
+          png: 'data:image/png;base64,AAA',
+          signerName: 'Artur Mucha',
+          signedAt: '2026-09-02T20:19:31',
+        },
+      },
+    } as any
+    const [row] = mainRows([rec()], 13, { r1: zDanymi })
+    expect((row[11] as any).name).toBe('Artur Mucha')
+    expect((row[11] as any).when).toBe('02.09.2026 20:19')
   })
 
   it('sam podpis wykonał zostawia kratkę sprawdził pustą', () => {
     const jeden = { ...wpis, signatures: { wykonal: { png: 'data:image/png;base64,AAA' } } } as any
     const [row] = mainRows([rec()], 13, { r1: jeden })
-    expect(row[11]).toEqual({ png: 'data:image/png;base64,AAA' })
+    expect((row[11] as any).png).toBe('data:image/png;base64,AAA')
     expect(row[12]).toBe('')
   })
 })
@@ -289,12 +307,40 @@ describe('detailRows — kolumna podpisu karty 1.1.1/2', () => {
   it('podpis „wykonał" powtarza się przy każdym numerze porządkowym', () => {
     const rows = detailRows([rec()], 9, { r1: wpisZPodpisami })
     expect(rows).toHaveLength(2)
-    expect(rows[0][8]).toEqual({ png: 'data:image/png;base64,AAA' })
-    expect(rows[1][8]).toEqual({ png: 'data:image/png;base64,AAA' })
+    expect((rows[0][8] as any).png).toBe('data:image/png;base64,AAA')
+    expect((rows[1][8] as any).png).toBe('data:image/png;base64,AAA')
   })
 
   it('bez podpisu kolumna zostaje pusta', () => {
     const rows = detailRows([rec()], 9)
     expect(rows[0][8]).toBe('')
+  })
+})
+
+// ── Data i godzina przy podpisie ────────────────────────────────────
+// Papierowa karta zawsze miała datę przy parafce i kontrola jej szuka.
+// Sam rysunek nie dowodzi niczego — dowodem jest KTO i KIEDY.
+describe('chwilaPodpisu', () => {
+  it('formatuje po polsku, do minuty', () => {
+    const out = chwilaPodpisu('2026-09-02T20:19:31')
+    expect(out).toBe('02.09.2026 20:19')
+  })
+
+  it('dopełnia zerami — 3 września to 03.09', () => {
+    expect(chwilaPodpisu('2026-09-03T08:05:00')).toBe('03.09.2026 08:05')
+  })
+
+  it('BEZ sekund — na karcie liczy się czy i kiedy, sekundy ma protokół', () => {
+    expect(chwilaPodpisu('2026-09-02T20:19:31')).not.toMatch(/:31/)
+  })
+
+  it('brak daty nie psuje kratki', () => {
+    expect(chwilaPodpisu(null)).toBe('')
+    expect(chwilaPodpisu(undefined)).toBe('')
+    expect(chwilaPodpisu('')).toBe('')
+  })
+
+  it('śmieć zamiast daty daje pustkę, nie „Invalid Date"', () => {
+    expect(chwilaPodpisu('nie-data')).toBe('')
   })
 })
