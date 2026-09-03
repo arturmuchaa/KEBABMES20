@@ -247,11 +247,11 @@ export function DetailModal({ group, onClose, onChanged }: {
   const workers = Array.from(new Set(group.batches.flatMap(b => b.producedBy ?? [])))
 
   /** Stemple zamówień ZAMKNIĘTYCH (done/cancelled) wracają do puli —
-   *  pokrycie (order_stock_service) liczy je jako wolne, więc modal nie może
-   *  pokazywać ich jako „zarezerwowane" (YALCIN Z3/08, 09.2026: zamówienie
-   *  zrealizowane, a 10 szt. dalej widniało w rezerwacjach). Statusy bierzemy
-   *  z API zamówień; brak danych = stare zachowanie (wszystko zarezerwowane).
-   *  To tylko PREZENTACJA — stanów ani stempli nie ruszamy. */
+   *  pokrycie (order_stock_service) liczy je jako wolne, więc wypadają
+   *  z listy rezerwacji i wchodzą do Wolnego — po cichu, bez dopisków.
+   *  Statusy bierzemy z API zamówień; brak danych = stare zachowanie
+   *  (wszystko zarezerwowane). To tylko PREZENTACJA — stanów ani stempli
+   *  nie ruszamy. */
   const stempleKey = useMemo(() => [...new Set(
     group.batches.map(b => (b.clientOrderNo || '').trim()).filter(Boolean),
   )].sort().join('|'), [group])
@@ -382,9 +382,10 @@ export function DetailModal({ group, onClose, onChanged }: {
               { label: 'Łącznie',   val: `${group.qty} szt · ${fmtKg(group.totalKg)} kg` },
               // Rezerwacje w SZCZEGÓŁACH, nie na liście (właściciel, 02.09.2026):
               // lista odpowiada „ile mam", tutaj widać „ile z tego czyjeś".
-              { label: 'Wolne',     val: zwroconeZPuli > 0
-                  ? `${podzialStanu(group).wolne} szt + ${zwroconeZPuli} spod zamkniętych`
-                  : `${podzialStanu(group).wolne} szt` },
+              // Wolne = wszystko, co nie wisi na OTWARTYM zamówieniu.
+              // Stemple zamkniętych zamówień liczą się jak brak stempla
+              // (tak je traktuje pokrycie) — bez dopisków, po prostu stan.
+              { label: 'Wolne',     val: `${podzialStanu(group).wolne + zwroconeZPuli} szt` },
             ].map(r => (
               <div key={r.label}>
                 <CardDescription className="text-[10px] font-bold uppercase mb-0.5">{r.label}</CardDescription>
@@ -395,27 +396,19 @@ export function DetailModal({ group, onClose, onChanged }: {
 
           {/* Pod jakie zamówienia towar jest zajęty — bez tego „wolne 52 z 142"
               nie mówi, komu obiecane jest pozostałe 90. */}
-          {(rezerwacje.length > 0 || zwroconeZPuli > 0) && (
+          {rezerwacje.length > 0 && (
             <div className="mt-3 rounded border border-ink-5 p-2.5">
-              {rezerwacje.length > 0 && (<>
-                <CardDescription className="text-[10px] font-bold uppercase mb-1.5">
-                  Zarezerwowane pod zamówienia
-                </CardDescription>
-                <div className="space-y-1">
-                  {rezerwacje.map(r => (
-                    <div key={r.orderNo} className="flex items-center gap-2 text-xs">
-                      <code className="font-mono font-bold">{r.orderNo}</code>
-                      <span className="ml-auto tabular-nums font-semibold">{r.qty} szt</span>
-                    </div>
-                  ))}
-                </div>
-              </>)}
-              {zwroconeZPuli > 0 && (
-                <div className={rezerwacje.length > 0 ? 'mt-1.5 text-[11px] text-muted-foreground' : 'text-xs text-muted-foreground'}>
-                  Spod zamkniętych zamówień wróciło do puli:{' '}
-                  <strong className="tabular-nums">{zwroconeZPuli} szt</strong> — wolne.
-                </div>
-              )}
+              <CardDescription className="text-[10px] font-bold uppercase mb-1.5">
+                Zarezerwowane pod zamówienia
+              </CardDescription>
+              <div className="space-y-1">
+                {rezerwacje.map(r => (
+                  <div key={r.orderNo} className="flex items-center gap-2 text-xs">
+                    <code className="font-mono font-bold">{r.orderNo}</code>
+                    <span className="ml-auto tabular-nums font-semibold">{r.qty} szt</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

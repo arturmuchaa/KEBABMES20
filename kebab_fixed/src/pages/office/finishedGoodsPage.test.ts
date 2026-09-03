@@ -67,4 +67,14 @@ describe('groupBySku', () => {
     expect(out).toHaveLength(1)
     expect(out[0].qty).toBe(60)
   })
+
+  it('scala ten sam widoczny towar mimo różnych ID (plan kontra wpis ręczny)', () => {
+    const out = groupBySku([
+      g({ id: 'a', productTypeId: 'pt-1', recipeId: 'rec-1', packagingId: 'pkg-1', qtyAvailable: 20 }),
+      g({ id: 'b', productTypeId: '', recipeId: 'rec-2', packagingId: '', qtyAvailable: 10 }),
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0].qty).toBe(30)
+    expect(out[0].batches).toHaveLength(2)
+  })
 })

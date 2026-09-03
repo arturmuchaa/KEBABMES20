@@ -148,12 +148,12 @@ describe('DetailModal — rezerwacje ze zrealizowanych zamówień', () => {
       partia({ id: 'b', batchNo: 'B', qtyAvailable: 20, clientOrderNo: 'Z1/09' }),
     ])} onClose={() => {}} />)
 
-    // Najpierw czekamy na podział — przed dociągnięciem statusów wszystko
-    // widnieje jako zarezerwowane, jak dotąd.
-    expect(await screen.findByText(/wróciło do puli/)).toBeTruthy()
+    // Stempel zamkniętego Z3/08 znika z rezerwacji, a jego 10 szt. wchodzi
+    // do Wolnego — po cichu. Najpierw czekamy na podział, bo przed
+    // dociągnięciem statusów wszystko widnieje jako zarezerwowane, jak dotąd.
+    expect(await screen.findByText('10 szt')).toBeTruthy()
     expect(screen.queryByText('Z3/08')).toBeNull()
     expect(screen.getByText('Z1/09')).toBeTruthy()
     expect(screen.getByText('20 szt')).toBeTruthy()
-    expect(screen.getByText('0 szt + 10 spod zamkniętych')).toBeTruthy()
   })
 })
