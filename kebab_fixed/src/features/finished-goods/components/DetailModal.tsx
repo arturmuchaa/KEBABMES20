@@ -13,6 +13,7 @@ import { useClientNames } from '@/lib/clientNames'
 import { GitBranch, Beef, Scissors, FlaskConical, Package2, ChevronRight } from 'lucide-react'
 import type { SkuGroup } from '@/pages/office/FinishedGoodsPage'
 import { BatchLocationSummary } from '@/features/finished-goods/components/BatchLocationSummary'
+import { CopyButton } from '@/features/finished-goods/components/CopyButton'
 
 import {
   CardDescription, CardTitle,
@@ -390,6 +391,9 @@ export function DetailModal({ group, onClose, onChanged }: {
                       <code className="font-mono font-bold text-sm tracking-tight text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
                         {b.batchNo || '—'}
                       </code>
+                      {b.batchNo && (
+                        <CopyButton text={b.batchNo} title={`Kopiuj partię ${b.batchNo}`} />
+                      )}
                       <span className="font-bold text-sm tabular-nums">
                         {b.qtyAvailable ?? b.qty}
                         <span className="text-muted-foreground font-normal text-xs"> szt</span>
