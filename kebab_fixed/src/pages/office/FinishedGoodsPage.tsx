@@ -45,7 +45,14 @@ export interface SkuGroup {
   batches: FinishedGoodsItem[]
 }
 
-export function groupBySku(items: FinishedGoodsItem[]): SkuGroup[] {
+export function groupBySku(
+  items: FinishedGoodsItem[],
+  // Nazwa klienta, jaką WIDAĆ na ekranie (skrót z kartoteki). Dwie różne
+  // pełne nazwy ze wspólnym skrótem („ISSA …" + „ISSA …" → „ISSA") to na
+  // magazynie jeden klient — klucz po pełnej nazwie robił dwa identyczne
+  // wiersze (YALCIN 20×30 + 10×30, 09.2026). Domyślnie tożsamość (testy).
+  wyswietlKlienta: (pelna: string) => string = (s) => s,
+): SkuGroup[] {
   const map = new Map<string, SkuGroup>()
   // Klucz po NAZWACH (znormalizowanych), nie po ID.
   //
@@ -67,7 +74,7 @@ export function groupBySku(items: FinishedGoodsItem[]): SkuGroup[] {
       norm(it.productTypeName),
       norm(it.recipeName),
       norm(it.packagingName),
-      norm(it.clientName),
+      norm(wyswietlKlienta(it.clientName || '') || ''),
       Math.round(Number(it.kgPerUnit) * 1000),
     ].join('|')
     let g = map.get(key)
@@ -161,7 +168,7 @@ export function FinishedGoodsPage() {
   // Wszystkie grupy (nie tylko przefiltrowane) — zaznaczenie ma przeżyć
   // zawężenie filtra, inaczej wpisanie litery gubi koszyk.
   const allGroupsRef = useRef<SkuGroup[]>([])
-  allGroupsRef.current = useMemo(() => groupBySku(rawList), [rawList])
+  allGroupsRef.current = useMemo(() => groupBySku(rawList, clientDisplay), [rawList, clientDisplay])
 
   // Opcje selectów z CAŁEGO magazynu (nie zawężają się podczas pisania).
   // Warianty nazw („Truva", „TRUVA ") schodzą się do jednej pozycji.
@@ -191,7 +198,7 @@ export function FinishedGoodsPage() {
     // Wyszukiwarka: każde SŁOWO musi trafić w jakiekolwiek pole. Dawny filtr
     // robił includes na całej frazie naraz, więc „kirmizi 30" nie znajdowało
     // nic. Szuka też po SKRÓCONEJ nazwie klienta — tej, którą widać na ekranie.
-    const result = groupBySku(rawList)
+    const result = groupBySku(rawList, clientDisplay)
       .filter(g => g.qty > 0)
       .filter(g => dopasujTowar(g, filter, clientDisplay))
       .filter(g => pasujeOpcja(clientDisplay(g.clientName || ''), klient))

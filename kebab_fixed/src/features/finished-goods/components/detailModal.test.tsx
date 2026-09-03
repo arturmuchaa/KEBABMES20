@@ -156,4 +156,16 @@ describe('DetailModal — rezerwacje ze zrealizowanych zamówień', () => {
     expect(screen.getByText('Z1/09')).toBeTruthy()
     expect(screen.getByText('20 szt')).toBeTruthy()
   })
+
+  it('stempel donikąd (skasowane zamówienie) też jest wolny', async () => {
+    render(<DetailModal group={grupa([
+      partia({ id: 'a', batchNo: 'A', qtyAvailable: 10, clientOrderNo: 'Z9/07' }),
+      partia({ id: 'b', batchNo: 'B', qtyAvailable: 20, clientOrderNo: 'Z1/09' }),
+    ])} onClose={() => {}} />)
+
+    // Z9/07 nie ma na liście zamówień wcale — nic go nie odbierze.
+    expect(await screen.findByText('10 szt')).toBeTruthy()
+    expect(screen.queryByText('Z9/07')).toBeNull()
+    expect(screen.getByText('Z1/09')).toBeTruthy()
+  })
 })

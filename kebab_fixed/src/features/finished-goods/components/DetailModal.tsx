@@ -246,17 +246,21 @@ export function DetailModal({ group, onClose, onChanged }: {
   )
   const workers = Array.from(new Set(group.batches.flatMap(b => b.producedBy ?? [])))
 
-  /** Stemple zamówień ZAMKNIĘTYCH (done/cancelled) wracają do puli —
-   *  pokrycie (order_stock_service) liczy je jako wolne, więc wypadają
-   *  z listy rezerwacji i wchodzą do Wolnego — po cichu, bez dopisków.
-   *  Statusy bierzemy z API zamówień; brak danych = stare zachowanie
-   *  (wszystko zarezerwowane). To tylko PREZENTACJA — stanów ani stempli
-   *  nie ruszamy. */
+  /** Zarezerwowane jest tylko to, co wisi na żywym (otwartym) zamówieniu.
+   *  Stemple zamówień ZAMKNIĘTYCH (done/cancelled) wracają do puli — tak je
+   *  liczy pokrycie (order_stock_service). Stemple DONIKĄD (zamówienie
+   *  skasowane twardo, numeru nie ma wcale — YALCIN/Z/1/08/26, 09.2026)
+   *  też są wolne: nic ich już nie odbierze, a trzymanie ich w rezerwacjach
+   *  blokowało towar na zawsze. Statusy bierzemy z API zamówień; brak
+   *  danych = stare zachowanie (wszystko zarezerwowane).
+   *  To tylko PREZENTACJA — stanów ani stempli nie ruszamy. Uwaga: stempli
+   *  nie wolno czyścić w bazie — numery po skasowanych zamówieniach są
+   *  SPALONE i ich brak pilnuje, żeby nie dostało ich nowe zamówienie. */
   const stempleKey = useMemo(() => [...new Set(
     group.batches.map(b => (b.clientOrderNo || '').trim()).filter(Boolean),
   )].sort().join('|'), [group])
 
-  const [zamkniete, setZamkniete] = useState<Set<string> | null>(null)
+  const [otwarte, setOtwarte] = useState<Set<string> | null>(null)
   useEffect(() => {
     if (!stempleKey) return
     let alive = true
@@ -264,12 +268,12 @@ export function DetailModal({ group, onClose, onChanged }: {
     if (!p) return
     p.then(list => {
       if (!alive) return
-      setZamkniete(new Set(
+      setOtwarte(new Set(
         (list ?? [])
-          .filter(o => (o?.status === 'done' || o?.status === 'cancelled') && o?.orderNo)
+          .filter(o => o?.orderNo && o?.status !== 'done' && o?.status !== 'cancelled')
           .map(o => String(o.orderNo).trim()),
       ))
-    }).catch(() => { if (alive) setZamkniete(new Set()) })
+    }).catch(() => { /* brak danych — jak dotąd wszystko zarezerwowane */ })
     return () => { alive = false }
   }, [stempleKey])
 
@@ -280,25 +284,25 @@ export function DetailModal({ group, onClose, onChanged }: {
     for (const b of group.batches) {
       const nr = (b.clientOrderNo || '').trim()
       if (!nr) continue
-      if (zamkniete?.has(nr)) continue
+      if (otwarte && !otwarte.has(nr)) continue
       wg.set(nr, (wg.get(nr) ?? 0) + Math.max(0, Math.floor(Number(b.qtyAvailable ?? 0))))
     }
     return [...wg.entries()]
       .filter(([, qty]) => qty > 0)
       .map(([orderNo, qty]) => ({ orderNo, qty }))
       .sort((a, b) => b.qty - a.qty)
-  }, [group, zamkniete])
+  }, [group, otwarte])
 
-  /** Sztuki spod stempli zamówień już zamkniętych — leżą u nas, wolne. */
+  /** Sztuki spod stempli zamkniętych albo donikąd — leżą u nas, wolne. */
   const zwroconeZPuli = useMemo(() => {
-    if (!zamkniete) return 0
+    if (!otwarte) return 0
     let s = 0
     for (const b of group.batches) {
       const nr = (b.clientOrderNo || '').trim()
-      if (nr && zamkniete.has(nr)) s += Math.max(0, Math.floor(Number(b.qtyAvailable ?? 0)))
+      if (nr && !otwarte.has(nr)) s += Math.max(0, Math.floor(Number(b.qtyAvailable ?? 0)))
     }
     return s
-  }, [group, zamkniete])
+  }, [group, otwarte])
 
   // ── Korekta rodzaju ──
   // Rodzaj jest częścią tożsamości wyrobu (UDO 100% ≠ MIX 95/5 przy tej samej

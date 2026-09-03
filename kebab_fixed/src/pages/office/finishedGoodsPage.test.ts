@@ -77,4 +77,22 @@ describe('groupBySku', () => {
     expect(out[0].qty).toBe(30)
     expect(out[0].batches).toHaveLength(2)
   })
+
+  it('scala różne pełne nazwy klienta ze wspólnym skrótem', () => {
+    const skrot = (s: string) => (s.startsWith('YALCIN') ? 'YALCIN' : s)
+    const out = groupBySku([
+      g({ id: 'a', clientName: 'YALCIN FOOD', qtyAvailable: 20 }),
+      g({ id: 'b', clientName: 'YALCIN LOGISTICS', qtyAvailable: 10 }),
+    ], skrot)
+    expect(out).toHaveLength(1)
+    expect(out[0].qty).toBe(30)
+  })
+
+  it('bez mapy skrótów różne pełne nazwy to osobne pozycje', () => {
+    const out = groupBySku([
+      g({ id: 'a', clientName: 'YALCIN FOOD', qtyAvailable: 20 }),
+      g({ id: 'b', clientName: 'YALCIN LOGISTICS', qtyAvailable: 10 }),
+    ])
+    expect(out).toHaveLength(2)
+  })
 })
