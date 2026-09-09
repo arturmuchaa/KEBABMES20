@@ -1,0 +1,82 @@
+"""Podział zapisany na zamówieniu — musi przeżyć edycję.
+
+Edycja zamówienia odtwarza pozycje (`_reconcile_lines_cx`). Gdy podział zginie,
+powtórzy się historia znikających palet z sierpnia 2026.
+"""
+from app.db import execute, query_all
+from app.models.orders import ClientOrderCreate
+from app.services.order_split_service import podglad_podzialu, zapisz_podzial
+from app.services.orders_service import get_order, update_order
+
+
+def _slownik():
+    execute("INSERT INTO clients (id, code, name, display_name) "
+            "VALUES ('c1','YAL','YBM Gastro GmbH','YALCIN') ON CONFLICT (id) DO NOTHING")
+    execute("INSERT INTO product_types (id, name) VALUES ('pt1','KEBAB UDO 100%%') "
+            "ON CONFLICT (id) DO NOTHING")
+    execute("INSERT INTO recipes (id, name, product_type_id) VALUES ('r1','KIRMIZI','pt1') "
+            "ON CONFLICT (id) DO NOTHING")
+
+
+def _zamowienie():
+    execute("INSERT INTO client_orders (id, order_no, client_id, client_name, order_date, "
+            " created_at, status) VALUES ('o1','YALCIN/Z/4/09/26','c1','YBM Gastro GmbH',"
+            " '2026-09-08','2026-09-08 08:00:00+00','confirmed')")
+    for lid, qty, kg in (("l1", 10, 30), ("l2", 20, 25)):
+        execute("INSERT INTO client_order_lines (id, order_id, recipe_id, product_type_id, "
+                " qty, kg_per_unit, total_kg) VALUES (%s,'o1','r1','pt1',%s,%s,%s)",
+                (lid, qty, kg, qty * kg))
+
+
+def test_podglad_nie_zapisuje_niczego(db):
+    _slownik(); _zamowienie()
+    p = podglad_podzialu("o1", 400.0)
+    assert p["kg_fv"] > 0
+    assert all(l["qty_invoice"] is None for l in get_order("o1")["lines"])
+
+
+def test_zapis_utrwala_podzial_na_pozycjach(db):
+    _slownik(); _zamowienie()
+    zapisz_podzial("o1", 400.0, None)
+    podzial = {l["id"]: l["qty_invoice"] for l in get_order("o1")["lines"]}
+    assert podzial == {"l1": 5, "l2": 10}
+
+
+def test_podzial_PRZEZYWA_edycje_zamowienia(db):
+    _slownik(); _zamowienie()
+    zapisz_podzial("o1", 400.0, None)
+    update_order("o1", ClientOrderCreate.model_validate({
+        "client_id": "c1", "order_date": "2026-09-08",
+        "lines": [
+            {"id": "l1", "recipe_id": "r1", "product_type_id": "pt1", "qty": 10, "kg_per_unit": 30},
+            {"id": "l2", "recipe_id": "r1", "product_type_id": "pt1", "qty": 20, "kg_per_unit": 25},
+        ]}))
+    podzial = {l["id"]: l["qty_invoice"] for l in get_order("o1")["lines"]}
+    assert podzial == {"l1": 5, "l2": 10}, "edycja skasowała podział"
+
+
+def test_reczna_korekta_pozycji_ma_pierwszenstwo(db):
+    _slownik(); _zamowienie()
+    zapisz_podzial("o1", 400.0, {"l1": 8})
+    podzial = {l["id"]: l["qty_invoice"] for l in get_order("o1")["lines"]}
+    assert podzial["l1"] == 8
+
+
+def test_korekta_ponad_zamowiona_ilosc_jest_odrzucana(db):
+    _slownik(); _zamowienie()
+    try:
+        zapisz_podzial("o1", 400.0, {"l1": 99})
+        assert False, "przyjęto więcej sztuk na FV niż zamówiono"
+    except Exception as e:
+        assert "więcej" in str(e) or "99" in str(e)
+
+
+def test_zamowienie_bez_podzialu_ma_puste_qty_invoice(db):
+    _slownik(); _zamowienie()
+    assert all(l["qty_invoice"] is None for l in get_order("o1")["lines"])
+
+
+def test_podglad_mowi_czy_trafiono_w_cel(db):
+    _slownik(); _zamowienie()                      # 300 + 500 = 800 kg
+    assert podglad_podzialu("o1", 400.0)["trafiono"] is True
+    assert podglad_podzialu("o1", 401.0)["trafiono"] is False

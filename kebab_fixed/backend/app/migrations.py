@@ -1544,6 +1544,11 @@ _DDL: list[str] = [
     "ALTER TABLE client_order_lines ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0",
     "CREATE INDEX IF NOT EXISTS idx_client_order_lines_order_pos "
     "ON client_order_lines (order_id, position)",
+
+    # ── Podział wysyłki na fakturę i WZ (właściciel, 2026-09-09). NULL = brak
+    # podziału, czyli zamówienie zachowuje się jak przed tą zmianą.
+    "ALTER TABLE client_order_lines ADD COLUMN IF NOT EXISTS qty_invoice INTEGER",
+    "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS invoice_kg_target NUMERIC",
 ]
 
 

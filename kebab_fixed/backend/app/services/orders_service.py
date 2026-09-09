@@ -717,12 +717,19 @@ def _reconcile_lines_cx(conn, order_id: str, lines) -> None:
       2. po tożsamości produktu (rodzaj + receptura + tuleja + waga sztuki)
          — furtka dla starszego klienta, który identyfikatorów nie wysyła.
          Bez niej desktop biura sprzed aktualizacji dalej gubiłby palety.
+
+    Ten sam mechanizm chroni PODZIAŁ na fakturę/WZ (`qty_invoice`, biuro,
+    2026-09-09): zapamiętujemy go PRZED uzgodnieniem, po starym id pozycji,
+    i przywracamy dla pozycji, które dopasowanie uznało za tę samą (etap 1
+    lub 2). Bez tego edycja zamówienia po cichu kasowałaby rozpis palet
+    ORAZ podział — dokładnie ten sam mechanizm zabrania obu.
     """
     istniejace = cx_query_all(
         conn,
         "SELECT * FROM client_order_lines WHERE order_id=%s ORDER BY position",
         (order_id,),
     )
+    qty_invoice_wg_id: Dict[str, Any] = {r["id"]: r.get("qty_invoice") for r in istniejace}
     wolne: Dict[str, Any] = {r["id"]: r for r in istniejace}
     dopasowane: Dict[int, str] = {}
 
@@ -773,6 +780,10 @@ def _reconcile_lines_cx(conn, order_id: str, lines) -> None:
         )
         rid = dopasowane.get(poz)
         if rid:
+            # Podział na fakturę/WZ (`qty_invoice`) zapamiętany PRZED
+            # uzgodnieniem — wpisujemy go z powrotem WPROST w tym samym
+            # UPDATE-cie, żeby przetrwanie nie zależało od tego, czy ktoś
+            # kiedyś doda tę kolumnę do SET-a z innym pomysłem na wartość.
             cx_execute(
                 conn,
                 """
@@ -780,10 +791,11 @@ def _reconcile_lines_cx(conn, order_id: str, lines) -> None:
                    SET position=%s, qty=%s, kg_per_unit=%s, total_kg=%s,
                        product_type_id=%s, product_type_name=%s,
                        recipe_id=%s, recipe_name=%s,
-                       packaging_id=%s, packaging_name=%s
+                       packaging_id=%s, packaging_name=%s,
+                       qty_invoice=%s
                  WHERE id=%s
                 """,
-                wartosci + (rid,),
+                wartosci + (qty_invoice_wg_id.get(rid), rid),
             )
         else:
             cx_execute(
