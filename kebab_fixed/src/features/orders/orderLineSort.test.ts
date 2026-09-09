@@ -180,3 +180,71 @@ describe('sortOrderLines — tuleje', () => {
     expect(out.map(x => x.kgPerUnit)).toEqual(['80', '20'])
   })
 })
+
+// ── Rodzaj produktu ────────────────────────────────────────────────
+//
+// Właściciel (2026-09-09, zamówienie POLAT): „było super np rodzaj, rodzaj
+// przyprawa od największego, potem kolejny rodzaj i przyprawa, a teraz jest
+// wymieszane — indyk powinien być na końcu listy".
+//
+// Grupa to (RODZAJ, receptura), nie sama receptura. Zakład sprzedaje ten sam
+// smak w kilku rodzajach mięsa (UDO, MIX, HINDI) i pozycje jednego rodzaju
+// mają stać razem — inaczej 25 kg indyka ląduje między 30 a 20 kg uda.
+const r = (productTypeId: string, recipeId: string, kgPerUnit: number): LineForm => ({
+  productTypeId, recipeId, packagingId: 'm60',
+  qty: '1', kgPerUnit: String(kgPerUnit), notes: '',
+} as LineForm)
+
+const rodzaje = (ls: LineForm[]) => ls.map(x => `${x.productTypeId}/${x.kgPerUnit}`)
+
+describe('sortOrderLines — rodzaje produktu', () => {
+  it('ta sama receptura w dwóch rodzajach NIE miesza się po kg (POLAT/Z/2/09/26)', () => {
+    const out = sortOrderLines([
+      r('udo',   'beyaz', 40),
+      r('udo',   'beyaz', 30),
+      r('hindi', 'beyaz', 25),
+      r('udo',   'beyaz', 20),
+      r('udo',   'beyaz', 15),
+      r('udo',   'beyaz', 10),
+    ], tuleja)
+    expect(rodzaje(out)).toEqual([
+      'udo/40', 'udo/30', 'udo/20', 'udo/15', 'udo/10',
+      'hindi/25',                                   // indyk na końcu
+    ])
+  })
+
+  it('grupy rodzajów idą w kolejności PIERWSZEGO wpisania (TRUVA/Z/1/09/26)', () => {
+    const out = sortOrderLines([
+      r('mix', 'kirmizi', 40),
+      r('mix', 'kirmizi', 35),
+      r('udo', 'kirmizi', 30),
+      r('udo', 'kirmizi', 25),
+      r('mix', 'kirmizi', 25),
+      r('udo', 'kirmizi', 20),
+      r('mix', 'kirmizi', 20),
+      r('udo', 'kirmizi', 15),
+    ], tuleja)
+    expect(rodzaje(out)).toEqual([
+      'mix/40', 'mix/35', 'mix/25', 'mix/20',
+      'udo/30', 'udo/25', 'udo/20', 'udo/15',
+    ])
+  })
+
+  it('rodzaj dzieli grupę PRZED recepturą — nie odwrotnie', () => {
+    const out = sortOrderLines([
+      r('udo',   'kirmizi', 50),
+      r('hindi', 'kirmizi', 40),
+      r('udo',   'beyaz',   30),
+    ], tuleja)
+    expect(rodzaje(out)).toEqual(['udo/50', 'hindi/40', 'udo/30'])
+  })
+
+  it('podział na tuleje działa wewnątrz pary (rodzaj, receptura)', () => {
+    const out = sortOrderLines([
+      t('kirmizi', 50, 'm65'),
+      { ...t('kirmizi', 40, 'm80') },
+      r('hindi', 'kirmizi', 45),
+    ], tuleja)
+    expect(rodzaje(out)).toEqual(['pt-udo/50', 'pt-udo/40', 'hindi/45'])
+  })
+})

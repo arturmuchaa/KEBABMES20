@@ -15,6 +15,15 @@
  *     nie przerzuca całej grupy na czoło dokumentu, bo wtedy zamówienie
  *     przebudowywałoby się operatorowi pod rękami.
  *
+ * Poprawka (właściciel, 2026-09-09, zamówienie POLAT): „rodzaj, rodzaj
+ * przyprawa od największego, potem kolejny rodzaj i przyprawa — a teraz jest
+ * wymieszane". Grupę wyznacza para (RODZAJ, receptura), nie sama receptura.
+ * Zakład sprzedaje ten sam smak w kilku rodzajach mięsa i ta sama przyprawa
+ * na udzie i na indyku to DWIE pozycje dokumentu, nie jedna grupa: przy
+ * grupowaniu po samej recepturze 25 kg indyka lądowało między 30 a 20 kg uda
+ * (POLAT/Z/2/09/26), a KEBAB MIX przeplatał się z KEBAB UDO co wiersz
+ * (TRUVA/Z/1/09/26).
+ *
  * Uzupełnienie (właściciel, 2026-09-02): tuleja NIESTANDARDOWA idzie po
  * standardowych. Standard to 45-65 cm — takie tuleje zakład bierze na co
  * dzień; 70 cm i wyżej (np. METAL 80CM) to zamówienie szczególne i ma stać
@@ -63,10 +72,13 @@ export function sortOrderLines<T extends LineForm>(
    *  czyli zachowanie sprzed tej reguły. */
   nazwaTulei?: (packagingId: string) => string | undefined,
 ): T[] {
-  // Kolejność grup = kolejność, w jakiej receptury pojawiły się pierwszy raz.
+  // Kolejność grup = kolejność, w jakiej para (rodzaj, receptura) pojawiła
+  // się pierwszy raz. `\u0000` rozdziela człony, bo żaden identyfikator go
+  // nie zawiera — inaczej („ab", „c") i („a", „bc") byłyby tą samą grupą.
+  const kluczGrupy = (l: LineForm) => `${l.productTypeId ?? ''}\u0000${l.recipeId ?? ''}`
   const kolejnoscGrup = new Map<string, number>()
   for (const l of lines) {
-    const k = l.recipeId ?? ''
+    const k = kluczGrupy(l)
     if (!kolejnoscGrup.has(k)) kolejnoscGrup.set(k, kolejnoscGrup.size)
   }
 
@@ -77,11 +89,11 @@ export function sortOrderLines<T extends LineForm>(
   return lines
     .map((l, i) => ({ l, i }))
     .sort((a, b) => {
-      const ga = kolejnoscGrup.get(a.l.recipeId ?? '') ?? 0
-      const gb = kolejnoscGrup.get(b.l.recipeId ?? '') ?? 0
+      const ga = kolejnoscGrup.get(kluczGrupy(a.l)) ?? 0
+      const gb = kolejnoscGrup.get(kluczGrupy(b.l)) ?? 0
       if (ga !== gb) return ga - gb
-      // Tuleja niestandardowa spada na koniec SWOJEJ receptury — nawet
-      // gdy waży najwięcej w całym zamówieniu.
+      // Tuleja niestandardowa spada na koniec SWOJEJ grupy — nawet gdy
+      // waży najwięcej w całym zamówieniu.
       if (nazwaTulei) {
         const sa = tulejaStandardowa(nazwaTulei(a.l.packagingId ?? ''))
         const sb = tulejaStandardowa(nazwaTulei(b.l.packagingId ?? ''))

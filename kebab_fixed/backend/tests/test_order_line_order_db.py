@@ -294,3 +294,98 @@ def test_przelozenie_odpala_sie_tylko_raz(db):
         "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position",
         (oid,))] == ["j1", "j2"]
     assert po_pierwszym == ["j2", "j1"]
+
+
+# ── Rodzaj produktu w kluczu grupy ──────────────────────────────────
+#
+# Właściciel (2026-09-09, zamówienie POLAT): „rodzaj, rodzaj przyprawa od
+# największego, potem kolejny rodzaj i przyprawa — a teraz jest wymieszane,
+# indyk powinien być na końcu listy". Grupę wyznacza para (rodzaj, receptura):
+# ta sama przyprawa na udzie i na indyku to dwie pozycje dokumentu.
+def _rodzaje():
+    for pid, nazwa in (("pt-mix", "KEBAB MIX 95/5"), ("pt-hindi", "KEBAB TAVUK HINDI")):
+        execute("INSERT INTO product_types (id, name) VALUES (%s,%s) "
+                "ON CONFLICT (id) DO NOTHING", (pid, nazwa))
+
+
+def _stara_pozycja_rodzaju(oid, lid, rodzaj, recipe, kg, poz=0, tuleja="METAL 60CM"):
+    execute(
+        "INSERT INTO client_order_lines (id, order_id, position, qty, kg_per_unit, "
+        " total_kg, product_type_id, recipe_id, packaging_name) "
+        "VALUES (%s,%s,%s,1,%s,%s,%s,%s,%s)",
+        (lid, oid, poz, kg, kg, rodzaj, recipe, tuleja),
+    )
+
+
+def test_wypelnienie_grupuje_po_rodzaju_i_recepturze(db):
+    """Stare zamówienie z samymi zerami — grupą jest para, nie sama receptura."""
+    from app.migrations import _backfill_order_line_positions
+    _slownik()
+    _rodzaje()
+    oid = _stare_zamowienie("ord-rodzaje")
+    _stara_pozycja_rodzaju(oid, "p1", "pt-mix", "rec-a", 40)
+    _stara_pozycja_rodzaju(oid, "p2", "pt-mix", "rec-a", 35)
+    _stara_pozycja_rodzaju(oid, "p3", "pt-udo", "rec-a", 30)
+    _stara_pozycja_rodzaju(oid, "p4", "pt-mix", "rec-a", 25)
+    _stara_pozycja_rodzaju(oid, "p5", "pt-udo", "rec-a", 15)
+    _backfill_order_line_positions()
+    assert [r["id"] for r in query_all(
+        "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position",
+        (oid,))] == ["p1", "p2", "p4", "p3", "p5"]
+
+
+def test_przelozenie_rozdziela_rodzaje_w_ulozonym_dokumencie(db):
+    """Dokument ułożony wg starej reguły (grupa = sama receptura) ma zostać
+    przełożony mimo że position nie są zerami."""
+    from app.migrations import _przeloz_pozycje_wg_rodzaju_raz
+    _slownik()
+    _rodzaje()
+    execute("DELETE FROM app_settings WHERE key='order_lines_resort_rodzaje'")
+    oid = _stare_zamowienie("ord-resort-rodzaje")
+    # Układ jak na produkcji (POLAT/Z/2/09/26): same kg malejąco w recepturze.
+    _stara_pozycja_rodzaju(oid, "q1", "pt-udo",   "rec-a", 40, poz=0)
+    _stara_pozycja_rodzaju(oid, "q2", "pt-udo",   "rec-a", 30, poz=1)
+    _stara_pozycja_rodzaju(oid, "q3", "pt-hindi", "rec-a", 25, poz=2)
+    _stara_pozycja_rodzaju(oid, "q4", "pt-udo",   "rec-a", 20, poz=3)
+    _stara_pozycja_rodzaju(oid, "q5", "pt-udo",   "rec-a", 10, poz=4)
+
+    _przeloz_pozycje_wg_rodzaju_raz()
+
+    assert [r["id"] for r in query_all(
+        "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position",
+        (oid,))] == ["q1", "q2", "q4", "q5", "q3"]
+
+
+def test_przelozenie_rodzajow_nie_rusza_reguly_tulei(db):
+    """Tuleja niestandardowa dalej siedzi na końcu swojej grupy."""
+    from app.migrations import _przeloz_pozycje_wg_rodzaju_raz
+    _slownik()
+    _rodzaje()
+    execute("DELETE FROM app_settings WHERE key='order_lines_resort_rodzaje'")
+    oid = _stare_zamowienie("ord-resort-tuleje-rodzaje")
+    _stara_pozycja_rodzaju(oid, "w1", "pt-udo", "rec-a", 50, poz=0, tuleja="METAL 65CM")
+    _stara_pozycja_rodzaju(oid, "w2", "pt-udo", "rec-a", 80, poz=1, tuleja="METAL 80CM")
+    _stara_pozycja_rodzaju(oid, "w3", "pt-mix", "rec-a", 30, poz=2, tuleja="METAL 65CM")
+    _przeloz_pozycje_wg_rodzaju_raz()
+    assert [r["id"] for r in query_all(
+        "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position",
+        (oid,))] == ["w1", "w2", "w3"]
+
+
+def test_przelozenie_rodzajow_odpala_sie_tylko_raz(db):
+    from app.migrations import _przeloz_pozycje_wg_rodzaju_raz
+    _slownik()
+    _rodzaje()
+    execute("DELETE FROM app_settings WHERE key='order_lines_resort_rodzaje'")
+    oid = _stare_zamowienie("ord-raz-rodzaje")
+    _stara_pozycja_rodzaju(oid, "z1", "pt-hindi", "rec-a", 25, poz=0)
+    _stara_pozycja_rodzaju(oid, "z2", "pt-udo",   "rec-a", 40, poz=1)
+    _przeloz_pozycje_wg_rodzaju_raz()
+    po_pierwszym = [r["id"] for r in query_all(
+        "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position", (oid,))]
+    execute("UPDATE client_order_lines SET position=9 WHERE id='z1'")
+    _przeloz_pozycje_wg_rodzaju_raz()          # drugi przebieg NIE rusza
+    assert [r["id"] for r in query_all(
+        "SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY position",
+        (oid,))] == ["z2", "z1"]
+    assert po_pierwszym == ["z1", "z2"]

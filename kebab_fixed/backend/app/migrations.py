@@ -1591,6 +1591,7 @@ def _run_migrations_locked() -> None:
     _backfill_order_line_positions()
     _ustaw_prog_kontroli_haccp()
     _przeloz_pozycje_wg_tulei_raz()
+    _przeloz_pozycje_wg_rodzaju_raz()
     _backfill_mixing_session_lots()
     _backfill_receptions()
     _backfill_stock_codes()
@@ -2567,6 +2568,84 @@ def _przeloz_pozycje_wg_tulei_raz() -> None:
         logger.warning("migrations.resort_tuleje.error", extra={"error": str(exc)})
 
 
+def _przeloz_pozycje_wg_rodzaju_raz() -> None:
+    """Jednorazowe PRZEŁOŻENIE pozycji zamówień wg pary (rodzaj, receptura).
+
+    Właściciel (2026-09-09, zamówienie POLAT): „było super — rodzaj, rodzaj
+    przyprawa od największego, potem kolejny rodzaj i przyprawa, a teraz jest
+    wymieszane; indyk powinien być na końcu listy".
+
+    Przyczyna: grupę wyznaczała SAMA receptura. Zakład sprzedaje ten sam smak
+    w kilku rodzajach mięsa, więc pozycje uda i indyka o jednej przyprawie
+    wpadały do jednej grupy i sortowały się samymi kilogramami — 25 kg indyka
+    lądowało między 30 a 20 kg uda (POLAT/Z/2/09/26), a KEBAB MIX przeplatał
+    się z KEBAB UDO co wiersz (TRUVA/Z/1/09/26).
+
+    Osobna migracja, a nie poprawka poprzednich: `_backfill_order_line_positions`
+    rusza wyłącznie zamówienia z samymi zerami, a znacznik poprzedniego
+    przełożenia (`order_lines_resort_tuleje`) jest na produkcji spalony od
+    2026-09-02, więc tamta migracja już nigdy nie wejdzie.
+
+    Przełożenie jest BEZPIECZNE, bo kolejność pozycji nie jest w tej aplikacji
+    niczyją ręczną decyzją — nie ma ekranu do przestawiania wierszy. Jedynym
+    źródłem kolejności jest ta reguła, więc ponowne jej zastosowanie daje ten
+    sam wynik, co zapis dokumentu z panelu.
+
+    Kolejność GRUP zostaje: bierzemy pierwsze wystąpienie pary w dokumencie
+    takim, jaki jest dziś. Dokument, w którym rodzaje się nie mieszały, wyjdzie
+    z tej migracji bez zmiany.
+
+    Odpala się RAZ — znacznik w `app_settings`.
+    """
+    try:
+        zrobione = query_one(
+            "SELECT 1 AS x FROM app_settings WHERE key = 'order_lines_resort_rodzaje'")
+        if zrobione:
+            return
+        execute(
+            r"""
+            WITH wpisane AS (
+              SELECT l.id, l.order_id, l.product_type_id, l.recipe_id, l.kg_per_unit,
+                     CASE WHEN COALESCE(
+                            (substring(upper(l.packaging_name) from '([0-9]+)\s*CM'))::int,
+                            0) BETWEEN 45 AND 65
+                          THEN 0 ELSE 1 END AS niestandard,
+                     ROW_NUMBER() OVER (PARTITION BY l.order_id ORDER BY l.position, l.ctid) AS wpis
+                FROM client_order_lines l
+            ),
+            grupy AS (
+              SELECT order_id, product_type_id, recipe_id, MIN(wpis) AS pierwsze
+                FROM wpisane GROUP BY order_id, product_type_id, recipe_id
+            ),
+            ulozone AS (
+              SELECT w.id,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY w.order_id
+                       ORDER BY g.pierwsze, w.niestandard, w.kg_per_unit DESC, w.wpis
+                     ) - 1 AS poz
+                FROM wpisane w
+                JOIN grupy g
+                  ON g.order_id = w.order_id
+                 AND g.product_type_id IS NOT DISTINCT FROM w.product_type_id
+                 AND g.recipe_id IS NOT DISTINCT FROM w.recipe_id
+            )
+            UPDATE client_order_lines l
+               SET position = ulozone.poz
+              FROM ulozone
+             WHERE ulozone.id = l.id
+               AND l.position IS DISTINCT FROM ulozone.poz
+            """
+        )
+        execute(
+            "INSERT INTO app_settings (key, value) "
+            "VALUES ('order_lines_resort_rodzaje', to_jsonb(now()::text)) "
+            "ON CONFLICT (key) DO NOTHING"
+        )
+        logger.info("migrations.resort_rodzaje.done")
+    except Exception as exc:
+        logger.warning("migrations.resort_rodzaje.error", extra={"error": str(exc)})
+
+
 def _ustaw_prog_kontroli_haccp() -> None:
     """Zapisuje PRÓG, od którego kontrola HACCP przyjęcia obowiązuje.
 
@@ -2597,9 +2676,11 @@ def _ustaw_prog_kontroli_haccp() -> None:
 def _backfill_order_line_positions() -> None:
     """Nadaje position pozycjom zamówień sprzed tej kolumny.
 
-    Reguła jest ta sama co przy zapisie (właściciel, 2026-09-02): pozycje
-    jednej receptury razem, w grupie wagi sztuki malejąco, grupy w kolejności
-    pierwszego wpisania.
+    Reguła jest ta sama co przy zapisie: pozycje jednej pary (RODZAJ,
+    receptura) razem, w grupie wagi sztuki malejąco, grupy w kolejności
+    pierwszego wpisania. Rodzaj wszedł do klucza 2026-09-09 — bez niego ta
+    sama przyprawa na udzie i na indyku tworzyła JEDNĄ grupę i indyk wpadał
+    między pozycje uda (POLAT/Z/2/09/26).
 
     Tuleja niestandardowa (70 cm i wyżej, np. METAL 80CM) idzie na koniec
     swojej receptury — tak samo jak przy zapisie.
@@ -2623,9 +2704,9 @@ def _backfill_order_line_positions() -> None:
               HAVING bool_and(COALESCE(position, 0) = 0)
             ),
             wpisane AS (
-              SELECT l.id, l.order_id, l.recipe_id, l.kg_per_unit,
+              SELECT l.id, l.order_id, l.product_type_id, l.recipe_id, l.kg_per_unit,
                      -- Tuleja 45-65 cm to standard; 70 i wyżej (METAL 80CM)
-                     -- oraz brak rozmiaru spadają na koniec receptury.
+                     -- oraz brak rozmiaru spadają na koniec grupy.
                      CASE WHEN COALESCE(
                             (substring(upper(l.packaging_name) from '([0-9]+)\s*CM'))::int,
                             0) BETWEEN 45 AND 65
@@ -2635,8 +2716,8 @@ def _backfill_order_line_positions() -> None:
                 JOIN kandydaci k ON k.order_id = l.order_id
             ),
             grupy AS (
-              SELECT order_id, recipe_id, MIN(wpis) AS pierwsze
-                FROM wpisane GROUP BY order_id, recipe_id
+              SELECT order_id, product_type_id, recipe_id, MIN(wpis) AS pierwsze
+                FROM wpisane GROUP BY order_id, product_type_id, recipe_id
             ),
             ulozone AS (
               SELECT w.id,
@@ -2647,6 +2728,7 @@ def _backfill_order_line_positions() -> None:
                 FROM wpisane w
                 JOIN grupy g
                   ON g.order_id = w.order_id
+                 AND g.product_type_id IS NOT DISTINCT FROM w.product_type_id
                  AND g.recipe_id IS NOT DISTINCT FROM w.recipe_id
             )
             UPDATE client_order_lines l
