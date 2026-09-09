@@ -5,7 +5,7 @@
  * karta 1.1.1/2 rozbija każdą dostawę na NUMERY PORZĄDKOWE.
  *
  * Skąd biorą się kolumny 1.1.1:
- *   * a-e (numery, dostawca, asortyment, data, dokument) — z dokumentu dostawy;
+ *   * a-f (numery, dostawca, asortyment, data, dokument) — z dokumentu dostawy;
  *   * f-k (ocena wizualna, temperatury, zgodność kg, uwagi, kwalifikacja) —
  *     z kontroli HACCP dostawy (`reception_checks`), którą biuro uzupełnia
  *     po przyjęciu, a docelowo operator przy rampie;
@@ -22,7 +22,7 @@
  */
 import type { Reception } from '@/types'
 
-/** Komórka karty: tekst albo obrazek podpisu (kolumny l/m karty 1.1.1).
+/** Komórka karty: tekst albo obrazek podpisu (kolumny m/n karty 1.1.1).
  *  Typ wprowadzony razem z kolumnami f-k, choć obrazki dochodzą dopiero
  *  z podpisami — inaczej siatkę wydruku trzeba by przepisywać dwa razy. */
 export type Cell = string | { png: string; name?: string; when?: string }
@@ -126,7 +126,7 @@ function liveBatches(r: Reception) {
 }
 
 /**
- * documentLabel — kolumna (e): „HDI lub numer faktury, WZ lub inny dokument
+ * documentLabel — kolumna (f): „HDI lub numer faktury, WZ lub inny dokument
  * przywozowy". HDI dostawcy ma własny numer i osobno wskazuje dokument
  * handlowy („Nr 33656 do dokumentu WZ 388/MDU/08/2026"), więc na karcie
  * podajemy oba — inspektor po każdym z nich trafi do tej samej dostawy.
@@ -134,8 +134,10 @@ function liveBatches(r: Reception) {
 export function documentLabel(hdiNo: string, documentNo: string): string {
   const hdi = (hdiNo || '').trim()
   const doc = (documentNo || '').trim()
-  if (hdi && doc) return `HDI ${hdi} / ${doc}`
-  return hdi ? `HDI ${hdi}` : doc
+  // Każdy dokument w OSOBNEJ linii. Właściciel (2026-09-09): „jak są dwa
+  // dokumenty, jak np. KOKO, to HDI numer i pod spodem WZ numer, nie
+  // w jednej linijce". Sklejone ukośnikiem czytało się jak jeden numer.
+  return [hdi ? `HDI ${hdi}` : '', doc].filter(Boolean).join('\n')
 }
 
 /**
@@ -156,10 +158,28 @@ export function assortmentLabel(materialName: string, storageState?: string): st
 }
 
 /**
+ * externalNo — kolumna (b): „Numer przyjęcia zewnętrzny".
+ *
+ * Karta rozróżnia TRZY numery i łatwo je pomylić (właściciel, 2026-09-09):
+ *   * (a) miesięczny — numer dostawy w miesiącu, „10/09",
+ *   * (b) zewnętrzny — numery porządkowe partii tej dostawy, „534, 535",
+ *   * (f) dokument przywozowy — HDI i WZ dostawcy.
+ *
+ * Dostawa bywa rozbita na kilka numerów porządkowych, więc kolumna niesie
+ * je wszystkie. Bez powtórzeń: dwa surowce pod jednym numerem to nadal
+ * jeden numer.
+ */
+export function externalNo(reception: Reception): string {
+  return [...new Set(liveBatches(reception)
+    .map(b => (b.internalBatchNo || '').trim())
+    .filter(Boolean))].join(', ')
+}
+
+/**
  * mainRows — karta 1.1.1: jeden wiersz na DOSTAWĘ.
  *
  * `checks` to wpisy kontroli HACCP po identyfikatorze dostawy. Brak wpisu
- * zostawia kolumny f-k puste — karta ma wtedy wyglądać jak druk do
+ * zostawia kolumny g-l puste — karta ma wtedy wyglądać jak druk do
  * wypełnienia ręką, a nie kłamać zerami.
  */
 export function mainRows(
@@ -177,19 +197,20 @@ export function mainRows(
         .filter(Boolean))]
       const c = checks[r.id]
       const row: Cell[] = [
-        r.receptionNo,
+        r.receptionNo,           // a — numer przyjęcia MIESIĘCZNY
+        externalNo(r),           // b — numer przyjęcia ZEWNĘTRZNY
         shortSupplier(r.supplierName),
         assortment.join(', '),
         plDate(r.receivedDate),
-        documentLabel(r.hdiNo, r.documentNo),
-        ocena(c?.visual),        // f
-        temp(c?.tempChamber),    // g
-        temp(c?.tempMeat),       // h
-        ocena(c?.kgMatch),       // i
-        c?.notes ?? '',          // j
-        c?.verdict ?? '',        // k
-        podpis(c?.signatures?.wykonal),    // l
-        podpis(c?.signatures?.sprawdzil),  // m
+        documentLabel(r.hdiNo, r.documentNo),   // f
+        ocena(c?.visual),        // g
+        temp(c?.tempChamber),    // h
+        temp(c?.tempMeat),       // i
+        ocena(c?.kgMatch),       // j
+        c?.notes ?? '',          // k
+        c?.verdict ?? '',        // l
+        podpis(c?.signatures?.wykonal),    // m
+        podpis(c?.signatures?.sprawdzil),  // n
       ]
       return [...row, ...Array(Math.max(0, cols - row.length)).fill('')]
     })

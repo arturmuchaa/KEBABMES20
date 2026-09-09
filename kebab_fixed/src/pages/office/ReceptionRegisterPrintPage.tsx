@@ -49,25 +49,33 @@ const SHEET_MM = 283
 
 export type Col = { letter: string; w: number; label: string }
 
+/* Wzór z 09.09.2026 rozdziela numery, które karta dotąd myliła: (a) numer
+   dostawy w miesiącu i (b) numery porządkowe partii. Litery przesunęły się
+   o jedną — legenda niżej powołuje się na NOWE. */
 const COLS_MAIN: Col[] = [
-  { letter: 'a', w: 16, label: 'Numer przyjęcia' },
-  { letter: 'b', w: 27, label: 'Skrócona nazwa dostawcy' },
-  { letter: 'c', w: 34, label: 'Asortyment' },
-  { letter: 'd', w: 16, label: 'Data dostawy' },
-  { letter: 'e', w: 30, label: 'HDI lub numer faktury, WZ lub inny dokument przywozowy' },
-  { letter: 'f', w: 24, label: 'Ocena wizualna dostawy. Książka mycia pojazdu' },
-  { letter: 'g', w: 15, label: 'Komora [°C]' },
-  { letter: 'h', w: 15, label: 'Mięso [°C]' },
-  { letter: 'i', w: 22, label: 'Zgodność kg z zamówieniem i dokumentami' },
-  { letter: 'j', w: 30, label: 'Uwagi' },
-  { letter: 'k', w: 18, label: 'Ocena całej dostawy' },
-  { letter: 'l', w: 18, label: 'Wykonał' },
-  { letter: 'm', w: 18, label: 'Sprawdził' },
+  { letter: 'a', w: 16, label: 'Numer przyjęcia miesięczny' },
+  { letter: 'b', w: 20, label: 'Numer przyjęcia zewnętrzny' },
+  { letter: 'c', w: 24, label: 'Skrócona nazwa dostawcy' },
+  { letter: 'd', w: 28, label: 'Asortyment' },
+  { letter: 'e', w: 16, label: 'Data' },
+  { letter: 'f', w: 28, label: 'HDI lub numer faktury, WZ lub inny dokument przywozowy' },
+  { letter: 'g', w: 21, label: 'Ocena wizualna dostawy. Książka mycia pojazdu' },
+  { letter: 'h', w: 13, label: 'Komora [°C]' },
+  { letter: 'i', w: 13, label: 'Mięso [°C]' },
+  { letter: 'j', w: 20, label: 'Zgodność kg z zamówieniem i dokumentami' },
+  { letter: 'k', w: 24, label: 'Uwagi' },
+  { letter: 'l', w: 17, label: 'Ocena całej dostawy' },
+  // Kratki podpisu szersze niż reszta: mieści się w nich imię, nazwisko,
+  // data i godzina W JEDNEJ LINII (właściciel, 09.09.2026).
+  { letter: 'm', w: 21, label: 'Wykonał' },
+  { letter: 'n', w: 22, label: 'Sprawdził' },
 ]
 
+/* Nazwy numerów TAKIE SAME jak w karcie 1.1.1 — obie karty mówią o tych
+   samych dwóch numerach i mylenie ich było uwagą właściciela (09.09.2026). */
 const COLS_DETAIL: Col[] = [
-  { letter: 'a', w: 26, label: 'Numer przyjęcia' },
-  { letter: 'b', w: 30, label: 'Numer przyjęcia zewnętrznego' },
+  { letter: 'a', w: 26, label: 'Numer przyjęcia miesięczny' },
+  { letter: 'b', w: 30, label: 'Numer przyjęcia zewnętrzny' },
   { letter: 'c', w: 24, label: 'Waga [kg]' },
   { letter: 'd', w: 26, label: 'Data uboju' },
   { letter: 'e', w: 30, label: 'Termin ważności' },
@@ -161,12 +169,79 @@ export function RegisterCard(props: {
   )
 }
 
+/**
+ * stopienPodpisu — stopień pisma opisu pod podpisem, w punktach.
+ *
+ * Właściciel (2026-09-09): „pod podpisem informacja aby mieściła się w jednej
+ * linijce imię nazwisko data i czas, aby nie przeskakiwało na dół nawet przy
+ * dłuższym nazwisku". Wcześniej kartka celowo ZAWIJAŁA długie nazwisko —
+ * dwie linijki uznano za mniejsze zło niż ucięcie. Teraz jedna linia jest
+ * warunkiem, więc to stopień pisma musi ustąpić.
+ *
+ * Liczone, nie mierzone w DOM: karta idzie też do PDF-a renderowanego bez
+ * układu, a szerokość Arialu jest przewidywalna (~0,5 em na znak).
+ * Kratka podpisu ma 21 mm, zostawiamy 0,6 mm marginesu z każdej strony.
+ */
+export function stopienPodpisu(
+  opis: string,
+  szerokoscMm = 21,
+  maxPt = 3.9,
+  minPt = 2.4,
+): number {
+  const znaki = opis.trim().length
+  if (!znaki) return maxPt
+  // 1 pt = 0,3528 mm; średni znak Arialu ≈ 0,5 szerokości stopnia pisma.
+  const dostepneMm = szerokoscMm - 1.2
+  const ptNaZnak = dostepneMm / (znaki * 0.5 * 0.3528)
+  // W DÓŁ, nie do najbliższego: zaokrąglenie w górę o 0,05 pt wypychało
+  // tekst poza kratkę i wracał problem, który ta funkcja miała rozwiązać.
+  return Math.floor(Math.max(minPt, Math.min(maxPt, ptNaZnak)) * 10) / 10
+}
+
+/** Czy tekst zmieści się w kratce przy danym stopniu pisma. */
+function wchodziW(opis: string, pt: number, szerokoscMm: number): boolean {
+  return opis.length * 0.5 * pt * 0.3528 <= szerokoscMm - 1.2 + 0.01
+}
+
+/**
+ * opisPodpisu — co dokładnie stoi pod podpisem i jak drobno.
+ *
+ * Jedna linia jest warunkiem, więc ustępuje najpierw stopień pisma, a gdy
+ * i minimum czytelności nie starcza — ROK w dacie. „Brzęczyszczykiewicz"
+ * z pełną datą to 46 znaków; w kratce 21 mm wymagałoby pisma tak drobnego,
+ * że nikt by go nie odczytał. Rok nie ginie: karta jest miesięczna i ma go
+ * w nagłówku, przy każdym z 12 wierszy był i tak powtórzeniem.
+ */
+export function opisPodpisu(
+  name?: string,
+  when?: string,
+  szerokoscMm = 21,
+): { tekst: string; pt: number } {
+  const pelny = [name, when].filter(Boolean).join('  ')
+  if (!pelny) return { tekst: '', pt: 3.9 }
+
+  const pt = stopienPodpisu(pelny, szerokoscMm)
+  if (wchodziW(pelny, pt, szerokoscMm)) return { tekst: pelny, pt }
+
+  // Nie weszło nawet na minimum — skracamy datę „09.09.2026 09:30" → „09.09 09:30".
+  const krotszaData = (when || '').replace(/^(\d{2}\.\d{2})\.\d{4}\s/, '$1 ')
+  const krotszy = [name, krotszaData].filter(Boolean).join('  ')
+  return { tekst: krotszy, pt: stopienPodpisu(krotszy, szerokoscMm) }
+}
+
 /** Komórka karty: tekst albo podpis. Obrazek skalujemy do WYSOKOŚCI kratki
  *  (9,5 mm w 1.1.1), żeby podpis nie rozpychał wiersza i karta nadal
  *  mieściła się na jednej kartce. */
 function renderCell(cell: Cell | undefined) {
   if (!cell) return ''
-  if (typeof cell === 'string') return cell
+  if (typeof cell === 'string') {
+    // Kolumna dokumentu niesie HDI i WZ rozdzielone znakiem nowej linii —
+    // w druku muszą stanąć jeden pod drugim, a nie skleić się w jeden numer.
+    if (!cell.includes('\n')) return cell
+    return cell.split('\n').map((linia, i) => (
+      <span key={i} className="lines">{linia}</span>
+    ))
+  }
   // Obrazek + nazwisko muszą się zmieścić w kratce 9,5 mm, stąd niższy
   // podpis niż wcześniej. Nazwisko jest tu ważniejsze od rozmachu kreski:
   // rysunek jest ozdobą, dowodem jest imię i nazwisko z datą.
@@ -177,9 +252,11 @@ function renderCell(cell: Cell | undefined) {
           wyśrodkowane linijki zjadały wysokość kratki i kazały kurczyć
           podpis. Słowa „podpisał" nie dopisujemy: nagłówek kolumny już
           mówi „Wykonał" albo „Sprawdził". */}
-      {(cell.name || cell.when)
-        ? <span className="sigline">{[cell.name, cell.when].filter(Boolean).join('  ')}</span>
-        : null}
+      {(() => {
+        const { tekst, pt } = opisPodpisu(cell.name, cell.when)
+        if (!tekst) return null
+        return <span className="sigline" style={{ fontSize: `${pt}pt` }}>{tekst}</span>
+      })()}
     </>
   )
 }
@@ -284,11 +361,11 @@ export function ReceptionRegisterPrintPage() {
       /* Oznaczenia DOKŁADNIE wg instrukcji 1.1 (b/z, N, K). Wcześniej karta
          miała ✓/✗/ND — symbole, których procedura w ogóle nie przewiduje. */
       legend={<Legend items={[
-        'kol. f, i — ocena: b/z bez zastrzeżeń albo N niezgodne',
-        'kol. k — kwalifikacja: K dostawa przyjęta albo N odmowa przyjęcia',
-        'kol. g, h — NAJWYŻSZA zmierzona temperatura; drób do +4 °C, mięso czerwone do +7 °C',
-        'surowiec MROŻONY (oznaczony w kol. c): do −12 °C — próg zakładowy, instrukcja 1.1 progu dla mrożonego jeszcze nie podaje',
-        'niezgodność ilościowa: wpisać ilość rzeczywiście przyjętą, uwagę w kol. j i wyegzekwować korektę dokumentów od dostawcy',
+        'kol. g, j — ocena: b/z bez zastrzeżeń albo N niezgodne',
+        'kol. l — kwalifikacja: K dostawa przyjęta albo N odmowa przyjęcia',
+        'kol. h, i — NAJWYŻSZA zmierzona temperatura; drób do +4 °C, mięso czerwone do +7 °C',
+        'surowiec MROŻONY (oznaczony w kol. d): do −12 °C — próg zakładowy, instrukcja 1.1 progu dla mrożonego jeszcze nie podaje',
+        'niezgodność ilościowa: wpisać ilość rzeczywiście przyjętą, uwagę w kol. k i wyegzekwować korektę dokumentów od dostawcy',
         'dostawę odrzuconą również się rejestruje — służy do oceny dostawców',
       ]} />}
       head={<>{/* Szapka trójpoziomowa: para „Komora / Mięso” siedzi pod wspólnym
@@ -297,21 +374,21 @@ export function ReceptionRegisterPrintPage() {
           w tabeli, a nie jak akcent. */}
       <thead>
         <tr>
-          {cols.slice(0, 5).map(c => <th key={c.letter} className="hd" rowSpan={3}>{c.label}</th>)}
+          {cols.slice(0, 6).map(c => <th key={c.letter} className="hd" rowSpan={3}>{c.label}</th>)}
           <th className="grp" colSpan={6}>Oceniane parametry</th>
           <th className="grp" colSpan={2}>Potwierdzenie</th>
         </tr>
         <tr>
-          <th className="hd" rowSpan={2}>{cols[5].label}</th>
+          <th className="hd" rowSpan={2}>{cols[6].label}</th>
           {/* „najwyższa zmierzona" wprost w szapce: instrukcja 1.1 każe wpisywać
               NAJWYŻSZY odczyt (z rejestratora auta i z kolejnych palet), a nie
               średnią ani pierwszy pomiar — z samej kratki tego nie widać. */}
           <th className="hd" colSpan={2}>Temperatura — najwyższa zmierzona</th>
-          {cols.slice(8, 13).map(c => <th key={c.letter} className="hd" rowSpan={2}>{c.label}</th>)}
+          {cols.slice(9, 14).map(c => <th key={c.letter} className="hd" rowSpan={2}>{c.label}</th>)}
         </tr>
         <tr>
-          <th className="hd sub2">{cols[6].label}</th>
           <th className="hd sub2">{cols[7].label}</th>
+          <th className="hd sub2">{cols[8].label}</th>
         </tr>
         <tr className="ltr">{cols.map(c => <th key={c.letter}>{c.letter}</th>)}</tr>
       </thead>
@@ -404,9 +481,14 @@ const CSS = `
 .reg table.reg-t th.hd.sub2 { font-size:6.6pt; letter-spacing:.03em; }
 .reg table.reg-t tr.ltr th { background:#e6e6e6; color:#444; font-size:6.8pt;
   font-weight:400; padding:.6mm 0; letter-spacing:.06em; }
-/* CZYSTA biel w polach do wpisania — litery długopisem mają być widoczne */
+/* CZYSTA biel w polach do wpisania — litery długopisem mają być widoczne.
+   WERSALIKI i wyśrodkowanie (właściciel, 09.09.2026): karta czyta się jak
+   jeden rejestr, a nie jak zlepek zapisów z różnych źródeł. */
 .reg table.reg-t td { border:.28mm solid #8c8c8c; height:9.5mm; padding:.2mm .5mm;
-  background:#fff; }
+  background:#fff; text-transform:uppercase; text-align:center;
+  vertical-align:middle; }
+/* Numery dokumentów jeden pod drugim — HDI w pierwszej linii, WZ w drugiej. */
+.reg table.reg-t td .lines { display:block; line-height:1.15; }
 
 /* Legenda leci CIĄGIEM z kropkami, nie flexem: przy pięciu pozycjach flex
    robił z niej pięć nierównych kolumn łamanych w losowych miejscach. */
@@ -422,11 +504,12 @@ const CSS = `
 .reg .foot { display:flex; justify-content:space-between; margin-top:1.6mm;
   font-size:6.8pt; font-weight:700; color:#333; letter-spacing:.04em; }
 .reg .sig { height:5.8mm; width:auto; max-width:100%; object-fit:contain; display:block; margin:0 auto; }
-/* Bez nowrap: krotkie nazwisko zostaje w JEDNEJ linii (tak ma byc), ale
-   dlugie zawija sie zamiast zostac uciete. Kratka ma na to miejsce —
-   5,8 mm podpisu + dwie linijki po 1,4 mm mieszcza sie w 9,5 mm. Ucieta
-   polowa nazwiska na dokumencie kontrolnym jest gorsza niz dwie linijki. */
-.reg .sigline { display:block; text-align:left; font-size:3.9pt; line-height:1.05;
-  color:#333; letter-spacing:0; overflow:hidden; overflow-wrap:break-word; }
+/* JEDNA linia, zawsze. Wlasciciel (09.09.2026): „pod podpisem informacja aby
+   miescila sie w jednej linijce imie nazwisko data i czas, aby nie
+   przeskakiwalo na dol nawet przy dluzszym nazwisku". Kod dobiera
+   stopien pisma do dlugosci tekstu — dlugie nazwisko robi sie drobniejsze,
+   ale zostaje w jednym wierszu. */
+.reg .sigline { display:block; text-align:center; line-height:1.05;
+  color:#333; letter-spacing:0; white-space:nowrap; }
 .reg .foot .l { font-weight:400; color:#555; }
 `
