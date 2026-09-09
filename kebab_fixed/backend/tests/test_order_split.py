@@ -1,0 +1,99 @@
+"""Podział zamówienia na część fakturowaną i część na WZ.
+
+Właściciel (2026-09-09): „musimy zrobić tak, aby można było dzielić tak, jak
+ja chcę — równo. Jeżeli chcę 8000 kg i 5005 kg, to musi się dać tak dzielić,
+wtedy trzeba usunąć jakąś sztukę, tak aby trafić w ten podział".
+
+Podział ma trafiać DOKŁADNIE, a nie tylko blisko.
+"""
+from app.services.order_split import podziel_pozycje
+
+
+def _l(lid, qty, kg):
+    return {"id": lid, "qty": qty, "kg_per_unit": kg}
+
+
+#: Prawdziwe zamówienie YALCIN/Z/4/09/26 — 21 pozycji, 486 szt, 13 005 kg.
+YALCIN = [
+    _l("l0", 15, 50), _l("l1", 20, 40), _l("l2", 10, 35), _l("l3", 30, 30),
+    _l("l4", 60, 25), _l("l5", 40, 20), _l("l6", 60, 15), _l("l7", 50, 10),
+    _l("l8", 4, 60), _l("l9", 10, 35), _l("l10", 10, 30), _l("l11", 40, 40),
+    _l("l12", 5, 35), _l("l13", 30, 30), _l("l14", 20, 25), _l("l15", 20, 20),
+    _l("l16", 20, 15), _l("l17", 20, 10), _l("l18", 5, 80), _l("l19", 12, 70),
+    _l("l20", 5, 60),
+]
+
+
+def test_trafia_CO_DO_KILOGRAMA_w_8000(db=None):
+    """Przypadek wprost od właściciela: 8000 na fakturę, 5005 na WZ."""
+    w = podziel_pozycje(YALCIN, 8000.0)
+    assert w["trafiono"] is True
+    assert w["kg_fv"] == 8000.0
+
+
+def test_reszta_to_dokladnie_5005():
+    w = podziel_pozycje(YALCIN, 8000.0)
+    calosc = sum(l["qty"] * l["kg_per_unit"] for l in YALCIN)
+    assert calosc - w["kg_fv"] == 5005.0
+
+
+def test_trafia_w_okragle_cele():
+    for cel in (6000.0, 7000.0, 9000.0, 10000.0):
+        w = podziel_pozycje(YALCIN, cel)
+        assert w["trafiono"] is True, cel
+        assert w["kg_fv"] == cel
+
+
+def test_cel_nieosiagalny_daje_najblizsza_sume_i_MOWI_o_tym():
+    # Połowa nieparzystej sumy: 13 005 / 2 = 6502,5 kg — z całych sztuk nie ma
+    # jak tego złożyć. Najbliżej 6500 kg.
+    w = podziel_pozycje(YALCIN, 6502.5)
+    assert w["trafiono"] is False
+    assert w["kg_fv"] == 6500.0
+
+
+def test_podzial_zostaje_rownomierny():
+    """Dobicie do celu ma poprawiać punktowo, nie wywracać proporcji."""
+    w = podziel_pozycje(YALCIN, 8000.0)
+    qty = {l["id"]: l["qty"] for l in YALCIN}
+    udzialy = [x["qty_invoice"] / qty[x["id"]] for x in w["lines"] if qty[x["id"]] >= 10]
+    assert min(udzialy) > 0.45 and max(udzialy) < 0.80
+
+
+def test_kazda_pozycja_jest_obecna_po_obu_stronach():
+    w = podziel_pozycje([_l("a", 10, 50), _l("b", 10, 10)], 300.0)
+    for x in w["lines"]:
+        assert 0 < x["qty_invoice"] < 10, x
+
+
+def test_polowa_dzieli_kazda_pozycje_na_pol():
+    w = podziel_pozycje([_l("a", 10, 30), _l("b", 20, 25)], 400.0)
+    assert [(x["id"], x["qty_invoice"]) for x in w["lines"]] == [("a", 5), ("b", 10)]
+
+
+def test_sztuki_sa_calkowite_i_w_zakresie():
+    w = podziel_pozycje(YALCIN, 8000.0)
+    qty = {l["id"]: l["qty"] for l in YALCIN}
+    for x in w["lines"]:
+        assert isinstance(x["qty_invoice"], int)
+        assert 0 <= x["qty_invoice"] <= qty[x["id"]]
+
+
+def test_cel_zero_nie_daje_nic_na_fakture():
+    w = podziel_pozycje([_l("a", 10, 30)], 0)
+    assert w["kg_fv"] == 0 and w["lines"][0]["qty_invoice"] == 0
+
+
+def test_cel_wiekszy_niz_zamowienie_bierze_calosc():
+    w = podziel_pozycje([_l("a", 10, 30)], 99999)
+    assert w["lines"][0]["qty_invoice"] == 10 and w["kg_fv"] == 300.0
+
+
+def test_pozycja_bez_wagi_nie_wywraca_podzialu():
+    w = podziel_pozycje([_l("a", 10, 30), _l("b", 5, 0)], 150.0)
+    assert len(w["lines"]) == 2 and w["kg_fv"] == 150.0
+
+
+def test_puste_zamowienie_daje_pusta_liste():
+    w = podziel_pozycje([], 100.0)
+    assert w["lines"] == [] and w["kg_fv"] == 0
