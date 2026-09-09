@@ -5,7 +5,15 @@ ja chcę — równo. Jeżeli chcę 8000 kg i 5005 kg, to musi się dać tak dzie
 wtedy trzeba usunąć jakąś sztukę, tak aby trafić w ten podział".
 
 Podział ma trafiać DOKŁADNIE, a nie tylko blisko.
+
+Fix po review, runda 1 (2026-09-09): stara wersja zakładała bez sprawdzenia,
+że wagi sztuk leżą na siatce 5 kg. Trzy testy niżej łapią to wprost: wagi
+spoza siatki (żeby złapać wykładniczy czas starego `_osiagalne_sumy` i
+niesprawdzony wynik drugiego dobicia), realny rozmiar z takimi wagami
+(wydajność) i przypadek wymagający ruchu trzech sztuk (poprawność `_dobij`).
 """
+import time
+
 from app.services.order_split import podziel_pozycje
 
 
@@ -97,3 +105,74 @@ def test_pozycja_bez_wagi_nie_wywraca_podzialu():
 def test_puste_zamowienie_daje_pusta_liste():
     w = podziel_pozycje([], 100.0)
     assert w["lines"] == [] and w["kg_fv"] == 0
+
+
+def test_wagi_spoza_siatki_5kg_trafiaja_w_prawdziwa_najblizsza_sume():
+    """Wagi 12,5 i 7,25 kg — poza siatką 5 kg. `trafiono=False` ma zwracać
+    NAPRAWDĘ najbliższą osiągalną sumę, nie zgadywać. Liczymy ją tu brute
+    force (wszystkie kombinacje sztuk z tego małego zestawu) niezależnie od
+    implementacji, żeby test faktycznie sprawdzał wynik, a nie powtarzał
+    kod produkcyjny."""
+    linie = [_l("a", 3, 12.5), _l("b", 4, 7.25)]
+    cel = 30.0
+
+    najblizsza = None
+    for qa in range(4):
+        for qb in range(5):
+            suma = round(qa * 12.5 + qb * 7.25, 4)
+            klucz = (abs(suma - cel), suma)
+            if najblizsza is None or klucz < (abs(najblizsza - cel), najblizsza):
+                najblizsza = suma
+
+    w = podziel_pozycje(linie, cel)
+    assert w["trafiono"] is False
+    assert w["kg_fv"] == najblizsza
+    suma_z_linii = sum(x["qty_invoice"] * x["kg_per_unit"] for x in w["lines"])
+    assert suma_z_linii == w["kg_fv"]
+
+
+def test_wagi_spoza_siatki_wydajnosc_realnego_rozmiaru():
+    """21 pozycji, do 60 sztuk każda, wagi PRZESUNIĘTE poza siatkę 5 kg
+    (+0,3 kg) — cel dobrany tak, żeby wymusić ścieżkę „nieosiągalne z
+    równomiernego punktu startowego" (bitset). Stary `_osiagalne_sumy` na
+    takich wagach nie kończył się w rozsądnym czasie; bitset ma zejść z
+    tego w sekundach, nie minutach."""
+    linie = [_l(l["id"], l["qty"], l["kg_per_unit"] + 0.3) for l in YALCIN]
+    calosc = sum(l["qty"] * l["kg_per_unit"] for l in linie)
+    cel = calosc / 2 + 0.07
+
+    start = time.perf_counter()
+    w = podziel_pozycje(linie, cel)
+    czas = time.perf_counter() - start
+
+    assert czas < 2.0, f"podziel_pozycje trwało {czas:.2f} s (limit 2 s)"
+    suma_z_linii = sum(x["qty_invoice"] * x["kg_per_unit"] for x in w["lines"])
+    assert abs(suma_z_linii - w["kg_fv"]) < 1e-6
+    qty = {l["id"]: l["qty"] for l in linie}
+    for x in w["lines"]:
+        assert 0 <= x["qty_invoice"] <= qty[x["id"]]
+
+
+def test_ruch_trzech_sztuk_trafia_dokladnie():
+    """Przypadek skonstruowany tak, że z równomiernego punktu startowego
+    brakujące -5 kg NIE da się dobić żadnym ruchem 1 sztuki ani wymianą
+    dwóch (sprawdzone niezależnie dla wag 17/2/6: zbiór osiągalnych delt
+    1- i 2-sztukowych to {±2,±4,±6,±8,±11,±12,±15,±17,±19,±23,±34} — nie ma
+    w nim -5) — trafia tylko ruch trzech sztuk: +2 sztuki wagi 6 kg,
+    -1 sztuka wagi 17 kg (6+6-17=-5).
+
+    Sprawdzamy to na dwóch poziomach: `_dobij` samo (żeby regresja w ruchach
+    trzysztukowych faktycznie czerwoniła test, a nie chowała się za
+    bitsetowym planem B z kroku 3) i `podziel_pozycje` (kontrakt publiczny)."""
+    from app.services.order_split import _dobij, _rownomiernie
+
+    linie = [_l("l0", 8, 17.0), _l("l1", 20, 2.0), _l("l2", 19, 6.0)]
+    calosc = sum(l["qty"] * l["kg_per_unit"] for l in linie)
+
+    stan = _rownomiernie(linie, 20.0, calosc)
+    assert _dobij(stan, 20.0) is True, "_dobij powinno trafić ruchem trzech sztuk"
+    assert sum(x["qty_invoice"] * x["kg_per_unit"] for x in stan) == 20.0
+
+    w = podziel_pozycje(linie, 20.0)
+    assert w["trafiono"] is True
+    assert w["kg_fv"] == 20.0
