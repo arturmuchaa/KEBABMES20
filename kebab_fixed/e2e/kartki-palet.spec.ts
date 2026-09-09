@@ -87,6 +87,21 @@ async function otworz(page: Page, palety: unknown[], query = '') {
       .find(e => getComputedStyle(e).fontFamily.includes('Arial Black'))
     return !!el && getComputedStyle(el).visibility === 'visible'
   })
+  // I DOPIERO na doładowane fonty. Bez tego test mierzy te same nieaktualne
+  // metryki co zepsuty fit i przechodzi, choć treść wystaje poza stronę —
+  // tak przeoczył kartkę z trzema pozycjami (2026-09-09).
+  await page.evaluate(() => document.fonts.ready)
+  await page.waitForTimeout(250)
+}
+
+/** Ile stron wyjdzie z drukarki. `preferCSSPageSize` bierze rozmiar
+ *  z reguły @page, czyli tak, jak zrobi to sterownik drukarki. */
+async function stronDruku(page: Page, plik: string): Promise<number> {
+  await page.emulateMedia({ media: 'print' })
+  const pdf = await page.pdf({ path: plik, printBackground: true, preferCSSPageSize: true })
+  await page.emulateMedia({ media: null })
+  // Liczba obiektów strony w PDF — bez zależności na bibliotekę.
+  return (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length
 }
 
 test.describe('kartki palet — dopasowanie do jednej strony', () => {
@@ -158,5 +173,47 @@ test.describe('kartki palet — dopasowanie do jednej strony', () => {
     await page.waitForSelector('[data-testid="label-page"]')
     expect(page.url()).toContain('/palety/druk?palety=2')
     expect(await page.locator('[data-testid="label-page"]').count()).toBe(2)
+  })
+})
+
+test.describe('kartki palet — co naprawdę wychodzi z drukarki', () => {
+  test('jedna paleta to DOKŁADNIE dwie strony, bez pustej', async ({ page }, testInfo) => {
+    // Biuro (2026-09-09): „normalna kartka drukuje się jedna pusta i nie ma
+    // QR-kodu i numeru palety". Treść na pełne 297×210 mm przy zerowym
+    // marginesie strony nie mieści się w obszarze drukowalnym — sterownik
+    // przycinał arkusz i wypychał nadmiar na kolejną, pustą stronę razem
+    // z numerem i kodem, które leżą najbliżej krawędzi.
+    await otworz(page, [paleta(1, '000001', [['l1', 10]])], '?palety=1')
+    const stron = await stronDruku(page, testInfo.outputPath('jedna.pdf'))
+    expect(stron).toBe(2)
+  })
+
+  test('trzy palety to sześć stron', async ({ page }, testInfo) => {
+    await otworz(page, [
+      paleta(1, '000001', [['l1', 10]]),
+      paleta(2, '000002', [['l2', 5]]),
+      paleta(3, '000003', [['l1', 4], ['l2', 2], ['l3', 8]]),
+    ])
+    const stron = await stronDruku(page, testInfo.outputPath('trzy.pdf'))
+    expect(stron).toBe(6)
+  })
+
+  test('kartka pełna pozycji też mieści się w dwóch stronach', async ({ page }, testInfo) => {
+    await otworz(page, [paleta(1, '000001',
+      [['l1', 10], ['l2', 5], ['l3', 8]])], '?palety=1')
+    const stron = await stronDruku(page, testInfo.outputPath('pelna.pdf'))
+    expect(stron).toBe(2)
+  })
+
+  test('treść zostawia oddech — nie zapycha strony od krawędzi do krawędzi', async ({ page }) => {
+    // Biuro o kartce z trzema pozycjami: „czcionka zdecydowanie za duża".
+    await otworz(page, [paleta(1, '000001',
+      [['l1', 10], ['l2', 5], ['l3', 8]])], '?palety=1')
+    const { trescH, pudloH } = await page.evaluate(() => {
+      const el = [...document.querySelectorAll<HTMLElement>('[data-testid="label-page"] div')]
+        .find(e => getComputedStyle(e).fontFamily.includes('Arial Black'))!
+      return { trescH: el.scrollHeight, pudloH: (el.parentElement as HTMLElement).clientHeight }
+    })
+    expect(trescH).toBeLessThanOrEqual(pudloH * 0.8)
   })
 })

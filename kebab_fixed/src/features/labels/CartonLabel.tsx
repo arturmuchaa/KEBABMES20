@@ -35,6 +35,16 @@ export const KOPII_NA_PALETE = 2
 const MAX_PT = 90
 const MIN_PT = 14
 
+/** Ile wysokości pudła wolno zająć treści.
+ *
+ *  Właściciel (2026-09-09) o kartce z trzema pozycjami: „czcionka
+ *  zdecydowanie za duża". Tekst od górnej do dolnej krawędzi jest trudniejszy
+ *  do ogarnięcia jednym spojrzeniem niż ten sam tekst z oddechem wokół —
+ *  a przy kilku pozycjach to właśnie wysokość, nie szerokość, wyznacza
+ *  rozmiar. Zapas daje też bufor na różnice metryk między Arial Black
+ *  (biuro, Windows) a krojem zastępczym. */
+const UDZIAL_WYSOKOSCI = 0.72
+
 export interface CartonLabelProps {
   /** Numer kartonu — mały, prawy górny róg, BEZ dopisku (np. „000005"). */
   cornerNo: string
@@ -66,22 +76,23 @@ function Kartka(props: CartonLabelProps & { egzemplarz: number }) {
   const [layoutReady, setLayoutReady] = useState(false)
 
   useLayoutEffect(() => {
+    let porzucone = false
+
     function fitContent() {
       const box = contentBoxRef.current
       const content = contentRef.current
-      if (!box || !content) return
+      if (!box || !content || porzucone) return
       const availableWidth = Math.max(120, box.clientWidth)
-      const availableHeight = Math.max(120, box.clientHeight)
+      const availableHeight = Math.max(120, box.clientHeight) * UDZIAL_WYSOKOSCI
 
       const miesciSie = (pt: number) => {
         content.style.fontSize = `${pt}pt`
         return content.scrollWidth <= availableWidth && content.scrollHeight <= availableHeight
       }
 
-      // Dobijanie POŁOWIENIEM do 0,5pt zamiast schodzenia co 2pt: właściciel
-      // prosił o „maksymalnie jak największą czcionkę", a krok co 2pt oddawał
-      // najbliższy parzysty stopień w dół — na kartce z dwiema pozycjami to
-      // widoczna strata. Kilkanaście pomiarów zamiast trzydziestu.
+      // Dobijanie POŁOWIENIEM do 0,5pt zamiast schodzenia co 2pt: krok co 2pt
+      // oddawał najbliższy parzysty stopień w dół, a na kartce z dwiema
+      // pozycjami to widoczna strata.
       let dol = MIN_PT
       let gora = MAX_PT
       let najlepszy = MIN_PT
@@ -94,17 +105,31 @@ function Kartka(props: CartonLabelProps & { egzemplarz: number }) {
           else gora = srodek
         }
       }
-      // Ostatni pomiar w pętli mógł być nieudany — wracamy na wybrany stopień,
-      // żeby element został fizycznie ustawiony na tym, co zapisujemy w stanie.
+
+      // KONTROLA. Bisekcja ufa pomiarom z chwili, w której biegła — a te
+      // bywają nieaktualne (patrz `document.fonts.ready` niżej). Schodzimy
+      // krokiem, dopóki treść naprawdę nie wejdzie: bez tego kartka z trzema
+      // pozycjami zostawała na 90pt, mimo że treść była o 46 px wyższa od
+      // pudła. Przy druku wychodziła wtedy druga, pusta strona, a numer
+      // palety i QR — najbliżej krawędzi — wypadały poza obszar drukarki.
+      while (najlepszy > MIN_PT && !miesciSie(najlepszy)) najlepszy -= 0.5
       content.style.fontSize = `${najlepszy}pt`
       setFontSizePt(najlepszy)
       setLayoutReady(true)
     }
+
     setLayoutReady(false)
     setFontSizePt(MAX_PT)
     const frame = window.requestAnimationFrame(fitContent)
+    // Arial Black dociąga się PO pierwszym renderze i ma inne metryki niż krój
+    // zastępczy — bez tego przeliczenia tekst rósł już po dobraniu rozmiaru.
+    document.fonts?.ready.then(fitContent).catch(() => {})
     window.addEventListener('resize', fitContent)
-    return () => { window.cancelAnimationFrame(frame); window.removeEventListener('resize', fitContent) }
+    return () => {
+      porzucone = true
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('resize', fitContent)
+    }
   }, [clientName, recipeHeader, mainLines.join('|')])
 
   return (
@@ -163,14 +188,19 @@ function Kartka(props: CartonLabelProps & { egzemplarz: number }) {
 
 /** Style strony — wspólne dla kartki pojedynczej i wydruku wielu palet. */
 export const CARTON_LABEL_STYLES = `
-  .label-page { width: 297mm; height: 210mm; background: #fff; }
+  /* Strona A4 poziomo POMNIEJSZONA o margines druku (5 mm z każdej strony).
+     Żadna drukarka nie drukuje do samej krawędzi; przy zerowym marginesie
+     strony i treści na pełne 297×210 mm sterownik przycinał arkusz i wypychał
+     nadmiar na drugą, pustą stronę — razem z numerem palety i kodem QR,
+     które leżą najbliżej krawędzi. Patrz kebab-wydruk-jedna-strona. */
+  .label-page { width: 287mm; height: 200mm; background: #fff; }
   @media screen { .label-page { margin: 16px auto; box-shadow: 0 1px 4px rgba(0,0,0,.08); } }
   @media print {
     .no-print { display: none !important; }
     html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
     .label-page { margin: 0 !important; box-shadow: none !important; break-after: page; page-break-after: always; }
     .label-page:last-of-type { break-after: auto; page-break-after: auto; }
-    @page { size: A4 landscape; margin: 0; }
+    @page { size: A4 landscape; margin: 5mm; }
   }
 `
 
