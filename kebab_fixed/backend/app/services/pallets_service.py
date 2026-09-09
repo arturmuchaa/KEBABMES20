@@ -24,9 +24,26 @@ _PAL_TOKEN_RE = re.compile(r"^PAL\|([^|]+)\|(\d+)$")
 _PAL_URL_RE   = re.compile(r"/m/p/([^/]+)/(\d+)\b")
 
 # Definicje transition status → status. `from` = stany dopuszczalne, `field` = kolumna timestampa.
+# Skąd dokąd wolno przestawić paletę skanem kartki.
+#
+# Biuro (2026-09-09, dzień przed załadunkiem YALCIN/Z/4): „w skanerze paleta nie
+# ma statusu created i nie mogę dać na storage, czy to nie zablokuje załadunku
+# samochodu, jeżeli nie jest na mroźni?". Zablokowałoby: mroźnia wymagała stanu
+# `packed`, a auto — mroźni. Status `packed` powstaje WYŁĄCZNIE przy skanowaniu
+# pojedynczych sztuk, czyli na ścieżce, której zakład nie używa („nie mamy
+# możliwości", 2026-09-09). Wszystkie 66 palet na produkcji stało w `created`,
+# więc każdy skan kończyłby się błędem 409.
+#
+# Paleta ROZPISANA jedzie więc dalej bez pośrednich stanów: skan kartki jest
+# potwierdzeniem, że karton jest spakowany zgodnie z zamówieniem.
+# MROŹNIA JEST OPCJONALNA — towar bywa ładowany prosto z hali, zwłaszcza gdy
+# kierowca wyjeżdża w nocy. `packed` zostaje na liście, żeby ścieżka ze
+# skanowaniem sztuk działała, gdy zakład do niej wróci.
 _TRANSITIONS = {
-    "cold_storage": {"from": ("packed",),        "field": "cold_storage_at"},
-    "loaded":       {"from": ("cold_storage",),  "field": "loaded_at"},
+    "cold_storage": {"from": ("created", "packed"),
+                     "field": "cold_storage_at"},
+    "loaded":       {"from": ("created", "packed", "cold_storage"),
+                     "field": "loaded_at"},
 }
 
 
