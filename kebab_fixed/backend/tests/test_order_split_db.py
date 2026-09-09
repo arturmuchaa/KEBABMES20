@@ -80,3 +80,69 @@ def test_podglad_mowi_czy_trafiono_w_cel(db):
     _slownik(); _zamowienie()                      # 300 + 500 = 800 kg
     assert podglad_podzialu("o1", 400.0)["trafiono"] is True
     assert podglad_podzialu("o1", 401.0)["trafiono"] is False
+
+
+def test_zmniejszenie_ilosci_przycina_qty_invoice(db):
+    """Fix round 1 (recenzja): qty=10, qty_invoice=8, edycja zmniejsza qty do 3.
+
+    Bez przycięcia qty_invoice zostaje 8 > 3, a Task 4 (WZ) liczy część na
+    WZ jako qty - qty_invoice = 3 - 8 = -5 sztuk — ujemna pozycja na
+    dokumencie handlowym.
+    """
+    _slownik(); _zamowienie()
+    zapisz_podzial("o1", 400.0, {"l1": 8})
+    update_order("o1", ClientOrderCreate.model_validate({
+        "client_id": "c1", "order_date": "2026-09-08",
+        "lines": [
+            {"id": "l1", "recipe_id": "r1", "product_type_id": "pt1", "qty": 3, "kg_per_unit": 30},
+            {"id": "l2", "recipe_id": "r1", "product_type_id": "pt1", "qty": 20, "kg_per_unit": 25},
+        ]}))
+    l1 = next(l for l in get_order("o1")["lines"] if l["id"] == "l1")
+    assert l1["qty_invoice"] == 3, "qty_invoice nie może być większe niż nowe qty"
+
+
+def test_usunieta_pozycja_zabiera_swoj_podzial(db):
+    """Pozycja naprawdę usunięta z edycji zabiera swój wiersz i podział;
+    podział pozostałych pozycji zostaje nietknięty."""
+    _slownik(); _zamowienie()
+    zapisz_podzial("o1", 400.0, None)               # {"l1": 5, "l2": 10}
+    update_order("o1", ClientOrderCreate.model_validate({
+        "client_id": "c1", "order_date": "2026-09-08",
+        "lines": [
+            {"id": "l2", "recipe_id": "r1", "product_type_id": "pt1", "qty": 20, "kg_per_unit": 25},
+        ]}))
+    lines = get_order("o1")["lines"]
+    assert [l["id"] for l in lines] == ["l2"]
+    assert lines[0]["qty_invoice"] == 10
+
+
+def test_nowa_pozycja_ma_puste_qty_invoice(db):
+    """Pozycja dopisana przy edycji jest NOWA — nie dziedziczy podziału
+    po sąsiadach, dostaje qty_invoice=NULL jak każde nowe zamówienie."""
+    _slownik(); _zamowienie()
+    zapisz_podzial("o1", 400.0, None)
+    update_order("o1", ClientOrderCreate.model_validate({
+        "client_id": "c1", "order_date": "2026-09-08",
+        "lines": [
+            {"id": "l1", "recipe_id": "r1", "product_type_id": "pt1", "qty": 10, "kg_per_unit": 30},
+            {"id": "l2", "recipe_id": "r1", "product_type_id": "pt1", "qty": 20, "kg_per_unit": 25},
+            {"recipe_id": "r1", "product_type_id": "pt1", "qty": 5, "kg_per_unit": 10},
+        ]}))
+    lines = get_order("o1")["lines"]
+    nowa = next(l for l in lines if float(l["kg_per_unit"]) == 10.0)
+    assert nowa["qty_invoice"] is None
+
+
+def test_dopasowanie_po_tozsamosci_zachowuje_podzial(db):
+    """Formularz starszego klienta nie wysyła `id` pozycji — dopasowanie
+    zapasowe po tożsamości produktu musi też zachować podział."""
+    _slownik(); _zamowienie()
+    zapisz_podzial("o1", 400.0, None)               # {"l1": 5, "l2": 10}
+    update_order("o1", ClientOrderCreate.model_validate({
+        "client_id": "c1", "order_date": "2026-09-08",
+        "lines": [
+            {"recipe_id": "r1", "product_type_id": "pt1", "qty": 10, "kg_per_unit": 30},
+            {"recipe_id": "r1", "product_type_id": "pt1", "qty": 20, "kg_per_unit": 25},
+        ]}))
+    podzial = {l["id"]: l["qty_invoice"] for l in get_order("o1")["lines"]}
+    assert podzial == {"l1": 5, "l2": 10}, "dopasowanie po tożsamości zgubiło podział"

@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.db import cx_execute, query_all, query_one, transaction
+from app.db import cx_execute, query_all, transaction
 from app.logging_config import get_logger
 from app.services.order_split import podziel_pozycje
 

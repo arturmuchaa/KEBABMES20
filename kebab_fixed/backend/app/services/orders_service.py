@@ -784,6 +784,15 @@ def _reconcile_lines_cx(conn, order_id: str, lines) -> None:
             # uzgodnieniem — wpisujemy go z powrotem WPROST w tym samym
             # UPDATE-cie, żeby przetrwanie nie zależało od tego, czy ktoś
             # kiedyś doda tę kolumnę do SET-a z innym pomysłem na wartość.
+            #
+            # Przycięcie do NOWEGO `qty` (recenzja, 2026-09-09): edycja może
+            # ZMNIEJSZYĆ ilość poniżej starego `qty_invoice` (np. qty 10→3
+            # przy qty_invoice=8). Bez przycięcia część na WZ liczona jako
+            # qty - qty_invoice wyszłaby UJEMNA (3-8=-5) — ujemna pozycja na
+            # dokumencie handlowym (Task 4).
+            stary_qty_invoice = qty_invoice_wg_id.get(rid)
+            if stary_qty_invoice is not None:
+                stary_qty_invoice = min(int(stary_qty_invoice), int(line.qty))
             cx_execute(
                 conn,
                 """
@@ -795,7 +804,7 @@ def _reconcile_lines_cx(conn, order_id: str, lines) -> None:
                        qty_invoice=%s
                  WHERE id=%s
                 """,
-                wartosci + (qty_invoice_wg_id.get(rid), rid),
+                wartosci + (stary_qty_invoice, rid),
             )
         else:
             cx_execute(
