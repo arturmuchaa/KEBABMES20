@@ -1592,6 +1592,7 @@ def _run_migrations_locked() -> None:
     _ustaw_prog_kontroli_haccp()
     _przeloz_pozycje_wg_tulei_raz()
     _przeloz_pozycje_wg_rodzaju_raz()
+    _domknij_zalegle_zamowienia_raz()
     _backfill_mixing_session_lots()
     _backfill_receptions()
     _backfill_stock_codes()
@@ -2644,6 +2645,50 @@ def _przeloz_pozycje_wg_rodzaju_raz() -> None:
         logger.info("migrations.resort_rodzaje.done")
     except Exception as exc:
         logger.warning("migrations.resort_rodzaje.error", extra={"error": str(exc)})
+
+
+def _domknij_zalegle_zamowienia_raz() -> None:
+    """Jednorazowe domknięcie zamówień, z których WSZYSTKO już wyjechało.
+
+    Biuro (2026-09-09, ZAGROS/Z/1/09/26): „zostało już zrealizowane, a nadal
+    wisi w zamówieniach — przez to, że wykonałem WZ, a potem zmieniłem
+    zamówienie i ono utknęło".
+
+    Warunek zamknięcia sprawdzał się WYŁĄCZNIE w chwili wystawiania WZ. Edycja
+    zamówienia zmienia ten warunek, ale nikt go nie oceniał ponownie, więc
+    dokument pokryty dopiero po poprawce zostawał otwarty na zawsze. Od tej
+    wersji sprawdza go także `update_order`; ta migracja zabiera zaległości.
+
+    Reguła jest DOKŁADNIE ta sama co przy WZ (`zamknij_wyslane_zamowienia`):
+    zamykamy tylko dokument, w którym każda pozycja jest w całości wydana.
+    Towar leżący jeszcze u nas zamówienia nie zamyka.
+
+    Odpala się RAZ — znacznik w `app_settings`. Bez niego każdy restart
+    nadpisywałby ręczne otwarcie zamówienia przez biuro.
+    """
+    try:
+        zrobione = query_one(
+            "SELECT 1 AS x FROM app_settings WHERE key = 'orders_domkniete_zalegle'")
+        if zrobione:
+            return
+        # Import lokalny: orders_service ciągnie modele i serwisy, a migracje
+        # biegną przy starcie, zanim aplikacja jest w pełni złożona.
+        from app.services.orders_service import zamknij_wyslane_zamowienia
+        otwarte = [
+            r["order_no"] for r in query_all(
+                "SELECT order_no FROM client_orders "
+                "WHERE status NOT IN ('done', 'cancelled')")
+        ]
+        zamkniete = zamknij_wyslane_zamowienia(otwarte) if otwarte else []
+        execute(
+            "INSERT INTO app_settings (key, value) "
+            "VALUES ('orders_domkniete_zalegle', to_jsonb(now()::text)) "
+            "ON CONFLICT (key) DO NOTHING"
+        )
+        logger.info("migrations.domknij_zalegle.done",
+                    extra={"closed": len(zamkniete), "orders": zamkniete[:20]})
+    except Exception as exc:
+        logger.warning("migrations.domknij_zalegle.error", extra={"error": str(exc)})
 
 
 def _ustaw_prog_kontroli_haccp() -> None:

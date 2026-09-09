@@ -659,3 +659,143 @@ def test_piec_oddzialow_dzieli_jedna_pule(db):
     _zapas("f1", qty=12, cid="c3", nazwa="Oddzial Wroclaw 3")
 
     assert _zrobione("o5") == 12
+
+
+# ── Edycja zamówienia po WZ ───────────────────────────────────────────────
+#
+# Biuro (2026-09-09, ZAGROS/Z/1/09/26): „zostało już zrealizowane, a nadal wisi
+# w zamówieniach — przez to, że wykonałem WZ, a potem zmieniłem zamówienie
+# i ono utknęło".
+#
+# Warunek zamknięcia sprawdzał się WYŁĄCZNIE w chwili wystawiania WZ. Każda
+# późniejsza zmiana zamówienia zmienia ten warunek, ale nikt go nie oceniał
+# ponownie, więc pokryte zamówienie zostawało otwarte na zawsze.
+
+def test_edycja_po_wz_domyka_zamowienie(db):
+    """Zamówienie zmniejszone do tego, co już wyjechało, ma się zamknąć."""
+    from app.models.orders import ClientOrderCreate
+    from app.services.orders_service import update_order
+    _klient("c1", "Zagros sp. z o.o.", "ZAGROS")
+    _zamowienie("o1", "ZAGROS/Z/1/09/26", "c1", "Zagros sp. z o.o.", qty=60, kg=50)
+    _zapas("f1", qty=30, kg=50, order_no="ZAGROS/Z/1/09/26", dostepne=0,
+           cid="c1", nazwa="Zagros sp. z o.o.")
+    _wz("w1", "ZAGROS", [_linia_wz("f1", 30)])
+
+    # WZ na 30 z 60 — zamówienie słusznie zostaje otwarte.
+    assert get_order("o1")["status"] == "confirmed"
+
+    # Biuro poprawia zamówienie na faktycznie wydane 30 szt.
+    update_order("o1", ClientOrderCreate.model_validate({
+        "client_id": "c1",
+        "order_date": "2026-08-26",
+        "lines": [{"recipe_id": "r1", "product_type_id": "pt1",
+                   "qty": 30, "kg_per_unit": 50}],
+    }))
+
+    assert get_order("o1")["status"] == "done"
+
+
+def test_edycja_nie_zamyka_zamowienia_z_brakiem(db):
+    """Dopisana pozycja, której nikt nie wydał, trzyma zamówienie otwarte."""
+    from app.models.orders import ClientOrderCreate
+    from app.services.orders_service import update_order
+    _klient("c1", "Zagros sp. z o.o.", "ZAGROS")
+    _zamowienie("o1", "ZAGROS/Z/1/09/26", "c1", "Zagros sp. z o.o.", qty=30, kg=50)
+    _zapas("f1", qty=30, kg=50, order_no="ZAGROS/Z/1/09/26", dostepne=0,
+           cid="c1", nazwa="Zagros sp. z o.o.")
+    _wz("w1", "ZAGROS", [_linia_wz("f1", 30)])
+
+    update_order("o1", ClientOrderCreate.model_validate({
+        "client_id": "c1",
+        "order_date": "2026-08-26",
+        "lines": [
+            {"recipe_id": "r1", "product_type_id": "pt1", "qty": 30, "kg_per_unit": 50},
+            {"recipe_id": "r1", "product_type_id": "pt1", "qty": 10, "kg_per_unit": 25},
+        ],
+    }))
+
+    assert get_order("o1")["status"] == "confirmed"
+
+
+def test_edycja_bez_zadnego_wydania_nie_zamyka(db):
+    """Sama edycja niczego nie realizuje — towar musi wyjechać."""
+    from app.models.orders import ClientOrderCreate
+    from app.services.orders_service import update_order
+    _klient("c1", "Zagros sp. z o.o.", "ZAGROS")
+    _zamowienie("o1", "ZAGROS/Z/1/09/26", "c1", "Zagros sp. z o.o.", qty=30, kg=50)
+
+    update_order("o1", ClientOrderCreate.model_validate({
+        "client_id": "c1",
+        "order_date": "2026-08-26",
+        "lines": [{"recipe_id": "r1", "product_type_id": "pt1",
+                   "qty": 5, "kg_per_unit": 50}],
+    }))
+
+    assert get_order("o1")["status"] == "confirmed"
+
+
+def test_towar_na_polce_po_edycji_nie_zamyka_zamowienia(db):
+    """Zrobione ≠ wysłane — reguła ta sama co przy WZ."""
+    from app.models.orders import ClientOrderCreate
+    from app.services.orders_service import update_order
+    _klient("c1", "Zagros sp. z o.o.", "ZAGROS")
+    _zamowienie("o1", "ZAGROS/Z/1/09/26", "c1", "Zagros sp. z o.o.", qty=60, kg=50)
+    _zapas("f1", qty=30, kg=50, order_no="ZAGROS/Z/1/09/26",   # leży u nas
+           cid="c1", nazwa="Zagros sp. z o.o.")
+
+    update_order("o1", ClientOrderCreate.model_validate({
+        "client_id": "c1",
+        "order_date": "2026-08-26",
+        "lines": [{"recipe_id": "r1", "product_type_id": "pt1",
+                   "qty": 30, "kg_per_unit": 50}],
+    }))
+
+    assert get_order("o1")["status"] == "confirmed"
+
+
+def test_migracja_domyka_zalegle_zamowienia(db):
+    """ZAGROS/Z/1/09/26 utknął, zanim edycja zaczęła sprawdzać warunek —
+    jednorazowa migracja domyka takie dokumenty."""
+    from app.migrations import _domknij_zalegle_zamowienia_raz
+    _klient("c1", "Zagros sp. z o.o.", "ZAGROS")
+    _zamowienie("o1", "ZAGROS/Z/1/09/26", "c1", "Zagros sp. z o.o.", qty=30, kg=50)
+    _zapas("f1", qty=30, kg=50, order_no="ZAGROS/Z/1/09/26", dostepne=0,
+           cid="c1", nazwa="Zagros sp. z o.o.")
+    _wz("w1", "ZAGROS", [_linia_wz("f1", 30)])
+    execute("DELETE FROM app_settings WHERE key='orders_domkniete_zalegle'")
+
+    _domknij_zalegle_zamowienia_raz()
+
+    assert get_order("o1")["status"] == "done"
+
+
+def test_migracja_nie_rusza_zamowien_z_brakiem(db):
+    from app.migrations import _domknij_zalegle_zamowienia_raz
+    _klient("c1", "Zagros sp. z o.o.", "ZAGROS")
+    _zamowienie("o1", "ZAGROS/Z/1/09/26", "c1", "Zagros sp. z o.o.", qty=60, kg=50)
+    _zapas("f1", qty=30, kg=50, order_no="ZAGROS/Z/1/09/26", dostepne=0,
+           cid="c1", nazwa="Zagros sp. z o.o.")
+    _wz("w1", "ZAGROS", [_linia_wz("f1", 30)])
+    execute("DELETE FROM app_settings WHERE key='orders_domkniete_zalegle'")
+
+    _domknij_zalegle_zamowienia_raz()
+
+    assert get_order("o1")["status"] == "confirmed"
+
+
+def test_migracja_odpala_sie_tylko_raz(db):
+    """Bez znacznika każdy restart nadpisywałby ręczne otwarcie zamówienia
+    przez biuro."""
+    from app.migrations import _domknij_zalegle_zamowienia_raz
+    _klient("c1", "Zagros sp. z o.o.", "ZAGROS")
+    _zamowienie("o1", "ZAGROS/Z/1/09/26", "c1", "Zagros sp. z o.o.", qty=30, kg=50)
+    _zapas("f1", qty=30, kg=50, order_no="ZAGROS/Z/1/09/26", dostepne=0,
+           cid="c1", nazwa="Zagros sp. z o.o.")
+    _wz("w1", "ZAGROS", [_linia_wz("f1", 30)])
+    execute("DELETE FROM app_settings WHERE key='orders_domkniete_zalegle'")
+
+    _domknij_zalegle_zamowienia_raz()
+    execute("UPDATE client_orders SET status='confirmed' WHERE id='o1'")
+    _domknij_zalegle_zamowienia_raz()          # drugi przebieg NIE rusza
+
+    assert get_order("o1")["status"] == "confirmed"

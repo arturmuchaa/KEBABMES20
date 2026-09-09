@@ -850,6 +850,20 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
             conn, "SELECT * FROM client_order_lines WHERE order_id=%s ORDER BY position",
             (order_id,)
         )
+    # Warunek zamknięcia oceniamy PO edycji, nie tylko przy wystawianiu WZ.
+    # Biuro (2026-09-09, ZAGROS/Z/1/09/26): „zostało już zrealizowane, a nadal
+    # wisi w zamówieniach — przez to, że wykonałem WZ, a potem zmieniłem
+    # zamówienie i ono utknęło". Edycja zmienia to, ile trzeba wydać, więc
+    # dokument pokryty dopiero po poprawce nie miał kto zamknąć.
+    #
+    # POZA transakcją: `zamknij_wyslane_zamowienia` liczy pokrycie własnym
+    # zapytaniem, więc przed COMMIT-em widziałoby jeszcze stare pozycje.
+    if zamknij_wyslane_zamowienia([updated.get("order_no") or ""]):
+        updated = query_one("SELECT * FROM client_orders WHERE id=%s", (order_id,)) or updated
+        updated["lines"] = query_all(
+            "SELECT * FROM client_order_lines WHERE order_id=%s ORDER BY position",
+            (order_id,))
+
     logger.info("order.updated", extra={"order_id": order_id})
     return updated
 
