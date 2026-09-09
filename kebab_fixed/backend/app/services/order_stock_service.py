@@ -18,7 +18,7 @@ te sztuki są już policzone w qty_done linii planu (anty-dublowanie).
 """
 from typing import Any, Dict, List
 
-from app.db import query_all
+from app.db import query_all, query_one
 from app.utils.product_key import Klucz as Key
 from app.utils.product_key import kandydaci, klucz_wyrobu
 
@@ -227,6 +227,77 @@ def stock_portions_for_order(
     }
     return portion_stock_rows(shortfalls, fg_rows, order_no, wydane_wg_wiersza)
 
+
+def picks_for_pallets(order_id: str, pallet_ids: List[str]) -> List[Dict[str, Any]]:
+    """Wiersze magazynu pokrywające ZAWARTOŚĆ WSKAZANYCH PALET.
+
+    Biuro (2026-09-09): „jeszcze nie skanujemy pojedynczych sztuk, nie mamy
+    możliwości — system musi wierzyć, że zeskanowany karton jest spakowany
+    zgodnie z zamówieniem, a partie brać od najstarszych z magazynu".
+
+    Skan kartki na palecie jest więc POTWIERDZENIEM ZAWARTOŚCI: jedzie to, co
+    biuro rozpisało na tę paletę. Różnica wobec `picks_for_order`: tam brakiem
+    jest całe zamówienie, tu tylko to, co fizycznie stoi na aucie — reszta
+    zostaje w magazynie i pojedzie następnym kursem.
+
+    Kolejność czerpania i reguły własności są WSPÓLNE z `picks_for_order`:
+    najpierw towar ostemplowany tym zamówieniem, potem najstarszy
+    (`produced_date ASC`). Nie duplikujemy tu reguły FEFO — jedno źródło.
+    """
+    if not pallet_ids:
+        return []
+    order = query_one("SELECT id, order_no, client_id FROM client_orders WHERE id=%s",
+                      (order_id,))
+    if not order:
+        return []
+    order_no = order.get("order_no") or ""
+
+    # Zawartość palet: pozycja palety wskazuje LINIĘ zamówienia, a z niej
+    # bierzemy tożsamość wyrobu (receptura, waga, rodzaj, tuleja).
+    pozycje = query_all(
+        """
+        SELECT l.recipe_id, l.kg_per_unit, l.product_type_id, l.packaging_id,
+               SUM(i.qty) AS qty
+          FROM order_pallet_items i
+          JOIN client_order_lines l ON l.id = i.order_line_id
+         WHERE i.pallet_id = ANY(%s)
+         GROUP BY 1, 2, 3, 4
+        """,
+        (pallet_ids,),
+    )
+    braki = compute_shortfalls(pozycje, {}, {})
+    if not braki:
+        return []
+
+    fg_rows = query_all(
+        """
+        SELECT id, batch_no, recipe_id, recipe_name, product_type_id, product_type_name,
+               packaging_id, packaging_name,
+               kg_per_unit, qty, qty_available, qty_shipped,
+               client_order_no, client_name, produced_date, created_at
+        FROM finished_goods fg
+        WHERE COALESCE(fg.qty_available, 0) > 0
+          AND (
+               fg.client_order_no = %s
+               OR (
+                   (COALESCE(fg.client_order_no, '') = ''
+                    OR NOT EXISTS (SELECT 1 FROM client_orders o2
+                                   WHERE o2.order_no = fg.client_order_no
+                                     AND o2.status NOT IN ('done', 'cancelled')))
+                   AND COALESCE(NULLIF(fg.client_id, ''), (
+                           SELECT c.id FROM clients c
+                           WHERE c.name = fg.client_name OR c.display_name = fg.client_name
+                           ORDER BY (c.name = fg.client_name) DESC
+                           LIMIT 1
+                       ), '') IN ('', COALESCE((SELECT o3.client_id FROM client_orders o3
+                                                WHERE o3.id = %s), ''))
+               ))
+        ORDER BY (COALESCE(fg.client_order_no, '') = %s) DESC,
+                 produced_date ASC NULLS LAST, created_at ASC
+        """,
+        (order_no, order_id, order_no),
+    )
+    return portion_stock_rows(braki, fg_rows, order_no)
 
 def picks_for_order(order_id: str) -> List[Dict[str, Any]]:
     """Wiersze magazynu wyrobu gotowego pokrywające CAŁE zamówienie.

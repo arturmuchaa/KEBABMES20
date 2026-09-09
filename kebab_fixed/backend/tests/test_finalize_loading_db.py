@@ -256,3 +256,132 @@ def test_nieznany_pojazd_odrzucony(db):
     with pytest.raises(Exception) as e:
         finalize_loading("NIE-MA", ["o1"])
     assert "ojazd" in str(e.value)
+
+
+# ── Załadunek BEZ skanowania pojedynczych sztuk ───────────────────────────
+#
+# Biuro (2026-09-09): „jeszcze nie skanujemy pojedynczych sztuk, nie mamy
+# możliwości — system musi wierzyć, że zeskanowany karton jest spakowany
+# zgodnie z zamówieniem, a partie brać od najstarszych z magazynu".
+#
+# Skan kartki na palecie JEST potwierdzeniem zawartości: co biuro rozpisało
+# na tę paletę, to na niej jedzie. Partie dobiera ta sama reguła, co przy
+# „Wystaw WZ" z zamówienia — najpierw towar ostemplowany tym zamówieniem,
+# potem NAJSTARSZY.
+def _pozycja_palety(pid="p1", line_id="o1-l1", qty=10, iid="pi1"):
+    execute("INSERT INTO order_pallet_items (id, pallet_id, order_line_id, qty) "
+            "VALUES (%s,%s,%s,%s)", (iid, pid, line_id, qty))
+
+
+def _wyrob_z_data(gid, qty, produced, kg=30, order_no=None):
+    """Wyrób gotowy z konkretną datą produkcji — do sprawdzenia kolejności."""
+    execute(
+        "INSERT INTO finished_goods (id, batch_no, recipe_id, recipe_name, product_type_id, "
+        " product_type_name, qty, kg_per_unit, total_kg, qty_available, qty_shipped, "
+        " client_id, client_name, client_order_no, produced_date) "
+        "VALUES (%s,%s,'r1','KIRMIZI','pt1','KEBAB UDO 100%%',%s,%s,%s,%s,0,"
+        " 'c1','YBM Gastro GmbH',%s,%s)",
+        (gid, f"{produced} 500", qty, kg, qty * kg, qty, order_no, produced))
+
+
+def test_paleta_bez_sztuk_wystawia_wz_z_rozpisu(db):
+    """Rozpisana paleta + skan = dokument. Bez tego jutrzejszy załadunek
+    kończy się „brak załadowanych sztuk" i biuro nie ma papieru."""
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30)
+    _wyrob(qty=10, kg=30)
+    _paleta()
+    _pozycja_palety(qty=10)          # rozpis palety, ZERO sztuk QR
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+
+    assert zam.get("skipped") is None, zam
+    assert zam["wz_number"], "paleta z rozpisu nie wystawiła dokumentu"
+    assert zam["wz_status"] == "potwierdzony"
+
+
+def test_wz_z_rozpisu_zdejmuje_stan_i_zamyka_palete(db):
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30); _wyrob(qty=10, kg=30); _paleta(); _pozycja_palety(qty=10)
+
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
+    assert query_one("SELECT status FROM order_pallets WHERE id='p1'")["status"] == "shipped"
+
+
+def test_partie_schodza_od_NAJSTARSZEJ(db):
+    """„Partie brać od najstarszych z magazynu" — wprost z polecenia biura."""
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30)
+    _wyrob_z_data("f-nowa", qty=10, produced="2026-09-08")
+    _wyrob_z_data("f-stara", qty=10, produced="2026-09-01")
+    _paleta(); _pozycja_palety(qty=10)
+
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    stara = query_one("SELECT qty_available FROM finished_goods WHERE id='f-stara'")
+    nowa = query_one("SELECT qty_available FROM finished_goods WHERE id='f-nowa'")
+    assert int(stara["qty_available"]) == 0, "najstarsza partia miała zejść pierwsza"
+    assert int(nowa["qty_available"]) == 10, "nowsza partia miała zostać na stanie"
+
+
+def test_jada_TYLKO_zeskanowane_palety(db):
+    """Paleta bez skanu zostaje w magazynie — dokument jej nie obejmuje."""
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=20, kg=30); _wyrob(qty=20, kg=30)
+    _paleta("p1", nr=1, status="loaded"); _pozycja_palety("p1", qty=10, iid="pi1")
+    _paleta("p2", nr=2, status="created"); _pozycja_palety("p2", qty=10, iid="pi2")
+
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (10, 10)
+
+
+def test_kilka_palet_sumuje_sie_w_jeden_dokument(db):
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=20, kg=30); _wyrob(qty=20, kg=30)
+    _paleta("p1", nr=1); _pozycja_palety("p1", qty=12, iid="pi1")
+    _paleta("p2", nr=2); _pozycja_palety("p2", qty=8, iid="pi2")
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+
+    assert zam["pallets"] == 2
+    assert len(query_all("SELECT id FROM wz_documents WHERE source_id='o1'")) == 1
+    fg = query_one("SELECT qty_shipped FROM finished_goods WHERE id='f1'")
+    assert int(fg["qty_shipped"]) == 20
+
+
+def test_za_malo_na_stanie_zatrzymuje_zaladunek_z_rozpisu(db):
+    """Magazyn nie może zejść na minus tylko dlatego, że ktoś zeskanował paletę."""
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30); _wyrob(qty=4, kg=30); _paleta(); _pozycja_palety(qty=10)
+
+    with pytest.raises(Exception) as e:
+        finalize_loading("v1", ["o1"], plate="KR 99999")
+    assert "stanie" in str(e.value).lower()
+
+
+def test_rozpis_jest_idempotentny(db):
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30); _wyrob(qty=10, kg=30); _paleta(); _pozycja_palety(qty=10)
+
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    assert len(query_all("SELECT id FROM wz_documents WHERE source_id='o1'")) == 1
+    fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
+
+
+def test_sztuki_qr_maja_pierwszenstwo_nad_rozpisem(db):
+    """Gdy sztuki JUŻ są skanowane, rozpis nie może ich dublować."""
+    _przygotuj(qty=10, kg=30)        # 10 sztuk QR na palecie
+    _pozycja_palety(qty=10)          # i rozpis na tę samą paletę
+
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    fg = query_one("SELECT qty_shipped FROM finished_goods WHERE id='f1'")
+    assert int(fg["qty_shipped"]) == 10, "policzono dwa razy: sztuki i rozpis"

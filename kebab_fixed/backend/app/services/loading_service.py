@@ -20,6 +20,7 @@ from fastapi import HTTPException
 
 from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
+from app.services.order_stock_service import picks_for_pallets
 from app.services.settings_service import get_company
 from app.services.wz_service import (_insert_wz, _seller_block, build_goods_wz_lines,
                                      naming_context)
@@ -44,6 +45,26 @@ def aggregate_loaded_units(units: List[Dict[str, Any]]) -> Dict[Tuple, Dict[str,
         g["kg"] += float(u.get("weight_kg") or 0)
     return agg
 
+
+def aggregate_picks(picks: List[Dict[str, Any]]) -> Dict[Tuple, Dict[str, Any]]:
+    """Agregat z ROZPISU PALET — ten sam kształt co `aggregate_loaded_units`.
+
+    Bez sztuk QR partię wyrobu znamy z dobranego wiersza magazynu
+    (`finished_goods.batch_no`, np. „080926 500"), a nie ze sztuki. Klucz musi
+    zostać ten sam, bo porównuje się go z liniami WZ.
+    """
+    agg: Dict[Tuple, Dict[str, Any]] = {}
+    for poz in picks:
+        fg = poz.get("fg") or {}
+        take = int(poz.get("take") or 0)
+        if take <= 0:
+            continue
+        kg = float(fg.get("kg_per_unit") or 0)
+        k = _line_key(fg.get("recipe_id"), kg, fg.get("batch_no"))
+        g = agg.setdefault(k, {"qty": 0, "kg": 0.0})
+        g["qty"] += take
+        g["kg"] += take * kg
+    return agg
 
 def verify_wz_against_loaded(
     wz_lines: List[Dict[str, Any]], loaded: Dict[Tuple, Dict[str, Any]]
@@ -131,6 +152,25 @@ def _ensure_hdi(order_id: str, plate: str) -> Dict[str, Any]:
         return {"hdi_number": None, "hdi_id": None, "hdi_error": str(exc)}
 
 
+def _sprawdz_pokrycie_rozpisu(conn, order, pallet_ids, picks) -> None:
+    """Czy magazyn pokrywa całą zawartość zeskanowanych palet.
+
+    Bez tej kontroli `picks_for_pallets` oddaje tyle, ile leży, i załadunek
+    wystawia dokument na MNIEJ, niż fizycznie pojechało — cicho, bez błędu.
+    """
+    rozpisano = cx_query_one(
+        conn,
+        "SELECT COALESCE(SUM(qty), 0) AS n FROM order_pallet_items WHERE pallet_id = ANY(%s)",
+        (pallet_ids,))
+    trzeba = int((rozpisano or {}).get("n") or 0)
+    dobrano = sum(int(p.get("take") or 0) for p in picks)
+    if dobrano < trzeba:
+        raise HTTPException(
+            400,
+            f"{order.get('order_no')}: magazyn nie pokrywa zeskanowanych palet — "
+            f"na paletach {trzeba} szt, na stanie {dobrano} szt. "
+            "Sprawdź stan wyrobu gotowego albo rozpis palet.")
+
 def finalize_loading(
     vehicle_id: str,
     order_ids: List[str],
@@ -157,15 +197,35 @@ def finalize_loading(
                 raise HTTPException(404, f"Zamówienie {order_id} nie znalezione")
 
             pallets = _loaded_pallets(conn, vehicle_id, order_id)
-            units_all = _units_on_pallets(conn, [p["id"] for p in pallets])
+            pallet_ids = [p["id"] for p in pallets]
+            units_all = _units_on_pallets(conn, pallet_ids)
             units = [u for u in units_all if u.get("status") != SHIPPED]  # idempotencja
-            if not units_all:
+
+            # Zakład NIE skanuje pojedynczych sztuk (biuro, 2026-09-09: „nie mamy
+            # możliwości — system musi wierzyć, że zeskanowany karton jest
+            # spakowany zgodnie z zamówieniem"). Gdy na paletach nie ma sztuk QR,
+            # zawartością auta jest ROZPIS PALET, a skan kartki jest jego
+            # potwierdzeniem. Partie dobiera `picks_for_pallets` tą samą regułą
+            # co „Wystaw WZ" z zamówienia: stempel tego zamówienia, potem
+            # NAJSTARSZE. Sztuki QR mają pierwszeństwo — gdy są, rozpis milczy,
+            # inaczej ten sam towar zszedłby ze stanu dwa razy.
+            z_rozpisu = [] if units_all else picks_for_pallets(order_id, pallet_ids)
+
+            # Magazyn musi pokryć CAŁY rozpis zeskanowanych palet. `picks_*`
+            # dobiera tylko to, co leży, więc przy niedoborze dokument wyszedłby
+            # po cichu zaniżony — magazynier zeskanował 16 palet, a WZ pokazałby
+            # mniej i nikt by tego nie zauważył. Lepiej zatrzymać i wyjaśnić.
+            if not units_all and z_rozpisu:
+                _sprawdz_pokrycie_rozpisu(conn, order, pallet_ids, z_rozpisu)
+
+            if not units_all and not z_rozpisu:
                 results.append({"order_id": order_id, "order_no": order.get("order_no"),
                                 "client_name": order.get("client_name"),
                                 "pallets": len(pallets), "skipped": "brak załadowanych sztuk"})
                 continue
 
-            loaded_agg = aggregate_loaded_units(units_all)
+            loaded_agg = (aggregate_loaded_units(units_all) if units_all
+                          else aggregate_picks(z_rozpisu))
 
             existing = cx_query_one(
                 conn,
@@ -190,13 +250,18 @@ def finalize_loading(
                 wz_number, wz_id = existing["number"], existing["id"]
             else:
                 # Dokumenty przy załadunku: WZ z faktycznej zawartości + rozchód.
-                groups, unlinked = group_units_by_goods(units)
-                if unlinked:
-                    raise HTTPException(
-                        400,
-                        f"{order.get('order_no')}: {len(unlinked)} szt na paletach nie ma "
-                        "powiązania z wyrobem gotowym (dzień produkcji niezamknięty?). "
-                        "Zatwierdź produkcję w biurze i spróbuj ponownie.")
+                if units_all:
+                    groups, unlinked = group_units_by_goods(units)
+                    if unlinked:
+                        raise HTTPException(
+                            400,
+                            f"{order.get('order_no')}: {len(unlinked)} szt na paletach nie ma "
+                            "powiązania z wyrobem gotowym (dzień produkcji niezamknięty?). "
+                            "Zatwierdź produkcję w biurze i spróbuj ponownie.")
+                else:
+                    # Bez sztuk QR: partie dobrane z magazynu wg rozpisu palet.
+                    groups = {p["fg"]["id"]: {"count": int(p["take"] or 0)}
+                              for p in z_rozpisu if p.get("fg") and int(p.get("take") or 0) > 0}
                 goods_with_counts = []
                 for gid in sorted(groups):
                     fg = cx_query_one(
