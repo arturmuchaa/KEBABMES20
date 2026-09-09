@@ -24,15 +24,15 @@ export const KOPII_NA_PALETE = 2
 
 /** Widełki stopnia pisma treści głównej.
  *
- *  GÓRA. Dawne 90pt było sufitem, w który krótka kartka trafiała, mając na
- *  stronie jeszcze sporo miejsca — a właściciel prosił o „maksymalnie jak
- *  największą czcionkę". 160pt jest wyżej niż cokolwiek, co zmieści się na
- *  A4, więc o rozmiarze decyduje teraz strona, a nie ta stała.
+ *  GÓRA. 90pt i ANI PUNKTU WIĘCEJ. Podniesienie sufitu do 160pt dało przy
+ *  jednej pozycji litery na pół strony — właściciel (2026-09-09):
+ *  „przy jednej czcionka maksymalnie 90, aby to było czytelne; aktualnie
+ *  jest za duża i wszystko przytłacza". Kartka ma się czytać, nie krzyczeć.
  *
  *  DÓŁ. Musi być NAPRAWDĘ nisko: najdłuższa realna pozycja
  *  („8 X 30KG 75CM SHORMA TRUVA + AROMAT") potrzebuje ~27pt, a przy dawnym
  *  dnie 30pt treść wyjeżdżała poza stronę i drukowała się na dwóch. */
-const MAX_PT = 160
+const MAX_PT = 90
 const MIN_PT = 14
 
 export interface CartonLabelProps {
@@ -109,7 +109,10 @@ function Kartka(props: CartonLabelProps & { egzemplarz: number }) {
 
   return (
     <div className="label-page relative overflow-hidden" data-testid="label-page" data-egzemplarz={egzemplarz}>
-      <div className="flex h-full w-full flex-col px-[12.7mm] py-[12.7mm]">
+      {/* Wąskie marginesy boczne: o rozmiarze pisma przy kilku pozycjach
+            decyduje SZEROKOŚĆ najdłuższej linii, więc każdy oddany
+            milimetr to większa czcionka na całej kartce. */}
+        <div className="flex h-full w-full flex-col px-[7mm] py-[10mm]">
         <div className="flex items-start justify-end leading-none" style={{ fontFamily: 'Arial, sans-serif' }}>
           {/* Numer kartonu — mały, prawy górny róg, bez dopisku */}
           <div data-testid="label-corner-no" className="text-[12pt] font-bold tracking-widest text-slate-800">{cornerNo}</div>
