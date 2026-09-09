@@ -39,6 +39,22 @@ export function PalletsEditor({ orderId, lines }: Props) {
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
   const [saving,     setSaving]     = useState(false)
   const [error,      setError]      = useState<string | null>(null)
+  // Zaznaczone palety do druku zbiorczego. Numery, nie indeksy — indeks
+  // przestaje wskazywać tę samą paletę po usunięciu którejś z listy.
+  const [zaznaczone, setZaznaczone] = useState<number[]>([])
+
+  /** Otwiera wydruk kartek. Bez numerów = wszystkie palety zamówienia.
+   *  `window.open` w oknie Tauri potrafi zwrócić null — wtedy nawigujemy
+   *  w bieżącej karcie, żeby druk nie przepadł bez śladu. */
+  function otworzWydruk(palletNos?: number[]) {
+    const query = palletNos?.length ? `?palety=${palletNos.join(',')}` : ''
+    const url = `/office/zamowienia/${orderId}/palety/druk${query}`
+    const win = window.open(url, '_blank')
+    if (!win || win.closed || typeof win.closed === 'undefined') window.location.href = url
+  }
+
+  const przelacz = (palletNo: number) => setZaznaczone(
+    z => z.includes(palletNo) ? z.filter(n => n !== palletNo) : [...z, palletNo])
 
   // ── Ile szt z danej linii już rozdysponowano na palety (opcjonalnie excl.) ──
   const assignedByLine = useMemo(() => {
@@ -112,15 +128,37 @@ export function PalletsEditor({ orderId, lines }: Props) {
             {totalKg > 0 && <> · {fmtKg(totalKg, 0)} kg · {totalUnits} szt</>}
           </span>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-[11px] gap-1"
-          disabled={saving || (showAdd && editingIdx === null)}
-          onClick={() => { setEditingIdx(null); setShowAdd(true); setError(null) }}
-        >
-          <Plus size={12} /> Dodaj paletę
-        </Button>
+        <div className="flex items-center gap-1.5">
+          {list.length > 0 && (
+            <>
+              <Button
+                variant="outline" size="sm" className="h-7 text-[11px] gap-1"
+                disabled={saving || zaznaczone.length === 0}
+                onClick={() => otworzWydruk(zaznaczone)}
+                title="Drukuj kartki zaznaczonych palet (po 2 na paletę)"
+              >
+                <Printer size={12} /> Drukuj zaznaczone{zaznaczone.length ? ` (${zaznaczone.length})` : ''}
+              </Button>
+              <Button
+                variant="outline" size="sm" className="h-7 text-[11px] gap-1"
+                disabled={saving}
+                onClick={() => otworzWydruk()}
+                title="Drukuj kartki wszystkich palet (po 2 na paletę)"
+              >
+                <Printer size={12} /> Drukuj wszystkie
+              </Button>
+            </>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-[11px] gap-1"
+            disabled={saving || (showAdd && editingIdx === null)}
+            onClick={() => { setEditingIdx(null); setShowAdd(true); setError(null) }}
+          >
+            <Plus size={12} /> Dodaj paletę
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -159,6 +197,14 @@ export function PalletsEditor({ orderId, lines }: Props) {
               <CardContent className="p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 accent-amber-600"
+                      checked={zaznaczone.includes(p.palletNo)}
+                      onChange={() => przelacz(p.palletNo)}
+                      aria-label={`Zaznacz paletę nr ${p.palletNo} do druku`}
+                      disabled={saving}
+                    />
                     <div className="w-7 h-7 rounded-full bg-amber-100 flex items-center justify-center">
                       <span className="text-amber-900 font-bold text-xs">{p.palletNo}</span>
                     </div>
@@ -169,14 +215,8 @@ export function PalletsEditor({ orderId, lines }: Props) {
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 text-muted-foreground hover:text-ink"
-                      onClick={() => {
-                        const url = `/office/zamowienia/${orderId}/palety/${p.palletNo}/druk`
-                        const win = window.open(url, '_blank')
-                        if (!win || win.closed || typeof win.closed === 'undefined') {
-                          window.location.href = url
-                        }
-                      }}
-                      title="Drukuj etykietę palety"
+                      onClick={() => otworzWydruk([p.palletNo])}
+                      title="Drukuj kartki tej palety (2 kopie)"
                       disabled={saving}
                     >
                       <Printer size={11} />

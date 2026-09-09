@@ -34,7 +34,7 @@ import { ClientOrdersPage } from '@/pages/office/ClientOrdersPage'
 import { CostCalculatorPage } from '@/pages/office/CostCalculatorPage'
 import { OrderPrintPage }   from '@/pages/office/OrderPrintPage'
 import { OrderEntryPage }   from '@/features/orders/order-entry/OrderEntryPage'
-import { PalletLabelPrintPage } from '@/pages/office/PalletLabelPrintPage'
+import { PalletLabelsBatchPrintPage, PalletLabelRedirect } from '@/pages/office/PalletLabelsBatchPrintPage'
 import { LabelPrintPage }       from '@/pages/office/LabelPrintPage'
 import { StockCartonLabelPage }  from '@/pages/office/StockCartonLabelPage'
 import { ZebraPrintPage }       from '@/pages/office/ZebraPrintPage'
@@ -130,7 +130,10 @@ export default function App() {
     <Routes>
       {/* Standalone print pages — bez sidebara */}
       <Route path="/office/zamowienia/:id/druk" element={<OrderPrintPage />} />
-      <Route path="/office/zamowienia/:id/palety/:palletNo/druk" element={<PalletLabelPrintPage />} />
+      {/* Kartki palet: ?palety=1,3,4 albo bez parametru = wszystkie. */}
+      <Route path="/office/zamowienia/:id/palety/druk" element={<PalletLabelsBatchPrintPage />} />
+      {/* Stary adres pojedynczej palety — zakładki biura mają dalej działać. */}
+      <Route path="/office/zamowienia/:id/palety/:palletNo/druk" element={<PalletLabelRedirect />} />
       <Route path="/etykiety/druk"    element={<LabelPrintPage />} />
       <Route path="/etykiety/karton/:id" element={<StockCartonLabelPage />} />
       {/* Stary edytor etykiet Zebra (ZPL) wyłączony — używamy wizualnego Projektanta Zebra */}

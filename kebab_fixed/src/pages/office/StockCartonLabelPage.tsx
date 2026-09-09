@@ -9,7 +9,8 @@ import { useApi } from '@/hooks/useApi'
 import { stockCartonsApi } from '@/lib/api'
 import { formatCartonNo } from '@/lib/unitLocation'
 import { useClientNames } from '@/lib/clientNames'
-import { CartonLabel, formatKgCompact } from '@/features/labels/CartonLabel'
+import { CartonLabel } from '@/features/labels/CartonLabel'
+import { buildCartonLabelLines, cartonLabelTotalKg } from '@/features/labels/cartonLabelLines'
 
 export function StockCartonLabelPage() {
   const { id = '' } = useParams<{ id: string }>()
@@ -29,11 +30,18 @@ export function StockCartonLabelPage() {
 
   const cartonNo = formatCartonNo(carton.cartonNo)
   // Karton mieszany: jedna linia opisu na pozycję; total = suma po pozycjach.
-  const lines: { targetQty: number; kgPerUnit: number }[] = carton.lines?.length
-    ? carton.lines.map(l => ({ targetQty: l.targetQty, kgPerUnit: l.kgPerUnit }))
-    : [{ targetQty: carton.targetQty, kgPerUnit: carton.kgPerUnit }]
-  const mainLines = lines.map(l => `${l.targetQty} X ${formatKgCompact(l.kgPerUnit)}KG`)
-  const totalKg = lines.reduce((sum, l) => sum + l.targetQty * l.kgPerUnit, 0)
+  // Ta sama reguła co na palecie zamówienia — jeden wydruk w dwóch miejscach.
+  const items = carton.lines?.length
+    ? carton.lines.map(l => ({
+        qty: l.targetQty, kgPerUnit: l.kgPerUnit,
+        recipeName: l.recipeName, packagingName: l.packagingName,
+      }))
+    : [{
+        qty: carton.targetQty, kgPerUnit: carton.kgPerUnit,
+        recipeName: carton.recipeName, packagingName: carton.packagingName,
+      }]
+  const mainLines = buildCartonLabelLines(items)
+  const totalKg = cartonLabelTotalKg(items)
 
   return (
     <CartonLabel
