@@ -84,7 +84,7 @@ def desktop_update_rozbior_v10_manifest(request: Request):
         return Response(status_code=204)
     bundle = _UPDATES_DIR / meta["filename"]
     if not bundle.is_file():
-        logger.warning("desktop_updates_rozbior_v10.bundle_missing", extra={"filename": meta["filename"]})
+        logger.warning("desktop_updates_rozbior_v10.bundle_missing", extra={"bundle": meta["filename"]})
         return Response(status_code=204)
     return _manifest_payload(request, meta)
 

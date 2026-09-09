@@ -40,7 +40,10 @@ def create_vehicle(dto: VehicleCreate) -> Dict:
                 now_iso(),
             ),
         )
-    logger.info("vehicle.created", extra={"vehicle_id": row["id"], "name": dto.name})
+    # `name` jest ZAREZERWOWANE w LogRecord — w extra= wywala KeyError
+    # i zamienia zapis pojazdu w 500. Patrz python-logrecord-reserved-keys.
+    logger.info("vehicle.created",
+                extra={"vehicle_id": row["id"], "vehicle_name": dto.name})
     return row
 
 

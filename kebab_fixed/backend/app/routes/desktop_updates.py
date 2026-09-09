@@ -52,7 +52,7 @@ def desktop_update_manifest(request: Request):
         return Response(status_code=204)
     bundle = _UPDATES_DIR / meta["filename"]
     if not bundle.is_file():
-        logger.warning("desktop_updates.bundle_missing", extra={"filename": meta["filename"]})
+        logger.warning("desktop_updates.bundle_missing", extra={"bundle": meta["filename"]})
         return Response(status_code=204)
     return _manifest_payload(request, meta)
 
