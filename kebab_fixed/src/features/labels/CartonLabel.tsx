@@ -22,19 +22,28 @@ export { formatKgCompact }
 /** Ile kartek wychodzi z drukarki na jedną paletę. */
 export const KOPII_NA_PALETE = 2
 
-/** Największy i najmniejszy dopuszczalny stopień pisma treści głównej.
- *  Dolna granica istnieje po to, żeby kartka nie zeszła do nieczytelnego
- *  druku — ale musi być NAPRAWDĘ nisko: najdłuższa realna pozycja
- *  („10 X 80KG (SHORMA TRUVA + AROMAT · 80CM)") potrzebuje ~27pt, a przy
- *  dawnym dnie 30pt treść wyjeżdżała poza stronę i drukowała się na dwóch. */
-const MAX_PT = 90
+/** Widełki stopnia pisma treści głównej.
+ *
+ *  GÓRA. Dawne 90pt było sufitem, w który krótka kartka trafiała, mając na
+ *  stronie jeszcze sporo miejsca — a właściciel prosił o „maksymalnie jak
+ *  największą czcionkę". 160pt jest wyżej niż cokolwiek, co zmieści się na
+ *  A4, więc o rozmiarze decyduje teraz strona, a nie ta stała.
+ *
+ *  DÓŁ. Musi być NAPRAWDĘ nisko: najdłuższa realna pozycja
+ *  („8 X 30KG 75CM SHORMA TRUVA + AROMAT") potrzebuje ~27pt, a przy dawnym
+ *  dnie 30pt treść wyjeżdżała poza stronę i drukowała się na dwóch. */
+const MAX_PT = 160
 const MIN_PT = 14
 
 export interface CartonLabelProps {
   /** Numer kartonu — mały, prawy górny róg, BEZ dopisku (np. „000005"). */
   cornerNo: string
   clientName: string
-  /** Pozycje główne, np. ["10 X 80KG (BEYAZ AFIYET)"]. */
+  /** Receptura wspólna dla całej kartki — osobna linia pod klientem.
+   *  `null`, gdy karton wiezie kilka receptur: wtedy każda stoi przy
+   *  swojej pozycji w `mainLines`. */
+  recipeHeader?: string | null
+  /** Pozycje główne, np. ["20 X 40KG"] albo ["20 X 40KG BEYAZ AFIYET"]. */
   mainLines: string[]
   totalKg: number
   /** Lewy dół: etykieta + wartość (np. „ZAMÓWIENIE:" / „ZAM/1" albo „MAGAZYN" / ""). */
@@ -48,7 +57,7 @@ export interface CartonLabelProps {
 
 /** Jedna kartka A4. Renderowana `KOPII_NA_PALETE` razy. */
 function Kartka(props: CartonLabelProps & { egzemplarz: number }) {
-  const { cornerNo, clientName, mainLines, totalKg,
+  const { cornerNo, clientName, recipeHeader, mainLines, totalKg,
           footerLabel, footerValue, qrDataUrl, qrCaption, egzemplarz } = props
 
   const contentBoxRef = useRef<HTMLDivElement | null>(null)
@@ -96,7 +105,7 @@ function Kartka(props: CartonLabelProps & { egzemplarz: number }) {
     const frame = window.requestAnimationFrame(fitContent)
     window.addEventListener('resize', fitContent)
     return () => { window.cancelAnimationFrame(frame); window.removeEventListener('resize', fitContent) }
-  }, [clientName, mainLines.join('|')])
+  }, [clientName, recipeHeader, mainLines.join('|')])
 
   return (
     <div className="label-page relative overflow-hidden" data-testid="label-page" data-egzemplarz={egzemplarz}>
@@ -122,6 +131,7 @@ function Kartka(props: CartonLabelProps & { egzemplarz: number }) {
             }}
           >
             <div>{clientName}</div>
+            {recipeHeader && <div>{recipeHeader}</div>}
             {mainLines.map((ln, i) => (
               <div key={i} className={i === 0 ? 'mt-4' : ''}>{ln}</div>
             ))}

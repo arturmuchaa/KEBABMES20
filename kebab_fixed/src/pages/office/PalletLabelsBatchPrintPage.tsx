@@ -23,7 +23,7 @@ import { drukuj } from '@/lib/print'
 import {
   CARTON_LABEL_STYLES, CartonLabelPages, KOPII_NA_PALETE,
 } from '@/features/labels/CartonLabel'
-import { buildCartonLabelLines, cartonLabelTotalKg } from '@/features/labels/cartonLabelLines'
+import { buildCartonLabelContent, cartonLabelTotalKg } from '@/features/labels/cartonLabelLines'
 
 /** Numery palet z `?palety=1,3,4`. Brak parametru = wszystkie (null).
  *  Śmieci w parametrze pomijamy zamiast wywracać wydruk — adres bywa
@@ -71,11 +71,14 @@ export function PalletLabelsBatchPrintPage() {
         }
       })
       const totalQty = items.reduce((sum, it) => sum + it.qty, 0)
-      const mainLines = buildCartonLabelLines(items)
+      const { recipeHeader, lines } = buildCartonLabelContent(items)
       return {
         palletNo: paleta.palletNo,
         cornerNo: paleta.cartonNo || `P${paleta.palletNo}`,
-        mainLines: mainLines.length ? mainLines : [`${totalQty} SZT`],
+        recipeHeader,
+        // Paleta bez ani jednej pozycji z wagą — zostaje sama liczba sztuk,
+        // żeby kartka nie wyszła pusta.
+        mainLines: lines.length ? lines : [`${totalQty} SZT`],
         totalKg: cartonLabelTotalKg(items),
       }
     })
@@ -167,6 +170,7 @@ export function PalletLabelsBatchPrintPage() {
           key={k.palletNo}
           cornerNo={k.cornerNo}
           clientName={clientDisplay(order.clientName)}
+          recipeHeader={k.recipeHeader}
           mainLines={k.mainLines}
           totalKg={k.totalKg}
           footerLabel="ZAMÓWIENIE:"

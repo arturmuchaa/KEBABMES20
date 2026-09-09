@@ -23,7 +23,8 @@ function pokaz(props: Partial<React.ComponentProps<typeof CartonLabel>> = {}) {
       <CartonLabel
         cornerNo="000005"
         clientName="YALCIN"
-        mainLines={['10 X 80KG (BEYAZ AFIYET)', '5 X 40KG (KIRMIZI)']}
+        recipeHeader={null}
+        mainLines={['10 X 80KG BEYAZ AFIYET', '5 X 40KG KIRMIZI']}
         totalKg={1000}
         footerLabel="ZAMÓWIENIE:"
         footerValue="YALCIN/Z/4/09/26"
@@ -45,14 +46,21 @@ describe('CartonLabel — dwie kopie', () => {
   it('obie kopie maja te sama tresc', () => {
     pokaz()
     expect(screen.getAllByText('YALCIN')).toHaveLength(2)
-    expect(screen.getAllByText('10 X 80KG (BEYAZ AFIYET)')).toHaveLength(2)
-    expect(screen.getAllByText('5 X 40KG (KIRMIZI)')).toHaveLength(2)
+    expect(screen.getAllByText('10 X 80KG BEYAZ AFIYET')).toHaveLength(2)
+    expect(screen.getAllByText('5 X 40KG KIRMIZI')).toHaveLength(2)
     expect(screen.getAllByText('000005')).toHaveLength(2)
   })
 
-  it('pokazuje recepture przy kazdej pozycji', () => {
-    pokaz({ mainLines: ['18 X 40KG (KIRMIZI · 80CM)'] })
-    expect(screen.getAllByText('18 X 40KG (KIRMIZI · 80CM)')).toHaveLength(2)
+  it('pokazuje recepture przy pozycji, gdy jest ich kilka', () => {
+    pokaz({ mainLines: ['18 X 40KG 80CM KIRMIZI'] })
+    expect(screen.getAllByText('18 X 40KG 80CM KIRMIZI')).toHaveLength(2)
+  })
+
+  it('wspolna receptura stoi osobna linia pod klientem', () => {
+    pokaz({ recipeHeader: 'KIRMIZI', mainLines: ['20 X 40KG', '10 X 20KG 80CM'] })
+    expect(screen.getAllByText('KIRMIZI')).toHaveLength(2)
+    expect(screen.getAllByText('20 X 40KG')).toHaveLength(2)
+    expect(screen.getAllByText('10 X 20KG 80CM')).toHaveLength(2)
   })
 
   it('pasek narzedzi jest JEDEN, nie jeden na kopie', () => {

@@ -123,12 +123,19 @@ test.describe('kartki palet — dopasowanie do jednej strony', () => {
     expect(jedna).toBeGreaterThan(trzy)
   })
 
-  test('kartka niesie klienta, receptury i tuleje niestandardowe', async ({ page }) => {
+  test('dwie receptury: kazda przy swojej pozycji, tuleja przed nazwa', async ({ page }) => {
     await otworz(page, [paleta(1, '000001',
       [['l1', 10], ['l2', 5]])], '?palety=1')
-    await expect(page.getByText('10 X 80KG (BEYAZ AFIYET)').first()).toBeVisible()
-    await expect(page.getByText('5 X 40KG (KIRMIZI · 80CM)').first()).toBeVisible()
+    await expect(page.getByText('10 X 80KG BEYAZ AFIYET').first()).toBeVisible()
+    await expect(page.getByText('5 X 40KG 80CM KIRMIZI').first()).toBeVisible()
     await expect(page.getByText('YALCIN').first()).toBeVisible()
+  })
+
+  test('jedna receptura: osobna linia pod klientem, pozycje to same liczby', async ({ page }) => {
+    await otworz(page, [paleta(1, '000001', [['l1', 10]])], '?palety=1')
+    await expect(page.getByText('YALCIN').first()).toBeVisible()
+    await expect(page.getByText('BEYAZ AFIYET').first()).toBeVisible()
+    await expect(page.getByText('10 X 80KG').first()).toBeVisible()
   })
 
   test('wiele palet: każda po dwie kartki, każda mieści się na stronie', async ({ page }) => {

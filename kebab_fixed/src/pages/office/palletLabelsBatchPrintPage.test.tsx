@@ -81,16 +81,17 @@ describe('PalletLabelsBatchPrintPage — ile kartek', () => {
 })
 
 describe('PalletLabelsBatchPrintPage — tresc kartek', () => {
-  it('kazda kartka niesie klienta i recepture', async () => {
+  it('paleta z jedna receptura ma ja osobna linia pod klientem', async () => {
     await pokaz('?palety=1')
     expect(screen.getAllByText('YALCIN')).toHaveLength(2)
-    expect(screen.getAllByText('10 X 80KG (BEYAZ AFIYET)')).toHaveLength(2)
+    expect(screen.getAllByText('BEYAZ AFIYET')).toHaveLength(2)
+    expect(screen.getAllByText('10 X 80KG')).toHaveLength(2)
   })
 
-  it('paleta mieszana ma obie receptury, kazda w swojej linii', async () => {
+  it('paleta mieszana ma recepture przy KAZDEJ pozycji, bez nawiasow', async () => {
     await pokaz('?palety=3')
-    expect(screen.getAllByText('4 X 80KG (BEYAZ AFIYET)')).toHaveLength(2)
-    expect(screen.getAllByText('2 X 40KG (KIRMIZI · 80CM)')).toHaveLength(2)
+    expect(screen.getAllByText('4 X 80KG BEYAZ AFIYET')).toHaveLength(2)
+    expect(screen.getAllByText('2 X 40KG 80CM KIRMIZI')).toHaveLength(2)
   })
 
   it('mowi, ktore palety poszly na wydruk', async () => {

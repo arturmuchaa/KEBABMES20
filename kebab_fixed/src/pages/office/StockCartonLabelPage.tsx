@@ -10,7 +10,7 @@ import { stockCartonsApi } from '@/lib/api'
 import { formatCartonNo } from '@/lib/unitLocation'
 import { useClientNames } from '@/lib/clientNames'
 import { CartonLabel } from '@/features/labels/CartonLabel'
-import { buildCartonLabelLines, cartonLabelTotalKg } from '@/features/labels/cartonLabelLines'
+import { buildCartonLabelContent, cartonLabelTotalKg } from '@/features/labels/cartonLabelLines'
 
 export function StockCartonLabelPage() {
   const { id = '' } = useParams<{ id: string }>()
@@ -40,13 +40,14 @@ export function StockCartonLabelPage() {
         qty: carton.targetQty, kgPerUnit: carton.kgPerUnit,
         recipeName: carton.recipeName, packagingName: carton.packagingName,
       }]
-  const mainLines = buildCartonLabelLines(items)
+  const { recipeHeader, lines: mainLines } = buildCartonLabelContent(items)
   const totalKg = cartonLabelTotalKg(items)
 
   return (
     <CartonLabel
       cornerNo={cartonNo}
       clientName={clientDisplay(carton.clientName)}
+      recipeHeader={recipeHeader}
       mainLines={mainLines}
       totalKg={totalKg}
       footerLabel="MAGAZYN"
