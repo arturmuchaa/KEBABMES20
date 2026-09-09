@@ -35,8 +35,21 @@ wymuszała. Dwie konsekwencje, obie naprawione tutaj:
 
 Wagi sztuk w zakładzie są zwykle wielokrotnościami 5 kg, więc osiągalna
 jest każda wielokrotność 5 kg i cel poza tą siatką (np. połowa nieparzystej
-sumy: 13 005 / 2 = 6502,5) jest nieosiągalny. Dla innych wag (np. 12,5 kg)
-osiągalność liczymy dokładnie, bez tego założenia.
+sumy: 13 005 / 2 = 6502,5) jest nieosiągalny. Dla innych wag osiągalność
+liczymy dokładnie DLA WAG BĘDĄCYCH WIELOKROTNOŚCIĄ 0,01 KG — bitset ma
+granulację `SKALA` (setne kg), więc dokładniejsze wagi (np. 13,9885 kg)
+zaokrąglamy do tej granulacji przy liczeniu osiągalności; sam wynik
+(`kg_fv`) i tak wraca policzony z PRAWDZIWYCH, niezaokrąglonych wag.
+
+Fix po review (2026-09-09, runda 2): `limit_scaled` liczony z niezaokrąglonej
+sumy (`round(calosc * SKALA)`) mógł wypaść O JEDNĄ JEDNOSTKĘ SKALI za mały
+względem sumy wag ZAOKRĄGLONYCH, których bitset naprawdę używa (np. dla
+4 × 13,9885 kg: `round(13.9885*100)*4 = 1399*4 = 5596`, a
+`round(4*13.9885*100) = 5595`). Maska wtedy po cichu ucinała bit „wszystkie
+sztuki" — sumę, która z definicji ZAWSZE musi być osiągalna. Fix: liczymy
+`limit_scaled` z TYCH SAMYCH zaokrąglonych wag co bitset (`_limit_scaled`),
+nie z niezaokrąglonej sumy — wtedy suma „bierzemy wszystko" z definicji
+mieści się w masce.
 """
 from __future__ import annotations
 
@@ -153,6 +166,24 @@ def _dobij(stan: List[Dict[str, Any]], cel: float) -> bool:
     return False
 
 
+def _limit_scaled(linie: List[Dict[str, Any]]) -> int:
+    """Suma WSZYSTKICH sztuk (w setnych kg), licząc z TYCH SAMYCH
+    zaokrąglonych wag, których używa bitset — nie z niezaokrąglonej sumy.
+
+    To jest kluczowe: „bierzemy wszystko" to zawsze legalny podział, więc ta
+    suma MUSI być osiągalna. Gdyby limit liczyć z niezaokrąglonej sumy kg,
+    zaokrąglenie POSZCZEGÓLNYCH wag mogłoby dać sumę o jedną jednostkę
+    skali WIĘKSZĄ niż limit — maska ucinałaby wtedy bit „wszystko" po cichu.
+    """
+    total = 0
+    for l in linie:
+        waga = round(float(l.get("kg_per_unit") or 0) * SKALA)
+        qty = int(l.get("qty") or 0)
+        if waga > 0 and qty > 0:
+            total += waga * qty
+    return total
+
+
 def _bitset_prefiksy(linie: List[Dict[str, Any]], limit_scaled: int) -> List[int]:
     """Bitsety osiągalnych sum (w setnych kg) dla KAŻDEGO prefiksu pozycji.
 
@@ -185,8 +216,7 @@ def _bitset_prefiksy(linie: List[Dict[str, Any]], limit_scaled: int) -> List[int
     return wynik
 
 
-def _dobierz_bitsetem(linie: List[Dict[str, Any]], cel: float,
-                       calosc: float) -> Tuple[float, List[Dict[str, Any]]]:
+def _dobierz_bitsetem(linie: List[Dict[str, Any]], cel: float) -> Tuple[float, List[Dict[str, Any]]]:
     """Krok 3: PRAWDZIWA najbliższa osiągalna suma + gwarantowany rozkład sztuk.
 
     Wywoływane tylko wtedy, gdy `_rownomiernie` + `_dobij` nie trafiły w cel
@@ -195,9 +225,16 @@ def _dobierz_bitsetem(linie: List[Dict[str, Any]], cel: float,
     ostatniej pozycji do pierwszej — do odtworzenia KONKRETNYCH sztuk, które
     tę sumę dają. Odtworzenie jest dokładne z definicji (sprawdzane przy
     każdym kroku przez bitset prefiksu), więc nie ma szans na rozminięcie.
+
+    `limit_scaled` liczymy z `_limit_scaled` (zaokrąglone wagi — to samo
+    źródło, którego używa `_bitset_prefiksy`), NIE z niezaokrąglonego
+    `calosc` — inaczej suma „wszystkie sztuki" mogłaby wypaść poza maskę
+    i zostać po cichu ucięta (runda 2 review). `cel_scaled` przycinamy do
+    tego samego zakresu, bo `cel` (parametr, niezaokrąglony) może się od
+    niego różnić o ułamek jednostki skali.
     """
-    limit_scaled = round(calosc * SKALA)
-    cel_scaled = round(cel * SKALA)
+    limit_scaled = _limit_scaled(linie)
+    cel_scaled = max(0, min(round(cel * SKALA), limit_scaled))
     prefiksy = _bitset_prefiksy(linie, limit_scaled)
     nbytes = limit_scaled // 8 + 1
     bufory = [p.to_bytes(nbytes, "little") for p in prefiksy]
@@ -251,7 +288,7 @@ def podziel_pozycje(linie: List[Dict[str, Any]], cel_kg: float) -> Dict[str, Any
     if not _dobij(stan, cel):
         # Punkt równomierny nie dobił do celu małym ruchem — sprawdzamy
         # PRAWDZIWĄ najbliższą osiągalną sumę (bitset), nie zgadujemy.
-        docelowy, stan_bitset = _dobierz_bitsetem(linie, cel, calosc)
+        docelowy, stan_bitset = _dobierz_bitsetem(linie, cel)
         stan = _rownomiernie(linie, docelowy, calosc)
         if not _dobij(stan, docelowy):
             # Nawet dobicie do najbliższej osiągalnej sumy nie wyszło z

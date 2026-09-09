@@ -176,3 +176,53 @@ def test_ruch_trzech_sztuk_trafia_dokladnie():
     w = podziel_pozycje(linie, 20.0)
     assert w["trafiono"] is True
     assert w["kg_fv"] == 20.0
+
+
+def test_waga_z_czterema_miejscami_po_przecinku_trafia_w_prawdziwa_najblizsza_sume():
+    """Runda 2 review: 4 × 13,9885 kg, cel 51,934 kg. `limit_scaled` liczony
+    z niezaokrąglonej sumy (`round(55.954*100)=5595`) był o jednostkę skali
+    za mały względem sumy ZAOKRĄGLONYCH wag, których naprawdę używa bitset
+    (`round(13.9885*100)*4 = 1399*4 = 5596`) — maska po cichu ucinała bit
+    „wszystkie 4 sztuki", więc implementacja zwracała 41,965 (3 szt.) zamiast
+    prawdziwie najbliższej sumy 55,954 (4 szt., odległość 4,02 kg zamiast
+    9,97 kg). Wyrocznia liczona brute force po wszystkich liczbach sztuk
+    (0..4), NIEZALEŻNIE od `podziel_pozycje`."""
+    linie = [_l("a", 4, 13.9885)]
+    cel = 51.934
+
+    najblizsza = None
+    for n in range(5):
+        suma = n * 13.9885
+        klucz = (abs(suma - cel), suma)
+        if najblizsza is None or klucz < (abs(najblizsza - cel), najblizsza):
+            najblizsza = suma
+
+    w = podziel_pozycje(linie, cel)
+    assert w["trafiono"] is False
+    assert w["kg_fv"] == round(najblizsza, 3)
+    assert w["lines"][0]["qty_invoice"] == 4
+
+
+def test_wszystkie_sztuki_zawsze_osiagalne_niezaleznie_od_precyzji_wag():
+    """Własność: suma „bierzemy wszystko" MUSI być osiągalna dla KAŻDEGO
+    zestawu wag — to zawsze legalny podział (cały dokument na fakturę).
+    Sprawdzane wprost na `_dobierz_bitsetem` (nie przez `podziel_pozycje`):
+    tam cel >= całości zawsze trafia szybką ścieżkę równomierną, która
+    nigdy nie woła bitseta, więc czarnoskrzynkowo ten test nie złapałby
+    regresji z rundy 2 (limit o jednostkę skali za mały dla wag o więcej
+    niż dwóch miejscach po przecinku)."""
+    from app.services.order_split import _dobierz_bitsetem
+
+    zestawy = [
+        [_l("a", 4, 13.9885)],
+        [_l("a", 3, 12.3456), _l("b", 5, 7.891)],
+        [_l("a", 1, 0.01), _l("b", 2, 0.02), _l("c", 6, 19.995)],
+        YALCIN,
+    ]
+    for linie in zestawy:
+        calosc = sum(l["qty"] * l["kg_per_unit"] for l in linie)
+        _, stan = _dobierz_bitsetem(linie, calosc + 1_000_000.0)
+        for x, l in zip(stan, linie):
+            assert x["qty_invoice"] == l["qty"], (l, x)
+        suma_prawdziwa = sum(x["qty_invoice"] * x["kg_per_unit"] for x in stan)
+        assert abs(suma_prawdziwa - calosc) < 1e-6
