@@ -1,0 +1,258 @@
+"""Załadunek auta od skanu palety do dokumentu — cała ścieżka.
+
+Biuro (2026-09-09, przed załadunkiem YALCIN/Z/4): „sprawdź czy cały przepływ
+działa, czy nie ma błędów, jak będą wystawiane dokumenty po załadunku".
+
+Powód, dla którego ten plik powstał: `finalize_loading` — funkcja, która przy
+załadunku wystawia albo weryfikuje WZ, zdejmuje stan i zamyka palety — NIE
+MIAŁA ŻADNEGO TESTU. Testowane były tylko jej funkcje pomocnicze
+(`verify_wz_against_loaded`, `aggregate_loaded_units`). Na produkcji ścieżka
+też nigdy nie przeszła: 177 dokumentów WZ i ani jednego z `loaded_at`.
+
+Testy DB — bez TEST_DATABASE_URL skip.
+"""
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from app.db import execute, query_all, query_one
+from app.services.loading_service import finalize_loading
+
+
+# ── Zasiew ────────────────────────────────────────────────────────────────
+def _firma():
+    execute("INSERT INTO app_settings (key, value) VALUES ('company', %s::jsonb) "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (json.dumps({"name": "F.H.U.P. MAREK KSIĘŻYC", "city": "Rudawa",
+                         "address": "ul. Księżyca 83", "postalCode": "32-064",
+                         "nip": "1234567890"}),))
+
+
+def _pojazd(vid="v1", plate="KR 12345"):
+    execute("INSERT INTO vehicles (id, name, plate, active) "
+            "VALUES (%s,'Chłodnia 1',%s,true) ON CONFLICT (id) DO NOTHING", (vid, plate))
+    return vid
+
+
+def _klient(cid="c1", name="YBM Gastro GmbH", display="YALCIN"):
+    execute("INSERT INTO clients (id, code, name, display_name) "
+            "VALUES (%s,'YAL',%s,%s) ON CONFLICT (id) DO NOTHING", (cid, name, display))
+    return cid
+
+
+def _receptura(rid="r1", nazwa="KIRMIZI"):
+    # `%%` — psycopg2 traktuje pojedynczy `%` jako placeholder nawet bez params.
+    execute("INSERT INTO product_types (id, name) VALUES ('pt1','KEBAB UDO 100%%') "
+            "ON CONFLICT (id) DO NOTHING")
+    execute("INSERT INTO recipes (id, name, product_type_id) VALUES (%s,%s,'pt1') "
+            "ON CONFLICT (id) DO NOTHING", (rid, nazwa))
+    return rid
+
+
+def _zamowienie(oid="o1", order_no="YALCIN/Z/4/09/26", cid="c1", qty=10, kg=30):
+    execute(
+        "INSERT INTO client_orders (id, order_no, client_id, client_name, order_date, "
+        " created_at, status) VALUES (%s,%s,%s,'YBM Gastro GmbH','2026-09-08',"
+        " '2026-09-08 08:00:00+00','confirmed')", (oid, order_no, cid))
+    execute(
+        "INSERT INTO client_order_lines (id, order_id, recipe_id, product_type_id, qty, "
+        " kg_per_unit, total_kg) VALUES (%s,%s,'r1','pt1',%s,%s,%s)",
+        (f"{oid}-l1", oid, qty, kg, qty * kg))
+    return oid
+
+
+def _wyrob(gid="f1", qty=10, kg=30, cid="c1"):
+    """Wyrób gotowy na stanie — to z niego schodzi towar przy załadunku."""
+    execute(
+        "INSERT INTO finished_goods (id, batch_no, recipe_id, recipe_name, product_type_id, "
+        " product_type_name, qty, kg_per_unit, total_kg, qty_available, qty_shipped, "
+        " client_id, client_name, produced_date) "
+        "VALUES (%s,'080926 500','r1','KIRMIZI','pt1','KEBAB UDO 100%%',%s,%s,%s,%s,0,"
+        " %s,'YBM Gastro GmbH','2026-09-08')",
+        (gid, qty, kg, qty * kg, qty, cid))
+    return gid
+
+
+def _paleta(pid="p1", oid="o1", nr=1, status="loaded", vid="v1"):
+    execute(
+        "INSERT INTO order_pallets (id, order_id, pallet_no, notes, status, "
+        " loaded_vehicle_id, loaded_at) VALUES (%s,%s,%s,'',%s,%s,now())",
+        (pid, oid, nr, status, vid if status == "loaded" else None))
+    return pid
+
+
+def _sztuki(pallet_id, gid, ile=10, kg=30, oid="o1", od=1, status="packed"):
+    """Sztuki QR leżące na palecie, powiązane z wyrobem gotowym."""
+    for i in range(ile):
+        execute(
+            "INSERT INTO finished_units (id, qr_code, order_id, client_name, "
+            " product_type_id, recipe_id, weight_kg, batch_no, status, pallet_id, "
+            " source_finished_goods_id) "
+            "VALUES (%s,%s,%s,'YBM Gastro GmbH','pt1','r1',%s,'500',%s,%s,%s)",
+            (f"u{od + i}", f"UNIT|{od + i}", oid, kg, status, pallet_id, gid))
+
+
+def _wz_zamowienia(wid="w1", oid="o1", linie=None, nr=1):
+    """WZ wystawiony WCZEŚNIEJ z zamówienia — tryb „przygotuj przed załadunkiem"."""
+    execute(
+        "INSERT INTO wz_documents (id, number, seq, year_month, source_type, source_id, "
+        " buyer_name, valued, lines, status, currency, pallets_h1, pallets_other, "
+        " issued_date, created_at) "
+        "VALUES (%s,%s,%s,'09/26','order',%s,'YBM Gastro GmbH',false,%s::jsonb,'wstepny',"
+        " 'PLN',0,0,'2026-09-10',now())",
+        (wid, f"WZ/{nr}/09/26", nr, oid, json.dumps(linie or [])))
+    return wid
+
+
+def _linia_wz(qty=10, kg=30, recipe_id="r1", batch="500"):
+    return {"stock_type": "fg", "stock_id": "f1", "qty": qty, "unit": "szt",
+            "recipe_id": recipe_id, "kg_per_unit": kg, "batch_no": batch,
+            "name": "KEBAB UDO 100% KIRMIZI 30 kg"}
+
+
+def _przygotuj(qty=10, kg=30):
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=qty, kg=kg)
+    _wyrob(qty=qty, kg=kg)
+    _paleta()
+    _sztuki("p1", "f1", ile=qty, kg=kg)
+
+
+# ── Ścieżka 1: dokumenty powstają PRZY załadunku ──────────────────────────
+def test_zaladunek_bez_wz_wystawia_dokument(db):
+    """Nie ma WZ — załadunek go tworzy z faktycznej zawartości auta."""
+    _przygotuj()
+
+    wynik = finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    assert wynik["ok"] is True
+    zam = wynik["orders"][0]
+    assert zam.get("skipped") is None, zam
+    assert zam["wz_number"], "załadunek nie wystawił WZ"
+    assert zam["wz_status"] == "potwierdzony"
+    assert zam["units"] == 10
+
+
+def test_zaladunek_zdejmuje_stan_magazynu(db):
+    _przygotuj()
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
+
+
+def test_zaladunek_zamyka_palety_i_sztuki(db):
+    _przygotuj()
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    assert query_one("SELECT status FROM order_pallets WHERE id='p1'")["status"] == "shipped"
+    statusy = {r["status"] for r in query_all(
+        "SELECT status FROM finished_units WHERE pallet_id='p1'")}
+    assert statusy == {"shipped"}
+
+
+def test_wz_z_zaladunku_ma_slad_auta(db):
+    """Kontrola musi widzieć, czym towar pojechał i kiedy."""
+    _przygotuj()
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    wz = query_one("SELECT vehicle_plate, loaded_at, loading_status FROM wz_documents "
+                   "WHERE source_id='o1'")
+    assert wz["vehicle_plate"] == "KR 99999"
+    assert wz["loaded_at"] is not None
+    assert wz["loading_status"] == "potwierdzony"
+
+
+def test_zaladunek_jest_idempotentny(db):
+    """Drugie kliknięcie nie może wystawić drugiego WZ ani zdjąć stanu dwa razy."""
+    _przygotuj()
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    assert len(query_all("SELECT id FROM wz_documents WHERE source_id='o1'")) == 1
+    fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
+
+
+# ── Ścieżka 2: WZ przygotowany wcześniej, załadunek go WERYFIKUJE ─────────
+def test_wz_przygotowany_wczesniej_zgadza_sie_z_autem(db):
+    _przygotuj()
+    _wz_zamowienia(linie=[_linia_wz(qty=10)])
+
+    wynik = finalize_loading("v1", ["o1"], plate="KR 99999")
+    zam = wynik["orders"][0]
+
+    assert zam["wz_status"] == "potwierdzony", zam
+    assert zam["diff"] == []
+    # Rozchód zrobił WZ przy wystawieniu — załadunek NIE może zdjąć drugi raz.
+    fg = query_one("SELECT qty_available FROM finished_goods WHERE id='f1'")
+    assert int(fg["qty_available"]) == 10
+
+
+def test_niedowoz_wychodzi_jako_rozjazd(db):
+    """Na aucie mniej, niż mówi dokument — biuro ma to zobaczyć, nie zgadywać."""
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10); _wyrob(qty=10); _paleta()
+    _sztuki("p1", "f1", ile=7)                 # załadowano 7 z 10
+    _wz_zamowienia(linie=[_linia_wz(qty=10)])
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+
+    assert zam["wz_status"] == "rozjazd"
+    assert zam["diff"], "rozjazd bez opisu różnicy jest bezużyteczny"
+
+
+# ── Ścieżka 3: przypadki, które muszą zatrzymać załadunek ────────────────
+def test_sztuki_bez_powiazania_z_wyrobem_blokuja_wydanie(db):
+    """Dzień produkcji niezamknięty — nie wiadomo, z jakiej partii schodzi towar."""
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(); _wyrob(); _paleta()
+    _sztuki("p1", None, ile=10)                # brak source_finished_goods_id
+
+    with pytest.raises(Exception) as e:
+        finalize_loading("v1", ["o1"], plate="KR 99999")
+    assert "powiązania" in str(e.value) or "produkcj" in str(e.value).lower()
+
+
+def test_za_malo_na_stanie_zatrzymuje_zaladunek(db):
+    """Na aucie więcej sztuk, niż jest na stanie — magazyn zszedłby na minus."""
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10); _wyrob(qty=4); _paleta()
+    _sztuki("p1", "f1", ile=10)
+
+    with pytest.raises(Exception) as e:
+        finalize_loading("v1", ["o1"], plate="KR 99999")
+    assert "za mało na stanie" in str(e.value)
+
+
+def test_paleta_nie_zaladowana_nie_jedzie(db):
+    """Paleta bez skanu „załadowana" nie może trafić na dokument."""
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(); _wyrob()
+    _paleta(status="created")                  # nikt jej nie zeskanował
+    _sztuki("p1", "f1", ile=10)
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+    assert zam.get("skipped"), "paleta bez skanu nie może wystawić dokumentu"
+    assert not query_all("SELECT id FROM wz_documents WHERE source_id='o1'")
+
+
+def test_pusta_paleta_nie_wystawia_dokumentu(db):
+    """Skan palety bez zeskanowanych sztuk — dokładnie stan YALCIN/Z/4 na
+    2026-09-09: palety rozpisane, ale ani jednej sztuki QR na nich."""
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(); _wyrob(); _paleta()         # paleta „loaded", ale pusta
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+
+    assert zam.get("skipped") == "brak załadowanych sztuk"
+    assert not query_all("SELECT id FROM wz_documents WHERE source_id='o1'")
+
+
+def test_nieznany_pojazd_odrzucony(db):
+    _firma(); _klient(); _receptura(); _zamowienie(); _wyrob()
+    with pytest.raises(Exception) as e:
+        finalize_loading("NIE-MA", ["o1"])
+    assert "ojazd" in str(e.value)
