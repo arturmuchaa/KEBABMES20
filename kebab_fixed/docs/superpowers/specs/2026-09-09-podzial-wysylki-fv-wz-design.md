@@ -37,6 +37,8 @@ Faktura powstaje w Subiekcie — MES jej nie wystawia i nie będzie.
 1. **Podział równomierny po WSZYSTKICH pozycjach.** Nie wybieranie, które
    pozycje jadą na FV: „chcę, aby wszystkie pozycje były, ale mniej".
    Przy 50/50 całe zamówienie idzie na pół.
+   **Wynik musi trafiać DOKŁADNIE w podaną liczbę kilogramów** — jeśli trzeba,
+   system przesuwa pojedynczą sztukę, byle się zgadzało.
 2. **WZ na całość jest wewnętrzny** — klient go nie dostaje.
 3. **Osobna seria wewnętrzna** dla tego WZ (nie mieszamy z serią WZ, która
    wychodzi do klientów).
@@ -47,28 +49,42 @@ Faktura powstaje w Subiekcie — MES jej nie wystawia i nie będzie.
 
 ## Algorytm podziału
 
-Cel: rozdzielić sztuki tak, by suma kilogramów części fakturowanej była jak
-najbliżej podanej liczby, a KAŻDA pozycja była obecna po obu stronach.
+Właściciel (2026-09-09): „musimy zrobić tak, aby można było dzielić tak, jak ja
+chcę — równo. Jeżeli chcę 8000 kg i 5005 kg, to musi się dać tak dzielić, wtedy
+trzeba usunąć jakąś sztukę, tak aby trafić w ten podział".
 
-```
-udział = cel_kg / kg_całości
-dla każdej pozycji:  na_FV = floor(qty × udział)          # sztuki całkowite
-potem, malejąco po reszcie z zaokrąglenia:
-    dodaj 1 szt, jeśli zbliża sumę kg do celu
-```
+Podział ma więc trafiać **DOKŁADNIE** w podaną liczbę, a nie tylko blisko.
 
-Sztuk nie da się dzielić, więc **wynik nigdy nie trafi co do kilograma** —
-biuro widzi wyliczony podział i zatwierdza albo poprawia pojedynczą pozycję.
+Trzy kroki:
+
+1. **Równomiernie** — każda pozycja oddaje na fakturę ten sam procent sztuk
+   (`floor(qty × udział)`, reszta metodą największych reszt). To daje rozkład,
+   w którym każda pozycja jest obecna po obu stronach.
+2. **Dobicie do celu** — brakujące kilogramy nadrabiamy najmniejszą możliwą
+   zmianą: najpierw przesunięcie jednej sztuki, potem wymiana dwóch
+   (dodaj sztukę X, zabierz sztukę Y), potem trzech. Szukamy najmniejszego
+   ruchu, żeby nie zepsuć równomierności z kroku 1.
+3. **Gdy cel jest nieosiągalny** — pokazujemy najbliższą sumę, jaką da się
+   złożyć z całych sztuk, i mówimy o tym wprost.
+
+Kiedy cel jest nieosiągalny: wagi sztuk w zakładzie to wielokrotności 5 kg, więc
+osiągalna jest **każda wielokrotność 5 kg** — czyli praktycznie każda liczba,
+jaką poda klient. Nieosiągalne są tylko cele spoza tej siatki, na przykład
+połowa nieparzystej sumy: 13 005 / 2 = 6502,5 kg → najbliżej 6500 kg (−2,5 kg).
 
 Sprawdzone na YALCIN/Z/4/09/26 (21 pozycji, 486 szt, 13 005 kg):
 
-| Cel | Wynik FV | Wynik WZ | Odchyłka |
+| Cel | Wynik FV | Wynik WZ | Jak trafiono |
 |---|---|---|---|
-| 8000 kg | 7995 kg (299 szt) | 5010 kg (187 szt) | −5 kg |
-| 50/50 (6502 kg) | 6515 kg (244 szt) | 6490 kg (242 szt) | +12 kg |
+| **8000 kg** | **8000 kg** | **5005 kg** | wymiana 2 sztuk |
+| 6000 kg | 6000 kg | 7005 kg | od razu, bez korekty |
+| 9000 kg | 9000 kg | 4005 kg | przesunięcie 1 sztuki |
+| 10 000 kg | 10 000 kg | 3005 kg | przesunięcie 1 sztuki |
+| 50/50 (6502,5 kg) | 6500 kg | 6505 kg | cel nieosiągalny, najbliższe |
 
-Udział pojedynczej pozycji mieści się w 58–63 % przy celu 8000 kg; wyjątki to
-pozycje o 4–5 sztukach, gdzie jedna sztuka to 20–25 % pozycji.
+Dobicie do celu psuje równomierność tylko punktowo — jedna lub dwie pozycje
+oddają o sztukę więcej lub mniej, niż wynikałoby z proporcji. Biuro widzi
+wynik przed zatwierdzeniem i może poprawić ręcznie.
 
 ## Model danych
 
@@ -137,12 +153,17 @@ z podziałem; przeliczenie na `invoice_kg_target`, gdy zmieniły się ilości.
 klienta. Mitigacja: dopisek na wydruku „DOKUMENT WEWNĘTRZNY — NIE WYDAWAĆ
 KLIENTOWI".
 
-**Zaokrąglenie.** Nie da się usunąć; pokazywana odchyłka i ręczna korekta.
+**Cel nieosiągalny z całych sztuk.** Dotyczy tylko celów spoza siatki 5 kg
+(np. połowa nieparzystej sumy). Mitigacja: pokazujemy najbliższą osiągalną
+sumę i mówimy o tym wprost, zamiast po cichu rozminąć się z tym, co biuro
+uzgodniło z klientem.
 
 ## Zakres testów
 
-- algorytm podziału: równomierność, sztuki całkowite, suma = całość, 50/50,
-  cel większy niż zamówienie, zamówienie jednopozycyjne, cel 0;
+- algorytm podziału: **trafienie CO DO KILOGRAMA** (8000 → dokładnie 8000),
+  równomierność, sztuki całkowite, suma = całość, 50/50, cel nieosiągalny
+  (najbliższa suma + informacja), cel większy niż zamówienie,
+  zamówienie jednopozycyjne, cel 0;
 - podział przeżywa edycję zamówienia;
 - **tylko `WM` tworzy ruch magazynowy** — pozostałe dokumenty nie;
 - numeracja `WM`: własny licznik, zwolniony numer wraca do puli;
