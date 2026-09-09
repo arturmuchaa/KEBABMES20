@@ -1549,6 +1549,17 @@ _DDL: list[str] = [
     # podziału, czyli zamówienie zachowuje się jak przed tą zmianą.
     "ALTER TABLE client_order_lines ADD COLUMN IF NOT EXISTS qty_invoice INTEGER",
     "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS invoice_kg_target NUMERIC",
+
+    # Seria dokumentu wydania: 'WZ' wychodzi do klienta, 'WM' zostaje w biurze
+    # (WZ wewnętrzny na całość dostawy, gdy klient bierze część na fakturę).
+    "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS doc_series TEXT DEFAULT 'WZ'",
+    # Unikat po (year_month, seq) sam nie wystarcza — WM/1 i WZ/1 to dwa różne
+    # rejestry i muszą móc istnieć obok siebie w tym samym miesiącu. Indeks
+    # trzeba przebudować (IF NOT EXISTS po samej nazwie nie zmieniłby kolumn
+    # na bazie, która ma już starą wersję).
+    "DROP INDEX IF EXISTS ux_wz_ym_seq",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_wz_ym_seq "
+    "ON wz_documents(year_month, seq, COALESCE(doc_series,'WZ'))",
 ]
 
 

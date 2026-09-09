@@ -45,10 +45,10 @@ from app.utils.stock import create_stock_movement
 logger = get_logger(__name__)
 
 
-def format_wz_number(seq: int, year_month: str) -> str:
-    # year_month = "RRMM" (np. "2606"); numer = WZ/NN/MM/RR
+def format_wz_number(seq: int, year_month: str, series: str = "WZ") -> str:
+    # year_month = "RRMM" (np. "2606"); numer = WZ/NN/MM/RR albo WM/NN/MM/RR
     yy, mm = year_month[:2], year_month[2:]
-    return f"WZ/{seq}/{mm}/{yy}"
+    return f"{series}/{seq}/{mm}/{yy}"
 
 
 #: Anulowane dokumenty odkładamy poza serię — numer ma wrócić do puli, a ślad
@@ -56,22 +56,24 @@ def format_wz_number(seq: int, year_month: str) -> str:
 _POZA_SERIA = 9000
 
 
-def _seq_key_wz(year_month: str) -> str:
-    """Klucz licznika WZ w tabeli `sequences` — osobny na każdy miesiąc."""
-    return f"wz_no:{year_month}"
+def _seq_key_wz(year_month: str, series: str = "WZ") -> str:
+    """Klucz licznika w tabeli `sequences` — osobny na serię i miesiąc."""
+    return f"{'wz' if series == 'WZ' else 'wm'}_no:{year_month}"
 
 
-def _alokuj_seq_cx(conn, year_month: str) -> int:
-    """Kolejny numer WZ w miesiącu: najpierw ZWOLNIONY anulowaniem, potem licznik.
+def _alokuj_seq_cx(conn, year_month: str, series: str = "WZ") -> int:
+    """Kolejny numer w miesiącu (serii WZ albo WM): najpierw ZWOLNIONY
+    anulowaniem, potem licznik.
 
     Biuro czyta serię WZ jak rejestr faktur — numery aktywnych dokumentów mają
     iść po kolei. Do 21.08.2026 anulowanie zostawiało numer zajęty na zawsze
     (w sierpniu 12 z 34 numerów było dziurami po anulowanych).
 
     Licznik siedzi w `sequences`, nie w MAX(seq): MAX policzony przez dwa
-    równoległe zapisy dałby ten sam numer dwóm dokumentom.
+    równoległe zapisy dałby ten sam numer dwóm dokumentom. Serie WZ i WM mają
+    NIEZALEŻNE liczniki — WM/1 i WZ/1 mogą istnieć obok siebie.
     """
-    klucz = _seq_key_wz(year_month)
+    klucz = _seq_key_wz(year_month, series)
     odzyskany = cx_query_one(
         conn,
         "DELETE FROM numery_zwolnione WHERE seria=%s AND seq = ("
@@ -81,12 +83,14 @@ def _alokuj_seq_cx(conn, year_month: str) -> int:
     if odzyskany and odzyskany.get("seq"):
         return int(odzyskany["seq"])
 
-    # Pierwszy dokument w miesiącu startuje PO istniejących numerach: licznika
-    # nie było przed 21.08.2026, a seria bieżącego miesiąca jest już w toku.
+    # Pierwszy dokument w miesiącu startuje PO istniejących numerach tej samej
+    # serii: licznika nie było przed 21.08.2026, a seria bieżącego miesiąca
+    # jest już w toku.
     start = cx_query_one(
         conn,
         "SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM wz_documents "
-        "WHERE year_month=%s AND seq < %s", (year_month, _POZA_SERIA))
+        "WHERE year_month=%s AND seq < %s AND COALESCE(doc_series,'WZ')=%s",
+        (year_month, _POZA_SERIA, series))
     row = cx_query_one(
         conn,
         "INSERT INTO sequences (key, value) VALUES (%s, %s) "
@@ -436,16 +440,21 @@ def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
                currency: str = "PLN", eur_rate: Optional[float] = None,
                pallets_h1: int = 0, pallets_other: int = 0,
                containers_total: Optional[int] = None,
-               pallets_other_kind: Optional[str] = None) -> str:
-    """Wstaw dokument WZ w trwającej transakcji, nadaj numer WZ/NN/MM/RR. Zwraca id.
+               pallets_other_kind: Optional[str] = None,
+               series: str = "WZ") -> str:
+    """Wstaw dokument WZ w trwającej transakcji, nadaj numer WZ/NN/MM/RR
+    (albo WM/NN/MM/RR, gdy series="WM"). Zwraca id.
 
     pallets_h1/pallets_other są na POZIOMIE DOKUMENTU — transport wiezie N palet
     łącznie, nie N palet na każdą pozycję (pojemniki zostają na pozycjach).
+
+    series="WM" to WZ wewnętrzny na CAŁOŚĆ dostawy (zostaje w biurze, gdy
+    klient bierze część na fakturę) — ma własny, niezależny licznik.
     """
     today = date.today()
     ym = today.strftime("%y%m")  # RRMM
-    seq = _alokuj_seq_cx(conn, ym)
-    number = format_wz_number(seq, ym)
+    seq = _alokuj_seq_cx(conn, ym, series)
+    number = format_wz_number(seq, ym, series)
     wid = cuid()
     cx_execute_returning(
         conn,
@@ -453,8 +462,9 @@ def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
            (id, number, seq, year_month, source_type, source_id, seller,
             buyer_name, buyer_address, buyer_nip, valued, lines, total_value,
             place, issued_date, release_date, status, notes, currency, eur_rate,
-            pallets_h1, pallets_other, containers_total, pallets_other_kind, created_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s,%s,%s,%s,%s,%s,%s)
+            pallets_h1, pallets_other, containers_total, pallets_other_kind,
+            doc_series, created_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s,%s,%s,%s,%s,%s,%s,%s)
            RETURNING id""",
         (wid, number, seq, ym, source_type, source_id, json.dumps(seller),
          buyer.get("name"), buyer.get("address"), buyer.get("nip"), valued,
@@ -462,9 +472,9 @@ def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
          (currency or "PLN").upper(), eur_rate,
          int(pallets_h1 or 0), int(pallets_other or 0),
          None if containers_total is None else int(containers_total),
-         pallets_other_kind or None, now_iso()),
+         pallets_other_kind or None, series, now_iso()),
     )
-    logger.info("wz.generated", extra={"wz_id": wid, "number": number})
+    logger.info("wz.generated", extra={"wz_id": wid, "wz_number": number, "doc_series": series})
     return wid
 
 
