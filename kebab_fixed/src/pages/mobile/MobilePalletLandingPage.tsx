@@ -3,7 +3,7 @@ import { Link, useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Snowflake, Truck, AlertTriangle,
   Package, CheckCircle2, CircleDashed, CircleDot, CheckCircle,
-  Camera,
+  Camera, RotateCcw,
 } from 'lucide-react'
 import {
   palletScanApi,
@@ -20,8 +20,8 @@ type StateView =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
   | { kind: 'ready'; pallet: PalletScanResult }
-  | { kind: 'busy'; pallet: PalletScanResult; action: 'cold_storage' | 'loaded' }
-  | { kind: 'done'; pallet: PalletScanResult; action: 'cold_storage' | 'loaded' }
+  | { kind: 'busy'; pallet: PalletScanResult; action: 'cold_storage' | 'loaded' | 'undo' }
+  | { kind: 'done'; pallet: PalletScanResult; action: 'cold_storage' | 'loaded' | 'undo' }
 
 function StatusPill({ status }: { status: string }) {
   if (status === 'loaded') {
@@ -69,7 +69,7 @@ export function MobilePalletLandingPage() {
     (v) => v.id === (typeof window !== 'undefined' ? localStorage.getItem(LAST_VEHICLE_KEY) : ''),
   )
 
-  async function doAction(action: 'cold_storage' | 'loaded', vehicleId = '') {
+  async function doAction(action: 'cold_storage' | 'loaded' | 'undo', vehicleId = '') {
     if (state.kind !== 'ready') return
     setState({ kind: 'busy', pallet: state.pallet, action })
     try {
@@ -146,7 +146,8 @@ export function MobilePalletLandingPage() {
                   state.action === 'loaded' ? 'text-amber-300' : 'text-sky-300'
                 }`} />
                 <div className="mt-2 text-2xl font-extrabold uppercase tracking-wide">
-                  {state.action === 'cold_storage' ? 'W MROŹNI' : 'ZAŁADOWANE'}
+                  {state.action === 'undo' ? 'COFNIĘTE'
+                    : state.action === 'cold_storage' ? 'W MROŹNI' : 'ZAŁADOWANE'}
                 </div>
                 <div className="mt-1 text-sm text-slate-200">
                   P{state.pallet.palletNo} · {clientDisplay(state.pallet.order.clientName)}
@@ -169,7 +170,10 @@ export function MobilePalletLandingPage() {
               </button>
             )}
 
-            {state.kind === 'ready' && state.pallet.status === 'cold_storage' && (
+            {/* Załadunek dostępny też PROSTO Z HALI: mroźnia jest opcjonalna,
+                a kierowca bywa nocny (biuro, 09.09.2026). */}
+            {state.kind === 'ready'
+              && (state.pallet.status === 'cold_storage' || state.pallet.status === 'created') && (
               <>
                 {lastVehicle ? (
                   <>
@@ -215,9 +219,32 @@ export function MobilePalletLandingPage() {
                 <CheckCircle size={28} className="shrink-0 text-emerald-400" />
                 <div>
                   <div className="text-base font-semibold">Paleta już załadowana</div>
-                  <div className="mt-1 text-xs text-slate-300">Nic do zrobienia.</div>
+                  <div className="mt-1 text-xs text-slate-300">Jedzie tym samochodem.</div>
                 </div>
               </div>
+            )}
+
+            {/* WRÓĆ PALETĘ — pomyłka przy skanowaniu jest normalna: magazynier
+                trzyma telefon w jednej ręce, a paletę w drugiej (biuro,
+                09.09.2026: „zeskanowałem palety na samochód przez przypadek,
+                a chciałem na mroźnię"). Cofa o JEDEN krok. */}
+            {state.kind === 'ready'
+              && (state.pallet.status === 'loaded' || state.pallet.status === 'cold_storage') && (
+              <button
+                type="button"
+                onClick={() => doAction('undo')}
+                className="flex items-center gap-3 rounded-xl border border-slate-500/50 bg-slate-700/40 px-4 py-4 text-left hover:bg-slate-700/70 active:scale-[0.99]"
+              >
+                <RotateCcw size={26} className="shrink-0 text-slate-300" />
+                <div>
+                  <div className="text-base font-semibold uppercase tracking-wide">Wróć paletę</div>
+                  <div className="text-xs text-slate-400">
+                    {state.pallet.status === 'loaded'
+                      ? 'Zdejmij z samochodu — wróci tam, skąd przyszła'
+                      : 'Cofnij z mroźni z powrotem na halę'}
+                  </div>
+                </div>
+              </button>
             )}
 
             {state.kind === 'busy' && (

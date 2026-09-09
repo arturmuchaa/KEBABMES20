@@ -2036,7 +2036,7 @@ function mapColdStoragePallet(r: any): ColdStoragePallet {
 export const palletScanApi = {
   scan: (
     code: string,
-    action: 'cold_storage' | 'loaded',
+    action: 'cold_storage' | 'loaded' | 'undo',
     operator = '',
     vehicleId = '',
   ) =>

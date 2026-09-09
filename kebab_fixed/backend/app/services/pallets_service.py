@@ -5,7 +5,7 @@ Zapis działa jako pełen replace zestawu palet zamówienia — żeby uniknąć
 edge case'ów częściowej synchronizacji UI/DB.
 """
 import re
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
@@ -252,7 +252,70 @@ def lookup(code: str) -> Dict:
     return _pallet_with_items(order_id, pallet_no)
 
 
+def _cofnij_skan(code: str, operator: str = "") -> Dict[str, Any]:
+    """Cofnij OSTATNI skan palety — „wróć paletę".
+
+    Biuro (2026-09-09): „zeskanowałem palety na samochód przez przypadek,
+    a chciałem na mroźnię (…) w razie pomyłki dać też »wróć paletę«, jeżeli
+    źle załadowana". Pomyłka przy skanowaniu jest normalna — magazynier trzyma
+    telefon w jednej ręce, a paletę w drugiej.
+
+    Cofamy o JEDEN krok, do stanu sprzed ostatniego skanu:
+      * z auta wraca do mroźni, jeśli przez nią przechodziła, inaczej do hali;
+      * z mroźni wraca do hali.
+
+    Palety WYSŁANEJ nie cofamy: po wystawieniu dokumentu towar zszedł ze stanu
+    i cofnięcie skanem rozjechałoby magazyn z papierem. To robota dla biura.
+    """
+    order_id, pallet_no = parse_code(code)
+    paleta = query_one(
+        "SELECT id, status, cold_storage_at FROM order_pallets "
+        "WHERE order_id=%s AND pallet_no=%s", (order_id, pallet_no))
+    if not paleta:
+        raise HTTPException(404, f"Paleta P{pallet_no} nie istnieje dla tego zamówienia")
+
+    stan = paleta.get("status") or "created"
+    if stan == "shipped":
+        raise HTTPException(
+            409,
+            f"Paleta P{pallet_no} jest już WYSŁANA — dokument został wystawiony. "
+            "Cofnięcie zrobi biuro, korygując dokument.")
+    if stan not in ("cold_storage", "loaded"):
+        raise HTTPException(
+            409, f"Paleta P{pallet_no} ma status '{stan}' — nie ma czego cofać")
+
+    if stan == "loaded":
+        # Wracamy tam, skąd przyszła: do mroźni, jeśli w niej była.
+        docelowy = "cold_storage" if paleta.get("cold_storage_at") else "created"
+        with transaction() as conn:
+            cx_execute(
+                conn,
+                "UPDATE order_pallets SET status=%s, loaded_at=NULL, "
+                "loaded_vehicle_id=NULL WHERE id=%s", (docelowy, paleta["id"]))
+            cx_execute(
+                conn,
+                "INSERT INTO pallet_scans (id, pallet_id, action, operator, vehicle_id) "
+                "VALUES (%s,%s,'undo',%s,NULL)", (cuid(), paleta["id"], operator or ""))
+    else:
+        with transaction() as conn:
+            cx_execute(
+                conn,
+                "UPDATE order_pallets SET status='created', cold_storage_at=NULL "
+                "WHERE id=%s", (paleta["id"],))
+            cx_execute(
+                conn,
+                "INSERT INTO pallet_scans (id, pallet_id, action, operator, vehicle_id) "
+                "VALUES (%s,%s,'undo',%s,NULL)", (cuid(), paleta["id"], operator or ""))
+
+    logger.info("pallet.scan.undo", extra={
+        "order_id": order_id, "pallet_no": pallet_no,
+        "z_stanu": stan, "operator": operator or "-"})
+    return _pallet_with_items(order_id, pallet_no)
+
+
 def scan(code: str, action: str, operator: str = "", vehicle_id: str | None = None) -> Dict:
+    if action == "undo":
+        return _cofnij_skan(code, operator=operator)
     if action not in _TRANSITIONS:
         raise HTTPException(400, f"Nieznana akcja skanu: {action}")
 

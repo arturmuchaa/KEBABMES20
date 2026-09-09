@@ -124,3 +124,66 @@ class TestPowtorzonySkan:
             "SELECT action, operator, vehicle_id FROM pallet_scans WHERE pallet_id='p1'")
         assert (slad["action"], slad["operator"], slad["vehicle_id"]) == (
             "loaded", "MAGAZYNIER", "v1")
+
+
+class TestCofniecieSkanu:
+    """Biuro (2026-09-09): „zeskanowałem palety na samochód przez przypadek,
+    a chciałem na mroźnię (…) czy możesz cofnąć i w razie pomyłki dać też
+    »wróć paletę«, jeżeli źle załadowana".
+
+    Pomyłka przy skanowaniu jest normalna — magazynier trzyma telefon w jednej
+    ręce, a paletę w drugiej. Cofnięcie musi być w skanerze, nie w bazie.
+    """
+
+    def test_cofa_zaladowana_palete_do_stanu_przed_skanem(self, db):
+        _zamowienie(); _paleta(status="created"); _pojazd()
+        pallets_service.scan(KOD, "loaded", vehicle_id="v1")
+        pallets_service.scan(KOD, "undo")
+        assert _status() == "created"
+
+    def test_cofniecie_zdejmuje_palete_z_samochodu(self, db):
+        """Inaczej paleta wisi na aucie, z którego ją zdjęto."""
+        _zamowienie(); _paleta(); _pojazd()
+        pallets_service.scan(KOD, "loaded", vehicle_id="v1")
+        pallets_service.scan(KOD, "undo")
+        p = query_one("SELECT loaded_at, loaded_vehicle_id FROM order_pallets WHERE id='p1'")
+        assert p["loaded_at"] is None and p["loaded_vehicle_id"] is None
+
+    def test_cofa_z_mrozni_do_stanu_przed_skanem(self, db):
+        _zamowienie(); _paleta()
+        pallets_service.scan(KOD, "cold_storage")
+        pallets_service.scan(KOD, "undo")
+        assert _status() == "created"
+        assert query_one("SELECT cold_storage_at FROM order_pallets WHERE id='p1'")["cold_storage_at"] is None
+
+    def test_cofniecie_zaladunku_wraca_do_mrozni_gdy_tam_byla(self, db):
+        """Paleta, która przeszła przez mroźnię, wraca DO MROŹNI, nie do hali."""
+        _zamowienie(); _paleta(); _pojazd()
+        pallets_service.scan(KOD, "cold_storage")
+        pallets_service.scan(KOD, "loaded", vehicle_id="v1")
+        pallets_service.scan(KOD, "undo")
+        assert _status() == "cold_storage"
+
+    def test_cofniecie_zostawia_slad(self, db):
+        """Kontrola musi widzieć, że ktoś cofnął skan."""
+        _zamowienie(); _paleta(); _pojazd()
+        pallets_service.scan(KOD, "loaded", vehicle_id="v1")
+        pallets_service.scan(KOD, "undo", operator="MAGAZYNIER")
+        slad = query_one(
+            "SELECT action, operator FROM pallet_scans WHERE pallet_id='p1' "
+            "AND action='undo'")
+        assert slad is not None and slad["operator"] == "MAGAZYNIER"
+
+    def test_nie_cofa_palety_ktora_nigdy_nie_byla_skanowana(self, db):
+        _zamowienie(); _paleta(status="created")
+        with pytest.raises(Exception) as e:
+            pallets_service.scan(KOD, "undo")
+        assert "nie ma czego cofać" in str(e.value).lower() or "created" in str(e.value)
+
+    def test_NIE_cofa_palety_juz_wyslanej(self, db):
+        """Po wystawieniu dokumentu towar zszedł ze stanu — cofnięcie skanem
+        rozjechałoby magazyn z papierem. To robota dla biura."""
+        _zamowienie(); _paleta(status="shipped")
+        with pytest.raises(Exception) as e:
+            pallets_service.scan(KOD, "undo")
+        assert "wysłan" in str(e.value).lower() or "shipped" in str(e.value)
