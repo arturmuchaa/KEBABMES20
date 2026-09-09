@@ -1293,7 +1293,11 @@ _DDL: list[str] = [
     # łatwiej niż dotąd — unikat jest ostatnią linią obrony przed dwoma
     # dokumentami o tym samym numerze. Anulowane siedzą poza serią (seq >= 9000)
     # i też są unikalne, więc indeks przechodzi na istniejących danych.
-    "CREATE UNIQUE INDEX IF NOT EXISTS ux_wz_ym_seq ON wz_documents(year_month, seq)",
+    #
+    # Definicja historyczna była `(year_month, seq)` — usunięta stąd (2026-09-09),
+    # bo po dodaniu serii WM jest trwałym no-opem: nazwa indeksu już istnieje,
+    # `IF NOT EXISTS` nie podmieni jej kolumn. Właściwa, dopisywana po serii
+    # definicja żyje w `_zapewnij_unikat_wz_seria` (patrz niżej w tym pliku).
 
     "CREATE INDEX IF NOT EXISTS idx_rsb_reception ON reception_supplier_batches(reception_id)",
     "CREATE INDEX IF NOT EXISTS idx_rsb_raw_batch ON reception_supplier_batches(raw_batch_id)",
@@ -1552,14 +1556,11 @@ _DDL: list[str] = [
 
     # Seria dokumentu wydania: 'WZ' wychodzi do klienta, 'WM' zostaje w biurze
     # (WZ wewnętrzny na całość dostawy, gdy klient bierze część na fakturę).
+    # Przebudowa unikatu ux_wz_ym_seq (żeby liczył się też po serii) siedzi w
+    # `_zapewnij_unikat_wz_seria` — DROP+CREATE musi być atomowe (jedna
+    # transakcja) i uruchamiać się tylko gdy naprawdę trzeba, nie na każdym
+    # DDL-owym statemencie tej listy.
     "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS doc_series TEXT DEFAULT 'WZ'",
-    # Unikat po (year_month, seq) sam nie wystarcza — WM/1 i WZ/1 to dwa różne
-    # rejestry i muszą móc istnieć obok siebie w tym samym miesiącu. Indeks
-    # trzeba przebudować (IF NOT EXISTS po samej nazwie nie zmieniłby kolumn
-    # na bazie, która ma już starą wersję).
-    "DROP INDEX IF EXISTS ux_wz_ym_seq",
-    "CREATE UNIQUE INDEX IF NOT EXISTS ux_wz_ym_seq "
-    "ON wz_documents(year_month, seq, COALESCE(doc_series,'WZ'))",
 ]
 
 
@@ -1615,7 +1616,46 @@ def _run_migrations_locked() -> None:
     _backfill_product_catalog()
     _strip_year_from_reception_no()
     _reconcile_deboning_ledger()
+    _zapewnij_unikat_wz_seria()
     logger.info("migrations.done")
+
+
+def _zapewnij_unikat_wz_seria() -> None:
+    """Unikat `ux_wz_ym_seq` musi liczyć się PO SERII (WZ/WM), nie tylko po
+    (year_month, seq) — inaczej WM/1 i WZ/1 w tym samym miesiącu kolidują.
+
+    `CREATE UNIQUE INDEX IF NOT EXISTS` sprawdza istnienie TYLKO po nazwie —
+    na bazie, która ma już starą definicję (bez `doc_series`), nie podmieni
+    kolumn. Podmiana wymaga DROP+CREATE, a to nie może wykonywać się na
+    każdym starcie: `run_migrations()` odpala się przy KAŻDYM boocie KAŻDEGO
+    workera, nie raz przy wdrożeniu. Stąd dwa zabezpieczenia:
+
+    1. Sprawdzenie definicji w `pg_indexes` PRZED dropem — gdy indeks już ma
+       `doc_series`, funkcja jest czystym no-opem (nic nie dropuje, nic nie
+       tworzy). Bez tego DROP+CREATE powtarzałoby się (i otwierało okno
+       poniżej) w nieskończoność, przy każdym restarcie serwisu.
+    2. DROP i CREATE w JEDNEJ transakcji — osobne `execute()` commitowałyby
+       się niezależnie i między nimi tabela `wz_documents` (z prawdziwymi
+       dokumentami) stałaby bez ŻADNEJ ochrony unikalności; crash procesu
+       akurat w tym oknie (OOM, restart kontenera) zostawiłby ją tak trwale,
+       do następnego udanego przebiegu migracji.
+    """
+    try:
+        row = query_one(
+            "SELECT indexdef FROM pg_indexes "
+            "WHERE tablename='wz_documents' AND indexname='ux_wz_ym_seq'")
+        if row and "doc_series" in (row.get("indexdef") or ""):
+            return  # już poprawna definicja — nic do zrobienia
+        with transaction() as conn:
+            cx_execute(conn, "DROP INDEX IF EXISTS ux_wz_ym_seq")
+            cx_execute(
+                conn,
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_wz_ym_seq "
+                "ON wz_documents(year_month, seq, COALESCE(doc_series,'WZ'))")
+        logger.info("migrations.ux_wz_ym_seq.rebuilt")
+    except Exception as exc:
+        logger.warning(
+            "migrations.ux_wz_ym_seq.failed", extra={"error": str(exc)})
 
 
 def _strip_year_from_reception_no() -> None:
