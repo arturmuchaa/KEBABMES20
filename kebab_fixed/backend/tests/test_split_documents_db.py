@@ -3,7 +3,8 @@ from app.db import query_all
 from app.services.split_documents_service import (wystaw_wz_klienta,
                                                     wystaw_wz_wewnetrzny)
 from app.services.wz_service import create_wz_from_order
-from tests.conftest_split import _przygotuj_bez_podzialu, _przygotuj_z_podzialem
+from tests.conftest_split import (_przygotuj_bez_podzialu, _przygotuj_z_podzialem,
+                                  _stary_wz)
 
 
 def test_wz_wewnetrzny_jest_na_calosc(db):
@@ -57,24 +58,6 @@ def test_bez_podzialu_wz_klienta_jest_odrzucony(db):
         assert "podzia" in str(e).lower()
 
 
-# ── Fix round 1: zwykły WZ (stara ścieżka) nie może kolidować z podziałem ──
-def test_zwykly_wz_nie_blokuje_wz_klienta(db):
-    """FINDING recenzji: `doc_series='WZ' + source_id` same NIE odróżniają
-    dokumentu klienta z podziału od zwykłego WZ wystawionego starą ścieżką —
-    `create_wz_from_order` zapisuje DOKŁADNIE tę samą parę
-    (doc_series='WZ', source_type='order', source_id=order_id). Bez
-    rozróżnienia `wystaw_wz_klienta` uznałby stary dokument za "już
-    wystawiony" i oddał całe zamówienie zamiast części niefakturowanej."""
-    _przygotuj_z_podzialem(cel_kg=300.0)
-    stary = create_wz_from_order("o1")            # stara ścieżka, CAŁE zamówienie
-    assert stary["number"].startswith("WZ/")
-
-    wz = wystaw_wz_klienta("o1")
-    assert wz["id"] != stary["id"], (
-        "wystaw_wz_klienta zwrócił zwykły WZ zamiast wystawić własny dokument")
-    assert wz["kg"] == 500.0, "dokument klienta ma nieść TYLKO część niefakturowaną"
-
-
 def test_powtorne_wz_klienta_nie_dubluje(db):
     _przygotuj_z_podzialem(cel_kg=300.0)
     wystaw_wz_klienta("o1")
@@ -104,3 +87,58 @@ def test_zwykly_wz_ma_puste_split_scope(db):
     stary = create_wz_from_order("o1")
     row = query_all("SELECT split_scope FROM wz_documents WHERE id=%s", (stary["id"],))[0]
     assert row["split_scope"] is None
+
+
+# ── Fix round 2: `split_scope` odróżnia dokumenty od siebie, ale nikt nie
+# sprawdzał, czy zamówienie w ogóle MOŻE dostać podział. Zamówienie z już
+# istniejącym zwykłym WZ (stan zszedł INNĄ ścieżką) musi być ODRZUCONE, nie
+# cicho współistnieć — inaczej `wystaw_wz_wewnetrzny` liczy braki od zera
+# (`picks_for_order` nic nie wie o starym rozchodzie) i zdejmuje stan DRUGI
+# RAZ. Odmowa jest w pełni odwracalna (biuro anuluje stary dokument i
+# powtarza), drugi rozchód — nie.
+def test_istniejacy_zwykly_wz_blokuje_wz_wewnetrzny(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    stary = _stary_wz("o1")
+    przed = query_all(
+        "SELECT qty_available FROM finished_goods WHERE id IN ('f1','f2') ORDER BY id")
+    ruchy_przed = len(query_all(
+        "SELECT id FROM stock_movements WHERE product_type='finished_goods'"))
+
+    try:
+        wystaw_wz_wewnetrzny("o1")
+        assert False, "wystawiono WM mimo istniejącego zwykłego WZ"
+    except Exception as e:
+        assert stary["number"] in str(e), "komunikat nie wskazuje kolidującego dokumentu"
+
+    po = query_all(
+        "SELECT qty_available FROM finished_goods WHERE id IN ('f1','f2') ORDER BY id")
+    ruchy_po = len(query_all(
+        "SELECT id FROM stock_movements WHERE product_type='finished_goods'"))
+    assert po == przed, "odmowa mimo to ruszyła stan magazynu"
+    assert ruchy_po == ruchy_przed, "odmowa mimo to dopisała ruch magazynowy"
+
+
+def test_istniejacy_zwykly_wz_blokuje_wz_klienta(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    stary = _stary_wz("o1")
+
+    try:
+        wystaw_wz_klienta("o1")
+        assert False, "wystawiono WZ klienta mimo istniejącego zwykłego WZ"
+    except Exception as e:
+        assert stary["number"] in str(e), "komunikat nie wskazuje kolidującego dokumentu"
+
+
+def test_anulowany_stary_wz_nie_blokuje(db):
+    """Anulowany dokument zwolnił stan (odwzorowane w zasiewie: `status=
+    'anulowany'` NIE zdejmuje magazynu) — podział ma przejść normalnie."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    _stary_wz("o1", status="anulowany")
+
+    wm = wystaw_wz_wewnetrzny("o1")
+    assert wm["number"].startswith("WM/")
+    assert wm["kg"] == 800.0
+
+    wz = wystaw_wz_klienta("o1")
+    assert wz["number"].startswith("WZ/")
+    assert wz["kg"] == 500.0

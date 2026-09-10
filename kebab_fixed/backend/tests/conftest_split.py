@@ -96,3 +96,45 @@ def _przygotuj_z_podzialem(oid="o1", cel_kg=300.0):
     _przygotuj_bez_podzialu(oid)
     zapisz_podzial(oid, cel_kg)
     return oid
+
+
+def _stary_wz(oid="o1", nr=1, status="wstepny"):
+    """Zwykły WZ CAŁOŚCI zamówienia wystawiony STARĄ ścieżką
+    (`create_wz_from_order` / `finalize_loading`) — `source_type='order'`,
+    `doc_series='WZ'`, `split_scope IS NULL`. Ten ostatni punkt jest CAŁYM
+    sensem tego zasiewu: kolumna `split_scope` (fix round 1) nigdy go nie
+    oznacza, więc ten dokument wygląda dokładnie jak każdy inny zwykły WZ —
+    nie do odróżnienia po samym `doc_series`+`source_id`.
+
+    Zdejmuje stan NAPRAWDĘ (f1 i f2 w całości, z wierszami w
+    `stock_movements`) — odwzorowuje realny rozchód z produkcji, żeby test
+    guardu w `wystaw_wz_wewnetrzny`/`wystaw_wz_klienta` (fix round 2, review
+    Task 4, 2026-09-10) sprawdzał prawdziwe zagrożenie („drugi rozchód"), nie
+    tylko sam wiersz w tabeli.
+
+    `status="anulowany"` odwzorowuje dokument PO anulowaniu: wiersz (ślad)
+    zostaje, ale magazynu w ogóle nie dotykamy — jak po realnym `cancel_wz`,
+    którego tu użyć nie można (odrzuca WZ z `source_type != 'manual'`; WZ z
+    zamówienia anuluje się przez samo zamówienie, poza zakresem tego zasiewu).
+    """
+    wid = f"stary-wz-{oid}-{nr}"
+    number = f"WZ/{nr}/09/26"
+    execute(
+        "INSERT INTO wz_documents (id, number, seq, year_month, source_type, source_id, "
+        " buyer_name, valued, lines, total_value, status, currency, pallets_h1, "
+        " pallets_other, issued_date, release_date, doc_series, created_at) "
+        "VALUES (%s,%s,%s,'09/26','order',%s,'YBM Gastro GmbH',false,'[]'::jsonb,0,%s,"
+        " 'PLN',0,0,'2026-09-09','2026-09-09','WZ',now())",
+        (wid, number, nr, oid, status))
+    if status != "anulowany":
+        execute(
+            "UPDATE finished_goods SET qty_available=0, qty_shipped=qty WHERE id IN ('f1','f2')")
+        execute(
+            "INSERT INTO stock_movements (id, product_type, batch_id, qty, movement_type, "
+            " source_type, source_id) VALUES (%s,'finished_goods','f1',-750,'OUT','wz',%s)",
+            (f"{wid}-mv1", wid))
+        execute(
+            "INSERT INTO stock_movements (id, product_type, batch_id, qty, movement_type, "
+            " source_type, source_id) VALUES (%s,'finished_goods','f2',-50,'OUT','wz',%s)",
+            (f"{wid}-mv2", wid))
+    return {"id": wid, "number": number}

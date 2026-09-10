@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
@@ -27,6 +27,7 @@ from app.db import cx_execute, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.services.document_naming import tuleja_suffix
 from app.services.hdi_service import hdi_product_base
+from app.services.loading_service import _order_buyer
 from app.services.order_stock_service import picks_for_order
 from app.services.settings_service import get_company
 from app.services.wz_service import (_fmt_kg, _insert_wz, _seller_block,
@@ -59,18 +60,35 @@ def _zamowienie(order_id: str) -> Dict[str, Any]:
     return order
 
 
-def _buyer(order: Dict[str, Any]) -> Dict[str, Any]:
-    client = None
-    if order.get("client_id"):
-        client = query_one("SELECT name, address, city, nip FROM clients WHERE id=%s",
-                           (order["client_id"],))
-    if not client:
-        client = query_one("SELECT name, address, city, nip FROM clients WHERE name=%s",
-                           (order.get("client_name"),))
-    client = client or {}
-    return {"name": client.get("name") or order.get("client_name") or "",
-            "address": f"{client.get('address') or ''} {client.get('city') or ''}".strip(),
-            "nip": client.get("nip") or ""}
+def _dokument_koliduje(order_id: str) -> Optional[Dict[str, Any]]:
+    """Zwykły dokument wydania SPOZA podziału (`split_scope IS NULL`) —
+    stan magazynu mógł już zejść INNĄ ścieżką (`create_wz_from_order`,
+    `finalize_loading`). Podział nie może z takim dokumentem współistnieć:
+    `picks_for_order` liczyłby braki zamówienia OD ZERA, nie wiedząc nic o
+    starym rozchodzie — `wystaw_wz_wewnetrzny` zdjąłby stan DRUGI RAZ
+    (review Task 4, fix round 2, 2026-09-10).
+
+    ANULOWANY stary dokument nie koliduje — anulowanie oddało towar na
+    magazyn (`cancel_wz`/edycja zamówienia), więc podział jest bezpieczny."""
+    return query_one(
+        "SELECT id, number FROM wz_documents WHERE source_type='order' AND source_id=%s "
+        "AND split_scope IS NULL AND COALESCE(status,'')<>'anulowany' "
+        "ORDER BY created_at LIMIT 1", (order_id,))
+
+
+def _odmow_jesli_koliduje(order_id: str) -> None:
+    """Twardy guard na starcie OBU funkcji wystawiających: zamówienie z już
+    istniejącym zwykłym dokumentem wydania nie dostaje podziału. Odmowa, nie
+    ostrzeżenie z przepuszczeniem — drugi rozchód jest nieodwracalny bez
+    ręcznej korekty stanów, odmowa jest w pełni odwracalna (biuro anuluje
+    stary dokument i wystawia podział ponownie)."""
+    kolizja = _dokument_koliduje(order_id)
+    if kolizja:
+        raise HTTPException(
+            400,
+            f"Zamówienie ma już dokument wydania {kolizja['number']} — nie można na nim "
+            "wystawić podziału. Najpierw anuluj ten dokument (anulowanie zwraca towar na "
+            "stan), potem wystaw podział ponownie.")
 
 
 def _istniejacy(series: str, order_id: str, split_scope: str) -> Any:
@@ -120,6 +138,7 @@ def wystaw_wz_wewnetrzny(order_id: str) -> Dict[str, Any]:
                 "kg": _kg_z_linii(_linie_z_dokumentu(already))}
 
     order = _zamowienie(order_id)
+    _odmow_jesli_koliduje(order_id)
     picks = picks_for_order(order_id)
     groups = {p["fg"]["id"]: int(p.get("take") or 0)
              for p in picks if p.get("fg") and int(p.get("take") or 0) > 0}
@@ -161,7 +180,7 @@ def wystaw_wz_wewnetrzny(order_id: str) -> Dict[str, Any]:
             *naming_context(str(order.get("client_id") or ""), order.get("client_name") or ""))
         wid = _insert_wz(
             conn, source_type="order", source_id=order_id, seller=_seller_block(),
-            buyer=_buyer(order), valued=False, lines=lines, total=0.0,
+            buyer=_order_buyer(conn, order), valued=False, lines=lines, total=0.0,
             place=get_company().get("city") or "", issued=issued, released=issued,
             notes=_NOTATKA_WM, series="WM", split_scope=_SCOPE_CALOSC)
 
@@ -224,6 +243,7 @@ def wystaw_wz_klienta(order_id: str) -> Dict[str, Any]:
                 "kg": _kg_z_linii(_linie_z_dokumentu(already))}
 
     order = _zamowienie(order_id)
+    _odmow_jesli_koliduje(order_id)
     linie = query_all(
         "SELECT qty, qty_invoice, kg_per_unit, product_type_id, product_type_name, "
         "recipe_id, recipe_name, packaging_name, position "
@@ -250,7 +270,7 @@ def wystaw_wz_klienta(order_id: str) -> Dict[str, Any]:
 
         wid = _insert_wz(
             conn, source_type="order", source_id=order_id, seller=_seller_block(),
-            buyer=_buyer(order), valued=False, lines=lines, total=total,
+            buyer=_order_buyer(conn, order), valued=False, lines=lines, total=total,
             place=get_company().get("city") or "", issued=issued, released=issued,
             notes="Część niefakturowana — dokument dla odbiorcy.", series="WZ",
             split_scope=_SCOPE_WZ_KLIENTA)
