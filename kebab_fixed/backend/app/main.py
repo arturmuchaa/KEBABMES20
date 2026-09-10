@@ -99,6 +99,7 @@ def create_app() -> FastAPI:
         auth,
         health,
         integrity,
+        order_split,
         suppliers,
         clients,
         client_groups,
@@ -222,6 +223,7 @@ def create_app() -> FastAPI:
         haccp_forms,
         settings_route,
         integrity,
+        order_split,
     ):
         app.include_router(getattr(mod, "router", mod))
 

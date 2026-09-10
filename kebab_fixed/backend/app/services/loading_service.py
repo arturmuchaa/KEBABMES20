@@ -139,13 +139,18 @@ def _ensure_hdi(order_id: str, plate: str) -> Dict[str, Any]:
         doc = generate_hdi(order_id)
         if plate:
             with transaction() as conn:
+                # Stempel na WSZYSTKICH dokumentach tego zamówienia, nie tylko
+                # na wariancie `calosc`. Po podziale wysyłki zamówienie ma dwa
+                # HDI — oba jadą tym samym autem, więc oba muszą mieć jego
+                # numer. Stemplowanie po `doc["id"]` zostawiało drugi dokument
+                # z PUSTYM `reg_number` na już wydrukowanym papierze.
                 cx_execute(
                     conn,
                     """UPDATE hdi_documents
                        SET header = jsonb_set(COALESCE(header,'{}'::jsonb),
                                               '{reg_number}', to_jsonb(%s::text))
-                       WHERE id=%s""",
-                    (plate, doc["id"]))
+                       WHERE order_id=%s""",
+                    (plate, order_id))
         return {"hdi_number": doc.get("number"), "hdi_id": doc.get("id"), "hdi_error": None}
     except Exception as exc:  # noqa: BLE001 — dokument pomocniczy, raportujemy zamiast blokować
         logger.warning("loading.hdi_failed", extra={"order_id": order_id, "error": str(exc)})

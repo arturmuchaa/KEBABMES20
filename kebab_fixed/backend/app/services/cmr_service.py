@@ -13,6 +13,7 @@ from app.services.order_stock_service import (
     stock_portions_for_order,
 )
 from app.services.settings_service import get_company
+from app.utils.zakres import ZAKRES_CALOSC, ZAKRES_FV, sprawdz_zakres
 
 logger = get_logger(__name__)
 
@@ -122,19 +123,13 @@ def _client_snapshot(order: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-#: Warianty CMR-a. `calosc` — list NA DROGĘ, na całą wysyłkę; `fv` — list pod
-#: fakturę, tylko na część fakturowaną. Klient bierze część dostawy na fakturę
-#: (wystawianą w Subiekcie), resztę na WZ — oba listy powstają dla tego samego
-#: zamówienia i muszą móc istnieć obok siebie.
-ZAKRES_CALOSC = "calosc"
-ZAKRES_FV = "fv"
-_ZAKRESY = (ZAKRES_CALOSC, ZAKRES_FV)
-
-
+# Warianty CMR-a (`ZAKRES_CALOSC` / `ZAKRES_FV` — `app/utils/zakres.py`):
+# `calosc` — list NA DROGĘ, na całą wysyłkę; `fv` — list pod fakturę, tylko na
+# część fakturowaną. Klient bierze część dostawy na fakturę (wystawianą
+# w Subiekcie), resztę na WZ — oba listy powstają dla tego samego zamówienia
+# i muszą móc istnieć obok siebie.
 def _sprawdz_zakres(scope: str) -> str:
-    if scope not in _ZAKRESY:
-        raise HTTPException(400, f"Nieznany wariant CMR: {scope}")
-    return scope
+    return sprawdz_zakres(scope, "CMR")
 
 
 def _pozycje_fakturowane(order_id: str) -> List[Dict[str, Any]]:
@@ -161,7 +156,7 @@ def _pozycje_fakturowane(order_id: str) -> List[Dict[str, Any]]:
 
 def build_cmr(order_id: str, form: Dict[str, Any],
               scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
-    _sprawdz_zakres(scope)
+    scope = _sprawdz_zakres(scope)
     order = query_one("SELECT * FROM client_orders WHERE id=%s", (order_id,))
     if not order:
         raise HTTPException(404, "Zamówienie nie znalezione")
@@ -251,7 +246,7 @@ def generate_cmr(order_id: str, form: Dict[str, Any],
     `order_id` znalazłoby dowolny z dwóch listów i biuro dostałoby dokument
     na złą ilość (ta klasa błędu kosztowała już trzy rundy poprawek przy WZ).
     """
-    _sprawdz_zakres(scope)
+    scope = _sprawdz_zakres(scope)
     data = build_cmr(order_id, form, scope)
     # COALESCE, nie gołe porównanie: dokument sprzed migracji mógłby mieć
     # `scope IS NULL`, a `scope = NULL` nigdy nie pasuje — stary CMR na całość
@@ -281,6 +276,21 @@ def generate_cmr(order_id: str, form: Dict[str, Any],
             "SELECT COALESCE(MAX(seq),0)+1 AS n FROM cmr_documents WHERE year_month=%s", (ym,))
         seq = int(row["n"])
         number = format_cmr_number(seq, ym)
+        # Powtórny odczyt TUŻ PRZED INSERT-em. Odczyt `existing` wyżej poszedł
+        # POZA transakcją, a między nim a tym miejscem `build_cmr` robi
+        # kilkanaście zapytań — komplet dokumentów kliknięty dwa razy zdąży
+        # w tym oknie zatwierdzić swój list i biuro dostałoby DWA CMR-y tego
+        # samego wariantu, każdy z własnym numerem. Wzorzec gałęzi `raced`
+        # z `split_documents_service`.
+        raced = cx_query_one(conn,
+            "SELECT id, number FROM cmr_documents WHERE order_id=%s "
+            "AND COALESCE(scope, %s)=%s ORDER BY created_at LIMIT 1",
+            (order_id, ZAKRES_CALOSC, scope))
+        if raced:
+            logger.info("cmr.raced", extra={"cmr_id": raced["id"], "number": raced["number"],
+                                            "scope": scope})
+            return {"id": raced["id"], "number": raced["number"], "status": "wystawiony",
+                    "scope": scope, "payload": data["payload"]}
         cx_execute(conn,
             """INSERT INTO cmr_documents
                (id, number, seq, year_month, order_id, client_name, carrier_id, status, payload,

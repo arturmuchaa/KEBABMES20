@@ -14,8 +14,16 @@ router = APIRouter(prefix="/api/cmr", tags=["cmr"])
 
 
 @router.post("/generate")
-def generate(order_id: str = Query(...), form: CmrForm = CmrForm()):
-    return svc.generate_cmr(order_id, form.model_dump())
+def generate(order_id: str = Query(...), scope: str = svc.ZAKRES_CALOSC,
+             form: CmrForm = CmrForm()):
+    """Wariant `calosc` (domyślny — zachowanie sprzed podziału) albo `fv`.
+    Bez tego parametru list pod fakturę dałoby się wystawić WYŁĄCZNIE razem
+    z całym kompletem, a biuro musi móc dołożyć pojedynczy dokument po fakcie.
+
+    Gołe `"calosc"` zamiast `Query("calosc")`: FastAPI i tak czyta skalar spoza
+    ścieżki jako parametr zapytania, a wołający tę funkcję WPROST (tak testuje
+    trasy ten projekt) dostaje wtedy string, nie obiekt `Query`."""
+    return svc.generate_cmr(order_id, form.model_dump(), scope)
 
 
 # /layout musi być PRZED /{cmr_id}, by nie złapała go trasa z parametrem.

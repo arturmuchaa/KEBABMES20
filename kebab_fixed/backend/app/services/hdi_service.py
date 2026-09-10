@@ -12,6 +12,7 @@ from app.utils.batch_numbers import kebab_batch_no, kebab_batch_wsad
 from app.utils.unit_codes import best_before
 from app.utils.hdi_lang import lang_from_nip
 from app.utils.product_key import Klucz, kandydaci, klucz_wyrobu
+from app.utils.zakres import ZAKRES_CALOSC, ZAKRES_FV, sprawdz_zakres
 from app.services.order_stock_service import (
     produced_by_key_from_plan_lines,
     stock_portions_for_order,
@@ -212,27 +213,19 @@ def units_from_stock_portions(
     return units
 
 
-ZAKRES_CALOSC = "calosc"
-ZAKRES_FV = "fv"
-_ZAKRESY = (ZAKRES_CALOSC, ZAKRES_FV)
+#: Do części wydawanej na WZ HDI NIE POWSTAJE.
+#:
+#: Właściciel (2026-09-09): „tylko HDI i na całość i HDI drugie do faktury,
+#: do WZ nie". To nie jest niedoróbka do uzupełnienia później — HDI jest
+#: dokumentem identyfikacyjnym dla odbiorcy, a część niefakturowana jedzie
+#: na tym samym aucie i jest już objęta dokumentem na całość.
+KOMUNIKAT_BEZ_HDI_NA_WZ = (
+    "Do części wydawanej na WZ nie wystawiamy HDI — wystarczy "
+    "HDI na całość (i opcjonalnie drugie do faktury)")
 
 
 def _sprawdz_zakres(scope: str) -> str:
-    """Do części wydawanej na WZ HDI NIE POWSTAJE.
-
-    Właściciel (2026-09-09): „tylko HDI i na całość i HDI drugie do faktury,
-    do WZ nie". To nie jest niedoróbka do uzupełnienia później — HDI jest
-    dokumentem identyfikacyjnym dla odbiorcy, a część niefakturowana jedzie
-    na tym samym aucie i jest już objęta dokumentem na całość.
-    """
-    scope = (scope or ZAKRES_CALOSC).strip()
-    if scope == "wz":
-        raise HTTPException(
-            400, "Do części wydawanej na WZ nie wystawiamy HDI — wystarczy "
-                 "HDI na całość (i opcjonalnie drugie do faktury)")
-    if scope not in _ZAKRESY:
-        raise HTTPException(400, f"Nieznany wariant HDI: {scope}")
-    return scope
+    return sprawdz_zakres(scope, "HDI", komunikat_wz=KOMUNIKAT_BEZ_HDI_NA_WZ)
 
 
 def _limity_fakturowane(order_id: str) -> Dict[Klucz, int]:
@@ -611,6 +604,29 @@ def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
     with transaction() as conn:
         seq = _next_hdi_seq(conn, ym)
         number = format_hdi_number(seq, ym)
+        # Powtórny odczyt TUŻ PRZED INSERT-em, tak jak w `generate_cmr`.
+        # Odczyt `existing` wyżej poszedł POZA transakcją, a `build_hdi` między
+        # nimi robi kilkanaście zapytań — komplet dokumentów kliknięty dwa razy
+        # zdąży w tym oknie zatwierdzić swój dokument. Numer HDI raz nadany
+        # jest SPALONY ([[kebab-hdi-numeracja]]), więc duplikat to realny
+        # problem na realnym papierze, nie kosmetyka.
+        #
+        # Miejsce jest DOKŁADNIE po `_next_hdi_seq`, nie przed: ta funkcja
+        # bierze blokadę `FOR UPDATE` na wierszu licznika, więc drugie żądanie
+        # czeka tu na zatwierdzenie pierwszego i naprawdę widzi jego dokument.
+        # Ceną jest spalony numer w liczniku (luka w numeracji) dla
+        # przegranego wyścigu — nieporównanie tańsza niż dwa papiery HDI na
+        # jedno wydanie.
+        raced = cx_query_one(conn,
+            "SELECT id, number, status FROM hdi_documents WHERE order_id=%s "
+            "AND COALESCE(scope,%s)=%s ORDER BY created_at LIMIT 1",
+            (order_id, ZAKRES_CALOSC, scope))
+        if raced:
+            logger.info("hdi.raced", extra={"hdi_id": raced["id"], "number": raced["number"],
+                                            "zakres": scope})
+            return {"id": raced["id"], "number": raced["number"], "status": raced["status"],
+                    "scope": scope, "incomplete": data["incomplete"],
+                    "totals": data["totals"]}
         cx_execute(conn,
             """INSERT INTO hdi_documents
                (id, number, seq, year_month, order_id, client_name, language, status,
