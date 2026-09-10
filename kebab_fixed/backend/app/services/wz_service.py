@@ -523,9 +523,15 @@ def generate_wz(
     with transaction() as conn:
         existing = None
         if (source_id or "").strip():
+            # Samo zawężenie co w `create_wz_from_order`: dokument z podziału
+            # wysyłki (WM/WZ klienta) nie jest kandydatem na zwykły WZ tego
+            # źródła — inny source_type niż 'order' nigdy nie ma split_scope
+            # ustawionego, więc filtr jest dla nich no-opem (review Task 4,
+            # fix round 3, 2026-09-10).
             existing = cx_query_one(
                 conn,
                 "SELECT * FROM wz_documents WHERE source_type=%s AND source_id=%s "
+                "AND COALESCE(doc_series,'WZ')='WZ' AND split_scope IS NULL "
                 "ORDER BY created_at LIMIT 1",
                 (source_type, source_id),
             )
@@ -1423,9 +1429,18 @@ def create_wz_from_order(
     notes = "UWAGA: zamówienie zrealizowane częściowo — może brakować sztuk." if incomplete else ""
 
     with transaction() as conn:
+        # `COALESCE(doc_series,'WZ')='WZ' AND split_scope IS NULL` — zwykły
+        # WZ (177 historycznych dokumentów, split_scope IS NULL od zawsze),
+        # NIE dokument z podziału wysyłki (WM/WZ klienta, split_documents_
+        # service.py). Bez tego zawężenia ta ścieżka znajdowała dokument
+        # wewnętrzny WM (powstaje PIERWSZY, więc ORDER BY created_at LIMIT 1
+        # trafiał właśnie w niego) i oddawał go biuru jako zwykły WZ z
+        # adnotacją „NIE WYDAWAĆ KLIENTOWI" (review Task 4, fix round 3,
+        # 2026-09-10). `= NULL` nigdy nie pasuje w SQL — stąd IS NULL.
         existing = cx_query_one(
             conn, "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
                   "AND COALESCE(status,'') <> 'anulowany' "
+                  "AND COALESCE(doc_series,'WZ')='WZ' AND split_scope IS NULL "
                   "ORDER BY created_at LIMIT 1", (order_id,))
         if existing:
             doc = get_wz(existing["id"])
