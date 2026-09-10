@@ -1581,11 +1581,11 @@ _DDL: list[str] = [
     # dla tego samego zamówienia, więc idempotencja CMR-a jest per
     # (order_id, scope), a nie per order_id.
     # DEFAULT 'calosc' jest tu WŁAŚCIWY (inaczej niż przy wz_documents.
-    # split_scope, gdzie celowo go nie ma): 18 historycznych dokumentów na
-    # produkcji (2026-07-16..2026-09-10, każdy jedyny dla swojego zamówienia)
-    # powstało PRZED podziałem wysyłki, czyli na całość — a poprawnie
-    # wypełniona kolumna sprawia, że stary CMR nadal odnajduje się jako
-    # 'calosc' i nic w zachowaniu biura się nie zmienia.
+    # split_scope, gdzie celowo go nie ma): na produkcji są 2 historyczne
+    # dokumenty (numery 1/07/26 i 2/07/26, z 2026-07-16 i 2026-07-17), każdy
+    # jedyny dla swojego zamówienia — powstały PRZED podziałem wysyłki, czyli
+    # na całość — a poprawnie wypełniona kolumna sprawia, że stary CMR nadal
+    # odnajduje się jako 'calosc' i nic w zachowaniu biura się nie zmienia.
     "ALTER TABLE cmr_documents ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'calosc'",
     # Bezpiecznik na bazę, gdzie kolumna powstała bez DEFAULT (albo wiersz
     # wszedł z jawnym NULL-em): `scope = NULL` NIGDY nie pasuje do WHERE,

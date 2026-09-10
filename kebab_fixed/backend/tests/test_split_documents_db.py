@@ -1,10 +1,10 @@
 """Komplet dokumentów przy podziale — i reguła, że stan rusza TYLKO WM."""
 import pytest
 
-from app.db import execute, query_all, query_one
+from app.db import query_all, query_one
 from app.services.split_documents_service import (anuluj_dokumenty_podzialu,
-                                                    wystaw_wz_klienta,
-                                                    wystaw_wz_wewnetrzny)
+                                                   wystaw_wz_klienta,
+                                                   wystaw_wz_wewnetrzny)
 from app.services.wz_service import create_wz_from_order
 from tests.conftest_split import (_przygotuj_bez_podzialu, _przygotuj_z_podzialem,
                                   _stary_wz)

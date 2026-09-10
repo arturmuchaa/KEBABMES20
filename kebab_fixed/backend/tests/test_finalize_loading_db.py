@@ -409,9 +409,11 @@ def _dokument_z_podzialu(wid, oid="o1", series="WM", scope="calosc", nr=1,
 
 
 def _przygotuj_podzial(qty=10, kg=30, na_fakture=6):
-    """Zamówienie z kompletem dokumentów podziału. WM powstaje PIERWSZY —
-    tak jak w rzeczywistości (biuro wystawia go przed WZ klienta), więc bez
-    poprawki `LIMIT 1` trafiało właśnie w niego."""
+    """Zamówienie z kompletem dokumentów podziału. Seed celowo ODWRACA
+    kolejność z rzeczywistości: WZ klienta jest STARSZY, WM NOWSZY (patrz
+    niżej) — bo seed z WM najstarszym przechodziłby oba testy nawet na
+    starym, niefiltrowanym `ORDER BY created_at LIMIT 1` i niczego by nie
+    sprawdzał."""
     _przygotuj(qty=qty, kg=kg)
     execute("UPDATE finished_goods SET qty_available=0, qty_shipped=%s WHERE id='f1'", (qty,))
     # WZ klienta jest STARSZY — celowo. Gdyby WM był najstarszy, dawne
